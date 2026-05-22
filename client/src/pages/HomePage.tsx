@@ -329,7 +329,7 @@ export default function HomePage() {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
-  const bg = isDark ? "oklch(0.09 0.012 270)" : "oklch(0.975 0.004 80)";
+  const bg = isDark ? "oklch(0.09 0.012 270)" : "#F5F5F5";
   const text = isDark ? "oklch(0.88 0.008 270)" : "oklch(0.22 0.018 255)";
   const sub = isDark ? "oklch(0.52 0.01 270)" : "oklch(0.50 0.012 255)";
   const cardBg = isDark ? "oklch(0.13 0.012 270)" : "oklch(1 0 0)";
