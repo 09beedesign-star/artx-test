@@ -139,6 +139,7 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
   const [modelOpen, setModelOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState(AI_MODELS[0]);
   const [focused, setFocused] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const modelRef = useRef<HTMLDivElement>(null);
 
@@ -176,7 +177,9 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
   const boxBg = isDark ? "oklch(0.20 0.015 270)" : "oklch(0.97 0.004 270)";
   const boxBorder = focused
     ? "oklch(0.62 0.22 290 / 0.70)"
-    : isDark ? "oklch(1 0 0 / 0.10)" : "oklch(0 0 0 / 0.10)";
+    : hovered
+      ? (isDark ? "oklch(1 0 0 / 0.18)" : "oklch(0.52 0.22 290 / 0.22)")
+      : isDark ? "oklch(1 0 0 / 0.10)" : "oklch(0 0 0 / 0.10)";
   const textColor = isDark ? "oklch(0.88 0.008 270)" : "oklch(0.15 0.008 270)";
   const subColor = isDark ? "oklch(0.45 0.01 270)" : "oklch(0.55 0.01 270)";
   const dividerColor = isDark ? "oklch(1 0 0 / 0.08)" : "oklch(0 0 0 / 0.08)";
@@ -185,7 +188,7 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
 
   return (
     <div
-      className="w-full rounded-3xl transition-all duration-200"
+      className="w-full rounded-3xl"
       style={{
         background: boxBg,
         border: `1.5px solid ${boxBorder}`,
@@ -194,9 +197,17 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
         flexDirection: "column",
         boxShadow: focused
           ? `0 0 0 4px oklch(0.62 0.22 290 / 0.12), 0 24px 64px oklch(0 0 0 / 0.28)`
-          : `0 12px 48px oklch(0 0 0 / 0.18)`,
+          : hovered
+            ? (isDark
+                ? `0 0 0 2px oklch(0.62 0.22 290 / 0.08), 0 20px 60px oklch(0 0 0 / 0.28)`
+                : `0 0 0 2px oklch(0.52 0.22 290 / 0.10), 0 20px 56px oklch(0 0 0 / 0.12)`)
+            : `0 12px 48px oklch(0 0 0 / 0.18)`,
         backdropFilter: "blur(20px)",
+        transform: hovered && !focused ? "scale(1.008)" : "scale(1)",
+        transition: "transform 0.35s cubic-bezier(0.23, 1, 0.32, 1), box-shadow 0.35s cubic-bezier(0.23, 1, 0.32, 1), border-color 0.25s ease",
       }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
     >
       {/* Textarea — fills the box */}
       <div className="flex-1 px-6 pt-6 pb-3">
