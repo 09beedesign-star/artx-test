@@ -1062,16 +1062,28 @@ function ZoomControlBar({ isDark }: { isDark: boolean }) {
         {/* Divider */}
         <div style={{ width: 20, height: 1, background: dividerColor, margin: "2px 0" }} />
 
-        {/* Fit View */}
+        {/* Fit View — four-corner frame with center dot */}
         <button
           className={btnClass}
           style={{ color: iconColor }}
-          title="适屏显示"
+          title="居中显示"
           onClick={() => fitView({ duration: 400, padding: 0.15 })}
           onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
           onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
         >
-          <Maximize2 size={14} strokeWidth={2} />
+          {/* Custom SVG: outer corner brackets + inner center square */}
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+            {/* Top-left corner */}
+            <path d="M1 4.5V1H4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            {/* Top-right corner */}
+            <path d="M10.5 1H14V4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            {/* Bottom-right corner */}
+            <path d="M14 10.5V14H10.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            {/* Bottom-left corner */}
+            <path d="M4.5 14H1V10.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            {/* Center square */}
+            <rect x="5.5" y="5.5" width="4" height="4" rx="0.8" fill="currentColor" opacity="0.85"/>
+          </svg>
         </button>
 
         {/* Divider */}
