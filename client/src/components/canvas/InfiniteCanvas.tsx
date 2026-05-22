@@ -654,69 +654,6 @@ const initialEdges: Edge[] = [
   { id: "e4", source: "asset-1",  target: "prompt-1", type: "tapnow" },
 ];
 
-// ── Fit View Button ─────────────────────────────────────────────
-function FitViewButton({ isDark }: { isDark: boolean }) {
-  const { fitView } = useReactFlow();
-  const [hovered, setHovered] = useState(false);
-  const bg = isDark ? "oklch(0.13 0.015 270 / 0.92)" : "oklch(0.98 0.004 270 / 0.92)";
-  const border = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
-  const iconColor = isDark ? "oklch(0.78 0.01 270)" : "oklch(0.3 0.01 270)";
-  const tooltipBg = isDark ? "oklch(0.18 0.015 270 / 0.95)" : "oklch(0.15 0.01 270 / 0.9)";
-
-  return (
-    <div
-      style={{
-        position: "absolute",
-        bottom: 80,
-        left: 12,
-        zIndex: 200,
-      }}
-    >
-      {hovered && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: "calc(100% + 6px)",
-            left: "50%",
-            transform: "translateX(-50%)",
-            background: tooltipBg,
-            color: "oklch(0.95 0 0)",
-            fontSize: 11,
-            padding: "3px 8px",
-            borderRadius: 5,
-            whiteSpace: "nowrap",
-            pointerEvents: "none",
-            backdropFilter: "blur(8px)",
-          }}
-        >
-          画面居中
-        </div>
-      )}
-      <button
-        onClick={() => fitView({ padding: 0.15, duration: 400 })}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        style={{
-          width: 34,
-          height: 34,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: bg,
-          border: `1px solid ${border}`,
-          borderRadius: 8,
-          cursor: "pointer",
-          backdropFilter: "blur(12px)",
-          boxShadow: isDark ? "0 2px 8px rgba(0,0,0,0.3)" : "0 2px 8px rgba(0,0,0,0.08)",
-          transition: "opacity 0.15s ease",
-          opacity: hovered ? 1 : 0.85,
-        }}
-      >
-        <Maximize2 size={15} color={iconColor} strokeWidth={1.8} />
-      </button>
-    </div>
-  );
-}
 
 // ── Bottom AI Prompt Bar ───────────────────────────────────────
 function BottomPromptBar({ isDark }: { isDark: boolean }) {
@@ -1264,8 +1201,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       {/* Bottom AI prompt bar */}
       <BottomPromptBar isDark={isDark} />
 
-      {/* Bottom-left: fit view button */}
-      <FitViewButton isDark={isDark} />
     </div>
   );
 }
