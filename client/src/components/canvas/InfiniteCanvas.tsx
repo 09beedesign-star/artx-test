@@ -1052,15 +1052,19 @@ function AssetEditPromptBar({
 
   return (
     <div
-      className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-2xl shadow-2xl overflow-hidden"
       style={{
+        position: "absolute",
+        bottom: 16,
+        left: "50%",
         width: "min(680px, calc(100% - 48px))",
         zIndex: 200,
         background: isDark ? "rgba(18,18,28,0.97)" : "rgba(255,255,255,0.97)",
         backdropFilter: "blur(24px)",
         border: `1.5px solid oklch(0.62 0.22 290 / 55%)`,
         boxShadow: `0 0 0 3px oklch(0.62 0.22 290 / 0.12), 0 12px 48px rgba(0,0,0,0.28)`,
-        // Slide-up entrance
+        borderRadius: 16,
+        overflow: "hidden",
+        // Slide-up entrance, always centered horizontally
         transform: visible
           ? "translateX(-50%) translateY(0)"
           : "translateX(-50%) translateY(20px)",
