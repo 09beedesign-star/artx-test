@@ -354,18 +354,13 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const isDark = resolvedTheme === "dark";
   const [model, setModel] = useState("flux-pro");
   const [preview, setPreview] = useState(false);
-  const [showPanel, setShowPanel] = useState(false);
   const { deleteElements } = useReactFlow();
   const nodeId = (data as { id?: string }).id || "";
 
   const asset = GENERATED_ASSETS.find(a => a.id === (data.assetId as string)) || GENERATED_ASSETS[0];
-  const isEditing = !!(data as { isEditing?: boolean }).isEditing;
   const text = isDark ? "oklch(0.75 0.01 270)" : "oklch(0.30 0.01 270)";
   const subtext = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.55 0.01 270)";
   const tagBg = isDark ? "oklch(0.18 0.02 270)" : "oklch(0.92 0.005 270)";
-
-  // Close panel when node loses selection
-  useEffect(() => { if (!selected) setShowPanel(false); }, [selected]);
 
   const handleNodeCtxMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -397,7 +392,6 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
           style={{ aspectRatio: "16/10" }}
           onClick={(e) => {
             e.stopPropagation();
-            setShowPanel(p => !p);
             // Dispatch reference event to BottomPromptBar (pass ctrlKey for multi-select)
             window.dispatchEvent(new CustomEvent("asset-reference", {
               detail: { id: nodeId, title: asset.title, src: asset.src, ctrlKey: e.ctrlKey || e.metaKey }
@@ -406,16 +400,6 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
           onDoubleClick={(e) => { e.stopPropagation(); setPreview(true); }}
         >
           <img src={asset.src} alt={asset.title} className="w-full h-full object-cover" />
-          {/* 15% black mask shown when this node is being edited */}
-          {isEditing && (
-            <div
-              className="absolute inset-0 pointer-events-none"
-              style={{
-                background: "rgba(0,0,0,0.15)",
-                transition: "opacity 0.4s ease",
-              }}
-            />
-          )}
           <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
             style={{ background: "rgba(0,0,0,0.35)" }}>
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium text-white"
@@ -440,15 +424,6 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
           <p className="text-[10px] mt-0.5" style={{ color: subtext }}>{(asset.tags || []).join(" · ")}</p>
         </div>
       </NodeWrapper>
-
-      {/* Bottom prompt panel — shown on click when selected */}
-      {showPanel && selected && (
-        <AssetPromptPanel
-          isDark={isDark}
-          assetSrc={asset.src}
-          onExpand={() => setPreview(true)}
-        />
-      )}
 
       {preview && (
         <ImagePreviewModal src={asset.src} title={asset.title} onClose={() => setPreview(false)} isDark={isDark} />
@@ -859,7 +834,6 @@ function NodeContextMenu({ menu, onClose, onAction, isDark }: {
   const items = [
     { icon: <PlusSquare size={13} />, label: "添加节点", action: "add-node", color: iconColor },
     { icon: <ImageIcon size={13} />, label: "添加素材", action: "add-asset", color: iconColor },
-    { icon: <Edit3 size={13} />, label: "编辑素材", action: "edit-asset", color: iconColor },
     null, // divider
     { icon: <Copy size={13} />, label: "复制", action: "copy", color: iconColor },
     { icon: <Clipboard size={13} />, label: "粘贴", action: "paste", color: iconColor },
@@ -1385,10 +1359,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [clipboard, setClipboard] = useState<Node | null>(null);
   // ── Reference state: asset node clicked → inject into prompt bar (multi-select with Ctrl) ──
   const [referencedAssets, setReferencedAssets] = useState<{ id: string; title: string; src: string }[]>([]);
-  // ── Edit-asset state: zoom in on canvas then show editing prompt bar ──
-  const [editAsset, setEditAsset] = useState<{ id: string; title: string; src: string; nodeId: string } | null>(null);
-  const [isZoomingToEdit, setIsZoomingToEdit] = useState(false);
-
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Listen for asset-reference events dispatched by AssetNodeComponent
@@ -1465,20 +1435,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const id = `text-${Date.now()}`;
         setNodes(nds => [...nds, { id, type: "text", position: { x: node.position.x, y: node.position.y + 200 }, data: { id, text: "", colorIdx: 0 } }]);
       }
-    } else if (action === "edit-asset") {
-      const node = nodes.find(n => n.id === nodeId);
-      if (node && node.type === "asset") {
-        const assetId = (node.data as Record<string, unknown>).assetId as string;
-        const asset = GENERATED_ASSETS.find(a => a.id === assetId) || GENERATED_ASSETS[0];
-        setIsZoomingToEdit(true);
-        // Smooth zoom-in push animation on the canvas itself
-        fitView({ nodes: [{ id: nodeId }], duration: 900, padding: 0.08 });
-        // After animation completes, reveal the editing prompt bar
-        setTimeout(() => {
-          setEditAsset({ id: asset.id, title: asset.title, src: asset.src, nodeId });
-          setIsZoomingToEdit(false);
-        }, 950);
-      }
     }
   }, [nodes, clipboard, setNodes, setEdges]);
 
@@ -1552,12 +1508,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const canvasBg = isDark ? "#0d0d14" : "#eeeef2";
   const dotColor = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.28)";
 
-  // Inject isEditing flag into the target node's data so AssetNodeComponent can show the mask
-  const displayNodes = nodes.map(n =>
-    n.type === "asset" && editAsset && n.id === editAsset.nodeId
-      ? { ...n, data: { ...n.data, isEditing: true } }
-      : n
-  );
+  const displayNodes = nodes;
 
   return (
     <div ref={containerRef} className="flex-1 relative overflow-hidden" style={{ height: "100%" }}>
@@ -1621,22 +1572,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         onClearAllReferences={() => setReferencedAssets([])}
       />
 
-      {/* Edit-asset prompt bar — shown after zoom-in animation, overlays bottom */}
-      {editAsset && (
-        <AssetEditPromptBar
-          asset={editAsset}
-          isDark={isDark}
-          onClose={() => {
-            setEditAsset(null);
-            // Remove isEditing flag from node data
-            setNodes(nds => nds.map(n =>
-              n.type === "asset" && n.id === editAsset.nodeId
-                ? { ...n, data: { ...n.data, isEditing: false } }
-                : n
-            ));
-          }}
-        />
-      )}
 
     </div>
   );
