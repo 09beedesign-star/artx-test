@@ -37,7 +37,8 @@ import {
   Image as ImageIcon, MessageSquare, Type, Wand2,
   Sparkles, Trash2, Send, Paperclip, ChevronDown,
   X, Copy, Clipboard, Edit3, PlusSquare, FileText,
-  ZoomIn, Download,
+  ZoomIn, Download, Crop, Box, Eraser, SlidersHorizontal,
+  MoreHorizontal, FolderOutput, Maximize2, Mic, RefreshCw,
 } from "lucide-react";
 import { GENERATED_ASSETS, AI_MODELS } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -201,12 +202,139 @@ function ImagePreviewModal({ src, title, onClose, isDark }: {
   );
 }
 
+// ── Asset Node Floating Toolbar ──────────────────────────────
+function AssetFloatingToolbar({ isDark, onPreview, onDownload }: {
+  isDark: boolean; onPreview: () => void; onDownload: () => void;
+}) {
+  const toolBg = isDark ? "rgba(22,22,30,0.96)" : "rgba(240,240,248,0.96)";
+  const toolBorder = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)";
+  const iconColor = isDark ? "rgba(255,255,255,0.75)" : "rgba(30,30,50,0.75)";
+  const dividerColor = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)";
+  const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+  const tools = [
+    { icon: <Crop size={15} />, label: "裁剪", action: "crop" },
+    { icon: <Box size={15} />, label: "3D", action: "3d" },
+    { icon: <Eraser size={15} />, label: "消除", action: "erase" },
+    { icon: <SlidersHorizontal size={15} />, label: "调色", action: "adjust" },
+    { icon: <MoreHorizontal size={15} />, label: "更多", action: "more", dot: true },
+  ];
+  const actions = [
+    { icon: <FolderOutput size={15} />, label: "移动到", action: "move" },
+    { icon: <Download size={15} />, label: "下载", action: "download" },
+    { icon: <Maximize2 size={15} />, label: "全屏", action: "fullscreen" },
+  ];
+  const handleClick = (action: string) => {
+    if (action === "download") { onDownload(); return; }
+    if (action === "fullscreen") { onPreview(); return; }
+    toast("功能即将上线", { description: action });
+  };
+  return (
+    <div
+      className="absolute left-1/2 -translate-x-1/2 flex items-center gap-0.5 px-2 py-1.5 rounded-2xl nodrag nopan"
+      style={{ top: -52, background: toolBg, border: `1px solid ${toolBorder}`, backdropFilter: "blur(16px)", boxShadow: "0 8px 32px rgba(0,0,0,0.35)", zIndex: 50, whiteSpace: "nowrap" }}
+    >
+      {tools.map((t) => (
+        <button key={t.action} title={t.label}
+          onClick={(e) => { e.stopPropagation(); handleClick(t.action); }}
+          className="relative w-8 h-8 rounded-xl flex items-center justify-center transition-all"
+          style={{ color: iconColor }}
+          onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+          {t.icon}
+          {(t as any).dot && <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full" style={{ background: "oklch(0.60 0.22 260)" }} />}
+        </button>
+      ))}
+      <div style={{ width: 1, height: 20, background: dividerColor, margin: "0 4px", flexShrink: 0 }} />
+      {actions.map((t) => (
+        <button key={t.action} title={t.label}
+          onClick={(e) => { e.stopPropagation(); handleClick(t.action); }}
+          className="w-8 h-8 rounded-xl flex items-center justify-center transition-all"
+          style={{ color: iconColor }}
+          onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+          {t.icon}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ── Asset Node Prompt Panel ────────────────────────────────────
+function AssetPromptPanel({ isDark, assetSrc, onExpand }: {
+  isDark: boolean; assetSrc: string; onExpand: () => void;
+}) {
+  const [prompt, setPrompt] = useState("");
+  const [model, setModel] = useState("flux-pro");
+  const panelBg = isDark ? "rgba(22,22,30,0.97)" : "rgba(240,240,248,0.97)";
+  const panelBorder = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
+  const textColor = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.20 0.008 270)";
+  const divider = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
+  const chipBg = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)";
+  const chipText = isDark ? "oklch(0.65 0.01 270)" : "oklch(0.45 0.01 270)";
+  return (
+    <div className="absolute left-1/2 -translate-x-1/2 nodrag nopan"
+      style={{ top: "calc(100% + 12px)", width: 380, background: panelBg, border: `1px solid ${panelBorder}`, borderRadius: 16, backdropFilter: "blur(20px)", boxShadow: "0 16px 48px rgba(0,0,0,0.4)", zIndex: 50 }}>
+      <div className="flex items-center gap-2 p-3">
+        <div className="w-9 h-9 rounded-lg overflow-hidden flex-shrink-0" style={{ border: `1.5px solid ${panelBorder}` }}>
+          <img src={assetSrc} alt="ref" className="w-full h-full object-cover" />
+        </div>
+        <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 cursor-pointer"
+          style={{ border: `1.5px dashed ${panelBorder}`, color: chipText }}
+          onClick={() => toast("添加参考图")}>
+          <PlusSquare size={14} />
+        </div>
+        <div className="flex-1" />
+        <button onClick={(e) => { e.stopPropagation(); onExpand(); }}
+          className="w-7 h-7 rounded-lg flex items-center justify-center transition-opacity hover:opacity-70"
+          style={{ color: chipText }}>
+          <Maximize2 size={13} />
+        </button>
+      </div>
+      <div className="px-3 pb-2">
+        <textarea value={prompt} onChange={e => setPrompt(e.target.value)}
+          placeholder="描述你想对这张图片做什么..."
+          rows={3} className="w-full bg-transparent text-[13px] leading-relaxed resize-none outline-none"
+          style={{ color: textColor }}
+          onClick={e => e.stopPropagation()}
+          onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (prompt.trim()) { toast("AI 正在处理图片", { description: prompt.slice(0, 50) }); setPrompt(""); } } }} />
+      </div>
+      <div className="flex items-center gap-2 px-3 py-2.5" style={{ borderTop: `1px solid ${divider}` }}>
+        <ModelSelector model={model} onChange={setModel} isDark={isDark} />
+        <button className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] transition-opacity hover:opacity-80"
+          style={{ background: chipBg, color: chipText }}
+          onClick={e => { e.stopPropagation(); toast("尺寸设置"); }}>
+          <RefreshCw size={10} /> 自适应 · 1K
+        </button>
+        <button className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] transition-opacity hover:opacity-80"
+          style={{ background: chipBg, color: chipText }}
+          onClick={e => { e.stopPropagation(); toast("风格设置"); }}>风格</button>
+        <button className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] transition-opacity hover:opacity-80"
+          style={{ background: chipBg, color: chipText }}
+          onClick={e => { e.stopPropagation(); toast("摄影机控制"); }}>摄影机控制</button>
+        <div className="flex-1" />
+        <button className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] transition-opacity hover:opacity-80"
+          style={{ color: chipText }}
+          onClick={e => { e.stopPropagation(); toast("语音输入"); }}>
+          <Mic size={12} />
+        </button>
+        <span className="text-[11px]" style={{ color: chipText }}>1×</span>
+        <button className="w-7 h-7 rounded-full flex items-center justify-center transition-all hover:opacity-90"
+          style={{ background: "oklch(0.58 0.22 290)", color: "white" }}
+          onClick={e => { e.stopPropagation(); if (prompt.trim()) { toast("AI 正在处理图片", { description: prompt.slice(0, 50) }); setPrompt(""); } else toast("请先输入描述"); }}>
+          <Send size={12} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Asset Node ─────────────────────────────────────────────────
 function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>; selected: boolean }) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const [model, setModel] = useState("flux-pro");
   const [preview, setPreview] = useState(false);
+  const [showPanel, setShowPanel] = useState(false);
   const { deleteElements } = useReactFlow();
   const nodeId = (data as { id?: string }).id || "";
 
@@ -215,10 +343,12 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const subtext = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.55 0.01 270)";
   const tagBg = isDark ? "oklch(0.18 0.02 270)" : "oklch(0.92 0.005 270)";
 
+  // Close panel when node loses selection
+  useEffect(() => { if (!selected) setShowPanel(false); }, [selected]);
+
   const handleNodeCtxMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    // Dispatch custom event for InnerCanvas to pick up
     const rect = (e.currentTarget as HTMLElement).closest(".react-flow")?.getBoundingClientRect();
     window.dispatchEvent(new CustomEvent("node-contextmenu", {
       detail: { x: e.clientX - (rect?.left || 0), y: e.clientY - (rect?.top || 0), nodeId, nodeType: "asset" }
@@ -232,14 +362,24 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
         style={{ width: 240 }}
         onContextMenu={handleNodeCtxMenu}
       >
+        {/* Floating top toolbar — visible when selected */}
+        {selected && (
+          <AssetFloatingToolbar
+            isDark={isDark}
+            onPreview={() => setPreview(true)}
+            onDownload={() => toast("下载", { description: "功能即将上线" })}
+          />
+        )}
+
         <div
           className="relative overflow-hidden cursor-pointer"
           style={{ aspectRatio: "16/10" }}
+          onClick={(e) => { e.stopPropagation(); setShowPanel(p => !p); }}
           onDoubleClick={(e) => { e.stopPropagation(); setPreview(true); }}
         >
           <img src={asset.src} alt={asset.title} className="w-full h-full object-cover" />
           <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
-            style={{ background: "rgba(0,0,0,0.4)" }}>
+            style={{ background: "rgba(0,0,0,0.35)" }}>
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium text-white"
               style={{ background: "rgba(255,255,255,0.15)", backdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.2)" }}>
               <ZoomIn size={12} />
@@ -262,6 +402,16 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
           <p className="text-[10px] mt-0.5" style={{ color: subtext }}>{(asset.tags || []).join(" · ")}</p>
         </div>
       </NodeWrapper>
+
+      {/* Bottom prompt panel — shown on click when selected */}
+      {showPanel && selected && (
+        <AssetPromptPanel
+          isDark={isDark}
+          assetSrc={asset.src}
+          onExpand={() => setPreview(true)}
+        />
+      )}
+
       {preview && (
         <ImagePreviewModal src={asset.src} title={asset.title} onClose={() => setPreview(false)} isDark={isDark} />
       )}

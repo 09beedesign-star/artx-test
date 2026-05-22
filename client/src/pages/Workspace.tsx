@@ -45,16 +45,10 @@ export default function Workspace() {
         <TopBar credits={75} />
       </div>
 
-      {/* Three-column workspace */}
+      {/* Two-column workspace: LeftPanel (layers) + Canvas */}
       <div className="flex flex-1 overflow-hidden" style={{ position: "relative", zIndex: 1 }}>
-        <Sidebar
-          activeProjectId={activeProjectId}
-          onProjectSelect={setActiveProjectId}
-          activeNav={activeNav}
-          onNavSelect={setActiveNav}
-        />
-        <InfiniteCanvas projectId={activeProjectId} />
         <RightPanel />
+        <InfiniteCanvas projectId={activeProjectId} />
       </div>
     </div>
   );
