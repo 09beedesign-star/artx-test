@@ -173,7 +173,7 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
     }
   };
 
-  const boxBg = isDark ? "oklch(0.13 0.015 270)" : "oklch(0.97 0.004 270)";
+  const boxBg = isDark ? "oklch(0.20 0.015 270)" : "oklch(0.97 0.004 270)";
   const boxBorder = focused
     ? "oklch(0.62 0.22 290 / 0.70)"
     : isDark ? "oklch(1 0 0 / 0.10)" : "oklch(0 0 0 / 0.10)";
