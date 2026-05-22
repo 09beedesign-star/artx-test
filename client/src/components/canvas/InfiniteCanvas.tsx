@@ -216,11 +216,11 @@ function ImagePreviewModal({ src, title, onClose, isDark }: {
 function AssetFloatingToolbar({ isDark, onPreview, onDownload }: {
   isDark: boolean; onPreview: () => void; onDownload: () => void;
 }) {
-  const toolBg = isDark ? "rgba(22,22,30,0.96)" : "rgba(240,240,248,0.96)";
-  const toolBorder = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)";
-  const iconColor = isDark ? "rgba(255,255,255,0.75)" : "rgba(30,30,50,0.75)";
-  const dividerColor = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)";
-  const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+  const toolBg = isDark ? "rgba(22,22,30,0.96)" : "rgba(255,255,255,0.97)";
+  const toolBorder = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.14)";
+  const iconColor = isDark ? "rgba(255,255,255,0.75)" : "rgba(20,20,36,0.82)";
+  const dividerColor = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.14)";
+  const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)";
   const tools = [
     { icon: <Crop size={15} />, label: "裁剪", action: "crop" },
     { icon: <Box size={15} />, label: "3D", action: "3d" },
