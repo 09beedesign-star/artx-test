@@ -594,13 +594,19 @@ function TextNodeComponent({ data, selected }: { data: Record<string, unknown>; 
 function TapnowEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, selected }: EdgeProps) {
   const [edgePath] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
   const { deleteElements } = useReactFlow();
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
   const midX = (sourceX + targetX) / 2;
   const midY = (sourceY + targetY) / 2;
+
+  const strokeColor = isDark
+    ? (selected ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.376)")
+    : (selected ? "rgba(40,40,60,0.85)" : "rgba(60,60,80,0.45)");
 
   return (
     <>
       <BaseEdge id={id} path={edgePath} style={{
-        stroke: selected ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.376)",
+        stroke: strokeColor,
         strokeWidth: selected ? 3.5 : 3,
         strokeLinecap: "round",
       }} />
