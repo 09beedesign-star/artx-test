@@ -1,19 +1,18 @@
 /**
- * Workspace — Neo-Studio Dark Design System
- * Main workspace page: three-column layout (Sidebar + InfiniteCanvas + RightPanel)
- * Supports dark / light / system theme switching
+ * Workspace — Project Canvas Page
+ * Design: Neo-Studio Dark
+ * Layout: TopBar + LeftPanel (layers) + InfiniteCanvas
+ * Note: No AppShell sidebar here — canvas has its own back button
  */
 import { useState } from "react";
 import TopBar from "@/components/workspace/TopBar";
-import Sidebar from "@/components/workspace/Sidebar";
 import InfiniteCanvas from "@/components/canvas/InfiniteCanvas";
 import RightPanel from "@/components/workspace/RightPanel";
 import { BG_GLOW } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
 
-export default function Workspace() {
-  const [activeProjectId, setActiveProjectId] = useState("p1");
-  const [activeNav, setActiveNav] = useState("projects");
+export default function Workspace({ projectId = "p1" }: { projectId?: string }) {
+  const [activeProjectId] = useState(projectId);
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 

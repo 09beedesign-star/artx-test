@@ -39,7 +39,9 @@ import {
   X, Copy, Clipboard, Edit3, PlusSquare, FileText,
   ZoomIn, Download, Crop, Box, Eraser, SlidersHorizontal,
   MoreHorizontal, FolderOutput, Maximize2, Mic, RefreshCw,
+  ChevronLeft, Home, LayoutGrid,
 } from "lucide-react";
+import { useLocation } from "wouter";
 import { GENERATED_ASSETS, AI_MODELS } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
 
@@ -856,6 +858,69 @@ function LassoEraser({ isDark, onCut }: { isDark: boolean; onCut: (rect: LassoRe
   );
 }
 
+// ── Back Button ───────────────────────────────────────────────
+function BackButton({ isDark }: { isDark: boolean }) {
+  const [, navigate] = useLocation();
+  const [open, setOpen] = useState(false);
+  const bg = isDark ? "oklch(0.13 0.015 270 / 0.95)" : "oklch(0.98 0.004 270 / 0.95)";
+  const border = isDark ? "oklch(1 0 0 / 12%)" : "oklch(0 0 0 / 12%)";
+  const text = isDark ? "oklch(0.78 0.01 270)" : "oklch(0.25 0.01 270)";
+  const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = () => setOpen(false);
+    const t = setTimeout(() => window.addEventListener("mousedown", handler), 50);
+    return () => { clearTimeout(t); window.removeEventListener("mousedown", handler); };
+  }, [open]);
+
+  return (
+    <div className="absolute" style={{ top: 12, left: 12, zIndex: 101 }}>
+      <button
+        onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
+        className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[12px] font-medium shadow-lg transition-all hover:opacity-90 active:scale-95"
+        style={{
+          background: bg,
+          border: `1.5px solid ${border}`,
+          color: text,
+          backdropFilter: "blur(12px)",
+        }}
+      >
+        <ChevronLeft size={14} />
+        返回
+      </button>
+      {open && (
+        <div
+          className="absolute top-full mt-1.5 left-0 rounded-xl overflow-hidden shadow-2xl"
+          style={{ background: bg, border: `1px solid ${border}`, minWidth: 148, backdropFilter: "blur(16px)" }}
+          onMouseDown={e => e.stopPropagation()}
+        >
+          <button
+            className="flex items-center gap-2.5 w-full px-3 py-2.5 text-left text-[12px] transition-colors"
+            style={{ color: text }}
+            onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+            onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+            onClick={() => { navigate("/"); setOpen(false); }}
+          >
+            <Home size={13} />
+            返回首页
+          </button>
+          <button
+            className="flex items-center gap-2.5 w-full px-3 py-2.5 text-left text-[12px] transition-colors"
+            style={{ color: text }}
+            onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+            onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+            onClick={() => { navigate("/workspace"); setOpen(false); }}
+          >
+            <LayoutGrid size={13} />
+            返回工作台
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Top-Left Node Creation Toolbar ───────────────────────────
 function TopLeftToolbar({ isDark, onAdd }: { isDark: boolean; onAdd: (type: string, x: number, y: number) => void }) {
   const [open, setOpen] = useState(false);
@@ -880,7 +945,7 @@ function TopLeftToolbar({ isDark, onAdd }: { isDark: boolean; onAdd: (type: stri
   }, [open]);
 
   return (
-    <div className="absolute" style={{ top: 12, left: 12, zIndex: 100 }}>
+    <div className="relative">
       <button
         onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
         className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[12px] font-semibold shadow-lg transition-all hover:opacity-90 active:scale-95"
@@ -1102,8 +1167,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         <Controls style={{ background: isDark ? "oklch(0.13 0.015 270)" : "oklch(0.97 0.004 270)", border: `1px solid ${isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"}`, borderRadius: 8 }} />
       </ReactFlow>
 
-      {/* Top-left node creation toolbar */}
-      <TopLeftToolbar isDark={isDark} onAdd={addNode} />
+      {/* Back button — top-left */}
+      <BackButton isDark={isDark} />
+
+      {/* Top-left node creation toolbar — offset to avoid overlap with back button */}
+      <div style={{ position: "absolute", top: 12, left: 100, zIndex: 100 }}>
+        <TopLeftToolbar isDark={isDark} onAdd={addNode} />
+      </div>
 
       {/* C-key lasso eraser */}
       <LassoEraser isDark={isDark} onCut={handleLassoCut} />
