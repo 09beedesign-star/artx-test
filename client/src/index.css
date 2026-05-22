@@ -5,9 +5,10 @@
 @custom-variant dark (&:is(.dark *));
 
 /* ============================================================
-   Neo-Studio Dark Design System
-   Philosophy: Deep blue-purple dark bg, purple→cyan gradient brand,
-   three-column workspace layout, creative studio atmosphere
+   Neo-Studio Design System — Dual Mode
+   Dark:  Deep blue-purple bg, purple→cyan gradient brand
+   Light: Warm off-white / cool slate, deep navy-slate text (no pure black)
+          Accent: violet-indigo, surfaces layered in warm grays
    ============================================================ */
 
 @theme inline {
@@ -54,7 +55,7 @@
 :root {
   --radius: 0.5rem;
 
-  /* Deep blue-purple dark theme */
+  /* ── Dark mode (default) — Deep blue-purple ── */
   --background: oklch(0.10 0.015 270);
   --foreground: oklch(0.93 0.008 270);
   --card: oklch(0.14 0.018 270);
@@ -87,6 +88,38 @@
   /* Custom easing */
   --ease-out-snappy: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out-smooth: cubic-bezier(0.77, 0, 0.175, 1);
+}
+
+/* ── Light mode — Warm off-white, deep navy-slate (no pure black) ── */
+.light {
+  --background: oklch(0.975 0.004 80);        /* warm off-white, slight cream */
+  --foreground: oklch(0.22 0.018 255);         /* deep navy-slate, not black */
+  --card: oklch(1 0 0);                        /* pure white card surface */
+  --card-foreground: oklch(0.22 0.018 255);
+  --popover: oklch(0.995 0.002 80);
+  --popover-foreground: oklch(0.22 0.018 255);
+  --primary: oklch(0.52 0.22 290);             /* rich violet */
+  --primary-foreground: oklch(0.98 0.004 270);
+  --secondary: oklch(0.94 0.006 270);          /* cool light gray */
+  --secondary-foreground: oklch(0.30 0.015 255);
+  --muted: oklch(0.95 0.005 80);               /* warm light muted */
+  --muted-foreground: oklch(0.50 0.012 255);   /* medium slate */
+  --accent: oklch(0.93 0.010 290);             /* soft violet tint */
+  --accent-foreground: oklch(0.28 0.018 255);
+  --destructive: oklch(0.58 0.22 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.88 0.006 255);             /* cool light border */
+  --input: oklch(0.90 0.005 255);
+  --ring: oklch(0.52 0.22 290);
+
+  --sidebar: oklch(0.965 0.006 270);           /* cool white sidebar */
+  --sidebar-foreground: oklch(0.22 0.018 255);
+  --sidebar-primary: oklch(0.52 0.22 290);
+  --sidebar-primary-foreground: oklch(0.98 0.004 270);
+  --sidebar-accent: oklch(0.93 0.010 290);
+  --sidebar-accent-foreground: oklch(0.28 0.018 255);
+  --sidebar-border: oklch(0.88 0.006 255);
+  --sidebar-ring: oklch(0.52 0.22 290);
 }
 
 @layer base {
@@ -127,6 +160,14 @@
   }
   ::-webkit-scrollbar-thumb:hover {
     background: oklch(1 0 0 / 25%);
+  }
+
+  /* Light mode scrollbar */
+  .light ::-webkit-scrollbar-thumb {
+    background: oklch(0 0 0 / 12%);
+  }
+  .light ::-webkit-scrollbar-thumb:hover {
+    background: oklch(0 0 0 / 20%);
   }
 }
 

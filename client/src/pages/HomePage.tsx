@@ -142,12 +142,12 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const modelRef = useRef<HTMLDivElement>(null);
 
-  // Auto-resize textarea
+  // Auto-resize textarea — min 320px, max 380px within the 460px box
   useEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
     ta.style.height = "auto";
-    ta.style.height = Math.min(ta.scrollHeight, 180) + "px";
+    ta.style.height = Math.min(Math.max(ta.scrollHeight, 320), 380) + "px";
   }, [value]);
 
   // Close model dropdown on outside click
@@ -185,18 +185,21 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
 
   return (
     <div
-      className="w-full rounded-2xl transition-all duration-200"
+      className="w-full rounded-3xl transition-all duration-200"
       style={{
         background: boxBg,
         border: `1.5px solid ${boxBorder}`,
+        minHeight: 460,
+        display: "flex",
+        flexDirection: "column",
         boxShadow: focused
-          ? `0 0 0 4px oklch(0.62 0.22 290 / 0.12), 0 16px 48px oklch(0 0 0 / 0.25)`
-          : `0 8px 32px oklch(0 0 0 / 0.18)`,
-        backdropFilter: "blur(16px)",
+          ? `0 0 0 4px oklch(0.62 0.22 290 / 0.12), 0 24px 64px oklch(0 0 0 / 0.28)`
+          : `0 12px 48px oklch(0 0 0 / 0.18)`,
+        backdropFilter: "blur(20px)",
       }}
     >
-      {/* Textarea */}
-      <div className="px-5 pt-4 pb-2">
+      {/* Textarea — fills the box */}
+      <div className="flex-1 px-6 pt-6 pb-3">
         <textarea
           ref={textareaRef}
           value={value}
@@ -205,11 +208,13 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           placeholder="今天想设计什么？描述你的创意想法…"
-          rows={2}
-          className="w-full resize-none bg-transparent outline-none text-[15px] leading-relaxed placeholder:text-[15px]"
+          rows={4}
+          className="w-full h-full resize-none bg-transparent outline-none leading-relaxed"
           style={{
             color: textColor,
             caretColor: "oklch(0.72 0.22 290)",
+            fontSize: 17,
+            minHeight: 320,
           }}
         />
       </div>
@@ -324,13 +329,13 @@ export default function HomePage() {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
-  const bg = isDark ? "oklch(0.09 0.012 270)" : "oklch(0.94 0.006 270)";
-  const text = isDark ? "oklch(0.88 0.008 270)" : "oklch(0.15 0.008 270)";
-  const sub = isDark ? "oklch(0.52 0.01 270)" : "oklch(0.50 0.01 270)";
-  const cardBg = isDark ? "oklch(0.13 0.012 270)" : "oklch(0.97 0.004 270)";
-  const cardBorder = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.08)";
-  const chipBg = isDark ? "oklch(1 0 0 / 0.06)" : "oklch(0 0 0 / 0.05)";
-  const chipBorder = isDark ? "oklch(1 0 0 / 0.10)" : "oklch(0 0 0 / 0.08)";
+  const bg = isDark ? "oklch(0.09 0.012 270)" : "oklch(0.975 0.004 80)";
+  const text = isDark ? "oklch(0.88 0.008 270)" : "oklch(0.22 0.018 255)";
+  const sub = isDark ? "oklch(0.52 0.01 270)" : "oklch(0.50 0.012 255)";
+  const cardBg = isDark ? "oklch(0.13 0.012 270)" : "oklch(1 0 0)";
+  const cardBorder = isDark ? "rgba(255,255,255,0.07)" : "oklch(0.88 0.006 255)";
+  const chipBg = isDark ? "oklch(1 0 0 / 0.06)" : "oklch(0.93 0.010 290 / 0.5)";
+  const chipBorder = isDark ? "oklch(1 0 0 / 0.10)" : "oklch(0.52 0.22 290 / 0.18)";
 
   const handlePromptSubmit = (text: string) => {
     // Navigate to workspace with the prompt as a query param (future: pass to canvas)

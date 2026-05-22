@@ -85,13 +85,15 @@ function CardMenu({
 
       {open && (
         <div
-          className="absolute bottom-full mb-1.5 right-0 rounded-xl overflow-hidden z-50"
+          className="absolute rounded-xl overflow-hidden z-[9999]"
           style={{
             background: bg,
             border: `1px solid ${border}`,
-            minWidth: 152,
-            boxShadow: "0 12px 40px rgba(0,0,0,0.35)",
-            backdropFilter: "blur(16px)",
+            minWidth: 160,
+            boxShadow: "0 16px 48px rgba(0,0,0,0.40)",
+            backdropFilter: "blur(20px)",
+            bottom: "calc(100% + 8px)",
+            right: 0,
           }}
         >
           <button
@@ -190,12 +192,12 @@ function ProjectCard({
     if (renaming) { setEditVal(project.title); setTimeout(() => inputRef.current?.select(), 50); }
   }, [renaming, project.title]);
 
-  const cardBg = isDark ? "oklch(0.13 0.012 270)" : "oklch(0.97 0.004 270)";
+  const cardBg = isDark ? "oklch(0.13 0.012 270)" : "oklch(1 0 0)";
   const cardBorder = selected
-    ? "oklch(0.62 0.22 290)"
-    : isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.08)";
-  const text = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.20 0.008 270)";
-  const sub = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.55 0.01 270)";
+    ? "oklch(0.52 0.22 290)"
+    : isDark ? "rgba(255,255,255,0.07)" : "oklch(0.88 0.006 255)";
+  const text = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.22 0.018 255)";
+  const sub = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.50 0.012 255)";
 
   return (
     <div
@@ -387,9 +389,9 @@ export default function WorkspaceDashboard() {
   const lassoRef = useRef<{ startX: number; startY: number; active: boolean }>({ startX: 0, startY: 0, active: false });
   const [lasso, setLasso] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
 
-  const bg = isDark ? "oklch(0.09 0.012 270)" : "oklch(0.94 0.006 270)";
-  const text = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.20 0.008 270)";
-  const sub = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.55 0.01 270)";
+  const bg = isDark ? "oklch(0.09 0.012 270)" : "oklch(0.975 0.004 80)";
+  const text = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.22 0.018 255)";
+  const sub = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.50 0.012 255)";
 
   const handleCreate = useCallback((cover: string | null) => {
     const newP: WsProject = { id: uid(), title: "未命名项目", cover, updatedAt: "刚刚", nodeCount: 0 };
@@ -515,7 +517,7 @@ export default function WorkspaceDashboard() {
         </div>
 
         {/* Project Grid */}
-        <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
+        <div className="grid gap-5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))" }}>
           <CreateProjectCard isDark={isDark} onCreate={() => setShowCreate(true)} />
           {projects.map(project => (
             <div key={project.id} data-project-id={project.id} className="project-card">
