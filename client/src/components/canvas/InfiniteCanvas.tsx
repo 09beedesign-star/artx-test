@@ -40,7 +40,7 @@ import {
   X, Copy, Clipboard, Edit3, PlusSquare, FileText,
   ZoomIn, Download, Crop, Box, Eraser, SlidersHorizontal,
   MoreHorizontal, FolderOutput, Maximize2, Mic, RefreshCw,
-  ChevronLeft, Home, LayoutGrid,
+  ChevronLeft, Home, LayoutGrid, Lock, Unlock, Plus, Minus,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { GENERATED_ASSETS, AI_MODELS } from "@/lib/workspace-data";
@@ -999,6 +999,100 @@ function LassoEraser({ isDark, onCut }: { isDark: boolean; onCut: (rect: LassoRe
   );
 }
 
+// ── Zoom Control Bar (left-bottom vertical bar) ──────────────────────────────
+function ZoomControlBar({ isDark }: { isDark: boolean }) {
+  const { zoomIn, zoomOut, fitView } = useReactFlow();
+  const [locked, setLocked] = useState(false);
+
+  // Bar style mirrors the image preview toolbar
+  const barBg = isDark ? "rgba(22,22,30,0.80)" : "rgba(255,255,255,0.82)";
+  const barBorder = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
+  const iconColor = isDark ? "rgba(255,255,255,0.78)" : "rgba(28,28,40,0.80)";
+  const dividerColor = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
+  const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+
+  const btnClass = "w-8 h-8 flex items-center justify-center rounded-lg transition-all active:scale-90 hover:opacity-80";
+
+  return (
+    <div
+      className="absolute"
+      style={{ bottom: 80, left: 16, zIndex: 100 }}
+    >
+      <div
+        className="flex flex-col items-center"
+        style={{
+          background: barBg,
+          backdropFilter: "blur(12px)",
+          border: `1px solid ${barBorder}`,
+          borderRadius: 12,
+          padding: "4px",
+          gap: 0,
+          boxShadow: isDark
+            ? "0 8px 32px rgba(0,0,0,0.45)"
+            : "0 4px 20px rgba(0,0,0,0.12)",
+        }}
+      >
+        {/* Zoom In */}
+        <button
+          className={btnClass}
+          style={{ color: iconColor }}
+          title="放大"
+          onClick={() => zoomIn({ duration: 200 })}
+          onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+        >
+          <Plus size={15} strokeWidth={2} />
+        </button>
+
+        {/* Divider */}
+        <div style={{ width: 20, height: 1, background: dividerColor, margin: "2px 0" }} />
+
+        {/* Zoom Out */}
+        <button
+          className={btnClass}
+          style={{ color: iconColor }}
+          title="缩小"
+          onClick={() => zoomOut({ duration: 200 })}
+          onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+        >
+          <Minus size={15} strokeWidth={2} />
+        </button>
+
+        {/* Divider */}
+        <div style={{ width: 20, height: 1, background: dividerColor, margin: "2px 0" }} />
+
+        {/* Fit View */}
+        <button
+          className={btnClass}
+          style={{ color: iconColor }}
+          title="适屏显示"
+          onClick={() => fitView({ duration: 400, padding: 0.15 })}
+          onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+        >
+          <Maximize2 size={14} strokeWidth={2} />
+        </button>
+
+        {/* Divider */}
+        <div style={{ width: 20, height: 1, background: dividerColor, margin: "2px 0" }} />
+
+        {/* Lock / Unlock */}
+        <button
+          className={btnClass}
+          style={{ color: locked ? "oklch(0.62 0.22 290)" : iconColor }}
+          title={locked ? "解锁画布" : "锁定画布"}
+          onClick={() => setLocked(l => !l)}
+          onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+        >
+          {locked ? <Lock size={13} strokeWidth={2} /> : <Unlock size={13} strokeWidth={2} />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Back Button ───────────────────────────────────────────────
 function BackButton({ isDark }: { isDark: boolean }) {
   const [, navigate] = useLocation();
@@ -1333,8 +1427,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           zoomable
           pannable
         />
-        <Controls style={{ background: isDark ? "oklch(0.13 0.015 270)" : "oklch(0.97 0.004 270)", border: `1px solid ${isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"}`, borderRadius: 8 }} />
+        <Controls showZoom={false} showFitView={false} showInteractive={false} />
       </ReactFlow>
+
+      {/* Custom zoom controls — vertical bar matching preview toolbar style */}
+      <ZoomControlBar isDark={isDark} />
 
       {/* Back button — top-left */}
       <BackButton isDark={isDark} />
