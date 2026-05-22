@@ -1134,7 +1134,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   }, [screenToFlowPosition, getNodes, getEdges, setEdges]);
 
   const canvasBg = isDark ? "#0d0d14" : "#eeeef2";
-  const dotColor = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
+  const dotColor = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.28)";
 
   return (
     <div ref={containerRef} className="flex-1 relative overflow-hidden" style={{ height: "100%" }}>
