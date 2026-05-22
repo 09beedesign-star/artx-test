@@ -999,6 +999,158 @@ function LassoEraser({ isDark, onCut }: { isDark: boolean; onCut: (rect: LassoRe
   );
 }
 
+// ── Asset Edit Modal ──────────────────────────────────────────────────────────────────
+function AssetEditModal({
+  asset, isDark, onClose,
+}: {
+  asset: { id: string; title: string; src: string };
+  isDark: boolean;
+  onClose: () => void;
+}) {
+  const [prompt, setPrompt] = useState("");
+  const [model, setModel] = useState("flux-pro");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    // Auto-focus prompt input
+    setTimeout(() => textareaRef.current?.focus(), 120);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const bg = isDark ? "rgba(14,14,22,0.96)" : "rgba(240,240,248,0.96)";
+  const barBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+  const barBorder = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)";
+  const inputBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.85)";
+  const inputBorder = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)";
+  const text = isDark ? "rgba(255,255,255,0.85)" : "rgba(20,20,36,0.85)";
+  const subtext = isDark ? "rgba(255,255,255,0.45)" : "rgba(20,20,36,0.45)";
+
+  const handleSend = () => {
+    if (prompt.trim()) {
+      toast("AI 正在编辑素材", { description: prompt.slice(0, 60) });
+      setPrompt("");
+      onClose();
+    } else {
+      toast("请先输入编辑指令");
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 flex flex-col items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.82)", backdropFilter: "blur(16px)", zIndex: 9000 }}
+      onClick={onClose}
+    >
+      <div
+        className="flex flex-col items-center w-full"
+        style={{ maxWidth: "min(860px, 92vw)", gap: 0 }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Top toolbar bar */}
+        <div
+          className="flex items-center gap-2 px-3 mb-3 w-full"
+          style={{
+            height: 44,
+            borderRadius: 12,
+            background: "rgba(255,255,255,0.10)",
+            backdropFilter: "blur(12px)",
+            border: "1px solid rgba(255,255,255,0.12)",
+          }}
+        >
+          <img src={asset.src} alt="" style={{ width: 22, height: 22, borderRadius: 4, objectFit: "cover", flexShrink: 0 }} />
+          <span className="flex-1 truncate text-[13px] font-medium" style={{ color: "rgba(255,255,255,0.80)" }}>{asset.title}</span>
+          <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.10)", color: "rgba(255,255,255,0.50)" }}>Esc 关闭</span>
+          <button
+            onClick={onClose}
+            className="w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:bg-white/15 active:scale-90"
+            style={{ color: "rgba(255,255,255,0.75)" }}
+          >
+            <X size={14} />
+          </button>
+        </div>
+
+        {/* Image — full-width, fit to screen */}
+        <img
+          src={asset.src}
+          alt={asset.title}
+          style={{
+            width: "100%",
+            maxHeight: "58vh",
+            objectFit: "contain",
+            borderRadius: 12,
+            boxShadow: "0 24px 80px rgba(0,0,0,0.60)",
+            display: "block",
+          }}
+        />
+
+        {/* Bottom prompt input bar */}
+        <div
+          className="w-full mt-4 rounded-2xl overflow-hidden"
+          style={{
+            background: isDark ? "rgba(22,22,32,0.95)" : "rgba(255,255,255,0.95)",
+            backdropFilter: "blur(20px)",
+            border: `1.5px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)"}`,
+            boxShadow: "0 8px 40px rgba(0,0,0,0.25)",
+          }}
+        >
+          {/* Reference chip — the current asset */}
+          <div
+            className="flex items-center gap-2 px-3 pt-2.5 pb-2"
+            style={{ borderBottom: `1px solid ${isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)"}` }}
+          >
+            <div
+              className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium"
+              style={{
+                background: isDark ? "oklch(0.58 0.22 290 / 0.18)" : "oklch(0.58 0.22 290 / 0.12)",
+                border: `1px solid ${isDark ? "oklch(0.62 0.22 290 / 0.35)" : "oklch(0.58 0.22 290 / 0.30)"}`,
+                color: isDark ? "oklch(0.80 0.18 290)" : "oklch(0.42 0.18 290)",
+              }}
+            >
+              <img src={asset.src} alt="" style={{ width: 16, height: 16, borderRadius: 3, objectFit: "cover" }} />
+              <ImageIcon size={9} style={{ opacity: 0.7 }} />
+              <span>{asset.title}</span>
+            </div>
+            <span className="text-[11px]" style={{ color: subtext }}>正在编辑此素材</span>
+          </div>
+
+          {/* Prompt textarea */}
+          <div className="px-4 pt-3 pb-2">
+            <textarea
+              ref={textareaRef}
+              value={prompt}
+              onChange={e => setPrompt(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+              rows={2}
+              className="w-full bg-transparent text-[13px] leading-relaxed resize-none outline-none"
+              style={{ color: text }}
+              placeholder="描述你想如何编辑这张图片，例如：更换背景为星空、加强光效、调整配色..."
+            />
+          </div>
+
+          {/* Bottom action bar */}
+          <div
+            className="flex items-center gap-2 px-3 pb-3"
+            style={{ borderTop: `1px solid ${isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)"}`, paddingTop: 8 }}
+          >
+            <ModelSelector model={model} onChange={setModel} isDark={isDark} />
+            <div className="flex-1" />
+            <span className="text-[10px]" style={{ color: subtext }}>回车发送</span>
+            <button
+              onClick={handleSend}
+              className="w-7 h-7 rounded-lg flex items-center justify-center hover:opacity-80 active:scale-90 transition-all"
+              style={{ background: prompt.trim() ? "oklch(0.58 0.22 290)" : (isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)") }}
+            >
+              <Send size={13} color={prompt.trim() ? "white" : (isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.30)")} />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Zoom Control Bar (left-bottom vertical bar) ──────────────────────────────
 function ZoomControlBar({ isDark }: { isDark: boolean }) {
   const { zoomIn, zoomOut, fitView } = useReactFlow();
@@ -1247,7 +1399,7 @@ function TopLeftToolbar({ isDark, onAdd }: { isDark: boolean; onAdd: (type: stri
 function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-  const { screenToFlowPosition, getEdges, getNodes } = useReactFlow();
+  const { screenToFlowPosition, getEdges, getNodes, fitView } = useReactFlow();
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
@@ -1255,6 +1407,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [clipboard, setClipboard] = useState<Node | null>(null);
   // ── Reference state: asset node clicked → inject into prompt bar (multi-select with Ctrl) ──
   const [referencedAssets, setReferencedAssets] = useState<{ id: string; title: string; src: string }[]>([]);
+  // ── Edit-asset full-screen state ──
+  const [editAsset, setEditAsset] = useState<{ id: string; title: string; src: string } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -1333,7 +1487,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         setNodes(nds => [...nds, { id, type: "text", position: { x: node.position.x, y: node.position.y + 200 }, data: { id, text: "", colorIdx: 0 } }]);
       }
     } else if (action === "edit-asset") {
-      toast("编辑素材", { description: "功能即将上线" });
+      const node = nodes.find(n => n.id === nodeId);
+      if (node && node.type === "asset") {
+        const assetId = (node.data as Record<string, unknown>).assetId as string;
+        const asset = GENERATED_ASSETS.find(a => a.id === assetId) || GENERATED_ASSETS[0];
+        setEditAsset({ id: asset.id, title: asset.title, src: asset.src });
+        // Zoom the node to center
+        fitView({ nodes: [{ id: nodeId }], duration: 450, padding: 0.25 });
+      }
     }
   }, [nodes, clipboard, setNodes, setEdges]);
 
@@ -1468,6 +1629,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         onRemoveReference={(id) => setReferencedAssets(prev => prev.filter(a => a.id !== id))}
         onClearAllReferences={() => setReferencedAssets([])}
       />
+
+      {/* Edit-asset full-screen overlay */}
+      {editAsset && (
+        <AssetEditModal
+          asset={editAsset}
+          isDark={isDark}
+          onClose={() => setEditAsset(null)}
+        />
+      )}
 
     </div>
   );
