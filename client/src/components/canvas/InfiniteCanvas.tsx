@@ -999,8 +999,8 @@ function LassoEraser({ isDark, onCut }: { isDark: boolean; onCut: (rect: LassoRe
   );
 }
 
-// ── Asset Edit Modal ──────────────────────────────────────────────────────────────────
-function AssetEditModal({
+// ── Asset Edit Prompt Bar (in-canvas, no overlay) ──────────────────────────────────────────────
+function AssetEditPromptBar({
   asset, isDark, onClose,
 }: {
   asset: { id: string; title: string; src: string };
@@ -1009,23 +1009,25 @@ function AssetEditModal({
 }) {
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState("flux-pro");
+  const [visible, setVisible] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Fade-in after mount
+  useEffect(() => {
+    const t = requestAnimationFrame(() => setVisible(true));
+    return () => cancelAnimationFrame(t);
+  }, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", handler);
-    // Auto-focus prompt input
-    setTimeout(() => textareaRef.current?.focus(), 120);
+    setTimeout(() => textareaRef.current?.focus(), 80);
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
-  const bg = isDark ? "rgba(14,14,22,0.96)" : "rgba(240,240,248,0.96)";
-  const barBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
-  const barBorder = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)";
-  const inputBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.85)";
-  const inputBorder = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)";
   const text = isDark ? "rgba(255,255,255,0.85)" : "rgba(20,20,36,0.85)";
-  const subtext = isDark ? "rgba(255,255,255,0.45)" : "rgba(20,20,36,0.45)";
+  const subtext = isDark ? "rgba(255,255,255,0.40)" : "rgba(20,20,36,0.40)";
+  const divider = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)";
 
   const handleSend = () => {
     if (prompt.trim()) {
@@ -1039,113 +1041,74 @@ function AssetEditModal({
 
   return (
     <div
-      className="fixed inset-0 flex flex-col items-center justify-center"
-      style={{ background: "rgba(0,0,0,0.82)", backdropFilter: "blur(16px)", zIndex: 9000 }}
-      onClick={onClose}
+      className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-2xl shadow-2xl overflow-hidden"
+      style={{
+        width: "min(680px, calc(100% - 48px))",
+        zIndex: 200,
+        background: isDark ? "rgba(18,18,28,0.97)" : "rgba(255,255,255,0.97)",
+        backdropFilter: "blur(24px)",
+        border: `1.5px solid oklch(0.62 0.22 290 / 55%)`,
+        boxShadow: `0 0 0 3px oklch(0.62 0.22 290 / 0.12), 0 12px 48px rgba(0,0,0,0.28)`,
+        // Slide-up entrance
+        transform: visible
+          ? "translateX(-50%) translateY(0)"
+          : "translateX(-50%) translateY(20px)",
+        opacity: visible ? 1 : 0,
+        transition: "transform 0.35s cubic-bezier(0.23,1,0.32,1), opacity 0.30s ease",
+      }}
     >
-      <div
-        className="flex flex-col items-center w-full"
-        style={{ maxWidth: "min(860px, 92vw)", gap: 0 }}
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Top toolbar bar */}
+      {/* Header: asset chip + close */}
+      <div className="flex items-center gap-2 px-3 pt-2.5 pb-2" style={{ borderBottom: `1px solid ${divider}` }}>
         <div
-          className="flex items-center gap-2 px-3 mb-3 w-full"
+          className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium"
           style={{
-            height: 44,
-            borderRadius: 12,
-            background: "rgba(255,255,255,0.10)",
-            backdropFilter: "blur(12px)",
-            border: "1px solid rgba(255,255,255,0.12)",
+            background: isDark ? "oklch(0.58 0.22 290 / 0.18)" : "oklch(0.58 0.22 290 / 0.12)",
+            border: `1px solid ${isDark ? "oklch(0.62 0.22 290 / 0.35)" : "oklch(0.58 0.22 290 / 0.30)"}`,
+            color: isDark ? "oklch(0.80 0.18 290)" : "oklch(0.42 0.18 290)",
           }}
         >
-          <img src={asset.src} alt="" style={{ width: 22, height: 22, borderRadius: 4, objectFit: "cover", flexShrink: 0 }} />
-          <span className="flex-1 truncate text-[13px] font-medium" style={{ color: "rgba(255,255,255,0.80)" }}>{asset.title}</span>
-          <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.10)", color: "rgba(255,255,255,0.50)" }}>Esc 关闭</span>
-          <button
-            onClick={onClose}
-            className="w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:bg-white/15 active:scale-90"
-            style={{ color: "rgba(255,255,255,0.75)" }}
-          >
-            <X size={14} />
-          </button>
+          <img src={asset.src} alt="" style={{ width: 16, height: 16, borderRadius: 3, objectFit: "cover" }} />
+          <ImageIcon size={9} style={{ opacity: 0.7 }} />
+          <span>{asset.title}</span>
         </div>
+        <span className="text-[11px]" style={{ color: subtext }}>正在编辑此素材</span>
+        <div className="flex-1" />
+        <button
+          onClick={onClose}
+          className="w-6 h-6 rounded-md flex items-center justify-center transition-all hover:opacity-70 active:scale-90"
+          style={{ color: subtext }}
+          title="关闭 (Esc)"
+        >
+          <X size={13} />
+        </button>
+      </div>
 
-        {/* Image — full-width, fit to screen */}
-        <img
-          src={asset.src}
-          alt={asset.title}
-          style={{
-            width: "100%",
-            maxHeight: "58vh",
-            objectFit: "contain",
-            borderRadius: 12,
-            boxShadow: "0 24px 80px rgba(0,0,0,0.60)",
-            display: "block",
-          }}
+      {/* Prompt textarea */}
+      <div className="px-4 pt-3 pb-2">
+        <textarea
+          ref={textareaRef}
+          value={prompt}
+          onChange={e => setPrompt(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+          rows={2}
+          className="w-full bg-transparent text-[13px] leading-relaxed resize-none outline-none"
+          style={{ color: text }}
+          placeholder="描述你想如何编辑这张图片，例如：更换背景为星空、加强光效、调整配色..."
         />
+      </div>
 
-        {/* Bottom prompt input bar */}
-        <div
-          className="w-full mt-4 rounded-2xl overflow-hidden"
-          style={{
-            background: isDark ? "rgba(22,22,32,0.95)" : "rgba(255,255,255,0.95)",
-            backdropFilter: "blur(20px)",
-            border: `1.5px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)"}`,
-            boxShadow: "0 8px 40px rgba(0,0,0,0.25)",
-          }}
+      {/* Bottom action bar */}
+      <div className="flex items-center gap-2 px-3 pb-3" style={{ borderTop: `1px solid ${divider}`, paddingTop: 8 }}>
+        <ModelSelector model={model} onChange={setModel} isDark={isDark} />
+        <div className="flex-1" />
+        <span className="text-[10px]" style={{ color: subtext }}>回车发送</span>
+        <button
+          onClick={handleSend}
+          className="w-7 h-7 rounded-lg flex items-center justify-center hover:opacity-80 active:scale-90 transition-all"
+          style={{ background: prompt.trim() ? "oklch(0.58 0.22 290)" : (isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)") }}
         >
-          {/* Reference chip — the current asset */}
-          <div
-            className="flex items-center gap-2 px-3 pt-2.5 pb-2"
-            style={{ borderBottom: `1px solid ${isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)"}` }}
-          >
-            <div
-              className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium"
-              style={{
-                background: isDark ? "oklch(0.58 0.22 290 / 0.18)" : "oklch(0.58 0.22 290 / 0.12)",
-                border: `1px solid ${isDark ? "oklch(0.62 0.22 290 / 0.35)" : "oklch(0.58 0.22 290 / 0.30)"}`,
-                color: isDark ? "oklch(0.80 0.18 290)" : "oklch(0.42 0.18 290)",
-              }}
-            >
-              <img src={asset.src} alt="" style={{ width: 16, height: 16, borderRadius: 3, objectFit: "cover" }} />
-              <ImageIcon size={9} style={{ opacity: 0.7 }} />
-              <span>{asset.title}</span>
-            </div>
-            <span className="text-[11px]" style={{ color: subtext }}>正在编辑此素材</span>
-          </div>
-
-          {/* Prompt textarea */}
-          <div className="px-4 pt-3 pb-2">
-            <textarea
-              ref={textareaRef}
-              value={prompt}
-              onChange={e => setPrompt(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-              rows={2}
-              className="w-full bg-transparent text-[13px] leading-relaxed resize-none outline-none"
-              style={{ color: text }}
-              placeholder="描述你想如何编辑这张图片，例如：更换背景为星空、加强光效、调整配色..."
-            />
-          </div>
-
-          {/* Bottom action bar */}
-          <div
-            className="flex items-center gap-2 px-3 pb-3"
-            style={{ borderTop: `1px solid ${isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)"}`, paddingTop: 8 }}
-          >
-            <ModelSelector model={model} onChange={setModel} isDark={isDark} />
-            <div className="flex-1" />
-            <span className="text-[10px]" style={{ color: subtext }}>回车发送</span>
-            <button
-              onClick={handleSend}
-              className="w-7 h-7 rounded-lg flex items-center justify-center hover:opacity-80 active:scale-90 transition-all"
-              style={{ background: prompt.trim() ? "oklch(0.58 0.22 290)" : (isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)") }}
-            >
-              <Send size={13} color={prompt.trim() ? "white" : (isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.30)")} />
-            </button>
-          </div>
-        </div>
+          <Send size={13} color={prompt.trim() ? "white" : (isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.30)")} />
+        </button>
       </div>
     </div>
   );
@@ -1407,8 +1370,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [clipboard, setClipboard] = useState<Node | null>(null);
   // ── Reference state: asset node clicked → inject into prompt bar (multi-select with Ctrl) ──
   const [referencedAssets, setReferencedAssets] = useState<{ id: string; title: string; src: string }[]>([]);
-  // ── Edit-asset full-screen state ──
+  // ── Edit-asset state: zoom in on canvas then show editing prompt bar ──
   const [editAsset, setEditAsset] = useState<{ id: string; title: string; src: string } | null>(null);
+  const [isZoomingToEdit, setIsZoomingToEdit] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -1491,9 +1455,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       if (node && node.type === "asset") {
         const assetId = (node.data as Record<string, unknown>).assetId as string;
         const asset = GENERATED_ASSETS.find(a => a.id === assetId) || GENERATED_ASSETS[0];
-        setEditAsset({ id: asset.id, title: asset.title, src: asset.src });
-        // Zoom the node to center
-        fitView({ nodes: [{ id: nodeId }], duration: 450, padding: 0.25 });
+        setIsZoomingToEdit(true);
+        // Smooth zoom-in push animation on the canvas itself
+        fitView({ nodes: [{ id: nodeId }], duration: 900, padding: 0.08 });
+        // After animation completes, reveal the editing prompt bar
+        setTimeout(() => {
+          setEditAsset({ id: asset.id, title: asset.title, src: asset.src });
+          setIsZoomingToEdit(false);
+        }, 950);
       }
     }
   }, [nodes, clipboard, setNodes, setEdges]);
@@ -1630,9 +1599,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         onClearAllReferences={() => setReferencedAssets([])}
       />
 
-      {/* Edit-asset full-screen overlay */}
+      {/* Edit-asset prompt bar — shown after zoom-in animation, overlays bottom */}
       {editAsset && (
-        <AssetEditModal
+        <AssetEditPromptBar
           asset={editAsset}
           isDark={isDark}
           onClose={() => setEditAsset(null)}
