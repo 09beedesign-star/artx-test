@@ -1,12 +1,12 @@
 /**
  * Workspace — Neo-Studio Dark Design System
- * Main workspace page: three-column layout (Sidebar + MainCanvas + RightPanel)
+ * Main workspace page: three-column layout (Sidebar + InfiniteCanvas + RightPanel)
  * Philosophy: Deep blue-purple dark, purple→cyan gradient brand, creative studio atmosphere
  */
 import { useState } from "react";
 import TopBar from "@/components/workspace/TopBar";
 import Sidebar from "@/components/workspace/Sidebar";
-import MainCanvas from "@/components/workspace/MainCanvas";
+import InfiniteCanvas from "@/components/canvas/InfiniteCanvas";
 import RightPanel from "@/components/workspace/RightPanel";
 import { BG_GLOW } from "@/lib/workspace-data";
 
@@ -17,7 +17,7 @@ export default function Workspace() {
   return (
     <div
       className="flex flex-col h-screen overflow-hidden"
-      style={{ background: "oklch(0.10 0.015 270)", position: "relative" }}
+      style={{ background: "oklch(0.09 0.012 270)", position: "relative" }}
     >
       {/* Ambient background glow */}
       <div
@@ -26,7 +26,7 @@ export default function Workspace() {
           backgroundImage: `url(${BG_GLOW})`,
           backgroundSize: "cover",
           backgroundPosition: "center",
-          opacity: 0.22,
+          opacity: 0.15,
           zIndex: 0,
         }}
       />
@@ -44,7 +44,7 @@ export default function Workspace() {
           activeNav={activeNav}
           onNavSelect={setActiveNav}
         />
-        <MainCanvas projectId={activeProjectId} />
+        <InfiniteCanvas projectId={activeProjectId} />
         <RightPanel />
       </div>
     </div>
