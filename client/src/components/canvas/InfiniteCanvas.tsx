@@ -139,11 +139,19 @@ function NodeWrapper({ children, selected, isDark, model, onModelChange, onDelet
       onContextMenu={onContextMenu}
     >
       <Handle type="target" position={Position.Left} id="left"
-        className="!w-3 !h-3 !rounded-full !border-2 !bg-white/80 !border-white/60 hover:!bg-white hover:!scale-125 transition-all"
-        style={{ left: -1 }} />
+        className="!w-3 !h-3 !rounded-full !border-2 hover:!scale-125 transition-all"
+        style={{
+          left: -1,
+          backgroundColor: isDark ? "rgba(255,255,255,0.80)" : "oklch(0.28 0.01 270)",
+          borderColor: isDark ? "rgba(255,255,255,0.60)" : "oklch(0.20 0.01 270)",
+        }} />
       <Handle type="source" position={Position.Right} id="right"
-        className="!w-3 !h-3 !rounded-full !border-2 !bg-white/80 !border-white/60 hover:!bg-white hover:!scale-125 transition-all"
-        style={{ right: -1 }} />
+        className="!w-3 !h-3 !rounded-full !border-2 hover:!scale-125 transition-all"
+        style={{
+          right: -1,
+          backgroundColor: isDark ? "rgba(255,255,255,0.80)" : "oklch(0.28 0.01 270)",
+          borderColor: isDark ? "rgba(255,255,255,0.60)" : "oklch(0.20 0.01 270)",
+        }} />
       <div className="flex flex-col flex-1 overflow-hidden rounded-xl">
         {children}
       </div>
