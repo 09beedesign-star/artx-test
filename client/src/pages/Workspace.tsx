@@ -1,13 +1,12 @@
 /**
  * Workspace — Project Canvas Page
  * Design: Neo-Studio Dark
- * Layout: TopBar + LeftPanel (layers) + InfiniteCanvas
+ * Layout: TopBar + InfiniteCanvas (full width, no side panel)
  * Note: No AppShell sidebar here — canvas has its own back button
  */
 import { useState } from "react";
 import TopBar from "@/components/workspace/TopBar";
 import InfiniteCanvas from "@/components/canvas/InfiniteCanvas";
-import RightPanel from "@/components/workspace/RightPanel";
 import { BG_GLOW } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
 
@@ -44,9 +43,8 @@ export default function Workspace({ projectId = "p1" }: { projectId?: string }) 
         <TopBar credits={75} />
       </div>
 
-      {/* Two-column workspace: LeftPanel (layers) + Canvas */}
+      {/* Full-width canvas */}
       <div className="flex flex-1 overflow-hidden" style={{ position: "relative", zIndex: 1 }}>
-        <RightPanel />
         <InfiniteCanvas projectId={activeProjectId} />
       </div>
     </div>
