@@ -1012,16 +1012,37 @@ function LassoEraser({ isDark, onCut }: { isDark: boolean; onCut: (rect: LassoRe
 
 // ── Asset Edit Prompt Bar (in-canvas, no overlay) ──────────────────────────────────────────────
 function AssetEditPromptBar({
-  asset, isDark, onClose,
+  asset, isDark, onClose, nodeScreenX, nodeScreenY, nodeScreenW, nodeScreenH, containerW, containerH,
 }: {
   asset: { id: string; title: string; src: string };
   isDark: boolean;
   onClose: () => void;
+  /** Screen-space (px) position and size of the target node inside the canvas container */
+  nodeScreenX: number;
+  nodeScreenY: number;
+  nodeScreenW: number;
+  nodeScreenH: number;
+  containerW: number;
+  containerH: number;
 }) {
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState("flux-pro");
   const [visible, setVisible] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const BAR_W = 480;
+  const BAR_H = 148; // approximate height
+  const GAP = 10;
+  const MARGIN = 12; // min distance from container edge
+
+  // Compute left so the bar is horizontally centered on the node, clamped to container
+  const rawLeft = nodeScreenX + nodeScreenW / 2 - BAR_W / 2;
+  const clampedLeft = Math.max(MARGIN, Math.min(containerW - BAR_W - MARGIN, rawLeft));
+
+  // Prefer below the node; if not enough room, place above
+  const belowTop = nodeScreenY + nodeScreenH + GAP;
+  const aboveTop = nodeScreenY - GAP - BAR_H;
+  const fitsBelow = belowTop + BAR_H + MARGIN <= containerH;
+  const computedTop = fitsBelow ? belowTop : Math.max(MARGIN, aboveTop);
 
   // Fade-in after mount
   useEffect(() => {
@@ -1054,9 +1075,9 @@ function AssetEditPromptBar({
     <div
       style={{
         position: "absolute",
-        bottom: 16,
-        left: "50%",
-        width: "min(680px, calc(100% - 48px))",
+        top: computedTop,
+        left: clampedLeft,
+        width: BAR_W,
         zIndex: 200,
         background: isDark ? "rgba(18,18,28,0.97)" : "rgba(255,255,255,0.97)",
         backdropFilter: "blur(24px)",
@@ -1064,10 +1085,7 @@ function AssetEditPromptBar({
         boxShadow: `0 0 0 3px oklch(0.62 0.22 290 / 0.12), 0 12px 48px rgba(0,0,0,0.28)`,
         borderRadius: 16,
         overflow: "hidden",
-        // Slide-up entrance, always centered horizontally
-        transform: visible
-          ? "translateX(-50%) translateY(0)"
-          : "translateX(-50%) translateY(20px)",
+        transform: visible ? "translateY(0)" : "translateY(12px)",
         opacity: visible ? 1 : 0,
         transition: "transform 0.35s cubic-bezier(0.23,1,0.32,1), opacity 0.30s ease",
       }}
@@ -1552,12 +1570,33 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const canvasBg = isDark ? "#0d0d14" : "#eeeef2";
   const dotColor = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.28)";
 
-  // Inject isEditing flag into the target node's data so AssetNodeComponent can show the mask
-  const displayNodes = nodes.map(n =>
-    n.type === "asset" && editAsset && n.id === editAsset.nodeId
-      ? { ...n, data: { ...n.data, isEditing: true } }
-      : n
-  );
+  // Viewport transform for computing node screen coordinates
+  const viewport = useViewport();
+
+  // Compute screen-space position of the editing node (flow coords → screen coords)
+  const editNodeScreenPos = (() => {
+    if (!editAsset) return null;
+    const node = nodes.find(n => n.id === editAsset.nodeId);
+    if (!node) return null;
+    // Asset node width is 240px in flow space; height ≈ 190px (image 150 + footer 40)
+    const NODE_W = 240;
+    const NODE_H = 190;
+    const x = node.position.x * viewport.zoom + viewport.x;
+    const y = node.position.y * viewport.zoom + viewport.y;
+    return {
+      x,
+      y,
+      w: NODE_W * viewport.zoom,
+      h: NODE_H * viewport.zoom,
+    };
+  })();
+
+  // Container size for boundary clamping
+  const containerW = containerRef.current?.clientWidth ?? 800;
+  const containerH = containerRef.current?.clientHeight ?? 600;
+
+  // No isEditing mask — keep displayNodes clean
+  const displayNodes = nodes;
 
   return (
     <div ref={containerRef} className="flex-1 relative overflow-hidden" style={{ height: "100%" }}>
@@ -1621,20 +1660,18 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         onClearAllReferences={() => setReferencedAssets([])}
       />
 
-      {/* Edit-asset prompt bar — shown after zoom-in animation, overlays bottom */}
-      {editAsset && (
+      {/* Edit-asset prompt bar — shown after zoom-in animation, anchored below node */}
+      {editAsset && editNodeScreenPos && (
         <AssetEditPromptBar
           asset={editAsset}
           isDark={isDark}
-          onClose={() => {
-            setEditAsset(null);
-            // Remove isEditing flag from node data
-            setNodes(nds => nds.map(n =>
-              n.type === "asset" && n.id === editAsset.nodeId
-                ? { ...n, data: { ...n.data, isEditing: false } }
-                : n
-            ));
-          }}
+          nodeScreenX={editNodeScreenPos.x}
+          nodeScreenY={editNodeScreenPos.y}
+          nodeScreenW={editNodeScreenPos.w}
+          nodeScreenH={editNodeScreenPos.h}
+          containerW={containerW}
+          containerH={containerH}
+          onClose={() => setEditAsset(null)}
         />
       )}
 
