@@ -29,29 +29,22 @@ function HomeCardMenu({ isDark }: { isDark: boolean }) {
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
+  // 与工作台 CardMenu 完全一致的 token
   const bg = isDark ? "rgba(18,18,26,0.97)" : "rgba(248,248,252,0.97)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const textColor = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.20 0.008 270)";
   const hoverBg = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)";
 
-  const items = [
-    { icon: <Pencil size={13} />, label: "重命名" },
-    { icon: <Copy size={13} />, label: "创建副本" },
-    { divider: true },
-    { icon: <Trash2 size={13} />, label: "删除", danger: true },
-  ];
-
   return (
     <div ref={ref} className="relative" onClick={e => e.stopPropagation()}>
+      {/* 触发按钮：与工作台一致 w-5 h-5 rounded-md，无背景，仅 open 时微亮 */}
       <button
-        className="w-7 h-7 rounded-lg flex items-center justify-center transition-all active:scale-90"
+        className="w-5 h-5 rounded-md flex items-center justify-center transition-all active:scale-90"
         style={{
           background: open
-            ? (isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.14)")
-            : (isDark ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.80)"),
-          color: isDark ? "white" : "#333",
-          backdropFilter: "blur(6px)",
-          boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
+            ? (isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)")
+            : "transparent",
+          color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.50 0.012 255)",
         }}
         onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
       >
@@ -60,32 +53,45 @@ function HomeCardMenu({ isDark }: { isDark: boolean }) {
 
       {open && (
         <div
-          className="absolute bottom-full mb-1.5 right-0 rounded-xl overflow-hidden z-50"
+          className="absolute rounded-xl overflow-hidden z-[9999]"
           style={{
             background: bg,
             border: `1px solid ${border}`,
-            minWidth: 152,
-            boxShadow: "0 12px 40px rgba(0,0,0,0.35)",
-            backdropFilter: "blur(16px)",
+            minWidth: 160,
+            boxShadow: "0 16px 48px rgba(0,0,0,0.40)",
+            backdropFilter: "blur(20px)",
+            bottom: "calc(100% + 8px)",
+            right: 0,
           }}
         >
-          {items.map((item, i) =>
-            item.divider ? (
-              <div key={i} style={{ height: 1, background: border, margin: "2px 0" }} />
-            ) : (
-              <button
-                key={i}
-                className="flex items-center gap-2.5 w-full px-3 py-2.5 text-[12px] text-left transition-colors"
-                style={{ color: item.danger ? "oklch(0.65 0.22 25)" : textColor }}
-                onMouseEnter={e => (e.currentTarget.style.background = item.danger ? "oklch(0.65 0.22 25 / 0.10)" : hoverBg)}
-                onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-                onClick={() => setOpen(false)}
-              >
-                {item.icon}
-                {item.label}
-              </button>
-            )
-          )}
+          <button
+            className="flex items-center gap-2.5 w-full px-3 py-2.5 text-[12px] text-left transition-colors"
+            style={{ color: textColor }}
+            onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+            onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+            onClick={() => setOpen(false)}
+          >
+            <Pencil size={13} />重命名
+          </button>
+          <button
+            className="flex items-center gap-2.5 w-full px-3 py-2.5 text-[12px] text-left transition-colors"
+            style={{ color: textColor }}
+            onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+            onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+            onClick={() => setOpen(false)}
+          >
+            <Copy size={13} />创建副本
+          </button>
+          <div style={{ height: 1, background: border, margin: "2px 0" }} />
+          <button
+            className="flex items-center gap-2.5 w-full px-3 py-2.5 text-[12px] text-left transition-colors"
+            style={{ color: "oklch(0.65 0.22 25)" }}
+            onMouseEnter={e => (e.currentTarget.style.background = "oklch(0.65 0.22 25 / 0.10)")}
+            onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+            onClick={() => setOpen(false)}
+          >
+            <Trash2 size={13} />删除
+          </button>
         </div>
       )}
     </div>
@@ -473,14 +479,16 @@ export default function HomePage() {
                         <LayoutGrid size={24} style={{ color: sub }} />
                       </div>
                     )}
-                    {/* ... menu bottom-right */}
-                    <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <HomeCardMenu isDark={isDark} />
-                    </div>
                   </div>
                   <div className="px-3 py-2.5">
                     <p className="text-[12px] font-semibold truncate" style={{ color: text }}>{project.title}</p>
-                    <p className="text-[11px] mt-0.5" style={{ color: sub }}>{project.updatedAt}</p>
+                    {/* 时间行 + ... 菜单：与工作台 CardMenu 位置完全一致 */}
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <p className="text-[11px]" style={{ color: sub }}>{project.updatedAt}</p>
+                      <div className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+                        <HomeCardMenu isDark={isDark} />
+                      </div>
+                    </div>
                   </div>
                 </div>
               ))}
