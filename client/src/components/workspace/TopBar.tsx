@@ -23,16 +23,16 @@ export default function TopBar({ credits = 75 }: TopBarProps) {
 
   const isDark = resolvedTheme === "dark";
 
-  const surface   = isDark ? "oklch(0.11 0.015 270)"    : "oklch(0.97 0.004 270)";
-  const border    = isDark ? "oklch(1 0 0 / 6%)"        : "oklch(0 0 0 / 8%)";
-  const inputBg   = isDark ? "oklch(1 0 0 / 5%)"        : "oklch(0 0 0 / 5%)";
-  const inputBdr  = isDark ? "oklch(1 0 0 / 8%)"        : "oklch(0 0 0 / 10%)";
-  const textPri   = isDark ? "oklch(0.85 0.01 270)"     : "oklch(0.18 0.01 270)";
-  const textSec   = isDark ? "oklch(0.50 0.01 270)"     : "oklch(0.55 0.01 270)";
-  const hoverBg   = isDark ? "oklch(1 0 0 / 5%)"        : "oklch(0 0 0 / 5%)";
-  const popupBg   = isDark ? "oklch(0.15 0.018 270)"    : "oklch(0.99 0.004 270)";
-  const popupBdr  = isDark ? "oklch(1 0 0 / 12%)"       : "oklch(0 0 0 / 12%)";
-  const activeRow = isDark ? "oklch(0.58 0.22 290 / 0.15)" : "oklch(0.58 0.22 290 / 0.10)";
+  const surface   = isDark ? "oklch(0.11 0.015 270)"       : "oklch(1 0 0)";
+  const border    = isDark ? "oklch(1 0 0 / 6%)"           : "oklch(0.88 0.006 255)";
+  const inputBg   = isDark ? "oklch(1 0 0 / 5%)"           : "oklch(0.93 0.005 270)";
+  const inputBdr  = isDark ? "oklch(1 0 0 / 8%)"           : "oklch(0.86 0.006 255)";
+  const textPri   = isDark ? "oklch(0.85 0.01 270)"        : "oklch(0.22 0.018 255)";
+  const textSec   = isDark ? "oklch(0.50 0.01 270)"        : "oklch(0.50 0.012 255)";
+  const hoverBg   = isDark ? "oklch(1 0 0 / 5%)"           : "oklch(0 0 0 / 0.04)";
+  const popupBg   = isDark ? "oklch(0.15 0.018 270)"       : "oklch(0.995 0.002 80)";
+  const popupBdr  = isDark ? "oklch(1 0 0 / 12%)"          : "oklch(0.88 0.006 255)";
+  const activeRow = isDark ? "oklch(0.58 0.22 290 / 0.15)" : "oklch(0.52 0.22 290 / 0.10)";
 
   const ActiveIcon = THEME_OPTIONS.find((o) => o.mode === mode)?.icon ?? Moon;
 

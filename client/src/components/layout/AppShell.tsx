@@ -33,12 +33,12 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
-  const sidebarBg = isDark ? "oklch(0.11 0.012 270)" : "oklch(0.96 0.004 270)";
-  const sidebarBorder = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.08)";
-  const iconDefault = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.55 0.01 270)";
-  const iconActive = isDark ? "oklch(0.92 0.008 270)" : "oklch(0.15 0.008 270)";
-  const activeBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)";
-  const hoverBg = isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)";
+  const sidebarBg = isDark ? "oklch(0.11 0.012 270)" : "oklch(0.965 0.006 270)";
+  const sidebarBorder = isDark ? "rgba(255,255,255,0.07)" : "oklch(0.88 0.006 255)";
+  const iconDefault = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.50 0.012 255)";
+  const iconActive = isDark ? "oklch(0.92 0.008 270)" : "oklch(0.22 0.018 255)";
+  const activeBg = isDark ? "rgba(255,255,255,0.08)" : "oklch(0.93 0.010 290 / 0.5)";
+  const hoverBg = isDark ? "rgba(255,255,255,0.05)" : "oklch(0 0 0 / 0.04)";
 
   const isActive = (path: string) => {
     if (path === "/") return location === "/";

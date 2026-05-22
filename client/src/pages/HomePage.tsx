@@ -147,7 +147,7 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
     const ta = textareaRef.current;
     if (!ta) return;
     ta.style.height = "auto";
-    ta.style.height = Math.min(Math.max(ta.scrollHeight, 320), 380) + "px";
+    ta.style.height = Math.min(Math.max(ta.scrollHeight, 140), 180) + "px";
   }, [value]);
 
   // Close model dropdown on outside click
@@ -189,7 +189,7 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
       style={{
         background: boxBg,
         border: `1.5px solid ${boxBorder}`,
-        minHeight: 460,
+        minHeight: 240,
         display: "flex",
         flexDirection: "column",
         boxShadow: focused
@@ -213,8 +213,8 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
           style={{
             color: textColor,
             caretColor: "oklch(0.72 0.22 290)",
-            fontSize: 17,
-            minHeight: 320,
+            fontSize: 16,
+            minHeight: 140,
           }}
         />
       </div>
