@@ -108,9 +108,10 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
 
       {/* Recent Projects */}
       <div className="flex-1 overflow-hidden flex flex-col px-2">
-        <button
+        <div
+          role="button"
           onClick={() => setProjectsExpanded(!projectsExpanded)}
-          className="flex items-center gap-1.5 px-2 py-1.5 w-full text-left mb-1 rounded-md hover:bg-white/5 transition-colors"
+          className="flex items-center gap-1.5 px-2 py-1.5 w-full text-left mb-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer"
         >
           <ChevronDown
             size={13}
@@ -123,13 +124,14 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
           <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: "oklch(0.45 0.01 270)" }}>
             最近项目
           </span>
-          <button
+          <div
+            role="button"
             onClick={(e) => { e.stopPropagation(); toast("新建项目", { description: "功能即将上线" }); }}
-            className="ml-auto p-0.5 rounded hover:bg-white/10 transition-colors"
+            className="ml-auto p-0.5 rounded hover:bg-white/10 transition-colors cursor-pointer"
           >
             <Plus size={12} style={{ color: "oklch(0.50 0.01 270)" }} />
-          </button>
-        </button>
+          </div>
+        </div>
 
         {projectsExpanded && (
           <div className="flex-1 overflow-y-auto space-y-0.5">
