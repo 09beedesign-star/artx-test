@@ -1,5 +1,15 @@
 // Neo-Studio Dark Workspace — Data & Types
 
+// ── AI Models ────────────────────────────────────────────────
+export const AI_MODELS = [
+  { id: "gpt-4o",        label: "GPT-4o",        vendor: "OpenAI",       color: "oklch(0.72 0.18 160)" },
+  { id: "claude-3-5",    label: "Claude 3.5",     vendor: "Anthropic",    color: "oklch(0.78 0.18 50)"  },
+  { id: "gemini-1-5",    label: "Gemini 1.5",     vendor: "Google",       color: "oklch(0.72 0.18 240)" },
+  { id: "flux-pro",      label: "Flux Pro",       vendor: "Black Forest", color: "oklch(0.78 0.18 290)" },
+  { id: "midjourney-v6", label: "Midjourney v6",  vendor: "Midjourney",   color: "oklch(0.80 0.18 330)" },
+  { id: "sora",          label: "Sora",           vendor: "OpenAI",       color: "oklch(0.72 0.18 200)" },
+];
+
 export type AssetType = "image" | "video" | "brand" | "poster";
 
 export interface Project {

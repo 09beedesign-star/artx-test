@@ -1,591 +1,735 @@
 /**
- * InfiniteCanvas — Neo-Studio Dark Design System
- * Infinite canvas workspace: pan, zoom, node management
- * - Add nodes via RIGHT-CLICK context menu only
- * - Bottom floating AI prompt bar (tapnow-style)
- * - Theme-aware colors
+ * InfiniteCanvas — React Flow based canvas
+ * Tapnow-style node connection system:
+ * - Nodes have left/right handles (connection ports)
+ * - Hover node to reveal handles
+ * - Drag from handle to create bezier edges
+ * - Edges: white semi-transparent, 3px, no arrowhead
+ * - Right-click context menu to add nodes
+ * - Bottom AI prompt bar
  */
-import { useRef, useEffect, useState, useCallback } from "react";
+import { useCallback, useState, useRef, useEffect } from "react";
+import {
+  ReactFlow,
+  Background,
+  BackgroundVariant,
+  Controls,
+  MiniMap,
+  addEdge,
+  useNodesState,
+  useEdgesState,
+  type Connection,
+  type Edge,
+  type Node,
+  type NodeTypes,
+  type EdgeTypes,
+  Panel,
+  getBezierPath,
+  BaseEdge,
+  EdgeLabelRenderer,
+  type EdgeProps,
+  Handle,
+  Position,
+  useReactFlow,
+  ReactFlowProvider,
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
 import { toast } from "sonner";
 import {
-  ZoomIn, ZoomOut, Maximize, Hand, MousePointer2,
   Image as ImageIcon, MessageSquare, Type, Wand2,
-  Grid3X3, Sparkles, Trash2, Layers,
-  Send, Paperclip, ChevronDown, Cpu,
+  Sparkles, Trash2, Send, Paperclip, ChevronDown,
+  X, Zap, Bot, Cpu,
 } from "lucide-react";
-import { useCanvas } from "@/hooks/useCanvas";
-import type { CanvasNode } from "@/hooks/useCanvas";
-import { AssetNode, ChatNode, PromptNode, TextNode } from "./CanvasNodes";
-import { GENERATED_ASSETS, PROJECTS } from "@/lib/workspace-data";
+import { GENERATED_ASSETS, PROJECTS, AI_MODELS } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
 
-// ── Initial layout ────────────────────────────────────────────
+// AI_MODELS imported from workspace-data
 
-function buildInitialNodes(): CanvasNode[] {
-  return [
-    { id: "chat-1",   type: "chat",   x: 60,   y: 80,  width: 340, height: 440, zIndex: 10, data: {} },
-    { id: "asset-1",  type: "asset",  x: 460,  y: 80,  width: 240, zIndex: 11, data: { assetId: "a1" } },
-    { id: "asset-2",  type: "asset",  x: 720,  y: 80,  width: 240, zIndex: 12, data: { assetId: "a2" } },
-    { id: "prompt-1", type: "prompt", x: 460,  y: 560, width: 300, zIndex: 13, data: { prompt: "为次世代跑鞋品牌设计产品页视觉资产，包括英雄图、产品特写和运动员穿着图，突出性能与材质。" } },
-    { id: "text-1",   type: "text",   x: 780,  y: 560, width: 200, zIndex: 14, data: { text: "版本 v2.1\n已生成 4 张图片\n待审核：英雄图", colorIdx: 0 } },
-    { id: "asset-3",  type: "asset",  x: 1000, y: 80,  width: 240, zIndex: 15, data: { assetId: "a3" } },
-    { id: "asset-4",  type: "asset",  x: 1000, y: 460, width: 240, zIndex: 16, data: { assetId: "a4" } },
-  ];
+// ── Model Selector (shared across nodes) ──────────────────────
+function ModelSelector({ model, onChange, isDark }: { model: string; onChange: (m: string) => void; isDark: boolean }) {
+  const [open, setOpen] = useState(false);
+  const current = AI_MODELS.find(m => m.id === model) || AI_MODELS[0];
+  const bg = isDark ? "oklch(0.13 0.015 270)" : "oklch(0.96 0.004 270)";
+  const border = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
+  const text = isDark ? "oklch(0.75 0.01 270)" : "oklch(0.35 0.01 270)";
+  const popBg = isDark ? "oklch(0.16 0.018 270)" : "oklch(0.99 0.004 270)";
+  const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
+
+  return (
+    <div className="relative nodrag nopan" style={{ zIndex: 100 }}>
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
+        className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium transition-all"
+        style={{ background: bg, border: `1px solid ${border}`, color: text }}
+      >
+        <span style={{ width: 6, height: 6, borderRadius: "50%", background: current.color, flexShrink: 0, display: "inline-block" }} />
+        {current.label}
+        <ChevronDown size={10} style={{ opacity: 0.6 }} />
+      </button>
+      {open && (
+        <div
+          className="absolute bottom-full mb-1 left-0 rounded-lg overflow-hidden shadow-2xl"
+          style={{ background: popBg, border: `1px solid ${border}`, minWidth: 160, zIndex: 200 }}
+          onClick={e => e.stopPropagation()}
+        >
+          {AI_MODELS.map(m => (
+            <button
+              key={m.id}
+              onClick={() => { onChange(m.id); setOpen(false); }}
+              className="flex items-center gap-2 w-full px-3 py-2 text-left text-[11px] transition-colors"
+              style={{
+                color: text,
+                background: m.id === model ? hoverBg : "transparent",
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+              onMouseLeave={e => (e.currentTarget.style.background = m.id === model ? hoverBg : "transparent")}
+            >
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: m.color, flexShrink: 0, display: "inline-block" }} />
+              <span className="font-medium">{m.label}</span>
+              <span style={{ marginLeft: "auto", opacity: 0.45, fontSize: 10 }}>{m.vendor}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
-type Tool = "select" | "hand";
-
-interface InfiniteCanvasProps {
-  projectId?: string;
+// ── Node toolbar (bottom of each node) ────────────────────────
+function NodeToolbar({ model, onModelChange, onDelete, isDark }: {
+  model: string; onModelChange: (m: string) => void; onDelete: () => void; isDark: boolean;
+}) {
+  const border = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
+  const text = isDark ? "oklch(0.55 0.01 270)" : "oklch(0.55 0.01 270)";
+  return (
+    <div
+      className="flex items-center justify-between px-2 py-1.5 nodrag nopan"
+      style={{ borderTop: `1px solid ${border}` }}
+    >
+      <ModelSelector model={model} onChange={onModelChange} isDark={isDark} />
+      <button
+        onClick={(e) => { e.stopPropagation(); onDelete(); }}
+        className="p-1 rounded transition-colors hover:opacity-80"
+        style={{ color: text }}
+        title="删除节点"
+      >
+        <Trash2 size={11} />
+      </button>
+    </div>
+  );
 }
 
-// ── Models list ───────────────────────────────────────────────
-export const AI_MODELS = [
-  { id: "gpt-4o",        label: "GPT-4o",        vendor: "OpenAI",    color: "oklch(0.72 0.18 160)" },
-  { id: "claude-3-5",    label: "Claude 3.5",     vendor: "Anthropic", color: "oklch(0.78 0.18 50)"  },
-  { id: "gemini-1-5",    label: "Gemini 1.5",     vendor: "Google",    color: "oklch(0.72 0.18 240)" },
-  { id: "flux-pro",      label: "Flux Pro",       vendor: "Black Forest", color: "oklch(0.78 0.18 290)" },
-  { id: "midjourney-v6", label: "Midjourney v6",  vendor: "Midjourney", color: "oklch(0.80 0.18 330)" },
-  { id: "sora",          label: "Sora",           vendor: "OpenAI",    color: "oklch(0.72 0.18 200)" },
-];
+// ── Node wrapper with handles ──────────────────────────────────
+function NodeWrapper({ children, selected, isDark, model, onModelChange, onDelete, style }: {
+  children: React.ReactNode;
+  selected: boolean;
+  isDark: boolean;
+  model: string;
+  onModelChange: (m: string) => void;
+  onDelete: () => void;
+  style?: React.CSSProperties;
+}) {
+  const bg = isDark ? "oklch(0.13 0.015 270)" : "oklch(0.98 0.004 270)";
+  const border = selected
+    ? "oklch(0.65 0.22 290)"
+    : isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
+  const shadow = selected
+    ? "0 0 0 2px oklch(0.65 0.22 290 / 0.4), 0 8px 32px oklch(0 0 0 / 0.4)"
+    : "0 4px 24px oklch(0 0 0 / 0.25)";
 
-export default function InfiniteCanvas({ projectId = "p1" }: InfiniteCanvasProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [activeTool, setActiveTool] = useState<Tool>("select");
-  const [showGrid, setShowGrid] = useState(true);
-  const project = PROJECTS.find((p) => p.id === projectId) || PROJECTS[0];
+  return (
+    <div
+      className="relative flex flex-col rounded-xl overflow-visible"
+      style={{
+        background: bg,
+        border: `1.5px solid ${border}`,
+        boxShadow: shadow,
+        transition: "border-color 0.15s, box-shadow 0.15s",
+        ...style,
+      }}
+    >
+      {/* Left handle */}
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="left"
+        style={{
+          background: "transparent",
+          border: "none",
+          width: 0,
+          height: 0,
+          left: -1,
+        }}
+        className="!w-3 !h-3 !rounded-full !border-2 !bg-white/80 !border-white/60 hover:!bg-white hover:!scale-125 transition-all"
+      />
+      {/* Right handle */}
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="right"
+        style={{
+          background: "transparent",
+          border: "none",
+          width: 0,
+          height: 0,
+          right: -1,
+        }}
+        className="!w-3 !h-3 !rounded-full !border-2 !bg-white/80 !border-white/60 hover:!bg-white hover:!scale-125 transition-all"
+      />
+      <div className="flex flex-col flex-1 overflow-hidden rounded-xl">
+        {children}
+      </div>
+      <NodeToolbar model={model} onModelChange={onModelChange} onDelete={onDelete} isDark={isDark} />
+    </div>
+  );
+}
+
+// ── Asset Node ─────────────────────────────────────────────────
+function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>; selected: boolean }) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
+  const [model, setModel] = useState("flux-pro");
+  const { deleteElements, getNode } = useReactFlow();
+  const nodeId = (data as { id?: string }).id || "";
 
-  const {
-    transform, nodes, selectedNodeId, isPanning, isDraggingNode,
-    setSelectedNodeId, startPan, onMouseMove, stopDrag, onWheel,
-    startNodeDrag, zoomIn, zoomOut, resetView, fitView, addNode, removeNode,
-  } = useCanvas(buildInitialNodes());
+  const asset = GENERATED_ASSETS.find(a => a.id === (data.assetId as string)) || GENERATED_ASSETS[0];
+  const text = isDark ? "oklch(0.75 0.01 270)" : "oklch(0.30 0.01 270)";
+  const subtext = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.55 0.01 270)";
+  const tagBg = isDark ? "oklch(0.18 0.02 270)" : "oklch(0.92 0.005 270)";
 
-  // Wheel
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const handler = (e: WheelEvent) => { const rect = el.getBoundingClientRect(); onWheel(e, rect); };
-    el.addEventListener("wheel", handler, { passive: false });
-    return () => el.removeEventListener("wheel", handler);
-  }, [onWheel]);
+  return (
+    <NodeWrapper selected={selected} isDark={isDark} model={model} onModelChange={setModel}
+      onDelete={() => deleteElements({ nodes: [{ id: nodeId }] })} style={{ width: 240 }}>
+      {/* Image */}
+      <div className="relative overflow-hidden" style={{ aspectRatio: "16/10" }}>
+        <img src={asset.src} alt={asset.title} className="w-full h-full object-cover" />
+        <div className="absolute top-2 left-2 flex gap-1">
+          <span className="text-[10px] px-1.5 py-0.5 rounded-md font-medium" style={{ background: tagBg, color: subtext }}>
+            {asset.type}
+          </span>
+        </div>
+        <div className="absolute top-2 right-2 flex gap-1">
+          <span className="text-[10px] px-1.5 py-0.5 rounded-md font-medium" style={{ background: "oklch(0 0 0 / 0.5)", color: "oklch(0.85 0 0)" }}>
+            {asset.width}×{asset.height}
+          </span>
+        </div>
+      </div>
+      {/* Title */}
+      <div className="px-3 py-2">
+        <p className="text-[12px] font-semibold truncate" style={{ color: text }}>{asset.title}</p>
+        <p className="text-[10px] mt-0.5" style={{ color: subtext }}>{(asset.tags || []).join(" · ")}</p>
+      </div>
+    </NodeWrapper>
+  );
+}
 
-  // Fit on mount
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    setTimeout(() => fitView(el.clientWidth, el.clientHeight), 100);
-  }, []);
+// ── Chat Node ──────────────────────────────────────────────────
+function ChatNodeComponent({ data, selected }: { data: Record<string, unknown>; selected: boolean }) {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
+  const [model, setModel] = useState("gpt-4o");
+  const { deleteElements } = useReactFlow();
+  const nodeId = (data as { id?: string }).id || "";
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "h") setActiveTool("hand");
-      if (e.key === "v" || e.key === "Escape") setActiveTool("select");
-      if (e.key === "0" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); resetView(); }
-      if (e.key === "=" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); zoomIn(); }
-      if (e.key === "-" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); zoomOut(); }
-      if ((e.key === "Delete" || e.key === "Backspace") && selectedNodeId &&
-          !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) {
-        removeNode(selectedNodeId);
+  const text = isDark ? "oklch(0.78 0.01 270)" : "oklch(0.25 0.01 270)";
+  const subtext = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.55 0.01 270)";
+  const msgBg = isDark ? "oklch(0.18 0.02 270)" : "oklch(0.94 0.005 270)";
+  const aiBg = isDark ? "oklch(0.58 0.22 290 / 0.15)" : "oklch(0.58 0.22 290 / 0.08)";
+  const aiBorder = isDark ? "oklch(0.58 0.22 290 / 0.25)" : "oklch(0.58 0.22 290 / 0.2)";
+  const headerBorder = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
+  const inputBg = isDark ? "oklch(0.16 0.018 270)" : "oklch(0.96 0.005 270)";
+  const inputBorder = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
+
+  const messages = [
+    { role: "user", content: "为次世代跑鞋品牌设计产品页视觉资产" },
+    { role: "ai", content: "好的，我将为你生成以下内容：\n• 应用用户视角\n• 搜索参考资料\n• 生成视觉资产" },
+    { role: "ai", content: "已为你的跑鞋品牌设计了一套视觉资产，包含英雄图、产品特写和运动员穿着图，突出性能与材质。" },
+  ];
+
+  return (
+    <NodeWrapper selected={selected} isDark={isDark} model={model} onModelChange={setModel}
+      onDelete={() => deleteElements({ nodes: [{ id: nodeId }] })} style={{ width: 320 }}>
+      {/* Header */}
+      <div className="flex items-center gap-2 px-3 py-2.5" style={{ borderBottom: `1px solid ${headerBorder}` }}>
+        <div className="w-5 h-5 rounded-md flex items-center justify-center"
+          style={{ background: "oklch(0.58 0.22 290 / 0.2)" }}>
+          <MessageSquare size={11} style={{ color: "oklch(0.72 0.22 290)" }} />
+        </div>
+        <span className="text-[12px] font-semibold" style={{ color: text }}>AI 对话</span>
+      </div>
+      {/* Messages */}
+      <div className="flex flex-col gap-2 p-3 overflow-y-auto nodrag nopan" style={{ maxHeight: 260 }}>
+        {messages.map((msg, i) => (
+          <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+            <div
+              className="rounded-lg px-3 py-2 text-[11px] leading-relaxed max-w-[85%] whitespace-pre-line"
+              style={{
+                background: msg.role === "user" ? aiBg : msgBg,
+                border: msg.role === "user" ? `1px solid ${aiBorder}` : "none",
+                color: text,
+              }}
+            >
+              {msg.content}
+            </div>
+          </div>
+        ))}
+      </div>
+      {/* Input */}
+      <div className="px-3 pb-3 nodrag nopan">
+        <div className="flex items-center gap-2 rounded-lg px-3 py-2"
+          style={{ background: inputBg, border: `1px solid ${inputBorder}` }}>
+          <input
+            className="flex-1 bg-transparent text-[11px] outline-none"
+            style={{ color: text }}
+            placeholder="继续对话..."
+            onClick={e => e.stopPropagation()}
+          />
+          <button className="p-1 rounded" style={{ color: subtext }}>
+            <Send size={11} />
+          </button>
+        </div>
+      </div>
+    </NodeWrapper>
+  );
+}
+
+// ── Prompt Node ────────────────────────────────────────────────
+function PromptNodeComponent({ data, selected }: { data: Record<string, unknown>; selected: boolean }) {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
+  const [model, setModel] = useState("flux-pro");
+  const [prompt, setPrompt] = useState((data.prompt as string) || "");
+  const { deleteElements } = useReactFlow();
+  const nodeId = (data as { id?: string }).id || "";
+
+  const text = isDark ? "oklch(0.78 0.01 270)" : "oklch(0.25 0.01 270)";
+  const subtext = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.55 0.01 270)";
+  const headerBorder = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
+  const inputBg = isDark ? "oklch(0.10 0.012 270)" : "oklch(0.94 0.005 270)";
+  const inputBorder = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
+
+  return (
+    <NodeWrapper selected={selected} isDark={isDark} model={model} onModelChange={setModel}
+      onDelete={() => deleteElements({ nodes: [{ id: nodeId }] })} style={{ width: 300 }}>
+      {/* Header */}
+      <div className="flex items-center gap-2 px-3 py-2.5" style={{ borderBottom: `1px solid ${headerBorder}` }}>
+        <div className="w-5 h-5 rounded-md flex items-center justify-center"
+          style={{ background: "oklch(0.78 0.18 50 / 0.2)" }}>
+          <Wand2 size={11} style={{ color: "oklch(0.78 0.18 50)" }} />
+        </div>
+        <span className="text-[12px] font-semibold" style={{ color: text }}>提示词</span>
+      </div>
+      {/* Textarea */}
+      <div className="p-3 nodrag nopan">
+        <textarea
+          value={prompt}
+          onChange={e => setPrompt(e.target.value)}
+          className="w-full rounded-lg px-3 py-2 text-[11px] leading-relaxed resize-none outline-none"
+          style={{ background: inputBg, border: `1px solid ${inputBorder}`, color: text, minHeight: 80 }}
+          placeholder="输入提示词..."
+          rows={4}
+          onClick={e => e.stopPropagation()}
+        />
+      </div>
+      {/* Generate button */}
+      <div className="px-3 pb-3 nodrag nopan">
+        <button
+          className="w-full py-1.5 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-opacity hover:opacity-90"
+          style={{ background: "oklch(0.58 0.22 290)", color: "white" }}
+          onClick={() => toast("开始生成", { description: prompt.slice(0, 40) + "…" })}
+        >
+          <Sparkles size={11} />
+          生成
+        </button>
+      </div>
+    </NodeWrapper>
+  );
+}
+
+// ── Text Node ──────────────────────────────────────────────────
+function TextNodeComponent({ data, selected }: { data: Record<string, unknown>; selected: boolean }) {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
+  const [model, setModel] = useState("gpt-4o");
+  const [text2, setText2] = useState((data.text as string) || "");
+  const { deleteElements } = useReactFlow();
+  const nodeId = (data as { id?: string }).id || "";
+
+  const colors = [
+    { bg: isDark ? "oklch(0.72 0.18 50 / 0.12)" : "oklch(0.72 0.18 50 / 0.08)", border: "oklch(0.72 0.18 50 / 0.3)" },
+    { bg: isDark ? "oklch(0.72 0.18 160 / 0.12)" : "oklch(0.72 0.18 160 / 0.08)", border: "oklch(0.72 0.18 160 / 0.3)" },
+    { bg: isDark ? "oklch(0.72 0.18 290 / 0.12)" : "oklch(0.72 0.18 290 / 0.08)", border: "oklch(0.72 0.18 290 / 0.3)" },
+  ];
+  const colorIdx = typeof data.colorIdx === "number" ? data.colorIdx % colors.length : 0;
+  const c = colors[colorIdx];
+  const textColor = isDark ? "oklch(0.78 0.01 270)" : "oklch(0.25 0.01 270)";
+  const headerBorder = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
+
+  return (
+    <NodeWrapper selected={selected} isDark={isDark} model={model} onModelChange={setModel}
+      onDelete={() => deleteElements({ nodes: [{ id: nodeId }] })}
+      style={{ width: 200, background: c.bg, border: `1.5px solid ${c.border}` }}>
+      {/* Header */}
+      <div className="flex items-center gap-2 px-3 py-2" style={{ borderBottom: `1px solid ${headerBorder}` }}>
+        <Type size={11} style={{ color: textColor, opacity: 0.6 }} />
+        <span className="text-[11px] font-semibold" style={{ color: textColor }}>备注</span>
+      </div>
+      {/* Text */}
+      <div className="p-3 nodrag nopan">
+        <textarea
+          value={text2}
+          onChange={e => setText2(e.target.value)}
+          className="w-full bg-transparent text-[11px] leading-relaxed resize-none outline-none"
+          style={{ color: textColor, minHeight: 60 }}
+          placeholder="输入备注..."
+          rows={3}
+          onClick={e => e.stopPropagation()}
+        />
+      </div>
+    </NodeWrapper>
+  );
+}
+
+// ── Custom Edge ────────────────────────────────────────────────
+function TapnowEdge({
+  id, sourceX, sourceY, targetX, targetY,
+  sourcePosition, targetPosition, selected,
+}: EdgeProps) {
+  const [edgePath] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
+  const { deleteElements } = useReactFlow();
+
+  const stroke = selected ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.376)";
+  const strokeWidth = selected ? 3.5 : 3;
+
+  // Midpoint for delete button
+  const midX = (sourceX + targetX) / 2;
+  const midY = (sourceY + targetY) / 2;
+
+  return (
+    <>
+      <BaseEdge id={id} path={edgePath} style={{ stroke, strokeWidth, strokeLinecap: "round" }} />
+      {selected && (
+        <EdgeLabelRenderer>
+          <div
+            style={{
+              position: "absolute",
+              transform: `translate(-50%, -50%) translate(${midX}px,${midY}px)`,
+              pointerEvents: "all",
+              zIndex: 10,
+            }}
+            className="nodrag nopan"
+          >
+            <button
+              onClick={() => deleteElements({ edges: [{ id }] })}
+              className="w-5 h-5 rounded-full flex items-center justify-center shadow-lg transition-opacity hover:opacity-80"
+              style={{ background: "oklch(0.55 0.22 20)", border: "1.5px solid rgba(255,255,255,0.3)" }}
+            >
+              <X size={9} color="white" />
+            </button>
+          </div>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+}
+
+// ── Node types & edge types ────────────────────────────────────
+const nodeTypes: NodeTypes = {
+  asset: AssetNodeComponent as unknown as NodeTypes["asset"],
+  chat: ChatNodeComponent as unknown as NodeTypes["chat"],
+  prompt: PromptNodeComponent as unknown as NodeTypes["prompt"],
+  text: TextNodeComponent as unknown as NodeTypes["text"],
+};
+
+const edgeTypes: EdgeTypes = {
+  tapnow: TapnowEdge as unknown as EdgeTypes["tapnow"],
+};
+
+// ── Initial nodes ──────────────────────────────────────────────
+const initialNodes: Node[] = [
+  { id: "chat-1",   type: "chat",   position: { x: 60,   y: 80  }, data: { id: "chat-1",   assetId: "a1" } },
+  { id: "asset-1",  type: "asset",  position: { x: 460,  y: 80  }, data: { id: "asset-1",  assetId: "a1" } },
+  { id: "asset-2",  type: "asset",  position: { x: 720,  y: 80  }, data: { id: "asset-2",  assetId: "a2" } },
+  { id: "prompt-1", type: "prompt", position: { x: 460,  y: 420 }, data: { id: "prompt-1", prompt: "为次世代跑鞋品牌设计产品页视觉资产，包括英雄图、产品特写和运动员穿着图，突出性能与材质。" } },
+  { id: "text-1",   type: "text",   position: { x: 780,  y: 420 }, data: { id: "text-1",   text: "版本 v2.1\n已生成 4 张图片\n待审核：英雄图", colorIdx: 0 } },
+  { id: "asset-3",  type: "asset",  position: { x: 980,  y: 80  }, data: { id: "asset-3",  assetId: "a3" } },
+  { id: "asset-4",  type: "asset",  position: { x: 980,  y: 420 }, data: { id: "asset-4",  assetId: "a4" } },
+];
+
+const initialEdges: Edge[] = [
+  { id: "e1", source: "chat-1",   target: "asset-1",  type: "tapnow", sourceHandle: "right", targetHandle: "left" },
+  { id: "e2", source: "chat-1",   target: "asset-2",  type: "tapnow", sourceHandle: "right", targetHandle: "left" },
+  { id: "e3", source: "prompt-1", target: "asset-3",  type: "tapnow", sourceHandle: "right", targetHandle: "left" },
+  { id: "e4", source: "asset-1",  target: "prompt-1", type: "tapnow", sourceHandle: "right", targetHandle: "left" },
+];
+
+// ── Bottom AI Prompt Bar ───────────────────────────────────────
+function BottomPromptBar({ isDark }: { isDark: boolean }) {
+  const [prompt, setPrompt] = useState("");
+  const [model, setModel] = useState("gpt-4o");
+  const [rows, setRows] = useState(1);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const bg = isDark ? "oklch(0.13 0.015 270 / 0.95)" : "oklch(0.98 0.004 270 / 0.95)";
+  const border = isDark ? "oklch(1 0 0 / 12%)" : "oklch(0 0 0 / 12%)";
+  const text = isDark ? "oklch(0.80 0.008 270)" : "oklch(0.20 0.008 270)";
+  const placeholder = isDark ? "oklch(0.40 0.008 270)" : "oklch(0.60 0.008 270)";
+  const divider = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      if (prompt.trim()) {
+        toast("AI 正在生成节点", { description: prompt.slice(0, 60) + (prompt.length > 60 ? "…" : "") });
+        setPrompt("");
+        setRows(1);
       }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [selectedNodeId, removeNode, resetView, zoomIn, zoomOut]);
-
-  const handleCanvasMouseDown = useCallback((e: React.MouseEvent) => {
-    if (activeTool === "hand" || e.button === 1 || (e.button === 0 && e.altKey)) {
-      startPan(e);
-    } else {
-      setSelectedNodeId(null);
     }
-  }, [activeTool, startPan, setSelectedNodeId]);
+  };
 
-  // ── Right-click context menu ──────────────────────────────
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; canvasX: number; canvasY: number } | null>(null);
+  const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setPrompt(e.target.value);
+    const lineCount = e.target.value.split("\n").length;
+    setRows(Math.min(lineCount, 5));
+  };
+
+  return (
+    <div
+      className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-2xl shadow-2xl overflow-hidden"
+      style={{
+        background: bg,
+        border: `1.5px solid ${border}`,
+        backdropFilter: "blur(20px)",
+        width: "min(680px, calc(100% - 48px))",
+        zIndex: 50,
+      }}
+    >
+      {/* Text input */}
+      <div className="px-4 pt-3 pb-2">
+        <textarea
+          ref={textareaRef}
+          value={prompt}
+          onChange={handleInput}
+          onKeyDown={handleKeyDown}
+          rows={rows}
+          className="w-full bg-transparent text-[13px] leading-relaxed resize-none outline-none"
+          style={{ color: text }}
+          placeholder="描述你想创作的内容，AI 将在画布上生成节点..."
+        />
+      </div>
+      {/* Bottom toolbar */}
+      <div className="flex items-center gap-2 px-3 pb-3" style={{ borderTop: `1px solid ${divider}`, paddingTop: 8 }}>
+        {/* Model selector */}
+        <ModelSelector model={model} onChange={setModel} isDark={isDark} />
+        {/* Attach */}
+        <button
+          className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] transition-opacity hover:opacity-80"
+          style={{ color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.55 0.01 270)" }}
+          onClick={() => toast("参考图", { description: "功能即将上线" })}
+        >
+          <Paperclip size={12} />
+          <span>参考图</span>
+        </button>
+        {/* Spacer */}
+        <div className="flex-1" />
+        {/* Hint */}
+        <span className="text-[10px]" style={{ color: isDark ? "oklch(0.38 0.008 270)" : "oklch(0.62 0.008 270)" }}>
+          Enter 发送 · Shift+Enter 换行
+        </span>
+        {/* Send */}
+        <button
+          onClick={() => {
+            if (prompt.trim()) {
+              toast("AI 正在生成节点", { description: prompt.slice(0, 60) + (prompt.length > 60 ? "…" : "") });
+              setPrompt("");
+              setRows(1);
+            }
+          }}
+          className="w-7 h-7 rounded-lg flex items-center justify-center transition-opacity hover:opacity-80"
+          style={{ background: prompt.trim() ? "oklch(0.58 0.22 290)" : (isDark ? "oklch(0.22 0.015 270)" : "oklch(0.88 0.005 270)") }}
+        >
+          <Send size={13} color={prompt.trim() ? "white" : (isDark ? "oklch(0.40 0.01 270)" : "oklch(0.65 0.01 270)")} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Context Menu ───────────────────────────────────────────────
+interface CtxMenuState { x: number; y: number; flowX: number; flowY: number; }
+
+function ContextMenu({ menu, onClose, onAdd, isDark }: {
+  menu: CtxMenuState;
+  onClose: () => void;
+  onAdd: (type: string, x: number, y: number) => void;
+  isDark: boolean;
+}) {
+  const bg = isDark ? "oklch(0.15 0.018 270)" : "oklch(0.99 0.004 270)";
+  const border = isDark ? "oklch(1 0 0 / 12%)" : "oklch(0 0 0 / 12%)";
+  const text = isDark ? "oklch(0.80 0.008 270)" : "oklch(0.20 0.008 270)";
+  const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
+  const divider = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
+
+  const items = [
+    { icon: <ImageIcon size={13} />, label: "添加素材节点", type: "asset", color: "oklch(0.72 0.18 240)" },
+    { icon: <MessageSquare size={13} />, label: "添加对话节点", type: "chat", color: "oklch(0.72 0.22 290)" },
+    { icon: <Wand2 size={13} />, label: "添加提示词节点", type: "prompt", color: "oklch(0.78 0.18 50)" },
+    { icon: <Type size={13} />, label: "添加文本备注", type: "text", color: "oklch(0.72 0.18 160)" },
+  ];
+
+  useEffect(() => {
+    const handler = () => onClose();
+    window.addEventListener("click", handler);
+    return () => window.removeEventListener("click", handler);
+  }, [onClose]);
+
+  return (
+    <div
+      className="absolute rounded-xl overflow-hidden shadow-2xl"
+      style={{
+        left: menu.x, top: menu.y,
+        background: bg, border: `1px solid ${border}`,
+        minWidth: 180, zIndex: 1000,
+      }}
+      onClick={e => e.stopPropagation()}
+    >
+      <div className="px-3 py-2" style={{ borderBottom: `1px solid ${divider}` }}>
+        <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: isDark ? "oklch(0.45 0.01 270)" : "oklch(0.55 0.01 270)" }}>
+          添加节点
+        </span>
+      </div>
+      {items.map(item => (
+        <button
+          key={item.type}
+          className="flex items-center gap-2.5 w-full px-3 py-2.5 text-left text-[12px] transition-colors"
+          style={{ color: text }}
+          onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+          onClick={() => { onAdd(item.type, menu.flowX, menu.flowY); onClose(); }}
+        >
+          <span style={{ color: item.color }}>{item.icon}</span>
+          {item.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ── Main Canvas (inner, uses useReactFlow) ─────────────────────
+interface InnerCanvasProps { projectId?: string; }
+
+function InnerCanvas({ projectId = "p1" }: InnerCanvasProps) {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
+  const { screenToFlowPosition } = useReactFlow();
+
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const [ctxMenu, setCtxMenu] = useState<CtxMenuState | null>(null);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const onConnect = useCallback((params: Connection) => {
+    setEdges(eds => addEdge({ ...params, type: "tapnow" }, eds));
+  }, [setEdges]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
-    const canvasX = (e.clientX - rect.left - transform.x) / transform.scale;
-    const canvasY = (e.clientY - rect.top - transform.y) / transform.scale;
-    setCtxMenu({ x: e.clientX - rect.left, y: e.clientY - rect.top, canvasX, canvasY });
-  }, [transform]);
+    const flowPos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    setCtxMenu({ x: e.clientX - rect.left, y: e.clientY - rect.top, flowX: flowPos.x, flowY: flowPos.y });
+  }, [screenToFlowPosition]);
 
-  const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
+  const addNode = useCallback((type: string, x: number, y: number) => {
+    const id = `${type}-${Date.now()}`;
+    const newNode: Node = {
+      id,
+      type,
+      position: { x, y },
+      data: {
+        id,
+        assetId: type === "asset" ? `a${Math.ceil(Math.random() * 4)}` : undefined,
+        prompt: type === "prompt" ? "" : undefined,
+        text: type === "text" ? "" : undefined,
+        colorIdx: type === "text" ? Math.floor(Math.random() * 3) : undefined,
+      },
+    };
+    setNodes(nds => [...nds, newNode]);
+  }, [setNodes]);
 
-  const cursor = activeTool === "hand" || isPanning
-    ? isPanning ? "grabbing" : "grab"
-    : isDraggingNode ? "grabbing" : "default";
-
-  const scalePercent = Math.round(transform.scale * 100);
-
-  // Theme-aware canvas colors
-  const canvasBg    = isDark ? "oklch(0.09 0.012 270)"      : "oklch(0.93 0.006 270)";
-  const dotColor    = isDark ? "oklch(1 0 0 / 10%)"         : "oklch(0 0 0 / 10%)";
-  const toolbarBg   = isDark ? "oklch(0.11 0.015 270)"      : "oklch(0.97 0.004 270)";
-  const toolbarBdr  = isDark ? "oklch(1 0 0 / 6%)"          : "oklch(0 0 0 / 8%)";
-  const ctxBg       = isDark ? "oklch(0.15 0.018 270)"      : "oklch(0.99 0.004 270)";
-  const ctxBdr      = isDark ? "oklch(1 0 0 / 12%)"         : "oklch(0 0 0 / 12%)";
-  const ctxText     = isDark ? "oklch(0.80 0.008 270)"      : "oklch(0.20 0.008 270)";
-  const ctxDivider  = isDark ? "oklch(1 0 0 / 8%)"          : "oklch(0 0 0 / 8%)";
+  const canvasBg = isDark ? "#0d0d14" : "#eeeef2";
+  const dotColor = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
 
   return (
-    <div className="flex flex-col flex-1 min-w-0 h-full overflow-hidden relative">
-      {/* Canvas toolbar */}
-      <CanvasToolbar
-        activeTool={activeTool}
-        setActiveTool={setActiveTool}
-        showGrid={showGrid}
-        setShowGrid={setShowGrid}
-        onZoomIn={zoomIn}
-        onZoomOut={zoomOut}
-        onFitView={() => { const el = containerRef.current; if (el) fitView(el.clientWidth, el.clientHeight); }}
-        onResetView={resetView}
-        scalePercent={scalePercent}
-        projectTitle={project.title}
-        toolbarBg={toolbarBg}
-        toolbarBdr={toolbarBdr}
-        isDark={isDark}
-      />
-
-      {/* Canvas area */}
-      <div
-        ref={containerRef}
-        className="flex-1 overflow-hidden relative"
-        style={{ cursor, background: canvasBg }}
-        onMouseDown={(e) => { handleCanvasMouseDown(e); closeCtxMenu(); }}
-        onMouseMove={onMouseMove}
-        onMouseUp={stopDrag}
-        onMouseLeave={stopDrag}
+    <div ref={containerRef} className="flex-1 relative overflow-hidden" style={{ height: "100%" }}>
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
+        nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         onContextMenu={handleContextMenu}
+        onClick={() => setCtxMenu(null)}
+        fitView
+        fitViewOptions={{ padding: 0.15 }}
+        minZoom={0.1}
+        maxZoom={4}
+        defaultEdgeOptions={{ type: "tapnow" }}
+        connectionLineStyle={{ stroke: "rgba(255,255,255,0.5)", strokeWidth: 2.5 }}
+        connectionLineType={"bezier" as any}
+        style={{ background: canvasBg }}
+        proOptions={{ hideAttribution: true }}
       >
-        {/* Dot grid */}
-        {showGrid && (
-          <div
-            className="absolute inset-0 pointer-events-none"
-            style={{
-              backgroundImage: `radial-gradient(circle, ${dotColor} 1px, transparent 1px)`,
-              backgroundSize: `${24 * transform.scale}px ${24 * transform.scale}px`,
-              backgroundPosition: `${transform.x % (24 * transform.scale)}px ${transform.y % (24 * transform.scale)}px`,
-            }}
-          />
-        )}
-
-        {/* Canvas world */}
-        <div
-          className="absolute origin-top-left"
-          style={{ transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`, willChange: "transform" }}
-        >
-          {nodes.map((node) => {
-            const commonProps = { node, isSelected: selectedNodeId === node.id, onDragStart: startNodeDrag, onSelect: setSelectedNodeId, onRemove: removeNode };
-            switch (node.type) {
-              case "asset":  return <AssetNode  key={node.id} {...commonProps} />;
-              case "chat":   return <ChatNode   key={node.id} {...commonProps} />;
-              case "prompt": return <PromptNode key={node.id} {...commonProps} onGenerate={(p) => toast("开始生成", { description: p.slice(0, 40) + "…" })} />;
-              case "text":   return <TextNode   key={node.id} {...commonProps} />;
-              default:       return null;
-            }
-          })}
-        </div>
-
-        {/* Empty state */}
-        {nodes.length === 0 && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-            <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4"
-              style={{ background: "oklch(0.58 0.22 290 / 0.1)", border: "1px solid oklch(0.58 0.22 290 / 0.2)" }}>
-              <Sparkles size={28} style={{ color: "oklch(0.58 0.22 290 / 0.5)" }} />
-            </div>
-            <p className="text-[14px] font-medium" style={{ color: isDark ? "oklch(0.40 0.01 270)" : "oklch(0.55 0.01 270)" }}>画布为空</p>
-            <p className="text-[12px] mt-1" style={{ color: isDark ? "oklch(0.32 0.01 270)" : "oklch(0.60 0.01 270)" }}>
-              右键点击画布添加节点
-            </p>
-          </div>
-        )}
-
-        {/* ── Right-click context menu ── */}
-        {ctxMenu && (
-          <>
-            <div className="fixed inset-0 z-40" onClick={closeCtxMenu} />
-            <div
-              className="absolute z-50 rounded-xl overflow-hidden"
-              style={{
-                left: ctxMenu.x, top: ctxMenu.y,
-                background: ctxBg,
-                border: `1px solid ${ctxBdr}`,
-                boxShadow: "0 12px 40px oklch(0 0 0 / 0.5)",
-                minWidth: 200,
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Section: Add node */}
-              <div className="px-3 pt-2.5 pb-1">
-                <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: isDark ? "oklch(0.42 0.01 270)" : "oklch(0.55 0.01 270)" }}>
-                  添加节点
-                </span>
-              </div>
-              {[
-                { icon: ImageIcon,    label: "素材节点",   color: "oklch(0.78 0.18 290)", action: () => { addNode({ id: `asset-${Date.now()}`,  type: "asset",  x: ctxMenu.canvasX, y: ctxMenu.canvasY, width: 240, data: { assetId: GENERATED_ASSETS[Math.floor(Math.random() * GENERATED_ASSETS.length)].id } }); closeCtxMenu(); } },
-                { icon: MessageSquare,label: "AI 对话框",  color: "oklch(0.72 0.18 200)", action: () => { addNode({ id: `chat-${Date.now()}`,   type: "chat",   x: ctxMenu.canvasX, y: ctxMenu.canvasY, width: 340, height: 440, data: {} }); closeCtxMenu(); } },
-                { icon: Wand2,        label: "提示词节点", color: "oklch(0.78 0.18 60)",  action: () => { addNode({ id: `prompt-${Date.now()}`, type: "prompt", x: ctxMenu.canvasX, y: ctxMenu.canvasY, width: 300, data: { prompt: "" } }); closeCtxMenu(); } },
-                { icon: Type,         label: "文本备注",   color: "oklch(0.80 0.18 330)", action: () => { addNode({ id: `text-${Date.now()}`,   type: "text",   x: ctxMenu.canvasX, y: ctxMenu.canvasY, width: 200, data: { text: "备注…", colorIdx: Math.floor(Math.random() * 4) } }); closeCtxMenu(); } },
-              ].map(({ icon: Icon, label, color, action }) => (
-                <button key={label} onClick={action}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] transition-colors text-left"
-                  style={{ color: ctxText }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 4%)")}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                >
-                  <Icon size={13} style={{ color }} />
-                  <span>{label}</span>
-                </button>
-              ))}
-
-              <div style={{ height: 1, background: ctxDivider, margin: "4px 12px" }} />
-
-              {/* Section: Canvas actions */}
-              <div className="px-3 pt-1 pb-1">
-                <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: isDark ? "oklch(0.42 0.01 270)" : "oklch(0.55 0.01 270)" }}>
-                  画布操作
-                </span>
-              </div>
-              <button onClick={() => { toast("全选节点", { description: "功能即将上线" }); closeCtxMenu(); }}
-                className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] transition-colors text-left"
-                style={{ color: isDark ? "oklch(0.65 0.01 270)" : "oklch(0.45 0.01 270)" }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 4%)")}
-                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-              >
-                <Layers size={13} style={{ color: isDark ? "oklch(0.52 0.01 270)" : "oklch(0.55 0.01 270)" }} />
-                <span>全选节点</span>
-              </button>
-
-              {selectedNodeId && (
-                <>
-                  <div style={{ height: 1, background: ctxDivider, margin: "4px 12px" }} />
-                  <button onClick={() => { removeNode(selectedNodeId); closeCtxMenu(); }}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] transition-colors text-left"
-                    style={{ color: "oklch(0.65 0.22 25)" }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = "oklch(0.65 0.22 25 / 0.08)")}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                  >
-                    <Trash2 size={13} style={{ color: "oklch(0.65 0.22 25)" }} />
-                    <span>删除选中节点</span>
-                  </button>
-                </>
-              )}
-              <div className="h-1.5" />
-            </div>
-          </>
-        )}
-
-        {/* Zoom indicator */}
-        <div
-          className="absolute bottom-4 right-4 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg pointer-events-none"
+        <Background
+          variant={BackgroundVariant.Dots}
+          gap={24}
+          size={1.2}
+          color={dotColor}
+        />
+        <MiniMap
           style={{
-            background: isDark ? "oklch(0.14 0.018 270 / 0.9)" : "oklch(0.97 0.004 270 / 0.92)",
-            border: `1px solid ${isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 10%)"}`,
-            backdropFilter: "blur(8px)",
+            background: isDark ? "oklch(0.11 0.015 270)" : "oklch(0.95 0.004 270)",
+            border: `1px solid ${isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"}`,
+            borderRadius: 8,
           }}
-        >
-          <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.50 0.01 270)" }}>
-            {scalePercent}%
-          </span>
-        </div>
-      </div>
+          maskColor={isDark ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.5)"}
+          nodeColor={isDark ? "oklch(0.35 0.02 270)" : "oklch(0.75 0.005 270)"}
+        />
+        <Controls
+          style={{
+            background: isDark ? "oklch(0.13 0.015 270)" : "oklch(0.97 0.004 270)",
+            border: `1px solid ${isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"}`,
+            borderRadius: 8,
+          }}
+        />
+      </ReactFlow>
 
-      {/* ── Bottom AI Input Bar ── */}
+      {/* Context menu */}
+      {ctxMenu && (
+        <ContextMenu
+          menu={ctxMenu}
+          onClose={() => setCtxMenu(null)}
+          onAdd={addNode}
+          isDark={isDark}
+        />
+      )}
+
+      {/* Bottom AI prompt bar */}
       <BottomPromptBar isDark={isDark} />
     </div>
   );
 }
 
-// ── Bottom Prompt Bar (tapnow-style) ──────────────────────────
+// ── Public export (wrapped in ReactFlowProvider) ───────────────
+interface InfiniteCanvasProps { projectId?: string; }
 
-const BOTTOM_MODELS = AI_MODELS.slice(0, 4);
-
-function BottomPromptBar({ isDark }: { isDark: boolean }) {
-  const [prompt, setPrompt] = useState("");
-  const [selectedModel, setSelectedModel] = useState(AI_MODELS[0]);
-  const [modelOpen, setModelOpen] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const barBg    = isDark ? "oklch(0.13 0.016 270 / 0.95)" : "oklch(0.99 0.004 270 / 0.96)";
-  const barBdr   = isDark ? "oklch(1 0 0 / 12%)"           : "oklch(0 0 0 / 12%)";
-  const inputBg  = isDark ? "oklch(0.10 0.014 270)"         : "oklch(0.96 0.005 270)";
-  const inputBdr = isDark ? "oklch(1 0 0 / 10%)"            : "oklch(0 0 0 / 10%)";
-  const textPri  = isDark ? "oklch(0.88 0.008 270)"         : "oklch(0.15 0.008 270)";
-  const textSec  = isDark ? "oklch(0.48 0.01 270)"          : "oklch(0.55 0.01 270)";
-  const chipBg   = isDark ? "oklch(1 0 0 / 6%)"             : "oklch(0 0 0 / 6%)";
-  const chipBdr  = isDark ? "oklch(1 0 0 / 10%)"            : "oklch(0 0 0 / 10%)";
-  const popBg    = isDark ? "oklch(0.15 0.018 270)"         : "oklch(0.99 0.004 270)";
-  const popBdr   = isDark ? "oklch(1 0 0 / 12%)"            : "oklch(0 0 0 / 12%)";
-
-  const handleSend = async () => {
-    if (!prompt.trim() || isGenerating) return;
-    setIsGenerating(true);
-    await new Promise((r) => setTimeout(r, 1800));
-    toast("生成完成", { description: `已使用 ${selectedModel.label} 处理您的请求` });
-    setPrompt("");
-    setIsGenerating(false);
-  };
-
-  // Auto-resize textarea
-  const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setPrompt(e.target.value);
-    const ta = e.target;
-    ta.style.height = "auto";
-    ta.style.height = Math.min(ta.scrollHeight, 120) + "px";
-  };
-
+export default function InfiniteCanvas({ projectId = "p1" }: InfiniteCanvasProps) {
   return (
-    <div
-      className="absolute bottom-0 left-0 right-0 flex justify-center pb-5 px-6 pointer-events-none"
-      style={{ zIndex: 30 }}
-    >
-      <div
-        className="w-full max-w-2xl rounded-2xl pointer-events-auto"
-        style={{
-          background: barBg,
-          border: `1px solid ${barBdr}`,
-          boxShadow: "0 -4px 32px oklch(0 0 0 / 0.2), 0 8px 32px oklch(0 0 0 / 0.3)",
-          backdropFilter: "blur(20px)",
-        }}
-      >
-        {/* Text area */}
-        <div className="px-4 pt-3.5 pb-2">
-          <textarea
-            ref={textareaRef}
-            value={prompt}
-            onChange={handleInput}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
-            }}
-            placeholder="描述你想创作的内容，AI 将在画布上生成节点…"
-            rows={1}
-            className="w-full bg-transparent outline-none resize-none text-[14px] leading-relaxed"
-            style={{
-              color: textPri,
-              minHeight: 24,
-              maxHeight: 120,
-              fontFamily: "inherit",
-            }}
-          />
-        </div>
-
-        {/* Bottom toolbar */}
-        <div
-          className="flex items-center gap-2 px-3 pb-3"
-          style={{ borderTop: `1px solid ${isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 6%)"}`, paddingTop: 8 }}
-        >
-          {/* Model selector */}
-          <div className="relative">
-            <button
-              onClick={() => setModelOpen((v) => !v)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium transition-all"
-              style={{
-                background: modelOpen ? "oklch(0.58 0.22 290 / 0.15)" : chipBg,
-                border: `1px solid ${modelOpen ? "oklch(0.58 0.22 290 / 0.35)" : chipBdr}`,
-                color: modelOpen ? "oklch(0.78 0.18 290)" : textPri,
-              }}
-            >
-              <Cpu size={12} style={{ color: selectedModel.color }} />
-              <span>{selectedModel.label}</span>
-              <ChevronDown size={10} style={{ color: textSec }} />
-            </button>
-
-            {modelOpen && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setModelOpen(false)} />
-                <div
-                  className="absolute bottom-full left-0 mb-2 rounded-xl overflow-hidden z-50"
-                  style={{
-                    background: popBg,
-                    border: `1px solid ${popBdr}`,
-                    boxShadow: "0 -8px 32px oklch(0 0 0 / 0.4)",
-                    minWidth: 200,
-                  }}
-                >
-                  <div className="px-3 pt-2.5 pb-1">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: textSec }}>选择模型</span>
-                  </div>
-                  {AI_MODELS.map((m) => (
-                    <button
-                      key={m.id}
-                      onClick={() => { setSelectedModel(m); setModelOpen(false); }}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] transition-colors text-left"
-                      style={{
-                        background: selectedModel.id === m.id ? "oklch(0.58 0.22 290 / 0.12)" : "transparent",
-                        color: selectedModel.id === m.id ? "oklch(0.78 0.18 290)" : textPri,
-                      }}
-                      onMouseEnter={(e) => { if (selectedModel.id !== m.id) e.currentTarget.style.background = isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 4%)"; }}
-                      onMouseLeave={(e) => { if (selectedModel.id !== m.id) e.currentTarget.style.background = "transparent"; }}
-                    >
-                      <div className="w-2 h-2 rounded-full shrink-0" style={{ background: m.color }} />
-                      <div className="flex flex-col">
-                        <span className="font-medium">{m.label}</span>
-                        <span className="text-[10px]" style={{ color: textSec }}>{m.vendor}</span>
-                      </div>
-                      {selectedModel.id === m.id && (
-                        <div className="ml-auto w-1.5 h-1.5 rounded-full" style={{ background: "oklch(0.72 0.18 200)" }} />
-                      )}
-                    </button>
-                  ))}
-                  <div className="h-1.5" />
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Attachment */}
-          <button
-            onClick={() => toast("上传参考图", { description: "功能即将上线" })}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] transition-all"
-            style={{ background: chipBg, border: `1px solid ${chipBdr}`, color: textSec }}
-          >
-            <Paperclip size={12} />
-            <span>参考图</span>
-          </button>
-
-          {/* Spacer */}
-          <div className="flex-1" />
-
-          {/* Hint */}
-          <span className="text-[11px] hidden sm:block" style={{ color: isDark ? "oklch(0.35 0.01 270)" : "oklch(0.60 0.01 270)" }}>
-            Enter 发送 · Shift+Enter 换行
-          </span>
-
-          {/* Send button */}
-          <button
-            onClick={handleSend}
-            disabled={!prompt.trim() || isGenerating}
-            className="w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-150 disabled:opacity-40 active:scale-95"
-            style={{
-              background: prompt.trim() && !isGenerating
-                ? "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))"
-                : isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)",
-            }}
-          >
-            {isGenerating
-              ? <div className="w-3.5 h-3.5 rounded-full border-2 border-white/40 border-t-white animate-spin" />
-              : <Send size={13} className={prompt.trim() ? "text-white" : ""} style={{ color: prompt.trim() ? undefined : textSec }} />
-            }
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Canvas Toolbar ────────────────────────────────────────────
-
-function CanvasToolbar({
-  activeTool, setActiveTool, showGrid, setShowGrid,
-  onZoomIn, onZoomOut, onFitView, onResetView,
-  scalePercent, projectTitle, toolbarBg, toolbarBdr, isDark,
-}: {
-  activeTool: Tool;
-  setActiveTool: (t: Tool) => void;
-  showGrid: boolean;
-  setShowGrid: (v: boolean) => void;
-  onZoomIn: () => void;
-  onZoomOut: () => void;
-  onFitView: () => void;
-  onResetView: () => void;
-  scalePercent: number;
-  projectTitle: string;
-  toolbarBg: string;
-  toolbarBdr: string;
-  isDark: boolean;
-}) {
-  const textSec   = isDark ? "oklch(0.52 0.01 270)" : "oklch(0.55 0.01 270)";
-  const textPri   = isDark ? "oklch(0.75 0.01 270)" : "oklch(0.25 0.01 270)";
-  const divider   = isDark ? "oklch(1 0 0 / 8%)"    : "oklch(0 0 0 / 8%)";
-  const chipBg    = isDark ? "oklch(1 0 0 / 5%)"    : "oklch(0 0 0 / 5%)";
-  const chipBdr   = isDark ? "oklch(1 0 0 / 8%)"    : "oklch(0 0 0 / 8%)";
-
-  return (
-    <div
-      className="flex items-center gap-2 px-3 shrink-0"
-      style={{ height: 48, borderBottom: `1px solid ${toolbarBdr}`, background: toolbarBg }}
-    >
-      {/* Project title */}
-      <span className="text-[13px] font-semibold mr-2" style={{ color: textPri }}>{projectTitle}</span>
-      <div className="w-px h-5 mx-1" style={{ background: divider }} />
-
-      {/* Tool selector */}
-      <div className="flex items-center gap-0.5 p-0.5 rounded-lg" style={{ background: chipBg, border: `1px solid ${chipBdr}` }}>
-        {([
-          { id: "select", icon: MousePointer2, title: "选择 (V)" },
-          { id: "hand",   icon: Hand,          title: "手型 (H)" },
-        ] as { id: Tool; icon: React.ElementType; title: string }[]).map(({ id, icon: Icon, title }) => (
-          <button key={id} title={title} onClick={() => setActiveTool(id)}
-            className="w-7 h-7 flex items-center justify-center rounded-md transition-all duration-150"
-            style={activeTool === id
-              ? { background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))" }
-              : { color: textSec }
-            }
-          >
-            <Icon size={13} className={activeTool === id ? "text-white" : ""} />
-          </button>
-        ))}
-      </div>
-
-      <div className="w-px h-5 mx-1" style={{ background: divider }} />
-
-      {/* Right-click hint */}
-      <div
-        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px]"
-        style={{ background: chipBg, border: `1px solid ${chipBdr}`, color: textSec }}
-      >
-        <span style={{ fontFamily: "monospace" }}>右键</span>
-        <span>添加节点</span>
-      </div>
-
-      {/* Grid toggle */}
-      <button title="切换网格" onClick={() => setShowGrid(!showGrid)}
-        className="w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-150"
-        style={showGrid
-          ? { background: "oklch(0.58 0.22 290 / 0.2)", border: "1px solid oklch(0.58 0.22 290 / 0.4)", color: "oklch(0.78 0.18 290)" }
-          : { color: textSec }
-        }
-      >
-        <Grid3X3 size={14} />
-      </button>
-
-      <div className="flex-1" />
-
-      {/* Zoom controls */}
-      <div className="flex items-center gap-0.5 p-0.5 rounded-lg" style={{ background: chipBg, border: `1px solid ${chipBdr}` }}>
-        <button title="缩小 (⌘-)" onClick={onZoomOut}
-          className="w-7 h-7 flex items-center justify-center rounded-md transition-colors"
-          style={{ color: textSec }}
-        >
-          <ZoomOut size={13} />
-        </button>
-        <button onClick={onResetView} title="重置视图 (⌘0)"
-          className="px-2 h-7 flex items-center justify-center rounded-md transition-colors"
-          style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: isDark ? "oklch(0.60 0.01 270)" : "oklch(0.45 0.01 270)", minWidth: 44 }}
-        >
-          {scalePercent}%
-        </button>
-        <button title="放大 (⌘+)" onClick={onZoomIn}
-          className="w-7 h-7 flex items-center justify-center rounded-md transition-colors"
-          style={{ color: textSec }}
-        >
-          <ZoomIn size={13} />
-        </button>
-        <button title="适应视图" onClick={onFitView}
-          className="w-7 h-7 flex items-center justify-center rounded-md transition-colors"
-          style={{ color: textSec }}
-        >
-          <Maximize size={13} />
-        </button>
-      </div>
-    </div>
+    <ReactFlowProvider>
+      <InnerCanvas projectId={projectId} />
+    </ReactFlowProvider>
   );
 }

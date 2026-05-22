@@ -14,7 +14,7 @@ import {
 import type { CanvasNode } from "@/hooks/useCanvas";
 import { GENERATED_ASSETS } from "@/lib/workspace-data";
 import type { ChatMessage, AgentStep } from "@/lib/workspace-data";
-import { AI_MODELS } from "./InfiniteCanvas";
+import { AI_MODELS } from "@/lib/workspace-data";
 
 // ── Model Switcher (shared bottom toolbar) ────────────────────
 
