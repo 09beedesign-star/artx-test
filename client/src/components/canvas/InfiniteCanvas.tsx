@@ -359,6 +359,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const nodeId = (data as { id?: string }).id || "";
 
   const asset = GENERATED_ASSETS.find(a => a.id === (data.assetId as string)) || GENERATED_ASSETS[0];
+  const isEditing = !!(data as { isEditing?: boolean }).isEditing;
   const text = isDark ? "oklch(0.75 0.01 270)" : "oklch(0.30 0.01 270)";
   const subtext = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.55 0.01 270)";
   const tagBg = isDark ? "oklch(0.18 0.02 270)" : "oklch(0.92 0.005 270)";
@@ -405,6 +406,16 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
           onDoubleClick={(e) => { e.stopPropagation(); setPreview(true); }}
         >
           <img src={asset.src} alt={asset.title} className="w-full h-full object-cover" />
+          {/* 15% black mask shown when this node is being edited */}
+          {isEditing && (
+            <div
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                background: "rgba(0,0,0,0.15)",
+                transition: "opacity 0.4s ease",
+              }}
+            />
+          )}
           <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
             style={{ background: "rgba(0,0,0,0.35)" }}>
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium text-white"
@@ -1371,7 +1382,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   // ── Reference state: asset node clicked → inject into prompt bar (multi-select with Ctrl) ──
   const [referencedAssets, setReferencedAssets] = useState<{ id: string; title: string; src: string }[]>([]);
   // ── Edit-asset state: zoom in on canvas then show editing prompt bar ──
-  const [editAsset, setEditAsset] = useState<{ id: string; title: string; src: string } | null>(null);
+  const [editAsset, setEditAsset] = useState<{ id: string; title: string; src: string; nodeId: string } | null>(null);
   const [isZoomingToEdit, setIsZoomingToEdit] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1460,7 +1471,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         fitView({ nodes: [{ id: nodeId }], duration: 900, padding: 0.08 });
         // After animation completes, reveal the editing prompt bar
         setTimeout(() => {
-          setEditAsset({ id: asset.id, title: asset.title, src: asset.src });
+          setEditAsset({ id: asset.id, title: asset.title, src: asset.src, nodeId });
           setIsZoomingToEdit(false);
         }, 950);
       }
@@ -1537,10 +1548,17 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const canvasBg = isDark ? "#0d0d14" : "#eeeef2";
   const dotColor = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.28)";
 
+  // Inject isEditing flag into the target node's data so AssetNodeComponent can show the mask
+  const displayNodes = nodes.map(n =>
+    n.type === "asset" && editAsset && n.id === editAsset.nodeId
+      ? { ...n, data: { ...n.data, isEditing: true } }
+      : n
+  );
+
   return (
     <div ref={containerRef} className="flex-1 relative overflow-hidden" style={{ height: "100%" }}>
       <ReactFlow
-        nodes={nodes}
+        nodes={displayNodes}
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
@@ -1604,7 +1622,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         <AssetEditPromptBar
           asset={editAsset}
           isDark={isDark}
-          onClose={() => setEditAsset(null)}
+          onClose={() => {
+            setEditAsset(null);
+            // Remove isEditing flag from node data
+            setNodes(nds => nds.map(n =>
+              n.type === "asset" && n.id === editAsset.nodeId
+                ? { ...n, data: { ...n.data, isEditing: false } }
+                : n
+            ));
+          }}
         />
       )}
 
