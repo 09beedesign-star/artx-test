@@ -33,7 +33,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
-  const sidebarBg = isDark ? "oklch(0.11 0.012 270)" : "oklch(0.965 0.006 270)";
+  const sidebarBg = isDark ? "oklch(0.11 0.012 270)" : "#F5F5F5";
   const sidebarBorder = isDark ? "rgba(255,255,255,0.07)" : "oklch(0.88 0.006 255)";
   const iconDefault = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.50 0.012 255)";
   const iconActive = isDark ? "oklch(0.92 0.008 270)" : "oklch(0.22 0.018 255)";
