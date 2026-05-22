@@ -69,14 +69,12 @@ function CardMenu({
   return (
     <div ref={ref} className="relative" onClick={e => e.stopPropagation()}>
       <button
-        className="w-7 h-7 rounded-lg flex items-center justify-center transition-all active:scale-90"
+        className="w-5 h-5 rounded-md flex items-center justify-center transition-all active:scale-90"
         style={{
           background: open
-            ? (isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.14)")
-            : (isDark ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.75)"),
-          color: "white",
-          backdropFilter: "blur(6px)",
-          boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
+            ? (isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)")
+            : "transparent",
+          color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.50 0.012 255)",
         }}
         onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
       >
@@ -213,7 +211,7 @@ function ProjectCard({
       onClick={onSelect}
     >
       {/* Cover */}
-      <div className="relative overflow-hidden" style={{ aspectRatio: "16/9" }}>
+      <div className="relative overflow-hidden" style={{ aspectRatio: "4/3" }}>
         {project.cover ? (
           <img src={project.cover} alt={project.title} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
         ) : (
@@ -236,18 +234,6 @@ function ProjectCard({
             <Check size={12} color="white" strokeWidth={2.5} />
           </div>
         )}
-        {/* ... menu — bottom-right corner, visible on hover */}
-        <div
-          className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
-          onClick={e => e.stopPropagation()}
-        >
-          <CardMenu
-            isDark={isDark}
-            onRename={onRename}
-            onDuplicate={onDuplicate}
-            onDelete={onDelete}
-          />
-        </div>
       </div>
 
       {/* Info */}
@@ -269,10 +255,19 @@ function ProjectCard({
         ) : (
           <p className="text-[13px] font-semibold truncate" style={{ color: text }}>{project.title}</p>
         )}
+        {/* Time row + ... menu aligned */}
         <div className="flex items-center gap-1.5 mt-1">
           <Clock size={10} style={{ color: sub }} />
           <span className="text-[11px]" style={{ color: sub }}>{project.updatedAt}</span>
           <span className="text-[11px]" style={{ color: sub }}>· {project.nodeCount} 个节点</span>
+          <div className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+            <CardMenu
+              isDark={isDark}
+              onRename={onRename}
+              onDuplicate={onDuplicate}
+              onDelete={onDelete}
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -517,7 +512,7 @@ export default function WorkspaceDashboard() {
         </div>
 
         {/* Project Grid */}
-        <div className="grid gap-5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))" }}>
+        <div className="grid gap-7" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
           <CreateProjectCard isDark={isDark} onCreate={() => setShowCreate(true)} />
           {projects.map(project => (
             <div key={project.id} data-project-id={project.id} className="project-card">

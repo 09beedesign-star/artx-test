@@ -1,11 +1,18 @@
 /**
  * TopBar — Neo-Studio Dark Design System
- * Global top navigation: logo area, search, theme switcher, credits, user info
+ * Global top navigation: search, theme switcher (Radix DropdownMenu), credits, user info
  */
-import { useState } from "react";
-import { Search, Bell, ChevronDown, Sparkles, Plus, Moon, Sun, Monitor } from "lucide-react";
+import { Search, Bell, ChevronDown, Sparkles, Plus, Moon, Sun, Monitor, Check } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme, type ThemeMode } from "@/contexts/ThemeContext";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface TopBarProps {
   credits?: number;
@@ -19,20 +26,16 @@ const THEME_OPTIONS: { mode: ThemeMode; icon: React.ElementType; label: string }
 
 export default function TopBar({ credits = 75 }: TopBarProps) {
   const { mode, setMode, resolvedTheme } = useTheme();
-  const [themeOpen, setThemeOpen] = useState(false);
 
   const isDark = resolvedTheme === "dark";
 
-  const surface   = isDark ? "oklch(0.11 0.015 270)"       : "oklch(1 0 0)";
+  const surface   = isDark ? "oklch(0.11 0.015 270)"       : "oklch(0.99 0.002 80)";
   const border    = isDark ? "oklch(1 0 0 / 6%)"           : "oklch(0.88 0.006 255)";
-  const inputBg   = isDark ? "oklch(1 0 0 / 5%)"           : "oklch(0.93 0.005 270)";
+  const inputBg   = isDark ? "oklch(1 0 0 / 5%)"           : "oklch(0.94 0.004 270)";
   const inputBdr  = isDark ? "oklch(1 0 0 / 8%)"           : "oklch(0.86 0.006 255)";
   const textPri   = isDark ? "oklch(0.85 0.01 270)"        : "oklch(0.22 0.018 255)";
   const textSec   = isDark ? "oklch(0.50 0.01 270)"        : "oklch(0.50 0.012 255)";
   const hoverBg   = isDark ? "oklch(1 0 0 / 5%)"           : "oklch(0 0 0 / 0.04)";
-  const popupBg   = isDark ? "oklch(0.15 0.018 270)"       : "oklch(0.995 0.002 80)";
-  const popupBdr  = isDark ? "oklch(1 0 0 / 12%)"          : "oklch(0.88 0.006 255)";
-  const activeRow = isDark ? "oklch(0.58 0.22 290 / 0.15)" : "oklch(0.52 0.22 290 / 0.10)";
 
   const ActiveIcon = THEME_OPTIONS.find((o) => o.mode === mode)?.icon ?? Moon;
 
@@ -77,64 +80,56 @@ export default function TopBar({ credits = 75 }: TopBarProps) {
         新建项目
       </button>
 
-      {/* ── Theme switcher ── */}
-      <div className="relative">
-        <button
-          onClick={() => setThemeOpen((v) => !v)}
-          className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors"
+      {/* ── Theme switcher via Radix DropdownMenu ── */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors outline-none"
+            style={{ color: textSec }}
+            title="切换主题"
+          >
+            <ActiveIcon size={15} />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          sideOffset={6}
+          className="min-w-[140px]"
           style={{
-            background: themeOpen ? activeRow : "transparent",
-            border: `1px solid ${themeOpen ? "oklch(0.58 0.22 290 / 0.3)" : "transparent"}`,
-            color: themeOpen ? "oklch(0.78 0.18 290)" : textSec,
+            background: isDark ? "oklch(0.15 0.018 270)" : "oklch(0.995 0.002 80)",
+            border: `1px solid ${isDark ? "oklch(1 0 0 / 12%)" : "oklch(0.88 0.006 255)"}`,
+            boxShadow: "0 8px 32px oklch(0 0 0 / 0.25)",
           }}
-          title="切换主题"
         >
-          <ActiveIcon size={15} />
-        </button>
-
-        {themeOpen && (
-          <>
-            {/* Backdrop */}
-            <div className="fixed inset-0 z-40" onClick={() => setThemeOpen(false)} />
-            <div
-              className="absolute top-full right-0 mt-1.5 rounded-xl overflow-hidden z-50"
-              style={{
-                background: popupBg,
-                border: `1px solid ${popupBdr}`,
-                boxShadow: "0 8px 32px oklch(0 0 0 / 0.3)",
-                minWidth: 140,
-              }}
-            >
-              <div className="px-3 pt-2.5 pb-1">
-                <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: textSec }}>
-                  主题
-                </span>
-              </div>
-              {THEME_OPTIONS.map(({ mode: m, icon: Icon, label }) => {
-                const isActive = mode === m;
-                return (
-                  <button
-                    key={m}
-                    onClick={() => { setMode(m); setThemeOpen(false); }}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] transition-colors"
-                    style={{
-                      background: isActive ? activeRow : "transparent",
-                      color: isActive ? "oklch(0.78 0.18 290)" : textPri,
-                    }}
-                  >
-                    <Icon size={13} style={{ color: isActive ? "oklch(0.78 0.18 290)" : textSec }} />
-                    <span>{label}</span>
-                    {isActive && (
-                      <div className="ml-auto w-1.5 h-1.5 rounded-full" style={{ background: "oklch(0.72 0.18 200)" }} />
-                    )}
-                  </button>
-                );
-              })}
-              <div className="h-2" />
-            </div>
-          </>
-        )}
-      </div>
+          <DropdownMenuLabel
+            className="text-[10px] font-semibold uppercase tracking-wider px-3 pt-2 pb-1"
+            style={{ color: textSec }}
+          >
+            主题
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator style={{ background: isDark ? "oklch(1 0 0 / 8%)" : "oklch(0.88 0.006 255)" }} />
+          {THEME_OPTIONS.map(({ mode: m, icon: Icon, label }) => {
+            const isActive = mode === m;
+            return (
+              <DropdownMenuItem
+                key={m}
+                onClick={() => setMode(m)}
+                className="flex items-center gap-2.5 px-3 py-2 text-[13px] cursor-pointer"
+                style={{
+                  color: isActive ? "oklch(0.78 0.18 290)" : textPri,
+                  background: isActive ? "oklch(0.58 0.22 290 / 0.12)" : "transparent",
+                }}
+              >
+                <Icon size={13} style={{ color: isActive ? "oklch(0.78 0.18 290)" : textSec }} />
+                <span>{label}</span>
+                {isActive && (
+                  <Check size={11} className="ml-auto" style={{ color: "oklch(0.72 0.18 200)" }} />
+                )}
+              </DropdownMenuItem>
+            );
+          })}
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       {/* Credits */}
       <div
