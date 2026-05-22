@@ -302,3 +302,20 @@ html.light, .light {
     }
   }
 }
+
+/* ── MiniMap viewport highlight box ─────────────────────────── */
+/* 视口高亮方框：品牌紫色边框 + 半透明填充，pannable/zoomable 时显示 */
+.react-flow__minimap-mask {
+  fill: transparent !important;
+  stroke: oklch(0.62 0.22 290) !important;
+  stroke-width: 3 !important;
+  rx: 3;
+}
+/* 小地图整体鼠标样式 */
+.react-flow__minimap {
+  cursor: crosshair;
+}
+.react-flow__minimap svg {
+  border-radius: 6px;
+}
+

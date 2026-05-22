@@ -28,6 +28,7 @@ import {
   Handle,
   Position,
   useReactFlow,
+  useViewport,
   ReactFlowProvider,
   type XYPosition,
 } from "@xyflow/react";
@@ -393,7 +394,14 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
         <div
           className="relative overflow-hidden cursor-pointer"
           style={{ aspectRatio: "16/10" }}
-          onClick={(e) => { e.stopPropagation(); setShowPanel(p => !p); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowPanel(p => !p);
+            // Dispatch reference event to BottomPromptBar
+            window.dispatchEvent(new CustomEvent("asset-reference", {
+              detail: { id: nodeId, title: asset.title, src: asset.src }
+            }));
+          }}
           onDoubleClick={(e) => { e.stopPropagation(); setPreview(true); }}
         >
           <img src={asset.src} alt={asset.title} className="w-full h-full object-cover" />
@@ -665,46 +673,132 @@ const initialEdges: Edge[] = [
 
 
 // ── Bottom AI Prompt Bar ───────────────────────────────────────
-function BottomPromptBar({ isDark }: { isDark: boolean }) {
+function BottomPromptBar({
+  isDark,
+  referencedAsset,
+  onClearReference,
+}: {
+  isDark: boolean;
+  referencedAsset: { id: string; title: string; src: string } | null;
+  onClearReference: () => void;
+}) {
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState("gpt-4o");
   const [rows, setRows] = useState(1);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const bg = isDark ? "oklch(0.13 0.015 270 / 0.95)" : "oklch(0.98 0.004 270 / 0.95)";
   const border = isDark ? "oklch(1 0 0 / 12%)" : "oklch(0 0 0 / 12%)";
+  const activeBorder = "oklch(0.62 0.22 290 / 60%)";
   const text = isDark ? "oklch(0.80 0.008 270)" : "oklch(0.20 0.008 270)";
   const divider = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
+  const chipBg = isDark ? "oklch(0.58 0.22 290 / 0.18)" : "oklch(0.58 0.22 290 / 0.12)";
+  const chipBorder = isDark ? "oklch(0.62 0.22 290 / 0.35)" : "oklch(0.58 0.22 290 / 0.30)";
+  const chipText = isDark ? "oklch(0.80 0.18 290)" : "oklch(0.42 0.18 290)";
+
+  // Auto-focus textarea when a reference is injected
+  useEffect(() => {
+    if (referencedAsset) {
+      setTimeout(() => textareaRef.current?.focus(), 60);
+    }
+  }, [referencedAsset]);
+
+  const handleSend = () => {
+    if (prompt.trim() || referencedAsset) {
+      const refPart = referencedAsset ? `[引用: ${referencedAsset.title}] ` : "";
+      toast("AI 正在生成节点", { description: (refPart + prompt).slice(0, 80) });
+      setPrompt("");
+      setRows(1);
+      onClearReference();
+    }
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (prompt.trim()) { toast("AI 正在生成节点", { description: prompt.slice(0, 60) }); setPrompt(""); setRows(1); }
+      handleSend();
+    }
+    // Backspace on empty prompt clears reference
+    if (e.key === "Backspace" && prompt === "" && referencedAsset) {
+      onClearReference();
     }
   };
 
+  const hasContent = prompt.trim() || !!referencedAsset;
+
   return (
-    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-2xl shadow-2xl overflow-hidden"
-      style={{ background: bg, border: `1.5px solid ${border}`, backdropFilter: "blur(20px)", width: "min(680px, calc(100% - 48px))", zIndex: 50 }}>
+    <div
+      className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-2xl shadow-2xl overflow-hidden"
+      style={{
+        background: bg,
+        border: `1.5px solid ${referencedAsset ? activeBorder : border}`,
+        backdropFilter: "blur(20px)",
+        width: "min(680px, calc(100% - 48px))",
+        zIndex: 50,
+        transition: "border-color 0.25s cubic-bezier(0.23,1,0.32,1), box-shadow 0.25s cubic-bezier(0.23,1,0.32,1)",
+        boxShadow: referencedAsset
+          ? `0 0 0 3px oklch(0.62 0.22 290 / 0.12), 0 8px 32px rgba(0,0,0,0.18)`
+          : `0 8px 32px rgba(0,0,0,0.12)`,
+      }}
+    >
+      {/* Reference chip row — shown when an asset is referenced */}
+      {referencedAsset && (
+        <div
+          className="flex items-center gap-2 px-3 pt-2.5 pb-1"
+          style={{ borderBottom: `1px solid ${divider}` }}
+        >
+          <img
+            src={referencedAsset.src}
+            alt={referencedAsset.title}
+            style={{ width: 22, height: 22, borderRadius: 4, objectFit: "cover", flexShrink: 0 }}
+          />
+          <span
+            className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium"
+            style={{ background: chipBg, border: `1px solid ${chipBorder}`, color: chipText }}
+          >
+            <ImageIcon size={10} style={{ opacity: 0.8 }} />
+            {referencedAsset.title}
+          </span>
+          <button
+            onClick={onClearReference}
+            className="ml-auto w-5 h-5 rounded-full flex items-center justify-center hover:opacity-80 transition-opacity"
+            style={{ color: isDark ? "oklch(0.45 0.01 270)" : "oklch(0.60 0.01 270)" }}
+          >
+            <X size={11} />
+          </button>
+        </div>
+      )}
+
       <div className="px-4 pt-3 pb-2">
-        <textarea value={prompt} onChange={e => { setPrompt(e.target.value); setRows(Math.min(e.target.value.split("\n").length, 5)); }}
-          onKeyDown={handleKeyDown} rows={rows}
+        <textarea
+          ref={textareaRef}
+          value={prompt}
+          onChange={e => { setPrompt(e.target.value); setRows(Math.min(e.target.value.split("\n").length, 5)); }}
+          onKeyDown={handleKeyDown}
+          rows={rows}
           className="w-full bg-transparent text-[13px] leading-relaxed resize-none outline-none"
-          style={{ color: text }} placeholder="描述你想创作的内容，AI 将在画布上生成节点..." />
+          style={{ color: text }}
+          placeholder={referencedAsset ? `基于「${referencedAsset.title}」描述你的创作意图...` : "描述你想创作的内容，AI 将在画布上生成节点..."}
+        />
       </div>
       <div className="flex items-center gap-2 px-3 pb-3" style={{ borderTop: `1px solid ${divider}`, paddingTop: 8 }}>
         <ModelSelector model={model} onChange={setModel} isDark={isDark} />
-        <button className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] hover:opacity-80"
+        <button
+          className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] hover:opacity-80"
           style={{ color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.55 0.01 270)" }}
-          onClick={() => toast("参考图", { description: "功能即将上线" })}>
+          onClick={() => toast("参考图", { description: "功能即将上线" })}
+        >
           <Paperclip size={12} /><span>参考图</span>
         </button>
         <div className="flex-1" />
         <span className="text-[10px]" style={{ color: isDark ? "oklch(0.38 0.008 270)" : "oklch(0.62 0.008 270)" }}>
           Enter 发送 · Shift+Enter 换行
         </span>
-        <button onClick={() => { if (prompt.trim()) { toast("AI 正在生成节点", { description: prompt.slice(0, 60) }); setPrompt(""); setRows(1); } }}
+        <button
+          onClick={handleSend}
           className="w-7 h-7 rounded-lg flex items-center justify-center hover:opacity-80"
-          style={{ background: prompt.trim() ? "oklch(0.58 0.22 290)" : (isDark ? "oklch(0.22 0.015 270)" : "oklch(0.88 0.005 270)") }}>
-          <Send size={13} color={prompt.trim() ? "white" : (isDark ? "oklch(0.40 0.01 270)" : "oklch(0.65 0.01 270)")} />
+          style={{ background: hasContent ? "oklch(0.58 0.22 290)" : (isDark ? "oklch(0.22 0.015 270)" : "oklch(0.88 0.005 270)") }}
+        >
+          <Send size={13} color={hasContent ? "white" : (isDark ? "oklch(0.40 0.01 270)" : "oklch(0.65 0.01 270)")} />
         </button>
       </div>
     </div>
@@ -1030,8 +1124,20 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [nodeCtxMenu, setNodeCtxMenu] = useState<NodeCtxState | null>(null);
   const [clipboard, setClipboard] = useState<Node | null>(null);
+  // ── Reference state: asset node clicked → inject into prompt bar ──
+  const [referencedAsset, setReferencedAsset] = useState<{ id: string; title: string; src: string } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Listen for asset-reference events dispatched by AssetNodeComponent
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { id, title, src } = (e as CustomEvent).detail;
+      setReferencedAsset({ id, title, src });
+    };
+    window.addEventListener("asset-reference", handler);
+    return () => window.removeEventListener("asset-reference", handler);
+  }, []);
 
   const onConnect = useCallback((params: Connection) => {
     setEdges(eds => addEdge({ ...params, type: "tapnow" }, eds));
@@ -1189,6 +1295,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           style={{ background: isDark ? "oklch(0.11 0.015 270)" : "oklch(0.95 0.004 270)", border: `1px solid ${isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"}`, borderRadius: 8 }}
           maskColor={isDark ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.5)"}
           nodeColor={isDark ? "oklch(0.35 0.02 270)" : "oklch(0.75 0.005 270)"}
+          zoomable
+          pannable
         />
         <Controls style={{ background: isDark ? "oklch(0.13 0.015 270)" : "oklch(0.97 0.004 270)", border: `1px solid ${isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"}`, borderRadius: 8 }} />
       </ReactFlow>
@@ -1210,7 +1318,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       )}
 
       {/* Bottom AI prompt bar */}
-      <BottomPromptBar isDark={isDark} />
+      <BottomPromptBar
+        isDark={isDark}
+        referencedAsset={referencedAsset}
+        onClearReference={() => setReferencedAsset(null)}
+      />
 
     </div>
   );
