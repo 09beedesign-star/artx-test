@@ -422,7 +422,7 @@ export default function WorkspaceDashboard() {
 
   const confirmDelete = useCallback(() => {
     if (!deleteConfirm) return;
-    setProjects(ps => ps.filter(p => !deleteConfirm.includes(p.id)));
+    setProjects(ps => ps.filter(p => !deleteConfirm!.includes(p.id)));
     setSelectedIds(new Set());
     setDeleteConfirm(null);
     toast(`已删除 ${deleteConfirm.length} 个项目`);
@@ -514,7 +514,7 @@ export default function WorkspaceDashboard() {
             <div className="flex items-center gap-2">
               <span className="text-[12px]" style={{ color: sub }}>已选 {selectedIds.size} 个</span>
               <button
-                onClick={() => handleDelete([...selectedIds])}
+                onClick={() => handleDelete(Array.from(selectedIds))}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-medium transition-opacity hover:opacity-80"
                 style={{ background: "oklch(0.65 0.22 25 / 0.15)", color: "oklch(0.65 0.22 25)" }}
               >
