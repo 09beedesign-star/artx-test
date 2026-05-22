@@ -181,23 +181,32 @@ function ImagePreviewModal({ src, title, onClose, isDark }: {
         style={{ maxWidth: "90vw", maxHeight: "90vh" }}
         onClick={e => e.stopPropagation()}
       >
-        {/* Toolbar */}
-        <div className="flex items-center gap-3 mb-3">
-          <span className="text-white/70 text-[13px] font-medium">{title}</span>
-          <div className="flex-1" />
+        {/* Toolbar — unified semi-transparent bar */}
+        <div
+          className="flex items-center gap-2 mb-3 px-3"
+          style={{
+            height: 40,
+            borderRadius: 10,
+            background: "rgba(255,255,255,0.10)",
+            backdropFilter: "blur(12px)",
+            border: "1px solid rgba(255,255,255,0.12)",
+            minWidth: 240,
+          }}
+        >
+          <span className="text-white/75 text-[13px] font-medium flex-1 truncate">{title}</span>
           <button
             onClick={() => toast("下载", { description: "功能即将上线" })}
-            className="w-8 h-8 rounded-lg flex items-center justify-center transition-opacity hover:opacity-80"
-            style={{ background: "rgba(255,255,255,0.92)", border: "1px solid rgba(0,0,0,0.10)" }}
+            className="w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:bg-white/15 active:scale-90"
+            style={{ color: "rgba(255,255,255,0.80)" }}
           >
-            <Download size={14} color="rgba(40,40,55,0.85)" />
+            <Download size={14} />
           </button>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-lg flex items-center justify-center transition-opacity hover:opacity-80"
-            style={{ background: "rgba(255,255,255,0.92)", border: "1px solid rgba(0,0,0,0.10)" }}
+            className="w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:bg-white/15 active:scale-90"
+            style={{ color: "rgba(255,255,255,0.80)" }}
           >
-            <X size={14} color="rgba(40,40,55,0.85)" />
+            <X size={14} />
           </button>
         </div>
         {/* Image */}
