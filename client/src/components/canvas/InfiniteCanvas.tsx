@@ -188,16 +188,16 @@ function ImagePreviewModal({ src, title, onClose, isDark }: {
           <button
             onClick={() => toast("下载", { description: "功能即将上线" })}
             className="w-8 h-8 rounded-lg flex items-center justify-center transition-opacity hover:opacity-80"
-            style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.15)" }}
+            style={{ background: "rgba(255,255,255,0.92)", border: "1px solid rgba(0,0,0,0.10)" }}
           >
-            <Download size={14} color="white" />
+            <Download size={14} color="rgba(40,40,55,0.85)" />
           </button>
           <button
             onClick={onClose}
             className="w-8 h-8 rounded-lg flex items-center justify-center transition-opacity hover:opacity-80"
-            style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.15)" }}
+            style={{ background: "rgba(255,255,255,0.92)", border: "1px solid rgba(0,0,0,0.10)" }}
           >
-            <X size={14} color="white" />
+            <X size={14} color="rgba(40,40,55,0.85)" />
           </button>
         </div>
         {/* Image */}
@@ -1172,6 +1172,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         connectionLineType={"bezier" as any}
         style={{ background: canvasBg }}
         proOptions={{ hideAttribution: true }}
+        selectNodesOnDrag={false}
+        nodesDraggable={true}
       >
         <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color={dotColor} />
         <MiniMap
