@@ -397,9 +397,9 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
           onClick={(e) => {
             e.stopPropagation();
             setShowPanel(p => !p);
-            // Dispatch reference event to BottomPromptBar
+            // Dispatch reference event to BottomPromptBar (pass ctrlKey for multi-select)
             window.dispatchEvent(new CustomEvent("asset-reference", {
-              detail: { id: nodeId, title: asset.title, src: asset.src }
+              detail: { id: nodeId, title: asset.title, src: asset.src, ctrlKey: e.ctrlKey || e.metaKey }
             }));
           }}
           onDoubleClick={(e) => { e.stopPropagation(); setPreview(true); }}
@@ -675,17 +675,20 @@ const initialEdges: Edge[] = [
 // ── Bottom AI Prompt Bar ───────────────────────────────────────
 function BottomPromptBar({
   isDark,
-  referencedAsset,
-  onClearReference,
+  referencedAssets,
+  onRemoveReference,
+  onClearAllReferences,
 }: {
   isDark: boolean;
-  referencedAsset: { id: string; title: string; src: string } | null;
-  onClearReference: () => void;
+  referencedAssets: { id: string; title: string; src: string }[];
+  onRemoveReference: (id: string) => void;
+  onClearAllReferences: () => void;
 }) {
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState("gpt-4o");
   const [rows, setRows] = useState(1);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const hasRefs = referencedAssets.length > 0;
   const bg = isDark ? "oklch(0.13 0.015 270 / 0.95)" : "oklch(0.98 0.004 270 / 0.95)";
   const border = isDark ? "oklch(1 0 0 / 12%)" : "oklch(0 0 0 / 12%)";
   const activeBorder = "oklch(0.62 0.22 290 / 60%)";
@@ -694,21 +697,20 @@ function BottomPromptBar({
   const chipBg = isDark ? "oklch(0.58 0.22 290 / 0.18)" : "oklch(0.58 0.22 290 / 0.12)";
   const chipBorder = isDark ? "oklch(0.62 0.22 290 / 0.35)" : "oklch(0.58 0.22 290 / 0.30)";
   const chipText = isDark ? "oklch(0.80 0.18 290)" : "oklch(0.42 0.18 290)";
+  const removeColor = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.58 0.01 270)";
 
-  // Auto-focus textarea when a reference is injected
+  // Auto-focus textarea when references change
   useEffect(() => {
-    if (referencedAsset) {
-      setTimeout(() => textareaRef.current?.focus(), 60);
-    }
-  }, [referencedAsset]);
+    if (hasRefs) setTimeout(() => textareaRef.current?.focus(), 60);
+  }, [hasRefs]);
 
   const handleSend = () => {
-    if (prompt.trim() || referencedAsset) {
-      const refPart = referencedAsset ? `[引用: ${referencedAsset.title}] ` : "";
-      toast("AI 正在生成节点", { description: (refPart + prompt).slice(0, 80) });
+    if (prompt.trim() || hasRefs) {
+      const refPart = referencedAssets.map(a => `[引用: ${a.title}]`).join(" ");
+      toast("AI 正在生成节点", { description: ((refPart ? refPart + " " : "") + prompt).slice(0, 80) });
       setPrompt("");
       setRows(1);
-      onClearReference();
+      onClearAllReferences();
     }
   };
 
@@ -717,54 +719,75 @@ function BottomPromptBar({
       e.preventDefault();
       handleSend();
     }
-    // Backspace on empty prompt clears reference
-    if (e.key === "Backspace" && prompt === "" && referencedAsset) {
-      onClearReference();
+    // Backspace on empty prompt removes last reference
+    if (e.key === "Backspace" && prompt === "" && hasRefs) {
+      onRemoveReference(referencedAssets[referencedAssets.length - 1].id);
     }
   };
 
-  const hasContent = prompt.trim() || !!referencedAsset;
+  const hasContent = prompt.trim() || hasRefs;
+  const placeholderText = hasRefs
+    ? referencedAssets.length === 1
+      ? `基于「${referencedAssets[0].title}」描述你的创作意图...`
+      : `基于 ${referencedAssets.length} 个引用素材描述你的创作意图...`
+    : "描述你想创作的内容，AI 将在画布上生成节点...";
 
   return (
     <div
       className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-2xl shadow-2xl overflow-hidden"
       style={{
         background: bg,
-        border: `1.5px solid ${referencedAsset ? activeBorder : border}`,
+        border: `1.5px solid ${hasRefs ? activeBorder : border}`,
         backdropFilter: "blur(20px)",
         width: "min(680px, calc(100% - 48px))",
         zIndex: 50,
         transition: "border-color 0.25s cubic-bezier(0.23,1,0.32,1), box-shadow 0.25s cubic-bezier(0.23,1,0.32,1)",
-        boxShadow: referencedAsset
+        boxShadow: hasRefs
           ? `0 0 0 3px oklch(0.62 0.22 290 / 0.12), 0 8px 32px rgba(0,0,0,0.18)`
           : `0 8px 32px rgba(0,0,0,0.12)`,
       }}
     >
-      {/* Reference chip row — shown when an asset is referenced */}
-      {referencedAsset && (
+      {/* Multi-reference chip row */}
+      {hasRefs && (
         <div
-          className="flex items-center gap-2 px-3 pt-2.5 pb-1"
+          className="flex items-center gap-1.5 px-3 pt-2.5 pb-2 flex-wrap"
           style={{ borderBottom: `1px solid ${divider}` }}
         >
-          <img
-            src={referencedAsset.src}
-            alt={referencedAsset.title}
-            style={{ width: 22, height: 22, borderRadius: 4, objectFit: "cover", flexShrink: 0 }}
-          />
-          <span
-            className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium"
-            style={{ background: chipBg, border: `1px solid ${chipBorder}`, color: chipText }}
-          >
-            <ImageIcon size={10} style={{ opacity: 0.8 }} />
-            {referencedAsset.title}
-          </span>
-          <button
-            onClick={onClearReference}
-            className="ml-auto w-5 h-5 rounded-full flex items-center justify-center hover:opacity-80 transition-opacity"
-            style={{ color: isDark ? "oklch(0.45 0.01 270)" : "oklch(0.60 0.01 270)" }}
-          >
-            <X size={11} />
-          </button>
+          {referencedAssets.map(asset => (
+            <div
+              key={asset.id}
+              className="relative flex items-center gap-1.5 pr-1 pl-1 py-0.5 rounded-full text-[11px] font-medium"
+              style={{ background: chipBg, border: `1px solid ${chipBorder}`, color: chipText }}
+            >
+              {/* Thumbnail */}
+              <img
+                src={asset.src}
+                alt={asset.title}
+                style={{ width: 18, height: 18, borderRadius: 3, objectFit: "cover", flexShrink: 0 }}
+              />
+              <ImageIcon size={9} style={{ opacity: 0.7, flexShrink: 0 }} />
+              <span>{asset.title}</span>
+              {/* Per-chip remove button */}
+              <button
+                onClick={() => onRemoveReference(asset.id)}
+                className="w-4 h-4 rounded-full flex items-center justify-center ml-0.5 transition-all hover:bg-white/20 active:scale-90"
+                style={{ color: removeColor, flexShrink: 0 }}
+                title="移除引用"
+              >
+                <X size={9} strokeWidth={2.5} />
+              </button>
+            </div>
+          ))}
+          {/* Clear all button when multiple refs */}
+          {referencedAssets.length > 1 && (
+            <button
+              onClick={onClearAllReferences}
+              className="text-[10px] px-1.5 py-0.5 rounded-full hover:opacity-70 transition-opacity"
+              style={{ color: removeColor }}
+            >
+              全部清除
+            </button>
+          )}
         </div>
       )}
 
@@ -777,7 +800,7 @@ function BottomPromptBar({
           rows={rows}
           className="w-full bg-transparent text-[13px] leading-relaxed resize-none outline-none"
           style={{ color: text }}
-          placeholder={referencedAsset ? `基于「${referencedAsset.title}」描述你的创作意图...` : "描述你想创作的内容，AI 将在画布上生成节点..."}
+          placeholder={placeholderText}
         />
       </div>
       <div className="flex items-center gap-2 px-3 pb-3" style={{ borderTop: `1px solid ${divider}`, paddingTop: 8 }}>
@@ -791,7 +814,7 @@ function BottomPromptBar({
         </button>
         <div className="flex-1" />
         <span className="text-[10px]" style={{ color: isDark ? "oklch(0.38 0.008 270)" : "oklch(0.62 0.008 270)" }}>
-          Enter 发送 · Shift+Enter 换行
+          {hasRefs ? `Ctrl+单击 多选 · ` : ""}回车发送
         </span>
         <button
           onClick={handleSend}
@@ -1124,16 +1147,28 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [nodeCtxMenu, setNodeCtxMenu] = useState<NodeCtxState | null>(null);
   const [clipboard, setClipboard] = useState<Node | null>(null);
-  // ── Reference state: asset node clicked → inject into prompt bar ──
-  const [referencedAsset, setReferencedAsset] = useState<{ id: string; title: string; src: string } | null>(null);
+  // ── Reference state: asset node clicked → inject into prompt bar (multi-select with Ctrl) ──
+  const [referencedAssets, setReferencedAssets] = useState<{ id: string; title: string; src: string }[]>([]);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Listen for asset-reference events dispatched by AssetNodeComponent
   useEffect(() => {
     const handler = (e: Event) => {
-      const { id, title, src } = (e as CustomEvent).detail;
-      setReferencedAsset({ id, title, src });
+      const { id, title, src, ctrlKey } = (e as CustomEvent).detail;
+      if (ctrlKey) {
+        // Ctrl held: toggle the item in the list
+        setReferencedAssets(prev =>
+          prev.some(a => a.id === id)
+            ? prev.filter(a => a.id !== id)
+            : [...prev, { id, title, src }]
+        );
+      } else {
+        // No Ctrl: replace with single item (unless same item — then clear)
+        setReferencedAssets(prev =>
+          prev.length === 1 && prev[0].id === id ? [] : [{ id, title, src }]
+        );
+      }
     };
     window.addEventListener("asset-reference", handler);
     return () => window.removeEventListener("asset-reference", handler);
@@ -1320,8 +1355,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       {/* Bottom AI prompt bar */}
       <BottomPromptBar
         isDark={isDark}
-        referencedAsset={referencedAsset}
-        onClearReference={() => setReferencedAsset(null)}
+        referencedAssets={referencedAssets}
+        onRemoveReference={(id) => setReferencedAssets(prev => prev.filter(a => a.id !== id))}
+        onClearAllReferences={() => setReferencedAssets([])}
       />
 
     </div>
