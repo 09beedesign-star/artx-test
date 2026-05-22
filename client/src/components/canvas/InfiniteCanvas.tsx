@@ -706,6 +706,81 @@ function LassoEraser({ isDark, onCut }: { isDark: boolean; onCut: (rect: LassoRe
   );
 }
 
+// ── Top-Left Node Creation Toolbar ───────────────────────────
+function TopLeftToolbar({ isDark, onAdd }: { isDark: boolean; onAdd: (type: string, x: number, y: number) => void }) {
+  const [open, setOpen] = useState(false);
+  const bg = isDark ? "oklch(0.13 0.015 270 / 0.95)" : "oklch(0.98 0.004 270 / 0.95)";
+  const border = isDark ? "oklch(1 0 0 / 12%)" : "oklch(0 0 0 / 12%)";
+  const text = isDark ? "oklch(0.78 0.01 270)" : "oklch(0.25 0.01 270)";
+  const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
+  const divider = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
+
+  const nodeOptions = [
+    { icon: <MessageSquare size={13} />, label: "AI 对话节点", type: "chat" },
+    { icon: <ImageIcon size={13} />, label: "素材节点", type: "asset" },
+    { icon: <Wand2 size={13} />, label: "提示词节点", type: "prompt" },
+    { icon: <Type size={13} />, label: "文本备注", type: "text" },
+  ];
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = () => setOpen(false);
+    const t = setTimeout(() => window.addEventListener("mousedown", handler), 50);
+    return () => { clearTimeout(t); window.removeEventListener("mousedown", handler); };
+  }, [open]);
+
+  return (
+    <div className="absolute" style={{ top: 12, left: 12, zIndex: 100 }}>
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
+        className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[12px] font-semibold shadow-lg transition-all hover:opacity-90 active:scale-95"
+        style={{
+          background: open
+            ? (isDark ? "oklch(0.55 0.18 280)" : "oklch(0.50 0.18 280)")
+            : (isDark ? "oklch(0.18 0.02 270 / 0.95)" : "oklch(0.97 0.004 270 / 0.95)"),
+          border: `1.5px solid ${open ? "oklch(0.65 0.20 280 / 0.6)" : border}`,
+          color: open ? "white" : text,
+          backdropFilter: "blur(12px)",
+        }}
+      >
+        <PlusSquare size={14} />
+        创建节点
+        <ChevronDown size={11} style={{ opacity: 0.6, transform: open ? "rotate(180deg)" : "none", transition: "transform 150ms" }} />
+      </button>
+
+      {open && (
+        <div
+          className="absolute top-full mt-1.5 left-0 rounded-xl overflow-hidden shadow-2xl"
+          style={{ background: bg, border: `1px solid ${border}`, minWidth: 168, backdropFilter: "blur(16px)" }}
+          onMouseDown={e => e.stopPropagation()}
+        >
+          <div className="px-3 py-2" style={{ borderBottom: `1px solid ${divider}` }}>
+            <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: isDark ? "oklch(0.42 0.01 270)" : "oklch(0.58 0.01 270)" }}>选择节点类型</span>
+          </div>
+          {nodeOptions.map((opt) => (
+            <button
+              key={opt.type}
+              className="flex items-center gap-2.5 w-full px-3 py-2.5 text-left text-[12px] transition-colors"
+              style={{ color: text }}
+              onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+              onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+              onClick={() => {
+                // Place new node at a visible center-ish position
+                onAdd(opt.type, 200 + Math.random() * 200, 150 + Math.random() * 150);
+                setOpen(false);
+                toast(`已添加${opt.label}`);
+              }}
+            >
+              <span style={{ color: isDark ? "oklch(0.55 0.15 280)" : "oklch(0.50 0.15 280)", flexShrink: 0 }}>{opt.icon}</span>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Inner Canvas ───────────────────────────────────────────────
 function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const { resolvedTheme } = useTheme();
@@ -876,6 +951,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         />
         <Controls style={{ background: isDark ? "oklch(0.13 0.015 270)" : "oklch(0.97 0.004 270)", border: `1px solid ${isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"}`, borderRadius: 8 }} />
       </ReactFlow>
+
+      {/* Top-left node creation toolbar */}
+      <TopLeftToolbar isDark={isDark} onAdd={addNode} />
 
       {/* C-key lasso eraser */}
       <LassoEraser isDark={isDark} onCut={handleLassoCut} />
