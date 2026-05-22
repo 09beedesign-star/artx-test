@@ -1,30 +1,26 @@
 /**
  * AppShell — Global Layout with Left Sidebar
- * Design: Neo-Studio Dark
- * Sidebar icons: 首页 / 工作台 / 创作社区 + bottom: 设置/用户
+ * Design: Neo-Studio — wide sidebar with nav groups + history list
+ * Sections: 首页 / 灵感选题 / 技能商店 | 工作区: 我的项目 / 素材库 | 历史对话
  */
 import { useLocation } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
-  Home, LayoutGrid, Users, Settings, HelpCircle,
-  Sparkles,
+  Home, Sparkles, Library, FolderOpen, Archive,
+  History, Settings, HelpCircle, Edit3,
 } from "lucide-react";
 
-const NAV_ITEMS = [
-  { id: "home",      label: "首页",     icon: Home,        path: "/" },
-  { id: "workspace", label: "工作台",   icon: LayoutGrid,  path: "/workspace" },
-  { id: "community", label: "创作社区", icon: Users,       path: "/community" },
-];
-
-const BOTTOM_ITEMS = [
-  { id: "settings", label: "设置", icon: Settings, path: "/settings" },
-  { id: "help",     label: "帮助", icon: HelpCircle, path: "/help" },
+// ── Mock history items ──────────────────────────────────────────
+const HISTORY_ITEMS = [
+  "剩余8张4K高清图片将...",
+  "提取图片中的文案",
+  "根据参考图生成3张产...",
+  "根据参考图生成3张产...",
+  "把图片一的角色，按照...",
 ];
 
 interface AppShellProps {
   children: React.ReactNode;
-  /** If true, hide the sidebar (used on canvas page) */
   hideSidebar?: boolean;
 }
 
@@ -33,27 +29,51 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
-  const sidebarBg = isDark ? "oklch(0.11 0.012 270)" : "#F5F5F5";
-  const sidebarBorder = isDark ? "rgba(255,255,255,0.07)" : "oklch(0.88 0.006 255)";
-  const iconDefault = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.50 0.012 255)";
-  const iconActive = isDark ? "oklch(0.92 0.008 270)" : "oklch(0.22 0.018 255)";
-  const activeBg = isDark ? "rgba(255,255,255,0.08)" : "oklch(0.93 0.010 290 / 0.5)";
-  const hoverBg = isDark ? "rgba(255,255,255,0.05)" : "oklch(0 0 0 / 0.04)";
+  // ── Theme tokens ──────────────────────────────────────────────
+  const sidebarBg    = isDark ? "oklch(0.11 0.012 270)" : "#F5F5F5";
+  const sidebarBorder= isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)";
+  const textPrimary  = isDark ? "rgba(255,255,255,0.82)" : "rgba(20,20,36,0.82)";
+  const textSecondary= isDark ? "rgba(255,255,255,0.38)" : "rgba(20,20,36,0.38)";
+  const textMuted    = isDark ? "rgba(255,255,255,0.28)" : "rgba(20,20,36,0.28)";
+  const hoverBg      = isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)";
+  const activeBg     = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+  const activeColor  = isDark ? "rgba(255,255,255,0.90)" : "rgba(20,20,36,0.90)";
+  const dividerColor = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)";
 
-  const isActive = (path: string) => {
-    if (path === "/") return location === "/";
-    return location.startsWith(path);
-  };
+  const isActive = (path: string) =>
+    path === "/" ? location === "/" : location.startsWith(path);
 
   if (hideSidebar) return <>{children}</>;
+
+  // ── Shared nav item renderer ──────────────────────────────────
+  const NavItem = ({
+    icon: Icon, label, path, iconSize = 16,
+  }: { icon: React.ElementType; label: string; path: string; iconSize?: number }) => {
+    const active = isActive(path);
+    return (
+      <button
+        onClick={() => navigate(path)}
+        className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all text-left"
+        style={{
+          background: active ? activeBg : "transparent",
+          color: active ? activeColor : textSecondary,
+        }}
+        onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.background = hoverBg; }}
+        onMouseLeave={e => { if (!active) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+      >
+        <Icon size={iconSize} strokeWidth={active ? 2.0 : 1.6} style={{ flexShrink: 0, opacity: active ? 1 : 0.7 }} />
+        <span className="truncate">{label}</span>
+      </button>
+    );
+  };
 
   return (
     <div className="flex h-screen overflow-hidden">
       {/* ── Left Sidebar ── */}
       <aside
-        className="flex flex-col items-center py-4 flex-shrink-0"
+        className="flex flex-col flex-shrink-0 overflow-hidden"
         style={{
-          width: 56,
+          width: 200,
           background: sidebarBg,
           borderRight: `1px solid ${sidebarBorder}`,
           zIndex: 10,
@@ -61,85 +81,112 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
         }}
       >
         {/* Logo */}
-        <div
-          className="w-9 h-9 rounded-xl flex items-center justify-center mb-6 cursor-pointer"
-          style={{
-            background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.62 0.20 210))",
-            boxShadow: "0 4px 16px oklch(0.58 0.22 290 / 0.35)",
-          }}
-          onClick={() => navigate("/")}
-        >
-          <Sparkles size={17} color="white" />
+        <div className="flex items-center gap-2.5 px-4 pt-5 pb-4">
+          <div
+            className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 cursor-pointer"
+            style={{
+              background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.62 0.20 210))",
+              boxShadow: "0 3px 12px oklch(0.58 0.22 290 / 0.30)",
+            }}
+            onClick={() => navigate("/")}
+          >
+            <Sparkles size={13} color="white" />
+          </div>
+          <span
+            className="text-[14px] font-semibold tracking-tight cursor-pointer"
+            style={{ color: textPrimary }}
+            onClick={() => navigate("/")}
+          >
+            AI 创意工作台
+          </span>
         </div>
 
-        {/* Main nav */}
-        <nav className="flex flex-col items-center gap-1 flex-1">
-          {NAV_ITEMS.map(({ id, label, icon: Icon, path }) => {
-            const active = isActive(path);
-            return (
-              <Tooltip key={id} delayDuration={300}>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => navigate(path)}
-                    className="w-10 h-10 rounded-xl flex items-center justify-center transition-all"
-                    style={{
-                      background: active ? activeBg : "transparent",
-                      color: active ? iconActive : iconDefault,
-                    }}
-                    onMouseEnter={e => {
-                      if (!active) (e.currentTarget as HTMLElement).style.background = hoverBg;
-                    }}
-                    onMouseLeave={e => {
-                      if (!active) (e.currentTarget as HTMLElement).style.background = "transparent";
-                    }}
-                  >
-                    <Icon size={18} strokeWidth={active ? 2.2 : 1.8} />
-                    {active && (
-                      <span
-                        className="absolute left-0 w-0.5 h-5 rounded-r-full"
-                        style={{ background: "oklch(0.62 0.22 290)" }}
-                      />
-                    )}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="right" sideOffset={8}>
-                  <span className="text-xs">{label}</span>
-                </TooltipContent>
-              </Tooltip>
-            );
-          })}
-        </nav>
+        {/* ── Scrollable nav body ── */}
+        <div className="flex-1 overflow-y-auto overflow-x-hidden px-2" style={{ scrollbarWidth: "none" }}>
 
-        {/* Bottom items */}
-        <div className="flex flex-col items-center gap-1">
-          {BOTTOM_ITEMS.map(({ id, label, icon: Icon, path }) => (
-            <Tooltip key={id} delayDuration={300}>
-              <TooltipTrigger asChild>
+          {/* Top nav */}
+          <div className="flex flex-col gap-0.5 mb-2">
+            <NavItem icon={Home}    label="首页"     path="/" />
+            <NavItem icon={Sparkles} label="灵感选题" path="/inspiration" iconSize={15} />
+            <NavItem icon={Library}  label="技能商店" path="/skills"      iconSize={15} />
+          </div>
+
+          {/* Divider */}
+          <div style={{ height: 1, background: dividerColor, margin: "8px 4px" }} />
+
+          {/* 工作区 group */}
+          <div className="mb-2">
+            <p className="text-[10px] font-medium px-3 py-1.5 tracking-wider uppercase" style={{ color: textMuted }}>
+              工作区
+            </p>
+            <div className="flex flex-col gap-0.5">
+              <NavItem icon={FolderOpen} label="我的项目" path="/workspace" iconSize={15} />
+              <NavItem icon={Archive}    label="素材库"   path="/assets"    iconSize={15} />
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div style={{ height: 1, background: dividerColor, margin: "8px 4px" }} />
+
+          {/* 历史对话 */}
+          <div className="mb-2">
+            <div className="flex items-center justify-between px-3 py-1.5">
+              <div className="flex items-center gap-1.5">
+                <History size={12} style={{ color: textMuted, flexShrink: 0 }} strokeWidth={1.6} />
+                <span className="text-[10px] font-medium tracking-wider uppercase" style={{ color: textMuted }}>
+                  历史对话
+                </span>
+              </div>
+              <button
+                className="w-5 h-5 rounded flex items-center justify-center transition-opacity hover:opacity-70"
+                style={{ color: textMuted }}
+                title="新建对话"
+              >
+                <Edit3 size={11} strokeWidth={1.6} />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-0.5">
+              {HISTORY_ITEMS.map((item, i) => (
                 <button
-                  onClick={() => navigate(path)}
-                  className="w-10 h-10 rounded-xl flex items-center justify-center transition-all"
-                  style={{ color: iconDefault }}
+                  key={i}
+                  className="w-full text-left px-3 py-1.5 rounded-lg text-[12px] truncate transition-all"
+                  style={{ color: textSecondary }}
                   onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = hoverBg)}
                   onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
                 >
-                  <Icon size={17} strokeWidth={1.8} />
+                  {item}
                 </button>
-              </TooltipTrigger>
-              <TooltipContent side="right" sideOffset={8}>
-                <span className="text-xs">{label}</span>
-              </TooltipContent>
-            </Tooltip>
-          ))}
+              ))}
+            </div>
+          </div>
+        </div>
 
-          {/* User avatar */}
+        {/* ── Bottom: Settings + Help + User ── */}
+        <div
+          className="px-2 pb-4 pt-2 flex flex-col gap-0.5"
+          style={{ borderTop: `1px solid ${dividerColor}` }}
+        >
+          <NavItem icon={Settings}   label="设置" path="/settings" iconSize={15} />
+          <NavItem icon={HelpCircle} label="帮助" path="/help"     iconSize={15} />
+
+          {/* User row */}
           <div
-            className="w-8 h-8 rounded-full mt-2 flex items-center justify-center text-[12px] font-semibold cursor-pointer select-none"
-            style={{
-              background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.62 0.20 210))",
-              color: "white",
-            }}
+            className="flex items-center gap-2.5 px-3 py-2 mt-1 rounded-lg cursor-pointer transition-all"
+            style={{ color: textSecondary }}
+            onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = hoverBg)}
+            onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
           >
-            U
+            <div
+              className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-semibold flex-shrink-0"
+              style={{
+                background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.62 0.20 210))",
+                color: "white",
+              }}
+            >
+              U
+            </div>
+            <span className="text-[13px] font-medium truncate" style={{ color: textPrimary }}>用户名</span>
           </div>
         </div>
       </aside>
