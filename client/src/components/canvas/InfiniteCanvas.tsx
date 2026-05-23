@@ -46,6 +46,8 @@ import { useLocation } from "wouter";
 import { GENERATED_ASSETS, AI_MODELS } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
 
+const ENABLE_NODE_CONNECTIONS = false;
+
 // ── Model Selector ─────────────────────────────────────────────
 function ModelSelector({ model, onChange, isDark }: { model: string; onChange: (m: string) => void; isDark: boolean }) {
   const [open, setOpen] = useState(false);
@@ -139,20 +141,24 @@ function NodeWrapper({ children, selected, isDark, model, onModelChange, onDelet
       style={{ background: bg, border: `1.5px solid ${border}`, boxShadow: shadow, transition: "border-color 0.15s, box-shadow 0.15s", ...style }}
       onContextMenu={onContextMenu}
     >
-      <Handle type="target" position={Position.Left} id="left"
-        className="!w-3 !h-3 !rounded-[var(--radius-pill)] !border-2 hover:!scale-125 transition-all"
-        style={{
-          left: -1,
-          backgroundColor: isDark ? "rgba(255,255,255,0.80)" : "oklch(0.28 0.01 270)",
-          borderColor: isDark ? "rgba(255,255,255,0.60)" : "oklch(0.20 0.01 270)",
-        }} />
-      <Handle type="source" position={Position.Right} id="right"
-        className="!w-3 !h-3 !rounded-[var(--radius-pill)] !border-2 hover:!scale-125 transition-all"
-        style={{
-          right: -1,
-          backgroundColor: isDark ? "rgba(255,255,255,0.80)" : "oklch(0.28 0.01 270)",
-          borderColor: isDark ? "rgba(255,255,255,0.60)" : "oklch(0.20 0.01 270)",
-        }} />
+      {ENABLE_NODE_CONNECTIONS && (
+        <>
+          <Handle type="target" position={Position.Left} id="left"
+            className="!w-3 !h-3 !rounded-[var(--radius-pill)] !border-2 hover:!scale-125 transition-all"
+            style={{
+              left: -1,
+              backgroundColor: isDark ? "rgba(255,255,255,0.80)" : "oklch(0.28 0.01 270)",
+              borderColor: isDark ? "rgba(255,255,255,0.60)" : "oklch(0.20 0.01 270)",
+            }} />
+          <Handle type="source" position={Position.Right} id="right"
+            className="!w-3 !h-3 !rounded-[var(--radius-pill)] !border-2 hover:!scale-125 transition-all"
+            style={{
+              right: -1,
+              backgroundColor: isDark ? "rgba(255,255,255,0.80)" : "oklch(0.28 0.01 270)",
+              borderColor: isDark ? "rgba(255,255,255,0.60)" : "oklch(0.20 0.01 270)",
+            }} />
+        </>
+      )}
       <div className="flex flex-col flex-1 overflow-hidden rounded-[var(--radius-lg-design)]">
         {children}
       </div>
@@ -1556,10 +1562,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     <div ref={containerRef} className="flex-1 relative overflow-hidden" style={{ height: "100%" }}>
       <ReactFlow
         nodes={displayNodes}
-        edges={edges}
+        edges={ENABLE_NODE_CONNECTIONS ? edges : []}
         onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
+        onEdgesChange={ENABLE_NODE_CONNECTIONS ? onEdgesChange : undefined}
+        onConnect={ENABLE_NODE_CONNECTIONS ? onConnect : undefined}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onPaneContextMenu={handlePaneContextMenu as any}
@@ -1575,6 +1581,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         proOptions={{ hideAttribution: true }}
         selectNodesOnDrag={false}
         nodesDraggable={true}
+        nodesConnectable={ENABLE_NODE_CONNECTIONS}
+        edgesFocusable={ENABLE_NODE_CONNECTIONS}
+        edgesReconnectable={ENABLE_NODE_CONNECTIONS}
       >
         <Background variant={BackgroundVariant.Dots} gap={30} size={2.6} color={dotColor} />
         <MiniMap
@@ -1598,8 +1607,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         <TopLeftToolbar isDark={isDark} onAdd={addNode} />
       </div>
 
-      {/* C-key lasso eraser */}
-      <LassoEraser isDark={isDark} onCut={handleLassoCut} />
+      {/* C-key lasso eraser — hidden while node connections are temporarily disabled */}
+      {ENABLE_NODE_CONNECTIONS && <LassoEraser isDark={isDark} onCut={handleLassoCut} />}
 
       {/* Node context menu */}
       {nodeCtxMenu && (
