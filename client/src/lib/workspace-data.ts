@@ -117,7 +117,7 @@ export const LAYERS: Layer[] = [
 
 export const NAV_ITEMS = [
   { id: "home", label: "首页", icon: "Home" },
-  { id: "projects", label: "我的项目", icon: "FolderOpen", badge: 5 },
+  { id: "projects", label: "工作台", icon: "FolderOpen", badge: 5 },
   { id: "assets", label: "素材库", icon: "Image" },
   { id: "brand", label: "品牌套件", icon: "Palette" },
   { id: "templates", label: "模板", icon: "LayoutTemplate" },
