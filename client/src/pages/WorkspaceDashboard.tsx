@@ -13,7 +13,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import TopBar from "@/components/workspace/TopBar";
 import {
   Plus, MoreHorizontal, Pencil, Copy, Trash2,
-  FolderOpen, Clock, Image as ImageIcon, Check, X,
+  FolderOpen, Clock, Image as ImageIcon, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { POSTER_1, POSTER_2, BRAND_KIT, SOCIAL_AD } from "@/lib/workspace-data";
@@ -169,11 +169,10 @@ function DeleteConfirmDialog({
 
 // ── Project Card ───────────────────────────────────────────────
 function ProjectCard({
-  project, selected, renaming, isDark,
-  onOpen, onRename, onDuplicate, onDelete, onRenameSubmit, onSelect,
+  project, renaming, isDark,
+  onOpen, onRename, onDuplicate, onDelete, onRenameSubmit,
 }: {
   project: WsProject;
-  selected: boolean;
   renaming: boolean;
   isDark: boolean;
   onOpen: () => void;
@@ -181,7 +180,6 @@ function ProjectCard({
   onDuplicate: () => void;
   onDelete: () => void;
   onRenameSubmit: (name: string) => void;
-  onSelect: (e: React.MouseEvent) => void;
 }) {
   const [editVal, setEditVal] = useState(project.title);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -191,9 +189,7 @@ function ProjectCard({
   }, [renaming, project.title]);
 
   const cardBg = isDark ? "oklch(0.13 0.012 270)" : "oklch(1 0 0)";
-  const cardBorder = selected
-    ? "oklch(0.52 0.22 290)"
-    : isDark ? "rgba(255,255,255,0.07)" : "oklch(0.88 0.006 255)";
+  const cardBorder = isDark ? "rgba(255,255,255,0.07)" : "oklch(0.88 0.006 255)";
   const text = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.22 0.018 255)";
   const sub = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.50 0.012 255)";
 
@@ -203,12 +199,10 @@ function ProjectCard({
       style={{
         background: cardBg,
         border: `1.5px solid ${cardBorder}`,
-        boxShadow: selected ? `0 0 0 2px oklch(0.62 0.22 290 / 0.3)` : "0 2px 12px rgba(0,0,0,0.15)",
-        transform: selected ? "scale(0.98)" : "scale(1)",
+        boxShadow: "0 2px 12px rgba(0,0,0,0.15)",
         transition: "all 0.18s ease",
       }}
-      onDoubleClick={onOpen}
-      onClick={onSelect}
+      onClick={onOpen}
     >
       {/* Cover */}
       <div className="relative overflow-hidden" style={{ aspectRatio: "4/3" }}>
@@ -224,16 +218,9 @@ function ProjectCard({
           style={{ background: "rgba(0,0,0,0.40)" }}>
           <span className="type-caption text-white px-3 py-1.5 rounded-[var(--radius-pill)]"
             style={{ background: "rgba(255,255,255,0.15)", backdropFilter: "blur(8px)" }}>
-            双击打开
+            单击打开
           </span>
         </div>
-        {/* Selection checkbox */}
-        {selected && (
-          <div className="absolute top-2 left-2 w-5 h-5 rounded-[var(--radius-md-design)] flex items-center justify-center"
-            style={{ background: "oklch(0.62 0.22 290)", boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }}>
-            <Check size={12} color="white" strokeWidth={2.5} />
-          </div>
-        )}
       </div>
 
       {/* Info */}
@@ -375,14 +362,9 @@ export default function WorkspaceDashboard() {
   const isDark = resolvedTheme === "dark";
 
   const [projects, setProjects] = useState<WsProject[]>(INITIAL_PROJECTS);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string[] | null>(null);
-
-  const containerRef = useRef<HTMLDivElement>(null);
-  const lassoRef = useRef<{ startX: number; startY: number; active: boolean }>({ startX: 0, startY: 0, active: false });
-  const [lasso, setLasso] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
 
   const bg = isDark ? "oklch(0.09 0.012 270)" : "oklch(0.975 0.004 80)";
   const text = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.22 0.018 255)";
@@ -421,94 +403,22 @@ export default function WorkspaceDashboard() {
   const confirmDelete = useCallback(() => {
     if (!deleteConfirm) return;
     setProjects(ps => ps.filter(p => !deleteConfirm!.includes(p.id)));
-    setSelectedIds(new Set());
     setDeleteConfirm(null);
     toast(`已删除 ${deleteConfirm.length} 个项目`);
   }, [deleteConfirm]);
-
-  const handleCardSelect = useCallback((e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      if (e.shiftKey || e.metaKey || e.ctrlKey) {
-        next.has(id) ? next.delete(id) : next.add(id);
-      } else {
-        if (next.size === 1 && next.has(id)) next.clear();
-        else { next.clear(); next.add(id); }
-      }
-      return next;
-    });
-  }, []);
-
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest(".project-card")) return;
-    if (e.button !== 0) return;
-    const rect = containerRef.current!.getBoundingClientRect();
-    lassoRef.current = { startX: e.clientX - rect.left, startY: e.clientY - rect.top, active: true };
-    setSelectedIds(new Set());
-    setLasso(null);
-  }, []);
-
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!lassoRef.current.active) return;
-    const rect = containerRef.current!.getBoundingClientRect();
-    const cx = e.clientX - rect.left;
-    const cy = e.clientY - rect.top;
-    const { startX, startY } = lassoRef.current;
-    setLasso({ x: Math.min(cx, startX), y: Math.min(cy, startY), w: Math.abs(cx - startX), h: Math.abs(cy - startY) });
-  }, []);
-
-  const handleMouseUp = useCallback(() => {
-    if (!lassoRef.current.active || !lasso) { lassoRef.current.active = false; setLasso(null); return; }
-    lassoRef.current.active = false;
-    const cards = containerRef.current?.querySelectorAll("[data-project-id]");
-    const selected = new Set<string>();
-    cards?.forEach(card => {
-      const id = (card as HTMLElement).dataset.projectId!;
-      const r = card.getBoundingClientRect();
-      const cr = containerRef.current!.getBoundingClientRect();
-      const cx = r.left - cr.left; const cy = r.top - cr.top;
-      if (cx < lasso.x + lasso.w && cx + r.width > lasso.x && cy < lasso.y + lasso.h && cy + r.height > lasso.y) selected.add(id);
-    });
-    if (selected.size > 0) setSelectedIds(selected);
-    setLasso(null);
-  }, [lasso]);
 
   return (
     <div className="flex flex-col h-screen overflow-hidden" style={{ background: bg, transition: "background 0.25s ease" }}>
       <TopBar credits={75} />
 
-      <div className="flex-1 overflow-y-auto px-8 py-6 select-none" ref={containerRef}
-        onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp}
-        style={{ position: "relative" }}
-      >
+      <div className="flex-1 overflow-y-auto px-8 py-6 select-none" style={{ position: "relative" }}>
+
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="type-headline" style={{ color: text }}>工作台</h1>
             <p className="type-caption mt-0.5" style={{ color: sub }}>{projects.length} 个项目</p>
           </div>
-          {selectedIds.size > 0 && (
-            <div className="flex items-center gap-2">
-              <span className="type-caption" style={{ color: sub }}>已选 {selectedIds.size} 个</span>
-              <button
-                onClick={() => handleDelete(Array.from(selectedIds))}
-                className="type-caption flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-lg-design)] transition-opacity hover:opacity-80"
-                style={{ background: "oklch(0.65 0.22 25 / 0.15)", color: "oklch(0.65 0.22 25)" }}
-              >
-                <Trash2 size={13} />
-                删除所选
-              </button>
-              <button
-                onClick={() => setSelectedIds(new Set())}
-                className="type-caption flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-lg-design)] transition-opacity hover:opacity-80"
-                style={{ background: isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)", color: sub }}
-              >
-                <X size={13} />
-                取消选择
-              </button>
-            </div>
-          )}
         </div>
 
         {/* Project Grid */}
@@ -518,7 +428,6 @@ export default function WorkspaceDashboard() {
             <div key={project.id} data-project-id={project.id} className="project-card">
               <ProjectCard
                 project={project}
-                selected={selectedIds.has(project.id)}
                 renaming={renamingId === project.id}
                 isDark={isDark}
                 onOpen={() => navigate(`/project/${project.id}`)}
@@ -526,18 +435,11 @@ export default function WorkspaceDashboard() {
                 onDuplicate={() => handleDuplicate(project.id)}
                 onDelete={() => handleDelete([project.id])}
                 onRenameSubmit={name => handleRename(project.id, name)}
-                onSelect={e => handleCardSelect(e, project.id)}
               />
             </div>
           ))}
         </div>
 
-        {/* Lasso box */}
-        {lasso && lasso.w > 4 && lasso.h > 4 && (
-          <div className="absolute pointer-events-none rounded-[var(--radius-md-design)]"
-            style={{ left: lasso.x, top: lasso.y, width: lasso.w, height: lasso.h, border: "1.5px solid oklch(0.62 0.22 290)", background: "oklch(0.62 0.22 290 / 0.08)", zIndex: 20 }}
-          />
-        )}
       </div>
 
       {showCreate && <CoverPickerDialog isDark={isDark} onPick={handleCreate} onClose={() => setShowCreate(false)} />}

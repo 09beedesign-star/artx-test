@@ -1567,7 +1567,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   }, [screenToFlowPosition, getNodes, getEdges, setEdges]);
 
   const canvasBg = isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)";
-  const dotColor = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.28)";
+  const dotColor = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.32)";
 
   // Inject isEditing flag into the target node's data so AssetNodeComponent can show the mask
   const displayNodes = nodes.map(n =>
@@ -1600,7 +1600,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         selectNodesOnDrag={false}
         nodesDraggable={true}
       >
-        <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color={dotColor} />
+        <Background variant={BackgroundVariant.Dots} gap={30} size={2.6} color={dotColor} />
         <MiniMap
           style={{ background: isDark ? "oklch(0.11 0.015 270)" : "oklch(0.95 0.004 270)", border: `1px solid ${isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"}`, borderRadius: "var(--radius-md-design)" }}
           maskColor={isDark ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.5)"}
