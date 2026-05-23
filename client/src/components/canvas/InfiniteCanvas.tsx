@@ -1397,35 +1397,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [nodeCtxMenu, setNodeCtxMenu] = useState<NodeCtxState | null>(null);
   const [clipboard, setClipboard] = useState<Node | null>(null);
-  // ── Reference state: asset node clicked → inject into prompt bar (multi-select with Ctrl) ──
-  const [referencedAssets, setReferencedAssets] = useState<{ id: string; title: string; src: string }[]>([]);
   // ── Edit-asset state: zoom in on canvas then show editing prompt bar ──
   const [editAsset, setEditAsset] = useState<{ id: string; title: string; src: string; nodeId: string } | null>(null);
   const [isZoomingToEdit, setIsZoomingToEdit] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
-
-  // Listen for asset-reference events dispatched by AssetNodeComponent
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const { id, title, src, ctrlKey } = (e as CustomEvent).detail;
-      if (ctrlKey) {
-        // Ctrl held: toggle the item in the list
-        setReferencedAssets(prev =>
-          prev.some(a => a.id === id)
-            ? prev.filter(a => a.id !== id)
-            : [...prev, { id, title, src }]
-        );
-      } else {
-        // No Ctrl: replace with single item (unless same item — then clear)
-        setReferencedAssets(prev =>
-          prev.length === 1 && prev[0].id === id ? [] : [{ id, title, src }]
-        );
-      }
-    };
-    window.addEventListener("asset-reference", handler);
-    return () => window.removeEventListener("asset-reference", handler);
-  }, []);
 
   const onConnect = useCallback((params: Connection) => {
     setEdges(eds => addEdge({ ...params, type: "tapnow" }, eds));
@@ -1629,14 +1605,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       {nodeCtxMenu && (
         <NodeContextMenu menu={nodeCtxMenu} onClose={() => setNodeCtxMenu(null)} onAction={handleNodeAction} isDark={isDark} />
       )}
-
-      {/* Bottom AI prompt bar */}
-      <BottomPromptBar
-        isDark={isDark}
-        referencedAssets={referencedAssets}
-        onRemoveReference={(id) => setReferencedAssets(prev => prev.filter(a => a.id !== id))}
-        onClearAllReferences={() => setReferencedAssets([])}
-      />
 
       {/* Edit-asset prompt bar — shown after zoom-in animation, overlays bottom */}
       {editAsset && (

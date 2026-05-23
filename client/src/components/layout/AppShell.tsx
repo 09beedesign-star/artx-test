@@ -1,7 +1,7 @@
 /**
  * AppShell — Global Layout with Left Sidebar
  * Design: Neo-Studio — wide sidebar with nav groups + history list
- * Sections: 首页 / 灵感选题 / 技能商店 | 工作区: 我的项目 / 素材库 | 历史对话
+ * Sections: 首页 / 灵感选题 / 技能商店 | 工作区: 工作台 / 素材库 | 历史对话
  */
 import { useLocation } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -120,7 +120,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
               工作区
             </p>
             <div className="flex flex-col gap-0.5">
-              <NavItem icon={FolderOpen} label="我的项目" path="/workspace" iconSize={15} />
+              <NavItem icon={FolderOpen} label="工作台" path="/workspace" iconSize={15} />
               <NavItem icon={Archive}    label="素材库"   path="/assets"    iconSize={15} />
             </div>
           </div>
