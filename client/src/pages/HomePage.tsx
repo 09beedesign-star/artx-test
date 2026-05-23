@@ -37,9 +37,9 @@ function HomeCardMenu({ isDark }: { isDark: boolean }) {
 
   return (
     <div ref={ref} className="relative" onClick={e => e.stopPropagation()}>
-      {/* 触发按钮：与工作台一致 w-5 h-5 rounded-md，无背景，仅 open 时微亮 */}
+      {/* 触发按钮：与工作台一致 w-5 h-5 rounded-[var(--radius-md-design)]，无背景，仅 open 时微亮 */}
       <button
-        className="w-5 h-5 rounded-md flex items-center justify-center transition-all active:scale-90"
+        className="w-5 h-5 rounded-[var(--radius-md-design)] flex items-center justify-center transition-all active:scale-90"
         style={{
           background: open
             ? (isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)")
@@ -53,7 +53,7 @@ function HomeCardMenu({ isDark }: { isDark: boolean }) {
 
       {open && (
         <div
-          className="absolute rounded-xl overflow-hidden z-[9999]"
+          className="absolute rounded-[var(--radius-lg-design)] overflow-hidden z-[9999]"
           style={{
             background: bg,
             border: `1px solid ${border}`,
@@ -65,7 +65,7 @@ function HomeCardMenu({ isDark }: { isDark: boolean }) {
           }}
         >
           <button
-            className="flex items-center gap-2.5 w-full px-3 py-2.5 text-[12px] text-left transition-colors"
+            className="flex items-center gap-2.5 w-full px-3 py-2.5 type-caption text-left transition-colors"
             style={{ color: textColor }}
             onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
             onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
@@ -74,7 +74,7 @@ function HomeCardMenu({ isDark }: { isDark: boolean }) {
             <Pencil size={13} />重命名
           </button>
           <button
-            className="flex items-center gap-2.5 w-full px-3 py-2.5 text-[12px] text-left transition-colors"
+            className="flex items-center gap-2.5 w-full px-3 py-2.5 type-caption text-left transition-colors"
             style={{ color: textColor }}
             onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
             onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
@@ -84,7 +84,7 @@ function HomeCardMenu({ isDark }: { isDark: boolean }) {
           </button>
           <div style={{ height: 1, background: border, margin: "2px 0" }} />
           <button
-            className="flex items-center gap-2.5 w-full px-3 py-2.5 text-[12px] text-left transition-colors"
+            className="flex items-center gap-2.5 w-full px-3 py-2.5 type-caption text-left transition-colors"
             style={{ color: "oklch(0.65 0.22 25)" }}
             onMouseEnter={e => (e.currentTarget.style.background = "oklch(0.65 0.22 25 / 0.10)")}
             onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
@@ -194,7 +194,7 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
 
   return (
     <div
-      className="w-full rounded-3xl"
+      className="w-full rounded-[var(--radius-xl-design)]"
       style={{
         background: boxBg,
         border: `1.5px solid ${boxBorder}`,
@@ -245,7 +245,7 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
         <div className="flex items-center gap-1">
           {/* Attachment */}
           <button
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[12px] font-medium transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[var(--radius-lg-design)] type-caption transition-colors"
             style={{ color: subColor }}
             onMouseEnter={e => (e.currentTarget.style.background = toolBtnBg)}
             onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
@@ -261,7 +261,7 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
           {/* Model selector */}
           <div ref={modelRef} className="relative">
             <button
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[12px] font-medium transition-colors"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[var(--radius-lg-design)] type-caption transition-colors"
               style={{ color: subColor }}
               onMouseEnter={e => (e.currentTarget.style.background = toolBtnBg)}
               onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
@@ -274,7 +274,7 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
             {/* Model dropdown */}
             {modelOpen && (
               <div
-                className="absolute bottom-full mb-2 left-0 rounded-xl overflow-hidden shadow-2xl z-50"
+                className="absolute bottom-full mb-2 left-0 rounded-[var(--radius-lg-design)] overflow-hidden shadow-2xl z-50"
                 style={{
                   background: isDark ? "oklch(0.16 0.015 270)" : "oklch(0.97 0.004 270)",
                   border: `1px solid ${dividerColor}`,
@@ -283,22 +283,22 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
                 }}
               >
                 <div className="px-3 py-2 border-b" style={{ borderColor: dividerColor }}>
-                  <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: subColor }}>选择模型</p>
+                  <p className="type-caption uppercase tracking-wider" style={{ color: subColor }}>选择模型</p>
                 </div>
                 {AI_MODELS.map(model => (
                   <button
                     key={model.id}
-                    className="flex items-center justify-between w-full px-3 py-2.5 text-left text-[12px] transition-colors"
+                    className="flex items-center justify-between w-full px-3 py-2.5 text-left type-caption transition-colors"
                     style={{ color: textColor }}
                     onMouseEnter={e => (e.currentTarget.style.background = toolBtnHover)}
                     onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
                     onClick={() => { setSelectedModel(model); setModelOpen(false); }}
                   >
                     <div className="flex items-center gap-2.5">
-                      <div className="w-4 h-4 rounded-full" style={{ background: model.color }} />
+                      <div className="w-4 h-4 rounded-[var(--radius-pill)]" style={{ background: model.color }} />
                       <div>
-                        <p className="font-medium">{model.label}</p>
-                        <p className="text-[10px] mt-0.5" style={{ color: subColor }}>{model.vendor}</p>
+                        <p className="type-caption" style={{ textTransform: "none", letterSpacing: "0.02em" }}>{model.label}</p>
+                        <p className="type-caption mt-0.5" style={{ color: subColor }}>{model.vendor}</p>
                       </div>
                     </div>
                     {selectedModel.id === model.id && (
@@ -314,7 +314,7 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
         {/* Right: mic + send */}
         <div className="flex items-center gap-2">
           <button
-            className="w-8 h-8 rounded-xl flex items-center justify-center transition-colors"
+            className="w-8 h-8 rounded-[var(--radius-lg-design)] flex items-center justify-center transition-colors"
             style={{ color: subColor }}
             onMouseEnter={e => (e.currentTarget.style.background = toolBtnBg)}
             onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
@@ -324,7 +324,7 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
           <button
             onClick={handleSubmit}
             disabled={!value.trim()}
-            className="w-8 h-8 rounded-xl flex items-center justify-center transition-all active:scale-95"
+            className="w-8 h-8 rounded-[var(--radius-lg-design)] flex items-center justify-center transition-all active:scale-95"
             style={{
               background: value.trim()
                 ? "linear-gradient(135deg, oklch(0.55 0.22 290), oklch(0.50 0.20 260))"
@@ -346,7 +346,7 @@ export default function HomePage() {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
-  const bg = isDark ? "oklch(0.09 0.012 270)" : "#F5F5F5";
+  const bg = isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)";
   const text = isDark ? "oklch(0.88 0.008 270)" : "oklch(0.22 0.018 255)";
   const sub = isDark ? "oklch(0.52 0.01 270)" : "oklch(0.50 0.012 255)";
   const cardBg = isDark ? "oklch(0.13 0.012 270)" : "oklch(1 0 0)";
@@ -377,19 +377,19 @@ export default function HomePage() {
           {/* Badge */}
           <div className="flex items-center gap-2 mb-5">
             <Sparkles size={14} style={{ color: "oklch(0.72 0.22 290)" }} />
-            <span className="text-[12px] font-medium tracking-wide" style={{ color: "oklch(0.72 0.22 290)" }}>
+            <span className="type-caption" style={{ color: "oklch(0.72 0.22 290)" }}>
               artx
             </span>
           </div>
 
           {/* Headline */}
           <h1
-            className="text-[32px] font-bold leading-tight mb-2 text-center"
+            className="type-display-lg mb-2 text-center"
             style={{ color: text, letterSpacing: "-0.02em" }}
           >
             今天想创作什么？
           </h1>
-          <p className="text-[14px] mb-8 text-center" style={{ color: sub }}>
+          <p className="type-body-sm mb-8 text-center" style={{ color: sub }}>
             用 AI 的力量，将你的创意想法变成精美的视觉作品
           </p>
 
@@ -403,7 +403,7 @@ export default function HomePage() {
             {PROMPT_SUGGESTIONS.map((s, i) => (
               <button
                 key={i}
-                className="px-3 py-1.5 rounded-full text-[12px] transition-all hover:opacity-80 active:scale-95"
+                className="type-caption px-3 py-1.5 rounded-[var(--radius-pill)] transition-all hover:opacity-80 active:scale-95"
                 style={{
                   background: chipBg,
                   border: `1px solid ${chipBorder}`,
@@ -427,19 +427,20 @@ export default function HomePage() {
                 <button
                   key={action.id}
                   onClick={() => navigate(action.path)}
-                  className="relative rounded-2xl p-5 text-left overflow-hidden group transition-all hover:scale-[1.02]"
+                  className="relative p-5 text-left overflow-hidden group transition-all hover:scale-[1.02]"
                   style={{
                     background: action.gradient,
                     boxShadow: `0 8px 32px ${action.glow}`,
                     border: "1px solid rgba(255,255,255,0.12)",
+                    borderRadius: "var(--radius-lg-design)",
                   }}
                 >
                   <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity" style={{ background: "rgba(255,255,255,0.06)" }} />
-                  <div className="w-9 h-9 rounded-xl flex items-center justify-center mb-3" style={{ background: "rgba(255,255,255,0.15)" }}>
+                  <div className="w-9 h-9 rounded-[var(--radius-lg-design)] flex items-center justify-center mb-3" style={{ background: "rgba(255,255,255,0.15)" }}>
                     <Icon size={18} color="white" />
                   </div>
-                  <p className="text-[14px] font-semibold text-white mb-1">{action.title}</p>
-                  <p className="text-[12px] leading-relaxed" style={{ color: "rgba(255,255,255,0.70)" }}>{action.desc}</p>
+                  <p className="type-body-sm text-white mb-1">{action.title}</p>
+                  <p className="type-caption" style={{ color: "rgba(255,255,255,0.70)", textTransform: "none", letterSpacing: "0.02em" }}>{action.desc}</p>
                   <ArrowRight size={14} color="rgba(255,255,255,0.6)" className="absolute bottom-4 right-4 group-hover:translate-x-0.5 transition-transform" />
                 </button>
               );
@@ -451,11 +452,11 @@ export default function HomePage() {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <Clock size={14} style={{ color: sub }} />
-                <span className="text-[14px] font-semibold" style={{ color: text }}>最近项目</span>
+                <span className="type-body-sm" style={{ color: text }}>最近项目</span>
               </div>
               <button
                 onClick={() => navigate("/workspace")}
-                className="flex items-center gap-1 text-[12px] transition-opacity hover:opacity-70"
+                className="type-caption flex items-center gap-1 transition-opacity hover:opacity-70"
                 style={{ color: "oklch(0.62 0.22 290)" }}
               >
                 查看全部
@@ -468,7 +469,7 @@ export default function HomePage() {
                 <div
                   key={project.id}
                   onClick={() => navigate(`/project/${project.id}`)}
-                  className="rounded-xl overflow-hidden text-left group transition-all hover:scale-[1.02] cursor-pointer"
+                  className="rounded-[var(--radius-lg-design)] overflow-hidden text-left group transition-all hover:scale-[1.02] cursor-pointer"
                   style={{ background: cardBg, border: `1px solid ${cardBorder}`, boxShadow: "0 2px 12px rgba(0,0,0,0.12)" }}
                 >
                   <div className="relative overflow-hidden" style={{ aspectRatio: "16/9" }}>
@@ -481,10 +482,10 @@ export default function HomePage() {
                     )}
                   </div>
                   <div className="px-3 py-2.5">
-                    <p className="text-[12px] font-semibold truncate" style={{ color: text }}>{project.title}</p>
+                    <p className="type-caption truncate" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>{project.title}</p>
                     {/* 时间行 + ... 菜单：与工作台 CardMenu 位置完全一致 */}
                     <div className="flex items-center gap-1.5 mt-1">
-                      <p className="text-[11px]" style={{ color: sub }}>{project.updatedAt}</p>
+                      <p className="type-caption" style={{ color: sub, fontSize: 11 }}>{project.updatedAt}</p>
                       <div className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
                         <HomeCardMenu isDark={isDark} />
                       </div>

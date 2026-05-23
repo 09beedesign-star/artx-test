@@ -60,7 +60,7 @@ function ModelSelector({ model, onChange, isDark }: { model: string; onChange: (
     <div className="relative nodrag nopan" style={{ zIndex: 100 }}>
       <button
         onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
-        className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium transition-all"
+        className="flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-md-design)] type-caption transition-all"
         style={{ background: bg, border: `1px solid ${border}`, color: text }}
       >
         <span style={{ width: 6, height: 6, borderRadius: "50%", background: current.color, flexShrink: 0, display: "inline-block" }} />
@@ -69,7 +69,7 @@ function ModelSelector({ model, onChange, isDark }: { model: string; onChange: (
       </button>
       {open && (
         <div
-          className="absolute bottom-full mb-1 left-0 rounded-lg overflow-hidden shadow-2xl"
+          className="absolute bottom-full mb-1 left-0 rounded-[var(--radius-md-design)] overflow-hidden shadow-2xl"
           style={{ background: popBg, border: `1px solid ${border}`, minWidth: 160, zIndex: 200 }}
           onClick={e => e.stopPropagation()}
         >
@@ -77,14 +77,14 @@ function ModelSelector({ model, onChange, isDark }: { model: string; onChange: (
             <button
               key={m.id}
               onClick={() => { onChange(m.id); setOpen(false); }}
-              className="flex items-center gap-2 w-full px-3 py-2 text-left text-[11px] transition-colors"
+              className="flex items-center gap-2 w-full px-3 py-2 text-left type-caption transition-colors"
               style={{ color: text }}
               onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
               onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
             >
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: m.color, flexShrink: 0, display: "inline-block" }} />
-              <span className="font-medium">{m.label}</span>
-              <span style={{ marginLeft: "auto", opacity: 0.45, fontSize: 10 }}>{m.vendor}</span>
+              <span className="type-caption" style={{ textTransform: "none", letterSpacing: "0.02em" }}>{m.label}</span>
+              <span className="type-caption" style={{ marginLeft: "auto", opacity: 0.45 }}>{m.vendor}</span>
             </button>
           ))}
         </div>
@@ -104,7 +104,7 @@ function NodeToolbar({ model, onModelChange, onDelete, isDark }: {
       <ModelSelector model={model} onChange={onModelChange} isDark={isDark} />
       <button
         onClick={(e) => { e.stopPropagation(); onDelete(); }}
-        className="p-1 rounded transition-colors hover:opacity-80"
+        className="p-1 rounded-[var(--radius-xs)] transition-colors hover:opacity-80"
         style={{ color: text }}
         title="删除节点"
       >
@@ -135,25 +135,25 @@ function NodeWrapper({ children, selected, isDark, model, onModelChange, onDelet
 
   return (
     <div
-      className="relative flex flex-col rounded-xl overflow-visible"
+      className="relative flex flex-col rounded-[var(--radius-lg-design)] overflow-visible"
       style={{ background: bg, border: `1.5px solid ${border}`, boxShadow: shadow, transition: "border-color 0.15s, box-shadow 0.15s", ...style }}
       onContextMenu={onContextMenu}
     >
       <Handle type="target" position={Position.Left} id="left"
-        className="!w-3 !h-3 !rounded-full !border-2 hover:!scale-125 transition-all"
+        className="!w-3 !h-3 !rounded-[var(--radius-pill)] !border-2 hover:!scale-125 transition-all"
         style={{
           left: -1,
           backgroundColor: isDark ? "rgba(255,255,255,0.80)" : "oklch(0.28 0.01 270)",
           borderColor: isDark ? "rgba(255,255,255,0.60)" : "oklch(0.20 0.01 270)",
         }} />
       <Handle type="source" position={Position.Right} id="right"
-        className="!w-3 !h-3 !rounded-full !border-2 hover:!scale-125 transition-all"
+        className="!w-3 !h-3 !rounded-[var(--radius-pill)] !border-2 hover:!scale-125 transition-all"
         style={{
           right: -1,
           backgroundColor: isDark ? "rgba(255,255,255,0.80)" : "oklch(0.28 0.01 270)",
           borderColor: isDark ? "rgba(255,255,255,0.60)" : "oklch(0.20 0.01 270)",
         }} />
-      <div className="flex flex-col flex-1 overflow-hidden rounded-xl">
+      <div className="flex flex-col flex-1 overflow-hidden rounded-[var(--radius-lg-design)]">
         {children}
       </div>
       <NodeToolbar model={model} onModelChange={onModelChange} onDelete={onDelete} isDark={isDark} />
@@ -187,24 +187,24 @@ function ImagePreviewModal({ src, title, onClose, isDark }: {
           className="flex items-center gap-2 mb-3 px-3"
           style={{
             height: 40,
-            borderRadius: 10,
+            borderRadius: "var(--radius-md-design)",
             background: "rgba(255,255,255,0.10)",
             backdropFilter: "blur(12px)",
             border: "1px solid rgba(255,255,255,0.12)",
             minWidth: 240,
           }}
         >
-          <span className="text-white/75 text-[13px] font-medium flex-1 truncate">{title}</span>
+          <span className="text-white/75 type-caption flex-1 truncate">{title}</span>
           <button
             onClick={() => toast("下载", { description: "功能即将上线" })}
-            className="w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:bg-white/15 active:scale-90"
+            className="w-7 h-7 rounded-[var(--radius-md-design)] flex items-center justify-center transition-all hover:bg-white/15 active:scale-90"
             style={{ color: "rgba(255,255,255,0.80)" }}
           >
             <Download size={14} />
           </button>
           <button
             onClick={onClose}
-            className="w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:bg-white/15 active:scale-90"
+            className="w-7 h-7 rounded-[var(--radius-md-design)] flex items-center justify-center transition-all hover:bg-white/15 active:scale-90"
             style={{ color: "rgba(255,255,255,0.80)" }}
           >
             <X size={14} />
@@ -214,9 +214,9 @@ function ImagePreviewModal({ src, title, onClose, isDark }: {
         <img
           src={src}
           alt={title}
-          style={{ maxWidth: "85vw", maxHeight: "80vh", borderRadius: 12, boxShadow: "0 24px 80px rgba(0,0,0,0.7)", objectFit: "contain" }}
+          style={{ maxWidth: "85vw", maxHeight: "80vh", borderRadius: "var(--radius-md-design)", boxShadow: "0 24px 80px rgba(0,0,0,0.7)", objectFit: "contain" }}
         />
-        <p className="text-white/30 text-[11px] mt-3">按 Esc 关闭 · 点击背景关闭</p>
+        <p className="text-white/30 type-caption mt-3">按 Esc 关闭 · 点击背景关闭</p>
       </div>
     </div>
   );
@@ -250,25 +250,25 @@ function AssetFloatingToolbar({ isDark, onPreview, onDownload }: {
   };
   return (
     <div
-      className="absolute left-1/2 -translate-x-1/2 flex items-center gap-0.5 px-2 py-1.5 rounded-2xl nodrag nopan"
+      className="absolute left-1/2 -translate-x-1/2 flex items-center gap-0.5 px-2 py-1.5 rounded-[var(--radius-lg-design)] nodrag nopan"
       style={{ top: -52, background: toolBg, border: `1px solid ${toolBorder}`, backdropFilter: "blur(16px)", boxShadow: "0 8px 32px rgba(0,0,0,0.35)", zIndex: 50, whiteSpace: "nowrap" }}
     >
       {tools.map((t) => (
         <button key={t.action} title={t.label}
           onClick={(e) => { e.stopPropagation(); handleClick(t.action); }}
-          className="relative w-8 h-8 rounded-xl flex items-center justify-center transition-all"
+          className="relative w-8 h-8 rounded-[var(--radius-lg-design)] flex items-center justify-center transition-all"
           style={{ color: iconColor }}
           onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
           onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
           {t.icon}
-          {(t as any).dot && <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full" style={{ background: "oklch(0.60 0.22 260)" }} />}
+          {(t as any).dot && <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-[var(--radius-pill)]" style={{ background: "oklch(0.60 0.22 260)" }} />}
         </button>
       ))}
       <div style={{ width: 1, height: 20, background: dividerColor, margin: "0 4px", flexShrink: 0 }} />
       {actions.map((t) => (
         <button key={t.action} title={t.label}
           onClick={(e) => { e.stopPropagation(); handleClick(t.action); }}
-          className="w-8 h-8 rounded-xl flex items-center justify-center transition-all"
+          className="w-8 h-8 rounded-[var(--radius-lg-design)] flex items-center justify-center transition-all"
           style={{ color: iconColor }}
           onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
           onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
@@ -293,19 +293,20 @@ function AssetPromptPanel({ isDark, assetSrc, onExpand }: {
   const chipText = isDark ? "oklch(0.65 0.01 270)" : "oklch(0.45 0.01 270)";
   return (
     <div className="absolute left-1/2 -translate-x-1/2 nodrag nopan"
-      style={{ top: "calc(100% + 12px)", width: 380, background: panelBg, border: `1px solid ${panelBorder}`, borderRadius: 16, backdropFilter: "blur(20px)", boxShadow: "0 16px 48px rgba(0,0,0,0.4)", zIndex: 50 }}>
+      data-asset-src={assetSrc}
+      style={{ top: "calc(100% + 12px)", width: 380, background: panelBg, border: `1px solid ${panelBorder}`, borderRadius: "var(--radius-md-design)", backdropFilter: "blur(20px)", boxShadow: "0 16px 48px rgba(0,0,0,0.4)", zIndex: 50 }}>
       <div className="flex items-center gap-2 p-3">
-        <div className="w-9 h-9 rounded-lg overflow-hidden flex-shrink-0" style={{ border: `1.5px solid ${panelBorder}` }}>
-          <img src={assetSrc} alt="ref" className="w-full h-full object-cover" />
+        <div className="w-9 h-9 rounded-[var(--radius-md-design)] flex items-center justify-center flex-shrink-0" style={{ background: chipBg, border: `1.5px solid ${panelBorder}`, color: chipText }}>
+          <ImageIcon size={15} strokeWidth={1.8} />
         </div>
-        <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 cursor-pointer"
+        <div className="w-9 h-9 rounded-[var(--radius-md-design)] flex items-center justify-center flex-shrink-0 cursor-pointer"
           style={{ border: `1.5px dashed ${panelBorder}`, color: chipText }}
           onClick={() => toast("添加参考图")}>
           <PlusSquare size={14} />
         </div>
         <div className="flex-1" />
         <button onClick={(e) => { e.stopPropagation(); onExpand(); }}
-          className="w-7 h-7 rounded-lg flex items-center justify-center transition-opacity hover:opacity-70"
+          className="w-7 h-7 rounded-[var(--radius-md-design)] flex items-center justify-center transition-opacity hover:opacity-70"
           style={{ color: chipText }}>
           <Maximize2 size={13} />
         </button>
@@ -313,32 +314,32 @@ function AssetPromptPanel({ isDark, assetSrc, onExpand }: {
       <div className="px-3 pb-2">
         <textarea value={prompt} onChange={e => setPrompt(e.target.value)}
           placeholder="描述你想对这张图片做什么..."
-          rows={3} className="w-full bg-transparent text-[13px] leading-relaxed resize-none outline-none"
+          rows={3} className="w-full bg-transparent type-caption leading-relaxed resize-none outline-none"
           style={{ color: textColor }}
           onClick={e => e.stopPropagation()}
           onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (prompt.trim()) { toast("AI 正在处理图片", { description: prompt.slice(0, 50) }); setPrompt(""); } } }} />
       </div>
       <div className="flex items-center gap-2 px-3 py-2.5" style={{ borderTop: `1px solid ${divider}` }}>
         <ModelSelector model={model} onChange={setModel} isDark={isDark} />
-        <button className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] transition-opacity hover:opacity-80"
+        <button className="flex items-center gap-1 px-2 py-1 rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-80"
           style={{ background: chipBg, color: chipText }}
           onClick={e => { e.stopPropagation(); toast("尺寸设置"); }}>
           <RefreshCw size={10} /> 自适应 · 1K
         </button>
-        <button className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] transition-opacity hover:opacity-80"
+        <button className="flex items-center gap-1 px-2 py-1 rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-80"
           style={{ background: chipBg, color: chipText }}
           onClick={e => { e.stopPropagation(); toast("风格设置"); }}>风格</button>
-        <button className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] transition-opacity hover:opacity-80"
+        <button className="flex items-center gap-1 px-2 py-1 rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-80"
           style={{ background: chipBg, color: chipText }}
           onClick={e => { e.stopPropagation(); toast("摄影机控制"); }}>摄影机控制</button>
         <div className="flex-1" />
-        <button className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] transition-opacity hover:opacity-80"
+        <button className="flex items-center gap-1 px-2 py-1 rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-80"
           style={{ color: chipText }}
           onClick={e => { e.stopPropagation(); toast("语音输入"); }}>
           <Mic size={12} />
         </button>
-        <span className="text-[11px]" style={{ color: chipText }}>1×</span>
-        <button className="w-7 h-7 rounded-full flex items-center justify-center transition-all hover:opacity-90"
+        <span className="type-caption" style={{ color: chipText }}>1×</span>
+        <button className="w-7 h-7 rounded-[var(--radius-pill)] flex items-center justify-center transition-all hover:opacity-90"
           style={{ background: "oklch(0.58 0.22 290)", color: "white" }}
           onClick={e => { e.stopPropagation(); if (prompt.trim()) { toast("AI 正在处理图片", { description: prompt.slice(0, 50) }); setPrompt(""); } else toast("请先输入描述"); }}>
           <Send size={12} />
@@ -360,9 +361,19 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
 
   const asset = GENERATED_ASSETS.find(a => a.id === (data.assetId as string)) || GENERATED_ASSETS[0];
   const isEditing = !!(data as { isEditing?: boolean }).isEditing;
-  const text = isDark ? "oklch(0.75 0.01 270)" : "oklch(0.30 0.01 270)";
-  const subtext = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.55 0.01 270)";
-  const tagBg = isDark ? "oklch(0.18 0.02 270)" : "oklch(0.92 0.005 270)";
+  const displayTitle = (data.title as string) || asset.title || "素材节点";
+  const displayTags = Array.isArray(data.tags)
+    ? (data.tags as string[])
+    : ((asset.tags as string[] | undefined) || ["默认 icon", "灰色容器"]);
+  const displayType = (data.assetType as string) || asset.type || "素材";
+  const text = isDark ? "oklch(0.82 0.006 270)" : "oklch(0.22 0.006 270)";
+  const subtext = isDark ? "oklch(0.62 0.006 270)" : "oklch(0.46 0.006 270)";
+  const tagBg = isDark ? "oklch(0.28 0.004 270)" : "oklch(0.78 0.004 270)";
+  const assetShellBg = isDark ? "oklch(0.20 0.004 270)" : "oklch(0.86 0.004 270)";
+  const assetShellBorder = isDark ? "oklch(1 0 0 / 14%)" : "oklch(0 0 0 / 12%)";
+  const iconPanelBg = isDark ? "oklch(0.24 0.004 270)" : "oklch(0.80 0.004 270)";
+  const iconPanelBorder = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
+  const iconColor = isDark ? "oklch(0.70 0.006 270)" : "oklch(0.42 0.006 270)";
 
   // Close panel when node loses selection
   useEffect(() => { if (!selected) setShowPanel(false); }, [selected]);
@@ -380,7 +391,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     <>
       <NodeWrapper selected={selected} isDark={isDark} model={model} onModelChange={setModel}
         onDelete={() => deleteElements({ nodes: [{ id: nodeId }] })}
-        style={{ width: 240 }}
+        style={{ width: 240, background: assetShellBg, border: `1.5px solid ${assetShellBorder}` }}
         onContextMenu={handleNodeCtxMenu}
       >
         {/* Floating top toolbar — visible when selected */}
@@ -393,19 +404,29 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
         )}
 
         <div
-          className="relative overflow-hidden cursor-pointer"
-          style={{ aspectRatio: "16/10" }}
+          className="relative flex items-center justify-center overflow-hidden cursor-pointer"
+          style={{ aspectRatio: "16/10", background: iconPanelBg, borderBottom: `1px solid ${assetShellBorder}` }}
           onClick={(e) => {
             e.stopPropagation();
             setShowPanel(p => !p);
             // Dispatch reference event to BottomPromptBar (pass ctrlKey for multi-select)
             window.dispatchEvent(new CustomEvent("asset-reference", {
-              detail: { id: nodeId, title: asset.title, src: asset.src, ctrlKey: e.ctrlKey || e.metaKey }
+              detail: { id: nodeId, title: displayTitle, src: asset.src, ctrlKey: e.ctrlKey || e.metaKey }
             }));
           }}
-          onDoubleClick={(e) => { e.stopPropagation(); setPreview(true); }}
+          onDoubleClick={(e) => { e.stopPropagation(); toast("素材节点", { description: "已统一使用默认 icon" }); }}
         >
-          <img src={asset.src} alt={asset.title} className="w-full h-full object-cover" />
+          <div className="flex flex-col items-center justify-center gap-3">
+            <div
+              className="w-16 h-16 rounded-[var(--radius-lg-design)] flex items-center justify-center"
+              style={{ background: assetShellBg, border: `1.5px solid ${iconPanelBorder}` }}
+            >
+              <ImageIcon size={34} strokeWidth={1.7} style={{ color: iconColor }} />
+            </div>
+            <span className="type-caption px-2 py-1 rounded-[var(--radius-pill)]" style={{ background: tagBg, color: subtext }}>
+              {displayType}
+            </span>
+          </div>
           {/* 15% black mask shown when this node is being edited */}
           {isEditing && (
             <div
@@ -416,28 +437,15 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
               }}
             />
           )}
-          <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
-            style={{ background: "rgba(0,0,0,0.35)" }}>
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium text-white"
-              style={{ background: "rgba(255,255,255,0.15)", backdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.2)" }}>
-              <ZoomIn size={12} />
-              双击预览
-            </div>
-          </div>
-          <div className="absolute top-2 left-2">
-            <span className="text-[10px] px-1.5 py-0.5 rounded-md font-medium" style={{ background: tagBg, color: subtext }}>
-              {asset.type}
-            </span>
-          </div>
           <div className="absolute top-2 right-2">
-            <span className="text-[10px] px-1.5 py-0.5 rounded-md font-medium" style={{ background: "oklch(0 0 0 / 0.5)", color: "oklch(0.85 0 0)" }}>
-              {asset.width}×{asset.height}
+            <span className="type-caption px-1.5 py-0.5 rounded-[var(--radius-md-design)]" style={{ background: tagBg, color: subtext }}>
+              默认 icon
             </span>
           </div>
         </div>
         <div className="px-3 py-2">
-          <p className="text-[12px] font-semibold truncate" style={{ color: text }}>{asset.title}</p>
-          <p className="text-[10px] mt-0.5" style={{ color: subtext }}>{(asset.tags || []).join(" · ")}</p>
+          <p className="type-caption truncate" style={{ color: text }}>{displayTitle}</p>
+          <p className="type-caption mt-0.5" style={{ color: subtext }}>{displayTags.join(" · ")}</p>
         </div>
       </NodeWrapper>
 
@@ -494,15 +502,15 @@ function ChatNodeComponent({ data, selected }: { data: Record<string, unknown>; 
       onDelete={() => deleteElements({ nodes: [{ id: nodeId }] })}
       style={{ width: 320 }} onContextMenu={handleNodeCtxMenu}>
       <div className="flex items-center gap-2 px-3 py-2.5" style={{ borderBottom: `1px solid ${headerBorder}` }}>
-        <div className="w-5 h-5 rounded-md flex items-center justify-center" style={{ background: "oklch(0.58 0.22 290 / 0.2)" }}>
+        <div className="w-5 h-5 rounded-[var(--radius-md-design)] flex items-center justify-center" style={{ background: "oklch(0.58 0.22 290 / 0.2)" }}>
           <MessageSquare size={11} style={{ color: "oklch(0.72 0.22 290)" }} />
         </div>
-        <span className="text-[12px] font-semibold" style={{ color: text }}>AI 对话</span>
+        <span className="type-caption" style={{ color: text }}>AI 对话</span>
       </div>
       <div className="flex flex-col gap-2 p-3 overflow-y-auto nodrag nopan" style={{ maxHeight: 260 }}>
         {messages.map((msg, i) => (
           <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-            <div className="rounded-lg px-3 py-2 text-[11px] leading-relaxed max-w-[85%] whitespace-pre-line"
+            <div className="rounded-[var(--radius-md-design)] px-3 py-2 type-caption leading-relaxed max-w-[85%] whitespace-pre-line"
               style={{ background: msg.role === "user" ? aiBg : msgBg, border: msg.role === "user" ? `1px solid ${aiBorder}` : "none", color: text }}>
               {msg.content}
             </div>
@@ -510,11 +518,11 @@ function ChatNodeComponent({ data, selected }: { data: Record<string, unknown>; 
         ))}
       </div>
       <div className="px-3 pb-3 nodrag nopan">
-        <div className="flex items-center gap-2 rounded-lg px-3 py-2"
+        <div className="flex items-center gap-2 rounded-[var(--radius-md-design)] px-3 py-2"
           style={{ background: inputBg, border: `1px solid ${inputBorder}` }}>
-          <input className="flex-1 bg-transparent text-[11px] outline-none" style={{ color: text }}
+          <input className="flex-1 bg-transparent type-caption outline-none" style={{ color: text }}
             placeholder="继续对话..." onClick={e => e.stopPropagation()} />
-          <button className="p-1 rounded" style={{ color: subtext }}><Send size={11} /></button>
+          <button className="p-1 rounded-[var(--radius-xs)]" style={{ color: subtext }}><Send size={11} /></button>
         </div>
       </div>
     </NodeWrapper>
@@ -549,19 +557,19 @@ function PromptNodeComponent({ data, selected }: { data: Record<string, unknown>
       onDelete={() => deleteElements({ nodes: [{ id: nodeId }] })}
       style={{ width: 300 }} onContextMenu={handleNodeCtxMenu}>
       <div className="flex items-center gap-2 px-3 py-2.5" style={{ borderBottom: `1px solid ${headerBorder}` }}>
-        <div className="w-5 h-5 rounded-md flex items-center justify-center" style={{ background: "oklch(0.78 0.18 50 / 0.2)" }}>
+        <div className="w-5 h-5 rounded-[var(--radius-md-design)] flex items-center justify-center" style={{ background: "oklch(0.78 0.18 50 / 0.2)" }}>
           <Wand2 size={11} style={{ color: "oklch(0.78 0.18 50)" }} />
         </div>
-        <span className="text-[12px] font-semibold" style={{ color: text }}>提示词</span>
+        <span className="type-caption" style={{ color: text }}>提示词</span>
       </div>
       <div className="p-3 nodrag nopan">
         <textarea value={prompt} onChange={e => setPrompt(e.target.value)}
-          className="w-full rounded-lg px-3 py-2 text-[11px] leading-relaxed resize-none outline-none"
+          className="w-full rounded-[var(--radius-md-design)] px-3 py-2 type-caption leading-relaxed resize-none outline-none"
           style={{ background: inputBg, border: `1px solid ${inputBorder}`, color: text, minHeight: 80 }}
           placeholder="输入提示词..." rows={4} onClick={e => e.stopPropagation()} />
       </div>
       <div className="px-3 pb-3 nodrag nopan">
-        <button className="w-full py-1.5 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-opacity hover:opacity-90"
+        <button className="w-full py-1.5 rounded-[var(--radius-md-design)] type-caption flex items-center justify-center gap-1.5 transition-opacity hover:opacity-90"
           style={{ background: "oklch(0.58 0.22 290)", color: "white" }}
           onClick={() => toast("开始生成", { description: prompt.slice(0, 40) + "…" })}>
           <Sparkles size={11} />生成
@@ -606,11 +614,11 @@ function TextNodeComponent({ data, selected }: { data: Record<string, unknown>; 
       onContextMenu={handleNodeCtxMenu}>
       <div className="flex items-center gap-2 px-3 py-2" style={{ borderBottom: `1px solid ${headerBorder}` }}>
         <Type size={11} style={{ color: textColor, opacity: 0.6 }} />
-        <span className="text-[11px] font-semibold" style={{ color: textColor }}>备注</span>
+        <span className="type-caption" style={{ color: textColor }}>备注</span>
       </div>
       <div className="p-3 nodrag nopan">
         <textarea value={text2} onChange={e => setText2(e.target.value)}
-          className="w-full bg-transparent text-[11px] leading-relaxed resize-none outline-none"
+          className="w-full bg-transparent type-caption leading-relaxed resize-none outline-none"
           style={{ color: textColor, minHeight: 60 }}
           placeholder="输入备注..." rows={3} onClick={e => e.stopPropagation()} />
       </div>
@@ -643,7 +651,7 @@ function TapnowEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, ta
           <div style={{ position: "absolute", transform: `translate(-50%,-50%) translate(${midX}px,${midY}px)`, pointerEvents: "all", zIndex: 10 }}
             className="nodrag nopan">
             <button onClick={() => deleteElements({ edges: [{ id }] })}
-              className="w-5 h-5 rounded-full flex items-center justify-center shadow-lg hover:opacity-80"
+              className="w-5 h-5 rounded-[var(--radius-pill)] flex items-center justify-center shadow-lg hover:opacity-80"
               style={{ background: "oklch(0.55 0.22 20)", border: "1.5px solid rgba(255,255,255,0.3)" }}>
               <X size={9} color="white" />
             </button>
@@ -666,20 +674,29 @@ const edgeTypes: EdgeTypes = {
 };
 
 // ── Initial data ───────────────────────────────────────────────
+const DEFAULT_ASSET_TAGS = ["默认 icon", "灰色容器"];
+
+const createDefaultAssetData = (id: string, title = "素材节点") => ({
+  id,
+  assetId: "default",
+  title,
+  assetType: "素材",
+  tags: DEFAULT_ASSET_TAGS,
+});
+
 const initialNodes: Node[] = [
-  { id: "chat-1",   type: "chat",   position: { x: 60,   y: 80  }, data: { id: "chat-1",   assetId: "a1" } },
-  { id: "asset-1",  type: "asset",  position: { x: 460,  y: 80  }, data: { id: "asset-1",  assetId: "a1" } },
-  { id: "asset-2",  type: "asset",  position: { x: 720,  y: 80  }, data: { id: "asset-2",  assetId: "a2" } },
-  { id: "prompt-1", type: "prompt", position: { x: 460,  y: 420 }, data: { id: "prompt-1", prompt: "为次世代跑鞋品牌设计产品页视觉资产，包括英雄图、产品特写和运动员穿着图，突出性能与材质。" } },
-  { id: "text-1",   type: "text",   position: { x: 780,  y: 420 }, data: { id: "text-1",   text: "版本 v2.1\n已生成 4 张图片\n待审核：英雄图", colorIdx: 0 } },
-  { id: "asset-3",  type: "asset",  position: { x: 980,  y: 80  }, data: { id: "asset-3",  assetId: "a3" } },
-  { id: "asset-4",  type: "asset",  position: { x: 980,  y: 420 }, data: { id: "asset-4",  assetId: "a4" } },
+  { id: "chat-sample-1", type: "chat", position: { x: -520, y: -40 }, data: { id: "chat-sample-1" } },
+  { id: "prompt-sample-1", type: "prompt", position: { x: -140, y: -55 }, data: { id: "prompt-sample-1", prompt: "为品牌活动整理一组视觉素材方向。" } },
+  { id: "asset-sample-1", type: "asset", position: { x: 230, y: -170 }, data: createDefaultAssetData("asset-sample-1", "主视觉素材") },
+  { id: "asset-sample-2", type: "asset", position: { x: 230, y: 70 }, data: createDefaultAssetData("asset-sample-2", "产品细节素材") },
+  { id: "text-sample-1", type: "text", position: { x: 540, y: -10 }, data: { id: "text-sample-1", text: "这里是画布示意节点，可拖动、连接或删除。", colorIdx: 0 } },
 ];
+
 const initialEdges: Edge[] = [
-  { id: "e1", source: "chat-1",   target: "asset-1",  type: "tapnow" },
-  { id: "e2", source: "chat-1",   target: "asset-2",  type: "tapnow" },
-  { id: "e3", source: "prompt-1", target: "asset-3",  type: "tapnow" },
-  { id: "e4", source: "asset-1",  target: "prompt-1", type: "tapnow" },
+  { id: "e-chat-prompt", source: "chat-sample-1", target: "prompt-sample-1", type: "tapnow" },
+  { id: "e-prompt-asset-1", source: "prompt-sample-1", target: "asset-sample-1", type: "tapnow" },
+  { id: "e-prompt-asset-2", source: "prompt-sample-1", target: "asset-sample-2", type: "tapnow" },
+  { id: "e-asset-text", source: "asset-sample-2", target: "text-sample-1", type: "tapnow" },
 ];
 
 
@@ -745,7 +762,7 @@ function BottomPromptBar({
 
   return (
     <div
-      className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-2xl shadow-2xl overflow-hidden"
+      className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-[var(--radius-lg-design)] shadow-2xl overflow-hidden"
       style={{
         background: bg,
         border: `1.5px solid ${hasRefs ? activeBorder : border}`,
@@ -767,21 +784,18 @@ function BottomPromptBar({
           {referencedAssets.map(asset => (
             <div
               key={asset.id}
-              className="relative flex items-center gap-1.5 pr-1 pl-1 py-0.5 rounded-full text-[11px] font-medium"
+              className="relative flex items-center gap-1.5 pr-1 pl-1 py-0.5 rounded-[var(--radius-pill)] type-caption"
               style={{ background: chipBg, border: `1px solid ${chipBorder}`, color: chipText }}
             >
-              {/* Thumbnail */}
-              <img
-                src={asset.src}
-                alt={asset.title}
-                style={{ width: 18, height: 18, borderRadius: 3, objectFit: "cover", flexShrink: 0 }}
-              />
-              <ImageIcon size={9} style={{ opacity: 0.7, flexShrink: 0 }} />
+              {/* Default material icon */}
+              <span className="flex items-center justify-center" style={{ width: 18, height: 18, borderRadius: 3, background: isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)", flexShrink: 0 }}>
+                <ImageIcon size={10} style={{ opacity: 0.75 }} />
+              </span>
               <span>{asset.title}</span>
               {/* Per-chip remove button */}
               <button
                 onClick={() => onRemoveReference(asset.id)}
-                className="w-4 h-4 rounded-full flex items-center justify-center ml-0.5 transition-all hover:bg-white/20 active:scale-90"
+                className="w-4 h-4 rounded-[var(--radius-pill)] flex items-center justify-center ml-0.5 transition-all hover:bg-white/20 active:scale-90"
                 style={{ color: removeColor, flexShrink: 0 }}
                 title="移除引用"
               >
@@ -793,7 +807,7 @@ function BottomPromptBar({
           {referencedAssets.length > 1 && (
             <button
               onClick={onClearAllReferences}
-              className="text-[10px] px-1.5 py-0.5 rounded-full hover:opacity-70 transition-opacity"
+              className="type-caption px-1.5 py-0.5 rounded-[var(--radius-pill)] hover:opacity-70 transition-opacity"
               style={{ color: removeColor }}
             >
               全部清除
@@ -809,7 +823,7 @@ function BottomPromptBar({
           onChange={e => { setPrompt(e.target.value); setRows(Math.min(e.target.value.split("\n").length, 5)); }}
           onKeyDown={handleKeyDown}
           rows={rows}
-          className="w-full bg-transparent text-[13px] leading-relaxed resize-none outline-none"
+          className="w-full bg-transparent type-caption leading-relaxed resize-none outline-none"
           style={{ color: text }}
           placeholder={placeholderText}
         />
@@ -817,19 +831,19 @@ function BottomPromptBar({
       <div className="flex items-center gap-2 px-3 pb-3" style={{ borderTop: `1px solid ${divider}`, paddingTop: 8 }}>
         <ModelSelector model={model} onChange={setModel} isDark={isDark} />
         <button
-          className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] hover:opacity-80"
+          className="flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-md-design)] type-caption hover:opacity-80"
           style={{ color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.55 0.01 270)" }}
           onClick={() => toast("参考图", { description: "功能即将上线" })}
         >
           <Paperclip size={12} /><span>参考图</span>
         </button>
         <div className="flex-1" />
-        <span className="text-[10px]" style={{ color: isDark ? "oklch(0.38 0.008 270)" : "oklch(0.62 0.008 270)" }}>
+        <span className="type-caption" style={{ color: isDark ? "oklch(0.38 0.008 270)" : "oklch(0.62 0.008 270)" }}>
           {hasRefs ? `Ctrl+单击 多选 · ` : ""}回车发送
         </span>
         <button
           onClick={handleSend}
-          className="w-7 h-7 rounded-lg flex items-center justify-center hover:opacity-80"
+          className="w-7 h-7 rounded-[var(--radius-md-design)] flex items-center justify-center hover:opacity-80"
           style={{ background: hasContent ? "oklch(0.58 0.22 290)" : (isDark ? "oklch(0.22 0.015 270)" : "oklch(0.88 0.005 270)") }}
         >
           <Send size={13} color={hasContent ? "white" : (isDark ? "oklch(0.40 0.01 270)" : "oklch(0.65 0.01 270)")} />
@@ -878,13 +892,13 @@ function NodeContextMenu({ menu, onClose, onAction, isDark }: {
 
   return (
     <div
-      className="absolute rounded-xl overflow-hidden shadow-2xl"
+      className="absolute rounded-[var(--radius-lg-design)] overflow-hidden shadow-2xl"
       style={{ left: menu.x, top: menu.y, background: bg, border: `1px solid ${border}`, minWidth: 196, zIndex: 2000 }}
       onMouseDown={e => e.stopPropagation()}
     >
       {/* Header */}
       <div className="px-3 py-2" style={{ borderBottom: `1px solid ${divider}` }}>
-        <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: isDark ? "oklch(0.42 0.01 270)" : "oklch(0.58 0.01 270)" }}>
+        <span className="type-caption uppercase" style={{ color: isDark ? "oklch(0.42 0.01 270)" : "oklch(0.58 0.01 270)" }}>
           节点操作
         </span>
       </div>
@@ -894,7 +908,7 @@ function NodeContextMenu({ menu, onClose, onAction, isDark }: {
         ) : (
           <button
             key={item.action}
-            className="flex items-center gap-2.5 w-full px-3 py-2 text-left text-[12px] transition-colors"
+            className="flex items-center gap-2.5 w-full px-3 py-2 text-left type-caption transition-colors"
             style={{ color: item.action === "delete" ? dangerColor : text }}
             onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
             onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
@@ -990,7 +1004,7 @@ function LassoEraser({ isDark, onCut }: { isDark: boolean; onCut: (rect: LassoRe
       onMouseUp={handleMouseUp}
     >
       {/* Hint */}
-      <div className="absolute top-3 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full text-[11px] font-medium pointer-events-none"
+      <div className="absolute top-3 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-[var(--radius-pill)] type-caption pointer-events-none"
         style={{ background: isDark ? "rgba(255,80,80,0.15)" : "rgba(200,50,50,0.1)", border: `1px solid ${borderColor}`, color: isDark ? "rgba(255,150,150,0.9)" : "rgba(180,40,40,0.9)" }}>
         ✂ 框选区域内的连线将被切断 · 松开 C 键退出
       </div>
@@ -1002,7 +1016,7 @@ function LassoEraser({ isDark, onCut }: { isDark: boolean; onCut: (rect: LassoRe
             left: rect.x, top: rect.y, width: rect.w, height: rect.h,
             background: fillColor,
             border: `1.5px dashed ${borderColor}`,
-            borderRadius: 4,
+            borderRadius: "var(--radius-xs)",
           }}
         />
       )}
@@ -1062,7 +1076,7 @@ function AssetEditPromptBar({
         backdropFilter: "blur(24px)",
         border: `1.5px solid oklch(0.62 0.22 290 / 55%)`,
         boxShadow: `0 0 0 3px oklch(0.62 0.22 290 / 0.12), 0 12px 48px rgba(0,0,0,0.28)`,
-        borderRadius: 16,
+        borderRadius: "var(--radius-md-design)",
         overflow: "hidden",
         // Slide-up entrance, always centered horizontally
         transform: visible
@@ -1075,7 +1089,7 @@ function AssetEditPromptBar({
       {/* Header: asset chip + close */}
       <div className="flex items-center gap-2 px-3 pt-2.5 pb-2" style={{ borderBottom: `1px solid ${divider}` }}>
         <div
-          className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium"
+          className="flex items-center gap-1.5 px-2 py-0.5 rounded-[var(--radius-pill)] type-caption"
           style={{
             background: isDark ? "oklch(0.58 0.22 290 / 0.18)" : "oklch(0.58 0.22 290 / 0.12)",
             border: `1px solid ${isDark ? "oklch(0.62 0.22 290 / 0.35)" : "oklch(0.58 0.22 290 / 0.30)"}`,
@@ -1086,11 +1100,11 @@ function AssetEditPromptBar({
           <ImageIcon size={9} style={{ opacity: 0.7 }} />
           <span>{asset.title}</span>
         </div>
-        <span className="text-[11px]" style={{ color: subtext }}>正在编辑此素材</span>
+        <span className="type-caption" style={{ color: subtext }}>正在编辑此素材</span>
         <div className="flex-1" />
         <button
           onClick={onClose}
-          className="w-6 h-6 rounded-md flex items-center justify-center transition-all hover:opacity-70 active:scale-90"
+          className="w-6 h-6 rounded-[var(--radius-md-design)] flex items-center justify-center transition-all hover:opacity-70 active:scale-90"
           style={{ color: subtext }}
           title="关闭 (Esc)"
         >
@@ -1106,7 +1120,7 @@ function AssetEditPromptBar({
           onChange={e => setPrompt(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
           rows={2}
-          className="w-full bg-transparent text-[13px] leading-relaxed resize-none outline-none"
+          className="w-full bg-transparent type-caption leading-relaxed resize-none outline-none"
           style={{ color: text }}
           placeholder="描述你想如何编辑这张图片，例如：更换背景为星空、加强光效、调整配色..."
         />
@@ -1116,10 +1130,10 @@ function AssetEditPromptBar({
       <div className="flex items-center gap-2 px-3 pb-3" style={{ borderTop: `1px solid ${divider}`, paddingTop: 8 }}>
         <ModelSelector model={model} onChange={setModel} isDark={isDark} />
         <div className="flex-1" />
-        <span className="text-[10px]" style={{ color: subtext }}>回车发送</span>
+        <span className="type-caption" style={{ color: subtext }}>回车发送</span>
         <button
           onClick={handleSend}
-          className="w-7 h-7 rounded-lg flex items-center justify-center hover:opacity-80 active:scale-90 transition-all"
+          className="w-7 h-7 rounded-[var(--radius-md-design)] flex items-center justify-center hover:opacity-80 active:scale-90 transition-all"
           style={{ background: prompt.trim() ? "oklch(0.58 0.22 290)" : (isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)") }}
         >
           <Send size={13} color={prompt.trim() ? "white" : (isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.30)")} />
@@ -1141,7 +1155,7 @@ function ZoomControlBar({ isDark }: { isDark: boolean }) {
   const dividerColor = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
   const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
 
-  const btnClass = "w-8 h-8 flex items-center justify-center rounded-lg transition-all active:scale-90 hover:opacity-80";
+  const btnClass = "w-8 h-8 flex items-center justify-center rounded-[var(--radius-md-design)] transition-all active:scale-90 hover:opacity-80";
 
   return (
     <div
@@ -1154,7 +1168,7 @@ function ZoomControlBar({ isDark }: { isDark: boolean }) {
           background: barBg,
           backdropFilter: "blur(12px)",
           border: `1px solid ${barBorder}`,
-          borderRadius: 12,
+          borderRadius: "var(--radius-md-design)",
           padding: "4px",
           gap: 0,
           boxShadow: isDark
@@ -1255,7 +1269,7 @@ function BackButton({ isDark }: { isDark: boolean }) {
     <div className="absolute" style={{ top: 12, left: 12, zIndex: 101 }}>
       <button
         onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
-        className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[12px] font-medium shadow-lg transition-all hover:opacity-90 active:scale-95"
+        className="flex items-center gap-1.5 px-3 py-2 rounded-[var(--radius-lg-design)] type-caption shadow-lg transition-all hover:opacity-90 active:scale-95"
         style={{
           background: bg,
           border: `1.5px solid ${border}`,
@@ -1268,12 +1282,12 @@ function BackButton({ isDark }: { isDark: boolean }) {
       </button>
       {open && (
         <div
-          className="absolute top-full mt-1.5 left-0 rounded-xl overflow-hidden shadow-2xl"
+          className="absolute top-full mt-1.5 left-0 rounded-[var(--radius-lg-design)] overflow-hidden shadow-2xl"
           style={{ background: bg, border: `1px solid ${border}`, minWidth: 148, backdropFilter: "blur(16px)" }}
           onMouseDown={e => e.stopPropagation()}
         >
           <button
-            className="flex items-center gap-2.5 w-full px-3 py-2.5 text-left text-[12px] transition-colors"
+            className="flex items-center gap-2.5 w-full px-3 py-2.5 text-left type-caption transition-colors"
             style={{ color: text }}
             onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
             onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
@@ -1283,7 +1297,7 @@ function BackButton({ isDark }: { isDark: boolean }) {
             返回首页
           </button>
           <button
-            className="flex items-center gap-2.5 w-full px-3 py-2.5 text-left text-[12px] transition-colors"
+            className="flex items-center gap-2.5 w-full px-3 py-2.5 text-left type-caption transition-colors"
             style={{ color: text }}
             onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
             onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
@@ -1325,7 +1339,7 @@ function TopLeftToolbar({ isDark, onAdd }: { isDark: boolean; onAdd: (type: stri
     <div className="relative">
       <button
         onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
-        className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[12px] font-semibold shadow-lg transition-all hover:opacity-90 active:scale-95"
+        className="flex items-center gap-1.5 px-3 py-2 rounded-[var(--radius-lg-design)] type-caption shadow-lg transition-all hover:opacity-90 active:scale-95"
         style={{
           background: open
             ? (isDark ? "oklch(0.55 0.18 280)" : "oklch(0.50 0.18 280)")
@@ -1342,17 +1356,17 @@ function TopLeftToolbar({ isDark, onAdd }: { isDark: boolean; onAdd: (type: stri
 
       {open && (
         <div
-          className="absolute top-full mt-1.5 left-0 rounded-xl overflow-hidden shadow-2xl"
+          className="absolute top-full mt-1.5 left-0 rounded-[var(--radius-lg-design)] overflow-hidden shadow-2xl"
           style={{ background: bg, border: `1px solid ${border}`, minWidth: 168, backdropFilter: "blur(16px)" }}
           onMouseDown={e => e.stopPropagation()}
         >
           <div className="px-3 py-2" style={{ borderBottom: `1px solid ${divider}` }}>
-            <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: isDark ? "oklch(0.42 0.01 270)" : "oklch(0.58 0.01 270)" }}>选择节点类型</span>
+            <span className="type-caption uppercase" style={{ color: isDark ? "oklch(0.42 0.01 270)" : "oklch(0.58 0.01 270)" }}>选择节点类型</span>
           </div>
           {nodeOptions.map((opt) => (
             <button
               key={opt.type}
-              className="flex items-center gap-2.5 w-full px-3 py-2.5 text-left text-[12px] transition-colors"
+              className="flex items-center gap-2.5 w-full px-3 py-2.5 text-left type-caption transition-colors"
               style={{ color: text }}
               onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
               onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
@@ -1457,7 +1471,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const node = nodes.find(n => n.id === nodeId);
       if (node) {
         const id = `asset-${Date.now()}`;
-        setNodes(nds => [...nds, { id, type: "asset", position: { x: node.position.x + 280, y: node.position.y }, data: { id, assetId: `a${Math.ceil(Math.random() * 4)}` } }]);
+        setNodes(nds => [...nds, { id, type: "asset", position: { x: node.position.x + 280, y: node.position.y }, data: createDefaultAssetData(id, "新素材节点") }]);
       }
     } else if (action === "add-text") {
       const node = nodes.find(n => n.id === nodeId);
@@ -1485,9 +1499,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   // ── Add node from position ──
   const addNode = useCallback((type: string, x: number, y: number) => {
     const id = `${type}-${Date.now()}`;
+    const data = type === "asset"
+      ? createDefaultAssetData(id, "新素材节点")
+      : { id, prompt: type === "prompt" ? "" : undefined, text: type === "text" ? "" : undefined, colorIdx: type === "text" ? Math.floor(Math.random() * 3) : undefined };
     setNodes(nds => [...nds, {
       id, type, position: { x, y },
-      data: { id, assetId: type === "asset" ? `a${Math.ceil(Math.random() * 4)}` : undefined, prompt: type === "prompt" ? "" : undefined, text: type === "text" ? "" : undefined, colorIdx: type === "text" ? Math.floor(Math.random() * 3) : undefined },
+      data,
     }]);
   }, [setNodes]);
 
@@ -1549,7 +1566,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     }
   }, [screenToFlowPosition, getNodes, getEdges, setEdges]);
 
-  const canvasBg = isDark ? "#0d0d14" : "#eeeef2";
+  const canvasBg = isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)";
   const dotColor = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.28)";
 
   // Inject isEditing flag into the target node's data so AssetNodeComponent can show the mask
@@ -1585,7 +1602,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       >
         <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color={dotColor} />
         <MiniMap
-          style={{ background: isDark ? "oklch(0.11 0.015 270)" : "oklch(0.95 0.004 270)", border: `1px solid ${isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"}`, borderRadius: 8 }}
+          style={{ background: isDark ? "oklch(0.11 0.015 270)" : "oklch(0.95 0.004 270)", border: `1px solid ${isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"}`, borderRadius: "var(--radius-md-design)" }}
           maskColor={isDark ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.5)"}
           nodeColor={isDark ? "oklch(0.35 0.02 270)" : "oklch(0.75 0.005 270)"}
           zoomable

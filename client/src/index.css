@@ -51,10 +51,61 @@
   --color-surface-1: oklch(0.14 0.018 270);
   --color-surface-2: oklch(0.17 0.02 270);
   --color-surface-3: oklch(0.20 0.022 270);
+
+  /* Figma DESIGN.md tokens */
+  --color-design-primary: var(--design-primary);
+  --color-design-on-primary: var(--design-on-primary);
+  --color-design-canvas: var(--design-canvas);
+  --color-design-ink: var(--design-ink);
+  --color-design-surface-soft: var(--design-surface-soft);
+  --color-block-lime: var(--block-lime);
+  --color-block-lilac: var(--block-lilac);
+  --color-block-cream: var(--block-cream);
+  --color-block-pink: var(--block-pink);
+  --color-block-mint: var(--block-mint);
+  --color-block-coral: var(--block-coral);
+  --color-block-navy: var(--block-navy);
+  --color-accent-magenta: var(--accent-magenta);
+  --color-semantic-success: var(--semantic-success);
+  --color-hairline: var(--hairline);
+  --color-hairline-soft: var(--hairline-soft);
 }
 
 :root {
   --radius: 0.5rem;
+  --radius-xs: 2px;
+  --radius-sm-design: 6px;
+  --radius-md-design: 8px;
+  --radius-lg-design: 24px;
+  --radius-xl-design: 32px;
+  --radius-pill: 50px;
+
+  --space-hair: 1px;
+  --space-xxs: 4px;
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-xxl: 48px;
+  --space-section: 96px;
+
+  --design-primary: #000000;
+  --design-on-primary: #ffffff;
+  --design-canvas: #ffffff;
+  --design-ink: #000000;
+  --design-surface-soft: #f7f7f5;
+  --block-lime: #dceeb1;
+  --block-lilac: #c5b0f4;
+  --block-cream: #f4ecd6;
+  --block-pink: #efd4d4;
+  --block-mint: #c8e6cd;
+  --block-coral: #f3c9b6;
+  --block-navy: #1f1d3d;
+  --accent-magenta: #ff3d8b;
+  --semantic-success: #1ea64a;
+  --hairline: #e6e6e6;
+  --hairline-soft: #f1f1f1;
 
   /* ── Dark mode (default) — Deep blue-purple ── */
   --background: oklch(0.10 0.015 270);
@@ -129,12 +180,12 @@ html.light, .light {
   }
 
   html {
-    font-family: 'DM Sans', system-ui, sans-serif;
+    font-family: 'Inter', system-ui, sans-serif;
   }
 
   body {
     @apply bg-background text-foreground;
-    font-family: 'DM Sans', system-ui, sans-serif;
+    font-family: 'Inter', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     transition: background-color 0.2s ease, color 0.2s ease;
@@ -185,6 +236,93 @@ html.light, .light {
   .flex {
     min-height: 0;
     min-width: 0;
+  }
+
+  /* DESIGN.md typography utilities */
+  .type-display-xl {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: clamp(48px, 8vw, 86px);
+    font-weight: 340;
+    line-height: 1;
+    letter-spacing: -1.72px;
+  }
+
+  .type-display-lg {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: clamp(40px, 6vw, 64px);
+    font-weight: 340;
+    line-height: 1.1;
+    letter-spacing: -0.96px;
+  }
+
+  .type-headline {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 26px;
+    font-weight: 540;
+    line-height: 1.35;
+    letter-spacing: -0.26px;
+  }
+
+  .type-subhead {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 26px;
+    font-weight: 340;
+    line-height: 1.35;
+    letter-spacing: -0.26px;
+  }
+
+  .type-card-title {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 24px;
+    font-weight: 700;
+    line-height: 1.45;
+  }
+
+  .type-body-lg {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 20px;
+    font-weight: 330;
+    line-height: 1.4;
+    letter-spacing: -0.14px;
+  }
+
+  .type-body {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 18px;
+    font-weight: 320;
+    line-height: 1.45;
+    letter-spacing: -0.26px;
+  }
+
+  .type-body-sm {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 16px;
+    font-weight: 330;
+    line-height: 1.45;
+    letter-spacing: -0.14px;
+  }
+
+  .type-button {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 20px;
+    font-weight: 480;
+    line-height: 1.4;
+    letter-spacing: -0.10px;
+  }
+
+  .type-eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 18px;
+    font-weight: 400;
+    letter-spacing: 0.54px;
+    text-transform: uppercase;
+  }
+
+  .type-caption {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 400;
+    letter-spacing: 0.60px;
   }
 
   /* Brand gradient utilities */

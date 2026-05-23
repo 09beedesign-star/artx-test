@@ -1,6 +1,6 @@
 /**
  * Workspace — Project Canvas Page
- * Design: Neo-Studio Dark
+ * Design: artx DESIGN.md token system
  * Layout: TopBar + InfiniteCanvas (full width, no side panel)
  * Note: No AppShell sidebar here — canvas has its own back button
  */
@@ -19,7 +19,7 @@ export default function Workspace({ projectId = "p1" }: { projectId?: string }) 
     <div
       className="flex flex-col h-screen overflow-hidden"
       style={{
-        background: isDark ? "oklch(0.09 0.012 270)" : "oklch(0.94 0.006 270)",
+        background: isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)",
         position: "relative",
         transition: "background 0.25s ease",
       }}

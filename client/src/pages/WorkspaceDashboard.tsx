@@ -69,7 +69,7 @@ function CardMenu({
   return (
     <div ref={ref} className="relative" onClick={e => e.stopPropagation()}>
       <button
-        className="w-5 h-5 rounded-md flex items-center justify-center transition-all active:scale-90"
+        className="w-5 h-5 rounded-[var(--radius-md-design)] flex items-center justify-center transition-all active:scale-90"
         style={{
           background: open
             ? (isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)")
@@ -83,7 +83,7 @@ function CardMenu({
 
       {open && (
         <div
-          className="absolute rounded-xl overflow-hidden z-[9999]"
+          className="absolute rounded-[var(--radius-lg-design)] overflow-hidden z-[9999]"
           style={{
             background: bg,
             border: `1px solid ${border}`,
@@ -95,7 +95,7 @@ function CardMenu({
           }}
         >
           <button
-            className="flex items-center gap-2.5 w-full px-3 py-2.5 text-[12px] text-left transition-colors"
+            className="flex items-center gap-2.5 w-full px-3 py-2.5 type-caption text-left transition-colors"
             style={{ color: textColor }}
             onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
             onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
@@ -105,7 +105,7 @@ function CardMenu({
             重命名
           </button>
           <button
-            className="flex items-center gap-2.5 w-full px-3 py-2.5 text-[12px] text-left transition-colors"
+            className="flex items-center gap-2.5 w-full px-3 py-2.5 type-caption text-left transition-colors"
             style={{ color: textColor }}
             onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
             onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
@@ -116,7 +116,7 @@ function CardMenu({
           </button>
           <div style={{ height: 1, background: border, margin: "2px 0" }} />
           <button
-            className="flex items-center gap-2.5 w-full px-3 py-2.5 text-[12px] text-left transition-colors"
+            className="flex items-center gap-2.5 w-full px-3 py-2.5 type-caption text-left transition-colors"
             style={{ color: "oklch(0.65 0.22 25)" }}
             onMouseEnter={e => (e.currentTarget.style.background = "oklch(0.65 0.22 25 / 0.10)")}
             onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
@@ -142,22 +142,22 @@ function DeleteConfirmDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.55)" }} onClick={onCancel}>
-      <div className="rounded-2xl p-6 w-80" style={{ background: bg, border: `1px solid ${border}`, boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
+      <div className="rounded-[var(--radius-lg-design)] p-6 w-80" style={{ background: bg, border: `1px solid ${border}`, boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
         <div className="flex items-center gap-3 mb-3">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: "oklch(0.65 0.22 25 / 0.15)" }}>
+          <div className="w-9 h-9 rounded-[var(--radius-lg-design)] flex items-center justify-center" style={{ background: "oklch(0.65 0.22 25 / 0.15)" }}>
             <Trash2 size={17} color="oklch(0.65 0.22 25)" />
           </div>
-          <p className="text-[15px] font-semibold" style={{ color: text }}>删除 {count} 个项目？</p>
+          <p className="type-body-sm" style={{ color: text, fontWeight: 540 }}>删除 {count} 个项目？</p>
         </div>
-        <p className="text-[13px] mb-5 leading-relaxed" style={{ color: sub }}>
+        <p className="type-caption mb-5 leading-relaxed" style={{ color: sub }}>
           此操作不可撤销，项目内的所有画布节点和素材将被永久删除。
         </p>
         <div className="flex gap-2">
-          <button onClick={onCancel} className="flex-1 py-2 rounded-xl text-[13px] font-medium transition-opacity hover:opacity-80"
+          <button onClick={onCancel} className="flex-1 py-2 rounded-[var(--radius-lg-design)] type-caption transition-opacity hover:opacity-80"
             style={{ background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)", color: text }}>
             取消
           </button>
-          <button onClick={onConfirm} className="flex-1 py-2 rounded-xl text-[13px] font-medium transition-opacity hover:opacity-90"
+          <button onClick={onConfirm} className="flex-1 py-2 rounded-[var(--radius-lg-design)] type-caption transition-opacity hover:opacity-90"
             style={{ background: "oklch(0.65 0.22 25)", color: "white" }}>
             确认删除
           </button>
@@ -199,7 +199,7 @@ function ProjectCard({
 
   return (
     <div
-      className="group relative rounded-2xl overflow-hidden cursor-pointer transition-all"
+      className="group relative rounded-[var(--radius-lg-design)] overflow-hidden cursor-pointer transition-all"
       style={{
         background: cardBg,
         border: `1.5px solid ${cardBorder}`,
@@ -222,14 +222,14 @@ function ProjectCard({
         {/* Hover overlay */}
         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
           style={{ background: "rgba(0,0,0,0.40)" }}>
-          <span className="text-[12px] font-medium text-white px-3 py-1.5 rounded-full"
+          <span className="type-caption text-white px-3 py-1.5 rounded-[var(--radius-pill)]"
             style={{ background: "rgba(255,255,255,0.15)", backdropFilter: "blur(8px)" }}>
             双击打开
           </span>
         </div>
         {/* Selection checkbox */}
         {selected && (
-          <div className="absolute top-2 left-2 w-5 h-5 rounded-md flex items-center justify-center"
+          <div className="absolute top-2 left-2 w-5 h-5 rounded-[var(--radius-md-design)] flex items-center justify-center"
             style={{ background: "oklch(0.62 0.22 290)", boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }}>
             <Check size={12} color="white" strokeWidth={2.5} />
           </div>
@@ -249,17 +249,17 @@ function ProjectCard({
               if (e.key === "Escape") onRenameSubmit(project.title);
             }}
             onBlur={() => onRenameSubmit(editVal.trim() || project.title)}
-            className="w-full bg-transparent text-[13px] font-semibold outline-none border-b"
+            className="w-full bg-transparent type-caption outline-none border-b"
             style={{ color: text, borderColor: "oklch(0.62 0.22 290)" }}
           />
         ) : (
-          <p className="text-[13px] font-semibold truncate" style={{ color: text }}>{project.title}</p>
+          <p className="type-caption truncate" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>{project.title}</p>
         )}
         {/* Time row + ... menu aligned */}
         <div className="flex items-center gap-1.5 mt-1">
           <Clock size={10} style={{ color: sub }} />
-          <span className="text-[11px]" style={{ color: sub }}>{project.updatedAt}</span>
-          <span className="text-[11px]" style={{ color: sub }}>· {project.nodeCount} 个节点</span>
+          <span className="type-caption" style={{ color: sub, fontSize: 11 }}>{project.updatedAt}</span>
+          <span className="type-caption" style={{ color: sub, fontSize: 11 }}>· {project.nodeCount} 个节点</span>
           <div className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
             <CardMenu
               isDark={isDark}
@@ -282,7 +282,7 @@ function CreateProjectCard({ isDark, onCreate }: { isDark: boolean; onCreate: ()
   return (
     <button
       onClick={onCreate}
-      className="rounded-2xl overflow-hidden transition-all group"
+      className="rounded-[var(--radius-lg-design)] overflow-hidden transition-all group"
       style={{ background: bg, border: `1.5px dashed ${border}` }}
       onMouseEnter={e => {
         (e.currentTarget as HTMLElement).style.borderColor = "oklch(0.62 0.22 290 / 0.5)";
@@ -294,11 +294,11 @@ function CreateProjectCard({ isDark, onCreate }: { isDark: boolean; onCreate: ()
       }}
     >
       <div className="flex flex-col items-center justify-center gap-2 py-10 px-4">
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center transition-all group-hover:scale-110"
+        <div className="w-10 h-10 rounded-[var(--radius-lg-design)] flex items-center justify-center transition-all group-hover:scale-110"
           style={{ background: "oklch(0.62 0.22 290 / 0.12)", color: "oklch(0.62 0.22 290)" }}>
           <Plus size={20} />
         </div>
-        <span className="text-[13px] font-medium" style={{ color: text }}>新建项目</span>
+        <span className="type-caption" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>新建项目</span>
       </div>
     </button>
   );
@@ -317,36 +317,36 @@ function CoverPickerDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose}>
-      <div className="rounded-2xl p-6 w-96" style={{ background: bg, border: `1px solid ${border}`, boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
+      <div className="rounded-[var(--radius-lg-design)] p-6 w-96" style={{ background: bg, border: `1px solid ${border}`, boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <p className="text-[15px] font-semibold" style={{ color: text }}>新建项目</p>
-          <button onClick={onClose} className="w-7 h-7 rounded-lg flex items-center justify-center hover:opacity-70" style={{ color: text }}>
+          <p className="type-body-sm" style={{ color: text, fontWeight: 540 }}>新建项目</p>
+          <button onClick={onClose} className="w-7 h-7 rounded-[var(--radius-md-design)] flex items-center justify-center hover:opacity-70" style={{ color: text }}>
             <X size={15} />
           </button>
         </div>
         <div className="mb-4">
-          <label className="text-[11px] font-medium mb-1.5 block" style={{ color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.50 0.01 270)" }}>项目名称</label>
+          <label className="type-caption mb-1.5 block" style={{ color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.50 0.01 270)" }}>项目名称</label>
           <input
             value={title}
             onChange={e => setTitle(e.target.value)}
-            className="w-full px-3 py-2 rounded-xl text-[13px] outline-none"
+            className="w-full px-3 py-2 rounded-[var(--radius-lg-design)] type-caption outline-none"
             style={{ background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", border: `1px solid ${border}`, color: text }}
             placeholder="输入项目名称..."
             autoFocus
           />
         </div>
         <div className="mb-5">
-          <label className="text-[11px] font-medium mb-1.5 block" style={{ color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.50 0.01 270)" }}>选择封面（可选）</label>
+          <label className="type-caption mb-1.5 block" style={{ color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.50 0.01 270)" }}>选择封面（可选）</label>
           <div className="grid grid-cols-4 gap-2">
             <button
               onClick={() => setSelected(null)}
-              className="aspect-video rounded-lg flex items-center justify-center transition-all"
+              className="aspect-video rounded-[var(--radius-md-design)] flex items-center justify-center transition-all"
               style={{ background: isDark ? "oklch(0.16 0.015 270)" : "oklch(0.92 0.005 270)", border: `1.5px solid ${selected === null ? "oklch(0.62 0.22 290)" : border}` }}
             >
               <ImageIcon size={14} style={{ color: isDark ? "oklch(0.45 0.01 270)" : "oklch(0.55 0.01 270)" }} />
             </button>
             {covers.map(src => (
-              <button key={src} onClick={() => setSelected(src)} className="aspect-video rounded-lg overflow-hidden transition-all"
+              <button key={src} onClick={() => setSelected(src)} className="aspect-video rounded-[var(--radius-md-design)] overflow-hidden transition-all"
                 style={{ border: `1.5px solid ${selected === src ? "oklch(0.62 0.22 290)" : border}` }}>
                 <img src={src} alt="" className="w-full h-full object-cover" />
               </button>
@@ -354,11 +354,11 @@ function CoverPickerDialog({
           </div>
         </div>
         <div className="flex gap-2">
-          <button onClick={onClose} className="flex-1 py-2 rounded-xl text-[13px] font-medium hover:opacity-80 transition-opacity"
+          <button onClick={onClose} className="flex-1 py-2 rounded-[var(--radius-lg-design)] type-caption hover:opacity-80 transition-opacity"
             style={{ background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)", color: text }}>
             取消
           </button>
-          <button onClick={() => onPick(selected)} className="flex-1 py-2 rounded-xl text-[13px] font-medium hover:opacity-90 transition-opacity"
+          <button onClick={() => onPick(selected)} className="flex-1 py-2 rounded-[var(--radius-lg-design)] type-caption hover:opacity-90 transition-opacity"
             style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.62 0.20 210))", color: "white" }}>
             创建项目
           </button>
@@ -485,15 +485,15 @@ export default function WorkspaceDashboard() {
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-[22px] font-bold" style={{ color: text }}>工作台</h1>
-            <p className="text-[13px] mt-0.5" style={{ color: sub }}>{projects.length} 个项目</p>
+            <h1 className="type-headline" style={{ color: text }}>工作台</h1>
+            <p className="type-caption mt-0.5" style={{ color: sub }}>{projects.length} 个项目</p>
           </div>
           {selectedIds.size > 0 && (
             <div className="flex items-center gap-2">
-              <span className="text-[12px]" style={{ color: sub }}>已选 {selectedIds.size} 个</span>
+              <span className="type-caption" style={{ color: sub }}>已选 {selectedIds.size} 个</span>
               <button
                 onClick={() => handleDelete(Array.from(selectedIds))}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-medium transition-opacity hover:opacity-80"
+                className="type-caption flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-lg-design)] transition-opacity hover:opacity-80"
                 style={{ background: "oklch(0.65 0.22 25 / 0.15)", color: "oklch(0.65 0.22 25)" }}
               >
                 <Trash2 size={13} />
@@ -501,7 +501,7 @@ export default function WorkspaceDashboard() {
               </button>
               <button
                 onClick={() => setSelectedIds(new Set())}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-medium transition-opacity hover:opacity-80"
+                className="type-caption flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-lg-design)] transition-opacity hover:opacity-80"
                 style={{ background: isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)", color: sub }}
               >
                 <X size={13} />
@@ -534,7 +534,7 @@ export default function WorkspaceDashboard() {
 
         {/* Lasso box */}
         {lasso && lasso.w > 4 && lasso.h > 4 && (
-          <div className="absolute pointer-events-none rounded-md"
+          <div className="absolute pointer-events-none rounded-[var(--radius-md-design)]"
             style={{ left: lasso.x, top: lasso.y, width: lasso.w, height: lasso.h, border: "1.5px solid oklch(0.62 0.22 290)", background: "oklch(0.62 0.22 290 / 0.08)", zIndex: 20 }}
           />
         )}

@@ -30,15 +30,15 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   const isDark = resolvedTheme === "dark";
 
   // ── Theme tokens ──────────────────────────────────────────────
-  const sidebarBg    = isDark ? "oklch(0.11 0.012 270)" : "#F5F5F5";
-  const sidebarBorder= isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)";
+  const sidebarBg    = isDark ? "oklch(0.11 0.012 270)" : "var(--design-surface-soft)";
+  const sidebarBorder= isDark ? "oklch(1 0 0 / 7%)" : "var(--hairline)";
   const textPrimary  = isDark ? "rgba(255,255,255,0.82)" : "rgba(20,20,36,0.82)";
   const textSecondary= isDark ? "rgba(255,255,255,0.38)" : "rgba(20,20,36,0.38)";
   const textMuted    = isDark ? "rgba(255,255,255,0.28)" : "rgba(20,20,36,0.28)";
   const hoverBg      = isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)";
   const activeBg     = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
   const activeColor  = isDark ? "rgba(255,255,255,0.90)" : "rgba(20,20,36,0.90)";
-  const dividerColor = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)";
+  const dividerColor = isDark ? "oklch(1 0 0 / 7%)" : "var(--hairline)";
 
   const isActive = (path: string) =>
     path === "/" ? location === "/" : location.startsWith(path);
@@ -53,7 +53,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
     return (
       <button
         onClick={() => navigate(path)}
-        className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all text-left"
+        className="w-full flex items-center gap-3 px-3 py-2 rounded-[var(--radius-md-design)] type-caption transition-all text-left"
         style={{
           background: active ? activeBg : "transparent",
           color: active ? activeColor : textSecondary,
@@ -83,7 +83,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
         {/* Logo */}
         <div className="flex items-center gap-2.5 px-4 pt-5 pb-4">
           <div
-            className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 cursor-pointer"
+            className="w-7 h-7 rounded-[var(--radius-md-design)] flex items-center justify-center flex-shrink-0 cursor-pointer"
             style={{
               background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.62 0.20 210))",
               boxShadow: "0 3px 12px oklch(0.58 0.22 290 / 0.30)",
@@ -93,7 +93,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
             <Sparkles size={13} color="white" />
           </div>
           <span
-            className="text-[14px] font-semibold tracking-tight cursor-pointer"
+            className="type-body-sm tracking-tight cursor-pointer"
             style={{ color: textPrimary }}
             onClick={() => navigate("/")}
           >
@@ -116,7 +116,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
 
           {/* 工作区 group */}
           <div className="mb-2">
-            <p className="text-[10px] font-medium px-3 py-1.5 tracking-wider uppercase" style={{ color: textMuted }}>
+            <p className="type-caption px-3 py-1.5 tracking-wider uppercase" style={{ color: textMuted }}>
               工作区
             </p>
             <div className="flex flex-col gap-0.5">
@@ -133,12 +133,12 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
             <div className="flex items-center justify-between px-3 py-1.5">
               <div className="flex items-center gap-1.5">
                 <History size={12} style={{ color: textMuted, flexShrink: 0 }} strokeWidth={1.6} />
-                <span className="text-[10px] font-medium tracking-wider uppercase" style={{ color: textMuted }}>
+                <span className="type-caption uppercase" style={{ color: textMuted }}>
                   历史对话
                 </span>
               </div>
               <button
-                className="w-5 h-5 rounded flex items-center justify-center transition-opacity hover:opacity-70"
+                className="w-5 h-5 rounded-[var(--radius-xs)] flex items-center justify-center transition-opacity hover:opacity-70"
                 style={{ color: textMuted }}
                 title="新建对话"
               >
@@ -150,7 +150,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
               {HISTORY_ITEMS.map((item, i) => (
                 <button
                   key={i}
-                  className="w-full text-left px-3 py-1.5 rounded-lg text-[12px] truncate transition-all"
+                  className="w-full text-left px-3 py-1.5 rounded-[var(--radius-md-design)] type-caption truncate transition-all"
                   style={{ color: textSecondary }}
                   onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = hoverBg)}
                   onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
@@ -172,13 +172,13 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
 
           {/* User row */}
           <div
-            className="flex items-center gap-2.5 px-3 py-2 mt-1 rounded-lg cursor-pointer transition-all"
+            className="flex items-center gap-2.5 px-3 py-2 mt-1 rounded-[var(--radius-md-design)] cursor-pointer transition-all"
             style={{ color: textSecondary }}
             onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = hoverBg)}
             onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
           >
             <div
-              className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-semibold flex-shrink-0"
+              className="w-6 h-6 rounded-[var(--radius-pill)] flex items-center justify-center type-caption flex-shrink-0"
               style={{
                 background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.62 0.20 210))",
                 color: "white",
@@ -186,7 +186,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
             >
               U
             </div>
-            <span className="text-[13px] font-medium truncate" style={{ color: textPrimary }}>用户名</span>
+            <span className="type-caption truncate" style={{ color: textPrimary, textTransform: "none", letterSpacing: "0.02em" }}>用户名</span>
           </div>
         </div>
       </aside>

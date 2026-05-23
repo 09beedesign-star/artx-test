@@ -29,10 +29,10 @@ export default function TopBar({ credits = 75 }: TopBarProps) {
 
   const isDark = resolvedTheme === "dark";
 
-  const surface   = isDark ? "oklch(0.11 0.015 270)"       : "oklch(0.955 0.004 255)";
-  const border    = isDark ? "oklch(1 0 0 / 6%)"           : "oklch(0.88 0.006 255)";
-  const inputBg   = isDark ? "oklch(1 0 0 / 5%)"           : "oklch(0.92 0.005 255)";
-  const inputBdr  = isDark ? "oklch(1 0 0 / 8%)"           : "oklch(0.84 0.006 255)";
+  const surface   = isDark ? "oklch(0.11 0.015 270)"       : "var(--design-surface-soft)";
+  const border    = isDark ? "oklch(1 0 0 / 6%)"           : "var(--hairline)";
+  const inputBg   = isDark ? "oklch(1 0 0 / 5%)"           : "var(--design-canvas)";
+  const inputBdr  = isDark ? "oklch(1 0 0 / 8%)"           : "var(--hairline)";
   const textPri   = isDark ? "oklch(0.85 0.01 270)"        : "oklch(0.22 0.018 255)";
   const textSec   = isDark ? "oklch(0.50 0.01 270)"        : "oklch(0.50 0.012 255)";
   const hoverBg   = isDark ? "oklch(1 0 0 / 5%)"           : "oklch(0 0 0 / 0.04)";
@@ -46,19 +46,19 @@ export default function TopBar({ credits = 75 }: TopBarProps) {
     >
       {/* Search bar */}
       <div
-        className="flex-1 max-w-md flex items-center gap-2 px-3 py-1.5 rounded-lg"
+        className="flex-1 max-w-md flex items-center gap-2 px-3 py-1.5 rounded-[var(--radius-md-design)]"
         style={{ background: inputBg, border: `1px solid ${inputBdr}` }}
       >
         <Search size={13} style={{ color: textSec }} />
         <input
           type="text"
           placeholder="搜索项目、素材或命令…"
-          className="flex-1 bg-transparent outline-none text-sm"
+          className="flex-1 bg-transparent outline-none type-caption"
           style={{ color: textPri, fontSize: 13 }}
         />
         <span
-          className="text-[10px] px-1.5 py-0.5 rounded"
-          style={{ background: hoverBg, color: textSec, fontFamily: "monospace" }}
+          className="type-caption px-1.5 py-0.5 rounded-[var(--radius-xs)]"
+          style={{ background: hoverBg, color: textSec, fontFamily: "JetBrains Mono, monospace" }}
         >
           ⌘K
         </span>
@@ -69,7 +69,7 @@ export default function TopBar({ credits = 75 }: TopBarProps) {
       {/* New project */}
       <button
         onClick={() => toast("新建项目", { description: "功能即将上线" })}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 active:scale-95"
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-md-design)] type-caption transition-all duration-150 active:scale-95"
         style={{
           background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
           color: "white",
@@ -84,7 +84,7 @@ export default function TopBar({ credits = 75 }: TopBarProps) {
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
-            className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors outline-none"
+            className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-md-design)] transition-colors outline-none"
             style={{ color: textSec }}
             title="切换主题"
           >
@@ -102,7 +102,7 @@ export default function TopBar({ credits = 75 }: TopBarProps) {
           }}
         >
           <DropdownMenuLabel
-            className="text-[10px] font-semibold uppercase tracking-wider px-3 pt-2 pb-1"
+            className="type-caption uppercase px-3 pt-2 pb-1"
             style={{ color: textSec }}
           >
             主题
@@ -114,7 +114,7 @@ export default function TopBar({ credits = 75 }: TopBarProps) {
               <DropdownMenuItem
                 key={m}
                 onClick={() => setMode(m)}
-                className="flex items-center gap-2.5 px-3 py-2 text-[13px] cursor-pointer"
+                className="flex items-center gap-2.5 px-3 py-2 type-caption cursor-pointer"
                 style={{
                   color: isActive ? "oklch(0.78 0.18 290)" : textPri,
                   background: isActive ? "oklch(0.58 0.22 290 / 0.12)" : "transparent",
@@ -133,38 +133,38 @@ export default function TopBar({ credits = 75 }: TopBarProps) {
 
       {/* Credits */}
       <div
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg cursor-pointer transition-colors"
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-md-design)] cursor-pointer transition-colors"
         style={{ color: textPri }}
         onClick={() => toast("积分详情", { description: "功能即将上线" })}
       >
         <Sparkles size={13} style={{ color: "oklch(0.78 0.18 290)" }} />
-        <span className="text-[13px] font-semibold">{credits}</span>
-        <span className="text-[11px]" style={{ color: textSec }}>积分</span>
+        <span className="type-caption">{credits}</span>
+        <span className="type-caption" style={{ color: textSec }}>积分</span>
       </div>
 
       {/* Bell */}
       <button
         onClick={() => toast("通知", { description: "暂无新通知" })}
-        className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors relative"
+        className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-md-design)] transition-colors relative"
         style={{ color: textSec }}
       >
         <Bell size={15} />
-        <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full" style={{ background: "oklch(0.58 0.22 290)" }} />
+        <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-[var(--radius-pill)]" style={{ background: "oklch(0.58 0.22 290)" }} />
       </button>
 
       {/* User */}
       <button
         onClick={() => toast("用户设置", { description: "功能即将上线" })}
-        className="flex items-center gap-2 px-2 py-1 rounded-lg transition-colors"
+        className="flex items-center gap-2 px-2 py-1 rounded-[var(--radius-md-design)] transition-colors"
         style={{ color: textPri }}
       >
         <div
-          className="w-7 h-7 rounded-full flex items-center justify-center text-[12px] font-bold"
+          className="w-7 h-7 rounded-[var(--radius-pill)] flex items-center justify-center type-caption"
           style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))", color: "white" }}
         >
           U
         </div>
-        <span className="text-[13px] font-medium">用户名</span>
+        <span className="type-caption">用户名</span>
         <ChevronDown size={12} style={{ color: textSec }} />
       </button>
     </header>

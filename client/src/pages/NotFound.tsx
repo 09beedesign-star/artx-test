@@ -1,49 +1,81 @@
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { AlertCircle, Home } from "lucide-react";
 import { useLocation } from "wouter";
+import { useTheme } from "@/contexts/ThemeContext";
 
 export default function NotFound() {
   const [, setLocation] = useLocation();
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
 
-  const handleGoHome = () => {
-    setLocation("/");
-  };
+  const bg = isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)";
+  const panelBg = isDark ? "oklch(0.13 0.012 270 / 0.92)" : "oklch(1 0 0 / 0.86)";
+  const border = isDark ? "rgba(255,255,255,0.08)" : "var(--hairline)";
+  const text = isDark ? "oklch(0.88 0.008 270)" : "oklch(0.22 0.018 255)";
+  const sub = isDark ? "oklch(0.56 0.01 270)" : "oklch(0.50 0.012 255)";
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
-      <Card className="w-full max-w-lg mx-4 shadow-lg border-0 bg-white/80 backdrop-blur-sm">
-        <CardContent className="pt-8 pb-8 text-center">
-          <div className="flex justify-center mb-6">
-            <div className="relative">
-              <div className="absolute inset-0 bg-red-100 rounded-full animate-pulse" />
-              <AlertCircle className="relative h-16 w-16 text-red-500" />
-            </div>
+    <div
+      className="min-h-screen w-full flex items-center justify-center px-6"
+      style={{ background: bg, transition: "background 0.25s ease" }}
+    >
+      <div
+        className="w-full max-w-xl text-center overflow-hidden"
+        style={{
+          background: panelBg,
+          border: `1px solid ${border}`,
+          borderRadius: "var(--radius-xl-design)",
+          boxShadow: isDark
+            ? "0 28px 80px rgba(0,0,0,0.45)"
+            : "0 24px 64px rgba(31,29,61,0.10)",
+          backdropFilter: "blur(20px)",
+          padding: "var(--space-xxl)",
+        }}
+      >
+        <div className="flex justify-center mb-6">
+          <div
+            className="relative w-16 h-16 rounded-[var(--radius-pill)] flex items-center justify-center"
+            style={{
+              background: isDark ? "oklch(0.62 0.22 290 / 0.16)" : "var(--block-lilac)",
+              color: isDark ? "oklch(0.72 0.22 290)" : "var(--block-navy)",
+            }}
+          >
+            <div
+              className="absolute inset-0 rounded-[var(--radius-pill)] animate-pulse"
+              style={{ background: "oklch(0.72 0.22 290 / 0.12)" }}
+            />
+            <AlertCircle className="relative h-8 w-8" />
           </div>
+        </div>
 
-          <h1 className="text-4xl font-bold text-slate-900 mb-2">404</h1>
+        <p className="type-caption mb-3" style={{ color: "var(--accent-magenta)" }}>
+          PAGE NOT FOUND
+        </p>
+        <h1 className="type-display-lg mb-3" style={{ color: text }}>
+          404
+        </h1>
+        <h2 className="type-headline mb-4" style={{ color: text }}>
+          页面不存在
+        </h2>
+        <p className="type-body-sm mx-auto mb-8" style={{ color: sub, maxWidth: 420 }}>
+          你访问的页面可能已被移动、删除，或暂时无法打开。返回首页后可以继续浏览 artx 工作区。
+        </p>
 
-          <h2 className="text-xl font-semibold text-slate-700 mb-4">
-            Page Not Found
-          </h2>
-
-          <p className="text-slate-600 mb-8 leading-relaxed">
-            Sorry, the page you are looking for doesn't exist.
-            <br />
-            It may have been moved or deleted.
-          </p>
-
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Button
-              onClick={handleGoHome}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
-            >
-              <Home className="w-4 h-4 mr-2" />
-              Go Home
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+        <div className="flex justify-center">
+          <Button
+            onClick={() => setLocation("/")}
+            className="type-caption h-11 px-5 rounded-[var(--radius-pill)] border-0 transition-all duration-200 hover:opacity-90"
+            style={{
+              background: "linear-gradient(135deg, oklch(0.55 0.22 290), oklch(0.50 0.20 260))",
+              color: "white",
+              boxShadow: "0 10px 28px oklch(0.55 0.22 290 / 0.30)",
+            }}
+          >
+            <Home className="w-4 h-4 mr-2" />
+            返回首页
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
