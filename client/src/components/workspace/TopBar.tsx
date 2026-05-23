@@ -2,8 +2,8 @@
  * TopBar — Neo-Studio Dark Design System
  * Global top navigation: search, theme switcher (Radix DropdownMenu), credits, user info
  */
-import { useState, type ElementType } from "react";
-import { Bell, ChevronDown, Sparkles, Moon, Sun, Monitor, Check, UserRound, LogOut } from "lucide-react";
+import { useState, useRef, useEffect, type ElementType } from "react";
+import { Bell, ChevronDown, Sparkles, Moon, Sun, Monitor, Check, UserRound, LogOut, Search, X, LayoutGrid, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { useTheme, type ThemeMode } from "@/contexts/ThemeContext";
@@ -34,6 +34,7 @@ interface TopBarProps {
   onCreateProject?: (payload: CreateProjectPayload) => void;
   projectTitle?: string;
   projectTime?: string;
+  showSearch?: boolean;
 }
 
 const THEME_OPTIONS: { mode: ThemeMode; icon: ElementType; label: string }[] = [
@@ -42,7 +43,7 @@ const THEME_OPTIONS: { mode: ThemeMode; icon: ElementType; label: string }[] = [
   { mode: "system", icon: Monitor, label: "跟随系统" },
 ];
 
-export default function TopBar({ credits = 75, projectTitle, projectTime }: TopBarProps) {
+export default function TopBar({ credits = 75, projectTitle, projectTime, showSearch = false }: TopBarProps) {
   const { mode, setMode, resolvedTheme } = useTheme();
   const { isAuthenticated, openLoginModal, logout } = useAuth();
   const [, navigate] = useLocation();
@@ -58,6 +59,28 @@ export default function TopBar({ credits = 75, projectTitle, projectTime }: TopB
   const ActiveIcon = THEME_OPTIONS.find((o) => o.mode === mode)?.icon ?? Moon;
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
 
+  // ── Inline search state (shown in canvas view) ──
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (searchRef.current && e.target instanceof globalThis.Node && !searchRef.current.contains(e.target)) setSearchOpen(false);
+    };
+    const t = setTimeout(() => document.addEventListener("mousedown", handler), 50);
+    return () => { clearTimeout(t); document.removeEventListener("mousedown", handler); };
+  }, [searchOpen]);
+
+  const searchBg = isDark ? "oklch(0.16 0.016 270 / 0.90)" : "oklch(0.97 0.003 270 / 0.92)";
+  const searchBorder = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
+  const searchText = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.20 0.008 270)";
+  const searchSub = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.50 0.012 255)";
+  const searchPanelBg = isDark ? "oklch(0.15 0.018 270 / 0.98)" : "oklch(0.995 0.002 80 / 0.98)";
+  const searchHover = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
+  const searchDivider = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
+
   const handleConfirmLogout = () => {
     logout();
     setLogoutConfirmOpen(false);
@@ -70,14 +93,92 @@ export default function TopBar({ credits = 75, projectTitle, projectTime }: TopB
       className="flex items-center gap-3 px-4 shrink-0"
       style={{ height: 52, background: surface, borderBottom: `1px solid ${border}`, zIndex: 10 }}
     >
-      <div className="flex flex-1 items-baseline gap-2 min-w-0">
+      {/* Left: project title */}
+      <div className="flex items-baseline gap-2 min-w-0" style={{ flex: "0 0 auto", maxWidth: 280 }}>
         {projectTitle && (
           <>
-            <span className="font-semibold text-sm truncate max-w-[260px]" style={{ color: textPri }}>{projectTitle}</span>
+            <span className="font-semibold text-sm truncate" style={{ color: textPri }}>{projectTitle}</span>
             {projectTime && <span className="type-caption whitespace-nowrap" style={{ color: textSec }}>{projectTime}</span>}
           </>
         )}
+        {!projectTitle && <div style={{ flex: 1 }} />}
       </div>
+
+      {/* Center: search bar (canvas mode only) */}
+      {showSearch && (
+        <div ref={searchRef} className="flex-1 flex justify-center" style={{ minWidth: 0 }}>
+          <div style={{ width: "min(320px, 100%)", position: "relative" }}>
+            <div
+              className="flex items-center gap-2 px-3 rounded-[var(--radius-lg-design)] transition-all"
+              style={{
+                height: 34,
+                background: searchBg,
+                border: `1px solid ${searchOpen ? "oklch(0.62 0.22 290 / 0.55)" : searchBorder}`,
+                backdropFilter: "blur(14px)",
+                transition: "border-color 0.18s ease",
+                cursor: "text",
+              }}
+              onClick={() => setSearchOpen(true)}
+            >
+              <Search size={13} style={{ color: searchOpen ? "oklch(0.72 0.18 290)" : searchSub, flexShrink: 0, transition: "color 0.15s" }} />
+              <input
+                value={searchQuery}
+                onChange={e => { setSearchQuery(e.target.value); setSearchOpen(true); }}
+                onFocus={() => setSearchOpen(true)}
+                placeholder="搜索项目或素材..."
+                className="flex-1 bg-transparent outline-none"
+                style={{ fontSize: 12, color: searchText, lineHeight: 1.4 }}
+              />
+              {searchQuery && (
+                <button
+                  onClick={e => { e.stopPropagation(); setSearchQuery(""); setSearchOpen(false); }}
+                  className="flex items-center justify-center w-4 h-4 rounded-full transition-opacity hover:opacity-70"
+                  style={{ color: searchSub, flexShrink: 0 }}
+                >
+                  <X size={11} />
+                </button>
+              )}
+            </div>
+            {searchOpen && (
+              <div
+                className="absolute top-full mt-1.5 left-0 right-0 rounded-[var(--radius-lg-design)] overflow-hidden shadow-2xl"
+                style={{ background: searchPanelBg, border: `1px solid ${searchBorder}`, backdropFilter: "blur(20px)", maxHeight: 420, overflowY: "auto", zIndex: 200 }}
+                onMouseDown={e => e.stopPropagation()}
+              >
+                <div className="px-3 py-2" style={{ borderBottom: `1px solid ${searchDivider}` }}>
+                  <span style={{ fontSize: 10, color: searchSub, textTransform: "uppercase", letterSpacing: "0.08em" }}>项目</span>
+                </div>
+                {[{ id: "p1", title: "品牌设计系统", subtitle: "2 天前" }, { id: "p2", title: "产品插画系列", subtitle: "5 天前" }]
+                  .filter(p => !searchQuery || p.title.includes(searchQuery))
+                  .map(project => (
+                    <button
+                      key={project.id}
+                      className="flex items-center gap-2.5 w-full px-3 py-2.5 text-left transition-colors"
+                      style={{ fontSize: 12, color: searchText }}
+                      onMouseEnter={e => (e.currentTarget.style.background = searchHover)}
+                      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                      onClick={() => { setSearchOpen(false); }}
+                    >
+                      <LayoutGrid size={13} style={{ color: "oklch(0.62 0.18 290)", flexShrink: 0 }} />
+                      <span className="flex-1 min-w-0">
+                        <span className="block truncate">{project.title}</span>
+                        <span className="block truncate" style={{ color: searchSub, fontSize: 11 }}>{project.subtitle}</span>
+                      </span>
+                      <ArrowRight size={12} style={{ color: searchSub, flexShrink: 0 }} />
+                    </button>
+                  ))}
+                <div className="px-3 py-2" style={{ borderTop: `1px solid ${searchDivider}`, borderBottom: `1px solid ${searchDivider}` }}>
+                  <span style={{ fontSize: 10, color: searchSub, textTransform: "uppercase", letterSpacing: "0.08em" }}>素材</span>
+                </div>
+                <div className="px-3 py-3" style={{ fontSize: 12, color: searchSub }}>输入关键词搜索素材...</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {!showSearch && <div className="flex-1" />}
+
+      {/* Right: actions */}
 
       {!isAuthenticated && (
         <button

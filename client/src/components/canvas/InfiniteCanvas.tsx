@@ -2775,13 +2775,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       {/* Back button — top-left */}
       <BackButton isDark={isDark} />
 
-      {/* Canvas search — fixed beside project info */}
-      <CanvasSearchBar
-        isDark={isDark}
-        currentProjectId={projectId}
-        onProjectRequest={setPendingProject}
-        onAssetAdd={handleAssetAddFromSearch}
-      />
 
       {/* C-key lasso eraser — hidden while node connections are temporarily disabled */}
       {ENABLE_NODE_CONNECTIONS && <LassoEraser isDark={isDark} onCut={handleLassoCut} />}
