@@ -30,6 +30,7 @@ import {
   useReactFlow,
   useViewport,
   ReactFlowProvider,
+  SelectionMode,
   type XYPosition,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -286,6 +287,73 @@ function AssetFloatingToolbar({ isDark, onPreview, onDownload }: {
   );
 }
 
+
+// ── Multi Image Selection Floating Toolbar ─────────────────────
+function MultiSelectionFloatingToolbar({
+  isDark,
+  count,
+  grouped,
+  onAction,
+}: {
+  isDark: boolean;
+  count: number;
+  grouped: boolean;
+  onAction: (action: string) => void;
+}) {
+  const bg = isDark ? "rgba(22,22,30,0.92)" : "rgba(255,255,255,0.94)";
+  const border = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)";
+  const text = isDark ? "rgba(255,255,255,0.86)" : "rgba(28,28,40,0.84)";
+  const muted = isDark ? "rgba(255,255,255,0.52)" : "rgba(28,28,40,0.52)";
+  const hover = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)";
+  const accent = "oklch(0.65 0.22 290)";
+  const groupHint = grouped ? "已编组" : "未编组";
+  const items = [
+    { icon: <Box size={15} />, label: "编组", action: "group" },
+    { icon: <FolderOutput size={15} />, label: "取消编组", action: "ungroup" },
+    { icon: <LayoutGrid size={15} />, label: "自动布局", action: "auto-layout" },
+    { icon: <Download size={15} />, label: "下载", action: "download" },
+  ];
+
+  return (
+    <div
+      className="absolute top-20 -translate-x-1/2 rounded-[var(--radius-xl-design)] shadow-2xl nodrag nopan overflow-hidden"
+      style={{
+        left: "calc((100% - 372px) / 2)",
+        background: bg,
+        border: `1px solid ${border}`,
+        color: text,
+        zIndex: 1600,
+        backdropFilter: "blur(22px)",
+        boxShadow: isDark
+          ? "0 18px 48px rgba(0,0,0,0.42), 0 0 0 1px rgba(255,255,255,0.04) inset"
+          : "0 18px 48px rgba(40,40,70,0.16), 0 0 0 1px rgba(255,255,255,0.75) inset",
+      }}
+      onMouseDown={e => e.stopPropagation()}
+      onClick={e => e.stopPropagation()}
+    >
+      <div className="flex items-center gap-1 px-2 py-1.5">
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 mr-1 rounded-[var(--radius-md-design)]" style={{ background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", color: muted }}>
+          <span className="type-caption" style={{ color: accent, fontWeight: 700 }}>{count}</span>
+          <span className="type-caption">张图片已选中 · {groupHint}</span>
+        </div>
+        {items.map(item => (
+          <button
+            key={item.action}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-[var(--radius-md-design)] type-caption transition-colors"
+            style={{ color: text }}
+            onClick={() => onAction(item.action)}
+            onMouseEnter={e => (e.currentTarget.style.background = hover)}
+            onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+          >
+            {item.icon}
+            <span>{item.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Asset Node Prompt Panel ────────────────────────────────────
 function AssetPromptPanel({ isDark, assetSrc, onExpand }: {
   isDark: boolean; assetSrc: string; onExpand: () => void;
@@ -360,6 +428,7 @@ function AssetPromptPanel({ isDark, assetSrc, onExpand }: {
 function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>; selected: boolean }) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
+  const multiSelectionActive = Boolean(data.multiSelectionActive);
   const [model, setModel] = useState("flux-pro");
   const [preview, setPreview] = useState(false);
   const [showPanel, setShowPanel] = useState(false);
@@ -405,8 +474,8 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
         style={{ width: nodeWidth, background: assetShellBg, border: `1.5px solid ${assetShellBorder}` }}
         onContextMenu={handleNodeCtxMenu}
       >
-        {/* Floating top toolbar — visible when selected */}
-        {selected && (
+        {/* Floating top toolbar — visible for a single selected image node only */}
+        {selected && !multiSelectionActive && (
           <AssetFloatingToolbar
             isDark={isDark}
             onPreview={() => setPreview(true)}
@@ -1736,6 +1805,50 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     } else if (action === "ungroup") {
       setNodes(nds => nds.map(n => actionIds.includes(n.id) ? { ...n, data: { ...(n.data as Record<string, unknown>), groupId: undefined } } : n));
       toast("已解散打组");
+    } else if (action === "auto-layout") {
+      if (actionIds.length < 2) { toast("请至少选择 2 个图片节点再自动布局"); return; }
+      const selected = nodes.filter(n => actionIds.includes(n.id));
+      const avgX = selected.reduce((sum, n) => sum + n.position.x, 0) / selected.length;
+      const avgY = selected.reduce((sum, n) => sum + n.position.y, 0) / selected.length;
+      const columns = Math.ceil(Math.sqrt(selected.length));
+      const gapX = 320;
+      const gapY = 280;
+      setNodes(nds => nds.map(n => {
+        const index = actionIds.indexOf(n.id);
+        if (index === -1) return n;
+        const row = Math.floor(index / columns);
+        const col = index % columns;
+        const totalRows = Math.ceil(actionIds.length / columns);
+        return {
+          ...n,
+          position: {
+            x: avgX + (col - (columns - 1) / 2) * gapX,
+            y: avgY + (row - (totalRows - 1) / 2) * gapY,
+          },
+        };
+      }));
+      toast("已完成自动布局", { description: `${actionIds.length} 个图片节点已重新排列` });
+    } else if (action === "download") {
+      const selectedAssets = nodes
+        .filter(n => actionIds.includes(n.id) && n.type === "asset")
+        .map(n => {
+          const assetId = (n.data as Record<string, unknown>).assetId as string;
+          const title = ((n.data as Record<string, unknown>).title as string) || n.id;
+          const asset = GENERATED_ASSETS.find(a => a.id === assetId) || GENERATED_ASSETS[0];
+          return { title, src: asset.src };
+        });
+      selectedAssets.forEach((asset, index) => {
+        setTimeout(() => {
+          const link = document.createElement("a");
+          link.href = asset.src;
+          link.download = `${asset.title || "artx-image"}.png`;
+          link.target = "_blank";
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }, index * 120);
+      });
+      toast("正在下载图片", { description: `${selectedAssets.length} 个图片素材已加入下载队列` });
     } else if (action === "add-asset") {
       const node = nodes.find(n => n.id === nodeId);
       if (node) {
@@ -1893,11 +2006,17 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const currentProject = PROJECTS.find(project => project.id === projectId);
 
   // Inject isEditing flag into the target node's data so AssetNodeComponent can show the mask
-  const displayNodes = nodes.map(n =>
-    n.type === "asset" && editAsset && n.id === editAsset.nodeId
-      ? { ...n, data: { ...n.data, isEditing: true } }
-      : n
-  );
+  const selectedImageNodeIds = selectedNodeIds.filter(id => nodes.some(n => n.id === id && n.type === "asset"));
+  const multiImageSelectionActive = selectedImageNodeIds.length > 1;
+  const displayNodes = nodes.map(n => {
+    const data = {
+      ...n.data,
+      multiSelectionActive: n.type === "asset" && multiImageSelectionActive && selectedImageNodeIds.includes(n.id),
+    };
+    return n.type === "asset" && editAsset && n.id === editAsset.nodeId
+      ? { ...n, data: { ...data, isEditing: true } }
+      : { ...n, data };
+  });
 
   return (
     <div ref={containerRef} className="flex-1 relative overflow-hidden" style={{ height: "100%" }}>
@@ -1922,8 +2041,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         style={{ background: canvasBg, width: "calc(100% - 372px)" }}
         proOptions={{ hideAttribution: true }}
         selectionOnDrag
+        selectionMode={SelectionMode.Partial}
         selectNodesOnDrag={false}
-        panOnDrag={[1, 2]}
+        panOnDrag={[2]}
         nodesDraggable={true}
         nodesConnectable={ENABLE_NODE_CONNECTIONS}
         edgesFocusable={ENABLE_NODE_CONNECTIONS}
@@ -1942,6 +2062,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
       <CanvasAssistantPanel isDark={isDark} projectTitle={currentProject?.title || "Untitled"} />
 
+      {multiImageSelectionActive && (
+        <MultiSelectionFloatingToolbar
+          isDark={isDark}
+          count={selectedImageNodeIds.length}
+          grouped={areNodesGrouped(selectedImageNodeIds)}
+          onAction={(action) => handleNodeAction(action, "__selection__")}
+        />
+      )}
       {/* Custom zoom controls — vertical bar matching preview toolbar style */}
       <ZoomControlBar isDark={isDark} />
 
