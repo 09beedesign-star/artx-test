@@ -2603,12 +2603,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   }, [nodes, enteringGroupId]);
 
   // ── Double-click group container → enter group ──
-  const handleGroupContainerDoubleClick = useCallback((groupId: string) => {
-    setEnteringGroupId(groupId);
-    toast(`已进入「${groupNames[groupId] || groupId}」`, {
-      description: "现在可单独选中并编辑组内图片，单击空白处或右键可退出",
-    });
-  }, [groupNames]);
+  // 双击进入打组已禁用，保留回调以兼容组件接口
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const handleGroupContainerDoubleClick = useCallback((_groupId: string) => {
+    // no-op: double-click to enter group is intentionally disabled
+  }, []);
 
   // ── Drag group container → move all nodes in group ──
   const handleGroupContainerDragEnd = useCallback((groupId: string, dx: number, dy: number) => {
