@@ -44,8 +44,11 @@ import {
   ChevronLeft, Home, LayoutGrid, Lock, Unlock, Plus, Minus,
   Search, ArrowRight, Share2, MousePointer2, CircleDot, Grid3X3,
   Square, PenLine, ImagePlus, Video, Captions, Repeat2, LogOut, FolderDown,
+  AlignHorizontalSpaceAround, AlignVerticalSpaceAround,
 } from "lucide-react";
 import { useLocation } from "wouter";
+import JSZip from "jszip";
+import { saveAs } from "file-saver";
 import { GENERATED_ASSETS, AI_MODELS, PROJECTS, type GeneratedAsset, type Project } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -1057,6 +1060,9 @@ function NodeContextMenu({ menu, onClose, onAction, isDark }: {
     { icon: <Copy size={13} />, label: "复制", action: "copy", color: iconColor },
     { icon: <Clipboard size={13} />, label: "粘贴", action: "paste", color: iconColor },
     { icon: <Box size={13} />, label: "打组", action: "group", color: iconColor },
+    { icon: <LayoutGrid size={13} />, label: "自动排列", action: "auto-layout", color: iconColor },
+    { icon: <AlignHorizontalSpaceAround size={13} />, label: "横向排列", action: "layout-horizontal", color: iconColor },
+    { icon: <AlignVerticalSpaceAround size={13} />, label: "竖向排列", action: "layout-vertical", color: iconColor },
     { icon: <Type size={13} />, label: "添加文本备注", action: "add-note", color: iconColor },
     { icon: <Trash2 size={13} />, label: "删除节点", action: "delete", color: dangerColor },
   ];
@@ -2228,6 +2234,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [enteringGroupId, setEnteringGroupId] = useState<string | null>(null);
   const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  // ── Download dialog state ──
+  const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
+  const [downloadGroupId, setDownloadGroupId] = useState<string | null>(null);
+  const [downloadFormat, setDownloadFormat] = useState<'jpg' | 'png' | 'webp'>('png');
+  // ── Clipboard state for copy/paste ──
+  const [clipboardNodes, setClipboardNodes] = useState<Node[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
   const middlePanRef = useRef<{ clientX: number; clientY: number; viewport: { x: number; y: number; zoom: number } } | null>(null);
   const historyRef = useRef<{ nodes: Node[]; edges: Edge[] }[]>([]);
@@ -2487,6 +2499,55 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       setNodes(nds => nds.map(n => selectedAssetIds.includes(n.id) ? { ...n, position: positionById.get(n.id) || n.position, selected: true } : n));
       setSelectedNodeIds(selectedAssetIds);
       toast("已完成自动布局", { description: `${selectedAssetIds.length} 个图片节点已重新排列，节点之间不重叠` });
+
+    } else if (action === "layout-horizontal") {
+      // 横向排列：所有选中图片节点从左到右排成一行，顶部对齐到各自中心线
+      const selectedAssetIds = actionIds.filter(id => nodes.some(n => n.id === id && n.type === "asset"));
+      if (selectedAssetIds.length < 2) { toast("请至少选择 2 个图片节点再排列"); return; }
+      pushHistory();
+      const selected = selectedAssetIds.map(id => nodes.find(n => n.id === id)).filter(Boolean) as Node[];
+      const selectedBounds = getCanvasNodesBounds(selected, selectedAssetIds);
+      if (!selectedBounds) return;
+      const gap = 40;
+      const sizes = selected.map(getCanvasNodeSize);
+      const totalWidth = sizes.reduce((sum, s) => sum + s.width, 0) + gap * (selected.length - 1);
+      let curX = selectedBounds.centerX - totalWidth / 2;
+      const centerY = selectedBounds.centerY;
+      const positions = selected.map((node, i) => {
+        const s = sizes[i];
+        const pos = { x: curX, y: centerY - s.height / 2 };
+        curX += s.width + gap;
+        return { id: node.id, position: pos };
+      });
+      const posMap = new Map(positions.map(p => [p.id, p.position]));
+      setNodes(nds => nds.map(n => selectedAssetIds.includes(n.id) ? { ...n, position: posMap.get(n.id) || n.position, selected: true } : n));
+      setSelectedNodeIds(selectedAssetIds);
+      toast("已完成横向排列", { description: `${selectedAssetIds.length} 个图片节点已从左到右排列，垂直居中对齐，总宽 ${Math.round(totalWidth)}px` });
+
+    } else if (action === "layout-vertical") {
+      // 竖向排列：所有选中图片节点从上到下排成一列，左边对齐到各自中心线
+      const selectedAssetIds = actionIds.filter(id => nodes.some(n => n.id === id && n.type === "asset"));
+      if (selectedAssetIds.length < 2) { toast("请至少选择 2 个图片节点再排列"); return; }
+      pushHistory();
+      const selected = selectedAssetIds.map(id => nodes.find(n => n.id === id)).filter(Boolean) as Node[];
+      const selectedBounds = getCanvasNodesBounds(selected, selectedAssetIds);
+      if (!selectedBounds) return;
+      const gap = 40;
+      const sizes = selected.map(getCanvasNodeSize);
+      const totalHeight = sizes.reduce((sum, s) => sum + s.height, 0) + gap * (selected.length - 1);
+      let curY = selectedBounds.centerY - totalHeight / 2;
+      const centerX = selectedBounds.centerX;
+      const positions = selected.map((node, i) => {
+        const s = sizes[i];
+        const pos = { x: centerX - s.width / 2, y: curY };
+        curY += s.height + gap;
+        return { id: node.id, position: pos };
+      });
+      const posMap = new Map(positions.map(p => [p.id, p.position]));
+      setNodes(nds => nds.map(n => selectedAssetIds.includes(n.id) ? { ...n, position: posMap.get(n.id) || n.position, selected: true } : n));
+      setSelectedNodeIds(selectedAssetIds);
+      toast("已完成竖向排列", { description: `${selectedAssetIds.length} 个图片节点已从上到下排列，水平居中对齐，总高 ${Math.round(totalHeight)}px` });
+
     } else if (action === "download") {
       const selectedAssets = nodes
         .filter(n => actionIds.includes(n.id) && n.type === "asset")
@@ -2717,42 +2778,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const groupId = (window as unknown as Record<string, unknown>).__artx_ctx_group_id__ as string | undefined;
     if (!groupId) return;
     if (action === "batch-download") {
-      // 收集打组内所有图片节点
-      const groupNodes = nodes.filter(n => {
-        const nGroupId = (n.data as Record<string, unknown>).groupId as string | undefined;
-        return nGroupId === groupId && n.type === "asset";
-      });
-      if (groupNodes.length === 0) {
-        toast("该打组内没有图片节点");
-        return;
-      }
-      const folderName = groupNames[groupId] || groupId;
-      toast(`开始下载「${folderName}」中的 ${groupNodes.length} 张图片`, {
-        description: "文件将依次下载到本地",
-      });
-      // 逐一下载组内所有图片，每张间隔 120ms 避免浏览器拦截
-      groupNodes.forEach((node, index) => {
-        setTimeout(() => {
-          const nodeData = node.data as Record<string, unknown>;
-          const localSrc = nodeData.localSrc as string | undefined;
-          const assetId = nodeData.assetId as string;
-          const title = (nodeData.title as string) || `图片_${index + 1}`;
-          const asset = GENERATED_ASSETS.find(a => a.id === assetId) || GENERATED_ASSETS[0];
-          const src = localSrc || asset?.src || "";
-          if (!src) return;
-          const a = document.createElement("a");
-          a.href = src;
-          // 使用「打组名/图片名.ext」的路径形式，浏览器会将文件保存到同名文件夹
-          const ext = src.startsWith("data:image/png") ? "png"
-            : src.startsWith("data:image/gif") ? "gif"
-            : src.startsWith("data:image/webp") ? "webp"
-            : "jpg";
-          a.download = `${folderName}/${title}.${ext}`;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-        }, index * 120);
-      });
+      // 打开格式选择弹窗，让用户选择 ZIP 打包格式
+      setDownloadGroupId(groupId);
+      setDownloadFormat('png');
+      setDownloadDialogOpen(true);
     } else if (action === "exit-group") {
       setEnteringGroupId(null);
       setSelectedNodeIds([]);
