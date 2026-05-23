@@ -10,6 +10,7 @@ import HomePage from "./pages/HomePage";
 import WorkspaceDashboard from "./pages/WorkspaceDashboard";
 import CommunityPage from "./pages/CommunityPage";
 import Workspace from "./pages/Workspace";
+import SettingsPage from "./pages/SettingsPage";
 
 const routerBase = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -34,6 +35,13 @@ function AppRoutes() {
       <Route path="/community">
         <AppShell>
           <CommunityPage />
+        </AppShell>
+      </Route>
+
+      {/* 设置 */}
+      <Route path="/settings">
+        <AppShell>
+          <SettingsPage />
         </AppShell>
       </Route>
 

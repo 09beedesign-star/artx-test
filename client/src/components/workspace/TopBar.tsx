@@ -2,8 +2,10 @@
  * TopBar — Neo-Studio Dark Design System
  * Global top navigation: search, theme switcher (Radix DropdownMenu), credits, user info
  */
-import { Search, Bell, ChevronDown, Sparkles, Plus, Moon, Sun, Monitor, Check } from "lucide-react";
+import { useState } from "react";
+import { Search, Bell, ChevronDown, Sparkles, Plus, Moon, Sun, Monitor, Check, Settings, LogOut } from "lucide-react";
 import { toast } from "sonner";
+import { useLocation } from "wouter";
 import { useTheme, type ThemeMode } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -14,6 +16,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface TopBarProps {
   credits?: number;
@@ -27,7 +39,8 @@ const THEME_OPTIONS: { mode: ThemeMode; icon: React.ElementType; label: string }
 
 export default function TopBar({ credits = 75 }: TopBarProps) {
   const { mode, setMode, resolvedTheme } = useTheme();
-  const { isAuthenticated, openLoginModal } = useAuth();
+  const { isAuthenticated, openLoginModal, logout } = useAuth();
+  const [, navigate] = useLocation();
 
   const isDark = resolvedTheme === "dark";
 
@@ -40,8 +53,16 @@ export default function TopBar({ credits = 75 }: TopBarProps) {
   const hoverBg   = isDark ? "oklch(1 0 0 / 5%)"           : "oklch(0 0 0 / 0.04)";
 
   const ActiveIcon = THEME_OPTIONS.find((o) => o.mode === mode)?.icon ?? Moon;
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+
+  const handleConfirmLogout = () => {
+    logout();
+    setLogoutConfirmOpen(false);
+    navigate("/");
+  };
 
   return (
+    <>
     <header
       className="flex items-center gap-3 px-4 shrink-0"
       style={{ height: 52, background: surface, borderBottom: `1px solid ${border}`, zIndex: 10 }}
@@ -172,22 +193,106 @@ export default function TopBar({ credits = 75 }: TopBarProps) {
         <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-[var(--radius-pill)]" style={{ background: "oklch(0.58 0.22 290)" }} />
       </button>
 
-      {/* User */}
-      <button
-        onClick={() => toast("用户设置", { description: "功能即将上线" })}
-        className="flex items-center gap-2 px-2 py-1 rounded-[var(--radius-md-design)] transition-colors"
-        style={{ color: textPri }}
-      >
-        <div
-          className="w-7 h-7 rounded-[var(--radius-pill)] flex items-center justify-center type-caption"
-          style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))", color: "white" }}
+      {/* User menu */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            className="flex items-center gap-2 px-2 py-1 rounded-[var(--radius-md-design)] transition-colors outline-none"
+            style={{ color: textPri }}
+          >
+            <div
+              className="w-7 h-7 rounded-[var(--radius-pill)] flex items-center justify-center type-caption"
+              style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))", color: "white" }}
+            >
+              U
+            </div>
+            <span className="type-caption">用户名</span>
+            <ChevronDown size={12} style={{ color: textSec }} />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          sideOffset={8}
+          className="min-w-[150px]"
+          style={{
+            background: isDark ? "oklch(0.15 0.018 270)" : "oklch(0.995 0.002 80)",
+            border: `1px solid ${isDark ? "oklch(1 0 0 / 12%)" : "oklch(0.88 0.006 255)"}`,
+            boxShadow: "0 8px 32px oklch(0 0 0 / 0.25)",
+          }}
         >
-          U
-        </div>
-        <span className="type-caption">用户名</span>
-        <ChevronDown size={12} style={{ color: textSec }} />
-      </button>
+          <DropdownMenuItem
+            onClick={() => navigate("/settings")}
+            className="flex items-center gap-2.5 px-3 py-2 type-caption cursor-pointer"
+            style={{ color: textPri }}
+          >
+            <Settings size={13} style={{ color: textSec }} />
+            <span>设置</span>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator style={{ background: isDark ? "oklch(1 0 0 / 8%)" : "oklch(0.88 0.006 255)" }} />
+          <DropdownMenuItem
+            onClick={() => setLogoutConfirmOpen(true)}
+            className="flex items-center gap-2.5 px-3 py-2 type-caption cursor-pointer"
+            style={{ color: "oklch(0.68 0.22 25)" }}
+          >
+            <LogOut size={13} />
+            <span>退出</span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
       </>)}
     </header>
+
+    <AlertDialog open={logoutConfirmOpen} onOpenChange={setLogoutConfirmOpen}>
+      <AlertDialogContent
+        className="w-[min(420px,calc(100vw-32px))] rounded-[var(--radius-lg-design)] border p-0 overflow-hidden"
+        style={{
+          background: isDark ? "oklch(0.15 0.018 270)" : "oklch(0.995 0.002 80)",
+          borderColor: isDark ? "oklch(1 0 0 / 12%)" : "oklch(0.88 0.006 255)",
+          boxShadow: "0 24px 80px oklch(0 0 0 / 0.35)",
+        }}
+      >
+        <div className="p-6">
+          <AlertDialogHeader className="gap-2 text-center">
+            <AlertDialogTitle
+              className="type-title-sm"
+              style={{ color: textPri, fontSize: 18, fontWeight: 650 }}
+            >
+              确认退出当前账号？
+            </AlertDialogTitle>
+            <AlertDialogDescription
+              className="type-body-sm leading-6"
+              style={{ color: textSec }}
+            >
+              退出后将回到未登录首页。所有内容会在下一次打开后继续进行，你可以随时重新登录并继续当前创作。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <AlertDialogFooter className="mt-6 flex-row justify-center gap-3 sm:justify-center">
+            <AlertDialogCancel
+              className="h-9 min-w-[96px] rounded-[var(--radius-md-design)] type-caption"
+              style={{
+                background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)",
+                borderColor: isDark ? "oklch(1 0 0 / 10%)" : "oklch(0.88 0.006 255)",
+                color: textPri,
+              }}
+            >
+              取消
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmLogout}
+              className="h-9 min-w-[112px] rounded-[var(--radius-md-design)] type-caption"
+              style={{
+                background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
+                color: "white",
+                boxShadow: "0 8px 24px oklch(0.58 0.22 290 / 0.22)",
+              }}
+            >
+              确认退出
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </div>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }

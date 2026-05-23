@@ -30,7 +30,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   const { resolvedTheme } = useTheme();
   const { isAuthenticated } = useAuth();
   const isDark = resolvedTheme === "dark";
-  const shouldHideSidebar = hideSidebar || (!isAuthenticated && location === "/");
+  const shouldHideSidebar = hideSidebar || !isAuthenticated;
 
   // ── Theme tokens ──────────────────────────────────────────────
   const sidebarBg    = isDark ? "oklch(0.11 0.012 270)" : "var(--design-surface-soft)";
@@ -46,7 +46,32 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   const isActive = (path: string) =>
     path === "/" ? location === "/" : location.startsWith(path);
 
-  if (shouldHideSidebar) return <>{children}</>;
+  if (shouldHideSidebar) {
+    return (
+      <>
+        {!isAuthenticated && (
+          <button
+            onClick={() => navigate("/")}
+            className="fixed left-4 top-3 z-30 flex items-center gap-2.5 rounded-[var(--radius-md-design)] px-1 py-1 transition-opacity hover:opacity-85"
+            style={{ color: textPrimary }}
+            aria-label="返回 artx 首页"
+          >
+            <span
+              className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-md-design)]"
+              style={{
+                background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.62 0.20 210))",
+                boxShadow: "0 3px 12px oklch(0.58 0.22 290 / 0.30)",
+              }}
+            >
+              <Sparkles size={13} color="white" />
+            </span>
+            <span className="type-body-sm tracking-tight">artx</span>
+          </button>
+        )}
+        {children}
+      </>
+    );
+  }
 
   // ── Shared nav item renderer ──────────────────────────────────
   const NavItem = ({
