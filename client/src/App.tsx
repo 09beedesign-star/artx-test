@@ -12,6 +12,7 @@ import CommunityPage from "./pages/CommunityPage";
 import Workspace from "./pages/Workspace";
 import SettingsPage from "./pages/SettingsPage";
 import ProfilePage from "./pages/ProfilePage";
+import LoginRegisterDialog from "./components/auth/LoginRegisterDialog";
 
 const routerBase = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -71,6 +72,7 @@ function App() {
         <AuthProvider>
           <TooltipProvider>
             <Toaster />
+            <LoginRegisterDialog />
             <WouterRouter base={routerBase}>
               <AppRoutes />
             </WouterRouter>
