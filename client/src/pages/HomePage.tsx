@@ -10,8 +10,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import TopBar from "@/components/workspace/TopBar";
 import {
-  Sparkles, LayoutGrid, Image as ImageIcon,
-  ArrowRight, Clock, ChevronRight, Paperclip, ChevronDown,
+  Sparkles, LayoutGrid, Paperclip, ChevronDown,
   Send, Mic, X, Check, MoreHorizontal, Pencil, Copy, Trash2, Eye, EyeOff,
 } from "lucide-react";
 import { PROJECTS, POSTER_1, POSTER_2, BRAND_KIT, SOCIAL_AD, BG_GLOW, AI_MODELS } from "@/lib/workspace-data";
@@ -99,30 +98,22 @@ function HomeCardMenu({ isDark }: { isDark: boolean }) {
   );
 }
 
-const COVERS: Record<string, string> = {
-  p1: POSTER_2, p2: BRAND_KIT, p3: POSTER_1, p4: SOCIAL_AD,
-};
-
-const QUICK_ACTIONS = [
-  {
-    id: "template",
-    icon: LayoutGrid,
-    title: "从模板开始",
-    desc: "浏览精选模板，快速启动你的创作项目",
-    gradient: "linear-gradient(135deg, oklch(0.42 0.18 220), oklch(0.48 0.16 200))",
-    glow: "oklch(0.50 0.18 220 / 0.30)",
-    path: "/workspace",
-  },
-  {
-    id: "import",
-    icon: ImageIcon,
-    title: "导入素材",
-    desc: "上传图片或品牌资产，开始 AI 辅助编辑",
-    gradient: "linear-gradient(135deg, oklch(0.42 0.18 160), oklch(0.48 0.16 140))",
-    glow: "oklch(0.50 0.18 160 / 0.30)",
-    path: "/workspace",
-  },
+const COMMUNITY_PROJECTS = [
+  { id: "community-1", title: "未来跑鞋视觉实验", updatedAt: "社区精选", cover: POSTER_2 },
+  { id: "community-2", title: "咖啡品牌灵感板", updatedAt: "用户作品", cover: BRAND_KIT },
+  { id: "community-3", title: "城市户外广告片", updatedAt: "社区精选", cover: POSTER_1 },
+  { id: "community-4", title: "智能设备发布海报", updatedAt: "用户作品", cover: SOCIAL_AD },
+  { id: "community-5", title: "潮流服饰大片", updatedAt: "灵感推荐", cover: POSTER_1 },
+  { id: "community-6", title: "新消费包装系统", updatedAt: "社区精选", cover: BRAND_KIT },
+  { id: "community-7", title: "运动科技主视觉", updatedAt: "用户作品", cover: POSTER_2 },
+  { id: "community-8", title: "社媒营销创意图", updatedAt: "灵感推荐", cover: SOCIAL_AD },
 ];
+
+const RECENT_PROJECT_COVERS = [POSTER_2, BRAND_KIT, POSTER_1, SOCIAL_AD, POSTER_1];
+const RECENT_PROJECTS = PROJECTS.slice(0, 5).map((project, index) => ({
+  ...project,
+  cover: RECENT_PROJECT_COVERS[index % RECENT_PROJECT_COVERS.length],
+}));
 
 const PROMPT_SUGGESTIONS = [
   "产品海报",
@@ -340,7 +331,8 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
 // ── Login / Register Dialog ───────────────────────────────────
 function LoginRegisterDialog({ isDark }: { isDark: boolean }) {
   const { loginModalOpen, closeLoginModal, login } = useAuth();
-  const [provider, setProvider] = useState<"gmail" | "wechat">("gmail");
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [provider, setProvider] = useState<"google" | "wechat" | "apple">("google");
   const [username, setUsername] = useState("09bee");
   const [password, setPassword] = useState("1234");
   const [showPassword, setShowPassword] = useState(false);
@@ -348,11 +340,20 @@ function LoginRegisterDialog({ isDark }: { isDark: boolean }) {
 
   if (!loginModalOpen) return null;
 
-  const panelBg = isDark ? "oklch(0.13 0.015 270)" : "oklch(0.99 0.004 270)";
-  const border = isDark ? "oklch(1 0 0 / 12%)" : "oklch(0 0 0 / 10%)";
-  const text = isDark ? "oklch(0.88 0.008 270)" : "oklch(0.16 0.01 270)";
-  const sub = isDark ? "oklch(0.58 0.01 270)" : "oklch(0.48 0.01 270)";
-  const inputBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0.94 0.004 270)";
+  const text = isDark ? "oklch(0.94 0.006 270)" : "oklch(0.97 0.004 270)";
+  const muted = "oklch(0.68 0.018 275)";
+  const dim = "oklch(0.52 0.018 275)";
+  const border = "oklch(1 0 0 / 12%)";
+  const inputBg = "oklch(1 0 0 / 7%)";
+  const accentGradient = "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.68 0.18 220))";
+
+  const visualCards = [
+    { title: "Brand System", tone: "linear-gradient(135deg, oklch(0.18 0.035 280), oklch(0.34 0.12 300))", x: "-8%", y: "14%", w: "34%", h: 118, rotate: "-7deg" },
+    { title: "AI Canvas", tone: "linear-gradient(135deg, oklch(0.20 0.05 245), oklch(0.48 0.18 220))", x: "18%", y: "0%", w: "40%", h: 148, rotate: "3deg" },
+    { title: "Motion Mood", tone: "linear-gradient(135deg, oklch(0.16 0.04 270), oklch(0.55 0.20 290))", x: "56%", y: "18%", w: "34%", h: 124, rotate: "8deg" },
+    { title: "Visual Grid", tone: "linear-gradient(135deg, oklch(0.13 0.03 270), oklch(0.44 0.15 185))", x: "2%", y: "55%", w: "38%", h: 132, rotate: "2deg" },
+    { title: "Product Shot", tone: "linear-gradient(135deg, oklch(0.24 0.05 270), oklch(0.72 0.18 35))", x: "42%", y: "48%", w: "45%", h: 154, rotate: "-4deg" },
+  ];
 
   const handleConfirm = () => {
     const normalizedUsername = username.trim();
@@ -374,99 +375,207 @@ function LoginRegisterDialog({ isDark }: { isDark: boolean }) {
   };
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center px-4" style={{ background: "rgba(0,0,0,0.56)", backdropFilter: "blur(12px)" }}>
-      <div className="w-full max-w-[420px] rounded-[var(--radius-xl-design)] p-5" style={{ background: panelBg, border: `1px solid ${border}`, boxShadow: "0 24px 80px rgba(0,0,0,0.45)" }}>
-        <div className="flex items-start justify-between mb-5">
-          <div>
-            <p className="type-body-sm" style={{ color: text }}>登录 / 注册 artx</p>
-            <p className="type-caption mt-1" style={{ color: sub, textTransform: "none", letterSpacing: "0.02em" }}>选择登录方式后，使用测试账号完成验证。</p>
+    <div
+      className="fixed inset-0 z-[9999] overflow-y-auto px-4 py-8"
+      style={{
+        background:
+          "radial-gradient(circle at 50% -8%, oklch(0.36 0.15 285 / 0.40), transparent 34%), radial-gradient(circle at 18% 82%, oklch(0.48 0.18 220 / 0.28), transparent 30%), oklch(0.055 0.012 270)",
+        color: text,
+        backdropFilter: "blur(16px)",
+      }}
+    >
+      <button
+        className="fixed right-5 top-5 z-20 w-10 h-10 rounded-full flex items-center justify-center transition-all hover:scale-105 active:scale-95"
+        style={{ background: "oklch(1 0 0 / 8%)", border: `1px solid ${border}`, color: muted, backdropFilter: "blur(18px)" }}
+        onClick={closeLoginModal}
+        aria-label="关闭登录窗口"
+      >
+        <X size={18} />
+      </button>
+
+      <div className="mx-auto flex min-h-full w-full max-w-[1180px] flex-col items-center justify-center py-8">
+        <div className="mb-5 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-[14px] flex items-center justify-center" style={{ background: accentGradient, boxShadow: "0 16px 42px oklch(0.58 0.22 290 / 0.38)" }}>
+            <Sparkles size={18} color="white" />
           </div>
-          <button className="w-8 h-8 rounded-[var(--radius-md-design)] flex items-center justify-center" style={{ color: sub }} onClick={closeLoginModal}>
-            <X size={16} />
-          </button>
+          <div>
+            <p className="type-body-sm" style={{ color: text }}>Art X</p>
+            <p className="type-caption" style={{ color: dim, textTransform: "none", letterSpacing: "0.02em" }}>Creative Design Workspace</p>
+          </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 mb-4">
-          {(["gmail", "wechat"] as const).map(item => {
-            const active = provider === item;
-            return (
-              <button
-                key={item}
-                onClick={() => setProvider(item)}
-                className="rounded-[var(--radius-lg-design)] px-3 py-3 type-caption transition-all"
-                style={{
-                  background: active ? "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))" : inputBg,
-                  border: `1px solid ${active ? "transparent" : border}`,
-                  color: active ? "white" : text,
-                }}
-              >
-                {item === "gmail" ? "Gmail 账号登录" : "微信登录"}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="flex flex-col gap-3">
-          <label className="flex flex-col gap-1.5">
-            <span className="type-caption" style={{ color: sub }}>测试账号</span>
-            <input
-              value={username}
-              onChange={e => { setUsername(e.target.value); if (error) setError(""); }}
-              className="h-10 rounded-[var(--radius-md-design)] px-3 outline-none type-caption"
-              style={{
-                background: inputBg,
-                border: `1px solid ${error === "请输入账号" ? "oklch(0.68 0.22 25)" : border}`,
-                color: text,
-              }}
-              placeholder="请输入账号"
-            />
-          </label>
-          <label className="flex flex-col gap-1.5">
-            <span className="type-caption" style={{ color: sub }}>测试密码</span>
-            <div className="relative">
-              <input
-                type={showPassword ? "text" : "password"}
-                value={password}
-                onChange={e => { setPassword(e.target.value); if (error) setError(""); }}
-                onKeyDown={e => { if (e.key === "Enter") handleConfirm(); }}
-                className="h-10 w-full rounded-[var(--radius-md-design)] pl-3 pr-10 outline-none type-caption"
-                style={{
-                  background: inputBg,
-                  border: `1px solid ${error === "请输入密码" ? "oklch(0.68 0.22 25)" : border}`,
-                  color: text,
-                }}
-                placeholder="请输入密码"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(v => !v)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-[var(--radius-md-design)] flex items-center justify-center transition-opacity hover:opacity-75 active:scale-95"
-                style={{ color: sub }}
-                aria-label={showPassword ? "隐藏密码" : "显示密码"}
-              >
-                {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
-              </button>
-            </div>
-          </label>
-        </div>
-
-        {error && (
-          <p
-            className="type-caption mt-3"
-            role="alert"
-            style={{ color: "oklch(0.68 0.22 25)", textTransform: "none", letterSpacing: "0.02em" }}
+        <div className="relative w-full max-w-[1040px]">
+          <div
+            className="relative mx-auto h-[360px] w-full overflow-hidden rounded-[34px]"
+            style={{
+              background: "linear-gradient(180deg, oklch(0.10 0.024 270), oklch(0.075 0.018 270))",
+              border: `1px solid ${border}`,
+              boxShadow: "0 46px 120px rgba(0,0,0,0.62), inset 0 -1px 0 oklch(1 0 0 / 9%)",
+            }}
           >
-            {error}
-          </p>
-        )}
+            <div className="absolute inset-x-0 top-0 h-28" style={{ background: "linear-gradient(180deg, oklch(0.20 0.06 260 / 0.75), transparent)" }} />
+            <div className="absolute inset-x-[12%] bottom-0 h-32 rounded-t-[44px]" style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290 / 0.72), oklch(0.68 0.18 220 / 0.66))", filter: "blur(2px)" }} />
+            <div className="absolute left-8 top-8 right-8 flex items-center justify-between text-[10px] uppercase tracking-[0.24em]" style={{ color: "oklch(0.82 0.018 275 / 0.72)" }}>
+              <span>AI Moodboard</span>
+              <span>Prompt · Canvas · Delivery</span>
+            </div>
 
-        <button
-          onClick={handleConfirm}
-          className="w-full h-11 mt-5 rounded-[var(--radius-lg-design)] type-body-sm transition-all active:scale-[0.98]"
-          style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))", color: "white", boxShadow: "0 10px 28px oklch(0.58 0.22 290 / 0.30)" }}
-        >
-          确认登录
-        </button>
+            {visualCards.map(card => (
+              <div
+                key={card.title}
+                className="absolute overflow-hidden rounded-[24px] p-4"
+                style={{
+                  left: card.x,
+                  top: card.y,
+                  width: card.w,
+                  height: card.h,
+                  transform: `rotate(${card.rotate})`,
+                  background: card.tone,
+                  border: "1px solid oklch(1 0 0 / 15%)",
+                  boxShadow: "0 28px 70px rgba(0,0,0,0.42)",
+                }}
+              >
+                <div className="absolute inset-0 opacity-45" style={{ backgroundImage: "linear-gradient(90deg, oklch(1 0 0 / 9%) 1px, transparent 1px), linear-gradient(0deg, oklch(1 0 0 / 8%) 1px, transparent 1px)", backgroundSize: "24px 24px" }} />
+                <div className="relative flex h-full flex-col justify-between">
+                  <div className="flex gap-1.5">
+                    <span className="h-2 w-2 rounded-full" style={{ background: "oklch(0.72 0.18 200)" }} />
+                    <span className="h-2 w-2 rounded-full" style={{ background: "oklch(0.70 0.18 35)" }} />
+                    <span className="h-2 w-2 rounded-full" style={{ background: "oklch(0.58 0.22 290)" }} />
+                  </div>
+                  <p className="type-caption" style={{ color: "white", textTransform: "none", letterSpacing: "0.02em" }}>{card.title}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div
+            className="relative z-10 mx-auto -mt-24 w-full max-w-[430px] rounded-[30px] p-5 sm:p-6"
+            style={{
+              background: "linear-gradient(180deg, oklch(0.16 0.022 270 / 0.92), oklch(0.105 0.018 270 / 0.96))",
+              border: "1px solid oklch(1 0 0 / 14%)",
+              boxShadow: "0 34px 100px rgba(0,0,0,0.70)",
+              backdropFilter: "blur(24px)",
+            }}
+          >
+            <div className="mb-5 text-center">
+              <p className="type-caption mb-2" style={{ color: "oklch(0.68 0.18 220)", textTransform: "none", letterSpacing: "0.16em" }}>WELCOME TO ART X</p>
+              <h2 className="text-[26px] font-semibold tracking-[-0.04em]" style={{ color: text }}>{mode === "login" ? "登录创意工作台" : "创建 Art X 账号"}</h2>
+              <p className="type-caption mt-2" style={{ color: muted, textTransform: "none", letterSpacing: "0.02em" }}>使用测试账号 09bee / 1234 体验完整创作流程。</p>
+            </div>
+
+            <div className="mb-4 grid grid-cols-2 gap-2 rounded-[18px] p-1" style={{ background: "oklch(1 0 0 / 6%)", border: `1px solid ${border}` }}>
+              {(["login", "register"] as const).map(item => {
+                const active = mode === item;
+                return (
+                  <button
+                    key={item}
+                    onClick={() => { setMode(item); setError(""); }}
+                    className="h-10 rounded-[14px] type-body-sm transition-all active:scale-[0.98]"
+                    style={{ background: active ? accentGradient : "transparent", color: active ? "white" : muted, boxShadow: active ? "0 10px 26px oklch(0.58 0.22 290 / 0.25)" : "none" }}
+                  >
+                    {item === "login" ? "登录" : "注册"}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <label className="flex flex-col gap-1.5">
+                <span className="type-caption" style={{ color: muted }}>账号 / 邮箱</span>
+                <input
+                  value={username}
+                  onChange={e => { setUsername(e.target.value); if (error) setError(""); }}
+                  className="h-12 rounded-[16px] px-4 outline-none type-caption transition-colors"
+                  style={{
+                    background: inputBg,
+                    border: `1px solid ${error === "请输入账号" ? "oklch(0.68 0.22 25)" : border}`,
+                    color: text,
+                  }}
+                  placeholder="请输入账号或邮箱"
+                />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="type-caption" style={{ color: muted }}>密码</span>
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={e => { setPassword(e.target.value); if (error) setError(""); }}
+                    onKeyDown={e => { if (e.key === "Enter") handleConfirm(); }}
+                    className="h-12 w-full rounded-[16px] pl-4 pr-11 outline-none type-caption transition-colors"
+                    style={{
+                      background: inputBg,
+                      border: `1px solid ${error === "请输入密码" ? "oklch(0.68 0.22 25)" : border}`,
+                      color: text,
+                    }}
+                    placeholder="请输入密码"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(v => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-[12px] flex items-center justify-center transition-opacity hover:opacity-75 active:scale-95"
+                    style={{ color: muted }}
+                    aria-label={showPassword ? "隐藏密码" : "显示密码"}
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </label>
+            </div>
+
+            <div className="mt-3 flex items-center justify-between">
+              <label className="flex items-center gap-2 type-caption" style={{ color: dim, textTransform: "none", letterSpacing: "0.02em" }}>
+                <span className="w-4 h-4 rounded-[5px] flex items-center justify-center" style={{ background: "oklch(0.58 0.22 290 / 0.20)", border: "1px solid oklch(0.58 0.22 290 / 0.46)" }}>
+                  <Check size={11} color="oklch(0.76 0.16 230)" />
+                </span>
+                保持登录
+              </label>
+              <button className="type-caption" style={{ color: "oklch(0.70 0.18 220)", textTransform: "none", letterSpacing: "0.02em" }}>忘记密码？</button>
+            </div>
+
+            {error && (
+              <p className="type-caption mt-3" role="alert" style={{ color: "oklch(0.72 0.20 25)", textTransform: "none", letterSpacing: "0.02em" }}>
+                {error}
+              </p>
+            )}
+
+            <button
+              onClick={handleConfirm}
+              className="w-full h-12 mt-5 rounded-[18px] type-body-sm transition-all hover:scale-[1.01] active:scale-[0.98]"
+              style={{ background: accentGradient, color: "white", boxShadow: "0 18px 42px oklch(0.58 0.22 290 / 0.34)" }}
+            >
+              {mode === "login" ? "进入 Art X" : "注册并进入 Art X"}
+            </button>
+
+            <div className="my-5 flex items-center gap-4">
+              <span className="h-px flex-1" style={{ background: "linear-gradient(90deg, transparent, oklch(1 0 0 / 16%))" }} />
+              <span className="type-caption" style={{ color: dim, textTransform: "none", letterSpacing: "0.04em" }}>其他登录方式</span>
+              <span className="h-px flex-1" style={{ background: "linear-gradient(90deg, oklch(1 0 0 / 16%), transparent)" }} />
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              {(["google", "wechat", "apple"] as const).map(item => {
+                const active = provider === item;
+                const label = item === "google" ? "G" : item === "wechat" ? "微" : "";
+                return (
+                  <button
+                    key={item}
+                    onClick={() => setProvider(item)}
+                    className="h-12 rounded-[16px] type-body-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
+                    style={{
+                      background: active ? "oklch(1 0 0 / 14%)" : "oklch(1 0 0 / 7%)",
+                      border: `1px solid ${active ? "oklch(0.68 0.18 220 / 0.48)" : border}`,
+                      color: active ? text : muted,
+                    }}
+                    aria-label={item === "google" ? "Google 登录" : item === "wechat" ? "微信登录" : "Apple 登录"}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -537,7 +646,7 @@ export default function HomePage() {
             <HeroInputBox isDark={isDark} onSubmit={handlePromptSubmit} />
           </div>
 
-          {isAuthenticated ? (
+          {isAuthenticated && (
             <div
               className="flex flex-wrap items-center justify-center gap-2 mt-4 overflow-hidden"
               style={{ width: "100%", maxWidth: 680, maxHeight: 76 }}
@@ -557,70 +666,27 @@ export default function HomePage() {
                 </button>
               ))}
             </div>
-          ) : (
-            <button
-              onClick={handleStartDesign}
-              className="mt-4 px-8 h-12 rounded-[var(--radius-lg-design)] type-body-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
-              style={{
-                background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
-                color: "white",
-                boxShadow: "0 14px 36px oklch(0.58 0.22 290 / 0.30)",
-              }}
-            >
-              开始设计
-            </button>
           )}
         </div>
 
-        {/* ── Below fold: Quick Actions + Recent Projects ── */}
-        <div className="px-8 pb-10">
-          {/* Quick Actions */}
-          <div className="grid grid-cols-2 gap-4 mb-10 mx-auto w-full">
-            {QUICK_ACTIONS.map(action => {
-              const Icon = action.icon;
-              return (
-                <button
-                  key={action.id}
-                  onClick={() => navigate(action.path)}
-                  className="relative p-5 text-left overflow-hidden group transition-all hover:scale-[1.02]"
-                  style={{
-                    background: action.gradient,
-                    boxShadow: `0 8px 32px ${action.glow}`,
-                    border: "1px solid rgba(255,255,255,0.12)",
-                    borderRadius: "var(--radius-lg-design)",
-                  }}
-                >
-                  <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity" style={{ background: "rgba(255,255,255,0.06)" }} />
-                  <div className="w-9 h-9 rounded-[var(--radius-lg-design)] flex items-center justify-center mb-3" style={{ background: "rgba(255,255,255,0.15)" }}>
-                    <Icon size={18} color="white" />
-                  </div>
-                  <p className="type-body-sm text-white mb-1">{action.title}</p>
-                  <p className="type-caption" style={{ color: "rgba(255,255,255,0.70)", textTransform: "none", letterSpacing: "0.02em" }}>{action.desc}</p>
-                  <ArrowRight size={14} color="rgba(255,255,255,0.6)" className="absolute bottom-4 right-4 group-hover:translate-x-0.5 transition-transform" />
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Recent Projects */}
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <Clock size={14} style={{ color: sub }} />
-                <span className="type-body-sm" style={{ color: text }}>最近项目</span>
-              </div>
-              <button
-                onClick={() => navigate("/workspace")}
-                className="type-caption flex items-center gap-1 transition-opacity hover:opacity-70"
-                style={{ color: "oklch(0.62 0.22 290)" }}
+        {isAuthenticated && (
+          <div className="px-8 pb-10">
+            <div className="mb-5 text-center">
+              <h2
+                className="type-headline"
+                style={{
+                  color: text,
+                  fontFamily: "SimHei, 'Microsoft YaHei', 'PingFang SC', 'Noto Sans CJK SC', sans-serif",
+                  fontWeight: 900,
+                  letterSpacing: "0.02em",
+                }}
               >
-                查看全部
-                <ChevronRight size={13} />
-              </button>
+                最近项目
+              </h2>
             </div>
 
-            <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}>
-              {PROJECTS.slice(0, 4).map(project => (
+            <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
+              {RECENT_PROJECTS.map(project => (
                 <div
                   key={project.id}
                   onClick={() => navigate(`/project/${project.id}`)}
@@ -628,8 +694,51 @@ export default function HomePage() {
                   style={{ background: cardBg, border: `1px solid ${cardBorder}`, boxShadow: "0 2px 12px rgba(0,0,0,0.12)" }}
                 >
                   <div className="relative overflow-hidden" style={{ aspectRatio: "16/9" }}>
-                    {COVERS[project.id] ? (
-                      <img src={COVERS[project.id]} alt={project.title} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                    <img src={project.cover} alt={project.title} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                  </div>
+                  <div className="px-3 py-2.5">
+                    <p className="type-caption truncate" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>{project.title}</p>
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <p className="type-caption" style={{ color: sub, fontSize: 11 }}>{project.updatedAt}</p>
+                      <div className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+                        <HomeCardMenu isDark={isDark} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Below fold: Inspiration Discovery ── */}
+        <div className="px-8 pb-10">
+          <div>
+            <div className="mb-5 text-center">
+              <h2
+                className="type-headline"
+                style={{
+                  color: text,
+                  fontFamily: "SimHei, 'Microsoft YaHei', 'PingFang SC', 'Noto Sans CJK SC', sans-serif",
+                  fontWeight: 900,
+                  letterSpacing: "0.02em",
+                }}
+              >
+                灵感发现
+              </h2>
+            </div>
+
+            <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}>
+              {COMMUNITY_PROJECTS.map(project => (
+                <div
+                  key={project.id}
+                  onClick={() => navigate(`/project/p1`)}
+                  className="rounded-[var(--radius-lg-design)] overflow-hidden text-left group transition-all hover:scale-[1.02] cursor-pointer"
+                  style={{ background: cardBg, border: `1px solid ${cardBorder}`, boxShadow: "0 2px 12px rgba(0,0,0,0.12)" }}
+                >
+                  <div className="relative overflow-hidden" style={{ aspectRatio: "16/9" }}>
+                    {project.cover ? (
+                      <img src={project.cover} alt={project.title} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center" style={{ background: isDark ? "oklch(0.16 0.015 270)" : "oklch(0.92 0.005 270)" }}>
                         <LayoutGrid size={24} style={{ color: sub }} />
@@ -638,7 +747,6 @@ export default function HomePage() {
                   </div>
                   <div className="px-3 py-2.5">
                     <p className="type-caption truncate" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>{project.title}</p>
-                    {/* 时间行 + ... 菜单：与工作台 CardMenu 位置完全一致 */}
                     <div className="flex items-center gap-1.5 mt-1">
                       <p className="type-caption" style={{ color: sub, fontSize: 11 }}>{project.updatedAt}</p>
                       <div className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
