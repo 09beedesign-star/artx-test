@@ -2,7 +2,7 @@
  * HomePage — 首页
  * Design: Neo-Studio Dark
  * Layout: TopBar + 居中英雄区（标题 + AI输入框）+ 快速入口卡片 + 最近项目
- * AI Input: Lovart 风格 — 大圆角深色输入框，底部工具行（附件/模型/发送）
+ * AI Input: artx 风格 — 大圆角深色输入框，底部工具行（附件/模型/发送）
  */
 import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -139,7 +139,7 @@ const PROMPT_SUGGESTIONS = [
   "制作品牌社交媒体内容套件",
 ];
 
-// ── Lovart-style AI Input Box ──────────────────────────────────
+// ── artx-style AI Input Box ──────────────────────────────────
 function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: string) => void }) {
   const [value, setValue] = useState("");
   const [modelOpen, setModelOpen] = useState(false);
@@ -378,7 +378,7 @@ export default function HomePage() {
           <div className="flex items-center gap-2 mb-5">
             <Sparkles size={14} style={{ color: "oklch(0.72 0.22 290)" }} />
             <span className="text-[12px] font-medium tracking-wide" style={{ color: "oklch(0.72 0.22 290)" }}>
-              AI 创意工作台
+              artx
             </span>
           </div>
 
@@ -393,7 +393,7 @@ export default function HomePage() {
             用 AI 的力量，将你的创意想法变成精美的视觉作品
           </p>
 
-          {/* AI Input Box — Lovart style */}
+          {/* AI Input Box — artx style */}
           <div className="w-full" style={{ maxWidth: 680 }}>
             <HeroInputBox isDark={isDark} onSubmit={handlePromptSubmit} />
           </div>

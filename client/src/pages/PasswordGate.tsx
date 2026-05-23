@@ -112,7 +112,7 @@ export default function PasswordGate({ onGranted }: { onGranted: () => void }) {
             </svg>
           </div>
           <span style={{ fontSize: 15, fontWeight: 600, color: text, letterSpacing: "-0.01em" }}>
-            AI 创意工作台
+            artx
           </span>
         </div>
 

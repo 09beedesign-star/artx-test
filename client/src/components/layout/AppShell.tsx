@@ -97,7 +97,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
             style={{ color: textPrimary }}
             onClick={() => navigate("/")}
           >
-            AI 创意工作台
+            artx
           </span>
         </div>
 
