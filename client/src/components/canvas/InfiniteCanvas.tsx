@@ -43,7 +43,7 @@ import {
   MoreHorizontal, FolderOutput, Maximize2, Mic, RefreshCw,
   ChevronLeft, Home, LayoutGrid, Lock, Unlock, Plus, Minus,
   Search, ArrowRight, Share2, MousePointer2, CircleDot, Grid3X3,
-  Square, PenLine, ImagePlus, Video, Captions, Repeat2,
+  Square, PenLine, ImagePlus, Video, Captions, Repeat2, LogOut,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { GENERATED_ASSETS, AI_MODELS, PROJECTS, type GeneratedAsset, type Project } from "@/lib/workspace-data";
@@ -1046,14 +1046,21 @@ function NodeContextMenu({ menu, onClose, onAction, isDark }: {
 
   const selectedCount = menu.selectedIds?.length || 1;
   const isSelectionMenu = menu.nodeType === "selection" || selectedCount > 1;
-  const isGroupContainerMenu = menu.nodeType === "group-container";
+  const isGroupContainerMenu = menu.nodeType === "group-container" || menu.nodeType === "group-container-inside";
 
   // Group container right-click menu: 解散打组 / 进入打组 / 重命名
-  const groupContainerItems = [
-    { icon: <Edit3 size={13} />, label: "进入打组", action: "enter-group", color: iconColor },
-    { icon: <Box size={13} />, label: "重命名", action: "rename-group", color: iconColor },
-    { icon: <FolderOutput size={13} />, label: "解散打组", action: "ungroup", color: dangerColor },
-  ];
+  const isInsideGroup = menu.nodeType === "group-container-inside";
+  const groupContainerItems = isInsideGroup
+    ? [
+        { icon: <LogOut size={13} />, label: "退出打组", action: "exit-group", color: iconColor },
+        { icon: <Box size={13} />, label: "重命名", action: "rename-group", color: iconColor },
+        { icon: <FolderOutput size={13} />, label: "解散打组", action: "ungroup", color: dangerColor },
+      ]
+    : [
+        { icon: <Edit3 size={13} />, label: "进入打组", action: "enter-group", color: iconColor },
+        { icon: <Box size={13} />, label: "重命名", action: "rename-group", color: iconColor },
+        { icon: <FolderOutput size={13} />, label: "解散打组", action: "ungroup", color: dangerColor },
+      ];
 
   // Multi-selection menu: 打组 / 取消编组 / 自动布局 / 下载
   const selectionItems = [
@@ -1123,12 +1130,18 @@ function GroupContainerOverlay({
   isDark,
   enteringGroupId,
   onContextMenu,
+  onDoubleClick,
+  onDragEnd,
+  onLabelDoubleClick,
 }: {
   groups: GroupInfo[];
   viewport: { x: number; y: number; zoom: number };
   isDark: boolean;
   enteringGroupId: string | null;
   onContextMenu: (e: React.MouseEvent, groupId: string) => void;
+  onDoubleClick: (groupId: string) => void;
+  onDragEnd: (groupId: string, dx: number, dy: number) => void;
+  onLabelDoubleClick: (groupId: string) => void;
 }) {
   if (groups.length === 0) return null;
   const containerBg = isDark ? "oklch(0.58 0.22 290 / 0.07)" : "oklch(0.58 0.22 290 / 0.05)";
@@ -1147,49 +1160,160 @@ function GroupContainerOverlay({
         const height = g.bounds.height * viewport.zoom + pad * 2 + 28;
         const isEntering = enteringGroupId === g.groupId;
         return (
-          <div
+          <GroupContainerCard
             key={g.groupId}
-            className="absolute nodrag nopan"
-            style={{
-              left,
-              top,
-              width,
-              height,
-              background: isEntering ? enteringBg : containerBg,
-              border: `1.5px solid ${isEntering ? enteringBorder : containerBorder}`,
-              borderRadius: "var(--radius-lg-design)",
-              zIndex: 5,
-              pointerEvents: "all",
-              transition: "border-color 0.2s ease, background 0.2s ease",
-              boxShadow: isEntering
-                ? `0 0 0 3px oklch(0.72 0.22 50 / 0.15), 0 8px 32px rgba(0,0,0,0.18)`
-                : `0 4px 24px rgba(0,0,0,0.10)`,
-            }}
-            onContextMenu={e => { e.preventDefault(); e.stopPropagation(); onContextMenu(e, g.groupId); }}
-          >
-            {/* Group name label — top-left */}
-            <div
-              className="absolute flex items-center gap-1.5 px-2 py-0.5 rounded-[var(--radius-md-design)] type-caption"
-              style={{
-                top: 6,
-                left: 8,
-                background: isEntering ? "oklch(0.72 0.22 50 / 0.88)" : labelBg,
-                color: "white",
-                fontSize: 11,
-                fontWeight: 600,
-                letterSpacing: "0.02em",
-                pointerEvents: "none",
-                userSelect: "none",
-                backdropFilter: "blur(8px)",
-              }}
-            >
-              <Box size={9} strokeWidth={2.2} />
-              {g.name}
-            </div>
-          </div>
+            groupId={g.groupId}
+            name={g.name}
+            left={left}
+            top={top}
+            width={width}
+            height={height}
+            isEntering={isEntering}
+            isDark={isDark}
+            containerBg={containerBg}
+            containerBorder={containerBorder}
+            labelBg={labelBg}
+            enteringBorder={enteringBorder}
+            enteringBg={enteringBg}
+            onContextMenu={onContextMenu}
+            onDoubleClick={onDoubleClick}
+            onDragEnd={onDragEnd}
+            onLabelDoubleClick={onLabelDoubleClick}
+          />
         );
       })}
     </>
+  );
+}
+
+// Individual draggable group container card
+function GroupContainerCard({
+  groupId, name, left, top, width, height, isEntering, isDark,
+  containerBg, containerBorder, labelBg, enteringBorder, enteringBg,
+  onContextMenu, onDoubleClick, onDragEnd, onLabelDoubleClick,
+}: {
+  groupId: string; name: string; left: number; top: number; width: number; height: number;
+  isEntering: boolean; isDark: boolean;
+  containerBg: string; containerBorder: string; labelBg: string; enteringBorder: string; enteringBg: string;
+  onContextMenu: (e: React.MouseEvent, groupId: string) => void;
+  onDoubleClick: (groupId: string) => void;
+  onDragEnd: (groupId: string, dx: number, dy: number) => void;
+  onLabelDoubleClick: (groupId: string) => void;
+}) {
+  const dragRef = useRef<{ startX: number; startY: number; startLeft: number; startTop: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [offset, setOffset] = useState({ dx: 0, dy: 0 });
+  const lastClickTime = useRef(0);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    // Only drag on primary button, not on label area
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target.closest("[data-group-label]")) return;
+    e.stopPropagation();
+    dragRef.current = { startX: e.clientX, startY: e.clientY, startLeft: left, startTop: top };
+    setDragging(true);
+    setOffset({ dx: 0, dy: 0 });
+    const onMove = (ev: MouseEvent) => {
+      if (!dragRef.current) return;
+      setOffset({ dx: ev.clientX - dragRef.current.startX, dy: ev.clientY - dragRef.current.startY });
+    };
+    const onUp = (ev: MouseEvent) => {
+      if (!dragRef.current) return;
+      const dx = ev.clientX - dragRef.current.startX;
+      const dy = ev.clientY - dragRef.current.startY;
+      setDragging(false);
+      setOffset({ dx: 0, dy: 0 });
+      dragRef.current = null;
+      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+        onDragEnd(groupId, dx, dy);
+      }
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [left, top, groupId, onDragEnd]);
+
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    const now = Date.now();
+    if (now - lastClickTime.current < 300) {
+      // Double click detected
+      e.stopPropagation();
+      onDoubleClick(groupId);
+    }
+    lastClickTime.current = now;
+  }, [groupId, onDoubleClick]);
+
+  const currentLeft = left + (dragging ? offset.dx : 0);
+  const currentTop = top + (dragging ? offset.dy : 0);
+
+  return (
+    <div
+      className="absolute"
+      style={{
+        left: currentLeft,
+        top: currentTop,
+        width,
+        height,
+        background: isEntering ? enteringBg : containerBg,
+        border: `1.5px solid ${isEntering ? enteringBorder : containerBorder}`,
+        borderRadius: "var(--radius-lg-design)",
+        zIndex: dragging ? 20 : 5,
+        pointerEvents: "all",
+        transition: dragging ? "none" : "border-color 0.2s ease, background 0.2s ease",
+        boxShadow: dragging
+          ? `0 12px 48px rgba(0,0,0,0.28), 0 0 0 2px oklch(0.65 0.20 290 / 0.60)`
+          : isEntering
+            ? `0 0 0 3px oklch(0.72 0.22 50 / 0.15), 0 8px 32px rgba(0,0,0,0.18)`
+            : `0 4px 24px rgba(0,0,0,0.10)`,
+        cursor: dragging ? "grabbing" : "grab",
+        userSelect: "none",
+      }}
+      onMouseDown={handleMouseDown}
+      onClick={handleClick}
+      onContextMenu={e => { e.preventDefault(); e.stopPropagation(); onContextMenu(e, groupId); }}
+    >
+      {/* Group name label — top-left, double-click to rename */}
+      <div
+        data-group-label="true"
+        className="absolute flex items-center gap-1.5 px-2 py-0.5 rounded-[var(--radius-md-design)] type-caption"
+        style={{
+          top: 6,
+          left: 8,
+          background: isEntering ? "oklch(0.72 0.22 50 / 0.88)" : labelBg,
+          color: "white",
+          fontSize: 11,
+          fontWeight: 600,
+          letterSpacing: "0.02em",
+          pointerEvents: "all",
+          userSelect: "none",
+          backdropFilter: "blur(8px)",
+          cursor: "pointer",
+        }}
+        onDoubleClick={e => { e.stopPropagation(); onLabelDoubleClick(groupId); }}
+        title="双击重命名"
+      >
+        <Box size={9} strokeWidth={2.2} />
+        {name}
+      </div>
+      {/* Hint when entering */}
+      {isEntering && (
+        <div
+          className="absolute"
+          style={{
+            bottom: 8, right: 10,
+            fontSize: 10,
+            color: isDark ? "oklch(0.72 0.22 50 / 0.75)" : "oklch(0.55 0.18 50 / 0.80)",
+            fontWeight: 500,
+            pointerEvents: "none",
+            userSelect: "none",
+          }}
+        >
+          已进入打组 · 单击空白退出
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -2414,27 +2538,67 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   // ── Handle group container right-click ──
   const handleGroupContainerContextMenu = useCallback((e: React.MouseEvent, groupId: string) => {
     const rect = containerRef.current?.getBoundingClientRect();
+    // If currently inside this group, show "exit-group" instead of "enter-group"
     setNodeCtxMenu({
       x: e.clientX - (rect?.left || 0),
       y: e.clientY - (rect?.top || 0),
       nodeId: "__group__",
-      nodeType: "group-container",
+      nodeType: enteringGroupId === groupId ? "group-container-inside" : "group-container",
       selectedIds: nodes.filter(n => (n.data as Record<string, unknown>).groupId === groupId).map(n => n.id),
       grouped: true,
     });
     // Store groupId for ungroup/enter/rename actions
     (window as unknown as Record<string, unknown>).__artx_ctx_group_id__ = groupId;
-  }, [nodes]);
+  }, [nodes, enteringGroupId]);
+
+  // ── Double-click group container → enter group ──
+  const handleGroupContainerDoubleClick = useCallback((groupId: string) => {
+    setEnteringGroupId(groupId);
+    toast(`已进入「${groupNames[groupId] || groupId}」`, {
+      description: "现在可单独选中并编辑组内图片，单击空白处或右键可退出",
+    });
+  }, [groupNames]);
+
+  // ── Drag group container → move all nodes in group ──
+  const handleGroupContainerDragEnd = useCallback((groupId: string, dx: number, dy: number) => {
+    if (dx === 0 && dy === 0) return;
+    pushHistory();
+    setNodes(nds => nds.map(n => {
+      const gid = (n.data as Record<string, unknown>).groupId as string | undefined;
+      if (gid !== groupId) return n;
+      return { ...n, position: { x: n.position.x + dx / viewport.zoom, y: n.position.y + dy / viewport.zoom } };
+    }));
+  }, [pushHistory, setNodes, viewport.zoom]);
+
+  // ── Click blank canvas → exit group if inside one ──
+  const handlePaneClick = useCallback(() => {
+    setNodeCtxMenu(null);
+    if (enteringGroupId) {
+      setEnteringGroupId(null);
+      setSelectedNodeIds([]);
+      toast("已退出打组");
+    }
+  }, [enteringGroupId]);
+
+  // ── Double-click group label → rename ──
+  const handleGroupLabelDoubleClick = useCallback((groupId: string) => {
+    setRenamingGroupId(groupId);
+    setRenameValue(groupNames[groupId] || "");
+  }, [groupNames]);
 
   // ── Handle group actions from context menu ──
   const handleGroupAction = useCallback((action: string) => {
     const groupId = (window as unknown as Record<string, unknown>).__artx_ctx_group_id__ as string | undefined;
     if (!groupId) return;
     if (action === "enter-group") {
-      setEnteringGroupId(prev => prev === groupId ? null : groupId);
-      toast(enteringGroupId === groupId ? "已退出打组编辑模式" : `已进入「${groupNames[groupId] || groupId}」`, {
-        description: enteringGroupId === groupId ? "" : "现在可单独选中并编辑组内图片，再次右键可退出",
+      setEnteringGroupId(groupId);
+      toast(`已进入「${groupNames[groupId] || groupId}」`, {
+        description: "现在可单独选中并编辑组内图片，单击空白处或右键可退出",
       });
+    } else if (action === "exit-group") {
+      setEnteringGroupId(null);
+      setSelectedNodeIds([]);
+      toast("已退出打组");
     } else if (action === "rename-group") {
       setRenamingGroupId(groupId);
       setRenameValue(groupNames[groupId] || "");
@@ -2449,7 +2613,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       setEnteringGroupId(null);
       toast("已解散打组");
     }
-  }, [enteringGroupId, groupNames, nodes, pushHistory, setNodes]);
+  }, [groupNames, pushHistory, setNodes]);
 
   // ── Sync selected image nodes → referencedAssets chips in BottomPromptBar ──
   useEffect(() => {
@@ -2639,7 +2803,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onPaneContextMenu={handlePaneContextMenu as any}
-        onClick={() => setNodeCtxMenu(null)}
+        onClick={handlePaneClick}
         fitView
         fitViewOptions={{ padding: 0.15 }}
         minZoom={0.1}
@@ -2706,6 +2870,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         isDark={isDark}
         enteringGroupId={enteringGroupId}
         onContextMenu={handleGroupContainerContextMenu}
+        onDoubleClick={handleGroupContainerDoubleClick}
+        onDragEnd={handleGroupContainerDragEnd}
+        onLabelDoubleClick={handleGroupLabelDoubleClick}
       />
 
       {/* Rename group dialog */}
@@ -2785,7 +2952,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           menu={nodeCtxMenu}
           onClose={() => setNodeCtxMenu(null)}
           onAction={(action, nodeId) => {
-            if (nodeCtxMenu.nodeType === "group-container") {
+            if (nodeCtxMenu.nodeType === "group-container" || nodeCtxMenu.nodeType === "group-container-inside") {
               handleGroupAction(action);
             } else {
               handleNodeAction(action, nodeId);
