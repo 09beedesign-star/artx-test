@@ -119,7 +119,7 @@ function NodeToolbar({ model, onModelChange, onDelete, isDark }: {
 }
 
 // ── Node Wrapper with handles ──────────────────────────────────
-function NodeWrapper({ children, selected, isDark, model, onModelChange, onDelete, style, onContextMenu, onClick }: {
+function NodeWrapper({ children, selected, isDark, model, onModelChange, onDelete, style, onContextMenu, onClick, onMouseDownCapture }: {
   children: React.ReactNode;
   selected: boolean;
   isDark: boolean;
@@ -129,6 +129,7 @@ function NodeWrapper({ children, selected, isDark, model, onModelChange, onDelet
   style?: React.CSSProperties;
   onContextMenu?: (e: React.MouseEvent) => void;
   onClick?: (e: React.MouseEvent) => void;
+  onMouseDownCapture?: (e: React.MouseEvent) => void;
 }) {
   const bg = isDark ? "oklch(0.13 0.015 270)" : "oklch(0.98 0.004 270)";
   const border = selected
@@ -144,6 +145,7 @@ function NodeWrapper({ children, selected, isDark, model, onModelChange, onDelet
       style={{ ...style, background: (style?.background as string) || bg, border: `1.5px solid ${border}`, boxShadow: shadow, transition: "border-color 0.15s, box-shadow 0.15s" }}
       onContextMenu={onContextMenu}
       onClick={onClick}
+      onMouseDownCapture={onMouseDownCapture}
     >
       {ENABLE_NODE_CONNECTIONS && (
         <>
@@ -295,11 +297,13 @@ function MultiSelectionFloatingToolbar({
   isDark,
   count,
   grouped,
+  position,
   onAction,
 }: {
   isDark: boolean;
   count: number;
   grouped: boolean;
+  position: { left: number; top: number };
   onAction: (action: string) => void;
 }) {
   const bg = isDark ? "rgba(22,22,30,0.92)" : "rgba(255,255,255,0.94)";
@@ -318,9 +322,11 @@ function MultiSelectionFloatingToolbar({
 
   return (
     <div
-      className="absolute top-20 -translate-x-1/2 rounded-[var(--radius-xl-design)] shadow-2xl nodrag nopan overflow-hidden"
+      className="absolute rounded-[var(--radius-xl-design)] shadow-2xl nodrag nopan overflow-hidden"
       style={{
-        left: "calc((100% - 372px) / 2)",
+        left: position.left,
+        top: position.top,
+        transform: "translate(-50%, -100%)",
         background: bg,
         border: `1px solid ${border}`,
         color: text,
@@ -465,14 +471,29 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     }));
   }, [nodeId]);
 
+  const handleAssetMouseDownCapture = useCallback((e: React.MouseEvent) => {
+    if (e.button === 0 && (e.ctrlKey || e.metaKey)) {
+      e.stopPropagation();
+    }
+  }, []);
+
   const handleAssetClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     const additive = e.ctrlKey || e.metaKey;
-    setFlowNodes(nds => nds.map(n => ({
-      ...n,
-      selected: additive ? Boolean(n.selected || n.id === nodeId) : n.id === nodeId,
-    })));
-    setShowPanel(p => !p);
+    setFlowNodes(nds => {
+      const wasSelected = Boolean(nds.find(n => n.id === nodeId)?.selected);
+      const nextSelectedIds: string[] = [];
+      const nextNodes = nds.map(n => {
+        const selected = additive
+          ? (n.id === nodeId ? !wasSelected : Boolean(n.selected))
+          : n.id === nodeId;
+        if (selected) nextSelectedIds.push(n.id);
+        return { ...n, selected };
+      });
+      window.dispatchEvent(new CustomEvent("asset-click-selection", { detail: { selectedIds: nextSelectedIds } }));
+      return nextNodes;
+    });
+    setShowPanel(additive ? false : p => !p);
     window.dispatchEvent(new CustomEvent("asset-reference", {
       detail: { id: nodeId, title: displayTitle, src: asset.src, ctrlKey: additive }
     }));
@@ -485,6 +506,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
         style={{ width: nodeWidth, background: assetShellBg, border: `1.5px solid ${assetShellBorder}` }}
         onContextMenu={handleNodeCtxMenu}
         onClick={handleAssetClick}
+        onMouseDownCapture={handleAssetMouseDownCapture}
       >
         {/* Floating top toolbar — visible for a single selected image node only */}
         {selected && !multiSelectionActive && (
@@ -756,6 +778,63 @@ const createDefaultAssetData = (id: string, title = "素材节点") => ({
   assetType: "素材",
   tags: DEFAULT_ASSET_TAGS,
 });
+
+type CanvasNodeSize = { width: number; height: number };
+type CanvasNodeBounds = { x: number; y: number; width: number; height: number; right: number; bottom: number; centerX: number; centerY: number };
+
+function getCanvasNodeSize(node: Node): CanvasNodeSize {
+  const nodeWithRuntimeSize = node as Node & { measured?: { width?: number; height?: number }; width?: number; height?: number };
+  const measuredWidth = nodeWithRuntimeSize.measured?.width ?? nodeWithRuntimeSize.width;
+  const measuredHeight = nodeWithRuntimeSize.measured?.height ?? nodeWithRuntimeSize.height;
+  if (typeof measuredWidth === "number" && measuredWidth > 0 && typeof measuredHeight === "number" && measuredHeight > 0) {
+    return { width: measuredWidth, height: measuredHeight };
+  }
+
+  if (node.type === "asset") {
+    const assetId = (node.data as Record<string, unknown>).assetId as string;
+    const asset = GENERATED_ASSETS.find(a => a.id === assetId) || GENERATED_ASSETS[0];
+    const naturalWidth = Math.max(1, asset.width || 720);
+    const naturalHeight = Math.max(1, asset.height || 960);
+    const scale = Math.min(1, 360 / Math.max(naturalWidth, naturalHeight));
+    const width = Math.max(180, Math.round(naturalWidth * scale));
+    const height = Math.max(120, Math.round(naturalHeight * scale));
+    return { width, height };
+  }
+
+  if (node.type === "chat") return { width: 320, height: 340 };
+  if (node.type === "prompt") return { width: 300, height: 190 };
+  if (node.type === "text") return { width: 200, height: 130 };
+  return { width: 260, height: 200 };
+}
+
+function getCanvasNodeBounds(node: Node): CanvasNodeBounds {
+  const size = getCanvasNodeSize(node);
+  return {
+    x: node.position.x,
+    y: node.position.y,
+    width: size.width,
+    height: size.height,
+    right: node.position.x + size.width,
+    bottom: node.position.y + size.height,
+    centerX: node.position.x + size.width / 2,
+    centerY: node.position.y + size.height / 2,
+  };
+}
+
+function getCanvasNodesBounds(nodes: Node[], ids: string[]): CanvasNodeBounds | null {
+  const selected = nodes.filter(n => ids.includes(n.id));
+  if (selected.length === 0) return null;
+  const bounds = selected.map(getCanvasNodeBounds);
+  const x = Math.min(...bounds.map(b => b.x));
+  const y = Math.min(...bounds.map(b => b.y));
+  const right = Math.max(...bounds.map(b => b.right));
+  const bottom = Math.max(...bounds.map(b => b.bottom));
+  return { x, y, width: right - x, height: bottom - y, right, bottom, centerX: x + (right - x) / 2, centerY: y + (bottom - y) / 2 };
+}
+
+function canvasRectsOverlap(a: CanvasNodeBounds, b: CanvasNodeBounds, padding = 0) {
+  return a.x < b.right + padding && a.right + padding > b.x && a.y < b.bottom + padding && a.bottom + padding > b.y;
+}
 
 const initialNodes: Node[] = GENERATED_ASSETS.map((asset, index) => ({
   id: `asset-sample-${asset.id}`,
@@ -1740,6 +1819,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const isDark = resolvedTheme === "dark";
   const [, navigate] = useLocation();
   const { screenToFlowPosition, getEdges, getNodes, fitView, getViewport, setViewport } = useReactFlow();
+  const viewport = useViewport();
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
@@ -1951,29 +2031,45 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       setNodes(nds => nds.map(n => actionIds.includes(n.id) ? { ...n, data: { ...(n.data as Record<string, unknown>), groupId: undefined } } : n));
       toast("已解散打组");
     } else if (action === "auto-layout") {
-      if (actionIds.length < 2) { toast("请至少选择 2 个图片节点再自动布局"); return; }
+      const selectedAssetIds = actionIds.filter(id => nodes.some(n => n.id === id && n.type === "asset"));
+      if (selectedAssetIds.length < 2) { toast("请至少选择 2 个图片节点再自动布局"); return; }
       pushHistory();
-      const selected = nodes.filter(n => actionIds.includes(n.id));
-      const avgX = selected.reduce((sum, n) => sum + n.position.x, 0) / selected.length;
-      const avgY = selected.reduce((sum, n) => sum + n.position.y, 0) / selected.length;
+      const selected = selectedAssetIds.map(id => nodes.find(n => n.id === id)).filter(Boolean) as Node[];
+      const selectedBounds = getCanvasNodesBounds(selected, selectedAssetIds);
+      if (!selectedBounds) return;
+
+      const gap = 40;
       const columns = Math.ceil(Math.sqrt(selected.length));
-      const gapX = 320;
-      const gapY = 280;
-      setNodes(nds => nds.map(n => {
-        const index = actionIds.indexOf(n.id);
-        if (index === -1) return n;
+      const totalRows = Math.ceil(selected.length / columns);
+      const sizes = selected.map(getCanvasNodeSize);
+      const cellWidth = Math.max(...sizes.map(size => size.width)) + gap;
+      const cellHeight = Math.max(...sizes.map(size => size.height)) + gap;
+      const gridWidth = columns * cellWidth - gap;
+      const gridHeight = totalRows * cellHeight - gap;
+      const startX = selectedBounds.centerX - gridWidth / 2;
+      let startY = selectedBounds.centerY - gridHeight / 2;
+      const unselectedBounds = nodes.filter(n => !selectedAssetIds.includes(n.id)).map(getCanvasNodeBounds);
+
+      const buildLayout = (top: number) => selected.map((node, index) => {
         const row = Math.floor(index / columns);
         const col = index % columns;
-        const totalRows = Math.ceil(actionIds.length / columns);
-        return {
-          ...n,
-          position: {
-            x: avgX + (col - (columns - 1) / 2) * gapX,
-            y: avgY + (row - (totalRows - 1) / 2) * gapY,
-          },
-        };
-      }));
-      toast("已完成自动布局", { description: `${actionIds.length} 个图片节点已重新排列` });
+        const size = sizes[index];
+        const x = startX + col * cellWidth + (cellWidth - gap - size.width) / 2;
+        const y = top + row * cellHeight + (cellHeight - gap - size.height) / 2;
+        return { id: node.id, position: { x, y }, bounds: { x, y, width: size.width, height: size.height, right: x + size.width, bottom: y + size.height, centerX: x + size.width / 2, centerY: y + size.height / 2 } };
+      });
+
+      let layout = buildLayout(startY);
+      let attempts = 0;
+      while (attempts < 80 && layout.some(item => unselectedBounds.some(bounds => canvasRectsOverlap(item.bounds, bounds, 12)))) {
+        startY += cellHeight;
+        layout = buildLayout(startY);
+        attempts += 1;
+      }
+      const positionById = new Map(layout.map(item => [item.id, item.position]));
+      setNodes(nds => nds.map(n => selectedAssetIds.includes(n.id) ? { ...n, position: positionById.get(n.id) || n.position, selected: true } : n));
+      setSelectedNodeIds(selectedAssetIds);
+      toast("已完成自动布局", { description: `${selectedAssetIds.length} 个图片节点已重新排列，节点之间不重叠` });
     } else if (action === "download") {
       const selectedAssets = nodes
         .filter(n => actionIds.includes(n.id) && n.type === "asset")
@@ -2071,6 +2167,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
   const handleSelectionChange = useCallback(({ nodes: selectedNodes }: { nodes: Node[] }) => {
     setSelectedNodeIds(selectedNodes.map(n => n.id));
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { selectedIds?: string[] };
+      if (Array.isArray(detail.selectedIds)) setSelectedNodeIds(detail.selectedIds);
+    };
+    window.addEventListener("asset-click-selection", handler);
+    return () => window.removeEventListener("asset-click-selection", handler);
   }, []);
 
   useEffect(() => {
@@ -2173,6 +2278,16 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   // Inject isEditing flag into the target node's data so AssetNodeComponent can show the mask
   const selectedImageNodeIds = selectedNodeIds.filter(id => nodes.some(n => n.id === id && n.type === "asset"));
   const multiImageSelectionActive = selectedImageNodeIds.length > 1;
+  const selectedImageBounds = getCanvasNodesBounds(nodes, selectedImageNodeIds);
+  const canvasWidth = containerRef.current?.clientWidth || 0;
+  const assistantWidth = isAssistantCollapsed ? 112 : Math.min(372, Math.max(280, canvasWidth * 0.32));
+  const visibleCanvasWidth = Math.max(0, canvasWidth - assistantWidth);
+  const multiSelectionToolbarPosition = selectedImageBounds
+    ? {
+        left: Math.max(220, Math.min(selectedImageBounds.centerX * viewport.zoom + viewport.x, Math.max(220, visibleCanvasWidth - 220))),
+        top: Math.max(16, selectedImageBounds.y * viewport.zoom + viewport.y - 16),
+      }
+    : { left: 220, top: 16 };
   const displayNodes = nodes.map(n => {
     const data = {
       ...n.data,
@@ -2207,6 +2322,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         proOptions={{ hideAttribution: true }}
         selectionOnDrag
         selectionMode={SelectionMode.Partial}
+        multiSelectionKeyCode={["Control", "Meta"]}
         selectNodesOnDrag={false}
         panOnDrag={isCanvasLocked ? false : [1]}
         nodesDraggable={!isCanvasLocked}
@@ -2242,6 +2358,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           isDark={isDark}
           count={selectedImageNodeIds.length}
           grouped={areNodesGrouped(selectedImageNodeIds)}
+          position={multiSelectionToolbarPosition}
           onAction={(action) => handleNodeAction(action, "__selection__")}
         />
       )}

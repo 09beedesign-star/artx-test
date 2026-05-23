@@ -72,13 +72,13 @@
 }
 
 :root {
-  --radius: 2px;
-  --radius-xs: 2px;
-  --radius-sm-design: 2px;
-  --radius-md-design: 2px;
-  --radius-lg-design: 2px;
-  --radius-xl-design: 2px;
-  --radius-pill: 2px;
+  --radius: 6px;
+  --radius-xs: 6px;
+  --radius-sm-design: 6px;
+  --radius-md-design: 6px;
+  --radius-lg-design: 6px;
+  --radius-xl-design: 6px;
+  --radius-pill: 6px;
 
   --space-hair: 1px;
   --space-xxs: 4px;
@@ -209,7 +209,7 @@ html.light, .light {
   }
   ::-webkit-scrollbar-thumb {
     background: oklch(1 0 0 / 15%);
-    border-radius: 2px;
+    border-radius: 6px;
   }
   ::-webkit-scrollbar-thumb:hover {
     background: oklch(1 0 0 / 25%);
@@ -464,6 +464,6 @@ html.light, .light {
   cursor: crosshair;
 }
 .react-flow__minimap svg {
-  border-radius: 2px;
+  border-radius: 6px;
 }
 

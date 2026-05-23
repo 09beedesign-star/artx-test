@@ -12,6 +12,7 @@ import TopBar from "@/components/workspace/TopBar";
 import {
   Sparkles, LayoutGrid, Paperclip, ChevronDown,
   Send, Mic, X, Check, MoreHorizontal, Pencil, Copy, Trash2, Eye, EyeOff,
+  PlayCircle, Heart,
 } from "lucide-react";
 import { PROJECTS, POSTER_1, POSTER_2, BRAND_KIT, SOCIAL_AD, BG_GLOW, AI_MODELS } from "@/lib/workspace-data";
 
@@ -99,14 +100,14 @@ function HomeCardMenu({ isDark }: { isDark: boolean }) {
 }
 
 const COMMUNITY_PROJECTS = [
-  { id: "community-1", title: "未来跑鞋视觉实验", updatedAt: "社区精选", cover: POSTER_2 },
-  { id: "community-2", title: "咖啡品牌灵感板", updatedAt: "用户作品", cover: BRAND_KIT },
-  { id: "community-3", title: "城市户外广告片", updatedAt: "社区精选", cover: POSTER_1 },
-  { id: "community-4", title: "智能设备发布海报", updatedAt: "用户作品", cover: SOCIAL_AD },
-  { id: "community-5", title: "潮流服饰大片", updatedAt: "灵感推荐", cover: POSTER_1 },
-  { id: "community-6", title: "新消费包装系统", updatedAt: "社区精选", cover: BRAND_KIT },
-  { id: "community-7", title: "运动科技主视觉", updatedAt: "用户作品", cover: POSTER_2 },
-  { id: "community-8", title: "社媒营销创意图", updatedAt: "灵感推荐", cover: SOCIAL_AD },
+  { id: "community-1", title: "未来跑鞋视觉实验", updatedAt: "社区精选", cover: POSTER_2, author: "Emma_Wilson", plays: "4478", likes: "125" },
+  { id: "community-2", title: "咖啡品牌灵感板", updatedAt: "用户作品", cover: BRAND_KIT, author: "Emma_Wilson", plays: "4478", likes: "125" },
+  { id: "community-3", title: "城市户外广告片", updatedAt: "社区精选", cover: POSTER_1, author: "Emma_Wilson", plays: "4478", likes: "125" },
+  { id: "community-4", title: "智能设备发布海报", updatedAt: "用户作品", cover: SOCIAL_AD, author: "Emma_Wilson", plays: "4478", likes: "125" },
+  { id: "community-5", title: "潮流服饰大片", updatedAt: "灵感推荐", cover: POSTER_1, author: "Emma_Wilson", plays: "4478", likes: "125" },
+  { id: "community-6", title: "新消费包装系统", updatedAt: "社区精选", cover: BRAND_KIT, author: "Emma_Wilson", plays: "4478", likes: "125" },
+  { id: "community-7", title: "运动科技主视觉", updatedAt: "用户作品", cover: POSTER_2, author: "Emma_Wilson", plays: "4478", likes: "125" },
+  { id: "community-8", title: "社媒营销创意图", updatedAt: "灵感推荐", cover: SOCIAL_AD, author: "Emma_Wilson", plays: "4478", likes: "125" },
 ];
 
 const RECENT_PROJECT_COVERS = [POSTER_2, BRAND_KIT, POSTER_1, SOCIAL_AD, POSTER_1];
@@ -728,7 +729,7 @@ export default function HomePage() {
               </h2>
             </div>
 
-            <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}>
+            <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))" }}>
               {COMMUNITY_PROJECTS.map(project => (
                 <div
                   key={project.id}
@@ -746,9 +747,53 @@ export default function HomePage() {
                     )}
                   </div>
                   <div className="px-3 py-2.5">
-                    <p className="type-caption truncate" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>{project.title}</p>
-                    <div className="flex items-center gap-1.5 mt-1">
-                      <p className="type-caption" style={{ color: sub, fontSize: 11 }}>{project.updatedAt}</p>
+                    <div className="flex items-center gap-2 min-w-0" aria-label={`${project.author} 的作品数据`}>
+                      <div
+                        className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center overflow-hidden"
+                        style={{
+                          background: "linear-gradient(135deg, oklch(0.86 0.08 45), oklch(0.70 0.12 25))",
+                          border: `1px solid ${isDark ? "oklch(1 0 0 / 0.14)" : "oklch(0 0 0 / 0.08)"}`,
+                          color: "oklch(0.20 0.015 45)",
+                          fontSize: 12,
+                          fontWeight: 700,
+                          letterSpacing: "-0.03em",
+                        }}
+                      >
+                        EW
+                      </div>
+                      <span
+                        className="shrink-0"
+                        style={{
+                          color: text,
+                          fontSize: 16,
+                          lineHeight: "28px",
+                          fontWeight: 500,
+                          letterSpacing: "-0.03em",
+                          minWidth: 106,
+                        }}
+                      >
+                        {project.author}
+                      </span>
+                      <div
+                        className="ml-auto flex items-center gap-2 shrink-0"
+                        style={{ color: isDark ? "oklch(0.72 0.006 270 / 0.72)" : "oklch(0.70 0.006 270)" }}
+                      >
+                        <span className="flex items-center gap-1" style={{ fontSize: 14, fontWeight: 500 }}>
+                          <PlayCircle size={16} fill="currentColor" strokeWidth={0} />
+                          {project.plays}
+                        </span>
+                        <span className="flex items-center gap-1" style={{ fontSize: 14, fontWeight: 500 }}>
+                          <Heart size={16} fill="currentColor" strokeWidth={0} />
+                          {project.likes}
+                        </span>
+                        <Sparkles size={16} fill="currentColor" strokeWidth={1.5} />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-2">
+                      <div className="min-w-0">
+                        <p className="type-caption truncate" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>{project.title}</p>
+                        <p className="type-caption mt-0.5" style={{ color: sub, fontSize: 11 }}>{project.updatedAt}</p>
+                      </div>
                       <div className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
                         <HomeCardMenu isDark={isDark} />
                       </div>
