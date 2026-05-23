@@ -494,7 +494,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
               detail: { id: nodeId, title: displayTitle, src: asset.src, ctrlKey: e.ctrlKey || e.metaKey }
             }));
           }}
-          onDoubleClick={(e) => { e.stopPropagation(); setPreview(true); }}
+          onDoubleClick={(e) => { e.stopPropagation(); }}
         >
           <img
             src={asset.src}
@@ -846,8 +846,8 @@ function BottomPromptBar({
         zIndex: 50,
         transition: "border-color 0.25s cubic-bezier(0.23,1,0.32,1), box-shadow 0.25s cubic-bezier(0.23,1,0.32,1)",
         boxShadow: hasRefs
-          ? `0 0 0 3px oklch(0.62 0.22 290 / 0.12), 0 8px 32px rgba(0,0,0,0.18)`
-          : `0 8px 32px rgba(0,0,0,0.12)`,
+          ? `0 0 0 3px oklch(0.62 0.22 290 / 0.12), 0 10px 34px rgba(210,214,224,0.10)`
+          : `0 10px 34px rgba(210,214,224,0.10)`,
       }}
     >
       {/* Multi-reference chip row */}
@@ -903,7 +903,7 @@ function BottomPromptBar({
           placeholder={placeholderText}
         />
       </div>
-      <div className="flex items-center gap-2 px-3 pb-3" style={{ borderTop: `1px solid ${divider}`, paddingTop: 8 }}>
+      <div className="flex items-center gap-2 px-3 pb-3" style={{ paddingTop: 8 }}>
         <ModelSelector model={model} onChange={setModel} isDark={isDark} />
         <button
           className="flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-md-design)] type-caption hover:opacity-80"
@@ -965,6 +965,7 @@ function NodeContextMenu({ menu, onClose, onAction, isDark }: {
     { icon: <Trash2 size={13} />, label: "删除节点", action: "delete", color: dangerColor },
   ] : [
     { icon: <Edit3 size={13} />, label: "编辑素材", action: "edit-asset", color: iconColor },
+    ...(menu.nodeType === "asset" ? [{ icon: <Download size={13} />, label: "下载图片", action: "download", color: iconColor }] : []),
     { icon: <Copy size={13} />, label: "复制", action: "copy", color: iconColor },
     { icon: <Clipboard size={13} />, label: "粘贴", action: "paste", color: iconColor },
     { icon: <Box size={13} />, label: groupLabel, action: groupAction, color: iconColor },
@@ -1523,7 +1524,7 @@ function SaveProjectConfirmDialog({ isDark, project, onCancel, onSave }: {
 
 
 function CanvasAssistantPanel({ isDark, projectTitle }: { isDark: boolean; projectTitle: string }) {
-  const bg = isDark ? "oklch(0.105 0.014 270 / 0.98)" : "oklch(0.995 0.002 80 / 0.98)";
+  const bg = isDark ? "oklch(0.125 0.014 270 / 0.98)" : "oklch(0.995 0.002 80 / 0.98)";
   const border = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 10%)";
   const text = isDark ? "oklch(0.84 0.008 270)" : "oklch(0.18 0.008 270)";
   const sub = isDark ? "oklch(0.56 0.01 270)" : "oklch(0.48 0.012 255)";
@@ -1616,7 +1617,7 @@ function CanvasSearchBar({ isDark, currentProjectId, onProjectRequest, onAssetAd
     return normalized ? haystack.includes(normalized) : true;
   }).slice(0, 4);
 
-  const bg = isDark ? "oklch(0.13 0.015 270 / 0.95)" : "oklch(0.98 0.004 270 / 0.95)";
+  const bg = isDark ? "oklch(0.13 0.015 270 / 0.60)" : "oklch(0.98 0.004 270 / 0.60)";
   const panelBg = isDark ? "oklch(0.15 0.018 270 / 0.98)" : "oklch(0.995 0.002 80 / 0.98)";
   const border = isDark ? "oklch(1 0 0 / 12%)" : "oklch(0 0 0 / 12%)";
   const divider = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
@@ -1717,10 +1718,54 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [isZoomingToEdit, setIsZoomingToEdit] = useState(false);
   const [pendingProject, setPendingProject] = useState<Project | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const historyRef = useRef<{ nodes: Node[]; edges: Edge[] }[]>([]);
+  const MAX_HISTORY_STEPS = 20;
+
+  const cloneNodesForHistory = useCallback((items: Node[]) => items.map(node => ({
+    ...node,
+    position: { ...node.position },
+    data: { ...(node.data as Record<string, unknown>) },
+  })), []);
+
+  const cloneEdgesForHistory = useCallback((items: Edge[]) => items.map(edge => ({
+    ...edge,
+    data: edge.data ? { ...(edge.data as Record<string, unknown>) } : edge.data,
+  })), []);
+
+  const pushHistory = useCallback(() => {
+    historyRef.current = [
+      ...historyRef.current.slice(-(MAX_HISTORY_STEPS - 1)),
+      { nodes: cloneNodesForHistory(nodes), edges: cloneEdgesForHistory(edges) },
+    ];
+  }, [cloneEdgesForHistory, cloneNodesForHistory, edges, nodes]);
+
+  const undoCanvas = useCallback(() => {
+    const previous = historyRef.current.pop();
+    if (!previous) {
+      toast("暂无可回退的画布操作");
+      return;
+    }
+    setNodes(cloneNodesForHistory(previous.nodes));
+    setEdges(cloneEdgesForHistory(previous.edges));
+    setSelectedNodeIds(previous.nodes.filter(n => n.selected).map(n => n.id));
+    setNodeCtxMenu(null);
+    toast("已回退一步", { description: `还可回退 ${historyRef.current.length} 步` });
+  }, [cloneEdgesForHistory, cloneNodesForHistory, setEdges, setNodes]);
+
+  const handleNodesChangeWithHistory = useCallback((changes: Parameters<typeof onNodesChange>[0]) => {
+    if (changes.some(change => change.type !== "select")) pushHistory();
+    onNodesChange(changes);
+  }, [onNodesChange, pushHistory]);
+
+  const handleEdgesChangeWithHistory = useCallback((changes: Parameters<typeof onEdgesChange>[0]) => {
+    if (changes.some(change => change.type !== "select")) pushHistory();
+    onEdgesChange(changes);
+  }, [onEdgesChange, pushHistory]);
 
   const onConnect = useCallback((params: Connection) => {
+    pushHistory();
     setEdges(eds => addEdge({ ...params, type: "tapnow" }, eds));
-  }, [setEdges]);
+  }, [pushHistory, setEdges]);
 
   const getActionNodeIds = useCallback((nodeId: string) => {
     if (nodeId === "__selection__") return selectedNodeIds;
@@ -1756,6 +1801,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { x: number; y: number; nodeId: string; nodeType: string };
       const actionIds = selectedNodeIds.includes(detail.nodeId) ? selectedNodeIds : [detail.nodeId];
+      setSelectedNodeIds(actionIds);
+      setNodes(nds => nds.map(n => ({ ...n, selected: actionIds.includes(n.id) })));
       setNodeCtxMenu({
         x: detail.x,
         y: detail.y,
@@ -1767,12 +1814,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     };
     window.addEventListener("node-contextmenu", handler);
     return () => window.removeEventListener("node-contextmenu", handler);
-  }, [areNodesGrouped, selectedNodeIds]);
+  }, [areNodesGrouped, selectedNodeIds, setNodes]);
 
   // ── Node context menu actions ──
   const handleNodeAction = useCallback((action: string, nodeId: string) => {
     const actionIds = getActionNodeIds(nodeId);
     if (action === "delete") {
+      pushHistory();
       setNodes(nds => nds.filter(n => !actionIds.includes(n.id)));
       setEdges(eds => eds.filter(e => !actionIds.includes(e.source) && !actionIds.includes(e.target)));
       setSelectedNodeIds([]);
@@ -1781,6 +1829,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       if (copied.length > 0) { setClipboard(copied); toast(`已复制 ${copied.length} 个画布`); }
     } else if (action === "paste") {
       if (clipboard.length > 0) {
+        pushHistory();
         const now = Date.now();
         const idMap = new Map(clipboard.map((node, index) => [node.id, `${node.type}-${now}-${index}`]));
         const pasted = clipboard.map((node, index) => {
@@ -1799,14 +1848,17 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       } else { toast("剪贴板为空"); }
     } else if (action === "group") {
       if (actionIds.length < 2) { toast("请至少选择 2 个画布再打组"); return; }
+      pushHistory();
       const groupId = `group-${Date.now()}`;
       setNodes(nds => nds.map(n => actionIds.includes(n.id) ? { ...n, data: { ...(n.data as Record<string, unknown>), groupId } } : n));
       toast(`已打组 ${actionIds.length} 个画布`, { description: "右键可解散打组" });
     } else if (action === "ungroup") {
+      pushHistory();
       setNodes(nds => nds.map(n => actionIds.includes(n.id) ? { ...n, data: { ...(n.data as Record<string, unknown>), groupId: undefined } } : n));
       toast("已解散打组");
     } else if (action === "auto-layout") {
       if (actionIds.length < 2) { toast("请至少选择 2 个图片节点再自动布局"); return; }
+      pushHistory();
       const selected = nodes.filter(n => actionIds.includes(n.id));
       const avgX = selected.reduce((sum, n) => sum + n.position.x, 0) / selected.length;
       const avgY = selected.reduce((sum, n) => sum + n.position.y, 0) / selected.length;
@@ -1852,10 +1904,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     } else if (action === "add-asset") {
       const node = nodes.find(n => n.id === nodeId);
       if (node) {
+        pushHistory();
         const id = `asset-${Date.now()}`;
         setNodes(nds => [...nds, { id, type: "asset", position: { x: node.position.x + 300, y: node.position.y }, data: createDefaultAssetData(id, "新图片节点") }]);
       }
     } else if (action === "add-note") {
+      pushHistory();
       setNodes(nds => nds.map(n => actionIds.includes(n.id) ? {
         ...n,
         data: { ...(n.data as Record<string, unknown>), note: "双击图片或使用编辑素材继续描述备注" }
@@ -1876,10 +1930,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         }, 950);
       }
     }
-  }, [nodes, clipboard, getActionNodeIds, setNodes, setEdges]);
+  }, [nodes, clipboard, getActionNodeIds, pushHistory, setNodes, setEdges]);
 
   // ── Add node from position ──
   const addNode = useCallback((_type: string, x: number, y: number) => {
+    pushHistory();
     const id = `asset-${Date.now()}`;
     setNodes(nds => [...nds, {
       id,
@@ -1887,7 +1942,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       position: { x, y },
       data: createDefaultAssetData(id, "新图片节点"),
     }]);
-  }, [setNodes]);
+  }, [pushHistory, setNodes]);
 
 
   const handleAssetAddFromSearch = useCallback((asset: GeneratedAsset) => {
@@ -1897,6 +1952,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       ? screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
       : { x: 120 + Math.random() * 160, y: 80 + Math.random() * 120 };
     const id = `asset-${asset.id}-${Date.now()}`;
+    pushHistory();
     setNodes(nds => [...nds, {
       id,
       type: "asset",
@@ -1910,7 +1966,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       },
     }]);
     toast("已加入当前画布", { description: asset.title });
-  }, [screenToFlowPosition, setNodes]);
+  }, [pushHistory, screenToFlowPosition, setNodes]);
 
   const handleProjectSaveAndNavigate = useCallback(() => {
     if (!pendingProject) return;
@@ -1928,12 +1984,18 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const target = e.target as HTMLElement | null;
       const isTyping = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
       if (isTyping) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undoCanvas();
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "g") {
         e.preventDefault();
         if (selectedNodeIds.length < 2) {
           toast("请先框选至少 2 个画布");
           return;
         }
+        pushHistory();
         const groupId = `group-${Date.now()}`;
         setNodes(nds => nds.map(n => selectedNodeIds.includes(n.id) ? { ...n, data: { ...(n.data as Record<string, unknown>), groupId } } : n));
         toast(`已打组 ${selectedNodeIds.length} 个画布`, { description: "Windows 使用 Ctrl+G，Mac 使用 Command+G" });
@@ -1941,7 +2003,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedNodeIds, setNodes]);
+  }, [pushHistory, selectedNodeIds, setNodes, undoCanvas]);
 
   // ── C-key lasso: cut edges intersecting the lasso rect ──
   const handleLassoCut = useCallback((lassoRect: LassoRect) => {
@@ -1994,12 +2056,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     });
 
     if (cutIds.length > 0) {
+      pushHistory();
       setEdges(eds => eds.filter(e => !cutIds.includes(e.id)));
       toast(`已切断 ${cutIds.length} 条连线`, { description: "松开 C 键退出切割模式" });
     } else {
       toast("未选中任何连线", { description: "请框选连线经过的区域" });
     }
-  }, [screenToFlowPosition, getNodes, getEdges, setEdges]);
+  }, [screenToFlowPosition, getNodes, getEdges, pushHistory, setEdges]);
 
   const canvasBg = isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)";
   const dotColor = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.32)";
@@ -2023,8 +2086,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       <ReactFlow
         nodes={displayNodes}
         edges={ENABLE_NODE_CONNECTIONS ? edges : []}
-        onNodesChange={onNodesChange}
-        onEdgesChange={ENABLE_NODE_CONNECTIONS ? onEdgesChange : undefined}
+        onNodesChange={handleNodesChangeWithHistory}
+        onEdgesChange={ENABLE_NODE_CONNECTIONS ? handleEdgesChangeWithHistory : undefined}
         onConnect={ENABLE_NODE_CONNECTIONS ? onConnect : undefined}
         onSelectionChange={handleSelectionChange}
         nodeTypes={nodeTypes}
