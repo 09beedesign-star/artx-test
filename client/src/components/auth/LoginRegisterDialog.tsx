@@ -24,13 +24,6 @@ export default function LoginRegisterDialog() {
   const inputBg = "oklch(1 0 0 / 7%)";
   const accentGradient = "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.68 0.18 220))";
 
-  const visualCards = [
-    { title: "Brand System", tone: "linear-gradient(135deg, oklch(0.18 0.035 280), oklch(0.34 0.12 300))", x: "-8%", y: "14%", w: "34%", h: 118, rotate: "-7deg" },
-    { title: "AI Canvas", tone: "linear-gradient(135deg, oklch(0.20 0.05 245), oklch(0.48 0.18 220))", x: "18%", y: "0%", w: "40%", h: 148, rotate: "3deg" },
-    { title: "Motion Mood", tone: "linear-gradient(135deg, oklch(0.16 0.04 270), oklch(0.55 0.20 290))", x: "56%", y: "18%", w: "34%", h: 124, rotate: "8deg" },
-    { title: "Visual Grid", tone: "linear-gradient(135deg, oklch(0.13 0.03 270), oklch(0.44 0.15 185))", x: "2%", y: "55%", w: "38%", h: 132, rotate: "2deg" },
-    { title: "Product Shot", tone: "linear-gradient(135deg, oklch(0.24 0.05 270), oklch(0.72 0.18 35))", x: "42%", y: "48%", w: "45%", h: 154, rotate: "-4deg" },
-  ];
 
   const handleConfirm = () => {
     const normalizedUsername = username.trim();
@@ -81,52 +74,9 @@ export default function LoginRegisterDialog() {
           </div>
         </div>
 
-        <div className="relative w-full max-w-[1040px]">
+        <div className="relative w-full max-w-[430px]">
           <div
-            className="relative mx-auto h-[360px] w-full overflow-hidden rounded-[34px]"
-            style={{
-              background: "linear-gradient(180deg, oklch(0.10 0.024 270), oklch(0.075 0.018 270))",
-              border: `1px solid ${border}`,
-              boxShadow: "0 46px 120px rgba(0,0,0,0.62), inset 0 -1px 0 oklch(1 0 0 / 9%)",
-            }}
-          >
-            <div className="absolute inset-x-0 top-0 h-28" style={{ background: "linear-gradient(180deg, oklch(0.20 0.06 260 / 0.75), transparent)" }} />
-            <div className="absolute inset-x-[12%] bottom-0 h-32 rounded-t-[44px]" style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290 / 0.72), oklch(0.68 0.18 220 / 0.66))", filter: "blur(2px)" }} />
-            <div className="absolute left-8 top-8 right-8 flex items-center justify-between text-[10px] uppercase tracking-[0.24em]" style={{ color: "oklch(0.82 0.018 275 / 0.72)" }}>
-              <span>AI Moodboard</span>
-              <span>Prompt · Canvas · Delivery</span>
-            </div>
-
-            {visualCards.map(card => (
-              <div
-                key={card.title}
-                className="absolute overflow-hidden rounded-[24px] p-4"
-                style={{
-                  left: card.x,
-                  top: card.y,
-                  width: card.w,
-                  height: card.h,
-                  transform: `rotate(${card.rotate})`,
-                  background: card.tone,
-                  border: "1px solid oklch(1 0 0 / 15%)",
-                  boxShadow: "0 28px 70px rgba(0,0,0,0.42)",
-                }}
-              >
-                <div className="absolute inset-0 opacity-45" style={{ backgroundImage: "linear-gradient(90deg, oklch(1 0 0 / 9%) 1px, transparent 1px), linear-gradient(0deg, oklch(1 0 0 / 8%) 1px, transparent 1px)", backgroundSize: "24px 24px" }} />
-                <div className="relative flex h-full flex-col justify-between">
-                  <div className="flex gap-1.5">
-                    <span className="h-2 w-2 rounded-full" style={{ background: "oklch(0.72 0.18 200)" }} />
-                    <span className="h-2 w-2 rounded-full" style={{ background: "oklch(0.70 0.18 35)" }} />
-                    <span className="h-2 w-2 rounded-full" style={{ background: "oklch(0.58 0.22 290)" }} />
-                  </div>
-                  <p className="type-caption" style={{ color: "white", textTransform: "none", letterSpacing: "0.02em" }}>{card.title}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div
-            className="relative z-10 mx-auto -mt-24 w-full max-w-[430px] rounded-[30px] p-5 sm:p-6"
+            className="relative z-10 mx-auto w-full max-w-[430px] rounded-[30px] p-5 sm:p-6"
             style={{
               background: "linear-gradient(180deg, oklch(0.16 0.022 270 / 0.92), oklch(0.105 0.018 270 / 0.96))",
               border: "1px solid oklch(1 0 0 / 14%)",

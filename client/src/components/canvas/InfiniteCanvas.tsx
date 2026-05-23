@@ -6,7 +6,7 @@
  * 3. Right-click on node: context menu with icon commands
  * 4. Asset node double-click zoom is disabled; image download is available from the node context menu
  */
-import { useCallback, useState, useRef, useEffect, type ReactNode } from "react";
+import { useCallback, useState, useRef, useEffect, type ReactNode, Fragment } from "react";
 import {
   ReactFlow,
   Background,
@@ -42,11 +42,13 @@ import {
   ZoomIn, Download, Crop, Box, Eraser, SlidersHorizontal,
   MoreHorizontal, FolderOutput, Maximize2, Mic, RefreshCw,
   ChevronLeft, Home, LayoutGrid, Lock, Unlock, Plus, Minus,
-  Search, ArrowRight, Share2,
+  Search, ArrowRight, Share2, MousePointer2, CircleDot, Grid3X3,
+  Square, PenLine, ImagePlus, Video, Captions, Repeat2,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { GENERATED_ASSETS, AI_MODELS, PROJECTS, type GeneratedAsset, type Project } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useAuth } from "@/contexts/AuthContext";
 
 const ENABLE_NODE_CONNECTIONS = false;
 
@@ -388,9 +390,9 @@ function AssetPromptPanel({ isDark, assetSrc, onExpand }: {
   const chipBg = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)";
   const chipText = isDark ? "oklch(0.65 0.01 270)" : "oklch(0.45 0.01 270)";
   return (
-    <div className="absolute left-1/2 -translate-x-1/2 nodrag nopan"
+    <div className="absolute nodrag nopan"
       data-asset-src={assetSrc}
-      style={{ top: "calc(100% + 12px)", width: 380, background: panelBg, border: `1px solid ${panelBorder}`, borderRadius: "var(--radius-md-design)", backdropFilter: "blur(20px)", boxShadow: "0 16px 48px rgba(0,0,0,0.4)", zIndex: 50 }}>
+      style={{ top: "calc(100% + 12px)", left: -48, width: "100%", background: panelBg, border: `1px solid ${panelBorder}`, borderRadius: "var(--radius-md-design)", backdropFilter: "blur(20px)", boxShadow: "0 16px 48px rgba(0,0,0,0.4)", zIndex: 50 }}>
       <div className="flex items-center gap-2 p-3">
         <div className="w-9 h-9 rounded-[var(--radius-md-design)] flex items-center justify-center flex-shrink-0" style={{ background: chipBg, border: `1.5px solid ${panelBorder}`, color: chipText }}>
           <ImageIcon size={15} strokeWidth={1.8} />
@@ -882,8 +884,8 @@ function BottomPromptBar({
   const [rows, setRows] = useState(1);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const hasRefs = referencedAssets.length > 0;
-  const bg = isDark ? "oklch(0.13 0.015 270 / 0.95)" : "oklch(0.98 0.004 270 / 0.95)";
-  const border = isDark ? "oklch(1 0 0 / 12%)" : "oklch(0 0 0 / 12%)";
+  const bg = isDark ? "rgba(22,22,30,0.80)" : "rgba(255,255,255,0.82)";
+  const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const activeBorder = "oklch(0.62 0.22 290 / 60%)";
   const text = isDark ? "oklch(0.80 0.008 270)" : "oklch(0.20 0.008 270)";
   const divider = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
@@ -1433,7 +1435,7 @@ function BackButton({ isDark }: { isDark: boolean }) {
   const [open, setOpen] = useState(false);
   const backButtonRef = useRef<HTMLDivElement>(null);
   const bg = isDark ? "oklch(0.13 0.015 270 / 0.95)" : "oklch(0.98 0.004 270 / 0.95)";
-  const border = isDark ? "oklch(1 0 0 / 12%)" : "oklch(0 0 0 / 12%)";
+  const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const text = isDark ? "oklch(0.78 0.01 270)" : "oklch(0.25 0.01 270)";
   const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
 
@@ -1455,7 +1457,7 @@ function BackButton({ isDark }: { isDark: boolean }) {
         className="flex items-center gap-1.5 px-3 py-2 rounded-[var(--radius-lg-design)] type-caption shadow-lg transition-all hover:opacity-90 active:scale-95"
         style={{
           background: bg,
-          border: `1.5px solid ${border}`,
+          border: `1px solid ${border}`,
           color: text,
           backdropFilter: "blur(12px)",
         }}
@@ -1568,6 +1570,87 @@ function TopLeftToolbar({ isDark, onAdd }: { isDark: boolean; onAdd: (type: stri
 }
 
 
+// ── Canvas Top Tool Palette ─────────────────────────────────────
+function CanvasTopToolPalette({ isDark }: { isDark: boolean }) {
+  const [active, setActive] = useState("annotate");
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [shapeOpen, setShapeOpen] = useState(false);
+  const bg = isDark ? "rgba(22,22,30,0.82)" : "rgba(255,255,255,0.88)";
+  const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
+  const text = isDark ? "rgba(255,255,255,0.78)" : "rgba(28,28,40,0.82)";
+  const hover = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+  const activeBg = isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.12)";
+  const popBg = isDark ? "rgba(24,24,34,0.96)" : "rgba(255,255,255,0.96)";
+
+  const tools = [
+    { id: "move", label: "移动", icon: <MousePointer2 size={18} /> },
+    { id: "annotate", label: "注释", icon: <CircleDot size={18} /> },
+    { id: "upload", label: "上传图片", icon: <ImagePlus size={17} /> },
+    { id: "grid", label: "网格", icon: <Grid3X3 size={17} /> },
+    { id: "shape", label: "创建几何形", icon: <Square size={17} /> },
+    { id: "draw", label: "绘制", icon: <PenLine size={17} /> },
+    { id: "text", label: "创建文字", icon: <Type size={18} /> },
+    { id: "image-ai", label: "生成图片", icon: <Sparkles size={17} /> },
+    { id: "video-ai", label: "生成视频", icon: <Video size={17} /> },
+    { id: "copy-ai", label: "智能文案", icon: <Captions size={17} />, dot: true },
+  ];
+
+  const handleToolClick = (id: string) => {
+    setActive(id);
+    setUploadOpen(id === "upload" ? value => !value : false);
+    setShapeOpen(id === "shape" ? value => !value : false);
+    if (!["upload", "shape"].includes(id)) toast("工具已切换", { description: tools.find(tool => tool.id === id)?.label });
+  };
+
+  return (
+    <div className="absolute nodrag nopan" style={{ top: 16, left: "calc((100% - clamp(280px, 32vw, 372px)) / 2)", transform: "translateX(-50%)", zIndex: 1300 }} onMouseDown={e => e.stopPropagation()}>
+      {(uploadOpen || shapeOpen) && (
+        <div
+          className="absolute left-[88px] bottom-full mb-2 rounded-[var(--radius-lg-design)] p-2 shadow-2xl"
+          style={{ background: popBg, border: `1px solid ${border}`, backdropFilter: "blur(18px)", minWidth: shapeOpen ? 176 : 150 }}
+        >
+          {(uploadOpen ? [
+            { icon: <ImagePlus size={15} />, label: "上传图片" },
+            { icon: <Video size={15} />, label: "上传视频" },
+          ] : [
+            { icon: <Square size={15} />, label: "矩形", key: "R" },
+            { icon: <PenLine size={15} />, label: "线条", key: "L" },
+            { icon: <ArrowRight size={15} />, label: "箭头", key: "⇧ L" },
+            { icon: <CircleDot size={15} />, label: "椭圆", key: "O" },
+            { icon: <Box size={15} />, label: "多边形" },
+            { icon: <Sparkles size={15} />, label: "星形" },
+          ]).map(item => (
+            <button key={item.label} className="flex w-full items-center gap-3 rounded-[var(--radius-md-design)] px-3 py-2 type-caption text-left" style={{ color: text }} onClick={() => toast(item.label)} onMouseEnter={e => (e.currentTarget.style.background = hover)} onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+              {item.icon}<span className="flex-1">{item.label}</span>{"key" in item && <span style={{ opacity: 0.42 }}>{item.key}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="flex items-center rounded-[var(--radius-lg-design)] px-2 py-1 shadow-lg" style={{ background: bg, border: `1px solid ${border}`, backdropFilter: "blur(18px)", gap: 6 }}>
+        {tools.map((tool, index) => (
+          <Fragment key={tool.id}>
+            {index === 7 && <div style={{ width: 1, height: 24, background: border, margin: "0 3px" }} />}
+            <button
+              title={tool.label}
+              aria-label={tool.label}
+              className="relative flex h-9 w-9 items-center justify-center rounded-[var(--radius-md-design)] transition-all active:scale-95"
+              style={{ color: text, background: active === tool.id ? activeBg : "transparent" }}
+              onClick={() => handleToolClick(tool.id)}
+              onMouseEnter={e => { if (active !== tool.id) e.currentTarget.style.background = hover; }}
+              onMouseLeave={e => { if (active !== tool.id) e.currentTarget.style.background = "transparent"; }}
+            >
+              {tool.icon}
+              {tool.dot && <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full" style={{ background: "oklch(0.66 0.23 25)" }} />}
+            </button>
+          </Fragment>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+
 // ── Canvas Search Bar ───────────────────────────────────────────
 function SaveProjectConfirmDialog({ isDark, project, onCancel, onSave }: {
   isDark: boolean;
@@ -1617,7 +1700,7 @@ function SaveProjectConfirmDialog({ isDark, project, onCancel, onSave }: {
 }
 
 
-function CanvasAssistantPanel({ isDark, collapsed, onToggleCollapsed }: { isDark: boolean; collapsed: boolean; onToggleCollapsed: () => void }) {
+function CanvasAssistantPanel({ isDark, collapsed, isAuthenticated, onToggleCollapsed, onLoginRequest }: { isDark: boolean; collapsed: boolean; isAuthenticated: boolean; onToggleCollapsed: () => void; onLoginRequest: () => void }) {
   const [inputFocused, setInputFocused] = useState(false);
   const bg = isDark ? "oklch(0.125 0.014 270 / 0.98)" : "oklch(0.995 0.002 80 / 0.98)";
   const border = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 10%)";
@@ -1628,9 +1711,13 @@ function CanvasAssistantPanel({ isDark, collapsed, onToggleCollapsed }: { isDark
   const panelWidth = "clamp(280px, 32vw, 372px)";
   const collapsedPeekWidth = 112;
   const actionButtons = [
-    { label: "新建对话", icon: <PlusSquare size={13} />, onClick: () => toast("已新建对话") },
-    { label: "分享对话", icon: <Share2 size={13} />, onClick: () => toast("分享对话", { description: "分享能力准备中" }) },
-    { label: collapsed ? "展开对话框" : "收起对话框", icon: <ChevronLeft size={13} style={{ transform: collapsed ? "rotate(180deg)" : "none", transition: "transform 0.2s ease" }} />, onClick: onToggleCollapsed },
+    { label: "新建对话", icon: <PlusSquare size={16} />, onClick: () => toast("已新建对话") },
+    { label: "分享对话", icon: <Share2 size={16} />, onClick: () => toast("分享对话", { description: "分享能力准备中" }) },
+    { label: collapsed ? "展开对话框" : "收起对话框", icon: <ChevronLeft size={16} style={{ transform: collapsed ? "rotate(180deg)" : "none", transition: "transform 0.2s ease" }} />, onClick: onToggleCollapsed },
+  ];
+  const conversationRecords = [
+    "选择图片节点后，可在左侧画布直接编辑素材。",
+    "右键图片节点可以快速执行编辑素材、复制、粘贴、打组、添加文本备注和删除节点。当前布局已按参考图改为左侧大画布、右侧助手区、底部浮动工具区。",
   ];
 
   return (
@@ -1647,16 +1734,17 @@ function CanvasAssistantPanel({ isDark, collapsed, onToggleCollapsed }: { isDark
         boxShadow: collapsed ? "none" : isDark ? "-12px 0 40px rgba(0,0,0,0.18)" : "-12px 0 36px rgba(30,35,55,0.08)",
       }}
     >
-      <div className="h-14 flex items-center justify-end gap-2 px-3" style={{ borderBottom: collapsed ? "none" : `1px solid ${border}` }}>
+      <div className="h-14 flex items-center justify-end px-4" style={{ gap: 12 }}>
         {(collapsed ? actionButtons.slice(2) : actionButtons).map(item => (
           <button
             key={item.label}
-            className="h-8 flex items-center gap-1.5 rounded-[var(--radius-md-design)] px-2.5 type-caption transition-colors hover:opacity-85"
-            style={{ background: isDark ? "oklch(1 0 0 / 4%)" : "oklch(0 0 0 / 4%)", color: sub, border: `1px solid ${border}`, whiteSpace: "nowrap" }}
+            className="h-8 w-8 flex items-center justify-center rounded-[var(--radius-md-design)] transition-colors hover:opacity-85"
+            style={{ background: "transparent", color: sub, border: "none" }}
+            title={item.label}
+            aria-label={item.label}
             onClick={item.onClick}
           >
             {item.icon}
-            <span>{collapsed ? "展开对话" : item.label}</span>
           </button>
         ))}
       </div>
@@ -1664,16 +1752,25 @@ function CanvasAssistantPanel({ isDark, collapsed, onToggleCollapsed }: { isDark
       {!collapsed && (
         <>
           <div className="flex-1 min-h-0 px-5 py-6 overflow-hidden">
-            <div className="flex justify-end mb-8">
-              <div className="px-4 py-3 rounded-[var(--radius-lg-design)] type-caption" style={{ background: chipBg, color: text, maxWidth: 210 }}>
-                选择图片节点后，可在左侧画布直接编辑素材。
-              </div>
-            </div>
             <p className="type-caption mb-2" style={{ color: sub }}>May 23, 2026</p>
-            <div className="rounded-[var(--radius-lg-design)] p-4" style={{ background: chipBg, border: `1px solid ${border}` }}>
-              <p className="type-caption leading-6" style={{ color: text }}>
-                右键图片节点可以快速执行编辑素材、复制、粘贴、打组、添加文本备注和删除节点。当前布局已按参考图改为左侧大画布、右侧助手区、底部浮动工具区。
-              </p>
+            <div className="flex flex-col gap-4">
+              {conversationRecords.map((record, index) => (
+                <div key={index} className={index === 0 ? "flex justify-end" : "flex justify-start"}>
+                  <div className="max-w-[86%]">
+                    <div className="rounded-[var(--radius-lg-design)] p-4" style={{ background: chipBg, border: `1px solid ${border}` }}>
+                      <p className="type-caption leading-6" style={{ color: text }}>{record}</p>
+                    </div>
+                    <div className="mt-2 flex items-center gap-2" style={{ justifyContent: index === 0 ? "flex-end" : "flex-start" }}>
+                      <button className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-opacity hover:opacity-75" style={{ color: sub, background: "transparent" }} title="刷新" aria-label="刷新" onClick={() => toast("已刷新该条对话")}>
+                        <Repeat2 size={13} />
+                      </button>
+                      <button className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-opacity hover:opacity-75" style={{ color: sub, background: "transparent" }} title="复制" aria-label="复制" onClick={() => { navigator.clipboard?.writeText(record); toast("已复制对话内容"); }}>
+                        <Copy size={13} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -1687,11 +1784,12 @@ function CanvasAssistantPanel({ isDark, collapsed, onToggleCollapsed }: { isDark
               }}
             >
               <textarea
-                placeholder="输入对当前画布的想法..."
+                placeholder={isAuthenticated ? "输入对当前画布的想法..." : "登录后可输入提示词"}
                 rows={2}
-                className="w-full bg-transparent outline-none resize-none type-caption leading-6"
-                style={{ color: text }}
-                onFocus={() => setInputFocused(true)}
+                disabled={!isAuthenticated}
+                className="w-full bg-transparent outline-none resize-none type-caption leading-6 disabled:cursor-not-allowed"
+                style={{ color: isAuthenticated ? text : sub, opacity: isAuthenticated ? 1 : 0.58 }}
+                onFocus={() => { if (!isAuthenticated) { onLoginRequest(); return; } setInputFocused(true); }}
                 onBlur={() => setInputFocused(false)}
               />
               <div className="flex items-center justify-between pt-2">
@@ -1700,7 +1798,7 @@ function CanvasAssistantPanel({ isDark, collapsed, onToggleCollapsed }: { isDark
                   <LayoutGrid size={14} />
                   <span className="type-caption">Agent</span>
                 </div>
-                <button className="w-8 h-8 rounded-[var(--radius-pill)] flex items-center justify-center" style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))", color: "white" }}>
+                <button disabled={!isAuthenticated} className="w-8 h-8 rounded-[var(--radius-pill)] flex items-center justify-center disabled:cursor-not-allowed" style={{ background: isAuthenticated ? "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))" : (isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"), color: isAuthenticated ? "white" : sub, opacity: isAuthenticated ? 1 : 0.65 }} onClick={() => { if (!isAuthenticated) onLoginRequest(); }}>
                   <Send size={13} />
                 </button>
               </div>
@@ -1742,29 +1840,32 @@ function CanvasSearchBar({ isDark, currentProjectId, onProjectRequest, onAssetAd
     return normalized ? haystack.includes(normalized) : true;
   }).slice(0, 4);
 
-  const bg = isDark ? "oklch(0.13 0.015 270 / 0.60)" : "oklch(0.98 0.004 270 / 0.60)";
+  const bg = isDark ? "rgba(22,22,30,0.80)" : "rgba(255,255,255,0.82)";
   const panelBg = isDark ? "oklch(0.15 0.018 270 / 0.98)" : "oklch(0.995 0.002 80 / 0.98)";
-  const border = isDark ? "oklch(1 0 0 / 12%)" : "oklch(0 0 0 / 12%)";
+  const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const divider = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
   const text = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.20 0.008 270)";
   const sub = isDark ? "oklch(0.52 0.01 270)" : "oklch(0.50 0.012 255)";
   const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
 
+  const expanded = open || query.trim().length > 0;
+
   return (
-    <div ref={ref} className="absolute nodrag nopan" style={{ top: 16, left: "calc((100% - 372px) / 2)", transform: "translateX(-50%)", zIndex: 102, width: 380 }}>
+    <div ref={ref} className="absolute nodrag nopan" style={{ bottom: 270, left: 31, zIndex: 102, width: expanded ? 320 : 36, transition: "width 0.24s cubic-bezier(0.23,1,0.32,1)" }}>
       <div
-        className="flex items-center gap-2 px-3 rounded-[var(--radius-lg-design)] shadow-lg"
-        style={{ height: 34, background: bg, border: `1.5px solid ${open ? "oklch(0.62 0.22 290 / 0.55)" : border}`, backdropFilter: "blur(14px)" }}
+        className="flex items-center gap-2 px-2 rounded-[var(--radius-md-design)] shadow-lg overflow-hidden"
+        style={{ height: 34, background: expanded ? bg : (isDark ? "rgba(22,22,30,0.22)" : "rgba(255,255,255,0.28)"), border: expanded ? `1px solid ${open ? "oklch(0.62 0.22 290 / 0.55)" : border}` : "none", borderBottom: expanded ? undefined : `1px solid ${border}`, backdropFilter: expanded ? "blur(14px)" : "none" }}
         onMouseDown={e => e.stopPropagation()}
+        onClick={() => setOpen(true)}
       >
-        <Search size={14} style={{ color: open ? "oklch(0.72 0.18 290)" : sub }} />
+        <Search size={14} style={{ color: open ? "oklch(0.72 0.18 290)" : sub, flexShrink: 0 }} />
         <input
           value={query}
           onChange={e => { setQuery(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
           placeholder="搜索项目或素材..."
           className="flex-1 bg-transparent outline-none type-caption"
-          style={{ color: text }}
+          style={{ color: text, opacity: expanded ? 1 : 0, width: expanded ? undefined : 0, pointerEvents: expanded ? "auto" : "none" }}
         />
       </div>
 
@@ -1831,6 +1932,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const [, navigate] = useLocation();
+  const { isAuthenticated, openLoginModal } = useAuth();
   const { screenToFlowPosition, getEdges, getNodes, fitView, getViewport, setViewport } = useReactFlow();
   const viewport = useViewport();
 
@@ -2374,7 +2476,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         <Controls showZoom={false} showFitView={false} showInteractive={false} />
       </ReactFlow>
 
-      <CanvasAssistantPanel isDark={isDark} collapsed={isAssistantCollapsed} onToggleCollapsed={() => setIsAssistantCollapsed(value => !value)} />
+      <CanvasAssistantPanel isDark={isDark} collapsed={isAssistantCollapsed} isAuthenticated={isAuthenticated} onLoginRequest={openLoginModal} onToggleCollapsed={() => setIsAssistantCollapsed(value => !value)} />
 
       {selectedImageNodeIds.length === 1 && !multiImageSelectionActive && (
         <AssetFloatingToolbar
@@ -2395,6 +2497,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       )}
       {/* Custom zoom controls — vertical bar matching preview toolbar style */}
       <ZoomControlBar isDark={isDark} locked={isCanvasLocked} onLockedChange={setIsCanvasLocked} />
+
+      {/* Canvas top tool palette — centered above the canvas area */}
+      <CanvasTopToolPalette isDark={isDark} />
 
       {/* Back button — top-left */}
       <BackButton isDark={isDark} />
