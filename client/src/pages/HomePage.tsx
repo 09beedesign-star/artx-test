@@ -6,6 +6,7 @@
  */
 import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
+import { toast } from "sonner";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import TopBar from "@/components/workspace/TopBar";
@@ -70,7 +71,7 @@ function HomeCardMenu({ isDark }: { isDark: boolean }) {
             style={{ color: textColor }}
             onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
             onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-            onClick={() => setOpen(false)}
+            onClick={() => { setOpen(false); toast("重命名", { description: "功能即将上线" }); }}
           >
             <Pencil size={13} />重命名
           </button>
@@ -79,7 +80,7 @@ function HomeCardMenu({ isDark }: { isDark: boolean }) {
             style={{ color: textColor }}
             onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
             onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-            onClick={() => setOpen(false)}
+            onClick={() => { setOpen(false); toast("创建副本", { description: "功能即将上线" }); }}
           >
             <Copy size={13} />创建副本
           </button>
@@ -89,7 +90,7 @@ function HomeCardMenu({ isDark }: { isDark: boolean }) {
             style={{ color: "oklch(0.65 0.22 25)" }}
             onMouseEnter={e => (e.currentTarget.style.background = "oklch(0.65 0.22 25 / 0.10)")}
             onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-            onClick={() => setOpen(false)}
+            onClick={() => { setOpen(false); toast("删除", { description: "功能即将上线" }); }}
           >
             <Trash2 size={13} />删除
           </button>
@@ -231,17 +232,26 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
       <div className="flex items-center justify-between px-3 py-2.5">
         {/* Left tools */}
         <div className="flex items-center gap-1">
-          {/* Attachment */}
-          <button
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[var(--radius-lg-design)] type-caption transition-colors"
+          {/* Attachment — 触发隐藏文件选择器 */}
+          <label
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[var(--radius-lg-design)] type-caption transition-colors cursor-pointer"
             style={{ color: subColor }}
             onMouseEnter={e => (e.currentTarget.style.background = toolBtnBg)}
             onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-            onClick={() => {}}
           >
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={e => {
+                const file = e.target.files?.[0];
+                if (file) toast("参考图已添加", { description: file.name });
+                e.target.value = "";
+              }}
+            />
             <Paperclip size={14} />
             <span>添加参考图</span>
-          </button>
+          </label>
 
           {/* Separator */}
           <div style={{ width: 1, height: 18, background: dividerColor, margin: "0 4px" }} />
@@ -306,6 +316,7 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
             style={{ color: subColor }}
             onMouseEnter={e => (e.currentTarget.style.background = toolBtnBg)}
             onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+            onClick={() => toast("语音输入", { description: "功能即将上线" })}
           >
             <Mic size={15} />
           </button>
@@ -480,7 +491,7 @@ export default function HomePage() {
               {COMMUNITY_PROJECTS.map(project => (
                 <div
                   key={project.id}
-                  onClick={() => navigate(`/project/p1`)}
+                  onClick={() => navigate(`/project/${project.id}`)}
                   className="rounded-[var(--radius-lg-design)] overflow-hidden text-left group transition-all hover:scale-[1.02] cursor-pointer"
                   style={{ background: cardBg, border: `1px solid ${cardBorder}`, boxShadow: "0 2px 12px rgba(0,0,0,0.12)" }}
                 >

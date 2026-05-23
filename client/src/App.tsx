@@ -13,6 +13,11 @@ import Workspace from "./pages/Workspace";
 import SettingsPage from "./pages/SettingsPage";
 import ProfilePage from "./pages/ProfilePage";
 import LoginRegisterDialog from "./components/auth/LoginRegisterDialog";
+// ── 新增路由页面（补充缺失交互，不替换已有路由）──
+import InspirationPage from "./pages/InspirationPage";
+import SkillsPage from "./pages/SkillsPage";
+import AssetsPage from "./pages/AssetsPage";
+import HelpPage from "./pages/HelpPage";
 
 const routerBase = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -51,6 +56,36 @@ function AppRoutes() {
       <Route path="/profile">
         <AppShell>
           <ProfilePage />
+        </AppShell>
+      </Route>
+
+      {/* ── 补充缺失路由（原侧边栏点击无效的导航项）── */}
+
+      {/* 灵感选题 */}
+      <Route path="/inspiration">
+        <AppShell>
+          <InspirationPage />
+        </AppShell>
+      </Route>
+
+      {/* 技能商店 */}
+      <Route path="/skills">
+        <AppShell>
+          <SkillsPage />
+        </AppShell>
+      </Route>
+
+      {/* 素材库 */}
+      <Route path="/assets">
+        <AppShell>
+          <AssetsPage />
+        </AppShell>
+      </Route>
+
+      {/* 帮助中心 */}
+      <Route path="/help">
+        <AppShell>
+          <HelpPage />
         </AppShell>
       </Route>
 

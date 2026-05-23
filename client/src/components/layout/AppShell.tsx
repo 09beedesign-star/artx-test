@@ -155,10 +155,11 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
           <NavItem icon={Settings}   label="设置" path="/settings" iconSize={15} />
           <NavItem icon={HelpCircle} label="帮助" path="/help"     iconSize={15} />
 
-          {/* User row */}
+          {/* User row — 点击跳转个人主页 */}
           <div
             className="flex items-center gap-2.5 px-3 py-2 mt-1 rounded-[var(--radius-md-design)] cursor-pointer transition-all"
             style={{ color: textSecondary }}
+            onClick={() => navigate("/profile")}
             onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = hoverBg)}
             onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
           >

@@ -6,6 +6,7 @@ import { Mail, MapPin, Pencil, Sparkles, UserRound } from "lucide-react";
 import TopBar from "@/components/workspace/TopBar";
 import { BG_GLOW } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
+import { toast } from "sonner";
 
 export default function ProfilePage() {
   const { resolvedTheme } = useTheme();
@@ -64,6 +65,7 @@ export default function ProfilePage() {
                   </div>
                 </div>
                 <button
+                  onClick={() => toast("编辑资料", { description: "功能即将上线" })}
                   className="flex items-center gap-2 rounded-[var(--radius-lg-design)] px-4 py-2 type-caption transition-opacity hover:opacity-85"
                   style={{
                     background: isDark ? "rgba(255,255,255,0.08)" : "rgba(20,20,36,0.06)",
