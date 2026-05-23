@@ -6,7 +6,7 @@
  * 3. Right-click on node: context menu with icon commands
  * 4. Asset node double-click zoom is disabled; image download is available from the node context menu
  */
-import { useCallback, useState, useRef, useEffect, type ReactNode, Fragment } from "react";
+import { useCallback, useState, useRef, useEffect, useMemo, type ReactNode, Fragment } from "react";
 import {
   ReactFlow,
   Background,
@@ -1046,24 +1046,35 @@ function NodeContextMenu({ menu, onClose, onAction, isDark }: {
 
   const selectedCount = menu.selectedIds?.length || 1;
   const isSelectionMenu = menu.nodeType === "selection" || selectedCount > 1;
-  const groupAction = menu.grouped ? "ungroup" : "group";
-  const groupLabel = menu.grouped ? "解散打组" : "打组";
+  const isGroupContainerMenu = menu.nodeType === "group-container";
 
-  const items = isSelectionMenu ? [
+  // Group container right-click menu: 解散打组 / 进入打组 / 重命名
+  const groupContainerItems = [
+    { icon: <Edit3 size={13} />, label: "进入打组", action: "enter-group", color: iconColor },
+    { icon: <Box size={13} />, label: "重命名", action: "rename-group", color: iconColor },
+    { icon: <FolderOutput size={13} />, label: "解散打组", action: "ungroup", color: dangerColor },
+  ];
+
+  // Multi-selection menu: 打组 / 取消编组 / 自动布局 / 下载
+  const selectionItems = [
     { icon: <Copy size={13} />, label: "复制", action: "copy", color: iconColor },
     { icon: <Clipboard size={13} />, label: "粘贴", action: "paste", color: iconColor },
-    { icon: <Box size={13} />, label: groupLabel, action: groupAction, color: iconColor },
+    { icon: <Box size={13} />, label: "打组", action: "group", color: iconColor },
     { icon: <Type size={13} />, label: "添加文本备注", action: "add-note", color: iconColor },
     { icon: <Trash2 size={13} />, label: "删除节点", action: "delete", color: dangerColor },
-  ] : [
+  ];
+
+  // Single node menu: NO 解散打组 (removed per spec)
+  const singleItems = [
     { icon: <Edit3 size={13} />, label: "编辑素材", action: "edit-asset", color: iconColor },
     ...(menu.nodeType === "asset" ? [{ icon: <Download size={13} />, label: "下载图片", action: "download", color: iconColor }] : []),
     { icon: <Copy size={13} />, label: "复制", action: "copy", color: iconColor },
     { icon: <Clipboard size={13} />, label: "粘贴", action: "paste", color: iconColor },
-    { icon: <Box size={13} />, label: groupLabel, action: groupAction, color: iconColor },
     { icon: <Type size={13} />, label: "添加文本备注", action: "add-note", color: iconColor },
     { icon: <Trash2 size={13} />, label: "删除节点", action: "delete", color: dangerColor },
   ];
+
+  const items = isGroupContainerMenu ? groupContainerItems : isSelectionMenu ? selectionItems : singleItems;
 
   useEffect(() => {
     const handler = (e: MouseEvent) => { onClose(); };
@@ -1096,6 +1107,89 @@ function NodeContextMenu({ menu, onClose, onAction, isDark }: {
         )
       )}
     </div>
+  );
+}
+
+// ── Group Container Overlay (rendered over ReactFlow canvas) ──────────────────────────────────
+interface GroupInfo {
+  groupId: string;
+  name: string;
+  bounds: CanvasNodeBounds;
+}
+
+function GroupContainerOverlay({
+  groups,
+  viewport,
+  isDark,
+  enteringGroupId,
+  onContextMenu,
+}: {
+  groups: GroupInfo[];
+  viewport: { x: number; y: number; zoom: number };
+  isDark: boolean;
+  enteringGroupId: string | null;
+  onContextMenu: (e: React.MouseEvent, groupId: string) => void;
+}) {
+  if (groups.length === 0) return null;
+  const containerBg = isDark ? "oklch(0.58 0.22 290 / 0.07)" : "oklch(0.58 0.22 290 / 0.05)";
+  const containerBorder = isDark ? "oklch(0.65 0.20 290 / 0.45)" : "oklch(0.55 0.20 290 / 0.35)";
+  const labelBg = isDark ? "oklch(0.58 0.22 290 / 0.85)" : "oklch(0.52 0.20 290 / 0.90)";
+  const enteringBorder = "oklch(0.72 0.22 50 / 0.80)";
+  const enteringBg = isDark ? "oklch(0.72 0.22 50 / 0.06)" : "oklch(0.72 0.22 50 / 0.04)";
+
+  return (
+    <>
+      {groups.map(g => {
+        const pad = 20;
+        const left = g.bounds.x * viewport.zoom + viewport.x - pad;
+        const top = g.bounds.y * viewport.zoom + viewport.y - pad - 28;
+        const width = g.bounds.width * viewport.zoom + pad * 2;
+        const height = g.bounds.height * viewport.zoom + pad * 2 + 28;
+        const isEntering = enteringGroupId === g.groupId;
+        return (
+          <div
+            key={g.groupId}
+            className="absolute nodrag nopan"
+            style={{
+              left,
+              top,
+              width,
+              height,
+              background: isEntering ? enteringBg : containerBg,
+              border: `1.5px solid ${isEntering ? enteringBorder : containerBorder}`,
+              borderRadius: "var(--radius-lg-design)",
+              zIndex: 5,
+              pointerEvents: "all",
+              transition: "border-color 0.2s ease, background 0.2s ease",
+              boxShadow: isEntering
+                ? `0 0 0 3px oklch(0.72 0.22 50 / 0.15), 0 8px 32px rgba(0,0,0,0.18)`
+                : `0 4px 24px rgba(0,0,0,0.10)`,
+            }}
+            onContextMenu={e => { e.preventDefault(); e.stopPropagation(); onContextMenu(e, g.groupId); }}
+          >
+            {/* Group name label — top-left */}
+            <div
+              className="absolute flex items-center gap-1.5 px-2 py-0.5 rounded-[var(--radius-md-design)] type-caption"
+              style={{
+                top: 6,
+                left: 8,
+                background: isEntering ? "oklch(0.72 0.22 50 / 0.88)" : labelBg,
+                color: "white",
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: "0.02em",
+                pointerEvents: "none",
+                userSelect: "none",
+                backdropFilter: "blur(8px)",
+              }}
+            >
+              <Box size={9} strokeWidth={2.2} />
+              {g.name}
+            </div>
+          </div>
+        );
+      })}
+    </>
   );
 }
 
@@ -1848,25 +1942,33 @@ function CanvasSearchBar({ isDark, currentProjectId, onProjectRequest, onAssetAd
   const sub = isDark ? "oklch(0.52 0.01 270)" : "oklch(0.50 0.012 255)";
   const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
 
-  const expanded = open || query.trim().length > 0;
-
+  // Always expanded — no collapse
   return (
-    <div ref={ref} className="absolute nodrag nopan" style={{ bottom: 270, left: 31, zIndex: 102, width: expanded ? 320 : 36, transition: "width 0.24s cubic-bezier(0.23,1,0.32,1)" }}>
+    <div ref={ref} className="absolute nodrag nopan" style={{ top: 12, left: "50%", transform: "translateX(-50%)", zIndex: 1400, width: 320 }}>
       <div
-        className="flex items-center gap-2 px-2 rounded-[var(--radius-md-design)] shadow-lg overflow-hidden"
-        style={{ height: 34, background: expanded ? bg : (isDark ? "rgba(22,22,30,0.22)" : "rgba(255,255,255,0.28)"), border: expanded ? `1px solid ${open ? "oklch(0.62 0.22 290 / 0.55)" : border}` : "none", borderBottom: expanded ? undefined : `1px solid ${border}`, backdropFilter: expanded ? "blur(14px)" : "none" }}
+        className="flex items-center gap-2 px-3 rounded-[var(--radius-lg-design)] shadow-lg overflow-hidden"
+        style={{ height: 38, background: bg, border: `1px solid ${open ? "oklch(0.62 0.22 290 / 0.55)" : border}`, backdropFilter: "blur(14px)", transition: "border-color 0.18s ease" }}
         onMouseDown={e => e.stopPropagation()}
         onClick={() => setOpen(true)}
       >
-        <Search size={14} style={{ color: open ? "oklch(0.72 0.18 290)" : sub, flexShrink: 0 }} />
+        <Search size={14} style={{ color: open ? "oklch(0.72 0.18 290)" : sub, flexShrink: 0, transition: "color 0.15s" }} />
         <input
           value={query}
           onChange={e => { setQuery(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
           placeholder="搜索项目或素材..."
           className="flex-1 bg-transparent outline-none type-caption"
-          style={{ color: text, opacity: expanded ? 1 : 0, width: expanded ? undefined : 0, pointerEvents: expanded ? "auto" : "none" }}
+          style={{ color: text }}
         />
+        {query && (
+          <button
+            onClick={e => { e.stopPropagation(); setQuery(""); setOpen(false); }}
+            className="flex items-center justify-center w-4 h-4 rounded-full transition-opacity hover:opacity-70"
+            style={{ color: sub, flexShrink: 0 }}
+          >
+            <X size={11} />
+          </button>
+        )}
       </div>
 
       {open && (
@@ -1949,6 +2051,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [pendingProject, setPendingProject] = useState<Project | null>(null);
   // ── Referenced assets: auto-populated from selected image nodes ──
   const [referencedAssets, setReferencedAssets] = useState<{ id: string; title: string; src: string }[]>([]);
+  // ── Group system state ──
+  const [groupNames, setGroupNames] = useState<Record<string, string>>({});
+  const [groupCounter, setGroupCounter] = useState(1);
+  const [enteringGroupId, setEnteringGroupId] = useState<string | null>(null);
+  const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
   const middlePanRef = useRef<{ clientX: number; clientY: number; viewport: { x: number; y: number; zoom: number } } | null>(null);
   const historyRef = useRef<{ nodes: Node[]; edges: Edge[] }[]>([]);
@@ -2141,11 +2249,28 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       if (actionIds.length < 2) { toast("请至少选择 2 个画布再打组"); return; }
       pushHistory();
       const groupId = `group-${Date.now()}`;
+      // Auto-name: 打组01, 打组02, ...
+      const paddedNum = String(groupCounter).padStart(2, "0");
+      const autoName = `打组${paddedNum}`;
+      setGroupNames(prev => ({ ...prev, [groupId]: autoName }));
+      setGroupCounter(c => c + 1);
       setNodes(nds => nds.map(n => actionIds.includes(n.id) ? { ...n, data: { ...(n.data as Record<string, unknown>), groupId } } : n));
-      toast(`已打组 ${actionIds.length} 个画布`, { description: "右键可解散打组" });
+      toast(`已创建「${autoName}」`, { description: `${actionIds.length} 个图片节点已打组，右键容器可管理` });
     } else if (action === "ungroup") {
       pushHistory();
-      setNodes(nds => nds.map(n => actionIds.includes(n.id) ? { ...n, data: { ...(n.data as Record<string, unknown>), groupId: undefined } } : n));
+      // Find groupId from the action nodes
+      const ungroupIds = actionIds.length > 0 ? actionIds : (nodeCtxMenu?.selectedIds || []);
+      const targetNode = nodes.find(n => ungroupIds.includes(n.id));
+      const gid = targetNode ? (targetNode.data as Record<string, unknown>).groupId as string | undefined : undefined;
+      setNodes(nds => nds.map(n => {
+        const nGroupId = (n.data as Record<string, unknown>).groupId as string | undefined;
+        if (gid ? nGroupId === gid : ungroupIds.includes(n.id)) {
+          return { ...n, data: { ...(n.data as Record<string, unknown>), groupId: undefined } };
+        }
+        return n;
+      }));
+      if (gid) setGroupNames(prev => { const next = { ...prev }; delete next[gid]; return next; });
+      setEnteringGroupId(null);
       toast("已解散打组");
     } else if (action === "auto-layout") {
       const selectedAssetIds = actionIds.filter(id => nodes.some(n => n.id === id && n.type === "asset"));
@@ -2286,6 +2411,46 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setSelectedNodeIds(selectedNodes.map(n => n.id));
   }, []);
 
+  // ── Handle group container right-click ──
+  const handleGroupContainerContextMenu = useCallback((e: React.MouseEvent, groupId: string) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    setNodeCtxMenu({
+      x: e.clientX - (rect?.left || 0),
+      y: e.clientY - (rect?.top || 0),
+      nodeId: "__group__",
+      nodeType: "group-container",
+      selectedIds: nodes.filter(n => (n.data as Record<string, unknown>).groupId === groupId).map(n => n.id),
+      grouped: true,
+    });
+    // Store groupId for ungroup/enter/rename actions
+    (window as unknown as Record<string, unknown>).__artx_ctx_group_id__ = groupId;
+  }, [nodes]);
+
+  // ── Handle group actions from context menu ──
+  const handleGroupAction = useCallback((action: string) => {
+    const groupId = (window as unknown as Record<string, unknown>).__artx_ctx_group_id__ as string | undefined;
+    if (!groupId) return;
+    if (action === "enter-group") {
+      setEnteringGroupId(prev => prev === groupId ? null : groupId);
+      toast(enteringGroupId === groupId ? "已退出打组编辑模式" : `已进入「${groupNames[groupId] || groupId}」`, {
+        description: enteringGroupId === groupId ? "" : "现在可单独选中并编辑组内图片，再次右键可退出",
+      });
+    } else if (action === "rename-group") {
+      setRenamingGroupId(groupId);
+      setRenameValue(groupNames[groupId] || "");
+    } else if (action === "ungroup") {
+      pushHistory();
+      setNodes(nds => nds.map(n => {
+        const nGroupId = (n.data as Record<string, unknown>).groupId as string | undefined;
+        if (nGroupId === groupId) return { ...n, data: { ...(n.data as Record<string, unknown>), groupId: undefined } };
+        return n;
+      }));
+      setGroupNames(prev => { const next = { ...prev }; delete next[groupId]; return next; });
+      setEnteringGroupId(null);
+      toast("已解散打组");
+    }
+  }, [enteringGroupId, groupNames, nodes, pushHistory, setNodes]);
+
   // ── Sync selected image nodes → referencedAssets chips in BottomPromptBar ──
   useEffect(() => {
     const imageNodeIds = selectedNodeIds.filter(id => nodes.some(n => n.id === id && n.type === "asset"));
@@ -2410,6 +2575,25 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const canvasBg = isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)";
   const dotColor = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.32)";
 
+  // ── Compute group containers for overlay rendering ──
+  const groupOverlayData: GroupInfo[] = useMemo(() => {
+    const groupMap = new Map<string, Node[]>();
+    nodes.forEach(n => {
+      const gid = (n.data as Record<string, unknown>).groupId as string | undefined;
+      if (gid) {
+        if (!groupMap.has(gid)) groupMap.set(gid, []);
+        groupMap.get(gid)!.push(n);
+      }
+    });
+    const result: GroupInfo[] = [];
+    groupMap.forEach((groupNodes, groupId) => {
+      const bounds = getCanvasNodesBounds(groupNodes, groupNodes.map(n => n.id));
+      if (!bounds) return;
+      result.push({ groupId, name: groupNames[groupId] || groupId, bounds });
+    });
+    return result;
+  }, [nodes, groupNames]);
+
   // Inject isEditing flag into the target node's data so AssetNodeComponent can show the mask
   const selectedImageNodeIds = selectedNodeIds.filter(id => nodes.some(n => n.id === id && n.type === "asset"));
   const multiImageSelectionActive = selectedImageNodeIds.length > 1;
@@ -2515,6 +2699,73 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           onAction={(action) => handleNodeAction(action, "__selection__")}
         />
       )}
+      {/* Group container overlay — rendered above ReactFlow, below toolbars */}
+      <GroupContainerOverlay
+        groups={groupOverlayData}
+        viewport={viewport}
+        isDark={isDark}
+        enteringGroupId={enteringGroupId}
+        onContextMenu={handleGroupContainerContextMenu}
+      />
+
+      {/* Rename group dialog */}
+      {renamingGroupId && (
+        <div
+          className="fixed inset-0 flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)", zIndex: 5000 }}
+          onMouseDown={() => setRenamingGroupId(null)}
+        >
+          <div
+            className="w-[min(360px,calc(100vw-32px))] rounded-[var(--radius-lg-design)] p-5 shadow-2xl"
+            style={{
+              background: isDark ? "oklch(0.15 0.018 270)" : "oklch(0.995 0.002 80)",
+              border: `1px solid ${isDark ? "oklch(1 0 0 / 12%)" : "oklch(0.88 0.006 255)"}`,
+            }}
+            onMouseDown={e => e.stopPropagation()}
+          >
+            <p className="type-caption mb-3" style={{ color: isDark ? "oklch(0.82 0.008 270)" : "oklch(0.22 0.018 255)", fontWeight: 600 }}>重命名打组</p>
+            <input
+              autoFocus
+              value={renameValue}
+              onChange={e => setRenameValue(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === "Enter" && renameValue.trim()) {
+                  setGroupNames(prev => ({ ...prev, [renamingGroupId]: renameValue.trim() }));
+                  toast(`已重命名为「${renameValue.trim()}」`);
+                  setRenamingGroupId(null);
+                }
+                if (e.key === "Escape") setRenamingGroupId(null);
+              }}
+              className="w-full px-3 py-2 rounded-[var(--radius-md-design)] type-caption outline-none"
+              style={{
+                background: isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 4%)",
+                border: `1px solid ${isDark ? "oklch(1 0 0 / 14%)" : "oklch(0 0 0 / 12%)"}`,
+                color: isDark ? "oklch(0.85 0.008 270)" : "oklch(0.18 0.008 270)",
+              }}
+              placeholder="输入打组名称..."
+            />
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                onClick={() => setRenamingGroupId(null)}
+                className="px-3 py-1.5 rounded-[var(--radius-md-design)] type-caption"
+                style={{ color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.50 0.01 270)" }}
+              >取消</button>
+              <button
+                onClick={() => {
+                  if (renameValue.trim()) {
+                    setGroupNames(prev => ({ ...prev, [renamingGroupId]: renameValue.trim() }));
+                    toast(`已重命名为「${renameValue.trim()}」`);
+                  }
+                  setRenamingGroupId(null);
+                }}
+                className="px-3 py-1.5 rounded-[var(--radius-md-design)] type-caption"
+                style={{ background: "oklch(0.58 0.22 290)", color: "white" }}
+              >确认</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Custom zoom controls — vertical bar matching preview toolbar style */}
       <ZoomControlBar isDark={isDark} locked={isCanvasLocked} onLockedChange={setIsCanvasLocked} />
 
@@ -2537,7 +2788,19 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
       {/* Node context menu */}
       {nodeCtxMenu && (
-        <NodeContextMenu menu={nodeCtxMenu} onClose={() => setNodeCtxMenu(null)} onAction={handleNodeAction} isDark={isDark} />
+        <NodeContextMenu
+          menu={nodeCtxMenu}
+          onClose={() => setNodeCtxMenu(null)}
+          onAction={(action, nodeId) => {
+            if (nodeCtxMenu.nodeType === "group-container") {
+              handleGroupAction(action);
+            } else {
+              handleNodeAction(action, nodeId);
+            }
+            setNodeCtxMenu(null);
+          }}
+          isDark={isDark}
+        />
       )}
 
       {/* Bottom AI Prompt Bar — shown when image nodes are selected, auto-fills reference chips */}
