@@ -1244,7 +1244,7 @@ function ZoomControlBar({ isDark }: { isDark: boolean }) {
   return (
     <div
       className="absolute"
-      style={{ bottom: 80, left: 16, zIndex: 100, opacity: 0.6 }}
+      style={{ bottom: 110, left: 31, zIndex: 100, opacity: 0.6 }}
     >
       <div
         className="flex flex-col items-center"
