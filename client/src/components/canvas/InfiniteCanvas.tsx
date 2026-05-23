@@ -119,7 +119,7 @@ function NodeToolbar({ model, onModelChange, onDelete, isDark }: {
 }
 
 // ── Node Wrapper with handles ──────────────────────────────────
-function NodeWrapper({ children, selected, isDark, model, onModelChange, onDelete, style, onContextMenu }: {
+function NodeWrapper({ children, selected, isDark, model, onModelChange, onDelete, style, onContextMenu, onClick }: {
   children: React.ReactNode;
   selected: boolean;
   isDark: boolean;
@@ -128,6 +128,7 @@ function NodeWrapper({ children, selected, isDark, model, onModelChange, onDelet
   onDelete: () => void;
   style?: React.CSSProperties;
   onContextMenu?: (e: React.MouseEvent) => void;
+  onClick?: (e: React.MouseEvent) => void;
 }) {
   const bg = isDark ? "oklch(0.13 0.015 270)" : "oklch(0.98 0.004 270)";
   const border = selected
@@ -142,6 +143,7 @@ function NodeWrapper({ children, selected, isDark, model, onModelChange, onDelet
       className="relative flex flex-col rounded-[var(--radius-lg-design)] overflow-visible"
       style={{ ...style, background: (style?.background as string) || bg, border: `1.5px solid ${border}`, boxShadow: shadow, transition: "border-color 0.15s, box-shadow 0.15s" }}
       onContextMenu={onContextMenu}
+      onClick={onClick}
     >
       {ENABLE_NODE_CONNECTIONS && (
         <>
@@ -432,17 +434,13 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const [model, setModel] = useState("flux-pro");
   const [preview, setPreview] = useState(false);
   const [showPanel, setShowPanel] = useState(false);
-  const { deleteElements } = useReactFlow();
+  const { deleteElements, setNodes: setFlowNodes } = useReactFlow();
   const nodeId = (data as { id?: string }).id || "";
 
   const asset = GENERATED_ASSETS.find(a => a.id === (data.assetId as string)) || GENERATED_ASSETS[0];
   const isEditing = !!(data as { isEditing?: boolean }).isEditing;
   const displayTitle = (data.title as string) || asset.title || "素材节点";
-  const displayTags = Array.isArray(data.tags)
-    ? (data.tags as string[])
-    : ((asset.tags as string[] | undefined) || ["默认 icon", "灰色容器"]);
   const displayType = "图片";
-  const text = isDark ? "oklch(0.82 0.006 270)" : "oklch(0.22 0.006 270)";
   const subtext = isDark ? "oklch(0.62 0.006 270)" : "oklch(0.46 0.006 270)";
   const tagBg = isDark ? "oklch(0.28 0.004 270)" : "oklch(0.78 0.004 270)";
   const assetShellBg = isDark ? "oklch(0.20 0.004 270)" : "oklch(0.86 0.004 270)";
@@ -467,12 +465,26 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     }));
   }, [nodeId]);
 
+  const handleAssetClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    const additive = e.ctrlKey || e.metaKey;
+    setFlowNodes(nds => nds.map(n => ({
+      ...n,
+      selected: additive ? Boolean(n.selected || n.id === nodeId) : n.id === nodeId,
+    })));
+    setShowPanel(p => !p);
+    window.dispatchEvent(new CustomEvent("asset-reference", {
+      detail: { id: nodeId, title: displayTitle, src: asset.src, ctrlKey: additive }
+    }));
+  }, [asset.src, displayTitle, nodeId, setFlowNodes]);
+
   return (
     <>
       <NodeWrapper selected={selected} isDark={isDark} model={model} onModelChange={setModel}
         onDelete={() => deleteElements({ nodes: [{ id: nodeId }] })}
         style={{ width: nodeWidth, background: assetShellBg, border: `1.5px solid ${assetShellBorder}` }}
         onContextMenu={handleNodeCtxMenu}
+        onClick={handleAssetClick}
       >
         {/* Floating top toolbar — visible for a single selected image node only */}
         {selected && !multiSelectionActive && (
@@ -486,14 +498,6 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
         <div
           className="relative flex items-center justify-center overflow-hidden cursor-pointer"
           style={{ background: iconPanelBg, borderBottom: `1px solid ${assetShellBorder}` }}
-          onClick={(e) => {
-            e.stopPropagation();
-            setShowPanel(p => !p);
-            // Dispatch reference event to BottomPromptBar (pass ctrlKey for multi-select)
-            window.dispatchEvent(new CustomEvent("asset-reference", {
-              detail: { id: nodeId, title: displayTitle, src: asset.src, ctrlKey: e.ctrlKey || e.metaKey }
-            }));
-          }}
           onDoubleClick={(e) => { e.stopPropagation(); }}
         >
           <img
@@ -518,13 +522,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
             </span>
           </div>
         </div>
-        <div className="px-3 py-2">
-          <p className="type-caption truncate" style={{ color: text }}>{displayTitle}</p>
-          <p className="type-caption mt-0.5" style={{ color: subtext }}>{displayTags.join(" · ")}</p>
-          {(data as { note?: string }).note && (
-            <p className="type-caption mt-1 truncate" style={{ color: "oklch(0.72 0.18 290)" }}>{(data as { note?: string }).note}</p>
-          )}
-        </div>
+
       </NodeWrapper>
 
       {/* Bottom prompt panel — shown on click when selected */}
@@ -1524,11 +1522,13 @@ function SaveProjectConfirmDialog({ isDark, project, onCancel, onSave }: {
 
 
 function CanvasAssistantPanel({ isDark, projectTitle }: { isDark: boolean; projectTitle: string }) {
+  const [inputFocused, setInputFocused] = useState(false);
   const bg = isDark ? "oklch(0.125 0.014 270 / 0.98)" : "oklch(0.995 0.002 80 / 0.98)";
   const border = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 10%)";
   const text = isDark ? "oklch(0.84 0.008 270)" : "oklch(0.18 0.008 270)";
   const sub = isDark ? "oklch(0.56 0.01 270)" : "oklch(0.48 0.012 255)";
   const chipBg = isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 4%)";
+  const inputShadow = "0 16px 42px rgba(210,214,224,0.10), 0 0 0 1px rgba(210,214,224,0.10)";
 
   return (
     <aside
@@ -1563,13 +1563,22 @@ function CanvasAssistantPanel({ isDark, projectTitle }: { isDark: boolean; proje
         </div>
       </div>
 
-      <div className="p-4" style={{ borderTop: `1px solid ${border}` }}>
-        <div className="rounded-[var(--radius-xl-design)] px-3 py-3" style={{ background: chipBg, border: `1px solid ${border}` }}>
+      <div className="p-4">
+        <div
+          className="rounded-[var(--radius-xl-design)] px-3 py-3 transition-shadow duration-200"
+          style={{
+            background: chipBg,
+            border: `1px solid ${border}`,
+            boxShadow: inputFocused ? inputShadow : "none",
+          }}
+        >
           <textarea
             placeholder="输入对当前画布的想法..."
             rows={2}
             className="w-full bg-transparent outline-none resize-none type-caption leading-6"
             style={{ color: text }}
+            onFocus={() => setInputFocused(true)}
+            onBlur={() => setInputFocused(false)}
           />
           <div className="flex items-center justify-between pt-2">
             <div className="flex items-center gap-2" style={{ color: sub }}>
@@ -1984,6 +1993,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const target = e.target as HTMLElement | null;
       const isTyping = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
       if (isTyping) return;
+      const selectedAssetIds = selectedNodeIds.filter(id => nodes.some(n => n.id === id && n.type === "asset"));
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedAssetIds.length > 0) {
+        e.preventDefault();
+        pushHistory();
+        setNodes(nds => nds.filter(n => !selectedAssetIds.includes(n.id)));
+        setEdges(eds => eds.filter(e => !selectedAssetIds.includes(e.source) && !selectedAssetIds.includes(e.target)));
+        toast("已删除图片", { description: selectedAssetIds.length === 1 ? "已删除选中的图片节点" : `已删除 ${selectedAssetIds.length} 个图片节点` });
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey) {
         e.preventDefault();
         undoCanvas();
@@ -2003,7 +2021,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [pushHistory, selectedNodeIds, setNodes, undoCanvas]);
+  }, [nodes, pushHistory, selectedNodeIds, setEdges, setNodes, undoCanvas]);
 
   // ── C-key lasso: cut edges intersecting the lasso rect ──
   const handleLassoCut = useCallback((lassoRect: LassoRect) => {
