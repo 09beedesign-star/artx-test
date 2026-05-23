@@ -4,7 +4,7 @@
  * 1. C-key lasso: hold C + drag to draw a selection box that cuts all edges it intersects
  * 2. Right-click on blank canvas: NO menu (dismiss only)
  * 3. Right-click on node: context menu with icon commands
- * 4. Double-click asset node: full-screen image preview modal
+ * 4. Asset node double-click zoom is disabled; image download is available from the node context menu
  */
 import { useCallback, useState, useRef, useEffect } from "react";
 import {
