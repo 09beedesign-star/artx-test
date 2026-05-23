@@ -860,8 +860,15 @@ function BottomPromptBar({
   );
 }
 
-// ── Node Context Menu (right-click on node) ────────────────────
-interface NodeCtxState { x: number; y: number; nodeId: string; nodeType: string; }
+// ── Node Context Menu (right-click on node or selected group) ───
+interface NodeCtxState {
+  x: number;
+  y: number;
+  nodeId: string;
+  nodeType: string;
+  selectedIds?: string[];
+  grouped?: boolean;
+}
 
 function NodeContextMenu({ menu, onClose, onAction, isDark }: {
   menu: NodeCtxState;
@@ -877,16 +884,29 @@ function NodeContextMenu({ menu, onClose, onAction, isDark }: {
   const iconColor = isDark ? "oklch(0.55 0.01 270)" : "oklch(0.55 0.01 270)";
   const dangerColor = "oklch(0.65 0.22 20)";
 
-  const items = [
+  const selectedCount = menu.selectedIds?.length || 1;
+  const isSelectionMenu = menu.nodeType === "selection" || selectedCount > 1;
+  const groupAction = menu.grouped ? "ungroup" : "group";
+  const groupLabel = menu.grouped ? "解散打组" : "打组";
+
+  const items = isSelectionMenu ? [
+    { icon: <Copy size={13} />, label: "复制", action: "copy", color: iconColor },
+    { icon: <Clipboard size={13} />, label: "粘贴", action: "paste", color: iconColor },
+    null,
+    { icon: <Box size={13} />, label: groupLabel, action: groupAction, color: iconColor },
+    null,
+    { icon: <Trash2 size={13} />, label: "删除节点", action: "delete", color: dangerColor },
+  ] : [
     { icon: <PlusSquare size={13} />, label: "添加节点", action: "add-node", color: iconColor },
     { icon: <ImageIcon size={13} />, label: "添加素材", action: "add-asset", color: iconColor },
     { icon: <Edit3 size={13} />, label: "编辑素材", action: "edit-asset", color: iconColor },
-    null, // divider
+    null,
     { icon: <Copy size={13} />, label: "复制", action: "copy", color: iconColor },
     { icon: <Clipboard size={13} />, label: "粘贴", action: "paste", color: iconColor },
-    null, // divider
+    null,
+    { icon: <Box size={13} />, label: groupLabel, action: groupAction, color: iconColor },
     { icon: <FileText size={13} />, label: "添加文本备注", action: "add-text", color: iconColor },
-    null, // divider
+    null,
     { icon: <Trash2 size={13} />, label: "删除节点", action: "delete", color: dangerColor },
   ];
 
@@ -906,7 +926,7 @@ function NodeContextMenu({ menu, onClose, onAction, isDark }: {
       {/* Header */}
       <div className="px-3 py-2" style={{ borderBottom: `1px solid ${divider}` }}>
         <span className="type-caption uppercase" style={{ color: isDark ? "oklch(0.42 0.01 270)" : "oklch(0.58 0.01 270)" }}>
-          节点操作
+          {isSelectionMenu ? `已选 ${selectedCount} 个画布` : "节点操作"}
         </span>
       </div>
       {items.map((item, i) =>
@@ -1572,7 +1592,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [nodeCtxMenu, setNodeCtxMenu] = useState<NodeCtxState | null>(null);
-  const [clipboard, setClipboard] = useState<Node | null>(null);
+  const [clipboard, setClipboard] = useState<Node[]>([]);
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   // ── Edit-asset state: zoom in on canvas then show editing prompt bar ──
   const [editAsset, setEditAsset] = useState<{ id: string; title: string; src: string; nodeId: string } | null>(null);
   const [isZoomingToEdit, setIsZoomingToEdit] = useState(false);
@@ -1584,36 +1605,89 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setEdges(eds => addEdge({ ...params, type: "tapnow" }, eds));
   }, [setEdges]);
 
-  // ── Right-click: blank canvas → NO menu; node → handled via custom event ──
+  const getActionNodeIds = useCallback((nodeId: string) => {
+    if (nodeId === "__selection__") return selectedNodeIds;
+    return selectedNodeIds.includes(nodeId) ? selectedNodeIds : [nodeId];
+  }, [selectedNodeIds]);
+
+  const areNodesGrouped = useCallback((ids: string[]) => {
+    if (ids.length === 0) return false;
+    const selected = nodes.filter(n => ids.includes(n.id));
+    return selected.length > 0 && selected.every(n => Boolean((n.data as Record<string, unknown>).groupId));
+  }, [nodes]);
+
+  // ── Right-click: blank canvas shows batch menu only when nodes are selected ──
   const handlePaneContextMenu = useCallback((e: React.MouseEvent | MouseEvent) => {
     e.preventDefault();
-    // Blank canvas: do nothing (no menu)
-  }, []);
+    if (selectedNodeIds.length === 0) {
+      setNodeCtxMenu(null);
+      return;
+    }
+    const rect = containerRef.current?.getBoundingClientRect();
+    setNodeCtxMenu({
+      x: e.clientX - (rect?.left || 0),
+      y: e.clientY - (rect?.top || 0),
+      nodeId: "__selection__",
+      nodeType: "selection",
+      selectedIds: selectedNodeIds,
+      grouped: areNodesGrouped(selectedNodeIds),
+    });
+  }, [areNodesGrouped, selectedNodeIds]);
 
   // ── Node right-click via custom event ──
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { x: number; y: number; nodeId: string; nodeType: string };
-      setNodeCtxMenu({ x: detail.x, y: detail.y, nodeId: detail.nodeId, nodeType: detail.nodeType });
+      const actionIds = selectedNodeIds.includes(detail.nodeId) ? selectedNodeIds : [detail.nodeId];
+      setNodeCtxMenu({
+        x: detail.x,
+        y: detail.y,
+        nodeId: detail.nodeId,
+        nodeType: detail.nodeType,
+        selectedIds: actionIds,
+        grouped: areNodesGrouped(actionIds),
+      });
     };
     window.addEventListener("node-contextmenu", handler);
     return () => window.removeEventListener("node-contextmenu", handler);
-  }, []);
+  }, [areNodesGrouped, selectedNodeIds]);
 
   // ── Node context menu actions ──
   const handleNodeAction = useCallback((action: string, nodeId: string) => {
+    const actionIds = getActionNodeIds(nodeId);
     if (action === "delete") {
-      setNodes(nds => nds.filter(n => n.id !== nodeId));
-      setEdges(eds => eds.filter(e => e.source !== nodeId && e.target !== nodeId));
+      setNodes(nds => nds.filter(n => !actionIds.includes(n.id)));
+      setEdges(eds => eds.filter(e => !actionIds.includes(e.source) && !actionIds.includes(e.target)));
+      setSelectedNodeIds([]);
     } else if (action === "copy") {
-      const node = nodes.find(n => n.id === nodeId);
-      if (node) { setClipboard(node); toast("已复制节点"); }
+      const copied = nodes.filter(n => actionIds.includes(n.id));
+      if (copied.length > 0) { setClipboard(copied); toast(`已复制 ${copied.length} 个画布`); }
     } else if (action === "paste") {
-      if (clipboard) {
-        const id = `${clipboard.type}-${Date.now()}`;
-        setNodes(nds => [...nds, { ...clipboard, id, position: { x: clipboard.position.x + 40, y: clipboard.position.y + 40 }, data: { ...clipboard.data, id } }]);
-        toast("已粘贴节点");
+      if (clipboard.length > 0) {
+        const now = Date.now();
+        const idMap = new Map(clipboard.map((node, index) => [node.id, `${node.type}-${now}-${index}`]));
+        const pasted = clipboard.map((node, index) => {
+          const id = idMap.get(node.id) || `${node.type}-${now}-${index}`;
+          return {
+            ...node,
+            id,
+            selected: true,
+            position: { x: node.position.x + 48, y: node.position.y + 48 },
+            data: { ...(node.data as Record<string, unknown>), id, groupId: (node.data as Record<string, unknown>).groupId ? `group-${now}` : undefined },
+          };
+        });
+        setNodes(nds => nds.map(n => ({ ...n, selected: false })).concat(pasted));
+        setSelectedNodeIds(pasted.map(n => n.id));
+        toast(`已粘贴 ${pasted.length} 个画布`);
       } else { toast("剪贴板为空"); }
+    } else if (action === "group") {
+      if (actionIds.length < 2) { toast("请至少选择 2 个画布再打组"); return; }
+      const groupId = `group-${Date.now()}`;
+      setNodes(nds => nds.map(n => actionIds.includes(n.id) ? { ...n, data: { ...(n.data as Record<string, unknown>), groupId } } : n));
+      toast(`已打组 ${actionIds.length} 个画布`, { description: "右键可解散打组" });
+    } else if (action === "ungroup") {
+      setNodes(nds => nds.map(n => actionIds.includes(n.id) ? { ...n, data: { ...(n.data as Record<string, unknown>), groupId: undefined } } : n));
+      toast("已解散打组");
     } else if (action === "add-node") {
       const node = nodes.find(n => n.id === nodeId);
       if (node) {
@@ -1647,7 +1721,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         }, 950);
       }
     }
-  }, [nodes, clipboard, setNodes, setEdges]);
+  }, [nodes, clipboard, getActionNodeIds, setNodes, setEdges]);
 
   // ── Add node from position ──
   const addNode = useCallback((type: string, x: number, y: number) => {
@@ -1690,6 +1764,30 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     navigate(`/project/${pendingProject.id}`);
     setPendingProject(null);
   }, [navigate, pendingProject]);
+
+  const handleSelectionChange = useCallback(({ nodes: selectedNodes }: { nodes: Node[] }) => {
+    setSelectedNodeIds(selectedNodes.map(n => n.id));
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const isTyping = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
+      if (isTyping) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "g") {
+        e.preventDefault();
+        if (selectedNodeIds.length < 2) {
+          toast("请先框选至少 2 个画布");
+          return;
+        }
+        const groupId = `group-${Date.now()}`;
+        setNodes(nds => nds.map(n => selectedNodeIds.includes(n.id) ? { ...n, data: { ...(n.data as Record<string, unknown>), groupId } } : n));
+        toast(`已打组 ${selectedNodeIds.length} 个画布`, { description: "Windows 使用 Ctrl+G，Mac 使用 Command+G" });
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedNodeIds, setNodes]);
 
   // ── C-key lasso: cut edges intersecting the lasso rect ──
   const handleLassoCut = useCallback((lassoRect: LassoRect) => {
@@ -1767,6 +1865,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         onNodesChange={onNodesChange}
         onEdgesChange={ENABLE_NODE_CONNECTIONS ? onEdgesChange : undefined}
         onConnect={ENABLE_NODE_CONNECTIONS ? onConnect : undefined}
+        onSelectionChange={handleSelectionChange}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onPaneContextMenu={handlePaneContextMenu as any}
@@ -1780,7 +1879,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         connectionLineType={"bezier" as any}
         style={{ background: canvasBg }}
         proOptions={{ hideAttribution: true }}
+        selectionOnDrag
         selectNodesOnDrag={false}
+        panOnDrag={false}
         nodesDraggable={true}
         nodesConnectable={ENABLE_NODE_CONNECTIONS}
         edgesFocusable={ENABLE_NODE_CONNECTIONS}
