@@ -467,7 +467,9 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     return () => window.removeEventListener("asset-preview-request", handlePreviewRequest);
   }, [nodeId]);
 
+  const localSrc = (data as Record<string, unknown>).localSrc as string | undefined;
   const asset = GENERATED_ASSETS.find(a => a.id === (data.assetId as string)) || GENERATED_ASSETS[0];
+  const displaySrc = localSrc || asset.src;
   const isEditing = !!(data as { isEditing?: boolean }).isEditing;
   const displayTitle = (data.title as string) || asset.title || "素材节点";
   const displayType = "图片";
@@ -476,8 +478,8 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const assetShellBg = isDark ? "oklch(0.20 0.004 270)" : "oklch(0.86 0.004 270)";
   const assetShellBorder = isDark ? "oklch(1 0 0 / 14%)" : "oklch(0 0 0 / 12%)";
   const iconPanelBg = isDark ? "oklch(0.24 0.004 270)" : "oklch(0.80 0.004 270)";
-  const naturalWidth = Math.max(1, asset.width || 720);
-  const naturalHeight = Math.max(1, asset.height || 960);
+  const naturalWidth = localSrc ? 720 : Math.max(1, asset.width || 720);
+  const naturalHeight = localSrc ? 960 : Math.max(1, asset.height || 960);
   const maxNodeSide = 360;
   const minNodeSide = 180;
   const scale = Math.min(1, maxNodeSide / Math.max(naturalWidth, naturalHeight));
@@ -519,9 +521,9 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     });
     setShowPanel(additive ? false : p => !p);
     window.dispatchEvent(new CustomEvent("asset-reference", {
-      detail: { id: nodeId, title: displayTitle, src: asset.src, ctrlKey: additive }
+      detail: { id: nodeId, title: displayTitle, src: displaySrc, ctrlKey: additive }
     }));
-  }, [asset.src, displayTitle, nodeId, setFlowNodes]);
+  }, [displaySrc, displayTitle, nodeId, setFlowNodes]);
 
   return (
     <>
@@ -538,7 +540,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
           onDoubleClick={(e) => { e.stopPropagation(); }}
         >
           <img
-            src={asset.src}
+            src={displaySrc}
             alt={displayTitle}
             draggable={false}
             style={{ width: "100%", height: "auto", display: "block", objectFit: "contain" }}
@@ -2185,6 +2187,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const middlePanRef = useRef<{ clientX: number; clientY: number; viewport: { x: number; y: number; zoom: number } } | null>(null);
   const historyRef = useRef<{ nodes: Node[]; edges: Edge[] }[]>([]);
   const MAX_HISTORY_STEPS = 20;
+  // ── Local file drag-drop state ──
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
+  const dragCounterRef = useRef(0);
 
   const cloneNodesForHistory = useCallback((items: Node[]) => items.map(node => ({
     ...node,
@@ -2586,6 +2592,82 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setRenameValue(groupNames[groupId] || "");
   }, [groupNames]);
 
+  // ── Local file drag-drop handlers ──
+  const handleCanvasDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Only handle file drags from OS (not internal ReactFlow node drags)
+    if (!e.dataTransfer.types.includes("Files")) return;
+    dragCounterRef.current += 1;
+    setIsDragOver(true);
+  }, []);
+
+  const handleCanvasDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!e.dataTransfer.types.includes("Files")) return;
+    e.dataTransfer.dropEffect = "copy";
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (rect) setDragPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+  }, []);
+
+  const handleCanvasDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!e.dataTransfer.types.includes("Files")) return;
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDragOver(false);
+      setDragPos(null);
+    }
+  }, []);
+
+  const handleCanvasDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = 0;
+    setIsDragOver(false);
+    setDragPos(null);
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith("image/"));
+    if (files.length === 0) { toast("请拖入图片文件（JPG / PNG / GIF / WebP）"); return; }
+    const rect = containerRef.current?.getBoundingClientRect();
+    const baseX = e.clientX - (rect?.left || 0);
+    const baseY = e.clientY - (rect?.top || 0);
+    pushHistory();
+    files.forEach((file, index) => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const dataUrl = ev.target?.result as string;
+        if (!dataUrl) return;
+        const img = new window.Image();
+        img.onload = () => {
+          const dropPos = screenToFlowPosition({ x: (rect?.left || 0) + baseX + index * 32, y: (rect?.top || 0) + baseY + index * 32 });
+          const id = `local-${Date.now()}-${index}`;
+          const maxSide = 360;
+          const scale = Math.min(1, maxSide / Math.max(img.naturalWidth || 360, img.naturalHeight || 360));
+          const nodeWidth = Math.max(180, Math.round((img.naturalWidth || 360) * scale));
+          setNodes(nds => [...nds, {
+            id,
+            type: "asset",
+            position: { x: dropPos.x - nodeWidth / 2, y: dropPos.y - 100 },
+            data: {
+              id,
+              assetId: "default",
+              localSrc: dataUrl,
+              title: file.name.replace(/\.[^.]+$/, ""),
+              assetType: "图片",
+              tags: DEFAULT_ASSET_TAGS,
+            },
+          }]);
+        };
+        img.src = dataUrl;
+      };
+      reader.readAsDataURL(file);
+    });
+    toast(`已导入 ${files.length} 张图片`, { description: "本地图片已成功添加到画布" });
+  }, [pushHistory, screenToFlowPosition, setNodes]);
+
   // ── Handle group actions from context menu ──
   const handleGroupAction = useCallback((action: string) => {
     const groupId = (window as unknown as Record<string, unknown>).__artx_ctx_group_id__ as string | undefined;
@@ -2792,7 +2874,97 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   });
 
   return (
-    <div ref={containerRef} className="flex-1 relative overflow-hidden" style={{ height: "100%" }}>
+    <div
+      ref={containerRef}
+      className="flex-1 relative overflow-hidden"
+      style={{ height: "100%" }}
+      onDragEnter={handleCanvasDragEnter}
+      onDragOver={handleCanvasDragOver}
+      onDragLeave={handleCanvasDragLeave}
+      onDrop={handleCanvasDrop}
+    >
+      {/* 本地拖拽导入覆盖层 */}
+      {isDragOver && (
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{ zIndex: 9000 }}
+        >
+          {/* 半透明覆盖背景 */}
+          <div
+            className="absolute inset-0"
+            style={{
+              background: isDark
+                ? "oklch(0.12 0.015 270 / 0.72)"
+                : "oklch(0.96 0.008 270 / 0.80)",
+              backdropFilter: "blur(2px)",
+            }}
+          />
+          {/* 虯线矩形指引区域 */}
+          <div
+            className="absolute"
+            style={{
+              left: "50%",
+              top: "50%",
+              transform: "translate(-50%, -50%)",
+              width: "min(480px, 60vw)",
+              height: "min(320px, 40vh)",
+              border: `2.5px dashed ${isDark ? "oklch(0.72 0.18 290 / 0.80)" : "oklch(0.52 0.18 290 / 0.75)"}`,
+              borderRadius: "var(--radius-lg-design, 12px)",
+              background: isDark
+                ? "oklch(0.58 0.18 290 / 0.08)"
+                : "oklch(0.58 0.18 290 / 0.06)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 12,
+            }}
+          >
+            <div style={{
+              width: 52, height: 52,
+              borderRadius: "50%",
+              background: isDark ? "oklch(0.58 0.20 290 / 0.25)" : "oklch(0.58 0.20 290 / 0.15)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <ImagePlus size={26} style={{ color: isDark ? "oklch(0.80 0.18 290)" : "oklch(0.48 0.18 290)" }} />
+            </div>
+            <div style={{
+              textAlign: "center",
+              color: isDark ? "oklch(0.88 0.012 270)" : "oklch(0.28 0.012 270)",
+              fontSize: 16,
+              fontWeight: 700,
+              letterSpacing: "0.01em",
+            }}>
+              将图片拖入该区域
+            </div>
+            <div style={{
+              textAlign: "center",
+              color: isDark ? "oklch(0.62 0.008 270)" : "oklch(0.52 0.008 270)",
+              fontSize: 13,
+              fontWeight: 400,
+            }}>
+              支持 JPG、PNG、GIF、WebP 格式，可同时拖入多张
+            </div>
+          </div>
+          {/* 鼠标跟随指示光晕 */}
+          {dragPos && (
+            <div
+              className="absolute"
+              style={{
+                left: dragPos.x - 20,
+                top: dragPos.y - 20,
+                width: 40,
+                height: 40,
+                borderRadius: "50%",
+                background: isDark ? "oklch(0.72 0.20 290 / 0.30)" : "oklch(0.55 0.18 290 / 0.25)",
+                border: `2px solid ${isDark ? "oklch(0.72 0.20 290 / 0.70)" : "oklch(0.52 0.18 290 / 0.65)"}`,
+                pointerEvents: "none",
+                transition: "left 0.05s, top 0.05s",
+              }}
+            />
+          )}
+        </div>
+      )}
       <ReactFlow
         nodes={displayNodes}
         edges={ENABLE_NODE_CONNECTIONS ? edges : []}
