@@ -1244,7 +1244,7 @@ function ZoomControlBar({ isDark }: { isDark: boolean }) {
   return (
     <div
       className="absolute"
-      style={{ bottom: 80, left: 16, zIndex: 100 }}
+      style={{ bottom: 80, left: 16, zIndex: 100, opacity: 0.6 }}
     >
       <div
         className="flex flex-col items-center"
@@ -2114,7 +2114,17 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       >
         <Background variant={BackgroundVariant.Dots} gap={30} size={2.6} color={dotColor} />
         <MiniMap
-          style={{ background: isDark ? "oklch(0.11 0.015 270)" : "oklch(0.95 0.004 270)", border: `1px solid ${isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"}`, borderRadius: "var(--radius-md-design)", right: 388 }}
+          style={{
+            width: 100,
+            height: 75,
+            left: 16,
+            bottom: 8,
+            right: "auto",
+            opacity: 0.6,
+            background: isDark ? "oklch(0.11 0.015 270)" : "oklch(0.95 0.004 270)",
+            border: `1px solid ${isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"}`,
+            borderRadius: "var(--radius-md-design)",
+          }}
           maskColor={isDark ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.5)"}
           nodeColor={isDark ? "oklch(0.35 0.02 270)" : "oklch(0.75 0.005 270)"}
           zoomable
