@@ -5,6 +5,7 @@
  */
 import { useLocation } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   Home, Sparkles, Library, FolderOpen, Archive,
   History, Settings, HelpCircle, Edit3,
@@ -27,7 +28,9 @@ interface AppShellProps {
 export default function AppShell({ children, hideSidebar = false }: AppShellProps) {
   const [location, navigate] = useLocation();
   const { resolvedTheme } = useTheme();
+  const { isAuthenticated } = useAuth();
   const isDark = resolvedTheme === "dark";
+  const shouldHideSidebar = hideSidebar || (!isAuthenticated && location === "/");
 
   // ── Theme tokens ──────────────────────────────────────────────
   const sidebarBg    = isDark ? "oklch(0.11 0.012 270)" : "var(--design-surface-soft)";
@@ -43,7 +46,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   const isActive = (path: string) =>
     path === "/" ? location === "/" : location.startsWith(path);
 
-  if (hideSidebar) return <>{children}</>;
+  if (shouldHideSidebar) return <>{children}</>;
 
   // ── Shared nav item renderer ──────────────────────────────────
   const NavItem = ({

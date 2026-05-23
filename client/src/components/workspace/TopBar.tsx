@@ -5,6 +5,7 @@
 import { Search, Bell, ChevronDown, Sparkles, Plus, Moon, Sun, Monitor, Check } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme, type ThemeMode } from "@/contexts/ThemeContext";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,6 +27,7 @@ const THEME_OPTIONS: { mode: ThemeMode; icon: React.ElementType; label: string }
 
 export default function TopBar({ credits = 75 }: TopBarProps) {
   const { mode, setMode, resolvedTheme } = useTheme();
+  const { isAuthenticated, openLoginModal } = useAuth();
 
   const isDark = resolvedTheme === "dark";
 
@@ -44,27 +46,45 @@ export default function TopBar({ credits = 75 }: TopBarProps) {
       className="flex items-center gap-3 px-4 shrink-0"
       style={{ height: 52, background: surface, borderBottom: `1px solid ${border}`, zIndex: 10 }}
     >
-      {/* Search bar */}
-      <div
-        className="flex-1 max-w-md flex items-center gap-2 px-3 py-1.5 rounded-[var(--radius-md-design)]"
-        style={{ background: inputBg, border: `1px solid ${inputBdr}` }}
-      >
-        <Search size={13} style={{ color: textSec }} />
-        <input
-          type="text"
-          placeholder="搜索项目、素材或命令…"
-          className="flex-1 bg-transparent outline-none type-caption"
-          style={{ color: textPri, fontSize: 13 }}
-        />
-        <span
-          className="type-caption px-1.5 py-0.5 rounded-[var(--radius-xs)]"
-          style={{ background: hoverBg, color: textSec, fontFamily: "JetBrains Mono, monospace" }}
+      {isAuthenticated && (
+        <div
+          className="flex-1 max-w-md flex items-center gap-2 px-3 py-1.5 rounded-[var(--radius-md-design)]"
+          style={{ background: inputBg, border: `1px solid ${inputBdr}` }}
         >
-          ⌘K
-        </span>
-      </div>
+          <Search size={13} style={{ color: textSec }} />
+          <input
+            type="text"
+            placeholder="搜索项目、素材或命令…"
+            className="flex-1 bg-transparent outline-none type-caption"
+            style={{ color: textPri, fontSize: 13 }}
+          />
+          <span
+            className="type-caption px-1.5 py-0.5 rounded-[var(--radius-xs)]"
+            style={{ background: hoverBg, color: textSec, fontFamily: "JetBrains Mono, monospace" }}
+          >
+            ⌘K
+          </span>
+        </div>
+      )}
 
       <div className="flex-1" />
+
+      {!isAuthenticated && (
+        <button
+          onClick={openLoginModal}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-[var(--radius-md-design)] type-caption transition-all duration-150 active:scale-95"
+          style={{
+            background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
+            color: "white",
+            fontSize: 13,
+            boxShadow: "0 8px 24px oklch(0.58 0.22 290 / 0.24)",
+          }}
+        >
+          开始体验
+        </button>
+      )}
+
+      {isAuthenticated && (<>
 
       {/* New project */}
       <button
@@ -167,6 +187,7 @@ export default function TopBar({ credits = 75 }: TopBarProps) {
         <span className="type-caption">用户名</span>
         <ChevronDown size={12} style={{ color: textSec }} />
       </button>
+      </>)}
     </header>
   );
 }

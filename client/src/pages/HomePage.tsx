@@ -7,6 +7,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useAuth } from "@/contexts/AuthContext";
 import TopBar from "@/components/workspace/TopBar";
 import {
   Sparkles, LayoutGrid, Wand2, Image as ImageIcon,
@@ -130,13 +131,6 @@ const QUICK_ACTIONS = [
     glow: "oklch(0.50 0.18 160 / 0.30)",
     path: "/workspace",
   },
-];
-
-const PROMPT_SUGGESTIONS = [
-  "设计一套跑鞋产品落地页视觉素材",
-  "为咖啡品牌生成品牌视觉系统",
-  "创作一组电商促销海报",
-  "制作品牌社交媒体内容套件",
 ];
 
 // ── artx-style AI Input Box ──────────────────────────────────
@@ -341,9 +335,91 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
   );
 }
 
+// ── Login / Register Dialog ───────────────────────────────────
+function LoginRegisterDialog({ isDark }: { isDark: boolean }) {
+  const { loginModalOpen, closeLoginModal, login } = useAuth();
+  const [provider, setProvider] = useState<"gmail" | "wechat">("gmail");
+  const [username, setUsername] = useState("09bee");
+  const [password, setPassword] = useState("1234");
+  const [error, setError] = useState("");
+
+  if (!loginModalOpen) return null;
+
+  const panelBg = isDark ? "oklch(0.13 0.015 270)" : "oklch(0.99 0.004 270)";
+  const border = isDark ? "oklch(1 0 0 / 12%)" : "oklch(0 0 0 / 10%)";
+  const text = isDark ? "oklch(0.88 0.008 270)" : "oklch(0.16 0.01 270)";
+  const sub = isDark ? "oklch(0.58 0.01 270)" : "oklch(0.48 0.01 270)";
+  const inputBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0.94 0.004 270)";
+
+  const handleConfirm = () => {
+    setError("");
+    if (!login(username, password)) {
+      setError("账号或密码不正确。测试账号：09bee，密码：1234");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center px-4" style={{ background: "rgba(0,0,0,0.56)", backdropFilter: "blur(12px)" }}>
+      <div className="w-full max-w-[420px] rounded-[var(--radius-xl-design)] p-5" style={{ background: panelBg, border: `1px solid ${border}`, boxShadow: "0 24px 80px rgba(0,0,0,0.45)" }}>
+        <div className="flex items-start justify-between mb-5">
+          <div>
+            <p className="type-body-sm" style={{ color: text }}>登录 / 注册 artx</p>
+            <p className="type-caption mt-1" style={{ color: sub, textTransform: "none", letterSpacing: "0.02em" }}>选择登录方式后，使用测试账号完成验证。</p>
+          </div>
+          <button className="w-8 h-8 rounded-[var(--radius-md-design)] flex items-center justify-center" style={{ color: sub }} onClick={closeLoginModal}>
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          {(["gmail", "wechat"] as const).map(item => {
+            const active = provider === item;
+            return (
+              <button
+                key={item}
+                onClick={() => setProvider(item)}
+                className="rounded-[var(--radius-lg-design)] px-3 py-3 type-caption transition-all"
+                style={{
+                  background: active ? "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))" : inputBg,
+                  border: `1px solid ${active ? "transparent" : border}`,
+                  color: active ? "white" : text,
+                }}
+              >
+                {item === "gmail" ? "Gmail 账号登录" : "微信登录"}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <label className="flex flex-col gap-1.5">
+            <span className="type-caption" style={{ color: sub }}>测试账号</span>
+            <input value={username} onChange={e => setUsername(e.target.value)} className="h-10 rounded-[var(--radius-md-design)] px-3 outline-none type-caption" style={{ background: inputBg, border: `1px solid ${border}`, color: text }} />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="type-caption" style={{ color: sub }}>测试密码</span>
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => { if (e.key === "Enter") handleConfirm(); }} className="h-10 rounded-[var(--radius-md-design)] px-3 outline-none type-caption" style={{ background: inputBg, border: `1px solid ${border}`, color: text }} />
+          </label>
+        </div>
+
+        {error && <p className="type-caption mt-3" style={{ color: "oklch(0.68 0.22 25)", textTransform: "none", letterSpacing: "0.02em" }}>{error}</p>}
+
+        <button
+          onClick={handleConfirm}
+          className="w-full h-11 mt-5 rounded-[var(--radius-lg-design)] type-body-sm transition-all active:scale-[0.98]"
+          style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))", color: "white", boxShadow: "0 10px 28px oklch(0.58 0.22 290 / 0.30)" }}
+        >
+          确认登录
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function HomePage() {
   const [, navigate] = useLocation();
   const { resolvedTheme } = useTheme();
+  const { isAuthenticated, openLoginModal } = useAuth();
   const isDark = resolvedTheme === "dark";
 
   const bg = isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)";
@@ -351,12 +427,17 @@ export default function HomePage() {
   const sub = isDark ? "oklch(0.52 0.01 270)" : "oklch(0.50 0.012 255)";
   const cardBg = isDark ? "oklch(0.13 0.012 270)" : "oklch(1 0 0)";
   const cardBorder = isDark ? "rgba(255,255,255,0.07)" : "oklch(0.88 0.006 255)";
-  const chipBg = isDark ? "oklch(1 0 0 / 0.06)" : "oklch(0.93 0.010 290 / 0.5)";
-  const chipBorder = isDark ? "oklch(1 0 0 / 0.10)" : "oklch(0.52 0.22 290 / 0.18)";
 
-  const handlePromptSubmit = (text: string) => {
-    // Navigate to workspace with the prompt as a query param (future: pass to canvas)
-    navigate("/workspace");
+  const handleStartDesign = () => {
+    if (!isAuthenticated) {
+      openLoginModal();
+      return;
+    }
+    navigate("/project/p1");
+  };
+
+  const handlePromptSubmit = (_text: string) => {
+    handleStartDesign();
   };
 
   return (
@@ -398,23 +479,18 @@ export default function HomePage() {
             <HeroInputBox isDark={isDark} onSubmit={handlePromptSubmit} />
           </div>
 
-          {/* Prompt suggestion chips */}
-          <div className="flex flex-wrap items-center justify-center gap-2 mt-4" style={{ maxWidth: 680 }}>
-            {PROMPT_SUGGESTIONS.map((s, i) => (
-              <button
-                key={i}
-                className="type-caption px-3 py-1.5 rounded-[var(--radius-pill)] transition-all hover:opacity-80 active:scale-95"
-                style={{
-                  background: chipBg,
-                  border: `1px solid ${chipBorder}`,
-                  color: sub,
-                }}
-                onClick={() => handlePromptSubmit(s)}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
+          {/* Primary action */}
+          <button
+            onClick={handleStartDesign}
+            className="mt-5 px-8 h-12 rounded-[var(--radius-lg-design)] type-body-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
+            style={{
+              background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
+              color: "white",
+              boxShadow: "0 14px 36px oklch(0.58 0.22 290 / 0.30)",
+            }}
+          >
+            开始设计
+          </button>
         </div>
 
         {/* ── Below fold: Quick Actions + Recent Projects ── */}
@@ -497,6 +573,7 @@ export default function HomePage() {
           </div>
         </div>
       </div>
+      <LoginRegisterDialog isDark={isDark} />
     </div>
   );
 }
