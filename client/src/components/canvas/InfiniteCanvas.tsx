@@ -235,8 +235,10 @@ function ImagePreviewModal({ src, title, onClose, isDark }: {
 }
 
 // ── Asset Node Floating Toolbar ──────────────────────────────
-function AssetFloatingToolbar({ isDark, onAction }: {
-  isDark: boolean; onAction: (action: string) => void;
+function AssetFloatingToolbar({ isDark, position, onAction }: {
+  isDark: boolean;
+  position: { left: number; top: number };
+  onAction: (action: string) => void;
 }) {
   const toolBg = isDark ? "rgba(22,22,30,0.88)" : "rgba(255,255,255,0.86)";
   const toolBorder = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)";
@@ -275,7 +277,7 @@ function AssetFloatingToolbar({ isDark, onAction }: {
   return (
     <div
       className="absolute nodrag nopan"
-      style={{ left: 31, top: "50%", transform: "translateY(-50%)", zIndex: 1600 }}
+      style={{ left: position.left, top: position.top, transform: "translate(-100%, -50%)", zIndex: 1600 }}
       onMouseDown={e => e.stopPropagation()}
       onClick={e => e.stopPropagation()}
     >
@@ -304,12 +306,13 @@ function MultiSelectionFloatingToolbar({
   isDark,
   count,
   grouped,
+  position,
   onAction,
 }: {
   isDark: boolean;
   count: number;
   grouped: boolean;
-  position?: { left: number; top: number };
+  position: { left: number; top: number };
   onAction: (action: string) => void;
 }) {
   const bg = isDark ? "rgba(22,22,30,0.88)" : "rgba(255,255,255,0.86)";
@@ -328,7 +331,7 @@ function MultiSelectionFloatingToolbar({
   return (
     <div
       className="absolute nodrag nopan"
-      style={{ left: 31, top: "50%", transform: "translateY(-50%)", zIndex: 1600 }}
+      style={{ left: position.left, top: position.top, transform: "translate(-100%, -50%)", zIndex: 1600 }}
       onMouseDown={e => e.stopPropagation()}
       onClick={e => e.stopPropagation()}
     >
@@ -2302,15 +2305,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     toast("功能即将上线", { description: action });
   }, [handleNodeAction, selectedImageNodeIds]);
   const selectedImageBounds = getCanvasNodesBounds(nodes, selectedImageNodeIds);
-  const canvasWidth = containerRef.current?.clientWidth || 0;
-  const assistantWidth = isAssistantCollapsed ? 112 : Math.min(372, Math.max(280, canvasWidth * 0.32));
-  const visibleCanvasWidth = Math.max(0, canvasWidth - assistantWidth);
-  const multiSelectionToolbarPosition = selectedImageBounds
+  const attachedImageToolbarPosition = selectedImageBounds
     ? {
-        left: Math.max(220, Math.min(selectedImageBounds.centerX * viewport.zoom + viewport.x, Math.max(220, visibleCanvasWidth - 220))),
-        top: Math.max(16, selectedImageBounds.y * viewport.zoom + viewport.y - 16),
+        left: selectedImageBounds.x * viewport.zoom + viewport.x - 8,
+        top: selectedImageBounds.centerY * viewport.zoom + viewport.y,
       }
-    : { left: 220, top: 16 };
+    : { left: 31, top: 0 };
   const displayNodes = nodes.map(n => {
     const data = {
       ...n.data,
@@ -2379,6 +2379,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       {selectedImageNodeIds.length === 1 && !multiImageSelectionActive && (
         <AssetFloatingToolbar
           isDark={isDark}
+          position={attachedImageToolbarPosition}
           onAction={handleSingleImageToolbarAction}
         />
       )}
@@ -2388,6 +2389,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           isDark={isDark}
           count={selectedImageNodeIds.length}
           grouped={areNodesGrouped(selectedImageNodeIds)}
+          position={attachedImageToolbarPosition}
           onAction={(action) => handleNodeAction(action, "__selection__")}
         />
       )}
