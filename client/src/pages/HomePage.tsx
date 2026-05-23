@@ -133,6 +133,17 @@ const QUICK_ACTIONS = [
   },
 ];
 
+const PROMPT_SUGGESTIONS = [
+  "产品海报",
+  "品牌视觉",
+  "社媒配图",
+  "电商主图",
+  "活动长图",
+  "Logo 灵感",
+  "包装设计",
+  "落地页视觉",
+];
+
 // ── artx-style AI Input Box ──────────────────────────────────
 function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: string) => void }) {
   const [value, setValue] = useState("");
@@ -427,6 +438,8 @@ export default function HomePage() {
   const sub = isDark ? "oklch(0.52 0.01 270)" : "oklch(0.50 0.012 255)";
   const cardBg = isDark ? "oklch(0.13 0.012 270)" : "oklch(1 0 0)";
   const cardBorder = isDark ? "rgba(255,255,255,0.07)" : "oklch(0.88 0.006 255)";
+  const chipBg = isDark ? "oklch(1 0 0 / 0.06)" : "oklch(1 0 0 / 0.75)";
+  const chipBorder = isDark ? "oklch(1 0 0 / 0.08)" : "oklch(0 0 0 / 0.08)";
 
   const handleStartDesign = () => {
     if (!isAuthenticated) {
@@ -479,18 +492,39 @@ export default function HomePage() {
             <HeroInputBox isDark={isDark} onSubmit={handlePromptSubmit} />
           </div>
 
-          {/* Primary action */}
-          <button
-            onClick={handleStartDesign}
-            className="mt-5 px-8 h-12 rounded-[var(--radius-lg-design)] type-body-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
-            style={{
-              background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
-              color: "white",
-              boxShadow: "0 14px 36px oklch(0.58 0.22 290 / 0.30)",
-            }}
-          >
-            开始设计
-          </button>
+          {isAuthenticated ? (
+            <div
+              className="flex flex-wrap items-center justify-center gap-2 mt-4 overflow-hidden"
+              style={{ width: "100%", maxWidth: 680, maxHeight: 76 }}
+            >
+              {PROMPT_SUGGESTIONS.map((suggestion, index) => (
+                <button
+                  key={index}
+                  className="type-caption px-3 py-1.5 rounded-[var(--radius-pill)] transition-all hover:opacity-80 active:scale-95"
+                  style={{
+                    background: chipBg,
+                    border: `1px solid ${chipBorder}`,
+                    color: sub,
+                  }}
+                  onClick={() => handlePromptSubmit(suggestion)}
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <button
+              onClick={handleStartDesign}
+              className="mt-4 px-8 h-12 rounded-[var(--radius-lg-design)] type-body-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
+              style={{
+                background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
+                color: "white",
+                boxShadow: "0 14px 36px oklch(0.58 0.22 290 / 0.30)",
+              }}
+            >
+              开始设计
+            </button>
+          )}
         </div>
 
         {/* ── Below fold: Quick Actions + Recent Projects ── */}
