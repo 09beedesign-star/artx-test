@@ -454,7 +454,6 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const multiSelectionActive = Boolean(data.multiSelectionActive);
   const [model, setModel] = useState("flux-pro");
   const [preview, setPreview] = useState(false);
-  const [showPanel, setShowPanel] = useState(false);
   const { deleteElements, setNodes: setFlowNodes } = useReactFlow();
   const nodeId = (data as { id?: string }).id || "";
 
@@ -486,8 +485,6 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const nodeWidth = Math.max(minNodeSide, Math.round(naturalWidth * scale));
 
   // Close panel when node loses selection
-  useEffect(() => { if (!selected) setShowPanel(false); }, [selected]);
-
   const handleNodeCtxMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -519,7 +516,6 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
       window.dispatchEvent(new CustomEvent("asset-click-selection", { detail: { selectedIds: nextSelectedIds } }));
       return nextNodes;
     });
-    setShowPanel(additive ? false : p => !p);
     window.dispatchEvent(new CustomEvent("asset-reference", {
       detail: { id: nodeId, title: displayTitle, src: displaySrc, ctrlKey: additive }
     }));
@@ -565,16 +561,8 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
       </NodeWrapper>
 
       {/* Bottom prompt panel — shown on click when selected */}
-      {showPanel && selected && (
-        <AssetPromptPanel
-          isDark={isDark}
-          assetSrc={asset.src}
-          onExpand={() => setPreview(true)}
-        />
-      )}
-
       {preview && (
-        <ImagePreviewModal src={asset.src} title={asset.title} onClose={() => setPreview(false)} isDark={isDark} />
+        <ImagePreviewModal src={displaySrc} title={displayTitle} onClose={() => setPreview(false)} isDark={isDark} />
       )}
     </>
   );
@@ -1920,7 +1908,7 @@ function SaveProjectConfirmDialog({ isDark, project, onCancel, onSave }: {
 }
 
 
-function CanvasAssistantPanel({ isDark, collapsed, isAuthenticated, onToggleCollapsed, onLoginRequest }: { isDark: boolean; collapsed: boolean; isAuthenticated: boolean; onToggleCollapsed: () => void; onLoginRequest: () => void }) {
+function CanvasAssistantPanel({ isDark, collapsed, isAuthenticated, onToggleCollapsed, onLoginRequest, referencedAssets, onRemoveReference }: { isDark: boolean; collapsed: boolean; isAuthenticated: boolean; onToggleCollapsed: () => void; onLoginRequest: () => void; referencedAssets: { id: string; title: string; src: string }[]; onRemoveReference: (id: string) => void }) {
   const [inputFocused, setInputFocused] = useState(false);
   const bg = isDark ? "oklch(0.125 0.014 270 / 0.98)" : "oklch(0.995 0.002 80 / 0.98)";
   const border = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 10%)";
@@ -1995,6 +1983,43 @@ function CanvasAssistantPanel({ isDark, collapsed, isAuthenticated, onToggleColl
           </div>
 
           <div className="shrink-0 p-4 mt-auto">
+            {/* 引用标签区域 — 选中图片节点后自动出现 */}
+            {referencedAssets.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2 px-1">
+                {referencedAssets.map(ref => (
+                  <div
+                    key={ref.id}
+                    className="flex items-center gap-1.5 rounded-[var(--radius-md-design)] px-2 py-1"
+                    style={{
+                      background: isDark ? "oklch(0.58 0.20 290 / 0.18)" : "oklch(0.58 0.18 290 / 0.10)",
+                      border: `1px solid ${isDark ? "oklch(0.72 0.18 290 / 0.35)" : "oklch(0.52 0.18 290 / 0.30)"}`,
+                      maxWidth: 160,
+                    }}
+                  >
+                    <img
+                      src={ref.src}
+                      alt={ref.title}
+                      style={{ width: 18, height: 18, borderRadius: 3, objectFit: "cover", flexShrink: 0 }}
+                    />
+                    <span
+                      className="type-caption truncate"
+                      style={{ color: isDark ? "oklch(0.82 0.012 270)" : "oklch(0.28 0.012 270)", maxWidth: 90, fontSize: 11 }}
+                    >
+                      {ref.title}
+                    </span>
+                    <button
+                      onClick={() => onRemoveReference(ref.id)}
+                      className="flex items-center justify-center flex-shrink-0 rounded-full transition-opacity hover:opacity-70"
+                      style={{ color: isDark ? "oklch(0.62 0.008 270)" : "oklch(0.50 0.008 270)", background: "transparent", border: "none", padding: 0, lineHeight: 1 }}
+                      title="移除引用"
+                      aria-label="移除引用"
+                    >
+                      <X size={10} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             <div
               className="rounded-[var(--radius-xl-design)] px-3 py-3 transition-shadow duration-200"
               style={{
@@ -2004,7 +2029,7 @@ function CanvasAssistantPanel({ isDark, collapsed, isAuthenticated, onToggleColl
               }}
             >
               <textarea
-                placeholder={isAuthenticated ? "输入对当前画布的想法..." : "登录后可输入提示词"}
+                placeholder={referencedAssets.length > 0 ? `基于 ${referencedAssets.length} 个引用素材，描述你的创作意图...` : (isAuthenticated ? "输入对当前画布的想法..." : "登录后可输入提示词")}
                 rows={2}
                 disabled={!isAuthenticated}
                 className="w-full bg-transparent outline-none resize-none type-caption leading-6 disabled:cursor-not-allowed"
@@ -3016,7 +3041,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         <Controls showZoom={false} showFitView={false} showInteractive={false} />
       </ReactFlow>
 
-      <CanvasAssistantPanel isDark={isDark} collapsed={isAssistantCollapsed} isAuthenticated={isAuthenticated} onLoginRequest={openLoginModal} onToggleCollapsed={() => setIsAssistantCollapsed(value => !value)} />
+      <CanvasAssistantPanel
+        isDark={isDark}
+        collapsed={isAssistantCollapsed}
+        isAuthenticated={isAuthenticated}
+        onLoginRequest={openLoginModal}
+        onToggleCollapsed={() => setIsAssistantCollapsed(value => !value)}
+        referencedAssets={referencedAssets}
+        onRemoveReference={(id) => setReferencedAssets(prev => prev.filter(r => r.id !== id))}
+      />
 
       {selectedImageNodeIds.length === 1 && !multiImageSelectionActive && (
         <AssetFloatingToolbar
@@ -3132,16 +3165,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             setNodeCtxMenu(null);
           }}
           isDark={isDark}
-        />
-      )}
-
-      {/* Bottom AI Prompt Bar — shown when image nodes are selected, auto-fills reference chips */}
-      {referencedAssets.length > 0 && !editAsset && (
-        <BottomPromptBar
-          isDark={isDark}
-          referencedAssets={referencedAssets}
-          onRemoveReference={(id) => setReferencedAssets(prev => prev.filter(r => r.id !== id))}
-          onClearAllReferences={() => setReferencedAssets([])}
         />
       )}
 
