@@ -43,7 +43,7 @@ import {
   MoreHorizontal, FolderOutput, Maximize2, Mic, RefreshCw,
   ChevronLeft, Home, LayoutGrid, Lock, Unlock, Plus, Minus,
   Search, ArrowRight, Share2, MousePointer2, CircleDot, Grid3X3,
-  Square, PenLine, ImagePlus, Video, Captions, Repeat2, LogOut,
+  Square, PenLine, ImagePlus, Video, Captions, Repeat2, LogOut, FolderDown,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { GENERATED_ASSETS, AI_MODELS, PROJECTS, type GeneratedAsset, type Project } from "@/lib/workspace-data";
@@ -1047,7 +1047,7 @@ function NodeContextMenu({ menu, onClose, onAction, isDark }: {
         { icon: <FolderOutput size={13} />, label: "解散打组", action: "ungroup", color: dangerColor },
       ]
     : [
-        { icon: <Edit3 size={13} />, label: "进入打组", action: "enter-group", color: iconColor },
+        { icon: <FolderDown size={13} />, label: "批量下载", action: "batch-download", color: iconColor },
         { icon: <Box size={13} />, label: "重命名", action: "rename-group", color: iconColor },
         { icon: <FolderOutput size={13} />, label: "解散打组", action: "ungroup", color: dangerColor },
       ];
@@ -2697,10 +2697,42 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const handleGroupAction = useCallback((action: string) => {
     const groupId = (window as unknown as Record<string, unknown>).__artx_ctx_group_id__ as string | undefined;
     if (!groupId) return;
-    if (action === "enter-group") {
-      setEnteringGroupId(groupId);
-      toast(`已进入「${groupNames[groupId] || groupId}」`, {
-        description: "现在可单独选中并编辑组内图片，单击空白处或右键可退出",
+    if (action === "batch-download") {
+      // 收集打组内所有图片节点
+      const groupNodes = nodes.filter(n => {
+        const nGroupId = (n.data as Record<string, unknown>).groupId as string | undefined;
+        return nGroupId === groupId && n.type === "asset";
+      });
+      if (groupNodes.length === 0) {
+        toast("该打组内没有图片节点");
+        return;
+      }
+      const folderName = groupNames[groupId] || groupId;
+      toast(`开始下载「${folderName}」中的 ${groupNodes.length} 张图片`, {
+        description: "文件将依次下载到本地",
+      });
+      // 逐一下载组内所有图片，每张间隔 120ms 避免浏览器拦截
+      groupNodes.forEach((node, index) => {
+        setTimeout(() => {
+          const nodeData = node.data as Record<string, unknown>;
+          const localSrc = nodeData.localSrc as string | undefined;
+          const assetId = nodeData.assetId as string;
+          const title = (nodeData.title as string) || `图片_${index + 1}`;
+          const asset = GENERATED_ASSETS.find(a => a.id === assetId) || GENERATED_ASSETS[0];
+          const src = localSrc || asset?.src || "";
+          if (!src) return;
+          const a = document.createElement("a");
+          a.href = src;
+          // 使用「打组名/图片名.ext」的路径形式，浏览器会将文件保存到同名文件夹
+          const ext = src.startsWith("data:image/png") ? "png"
+            : src.startsWith("data:image/gif") ? "gif"
+            : src.startsWith("data:image/webp") ? "webp"
+            : "jpg";
+          a.download = `${folderName}/${title}.${ext}`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        }, index * 120);
       });
     } else if (action === "exit-group") {
       setEnteringGroupId(null);
