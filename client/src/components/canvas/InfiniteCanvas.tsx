@@ -2549,26 +2549,27 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       toast("已完成竖向排列", { description: `${selectedAssetIds.length} 个图片节点已从上到下排列，水平居中对齐，总高 ${Math.round(totalHeight)}px` });
 
     } else if (action === "download") {
-      const selectedAssets = nodes
-        .filter(n => actionIds.includes(n.id) && n.type === "asset")
-        .map(n => {
-          const assetId = (n.data as Record<string, unknown>).assetId as string;
-          const title = ((n.data as Record<string, unknown>).title as string) || n.id;
-          const asset = GENERATED_ASSETS.find(a => a.id === assetId) || GENERATED_ASSETS[0];
-          return { title, src: asset.src };
-        });
-      selectedAssets.forEach((asset, index) => {
-        setTimeout(() => {
-          const link = document.createElement("a");
-          link.href = asset.src;
-          link.download = `${asset.title || "artx-image"}.png`;
-          link.target = "_blank";
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-        }, index * 120);
-      });
-      toast("正在下载图片", { description: `${selectedAssets.length} 个图片素材已加入下载队列` });
+      const selectedAssetNodes = nodes.filter(n => actionIds.includes(n.id) && n.type === "asset");
+      if (selectedAssetNodes.length === 0) { toast("没有可下载的图片节点"); return; }
+      if (selectedAssetNodes.length === 1) {
+        // 单张直接下载
+        const node = selectedAssetNodes[0];
+        const data = node.data as Record<string, unknown>;
+        const title = (data.title as string) || "artx-image";
+        const src = getNodeImageSrc(node);
+        if (!src) { toast("该节点没有可下载的图片"); return; }
+        setDownloadGroupId(null);
+        setDownloadFormat('png');
+        setDownloadDialogOpen(true);
+        // 存储单张下载信息到 window 临时存储
+        (window as unknown as Record<string, unknown>).__artx_single_download__ = { title, src, node };
+      } else {
+        // 多张直接弹出格式选择对话框打包下载
+        setDownloadGroupId("__selection__");
+        setDownloadFormat('png');
+        setDownloadDialogOpen(true);
+        (window as unknown as Record<string, unknown>).__artx_download_nodes__ = selectedAssetNodes;
+      }
     } else if (action === "add-asset") {
       const node = nodes.find(n => n.id === nodeId);
       if (node) {
@@ -2788,12 +2789,91 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     toast(`已导入 ${files.length} 张图片`, { description: "本地图片已成功添加到画布" });
   }, [pushHistory, screenToFlowPosition, setNodes]);
 
+  // ── 获取节点的图片源 (localSrc 优先，其次 GENERATED_ASSETS) ──
+  const getNodeImageSrc = useCallback((node: Node): string => {
+    const data = node.data as Record<string, unknown>;
+    if (data.localSrc) return data.localSrc as string;
+    const assetId = data.assetId as string;
+    const asset = GENERATED_ASSETS.find(a => a.id === assetId);
+    return asset?.src || "";
+  }, []);
+
+  // ── 批量下载实现：将多个图片打包成 ZIP ──
+  const handleBatchDownload = useCallback(async (
+    targetNodes: Node[],
+    format: 'jpg' | 'png' | 'webp',
+    zipName = 'artx-images'
+  ) => {
+    const assetNodes = targetNodes.filter(n => n.type === "asset");
+    if (assetNodes.length === 0) { toast("没有可下载的图片节点"); return; }
+
+    const toastId = toast.loading(`正在打包 ${assetNodes.length} 张图片...`);
+
+    try {
+      const zip = new JSZip();
+      const mimeType = format === 'jpg' ? 'image/jpeg' : format === 'webp' ? 'image/webp' : 'image/png';
+      const ext = format;
+
+      await Promise.all(assetNodes.map(async (node, index) => {
+        const data = node.data as Record<string, unknown>;
+        const title = (data.title as string) || `image-${index + 1}`;
+        const src = getNodeImageSrc(node);
+        if (!src) return;
+
+        // 将图片转换为目标格式的 Blob
+        const blob = await new Promise<Blob | null>((resolve) => {
+          const img = new window.Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => {
+            const canvas = document.createElement("canvas");
+            canvas.width = img.naturalWidth || 800;
+            canvas.height = img.naturalHeight || 600;
+            const ctx = canvas.getContext("2d");
+            if (!ctx) { resolve(null); return; }
+            if (format === 'jpg') {
+              ctx.fillStyle = "#ffffff";
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+            ctx.drawImage(img, 0, 0);
+            canvas.toBlob(b => resolve(b), mimeType, format === 'jpg' ? 0.92 : undefined);
+          };
+          img.onerror = () => {
+            // 跨域图片失败时，尝试直接 fetch
+            fetch(src)
+              .then(r => r.blob())
+              .then(b => resolve(b))
+              .catch(() => resolve(null));
+          };
+          img.src = src;
+        });
+
+        if (blob) {
+          // 清洁文件名，去除非法字符
+          const safeName = title.replace(/[/\\:*?"<>|]/g, "_");
+          zip.file(`${safeName}.${ext}`, blob);
+        }
+      }));
+
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      saveAs(zipBlob, `${zipName}.zip`);
+      toast.dismiss(toastId);
+      toast("下载完成", { description: `已将 ${assetNodes.length} 张图片打包为 ${zipName}.zip` });
+    } catch (err) {
+      toast.dismiss(toastId);
+      toast("下载失败", { description: "请检查网络连接后重试" });
+      console.error("[BatchDownload]", err);
+    }
+  }, [getNodeImageSrc]);
+
   // ── Handle group actions from context menu ──
   const handleGroupAction = useCallback((action: string) => {
     const groupId = (window as unknown as Record<string, unknown>).__artx_ctx_group_id__ as string | undefined;
     if (!groupId) return;
     if (action === "batch-download") {
       // 打开格式选择弹窗，让用户选择 ZIP 打包格式
+      const groupNodes = nodes.filter(n => (n.data as Record<string, unknown>).groupId === groupId && n.type === "asset");
+      if (groupNodes.length === 0) { toast("该打组没有图片节点"); return; }
+      (window as unknown as Record<string, unknown>).__artx_download_nodes__ = groupNodes;
       setDownloadGroupId(groupId);
       setDownloadFormat('png');
       setDownloadDialogOpen(true);
@@ -3328,6 +3408,139 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           onCancel={() => setPendingProject(null)}
           onSave={handleProjectSaveAndNavigate}
         />
+      )}
+
+      {/* 批量下载格式选择弹窗 */}
+      {downloadDialogOpen && (
+        <div
+          className="fixed inset-0 flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.60)", backdropFilter: "blur(10px)", zIndex: 6000 }}
+          onMouseDown={() => setDownloadDialogOpen(false)}
+        >
+          <div
+            className="w-[min(380px,calc(100vw-32px))] rounded-[var(--radius-lg-design)] overflow-hidden shadow-2xl"
+            style={{
+              background: isDark ? "oklch(0.15 0.018 270)" : "oklch(0.995 0.002 80)",
+              border: `1px solid ${isDark ? "oklch(1 0 0 / 12%)" : "oklch(0.88 0.006 255)"}`,
+            }}
+            onMouseDown={e => e.stopPropagation()}
+          >
+            {/* 弹窗标题 */}
+            <div className="flex items-center justify-between px-5 py-4"
+              style={{ borderBottom: `1px solid ${isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"}` }}>
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-[var(--radius-md-design)] flex items-center justify-center"
+                  style={{ background: "oklch(0.58 0.22 290 / 0.15)" }}>
+                  <Download size={14} style={{ color: "oklch(0.72 0.18 290)" }} />
+                </div>
+                <span className="type-caption" style={{ color: isDark ? "oklch(0.85 0.008 270)" : "oklch(0.18 0.008 270)", fontWeight: 600 }}>
+                  {(() => {
+                    const dlNodes = (window as unknown as Record<string, unknown>).__artx_download_nodes__ as Node[] | undefined;
+                    const singleDl = (window as unknown as Record<string, unknown>).__artx_single_download__ as { title: string } | undefined;
+                    if (singleDl && !dlNodes) return `下载图片`;
+                    const count = dlNodes?.length || 0;
+                    return `批量下载 ${count} 张图片`;
+                  })()}
+                </span>
+              </div>
+              <button
+                onClick={() => setDownloadDialogOpen(false)}
+                className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-all hover:opacity-70"
+                style={{ color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.50 0.01 270)" }}
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            {/* 格式选择 */}
+            <div className="px-5 py-4">
+              <p className="type-caption mb-3" style={{ color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.50 0.01 270)" }}>选择下载格式</p>
+              <div className="flex gap-2">
+                {(['png', 'jpg', 'webp'] as const).map(fmt => (
+                  <button
+                    key={fmt}
+                    onClick={() => setDownloadFormat(fmt)}
+                    className="flex-1 py-2.5 rounded-[var(--radius-md-design)] type-caption font-medium transition-all"
+                    style={{
+                      background: downloadFormat === fmt
+                        ? "oklch(0.58 0.22 290 / 0.18)"
+                        : (isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 4%)"),
+                      border: `1px solid ${downloadFormat === fmt ? "oklch(0.62 0.22 290 / 0.50)" : (isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)")}`,
+                      color: downloadFormat === fmt
+                        ? (isDark ? "oklch(0.82 0.18 290)" : "oklch(0.42 0.18 290)")
+                        : (isDark ? "oklch(0.65 0.008 270)" : "oklch(0.45 0.008 270)"),
+                    }}
+                  >
+                    .{fmt.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+              <p className="type-caption mt-2" style={{ color: isDark ? "oklch(0.42 0.01 270)" : "oklch(0.58 0.01 270)", fontSize: 11 }}>
+                {downloadFormat === 'jpg' ? 'JPEG 有损压缩，文件较小' : downloadFormat === 'webp' ? 'WebP 现代格式，小且清晰' : 'PNG 无损压，支持透明背景'}
+              </p>
+            </div>
+
+            {/* 操作按钮 */}
+            <div className="flex gap-2 px-5 pb-5">
+              <button
+                onClick={() => setDownloadDialogOpen(false)}
+                className="flex-1 py-2.5 rounded-[var(--radius-md-design)] type-caption transition-all hover:opacity-80"
+                style={{
+                  background: isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)",
+                  border: `1px solid ${isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)"}`,
+                  color: isDark ? "oklch(0.60 0.01 270)" : "oklch(0.50 0.01 270)",
+                }}
+              >
+                取消
+              </button>
+              <button
+                onClick={async () => {
+                  setDownloadDialogOpen(false);
+                  const dlNodes = (window as unknown as Record<string, unknown>).__artx_download_nodes__ as Node[] | undefined;
+                  const singleDl = (window as unknown as Record<string, unknown>).__artx_single_download__ as { title: string; src: string } | undefined;
+
+                  if (singleDl && !dlNodes) {
+                    // 单张下载
+                    const img = new window.Image();
+                    img.crossOrigin = "anonymous";
+                    img.onload = () => {
+                      const canvas = document.createElement("canvas");
+                      canvas.width = img.naturalWidth || 800;
+                      canvas.height = img.naturalHeight || 600;
+                      const ctx = canvas.getContext("2d");
+                      if (!ctx) return;
+                      if (downloadFormat === 'jpg') { ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+                      ctx.drawImage(img, 0, 0);
+                      canvas.toBlob(blob => {
+                        if (blob) saveAs(blob, `${singleDl.title}.${downloadFormat}`);
+                      }, downloadFormat === 'jpg' ? 'image/jpeg' : downloadFormat === 'webp' ? 'image/webp' : 'image/png', downloadFormat === 'jpg' ? 0.92 : undefined);
+                    };
+                    img.onerror = () => {
+                      fetch(singleDl.src).then(r => r.blob()).then(b => saveAs(b, `${singleDl.title}.${downloadFormat}`)).catch(() => toast("下载失败"));
+                    };
+                    img.src = singleDl.src;
+                    (window as unknown as Record<string, unknown>).__artx_single_download__ = undefined;
+                  } else if (dlNodes && dlNodes.length > 0) {
+                    // 批量下载
+                    const groupName = downloadGroupId === "__selection__"
+                      ? "artx-selected-images"
+                      : (groupNames[downloadGroupId || ""] || "artx-group");
+                    await handleBatchDownload(dlNodes, downloadFormat, groupName);
+                    (window as unknown as Record<string, unknown>).__artx_download_nodes__ = undefined;
+                  }
+                }}
+                className="flex-1 py-2.5 rounded-[var(--radius-md-design)] type-caption font-medium transition-all active:scale-95"
+                style={{
+                  background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
+                  color: "white",
+                  boxShadow: "0 4px 16px oklch(0.58 0.22 290 / 0.30)",
+                }}
+              >
+                开始下载
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
     </div>
