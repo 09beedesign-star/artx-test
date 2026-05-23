@@ -1260,6 +1260,7 @@ function ZoomControlBar({ isDark }: { isDark: boolean }) {
 function BackButton({ isDark }: { isDark: boolean }) {
   const [, navigate] = useLocation();
   const [open, setOpen] = useState(false);
+  const backButtonRef = useRef<HTMLDivElement>(null);
   const bg = isDark ? "oklch(0.13 0.015 270 / 0.95)" : "oklch(0.98 0.004 270 / 0.95)";
   const border = isDark ? "oklch(1 0 0 / 12%)" : "oklch(0 0 0 / 12%)";
   const text = isDark ? "oklch(0.78 0.01 270)" : "oklch(0.25 0.01 270)";
@@ -1267,13 +1268,17 @@ function BackButton({ isDark }: { isDark: boolean }) {
 
   useEffect(() => {
     if (!open) return;
-    const handler = () => setOpen(false);
-    const t = setTimeout(() => window.addEventListener("mousedown", handler), 50);
-    return () => { clearTimeout(t); window.removeEventListener("mousedown", handler); };
+    const handler = (e: PointerEvent) => {
+      const target = e.target;
+      if (target instanceof globalThis.Node && backButtonRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    const t = setTimeout(() => document.addEventListener("pointerdown", handler, true), 50);
+    return () => { clearTimeout(t); document.removeEventListener("pointerdown", handler, true); };
   }, [open]);
 
   return (
-    <div className="absolute" style={{ top: 12, left: 12, zIndex: 101 }}>
+    <div ref={backButtonRef} className="absolute" style={{ top: 12, left: 12, zIndex: 101 }}>
       <button
         onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
         className="flex items-center gap-1.5 px-3 py-2 rounded-[var(--radius-lg-design)] type-caption shadow-lg transition-all hover:opacity-90 active:scale-95"
