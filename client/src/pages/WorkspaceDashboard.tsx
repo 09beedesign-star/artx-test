@@ -11,9 +11,10 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
 import TopBar from "@/components/workspace/TopBar";
+import CreateProjectDialog, { type CreateProjectPayload } from "@/components/workspace/CreateProjectDialog";
 import {
   Plus, MoreHorizontal, Pencil, Copy, Trash2,
-  FolderOpen, Clock, Image as ImageIcon, X,
+  FolderOpen, Clock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { POSTER_1, POSTER_2, BRAND_KIT, SOCIAL_AD } from "@/lib/workspace-data";
@@ -25,6 +26,10 @@ interface WsProject {
   cover: string | null;
   updatedAt: string;
   nodeCount: number;
+  createdAt?: string;
+  deliveryAt?: string;
+  owner?: string;
+  note?: string;
 }
 
 const INITIAL_PROJECTS: WsProject[] = [
@@ -285,73 +290,9 @@ function CreateProjectCard({ isDark, onCreate }: { isDark: boolean; onCreate: ()
           style={{ background: "oklch(0.62 0.22 290 / 0.12)", color: "oklch(0.62 0.22 290)" }}>
           <Plus size={20} />
         </div>
-        <span className="type-caption" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>新建项目</span>
+        <span className="type-caption" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>新建画布</span>
       </div>
     </button>
-  );
-}
-
-// ── Cover Picker Dialog ────────────────────────────────────────
-function CoverPickerDialog({
-  isDark, onPick, onClose,
-}: { isDark: boolean; onPick: (cover: string | null) => void; onClose: () => void }) {
-  const covers = [POSTER_1, POSTER_2, BRAND_KIT, SOCIAL_AD];
-  const bg = isDark ? "oklch(0.13 0.012 270)" : "oklch(0.97 0.004 270)";
-  const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
-  const text = isDark ? "oklch(0.85 0.008 270)" : "oklch(0.18 0.008 270)";
-  const [title, setTitle] = useState("未命名项目");
-  const [selected, setSelected] = useState<string | null>(null);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose}>
-      <div className="rounded-[var(--radius-lg-design)] p-6 w-96" style={{ background: bg, border: `1px solid ${border}`, boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4">
-          <p className="type-body-sm" style={{ color: text, fontWeight: 540 }}>新建项目</p>
-          <button onClick={onClose} className="w-7 h-7 rounded-[var(--radius-md-design)] flex items-center justify-center hover:opacity-70" style={{ color: text }}>
-            <X size={15} />
-          </button>
-        </div>
-        <div className="mb-4">
-          <label className="type-caption mb-1.5 block" style={{ color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.50 0.01 270)" }}>项目名称</label>
-          <input
-            value={title}
-            onChange={e => setTitle(e.target.value)}
-            className="w-full px-3 py-2 rounded-[var(--radius-lg-design)] type-caption outline-none"
-            style={{ background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", border: `1px solid ${border}`, color: text }}
-            placeholder="输入项目名称..."
-            autoFocus
-          />
-        </div>
-        <div className="mb-5">
-          <label className="type-caption mb-1.5 block" style={{ color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.50 0.01 270)" }}>选择封面（可选）</label>
-          <div className="grid grid-cols-4 gap-2">
-            <button
-              onClick={() => setSelected(null)}
-              className="aspect-video rounded-[var(--radius-md-design)] flex items-center justify-center transition-all"
-              style={{ background: isDark ? "oklch(0.16 0.015 270)" : "oklch(0.92 0.005 270)", border: `1.5px solid ${selected === null ? "oklch(0.62 0.22 290)" : border}` }}
-            >
-              <ImageIcon size={14} style={{ color: isDark ? "oklch(0.45 0.01 270)" : "oklch(0.55 0.01 270)" }} />
-            </button>
-            {covers.map(src => (
-              <button key={src} onClick={() => setSelected(src)} className="aspect-video rounded-[var(--radius-md-design)] overflow-hidden transition-all"
-                style={{ border: `1.5px solid ${selected === src ? "oklch(0.62 0.22 290)" : border}` }}>
-                <img src={src} alt="" className="w-full h-full object-cover" />
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={onClose} className="flex-1 py-2 rounded-[var(--radius-lg-design)] type-caption hover:opacity-80 transition-opacity"
-            style={{ background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)", color: text }}>
-            取消
-          </button>
-          <button onClick={() => onPick(selected)} className="flex-1 py-2 rounded-[var(--radius-lg-design)] type-caption hover:opacity-90 transition-opacity"
-            style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.62 0.20 210))", color: "white" }}>
-            创建项目
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -370,13 +311,23 @@ export default function WorkspaceDashboard() {
   const text = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.22 0.018 255)";
   const sub = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.50 0.012 255)";
 
-  const handleCreate = useCallback((cover: string | null) => {
-    const newP: WsProject = { id: uid(), title: "未命名项目", cover, updatedAt: "刚刚", nodeCount: 0 };
+  const handleCreate = useCallback((payload: CreateProjectPayload) => {
+    const newP: WsProject = {
+      id: payload.id || uid(),
+      title: payload.name,
+      cover: payload.cover,
+      updatedAt: "刚刚",
+      nodeCount: 0,
+      createdAt: payload.createdAt,
+      deliveryAt: payload.deliveryAt,
+      owner: payload.owner,
+      note: payload.note,
+    };
     setProjects(ps => [newP, ...ps]);
     setShowCreate(false);
-    setRenamingId(newP.id);
-    toast("项目已创建", { description: "点击名称可重命名" });
-  }, []);
+    toast("项目已创建", { description: payload.name });
+    navigate(`/project/${newP.id}`);
+  }, [navigate]);
 
   const handleRename = useCallback((id: string, name: string) => {
     setProjects(ps => ps.map(p => p.id === id ? { ...p, title: name } : p));
@@ -409,7 +360,7 @@ export default function WorkspaceDashboard() {
 
   return (
     <div className="flex flex-col h-screen overflow-hidden" style={{ background: bg, transition: "background 0.25s ease" }}>
-      <TopBar credits={75} />
+      <TopBar credits={75} onNewProjectClick={() => setShowCreate(true)} onCreateProject={handleCreate} />
 
       <div className="flex-1 overflow-y-auto px-8 py-6 select-none" style={{ position: "relative" }}>
 
@@ -442,7 +393,7 @@ export default function WorkspaceDashboard() {
 
       </div>
 
-      {showCreate && <CoverPickerDialog isDark={isDark} onPick={handleCreate} onClose={() => setShowCreate(false)} />}
+      <CreateProjectDialog open={showCreate} onOpenChange={setShowCreate} onCreate={handleCreate} />
       {deleteConfirm && <DeleteConfirmDialog count={deleteConfirm.length} onConfirm={confirmDelete} onCancel={() => setDeleteConfirm(null)} isDark={isDark} />}
     </div>
   );

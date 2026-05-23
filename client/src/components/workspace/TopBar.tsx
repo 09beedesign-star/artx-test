@@ -2,12 +2,13 @@
  * TopBar — Neo-Studio Dark Design System
  * Global top navigation: search, theme switcher (Radix DropdownMenu), credits, user info
  */
-import { useState } from "react";
-import { Search, Bell, ChevronDown, Sparkles, Plus, Moon, Sun, Monitor, Check, Settings, LogOut } from "lucide-react";
+import { useState, type ElementType } from "react";
+import { Bell, ChevronDown, Sparkles, Plus, Moon, Sun, Monitor, Check, UserRound, LogOut } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { useTheme, type ThemeMode } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
+import CreateProjectDialog, { type CreateProjectPayload } from "@/components/workspace/CreateProjectDialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,15 +30,17 @@ import {
 
 interface TopBarProps {
   credits?: number;
+  onNewProjectClick?: () => void;
+  onCreateProject?: (payload: CreateProjectPayload) => void;
 }
 
-const THEME_OPTIONS: { mode: ThemeMode; icon: React.ElementType; label: string }[] = [
+const THEME_OPTIONS: { mode: ThemeMode; icon: ElementType; label: string }[] = [
   { mode: "dark",   icon: Moon,    label: "深色" },
   { mode: "light",  icon: Sun,     label: "浅色" },
   { mode: "system", icon: Monitor, label: "跟随系统" },
 ];
 
-export default function TopBar({ credits = 75 }: TopBarProps) {
+export default function TopBar({ credits = 75, onNewProjectClick, onCreateProject }: TopBarProps) {
   const { mode, setMode, resolvedTheme } = useTheme();
   const { isAuthenticated, openLoginModal, logout } = useAuth();
   const [, navigate] = useLocation();
@@ -46,19 +49,35 @@ export default function TopBar({ credits = 75 }: TopBarProps) {
 
   const surface   = isDark ? "oklch(0.11 0.015 270)"       : "var(--design-surface-soft)";
   const border    = isDark ? "oklch(1 0 0 / 6%)"           : "var(--hairline)";
-  const inputBg   = isDark ? "oklch(1 0 0 / 5%)"           : "var(--design-canvas)";
-  const inputBdr  = isDark ? "oklch(1 0 0 / 8%)"           : "var(--hairline)";
   const textPri   = isDark ? "oklch(0.85 0.01 270)"        : "oklch(0.22 0.018 255)";
   const textSec   = isDark ? "oklch(0.50 0.01 270)"        : "oklch(0.50 0.012 255)";
   const hoverBg   = isDark ? "oklch(1 0 0 / 5%)"           : "oklch(0 0 0 / 0.04)";
 
   const ActiveIcon = THEME_OPTIONS.find((o) => o.mode === mode)?.icon ?? Moon;
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [createProjectOpen, setCreateProjectOpen] = useState(false);
 
   const handleConfirmLogout = () => {
     logout();
     setLogoutConfirmOpen(false);
     navigate("/");
+  };
+
+  const handleNewProjectClick = () => {
+    if (onNewProjectClick) {
+      onNewProjectClick();
+      return;
+    }
+    setCreateProjectOpen(true);
+  };
+
+  const handleCreateProject = (payload: CreateProjectPayload) => {
+    if (onCreateProject) {
+      onCreateProject(payload);
+      return;
+    }
+    toast("项目已创建", { description: payload.name });
+    navigate(`/project/${payload.id}`);
   };
 
   return (
@@ -67,27 +86,6 @@ export default function TopBar({ credits = 75 }: TopBarProps) {
       className="flex items-center gap-3 px-4 shrink-0"
       style={{ height: 52, background: surface, borderBottom: `1px solid ${border}`, zIndex: 10 }}
     >
-      {isAuthenticated && (
-        <div
-          className="flex-1 max-w-md flex items-center gap-2 px-3 py-1.5 rounded-[var(--radius-md-design)]"
-          style={{ background: inputBg, border: `1px solid ${inputBdr}` }}
-        >
-          <Search size={13} style={{ color: textSec }} />
-          <input
-            type="text"
-            placeholder="搜索项目、素材或命令…"
-            className="flex-1 bg-transparent outline-none type-caption"
-            style={{ color: textPri, fontSize: 13 }}
-          />
-          <span
-            className="type-caption px-1.5 py-0.5 rounded-[var(--radius-xs)]"
-            style={{ background: hoverBg, color: textSec, fontFamily: "JetBrains Mono, monospace" }}
-          >
-            ⌘K
-          </span>
-        </div>
-      )}
-
       <div className="flex-1" />
 
       {!isAuthenticated && (
@@ -109,7 +107,7 @@ export default function TopBar({ credits = 75 }: TopBarProps) {
 
       {/* New project */}
       <button
-        onClick={() => toast("新建项目", { description: "功能即将上线" })}
+        onClick={handleNewProjectClick}
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-md-design)] type-caption transition-all duration-150 active:scale-95"
         style={{
           background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
@@ -221,12 +219,12 @@ export default function TopBar({ credits = 75 }: TopBarProps) {
           }}
         >
           <DropdownMenuItem
-            onClick={() => navigate("/settings")}
+            onClick={() => navigate("/profile")}
             className="flex items-center gap-2.5 px-3 py-2 type-caption cursor-pointer"
             style={{ color: textPri }}
           >
-            <Settings size={13} style={{ color: textSec }} />
-            <span>设置</span>
+            <UserRound size={13} style={{ color: textSec }} />
+            <span>个人主页</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator style={{ background: isDark ? "oklch(1 0 0 / 8%)" : "oklch(0.88 0.006 255)" }} />
           <DropdownMenuItem
@@ -241,6 +239,12 @@ export default function TopBar({ credits = 75 }: TopBarProps) {
       </DropdownMenu>
       </>)}
     </header>
+
+    <CreateProjectDialog
+      open={createProjectOpen}
+      onOpenChange={setCreateProjectOpen}
+      onCreate={handleCreateProject}
+    />
 
     <AlertDialog open={logoutConfirmOpen} onOpenChange={setLogoutConfirmOpen}>
       <AlertDialogContent

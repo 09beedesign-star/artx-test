@@ -10,9 +10,9 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import TopBar from "@/components/workspace/TopBar";
 import {
-  Sparkles, LayoutGrid, Wand2, Image as ImageIcon,
+  Sparkles, LayoutGrid, Image as ImageIcon,
   ArrowRight, Clock, ChevronRight, Paperclip, ChevronDown,
-  Send, Mic, X, Check, MoreHorizontal, Pencil, Copy, Trash2,
+  Send, Mic, X, Check, MoreHorizontal, Pencil, Copy, Trash2, Eye, EyeOff,
 } from "lucide-react";
 import { PROJECTS, POSTER_1, POSTER_2, BRAND_KIT, SOCIAL_AD, BG_GLOW, AI_MODELS } from "@/lib/workspace-data";
 
@@ -104,15 +104,6 @@ const COVERS: Record<string, string> = {
 };
 
 const QUICK_ACTIONS = [
-  {
-    id: "canvas",
-    icon: Wand2,
-    title: "AI 创作",
-    desc: "用自然语言描述，AI 在画布上生成视觉素材",
-    gradient: "linear-gradient(135deg, oklch(0.45 0.22 290), oklch(0.50 0.20 260))",
-    glow: "oklch(0.55 0.22 290 / 0.35)",
-    path: "/workspace",
-  },
   {
     id: "template",
     icon: LayoutGrid,
@@ -352,6 +343,7 @@ function LoginRegisterDialog({ isDark }: { isDark: boolean }) {
   const [provider, setProvider] = useState<"gmail" | "wechat">("gmail");
   const [username, setUsername] = useState("09bee");
   const [password, setPassword] = useState("1234");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
 
   if (!loginModalOpen) return null;
@@ -363,9 +355,21 @@ function LoginRegisterDialog({ isDark }: { isDark: boolean }) {
   const inputBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0.94 0.004 270)";
 
   const handleConfirm = () => {
+    const normalizedUsername = username.trim();
     setError("");
-    if (!login(username, password)) {
-      setError("账号或密码不正确。测试账号：09bee，密码：1234");
+
+    if (!normalizedUsername) {
+      setError("请输入账号");
+      return;
+    }
+
+    if (!password.trim()) {
+      setError("请输入密码");
+      return;
+    }
+
+    if (!login(normalizedUsername, password)) {
+      setError("账号或密码错误，请重新输入");
     }
   };
 
@@ -405,15 +409,56 @@ function LoginRegisterDialog({ isDark }: { isDark: boolean }) {
         <div className="flex flex-col gap-3">
           <label className="flex flex-col gap-1.5">
             <span className="type-caption" style={{ color: sub }}>测试账号</span>
-            <input value={username} onChange={e => setUsername(e.target.value)} className="h-10 rounded-[var(--radius-md-design)] px-3 outline-none type-caption" style={{ background: inputBg, border: `1px solid ${border}`, color: text }} />
+            <input
+              value={username}
+              onChange={e => { setUsername(e.target.value); if (error) setError(""); }}
+              className="h-10 rounded-[var(--radius-md-design)] px-3 outline-none type-caption"
+              style={{
+                background: inputBg,
+                border: `1px solid ${error === "请输入账号" ? "oklch(0.68 0.22 25)" : border}`,
+                color: text,
+              }}
+              placeholder="请输入账号"
+            />
           </label>
           <label className="flex flex-col gap-1.5">
             <span className="type-caption" style={{ color: sub }}>测试密码</span>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => { if (e.key === "Enter") handleConfirm(); }} className="h-10 rounded-[var(--radius-md-design)] px-3 outline-none type-caption" style={{ background: inputBg, border: `1px solid ${border}`, color: text }} />
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={e => { setPassword(e.target.value); if (error) setError(""); }}
+                onKeyDown={e => { if (e.key === "Enter") handleConfirm(); }}
+                className="h-10 w-full rounded-[var(--radius-md-design)] pl-3 pr-10 outline-none type-caption"
+                style={{
+                  background: inputBg,
+                  border: `1px solid ${error === "请输入密码" ? "oklch(0.68 0.22 25)" : border}`,
+                  color: text,
+                }}
+                placeholder="请输入密码"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(v => !v)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-[var(--radius-md-design)] flex items-center justify-center transition-opacity hover:opacity-75 active:scale-95"
+                style={{ color: sub }}
+                aria-label={showPassword ? "隐藏密码" : "显示密码"}
+              >
+                {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            </div>
           </label>
         </div>
 
-        {error && <p className="type-caption mt-3" style={{ color: "oklch(0.68 0.22 25)", textTransform: "none", letterSpacing: "0.02em" }}>{error}</p>}
+        {error && (
+          <p
+            className="type-caption mt-3"
+            role="alert"
+            style={{ color: "oklch(0.68 0.22 25)", textTransform: "none", letterSpacing: "0.02em" }}
+          >
+            {error}
+          </p>
+        )}
 
         <button
           onClick={handleConfirm}
@@ -530,7 +575,7 @@ export default function HomePage() {
         {/* ── Below fold: Quick Actions + Recent Projects ── */}
         <div className="px-8 pb-10">
           {/* Quick Actions */}
-          <div className="grid grid-cols-3 gap-4 mb-10">
+          <div className="grid grid-cols-2 gap-4 mb-10 mx-auto w-full">
             {QUICK_ACTIONS.map(action => {
               const Icon = action.icon;
               return (

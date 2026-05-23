@@ -1,24 +1,16 @@
 /**
  * AppShell — Global Layout with Left Sidebar
- * Design: Neo-Studio — wide sidebar with nav groups + history list
- * Sections: 首页 / 灵感选题 / 技能商店 | 工作区: 工作台 / 素材库 | 历史对话
+ * Design: Neo-Studio — wide sidebar with nav groups
+ * Sections: 首页 / 灵感选题 / 技能商店 | 工作区: 工作台 / 素材库
  */
 import { useLocation } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   Home, Sparkles, Library, FolderOpen, Archive,
-  History, Settings, HelpCircle, Edit3,
+  Settings, HelpCircle,
 } from "lucide-react";
 
-// ── Mock history items ──────────────────────────────────────────
-const HISTORY_ITEMS = [
-  "剩余8张4K高清图片将...",
-  "提取图片中的文案",
-  "根据参考图生成3张产...",
-  "根据参考图生成3张产...",
-  "把图片一的角色，按照...",
-];
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -153,41 +145,6 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
             </div>
           </div>
 
-          {/* Divider */}
-          <div style={{ height: 1, background: dividerColor, margin: "8px 4px" }} />
-
-          {/* 历史对话 */}
-          <div className="mb-2">
-            <div className="flex items-center justify-between px-3 py-1.5">
-              <div className="flex items-center gap-1.5">
-                <History size={12} style={{ color: textMuted, flexShrink: 0 }} strokeWidth={1.6} />
-                <span className="type-caption uppercase" style={{ color: textMuted }}>
-                  历史对话
-                </span>
-              </div>
-              <button
-                className="w-5 h-5 rounded-[var(--radius-xs)] flex items-center justify-center transition-opacity hover:opacity-70"
-                style={{ color: textMuted }}
-                title="新建对话"
-              >
-                <Edit3 size={11} strokeWidth={1.6} />
-              </button>
-            </div>
-
-            <div className="flex flex-col gap-0.5">
-              {HISTORY_ITEMS.map((item, i) => (
-                <button
-                  key={i}
-                  className="w-full text-left px-3 py-1.5 rounded-[var(--radius-md-design)] type-caption truncate transition-all"
-                  style={{ color: textSecondary }}
-                  onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = hoverBg)}
-                  onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
-                >
-                  {item}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
 
         {/* ── Bottom: Settings + Help + User ── */}

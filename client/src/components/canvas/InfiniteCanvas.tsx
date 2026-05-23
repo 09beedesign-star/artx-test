@@ -41,9 +41,10 @@ import {
   ZoomIn, Download, Crop, Box, Eraser, SlidersHorizontal,
   MoreHorizontal, FolderOutput, Maximize2, Mic, RefreshCw,
   ChevronLeft, Home, LayoutGrid, Lock, Unlock, Plus, Minus,
+  Search, ArrowRight,
 } from "lucide-react";
 import { useLocation } from "wouter";
-import { GENERATED_ASSETS, AI_MODELS } from "@/lib/workspace-data";
+import { GENERATED_ASSETS, AI_MODELS, PROJECTS, type GeneratedAsset, type Project } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
 
 const ENABLE_NODE_CONNECTIONS = false;
@@ -1393,10 +1394,174 @@ function TopLeftToolbar({ isDark, onAdd }: { isDark: boolean; onAdd: (type: stri
   );
 }
 
+
+// ── Canvas Search Bar ───────────────────────────────────────────
+function SaveProjectConfirmDialog({ isDark, project, onCancel, onSave }: {
+  isDark: boolean;
+  project: Project;
+  onCancel: () => void;
+  onSave: () => void;
+}) {
+  const bg = isDark ? "oklch(0.15 0.018 270)" : "oklch(0.995 0.002 80)";
+  const border = isDark ? "oklch(1 0 0 / 12%)" : "oklch(0.88 0.006 255)";
+  const text = isDark ? "oklch(0.85 0.01 270)" : "oklch(0.22 0.018 255)";
+  const sub = isDark ? "oklch(0.58 0.01 270)" : "oklch(0.50 0.012 255)";
+
+  return (
+    <div
+      className="fixed inset-0 flex items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.58)", backdropFilter: "blur(8px)", zIndex: 4000 }}
+      onMouseDown={onCancel}
+    >
+      <div
+        className="w-[min(420px,calc(100vw-32px))] rounded-[var(--radius-lg-design)] p-6 shadow-2xl"
+        style={{ background: bg, border: `1px solid ${border}`, boxShadow: "0 24px 80px oklch(0 0 0 / 0.35)" }}
+        onMouseDown={e => e.stopPropagation()}
+      >
+        <h3 className="type-title-sm text-center" style={{ color: text, fontSize: 18, fontWeight: 650 }}>保存当前项目？</h3>
+        <p className="type-body-sm mt-3 text-center leading-6" style={{ color: sub }}>
+          跳转到「{project.title}」前，是否先保存当前画布的编辑内容？
+        </p>
+        <div className="mt-6 flex items-center justify-center gap-3">
+          <button
+            onClick={onCancel}
+            className="h-9 min-w-[96px] rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-85"
+            style={{ background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)", border: `1px solid ${border}`, color: text }}
+          >
+            取消
+          </button>
+          <button
+            onClick={onSave}
+            className="h-9 min-w-[112px] rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-90"
+            style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))", color: "white", boxShadow: "0 8px 24px oklch(0.58 0.22 290 / 0.22)" }}
+          >
+            保存
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CanvasSearchBar({ isDark, currentProjectId, onProjectRequest, onAssetAdd }: {
+  isDark: boolean;
+  currentProjectId: string;
+  onProjectRequest: (project: Project) => void;
+  onAssetAdd: (asset: GeneratedAsset) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && e.target instanceof globalThis.Node && !ref.current.contains(e.target)) setOpen(false);
+    };
+    const t = setTimeout(() => document.addEventListener("mousedown", handler), 50);
+    return () => { clearTimeout(t); document.removeEventListener("mousedown", handler); };
+  }, [open]);
+
+  const normalized = query.trim().toLowerCase();
+  const projectResults = PROJECTS.filter(project => {
+    if (project.id === currentProjectId && !normalized) return true;
+    const haystack = `${project.title} ${project.subtitle || ""}`.toLowerCase();
+    return normalized ? haystack.includes(normalized) : true;
+  }).slice(0, 4);
+  const assetResults = GENERATED_ASSETS.filter(asset => {
+    const haystack = `${asset.title} ${asset.type} ${(asset.tags || []).join(" ")}`.toLowerCase();
+    return normalized ? haystack.includes(normalized) : true;
+  }).slice(0, 4);
+
+  const bg = isDark ? "oklch(0.13 0.015 270 / 0.95)" : "oklch(0.98 0.004 270 / 0.95)";
+  const panelBg = isDark ? "oklch(0.15 0.018 270 / 0.98)" : "oklch(0.995 0.002 80 / 0.98)";
+  const border = isDark ? "oklch(1 0 0 / 12%)" : "oklch(0 0 0 / 12%)";
+  const divider = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
+  const text = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.20 0.008 270)";
+  const sub = isDark ? "oklch(0.52 0.01 270)" : "oklch(0.50 0.012 255)";
+  const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
+
+  return (
+    <div ref={ref} className="absolute nodrag nopan" style={{ top: 12, left: 100, zIndex: 102, width: 360 }}>
+      <div
+        className="flex items-center gap-2 px-3 rounded-[var(--radius-lg-design)] shadow-lg"
+        style={{ height: 34, background: bg, border: `1.5px solid ${open ? "oklch(0.62 0.22 290 / 0.55)" : border}`, backdropFilter: "blur(14px)" }}
+        onMouseDown={e => e.stopPropagation()}
+      >
+        <Search size={14} style={{ color: open ? "oklch(0.72 0.18 290)" : sub }} />
+        <input
+          value={query}
+          onChange={e => { setQuery(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          placeholder="搜索项目或素材..."
+          className="flex-1 bg-transparent outline-none type-caption"
+          style={{ color: text }}
+        />
+      </div>
+
+      {open && (
+        <div
+          className="mt-2 rounded-[var(--radius-lg-design)] overflow-hidden shadow-2xl"
+          style={{ background: panelBg, border: `1px solid ${border}`, backdropFilter: "blur(20px)", maxHeight: 460 }}
+          onMouseDown={e => e.stopPropagation()}
+        >
+          <div className="px-3 py-2" style={{ borderBottom: `1px solid ${divider}` }}>
+            <span className="type-caption uppercase" style={{ color: sub }}>项目</span>
+          </div>
+          {projectResults.length ? projectResults.map(project => (
+            <button
+              key={project.id}
+              className="flex items-center gap-2.5 w-full px-3 py-2.5 text-left type-caption transition-colors"
+              style={{ color: text }}
+              onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+              onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+              onClick={() => { onProjectRequest(project); setOpen(false); }}
+            >
+              <LayoutGrid size={13} style={{ color: "oklch(0.62 0.18 290)", flexShrink: 0 }} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{project.title}</span>
+                <span className="block truncate" style={{ color: sub, fontSize: 11 }}>{project.subtitle || project.updatedAt}</span>
+              </span>
+              <ArrowRight size={13} style={{ color: sub, flexShrink: 0 }} />
+            </button>
+          )) : (
+            <div className="px-3 py-3 type-caption" style={{ color: sub }}>未找到匹配项目</div>
+          )}
+
+          <div className="px-3 py-2" style={{ borderTop: `1px solid ${divider}`, borderBottom: `1px solid ${divider}` }}>
+            <span className="type-caption uppercase" style={{ color: sub }}>素材</span>
+          </div>
+          {assetResults.length ? assetResults.map(asset => (
+            <div key={asset.id} className="flex items-center gap-2.5 px-3 py-2.5 transition-colors" onMouseEnter={e => (e.currentTarget.style.background = hoverBg)} onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+              <div className="w-9 h-9 rounded-[var(--radius-md-design)] overflow-hidden flex items-center justify-center" style={{ background: isDark ? "oklch(0.20 0.004 270)" : "oklch(0.88 0.004 270)", border: `1px solid ${divider}`, flexShrink: 0 }}>
+                <img src={asset.src} alt="" className="w-full h-full object-cover" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="type-caption truncate" style={{ color: text }}>{asset.title}</p>
+                <p className="type-caption truncate" style={{ color: sub, fontSize: 11 }}>{asset.tags?.join(" · ") || asset.type}</p>
+              </div>
+              <button
+                onClick={() => { onAssetAdd(asset); setOpen(false); }}
+                className="px-2 py-1 rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-85"
+                style={{ background: "oklch(0.58 0.22 290 / 0.18)", border: "1px solid oklch(0.62 0.22 290 / 0.35)", color: isDark ? "oklch(0.82 0.18 290)" : "oklch(0.42 0.18 290)", flexShrink: 0 }}
+              >
+                加入画布
+              </button>
+            </div>
+          )) : (
+            <div className="px-3 py-3 type-caption" style={{ color: sub }}>未找到匹配素材</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Inner Canvas ───────────────────────────────────────────────
 function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
+  const [, navigate] = useLocation();
   const { screenToFlowPosition, getEdges, getNodes, fitView } = useReactFlow();
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
@@ -1406,6 +1571,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   // ── Edit-asset state: zoom in on canvas then show editing prompt bar ──
   const [editAsset, setEditAsset] = useState<{ id: string; title: string; src: string; nodeId: string } | null>(null);
   const [isZoomingToEdit, setIsZoomingToEdit] = useState(false);
+  const [pendingProject, setPendingProject] = useState<Project | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -1489,6 +1655,36 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       data,
     }]);
   }, [setNodes]);
+
+
+  const handleAssetAddFromSearch = useCallback((asset: GeneratedAsset) => {
+    const container = containerRef.current;
+    const rect = container?.getBoundingClientRect();
+    const position = rect
+      ? screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
+      : { x: 120 + Math.random() * 160, y: 80 + Math.random() * 120 };
+    const id = `asset-${asset.id}-${Date.now()}`;
+    setNodes(nds => [...nds, {
+      id,
+      type: "asset",
+      position: { x: position.x - 120, y: position.y - 80 },
+      data: {
+        id,
+        assetId: asset.id,
+        title: asset.title,
+        assetType: asset.type,
+        tags: asset.tags || DEFAULT_ASSET_TAGS,
+      },
+    }]);
+    toast("已加入当前画布", { description: asset.title });
+  }, [screenToFlowPosition, setNodes]);
+
+  const handleProjectSaveAndNavigate = useCallback(() => {
+    if (!pendingProject) return;
+    toast("当前项目已保存", { description: "正在跳转到目标项目" });
+    navigate(`/project/${pendingProject.id}`);
+    setPendingProject(null);
+  }, [navigate, pendingProject]);
 
   // ── C-key lasso: cut edges intersecting the lasso rect ──
   const handleLassoCut = useCallback((lassoRect: LassoRect) => {
@@ -1602,10 +1798,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       {/* Back button — top-left */}
       <BackButton isDark={isDark} />
 
-      {/* Top-left node creation toolbar — offset to avoid overlap with back button */}
-      <div style={{ position: "absolute", top: 12, left: 100, zIndex: 100 }}>
-        <TopLeftToolbar isDark={isDark} onAdd={addNode} />
-      </div>
+      {/* Canvas search — fixed beside back button */}
+      <CanvasSearchBar
+        isDark={isDark}
+        currentProjectId={projectId}
+        onProjectRequest={setPendingProject}
+        onAssetAdd={handleAssetAddFromSearch}
+      />
 
       {/* C-key lasso eraser — hidden while node connections are temporarily disabled */}
       {ENABLE_NODE_CONNECTIONS && <LassoEraser isDark={isDark} onCut={handleLassoCut} />}
@@ -1629,6 +1828,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 : n
             ));
           }}
+        />
+      )}
+
+      {pendingProject && (
+        <SaveProjectConfirmDialog
+          isDark={isDark}
+          project={pendingProject}
+          onCancel={() => setPendingProject(null)}
+          onSave={handleProjectSaveAndNavigate}
         />
       )}
 
