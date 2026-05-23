@@ -72,13 +72,13 @@
 }
 
 :root {
-  --radius: 0.5rem;
+  --radius: 2px;
   --radius-xs: 2px;
-  --radius-sm-design: 6px;
-  --radius-md-design: 8px;
-  --radius-lg-design: 24px;
-  --radius-xl-design: 32px;
-  --radius-pill: 50px;
+  --radius-sm-design: 2px;
+  --radius-md-design: 2px;
+  --radius-lg-design: 2px;
+  --radius-xl-design: 2px;
+  --radius-pill: 2px;
 
   --space-hair: 1px;
   --space-xxs: 4px;
@@ -441,19 +441,29 @@ html.light, .light {
   }
 }
 
+@layer utilities {
+  .rounded-md,
+  .rounded-lg,
+  .rounded-xl,
+  .rounded-2xl,
+  .rounded-3xl {
+    border-radius: var(--radius-md-design) !important;
+  }
+}
+
 /* ── MiniMap viewport highlight box ─────────────────────────── */
 /* 视口高亮方框：品牌紫色边框 + 半透明填充，pannable/zoomable 时显示 */
 .react-flow__minimap-mask {
   fill: transparent !important;
   stroke: oklch(0.62 0.22 290) !important;
   stroke-width: 3 !important;
-  rx: 3;
+  rx: 2;
 }
 /* 小地图整体鼠标样式 */
 .react-flow__minimap {
   cursor: crosshair;
 }
 .react-flow__minimap svg {
-  border-radius: 6px;
+  border-radius: 2px;
 }
 

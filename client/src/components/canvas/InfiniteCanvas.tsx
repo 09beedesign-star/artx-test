@@ -1226,9 +1226,8 @@ function AssetEditPromptBar({
 }
 
 // ── Zoom Control Bar (left-bottom vertical bar) ──────────────────────────────
-function ZoomControlBar({ isDark }: { isDark: boolean }) {
+function ZoomControlBar({ isDark, locked, onLockedChange }: { isDark: boolean; locked: boolean; onLockedChange: (locked: boolean) => void }) {
   const { zoomIn, zoomOut, fitView } = useReactFlow();
-  const [locked, setLocked] = useState(false);
 
   // Bar style mirrors the image preview toolbar
   const barBg = isDark ? "rgba(22,22,30,0.80)" : "rgba(255,255,255,0.82)";
@@ -1318,13 +1317,18 @@ function ZoomControlBar({ isDark }: { isDark: boolean }) {
         {/* Lock / Unlock */}
         <button
           className={btnClass}
-          style={{ color: locked ? "oklch(0.62 0.22 290)" : iconColor }}
+          style={{
+            color: locked ? "oklch(0.68 0.29 25)" : iconColor,
+            background: locked ? "oklch(0.62 0.28 25 / 0.18)" : "transparent",
+            boxShadow: locked ? "0 0 0 1px oklch(0.68 0.29 25 / 0.35), 0 0 18px oklch(0.62 0.28 25 / 0.26)" : "none",
+          }}
           title={locked ? "解锁画布" : "锁定画布"}
-          onClick={() => setLocked(l => !l)}
-          onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
-          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+          aria-pressed={locked}
+          onClick={() => onLockedChange(!locked)}
+          onMouseEnter={e => (e.currentTarget.style.background = locked ? "oklch(0.62 0.28 25 / 0.24)" : hoverBg)}
+          onMouseLeave={e => (e.currentTarget.style.background = locked ? "oklch(0.62 0.28 25 / 0.18)" : "transparent")}
         >
-          {locked ? <Lock size={13} strokeWidth={2} /> : <Unlock size={13} strokeWidth={2} />}
+          {locked ? <Lock size={13} strokeWidth={2.4} /> : <Unlock size={13} strokeWidth={2} />}
         </button>
       </div>
     </div>
@@ -1521,7 +1525,7 @@ function SaveProjectConfirmDialog({ isDark, project, onCancel, onSave }: {
 }
 
 
-function CanvasAssistantPanel({ isDark, projectTitle }: { isDark: boolean; projectTitle: string }) {
+function CanvasAssistantPanel({ isDark, collapsed, onToggleCollapsed }: { isDark: boolean; collapsed: boolean; onToggleCollapsed: () => void }) {
   const [inputFocused, setInputFocused] = useState(false);
   const bg = isDark ? "oklch(0.125 0.014 270 / 0.98)" : "oklch(0.995 0.002 80 / 0.98)";
   const border = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 10%)";
@@ -1529,69 +1533,89 @@ function CanvasAssistantPanel({ isDark, projectTitle }: { isDark: boolean; proje
   const sub = isDark ? "oklch(0.56 0.01 270)" : "oklch(0.48 0.012 255)";
   const chipBg = isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 4%)";
   const inputShadow = "0 16px 42px rgba(210,214,224,0.10), 0 0 0 1px rgba(210,214,224,0.10)";
+  const panelWidth = "clamp(280px, 32vw, 372px)";
+  const collapsedPeekWidth = 112;
+  const actionButtons = [
+    { label: "新建对话", icon: <PlusSquare size={13} />, onClick: () => toast("已新建对话") },
+    { label: "分享对话", icon: <Share2 size={13} />, onClick: () => toast("分享对话", { description: "分享能力准备中" }) },
+    { label: collapsed ? "展开对话框" : "收起对话框", icon: <ChevronLeft size={13} style={{ transform: collapsed ? "rotate(180deg)" : "none", transition: "transform 0.2s ease" }} />, onClick: onToggleCollapsed },
+  ];
 
   return (
     <aside
-      className="absolute inset-y-0 right-0 hidden xl:flex flex-col nodrag nopan"
-      style={{ width: 372, background: bg, borderLeft: `1px solid ${border}`, zIndex: 120, backdropFilter: "blur(22px)" }}
+      className="absolute inset-y-0 right-0 flex flex-col nodrag nopan transition-transform duration-200 ease-out"
+      style={{
+        width: panelWidth,
+        maxWidth: "calc(100vw - 48px)",
+        background: bg,
+        borderLeft: collapsed ? "none" : `1px solid ${border}`,
+        zIndex: 120,
+        backdropFilter: "blur(22px)",
+        transform: collapsed ? `translateX(calc(100% - ${collapsedPeekWidth}px))` : "translateX(0)",
+        boxShadow: collapsed ? "none" : isDark ? "-12px 0 40px rgba(0,0,0,0.18)" : "-12px 0 36px rgba(30,35,55,0.08)",
+      }}
     >
-      <div className="h-14 flex items-center justify-between px-5" style={{ borderBottom: `1px solid ${border}` }}>
-        <div className="min-w-0">
-          <p className="type-caption font-semibold truncate" style={{ color: text, fontSize: 15 }}>{projectTitle}</p>
-          <p className="type-caption mt-0.5" style={{ color: sub, fontSize: 11 }}>画布助手</p>
-        </div>
-        <div className="flex items-center gap-1">
-          {[PlusSquare, Share2, MoreHorizontal].map((Icon, index) => (
-            <button key={index} className="w-8 h-8 rounded-[var(--radius-md-design)] flex items-center justify-center transition-opacity hover:opacity-75" style={{ color: sub }}>
-              <Icon size={14} />
-            </button>
-          ))}
-        </div>
+      <div className="h-14 flex items-center justify-end gap-2 px-3" style={{ borderBottom: collapsed ? "none" : `1px solid ${border}` }}>
+        {(collapsed ? actionButtons.slice(2) : actionButtons).map(item => (
+          <button
+            key={item.label}
+            className="h-8 flex items-center gap-1.5 rounded-[var(--radius-md-design)] px-2.5 type-caption transition-colors hover:opacity-85"
+            style={{ background: isDark ? "oklch(1 0 0 / 4%)" : "oklch(0 0 0 / 4%)", color: sub, border: `1px solid ${border}`, whiteSpace: "nowrap" }}
+            onClick={item.onClick}
+          >
+            {item.icon}
+            <span>{collapsed ? "展开对话" : item.label}</span>
+          </button>
+        ))}
       </div>
 
-      <div className="flex-1 px-5 py-6 overflow-hidden">
-        <div className="flex justify-end mb-8">
-          <div className="px-4 py-3 rounded-[var(--radius-lg-design)] type-caption" style={{ background: chipBg, color: text, maxWidth: 210 }}>
-            选择图片节点后，可在左侧画布直接编辑素材。
-          </div>
-        </div>
-        <p className="type-caption mb-2" style={{ color: sub }}>May 23, 2026</p>
-        <div className="rounded-[var(--radius-lg-design)] p-4" style={{ background: chipBg, border: `1px solid ${border}` }}>
-          <p className="type-caption leading-6" style={{ color: text }}>
-            右键图片节点可以快速执行编辑素材、复制、粘贴、打组、添加文本备注和删除节点。当前布局已按参考图改为左侧大画布、右侧助手区、底部浮动工具区。
-          </p>
-        </div>
-      </div>
-
-      <div className="p-4">
-        <div
-          className="rounded-[var(--radius-xl-design)] px-3 py-3 transition-shadow duration-200"
-          style={{
-            background: chipBg,
-            border: `1px solid ${border}`,
-            boxShadow: inputFocused ? inputShadow : "none",
-          }}
-        >
-          <textarea
-            placeholder="输入对当前画布的想法..."
-            rows={2}
-            className="w-full bg-transparent outline-none resize-none type-caption leading-6"
-            style={{ color: text }}
-            onFocus={() => setInputFocused(true)}
-            onBlur={() => setInputFocused(false)}
-          />
-          <div className="flex items-center justify-between pt-2">
-            <div className="flex items-center gap-2" style={{ color: sub }}>
-              <Plus size={14} />
-              <LayoutGrid size={14} />
-              <span className="type-caption">Agent</span>
+      {!collapsed && (
+        <>
+          <div className="flex-1 min-h-0 px-5 py-6 overflow-hidden">
+            <div className="flex justify-end mb-8">
+              <div className="px-4 py-3 rounded-[var(--radius-lg-design)] type-caption" style={{ background: chipBg, color: text, maxWidth: 210 }}>
+                选择图片节点后，可在左侧画布直接编辑素材。
+              </div>
             </div>
-            <button className="w-8 h-8 rounded-[var(--radius-pill)] flex items-center justify-center" style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))", color: "white" }}>
-              <Send size={13} />
-            </button>
+            <p className="type-caption mb-2" style={{ color: sub }}>May 23, 2026</p>
+            <div className="rounded-[var(--radius-lg-design)] p-4" style={{ background: chipBg, border: `1px solid ${border}` }}>
+              <p className="type-caption leading-6" style={{ color: text }}>
+                右键图片节点可以快速执行编辑素材、复制、粘贴、打组、添加文本备注和删除节点。当前布局已按参考图改为左侧大画布、右侧助手区、底部浮动工具区。
+              </p>
+            </div>
           </div>
-        </div>
-      </div>
+
+          <div className="shrink-0 p-4 mt-auto">
+            <div
+              className="rounded-[var(--radius-xl-design)] px-3 py-3 transition-shadow duration-200"
+              style={{
+                background: chipBg,
+                border: `1px solid ${border}`,
+                boxShadow: inputFocused ? inputShadow : "none",
+              }}
+            >
+              <textarea
+                placeholder="输入对当前画布的想法..."
+                rows={2}
+                className="w-full bg-transparent outline-none resize-none type-caption leading-6"
+                style={{ color: text }}
+                onFocus={() => setInputFocused(true)}
+                onBlur={() => setInputFocused(false)}
+              />
+              <div className="flex items-center justify-between pt-2">
+                <div className="flex items-center gap-2" style={{ color: sub }}>
+                  <Plus size={14} />
+                  <LayoutGrid size={14} />
+                  <span className="type-caption">Agent</span>
+                </div>
+                <button className="w-8 h-8 rounded-[var(--radius-pill)] flex items-center justify-center" style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))", color: "white" }}>
+                  <Send size={13} />
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </aside>
   );
 }
@@ -1715,18 +1739,21 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const [, navigate] = useLocation();
-  const { screenToFlowPosition, getEdges, getNodes, fitView } = useReactFlow();
+  const { screenToFlowPosition, getEdges, getNodes, fitView, getViewport, setViewport } = useReactFlow();
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [nodeCtxMenu, setNodeCtxMenu] = useState<NodeCtxState | null>(null);
   const [clipboard, setClipboard] = useState<Node[]>([]);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
+  const [isAssistantCollapsed, setIsAssistantCollapsed] = useState(false);
+  const [isCanvasLocked, setIsCanvasLocked] = useState(false);
   // ── Edit-asset state: zoom in on canvas then show editing prompt bar ──
   const [editAsset, setEditAsset] = useState<{ id: string; title: string; src: string; nodeId: string } | null>(null);
   const [isZoomingToEdit, setIsZoomingToEdit] = useState(false);
   const [pendingProject, setPendingProject] = useState<Project | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const middlePanRef = useRef<{ clientX: number; clientY: number; viewport: { x: number; y: number; zoom: number } } | null>(null);
   const historyRef = useRef<{ nodes: Node[]; edges: Edge[] }[]>([]);
   const MAX_HISTORY_STEPS = 20;
 
@@ -1775,6 +1802,64 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     pushHistory();
     setEdges(eds => addEdge({ ...params, type: "tapnow" }, eds));
   }, [pushHistory, setEdges]);
+
+  useEffect(() => {
+    const root = containerRef.current;
+    if (!root) return;
+
+    const stopMiddleAuxClick = (event: MouseEvent) => {
+      if (event.button === 1) event.preventDefault();
+    };
+
+    const handleMiddleMouseDown = (event: MouseEvent) => {
+      if (event.button !== 1 || isCanvasLocked) return;
+      if (!(event.target instanceof Element) || !root.contains(event.target)) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      middlePanRef.current = {
+        clientX: event.clientX,
+        clientY: event.clientY,
+        viewport: getViewport(),
+      };
+      document.body.style.cursor = "grabbing";
+
+      const handleMiddleMouseMove = (moveEvent: MouseEvent) => {
+        const pan = middlePanRef.current;
+        if (!pan) return;
+        moveEvent.preventDefault();
+        moveEvent.stopPropagation();
+        setViewport({
+          x: pan.viewport.x + (moveEvent.clientX - pan.clientX),
+          y: pan.viewport.y + (moveEvent.clientY - pan.clientY),
+          zoom: pan.viewport.zoom,
+        });
+      };
+
+      const handleMiddleMouseUp = (upEvent: MouseEvent) => {
+        if (upEvent.button !== 1) return;
+        upEvent.preventDefault();
+        upEvent.stopPropagation();
+        middlePanRef.current = null;
+        document.body.style.cursor = "";
+        window.removeEventListener("mousemove", handleMiddleMouseMove, true);
+        window.removeEventListener("mouseup", handleMiddleMouseUp, true);
+      };
+
+      window.addEventListener("mousemove", handleMiddleMouseMove, true);
+      window.addEventListener("mouseup", handleMiddleMouseUp, true);
+    };
+
+    root.addEventListener("mousedown", handleMiddleMouseDown, true);
+    root.addEventListener("auxclick", stopMiddleAuxClick, true);
+    return () => {
+      root.removeEventListener("mousedown", handleMiddleMouseDown, true);
+      root.removeEventListener("auxclick", stopMiddleAuxClick, true);
+      document.body.style.cursor = "";
+      middlePanRef.current = null;
+    };
+  }, [getViewport, isCanvasLocked, setViewport]);
 
   const getActionNodeIds = useCallback((nodeId: string) => {
     if (nodeId === "__selection__") return selectedNodeIds;
@@ -2084,7 +2169,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
   const canvasBg = isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)";
   const dotColor = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.32)";
-  const currentProject = PROJECTS.find(project => project.id === projectId);
 
   // Inject isEditing flag into the target node's data so AssetNodeComponent can show the mask
   const selectedImageNodeIds = selectedNodeIds.filter(id => nodes.some(n => n.id === id && n.type === "asset"));
@@ -2119,13 +2203,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         defaultEdgeOptions={{ type: "tapnow" }}
         connectionLineStyle={{ stroke: "rgba(255,255,255,0.5)", strokeWidth: 2.5 }}
         connectionLineType={"bezier" as any}
-        style={{ background: canvasBg, width: "calc(100% - 372px)" }}
+        style={{ background: canvasBg, width: isAssistantCollapsed ? "calc(100% - 112px)" : "calc(100% - clamp(280px, 32vw, 372px))" }}
         proOptions={{ hideAttribution: true }}
         selectionOnDrag
         selectionMode={SelectionMode.Partial}
         selectNodesOnDrag={false}
-        panOnDrag={[2]}
-        nodesDraggable={true}
+        panOnDrag={isCanvasLocked ? false : [1]}
+        nodesDraggable={!isCanvasLocked}
         nodesConnectable={ENABLE_NODE_CONNECTIONS}
         edgesFocusable={ENABLE_NODE_CONNECTIONS}
         edgesReconnectable={ENABLE_NODE_CONNECTIONS}
@@ -2146,12 +2230,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           maskColor={isDark ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.5)"}
           nodeColor={isDark ? "oklch(0.35 0.02 270)" : "oklch(0.75 0.005 270)"}
           zoomable
-          pannable
+          pannable={!isCanvasLocked}
         />
         <Controls showZoom={false} showFitView={false} showInteractive={false} />
       </ReactFlow>
 
-      <CanvasAssistantPanel isDark={isDark} projectTitle={currentProject?.title || "Untitled"} />
+      <CanvasAssistantPanel isDark={isDark} collapsed={isAssistantCollapsed} onToggleCollapsed={() => setIsAssistantCollapsed(value => !value)} />
 
       {multiImageSelectionActive && (
         <MultiSelectionFloatingToolbar
@@ -2162,7 +2246,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         />
       )}
       {/* Custom zoom controls — vertical bar matching preview toolbar style */}
-      <ZoomControlBar isDark={isDark} />
+      <ZoomControlBar isDark={isDark} locked={isCanvasLocked} onLockedChange={setIsCanvasLocked} />
 
       {/* Back button — top-left */}
       <BackButton isDark={isDark} />
