@@ -1069,7 +1069,7 @@ function NodeContextMenu({ menu, onClose, onAction, isDark }: {
 
   // Single node menu: NO 解散打组 (removed per spec)
   const singleItems = [
-    { icon: <Edit3 size={13} />, label: "编辑素材", action: "edit-asset", color: iconColor },
+    { icon: <Wand2 size={13} />, label: "智能优化", action: "edit-asset", color: iconColor },
     ...(menu.nodeType === "asset" ? [{ icon: <Download size={13} />, label: "下载图片", action: "download", color: iconColor }] : []),
     { icon: <Copy size={13} />, label: "复制", action: "copy", color: iconColor },
     { icon: <Clipboard size={13} />, label: "粘贴", action: "paste", color: iconColor },
@@ -1446,7 +1446,7 @@ function AssetEditPromptBar({
 
   const handleSend = () => {
     if (prompt.trim()) {
-      toast("AI 正在编辑素材", { description: prompt.slice(0, 60) });
+      toast("AI 正在智能优化", { description: prompt.slice(0, 60) });
       setPrompt("");
       onClose();
     } else {
@@ -1490,7 +1490,7 @@ function AssetEditPromptBar({
           <ImageIcon size={9} style={{ opacity: 0.7 }} />
           <span>{asset.title}</span>
         </div>
-        <span className="type-caption" style={{ color: subtext }}>正在编辑此素材</span>
+        <span className="type-caption" style={{ color: subtext }}>智能优化此图片</span>
         <div className="flex-1" />
         <button
           onClick={onClose}
@@ -1512,7 +1512,7 @@ function AssetEditPromptBar({
           rows={2}
           className="w-full bg-transparent type-caption leading-relaxed resize-none outline-none"
           style={{ color: text }}
-          placeholder="描述你想如何编辑这张图片，例如：更换背景为星空、加强光效、调整配色..."
+          placeholder="描述你希望如何优化这张图片，例如：更换背景为星空、加强光效、调整配色、提升画质..."
         />
       </div>
 
@@ -1930,8 +1930,8 @@ function CanvasAssistantPanel({ isDark, collapsed, isAuthenticated, onToggleColl
     { label: collapsed ? "展开对话框" : "收起对话框", icon: <ChevronLeft size={16} style={{ transform: collapsed ? "rotate(180deg)" : "none", transition: "transform 0.2s ease" }} />, onClick: onToggleCollapsed },
   ];
   const conversationRecords = [
-    "选择图片节点后，可在左侧画布直接编辑素材。",
-    "右键图片节点可以快速执行编辑素材、复制、粘贴、打组、添加文本备注和删除节点。当前布局已按参考图改为左侧大画布、右侧助手区、底部浮动工具区。",
+    "选择图片节点后，可在左侧画布直接进行智能优化。",
+    "右键图片节点可以快速执行智能优化、复制、粘贴、打组、添加文本备注和删除节点。当前布局已按参考图改为左侧大画布、右侧助手区、底部浮动工具区。",
   ];
 
   return (
@@ -2586,14 +2586,20 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     } else if (action === "edit-asset") {
       const node = nodes.find(n => n.id === nodeId);
       if (node && node.type === "asset") {
-        const assetId = (node.data as Record<string, unknown>).assetId as string;
+        const nodeData = node.data as Record<string, unknown>;
+        const localSrc = nodeData.localSrc as string | undefined;
+        const assetId = nodeData.assetId as string;
+        const nodeTitle = (nodeData.title as string) || "图片";
         const asset = GENERATED_ASSETS.find(a => a.id === assetId) || GENERATED_ASSETS[0];
+        // 优先使用本地拖入的图片，否则使用预设素材图
+        const src = localSrc || asset?.src || "";
+        const title = nodeTitle || asset?.title || "图片";
         setIsZoomingToEdit(true);
-        // Smooth zoom-in push animation on the canvas itself
+        // 平滑缩放至当前选中节点
         fitView({ nodes: [{ id: nodeId }], duration: 900, padding: 0.08 });
-        // After animation completes, reveal the editing prompt bar
+        // 动画结束后显示智能优化输入框，仅针对当前节点
         setTimeout(() => {
-          setEditAsset({ id: asset.id, title: asset.title, src: asset.src, nodeId });
+          setEditAsset({ id: nodeId, title, src, nodeId });
           setIsZoomingToEdit(false);
         }, 950);
       }
@@ -2681,15 +2687,24 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     }));
   }, [pushHistory, setNodes, viewport.zoom]);
 
-  // ── Click blank canvas → exit group if inside one ──
+  // ── Click blank canvas → exit group if inside one, also close smart-optimize bar ──
   const handlePaneClick = useCallback(() => {
     setNodeCtxMenu(null);
+    // 点击画布空白处关闭智能优化输入框
+    if (editAsset) {
+      setEditAsset(null);
+      setNodes(nds => nds.map(n =>
+        n.type === "asset" && n.id === editAsset.nodeId
+          ? { ...n, data: { ...n.data, isEditing: false } }
+          : n
+      ));
+    }
     if (enteringGroupId) {
       setEnteringGroupId(null);
       setSelectedNodeIds([]);
       toast("已退出打组");
     }
-  }, [enteringGroupId]);
+  }, [editAsset, enteringGroupId, setNodes]);
 
   // ── Double-click group label → rename ──
   const handleGroupLabelDoubleClick = useCallback((groupId: string) => {
