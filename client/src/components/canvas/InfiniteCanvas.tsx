@@ -329,7 +329,9 @@ function MultiSelectionFloatingToolbar({
   const items = [
     { icon: <Box size={15} />, label: "编组", action: "group" },
     { icon: <FolderOutput size={15} />, label: "取消编组", action: "ungroup" },
-    { icon: <LayoutGrid size={15} />, label: "自动布局", action: "auto-layout" },
+    { icon: <LayoutGrid size={15} />, label: "自动排列", action: "auto-layout" },
+    { icon: <AlignHorizontalSpaceAround size={15} />, label: "横向排列", action: "layout-horizontal" },
+    { icon: <AlignVerticalSpaceAround size={15} />, label: "竖向排列", action: "layout-vertical" },
     { icon: <Download size={15} />, label: "下载", action: "download" },
   ];
 
@@ -2238,8 +2240,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
   const [downloadGroupId, setDownloadGroupId] = useState<string | null>(null);
   const [downloadFormat, setDownloadFormat] = useState<'jpg' | 'png' | 'webp'>('png');
-  // ── Clipboard state for copy/paste ──
-  const [clipboardNodes, setClipboardNodes] = useState<Node[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
   const middlePanRef = useRef<{ clientX: number; clientY: number; viewport: { x: number; y: number; zoom: number } } | null>(null);
   const historyRef = useRef<{ nodes: Node[]; edges: Edge[] }[]>([]);
@@ -2863,6 +2863,47 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         undoCanvas();
         return;
       }
+      // 复制：Ctrl+C (Windows) / Cmd+C (Mac)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
+        const toCopy = selectedNodeIds
+          .map(id => nodes.find(n => n.id === id && n.type === "asset"))
+          .filter(Boolean) as Node[];
+        if (toCopy.length > 0) {
+          e.preventDefault();
+          setClipboard(toCopy);
+          const isMac = navigator.platform.toUpperCase().includes("MAC") || navigator.userAgent.includes("Mac");
+          toast(`已复制 ${toCopy.length} 个图片节点`, {
+            description: isMac ? "按 ⌘V 粘贴到画布" : "按 Ctrl+V 粘贴到画布",
+          });
+        }
+        return;
+      }
+      // 粘贴：Ctrl+V (Windows) / Cmd+V (Mac)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
+        if (clipboard.length > 0) {
+          e.preventDefault();
+          pushHistory();
+          const now = Date.now();
+          const pasted = clipboard.map((node, index) => ({
+            ...node,
+            id: `${node.type}-paste-${now}-${index}`,
+            selected: true,
+            position: { x: node.position.x + 24, y: node.position.y + 24 },
+            data: {
+              ...(node.data as Record<string, unknown>),
+              id: `${node.type}-paste-${now}-${index}`,
+              // 不继承打组，粘贴为独立节点
+              groupId: undefined,
+            },
+          }));
+          setNodes(nds => nds.map(n => ({ ...n, selected: false })).concat(pasted));
+          setSelectedNodeIds(pasted.map(n => n.id));
+          toast(`已粘贴 ${pasted.length} 个图片节点`, { description: "新节点已居中选中，可直接拖动定位" });
+        } else {
+          toast("剪贴板为空", { description: "请先选中图片节点再按 Ctrl/Cmd+C 复制" });
+        }
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "g") {
         e.preventDefault();
         if (selectedNodeIds.length < 2) {
@@ -2877,7 +2918,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [nodes, pushHistory, selectedNodeIds, setEdges, setNodes, undoCanvas]);
+  }, [nodes, clipboard, setClipboard, pushHistory, selectedNodeIds, setEdges, setNodes, undoCanvas]);
 
   // ── C-key lasso: cut edges intersecting the lasso rect ──
   const handleLassoCut = useCallback((lassoRect: LassoRect) => {
