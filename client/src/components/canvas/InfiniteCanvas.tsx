@@ -1947,6 +1947,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [editAsset, setEditAsset] = useState<{ id: string; title: string; src: string; nodeId: string } | null>(null);
   const [isZoomingToEdit, setIsZoomingToEdit] = useState(false);
   const [pendingProject, setPendingProject] = useState<Project | null>(null);
+  // ── Referenced assets: auto-populated from selected image nodes ──
+  const [referencedAssets, setReferencedAssets] = useState<{ id: string; title: string; src: string }[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
   const middlePanRef = useRef<{ clientX: number; clientY: number; viewport: { x: number; y: number; zoom: number } } | null>(null);
   const historyRef = useRef<{ nodes: Node[]; edges: Edge[] }[]>([]);
@@ -2284,6 +2286,24 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setSelectedNodeIds(selectedNodes.map(n => n.id));
   }, []);
 
+  // ── Sync selected image nodes → referencedAssets chips in BottomPromptBar ──
+  useEffect(() => {
+    const imageNodeIds = selectedNodeIds.filter(id => nodes.some(n => n.id === id && n.type === "asset"));
+    if (imageNodeIds.length === 0) {
+      setReferencedAssets([]);
+      return;
+    }
+    const refs = imageNodeIds.map(nodeId => {
+      const node = nodes.find(n => n.id === nodeId);
+      if (!node) return null;
+      const assetId = (node.data as Record<string, unknown>).assetId as string;
+      const title = ((node.data as Record<string, unknown>).title as string) || nodeId;
+      const asset = GENERATED_ASSETS.find(a => a.id === assetId) || GENERATED_ASSETS[0];
+      return { id: nodeId, title, src: asset?.src || "" };
+    }).filter(Boolean) as { id: string; title: string; src: string }[];
+    setReferencedAssets(refs);
+  }, [selectedNodeIds, nodes]);
+
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { selectedIds?: string[] };
@@ -2518,6 +2538,16 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       {/* Node context menu */}
       {nodeCtxMenu && (
         <NodeContextMenu menu={nodeCtxMenu} onClose={() => setNodeCtxMenu(null)} onAction={handleNodeAction} isDark={isDark} />
+      )}
+
+      {/* Bottom AI Prompt Bar — shown when image nodes are selected, auto-fills reference chips */}
+      {referencedAssets.length > 0 && !editAsset && (
+        <BottomPromptBar
+          isDark={isDark}
+          referencedAssets={referencedAssets}
+          onRemoveReference={(id) => setReferencedAssets(prev => prev.filter(r => r.id !== id))}
+          onClearAllReferences={() => setReferencedAssets([])}
+        />
       )}
 
       {/* Edit-asset prompt bar — shown after zoom-in animation, overlays bottom */}
