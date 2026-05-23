@@ -1983,43 +1983,6 @@ function CanvasAssistantPanel({ isDark, collapsed, isAuthenticated, onToggleColl
           </div>
 
           <div className="shrink-0 p-4 mt-auto">
-            {/* 引用标签区域 — 选中图片节点后自动出现 */}
-            {referencedAssets.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-2 px-1">
-                {referencedAssets.map(ref => (
-                  <div
-                    key={ref.id}
-                    className="flex items-center gap-1.5 rounded-[var(--radius-md-design)] px-2 py-1"
-                    style={{
-                      background: isDark ? "oklch(0.58 0.20 290 / 0.18)" : "oklch(0.58 0.18 290 / 0.10)",
-                      border: `1px solid ${isDark ? "oklch(0.72 0.18 290 / 0.35)" : "oklch(0.52 0.18 290 / 0.30)"}`,
-                      maxWidth: 160,
-                    }}
-                  >
-                    <img
-                      src={ref.src}
-                      alt={ref.title}
-                      style={{ width: 18, height: 18, borderRadius: 3, objectFit: "cover", flexShrink: 0 }}
-                    />
-                    <span
-                      className="type-caption truncate"
-                      style={{ color: isDark ? "oklch(0.82 0.012 270)" : "oklch(0.28 0.012 270)", maxWidth: 90, fontSize: 11 }}
-                    >
-                      {ref.title}
-                    </span>
-                    <button
-                      onClick={() => onRemoveReference(ref.id)}
-                      className="flex items-center justify-center flex-shrink-0 rounded-full transition-opacity hover:opacity-70"
-                      style={{ color: isDark ? "oklch(0.62 0.008 270)" : "oklch(0.50 0.008 270)", background: "transparent", border: "none", padding: 0, lineHeight: 1 }}
-                      title="移除引用"
-                      aria-label="移除引用"
-                    >
-                      <X size={10} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
             <div
               className="rounded-[var(--radius-xl-design)] px-3 py-3 transition-shadow duration-200"
               style={{
@@ -2028,6 +1991,63 @@ function CanvasAssistantPanel({ isDark, collapsed, isAuthenticated, onToggleColl
                 boxShadow: inputFocused ? inputShadow : "none",
               }}
             >
+              {/* 引用标签 — 在输入框内部顶部，最多显示两行，超出折叠为数字徽章 */}
+              {referencedAssets.length > 0 && (() => {
+                // 每行最多放 2 个标签（约 140px 宽），两行最多 4 个
+                const MAX_VISIBLE = 4;
+                const visible = referencedAssets.slice(0, MAX_VISIBLE);
+                const overflow = referencedAssets.length - MAX_VISIBLE;
+                const tagBg = isDark ? "oklch(0.58 0.20 290 / 0.18)" : "oklch(0.58 0.18 290 / 0.10)";
+                const tagBorder = isDark ? "oklch(0.72 0.18 290 / 0.35)" : "oklch(0.52 0.18 290 / 0.30)";
+                const tagText = isDark ? "oklch(0.82 0.012 270)" : "oklch(0.28 0.012 270)";
+                return (
+                  <div className="flex flex-wrap gap-1.5 mb-2" style={{ maxHeight: 58, overflow: "hidden" }}>
+                    {visible.map((ref, idx) => {
+                      const isLast = idx === MAX_VISIBLE - 1 && overflow > 0;
+                      return (
+                        <div
+                          key={ref.id}
+                          className="flex items-center gap-1 rounded-[var(--radius-md-design)] px-1.5 py-0.5"
+                          style={{ background: tagBg, border: `1px solid ${tagBorder}`, maxWidth: 130, flexShrink: 0 }}
+                        >
+                          <img src={ref.src} alt={ref.title} style={{ width: 16, height: 16, borderRadius: 2, objectFit: "cover", flexShrink: 0 }} />
+                          <span className="type-caption truncate" style={{ color: tagText, maxWidth: isLast ? 40 : 72, fontSize: 11 }}>
+                            {isLast ? "..." : ref.title}
+                          </span>
+                          {isLast ? (
+                            // 蓝色圆环数字徽章
+                            <span
+                              className="flex items-center justify-center rounded-full flex-shrink-0"
+                              style={{
+                                width: 18, height: 18,
+                                background: "oklch(0.52 0.22 260)",
+                                color: "white",
+                                fontSize: 10,
+                                fontWeight: 700,
+                                lineHeight: 1,
+                                border: "2px solid oklch(0.72 0.18 260 / 0.6)",
+                              }}
+                              title={`还有 ${overflow + 1} 个引用`}
+                            >
+                              {overflow + 1}
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => onRemoveReference(ref.id)}
+                              className="flex items-center justify-center flex-shrink-0 rounded-full transition-opacity hover:opacity-70"
+                              style={{ color: isDark ? "oklch(0.62 0.008 270)" : "oklch(0.50 0.008 270)", background: "transparent", border: "none", padding: 0, lineHeight: 1 }}
+                              title="移除引用"
+                              aria-label="移除引用"
+                            >
+                              <X size={9} />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
               <textarea
                 placeholder={referencedAssets.length > 0 ? `基于 ${referencedAssets.length} 个引用素材，描述你的创作意图...` : (isAuthenticated ? "输入对当前画布的想法..." : "登录后可输入提示词")}
                 rows={2}
