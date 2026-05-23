@@ -9,7 +9,6 @@ import HomePage from "./pages/HomePage";
 import WorkspaceDashboard from "./pages/WorkspaceDashboard";
 import CommunityPage from "./pages/CommunityPage";
 import Workspace from "./pages/Workspace";
-import PasswordGate, { usePasswordGate } from "./pages/PasswordGate";
 
 function Router() {
   return (
@@ -46,24 +45,13 @@ function Router() {
   );
 }
 
-function AppWithGate() {
-  const { granted, grant } = usePasswordGate();
-
-  return (
-    <>
-      {!granted && <PasswordGate onGranted={grant} />}
-      {granted && <Router />}
-    </>
-  );
-}
-
 function App() {
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="dark" switchable>
         <TooltipProvider>
           <Toaster />
-          <AppWithGate />
+          <Router />
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>
