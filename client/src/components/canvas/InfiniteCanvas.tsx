@@ -41,7 +41,7 @@ import {
   ZoomIn, Download, Crop, Box, Eraser, SlidersHorizontal,
   MoreHorizontal, FolderOutput, Maximize2, Mic, RefreshCw,
   ChevronLeft, Home, LayoutGrid, Lock, Unlock, Plus, Minus,
-  Search, ArrowRight,
+  Search, ArrowRight, Share2,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { GENERATED_ASSETS, AI_MODELS, PROJECTS, type GeneratedAsset, type Project } from "@/lib/workspace-data";
@@ -133,13 +133,13 @@ function NodeWrapper({ children, selected, isDark, model, onModelChange, onDelet
     ? "oklch(0.65 0.22 290)"
     : isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
   const shadow = selected
-    ? "0 0 0 2px oklch(0.65 0.22 290 / 0.4), 0 8px 32px oklch(0 0 0 / 0.4)"
+    ? "0 0 0 2px oklch(0.65 0.22 290 / 0.72), 0 0 0 6px oklch(0.65 0.22 290 / 0.18), 0 18px 48px oklch(0 0 0 / 0.44)"
     : "0 4px 24px oklch(0 0 0 / 0.25)";
 
   return (
     <div
       className="relative flex flex-col rounded-[var(--radius-lg-design)] overflow-visible"
-      style={{ background: bg, border: `1.5px solid ${border}`, boxShadow: shadow, transition: "border-color 0.15s, box-shadow 0.15s", ...style }}
+      style={{ ...style, background: (style?.background as string) || bg, border: `1.5px solid ${border}`, boxShadow: shadow, transition: "border-color 0.15s, box-shadow 0.15s" }}
       onContextMenu={onContextMenu}
     >
       {ENABLE_NODE_CONNECTIONS && (
@@ -372,15 +372,19 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const displayTags = Array.isArray(data.tags)
     ? (data.tags as string[])
     : ((asset.tags as string[] | undefined) || ["默认 icon", "灰色容器"]);
-  const displayType = (data.assetType as string) || asset.type || "素材";
+  const displayType = "图片";
   const text = isDark ? "oklch(0.82 0.006 270)" : "oklch(0.22 0.006 270)";
   const subtext = isDark ? "oklch(0.62 0.006 270)" : "oklch(0.46 0.006 270)";
   const tagBg = isDark ? "oklch(0.28 0.004 270)" : "oklch(0.78 0.004 270)";
   const assetShellBg = isDark ? "oklch(0.20 0.004 270)" : "oklch(0.86 0.004 270)";
   const assetShellBorder = isDark ? "oklch(1 0 0 / 14%)" : "oklch(0 0 0 / 12%)";
   const iconPanelBg = isDark ? "oklch(0.24 0.004 270)" : "oklch(0.80 0.004 270)";
-  const iconPanelBorder = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
-  const iconColor = isDark ? "oklch(0.70 0.006 270)" : "oklch(0.42 0.006 270)";
+  const naturalWidth = Math.max(1, asset.width || 720);
+  const naturalHeight = Math.max(1, asset.height || 960);
+  const maxNodeSide = 360;
+  const minNodeSide = 180;
+  const scale = Math.min(1, maxNodeSide / Math.max(naturalWidth, naturalHeight));
+  const nodeWidth = Math.max(minNodeSide, Math.round(naturalWidth * scale));
 
   // Close panel when node loses selection
   useEffect(() => { if (!selected) setShowPanel(false); }, [selected]);
@@ -398,7 +402,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     <>
       <NodeWrapper selected={selected} isDark={isDark} model={model} onModelChange={setModel}
         onDelete={() => deleteElements({ nodes: [{ id: nodeId }] })}
-        style={{ width: 240, background: assetShellBg, border: `1.5px solid ${assetShellBorder}` }}
+        style={{ width: nodeWidth, background: assetShellBg, border: `1.5px solid ${assetShellBorder}` }}
         onContextMenu={handleNodeCtxMenu}
       >
         {/* Floating top toolbar — visible when selected */}
@@ -412,7 +416,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
 
         <div
           className="relative flex items-center justify-center overflow-hidden cursor-pointer"
-          style={{ aspectRatio: "16/10", background: iconPanelBg, borderBottom: `1px solid ${assetShellBorder}` }}
+          style={{ background: iconPanelBg, borderBottom: `1px solid ${assetShellBorder}` }}
           onClick={(e) => {
             e.stopPropagation();
             setShowPanel(p => !p);
@@ -421,19 +425,14 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
               detail: { id: nodeId, title: displayTitle, src: asset.src, ctrlKey: e.ctrlKey || e.metaKey }
             }));
           }}
-          onDoubleClick={(e) => { e.stopPropagation(); toast("素材节点", { description: "已统一使用默认 icon" }); }}
+          onDoubleClick={(e) => { e.stopPropagation(); setPreview(true); }}
         >
-          <div className="flex flex-col items-center justify-center gap-3">
-            <div
-              className="w-16 h-16 rounded-[var(--radius-lg-design)] flex items-center justify-center"
-              style={{ background: assetShellBg, border: `1.5px solid ${iconPanelBorder}` }}
-            >
-              <ImageIcon size={34} strokeWidth={1.7} style={{ color: iconColor }} />
-            </div>
-            <span className="type-caption px-2 py-1 rounded-[var(--radius-pill)]" style={{ background: tagBg, color: subtext }}>
-              {displayType}
-            </span>
-          </div>
+          <img
+            src={asset.src}
+            alt={displayTitle}
+            draggable={false}
+            style={{ width: "100%", height: "auto", display: "block", objectFit: "contain" }}
+          />
           {/* 15% black mask shown when this node is being edited */}
           {isEditing && (
             <div
@@ -446,13 +445,16 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
           )}
           <div className="absolute top-2 right-2">
             <span className="type-caption px-1.5 py-0.5 rounded-[var(--radius-md-design)]" style={{ background: tagBg, color: subtext }}>
-              默认 icon
+              {displayType}
             </span>
           </div>
         </div>
         <div className="px-3 py-2">
           <p className="type-caption truncate" style={{ color: text }}>{displayTitle}</p>
           <p className="type-caption mt-0.5" style={{ color: subtext }}>{displayTags.join(" · ")}</p>
+          {(data as { note?: string }).note && (
+            <p className="type-caption mt-1 truncate" style={{ color: "oklch(0.72 0.18 290)" }}>{(data as { note?: string }).note}</p>
+          )}
         </div>
       </NodeWrapper>
 
@@ -672,9 +674,6 @@ function TapnowEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, ta
 // ── Node types & edge types ────────────────────────────────────
 const nodeTypes: NodeTypes = {
   asset: AssetNodeComponent as unknown as NodeTypes["asset"],
-  chat: ChatNodeComponent as unknown as NodeTypes["chat"],
-  prompt: PromptNodeComponent as unknown as NodeTypes["prompt"],
-  text: TextNodeComponent as unknown as NodeTypes["text"],
 };
 const edgeTypes: EdgeTypes = {
   tapnow: TapnowEdge as unknown as EdgeTypes["tapnow"],
@@ -691,20 +690,20 @@ const createDefaultAssetData = (id: string, title = "素材节点") => ({
   tags: DEFAULT_ASSET_TAGS,
 });
 
-const initialNodes: Node[] = [
-  { id: "chat-sample-1", type: "chat", position: { x: -520, y: -40 }, data: { id: "chat-sample-1" } },
-  { id: "prompt-sample-1", type: "prompt", position: { x: -140, y: -55 }, data: { id: "prompt-sample-1", prompt: "为品牌活动整理一组视觉素材方向。" } },
-  { id: "asset-sample-1", type: "asset", position: { x: 230, y: -170 }, data: createDefaultAssetData("asset-sample-1", "主视觉素材") },
-  { id: "asset-sample-2", type: "asset", position: { x: 230, y: 70 }, data: createDefaultAssetData("asset-sample-2", "产品细节素材") },
-  { id: "text-sample-1", type: "text", position: { x: 540, y: -10 }, data: { id: "text-sample-1", text: "这里是画布示意节点，可拖动、连接或删除。", colorIdx: 0 } },
-];
+const initialNodes: Node[] = GENERATED_ASSETS.map((asset, index) => ({
+  id: `asset-sample-${asset.id}`,
+  type: "asset",
+  position: { x: -420 + index * 280, y: index % 2 === 0 ? -160 : 120 },
+  data: {
+    id: `asset-sample-${asset.id}`,
+    assetId: asset.id,
+    title: asset.title,
+    assetType: "图片",
+    tags: asset.tags || DEFAULT_ASSET_TAGS,
+  },
+}));
 
-const initialEdges: Edge[] = [
-  { id: "e-chat-prompt", source: "chat-sample-1", target: "prompt-sample-1", type: "tapnow" },
-  { id: "e-prompt-asset-1", source: "prompt-sample-1", target: "asset-sample-1", type: "tapnow" },
-  { id: "e-prompt-asset-2", source: "prompt-sample-1", target: "asset-sample-2", type: "tapnow" },
-  { id: "e-asset-text", source: "asset-sample-2", target: "text-sample-1", type: "tapnow" },
-];
+const initialEdges: Edge[] = [];
 
 
 // ── Bottom AI Prompt Bar ───────────────────────────────────────
@@ -774,7 +773,7 @@ function BottomPromptBar({
         background: bg,
         border: `1.5px solid ${hasRefs ? activeBorder : border}`,
         backdropFilter: "blur(20px)",
-        width: "min(680px, calc(100% - 48px))",
+        width: "min(680px, calc(100% - 420px))",
         zIndex: 50,
         transition: "border-color 0.25s cubic-bezier(0.23,1,0.32,1), box-shadow 0.25s cubic-bezier(0.23,1,0.32,1)",
         boxShadow: hasRefs
@@ -892,21 +891,15 @@ function NodeContextMenu({ menu, onClose, onAction, isDark }: {
   const items = isSelectionMenu ? [
     { icon: <Copy size={13} />, label: "复制", action: "copy", color: iconColor },
     { icon: <Clipboard size={13} />, label: "粘贴", action: "paste", color: iconColor },
-    null,
     { icon: <Box size={13} />, label: groupLabel, action: groupAction, color: iconColor },
-    null,
+    { icon: <Type size={13} />, label: "添加文本备注", action: "add-note", color: iconColor },
     { icon: <Trash2 size={13} />, label: "删除节点", action: "delete", color: dangerColor },
   ] : [
-    { icon: <PlusSquare size={13} />, label: "添加节点", action: "add-node", color: iconColor },
-    { icon: <ImageIcon size={13} />, label: "添加素材", action: "add-asset", color: iconColor },
     { icon: <Edit3 size={13} />, label: "编辑素材", action: "edit-asset", color: iconColor },
-    null,
     { icon: <Copy size={13} />, label: "复制", action: "copy", color: iconColor },
     { icon: <Clipboard size={13} />, label: "粘贴", action: "paste", color: iconColor },
-    null,
     { icon: <Box size={13} />, label: groupLabel, action: groupAction, color: iconColor },
-    { icon: <FileText size={13} />, label: "添加文本备注", action: "add-text", color: iconColor },
-    null,
+    { icon: <Type size={13} />, label: "添加文本备注", action: "add-note", color: iconColor },
     { icon: <Trash2 size={13} />, label: "删除节点", action: "delete", color: dangerColor },
   ];
 
@@ -923,12 +916,6 @@ function NodeContextMenu({ menu, onClose, onAction, isDark }: {
       style={{ left: menu.x, top: menu.y, background: bg, border: `1px solid ${border}`, minWidth: 196, zIndex: 2000 }}
       onMouseDown={e => e.stopPropagation()}
     >
-      {/* Header */}
-      <div className="px-3 py-2" style={{ borderBottom: `1px solid ${divider}` }}>
-        <span className="type-caption uppercase" style={{ color: isDark ? "oklch(0.42 0.01 270)" : "oklch(0.58 0.01 270)" }}>
-          {isSelectionMenu ? `已选 ${selectedCount} 个画布` : "节点操作"}
-        </span>
-      </div>
       {items.map((item, i) =>
         item === null ? (
           <div key={`div-${i}`} style={{ height: 1, background: divider, margin: "2px 0" }} />
@@ -1097,7 +1084,7 @@ function AssetEditPromptBar({
         position: "absolute",
         bottom: 16,
         left: "50%",
-        width: "min(680px, calc(100% - 48px))",
+        width: "min(680px, calc(100% - 420px))",
         zIndex: 200,
         background: isDark ? "rgba(18,18,28,0.97)" : "rgba(255,255,255,0.97)",
         backdropFilter: "blur(24px)",
@@ -1354,10 +1341,7 @@ function TopLeftToolbar({ isDark, onAdd }: { isDark: boolean; onAdd: (type: stri
   const divider = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
 
   const nodeOptions = [
-    { icon: <MessageSquare size={13} />, label: "AI 对话节点", type: "chat" },
-    { icon: <ImageIcon size={13} />, label: "素材节点", type: "asset" },
-    { icon: <Wand2 size={13} />, label: "提示词节点", type: "prompt" },
-    { icon: <Type size={13} />, label: "文本备注", type: "text" },
+    { icon: <ImageIcon size={13} />, label: "图片节点", type: "asset" },
   ];
 
   useEffect(() => {
@@ -1381,8 +1365,8 @@ function TopLeftToolbar({ isDark, onAdd }: { isDark: boolean; onAdd: (type: stri
           backdropFilter: "blur(12px)",
         }}
       >
-        <PlusSquare size={14} />
-        创建节点
+        <ImageIcon size={14} />
+        创建图片
         <ChevronDown size={11} style={{ opacity: 0.6, transform: open ? "rotate(180deg)" : "none", transition: "transform 150ms" }} />
       </button>
 
@@ -1393,7 +1377,7 @@ function TopLeftToolbar({ isDark, onAdd }: { isDark: boolean; onAdd: (type: stri
           onMouseDown={e => e.stopPropagation()}
         >
           <div className="px-3 py-2" style={{ borderBottom: `1px solid ${divider}` }}>
-            <span className="type-caption uppercase" style={{ color: isDark ? "oklch(0.42 0.01 270)" : "oklch(0.58 0.01 270)" }}>选择节点类型</span>
+            <span className="type-caption uppercase" style={{ color: isDark ? "oklch(0.42 0.01 270)" : "oklch(0.58 0.01 270)" }}>创建图片节点</span>
           </div>
           {nodeOptions.map((opt) => (
             <button
@@ -1468,6 +1452,71 @@ function SaveProjectConfirmDialog({ isDark, project, onCancel, onSave }: {
   );
 }
 
+
+function CanvasAssistantPanel({ isDark, projectTitle }: { isDark: boolean; projectTitle: string }) {
+  const bg = isDark ? "oklch(0.105 0.014 270 / 0.98)" : "oklch(0.995 0.002 80 / 0.98)";
+  const border = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 10%)";
+  const text = isDark ? "oklch(0.84 0.008 270)" : "oklch(0.18 0.008 270)";
+  const sub = isDark ? "oklch(0.56 0.01 270)" : "oklch(0.48 0.012 255)";
+  const chipBg = isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 4%)";
+
+  return (
+    <aside
+      className="absolute inset-y-0 right-0 hidden xl:flex flex-col nodrag nopan"
+      style={{ width: 372, background: bg, borderLeft: `1px solid ${border}`, zIndex: 120, backdropFilter: "blur(22px)" }}
+    >
+      <div className="h-14 flex items-center justify-between px-5" style={{ borderBottom: `1px solid ${border}` }}>
+        <div className="min-w-0">
+          <p className="type-caption font-semibold truncate" style={{ color: text, fontSize: 15 }}>{projectTitle}</p>
+          <p className="type-caption mt-0.5" style={{ color: sub, fontSize: 11 }}>画布助手</p>
+        </div>
+        <div className="flex items-center gap-1">
+          {[PlusSquare, Share2, MoreHorizontal].map((Icon, index) => (
+            <button key={index} className="w-8 h-8 rounded-[var(--radius-md-design)] flex items-center justify-center transition-opacity hover:opacity-75" style={{ color: sub }}>
+              <Icon size={14} />
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex-1 px-5 py-6 overflow-hidden">
+        <div className="flex justify-end mb-8">
+          <div className="px-4 py-3 rounded-[var(--radius-lg-design)] type-caption" style={{ background: chipBg, color: text, maxWidth: 210 }}>
+            选择图片节点后，可在左侧画布直接编辑素材。
+          </div>
+        </div>
+        <p className="type-caption mb-2" style={{ color: sub }}>May 23, 2026</p>
+        <div className="rounded-[var(--radius-lg-design)] p-4" style={{ background: chipBg, border: `1px solid ${border}` }}>
+          <p className="type-caption leading-6" style={{ color: text }}>
+            右键图片节点可以快速执行编辑素材、复制、粘贴、打组、添加文本备注和删除节点。当前布局已按参考图改为左侧大画布、右侧助手区、底部浮动工具区。
+          </p>
+        </div>
+      </div>
+
+      <div className="p-4" style={{ borderTop: `1px solid ${border}` }}>
+        <div className="rounded-[var(--radius-xl-design)] px-3 py-3" style={{ background: chipBg, border: `1px solid ${border}` }}>
+          <textarea
+            placeholder="输入对当前画布的想法..."
+            rows={2}
+            className="w-full bg-transparent outline-none resize-none type-caption leading-6"
+            style={{ color: text }}
+          />
+          <div className="flex items-center justify-between pt-2">
+            <div className="flex items-center gap-2" style={{ color: sub }}>
+              <Plus size={14} />
+              <LayoutGrid size={14} />
+              <span className="type-caption">Agent</span>
+            </div>
+            <button className="w-8 h-8 rounded-[var(--radius-pill)] flex items-center justify-center" style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))", color: "white" }}>
+              <Send size={13} />
+            </button>
+          </div>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
 function CanvasSearchBar({ isDark, currentProjectId, onProjectRequest, onAssetAdd }: {
   isDark: boolean;
   currentProjectId: string;
@@ -1507,7 +1556,7 @@ function CanvasSearchBar({ isDark, currentProjectId, onProjectRequest, onAssetAd
   const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
 
   return (
-    <div ref={ref} className="absolute nodrag nopan" style={{ top: 12, left: 100, zIndex: 102, width: 360 }}>
+    <div ref={ref} className="absolute nodrag nopan" style={{ top: 16, left: "calc((100% - 372px) / 2)", transform: "translateX(-50%)", zIndex: 102, width: 380 }}>
       <div
         className="flex items-center gap-2 px-3 rounded-[var(--radius-lg-design)] shadow-lg"
         style={{ height: 34, background: bg, border: `1.5px solid ${open ? "oklch(0.62 0.22 290 / 0.55)" : border}`, backdropFilter: "blur(14px)" }}
@@ -1598,7 +1647,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [editAsset, setEditAsset] = useState<{ id: string; title: string; src: string; nodeId: string } | null>(null);
   const [isZoomingToEdit, setIsZoomingToEdit] = useState(false);
   const [pendingProject, setPendingProject] = useState<Project | null>(null);
-
   const containerRef = useRef<HTMLDivElement>(null);
 
   const onConnect = useCallback((params: Connection) => {
@@ -1688,24 +1736,18 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     } else if (action === "ungroup") {
       setNodes(nds => nds.map(n => actionIds.includes(n.id) ? { ...n, data: { ...(n.data as Record<string, unknown>), groupId: undefined } } : n));
       toast("已解散打组");
-    } else if (action === "add-node") {
-      const node = nodes.find(n => n.id === nodeId);
-      if (node) {
-        const id = `chat-${Date.now()}`;
-        setNodes(nds => [...nds, { id, type: "chat", position: { x: node.position.x + 360, y: node.position.y }, data: { id } }]);
-      }
     } else if (action === "add-asset") {
       const node = nodes.find(n => n.id === nodeId);
       if (node) {
         const id = `asset-${Date.now()}`;
-        setNodes(nds => [...nds, { id, type: "asset", position: { x: node.position.x + 280, y: node.position.y }, data: createDefaultAssetData(id, "新素材节点") }]);
+        setNodes(nds => [...nds, { id, type: "asset", position: { x: node.position.x + 300, y: node.position.y }, data: createDefaultAssetData(id, "新图片节点") }]);
       }
-    } else if (action === "add-text") {
-      const node = nodes.find(n => n.id === nodeId);
-      if (node) {
-        const id = `text-${Date.now()}`;
-        setNodes(nds => [...nds, { id, type: "text", position: { x: node.position.x, y: node.position.y + 200 }, data: { id, text: "", colorIdx: 0 } }]);
-      }
+    } else if (action === "add-note") {
+      setNodes(nds => nds.map(n => actionIds.includes(n.id) ? {
+        ...n,
+        data: { ...(n.data as Record<string, unknown>), note: "双击图片或使用编辑素材继续描述备注" }
+      } : n));
+      toast("已添加文本备注", { description: "备注已附加到当前图片素材" });
     } else if (action === "edit-asset") {
       const node = nodes.find(n => n.id === nodeId);
       if (node && node.type === "asset") {
@@ -1724,14 +1766,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   }, [nodes, clipboard, getActionNodeIds, setNodes, setEdges]);
 
   // ── Add node from position ──
-  const addNode = useCallback((type: string, x: number, y: number) => {
-    const id = `${type}-${Date.now()}`;
-    const data = type === "asset"
-      ? createDefaultAssetData(id, "新素材节点")
-      : { id, prompt: type === "prompt" ? "" : undefined, text: type === "text" ? "" : undefined, colorIdx: type === "text" ? Math.floor(Math.random() * 3) : undefined };
+  const addNode = useCallback((_type: string, x: number, y: number) => {
+    const id = `asset-${Date.now()}`;
     setNodes(nds => [...nds, {
-      id, type, position: { x, y },
-      data,
+      id,
+      type: "asset",
+      position: { x, y },
+      data: createDefaultAssetData(id, "新图片节点"),
     }]);
   }, [setNodes]);
 
@@ -1849,6 +1890,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
   const canvasBg = isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)";
   const dotColor = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.32)";
+  const currentProject = PROJECTS.find(project => project.id === projectId);
 
   // Inject isEditing flag into the target node's data so AssetNodeComponent can show the mask
   const displayNodes = nodes.map(n =>
@@ -1877,11 +1919,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         defaultEdgeOptions={{ type: "tapnow" }}
         connectionLineStyle={{ stroke: "rgba(255,255,255,0.5)", strokeWidth: 2.5 }}
         connectionLineType={"bezier" as any}
-        style={{ background: canvasBg }}
+        style={{ background: canvasBg, width: "calc(100% - 372px)" }}
         proOptions={{ hideAttribution: true }}
         selectionOnDrag
         selectNodesOnDrag={false}
-        panOnDrag={false}
+        panOnDrag={[1, 2]}
         nodesDraggable={true}
         nodesConnectable={ENABLE_NODE_CONNECTIONS}
         edgesFocusable={ENABLE_NODE_CONNECTIONS}
@@ -1889,7 +1931,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       >
         <Background variant={BackgroundVariant.Dots} gap={30} size={2.6} color={dotColor} />
         <MiniMap
-          style={{ background: isDark ? "oklch(0.11 0.015 270)" : "oklch(0.95 0.004 270)", border: `1px solid ${isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"}`, borderRadius: "var(--radius-md-design)" }}
+          style={{ background: isDark ? "oklch(0.11 0.015 270)" : "oklch(0.95 0.004 270)", border: `1px solid ${isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"}`, borderRadius: "var(--radius-md-design)", right: 388 }}
           maskColor={isDark ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.5)"}
           nodeColor={isDark ? "oklch(0.35 0.02 270)" : "oklch(0.75 0.005 270)"}
           zoomable
@@ -1898,13 +1940,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         <Controls showZoom={false} showFitView={false} showInteractive={false} />
       </ReactFlow>
 
+      <CanvasAssistantPanel isDark={isDark} projectTitle={currentProject?.title || "Untitled"} />
+
       {/* Custom zoom controls — vertical bar matching preview toolbar style */}
       <ZoomControlBar isDark={isDark} />
 
       {/* Back button — top-left */}
       <BackButton isDark={isDark} />
 
-      {/* Canvas search — fixed beside back button */}
+      {/* Canvas search — fixed beside project info */}
       <CanvasSearchBar
         isDark={isDark}
         currentProjectId={projectId}

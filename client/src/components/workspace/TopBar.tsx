@@ -3,12 +3,12 @@
  * Global top navigation: search, theme switcher (Radix DropdownMenu), credits, user info
  */
 import { useState, type ElementType } from "react";
-import { Bell, ChevronDown, Sparkles, Plus, Moon, Sun, Monitor, Check, UserRound, LogOut } from "lucide-react";
+import { Bell, ChevronDown, Sparkles, Moon, Sun, Monitor, Check, UserRound, LogOut } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { useTheme, type ThemeMode } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
-import CreateProjectDialog, { type CreateProjectPayload } from "@/components/workspace/CreateProjectDialog";
+import { type CreateProjectPayload } from "@/components/workspace/CreateProjectDialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,6 +32,8 @@ interface TopBarProps {
   credits?: number;
   onNewProjectClick?: () => void;
   onCreateProject?: (payload: CreateProjectPayload) => void;
+  projectTitle?: string;
+  projectTime?: string;
 }
 
 const THEME_OPTIONS: { mode: ThemeMode; icon: ElementType; label: string }[] = [
@@ -40,7 +42,7 @@ const THEME_OPTIONS: { mode: ThemeMode; icon: ElementType; label: string }[] = [
   { mode: "system", icon: Monitor, label: "跟随系统" },
 ];
 
-export default function TopBar({ credits = 75, onNewProjectClick, onCreateProject }: TopBarProps) {
+export default function TopBar({ credits = 75, projectTitle, projectTime }: TopBarProps) {
   const { mode, setMode, resolvedTheme } = useTheme();
   const { isAuthenticated, openLoginModal, logout } = useAuth();
   const [, navigate] = useLocation();
@@ -55,29 +57,11 @@ export default function TopBar({ credits = 75, onNewProjectClick, onCreateProjec
 
   const ActiveIcon = THEME_OPTIONS.find((o) => o.mode === mode)?.icon ?? Moon;
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
-  const [createProjectOpen, setCreateProjectOpen] = useState(false);
 
   const handleConfirmLogout = () => {
     logout();
     setLogoutConfirmOpen(false);
     navigate("/");
-  };
-
-  const handleNewProjectClick = () => {
-    if (onNewProjectClick) {
-      onNewProjectClick();
-      return;
-    }
-    setCreateProjectOpen(true);
-  };
-
-  const handleCreateProject = (payload: CreateProjectPayload) => {
-    if (onCreateProject) {
-      onCreateProject(payload);
-      return;
-    }
-    toast("项目已创建", { description: payload.name });
-    navigate(`/project/${payload.id}`);
   };
 
   return (
@@ -86,7 +70,14 @@ export default function TopBar({ credits = 75, onNewProjectClick, onCreateProjec
       className="flex items-center gap-3 px-4 shrink-0"
       style={{ height: 52, background: surface, borderBottom: `1px solid ${border}`, zIndex: 10 }}
     >
-      <div className="flex-1" />
+      <div className="flex flex-1 items-baseline gap-2 min-w-0">
+        {projectTitle && (
+          <>
+            <span className="font-semibold text-sm truncate max-w-[260px]" style={{ color: textPri }}>{projectTitle}</span>
+            {projectTime && <span className="type-caption whitespace-nowrap" style={{ color: textSec }}>{projectTime}</span>}
+          </>
+        )}
+      </div>
 
       {!isAuthenticated && (
         <button
@@ -104,20 +95,6 @@ export default function TopBar({ credits = 75, onNewProjectClick, onCreateProjec
       )}
 
       {isAuthenticated && (<>
-
-      {/* New project */}
-      <button
-        onClick={handleNewProjectClick}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-md-design)] type-caption transition-all duration-150 active:scale-95"
-        style={{
-          background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
-          color: "white",
-          fontSize: 13,
-        }}
-      >
-        <Plus size={13} />
-        新建项目
-      </button>
 
       {/* ── Theme switcher via Radix DropdownMenu ── */}
       <DropdownMenu>
@@ -239,12 +216,6 @@ export default function TopBar({ credits = 75, onNewProjectClick, onCreateProjec
       </DropdownMenu>
       </>)}
     </header>
-
-    <CreateProjectDialog
-      open={createProjectOpen}
-      onOpenChange={setCreateProjectOpen}
-      onCreate={handleCreateProject}
-    />
 
     <AlertDialog open={logoutConfirmOpen} onOpenChange={setLogoutConfirmOpen}>
       <AlertDialogContent
