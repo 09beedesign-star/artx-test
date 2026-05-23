@@ -6,7 +6,7 @@
  * 3. Right-click on node: context menu with icon commands
  * 4. Asset node double-click zoom is disabled; image download is available from the node context menu
  */
-import { useCallback, useState, useRef, useEffect } from "react";
+import { useCallback, useState, useRef, useEffect, type ReactNode } from "react";
 import {
   ReactFlow,
   Background,
@@ -235,14 +235,14 @@ function ImagePreviewModal({ src, title, onClose, isDark }: {
 }
 
 // ── Asset Node Floating Toolbar ──────────────────────────────
-function AssetFloatingToolbar({ isDark, onPreview, onDownload }: {
-  isDark: boolean; onPreview: () => void; onDownload: () => void;
+function AssetFloatingToolbar({ isDark, onAction }: {
+  isDark: boolean; onAction: (action: string) => void;
 }) {
-  const toolBg = isDark ? "rgba(22,22,30,0.96)" : "rgba(255,255,255,0.97)";
-  const toolBorder = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.14)";
-  const iconColor = isDark ? "rgba(255,255,255,0.75)" : "rgba(20,20,36,0.82)";
-  const dividerColor = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.14)";
-  const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)";
+  const toolBg = isDark ? "rgba(22,22,30,0.88)" : "rgba(255,255,255,0.86)";
+  const toolBorder = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)";
+  const iconColor = isDark ? "rgba(255,255,255,0.76)" : "rgba(28,28,40,0.82)";
+  const dividerColor = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
+  const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
   const tools = [
     { icon: <Crop size={15} />, label: "裁剪", action: "crop" },
     { icon: <Box size={15} />, label: "3D", action: "3d" },
@@ -255,38 +255,45 @@ function AssetFloatingToolbar({ isDark, onPreview, onDownload }: {
     { icon: <Download size={15} />, label: "下载", action: "download" },
     { icon: <Maximize2 size={15} />, label: "全屏", action: "fullscreen" },
   ];
-  const handleClick = (action: string) => {
-    if (action === "download") { onDownload(); return; }
-    if (action === "fullscreen") { onPreview(); return; }
-    toast("功能即将上线", { description: action });
-  };
+  const buttonClass = "relative w-8 h-8 rounded-[var(--radius-md-design)] flex items-center justify-center transition-all active:scale-90";
+  const renderButton = (item: { icon: ReactNode; label: string; action: string; dot?: boolean }) => (
+    <button
+      key={item.action}
+      title={item.label}
+      aria-label={item.label}
+      onClick={(e) => { e.stopPropagation(); onAction(item.action); }}
+      className={buttonClass}
+      style={{ color: iconColor }}
+      onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+    >
+      {item.icon}
+      {item.dot && <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-[var(--radius-pill)]" style={{ background: "oklch(0.60 0.22 260)" }} />}
+    </button>
+  );
+
   return (
     <div
-      className="absolute left-1/2 -translate-x-1/2 flex items-center gap-0.5 px-2 py-1.5 rounded-[var(--radius-lg-design)] nodrag nopan"
-      style={{ top: -52, background: toolBg, border: `1px solid ${toolBorder}`, backdropFilter: "blur(16px)", boxShadow: "0 8px 32px rgba(0,0,0,0.35)", zIndex: 50, whiteSpace: "nowrap" }}
+      className="absolute nodrag nopan"
+      style={{ left: 31, top: "50%", transform: "translateY(-50%)", zIndex: 1600 }}
+      onMouseDown={e => e.stopPropagation()}
+      onClick={e => e.stopPropagation()}
     >
-      {tools.map((t) => (
-        <button key={t.action} title={t.label}
-          onClick={(e) => { e.stopPropagation(); handleClick(t.action); }}
-          className="relative w-8 h-8 rounded-[var(--radius-lg-design)] flex items-center justify-center transition-all"
-          style={{ color: iconColor }}
-          onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
-          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-          {t.icon}
-          {(t as any).dot && <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-[var(--radius-pill)]" style={{ background: "oklch(0.60 0.22 260)" }} />}
-        </button>
-      ))}
-      <div style={{ width: 1, height: 20, background: dividerColor, margin: "0 4px", flexShrink: 0 }} />
-      {actions.map((t) => (
-        <button key={t.action} title={t.label}
-          onClick={(e) => { e.stopPropagation(); handleClick(t.action); }}
-          className="w-8 h-8 rounded-[var(--radius-lg-design)] flex items-center justify-center transition-all"
-          style={{ color: iconColor }}
-          onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
-          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-          {t.icon}
-        </button>
-      ))}
+      <div
+        className="flex flex-col items-center rounded-[var(--radius-md-design)]"
+        style={{
+          background: toolBg,
+          border: `1px solid ${toolBorder}`,
+          backdropFilter: "blur(16px)",
+          boxShadow: isDark ? "0 8px 32px rgba(0,0,0,0.45)" : "0 4px 20px rgba(0,0,0,0.12)",
+          padding: "4px",
+          gap: 0,
+        }}
+      >
+        {tools.map(renderButton)}
+        <div style={{ width: 20, height: 1, background: dividerColor, margin: "2px 0", flexShrink: 0 }} />
+        {actions.map(renderButton)}
+      </div>
     </div>
   );
 }
@@ -297,20 +304,18 @@ function MultiSelectionFloatingToolbar({
   isDark,
   count,
   grouped,
-  position,
   onAction,
 }: {
   isDark: boolean;
   count: number;
   grouped: boolean;
-  position: { left: number; top: number };
+  position?: { left: number; top: number };
   onAction: (action: string) => void;
 }) {
-  const bg = isDark ? "rgba(22,22,30,0.92)" : "rgba(255,255,255,0.94)";
-  const border = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)";
-  const text = isDark ? "rgba(255,255,255,0.86)" : "rgba(28,28,40,0.84)";
-  const muted = isDark ? "rgba(255,255,255,0.52)" : "rgba(28,28,40,0.52)";
-  const hover = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)";
+  const bg = isDark ? "rgba(22,22,30,0.88)" : "rgba(255,255,255,0.86)";
+  const border = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)";
+  const text = isDark ? "rgba(255,255,255,0.82)" : "rgba(28,28,40,0.82)";
+  const hover = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
   const accent = "oklch(0.65 0.22 290)";
   const groupHint = grouped ? "已编组" : "未编组";
   const items = [
@@ -322,39 +327,44 @@ function MultiSelectionFloatingToolbar({
 
   return (
     <div
-      className="absolute rounded-[var(--radius-xl-design)] shadow-2xl nodrag nopan overflow-hidden"
-      style={{
-        left: position.left,
-        top: position.top,
-        transform: "translate(-50%, -100%)",
-        background: bg,
-        border: `1px solid ${border}`,
-        color: text,
-        zIndex: 1600,
-        backdropFilter: "blur(22px)",
-        boxShadow: isDark
-          ? "0 18px 48px rgba(0,0,0,0.42), 0 0 0 1px rgba(255,255,255,0.04) inset"
-          : "0 18px 48px rgba(40,40,70,0.16), 0 0 0 1px rgba(255,255,255,0.75) inset",
-      }}
+      className="absolute nodrag nopan"
+      style={{ left: 31, top: "50%", transform: "translateY(-50%)", zIndex: 1600 }}
       onMouseDown={e => e.stopPropagation()}
       onClick={e => e.stopPropagation()}
     >
-      <div className="flex items-center gap-1 px-2 py-1.5">
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 mr-1 rounded-[var(--radius-md-design)]" style={{ background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", color: muted }}>
-          <span className="type-caption" style={{ color: accent, fontWeight: 700 }}>{count}</span>
-          <span className="type-caption">张图片已选中 · {groupHint}</span>
+      <div
+        className="flex flex-col items-center rounded-[var(--radius-md-design)]"
+        style={{
+          background: bg,
+          border: `1px solid ${border}`,
+          color: text,
+          backdropFilter: "blur(16px)",
+          boxShadow: isDark ? "0 8px 32px rgba(0,0,0,0.45)" : "0 4px 20px rgba(0,0,0,0.12)",
+          padding: "4px",
+          gap: 0,
+        }}
+        aria-label={`${count} 张图片已选中，${groupHint}`}
+      >
+        <div
+          className="w-8 h-8 flex flex-col items-center justify-center rounded-[var(--radius-md-design)]"
+          title={`${count} 张图片已选中 · ${groupHint}`}
+          style={{ background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", color: text }}
+        >
+          <span className="type-caption" style={{ color: accent, fontWeight: 700, lineHeight: 1 }}>{count}</span>
         </div>
+        <div style={{ width: 20, height: 1, background: isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)", margin: "2px 0", flexShrink: 0 }} />
         {items.map(item => (
           <button
             key={item.action}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-[var(--radius-md-design)] type-caption transition-colors"
+            title={item.label}
+            aria-label={item.label}
+            className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-md-design)] transition-all active:scale-90"
             style={{ color: text }}
             onClick={() => onAction(item.action)}
             onMouseEnter={e => (e.currentTarget.style.background = hover)}
             onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
           >
             {item.icon}
-            <span>{item.label}</span>
           </button>
         ))}
       </div>
@@ -443,6 +453,15 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const { deleteElements, setNodes: setFlowNodes } = useReactFlow();
   const nodeId = (data as { id?: string }).id || "";
 
+  useEffect(() => {
+    const handlePreviewRequest = (event: Event) => {
+      const detail = (event as CustomEvent<{ nodeId?: string }>).detail;
+      if (detail?.nodeId === nodeId) setPreview(true);
+    };
+    window.addEventListener("asset-preview-request", handlePreviewRequest);
+    return () => window.removeEventListener("asset-preview-request", handlePreviewRequest);
+  }, [nodeId]);
+
   const asset = GENERATED_ASSETS.find(a => a.id === (data.assetId as string)) || GENERATED_ASSETS[0];
   const isEditing = !!(data as { isEditing?: boolean }).isEditing;
   const displayTitle = (data.title as string) || asset.title || "素材节点";
@@ -508,15 +527,6 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
         onClick={handleAssetClick}
         onMouseDownCapture={handleAssetMouseDownCapture}
       >
-        {/* Floating top toolbar — visible for a single selected image node only */}
-        {selected && !multiSelectionActive && (
-          <AssetFloatingToolbar
-            isDark={isDark}
-            onPreview={() => setPreview(true)}
-            onDownload={() => toast("下载", { description: "功能即将上线" })}
-          />
-        )}
-
         <div
           className="relative flex items-center justify-center overflow-hidden cursor-pointer"
           style={{ background: iconPanelBg, borderBottom: `1px solid ${assetShellBorder}` }}
@@ -2278,6 +2288,19 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   // Inject isEditing flag into the target node's data so AssetNodeComponent can show the mask
   const selectedImageNodeIds = selectedNodeIds.filter(id => nodes.some(n => n.id === id && n.type === "asset"));
   const multiImageSelectionActive = selectedImageNodeIds.length > 1;
+  const handleSingleImageToolbarAction = useCallback((action: string) => {
+    const nodeId = selectedImageNodeIds[0];
+    if (!nodeId) return;
+    if (action === "download") {
+      handleNodeAction("download", nodeId);
+      return;
+    }
+    if (action === "fullscreen") {
+      window.dispatchEvent(new CustomEvent("asset-preview-request", { detail: { nodeId } }));
+      return;
+    }
+    toast("功能即将上线", { description: action });
+  }, [handleNodeAction, selectedImageNodeIds]);
   const selectedImageBounds = getCanvasNodesBounds(nodes, selectedImageNodeIds);
   const canvasWidth = containerRef.current?.clientWidth || 0;
   const assistantWidth = isAssistantCollapsed ? 112 : Math.min(372, Math.max(280, canvasWidth * 0.32));
@@ -2353,12 +2376,18 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
       <CanvasAssistantPanel isDark={isDark} collapsed={isAssistantCollapsed} onToggleCollapsed={() => setIsAssistantCollapsed(value => !value)} />
 
+      {selectedImageNodeIds.length === 1 && !multiImageSelectionActive && (
+        <AssetFloatingToolbar
+          isDark={isDark}
+          onAction={handleSingleImageToolbarAction}
+        />
+      )}
+
       {multiImageSelectionActive && (
         <MultiSelectionFloatingToolbar
           isDark={isDark}
           count={selectedImageNodeIds.length}
           grouped={areNodesGrouped(selectedImageNodeIds)}
-          position={multiSelectionToolbarPosition}
           onAction={(action) => handleNodeAction(action, "__selection__")}
         />
       )}
