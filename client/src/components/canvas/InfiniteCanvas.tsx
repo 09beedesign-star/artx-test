@@ -1076,17 +1076,86 @@ function TapnowEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, ta
 }
 
 // ── Canvas Frame Node — 画布帧节点 ─────────────────────────────────────────────
-function CanvasFrameNode({ data, selected }: { data: Record<string, unknown>; selected: boolean }) {
+function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<string, unknown>; selected: boolean }) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-  const w = (data.width as number) || 800;
-  const h = (data.height as number) || 600;
+  const viewport = useViewport();
+
+  // 内部尺寸状态（拖拽过程中实时更新）
+  const [localW, setLocalW] = useState<number>((data.width as number) || 800);
+  const [localH, setLocalH] = useState<number>((data.height as number) || 600);
+  const [isResizing, setIsResizing] = useState(false);
+
+  // 当外部 data 变化时同步（非拖拽状态）
+  useEffect(() => {
+    if (!isResizing) {
+      setLocalW((data.width as number) || 800);
+      setLocalH((data.height as number) || 600);
+    }
+  }, [data.width, data.height, isResizing]);
+
+  const resizeDragRef = useRef<{
+    startClientX: number;
+    startClientY: number;
+    startW: number;
+    startH: number;
+  } | null>(null);
+
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizeDragRef.current = {
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      startW: localW,
+      startH: localH,
+    };
+    setIsResizing(true);
+
+    const onMouseMove = (mv: MouseEvent) => {
+      const drag = resizeDragRef.current;
+      if (!drag) return;
+      const zoom = viewport.zoom || 1;
+      const dx = (mv.clientX - drag.startClientX) / zoom;
+      const dy = (mv.clientY - drag.startClientY) / zoom;
+      const newW = Math.max(80, Math.round(drag.startW + dx));
+      const newH = Math.max(60, Math.round(drag.startH + dy));
+      setLocalW(newW);
+      setLocalH(newH);
+    };
+
+    const onMouseUp = (mu: MouseEvent) => {
+      const drag = resizeDragRef.current;
+      if (!drag) return;
+      const zoom = viewport.zoom || 1;
+      const dx = (mu.clientX - drag.startClientX) / zoom;
+      const dy = (mu.clientY - drag.startClientY) / zoom;
+      const newW = Math.max(80, Math.round(drag.startW + dx));
+      const newH = Math.max(60, Math.round(drag.startH + dy));
+      resizeDragRef.current = null;
+      setIsResizing(false);
+      // 通知 InnerCanvas 更新节点 data
+      window.dispatchEvent(new CustomEvent("canvas-frame-resize", {
+        detail: { id, width: newW, height: newH },
+      }));
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  }, [id, localW, localH, viewport.zoom]);
+
+  const w = localW;
+  const h = localH;
   const title = (data.title as string) || "画布";
   const borderColor = selected
     ? "oklch(0.65 0.22 290)"
     : isDark ? "oklch(1 0 0 / 20%)" : "oklch(0 0 0 / 18%)";
   const bg = isDark ? "oklch(0.12 0.015 270 / 0.55)" : "oklch(0.97 0.004 270 / 0.55)";
   const labelColor = isDark ? "oklch(0.55 0.01 270)" : "oklch(0.52 0.01 270)";
+  const handleColor = isDark ? "oklch(0.65 0.22 290 / 0.80)" : "oklch(0.50 0.20 290 / 0.80)";
+
   return (
     <div
       style={{
@@ -1096,7 +1165,7 @@ function CanvasFrameNode({ data, selected }: { data: Record<string, unknown>; se
         borderRadius: 8,
         boxSizing: "border-box",
         position: "relative",
-        transition: "border-color 0.15s",
+        transition: isResizing ? "none" : "border-color 0.15s",
       }}
     >
       {/* 左上角标题 */}
@@ -1115,7 +1184,34 @@ function CanvasFrameNode({ data, selected }: { data: Record<string, unknown>; se
       >
         {title} · {w} × {h} px
       </div>
-      {/* 四角手柄 */}
+
+      {/* 右下角拖拽手柄 */}
+      <div
+        className="nodrag"
+        onMouseDown={handleResizeMouseDown}
+        style={{
+          position: "absolute",
+          right: -6,
+          bottom: -6,
+          width: 14,
+          height: 14,
+          cursor: "nwse-resize",
+          zIndex: 10,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+        title="拖拽调整大小"
+      >
+        {/* 拖拽标记：三条斜线 */}
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+          <line x1="3" y1="10" x2="10" y2="3" stroke={handleColor} strokeWidth="1.5" strokeLinecap="round" />
+          <line x1="6" y1="10" x2="10" y2="6" stroke={handleColor} strokeWidth="1.5" strokeLinecap="round" />
+          <line x1="9" y1="10" x2="10" y2="9" stroke={handleColor} strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      </div>
+
+      {/* 连接手柄（隐藏） */}
       <Handle type="target" position={Position.Top} id="top" style={{ opacity: 0 }} />
       <Handle type="source" position={Position.Bottom} id="bottom" style={{ opacity: 0 }} />
     </div>
@@ -2716,6 +2812,24 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const removeGlobalAnnotation = useCallback((id: string) => {
     setGlobalAnnotations(prev => prev.filter(a => a.id !== id));
   }, []);
+
+  // ── 监听画布帧节点的拖拽调整尺寸事件 ──
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ id: string; width: number; height: number }>).detail;
+      if (!detail?.id) return;
+      setNodes(nds => nds.map(n => {
+        if (n.id !== detail.id || n.type !== "canvasFrame") return n;
+        return {
+          ...n,
+          style: { ...n.style, width: detail.width, height: detail.height },
+          data: { ...(n.data as Record<string, unknown>), width: detail.width, height: detail.height },
+        };
+      }));
+    };
+    window.addEventListener("canvas-frame-resize", handler);
+    return () => window.removeEventListener("canvas-frame-resize", handler);
+  }, [setNodes]);
 
   const cloneNodesForHistory = useCallback((items: Node[]) => items.map(node => ({
     ...node,
