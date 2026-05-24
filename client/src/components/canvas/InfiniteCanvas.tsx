@@ -2131,8 +2131,8 @@ function CanvasTopToolPalette({ isDark }: { isDark: boolean }) {
 
   return (
     <div
-      className="absolute nodrag nopan"
-      style={{ top: 16, left: "50%", transform: "translateX(-50%)", zIndex: 1300 }}
+      className="fixed nodrag nopan"
+      style={{ top: 4, left: "50%", transform: "translateX(-50%)", zIndex: 1300 }}
       onMouseDown={e => e.stopPropagation()}
     >
       {/* 几何形二级菜单 */}
