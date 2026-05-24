@@ -454,6 +454,231 @@ function AssetPromptPanel({ isDark, assetSrc, onExpand }: {
 }
 
 // ── Asset Node ─────────────────────────────────────────────────
+// ── 注释数据类型 ──
+interface Annotation {
+  id: string;
+  x: number;   // 相对节点宽度的百分比 0-100
+  y: number;   // 相对节点高度的百分比 0-100
+  text: string;
+  done: boolean;
+  open: boolean;
+  editing: boolean;
+}
+
+// ── AnnotationBubble 组件 ──
+function AnnotationBubble({
+  ann, isDark, onUpdate, onRemove
+}: {
+  ann: Annotation;
+  isDark: boolean;
+  onUpdate: (id: string, patch: Partial<Annotation>) => void;
+  onRemove: (id: string) => void;
+}) {
+  const [draft, setDraft] = useState(ann.text);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (ann.editing && textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, [ann.editing]);
+
+  const bubbleBg = isDark ? "rgba(22,22,34,0.97)" : "rgba(255,255,255,0.98)";
+  const bubbleBorder = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)";
+  const textColor = isDark ? "rgba(255,255,255,0.88)" : "rgba(20,20,30,0.90)";
+  const subColor = isDark ? "rgba(255,255,255,0.40)" : "rgba(0,0,0,0.38)";
+  const iconBtnColor = isDark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.45)";
+  const iconBtnHover = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.07)";
+  const accentColor = "oklch(0.65 0.22 290)";
+  const doneBg = isDark ? "rgba(34,42,22,0.97)" : "rgba(240,255,235,0.98)";
+  const doneBorder = isDark ? "rgba(100,200,80,0.25)" : "rgba(80,160,60,0.20)";
+
+  // 折叠状态：显示小圆点图标
+  if (!ann.open) {
+    return (
+      <div
+        data-ann-id={ann.id}
+        className="absolute nodrag nopan"
+        style={{
+          left: `${ann.x}%`,
+          top: `${ann.y}%`,
+          transform: "translate(-50%, -50%)",
+          zIndex: 50,
+          cursor: "pointer",
+        }}
+        onClick={e => { e.stopPropagation(); onUpdate(ann.id, { open: true }); }}
+        title={ann.text || "注释"}
+      >
+        <div style={{
+          width: 22,
+          height: 22,
+          borderRadius: "50% 50% 50% 0",
+          background: ann.done ? "oklch(0.62 0.18 145)" : accentColor,
+          border: "2px solid rgba(255,255,255,0.9)",
+          boxShadow: "0 2px 8px rgba(0,0,0,0.28)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          transform: "rotate(-45deg)",
+        }}>
+          <MessageCircle size={9} color="white" style={{ transform: "rotate(45deg)" }} />
+        </div>
+      </div>
+    );
+  }
+
+  // 展开气泡
+  return (
+    <div
+      data-ann-id={ann.id}
+      className="absolute nodrag nopan"
+      style={{
+        left: `${ann.x}%`,
+        top: `${ann.y}%`,
+        zIndex: 100,
+        transform: "translateX(-50%)",
+        minWidth: 220,
+        maxWidth: 280,
+      }}
+      onClick={e => e.stopPropagation()}
+      onMouseDown={e => e.stopPropagation()}
+    >
+      {/* 连接线 */}
+      <div style={{
+        position: "absolute",
+        left: "50%",
+        bottom: "100%",
+        transform: "translateX(-50%)",
+        width: 2,
+        height: 12,
+        background: ann.done ? "oklch(0.62 0.18 145)" : accentColor,
+        borderRadius: 1,
+      }} />
+      {/* 小圆点锚点 */}
+      <div style={{
+        position: "absolute",
+        left: "50%",
+        bottom: "calc(100% + 10px)",
+        transform: "translate(-50%, 50%)",
+        width: 10,
+        height: 10,
+        borderRadius: "50%",
+        background: ann.done ? "oklch(0.62 0.18 145)" : accentColor,
+        border: "2px solid rgba(255,255,255,0.9)",
+        boxShadow: "0 1px 4px rgba(0,0,0,0.25)",
+      }} />
+
+      {/* 气泡主体 */}
+      <div style={{
+        background: ann.done ? doneBg : bubbleBg,
+        border: `1px solid ${ann.done ? doneBorder : bubbleBorder}`,
+        borderRadius: 10,
+        boxShadow: "0 8px 32px rgba(0,0,0,0.22)",
+        backdropFilter: "blur(16px)",
+        overflow: "hidden",
+      }}>
+        {/* 标题栏 */}
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "6px 6px 6px 10px",
+          borderBottom: `1px solid ${ann.done ? doneBorder : bubbleBorder}`,
+        }}>
+          <span style={{ fontSize: 10, color: subColor, letterSpacing: "0.03em" }}>
+            {ann.done ? "✓ 已完成" : "注释"}
+          </span>
+          <div style={{ display: "flex", gap: 2 }}>
+            {/* 关闭按钮（折叠气泡，不删除） */}
+            <button
+              title="折叠注释"
+              style={{ width: 22, height: 22, borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center", color: iconBtnColor, background: "transparent", border: "none", cursor: "pointer" }}
+              onClick={() => onUpdate(ann.id, { open: false, editing: false })}
+              onMouseEnter={e => (e.currentTarget.style.background = iconBtnHover)}
+              onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+            >
+              <X size={12} />
+            </button>
+            {/* 编辑按钮 */}
+            {!ann.editing && (
+              <button
+                title="编辑注释"
+                style={{ width: 22, height: 22, borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center", color: iconBtnColor, background: "transparent", border: "none", cursor: "pointer" }}
+                onClick={() => { setDraft(ann.text); onUpdate(ann.id, { editing: true }); }}
+                onMouseEnter={e => (e.currentTarget.style.background = iconBtnHover)}
+                onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+              >
+                <Edit3 size={12} />
+              </button>
+            )}
+            {/* Done 按钮 */}
+            <button
+              title={ann.done ? "撤销完成" : "标记完成"}
+              style={{
+                width: 22, height: 22, borderRadius: 5,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                color: ann.done ? "oklch(0.62 0.18 145)" : iconBtnColor,
+                background: "transparent", border: "none", cursor: "pointer",
+                fontSize: 10, fontWeight: 600,
+              }}
+              onClick={() => onUpdate(ann.id, { done: !ann.done })}
+              onMouseEnter={e => (e.currentTarget.style.background = iconBtnHover)}
+              onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+            >
+              {ann.done ? "↩" : "Done"}
+            </button>
+          </div>
+        </div>
+
+        {/* 内容区 */}
+        {ann.editing ? (
+          <div style={{ padding: "8px 10px 8px" }}>
+            <textarea
+              ref={textareaRef}
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              placeholder="输入注释内容..."
+              rows={3}
+              style={{
+                width: "100%",
+                background: "transparent",
+                border: "none",
+                outline: "none",
+                resize: "none",
+                fontSize: 12,
+                lineHeight: 1.6,
+                color: textColor,
+                fontFamily: "inherit",
+              }}
+              onKeyDown={e => {
+                if (e.key === "Escape") onUpdate(ann.id, { editing: false });
+                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) onUpdate(ann.id, { text: draft, editing: false });
+              }}
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginTop: 4 }}>
+              <button
+                style={{ fontSize: 11, padding: "3px 10px", borderRadius: 5, background: "transparent", border: `1px solid ${bubbleBorder}`, color: subColor, cursor: "pointer" }}
+                onClick={() => onUpdate(ann.id, { editing: false })}
+              >取消</button>
+              <button
+                style={{ fontSize: 11, padding: "3px 10px", borderRadius: 5, background: accentColor, border: "none", color: "white", cursor: "pointer" }}
+                onClick={() => onUpdate(ann.id, { text: draft, editing: false })}
+              >确认</button>
+            </div>
+          </div>
+        ) : (
+          <div
+            style={{ padding: "8px 10px", fontSize: 12, lineHeight: 1.6, color: textColor, minHeight: 36, cursor: "text" }}
+            onClick={() => { setDraft(ann.text); onUpdate(ann.id, { editing: true }); }}
+          >
+            {ann.text || <span style={{ color: subColor, fontStyle: "italic" }}>点击编辑注释...</span>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>; selected: boolean }) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
@@ -462,6 +687,10 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const [preview, setPreview] = useState(false);
   const { deleteElements, setNodes: setFlowNodes } = useReactFlow();
   const nodeId = (data as { id?: string }).id || "";
+  // ── 注释状态 ──
+  const [annotations, setAnnotations] = useState<Annotation[]>([]);
+  const [toolMode, setToolMode] = useState<string>("move");
+  const imgContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handlePreviewRequest = (event: Event) => {
@@ -471,6 +700,16 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     window.addEventListener("asset-preview-request", handlePreviewRequest);
     return () => window.removeEventListener("asset-preview-request", handlePreviewRequest);
   }, [nodeId]);
+
+  // 监听工具模式变化
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const mode = (e as CustomEvent<{ mode: string }>).detail?.mode;
+      if (mode) setToolMode(mode);
+    };
+    window.addEventListener("tool-mode-change", handler);
+    return () => window.removeEventListener("tool-mode-change", handler);
+  }, []);
 
   const localSrc = (data as Record<string, unknown>).localSrc as string | undefined;
   const asset = GENERATED_ASSETS.find(a => a.id === (data.assetId as string)) || GENERATED_ASSETS[0];
@@ -527,6 +766,33 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     }));
   }, [displaySrc, displayTitle, nodeId, setFlowNodes]);
 
+  // 注释模式点击图片创建注释
+  const handleImageAnnotateClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (toolMode !== "annotate") return;
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const xPct = ((e.clientX - rect.left) / rect.width) * 100;
+    const yPct = ((e.clientY - rect.top) / rect.height) * 100;
+    const newAnnotation: Annotation = {
+      id: `ann-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      x: xPct,
+      y: yPct,
+      text: "",
+      done: false,
+      open: true,
+      editing: true,
+    };
+    setAnnotations(prev => [...prev, newAnnotation]);
+  }, [toolMode]);
+
+  const updateAnnotation = useCallback((id: string, patch: Partial<Annotation>) => {
+    setAnnotations(prev => prev.map(a => a.id === id ? { ...a, ...patch } : a));
+  }, []);
+
+  const removeAnnotation = useCallback((id: string) => {
+    setAnnotations(prev => prev.filter(a => a.id !== id));
+  }, []);
+
   return (
     <>
       <NodeWrapper selected={selected} isDark={isDark} model={model} onModelChange={setModel}
@@ -537,9 +803,15 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
         onMouseDownCapture={handleAssetMouseDownCapture}
       >
         <div
-          className="relative flex items-center justify-center overflow-hidden cursor-pointer"
-          style={{ background: iconPanelBg, borderBottom: `1px solid ${assetShellBorder}` }}
+          ref={imgContainerRef}
+          className="relative flex items-center justify-center overflow-visible cursor-pointer"
+          style={{
+            background: iconPanelBg,
+            borderBottom: `1px solid ${assetShellBorder}`,
+            cursor: toolMode === "annotate" ? "crosshair" : "pointer",
+          }}
           onDoubleClick={(e) => { e.stopPropagation(); }}
+          onClick={handleImageAnnotateClick}
         >
           <img
             src={displaySrc}
@@ -551,10 +823,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
           {isEditing && (
             <div
               className="absolute inset-0 pointer-events-none"
-              style={{
-                background: "rgba(0,0,0,0.15)",
-                transition: "opacity 0.4s ease",
-              }}
+              style={{ background: "rgba(0,0,0,0.15)", transition: "opacity 0.4s ease" }}
             />
           )}
           <div className="absolute top-2 right-2">
@@ -562,6 +831,17 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
               {displayType}
             </span>
           </div>
+
+          {/* 注释气泡层 — 随节点一起移动 */}
+          {annotations.map(ann => (
+            <AnnotationBubble
+              key={ann.id}
+              ann={ann}
+              isDark={isDark}
+              onUpdate={updateAnnotation}
+              onRemove={removeAnnotation}
+            />
+          ))}
         </div>
 
       </NodeWrapper>
@@ -1828,10 +2108,13 @@ function CanvasTopToolPalette({ isDark }: { isDark: boolean }) {
     if (id === "shape") {
       setShapeOpen(v => !v);
       setActive(id);
+      window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: id } }));
       return;
     }
     setShapeOpen(false);
     setActive(id);
+    // 向 InnerCanvas 广播工具模式变化
+    window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: id } }));
     toast(
       tools.find(t => t.id === id)?.label ?? "",
       { description: id === "upload" ? "点击选择图片文件" : "工具已切换" }
@@ -2309,6 +2592,16 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   // key: nodeId, value: { x, y } 记录按下 Alt 时节点的原始位置
   const altDragOriginRef = useRef<Map<string, { x: number; y: number }>>(new Map());
   const isAltDragRef = useRef(false);
+  // ── 工具模式 ──
+  const [activeToolMode, setActiveToolMode] = useState<string>("move");
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const mode = (e as CustomEvent<{ mode: string }>).detail?.mode;
+      if (mode) setActiveToolMode(mode);
+    };
+    window.addEventListener("tool-mode-change", handler);
+    return () => window.removeEventListener("tool-mode-change", handler);
+  }, []);
 
   const cloneNodesForHistory = useCallback((items: Node[]) => items.map(node => ({
     ...node,
@@ -2760,6 +3053,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   // ── Click blank canvas → exit group if inside one, also close smart-optimize bar ──
   const handlePaneClick = useCallback(() => {
     setNodeCtxMenu(null);
+    // 通知注释气泡折叠
+    window.dispatchEvent(new CustomEvent("pane-click"));
     // 点击画布空白处关闭智能优化输入框
     if (editAsset) {
       setEditAsset(null);
