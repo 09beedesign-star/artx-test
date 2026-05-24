@@ -44,7 +44,7 @@ import {
   ChevronLeft, Home, LayoutGrid, Lock, Unlock, Plus, Minus,
   Search, ArrowRight, Share2, MousePointer2, CircleDot, Grid3X3,
   Square, PenLine, ImagePlus, Video, Captions, Repeat2, LogOut, FolderDown,
-  AlignHorizontalSpaceAround, AlignVerticalSpaceAround,
+  AlignHorizontalSpaceAround, AlignVerticalSpaceAround, Boxes,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import JSZip from "jszip";
@@ -327,7 +327,7 @@ function MultiSelectionFloatingToolbar({
   const accent = "oklch(0.65 0.22 290)";
   const groupHint = grouped ? "已编组" : "未编组";
   const items = [
-    { icon: <Box size={15} />, label: "编组", action: "group" },
+    { icon: <Boxes size={15} />, label: "编组", action: "group" },
     { icon: <FolderOutput size={15} />, label: "取消编组", action: "ungroup" },
     { icon: <LayoutGrid size={15} />, label: "自动排列", action: "auto-layout" },
     { icon: <AlignHorizontalSpaceAround size={15} />, label: "横向排列", action: "layout-horizontal" },
@@ -1061,7 +1061,7 @@ function NodeContextMenu({ menu, onClose, onAction, isDark }: {
   const selectionItems = [
     { icon: <Copy size={13} />, label: "复制", action: "copy", color: iconColor },
     { icon: <Clipboard size={13} />, label: "粘贴", action: "paste", color: iconColor },
-    { icon: <Box size={13} />, label: "打组", action: "group", color: iconColor },
+    { icon: <Boxes size={13} />, label: "打组", action: "group", color: iconColor },
     { icon: <LayoutGrid size={13} />, label: "自动排列", action: "auto-layout", color: iconColor },
     { icon: <AlignHorizontalSpaceAround size={13} />, label: "横向排列", action: "layout-horizontal", color: iconColor },
     { icon: <AlignVerticalSpaceAround size={13} />, label: "竖向排列", action: "layout-vertical", color: iconColor },
