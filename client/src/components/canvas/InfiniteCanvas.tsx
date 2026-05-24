@@ -2248,6 +2248,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
   const dragCounterRef = useRef(0);
+  // ── Alt + drag 复制状态 ──
+  // key: nodeId, value: { x, y } 记录按下 Alt 时节点的原始位置
+  const altDragOriginRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+  const isAltDragRef = useRef(false);
 
   const cloneNodesForHistory = useCallback((items: Node[]) => items.map(node => ({
     ...node,
@@ -2865,6 +2869,61 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     }
   }, [getNodeImageSrc]);
 
+  // ── Alt + drag 复制节点 ──
+  // 拖拽开始时：若按下 Alt，记录被拖节点的原始位置
+  const handleAltDragStart = useCallback((_event: React.MouseEvent, node: Node) => {
+    if (!(_event.altKey)) {
+      isAltDragRef.current = false;
+      altDragOriginRef.current.clear();
+      return;
+    }
+    isAltDragRef.current = true;
+    // 如果是多选中的节点，记录所有选中的 asset 节点原始位置
+    const dragIds = selectedNodeIds.includes(node.id)
+      ? selectedNodeIds.filter(id => nodes.some(n => n.id === id && n.type === "asset"))
+      : (node.type === "asset" ? [node.id] : []);
+    altDragOriginRef.current.clear();
+    dragIds.forEach(id => {
+      const n = nodes.find(nd => nd.id === id);
+      if (n) altDragOriginRef.current.set(id, { x: n.position.x, y: n.position.y });
+    });
+  }, [nodes, selectedNodeIds]);
+
+  // 拖拽结束时：若是 Alt 拖拽，在原始位置插入克隆节点
+  const handleAltDragStop = useCallback((_event: MouseEvent, node: Node) => {
+    if (!isAltDragRef.current) return;
+    isAltDragRef.current = false;
+    const origins = altDragOriginRef.current;
+    if (origins.size === 0) return;
+    altDragOriginRef.current = new Map();
+
+    pushHistory();
+    setNodes(nds => {
+      const clones: Node[] = [];
+      origins.forEach((origin, id) => {
+        const original = nds.find(n => n.id === id);
+        if (!original) return;
+        const cloneId = `${id}-copy-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        clones.push({
+          ...original,
+          id: cloneId,
+          position: { x: origin.x, y: origin.y },
+          selected: false,
+          data: {
+            ...(original.data as Record<string, unknown>),
+            id: cloneId,
+            // 不继承编辑状态
+            isEditing: false,
+          },
+        });
+      });
+      return [...nds, ...clones];
+    });
+
+    const count = origins.size;
+    toast(`已复制 ${count} 个图片节点`, { description: "原始位置已生成副本" });
+  }, [pushHistory, setNodes]);
+
   // ── Handle group actions from context menu ──
   const handleGroupAction = useCallback((action: string) => {
     const groupId = (window as unknown as Record<string, unknown>).__artx_ctx_group_id__ as string | undefined;
@@ -3235,6 +3294,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         nodesConnectable={ENABLE_NODE_CONNECTIONS}
         edgesFocusable={ENABLE_NODE_CONNECTIONS}
         edgesReconnectable={ENABLE_NODE_CONNECTIONS}
+        onNodeDragStart={handleAltDragStart as any}
+        onNodeDragStop={handleAltDragStop as any}
       >
         <Background variant={BackgroundVariant.Dots} gap={30} size={2.6} color={dotColor} />
         <MiniMap
