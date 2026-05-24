@@ -866,14 +866,14 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     <>
       {/* 纯图片节点：无底部工具栏，无灰条 */}
       <div
-        className="relative nodrag"
+        className="relative"
         style={{
           width: dispW, height: dispH,
           border: `2px solid ${borderColor}`,
           borderRadius: 4,
           boxShadow: shadow,
           overflow: "hidden",
-          cursor: isResizing ? "nwse-resize" : toolMode === "annotate" ? "crosshair" : "default",
+          cursor: isResizing ? "nwse-resize" : toolMode === "annotate" ? "crosshair" : "grab",
           transition: "border-color 0.15s, box-shadow 0.15s",
           userSelect: "none",
         }}
