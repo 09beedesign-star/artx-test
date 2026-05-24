@@ -2745,6 +2745,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  // 始终跟踪最新的 nodes/edges，供 pushHistory 读取（避免闭包捕获旧值）
+  const nodesRef = useRef(nodes);
+  const edgesRef = useRef(edges);
+  useEffect(() => { nodesRef.current = nodes; }, [nodes]);
+  useEffect(() => { edgesRef.current = edges; }, [edges]);
   const [nodeCtxMenu, setNodeCtxMenu] = useState<NodeCtxState | null>(null);
   const [clipboard, setClipboard] = useState<Node[]>([]);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
@@ -2843,11 +2848,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   })), []);
 
   const pushHistory = useCallback(() => {
+    // 从 ref 读取最新状态，避免闭包捕获旧的 nodes/edges
     historyRef.current = [
       ...historyRef.current.slice(-(MAX_HISTORY_STEPS - 1)),
-      { nodes: cloneNodesForHistory(nodes), edges: cloneEdgesForHistory(edges) },
+      { nodes: cloneNodesForHistory(nodesRef.current), edges: cloneEdgesForHistory(edgesRef.current) },
     ];
-  }, [cloneEdgesForHistory, cloneNodesForHistory, edges, nodes]);
+  }, [cloneEdgesForHistory, cloneNodesForHistory]);
 
   const undoCanvas = useCallback(() => {
     const previous = historyRef.current.pop();
