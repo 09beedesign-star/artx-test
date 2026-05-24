@@ -2602,10 +2602,17 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const isAltDragRef = useRef(false);
   // ── 工具模式 ──
   const [activeToolMode, setActiveToolMode] = useState<string>("move");
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     const handler = (e: Event) => {
       const mode = (e as CustomEvent<{ mode: string }>).detail?.mode;
-      if (mode) setActiveToolMode(mode);
+      if (!mode) return;
+      setActiveToolMode(mode);
+      // 选中上传工具时立即弹出文件选择框
+      if (mode === "upload") {
+        setTimeout(() => uploadInputRef.current?.click(), 50);
+      }
     };
     window.addEventListener("tool-mode-change", handler);
     return () => window.removeEventListener("tool-mode-change", handler);
@@ -2664,6 +2671,54 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setNodeCtxMenu(null);
     toast("已回退一步", { description: `还可回退 ${historyRef.current.length} 步` });
   }, [cloneEdgesForHistory, cloneNodesForHistory, setEdges, setNodes]);
+
+  // 处理文件选择后将图片添加到画布
+  const handleUploadFiles = useCallback((files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const imageFiles = Array.from(files).filter(f => f.type.startsWith("image/"));
+    if (imageFiles.length === 0) { toast("请选择图片文件（JPG / PNG / GIF / WebP）"); return; }
+    pushHistory();
+    const centerX = (containerRef.current?.clientWidth || 800) / 2;
+    const centerY = (containerRef.current?.clientHeight || 600) / 2;
+    imageFiles.forEach((file, index) => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const dataUrl = ev.target?.result as string;
+        if (!dataUrl) return;
+        const img = new window.Image();
+        img.onload = () => {
+          const offsetX = (index - (imageFiles.length - 1) / 2) * 40;
+          const offsetY = (index - (imageFiles.length - 1) / 2) * 40;
+          const flowPos = screenToFlowPosition({
+            x: (containerRef.current?.getBoundingClientRect().left || 0) + centerX + offsetX,
+            y: (containerRef.current?.getBoundingClientRect().top || 0) + centerY + offsetY,
+          });
+          const id = `upload-${Date.now()}-${index}`;
+          const maxSide = 360;
+          const scale = Math.min(1, maxSide / Math.max(img.naturalWidth || 360, img.naturalHeight || 360));
+          const nodeWidth = Math.max(180, Math.round((img.naturalWidth || 360) * scale));
+          setNodes(nds => [...nds, {
+            id,
+            type: "asset",
+            position: { x: flowPos.x - nodeWidth / 2, y: flowPos.y - 100 },
+            data: {
+              id,
+              assetId: "default",
+              localSrc: dataUrl,
+              title: file.name.replace(/\.[^.]+$/, ""),
+              assetType: "图片",
+              tags: DEFAULT_ASSET_TAGS,
+            },
+          }]);
+        };
+        img.src = dataUrl;
+      };
+      reader.readAsDataURL(file);
+    });
+    toast(`已上传 ${imageFiles.length} 张图片`, { description: "图片已成功添加到画布" });
+    window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
+    if (uploadInputRef.current) uploadInputRef.current.value = "";
+  }, [pushHistory, screenToFlowPosition, setNodes]);
 
   // ── 节点拖拽中标记，避免拖拽过程中每帧都写入历史 ──
   const isDraggingRef = useRef(false);
@@ -4057,6 +4112,16 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           </div>
         </div>
       )}
+
+      {/* 隐藏的文件上传 input */}
+      <input
+        ref={uploadInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        style={{ display: "none" }}
+        onChange={e => handleUploadFiles(e.target.files)}
+      />
 
       {/* 全局注释气泡层 — fixed 定位，渲染在最顶层 */}
       {globalAnnotations.length > 0 && (
