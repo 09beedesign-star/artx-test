@@ -1186,29 +1186,39 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
         {title} · {w} × {h} px
       </div>
 
-      {/* 右下角拖拽手柄 */}
+      {/* 右下角拖拽手柄 — 18×18 圆形，内含伸缩图标 */}
       <div
         className="nodrag"
         onMouseDown={handleResizeMouseDown}
         style={{
           position: "absolute",
-          right: -6,
-          bottom: -6,
-          width: 14,
-          height: 14,
+          right: -9,
+          bottom: -9,
+          width: 18,
+          height: 18,
+          borderRadius: "50%",
+          background: isDark ? "oklch(0.32 0.01 270)" : "oklch(0.88 0.006 270)",
+          border: `1.5px solid ${handleColor}`,
+          boxShadow: isDark ? "0 2px 8px rgba(0,0,0,0.45)" : "0 2px 6px rgba(0,0,0,0.18)",
           cursor: "nwse-resize",
           zIndex: 10,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
+          transition: "background 0.15s, transform 0.12s",
         }}
         title="拖拽调整大小"
+        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1.18)"; }}
+        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; }}
       >
-        {/* 拖拽标记：三条斜线 */}
+        {/* 伸缩图标：双向对角箭头 */}
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-          <line x1="3" y1="10" x2="10" y2="3" stroke={handleColor} strokeWidth="1.5" strokeLinecap="round" />
-          <line x1="6" y1="10" x2="10" y2="6" stroke={handleColor} strokeWidth="1.5" strokeLinecap="round" />
-          <line x1="9" y1="10" x2="10" y2="9" stroke={handleColor} strokeWidth="1.5" strokeLinecap="round" />
+          {/* 左上 → 右下 箭头 */}
+          <path d="M1 3.5 L1 1 L3.5 1" stroke={handleColor} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          <path d="M1 1 L4 4" stroke={handleColor} strokeWidth="1.4" strokeLinecap="round" fill="none" />
+          {/* 右下 → 左上 箭头 */}
+          <path d="M9 6.5 L9 9 L6.5 9" stroke={handleColor} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          <path d="M9 9 L6 6" stroke={handleColor} strokeWidth="1.4" strokeLinecap="round" fill="none" />
         </svg>
       </div>
 
