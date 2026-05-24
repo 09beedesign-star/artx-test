@@ -613,19 +613,19 @@ function AnnotationBubble({
             )}
             {/* Done 按钮 */}
             <button
-              title={ann.done ? "撤销完成" : "标记完成"}
+              title="完成并删除注释"
               style={{
                 width: 22, height: 22, borderRadius: 5,
                 display: "flex", alignItems: "center", justifyContent: "center",
-                color: ann.done ? "oklch(0.62 0.18 145)" : iconBtnColor,
+                color: iconBtnColor,
                 background: "transparent", border: "none", cursor: "pointer",
                 fontSize: 10, fontWeight: 600,
               }}
-              onClick={() => onUpdate(ann.id, { done: !ann.done })}
+              onClick={() => onRemove(ann.id)}
               onMouseEnter={e => (e.currentTarget.style.background = iconBtnHover)}
               onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
             >
-              {ann.done ? "↩" : "Done"}
+              Done
             </button>
           </div>
         </div>
@@ -687,10 +687,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const [preview, setPreview] = useState(false);
   const { deleteElements, setNodes: setFlowNodes } = useReactFlow();
   const nodeId = (data as { id?: string }).id || "";
-  // ── 注释状态 ──
-  const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [toolMode, setToolMode] = useState<string>("move");
-  const imgContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handlePreviewRequest = (event: Event) => {
@@ -766,32 +763,28 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     }));
   }, [displaySrc, displayTitle, nodeId, setFlowNodes]);
 
-  // 注释模式点击图片创建注释
+  // 注释模式点击图片：发送全局事件创建注释
   const handleImageAnnotateClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (toolMode !== "annotate") return;
     e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
     const xPct = ((e.clientX - rect.left) / rect.width) * 100;
     const yPct = ((e.clientY - rect.top) / rect.height) * 100;
-    const newAnnotation: Annotation = {
+    // 同时记录屏幕坐标，供顶层渲染层定位
+    const newAnnotation = {
       id: `ann-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       x: xPct,
       y: yPct,
+      screenX: e.clientX,
+      screenY: e.clientY,
       text: "",
       done: false,
       open: true,
       editing: true,
+      nodeId,
     };
-    setAnnotations(prev => [...prev, newAnnotation]);
-  }, [toolMode]);
-
-  const updateAnnotation = useCallback((id: string, patch: Partial<Annotation>) => {
-    setAnnotations(prev => prev.map(a => a.id === id ? { ...a, ...patch } : a));
-  }, []);
-
-  const removeAnnotation = useCallback((id: string) => {
-    setAnnotations(prev => prev.filter(a => a.id !== id));
-  }, []);
+    window.dispatchEvent(new CustomEvent("annotation-create", { detail: { annotation: newAnnotation } }));
+  }, [toolMode, nodeId]);
 
   return (
     <>
@@ -803,7 +796,6 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
         onMouseDownCapture={handleAssetMouseDownCapture}
       >
         <div
-          ref={imgContainerRef}
           className="relative flex items-center justify-center overflow-visible cursor-pointer"
           style={{
             background: iconPanelBg,
@@ -832,16 +824,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
             </span>
           </div>
 
-          {/* 注释气泡层 — 随节点一起移动 */}
-          {annotations.map(ann => (
-            <AnnotationBubble
-              key={ann.id}
-              ann={ann}
-              isDark={isDark}
-              onUpdate={updateAnnotation}
-              onRemove={removeAnnotation}
-            />
-          ))}
+
         </div>
 
       </NodeWrapper>
@@ -2603,6 +2586,29 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     return () => window.removeEventListener("tool-mode-change", handler);
   }, []);
 
+  // ── 全局注释状态（注释气泡在画布最顶层渲染） ──
+  // GlobalAnnotation 在 Annotation 基础上增加 nodeId 和节点内百分比坐标
+  const [globalAnnotations, setGlobalAnnotations] = useState<(Annotation & { nodeId: string })[]>([]);
+  // 监听节点发出的创建注释事件
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ annotation: Annotation & { nodeId: string } }>).detail;
+      if (detail?.annotation) {
+        setGlobalAnnotations(prev => [...prev, detail.annotation]);
+      }
+    };
+    window.addEventListener("annotation-create", handler);
+    return () => window.removeEventListener("annotation-create", handler);
+  }, []);
+
+  const updateGlobalAnnotation = useCallback((id: string, patch: Partial<Annotation>) => {
+    setGlobalAnnotations(prev => prev.map(a => a.id === id ? { ...a, ...patch } : a));
+  }, []);
+
+  const removeGlobalAnnotation = useCallback((id: string) => {
+    setGlobalAnnotations(prev => prev.filter(a => a.id !== id));
+  }, []);
+
   const cloneNodesForHistory = useCallback((items: Node[]) => items.map(node => ({
     ...node,
     position: { ...node.position },
@@ -4027,6 +4033,69 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         </div>
       )}
 
+      {/* 全局注释气泡层 — fixed 定位，渲染在最顶层 */}
+      {globalAnnotations.length > 0 && (
+        <GlobalAnnotationLayer
+          annotations={globalAnnotations}
+          nodes={nodes}
+          viewport={viewport}
+          isDark={isDark}
+          onUpdate={updateGlobalAnnotation}
+          onRemove={removeGlobalAnnotation}
+        />
+      )}
+
+    </div>
+  );
+}
+
+// ── 全局注释层组件 ──
+function GlobalAnnotationLayer({
+  annotations, nodes, viewport, isDark, onUpdate, onRemove
+}: {
+  annotations: (Annotation & { nodeId: string; screenX?: number; screenY?: number })[];
+  nodes: Node[];
+  viewport: { x: number; y: number; zoom: number };
+  isDark: boolean;
+  onUpdate: (id: string, patch: Partial<Annotation>) => void;
+  onRemove: (id: string) => void;
+}) {
+  // 将注释的节点内百分比坐标转换为屏幕坐标
+  // 公式: screenX = viewport.x + node.position.x * viewport.zoom + (xPct/100) * nodeWidth * viewport.zoom
+  const getScreenPos = (ann: Annotation & { nodeId: string }) => {
+    const node = nodes.find(n => n.id === ann.nodeId);
+    if (!node) return null;
+    // 节点宽度：取 node.width 或默认 240
+    const nw = (node.width as number) || 240;
+    const nh = (node.height as number) || 280;
+    const sx = viewport.x + (node.position.x + (ann.x / 100) * nw) * viewport.zoom;
+    const sy = viewport.y + (node.position.y + (ann.y / 100) * nh) * viewport.zoom;
+    return { x: sx, y: sy };
+  };
+
+  return (
+    <div
+      className="absolute inset-0 pointer-events-none"
+      style={{ zIndex: 9999 }}
+    >
+      {annotations.map(ann => {
+        const pos = getScreenPos(ann);
+        if (!pos) return null;
+        return (
+          <div
+            key={ann.id}
+            className="absolute pointer-events-auto"
+            style={{ left: pos.x, top: pos.y, transform: "translateX(-50%)" }}
+          >
+            <AnnotationBubble
+              ann={ann}
+              isDark={isDark}
+              onUpdate={onUpdate}
+              onRemove={onRemove}
+            />
+          </div>
+        );
+      })}
     </div>
   );
 }
