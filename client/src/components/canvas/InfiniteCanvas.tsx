@@ -2871,7 +2871,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setEdges(cloneEdgesForHistory(previous.edges));
     setSelectedNodeIds(previous.nodes.filter(n => n.selected).map(n => n.id));
     setNodeCtxMenu(null);
-    requestAnimationFrame(() => { isRestoringRef.current = false; });
+    // 用双帧 rAF 确保 ReactFlow 内部的所有 onNodesChange 均在屏蔽窗口内完成
+    requestAnimationFrame(() => requestAnimationFrame(() => { isRestoringRef.current = false; }));
     toast("已回退一步", { description: `还可回退 ${historyRef.current.length} 步` });
   }, [cloneEdgesForHistory, cloneNodesForHistory, setEdges, setNodes]);
 
@@ -2957,17 +2958,19 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const isDraggingRef = useRef(false);
 
   const handleNodesChangeWithHistory = useCallback((changes: Parameters<typeof onNodesChange>[0]) => {
-    // 拖拽过程中的 position 变化不记入历史，拖拽开始前已经记录一次
-    const hasNonDragChange = changes.some(change =>
-      change.type !== "select" &&
-      !(change.type === "position" && isDraggingRef.current)
-    );
-    if (hasNonDragChange) pushHistory();
+    // undo 恢复过程中不入历史，防止 undo 被 onNodesChange 立即覆写
+    if (!isRestoringRef.current) {
+      const hasNonDragChange = changes.some(change =>
+        change.type !== "select" &&
+        !(change.type === "position" && isDraggingRef.current)
+      );
+      if (hasNonDragChange) pushHistory();
+    }
     onNodesChange(changes);
   }, [onNodesChange, pushHistory]);
 
   const handleEdgesChangeWithHistory = useCallback((changes: Parameters<typeof onEdgesChange>[0]) => {
-    if (changes.some(change => change.type !== "select")) pushHistory();
+    if (!isRestoringRef.current && changes.some(change => change.type !== "select")) pushHistory();
     onEdgesChange(changes);
   }, [onEdgesChange, pushHistory]);
 
