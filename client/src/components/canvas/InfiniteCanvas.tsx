@@ -47,6 +47,22 @@ import {
   AlignHorizontalSpaceAround, AlignVerticalSpaceAround, Boxes,
   Triangle, Pencil, MessageCircle, Star, Minus as MinusIcon,
 } from "lucide-react";
+
+// 「井号 + 方框」图标 — 创建画布专用
+function CreateCanvasIcon({ size = 17 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 17 17" fill="none" xmlns="http://www.w3.org/2000/svg">
+      {/* 外框矩形 */}
+      <rect x="1.5" y="1.5" width="14" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      {/* 井号横线 */}
+      <line x1="4.5" y1="6" x2="12.5" y2="6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <line x1="4.5" y1="11" x2="12.5" y2="11" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      {/* 井号竖线 */}
+      <line x1="6.5" y1="4" x2="6.5" y2="13" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <line x1="10.5" y1="4" x2="10.5" y2="13" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
 import { useLocation } from "wouter";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
@@ -1059,9 +1075,57 @@ function TapnowEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, ta
   );
 }
 
-// ── Node types & edge types ────────────────────────────────────
+// ── Canvas Frame Node — 画布帧节点 ─────────────────────────────────────────────
+function CanvasFrameNode({ data, selected }: { data: Record<string, unknown>; selected: boolean }) {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
+  const w = (data.width as number) || 800;
+  const h = (data.height as number) || 600;
+  const title = (data.title as string) || "画布";
+  const borderColor = selected
+    ? "oklch(0.65 0.22 290)"
+    : isDark ? "oklch(1 0 0 / 20%)" : "oklch(0 0 0 / 18%)";
+  const bg = isDark ? "oklch(0.12 0.015 270 / 0.55)" : "oklch(0.97 0.004 270 / 0.55)";
+  const labelColor = isDark ? "oklch(0.55 0.01 270)" : "oklch(0.52 0.01 270)";
+  return (
+    <div
+      style={{
+        width: w, height: h,
+        background: bg,
+        border: `1.5px solid ${borderColor}`,
+        borderRadius: 8,
+        boxSizing: "border-box",
+        position: "relative",
+        transition: "border-color 0.15s",
+      }}
+    >
+      {/* 左上角标题 */}
+      <div
+        style={{
+          position: "absolute",
+          top: -22,
+          left: 0,
+          fontSize: 11,
+          fontWeight: 500,
+          color: labelColor,
+          whiteSpace: "nowrap",
+          letterSpacing: "0.02em",
+          userSelect: "none",
+        }}
+      >
+        {title} · {w} × {h} px
+      </div>
+      {/* 四角手柄 */}
+      <Handle type="target" position={Position.Top} id="top" style={{ opacity: 0 }} />
+      <Handle type="source" position={Position.Bottom} id="bottom" style={{ opacity: 0 }} />
+    </div>
+  );
+}
+
+// ── Node types & edge types ────────────────────────────────────────────
 const nodeTypes: NodeTypes = {
   asset: AssetNodeComponent as unknown as NodeTypes["asset"],
+  canvasFrame: CanvasFrameNode as unknown as NodeTypes["canvasFrame"],
 };
 const edgeTypes: EdgeTypes = {
   tapnow: TapnowEdge as unknown as EdgeTypes["tapnow"],
@@ -2095,7 +2159,7 @@ function CanvasTopToolPalette({ isDark }: { isDark: boolean }) {
     { id: "move",         label: "移动",       icon: <MousePointer2 size={17} /> },
     { id: "annotate",     label: "注释",       icon: <MessageCircle size={17} /> },
     { id: "upload",       label: "上传图片",   icon: <ImagePlus size={17} /> },
-    { id: "smart-canvas", label: "智能画布",   icon: <Square size={17} /> },
+    { id: "smart-canvas", label: "创建画布",   icon: <CreateCanvasIcon size={17} /> },
     { id: "shape",        label: "几何形",     icon: <Triangle size={17} /> },
     { id: "draw",         label: "铅笔",       icon: <Pencil size={17} /> },
     { id: "text",         label: "文字",       icon: <Type size={17} /> },
@@ -2604,12 +2668,27 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [activeToolMode, setActiveToolMode] = useState<string>("move");
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
+  // ── 创建画布工具：拖拽绘制矩形状态 ──
+  type DrawRect = { startX: number; startY: number; endX: number; endY: number };
+  const [drawingRect, setDrawingRect] = useState<DrawRect | null>(null);
+  const [pendingRect, setPendingRect] = useState<DrawRect | null>(null); // 松开鼠标后待确认
+  const [canvasInputW, setCanvasInputW] = useState("");
+  const [canvasInputH, setCanvasInputH] = useState("");
+  const isDrawingRef = useRef(false);
+  const drawStartRef = useRef<{ x: number; y: number } | null>(null);
+
   useEffect(() => {
     const handler = (e: Event) => {
       const mode = (e as CustomEvent<{ mode: string }>).detail?.mode;
       if (!mode) return;
       setActiveToolMode(mode);
-      // upload 模式不立即弹框，等用户在画布中点击
+      // 切换工具时清除绘制状态
+      if (mode !== "smart-canvas") {
+        setDrawingRect(null);
+        setPendingRect(null);
+        isDrawingRef.current = false;
+        drawStartRef.current = null;
+      }
     };
     window.addEventListener("tool-mode-change", handler);
     return () => window.removeEventListener("tool-mode-change", handler);
@@ -3148,6 +3227,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setNodeCtxMenu(null);
     // 通知注释气泡折叠
     window.dispatchEvent(new CustomEvent("pane-click"));
+    // 创建画布模式：点击不触发 paneClick 的其他逻辑
+    if (activeToolMode === "smart-canvas") return;
     // 点击画布空白处关闭智能优化输入框
     if (editAsset) {
       setEditAsset(null);
@@ -3168,6 +3249,81 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       uploadInputRef.current?.click();
     }
   }, [activeToolMode, editAsset, enteringGroupId, setNodes]);
+
+  // ── 创建画布：鼠标事件处理 ──
+  const handleCreateCanvasMouseDown = useCallback((e: React.MouseEvent) => {
+    if (activeToolMode !== "smart-canvas") return;
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    isDrawingRef.current = true;
+    drawStartRef.current = { x, y };
+    setDrawingRect({ startX: x, startY: y, endX: x, endY: y });
+    setPendingRect(null);
+  }, [activeToolMode]);
+
+  const handleCreateCanvasMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!isDrawingRef.current || !drawStartRef.current) return;
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    setDrawingRect({ startX: drawStartRef.current.x, startY: drawStartRef.current.y, endX: x, endY: y });
+  }, []);
+
+  const handleCreateCanvasMouseUp = useCallback((e: React.MouseEvent) => {
+    if (!isDrawingRef.current || !drawStartRef.current) return;
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const dr = { startX: drawStartRef.current.x, startY: drawStartRef.current.y, endX: x, endY: y };
+    const w = Math.abs(dr.endX - dr.startX);
+    const h = Math.abs(dr.endY - dr.startY);
+    isDrawingRef.current = false;
+    drawStartRef.current = null;
+    setDrawingRect(null);
+    if (w < 8 || h < 8) return; // 太小，忽略
+    setPendingRect(dr);
+    // 预填宽高（以画布坐标系 px 为单位）
+    setCanvasInputW(String(Math.round(w / viewport.zoom)));
+    setCanvasInputH(String(Math.round(h / viewport.zoom)));
+  }, [viewport.zoom]);
+
+  const handleCreateCanvasConfirm = useCallback(() => {
+    if (!pendingRect) return;
+    const w = parseInt(canvasInputW) || 800;
+    const h = parseInt(canvasInputH) || 600;
+    const minX = Math.min(pendingRect.startX, pendingRect.endX);
+    const minY = Math.min(pendingRect.startY, pendingRect.endY);
+    // 将屏幕坐标转换为 flow 坐标
+    const flowPos = screenToFlowPosition({ x: (containerRef.current?.getBoundingClientRect().left || 0) + minX, y: (containerRef.current?.getBoundingClientRect().top || 0) + minY });
+    pushHistory();
+    const id = `canvas-frame-${Date.now()}`;
+    setNodes(nds => [...nds, {
+      id,
+      type: "canvasFrame",
+      position: flowPos,
+      style: { width: w, height: h },
+      data: { id, title: "画布", width: w, height: h },
+    }]);
+    setPendingRect(null);
+    setCanvasInputW("");
+    setCanvasInputH("");
+    // 切回移动工具
+    window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
+    toast("画布已创建", { description: `${w} × ${h} px` });
+  }, [canvasInputH, canvasInputW, pendingRect, pushHistory, screenToFlowPosition, setNodes]);
+
+  const handleCreateCanvasCancel = useCallback(() => {
+    setPendingRect(null);
+    setCanvasInputW("");
+    setCanvasInputH("");
+  }, []);
 
   // ── Double-click group label → rename ──
   const handleGroupLabelDoubleClick = useCallback((groupId: string) => {
@@ -3698,11 +3854,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     <div
       ref={containerRef}
       className="flex-1 relative overflow-hidden"
-      style={{ height: "100%" }}
+      style={{ height: "100%", cursor: activeToolMode === "smart-canvas" ? "crosshair" : undefined }}
       onDragEnter={handleCanvasDragEnter}
       onDragOver={handleCanvasDragOver}
       onDragLeave={handleCanvasDragLeave}
       onDrop={handleCanvasDrop}
+      onMouseDown={handleCreateCanvasMouseDown}
+      onMouseMove={handleCreateCanvasMouseMove}
+      onMouseUp={handleCreateCanvasMouseUp}
     >
       {/* 本地拖拽导入覆盖层 */}
       {isDragOver && (
@@ -4124,6 +4283,145 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           </div>
         </div>
       )}
+
+      {/* 创建画布：拖拽矩形预览 */}
+      {drawingRect && (() => {
+        const rx = Math.min(drawingRect.startX, drawingRect.endX);
+        const ry = Math.min(drawingRect.startY, drawingRect.endY);
+        const rw = Math.abs(drawingRect.endX - drawingRect.startX);
+        const rh = Math.abs(drawingRect.endY - drawingRect.startY);
+        return (
+          <div
+            className="absolute pointer-events-none"
+            style={{
+              left: rx, top: ry, width: rw, height: rh,
+              border: "2px solid oklch(0.65 0.22 290)",
+              background: "oklch(0.65 0.22 290 / 0.08)",
+              borderRadius: 4,
+              zIndex: 9800,
+              boxSizing: "border-box",
+            }}
+          />
+        );
+      })()}
+
+      {/* 创建画布：宽高输入弹窗 */}
+      {pendingRect && (() => {
+        const rx = Math.min(pendingRect.startX, pendingRect.endX);
+        const ry = Math.min(pendingRect.startY, pendingRect.endY);
+        const rw = Math.abs(pendingRect.endX - pendingRect.startX);
+        const rh = Math.abs(pendingRect.endY - pendingRect.startY);
+        // 弹窗宽度
+        const popW = 220;
+        const popH = 180;
+        // 默认显示在矩形右侧，若超出视口则显示在左侧
+        const containerW = containerRef.current?.offsetWidth || 800;
+        const containerH = containerRef.current?.offsetHeight || 600;
+        let popLeft = rx + rw + 12;
+        if (popLeft + popW > containerW) popLeft = rx - popW - 12;
+        if (popLeft < 8) popLeft = 8;
+        let popTop = ry;
+        if (popTop + popH > containerH) popTop = containerH - popH - 8;
+        if (popTop < 8) popTop = 8;
+        const bg = isDark ? "rgba(22,22,30,0.96)" : "rgba(255,255,255,0.98)";
+        const border = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)";
+        const text = isDark ? "rgba(255,255,255,0.88)" : "rgba(28,28,40,0.88)";
+        const sub = isDark ? "rgba(255,255,255,0.42)" : "rgba(0,0,0,0.42)";
+        const inputBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
+        const inputBorder = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)";
+        return (
+          <>
+            {/* 矩形预览（待确认状态） */}
+            <div
+              className="absolute pointer-events-none"
+              style={{
+                left: rx, top: ry, width: rw, height: rh,
+                border: "2px dashed oklch(0.65 0.22 290 / 0.80)",
+                background: "oklch(0.65 0.22 290 / 0.06)",
+                borderRadius: 4,
+                zIndex: 9800,
+                boxSizing: "border-box",
+              }}
+            />
+            {/* 弹窗 */}
+            <div
+              className="absolute nodrag nopan"
+              style={{
+                left: popLeft, top: popTop, width: popW,
+                background: bg,
+                border: `1px solid ${border}`,
+                borderRadius: 10,
+                boxShadow: isDark ? "0 12px 40px rgba(0,0,0,0.55)" : "0 8px 32px rgba(0,0,0,0.16)",
+                backdropFilter: "blur(20px)",
+                padding: "14px 14px 12px",
+                zIndex: 19999,
+              }}
+              onMouseDown={e => e.stopPropagation()}
+            >
+              <p style={{ color: text, fontSize: 13, fontWeight: 600, marginBottom: 12 }}>设置画布尺寸</p>
+              <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <p style={{ color: sub, fontSize: 10, marginBottom: 4, letterSpacing: "0.04em" }}>宽度 W</p>
+                  <div style={{ display: "flex", alignItems: "center", background: inputBg, border: `1px solid ${inputBorder}`, borderRadius: 6, overflow: "hidden" }}>
+                    <input
+                      autoFocus
+                      type="number"
+                      min={1}
+                      value={canvasInputW}
+                      onChange={e => setCanvasInputW(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") handleCreateCanvasConfirm(); if (e.key === "Escape") handleCreateCanvasCancel(); }}
+                      style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: text, fontSize: 13, padding: "5px 6px", width: 0 }}
+                    />
+                    <span style={{ color: sub, fontSize: 11, paddingRight: 7, flexShrink: 0 }}>px</span>
+                  </div>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <p style={{ color: sub, fontSize: 10, marginBottom: 4, letterSpacing: "0.04em" }}>高度 H</p>
+                  <div style={{ display: "flex", alignItems: "center", background: inputBg, border: `1px solid ${inputBorder}`, borderRadius: 6, overflow: "hidden" }}>
+                    <input
+                      type="number"
+                      min={1}
+                      value={canvasInputH}
+                      onChange={e => setCanvasInputH(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") handleCreateCanvasConfirm(); if (e.key === "Escape") handleCreateCanvasCancel(); }}
+                      style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: text, fontSize: 13, padding: "5px 6px", width: 0 }}
+                    />
+                    <span style={{ color: sub, fontSize: 11, paddingRight: 7, flexShrink: 0 }}>px</span>
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={handleCreateCanvasCancel}
+                  style={{
+                    flex: 1, height: 32, borderRadius: 6, fontSize: 12, fontWeight: 500,
+                    background: inputBg, border: `1px solid ${inputBorder}`, color: text,
+                    cursor: "pointer", transition: "opacity 0.15s",
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.opacity = "0.75")}
+                  onMouseLeave={e => (e.currentTarget.style.opacity = "1")}
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleCreateCanvasConfirm}
+                  style={{
+                    flex: 1, height: 32, borderRadius: 6, fontSize: 12, fontWeight: 600,
+                    background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
+                    border: "none", color: "white",
+                    cursor: "pointer", transition: "opacity 0.15s",
+                    boxShadow: "0 2px 8px oklch(0.58 0.22 290 / 0.30)",
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.opacity = "0.88")}
+                  onMouseLeave={e => (e.currentTarget.style.opacity = "1")}
+                >
+                  确认
+                </button>
+              </div>
+            </div>
+          </>
+        );
+      })()}
 
       {/* 隐藏的文件上传 input */}
       <input
