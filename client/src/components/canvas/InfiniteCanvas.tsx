@@ -2880,7 +2880,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   // ── Alt + drag 复制节点 ──
   // 拖拽开始时：若按下 Alt，记录被拖节点的原始位置
   const handleAltDragStart = useCallback((_event: React.MouseEvent, node: Node) => {
-    // 拖拽开始：记录历史（这是拖拽前唯一一次历史写入）
+    // 拖拽开始：记录历史
     pushHistory();
     isDraggingRef.current = true;
 
@@ -2890,20 +2890,39 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       return;
     }
     isAltDragRef.current = true;
-    // 如果是多选中的节点，记录所有选中的 asset 节点原始位置
+
+    // 确定需要复制的节点 id 列表
     const dragIds = selectedNodeIds.includes(node.id)
       ? selectedNodeIds.filter(id => nodes.some(n => n.id === id && n.type === "asset"))
       : (node.type === "asset" ? [node.id] : []);
+
     altDragOriginRef.current.clear();
     dragIds.forEach(id => {
       const n = nodes.find(nd => nd.id === id);
       if (n) altDragOriginRef.current.set(id, { x: n.position.x, y: n.position.y });
     });
-  }, [nodes, pushHistory, selectedNodeIds]);
 
-  // 拖拽结束时：若是 Alt 拖拽，在落点生成克隆节点，并将原节点移回原始位置
+    // 立即在原位插入幽灵占位节点（draggable=false，不跟随鼠标）
+    // 用户看到的效果：原图静止，被拖动的是「副本」
+    setNodes(nds => {
+      const ghosts: Node[] = [];
+      dragIds.forEach(id => {
+        const orig = nds.find(n => n.id === id);
+        if (!orig) return;
+        ghosts.push({
+          ...orig,
+          id: `__ghost__${id}`,
+          draggable: false,
+          selectable: false,
+          data: { ...(orig.data as Record<string, unknown>), __isGhost: true },
+        });
+      });
+      return [...nds, ...ghosts];
+    });
+  }, [nodes, pushHistory, selectedNodeIds, setNodes]);
+
+  // 拖拽结束时：若是 Alt 拖拽，将幽灵节点升级为正式原图（留在原位），被拖动的节点保持在落点成为副本
   const handleAltDragStop = useCallback((_event: MouseEvent, _node: Node) => {
-    // 拖拽结束：重置拖拽标记
     isDraggingRef.current = false;
     if (!isAltDragRef.current) return;
     isAltDragRef.current = false;
@@ -2912,31 +2931,65 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     altDragOriginRef.current = new Map();
 
     setNodes(nds => {
-      const clones: Node[] = [];
-      const restored = nds.map(n => {
+      // 分离幽灵节点和普通节点
+      const ghostMap = new Map<string, Node>();
+      const normalNodes: Node[] = [];
+      nds.forEach(n => {
+        const nid = (n.id as string);
+        if (nid.startsWith("__ghost__")) {
+          ghostMap.set(nid.replace("__ghost__", ""), n);
+        } else {
+          normalNodes.push(n);
+        }
+      });
+
+      const result: Node[] = [];
+      normalNodes.forEach(n => {
         const origin = origins.get(n.id);
-        if (!origin) return n;
-        // 生成克隆节点，放到当前拖拽落点（即当前节点位置）
-        const cloneId = `${n.id}-copy-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-        clones.push({
+        if (!origin) {
+          // 不是被拖动的节点，直接保留
+          result.push(n);
+          return;
+        }
+        // 被拖动的节点现在在落点位置，它就是副本
+        // 将幽灵节点作为原图（放回原始位置，正弸 draggable）
+        const ghost = ghostMap.get(n.id);
+        if (ghost) {
+          result.push({
+            ...ghost,
+            id: n.id,                          // 恢复原始 id
+            position: { x: origin.x, y: origin.y }, // 回到原始位置
+            draggable: true,
+            selectable: true,
+            selected: false,
+            data: {
+              ...(ghost.data as Record<string, unknown>),
+              __isGhost: undefined,
+              id: n.id,
+            },
+          });
+        } else {
+          result.push({ ...n, position: { x: origin.x, y: origin.y }, selected: false });
+        }
+        // 被拖动的节点现在作为副本，放在落点位置
+        const copyId = `${n.id}-copy-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        result.push({
           ...n,
-          id: cloneId,
-          position: { x: n.position.x, y: n.position.y },
+          id: copyId,
           selected: true,
           data: {
             ...(n.data as Record<string, unknown>),
-            id: cloneId,
+            id: copyId,
             isEditing: false,
           },
         });
-        // 将原节点移回原始位置，保持未选中状态
-        return { ...n, position: { x: origin.x, y: origin.y }, selected: false };
       });
-      return [...restored, ...clones];
+
+      return result;
     });
 
     const count = origins.size;
-    toast(`已复制 ${count} 个图片节点`, { description: "拖拽落点处已生成副本" });
+    toast(`已复制 ${count} 个图片节点`, { description: "原图保持不动，新副本在拖拽落点" });
   }, [setNodes]);
 
   // ── Handle group actions from context menu ──
