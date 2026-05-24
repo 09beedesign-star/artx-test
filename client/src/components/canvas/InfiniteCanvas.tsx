@@ -476,12 +476,30 @@ function AnnotationBubble({
 }) {
   const [draft, setDraft] = useState(ann.text);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const bubbleRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (ann.editing && textareaRef.current) {
       textareaRef.current.focus();
     }
   }, [ann.editing]);
+
+  // 点击气泡外任意区域（左键或右键）自动折叠
+  useEffect(() => {
+    if (!ann.open) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (bubbleRef.current && !bubbleRef.current.contains(e.target as HTMLElement)) {
+        if (ann.text.trim()) {
+          onUpdate(ann.id, { open: false, editing: false });
+        } else {
+          onRemove(ann.id);
+        }
+      }
+    };
+    // 同时监听左键和右键
+    document.addEventListener("mousedown", handleOutsideClick, true);
+    return () => document.removeEventListener("mousedown", handleOutsideClick, true);
+  }, [ann.open, ann.id, ann.text, onUpdate, onRemove]);
 
   const bubbleBg = isDark ? "rgba(22,22,34,0.97)" : "rgba(255,255,255,0.98)";
   const bubbleBorder = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)";
@@ -530,6 +548,7 @@ function AnnotationBubble({
   // 展开气泡
   return (
     <div
+      ref={bubbleRef}
       data-ann-id={ann.id}
       className="absolute nodrag nopan"
       style={{
