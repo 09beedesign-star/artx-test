@@ -2202,7 +2202,7 @@ function CanvasTopToolPalette({ isDark }: { isDark: boolean }) {
       {/* 几何形二级菜单 */}
       {shapeOpen && (
         <div
-          className="absolute bottom-full mb-2 rounded-[var(--radius-lg-design)] p-2 shadow-2xl"
+          className="absolute top-full mt-2 rounded-[var(--radius-lg-design)] p-2 shadow-2xl"
           style={{
             background: popBg,
             border: `1px solid ${border}`,
