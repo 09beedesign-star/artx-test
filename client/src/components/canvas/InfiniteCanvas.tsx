@@ -2831,26 +2831,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setGlobalAnnotations(prev => prev.filter(a => a.id !== id));
   }, []);
 
-  // ── 监听画布帧节点的拖拽调整尺寸事件 ──
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent<{ id: string; width: number; height: number }>).detail;
-      if (!detail?.id) return;
-      // 尺寸调整前先入历史，支持 Ctrl/Cmd+Z 回退
-      pushHistory();
-      setNodes(nds => nds.map(n => {
-        if (n.id !== detail.id || n.type !== "canvasFrame") return n;
-        return {
-          ...n,
-          style: { ...n.style, width: detail.width, height: detail.height },
-          data: { ...(n.data as Record<string, unknown>), width: detail.width, height: detail.height },
-        };
-      }));
-    };
-    window.addEventListener("canvas-frame-resize", handler);
-    return () => window.removeEventListener("canvas-frame-resize", handler);
-  }, [pushHistory, setNodes]);
-
   const cloneNodesForHistory = useCallback((items: Node[]) => items.map(node => ({
     ...node,
     position: { ...node.position },
@@ -2881,6 +2861,26 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setNodeCtxMenu(null);
     toast("已回退一步", { description: `还可回退 ${historyRef.current.length} 步` });
   }, [cloneEdgesForHistory, cloneNodesForHistory, setEdges, setNodes]);
+
+  // ── 监听画布帧节点的拖拽调整尺寸事件 ──
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ id: string; width: number; height: number }>).detail;
+      if (!detail?.id) return;
+      // 尺寸调整前先入历史，支持 Ctrl/Cmd+Z 回退
+      pushHistory();
+      setNodes(nds => nds.map(n => {
+        if (n.id !== detail.id || n.type !== "canvasFrame") return n;
+        return {
+          ...n,
+          style: { ...n.style, width: detail.width, height: detail.height },
+          data: { ...(n.data as Record<string, unknown>), width: detail.width, height: detail.height },
+        };
+      }));
+    };
+    window.addEventListener("canvas-frame-resize", handler);
+    return () => window.removeEventListener("canvas-frame-resize", handler);
+  }, [pushHistory, setNodes]);
 
   // 处理文件选择后将图片添加到画布
   // 记录上传模式下用户点击的画布坐标
