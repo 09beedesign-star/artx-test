@@ -2259,6 +2259,16 @@ function CanvasTopToolPalette({ isDark }: { isDark: boolean }) {
     return () => window.removeEventListener("pane-click", handler);
   }, []);
 
+  // 同步外部工具模式变化（如 undo 后保持 smart-canvas 选中）
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const mode = (e as CustomEvent<{ mode: string }>).detail?.mode;
+      if (mode) setActive(mode);
+    };
+    window.addEventListener("tool-mode-change", handler);
+    return () => window.removeEventListener("tool-mode-change", handler);
+  }, []);
+
   const bg = isDark ? "rgba(22,22,30,0.82)" : "rgba(255,255,255,0.88)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const textColor = isDark ? "rgba(255,255,255,0.78)" : "rgba(28,28,40,0.82)";
@@ -2871,6 +2881,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setEdges(cloneEdgesForHistory(previous.edges));
     setSelectedNodeIds(previous.nodes.filter(n => n.selected).map(n => n.id));
     setNodeCtxMenu(null);
+    // 如果当前工具是「创建画布」，保持工具不变，用户可直接继续拖拽
+    // （activeToolMode 通过闭包读取，无需额外处理）
     // 用双帧 rAF 确保 ReactFlow 内部的所有 onNodesChange 均在屏蔽窗口内完成
     requestAnimationFrame(() => requestAnimationFrame(() => { isRestoringRef.current = false; }));
     toast("已回退一步", { description: `还可回退 ${historyRef.current.length} 步` });
@@ -3467,9 +3479,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setPendingRect(null);
     setCanvasInputW("");
     setCanvasInputH("");
-    // 切回移动工具
-    window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
-    toast("画布已创建", { description: `${w} × ${h} px` });
+    // 保持当前工具为「创建画布」，用户可继续拖拽创建新画布
+    toast("画布已创建，可继续拖拽创建", { description: `${w} × ${h} px` });
   }, [canvasInputH, canvasInputW, pendingRect, pushHistory, screenToFlowPosition, setNodes]);
 
   const handleCreateCanvasCancel = useCallback(() => {
