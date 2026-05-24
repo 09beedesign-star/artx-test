@@ -2805,6 +2805,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [canvasInputW, setCanvasInputW] = useState("");
   const [canvasInputH, setCanvasInputH] = useState("");
   const [canvasBgColor, setCanvasBgColor] = useState("#2a2a30"); // 默认深灰色
+  // 色彩选择器的 DOM ref（必须在组件顶层声明，不能在 IIFE 内）
+  const colorSbRef = useRef<HTMLDivElement>(null);
+  const colorHueRef = useRef<HTMLDivElement>(null);
   const isDrawingRef = useRef(false);
   const drawStartRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -4599,8 +4602,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                   return '#'+[r,g,b].map(x=>Math.round(x*255).toString(16).padStart(2,'0')).join('');
                 };
                 const [ch, cs, cv] = hexToHsv(canvasBgColor.startsWith('#') && canvasBgColor.length===7 ? canvasBgColor : '#2a2a30');
-                const sbRef = useRef<HTMLDivElement>(null);
-                const hueRef = useRef<HTMLDivElement>(null);
+                const sbRef = colorSbRef;
+                const hueRef = colorHueRef;
                 const handleSbDrag = (e: React.MouseEvent | MouseEvent) => {
                   const el = sbRef.current; if (!el) return;
                   const rect = el.getBoundingClientRect();
