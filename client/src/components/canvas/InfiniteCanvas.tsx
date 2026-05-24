@@ -1881,10 +1881,10 @@ function CanvasTopToolPalette({ isDark }: { isDark: boolean }) {
       >
         {tools.map(tool => (
           <div key={tool.id} className="relative">
-            {/* Hover tooltip */}
+            {/* Hover tooltip — 显示在图标下方 */}
             {hoveredId === tool.id && (
               <div
-                className="absolute bottom-full mb-2 left-1/2 pointer-events-none"
+                className="absolute top-full mt-2 left-1/2 pointer-events-none"
                 style={{
                   transform: "translateX(-50%)",
                   background: tooltipBg,
@@ -1895,12 +1895,11 @@ function CanvasTopToolPalette({ isDark }: { isDark: boolean }) {
                   whiteSpace: "nowrap",
                   boxShadow: "0 4px 16px rgba(0,0,0,0.28)",
                   zIndex: 10,
-                  animation: "fadeInUp 0.12s ease-out",
                 }}
               >
+                {/* 小三角朝上 */}
+                <div style={{ position: "absolute", top: -4, left: "50%", transform: "translateX(-50%)", width: 0, height: 0, borderLeft: "4px solid transparent", borderRight: "4px solid transparent", borderBottom: `4px solid ${tooltipBg}` }} />
                 {tool.label}
-                {/* 小三角 */}
-                <div style={{ position: "absolute", bottom: -4, left: "50%", transform: "translateX(-50%)", width: 0, height: 0, borderLeft: "4px solid transparent", borderRight: "4px solid transparent", borderTop: `4px solid ${tooltipBg}` }} />
               </div>
             )}
             <button
