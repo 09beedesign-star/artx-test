@@ -2131,8 +2131,8 @@ function CanvasTopToolPalette({ isDark }: { isDark: boolean }) {
 
   return (
     <div
-      className="fixed nodrag nopan"
-      style={{ top: 4, left: "50%", transform: "translateX(-50%)", zIndex: 1300 }}
+      className="absolute nodrag nopan"
+      style={{ top: 16, left: "50%", transform: "translateX(-50%)", zIndex: 1300, width: "min(320px, 100%)" }}
       onMouseDown={e => e.stopPropagation()}
     >
       {/* 几何形二级菜单 */}
@@ -2167,8 +2167,8 @@ function CanvasTopToolPalette({ isDark }: { isDark: boolean }) {
 
       {/* 主工具栏 */}
       <div
-        className="flex items-center rounded-[var(--radius-lg-design)] px-2 py-1 shadow-lg"
-        style={{ background: bg, border: `1px solid ${border}`, backdropFilter: "blur(18px)", gap: 2 }}
+        className="flex items-center justify-between rounded-[var(--radius-lg-design)] px-2 py-1 shadow-lg"
+        style={{ background: bg, border: `1px solid ${border}`, backdropFilter: "blur(18px)" }}
       >
         {tools.map(tool => (
           <div key={tool.id} className="relative">
