@@ -2284,8 +2284,16 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     toast("已回退一步", { description: `还可回退 ${historyRef.current.length} 步` });
   }, [cloneEdgesForHistory, cloneNodesForHistory, setEdges, setNodes]);
 
+  // ── 节点拖拽中标记，避免拖拽过程中每帧都写入历史 ──
+  const isDraggingRef = useRef(false);
+
   const handleNodesChangeWithHistory = useCallback((changes: Parameters<typeof onNodesChange>[0]) => {
-    if (changes.some(change => change.type !== "select")) pushHistory();
+    // 拖拽过程中的 position 变化不记入历史，拖拽开始前已经记录一次
+    const hasNonDragChange = changes.some(change =>
+      change.type !== "select" &&
+      !(change.type === "position" && isDraggingRef.current)
+    );
+    if (hasNonDragChange) pushHistory();
     onNodesChange(changes);
   }, [onNodesChange, pushHistory]);
 
@@ -2872,6 +2880,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   // ── Alt + drag 复制节点 ──
   // 拖拽开始时：若按下 Alt，记录被拖节点的原始位置
   const handleAltDragStart = useCallback((_event: React.MouseEvent, node: Node) => {
+    // 拖拽开始：记录历史（这是拖拽前唯一一次历史写入）
+    pushHistory();
+    isDraggingRef.current = true;
+
     if (!(_event.altKey)) {
       isAltDragRef.current = false;
       altDragOriginRef.current.clear();
@@ -2887,42 +2899,45 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const n = nodes.find(nd => nd.id === id);
       if (n) altDragOriginRef.current.set(id, { x: n.position.x, y: n.position.y });
     });
-  }, [nodes, selectedNodeIds]);
+  }, [nodes, pushHistory, selectedNodeIds]);
 
-  // 拖拽结束时：若是 Alt 拖拽，在原始位置插入克隆节点
-  const handleAltDragStop = useCallback((_event: MouseEvent, node: Node) => {
+  // 拖拽结束时：若是 Alt 拖拽，在落点生成克隆节点，并将原节点移回原始位置
+  const handleAltDragStop = useCallback((_event: MouseEvent, _node: Node) => {
+    // 拖拽结束：重置拖拽标记
+    isDraggingRef.current = false;
     if (!isAltDragRef.current) return;
     isAltDragRef.current = false;
     const origins = altDragOriginRef.current;
     if (origins.size === 0) return;
     altDragOriginRef.current = new Map();
 
-    pushHistory();
     setNodes(nds => {
       const clones: Node[] = [];
-      origins.forEach((origin, id) => {
-        const original = nds.find(n => n.id === id);
-        if (!original) return;
-        const cloneId = `${id}-copy-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const restored = nds.map(n => {
+        const origin = origins.get(n.id);
+        if (!origin) return n;
+        // 生成克隆节点，放到当前拖拽落点（即当前节点位置）
+        const cloneId = `${n.id}-copy-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
         clones.push({
-          ...original,
+          ...n,
           id: cloneId,
-          position: { x: origin.x, y: origin.y },
-          selected: false,
+          position: { x: n.position.x, y: n.position.y },
+          selected: true,
           data: {
-            ...(original.data as Record<string, unknown>),
+            ...(n.data as Record<string, unknown>),
             id: cloneId,
-            // 不继承编辑状态
             isEditing: false,
           },
         });
+        // 将原节点移回原始位置，保持未选中状态
+        return { ...n, position: { x: origin.x, y: origin.y }, selected: false };
       });
-      return [...nds, ...clones];
+      return [...restored, ...clones];
     });
 
     const count = origins.size;
-    toast(`已复制 ${count} 个图片节点`, { description: "原始位置已生成副本" });
-  }, [pushHistory, setNodes]);
+    toast(`已复制 ${count} 个图片节点`, { description: "拖拽落点处已生成副本" });
+  }, [setNodes]);
 
   // ── Handle group actions from context menu ──
   const handleGroupAction = useCallback((action: string) => {
