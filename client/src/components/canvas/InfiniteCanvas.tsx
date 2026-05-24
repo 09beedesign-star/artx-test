@@ -1152,8 +1152,8 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
   const borderColor = selected
     ? "oklch(0.65 0.22 290)"
     : isDark ? "oklch(1 0 0 / 20%)" : "oklch(0 0 0 / 18%)";
-  // 深灰色背景，不透明度 100%
-  const bg = "oklch(0.22 0.008 270)";
+  // 使用用户选择的背景色，默认深灰色
+  const bg = (data.bgColor as string) || "#2a2a30";
   const labelColor = isDark ? "oklch(0.55 0.01 270)" : "oklch(0.52 0.01 270)";
   const handleColor = isDark ? "oklch(0.65 0.22 290 / 0.80)" : "oklch(0.50 0.20 290 / 0.80)";
 
@@ -2804,6 +2804,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [pendingRect, setPendingRect] = useState<DrawRect | null>(null); // 松开鼠标后待确认
   const [canvasInputW, setCanvasInputW] = useState("");
   const [canvasInputH, setCanvasInputH] = useState("");
+  const [canvasBgColor, setCanvasBgColor] = useState("#2a2a30"); // 默认深灰色
   const isDrawingRef = useRef(false);
   const drawStartRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -3465,6 +3466,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     // 将屏幕坐标转换为 flow 坐标
     const flowPos = screenToFlowPosition({ x: (containerRef.current?.getBoundingClientRect().left || 0) + minX, y: (containerRef.current?.getBoundingClientRect().top || 0) + minY });
     const id = `canvas-frame-${Date.now()}`;
+    const bgColor = canvasBgColor;
     setNodes(nds => {
       // 在 updater 内调用，传入 prev 快照，确保记录的是添加节点前的真实状态
       pushHistory(nds, edgesRef.current);
@@ -3472,8 +3474,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         id,
         type: "canvasFrame",
         position: flowPos,
-        style: { width: w, height: h },
-        data: { id, title: "画布", width: w, height: h },
+        style: { width: w, height: h, background: bgColor },
+        data: { id, title: "画布", width: w, height: h, bgColor },
       }];
     });
     setPendingRect(null);
@@ -4569,6 +4571,110 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
               {/* 分隔线 */}
               <div style={{ height: 1, background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)", marginBottom: 10 }} />
+
+              {/* 背景色标题 */}
+              <p style={{ color: text, fontSize: 12, fontWeight: 600, marginBottom: 8 }}>背景颜色</p>
+
+              {/* 行业通用色彩选择器 */}
+              {(() => {
+                // 解析 hex 转 HSV
+                const hexToHsv = (hex: string): [number, number, number] => {
+                  const r = parseInt(hex.slice(1,3),16)/255;
+                  const g = parseInt(hex.slice(3,5),16)/255;
+                  const b = parseInt(hex.slice(5,7),16)/255;
+                  const max = Math.max(r,g,b), min = Math.min(r,g,b), d = max - min;
+                  let h = 0;
+                  if (d !== 0) {
+                    if (max === r) h = ((g-b)/d + (g<b?6:0)) / 6;
+                    else if (max === g) h = ((b-r)/d + 2) / 6;
+                    else h = ((r-g)/d + 4) / 6;
+                  }
+                  return [h*360, max===0?0:d/max, max];
+                };
+                const hsvToHex = (h: number, s: number, v: number): string => {
+                  h = h/360; const i = Math.floor(h*6);
+                  const f=h*6-i,p=v*(1-s),q=v*(1-f*s),t=v*(1-(1-f)*s);
+                  let r=0,g=0,b=0;
+                  switch(i%6){case 0:r=v;g=t;b=p;break;case 1:r=q;g=v;b=p;break;case 2:r=p;g=v;b=t;break;case 3:r=p;g=q;b=v;break;case 4:r=t;g=p;b=v;break;case 5:r=v;g=p;b=q;break;}
+                  return '#'+[r,g,b].map(x=>Math.round(x*255).toString(16).padStart(2,'0')).join('');
+                };
+                const [ch, cs, cv] = hexToHsv(canvasBgColor.startsWith('#') && canvasBgColor.length===7 ? canvasBgColor : '#2a2a30');
+                const sbRef = useRef<HTMLDivElement>(null);
+                const hueRef = useRef<HTMLDivElement>(null);
+                const handleSbDrag = (e: React.MouseEvent | MouseEvent) => {
+                  const el = sbRef.current; if (!el) return;
+                  const rect = el.getBoundingClientRect();
+                  const s = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                  const v = Math.max(0, Math.min(1, 1 - (e.clientY - rect.top) / rect.height));
+                  setCanvasBgColor(hsvToHex(ch, s, v));
+                };
+                const handleHueDrag = (e: React.MouseEvent | MouseEvent) => {
+                  const el = hueRef.current; if (!el) return;
+                  const rect = el.getBoundingClientRect();
+                  const h = Math.max(0, Math.min(360, ((e.clientX - rect.left) / rect.width) * 360));
+                  setCanvasBgColor(hsvToHex(h, cs, cv));
+                };
+                const startDrag = (handler: (e: MouseEvent) => void) => {
+                  const move = (e: MouseEvent) => handler(e);
+                  const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+                  window.addEventListener('mousemove', move);
+                  window.addEventListener('mouseup', up);
+                };
+                const pureHue = hsvToHex(ch, 1, 1);
+                const swatches = ['#2a2a30','#ffffff','#000000','#ff4d4f','#ff7a00','#fadb14','#52c41a','#1677ff','#722ed1','#eb2f96','#13c2c2','#fa8c16'];
+                return (
+                  <div style={{ marginBottom: 12 }}>
+                    {/* SB 面板 */}
+                    <div
+                      ref={sbRef}
+                      style={{ width: '100%', height: 140, borderRadius: 6, marginBottom: 8, position: 'relative', cursor: 'crosshair',
+                        background: `linear-gradient(to bottom, transparent, #000), linear-gradient(to right, #fff, ${pureHue})`,
+                        boxShadow: `inset 0 0 0 1px ${isDark?'rgba(255,255,255,0.1)':'rgba(0,0,0,0.1)'}` }}
+                      onMouseDown={e => { handleSbDrag(e); startDrag(handleSbDrag); }}
+                    >
+                      <div style={{ position:'absolute', left: `${cs*100}%`, top: `${(1-cv)*100}%`,
+                        width:12, height:12, borderRadius:'50%', border:'2px solid white',
+                        transform:'translate(-50%,-50%)', boxShadow:'0 0 0 1px rgba(0,0,0,0.3)', pointerEvents:'none' }} />
+                    </div>
+                    {/* 色相条 */}
+                    <div
+                      ref={hueRef}
+                      style={{ width:'100%', height:12, borderRadius:6, marginBottom:8, position:'relative', cursor:'ew-resize',
+                        background:'linear-gradient(to right,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)',
+                        boxShadow:`inset 0 0 0 1px ${isDark?'rgba(255,255,255,0.1)':'rgba(0,0,0,0.1)'}` }}
+                      onMouseDown={e => { handleHueDrag(e); startDrag(handleHueDrag); }}
+                    >
+                      <div style={{ position:'absolute', left:`${ch/360*100}%`, top:'50%',
+                        width:14, height:14, borderRadius:'50%', border:'2px solid white',
+                        transform:'translate(-50%,-50%)', boxShadow:'0 0 0 1px rgba(0,0,0,0.3)', pointerEvents:'none' }} />
+                    </div>
+                    {/* HEX 输入 + 预览色块 */}
+                    <div style={{ display:'flex', gap:6, alignItems:'center', marginBottom:8 }}>
+                      <div style={{ width:28, height:28, borderRadius:5, background:canvasBgColor, flexShrink:0,
+                        border:`1px solid ${isDark?'rgba(255,255,255,0.15)':'rgba(0,0,0,0.15)'}` }} />
+                      <div style={{ flex:1, display:'flex', alignItems:'center', background:inputBg,
+                        border:`1px solid ${inputBorder}`, borderRadius:6, overflow:'hidden', height:28 }}>
+                        <span style={{ color:sub, fontSize:11, padding:'0 6px', flexShrink:0 }}>#</span>
+                        <input
+                          type="text"
+                          value={canvasBgColor.replace('#','').toUpperCase()}
+                          onChange={e => { const v='#'+e.target.value.replace(/[^0-9a-fA-F]/g,'').slice(0,6); if(v.length===7) setCanvasBgColor(v); }}
+                          style={{ flex:1, background:'transparent', border:'none', outline:'none', color:text, fontSize:12, padding:'0 4px', width:0, fontFamily:'monospace' }}
+                          maxLength={6}
+                        />
+                      </div>
+                    </div>
+                    {/* 快捷色板 */}
+                    <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
+                      {swatches.map(c => (
+                        <button key={c} onClick={() => setCanvasBgColor(c)}
+                          style={{ width:20, height:20, borderRadius:4, background:c, border: canvasBgColor===c ? '2px solid oklch(0.65 0.22 290)' : `1px solid ${isDark?'rgba(255,255,255,0.15)':'rgba(0,0,0,0.15)'}`,
+                            cursor:'pointer', padding:0, flexShrink:0 }} />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
                 <div style={{ flex: 1 }}>
