@@ -2903,7 +2903,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     });
 
     // 立即在原位插入幽灵占位节点（draggable=false，不跟随鼠标）
-    // 用户看到的效果：原图静止，被拖动的是「副本」
+    // 幽灵节点插入到列表最前面（渲染在最底层），被拖动的原节点在上层
+    // 用户看到的效果：副本从原图背后拖出
     setNodes(nds => {
       const ghosts: Node[] = [];
       dragIds.forEach(id => {
@@ -2914,10 +2915,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           id: `__ghost__${id}`,
           draggable: false,
           selectable: false,
+          zIndex: -1,
           data: { ...(orig.data as Record<string, unknown>), __isGhost: true },
         });
       });
-      return [...nds, ...ghosts];
+      // 幽灵节点放在数组开头（渲染层最低），被拖动节点在其上方
+      return [...ghosts, ...nds];
     });
   }, [nodes, pushHistory, selectedNodeIds, setNodes]);
 
