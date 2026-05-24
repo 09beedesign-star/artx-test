@@ -45,6 +45,7 @@ import {
   Search, ArrowRight, Share2, MousePointer2, CircleDot, Grid3X3,
   Square, PenLine, ImagePlus, Video, Captions, Repeat2, LogOut, FolderDown,
   AlignHorizontalSpaceAround, AlignVerticalSpaceAround, Boxes,
+  Triangle, Pencil, MessageCircle, Star, Minus as MinusIcon,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import JSZip from "jszip";
@@ -1788,77 +1789,134 @@ function TopLeftToolbar({ isDark, onAdd }: { isDark: boolean; onAdd: (type: stri
 
 // ── Canvas Top Tool Palette ─────────────────────────────────────
 function CanvasTopToolPalette({ isDark }: { isDark: boolean }) {
-  const [active, setActive] = useState("annotate");
-  const [uploadOpen, setUploadOpen] = useState(false);
+  const [active, setActive] = useState("move");
   const [shapeOpen, setShapeOpen] = useState(false);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+
   const bg = isDark ? "rgba(22,22,30,0.82)" : "rgba(255,255,255,0.88)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
-  const text = isDark ? "rgba(255,255,255,0.78)" : "rgba(28,28,40,0.82)";
-  const hover = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+  const textColor = isDark ? "rgba(255,255,255,0.78)" : "rgba(28,28,40,0.82)";
+  const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
   const activeBg = isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.12)";
+  const activeColor = "oklch(0.65 0.22 290)";
   const popBg = isDark ? "rgba(24,24,34,0.96)" : "rgba(255,255,255,0.96)";
+  const tooltipBg = isDark ? "rgba(18,18,26,0.96)" : "rgba(30,30,40,0.92)";
 
+  // 工具列表：仅保留 1-8
   const tools = [
-    { id: "move", label: "移动", icon: <MousePointer2 size={18} /> },
-    { id: "annotate", label: "注释", icon: <CircleDot size={18} /> },
-    { id: "upload", label: "上传图片", icon: <ImagePlus size={17} /> },
-    { id: "grid", label: "网格", icon: <Grid3X3 size={17} /> },
-    { id: "shape", label: "创建几何形", icon: <Square size={17} /> },
-    { id: "draw", label: "绘制", icon: <PenLine size={17} /> },
-    { id: "text", label: "创建文字", icon: <Type size={18} /> },
-    { id: "image-ai", label: "生成图片", icon: <Sparkles size={17} /> },
-    { id: "video-ai", label: "生成视频", icon: <Video size={17} /> },
-    { id: "copy-ai", label: "智能文案", icon: <Captions size={17} />, dot: true },
+    { id: "move",         label: "移动",       icon: <MousePointer2 size={17} /> },
+    { id: "annotate",     label: "注释",       icon: <MessageCircle size={17} /> },
+    { id: "upload",       label: "上传图片",   icon: <ImagePlus size={17} /> },
+    { id: "smart-canvas", label: "智能画布",   icon: <Square size={17} /> },
+    { id: "shape",        label: "几何形",     icon: <Triangle size={17} /> },
+    { id: "draw",         label: "铅笔",       icon: <Pencil size={17} /> },
+    { id: "text",         label: "文字",       icon: <Type size={17} /> },
+    { id: "image-ai",     label: "智能生图",   icon: <Sparkles size={17} /> },
+  ];
+
+  // 几何形二级菜单
+  const shapeItems = [
+    { icon: <Triangle size={14} />,   label: "三角形" },
+    { icon: <CircleDot size={14} />,  label: "圆形" },
+    { icon: <Square size={14} />,     label: "正方形" },
+    { icon: <Star size={14} />,       label: "五角星" },
+    { icon: <MinusIcon size={14} />,  label: "线段" },
+    { icon: <ArrowRight size={14} />, label: "箭头" },
   ];
 
   const handleToolClick = (id: string) => {
+    if (id === "shape") {
+      setShapeOpen(v => !v);
+      setActive(id);
+      return;
+    }
+    setShapeOpen(false);
     setActive(id);
-    setUploadOpen(id === "upload" ? value => !value : false);
-    setShapeOpen(id === "shape" ? value => !value : false);
-    if (!["upload", "shape"].includes(id)) toast("工具已切换", { description: tools.find(tool => tool.id === id)?.label });
+    toast(
+      tools.find(t => t.id === id)?.label ?? "",
+      { description: id === "upload" ? "点击选择图片文件" : "工具已切换" }
+    );
   };
 
   return (
-    <div className="absolute nodrag nopan" style={{ top: 16, left: "calc((100% - clamp(280px, 32vw, 372px)) / 2)", transform: "translateX(-50%)", zIndex: 1300 }} onMouseDown={e => e.stopPropagation()}>
-      {(uploadOpen || shapeOpen) && (
+    <div
+      className="absolute nodrag nopan"
+      style={{ top: 16, left: "50%", transform: "translateX(-50%)", zIndex: 1300 }}
+      onMouseDown={e => e.stopPropagation()}
+    >
+      {/* 几何形二级菜单 */}
+      {shapeOpen && (
         <div
-          className="absolute left-[88px] bottom-full mb-2 rounded-[var(--radius-lg-design)] p-2 shadow-2xl"
-          style={{ background: popBg, border: `1px solid ${border}`, backdropFilter: "blur(18px)", minWidth: shapeOpen ? 176 : 150 }}
+          className="absolute bottom-full mb-2 rounded-[var(--radius-lg-design)] p-2 shadow-2xl"
+          style={{
+            background: popBg,
+            border: `1px solid ${border}`,
+            backdropFilter: "blur(18px)",
+            minWidth: 152,
+            left: "50%",
+            transform: "translateX(-50%)",
+          }}
         >
-          {(uploadOpen ? [
-            { icon: <ImagePlus size={15} />, label: "上传图片" },
-            { icon: <Video size={15} />, label: "上传视频" },
-          ] : [
-            { icon: <Square size={15} />, label: "矩形", key: "R" },
-            { icon: <PenLine size={15} />, label: "线条", key: "L" },
-            { icon: <ArrowRight size={15} />, label: "箭头", key: "⇧ L" },
-            { icon: <CircleDot size={15} />, label: "椭圆", key: "O" },
-            { icon: <Box size={15} />, label: "多边形" },
-            { icon: <Sparkles size={15} />, label: "星形" },
-          ]).map(item => (
-            <button key={item.label} className="flex w-full items-center gap-3 rounded-[var(--radius-md-design)] px-3 py-2 type-caption text-left" style={{ color: text }} onClick={() => toast(item.label)} onMouseEnter={e => (e.currentTarget.style.background = hover)} onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-              {item.icon}<span className="flex-1">{item.label}</span>{"key" in item && <span style={{ opacity: 0.42 }}>{item.key}</span>}
+          <p className="px-3 pb-1 pt-0.5" style={{ color: isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.35)", fontSize: 10, letterSpacing: "0.04em" }}>基础几何形</p>
+          {shapeItems.map(item => (
+            <button
+              key={item.label}
+              className="flex w-full items-center gap-3 rounded-[var(--radius-md-design)] px-3 py-2 type-caption text-left transition-colors"
+              style={{ color: textColor }}
+              onClick={() => { toast(`创建${item.label}`, { description: "点击画布放置" }); setShapeOpen(false); }}
+              onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+              onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+            >
+              {item.icon}
+              <span>{item.label}</span>
             </button>
           ))}
         </div>
       )}
-      <div className="flex items-center rounded-[var(--radius-lg-design)] px-2 py-1 shadow-lg" style={{ background: bg, border: `1px solid ${border}`, backdropFilter: "blur(18px)", gap: 6 }}>
-        {tools.map((tool, index) => (
-          <Fragment key={tool.id}>
-            {index === 7 && <div style={{ width: 1, height: 24, background: border, margin: "0 3px" }} />}
+
+      {/* 主工具栏 */}
+      <div
+        className="flex items-center rounded-[var(--radius-lg-design)] px-2 py-1 shadow-lg"
+        style={{ background: bg, border: `1px solid ${border}`, backdropFilter: "blur(18px)", gap: 2 }}
+      >
+        {tools.map(tool => (
+          <div key={tool.id} className="relative">
+            {/* Hover tooltip */}
+            {hoveredId === tool.id && (
+              <div
+                className="absolute bottom-full mb-2 left-1/2 pointer-events-none"
+                style={{
+                  transform: "translateX(-50%)",
+                  background: tooltipBg,
+                  color: "rgba(255,255,255,0.92)",
+                  borderRadius: 6,
+                  padding: "4px 9px",
+                  fontSize: 11,
+                  whiteSpace: "nowrap",
+                  boxShadow: "0 4px 16px rgba(0,0,0,0.28)",
+                  zIndex: 10,
+                  animation: "fadeInUp 0.12s ease-out",
+                }}
+              >
+                {tool.label}
+                {/* 小三角 */}
+                <div style={{ position: "absolute", bottom: -4, left: "50%", transform: "translateX(-50%)", width: 0, height: 0, borderLeft: "4px solid transparent", borderRight: "4px solid transparent", borderTop: `4px solid ${tooltipBg}` }} />
+              </div>
+            )}
             <button
-              title={tool.label}
               aria-label={tool.label}
               className="relative flex h-9 w-9 items-center justify-center rounded-[var(--radius-md-design)] transition-all active:scale-95"
-              style={{ color: text, background: active === tool.id ? activeBg : "transparent" }}
+              style={{
+                color: active === tool.id ? activeColor : textColor,
+                background: active === tool.id ? activeBg : "transparent",
+              }}
               onClick={() => handleToolClick(tool.id)}
-              onMouseEnter={e => { if (active !== tool.id) e.currentTarget.style.background = hover; }}
-              onMouseLeave={e => { if (active !== tool.id) e.currentTarget.style.background = "transparent"; }}
+              onMouseEnter={() => setHoveredId(tool.id)}
+              onMouseLeave={() => setHoveredId(null)}
             >
               {tool.icon}
-              {tool.dot && <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full" style={{ background: "oklch(0.66 0.23 25)" }} />}
             </button>
-          </Fragment>
+          </div>
         ))}
       </div>
     </div>
