@@ -45,7 +45,6 @@ import {
   Search, ArrowRight, Share2, MousePointer2, CircleDot, Grid3X3,
   Square, PenLine, ImagePlus, Video, Captions, Repeat2, LogOut, FolderDown,
   AlignHorizontalSpaceAround, AlignVerticalSpaceAround, Boxes,
-  Layers, MessageCircle, Pencil, Triangle, Star, Minus as MinusIcon,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import JSZip from "jszip";
@@ -329,7 +328,6 @@ function MultiSelectionFloatingToolbar({
   const groupHint = grouped ? "已编组" : "未编组";
   const items = [
     { icon: <Boxes size={15} />, label: "编组", action: "group" },
-    { icon: <Layers size={15} />, label: "合并图层", action: "merge-layers" },
     { icon: <FolderOutput size={15} />, label: "取消编组", action: "ungroup" },
     { icon: <LayoutGrid size={15} />, label: "自动排列", action: "auto-layout" },
     { icon: <AlignHorizontalSpaceAround size={15} />, label: "横向排列", action: "layout-horizontal" },
@@ -1789,17 +1787,9 @@ function TopLeftToolbar({ isDark, onAdd }: { isDark: boolean; onAdd: (type: stri
 
 
 // ── Canvas Top Tool Palette ─────────────────────────────────────
-function CanvasTopToolPalette({
-  isDark,
-  activeToolMode,
-  onToolChange,
-  onUploadFile,
-}: {
-  isDark: boolean;
-  activeToolMode: string;
-  onToolChange: (mode: string) => void;
-  onUploadFile: () => void;
-}) {
+function CanvasTopToolPalette({ isDark }: { isDark: boolean }) {
+  const [active, setActive] = useState("annotate");
+  const [uploadOpen, setUploadOpen] = useState(false);
   const [shapeOpen, setShapeOpen] = useState(false);
   const bg = isDark ? "rgba(22,22,30,0.82)" : "rgba(255,255,255,0.88)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
@@ -1807,100 +1797,68 @@ function CanvasTopToolPalette({
   const hover = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
   const activeBg = isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.12)";
   const popBg = isDark ? "rgba(24,24,34,0.96)" : "rgba(255,255,255,0.96)";
-  const activeAccent = "oklch(0.65 0.22 290)";
 
-  // 工具列表：1-移动 2-注释 3-上传 4-智能画布 5-几何形 6-画笔 7-文字 8-智能生图
   const tools = [
-    { id: "move",         label: "移动",     icon: <MousePointer2 size={17} /> },
-    { id: "annotate",     label: "注释",     icon: <MessageCircle size={17} /> },
-    { id: "upload",       label: "上传图片", icon: <ImagePlus size={17} /> },
-    { id: "smart-canvas", label: "创建智能画布", icon: <Square size={17} /> },
-    { id: "shape",        label: "创建几何形", icon: <Triangle size={17} /> },
-    { id: "draw",         label: "快速画笔", icon: <Pencil size={17} /> },
-    { id: "text",         label: "创建文字", icon: <Type size={17} /> },
-    { id: "image-ai",     label: "智能生图", icon: <Sparkles size={17} /> },
-  ];
-
-  // 几何形二级菜单
-  const shapeItems = [
-    { icon: <Triangle size={14} />,    label: "三角形" },
-    { icon: <CircleDot size={14} />,   label: "圆形" },
-    { icon: <Square size={14} />,      label: "正方形" },
-    { icon: <Star size={14} />,        label: "五角星" },
-    { icon: <MinusIcon size={14} />,   label: "线段" },
-    { icon: <ArrowRight size={14} />,  label: "箭头" },
+    { id: "move", label: "移动", icon: <MousePointer2 size={18} /> },
+    { id: "annotate", label: "注释", icon: <CircleDot size={18} /> },
+    { id: "upload", label: "上传图片", icon: <ImagePlus size={17} /> },
+    { id: "grid", label: "网格", icon: <Grid3X3 size={17} /> },
+    { id: "shape", label: "创建几何形", icon: <Square size={17} /> },
+    { id: "draw", label: "绘制", icon: <PenLine size={17} /> },
+    { id: "text", label: "创建文字", icon: <Type size={18} /> },
+    { id: "image-ai", label: "生成图片", icon: <Sparkles size={17} /> },
+    { id: "video-ai", label: "生成视频", icon: <Video size={17} /> },
+    { id: "copy-ai", label: "智能文案", icon: <Captions size={17} />, dot: true },
   ];
 
   const handleToolClick = (id: string) => {
-    if (id === "upload") {
-      onUploadFile();
-      return;
-    }
-    if (id === "shape") {
-      setShapeOpen(v => !v);
-      onToolChange(id);
-      return;
-    }
-    setShapeOpen(false);
-    onToolChange(id);
+    setActive(id);
+    setUploadOpen(id === "upload" ? value => !value : false);
+    setShapeOpen(id === "shape" ? value => !value : false);
+    if (!["upload", "shape"].includes(id)) toast("工具已切换", { description: tools.find(tool => tool.id === id)?.label });
   };
 
   return (
-    <div
-      className="absolute nodrag nopan"
-      style={{ top: 16, left: "calc((100% - clamp(280px, 32vw, 372px)) / 2)", transform: "translateX(-50%)", zIndex: 1300 }}
-      onMouseDown={e => e.stopPropagation()}
-    >
-      {/* 几何形二级菜单 */}
-      {shapeOpen && (
+    <div className="absolute nodrag nopan" style={{ top: 16, left: "calc((100% - clamp(280px, 32vw, 372px)) / 2)", transform: "translateX(-50%)", zIndex: 1300 }} onMouseDown={e => e.stopPropagation()}>
+      {(uploadOpen || shapeOpen) && (
         <div
-          className="absolute bottom-full mb-2 rounded-[var(--radius-lg-design)] p-2 shadow-2xl"
-          style={{
-            background: popBg,
-            border: `1px solid ${border}`,
-            backdropFilter: "blur(18px)",
-            minWidth: 160,
-            left: "50%",
-            transform: "translateX(-50%)",
-          }}
+          className="absolute left-[88px] bottom-full mb-2 rounded-[var(--radius-lg-design)] p-2 shadow-2xl"
+          style={{ background: popBg, border: `1px solid ${border}`, backdropFilter: "blur(18px)", minWidth: shapeOpen ? 176 : 150 }}
         >
-          <p className="px-3 py-1 type-caption" style={{ color: isDark ? "rgba(255,255,255,0.38)" : "rgba(0,0,0,0.38)", fontSize: 10 }}>基础几何形</p>
-          {shapeItems.map(item => (
-            <button
-              key={item.label}
-              className="flex w-full items-center gap-3 rounded-[var(--radius-md-design)] px-3 py-2 type-caption text-left transition-colors"
-              style={{ color: text }}
-              onClick={() => { toast(`创建${item.label}`, { description: "点击画布放置几何形" }); setShapeOpen(false); }}
-              onMouseEnter={e => (e.currentTarget.style.background = hover)}
-              onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-            >
-              {item.icon}
-              <span className="flex-1">{item.label}</span>
+          {(uploadOpen ? [
+            { icon: <ImagePlus size={15} />, label: "上传图片" },
+            { icon: <Video size={15} />, label: "上传视频" },
+          ] : [
+            { icon: <Square size={15} />, label: "矩形", key: "R" },
+            { icon: <PenLine size={15} />, label: "线条", key: "L" },
+            { icon: <ArrowRight size={15} />, label: "箭头", key: "⇧ L" },
+            { icon: <CircleDot size={15} />, label: "椭圆", key: "O" },
+            { icon: <Box size={15} />, label: "多边形" },
+            { icon: <Sparkles size={15} />, label: "星形" },
+          ]).map(item => (
+            <button key={item.label} className="flex w-full items-center gap-3 rounded-[var(--radius-md-design)] px-3 py-2 type-caption text-left" style={{ color: text }} onClick={() => toast(item.label)} onMouseEnter={e => (e.currentTarget.style.background = hover)} onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+              {item.icon}<span className="flex-1">{item.label}</span>{"key" in item && <span style={{ opacity: 0.42 }}>{item.key}</span>}
             </button>
           ))}
         </div>
       )}
-
-      <div
-        className="flex items-center rounded-[var(--radius-lg-design)] px-2 py-1 shadow-lg"
-        style={{ background: bg, border: `1px solid ${border}`, backdropFilter: "blur(18px)", gap: 4 }}
-      >
-        {tools.map(tool => (
-          <button
-            key={tool.id}
-            title={tool.label}
-            aria-label={tool.label}
-            className="relative flex h-9 w-9 items-center justify-center rounded-[var(--radius-md-design)] transition-all active:scale-95"
-            style={{
-              color: activeToolMode === tool.id ? activeAccent : text,
-              background: activeToolMode === tool.id ? activeBg : "transparent",
-            }}
-            onClick={() => handleToolClick(tool.id)}
-            onMouseEnter={e => { if (activeToolMode !== tool.id) e.currentTarget.style.background = hover; }}
-            onMouseLeave={e => { if (activeToolMode !== tool.id) e.currentTarget.style.background = "transparent"; }}
-          >
-            {tool.icon}
-          </button>
+      <div className="flex items-center rounded-[var(--radius-lg-design)] px-2 py-1 shadow-lg" style={{ background: bg, border: `1px solid ${border}`, backdropFilter: "blur(18px)", gap: 6 }}>
+        {tools.map((tool, index) => (
+          <Fragment key={tool.id}>
+            {index === 7 && <div style={{ width: 1, height: 24, background: border, margin: "0 3px" }} />}
+            <button
+              title={tool.label}
+              aria-label={tool.label}
+              className="relative flex h-9 w-9 items-center justify-center rounded-[var(--radius-md-design)] transition-all active:scale-95"
+              style={{ color: text, background: active === tool.id ? activeBg : "transparent" }}
+              onClick={() => handleToolClick(tool.id)}
+              onMouseEnter={e => { if (active !== tool.id) e.currentTarget.style.background = hover; }}
+              onMouseLeave={e => { if (active !== tool.id) e.currentTarget.style.background = "transparent"; }}
+            >
+              {tool.icon}
+              {tool.dot && <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full" style={{ background: "oklch(0.66 0.23 25)" }} />}
+            </button>
+          </Fragment>
         ))}
       </div>
     </div>
@@ -2291,21 +2249,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
   const dragCounterRef = useRef(0);
   // ── Alt + drag 复制状态 ──
+  // key: nodeId, value: { x, y } 记录按下 Alt 时节点的原始位置
   const altDragOriginRef = useRef<Map<string, { x: number; y: number }>>(new Map());
   const isAltDragRef = useRef(false);
-  // ── 顶部工具栏模式状态 ──
-  // move | annotate | upload | smart-canvas | shape | draw | text | image-ai
-  const [activeToolMode, setActiveToolMode] = useState<string>("move");
-  // 注释气泡节点列表
-  const [annotationNodes, setAnnotationNodes] = useState<{ id: string; x: number; y: number; text: string; editing: boolean }[]>([]);
-  // 快速画笔路径状态
-  const [drawPaths, setDrawPaths] = useState<{ id: string; points: { x: number; y: number }[]; color: string }[]>([]);
-  const drawingRef = useRef<{ id: string; points: { x: number; y: number }[] } | null>(null);
-  // 智能画布拖拽状态
-  const [smartCanvasDrag, setSmartCanvasDrag] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null);
-  const smartCanvasDragRef = useRef<{ startX: number; startY: number } | null>(null);
-  // 文件上传 input ref
-  const uploadInputRef = useRef<HTMLInputElement>(null);
 
   const cloneNodesForHistory = useCallback((items: Node[]) => items.map(node => ({
     ...node,
@@ -2613,41 +2559,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       setNodes(nds => nds.map(n => selectedAssetIds.includes(n.id) ? { ...n, position: posMap.get(n.id) || n.position, selected: true } : n));
       setSelectedNodeIds(selectedAssetIds);
       toast("已完成竖向排列", { description: `${selectedAssetIds.length} 个图片节点已从上到下排列，水平居中对齐，总高 ${Math.round(totalHeight)}px` });
-
-    } else if (action === "merge-layers") {
-      // 合并图层：将多张图片节点合并成一张，底色为深灰色
-      const mergeIds = actionIds.filter(id => nodes.some(n => n.id === id && n.type === "asset"));
-      if (mergeIds.length < 2) { toast("请至少选择 2 个图片节点再合并"); return; }
-      pushHistory();
-      const mergeNodes = mergeIds.map(id => nodes.find(n => n.id === id)).filter(Boolean) as Node[];
-      // 计算合并后节点的中心位置
-      const avgX = mergeNodes.reduce((s, n) => s + n.position.x, 0) / mergeNodes.length;
-      const avgY = mergeNodes.reduce((s, n) => s + n.position.y, 0) / mergeNodes.length;
-      const mergedId = `merged-${Date.now()}`;
-      // 取第一张图片作为展示图片，底色标记为深灰
-      const firstNode = mergeNodes[0];
-      const firstData = firstNode.data as Record<string, unknown>;
-      const mergedNode: Node = {
-        ...firstNode,
-        id: mergedId,
-        position: { x: avgX, y: avgY },
-        selected: true,
-        data: {
-          ...firstData,
-          id: mergedId,
-          title: `合并图层 (${mergeIds.length}张)`,
-          isMerged: true,
-          mergedCount: mergeIds.length,
-          mergeBg: "#2a2a2e", // 深灰底色
-          isEditing: false,
-        },
-      };
-      setNodes(nds => [
-        ...nds.filter(n => !mergeIds.includes(n.id)),
-        mergedNode,
-      ]);
-      setSelectedNodeIds([mergedId]);
-      toast(`已合并 ${mergeIds.length} 个图层`, { description: "合并后的图层底色为深灰色" });
 
     } else if (action === "download") {
       const selectedAssetNodes = nodes.filter(n => actionIds.includes(n.id) && n.type === "asset");
@@ -2967,9 +2878,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   }, [getNodeImageSrc]);
 
   // ── Alt + drag 复制节点 ──
-  // 拖拽开始时：若按下 Alt，立即在原位置生成幽灵克隆节点，被拖动的是原节点
+  // 拖拽开始时：若按下 Alt，记录被拖节点的原始位置
   const handleAltDragStart = useCallback((_event: React.MouseEvent, node: Node) => {
-    // 拖拽开始：记录历史（拖拽前唯一一次）
+    // 拖拽开始：记录历史（这是拖拽前唯一一次历史写入）
     pushHistory();
     isDraggingRef.current = true;
 
@@ -2979,79 +2890,53 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       return;
     }
     isAltDragRef.current = true;
-
-    // 确定要拖拽的节点 id 列表
+    // 如果是多选中的节点，记录所有选中的 asset 节点原始位置
     const dragIds = selectedNodeIds.includes(node.id)
       ? selectedNodeIds.filter(id => nodes.some(n => n.id === id && n.type === "asset"))
       : (node.type === "asset" ? [node.id] : []);
-
     altDragOriginRef.current.clear();
-    const ghostIds: string[] = [];
-
-    // 立即在原位置插入幽灵克隆（不可拖拽、不可选中）
-    setNodes(nds => {
-      const ghosts: Node[] = [];
-      dragIds.forEach(id => {
-        const n = nds.find(nd => nd.id === id);
-        if (!n) return;
-        altDragOriginRef.current.set(id, { x: n.position.x, y: n.position.y });
-        const ghostId = `__ghost__${id}`;
-        ghostIds.push(ghostId);
-        ghosts.push({
-          ...n,
-          id: ghostId,
-          selected: false,
-          draggable: false,
-          selectable: false,
-          data: {
-            ...(n.data as Record<string, unknown>),
-            id: ghostId,
-            isEditing: false,
-            isGhost: true,
-          },
-        });
-      });
-      return [...nds, ...ghosts];
+    dragIds.forEach(id => {
+      const n = nodes.find(nd => nd.id === id);
+      if (n) altDragOriginRef.current.set(id, { x: n.position.x, y: n.position.y });
     });
-  }, [nodes, pushHistory, selectedNodeIds, setNodes]);
+  }, [nodes, pushHistory, selectedNodeIds]);
 
-  // 拖拽结束：将幽灵节点转为正式副本（留在原位），原节点留在落点（新位置）
+  // 拖拽结束时：若是 Alt 拖拽，在落点生成克隆节点，并将原节点移回原始位置
   const handleAltDragStop = useCallback((_event: MouseEvent, _node: Node) => {
+    // 拖拽结束：重置拖拽标记
     isDraggingRef.current = false;
     if (!isAltDragRef.current) return;
     isAltDragRef.current = false;
     const origins = altDragOriginRef.current;
+    if (origins.size === 0) return;
     altDragOriginRef.current = new Map();
 
     setNodes(nds => {
-      // 将幽灵节点转化为正式副本：去除 isGhost 标记、恢复可拖拽/可选中、保持在原始位置
-      const result = nds.map(n => {
-        if (!n.id.startsWith("__ghost__")) return n;
-        const originalId = n.id.replace("__ghost__", "");
-        const origin = origins.get(originalId);
-        const newId = `${originalId}-copy-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-        return {
+      const clones: Node[] = [];
+      const restored = nds.map(n => {
+        const origin = origins.get(n.id);
+        if (!origin) return n;
+        // 生成克隆节点，放到当前拖拽落点（即当前节点位置）
+        const cloneId = `${n.id}-copy-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        clones.push({
           ...n,
-          id: newId,
-          draggable: true,
-          selectable: true,
-          selected: false,
-          position: origin ? { x: origin.x, y: origin.y } : n.position,
+          id: cloneId,
+          position: { x: n.position.x, y: n.position.y },
+          selected: true,
           data: {
             ...(n.data as Record<string, unknown>),
-            id: newId,
-            isGhost: false,
+            id: cloneId,
             isEditing: false,
           },
-        };
+        });
+        // 将原节点移回原始位置，保持未选中状态
+        return { ...n, position: { x: origin.x, y: origin.y }, selected: false };
       });
-      return result;
+      return [...restored, ...clones];
     });
 
     const count = origins.size;
-    if (count > 0) {
-      toast(`已复制 ${count} 个图片节点`, { description: "原图保持不动，拖拽落点处已生成副本" });
-    }
+    toast(`已复制 ${count} 个图片节点`, { description: "拖拽落点处已生成副本" });
   }, [setNodes]);
 
   // ── Handle group actions from context menu ──
@@ -3549,38 +3434,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       <ZoomControlBar isDark={isDark} locked={isCanvasLocked} onLockedChange={setIsCanvasLocked} />
 
       {/* Canvas top tool palette — centered above the canvas area */}
-      <CanvasTopToolPalette
-        isDark={isDark}
-        activeToolMode={activeToolMode}
-        onToolChange={(mode) => {
-          setActiveToolMode(mode);
-          if (mode === "image-ai") {
-            // 智能生图：在画布空白处创建新的图片节点
-            const id = `ai-image-${Date.now()}`;
-            const vp = getViewport();
-            const cx = (-vp.x + window.innerWidth * 0.4) / vp.zoom;
-            const cy = (-vp.y + window.innerHeight * 0.45) / vp.zoom;
-            pushHistory();
-            setNodes(nds => [
-              ...nds,
-              {
-                id,
-                type: "asset",
-                position: { x: cx - 180, y: cy - 200 },
-                data: {
-                  ...createDefaultAssetData(id, "新建智能图片"),
-                  isAiGenerating: true,
-                  showAiPrompt: true,
-                },
-              },
-            ]);
-            setTimeout(() => fitView({ padding: 0.2, duration: 400 }), 80);
-            toast("已创建智能生图节点", { description: "在节点内输入提示词开始生成" });
-            setTimeout(() => setActiveToolMode("move"), 300);
-          }
-        }}
-        onUploadFile={() => uploadInputRef.current?.click()}
-      />
+      <CanvasTopToolPalette isDark={isDark} />
 
       {/* Back button — top-left */}
       <BackButton isDark={isDark} />
@@ -3763,259 +3617,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             </div>
           </div>
         </div>
-      )}
-
-      {/* 隐藏文件上传 input */}
-      <input
-        ref={uploadInputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        style={{ display: "none" }}
-        onChange={(e) => {
-          const files = Array.from(e.target.files || []);
-          if (files.length === 0) return;
-          pushHistory();
-          const vp = getViewport();
-          files.forEach((file, i) => {
-            const reader = new FileReader();
-            reader.onload = (ev) => {
-              const localSrc = ev.target?.result as string;
-              const id = `local-${Date.now()}-${i}`;
-              const cx = (-vp.x + window.innerWidth * 0.4) / vp.zoom + i * 220;
-              const cy = (-vp.y + window.innerHeight * 0.45) / vp.zoom;
-              setNodes(nds => [
-                ...nds,
-                {
-                  id,
-                  type: "asset",
-                  position: { x: cx - 110, y: cy - 150 },
-                  data: { ...createDefaultAssetData(id, file.name.replace(/\.[^.]+$/, "")), localSrc },
-                },
-              ]);
-            };
-            reader.readAsDataURL(file);
-          });
-          toast(`已上传 ${files.length} 张图片`, { description: "图片已添加到画布" });
-          e.target.value = "";
-          setActiveToolMode("move");
-        }}
-      />
-
-      {/* 注释气泡层 */}
-      {annotationNodes.length > 0 && (
-        <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 1200 }}>
-          {annotationNodes.map(ann => (
-            <div
-              key={ann.id}
-              className="absolute pointer-events-auto"
-              style={{
-                left: ann.x * viewport.zoom + viewport.x,
-                top: ann.y * viewport.zoom + viewport.y,
-                transform: "translate(-50%, -100%)",
-                marginBottom: 8,
-              }}
-            >
-              <div
-                className="rounded-[var(--radius-lg-design)] shadow-xl"
-                style={{
-                  background: isDark ? "rgba(22,22,30,0.95)" : "rgba(255,255,255,0.95)",
-                  border: `1.5px solid ${isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)"}`,
-                  backdropFilter: "blur(16px)",
-                  minWidth: 180,
-                  maxWidth: 280,
-                  padding: "10px 12px",
-                }}
-              >
-                {ann.editing ? (
-                  <textarea
-                    autoFocus
-                    className="w-full bg-transparent type-caption leading-relaxed resize-none outline-none"
-                    style={{ color: isDark ? "oklch(0.82 0.008 270)" : "oklch(0.20 0.008 270)", minHeight: 60 }}
-                    placeholder="输入注释内容..."
-                    defaultValue={ann.text}
-                    onBlur={(e) => {
-                      const val = e.target.value.trim();
-                      if (!val) {
-                        setAnnotationNodes(prev => prev.filter(a => a.id !== ann.id));
-                      } else {
-                        setAnnotationNodes(prev => prev.map(a => a.id === ann.id ? { ...a, text: val, editing: false } : a));
-                      }
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Escape") {
-                        setAnnotationNodes(prev => prev.filter(a => a.id !== ann.id || ann.text));
-                        setAnnotationNodes(prev => prev.map(a => a.id === ann.id ? { ...a, editing: false } : a));
-                      }
-                    }}
-                  />
-                ) : (
-                  <p
-                    className="type-caption leading-relaxed cursor-pointer"
-                    style={{ color: isDark ? "oklch(0.82 0.008 270)" : "oklch(0.20 0.008 270)" }}
-                    onClick={() => setAnnotationNodes(prev => prev.map(a => a.id === ann.id ? { ...a, editing: true } : a))}
-                  >{ann.text}</p>
-                )}
-                <button
-                  className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center rounded-full opacity-50 hover:opacity-100 transition-opacity"
-                  style={{ color: isDark ? "rgba(255,255,255,0.6)" : "rgba(0,0,0,0.5)" }}
-                  onClick={() => setAnnotationNodes(prev => prev.filter(a => a.id !== ann.id))}
-                >
-                  <X size={10} />
-                </button>
-              </div>
-              {/* 气泡尾巴 */}
-              <div style={{ width: 0, height: 0, borderLeft: "6px solid transparent", borderRight: "6px solid transparent", borderTop: `6px solid ${isDark ? "rgba(22,22,30,0.95)" : "rgba(255,255,255,0.95)"}`, margin: "0 auto" }} />
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* 画笔路径 SVG 层 */}
-      {drawPaths.length > 0 && (
-        <svg
-          className="absolute inset-0 pointer-events-none"
-          style={{ zIndex: 1100, width: "100%", height: "100%" }}
-        >
-          {drawPaths.map(path => (
-            <polyline
-              key={path.id}
-              points={path.points.map(p => `${p.x * viewport.zoom + viewport.x},${p.y * viewport.zoom + viewport.y}`).join(" ")}
-              fill="none"
-              stroke={path.color}
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              opacity="0.85"
-            />
-          ))}
-        </svg>
-      )}
-
-      {/* 工具模式鼠标样式覆盖层 */}
-      {activeToolMode !== "move" && (
-        <div
-          className="absolute inset-0"
-          style={{
-            zIndex: 1050,
-            cursor: activeToolMode === "annotate" ? "cell"
-              : activeToolMode === "draw" ? "crosshair"
-              : activeToolMode === "text" ? "text"
-              : activeToolMode === "smart-canvas" ? "crosshair"
-              : "default",
-            pointerEvents: activeToolMode === "move" ? "none" : "auto",
-          }}
-          onClick={(e) => {
-            if (activeToolMode === "annotate") {
-              const rect = containerRef.current?.getBoundingClientRect();
-              if (!rect) return;
-              const screenX = e.clientX - rect.left;
-              const screenY = e.clientY - rect.top;
-              const flowX = (screenX - viewport.x) / viewport.zoom;
-              const flowY = (screenY - viewport.y) / viewport.zoom;
-              const annId = `ann-${Date.now()}`;
-              setAnnotationNodes(prev => [...prev, { id: annId, x: flowX, y: flowY, text: "", editing: true }]);
-            } else if (activeToolMode === "text") {
-              const rect = containerRef.current?.getBoundingClientRect();
-              if (!rect) return;
-              const flowPos = screenToFlowPosition({ x: e.clientX - rect.left, y: e.clientY - rect.top });
-              const id = `text-${Date.now()}`;
-              pushHistory();
-              setNodes(nds => [
-                ...nds,
-                {
-                  id,
-                  type: "text",
-                  position: flowPos,
-                  data: { id, text: "", colorIdx: 0 },
-                },
-              ]);
-              setActiveToolMode("move");
-            }
-          }}
-          onMouseDown={(e) => {
-            if (activeToolMode === "draw") {
-              const rect = containerRef.current?.getBoundingClientRect();
-              if (!rect) return;
-              const flowPos = screenToFlowPosition({ x: e.clientX - rect.left, y: e.clientY - rect.top });
-              const pathId = `draw-${Date.now()}`;
-              drawingRef.current = { id: pathId, points: [flowPos] };
-              setDrawPaths(prev => [...prev, { id: pathId, points: [flowPos], color: isDark ? "rgba(255,255,255,0.75)" : "rgba(40,40,60,0.75)" }]);
-            } else if (activeToolMode === "smart-canvas") {
-              const rect = containerRef.current?.getBoundingClientRect();
-              if (!rect) return;
-              smartCanvasDragRef.current = { startX: e.clientX - rect.left, startY: e.clientY - rect.top };
-              setSmartCanvasDrag({ startX: e.clientX - rect.left, startY: e.clientY - rect.top, endX: e.clientX - rect.left, endY: e.clientY - rect.top });
-            }
-          }}
-          onMouseMove={(e) => {
-            if (activeToolMode === "draw" && drawingRef.current) {
-              const rect = containerRef.current?.getBoundingClientRect();
-              if (!rect) return;
-              const flowPos = screenToFlowPosition({ x: e.clientX - rect.left, y: e.clientY - rect.top });
-              const pid = drawingRef.current.id;
-              drawingRef.current.points.push(flowPos);
-              setDrawPaths(prev => prev.map(p => p.id === pid ? { ...p, points: [...drawingRef.current!.points] } : p));
-            } else if (activeToolMode === "smart-canvas" && smartCanvasDragRef.current) {
-              const rect = containerRef.current?.getBoundingClientRect();
-              if (!rect) return;
-              setSmartCanvasDrag(prev => prev ? { ...prev, endX: e.clientX - rect.left, endY: e.clientY - rect.top } : null);
-            }
-          }}
-          onMouseUp={(e) => {
-            if (activeToolMode === "draw" && drawingRef.current) {
-              drawingRef.current = null;
-              toast("画笔路径已绘制", { description: "切换到移动模式可继续操作" });
-            } else if (activeToolMode === "smart-canvas" && smartCanvasDragRef.current && smartCanvasDrag) {
-              const rect = containerRef.current?.getBoundingClientRect();
-              if (!rect) return;
-              const x1 = Math.min(smartCanvasDrag.startX, smartCanvasDrag.endX);
-              const y1 = Math.min(smartCanvasDrag.startY, smartCanvasDrag.endY);
-              const w = Math.abs(smartCanvasDrag.endX - smartCanvasDrag.startX);
-              const h = Math.abs(smartCanvasDrag.endY - smartCanvasDrag.startY);
-              if (w > 20 && h > 20) {
-                const flowPos = screenToFlowPosition({ x: x1, y: y1 });
-                const id = `smart-canvas-${Date.now()}`;
-                pushHistory();
-                setNodes(nds => [
-                  ...nds,
-                  {
-                    id,
-                    type: "asset",
-                    position: flowPos,
-                    data: {
-                      ...createDefaultAssetData(id, "智能画布"),
-                      isSmartCanvas: true,
-                      canvasWidth: Math.round(w / viewport.zoom),
-                      canvasHeight: Math.round(h / viewport.zoom),
-                    },
-                  },
-                ]);
-                toast("已创建智能画布", { description: `尺寸 ${Math.round(w / viewport.zoom)} xd7 ${Math.round(h / viewport.zoom)} px` });
-              }
-              smartCanvasDragRef.current = null;
-              setSmartCanvasDrag(null);
-              setActiveToolMode("move");
-            }
-          }}
-        />
-      )}
-
-      {/* 智能画布拖拽预览矩形 */}
-      {smartCanvasDrag && activeToolMode === "smart-canvas" && (
-        <div
-          className="absolute pointer-events-none"
-          style={{
-            zIndex: 1060,
-            left: Math.min(smartCanvasDrag.startX, smartCanvasDrag.endX),
-            top: Math.min(smartCanvasDrag.startY, smartCanvasDrag.endY),
-            width: Math.abs(smartCanvasDrag.endX - smartCanvasDrag.startX),
-            height: Math.abs(smartCanvasDrag.endY - smartCanvasDrag.startY),
-            border: "2px dashed oklch(0.65 0.22 290 / 0.8)",
-            background: "oklch(0.65 0.22 290 / 0.06)",
-            borderRadius: 4,
-          }}
-        />
       )}
 
     </div>
