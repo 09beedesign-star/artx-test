@@ -2836,6 +2836,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<{ id: string; width: number; height: number }>).detail;
       if (!detail?.id) return;
+      // 尺寸调整前先入历史，支持 Ctrl/Cmd+Z 回退
+      pushHistory();
       setNodes(nds => nds.map(n => {
         if (n.id !== detail.id || n.type !== "canvasFrame") return n;
         return {
@@ -2847,7 +2849,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     };
     window.addEventListener("canvas-frame-resize", handler);
     return () => window.removeEventListener("canvas-frame-resize", handler);
-  }, [setNodes]);
+  }, [pushHistory, setNodes]);
 
   const cloneNodesForHistory = useCallback((items: Node[]) => items.map(node => ({
     ...node,
