@@ -591,9 +591,15 @@ function AnnotationBubble({
           <div style={{ display: "flex", gap: 2 }}>
             {/* 关闭按钮（折叠气泡，不删除） */}
             <button
-              title="折叠注释"
+              title={ann.text.trim() ? "折叠注释" : "撤销注释"}
               style={{ width: 22, height: 22, borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center", color: iconBtnColor, background: "transparent", border: "none", cursor: "pointer" }}
-              onClick={() => onUpdate(ann.id, { open: false, editing: false })}
+              onClick={() => {
+                if (ann.text.trim()) {
+                  onUpdate(ann.id, { open: false, editing: false });
+                } else {
+                  onRemove(ann.id);
+                }
+              }}
               onMouseEnter={e => (e.currentTarget.style.background = iconBtnHover)}
               onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
             >
