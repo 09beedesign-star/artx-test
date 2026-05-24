@@ -2805,6 +2805,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [canvasInputW, setCanvasInputW] = useState("");
   const [canvasInputH, setCanvasInputH] = useState("");
   const [canvasBgColor, setCanvasBgColor] = useState("#2a2a30"); // 默认深灰色
+  const [presetOpen, setPresetOpen] = useState(false); // 预设尺寸下拉展开状态
   // 色彩选择器的 DOM ref（必须在组件顶层声明，不能在 IIFE 内）
   const colorSbRef = useRef<HTMLDivElement>(null);
   const colorHueRef = useRef<HTMLDivElement>(null);
@@ -4480,17 +4481,18 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const ry = Math.min(pendingRect.startY, pendingRect.endY);
         const rw = Math.abs(pendingRect.endX - pendingRect.startX);
         const rh = Math.abs(pendingRect.endY - pendingRect.startY);
-        // 弹窗宽度（加入比例清单后加宽）
+        // 弹窗宽度
         const popW = 240;
-        const popH = 380;
         // 默认显示在矩形右侧，若超出视口则显示在左侧
         const containerW = containerRef.current?.offsetWidth || 800;
         const containerH = containerRef.current?.offsetHeight || 600;
+        // 弹窗最大高度 = 容器高度 - 24px 安全边距
+        const popMaxH = containerH - 24;
         let popLeft = rx + rw + 12;
         if (popLeft + popW > containerW) popLeft = rx - popW - 12;
         if (popLeft < 8) popLeft = 8;
         let popTop = ry;
-        if (popTop + popH > containerH) popTop = containerH - popH - 8;
+        if (popTop + popMaxH > containerH) popTop = Math.max(8, containerH - popMaxH - 8);
         if (popTop < 8) popTop = 8;
         const bg = isDark ? "rgba(22,22,30,0.96)" : "rgba(255,255,255,0.98)";
         const border = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)";
@@ -4517,19 +4519,23 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               className="absolute nodrag nopan"
               style={{
                 left: popLeft, top: popTop, width: popW,
+                maxHeight: popMaxH,
+                display: "flex", flexDirection: "column",
                 background: bg,
                 border: `1px solid ${border}`,
                 borderRadius: 10,
                 boxShadow: isDark ? "0 12px 40px rgba(0,0,0,0.55)" : "0 8px 32px rgba(0,0,0,0.16)",
                 backdropFilter: "blur(20px)",
-                padding: "14px 14px 12px",
                 zIndex: 19999,
+                overflow: "hidden",
               }}
               onMouseDown={e => e.stopPropagation()}
             >
+              {/* 内容区——可滚动 */}
+              <div style={{ flex: 1, overflowY: "auto", padding: "14px 14px 0", minHeight: 0 }}>
               <p style={{ color: text, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>设置画布尺寸</p>
 
-              {/* 预设比例清单 */}
+              {/* 预设尺寸——可折叠下拉区域 */}
               {(() => {
                 const presets = [
                   { label: "1:1",     desc: "1024 × 1024",  w: 1024, h: 1024, icon: <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="1" width="12" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.3" /></svg> },
@@ -4543,22 +4549,42 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 const selBg = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.07)";
                 const hoverItemBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
                 const isSelected = (pw: number, ph: number) => canvasInputW === String(pw) && canvasInputH === String(ph);
+                const selectedPreset = presets.find(p => isSelected(p.w, p.h));
                 return (
-                  <div style={{ marginBottom: 10, borderRadius: 7, overflow: "hidden", border: `1px solid ${isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"}` }}>
-                    {presets.map((p, i) => (
+                  <div style={{ marginBottom: 10, borderRadius: 7, border: `1px solid ${isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"}`, overflow: "hidden" }}>
+                    {/* 标题行（点击展开/收起） */}
+                    <button
+                      onClick={() => setPresetOpen(v => !v)}
+                      style={{
+                        display: "flex", alignItems: "center", justifyContent: "space-between",
+                        width: "100%", padding: "7px 10px",
+                        background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+                        border: "none", cursor: "pointer", color: text,
+                      }}
+                    >
+                      <span style={{ fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
+                        <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><rect x="1" y="1" width="12" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.3" /></svg>
+                        预设尺寸
+                        {selectedPreset && <span style={{ color: "oklch(0.65 0.22 290)", fontSize: 11, fontWeight: 600 }}>{selectedPreset.label}</span>}
+                      </span>
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+                        style={{ transform: presetOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.18s" }}>
+                        <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                    {/* 展开内容 */}
+                    {presetOpen && presets.map((p, i) => (
                       <button
                         key={p.label}
-                        onClick={() => { setCanvasInputW(String(p.w)); setCanvasInputH(String(p.h)); }}
+                        onClick={() => { setCanvasInputW(String(p.w)); setCanvasInputH(String(p.h)); setPresetOpen(false); }}
                         style={{
                           display: "flex", alignItems: "center", gap: 8,
                           width: "100%", padding: "6px 10px",
                           background: isSelected(p.w, p.h) ? selBg : "transparent",
                           border: "none",
-                          borderTop: i > 0 ? `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"}` : "none",
-                          cursor: "pointer",
-                          textAlign: "left",
-                          transition: "background 0.12s",
-                          color: text,
+                          borderTop: `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"}`,
+                          cursor: "pointer", textAlign: "left",
+                          transition: "background 0.12s", color: text,
                         }}
                         onMouseEnter={e => { if (!isSelected(p.w, p.h)) (e.currentTarget as HTMLElement).style.background = hoverItemBg; }}
                         onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = isSelected(p.w, p.h) ? selBg : "transparent"; }}
@@ -4679,7 +4705,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 );
               })()}
 
-              <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+              <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
                 <div style={{ flex: 1 }}>
                   <p style={{ color: sub, fontSize: 10, marginBottom: 4, letterSpacing: "0.04em" }}>宽度 W</p>
                   <div style={{ display: "flex", alignItems: "center", background: inputBg, border: `1px solid ${inputBorder}`, borderRadius: 6, overflow: "hidden" }}>
@@ -4710,7 +4736,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                   </div>
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
+              </div>{/* end scrollable content area */}
+              {/* 确认/取消按钮——固定在弹窗底部 */}
+              <div style={{ flexShrink: 0, padding: "10px 14px 12px", borderTop: `1px solid ${isDark?"rgba(255,255,255,0.07)":"rgba(0,0,0,0.07)"}`, display: "flex", gap: 8 }}>
                 <button
                   onClick={handleCreateCanvasCancel}
                   style={{
