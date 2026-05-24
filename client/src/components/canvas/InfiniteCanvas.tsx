@@ -4443,9 +4443,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const ry = Math.min(pendingRect.startY, pendingRect.endY);
         const rw = Math.abs(pendingRect.endX - pendingRect.startX);
         const rh = Math.abs(pendingRect.endY - pendingRect.startY);
-        // 弹窗宽度
-        const popW = 220;
-        const popH = 180;
+        // 弹窗宽度（加入比例清单后加宽）
+        const popW = 240;
+        const popH = 380;
         // 默认显示在矩形右侧，若超出视口则显示在左侧
         const containerW = containerRef.current?.offsetWidth || 800;
         const containerH = containerRef.current?.offsetHeight || 600;
@@ -4490,7 +4490,54 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               }}
               onMouseDown={e => e.stopPropagation()}
             >
-              <p style={{ color: text, fontSize: 13, fontWeight: 600, marginBottom: 12 }}>设置画布尺寸</p>
+              <p style={{ color: text, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>设置画布尺寸</p>
+
+              {/* 预设比例清单 */}
+              {(() => {
+                const presets = [
+                  { label: "1:1",     desc: "1024 × 1024",  w: 1024, h: 1024, icon: <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="1" width="12" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.3" /></svg> },
+                  { label: "2:3",     desc: "1024 × 1536",  w: 1024, h: 1536, icon: <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="3" y="1" width="8" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.3" /></svg> },
+                  { label: "9:16",    desc: "1080 × 1920",  w: 1080, h: 1920, icon: <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="4" y="1" width="6" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.3" /></svg> },
+                  { label: "3:2",     desc: "1536 × 1024",  w: 1536, h: 1024, icon: <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="3" width="12" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.3" /></svg> },
+                  { label: "16:9",    desc: "1920 × 1080",  w: 1920, h: 1080, icon: <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="4" width="12" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.3" /></svg> },
+                  { label: "A4",      desc: "1024 × 1754",  w: 1024, h: 1754, icon: <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="2.5" y="1" width="9" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.3" /><path d="M5 4h4M5 6.5h4M5 9h3" stroke="currentColor" strokeWidth="0.9" strokeLinecap="round" /></svg> },
+                  { label: "Website", desc: "1366 × 768",   w: 1366, h: 768,  icon: <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="2" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.3" /><line x1="1" y1="5" x2="13" y2="5" stroke="currentColor" strokeWidth="0.9" /></svg> },
+                ];
+                const selBg = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.07)";
+                const hoverItemBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
+                const isSelected = (pw: number, ph: number) => canvasInputW === String(pw) && canvasInputH === String(ph);
+                return (
+                  <div style={{ marginBottom: 10, borderRadius: 7, overflow: "hidden", border: `1px solid ${isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"}` }}>
+                    {presets.map((p, i) => (
+                      <button
+                        key={p.label}
+                        onClick={() => { setCanvasInputW(String(p.w)); setCanvasInputH(String(p.h)); }}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 8,
+                          width: "100%", padding: "6px 10px",
+                          background: isSelected(p.w, p.h) ? selBg : "transparent",
+                          border: "none",
+                          borderTop: i > 0 ? `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"}` : "none",
+                          cursor: "pointer",
+                          textAlign: "left",
+                          transition: "background 0.12s",
+                          color: text,
+                        }}
+                        onMouseEnter={e => { if (!isSelected(p.w, p.h)) (e.currentTarget as HTMLElement).style.background = hoverItemBg; }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = isSelected(p.w, p.h) ? selBg : "transparent"; }}
+                      >
+                        <span style={{ color: sub, flexShrink: 0, display: "flex", alignItems: "center" }}>{p.icon}</span>
+                        <span style={{ fontSize: 12, fontWeight: 500, minWidth: 44 }}>{p.label}</span>
+                        <span style={{ fontSize: 11, color: sub, marginLeft: "auto" }}>{p.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
+
+              {/* 分隔线 */}
+              <div style={{ height: 1, background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)", marginBottom: 10 }} />
+
               <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
                 <div style={{ flex: 1 }}>
                   <p style={{ color: sub, fontSize: 10, marginBottom: 4, letterSpacing: "0.04em" }}>宽度 W</p>
