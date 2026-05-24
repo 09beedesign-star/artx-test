@@ -2609,10 +2609,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const mode = (e as CustomEvent<{ mode: string }>).detail?.mode;
       if (!mode) return;
       setActiveToolMode(mode);
-      // 选中上传工具时立即弹出文件选择框
-      if (mode === "upload") {
-        setTimeout(() => uploadInputRef.current?.click(), 50);
-      }
+      // upload 模式不立即弹框，等用户在画布中点击
     };
     window.addEventListener("tool-mode-change", handler);
     return () => window.removeEventListener("tool-mode-change", handler);
@@ -2673,13 +2670,23 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   }, [cloneEdgesForHistory, cloneNodesForHistory, setEdges, setNodes]);
 
   // 处理文件选择后将图片添加到画布
+  // 记录上传模式下用户点击的画布坐标
+  const uploadClickPosRef = useRef<{ x: number; y: number } | null>(null);
+
   const handleUploadFiles = useCallback((files: FileList | null) => {
     if (!files || files.length === 0) return;
     const imageFiles = Array.from(files).filter(f => f.type.startsWith("image/"));
     if (imageFiles.length === 0) { toast("请选择图片文件（JPG / PNG / GIF / WebP）"); return; }
     pushHistory();
-    const centerX = (containerRef.current?.clientWidth || 800) / 2;
-    const centerY = (containerRef.current?.clientHeight || 600) / 2;
+    // 优先使用点击坐标，如果没有则用画布中心
+    const rect = containerRef.current?.getBoundingClientRect();
+    const baseScreenX = uploadClickPosRef.current
+      ? uploadClickPosRef.current.x
+      : (rect?.left || 0) + (containerRef.current?.clientWidth || 800) / 2;
+    const baseScreenY = uploadClickPosRef.current
+      ? uploadClickPosRef.current.y
+      : (rect?.top || 0) + (containerRef.current?.clientHeight || 600) / 2;
+    uploadClickPosRef.current = null;
     imageFiles.forEach((file, index) => {
       const reader = new FileReader();
       reader.onload = (ev) => {
@@ -2690,8 +2697,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           const offsetX = (index - (imageFiles.length - 1) / 2) * 40;
           const offsetY = (index - (imageFiles.length - 1) / 2) * 40;
           const flowPos = screenToFlowPosition({
-            x: (containerRef.current?.getBoundingClientRect().left || 0) + centerX + offsetX,
-            y: (containerRef.current?.getBoundingClientRect().top || 0) + centerY + offsetY,
+            x: baseScreenX + offsetX,
+            y: baseScreenY + offsetY,
           });
           const id = `upload-${Date.now()}-${index}`;
           const maxSide = 360;
@@ -3137,7 +3144,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   }, [pushHistory, setNodes, viewport.zoom]);
 
   // ── Click blank canvas → exit group if inside one, also close smart-optimize bar ──
-  const handlePaneClick = useCallback(() => {
+  const handlePaneClick = useCallback((e: React.MouseEvent) => {
     setNodeCtxMenu(null);
     // 通知注释气泡折叠
     window.dispatchEvent(new CustomEvent("pane-click"));
@@ -3155,7 +3162,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       setSelectedNodeIds([]);
       toast("已退出打组");
     }
-  }, [editAsset, enteringGroupId, setNodes]);
+    // 上传模式：记录点击坐标并弹出文件选择框
+    if (activeToolMode === "upload") {
+      uploadClickPosRef.current = { x: e.clientX, y: e.clientY };
+      uploadInputRef.current?.click();
+    }
+  }, [activeToolMode, editAsset, enteringGroupId, setNodes]);
 
   // ── Double-click group label → rename ──
   const handleGroupLabelDoubleClick = useCallback((groupId: string) => {
