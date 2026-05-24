@@ -2774,7 +2774,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const middlePanRef = useRef<{ clientX: number; clientY: number; viewport: { x: number; y: number; zoom: number } } | null>(null);
   const historyRef = useRef<{ nodes: Node[]; edges: Edge[] }[]>([]);
-  const MAX_HISTORY_STEPS = 20;
+  const MAX_HISTORY_STEPS = 50;
+  const isRestoringRef = useRef(false); // undo 过程中屏蔽副作用
   // ── Local file drag-drop state ──
   const [isDragOver, setIsDragOver] = useState(false);
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
@@ -2847,11 +2848,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     data: edge.data ? { ...(edge.data as Record<string, unknown>) } : edge.data,
   })), []);
 
-  const pushHistory = useCallback(() => {
-    // 从 ref 读取最新状态，避免闭包捕获旧的 nodes/edges
+  // pushHistory: 可传入明确快照，也可不传参数（自动从 ref 读取当前状态）
+  const pushHistory = useCallback((snapshotNodes?: Node[], snapshotEdges?: Edge[]) => {
+    if (isRestoringRef.current) return; // undo 过程中不入栈
+    const ns = snapshotNodes ?? nodesRef.current;
+    const es = snapshotEdges ?? edgesRef.current;
     historyRef.current = [
       ...historyRef.current.slice(-(MAX_HISTORY_STEPS - 1)),
-      { nodes: cloneNodesForHistory(nodesRef.current), edges: cloneEdgesForHistory(edgesRef.current) },
+      { nodes: cloneNodesForHistory(ns), edges: cloneEdgesForHistory(es) },
     ];
   }, [cloneEdgesForHistory, cloneNodesForHistory]);
 
@@ -2861,10 +2865,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       toast("暂无可回退的画布操作");
       return;
     }
+    // 屏蔽副作用，防止 undo 期间被事件监听器覆写状态
+    isRestoringRef.current = true;
     setNodes(cloneNodesForHistory(previous.nodes));
     setEdges(cloneEdgesForHistory(previous.edges));
     setSelectedNodeIds(previous.nodes.filter(n => n.selected).map(n => n.id));
     setNodeCtxMenu(null);
+    requestAnimationFrame(() => { isRestoringRef.current = false; });
     toast("已回退一步", { description: `还可回退 ${historyRef.current.length} 步` });
   }, [cloneEdgesForHistory, cloneNodesForHistory, setEdges, setNodes]);
 
@@ -2872,9 +2879,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<{ id: string; width: number; height: number }>).detail;
-      if (!detail?.id) return;
-      // 尺寸调整前先入历史，支持 Ctrl/Cmd+Z 回退
-      pushHistory();
+      if (!detail?.id || isRestoringRef.current) return;
+      // 尺寸调整前先入历史（传入当前快照）
+      pushHistory(nodesRef.current, edgesRef.current);
       setNodes(nds => nds.map(n => {
         if (n.id !== detail.id || n.type !== "canvasFrame") return n;
         return {
@@ -3442,15 +3449,18 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const minY = Math.min(pendingRect.startY, pendingRect.endY);
     // 将屏幕坐标转换为 flow 坐标
     const flowPos = screenToFlowPosition({ x: (containerRef.current?.getBoundingClientRect().left || 0) + minX, y: (containerRef.current?.getBoundingClientRect().top || 0) + minY });
-    pushHistory();
     const id = `canvas-frame-${Date.now()}`;
-    setNodes(nds => [...nds, {
-      id,
-      type: "canvasFrame",
-      position: flowPos,
-      style: { width: w, height: h },
-      data: { id, title: "画布", width: w, height: h },
-    }]);
+    setNodes(nds => {
+      // 在 updater 内调用，传入 prev 快照，确保记录的是添加节点前的真实状态
+      pushHistory(nds, edgesRef.current);
+      return [...nds, {
+        id,
+        type: "canvasFrame",
+        position: flowPos,
+        style: { width: w, height: h },
+        data: { id, title: "画布", width: w, height: h },
+      }];
+    });
     setPendingRect(null);
     setCanvasInputW("");
     setCanvasInputH("");
