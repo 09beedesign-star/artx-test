@@ -2241,6 +2241,13 @@ function CanvasTopToolPalette({ isDark }: { isDark: boolean }) {
   const [shapeOpen, setShapeOpen] = useState(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
+  // 点击画布空白处时关闭几何形子菜单
+  useEffect(() => {
+    const handler = () => setShapeOpen(false);
+    window.addEventListener("pane-click", handler);
+    return () => window.removeEventListener("pane-click", handler);
+  }, []);
+
   const bg = isDark ? "rgba(22,22,30,0.82)" : "rgba(255,255,255,0.88)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const textColor = isDark ? "rgba(255,255,255,0.78)" : "rgba(28,28,40,0.82)";
