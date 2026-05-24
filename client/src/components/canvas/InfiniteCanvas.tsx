@@ -1152,7 +1152,8 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
   const borderColor = selected
     ? "oklch(0.65 0.22 290)"
     : isDark ? "oklch(1 0 0 / 20%)" : "oklch(0 0 0 / 18%)";
-  const bg = isDark ? "oklch(0.12 0.015 270 / 0.55)" : "oklch(0.97 0.004 270 / 0.55)";
+  // 深灰色背景，不透明度 100%
+  const bg = "oklch(0.22 0.008 270)";
   const labelColor = isDark ? "oklch(0.55 0.01 270)" : "oklch(0.52 0.01 270)";
   const handleColor = isDark ? "oklch(0.65 0.22 290 / 0.80)" : "oklch(0.50 0.20 290 / 0.80)";
 
