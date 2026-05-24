@@ -607,7 +607,7 @@ function AnnotationBubble({
           <span style={{ fontSize: 10, color: subColor, letterSpacing: "0.03em" }}>
             {ann.done ? "✓ 已完成" : "注释"}
           </span>
-          <div style={{ display: "flex", gap: 2 }}>
+          <div style={{ display: "flex", gap: 6 }}>
             {/* 关闭按钮（折叠气泡，不删除） */}
             <button
               title={ann.text.trim() ? "折叠注释" : "撤销注释"}
