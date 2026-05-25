@@ -2998,6 +2998,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   // 色彩选择器的 DOM ref（必须在组件顶层声明，不能在 IIFE 内）
   const colorSbRef = useRef<HTMLDivElement>(null);
   const colorHueRef = useRef<HTMLDivElement>(null);
+  // 始终跟踪最新的 HSV 分量，供拖拽回调中读取（避免闭包捕获旧值）
+  const colorHsvRef = useRef<[number, number, number]>([0, 0, 0]);
   const isDrawingRef = useRef(false);
   const drawStartRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -4962,6 +4964,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                   return '#'+[r,g,b].map(x=>Math.round(x*255).toString(16).padStart(2,'0')).join('');
                 };
                 const [ch, cs, cv] = hexToHsv(canvasBgColor.startsWith('#') && canvasBgColor.length===7 ? canvasBgColor : '#2a2a30');
+                // 每次渲染时同步最新 HSV 到 ref，供拖拽回调读取（避免闭包捕获旧值）
+                colorHsvRef.current = [ch, cs, cv];
                 const sbRef = colorSbRef;
                 const hueRef = colorHueRef;
                 const handleSbDrag = (e: React.MouseEvent | MouseEvent) => {
@@ -4969,13 +4973,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                   const rect = el.getBoundingClientRect();
                   const s = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
                   const v = Math.max(0, Math.min(1, 1 - (e.clientY - rect.top) / rect.height));
-                  setCanvasBgColor(hsvToHex(ch, s, v));
+                  // 从 ref 读取最新色相，避免闭包捕获旧的 ch
+                  setCanvasBgColor(hsvToHex(colorHsvRef.current[0], s, v));
                 };
                 const handleHueDrag = (e: React.MouseEvent | MouseEvent) => {
                   const el = hueRef.current; if (!el) return;
                   const rect = el.getBoundingClientRect();
                   const h = Math.max(0, Math.min(360, ((e.clientX - rect.left) / rect.width) * 360));
-                  setCanvasBgColor(hsvToHex(h, cs, cv));
+                  // 从 ref 读取最新 S/V，避免闭包捕获旧的 cs/cv
+                  setCanvasBgColor(hsvToHex(h, colorHsvRef.current[1], colorHsvRef.current[2]));
                 };
                 const startDrag = (handler: (e: MouseEvent) => void) => {
                   const move = (e: MouseEvent) => handler(e);
