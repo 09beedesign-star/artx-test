@@ -1382,8 +1382,21 @@ function ShapeNodeComponent({ id, data, selected }: { id: string; data: Record<s
         const finalY = upEvent.clientY - rect.top;
         setAnchors(prev => {
           const updated = prev.map((a, i) => i === idx ? { x: finalX, y: finalY } : a);
-          setFlowNodes(nds => nds.map(n => n.id === id ? { ...n, data: { ...n.data, anchors: updated } } : n));
-          return updated;
+          // 重算包围盒，让选框始终包裹所有锚点
+          const pad = 8; // 边距
+          const minX = Math.min(...updated.map(a => a.x)) - pad;
+          const minY = Math.min(...updated.map(a => a.y)) - pad;
+          const maxX = Math.max(...updated.map(a => a.x)) + pad;
+          const maxY = Math.max(...updated.map(a => a.y)) + pad;
+          const newW = Math.max(maxX - minX, 20);
+          const newH = Math.max(maxY - minY, 20);
+          // 将锚点坐标转换为相对于新包围盒的坐标
+          const rebasedAnchors = updated.map(a => ({ x: a.x - minX, y: a.y - minY }));
+          // 派发事件由 InnerCanvas 统一处理节点位置偏移（需要 viewport.zoom 转换）
+          window.dispatchEvent(new CustomEvent("shape-anchor-offset", {
+            detail: { nodeId: id, dx: minX, dy: minY, newW, newH, anchors: rebasedAnchors }
+          }));
+          return rebasedAnchors;
         });
       }
       window.removeEventListener("mousemove", onMove);
@@ -3297,6 +3310,35 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     return () => window.removeEventListener("asset-resize-end", handler);
   }, [pushHistory, setNodes, edgesRef]);
 
+  // 监听几何形锚点拖拽后的包围盒偏移，更新节点 position 使选框始终包裹图形
+  useEffect(() => {
+    const handler = (e: Event) => {
+      if (isRestoringRef.current) return;
+      const detail = (e as CustomEvent<{ nodeId: string; dx: number; dy: number; newW: number; newH: number; anchors: {x:number;y:number}[] }>).detail;
+      if (!detail?.nodeId) return;
+      isRestoringRef.current = true;
+      setNodes(nds => {
+        pushHistory(nds, edgesRef.current);
+        return nds.map(n => {
+          if (n.id !== detail.nodeId) return n;
+          // 将节点 position 向 offset 方向偏移，保持图形在画布中的绝对位置不变
+          const vp = getViewport();
+          const offsetXFlow = detail.dx / vp.zoom;
+          const offsetYFlow = detail.dy / vp.zoom;
+          return {
+            ...n,
+            position: { x: n.position.x + offsetXFlow, y: n.position.y + offsetYFlow },
+            style: { ...n.style, width: detail.newW, height: detail.newH },
+            data: { ...n.data, width: detail.newW, height: detail.newH, anchors: detail.anchors, _anchorOffset: undefined },
+          };
+        });
+      });
+      requestAnimationFrame(() => requestAnimationFrame(() => { isRestoringRef.current = false; }));
+    };
+    window.addEventListener("shape-anchor-offset", handler);
+    return () => window.removeEventListener("shape-anchor-offset", handler);
+  }, [pushHistory, setNodes, edgesRef, getViewport]);
+
   // 处理文件选择后将图片添加到画布
   // 记录上传模式下用户点击的画布坐标
   const uploadClickPosRef = useRef<{ x: number; y: number } | null>(null);
@@ -5001,18 +5043,59 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const ry = Math.min(drawingRect.startY, drawingRect.endY);
         const rw = Math.abs(drawingRect.endX - drawingRect.startX);
         const rh = Math.abs(drawingRect.endY - drawingRect.startY);
+        // 根据当前工具模式渲染对应几何形轮廓
+        const shapePreviewType = activeToolMode.startsWith("shape-draw:") ? activeToolMode.replace("shape-draw:", "") : null;
+        const buildPreviewPath = (type: string, w: number, h: number) => {
+          if (type === "circle") {
+            const cx = w/2, cy = h/2, rx2 = w/2, ry2 = h/2;
+            return `M ${cx-rx2} ${cy} A ${rx2} ${ry2} 0 1 0 ${cx+rx2} ${cy} A ${rx2} ${ry2} 0 1 0 ${cx-rx2} ${cy} Z`;
+          }
+          if (type === "triangle") return `M ${w/2} 0 L ${w} ${h} L 0 ${h} Z`;
+          if (type === "star") {
+            const pts: string[] = [];
+            for (let i = 0; i < 10; i++) {
+              const angle = (i * Math.PI) / 5 - Math.PI / 2;
+              const r = i % 2 === 0 ? Math.min(w, h) / 2 : Math.min(w, h) / 4;
+              pts.push(`${i===0?"M":"L"} ${w/2 + r*Math.cos(angle)} ${h/2 + r*Math.sin(angle)}`);
+            }
+            return pts.join(" ") + " Z";
+          }
+          if (type === "line") return `M 0 ${h/2} L ${w} ${h/2}`;
+          if (type === "arrow") {
+            const hl = 12, ha = 0.4;
+            const angle = 0;
+            return `M 0 ${h/2} L ${w} ${h/2} M ${w-hl*Math.cos(angle-ha)} ${h/2-hl*Math.sin(angle-ha)} L ${w} ${h/2} L ${w-hl*Math.cos(angle+ha)} ${h/2+hl*Math.sin(angle+ha)}`;
+          }
+          // rectangle / square / default
+          return `M 0 0 L ${w} 0 L ${w} ${h} L 0 ${h} Z`;
+        };
         return (
           <div
             className="absolute pointer-events-none"
-            style={{
-              left: rx, top: ry, width: rw, height: rh,
-              border: "2px solid oklch(0.65 0.22 290)",
-              background: "oklch(0.65 0.22 290 / 0.08)",
-              borderRadius: 4,
-              zIndex: 9800,
-              boxSizing: "border-box",
-            }}
-          />
+            style={{ left: rx, top: ry, width: rw, height: rh, zIndex: 9800 }}
+          >
+            {shapePreviewType ? (
+              <svg width={rw} height={rh} style={{ position: "absolute", left: 0, top: 0, overflow: "visible" }}>
+                <path
+                  d={buildPreviewPath(shapePreviewType, rw, rh)}
+                  fill={shapePreviewType === "line" || shapePreviewType === "arrow" ? "none" : "oklch(0.65 0.22 290 / 0.15)"}
+                  stroke="oklch(0.65 0.22 290)"
+                  strokeWidth={2}
+                  strokeDasharray={shapePreviewType === "line" || shapePreviewType === "arrow" ? "none" : "none"}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            ) : (
+              <div style={{
+                width: "100%", height: "100%",
+                border: "2px solid oklch(0.65 0.22 290)",
+                background: "oklch(0.65 0.22 290 / 0.08)",
+                borderRadius: 4,
+                boxSizing: "border-box",
+              }} />
+            )}
+          </div>
         );
       })()}
 
