@@ -808,8 +808,9 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
       resizeDragRef.current = null;
       setIsResizing(false);
       setImgW(newW); setImgH(newH);
-      // 将尺寸写入 node data
+      // 将尺寸写入 node data，并通知 InnerCanvas 记录历史
       setFlowNodes(nds => nds.map(n => n.id === nodeId ? { ...n, data: { ...n.data, imgW: newW, imgH: newH } } : n));
+      window.dispatchEvent(new CustomEvent("asset-resize-end", { detail: { nodeId, newW, newH } }));
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
@@ -3129,6 +3130,26 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     window.addEventListener("canvas-frame-resize", handler);
     return () => window.removeEventListener("canvas-frame-resize", handler);
   }, [pushHistory, setNodes]);
+
+  // 监听图片节点缩放结束事佻，将操作纳入历史记录
+  useEffect(() => {
+    const handler = (e: Event) => {
+      if (isRestoringRef.current) return;
+      const detail = (e as CustomEvent<{ nodeId: string; newW: number; newH: number }>).detail;
+      if (!detail?.nodeId) return;
+      // 在 setNodes 内部获取操作前快照并入历史
+      setNodes(nds => {
+        pushHistory(nds, edgesRef.current);
+        return nds.map(n =>
+          n.id === detail.nodeId
+            ? { ...n, data: { ...n.data, imgW: detail.newW, imgH: detail.newH } }
+            : n
+        );
+      });
+    };
+    window.addEventListener("asset-resize-end", handler);
+    return () => window.removeEventListener("asset-resize-end", handler);
+  }, [pushHistory, setNodes, edgesRef]);
 
   // 处理文件选择后将图片添加到画布
   // 记录上传模式下用户点击的画布坐标
