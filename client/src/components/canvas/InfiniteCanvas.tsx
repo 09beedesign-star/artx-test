@@ -3727,7 +3727,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setCanvasInputH("");
     // 保持当前工具为「创建画布」，用户可继续拖拽创建新画布
     toast("画布已创建，可继续拖拽创建", { description: `${w} × ${h} px` });
-  }, [canvasInputH, canvasInputW, pendingRect, pushHistory, screenToFlowPosition, setNodes]);
+  }, [canvasBgColor, canvasInputH, canvasInputW, pendingRect, pushHistory, screenToFlowPosition, setNodes]);
 
   const handleCreateCanvasCancel = useCallback(() => {
     setPendingRect(null);
