@@ -1304,10 +1304,16 @@ function ShapeNodeComponent({ id, data, selected }: { id: string; data: Record<s
   const opacity = (data.opacity as number) ?? 1;
   const isEditMode = !!(data.anchorEditMode as boolean);
 
+  // 初始化锚点（圆形用四个方向控制点）
   const [anchors, setAnchors] = useState<{ x: number; y: number }[]>(() => {
     if (data.anchors) return data.anchors as { x: number; y: number }[];
     if (shapeType === "triangle") return [{ x: w/2, y: 0 }, { x: w, y: h }, { x: 0, y: h }];
-    if (shapeType === "circle") return [{ x: w/2, y: 0 }, { x: w, y: h/2 }, { x: w/2, y: h }, { x: 0, y: h/2 }];
+    if (shapeType === "circle") return [
+      { x: w/2, y: 0 },    // 上
+      { x: w, y: h/2 },    // 右
+      { x: w/2, y: h },    // 下
+      { x: 0, y: h/2 },    // 左
+    ];
     if (shapeType === "star") {
       const pts: { x: number; y: number }[] = [];
       for (let i = 0; i < 10; i++) {
@@ -1322,8 +1328,41 @@ function ShapeNodeComponent({ id, data, selected }: { id: string; data: Record<s
     return [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }];
   });
 
+  // 右键菜单状态
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  // 右键菜单中的参数状态
+  const [menuFill, setMenuFill] = useState(fill);
+  const [menuStroke, setMenuStroke] = useState(stroke);
+  const [menuStrokeW, setMenuStrokeW] = useState(String(strokeW));
+  const [menuOpacity, setMenuOpacity] = useState(String(Math.round(opacity * 100)));
+
+  // 关闭右键菜单
+  const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = (e: MouseEvent) => {
+      // 点击菜单外关闭
+      const target = e.target as HTMLElement;
+      if (!target.closest(".shape-ctx-menu")) closeCtxMenu();
+    };
+    window.addEventListener("mousedown", close);
+    return () => window.removeEventListener("mousedown", close);
+  }, [ctxMenu, closeCtxMenu]);
+
+  // 应用参数到节点
+  const applyParams = useCallback(() => {
+    const newOpacity = Math.max(0, Math.min(1, parseFloat(menuOpacity) / 100 || 1));
+    const newStrokeW = parseFloat(menuStrokeW) || 0;
+    setFlowNodes(nds => nds.map(n => n.id === id ? {
+      ...n,
+      data: { ...n.data, fill: menuFill, stroke: menuStroke, strokeWidth: newStrokeW, opacity: newOpacity }
+    } : n));
+    closeCtxMenu();
+  }, [menuFill, menuStroke, menuStrokeW, menuOpacity, id, setFlowNodes, closeCtxMenu]);
+
   const draggingAnchorRef = useRef<number | null>(null);
 
+  // 锚点拖拽处理
   const handleAnchorMouseDown = useCallback((e: React.MouseEvent, idx: number) => {
     e.preventDefault(); e.stopPropagation();
     draggingAnchorRef.current = idx;
@@ -1341,36 +1380,59 @@ function ShapeNodeComponent({ id, data, selected }: { id: string; data: Record<s
       if (rect) {
         const finalX = upEvent.clientX - rect.left;
         const finalY = upEvent.clientY - rect.top;
-        const updated = anchors.map((a, i) => i === idx ? { x: finalX, y: finalY } : a);
-        setFlowNodes(nds => nds.map(n => n.id === id ? { ...n, data: { ...n.data, anchors: updated } } : n));
+        setAnchors(prev => {
+          const updated = prev.map((a, i) => i === idx ? { x: finalX, y: finalY } : a);
+          setFlowNodes(nds => nds.map(n => n.id === id ? { ...n, data: { ...n.data, anchors: updated } } : n));
+          return updated;
+        });
       }
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [anchors, id, setFlowNodes]);
+  }, [id, setFlowNodes]);
 
+  // 双击进入锚点编辑模式
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    setFlowNodes(nds => nds.map(n => n.id === id ? { ...n, data: { ...n.data, anchorEditMode: !isEditMode, anchors } } : n));
-  }, [anchors, id, isEditMode, setFlowNodes]);
+    setFlowNodes(nds => nds.map(n => n.id === id ? { ...n, data: { ...n.data, anchorEditMode: true, anchors } } : n));
+  }, [anchors, id, setFlowNodes]);
 
-  const buildPath = () => {
-    if (shapeType === "circle") {
-      const cx = w / 2; const cy = h / 2; const rx = w / 2; const ry = h / 2;
-      return `M ${cx - rx} ${cy} A ${rx} ${ry} 0 1 0 ${cx + rx} ${cy} A ${rx} ${ry} 0 1 0 ${cx - rx} ${cy} Z`;
-    }
-    if (shapeType === "line") return `M ${anchors[0]?.x ?? 0} ${anchors[0]?.y ?? h/2} L ${anchors[1]?.x ?? w} ${anchors[1]?.y ?? h/2}`;
+  // 右键弹出参数菜单
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    setMenuFill(fill); setMenuStroke(stroke);
+    setMenuStrokeW(String(strokeW)); setMenuOpacity(String(Math.round(opacity * 100)));
+    setCtxMenu({ x: e.clientX, y: e.clientY });
+  }, [fill, stroke, strokeW, opacity]);
+
+  // 根据锚点计算圆形路径（用四个控制点拟合横纵半径）
+  const buildCirclePath = (pts: { x: number; y: number }[]) => {
+    // 上下点确定垂直半径，左右点确定水平半径
+    const top = pts[0] ?? { x: w/2, y: 0 };
+    const right = pts[1] ?? { x: w, y: h/2 };
+    const bottom = pts[2] ?? { x: w/2, y: h };
+    const left = pts[3] ?? { x: 0, y: h/2 };
+    const cx = (left.x + right.x) / 2;
+    const cy = (top.y + bottom.y) / 2;
+    const rx = Math.abs(right.x - left.x) / 2;
+    const ry = Math.abs(bottom.y - top.y) / 2;
+    return `M ${cx - rx} ${cy} A ${rx} ${ry} 0 1 0 ${cx + rx} ${cy} A ${rx} ${ry} 0 1 0 ${cx - rx} ${cy} Z`;
+  };
+
+  const buildPath = (pts: { x: number; y: number }[]) => {
+    if (shapeType === "circle") return buildCirclePath(pts);
+    if (shapeType === "line") return `M ${pts[0]?.x ?? 0} ${pts[0]?.y ?? h/2} L ${pts[1]?.x ?? w} ${pts[1]?.y ?? h/2}`;
     if (shapeType === "arrow") {
-      const x1 = anchors[0]?.x ?? 0; const y1 = anchors[0]?.y ?? h/2;
-      const x2 = anchors[1]?.x ?? w; const y2 = anchors[1]?.y ?? h/2;
+      const x1 = pts[0]?.x ?? 0; const y1 = pts[0]?.y ?? h/2;
+      const x2 = pts[1]?.x ?? w; const y2 = pts[1]?.y ?? h/2;
       const angle = Math.atan2(y2 - y1, x2 - x1);
       const hl = 12; const ha = 0.4;
       return `M ${x1} ${y1} L ${x2} ${y2} M ${x2 - hl*Math.cos(angle-ha)} ${y2 - hl*Math.sin(angle-ha)} L ${x2} ${y2} L ${x2 - hl*Math.cos(angle+ha)} ${y2 - hl*Math.sin(angle+ha)}`;
     }
-    if (anchors.length < 2) return "";
-    return anchors.map((a, i) => `${i === 0 ? "M" : "L"} ${a.x} ${a.y}`).join(" ") + " Z";
+    if (pts.length < 2) return "";
+    return pts.map((a, i) => `${i === 0 ? "M" : "L"} ${a.x} ${a.y}`).join(" ") + " Z";
   };
 
   const borderColor = selected ? "oklch(0.65 0.22 290)" : "transparent";
@@ -1378,12 +1440,18 @@ function ShapeNodeComponent({ id, data, selected }: { id: string; data: Record<s
 
   return (
     <div
-      style={{ width: w, height: h, position: "relative", outline: `2px solid ${borderColor}`, outlineOffset: 3, cursor: "default" }}
+      style={{ width: w, height: h, position: "relative", outline: `2px solid ${borderColor}`, outlineOffset: 3, cursor: isEditMode ? "crosshair" : "default" }}
       onDoubleClick={handleDoubleClick}
+      onContextMenu={handleContextMenu}
     >
-      <svg width={w} height={h} style={{ overflow: "visible", opacity }}>
+      {/* SVG 固定在节点左上角，坐标系与锚点 div 一致，超出范围用 overflow:visible 显示 */}
+      <svg
+        width={w} height={h}
+        style={{ position: "absolute", left: 0, top: 0, overflow: "visible", opacity, pointerEvents: "none" }}
+        viewBox={`0 0 ${w} ${h}`}
+      >
         <path
-          d={buildPath()}
+          d={buildPath(anchors)}
           fill={isLine ? "none" : fill}
           stroke={isLine ? (stroke === "none" ? fill : stroke) : (stroke === "none" ? "none" : stroke)}
           strokeWidth={isLine ? Math.max(strokeW || 0, 2) : strokeW}
@@ -1411,7 +1479,79 @@ function ShapeNodeComponent({ id, data, selected }: { id: string; data: Record<s
       ))}
       {isEditMode && (
         <div style={{ position: "absolute", top: -24, left: 0, fontSize: 10, color: "oklch(0.65 0.22 290)", whiteSpace: "nowrap", pointerEvents: "none" }}>
-          锚点编辑模式 · 双击退出
+          锚点编辑模式 · 单击空白退出
+        </div>
+      )}
+      {/* 右键参数菜单 */}
+      {ctxMenu && (
+        <div
+          className="shape-ctx-menu"
+          style={{
+            position: "fixed", left: ctxMenu.x, top: ctxMenu.y,
+            zIndex: 20000, background: isDark ? "#1e1e24" : "#fff",
+            border: `1px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)"}`,
+            borderRadius: 10, padding: "14px 16px", minWidth: 220,
+            boxShadow: "0 8px 32px rgba(0,0,0,0.28)",
+            color: isDark ? "#e8e8f0" : "#1a1a2e", fontSize: 12,
+          }}
+          onMouseDown={e => e.stopPropagation()}
+        >
+          <p style={{ fontWeight: 700, marginBottom: 10, fontSize: 13 }}>图形参数</p>
+          {/* 填充色 */}
+          <div style={{ marginBottom: 8 }}>
+            <p style={{ opacity: 0.6, marginBottom: 4 }}>填充色</p>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <input type="color" value={menuFill.startsWith("#") ? menuFill : "#6366f1"}
+                onChange={e => setMenuFill(e.target.value)}
+                style={{ width: 28, height: 28, border: "none", padding: 0, cursor: "pointer", borderRadius: 4, background: "transparent" }} />
+              <input type="text" value={menuFill}
+                onChange={e => setMenuFill(e.target.value)}
+                style={{ flex: 1, background: isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)",
+                  border: `1px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)"}`,
+                  borderRadius: 5, padding: "4px 8px", color: "inherit", fontSize: 11, fontFamily: "monospace" }} />
+            </div>
+          </div>
+          {/* 描边色 */}
+          <div style={{ marginBottom: 8 }}>
+            <p style={{ opacity: 0.6, marginBottom: 4 }}>描边色</p>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <input type="color" value={menuStroke.startsWith("#") ? menuStroke : "#000000"}
+                onChange={e => setMenuStroke(e.target.value)}
+                style={{ width: 28, height: 28, border: "none", padding: 0, cursor: "pointer", borderRadius: 4, background: "transparent" }} />
+              <input type="text" value={menuStroke}
+                onChange={e => setMenuStroke(e.target.value)}
+                style={{ flex: 1, background: isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)",
+                  border: `1px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)"}`,
+                  borderRadius: 5, padding: "4px 8px", color: "inherit", fontSize: 11, fontFamily: "monospace" }} />
+            </div>
+          </div>
+          {/* 描边宽度 + 不透明度 */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            <div style={{ flex: 1 }}>
+              <p style={{ opacity: 0.6, marginBottom: 4 }}>描边宽度</p>
+              <input type="number" min={0} value={menuStrokeW} onChange={e => setMenuStrokeW(e.target.value)}
+                style={{ width: "100%", background: isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)",
+                  border: `1px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)"}`,
+                  borderRadius: 5, padding: "4px 8px", color: "inherit", fontSize: 11 }} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <p style={{ opacity: 0.6, marginBottom: 4 }}>不透明度 %</p>
+              <input type="number" min={0} max={100} value={menuOpacity} onChange={e => setMenuOpacity(e.target.value)}
+                style={{ width: "100%", background: isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)",
+                  border: `1px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)"}`,
+                  borderRadius: 5, padding: "4px 8px", color: "inherit", fontSize: 11 }} />
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={applyParams}
+              style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: "none", background: "oklch(0.55 0.22 290)", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: 12 }}>
+              应用
+            </button>
+            <button onClick={closeCtxMenu}
+              style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: `1px solid ${isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.15)"}`, background: "transparent", color: "inherit", cursor: "pointer", fontSize: 12 }}>
+              取消
+            </button>
+          </div>
         </div>
       )}
       <Handle type="target" position={Position.Top} id="top" style={{ opacity: 0 }} />
@@ -3036,20 +3176,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     return () => window.removeEventListener("tool-mode-change", handler);
   }, []);
 
-  // 监听几何形选择事件
+  // 监听几何形选择事件 → 进入拖拽创建模式（不再弹窗）
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<{ shapeType: string; label: string }>).detail;
       if (!detail?.shapeType) return;
-      setShapeDialog({ type: detail.shapeType, label: detail.label });
-      // 根据形状设置默认尺寸
-      if (detail.shapeType === "line" || detail.shapeType === "arrow") {
-        setShapeW("200"); setShapeH("2");
-      } else if (detail.shapeType === "circle") {
-        setShapeW("120"); setShapeH("120");
-      } else {
-        setShapeW("120"); setShapeH("120");
-      }
+      // 设置当前几何形类型，进入拖拽模式
+      setActiveToolMode(`shape-draw:${detail.shapeType}`);
+      setShapeDialog(null); // 确保弹窗不显示
     };
     window.addEventListener("shape-select", handler);
     return () => window.removeEventListener("shape-select", handler);
@@ -3644,6 +3778,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setNodeCtxMenu(null);
     // 通知注释气泡折叠
     window.dispatchEvent(new CustomEvent("pane-click"));
+    // 退出所有几何形的锚点编辑模式
+    setNodes(nds => nds.map(n =>
+      n.type === "shape" && n.data?.anchorEditMode
+        ? { ...n, data: { ...n.data, anchorEditMode: false } }
+        : n
+    ));
     // 创建画布模式：点击不触发 paneClick 的其他逻辑
     if (activeToolMode === "smart-canvas") return;
     // 点击画布空白处关闭智能优化输入框
@@ -3669,7 +3809,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
   // ── 创建画布：鼠标事件处理 ──
   const handleCreateCanvasMouseDown = useCallback((e: React.MouseEvent) => {
-    if (activeToolMode !== "smart-canvas") return;
+    const isCanvas = activeToolMode === "smart-canvas";
+    const isShape = activeToolMode.startsWith("shape-draw:");
+    if (!isCanvas && !isShape) return;
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
@@ -3699,17 +3841,70 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     const dr = { startX: drawStartRef.current.x, startY: drawStartRef.current.y, endX: x, endY: y };
-    const w = Math.abs(dr.endX - dr.startX);
-    const h = Math.abs(dr.endY - dr.startY);
+    const rawW = Math.abs(dr.endX - dr.startX);
+    const rawH = Math.abs(dr.endY - dr.startY);
     isDrawingRef.current = false;
     drawStartRef.current = null;
     setDrawingRect(null);
-    if (w < 8 || h < 8) return; // 太小，忽略
+    if (rawW < 8 || rawH < 8) return; // 太小，忽略
+
+    // 几何形拖拽创建：直接创建节点，不弹窗
+    if (activeToolMode.startsWith("shape-draw:")) {
+      const shapeType = activeToolMode.replace("shape-draw:", "");
+      const minX = Math.min(dr.startX, dr.endX);
+      const minY = Math.min(dr.startY, dr.endY);
+      const fw = rawW / viewport.zoom;
+      const fh = rawH / viewport.zoom;
+      const flowPos = screenToFlowPosition({
+        x: (rect.left) + minX,
+        y: (rect.top) + minY,
+      });
+      const nodeId = `shape-${Date.now()}`;
+      // 计算初始锚点
+      const getInitAnchors = (type: string, w: number, h: number) => {
+        if (type === "triangle") return [{ x: w/2, y: 0 }, { x: w, y: h }, { x: 0, y: h }];
+        if (type === "circle") return [{ x: w/2, y: 0 }, { x: w, y: h/2 }, { x: w/2, y: h }, { x: 0, y: h/2 }];
+        if (type === "star") {
+          const pts: { x: number; y: number }[] = [];
+          for (let i = 0; i < 10; i++) {
+            const angle = (i * Math.PI) / 5 - Math.PI / 2;
+            const r = i % 2 === 0 ? Math.min(w, h) / 2 : Math.min(w, h) / 4;
+            pts.push({ x: w/2 + r * Math.cos(angle), y: h/2 + r * Math.sin(angle) });
+          }
+          return pts;
+        }
+        if (type === "line" || type === "arrow") return [{ x: 0, y: h/2 }, { x: w, y: h/2 }];
+        return [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }];
+      };
+      setNodes(nds => {
+        pushHistory(nds, edgesRef.current);
+        return [...nds, {
+          id: nodeId,
+          type: "shape",
+          position: flowPos,
+          style: { width: fw, height: fh },
+          data: {
+            id: nodeId,
+            shapeType,
+            width: fw,
+            height: fh,
+            fill: shapeFill,
+            stroke: shapeStroke,
+            strokeWidth: parseInt(shapeStrokeW) || 0,
+            opacity: (parseInt(shapeOpacity) || 100) / 100,
+            cornerRadius: parseInt(shapeCornerRadius) || 0,
+            anchors: getInitAnchors(shapeType, fw, fh),
+          },
+        }];
+      });
+      return;
+    }
+
+    // 创建画布：显示弹窗
     setPendingRect(dr);
-    // 预填宽高（以画布坐标系 px 为单位）
-    setCanvasInputW(String(Math.round(w / viewport.zoom)));
-    setCanvasInputH(String(Math.round(h / viewport.zoom)));
-  }, [viewport.zoom]);
+    setCanvasInputW(String(Math.round(rawW / viewport.zoom)));
+    setCanvasInputH(String(Math.round(rawH / viewport.zoom)));
+  }, [activeToolMode, edgesRef, pushHistory, screenToFlowPosition, setNodes, shapeFill, shapeOpacity, shapeStroke, shapeStrokeW, shapeCornerRadius, viewport.zoom]);
 
   const handleCreateCanvasConfirm = useCallback(() => {
     if (!pendingRect) return;
@@ -5121,127 +5316,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         );
       })()}
 
-      {/* 几何形创建弹窗 */}
-      {shapeDialog && (() => {
-        const popBg = isDark ? "rgba(22,22,32,0.97)" : "rgba(255,255,255,0.97)";
-        const text = isDark ? "rgba(255,255,255,0.88)" : "rgba(20,20,32,0.88)";
-        const sub = isDark ? "rgba(255,255,255,0.40)" : "rgba(0,0,0,0.40)";
-        const inputBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
-        const inputBorder = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.12)";
-        const isLineType = shapeDialog.type === "line" || shapeDialog.type === "arrow";
-        const showCorner = shapeDialog.type === "rectangle" || shapeDialog.type === "square";
-        return (
-          <div
-            style={{
-              position: "absolute",
-              top: "50%", left: "50%",
-              transform: "translate(-50%, -50%)",
-              background: popBg,
-              backdropFilter: "blur(24px)",
-              borderRadius: 12,
-              boxShadow: "0 8px 40px rgba(0,0,0,0.35), 0 0 0 1px rgba(255,255,255,0.08)",
-              width: 280,
-              zIndex: 19999,
-              display: "flex",
-              flexDirection: "column",
-              overflow: "hidden",
-            }}
-          >
-            {/* 标题 */}
-            <div style={{ padding: "12px 14px 8px", borderBottom: `1px solid ${inputBorder}` }}>
-              <p style={{ color: text, fontSize: 13, fontWeight: 600, margin: 0 }}>创建{shapeDialog.label}</p>
-              <p style={{ color: sub, fontSize: 10, margin: "2px 0 0", letterSpacing: "0.04em" }}>Figma 风格参数设置</p>
-            </div>
-            {/* 参数区 */}
-            <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
-              {/* 宽高 */}
-              <div style={{ display: "flex", gap: 8 }}>
-                <div style={{ flex: 1 }}>
-                  <p style={{ color: sub, fontSize: 10, marginBottom: 4, letterSpacing: "0.04em" }}>W 宽度</p>
-                  <div style={{ display: "flex", alignItems: "center", background: inputBg, border: `1px solid ${inputBorder}`, borderRadius: 6, overflow: "hidden" }}>
-                    <input type="number" min={1} value={shapeW} onChange={e => setShapeW(e.target.value)}
-                      style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: text, fontSize: 13, padding: "5px 6px", width: 0 }} />
-                    <span style={{ color: sub, fontSize: 11, paddingRight: 7 }}>px</span>
-                  </div>
-                </div>
-                {!isLineType && (
-                  <div style={{ flex: 1 }}>
-                    <p style={{ color: sub, fontSize: 10, marginBottom: 4, letterSpacing: "0.04em" }}>H 高度</p>
-                    <div style={{ display: "flex", alignItems: "center", background: inputBg, border: `1px solid ${inputBorder}`, borderRadius: 6, overflow: "hidden" }}>
-                      <input type="number" min={1} value={shapeH} onChange={e => setShapeH(e.target.value)}
-                        style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: text, fontSize: 13, padding: "5px 6px", width: 0 }} />
-                      <span style={{ color: sub, fontSize: 11, paddingRight: 7 }}>px</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-              {/* 填充色 */}
-              {!isLineType && (
-                <div>
-                  <p style={{ color: sub, fontSize: 10, marginBottom: 4, letterSpacing: "0.04em" }}>填充色</p>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <input type="color" value={shapeFill} onChange={e => setShapeFill(e.target.value)}
-                      style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${inputBorder}`, cursor: "pointer", padding: 2, background: inputBg }} />
-                    <input type="text" value={shapeFill} onChange={e => setShapeFill(e.target.value)}
-                      style={{ flex: 1, background: inputBg, border: `1px solid ${inputBorder}`, borderRadius: 6, color: text, fontSize: 12, padding: "5px 8px", outline: "none" }} />
-                  </div>
-                </div>
-              )}
-              {/* 描边 */}
-              <div style={{ display: "flex", gap: 8 }}>
-                <div style={{ flex: 2 }}>
-                  <p style={{ color: sub, fontSize: 10, marginBottom: 4, letterSpacing: "0.04em" }}>描边色</p>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <input type="color" value={shapeStroke === "none" ? "#000000" : shapeStroke} onChange={e => setShapeStroke(e.target.value)}
-                      style={{ width: 24, height: 24, borderRadius: 4, border: `1px solid ${inputBorder}`, cursor: "pointer", padding: 2, background: inputBg }} />
-                    <input type="text" value={shapeStroke} onChange={e => setShapeStroke(e.target.value)}
-                      placeholder="none"
-                      style={{ flex: 1, background: inputBg, border: `1px solid ${inputBorder}`, borderRadius: 6, color: text, fontSize: 12, padding: "4px 7px", outline: "none", width: 0 }} />
-                  </div>
-                </div>
-                <div style={{ flex: 1 }}>
-                  <p style={{ color: sub, fontSize: 10, marginBottom: 4, letterSpacing: "0.04em" }}>描边宽</p>
-                  <div style={{ display: "flex", alignItems: "center", background: inputBg, border: `1px solid ${inputBorder}`, borderRadius: 6, overflow: "hidden" }}>
-                    <input type="number" min={0} value={shapeStrokeW} onChange={e => setShapeStrokeW(e.target.value)}
-                      style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: text, fontSize: 12, padding: "4px 6px", width: 0 }} />
-                    <span style={{ color: sub, fontSize: 10, paddingRight: 6 }}>px</span>
-                  </div>
-                </div>
-              </div>
-              {/* 不透明度 */}
-              <div style={{ display: "flex", gap: 8 }}>
-                <div style={{ flex: 1 }}>
-                  <p style={{ color: sub, fontSize: 10, marginBottom: 4, letterSpacing: "0.04em" }}>不透明度</p>
-                  <div style={{ display: "flex", alignItems: "center", background: inputBg, border: `1px solid ${inputBorder}`, borderRadius: 6, overflow: "hidden" }}>
-                    <input type="number" min={0} max={100} value={shapeOpacity} onChange={e => setShapeOpacity(e.target.value)}
-                      style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: text, fontSize: 12, padding: "4px 6px", width: 0 }} />
-                    <span style={{ color: sub, fontSize: 10, paddingRight: 6 }}>%</span>
-                  </div>
-                </div>
-                {showCorner && (
-                  <div style={{ flex: 1 }}>
-                    <p style={{ color: sub, fontSize: 10, marginBottom: 4, letterSpacing: "0.04em" }}>圆角半径</p>
-                    <div style={{ display: "flex", alignItems: "center", background: inputBg, border: `1px solid ${inputBorder}`, borderRadius: 6, overflow: "hidden" }}>
-                      <input type="number" min={0} value={shapeCornerRadius} onChange={e => setShapeCornerRadius(e.target.value)}
-                        style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: text, fontSize: 12, padding: "4px 6px", width: 0 }} />
-                      <span style={{ color: sub, fontSize: 10, paddingRight: 6 }}>px</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-            {/* 确认/取消 */}
-            <div style={{ padding: "8px 14px 12px", borderTop: `1px solid ${inputBorder}`, display: "flex", gap: 8 }}>
-              <button onClick={handleCreateShapeCancel}
-                style={{ flex: 1, height: 32, borderRadius: 6, fontSize: 12, fontWeight: 500, background: inputBg, border: `1px solid ${inputBorder}`, color: text, cursor: "pointer" }}
-              >取消</button>
-              <button onClick={handleCreateShapeConfirm}
-                style={{ flex: 1, height: 32, borderRadius: 6, fontSize: 12, fontWeight: 600, background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))", border: "none", color: "white", cursor: "pointer", boxShadow: "0 2px 8px oklch(0.58 0.22 290 / 0.30)" }}
-              >确认</button>
-            </div>
-          </div>
-        );
-      })()}
 
       {/* 隐藏的文件上传 input */}
       <input
