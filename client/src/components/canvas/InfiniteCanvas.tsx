@@ -1295,6 +1295,7 @@ function ShapeNodeComponent({ id, data, selected }: { id: string; data: Record<s
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const { setNodes: setFlowNodes } = useReactFlow();
+  const { zoom: vpZoom } = useViewport(); // 用于保持锚点固定屏幕像素大小
   const shapeType = (data.shapeType as string) || "rectangle";
   const w = (data.width as number) || 120;
   const h = (data.height as number) || 120;
@@ -1329,38 +1330,26 @@ function ShapeNodeComponent({ id, data, selected }: { id: string; data: Record<s
   });
 
   // 右键菜单状态
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
-  // 右键菜单中的参数状态
-  const [menuFill, setMenuFill] = useState(fill);
-  const [menuStroke, setMenuStroke] = useState(stroke);
-  const [menuStrokeW, setMenuStrokeW] = useState(String(strokeW));
-  const [menuOpacity, setMenuOpacity] = useState(String(Math.round(opacity * 100)));
-
-  // 关闭右键菜单
-  const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
-  useEffect(() => {
-    if (!ctxMenu) return;
-    const close = (e: MouseEvent) => {
-      // 点击菜单外关闭
-      const target = e.target as HTMLElement;
-      if (!target.closest(".shape-ctx-menu")) closeCtxMenu();
-    };
-    window.addEventListener("mousedown", close);
-    return () => window.removeEventListener("mousedown", close);
-  }, [ctxMenu, closeCtxMenu]);
-
-  // 应用参数到节点
-  const applyParams = useCallback(() => {
-    const newOpacity = Math.max(0, Math.min(1, parseFloat(menuOpacity) / 100 || 1));
-    const newStrokeW = parseFloat(menuStrokeW) || 0;
-    setFlowNodes(nds => nds.map(n => n.id === id ? {
-      ...n,
-      data: { ...n.data, fill: menuFill, stroke: menuStroke, strokeWidth: newStrokeW, opacity: newOpacity }
-    } : n));
-    closeCtxMenu();
-  }, [menuFill, menuStroke, menuStrokeW, menuOpacity, id, setFlowNodes, closeCtxMenu]);
+  // 参数菜单已移至 InnerCanvas 层统一管理，此处无需本地状态
 
   const draggingAnchorRef = useRef<number | null>(null);
+
+  // 圆形锚点吸附辅助函数：只移动被拖拽的那个锚点，吸附到橙圆轮廓上
+  // idx: 0=上 1=右 2=下 3=左
+  // 圆形路径由 buildCirclePath 根据四个锚点推算橙圆，所以每个锚点可独立移动
+  const snapCircleAnchor = useCallback((prev: { x: number; y: number }[], idx: number, rawX: number, rawY: number) => {
+    const updated = [...prev];
+    // 上/下锚点：锁定 X 到橙圆垂直轴（由左右锚点中点确定）
+    if (idx === 0 || idx === 2) {
+      const cx = (prev[3].x + prev[1].x) / 2;
+      updated[idx] = { x: cx, y: rawY };
+    } else {
+      // 左/右锚点：锁定 Y 到橙圆水平轴（由上下锚点中点确定）
+      const cy = (prev[0].y + prev[2].y) / 2;
+      updated[idx] = { x: rawX, y: cy };
+    }
+    return updated;
+  }, []);
 
   // 锚点拖拽处理
   const handleAnchorMouseDown = useCallback((e: React.MouseEvent, idx: number) => {
@@ -1372,7 +1361,12 @@ function ShapeNodeComponent({ id, data, selected }: { id: string; data: Record<s
       if (!rect) return;
       const nx = mv.clientX - rect.left;
       const ny = mv.clientY - rect.top;
-      setAnchors(prev => prev.map((a, i) => i === idx ? { x: nx, y: ny } : a));
+      if (shapeType === "circle") {
+        // 圆形锚点：吸附到橙圆轮廓
+        setAnchors(prev => snapCircleAnchor(prev, idx, nx, ny));
+      } else {
+        setAnchors(prev => prev.map((a, i) => i === idx ? { x: nx, y: ny } : a));
+      }
     };
     const onUp = (upEvent: MouseEvent) => {
       draggingAnchorRef.current = null;
@@ -1381,7 +1375,9 @@ function ShapeNodeComponent({ id, data, selected }: { id: string; data: Record<s
         const finalX = upEvent.clientX - rect.left;
         const finalY = upEvent.clientY - rect.top;
         setAnchors(prev => {
-          const updated = prev.map((a, i) => i === idx ? { x: finalX, y: finalY } : a);
+          const updated = shapeType === "circle"
+            ? snapCircleAnchor(prev, idx, finalX, finalY)
+            : prev.map((a, i) => i === idx ? { x: finalX, y: finalY } : a);
           // 重算包围盒，让选框始终包裹所有锚点
           const pad = 8; // 边距
           const minX = Math.min(...updated.map(a => a.x)) - pad;
@@ -1404,7 +1400,7 @@ function ShapeNodeComponent({ id, data, selected }: { id: string; data: Record<s
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [id, setFlowNodes]);
+  }, [id, shapeType, snapCircleAnchor, setFlowNodes]);
 
   // 双击进入锚点编辑模式
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
@@ -1412,25 +1408,29 @@ function ShapeNodeComponent({ id, data, selected }: { id: string; data: Record<s
     setFlowNodes(nds => nds.map(n => n.id === id ? { ...n, data: { ...n.data, anchorEditMode: true, anchors } } : n));
   }, [anchors, id, setFlowNodes]);
 
-  // 右键弹出参数菜单
+  // 右键弹出参数菜单：派发事件由 InnerCanvas 统一渲染（避免 ReactFlow transform 干扰 position:fixed）
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault(); e.stopPropagation();
-    setMenuFill(fill); setMenuStroke(stroke);
-    setMenuStrokeW(String(strokeW)); setMenuOpacity(String(Math.round(opacity * 100)));
-    setCtxMenu({ x: e.clientX, y: e.clientY });
-  }, [fill, stroke, strokeW, opacity]);
+    window.dispatchEvent(new CustomEvent("shape-ctx-open", {
+      detail: { nodeId: id, fill, stroke, strokeWidth: strokeW, opacity }
+    }));
+  }, [id, fill, stroke, strokeW, opacity]);
 
-  // 根据锚点计算圆形路径（用四个控制点拟合横纵半径）
+  // 根据锚点计算圆形路径（用四个控制点拟合椭圆）
+  // 上锚点(0)定义椭圆顶部，右锚点(1)定义右侧，下锚点(2)定义底部，左锚点(3)定义左侧
+  // cx/cy 直接从四个锚点的实际坐标推算，不假设对称，确保路径始终跟锚点同步
   const buildCirclePath = (pts: { x: number; y: number }[]) => {
-    // 上下点确定垂直半径，左右点确定水平半径
-    const top = pts[0] ?? { x: w/2, y: 0 };
-    const right = pts[1] ?? { x: w, y: h/2 };
+    const top    = pts[0] ?? { x: w/2, y: 0 };
+    const right  = pts[1] ?? { x: w,   y: h/2 };
     const bottom = pts[2] ?? { x: w/2, y: h };
-    const left = pts[3] ?? { x: 0, y: h/2 };
+    const left   = pts[3] ?? { x: 0,   y: h/2 };
+    // 水平轴：由左右锚点的 X 坐标确定中心和半径
     const cx = (left.x + right.x) / 2;
+    const rx = Math.max(Math.abs(right.x - left.x) / 2, 1);
+    // 垂直轴：由上下锚点的 Y 坐标确定中心和半径
     const cy = (top.y + bottom.y) / 2;
-    const rx = Math.abs(right.x - left.x) / 2;
-    const ry = Math.abs(bottom.y - top.y) / 2;
+    const ry = Math.max(Math.abs(bottom.y - top.y) / 2, 1);
+    // 用 SVG arc 绘制椭圆（两段半圆弧）
     return `M ${cx - rx} ${cy} A ${rx} ${ry} 0 1 0 ${cx + rx} ${cy} A ${rx} ${ry} 0 1 0 ${cx - rx} ${cy} Z`;
   };
 
@@ -1472,101 +1472,408 @@ function ShapeNodeComponent({ id, data, selected }: { id: string; data: Record<s
           strokeLinejoin="round"
         />
       </svg>
-      {isEditMode && anchors.map((a, idx) => (
-        <div
-          key={idx}
-          className="nodrag"
-          style={{
-            position: "absolute",
-            left: a.x - 5, top: a.y - 5,
-            width: 10, height: 10,
-            borderRadius: "50%",
-            background: "white",
-            border: "2px solid oklch(0.65 0.22 290)",
-            cursor: "move",
-            zIndex: 20,
-            boxShadow: "0 1px 4px rgba(0,0,0,0.35)",
-          }}
-          onMouseDown={e => handleAnchorMouseDown(e, idx)}
-        />
-      ))}
+      {isEditMode && anchors.map((a, idx) => {
+        // 锚点大小固定为屏幕 10px，通过 1/vpZoom 反向缩放补偿画布缩放
+        const anchorScreenPx = 10;
+        const anchorFlowPx = anchorScreenPx / vpZoom;
+        const borderFlowPx = 2 / vpZoom;
+        return (
+          <div
+            key={idx}
+            className="nodrag"
+            style={{
+              position: "absolute",
+              left: a.x - anchorFlowPx / 2,
+              top: a.y - anchorFlowPx / 2,
+              width: anchorFlowPx,
+              height: anchorFlowPx,
+              borderRadius: "50%",
+              background: "white",
+              border: `${borderFlowPx}px solid oklch(0.65 0.22 290)`,
+              cursor: "move",
+              zIndex: 20,
+              boxShadow: `0 ${1/vpZoom}px ${4/vpZoom}px rgba(0,0,0,0.35)`,
+            }}
+            onMouseDown={e => handleAnchorMouseDown(e, idx)}
+          />
+        );
+      })}
       {isEditMode && (
         <div style={{ position: "absolute", top: -24, left: 0, fontSize: 10, color: "oklch(0.65 0.22 290)", whiteSpace: "nowrap", pointerEvents: "none" }}>
           锚点编辑模式 · 单击空白退出
         </div>
       )}
-      {/* 右键参数菜单 */}
+      {/* 右键参数菜单已移至 InnerCanvas 层统一渲染，此处无需渲染 */}
+      <Handle type="target" position={Position.Top} id="top" style={{ opacity: 0 }} />
+      <Handle type="source" position={Position.Bottom} id="bottom" style={{ opacity: 0 }} />
+    </div>
+  );
+}
+
+// ── Pen Node Component ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// 实现 Figma 风格的钢笔工具节点：贝塞尔曲线、直角/曲线锚点切换、手柄拖拽
+// 锚点类型: "smooth" = 曲线 (Bezier)、"corner" = 直角、"asymmetric" = 非对称手柄
+type PenAnchor = {
+  x: number; y: number;
+  type: "smooth" | "corner" | "asymmetric";
+  // 入手柄偏移（相对于锚点）
+  inDx: number; inDy: number;
+  // 出手柄偏移（相对于锚点）
+  outDx: number; outDy: number;
+};
+
+function PenNodeComponent({ id, data, selected }: { id: string; data: Record<string, unknown>; selected: boolean }) {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
+  const { setNodes: setFlowNodes } = useReactFlow();
+  const { zoom: vpZoom } = useViewport();
+
+  const w = (data.width as number) || 200;
+  const h = (data.height as number) || 200;
+  const stroke = (data.stroke as string) || (isDark ? "#a78bfa" : "#6366f1");
+  const strokeW = (data.strokeWidth as number) || 2;
+  const fill = (data.fill as string) || "none";
+  const opacity = (data.opacity as number) ?? 1;
+  const isClosed = !!(data.closed as boolean);
+  const isEditMode = !!(data.anchorEditMode as boolean);
+
+  const [anchors, setAnchors] = useState<PenAnchor[]>(() => {
+    if (data.anchors) return data.anchors as PenAnchor[];
+    return [];
+  });
+
+  // 当前选中的锚点索引
+  const [selectedAnchorIdx, setSelectedAnchorIdx] = useState<number | null>(null);
+  // 正在拖拽的对象: { type: "anchor" | "in" | "out", idx: number }
+  const draggingRef = useRef<{ type: "anchor" | "in" | "out"; idx: number } | null>(null);
+  // 右键菜单
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; anchorIdx: number } | null>(null);
+
+  // 关闭右键菜单
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest(".pen-ctx-menu")) setCtxMenu(null);
+    };
+    window.addEventListener("mousedown", close);
+    return () => window.removeEventListener("mousedown", close);
+  }, [ctxMenu]);
+
+  // 构建 SVG 路径
+  const buildPath = (pts: PenAnchor[], closed: boolean): string => {
+    if (pts.length === 0) return "";
+    if (pts.length === 1) return `M ${pts[0].x} ${pts[0].y}`;
+    let d = `M ${pts[0].x} ${pts[0].y}`;
+    for (let i = 1; i < pts.length; i++) {
+      const prev = pts[i - 1];
+      const curr = pts[i];
+      const cp1x = prev.x + prev.outDx;
+      const cp1y = prev.y + prev.outDy;
+      const cp2x = curr.x + curr.inDx;
+      const cp2y = curr.y + curr.inDy;
+      if (prev.outDx === 0 && prev.outDy === 0 && curr.inDx === 0 && curr.inDy === 0) {
+        d += ` L ${curr.x} ${curr.y}`;
+      } else {
+        d += ` C ${cp1x} ${cp1y} ${cp2x} ${cp2y} ${curr.x} ${curr.y}`;
+      }
+    }
+    if (closed && pts.length > 1) {
+      const last = pts[pts.length - 1];
+      const first = pts[0];
+      const cp1x = last.x + last.outDx;
+      const cp1y = last.y + last.outDy;
+      const cp2x = first.x + first.inDx;
+      const cp2y = first.y + first.inDy;
+      if (last.outDx === 0 && last.outDy === 0 && first.inDx === 0 && first.inDy === 0) {
+        d += " Z";
+      } else {
+        d += ` C ${cp1x} ${cp1y} ${cp2x} ${cp2y} ${first.x} ${first.y} Z`;
+      }
+    }
+    return d;
+  };
+
+  // 拖拽锚点 / 手柄
+  const handleMouseDown = useCallback((e: React.MouseEvent, type: "anchor" | "in" | "out", idx: number) => {
+    e.preventDefault(); e.stopPropagation();
+    setSelectedAnchorIdx(idx);
+    draggingRef.current = { type, idx };
+    const nodeEl = (e.currentTarget as HTMLElement).closest(".react-flow__node");
+    const onMove = (mv: MouseEvent) => {
+      const rect = nodeEl?.getBoundingClientRect();
+      if (!rect || !draggingRef.current) return;
+      const nx = mv.clientX - rect.left;
+      const ny = mv.clientY - rect.top;
+      const { type: dt, idx: di } = draggingRef.current;
+      setAnchors(prev => prev.map((a, i) => {
+        if (i !== di) return a;
+        if (dt === "anchor") {
+          return { ...a, x: nx, y: ny };
+        } else if (dt === "out") {
+          const newOutDx = nx - a.x;
+          const newOutDy = ny - a.y;
+          if (a.type === "smooth") {
+            // 对称手柄
+            const len = Math.sqrt(newOutDx*newOutDx + newOutDy*newOutDy);
+            const inLen = Math.sqrt(a.inDx*a.inDx + a.inDy*a.inDy);
+            return { ...a, outDx: newOutDx, outDy: newOutDy, inDx: len > 0 ? -newOutDx/len*inLen : a.inDx, inDy: len > 0 ? -newOutDy/len*inLen : a.inDy };
+          }
+          return { ...a, outDx: newOutDx, outDy: newOutDy };
+        } else {
+          const newInDx = nx - a.x;
+          const newInDy = ny - a.y;
+          if (a.type === "smooth") {
+            const len = Math.sqrt(newInDx*newInDx + newInDy*newInDy);
+            const outLen = Math.sqrt(a.outDx*a.outDx + a.outDy*a.outDy);
+            return { ...a, inDx: newInDx, inDy: newInDy, outDx: len > 0 ? -newInDx/len*outLen : a.outDx, outDy: len > 0 ? -newInDy/len*outLen : a.outDy };
+          }
+          return { ...a, inDx: newInDx, inDy: newInDy };
+        }
+      }));
+    };
+    const onUp = () => {
+      draggingRef.current = null;
+      // 广播更新到节点 data
+      setFlowNodes(nds => nds.map(n => n.id === id ? { ...n, data: { ...n.data, anchors: anchors } } : n));
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [id, setFlowNodes, anchors]);
+
+  // 切换锚点类型
+  const toggleAnchorType = useCallback((idx: number) => {
+    setAnchors(prev => prev.map((a, i) => {
+      if (i !== idx) return a;
+      if (a.type === "smooth") return { ...a, type: "corner" as const, inDx: 0, inDy: 0, outDx: 0, outDy: 0 };
+      if (a.type === "corner") return { ...a, type: "asymmetric" as const };
+      return { ...a, type: "smooth" as const };
+    }));
+    setCtxMenu(null);
+  }, []);
+
+  // 删除锚点
+  const deleteAnchor = useCallback((idx: number) => {
+    setAnchors(prev => prev.filter((_, i) => i !== idx));
+    setCtxMenu(null);
+    setSelectedAnchorIdx(null);
+  }, []);
+
+  // 切换开放/闭合
+  const toggleClosed = useCallback(() => {
+    setFlowNodes(nds => nds.map(n => n.id === id ? { ...n, data: { ...n.data, closed: !isClosed } } : n));
+  }, [id, isClosed, setFlowNodes]);
+
+  const anchorScreenPx = 8;
+  const anchorFlowPx = anchorScreenPx / vpZoom;
+  const handleScreenPx = 6;
+  const handleFlowPx = handleScreenPx / vpZoom;
+  const borderFlowPx = 1.5 / vpZoom;
+
+  const borderColor = selected ? "oklch(0.65 0.22 290)" : "transparent";
+
+  return (
+    <div
+      style={{ width: w, height: h, position: "relative", outline: `2px solid ${borderColor}`, outlineOffset: 3, opacity }}
+      onContextMenu={e => { e.preventDefault(); e.stopPropagation(); }}
+    >
+      <svg
+        width={w} height={h}
+        style={{ position: "absolute", left: 0, top: 0, overflow: "visible", pointerEvents: "none" }}
+        viewBox={`0 0 ${w} ${h}`}
+      >
+        {/* 路径本体 */}
+        <path
+          d={buildPath(anchors, isClosed)}
+          fill={fill === "none" ? "none" : fill}
+          stroke={stroke}
+          strokeWidth={strokeW}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {/* 手柄连线（编辑模式下显示） */}
+        {isEditMode && anchors.map((a, i) => {
+          const showIn = i > 0 || isClosed;
+          const showOut = i < anchors.length - 1 || isClosed;
+          return (
+            <g key={i}>
+              {showIn && (a.inDx !== 0 || a.inDy !== 0) && (
+                <line
+                  x1={a.x} y1={a.y}
+                  x2={a.x + a.inDx} y2={a.y + a.inDy}
+                  stroke="oklch(0.65 0.22 290)" strokeWidth={1/vpZoom} strokeDasharray={`${3/vpZoom},${2/vpZoom}`}
+                />
+              )}
+              {showOut && (a.outDx !== 0 || a.outDy !== 0) && (
+                <line
+                  x1={a.x} y1={a.y}
+                  x2={a.x + a.outDx} y2={a.y + a.outDy}
+                  stroke="oklch(0.65 0.22 290)" strokeWidth={1/vpZoom} strokeDasharray={`${3/vpZoom},${2/vpZoom}`}
+                />
+              )}
+            </g>
+          );
+        })}
+      </svg>
+
+      {/* 手柄点（菱形） */}
+      {isEditMode && anchors.map((a, i) => {
+        const showIn = (i > 0 || isClosed) && (a.inDx !== 0 || a.inDy !== 0);
+        const showOut = (i < anchors.length - 1 || isClosed) && (a.outDx !== 0 || a.outDy !== 0);
+        return (
+          <Fragment key={i}>
+            {showIn && (
+              <div
+                className="nodrag"
+                style={{
+                  position: "absolute",
+                  left: a.x + a.inDx - handleFlowPx / 2,
+                  top: a.y + a.inDy - handleFlowPx / 2,
+                  width: handleFlowPx, height: handleFlowPx,
+                  background: "oklch(0.65 0.22 290)",
+                  transform: "rotate(45deg)",
+                  cursor: "move", zIndex: 19,
+                }}
+                onMouseDown={e => handleMouseDown(e, "in", i)}
+              />
+            )}
+            {showOut && (
+              <div
+                className="nodrag"
+                style={{
+                  position: "absolute",
+                  left: a.x + a.outDx - handleFlowPx / 2,
+                  top: a.y + a.outDy - handleFlowPx / 2,
+                  width: handleFlowPx, height: handleFlowPx,
+                  background: "oklch(0.65 0.22 290)",
+                  transform: "rotate(45deg)",
+                  cursor: "move", zIndex: 19,
+                }}
+                onMouseDown={e => handleMouseDown(e, "out", i)}
+              />
+            )}
+          </Fragment>
+        );
+      })}
+
+      {/* 锚点点（圆形） */}
+      {isEditMode && anchors.map((a, i) => (
+        <div
+          key={i}
+          className="nodrag"
+          style={{
+            position: "absolute",
+            left: a.x - anchorFlowPx / 2,
+            top: a.y - anchorFlowPx / 2,
+            width: anchorFlowPx, height: anchorFlowPx,
+            borderRadius: a.type === "corner" ? `${1/vpZoom}px` : "50%",
+            background: selectedAnchorIdx === i ? "oklch(0.65 0.22 290)" : "white",
+            border: `${borderFlowPx}px solid oklch(0.65 0.22 290)`,
+            cursor: "move", zIndex: 20,
+            boxShadow: `0 ${1/vpZoom}px ${3/vpZoom}px rgba(0,0,0,0.3)`,
+          }}
+          onMouseDown={e => handleMouseDown(e, "anchor", i)}
+          onDoubleClick={e => { e.stopPropagation(); toggleAnchorType(i); }}
+          onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, anchorIdx: i }); }}
+        />
+      ))}
+
+      {/* 锚点右键菜单 */}
       {ctxMenu && (
         <div
-          className="shape-ctx-menu"
+          className="pen-ctx-menu"
           style={{
             position: "fixed", left: ctxMenu.x, top: ctxMenu.y,
             zIndex: 20000, background: isDark ? "#1e1e24" : "#fff",
             border: `1px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)"}`,
-            borderRadius: 10, padding: "14px 16px", minWidth: 220,
-            boxShadow: "0 8px 32px rgba(0,0,0,0.28)",
+            borderRadius: 8, padding: "6px 0", minWidth: 160,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
             color: isDark ? "#e8e8f0" : "#1a1a2e", fontSize: 12,
           }}
           onMouseDown={e => e.stopPropagation()}
         >
-          <p style={{ fontWeight: 700, marginBottom: 10, fontSize: 13 }}>图形参数</p>
-          {/* 填充色 */}
-          <div style={{ marginBottom: 8 }}>
-            <p style={{ opacity: 0.6, marginBottom: 4 }}>填充色</p>
-            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <input type="color" value={menuFill.startsWith("#") ? menuFill : "#6366f1"}
-                onChange={e => setMenuFill(e.target.value)}
-                style={{ width: 28, height: 28, border: "none", padding: 0, cursor: "pointer", borderRadius: 4, background: "transparent" }} />
-              <input type="text" value={menuFill}
-                onChange={e => setMenuFill(e.target.value)}
-                style={{ flex: 1, background: isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)",
-                  border: `1px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)"}`,
-                  borderRadius: 5, padding: "4px 8px", color: "inherit", fontSize: 11, fontFamily: "monospace" }} />
-            </div>
-          </div>
-          {/* 描边色 */}
-          <div style={{ marginBottom: 8 }}>
-            <p style={{ opacity: 0.6, marginBottom: 4 }}>描边色</p>
-            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <input type="color" value={menuStroke.startsWith("#") ? menuStroke : "#000000"}
-                onChange={e => setMenuStroke(e.target.value)}
-                style={{ width: 28, height: 28, border: "none", padding: 0, cursor: "pointer", borderRadius: 4, background: "transparent" }} />
-              <input type="text" value={menuStroke}
-                onChange={e => setMenuStroke(e.target.value)}
-                style={{ flex: 1, background: isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)",
-                  border: `1px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)"}`,
-                  borderRadius: 5, padding: "4px 8px", color: "inherit", fontSize: 11, fontFamily: "monospace" }} />
-            </div>
-          </div>
-          {/* 描边宽度 + 不透明度 */}
-          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-            <div style={{ flex: 1 }}>
-              <p style={{ opacity: 0.6, marginBottom: 4 }}>描边宽度</p>
-              <input type="number" min={0} value={menuStrokeW} onChange={e => setMenuStrokeW(e.target.value)}
-                style={{ width: "100%", background: isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)",
-                  border: `1px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)"}`,
-                  borderRadius: 5, padding: "4px 8px", color: "inherit", fontSize: 11 }} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <p style={{ opacity: 0.6, marginBottom: 4 }}>不透明度 %</p>
-              <input type="number" min={0} max={100} value={menuOpacity} onChange={e => setMenuOpacity(e.target.value)}
-                style={{ width: "100%", background: isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)",
-                  border: `1px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)"}`,
-                  borderRadius: 5, padding: "4px 8px", color: "inherit", fontSize: 11 }} />
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={applyParams}
-              style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: "none", background: "oklch(0.55 0.22 290)", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: 12 }}>
-              应用
-            </button>
-            <button onClick={closeCtxMenu}
-              style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: `1px solid ${isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.15)"}`, background: "transparent", color: "inherit", cursor: "pointer", fontSize: 12 }}>
-              取消
-            </button>
-          </div>
+          {[
+            { label: "切换为光滑锚点", action: () => { setAnchors(prev => prev.map((a, i) => i === ctxMenu.anchorIdx ? { ...a, type: "smooth" as const } : a)); setCtxMenu(null); } },
+            { label: "切换为直角锚点", action: () => { setAnchors(prev => prev.map((a, i) => i === ctxMenu.anchorIdx ? { ...a, type: "corner" as const, inDx: 0, inDy: 0, outDx: 0, outDy: 0 } : a)); setCtxMenu(null); } },
+            { label: "切换为非对称手柄", action: () => { setAnchors(prev => prev.map((a, i) => i === ctxMenu.anchorIdx ? { ...a, type: "asymmetric" as const } : a)); setCtxMenu(null); } },
+            { label: "删除锚点", action: () => deleteAnchor(ctxMenu.anchorIdx) },
+          ].map(item => (
+            <button
+              key={item.label}
+              style={{
+                display: "block", width: "100%", padding: "6px 14px",
+                background: "transparent", border: "none", cursor: "pointer",
+                textAlign: "left", color: "inherit", fontSize: 12,
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)")}
+              onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+              onClick={item.action}
+            >{item.label}</button>
+          ))}
+          <div style={{ height: 1, background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)", margin: "4px 0" }} />
+          <button
+            style={{ display: "block", width: "100%", padding: "6px 14px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left", color: "inherit", fontSize: 12 }}
+            onMouseEnter={e => (e.currentTarget.style.background = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)")}
+            onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+            onClick={toggleClosed}
+          >{isClosed ? "打开路径" : "闭合路径"}</button>
         </div>
       )}
+
+      {isEditMode && (
+        <div style={{ position: "absolute", top: -24, left: 0, fontSize: 10, color: "oklch(0.65 0.22 290)", whiteSpace: "nowrap", pointerEvents: "none" }}>
+          钢笔编辑 · 单击添加锚点 · 双击锚点切换类型 · Enter 完成
+        </div>
+      )}
+      <Handle type="target" position={Position.Top} id="top" style={{ opacity: 0 }} />
+      <Handle type="source" position={Position.Bottom} id="bottom" style={{ opacity: 0 }} />
+    </div>
+  );
+}
+
+// ── Freehand Node Component ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// 铅笔自由路径节点：存储一组屏幕坐标点并用 SVG polyline 渲染
+function FreehandNodeComponent({ data, selected }: { data: Record<string, unknown>; selected: boolean }) {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
+  const points = (data.points as { x: number; y: number }[]) || [];
+  const stroke = (data.stroke as string) || (isDark ? "#c4b5fd" : "#4f46e5");
+  const strokeW = (data.strokeWidth as number) || 2;
+  const opacity = (data.opacity as number) ?? 1;
+  const w = (data.width as number) || 1;
+  const h = (data.height as number) || 1;
+
+  // 将点转为 SVG polyline points 字符串
+  const polylinePoints = points.map(p => `${p.x},${p.y}`).join(" ");
+
+  return (
+    <div
+      style={{
+        width: w, height: h, position: "relative", opacity,
+        // 开启事件以支持选中和拖拽
+        pointerEvents: "all",
+        cursor: "move",
+        // 选中时显示轮廓
+        outline: selected ? "2px solid oklch(0.65 0.22 290)" : "none",
+        outlineOffset: 3,
+        borderRadius: 2,
+      }}
+    >
+      <svg
+        width={w} height={h}
+        style={{ position: "absolute", left: 0, top: 0, overflow: "visible", pointerEvents: "none" }}
+        viewBox={`0 0 ${w} ${h}`}
+      >
+        <polyline
+          points={polylinePoints}
+          fill="none"
+          stroke={stroke}
+          strokeWidth={strokeW}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
       <Handle type="target" position={Position.Top} id="top" style={{ opacity: 0 }} />
       <Handle type="source" position={Position.Bottom} id="bottom" style={{ opacity: 0 }} />
     </div>
@@ -1578,6 +1885,8 @@ const nodeTypes: NodeTypes = {
   asset: AssetNodeComponent as unknown as NodeTypes["asset"],
   canvasFrame: CanvasFrameNode as unknown as NodeTypes["canvasFrame"],
   shape: ShapeNodeComponent as unknown as NodeTypes["shape"],
+  pen: PenNodeComponent as unknown as NodeTypes["pen"],
+  freehand: FreehandNodeComponent as unknown as NodeTypes["freehand"],
 };
 const edgeTypes: EdgeTypes = {
   tapnow: TapnowEdge as unknown as EdgeTypes["tapnow"],
@@ -2595,11 +2904,14 @@ function TopLeftToolbar({ isDark, onAdd }: { isDark: boolean; onAdd: (type: stri
 function CanvasTopToolPalette({ isDark }: { isDark: boolean }) {
   const [active, setActive] = useState("move");
   const [shapeOpen, setShapeOpen] = useState(false);
+  const [drawOpen, setDrawOpen] = useState(false); // 铅笔子菜单
+  const [drawColor, setDrawColor] = useState(isDark ? "#c4b5fd" : "#1a1a2e"); // 铅笔颜色
+  const [drawWidth, setDrawWidth] = useState(2); // 铅笔粗细 px
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
-  // 点击画布空白处时关闭几何形子菜单
+  // 点击画布空白处时关闭子菜单
   useEffect(() => {
-    const handler = () => setShapeOpen(false);
+    const handler = () => { setShapeOpen(false); setDrawOpen(false); };
     window.addEventListener("pane-click", handler);
     return () => window.removeEventListener("pane-click", handler);
   }, []);
@@ -2623,7 +2935,7 @@ function CanvasTopToolPalette({ isDark }: { isDark: boolean }) {
   const popBg = isDark ? "rgba(24,24,34,0.96)" : "rgba(255,255,255,0.96)";
   const tooltipBg = isDark ? "rgba(18,18,26,0.96)" : "rgba(30,30,40,0.92)";
 
-  // 工具列表：仅保留 1-8
+  // 工具列表
   const tools = [
     { id: "move",         label: "移动",       icon: <MousePointer2 size={17} /> },
     { id: "annotate",     label: "注释",       icon: <MessageCircle size={17} /> },
@@ -2648,24 +2960,39 @@ function CanvasTopToolPalette({ isDark }: { isDark: boolean }) {
   const handleToolClick = (id: string) => {
     if (id === "shape") {
       setShapeOpen(v => !v);
+      setDrawOpen(false);
       setActive(id);
       window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: id } }));
       return;
     }
+    if (id === "draw") {
+      setDrawOpen(v => !v);
+      setShapeOpen(false);
+      setActive(id);
+      window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: id } }));
+      // 广播当前铅笔参数
+      window.dispatchEvent(new CustomEvent("draw-params", { detail: { color: drawColor, width: drawWidth } }));
+      return;
+    }
     setShapeOpen(false);
+    setDrawOpen(false);
     setActive(id);
     // 向 InnerCanvas 广播工具模式变化
     window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: id } }));
-    toast(
-      tools.find(t => t.id === id)?.label ?? "",
-      { description: id === "upload" ? "点击选择图片文件" : "工具已切换" }
-    );
+    if (id === "pen") {
+      toast("钢笔工具", { description: "单击添加锚点 · 拖拽创建手柄 · Enter/Esc 完成 · Alt+单击切换直角 · 双击关闭路径" });
+    } else {
+      toast(
+        tools.find(t => t.id === id)?.label ?? "",
+        { description: id === "upload" ? "点击选择图片文件" : "工具已切换" }
+      );
+    }
   };
 
   return (
     <div
       className="fixed nodrag nopan"
-      style={{ top: 68, left: 511, zIndex: 1300, width: 320 }}
+      style={{ top: 68, left: "50%", transform: "translateX(-50%)", zIndex: 1300, width: 320 }}
       onMouseDown={e => e.stopPropagation()}
     >
       {/* 几何形二级菜单 */}
@@ -2698,6 +3025,77 @@ function CanvasTopToolPalette({ isDark }: { isDark: boolean }) {
               <span>{item.label}</span>
             </button>
           ))}
+        </div>
+      )}
+
+      {/* 铅笔子命令菜单 */}
+      {drawOpen && (
+        <div
+          className="absolute top-full mt-2 rounded-[var(--radius-lg-design)] shadow-2xl"
+          style={{
+            background: bg,
+            border: `1px solid ${border}`,
+            backdropFilter: "blur(18px)",
+            left: "50%",
+            transform: "translateX(-50%)",
+            display: "flex",
+            alignItems: "center",
+            gap: 0,
+            padding: "0 4px",
+            height: 40,
+            minWidth: 160,
+          }}
+        >
+          {/* 颜色选择圆点 */}
+          <div style={{ position: "relative", display: "flex", alignItems: "center", padding: "0 8px" }}>
+            <input
+              type="color"
+              value={drawColor}
+              onChange={e => {
+                setDrawColor(e.target.value);
+                window.dispatchEvent(new CustomEvent("draw-params", { detail: { color: e.target.value, width: drawWidth } }));
+              }}
+              style={{
+                position: "absolute", opacity: 0, width: "100%", height: "100%",
+                cursor: "pointer", left: 0, top: 0, border: "none", padding: 0,
+              }}
+            />
+            <div style={{
+              width: 20, height: 20, borderRadius: "50%",
+              background: drawColor,
+              boxShadow: `0 0 0 2px ${isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)"}`,
+              cursor: "pointer",
+              flexShrink: 0,
+            }} />
+          </div>
+          {/* 分隔线 */}
+          <div style={{ width: 1, height: 20, background: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)", flexShrink: 0 }} />
+          {/* 粗细图标 + 输入框 */}
+          <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "0 8px" }}>
+            {/* 粗细图标（三条横线） */}
+            <svg width="16" height="14" viewBox="0 0 16 14" fill="none" style={{ flexShrink: 0, opacity: 0.55 }}>
+              <line x1="0" y1="2" x2="16" y2="2" stroke={isDark ? "#fff" : "#1a1a2e"} strokeWidth="1.5" strokeLinecap="round" />
+              <line x1="0" y1="7" x2="16" y2="7" stroke={isDark ? "#fff" : "#1a1a2e"} strokeWidth="2.5" strokeLinecap="round" />
+              <line x1="0" y1="12" x2="16" y2="12" stroke={isDark ? "#fff" : "#1a1a2e"} strokeWidth="4" strokeLinecap="round" />
+            </svg>
+            <input
+              type="number"
+              min={1} max={60}
+              value={drawWidth}
+              onChange={e => {
+                const v = Math.max(1, Math.min(60, Number(e.target.value) || 1));
+                setDrawWidth(v);
+                window.dispatchEvent(new CustomEvent("draw-params", { detail: { color: drawColor, width: v } }));
+              }}
+              style={{
+                width: 36, background: "transparent", border: "none", outline: "none",
+                color: isDark ? "rgba(255,255,255,0.75)" : "rgba(28,28,40,0.75)",
+                fontSize: 13, fontWeight: 500, textAlign: "center",
+                cursor: "text",
+              }}
+            />
+            <span style={{ fontSize: 12, color: isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.35)", userSelect: "none" }}>Px</span>
+          </div>
         </div>
       )}
 
@@ -3172,6 +3570,36 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [shapeOpacity, setShapeOpacity] = useState("100");
   const [shapeCornerRadius, setShapeCornerRadius] = useState("0");
 
+  // ── 钢笔工具绘制状态 ──
+  // 正在绘制的钢笔路径节点 ID（null 表示未开始）
+  const [penNodeId, setPenNodeId] = useState<string | null>(null);
+  // 预览鼠标位置（用于显示待确认的连线）
+  const [penCursorPos, setPenCursorPos] = useState<{ x: number; y: number } | null>(null);
+  // 当前正在拖拽的手柄信息
+  const penDragHandleRef = useRef<{ startX: number; startY: number; anchorIdx: number } | null>(null);
+
+  // ── 铅笔工具绘制状态 ──
+  // 正在绘制中的铅笔节点 ID
+  const [freehandNodeId, setFreehandNodeId] = useState<string | null>(null);
+  // 铅笔是否正在按下（拖拽中）
+  const freehandActiveRef = useRef(false);
+  // 铅笔路径起始屏幕坐标（用于 shift 直线模式）
+  const freehandStartRef = useRef<{ x: number; y: number } | null>(null);
+  // 铅笔节点的 flow 坐标起点（用于计算相对坐标）
+  const freehandNodeOriginRef = useRef<{ x: number; y: number } | null>(null);
+  // 铅笔参数：颜色和粗细（由工具栏子菜单广播）
+  const drawParamsRef = useRef<{ color: string; width: number }>({ color: isDark ? "#c4b5fd" : "#4f46e5", width: 2 });
+
+  // 监听铅笔参数变化
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ color: string; width: number }>).detail;
+      if (detail?.color) drawParamsRef.current = { color: detail.color, width: detail.width };
+    };
+    window.addEventListener("draw-params", handler);
+    return () => window.removeEventListener("draw-params", handler);
+  }, [isDark]);
+
   useEffect(() => {
     const handler = (e: Event) => {
       const mode = (e as CustomEvent<{ mode: string }>).detail?.mode;
@@ -3183,6 +3611,19 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         setPendingRect(null);
         isDrawingRef.current = false;
         drawStartRef.current = null;
+      }
+      // 切换离开钢笔模式时，如果正在绘制中则完成当前路径
+      if (mode !== "pen") {
+        setPenNodeId(null);
+        setPenCursorPos(null);
+        penDragHandleRef.current = null;
+      }
+      // 切换离开铅笔模式时结束绘制
+      if (mode !== "draw") {
+        freehandActiveRef.current = false;
+        freehandStartRef.current = null;
+        freehandNodeOriginRef.current = null;
+        setFreehandNodeId(null);
       }
     };
     window.addEventListener("tool-mode-change", handler);
@@ -3309,6 +3750,31 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     window.addEventListener("asset-resize-end", handler);
     return () => window.removeEventListener("asset-resize-end", handler);
   }, [pushHistory, setNodes, edgesRef]);
+
+  // ── 几何形参数面板（全局渲染，紧贴节点选框右侧 +6px） ──
+  const [shapeCtxMenu, setShapeCtxMenu] = useState<{
+    nodeId: string;
+    fill: string; stroke: string; strokeWidth: number; opacity: number;
+    menuFill: string; menuStroke: string; menuStrokeW: string; menuOpacity: string;
+  } | null>(null);
+
+  // 监听 ShapeNodeComponent 派发的 shape-ctx-open 事件
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const d = (e as CustomEvent<{ nodeId: string; fill: string; stroke: string; strokeWidth: number; opacity: number }>).detail;
+      if (!d?.nodeId) return;
+      setShapeCtxMenu({
+        nodeId: d.nodeId,
+        fill: d.fill, stroke: d.stroke, strokeWidth: d.strokeWidth, opacity: d.opacity,
+        menuFill: d.fill,
+        menuStroke: d.stroke,
+        menuStrokeW: String(d.strokeWidth),
+        menuOpacity: String(Math.round(d.opacity * 100)),
+      });
+    };
+    window.addEventListener("shape-ctx-open", handler);
+    return () => window.removeEventListener("shape-ctx-open", handler);
+  }, []);
 
   // 监听几何形锚点拖拽后的包围盒偏移，更新节点 position 使选框始终包裹图形
   useEffect(() => {
@@ -3848,6 +4314,231 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       uploadInputRef.current?.click();
     }
   }, [activeToolMode, editAsset, enteringGroupId, setNodes]);
+
+  // ── 铅笔工具：鼠标事件处理 ──
+  // 按下开始记录路径，拖拽收集点，松开完成节点
+  const handleFreehandMouseDown = useCallback((e: React.MouseEvent) => {
+    if (activeToolMode !== "draw") return;
+    if (e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const screenX = e.clientX - rect.left;
+    const screenY = e.clientY - rect.top;
+    // 将屏幕坐标转为 flow 坐标作为节点起点
+    const flowOrigin = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    const nid = `freehand-${Date.now()}`;
+    freehandActiveRef.current = true;
+    freehandStartRef.current = { x: screenX, y: screenY };
+    freehandNodeOriginRef.current = flowOrigin;
+    setNodes(nds => {
+      pushHistory(nds, edgesRef.current);
+      return [...nds, {
+        id: nid,
+        type: "freehand",
+        position: flowOrigin,
+        style: { width: 1, height: 1 },
+        data: {
+          id: nid,
+          width: 1, height: 1,
+          points: [{ x: 0, y: 0 }],
+          stroke: drawParamsRef.current.color,
+          strokeWidth: drawParamsRef.current.width,
+          opacity: 1,
+        },
+      }];
+    });
+    setFreehandNodeId(nid);
+  }, [activeToolMode, edgesRef, pushHistory, screenToFlowPosition, setNodes]);
+
+  const handleFreehandMouseMove = useCallback((e: React.MouseEvent) => {
+    if (activeToolMode !== "draw" || !freehandActiveRef.current || !freehandNodeId) return;
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const screenX = e.clientX - rect.left;
+    const screenY = e.clientY - rect.top;
+    const origin = freehandNodeOriginRef.current;
+    if (!origin) return;
+    const isShift = e.shiftKey;
+    const start = freehandStartRef.current;
+
+    setNodes(nds => nds.map(n => {
+      if (n.id !== freehandNodeId) return n;
+      const existingPoints = (n.data.points as { x: number; y: number }[]) || [];
+      let newPoint: { x: number; y: number };
+      if (isShift && start) {
+        // Shift 模式：计算从起始点到当前点的直线，将终点对齐到最近的 45° 角度
+        const dx = screenX - start.x;
+        const dy = screenY - start.y;
+        const angle = Math.atan2(dy, dx);
+        const snapAngle = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const snappedX = start.x + Math.cos(snapAngle) * dist;
+        const snappedY = start.y + Math.sin(snapAngle) * dist;
+        // 转换为 flow 坐标相对节点起点的偏移
+        const flowSnapped = screenToFlowPosition({ x: snappedX + rect.left, y: snappedY + rect.top });
+        newPoint = { x: flowSnapped.x - origin.x, y: flowSnapped.y - origin.y };
+        // Shift 模式只保留起始点和当前点（实现直线预览）
+        return { ...n, data: { ...n.data, points: [{ x: 0, y: 0 }, newPoint] } };
+      } else {
+        // 自由模式：每隔一定距离采样一个点（过滤过于密集的点）
+        const flowCurrent = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+        newPoint = { x: flowCurrent.x - origin.x, y: flowCurrent.y - origin.y };
+        const last = existingPoints[existingPoints.length - 1];
+        const distSq = last ? (newPoint.x - last.x) ** 2 + (newPoint.y - last.y) ** 2 : Infinity;
+        // 至少相隔 2px（flow 坐标）才采样
+        if (distSq < 4 / (viewport.zoom * viewport.zoom)) return n;
+        return { ...n, data: { ...n.data, points: [...existingPoints, newPoint] } };
+      }
+    }));
+  }, [activeToolMode, freehandNodeId, screenToFlowPosition, setNodes, viewport.zoom]);
+
+  const handleFreehandMouseUp = useCallback(() => {
+    if (!freehandActiveRef.current) return;
+    freehandActiveRef.current = false;
+    freehandStartRef.current = null;
+    const origin = freehandNodeOriginRef.current;
+    freehandNodeOriginRef.current = null;
+    const nid = freehandNodeId;
+    setFreehandNodeId(null);
+
+    // 完成时计算路径包围盒，更新节点 position + style.width/height
+    // 这样 ReactFlow 才能正确显示选中框并支持拖拽移动
+    if (nid && origin) {
+      setNodes(nds => nds.map(n => {
+        if (n.id !== nid) return n;
+        const pts = (n.data.points as { x: number; y: number }[]) || [];
+        if (pts.length < 2) return n;
+        const minX = Math.min(...pts.map(p => p.x));
+        const minY = Math.min(...pts.map(p => p.y));
+        const maxX = Math.max(...pts.map(p => p.x));
+        const maxY = Math.max(...pts.map(p => p.y));
+        const pad = (n.data.strokeWidth as number || 2) + 4; // 描边外边距
+        const bx = minX - pad; const by = minY - pad;
+        const bw = Math.max(maxX - minX + pad * 2, 1);
+        const bh = Math.max(maxY - minY + pad * 2, 1);
+        // 将点坐标相对于新包围盒左上角进行偏移
+        const shiftedPts = pts.map(p => ({ x: p.x - bx, y: p.y - by }));
+        return {
+          ...n,
+          position: { x: origin.x + bx, y: origin.y + by },
+          style: { ...n.style, width: bw, height: bh },
+          data: { ...n.data, points: shiftedPts, width: bw, height: bh },
+        };
+      }));
+    }
+
+    // 完成后切回移动工具
+    window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
+    // 广播工具栏同步
+    window.dispatchEvent(new CustomEvent("freehand-done"));
+  }, [freehandNodeId, setNodes]);
+
+  // ── 钢笔工具：鼠标事件处理 ──
+  // 单击添加锚点，拖拽创建手柄，双击关闭路径，Enter/Esc 完成
+  const handlePenMouseDown = useCallback((e: React.MouseEvent) => {
+    if (activeToolMode !== "pen") return;
+    if (e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const screenX = e.clientX;
+    const screenY = e.clientY;
+    const flowPos = screenToFlowPosition({ x: screenX, y: screenY });
+    const isAlt = e.altKey;
+
+    if (!penNodeId) {
+      // 开始新路径：创建钢笔节点
+      const nid = `pen-${Date.now()}`;
+      const newAnchor: PenAnchor = { x: 0, y: 0, type: isAlt ? "corner" : "smooth", inDx: 0, inDy: 0, outDx: 0, outDy: 0 };
+      setNodes(nds => {
+        pushHistory(nds, edgesRef.current);
+        return [...nds, {
+          id: nid,
+          type: "pen",
+          position: flowPos,
+          style: { width: 1, height: 1 },
+          data: { id: nid, width: 1, height: 1, anchors: [newAnchor], closed: false, anchorEditMode: true, stroke: "#6366f1", strokeWidth: 2, fill: "none", opacity: 1 },
+        }];
+      });
+      setPenNodeId(nid);
+      // 记录拖拽手柄起始信息
+      penDragHandleRef.current = { startX: screenX, startY: screenY, anchorIdx: 0 };
+    } else {
+      // 已有路径：添加新锚点
+      setNodes(nds => nds.map(n => {
+        if (n.id !== penNodeId) return n;
+        const existingAnchors = (n.data.anchors as PenAnchor[]) || [];
+        // 检查是否点击了第一个锚点（关闭路径）
+        if (existingAnchors.length > 1) {
+          const firstAnchor = existingAnchors[0];
+          // 简化判断：直接用 flow 坐标计算距离
+          const nodePos = n.position;
+          const firstAbsX = (nodePos.x + firstAnchor.x) * viewport.zoom + viewport.x;
+          const firstAbsY = (nodePos.y + firstAnchor.y) * viewport.zoom + viewport.y;
+          const dist = Math.sqrt((e.clientX - (rect.left + firstAbsX)) ** 2 + (e.clientY - (rect.top + firstAbsY)) ** 2);
+          if (dist < 12) {
+            // 关闭路径
+            const updated = { ...n, data: { ...n.data, closed: true, anchorEditMode: true } };
+            setPenNodeId(null);
+            setPenCursorPos(null);
+            return updated;
+          }
+        }
+        const newAnchor: PenAnchor = {
+          x: flowPos.x - n.position.x,
+          y: flowPos.y - n.position.y,
+          type: isAlt ? "corner" : "smooth",
+          inDx: 0, inDy: 0, outDx: 0, outDy: 0,
+        };
+        const newAnchors = [...existingAnchors, newAnchor];
+        penDragHandleRef.current = { startX: screenX, startY: screenY, anchorIdx: newAnchors.length - 1 };
+        return { ...n, data: { ...n.data, anchors: newAnchors } };
+      }));
+    }
+  }, [activeToolMode, edgesRef, penNodeId, pushHistory, screenToFlowPosition, setNodes, viewport]);
+
+  const handlePenMouseMove = useCallback((e: React.MouseEvent) => {
+    if (activeToolMode !== "pen") return;
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setPenCursorPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    // 拖拽手柄
+    if (penDragHandleRef.current) {
+      const { startX, startY, anchorIdx } = penDragHandleRef.current;
+      const dx = (e.clientX - startX) / viewport.zoom;
+      const dy = (e.clientY - startY) / viewport.zoom;
+      if (Math.abs(dx) < 2 && Math.abs(dy) < 2) return; // 过滤微小移动
+      setNodes(nds => nds.map(n => {
+        if (n.id !== penNodeId) return n;
+        const anchors = [...((n.data.anchors as PenAnchor[]) || [])];
+        if (anchorIdx >= anchors.length) return n;
+        const a = anchors[anchorIdx];
+        anchors[anchorIdx] = { ...a, outDx: dx, outDy: dy, inDx: -dx, inDy: -dy };
+        return { ...n, data: { ...n.data, anchors } };
+      }));
+    }
+  }, [activeToolMode, penNodeId, setNodes, viewport.zoom]);
+
+  const handlePenMouseUp = useCallback(() => {
+    penDragHandleRef.current = null;
+  }, []);
+
+  // 钢笔工具快捷键：Enter/Esc 完成路径
+  useEffect(() => {
+    if (activeToolMode !== "pen") return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === "Escape") {
+        setPenNodeId(null);
+        setPenCursorPos(null);
+        penDragHandleRef.current = null;
+        // 切换回移动工具
+        window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [activeToolMode]);
 
   // ── 创建画布：鼠标事件处理 ──
   const handleCreateCanvasMouseDown = useCallback((e: React.MouseEvent) => {
@@ -4415,13 +5106,20 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const target = e.target as HTMLElement | null;
       const isTyping = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
       if (isTyping) return;
-      const selectedAssetIds = selectedNodeIds.filter(id => nodes.some(n => n.id === id && n.type === "asset"));
-      if ((e.key === "Delete" || e.key === "Backspace") && selectedAssetIds.length > 0) {
+      // 支持复制/删除/粘贴的节点类型
+      const deletableTypes = ["asset", "shape", "freehand", "pen", "canvasFrame"];
+      const selectedDeletableIds = selectedNodeIds.filter(id => nodes.some(n => n.id === id && deletableTypes.includes(n.type ?? "")));
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedDeletableIds.length > 0) {
         e.preventDefault();
         pushHistory();
-        setNodes(nds => nds.filter(n => !selectedAssetIds.includes(n.id)));
-        setEdges(eds => eds.filter(e => !selectedAssetIds.includes(e.source) && !selectedAssetIds.includes(e.target)));
-        toast("已删除图片", { description: selectedAssetIds.length === 1 ? "已删除选中的图片节点" : `已删除 ${selectedAssetIds.length} 个图片节点` });
+        setNodes(nds => nds.filter(n => !selectedDeletableIds.includes(n.id)));
+        setEdges(eds => eds.filter(e => !selectedDeletableIds.includes(e.source) && !selectedDeletableIds.includes(e.target)));
+        const assetCount = selectedDeletableIds.filter(id => nodes.some(n => n.id === id && n.type === "asset")).length;
+        const otherCount = selectedDeletableIds.length - assetCount;
+        const desc = assetCount > 0 && otherCount > 0
+          ? `已删除 ${assetCount} 个图片、${otherCount} 个图形元素`
+          : assetCount > 0 ? `已删除 ${assetCount} 个图片节点` : `已删除 ${otherCount} 个图形元素`;
+        toast("已删除", { description: desc });
         return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey) {
@@ -4429,16 +5127,16 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         undoCanvas();
         return;
       }
-      // 复制：Ctrl+C (Windows) / Cmd+C (Mac)
+      // 复制：Ctrl+C (Windows) / Cmd+C (Mac) — 支持所有节点类型
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
         const toCopy = selectedNodeIds
-          .map(id => nodes.find(n => n.id === id && n.type === "asset"))
+          .map(id => nodes.find(n => n.id === id && deletableTypes.includes(n.type ?? "")))
           .filter(Boolean) as Node[];
         if (toCopy.length > 0) {
           e.preventDefault();
           setClipboard(toCopy);
           const isMac = navigator.platform.toUpperCase().includes("MAC") || navigator.userAgent.includes("Mac");
-          toast(`已复制 ${toCopy.length} 个图片节点`, {
+          toast(`已复制 ${toCopy.length} 个元素`, {
             description: isMac ? "按 ⌘V 粘贴到画布" : "按 Ctrl+V 粘贴到画布",
           });
         }
@@ -4464,9 +5162,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           }));
           setNodes(nds => nds.map(n => ({ ...n, selected: false })).concat(pasted));
           setSelectedNodeIds(pasted.map(n => n.id));
-          toast(`已粘贴 ${pasted.length} 个图片节点`, { description: "新节点已居中选中，可直接拖动定位" });
+          toast(`已粘贴 ${pasted.length} 个元素`, { description: "新节点已选中，可直接拖动定位" });
         } else {
-          toast("剪贴板为空", { description: "请先选中图片节点再按 Ctrl/Cmd+C 复制" });
+          toast("剪贴板为空", { description: "请先选中元素再按 Ctrl/Cmd+C 复制" });
         }
         return;
       }
@@ -4604,14 +5302,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     <div
       ref={containerRef}
       className="flex-1 relative overflow-hidden"
-      style={{ height: "100%", cursor: activeToolMode === "smart-canvas" ? "crosshair" : undefined }}
+      style={{ height: "100%", cursor: (activeToolMode === "smart-canvas" || activeToolMode.startsWith("shape-draw:") || activeToolMode === "pen" || activeToolMode === "draw") ? "crosshair" : undefined }}
       onDragEnter={handleCanvasDragEnter}
       onDragOver={handleCanvasDragOver}
       onDragLeave={handleCanvasDragLeave}
       onDrop={handleCanvasDrop}
-      onMouseDown={handleCreateCanvasMouseDown}
-      onMouseMove={handleCreateCanvasMouseMove}
-      onMouseUp={handleCreateCanvasMouseUp}
+      onMouseDown={e => { handleFreehandMouseDown(e); handlePenMouseDown(e); handleCreateCanvasMouseDown(e); }}
+      onMouseMove={e => { handleFreehandMouseMove(e); handlePenMouseMove(e); handleCreateCanvasMouseMove(e); }}
+      onMouseUp={e => { handleFreehandMouseUp(); handlePenMouseUp(); handleCreateCanvasMouseUp(e); }}
     >
       {/* 本地拖拽导入覆盖层 */}
       {isDragOver && (
@@ -4878,6 +5576,97 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         />
       )}
 
+      {/* 几何形参数面板（全局渲染，紧贴节点选框右侧 +6px） */}
+      {shapeCtxMenu && (() => {
+        const shapeNode = nodes.find(n => n.id === shapeCtxMenu.nodeId);
+        if (!shapeNode) return null;
+        const nw = (shapeNode.style?.width as number) || (shapeNode.data as Record<string,unknown>).width as number || 100;
+        const nh = (shapeNode.style?.height as number) || (shapeNode.data as Record<string,unknown>).height as number || 100;
+        // flow 坐标转屏幕坐标（相对 containerRef）
+        const screenX = shapeNode.position.x * viewport.zoom + viewport.x;
+        const screenY = shapeNode.position.y * viewport.zoom + viewport.y;
+        const screenW = nw * viewport.zoom;
+        const screenH = nh * viewport.zoom;
+        const panelLeft = screenX + screenW + 6;
+        const panelTop = screenY + screenH / 2;
+        const bg = isDark ? "oklch(0.14 0.018 270)" : "oklch(0.99 0.004 270)";
+        const border = isDark ? "oklch(1 0 0 / 14%)" : "oklch(0 0 0 / 12%)";
+        const text = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.18 0.008 270)";
+        const inputBg = isDark ? "oklch(1 0 0 / 7%)" : "oklch(0 0 0 / 5%)";
+        const inputBorder = isDark ? "oklch(1 0 0 / 14%)" : "oklch(0 0 0 / 12%)";
+        const applyShapeParams = () => {
+          const newOpacity = Math.max(0, Math.min(1, parseFloat(shapeCtxMenu.menuOpacity) / 100 || 1));
+          const newStrokeW = parseFloat(shapeCtxMenu.menuStrokeW) || 0;
+          setNodes(nds => nds.map(n => n.id === shapeCtxMenu.nodeId ? {
+            ...n, data: { ...n.data, fill: shapeCtxMenu.menuFill, stroke: shapeCtxMenu.menuStroke, strokeWidth: newStrokeW, opacity: newOpacity }
+          } : n));
+          setShapeCtxMenu(null);
+        };
+        return (
+          <div
+            className="shape-ctx-menu"
+            style={{
+              position: "absolute", left: panelLeft, top: panelTop,
+              transform: "translateY(-50%)",
+              zIndex: 3000, background: bg,
+              border: `1px solid ${border}`,
+              borderRadius: 10, padding: "14px 16px", minWidth: 220,
+              boxShadow: "0 8px 32px rgba(0,0,0,0.28)",
+              color: text, fontSize: 12, pointerEvents: "all",
+            }}
+            onMouseDown={e => e.stopPropagation()}
+          >
+            <p style={{ fontWeight: 700, marginBottom: 10, fontSize: 13 }}>图形参数</p>
+            <div style={{ marginBottom: 8 }}>
+              <p style={{ opacity: 0.6, marginBottom: 4 }}>填充色</p>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <input type="color" value={shapeCtxMenu.menuFill.startsWith("#") ? shapeCtxMenu.menuFill : "#6366f1"}
+                  onChange={e => setShapeCtxMenu(s => s ? { ...s, menuFill: e.target.value } : s)}
+                  style={{ width: 28, height: 28, border: "none", padding: 0, cursor: "pointer", borderRadius: 4, background: "transparent" }} />
+                <input type="text" value={shapeCtxMenu.menuFill}
+                  onChange={e => setShapeCtxMenu(s => s ? { ...s, menuFill: e.target.value } : s)}
+                  style={{ flex: 1, background: inputBg, border: `1px solid ${inputBorder}`, borderRadius: 5, padding: "4px 8px", color: "inherit", fontSize: 11, fontFamily: "monospace" }} />
+              </div>
+            </div>
+            <div style={{ marginBottom: 8 }}>
+              <p style={{ opacity: 0.6, marginBottom: 4 }}>描边色</p>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <input type="color" value={shapeCtxMenu.menuStroke.startsWith("#") ? shapeCtxMenu.menuStroke : "#000000"}
+                  onChange={e => setShapeCtxMenu(s => s ? { ...s, menuStroke: e.target.value } : s)}
+                  style={{ width: 28, height: 28, border: "none", padding: 0, cursor: "pointer", borderRadius: 4, background: "transparent" }} />
+                <input type="text" value={shapeCtxMenu.menuStroke}
+                  onChange={e => setShapeCtxMenu(s => s ? { ...s, menuStroke: e.target.value } : s)}
+                  style={{ flex: 1, background: inputBg, border: `1px solid ${inputBorder}`, borderRadius: 5, padding: "4px 8px", color: "inherit", fontSize: 11, fontFamily: "monospace" }} />
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+              <div style={{ flex: 1 }}>
+                <p style={{ opacity: 0.6, marginBottom: 4 }}>描边宽度</p>
+                <input type="number" min={0} value={shapeCtxMenu.menuStrokeW}
+                  onChange={e => setShapeCtxMenu(s => s ? { ...s, menuStrokeW: e.target.value } : s)}
+                  style={{ width: "100%", background: inputBg, border: `1px solid ${inputBorder}`, borderRadius: 5, padding: "4px 8px", color: "inherit", fontSize: 11 }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <p style={{ opacity: 0.6, marginBottom: 4 }}>不透明度 %</p>
+                <input type="number" min={0} max={100} value={shapeCtxMenu.menuOpacity}
+                  onChange={e => setShapeCtxMenu(s => s ? { ...s, menuOpacity: e.target.value } : s)}
+                  style={{ width: "100%", background: inputBg, border: `1px solid ${inputBorder}`, borderRadius: 5, padding: "4px 8px", color: "inherit", fontSize: 11 }} />
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={applyShapeParams}
+                style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: "none", background: "oklch(0.55 0.22 290)", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: 12 }}>
+                应用
+              </button>
+              <button onClick={() => setShapeCtxMenu(null)}
+                style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: `1px solid ${border}`, background: "transparent", color: "inherit", cursor: "pointer", fontSize: 12 }}>
+                取消
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Edit-asset prompt bar — shown after zoom-in animation, overlays bottom */}
       {editAsset && (
         <AssetEditPromptBar
@@ -5096,6 +5885,35 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               }} />
             )}
           </div>
+        );
+      })()}
+
+      {/* 钢笔工具：预览连线（最后一个锚点到鼠标位置） */}
+      {activeToolMode === "pen" && penNodeId && penCursorPos && (() => {
+        const penNode = nodes.find(n => n.id === penNodeId);
+        if (!penNode) return null;
+        const anchors = (penNode.data.anchors as PenAnchor[]) || [];
+        if (anchors.length === 0) return null;
+        const lastAnchor = anchors[anchors.length - 1];
+        // 将 flow 坐标转换为屏幕坐标
+        const lastScreenX = (penNode.position.x + lastAnchor.x) * viewport.zoom + viewport.x;
+        const lastScreenY = (penNode.position.y + lastAnchor.y) * viewport.zoom + viewport.y;
+        return (
+          <svg
+            className="absolute pointer-events-none"
+            style={{ left: 0, top: 0, width: "100%", height: "100%", zIndex: 9700, overflow: "visible" }}
+          >
+            <line
+              x1={lastScreenX} y1={lastScreenY}
+              x2={penCursorPos.x} y2={penCursorPos.y}
+              stroke="oklch(0.65 0.22 290)"
+              strokeWidth={1.5}
+              strokeDasharray="5,3"
+              strokeLinecap="round"
+            />
+            {/* 鼠标位置小圆点 */}
+            <circle cx={penCursorPos.x} cy={penCursorPos.y} r={4} fill="white" stroke="oklch(0.65 0.22 290)" strokeWidth={1.5} />
+          </svg>
         );
       })()}
 
