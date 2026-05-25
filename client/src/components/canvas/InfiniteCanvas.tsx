@@ -791,32 +791,38 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     e.stopPropagation();
     resizeDragRef.current = { startX: e.clientX, startY: e.clientY, startW: dispW, startH: dispH };
     setIsResizing(true);
+    // 等比缩放：使用当前显示尺寸计算宽高比
+    const aspectRatio = dispH / Math.max(1, dispW);
     const onMove = (mv: MouseEvent) => {
       const drag = resizeDragRef.current; if (!drag) return;
       const zoom = viewport.zoom || 1;
       const dx = (mv.clientX - drag.startX) / zoom;
       const dy = (mv.clientY - drag.startY) / zoom;
-      const newW = Math.max(60, Math.round(drag.startW + dx));
-      const newH = Math.max(60, Math.round(drag.startH + dy));
+      // 取 dx/dy 中较大的分量作为缩放基准，保持宽高比
+      const delta = Math.abs(dx) >= Math.abs(dy) ? dx : dy / aspectRatio;
+      const newW = Math.max(60, Math.round(drag.startW + delta));
+      const newH = Math.max(60, Math.round(newW * aspectRatio));
       setImgW(newW); setImgH(newH);
     };
     const onUp = (mu: MouseEvent) => {
       const drag = resizeDragRef.current; if (!drag) return;
       const zoom = viewport.zoom || 1;
-      const newW = Math.max(60, Math.round(drag.startW + (mu.clientX - drag.startX) / zoom));
-      const newH = Math.max(60, Math.round(drag.startH + (mu.clientY - drag.startY) / zoom));
+      const dx = (mu.clientX - drag.startX) / zoom;
+      const dy = (mu.clientY - drag.startY) / zoom;
+      const delta = Math.abs(dx) >= Math.abs(dy) ? dx : dy / aspectRatio;
+      const newW = Math.max(60, Math.round(drag.startW + delta));
+      const newH = Math.max(60, Math.round(newW * aspectRatio));
       resizeDragRef.current = null;
       setIsResizing(false);
       setImgW(newW); setImgH(newH);
-      // 将尺寸写入 node data，并通知 InnerCanvas 记录历史
-      setFlowNodes(nds => nds.map(n => n.id === nodeId ? { ...n, data: { ...n.data, imgW: newW, imgH: newH } } : n));
+      // 只派发事件，由 InnerCanvas 统一处理更新+历史记录（不再调用 setFlowNodes ，避免双重写入导致回退失效）
       window.dispatchEvent(new CustomEvent("asset-resize-end", { detail: { nodeId, newW, newH } }));
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [dispW, dispH, nodeId, setFlowNodes, viewport.zoom]);
+  }, [dispW, dispH, nodeId, viewport.zoom]);
 
   const handleNodeCtxMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -3133,14 +3139,16 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     return () => window.removeEventListener("canvas-frame-resize", handler);
   }, [pushHistory, setNodes]);
 
-  // 监听图片节点缩放结束事佻，将操作纳入历史记录
+  // 监听图片节点缩放结束事件，将操作纳入历史记录
   useEffect(() => {
     const handler = (e: Event) => {
       if (isRestoringRef.current) return;
       const detail = (e as CustomEvent<{ nodeId: string; newW: number; newH: number }>).detail;
       if (!detail?.nodeId) return;
-      // 在 setNodes 内部获取操作前快照并入历史
+      // 屏蔽 handleNodesChangeWithHistory 的干扰，防止它在 setNodes 触发的 onNodesChange 中再次压入历史
+      isRestoringRef.current = true;
       setNodes(nds => {
+        // 在 updater 内保存操作前快照（nds 是 React 保证的当前真实状态）
         pushHistory(nds, edgesRef.current);
         return nds.map(n =>
           n.id === detail.nodeId
@@ -3148,6 +3156,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             : n
         );
       });
+      // 双帧 rAF 后解除屏蔽，确保 ReactFlow 内部所有 onNodesChange 均在屏蔽窗口内完成
+      requestAnimationFrame(() => requestAnimationFrame(() => { isRestoringRef.current = false; }));
     };
     window.addEventListener("asset-resize-end", handler);
     return () => window.removeEventListener("asset-resize-end", handler);
