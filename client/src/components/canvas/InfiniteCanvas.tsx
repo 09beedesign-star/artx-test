@@ -256,6 +256,675 @@ function ImagePreviewModal({ src, title, onClose, isDark }: {
   );
 }
 
+// ── Text Floating Toolbar ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// 文字节点选中时显示的底部浮动工具栏
+const FONT_FAMILIES = [
+  "Inter", "Roboto", "Helvetica", "Arial", "Georgia",
+  "Times New Roman", "Courier New", "Playfair Display", "Lato", "Montserrat",
+  "Open Sans", "Noto Sans SC", "PingFang SC",
+];
+const FONT_WEIGHTS = [
+  { label: "Thin", value: 100 },
+  { label: "ExtraLight", value: 200 },
+  { label: "Light", value: 300 },
+  { label: "Regular", value: 400 },
+  { label: "Medium", value: 500 },
+  { label: "SemiBold", value: 600 },
+  { label: "Bold", value: 700 },
+  { label: "ExtraBold", value: 800 },
+  { label: "Black", value: 900 },
+];
+const PRESET_COLORS_TEXT = ["", "#000000", "#ffffff", "#22c55e", "#a855f7", "#d8b4fe"];
+
+function isValidHexColor(c: string): boolean {
+  return /^#[0-9a-fA-F]{3,8}$/.test(c);
+}
+
+// 颜色拾取器组件
+function ColorPickerPanel({
+  title, color, onColorChange, onClose, isDark,
+}: {
+  title: string;
+  color: string;
+  onColorChange: (c: string) => void;
+  onClose: () => void;
+  isDark: boolean;
+}) {
+  const bg = isDark ? "oklch(0.14 0.018 270)" : "oklch(0.99 0.004 270)";
+  const border = isDark ? "oklch(1 0 0 / 14%)" : "oklch(0 0 0 / 12%)";
+  const textC = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.18 0.008 270)";
+  const inputBg = isDark ? "oklch(1 0 0 / 7%)" : "oklch(0 0 0 / 5%)";
+  const inputBorder = isDark ? "oklch(1 0 0 / 14%)" : "oklch(0 0 0 / 12%)";
+
+  const hexToRgb = (hex: string) => {
+    const r = parseInt(hex.slice(1, 3), 16) || 0;
+    const g = parseInt(hex.slice(3, 5), 16) || 0;
+    const b = parseInt(hex.slice(5, 7), 16) || 0;
+    return { r, g, b };
+  };
+  const rgbToHex = (r: number, g: number, b: number) =>
+    "#" + [r, g, b].map(v => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, "0")).join("");
+  const rgbToHsv = (r: number, g: number, b: number) => {
+    r /= 255; g /= 255; b /= 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    const d = max - min;
+    let h = 0;
+    if (d !== 0) {
+      if (max === r) h = ((g - b) / d) % 6;
+      else if (max === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
+      h = Math.round(h * 60);
+      if (h < 0) h += 360;
+    }
+    return { h, s: max === 0 ? 0 : d / max, v: max };
+  };
+  const hsvToRgb = (h: number, s: number, v: number) => {
+    const c = v * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = v - c;
+    let r = 0, g = 0, b = 0;
+    if (h < 60) { r = c; g = x; }
+    else if (h < 120) { r = x; g = c; }
+    else if (h < 180) { g = c; b = x; }
+    else if (h < 240) { g = x; b = c; }
+    else if (h < 300) { r = x; b = c; }
+    else { r = c; b = x; }
+    return { r: Math.round((r + m) * 255), g: Math.round((g + m) * 255), b: Math.round((b + m) * 255) };
+  };
+
+  const safeColor = isValidHexColor(color) ? color : "#000000";
+  const rgb0 = hexToRgb(safeColor);
+  const hsv0 = rgbToHsv(rgb0.r, rgb0.g, rgb0.b);
+
+  const [hue, setHue] = useState(hsv0.h);
+  const [sat, setSat] = useState(hsv0.s);
+  const [val, setVal] = useState(hsv0.v);
+  const [alpha, setAlpha] = useState(100);
+  const [hexInput, setHexInput] = useState(safeColor.slice(1).toUpperCase());
+
+  const gradientColor = (() => {
+    const { r, g, b } = hsvToRgb(hue, 1, 1);
+    return `rgb(${r},${g},${b})`;
+  })();
+
+  const updateFromHsv = useCallback((h: number, s: number, v: number) => {
+    const { r, g, b } = hsvToRgb(h, s, v);
+    const hex = rgbToHex(r, g, b);
+    setHexInput(hex.slice(1).toUpperCase());
+    onColorChange(hex);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onColorChange]);
+
+  const satValRef = useRef<HTMLDivElement>(null);
+  const isDraggingSV = useRef(false);
+  const hueRef = useRef<HTMLDivElement>(null);
+  const isDraggingHue = useRef(false);
+  const alphaRef = useRef<HTMLDivElement>(null);
+  const isDraggingAlpha = useRef(false);
+
+  const handleSVMove = useCallback((e: MouseEvent) => {
+    if (!satValRef.current) return;
+    const rect = satValRef.current.getBoundingClientRect();
+    const s = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const v = Math.max(0, Math.min(1, 1 - (e.clientY - rect.top) / rect.height));
+    setSat(s); setVal(v);
+    updateFromHsv(hue, s, v);
+  }, [hue, updateFromHsv]);
+
+  const handleHueMove = useCallback((e: MouseEvent) => {
+    if (!hueRef.current) return;
+    const rect = hueRef.current.getBoundingClientRect();
+    const h = Math.max(0, Math.min(360, ((e.clientX - rect.left) / rect.width) * 360));
+    setHue(h);
+    updateFromHsv(h, sat, val);
+  }, [sat, val, updateFromHsv]);
+
+  const handleAlphaMove = useCallback((e: MouseEvent) => {
+    if (!alphaRef.current) return;
+    const rect = alphaRef.current.getBoundingClientRect();
+    const a = Math.max(0, Math.min(100, Math.round(((e.clientX - rect.left) / rect.width) * 100)));
+    setAlpha(a);
+  }, []);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (isDraggingSV.current) handleSVMove(e);
+      if (isDraggingHue.current) handleHueMove(e);
+      if (isDraggingAlpha.current) handleAlphaMove(e);
+    };
+    const onUp = () => {
+      isDraggingSV.current = false;
+      isDraggingHue.current = false;
+      isDraggingAlpha.current = false;
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+  }, [handleSVMove, handleHueMove, handleAlphaMove]);
+
+  const thumbX = sat * 100;
+  const thumbY = (1 - val) * 100;
+
+  return (
+    <div
+      style={{
+        background: bg, border: `1px solid ${border}`,
+        borderRadius: 12, padding: "16px", width: 260,
+        boxShadow: "0 12px 40px rgba(0,0,0,0.35)",
+        color: textC, fontSize: 12,
+      }}
+      onMouseDown={e => e.stopPropagation()}
+      onClick={e => e.stopPropagation()}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+        <span style={{ fontWeight: 600, fontSize: 13 }}>{title}</span>
+        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: textC, opacity: 0.6, padding: 2 }}>
+          <X size={14} />
+        </button>
+      </div>
+      <div
+        ref={satValRef}
+        style={{
+          width: "100%", height: 140, borderRadius: 6, marginBottom: 10,
+          position: "relative", cursor: "crosshair", userSelect: "none",
+          background: `linear-gradient(to bottom, transparent, #000), linear-gradient(to right, #fff, ${gradientColor})`,
+        }}
+        onMouseDown={e => { isDraggingSV.current = true; handleSVMove(e.nativeEvent); }}
+      >
+        <div style={{
+          position: "absolute",
+          left: `${thumbX}%`, top: `${thumbY}%`,
+          transform: "translate(-50%, -50%)",
+          width: 14, height: 14, borderRadius: "50%",
+          border: "2px solid white",
+          boxShadow: "0 1px 4px rgba(0,0,0,0.4)",
+          pointerEvents: "none",
+          background: safeColor,
+        }} />
+      </div>
+      <div
+        ref={hueRef}
+        style={{
+          width: "100%", height: 12, borderRadius: 6, marginBottom: 8,
+          background: "linear-gradient(to right, #f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)",
+          position: "relative", cursor: "pointer", userSelect: "none",
+        }}
+        onMouseDown={e => { isDraggingHue.current = true; handleHueMove(e.nativeEvent); }}
+      >
+        <div style={{
+          position: "absolute",
+          left: `${(hue / 360) * 100}%`, top: "50%",
+          transform: "translate(-50%, -50%)",
+          width: 16, height: 16, borderRadius: "50%",
+          border: "2px solid white",
+          boxShadow: "0 1px 4px rgba(0,0,0,0.4)",
+          background: gradientColor,
+          pointerEvents: "none",
+        }} />
+      </div>
+      <div
+        ref={alphaRef}
+        style={{
+          width: "100%", height: 12, borderRadius: 6, marginBottom: 12,
+          position: "relative", cursor: "pointer", userSelect: "none",
+          background: `linear-gradient(to right, transparent, ${safeColor})`,
+          backgroundImage: `linear-gradient(to right, transparent, ${safeColor}), repeating-conic-gradient(#ccc 0% 25%, #fff 0% 50%)`,
+          backgroundSize: "auto, 8px 8px",
+        }}
+        onMouseDown={e => { isDraggingAlpha.current = true; handleAlphaMove(e.nativeEvent); }}
+      >
+        <div style={{
+          position: "absolute",
+          left: `${alpha}%`, top: "50%",
+          transform: "translate(-50%, -50%)",
+          width: 16, height: 16, borderRadius: "50%",
+          border: "2px solid white",
+          boxShadow: "0 1px 4px rgba(0,0,0,0.4)",
+          background: safeColor,
+          pointerEvents: "none",
+        }} />
+      </div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 12, alignItems: "center" }}>
+        {PRESET_COLORS_TEXT.map((pc, i) => (
+          <button
+            key={i}
+            onClick={() => {
+              if (pc === "") { onColorChange("transparent"); return; }
+              const rgb2 = hexToRgb(pc);
+              const hsv2 = rgbToHsv(rgb2.r, rgb2.g, rgb2.b);
+              setHue(hsv2.h); setSat(hsv2.s); setVal(hsv2.v);
+              setHexInput(pc.slice(1).toUpperCase());
+              onColorChange(pc);
+            }}
+            style={{
+              width: 24, height: 24, borderRadius: "50%",
+              border: `2px solid ${pc === safeColor ? "oklch(0.65 0.22 290)" : "transparent"}`,
+              background: pc === "" ? "none" : pc,
+              cursor: "pointer", flexShrink: 0, padding: 0,
+              backgroundImage: pc === "" ? "repeating-conic-gradient(#ccc 0% 25%, #fff 0% 50%)" : "none",
+              backgroundSize: "8px 8px",
+            }}
+          />
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 4, background: inputBg, border: `1px solid ${inputBorder}`, borderRadius: 6, padding: "4px 8px" }}>
+          <span style={{ opacity: 0.5, fontSize: 11 }}>#</span>
+          <input
+            value={hexInput}
+            onChange={e => {
+              const v = e.target.value.replace(/[^0-9a-fA-F]/g, "").slice(0, 6);
+              setHexInput(v);
+              if (v.length === 6) {
+                const hex = "#" + v;
+                const rgb3 = hexToRgb(hex);
+                const hsv3 = rgbToHsv(rgb3.r, rgb3.g, rgb3.b);
+                setHue(hsv3.h); setSat(hsv3.s); setVal(hsv3.v);
+                onColorChange(hex);
+              }
+            }}
+            style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: textC, fontSize: 11, fontFamily: "monospace", width: 0 }}
+            spellCheck={false}
+          />
+        </div>
+        <div style={{ width: 72, display: "flex", alignItems: "center", gap: 4, background: inputBg, border: `1px solid ${inputBorder}`, borderRadius: 6, padding: "4px 8px" }}>
+          <input
+            type="number" min={0} max={100} value={alpha}
+            onChange={e => setAlpha(Math.max(0, Math.min(100, parseInt(e.target.value) || 0)))}
+            style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: textC, fontSize: 11, width: 0 }}
+          />
+          <span style={{ opacity: 0.5, fontSize: 11 }}>%</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 高级排版面板
+function TypographyAdvancedPanel({
+  data, onUpdate, onClose, isDark,
+}: {
+  data: Record<string, unknown>;
+  onUpdate: (patch: Record<string, unknown>) => void;
+  onClose: () => void;
+  isDark: boolean;
+}) {
+  const bg = isDark ? "oklch(0.14 0.018 270)" : "oklch(0.99 0.004 270)";
+  const border = isDark ? "oklch(1 0 0 / 14%)" : "oklch(0 0 0 / 12%)";
+  const textC = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.18 0.008 270)";
+  const inputBg = isDark ? "oklch(1 0 0 / 7%)" : "oklch(0 0 0 / 5%)";
+  const inputBorder = isDark ? "oklch(1 0 0 / 14%)" : "oklch(0 0 0 / 12%)";
+  const btnBg = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 6%)";
+  const btnActiveBg = "oklch(0.65 0.22 290 / 0.25)";
+  const btnActiveColor = "oklch(0.72 0.18 290)";
+
+  const lineHeight = (data.lineHeight as number) || 1.4;
+  const letterSpacing = (data.letterSpacing as number) || 0;
+  const textDecoration = (data.textDecoration as string) || "none";
+  const textTransform = (data.textTransform as string) || "none";
+
+  const inputStyle: React.CSSProperties = {
+    background: inputBg, border: `1px solid ${inputBorder}`,
+    borderRadius: 6, padding: "4px 8px",
+    color: textC, fontSize: 11, outline: "none",
+    width: "100%", boxSizing: "border-box",
+  };
+
+  const toggleBtn = (active: boolean): React.CSSProperties => ({
+    background: active ? btnActiveBg : btnBg,
+    color: active ? btnActiveColor : textC,
+    border: "none", borderRadius: 6, cursor: "pointer",
+    padding: "5px 10px", fontSize: 11, fontWeight: active ? 600 : 400,
+    transition: "all 0.12s",
+  });
+
+  return (
+    <div
+      style={{
+        background: bg, border: `1px solid ${border}`,
+        borderRadius: 12, padding: "14px 16px", width: 280,
+        boxShadow: "0 12px 40px rgba(0,0,0,0.35)",
+        color: textC, fontSize: 12,
+      }}
+      onMouseDown={e => e.stopPropagation()}
+      onClick={e => e.stopPropagation()}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+        <span style={{ fontWeight: 600, fontSize: 13 }}>高级排版</span>
+        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: textC, opacity: 0.6, padding: 2 }}>
+          <X size={14} />
+        </button>
+      </div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ opacity: 0.55, marginBottom: 4, fontSize: 11 }}>行高</div>
+          <input type="number" step={0.1} min={0.5} max={5}
+            value={lineHeight}
+            onChange={e => onUpdate({ lineHeight: parseFloat(e.target.value) || 1.4 })}
+            style={inputStyle}
+          />
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ opacity: 0.55, marginBottom: 4, fontSize: 11 }}>字间距 (em)</div>
+          <input type="number" step={0.01} min={-0.2} max={1}
+            value={letterSpacing}
+            onChange={e => onUpdate({ letterSpacing: parseFloat(e.target.value) || 0 })}
+            style={inputStyle}
+          />
+        </div>
+      </div>
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ opacity: 0.55, marginBottom: 6, fontSize: 11 }}>文字装饰</div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button style={toggleBtn(textDecoration === "underline")} onClick={() => onUpdate({ textDecoration: textDecoration === "underline" ? "none" : "underline" })}>
+            <span style={{ textDecoration: "underline" }}>U</span>
+          </button>
+          <button style={toggleBtn(textDecoration === "line-through")} onClick={() => onUpdate({ textDecoration: textDecoration === "line-through" ? "none" : "line-through" })}>
+            <span style={{ textDecoration: "line-through" }}>S</span>
+          </button>
+          <button style={toggleBtn(textDecoration === "overline")} onClick={() => onUpdate({ textDecoration: textDecoration === "overline" ? "none" : "overline" })}>
+            <span style={{ textDecoration: "overline" }}>O</span>
+          </button>
+        </div>
+      </div>
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ opacity: 0.55, marginBottom: 6, fontSize: 11 }}>大小写转换</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {[
+            { label: "Aa", value: "none" },
+            { label: "AA", value: "uppercase" },
+            { label: "aa", value: "lowercase" },
+            { label: "Aa·", value: "capitalize" },
+          ].map(item => (
+            <button key={item.value} style={toggleBtn(textTransform === item.value)} onClick={() => onUpdate({ textTransform: item.value })}>
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 文字工具底部浮动工具栏
+function TextFloatingToolbar({
+  isDark, nodeData, position, onUpdate, onDownload,
+}: {
+  isDark: boolean;
+  nodeData: Record<string, unknown>;
+  position: { left: number; top: number };
+  onUpdate: (patch: Record<string, unknown>) => void;
+  onDownload: () => void;
+}) {
+  const bg = isDark ? "rgba(22,22,30,0.92)" : "rgba(255,255,255,0.92)";
+  const border = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)";
+  const textC = isDark ? "rgba(255,255,255,0.82)" : "rgba(28,28,40,0.82)";
+  const hover = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+  const divider = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
+  const inputBg = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)";
+  const activeColor = "oklch(0.65 0.22 290)";
+  const activeBg = "oklch(0.65 0.22 290 / 0.18)";
+
+  const fontFamily = (nodeData.fontFamily as string) || "Inter";
+  const fontSize = (nodeData.fontSize as number) || 32;
+  const fontWeight = (nodeData.fontWeight as number) || 400;
+  const color = (nodeData.color as string) || "#ffffff";
+  const textAlign = (nodeData.textAlign as string) || "left";
+
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showAlignMenu, setShowAlignMenu] = useState(false);
+  const [showFontMenu, setShowFontMenu] = useState(false);
+  const [showWeightMenu, setShowWeightMenu] = useState(false);
+  const [fontSizeInput, setFontSizeInput] = useState(String(fontSize));
+
+  useEffect(() => { setFontSizeInput(String(fontSize)); }, [fontSize]);
+
+  const weightLabel = FONT_WEIGHTS.find(w => w.value === fontWeight)?.label || "Regular";
+
+  const btnBase: React.CSSProperties = {
+    background: "transparent", border: "none", cursor: "pointer",
+    color: textC, display: "flex", alignItems: "center", justifyContent: "center",
+    borderRadius: 6, transition: "all 0.12s", flexShrink: 0,
+  };
+
+  const alignIcons: Record<string, React.ReactNode> = {
+    left: <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><line x1="2" y1="4" x2="13" y2="4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="2" y1="7.5" x2="10" y2="7.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="2" y1="11" x2="13" y2="11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>,
+    center: <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><line x1="2" y1="4" x2="13" y2="4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="4" y1="7.5" x2="11" y2="7.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="2" y1="11" x2="13" y2="11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>,
+    right: <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><line x1="2" y1="4" x2="13" y2="4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="5" y1="7.5" x2="13" y2="7.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="2" y1="11" x2="13" y2="11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>,
+  };
+
+  return (
+    <div
+      className="absolute nodrag nopan"
+      style={{ left: position.left, top: position.top, transform: "translate(-50%, 0)", zIndex: 2200 }}
+      onMouseDown={e => e.stopPropagation()}
+      onClick={e => e.stopPropagation()}
+    >
+      {showColorPicker && (
+        <div style={{ position: "absolute", bottom: "calc(100% + 8px)", left: 0, zIndex: 2300 }}>
+          <ColorPickerPanel
+            title="填充"
+            color={isValidHexColor(color) ? color : "#000000"}
+            onColorChange={c => onUpdate({ color: c })}
+            onClose={() => setShowColorPicker(false)}
+            isDark={isDark}
+          />
+        </div>
+      )}
+      {showAdvanced && (
+        <div style={{ position: "absolute", bottom: "calc(100% + 8px)", right: 0, zIndex: 2300 }}>
+          <TypographyAdvancedPanel
+            data={nodeData}
+            onUpdate={onUpdate}
+            onClose={() => setShowAdvanced(false)}
+            isDark={isDark}
+          />
+        </div>
+      )}
+      {showAlignMenu && (
+        <div
+          style={{
+            position: "absolute", bottom: "calc(100% + 8px)",
+            left: "50%", transform: "translateX(-50%)",
+            background: isDark ? "rgba(22,22,30,0.96)" : "rgba(255,255,255,0.96)",
+            border: `1px solid ${border}`,
+            borderRadius: 8, padding: "4px",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
+            display: "flex", gap: 2, zIndex: 2300,
+          }}
+          onMouseDown={e => e.stopPropagation()}
+        >
+          {(["left", "center", "right"] as const).map(a => (
+            <button
+              key={a}
+              style={{
+                ...btnBase,
+                width: 32, height: 32,
+                background: textAlign === a ? activeBg : "transparent",
+                color: textAlign === a ? activeColor : textC,
+              }}
+              onClick={() => { onUpdate({ textAlign: a }); setShowAlignMenu(false); }}
+              onMouseEnter={e => { if (textAlign !== a) (e.currentTarget as HTMLElement).style.background = hover; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = textAlign === a ? activeBg : "transparent"; }}
+            >
+              {alignIcons[a]}
+            </button>
+          ))}
+        </div>
+      )}
+      {showFontMenu && (
+        <div
+          style={{
+            position: "absolute", bottom: "calc(100% + 8px)", left: 0,
+            background: isDark ? "rgba(22,22,30,0.96)" : "rgba(255,255,255,0.96)",
+            border: `1px solid ${border}`,
+            borderRadius: 8, padding: "4px",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
+            maxHeight: 240, overflowY: "auto", minWidth: 160, zIndex: 2300,
+          }}
+          onMouseDown={e => e.stopPropagation()}
+        >
+          {FONT_FAMILIES.map(f => (
+            <button
+              key={f}
+              style={{
+                display: "block", width: "100%", padding: "6px 12px",
+                background: fontFamily === f ? activeBg : "transparent",
+                color: fontFamily === f ? activeColor : textC,
+                border: "none", cursor: "pointer", textAlign: "left",
+                fontSize: 12, fontFamily: f, borderRadius: 4,
+              }}
+              onClick={() => { onUpdate({ fontFamily: f }); setShowFontMenu(false); }}
+              onMouseEnter={e => { if (fontFamily !== f) (e.currentTarget as HTMLElement).style.background = hover; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = fontFamily === f ? activeBg : "transparent"; }}
+            >
+              {f}
+            </button>
+          ))}
+        </div>
+      )}
+      {showWeightMenu && (
+        <div
+          style={{
+            position: "absolute", bottom: "calc(100% + 8px)", left: 160,
+            background: isDark ? "rgba(22,22,30,0.96)" : "rgba(255,255,255,0.96)",
+            border: `1px solid ${border}`,
+            borderRadius: 8, padding: "4px",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
+            maxHeight: 240, overflowY: "auto", minWidth: 120, zIndex: 2300,
+          }}
+          onMouseDown={e => e.stopPropagation()}
+        >
+          {FONT_WEIGHTS.map(w => (
+            <button
+              key={w.value}
+              style={{
+                display: "block", width: "100%", padding: "6px 12px",
+                background: fontWeight === w.value ? activeBg : "transparent",
+                color: fontWeight === w.value ? activeColor : textC,
+                border: "none", cursor: "pointer", textAlign: "left",
+                fontSize: 12, fontWeight: w.value, borderRadius: 4,
+              }}
+              onClick={() => { onUpdate({ fontWeight: w.value }); setShowWeightMenu(false); }}
+              onMouseEnter={e => { if (fontWeight !== w.value) (e.currentTarget as HTMLElement).style.background = hover; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = fontWeight === w.value ? activeBg : "transparent"; }}
+            >
+              {w.label}
+            </button>
+          ))}
+        </div>
+      )}
+      <div
+        style={{
+          display: "flex", alignItems: "center", gap: 0,
+          background: bg, border: `1px solid ${border}`,
+          borderRadius: 10, padding: "4px 6px",
+          backdropFilter: "blur(16px)",
+          boxShadow: isDark ? "0 8px 32px rgba(0,0,0,0.45)" : "0 4px 20px rgba(0,0,0,0.12)",
+          height: 44,
+        }}
+      >
+        <button
+          title="文字颜色"
+          style={{ ...btnBase, width: 28, height: 28, padding: 0, position: "relative" }}
+          onClick={() => { setShowColorPicker(v => !v); setShowAdvanced(false); setShowAlignMenu(false); setShowFontMenu(false); setShowWeightMenu(false); }}
+          onMouseEnter={e => (e.currentTarget.style.background = hover)}
+          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+        >
+          <div style={{
+            width: 20, height: 20, borderRadius: "50%",
+            background: isValidHexColor(color) ? color : "#000",
+            border: `2px solid ${isDark ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.2)"}`,
+          }} />
+        </button>
+        <div style={{ width: 1, height: 20, background: divider, margin: "0 6px", flexShrink: 0 }} />
+        <button
+          title="字体"
+          style={{ ...btnBase, padding: "0 8px", height: 32, gap: 4, fontSize: 12, minWidth: 100 }}
+          onClick={() => { setShowFontMenu(v => !v); setShowColorPicker(false); setShowAdvanced(false); setShowAlignMenu(false); setShowWeightMenu(false); }}
+          onMouseEnter={e => (e.currentTarget.style.background = hover)}
+          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+        >
+          <span style={{ fontFamily, maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fontFamily}</span>
+          <ChevronDown size={10} style={{ opacity: 0.5, flexShrink: 0 }} />
+        </button>
+        <div style={{ width: 1, height: 20, background: divider, margin: "0 2px", flexShrink: 0 }} />
+        <button
+          title="字重"
+          style={{ ...btnBase, padding: "0 8px", height: 32, gap: 4, fontSize: 12, minWidth: 80 }}
+          onClick={() => { setShowWeightMenu(v => !v); setShowColorPicker(false); setShowAdvanced(false); setShowAlignMenu(false); setShowFontMenu(false); }}
+          onMouseEnter={e => (e.currentTarget.style.background = hover)}
+          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+        >
+          <span style={{ fontWeight }}>{weightLabel}</span>
+          <ChevronDown size={10} style={{ opacity: 0.5, flexShrink: 0 }} />
+        </button>
+        <div style={{ width: 1, height: 20, background: divider, margin: "0 2px", flexShrink: 0 }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "0 4px" }}>
+          <input
+            type="number" min={6} max={400}
+            value={fontSizeInput}
+            onChange={e => setFontSizeInput(e.target.value)}
+            onBlur={() => {
+              const v = parseInt(fontSizeInput);
+              if (!isNaN(v) && v >= 6 && v <= 400) onUpdate({ fontSize: v });
+              else setFontSizeInput(String(fontSize));
+            }}
+            onKeyDown={e => { if (e.key === "Enter") { e.currentTarget.blur(); } }}
+            style={{
+              width: 44, background: inputBg, border: `1px solid ${divider}`,
+              borderRadius: 5, padding: "3px 6px", color: textC,
+              fontSize: 12, outline: "none", textAlign: "center",
+            }}
+          />
+          <ChevronDown size={10} style={{ opacity: 0.5, flexShrink: 0 }} />
+        </div>
+        <div style={{ width: 1, height: 20, background: divider, margin: "0 2px", flexShrink: 0 }} />
+        <button
+          title="对齐方式"
+          style={{ ...btnBase, padding: "0 8px", height: 32, gap: 4 }}
+          onClick={() => { setShowAlignMenu(v => !v); setShowColorPicker(false); setShowAdvanced(false); setShowFontMenu(false); setShowWeightMenu(false); }}
+          onMouseEnter={e => (e.currentTarget.style.background = hover)}
+          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+        >
+          {alignIcons[textAlign] || alignIcons["left"]}
+          <ChevronDown size={10} style={{ opacity: 0.5 }} />
+        </button>
+        <div style={{ width: 1, height: 20, background: divider, margin: "0 2px", flexShrink: 0 }} />
+        <button
+          title="高级排版"
+          style={{
+            ...btnBase, width: 32, height: 32,
+            background: showAdvanced ? activeBg : "transparent",
+            color: showAdvanced ? activeColor : textC,
+          }}
+          onClick={() => { setShowAdvanced(v => !v); setShowColorPicker(false); setShowAlignMenu(false); setShowFontMenu(false); setShowWeightMenu(false); }}
+          onMouseEnter={e => { if (!showAdvanced) (e.currentTarget as HTMLElement).style.background = hover; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = showAdvanced ? activeBg : "transparent"; }}
+        >
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+            <line x1="2" y1="4" x2="13" y2="4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+            <circle cx="9" cy="4" r="1.5" fill="none" stroke="currentColor" strokeWidth="1.2"/>
+            <line x1="2" y1="7.5" x2="13" y2="7.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+            <circle cx="5" cy="7.5" r="1.5" fill="none" stroke="currentColor" strokeWidth="1.2"/>
+            <line x1="2" y1="11" x2="13" y2="11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+            <circle cx="11" cy="11" r="1.5" fill="none" stroke="currentColor" strokeWidth="1.2"/>
+          </svg>
+        </button>
+        <div style={{ width: 1, height: 20, background: divider, margin: "0 2px", flexShrink: 0 }} />
+        <button
+          title="下载 PNG / SVG"
+          style={{ ...btnBase, width: 32, height: 32 }}
+          onClick={onDownload}
+          onMouseEnter={e => (e.currentTarget.style.background = hover)}
+          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+        >
+          <Download size={15} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Asset Node Floating Toolbar ──────────────────────────────
 function AssetFloatingToolbar({ isDark, position, onAction }: {
   isDark: boolean;
@@ -1053,23 +1722,32 @@ function PromptNodeComponent({ data, selected }: { data: Record<string, unknown>
 }
 
 // ── Text Node ──────────────────────────────────────────────────
-function TextNodeComponent({ data, selected }: { data: Record<string, unknown>; selected: boolean }) {
+// 富文本排版节点，支持字体、颜色、字重、字号、对齐等属性
+function TextNodeComponent({ data, selected, id }: { data: Record<string, unknown>; selected: boolean; id: string }) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-  const [model, setModel] = useState("gpt-4o");
-  const [text2, setText2] = useState((data.text as string) || "");
-  const { deleteElements } = useReactFlow();
-  const nodeId = (data as { id?: string }).id || "";
+  const nodeId = id || (data as { id?: string }).id || "";
+  const { setNodes } = useReactFlow();
 
-  const colors = [
-    { bg: isDark ? "oklch(0.72 0.18 50 / 0.12)" : "oklch(0.72 0.18 50 / 0.08)", border: "oklch(0.72 0.18 50 / 0.3)" },
-    { bg: isDark ? "oklch(0.72 0.18 160 / 0.12)" : "oklch(0.72 0.18 160 / 0.08)", border: "oklch(0.72 0.18 160 / 0.3)" },
-    { bg: isDark ? "oklch(0.72 0.18 290 / 0.12)" : "oklch(0.72 0.18 290 / 0.08)", border: "oklch(0.72 0.18 290 / 0.3)" },
-  ];
-  const colorIdx = typeof data.colorIdx === "number" ? data.colorIdx % colors.length : 0;
-  const c = colors[colorIdx];
-  const textColor = isDark ? "oklch(0.78 0.01 270)" : "oklch(0.25 0.01 270)";
-  const headerBorder = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
+  // 从 data 中读取排版属性（带默认值）
+  const textContent = (data.text as string) ?? "";
+  const fontFamily = (data.fontFamily as string) || "Inter";
+  const fontSize = (data.fontSize as number) || 32;
+  const fontWeight = (data.fontWeight as number) || 400;
+  const color = (data.color as string) || (isDark ? "#ffffff" : "#1a1a2e");
+  const textAlign = (data.textAlign as string) || "left";
+  const lineHeight = (data.lineHeight as number) || 1.4;
+  const letterSpacing = (data.letterSpacing as number) || 0;
+  const textDecoration = (data.textDecoration as string) || "none";
+  const textTransform = (data.textTransform as string) || "none";
+  const nodeWidth = (data.width as number) || 320;
+  const nodeHeight = (data.height as number) || 120;
+  const isEditing = (data.isEditing as boolean) || false;
+
+  const selBorder = selected ? "oklch(0.65 0.22 290)" : "transparent";
+  const selShadow = selected
+    ? "0 0 0 2px oklch(0.65 0.22 290 / 0.72), 0 0 0 6px oklch(0.65 0.22 290 / 0.18)"
+    : "none";
 
   const handleNodeCtxMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -1080,22 +1758,94 @@ function TextNodeComponent({ data, selected }: { data: Record<string, unknown>; 
     }));
   }, [nodeId]);
 
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setNodes(nds => nds.map(n => n.id === nodeId ? { ...n, data: { ...n.data, isEditing: true } } : n));
+  }, [nodeId, setNodes]);
+
+  const handleTextChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setNodes(nds => nds.map(n => n.id === nodeId ? { ...n, data: { ...n.data, text: e.target.value } } : n));
+  }, [nodeId, setNodes]);
+
+  const handleBlur = useCallback(() => {
+    setNodes(nds => nds.map(n => n.id === nodeId ? { ...n, data: { ...n.data, isEditing: false } } : n));
+  }, [nodeId, setNodes]);
+
   return (
-    <NodeWrapper selected={selected} isDark={isDark} model={model} onModelChange={setModel}
-      onDelete={() => deleteElements({ nodes: [{ id: nodeId }] })}
-      style={{ width: 200, background: c.bg, border: `1.5px solid ${c.border}` }}
-      onContextMenu={handleNodeCtxMenu}>
-      <div className="flex items-center gap-2 px-3 py-2" style={{ borderBottom: `1px solid ${headerBorder}` }}>
-        <Type size={11} style={{ color: textColor, opacity: 0.6 }} />
-        <span className="type-caption" style={{ color: textColor }}>备注</span>
-      </div>
-      <div className="p-3 nodrag nopan">
-        <textarea value={text2} onChange={e => setText2(e.target.value)}
-          className="w-full bg-transparent type-caption leading-relaxed resize-none outline-none"
-          style={{ color: textColor, minHeight: 60 }}
-          placeholder="输入备注..." rows={3} onClick={e => e.stopPropagation()} />
-      </div>
-    </NodeWrapper>
+    <div
+      data-text-node-id={nodeId}
+      style={{
+        width: nodeWidth,
+        minHeight: nodeHeight,
+        position: "relative",
+        border: `2px solid ${selBorder}`,
+        boxShadow: selShadow,
+        borderRadius: 4,
+        transition: "border-color 0.15s, box-shadow 0.15s",
+        cursor: isEditing ? "text" : "move",
+        pointerEvents: "all",
+      }}
+      onContextMenu={handleNodeCtxMenu}
+      onDoubleClick={handleDoubleClick}
+    >
+      {isEditing ? (
+        <textarea
+          autoFocus
+          value={textContent}
+          onChange={handleTextChange}
+          onBlur={handleBlur}
+          onClick={e => e.stopPropagation()}
+          onMouseDown={e => e.stopPropagation()}
+          className="nodrag nopan"
+          style={{
+            width: "100%",
+            minHeight: nodeHeight,
+            background: "transparent",
+            border: "none",
+            outline: "none",
+            resize: "none",
+            fontFamily,
+            fontSize,
+            fontWeight,
+            color,
+            textAlign: textAlign as React.CSSProperties["textAlign"],
+            lineHeight,
+            letterSpacing: `${letterSpacing}em`,
+            textDecoration,
+            textTransform: textTransform as React.CSSProperties["textTransform"],
+            padding: "4px 6px",
+            boxSizing: "border-box",
+            overflow: "hidden",
+          }}
+          placeholder="输入文字..."
+        />
+      ) : (
+        <div
+          style={{
+            width: "100%",
+            minHeight: nodeHeight,
+            fontFamily,
+            fontSize,
+            fontWeight,
+            color,
+            textAlign: textAlign as React.CSSProperties["textAlign"],
+            lineHeight,
+            letterSpacing: `${letterSpacing}em`,
+            textDecoration,
+            textTransform: textTransform as React.CSSProperties["textTransform"],
+            padding: "4px 6px",
+            boxSizing: "border-box",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            userSelect: "none",
+          }}
+        >
+          {textContent || <span style={{ opacity: 0.35 }}>双击编辑文字...</span>}
+        </div>
+      )}
+      <Handle type="target" position={Position.Top} id="top" style={{ opacity: 0 }} />
+      <Handle type="source" position={Position.Bottom} id="bottom" style={{ opacity: 0 }} />
+    </div>
   );
 }
 
@@ -1887,6 +2637,7 @@ const nodeTypes: NodeTypes = {
   shape: ShapeNodeComponent as unknown as NodeTypes["shape"],
   pen: PenNodeComponent as unknown as NodeTypes["pen"],
   freehand: FreehandNodeComponent as unknown as NodeTypes["freehand"],
+  text: TextNodeComponent as unknown as NodeTypes["text"],
 };
 const edgeTypes: EdgeTypes = {
   tapnow: TapnowEdge as unknown as EdgeTypes["tapnow"],
@@ -2243,6 +2994,7 @@ function GroupContainerOverlay({
   enteringGroupId,
   onContextMenu,
   onDoubleClick,
+  onDragMove,
   onDragEnd,
   onLabelDoubleClick,
 }: {
@@ -2252,6 +3004,7 @@ function GroupContainerOverlay({
   enteringGroupId: string | null;
   onContextMenu: (e: React.MouseEvent, groupId: string) => void;
   onDoubleClick: (groupId: string) => void;
+  onDragMove: (groupId: string, dx: number, dy: number) => void;
   onDragEnd: (groupId: string, dx: number, dy: number) => void;
   onLabelDoubleClick: (groupId: string) => void;
 }) {
@@ -2289,6 +3042,7 @@ function GroupContainerOverlay({
             enteringBg={enteringBg}
             onContextMenu={onContextMenu}
             onDoubleClick={onDoubleClick}
+            onDragMove={onDragMove}
             onDragEnd={onDragEnd}
             onLabelDoubleClick={onLabelDoubleClick}
           />
@@ -2302,19 +3056,20 @@ function GroupContainerOverlay({
 function GroupContainerCard({
   groupId, name, left, top, width, height, isEntering, isDark,
   containerBg, containerBorder, labelBg, enteringBorder, enteringBg,
-  onContextMenu, onDoubleClick, onDragEnd, onLabelDoubleClick,
+  onContextMenu, onDoubleClick, onDragMove, onDragEnd, onLabelDoubleClick,
 }: {
   groupId: string; name: string; left: number; top: number; width: number; height: number;
   isEntering: boolean; isDark: boolean;
   containerBg: string; containerBorder: string; labelBg: string; enteringBorder: string; enteringBg: string;
   onContextMenu: (e: React.MouseEvent, groupId: string) => void;
   onDoubleClick: (groupId: string) => void;
+  onDragMove: (groupId: string, dx: number, dy: number) => void;
   onDragEnd: (groupId: string, dx: number, dy: number) => void;
   onLabelDoubleClick: (groupId: string) => void;
 }) {
-  const dragRef = useRef<{ startX: number; startY: number; startLeft: number; startTop: number } | null>(null);
+  const dragRef = useRef<{ startX: number; startY: number; lastDx: number; lastDy: number } | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [offset, setOffset] = useState({ dx: 0, dy: 0 });
+  const rafRef = useRef<number | null>(null);
   const lastClickTime = useRef(0);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -2323,19 +3078,28 @@ function GroupContainerCard({
     const target = e.target as HTMLElement;
     if (target.closest("[data-group-label]")) return;
     e.stopPropagation();
-    dragRef.current = { startX: e.clientX, startY: e.clientY, startLeft: left, startTop: top };
+    dragRef.current = { startX: e.clientX, startY: e.clientY, lastDx: 0, lastDy: 0 };
     setDragging(true);
-    setOffset({ dx: 0, dy: 0 });
     const onMove = (ev: MouseEvent) => {
       if (!dragRef.current) return;
-      setOffset({ dx: ev.clientX - dragRef.current.startX, dy: ev.clientY - dragRef.current.startY });
+      const dx = ev.clientX - dragRef.current.startX;
+      const dy = ev.clientY - dragRef.current.startY;
+      // compute incremental delta since last move
+      const deltaDx = dx - dragRef.current.lastDx;
+      const deltaDy = dy - dragRef.current.lastDy;
+      dragRef.current.lastDx = dx;
+      dragRef.current.lastDy = dy;
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(() => {
+        onDragMove(groupId, deltaDx, deltaDy);
+      });
     };
     const onUp = (ev: MouseEvent) => {
       if (!dragRef.current) return;
       const dx = ev.clientX - dragRef.current.startX;
       const dy = ev.clientY - dragRef.current.startY;
+      if (rafRef.current !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
       setDragging(false);
-      setOffset({ dx: 0, dy: 0 });
       dragRef.current = null;
       if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
         onDragEnd(groupId, dx, dy);
@@ -2345,7 +3109,7 @@ function GroupContainerCard({
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [left, top, groupId, onDragEnd]);
+  }, [groupId, onDragMove, onDragEnd]);
 
   const handleClick = useCallback((e: React.MouseEvent) => {
     const now = Date.now();
@@ -2357,15 +3121,12 @@ function GroupContainerCard({
     lastClickTime.current = now;
   }, [groupId, onDoubleClick]);
 
-  const currentLeft = left + (dragging ? offset.dx : 0);
-  const currentTop = top + (dragging ? offset.dy : 0);
-
   return (
     <div
       className="absolute"
       style={{
-        left: currentLeft,
-        top: currentTop,
+        left,
+        top,
         width,
         height,
         background: isEntering ? enteringBg : containerBg,
@@ -4271,15 +5032,22 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   }, []);
 
   // ── Drag group container → move all nodes in group ──
-  const handleGroupContainerDragEnd = useCallback((groupId: string, dx: number, dy: number) => {
-    if (dx === 0 && dy === 0) return;
-    pushHistory();
+  // Called on every mousemove frame (incremental delta) — no history push to avoid spam
+  const handleGroupContainerDragMove = useCallback((groupId: string, deltaDx: number, deltaDy: number) => {
+    if (deltaDx === 0 && deltaDy === 0) return;
     setNodes(nds => nds.map(n => {
       const gid = (n.data as Record<string, unknown>).groupId as string | undefined;
       if (gid !== groupId) return n;
-      return { ...n, position: { x: n.position.x + dx / viewport.zoom, y: n.position.y + dy / viewport.zoom } };
+      return { ...n, position: { x: n.position.x + deltaDx / viewport.zoom, y: n.position.y + deltaDy / viewport.zoom } };
     }));
-  }, [pushHistory, setNodes, viewport.zoom]);
+  }, [setNodes, viewport.zoom]);
+
+  // Called once on mouseup — push history for undo support
+  const handleGroupContainerDragEnd = useCallback((groupId: string, _dx: number, _dy: number) => {
+    // Position already updated by DragMove; just push history snapshot
+    pushHistory();
+    void groupId; void _dx; void _dy;
+  }, [pushHistory]);
 
   // ── Click blank canvas → exit group if inside one, also close smart-optimize bar ──
   const handlePaneClick = useCallback((e: React.MouseEvent) => {
@@ -4313,7 +5081,35 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       uploadClickPosRef.current = { x: e.clientX, y: e.clientY };
       uploadInputRef.current?.click();
     }
-  }, [activeToolMode, editAsset, enteringGroupId, setNodes]);
+    // 文字工具：点击画布创建文字节点
+    if (activeToolMode === "text") {
+      const flowPos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      const id = `text-${Date.now()}`;
+      const newNode = {
+        id,
+        type: "text" as const,
+        position: { x: flowPos.x - 160, y: flowPos.y - 30 },
+        data: {
+          id,
+          text: "",
+          fontFamily: "Inter",
+          fontSize: 32,
+          fontWeight: 400,
+          color: isDark ? "#ffffff" : "#1a1a2e",
+          textAlign: "left",
+          lineHeight: 1.4,
+          letterSpacing: 0,
+          textDecoration: "none",
+          textTransform: "none",
+          width: 320,
+          height: 80,
+          isEditing: true,
+        },
+      };
+      pushHistory();
+      setNodes(nds => [...nds, newNode]);
+    }
+  }, [activeToolMode, editAsset, enteringGroupId, setNodes, screenToFlowPosition, isDark, pushHistory]);
 
   // ── 铅笔工具：鼠标事件处理 ──
   // 按下开始记录路径，拖拽收集点，松开完成节点
@@ -5107,7 +5903,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const isTyping = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
       if (isTyping) return;
       // 支持复制/删除/粘贴的节点类型
-      const deletableTypes = ["asset", "shape", "freehand", "pen", "canvasFrame"];
+      const deletableTypes = ["asset", "shape", "freehand", "pen", "canvasFrame", "text"];
       const selectedDeletableIds = selectedNodeIds.filter(id => nodes.some(n => n.id === id && deletableTypes.includes(n.type ?? "")));
       if ((e.key === "Delete" || e.key === "Backspace") && selectedDeletableIds.length > 0) {
         e.preventDefault();
@@ -5268,6 +6064,97 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   // Inject isEditing flag into the target node's data so AssetNodeComponent can show the mask
   const selectedImageNodeIds = selectedNodeIds.filter(id => nodes.some(n => n.id === id && n.type === "asset"));
   const multiImageSelectionActive = selectedImageNodeIds.length > 1;
+
+  // 文字节点选中状态
+  const selectedTextNodeIds = selectedNodeIds.filter(id => nodes.some(n => n.id === id && n.type === "text"));
+  const selectedTextNode = selectedTextNodeIds.length === 1 ? nodes.find(n => n.id === selectedTextNodeIds[0]) : null;
+  const selectedTextBounds = selectedTextNode ? getCanvasNodesBounds(nodes, [selectedTextNode.id]) : null;
+  const textToolbarPosition = selectedTextBounds
+    ? {
+        left: selectedTextBounds.centerX * viewport.zoom + viewport.x,
+        top: (selectedTextBounds.bottom * viewport.zoom + viewport.y) + 16,
+      }
+    : { left: 0, top: 0 };
+  const handleTextNodeUpdate = useCallback((patch: Record<string, unknown>) => {
+    if (!selectedTextNode) return;
+    setNodes(nds => nds.map(n => n.id === selectedTextNode.id ? { ...n, data: { ...n.data, ...patch } } : n));
+  }, [selectedTextNode, setNodes]);
+  const handleTextNodeDownload = useCallback(() => {
+    if (!selectedTextNode) return;
+    const nodeData = selectedTextNode.data as Record<string, unknown>;
+    const text = (nodeData.text as string) || "";
+    const fontFamily = (nodeData.fontFamily as string) || "Inter";
+    const fontSize = (nodeData.fontSize as number) || 32;
+    const fontWeight = (nodeData.fontWeight as number) || 400;
+    const color = (nodeData.color as string) || "#ffffff";
+    const textAlign = (nodeData.textAlign as string) || "left";
+    const lineHeight = (nodeData.lineHeight as number) || 1.4;
+    const letterSpacing = (nodeData.letterSpacing as number) || 0;
+    const textDecoration = (nodeData.textDecoration as string) || "none";
+    const textTransform = (nodeData.textTransform as string) || "none";
+    const nodeWidth = (nodeData.width as number) || 320;
+    const nodeHeight = (nodeData.height as number) || 80;
+    const padding = 12;
+    const canvasW = nodeWidth + padding * 2;
+    const canvasH = nodeHeight + padding * 2;
+    // 创建离屏 Canvas 用于 PNG 导出
+    const offscreen = document.createElement("canvas");
+    offscreen.width = canvasW * 2; offscreen.height = canvasH * 2;
+    const ctx2d = offscreen.getContext("2d");
+    if (!ctx2d) { toast("导出失败"); return; }
+    ctx2d.scale(2, 2);
+    ctx2d.clearRect(0, 0, canvasW, canvasH);
+    ctx2d.font = `${fontWeight} ${fontSize}px ${fontFamily}, sans-serif`;
+    ctx2d.fillStyle = color;
+    ctx2d.textBaseline = "top";
+    const lines = text.split("\n");
+    const lh = fontSize * lineHeight;
+    lines.forEach((line, i) => {
+      let x = padding;
+      if (textAlign === "center") x = canvasW / 2;
+      else if (textAlign === "right") x = canvasW - padding;
+      ctx2d.textAlign = textAlign as CanvasTextAlign;
+      if (letterSpacing !== 0) {
+        let cx = x;
+        for (const ch of line) {
+          ctx2d.fillText(ch, cx, padding + i * lh);
+          cx += ctx2d.measureText(ch).width + letterSpacing * fontSize;
+        }
+      } else {
+        ctx2d.fillText(line, x, padding + i * lh);
+      }
+      if (textDecoration === "underline") {
+        const tw = ctx2d.measureText(line).width;
+        const ux = textAlign === "center" ? x - tw/2 : textAlign === "right" ? x - tw : x;
+        ctx2d.fillRect(ux, padding + i * lh + fontSize + 2, tw, 1);
+      }
+    });
+    // PNG 下载
+    offscreen.toBlob(blob => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `artx-text-${Date.now()}.png`;
+      a.click(); URL.revokeObjectURL(url);
+    }, "image/png");
+    // SVG 下载
+    const escapedText = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const svgLines = lines.map((line, i) => {
+      const y = padding + i * (fontSize * lineHeight) + fontSize;
+      const x = textAlign === "center" ? canvasW/2 : textAlign === "right" ? canvasW - padding : padding;
+      const anchor = textAlign === "center" ? "middle" : textAlign === "right" ? "end" : "start";
+      const dec = textDecoration !== "none" ? ` text-decoration="${textDecoration}"` : "";
+      const transform2 = textTransform === "uppercase" ? line.toUpperCase() : textTransform === "lowercase" ? line.toLowerCase() : textTransform === "capitalize" ? line.replace(/(^|\s)\S/g, c => c.toUpperCase()) : line;
+      return `<text x="${x}" y="${y}" font-family="${fontFamily}, sans-serif" font-size="${fontSize}" font-weight="${fontWeight}" fill="${color}" text-anchor="${anchor}" letter-spacing="${letterSpacing * fontSize}"${dec}>${transform2.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</text>`;
+    }).join("\n");
+    const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" width="${canvasW}" height="${canvasH}" viewBox="0 0 ${canvasW} ${canvasH}">${svgLines}</svg>`;
+    const svgBlob = new Blob([svgStr], { type: "image/svg+xml" });
+    const svgUrl = URL.createObjectURL(svgBlob);
+    const b = document.createElement("a");
+    b.href = svgUrl; b.download = `artx-text-${Date.now()}.svg`;
+    b.click(); URL.revokeObjectURL(svgUrl);
+    toast("已下载 PNG 和 SVG", { description: "文字已导出为两种格式" });
+  }, [selectedTextNode]);
   const handleSingleImageToolbarAction = useCallback((action: string) => {
     const nodeId = selectedImageNodeIds[0];
     if (!nodeId) return;
@@ -5467,6 +6354,16 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         />
       )}
 
+      {selectedTextNode && (
+        <TextFloatingToolbar
+          isDark={isDark}
+          nodeData={selectedTextNode.data as Record<string, unknown>}
+          position={textToolbarPosition}
+          onUpdate={handleTextNodeUpdate}
+          onDownload={handleTextNodeDownload}
+        />
+      )}
+
       {multiImageSelectionActive && (
         <MultiSelectionFloatingToolbar
           isDark={isDark}
@@ -5484,6 +6381,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         enteringGroupId={enteringGroupId}
         onContextMenu={handleGroupContainerContextMenu}
         onDoubleClick={handleGroupContainerDoubleClick}
+        onDragMove={handleGroupContainerDragMove}
         onDragEnd={handleGroupContainerDragEnd}
         onLabelDoubleClick={handleGroupLabelDoubleClick}
       />
