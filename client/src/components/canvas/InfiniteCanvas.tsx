@@ -668,15 +668,20 @@ function TextFloatingToolbar({
   const fontWeight = (nodeData.fontWeight as number) || 400;
   const color = (nodeData.color as string) || "#ffffff";
   const textAlign = (nodeData.textAlign as string) || "left";
+  const strokeColor = (nodeData.strokeColor as string) || "";
+  const strokeWidth = (nodeData.strokeWidth as number) || 0;
 
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const [showStrokePicker, setShowStrokePicker] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showAlignMenu, setShowAlignMenu] = useState(false);
   const [showFontMenu, setShowFontMenu] = useState(false);
   const [showWeightMenu, setShowWeightMenu] = useState(false);
   const [fontSizeInput, setFontSizeInput] = useState(String(fontSize));
+  const [strokeWidthInput, setStrokeWidthInput] = useState(String(strokeWidth));
 
   useEffect(() => { setFontSizeInput(String(fontSize)); }, [fontSize]);
+  useEffect(() => { setStrokeWidthInput(String(strokeWidth)); }, [strokeWidth]);
 
   const weightLabel = FONT_WEIGHTS.find(w => w.value === fontWeight)?.label || "Regular";
 
@@ -706,6 +711,17 @@ function TextFloatingToolbar({
             color={isValidHexColor(color) ? color : "#000000"}
             onColorChange={c => onUpdate({ color: c })}
             onClose={() => setShowColorPicker(false)}
+            isDark={isDark}
+          />
+        </div>
+      )}
+      {showStrokePicker && (
+        <div style={{ position: "absolute", bottom: "calc(100% + 8px)", left: 36, zIndex: 2300 }}>
+          <ColorPickerPanel
+            title="描边颜色"
+            color={isValidHexColor(strokeColor) ? strokeColor : "#000000"}
+            onColorChange={c => onUpdate({ strokeColor: c, strokeWidth: strokeWidth > 0 ? strokeWidth : 1 })}
+            onClose={() => setShowStrokePicker(false)}
             isDark={isDark}
           />
         </div>
@@ -826,7 +842,7 @@ function TextFloatingToolbar({
         <button
           title="文字颜色"
           style={{ ...btnBase, width: 28, height: 28, padding: 0, position: "relative" }}
-          onClick={() => { setShowColorPicker(v => !v); setShowAdvanced(false); setShowAlignMenu(false); setShowFontMenu(false); setShowWeightMenu(false); }}
+          onClick={() => { setShowColorPicker(v => !v); setShowStrokePicker(false); setShowAdvanced(false); setShowAlignMenu(false); setShowFontMenu(false); setShowWeightMenu(false); }}
           onMouseEnter={e => (e.currentTarget.style.background = hover)}
           onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
         >
@@ -836,11 +852,47 @@ function TextFloatingToolbar({
             border: `2px solid ${isDark ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.2)"}`,
           }} />
         </button>
+        {/* 描边颜色圆点 */}
+        <button
+          title="描边颜色"
+          style={{ ...btnBase, width: 28, height: 28, padding: 0, position: "relative", marginLeft: 2 }}
+          onClick={() => { setShowStrokePicker(v => !v); setShowColorPicker(false); setShowAdvanced(false); setShowAlignMenu(false); setShowFontMenu(false); setShowWeightMenu(false); }}
+          onMouseEnter={e => (e.currentTarget.style.background = hover)}
+          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+        >
+          <div style={{
+            width: 20, height: 20, borderRadius: "50%",
+            background: isValidHexColor(strokeColor) ? strokeColor : "transparent",
+            border: `2px solid ${isValidHexColor(strokeColor) ? strokeColor : (isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.3)")}`,
+            backgroundImage: isValidHexColor(strokeColor) ? "none" : "repeating-conic-gradient(#ccc 0% 25%, #fff 0% 50%)",
+            backgroundSize: "8px 8px",
+          }} />
+        </button>
+        {/* 描边粗细输入 */}
+        <div style={{ display: "flex", alignItems: "center", gap: 2, padding: "0 4px" }}>
+          <input
+            type="number" min={0} max={40} step={0.5}
+            value={strokeWidthInput}
+            onChange={e => setStrokeWidthInput(e.target.value)}
+            onBlur={() => {
+              const v = parseFloat(strokeWidthInput);
+              if (!isNaN(v) && v >= 0 && v <= 40) onUpdate({ strokeWidth: v });
+              else setStrokeWidthInput(String(strokeWidth));
+            }}
+            onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
+            style={{
+              width: 36, background: inputBg, border: `1px solid ${divider}`,
+              borderRadius: 5, padding: "3px 5px", color: textC,
+              fontSize: 11, outline: "none", textAlign: "center",
+            }}
+          />
+          <span style={{ fontSize: 10, opacity: 0.45, flexShrink: 0 }}>px</span>
+        </div>
         <div style={{ width: 1, height: 20, background: divider, margin: "0 6px", flexShrink: 0 }} />
         <button
           title="字体"
           style={{ ...btnBase, padding: "0 8px", height: 32, gap: 4, fontSize: 12, minWidth: 100 }}
-          onClick={() => { setShowFontMenu(v => !v); setShowColorPicker(false); setShowAdvanced(false); setShowAlignMenu(false); setShowWeightMenu(false); }}
+          onClick={() => { setShowFontMenu(v => !v); setShowColorPicker(false); setShowStrokePicker(false); setShowAdvanced(false); setShowAlignMenu(false); setShowWeightMenu(false); }}
           onMouseEnter={e => (e.currentTarget.style.background = hover)}
           onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
         >
@@ -851,7 +903,7 @@ function TextFloatingToolbar({
         <button
           title="字重"
           style={{ ...btnBase, padding: "0 8px", height: 32, gap: 4, fontSize: 12, minWidth: 80 }}
-          onClick={() => { setShowWeightMenu(v => !v); setShowColorPicker(false); setShowAdvanced(false); setShowAlignMenu(false); setShowFontMenu(false); }}
+          onClick={() => { setShowWeightMenu(v => !v); setShowColorPicker(false); setShowStrokePicker(false); setShowAdvanced(false); setShowAlignMenu(false); setShowFontMenu(false); }}
           onMouseEnter={e => (e.currentTarget.style.background = hover)}
           onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
         >
@@ -882,7 +934,7 @@ function TextFloatingToolbar({
         <button
           title="对齐方式"
           style={{ ...btnBase, padding: "0 8px", height: 32, gap: 4 }}
-          onClick={() => { setShowAlignMenu(v => !v); setShowColorPicker(false); setShowAdvanced(false); setShowFontMenu(false); setShowWeightMenu(false); }}
+          onClick={() => { setShowAlignMenu(v => !v); setShowColorPicker(false); setShowStrokePicker(false); setShowAdvanced(false); setShowFontMenu(false); setShowWeightMenu(false); }}
           onMouseEnter={e => (e.currentTarget.style.background = hover)}
           onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
         >
@@ -897,7 +949,7 @@ function TextFloatingToolbar({
             background: showAdvanced ? activeBg : "transparent",
             color: showAdvanced ? activeColor : textC,
           }}
-          onClick={() => { setShowAdvanced(v => !v); setShowColorPicker(false); setShowAlignMenu(false); setShowFontMenu(false); setShowWeightMenu(false); }}
+          onClick={() => { setShowAdvanced(v => !v); setShowColorPicker(false); setShowStrokePicker(false); setShowAlignMenu(false); setShowFontMenu(false); setShowWeightMenu(false); }}
           onMouseEnter={e => { if (!showAdvanced) (e.currentTarget as HTMLElement).style.background = hover; }}
           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = showAdvanced ? activeBg : "transparent"; }}
         >
@@ -1743,11 +1795,27 @@ function TextNodeComponent({ data, selected, id }: { data: Record<string, unknow
   const nodeWidth = (data.width as number) || 320;
   const nodeHeight = (data.height as number) || 120;
   const isEditing = (data.isEditing as boolean) || false;
+  const strokeColorVal = (data.strokeColor as string) || "";
+  const strokeWidthVal = (data.strokeWidth as number) || 0;
+  const [isHovered, setIsHovered] = useState(false);
+
+  // 描边效果：用 text-shadow 模拟文字描边
+  const textStrokeShadow = (strokeWidthVal > 0 && isValidHexColor(strokeColorVal))
+    ? Array.from({ length: 8 }, (_, i) => {
+        const angle = (i / 8) * Math.PI * 2;
+        const dx = Math.round(Math.cos(angle) * strokeWidthVal * 10) / 10;
+        const dy = Math.round(Math.sin(angle) * strokeWidthVal * 10) / 10;
+        return `${dx}px ${dy}px 0 ${strokeColorVal}`;
+      }).join(", ")
+    : undefined;
 
   const selBorder = selected ? "oklch(0.65 0.22 290)" : "transparent";
   const selShadow = selected
     ? "0 0 0 2px oklch(0.65 0.22 290 / 0.72), 0 0 0 6px oklch(0.65 0.22 290 / 0.18)"
     : "none";
+  // hover 时显示灰色外选框（未选中状态下）
+  const hoverBorder = (!selected && isHovered) ? "rgba(160,160,180,0.55)" : "transparent";
+  const hoverShadow = (!selected && isHovered) ? "0 0 0 1.5px rgba(160,160,180,0.45)" : "none";
 
   const handleNodeCtxMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -1778,13 +1846,15 @@ function TextNodeComponent({ data, selected, id }: { data: Record<string, unknow
         width: nodeWidth,
         minHeight: nodeHeight,
         position: "relative",
-        border: `2px solid ${selBorder}`,
-        boxShadow: selShadow,
+        border: `2px solid ${selected ? selBorder : hoverBorder}`,
+        boxShadow: selected ? selShadow : hoverShadow,
         borderRadius: 4,
         transition: "border-color 0.15s, box-shadow 0.15s",
         cursor: isEditing ? "text" : "move",
         pointerEvents: "all",
       }}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
       onContextMenu={handleNodeCtxMenu}
       onDoubleClick={handleDoubleClick}
     >
@@ -1813,6 +1883,7 @@ function TextNodeComponent({ data, selected, id }: { data: Record<string, unknow
             letterSpacing: `${letterSpacing}em`,
             textDecoration,
             textTransform: textTransform as React.CSSProperties["textTransform"],
+            textShadow: textStrokeShadow,
             padding: "4px 6px",
             boxSizing: "border-box",
             overflow: "hidden",
@@ -1833,6 +1904,7 @@ function TextNodeComponent({ data, selected, id }: { data: Record<string, unknow
             letterSpacing: `${letterSpacing}em`,
             textDecoration,
             textTransform: textTransform as React.CSSProperties["textTransform"],
+            textShadow: textStrokeShadow,
             padding: "4px 6px",
             boxSizing: "border-box",
             whiteSpace: "pre-wrap",
@@ -5081,7 +5153,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       uploadClickPosRef.current = { x: e.clientX, y: e.clientY };
       uploadInputRef.current?.click();
     }
-    // 文字工具：点击画布创建文字节点
+    // 文字工具：点击画布创建文字节点，创建后自动切换回移动工具
     if (activeToolMode === "text") {
       const flowPos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
       const id = `text-${Date.now()}`;
@@ -5101,6 +5173,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           letterSpacing: 0,
           textDecoration: "none",
           textTransform: "none",
+          strokeColor: "",
+          strokeWidth: 0,
           width: 320,
           height: 80,
           isEditing: true,
@@ -5108,6 +5182,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       };
       pushHistory();
       setNodes(nds => [...nds, newNode]);
+      // 创建完成后自动切换回移动工具
+      window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
     }
   }, [activeToolMode, editAsset, enteringGroupId, setNodes, screenToFlowPosition, isDark, pushHistory]);
 
