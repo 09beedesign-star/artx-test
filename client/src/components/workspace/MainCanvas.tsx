@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { INITIAL_MESSAGES, GENERATED_ASSETS, PROJECTS } from "@/lib/workspace-data";
 import type { ChatMessage, GeneratedAsset, AgentStep } from "@/lib/workspace-data";
+import { callLLM } from "@/lib/ai";
 
 const SUGGESTIONS = [
   "为品牌设计 Logo 套件",
@@ -66,25 +67,32 @@ export default function MainCanvas({ projectId = "p1" }: MainCanvasProps) {
     };
     setMessages((prev) => [...prev, aiMsg]);
 
-    await delay(900);
-    updateStep(aiMsg.id, "s1", "done", "s2", "running");
-    await delay(800);
-    updateStep(aiMsg.id, "s2", "done", "s3", "running");
-    await delay(1000);
-    updateStep(aiMsg.id, "s3", "done");
-
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === aiMsg.id
-          ? {
-              ...m,
-              content: "已根据您的需求完成创意资产生成。以下是生成的视觉资产，您可以点击查看详情或下载使用。",
-              assets: [GENERATED_ASSETS[0], GENERATED_ASSETS[1]],
-            }
-          : m
-      )
-    );
-    setIsGenerating(false);
+    try {
+      updateStep(aiMsg.id, "s1", "done", "s2", "running");
+      const result = await callLLM({
+        module: "workspace-chat-generation",
+        prompt: `请作为工作区对话生成助手，分析用户需求并给出视觉创作方案：${userMsg.content}`,
+      });
+      updateStep(aiMsg.id, "s2", "done", "s3", "running");
+      updateStep(aiMsg.id, "s3", "done");
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === aiMsg.id
+            ? {
+                ...m,
+                content: result.text,
+                assets: [GENERATED_ASSETS[0], GENERATED_ASSETS[1]],
+              }
+            : m
+        )
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "请稍后重试";
+      toast("工作区 AI 生成失败", { description: message });
+      setMessages((prev) => prev.filter((m) => m.id !== aiMsg.id));
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   function updateStep(msgId: string, doneId: string, doneStatus: "done", nextId?: string, nextStatus?: "running") {
@@ -541,8 +549,4 @@ function GalleryView({ assets }: { assets: GeneratedAsset[] }) {
       )}
     </div>
   );
-}
-
-function delay(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

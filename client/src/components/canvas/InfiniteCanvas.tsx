@@ -72,6 +72,7 @@ import { saveAs } from "file-saver";
 import { GENERATED_ASSETS, AI_MODELS, PROJECTS, type GeneratedAsset, type Project } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { callLLM } from "@/lib/ai";
 
 const ENABLE_NODE_CONNECTIONS = false;
 
@@ -1286,7 +1287,7 @@ function AssetPromptPanel({ isDark, assetSrc, onExpand }: {
   isDark: boolean; assetSrc: string; onExpand: () => void;
 }) {
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState("flux-pro");
+  const [model, setModel] = useState("gpt-4o");
   const panelBg = isDark ? "rgba(22,22,30,0.97)" : "rgba(240,240,248,0.97)";
   const panelBorder = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const textColor = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.20 0.008 270)";
@@ -2157,6 +2158,7 @@ function PromptNodeComponent({ data, selected }: { data: Record<string, unknown>
   const isDark = resolvedTheme === "dark";
   const [model, setModel] = useState("flux-pro");
   const [prompt, setPrompt] = useState((data.prompt as string) || "");
+  const [isGenerating, setIsGenerating] = useState(false);
   const { deleteElements } = useReactFlow();
   const nodeId = (data as { id?: string }).id || "";
 
@@ -2191,10 +2193,27 @@ function PromptNodeComponent({ data, selected }: { data: Record<string, unknown>
           placeholder="输入提示词..." rows={4} onClick={e => e.stopPropagation()} />
       </div>
       <div className="px-3 pb-3 nodrag nopan">
-        <button className="w-full py-1.5 rounded-[var(--radius-md-design)] type-caption flex items-center justify-center gap-1.5 transition-opacity hover:opacity-90"
+        <button className="w-full py-1.5 rounded-[var(--radius-md-design)] type-caption flex items-center justify-center gap-1.5 transition-opacity hover:opacity-90 disabled:opacity-60"
           style={{ background: "oklch(0.58 0.22 290)", color: "white" }}
-          onClick={() => toast("开始生成", { description: prompt.slice(0, 40) + "…" })}>
-          <Sparkles size={11} />生成
+          disabled={!prompt.trim() || isGenerating}
+          onClick={async () => {
+            if (!prompt.trim() || isGenerating) return;
+            setIsGenerating(true);
+            try {
+              const result = await callLLM({
+                module: "prompt-node-generation",
+                model,
+                prompt: `请根据这个 Prompt 节点内容生成可执行的视觉创作说明和高质量提示词：${prompt}`,
+              });
+              toast("Prompt 节点已生成", { description: result.text.slice(0, 90) });
+            } catch (error) {
+              const message = error instanceof Error ? error.message : "请稍后重试";
+              toast("Prompt 节点生成失败", { description: message });
+            } finally {
+              setIsGenerating(false);
+            }
+          }}>
+          {isGenerating ? <RefreshCw size={11} className="animate-spin" /> : <Sparkles size={11} />}{isGenerating ? "生成中" : "生成"}
         </button>
       </div>
     </NodeWrapper>
@@ -3147,6 +3166,7 @@ type ImageGeneratorPayload = {
   count: number;
   style: string;
   referencesEnabled: boolean;
+  images?: Array<{ src: string; width: number; height: number }>;
 };
 
 // ── Initial data ───────────────────────────────────────────────
@@ -3261,6 +3281,7 @@ function BottomPromptBar({
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState("gpt-4o");
   const [rows, setRows] = useState(1);
+  const [isSending, setIsSending] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const hasRefs = referencedAssets.length > 0;
   const bg = isDark ? "rgba(22,22,30,0.80)" : "rgba(255,255,255,0.82)";
@@ -3278,13 +3299,31 @@ function BottomPromptBar({
     if (hasRefs) setTimeout(() => textareaRef.current?.focus(), 60);
   }, [hasRefs]);
 
-  const handleSend = () => {
-    if (prompt.trim() || hasRefs) {
+  const handleSend = async () => {
+    if ((prompt.trim() || hasRefs) && !isSending) {
+      const submittedPrompt = prompt.trim();
       const refPart = referencedAssets.map(a => `[引用: ${a.title}]`).join(" ");
-      toast("AI 正在生成节点", { description: ((refPart ? refPart + " " : "") + prompt).slice(0, 80) });
+      setIsSending(true);
       setPrompt("");
       setRows(1);
       onClearAllReferences();
+      try {
+        const result = await callLLM({
+          module: "bottom-global-prompt",
+          model,
+          prompt: [
+            "请根据用户的全局画布提示词，生成一份可执行的画布节点规划。",
+            refPart ? `引用素材：${refPart}` : "",
+            `用户输入：${submittedPrompt || "请基于引用素材继续创作。"}`,
+          ].filter(Boolean).join("\n"),
+        });
+        toast("AI 已生成画布规划", { description: result.text.slice(0, 90) });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "请稍后重试";
+        toast("全局提示词处理失败", { description: message });
+      } finally {
+        setIsSending(false);
+      }
     }
   };
 
@@ -3385,14 +3424,15 @@ function BottomPromptBar({
         </button>
         <div className="flex-1" />
         <span className="type-caption" style={{ color: isDark ? "oklch(0.38 0.008 270)" : "oklch(0.62 0.008 270)" }}>
-          {hasRefs ? `Ctrl+单击 多选 · ` : ""}回车发送
+          {isSending ? "AI 处理中" : `${hasRefs ? "Ctrl+单击 多选 · " : ""}回车发送`}
         </span>
         <button
           onClick={handleSend}
+          disabled={isSending}
           className="w-7 h-7 rounded-[var(--radius-md-design)] flex items-center justify-center hover:opacity-80"
           style={{ background: hasContent ? "oklch(0.58 0.22 290)" : (isDark ? "oklch(0.22 0.015 270)" : "oklch(0.88 0.005 270)") }}
         >
-          <Send size={13} color={hasContent ? "white" : (isDark ? "oklch(0.40 0.01 270)" : "oklch(0.65 0.01 270)")} />
+          {isSending ? <RefreshCw size={13} color="white" className="animate-spin" /> : <Send size={13} color={hasContent ? "white" : (isDark ? "oklch(0.40 0.01 270)" : "oklch(0.65 0.01 270)")} />}
         </button>
       </div>
     </div>
@@ -4182,7 +4222,7 @@ function TopLeftToolbar({ isDark, onAdd }: { isDark: boolean; onAdd: (type: stri
 
 function ImageGeneratorPopover({ isDark, onClose }: { isDark: boolean; onClose: () => void }) {
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState("flux-pro");
+  const [model, setModel] = useState("gpt-image-2");
   const [modelOpen, setModelOpen] = useState(false);
   const [ratio, setRatio] = useState("1:1");
   const [count, setCount] = useState(2);
@@ -4226,19 +4266,30 @@ function ImageGeneratorPopover({ isDark, onClose }: { isDark: boolean; onClose: 
     transition: "background 0.16s ease, border-color 0.16s ease, transform 0.16s ease",
   });
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     if (!canGenerate) {
       toast("请输入图像生成提示词");
       return;
     }
     setIsGenerating(true);
     const payload: ImageGeneratorPayload = { prompt, model, ratio, count, style, referencesEnabled };
-    window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: payload }));
-    window.setTimeout(() => {
+    try {
+      const response = await fetch("/api/images/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "图像生成失败");
+      window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, images: result.images } }));
       setIsGenerating(false);
       setPrompt("");
       onClose();
-    }, 850);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "请稍后重试";
+      toast("图像生成失败", { description: message });
+      setIsGenerating(false);
+    }
   };
 
   return (
@@ -4753,7 +4804,7 @@ function CanvasAssistantPanel({ isDark, collapsed, isAuthenticated, onToggleColl
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [commandMenuOpen, setCommandMenuOpen] = useState(false);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
-  const [assistantModelId, setAssistantModelId] = useState(AI_MODELS[0]?.id ?? "gpt-4o");
+  const [assistantModelId, setAssistantModelId] = useState("gpt-4o");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [messages, setMessages] = useState<Array<{ id: string; role: "user" | "assistant"; content: string; timestamp: Date }>>([
     { id: "assistant-seed-1", role: "assistant", content: "选择图片节点后，可在左侧画布直接进行智能优化。", timestamp: new Date(Date.now() - 120000) },
@@ -4779,13 +4830,45 @@ function CanvasAssistantPanel({ isDark, collapsed, isAuthenticated, onToggleColl
   const hasContext = selectedCount > 0 || referencedAssets.length > 0;
   const canSubmit = (hasPrompt || hasContext) && !isSubmitting;
   const contextLabel = selectedCount > 1 ? `group (${selectedCount})` : selectedCount === 1 ? "selection (1)" : referencedAssets.length > 0 ? `refs (${referencedAssets.length})` : "";
+  const assistantModel = AI_MODELS.find(model => model.id === assistantModelId) || AI_MODELS[0];
+  const runAssistantCapability = async (module: string, instruction: string) => {
+    if (isSubmitting) return;
+    const userMessage = {
+      id: `user-${Date.now()}`,
+      role: "user" as const,
+      content: instruction,
+      timestamp: new Date(),
+    };
+    setMessages(prev => [...prev, userMessage]);
+    setIsSubmitting(true);
+    try {
+      const result = await callLLM({
+        module,
+        model: assistantModel.id,
+        messages: [
+          ...messages.slice(-8).map(message => ({ role: message.role, content: message.content })),
+          { role: "user", content: instruction },
+        ],
+      });
+      setMessages(prev => [...prev, {
+        id: `assistant-${Date.now()}`,
+        role: "assistant",
+        content: result.text,
+        timestamp: new Date(),
+      }]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "请稍后重试";
+      toast("AI 助手请求失败", { description: message });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
   const commandItems = [
     { label: "添加素材", description: "上传图片、文件或参考内容", icon: <Plus size={13} />, onClick: () => toast("添加素材", { description: "可把图片拖入画布或选择已有素材作为引用" }) },
     { label: "资源库", description: "打开参考、组件与历史素材", icon: <FileText size={13} />, onClick: () => toast("资源库", { description: "资源入口已承载到黑色输入框" }) },
-    { label: "灵感建议", description: "生成可执行的画布想法", icon: <Sparkles size={13} />, onClick: () => toast("灵感建议", { description: "可根据当前画布补全提示词" }) },
-    { label: "对象能力", description: "操作选中对象、分组和组件", icon: <Box size={13} />, onClick: () => toast("对象能力", { description: selectedCount > 0 ? `当前选中 ${selectedCount} 个对象` : "先选择画布对象以启用更多操作" }) },
+    { label: "灵感建议", description: "生成可执行的画布想法", icon: <Sparkles size={13} />, onClick: () => runAssistantCapability("inspiration-suggestions", `请基于当前画布上下文生成 5 条下一步创作灵感。上下文：${contextLabel || "当前画布"}`) },
+    { label: "对象能力", description: "操作选中对象、分组和组件", icon: <Box size={13} />, onClick: () => runAssistantCapability("object-capabilities", `请分析当前选中对象并给出可执行操作建议。选中上下文：${contextLabel || "未选择对象"}`) },
   ];
-  const assistantModel = AI_MODELS.find(model => model.id === assistantModelId) || AI_MODELS[0];
 
   useEffect(() => {
     if (helpPromptNonce <= 0 || collapsed) return;
@@ -4811,7 +4894,7 @@ function CanvasAssistantPanel({ isDark, collapsed, isAuthenticated, onToggleColl
     transition: "background 0.16s ease, color 0.16s ease, transform 0.16s ease",
   });
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!hasPrompt && !hasContext) {
       toast("请输入画布想法或选择对象");
       return;
@@ -4827,15 +4910,27 @@ function CanvasAssistantPanel({ isDark, collapsed, isAuthenticated, onToggleColl
     setPrompt("");
     setIsSubmitting(true);
     const context = contextLabel || "当前画布";
-    window.setTimeout(() => {
+    try {
+      const result = await callLLM({
+        module: "right-ai-assistant",
+        model: assistantModel.id,
+        messages: [
+          ...messages.slice(-8).map(message => ({ role: message.role, content: message.content })),
+          { role: "user", content: `上下文：${context}\n用户请求：${submittedText}` },
+        ],
+      });
       setMessages(prev => [...prev, {
         id: `assistant-${Date.now()}`,
         role: "assistant",
-        content: `${assistantModel.label} 已收到。接下来我会围绕「${context}」处理：${submittedText}`,
+        content: result.text,
         timestamp: new Date(),
       }]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "请稍后重试";
+      toast("AI 助手请求失败", { description: message });
+    } finally {
       setIsSubmitting(false);
-    }, 850);
+    }
   };
 
   return (
@@ -5110,10 +5205,10 @@ function CanvasAssistantPanel({ isDark, collapsed, isAuthenticated, onToggleColl
                   <button type="button" style={iconButtonStyle()} className="hover:scale-105 active:scale-95" title="资源库" aria-label="资源库" onClick={() => toast("资源库", { description: "白色版本的书本入口已合并到命令体系" })}>
                     <FileText size={15} />
                   </button>
-                  <button type="button" style={iconButtonStyle()} className="hover:scale-105 active:scale-95" title="灵感建议" aria-label="灵感建议" onClick={() => toast("灵感建议", { description: "根据当前画布生成下一步建议" })}>
+                  <button type="button" style={iconButtonStyle()} className="hover:scale-105 active:scale-95" title="灵感建议" aria-label="灵感建议" onClick={() => runAssistantCapability("inspiration-suggestions", `请基于当前画布上下文生成 5 条下一步创作灵感。上下文：${contextLabel || "当前画布"}`)}>
                     <Sparkles size={15} />
                   </button>
-                  <button type="button" style={iconButtonStyle(selectedCount > 0)} className="hover:scale-105 active:scale-95" title="对象能力" aria-label="对象能力" onClick={() => toast("对象能力", { description: selectedCount > 0 ? `已链接 ${selectedCount} 个选中对象` : "选择对象后可执行对象级命令" })}>
+                  <button type="button" style={iconButtonStyle(selectedCount > 0)} className="hover:scale-105 active:scale-95" title="对象能力" aria-label="对象能力" onClick={() => runAssistantCapability("object-capabilities", `请分析当前选中对象并给出可执行操作建议。选中上下文：${contextLabel || "未选择对象"}`)}>
                     <Box size={15} />
                   </button>
                   <button
@@ -6125,30 +6220,43 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const center = rect
         ? screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
         : { x: 120, y: 80 };
-      const generatedAsset = GENERATED_ASSETS[Math.abs(detail.prompt.length + detail.count) % GENERATED_ASSETS.length];
       const ratioSize: Record<string, { w: number; h: number }> = {
         "1:1": { w: 260, h: 260 },
         "4:5": { w: 240, h: 300 },
         "16:9": { w: 320, h: 180 },
       };
       const size = ratioSize[detail.ratio] || ratioSize["1:1"];
-      const id = `generated-${Date.now()}`;
+      const images = detail.images?.length
+        ? detail.images
+        : [GENERATED_ASSETS[Math.abs(detail.prompt.length + detail.count) % GENERATED_ASSETS.length]].map(asset => ({
+            src: asset.src,
+            width: asset.width,
+            height: asset.height,
+          }));
       setNodes(nds => {
         pushHistory(nds, edgesRef.current);
-        return [...nds, {
-          id,
-          type: "asset",
-          position: { x: center.x - size.w / 2, y: center.y - size.h / 2 },
-          data: {
+        const generatedNodes = images.map((image, index) => {
+          const id = `generated-${Date.now()}-${index}`;
+          return {
             id,
-            assetId: generatedAsset.id,
-            title: `生成图像 · ${detail.style}`,
-            assetType: "AI 生成",
-            tags: [detail.model, detail.ratio, `${detail.count}张`, detail.referencesEnabled ? "参考画布" : "无参考"],
-            imgW: size.w,
-            imgH: size.h,
-          },
-        }];
+            type: "asset" as const,
+            position: {
+              x: center.x - size.w / 2 + index * (size.w + 24),
+              y: center.y - size.h / 2,
+            },
+            data: {
+              id,
+              assetId: "default",
+              localSrc: image.src,
+              title: `生成图像 · ${detail.style}${images.length > 1 ? ` ${index + 1}` : ""}`,
+              assetType: "AI 生成",
+              tags: [detail.model, detail.ratio, `${images.length}张`, detail.referencesEnabled ? "参考画布" : "无参考"],
+              imgW: size.w,
+              imgH: size.h,
+            },
+          };
+        });
+        return [...nds, ...generatedNodes];
       });
       toast("图像已生成到画布", { description: detail.prompt.slice(0, 58) });
       window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));

@@ -15,6 +15,7 @@ import type { CanvasNode } from "@/hooks/useCanvas";
 import { GENERATED_ASSETS } from "@/lib/workspace-data";
 import type { ChatMessage, AgentStep } from "@/lib/workspace-data";
 import { AI_MODELS } from "@/lib/workspace-data";
+import { callLLM } from "@/lib/ai";
 
 // ── Model Switcher (shared bottom toolbar) ────────────────────
 
@@ -146,7 +147,7 @@ export function NodeWrapper({
 
 export function AssetNode({ node, isSelected, onDragStart, onSelect, onRemove }: Omit<NodeWrapperProps, "children" | "className" | "fullDrag">) {
   const asset = GENERATED_ASSETS.find((a) => a.id === (node.data.assetId as string)) || GENERATED_ASSETS[0];
-  const [modelId, setModelId] = useState("flux-pro");
+  const [modelId, setModelId] = useState("gpt-4o");
 
   const typeColor: Record<string, string> = { image: "oklch(0.78 0.18 290)", video: "oklch(0.72 0.18 200)", brand: "oklch(0.78 0.18 60)", poster: "oklch(0.80 0.18 330)" };
   const typeLabel: Record<string, string> = { image: "图片", video: "视频", brand: "品牌", poster: "海报" };
@@ -247,11 +248,24 @@ export function ChatNode({ node, isSelected, onDragStart, onSelect, onRemove }: 
     const aiMsg: ChatMessage = { id: `c${Date.now() + 1}`, role: "assistant", content: "", steps, timestamp: new Date() };
     setMessages((p) => [...p, aiMsg]);
 
-    await new Promise((r) => setTimeout(r, 900));
-    setMessages((p) => p.map((m) => m.id === aiMsg.id ? { ...m, steps: m.steps?.map((s) => s.id === "s1" ? { ...s, status: "done" as const } : s.id === "s2" ? { ...s, status: "running" as const } : s) } : m));
-    await new Promise((r) => setTimeout(r, 1000));
-    setMessages((p) => p.map((m) => m.id === aiMsg.id ? { ...m, content: "已根据您的需求完成创意资产生成，请查看画布上的素材节点。", steps: m.steps?.map((s) => ({ ...s, status: "done" as const })) } : m));
-    setIsGenerating(false);
+    try {
+      setMessages((p) => p.map((m) => m.id === aiMsg.id ? { ...m, steps: m.steps?.map((s) => s.id === "s1" ? { ...s, status: "done" as const } : s.id === "s2" ? { ...s, status: "running" as const } : s) } : m));
+      const result = await callLLM({
+        module: "chat-node",
+        model: modelId,
+        messages: [
+          ...messages.slice(-6).map((message) => ({ role: message.role, content: message.content })),
+          { role: "user", content: input.trim() },
+        ],
+      });
+      setMessages((p) => p.map((m) => m.id === aiMsg.id ? { ...m, content: result.text, steps: m.steps?.map((s) => ({ ...s, status: "done" as const })) } : m));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "请稍后重试";
+      toast("Chat 节点请求失败", { description: message });
+      setMessages((p) => p.filter((m) => m.id !== aiMsg.id));
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   return (
@@ -368,6 +382,7 @@ export function PromptNode({
 }: Omit<NodeWrapperProps, "children" | "className" | "fullDrag"> & { onGenerate?: (prompt: string) => void }) {
   const [prompt, setPrompt] = useState((node.data.prompt as string) || "");
   const [modelId, setModelId] = useState("flux-pro");
+  const [isGenerating, setIsGenerating] = useState(false);
 
   return (
     <NodeWrapper node={node} isSelected={isSelected} onDragStart={onDragStart} onSelect={onSelect} onRemove={onRemove} minWidth={280} fullDrag={false}>
@@ -403,11 +418,32 @@ export function PromptNode({
             <Paperclip size={13} style={{ color: "oklch(0.50 0.01 270)" }} />
           </button>
           <div className="flex-1" />
-          <button onClick={(e) => { e.stopPropagation(); onGenerate?.(prompt); }} disabled={!prompt.trim()}
+          <button onClick={async (e) => {
+              e.stopPropagation();
+              if (!prompt.trim() || isGenerating) return;
+              if (onGenerate) {
+                onGenerate(prompt);
+                return;
+              }
+              setIsGenerating(true);
+              try {
+                const result = await callLLM({
+                  module: "prompt-node-generation",
+                  model: modelId,
+                  prompt: `请根据这个 Prompt 节点内容生成可执行的视觉创作说明和高质量提示词：${prompt}`,
+                });
+                toast("Prompt 节点已生成", { description: result.text.slice(0, 90) });
+              } catch (error) {
+                const message = error instanceof Error ? error.message : "请稍后重试";
+                toast("Prompt 节点生成失败", { description: message });
+              } finally {
+                setIsGenerating(false);
+              }
+            }} disabled={!prompt.trim() || isGenerating}
             className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-[12px] font-semibold disabled:opacity-40 transition-all"
             style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))", color: "white" }}>
-            <Sparkles size={12} />
-            生成
+            {isGenerating ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+            {isGenerating ? "生成中" : "生成"}
           </button>
         </div>
 
