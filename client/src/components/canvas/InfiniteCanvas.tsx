@@ -1727,12 +1727,15 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const isGeneratingImage = Boolean((data as { isGeneratingImage?: boolean }).isGeneratingImage);
   const isRemovingBackground = Boolean((data as { isRemovingBackground?: boolean }).isRemovingBackground);
   const isErasingImage = Boolean((data as { isErasingImage?: boolean }).isErasingImage);
+  const isExtractingText = Boolean((data as { isExtractingText?: boolean }).isExtractingText);
   const isAiProcessingImage = isGeneratingImage || isRemovingBackground || isErasingImage;
   const processingLabel = isErasingImage ? "AI 擦除中" : isRemovingBackground ? "AI 去背景中" : "AI 生成中";
   const displaySrc = isAiProcessingImage ? "" : (localSrc || asset.src);
   const isEditing = !!(data as { isEditing?: boolean }).isEditing;
   const isCropping = !!(data as { isCropping?: boolean }).isCropping;
   const isErasing = !!(data as { isErasing?: boolean }).isErasing;
+  const extractedText = ((data as { extractedText?: string }).extractedText || "") as string;
+  const extractedTextPanelOpen = Boolean((data as { extractedTextPanelOpen?: boolean }).extractedTextPanelOpen);
   const [eraseBrushSize, setEraseBrushSize] = useState<number>(Number((data as { eraseBrushSize?: number }).eraseBrushSize) || 42);
   const eraseCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const eraseMaskCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -2113,6 +2116,16 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     window.dispatchEvent(new CustomEvent("asset-erase-cancel", { detail: { nodeId } }));
   }, [nodeId]);
 
+  const closeExtractedTextPanel = useCallback((event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setFlowNodes(nds => nds.map(n =>
+      n.id === nodeId && n.type === "asset"
+        ? { ...n, data: { ...(n.data as Record<string, unknown>), extractedTextPanelOpen: false, isExtractingText: false } }
+        : n
+    ));
+  }, [nodeId, setFlowNodes]);
+
   return (
     <>
       <div
@@ -2305,6 +2318,75 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
             <div className="absolute inset-0 pointer-events-none" style={{ background: "rgba(0,0,0,0.15)" }} />
           )}
         </div>
+        {extractedTextPanelOpen && (
+          <div
+            className="absolute nodrag nopan shadow-2xl"
+            style={{
+              left: dispW + 14,
+              top: 0,
+              width: 292,
+              maxHeight: Math.max(180, Math.min(420, dispH)),
+              borderRadius: 8,
+              overflow: "hidden",
+              background: isDark ? "rgba(20,20,30,0.96)" : "rgba(255,255,255,0.98)",
+              border: `1px solid ${isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.12)"}`,
+              color: isDark ? "rgba(255,255,255,0.88)" : "rgba(28,28,40,0.88)",
+              backdropFilter: "blur(16px)",
+              zIndex: 110,
+              pointerEvents: "all",
+            }}
+            onMouseDown={event => event.stopPropagation()}
+            onClick={event => event.stopPropagation()}
+          >
+            <div
+              className="flex items-center justify-between gap-2 px-3 py-2"
+              style={{ borderBottom: `1px solid ${isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)"}` }}
+            >
+              <div className="flex items-center gap-2">
+                {isExtractingText ? <RefreshCw size={13} className="animate-spin" /> : <Type size={13} />}
+                <span className="type-caption" style={{ fontWeight: 700 }}>画面文案</span>
+              </div>
+              <button
+                type="button"
+                aria-label="关闭文案窗口"
+                className="flex items-center justify-center rounded-[var(--radius-md-design)] transition-colors"
+                style={{
+                  width: 24,
+                  height: 24,
+                  color: isDark ? "rgba(255,255,255,0.68)" : "rgba(28,28,40,0.62)",
+                  background: "transparent",
+                }}
+                onClick={closeExtractedTextPanel}
+              >
+                <X size={14} />
+              </button>
+            </div>
+            <textarea
+              readOnly
+              value={isExtractingText ? "正在计算画面中的文案..." : extractedText}
+              aria-label="提取出的画面文案"
+              className="w-full nodrag nopan"
+              style={{
+                minHeight: 138,
+                maxHeight: Math.max(128, Math.min(364, dispH - 44)),
+                padding: 12,
+                resize: "none",
+                outline: "none",
+                border: "none",
+                background: "transparent",
+                color: "inherit",
+                fontSize: 13,
+                lineHeight: 1.55,
+                whiteSpace: "pre-wrap",
+                userSelect: "text",
+                cursor: "text",
+              }}
+              onMouseDown={event => event.stopPropagation()}
+              onClick={event => event.stopPropagation()}
+              onKeyDown={event => event.stopPropagation()}
+            />
+          </div>
+        )}
         {/* 四角缩放锚点：固定 6px 圆环 */}
         {selected && (
           <>
@@ -8250,6 +8332,82 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       ));
       window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "erase" } }));
       toast("橡皮工具", { description: "涂抹需要移除的区域，调整橡皮尺寸后点击立即使用" });
+      return;
+    }
+    if (action === "edit-text") {
+      const targetNode = nodesRef.current.find(n => n.id === nodeId && n.type === "asset");
+      if (!targetNode) return;
+      const data = targetNode.data as Record<string, unknown>;
+      const asset = GENERATED_ASSETS.find(item => item.id === data.assetId) || GENERATED_ASSETS[0];
+      const imageSrc = (data.localSrc as string | undefined) || asset?.src;
+      if (!imageSrc) {
+        toast("文案提取失败", { description: "当前图片没有可识别的图像来源" });
+        return;
+      }
+
+      setNodes(nds => nds.map(n =>
+        n.id === nodeId && n.type === "asset"
+          ? {
+              ...n,
+              selected: true,
+              data: {
+                ...(n.data as Record<string, unknown>),
+                extractedTextPanelOpen: true,
+                isExtractingText: true,
+                isCropping: false,
+                isErasing: false,
+                isEditing: false,
+                extractedText: "",
+              },
+            }
+          : n
+      ));
+      window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
+      toast("正在提取画面文案", { description: "识别完成后会显示在图片右侧" });
+      try {
+        const result = await callLLM({
+          module: "multimodal-text-extraction",
+          model: "gpt-4o",
+          images: [{ src: imageSrc, title: typeof data.title === "string" ? data.title : "选中图片" }],
+          prompt: [
+            "请提取图片画面中所有可见文字文案。",
+            "只输出提取到的文字内容，保持原有语言、大小写、标点和换行顺序。",
+            "不要添加解释、标题、项目符号或额外说明。",
+            "如果画面中没有可读文字，只输出：未识别到可读文案",
+          ].join("\n"),
+        });
+        const text = result.text.trim() || "未识别到可读文案";
+        setNodes(nds => nds.map(n =>
+          n.id === nodeId && n.type === "asset"
+            ? {
+                ...n,
+                data: {
+                  ...(n.data as Record<string, unknown>),
+                  extractedTextPanelOpen: true,
+                  isExtractingText: false,
+                  extractedText: text,
+                },
+              }
+            : n
+        ));
+        toast("文案提取完成", { description: text.slice(0, 80) });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "请稍后重试";
+        setNodes(nds => nds.map(n =>
+          n.id === nodeId && n.type === "asset"
+            ? {
+                ...n,
+                data: {
+                  ...(n.data as Record<string, unknown>),
+                  extractedTextPanelOpen: true,
+                  isExtractingText: false,
+                  extractedText: `提取失败：${message}`,
+                },
+              }
+            : n
+        ));
+        toast("文案提取失败", { description: message });
+      }
       return;
     }
     if (action === "move-object") {
