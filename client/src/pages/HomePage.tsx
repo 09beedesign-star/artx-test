@@ -16,6 +16,7 @@ import {
   PlayCircle, Heart,
 } from "lucide-react";
 import { PROJECTS, POSTER_1, POSTER_2, BRAND_KIT, SOCIAL_AD, BG_GLOW, AI_MODELS } from "@/lib/workspace-data";
+import { callLLM } from "@/lib/ai";
 
 // ── Home Project Card Menu ────────────────────────────────────
 function HomeCardMenu({ isDark }: { isDark: boolean }) {
@@ -361,7 +362,17 @@ export default function HomePage() {
     navigate("/project/p1");
   };
 
-  const handlePromptSubmit = (_text: string) => {
+  const handlePromptSubmit = async (text: string) => {
+    try {
+      const result = await callLLM({
+        module: "home-hero-input",
+        prompt: `请把这段首页创作意图整理成项目 brief 和首轮创作方向：${text}`,
+      });
+      sessionStorage.setItem("artx:home-hero-brief", result.text);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "稍后进入工作台继续创作";
+      toast("首页 AI 处理失败", { description: message });
+    }
     handleStartDesign();
   };
 

@@ -5,6 +5,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
+import { generateImages } from "./server/image-generation";
+import { generateText } from "./server/text-generation";
 
 // =============================================================================
 // Manus Debug Collector - Vite Plugin
@@ -203,7 +205,49 @@ function vitePluginStorageProxy(): Plugin {
   };
 }
 
-const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector(), vitePluginStorageProxy()];
+type JsonApiHandler = (payload: unknown) => Promise<unknown>;
+
+function vitePluginJsonApi(name: string, route: string, handler: JsonApiHandler, fallbackError: string): Plugin {
+  return {
+    name,
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use(route, (req, res, next) => {
+        if (req.method !== "POST") {
+          return next();
+        }
+
+        let body = "";
+        req.on("data", (chunk) => {
+          body += chunk.toString();
+        });
+
+        req.on("end", async () => {
+          try {
+            const payload = body ? JSON.parse(body) : {};
+            const result = await handler(payload);
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify(result));
+          } catch (error) {
+            const message = error instanceof Error ? error.message : fallbackError;
+            res.writeHead(500, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: message }));
+          }
+        });
+      });
+    },
+  };
+}
+
+const plugins = [
+  react(),
+  tailwindcss(),
+  jsxLocPlugin(),
+  vitePluginManusRuntime(),
+  vitePluginManusDebugCollector(),
+  vitePluginStorageProxy(),
+  vitePluginJsonApi("artx-ai-image-api", "/api/images/generate", generateImages, "Image generation failed"),
+  vitePluginJsonApi("artx-llm-api", "/api/llm", generateText, "AI request failed"),
+];
 
 export default defineConfig({
   base: process.env.GITHUB_PAGES === "true" ? "/artx/" : "/",
