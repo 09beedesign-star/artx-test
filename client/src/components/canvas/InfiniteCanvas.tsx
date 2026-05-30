@@ -5351,6 +5351,7 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
     return TEXT_AI_MODELS.some(model => model.id === stored) ? stored! : "gpt-4o";
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [regeneratingMessageId, setRegeneratingMessageId] = useState<string | null>(null);
   const [messages, setMessages] = useState<CanvasAssistantMessage[]>([
     { id: "assistant-seed-1", role: "assistant", content: "你好，下面开始你的创作吧！", timestamp: new Date() },
   ]);
@@ -5471,6 +5472,37 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
 
   const handleImageBackupDoubleClick = (backup: NonNullable<CanvasAssistantMessage["imageBackup"]>) => {
     window.dispatchEvent(new CustomEvent("ai-image-backup-activate", { detail: backup }));
+  };
+
+  const handleRegenerateImageFromMessage = async (message: CanvasAssistantMessage) => {
+    if (regeneratingMessageId) return;
+    const promptText = (message.imageBackup?.prompt || message.content).trim();
+    if (!promptText) {
+      toast("没有可用于生成图片的提示词");
+      return;
+    }
+    const generationId = `chat-regenerate-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const imagePayload: ImageGeneratorPayload = {
+      prompt: promptText,
+      model: message.imageBackup?.model || "gpt-image-2",
+      ratio: message.imageBackup?.ratio || "1:1",
+      count: 1,
+      style: message.imageBackup?.style || "聊天气泡",
+      referencesEnabled: false,
+      generationId,
+    };
+    setRegeneratingMessageId(message.id);
+    window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...imagePayload, status: "pending" } }));
+    try {
+      const result = await generateAiImages(imagePayload);
+      window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...imagePayload, status: "completed", images: result.images } }));
+    } catch (error) {
+      const failureMessage = error instanceof Error ? error.message : "请稍后重试";
+      window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...imagePayload, status: "failed", error: failureMessage } }));
+      toast("AI 生成失败", { description: failureMessage });
+    } finally {
+      setRegeneratingMessageId(null);
+    }
   };
 
   useEffect(() => {
@@ -5715,14 +5747,34 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
                         <p className="type-caption leading-6 whitespace-pre-wrap" style={{ color: isUser ? "white" : text }}>{message.content}</p>
                       )}
                     </div>
-                    {!backup && <div className="mt-2 flex items-center gap-2" style={{ justifyContent: isUser ? "flex-end" : "flex-start" }}>
-                      <button className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-opacity hover:opacity-75" style={{ color: sub, background: "transparent" }} title="刷新" aria-label="刷新" onClick={() => toast("已刷新该条对话")}>
-                        <Repeat2 size={13} />
+                    <div className="mt-2 flex items-center gap-2" style={{ justifyContent: isUser ? "flex-end" : "flex-start" }}>
+                      <button
+                        className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-opacity hover:opacity-75"
+                        style={{
+                          color: regeneratingMessageId === message.id ? "oklch(0.58 0.22 285)" : sub,
+                          background: "transparent",
+                        }}
+                        title="AI 生成图片"
+                        aria-label="AI 生成图片"
+                        disabled={Boolean(regeneratingMessageId)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleRegenerateImageFromMessage(message);
+                        }}
+                      >
+                        {regeneratingMessageId === message.id ? <RefreshCw size={13} className="animate-spin" /> : <Sparkles size={13} />}
                       </button>
-                      <button className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-opacity hover:opacity-75" style={{ color: sub, background: "transparent" }} title="复制" aria-label="复制" onClick={() => { navigator.clipboard?.writeText(message.content); toast("已复制对话内容"); }}>
-                        <Copy size={13} />
-                      </button>
-                    </div>}
+                      {!backup && (
+                        <>
+                          <button className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-opacity hover:opacity-75" style={{ color: sub, background: "transparent" }} title="刷新" aria-label="刷新" onClick={() => toast("已刷新该条对话")}>
+                            <Repeat2 size={13} />
+                          </button>
+                          <button className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-opacity hover:opacity-75" style={{ color: sub, background: "transparent" }} title="复制" aria-label="复制" onClick={() => { navigator.clipboard?.writeText(message.content); toast("已复制对话内容"); }}>
+                            <Copy size={13} />
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
                 );
