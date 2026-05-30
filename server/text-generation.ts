@@ -30,6 +30,16 @@ type ResponsesApiResponse = {
   error?: { message?: string; code?: string };
 };
 
+function safeParseJson<T>(raw: string): T | null {
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
 function getChatEndpoint(baseUrl: string) {
   const normalized = baseUrl.replace(/\/+$/, "");
   return `${normalized}${normalized.endsWith("/v1") ? "" : "/v1"}/chat/completions`;
@@ -94,7 +104,7 @@ async function callResponsesApi(
   });
 
   const text = await response.text();
-  const data = text ? (JSON.parse(text) as ResponsesApiResponse) : {};
+  const data = safeParseJson<ResponsesApiResponse>(text) || {};
 
   if (!response.ok) {
     throw new Error(data.error?.message || `Responses provider returned ${response.status}`);
@@ -186,13 +196,13 @@ export async function generateText(input: TextGenerateInput): Promise<{ text: st
       });
 
       const text = await response.text();
-      const data = text ? (JSON.parse(text) as ChatCompletionResponse) : {};
+      const data = safeParseJson<ChatCompletionResponse>(text);
 
       if (!response.ok) {
-        throw new Error(data.error?.message || `Text provider returned ${response.status}`);
+        throw new Error(data?.error?.message || `Text provider returned ${response.status}`);
       }
 
-      const output = data.choices?.[0]?.message?.content || data.output_text || "";
+      const output = data?.choices?.[0]?.message?.content || data?.output_text || "";
       if (output.trim()) {
         return { text: output, model: candidateModel };
       }
