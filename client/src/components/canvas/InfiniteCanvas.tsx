@@ -5305,6 +5305,26 @@ function SaveProjectConfirmDialog({ isDark, project, onCancel, onSave }: {
 
 const CANVAS_ASSISTANT_MODEL_STORAGE_KEY = "artx:canvas-assistant-model";
 
+type CanvasAssistantMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: Date;
+  imageBackup?: {
+    nodeId: string;
+    generationId: string;
+    generationIndex: number;
+    src: string;
+    width: number;
+    height: number;
+    title: string;
+    prompt: string;
+    model: string;
+    ratio: string;
+    style: string;
+  };
+};
+
 function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, onToggleCollapsed, onLoginRequest, referencedAssets, onRemoveReference, selectedCount, helpPromptNonce }: { projectId: string; isDark: boolean; collapsed: boolean; isAuthenticated: boolean; onToggleCollapsed: () => void; onLoginRequest: () => void; referencedAssets: { id: string; title: string; src: string }[]; onRemoveReference: (id: string) => void; selectedCount: number; helpPromptNonce: number }) {
   const [, navigate] = useLocation();
   const [inputFocused, setInputFocused] = useState(false);
@@ -5322,7 +5342,7 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
     return TEXT_AI_MODELS.some(model => model.id === stored) ? stored! : "gpt-4o";
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [messages, setMessages] = useState<Array<{ id: string; role: "user" | "assistant"; content: string; timestamp: Date }>>([
+  const [messages, setMessages] = useState<CanvasAssistantMessage[]>([
     { id: "assistant-seed-1", role: "assistant", content: "你好，下面开始你的创作吧！", timestamp: new Date() },
   ]);
   const pendingHomePromptHandledRef = useRef(false);
@@ -5359,7 +5379,7 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
   const hasPrompt = prompt.trim().length > 0;
   const hasContext = selectedCount > 0 || referencedAssets.length > 0;
   const canSubmit = (hasPrompt || hasContext) && !isSubmitting;
-  const contextLabel = selectedCount > 1 ? `group (${selectedCount})` : selectedCount === 1 ? "selection (1)" : referencedAssets.length > 0 ? `refs (${referencedAssets.length})` : "";
+  const contextLabel = selectedCount > 1 ? `已选中 ${selectedCount} 个对象` : selectedCount === 1 ? "已选中 1 个对象" : referencedAssets.length > 0 ? `引用素材 ${referencedAssets.length} 个` : "";
   const assistantModel = TEXT_AI_MODELS.find(model => model.id === assistantModelId) || TEXT_AI_MODELS[0];
   const runAssistantCapability = async (module: string, instruction: string) => {
     if (isSubmitting) return;
@@ -5419,6 +5439,30 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
   useEffect(() => {
     window.localStorage.setItem(CANVAS_ASSISTANT_MODEL_STORAGE_KEY, assistantModel.id);
   }, [assistantModel.id]);
+
+  useEffect(() => {
+    if (collapsed) return;
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<CanvasAssistantMessage["imageBackup"]>).detail;
+      if (!detail?.src || !detail.nodeId) return;
+      setMessages(prev => {
+        if (prev.some(message => message.imageBackup?.nodeId === detail.nodeId)) return prev;
+        return [...prev, {
+          id: `image-backup-${detail.nodeId}`,
+          role: "assistant",
+          content: `已生成图片备份：${detail.title}`,
+          timestamp: new Date(),
+          imageBackup: detail,
+        }];
+      });
+    };
+    window.addEventListener("ai-image-generated-backup", handler);
+    return () => window.removeEventListener("ai-image-generated-backup", handler);
+  }, [collapsed]);
+
+  const handleImageBackupDoubleClick = (backup: NonNullable<CanvasAssistantMessage["imageBackup"]>) => {
+    window.dispatchEvent(new CustomEvent("ai-image-backup-activate", { detail: backup }));
+  };
 
   useEffect(() => {
     if (pendingHomePromptHandledRef.current || collapsed) return;
@@ -5615,6 +5659,7 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
             <div className="flex flex-col gap-4">
               {messages.map(message => {
                 const isUser = message.role === "user";
+                const backup = message.imageBackup;
                 return (
                 <div key={message.id} className={isUser ? "flex justify-end" : "flex justify-start"}>
                   <div className="max-w-[86%]">
@@ -5626,17 +5671,38 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
                         color: isUser ? "white" : text,
                         boxShadow: isUser ? "0 10px 24px oklch(0.58 0.22 260 / 0.16)" : "none",
                       }}
+                      onDoubleClick={backup ? () => handleImageBackupDoubleClick(backup) : undefined}
+                      title={backup ? "双击可在画布中定位或找回这张图片" : undefined}
                     >
-                      <p className="type-caption leading-6 whitespace-pre-wrap" style={{ color: isUser ? "white" : text }}>{message.content}</p>
+                      {backup ? (
+                        <div className="flex flex-col gap-2">
+                          <img
+                            src={backup.src}
+                            alt={backup.title}
+                            draggable={false}
+                            className="w-full rounded-[var(--radius-md-design)]"
+                            style={{
+                              aspectRatio: `${Math.max(1, backup.width)} / ${Math.max(1, backup.height)}`,
+                              objectFit: "cover",
+                              border: `1px solid ${border}`,
+                              cursor: "zoom-in",
+                            }}
+                          />
+                          <p className="type-caption leading-5" style={{ color: text, fontWeight: 600 }}>{backup.title}</p>
+                          <p className="type-caption leading-5" style={{ color: sub }}>双击气泡可定位或找回图片</p>
+                        </div>
+                      ) : (
+                        <p className="type-caption leading-6 whitespace-pre-wrap" style={{ color: isUser ? "white" : text }}>{message.content}</p>
+                      )}
                     </div>
-                    <div className="mt-2 flex items-center gap-2" style={{ justifyContent: isUser ? "flex-end" : "flex-start" }}>
+                    {!backup && <div className="mt-2 flex items-center gap-2" style={{ justifyContent: isUser ? "flex-end" : "flex-start" }}>
                       <button className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-opacity hover:opacity-75" style={{ color: sub, background: "transparent" }} title="刷新" aria-label="刷新" onClick={() => toast("已刷新该条对话")}>
                         <Repeat2 size={13} />
                       </button>
                       <button className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-opacity hover:opacity-75" style={{ color: sub, background: "transparent" }} title="复制" aria-label="复制" onClick={() => { navigator.clipboard?.writeText(message.content); toast("已复制对话内容"); }}>
                         <Copy size={13} />
                       </button>
-                    </div>
+                    </div>}
                   </div>
                 </div>
                 );
@@ -5644,7 +5710,7 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
               {isSubmitting && (
                 <div className="flex justify-start">
                   <div className="max-w-[86%] rounded-[var(--radius-lg-design)] px-4 py-3" style={{ background: chipBg, border: `1px solid ${border}`, color: sub }}>
-                    <span className="type-caption">AI 正在回复...</span>
+              <span className="type-caption">AI 正在回复中...</span>
                   </div>
                 </div>
               )}
@@ -6029,6 +6095,34 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [activeToolMode, setActiveToolMode] = useState<string>("move");
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
+  const createGeneratedImageNode = useCallback((backup: NonNullable<CanvasAssistantMessage["imageBackup"]>, position: { x: number; y: number }): Node => ({
+    id: backup.nodeId,
+    type: "asset" as const,
+    position,
+    style: { width: backup.width, height: backup.height },
+    data: {
+      id: backup.nodeId,
+      assetId: "default",
+      generationId: backup.generationId,
+      generationIndex: backup.generationIndex,
+      localSrc: backup.src,
+      isGeneratingImage: false,
+      title: backup.title,
+      assetType: "AI 生成",
+      tags: [backup.model, backup.ratio, "聊天备份找回"],
+      imgW: backup.width,
+      imgH: backup.height,
+    },
+  }), []);
+
+  const focusGeneratedImageNode = useCallback((nodeId: string) => {
+    setNodes(nds => nds.map(n => ({ ...n, selected: n.id === nodeId })));
+    setSelectedNodeIds([nodeId]);
+    requestAnimationFrame(() => {
+      fitView({ nodes: [{ id: nodeId }], duration: 600, padding: 0.28 });
+    });
+  }, [fitView, setNodes]);
+
   useEffect(() => {
     const handleWorkspaceUploadRequest = () => {
       uploadInputRef.current?.click();
@@ -6190,6 +6284,34 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       { nodes: cloneNodesForHistory(ns), edges: cloneEdgesForHistory(es) },
     ];
   }, [cloneEdgesForHistory, cloneNodesForHistory]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const backup = (event as CustomEvent<NonNullable<CanvasAssistantMessage["imageBackup"]>>).detail;
+      if (!backup?.nodeId || !backup.src) return;
+      const existing = nodesRef.current.find(n => n.id === backup.nodeId);
+      if (existing) {
+        focusGeneratedImageNode(backup.nodeId);
+        toast("已定位到画布中的图片", { description: backup.title });
+        return;
+      }
+      const container = containerRef.current;
+      const rect = container?.getBoundingClientRect();
+      const center = rect
+        ? screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
+        : { x: 120, y: 80 };
+      const position = { x: center.x - backup.width / 2, y: center.y - backup.height / 2 };
+      pushHistory(nodesRef.current, edgesRef.current);
+      setNodes(nds => [...nds.map(n => ({ ...n, selected: false })), { ...createGeneratedImageNode(backup, position), selected: true }]);
+      setSelectedNodeIds([backup.nodeId]);
+      requestAnimationFrame(() => {
+        fitView({ nodes: [{ id: backup.nodeId }], duration: 600, padding: 0.28 });
+      });
+      toast("已从聊天备份找回图片", { description: backup.title });
+    };
+    window.addEventListener("ai-image-backup-activate", handler);
+    return () => window.removeEventListener("ai-image-backup-activate", handler);
+  }, [createGeneratedImageNode, fitView, focusGeneratedImageNode, pushHistory, screenToFlowPosition, setNodes]);
 
   const undoCanvas = useCallback(() => {
     const previous = historyRef.current.pop();
@@ -6981,6 +7103,19 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             width: asset.width,
             height: asset.height,
           }));
+      const backupItems = images.map((image, index) => ({
+        nodeId: `generated-${generationId}-${index}`,
+        generationId,
+        generationIndex: index,
+        src: image.src,
+        width: size.w,
+        height: size.h,
+        title: `生成图像 · ${detail.style}${images.length > 1 ? ` ${index + 1}` : ""}`,
+        prompt: detail.prompt,
+        model: detail.model,
+        ratio: detail.ratio,
+        style: detail.style,
+      }));
       setNodes(nds => {
         const existingPlaceholders = nds.filter(n => (n.data as Record<string, unknown>)?.generationId === generationId);
         if (existingPlaceholders.length > 0) {
@@ -7031,6 +7166,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           };
         });
         return [...nds, ...generatedNodes];
+      });
+      backupItems.forEach(item => {
+        window.dispatchEvent(new CustomEvent("ai-image-generated-backup", { detail: item }));
       });
       toast("图像已生成到画布", { description: detail.prompt.slice(0, 58) });
       window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
