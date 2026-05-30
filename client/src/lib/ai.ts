@@ -8,18 +8,20 @@ export type LLMMessage = {
 export async function callLLM({
   prompt,
   messages,
+  images,
   model,
   module,
 }: {
   prompt?: string;
   messages?: LLMMessage[];
+  images?: Array<{ src: string; title?: string }>;
   model?: string;
   module: string;
 }) {
   const response = await fetch("/api/llm", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, messages, model, module }),
+    body: JSON.stringify({ prompt, messages, images, model, module }),
   });
 
   const result = await response.json();

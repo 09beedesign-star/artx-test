@@ -2,12 +2,13 @@ type ChatRole = "system" | "user" | "assistant";
 
 export type TextMessage = {
   role: ChatRole;
-  content: string;
+  content: string | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }>;
 };
 
 type TextGenerateInput = {
   prompt?: string;
   messages?: TextMessage[];
+  images?: Array<{ src: string; title?: string }>;
   model?: string;
   module?: string;
 };
@@ -32,9 +33,30 @@ function getProviderConfig() {
 }
 
 function buildMessages(input: TextGenerateInput): TextMessage[] {
+  const userContent = input.images?.length
+    ? [
+        { type: "text" as const, text: input.prompt || "请理解这些图片并给出创作建议。" },
+        ...input.images.map((image) => ({
+          type: "image_url" as const,
+          image_url: { url: image.src },
+        })),
+      ]
+    : input.prompt || "";
   const messages = input.messages?.length
     ? input.messages
-    : [{ role: "user" as const, content: input.prompt || "" }];
+    : [{ role: "user" as const, content: userContent }];
+  const imageContext: TextMessage[] = input.messages?.length && input.images?.length
+    ? [{
+        role: "user",
+        content: [
+          { type: "text", text: "以下是当前引用/选中的视觉素材，请结合它们理解用户意图。" },
+          ...input.images.map((image) => ({
+            type: "image_url" as const,
+            image_url: { url: image.src },
+          })),
+        ],
+      }]
+    : [];
 
   return [
     {
@@ -49,13 +71,17 @@ function buildMessages(input: TextGenerateInput): TextMessage[] {
       role: "system",
       content: `当前能力模块：${input.module || "general"}`,
     },
+    ...imageContext,
     ...messages,
   ];
 }
 
 export async function generateText(input: TextGenerateInput): Promise<{ text: string; model: string }> {
   const messages = buildMessages(input);
-  const hasContent = messages.some((message) => message.content.trim());
+  const hasContent = messages.some((message) => {
+    if (typeof message.content === "string") return message.content.trim();
+    return message.content.length > 0;
+  });
   if (!hasContent) {
     throw new Error("Missing prompt");
   }
