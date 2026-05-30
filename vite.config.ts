@@ -6,7 +6,7 @@ import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
 import { handleAuthAction } from "./server/auth-store";
-import { generateImages } from "./server/image-generation";
+import { eraseImageObjects, generateImages, removeImageBackground } from "./server/image-generation";
 import { generateText } from "./server/text-generation";
 
 // =============================================================================
@@ -312,6 +312,8 @@ const plugins = [
   vitePluginStorageProxy(),
   vitePluginAuthApi(),
   vitePluginJsonApi("artx-ai-image-api", "/api/images/generate", generateImages, "Image generation failed"),
+  vitePluginJsonApi("artx-ai-remove-background-api", "/api/images/remove-background", removeImageBackground, "Background removal failed"),
+  vitePluginJsonApi("artx-ai-erase-image-api", "/api/images/erase", eraseImageObjects, "Image erase failed"),
   vitePluginJsonApi("artx-llm-api", "/api/llm", generateText, "AI request failed"),
 ];
 

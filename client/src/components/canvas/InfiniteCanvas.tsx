@@ -69,25 +69,40 @@ function CreateCanvasIcon({ size = 17 }: { size?: number }) {
 import { useLocation } from "wouter";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
-import { GENERATED_ASSETS, AI_MODELS, PROJECTS, type GeneratedAsset, type Project } from "@/lib/workspace-data";
+import { GENERATED_ASSETS, IMAGE_AI_MODELS, TEXT_AI_MODELS, PROJECTS, type GeneratedAsset, type Project } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { callLLM } from "@/lib/ai";
+import { callLLM, eraseImageObjects, generateImages as generateAiImages, removeImageBackground } from "@/lib/ai";
+import { createWorkspaceHistoryProject } from "@/lib/project-history";
 
 const ENABLE_NODE_CONNECTIONS = false;
 
 // ── Model Selector ─────────────────────────────────────────────
 function ModelSelector({ model, onChange, isDark }: { model: string; onChange: (m: string) => void; isDark: boolean }) {
   const [open, setOpen] = useState(false);
-  const current = AI_MODELS.find(m => m.id === model) || AI_MODELS[0];
+  const modelRef = useRef<HTMLDivElement>(null);
+  const current = IMAGE_AI_MODELS.find(m => m.id === model) || IMAGE_AI_MODELS[0];
   const bg = isDark ? "oklch(0.13 0.015 270)" : "oklch(0.96 0.004 270)";
   const border = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
   const text = isDark ? "oklch(0.75 0.01 270)" : "oklch(0.35 0.01 270)";
   const popBg = isDark ? "oklch(0.16 0.018 270)" : "oklch(0.99 0.004 270)";
   const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
+  const rowHeight = 40;
+  const panelHeight = Math.min(IMAGE_AI_MODELS.length * rowHeight, 320);
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (modelRef.current && event.target instanceof globalThis.Node && !modelRef.current.contains(event.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    return () => document.removeEventListener("pointerdown", handlePointerDown, true);
+  }, [open]);
 
   return (
-    <div className="relative nodrag nopan" style={{ zIndex: 100 }}>
+    <div ref={modelRef} className="relative nodrag nopan" style={{ zIndex: open ? 1200 : 100 }}>
       <button
         onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
         className="flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-md-design)] type-caption transition-all"
@@ -100,23 +115,40 @@ function ModelSelector({ model, onChange, isDark }: { model: string; onChange: (
       {open && (
         <div
           className="absolute bottom-full mb-1 left-0 rounded-[var(--radius-md-design)] overflow-hidden shadow-2xl"
-          style={{ background: popBg, border: `1px solid ${border}`, minWidth: 160, zIndex: 200 }}
+          style={{
+            background: popBg,
+            border: `1px solid ${border}`,
+            minWidth: 160,
+            zIndex: 1201,
+            maxHeight: panelHeight,
+          }}
           onClick={e => e.stopPropagation()}
         >
-          {AI_MODELS.map(m => (
-            <button
-              key={m.id}
-              onClick={() => { onChange(m.id); setOpen(false); }}
-              className="flex items-center gap-2 w-full px-3 py-2 text-left type-caption transition-colors"
-              style={{ color: text }}
-              onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
-              onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-            >
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: m.color, flexShrink: 0, display: "inline-block" }} />
-              <span className="type-caption" style={{ textTransform: "none", letterSpacing: "0.02em" }}>{m.label}</span>
-              <span className="type-caption" style={{ marginLeft: "auto", opacity: 0.45 }}>{m.vendor}</span>
-            </button>
-          ))}
+          <div
+            className="model-selector-scroll"
+            style={{
+              maxHeight: panelHeight,
+              overflowY: "auto",
+              overscrollBehavior: "contain",
+              scrollbarWidth: "thin",
+              scrollbarColor: `${isDark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.18)"} transparent`,
+            }}
+            onWheel={e => e.stopPropagation()}
+          >
+            {IMAGE_AI_MODELS.map(m => (
+              <button
+                key={m.id}
+                onClick={() => { onChange(m.id); setOpen(false); }}
+                className="flex items-center gap-2 w-full px-3 text-left type-caption transition-colors"
+                style={{ height: rowHeight, color: text }}
+                onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+                onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+              >
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: m.color, flexShrink: 0, display: "inline-block" }} />
+                <span className="type-caption" style={{ textTransform: "none", letterSpacing: "0.02em" }}>{m.label}</span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -1692,9 +1724,21 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
 
   const localSrc = (data as Record<string, unknown>).localSrc as string | undefined;
   const asset = GENERATED_ASSETS.find(a => a.id === (data.assetId as string)) || GENERATED_ASSETS[0];
-  const displaySrc = localSrc || asset.src;
+  const isGeneratingImage = Boolean((data as { isGeneratingImage?: boolean }).isGeneratingImage);
+  const isRemovingBackground = Boolean((data as { isRemovingBackground?: boolean }).isRemovingBackground);
+  const isErasingImage = Boolean((data as { isErasingImage?: boolean }).isErasingImage);
+  const isAiProcessingImage = isGeneratingImage || isRemovingBackground || isErasingImage;
+  const processingLabel = isErasingImage ? "AI 擦除中" : isRemovingBackground ? "AI 去背景中" : "AI 生成中";
+  const displaySrc = isAiProcessingImage ? "" : (localSrc || asset.src);
   const isEditing = !!(data as { isEditing?: boolean }).isEditing;
   const isCropping = !!(data as { isCropping?: boolean }).isCropping;
+  const isErasing = !!(data as { isErasing?: boolean }).isErasing;
+  const [eraseBrushSize, setEraseBrushSize] = useState<number>(Number((data as { eraseBrushSize?: number }).eraseBrushSize) || 42);
+  const eraseCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const eraseMaskCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const eraseDrawingRef = useRef(false);
+  const eraseLastPointRef = useRef<{ x: number; y: number } | null>(null);
+  const eraseHasPaintRef = useRef(false);
   const displayTitle = (data.title as string) || asset.title || "素材节点";
   const rotation = (data.rotation as number) || 0;
   const flipX = Boolean(data.flipX);
@@ -1743,6 +1787,27 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
 
   const dispW = imgW || initW;
   const dispH = imgH || initH;
+
+  const resetEraseCanvases = useCallback(() => {
+    const overlay = eraseCanvasRef.current;
+    const mask = eraseMaskCanvasRef.current;
+    if (!overlay || !mask) return;
+    [overlay, mask].forEach(canvas => {
+      canvas.width = Math.max(1, Math.round(dispW));
+      canvas.height = Math.max(1, Math.round(dispH));
+    });
+    overlay.getContext("2d")?.clearRect(0, 0, overlay.width, overlay.height);
+    const maskCtx = mask.getContext("2d");
+    if (maskCtx) {
+      maskCtx.fillStyle = "black";
+      maskCtx.fillRect(0, 0, mask.width, mask.height);
+    }
+    eraseHasPaintRef.current = false;
+  }, [dispH, dispW]);
+
+  useEffect(() => {
+    if (isErasing) resetEraseCanvases();
+  }, [isErasing, resetEraseCanvases]);
 
   useEffect(() => {
     if (isCropping) setCropRect({ x: cropX, y: cropY, w: cropW, h: cropH });
@@ -1932,6 +1997,122 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     window.dispatchEvent(new CustomEvent("asset-crop-cancel", { detail: { nodeId } }));
   }, [nodeId]);
 
+  const getErasePoint = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = eraseCanvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: ((event.clientX - rect.left) / Math.max(1, rect.width)) * canvas.width,
+      y: ((event.clientY - rect.top) / Math.max(1, rect.height)) * canvas.height,
+    };
+  }, []);
+
+  const drawEraseStroke = useCallback((from: { x: number; y: number }, to: { x: number; y: number }) => {
+    const overlay = eraseCanvasRef.current;
+    const mask = eraseMaskCanvasRef.current;
+    if (!overlay || !mask) return;
+    const draw = (ctx: CanvasRenderingContext2D, color: string) => {
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.lineWidth = eraseBrushSize;
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+      ctx.restore();
+    };
+    const overlayCtx = overlay.getContext("2d");
+    const maskCtx = mask.getContext("2d");
+    if (overlayCtx) draw(overlayCtx, "rgba(128, 70, 255, 0.72)");
+    if (maskCtx) draw(maskCtx, "white");
+    eraseHasPaintRef.current = true;
+  }, [eraseBrushSize]);
+
+  const handleErasePointerDown = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isErasing || event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const point = getErasePoint(event);
+    if (!point) return;
+    eraseDrawingRef.current = true;
+    eraseLastPointRef.current = point;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    drawEraseStroke(point, point);
+  }, [drawEraseStroke, getErasePoint, isErasing]);
+
+  const handleErasePointerMove = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!eraseDrawingRef.current || !isErasing) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const point = getErasePoint(event);
+    const previous = eraseLastPointRef.current;
+    if (!point || !previous) return;
+    drawEraseStroke(previous, point);
+    eraseLastPointRef.current = point;
+  }, [drawEraseStroke, getErasePoint, isErasing]);
+
+  const handleErasePointerUp = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    eraseDrawingRef.current = false;
+    eraseLastPointRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }, []);
+
+  const getRenderedImageSource = useCallback(async () => {
+    if (!displaySrc) return "";
+    return new Promise<string>((resolve) => {
+      const image = new Image();
+      image.crossOrigin = "anonymous";
+      image.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(dispW));
+        canvas.height = Math.max(1, Math.round(dispH));
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          resolve(displaySrc);
+          return;
+        }
+        const sx = (cropX / 100) * image.naturalWidth;
+        const sy = (cropY / 100) * image.naturalHeight;
+        const sw = (cropW / 100) * image.naturalWidth;
+        const sh = (cropH / 100) * image.naturalHeight;
+        ctx.drawImage(image, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+        try {
+          resolve(canvas.toDataURL("image/png"));
+        } catch {
+          resolve(displaySrc);
+        }
+      };
+      image.onerror = () => resolve(displaySrc);
+      image.src = displaySrc;
+    });
+  }, [cropH, cropW, cropX, cropY, dispH, dispW, displaySrc]);
+
+  const applyErase = useCallback(async () => {
+    if (!eraseHasPaintRef.current || !eraseMaskCanvasRef.current) {
+      toast("请先涂抹需要去除的区域");
+      return;
+    }
+    const imageSrc = await getRenderedImageSource();
+    if (!imageSrc) {
+      toast("AI 擦除失败", { description: "当前图片没有可处理的图像来源" });
+      return;
+    }
+    const maskSrc = eraseMaskCanvasRef.current.toDataURL("image/png");
+    window.dispatchEvent(new CustomEvent("asset-erase-apply", {
+      detail: { nodeId, imageSrc, maskSrc },
+    }));
+  }, [getRenderedImageSource, nodeId]);
+
+  const cancelErase = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("asset-erase-cancel", { detail: { nodeId } }));
+  }, [nodeId]);
+
   return (
     <>
       <div
@@ -1940,7 +2121,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
           width: dispW, height: dispH,
           borderRadius: 4,
           overflow: "visible",
-          cursor: isResizing ? "nwse-resize" : toolMode === "annotate" ? "crosshair" : "grab",
+          cursor: isResizing ? "nwse-resize" : isErasing ? "crosshair" : toolMode === "annotate" ? "crosshair" : "grab",
           userSelect: "none",
         }}
         onContextMenu={handleNodeCtxMenu}
@@ -1970,19 +2151,41 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
                 style={{ right: -1, backgroundColor: "rgba(255,255,255,0.80)", borderColor: "rgba(255,255,255,0.60)" }} />
             </>
           )}
-          <img
-            src={displaySrc}
-            alt={displayTitle}
-            draggable={false}
-            style={{
-              ...imgCropStyle,
-              display: "block",
-              objectFit: "cover",
-              pointerEvents: "none",
-              transform: `scaleX(${flipX ? -1 : 1}) rotate(${rotation}deg)`,
-              transition: "transform 0.18s cubic-bezier(0.23,1,0.32,1)",
-            }}
-          />
+          {isAiProcessingImage ? (
+            <div
+              className="absolute inset-0 flex flex-col items-center justify-center gap-3"
+              style={{
+                background: isDark ? "oklch(0.16 0.018 270)" : "oklch(0.96 0.006 270)",
+                color: isDark ? "rgba(255,255,255,0.72)" : "rgba(24,24,32,0.62)",
+              }}
+            >
+              <div
+                className="animate-spin"
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: "50%",
+                  border: `2px solid ${isDark ? "rgba(255,255,255,0.18)" : "rgba(24,24,32,0.12)"}`,
+                  borderTopColor: "oklch(0.64 0.22 285)",
+                }}
+              />
+              <span className="type-caption" style={{ fontWeight: 600 }}>{processingLabel}</span>
+            </div>
+          ) : (
+            <img
+              src={displaySrc}
+              alt={displayTitle}
+              draggable={false}
+              style={{
+                ...imgCropStyle,
+                display: "block",
+                objectFit: "fill",
+                pointerEvents: "none",
+                transform: `scaleX(${flipX ? -1 : 1}) rotate(${rotation}deg)`,
+                transition: "transform 0.18s cubic-bezier(0.23,1,0.32,1)",
+              }}
+            />
+          )}
           {isCropping && (
             <div className="absolute inset-0 nodrag nopan" style={{ zIndex: 90 }}>
               <div className="absolute inset-0 pointer-events-none" style={{ background: "rgba(0,0,0,0.34)" }} />
@@ -2043,6 +2246,58 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
               >
                 <button type="button" className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5" style={{ color: "rgba(255,255,255,0.78)", background: "rgba(255,255,255,0.08)" }} onClick={cancelCrop}>取消</button>
                 <button type="button" className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5" style={{ color: "white", background: "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.72 0.18 205))" }} onClick={confirmCrop}>确定</button>
+              </div>
+            </div>
+          )}
+          {isErasing && !isAiProcessingImage && (
+            <div className="absolute inset-0 nodrag nopan" style={{ zIndex: 95 }}>
+              <canvas
+                ref={eraseCanvasRef}
+                className="absolute inset-0"
+                style={{ width: "100%", height: "100%", cursor: "crosshair", touchAction: "none" }}
+                onPointerDown={handleErasePointerDown}
+                onPointerMove={handleErasePointerMove}
+                onPointerUp={handleErasePointerUp}
+                onPointerCancel={handleErasePointerUp}
+                onClick={event => { event.preventDefault(); event.stopPropagation(); }}
+              />
+              <canvas ref={eraseMaskCanvasRef} style={{ display: "none" }} />
+              <div
+                className="absolute left-1/2 top-3 flex items-center gap-2 rounded-[var(--radius-lg-design)] px-2.5 py-2 shadow-xl"
+                style={{ transform: "translateX(-50%)", background: "rgba(18,18,28,0.94)", border: "1px solid rgba(255,255,255,0.16)", color: "white", backdropFilter: "blur(14px)" }}
+                onPointerDown={event => event.stopPropagation()}
+                onClick={event => event.stopPropagation()}
+              >
+                <Eraser size={14} />
+                <span className="type-caption" style={{ fontWeight: 700, whiteSpace: "nowrap" }}>橡皮工具</span>
+                <input
+                  type="range"
+                  min={12}
+                  max={96}
+                  step={2}
+                  value={eraseBrushSize}
+                  aria-label="橡皮尺寸"
+                  onChange={event => setEraseBrushSize(Number(event.target.value))}
+                  style={{ width: 92, accentColor: "oklch(0.66 0.23 290)" }}
+                />
+                <span className="type-caption" style={{ minWidth: 34, color: "rgba(255,255,255,0.72)" }}>{eraseBrushSize}px</span>
+                <button
+                  type="button"
+                  className="type-caption rounded-[var(--radius-md-design)] px-2.5 py-1.5"
+                  style={{ color: "rgba(255,255,255,0.78)", background: "rgba(255,255,255,0.08)" }}
+                  onClick={resetEraseCanvases}
+                >
+                  清空
+                </button>
+              </div>
+              <div
+                className="absolute bottom-3 left-1/2 flex items-center gap-2 rounded-[var(--radius-lg-design)] px-2 py-1.5 shadow-xl"
+                style={{ transform: "translateX(-50%)", background: "rgba(18,18,28,0.94)", border: "1px solid rgba(255,255,255,0.16)", backdropFilter: "blur(14px)" }}
+                onPointerDown={event => event.stopPropagation()}
+                onClick={event => event.stopPropagation()}
+              >
+                <button type="button" className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5" style={{ color: "rgba(255,255,255,0.78)", background: "rgba(255,255,255,0.08)" }} onClick={cancelErase}>取消</button>
+                <button type="button" className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5" style={{ color: "white", background: "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.72 0.18 205))" }} onClick={applyErase}>立即使用</button>
               </div>
             </div>
           )}
@@ -3166,6 +3421,9 @@ type ImageGeneratorPayload = {
   count: number;
   style: string;
   referencesEnabled: boolean;
+  generationId?: string;
+  status?: "pending" | "completed" | "failed";
+  error?: string;
   images?: Array<{ src: string; width: number; height: number }>;
 };
 
@@ -3249,31 +3507,59 @@ function canvasRectsOverlap(a: CanvasNodeBounds, b: CanvasNodeBounds, padding = 
   return a.x < b.right + padding && a.right + padding > b.x && a.y < b.bottom + padding && a.bottom + padding > b.y;
 }
 
-const initialCanvasAsset = GENERATED_ASSETS[0];
-const initialNodes: Node[] = initialCanvasAsset ? [{
-  id: `asset-sample-${initialCanvasAsset.id}`,
-  type: "asset",
-  position: { x: -260, y: -220 },
-  data: {
-    id: `asset-sample-${initialCanvasAsset.id}`,
-    assetId: initialCanvasAsset.id,
-    title: initialCanvasAsset.title,
-    assetType: "图片",
-    tags: initialCanvasAsset.tags || DEFAULT_ASSET_TAGS,
-  },
-}] : [];
+const initialNodes: Node[] = [];
 
 const initialEdges: Edge[] = [];
+
+type BottomPromptDecision = {
+  mode: "text" | "image";
+  reply?: string;
+  imagePrompt?: string;
+  reason?: string;
+};
+
+function extractJsonObject(raw: string) {
+  const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return null;
+  try {
+    return JSON.parse(cleaned.slice(start, end + 1)) as Partial<BottomPromptDecision>;
+  } catch {
+    return null;
+  }
+}
+
+function inferBottomPromptDecision(raw: string, fallbackPrompt: string): BottomPromptDecision {
+  const parsed = extractJsonObject(raw);
+  if (parsed?.mode === "image") {
+    return {
+      mode: "image",
+      imagePrompt: parsed.imagePrompt || fallbackPrompt,
+      reason: parsed.reason,
+    };
+  }
+  if (parsed?.mode === "text") {
+    return {
+      mode: "text",
+      reply: parsed.reply || raw,
+      reason: parsed.reason,
+    };
+  }
+  return { mode: "text", reply: raw };
+}
 
 
 // ── Bottom AI Prompt Bar ───────────────────────────────────────
 function BottomPromptBar({
   isDark,
+  projectId,
   referencedAssets,
   onRemoveReference,
   onClearAllReferences,
 }: {
   isDark: boolean;
+  projectId: string;
   referencedAssets: { id: string; title: string; src: string }[];
   onRemoveReference: (id: string) => void;
   onClearAllReferences: () => void;
@@ -3283,6 +3569,7 @@ function BottomPromptBar({
   const [rows, setRows] = useState(1);
   const [isSending, setIsSending] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const autoRunPromptRef = useRef<string | null>(null);
   const hasRefs = referencedAssets.length > 0;
   const bg = isDark ? "rgba(22,22,30,0.80)" : "rgba(255,255,255,0.82)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
@@ -3299,25 +3586,59 @@ function BottomPromptBar({
     if (hasRefs) setTimeout(() => textareaRef.current?.focus(), 60);
   }, [hasRefs]);
 
-  const handleSend = async () => {
-    if ((prompt.trim() || hasRefs) && !isSending) {
-      const submittedPrompt = prompt.trim();
-      const refPart = referencedAssets.map(a => `[引用: ${a.title}]`).join(" ");
+  const handleSend = async (overridePrompt?: string) => {
+    const effectivePrompt = typeof overridePrompt === "string" ? overridePrompt : prompt.trim();
+    if ((effectivePrompt || hasRefs) && !isSending) {
+      const submittedPrompt = effectivePrompt;
+      const submittedRefs = typeof overridePrompt === "string" ? [] : referencedAssets.map(asset => ({ ...asset }));
+      const refPart = submittedRefs.map(a => `[引用: ${a.title}]`).join(" ");
       setIsSending(true);
       setPrompt("");
       setRows(1);
       onClearAllReferences();
       try {
-        const result = await callLLM({
-          module: "bottom-global-prompt",
+        const decisionResult = await callLLM({
+          module: "bottom-global-prompt-router",
           model,
           prompt: [
-            "请根据用户的全局画布提示词，生成一份可执行的画布节点规划。",
+            "你是 artx 画布底部输入框的意图路由器。",
+            "请根据用户输入判断应该文字回复，还是调用图片模型生成图片。",
+            "只返回 JSON，不要 Markdown，不要额外解释。",
+            "JSON 格式：{\"mode\":\"text|image\",\"reply\":\"文字回复内容\",\"imagePrompt\":\"适合图片模型的提示词\",\"reason\":\"一句话原因\"}",
+            "选择 image 的典型情况：用户要求生成、画、做一张图、海报、视觉、图片、logo、插画、产品图、参考图延展。",
+            "选择 text 的典型情况：用户要求分析、解释、优化提示词、给建议、拆解方案、回答问题。",
             refPart ? `引用素材：${refPart}` : "",
             `用户输入：${submittedPrompt || "请基于引用素材继续创作。"}`,
           ].filter(Boolean).join("\n"),
         });
-        toast("AI 已生成画布规划", { description: result.text.slice(0, 90) });
+        const decision = inferBottomPromptDecision(decisionResult.text, submittedPrompt || "请基于引用素材继续创作。");
+
+        if (decision.mode === "image") {
+          const imagePrompt = decision.imagePrompt?.trim() || submittedPrompt || "基于引用素材生成一张视觉图像。";
+          const generationId = `bottom-prompt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+          const payload: ImageGeneratorPayload = {
+            prompt: imagePrompt,
+            model: "gpt-image-2",
+            ratio: "1:1",
+            count: 1,
+            style: "智能判断",
+            referencesEnabled: submittedRefs.length > 0,
+            generationId,
+          };
+          window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "pending" } }));
+          toast("AI 判断为生成图片", { description: imagePrompt.slice(0, 90) });
+          try {
+            const result = await generateAiImages(payload);
+            window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "completed", images: result.images } }));
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "请稍后重试";
+            window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "failed", error: message } }));
+            throw error;
+          }
+          return;
+        }
+
+        toast("AI 已回复", { description: (decision.reply || decisionResult.text).slice(0, 120) });
       } catch (error) {
         const message = error instanceof Error ? error.message : "请稍后重试";
         toast("全局提示词处理失败", { description: message });
@@ -3326,6 +3647,29 @@ function BottomPromptBar({
       }
     }
   };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const raw = window.sessionStorage.getItem("artx:pending-home-prompt");
+    if (!raw) return;
+    try {
+      const payload = JSON.parse(raw) as { projectId?: string; prompt?: string };
+      if (payload.projectId !== projectId || !payload.prompt?.trim()) return;
+      window.sessionStorage.removeItem("artx:pending-home-prompt");
+      const nextPrompt = payload.prompt.trim();
+      setPrompt(nextPrompt);
+      setRows(Math.min(nextPrompt.split("\n").length, 5));
+      autoRunPromptRef.current = nextPrompt;
+      window.setTimeout(() => {
+        const promptToRun = autoRunPromptRef.current;
+        autoRunPromptRef.current = null;
+        if (promptToRun) void handleSend(promptToRun);
+      }, 360);
+    } catch {
+      window.sessionStorage.removeItem("artx:pending-home-prompt");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -3427,7 +3771,7 @@ function BottomPromptBar({
           {isSending ? "AI 处理中" : `${hasRefs ? "Ctrl+单击 多选 · " : ""}回车发送`}
         </span>
         <button
-          onClick={handleSend}
+          onClick={() => void handleSend()}
           disabled={isSending}
           className="w-7 h-7 rounded-[var(--radius-md-design)] flex items-center justify-center hover:opacity-80"
           style={{ background: hasContent ? "oklch(0.58 0.22 290)" : (isDark ? "oklch(0.22 0.015 270)" : "oklch(0.88 0.005 270)") }}
@@ -3859,9 +4203,11 @@ function AssetEditPromptBar({
   onClose: () => void;
 }) {
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState("flux-pro");
+  const [uploadedRefs, setUploadedRefs] = useState<Array<{ id: string; title: string; src: string }>>([]);
+  const [model, setModel] = useState("gpt-image-2");
   const [visible, setVisible] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Fade-in after mount
   useEffect(() => {
@@ -3881,13 +4227,39 @@ function AssetEditPromptBar({
   const divider = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)";
 
   const handleSend = () => {
-    if (prompt.trim()) {
-      toast("AI 正在智能优化", { description: prompt.slice(0, 60) });
+    if (prompt.trim() || uploadedRefs.length > 0) {
+      const refText = uploadedRefs.length > 0 ? ` · ${uploadedRefs.length} 张参考图` : "";
+      toast("AI 正在智能优化", { description: `${prompt.slice(0, 60)}${refText}`.trim() });
       setPrompt("");
+      setUploadedRefs([]);
       onClose();
     } else {
-      toast("请先输入编辑指令");
+      toast("请先输入编辑指令或上传参考图");
     }
+  };
+
+  const handleUploadRefs = (files: FileList | null) => {
+    if (!files?.length) return;
+    const imageFiles = Array.from(files).filter(file => file.type.startsWith("image/"));
+    if (imageFiles.length === 0) {
+      toast("请选择图片文件（JPG / PNG / GIF / WebP）");
+      return;
+    }
+    imageFiles.forEach((file, index) => {
+      const reader = new FileReader();
+      reader.onload = event => {
+        const src = event.target?.result;
+        if (typeof src !== "string") return;
+        setUploadedRefs(prev => [...prev, {
+          id: `edit-ref-${Date.now()}-${index}`,
+          title: file.name.replace(/\.[^.]+$/, ""),
+          src,
+        }]);
+      };
+      reader.readAsDataURL(file);
+    });
+    toast(`已加载 ${imageFiles.length} 张参考图`);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   return (
@@ -3950,19 +4322,60 @@ function AssetEditPromptBar({
           style={{ color: text }}
           placeholder="描述你希望如何优化这张图片，例如：更换背景为星空、加强光效、调整配色、提升画质..."
         />
+        {uploadedRefs.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {uploadedRefs.map(ref => (
+              <div
+                key={ref.id}
+                className="relative h-12 w-12 overflow-hidden rounded-[var(--radius-md-design)]"
+                style={{ border: `1px solid ${divider}`, background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)" }}
+                title={ref.title}
+              >
+                <img src={ref.src} alt={ref.title} className="h-full w-full object-cover" />
+                <button
+                  type="button"
+                  className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-[var(--radius-pill)]"
+                  style={{ background: "rgba(0,0,0,0.55)", color: "white" }}
+                  onClick={() => setUploadedRefs(prev => prev.filter(item => item.id !== ref.id))}
+                  aria-label="移除参考图"
+                >
+                  <X size={10} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Bottom action bar */}
       <div className="flex items-center gap-2 px-3 pb-3" style={{ borderTop: `1px solid ${divider}`, paddingTop: 8 }}>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={event => handleUploadRefs(event.target.files)}
+        />
+        <button
+          type="button"
+          className="w-7 h-7 rounded-[var(--radius-md-design)] flex items-center justify-center hover:opacity-80 active:scale-90 transition-all"
+          style={{ background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)", color: subtext }}
+          title="上传参考图片"
+          aria-label="上传参考图片"
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <ImagePlus size={13} />
+        </button>
         <ModelSelector model={model} onChange={setModel} isDark={isDark} />
         <div className="flex-1" />
         <span className="type-caption" style={{ color: subtext }}>回车发送</span>
         <button
           onClick={handleSend}
           className="w-7 h-7 rounded-[var(--radius-md-design)] flex items-center justify-center hover:opacity-80 active:scale-90 transition-all"
-          style={{ background: prompt.trim() ? "oklch(0.58 0.22 290)" : (isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)") }}
+          style={{ background: prompt.trim() || uploadedRefs.length > 0 ? "oklch(0.58 0.22 290)" : (isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)") }}
         >
-          <Send size={13} color={prompt.trim() ? "white" : (isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.30)")} />
+          <Send size={13} color={prompt.trim() || uploadedRefs.length > 0 ? "white" : (isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.30)")} />
         </button>
       </div>
     </div>
@@ -4238,7 +4651,7 @@ function ImageGeneratorPopover({ isDark, onClose }: { isDark: boolean; onClose: 
   const fieldBg = isDark ? "rgba(255,255,255,0.055)" : "rgba(0,0,0,0.035)";
   const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
   const accent = "oklch(0.64 0.22 285)";
-  const selectedModel = AI_MODELS.find(item => item.id === model) || AI_MODELS.find(item => item.id === "flux-pro") || AI_MODELS[0];
+  const selectedModel = IMAGE_AI_MODELS.find(item => item.id === model) || IMAGE_AI_MODELS[0];
   const ratios = ["1:1", "4:5", "16:9"];
   const styles = ["品牌视觉", "产品摄影", "海报大片"];
   const canGenerate = prompt.trim().length > 0 && !isGenerating;
@@ -4272,7 +4685,9 @@ function ImageGeneratorPopover({ isDark, onClose }: { isDark: boolean; onClose: 
       return;
     }
     setIsGenerating(true);
-    const payload: ImageGeneratorPayload = { prompt, model, ratio, count, style, referencesEnabled };
+    const generationId = `image-gen-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const payload: ImageGeneratorPayload = { prompt, model, ratio, count, style, referencesEnabled, generationId };
+    window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "pending" } }));
     try {
       const baseUrl = import.meta.env.VITE_AI_API_BASE_URL?.replace(/\/+$/, "") || "";
       const response = await fetch(`${baseUrl}/api/images/generate`, {
@@ -4289,12 +4704,13 @@ function ImageGeneratorPopover({ isDark, onClose }: { isDark: boolean; onClose: 
       }
       const result = JSON.parse(text) as { error?: string; images?: Array<{ src: string; width: number; height: number }> };
       if (!response.ok) throw new Error(result.error || "图像生成失败");
-      window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, images: result.images } }));
+      window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "completed", images: result.images } }));
       setIsGenerating(false);
       setPrompt("");
       onClose();
     } catch (error) {
       const message = error instanceof Error ? error.message : "请稍后重试";
+      window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "failed", error: message } }));
       toast("图像生成失败", { description: message });
       setIsGenerating(false);
     }
@@ -4390,7 +4806,7 @@ function ImageGeneratorPopover({ isDark, onClose }: { isDark: boolean; onClose: 
                     }}
                     onWheel={e => e.stopPropagation()}
                   >
-                    {AI_MODELS.map(item => {
+                    {IMAGE_AI_MODELS.map(item => {
                       const active = selectedModel.id === item.id;
                       return (
                         <button
@@ -4805,19 +5221,22 @@ function SaveProjectConfirmDialog({ isDark, project, onCancel, onSave }: {
 }
 
 
-function CanvasAssistantPanel({ isDark, collapsed, isAuthenticated, onToggleCollapsed, onLoginRequest, referencedAssets, onRemoveReference, selectedCount, helpPromptNonce }: { isDark: boolean; collapsed: boolean; isAuthenticated: boolean; onToggleCollapsed: () => void; onLoginRequest: () => void; referencedAssets: { id: string; title: string; src: string }[]; onRemoveReference: (id: string) => void; selectedCount: number; helpPromptNonce: number }) {
+function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, onToggleCollapsed, onLoginRequest, referencedAssets, onRemoveReference, selectedCount, helpPromptNonce }: { projectId: string; isDark: boolean; collapsed: boolean; isAuthenticated: boolean; onToggleCollapsed: () => void; onLoginRequest: () => void; referencedAssets: { id: string; title: string; src: string }[]; onRemoveReference: (id: string) => void; selectedCount: number; helpPromptNonce: number }) {
+  const [, navigate] = useLocation();
   const [inputFocused, setInputFocused] = useState(false);
   const [prompt, setPrompt] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const commandMenuRef = useRef<HTMLDivElement>(null);
   const [commandMenuOpen, setCommandMenuOpen] = useState(false);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
+  const [netSearchEnabled, setNetSearchEnabled] = useState(false);
   const [assistantModelId, setAssistantModelId] = useState("gpt-4o");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [messages, setMessages] = useState<Array<{ id: string; role: "user" | "assistant"; content: string; timestamp: Date }>>([
-    { id: "assistant-seed-1", role: "assistant", content: "选择图片节点后，可在左侧画布直接进行智能优化。", timestamp: new Date(Date.now() - 120000) },
-    { id: "assistant-seed-2", role: "assistant", content: "右键图片节点可以快速执行智能优化、复制、粘贴、打组、添加文本备注和删除节点。当前布局已按参考图改为左侧大画布、右侧助手区、底部浮动工具区。", timestamp: new Date(Date.now() - 60000) },
+    { id: "assistant-seed-1", role: "assistant", content: "你好，下面开始你的创作吧！", timestamp: new Date() },
   ]);
+  const pendingHomePromptHandledRef = useRef(false);
   const bg = isDark ? "oklch(0.125 0.014 270 / 0.98)" : "oklch(0.995 0.002 80 / 0.98)";
   const border = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 10%)";
   const text = isDark ? "oklch(0.84 0.008 270)" : "oklch(0.18 0.008 270)";
@@ -4829,16 +5248,30 @@ function CanvasAssistantPanel({ isDark, collapsed, isAuthenticated, onToggleColl
   const inputShadow = "0 16px 42px rgba(210,214,224,0.10), 0 0 0 1px rgba(210,214,224,0.10)";
   const panelWidth = "clamp(280px, 32vw, 372px)";
   const collapsedPeekWidth = 112;
+  const handleCreateCanvasProject = () => {
+    const project = createWorkspaceHistoryProject();
+    toast("已新建画布", { description: project.title });
+    navigate(`/project/${project.id}`);
+  };
+
   const actionButtons = [
-    { label: "新建对话", icon: <PlusSquare size={16} />, onClick: () => toast("已新建对话") },
+    { label: "新建画布", icon: <PlusSquare size={16} />, onClick: handleCreateCanvasProject },
     { label: "分享对话", icon: <Share2 size={16} />, onClick: () => toast("分享对话", { description: "分享能力准备中" }) },
     { label: collapsed ? "展开对话框" : "收起对话框", icon: <ChevronLeft size={16} style={{ transform: collapsed ? "none" : "rotate(180deg)", transition: "transform 0.2s ease" }} />, onClick: onToggleCollapsed },
   ];
+  const handleUploadClick = () => {
+    window.dispatchEvent(new CustomEvent("workspace-upload-request"));
+    setCommandMenuOpen(false);
+  };
+  const handleSelectFromAssets = () => {
+    setCommandMenuOpen(false);
+    navigate("/workspace");
+  };
   const hasPrompt = prompt.trim().length > 0;
   const hasContext = selectedCount > 0 || referencedAssets.length > 0;
   const canSubmit = (hasPrompt || hasContext) && !isSubmitting;
   const contextLabel = selectedCount > 1 ? `group (${selectedCount})` : selectedCount === 1 ? "selection (1)" : referencedAssets.length > 0 ? `refs (${referencedAssets.length})` : "";
-  const assistantModel = AI_MODELS.find(model => model.id === assistantModelId) || AI_MODELS[0];
+  const assistantModel = TEXT_AI_MODELS.find(model => model.id === assistantModelId) || TEXT_AI_MODELS[0];
   const runAssistantCapability = async (module: string, instruction: string) => {
     if (isSubmitting) return;
     const userMessage = {
@@ -4872,12 +5305,93 @@ function CanvasAssistantPanel({ isDark, collapsed, isAuthenticated, onToggleColl
       setIsSubmitting(false);
     }
   };
-  const commandItems = [
-    { label: "添加素材", description: "上传图片、文件或参考内容", icon: <Plus size={13} />, onClick: () => toast("添加素材", { description: "可把图片拖入画布或选择已有素材作为引用" }) },
-    { label: "资源库", description: "打开参考、组件与历史素材", icon: <FileText size={13} />, onClick: () => toast("资源库", { description: "资源入口已承载到黑色输入框" }) },
-    { label: "灵感建议", description: "生成可执行的画布想法", icon: <Sparkles size={13} />, onClick: () => runAssistantCapability("inspiration-suggestions", `请基于当前画布上下文生成 5 条下一步创作灵感。上下文：${contextLabel || "当前画布"}`) },
-    { label: "对象能力", description: "操作选中对象、分组和组件", icon: <Box size={13} />, onClick: () => runAssistantCapability("object-capabilities", `请分析当前选中对象并给出可执行操作建议。选中上下文：${contextLabel || "未选择对象"}`) },
-  ];
+  useEffect(() => {
+    if (!commandMenuOpen) return;
+    const handler = (event: PointerEvent) => {
+      if (commandMenuRef.current && event.target instanceof globalThis.Node && !commandMenuRef.current.contains(event.target)) {
+        setCommandMenuOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handler, true);
+    return () => document.removeEventListener("pointerdown", handler, true);
+  }, [commandMenuOpen]);
+
+  useEffect(() => {
+    if (pendingHomePromptHandledRef.current || collapsed) return;
+    const raw = sessionStorage.getItem("artx:pending-home-prompt");
+    if (!raw) return;
+    try {
+      const payload = JSON.parse(raw) as { projectId?: string; prompt?: string };
+      if (payload.projectId !== projectId || !payload.prompt?.trim()) return;
+      pendingHomePromptHandledRef.current = true;
+      sessionStorage.removeItem("artx:pending-home-prompt");
+      const submittedText = payload.prompt.trim();
+      const userMessage = {
+        id: `home-user-${Date.now()}`,
+        role: "user" as const,
+        content: submittedText,
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, userMessage]);
+      setPrompt(submittedText);
+      setIsSubmitting(true);
+
+      window.setTimeout(async () => {
+        try {
+          const decisionResult = await callLLM({
+            module: "home-prompt-canvas-router",
+            model: assistantModel.id,
+            prompt: [
+              "你是 artx 首页提示词进入画布后的意图路由器。",
+              "请判断用户输入应该生成图片，还是作为对话回复。",
+              "只返回 JSON，不要 Markdown。",
+              "JSON 格式：{\"mode\":\"text|image\",\"reply\":\"文字回复内容\",\"imagePrompt\":\"适合图片模型的提示词\",\"reason\":\"一句话原因\"}",
+              "用户输入：",
+              submittedText,
+            ].join("\n"),
+          });
+          const decision = inferBottomPromptDecision(decisionResult.text, submittedText);
+          if (decision.mode === "image") {
+            const imagePrompt = decision.imagePrompt?.trim() || submittedText;
+            const generationId = `home-prompt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+            const imagePayload: ImageGeneratorPayload = {
+              prompt: imagePrompt,
+              model: "gpt-image-2",
+              ratio: "1:1",
+              count: 1,
+              style: "首页创作",
+              referencesEnabled: false,
+              generationId,
+            };
+            window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...imagePayload, status: "pending" } }));
+            const result = await generateAiImages(imagePayload);
+            window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...imagePayload, status: "completed", images: result.images } }));
+            setMessages(prev => [...prev, {
+              id: `assistant-${Date.now()}`,
+              role: "assistant",
+              content: `已根据你的首页提示词生成图片：${imagePrompt}`,
+              timestamp: new Date(),
+            }]);
+            return;
+          }
+          setMessages(prev => [...prev, {
+            id: `assistant-${Date.now()}`,
+            role: "assistant",
+            content: decision.reply || decisionResult.text,
+            timestamp: new Date(),
+          }]);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "请稍后重试";
+          toast("首页提示词自动处理失败", { description: message });
+        } finally {
+          setPrompt("");
+          setIsSubmitting(false);
+        }
+      }, 360);
+    } catch {
+      sessionStorage.removeItem("artx:pending-home-prompt");
+    }
+  }, [assistantModel.id, collapsed, projectId]);
 
   useEffect(() => {
     if (helpPromptNonce <= 0 || collapsed) return;
@@ -5128,7 +5642,7 @@ function CanvasAssistantPanel({ isDark, collapsed, isAuthenticated, onToggleColl
                 onBlur={() => setInputFocused(false)}
               />
               <div className="flex items-center justify-between pt-2">
-                <div className="relative flex items-center gap-1" style={{ color: sub }}>
+                <div ref={commandMenuRef} className="relative flex items-center gap-1" style={{ color: sub }}>
                   <button type="button" style={iconButtonStyle()} className="hover:scale-105 active:scale-95" title="添加素材" aria-label="添加素材" onClick={() => toast("添加素材", { description: "拖入素材或从资源库选择引用" })}>
                     <Plus size={16} />
                   </button>
@@ -5151,25 +5665,60 @@ function CanvasAssistantPanel({ isDark, collapsed, isAuthenticated, onToggleColl
                   {commandMenuOpen && (
                     <div
                       className="absolute bottom-full left-0 mb-2 w-[248px] overflow-hidden rounded-[var(--radius-lg-design)] shadow-2xl"
-                      style={{ background: elevatedBg, border: `1px solid ${border}`, zIndex: 30 }}
+                      style={{ background: elevatedBg, border: `1px solid ${border}`, zIndex: 130, padding: 0 }}
                     >
-                      {commandItems.map(item => (
+                      <div className="p-2">
                         <button
-                          key={item.label}
                           type="button"
-                          className="flex w-full items-start gap-2 px-3 py-2.5 text-left transition-colors"
+                          className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors rounded-[var(--radius-md-design)]"
                           style={{ color: text }}
                           onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
                           onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-                          onClick={() => { item.onClick(); setCommandMenuOpen(false); }}
+                          onClick={handleUploadClick}
                         >
-                          <span className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-[var(--radius-md-design)]" style={{ background: hoverBg, color: sub }}>{item.icon}</span>
+                          <span className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-md-design)]" style={{ background: hoverBg, color: sub }}>
+                            <ImagePlus size={16} />
+                          </span>
                           <span className="min-w-0">
-                            <span className="block type-caption" style={{ color: text }}>{item.label}</span>
-                            <span className="block type-caption" style={{ color: sub, fontSize: 11, lineHeight: 1.4 }}>{item.description}</span>
+                            <span className="block type-caption" style={{ color: text }}>上传文件</span>
+                            <span className="block type-caption" style={{ color: sub, fontSize: 11, lineHeight: 1.4 }}>从本地选择图片</span>
                           </span>
                         </button>
-                      ))}
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors rounded-[var(--radius-md-design)]"
+                          style={{ color: text }}
+                          onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+                          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                          onClick={handleSelectFromAssets}
+                        >
+                          <span className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-md-design)]" style={{ background: hoverBg, color: sub }}>
+                            <LayoutGrid size={16} />
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block type-caption" style={{ color: text }}>从素材库选择</span>
+                            <span className="block type-caption" style={{ color: sub, fontSize: 11, lineHeight: 1.4 }}>从工作台素材库添加参考</span>
+                          </span>
+                        </button>
+                        <div className="flex w-full items-center gap-3 px-3 py-2.5 rounded-[var(--radius-md-design)]" style={{ color: text }}>
+                          <span className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-md-design)]" style={{ background: hoverBg, color: sub }}>
+                            <Search size={16} />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block type-caption" style={{ color: text }}>联网搜索</span>
+                            <span className="block type-caption" style={{ color: sub, fontSize: 11, lineHeight: 1.4 }}>由大语言模型帮助全网搜索</span>
+                          </span>
+                          <button
+                            type="button"
+                            className="relative h-6 w-11 rounded-full transition-colors"
+                            style={{ background: netSearchEnabled ? "oklch(0.58 0.22 290)" : (isDark ? "oklch(1 0 0 / 0.08)" : "oklch(0 0 0 / 0.08)") }}
+                            onClick={e => { e.stopPropagation(); setNetSearchEnabled(v => !v); }}
+                            aria-label="联网搜索"
+                          >
+                            <span style={{ position: "absolute", top: 3, left: netSearchEnabled ? 23 : 3, width: 18, height: 18, borderRadius: "var(--radius-md-design)", background: "white", transition: "left 0.16s ease", boxShadow: "0 2px 8px rgba(0,0,0,0.25)" }} />
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   )}
                   {agentMenuOpen && (
@@ -5186,7 +5735,7 @@ function CanvasAssistantPanel({ isDark, collapsed, isAuthenticated, onToggleColl
                       <div className="px-3 py-2 border-b" style={{ borderColor: border }}>
                         <p className="type-caption uppercase tracking-wider" style={{ color: sub }}>选择模型</p>
                       </div>
-                      {AI_MODELS.map(model => (
+                      {TEXT_AI_MODELS.map(model => (
                         <button
                           key={model.id}
                           type="button"
@@ -5200,7 +5749,6 @@ function CanvasAssistantPanel({ isDark, collapsed, isAuthenticated, onToggleColl
                             <div className="w-4 h-4 rounded-[var(--radius-pill)]" style={{ background: model.color }} />
                             <div>
                               <p className="type-caption" style={{ textTransform: "none", letterSpacing: "0.02em" }}>{model.label}</p>
-                              <p className="type-caption mt-0.5" style={{ color: sub }}>{model.vendor}</p>
                             </div>
                           </div>
                           {assistantModel.id === model.id && (
@@ -5446,6 +5994,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   // ── 工具模式 ──
   const [activeToolMode, setActiveToolMode] = useState<string>("move");
   const uploadInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handleWorkspaceUploadRequest = () => {
+      uploadInputRef.current?.click();
+    };
+    window.addEventListener("workspace-upload-request", handleWorkspaceUploadRequest);
+    return () => window.removeEventListener("workspace-upload-request", handleWorkspaceUploadRequest);
+  }, []);
 
   // ── 创建画布工具：拖拽绘制矩形状态 ──
   type DrawRect = { startX: number; startY: number; endX: number; endY: number };
@@ -5727,6 +6283,87 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     };
   }, [edgesRef, pushHistory, setNodes]);
 
+  useEffect(() => {
+    const applyHandler = async (e: Event) => {
+      if (isRestoringRef.current) return;
+      const detail = (e as CustomEvent<{ nodeId: string; imageSrc: string; maskSrc: string }>).detail;
+      if (!detail?.nodeId || !detail.imageSrc || !detail.maskSrc) return;
+      pushHistory(nodesRef.current, edgesRef.current);
+      setNodes(nds => nds.map(n =>
+        n.id === detail.nodeId && n.type === "asset"
+          ? {
+              ...n,
+              data: {
+                ...(n.data as Record<string, unknown>),
+                isErasing: false,
+                isErasingImage: true,
+                isCropping: false,
+                isEditing: false,
+              },
+            }
+          : n
+      ));
+      window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
+      toast("AI 擦除中", { description: "正在移除涂抹区域并修复背景" });
+      try {
+        const result = await eraseImageObjects({
+          imageSrc: detail.imageSrc,
+          maskSrc: detail.maskSrc,
+          model: "gpt-image-2",
+          prompt: "Remove only the objects or scene elements covered by the mask. Reconstruct the background naturally, keep lighting, texture, perspective, and surrounding details consistent, and preserve all unmasked areas.",
+        });
+        const image = result.images[0];
+        if (!image) throw new Error("AI 擦除接口没有返回图片");
+        setNodes(nds => nds.map(n => {
+          if (n.id !== detail.nodeId || n.type !== "asset") return n;
+          const data = n.data as Record<string, unknown>;
+          const tags = Array.isArray(data.tags) ? data.tags.filter(tag => typeof tag === "string") as string[] : DEFAULT_ASSET_TAGS;
+          const currentW = Number(data.imgW || n.style?.width || image.width || 1024);
+          const currentH = Number(data.imgH || n.style?.height || image.height || 1024);
+          return {
+            ...n,
+            style: { ...n.style, width: currentW, height: currentH },
+            data: {
+              ...data,
+              localSrc: image.src,
+              imgW: currentW,
+              imgH: currentH,
+              cropX: 0,
+              cropY: 0,
+              cropW: 100,
+              cropH: 100,
+              isErasing: false,
+              isErasingImage: false,
+              title: typeof data.title === "string" ? data.title : "AI 擦除图片",
+              tags: Array.from(new Set([...tags, "局部擦除"])),
+            },
+          };
+        }));
+        toast("AI 擦除完成", { description: "已替换当前图片节点" });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "请稍后重试";
+        setNodes(nds => nds.map(n =>
+          n.id === detail.nodeId && n.type === "asset"
+            ? { ...n, data: { ...(n.data as Record<string, unknown>), isErasingImage: false, isErasing: true } }
+            : n
+        ));
+        toast("AI 擦除失败", { description: message });
+      }
+    };
+    const cancelHandler = (e: Event) => {
+      const nodeId = (e as CustomEvent<{ nodeId: string }>).detail?.nodeId;
+      if (!nodeId) return;
+      setNodes(nds => nds.map(n => n.id === nodeId && n.type === "asset" ? { ...n, data: { ...(n.data as Record<string, unknown>), isErasing: false } } : n));
+      window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
+    };
+    window.addEventListener("asset-erase-apply", applyHandler);
+    window.addEventListener("asset-erase-cancel", cancelHandler);
+    return () => {
+      window.removeEventListener("asset-erase-apply", applyHandler);
+      window.removeEventListener("asset-erase-cancel", cancelHandler);
+    };
+  }, [edgesRef, pushHistory, setNodes]);
+
   // ── 几何形参数面板（全局渲染，紧贴节点选框右侧 +6px） ──
   const [shapeCtxMenu, setShapeCtxMenu] = useState<{
     nodeId: string;
@@ -5813,13 +6450,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             y: baseScreenY + offsetY,
           });
           const id = `upload-${Date.now()}-${index}`;
-          const maxSide = 360;
-          const scale = Math.min(1, maxSide / Math.max(img.naturalWidth || 360, img.naturalHeight || 360));
-          const nodeWidth = Math.max(180, Math.round((img.naturalWidth || 360) * scale));
+          const nodeWidth = Math.max(1, Math.round(img.naturalWidth || 360));
+          const nodeHeight = Math.max(1, Math.round(img.naturalHeight || 360));
           setNodes(nds => [...nds, {
             id,
             type: "asset",
-            position: { x: flowPos.x - nodeWidth / 2, y: flowPos.y - 100 },
+            position: { x: flowPos.x - nodeWidth / 2, y: flowPos.y - nodeHeight / 2 },
+            style: { width: nodeWidth, height: nodeHeight },
             data: {
               id,
               assetId: "default",
@@ -5827,6 +6464,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               title: file.name.replace(/\.[^.]+$/, ""),
               assetType: "图片",
               tags: DEFAULT_ASSET_TAGS,
+              imgW: nodeWidth,
+              imgH: nodeHeight,
             },
           }]);
         };
@@ -6225,6 +6864,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const handleImageGenerate = (event: Event) => {
       const detail = (event as CustomEvent<ImageGeneratorPayload>).detail;
       if (!detail?.prompt?.trim()) return;
+      const generationId = detail.generationId || `image-gen-${Date.now()}`;
       const container = containerRef.current;
       const rect = container?.getBoundingClientRect();
       const center = rect
@@ -6236,6 +6876,45 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         "16:9": { w: 320, h: 180 },
       };
       const size = ratioSize[detail.ratio] || ratioSize["1:1"];
+      if (detail.status === "pending") {
+        setNodes(nds => {
+          pushHistory(nds, edgesRef.current);
+          const placeholderNodes = Array.from({ length: Math.max(1, detail.count || 1) }, (_, index) => {
+            const id = `generated-${generationId}-${index}`;
+            return {
+              id,
+              type: "asset" as const,
+              position: {
+                x: center.x - size.w / 2 + index * (size.w + 24),
+                y: center.y - size.h / 2,
+              },
+              style: { width: size.w, height: size.h },
+              data: {
+                id,
+                assetId: "default",
+                generationId,
+                generationIndex: index,
+                isGeneratingImage: true,
+                title: `生成中 · ${detail.style}${detail.count > 1 ? ` ${index + 1}` : ""}`,
+                assetType: "AI 生成",
+                tags: [detail.model, detail.ratio, "生成中", detail.referencesEnabled ? "参考画布" : "无参考"],
+                imgW: size.w,
+                imgH: size.h,
+              },
+            };
+          });
+          return [...nds, ...placeholderNodes];
+        });
+        toast("正在生成图像", { description: detail.prompt.slice(0, 58) });
+        window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
+        return;
+      }
+
+      if (detail.status === "failed") {
+        setNodes(nds => nds.filter(n => !((n.data as Record<string, unknown>)?.generationId === generationId)));
+        return;
+      }
+
       const images = detail.images?.length
         ? detail.images
         : [GENERATED_ASSETS[Math.abs(detail.prompt.length + detail.count) % GENERATED_ASSETS.length]].map(asset => ({
@@ -6244,9 +6923,32 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             height: asset.height,
           }));
       setNodes(nds => {
+        const existingPlaceholders = nds.filter(n => (n.data as Record<string, unknown>)?.generationId === generationId);
+        if (existingPlaceholders.length > 0) {
+          return nds.map(n => {
+            const data = n.data as Record<string, unknown>;
+            if (data.generationId !== generationId) return n;
+            const index = typeof data.generationIndex === "number" ? data.generationIndex : 0;
+            const image = images[index] || images[0];
+            if (!image) return n;
+            return {
+              ...n,
+              data: {
+                ...data,
+                localSrc: image.src,
+                isGeneratingImage: false,
+                title: `生成图像 · ${detail.style}${images.length > 1 ? ` ${index + 1}` : ""}`,
+                assetType: "AI 生成",
+                tags: [detail.model, detail.ratio, `${images.length}张`, detail.referencesEnabled ? "参考画布" : "无参考"],
+                imgW: size.w,
+                imgH: size.h,
+              },
+            };
+          });
+        }
         pushHistory(nds, edgesRef.current);
         const generatedNodes = images.map((image, index) => {
-          const id = `generated-${Date.now()}-${index}`;
+          const id = `generated-${generationId}-${index}`;
           return {
             id,
             type: "asset" as const,
@@ -6257,7 +6959,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             data: {
               id,
               assetId: "default",
+              generationId,
+              generationIndex: index,
               localSrc: image.src,
+              isGeneratingImage: false,
               title: `生成图像 · ${detail.style}${images.length > 1 ? ` ${index + 1}` : ""}`,
               assetType: "AI 生成",
               tags: [detail.model, detail.ratio, `${images.length}张`, detail.referencesEnabled ? "参考画布" : "无参考"],
@@ -6850,13 +7555,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         img.onload = () => {
           const dropPos = screenToFlowPosition({ x: (rect?.left || 0) + baseX + index * 32, y: (rect?.top || 0) + baseY + index * 32 });
           const id = `local-${Date.now()}-${index}`;
-          const maxSide = 360;
-          const scale = Math.min(1, maxSide / Math.max(img.naturalWidth || 360, img.naturalHeight || 360));
-          const nodeWidth = Math.max(180, Math.round((img.naturalWidth || 360) * scale));
+          const nodeWidth = Math.max(1, Math.round(img.naturalWidth || 360));
+          const nodeHeight = Math.max(1, Math.round(img.naturalHeight || 360));
           setNodes(nds => [...nds, {
             id,
             type: "asset",
-            position: { x: dropPos.x - nodeWidth / 2, y: dropPos.y - 100 },
+            position: { x: dropPos.x - nodeWidth / 2, y: dropPos.y - nodeHeight / 2 },
+            style: { width: nodeWidth, height: nodeHeight },
             data: {
               id,
               assetId: "default",
@@ -6864,6 +7569,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               title: file.name.replace(/\.[^.]+$/, ""),
               assetType: "图片",
               tags: DEFAULT_ASSET_TAGS,
+              imgW: nodeWidth,
+              imgH: nodeHeight,
             },
           }]);
         };
@@ -7437,7 +8144,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     b.click(); URL.revokeObjectURL(svgUrl);
     toast("已下载 PNG 和 SVG", { description: "文字已导出为两种格式" });
   }, [selectedTextNode]);
-  const handleSingleImageToolbarAction = useCallback((action: string) => {
+  const handleSingleImageToolbarAction = useCallback(async (action: string) => {
     const nodeId = selectedImageNodeIds[0];
     if (!nodeId) return;
     if (action === "quick-edit") {
@@ -7449,6 +8156,67 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       toast("放大预览", { description: "已打开当前图片预览，高清放大处理入口待接入" });
       return;
     }
+    if (action === "remove-background") {
+      const targetNode = nodesRef.current.find(n => n.id === nodeId && n.type === "asset");
+      if (!targetNode) return;
+      const data = targetNode.data as Record<string, unknown>;
+      const asset = GENERATED_ASSETS.find(item => item.id === data.assetId) || GENERATED_ASSETS[0];
+      const imageSrc = (data.localSrc as string | undefined) || asset?.src;
+      if (!imageSrc) {
+        toast("去背景失败", { description: "当前图片没有可处理的图像来源" });
+        return;
+      }
+
+      pushHistory();
+      setNodes(nds => nds.map(n =>
+        n.id === nodeId && n.type === "asset"
+          ? {
+              ...n,
+              data: {
+                ...(n.data as Record<string, unknown>),
+                isRemovingBackground: true,
+                isGeneratingImage: false,
+              },
+            }
+          : n
+      ));
+      toast("AI 去背景中", { description: "正在处理当前选中图片" });
+      try {
+        const result = await removeImageBackground({
+          imageSrc,
+          model: "gpt-image-2",
+          prompt: "Remove the background from this image. Keep the subject sharp and return a transparent PNG.",
+        });
+        const image = result.images[0];
+        if (!image) throw new Error("去背景接口没有返回图片");
+        setNodes(nds => nds.map(n => {
+          if (n.id !== nodeId || n.type !== "asset") return n;
+          const nodeData = n.data as Record<string, unknown>;
+          const tags = Array.isArray(nodeData.tags) ? nodeData.tags.filter(tag => typeof tag === "string") as string[] : DEFAULT_ASSET_TAGS;
+          return {
+            ...n,
+            data: {
+              ...nodeData,
+              localSrc: image.src,
+              isRemovingBackground: false,
+              backgroundRemoved: true,
+              title: typeof nodeData.title === "string" ? nodeData.title : "去背景图片",
+              tags: Array.from(new Set([...tags, "去背景"])),
+            },
+          };
+        }));
+        toast("去背景完成", { description: "已替换当前图片节点" });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "请稍后重试";
+        setNodes(nds => nds.map(n =>
+          n.id === nodeId && n.type === "asset"
+            ? { ...n, data: { ...(n.data as Record<string, unknown>), isRemovingBackground: false } }
+            : n
+        ));
+        toast("去背景失败", { description: message });
+      }
+      return;
+    }
     if (action === "download") {
       handleNodeAction("download", nodeId);
       return;
@@ -7457,11 +8225,31 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       pushHistory();
       setNodes(nds => nds.map(n =>
         n.id === nodeId && n.type === "asset"
-          ? { ...n, selected: true, data: { ...(n.data as Record<string, unknown>), isCropping: true, isEditing: false } }
+          ? { ...n, selected: true, data: { ...(n.data as Record<string, unknown>), isCropping: true, isEditing: false, isErasing: false } }
           : n
       ));
       window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "crop" } }));
       toast("裁切", { description: "拖拽虚线框四周边界，或选择比例后点击确定" });
+      return;
+    }
+    if (action === "erase") {
+      pushHistory();
+      setNodes(nds => nds.map(n =>
+        n.id === nodeId && n.type === "asset"
+          ? {
+              ...n,
+              selected: true,
+              data: {
+                ...(n.data as Record<string, unknown>),
+                isErasing: true,
+                isCropping: false,
+                isEditing: false,
+              },
+            }
+          : n
+      ));
+      window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "erase" } }));
+      toast("橡皮工具", { description: "涂抹需要移除的区域，调整橡皮尺寸后点击立即使用" });
       return;
     }
     if (action === "move-object") {
@@ -7500,7 +8288,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       more: "更多",
     };
     toast(labels[action] || "功能即将上线", { description: "已保留 Lovart 命令入口，后续可接入对应 AI 处理能力" });
-  }, [handleNodeAction, pushHistory, selectedImageNodeIds, setNodes]);
+  }, [handleNodeAction, nodesRef, pushHistory, selectedImageNodeIds, setNodes]);
   const handleAssetMorePanelApply = useCallback((label: string) => {
     if (!assetMorePanel) return;
     pushHistory();
@@ -7737,6 +8525,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       </ReactFlow>
 
       <CanvasAssistantPanel
+        projectId={projectId}
         isDark={isDark}
         collapsed={isAssistantCollapsed}
         isAuthenticated={isAuthenticated}

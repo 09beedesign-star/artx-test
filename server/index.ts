@@ -2,7 +2,7 @@ import express from "express";
 import { createServer } from "http";
 import path from "path";
 import { fileURLToPath } from "url";
-import { generateImages } from "./image-generation";
+import { eraseImageObjects, generateImages, removeImageBackground } from "./image-generation";
 import { generateText } from "./text-generation";
 import { handleAuthAction } from "./auth-store";
 
@@ -30,7 +30,7 @@ async function startServer() {
     next();
   });
 
-  app.use(express.json({ limit: "2mb" }));
+  app.use(express.json({ limit: "25mb" }));
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true });
@@ -42,6 +42,26 @@ async function startServer() {
       res.json(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Image generation failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.post("/api/images/remove-background", async (req, res) => {
+    try {
+      const result = await removeImageBackground(req.body);
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Background removal failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.post("/api/images/erase", async (req, res) => {
+    try {
+      const result = await eraseImageObjects(req.body);
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Image erase failed";
       res.status(500).json({ error: message });
     }
   });
