@@ -29,7 +29,7 @@ export default function ProfilePage() {
         color: textPrimary,
       }}
     >
-      <TopBar credits={75} />
+      <TopBar credits={0} />
       <main className="relative flex-1 overflow-y-auto px-8 py-8">
         <div className="pointer-events-none absolute inset-0 opacity-70" style={{ background: BG_GLOW }} />
         <div className="relative mx-auto max-w-5xl">

@@ -3,7 +3,7 @@
  * Global top navigation: search, theme switcher (Radix DropdownMenu), credits, user info
  */
 import { useState, type ElementType } from "react";
-import { Bell, ChevronDown, Sparkles, Moon, Sun, Monitor, Check, UserRound, LogOut, Search, KeyRound, Copy, RefreshCw } from "lucide-react";
+import { ChevronDown, Sparkles, Moon, Sun, Monitor, Check, UserRound, LogOut, Search, KeyRound, Copy, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { useTheme, type ThemeMode } from "@/contexts/ThemeContext";
@@ -43,7 +43,7 @@ const THEME_OPTIONS: { mode: ThemeMode; icon: ElementType; label: string }[] = [
   { mode: "system", icon: Monitor, label: "跟随系统" },
 ];
 
-export default function TopBar({ credits = 75, projectTitle, projectTime, showSearch = false }: TopBarProps) {
+export default function TopBar({ credits = 0, projectTitle, projectTime, showSearch = false }: TopBarProps) {
   const { mode, setMode, resolvedTheme } = useTheme();
   const { isAuthenticated, user, openLoginModal, logout } = useAuth();
   const [, navigate] = useLocation();
@@ -249,16 +249,6 @@ export default function TopBar({ credits = 75, projectTitle, projectTime, showSe
         <span className="type-caption">{credits}</span>
         <span className="type-caption" style={{ color: textSec }}>积分</span>
       </div>
-
-      {/* Bell */}
-      <button
-        onClick={() => toast("通知", { description: "暂无新通知" })}
-        className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-md-design)] transition-colors relative"
-        style={{ color: textSec }}
-      >
-        <Bell size={15} />
-        <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-[var(--radius-pill)]" style={{ background: "oklch(0.58 0.22 290)" }} />
-      </button>
 
       {/* User menu */}
       <DropdownMenu>

@@ -14,22 +14,26 @@ import {
 import type { CanvasNode } from "@/hooks/useCanvas";
 import { GENERATED_ASSETS } from "@/lib/workspace-data";
 import type { ChatMessage, AgentStep } from "@/lib/workspace-data";
-import { AI_MODELS } from "@/lib/workspace-data";
+import { IMAGE_AI_MODELS, TEXT_AI_MODELS } from "@/lib/workspace-data";
 import { callLLM } from "@/lib/ai";
+
+type AiModelOption = typeof TEXT_AI_MODELS[number] | typeof IMAGE_AI_MODELS[number];
 
 // ── Model Switcher (shared bottom toolbar) ────────────────────
 
 function ModelSwitcher({
   modelId,
   onChange,
+  models = TEXT_AI_MODELS,
   isDark = true,
 }: {
   modelId: string;
   onChange: (id: string) => void;
+  models?: AiModelOption[];
   isDark?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const current = AI_MODELS.find((m) => m.id === modelId) ?? AI_MODELS[0];
+  const current = models.find((m) => m.id === modelId) ?? models[0];
 
   const chipBg  = isDark ? "oklch(1 0 0 / 5%)"          : "oklch(0 0 0 / 5%)";
   const chipBdr = isDark ? "oklch(1 0 0 / 10%)"          : "oklch(0 0 0 / 10%)";
@@ -71,7 +75,7 @@ function ModelSwitcher({
             <div className="px-3 pt-2 pb-1">
               <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: textSec }}>切换模型</span>
             </div>
-            {AI_MODELS.map((m) => {
+            {models.map((m) => {
               const isActive = m.id === modelId;
               return (
                 <button
@@ -88,7 +92,6 @@ function ModelSwitcher({
                   <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: m.color }} />
                   <div className="flex flex-col leading-tight">
                     <span className="font-medium">{m.label}</span>
-                    <span className="text-[10px]" style={{ color: textSec }}>{m.vendor}</span>
                   </div>
                   {isActive && <div className="ml-auto w-1.5 h-1.5 rounded-full" style={{ background: "oklch(0.72 0.18 200)" }} />}
                 </button>
@@ -147,7 +150,7 @@ export function NodeWrapper({
 
 export function AssetNode({ node, isSelected, onDragStart, onSelect, onRemove }: Omit<NodeWrapperProps, "children" | "className" | "fullDrag">) {
   const asset = GENERATED_ASSETS.find((a) => a.id === (node.data.assetId as string)) || GENERATED_ASSETS[0];
-  const [modelId, setModelId] = useState("gpt-4o");
+  const [modelId, setModelId] = useState("gpt-image-2");
 
   const typeColor: Record<string, string> = { image: "oklch(0.78 0.18 290)", video: "oklch(0.72 0.18 200)", brand: "oklch(0.78 0.18 60)", poster: "oklch(0.80 0.18 330)" };
   const typeLabel: Record<string, string> = { image: "图片", video: "视频", brand: "品牌", poster: "海报" };
@@ -198,7 +201,7 @@ export function AssetNode({ node, isSelected, onDragStart, onSelect, onRemove }:
         {/* ── Model switcher bottom bar ── */}
         <div className="flex items-center gap-2 px-3 pb-2.5 pt-1" style={{ borderTop: "1px solid oklch(1 0 0 / 6%)" }}
           onMouseDown={(e) => e.stopPropagation()}>
-          <ModelSwitcher modelId={modelId} onChange={setModelId} isDark={true} />
+          <ModelSwitcher modelId={modelId} onChange={setModelId} models={IMAGE_AI_MODELS} isDark={true} />
           <div className="flex-1" />
           <button onClick={(e) => { e.stopPropagation(); toast("重新生成", { description: "功能即将上线" }); }}
             className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] transition-all"

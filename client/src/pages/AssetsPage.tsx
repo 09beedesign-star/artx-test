@@ -20,7 +20,7 @@ export default function AssetsPage() {
         <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: `url(${BG_GLOW})`, backgroundSize: "cover", opacity: 0.10, zIndex: 0 }} />
       )}
       <div style={{ position: "relative", zIndex: 1 }}>
-        <TopBar credits={75} />
+        <TopBar credits={0} />
       </div>
       <div className="flex-1 flex flex-col items-center justify-center" style={{ position: "relative", zIndex: 1, gap: "var(--space-md)" }}>
         <div className="w-16 h-16 rounded-[var(--radius-lg-design)] flex items-center justify-center" style={{ background: "oklch(0.62 0.22 290 / 0.12)" }}>

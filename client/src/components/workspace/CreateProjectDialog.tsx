@@ -33,7 +33,7 @@ export default function CreateProjectDialog({
   open,
   onOpenChange,
   onCreate,
-  title = "新建项目",
+  title = "新建画布",
 }: CreateProjectDialogProps) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";

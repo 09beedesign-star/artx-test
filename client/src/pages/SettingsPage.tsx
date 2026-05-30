@@ -39,7 +39,7 @@ export default function SettingsPage() {
       )}
 
       <div style={{ position: "relative", zIndex: 1 }}>
-        <TopBar credits={75} />
+        <TopBar credits={0} />
       </div>
 
       <main className="flex-1 overflow-auto" style={{ position: "relative", zIndex: 1 }}>

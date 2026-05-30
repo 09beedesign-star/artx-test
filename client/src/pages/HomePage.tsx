@@ -15,8 +15,8 @@ import {
   Send, Mic, Check, MoreHorizontal, Pencil, Copy, Trash2,
   PlayCircle, Heart,
 } from "lucide-react";
-import { PROJECTS, POSTER_1, POSTER_2, BRAND_KIT, SOCIAL_AD, BG_GLOW, AI_MODELS } from "@/lib/workspace-data";
-import { callLLM } from "@/lib/ai";
+import { PROJECTS, POSTER_1, POSTER_2, BRAND_KIT, SOCIAL_AD, BG_GLOW, TEXT_AI_MODELS } from "@/lib/workspace-data";
+import { createWorkspaceHistoryProject } from "@/lib/project-history";
 
 // ── Home Project Card Menu ────────────────────────────────────
 function HomeCardMenu({ isDark }: { isDark: boolean }) {
@@ -128,13 +128,16 @@ const PROMPT_SUGGESTIONS = [
   "包装设计",
 ];
 
+const HOME_TYPEWRITER_PROMPT = "hello，欢迎来到。ArtX,正式开启你的。灵感AI创意之旅吧！";
+
 // ── artx-style AI Input Box ──────────────────────────────────
 function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: string) => void }) {
   const [value, setValue] = useState("");
   const [modelOpen, setModelOpen] = useState(false);
-  const [selectedModel, setSelectedModel] = useState(AI_MODELS[0]);
+  const [selectedModel, setSelectedModel] = useState(TEXT_AI_MODELS[0]);
   const [focused, setFocused] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const [typedPrompt, setTypedPrompt] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const modelRef = useRef<HTMLDivElement>(null);
 
@@ -155,6 +158,28 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
     setTimeout(() => document.addEventListener("mousedown", handler), 50);
     return () => document.removeEventListener("mousedown", handler);
   }, [modelOpen]);
+
+  useEffect(() => {
+    if (value.trim()) {
+      setTypedPrompt("");
+      return;
+    }
+    const timeoutIds: ReturnType<typeof setTimeout>[] = [];
+    const typeOnce = () => {
+      setTypedPrompt("");
+      for (let i = 1; i <= HOME_TYPEWRITER_PROMPT.length; i += 1) {
+        const charTimeout = setTimeout(() => {
+          setTypedPrompt(HOME_TYPEWRITER_PROMPT.slice(0, i));
+        }, i * 42);
+        timeoutIds.push(charTimeout);
+      }
+      timeoutIds.push(setTimeout(typeOnce, 6000));
+    };
+    typeOnce();
+    return () => {
+      timeoutIds.forEach(clearTimeout);
+    };
+  }, [value]);
 
   const handleSubmit = () => {
     if (!value.trim()) return;
@@ -205,7 +230,21 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
       onMouseLeave={() => setHovered(false)}
     >
       {/* Textarea — fills the box */}
-      <div className="flex-1 px-6 pt-6 pb-3">
+      <div className="relative flex-1 px-6 pt-6 pb-3">
+        {!value && typedPrompt && (
+          <div
+            className="pointer-events-none absolute left-6 right-6 top-6 leading-relaxed"
+            style={{
+              color: subColor,
+              fontSize: 16,
+              opacity: 0.72,
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            {typedPrompt}
+            <span style={{ opacity: 0.8 }}>｜</span>
+          </div>
+        )}
         <textarea
           ref={textareaRef}
           value={value}
@@ -213,7 +252,7 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
           onKeyDown={handleKeyDown}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
-          placeholder="今天想设计什么？描述你的创意想法…"
+          placeholder=""
           rows={4}
           className="w-full h-full resize-none bg-transparent outline-none leading-relaxed"
           style={{
@@ -283,7 +322,7 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
                 <div className="px-3 py-2 border-b" style={{ borderColor: dividerColor }}>
                   <p className="type-caption uppercase tracking-wider" style={{ color: subColor }}>选择模型</p>
                 </div>
-                {AI_MODELS.map(model => (
+                {TEXT_AI_MODELS.map(model => (
                   <button
                     key={model.id}
                     className="flex items-center justify-between w-full px-3 py-2.5 text-left type-caption transition-colors"
@@ -296,7 +335,6 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
                       <div className="w-4 h-4 rounded-[var(--radius-pill)]" style={{ background: model.color }} />
                       <div>
                         <p className="type-caption" style={{ textTransform: "none", letterSpacing: "0.02em" }}>{model.label}</p>
-                        <p className="type-caption mt-0.5" style={{ color: subColor }}>{model.vendor}</p>
                       </div>
                     </div>
                     {selectedModel.id === model.id && (
@@ -362,18 +400,20 @@ export default function HomePage() {
     navigate("/project/p1");
   };
 
-  const handlePromptSubmit = async (text: string) => {
-    try {
-      const result = await callLLM({
-        module: "home-hero-input",
-        prompt: `请把这段首页创作意图整理成项目 brief 和首轮创作方向：${text}`,
-      });
-      sessionStorage.setItem("artx:home-hero-brief", result.text);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "稍后进入工作台继续创作";
-      toast("首页 AI 处理失败", { description: message });
+  const handlePromptSubmit = (text: string) => {
+    if (!isAuthenticated) {
+      openLoginModal();
+      return;
     }
-    handleStartDesign();
+    const title = text.length > 18 ? `${text.slice(0, 18)}...` : text;
+    const project = createWorkspaceHistoryProject(title || undefined, text);
+    sessionStorage.setItem("artx:pending-home-prompt", JSON.stringify({
+      projectId: project.id,
+      prompt: text,
+      createdAt: project.createdAt,
+    }));
+    toast("已创建新画布", { description: text.slice(0, 80) });
+    navigate(`/project/${project.id}`);
   };
 
   const handleSuggestionClick = (suggestion: string) => {
@@ -386,7 +426,7 @@ export default function HomePage() {
         <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: `url(${BG_GLOW})`, backgroundSize: "cover", backgroundPosition: "center", opacity: 0.12, zIndex: 0 }} />
       )}
       <div style={{ position: "relative", zIndex: 1 }}>
-        <TopBar credits={75} />
+        <TopBar credits={0} />
       </div>
 
       <div className="flex-1 overflow-y-auto" style={{ position: "relative", zIndex: 1 }}>

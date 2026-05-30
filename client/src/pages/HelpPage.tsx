@@ -31,7 +31,7 @@ export default function HelpPage() {
         <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: `url(${BG_GLOW})`, backgroundSize: "cover", opacity: 0.10, zIndex: 0 }} />
       )}
       <div style={{ position: "relative", zIndex: 1 }}>
-        <TopBar credits={75} />
+        <TopBar credits={0} />
       </div>
       <div className="flex-1 overflow-y-auto" style={{ position: "relative", zIndex: 1 }}>
         <div className="max-w-xl mx-auto px-6 py-12">

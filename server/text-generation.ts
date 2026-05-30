@@ -58,6 +58,8 @@ function getProviderConfig() {
   return { apiKey, baseUrl, model };
 }
 
+const supportedTextModels = new Set(["gpt-4o"]);
+
 function flattenMessageContent(content: TextMessage["content"]): string {
   if (typeof content === "string") return content;
 
@@ -172,8 +174,7 @@ export async function generateText(input: TextGenerateInput): Promise<{ text: st
     throw new Error("Missing AI_TEXT_API_KEY");
   }
 
-  const imageOnlyModels = new Set(["gpt-image-2", "flux-pro", "midjourney-v6", "sora"]);
-  const selectedModel = input.model && !imageOnlyModels.has(input.model) ? input.model : model;
+  const selectedModel = input.model && supportedTextModels.has(input.model) ? input.model : model;
   const fallbackModels = ["gpt-5.4-mini", "gpt-5.4", "gpt-5.5"].filter((name, index, list) => {
     return name !== selectedModel && list.indexOf(name) === index;
   });

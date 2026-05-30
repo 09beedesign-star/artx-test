@@ -18,6 +18,14 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { POSTER_1, POSTER_2, BRAND_KIT, SOCIAL_AD } from "@/lib/workspace-data";
+import {
+  createWorkspaceHistoryProject,
+  readWorkspaceProjectHistory,
+  removeWorkspaceProjectHistory,
+  updateWorkspaceProjectHistory,
+  upsertWorkspaceProjectHistory,
+  type WorkspaceHistoryProject,
+} from "@/lib/project-history";
 
 // ── Types ──────────────────────────────────────────────────────
 interface WsProject {
@@ -32,6 +40,17 @@ interface WsProject {
   note?: string;
 }
 
+function fromHistoryProject(project: WorkspaceHistoryProject): WsProject {
+  return {
+    id: project.id,
+    title: project.title,
+    cover: project.cover,
+    updatedAt: project.updatedAt,
+    nodeCount: project.nodeCount,
+    createdAt: project.createdAt,
+  };
+}
+
 const INITIAL_PROJECTS: WsProject[] = [
   { id: "p1", title: "跑鞋产品页", cover: POSTER_2, updatedAt: "2 小时前", nodeCount: 8 },
   { id: "p2", title: "咖啡品牌系统", cover: BRAND_KIT, updatedAt: "昨天", nodeCount: 12 },
@@ -39,8 +58,6 @@ const INITIAL_PROJECTS: WsProject[] = [
   { id: "p4", title: "科技产品广告", cover: SOCIAL_AD, updatedAt: "上周", nodeCount: 7 },
   { id: "p5", title: "登山品牌视频", cover: null, updatedAt: "2 周前", nodeCount: 3 },
 ];
-
-function uid() { return Math.random().toString(36).slice(2, 9); }
 
 // ── Inline Dropdown Menu ───────────────────────────────────────
 function CardMenu({
@@ -311,18 +328,27 @@ export default function WorkspaceDashboard() {
   const text = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.22 0.018 255)";
   const sub = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.50 0.012 255)";
 
+  useEffect(() => {
+    const historyProjects = readWorkspaceProjectHistory().map(fromHistoryProject);
+    setProjects([...historyProjects, ...INITIAL_PROJECTS.filter(project => !historyProjects.some(item => item.id === project.id))]);
+  }, []);
+
   const handleCreate = useCallback((payload: CreateProjectPayload) => {
+    const historyProject = createWorkspaceHistoryProject(payload.name);
     const newP: WsProject = {
-      id: payload.id || uid(),
-      title: payload.name,
-      cover: payload.cover,
-      updatedAt: "刚刚",
-      nodeCount: 0,
-      createdAt: payload.createdAt,
+      ...fromHistoryProject({ ...historyProject, cover: payload.cover }),
       deliveryAt: payload.deliveryAt,
       owner: payload.owner,
       note: payload.note,
     };
+    upsertWorkspaceProjectHistory({
+      id: newP.id,
+      title: newP.title,
+      cover: newP.cover,
+      updatedAt: newP.updatedAt,
+      nodeCount: newP.nodeCount,
+      createdAt: newP.createdAt || newP.updatedAt,
+    });
     setProjects(ps => [newP, ...ps]);
     setShowCreate(false);
     toast("项目已创建", { description: payload.name });
@@ -331,6 +357,7 @@ export default function WorkspaceDashboard() {
 
   const handleRename = useCallback((id: string, name: string) => {
     setProjects(ps => ps.map(p => p.id === id ? { ...p, title: name } : p));
+    updateWorkspaceProjectHistory(id, { title: name });
     setRenamingId(null);
   }, []);
 
@@ -338,7 +365,16 @@ export default function WorkspaceDashboard() {
     setProjects(ps => {
       const src = ps.find(p => p.id === id);
       if (!src) return ps;
-      const copy: WsProject = { ...src, id: uid(), title: `${src.title} 副本`, updatedAt: "刚刚" };
+      const historyProject = createWorkspaceHistoryProject(`${src.title} 副本`);
+      const copy: WsProject = { ...src, id: historyProject.id, title: historyProject.title, updatedAt: historyProject.updatedAt, createdAt: historyProject.createdAt };
+      upsertWorkspaceProjectHistory({
+        id: copy.id,
+        title: copy.title,
+        cover: copy.cover,
+        updatedAt: copy.updatedAt,
+        nodeCount: copy.nodeCount,
+        createdAt: copy.createdAt || copy.updatedAt,
+      });
       const idx = ps.findIndex(p => p.id === id);
       const next = [...ps];
       next.splice(idx + 1, 0, copy);
@@ -354,13 +390,14 @@ export default function WorkspaceDashboard() {
   const confirmDelete = useCallback(() => {
     if (!deleteConfirm) return;
     setProjects(ps => ps.filter(p => !deleteConfirm!.includes(p.id)));
+    removeWorkspaceProjectHistory(deleteConfirm);
     setDeleteConfirm(null);
     toast(`已删除 ${deleteConfirm.length} 个项目`);
   }, [deleteConfirm]);
 
   return (
     <div className="flex flex-col h-screen overflow-hidden" style={{ background: bg, transition: "background 0.25s ease" }}>
-      <TopBar credits={75} onNewProjectClick={() => setShowCreate(true)} onCreateProject={handleCreate} />
+      <TopBar credits={0} onNewProjectClick={() => setShowCreate(true)} onCreateProject={handleCreate} />
 
       <div className="flex-1 overflow-y-auto px-8 py-6 select-none" style={{ position: "relative" }}>
 

@@ -1729,7 +1729,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const isErasingImage = Boolean((data as { isErasingImage?: boolean }).isErasingImage);
   const isExtractingText = Boolean((data as { isExtractingText?: boolean }).isExtractingText);
   const isAiProcessingImage = isGeneratingImage || isRemovingBackground || isErasingImage;
-  const processingLabel = isErasingImage ? "AI 擦除中" : isRemovingBackground ? "AI 去背景中" : "AI 生成中";
+  const processingLabel = isGeneratingImage ? "正在开足马力为您生成图片" : isErasingImage ? "AI 擦除中" : isRemovingBackground ? "AI 去背景中" : "AI 处理中";
   const displaySrc = isAiProcessingImage ? "" : (localSrc || asset.src);
   const isEditing = !!(data as { isEditing?: boolean }).isEditing;
   const isCropping = !!(data as { isCropping?: boolean }).isCropping;
@@ -1813,8 +1813,8 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   }, [isErasing, resetEraseCanvases]);
 
   useEffect(() => {
-    if (isCropping) setCropRect({ x: cropX, y: cropY, w: cropW, h: cropH });
-  }, [cropH, cropW, cropX, cropY, isCropping]);
+    if (isCropping) setCropRect({ x: 10, y: 10, w: 80, h: 80 });
+  }, [isCropping]);
 
   // 选中边框样式
   const borderColor = selected
@@ -1992,9 +1992,9 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     const nextW = Math.max(60, Math.round(dispW * (cropRect.w / 100)));
     const nextH = Math.max(60, Math.round(dispH * (cropRect.h / 100)));
     window.dispatchEvent(new CustomEvent("asset-crop-commit", {
-      detail: { nodeId, cropRect, nextW, nextH, startW: dispW, startH: dispH },
+      detail: { nodeId, cropRect, nextW, nextH, startW: dispW, startH: dispH, sourceSrc: displaySrc },
     }));
-  }, [cropRect, dispH, dispW, nodeId]);
+  }, [cropRect, dispH, dispW, displaySrc, nodeId]);
 
   const cancelCrop = useCallback(() => {
     window.dispatchEvent(new CustomEvent("asset-crop-cancel", { detail: { nodeId } }));
@@ -5303,6 +5303,8 @@ function SaveProjectConfirmDialog({ isDark, project, onCancel, onSave }: {
 }
 
 
+const CANVAS_ASSISTANT_MODEL_STORAGE_KEY = "artx:canvas-assistant-model";
+
 function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, onToggleCollapsed, onLoginRequest, referencedAssets, onRemoveReference, selectedCount, helpPromptNonce }: { projectId: string; isDark: boolean; collapsed: boolean; isAuthenticated: boolean; onToggleCollapsed: () => void; onLoginRequest: () => void; referencedAssets: { id: string; title: string; src: string }[]; onRemoveReference: (id: string) => void; selectedCount: number; helpPromptNonce: number }) {
   const [, navigate] = useLocation();
   const [inputFocused, setInputFocused] = useState(false);
@@ -5310,10 +5312,15 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const commandMenuRef = useRef<HTMLDivElement>(null);
+  const assistantModelRef = useRef<HTMLDivElement>(null);
   const [commandMenuOpen, setCommandMenuOpen] = useState(false);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
   const [netSearchEnabled, setNetSearchEnabled] = useState(false);
-  const [assistantModelId, setAssistantModelId] = useState("gpt-4o");
+  const [assistantModelId, setAssistantModelId] = useState(() => {
+    if (typeof window === "undefined") return "gpt-4o";
+    const stored = window.localStorage.getItem(CANVAS_ASSISTANT_MODEL_STORAGE_KEY);
+    return TEXT_AI_MODELS.some(model => model.id === stored) ? stored! : "gpt-4o";
+  });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [messages, setMessages] = useState<Array<{ id: string; role: "user" | "assistant"; content: string; timestamp: Date }>>([
     { id: "assistant-seed-1", role: "assistant", content: "你好，下面开始你的创作吧！", timestamp: new Date() },
@@ -5397,6 +5404,21 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
     document.addEventListener("pointerdown", handler, true);
     return () => document.removeEventListener("pointerdown", handler, true);
   }, [commandMenuOpen]);
+
+  useEffect(() => {
+    if (!agentMenuOpen) return;
+    const handler = (event: PointerEvent) => {
+      if (assistantModelRef.current && event.target instanceof globalThis.Node && !assistantModelRef.current.contains(event.target)) {
+        setAgentMenuOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handler, true);
+    return () => document.removeEventListener("pointerdown", handler, true);
+  }, [agentMenuOpen]);
+
+  useEffect(() => {
+    window.localStorage.setItem(CANVAS_ASSISTANT_MODEL_STORAGE_KEY, assistantModel.id);
+  }, [assistantModel.id]);
 
   useEffect(() => {
     if (pendingHomePromptHandledRef.current || collapsed) return;
@@ -5719,18 +5741,12 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
                 placeholder={referencedAssets.length > 0 ? `基于 ${referencedAssets.length} 个引用素材，描述你的创作意图...` : "输入对当前画布的想法..."}
                 rows={2}
                 className="w-full bg-transparent outline-none resize-none disabled:cursor-not-allowed"
-                style={{ color: text, opacity: 1, fontSize: 16, lineHeight: 1.5, minHeight: 86 }}
+                style={{ color: text, opacity: 1, fontSize: 12, lineHeight: 1.5, minHeight: 86 }}
                 onFocus={() => setInputFocused(true)}
                 onBlur={() => setInputFocused(false)}
               />
               <div className="flex items-center justify-between pt-2">
-                <div ref={commandMenuRef} className="relative flex items-center gap-1" style={{ color: sub }}>
-                  <button type="button" style={iconButtonStyle()} className="hover:scale-105 active:scale-95" title="添加素材" aria-label="添加素材" onClick={() => toast("添加素材", { description: "拖入素材或从资源库选择引用" })}>
-                    <Plus size={16} />
-                  </button>
-                  <button type="button" style={iconButtonStyle(commandMenuOpen)} className="hover:scale-105 active:scale-95" title="打开命令面板" aria-label="打开命令面板" onClick={() => { setCommandMenuOpen(v => !v); setAgentMenuOpen(false); }}>
-                    <LayoutGrid size={16} />
-                  </button>
+                <div ref={assistantModelRef} className="relative flex items-center" style={{ color: sub }}>
                   <button
                     type="button"
                     className="flex items-center gap-1.5 rounded-[var(--radius-lg-design)] px-2.5 py-1.5 type-caption transition-colors active:scale-95"
@@ -5742,76 +5758,17 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
                     aria-label="选择模型"
                   >
                     <span>{assistantModel.label}</span>
-                    <ChevronDown size={12} style={{ opacity: 0.6 }} />
+                    <ChevronDown size={12} style={{ opacity: 0.6, transform: agentMenuOpen ? "rotate(180deg)" : "none", transition: "transform 0.16s ease" }} />
                   </button>
-                  {commandMenuOpen && (
-                    <div
-                      className="absolute bottom-full left-0 mb-2 w-[248px] overflow-hidden rounded-[var(--radius-lg-design)] shadow-2xl"
-                      style={{ background: elevatedBg, border: `1px solid ${border}`, zIndex: 130, padding: 0 }}
-                    >
-                      <div className="p-2">
-                        <button
-                          type="button"
-                          className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors rounded-[var(--radius-md-design)]"
-                          style={{ color: text }}
-                          onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
-                          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-                          onClick={handleUploadClick}
-                        >
-                          <span className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-md-design)]" style={{ background: hoverBg, color: sub }}>
-                            <ImagePlus size={16} />
-                          </span>
-                          <span className="min-w-0">
-                            <span className="block type-caption" style={{ color: text }}>上传文件</span>
-                            <span className="block type-caption" style={{ color: sub, fontSize: 11, lineHeight: 1.4 }}>从本地选择图片</span>
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors rounded-[var(--radius-md-design)]"
-                          style={{ color: text }}
-                          onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
-                          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-                          onClick={handleSelectFromAssets}
-                        >
-                          <span className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-md-design)]" style={{ background: hoverBg, color: sub }}>
-                            <LayoutGrid size={16} />
-                          </span>
-                          <span className="min-w-0">
-                            <span className="block type-caption" style={{ color: text }}>从素材库选择</span>
-                            <span className="block type-caption" style={{ color: sub, fontSize: 11, lineHeight: 1.4 }}>从工作台素材库添加参考</span>
-                          </span>
-                        </button>
-                        <div className="flex w-full items-center gap-3 px-3 py-2.5 rounded-[var(--radius-md-design)]" style={{ color: text }}>
-                          <span className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-md-design)]" style={{ background: hoverBg, color: sub }}>
-                            <Search size={16} />
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block type-caption" style={{ color: text }}>联网搜索</span>
-                            <span className="block type-caption" style={{ color: sub, fontSize: 11, lineHeight: 1.4 }}>由大语言模型帮助全网搜索</span>
-                          </span>
-                          <button
-                            type="button"
-                            className="relative h-6 w-11 rounded-full transition-colors"
-                            style={{ background: netSearchEnabled ? "oklch(0.58 0.22 290)" : (isDark ? "oklch(1 0 0 / 0.08)" : "oklch(0 0 0 / 0.08)") }}
-                            onClick={e => { e.stopPropagation(); setNetSearchEnabled(v => !v); }}
-                            aria-label="联网搜索"
-                          >
-                            <span style={{ position: "absolute", top: 3, left: netSearchEnabled ? 23 : 3, width: 18, height: 18, borderRadius: "var(--radius-md-design)", background: "white", transition: "left 0.16s ease", boxShadow: "0 2px 8px rgba(0,0,0,0.25)" }} />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
                   {agentMenuOpen && (
                     <div
-                      className="absolute bottom-full left-20 mb-2 overflow-hidden rounded-[var(--radius-lg-design)] shadow-2xl"
+                      className="absolute bottom-full left-0 mb-2 overflow-hidden rounded-[var(--radius-lg-design)] shadow-2xl"
                       style={{
                         background: isDark ? "oklch(0.16 0.015 270)" : "oklch(0.97 0.004 270)",
                         border: `1px solid ${border}`,
                         minWidth: 200,
                         backdropFilter: "blur(16px)",
-                        zIndex: 30,
+                        zIndex: 130,
                       }}
                     >
                       <div className="px-3 py-2 border-b" style={{ borderColor: border }}>
@@ -5825,7 +5782,11 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
                           style={{ color: text, background: assistantModel.id === model.id ? "oklch(0.64 0.22 285 / 0.12)" : "transparent" }}
                           onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
                           onMouseLeave={e => (e.currentTarget.style.background = assistantModel.id === model.id ? "oklch(0.64 0.22 285 / 0.12)" : "transparent")}
-                          onClick={() => { setAssistantModelId(model.id); setAgentMenuOpen(false); }}
+                          onClick={() => {
+                            setAssistantModelId(model.id);
+                            window.localStorage.setItem(CANVAS_ASSISTANT_MODEL_STORAGE_KEY, model.id);
+                            setAgentMenuOpen(false);
+                          }}
                         >
                           <div className="flex items-center gap-2.5">
                             <div className="w-4 h-4 rounded-[var(--radius-pill)]" style={{ background: model.color }} />
@@ -5842,15 +5803,6 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
                   )}
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <button type="button" style={iconButtonStyle()} className="hover:scale-105 active:scale-95" title="资源库" aria-label="资源库" onClick={() => toast("资源库", { description: "白色版本的书本入口已合并到命令体系" })}>
-                    <FileText size={15} />
-                  </button>
-                  <button type="button" style={iconButtonStyle()} className="hover:scale-105 active:scale-95" title="灵感建议" aria-label="灵感建议" onClick={() => runAssistantCapability("inspiration-suggestions", `请基于当前画布上下文生成 5 条下一步创作灵感。上下文：${contextLabel || "当前画布"}`)}>
-                    <Sparkles size={15} />
-                  </button>
-                  <button type="button" style={iconButtonStyle(selectedCount > 0)} className="hover:scale-105 active:scale-95" title="对象能力" aria-label="对象能力" onClick={() => runAssistantCapability("object-capabilities", `请分析当前选中对象并给出可执行操作建议。选中上下文：${contextLabel || "未选择对象"}`)}>
-                    <Box size={15} />
-                  </button>
                   <button
                     disabled={!canSubmit}
                     className="w-12 h-12 rounded-[var(--radius-lg-design)] flex items-center justify-center disabled:cursor-not-allowed transition-all hover:scale-[1.03] active:scale-95"
@@ -6318,38 +6270,63 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   useEffect(() => {
     const commitHandler = (e: Event) => {
       if (isRestoringRef.current) return;
-      const detail = (e as CustomEvent<{ nodeId: string; cropRect: { x: number; y: number; w: number; h: number }; nextW: number; nextH: number; startW: number; startH: number }>).detail;
+      const detail = (e as CustomEvent<{ nodeId: string; cropRect: { x: number; y: number; w: number; h: number }; nextW: number; nextH: number; startW: number; startH: number; sourceSrc?: string }>).detail;
       if (!detail?.nodeId) return;
-      pushHistory(nodesRef.current, edgesRef.current);
-      setNodes(nds => nds.map(n => {
-        if (n.id !== detail.nodeId || n.type !== "asset") return n;
-        const data = n.data as Record<string, unknown>;
-        const currentCropX = Number(data.cropX ?? 0);
-        const currentCropY = Number(data.cropY ?? 0);
-        const currentCropW = Number(data.cropW ?? 100);
-        const currentCropH = Number(data.cropH ?? 100);
-        const nextCropX = currentCropX + (detail.cropRect.x / 100) * currentCropW;
-        const nextCropY = currentCropY + (detail.cropRect.y / 100) * currentCropH;
-        const nextCropW = (detail.cropRect.w / 100) * currentCropW;
-        const nextCropH = (detail.cropRect.h / 100) * currentCropH;
-        return {
-          ...n,
-          style: { ...n.style, width: detail.nextW, height: detail.nextH },
-          data: {
-            ...data,
-            imgW: detail.nextW,
-            imgH: detail.nextH,
-            cropX: nextCropX,
-            cropY: nextCropY,
-            cropW: nextCropW,
-            cropH: nextCropH,
-            isCropping: false,
-            isEditing: false,
-          },
-        };
-      }));
-      window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
-      toast("已完成裁切", { description: `${detail.nextW} × ${detail.nextH}px` });
+      const applyCrop = (croppedSrc?: string) => {
+        pushHistory(nodesRef.current, edgesRef.current);
+        setNodes(nds => nds.map(n => {
+          if (n.id !== detail.nodeId || n.type !== "asset") return n;
+          const data = n.data as Record<string, unknown>;
+          return {
+            ...n,
+            style: { ...n.style, width: detail.nextW, height: detail.nextH },
+            data: {
+              ...data,
+              localSrc: croppedSrc || (data.localSrc as string | undefined),
+              imgW: detail.nextW,
+              imgH: detail.nextH,
+              cropX: 0,
+              cropY: 0,
+              cropW: 100,
+              cropH: 100,
+              isCropping: false,
+              isEditing: false,
+            },
+          };
+        }));
+        window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
+        toast("已完成裁切", { description: `${detail.nextW} × ${detail.nextH}px` });
+      };
+
+      if (!detail.sourceSrc) {
+        applyCrop();
+        return;
+      }
+
+      const image = new Image();
+      image.crossOrigin = "anonymous";
+      image.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(detail.nextW));
+        canvas.height = Math.max(1, Math.round(detail.nextH));
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          applyCrop();
+          return;
+        }
+        const sx = (detail.cropRect.x / 100) * image.naturalWidth;
+        const sy = (detail.cropRect.y / 100) * image.naturalHeight;
+        const sw = (detail.cropRect.w / 100) * image.naturalWidth;
+        const sh = (detail.cropRect.h / 100) * image.naturalHeight;
+        ctx.drawImage(image, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+        try {
+          applyCrop(canvas.toDataURL("image/png"));
+        } catch {
+          applyCrop();
+        }
+      };
+      image.onerror = () => applyCrop();
+      image.src = detail.sourceSrc;
     };
     const cancelHandler = (e: Event) => {
       const nodeId = (e as CustomEvent<{ nodeId: string }>).detail?.nodeId;
