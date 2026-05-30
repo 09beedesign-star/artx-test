@@ -40,8 +40,8 @@ jobs:
         env:
           GITHUB_PAGES: "true"
           GITHUB_PAGES_REPO: ${{ github.event.repository.name }}
-          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL || secrets.VITE_API_BASE_URL || 'https://e6dcfb0a8c5fa6.lhr.life' }}
-          VITE_AI_API_BASE_URL: ${{ vars.VITE_AI_API_BASE_URL || secrets.VITE_AI_API_BASE_URL || vars.VITE_API_BASE_URL || secrets.VITE_API_BASE_URL || 'https://e6dcfb0a8c5fa6.lhr.life' }}
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL || secrets.VITE_API_BASE_URL || 'https://artx-test.onrender.com' }}
+          VITE_AI_API_BASE_URL: ${{ vars.VITE_AI_API_BASE_URL || secrets.VITE_AI_API_BASE_URL || vars.VITE_API_BASE_URL || secrets.VITE_API_BASE_URL || 'https://artx-test.onrender.com' }}
         run: pnpm exec vite build
 
       - name: Setup Pages
