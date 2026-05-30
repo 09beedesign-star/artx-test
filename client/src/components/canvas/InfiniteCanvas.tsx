@@ -4274,12 +4274,20 @@ function ImageGeneratorPopover({ isDark, onClose }: { isDark: boolean; onClose: 
     setIsGenerating(true);
     const payload: ImageGeneratorPayload = { prompt, model, ratio, count, style, referencesEnabled };
     try {
-      const response = await fetch("/api/images/generate", {
+      const baseUrl = import.meta.env.VITE_AI_API_BASE_URL?.replace(/\/+$/, "") || "";
+      const response = await fetch(`${baseUrl}/api/images/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const result = await response.json();
+      const contentType = response.headers.get("content-type") || "";
+      const text = await response.text();
+      const trimmed = text.trim();
+      const isJson = contentType.includes("application/json") || trimmed.startsWith("{") || trimmed.startsWith("[");
+      if (!isJson) {
+        throw new Error(`图像生成失败: received non-JSON response from ${response.url || "API"}${trimmed ? ` (${trimmed.slice(0, 180).replace(/\s+/g, " ")})` : ""}`);
+      }
+      const result = JSON.parse(text) as { error?: string; images?: Array<{ src: string; width: number; height: number }> };
       if (!response.ok) throw new Error(result.error || "图像生成失败");
       window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, images: result.images } }));
       setIsGenerating(false);

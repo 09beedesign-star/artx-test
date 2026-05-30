@@ -113,7 +113,12 @@ function persistSession(session: AuthSession) {
 }
 
 async function fetchAuth(action: "register" | "login" | "me" | "logout", payload: Record<string, unknown>) {
-  const response = await fetch(`/api/auth/${action}`, {
+  const apiBaseUrl = (
+    import.meta.env.VITE_API_BASE_URL ||
+    import.meta.env.VITE_AI_API_BASE_URL ||
+    ""
+  ).replace(/\/+$/, "");
+  const response = await fetch(`${apiBaseUrl}/api/auth/${action}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

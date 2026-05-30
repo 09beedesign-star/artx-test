@@ -13,7 +13,28 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
 
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (origin && /^https:\/\/09beedesign-star\.github\.io$/.test(origin)) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
+    }
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+    if (req.method === "OPTIONS") {
+      res.status(204).end();
+      return;
+    }
+
+    next();
+  });
+
   app.use(express.json({ limit: "2mb" }));
+
+  app.get("/api/health", (_req, res) => {
+    res.json({ ok: true });
+  });
 
   app.post("/api/images/generate", async (req, res) => {
     try {

@@ -10,7 +10,7 @@ services:
       pnpm install --frozen-lockfile
       pnpm run build
     startCommand: pnpm run start
-    healthCheckPath: /
+    healthCheckPath: /api/health
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
@@ -27,3 +27,7 @@ services:
         value: https://api.openai.com
       - key: AI_TEXT_MODEL
         value: gpt-4o
+      - key: VITE_AI_API_BASE_URL
+        sync: false
+      - key: VITE_API_BASE_URL
+        sync: false
