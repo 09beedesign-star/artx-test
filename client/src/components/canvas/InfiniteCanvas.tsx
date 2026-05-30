@@ -47,7 +47,7 @@ import {
   AlignHorizontalSpaceAround, AlignVerticalSpaceAround, Boxes,
   Triangle, Pencil, MessageCircle, Star, Minus as MinusIcon,
   BadgeCheck, ScanSearch, Move, PanelTopOpen, ImageOff, Check,
-  WandSparkles,
+  WandSparkles, BringToFront, SendToBack,
   Shirt, Expand, Frame, RotateCw,
 } from "lucide-react";
 
@@ -1164,12 +1164,60 @@ function AssetFloatingToolbar({ isDark, position, onAction }: {
 }
 
 
-function AssetMoreCommandPanel({ isDark, command, onClose, onApply }: {
+type AssetAdjustmentValues = {
+  exposure: number;
+  contrast: number;
+  saturation: number;
+  temperature: number;
+  tint: number;
+  highlights: number;
+  shadows: number;
+};
+
+const DEFAULT_ASSET_ADJUSTMENTS: AssetAdjustmentValues = {
+  exposure: 0,
+  contrast: 0,
+  saturation: 0,
+  temperature: 0,
+  tint: 0,
+  highlights: 0,
+  shadows: 0,
+};
+
+function normalizeAssetAdjustments(value: unknown): AssetAdjustmentValues {
+  const source = typeof value === "object" && value !== null ? value as Partial<Record<keyof AssetAdjustmentValues, unknown>> : {};
+  const read = (key: keyof AssetAdjustmentValues) => {
+    const raw = source[key];
+    return typeof raw === "number" && Number.isFinite(raw) ? Math.max(-100, Math.min(100, raw)) : DEFAULT_ASSET_ADJUSTMENTS[key];
+  };
+  return {
+    exposure: read("exposure"),
+    contrast: read("contrast"),
+    saturation: read("saturation"),
+    temperature: read("temperature"),
+    tint: read("tint"),
+    highlights: read("highlights"),
+    shadows: read("shadows"),
+  };
+}
+
+function createAssetAdjustmentFilter(adjustments: AssetAdjustmentValues) {
+  const brightness = Math.max(0.25, Math.min(2, 1 + adjustments.exposure / 180 + adjustments.highlights / 320 - adjustments.shadows / 420));
+  const contrast = Math.max(0.25, Math.min(2.2, 1 + adjustments.contrast / 150));
+  const saturation = Math.max(0, Math.min(2.4, 1 + adjustments.saturation / 125 + Math.abs(adjustments.tint) / 600));
+  const sepia = Math.max(0, Math.min(0.42, Math.abs(adjustments.temperature) / 360 + Math.abs(adjustments.tint) / 520));
+  const hueRotate = adjustments.temperature * 0.14 + adjustments.tint * 0.22;
+  return `brightness(${brightness.toFixed(3)}) contrast(${contrast.toFixed(3)}) saturate(${saturation.toFixed(3)}) sepia(${sepia.toFixed(3)}) hue-rotate(${hueRotate.toFixed(1)}deg)`;
+}
+
+function AssetMoreCommandPanel({ isDark, command, initialAdjustments, onClose, onApply }: {
   isDark: boolean;
   command: string;
+  initialAdjustments?: AssetAdjustmentValues;
   onClose: () => void;
-  onApply: (action: string) => void;
+  onApply: (action: string, adjustments?: AssetAdjustmentValues) => void;
 }) {
+  const [adjustments, setAdjustments] = useState<AssetAdjustmentValues>(initialAdjustments || DEFAULT_ASSET_ADJUSTMENTS);
   const bg = isDark ? "rgba(24,24,34,0.98)" : "rgba(255,255,255,0.98)";
   const border = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)";
   const text = isDark ? "rgba(255,255,255,0.88)" : "rgba(28,28,40,0.88)";
@@ -1179,11 +1227,20 @@ function AssetMoreCommandPanel({ isDark, command, onClose, onApply }: {
   const config: Record<string, { title: string; description: string; actions: string[] }> = {
     mockup: { title: "Mockup", description: "选择场景，将当前图片套入产品样机。", actions: ["包装袋", "手机屏幕", "海报墙"] },
     expand: { title: "扩展", description: "按比例扩展画面边界，保留主体视觉。", actions: ["1:1", "4:5", "16:9"] },
-    adjust: { title: "调整", description: "快速调整亮度、对比度和色彩氛围。", actions: ["提亮", "增强对比", "冷色调"] },
+    adjust: { title: "调整", description: "调整图片的曝光、对比度、色彩和明暗层次。", actions: [] },
     crop: { title: "裁切", description: "选择裁切比例，图片节点会更新为新的尺寸。", actions: ["自由", "1:1", "3:4", "4:3", "16:9", "9:16"] },
     vector: { title: "矢量", description: "将图片轮廓转为可编辑矢量元素。", actions: ["提取轮廓", "扁平化", "高清矢量"] },
   };
   const current = config[command] || config.adjust;
+  const adjustItems: Array<{ key: keyof AssetAdjustmentValues; label: string }> = [
+    { key: "exposure", label: "Exposure" },
+    { key: "contrast", label: "Contrast" },
+    { key: "saturation", label: "Saturation" },
+    { key: "temperature", label: "Temperature" },
+    { key: "tint", label: "Tint" },
+    { key: "highlights", label: "Highlights" },
+    { key: "shadows", label: "Shadows" },
+  ];
 
   return (
     <div
@@ -1211,24 +1268,57 @@ function AssetMoreCommandPanel({ isDark, command, onClose, onApply }: {
         </button>
       </div>
       <div className="p-3">
-        <div className="grid grid-cols-3 gap-2">
-          {current.actions.map(action => (
-            <button
-              key={action}
-              className="rounded-[var(--radius-md-design)] px-2 py-2 transition-colors active:scale-95"
-              style={{ background: field, border: `1px solid ${border}`, color: text, fontSize: 12 }}
-              onClick={() => onApply(`${current.title} · ${action}`)}
-              onMouseEnter={e => (e.currentTarget.style.background = hover)}
-              onMouseLeave={e => (e.currentTarget.style.background = field)}
-            >
-              {action}
-            </button>
-          ))}
-        </div>
+        {command === "adjust" ? (
+          <div className="flex flex-col gap-3 py-1">
+            {adjustItems.map(item => (
+              <label key={item.key} className="grid items-center gap-3" style={{ gridTemplateColumns: "94px 1fr" }}>
+                <span
+                  style={{
+                    color: text,
+                    fontSize: 13,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {item.label}
+                </span>
+                <input
+                  type="range"
+                  min={-100}
+                  max={100}
+                  step={1}
+                  value={adjustments[item.key]}
+                  aria-label={item.label}
+                  onChange={event => setAdjustments(prev => ({ ...prev, [item.key]: Number(event.target.value) }))}
+                  style={{
+                    width: "100%",
+                    accentColor: "white",
+                  }}
+                />
+              </label>
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-2">
+            {current.actions.map(action => (
+              <button
+                key={action}
+                className="rounded-[var(--radius-md-design)] px-2 py-2 transition-colors active:scale-95"
+                style={{ background: field, border: `1px solid ${border}`, color: text, fontSize: 12 }}
+                onClick={() => onApply(`${current.title} · ${action}`)}
+                onMouseEnter={e => (e.currentTarget.style.background = hover)}
+                onMouseLeave={e => (e.currentTarget.style.background = field)}
+              >
+                {action}
+              </button>
+            ))}
+          </div>
+        )}
         <button
           className="mt-3 flex h-9 w-full items-center justify-center rounded-[var(--radius-md-design)] active:scale-95"
           style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))", color: "white", fontSize: 13, fontWeight: 650 }}
-          onClick={() => onApply(current.title)}
+          onClick={() => onApply(current.title, command === "adjust" ? adjustments : undefined)}
         >
           应用到当前图片
         </button>
@@ -1745,6 +1835,8 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const displayTitle = (data.title as string) || asset.title || "素材节点";
   const rotation = (data.rotation as number) || 0;
   const flipX = Boolean(data.flipX);
+  const assetAdjustments = normalizeAssetAdjustments(data.assetAdjustments);
+  const assetAdjustmentFilter = createAssetAdjustmentFilter(assetAdjustments);
   const cropX = Math.max(0, Math.min(100, Number((data as { cropX?: number }).cropX ?? 0)));
   const cropY = Math.max(0, Math.min(100, Number((data as { cropY?: number }).cropY ?? 0)));
   const cropW = Math.max(1, Math.min(100 - cropX, Number((data as { cropW?: number }).cropW ?? 100)));
@@ -2195,6 +2287,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
                 objectFit: "fill",
                 pointerEvents: "none",
                 transform: `scaleX(${flipX ? -1 : 1}) rotate(${rotation}deg)`,
+                filter: assetAdjustmentFilter,
                 transition: "transform 0.18s cubic-bezier(0.23,1,0.32,1)",
               }}
             />
@@ -8634,7 +8727,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     };
     toast(labels[action] || "功能即将上线", { description: "已保留 Lovart 命令入口，后续可接入对应 AI 处理能力" });
   }, [handleNodeAction, nodesRef, pushHistory, selectedImageNodeIds, setNodes]);
-  const handleAssetMorePanelApply = useCallback((label: string) => {
+  const handleAssetMorePanelApply = useCallback((label: string, adjustments?: AssetAdjustmentValues) => {
     if (!assetMorePanel) return;
     pushHistory();
     setNodes(nds => nds.map(n => {
@@ -8679,12 +8772,23 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           },
         };
       }
+      if (assetMorePanel.command === "adjust") {
+        return {
+          ...n,
+          data: {
+            ...data,
+            assetAdjustments: adjustments || normalizeAssetAdjustments(data.assetAdjustments),
+            lastLovartCommand: label,
+            isEditing: false,
+          },
+        };
+      }
       return {
         ...n,
         data: {
           ...data,
           lastLovartCommand: label,
-          isEditing: assetMorePanel.command === "adjust" || assetMorePanel.command === "crop",
+          isEditing: assetMorePanel.command === "crop",
         },
       };
     }));
@@ -8726,6 +8830,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         <AssetMoreCommandPanel
           isDark={isDark}
           command={assetMorePanel.command}
+          initialAdjustments={normalizeAssetAdjustments((nodes.find(n => n.id === assetMorePanel.nodeId)?.data as Record<string, unknown> | undefined)?.assetAdjustments)}
           onClose={() => setAssetMorePanel(null)}
           onApply={handleAssetMorePanelApply}
         />
