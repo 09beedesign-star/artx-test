@@ -4,6 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { generateImages } from "./image-generation";
 import { generateText } from "./text-generation";
+import { handleAuthAction } from "./auth-store";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,6 +31,17 @@ async function startServer() {
       res.json(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : "AI request failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.post("/api/auth/:action", async (req, res) => {
+    try {
+      const action = req.params.action as "register" | "login" | "me" | "logout";
+      const result = await handleAuthAction(action, req.body);
+      res.status(result.status).json(result.body);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Auth request failed";
       res.status(500).json({ error: message });
     }
   });

@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
+import { handleAuthAction } from "./server/auth-store";
 import { generateImages } from "./server/image-generation";
 import { generateText } from "./server/text-generation";
 
@@ -238,6 +239,44 @@ function vitePluginJsonApi(name: string, route: string, handler: JsonApiHandler,
   };
 }
 
+function vitePluginAuthApi(): Plugin {
+  return {
+    name: "artx-auth-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/auth", (req, res, next) => {
+        if (req.method !== "POST") {
+          return next();
+        }
+
+        const action = req.url?.replace(/^\/+/, "").split("?")[0];
+        if (!action) {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Unknown auth action" }));
+          return;
+        }
+
+        let body = "";
+        req.on("data", (chunk) => {
+          body += chunk.toString();
+        });
+
+        req.on("end", async () => {
+          try {
+            const payload = body ? JSON.parse(body) : {};
+            const result = await handleAuthAction(action as "register" | "login" | "me" | "logout", payload);
+            res.writeHead(result.status, { "Content-Type": "application/json" });
+            res.end(JSON.stringify(result.body));
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Auth request failed";
+            res.writeHead(500, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: message }));
+          }
+        });
+      });
+    },
+  };
+}
+
 const plugins = [
   react(),
   tailwindcss(),
@@ -245,6 +284,7 @@ const plugins = [
   vitePluginManusRuntime(),
   vitePluginManusDebugCollector(),
   vitePluginStorageProxy(),
+  vitePluginAuthApi(),
   vitePluginJsonApi("artx-ai-image-api", "/api/images/generate", generateImages, "Image generation failed"),
   vitePluginJsonApi("artx-llm-api", "/api/llm", generateText, "AI request failed"),
 ];

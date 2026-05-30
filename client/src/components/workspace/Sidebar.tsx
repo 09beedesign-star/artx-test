@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { PROJECTS, NAV_ITEMS } from "@/lib/workspace-data";
 import type { Project } from "@/lib/workspace-data";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface SidebarProps {
   activeProjectId: string;
@@ -26,6 +27,9 @@ const ICON_MAP: Record<string, React.ElementType> = {
 
 export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, onNavSelect }: SidebarProps) {
   const [projectsExpanded, setProjectsExpanded] = useState(true);
+  const { user } = useAuth();
+  const displayName = user?.username || "用户名";
+  const avatarLetter = displayName.trim().slice(0, 1).toUpperCase() || "U";
 
   const handleNavClick = (id: string) => {
     if (id !== "projects" && id !== "home") {
@@ -166,10 +170,10 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
             className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0"
             style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))", color: "white" }}
           >
-            U
+            {avatarLetter}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-[12px] font-medium text-white truncate">用户名</div>
+            <div className="text-[12px] font-medium text-white truncate">{displayName}</div>
             <div className="text-[11px]" style={{ color: "oklch(0.50 0.01 270)" }}>免费版 · 75 积分</div>
           </div>
           <ChevronRight size={12} style={{ color: "oklch(0.45 0.01 270)" }} />

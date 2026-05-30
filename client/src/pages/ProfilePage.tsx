@@ -6,11 +6,14 @@ import { Mail, MapPin, Pencil, Sparkles, UserRound } from "lucide-react";
 import TopBar from "@/components/workspace/TopBar";
 import { BG_GLOW } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
 export default function ProfilePage() {
   const { resolvedTheme } = useTheme();
+  const { user } = useAuth();
   const isDark = resolvedTheme === "dark";
+  const displayName = user?.username || "09bee";
 
   const textPrimary = isDark ? "rgba(255,255,255,0.88)" : "rgba(20,20,36,0.88)";
   const textSecondary = isDark ? "rgba(255,255,255,0.56)" : "rgba(20,20,36,0.56)";
@@ -60,7 +63,7 @@ export default function ProfilePage() {
                     <UserRound size={34} color="white" />
                   </div>
                   <div className="pb-2">
-                    <h1 className="type-title-sm" style={{ color: textPrimary, fontSize: 26, fontWeight: 680 }}>09bee</h1>
+                    <h1 className="type-title-sm" style={{ color: textPrimary, fontSize: 26, fontWeight: 680 }}>{displayName}</h1>
                     <p className="type-body-sm mt-1" style={{ color: textSecondary }}>artx 创作者个人主页</p>
                   </div>
                 </div>
@@ -106,7 +109,7 @@ export default function ProfilePage() {
                 >
                   <p className="type-body-sm mb-4" style={{ color: textPrimary, fontWeight: 560 }}>账号信息</p>
                   <div className="space-y-3 type-caption" style={{ color: textSecondary }}>
-                    <div className="flex items-center gap-2"><Mail size={14} style={{ color: textMuted }} /> 09bee@artx.design</div>
+                    <div className="flex items-center gap-2"><Mail size={14} style={{ color: textMuted }} /> {displayName}</div>
                     <div className="flex items-center gap-2"><MapPin size={14} style={{ color: textMuted }} /> 中国 · 远程协作</div>
                     <div className="flex items-center gap-2"><Sparkles size={14} style={{ color: textMuted }} /> 已创建 12 个项目</div>
                   </div>

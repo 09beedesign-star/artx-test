@@ -45,7 +45,7 @@ const THEME_OPTIONS: { mode: ThemeMode; icon: ElementType; label: string }[] = [
 
 export default function TopBar({ credits = 75, projectTitle, projectTime, showSearch = false }: TopBarProps) {
   const { mode, setMode, resolvedTheme } = useTheme();
-  const { isAuthenticated, openLoginModal, logout } = useAuth();
+  const { isAuthenticated, user, openLoginModal, logout } = useAuth();
   const [, navigate] = useLocation();
 
   const isDark = resolvedTheme === "dark";
@@ -66,6 +66,8 @@ export default function TopBar({ credits = 75, projectTitle, projectTime, showSe
   const searchBg = isDark ? "oklch(0.16 0.016 270 / 0.90)" : "oklch(0.97 0.003 270 / 0.92)";
   const searchBorder = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
   const searchSub = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.50 0.012 255)";
+  const displayName = user?.username || "用户名";
+  const avatarLetter = displayName.trim().slice(0, 1).toUpperCase() || "U";
 
   const handleConfirmLogout = () => {
     logout();
@@ -269,9 +271,9 @@ export default function TopBar({ credits = 75, projectTitle, projectTime, showSe
               className="w-7 h-7 rounded-[var(--radius-pill)] flex items-center justify-center type-caption"
               style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))", color: "white" }}
             >
-              U
+              {avatarLetter}
             </div>
-            <span className="type-caption">用户名</span>
+            <span className="type-caption max-w-[120px] truncate">{displayName}</span>
             <ChevronDown size={12} style={{ color: textSec }} />
           </button>
         </DropdownMenuTrigger>

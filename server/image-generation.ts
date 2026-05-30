@@ -69,10 +69,14 @@ function toAbsoluteUrl(url: string, baseUrl: string) {
 
 function extractChoiceImages(providerData: ImageGenerationResponse, baseUrl: string) {
   const content = providerData.choices?.[0]?.message?.content || "";
-  const matches = [...content.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)];
-  return matches.map((match) => ({
-    src: toAbsoluteUrl(match[1], baseUrl),
-  }));
+  const imageUrls: { src: string }[] = [];
+  const imagePattern = /!\[[^\]]*\]\(([^)]+)\)/g;
+  let match = imagePattern.exec(content);
+  while (match) {
+    imageUrls.push({ src: toAbsoluteUrl(match[1], baseUrl) });
+    match = imagePattern.exec(content);
+  }
+  return imageUrls;
 }
 
 async function callImageProvider(body: Record<string, unknown>, apiKey: string, baseUrl: string) {

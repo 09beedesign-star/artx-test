@@ -6,7 +6,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 // ── Global Login / Register Dialog ─────────────────────────────
 export default function LoginRegisterDialog() {
   const { resolvedTheme } = useTheme();
-  const { loginModalOpen, closeLoginModal, login } = useAuth();
+  const { loginModalOpen, closeLoginModal, login, register } = useAuth();
   const isDark = resolvedTheme === "dark";
   const [mode, setMode] = useState<"login" | "register">("login");
   const [provider, setProvider] = useState<"google" | "wechat" | "apple">("google");
@@ -14,6 +14,7 @@ export default function LoginRegisterDialog() {
   const [password, setPassword] = useState("1234");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   if (!loginModalOpen) return null;
 
@@ -25,7 +26,7 @@ export default function LoginRegisterDialog() {
   const accentGradient = "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.68 0.18 220))";
 
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     const normalizedUsername = username.trim();
     setError("");
 
@@ -39,8 +40,14 @@ export default function LoginRegisterDialog() {
       return;
     }
 
-    if (!login(normalizedUsername, password)) {
-      setError("账号或密码错误，请重新输入");
+    setSubmitting(true);
+    const result = mode === "register"
+      ? await register(normalizedUsername, password)
+      : await login(normalizedUsername, password);
+    setSubmitting(false);
+
+    if (!result.ok) {
+      setError(result.error || (mode === "register" ? "注册失败，请稍后重试" : "账号或密码错误，请重新输入"));
     }
   };
 
@@ -87,7 +94,7 @@ export default function LoginRegisterDialog() {
             <div className="mb-5 text-center">
               <p className="type-caption mb-2" style={{ color: "oklch(0.68 0.18 220)", textTransform: "none", letterSpacing: "0.16em" }}>WELCOME TO ART X</p>
               <h2 className="text-[26px] font-semibold tracking-[-0.04em]" style={{ color: text }}>{mode === "login" ? "登录创意工作台" : "创建 Art X 账号"}</h2>
-              <p className="type-caption mt-2" style={{ color: muted, textTransform: "none", letterSpacing: "0.02em" }}>使用测试账号 09bee / 1234 体验完整创作流程。</p>
+              <p className="type-caption mt-2" style={{ color: muted, textTransform: "none", letterSpacing: "0.02em" }}>注册账号后即可在测试链接中登录使用。</p>
             </div>
 
             <div className="mb-4 grid grid-cols-2 gap-2 rounded-[18px] p-1" style={{ background: "oklch(1 0 0 / 6%)", border: `1px solid ${border}` }}>
@@ -97,6 +104,7 @@ export default function LoginRegisterDialog() {
                   <button
                     key={item}
                     onClick={() => { setMode(item); setError(""); }}
+                    disabled={submitting}
                     className="h-10 rounded-[14px] type-body-sm transition-all active:scale-[0.98]"
                     style={{ background: active ? accentGradient : "transparent", color: active ? "white" : muted, boxShadow: active ? "0 10px 26px oklch(0.58 0.22 290 / 0.25)" : "none" }}
                   >
@@ -128,7 +136,7 @@ export default function LoginRegisterDialog() {
                     type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={e => { setPassword(e.target.value); if (error) setError(""); }}
-                    onKeyDown={e => { if (e.key === "Enter") handleConfirm(); }}
+                    onKeyDown={e => { if (e.key === "Enter" && !submitting) void handleConfirm(); }}
                     className="h-12 w-full rounded-[16px] pl-4 pr-11 outline-none type-caption transition-colors"
                     style={{
                       background: inputBg,
@@ -168,10 +176,11 @@ export default function LoginRegisterDialog() {
 
             <button
               onClick={handleConfirm}
-              className="w-full h-12 mt-5 rounded-[18px] type-body-sm transition-all hover:scale-[1.01] active:scale-[0.98]"
-              style={{ background: accentGradient, color: "white", boxShadow: "0 18px 42px oklch(0.58 0.22 290 / 0.34)" }}
+              disabled={submitting}
+              className="w-full h-12 mt-5 rounded-[18px] type-body-sm transition-all hover:scale-[1.01] active:scale-[0.98] disabled:cursor-not-allowed"
+              style={{ background: accentGradient, color: "white", boxShadow: "0 18px 42px oklch(0.58 0.22 290 / 0.34)", opacity: submitting ? 0.68 : 1 }}
             >
-              {mode === "login" ? "进入 Art X" : "注册并进入 Art X"}
+              {submitting ? "处理中..." : mode === "login" ? "进入 Art X" : "注册并进入 Art X"}
             </button>
 
             <div className="my-5 flex items-center gap-4">
