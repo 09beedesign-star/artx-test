@@ -250,7 +250,10 @@ const plugins = [
 ];
 
 export default defineConfig({
-  base: process.env.GITHUB_PAGES === "true" ? "/artx/" : "/",
+  base:
+    process.env.GITHUB_PAGES === "true"
+      ? `/${process.env.GITHUB_PAGES_REPO || "artx"}/`
+      : "/",
   plugins,
   resolve: {
     alias: {
