@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: artx-test-ai
+    runtime: node
+    plan: free
+    branch: feature/interaction-framework
+    buildCommand: |
+      corepack enable
+      corepack prepare pnpm@10.4.1 --activate
+      pnpm install --frozen-lockfile
+      pnpm run build
+    startCommand: pnpm run start
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 24.14.0
+      - key: AI_IMAGE_API_KEY
+        sync: false
+      - key: AI_IMAGE_BASE_URL
+        value: https://token.bkeel.com
+      - key: AI_IMAGE_MODEL
+        value: gpt-image-2
+      - key: AI_TEXT_API_KEY
+        sync: false
+      - key: AI_TEXT_BASE_URL
+        value: https://api.openai.com
+      - key: AI_TEXT_MODEL
+        value: gpt-4o
