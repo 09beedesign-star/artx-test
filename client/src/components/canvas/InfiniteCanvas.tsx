@@ -5325,6 +5325,15 @@ type CanvasAssistantMessage = {
   };
 };
 
+function formatCanvasMessageTime(value: Date) {
+  const date = value instanceof Date ? value : new Date(value);
+  const pad = (input: number) => String(input).padStart(2, "0");
+  return [
+    `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())}`,
+    `${pad(date.getHours())}:${pad(date.getMinutes())}`,
+  ].join(" ");
+}
+
 function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, onToggleCollapsed, onLoginRequest, referencedAssets, onRemoveReference, selectedCount, helpPromptNonce }: { projectId: string; isDark: boolean; collapsed: boolean; isAuthenticated: boolean; onToggleCollapsed: () => void; onLoginRequest: () => void; referencedAssets: { id: string; title: string; src: string }[]; onRemoveReference: (id: string) => void; selectedCount: number; helpPromptNonce: number }) {
   const [, navigate] = useLocation();
   const [inputFocused, setInputFocused] = useState(false);
@@ -5655,7 +5664,6 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
               scrollbarColor: `${isDark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.18)"} transparent`,
             }}
           >
-            <p className="type-caption mb-2" style={{ color: sub }}>May 23, 2026</p>
             <div className="flex flex-col gap-4">
               {messages.map(message => {
                 const isUser = message.role === "user";
@@ -5663,6 +5671,18 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
                 return (
                 <div key={message.id} className={isUser ? "flex justify-end" : "flex justify-start"}>
                   <div className="max-w-[86%]">
+                    <p
+                      className="type-caption mb-1.5"
+                      style={{
+                        color: sub,
+                        fontSize: 11,
+                        textAlign: isUser ? "right" : "left",
+                        textTransform: "none",
+                        letterSpacing: 0,
+                      }}
+                    >
+                      {formatCanvasMessageTime(message.timestamp)}
+                    </p>
                     <div
                       className="rounded-[var(--radius-lg-design)] p-4"
                       style={{
