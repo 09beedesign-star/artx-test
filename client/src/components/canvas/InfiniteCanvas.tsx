@@ -1046,7 +1046,6 @@ function AssetFloatingToolbar({ isDark, position, onAction }: {
     { icon: <Shirt size={18} />, label: "Mockup", action: "mockup" },
     { icon: <Expand size={18} />, label: "扩展", action: "expand", dot: true },
     { icon: <ImageIcon size={18} />, label: "调整", action: "adjust", dot: true },
-    { icon: <Crop size={18} />, label: "裁剪", action: "crop" },
     { icon: <Frame size={18} />, label: "矢量", action: "vector", dot: true, cost: 9 },
     { icon: <RotateCw size={18} />, label: "翻转与旋转", action: "flip-rotate", dot: true },
   ];
