@@ -4004,6 +4004,10 @@ function NodeContextMenu({ menu, onClose, onAction, isDark }: {
   const selectionItems = [
     { icon: <Copy size={13} />, label: "复制", action: "copy", color: iconColor },
     { icon: <Clipboard size={13} />, label: "粘贴", action: "paste", color: iconColor },
+    { icon: <BringToFront size={13} />, label: "向上一层", action: "bring-forward", color: iconColor },
+    { icon: <SendToBack size={13} />, label: "向下一层", action: "send-backward", color: iconColor },
+    { icon: <BringToFront size={13} />, label: "最前层", action: "bring-to-front", color: iconColor },
+    { icon: <SendToBack size={13} />, label: "最底层", action: "send-to-back", color: iconColor },
     { icon: <Boxes size={13} />, label: "打组", action: "group", color: iconColor },
     { icon: <LayoutGrid size={13} />, label: "自动排列", action: "auto-layout", color: iconColor },
     { icon: <AlignHorizontalSpaceAround size={13} />, label: "横向排列", action: "layout-horizontal", color: iconColor },
@@ -4018,6 +4022,12 @@ function NodeContextMenu({ menu, onClose, onAction, isDark }: {
     ...(menu.nodeType === "asset" ? [{ icon: <Download size={13} />, label: "下载图片", action: "download", color: iconColor }] : []),
     { icon: <Copy size={13} />, label: "复制", action: "copy", color: iconColor },
     { icon: <Clipboard size={13} />, label: "粘贴", action: "paste", color: iconColor },
+    ...(menu.nodeType === "asset" ? [
+      { icon: <BringToFront size={13} />, label: "向上一层", action: "bring-forward", color: iconColor },
+      { icon: <SendToBack size={13} />, label: "向下一层", action: "send-backward", color: iconColor },
+      { icon: <BringToFront size={13} />, label: "最前层", action: "bring-to-front", color: iconColor },
+      { icon: <SendToBack size={13} />, label: "最底层", action: "send-to-back", color: iconColor },
+    ] : []),
     { icon: <Type size={13} />, label: "添加文本备注", action: "add-note", color: iconColor },
     { icon: <Trash2 size={13} />, label: "删除节点", action: "delete", color: dangerColor },
   ];
@@ -6995,6 +7005,51 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         setSelectedNodeIds(pasted.map(n => n.id));
         toast(`已粘贴 ${pasted.length} 个画布`);
       } else { toast("剪贴板为空"); }
+    } else if (["bring-forward", "send-backward", "bring-to-front", "send-to-back"].includes(action)) {
+      const layerIds = actionIds.filter(id => nodes.some(n => n.id === id && n.type === "asset"));
+      if (layerIds.length === 0) {
+        toast("请选择图片图层");
+        return;
+      }
+      pushHistory();
+      setNodes(nds => {
+        const selected = new Set(layerIds);
+        const next = [...nds];
+        if (action === "bring-to-front") {
+          return [
+            ...next.filter(n => !selected.has(n.id)),
+            ...next.filter(n => selected.has(n.id)).map(n => ({ ...n, selected: true })),
+          ];
+        }
+        if (action === "send-to-back") {
+          return [
+            ...next.filter(n => selected.has(n.id)).map(n => ({ ...n, selected: true })),
+            ...next.filter(n => !selected.has(n.id)),
+          ];
+        }
+        if (action === "bring-forward") {
+          for (let index = next.length - 2; index >= 0; index -= 1) {
+            if (selected.has(next[index].id) && !selected.has(next[index + 1].id)) {
+              [next[index], next[index + 1]] = [next[index + 1], next[index]];
+            }
+          }
+          return next.map(n => selected.has(n.id) ? { ...n, selected: true } : n);
+        }
+        for (let index = 1; index < next.length; index += 1) {
+          if (selected.has(next[index].id) && !selected.has(next[index - 1].id)) {
+            [next[index - 1], next[index]] = [next[index], next[index - 1]];
+          }
+        }
+        return next.map(n => selected.has(n.id) ? { ...n, selected: true } : n);
+      });
+      setSelectedNodeIds(layerIds);
+      const labels: Record<string, string> = {
+        "bring-forward": "已向上一层",
+        "send-backward": "已向下一层",
+        "bring-to-front": "已移到最前层",
+        "send-to-back": "已移到最底层",
+      };
+      toast(labels[action], { description: "已更新图片图层的前后关系" });
     } else if (action === "group") {
       if (actionIds.length < 2) { toast("请至少选择 2 个画布再打组"); return; }
       pushHistory();
