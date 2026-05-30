@@ -19,9 +19,25 @@ type ChatCompletionResponse = {
   error?: { message?: string };
 };
 
+type ResponsesApiResponse = {
+  output?: Array<{
+    type?: string;
+    content?: Array<{
+      type?: string;
+      text?: string;
+    }>;
+  }>;
+  error?: { message?: string; code?: string };
+};
+
 function getChatEndpoint(baseUrl: string) {
   const normalized = baseUrl.replace(/\/+$/, "");
   return `${normalized}${normalized.endsWith("/v1") ? "" : "/v1"}/chat/completions`;
+}
+
+function getResponsesEndpoint(baseUrl: string) {
+  const normalized = baseUrl.replace(/\/+$/, "");
+  return `${normalized}${normalized.endsWith("/v1") ? "" : "/v1"}/responses`;
 }
 
 function getProviderConfig() {
@@ -30,6 +46,61 @@ function getProviderConfig() {
   const model = process.env.AI_TEXT_MODEL || "gpt-4o";
 
   return { apiKey, baseUrl, model };
+}
+
+function flattenMessageContent(content: TextMessage["content"]): string {
+  if (typeof content === "string") return content;
+
+  return content
+    .map((item) => {
+      if (item.type === "text") return item.text;
+      if (item.type === "image_url") return `[image] ${item.image_url.url}`;
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function extractResponsesText(data: ResponsesApiResponse) {
+  return (data.output || [])
+    .flatMap((item) => item.content || [])
+    .filter((item) => item.type === "output_text" && typeof item.text === "string")
+    .map((item) => item.text || "")
+    .join("\n")
+    .trim();
+}
+
+async function callResponsesApi(
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  messages: TextMessage[],
+): Promise<string> {
+  const input = messages.map((message) => ({
+    role: message.role,
+    content: flattenMessageContent(message.content),
+  }));
+
+  const response = await fetch(getResponsesEndpoint(baseUrl), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      input,
+    }),
+  });
+
+  const text = await response.text();
+  const data = text ? (JSON.parse(text) as ResponsesApiResponse) : {};
+
+  if (!response.ok) {
+    throw new Error(data.error?.message || `Responses provider returned ${response.status}`);
+  }
+
+  return extractResponsesText(data);
 }
 
 function buildMessages(input: TextGenerateInput): TextMessage[] {
@@ -93,30 +164,49 @@ export async function generateText(input: TextGenerateInput): Promise<{ text: st
 
   const imageOnlyModels = new Set(["gpt-image-2", "flux-pro", "midjourney-v6", "sora"]);
   const selectedModel = input.model && !imageOnlyModels.has(input.model) ? input.model : model;
-  const response = await fetch(getChatEndpoint(baseUrl), {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: selectedModel,
-      messages,
-      temperature: 0.7,
-    }),
+  const fallbackModels = ["gpt-5.4-mini", "gpt-5.4", "gpt-5.5"].filter((name, index, list) => {
+    return name !== selectedModel && list.indexOf(name) === index;
   });
+  const attempts = [selectedModel, ...fallbackModels];
 
-  const text = await response.text();
-  const data = text ? (JSON.parse(text) as ChatCompletionResponse) : {};
+  let lastError: Error | null = null;
+  for (const candidateModel of attempts) {
+    try {
+      const response = await fetch(getChatEndpoint(baseUrl), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: candidateModel,
+          messages,
+          temperature: 0.7,
+        }),
+      });
 
-  if (!response.ok) {
-    throw new Error(data.error?.message || `Text provider returned ${response.status}`);
+      const text = await response.text();
+      const data = text ? (JSON.parse(text) as ChatCompletionResponse) : {};
+
+      if (!response.ok) {
+        throw new Error(data.error?.message || `Text provider returned ${response.status}`);
+      }
+
+      const output = data.choices?.[0]?.message?.content || data.output_text || "";
+      if (output.trim()) {
+        return { text: output, model: candidateModel };
+      }
+
+      const responsesText = await callResponsesApi(baseUrl, apiKey, candidateModel, messages);
+      if (responsesText) {
+        return { text: responsesText, model: candidateModel };
+      }
+
+      throw new Error("Text provider returned no content");
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
   }
 
-  const output = data.choices?.[0]?.message?.content || data.output_text || "";
-  if (!output.trim()) {
-    throw new Error("Text provider returned no content");
-  }
-
-  return { text: output, model: selectedModel };
+  throw lastError || new Error("Text provider returned no content");
 }

@@ -13,8 +13,20 @@ type GeneratedImage = {
 };
 
 type ImageGenerationResponse = {
+  task_id?: string;
+  status?: string;
+  message?: string;
   images?: Array<{ b64_json?: string; url?: string }>;
   data?: Array<{ b64_json?: string; url?: string }>;
+  error?: { message?: string };
+};
+
+type AsyncImageTaskResponse = {
+  data?: {
+    status?: string;
+    error?: string;
+    result?: ImageGenerationResponse;
+  };
   error?: { message?: string };
 };
 
@@ -62,6 +74,46 @@ async function callImageProvider(body: Record<string, unknown>, apiKey: string, 
   return data;
 }
 
+async function pollAsyncImageTask(taskId: string, apiKey: string, baseUrl: string): Promise<ImageGenerationResponse> {
+  const normalized = baseUrl.replace(/\/+$/, "");
+  const endpoint = `${normalized}${normalized.endsWith("/v1") ? "" : "/v1"}/async-images/${taskId}`;
+
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    const text = await response.text();
+    const data = text ? (JSON.parse(text) as AsyncImageTaskResponse) : {};
+    const task = data.data;
+    const status = task?.status;
+
+    if (!response.ok) {
+      throw new Error(data.error?.message || `Image polling returned ${response.status}`);
+    }
+
+    if (status === "failed") {
+      throw new Error(task?.error || "Image generation failed");
+    }
+
+    if ((status === "succeeded" || status === "completed_without_image") && task?.result) {
+      return task.result;
+    }
+
+    if (status && status !== "queued" && status !== "processing") {
+      throw new Error(`Unexpected image task status: ${status}`);
+    }
+  }
+
+  throw new Error("Image generation timed out");
+}
+
 export async function generateImages(input: ImageGenerateInput): Promise<{ images: GeneratedImage[] }> {
   if (!input.prompt?.trim()) {
     throw new Error("Missing prompt");
@@ -90,6 +142,10 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
     if (!message.toLowerCase().includes("response_format")) throw error;
     const { response_format: _responseFormat, ...fallbackBody } = requestBody;
     providerData = await callImageProvider(fallbackBody, apiKey, baseUrl);
+  }
+
+  if (providerData.task_id) {
+    providerData = await pollAsyncImageTask(providerData.task_id, apiKey, baseUrl);
   }
 
   const items = providerData.data || providerData.images || [];
