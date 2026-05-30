@@ -18,6 +18,7 @@ type ImageGenerationResponse = {
   message?: string;
   images?: Array<{ b64_json?: string; url?: string }>;
   data?: Array<{ b64_json?: string; url?: string }>;
+  choices?: Array<{ message?: { content?: string } }>;
   error?: { message?: string };
 };
 
@@ -54,6 +55,26 @@ function buildPrompt(input: ImageGenerateInput) {
   return `${stylePrefix}${input.prompt.trim()}`;
 }
 
+function toAbsoluteUrl(url: string, baseUrl: string) {
+  if (/^https?:\/\//i.test(url) || url.startsWith("data:")) return url;
+
+  const normalized = baseUrl.replace(/\/+$/, "");
+  if (url.startsWith("/")) {
+    return normalized.endsWith("/v1") && url.startsWith("/v1/")
+      ? `${normalized.slice(0, -3)}${url}`
+      : `${normalized}${url}`;
+  }
+  return `${normalized}/${url.replace(/^\/+/, "")}`;
+}
+
+function extractChoiceImages(providerData: ImageGenerationResponse, baseUrl: string) {
+  const content = providerData.choices?.[0]?.message?.content || "";
+  const matches = [...content.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)];
+  return matches.map((match) => ({
+    src: toAbsoluteUrl(match[1], baseUrl),
+  }));
+}
+
 async function callImageProvider(body: Record<string, unknown>, apiKey: string, baseUrl: string) {
   const response = await fetch(getImagesEndpoint(baseUrl), {
     method: "POST",
@@ -78,7 +99,7 @@ async function pollAsyncImageTask(taskId: string, apiKey: string, baseUrl: strin
   const normalized = baseUrl.replace(/\/+$/, "");
   const endpoint = `${normalized}${normalized.endsWith("/v1") ? "" : "/v1"}/async-images/${taskId}`;
 
-  for (let attempt = 0; attempt < 30; attempt += 1) {
+  for (let attempt = 0; attempt < 90; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
     const response = await fetch(endpoint, {
@@ -155,6 +176,15 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
       return src ? { src, width: ratio.width, height: ratio.height } : null;
     })
     .filter((item): item is GeneratedImage => Boolean(item));
+
+  if (images.length === 0) {
+    const choiceImages = extractChoiceImages(providerData, baseUrl).map((item) => ({
+      ...item,
+      width: ratio.width,
+      height: ratio.height,
+    }));
+    images.push(...choiceImages);
+  }
 
   if (images.length === 0) {
     throw new Error("Image provider returned no images");
