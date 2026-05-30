@@ -1,14 +1,16 @@
 /**
  * AppShell — Global Layout with Left Sidebar
  * Design: Neo-Studio — wide sidebar with nav groups
- * Sections: 首页 / 灵感选题 / 技能商店 | 工作区: 工作台 / 素材库
+ * Sections: 首页 / 灵感选题 / 技能商店 / 工作台
  */
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
 import {
-  Home, Sparkles, Library, FolderOpen, Archive,
-  Settings, HelpCircle,
+  Home, Sparkles, Library, FolderOpen,
+  HelpCircle, Send,
 } from "lucide-react";
 
 
@@ -21,6 +23,8 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   const [location, navigate] = useLocation();
   const { resolvedTheme } = useTheme();
   const { isAuthenticated } = useAuth();
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [helpPrompt, setHelpPrompt] = useState("");
   const isDark = resolvedTheme === "dark";
   const shouldHideSidebar = hideSidebar || !isAuthenticated;
 
@@ -29,14 +33,25 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   const sidebarBorder= isDark ? "oklch(1 0 0 / 7%)" : "var(--hairline)";
   const textPrimary  = isDark ? "rgba(255,255,255,0.82)" : "rgba(20,20,36,0.82)";
   const textSecondary= isDark ? "rgba(255,255,255,0.38)" : "rgba(20,20,36,0.38)";
-  const textMuted    = isDark ? "rgba(255,255,255,0.28)" : "rgba(20,20,36,0.28)";
   const hoverBg      = isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)";
   const activeBg     = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
   const activeColor  = isDark ? "rgba(255,255,255,0.90)" : "rgba(20,20,36,0.90)";
-  const dividerColor = isDark ? "oklch(1 0 0 / 7%)" : "var(--hairline)";
-
   const isActive = (path: string) =>
     path === "/" ? location === "/" : location.startsWith(path);
+
+  const activateHelpPrompt = () => {
+    setHelpOpen(true);
+  };
+
+  const closeHelpPrompt = () => {
+    setHelpOpen(false);
+    setHelpPrompt("");
+  };
+
+  const submitHelpPrompt = () => {
+    toast("AI 帮助", { description: helpPrompt.trim() || "有什么问题可以问我，我会尽量帮你解答。" });
+    closeHelpPrompt();
+  };
 
   if (shouldHideSidebar) {
     return (
@@ -61,6 +76,62 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
           </button>
         )}
         {children}
+        {helpOpen && (
+          <div
+            className="fixed inset-0 flex items-center justify-center px-6"
+            style={{ zIndex: 10000, background: "rgba(0,0,0,0.20)" }}
+            onMouseDown={e => {
+              if (e.target === e.currentTarget) closeHelpPrompt();
+            }}
+          >
+            <div
+              className="w-[min(520px,calc(100vw-32px))] rounded-[var(--radius-xl-design)] p-4 shadow-2xl"
+              style={{
+                background: isDark ? "rgba(22,22,30,0.98)" : "rgba(255,255,255,0.98)",
+                border: `1px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)"}`,
+                backdropFilter: "blur(18px)",
+              }}
+              onMouseDown={e => e.stopPropagation()}
+            >
+              <textarea
+                autoFocus
+                value={helpPrompt}
+                onChange={e => setHelpPrompt(e.target.value)}
+                placeholder="有什么问题可以问我，我会尽量帮你解答。"
+                className="w-full resize-none bg-transparent outline-none leading-6"
+                rows={5}
+                style={{ color: textPrimary, fontSize: 15 }}
+              />
+              <div className="mt-4 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={closeHelpPrompt}
+                  className="h-9 min-w-[88px] rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-80"
+                  style={{
+                    background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)",
+                    border: `1px solid ${isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)"}`,
+                    color: textPrimary,
+                  }}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={submitHelpPrompt}
+                  className="h-9 min-w-[96px] inline-flex items-center justify-center gap-1.5 rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-90"
+                  style={{
+                    background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
+                    color: "white",
+                    boxShadow: "0 8px 22px oklch(0.58 0.22 290 / 0.24)",
+                  }}
+                >
+                  <Send size={13} />
+                  提交
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </>
     );
   }
@@ -129,51 +200,25 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
             <NavItem icon={Home}    label="首页"     path="/" />
             <NavItem icon={Sparkles} label="灵感选题" path="/inspiration" iconSize={15} />
             <NavItem icon={Library}  label="技能商店" path="/skills"      iconSize={15} />
-          </div>
-
-          {/* Divider */}
-          <div style={{ height: 1, background: dividerColor, margin: "8px 4px" }} />
-
-          {/* 工作区 group */}
-          <div className="mb-2">
-            <p className="type-caption px-3 py-1.5 tracking-wider uppercase" style={{ color: textMuted }}>
-              工作区
-            </p>
-            <div className="flex flex-col gap-0.5">
-              <NavItem icon={FolderOpen} label="工作台" path="/workspace" iconSize={15} />
-              <NavItem icon={Archive}    label="素材库"   path="/assets"    iconSize={15} />
-            </div>
+            <NavItem icon={FolderOpen} label="工作台" path="/workspace" iconSize={15} />
           </div>
 
         </div>
 
-        {/* ── Bottom: Settings + Help + User ── */}
+        {/* ── Bottom: Help ── */}
         <div
           className="px-2 pb-4 pt-2 flex flex-col gap-0.5"
-          style={{ borderTop: `1px solid ${dividerColor}` }}
         >
-          <NavItem icon={Settings}   label="设置" path="/settings" iconSize={15} />
-          <NavItem icon={HelpCircle} label="帮助" path="/help"     iconSize={15} />
-
-          {/* User row — 点击跳转个人主页 */}
-          <div
-            className="flex items-center gap-2.5 px-3 py-2 mt-1 rounded-[var(--radius-md-design)] cursor-pointer transition-all"
-            style={{ color: textSecondary }}
-            onClick={() => navigate("/profile")}
+          <button
+            onClick={activateHelpPrompt}
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-[var(--radius-md-design)] type-caption transition-all text-left"
+            style={{ background: "transparent", color: textSecondary }}
             onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = hoverBg)}
             onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
           >
-            <div
-              className="w-6 h-6 rounded-[var(--radius-pill)] flex items-center justify-center type-caption flex-shrink-0"
-              style={{
-                background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.62 0.20 210))",
-                color: "white",
-              }}
-            >
-              U
-            </div>
-            <span className="type-caption truncate" style={{ color: textPrimary, textTransform: "none", letterSpacing: "0.02em" }}>用户名</span>
-          </div>
+            <HelpCircle size={15} strokeWidth={1.6} style={{ flexShrink: 0, opacity: 0.7 }} />
+            <span className="truncate">帮助</span>
+          </button>
         </div>
       </aside>
 
@@ -181,6 +226,62 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
       <main className="flex-1 overflow-hidden">
         {children}
       </main>
+      {helpOpen && (
+        <div
+          className="fixed inset-0 flex items-center justify-center px-6"
+          style={{ zIndex: 10000, background: "rgba(0,0,0,0.20)" }}
+          onMouseDown={e => {
+            if (e.target === e.currentTarget) closeHelpPrompt();
+          }}
+        >
+          <div
+            className="w-[min(520px,calc(100vw-32px))] rounded-[var(--radius-xl-design)] p-4 shadow-2xl"
+            style={{
+              background: isDark ? "rgba(22,22,30,0.98)" : "rgba(255,255,255,0.98)",
+              border: `1px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)"}`,
+              backdropFilter: "blur(18px)",
+            }}
+            onMouseDown={e => e.stopPropagation()}
+          >
+            <textarea
+              autoFocus
+              value={helpPrompt}
+              onChange={e => setHelpPrompt(e.target.value)}
+              placeholder="有什么问题可以问我，我会尽量帮你解答。"
+              className="w-full resize-none bg-transparent outline-none leading-6"
+              rows={5}
+              style={{ color: textPrimary, fontSize: 15 }}
+            />
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeHelpPrompt}
+                className="h-9 min-w-[88px] rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-80"
+                style={{
+                  background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)",
+                  border: `1px solid ${isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)"}`,
+                  color: textPrimary,
+                }}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={submitHelpPrompt}
+                className="h-9 min-w-[96px] inline-flex items-center justify-center gap-1.5 rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-90"
+                style={{
+                  background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
+                  color: "white",
+                  boxShadow: "0 8px 22px oklch(0.58 0.22 290 / 0.24)",
+                }}
+              >
+                <Send size={13} />
+                提交
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

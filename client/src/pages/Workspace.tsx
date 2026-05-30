@@ -43,7 +43,7 @@ export default function Workspace({ projectId = "p1" }: { projectId?: string }) 
 
       {/* Top bar */}
       <div style={{ position: "relative", zIndex: 1 }}>
-        <TopBar credits={75} projectTitle={currentProject.title} projectTime={projectCreatedAt} showSearch />
+        <TopBar credits={75} projectTitle={currentProject.title} projectTime={projectCreatedAt} />
       </div>
 
       {/* Full-width canvas */}

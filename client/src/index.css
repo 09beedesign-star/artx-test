@@ -222,6 +222,22 @@ html.light, .light {
   .light ::-webkit-scrollbar-thumb:hover {
     background: oklch(0 0 0 / 20%);
   }
+
+  .model-selector-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .model-selector-scroll::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  .model-selector-scroll::-webkit-scrollbar-thumb {
+    background: oklch(1 0 0 / 18%);
+  }
+
+  .light .model-selector-scroll::-webkit-scrollbar-thumb {
+    background: oklch(0 0 0 / 16%);
+  }
 }
 
 @layer components {
@@ -466,4 +482,3 @@ html.light, .light {
 .react-flow__minimap svg {
   border-radius: 6px;
 }
-

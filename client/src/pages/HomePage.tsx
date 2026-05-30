@@ -125,7 +125,6 @@ const PROMPT_SUGGESTIONS = [
   "活动长图",
   "Logo 灵感",
   "包装设计",
-  "落地页视觉",
 ];
 
 // ── artx-style AI Input Box ──────────────────────────────────
@@ -366,6 +365,10 @@ export default function HomePage() {
     handleStartDesign();
   };
 
+  const handleSuggestionClick = (suggestion: string) => {
+    navigate(`/inspiration?topic=${encodeURIComponent(suggestion)}`);
+  };
+
   return (
     <div className="flex flex-col h-screen overflow-hidden" style={{ background: bg, position: "relative", transition: "background 0.25s ease" }}>
       {isDark && (
@@ -405,27 +408,25 @@ export default function HomePage() {
             <HeroInputBox isDark={isDark} onSubmit={handlePromptSubmit} />
           </div>
 
-          {isAuthenticated && (
-            <div
-              className="flex flex-wrap items-center justify-center gap-2 mt-4 overflow-hidden"
-              style={{ width: "100%", maxWidth: 680, maxHeight: 76 }}
-            >
-              {PROMPT_SUGGESTIONS.map((suggestion, index) => (
-                <button
-                  key={index}
-                  className="type-caption px-3 py-1.5 rounded-[var(--radius-pill)] transition-all hover:opacity-80 active:scale-95"
-                  style={{
-                    background: chipBg,
-                    border: `1px solid ${chipBorder}`,
-                    color: sub,
-                  }}
-                  onClick={() => handlePromptSubmit(suggestion)}
-                >
-                  {suggestion}
-                </button>
-              ))}
+          <div
+            className="flex items-center gap-2 mt-4 overflow-x-auto overflow-y-hidden"
+            style={{ width: "100%", maxWidth: 680, whiteSpace: "nowrap", scrollbarWidth: "none" }}
+          >
+            {PROMPT_SUGGESTIONS.map((suggestion, index) => (
+              <button
+                key={index}
+                className="type-caption px-3 py-1.5 rounded-[var(--radius-pill)] transition-all hover:opacity-80 active:scale-95 shrink-0"
+                style={{
+                  background: chipBg,
+                  border: `1px solid ${chipBorder}`,
+                  color: sub,
+                }}
+                onClick={() => handleSuggestionClick(suggestion)}
+              >
+                {suggestion}
+              </button>
+            ))}
             </div>
-          )}
         </div>
 
         {isAuthenticated && (

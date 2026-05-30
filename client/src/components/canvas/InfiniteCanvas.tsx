@@ -39,13 +39,16 @@ import {
   Image as ImageIcon, MessageSquare, Type, Wand2,
   Sparkles, Trash2, Send, Paperclip, ChevronDown,
   X, Copy, Clipboard, Edit3, PlusSquare, FileText,
-  ZoomIn, Download, Crop, Box, Eraser, SlidersHorizontal,
+  ZoomIn, Download, Crop, Box, Eraser,
   MoreHorizontal, FolderOutput, Maximize2, Mic, RefreshCw,
   ChevronLeft, Home, LayoutGrid, Lock, Unlock, Plus, Minus,
   Search, ArrowRight, Share2, MousePointer2, CircleDot, Grid3X3,
   Square, PenLine, ImagePlus, Video, Captions, Repeat2, LogOut, FolderDown,
   AlignHorizontalSpaceAround, AlignVerticalSpaceAround, Boxes,
   Triangle, Pencil, MessageCircle, Star, Minus as MinusIcon,
+  BadgeCheck, ScanSearch, Move, PanelTopOpen, ImageOff, Check,
+  WandSparkles,
+  Shirt, Expand, Frame, RotateCw,
 } from "lucide-react";
 
 // 「井号 + 方框」图标 — 创建画布专用
@@ -700,7 +703,7 @@ function TextFloatingToolbar({
   return (
     <div
       className="absolute nodrag nopan"
-      style={{ left: position.left, top: position.top, transform: "translate(-50%, 0)", zIndex: 2200 }}
+      style={{ left: position.left, top: position.top, transform: "translate(-50%, 0)", zIndex: 90 }}
       onMouseDown={e => e.stopPropagation()}
       onClick={e => e.stopPropagation()}
     >
@@ -983,38 +986,85 @@ function AssetFloatingToolbar({ isDark, position, onAction }: {
   position: { left: number; top: number };
   onAction: (action: string) => void;
 }) {
+  const [hoveredAction, setHoveredAction] = useState<string | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
   const toolBg = isDark ? "rgba(22,22,30,0.88)" : "rgba(255,255,255,0.86)";
   const toolBorder = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)";
   const iconColor = isDark ? "rgba(255,255,255,0.76)" : "rgba(28,28,40,0.82)";
-  const dividerColor = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+  const tooltipBg = isDark ? "rgba(18,18,26,0.96)" : "rgba(30,30,40,0.92)";
+  const moreBg = isDark ? "rgba(24,24,34,0.98)" : "rgba(255,255,255,0.98)";
+  const moreText = isDark ? "rgba(255,255,255,0.88)" : "rgba(28,28,40,0.88)";
+  const moreSub = isDark ? "rgba(255,255,255,0.48)" : "rgba(28,28,40,0.45)";
   const tools = [
-    { icon: <Crop size={15} />, label: "裁剪", action: "crop" },
-    { icon: <Box size={15} />, label: "3D", action: "3d" },
-    { icon: <Eraser size={15} />, label: "消除", action: "erase" },
-    { icon: <SlidersHorizontal size={15} />, label: "调色", action: "adjust" },
+    { icon: <BadgeCheck size={15} />, label: "快捷编辑", action: "quick-edit" },
+    { icon: <ScanSearch size={15} />, label: "放大", action: "upscale" },
+    { icon: <ImageOff size={15} />, label: "去背景", action: "remove-background" },
+    { icon: <Crop size={15} />, label: "裁切", action: "crop" },
+    { icon: <Eraser size={15} />, label: "橡皮工具", action: "erase" },
+    { icon: <PanelTopOpen size={15} />, label: "编辑元素", action: "edit-elements" },
+    { icon: <Type size={15} />, label: "编辑文字", action: "edit-text" },
+    { icon: <Box size={15} />, label: "多角度", action: "multi-angle" },
+    { icon: <Move size={15} />, label: "移动对象", action: "move-object" },
     { icon: <MoreHorizontal size={15} />, label: "更多", action: "more", dot: true },
-  ];
-  const actions = [
-    { icon: <FolderOutput size={15} />, label: "移动到", action: "move" },
     { icon: <Download size={15} />, label: "下载", action: "download" },
-    { icon: <Maximize2 size={15} />, label: "全屏", action: "fullscreen" },
   ];
+  const moreItems = [
+    { icon: <Shirt size={18} />, label: "Mockup", action: "mockup" },
+    { icon: <Expand size={18} />, label: "扩展", action: "expand", dot: true },
+    { icon: <ImageIcon size={18} />, label: "调整", action: "adjust", dot: true },
+    { icon: <Crop size={18} />, label: "裁剪", action: "crop" },
+    { icon: <Frame size={18} />, label: "矢量", action: "vector", dot: true, cost: 9 },
+    { icon: <RotateCw size={18} />, label: "翻转与旋转", action: "flip-rotate", dot: true },
+  ];
+  useEffect(() => {
+    if (!moreOpen) return;
+    const handler = () => setMoreOpen(false);
+    const t = window.setTimeout(() => window.addEventListener("mousedown", handler), 40);
+    return () => { window.clearTimeout(t); window.removeEventListener("mousedown", handler); };
+  }, [moreOpen]);
   const buttonClass = "relative w-8 h-8 rounded-[var(--radius-md-design)] flex items-center justify-center transition-all active:scale-90";
   const renderButton = (item: { icon: ReactNode; label: string; action: string; dot?: boolean }) => (
-    <button
-      key={item.action}
-      title={item.label}
-      aria-label={item.label}
-      onClick={(e) => { e.stopPropagation(); onAction(item.action); }}
-      className={buttonClass}
-      style={{ color: iconColor }}
-      onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
-      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-    >
-      {item.icon}
-      {item.dot && <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-[var(--radius-pill)]" style={{ background: "oklch(0.60 0.22 260)" }} />}
-    </button>
+    <div key={item.action} className="relative">
+      {hoveredAction === item.action && (
+        <div
+          className="absolute left-full ml-2 top-1/2 pointer-events-none"
+          style={{
+            transform: "translateY(-50%)",
+            background: tooltipBg,
+            color: "rgba(255,255,255,0.92)",
+            borderRadius: 6,
+            padding: "4px 9px",
+            fontSize: 11,
+            whiteSpace: "nowrap",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.28)",
+            zIndex: 10,
+          }}
+        >
+          <div style={{ position: "absolute", left: -4, top: "50%", transform: "translateY(-50%)", width: 0, height: 0, borderTop: "4px solid transparent", borderBottom: "4px solid transparent", borderRight: `4px solid ${tooltipBg}` }} />
+          {item.label}
+        </div>
+      )}
+      <button
+        aria-label={item.label}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (item.action === "more") {
+            setMoreOpen(value => !value);
+            return;
+          }
+          setMoreOpen(false);
+          onAction(item.action);
+        }}
+        className={buttonClass}
+        style={{ color: iconColor, background: item.action === "more" && moreOpen ? hoverBg : "transparent" }}
+        onMouseEnter={e => { e.currentTarget.style.background = hoverBg; setHoveredAction(item.action); }}
+        onMouseLeave={e => { e.currentTarget.style.background = item.action === "more" && moreOpen ? hoverBg : "transparent"; setHoveredAction(null); }}
+      >
+        {item.icon}
+        {item.dot && <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-[var(--radius-pill)]" style={{ background: "oklch(0.60 0.22 260)" }} />}
+      </button>
+    </div>
   );
 
   return (
@@ -1024,6 +1074,45 @@ function AssetFloatingToolbar({ isDark, position, onAction }: {
       onMouseDown={e => e.stopPropagation()}
       onClick={e => e.stopPropagation()}
     >
+      {moreOpen && (
+        <div
+          className="absolute left-full ml-2 top-1/2 overflow-hidden rounded-[var(--radius-lg-design)] shadow-2xl"
+          style={{
+            transform: "translateY(-50%)",
+            width: 190,
+            background: moreBg,
+            border: `1px solid ${toolBorder}`,
+            backdropFilter: "blur(18px)",
+            boxShadow: isDark ? "0 18px 56px rgba(0,0,0,0.48)" : "0 12px 40px rgba(0,0,0,0.14)",
+            padding: "8px 6px",
+            zIndex: 20,
+          }}
+          onMouseDown={e => e.stopPropagation()}
+        >
+          {moreItems.map(item => (
+            <button
+              key={item.action}
+              className="relative flex w-full items-center gap-3 rounded-[var(--radius-md-design)] px-3 py-2.5 text-left transition-colors"
+              style={{ color: moreText, fontSize: 14 }}
+              onClick={() => { setMoreOpen(false); onAction(item.action); }}
+              onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+              onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+            >
+              <span className="relative flex h-5 w-5 items-center justify-center" style={{ color: moreText, flexShrink: 0 }}>
+                {item.icon}
+                {item.dot && <span style={{ position: "absolute", right: -3, top: -3, width: 6, height: 6, borderRadius: "50%", background: "oklch(0.62 0.22 25)" }} />}
+              </span>
+              <span style={{ flex: 1 }}>{item.label}</span>
+              {item.cost && (
+                <span className="flex items-center gap-1" style={{ color: moreSub, fontSize: 13 }}>
+                  <Sparkles size={12} fill="currentColor" />
+                  {item.cost}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
       <div
         className="flex flex-col items-center rounded-[var(--radius-md-design)]"
         style={{
@@ -1036,8 +1125,80 @@ function AssetFloatingToolbar({ isDark, position, onAction }: {
         }}
       >
         {tools.map(renderButton)}
-        <div style={{ width: 20, height: 1, background: dividerColor, margin: "2px 0", flexShrink: 0 }} />
-        {actions.map(renderButton)}
+      </div>
+    </div>
+  );
+}
+
+
+function AssetMoreCommandPanel({ isDark, command, onClose, onApply }: {
+  isDark: boolean;
+  command: string;
+  onClose: () => void;
+  onApply: (action: string) => void;
+}) {
+  const bg = isDark ? "rgba(24,24,34,0.98)" : "rgba(255,255,255,0.98)";
+  const border = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)";
+  const text = isDark ? "rgba(255,255,255,0.88)" : "rgba(28,28,40,0.88)";
+  const sub = isDark ? "rgba(255,255,255,0.50)" : "rgba(28,28,40,0.48)";
+  const field = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
+  const hover = isDark ? "rgba(255,255,255,0.09)" : "rgba(0,0,0,0.06)";
+  const config: Record<string, { title: string; description: string; actions: string[] }> = {
+    mockup: { title: "Mockup", description: "选择场景，将当前图片套入产品样机。", actions: ["包装袋", "手机屏幕", "海报墙"] },
+    expand: { title: "扩展", description: "按比例扩展画面边界，保留主体视觉。", actions: ["1:1", "4:5", "16:9"] },
+    adjust: { title: "调整", description: "快速调整亮度、对比度和色彩氛围。", actions: ["提亮", "增强对比", "冷色调"] },
+    crop: { title: "裁切", description: "选择裁切比例，图片节点会更新为新的尺寸。", actions: ["自由", "1:1", "3:4", "4:3", "16:9", "9:16"] },
+    vector: { title: "矢量", description: "将图片轮廓转为可编辑矢量元素。", actions: ["提取轮廓", "扁平化", "高清矢量"] },
+  };
+  const current = config[command] || config.adjust;
+
+  return (
+    <div
+      className="absolute nodrag nopan rounded-[var(--radius-lg-design)] shadow-2xl"
+      style={{
+        right: 24,
+        top: 82,
+        width: 280,
+        background: bg,
+        border: `1px solid ${border}`,
+        backdropFilter: "blur(20px)",
+        zIndex: 2300,
+        overflow: "hidden",
+      }}
+      onMouseDown={e => e.stopPropagation()}
+      onClick={e => e.stopPropagation()}
+    >
+      <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: `1px solid ${border}` }}>
+        <div>
+          <p style={{ color: text, fontSize: 14, fontWeight: 650 }}>{current.title}</p>
+          <p style={{ color: sub, fontSize: 11, marginTop: 2 }}>{current.description}</p>
+        </div>
+        <button className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-md-design)]" style={{ color: sub }} onClick={onClose} aria-label="关闭">
+          <X size={14} />
+        </button>
+      </div>
+      <div className="p-3">
+        <div className="grid grid-cols-3 gap-2">
+          {current.actions.map(action => (
+            <button
+              key={action}
+              className="rounded-[var(--radius-md-design)] px-2 py-2 transition-colors active:scale-95"
+              style={{ background: field, border: `1px solid ${border}`, color: text, fontSize: 12 }}
+              onClick={() => onApply(`${current.title} · ${action}`)}
+              onMouseEnter={e => (e.currentTarget.style.background = hover)}
+              onMouseLeave={e => (e.currentTarget.style.background = field)}
+            >
+              {action}
+            </button>
+          ))}
+        </div>
+        <button
+          className="mt-3 flex h-9 w-full items-center justify-center rounded-[var(--radius-md-design)] active:scale-95"
+          style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))", color: "white", fontSize: 13, fontWeight: 650 }}
+          onClick={() => onApply(current.title)}
+        >
+          应用到当前图片
+        </button>
       </div>
     </div>
   );
@@ -1200,6 +1361,7 @@ interface Annotation {
   done: boolean;
   open: boolean;
   editing: boolean;
+  color?: string;
 }
 
 // ── AnnotationBubble 组件 ──
@@ -1234,8 +1396,8 @@ function AnnotationBubble({
       }
     };
     // 同时监听左键和右键
-    document.addEventListener("mousedown", handleOutsideClick, true);
-    return () => document.removeEventListener("mousedown", handleOutsideClick, true);
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
   }, [ann.open, ann.id, ann.text, onUpdate, onRemove]);
 
   const bubbleBg = isDark ? "rgba(22,22,34,0.97)" : "rgba(255,255,255,0.98)";
@@ -1244,7 +1406,14 @@ function AnnotationBubble({
   const subColor = isDark ? "rgba(255,255,255,0.40)" : "rgba(0,0,0,0.38)";
   const iconBtnColor = isDark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.45)";
   const iconBtnHover = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.07)";
-  const accentColor = "oklch(0.65 0.22 290)";
+  const annotationColors = [
+    "oklch(0.72 0.19 48)",
+    "oklch(0.66 0.22 290)",
+    "oklch(0.68 0.18 150)",
+    "oklch(0.70 0.16 225)",
+    "oklch(0.72 0.18 25)",
+  ];
+  const accentColor = ann.color || annotationColors[0];
   const doneBg = isDark ? "rgba(34,42,22,0.97)" : "rgba(240,255,235,0.98)";
   const doneBorder = isDark ? "rgba(100,200,80,0.25)" : "rgba(80,160,60,0.20)";
 
@@ -1276,7 +1445,18 @@ function AnnotationBubble({
           justifyContent: "center",
           transform: "rotate(-45deg)",
         }}>
-          <MessageCircle size={9} color="white" style={{ transform: "rotate(45deg)" }} />
+          <span
+            style={{
+              transform: "rotate(45deg)",
+              color: "white",
+              fontSize: 10,
+              fontWeight: 800,
+              lineHeight: 1,
+              fontFamily: "Inter, sans-serif",
+            }}
+          >
+            C
+          </span>
         </div>
       </div>
     );
@@ -1392,6 +1572,39 @@ function AnnotationBubble({
           </div>
         </div>
 
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "7px 10px",
+            borderBottom: `1px solid ${ann.done ? doneBorder : bubbleBorder}`,
+          }}
+        >
+          {annotationColors.map(color => {
+            const selected = accentColor === color;
+            return (
+              <button
+                key={color}
+                aria-label="选择注释颜色"
+                title="选择注释颜色"
+                style={{
+                  width: 18,
+                  height: 18,
+                  borderRadius: "50%",
+                  background: color,
+                  border: selected ? "2px solid rgba(255,255,255,0.96)" : "2px solid transparent",
+                  boxShadow: selected
+                    ? `0 0 0 2px ${color}, 0 2px 8px rgba(0,0,0,0.24)`
+                    : "0 1px 4px rgba(0,0,0,0.18)",
+                  cursor: "pointer",
+                }}
+                onClick={() => onUpdate(ann.id, { color })}
+              />
+            );
+          })}
+        </div>
+
         {/* 内容区 */}
         {ann.editing ? (
           <div style={{ padding: "8px 10px 8px" }}>
@@ -1445,14 +1658,17 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const [preview, setPreview] = useState(false);
-  const { setNodes: setFlowNodes } = useReactFlow();
+  const { setNodes: setFlowNodes, getNode } = useReactFlow();
   const nodeId = (data as { id?: string }).id || "";
   const [toolMode, setToolMode] = useState<string>("move");
   // 图片尺寸状态（支持拖拽缩放）
   const [imgW, setImgW] = useState<number>((data.imgW as number) || 0);
   const [imgH, setImgH] = useState<number>((data.imgH as number) || 0);
   const [isResizing, setIsResizing] = useState(false);
-  const resizeDragRef = useRef<{ startX: number; startY: number; startW: number; startH: number } | null>(null);
+  const resizeDragRef = useRef<{ startClientX: number; startClientY: number; startNodeX: number; startNodeY: number; startW: number; startH: number; direction: "nw" | "ne" | "se" | "sw" } | null>(null);
+  const resizingNodeRef = useRef(false);
+  const [cropRect, setCropRect] = useState({ x: 10, y: 10, w: 80, h: 80 });
+  const cropDragRef = useRef<null | { edge: "left" | "right" | "top" | "bottom"; startClientX: number; startClientY: number; startRect: { x: number; y: number; w: number; h: number } }>(null);
   const viewport = useViewport();
 
   useEffect(() => {
@@ -1477,7 +1693,23 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const asset = GENERATED_ASSETS.find(a => a.id === (data.assetId as string)) || GENERATED_ASSETS[0];
   const displaySrc = localSrc || asset.src;
   const isEditing = !!(data as { isEditing?: boolean }).isEditing;
+  const isCropping = !!(data as { isCropping?: boolean }).isCropping;
   const displayTitle = (data.title as string) || asset.title || "素材节点";
+  const rotation = (data.rotation as number) || 0;
+  const flipX = Boolean(data.flipX);
+  const cropX = Math.max(0, Math.min(100, Number((data as { cropX?: number }).cropX ?? 0)));
+  const cropY = Math.max(0, Math.min(100, Number((data as { cropY?: number }).cropY ?? 0)));
+  const cropW = Math.max(1, Math.min(100 - cropX, Number((data as { cropW?: number }).cropW ?? 100)));
+  const cropH = Math.max(1, Math.min(100 - cropY, Number((data as { cropH?: number }).cropH ?? 100)));
+  const imgCropStyle: React.CSSProperties = isCropping || cropX > 0 || cropY > 0 || cropW < 100 || cropH < 100
+    ? {
+        position: "absolute",
+        left: `${-(cropX / cropW) * 100}%`,
+        top: `${-(cropY / cropH) * 100}%`,
+        width: `${10000 / cropW}%`,
+        height: `${10000 / cropH}%`,
+      }
+    : { width: "100%", height: "100%" };
 
   // 初始尺寸：以自然尺寸比例计算
   const naturalWidth = localSrc ? 720 : Math.max(1, asset.width || 720);
@@ -1490,12 +1722,30 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
 
   // 如果未初始化则设置初始尺寸
   useEffect(() => {
-    if (!imgW || !imgH) { setImgW(initW); setImgH(initH); }
+    if (!imgW || !imgH) {
+      setImgW(initW);
+      setImgH(initH);
+      setFlowNodes(nds => nds.map(n =>
+        n.id === nodeId
+          ? { ...n, style: { ...n.style, width: initW, height: initH }, data: { ...(n.data as Record<string, unknown>), imgW: initW, imgH: initH } }
+          : n
+      ));
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  useEffect(() => {
+    const nextW = data.imgW as number | undefined;
+    const nextH = data.imgH as number | undefined;
+    if (typeof nextW === "number" && nextW > 0 && nextW !== imgW) setImgW(nextW);
+    if (typeof nextH === "number" && nextH > 0 && nextH !== imgH) setImgH(nextH);
+  }, [data.imgW, data.imgH, imgW, imgH]);
 
   const dispW = imgW || initW;
   const dispH = imgH || initH;
+
+  useEffect(() => {
+    if (isCropping) setCropRect({ x: cropX, y: cropY, w: cropW, h: cropH });
+  }, [cropH, cropW, cropX, cropY, isCropping]);
 
   // 选中边框样式
   const borderColor = selected
@@ -1504,46 +1754,62 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const shadow = selected
     ? "0 0 0 2px oklch(0.65 0.22 290 / 0.72), 0 0 0 6px oklch(0.65 0.22 290 / 0.18), 0 8px 24px rgba(0,0,0,0.3)"
     : "0 4px 16px rgba(0,0,0,0.22)";
-  const handleColor = "oklch(0.65 0.22 290)";
-
-  // 右下角拖拽缩放
-  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
+  // 四角拖拽缩放：以对角锚点固定，拖动锚点作为伸缩方向
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent, direction: "nw" | "ne" | "se" | "sw" = "se") => {
     e.preventDefault();
     e.stopPropagation();
-    resizeDragRef.current = { startX: e.clientX, startY: e.clientY, startW: dispW, startH: dispH };
+    const startNode = getNode(nodeId);
+    const startNodeX = startNode?.position.x ?? 0;
+    const startNodeY = startNode?.position.y ?? 0;
+    resizeDragRef.current = { startClientX: e.clientX, startClientY: e.clientY, startNodeX, startNodeY, startW: dispW, startH: dispH, direction };
+    resizingNodeRef.current = true;
+    window.dispatchEvent(new CustomEvent("asset-resize-active", { detail: { active: true } }));
     setIsResizing(true);
     // 等比缩放：使用当前显示尺寸计算宽高比
     const aspectRatio = dispH / Math.max(1, dispW);
-    const onMove = (mv: MouseEvent) => {
-      const drag = resizeDragRef.current; if (!drag) return;
+    const getNextResize = (clientX: number, clientY: number) => {
+      const drag = resizeDragRef.current;
+      if (!drag) return null;
       const zoom = viewport.zoom || 1;
-      const dx = (mv.clientX - drag.startX) / zoom;
-      const dy = (mv.clientY - drag.startY) / zoom;
-      // 取 dx/dy 中较大的分量作为缩放基准，保持宽高比
-      const delta = Math.abs(dx) >= Math.abs(dy) ? dx : dy / aspectRatio;
+      const dx = (clientX - drag.startClientX) / zoom;
+      const dy = (clientY - drag.startClientY) / zoom;
+      const horizontalDelta = drag.direction.includes("w") ? -dx : dx;
+      const verticalDelta = drag.direction.includes("n") ? -dy : dy;
+      const delta = Math.abs(horizontalDelta) >= Math.abs(verticalDelta) ? horizontalDelta : verticalDelta / aspectRatio;
       const newW = Math.max(60, Math.round(drag.startW + delta));
       const newH = Math.max(60, Math.round(newW * aspectRatio));
+      const nextX = drag.direction.includes("w") ? drag.startNodeX + drag.startW - newW : drag.startNodeX;
+      const nextY = drag.direction.includes("n") ? drag.startNodeY + drag.startH - newH : drag.startNodeY;
+      return { newW, newH, nextX, nextY, drag };
+    };
+    const onMove = (mv: MouseEvent) => {
+      const next = getNextResize(mv.clientX, mv.clientY);
+      if (!next) return;
+      const { newW, newH, nextX, nextY } = next;
       setImgW(newW); setImgH(newH);
+      setFlowNodes(nds => nds.map(n =>
+        n.id === nodeId
+          ? { ...n, position: { x: nextX, y: nextY }, style: { ...n.style, width: newW, height: newH }, data: { ...(n.data as Record<string, unknown>), imgW: newW, imgH: newH } }
+          : n
+      ));
     };
     const onUp = (mu: MouseEvent) => {
-      const drag = resizeDragRef.current; if (!drag) return;
-      const zoom = viewport.zoom || 1;
-      const dx = (mu.clientX - drag.startX) / zoom;
-      const dy = (mu.clientY - drag.startY) / zoom;
-      const delta = Math.abs(dx) >= Math.abs(dy) ? dx : dy / aspectRatio;
-      const newW = Math.max(60, Math.round(drag.startW + delta));
-      const newH = Math.max(60, Math.round(newW * aspectRatio));
+      const next = getNextResize(mu.clientX, mu.clientY);
+      if (!next) return;
+      const { newW, newH, nextX, nextY, drag } = next;
       resizeDragRef.current = null;
+      resizingNodeRef.current = false;
+      window.dispatchEvent(new CustomEvent("asset-resize-active", { detail: { active: false } }));
       setIsResizing(false);
       setImgW(newW); setImgH(newH);
       // 只派发事件，由 InnerCanvas 统一处理更新+历史记录（不再调用 setFlowNodes ，避免双重写入导致回退失效）
-      window.dispatchEvent(new CustomEvent("asset-resize-end", { detail: { nodeId, newW, newH } }));
+      window.dispatchEvent(new CustomEvent("asset-resize-end", { detail: { nodeId, newW, newH, nextX, nextY, startNodeX: drag.startNodeX, startNodeY: drag.startNodeY, startW: drag.startW, startH: drag.startH } }));
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [dispW, dispH, nodeId, viewport.zoom]);
+  }, [dispW, dispH, getNode, nodeId, setFlowNodes, viewport.zoom]);
 
   const handleNodeCtxMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -1559,6 +1825,11 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   }, []);
 
   const handleAssetClick = useCallback((e: React.MouseEvent) => {
+    if (toolMode === "annotate") return;
+    if (isCropping) {
+      e.stopPropagation();
+      return;
+    }
     e.stopPropagation();
     const additive = e.ctrlKey || e.metaKey;
     setFlowNodes(nds => {
@@ -1575,7 +1846,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     window.dispatchEvent(new CustomEvent("asset-reference", {
       detail: { id: nodeId, title: displayTitle, src: displaySrc, ctrlKey: additive }
     }));
-  }, [displaySrc, displayTitle, nodeId, setFlowNodes]);
+  }, [displaySrc, displayTitle, isCropping, nodeId, setFlowNodes, toolMode]);
 
   const handleImageAnnotateClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (toolMode !== "annotate") return;
@@ -1586,70 +1857,227 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     window.dispatchEvent(new CustomEvent("annotation-create", { detail: { annotation: {
       id: `ann-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       x: xPct, y: yPct, screenX: e.clientX, screenY: e.clientY,
-      text: "", done: false, open: true, editing: true, nodeId,
+      text: "", done: false, open: true, editing: true, color: "oklch(0.72 0.19 48)", nodeId,
     } } }));
   }, [toolMode, nodeId]);
 
+  const handleCropEdgeMouseDown = useCallback((e: React.MouseEvent, edge: "left" | "right" | "top" | "bottom") => {
+    e.preventDefault();
+    e.stopPropagation();
+    cropDragRef.current = { edge, startClientX: e.clientX, startClientY: e.clientY, startRect: cropRect };
+    const onMove = (event: MouseEvent) => {
+      const drag = cropDragRef.current;
+      if (!drag) return;
+      const dx = ((event.clientX - drag.startClientX) / Math.max(1, dispW)) * 100;
+      const dy = ((event.clientY - drag.startClientY) / Math.max(1, dispH)) * 100;
+      const minSize = 12;
+      setCropRect(() => {
+        const next = { ...drag.startRect };
+        if (drag.edge === "left") {
+          const newX = Math.max(0, Math.min(drag.startRect.x + drag.startRect.w - minSize, drag.startRect.x + dx));
+          next.w = drag.startRect.w + drag.startRect.x - newX;
+          next.x = newX;
+        }
+        if (drag.edge === "right") {
+          next.w = Math.max(minSize, Math.min(100 - drag.startRect.x, drag.startRect.w + dx));
+        }
+        if (drag.edge === "top") {
+          const newY = Math.max(0, Math.min(drag.startRect.y + drag.startRect.h - minSize, drag.startRect.y + dy));
+          next.h = drag.startRect.h + drag.startRect.y - newY;
+          next.y = newY;
+        }
+        if (drag.edge === "bottom") {
+          next.h = Math.max(minSize, Math.min(100 - drag.startRect.y, drag.startRect.h + dy));
+        }
+        return next;
+      });
+    };
+    const onUp = () => {
+      cropDragRef.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [cropRect, dispH, dispW]);
+
+  const applyCropRatio = useCallback((ratio: number | null) => {
+    if (!ratio) {
+      setCropRect({ x: 10, y: 10, w: 80, h: 80 });
+      return;
+    }
+    const imageRatio = dispW / Math.max(1, dispH);
+    let w = 82;
+    let h = 82;
+    if (ratio > imageRatio) {
+      w = 86;
+      h = Math.max(12, w * imageRatio / ratio);
+    } else {
+      h = 86;
+      w = Math.max(12, h * ratio / imageRatio);
+    }
+    setCropRect({ x: (100 - w) / 2, y: (100 - h) / 2, w, h });
+  }, [dispH, dispW]);
+
+  const confirmCrop = useCallback(() => {
+    const nextW = Math.max(60, Math.round(dispW * (cropRect.w / 100)));
+    const nextH = Math.max(60, Math.round(dispH * (cropRect.h / 100)));
+    window.dispatchEvent(new CustomEvent("asset-crop-commit", {
+      detail: { nodeId, cropRect, nextW, nextH, startW: dispW, startH: dispH },
+    }));
+  }, [cropRect, dispH, dispW, nodeId]);
+
+  const cancelCrop = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("asset-crop-cancel", { detail: { nodeId } }));
+  }, [nodeId]);
+
   return (
     <>
-      {/* 纯图片节点：无底部工具栏，无灰条 */}
       <div
         className="relative"
         style={{
           width: dispW, height: dispH,
-          border: `2px solid ${borderColor}`,
           borderRadius: 4,
-          boxShadow: shadow,
-          overflow: "hidden",
+          overflow: "visible",
           cursor: isResizing ? "nwse-resize" : toolMode === "annotate" ? "crosshair" : "grab",
-          transition: "border-color 0.15s, box-shadow 0.15s",
           userSelect: "none",
         }}
         onContextMenu={handleNodeCtxMenu}
         onClick={handleAssetClick}
+        onClickCapture={handleImageAnnotateClick}
         onMouseDownCapture={handleAssetMouseDownCapture}
       >
-        {ENABLE_NODE_CONNECTIONS && (
-          <>
-            <Handle type="target" position={Position.Left} id="left"
-              className="!w-3 !h-3 !rounded-full !border-2"
-              style={{ left: -1, backgroundColor: "rgba(255,255,255,0.80)", borderColor: "rgba(255,255,255,0.60)" }} />
-            <Handle type="source" position={Position.Right} id="right"
-              className="!w-3 !h-3 !rounded-full !border-2"
-              style={{ right: -1, backgroundColor: "rgba(255,255,255,0.80)", borderColor: "rgba(255,255,255,0.60)" }} />
-          </>
-        )}
-        <img
-          src={displaySrc}
-          alt={displayTitle}
-          draggable={false}
-          style={{ width: "100%", height: "100%", display: "block", objectFit: "cover", pointerEvents: "none" }}
-          onClick={handleImageAnnotateClick as unknown as React.MouseEventHandler<HTMLImageElement>}
-        />
-        {isEditing && (
-          <div className="absolute inset-0 pointer-events-none" style={{ background: "rgba(0,0,0,0.15)" }} />
-        )}
-        {/* 右下角缩放手柄（选中时显示） */}
-        {selected && (
-          <div
-            className="absolute nodrag nopan"
+        <div
+          className="relative"
+          style={{
+            width: "100%",
+            height: "100%",
+            border: `2px solid ${borderColor}`,
+            borderRadius: 4,
+            boxShadow: shadow,
+            overflow: "hidden",
+            transition: "border-color 0.15s, box-shadow 0.15s",
+          }}
+        >
+          {ENABLE_NODE_CONNECTIONS && (
+            <>
+              <Handle type="target" position={Position.Left} id="left"
+                className="!w-3 !h-3 !rounded-full !border-2"
+                style={{ left: -1, backgroundColor: "rgba(255,255,255,0.80)", borderColor: "rgba(255,255,255,0.60)" }} />
+              <Handle type="source" position={Position.Right} id="right"
+                className="!w-3 !h-3 !rounded-full !border-2"
+                style={{ right: -1, backgroundColor: "rgba(255,255,255,0.80)", borderColor: "rgba(255,255,255,0.60)" }} />
+            </>
+          )}
+          <img
+            src={displaySrc}
+            alt={displayTitle}
+            draggable={false}
             style={{
-              right: -9, bottom: -9,
-              width: 18, height: 18,
-              borderRadius: "50%",
-              background: handleColor,
-              border: "2px solid white",
-              cursor: "nwse-resize",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              boxShadow: "0 2px 6px rgba(0,0,0,0.35)",
-              zIndex: 10,
+              ...imgCropStyle,
+              display: "block",
+              objectFit: "cover",
+              pointerEvents: "none",
+              transform: `scaleX(${flipX ? -1 : 1}) rotate(${rotation}deg)`,
+              transition: "transform 0.18s cubic-bezier(0.23,1,0.32,1)",
             }}
-            onMouseDown={handleResizeMouseDown}
-          >
-            <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
-              <path d="M1 7L7 1M4 7L7 4M7 7V7" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-          </div>
+          />
+          {isCropping && (
+            <div className="absolute inset-0 nodrag nopan" style={{ zIndex: 90 }}>
+              <div className="absolute inset-0 pointer-events-none" style={{ background: "rgba(0,0,0,0.34)" }} />
+              <div
+                className="absolute"
+                style={{
+                  left: `${cropRect.x}%`,
+                  top: `${cropRect.y}%`,
+                  width: `${cropRect.w}%`,
+                  height: `${cropRect.h}%`,
+                  border: "1.5px dashed rgba(255,255,255,0.95)",
+                  boxShadow: "0 0 0 999px rgba(0,0,0,0.34)",
+                  background: "rgba(255,255,255,0.04)",
+                }}
+              >
+                <div onMouseDown={e => handleCropEdgeMouseDown(e, "left")} style={{ position: "absolute", left: -6, top: 0, width: 12, height: "100%", cursor: "ew-resize" }} />
+                <div onMouseDown={e => handleCropEdgeMouseDown(e, "right")} style={{ position: "absolute", right: -6, top: 0, width: 12, height: "100%", cursor: "ew-resize" }} />
+                <div onMouseDown={e => handleCropEdgeMouseDown(e, "top")} style={{ position: "absolute", left: 0, top: -6, width: "100%", height: 12, cursor: "ns-resize" }} />
+                <div onMouseDown={e => handleCropEdgeMouseDown(e, "bottom")} style={{ position: "absolute", left: 0, bottom: -6, width: "100%", height: 12, cursor: "ns-resize" }} />
+                {["nw", "ne", "se", "sw"].map(corner => (
+                  <span
+                    key={corner}
+                    style={{
+                      position: "absolute",
+                      width: 8,
+                      height: 8,
+                      borderRadius: "50%",
+                      background: "white",
+                      boxShadow: "0 1px 5px rgba(0,0,0,0.35)",
+                      left: corner.includes("w") ? -4 : undefined,
+                      right: corner.includes("e") ? -4 : undefined,
+                      top: corner.includes("n") ? -4 : undefined,
+                      bottom: corner.includes("s") ? -4 : undefined,
+                    }}
+                  />
+                ))}
+              </div>
+              <div
+                className="absolute left-1/2 top-3 flex items-center gap-1.5 rounded-[var(--radius-lg-design)] px-2 py-1 shadow-xl"
+                style={{ transform: "translateX(-50%)", background: "rgba(18,18,28,0.92)", border: "1px solid rgba(255,255,255,0.16)", color: "white", backdropFilter: "blur(14px)" }}
+                onMouseDown={e => e.stopPropagation()}
+              >
+                {[
+                  { label: "自由", ratio: null },
+                  { label: "1:1", ratio: 1 },
+                  { label: "4:5", ratio: 4 / 5 },
+                  { label: "16:9", ratio: 16 / 9 },
+                ].map(item => (
+                  <button key={item.label} type="button" className="type-caption rounded-[var(--radius-md-design)] px-2.5 py-1 hover:opacity-80" style={{ color: "white", background: "rgba(255,255,255,0.08)", whiteSpace: "nowrap", minWidth: 42 }} onClick={() => applyCropRatio(item.ratio)}>
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+              <div
+                className="absolute bottom-3 left-1/2 flex items-center gap-2 rounded-[var(--radius-lg-design)] px-2 py-1.5 shadow-xl"
+                style={{ transform: "translateX(-50%)", background: "rgba(18,18,28,0.94)", border: "1px solid rgba(255,255,255,0.16)", backdropFilter: "blur(14px)" }}
+                onMouseDown={e => e.stopPropagation()}
+              >
+                <button type="button" className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5" style={{ color: "rgba(255,255,255,0.78)", background: "rgba(255,255,255,0.08)" }} onClick={cancelCrop}>取消</button>
+                <button type="button" className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5" style={{ color: "white", background: "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.72 0.18 205))" }} onClick={confirmCrop}>确定</button>
+              </div>
+            </div>
+          )}
+          {isEditing && (
+            <div className="absolute inset-0 pointer-events-none" style={{ background: "rgba(0,0,0,0.15)" }} />
+          )}
+        </div>
+        {/* 四角缩放锚点：固定 6px 圆环 */}
+        {selected && (
+          <>
+            {(["nw", "ne", "se", "sw"] as const).map(direction => {
+              const styleByDirection: Record<typeof direction, React.CSSProperties> = {
+                nw: { left: -5, top: -5, cursor: "nwse-resize" },
+                ne: { right: -5, top: -5, cursor: "nesw-resize" },
+                se: { right: -5, bottom: -5, cursor: "nwse-resize" },
+                sw: { left: -5, bottom: -5, cursor: "nesw-resize" },
+              };
+              return (
+                <div
+                  key={direction}
+                  className="absolute nodrag nopan"
+                  style={{
+                    ...styleByDirection[direction],
+                    width: 10,
+                    height: 10,
+                    borderRadius: "50%",
+                    background: "transparent",
+                    border: "2px solid white",
+                    boxShadow: "0 0 0 1px rgba(0,0,0,0.20), 0 2px 6px rgba(0,0,0,0.45)",
+                    zIndex: 80,
+                  }}
+                  onMouseDown={e => handleResizeMouseDown(e, direction)}
+                />
+              );
+            })}
+          </>
         )}
       </div>
       {preview && (
@@ -1820,11 +2248,8 @@ function TextNodeComponent({ data, selected, id }: { data: Record<string, unknow
   const handleNodeCtxMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const rect = (e.currentTarget as HTMLElement).closest(".react-flow")?.getBoundingClientRect();
-    window.dispatchEvent(new CustomEvent("node-contextmenu", {
-      detail: { x: e.clientX - (rect?.left || 0), y: e.clientY - (rect?.top || 0), nodeId, nodeType: "text" }
-    }));
-  }, [nodeId]);
+    window.dispatchEvent(new CustomEvent("text-contextmenu-suppressed"));
+  }, []);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -2715,6 +3140,15 @@ const edgeTypes: EdgeTypes = {
   tapnow: TapnowEdge as unknown as EdgeTypes["tapnow"],
 };
 
+type ImageGeneratorPayload = {
+  prompt: string;
+  model: string;
+  ratio: string;
+  count: number;
+  style: string;
+  referencesEnabled: boolean;
+};
+
 // ── Initial data ───────────────────────────────────────────────
 const DEFAULT_ASSET_TAGS = ["默认 icon", "灰色容器"];
 
@@ -2730,15 +3164,27 @@ type CanvasNodeSize = { width: number; height: number };
 type CanvasNodeBounds = { x: number; y: number; width: number; height: number; right: number; bottom: number; centerX: number; centerY: number };
 
 function getCanvasNodeSize(node: Node): CanvasNodeSize {
+  if (node.type === "asset") {
+    const nodeData = node.data as Record<string, unknown>;
+    const dataW = nodeData.imgW as number | undefined;
+    const dataH = nodeData.imgH as number | undefined;
+    if (typeof dataW === "number" && dataW > 0 && typeof dataH === "number" && dataH > 0) {
+      return { width: dataW, height: dataH };
+    }
+  }
+
   const nodeWithRuntimeSize = node as Node & { measured?: { width?: number; height?: number }; width?: number; height?: number };
-  const measuredWidth = nodeWithRuntimeSize.measured?.width ?? nodeWithRuntimeSize.width;
-  const measuredHeight = nodeWithRuntimeSize.measured?.height ?? nodeWithRuntimeSize.height;
+  const styleWidth = typeof node.style?.width === "number" ? node.style.width : undefined;
+  const styleHeight = typeof node.style?.height === "number" ? node.style.height : undefined;
+  const measuredWidth = styleWidth ?? nodeWithRuntimeSize.measured?.width ?? nodeWithRuntimeSize.width;
+  const measuredHeight = styleHeight ?? nodeWithRuntimeSize.measured?.height ?? nodeWithRuntimeSize.height;
   if (typeof measuredWidth === "number" && measuredWidth > 0 && typeof measuredHeight === "number" && measuredHeight > 0) {
     return { width: measuredWidth, height: measuredHeight };
   }
 
   if (node.type === "asset") {
-    const assetId = (node.data as Record<string, unknown>).assetId as string;
+    const nodeData = node.data as Record<string, unknown>;
+    const assetId = nodeData.assetId as string;
     const asset = GENERATED_ASSETS.find(a => a.id === assetId) || GENERATED_ASSETS[0];
     const naturalWidth = Math.max(1, asset.width || 720);
     const naturalHeight = Math.max(1, asset.height || 960);
@@ -2783,18 +3229,19 @@ function canvasRectsOverlap(a: CanvasNodeBounds, b: CanvasNodeBounds, padding = 
   return a.x < b.right + padding && a.right + padding > b.x && a.y < b.bottom + padding && a.bottom + padding > b.y;
 }
 
-const initialNodes: Node[] = GENERATED_ASSETS.map((asset, index) => ({
-  id: `asset-sample-${asset.id}`,
+const initialCanvasAsset = GENERATED_ASSETS[0];
+const initialNodes: Node[] = initialCanvasAsset ? [{
+  id: `asset-sample-${initialCanvasAsset.id}`,
   type: "asset",
-  position: { x: -420 + index * 280, y: index % 2 === 0 ? -160 : 120 },
+  position: { x: -260, y: -220 },
   data: {
-    id: `asset-sample-${asset.id}`,
-    assetId: asset.id,
-    title: asset.title,
+    id: `asset-sample-${initialCanvasAsset.id}`,
+    assetId: initialCanvasAsset.id,
+    title: initialCanvasAsset.title,
     assetType: "图片",
-    tags: asset.tags || DEFAULT_ASSET_TAGS,
+    tags: initialCanvasAsset.tags || DEFAULT_ASSET_TAGS,
   },
-}));
+}] : [];
 
 const initialEdges: Edge[] = [];
 
@@ -3733,18 +4180,271 @@ function TopLeftToolbar({ isDark, onAdd }: { isDark: boolean; onAdd: (type: stri
 }
 
 
+function ImageGeneratorPopover({ isDark, onClose }: { isDark: boolean; onClose: () => void }) {
+  const [prompt, setPrompt] = useState("");
+  const [model, setModel] = useState("flux-pro");
+  const [modelOpen, setModelOpen] = useState(false);
+  const [ratio, setRatio] = useState("1:1");
+  const [count, setCount] = useState(2);
+  const [style, setStyle] = useState("品牌视觉");
+  const [referencesEnabled, setReferencesEnabled] = useState(true);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const modelRef = useRef<HTMLDivElement>(null);
+
+  const bg = isDark ? "rgba(18,18,28,0.98)" : "rgba(255,255,255,0.98)";
+  const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
+  const text = isDark ? "rgba(255,255,255,0.86)" : "rgba(22,22,34,0.86)";
+  const sub = isDark ? "rgba(255,255,255,0.46)" : "rgba(22,22,34,0.48)";
+  const fieldBg = isDark ? "rgba(255,255,255,0.055)" : "rgba(0,0,0,0.035)";
+  const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+  const accent = "oklch(0.64 0.22 285)";
+  const selectedModel = AI_MODELS.find(item => item.id === model) || AI_MODELS.find(item => item.id === "flux-pro") || AI_MODELS[0];
+  const ratios = ["1:1", "4:5", "16:9"];
+  const styles = ["品牌视觉", "产品摄影", "海报大片"];
+  const canGenerate = prompt.trim().length > 0 && !isGenerating;
+
+  useEffect(() => {
+    if (!modelOpen) return;
+    const handler = (event: MouseEvent) => {
+      if (modelRef.current && event.target instanceof globalThis.Node && !modelRef.current.contains(event.target)) setModelOpen(false);
+    };
+    const timer = window.setTimeout(() => document.addEventListener("mousedown", handler), 50);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("mousedown", handler);
+    };
+  }, [modelOpen]);
+
+  const controlButtonStyle = (active: boolean): React.CSSProperties => ({
+    height: 30,
+    padding: "0 10px",
+    borderRadius: "var(--radius-md-design)",
+    border: `1px solid ${active ? "oklch(0.64 0.22 285 / 0.52)" : border}`,
+    background: active ? "oklch(0.64 0.22 285 / 0.16)" : fieldBg,
+    color: active ? (isDark ? "white" : "oklch(0.38 0.18 285)") : text,
+    fontSize: 12,
+    transition: "background 0.16s ease, border-color 0.16s ease, transform 0.16s ease",
+  });
+
+  const handleGenerate = () => {
+    if (!canGenerate) {
+      toast("请输入图像生成提示词");
+      return;
+    }
+    setIsGenerating(true);
+    const payload: ImageGeneratorPayload = { prompt, model, ratio, count, style, referencesEnabled };
+    window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: payload }));
+    window.setTimeout(() => {
+      setIsGenerating(false);
+      setPrompt("");
+      onClose();
+    }, 850);
+  };
+
+  return (
+    <div
+      className="absolute top-full mt-2 overflow-hidden rounded-[var(--radius-xl-design)] shadow-2xl"
+      style={{
+        right: 0,
+        width: 390,
+        background: bg,
+        border: `1px solid ${border}`,
+        backdropFilter: "blur(22px)",
+        boxShadow: "0 24px 70px rgba(0,0,0,0.36)",
+      }}
+      onMouseDown={e => e.stopPropagation()}
+      onClick={e => e.stopPropagation()}
+    >
+      <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: `1px solid ${border}` }}>
+        <div className="flex items-center gap-2">
+          <span className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-md-design)]" style={{ background: "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.72 0.18 205))", color: "white" }}>
+            <WandSparkles size={16} />
+          </span>
+          <div>
+            <p className="type-caption" style={{ color: text }}>图像生成器</p>
+            <p className="type-caption" style={{ color: sub, fontSize: 11 }}>基于当前画布生成新图像节点</p>
+          </div>
+        </div>
+        <button type="button" className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-md-design)] hover:opacity-75" style={{ color: sub }} onClick={onClose} aria-label="关闭图像生成器">
+          <X size={14} />
+        </button>
+      </div>
+
+      <div className="p-4">
+        <div className="rounded-[var(--radius-lg-design)] p-3" style={{ background: fieldBg, border: `1px solid ${border}` }}>
+          <textarea
+            value={prompt}
+            onChange={e => setPrompt(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleGenerate(); } }}
+            rows={4}
+            className="w-full resize-none bg-transparent outline-none"
+            style={{ color: text, fontSize: 14, lineHeight: 1.65 }}
+            placeholder="描述要生成的图像，例如：未来感跑鞋产品海报，紫蓝霓虹光，干净电商主视觉..."
+            autoFocus
+          />
+          <div className="mt-2 flex items-center justify-between" style={{ color: sub }}>
+            <span className="type-caption">Enter 生成 · Shift+Enter 换行</span>
+            <span className="type-caption">{prompt.trim().length}/500</span>
+          </div>
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <div>
+            <p className="mb-1.5 type-caption" style={{ color: sub }}>模型</p>
+            <div ref={modelRef} className="relative">
+              <button
+                type="button"
+                className="flex h-9 w-full items-center justify-between rounded-[var(--radius-lg-design)] px-3 type-caption transition-colors"
+                style={{ background: fieldBg, border: `1px solid ${border}`, color: text }}
+                onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+                onMouseLeave={e => (e.currentTarget.style.background = fieldBg)}
+                onClick={() => setModelOpen(open => !open)}
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="h-4 w-4 rounded-[var(--radius-pill)] shrink-0" style={{ background: selectedModel.color }} />
+                  <span className="truncate">{selectedModel.label}</span>
+                </span>
+                <ChevronDown size={12} style={{ opacity: 0.6, transform: modelOpen ? "rotate(180deg)" : "none", transition: "transform 0.16s ease" }} />
+              </button>
+
+              {modelOpen && (
+                <div
+                  className="absolute bottom-full left-0 mb-2 overflow-hidden rounded-[var(--radius-lg-design)] shadow-2xl"
+                  style={{
+                    background: isDark ? "oklch(0.16 0.015 270)" : "oklch(0.97 0.004 270)",
+                    border: `1px solid ${border}`,
+                    minWidth: 220,
+                    width: "max-content",
+                    maxHeight: 132,
+                    zIndex: 80,
+                    backdropFilter: "blur(16px)",
+                  }}
+                >
+                  <div
+                    className="model-selector-scroll"
+                    style={{
+                      maxHeight: 132,
+                      overflowY: "auto",
+                      overscrollBehavior: "contain",
+                      scrollbarWidth: "thin",
+                      scrollbarColor: `${isDark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.18)"} transparent`,
+                    }}
+                    onWheel={e => e.stopPropagation()}
+                  >
+                    {AI_MODELS.map(item => {
+                      const active = selectedModel.id === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className="flex h-9 w-full items-center justify-between px-3 text-left type-caption transition-colors"
+                          style={{ color: text, background: active ? "oklch(0.64 0.22 285 / 0.12)" : "transparent" }}
+                          onMouseEnter={e => (e.currentTarget.style.background = active ? "oklch(0.64 0.22 285 / 0.12)" : hoverBg)}
+                          onMouseLeave={e => (e.currentTarget.style.background = active ? "oklch(0.64 0.22 285 / 0.12)" : "transparent")}
+                          onClick={() => {
+                            setModel(item.id);
+                            setModelOpen(false);
+                          }}
+                        >
+                          <span className="flex min-w-0 items-center gap-2.5">
+                            <span className="h-4 w-4 rounded-[var(--radius-pill)] shrink-0" style={{ background: item.color }} />
+                            <span className="truncate type-caption" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>{item.label}</span>
+                          </span>
+                          {active && <Check size={13} style={{ color: accent, flexShrink: 0 }} />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          <div>
+            <p className="mb-1.5 type-caption" style={{ color: sub }}>画幅</p>
+            <div className="flex flex-wrap gap-1.5">
+              {ratios.map(item => (
+                <button key={item} type="button" style={controlButtonStyle(ratio === item)} className="active:scale-95" onClick={() => setRatio(item)}>
+                  {item}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-3">
+          <p className="mb-1.5 type-caption" style={{ color: sub }}>风格</p>
+          <div className="flex flex-wrap gap-1.5">
+            {styles.map(item => (
+              <button key={item} type="button" style={controlButtonStyle(style === item)} className="active:scale-95" onClick={() => setStyle(item)}>
+                {item}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-3 flex items-center justify-between rounded-[var(--radius-lg-design)] px-3 py-2" style={{ background: fieldBg, border: `1px solid ${border}` }}>
+          <div className="flex items-center gap-2" style={{ color: text }}>
+            <ImageIcon size={14} />
+            <div>
+              <p className="type-caption">参考当前画布</p>
+              <p className="type-caption" style={{ color: sub, fontSize: 11 }}>把选中对象和画布语境加入生成</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="relative h-6 w-11 rounded-[var(--radius-pill)] transition-colors"
+            style={{ background: referencesEnabled ? accent : hoverBg }}
+            onClick={() => setReferencesEnabled(v => !v)}
+            aria-label="参考当前画布"
+          >
+            <span style={{ position: "absolute", top: 3, left: referencesEnabled ? 23 : 3, width: 18, height: 18, borderRadius: "var(--radius-md-design)", background: "white", transition: "left 0.16s ease", boxShadow: "0 2px 8px rgba(0,0,0,0.25)" }} />
+          </button>
+        </div>
+
+        <div className="mt-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="type-caption" style={{ color: sub }}>数量</span>
+            <div className="flex items-center gap-1 rounded-[var(--radius-md-design)] p-1" style={{ background: fieldBg, border: `1px solid ${border}` }}>
+              {[1, 2, 4].map(item => (
+                <button key={item} type="button" style={controlButtonStyle(count === item)} className="h-7 min-w-8 active:scale-95" onClick={() => setCount(item)}>
+                  {item}
+                </button>
+              ))}
+            </div>
+          </div>
+          <button
+            type="button"
+            disabled={!canGenerate}
+            className="flex h-10 items-center gap-2 rounded-[var(--radius-lg-design)] px-4 transition-all hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed"
+            style={{
+              background: canGenerate ? "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.72 0.18 205))" : hoverBg,
+              color: canGenerate ? "white" : sub,
+              boxShadow: canGenerate ? "0 12px 28px oklch(0.62 0.22 260 / 0.22)" : "none",
+            }}
+            onClick={handleGenerate}
+          >
+            {isGenerating ? <RefreshCw size={15} className="animate-spin" /> : <Sparkles size={15} />}
+            <span className="type-caption">{isGenerating ? "生成中" : "生成图像"}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Canvas Top Tool Palette ─────────────────────────────────────
 function CanvasTopToolPalette({ isDark }: { isDark: boolean }) {
   const [active, setActive] = useState("move");
   const [shapeOpen, setShapeOpen] = useState(false);
   const [drawOpen, setDrawOpen] = useState(false); // 铅笔子菜单
+  const [imageGeneratorOpen, setImageGeneratorOpen] = useState(false);
   const [drawColor, setDrawColor] = useState(isDark ? "#c4b5fd" : "#1a1a2e"); // 铅笔颜色
   const [drawWidth, setDrawWidth] = useState(2); // 铅笔粗细 px
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   // 点击画布空白处时关闭子菜单
   useEffect(() => {
-    const handler = () => { setShapeOpen(false); setDrawOpen(false); };
+    const handler = () => { setShapeOpen(false); setDrawOpen(false); setImageGeneratorOpen(false); };
     window.addEventListener("pane-click", handler);
     return () => window.removeEventListener("pane-click", handler);
   }, []);
@@ -3794,6 +4494,7 @@ function CanvasTopToolPalette({ isDark }: { isDark: boolean }) {
     if (id === "shape") {
       setShapeOpen(v => !v);
       setDrawOpen(false);
+      setImageGeneratorOpen(false);
       setActive(id);
       window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: id } }));
       return;
@@ -3801,14 +4502,24 @@ function CanvasTopToolPalette({ isDark }: { isDark: boolean }) {
     if (id === "draw") {
       setDrawOpen(v => !v);
       setShapeOpen(false);
+      setImageGeneratorOpen(false);
       setActive(id);
       window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: id } }));
       // 广播当前铅笔参数
       window.dispatchEvent(new CustomEvent("draw-params", { detail: { color: drawColor, width: drawWidth } }));
       return;
     }
+    if (id === "image-ai") {
+      setImageGeneratorOpen(v => !v);
+      setShapeOpen(false);
+      setDrawOpen(false);
+      setActive(id);
+      window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: id } }));
+      return;
+    }
     setShapeOpen(false);
     setDrawOpen(false);
+    setImageGeneratorOpen(false);
     setActive(id);
     // 向 InnerCanvas 广播工具模式变化
     window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: id } }));
@@ -3825,7 +4536,7 @@ function CanvasTopToolPalette({ isDark }: { isDark: boolean }) {
   return (
     <div
       className="fixed nodrag nopan"
-      style={{ top: 68, left: "50%", transform: "translateX(-50%)", zIndex: 1300, width: 320 }}
+      style={{ top: 68, left: "50%", transform: "translateX(calc(-50% - 84px))", zIndex: 1300, width: 320 }}
       onMouseDown={e => e.stopPropagation()}
     >
       {/* 几何形二级菜单 */}
@@ -3932,6 +4643,10 @@ function CanvasTopToolPalette({ isDark }: { isDark: boolean }) {
         </div>
       )}
 
+      {imageGeneratorOpen && (
+        <ImageGeneratorPopover isDark={isDark} onClose={() => setImageGeneratorOpen(false)} />
+      )}
+
       {/* 主工具栏 */}
       <div
         className="flex items-center justify-between rounded-[var(--radius-lg-design)] px-2 py-1 shadow-lg"
@@ -4031,25 +4746,97 @@ function SaveProjectConfirmDialog({ isDark, project, onCancel, onSave }: {
 }
 
 
-function CanvasAssistantPanel({ isDark, collapsed, isAuthenticated, onToggleCollapsed, onLoginRequest, referencedAssets, onRemoveReference }: { isDark: boolean; collapsed: boolean; isAuthenticated: boolean; onToggleCollapsed: () => void; onLoginRequest: () => void; referencedAssets: { id: string; title: string; src: string }[]; onRemoveReference: (id: string) => void }) {
+function CanvasAssistantPanel({ isDark, collapsed, isAuthenticated, onToggleCollapsed, onLoginRequest, referencedAssets, onRemoveReference, selectedCount, helpPromptNonce }: { isDark: boolean; collapsed: boolean; isAuthenticated: boolean; onToggleCollapsed: () => void; onLoginRequest: () => void; referencedAssets: { id: string; title: string; src: string }[]; onRemoveReference: (id: string) => void; selectedCount: number; helpPromptNonce: number }) {
   const [inputFocused, setInputFocused] = useState(false);
+  const [prompt, setPrompt] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [commandMenuOpen, setCommandMenuOpen] = useState(false);
+  const [agentMenuOpen, setAgentMenuOpen] = useState(false);
+  const [assistantModelId, setAssistantModelId] = useState(AI_MODELS[0]?.id ?? "gpt-4o");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [messages, setMessages] = useState<Array<{ id: string; role: "user" | "assistant"; content: string; timestamp: Date }>>([
+    { id: "assistant-seed-1", role: "assistant", content: "选择图片节点后，可在左侧画布直接进行智能优化。", timestamp: new Date(Date.now() - 120000) },
+    { id: "assistant-seed-2", role: "assistant", content: "右键图片节点可以快速执行智能优化、复制、粘贴、打组、添加文本备注和删除节点。当前布局已按参考图改为左侧大画布、右侧助手区、底部浮动工具区。", timestamp: new Date(Date.now() - 60000) },
+  ]);
   const bg = isDark ? "oklch(0.125 0.014 270 / 0.98)" : "oklch(0.995 0.002 80 / 0.98)";
   const border = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 10%)";
   const text = isDark ? "oklch(0.84 0.008 270)" : "oklch(0.18 0.008 270)";
   const sub = isDark ? "oklch(0.56 0.01 270)" : "oklch(0.48 0.012 255)";
   const chipBg = isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 4%)";
+  const elevatedBg = isDark ? "oklch(0.17 0.016 270 / 0.98)" : "oklch(1 0 0 / 0.98)";
+  const hoverBg = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 5%)";
+  const activeGlow = "0 0 0 3px oklch(0.60 0.22 285 / 0.12), 0 18px 44px rgba(0,0,0,0.24)";
   const inputShadow = "0 16px 42px rgba(210,214,224,0.10), 0 0 0 1px rgba(210,214,224,0.10)";
   const panelWidth = "clamp(280px, 32vw, 372px)";
   const collapsedPeekWidth = 112;
   const actionButtons = [
     { label: "新建对话", icon: <PlusSquare size={16} />, onClick: () => toast("已新建对话") },
     { label: "分享对话", icon: <Share2 size={16} />, onClick: () => toast("分享对话", { description: "分享能力准备中" }) },
-    { label: collapsed ? "展开对话框" : "收起对话框", icon: <ChevronLeft size={16} style={{ transform: collapsed ? "rotate(180deg)" : "none", transition: "transform 0.2s ease" }} />, onClick: onToggleCollapsed },
+    { label: collapsed ? "展开对话框" : "收起对话框", icon: <ChevronLeft size={16} style={{ transform: collapsed ? "none" : "rotate(180deg)", transition: "transform 0.2s ease" }} />, onClick: onToggleCollapsed },
   ];
-  const conversationRecords = [
-    "选择图片节点后，可在左侧画布直接进行智能优化。",
-    "右键图片节点可以快速执行智能优化、复制、粘贴、打组、添加文本备注和删除节点。当前布局已按参考图改为左侧大画布、右侧助手区、底部浮动工具区。",
+  const hasPrompt = prompt.trim().length > 0;
+  const hasContext = selectedCount > 0 || referencedAssets.length > 0;
+  const canSubmit = (hasPrompt || hasContext) && !isSubmitting;
+  const contextLabel = selectedCount > 1 ? `group (${selectedCount})` : selectedCount === 1 ? "selection (1)" : referencedAssets.length > 0 ? `refs (${referencedAssets.length})` : "";
+  const commandItems = [
+    { label: "添加素材", description: "上传图片、文件或参考内容", icon: <Plus size={13} />, onClick: () => toast("添加素材", { description: "可把图片拖入画布或选择已有素材作为引用" }) },
+    { label: "资源库", description: "打开参考、组件与历史素材", icon: <FileText size={13} />, onClick: () => toast("资源库", { description: "资源入口已承载到黑色输入框" }) },
+    { label: "灵感建议", description: "生成可执行的画布想法", icon: <Sparkles size={13} />, onClick: () => toast("灵感建议", { description: "可根据当前画布补全提示词" }) },
+    { label: "对象能力", description: "操作选中对象、分组和组件", icon: <Box size={13} />, onClick: () => toast("对象能力", { description: selectedCount > 0 ? `当前选中 ${selectedCount} 个对象` : "先选择画布对象以启用更多操作" }) },
   ];
+  const assistantModel = AI_MODELS.find(model => model.id === assistantModelId) || AI_MODELS[0];
+
+  useEffect(() => {
+    if (helpPromptNonce <= 0 || collapsed) return;
+    setPrompt(prev => prev.trim() ? prev : "我需要帮助解决：");
+    window.setTimeout(() => textareaRef.current?.focus(), 80);
+  }, [helpPromptNonce, collapsed]);
+
+  useEffect(() => {
+    if (collapsed) return;
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages, isSubmitting, collapsed]);
+
+  const iconButtonStyle = (active = false): React.CSSProperties => ({
+    width: 28,
+    height: 28,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: "var(--radius-md-design)",
+    background: active ? hoverBg : "transparent",
+    color: active ? text : sub,
+    border: "none",
+    transition: "background 0.16s ease, color 0.16s ease, transform 0.16s ease",
+  });
+
+  const handleSubmit = () => {
+    if (!hasPrompt && !hasContext) {
+      toast("请输入画布想法或选择对象");
+      return;
+    }
+    const submittedText = prompt.trim() || `请基于${contextLabel || "当前画布"}继续处理。`;
+    const userMessage = {
+      id: `user-${Date.now()}`,
+      role: "user" as const,
+      content: submittedText,
+      timestamp: new Date(),
+    };
+    setMessages(prev => [...prev, userMessage]);
+    setPrompt("");
+    setIsSubmitting(true);
+    const context = contextLabel || "当前画布";
+    window.setTimeout(() => {
+      setMessages(prev => [...prev, {
+        id: `assistant-${Date.now()}`,
+        role: "assistant",
+        content: `${assistantModel.label} 已收到。接下来我会围绕「${context}」处理：${submittedText}`,
+        timestamp: new Date(),
+      }]);
+      setIsSubmitting(false);
+    }, 850);
+  };
 
   return (
     <aside
@@ -4065,55 +4852,107 @@ function CanvasAssistantPanel({ isDark, collapsed, isAuthenticated, onToggleColl
         boxShadow: collapsed ? "none" : isDark ? "-12px 0 40px rgba(0,0,0,0.18)" : "-12px 0 36px rgba(30,35,55,0.08)",
       }}
     >
-      <div className="h-14 flex items-center justify-end px-4" style={{ gap: 12 }}>
+      <div
+        className="h-14 flex items-center px-4"
+        style={{ gap: 12, justifyContent: collapsed ? "flex-start" : "flex-end" }}
+      >
         {(collapsed ? actionButtons.slice(2) : actionButtons).map(item => (
           <button
             key={item.label}
-            className="h-8 w-8 flex items-center justify-center rounded-[var(--radius-md-design)] transition-colors hover:opacity-85"
-            style={{ background: "transparent", color: sub, border: "none" }}
+            className="h-8 flex items-center justify-center rounded-[var(--radius-md-design)] transition-colors hover:opacity-85"
+            style={{
+              width: collapsed ? "auto" : 32,
+              padding: collapsed ? "0 10px" : 0,
+              gap: collapsed ? 6 : 0,
+              background: collapsed ? chipBg : "transparent",
+              color: collapsed ? text : sub,
+              border: collapsed ? `1px solid ${border}` : "none",
+              boxShadow: collapsed ? "0 8px 20px rgba(0,0,0,0.16)" : "none",
+            }}
             title={item.label}
             aria-label={item.label}
             onClick={item.onClick}
           >
             {item.icon}
+            {collapsed && <span className="type-caption">展开</span>}
           </button>
         ))}
       </div>
 
       {!collapsed && (
         <>
-          <div className="flex-1 min-h-0 px-5 py-6 overflow-hidden">
+          <div
+            className="flex-1 min-h-0 px-5 py-6 overflow-y-auto"
+            style={{
+              scrollbarWidth: "thin",
+              scrollbarColor: `${isDark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.18)"} transparent`,
+            }}
+          >
             <p className="type-caption mb-2" style={{ color: sub }}>May 23, 2026</p>
             <div className="flex flex-col gap-4">
-              {conversationRecords.map((record, index) => (
-                <div key={index} className={index === 0 ? "flex justify-end" : "flex justify-start"}>
+              {messages.map(message => {
+                const isUser = message.role === "user";
+                return (
+                <div key={message.id} className={isUser ? "flex justify-end" : "flex justify-start"}>
                   <div className="max-w-[86%]">
-                    <div className="rounded-[var(--radius-lg-design)] p-4" style={{ background: chipBg, border: `1px solid ${border}` }}>
-                      <p className="type-caption leading-6" style={{ color: text }}>{record}</p>
+                    <div
+                      className="rounded-[var(--radius-lg-design)] p-4"
+                      style={{
+                        background: isUser ? "linear-gradient(135deg, oklch(0.58 0.22 285), oklch(0.68 0.18 205))" : chipBg,
+                        border: `1px solid ${isUser ? "oklch(0.70 0.18 225 / 0.30)" : border}`,
+                        color: isUser ? "white" : text,
+                        boxShadow: isUser ? "0 10px 24px oklch(0.58 0.22 260 / 0.16)" : "none",
+                      }}
+                    >
+                      <p className="type-caption leading-6 whitespace-pre-wrap" style={{ color: isUser ? "white" : text }}>{message.content}</p>
                     </div>
-                    <div className="mt-2 flex items-center gap-2" style={{ justifyContent: index === 0 ? "flex-end" : "flex-start" }}>
+                    <div className="mt-2 flex items-center gap-2" style={{ justifyContent: isUser ? "flex-end" : "flex-start" }}>
                       <button className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-opacity hover:opacity-75" style={{ color: sub, background: "transparent" }} title="刷新" aria-label="刷新" onClick={() => toast("已刷新该条对话")}>
                         <Repeat2 size={13} />
                       </button>
-                      <button className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-opacity hover:opacity-75" style={{ color: sub, background: "transparent" }} title="复制" aria-label="复制" onClick={() => { navigator.clipboard?.writeText(record); toast("已复制对话内容"); }}>
+                      <button className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-opacity hover:opacity-75" style={{ color: sub, background: "transparent" }} title="复制" aria-label="复制" onClick={() => { navigator.clipboard?.writeText(message.content); toast("已复制对话内容"); }}>
                         <Copy size={13} />
                       </button>
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
+              {isSubmitting && (
+                <div className="flex justify-start">
+                  <div className="max-w-[86%] rounded-[var(--radius-lg-design)] px-4 py-3" style={{ background: chipBg, border: `1px solid ${border}`, color: sub }}>
+                    <span className="type-caption">AI 正在回复...</span>
+                  </div>
+                </div>
+              )}
+              <div ref={messagesEndRef} />
             </div>
           </div>
 
           <div className="shrink-0 p-4 mt-auto">
             <div
-              className="rounded-[var(--radius-xl-design)] px-3 py-3 transition-shadow duration-200"
+              className="relative rounded-[var(--radius-xl-design)] px-3 py-3 transition-all duration-200"
               style={{
-                background: chipBg,
-                border: `1px solid ${border}`,
-                boxShadow: inputFocused ? inputShadow : "none",
+                background: isDark ? "oklch(0.105 0.012 270 / 0.94)" : chipBg,
+                border: `1px solid ${inputFocused ? "oklch(0.66 0.18 270 / 0.42)" : border}`,
+                boxShadow: inputFocused ? activeGlow : inputShadow,
               }}
             >
+              {contextLabel && (
+                <div className="mb-2 flex items-center gap-1.5">
+                  <span
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-[var(--radius-pill)] px-2 py-1 type-caption"
+                    style={{
+                      background: isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)",
+                      border: `1px solid ${border}`,
+                      color: text,
+                    }}
+                  >
+                    <span style={{ width: 14, height: 14, borderRadius: 4, background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.68 0.18 205))", display: "inline-block" }} />
+                    <span className="truncate">{contextLabel}</span>
+                  </span>
+                </div>
+              )}
               {/* 引用标签 — 在输入框内部顶部，最多显示两行，超出折叠为数字徽章 */}
               {referencedAssets.length > 0 && (() => {
                 // 每行最多放 2 个标签（约 140px 宽），两行最多 4 个
@@ -4172,24 +5011,134 @@ function CanvasAssistantPanel({ isDark, collapsed, isAuthenticated, onToggleColl
                 );
               })()}
               <textarea
-                placeholder={referencedAssets.length > 0 ? `基于 ${referencedAssets.length} 个引用素材，描述你的创作意图...` : (isAuthenticated ? "输入对当前画布的想法..." : "登录后可输入提示词")}
+                ref={textareaRef}
+                value={prompt}
+                onChange={e => setPrompt(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
+                placeholder={referencedAssets.length > 0 ? `基于 ${referencedAssets.length} 个引用素材，描述你的创作意图...` : "输入对当前画布的想法..."}
                 rows={2}
-                disabled={!isAuthenticated}
-                className="w-full bg-transparent outline-none resize-none type-caption leading-6 disabled:cursor-not-allowed"
-                style={{ color: isAuthenticated ? text : sub, opacity: isAuthenticated ? 1 : 0.58 }}
-                onFocus={() => { if (!isAuthenticated) { onLoginRequest(); return; } setInputFocused(true); }}
+                className="w-full bg-transparent outline-none resize-none disabled:cursor-not-allowed"
+                style={{ color: text, opacity: 1, fontSize: 16, lineHeight: 1.5, minHeight: 86 }}
+                onFocus={() => setInputFocused(true)}
                 onBlur={() => setInputFocused(false)}
               />
               <div className="flex items-center justify-between pt-2">
-                <div className="flex items-center gap-2" style={{ color: sub }}>
-                  <Plus size={14} />
-                  <LayoutGrid size={14} />
-                  <span className="type-caption">Agent</span>
+                <div className="relative flex items-center gap-1" style={{ color: sub }}>
+                  <button type="button" style={iconButtonStyle()} className="hover:scale-105 active:scale-95" title="添加素材" aria-label="添加素材" onClick={() => toast("添加素材", { description: "拖入素材或从资源库选择引用" })}>
+                    <Plus size={16} />
+                  </button>
+                  <button type="button" style={iconButtonStyle(commandMenuOpen)} className="hover:scale-105 active:scale-95" title="打开命令面板" aria-label="打开命令面板" onClick={() => { setCommandMenuOpen(v => !v); setAgentMenuOpen(false); }}>
+                    <LayoutGrid size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    className="flex items-center gap-1.5 rounded-[var(--radius-lg-design)] px-2.5 py-1.5 type-caption transition-colors active:scale-95"
+                    style={{ background: agentMenuOpen ? hoverBg : "transparent", color: agentMenuOpen ? text : sub }}
+                    onClick={() => { setAgentMenuOpen(v => !v); setCommandMenuOpen(false); }}
+                    onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+                    onMouseLeave={e => (e.currentTarget.style.background = agentMenuOpen ? hoverBg : "transparent")}
+                    title="选择模型"
+                    aria-label="选择模型"
+                  >
+                    <span>{assistantModel.label}</span>
+                    <ChevronDown size={12} style={{ opacity: 0.6 }} />
+                  </button>
+                  {commandMenuOpen && (
+                    <div
+                      className="absolute bottom-full left-0 mb-2 w-[248px] overflow-hidden rounded-[var(--radius-lg-design)] shadow-2xl"
+                      style={{ background: elevatedBg, border: `1px solid ${border}`, zIndex: 30 }}
+                    >
+                      {commandItems.map(item => (
+                        <button
+                          key={item.label}
+                          type="button"
+                          className="flex w-full items-start gap-2 px-3 py-2.5 text-left transition-colors"
+                          style={{ color: text }}
+                          onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+                          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                          onClick={() => { item.onClick(); setCommandMenuOpen(false); }}
+                        >
+                          <span className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-[var(--radius-md-design)]" style={{ background: hoverBg, color: sub }}>{item.icon}</span>
+                          <span className="min-w-0">
+                            <span className="block type-caption" style={{ color: text }}>{item.label}</span>
+                            <span className="block type-caption" style={{ color: sub, fontSize: 11, lineHeight: 1.4 }}>{item.description}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {agentMenuOpen && (
+                    <div
+                      className="absolute bottom-full left-20 mb-2 overflow-hidden rounded-[var(--radius-lg-design)] shadow-2xl"
+                      style={{
+                        background: isDark ? "oklch(0.16 0.015 270)" : "oklch(0.97 0.004 270)",
+                        border: `1px solid ${border}`,
+                        minWidth: 200,
+                        backdropFilter: "blur(16px)",
+                        zIndex: 30,
+                      }}
+                    >
+                      <div className="px-3 py-2 border-b" style={{ borderColor: border }}>
+                        <p className="type-caption uppercase tracking-wider" style={{ color: sub }}>选择模型</p>
+                      </div>
+                      {AI_MODELS.map(model => (
+                        <button
+                          key={model.id}
+                          type="button"
+                          className="flex w-full items-center justify-between px-3 py-2.5 text-left type-caption transition-colors"
+                          style={{ color: text, background: assistantModel.id === model.id ? "oklch(0.64 0.22 285 / 0.12)" : "transparent" }}
+                          onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+                          onMouseLeave={e => (e.currentTarget.style.background = assistantModel.id === model.id ? "oklch(0.64 0.22 285 / 0.12)" : "transparent")}
+                          onClick={() => { setAssistantModelId(model.id); setAgentMenuOpen(false); }}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-4 h-4 rounded-[var(--radius-pill)]" style={{ background: model.color }} />
+                            <div>
+                              <p className="type-caption" style={{ textTransform: "none", letterSpacing: "0.02em" }}>{model.label}</p>
+                              <p className="type-caption mt-0.5" style={{ color: sub }}>{model.vendor}</p>
+                            </div>
+                          </div>
+                          {assistantModel.id === model.id && (
+                            <Check size={13} style={{ color: "oklch(0.72 0.22 290)" }} />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <button disabled={!isAuthenticated} className="w-8 h-8 rounded-[var(--radius-pill)] flex items-center justify-center disabled:cursor-not-allowed" style={{ background: isAuthenticated ? "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))" : (isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"), color: isAuthenticated ? "white" : sub, opacity: isAuthenticated ? 1 : 0.65 }} onClick={() => { if (!isAuthenticated) onLoginRequest(); }}>
-                  <Send size={13} />
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button type="button" style={iconButtonStyle()} className="hover:scale-105 active:scale-95" title="资源库" aria-label="资源库" onClick={() => toast("资源库", { description: "白色版本的书本入口已合并到命令体系" })}>
+                    <FileText size={15} />
+                  </button>
+                  <button type="button" style={iconButtonStyle()} className="hover:scale-105 active:scale-95" title="灵感建议" aria-label="灵感建议" onClick={() => toast("灵感建议", { description: "根据当前画布生成下一步建议" })}>
+                    <Sparkles size={15} />
+                  </button>
+                  <button type="button" style={iconButtonStyle(selectedCount > 0)} className="hover:scale-105 active:scale-95" title="对象能力" aria-label="对象能力" onClick={() => toast("对象能力", { description: selectedCount > 0 ? `已链接 ${selectedCount} 个选中对象` : "选择对象后可执行对象级命令" })}>
+                    <Box size={15} />
+                  </button>
+                  <button
+                    disabled={!canSubmit}
+                    className="w-12 h-12 rounded-[var(--radius-lg-design)] flex items-center justify-center disabled:cursor-not-allowed transition-all hover:scale-[1.03] active:scale-95"
+                    style={{
+                      background: canSubmit || isSubmitting ? "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.70 0.18 205))" : (isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"),
+                      color: canSubmit || isSubmitting ? "white" : sub,
+                      opacity: isAuthenticated ? 1 : 0.65,
+                      boxShadow: canSubmit ? "0 12px 30px oklch(0.62 0.22 260 / 0.24)" : "none",
+                    }}
+                    onClick={handleSubmit}
+                    title={isSubmitting ? "处理中" : "发送"}
+                    aria-label={isSubmitting ? "处理中" : "发送"}
+                  >
+                    {isSubmitting ? <RefreshCw size={16} className="animate-spin" /> : <Send size={18} />}
+                  </button>
+                </div>
               </div>
+              {isSubmitting && (
+                <div className="mt-2 flex items-center justify-between rounded-[var(--radius-md-design)] px-2 py-1.5" style={{ background: hoverBg, color: sub }}>
+                  <span className="type-caption">正在处理当前画布...</span>
+                  <button type="button" className="type-caption hover:opacity-75" style={{ color: text }} onClick={() => setIsSubmitting(false)}>停止</button>
+                </div>
+              )}
             </div>
           </div>
         </>
@@ -4343,6 +5292,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [clipboard, setClipboard] = useState<Node[]>([]);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [isAssistantCollapsed, setIsAssistantCollapsed] = useState(false);
+  const [helpPromptNonce, setHelpPromptNonce] = useState(0);
   const [isCanvasLocked, setIsCanvasLocked] = useState(false);
   // ── Edit-asset state: zoom in on canvas then show editing prompt bar ──
   const [editAsset, setEditAsset] = useState<{ id: string; title: string; src: string; nodeId: string } | null>(null);
@@ -4360,11 +5310,26 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
   const [downloadGroupId, setDownloadGroupId] = useState<string | null>(null);
   const [downloadFormat, setDownloadFormat] = useState<'jpg' | 'png' | 'webp'>('png');
+  const [assetMorePanel, setAssetMorePanel] = useState<{ command: string; nodeId: string } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const middlePanRef = useRef<{ clientX: number; clientY: number; viewport: { x: number; y: number; zoom: number } } | null>(null);
   const historyRef = useRef<{ nodes: Node[]; edges: Edge[] }[]>([]);
   const MAX_HISTORY_STEPS = 50;
+
+  useEffect(() => {
+    const handleHelpPrompt = () => {
+      sessionStorage.removeItem("artx:activate-help-prompt");
+      setIsAssistantCollapsed(false);
+      setHelpPromptNonce(value => value + 1);
+    };
+    window.addEventListener("artx:activate-help-prompt", handleHelpPrompt);
+    if (sessionStorage.getItem("artx:activate-help-prompt") === "1" || new URLSearchParams(window.location.search).get("help") === "1") {
+      window.setTimeout(handleHelpPrompt, 120);
+    }
+    return () => window.removeEventListener("artx:activate-help-prompt", handleHelpPrompt);
+  }, []);
   const isRestoringRef = useRef(false); // undo 过程中屏蔽副作用
+  const isAssetResizingRef = useRef(false);
   // ── Local file drag-drop state ──
   const [isDragOver, setIsDragOver] = useState(false);
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
@@ -4502,8 +5467,18 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const cloneNodesForHistory = useCallback((items: Node[]) => items.map(node => ({
     ...node,
     position: { ...node.position },
+    style: node.style ? { ...node.style } : node.style,
     data: { ...(node.data as Record<string, unknown>) },
   })), []);
+
+  const normalizeAssetNodeSize = useCallback((node: Node): Node => {
+    if (node.type !== "asset") return node;
+    const data = node.data as Record<string, unknown>;
+    const imgW = data.imgW as number | undefined;
+    const imgH = data.imgH as number | undefined;
+    if (!(typeof imgW === "number" && imgW > 0 && typeof imgH === "number" && imgH > 0)) return node;
+    return { ...node, style: { ...node.style, width: imgW, height: imgH } };
+  }, []);
 
   const cloneEdgesForHistory = useCallback((items: Edge[]) => items.map(edge => ({
     ...edge,
@@ -4529,7 +5504,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     }
     // 屏蔽副作用，防止 undo 期间被事件监听器覆写状态
     isRestoringRef.current = true;
-    setNodes(cloneNodesForHistory(previous.nodes));
+    setNodes(cloneNodesForHistory(previous.nodes).map(normalizeAssetNodeSize));
     setEdges(cloneEdgesForHistory(previous.edges));
     setSelectedNodeIds(previous.nodes.filter(n => n.selected).map(n => n.id));
     setNodeCtxMenu(null);
@@ -4538,9 +5513,17 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     // 用双帧 rAF 确保 ReactFlow 内部的所有 onNodesChange 均在屏蔽窗口内完成
     requestAnimationFrame(() => requestAnimationFrame(() => { isRestoringRef.current = false; }));
     toast("已回退一步", { description: `还可回退 ${historyRef.current.length} 步` });
-  }, [cloneEdgesForHistory, cloneNodesForHistory, setEdges, setNodes]);
+  }, [cloneEdgesForHistory, cloneNodesForHistory, normalizeAssetNodeSize, setEdges, setNodes]);
 
   // ── 监听画布帧节点的拖拽调整尺寸事件 ──
+  useEffect(() => {
+    const handler = (e: Event) => {
+      isAssetResizingRef.current = Boolean((e as CustomEvent<{ active: boolean }>).detail?.active);
+    };
+    window.addEventListener("asset-resize-active", handler);
+    return () => window.removeEventListener("asset-resize-active", handler);
+  }, []);
+
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<{ id: string; width: number; height: number }>).detail;
@@ -4564,16 +5547,21 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   useEffect(() => {
     const handler = (e: Event) => {
       if (isRestoringRef.current) return;
-      const detail = (e as CustomEvent<{ nodeId: string; newW: number; newH: number }>).detail;
+      const detail = (e as CustomEvent<{ nodeId: string; newW: number; newH: number; nextX?: number; nextY?: number; startNodeX?: number; startNodeY?: number; startW?: number; startH?: number }>).detail;
       if (!detail?.nodeId) return;
       // 屏蔽 handleNodesChangeWithHistory 的干扰，防止它在 setNodes 触发的 onNodesChange 中再次压入历史
       isRestoringRef.current = true;
       setNodes(nds => {
         // 在 updater 内保存操作前快照（nds 是 React 保证的当前真实状态）
-        pushHistory(nds, edgesRef.current);
+        const historyNodes = nds.map(n =>
+          n.id === detail.nodeId && typeof detail.startNodeX === "number" && typeof detail.startNodeY === "number" && typeof detail.startW === "number" && typeof detail.startH === "number"
+            ? { ...n, position: { x: detail.startNodeX, y: detail.startNodeY }, style: { ...n.style, width: detail.startW, height: detail.startH }, data: { ...(n.data as Record<string, unknown>), imgW: detail.startW, imgH: detail.startH } }
+            : n
+        );
+        pushHistory(historyNodes, edgesRef.current);
         return nds.map(n =>
           n.id === detail.nodeId
-            ? { ...n, data: { ...n.data, imgW: detail.newW, imgH: detail.newH } }
+            ? { ...n, position: typeof detail.nextX === "number" && typeof detail.nextY === "number" ? { x: detail.nextX, y: detail.nextY } : n.position, style: { ...n.style, width: detail.newW, height: detail.newH }, data: { ...n.data, imgW: detail.newW, imgH: detail.newH } }
             : n
         );
       });
@@ -4583,6 +5571,56 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     window.addEventListener("asset-resize-end", handler);
     return () => window.removeEventListener("asset-resize-end", handler);
   }, [pushHistory, setNodes, edgesRef]);
+
+  useEffect(() => {
+    const commitHandler = (e: Event) => {
+      if (isRestoringRef.current) return;
+      const detail = (e as CustomEvent<{ nodeId: string; cropRect: { x: number; y: number; w: number; h: number }; nextW: number; nextH: number; startW: number; startH: number }>).detail;
+      if (!detail?.nodeId) return;
+      pushHistory(nodesRef.current, edgesRef.current);
+      setNodes(nds => nds.map(n => {
+        if (n.id !== detail.nodeId || n.type !== "asset") return n;
+        const data = n.data as Record<string, unknown>;
+        const currentCropX = Number(data.cropX ?? 0);
+        const currentCropY = Number(data.cropY ?? 0);
+        const currentCropW = Number(data.cropW ?? 100);
+        const currentCropH = Number(data.cropH ?? 100);
+        const nextCropX = currentCropX + (detail.cropRect.x / 100) * currentCropW;
+        const nextCropY = currentCropY + (detail.cropRect.y / 100) * currentCropH;
+        const nextCropW = (detail.cropRect.w / 100) * currentCropW;
+        const nextCropH = (detail.cropRect.h / 100) * currentCropH;
+        return {
+          ...n,
+          style: { ...n.style, width: detail.nextW, height: detail.nextH },
+          data: {
+            ...data,
+            imgW: detail.nextW,
+            imgH: detail.nextH,
+            cropX: nextCropX,
+            cropY: nextCropY,
+            cropW: nextCropW,
+            cropH: nextCropH,
+            isCropping: false,
+            isEditing: false,
+          },
+        };
+      }));
+      window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
+      toast("已完成裁切", { description: `${detail.nextW} × ${detail.nextH}px` });
+    };
+    const cancelHandler = (e: Event) => {
+      const nodeId = (e as CustomEvent<{ nodeId: string }>).detail?.nodeId;
+      if (!nodeId) return;
+      setNodes(nds => nds.map(n => n.id === nodeId && n.type === "asset" ? { ...n, data: { ...(n.data as Record<string, unknown>), isCropping: false, isEditing: false } } : n));
+      window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
+    };
+    window.addEventListener("asset-crop-commit", commitHandler);
+    window.addEventListener("asset-crop-cancel", cancelHandler);
+    return () => {
+      window.removeEventListener("asset-crop-commit", commitHandler);
+      window.removeEventListener("asset-crop-cancel", cancelHandler);
+    };
+  }, [edgesRef, pushHistory, setNodes]);
 
   // ── 几何形参数面板（全局渲染，紧贴节点选框右侧 +6px） ──
   const [shapeCtxMenu, setShapeCtxMenu] = useState<{
@@ -4700,15 +5738,24 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const isDraggingRef = useRef(false);
 
   const handleNodesChangeWithHistory = useCallback((changes: Parameters<typeof onNodesChange>[0]) => {
+    const effectiveChanges = isAssetResizingRef.current
+      ? changes.filter(change => change.type !== "dimensions")
+      : changes;
+    if (effectiveChanges.length === 0) return;
+    const isOnlyAssetSizeSync = effectiveChanges.every(change => change.type === "dimensions");
+    if (isOnlyAssetSizeSync) {
+      onNodesChange(effectiveChanges);
+      return;
+    }
     // undo 恢复过程中不入历史，防止 undo 被 onNodesChange 立即覆写
-    if (!isRestoringRef.current) {
-      const hasNonDragChange = changes.some(change =>
+    if (!isRestoringRef.current && !isAssetResizingRef.current) {
+      const hasNonDragChange = effectiveChanges.some(change =>
         change.type !== "select" &&
         !(change.type === "position" && isDraggingRef.current)
       );
       if (hasNonDragChange) pushHistory();
     }
-    onNodesChange(changes);
+    onNodesChange(effectiveChanges);
   }, [onNodesChange, pushHistory]);
 
   const handleEdgesChangeWithHistory = useCallback((changes: Parameters<typeof onEdgesChange>[0]) => {
@@ -5068,6 +6115,47 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     }]);
     toast("已加入当前画布", { description: asset.title });
   }, [pushHistory, screenToFlowPosition, setNodes]);
+
+  useEffect(() => {
+    const handleImageGenerate = (event: Event) => {
+      const detail = (event as CustomEvent<ImageGeneratorPayload>).detail;
+      if (!detail?.prompt?.trim()) return;
+      const container = containerRef.current;
+      const rect = container?.getBoundingClientRect();
+      const center = rect
+        ? screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
+        : { x: 120, y: 80 };
+      const generatedAsset = GENERATED_ASSETS[Math.abs(detail.prompt.length + detail.count) % GENERATED_ASSETS.length];
+      const ratioSize: Record<string, { w: number; h: number }> = {
+        "1:1": { w: 260, h: 260 },
+        "4:5": { w: 240, h: 300 },
+        "16:9": { w: 320, h: 180 },
+      };
+      const size = ratioSize[detail.ratio] || ratioSize["1:1"];
+      const id = `generated-${Date.now()}`;
+      setNodes(nds => {
+        pushHistory(nds, edgesRef.current);
+        return [...nds, {
+          id,
+          type: "asset",
+          position: { x: center.x - size.w / 2, y: center.y - size.h / 2 },
+          data: {
+            id,
+            assetId: generatedAsset.id,
+            title: `生成图像 · ${detail.style}`,
+            assetType: "AI 生成",
+            tags: [detail.model, detail.ratio, `${detail.count}张`, detail.referencesEnabled ? "参考画布" : "无参考"],
+            imgW: size.w,
+            imgH: size.h,
+          },
+        }];
+      });
+      toast("图像已生成到画布", { description: detail.prompt.slice(0, 58) });
+      window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
+    };
+    window.addEventListener("image-generator-submit", handleImageGenerate);
+    return () => window.removeEventListener("image-generator-submit", handleImageGenerate);
+  }, [edgesRef, pushHistory, screenToFlowPosition, setNodes]);
 
   const handleProjectSaveAndNavigate = useCallback(() => {
     if (!pendingProject) return;
@@ -6234,17 +7322,126 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const handleSingleImageToolbarAction = useCallback((action: string) => {
     const nodeId = selectedImageNodeIds[0];
     if (!nodeId) return;
+    if (action === "quick-edit") {
+      handleNodeAction("edit-asset", nodeId);
+      return;
+    }
+    if (action === "upscale") {
+      window.dispatchEvent(new CustomEvent("asset-preview-request", { detail: { nodeId } }));
+      toast("放大预览", { description: "已打开当前图片预览，高清放大处理入口待接入" });
+      return;
+    }
     if (action === "download") {
       handleNodeAction("download", nodeId);
       return;
     }
-    if (action === "fullscreen") {
-      window.dispatchEvent(new CustomEvent("asset-preview-request", { detail: { nodeId } }));
+    if (action === "crop") {
+      pushHistory();
+      setNodes(nds => nds.map(n =>
+        n.id === nodeId && n.type === "asset"
+          ? { ...n, selected: true, data: { ...(n.data as Record<string, unknown>), isCropping: true, isEditing: false } }
+          : n
+      ));
+      window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "crop" } }));
+      toast("裁切", { description: "拖拽虚线框四周边界，或选择比例后点击确定" });
       return;
     }
-    toast("功能即将上线", { description: action });
-  }, [handleNodeAction, selectedImageNodeIds]);
-  const selectedImageBounds = getCanvasNodesBounds(nodes, selectedImageNodeIds);
+    if (action === "move-object") {
+      window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
+      toast("移动对象", { description: "拖动画布中的选中图片即可移动位置" });
+      return;
+    }
+    if (["mockup", "expand", "adjust", "vector"].includes(action)) {
+      setAssetMorePanel({ command: action, nodeId });
+      return;
+    }
+    if (action === "flip-rotate") {
+      pushHistory();
+      setNodes(nds => nds.map(n => {
+        if (n.id !== nodeId || n.type !== "asset") return n;
+        const data = n.data as Record<string, unknown>;
+        const rotation = (((data.rotation as number) || 0) + 90) % 360;
+        const flipX = !Boolean(data.flipX);
+        return { ...n, data: { ...data, rotation, flipX } };
+      }));
+      toast("翻转与旋转", { description: "已水平翻转并顺时针旋转 90°" });
+      return;
+    }
+    const labels: Record<string, string> = {
+      "remove-background": "去背景",
+      erase: "橡皮工具",
+      "edit-elements": "编辑元素",
+      "edit-text": "编辑文字",
+      "multi-angle": "多角度",
+      mockup: "Mockup",
+      expand: "扩展",
+      adjust: "调整",
+      crop: "裁剪",
+      vector: "矢量",
+      "flip-rotate": "翻转与旋转",
+      more: "更多",
+    };
+    toast(labels[action] || "功能即将上线", { description: "已保留 Lovart 命令入口，后续可接入对应 AI 处理能力" });
+  }, [handleNodeAction, pushHistory, selectedImageNodeIds, setNodes]);
+  const handleAssetMorePanelApply = useCallback((label: string) => {
+    if (!assetMorePanel) return;
+    pushHistory();
+    setNodes(nds => nds.map(n => {
+      if (n.id !== assetMorePanel.nodeId || n.type !== "asset") return n;
+      const data = n.data as Record<string, unknown>;
+      if (assetMorePanel.command === "crop") {
+        const size = getCanvasNodeSize(n);
+        const ratioLabel = label.split("·").pop()?.trim() || "自由";
+        const ratioMap: Record<string, number> = {
+          "1:1": 1,
+          "3:4": 3 / 4,
+          "4:3": 4 / 3,
+          "16:9": 16 / 9,
+          "9:16": 9 / 16,
+        };
+        const ratio = ratioMap[ratioLabel];
+        let nextW = size.width;
+        let nextH = size.height;
+        if (ratio) {
+          const currentRatio = size.width / Math.max(1, size.height);
+          if (currentRatio > ratio) {
+            nextH = size.height;
+            nextW = Math.max(60, Math.round(nextH * ratio));
+          } else {
+            nextW = size.width;
+            nextH = Math.max(60, Math.round(nextW / ratio));
+          }
+        } else {
+          nextW = Math.max(60, Math.round(size.width * 0.86));
+          nextH = Math.max(60, Math.round(size.height * 0.86));
+        }
+        return {
+          ...n,
+          style: { ...n.style, width: nextW, height: nextH },
+          data: {
+            ...data,
+            imgW: nextW,
+            imgH: nextH,
+            cropRatio: ratioLabel,
+            lastLovartCommand: label,
+            isEditing: false,
+          },
+        };
+      }
+      return {
+        ...n,
+        data: {
+          ...data,
+          lastLovartCommand: label,
+          isEditing: assetMorePanel.command === "adjust" || assetMorePanel.command === "crop",
+        },
+      };
+    }));
+    toast(label, { description: "已应用到当前图片节点" });
+    setAssetMorePanel(null);
+  }, [assetMorePanel, pushHistory, setNodes]);
+  const selectedImageNode = selectedImageNodeIds.length === 1 ? nodes.find(n => n.id === selectedImageNodeIds[0] && n.type === "asset") : null;
+  const selectedImageBounds = selectedImageNode ? getCanvasNodeBounds(selectedImageNode) : getCanvasNodesBounds(nodes, selectedImageNodeIds);
   const attachedImageToolbarPosition = selectedImageBounds
     ? {
         left: selectedImageBounds.x * viewport.zoom + viewport.x - 8,
@@ -6274,6 +7471,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       onMouseMove={e => { handleFreehandMouseMove(e); handlePenMouseMove(e); handleCreateCanvasMouseMove(e); }}
       onMouseUp={e => { handleFreehandMouseUp(); handlePenMouseUp(); handleCreateCanvasMouseUp(e); }}
     >
+      {assetMorePanel && (
+        <AssetMoreCommandPanel
+          isDark={isDark}
+          command={assetMorePanel.command}
+          onClose={() => setAssetMorePanel(null)}
+          onApply={handleAssetMorePanelApply}
+        />
+      )}
+
       {/* 本地拖拽导入覆盖层 */}
       {isDragOver && (
         <div
@@ -6420,6 +7626,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         onToggleCollapsed={() => setIsAssistantCollapsed(value => !value)}
         referencedAssets={referencedAssets}
         onRemoveReference={(id) => setReferencedAssets(prev => prev.filter(r => r.id !== id))}
+        selectedCount={selectedNodeIds.length}
+        helpPromptNonce={helpPromptNonce}
       />
 
       {selectedImageNodeIds.length === 1 && !multiImageSelectionActive && (
@@ -6918,6 +8126,17 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const inputBorder = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)";
         return (
           <>
+            {/* 创建确认期间锁住画布交互，避免未确认前继续操作其他对象 */}
+            <div
+              className="absolute inset-0 nodrag nopan"
+              style={{ zIndex: 9700, cursor: "default", background: "transparent" }}
+              onMouseDown={e => { e.preventDefault(); e.stopPropagation(); }}
+              onMouseMove={e => { e.preventDefault(); e.stopPropagation(); }}
+              onMouseUp={e => { e.preventDefault(); e.stopPropagation(); }}
+              onClick={e => { e.preventDefault(); e.stopPropagation(); }}
+              onWheel={e => { e.preventDefault(); e.stopPropagation(); }}
+              onContextMenu={e => { e.preventDefault(); e.stopPropagation(); }}
+            />
             {/* 矩形预览（待确认状态） */}
             <div
               className="absolute pointer-events-none"

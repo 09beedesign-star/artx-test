@@ -2,8 +2,8 @@
  * TopBar — Neo-Studio Dark Design System
  * Global top navigation: search, theme switcher (Radix DropdownMenu), credits, user info
  */
-import { useState, useRef, useEffect, type ElementType } from "react";
-import { Bell, ChevronDown, Sparkles, Moon, Sun, Monitor, Check, UserRound, LogOut, Search, X, LayoutGrid, ArrowRight } from "lucide-react";
+import { useState, type ElementType } from "react";
+import { Bell, ChevronDown, Sparkles, Moon, Sun, Monitor, Check, UserRound, LogOut, Search, KeyRound, Copy, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { useTheme, type ThemeMode } from "@/contexts/ThemeContext";
@@ -58,33 +58,50 @@ export default function TopBar({ credits = 75, projectTitle, projectTime, showSe
 
   const ActiveIcon = THEME_OPTIONS.find((o) => o.mode === mode)?.icon ?? Moon;
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
-
-  // ── Inline search state (shown in canvas view) ──
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
-  const searchRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!searchOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (searchRef.current && e.target instanceof globalThis.Node && !searchRef.current.contains(e.target)) setSearchOpen(false);
-    };
-    const t = setTimeout(() => document.addEventListener("mousedown", handler), 50);
-    return () => { clearTimeout(t); document.removeEventListener("mousedown", handler); };
-  }, [searchOpen]);
+  const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false);
+  const [apiKey, setApiKey] = useState("");
+  const [apiKeyCopied, setApiKeyCopied] = useState(false);
+  const [apiKeyCreationConfirmed, setApiKeyCreationConfirmed] = useState(false);
 
   const searchBg = isDark ? "oklch(0.16 0.016 270 / 0.90)" : "oklch(0.97 0.003 270 / 0.92)";
   const searchBorder = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
-  const searchText = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.20 0.008 270)";
   const searchSub = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.50 0.012 255)";
-  const searchPanelBg = isDark ? "oklch(0.15 0.018 270 / 0.98)" : "oklch(0.995 0.002 80 / 0.98)";
-  const searchHover = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
-  const searchDivider = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
 
   const handleConfirmLogout = () => {
     logout();
     setLogoutConfirmOpen(false);
     navigate("/");
+  };
+
+  const generateApiKey = () => {
+    const bytes = new Uint8Array(24);
+    globalThis.crypto?.getRandomValues?.(bytes);
+    const token = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+    const nextKey = `artx_sk_${token.slice(0, 12)}_${token.slice(12, 36)}`;
+    setApiKey(nextKey);
+    setApiKeyCopied(false);
+    setApiKeyCreationConfirmed(true);
+    return nextKey;
+  };
+
+  const openApiKeyDialog = () => {
+    setApiKeyCreationConfirmed(Boolean(apiKey));
+    setApiKeyDialogOpen(true);
+  };
+
+  const copyApiKey = async () => {
+    if (!apiKey) {
+      toast.error("请先创建 API Key");
+      return;
+    }
+    const key = apiKey;
+    try {
+      await navigator.clipboard.writeText(key);
+      setApiKeyCopied(true);
+      toast.success("API Key 已复制");
+    } catch {
+      toast.error("复制失败，请手动复制");
+    }
   };
 
   return (
@@ -106,79 +123,51 @@ export default function TopBar({ credits = 75, projectTitle, projectTime, showSe
 
       {/* Center: search bar (canvas mode only) */}
       {showSearch && (
-        <div ref={searchRef} className="flex-1 flex justify-center" style={{ minWidth: 0 }}>
+        <div className="flex-1 flex justify-center" style={{ minWidth: 0 }}>
           <div style={{ width: "min(320px, 100%)", position: "relative" }}>
             <div
-              className="flex items-center gap-2 px-3 rounded-[var(--radius-lg-design)] transition-all"
+              className="flex items-center gap-2 px-3 rounded-[var(--radius-lg-design)]"
               style={{
                 height: 34,
                 background: searchBg,
-                border: `1px solid ${searchOpen ? "oklch(0.62 0.22 290 / 0.55)" : searchBorder}`,
+                border: `1px solid ${searchBorder}`,
                 backdropFilter: "blur(14px)",
-                transition: "border-color 0.18s ease",
-                cursor: "text",
+                cursor: "default",
+                opacity: 0.82,
               }}
-              onClick={() => setSearchOpen(true)}
             >
-              <Search size={13} style={{ color: searchOpen ? "oklch(0.72 0.18 290)" : searchSub, flexShrink: 0, transition: "color 0.15s" }} />
-              <input
-                value={searchQuery}
-                onChange={e => { setSearchQuery(e.target.value); setSearchOpen(true); }}
-                onFocus={() => setSearchOpen(true)}
-                placeholder="搜索项目或素材..."
-                className="flex-1 bg-transparent outline-none"
-                style={{ fontSize: 12, color: searchText, lineHeight: 1.4 }}
-              />
-              {searchQuery && (
-                <button
-                  onClick={e => { e.stopPropagation(); setSearchQuery(""); setSearchOpen(false); }}
-                  className="flex items-center justify-center w-4 h-4 rounded-full transition-opacity hover:opacity-70"
-                  style={{ color: searchSub, flexShrink: 0 }}
-                >
-                  <X size={11} />
-                </button>
-              )}
-            </div>
-            {searchOpen && (
-              <div
-                className="absolute top-full mt-1.5 left-0 right-0 rounded-[var(--radius-lg-design)] overflow-hidden shadow-2xl"
-                style={{ background: searchPanelBg, border: `1px solid ${searchBorder}`, backdropFilter: "blur(20px)", maxHeight: 420, overflowY: "auto", zIndex: 200 }}
-                onMouseDown={e => e.stopPropagation()}
+              <Search size={13} style={{ color: searchSub, flexShrink: 0 }} />
+              <span
+                className="flex-1 truncate select-none"
+                style={{ fontSize: 12, color: searchSub, lineHeight: 1.4 }}
               >
-                <div className="px-3 py-2" style={{ borderBottom: `1px solid ${searchDivider}` }}>
-                  <span style={{ fontSize: 10, color: searchSub, textTransform: "uppercase", letterSpacing: "0.08em" }}>项目</span>
-                </div>
-                {[{ id: "p1", title: "品牌设计系统", subtitle: "2 天前" }, { id: "p2", title: "产品插画系列", subtitle: "5 天前" }]
-                  .filter(p => !searchQuery || p.title.includes(searchQuery))
-                  .map(project => (
-                    <button
-                      key={project.id}
-                      className="flex items-center gap-2.5 w-full px-3 py-2.5 text-left transition-colors"
-                      style={{ fontSize: 12, color: searchText }}
-                      onMouseEnter={e => (e.currentTarget.style.background = searchHover)}
-                      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-                      onClick={() => { setSearchOpen(false); }}
-                    >
-                      <LayoutGrid size={13} style={{ color: "oklch(0.62 0.18 290)", flexShrink: 0 }} />
-                      <span className="flex-1 min-w-0">
-                        <span className="block truncate">{project.title}</span>
-                        <span className="block truncate" style={{ color: searchSub, fontSize: 11 }}>{project.subtitle}</span>
-                      </span>
-                      <ArrowRight size={12} style={{ color: searchSub, flexShrink: 0 }} />
-                    </button>
-                  ))}
-                <div className="px-3 py-2" style={{ borderTop: `1px solid ${searchDivider}`, borderBottom: `1px solid ${searchDivider}` }}>
-                  <span style={{ fontSize: 10, color: searchSub, textTransform: "uppercase", letterSpacing: "0.08em" }}>素材</span>
-                </div>
-                <div className="px-3 py-3" style={{ fontSize: 12, color: searchSub }}>输入关键词搜索素材...</div>
-              </div>
-            )}
+                搜索项目或素材...
+              </span>
+            </div>
           </div>
         </div>
       )}
       {!showSearch && <div className="flex-1" />}
 
       {/* Right: actions */}
+
+      {showSearch && (
+        <button
+          onClick={openApiKeyDialog}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-md-design)] type-caption transition-all duration-150 active:scale-95"
+          style={{
+            height: 32,
+            color: textPri,
+            background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)",
+            border: `1px solid ${isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 8%)"}`,
+          }}
+          onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+          onMouseLeave={e => (e.currentTarget.style.background = isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)")}
+        >
+          <KeyRound size={13} style={{ color: "oklch(0.72 0.18 200)" }} />
+          <span>API Key</span>
+        </button>
+      )}
 
       {!isAuthenticated && (
         <button
@@ -317,6 +306,117 @@ export default function TopBar({ credits = 75, projectTitle, projectTime, showSe
       </DropdownMenu>
       </>)}
     </header>
+
+    <AlertDialog open={apiKeyDialogOpen} onOpenChange={setApiKeyDialogOpen}>
+      <AlertDialogContent
+        className="w-[min(460px,calc(100vw-32px))] rounded-[var(--radius-lg-design)] border p-0 overflow-hidden"
+        style={{
+          background: isDark ? "oklch(0.15 0.018 270)" : "oklch(0.995 0.002 80)",
+          borderColor: isDark ? "oklch(1 0 0 / 12%)" : "oklch(0.88 0.006 255)",
+          boxShadow: "0 24px 80px oklch(0 0 0 / 0.35)",
+        }}
+      >
+        <div className="p-6">
+          <AlertDialogHeader className="gap-2 text-left">
+            <div
+              className="w-10 h-10 rounded-[var(--radius-md-design)] flex items-center justify-center mb-1"
+              style={{
+                background: isDark ? "oklch(0.72 0.18 200 / 0.14)" : "oklch(0.72 0.18 200 / 0.10)",
+                color: "oklch(0.72 0.18 200)",
+              }}
+            >
+              <KeyRound size={18} />
+            </div>
+            <AlertDialogTitle
+              className="type-title-sm"
+              style={{ color: textPri, fontSize: 18, fontWeight: 650 }}
+            >
+              {apiKeyCreationConfirmed ? "生成 API Key" : "是否需要创建 API Key？"}
+            </AlertDialogTitle>
+            <AlertDialogDescription
+              className="type-body-sm leading-6"
+              style={{ color: textSec }}
+            >
+              {apiKeyCreationConfirmed
+                ? "复制该 Key 后可交给第三方 Agent 复用当前项目能力。真实 AI 鉴权后续接入，这里先搭建界面和交互框架。"
+                : "创建后会生成一枚可复制的 API Key，用于后续接入第三方 Agent。"}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {apiKeyCreationConfirmed && (
+            <div
+              className="mt-5 rounded-[var(--radius-md-design)] p-3"
+              style={{
+                background: isDark ? "oklch(0.10 0.012 270)" : "oklch(0.97 0.003 270)",
+                border: `1px solid ${isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 8%)"}`,
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <code
+                  className="flex-1 min-w-0 truncate"
+                  style={{
+                    color: textPri,
+                    fontSize: 12,
+                    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+                  }}
+                >
+                  {apiKey}
+                </code>
+                <button
+                  onClick={copyApiKey}
+                  className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-md-design)] transition-colors"
+                  style={{
+                    color: apiKeyCopied ? "oklch(0.68 0.18 145)" : textSec,
+                    background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)",
+                  }}
+                  title="复制 API Key"
+                >
+                  {apiKeyCopied ? <Check size={14} /> : <Copy size={14} />}
+                </button>
+              </div>
+            </div>
+          )}
+
+          <AlertDialogFooter className="mt-6 flex-row justify-end gap-3 sm:justify-end">
+            <AlertDialogCancel
+              className="h-9 min-w-[88px] rounded-[var(--radius-md-design)] type-caption"
+              style={{
+                background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)",
+                borderColor: isDark ? "oklch(1 0 0 / 10%)" : "oklch(0.88 0.006 255)",
+                color: textPri,
+              }}
+            >
+              关闭
+            </AlertDialogCancel>
+            <button
+              onClick={() => generateApiKey()}
+              className="h-9 min-w-[104px] inline-flex items-center justify-center gap-1.5 rounded-[var(--radius-md-design)] type-caption"
+              style={{
+                background: isDark ? "oklch(1 0 0 / 7%)" : "oklch(0 0 0 / 0.05)",
+                border: `1px solid ${isDark ? "oklch(1 0 0 / 10%)" : "oklch(0.88 0.006 255)"}`,
+                color: textPri,
+              }}
+            >
+              <RefreshCw size={13} />
+              {apiKeyCreationConfirmed ? "重新生成" : "确认创建"}
+            </button>
+            {apiKeyCreationConfirmed && (
+              <AlertDialogAction
+                onClick={copyApiKey}
+                className="h-9 min-w-[96px] rounded-[var(--radius-md-design)] type-caption"
+                style={{
+                  background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
+                  color: "white",
+                  boxShadow: "0 8px 24px oklch(0.58 0.22 290 / 0.22)",
+                }}
+              >
+                复制
+              </AlertDialogAction>
+            )}
+          </AlertDialogFooter>
+        </div>
+      </AlertDialogContent>
+    </AlertDialog>
 
     <AlertDialog open={logoutConfirmOpen} onOpenChange={setLogoutConfirmOpen}>
       <AlertDialogContent
