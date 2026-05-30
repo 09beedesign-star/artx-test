@@ -2156,7 +2156,7 @@ function ChatNodeComponent({ data, selected }: { data: Record<string, unknown>; 
 function PromptNodeComponent({ data, selected }: { data: Record<string, unknown>; selected: boolean }) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-  const [model, setModel] = useState("flux-pro");
+  const [model, setModel] = useState("gpt-4o");
   const [prompt, setPrompt] = useState((data.prompt as string) || "");
   const [isGenerating, setIsGenerating] = useState(false);
   const { deleteElements } = useReactFlow();
@@ -4845,6 +4845,7 @@ function CanvasAssistantPanel({ isDark, collapsed, isAuthenticated, onToggleColl
       const result = await callLLM({
         module,
         model: assistantModel.id,
+        images: referencedAssets.map(asset => ({ src: asset.src, title: asset.title })),
         messages: [
           ...messages.slice(-8).map(message => ({ role: message.role, content: message.content })),
           { role: "user", content: instruction },
@@ -4914,6 +4915,7 @@ function CanvasAssistantPanel({ isDark, collapsed, isAuthenticated, onToggleColl
       const result = await callLLM({
         module: "right-ai-assistant",
         model: assistantModel.id,
+        images: referencedAssets.map(asset => ({ src: asset.src, title: asset.title })),
         messages: [
           ...messages.slice(-8).map(message => ({ role: message.role, content: message.content })),
           { role: "user", content: `上下文：${context}\n用户请求：${submittedText}` },

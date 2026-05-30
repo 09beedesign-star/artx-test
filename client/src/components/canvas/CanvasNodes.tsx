@@ -381,7 +381,7 @@ export function PromptNode({
   node, isSelected, onDragStart, onSelect, onRemove, onGenerate,
 }: Omit<NodeWrapperProps, "children" | "className" | "fullDrag"> & { onGenerate?: (prompt: string) => void }) {
   const [prompt, setPrompt] = useState((node.data.prompt as string) || "");
-  const [modelId, setModelId] = useState("flux-pro");
+  const [modelId, setModelId] = useState("gpt-4o");
   const [isGenerating, setIsGenerating] = useState(false);
 
   return (
