@@ -6457,9 +6457,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [activeToolMode, setActiveToolMode] = useState<string>("move");
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
-  const getDerivedImagePlacement = useCallback((sourceNode: Node, nextW: number, nextH: number) => ({
+  const getDerivedImagePlacement = useCallback((sourceNode: Node, displayW: number, displayH: number) => ({
     x: sourceNode.position.x + getCanvasNodeSize(sourceNode).width + 36,
-    y: sourceNode.position.y + Math.max(0, (getCanvasNodeSize(sourceNode).height - nextH) / 2),
+    y: sourceNode.position.y + Math.max(0, (getCanvasNodeSize(sourceNode).height - displayH) / 2),
   }), []);
 
   const runDerivedImageGeneration = useCallback(async ({
@@ -6468,6 +6468,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     style,
     nextW,
     nextH,
+    displayW,
+    displayH,
     run,
   }: {
     sourceNode: Node;
@@ -6475,8 +6477,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     style: string;
     nextW: number;
     nextH: number;
+    displayW?: number;
+    displayH?: number;
     run: () => Promise<{ images: Array<{ src: string; width: number; height: number }> }>;
   }) => {
+    const resolvedDisplayW = Math.max(1, Math.round(displayW ?? getCanvasNodeSize(sourceNode).width));
+    const resolvedDisplayH = Math.max(1, Math.round(displayH ?? getCanvasNodeSize(sourceNode).height));
     const generationId = `${style}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const payload: ImageGeneratorPayload = {
       prompt,
@@ -6486,8 +6492,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       style,
       referencesEnabled: false,
       generationId,
-      placement: getDerivedImagePlacement(sourceNode, nextW, nextH),
-      displaySize: { w: nextW, h: nextH },
+      placement: getDerivedImagePlacement(sourceNode, resolvedDisplayW, resolvedDisplayH),
+      displaySize: { w: resolvedDisplayW, h: resolvedDisplayH },
       titleBase: style,
     };
     window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "pending" } }));
@@ -6676,6 +6682,28 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     if (!(typeof imgW === "number" && imgW > 0 && typeof imgH === "number" && imgH > 0)) return node;
     return { ...node, style: { ...node.style, width: imgW, height: imgH } };
   }, []);
+
+  const clearAssetCommandState = useCallback((data: Record<string, unknown>) => ({
+    ...data,
+    isCropping: false,
+    isErasing: false,
+    isExpanding: false,
+    isEditing: false,
+    extractedTextPanelOpen: false,
+    isExtractingText: false,
+  }), []);
+
+  const clearInactiveAssetCommands = useCallback((keepIds: string[] = []) => {
+    const keep = new Set(keepIds);
+    setNodes(nds => nds.map(n => {
+      if (n.type !== "asset" || keep.has(n.id)) return n;
+      const data = n.data as Record<string, unknown>;
+      if (!data.isCropping && !data.isErasing && !data.isExpanding && !data.isEditing && !data.extractedTextPanelOpen && !data.isExtractingText) return n;
+      return { ...n, data: clearAssetCommandState(data) };
+    }));
+    setAssetMorePanel(current => current && keep.has(current.nodeId) ? current : null);
+    setEditAsset(current => current && keep.has(current.nodeId) ? current : null);
+  }, [clearAssetCommandState, setNodes]);
 
   const cloneEdgesForHistory = useCallback((items: Edge[]) => items.map(edge => ({
     ...edge,
@@ -6930,6 +6958,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         style: "扩展结果",
         nextW: detail.nextW,
         nextH: detail.nextH,
+        displayW: getCanvasNodeSize(sourceNode).width,
+        displayH: getCanvasNodeSize(sourceNode).height,
         run: async () => expandImageWithMask({
           imageSrc: detail.imageSrc,
           maskSrc: detail.maskSrc,
@@ -7192,6 +7222,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { x: number; y: number; nodeId: string; nodeType: string };
       const actionIds = selectedNodeIds.includes(detail.nodeId) ? selectedNodeIds : [detail.nodeId];
+      clearInactiveAssetCommands(actionIds);
       setSelectedNodeIds(actionIds);
       setNodes(nds => nds.map(n => ({ ...n, selected: actionIds.includes(n.id) })));
       setNodeCtxMenu({
@@ -7205,7 +7236,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     };
     window.addEventListener("node-contextmenu", handler);
     return () => window.removeEventListener("node-contextmenu", handler);
-  }, [areNodesGrouped, selectedNodeIds, setNodes]);
+  }, [areNodesGrouped, clearInactiveAssetCommands, selectedNodeIds, setNodes]);
 
   // ── Node context menu actions ──
   const handleNodeAction = useCallback((action: string, nodeId: string) => {
@@ -7649,8 +7680,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   }, [navigate, pendingProject]);
 
   const handleSelectionChange = useCallback(({ nodes: selectedNodes }: { nodes: Node[] }) => {
-    setSelectedNodeIds(selectedNodes.map(n => n.id));
-  }, []);
+    const nextSelectedIds = selectedNodes.map(n => n.id);
+    clearInactiveAssetCommands(nextSelectedIds);
+    setSelectedNodeIds(nextSelectedIds);
+  }, [clearInactiveAssetCommands]);
 
   // ── Handle group container right-click ──
   const handleGroupContainerContextMenu = useCallback((e: React.MouseEvent, groupId: string) => {
@@ -8541,11 +8574,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { selectedIds?: string[] };
-      if (Array.isArray(detail.selectedIds)) setSelectedNodeIds(detail.selectedIds);
+      if (Array.isArray(detail.selectedIds)) {
+        clearInactiveAssetCommands(detail.selectedIds);
+        setSelectedNodeIds(detail.selectedIds);
+      }
     };
     window.addEventListener("asset-click-selection", handler);
     return () => window.removeEventListener("asset-click-selection", handler);
-  }, []);
+  }, [clearInactiveAssetCommands]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -8848,6 +8884,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const handleSingleImageToolbarAction = useCallback(async (action: string) => {
     const nodeId = selectedVisualNodeIds[0];
     if (!nodeId) return;
+    setNodes(nds => nds.map(n => n.id === nodeId && n.type === "asset" ? { ...n, data: clearAssetCommandState(n.data as Record<string, unknown>) } : n));
+    clearInactiveAssetCommands([nodeId]);
     const targetNode = nodesRef.current.find(n => n.id === nodeId && (n.type === "asset" || n.type === "canvasFrame"));
     const isCanvasFrame = targetNode?.type === "canvasFrame";
     if (isCanvasFrame) {
@@ -9060,7 +9098,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       more: "更多",
     };
     toast(labels[action] || "功能即将上线", { description: "已保留 Lovart 命令入口，后续可接入对应 AI 处理能力" });
-  }, [handleNodeAction, nodesRef, pushHistory, selectedVisualNodeIds, setNodes]);
+  }, [clearAssetCommandState, clearInactiveAssetCommands, handleNodeAction, nodesRef, pushHistory, selectedVisualNodeIds, setNodes]);
   const handleAssetMorePanelApply = useCallback((label: string, adjustments?: AssetAdjustmentValues) => {
     if (!assetMorePanel) return;
     pushHistory();
