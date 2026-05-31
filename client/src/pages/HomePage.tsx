@@ -15,7 +15,7 @@ import {
   Send, Mic, Check, MoreHorizontal, Pencil, Copy, Trash2,
   PlayCircle, Heart,
 } from "lucide-react";
-import { PROJECTS, POSTER_1, POSTER_2, BRAND_KIT, SOCIAL_AD, BG_GLOW, TEXT_AI_MODELS } from "@/lib/workspace-data";
+import { PROJECTS, POSTER_1, POSTER_2, BRAND_KIT, SOCIAL_AD, BG_GLOW, IMAGE_AI_MODELS } from "@/lib/workspace-data";
 import { createWorkspaceHistoryProject } from "@/lib/project-history";
 
 // ── Home Project Card Menu ────────────────────────────────────
@@ -134,7 +134,7 @@ const HOME_TYPEWRITER_PROMPT = "hello，欢迎来到。ArtX,正式开启你的�
 function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: string) => void }) {
   const [value, setValue] = useState("");
   const [modelOpen, setModelOpen] = useState(false);
-  const [selectedModel, setSelectedModel] = useState(TEXT_AI_MODELS[0]);
+  const [selectedModel, setSelectedModel] = useState(IMAGE_AI_MODELS[0]);
   const [focused, setFocused] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [typedPrompt, setTypedPrompt] = useState("");
@@ -322,7 +322,7 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
                 <div className="px-3 py-2 border-b" style={{ borderColor: dividerColor }}>
                   <p className="type-caption uppercase tracking-wider" style={{ color: subColor }}>选择模型</p>
                 </div>
-                {TEXT_AI_MODELS.map(model => (
+                {IMAGE_AI_MODELS.map(model => (
                   <button
                     key={model.id}
                     className="flex items-center justify-between w-full px-3 py-2.5 text-left type-caption transition-colors"
