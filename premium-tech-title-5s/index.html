@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 1080px;
+        height: 1920px;
+        overflow: hidden;
+        background: #05070c;
+        font-family: sans-serif;
+      }
+
+      #root {
+        position: relative;
+        width: 1080px;
+        height: 1920px;
+        overflow: hidden;
+        color: #f4f7fb;
+        background:
+          radial-gradient(circle at 50% 17%, rgba(83, 215, 255, 0.2), transparent 25%),
+          linear-gradient(155deg, rgba(53, 240, 168, 0.12), transparent 38%),
+          linear-gradient(180deg, #080c14 0%, #05070c 48%, #020309 100%);
+      }
+
+      .ambient-grid {
+        position: absolute;
+        inset: 0;
+        opacity: 0.42;
+        background-image:
+          linear-gradient(rgba(83, 215, 255, 0.12) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(83, 215, 255, 0.08) 1px, transparent 1px);
+        background-size: 90px 90px;
+        mask-image: linear-gradient(to bottom, transparent 0%, #000 18%, #000 78%, transparent 100%);
+      }
+
+      .beam {
+        position: absolute;
+        left: 88px;
+        right: 88px;
+        top: 338px;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, #53d7ff, #35f0a8, transparent);
+        box-shadow: 0 0 32px rgba(83, 215, 255, 0.85);
+        transform-origin: center;
+      }
+
+      .scene-content {
+        position: relative;
+        z-index: 3;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
+        padding: 220px 88px 188px;
+        gap: 34px;
+        box-sizing: border-box;
+      }
+
+      .eyebrow {
+        width: fit-content;
+        padding: 10px 18px;
+        border: 1px solid rgba(83, 215, 255, 0.46);
+        border-radius: 999px;
+        color: #53d7ff;
+        font-size: 24px;
+        font-weight: 700;
+        letter-spacing: 0;
+        text-transform: uppercase;
+        background: rgba(8, 15, 25, 0.72);
+        box-shadow: 0 0 28px rgba(83, 215, 255, 0.18);
+      }
+
+      .title-block {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .title-line {
+        font-size: 126px;
+        line-height: 0.92;
+        font-weight: 800;
+        letter-spacing: 0;
+        text-transform: uppercase;
+        text-wrap: balance;
+      }
+
+      .title-line.accent {
+        color: #53d7ff;
+        text-shadow: 0 0 36px rgba(83, 215, 255, 0.42);
+      }
+
+      .subtitle {
+        max-width: 780px;
+        color: #a8b3c7;
+        font-family: sans-serif;
+        font-size: 36px;
+        line-height: 1.34;
+        font-weight: 500;
+      }
+
+      .caption {
+        position: absolute;
+        z-index: 5;
+        left: 88px;
+        right: 88px;
+        bottom: 180px;
+        min-height: 92px;
+        padding: 22px 28px;
+        border-left: 3px solid #35f0a8;
+        color: #f4f7fb;
+        font-family: sans-serif;
+        font-size: 38px;
+        line-height: 1.26;
+        font-weight: 650;
+        background: rgba(10, 17, 29, 0.78);
+        box-shadow: 0 22px 70px rgba(0, 0, 0, 0.35);
+        backdrop-filter: blur(16px);
+      }
+
+      .status {
+        position: absolute;
+        z-index: 4;
+        left: 88px;
+        right: 88px;
+        bottom: 84px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        color: #a8b3c7;
+        font-family: sans-serif;
+        font-size: 22px;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      .pulse {
+        width: 112px;
+        height: 3px;
+        background: linear-gradient(90deg, #35f0a8, #53d7ff);
+        box-shadow: 0 0 26px rgba(53, 240, 168, 0.5);
+      }
+
+      .scan {
+        position: absolute;
+        z-index: 2;
+        inset: 0;
+        background: linear-gradient(180deg, transparent 0%, rgba(83, 215, 255, 0.18) 50%, transparent 100%);
+        height: 220px;
+        mix-blend-mode: screen;
+      }
+
+      .corner {
+        position: absolute;
+        width: 168px;
+        height: 168px;
+        border-color: rgba(83, 215, 255, 0.56);
+        opacity: 0.72;
+      }
+
+      .corner.top-left {
+        top: 72px;
+        left: 72px;
+        border-top: 2px solid;
+        border-left: 2px solid;
+      }
+
+      .corner.bottom-right {
+        right: 72px;
+        bottom: 72px;
+        border-right: 2px solid;
+        border-bottom: 2px solid;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="5"
+      data-width="1080"
+      data-height="1920"
+    >
+      <div id="background" class="clip" data-start="0" data-duration="5" data-track-index="0">
+        <div class="ambient-grid" data-layout-ignore></div>
+        <div class="scan" data-layout-ignore></div>
+        <div class="beam" data-layout-ignore></div>
+        <div class="corner top-left" data-layout-ignore></div>
+        <div class="corner bottom-right" data-layout-ignore></div>
+      </div>
+
+      <div id="title-scene" class="clip" data-start="0" data-duration="5" data-track-index="1">
+        <div class="scene-content">
+          <div class="eyebrow">Signal Online</div>
+          <div class="title-block">
+            <div class="title-line">Future</div>
+            <div class="title-line accent">Interface</div>
+          </div>
+          <div class="subtitle">A precise launch moment for intelligent systems, real-time data, and human focus.</div>
+        </div>
+      </div>
+
+      <div id="caption-one" class="clip caption" data-start="0.9" data-duration="1.7" data-track-index="2">
+        高级科技感标题动画，干净、克制、像产品发布会开场。
+      </div>
+
+      <div id="caption-two" class="clip caption" data-start="2.7" data-duration="1.6" data-track-index="2">
+        视觉聚焦在信号、速度，以及下一代界面的冷静质感。
+      </div>
+
+      <div id="status" class="clip status" data-start="0" data-duration="5" data-track-index="3">
+        <span>Five Second Vertical Render</span>
+        <span class="pulse"></span>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      tl.from(".ambient-grid", { opacity: 0, scale: 1.04, duration: 0.7, ease: "power2.out" }, 0);
+      tl.from(".corner", { opacity: 0, scale: 0.92, duration: 0.55, ease: "power2.out" }, 0.12);
+      tl.from(".beam", { opacity: 0, scaleX: 0.12, duration: 0.65, ease: "power3.out" }, 0.18);
+      tl.fromTo(".scan", { y: -260 }, { y: 2140, duration: 4.2, ease: "none" }, 0.18);
+      tl.from(".eyebrow", { opacity: 0, y: 28, duration: 0.45, ease: "power3.out" }, 0.32);
+      tl.from(".title-line", { opacity: 0, y: 64, duration: 0.72, stagger: 0.12, ease: "power3.out" }, 0.54);
+      tl.from(".subtitle", { opacity: 0, y: 34, duration: 0.56, ease: "power2.out" }, 1.04);
+      tl.from("#caption-one", { opacity: 0, y: 34, duration: 0.32, ease: "power2.out" }, 0.9);
+      tl.to("#caption-one", { opacity: 0, y: -22, duration: 0.28, ease: "power2.in" }, 2.32);
+      tl.from("#caption-two", { opacity: 0, y: 34, duration: 0.32, ease: "power2.out" }, 2.7);
+      tl.to("#caption-two", { opacity: 0, y: -22, duration: 0.34, ease: "power2.in" }, 4.02);
+      tl.from(".status", { opacity: 0, y: 18, duration: 0.45, ease: "power2.out" }, 0.72);
+      tl.to(".pulse", { scaleX: 0.18, transformOrigin: "right center", duration: 0.42, repeat: 9, yoyo: true, ease: "power1.inOut" }, 0.78);
+      tl.to([".eyebrow", ".title-line", ".subtitle", ".status", ".beam", ".corner"], { opacity: 0, y: -34, duration: 0.48, ease: "power2.in" }, 4.52);
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

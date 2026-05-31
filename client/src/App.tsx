@@ -18,6 +18,7 @@ import InspirationPage from "./pages/InspirationPage";
 import SkillsPage from "./pages/SkillsPage";
 import AssetsPage from "./pages/AssetsPage";
 import HelpPage from "./pages/HelpPage";
+import LoadingLoopPage from "./pages/LoadingLoopPage";
 
 const routerBase = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -87,6 +88,10 @@ function AppRoutes() {
         <AppShell>
           <HelpPage />
         </AppShell>
+      </Route>
+
+      <Route path="/loading">
+        <LoadingLoopPage />
       </Route>
 
       {/* 项目画布（无 AppShell 侧边栏，画布自带返回按钮） */}

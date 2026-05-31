@@ -3068,6 +3068,14 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
   const bg = (data.bgColor as string) || "#2a2a30";
   const labelColor = isDark ? "oklch(0.55 0.01 270)" : "oklch(0.52 0.01 270)";
   const handleColor = isDark ? "oklch(0.65 0.22 290 / 0.80)" : "oklch(0.50 0.20 290 / 0.80)";
+  const handleNodeCtxMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = (e.currentTarget as HTMLElement).closest(".react-flow")?.getBoundingClientRect();
+    window.dispatchEvent(new CustomEvent("node-contextmenu", {
+      detail: { x: e.clientX - (rect?.left || 0), y: e.clientY - (rect?.top || 0), nodeId: id, nodeType: "canvasFrame" },
+    }));
+  }, [id]);
 
   return (
     <div
@@ -3080,6 +3088,7 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
         position: "relative",
         transition: isResizing ? "none" : "border-color 0.15s",
       }}
+      onContextMenu={handleNodeCtxMenu}
     >
       {/* 左上角标题 */}
       <div
@@ -4156,6 +4165,7 @@ function NodeContextMenu({ menu, onClose, onAction, isDark }: {
   const selectedCount = menu.selectedIds?.length || 1;
   const isSelectionMenu = menu.nodeType === "selection" || selectedCount > 1;
   const isGroupContainerMenu = menu.nodeType === "group-container" || menu.nodeType === "group-container-inside";
+  const isVisualNodeMenu = menu.nodeType === "asset" || menu.nodeType === "canvasFrame";
 
   // Group container right-click menu: 解散打组 / 进入打组 / 重命名
   const isInsideGroup = menu.nodeType === "group-container-inside";
@@ -4190,10 +4200,10 @@ function NodeContextMenu({ menu, onClose, onAction, isDark }: {
   // Single node menu: NO 解散打组 (removed per spec)
   const singleItems = [
     { icon: <Wand2 size={13} />, label: "智能优化", action: "edit-asset", color: iconColor },
-    ...(menu.nodeType === "asset" ? [{ icon: <Download size={13} />, label: "下载图片", action: "download", color: iconColor }] : []),
+    ...(isVisualNodeMenu ? [{ icon: <Download size={13} />, label: "下载图片", action: "download", color: iconColor }] : []),
     { icon: <Copy size={13} />, label: "复制", action: "copy", color: iconColor },
     { icon: <Clipboard size={13} />, label: "粘贴", action: "paste", color: iconColor },
-    ...(menu.nodeType === "asset" ? [
+    ...(isVisualNodeMenu ? [
       { icon: <BringToFront size={13} />, label: "向上一层", action: "bring-forward", color: iconColor },
       { icon: <SendToBack size={13} />, label: "向下一层", action: "send-backward", color: iconColor },
       { icon: <BringToFront size={13} />, label: "最前层", action: "bring-to-front", color: iconColor },
@@ -7228,9 +7238,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         toast(`已粘贴 ${pasted.length} 个画布`);
       } else { toast("剪贴板为空"); }
     } else if (["bring-forward", "send-backward", "bring-to-front", "send-to-back"].includes(action)) {
-      const layerIds = actionIds.filter(id => nodes.some(n => n.id === id && n.type === "asset"));
+      const layerIds = actionIds.filter(id => nodes.some(n => n.id === id && (n.type === "asset" || n.type === "canvasFrame")));
       if (layerIds.length === 0) {
-        toast("请选择图片图层");
+        toast("请选择图片或画布图层");
         return;
       }
       pushHistory();
@@ -7271,7 +7281,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         "bring-to-front": "已移到最前层",
         "send-to-back": "已移到最底层",
       };
-      toast(labels[action], { description: "已更新图片图层的前后关系" });
+      toast(labels[action], { description: "已更新图层的前后关系" });
     } else if (action === "group") {
       if (actionIds.length < 2) { toast("请至少选择 2 个画布再打组"); return; }
       pushHistory();
@@ -7390,7 +7400,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
     } else if (action === "download") {
       const selectedAssetNodes = nodes.filter(n => actionIds.includes(n.id) && n.type === "asset");
-      if (selectedAssetNodes.length === 0) { toast("没有可下载的图片节点"); return; }
+      const selectedFrameNodes = nodes.filter(n => actionIds.includes(n.id) && n.type === "canvasFrame");
+      if (selectedAssetNodes.length === 0) {
+        if (selectedFrameNodes.length > 0) {
+          toast("画布下载即将上线", { description: "当前画布节点已接入图片同款命令入口，导出画布内容会后续接入" });
+          return;
+        }
+        toast("没有可下载的图片节点");
+        return;
+      }
       if (selectedAssetNodes.length === 1) {
         // 单张直接下载
         const node = selectedAssetNodes[0];
@@ -8695,7 +8713,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
   // Inject isEditing flag into the target node's data so AssetNodeComponent can show the mask
   const selectedImageNodeIds = selectedNodeIds.filter(id => nodes.some(n => n.id === id && n.type === "asset"));
+  const selectedVisualNodeIds = selectedNodeIds.filter(id => nodes.some(n => n.id === id && (n.type === "asset" || n.type === "canvasFrame")));
   const multiImageSelectionActive = selectedImageNodeIds.length > 1;
+  const multiVisualSelectionActive = selectedVisualNodeIds.length > 1;
 
   // 文字节点选中状态
   const selectedTextNodeIds = selectedNodeIds.filter(id => nodes.some(n => n.id === id && n.type === "text"));
@@ -8826,9 +8846,20 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     }
   }, [editAsset, nodesRef, runDerivedImageGeneration]);
   const handleSingleImageToolbarAction = useCallback(async (action: string) => {
-    const nodeId = selectedImageNodeIds[0];
+    const nodeId = selectedVisualNodeIds[0];
     if (!nodeId) return;
-    const targetNode = nodesRef.current.find(n => n.id === nodeId && n.type === "asset");
+    const targetNode = nodesRef.current.find(n => n.id === nodeId && (n.type === "asset" || n.type === "canvasFrame"));
+    const isCanvasFrame = targetNode?.type === "canvasFrame";
+    if (isCanvasFrame) {
+      if (["quick-edit", "edit-elements", "edit-text", "multi-angle", "move-object"].includes(action)) {
+        toast("画布命令", { description: "画布节点已复用图片节点命令框架，可拖动、缩放、复制、删除与调整层级" });
+        return;
+      }
+      if (["upscale", "remove-background", "erase"].includes(action)) {
+        toast("画布节点暂不支持该 AI 图片处理", { description: "请选择具体图片节点后使用此命令" });
+        return;
+      }
+    }
     if (action === "quick-edit") {
       handleNodeAction("edit-asset", nodeId);
       return;
@@ -9029,7 +9060,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       more: "更多",
     };
     toast(labels[action] || "功能即将上线", { description: "已保留 Lovart 命令入口，后续可接入对应 AI 处理能力" });
-  }, [handleNodeAction, nodesRef, pushHistory, selectedImageNodeIds, setNodes]);
+  }, [handleNodeAction, nodesRef, pushHistory, selectedVisualNodeIds, setNodes]);
   const handleAssetMorePanelApply = useCallback((label: string, adjustments?: AssetAdjustmentValues) => {
     if (!assetMorePanel) return;
     pushHistory();
@@ -9098,8 +9129,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     toast(label, { description: "已应用到当前图片节点" });
     setAssetMorePanel(null);
   }, [assetMorePanel, pushHistory, setNodes]);
-  const selectedImageNode = selectedImageNodeIds.length === 1 ? nodes.find(n => n.id === selectedImageNodeIds[0] && n.type === "asset") : null;
-  const selectedImageBounds = selectedImageNode ? getCanvasNodeBounds(selectedImageNode) : getCanvasNodesBounds(nodes, selectedImageNodeIds);
+  const selectedImageNode = selectedVisualNodeIds.length === 1 ? nodes.find(n => n.id === selectedVisualNodeIds[0] && (n.type === "asset" || n.type === "canvasFrame")) : null;
+  const selectedImageBounds = selectedImageNode ? getCanvasNodeBounds(selectedImageNode) : getCanvasNodesBounds(nodes, selectedVisualNodeIds);
   const attachedImageToolbarPosition = selectedImageBounds
     ? {
         left: selectedImageBounds.x * viewport.zoom + viewport.x - 8,
@@ -9290,7 +9321,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         helpPromptNonce={helpPromptNonce}
       />
 
-      {selectedImageNodeIds.length === 1 && !multiImageSelectionActive && (
+      {selectedVisualNodeIds.length === 1 && !multiVisualSelectionActive && (
         <AssetFloatingToolbar
           isDark={isDark}
           position={attachedImageToolbarPosition}
@@ -9308,11 +9339,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         />
       )}
 
-      {multiImageSelectionActive && (
+      {multiVisualSelectionActive && (
         <MultiSelectionFloatingToolbar
           isDark={isDark}
-          count={selectedImageNodeIds.length}
-          grouped={areNodesGrouped(selectedImageNodeIds)}
+          count={selectedVisualNodeIds.length}
+          grouped={areNodesGrouped(selectedVisualNodeIds)}
           position={attachedImageToolbarPosition}
           onAction={(action) => handleNodeAction(action, "__selection__")}
         />
