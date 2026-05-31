@@ -144,3 +144,35 @@ export async function eraseImageObjects({
 
   return { images: result.images || [] };
 }
+
+export async function expandImageWithMask({
+  imageSrc,
+  maskSrc,
+  model = "gpt-image-2",
+  prompt,
+}: {
+  imageSrc: string;
+  maskSrc: string;
+  model?: string;
+  prompt?: string;
+}) {
+  const baseUrl = getAiApiBaseUrl();
+  const endpoint = `${baseUrl}/api/images/erase`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      imageSrc,
+      maskSrc,
+      model,
+      prompt: prompt || "Extend the image naturally only inside the masked blank area. Preserve all unmasked pixels exactly and never generate beyond the requested boundary.",
+    }),
+  });
+
+  const result = await readJsonResponse<ApiErrorResponse & { images?: GeneratedImageResult[] }>(response, "AI 扩展失败");
+  if (!response.ok) {
+    throw new Error(result.error || result.message || "AI 扩展失败");
+  }
+
+  return { images: result.images || [] };
+}
