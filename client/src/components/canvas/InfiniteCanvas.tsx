@@ -69,7 +69,7 @@ function CreateCanvasIcon({ size = 17 }: { size?: number }) {
 import { useLocation } from "wouter";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
-import { GENERATED_ASSETS, IMAGE_AI_MODELS, TEXT_AI_MODELS, PROJECTS, type GeneratedAsset, type Project } from "@/lib/workspace-data";
+import { GENERATED_ASSETS, IMAGE_AI_MODELS, PROJECTS, type GeneratedAsset, type Project } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { callLLM, eraseImageObjects, expandImageWithMask, generateImages as generateAiImages, removeImageBackground } from "@/lib/ai";
@@ -5280,7 +5280,7 @@ function ImageGeneratorPopover({ isDark, onClose }: { isDark: boolean; onClose: 
 }
 
 // ── Canvas Top Tool Palette ─────────────────────────────────────
-function CanvasTopToolPalette({ isDark }: { isDark: boolean }) {
+function CanvasTopToolPalette({ isDark, onImageGeneratorOpenChange }: { isDark: boolean; onImageGeneratorOpenChange?: (open: boolean) => void }) {
   const [active, setActive] = useState("move");
   const [shapeOpen, setShapeOpen] = useState(false);
   const [drawOpen, setDrawOpen] = useState(false); // 铅笔子菜单
@@ -5295,6 +5295,10 @@ function CanvasTopToolPalette({ isDark }: { isDark: boolean }) {
     window.addEventListener("pane-click", handler);
     return () => window.removeEventListener("pane-click", handler);
   }, []);
+
+  useEffect(() => {
+    onImageGeneratorOpenChange?.(imageGeneratorOpen);
+  }, [imageGeneratorOpen, onImageGeneratorOpenChange]);
 
   // 同步外部工具模式变化（如 undo 后保持 smart-canvas 选中）
   useEffect(() => {
@@ -5362,6 +5366,15 @@ function CanvasTopToolPalette({ isDark }: { isDark: boolean }) {
       setDrawOpen(false);
       setActive(id);
       window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: id } }));
+      return;
+    }
+    if (id === "upload") {
+      setShapeOpen(false);
+      setDrawOpen(false);
+      setImageGeneratorOpen(false);
+      setActive("move");
+      window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
+      window.dispatchEvent(new CustomEvent("workspace-upload-request"));
       return;
     }
     setShapeOpen(false);
@@ -5635,10 +5648,11 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
   const [commandMenuOpen, setCommandMenuOpen] = useState(false);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
   const [netSearchEnabled, setNetSearchEnabled] = useState(false);
+  const canvasAssistantModels = IMAGE_AI_MODELS;
   const [assistantModelId, setAssistantModelId] = useState(() => {
-    if (typeof window === "undefined") return "gpt-4o";
+    if (typeof window === "undefined") return "gpt-image-2";
     const stored = window.localStorage.getItem(CANVAS_ASSISTANT_MODEL_STORAGE_KEY);
-    return TEXT_AI_MODELS.some(model => model.id === stored) ? stored! : "gpt-4o";
+    return canvasAssistantModels.some(model => model.id === stored) ? stored! : "gpt-image-2";
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [regeneratingMessageId, setRegeneratingMessageId] = useState<string | null>(null);
@@ -5680,7 +5694,7 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
   const hasContext = selectedCount > 0 || referencedAssets.length > 0;
   const canSubmit = (hasPrompt || hasContext) && !isSubmitting;
   const contextLabel = selectedCount > 1 ? `已选中 ${selectedCount} 个对象` : selectedCount === 1 ? "已选中 1 个对象" : referencedAssets.length > 0 ? `引用素材 ${referencedAssets.length} 个` : "";
-  const assistantModel = TEXT_AI_MODELS.find(model => model.id === assistantModelId) || TEXT_AI_MODELS[0];
+  const assistantModel = canvasAssistantModels.find(model => model.id === assistantModelId) || canvasAssistantModels[0];
   const runAssistantCapability = async (module: string, instruction: string) => {
     if (isSubmitting) return;
     const userMessage = {
@@ -6202,7 +6216,7 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
                       <div className="px-3 py-2 border-b" style={{ borderColor: border }}>
                         <p className="type-caption uppercase tracking-wider" style={{ color: sub }}>选择模型</p>
                       </div>
-                      {TEXT_AI_MODELS.map(model => (
+                      {canvasAssistantModels.map(model => (
                         <button
                           key={model.id}
                           type="button"
@@ -6408,6 +6422,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [isAssistantCollapsed, setIsAssistantCollapsed] = useState(false);
   const [helpPromptNonce, setHelpPromptNonce] = useState(0);
+  const [imageGeneratorModalOpen, setImageGeneratorModalOpen] = useState(false);
   const [isCanvasLocked, setIsCanvasLocked] = useState(false);
   // ── Edit-asset state: zoom in on canvas then show editing prompt bar ──
   const [editAsset, setEditAsset] = useState<{ id: string; title: string; src: string; nodeId: string } | null>(null);
@@ -6704,6 +6719,20 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setAssetMorePanel(current => current && keep.has(current.nodeId) ? current : null);
     setEditAsset(current => current && keep.has(current.nodeId) ? current : null);
   }, [clearAssetCommandState, setNodes]);
+
+  useEffect(() => {
+    if (!imageGeneratorModalOpen) return;
+    setNodeCtxMenu(null);
+    setShapeCtxMenu(null);
+    setAssetMorePanel(null);
+    setEditAsset(null);
+    setPendingProject(null);
+    setDownloadDialogOpen(false);
+    setPendingRect(null);
+    setDrawingRect(null);
+    setPresetOpen(false);
+    clearInactiveAssetCommands([]);
+  }, [clearInactiveAssetCommands, imageGeneratorModalOpen]);
 
   const cloneEdgesForHistory = useCallback((items: Edge[]) => items.map(edge => ({
     ...edge,
@@ -7752,11 +7781,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       setEnteringGroupId(null);
       setSelectedNodeIds([]);
       toast("已退出打组");
-    }
-    // 上传模式：记录点击坐标并弹出文件选择框
-    if (activeToolMode === "upload") {
-      uploadClickPosRef.current = { x: e.clientX, y: e.clientY };
-      uploadInputRef.current?.click();
     }
     // 文字工具：点击画布创建文字节点，创建后自动切换回移动工具
     if (activeToolMode === "text") {
@@ -9460,11 +9484,30 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       {/* Custom zoom controls — vertical bar matching preview toolbar style */}
       <ZoomControlBar isDark={isDark} locked={isCanvasLocked} onLockedChange={setIsCanvasLocked} />
 
+      {imageGeneratorModalOpen && (
+        <div
+          className="absolute inset-0 nodrag nopan"
+          style={{ zIndex: 1290, background: "rgba(0,0,0,0.08)", cursor: "default" }}
+          onMouseDown={event => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onClick={event => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onContextMenu={event => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+        />
+      )}
+
       {/* Canvas top tool palette — centered above the canvas area */}
-      <CanvasTopToolPalette isDark={isDark} />
+      <CanvasTopToolPalette isDark={isDark} onImageGeneratorOpenChange={setImageGeneratorModalOpen} />
 
       {/* Back button — top-left */}
-      <BackButton isDark={isDark} />
+      {!imageGeneratorModalOpen && <BackButton isDark={isDark} />}
 
 
       {/* C-key lasso eraser — hidden while node connections are temporarily disabled */}
