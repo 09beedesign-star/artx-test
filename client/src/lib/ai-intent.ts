@@ -1,11 +1,13 @@
 import { callLLM, generateImages, type GeneratedImageResult } from "@/lib/ai";
 
-export type CreativeIntentMode = "text" | "image";
+export type CreativeIntentMode = "text" | "image" | "reference_search";
 
 export type CreativeIntentDecision = {
   mode: CreativeIntentMode;
   reply?: string;
   imagePrompt?: string;
+  searchQuery?: string;
+  followUp?: string;
   reason?: string;
   confidence?: "high" | "medium" | "low";
 };
@@ -17,6 +19,7 @@ type RouteCreativeIntentInput = {
   referencedAssets?: Array<{ title?: string; src: string }>;
   recentMessages?: Array<{ role: "user" | "assistant"; content: string }>;
   preferImageWhenReferences?: boolean;
+  allowReferenceSearch?: boolean;
 };
 
 const DIRECT_IMAGE_PATTERN =
@@ -39,6 +42,15 @@ function extractJsonObject(raw: string) {
 
 export function inferCreativeIntentDecision(raw: string, fallbackPrompt: string): CreativeIntentDecision {
   const parsed = extractJsonObject(raw);
+  if (parsed?.mode === "reference_search") {
+    return {
+      mode: "reference_search",
+      searchQuery: parsed.searchQuery?.trim() || fallbackPrompt,
+      followUp: parsed.followUp?.trim(),
+      reason: parsed.reason,
+      confidence: parsed.confidence,
+    };
+  }
   if (parsed?.mode === "image") {
     return {
       mode: "image",
@@ -65,9 +77,27 @@ export async function routeCreativeIntent({
   referencedAssets = [],
   recentMessages = [],
   preferImageWhenReferences = true,
+  allowReferenceSearch = false,
 }: RouteCreativeIntentInput): Promise<CreativeIntentDecision> {
   const trimmedPrompt = prompt.trim();
   const hasReferences = referencedAssets.length > 0;
+  const maybeBroadNoun =
+    allowReferenceSearch &&
+    !hasReferences &&
+    trimmedPrompt.length > 0 &&
+    trimmedPrompt.length <= 18 &&
+    !/[，。！？,.!?]/.test(trimmedPrompt) &&
+    !/怎么|如何|分析|解释|优化|生成|做|画|海报|图片|图像|视觉|封面|主图|logo|插画|配色|排版|文案/i.test(trimmedPrompt);
+
+  if (maybeBroadNoun) {
+    return {
+      mode: "reference_search",
+      searchQuery: trimmedPrompt,
+      followUp: `我先帮你抓取一组「${trimmedPrompt}」参考图，你先选几张最接近你想法的方向，我再继续追问或直接帮你生成。`,
+      reason: "命中宽泛名词参考搜索",
+      confidence: "high",
+    };
+  }
 
   if (trimmedPrompt && DIRECT_IMAGE_PATTERN.test(trimmedPrompt)) {
     return {
@@ -107,6 +137,12 @@ export async function routeCreativeIntent({
       "你的目标是像成熟的创意画布产品一样，精准判断当前请求更适合文字回复还是直接生成图片。",
       "只返回 JSON，不要 Markdown，不要额外解释。",
       "JSON 格式：{\"mode\":\"text|image\",\"reply\":\"文字回复内容\",\"imagePrompt\":\"适合图片模型的提示词\",\"reason\":\"一句话原因\",\"confidence\":\"high|medium|low\"}",
+      allowReferenceSearch
+        ? "当用户只提到一个宽泛对象、名词、品类、角色、题材，而没有明确风格与构图时，优先返回 reference_search，并提供 searchQuery 与 followUp。"
+        : "",
+      allowReferenceSearch
+        ? "reference_search JSON 格式补充：{\"mode\":\"reference_search\",\"searchQuery\":\"用于抓参考图的关键词\",\"followUp\":\"让用户先选参考图再继续描述的引导语\"}"
+        : "",
       "当用户想要结果图、视觉物料、海报、封面、主视觉、扩图、参考图延展、品牌图、产品图时，优先选择 image。",
       "当用户想要解释、分析、建议、优化、拆解、问答时，优先选择 text。",
       "如果有参考图片，且用户在继续创作、继续做图、延展、变体、改图，优先选择 image。",

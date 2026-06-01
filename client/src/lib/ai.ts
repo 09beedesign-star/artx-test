@@ -16,6 +16,15 @@ export type GeneratedImageResult = {
   height: number;
 };
 
+export type ReferenceImageResult = {
+  id: string;
+  title: string;
+  src: string;
+  width: number;
+  height: number;
+  source: string;
+};
+
 function getAiApiBaseUrl() {
   return import.meta.env.VITE_AI_API_BASE_URL?.replace(/\/+$/, "") || "";
 }
@@ -60,6 +69,29 @@ export async function callLLM({
   }
 
   return result as { text: string; model: string };
+}
+
+export async function searchReferenceImages({
+  query,
+  limit = 10,
+}: {
+  query: string;
+  limit?: number;
+}) {
+  const baseUrl = getAiApiBaseUrl();
+  const endpoint = `${baseUrl}/api/references/search`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query, limit }),
+  });
+
+  const result = await readJsonResponse<ApiErrorResponse & { images?: ReferenceImageResult[] }>(response, "参考图抓取失败");
+  if (!response.ok) {
+    throw new Error(result.error || result.message || "参考图抓取失败");
+  }
+
+  return { images: result.images || [] };
 }
 
 export async function generateImages({

@@ -3,6 +3,7 @@ import { createServer } from "http";
 import path from "path";
 import { fileURLToPath } from "url";
 import { editImageWithPrompt, eraseImageObjects, generateImages, removeImageBackground } from "./image-generation";
+import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
 import { handleAuthAction } from "./auth-store";
 
@@ -82,6 +83,18 @@ async function startServer() {
       res.json(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : "AI request failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.post("/api/references/search", async (req, res) => {
+    try {
+      const query = typeof req.body?.query === "string" ? req.body.query : "";
+      const limit = typeof req.body?.limit === "number" ? req.body.limit : 10;
+      const result = await searchReferenceImages(query, limit);
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Reference search failed";
       res.status(500).json({ error: message });
     }
   });

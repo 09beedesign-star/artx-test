@@ -72,7 +72,7 @@ import { saveAs } from "file-saver";
 import { GENERATED_ASSETS, IMAGE_AI_MODELS, PROJECTS, type GeneratedAsset, type Project } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { callLLM, editImageWithPrompt, eraseImageObjects, expandImageWithMask, generateImages as generateAiImages, removeImageBackground } from "@/lib/ai";
+import { callLLM, editImageWithPrompt, eraseImageObjects, expandImageWithMask, generateImages as generateAiImages, removeImageBackground, searchReferenceImages, type ReferenceImageResult } from "@/lib/ai";
 import { routeCreativeIntent } from "@/lib/ai-intent";
 import { createWorkspaceHistoryProject, updateWorkspaceProjectHistory } from "@/lib/project-history";
 
@@ -3857,6 +3857,13 @@ type ImageGeneratorPayload = {
   titleBase?: string;
 };
 
+type ElementLayerPlan = {
+  foregroundPrompt: string;
+  backgroundPrompt: string;
+  extractedText: string;
+  textStyleHint?: string;
+};
+
 // ── Initial data ───────────────────────────────────────────────
 const DEFAULT_ASSET_TAGS = ["默认 icon", "灰色容器"];
 
@@ -5676,6 +5683,9 @@ type CanvasAssistantMessage = {
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
+  referenceOptions?: Array<ReferenceImageResult & { selected?: boolean }>;
+  referenceSearchQuery?: string;
+  followUpPrompt?: string;
   imageBackup?: {
     nodeId: string;
     generationId: string;
@@ -5729,7 +5739,7 @@ function deserializeCanvasAssistantMessages(raw: string | null): CanvasAssistant
   }
 }
 
-function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, onToggleCollapsed, onLoginRequest, referencedAssets, onRemoveReference, selectedCount, helpPromptNonce }: { projectId: string; isDark: boolean; collapsed: boolean; isAuthenticated: boolean; onToggleCollapsed: () => void; onLoginRequest: () => void; referencedAssets: { id: string; title: string; src: string }[]; onRemoveReference: (id: string) => void; selectedCount: number; helpPromptNonce: number }) {
+function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, onToggleCollapsed, onLoginRequest, referencedAssets, onRemoveReference, onMergeReferences, selectedCount, helpPromptNonce }: { projectId: string; isDark: boolean; collapsed: boolean; isAuthenticated: boolean; onToggleCollapsed: () => void; onLoginRequest: () => void; referencedAssets: { id: string; title: string; src: string }[]; onRemoveReference: (id: string) => void; onMergeReferences: (assets: { id: string; title: string; src: string }[]) => void; selectedCount: number; helpPromptNonce: number }) {
   const [, navigate] = useLocation();
   const [inputFocused, setInputFocused] = useState(false);
   const [prompt, setPrompt] = useState("");
@@ -5748,6 +5758,7 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [regeneratingMessageId, setRegeneratingMessageId] = useState<string | null>(null);
+  const [selectedReferenceIds, setSelectedReferenceIds] = useState<string[]>([]);
   const [messages, setMessages] = useState<CanvasAssistantMessage[]>(() => {
     const stored = typeof window === "undefined" ? [] : deserializeCanvasAssistantMessages(window.localStorage.getItem(canvasAssistantMessagesStorageKey(projectId)));
     return stored.length > 0 ? stored : [
@@ -5790,6 +5801,32 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
   const canSubmit = (hasPrompt || hasContext) && !isSubmitting;
   const contextLabel = selectedCount > 1 ? `已选中 ${selectedCount} 个对象` : selectedCount === 1 ? "已选中 1 个对象" : referencedAssets.length > 0 ? `引用素材 ${referencedAssets.length} 个` : "";
   const assistantModel = canvasAssistantModels.find(model => model.id === assistantModelId) || canvasAssistantModels[0];
+
+  const handleReferenceSelectionToggle = useCallback((referenceId: string) => {
+    setSelectedReferenceIds(prev => (
+      prev.includes(referenceId)
+        ? prev.filter(id => id !== referenceId)
+        : [...prev, referenceId]
+    ));
+  }, []);
+
+  const handleReferenceSelectionApply = useCallback((message: CanvasAssistantMessage) => {
+    const selected = (message.referenceOptions || []).filter(item => selectedReferenceIds.includes(item.id));
+    if (selected.length === 0) {
+      toast("请先选择参考图");
+      return;
+    }
+    const merged = new Map(referencedAssets.map(item => [item.id, item]));
+    selected.forEach(item => merged.set(item.id, { id: item.id, title: item.title, src: item.src }));
+    onMergeReferences(Array.from(merged.values()));
+    setMessages(prev => [...prev, {
+      id: `assistant-followup-${Date.now()}`,
+      role: "assistant",
+      content: message.followUpPrompt || "我已经记住你选中的参考图了。接下来告诉我你更想保留哪些特征，比如风格、构图、颜色、材质或主体姿态，我再决定继续追问还是直接出图。",
+      timestamp: new Date(),
+    }]);
+    setSelectedReferenceIds([]);
+  }, [onMergeReferences, referencedAssets, selectedReferenceIds]);
   const runAssistantCapability = async (module: string, instruction: string) => {
     if (isSubmitting) return;
     const userMessage = {
@@ -6034,9 +6071,22 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
         referencedAssets: referencedAssets.map(asset => ({ src: asset.src, title: asset.title })),
         recentMessages: messages.slice(-8).map(message => ({ role: message.role, content: message.content })),
         preferImageWhenReferences: true,
+        allowReferenceSearch: true,
       });
 
-      if (decision.mode === "image") {
+      if (decision.mode === "reference_search") {
+        const searchQuery = decision.searchQuery?.trim() || submittedText;
+        const result = await searchReferenceImages({ query: searchQuery, limit: 10 });
+        setMessages(prev => [...prev, {
+          id: `assistant-reference-${Date.now()}`,
+          role: "assistant",
+          content: decision.followUp || `我先帮你抓了 ${result.images.length} 张「${searchQuery}」参考图，你先选几张最接近你想法的方向，我再继续追问或直接出图。`,
+          timestamp: new Date(),
+          referenceOptions: result.images,
+          referenceSearchQuery: searchQuery,
+          followUpPrompt: `我已经记住你选中的「${searchQuery}」参考图了。接下来告诉我你最想保留的风格、构图、色彩或主体特征，我会继续判断是追问还是直接出图。`,
+        }]);
+      } else if (decision.mode === "image") {
         const imagePrompt = decision.imagePrompt?.trim() || submittedText;
         const generationId = `right-assistant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         const payload: ImageGeneratorPayload = {
@@ -6171,7 +6221,61 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
                           <p className="type-caption leading-5" style={{ color: sub }}>双击气泡可定位或找回图片</p>
                         </div>
                       ) : (
-                        <p className="type-caption leading-6 whitespace-pre-wrap" style={{ color: isUser ? "white" : text }}>{message.content}</p>
+                        <div className="flex flex-col gap-3">
+                          <p className="type-caption leading-6 whitespace-pre-wrap" style={{ color: isUser ? "white" : text }}>{message.content}</p>
+                          {message.referenceOptions && message.referenceOptions.length > 0 && (
+                            <div className="flex flex-col gap-3">
+                              <div className="grid grid-cols-2 gap-2">
+                                {message.referenceOptions.map((item) => {
+                                  const active = selectedReferenceIds.includes(item.id);
+                                  return (
+                                    <button
+                                      key={item.id}
+                                      type="button"
+                                      className="overflow-hidden rounded-[var(--radius-md-design)] text-left transition-all"
+                                      style={{
+                                        border: `1px solid ${active ? "oklch(0.66 0.18 285 / 0.58)" : border}`,
+                                        background: active ? "oklch(0.62 0.20 285 / 0.10)" : "transparent",
+                                        boxShadow: active ? "0 0 0 2px oklch(0.62 0.20 285 / 0.12)" : "none",
+                                      }}
+                                      onClick={() => handleReferenceSelectionToggle(item.id)}
+                                    >
+                                      <img
+                                        src={item.src}
+                                        alt={item.title}
+                                        draggable={false}
+                                        className="w-full"
+                                        style={{ aspectRatio: "1 / 1", objectFit: "cover" }}
+                                      />
+                                      <div className="px-2 py-2">
+                                        <p className="type-caption truncate" style={{ color: text, fontWeight: 600 }}>{item.title}</p>
+                                        <p className="type-caption truncate" style={{ color: sub }}>{item.source}</p>
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="type-caption" style={{ color: sub }}>
+                                  已选 {selectedReferenceIds.length} 张参考图
+                                </span>
+                                <button
+                                  type="button"
+                                  className="rounded-[var(--radius-md-design)] px-3 py-1.5 type-caption transition-opacity hover:opacity-85"
+                                  style={{
+                                    background: "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.70 0.18 205))",
+                                    color: "white",
+                                    opacity: selectedReferenceIds.length > 0 ? 1 : 0.5,
+                                  }}
+                                  disabled={selectedReferenceIds.length === 0}
+                                  onClick={() => handleReferenceSelectionApply(message)}
+                                >
+                                  确认参考图
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
                     <div className="mt-2 flex items-center gap-2" style={{ justifyContent: isUser ? "flex-end" : "flex-start" }}>
@@ -6555,6 +6659,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [pendingProject, setPendingProject] = useState<Project | null>(null);
   // ── Referenced assets: auto-populated from selected image nodes ──
   const [referencedAssets, setReferencedAssets] = useState<{ id: string; title: string; src: string }[]>([]);
+  const mergeReferencedAssets = useCallback((assets: { id: string; title: string; src: string }[]) => {
+    setReferencedAssets(assets);
+  }, []);
 
   useEffect(() => {
     const saved = safeReadCanvasState(projectId);
@@ -6634,6 +6741,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     nextH,
     displayW,
     displayH,
+    placement,
     run,
   }: {
     sourceNode: Node;
@@ -6643,6 +6751,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     nextH: number;
     displayW?: number;
     displayH?: number;
+    placement?: { x: number; y: number };
     run: () => Promise<{ images: Array<{ src: string; width: number; height: number }> }>;
   }) => {
     const resolvedDisplayW = Math.max(1, Math.round(displayW ?? getCanvasNodeSize(sourceNode).width));
@@ -6656,7 +6765,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       style,
       referencesEnabled: false,
       generationId,
-      placement: getDerivedImagePlacement(sourceNode, resolvedDisplayW, resolvedDisplayH),
+      placement: placement || getDerivedImagePlacement(sourceNode, resolvedDisplayW, resolvedDisplayH),
       displaySize: { w: resolvedDisplayW, h: resolvedDisplayH },
       titleBase: style,
     };
@@ -6692,6 +6801,46 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       imgH: backup.height,
     },
   }), []);
+
+  const createExtractedTextNode = useCallback((sourceNode: Node, text: string, placement?: { x: number; y: number }, styleHint?: string): Node => {
+    const sourceSize = getCanvasNodeSize(sourceNode);
+    const lines = text.split(/\r?\n/).filter(Boolean);
+    const longestLine = lines.reduce((max, line) => Math.max(max, line.length), 0);
+    const compactHint = (styleHint || "").toLowerCase();
+    const fontSize = compactHint.includes("small") ? 22 : compactHint.includes("headline") ? 36 : 28;
+    const width = Math.min(Math.max(280, longestLine * Math.max(14, fontSize * 0.72)), Math.max(360, sourceSize.width));
+    const height = Math.max(120, Math.min(sourceSize.height, lines.length * Math.round(fontSize * 1.7) + 40));
+    const nextPosition = placement || {
+      x: sourceNode.position.x + sourceSize.width + 36,
+      y: sourceNode.position.y,
+    };
+    const id = `text-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    return {
+      id,
+      type: "text" as const,
+      position: nextPosition,
+      style: { width, minHeight: height },
+      data: {
+        id,
+        text,
+        fontFamily: "Inter",
+        fontSize,
+        fontWeight: compactHint.includes("bold") || compactHint.includes("headline") ? 600 : 400,
+        color: isDark ? "#ffffff" : "#151522",
+        textAlign: "left",
+        lineHeight: 1.35,
+        letterSpacing: 0,
+        textDecoration: "none",
+        textTransform: "none",
+        strokeColor: "",
+        strokeWidth: 0,
+        width,
+        height,
+        isEditing: false,
+      },
+      selected: false,
+    };
+  }, [isDark]);
 
   const focusGeneratedImageNode = useCallback((nodeId: string) => {
     setNodes(nds => nds.map(n => ({ ...n, selected: n.id === nodeId })));
@@ -9387,6 +9536,113 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       }
       return;
     }
+    if (action === "edit-elements") {
+      const assetNode = nodesRef.current.find(n => n.id === nodeId && n.type === "asset");
+      if (!assetNode) return;
+      const data = assetNode.data as Record<string, unknown>;
+      const asset = GENERATED_ASSETS.find(item => item.id === data.assetId) || GENERATED_ASSETS[0];
+      const imageSrc = (data.localSrc as string | undefined) || asset?.src;
+      if (!imageSrc) {
+        toast("编辑元素失败", { description: "当前图片没有可处理的图像来源" });
+        return;
+      }
+
+      const sourceSize = getCanvasNodeSize(assetNode);
+      const baseX = assetNode.position.x + sourceSize.width + 36;
+      const baseY = assetNode.position.y;
+
+      toast("AI 编辑元素中", { description: "正在拆分主体层、背景层和文案层" });
+      try {
+        const planner = await callLLM({
+          module: "image-edit-elements-plan",
+          model: "gpt-4o",
+          images: [{ src: imageSrc, title: typeof data.title === "string" ? data.title : "选中图片" }],
+          prompt: [
+            "你正在为设计画布生成图片分层计划。",
+            "请识别这张图里的前景主体、背景区域，以及画面里可见的文案。",
+            "返回严格 JSON，不要使用代码块，不要附加解释。",
+            "JSON 结构：",
+            "{\"foregroundPrompt\":\"...\",\"backgroundPrompt\":\"...\",\"extractedText\":\"...\",\"textStyleHint\":\"...\"}",
+            "foregroundPrompt：用于生成一张只保留前景主体、背景透明或极弱化的图片编辑提示词。",
+            "backgroundPrompt：用于生成一张移除主体和主要文案后的干净背景层提示词。",
+            "extractedText：把画面中的全部可读文案按原顺序输出；若没有则输出空字符串。",
+            "textStyleHint：简要描述文案层适合的排版气质，比如 headline、small、bold。",
+          ].join("\n"),
+        });
+
+        let parsedPlan: ElementLayerPlan | null = null;
+        try {
+          parsedPlan = JSON.parse(planner.text) as ElementLayerPlan;
+        } catch {
+          parsedPlan = null;
+        }
+
+        const fallbackPlan: ElementLayerPlan = {
+          foregroundPrompt: "Extract the main foreground subject from the image as a standalone layer. Keep the subject identity, edge details, lighting, and texture intact. Remove or minimize the background and return a clean isolated subject on transparent or nearly transparent background.",
+          backgroundPrompt: "Remove the main subject and any visible text from the image, then reconstruct a clean background plate that matches the original perspective, lighting, color, and texture naturally, without leaving retouch traces.",
+          extractedText: "",
+          textStyleHint: "headline",
+        };
+        const resolvedPlan: ElementLayerPlan = {
+          ...fallbackPlan,
+          ...(parsedPlan || {}),
+          foregroundPrompt: parsedPlan?.foregroundPrompt?.trim() || fallbackPlan.foregroundPrompt,
+          backgroundPrompt: parsedPlan?.backgroundPrompt?.trim() || fallbackPlan.backgroundPrompt,
+          extractedText: parsedPlan?.extractedText?.trim() || "",
+          textStyleHint: parsedPlan?.textStyleHint?.trim() || fallbackPlan.textStyleHint,
+        };
+
+        await runDerivedImageGeneration({
+          sourceNode: assetNode,
+          prompt: resolvedPlan.foregroundPrompt,
+          style: "主体层",
+          nextW: Number(data.imgW || sourceSize.width),
+          nextH: Number(data.imgH || sourceSize.height),
+          placement: { x: baseX, y: baseY },
+          run: async () => removeImageBackground({
+            imageSrc,
+            model: "gpt-image-2",
+            prompt: resolvedPlan.foregroundPrompt,
+          }),
+        });
+
+        await runDerivedImageGeneration({
+          sourceNode: assetNode,
+          prompt: resolvedPlan.backgroundPrompt,
+          style: "背景层",
+          nextW: Number(data.imgW || sourceSize.width),
+          nextH: Number(data.imgH || sourceSize.height),
+          placement: { x: baseX, y: baseY + sourceSize.height + 28 },
+          run: async () => editImageWithPrompt({
+            imageSrc,
+            model: "gpt-image-2",
+            prompt: resolvedPlan.backgroundPrompt,
+          }),
+        });
+
+        if (resolvedPlan.extractedText) {
+          pushHistory();
+          const textNode = createExtractedTextNode(
+            assetNode,
+            resolvedPlan.extractedText,
+            { x: baseX, y: baseY + (sourceSize.height + 28) * 2 },
+            resolvedPlan.textStyleHint,
+          );
+          setNodes(nds => [...nds.map(n => ({ ...n, selected: false })), { ...textNode, selected: true }]);
+          setSelectedNodeIds([textNode.id]);
+        }
+
+        toast("编辑元素完成", {
+          description: resolvedPlan.extractedText
+            ? "已生成主体层、背景层和可编辑文案层，原图保持不变"
+            : "已生成主体层和背景层，当前图片未识别到可拆分文案",
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "请稍后重试";
+        toast("编辑元素失败", { description: message });
+      }
+      return;
+    }
     if (action === "move-object") {
       window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
       toast("移动对象", { description: "拖动画布中的选中图片即可移动位置" });
@@ -9442,7 +9698,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       more: "更多",
     };
     toast(labels[action] || "功能即将上线", { description: "已保留 Lovart 命令入口，后续可接入对应 AI 处理能力" });
-  }, [clearAssetCommandState, clearInactiveAssetCommands, handleNodeAction, nodesRef, pushHistory, selectedVisualNodeIds, setNodes]);
+  }, [clearAssetCommandState, clearInactiveAssetCommands, createExtractedTextNode, handleNodeAction, nodesRef, pushHistory, runDerivedImageGeneration, selectedVisualNodeIds, setNodes]);
   const handleAssetMorePanelApply = useCallback((label: string, adjustments?: AssetAdjustmentValues) => {
     if (!assetMorePanel) return;
     pushHistory();
@@ -9701,6 +9957,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         onToggleCollapsed={() => setIsAssistantCollapsed(value => !value)}
         referencedAssets={referencedAssets}
         onRemoveReference={(id) => setReferencedAssets(prev => prev.filter(r => r.id !== id))}
+        onMergeReferences={mergeReferencedAssets}
         selectedCount={selectedNodeIds.length}
         helpPromptNonce={helpPromptNonce}
       />
