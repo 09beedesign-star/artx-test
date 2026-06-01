@@ -3995,6 +3995,25 @@ function getCanvasStateCover(nodes: Node[]) {
   return imageNode ? ((imageNode.data as Record<string, unknown>).localSrc as string) : null;
 }
 
+function getImportedImageDisplaySize(naturalWidth: number, naturalHeight: number) {
+  const width = Math.max(1, naturalWidth || 360);
+  const height = Math.max(1, naturalHeight || 360);
+  const maxSide = 360;
+  const minSide = 120;
+  const scale = Math.min(0.5, maxSide / Math.max(width, height));
+  const scaledWidth = Math.max(1, Math.round(width * scale));
+  const scaledHeight = Math.max(1, Math.round(height * scale));
+  if (Math.min(scaledWidth, scaledHeight) >= minSide) {
+    return { width: scaledWidth, height: scaledHeight };
+  }
+  const minScale = minSide / Math.min(width, height);
+  const finalScale = Math.min(minScale, maxSide / Math.max(width, height));
+  return {
+    width: Math.max(1, Math.round(width * finalScale)),
+    height: Math.max(1, Math.round(height * finalScale)),
+  };
+}
+
 // ── Bottom AI Prompt Bar ───────────────────────────────────────
 function BottomPromptBar({
   isDark,
@@ -7475,8 +7494,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             y: baseScreenY + offsetY,
           });
           const id = `upload-${Date.now()}-${index}`;
-          const nodeWidth = Math.max(1, Math.round(img.naturalWidth || 360));
-          const nodeHeight = Math.max(1, Math.round(img.naturalHeight || 360));
+          const { width: nodeWidth, height: nodeHeight } = getImportedImageDisplaySize(img.naturalWidth, img.naturalHeight);
           setNodes(nds => [...nds, {
             id,
             type: "asset",
@@ -8624,8 +8642,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         img.onload = () => {
           const dropPos = screenToFlowPosition({ x: (rect?.left || 0) + baseX + index * 32, y: (rect?.top || 0) + baseY + index * 32 });
           const id = `local-${Date.now()}-${index}`;
-          const nodeWidth = Math.max(1, Math.round(img.naturalWidth || 360));
-          const nodeHeight = Math.max(1, Math.round(img.naturalHeight || 360));
+          const { width: nodeWidth, height: nodeHeight } = getImportedImageDisplaySize(img.naturalWidth, img.naturalHeight);
           setNodes(nds => [...nds, {
             id,
             type: "asset",
@@ -8662,8 +8679,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const img = new window.Image();
       img.onload = () => {
         const id = `clipboard-image-${Date.now()}-${index}`;
-        const nodeWidth = Math.max(1, Math.round(img.naturalWidth || 360));
-        const nodeHeight = Math.max(1, Math.round(img.naturalHeight || 360));
+        const { width: nodeWidth, height: nodeHeight } = getImportedImageDisplaySize(img.naturalWidth, img.naturalHeight);
         resolve({
           id,
           type: "asset",
