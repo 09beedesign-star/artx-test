@@ -2440,7 +2440,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
               style={{
                 ...imgCropStyle,
                 display: "block",
-                objectFit: "fill",
+                objectFit: "contain",
                 pointerEvents: "none",
                 transform: `scaleX(${flipX ? -1 : 1}) rotate(${rotation}deg)`,
                 filter: assetAdjustmentFilter,
@@ -7175,8 +7175,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               imgH: nextH,
               cropX: 0,
               cropY: 0,
-              cropW: 100,
-              cropH: 100,
+              cropW: croppedSrc ? 100 : Number(data.cropW ?? 100),
+              cropH: croppedSrc ? 100 : Number(data.cropH ?? 100),
               isCropping: false,
               isEditing: false,
             },
@@ -7216,10 +7216,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         try {
           applyCrop(canvas.toDataURL("image/png"), nextW, nextH);
         } catch {
-          applyCrop();
+          applyCrop(undefined, nextW, nextH);
         }
       };
-      image.onerror = () => applyCrop();
+      image.onerror = () => applyCrop(undefined, fallbackW, fallbackH);
       image.src = detail.sourceSrc;
     };
     const cancelHandler = (e: Event) => {
