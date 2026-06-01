@@ -51,11 +51,21 @@ function getResponsesEndpoint(baseUrl: string) {
 }
 
 function getProviderConfig() {
-  const apiKey = process.env.AI_TEXT_API_KEY || process.env.AI_IMAGE_API_KEY || process.env.OPENAI_API_KEY;
-  const baseUrl = process.env.AI_TEXT_BASE_URL || process.env.AI_IMAGE_BASE_URL || process.env.OPENAI_BASE_URL || "https://api.openai.com";
-  const model = process.env.AI_TEXT_MODEL || "gpt-4o";
+  const textApiKey = process.env.AI_TEXT_API_KEY;
+  if (textApiKey) {
+    return {
+      apiKey: textApiKey,
+      baseUrl: process.env.AI_TEXT_BASE_URL || process.env.OPENAI_BASE_URL || "https://api.openai.com",
+      model: process.env.AI_TEXT_MODEL || "gpt-4o",
+    };
+  }
 
-  return { apiKey, baseUrl, model };
+  const imageApiKey = process.env.AI_IMAGE_API_KEY || process.env.OPENAI_API_KEY;
+  return {
+    apiKey: imageApiKey,
+    baseUrl: process.env.AI_IMAGE_BASE_URL || process.env.OPENAI_BASE_URL || "https://api.openai.com",
+    model: process.env.AI_IMAGE_MODEL || process.env.AI_TEXT_MODEL || "gpt-4o",
+  };
 }
 
 const supportedTextModels = new Set(["gpt-4o"]);
