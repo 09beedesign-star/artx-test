@@ -2515,15 +2515,14 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
                   top: `calc(100% + ${Math.round(48 / Math.max(0.2, viewport.zoom || 1))}px)`,
                   transform: `translateX(-50%) scale(${1 / Math.max(0.2, viewport.zoom || 1)})`,
                   transformOrigin: "top center",
-                  minWidth: 132,
                   background: "rgba(18,18,28,0.94)",
                   border: "1px solid rgba(255,255,255,0.16)",
                   backdropFilter: "blur(14px)",
                 }}
                 onMouseDown={e => e.stopPropagation()}
               >
-                <button type="button" className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5" style={{ minWidth: 52, whiteSpace: "nowrap", color: "rgba(255,255,255,0.78)", background: "rgba(255,255,255,0.08)" }} onClick={cancelCrop}>取消</button>
-                <button type="button" className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5" style={{ minWidth: 52, whiteSpace: "nowrap", color: "white", background: "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.72 0.18 205))" }} onClick={confirmCrop}>确定</button>
+                <button type="button" className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5" style={{ color: "rgba(255,255,255,0.78)", background: "rgba(255,255,255,0.08)" }} onClick={cancelCrop}>取消</button>
+                <button type="button" className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5" style={{ color: "white", background: "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.72 0.18 205))" }} onClick={confirmCrop}>确定</button>
               </div>
             </div>
           )}
