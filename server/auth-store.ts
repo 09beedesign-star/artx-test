@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-type AuthAction = "register" | "login" | "me" | "logout";
+type AuthAction = "register" | "login" | "me" | "logout" | "social";
 
 interface StoredUser {
   id: string;
@@ -31,6 +31,10 @@ const DEFAULT_PASSWORD = "1234";
 
 function normalizeUsername(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeProvider(value: unknown) {
+  return value === "google" || value === "wechat" || value === "apple" ? value : "";
 }
 
 function loginKey(username: string) {
@@ -143,6 +147,23 @@ export async function handleAuthAction(action: AuthAction, payload: unknown) {
       return { status: 401, body: { error: "账号或密码错误，请重新输入" } };
     }
 
+    const token = createSession(db, user.id);
+    await saveDatabase(db);
+    return { status: 200, body: { token, user: publicUser(user) } };
+  }
+
+  if (action === "social") {
+    const provider = normalizeProvider(body.provider);
+    if (!provider) {
+      return { status: 400, body: { error: "不支持的第三方登录方式" } };
+    }
+    const providerName = provider === "google" ? "gmail" : provider;
+    const username = `${providerName}@artx.social`;
+    let user = db.users.find((item) => item.loginKey === loginKey(username));
+    if (!user) {
+      user = createUser(username, crypto.randomBytes(18).toString("hex"));
+      db.users.push(user);
+    }
     const token = createSession(db, user.id);
     await saveDatabase(db);
     return { status: 200, body: { token, user: publicUser(user) } };

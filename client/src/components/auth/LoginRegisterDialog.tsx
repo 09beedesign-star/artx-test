@@ -1,17 +1,17 @@
 import { useState } from "react";
-import { Check, Eye, EyeOff, Sparkles, X } from "lucide-react";
+import { Check, Eye, EyeOff, Mail, Sparkles, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
 
 // ── Global Login / Register Dialog ─────────────────────────────
 export default function LoginRegisterDialog() {
   const { resolvedTheme } = useTheme();
-  const { loginModalOpen, closeLoginModal, login, register } = useAuth();
+  const { loginModalOpen, closeLoginModal, login, register, socialAuth } = useAuth();
   const isDark = resolvedTheme === "dark";
   const [mode, setMode] = useState<"login" | "register">("login");
   const [provider, setProvider] = useState<"google" | "wechat" | "apple">("google");
-  const [username, setUsername] = useState("09bee");
-  const [password, setPassword] = useState("1234");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -50,6 +50,21 @@ export default function LoginRegisterDialog() {
       setError(result.error || (mode === "register" ? "注册失败，请稍后重试" : "账号或密码错误，请重新输入"));
     }
   };
+
+  const handleSocialAuth = async (nextProvider: "google" | "wechat" | "apple") => {
+    setProvider(nextProvider);
+    setError("");
+    setSubmitting(true);
+    const result = await socialAuth(nextProvider);
+    setSubmitting(false);
+    if (!result.ok) setError(result.error || "第三方登录暂时不可用");
+  };
+
+  const socialConfig = {
+    google: { label: "gmail 邮箱", color: "#EA4335", icon: <Mail size={15} /> },
+    wechat: { label: "微信", color: "#07C160", icon: <span style={{ fontSize: 15, fontWeight: 800 }}>微</span> },
+    apple: { label: "apple", color: "#F5F5F7", icon: <span style={{ fontSize: 17, lineHeight: 1 }}></span> },
+  } as const;
 
   return (
     <div
@@ -126,7 +141,7 @@ export default function LoginRegisterDialog() {
                     border: `1px solid ${error === "请输入账号" ? "oklch(0.68 0.22 25)" : border}`,
                     color: text,
                   }}
-                  placeholder="请输入账号或邮箱"
+                  placeholder=""
                 />
               </label>
               <label className="flex flex-col gap-1.5">
@@ -143,7 +158,7 @@ export default function LoginRegisterDialog() {
                       border: `1px solid ${error === "请输入密码" ? "oklch(0.68 0.22 25)" : border}`,
                       color: text,
                     }}
-                    placeholder="请输入密码"
+                    placeholder=""
                   />
                   <button
                     type="button"
@@ -192,12 +207,13 @@ export default function LoginRegisterDialog() {
             <div className="grid grid-cols-3 gap-2">
               {(["google", "wechat", "apple"] as const).map(item => {
                 const active = provider === item;
-                const label = item === "google" ? "G" : item === "wechat" ? "微" : "";
+                const config = socialConfig[item];
                 return (
                   <button
                     key={item}
-                    onClick={() => setProvider(item)}
-                    className="h-12 rounded-[16px] type-body-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
+                    onClick={() => void handleSocialAuth(item)}
+                    disabled={submitting}
+                    className="h-12 rounded-[16px] type-caption transition-all hover:scale-[1.02] active:scale-[0.98] disabled:cursor-not-allowed"
                     style={{
                       background: active ? "oklch(1 0 0 / 14%)" : "oklch(1 0 0 / 7%)",
                       border: `1px solid ${active ? "oklch(0.68 0.18 220 / 0.48)" : border}`,
@@ -205,7 +221,10 @@ export default function LoginRegisterDialog() {
                     }}
                     aria-label={item === "google" ? "Google 登录" : item === "wechat" ? "微信登录" : "Apple 登录"}
                   >
-                    {label}
+                    <span className="inline-flex items-center justify-center gap-1.5">
+                      <span className="inline-flex h-5 w-5 items-center justify-center rounded-[7px]" style={{ background: config.color, color: item === "apple" ? "#111" : "white" }}>{config.icon}</span>
+                      {config.label}
+                    </span>
                   </button>
                 );
               })}

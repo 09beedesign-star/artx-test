@@ -118,6 +118,31 @@ export async function removeImageBackground({
   return { images: result.images || [] };
 }
 
+export async function editImageWithPrompt({
+  imageSrc,
+  model = "gpt-image-2",
+  prompt,
+}: {
+  imageSrc: string;
+  model?: string;
+  prompt: string;
+}) {
+  const baseUrl = getAiApiBaseUrl();
+  const endpoint = `${baseUrl}/api/images/edit`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ imageSrc, model, prompt }),
+  });
+
+  const result = await readJsonResponse<ApiErrorResponse & { images?: GeneratedImageResult[] }>(response, "AI 图片编辑失败");
+  if (!response.ok) {
+    throw new Error(result.error || result.message || "AI 图片编辑失败");
+  }
+
+  return { images: result.images || [] };
+}
+
 export async function eraseImageObjects({
   imageSrc,
   maskSrc,

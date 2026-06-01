@@ -12,6 +12,12 @@ type RemoveBackgroundInput = {
   prompt?: string;
 };
 
+type EditImageInput = {
+  imageSrc: string;
+  model?: string;
+  prompt: string;
+};
+
 type EraseImageInput = {
   imageSrc: string;
   maskSrc: string;
@@ -283,6 +289,70 @@ export async function removeImageBackground(input: RemoveBackgroundInput): Promi
     body.append("model", selectedModel);
     body.append("image", sourceImage);
     body.append("prompt", prompt);
+    body.append("n", "1");
+    body.append("size", "1024x1024");
+    if (withResponseFormat) body.append("response_format", "b64_json");
+    return body;
+  };
+
+  let providerData: ImageGenerationResponse;
+  try {
+    providerData = await callImageEditProvider(createBody(true), apiKey, baseUrl);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.toLowerCase().includes("response_format")) throw error;
+    providerData = await callImageEditProvider(createBody(false), apiKey, baseUrl);
+  }
+
+  if (providerData.task_id) {
+    providerData = await pollAsyncImageTask(providerData.task_id, apiKey, baseUrl);
+  }
+
+  const items = providerData.data || providerData.images || [];
+  const images = items
+    .map((item) => {
+      const src = item.b64_json ? `data:image/png;base64,${item.b64_json}` : item.url;
+      return src ? { src, width: 1024, height: 1024 } : null;
+    })
+    .filter((item): item is GeneratedImage => Boolean(item));
+
+  if (images.length === 0) {
+    const choiceImages = extractChoiceImages(providerData, baseUrl).map((item) => ({
+      ...item,
+      width: 1024,
+      height: 1024,
+    }));
+    images.push(...choiceImages);
+  }
+
+  if (images.length === 0) {
+    throw new Error("Image edit provider returned no images");
+  }
+
+  return { images };
+}
+
+export async function editImageWithPrompt(input: EditImageInput): Promise<{ images: GeneratedImage[] }> {
+  if (!input.imageSrc?.trim()) {
+    throw new Error("Missing imageSrc");
+  }
+  if (!input.prompt?.trim()) {
+    throw new Error("Missing prompt");
+  }
+
+  const { apiKey, baseUrl, model } = getProviderConfig();
+  if (!apiKey) {
+    throw new Error("Missing AI_IMAGE_API_KEY");
+  }
+
+  const sourceImage = await imageSrcToFile(input.imageSrc);
+  const selectedModel = input.model && supportedImageModels.has(input.model) ? input.model : model;
+
+  const createBody = (withResponseFormat: boolean) => {
+    const body = new FormData();
+    body.append("model", selectedModel);
+    body.append("image", sourceImage);
+    body.append("prompt", input.prompt);
     body.append("n", "1");
     body.append("size", "1024x1024");
     if (withResponseFormat) body.append("response_format", "b64_json");

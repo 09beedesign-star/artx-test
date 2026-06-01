@@ -2,7 +2,7 @@ import express from "express";
 import { createServer } from "http";
 import path from "path";
 import { fileURLToPath } from "url";
-import { eraseImageObjects, generateImages, removeImageBackground } from "./image-generation";
+import { editImageWithPrompt, eraseImageObjects, generateImages, removeImageBackground } from "./image-generation";
 import { generateText } from "./text-generation";
 import { handleAuthAction } from "./auth-store";
 
@@ -56,6 +56,16 @@ async function startServer() {
     }
   });
 
+  app.post("/api/images/edit", async (req, res) => {
+    try {
+      const result = await editImageWithPrompt(req.body);
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Image edit failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
   app.post("/api/images/erase", async (req, res) => {
     try {
       const result = await eraseImageObjects(req.body);
@@ -78,7 +88,7 @@ async function startServer() {
 
   app.post("/api/auth/:action", async (req, res) => {
     try {
-      const action = req.params.action as "register" | "login" | "me" | "logout";
+      const action = req.params.action as "register" | "login" | "me" | "logout" | "social";
       const result = await handleAuthAction(action, req.body);
       res.status(result.status).json(result.body);
     } catch (error) {

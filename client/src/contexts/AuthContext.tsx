@@ -21,6 +21,7 @@ interface AuthContextValue {
   closeLoginModal: () => void;
   login: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   register: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  socialAuth: (provider: "google" | "wechat" | "apple") => Promise<{ ok: boolean; error?: string }>;
   logout: () => void;
 }
 
@@ -76,6 +77,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     closeLoginModal: () => setLoginModalOpen(false),
     login: (username: string, password: string) => authenticate("login", username, password),
     register: (username: string, password: string) => authenticate("register", username, password),
+    socialAuth: async (provider) => {
+      try {
+        const result = await fetchAuth("social", { provider });
+        if (!result.ok || !result.token || !result.user) {
+          return { ok: false, error: result.error || "第三方登录暂时不可用" };
+        }
+        persistSession({ token: result.token, user: result.user });
+        setIsAuthenticated(true);
+        setUser(result.user);
+        setLoginModalOpen(false);
+        return { ok: true };
+      } catch {
+        return { ok: false, error: "测试服务暂时不可用，请稍后重试" };
+      }
+    },
     logout: () => {
       const stored = readStoredSession();
       if (stored?.token) {
@@ -112,7 +128,7 @@ function persistSession(session: AuthSession) {
   localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
 }
 
-async function fetchAuth(action: "register" | "login" | "me" | "logout", payload: Record<string, unknown>) {
+async function fetchAuth(action: "register" | "login" | "me" | "logout" | "social", payload: Record<string, unknown>) {
   const apiBaseUrl = (
     import.meta.env.VITE_API_BASE_URL ||
     import.meta.env.VITE_AI_API_BASE_URL ||

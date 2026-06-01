@@ -72,8 +72,8 @@ import { saveAs } from "file-saver";
 import { GENERATED_ASSETS, IMAGE_AI_MODELS, PROJECTS, type GeneratedAsset, type Project } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { callLLM, eraseImageObjects, expandImageWithMask, generateImages as generateAiImages, removeImageBackground } from "@/lib/ai";
-import { createWorkspaceHistoryProject } from "@/lib/project-history";
+import { callLLM, editImageWithPrompt, eraseImageObjects, expandImageWithMask, generateImages as generateAiImages, removeImageBackground } from "@/lib/ai";
+import { createWorkspaceHistoryProject, updateWorkspaceProjectHistory } from "@/lib/project-history";
 
 const ENABLE_NODE_CONNECTIONS = false;
 
@@ -3939,6 +3939,41 @@ const initialNodes: Node[] = [];
 
 const initialEdges: Edge[] = [];
 
+const CANVAS_STATE_STORAGE_PREFIX = "artx:canvas-state:";
+
+type PersistedCanvasState = {
+  nodes: Node[];
+  edges: Edge[];
+  updatedAt: string;
+};
+
+function formatProjectHistoryTimestamp(date = new Date()) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function canvasStateStorageKey(projectId: string) {
+  return `${CANVAS_STATE_STORAGE_PREFIX}${projectId || "p1"}`;
+}
+
+function safeReadCanvasState(projectId: string): PersistedCanvasState | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(canvasStateStorageKey(projectId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PersistedCanvasState;
+    if (!Array.isArray(parsed.nodes) || !Array.isArray(parsed.edges)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function getCanvasStateCover(nodes: Node[]) {
+  const imageNode = nodes.find(node => node.type === "asset" && typeof (node.data as Record<string, unknown>)?.localSrc === "string");
+  return imageNode ? ((imageNode.data as Record<string, unknown>).localSrc as string) : null;
+}
+
 type BottomPromptDecision = {
   mode: "text" | "image";
   reply?: string;
@@ -6482,14 +6517,16 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const { isAuthenticated, openLoginModal } = useAuth();
   const { screenToFlowPosition, getEdges, getNodes, fitView, getViewport, setViewport } = useReactFlow();
   const viewport = useViewport();
+  const restoredCanvasState = useMemo(() => safeReadCanvasState(projectId), [projectId]);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const [nodes, setNodes, onNodesChange] = useNodesState(restoredCanvasState?.nodes || initialNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(restoredCanvasState?.edges || initialEdges);
   // 始终跟踪最新的 nodes/edges，供 pushHistory 读取（避免闭包捕获旧值）
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
   useEffect(() => { edgesRef.current = edges; }, [edges]);
+  const didHydrateCanvasStateRef = useRef(false);
   const [nodeCtxMenu, setNodeCtxMenu] = useState<NodeCtxState | null>(null);
   const [clipboard, setClipboard] = useState<Node[]>([]);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
@@ -6503,6 +6540,30 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [pendingProject, setPendingProject] = useState<Project | null>(null);
   // ── Referenced assets: auto-populated from selected image nodes ──
   const [referencedAssets, setReferencedAssets] = useState<{ id: string; title: string; src: string }[]>([]);
+
+  useEffect(() => {
+    const saved = safeReadCanvasState(projectId);
+    isRestoringRef.current = true;
+    setNodes(saved?.nodes || initialNodes);
+    setEdges(saved?.edges || initialEdges);
+    setSelectedNodeIds((saved?.nodes || initialNodes).filter(node => node.selected).map(node => node.id));
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      isRestoringRef.current = false;
+      didHydrateCanvasStateRef.current = true;
+    }));
+  }, [projectId, setEdges, setNodes]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !didHydrateCanvasStateRef.current || isRestoringRef.current) return;
+    const updatedAt = formatProjectHistoryTimestamp();
+    const state: PersistedCanvasState = { nodes, edges, updatedAt };
+    window.localStorage.setItem(canvasStateStorageKey(projectId), JSON.stringify(state));
+    updateWorkspaceProjectHistory(projectId, {
+      cover: getCanvasStateCover(nodes),
+      nodeCount: nodes.length,
+      updatedAt,
+    });
+  }, [edges, nodes, projectId]);
   // ── Group system state ──
   const [groupNames, setGroupNames] = useState<Record<string, string>>({});
   const [groupCounter, setGroupCounter] = useState(1);
@@ -7115,13 +7176,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           style: "文案编辑结果",
           nextW: sourceSize.width,
           nextH: sourceSize.height,
-          run: async () => generateAiImages({
+          run: async () => editImageWithPrompt({
+            imageSrc: detail.imageSrc,
             prompt: optimizedPrompt.text.trim() || `将图片中的文案替换为：${detail.editedText}`,
             model: "gpt-image-2",
-            ratio: inferImageRatio(sourceSize.width, sourceSize.height),
-            count: 1,
-            style: "文案编辑",
-            referencesEnabled: false,
           }),
         });
         setNodes(nds => nds.map(n =>
