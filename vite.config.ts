@@ -6,7 +6,8 @@ import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
 import { handleAuthAction } from "./server/auth-store";
-import { eraseImageObjects, generateImages, removeImageBackground } from "./server/image-generation";
+import { editImageWithPrompt, eraseImageObjects, generateImages, removeImageBackground } from "./server/image-generation";
+import { searchReferenceImages } from "./server/reference-search";
 import { generateText } from "./server/text-generation";
 
 // =============================================================================
@@ -313,8 +314,14 @@ const plugins = [
   vitePluginAuthApi(),
   vitePluginJsonApi("artx-ai-image-api", "/api/images/generate", generateImages, "Image generation failed"),
   vitePluginJsonApi("artx-ai-remove-background-api", "/api/images/remove-background", removeImageBackground, "Background removal failed"),
+  vitePluginJsonApi("artx-ai-edit-image-api", "/api/images/edit", editImageWithPrompt, "Image edit failed"),
   vitePluginJsonApi("artx-ai-erase-image-api", "/api/images/erase", eraseImageObjects, "Image erase failed"),
   vitePluginJsonApi("artx-llm-api", "/api/llm", generateText, "AI request failed"),
+  vitePluginJsonApi("artx-reference-search-api", "/api/references/search", async (payload) => {
+    const query = typeof (payload as { query?: unknown })?.query === "string" ? (payload as { query: string }).query : "";
+    const limit = typeof (payload as { limit?: unknown })?.limit === "number" ? (payload as { limit: number }).limit : 10;
+    return searchReferenceImages(query, limit);
+  }, "Reference search failed"),
 ];
 
 export default defineConfig({

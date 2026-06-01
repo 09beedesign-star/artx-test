@@ -42,13 +42,73 @@ type ImageGenerationResponse = {
 };
 
 type AsyncImageTaskResponse = {
+  success?: boolean;
   data?: {
+    taskId?: string;
     status?: string;
     error?: string;
     result?: ImageGenerationResponse;
+    rawResult?: ImageGenerationResponse;
+    upstreamStatus?: number;
+    requestPath?: string;
+    resolvedRequestPath?: string;
+    prompt?: string;
+    model?: string;
   };
-  error?: { message?: string };
+  result?: ImageGenerationResponse;
+  rawResult?: ImageGenerationResponse;
+  status?: string;
+  error?: { message?: string } | string;
 };
+
+function normalizeAsyncTaskResult(data: AsyncImageTaskResponse): {
+  status?: string;
+  error?: string;
+  result?: ImageGenerationResponse;
+} {
+  const task = data.data;
+  const error =
+    typeof data.error === "string"
+      ? data.error
+      : data.error?.message || task?.error;
+
+  return {
+    status: task?.status || data.status,
+    error,
+    result: task?.result || task?.rawResult || data.result || data.rawResult,
+  };
+}
+
+function resolveGeneratedImageSrc(src: string, baseUrl: string) {
+  if (!src) return src;
+  if (/^https?:\/\//i.test(src) || src.startsWith("data:")) return src;
+  return toAbsoluteUrl(src, baseUrl);
+}
+
+function extractGeneratedImages(providerData: ImageGenerationResponse, baseUrl: string, width: number, height: number) {
+  const items = providerData.data || providerData.images || [];
+  const images = items
+    .map((item) => {
+      const src = item.b64_json
+        ? `data:image/png;base64,${item.b64_json}`
+        : item.url
+          ? resolveGeneratedImageSrc(item.url, baseUrl)
+          : undefined;
+      return src ? { src, width, height } : null;
+    })
+    .filter((item): item is GeneratedImage => Boolean(item));
+
+  if (images.length > 0) return images;
+
+  const choiceImages = extractChoiceImages(providerData, baseUrl).map((item) => ({
+    ...item,
+    src: resolveGeneratedImageSrc(item.src, baseUrl),
+    width,
+    height,
+  }));
+
+  return choiceImages;
+}
 
 const ratioToSize: Record<string, { size: string; width: number; height: number }> = {
   "1:1": { size: "1024x1024", width: 1024, height: 1024 },
@@ -149,9 +209,55 @@ async function callImageEditProvider(
 }
 
 function getImageFileName(mimeType: string) {
+  if (mimeType.includes("svg")) return "source.svg";
   if (mimeType.includes("jpeg") || mimeType.includes("jpg")) return "source.jpg";
   if (mimeType.includes("webp")) return "source.webp";
   return "source.png";
+}
+
+async function saveDataUrlToFile(src: string, filePath: string) {
+  if (src.startsWith("data:")) {
+    const match = src.match(/^data:([^;,]+)(;base64)?,(.*)$/);
+    if (!match) throw new Error("Invalid data URL");
+    const raw = match[2] ? Buffer.from(match[3], "base64") : Buffer.from(decodeURIComponent(match[3]));
+    await fs.writeFile(filePath, raw);
+    return;
+  }
+
+  const response = await fetch(src);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch source image: ${response.status}`);
+  }
+  const bytes = Buffer.from(await response.arrayBuffer());
+  await fs.writeFile(filePath, bytes);
+}
+
+async function createEraseFallbackComposite(imageSrc: string, maskSrc: string) {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "artx-erase-"));
+  const sourcePath = path.join(tempDir, "source.png");
+  const maskPath = path.join(tempDir, "mask.png");
+  const compositePath = path.join(tempDir, "composite.png");
+
+  try {
+    await saveDataUrlToFile(imageSrc, sourcePath);
+    await saveDataUrlToFile(maskSrc, maskPath);
+
+    await execFileAsync("/Applications/Codex.app/Contents/Resources/ffmpeg", [
+      "-y",
+      "-i", sourcePath,
+      "-i", maskPath,
+      "-filter_complex",
+      "[0:v]scale=1024:1024[base];color=c=#8B5CF6:s=1024x1024[clr];[1:v]scale=1024:1024,format=gray[mask];[clr][mask]alphamerge[ovr];[base][ovr]overlay=format=auto[out]",
+      "-map", "[out]",
+      "-frames:v", "1",
+      compositePath,
+    ]);
+
+    const compositeBuffer = await fs.readFile(compositePath);
+    return `data:image/png;base64,${compositeBuffer.toString("base64")}`;
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
 }
 
 async function imageSrcToFile(src: string): Promise<File> {
@@ -189,19 +295,19 @@ async function pollAsyncImageTask(taskId: string, apiKey: string, baseUrl: strin
 
     const text = await response.text();
     const data = text ? (JSON.parse(text) as AsyncImageTaskResponse) : {};
-    const task = data.data;
-    const status = task?.status;
+    const normalizedTask = normalizeAsyncTaskResult(data);
+    const status = normalizedTask.status;
 
     if (!response.ok) {
-      throw new Error(data.error?.message || `Image polling returned ${response.status}`);
+      throw new Error(normalizedTask.error || `Image polling returned ${response.status}`);
     }
 
     if (status === "failed") {
-      throw new Error(task?.error || "Image generation failed");
+      throw new Error(normalizedTask.error || "Image generation failed");
     }
 
-    if ((status === "succeeded" || status === "completed_without_image") && task?.result) {
-      return task.result;
+    if ((status === "succeeded" || status === "completed_without_image") && normalizedTask.result) {
+      return normalizedTask.result;
     }
 
     if (status && status !== "queued" && status !== "processing") {
@@ -246,22 +352,7 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
     providerData = await pollAsyncImageTask(providerData.task_id, apiKey, baseUrl);
   }
 
-  const items = providerData.data || providerData.images || [];
-  const images = items
-    .map((item) => {
-      const src = item.b64_json ? `data:image/png;base64,${item.b64_json}` : item.url;
-      return src ? { src, width: ratio.width, height: ratio.height } : null;
-    })
-    .filter((item): item is GeneratedImage => Boolean(item));
-
-  if (images.length === 0) {
-    const choiceImages = extractChoiceImages(providerData, baseUrl).map((item) => ({
-      ...item,
-      width: ratio.width,
-      height: ratio.height,
-    }));
-    images.push(...choiceImages);
-  }
+  const images = extractGeneratedImages(providerData, baseUrl, ratio.width, ratio.height);
 
   if (images.length === 0) {
     throw new Error("Image provider returned no images");
@@ -308,22 +399,7 @@ export async function removeImageBackground(input: RemoveBackgroundInput): Promi
     providerData = await pollAsyncImageTask(providerData.task_id, apiKey, baseUrl);
   }
 
-  const items = providerData.data || providerData.images || [];
-  const images = items
-    .map((item) => {
-      const src = item.b64_json ? `data:image/png;base64,${item.b64_json}` : item.url;
-      return src ? { src, width: 1024, height: 1024 } : null;
-    })
-    .filter((item): item is GeneratedImage => Boolean(item));
-
-  if (images.length === 0) {
-    const choiceImages = extractChoiceImages(providerData, baseUrl).map((item) => ({
-      ...item,
-      width: 1024,
-      height: 1024,
-    }));
-    images.push(...choiceImages);
-  }
+  const images = extractGeneratedImages(providerData, baseUrl, 1024, 1024);
 
   if (images.length === 0) {
     throw new Error("Image edit provider returned no images");
@@ -372,22 +448,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
     providerData = await pollAsyncImageTask(providerData.task_id, apiKey, baseUrl);
   }
 
-  const items = providerData.data || providerData.images || [];
-  const images = items
-    .map((item) => {
-      const src = item.b64_json ? `data:image/png;base64,${item.b64_json}` : item.url;
-      return src ? { src, width: 1024, height: 1024 } : null;
-    })
-    .filter((item): item is GeneratedImage => Boolean(item));
-
-  if (images.length === 0) {
-    const choiceImages = extractChoiceImages(providerData, baseUrl).map((item) => ({
-      ...item,
-      width: 1024,
-      height: 1024,
-    }));
-    images.push(...choiceImages);
-  }
+  const images = extractGeneratedImages(providerData, baseUrl, 1024, 1024);
 
   if (images.length === 0) {
     throw new Error("Image edit provider returned no images");
@@ -428,33 +489,30 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<{ image
 
   let providerData: ImageGenerationResponse;
   try {
-    providerData = await callImageEditProvider(createBody(true), apiKey, baseUrl);
+    try {
+      providerData = await callImageEditProvider(createBody(true), apiKey, baseUrl);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.toLowerCase().includes("response_format")) throw error;
+      providerData = await callImageEditProvider(createBody(false), apiKey, baseUrl);
+    }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!message.toLowerCase().includes("response_format")) throw error;
-    providerData = await callImageEditProvider(createBody(false), apiKey, baseUrl);
+    const compositeSrc = await createEraseFallbackComposite(input.imageSrc, input.maskSrc);
+    return editImageWithPrompt({
+      imageSrc: compositeSrc,
+      model: selectedModel,
+      prompt: [
+        "The semi-transparent purple overlay marks the exact area to remove.",
+        "Remove only the content under the purple overlay, reconstruct the background naturally, keep all unmarked regions unchanged, and leave no visible artifacts.",
+      ].join(" "),
+    });
   }
 
   if (providerData.task_id) {
     providerData = await pollAsyncImageTask(providerData.task_id, apiKey, baseUrl);
   }
 
-  const items = providerData.data || providerData.images || [];
-  const images = items
-    .map((item) => {
-      const src = item.b64_json ? `data:image/png;base64,${item.b64_json}` : item.url;
-      return src ? { src, width: 1024, height: 1024 } : null;
-    })
-    .filter((item): item is GeneratedImage => Boolean(item));
-
-  if (images.length === 0) {
-    const choiceImages = extractChoiceImages(providerData, baseUrl).map((item) => ({
-      ...item,
-      width: 1024,
-      height: 1024,
-    }));
-    images.push(...choiceImages);
-  }
+  const images = extractGeneratedImages(providerData, baseUrl, 1024, 1024);
 
   if (images.length === 0) {
     throw new Error("Image erase provider returned no images");
@@ -462,3 +520,11 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<{ image
 
   return { images };
 }
+import { randomUUID } from "node:crypto";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
