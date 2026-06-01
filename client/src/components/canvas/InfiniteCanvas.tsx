@@ -5762,6 +5762,35 @@ function formatCanvasMessageTime(value: Date) {
   ].join(" ");
 }
 
+const CANVAS_ASSISTANT_MESSAGES_STORAGE_PREFIX = "artx:canvas-assistant-messages:";
+
+function canvasAssistantMessagesStorageKey(projectId: string) {
+  return `${CANVAS_ASSISTANT_MESSAGES_STORAGE_PREFIX}${projectId || "p1"}`;
+}
+
+function serializeCanvasAssistantMessages(messages: CanvasAssistantMessage[]) {
+  return messages.map(message => ({
+    ...message,
+    timestamp: message.timestamp instanceof Date ? message.timestamp.toISOString() : new Date(message.timestamp).toISOString(),
+  }));
+}
+
+function deserializeCanvasAssistantMessages(raw: string | null): CanvasAssistantMessage[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(item => item && typeof item.id === "string" && typeof item.role === "string" && typeof item.content === "string" && typeof item.timestamp === "string")
+      .map(item => ({
+        ...item,
+        timestamp: new Date(item.timestamp),
+      })) as CanvasAssistantMessage[];
+  } catch {
+    return [];
+  }
+}
+
 function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, onToggleCollapsed, onLoginRequest, referencedAssets, onRemoveReference, selectedCount, helpPromptNonce }: { projectId: string; isDark: boolean; collapsed: boolean; isAuthenticated: boolean; onToggleCollapsed: () => void; onLoginRequest: () => void; referencedAssets: { id: string; title: string; src: string }[]; onRemoveReference: (id: string) => void; selectedCount: number; helpPromptNonce: number }) {
   const [, navigate] = useLocation();
   const [inputFocused, setInputFocused] = useState(false);
@@ -5781,9 +5810,12 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [regeneratingMessageId, setRegeneratingMessageId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<CanvasAssistantMessage[]>([
-    { id: "assistant-seed-1", role: "assistant", content: "你好，下面开始你的创作吧！", timestamp: new Date() },
-  ]);
+  const [messages, setMessages] = useState<CanvasAssistantMessage[]>(() => {
+    const stored = typeof window === "undefined" ? [] : deserializeCanvasAssistantMessages(window.localStorage.getItem(canvasAssistantMessagesStorageKey(projectId)));
+    return stored.length > 0 ? stored : [
+      { id: "assistant-seed-1", role: "assistant", content: "你好，下面开始你的创作吧！", timestamp: new Date() },
+    ];
+  });
   const pendingHomePromptHandledRef = useRef(false);
   const bg = isDark ? "oklch(0.125 0.014 270 / 0.98)" : "oklch(0.995 0.002 80 / 0.98)";
   const border = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 10%)";
@@ -5878,6 +5910,19 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
   useEffect(() => {
     window.localStorage.setItem(CANVAS_ASSISTANT_MODEL_STORAGE_KEY, assistantModel.id);
   }, [assistantModel.id]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = deserializeCanvasAssistantMessages(window.localStorage.getItem(canvasAssistantMessagesStorageKey(projectId)));
+    setMessages(stored.length > 0 ? stored : [
+      { id: "assistant-seed-1", role: "assistant", content: "你好，下面开始你的创作吧！", timestamp: new Date() },
+    ]);
+  }, [projectId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(canvasAssistantMessagesStorageKey(projectId), JSON.stringify(serializeCanvasAssistantMessages(messages)));
+  }, [messages, projectId]);
 
   useEffect(() => {
     if (collapsed) return;
