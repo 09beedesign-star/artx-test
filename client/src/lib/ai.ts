@@ -104,18 +104,32 @@ export async function removeImageBackground({
 }) {
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/images/remove-background`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ imageSrc, model, prompt }),
-  });
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ imageSrc, model, prompt }),
+    });
 
-  const result = await readJsonResponse<ApiErrorResponse & { images?: GeneratedImageResult[] }>(response, "去背景失败");
-  if (!response.ok) {
-    throw new Error(result.error || result.message || "去背景失败");
+    const result = await readJsonResponse<ApiErrorResponse & { images?: GeneratedImageResult[] }>(response, "去背景失败");
+    if (!response.ok) {
+      throw new Error(result.error || result.message || "去背景失败");
+    }
+
+    return { images: result.images || [] };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/Cannot POST \/api\/images\/remove-background|received non-JSON response/i.test(message)) {
+      throw error;
+    }
   }
 
-  return { images: result.images || [] };
+  const fallbackPrompt = prompt || "Remove the background from this image. Keep the main subject intact, preserve the original subject appearance, clean up edges naturally, and return a transparent PNG or a visually background-free isolated subject.";
+  return editImageWithPrompt({
+    imageSrc,
+    model,
+    prompt: fallbackPrompt,
+  });
 }
 
 export async function editImageWithPrompt({

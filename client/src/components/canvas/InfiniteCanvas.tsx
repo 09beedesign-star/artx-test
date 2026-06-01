@@ -1407,7 +1407,7 @@ function AssetPromptPanel({ isDark, assetSrc, onExpand }: {
   isDark: boolean; assetSrc: string; onExpand: () => void;
 }) {
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState("gpt-4o");
+  const [model, setModel] = useState("gpt-image-2");
   const panelBg = isDark ? "rgba(22,22,30,0.97)" : "rgba(240,240,248,0.97)";
   const panelBorder = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const textColor = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.20 0.008 270)";
@@ -4055,11 +4055,38 @@ function BottomPromptBar({
       const submittedPrompt = effectivePrompt;
       const submittedRefs = typeof overridePrompt === "string" ? [] : referencedAssets.map(asset => ({ ...asset }));
       const refPart = submittedRefs.map(a => `[引用: ${a.title}]`).join(" ");
+      const shouldPreferImage =
+        hasRefs ||
+        /海报|图片|图像|视觉|封面|主图|画一张|生成一张|生成图片|做一张|做个|插画|产品图|详情页|KV|banner|logo/i.test(submittedPrompt);
       setIsSending(true);
       setPrompt("");
       setRows(1);
       onClearAllReferences();
       try {
+        if (shouldPreferImage) {
+          const imagePrompt = submittedPrompt || "基于引用素材生成一张新的视觉图片。";
+          const generationId = `bottom-prompt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+          const payload: ImageGeneratorPayload = {
+            prompt: imagePrompt,
+            model: "gpt-image-2",
+            ratio: "1:1",
+            count: 1,
+            style: "底部提示词",
+            referencesEnabled: submittedRefs.length > 0,
+            generationId,
+          };
+          window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "pending" } }));
+          toast("正在生成图片", { description: imagePrompt.slice(0, 90) });
+          try {
+            const result = await generateAiImages(payload);
+            window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "completed", images: result.images } }));
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "请稍后重试";
+            window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "failed", error: message } }));
+            throw error;
+          }
+          return;
+        }
         const decisionResult = await callLLM({
           module: "bottom-global-prompt-router",
           model,
