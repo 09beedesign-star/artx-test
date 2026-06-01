@@ -7889,8 +7889,26 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const handleSelectionChange = useCallback(({ nodes: selectedNodes }: { nodes: Node[] }) => {
     const nextSelectedIds = selectedNodes.map(n => n.id);
     clearInactiveAssetCommands(nextSelectedIds);
+    const selectedVisualIds = new Set(
+      selectedNodes
+        .filter(node => node.type === "asset" || node.type === "canvasFrame")
+        .map(node => node.id)
+    );
+    if (selectedVisualIds.size > 0) {
+      setNodes(nds => {
+        const selectedVisualNodes = nds.filter(node => selectedVisualIds.has(node.id));
+        if (selectedVisualNodes.length === 0) return nds;
+        const selectedVisualOrder = selectedVisualNodes.map(node => node.id).join(",");
+        const currentTopOrder = nds.slice(-selectedVisualNodes.length).map(node => node.id).join(",");
+        if (selectedVisualOrder === currentTopOrder) return nds;
+        return [
+          ...nds.filter(node => !selectedVisualIds.has(node.id)),
+          ...selectedVisualNodes,
+        ];
+      });
+    }
     setSelectedNodeIds(nextSelectedIds);
-  }, [clearInactiveAssetCommands]);
+  }, [clearInactiveAssetCommands, setNodes]);
 
   // ── Handle group container right-click ──
   const handleGroupContainerContextMenu = useCallback((e: React.MouseEvent, groupId: string) => {
