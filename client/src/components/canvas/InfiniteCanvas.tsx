@@ -73,6 +73,7 @@ import { GENERATED_ASSETS, IMAGE_AI_MODELS, PROJECTS, type GeneratedAsset, type 
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { callLLM, editImageWithPrompt, eraseImageObjects, expandImageWithMask, generateImages as generateAiImages, removeImageBackground } from "@/lib/ai";
+import { routeCreativeIntent } from "@/lib/ai-intent";
 import { createWorkspaceHistoryProject, updateWorkspaceProjectHistory } from "@/lib/project-history";
 
 const ENABLE_NODE_CONNECTIONS = false;
@@ -2010,7 +2011,15 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
         return { ...n, selected: sel };
       });
       window.dispatchEvent(new CustomEvent("asset-click-selection", { detail: { selectedIds: nextSelectedIds } }));
-      return nextNodes;
+      const selectedVisualIds = new Set(nextSelectedIds.filter(id => {
+        const node = nextNodes.find(item => item.id === id);
+        return node?.type === "asset" || node?.type === "canvasFrame";
+      }));
+      if (selectedVisualIds.size === 0) return nextNodes;
+      return [
+        ...nextNodes.filter(n => !selectedVisualIds.has(n.id)),
+        ...nextNodes.filter(n => selectedVisualIds.has(n.id)),
+      ];
     });
     window.dispatchEvent(new CustomEvent("asset-reference", {
       detail: { id: nodeId, title: displayTitle, src: displaySrc, ctrlKey: additive }
@@ -2749,7 +2758,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
 function ChatNodeComponent({ data, selected }: { data: Record<string, unknown>; selected: boolean }) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-  const [model, setModel] = useState("gpt-4o");
+  const [model, setModel] = useState("gpt-image-2");
   const { deleteElements } = useReactFlow();
   const nodeId = (data as { id?: string }).id || "";
 
@@ -3147,6 +3156,12 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
       detail: { x: e.clientX - (rect?.left || 0), y: e.clientY - (rect?.top || 0), nodeId: id, nodeType: "canvasFrame" },
     }));
   }, [id]);
+  const handleCanvasFrameClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    const additive = e.ctrlKey || e.metaKey;
+    window.dispatchEvent(new CustomEvent("asset-click-selection", { detail: { selectedIds: [id] } }));
+    window.dispatchEvent(new CustomEvent("visual-node-select-to-front", { detail: { nodeId: id, additive } }));
+  }, [id]);
 
   return (
     <div
@@ -3160,6 +3175,7 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
         transition: isResizing ? "none" : "border-color 0.15s",
       }}
       onContextMenu={handleNodeCtxMenu}
+      onClick={handleCanvasFrameClick}
     >
       {/* 左上角标题 */}
       <div
@@ -3972,45 +3988,6 @@ function getCanvasStateCover(nodes: Node[]) {
   return imageNode ? ((imageNode.data as Record<string, unknown>).localSrc as string) : null;
 }
 
-type BottomPromptDecision = {
-  mode: "text" | "image";
-  reply?: string;
-  imagePrompt?: string;
-  reason?: string;
-};
-
-function extractJsonObject(raw: string) {
-  const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
-  const start = cleaned.indexOf("{");
-  const end = cleaned.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) return null;
-  try {
-    return JSON.parse(cleaned.slice(start, end + 1)) as Partial<BottomPromptDecision>;
-  } catch {
-    return null;
-  }
-}
-
-function inferBottomPromptDecision(raw: string, fallbackPrompt: string): BottomPromptDecision {
-  const parsed = extractJsonObject(raw);
-  if (parsed?.mode === "image") {
-    return {
-      mode: "image",
-      imagePrompt: parsed.imagePrompt || fallbackPrompt,
-      reason: parsed.reason,
-    };
-  }
-  if (parsed?.mode === "text") {
-    return {
-      mode: "text",
-      reply: parsed.reply || raw,
-      reason: parsed.reason,
-    };
-  }
-  return { mode: "text", reply: raw };
-}
-
-
 // ── Bottom AI Prompt Bar ───────────────────────────────────────
 function BottomPromptBar({
   isDark,
@@ -4052,55 +4029,18 @@ function BottomPromptBar({
     if ((effectivePrompt || hasRefs) && !isSending) {
       const submittedPrompt = effectivePrompt;
       const submittedRefs = typeof overridePrompt === "string" ? [] : referencedAssets.map(asset => ({ ...asset }));
-      const refPart = submittedRefs.map(a => `[引用: ${a.title}]`).join(" ");
-      const shouldPreferImage =
-        hasRefs ||
-        /海报|图片|图像|视觉|封面|主图|画一张|生成一张|生成图片|做一张|做个|插画|产品图|详情页|KV|banner|logo/i.test(submittedPrompt);
       setIsSending(true);
       setPrompt("");
       setRows(1);
       onClearAllReferences();
       try {
-        if (shouldPreferImage) {
-          const imagePrompt = submittedPrompt || "基于引用素材生成一张新的视觉图片。";
-          const generationId = `bottom-prompt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-          const payload: ImageGeneratorPayload = {
-            prompt: imagePrompt,
-            model: "gpt-image-2",
-            ratio: "1:1",
-            count: 1,
-            style: "底部提示词",
-            referencesEnabled: submittedRefs.length > 0,
-            generationId,
-          };
-          window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "pending" } }));
-          toast("正在生成图片", { description: imagePrompt.slice(0, 90) });
-          try {
-            const result = await generateAiImages(payload);
-            window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "completed", images: result.images } }));
-          } catch (error) {
-            const message = error instanceof Error ? error.message : "请稍后重试";
-            window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "failed", error: message } }));
-            throw error;
-          }
-          return;
-        }
-        const decisionResult = await callLLM({
+        const decision = await routeCreativeIntent({
           module: "bottom-global-prompt-router",
-          model,
-          prompt: [
-            "你是 artx 画布底部输入框的意图路由器。",
-            "请根据用户输入判断应该文字回复，还是调用图片模型生成图片。",
-            "只返回 JSON，不要 Markdown，不要额外解释。",
-            "JSON 格式：{\"mode\":\"text|image\",\"reply\":\"文字回复内容\",\"imagePrompt\":\"适合图片模型的提示词\",\"reason\":\"一句话原因\"}",
-            "选择 image 的典型情况：用户要求生成、画、做一张图、海报、视觉、图片、logo、插画、产品图、参考图延展。",
-            "选择 text 的典型情况：用户要求分析、解释、优化提示词、给建议、拆解方案、回答问题。",
-            refPart ? `引用素材：${refPart}` : "",
-            `用户输入：${submittedPrompt || "请基于引用素材继续创作。"}`,
-          ].filter(Boolean).join("\n"),
+          model: "gpt-4o",
+          prompt: submittedPrompt || "请基于引用素材继续创作。",
+          referencedAssets: submittedRefs,
+          preferImageWhenReferences: true,
         });
-        const decision = inferBottomPromptDecision(decisionResult.text, submittedPrompt || "请基于引用素材继续创作。");
-
         if (decision.mode === "image") {
           const imagePrompt = decision.imagePrompt?.trim() || submittedPrompt || "基于引用素材生成一张视觉图像。";
           const generationId = `bottom-prompt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -4126,7 +4066,7 @@ function BottomPromptBar({
           return;
         }
 
-        toast("AI 已回复", { description: (decision.reply || decisionResult.text).slice(0, 120) });
+        toast("AI 已回复", { description: (decision.reply || submittedPrompt).slice(0, 120) });
       } catch (error) {
         const message = error instanceof Error ? error.message : "请稍后重试";
         toast("全局提示词处理失败", { description: message });
@@ -5999,19 +5939,11 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
 
       window.setTimeout(async () => {
         try {
-          const decisionResult = await callLLM({
+          const decision = await routeCreativeIntent({
             module: "home-prompt-canvas-router",
-            model: assistantModel.id,
-            prompt: [
-              "你是 artx 首页提示词进入画布后的意图路由器。",
-              "请判断用户输入应该生成图片，还是作为对话回复。",
-              "只返回 JSON，不要 Markdown。",
-              "JSON 格式：{\"mode\":\"text|image\",\"reply\":\"文字回复内容\",\"imagePrompt\":\"适合图片模型的提示词\",\"reason\":\"一句话原因\"}",
-              "用户输入：",
-              submittedText,
-            ].join("\n"),
+            model: "gpt-4o",
+            prompt: submittedText,
           });
-          const decision = inferBottomPromptDecision(decisionResult.text, submittedText);
           if (decision.mode === "image") {
             const imagePrompt = decision.imagePrompt?.trim() || submittedText;
             const generationId = `home-prompt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -6038,7 +5970,7 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
           setMessages(prev => [...prev, {
             id: `assistant-${Date.now()}`,
             role: "assistant",
-            content: decision.reply || decisionResult.text,
+            content: decision.reply || submittedText,
             timestamp: new Date(),
           }]);
         } catch (error) {
@@ -6095,21 +6027,44 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
     setIsSubmitting(true);
     const context = contextLabel || "当前画布";
     try {
-      const result = await callLLM({
+      const decision = await routeCreativeIntent({
         module: "right-ai-assistant",
-        model: assistantModel.id,
-        images: referencedAssets.map(asset => ({ src: asset.src, title: asset.title })),
-        messages: [
-          ...messages.slice(-8).map(message => ({ role: message.role, content: message.content })),
-          { role: "user", content: `上下文：${context}\n用户请求：${submittedText}` },
-        ],
+        model: "gpt-4o",
+        prompt: `上下文：${context}\n用户请求：${submittedText}`,
+        referencedAssets: referencedAssets.map(asset => ({ src: asset.src, title: asset.title })),
+        recentMessages: messages.slice(-8).map(message => ({ role: message.role, content: message.content })),
+        preferImageWhenReferences: true,
       });
-      setMessages(prev => [...prev, {
-        id: `assistant-${Date.now()}`,
-        role: "assistant",
-        content: result.text,
-        timestamp: new Date(),
-      }]);
+
+      if (decision.mode === "image") {
+        const imagePrompt = decision.imagePrompt?.trim() || submittedText;
+        const generationId = `right-assistant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        const payload: ImageGeneratorPayload = {
+          prompt: imagePrompt,
+          model: "gpt-image-2",
+          ratio: "1:1",
+          count: 1,
+          style: "右侧 AI 助手",
+          referencesEnabled: referencedAssets.length > 0,
+          generationId,
+        };
+        window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "pending" } }));
+        const result = await generateAiImages(payload);
+        window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "completed", images: result.images } }));
+        setMessages(prev => [...prev, {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content: `已根据你的请求生成图片：${imagePrompt}`,
+          timestamp: new Date(),
+        }]);
+      } else {
+        setMessages(prev => [...prev, {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content: decision.reply || submittedText,
+          timestamp: new Date(),
+        }]);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "请稍后重试";
       toast("AI 助手请求失败", { description: message });
@@ -8546,6 +8501,68 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     toast(`已导入 ${files.length} 张图片`, { description: "本地图片已成功添加到画布" });
   }, [pushHistory, screenToFlowPosition, setNodes]);
 
+  const createClipboardImageNode = useCallback((blob: Blob, index: number, origin: { x: number; y: number }) => new Promise<Node>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("剪贴板图片读取失败"));
+    reader.onload = event => {
+      const dataUrl = event.target?.result as string;
+      if (!dataUrl) {
+        reject(new Error("剪贴板图片为空"));
+        return;
+      }
+      const img = new window.Image();
+      img.onload = () => {
+        const id = `clipboard-image-${Date.now()}-${index}`;
+        const nodeWidth = Math.max(1, Math.round(img.naturalWidth || 360));
+        const nodeHeight = Math.max(1, Math.round(img.naturalHeight || 360));
+        resolve({
+          id,
+          type: "asset",
+          position: {
+            x: origin.x - nodeWidth / 2 + index * 32,
+            y: origin.y - nodeHeight / 2 + index * 32,
+          },
+          style: { width: nodeWidth, height: nodeHeight },
+          data: {
+            id,
+            assetId: "default",
+            localSrc: dataUrl,
+            title: `粘贴图片 ${index + 1}`,
+            assetType: "图片",
+            tags: DEFAULT_ASSET_TAGS,
+            imgW: nodeWidth,
+            imgH: nodeHeight,
+          },
+        });
+      };
+      img.onerror = () => reject(new Error("剪贴板图片加载失败"));
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(blob);
+  }), []);
+
+  const pasteClipboardImages = useCallback(async (blobs: Blob[]) => {
+    if (blobs.length === 0) return false;
+    const rect = containerRef.current?.getBoundingClientRect();
+    const origin = screenToFlowPosition({
+      x: (rect?.left || 0) + (rect?.width || window.innerWidth) / 2,
+      y: (rect?.top || 0) + (rect?.height || window.innerHeight) / 2,
+    });
+    try {
+      const nodesToPaste = await Promise.all(blobs.map((blob, index) => createClipboardImageNode(blob, index, origin)));
+      if (nodesToPaste.length === 0) return false;
+      pushHistory();
+      setNodes(nds => nds.map(node => ({ ...node, selected: false })).concat(nodesToPaste.map(node => ({ ...node, selected: true }))));
+      setSelectedNodeIds(nodesToPaste.map(node => node.id));
+      toast(`已粘贴 ${nodesToPaste.length} 张图片`, { description: "剪贴板图片已添加到画布" });
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "请重新复制图片后再试";
+      toast("粘贴图片失败", { description: message });
+      return false;
+    }
+  }, [createClipboardImageNode, pushHistory, screenToFlowPosition, setNodes]);
+
   // ── 获取节点的图片源 (localSrc 优先，其次 GENERATED_ASSETS) ──
   const getNodeImageSrc = useCallback((node: Node): string => {
     const data = node.data as Record<string, unknown>;
@@ -8866,6 +8883,39 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   }, [clearInactiveAssetCommands]);
 
   useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ nodeId?: string; additive?: boolean }>).detail;
+      if (!detail?.nodeId) return;
+      const additive = Boolean(detail.additive);
+      setNodes(nds => {
+        const target = nds.find(node => node.id === detail.nodeId && (node.type === "asset" || node.type === "canvasFrame"));
+        if (!target) return nds;
+        const selectedIds = new Set(additive ? nds.filter(node => node.selected).map(node => node.id) : []);
+        selectedIds.add(target.id);
+        setSelectedNodeIds(Array.from(selectedIds));
+        return [
+          ...nds.filter(node => node.id !== target.id).map(node => ({ ...node, selected: selectedIds.has(node.id) })),
+          { ...target, selected: true },
+        ];
+      });
+    };
+    window.addEventListener("visual-node-select-to-front", handler);
+    return () => window.removeEventListener("visual-node-select-to-front", handler);
+  }, [setNodes]);
+
+  useEffect(() => {
+    const handlePaste = (event: ClipboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isTyping = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
+      if (isTyping) return;
+      const imageBlobs = Array.from(event.clipboardData?.items || [])
+        .filter(item => item.kind === "file" && item.type.startsWith("image/"))
+        .map(item => item.getAsFile())
+        .filter((file): file is File => Boolean(file));
+      if (imageBlobs.length === 0) return;
+      event.preventDefault();
+      void pasteClipboardImages(imageBlobs);
+    };
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       const isTyping = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
@@ -8928,7 +8978,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           setSelectedNodeIds(pasted.map(n => n.id));
           toast(`已粘贴 ${pasted.length} 个元素`, { description: "新节点已选中，可直接拖动定位" });
         } else {
-          toast("剪贴板为空", { description: "请先选中元素再按 Ctrl/Cmd+C 复制" });
+          const clipboardEvent = e as unknown as ClipboardEvent;
+          const imageBlobs = Array.from(clipboardEvent.clipboardData?.items || [])
+            .filter(item => item.kind === "file" && item.type.startsWith("image/"))
+            .map(item => item.getAsFile())
+            .filter((file): file is File => Boolean(file));
+          if (imageBlobs.length > 0) {
+            e.preventDefault();
+            void pasteClipboardImages(imageBlobs);
+          }
         }
         return;
       }
@@ -8944,9 +9002,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         toast(`已打组 ${selectedNodeIds.length} 个画布`, { description: "Windows 使用 Ctrl+G，Mac 使用 Command+G" });
       }
     };
+    window.addEventListener("paste", handlePaste);
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [nodes, clipboard, setClipboard, pushHistory, selectedNodeIds, setEdges, setNodes, undoCanvas]);
+    return () => {
+      window.removeEventListener("paste", handlePaste);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [nodes, clipboard, setClipboard, pasteClipboardImages, pushHistory, selectedNodeIds, setEdges, setNodes, undoCanvas]);
 
   // ── C-key lasso: cut edges intersecting the lasso rect ──
   const handleLassoCut = useCallback((lassoRect: LassoRect) => {

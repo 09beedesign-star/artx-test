@@ -15,6 +15,7 @@ import {
 import { INITIAL_MESSAGES, GENERATED_ASSETS, PROJECTS } from "@/lib/workspace-data";
 import type { ChatMessage, GeneratedAsset, AgentStep } from "@/lib/workspace-data";
 import { callLLM } from "@/lib/ai";
+import { routeCreativeIntent } from "@/lib/ai-intent";
 
 const SUGGESTIONS = [
   "为品牌设计 Logo 套件",
@@ -69,9 +70,12 @@ export default function MainCanvas({ projectId = "p1" }: MainCanvasProps) {
 
     try {
       updateStep(aiMsg.id, "s1", "done", "s2", "running");
-      const result = await callLLM({
+      const decision = await routeCreativeIntent({
         module: "workspace-chat-generation",
-        prompt: `请作为工作区对话生成助手，分析用户需求并给出视觉创作方案：${userMsg.content}`,
+        model: "gpt-4o",
+        prompt: userMsg.content,
+        recentMessages: messages.slice(-6).map((message) => ({ role: message.role, content: message.content })),
+        preferImageWhenReferences: false,
       });
       updateStep(aiMsg.id, "s2", "done", "s3", "running");
       updateStep(aiMsg.id, "s3", "done");
@@ -80,8 +84,10 @@ export default function MainCanvas({ projectId = "p1" }: MainCanvasProps) {
           m.id === aiMsg.id
             ? {
                 ...m,
-                content: result.text,
-                assets: [GENERATED_ASSETS[0], GENERATED_ASSETS[1]],
+                content: decision.mode === "image"
+                  ? `我判断这次请求更适合直接生成图片，已整理为生图任务：${decision.imagePrompt || userMsg.content}`
+                  : (decision.reply || userMsg.content),
+                assets: decision.mode === "image" ? [GENERATED_ASSETS[0], GENERATED_ASSETS[1]] : undefined,
               }
             : m
         )
