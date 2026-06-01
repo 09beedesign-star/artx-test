@@ -2089,10 +2089,8 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   }, [dispH, dispW]);
 
   const confirmCrop = useCallback(() => {
-    const nextW = Math.max(60, Math.round(dispW * (cropRect.w / 100)));
-    const nextH = Math.max(60, Math.round(dispH * (cropRect.h / 100)));
     window.dispatchEvent(new CustomEvent("asset-crop-commit", {
-      detail: { nodeId, cropRect, nextW, nextH, startW: dispW, startH: dispH, sourceSrc: displaySrc },
+      detail: { nodeId, cropRect, startW: dispW, startH: dispH, sourceSrc: displaySrc },
     }));
   }, [cropRect, dispH, dispW, displaySrc, nodeId]);
 
@@ -7054,21 +7052,23 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   useEffect(() => {
     const commitHandler = (e: Event) => {
       if (isRestoringRef.current) return;
-      const detail = (e as CustomEvent<{ nodeId: string; cropRect: { x: number; y: number; w: number; h: number }; nextW: number; nextH: number; startW: number; startH: number; sourceSrc?: string }>).detail;
+      const detail = (e as CustomEvent<{ nodeId: string; cropRect: { x: number; y: number; w: number; h: number }; startW: number; startH: number; sourceSrc?: string }>).detail;
       if (!detail?.nodeId) return;
-      const applyCrop = (croppedSrc?: string) => {
+      const fallbackW = Math.max(1, Math.round(detail.startW * (detail.cropRect.w / 100)));
+      const fallbackH = Math.max(1, Math.round(detail.startH * (detail.cropRect.h / 100)));
+      const applyCrop = (croppedSrc?: string, nextW = fallbackW, nextH = fallbackH) => {
         pushHistory(nodesRef.current, edgesRef.current);
         setNodes(nds => nds.map(n => {
           if (n.id !== detail.nodeId || n.type !== "asset") return n;
           const data = n.data as Record<string, unknown>;
           return {
             ...n,
-            style: { ...n.style, width: detail.nextW, height: detail.nextH },
+            style: { ...n.style, width: nextW, height: nextH },
             data: {
               ...data,
               localSrc: croppedSrc || (data.localSrc as string | undefined),
-              imgW: detail.nextW,
-              imgH: detail.nextH,
+              imgW: nextW,
+              imgH: nextH,
               cropX: 0,
               cropY: 0,
               cropW: 100,
@@ -7079,7 +7079,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           };
         }));
         window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
-        toast("已完成裁切", { description: `${detail.nextW} × ${detail.nextH}px` });
+        toast("已完成裁切", { description: `${nextW} × ${nextH}px` });
       };
 
       if (!detail.sourceSrc) {
@@ -7090,21 +7090,27 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const image = new Image();
       image.crossOrigin = "anonymous";
       image.onload = () => {
+        const sx = Math.max(0, Math.round((detail.cropRect.x / 100) * image.naturalWidth));
+        const sy = Math.max(0, Math.round((detail.cropRect.y / 100) * image.naturalHeight));
+        const sw = Math.max(1, Math.round((detail.cropRect.w / 100) * image.naturalWidth));
+        const sh = Math.max(1, Math.round((detail.cropRect.h / 100) * image.naturalHeight));
+        const displayScale = Math.min(
+          detail.startW / Math.max(1, image.naturalWidth),
+          detail.startH / Math.max(1, image.naturalHeight)
+        );
+        const nextW = Math.max(1, Math.round(sw * displayScale));
+        const nextH = Math.max(1, Math.round(sh * displayScale));
         const canvas = document.createElement("canvas");
-        canvas.width = Math.max(1, Math.round(detail.nextW));
-        canvas.height = Math.max(1, Math.round(detail.nextH));
+        canvas.width = sw;
+        canvas.height = sh;
         const ctx = canvas.getContext("2d");
         if (!ctx) {
           applyCrop();
           return;
         }
-        const sx = (detail.cropRect.x / 100) * image.naturalWidth;
-        const sy = (detail.cropRect.y / 100) * image.naturalHeight;
-        const sw = (detail.cropRect.w / 100) * image.naturalWidth;
-        const sh = (detail.cropRect.h / 100) * image.naturalHeight;
-        ctx.drawImage(image, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+        ctx.drawImage(image, sx, sy, sw, sh, 0, 0, sw, sh);
         try {
-          applyCrop(canvas.toDataURL("image/png"));
+          applyCrop(canvas.toDataURL("image/png"), nextW, nextH);
         } catch {
           applyCrop();
         }
