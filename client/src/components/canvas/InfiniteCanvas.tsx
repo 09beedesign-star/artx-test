@@ -1825,12 +1825,14 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const isExpanding = !!(data as { isExpanding?: boolean }).isExpanding;
   const extractedText = ((data as { extractedText?: string }).extractedText || "") as string;
   const extractedTextPanelOpen = Boolean((data as { extractedTextPanelOpen?: boolean }).extractedTextPanelOpen);
+  const isApplyingExtractedText = Boolean((data as { isApplyingExtractedText?: boolean }).isApplyingExtractedText);
   const [eraseBrushSize, setEraseBrushSize] = useState<number>(Number((data as { eraseBrushSize?: number }).eraseBrushSize) || 42);
   const eraseCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const eraseMaskCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const eraseDrawingRef = useRef(false);
   const eraseLastPointRef = useRef<{ x: number; y: number } | null>(null);
   const eraseHasPaintRef = useRef(false);
+  const [extractedTextDraft, setExtractedTextDraft] = useState(extractedText);
   const displayTitle = (data.title as string) || asset.title || "素材节点";
   const rotation = (data.rotation as number) || 0;
   const flipX = Boolean(data.flipX);
@@ -1910,6 +1912,9 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   useEffect(() => {
     if (isExpanding) setExpandRect({ x: -18, y: -18, w: 136, h: 136 });
   }, [isExpanding]);
+  useEffect(() => {
+    if (extractedTextPanelOpen) setExtractedTextDraft(extractedText);
+  }, [extractedText, extractedTextPanelOpen]);
 
   // 选中边框样式
   const borderColor = selected
@@ -2323,10 +2328,44 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     event.stopPropagation();
     setFlowNodes(nds => nds.map(n =>
       n.id === nodeId && n.type === "asset"
-        ? { ...n, data: { ...(n.data as Record<string, unknown>), extractedTextPanelOpen: false, isExtractingText: false } }
+        ? { ...n, data: { ...(n.data as Record<string, unknown>), extractedTextPanelOpen: false, isExtractingText: false, isApplyingExtractedText: false } }
         : n
     ));
   }, [nodeId, setFlowNodes]);
+
+  const applyExtractedTextToNewImage = useCallback(async () => {
+    const nextText = extractedTextDraft.trim();
+    if (!nextText) {
+      toast("请先输入需要替换的文案");
+      return;
+    }
+    const imageSrc = await getRenderedImageSource();
+    if (!imageSrc) {
+      toast("文案应用失败", { description: "当前图片没有可处理的图像来源" });
+      return;
+    }
+    setFlowNodes(nds => nds.map(n =>
+      n.id === nodeId && n.type === "asset"
+        ? {
+            ...n,
+            data: {
+              ...(n.data as Record<string, unknown>),
+              extractedText: nextText,
+              extractedTextPanelOpen: true,
+              isApplyingExtractedText: true,
+            },
+          }
+        : n
+    ));
+    window.dispatchEvent(new CustomEvent("asset-text-edit-apply", {
+      detail: {
+        nodeId,
+        imageSrc,
+        originalText: extractedText,
+        editedText: nextText,
+      },
+    }));
+  }, [extractedText, extractedTextDraft, getRenderedImageSource, nodeId, setFlowNodes]);
 
   return (
     <>
@@ -2592,7 +2631,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
               style={{ borderBottom: `1px solid ${isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)"}` }}
             >
               <div className="flex items-center gap-2">
-                {isExtractingText ? <RefreshCw size={13} className="animate-spin" /> : <Type size={13} />}
+                {isExtractingText || isApplyingExtractedText ? <RefreshCw size={13} className="animate-spin" /> : <Type size={13} />}
                 <span className="type-caption" style={{ fontWeight: 700 }}>画面文案</span>
               </div>
               <button
@@ -2611,8 +2650,8 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
               </button>
             </div>
             <textarea
-              readOnly
-              value={isExtractingText ? "正在计算画面中的文案..." : extractedText}
+              readOnly={isExtractingText || isApplyingExtractedText}
+              value={isExtractingText ? "正在计算画面中的文案..." : extractedTextDraft}
               aria-label="提取出的画面文案"
               className="w-full nodrag nopan"
               style={{
@@ -2630,10 +2669,44 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
                 userSelect: "text",
                 cursor: "text",
               }}
+              onChange={event => setExtractedTextDraft(event.target.value)}
               onMouseDown={event => event.stopPropagation()}
               onClick={event => event.stopPropagation()}
               onKeyDown={event => event.stopPropagation()}
             />
+            <div
+              className="flex items-center justify-between gap-2 px-3 py-2"
+              style={{ borderTop: `1px solid ${isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)"}` }}
+            >
+              <button
+                type="button"
+                className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5 transition-opacity hover:opacity-80"
+                style={{
+                  color: isDark ? "rgba(255,255,255,0.84)" : "rgba(28,28,40,0.82)",
+                  background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)",
+                }}
+                onClick={() => {
+                  navigator.clipboard?.writeText(extractedTextDraft);
+                  toast("已复制画面文案");
+                }}
+                disabled={isExtractingText}
+              >
+                复制文案
+              </button>
+              <button
+                type="button"
+                className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5 transition-opacity hover:opacity-80"
+                style={{
+                  color: "white",
+                  background: "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.72 0.18 205))",
+                  opacity: isExtractingText || isApplyingExtractedText ? 0.72 : 1,
+                }}
+                onClick={() => { void applyExtractedTextToNewImage(); }}
+                disabled={isExtractingText || isApplyingExtractedText}
+              >
+                {isApplyingExtractedText ? "正在生成新图..." : "应用到新图"}
+              </button>
+            </div>
           </div>
         )}
         {/* 四角缩放锚点：固定 6px 圆环 */}
@@ -6706,6 +6779,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     isEditing: false,
     extractedTextPanelOpen: false,
     isExtractingText: false,
+    isApplyingExtractedText: false,
   }), []);
 
   const clearInactiveAssetCommands = useCallback((keepIds: string[] = []) => {
@@ -6713,7 +6787,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setNodes(nds => nds.map(n => {
       if (n.type !== "asset" || keep.has(n.id)) return n;
       const data = n.data as Record<string, unknown>;
-      if (!data.isCropping && !data.isErasing && !data.isExpanding && !data.isEditing && !data.extractedTextPanelOpen && !data.isExtractingText) return n;
+      if (!data.isCropping && !data.isErasing && !data.isExpanding && !data.isEditing && !data.extractedTextPanelOpen && !data.isExtractingText && !data.isApplyingExtractedText) return n;
       return { ...n, data: clearAssetCommandState(data) };
     }));
     setAssetMorePanel(current => current && keep.has(current.nodeId) ? current : null);
@@ -7009,6 +7083,80 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       window.removeEventListener("asset-expand-apply", applyHandler);
       window.removeEventListener("asset-expand-cancel", cancelHandler);
     };
+  }, [runDerivedImageGeneration, setNodes]);
+
+  useEffect(() => {
+    const applyHandler = async (e: Event) => {
+      const detail = (e as CustomEvent<{ nodeId: string; imageSrc: string; originalText: string; editedText: string }>).detail;
+      if (!detail?.nodeId || !detail.imageSrc || !detail.editedText.trim()) return;
+      const sourceNode = nodesRef.current.find(n => n.id === detail.nodeId && n.type === "asset");
+      if (!sourceNode) return;
+      const sourceSize = getCanvasNodeSize(sourceNode);
+      try {
+        const optimizedPrompt = await callLLM({
+          module: "image-text-relayout",
+          model: "gpt-4o",
+          images: [{ src: detail.imageSrc, title: "原始图片" }],
+          prompt: [
+            "请根据原始图片，生成一段给图片模型使用的中文编辑提示词。",
+            "目标：把图片中原有的文案替换成用户编辑后的文案，并同步微调排版。",
+            "要求：输出必须是一张新的结果图，不能影响原图。",
+            "要求：尽量保留原始画面主体、风格、色彩、背景、构图和品牌识别特征。",
+            "要求：只修改与文字相关的区域和为了新文案适配所必须发生的细微版式调整。",
+            "要求：如果新文案更长或更短，自动优化字号、行距、字重、留白、对齐和文字区块位置，让画面自然、专业、无明显修补痕迹。",
+            "只输出可直接给图片模型使用的提示词，不要解释。",
+            `原图文案：${detail.originalText || "未识别到可读文案"}`,
+            `替换后的新文案：${detail.editedText}`,
+          ].join("\n"),
+        });
+        await runDerivedImageGeneration({
+          sourceNode,
+          prompt: optimizedPrompt.text.trim() || `将图片中的文案替换为：${detail.editedText}`,
+          style: "文案编辑结果",
+          nextW: sourceSize.width,
+          nextH: sourceSize.height,
+          run: async () => generateAiImages({
+            prompt: optimizedPrompt.text.trim() || `将图片中的文案替换为：${detail.editedText}`,
+            model: "gpt-image-2",
+            ratio: inferImageRatio(sourceSize.width, sourceSize.height),
+            count: 1,
+            style: "文案编辑",
+            referencesEnabled: false,
+          }),
+        });
+        setNodes(nds => nds.map(n =>
+          n.id === detail.nodeId && n.type === "asset"
+            ? {
+                ...n,
+                data: {
+                  ...(n.data as Record<string, unknown>),
+                  extractedTextPanelOpen: true,
+                  isApplyingExtractedText: false,
+                  extractedText: detail.editedText,
+                },
+              }
+            : n
+        ));
+        toast("文案已应用到新图", { description: "AI 已在原图旁生成新的排版结果图" });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "请稍后重试";
+        setNodes(nds => nds.map(n =>
+          n.id === detail.nodeId && n.type === "asset"
+            ? {
+                ...n,
+                data: {
+                  ...(n.data as Record<string, unknown>),
+                  extractedTextPanelOpen: true,
+                  isApplyingExtractedText: false,
+                },
+              }
+            : n
+        ));
+        toast("文案应用失败", { description: message });
+      }
+    };
+    window.addEventListener("asset-text-edit-apply", applyHandler);
+    return () => window.removeEventListener("asset-text-edit-apply", applyHandler);
   }, [runDerivedImageGeneration, setNodes]);
 
   // ── 几何形参数面板（全局渲染，紧贴节点选框右侧 +6px） ──
@@ -8308,6 +8456,42 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     return asset?.src || "";
   }, []);
 
+  const sanitizeDownloadName = useCallback((value: string) => value.replace(/[/\\:*?"<>|]/g, "_").trim() || "artx-image", []);
+
+  const imageSrcToFormatBlob = useCallback((src: string, format: "jpg" | "png" | "webp") => new Promise<Blob | null>((resolve) => {
+    if (!src) {
+      resolve(null);
+      return;
+    }
+    const mimeType = format === "jpg" ? "image/jpeg" : format === "webp" ? "image/webp" : "image/png";
+    const image = new window.Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth || image.width || 800;
+        canvas.height = image.naturalHeight || image.height || 600;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          resolve(null);
+          return;
+        }
+        if (format === "jpg") {
+          ctx.fillStyle = "#fff";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+        ctx.drawImage(image, 0, 0);
+        canvas.toBlob(blob => resolve(blob), mimeType, format === "jpg" ? 0.92 : undefined);
+      } catch {
+        fetch(src).then(response => response.blob()).then(blob => resolve(blob)).catch(() => resolve(null));
+      }
+    };
+    image.onerror = () => {
+      fetch(src).then(response => response.blob()).then(blob => resolve(blob)).catch(() => resolve(null));
+    };
+    image.src = src;
+  }), []);
+
   // ── 批量下载实现：将多个图片打包成 ZIP ──
   const handleBatchDownload = useCallback(async (
     targetNodes: Node[],
@@ -8330,36 +8514,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const src = getNodeImageSrc(node);
         if (!src) return;
 
-        // 将图片转换为目标格式的 Blob
-        const blob = await new Promise<Blob | null>((resolve) => {
-          const img = new window.Image();
-          img.crossOrigin = "anonymous";
-          img.onload = () => {
-            const canvas = document.createElement("canvas");
-            canvas.width = img.naturalWidth || 800;
-            canvas.height = img.naturalHeight || 600;
-            const ctx = canvas.getContext("2d");
-            if (!ctx) { resolve(null); return; }
-            if (format === 'jpg') {
-              ctx.fillStyle = "#ffffff";
-              ctx.fillRect(0, 0, canvas.width, canvas.height);
-            }
-            ctx.drawImage(img, 0, 0);
-            canvas.toBlob(b => resolve(b), mimeType, format === 'jpg' ? 0.92 : undefined);
-          };
-          img.onerror = () => {
-            // 跨域图片失败时，尝试直接 fetch
-            fetch(src)
-              .then(r => r.blob())
-              .then(b => resolve(b))
-              .catch(() => resolve(null));
-          };
-          img.src = src;
-        });
+        const blob = await imageSrcToFormatBlob(src, format);
 
         if (blob) {
           // 清洁文件名，去除非法字符
-          const safeName = title.replace(/[/\\:*?"<>|]/g, "_");
+          const safeName = sanitizeDownloadName(title);
           zip.file(`${safeName}.${ext}`, blob);
         }
       }));
@@ -8373,7 +8532,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       toast("下载失败", { description: "请检查网络连接后重试" });
       console.error("[BatchDownload]", err);
     }
-  }, [getNodeImageSrc]);
+  }, [getNodeImageSrc, imageSrcToFormatBlob, sanitizeDownloadName]);
 
   // ── Alt + drag 复制节点 ──
   // 拖拽开始时：若按下 Alt，记录被拖节点的原始位置
@@ -9343,6 +9502,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         nodesConnectable={ENABLE_NODE_CONNECTIONS}
         edgesFocusable={ENABLE_NODE_CONNECTIONS}
         edgesReconnectable={ENABLE_NODE_CONNECTIONS}
+        zoomOnScroll={false}
+        panOnScroll={!isCanvasLocked}
         onNodeDragStart={handleAltDragStart as any}
         onNodeDragStop={(event, node, nodes) => {
           handleAltDragStop(event as unknown as MouseEvent, node);
@@ -9738,25 +9899,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                   const singleDl = (window as unknown as Record<string, unknown>).__artx_single_download__ as { title: string; src: string } | undefined;
 
                   if (singleDl && !dlNodes) {
-                    // 单张下载
-                    const img = new window.Image();
-                    img.crossOrigin = "anonymous";
-                    img.onload = () => {
-                      const canvas = document.createElement("canvas");
-                      canvas.width = img.naturalWidth || 800;
-                      canvas.height = img.naturalHeight || 600;
-                      const ctx = canvas.getContext("2d");
-                      if (!ctx) return;
-                      if (downloadFormat === 'jpg') { ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, canvas.width, canvas.height); }
-                      ctx.drawImage(img, 0, 0);
-                      canvas.toBlob(blob => {
-                        if (blob) saveAs(blob, `${singleDl.title}.${downloadFormat}`);
-                      }, downloadFormat === 'jpg' ? 'image/jpeg' : downloadFormat === 'webp' ? 'image/webp' : 'image/png', downloadFormat === 'jpg' ? 0.92 : undefined);
-                    };
-                    img.onerror = () => {
-                      fetch(singleDl.src).then(r => r.blob()).then(b => saveAs(b, `${singleDl.title}.${downloadFormat}`)).catch(() => toast("下载失败"));
-                    };
-                    img.src = singleDl.src;
+                    const safeName = sanitizeDownloadName(singleDl.title);
+                    const blob = await imageSrcToFormatBlob(singleDl.src, downloadFormat);
+                    if (!blob) {
+                      toast("下载失败", { description: "当前图片暂时无法保存，请稍后重试" });
+                    } else {
+                      saveAs(blob, `${safeName}.${downloadFormat}`);
+                    }
                     (window as unknown as Record<string, unknown>).__artx_single_download__ = undefined;
                   } else if (dlNodes && dlNodes.length > 0) {
                     // 批量下载
