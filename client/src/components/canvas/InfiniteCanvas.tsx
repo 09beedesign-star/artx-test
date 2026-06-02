@@ -4002,7 +4002,53 @@ function safeReadCanvasState(projectId: string): PersistedCanvasState | null {
     if (!Array.isArray(parsed.nodes) || !Array.isArray(parsed.edges)) return null;
     return parsed;
   } catch {
+    try {
+      window.localStorage.removeItem(canvasStateStorageKey(projectId));
+    } catch {
+      /* ignore storage cleanup errors */
+    }
     return null;
+  }
+}
+
+function stripLargeCanvasNodePayloads(nodes: Node[]) {
+  return nodes.map(node => {
+    const data = node.data as Record<string, unknown>;
+    const localSrc = typeof data.localSrc === "string" ? data.localSrc : "";
+    if (!localSrc.startsWith("data:")) return node;
+    return {
+      ...node,
+      data: {
+        ...data,
+        localSrc: undefined,
+        volatileImageDropped: true,
+      },
+    };
+  });
+}
+
+function safeWriteCanvasState(projectId: string, state: PersistedCanvasState) {
+  if (typeof window === "undefined") return;
+  const key = canvasStateStorageKey(projectId);
+  try {
+    window.localStorage.setItem(key, JSON.stringify(state));
+  } catch (error) {
+    const lighterState: PersistedCanvasState = {
+      ...state,
+      nodes: stripLargeCanvasNodePayloads(state.nodes),
+    };
+    try {
+      window.localStorage.setItem(key, JSON.stringify(lighterState));
+      toast("画布已保存轻量状态", { description: "本地存储空间不足，部分外部图片不会在刷新后保留原图数据" });
+    } catch {
+      try {
+        window.localStorage.removeItem(key);
+      } catch {
+        /* ignore storage cleanup errors */
+      }
+      const message = error instanceof Error ? error.message : "浏览器本地存储空间不足";
+      toast("画布自动保存失败", { description: message });
+    }
   }
 }
 
@@ -5918,7 +5964,11 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
   }, [agentMenuOpen]);
 
   useEffect(() => {
-    window.localStorage.setItem(CANVAS_ASSISTANT_MODEL_STORAGE_KEY, assistantModel.id);
+    try {
+      window.localStorage.setItem(CANVAS_ASSISTANT_MODEL_STORAGE_KEY, assistantModel.id);
+    } catch {
+      /* ignore storage quota errors */
+    }
   }, [assistantModel.id]);
 
   useEffect(() => {
@@ -5931,7 +5981,11 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem(canvasAssistantMessagesStorageKey(projectId), JSON.stringify(serializeCanvasAssistantMessages(messages)));
+    try {
+      window.localStorage.setItem(canvasAssistantMessagesStorageKey(projectId), JSON.stringify(serializeCanvasAssistantMessages(messages)));
+    } catch {
+      /* ignore storage quota errors */
+    }
   }, [messages, projectId]);
 
   useEffect(() => {
@@ -6714,7 +6768,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     if (typeof window === "undefined" || !didHydrateCanvasStateRef.current || isRestoringRef.current) return;
     const updatedAt = formatProjectHistoryTimestamp();
     const state: PersistedCanvasState = { nodes, edges, updatedAt };
-    window.localStorage.setItem(canvasStateStorageKey(projectId), JSON.stringify(state));
+    safeWriteCanvasState(projectId, state);
     updateWorkspaceProjectHistory(projectId, {
       cover: getCanvasStateCover(nodes),
       nodeCount: nodes.length,
