@@ -2521,8 +2521,8 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
                 }}
                 onMouseDown={e => e.stopPropagation()}
               >
-                <button type="button" className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5" style={{ color: "rgba(255,255,255,0.78)", background: "rgba(255,255,255,0.08)" }} onClick={cancelCrop}>取消</button>
-                <button type="button" className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5" style={{ color: "white", background: "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.72 0.18 205))" }} onClick={confirmCrop}>确定</button>
+                <button type="button" className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5" style={{ minWidth: 58, whiteSpace: "nowrap", wordBreak: "keep-all", color: "rgba(255,255,255,0.78)", background: "rgba(255,255,255,0.08)" }} onClick={cancelCrop}>取消</button>
+                <button type="button" className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5" style={{ minWidth: 58, whiteSpace: "nowrap", wordBreak: "keep-all", color: "white", background: "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.72 0.18 205))" }} onClick={confirmCrop}>确定</button>
               </div>
             </div>
           )}
