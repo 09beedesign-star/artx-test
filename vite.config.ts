@@ -233,6 +233,21 @@ function vitePluginStorageProxy(): Plugin {
   };
 }
 
+function vitePluginGithubPagesSpaFallback(): Plugin {
+  return {
+    name: "github-pages-spa-fallback",
+    closeBundle() {
+      if (process.env.GITHUB_PAGES !== "true") return;
+      const outDir = path.resolve(import.meta.dirname, "dist/public");
+      const indexPath = path.join(outDir, "index.html");
+      const notFoundPath = path.join(outDir, "404.html");
+      if (fs.existsSync(indexPath)) {
+        fs.copyFileSync(indexPath, notFoundPath);
+      }
+    },
+  };
+}
+
 type JsonApiHandler = (payload: unknown) => Promise<unknown>;
 
 function vitePluginJsonApi(name: string, route: string, handler: JsonApiHandler, fallbackError: string): Plugin {
@@ -322,6 +337,7 @@ const plugins = [
     const limit = typeof (payload as { limit?: unknown })?.limit === "number" ? (payload as { limit: number }).limit : 10;
     return searchReferenceImages(query, limit);
   }, "Reference search failed"),
+  vitePluginGithubPagesSpaFallback(),
 ];
 
 export default defineConfig({
