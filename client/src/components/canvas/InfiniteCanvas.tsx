@@ -2016,9 +2016,10 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
         return node?.type === "asset" || node?.type === "canvasFrame";
       }));
       if (selectedVisualIds.size === 0) return nextNodes;
+      const topZ = Math.max(0, ...nextNodes.map(n => typeof n.zIndex === "number" ? n.zIndex : 0)) + 1;
       return [
         ...nextNodes.filter(n => !selectedVisualIds.has(n.id)),
-        ...nextNodes.filter(n => selectedVisualIds.has(n.id)),
+        ...nextNodes.filter(n => selectedVisualIds.has(n.id)).map(n => ({ ...n, zIndex: topZ })),
       ];
     });
     window.dispatchEvent(new CustomEvent("asset-reference", {
@@ -8085,12 +8086,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       setNodes(nds => {
         const selectedVisualNodes = nds.filter(node => selectedVisualIds.has(node.id));
         if (selectedVisualNodes.length === 0) return nds;
+        const topZ = Math.max(0, ...nds.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
+        const raisedVisualNodes = selectedVisualNodes.map(node => ({ ...node, zIndex: topZ }));
         const selectedVisualOrder = selectedVisualNodes.map(node => node.id).join(",");
         const currentTopOrder = nds.slice(-selectedVisualNodes.length).map(node => node.id).join(",");
-        if (selectedVisualOrder === currentTopOrder) return nds;
+        if (selectedVisualOrder === currentTopOrder && selectedVisualNodes.every(node => (node.zIndex || 0) >= topZ - 1)) return nds;
         return [
           ...nds.filter(node => !selectedVisualIds.has(node.id)),
-          ...selectedVisualNodes,
+          ...raisedVisualNodes,
         ];
       });
     }
@@ -9071,10 +9074,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         if (!target) return nds;
         const selectedIds = new Set(additive ? nds.filter(node => node.selected).map(node => node.id) : []);
         selectedIds.add(target.id);
+        const topZ = Math.max(0, ...nds.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
         setSelectedNodeIds(Array.from(selectedIds));
         return [
           ...nds.filter(node => node.id !== target.id).map(node => ({ ...node, selected: selectedIds.has(node.id) })),
-          { ...target, selected: true },
+          { ...target, selected: true, zIndex: topZ },
         ];
       });
     };
