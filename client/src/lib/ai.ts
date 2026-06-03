@@ -176,7 +176,7 @@ export async function removeImageBackground({
     }
   }
 
-  const fallbackPrompt = prompt || "Remove the background from this image. Keep the main subject intact, preserve the original subject appearance, clean up edges naturally, and return a transparent PNG or a visually background-free isolated subject.";
+  const fallbackPrompt = prompt || "Remove the background from this image. Keep the foreground subject intact, preserve the original subject appearance, clean up edges naturally, and return a PNG with the background fully transparent and alpha set to 0.";
   return editImageWithPrompt({
     imageSrc,
     model,

@@ -348,7 +348,7 @@ export async function removeImageBackground(input: RemoveBackgroundInput): Promi
 
   const sourceImage = await imageSrcToFile(input.imageSrc);
   const selectedModel = input.model && supportedImageModels.has(input.model) ? input.model : model;
-  const prompt = input.prompt || "Remove the background from this image. Keep the main subject intact and return a clean transparent PNG.";
+  const prompt = input.prompt || "Remove the background from this image. Keep the foreground subject intact, preserve its edges naturally, and return a PNG with the background fully transparent and alpha set to 0.";
 
   const createBody = (withResponseFormat: boolean) => {
     const body = new FormData();
