@@ -2417,20 +2417,43 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
             <div
               className="absolute inset-0 flex flex-col items-center justify-center gap-3"
               style={{
-                background: isDark ? "oklch(0.16 0.018 270)" : "oklch(0.96 0.006 270)",
-                color: isDark ? "rgba(255,255,255,0.72)" : "rgba(24,24,32,0.62)",
+                background: isGeneratingImage
+                  ? "linear-gradient(135deg, oklch(0.34 0.20 275) 0%, oklch(0.46 0.22 250) 48%, oklch(0.40 0.22 305) 100%)"
+                  : isDark ? "oklch(0.16 0.018 270)" : "oklch(0.96 0.006 270)",
+                color: isGeneratingImage ? "rgba(255,255,255,0.88)" : isDark ? "rgba(255,255,255,0.72)" : "rgba(24,24,32,0.62)",
               }}
             >
-              <div
-                className="animate-spin"
-                style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: "50%",
-                  border: `2px solid ${isDark ? "rgba(255,255,255,0.18)" : "rgba(24,24,32,0.12)"}`,
-                  borderTopColor: "oklch(0.64 0.22 285)",
-                }}
-              />
+              {isGeneratingImage ? (
+                <div
+                  className="animate-spin"
+                  aria-hidden="true"
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: "50%",
+                    border: "1px solid rgba(255,255,255,0.28)",
+                    background: "rgba(255,255,255,0.14)",
+                    boxShadow: "0 12px 32px rgba(23,18,85,0.34), inset 0 0 0 1px rgba(255,255,255,0.20)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backdropFilter: "blur(8px)",
+                  }}
+                >
+                  <Sparkles size={17} strokeWidth={2.4} />
+                </div>
+              ) : (
+                <div
+                  className="animate-spin"
+                  style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: "50%",
+                    border: `2px solid ${isDark ? "rgba(255,255,255,0.18)" : "rgba(24,24,32,0.12)"}`,
+                    borderTopColor: "oklch(0.64 0.22 285)",
+                  }}
+                />
+              )}
               <span className="type-caption" style={{ fontWeight: 600 }}>{processingLabel}</span>
             </div>
           ) : (
