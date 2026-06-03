@@ -1321,7 +1321,7 @@ function AssetMoreCommandPanel({ isDark, command, initialAdjustments, onClose, o
           style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))", color: "white", fontSize: 13, fontWeight: 650 }}
           onClick={() => onApply(current.title, command === "adjust" ? adjustments : undefined)}
         >
-          应用到当前图片
+          {command === "vector" ? "生成新图片" : "应用到当前图片"}
         </button>
       </div>
     </div>
