@@ -163,11 +163,7 @@ function clearLargeArtxLocalCache() {
 }
 
 async function fetchAuth(action: "register" | "login" | "me" | "logout" | "social", payload: Record<string, unknown>) {
-  const apiBaseUrl = (
-    import.meta.env.VITE_API_BASE_URL ||
-    import.meta.env.VITE_AI_API_BASE_URL ||
-    ""
-  ).replace(/\/+$/, "");
+  const apiBaseUrl = getAuthApiBaseUrl();
   const response = await fetch(`${apiBaseUrl}/api/auth/${action}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -178,4 +174,19 @@ async function fetchAuth(action: "register" | "login" | "me" | "logout" | "socia
     ...data,
     ok: response.ok,
   } as { ok: boolean; error?: string; token?: string; user?: AuthUser };
+}
+
+function getAuthApiBaseUrl() {
+  const configured = (
+    import.meta.env.VITE_AUTH_API_BASE_URL ||
+    import.meta.env.VITE_API_BASE_URL ||
+    ""
+  ).replace(/\/+$/, "");
+
+  if (configured) return configured;
+  if (typeof window !== "undefined" && window.location.hostname.endsWith("github.io")) {
+    return "https://artx-test.onrender.com";
+  }
+
+  return "";
 }
