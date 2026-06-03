@@ -1908,7 +1908,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   }, [isErasing, resetEraseCanvases]);
 
   useEffect(() => {
-    if (isCropping) setCropRect({ x: 10, y: 10, w: 80, h: 80 });
+    if (isCropping) setCropRect({ x: 0, y: 0, w: 100, h: 100 });
   }, [isCropping]);
   useEffect(() => {
     if (isExpanding) setExpandRect({ x: -18, y: -18, w: 136, h: 136 });
@@ -2016,9 +2016,10 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
         return node?.type === "asset" || node?.type === "canvasFrame";
       }));
       if (selectedVisualIds.size === 0) return nextNodes;
+      const topZ = Math.max(0, ...nextNodes.map(n => typeof n.zIndex === "number" ? n.zIndex : 0)) + 1;
       return [
         ...nextNodes.filter(n => !selectedVisualIds.has(n.id)),
-        ...nextNodes.filter(n => selectedVisualIds.has(n.id)),
+        ...nextNodes.filter(n => selectedVisualIds.has(n.id)).map(n => ({ ...n, zIndex: topZ })),
       ];
     });
     window.dispatchEvent(new CustomEvent("asset-reference", {
@@ -2081,7 +2082,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
 
   const applyCropRatio = useCallback((ratio: number | null) => {
     if (!ratio) {
-      setCropRect({ x: 10, y: 10, w: 80, h: 80 });
+      setCropRect({ x: 0, y: 0, w: 100, h: 100 });
       return;
     }
     const imageRatio = dispW / Math.max(1, dispH);
@@ -2398,7 +2399,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
             border: `2px solid ${borderColor}`,
             borderRadius: 4,
             boxShadow: shadow,
-            overflow: "hidden",
+            overflow: isCropping ? "visible" : "hidden",
             transition: "border-color 0.15s, box-shadow 0.15s",
           }}
         >
@@ -2459,7 +2460,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
                   width: `${cropRect.w}%`,
                   height: `${cropRect.h}%`,
                   border: "1.5px dashed rgba(255,255,255,0.95)",
-                  boxShadow: "0 0 0 999px rgba(0,0,0,0.34)",
+                  boxShadow: "none",
                   background: "rgba(255,255,255,0.04)",
                 }}
               >
@@ -2486,8 +2487,16 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
                 ))}
               </div>
               <div
-                className="absolute left-1/2 top-3 flex items-center gap-1.5 rounded-[var(--radius-lg-design)] px-2 py-1 shadow-xl"
-                style={{ transform: "translateX(-50%)", background: "rgba(18,18,28,0.92)", border: "1px solid rgba(255,255,255,0.16)", color: "white", backdropFilter: "blur(14px)" }}
+                className="absolute left-1/2 flex items-center gap-1.5 rounded-[var(--radius-lg-design)] px-2 py-1 shadow-xl"
+                style={{
+                  top: `calc(100% + ${Math.round(12 / Math.max(0.2, viewport.zoom || 1))}px)`,
+                  transform: `translateX(-50%) scale(${1 / Math.max(0.2, viewport.zoom || 1)})`,
+                  transformOrigin: "top center",
+                  background: "rgba(18,18,28,0.92)",
+                  border: "1px solid rgba(255,255,255,0.16)",
+                  color: "white",
+                  backdropFilter: "blur(14px)",
+                }}
                 onMouseDown={e => e.stopPropagation()}
               >
                 {[
@@ -2502,12 +2511,19 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
                 ))}
               </div>
               <div
-                className="absolute bottom-3 left-1/2 flex items-center gap-2 rounded-[var(--radius-lg-design)] px-2 py-1.5 shadow-xl"
-                style={{ transform: "translateX(-50%)", background: "rgba(18,18,28,0.94)", border: "1px solid rgba(255,255,255,0.16)", backdropFilter: "blur(14px)" }}
+                className="absolute left-1/2 flex items-center gap-2 rounded-[var(--radius-lg-design)] px-2 py-1.5 shadow-xl"
+                style={{
+                  top: `calc(100% + ${Math.round(48 / Math.max(0.2, viewport.zoom || 1))}px)`,
+                  transform: `translateX(-50%) scale(${1 / Math.max(0.2, viewport.zoom || 1)})`,
+                  transformOrigin: "top center",
+                  background: "rgba(18,18,28,0.94)",
+                  border: "1px solid rgba(255,255,255,0.16)",
+                  backdropFilter: "blur(14px)",
+                }}
                 onMouseDown={e => e.stopPropagation()}
               >
-                <button type="button" className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5" style={{ color: "rgba(255,255,255,0.78)", background: "rgba(255,255,255,0.08)" }} onClick={cancelCrop}>取消</button>
-                <button type="button" className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5" style={{ color: "white", background: "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.72 0.18 205))" }} onClick={confirmCrop}>确定</button>
+                <button type="button" className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5" style={{ minWidth: 58, whiteSpace: "nowrap", wordBreak: "keep-all", color: "rgba(255,255,255,0.78)", background: "rgba(255,255,255,0.08)" }} onClick={cancelCrop}>取消</button>
+                <button type="button" className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5" style={{ minWidth: 58, whiteSpace: "nowrap", wordBreak: "keep-all", color: "white", background: "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.72 0.18 205))" }} onClick={confirmCrop}>确定</button>
               </div>
             </div>
           )}
@@ -3986,7 +4002,53 @@ function safeReadCanvasState(projectId: string): PersistedCanvasState | null {
     if (!Array.isArray(parsed.nodes) || !Array.isArray(parsed.edges)) return null;
     return parsed;
   } catch {
+    try {
+      window.localStorage.removeItem(canvasStateStorageKey(projectId));
+    } catch {
+      /* ignore storage cleanup errors */
+    }
     return null;
+  }
+}
+
+function stripLargeCanvasNodePayloads(nodes: Node[]) {
+  return nodes.map(node => {
+    const data = node.data as Record<string, unknown>;
+    const localSrc = typeof data.localSrc === "string" ? data.localSrc : "";
+    if (!localSrc.startsWith("data:")) return node;
+    return {
+      ...node,
+      data: {
+        ...data,
+        localSrc: undefined,
+        volatileImageDropped: true,
+      },
+    };
+  });
+}
+
+function safeWriteCanvasState(projectId: string, state: PersistedCanvasState) {
+  if (typeof window === "undefined") return;
+  const key = canvasStateStorageKey(projectId);
+  try {
+    window.localStorage.setItem(key, JSON.stringify(state));
+  } catch (error) {
+    const lighterState: PersistedCanvasState = {
+      ...state,
+      nodes: stripLargeCanvasNodePayloads(state.nodes),
+    };
+    try {
+      window.localStorage.setItem(key, JSON.stringify(lighterState));
+      toast("画布已保存轻量状态", { description: "本地存储空间不足，部分外部图片不会在刷新后保留原图数据" });
+    } catch {
+      try {
+        window.localStorage.removeItem(key);
+      } catch {
+        /* ignore storage cleanup errors */
+      }
+      const message = error instanceof Error ? error.message : "浏览器本地存储空间不足";
+      toast("画布自动保存失败", { description: message });
+    }
   }
 }
 
@@ -5902,7 +5964,11 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
   }, [agentMenuOpen]);
 
   useEffect(() => {
-    window.localStorage.setItem(CANVAS_ASSISTANT_MODEL_STORAGE_KEY, assistantModel.id);
+    try {
+      window.localStorage.setItem(CANVAS_ASSISTANT_MODEL_STORAGE_KEY, assistantModel.id);
+    } catch {
+      /* ignore storage quota errors */
+    }
   }, [assistantModel.id]);
 
   useEffect(() => {
@@ -5915,7 +5981,11 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem(canvasAssistantMessagesStorageKey(projectId), JSON.stringify(serializeCanvasAssistantMessages(messages)));
+    try {
+      window.localStorage.setItem(canvasAssistantMessagesStorageKey(projectId), JSON.stringify(serializeCanvasAssistantMessages(messages)));
+    } catch {
+      /* ignore storage quota errors */
+    }
   }, [messages, projectId]);
 
   useEffect(() => {
@@ -6698,7 +6768,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     if (typeof window === "undefined" || !didHydrateCanvasStateRef.current || isRestoringRef.current) return;
     const updatedAt = formatProjectHistoryTimestamp();
     const state: PersistedCanvasState = { nodes, edges, updatedAt };
-    window.localStorage.setItem(canvasStateStorageKey(projectId), JSON.stringify(state));
+    safeWriteCanvasState(projectId, state);
     updateWorkspaceProjectHistory(projectId, {
       cover: getCanvasStateCover(nodes),
       nodeCount: nodes.length,
@@ -7021,7 +7091,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     isErasing: false,
     isExpanding: false,
     isEditing: false,
-    extractedTextPanelOpen: false,
     isExtractingText: false,
     isApplyingExtractedText: false,
   }), []);
@@ -7031,7 +7100,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setNodes(nds => nds.map(n => {
       if (n.type !== "asset" || keep.has(n.id)) return n;
       const data = n.data as Record<string, unknown>;
-      if (!data.isCropping && !data.isErasing && !data.isExpanding && !data.isEditing && !data.extractedTextPanelOpen && !data.isExtractingText && !data.isApplyingExtractedText) return n;
+      if (!data.isCropping && !data.isErasing && !data.isExpanding && !data.isEditing && !data.isExtractingText && !data.isApplyingExtractedText) return n;
       return { ...n, data: clearAssetCommandState(data) };
     }));
     setAssetMorePanel(current => current && keep.has(current.nodeId) ? current : null);
@@ -8071,12 +8140,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       setNodes(nds => {
         const selectedVisualNodes = nds.filter(node => selectedVisualIds.has(node.id));
         if (selectedVisualNodes.length === 0) return nds;
+        const topZ = Math.max(0, ...nds.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
+        const raisedVisualNodes = selectedVisualNodes.map(node => ({ ...node, zIndex: topZ }));
         const selectedVisualOrder = selectedVisualNodes.map(node => node.id).join(",");
         const currentTopOrder = nds.slice(-selectedVisualNodes.length).map(node => node.id).join(",");
-        if (selectedVisualOrder === currentTopOrder) return nds;
+        if (selectedVisualOrder === currentTopOrder && selectedVisualNodes.every(node => (node.zIndex || 0) >= topZ - 1)) return nds;
         return [
           ...nds.filter(node => !selectedVisualIds.has(node.id)),
-          ...selectedVisualNodes,
+          ...raisedVisualNodes,
         ];
       });
     }
@@ -9057,10 +9128,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         if (!target) return nds;
         const selectedIds = new Set(additive ? nds.filter(node => node.selected).map(node => node.id) : []);
         selectedIds.add(target.id);
+        const topZ = Math.max(0, ...nds.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
         setSelectedNodeIds(Array.from(selectedIds));
         return [
           ...nds.filter(node => node.id !== target.id).map(node => ({ ...node, selected: selectedIds.has(node.id) })),
-          { ...target, selected: true },
+          { ...target, selected: true, zIndex: topZ },
         ];
       });
     };
