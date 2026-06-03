@@ -4099,6 +4099,15 @@ function getCanvasStateCover(nodes: Node[]) {
   return imageNode ? ((imageNode.data as Record<string, unknown>).localSrc as string) : null;
 }
 
+function getCanvasProjectHistoryPatch(nodes: Node[], updatedAt: string) {
+  const cover = getCanvasStateCover(nodes);
+  return {
+    ...(cover ? { cover } : {}),
+    nodeCount: nodes.length,
+    updatedAt,
+  };
+}
+
 function getImportedImageDisplaySize(naturalWidth: number, naturalHeight: number) {
   const width = Math.max(1, naturalWidth || 360);
   const height = Math.max(1, naturalHeight || 360);
@@ -6806,11 +6815,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setNodes(restoredNodes);
     setEdges(restoredEdges);
     setSelectedNodeIds(restoredNodes.filter(node => node.selected).map(node => node.id));
-    updateWorkspaceProjectHistory(projectId, {
-      cover: getCanvasStateCover(restoredNodes),
-      nodeCount: restoredNodes.length,
-      updatedAt,
-    });
+    updateWorkspaceProjectHistory(projectId, getCanvasProjectHistoryPatch(restoredNodes, updatedAt));
     requestAnimationFrame(() => requestAnimationFrame(() => {
       isRestoringRef.current = false;
       didHydrateCanvasStateRef.current = true;
@@ -6822,11 +6827,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const updatedAt = formatProjectHistoryTimestamp();
     const state: PersistedCanvasState = { nodes, edges, updatedAt };
     safeWriteCanvasState(projectId, state);
-    updateWorkspaceProjectHistory(projectId, {
-      cover: getCanvasStateCover(nodes),
-      nodeCount: nodes.length,
-      updatedAt,
-    });
+    updateWorkspaceProjectHistory(projectId, getCanvasProjectHistoryPatch(nodes, updatedAt));
   }, [edges, nodes, projectId]);
   // ── Group system state ──
   const [groupNames, setGroupNames] = useState<Record<string, string>>({});
