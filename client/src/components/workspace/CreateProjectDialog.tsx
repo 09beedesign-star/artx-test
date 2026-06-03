@@ -29,6 +29,29 @@ function makeProjectId() {
   return `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
+async function createCoverThumbnail(file: File) {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    image.decoding = "async";
+    image.src = objectUrl;
+    await image.decode();
+    const maxSide = 520;
+    const scale = Math.min(1, maxSide / Math.max(image.naturalWidth || maxSide, image.naturalHeight || maxSide));
+    const width = Math.max(1, Math.round((image.naturalWidth || maxSide) * scale));
+    const height = Math.max(1, Math.round((image.naturalHeight || maxSide) * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Canvas is unavailable");
+    context.drawImage(image, 0, 0, width, height);
+    return canvas.toDataURL("image/jpeg", 0.72);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
 export default function CreateProjectDialog({
   open,
   onOpenChange,
@@ -66,16 +89,18 @@ export default function CreateProjectDialog({
   const labelStyle = { color: sub };
   const inputStyle = { background: inputBg, border: `1px solid ${border}`, color: text };
 
-  const handleCoverChange = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleCoverChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) {
       toast("请选择图片文件");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => setCover(typeof reader.result === "string" ? reader.result : null);
-    reader.readAsDataURL(file);
+    try {
+      setCover(await createCoverThumbnail(file));
+    } catch {
+      toast("封面读取失败");
+    }
   };
 
   const handleCreate = () => {

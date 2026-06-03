@@ -9,6 +9,8 @@ export interface WorkspaceHistoryProject {
 }
 
 const STORAGE_KEY = "artx:workspace-project-history";
+const MAX_HISTORY_PROJECTS = 40;
+const MAX_COVER_LENGTH = 180_000;
 
 function formatTimestamp(date = new Date()) {
   const pad = (value: number) => String(value).padStart(2, "0");
@@ -24,27 +26,59 @@ export function readWorkspaceProjectHistory(): WorkspaceHistoryProject[] {
     if (!Array.isArray(parsed)) return [];
     return parsed.filter((item): item is WorkspaceHistoryProject => {
       return Boolean(item && typeof item.id === "string" && typeof item.title === "string");
-    });
+    }).map(normalizeWorkspaceHistoryProject);
   } catch {
     return [];
   }
 }
 
+function normalizeCover(cover: unknown) {
+  if (typeof cover !== "string" || !cover) return null;
+  return cover.length <= MAX_COVER_LENGTH ? cover : null;
+}
+
+function normalizeWorkspaceHistoryProject(project: WorkspaceHistoryProject): WorkspaceHistoryProject {
+  return {
+    ...project,
+    cover: normalizeCover(project.cover),
+  };
+}
+
+function compactWorkspaceProjectHistory(projects: WorkspaceHistoryProject[], keepCovers: boolean) {
+  return projects.slice(0, MAX_HISTORY_PROJECTS).map(project => ({
+    ...normalizeWorkspaceHistoryProject(project),
+    cover: keepCovers ? normalizeCover(project.cover) : null,
+  }));
+}
+
 function writeWorkspaceProjectHistory(projects: WorkspaceHistoryProject[]) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+  const attempts = [
+    compactWorkspaceProjectHistory(projects, true),
+    compactWorkspaceProjectHistory(projects, false),
+    compactWorkspaceProjectHistory(projects.slice(0, 20), false),
+    compactWorkspaceProjectHistory(projects.slice(0, 8), false),
+  ];
+  for (const attempt of attempts) {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(attempt));
+      return;
+    } catch {
+      /* try a smaller history payload */
+    }
+  }
 }
 
 export function upsertWorkspaceProjectHistory(project: WorkspaceHistoryProject) {
   const projects = readWorkspaceProjectHistory().filter(item => item.id !== project.id);
-  writeWorkspaceProjectHistory([project, ...projects]);
+  writeWorkspaceProjectHistory([normalizeWorkspaceHistoryProject(project), ...projects]);
 }
 
 export function updateWorkspaceProjectHistory(id: string, patch: Partial<WorkspaceHistoryProject>) {
   const projects = readWorkspaceProjectHistory();
   const existingIndex = projects.findIndex(item => item.id === id);
   if (existingIndex >= 0) {
-    projects[existingIndex] = { ...projects[existingIndex], ...patch };
+    projects[existingIndex] = normalizeWorkspaceHistoryProject({ ...projects[existingIndex], ...patch });
     writeWorkspaceProjectHistory(projects);
     return;
   }
@@ -53,7 +87,7 @@ export function updateWorkspaceProjectHistory(id: string, patch: Partial<Workspa
   const project: WorkspaceHistoryProject = {
     id,
     title: patch.title || `新建画布 ${createdAt}`,
-    cover: patch.cover ?? null,
+    cover: normalizeCover(patch.cover),
     updatedAt: patch.updatedAt || createdAt,
     nodeCount: patch.nodeCount ?? 0,
     createdAt,
