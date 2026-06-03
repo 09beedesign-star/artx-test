@@ -41,8 +41,25 @@ export function upsertWorkspaceProjectHistory(project: WorkspaceHistoryProject) 
 }
 
 export function updateWorkspaceProjectHistory(id: string, patch: Partial<WorkspaceHistoryProject>) {
-  const projects = readWorkspaceProjectHistory().map(item => item.id === id ? { ...item, ...patch } : item);
-  writeWorkspaceProjectHistory(projects);
+  const projects = readWorkspaceProjectHistory();
+  const existingIndex = projects.findIndex(item => item.id === id);
+  if (existingIndex >= 0) {
+    projects[existingIndex] = { ...projects[existingIndex], ...patch };
+    writeWorkspaceProjectHistory(projects);
+    return;
+  }
+
+  const createdAt = patch.createdAt || formatTimestamp();
+  const project: WorkspaceHistoryProject = {
+    id,
+    title: patch.title || `新建画布 ${createdAt}`,
+    cover: patch.cover ?? null,
+    updatedAt: patch.updatedAt || createdAt,
+    nodeCount: patch.nodeCount ?? 0,
+    createdAt,
+    initialPrompt: patch.initialPrompt,
+  };
+  writeWorkspaceProjectHistory([project, ...projects]);
 }
 
 export function removeWorkspaceProjectHistory(ids: string[]) {
