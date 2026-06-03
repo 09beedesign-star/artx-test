@@ -72,6 +72,7 @@ import { saveAs } from "file-saver";
 import { GENERATED_ASSETS, IMAGE_AI_MODELS, PROJECTS, type GeneratedAsset, type Project } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
+import CropEditor from "@/components/canvas/CropEditor";
 import { callLLM, editImageWithPrompt, eraseImageObjects, expandImageWithMask, generateImages as generateAiImages, removeImageBackground, searchReferenceImages, type ReferenceImageResult } from "@/lib/ai";
 import { routeCreativeIntent } from "@/lib/ai-intent";
 import { createWorkspaceHistoryProject, updateWorkspaceProjectHistory } from "@/lib/project-history";
@@ -6767,6 +6768,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [isCanvasLocked, setIsCanvasLocked] = useState(false);
   // ── Edit-asset state: zoom in on canvas then show editing prompt bar ──
   const [editAsset, setEditAsset] = useState<{ id: string; title: string; src: string; nodeId: string } | null>(null);
+  const [cropEditorState, setCropEditorState] = useState<{ nodeId: string; imageSrc: string } | null>(null);
   const [isZoomingToEdit, setIsZoomingToEdit] = useState(false);
   const [pendingProject, setPendingProject] = useState<Project | null>(null);
   // ── Referenced assets: auto-populated from selected image nodes ──
@@ -9540,14 +9542,16 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       return;
     }
     if (action === "crop") {
-      pushHistory();
-      setNodes(nds => nds.map(n =>
-        n.id === nodeId && n.type === "asset"
-          ? { ...n, selected: true, data: { ...(n.data as Record<string, unknown>), isCropping: true, isEditing: false, isErasing: false } }
-          : n
-      ));
-      window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "crop" } }));
-      toast("裁切", { description: "拖拽虚线框四周边界，或选择比例后点击确定" });
+      if (!targetNode || targetNode.type !== "asset") return;
+      const data = targetNode.data as Record<string, unknown>;
+      const asset = GENERATED_ASSETS.find(item => item.id === data.assetId) || GENERATED_ASSETS[0];
+      const imageSrc = (data.localSrc as string | undefined) || asset?.src || "";
+      if (!imageSrc) {
+        toast("裁切失败", { description: "当前图片没有可裁切的图像来源" });
+        return;
+      }
+      clearInactiveAssetCommands([nodeId]);
+      setCropEditorState({ nodeId, imageSrc });
       return;
     }
     if (action === "erase") {
@@ -10058,6 +10062,43 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         />
         <Controls showZoom={false} showFitView={false} showInteractive={false} />
       </ReactFlow>
+
+      <CropEditor
+        isOpen={!!cropEditorState}
+        imageSrc={cropEditorState?.imageSrc ?? ""}
+        isDark={isDark}
+        onClose={() => setCropEditorState(null)}
+        onConfirm={(croppedDataUrl, size) => {
+          if (!cropEditorState) return;
+          pushHistory(nodesRef.current, edgesRef.current);
+          setNodes(nds => nds.map(n => {
+            if (n.id !== cropEditorState.nodeId || n.type !== "asset") return n;
+            const data = n.data as Record<string, unknown>;
+            const currentSize = getCanvasNodeSize(n);
+            const nextW = Math.max(1, Math.round(currentSize.width * (size.width / Math.max(1, size.naturalWidth))));
+            const nextH = Math.max(1, Math.round(currentSize.height * (size.height / Math.max(1, size.naturalHeight))));
+            return {
+              ...n,
+              style: { ...n.style, width: nextW, height: nextH },
+              data: {
+                ...data,
+                localSrc: croppedDataUrl,
+                imgW: nextW,
+                imgH: nextH,
+                cropX: 0,
+                cropY: 0,
+                cropW: 100,
+                cropH: 100,
+                isCropping: false,
+                isEditing: false,
+              },
+            };
+          }));
+          setCropEditorState(null);
+          window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
+          toast("已完成裁切", { description: `${size.width} × ${size.height}px` });
+        }}
+      />
 
       <CanvasAssistantPanel
         projectId={projectId}
