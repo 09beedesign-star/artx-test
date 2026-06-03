@@ -4094,15 +4094,33 @@ function safeWriteCanvasState(projectId: string, state: PersistedCanvasState) {
   }
 }
 
-function getCanvasStateCover(nodes: Node[]) {
+function getCanvasStateCoverSource(nodes: Node[]) {
   const imageNode = nodes.find(node => node.type === "asset" && typeof (node.data as Record<string, unknown>)?.localSrc === "string");
   return imageNode ? ((imageNode.data as Record<string, unknown>).localSrc as string) : null;
 }
 
+async function createCanvasCoverThumbnail(src: string) {
+  if (!src.startsWith("data:") && src.length < 180_000) return src;
+  const image = new Image();
+  image.decoding = "async";
+  if (!src.startsWith("data:")) image.crossOrigin = "anonymous";
+  image.src = src;
+  await image.decode();
+  const maxSide = 520;
+  const scale = Math.min(1, maxSide / Math.max(image.naturalWidth || maxSide, image.naturalHeight || maxSide));
+  const width = Math.max(1, Math.round((image.naturalWidth || maxSide) * scale));
+  const height = Math.max(1, Math.round((image.naturalHeight || maxSide) * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Canvas is unavailable");
+  context.drawImage(image, 0, 0, width, height);
+  return canvas.toDataURL("image/jpeg", 0.72);
+}
+
 function getCanvasProjectHistoryPatch(nodes: Node[], updatedAt: string) {
-  const cover = getCanvasStateCover(nodes);
   return {
-    ...(cover ? { cover } : {}),
     nodeCount: nodes.length,
     updatedAt,
   };
@@ -6816,6 +6834,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setEdges(restoredEdges);
     setSelectedNodeIds(restoredNodes.filter(node => node.selected).map(node => node.id));
     updateWorkspaceProjectHistory(projectId, getCanvasProjectHistoryPatch(restoredNodes, updatedAt));
+    const coverSource = getCanvasStateCoverSource(restoredNodes);
+    if (coverSource) {
+      createCanvasCoverThumbnail(coverSource)
+        .then(cover => updateWorkspaceProjectHistory(projectId, { cover, nodeCount: restoredNodes.length, updatedAt }))
+        .catch(() => {});
+    }
     requestAnimationFrame(() => requestAnimationFrame(() => {
       isRestoringRef.current = false;
       didHydrateCanvasStateRef.current = true;
@@ -6829,6 +6853,25 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     safeWriteCanvasState(projectId, state);
     updateWorkspaceProjectHistory(projectId, getCanvasProjectHistoryPatch(nodes, updatedAt));
   }, [edges, nodes, projectId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !didHydrateCanvasStateRef.current || isRestoringRef.current) return;
+    const coverSource = getCanvasStateCoverSource(nodes);
+    if (!coverSource) return;
+    let cancelled = false;
+    const updatedAt = formatProjectHistoryTimestamp();
+    const timer = window.setTimeout(() => {
+      createCanvasCoverThumbnail(coverSource)
+        .then(cover => {
+          if (!cancelled) updateWorkspaceProjectHistory(projectId, { cover, nodeCount: nodes.length, updatedAt });
+        })
+        .catch(() => {});
+    }, 450);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [nodes, projectId]);
   // ── Group system state ──
   const [groupNames, setGroupNames] = useState<Record<string, string>>({});
   const [groupCounter, setGroupCounter] = useState(1);
