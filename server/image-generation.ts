@@ -25,6 +25,8 @@ type EraseImageInput = {
   maskSrc: string;
   model?: string;
   prompt?: string;
+  targetWidth?: number;
+  targetHeight?: number;
 };
 
 type GeneratedImage = {
@@ -329,18 +331,8 @@ function detectDominantEdgeColor(data: Buffer, width: number, height: number): [
   ];
 }
 
-async function removeBackgroundByDominantEdgeColor(buffer: Buffer): Promise<{ images: GeneratedImage[] }> {
-  const sharp = (await import("sharp")).default;
-  const { data, info } = await sharp(buffer, { limitInputPixels: false })
-    .rotate()
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const width = info.width;
-  const height = info.height;
-  const output = Buffer.from(data);
-  const backgroundColor = detectDominantEdgeColor(output, width, height);
-  const threshold = 62;
+function createConnectedEdgeBackgroundMask(data: Buffer, width: number, height: number, threshold = 42) {
+  const backgroundColor = detectDominantEdgeColor(data, width, height);
   const visited = new Uint8Array(width * height);
   const queue: number[] = [];
   const enqueue = (x: number, y: number) => {
@@ -348,7 +340,7 @@ async function removeBackgroundByDominantEdgeColor(buffer: Buffer): Promise<{ im
     const pixel = y * width + x;
     if (visited[pixel]) return;
     const index = pixel * 4;
-    if (output[index + 3] < 8 || pixelDistance(output, index, backgroundColor) <= threshold) {
+    if (data[index + 3] < 8 || pixelDistance(data, index, backgroundColor) <= threshold) {
       visited[pixel] = 1;
       queue.push(pixel);
     }
@@ -373,6 +365,21 @@ async function removeBackgroundByDominantEdgeColor(buffer: Buffer): Promise<{ im
     enqueue(x, y - 1);
   }
 
+  return visited;
+}
+
+async function removeBackgroundByDominantEdgeColor(buffer: Buffer): Promise<{ images: GeneratedImage[] }> {
+  const sharp = (await import("sharp")).default;
+  const { data, info } = await sharp(buffer, { limitInputPixels: false })
+    .rotate()
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const width = info.width;
+  const height = info.height;
+  const output = Buffer.from(data);
+  const visited = createConnectedEdgeBackgroundMask(output, width, height);
+
   for (let pixel = 0; pixel < visited.length; pixel += 1) {
     if (visited[pixel]) output[pixel * 4 + 3] = 0;
   }
@@ -391,7 +398,7 @@ async function removeBackgroundByDominantEdgeColor(buffer: Buffer): Promise<{ im
   };
 }
 
-async function applyAlphaMaskToOriginalImage(originalBuffer: Buffer, maskPngBuffer: Buffer): Promise<{ images: GeneratedImage[] }> {
+async function applyConservativeAlphaMaskToOriginalImage(originalBuffer: Buffer, maskPngBuffer: Buffer): Promise<{ images: GeneratedImage[] }> {
   const sharp = (await import("sharp")).default;
   const { data: originalData, info: originalInfo } = await sharp(originalBuffer, { limitInputPixels: false })
     .rotate()
@@ -407,8 +414,16 @@ async function applyAlphaMaskToOriginalImage(originalBuffer: Buffer, maskPngBuff
     .toBuffer({ resolveWithObject: true });
 
   const output = Buffer.from(originalData);
+  const edgeBackgroundMask = createConnectedEdgeBackgroundMask(
+    output,
+    originalInfo.width,
+    originalInfo.height,
+  );
   for (let index = 0; index < output.length; index += 4) {
-    output[index + 3] = maskData[index + 3];
+    const pixel = index / 4;
+    const segmentationSaysBackground = maskData[index + 3] < 96;
+    const edgeSaysBackground = edgeBackgroundMask[pixel] === 1;
+    output[index + 3] = segmentationSaysBackground && edgeSaysBackground ? 0 : originalData[index + 3];
   }
 
   const png = await sharp(output, {
@@ -438,7 +453,7 @@ async function removeBackgroundPreservingForegroundPixels(src: string): Promise<
       },
     });
     const png = Buffer.from(await blob.arrayBuffer());
-    return applyAlphaMaskToOriginalImage(buffer, png);
+    return applyConservativeAlphaMaskToOriginalImage(buffer, png);
   } catch (error) {
     console.warn("Segmentation background removal failed, falling back to edge-color alpha removal", error);
     return removeBackgroundByDominantEdgeColor(buffer);
@@ -633,10 +648,15 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<{ image
     throw new Error("Missing AI_IMAGE_API_KEY");
   }
 
-  const sourceImage = await imageSrcToFile(input.imageSrc);
+  const sourceImageData = await imageSrcToBuffer(input.imageSrc);
+  const sourceImageDimensions = await getImageBufferDimensions(sourceImageData.buffer);
+  const targetWidth = coerceTargetDimension(input.targetWidth) || sourceImageDimensions.width;
+  const targetHeight = coerceTargetDimension(input.targetHeight) || sourceImageDimensions.height;
+  const sourceImage = bufferToImageFile(sourceImageData.buffer, sourceImageData.mimeType);
   const maskImage = await imageSrcToFile(input.maskSrc);
   const selectedModel = input.model && supportedImageModels.has(input.model) ? input.model : model;
   const prompt = input.prompt || "Remove only the objects or scene elements covered by the mask. Reconstruct the background naturally, preserve the rest of the image exactly, and leave no visible artifacts.";
+  const editSize = getEditSizeForAspect(targetWidth, targetHeight);
 
   const createBody = (withResponseFormat: boolean) => {
     const body = new FormData();
@@ -645,7 +665,7 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<{ image
     body.append("mask", maskImage);
     body.append("prompt", prompt);
     body.append("n", "1");
-    body.append("size", "1024x1024");
+    body.append("size", editSize);
     if (withResponseFormat) body.append("response_format", "b64_json");
     return body;
   };
@@ -664,6 +684,8 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<{ image
     return editImageWithPrompt({
       imageSrc: compositeSrc,
       model: selectedModel,
+      targetWidth,
+      targetHeight,
       prompt: [
         "The semi-transparent purple overlay marks the exact area to remove.",
         "Remove only the content under the purple overlay, reconstruct the background naturally, keep all unmarked regions unchanged, and leave no visible artifacts.",
@@ -675,7 +697,11 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<{ image
     providerData = await pollAsyncImageTask(providerData.task_id, apiKey, baseUrl);
   }
 
-  const images = extractGeneratedImages(providerData, baseUrl, 1024, 1024);
+  const images = await normalizeGeneratedImagesToTargetAspect(
+    extractGeneratedImages(providerData, baseUrl, targetWidth, targetHeight),
+    targetWidth,
+    targetHeight,
+  );
 
   if (images.length === 0) {
     throw new Error("Image erase provider returned no images");
