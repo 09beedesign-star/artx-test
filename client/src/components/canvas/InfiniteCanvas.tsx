@@ -2400,7 +2400,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
             border: `2px solid ${borderColor}`,
             borderRadius: 4,
             boxShadow: shadow,
-            overflow: isCropping ? "visible" : "hidden",
+            overflow: isCropping || isErasing ? "visible" : "hidden",
             transition: "border-color 0.15s, box-shadow 0.15s",
           }}
         >
@@ -2598,7 +2598,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
             </div>
           )}
           {isErasing && !isAiProcessingImage && (
-            <div className="absolute inset-0 nodrag nopan" style={{ zIndex: 95 }}>
+            <div className="absolute inset-0 nodrag nopan" style={{ zIndex: 95, overflow: "visible" }}>
               <canvas
                 ref={eraseCanvasRef}
                 className="absolute inset-0"
@@ -2611,8 +2611,18 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
               />
               <canvas ref={eraseMaskCanvasRef} style={{ display: "none" }} />
               <div
-                className="absolute left-1/2 top-3 flex items-center gap-2 rounded-[var(--radius-lg-design)] px-2.5 py-2 shadow-xl"
-                style={{ transform: "translateX(-50%)", background: "rgba(18,18,28,0.94)", border: "1px solid rgba(255,255,255,0.16)", color: "white", backdropFilter: "blur(14px)" }}
+                className="absolute left-1/2 flex items-center gap-2 rounded-[var(--radius-lg-design)] px-2.5 py-2 shadow-xl"
+                style={{
+                  top: "calc(100% + 12px)",
+                  transform: "translateX(-50%)",
+                  background: "rgba(18,18,28,0.94)",
+                  border: "1px solid rgba(255,255,255,0.16)",
+                  color: "white",
+                  backdropFilter: "blur(14px)",
+                  whiteSpace: "nowrap",
+                  flexWrap: "nowrap",
+                  maxWidth: "calc(100vw - 32px)",
+                }}
                 onPointerDown={event => event.stopPropagation()}
                 onClick={event => event.stopPropagation()}
               >
@@ -2629,23 +2639,30 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
                   style={{ width: 92, accentColor: "oklch(0.66 0.23 290)" }}
                 />
                 <span className="type-caption" style={{ minWidth: 34, color: "rgba(255,255,255,0.72)" }}>{eraseBrushSize}px</span>
-                <button
-                  type="button"
-                  className="type-caption rounded-[var(--radius-md-design)] px-2.5 py-1.5"
-                  style={{ color: "rgba(255,255,255,0.78)", background: "rgba(255,255,255,0.08)" }}
-                  onClick={resetEraseCanvases}
-                >
-                  清空
-                </button>
-              </div>
-              <div
-                className="absolute bottom-3 left-1/2 flex items-center gap-2 rounded-[var(--radius-lg-design)] px-2 py-1.5 shadow-xl"
-                style={{ transform: "translateX(-50%)", background: "rgba(18,18,28,0.94)", border: "1px solid rgba(255,255,255,0.16)", backdropFilter: "blur(14px)" }}
-                onPointerDown={event => event.stopPropagation()}
-                onClick={event => event.stopPropagation()}
-              >
-                <button type="button" className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5" style={{ color: "rgba(255,255,255,0.78)", background: "rgba(255,255,255,0.08)" }} onClick={cancelErase}>取消</button>
-                <button type="button" className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5" style={{ color: "white", background: "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.72 0.18 205))" }} onClick={applyErase}>立即使用</button>
+                {[
+                  { label: "清空", onClick: resetEraseCanvases, primary: false },
+                  { label: "取消", onClick: cancelErase, primary: false },
+                  { label: "立即使用", onClick: applyErase, primary: true },
+                ].map(action => (
+                  <button
+                    key={action.label}
+                    type="button"
+                    className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5"
+                    style={{
+                      minWidth: action.primary ? 72 : 52,
+                      color: action.primary ? "white" : "rgba(255,255,255,0.78)",
+                      background: action.primary ? "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.72 0.18 205))" : "rgba(255,255,255,0.08)",
+                      whiteSpace: "nowrap",
+                      wordBreak: "keep-all",
+                      writingMode: "horizontal-tb",
+                      textAlign: "center",
+                      lineHeight: 1.2,
+                    }}
+                    onClick={action.onClick}
+                  >
+                    {action.label}
+                  </button>
+                ))}
               </div>
             </div>
           )}
