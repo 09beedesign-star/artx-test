@@ -215,6 +215,182 @@ function getImageFileName(mimeType: string) {
   return "source.png";
 }
 
+async function imageSrcToBuffer(src: string): Promise<{ buffer: Buffer; mimeType: string }> {
+  if (src.startsWith("data:")) {
+    const match = src.match(/^data:([^;,]+)(;base64)?,(.*)$/);
+    if (!match) throw new Error("Invalid image data URL");
+    const mimeType = match[1] || "image/png";
+    const buffer = match[2] ? Buffer.from(match[3], "base64") : Buffer.from(decodeURIComponent(match[3]));
+    return { buffer, mimeType };
+  }
+
+  const response = await fetch(src);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch source image: ${response.status}`);
+  }
+  const mimeType = (response.headers.get("content-type") || "image/png").split(";")[0];
+  const buffer = Buffer.from(await response.arrayBuffer());
+  return { buffer, mimeType };
+}
+
+function pixelDistance(data: Buffer, index: number, color: [number, number, number]) {
+  const dr = data[index] - color[0];
+  const dg = data[index + 1] - color[1];
+  const db = data[index + 2] - color[2];
+  return Math.sqrt(dr * dr + dg * dg + db * db);
+}
+
+function detectDominantEdgeColor(data: Buffer, width: number, height: number): [number, number, number] {
+  const histogram = new Map<string, { count: number; r: number; g: number; b: number }>();
+  const add = (x: number, y: number) => {
+    const index = (y * width + x) * 4;
+    if (data[index + 3] < 8) return;
+    const key = `${data[index] >> 4},${data[index + 1] >> 4},${data[index + 2] >> 4}`;
+    const item = histogram.get(key) || { count: 0, r: 0, g: 0, b: 0 };
+    item.count += 1;
+    item.r += data[index];
+    item.g += data[index + 1];
+    item.b += data[index + 2];
+    histogram.set(key, item);
+  };
+
+  for (let x = 0; x < width; x += 1) {
+    add(x, 0);
+    add(x, height - 1);
+  }
+  for (let y = 1; y < height - 1; y += 1) {
+    add(0, y);
+    add(width - 1, y);
+  }
+
+  let dominant: { count: number; r: number; g: number; b: number } | undefined;
+  for (const item of Array.from(histogram.values())) {
+    if (!dominant || item.count > dominant.count) dominant = item;
+  }
+  if (!dominant || dominant.count === 0) return [255, 255, 255];
+  return [
+    Math.round(dominant.r / dominant.count),
+    Math.round(dominant.g / dominant.count),
+    Math.round(dominant.b / dominant.count),
+  ];
+}
+
+async function removeBackgroundByDominantEdgeColor(buffer: Buffer): Promise<{ images: GeneratedImage[] }> {
+  const sharp = (await import("sharp")).default;
+  const { data, info } = await sharp(buffer, { limitInputPixels: false })
+    .rotate()
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const width = info.width;
+  const height = info.height;
+  const output = Buffer.from(data);
+  const backgroundColor = detectDominantEdgeColor(output, width, height);
+  const threshold = 62;
+  const visited = new Uint8Array(width * height);
+  const queue: number[] = [];
+  const enqueue = (x: number, y: number) => {
+    if (x < 0 || y < 0 || x >= width || y >= height) return;
+    const pixel = y * width + x;
+    if (visited[pixel]) return;
+    const index = pixel * 4;
+    if (output[index + 3] < 8 || pixelDistance(output, index, backgroundColor) <= threshold) {
+      visited[pixel] = 1;
+      queue.push(pixel);
+    }
+  };
+
+  for (let x = 0; x < width; x += 1) {
+    enqueue(x, 0);
+    enqueue(x, height - 1);
+  }
+  for (let y = 1; y < height - 1; y += 1) {
+    enqueue(0, y);
+    enqueue(width - 1, y);
+  }
+
+  for (let cursor = 0; cursor < queue.length; cursor += 1) {
+    const pixel = queue[cursor];
+    const x = pixel % width;
+    const y = Math.floor(pixel / width);
+    enqueue(x + 1, y);
+    enqueue(x - 1, y);
+    enqueue(x, y + 1);
+    enqueue(x, y - 1);
+  }
+
+  for (let pixel = 0; pixel < visited.length; pixel += 1) {
+    if (visited[pixel]) output[pixel * 4 + 3] = 0;
+  }
+
+  const png = await sharp(output, {
+    raw: { width, height, channels: 4 },
+    limitInputPixels: false,
+  }).png().toBuffer();
+
+  return {
+    images: [{
+      src: `data:image/png;base64,${png.toString("base64")}`,
+      width,
+      height,
+    }],
+  };
+}
+
+async function applyAlphaMaskToOriginalImage(originalBuffer: Buffer, maskPngBuffer: Buffer): Promise<{ images: GeneratedImage[] }> {
+  const sharp = (await import("sharp")).default;
+  const { data: originalData, info: originalInfo } = await sharp(originalBuffer, { limitInputPixels: false })
+    .rotate()
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const { data: maskData } = await sharp(maskPngBuffer, { limitInputPixels: false })
+    .rotate()
+    .resize(originalInfo.width, originalInfo.height, { fit: "fill" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const output = Buffer.from(originalData);
+  for (let index = 0; index < output.length; index += 4) {
+    output[index + 3] = maskData[index + 3];
+  }
+
+  const png = await sharp(output, {
+    raw: { width: originalInfo.width, height: originalInfo.height, channels: 4 },
+    limitInputPixels: false,
+  }).png().toBuffer();
+
+  return {
+    images: [{
+      src: `data:image/png;base64,${png.toString("base64")}`,
+      width: originalInfo.width,
+      height: originalInfo.height,
+    }],
+  };
+}
+
+async function removeBackgroundPreservingForegroundPixels(src: string): Promise<{ images: GeneratedImage[] }> {
+  const { buffer } = await imageSrcToBuffer(src);
+
+  try {
+    const { removeBackground: removeBackgroundWithSegmentation } = await import("@imgly/background-removal-node");
+    const blob = await removeBackgroundWithSegmentation(buffer, {
+      model: "medium",
+      output: {
+        format: "image/png",
+        quality: 1,
+      },
+    });
+    const png = Buffer.from(await blob.arrayBuffer());
+    return applyAlphaMaskToOriginalImage(buffer, png);
+  } catch (error) {
+    console.warn("Segmentation background removal failed, falling back to edge-color alpha removal", error);
+    return removeBackgroundByDominantEdgeColor(buffer);
+  }
+}
+
 function escapeSvgAttr(value: string) {
   return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 }
@@ -236,21 +412,8 @@ function createEraseFallbackComposite(imageSrc: string, maskSrc: string) {
 }
 
 async function imageSrcToFile(src: string): Promise<File> {
-  if (src.startsWith("data:")) {
-    const match = src.match(/^data:([^;,]+)(;base64)?,(.*)$/);
-    if (!match) throw new Error("Invalid image data URL");
-    const mimeType = match[1] || "image/png";
-    const raw = match[2] ? Buffer.from(match[3], "base64") : Buffer.from(decodeURIComponent(match[3]));
-    return new File([raw], getImageFileName(mimeType), { type: mimeType });
-  }
-
-  const response = await fetch(src);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch source image: ${response.status}`);
-  }
-  const mimeType = (response.headers.get("content-type") || "image/png").split(";")[0];
-  const bytes = await response.arrayBuffer();
-  return new File([bytes], getImageFileName(mimeType), { type: mimeType });
+  const { buffer, mimeType } = await imageSrcToBuffer(src);
+  return new File([buffer], getImageFileName(mimeType), { type: mimeType });
 }
 
 async function pollAsyncImageTask(taskId: string, apiKey: string, baseUrl: string): Promise<ImageGenerationResponse> {
@@ -341,46 +504,7 @@ export async function removeImageBackground(input: RemoveBackgroundInput): Promi
     throw new Error("Missing imageSrc");
   }
 
-  const { apiKey, baseUrl, model } = getProviderConfig();
-  if (!apiKey) {
-    throw new Error("Missing AI_IMAGE_API_KEY");
-  }
-
-  const sourceImage = await imageSrcToFile(input.imageSrc);
-  const selectedModel = input.model && supportedImageModels.has(input.model) ? input.model : model;
-  const prompt = input.prompt || "Remove the background from this image. Keep the foreground subject intact, preserve its edges naturally, and return a PNG with the background fully transparent and alpha set to 0.";
-
-  const createBody = (withResponseFormat: boolean) => {
-    const body = new FormData();
-    body.append("model", selectedModel);
-    body.append("image", sourceImage);
-    body.append("prompt", prompt);
-    body.append("n", "1");
-    body.append("size", "1024x1024");
-    if (withResponseFormat) body.append("response_format", "b64_json");
-    return body;
-  };
-
-  let providerData: ImageGenerationResponse;
-  try {
-    providerData = await callImageEditProvider(createBody(true), apiKey, baseUrl);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!message.toLowerCase().includes("response_format")) throw error;
-    providerData = await callImageEditProvider(createBody(false), apiKey, baseUrl);
-  }
-
-  if (providerData.task_id) {
-    providerData = await pollAsyncImageTask(providerData.task_id, apiKey, baseUrl);
-  }
-
-  const images = extractGeneratedImages(providerData, baseUrl, 1024, 1024);
-
-  if (images.length === 0) {
-    throw new Error("Image edit provider returned no images");
-  }
-
-  return { images };
+  return removeBackgroundPreservingForegroundPixels(input.imageSrc);
 }
 
 export async function editImageWithPrompt(input: EditImageInput): Promise<{ images: GeneratedImage[] }> {
