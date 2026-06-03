@@ -51,7 +51,7 @@ function getResponsesEndpoint(baseUrl: string) {
 }
 
 function getProviderConfig() {
-  const textApiKey = process.env.AI_TEXT_API_KEY;
+  const textApiKey = process.env.AI_TEXT_API_KEY_OVERRIDE || process.env.AI_TEXT_API_KEY;
   if (textApiKey) {
     return {
       apiKey: textApiKey,
