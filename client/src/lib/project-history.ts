@@ -9,6 +9,7 @@ export interface WorkspaceHistoryProject {
 }
 
 const STORAGE_KEY = "artx:workspace-project-history";
+const SESSION_FALLBACK_KEY = "artx:workspace-project-history:fallback";
 const MAX_HISTORY_PROJECTS = 40;
 const MAX_COVER_LENGTH = 180_000;
 
@@ -20,7 +21,7 @@ function formatTimestamp(date = new Date()) {
 export function readWorkspaceProjectHistory(): WorkspaceHistoryProject[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(STORAGE_KEY) || window.sessionStorage.getItem(SESSION_FALLBACK_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -60,11 +61,17 @@ function writeWorkspaceProjectHistory(projects: WorkspaceHistoryProject[]) {
     compactWorkspaceProjectHistory(projects.slice(0, 8), false),
   ];
   for (const attempt of attempts) {
+    const serialized = JSON.stringify(attempt);
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(attempt));
+      window.localStorage.setItem(STORAGE_KEY, serialized);
+      window.sessionStorage.removeItem(SESSION_FALLBACK_KEY);
       return;
     } catch {
-      /* try a smaller history payload */
+      try {
+        window.sessionStorage.setItem(SESSION_FALLBACK_KEY, serialized);
+      } catch {
+        /* try a smaller history payload */
+      }
     }
   }
 }
