@@ -127,7 +127,7 @@ function getImageEditsEndpoint(baseUrl: string) {
 }
 
 function getProviderConfig() {
-  const apiKey = process.env.AI_IMAGE_API_KEY || process.env.OPENAI_API_KEY;
+  const apiKey = process.env.AI_IMAGE_API_KEY_OVERRIDE || process.env.AI_IMAGE_API_KEY || process.env.OPENAI_API_KEY;
   const baseUrl = process.env.AI_IMAGE_BASE_URL || process.env.OPENAI_BASE_URL || "https://api.openai.com";
   const model = process.env.AI_IMAGE_MODEL || "gpt-image-2";
 
