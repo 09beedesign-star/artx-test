@@ -6798,10 +6798,18 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
   useEffect(() => {
     const saved = safeReadCanvasState(projectId);
+    const restoredNodes = saved?.nodes || initialNodes;
+    const restoredEdges = saved?.edges || initialEdges;
+    const updatedAt = saved?.updatedAt || formatProjectHistoryTimestamp();
     isRestoringRef.current = true;
-    setNodes(saved?.nodes || initialNodes);
-    setEdges(saved?.edges || initialEdges);
-    setSelectedNodeIds((saved?.nodes || initialNodes).filter(node => node.selected).map(node => node.id));
+    setNodes(restoredNodes);
+    setEdges(restoredEdges);
+    setSelectedNodeIds(restoredNodes.filter(node => node.selected).map(node => node.id));
+    updateWorkspaceProjectHistory(projectId, {
+      cover: getCanvasStateCover(restoredNodes),
+      nodeCount: restoredNodes.length,
+      updatedAt,
+    });
     requestAnimationFrame(() => requestAnimationFrame(() => {
       isRestoringRef.current = false;
       didHydrateCanvasStateRef.current = true;
