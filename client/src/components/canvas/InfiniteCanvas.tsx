@@ -6779,6 +6779,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const didHydrateCanvasStateRef = useRef(false);
   const [nodeCtxMenu, setNodeCtxMenu] = useState<NodeCtxState | null>(null);
   const [clipboard, setClipboard] = useState<Node[]>([]);
+  const pasteEventSeenAtRef = useRef(0);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [isAssistantCollapsed, setIsAssistantCollapsed] = useState(false);
   const [helpPromptNonce, setHelpPromptNonce] = useState(0);
@@ -8836,6 +8837,35 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     reader.readAsDataURL(blob);
   }), []);
 
+  const createClipboardImageSourceNode = useCallback((src: string, index: number, origin: { x: number; y: number }) => new Promise<Node>((resolve, reject) => {
+    const img = new window.Image();
+    img.onload = () => {
+      const id = `clipboard-image-${Date.now()}-${index}`;
+      const { width: nodeWidth, height: nodeHeight } = getImportedImageDisplaySize(img.naturalWidth || img.width, img.naturalHeight || img.height);
+      resolve({
+        id,
+        type: "asset",
+        position: {
+          x: origin.x - nodeWidth / 2 + index * 32,
+          y: origin.y - nodeHeight / 2 + index * 32,
+        },
+        style: { width: nodeWidth, height: nodeHeight },
+        data: {
+          id,
+          assetId: "default",
+          localSrc: src,
+          title: `粘贴图片 ${index + 1}`,
+          assetType: "图片",
+          tags: DEFAULT_ASSET_TAGS,
+          imgW: nodeWidth,
+          imgH: nodeHeight,
+        },
+      });
+    };
+    img.onerror = () => reject(new Error("剪贴板图片链接加载失败"));
+    img.src = src;
+  }), []);
+
   const pasteClipboardImages = useCallback(async (blobs: Blob[]) => {
     if (blobs.length === 0) return false;
     const rect = containerRef.current?.getBoundingClientRect();
@@ -8857,6 +8887,81 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       return false;
     }
   }, [createClipboardImageNode, pushHistory, screenToFlowPosition, setNodes]);
+
+  const pasteClipboardImageSources = useCallback(async (sources: string[]) => {
+    const uniqueSources = Array.from(new Set(sources.map(src => src.trim()).filter(Boolean)));
+    if (uniqueSources.length === 0) return false;
+    const rect = containerRef.current?.getBoundingClientRect();
+    const origin = screenToFlowPosition({
+      x: (rect?.left || 0) + (rect?.width || window.innerWidth) / 2,
+      y: (rect?.top || 0) + (rect?.height || window.innerHeight) / 2,
+    });
+    try {
+      const nodesToPaste = await Promise.all(uniqueSources.map((src, index) => createClipboardImageSourceNode(src, index, origin)));
+      if (nodesToPaste.length === 0) return false;
+      pushHistory();
+      setNodes(nds => nds.map(node => ({ ...node, selected: false })).concat(nodesToPaste.map(node => ({ ...node, selected: true }))));
+      setSelectedNodeIds(nodesToPaste.map(node => node.id));
+      toast(`已粘贴 ${nodesToPaste.length} 张图片`, { description: "浏览器复制的图片已添加到画布" });
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "请重新复制图片后再试";
+      toast("粘贴图片失败", { description: message });
+      return false;
+    }
+  }, [createClipboardImageSourceNode, pushHistory, screenToFlowPosition, setNodes]);
+
+  const pasteClipboardPayload = useCallback(async (clipboardData: DataTransfer | null | undefined) => {
+    const items = Array.from(clipboardData?.items || []);
+    const imageBlobs = items
+      .filter(item => item.kind === "file" && item.type.startsWith("image/"))
+      .map(item => item.getAsFile())
+      .filter((file): file is File => Boolean(file));
+    if (imageBlobs.length > 0) {
+      return pasteClipboardImages(imageBlobs);
+    }
+
+    const html = clipboardData?.getData("text/html") || "";
+    const plain = clipboardData?.getData("text/plain") || "";
+    const sources: string[] = [];
+    if (html) {
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      sources.push(...Array.from(doc.querySelectorAll("img")).map(img => img.src).filter(Boolean));
+    }
+    if (/^(data:image\/|blob:|https?:\/\/)/i.test(plain.trim())) {
+      sources.push(plain.trim());
+    }
+    return pasteClipboardImageSources(sources);
+  }, [pasteClipboardImages, pasteClipboardImageSources]);
+
+  const pasteClipboardFromNavigator = useCallback(async () => {
+    if (!navigator.clipboard?.read) return false;
+    try {
+      const items = await navigator.clipboard.read();
+      const imageBlobs: Blob[] = [];
+      const sources: string[] = [];
+      for (const item of items) {
+        const imageType = item.types.find(type => type.startsWith("image/"));
+        if (imageType) {
+          imageBlobs.push(await item.getType(imageType));
+          continue;
+        }
+        if (item.types.includes("text/html")) {
+          const html = await (await item.getType("text/html")).text();
+          const doc = new DOMParser().parseFromString(html, "text/html");
+          sources.push(...Array.from(doc.querySelectorAll("img")).map(img => img.src).filter(Boolean));
+        }
+        if (item.types.includes("text/plain")) {
+          const plain = (await (await item.getType("text/plain")).text()).trim();
+          if (/^(data:image\/|blob:|https?:\/\/)/i.test(plain)) sources.push(plain);
+        }
+      }
+      if (imageBlobs.length > 0) return pasteClipboardImages(imageBlobs);
+      return pasteClipboardImageSources(sources);
+    } catch {
+      return false;
+    }
+  }, [pasteClipboardImages, pasteClipboardImageSources]);
 
   // ── 获取节点的图片源 (localSrc 优先，其次 GENERATED_ASSETS) ──
   const getNodeImageSrc = useCallback((node: Node): string => {
@@ -9204,13 +9309,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const target = event.target as HTMLElement | null;
       const isTyping = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
       if (isTyping) return;
-      const imageBlobs = Array.from(event.clipboardData?.items || [])
-        .filter(item => item.kind === "file" && item.type.startsWith("image/"))
-        .map(item => item.getAsFile())
-        .filter((file): file is File => Boolean(file));
-      if (imageBlobs.length === 0) return;
+      pasteEventSeenAtRef.current = Date.now();
       event.preventDefault();
-      void pasteClipboardImages(imageBlobs);
+      void pasteClipboardPayload(event.clipboardData).then(pasted => {
+        if (!pasted) {
+          void pasteClipboardFromNavigator().then(fallbackPasted => {
+            if (!fallbackPasted) toast("未读取到可粘贴图片", { description: "请在浏览器中复制图片本身，或复制图片地址后再粘贴" });
+          });
+        }
+      });
     };
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -9274,15 +9381,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           setSelectedNodeIds(pasted.map(n => n.id));
           toast(`已粘贴 ${pasted.length} 个元素`, { description: "新节点已选中，可直接拖动定位" });
         } else {
-          const clipboardEvent = e as unknown as ClipboardEvent;
-          const imageBlobs = Array.from(clipboardEvent.clipboardData?.items || [])
-            .filter(item => item.kind === "file" && item.type.startsWith("image/"))
-            .map(item => item.getAsFile())
-            .filter((file): file is File => Boolean(file));
-          if (imageBlobs.length > 0) {
-            e.preventDefault();
-            void pasteClipboardImages(imageBlobs);
-          }
+          const requestedAt = Date.now();
+          window.setTimeout(() => {
+            if (pasteEventSeenAtRef.current >= requestedAt) return;
+            void pasteClipboardFromNavigator().then(pasted => {
+              if (!pasted) toast("未读取到可粘贴图片", { description: "请在浏览器中复制图片本身，或复制图片地址后再粘贴" });
+            });
+          }, 120);
         }
         return;
       }
@@ -9304,7 +9409,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       window.removeEventListener("paste", handlePaste);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [nodes, clipboard, setClipboard, pasteClipboardImages, pushHistory, selectedNodeIds, setEdges, setNodes, undoCanvas]);
+  }, [nodes, clipboard, setClipboard, pasteClipboardFromNavigator, pasteClipboardPayload, pushHistory, selectedNodeIds, setEdges, setNodes, undoCanvas]);
 
   // ── C-key lasso: cut edges intersecting the lasso rect ──
   const handleLassoCut = useCallback((lassoRect: LassoRect) => {
