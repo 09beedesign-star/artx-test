@@ -7464,6 +7464,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             "请根据原始图片，生成一段给图片模型使用的中文编辑提示词。",
             "目标：把图片中原有的文案替换成用户编辑后的文案，并同步微调排版。",
             "要求：输出必须是一张新的结果图，不能影响原图。",
+            "要求：新图画布比例必须与原图完全一致，不允许变成方图、不允许拉伸或改变构图比例。",
             "要求：尽量保留原始画面主体、风格、色彩、背景、构图和品牌识别特征。",
             "要求：只修改与文字相关的区域和为了新文案适配所必须发生的细微版式调整。",
             "要求：如果新文案更长或更短，自动优化字号、行距、字重、留白、对齐和文字区块位置，让画面自然、专业、无明显修补痕迹。",
@@ -7482,6 +7483,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             imageSrc: detail.imageSrc,
             prompt: optimizedPrompt.text.trim() || `将图片中的文案替换为：${detail.editedText}`,
             model: "gpt-image-2",
+            targetWidth: sourceSize.width,
+            targetHeight: sourceSize.height,
           }),
         });
         setNodes(nds => nds.map(n =>
