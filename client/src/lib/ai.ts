@@ -188,17 +188,21 @@ export async function editImageWithPrompt({
   imageSrc,
   model = "gpt-image-2",
   prompt,
+  targetWidth,
+  targetHeight,
 }: {
   imageSrc: string;
   model?: string;
   prompt: string;
+  targetWidth?: number;
+  targetHeight?: number;
 }) {
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/images/edit`;
   const response = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ imageSrc, model, prompt }),
+    body: JSON.stringify({ imageSrc, model, prompt, targetWidth, targetHeight }),
   });
 
   const result = await readJsonResponse<ApiErrorResponse & { images?: GeneratedImageResult[] }>(response, "AI 图片编辑失败");

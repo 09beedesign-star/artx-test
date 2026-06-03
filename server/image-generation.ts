@@ -16,6 +16,8 @@ type EditImageInput = {
   imageSrc: string;
   model?: string;
   prompt: string;
+  targetWidth?: number;
+  targetHeight?: number;
 };
 
 type EraseImageInput = {
@@ -233,6 +235,58 @@ async function imageSrcToBuffer(src: string): Promise<{ buffer: Buffer; mimeType
   return { buffer, mimeType };
 }
 
+function bufferToImageFile(buffer: Buffer, mimeType: string) {
+  return new File([buffer], getImageFileName(mimeType), { type: mimeType });
+}
+
+async function getImageBufferDimensions(buffer: Buffer): Promise<{ width: number; height: number }> {
+  const sharp = (await import("sharp")).default;
+  const metadata = await sharp(buffer, { limitInputPixels: false }).metadata();
+  return {
+    width: metadata.width || 1024,
+    height: metadata.height || 1024,
+  };
+}
+
+function getEditSizeForAspect(width: number, height: number) {
+  const aspect = width / Math.max(1, height);
+  if (aspect > 1.2) return "1536x1024";
+  if (aspect < 0.85) return "1024x1536";
+  return "1024x1024";
+}
+
+function coerceTargetDimension(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.round(value)
+    : undefined;
+}
+
+async function normalizeGeneratedImagesToTargetAspect(
+  images: GeneratedImage[],
+  targetWidth: number,
+  targetHeight: number,
+): Promise<GeneratedImage[]> {
+  const sharp = (await import("sharp")).default;
+
+  return Promise.all(images.map(async (image) => {
+    const { buffer } = await imageSrcToBuffer(image.src);
+    const png = await sharp(buffer, { limitInputPixels: false })
+      .rotate()
+      .resize(targetWidth, targetHeight, {
+        fit: "cover",
+        position: "centre",
+      })
+      .png()
+      .toBuffer();
+
+    return {
+      src: `data:image/png;base64,${png.toString("base64")}`,
+      width: targetWidth,
+      height: targetHeight,
+    };
+  }));
+}
+
 function pixelDistance(data: Buffer, index: number, color: [number, number, number]) {
   const dr = data[index] - color[0];
   const dg = data[index + 1] - color[1];
@@ -413,7 +467,7 @@ function createEraseFallbackComposite(imageSrc: string, maskSrc: string) {
 
 async function imageSrcToFile(src: string): Promise<File> {
   const { buffer, mimeType } = await imageSrcToBuffer(src);
-  return new File([buffer], getImageFileName(mimeType), { type: mimeType });
+  return bufferToImageFile(buffer, mimeType);
 }
 
 async function pollAsyncImageTask(taskId: string, apiKey: string, baseUrl: string): Promise<ImageGenerationResponse> {
@@ -520,16 +574,22 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
     throw new Error("Missing AI_IMAGE_API_KEY");
   }
 
-  const sourceImage = await imageSrcToFile(input.imageSrc);
+  const sourceImageData = await imageSrcToBuffer(input.imageSrc);
+  const sourceImageDimensions = await getImageBufferDimensions(sourceImageData.buffer);
+  const targetWidth = coerceTargetDimension(input.targetWidth) || sourceImageDimensions.width;
+  const targetHeight = coerceTargetDimension(input.targetHeight) || sourceImageDimensions.height;
+  const sourceImage = bufferToImageFile(sourceImageData.buffer, sourceImageData.mimeType);
   const selectedModel = input.model && supportedImageModels.has(input.model) ? input.model : model;
+  const editSize = getEditSizeForAspect(targetWidth, targetHeight);
+  const aspectInstruction = `Keep the final image canvas aspect ratio exactly ${targetWidth}:${targetHeight}. Do not return a square image unless the source is square.`;
 
   const createBody = (withResponseFormat: boolean) => {
     const body = new FormData();
     body.append("model", selectedModel);
     body.append("image", sourceImage);
-    body.append("prompt", input.prompt);
+    body.append("prompt", `${input.prompt}\n\n${aspectInstruction}`);
     body.append("n", "1");
-    body.append("size", "1024x1024");
+    body.append("size", editSize);
     if (withResponseFormat) body.append("response_format", "b64_json");
     return body;
   };
@@ -547,7 +607,11 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
     providerData = await pollAsyncImageTask(providerData.task_id, apiKey, baseUrl);
   }
 
-  const images = extractGeneratedImages(providerData, baseUrl, 1024, 1024);
+  const images = await normalizeGeneratedImagesToTargetAspect(
+    extractGeneratedImages(providerData, baseUrl, targetWidth, targetHeight),
+    targetWidth,
+    targetHeight,
+  );
 
   if (images.length === 0) {
     throw new Error("Image edit provider returned no images");
