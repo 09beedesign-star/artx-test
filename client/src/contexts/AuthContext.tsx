@@ -59,7 +59,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!result.ok || !result.token || !result.user) {
         return { ok: false, error: result.error || "登录失败，请稍后重试" };
       }
-      persistSession({ token: result.token, user: result.user });
+      if (!persistSession({ token: result.token, user: result.user })) {
+        return { ok: false, error: "浏览器本地存储空间不足，已尝试清理旧画布缓存，请重新登录" };
+      }
       setIsAuthenticated(true);
       setUser(result.user);
       setLoginModalOpen(false);
@@ -83,7 +85,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!result.ok || !result.token || !result.user) {
           return { ok: false, error: result.error || "第三方登录暂时不可用" };
         }
-        persistSession({ token: result.token, user: result.user });
+        if (!persistSession({ token: result.token, user: result.user })) {
+          return { ok: false, error: "浏览器本地存储空间不足，已尝试清理旧画布缓存，请重新登录" };
+        }
         setIsAuthenticated(true);
         setUser(result.user);
         setLoginModalOpen(false);
@@ -125,7 +129,37 @@ function readStoredSession(): AuthSession | null {
 }
 
 function persistSession(session: AuthSession) {
-  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+  const serialized = JSON.stringify(session);
+  try {
+    localStorage.setItem(AUTH_STORAGE_KEY, serialized);
+    return true;
+  } catch {
+    clearLargeArtxLocalCache();
+    try {
+      localStorage.setItem(AUTH_STORAGE_KEY, serialized);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+function clearLargeArtxLocalCache() {
+  const removablePrefixes = [
+    "artx:canvas-state:",
+    "artx:canvas-assistant-messages:",
+  ];
+  const removableKeys = [
+    "artx:workspace-project-history",
+  ];
+
+  for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+    const key = localStorage.key(index);
+    if (!key) continue;
+    if (removableKeys.includes(key) || removablePrefixes.some(prefix => key.startsWith(prefix))) {
+      localStorage.removeItem(key);
+    }
+  }
 }
 
 async function fetchAuth(action: "register" | "login" | "me" | "logout" | "social", payload: Record<string, unknown>) {
