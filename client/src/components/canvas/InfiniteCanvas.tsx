@@ -9532,7 +9532,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         run: async () => removeImageBackground({
           imageSrc,
           model: "gpt-image-2",
-          prompt: "Remove the background from this image. Keep the subject sharp and return a transparent PNG.",
+          prompt: "Remove the background from this image. Keep the foreground subject sharp and return a PNG with the background fully transparent and alpha set to 0.",
         }),
       });
       return;
