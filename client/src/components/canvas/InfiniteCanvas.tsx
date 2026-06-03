@@ -73,6 +73,7 @@ import { GENERATED_ASSETS, IMAGE_AI_MODELS, PROJECTS, type GeneratedAsset, type 
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import CropEditor from "@/components/canvas/CropEditor";
+import RotateEditor from "@/components/canvas/RotateEditor";
 import { callLLM, editImageWithPrompt, eraseImageObjects, expandImageWithMask, generateImages as generateAiImages, removeImageBackground, searchReferenceImages, type ReferenceImageResult } from "@/lib/ai";
 import { routeCreativeIntent } from "@/lib/ai-intent";
 import { createWorkspaceHistoryProject, updateWorkspaceProjectHistory } from "@/lib/project-history";
@@ -6786,6 +6787,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   // ── Edit-asset state: zoom in on canvas then show editing prompt bar ──
   const [editAsset, setEditAsset] = useState<{ id: string; title: string; src: string; nodeId: string } | null>(null);
   const [cropEditorState, setCropEditorState] = useState<{ nodeId: string; imageSrc: string } | null>(null);
+  const [rotateEditorState, setRotateEditorState] = useState<{ nodeId: string; imageSrc: string } | null>(null);
   const [isZoomingToEdit, setIsZoomingToEdit] = useState(false);
   const [pendingProject, setPendingProject] = useState<Project | null>(null);
   // ── Referenced assets: auto-populated from selected image nodes ──
@@ -9814,15 +9816,16 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       return;
     }
     if (action === "flip-rotate") {
-      pushHistory();
-      setNodes(nds => nds.map(n => {
-        if (n.id !== nodeId || n.type !== "asset") return n;
-        const data = n.data as Record<string, unknown>;
-        const rotation = (((data.rotation as number) || 0) + 90) % 360;
-        const flipX = !Boolean(data.flipX);
-        return { ...n, data: { ...data, rotation, flipX } };
-      }));
-      toast("翻转与旋转", { description: "已水平翻转并顺时针旋转 90°" });
+      if (!targetNode || targetNode.type !== "asset") return;
+      const data = targetNode.data as Record<string, unknown>;
+      const asset = GENERATED_ASSETS.find(item => item.id === data.assetId) || GENERATED_ASSETS[0];
+      const imageSrc = (data.localSrc as string | undefined) || asset?.src || "";
+      if (!imageSrc) {
+        toast("旋转失败", { description: "当前图片没有可旋转的图像来源" });
+        return;
+      }
+      clearInactiveAssetCommands([nodeId]);
+      setRotateEditorState({ nodeId, imageSrc });
       return;
     }
     const labels: Record<string, string> = {
@@ -10160,6 +10163,43 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           setCropEditorState(null);
           window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
           toast("已完成裁切", { description: `${size.width} × ${size.height}px` });
+        }}
+      />
+
+      <RotateEditor
+        isOpen={!!rotateEditorState}
+        imageSrc={rotateEditorState?.imageSrc ?? ""}
+        isDark={isDark}
+        onClose={() => setRotateEditorState(null)}
+        onConfirm={(rotatedDataUrl, size) => {
+          if (!rotateEditorState) return;
+          pushHistory(nodesRef.current, edgesRef.current);
+          setNodes(nds => nds.map(n => {
+            if (n.id !== rotateEditorState.nodeId || n.type !== "asset") return n;
+            const data = n.data as Record<string, unknown>;
+            const currentSize = getCanvasNodeSize(n);
+            const nextW = Math.max(1, Math.round(currentSize.width * (size.width / Math.max(1, size.naturalWidth))));
+            const nextH = Math.max(1, Math.round(currentSize.height * (size.height / Math.max(1, size.naturalHeight))));
+            return {
+              ...n,
+              style: { ...n.style, width: nextW, height: nextH },
+              data: {
+                ...data,
+                localSrc: rotatedDataUrl,
+                imgW: nextW,
+                imgH: nextH,
+                rotation: 0,
+                flipX: false,
+                flipY: false,
+                isCropping: false,
+                isErasing: false,
+                isEditing: false,
+              },
+            };
+          }));
+          setRotateEditorState(null);
+          window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
+          toast("已完成旋转", { description: `${size.width} × ${size.height}px` });
         }}
       />
 
