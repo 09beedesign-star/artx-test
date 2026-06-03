@@ -215,49 +215,24 @@ function getImageFileName(mimeType: string) {
   return "source.png";
 }
 
-async function saveDataUrlToFile(src: string, filePath: string) {
-  if (src.startsWith("data:")) {
-    const match = src.match(/^data:([^;,]+)(;base64)?,(.*)$/);
-    if (!match) throw new Error("Invalid data URL");
-    const raw = match[2] ? Buffer.from(match[3], "base64") : Buffer.from(decodeURIComponent(match[3]));
-    await fs.writeFile(filePath, raw);
-    return;
-  }
-
-  const response = await fetch(src);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch source image: ${response.status}`);
-  }
-  const bytes = Buffer.from(await response.arrayBuffer());
-  await fs.writeFile(filePath, bytes);
+function escapeSvgAttr(value: string) {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 }
 
-async function createEraseFallbackComposite(imageSrc: string, maskSrc: string) {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "artx-erase-"));
-  const sourcePath = path.join(tempDir, "source.png");
-  const maskPath = path.join(tempDir, "mask.png");
-  const compositePath = path.join(tempDir, "composite.png");
-
-  try {
-    await saveDataUrlToFile(imageSrc, sourcePath);
-    await saveDataUrlToFile(maskSrc, maskPath);
-
-    await execFileAsync("/Applications/Codex.app/Contents/Resources/ffmpeg", [
-      "-y",
-      "-i", sourcePath,
-      "-i", maskPath,
-      "-filter_complex",
-      "[0:v]scale=1024:1024[base];color=c=#8B5CF6:s=1024x1024[clr];[1:v]scale=1024:1024,format=gray[mask];[clr][mask]alphamerge[ovr];[base][ovr]overlay=format=auto[out]",
-      "-map", "[out]",
-      "-frames:v", "1",
-      compositePath,
-    ]);
-
-    const compositeBuffer = await fs.readFile(compositePath);
-    return `data:image/png;base64,${compositeBuffer.toString("base64")}`;
-  } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
-  }
+function createEraseFallbackComposite(imageSrc: string, maskSrc: string) {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+      <defs>
+        <mask id="erase-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+          <rect x="0" y="0" width="1024" height="1024" fill="black" />
+          <image href="${escapeSvgAttr(maskSrc)}" x="0" y="0" width="1024" height="1024" preserveAspectRatio="none" />
+        </mask>
+      </defs>
+      <image href="${escapeSvgAttr(imageSrc)}" x="0" y="0" width="1024" height="1024" preserveAspectRatio="none" />
+      <rect x="0" y="0" width="1024" height="1024" fill="#8B5CF6" opacity="0.82" mask="url(#erase-mask)" />
+    </svg>
+  `.trim();
+  return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
 }
 
 async function imageSrcToFile(src: string): Promise<File> {
@@ -497,7 +472,7 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<{ image
       providerData = await callImageEditProvider(createBody(false), apiKey, baseUrl);
     }
   } catch (error) {
-    const compositeSrc = await createEraseFallbackComposite(input.imageSrc, input.maskSrc);
+    const compositeSrc = createEraseFallbackComposite(input.imageSrc, input.maskSrc);
     return editImageWithPrompt({
       imageSrc: compositeSrc,
       model: selectedModel,
@@ -520,11 +495,3 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<{ image
 
   return { images };
 }
-import { randomUUID } from "node:crypto";
-import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
