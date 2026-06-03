@@ -156,32 +156,18 @@ export async function removeImageBackground({
 }) {
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/images/remove-background`;
-  try {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ imageSrc, model, prompt }),
-    });
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ imageSrc, model, prompt }),
+  });
 
-    const result = await readJsonResponse<ApiErrorResponse & { images?: GeneratedImageResult[] }>(response, "去背景失败");
-    if (!response.ok) {
-      throw new Error(result.error || result.message || "去背景失败");
-    }
-
-    return { images: result.images || [] };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!/Cannot POST \/api\/images\/remove-background|received non-JSON response|Bad gateway|502/i.test(message)) {
-      throw error;
-    }
+  const result = await readJsonResponse<ApiErrorResponse & { images?: GeneratedImageResult[] }>(response, "去背景失败");
+  if (!response.ok) {
+    throw new Error(result.error || result.message || "去背景失败");
   }
 
-  const fallbackPrompt = prompt || "Remove the background from this image. Keep the foreground subject intact, preserve the original subject appearance, clean up edges naturally, and return a PNG with the background fully transparent and alpha set to 0.";
-  return editImageWithPrompt({
-    imageSrc,
-    model,
-    prompt: fallbackPrompt,
-  });
+  return { images: result.images || [] };
 }
 
 export async function editImageWithPrompt({
@@ -218,11 +204,15 @@ export async function eraseImageObjects({
   maskSrc,
   model = "gpt-image-2",
   prompt,
+  targetWidth,
+  targetHeight,
 }: {
   imageSrc: string;
   maskSrc: string;
   model?: string;
   prompt?: string;
+  targetWidth?: number;
+  targetHeight?: number;
 }) {
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/images/erase`;
@@ -230,7 +220,7 @@ export async function eraseImageObjects({
     const response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ imageSrc, maskSrc, model, prompt }),
+      body: JSON.stringify({ imageSrc, maskSrc, model, prompt, targetWidth, targetHeight }),
     });
 
     const result = await readJsonResponse<ApiErrorResponse & { images?: GeneratedImageResult[] }>(response, "AI 擦除失败");
@@ -250,6 +240,8 @@ export async function eraseImageObjects({
   return editImageWithPrompt({
     imageSrc: fallbackComposite,
     model,
+    targetWidth,
+    targetHeight,
     prompt: prompt || "The semi-transparent purple overlay marks the exact area to remove. Remove only the content under the purple overlay, reconstruct the background naturally, keep all unmarked regions unchanged, and leave no visible artifacts.",
   });
 }
@@ -259,11 +251,15 @@ export async function expandImageWithMask({
   maskSrc,
   model = "gpt-image-2",
   prompt,
+  targetWidth,
+  targetHeight,
 }: {
   imageSrc: string;
   maskSrc: string;
   model?: string;
   prompt?: string;
+  targetWidth?: number;
+  targetHeight?: number;
 }) {
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/images/erase`;
@@ -274,6 +270,8 @@ export async function expandImageWithMask({
       imageSrc,
       maskSrc,
       model,
+      targetWidth,
+      targetHeight,
       prompt: prompt || "Extend the image naturally only inside the masked blank area. Preserve all unmasked pixels exactly and never generate beyond the requested boundary.",
     }),
   });

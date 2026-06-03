@@ -7389,6 +7389,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           imageSrc: detail.imageSrc,
           maskSrc: detail.maskSrc,
           model: "gpt-image-2",
+          targetWidth: sourceSize.width,
+          targetHeight: sourceSize.height,
           prompt: "Remove only the objects or scene elements covered by the mask. Reconstruct the background naturally, keep lighting, texture, perspective, and surrounding details consistent, and preserve all unmasked areas.",
         }),
       });
@@ -7424,12 +7426,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         style: "扩展结果",
         nextW: detail.nextW,
         nextH: detail.nextH,
-        displayW: getCanvasNodeSize(sourceNode).width,
-        displayH: getCanvasNodeSize(sourceNode).height,
+        displayW: detail.nextW,
+        displayH: detail.nextH,
         run: async () => expandImageWithMask({
           imageSrc: detail.imageSrc,
           maskSrc: detail.maskSrc,
           model: "gpt-image-2",
+          targetWidth: detail.nextW,
+          targetHeight: detail.nextH,
           prompt: "Extend the image naturally only inside the masked blank area. Keep the original unmasked image pixels unchanged, continue texture, lighting, perspective, and objects seamlessly, and do not generate outside the requested boundary.",
         }),
       });
@@ -9752,6 +9756,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             imageSrc,
             model: "gpt-image-2",
             prompt: resolvedPlan.backgroundPrompt,
+            targetWidth: sourceSize.width,
+            targetHeight: sourceSize.height,
           }),
         });
 
@@ -9834,8 +9840,45 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     };
     toast(labels[action] || "功能即将上线", { description: "已保留 Lovart 命令入口，后续可接入对应 AI 处理能力" });
   }, [clearAssetCommandState, clearInactiveAssetCommands, createExtractedTextNode, handleNodeAction, nodesRef, pushHistory, runDerivedImageGeneration, selectedVisualNodeIds, setNodes]);
-  const handleAssetMorePanelApply = useCallback((label: string, adjustments?: AssetAdjustmentValues) => {
+  const handleAssetMorePanelApply = useCallback(async (label: string, adjustments?: AssetAdjustmentValues) => {
     if (!assetMorePanel) return;
+    if (assetMorePanel.command === "vector") {
+      const sourceNode = nodesRef.current.find(n => n.id === assetMorePanel.nodeId && n.type === "asset");
+      if (!sourceNode) {
+        setAssetMorePanel(null);
+        return;
+      }
+      const data = sourceNode.data as Record<string, unknown>;
+      const asset = GENERATED_ASSETS.find(item => item.id === data.assetId) || GENERATED_ASSETS[0];
+      const imageSrc = (data.localSrc as string | undefined) || asset?.src;
+      if (!imageSrc) {
+        toast("矢量化失败", { description: "当前图片没有可处理的图像来源" });
+        setAssetMorePanel(null);
+        return;
+      }
+      const sourceSize = getCanvasNodeSize(sourceNode);
+      setAssetMorePanel(null);
+      const vectorPromptMap: Record<string, string> = {
+        "提取轮廓": "将图片转换为清晰的矢量轮廓风格结果。保留主体完整外形、关键边缘、比例和识别特征，使用干净线条与透明或简洁背景，不要改变主体姿态。",
+        "扁平化": "将图片转换为扁平化矢量插画风格结果。保留原图主体、构图比例、主要色块和品牌识别特征，减少真实纹理，使用简洁可编辑的形状语言。",
+        "高清矢量": "将图片转换为高清矢量海报风格结果。保留主体完整性、构图比例和关键细节，边缘锐利、色块干净、适合继续设计编辑。",
+      };
+      await runDerivedImageGeneration({
+        sourceNode,
+        prompt: vectorPromptMap[label] || vectorPromptMap["高清矢量"],
+        style: "矢量化结果",
+        nextW: sourceSize.width,
+        nextH: sourceSize.height,
+        run: async () => editImageWithPrompt({
+          imageSrc,
+          model: "gpt-image-2",
+          prompt: vectorPromptMap[label] || vectorPromptMap["高清矢量"],
+          targetWidth: sourceSize.width,
+          targetHeight: sourceSize.height,
+        }),
+      });
+      return;
+    }
     pushHistory();
     setNodes(nds => nds.map(n => {
       if (n.id !== assetMorePanel.nodeId || n.type !== "asset") return n;
@@ -9901,7 +9944,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     }));
     toast(label, { description: "已应用到当前图片节点" });
     setAssetMorePanel(null);
-  }, [assetMorePanel, pushHistory, setNodes]);
+  }, [assetMorePanel, nodesRef, pushHistory, runDerivedImageGeneration, setNodes]);
   const selectedImageNode = selectedVisualNodeIds.length === 1 ? nodes.find(n => n.id === selectedVisualNodeIds[0] && (n.type === "asset" || n.type === "canvasFrame")) : null;
   const selectedImageBounds = selectedImageNode ? getCanvasNodeBounds(selectedImageNode) : getCanvasNodesBounds(nodes, selectedVisualNodeIds);
   const attachedImageToolbarPosition = selectedImageBounds
