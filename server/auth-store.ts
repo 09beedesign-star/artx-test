@@ -75,11 +75,11 @@ async function loadDatabase(): Promise<AuthDatabase> {
 
   try {
     const raw = await fs.readFile(DATA_FILE, "utf-8");
-    const parsed = JSON.parse(raw) as Partial<AuthDatabase>;
-    db = {
-      users: Array.isArray(parsed.users) ? parsed.users : [],
-      sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [],
-    };
+    const parsed = parseAuthDatabase(raw);
+    db = parsed.db;
+    if (parsed.recovered) {
+      await saveDatabase(db);
+    }
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code !== "ENOENT") throw error;
@@ -93,9 +93,78 @@ async function loadDatabase(): Promise<AuthDatabase> {
   return db;
 }
 
+function normalizeDatabase(parsed: Partial<AuthDatabase>): AuthDatabase {
+  return {
+    users: Array.isArray(parsed.users) ? parsed.users : [],
+    sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [],
+  };
+}
+
+function parseAuthDatabase(raw: string): { db: AuthDatabase; recovered: boolean } {
+  try {
+    return { db: normalizeDatabase(JSON.parse(raw) as Partial<AuthDatabase>), recovered: false };
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+  }
+
+  const candidates = extractTopLevelJsonObjects(raw);
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    try {
+      return { db: normalizeDatabase(JSON.parse(candidates[index]) as Partial<AuthDatabase>), recovered: true };
+    } catch {
+      // Try the previous complete object.
+    }
+  }
+
+  throw new SyntaxError("Auth database is corrupted and could not be recovered");
+}
+
+function extractTopLevelJsonObjects(raw: string) {
+  const objects: string[] = [];
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < raw.length; index += 1) {
+    const char = raw[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+    if (char === "{") {
+      if (depth === 0) start = index;
+      depth += 1;
+      continue;
+    }
+    if (char === "}") {
+      depth = Math.max(0, depth - 1);
+      if (depth === 0 && start >= 0) {
+        objects.push(raw.slice(start, index + 1));
+        start = -1;
+      }
+    }
+  }
+
+  return objects;
+}
+
 async function saveDatabase(db: AuthDatabase) {
   await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(DATA_FILE, `${JSON.stringify(db, null, 2)}\n`, "utf-8");
+  const tmpFile = `${DATA_FILE}.${process.pid}.${Date.now()}.tmp`;
+  await fs.writeFile(tmpFile, `${JSON.stringify(db, null, 2)}\n`, "utf-8");
+  await fs.rename(tmpFile, DATA_FILE);
 }
 
 function createSession(db: AuthDatabase, userId: string) {
