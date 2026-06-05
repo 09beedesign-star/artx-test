@@ -2493,6 +2493,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const isAiProcessingImage = isGeneratingImage || isRemovingBackground || isErasingImage;
   const processingLabel = isGeneratingImage ? "正在全力生成中" : isErasingImage ? "AI 擦除中" : isRemovingBackground ? "AI 去背景中" : "AI 处理中";
   const displaySrc = isAiProcessingImage ? "" : (localSrc || asset?.src || "");
+  const sourceBackgroundSrc = (data as { sourceBackgroundSrc?: string }).sourceBackgroundSrc;
   const isEditing = !!(data as { isEditing?: boolean }).isEditing;
   const isCropping = !!(data as { isCropping?: boolean }).isCropping;
   const isErasing = !!(data as { isErasing?: boolean }).isErasing;
@@ -3065,14 +3066,34 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
                 style={{ right: -1, backgroundColor: "rgba(255,255,255,0.80)", borderColor: "rgba(255,255,255,0.60)" }} />
             </>
           )}
+          {sourceBackgroundSrc && (
+            <img
+              src={sourceBackgroundSrc}
+              alt=""
+              aria-hidden="true"
+              draggable={false}
+              className="absolute inset-0 h-full w-full"
+              style={{
+                objectFit: "cover",
+                filter: "blur(24px) saturate(1.12) brightness(0.78)",
+                transform: "scale(1.14)",
+                opacity: isAiProcessingImage ? 0.78 : 0.56,
+                pointerEvents: "none",
+                zIndex: 0,
+              }}
+            />
+          )}
           {isAiProcessingImage ? (
             <div
               className="absolute inset-0 flex flex-col items-center justify-center gap-3"
               style={{
                 background: isGeneratingImage
-                  ? "linear-gradient(135deg, oklch(0.34 0.20 275) 0%, oklch(0.46 0.22 250) 48%, oklch(0.40 0.22 305) 100%)"
+                  ? sourceBackgroundSrc
+                    ? "rgba(18,18,28,0.34)"
+                    : "linear-gradient(135deg, oklch(0.34 0.20 275) 0%, oklch(0.46 0.22 250) 48%, oklch(0.40 0.22 305) 100%)"
                   : isDark ? "oklch(0.16 0.018 270)" : "oklch(0.96 0.006 270)",
                 color: isGeneratingImage ? "rgba(255,255,255,0.88)" : isDark ? "rgba(255,255,255,0.72)" : "rgba(24,24,32,0.62)",
+                zIndex: 1,
               }}
             >
               {isGeneratingImage ? (
@@ -3121,6 +3142,8 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
                 transform: `scaleX(${flipX ? -1 : 1}) rotate(${rotation}deg)`,
                 filter: assetAdjustmentFilter,
                 transition: "transform 0.18s cubic-bezier(0.23,1,0.32,1)",
+                position: imgCropStyle.position || "relative",
+                zIndex: 1,
 	              }}
 	            />
 	          ) : (
@@ -4580,6 +4603,7 @@ type ImageGeneratorPayload = {
   placement?: { x: number; y: number };
   displaySize?: { w: number; h: number };
   titleBase?: string;
+  sourceBackgroundSrc?: string;
 };
 
 type ElementLayerPlan = {
@@ -4650,6 +4674,15 @@ function getCanvasNodeSize(node: Node): CanvasNodeSize {
   if (node.type === "prompt") return { width: 300, height: 190 };
   if (node.type === "text") return { width: 200, height: 130 };
   return { width: 260, height: 200 };
+}
+
+function getAssetNodeImageSource(node: Node): string {
+  if (node.type !== "asset") return "";
+  const data = node.data as Record<string, unknown>;
+  const localSrc = data.localSrc as string | undefined;
+  if (localSrc) return localSrc;
+  const asset = GENERATED_ASSETS.find(item => item.id === data.assetId);
+  return asset?.src || "";
 }
 
 function getCanvasNodeBounds(node: Node): CanvasNodeBounds {
@@ -7107,6 +7140,7 @@ function CanvasAssistantPanel({
           style: "右侧 AI 助手",
           referencesEnabled: assistantImages.length > 0,
           generationId,
+          sourceBackgroundSrc: assistantImages[0]?.src,
         };
         window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "pending" } }));
         const result = await generateAiImages(payload);
@@ -7885,6 +7919,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const resolvedDisplayW = Math.max(1, Math.round(displayW ?? getCanvasNodeSize(sourceNode).width));
     const resolvedDisplayH = Math.max(1, Math.round(displayH ?? getCanvasNodeSize(sourceNode).height));
     const generationId = `${style}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const sourceBackgroundSrc = getAssetNodeImageSource(sourceNode);
     const payload: ImageGeneratorPayload = {
       prompt,
       model: "gpt-image-2",
@@ -7896,6 +7931,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       placement: placement || getDerivedImagePlacement(sourceNode, resolvedDisplayW, resolvedDisplayH),
       displaySize: { w: resolvedDisplayW, h: resolvedDisplayH },
       titleBase: style,
+      sourceBackgroundSrc: sourceBackgroundSrc || undefined,
     };
     window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "pending" } }));
     try {
@@ -9146,6 +9182,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 tags: [detail.model, detail.ratio, "生成中", detail.referencesEnabled ? "参考画布" : "无参考"],
                 imgW: size.w,
                 imgH: size.h,
+                sourceBackgroundSrc: detail.sourceBackgroundSrc,
               },
             };
           });
@@ -9201,6 +9238,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 tags: [detail.model, detail.ratio, `${images.length}张`, detail.referencesEnabled ? "参考画布" : "无参考"],
                 imgW: size.w,
                 imgH: size.h,
+                sourceBackgroundSrc: (data.sourceBackgroundSrc as string | undefined) || detail.sourceBackgroundSrc,
               },
             };
           });
@@ -9227,6 +9265,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               tags: [detail.model, detail.ratio, `${images.length}张`, detail.referencesEnabled ? "参考画布" : "无参考"],
               imgW: size.w,
               imgH: size.h,
+              sourceBackgroundSrc: detail.sourceBackgroundSrc,
             },
           };
         });
