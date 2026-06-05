@@ -2570,7 +2570,8 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     overlay.getContext("2d")?.clearRect(0, 0, overlay.width, overlay.height);
     const maskCtx = mask.getContext("2d");
     if (maskCtx) {
-      maskCtx.fillStyle = "black";
+      maskCtx.globalCompositeOperation = "source-over";
+      maskCtx.fillStyle = "rgba(255,255,255,1)";
       maskCtx.fillRect(0, 0, mask.width, mask.height);
     }
     eraseHasPaintRef.current = false;
@@ -2849,7 +2850,12 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     const overlayCtx = overlay.getContext("2d");
     const maskCtx = mask.getContext("2d");
     if (overlayCtx) draw(overlayCtx, "rgba(128, 70, 255, 0.72)");
-    if (maskCtx) draw(maskCtx, "white");
+    if (maskCtx) {
+      maskCtx.save();
+      maskCtx.globalCompositeOperation = "destination-out";
+      draw(maskCtx, "rgba(0,0,0,1)");
+      maskCtx.restore();
+    }
     eraseHasPaintRef.current = true;
   }, [eraseBrushSize]);
 
