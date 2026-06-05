@@ -3084,7 +3084,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
             </div>
             <textarea
               readOnly={isExtractingText || isApplyingExtractedText}
-              value={isExtractingText ? "正在计算画面中的文案..." : extractedTextDraft}
+              value={isExtractingText ? EXTRACT_TEXT_LOADING_MESSAGE : extractedTextDraft}
               aria-label="提取出的画面文案"
               className="w-full nodrag nopan"
               style={{
@@ -4388,6 +4388,7 @@ const initialEdges: Edge[] = [];
 
 const CANVAS_STATE_STORAGE_PREFIX = "artx:canvas-state:";
 const CANVAS_STATE_SESSION_PREFIX = "artx:canvas-state:fallback:";
+const EXTRACT_TEXT_LOADING_MESSAGE = "正在提取文案中...";
 
 type PersistedCanvasState = {
   nodes: Node[];
@@ -4406,6 +4407,23 @@ function canvasStateStorageKey(projectId: string) {
 
 function canvasStateSessionKey(projectId: string) {
   return `${CANVAS_STATE_SESSION_PREFIX}${projectId || "p1"}`;
+}
+
+function stripLargeCanvasNodePayloads(nodes: Node[]) {
+  return nodes.map(node => {
+    if (node.type !== "asset") return node;
+    const data = node.data as Record<string, unknown>;
+    const localSrc = typeof data.localSrc === "string" ? data.localSrc : "";
+    if (!localSrc.startsWith("data:")) return node;
+    return {
+      ...node,
+      data: {
+        ...data,
+        localSrc: undefined,
+        fullImageStoredInSession: true,
+      },
+    };
+  });
 }
 
 function safeReadCanvasState(projectId: string): PersistedCanvasState | null {
@@ -4432,17 +4450,25 @@ function safeWriteCanvasState(projectId: string, state: PersistedCanvasState) {
   if (typeof window === "undefined") return;
   const key = canvasStateStorageKey(projectId);
   const sessionKey = canvasStateSessionKey(projectId);
-  const serialized = JSON.stringify(state);
+  const serializedFullState = JSON.stringify(state);
+  let sessionSaved = false;
+
   try {
-    window.localStorage.setItem(key, serialized);
-    window.sessionStorage.removeItem(sessionKey);
-  } catch (error) {
-    try {
-      window.sessionStorage.setItem(sessionKey, serialized);
-      toast("画布已保存到当前会话", { description: "本地持久空间不足，本次打开期间会保留完整画布内容" });
-    } catch {
-      const message = error instanceof Error ? error.message : "浏览器本地存储空间不足";
-      toast("画布自动保存失败", { description: `${message}，已保留上一次可用保存状态` });
+    window.sessionStorage.setItem(sessionKey, serializedFullState);
+    sessionSaved = true;
+  } catch {
+    /* The persistent fallback below still keeps a lightweight canvas state. */
+  }
+
+  try {
+    const persistedState = sessionSaved
+      ? { ...state, nodes: stripLargeCanvasNodePayloads(state.nodes) }
+      : state;
+    window.localStorage.setItem(key, JSON.stringify(persistedState));
+    if (!sessionSaved) window.sessionStorage.removeItem(sessionKey);
+  } catch {
+    if (!sessionSaved) {
+      toast("画布自动保存受限", { description: "浏览器存储空间不足，本次编辑仍会保留在当前页面中" });
     }
   }
 }
@@ -10167,7 +10193,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 isCropping: false,
                 isErasing: false,
                 isEditing: false,
-                extractedText: "",
+                extractedText: EXTRACT_TEXT_LOADING_MESSAGE,
               },
             }
           : n
