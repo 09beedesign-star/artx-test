@@ -368,7 +368,34 @@ function createConnectedEdgeBackgroundMask(data: Buffer, width: number, height: 
   return visited;
 }
 
-async function removeBackgroundByDominantEdgeColor(buffer: Buffer): Promise<{ images: GeneratedImage[] }> {
+function dilateBinaryMask(mask: Uint8Array, width: number, height: number, radius: number) {
+  const output = new Uint8Array(mask);
+  const radiusSquared = radius * radius;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const pixel = y * width + x;
+      if (!mask[pixel]) continue;
+
+      const minY = Math.max(0, y - radius);
+      const maxY = Math.min(height - 1, y + radius);
+      const minX = Math.max(0, x - radius);
+      const maxX = Math.min(width - 1, x + radius);
+
+      for (let nextY = minY; nextY <= maxY; nextY += 1) {
+        for (let nextX = minX; nextX <= maxX; nextX += 1) {
+          const dx = nextX - x;
+          const dy = nextY - y;
+          if (dx * dx + dy * dy <= radiusSquared) output[nextY * width + nextX] = 1;
+        }
+      }
+    }
+  }
+
+  return output;
+}
+
+async function returnOriginalImageAsTransparentPng(buffer: Buffer): Promise<{ images: GeneratedImage[] }> {
   const sharp = (await import("sharp")).default;
   const { data, info } = await sharp(buffer, { limitInputPixels: false })
     .rotate()
@@ -377,14 +404,8 @@ async function removeBackgroundByDominantEdgeColor(buffer: Buffer): Promise<{ im
     .toBuffer({ resolveWithObject: true });
   const width = info.width;
   const height = info.height;
-  const output = Buffer.from(data);
-  const visited = createConnectedEdgeBackgroundMask(output, width, height);
 
-  for (let pixel = 0; pixel < visited.length; pixel += 1) {
-    if (visited[pixel]) output[pixel * 4 + 3] = 0;
-  }
-
-  const png = await sharp(output, {
+  const png = await sharp(data, {
     raw: { width, height, channels: 4 },
     limitInputPixels: false,
   }).png().toBuffer();
@@ -414,16 +435,38 @@ async function applyConservativeAlphaMaskToOriginalImage(originalBuffer: Buffer,
     .toBuffer({ resolveWithObject: true });
 
   const output = Buffer.from(originalData);
+  const protectedForeground = new Uint8Array(originalInfo.width * originalInfo.height);
+  for (let index = 0; index < maskData.length; index += 4) {
+    const pixel = index / 4;
+    if (maskData[index + 3] >= 12) protectedForeground[pixel] = 1;
+  }
+  const expandedProtectedForeground = dilateBinaryMask(
+    protectedForeground,
+    originalInfo.width,
+    originalInfo.height,
+    Math.max(3, Math.round(Math.min(originalInfo.width, originalInfo.height) * 0.008)),
+  );
   const edgeBackgroundMask = createConnectedEdgeBackgroundMask(
     output,
     originalInfo.width,
     originalInfo.height,
+    18,
   );
+  let transparentPixels = 0;
   for (let index = 0; index < output.length; index += 4) {
     const pixel = index / 4;
-    const segmentationSaysBackground = maskData[index + 3] < 96;
+    const protectedBySegmentation = expandedProtectedForeground[pixel] === 1;
+    const segmentationSaysDefiniteBackground = maskData[index + 3] <= 2;
     const edgeSaysBackground = edgeBackgroundMask[pixel] === 1;
-    output[index + 3] = segmentationSaysBackground && edgeSaysBackground ? 0 : originalData[index + 3];
+    const shouldRemove = segmentationSaysDefiniteBackground && edgeSaysBackground && !protectedBySegmentation;
+    output[index + 3] = shouldRemove ? 0 : originalData[index + 3];
+    if (shouldRemove) transparentPixels += 1;
+  }
+
+  const totalPixels = originalInfo.width * originalInfo.height;
+  if (transparentPixels / totalPixels > 0.92) {
+    console.warn("Background removal skipped because the mask would remove nearly the whole image");
+    return returnOriginalImageAsTransparentPng(originalBuffer);
   }
 
   const png = await sharp(output, {
@@ -455,8 +498,8 @@ async function removeBackgroundPreservingForegroundPixels(src: string): Promise<
     const png = Buffer.from(await blob.arrayBuffer());
     return applyConservativeAlphaMaskToOriginalImage(buffer, png);
   } catch (error) {
-    console.warn("Segmentation background removal failed, falling back to edge-color alpha removal", error);
-    return removeBackgroundByDominantEdgeColor(buffer);
+    console.warn("Segmentation background removal failed, preserving original image instead of risking foreground loss", error);
+    return returnOriginalImageAsTransparentPng(buffer);
   }
 }
 
