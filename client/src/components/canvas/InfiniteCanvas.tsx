@@ -1647,6 +1647,7 @@ function AssetMoreCommandPanel({ isDark, command, initialAdjustments, imageSrc, 
 }) {
   const [adjustments, setAdjustments] = useState<AssetAdjustmentValues>(initialAdjustments || DEFAULT_ASSET_ADJUSTMENTS);
   const [renderedPreview, setRenderedPreview] = useState("");
+  const onPreviewChangeRef = useRef(onPreviewChange);
   const previewFilter = createAssetAdjustmentFilter(adjustments);
   const bg = isDark ? "rgba(24,24,34,0.98)" : "rgba(255,255,255,0.98)";
   const border = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)";
@@ -1671,9 +1672,13 @@ function AssetMoreCommandPanel({ isDark, command, initialAdjustments, imageSrc, 
   ];
 
   useEffect(() => {
+    onPreviewChangeRef.current = onPreviewChange;
+  }, [onPreviewChange]);
+
+  useEffect(() => {
     if (command !== "adjust") return;
-    onPreviewChange?.(adjustments);
-  }, [adjustments, command, onPreviewChange]);
+    onPreviewChangeRef.current?.(adjustments);
+  }, [adjustments, command]);
 
   useEffect(() => {
     if (command !== "adjust" || !imageSrc) {
