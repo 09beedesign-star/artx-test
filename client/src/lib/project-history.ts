@@ -18,6 +18,21 @@ function formatTimestamp(date = new Date()) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+function timestampToTime(value?: string) {
+  if (!value) return 0;
+  const normalized = value.replace(/-/g, "/");
+  const parsed = new Date(normalized).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function sortWorkspaceProjectHistory(projects: WorkspaceHistoryProject[]) {
+  return [...projects].sort((a, b) => {
+    const bTime = timestampToTime(b.updatedAt) || timestampToTime(b.createdAt);
+    const aTime = timestampToTime(a.updatedAt) || timestampToTime(a.createdAt);
+    return bTime - aTime;
+  });
+}
+
 export function readWorkspaceProjectHistory(): WorkspaceHistoryProject[] {
   if (typeof window === "undefined") return [];
   try {
@@ -25,9 +40,10 @@ export function readWorkspaceProjectHistory(): WorkspaceHistoryProject[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((item): item is WorkspaceHistoryProject => {
+    const projects = parsed.filter((item): item is WorkspaceHistoryProject => {
       return Boolean(item && typeof item.id === "string" && typeof item.title === "string");
     }).map(normalizeWorkspaceHistoryProject);
+    return sortWorkspaceProjectHistory(projects);
   } catch {
     return [];
   }
@@ -54,11 +70,12 @@ function compactWorkspaceProjectHistory(projects: WorkspaceHistoryProject[], kee
 
 function writeWorkspaceProjectHistory(projects: WorkspaceHistoryProject[]) {
   if (typeof window === "undefined") return;
+  const sortedProjects = sortWorkspaceProjectHistory(projects);
   const attempts = [
-    compactWorkspaceProjectHistory(projects, true),
-    compactWorkspaceProjectHistory(projects, false),
-    compactWorkspaceProjectHistory(projects.slice(0, 20), false),
-    compactWorkspaceProjectHistory(projects.slice(0, 8), false),
+    compactWorkspaceProjectHistory(sortedProjects, true),
+    compactWorkspaceProjectHistory(sortedProjects, false),
+    compactWorkspaceProjectHistory(sortedProjects.slice(0, 20), false),
+    compactWorkspaceProjectHistory(sortedProjects.slice(0, 8), false),
   ];
   for (const attempt of attempts) {
     const serialized = JSON.stringify(attempt);
@@ -101,6 +118,10 @@ export function updateWorkspaceProjectHistory(id: string, patch: Partial<Workspa
     initialPrompt: patch.initialPrompt,
   };
   writeWorkspaceProjectHistory([project, ...projects]);
+}
+
+export function touchWorkspaceProjectHistory(id: string) {
+  updateWorkspaceProjectHistory(id, { updatedAt: formatTimestamp() });
 }
 
 export function removeWorkspaceProjectHistory(ids: string[]) {

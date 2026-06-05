@@ -58,6 +58,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const result = await fetchAuth(action, { username, password });
       if (!result.ok || !result.token || !result.user) {
+        if (isGithubPagesTest()) {
+          const localResult = authenticateLocally(action, username, password);
+          if (localResult.ok) applyStoredSession();
+          return localResult;
+        }
         return { ok: false, error: result.error || "登录失败，请稍后重试" };
       }
       if (!persistSession({ token: result.token, user: result.user })) {
@@ -97,6 +102,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const result = await fetchAuth("social", { provider });
         if (!result.ok || !result.token || !result.user) {
+          if (isGithubPagesTest()) {
+            const localResult = authenticateLocally("registerOrLogin", `${provider}@artx.test`, provider);
+            if (localResult.ok) applyStoredSession();
+            return localResult;
+          }
           return { ok: false, error: result.error || "第三方登录暂时不可用" };
         }
         if (!persistSession({ token: result.token, user: result.user })) {
@@ -108,15 +118,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { ok: true };
       } catch {
         if (isGithubPagesTest()) {
-          const localResult = authenticateLocally("login", `${provider}@artx.test`, provider);
-          if (localResult.ok) {
-            const stored = readStoredSession();
-            if (stored) {
-              setIsAuthenticated(true);
-              setUser(stored.user);
-              setLoginModalOpen(false);
-            }
-          }
+          const localResult = authenticateLocally("registerOrLogin", `${provider}@artx.test`, provider);
+          if (localResult.ok) applyStoredSession();
           return localResult;
         }
         return { ok: false, error: "测试服务暂时不可用，请稍后重试" };
@@ -214,7 +217,7 @@ async function fetchAuth(action: "register" | "login" | "me" | "logout" | "socia
   } as { ok: boolean; error?: string; token?: string; user?: AuthUser };
 }
 
-function authenticateLocally(action: "login" | "register", username: string, password: string) {
+function authenticateLocally(action: "login" | "register" | "registerOrLogin", username: string, password: string) {
   const users = readLocalUsers();
   const existing = users.find(item => item.username === username);
   if (action === "register" && existing) {
