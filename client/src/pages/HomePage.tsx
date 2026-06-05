@@ -15,8 +15,13 @@ import {
   Send, Mic, Check, MoreHorizontal, Pencil, Copy, Trash2,
   PlayCircle, Heart,
 } from "lucide-react";
-import { PROJECTS, POSTER_1, POSTER_2, BRAND_KIT, SOCIAL_AD, BG_GLOW, IMAGE_AI_MODELS } from "@/lib/workspace-data";
-import { createWorkspaceHistoryProject } from "@/lib/project-history";
+import { POSTER_1, POSTER_2, BRAND_KIT, SOCIAL_AD, BG_GLOW, IMAGE_AI_MODELS } from "@/lib/workspace-data";
+import {
+  createWorkspaceHistoryProject,
+  readWorkspaceProjectHistory,
+  touchWorkspaceProjectHistory,
+  type WorkspaceHistoryProject,
+} from "@/lib/project-history";
 
 // ── Home Project Card Menu ────────────────────────────────────
 function HomeCardMenu({ isDark }: { isDark: boolean }) {
@@ -111,12 +116,6 @@ const COMMUNITY_PROJECTS = [
   { id: "community-7", title: "运动科技主视觉", updatedAt: "用户作品", cover: POSTER_2, author: "Emma_Wilson", plays: "4478", likes: "125" },
   { id: "community-8", title: "社媒营销创意图", updatedAt: "灵感推荐", cover: SOCIAL_AD, author: "Emma_Wilson", plays: "4478", likes: "125" },
 ];
-
-const RECENT_PROJECT_COVERS = [POSTER_2, BRAND_KIT, POSTER_1, SOCIAL_AD, POSTER_1];
-const RECENT_PROJECTS = PROJECTS.slice(0, 5).map((project, index) => ({
-  ...project,
-  cover: RECENT_PROJECT_COVERS[index % RECENT_PROJECT_COVERS.length],
-}));
 
 const PROMPT_SUGGESTIONS = [
   "产品海报",
@@ -391,13 +390,27 @@ export default function HomePage() {
   const cardBorder = isDark ? "rgba(255,255,255,0.07)" : "oklch(0.88 0.006 255)";
   const chipBg = isDark ? "oklch(1 0 0 / 0.06)" : "oklch(1 0 0 / 0.75)";
   const chipBorder = isDark ? "oklch(1 0 0 / 0.08)" : "oklch(0 0 0 / 0.08)";
+  const [recentProjects, setRecentProjects] = useState<WorkspaceHistoryProject[]>([]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    setRecentProjects(readWorkspaceProjectHistory());
+  }, [isAuthenticated]);
 
   const handleStartDesign = () => {
     if (!isAuthenticated) {
       openLoginModal();
       return;
     }
-    navigate("/project/p1");
+    const project = createWorkspaceHistoryProject();
+    setRecentProjects(readWorkspaceProjectHistory());
+    navigate(`/project/${project.id}`);
+  };
+
+  const handleRecentProjectOpen = (projectId: string) => {
+    touchWorkspaceProjectHistory(projectId);
+    setRecentProjects(readWorkspaceProjectHistory());
+    navigate(`/project/${projectId}`);
   };
 
   const handlePromptSubmit = (text: string) => {
@@ -497,15 +510,35 @@ export default function HomePage() {
             </div>
 
             <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
-              {RECENT_PROJECTS.map(project => (
+              <button
+                onClick={handleStartDesign}
+                className="rounded-[var(--radius-lg-design)] overflow-hidden text-left group transition-all hover:scale-[1.02] cursor-pointer"
+                style={{ background: cardBg, border: `1px solid ${cardBorder}`, boxShadow: "0 2px 12px rgba(0,0,0,0.12)" }}
+              >
+                <div className="relative overflow-hidden flex items-center justify-center" style={{ aspectRatio: "16/9", background: isDark ? "oklch(0.16 0.014 270)" : "oklch(0.94 0.006 255)" }}>
+                  <LayoutGrid size={24} style={{ color: "oklch(0.62 0.22 290)" }} />
+                </div>
+                <div className="px-3 py-2.5">
+                  <p className="type-caption truncate" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>新建画布</p>
+                  <p className="type-caption mt-1" style={{ color: sub, fontSize: 11 }}>单击创建</p>
+                </div>
+              </button>
+
+              {recentProjects.map(project => (
                 <div
                   key={project.id}
-                  onClick={() => navigate(`/project/${project.id}`)}
+                  onClick={() => handleRecentProjectOpen(project.id)}
                   className="rounded-[var(--radius-lg-design)] overflow-hidden text-left group transition-all hover:scale-[1.02] cursor-pointer"
                   style={{ background: cardBg, border: `1px solid ${cardBorder}`, boxShadow: "0 2px 12px rgba(0,0,0,0.12)" }}
                 >
                   <div className="relative overflow-hidden" style={{ aspectRatio: "16/9" }}>
-                    <img src={project.cover} alt={project.title} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                    {project.cover ? (
+                      <img src={project.cover} alt={project.title} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center" style={{ background: isDark ? "oklch(0.16 0.014 270)" : "oklch(0.94 0.006 255)", color: sub }}>
+                        <LayoutGrid size={22} />
+                      </div>
+                    )}
                   </div>
                   <div className="px-3 py-2.5">
                     <p className="type-caption truncate" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>{project.title}</p>
