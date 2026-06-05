@@ -1045,7 +1045,7 @@ function AssetFloatingToolbar({ isDark, position, onAction }: {
     { icon: <Download size={15} />, label: "下载", action: "download" },
   ];
   const moreItems = [
-    { icon: <Shirt size={18} />, label: "Mockup", action: "mockup" },
+    { icon: <Shirt size={18} />, label: "社媒平台尺寸", action: "mockup" },
     { icon: <Expand size={18} />, label: "扩展", action: "expand", dot: true },
     { icon: <ImageIcon size={18} />, label: "调整", action: "adjust", dot: true },
     { icon: <Frame size={18} />, label: "矢量", action: "vector", dot: true, cost: 9 },
@@ -1173,6 +1173,32 @@ type AssetAdjustmentValues = {
   sharpness: number;
 };
 
+type SocialMediaSizePreset = {
+  id: string;
+  platform: string;
+  title: string;
+  width: number;
+  height: number;
+  tone: string;
+};
+
+type SocialMediaExportPayload = {
+  presets: SocialMediaSizePreset[];
+  customSize?: { width: number; height: number };
+  crop: { x: number; y: number; width: number; height: number };
+};
+
+const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
+  { id: "facebook-feed", platform: "Facebook", title: "横版分享", width: 1200, height: 630, tone: "oklch(0.60 0.18 250)" },
+  { id: "tiktok-video", platform: "TikTok", title: "竖版视频封面", width: 1080, height: 1920, tone: "oklch(0.70 0.20 185)" },
+  { id: "instagram-post", platform: "Instagram", title: "竖版帖子", width: 1080, height: 1350, tone: "oklch(0.66 0.22 330)" },
+  { id: "xiaohongshu-note", platform: "小红书", title: "笔记封面", width: 1242, height: 1660, tone: "oklch(0.62 0.24 25)" },
+  { id: "wechat-channels", platform: "视频号", title: "竖版封面", width: 1080, height: 1920, tone: "oklch(0.68 0.16 155)" },
+  { id: "douyin-cover", platform: "抖音", title: "竖版封面", width: 1080, height: 1920, tone: "oklch(0.63 0.20 280)" },
+  { id: "amazon-main", platform: "亚马逊", title: "商品主图", width: 1000, height: 1000, tone: "oklch(0.73 0.16 78)" },
+  { id: "shopee-main", platform: "虾皮", title: "商品主图", width: 1024, height: 1024, tone: "oklch(0.68 0.21 43)" },
+];
+
 const DEFAULT_ASSET_ADJUSTMENTS: AssetAdjustmentValues = {
   color: 0,
   brightness: 0,
@@ -1265,6 +1291,241 @@ async function applyAssetAdjustmentsToImage(src: string, adjustments: AssetAdjus
   return canvas.toDataURL("image/png");
 }
 
+async function createSocialMediaSizedImage(src: string, size: { width: number; height: number }, crop: SocialMediaExportPayload["crop"]) {
+  const image = await loadImageForCanvas(src);
+  const naturalW = Math.max(1, image.naturalWidth || image.width);
+  const naturalH = Math.max(1, image.naturalHeight || image.height);
+  const cropX = Math.max(0, Math.min(1, crop.x));
+  const cropY = Math.max(0, Math.min(1, crop.y));
+  const cropW = Math.max(0.02, Math.min(1 - cropX, crop.width));
+  const cropH = Math.max(0.02, Math.min(1 - cropY, crop.height));
+  const sx = Math.round(cropX * naturalW);
+  const sy = Math.round(cropY * naturalH);
+  const sw = Math.max(1, Math.round(cropW * naturalW));
+  const sh = Math.max(1, Math.round(cropH * naturalH));
+  const sourceRatio = sw / sh;
+  const targetRatio = size.width / size.height;
+  let nextSx = sx;
+  let nextSy = sy;
+  let nextSw = sw;
+  let nextSh = sh;
+  if (sourceRatio > targetRatio) {
+    nextSw = Math.max(1, Math.round(sh * targetRatio));
+    nextSx = sx + Math.round((sw - nextSw) / 2);
+  } else if (sourceRatio < targetRatio) {
+    nextSh = Math.max(1, Math.round(sw / targetRatio));
+    nextSy = sy + Math.round((sh - nextSh) / 2);
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = size.width;
+  canvas.height = size.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("当前浏览器不支持图片处理");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(image, nextSx, nextSy, nextSw, nextSh, 0, 0, size.width, size.height);
+  return canvas.toDataURL("image/png");
+}
+
+function getSocialPreviewCropStyle(crop: SocialMediaExportPayload["crop"]) {
+  return {
+    left: `${-(crop.x / crop.width) * 100}%`,
+    top: `${-(crop.y / crop.height) * 100}%`,
+    width: `${100 / crop.width}%`,
+    height: `${100 / crop.height}%`,
+  };
+}
+
+function SocialMediaSizePanel({
+  isDark,
+  imageSrc,
+  onClose,
+  onGenerate,
+}: {
+  isDark: boolean;
+  imageSrc?: string;
+  onClose: () => void;
+  onGenerate: (payload: SocialMediaExportPayload) => void;
+}) {
+  const [selectedPresetIds, setSelectedPresetIds] = useState<string[]>([]);
+  const [customEnabled, setCustomEnabled] = useState(false);
+  const [customWidth, setCustomWidth] = useState(1080);
+  const [customHeight, setCustomHeight] = useState(1080);
+  const [crop, setCrop] = useState({ x: 0, y: 0, width: 1, height: 1 });
+  const dragRef = useRef<null | {
+    startX: number;
+    startY: number;
+    startCrop: SocialMediaExportPayload["crop"];
+    bounds: DOMRect;
+  }>(null);
+  const bg = isDark ? "rgba(24,24,34,0.98)" : "rgba(255,255,255,0.98)";
+  const border = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)";
+  const text = isDark ? "rgba(255,255,255,0.88)" : "rgba(28,28,40,0.88)";
+  const sub = isDark ? "rgba(255,255,255,0.50)" : "rgba(28,28,40,0.48)";
+  const field = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
+  const selectedPresets = SOCIAL_MEDIA_SIZE_PRESETS.filter(item => selectedPresetIds.includes(item.id));
+  const validCustom = customEnabled && customWidth >= 64 && customHeight >= 64;
+  const canGenerate = selectedPresets.length > 0 || validCustom;
+
+  const togglePreset = (id: string) => {
+    setSelectedPresetIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]);
+  };
+
+  const handleCropPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    dragRef.current = { startX: event.clientX, startY: event.clientY, startCrop: crop, bounds };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handleCropPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const dx = (event.clientX - drag.startX) / Math.max(1, drag.bounds.width);
+    const dy = (event.clientY - drag.startY) / Math.max(1, drag.bounds.height);
+    setCrop({
+      ...drag.startCrop,
+      x: Math.max(0, Math.min(1 - drag.startCrop.width, drag.startCrop.x + dx)),
+      y: Math.max(0, Math.min(1 - drag.startCrop.height, drag.startCrop.y + dy)),
+    });
+  };
+
+  const handleCropPointerUp = () => {
+    dragRef.current = null;
+  };
+
+  return (
+    <div
+      className="absolute nodrag nopan rounded-[var(--radius-lg-design)] shadow-2xl"
+      style={{ right: 24, top: 82, width: 420, background: bg, border: `1px solid ${border}`, backdropFilter: "blur(20px)", zIndex: 2300, overflow: "hidden" }}
+      onMouseDown={e => e.stopPropagation()}
+      onClick={e => e.stopPropagation()}
+    >
+      <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: `1px solid ${border}` }}>
+        <div>
+          <p style={{ color: text, fontSize: 14, fontWeight: 650 }}>社媒平台尺寸</p>
+          <p style={{ color: sub, fontSize: 11, marginTop: 2 }}>选择一个或多个平台尺寸，生成对应规格的新图片节点。</p>
+        </div>
+        <button className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-md-design)]" style={{ color: sub }} onClick={onClose} aria-label="关闭">
+          <X size={14} />
+        </button>
+      </div>
+
+      <div className="max-h-[70vh] overflow-y-auto p-3" style={{ scrollbarWidth: "thin" }}>
+        <div
+          className="relative mb-3 overflow-hidden rounded-[var(--radius-md-design)]"
+          style={{ aspectRatio: "16/10", background: field, border: `1px solid ${border}` }}
+          onPointerDown={handleCropPointerDown}
+          onPointerMove={handleCropPointerMove}
+          onPointerUp={handleCropPointerUp}
+          onPointerCancel={handleCropPointerUp}
+        >
+          {imageSrc ? (
+            <img src={imageSrc} alt="尺寸裁切预览" draggable={false} className="absolute object-cover" style={getSocialPreviewCropStyle(crop)} />
+          ) : null}
+          <div className="absolute inset-0 pointer-events-none" style={{ boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.26)" }} />
+          <div className="absolute bottom-2 left-2 rounded-[var(--radius-md-design)] px-2 py-1" style={{ background: "rgba(0,0,0,0.42)", color: "white", fontSize: 11 }}>
+            拖拽图片选择需要显示的内容
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          {SOCIAL_MEDIA_SIZE_PRESETS.map(preset => {
+            const active = selectedPresetIds.includes(preset.id);
+            return (
+              <button
+                key={preset.id}
+                className="flex items-center gap-2 rounded-[var(--radius-md-design)] p-2 text-left transition-all active:scale-[0.98]"
+                style={{
+                  background: active ? "oklch(0.58 0.22 290 / 0.18)" : field,
+                  border: `1px solid ${active ? "oklch(0.62 0.22 290 / 0.56)" : border}`,
+                  color: text,
+                }}
+                onClick={() => togglePreset(preset.id)}
+              >
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[var(--radius-md-design)]" style={{ background: preset.tone }}>
+                  <div
+                    style={{
+                      width: preset.width >= preset.height ? 34 : Math.max(16, Math.round(34 * preset.width / preset.height)),
+                      height: preset.height >= preset.width ? 34 : Math.max(16, Math.round(34 * preset.height / preset.width)),
+                      borderRadius: 4,
+                      border: "2px solid rgba(255,255,255,0.86)",
+                    }}
+                  />
+                </div>
+                <div className="min-w-0">
+                  <p style={{ fontSize: 12, fontWeight: 650, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{preset.platform}</p>
+                  <p style={{ color: sub, fontSize: 10, marginTop: 2 }}>{preset.width} × {preset.height}</p>
+                  <p style={{ color: sub, fontSize: 10, marginTop: 1 }}>{preset.title}</p>
+                </div>
+                {active && <Check size={14} className="ml-auto shrink-0" style={{ color: "oklch(0.72 0.20 290)" }} />}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mt-3 rounded-[var(--radius-md-design)] p-3" style={{ background: field, border: `1px solid ${border}` }}>
+          <label className="mb-2 flex items-center gap-2" style={{ color: text, fontSize: 12, fontWeight: 650 }}>
+            <input type="checkbox" checked={customEnabled} onChange={event => setCustomEnabled(event.target.checked)} />
+            自定义尺寸
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <label style={{ color: sub, fontSize: 11 }}>
+              宽度
+              <input
+                type="number"
+                min={64}
+                max={8192}
+                value={customWidth}
+                disabled={!customEnabled}
+                onChange={event => setCustomWidth(Math.max(64, Math.min(8192, Number(event.target.value) || 64)))}
+                className="mt-1 h-8 w-full rounded-[var(--radius-md-design)] px-2 outline-none"
+                style={{ background: isDark ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.72)", color: text, border: `1px solid ${border}` }}
+              />
+            </label>
+            <label style={{ color: sub, fontSize: 11 }}>
+              高度
+              <input
+                type="number"
+                min={64}
+                max={8192}
+                value={customHeight}
+                disabled={!customEnabled}
+                onChange={event => setCustomHeight(Math.max(64, Math.min(8192, Number(event.target.value) || 64)))}
+                className="mt-1 h-8 w-full rounded-[var(--radius-md-design)] px-2 outline-none"
+                style={{ background: isDark ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.72)", color: text, border: `1px solid ${border}` }}
+              />
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex gap-2 px-3 py-3" style={{ borderTop: `1px solid ${border}` }}>
+        <button className="h-9 flex-1 rounded-[var(--radius-md-design)] active:scale-95" style={{ background: field, color: text, fontSize: 13, border: `1px solid ${border}` }} onClick={onClose}>
+          取消
+        </button>
+        <button
+          className="h-9 flex-1 rounded-[var(--radius-md-design)] active:scale-95 disabled:cursor-not-allowed"
+          disabled={!canGenerate}
+          style={{
+            background: canGenerate ? "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))" : field,
+            color: canGenerate ? "white" : sub,
+            fontSize: 13,
+            fontWeight: 650,
+            opacity: canGenerate ? 1 : 0.58,
+          }}
+          onClick={() => onGenerate({
+            presets: selectedPresets,
+            customSize: validCustom ? { width: customWidth, height: customHeight } : undefined,
+            crop,
+          })}
+        >
+          生成
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function AssetMoreCommandPanel({ isDark, command, initialAdjustments, imageSrc, onClose, onApply, onPreviewChange }: {
   isDark: boolean;
   command: string;
@@ -1284,7 +1545,7 @@ function AssetMoreCommandPanel({ isDark, command, initialAdjustments, imageSrc, 
   const field = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
   const hover = isDark ? "rgba(255,255,255,0.09)" : "rgba(0,0,0,0.06)";
   const config: Record<string, { title: string; description: string; actions: string[] }> = {
-    mockup: { title: "Mockup", description: "选择场景，将当前图片套入产品样机。", actions: ["包装袋", "手机屏幕", "海报墙"] },
+    mockup: { title: "社媒平台尺寸", description: "选择平台图片规格并生成新尺寸图片。", actions: [] },
     expand: { title: "扩展", description: "按比例扩展画面边界，保留主体视觉。", actions: ["1:1", "4:5", "16:9"] },
     adjust: { title: "调整", description: "实时调整图片色彩、亮度、对比度、饱和度和锐利度。", actions: [] },
     crop: { title: "裁切", description: "选择裁切比例，图片节点会更新为新的尺寸。", actions: ["自由", "1:1", "3:4", "4:3", "16:9", "9:16"] },
@@ -10115,7 +10376,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       erase: "橡皮工具",
       "edit-elements": "编辑元素",
       "edit-text": "编辑文字",
-      mockup: "Mockup",
+      mockup: "社媒平台尺寸",
       expand: "扩展",
       adjust: "调整",
       crop: "裁剪",
@@ -10125,6 +10386,80 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     };
     toast(labels[action] || "功能即将上线", { description: "已保留 Lovart 命令入口，后续可接入对应 AI 处理能力" });
   }, [clearAssetCommandState, clearInactiveAssetCommands, createExtractedTextNode, handleNodeAction, nodesRef, pushHistory, runDerivedImageGeneration, selectedVisualNodeIds, setNodes]);
+  const handleSocialMediaSizeGenerate = useCallback(async (payload: SocialMediaExportPayload) => {
+    if (!assetMorePanel) return;
+    const sourceNode = nodesRef.current.find(n => n.id === assetMorePanel.nodeId && n.type === "asset");
+    if (!sourceNode) {
+      setAssetMorePanel(null);
+      return;
+    }
+    const data = sourceNode.data as Record<string, unknown>;
+    const asset = GENERATED_ASSETS.find(item => item.id === data.assetId) || GENERATED_ASSETS[0];
+    const imageSrc = (data.localSrc as string | undefined) || asset?.src;
+    if (!imageSrc) {
+      toast("生成失败", { description: "当前图片没有可处理的图像来源" });
+      setAssetMorePanel(null);
+      return;
+    }
+    const outputSizes = [
+      ...payload.presets.map(preset => ({
+        id: preset.id,
+        label: `${preset.platform} ${preset.title}`,
+        width: preset.width,
+        height: preset.height,
+      })),
+      ...(payload.customSize ? [{
+        id: "custom",
+        label: "自定义尺寸",
+        width: payload.customSize.width,
+        height: payload.customSize.height,
+      }] : []),
+    ];
+    if (outputSizes.length === 0) return;
+
+    try {
+      const sourceSize = getCanvasNodeSize(sourceNode);
+      const generated = await Promise.all(outputSizes.map(async (item, index) => {
+        const localSrc = await createSocialMediaSizedImage(imageSrc, { width: item.width, height: item.height }, payload.crop);
+        const displaySize = getImportedImageDisplaySize(item.width, item.height);
+        const id = `social-size-${Date.now()}-${index}`;
+        return {
+          id,
+          type: "asset" as const,
+          position: {
+            x: sourceNode.position.x + sourceSize.width + 44 + index * 34,
+            y: sourceNode.position.y + index * 34,
+          },
+          style: { width: displaySize.width, height: displaySize.height },
+          selected: true,
+          data: {
+            id,
+            assetId: "default",
+            localSrc,
+            title: `${item.label} ${item.width}×${item.height}`,
+            assetType: "社媒尺寸",
+            tags: ["社媒平台尺寸", item.label],
+            imgW: displaySize.width,
+            imgH: displaySize.height,
+            outputWidth: item.width,
+            outputHeight: item.height,
+          },
+        };
+      }));
+      pushHistory();
+      setNodes(nds => [
+        ...nds.map(n => ({ ...n, selected: false })),
+        ...generated,
+      ]);
+      setSelectedNodeIds(generated.map(node => node.id));
+      toast("社媒平台尺寸已生成", { description: `已生成 ${generated.length} 张新规格图片` });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "请稍后重试";
+      toast("生成失败", { description: message });
+    } finally {
+      setAssetMorePanel(null);
+    }
+  }, [assetMorePanel, nodesRef, pushHistory, setNodes]);
   const handleAssetMorePanelApply = useCallback(async (label: string, adjustments?: AssetAdjustmentValues) => {
     if (!assetMorePanel) return;
     if (assetMorePanel.command === "vector") {
@@ -10297,21 +10632,30 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       onMouseUp={e => { handleFreehandMouseUp(); handlePenMouseUp(); handleCreateCanvasMouseUp(e); }}
     >
       {assetMorePanel && (
-        <AssetMoreCommandPanel
-          isDark={isDark}
-          command={assetMorePanel.command}
-          initialAdjustments={normalizeAssetAdjustments(assetMorePanelData?.assetAdjustmentPreview || assetMorePanelData?.assetAdjustments)}
-          imageSrc={assetMorePanelImageSrc}
-          onClose={closeAssetMorePanel}
-          onApply={handleAssetMorePanelApply}
-          onPreviewChange={(adjustments) => {
-            if (assetMorePanel.command !== "adjust") return;
-            setNodes(nds => nds.map(n => n.id === assetMorePanel.nodeId && n.type === "asset"
-              ? { ...n, data: { ...(n.data as Record<string, unknown>), assetAdjustmentPreview: adjustments } }
-              : n
-            ));
-          }}
-        />
+        assetMorePanel.command === "mockup" ? (
+          <SocialMediaSizePanel
+            isDark={isDark}
+            imageSrc={assetMorePanelImageSrc}
+            onClose={closeAssetMorePanel}
+            onGenerate={handleSocialMediaSizeGenerate}
+          />
+        ) : (
+          <AssetMoreCommandPanel
+            isDark={isDark}
+            command={assetMorePanel.command}
+            initialAdjustments={normalizeAssetAdjustments(assetMorePanelData?.assetAdjustmentPreview || assetMorePanelData?.assetAdjustments)}
+            imageSrc={assetMorePanelImageSrc}
+            onClose={closeAssetMorePanel}
+            onApply={handleAssetMorePanelApply}
+            onPreviewChange={(adjustments) => {
+              if (assetMorePanel.command !== "adjust") return;
+              setNodes(nds => nds.map(n => n.id === assetMorePanel.nodeId && n.type === "asset"
+                ? { ...n, data: { ...(n.data as Record<string, unknown>), assetAdjustmentPreview: adjustments } }
+                : n
+              ));
+            }}
+          />
+        )
       )}
 
       {/* 本地拖拽导入覆盖层 */}
