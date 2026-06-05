@@ -497,11 +497,78 @@ async function normalizeTransparentPng(buffer: Buffer): Promise<{ images: Genera
   };
 }
 
+async function applyRawAlphaMaskToOriginalImage(originalBuffer: Buffer, alphaMaskBuffer: Buffer): Promise<{ images: GeneratedImage[] }> {
+  const sharp = (await import("sharp")).default;
+  const { data: originalData, info: originalInfo } = await sharp(originalBuffer, { limitInputPixels: false })
+    .rotate()
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const totalPixels = originalInfo.width * originalInfo.height;
+  if (alphaMaskBuffer.length !== totalPixels) {
+    throw new Error(`Unexpected alpha mask size: ${alphaMaskBuffer.length}`);
+  }
+
+  const output = Buffer.from(originalData);
+  const protectedForeground = new Uint8Array(totalPixels);
+  for (let pixel = 0; pixel < totalPixels; pixel += 1) {
+    if (alphaMaskBuffer[pixel] >= 192) protectedForeground[pixel] = 1;
+  }
+  const expandedProtectedForeground = dilateBinaryMask(
+    protectedForeground,
+    originalInfo.width,
+    originalInfo.height,
+    Math.max(2, Math.round(Math.min(originalInfo.width, originalInfo.height) * 0.004)),
+  );
+
+  let transparentPixels = 0;
+  for (let pixel = 0; pixel < totalPixels; pixel += 1) {
+    const index = pixel * 4;
+    const nextAlpha = expandedProtectedForeground[pixel]
+      ? originalData[index + 3]
+      : Math.min(originalData[index + 3], alphaMaskBuffer[pixel]);
+    output[index + 3] = nextAlpha;
+    if (nextAlpha < 8) transparentPixels += 1;
+  }
+
+  if (transparentPixels / totalPixels < 0.03) {
+    throw new Error("Alpha mask did not remove enough background");
+  }
+
+  const png = await sharp(output, {
+    raw: { width: originalInfo.width, height: originalInfo.height, channels: 4 },
+    limitInputPixels: false,
+  }).png().toBuffer();
+
+  return {
+    images: [{
+      src: `data:image/png;base64,${png.toString("base64")}`,
+      width: originalInfo.width,
+      height: originalInfo.height,
+    }],
+  };
+}
+
 async function removeBackgroundPreservingForegroundPixels(src: string): Promise<{ images: GeneratedImage[] }> {
   const { buffer } = await imageSrcToBuffer(src);
 
   try {
-    const { removeBackground: removeBackgroundWithSegmentation } = await import("@imgly/background-removal-node");
+    const { removeBackground: removeBackgroundWithSegmentation, segmentForeground } = await import("@imgly/background-removal-node");
+    try {
+      const alphaBlob = await segmentForeground(buffer, {
+        model: "medium",
+        output: {
+          format: "image/x-alpha8",
+          quality: 1,
+        },
+      });
+      const alpha = Buffer.from(await alphaBlob.arrayBuffer());
+      return applyRawAlphaMaskToOriginalImage(buffer, alpha);
+    } catch (alphaError) {
+      console.warn("Raw alpha background removal failed, falling back to PNG segmentation", alphaError);
+    }
+
     const blob = await removeBackgroundWithSegmentation(buffer, {
       model: "medium",
       output: {
