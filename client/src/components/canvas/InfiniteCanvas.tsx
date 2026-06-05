@@ -48,7 +48,7 @@ import {
   Triangle, Pencil, MessageCircle, Star, Minus as MinusIcon,
   BadgeCheck, ScanSearch, Move, PanelTopOpen, ImageOff, Check,
   WandSparkles,
-  Shirt, Expand, Frame, RotateCw,
+  Shirt, Expand, Frame, RotateCw, MapPin, PlusCircle,
 } from "lucide-react";
 
 // 「井号 + 方框」图标 — 创建画布专用
@@ -1189,15 +1189,117 @@ type SocialMediaExportPayload = {
 };
 
 const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
-  { id: "facebook-feed", platform: "Facebook", title: "横版分享", width: 1200, height: 630, tone: "oklch(0.60 0.18 250)" },
-  { id: "tiktok-video", platform: "TikTok", title: "竖版视频封面", width: 1080, height: 1920, tone: "oklch(0.70 0.20 185)" },
-  { id: "instagram-post", platform: "Instagram", title: "竖版帖子", width: 1080, height: 1350, tone: "oklch(0.66 0.22 330)" },
-  { id: "xiaohongshu-note", platform: "小红书", title: "笔记封面", width: 1242, height: 1660, tone: "oklch(0.62 0.24 25)" },
-  { id: "wechat-channels", platform: "视频号", title: "竖版封面", width: 1080, height: 1920, tone: "oklch(0.68 0.16 155)" },
-  { id: "douyin-cover", platform: "抖音", title: "竖版封面", width: 1080, height: 1920, tone: "oklch(0.63 0.20 280)" },
-  { id: "amazon-main", platform: "亚马逊", title: "商品主图", width: 1000, height: 1000, tone: "oklch(0.73 0.16 78)" },
-  { id: "shopee-main", platform: "虾皮", title: "商品主图", width: 1024, height: 1024, tone: "oklch(0.68 0.21 43)" },
+  { id: "red-note-vertical", platform: "小红书", title: "笔记封面竖版", width: 1080, height: 1440, tone: "oklch(0.62 0.24 25)" },
+  { id: "red-note-landscape", platform: "小红书", title: "笔记封面横版", width: 1080, height: 810, tone: "oklch(0.64 0.22 32)" },
+  { id: "red-note-square", platform: "小红书", title: "笔记封面方版", width: 1080, height: 1080, tone: "oklch(0.66 0.20 20)" },
+  { id: "douyin-cover-vertical", platform: "抖音", title: "视频封面竖版", width: 1080, height: 1440, tone: "oklch(0.63 0.20 280)" },
+  { id: "douyin-cover-full", platform: "抖音", title: "全屏封面", width: 1080, height: 1920, tone: "oklch(0.59 0.20 286)" },
+  { id: "douyin-cover-landscape", platform: "抖音", title: "视频封面横版", width: 1080, height: 608, tone: "oklch(0.56 0.18 292)" },
+  { id: "wechat-channel-vertical", platform: "视频号", title: "竖版视频封面", width: 1080, height: 1260, tone: "oklch(0.68 0.16 155)" },
+  { id: "wechat-channel-landscape", platform: "视频号", title: "横版视频封面", width: 1080, height: 608, tone: "oklch(0.64 0.15 165)" },
+  { id: "kuaishou-cover-vertical", platform: "快手", title: "视频封面竖版", width: 1080, height: 1920, tone: "oklch(0.70 0.20 48)" },
+  { id: "bilibili-cover-landscape", platform: "B站", title: "视频封面横版", width: 1920, height: 1080, tone: "oklch(0.70 0.15 225)" },
+  { id: "bilibili-cover-vertical", platform: "B站", title: "视频封面竖版", width: 1080, height: 1920, tone: "oklch(0.66 0.16 235)" },
+  { id: "weibo-feed", platform: "微博", title: "正文图片", width: 1080, height: 1080, tone: "oklch(0.70 0.19 70)" },
+  { id: "weibo-profile-cover", platform: "微博", title: "主页封面图", width: 980, height: 300, tone: "oklch(0.68 0.17 80)" },
+  { id: "wechat-official-hero", platform: "公众号", title: "头条封面", width: 900, height: 383, tone: "oklch(0.66 0.14 150)" },
+  { id: "wechat-official-sub", platform: "公众号", title: "次条封面", width: 200, height: 200, tone: "oklch(0.70 0.12 160)" },
+  { id: "facebook-square", platform: "Facebook", title: "帖子图片正方形", width: 1200, height: 1200, tone: "oklch(0.60 0.18 250)" },
+  { id: "facebook-landscape", platform: "Facebook", title: "帖子图片横版", width: 1200, height: 630, tone: "oklch(0.58 0.17 255)" },
+  { id: "facebook-story", platform: "Facebook", title: "Story", width: 1080, height: 1920, tone: "oklch(0.56 0.18 248)" },
+  { id: "x-feed-landscape", platform: "X", title: "信息流图片横版", width: 1600, height: 900, tone: "oklch(0.46 0.03 255)" },
+  { id: "x-link-card", platform: "X", title: "分享链接卡片", width: 1200, height: 628, tone: "oklch(0.52 0.04 250)" },
+  { id: "x-header", platform: "X", title: "头图横幅", width: 1500, height: 500, tone: "oklch(0.58 0.04 245)" },
+  { id: "instagram-square", platform: "Instagram", title: "正方形帖子", width: 1080, height: 1080, tone: "oklch(0.66 0.22 330)" },
+  { id: "instagram-portrait", platform: "Instagram", title: "竖版帖子推荐", width: 1080, height: 1350, tone: "oklch(0.64 0.23 320)" },
+  { id: "instagram-landscape", platform: "Instagram", title: "横版帖子", width: 1080, height: 566, tone: "oklch(0.68 0.20 340)" },
+  { id: "instagram-story-reels", platform: "Instagram", title: "Story / Reels", width: 1080, height: 1920, tone: "oklch(0.61 0.24 300)" },
+  { id: "tiktok-vertical", platform: "TikTok", title: "视频竖版", width: 1080, height: 1920, tone: "oklch(0.70 0.20 185)" },
+  { id: "tiktok-square", platform: "TikTok", title: "正方形图片", width: 1080, height: 1080, tone: "oklch(0.66 0.18 190)" },
+  { id: "tiktok-landscape", platform: "TikTok", title: "横版视频", width: 1920, height: 1080, tone: "oklch(0.62 0.17 200)" },
+  { id: "linkedin-landscape", platform: "LinkedIn", title: "分享帖子横版", width: 1200, height: 627, tone: "oklch(0.55 0.16 245)" },
+  { id: "linkedin-square", platform: "LinkedIn", title: "分享帖子正方形", width: 1080, height: 1080, tone: "oklch(0.58 0.15 240)" },
+  { id: "linkedin-portrait", platform: "LinkedIn", title: "分享帖子竖版", width: 1080, height: 1350, tone: "oklch(0.60 0.14 235)" },
+  { id: "youtube-thumbnail", platform: "YouTube", title: "视频缩略图", width: 1280, height: 720, tone: "oklch(0.58 0.22 29)" },
+  { id: "youtube-banner", platform: "YouTube", title: "频道横幅", width: 2560, height: 1440, tone: "oklch(0.62 0.20 35)" },
+  { id: "pinterest-standard", platform: "Pinterest", title: "标准 Pin 图", width: 1000, height: 1500, tone: "oklch(0.62 0.23 22)" },
+  { id: "pinterest-square", platform: "Pinterest", title: "正方形 Pin 图", width: 1000, height: 1000, tone: "oklch(0.66 0.20 24)" },
+  { id: "pinterest-video-pin", platform: "Pinterest", title: "纵向 Pin 图", width: 1080, height: 1920, tone: "oklch(0.59 0.21 20)" },
+  { id: "amazon-main-min", platform: "亚马逊", title: "主图最低要求", width: 1000, height: 1000, tone: "oklch(0.73 0.16 78)" },
+  { id: "amazon-main-recommended", platform: "亚马逊", title: "主图推荐品质", width: 2000, height: 2000, tone: "oklch(0.76 0.14 82)" },
+  { id: "amazon-main-premium", platform: "亚马逊", title: "主图高品质", width: 2560, height: 2560, tone: "oklch(0.79 0.12 86)" },
+  { id: "shopee-main-800", platform: "虾皮", title: "商品主图", width: 800, height: 800, tone: "oklch(0.68 0.21 43)" },
+  { id: "shopee-main-1024", platform: "虾皮", title: "商品主图高清", width: 1024, height: 1024, tone: "oklch(0.72 0.19 46)" },
+  { id: "taobao-main", platform: "淘宝 / 天猫", title: "主图", width: 800, height: 800, tone: "oklch(0.70 0.18 55)" },
+  { id: "taobao-detail", platform: "淘宝 / 天猫", title: "详情页图片", width: 790, height: 1546, tone: "oklch(0.66 0.17 62)" },
+  { id: "jd-main", platform: "京东", title: "主图", width: 800, height: 800, tone: "oklch(0.62 0.22 35)" },
+  { id: "jd-detail", platform: "京东", title: "详情页图片", width: 750, height: 1546, tone: "oklch(0.65 0.20 38)" },
+  { id: "pinduoduo-main-wide", platform: "拼多多", title: "主图横版", width: 750, height: 352, tone: "oklch(0.68 0.22 31)" },
+  { id: "pinduoduo-main-square", platform: "拼多多", title: "主图方版", width: 800, height: 800, tone: "oklch(0.72 0.20 28)" },
 ];
+
+function SocialPlatformIcon({ platform, size = 22 }: { platform: string; size?: number }) {
+  const common = {
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    xmlns: "http://www.w3.org/2000/svg",
+    "aria-hidden": true,
+  };
+  const fill = "rgba(255,255,255,0.96)";
+  const stroke = "rgba(255,255,255,0.96)";
+  const strokeProps = { stroke, strokeWidth: 1.9, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+
+  if (platform === "小红书") return (
+    <svg {...common}><rect x="4" y="4" width="16" height="16" rx="4" fill={fill} /><path d="M8 9h8M8 13h8M9 17h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" style={{ color: "rgba(0,0,0,0.22)" }} /></svg>
+  );
+  if (platform === "抖音" || platform === "TikTok") return (
+    <svg {...common}><path d="M14 4v9.2a4.2 4.2 0 1 1-3.2-4.1V12a1.8 1.8 0 1 0 1.2 1.7V4h2z" fill={fill} /><path d="M14 5.5c1.2 2 2.6 3 4.5 3.2v2.4c-2-.1-3.5-.8-4.5-1.8V5.5z" fill={fill} /></svg>
+  );
+  if (platform === "视频号" || platform === "公众号") return (
+    <svg {...common}><path d="M5 8.5c0-2 1.9-3.7 4.3-3.7 1.6 0 3 .7 3.8 1.8.5-.2 1.1-.3 1.7-.3 2.3 0 4.2 1.6 4.2 3.7s-1.9 3.7-4.2 3.7h-.4l-2.1 2.2.4-2.6a4.6 4.6 0 0 1-1.3-.9c-.6.2-1.3.3-2 .3h-.6l-2.5 2.4.6-2.9A4.1 4.1 0 0 1 5 8.5z" fill={fill} /><circle cx="8.7" cy="8.8" r=".8" fill="rgba(0,0,0,0.22)" /><circle cx="12.4" cy="8.8" r=".8" fill="rgba(0,0,0,0.22)" /></svg>
+  );
+  if (platform === "快手") return (
+    <svg {...common}><rect x="5" y="7" width="12" height="10" rx="3" fill={fill} /><circle cx="8.2" cy="5.8" r="2" fill={fill} /><circle cx="13" cy="5.8" r="2" fill={fill} /><path d="m17 11 3-2v6l-3-2v-2z" fill={fill} /><circle cx="9.3" cy="12" r="1.2" fill="rgba(0,0,0,0.22)" /><circle cx="13.2" cy="12" r="1.2" fill="rgba(0,0,0,0.22)" /></svg>
+  );
+  if (platform === "B站") return (
+    <svg {...common}><rect x="4" y="7" width="16" height="12" rx="3" fill={fill} /><path d="m8 4 2.5 3M16 4l-2.5 3" {...strokeProps} /><circle cx="9.5" cy="13" r="1" fill="rgba(0,0,0,0.22)" /><circle cx="14.5" cy="13" r="1" fill="rgba(0,0,0,0.22)" /></svg>
+  );
+  if (platform === "微博") return (
+    <svg {...common}><ellipse cx="11" cy="13" rx="7" ry="5" fill={fill} /><circle cx="9" cy="12.5" r="1.1" fill="rgba(0,0,0,0.22)" /><circle cx="13" cy="12.5" r="1.1" fill="rgba(0,0,0,0.22)" /><path d="M15.8 6.2c1.7.3 2.9 1.4 3.3 3M16.3 3.4c3 .6 5 2.7 5.5 5.7" {...strokeProps} /></svg>
+  );
+  if (platform === "Facebook") return (
+    <svg {...common}><path d="M14 8.2h2.2V5h-2.6c-2.8 0-4.4 1.7-4.4 4.3V12H7v3.2h2.2V21H13v-5.8h2.8l.5-3.2H13V9.7c0-.9.4-1.5 1-1.5z" fill={fill} /></svg>
+  );
+  if (platform === "X") return (
+    <svg {...common}><path d="M4 4h4.7l4.2 5.6L17.7 4H21l-6.5 7.6L21 20h-4.7l-4.6-6.1L6.5 20H3.2l7-8.1L4 4zm3 2.2 10.5 11.6H18L7.6 6.2H7z" fill={fill} /></svg>
+  );
+  if (platform === "Instagram") return (
+    <svg {...common}><rect x="5" y="5" width="14" height="14" rx="4" fill={fill} /><circle cx="12" cy="12" r="3.1" fill="none" stroke="rgba(0,0,0,0.22)" strokeWidth="1.8" /><circle cx="16.2" cy="7.8" r="1" fill="rgba(0,0,0,0.22)" /></svg>
+  );
+  if (platform === "LinkedIn") return (
+    <svg {...common}><rect x="4" y="4" width="16" height="16" rx="3" fill={fill} /><rect x="7" y="10" width="2.4" height="7" fill="rgba(0,0,0,0.22)" /><circle cx="8.2" cy="7.6" r="1.3" fill="rgba(0,0,0,0.22)" /><path d="M11.2 10h2.2v1c.5-.7 1.2-1.2 2.2-1.2 1.7 0 2.7 1.2 2.7 3.3V17h-2.4v-3.5c0-1-.5-1.6-1.2-1.6s-1.2.5-1.2 1.6V17h-2.3v-7z" fill="rgba(0,0,0,0.22)" /></svg>
+  );
+  if (platform === "YouTube") return (
+    <svg {...common}><rect x="3.5" y="7" width="17" height="10" rx="3" fill={fill} /><path d="m10.5 10 4 2-4 2v-4z" fill="rgba(0,0,0,0.24)" /></svg>
+  );
+  if (platform === "Pinterest") return (
+    <svg {...common}><circle cx="12" cy="12" r="8.5" fill={fill} /><path d="M11.1 15.2c-.4 1.7-.8 3.1-1.8 4.4-.2-1.6-.3-3.1.2-4.8l1.1-4.5s-.3-.6-.3-1.4c0-1.3.8-2.3 1.8-2.3.8 0 1.2.6 1.2 1.4 0 .9-.6 2.2-.9 3.4-.2 1 .5 1.8 1.5 1.8 1.8 0 3-2.2 3-4.8 0-2-1.3-3.5-3.8-3.5-2.8 0-4.5 2.1-4.5 4.4 0 .8.2 1.4.6 1.9.2.2.2.3.1.6l-.2.8c-.1.3-.3.4-.6.3-1.3-.5-1.9-1.9-1.9-3.5 0-2.6 2.2-5.8 6.7-5.8 3.6 0 6 2.6 6 5.4 0 3.7-2.1 6.5-5.2 6.5-1 0-2-.5-2.4-1.1l-.6 2.8z" fill="rgba(0,0,0,0.22)" transform="scale(.78) translate(3.4 1.7)" /></svg>
+  );
+  if (platform === "亚马逊") return (
+    <svg {...common}><path d="M5 7.5h14l-1.2 11H6.2L5 7.5z" fill={fill} /><path d="M9 7.5a3 3 0 0 1 6 0" {...strokeProps} /><path d="M8 14c2.4 1.7 5.4 1.7 8 0" stroke="rgba(0,0,0,0.24)" strokeWidth="1.6" strokeLinecap="round" /></svg>
+  );
+  if (platform === "虾皮") return (
+    <svg {...common}><path d="M6 8h12l-1 11H7L6 8z" fill={fill} /><path d="M9 8a3 3 0 0 1 6 0" {...strokeProps} /><path d="M10 15.4c.7.5 1.5.8 2.4.8 1.1 0 1.8-.5 1.8-1.2 0-.8-.7-1.1-1.9-1.5-1.2-.4-2.1-.9-2.1-2s.9-2 2.3-2c.8 0 1.5.2 2.1.6" stroke="rgba(0,0,0,0.24)" strokeWidth="1.35" strokeLinecap="round" /></svg>
+  );
+  if (platform === "淘宝 / 天猫" || platform === "京东" || platform === "拼多多") return (
+    <svg {...common}><rect x="4" y="6" width="16" height="13" rx="3" fill={fill} /><path d="M8 6a4 4 0 0 1 8 0" {...strokeProps} /><path d="M8 13h8M10 10h4M10 16h4" stroke="rgba(0,0,0,0.22)" strokeWidth="1.5" strokeLinecap="round" /></svg>
+  );
+  return (
+    <svg {...common}><rect x="5" y="5" width="14" height="14" rx="4" fill={fill} /><path d="M8 13.5 10.5 11l2.1 2.1 2.9-3.2L18 13.5V17H6v-3.5h2z" fill="rgba(0,0,0,0.22)" /></svg>
+  );
+}
 
 const DEFAULT_ASSET_ADJUSTMENTS: AssetAdjustmentValues = {
   color: 0,
@@ -1352,7 +1454,10 @@ function SocialMediaSizePanel({
   const [customWidth, setCustomWidth] = useState(1080);
   const [customHeight, setCustomHeight] = useState(1080);
   const [crop, setCrop] = useState({ x: 0, y: 0, width: 1, height: 1 });
+  const [cropEditMode, setCropEditMode] = useState(false);
+  const [naturalSize, setNaturalSize] = useState({ width: 1080, height: 1080 });
   const dragRef = useRef<null | {
+    mode: "pan" | "move" | "left" | "right" | "top" | "bottom";
     startX: number;
     startY: number;
     startCrop: SocialMediaExportPayload["crop"];
@@ -1367,13 +1472,45 @@ function SocialMediaSizePanel({
   const validCustom = customEnabled && customWidth >= 64 && customHeight >= 64;
   const canGenerate = selectedPresets.length > 0 || validCustom;
 
+  useEffect(() => {
+    if (!imageSrc) return;
+    let cancelled = false;
+    loadImageForCanvas(imageSrc)
+      .then(image => {
+        if (!cancelled) setNaturalSize({
+          width: Math.max(1, image.naturalWidth || image.width),
+          height: Math.max(1, image.naturalHeight || image.height),
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [imageSrc]);
+
+  useEffect(() => {
+    if (!cropEditMode) return;
+    setCustomEnabled(true);
+    setCustomWidth(Math.max(64, Math.round(naturalSize.width * crop.width)));
+    setCustomHeight(Math.max(64, Math.round(naturalSize.height * crop.height)));
+  }, [crop, cropEditMode, naturalSize.height, naturalSize.width]);
+
   const togglePreset = (id: string) => {
     setSelectedPresetIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]);
   };
 
   const handleCropPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
-    dragRef.current = { startX: event.clientX, startY: event.clientY, startCrop: crop, bounds };
+    dragRef.current = { mode: cropEditMode ? "move" : "pan", startX: event.clientX, startY: event.clientY, startCrop: crop, bounds };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handleCropHandlePointerDown = (event: React.PointerEvent<HTMLDivElement>, mode: "left" | "right" | "top" | "bottom") => {
+    event.preventDefault();
+    event.stopPropagation();
+    const bounds = event.currentTarget.parentElement?.parentElement?.getBoundingClientRect();
+    if (!bounds) return;
+    dragRef.current = { mode, startX: event.clientX, startY: event.clientY, startCrop: crop, bounds };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
@@ -1382,10 +1519,34 @@ function SocialMediaSizePanel({
     if (!drag) return;
     const dx = (event.clientX - drag.startX) / Math.max(1, drag.bounds.width);
     const dy = (event.clientY - drag.startY) / Math.max(1, drag.bounds.height);
-    setCrop({
-      ...drag.startCrop,
-      x: Math.max(0, Math.min(1 - drag.startCrop.width, drag.startCrop.x + dx)),
-      y: Math.max(0, Math.min(1 - drag.startCrop.height, drag.startCrop.y + dy)),
+    const minSize = 0.08;
+    if (drag.mode === "pan" || drag.mode === "move") {
+      setCrop({
+        ...drag.startCrop,
+        x: Math.max(0, Math.min(1 - drag.startCrop.width, drag.startCrop.x + dx)),
+        y: Math.max(0, Math.min(1 - drag.startCrop.height, drag.startCrop.y + dy)),
+      });
+      return;
+    }
+    setCrop(() => {
+      const next = { ...drag.startCrop };
+      if (drag.mode === "left") {
+        const nextX = Math.max(0, Math.min(drag.startCrop.x + drag.startCrop.width - minSize, drag.startCrop.x + dx));
+        next.width = drag.startCrop.width + drag.startCrop.x - nextX;
+        next.x = nextX;
+      }
+      if (drag.mode === "right") {
+        next.width = Math.max(minSize, Math.min(1 - drag.startCrop.x, drag.startCrop.width + dx));
+      }
+      if (drag.mode === "top") {
+        const nextY = Math.max(0, Math.min(drag.startCrop.y + drag.startCrop.height - minSize, drag.startCrop.y + dy));
+        next.height = drag.startCrop.height + drag.startCrop.y - nextY;
+        next.y = nextY;
+      }
+      if (drag.mode === "bottom") {
+        next.height = Math.max(minSize, Math.min(1 - drag.startCrop.y, drag.startCrop.height + dy));
+      }
+      return next;
     });
   };
 
@@ -1396,11 +1557,24 @@ function SocialMediaSizePanel({
   return (
     <div
       className="absolute nodrag nopan rounded-[var(--radius-lg-design)] shadow-2xl"
-      style={{ right: 24, top: 82, width: 420, background: bg, border: `1px solid ${border}`, backdropFilter: "blur(20px)", zIndex: 2300, overflow: "hidden" }}
+      style={{
+        right: 24,
+        top: 64,
+        width: 420,
+        height: "min(820px, calc(100vh - 92px))",
+        minHeight: "min(600px, calc(100vh - 92px))",
+        display: "flex",
+        flexDirection: "column",
+        background: bg,
+        border: `1px solid ${border}`,
+        backdropFilter: "blur(20px)",
+        zIndex: 2300,
+        overflow: "hidden",
+      }}
       onMouseDown={e => e.stopPropagation()}
       onClick={e => e.stopPropagation()}
     >
-      <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: `1px solid ${border}` }}>
+      <div className="flex shrink-0 items-center justify-between px-4 py-3" style={{ borderBottom: `1px solid ${border}` }}>
         <div>
           <p style={{ color: text, fontSize: 14, fontWeight: 650 }}>社媒平台尺寸</p>
           <p style={{ color: sub, fontSize: 11, marginTop: 2 }}>选择一个或多个平台尺寸，生成对应规格的新图片节点。</p>
@@ -1410,7 +1584,7 @@ function SocialMediaSizePanel({
         </button>
       </div>
 
-      <div className="max-h-[70vh] overflow-y-auto p-3" style={{ scrollbarWidth: "thin" }}>
+      <div className="min-h-0 flex-1 overflow-y-auto p-3" style={{ scrollbarWidth: "thin" }}>
         <div
           className="relative mb-3 overflow-hidden rounded-[var(--radius-md-design)]"
           style={{ aspectRatio: "16/10", background: field, border: `1px solid ${border}` }}
@@ -1423,8 +1597,27 @@ function SocialMediaSizePanel({
             <img src={imageSrc} alt="尺寸裁切预览" draggable={false} className="absolute object-cover" style={getSocialPreviewCropStyle(crop)} />
           ) : null}
           <div className="absolute inset-0 pointer-events-none" style={{ boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.26)" }} />
+          {cropEditMode && (
+            <div
+              className="absolute cursor-move"
+              style={{
+                left: `${crop.x * 100}%`,
+                top: `${crop.y * 100}%`,
+                width: `${crop.width * 100}%`,
+                height: `${crop.height * 100}%`,
+                border: "2px solid rgba(255,255,255,0.95)",
+                boxShadow: "0 0 0 999px rgba(0,0,0,0.36), 0 0 0 1px rgba(108,92,231,0.85)",
+              }}
+            >
+              <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: "linear-gradient(to right, rgba(255,255,255,0.36) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.36) 1px, transparent 1px)", backgroundSize: "33.333% 33.333%" }} />
+              <div className="absolute -left-1.5 top-0 h-full w-3 cursor-ew-resize" onPointerDown={event => handleCropHandlePointerDown(event, "left")} />
+              <div className="absolute -right-1.5 top-0 h-full w-3 cursor-ew-resize" onPointerDown={event => handleCropHandlePointerDown(event, "right")} />
+              <div className="absolute -top-1.5 left-0 h-3 w-full cursor-ns-resize" onPointerDown={event => handleCropHandlePointerDown(event, "top")} />
+              <div className="absolute -bottom-1.5 left-0 h-3 w-full cursor-ns-resize" onPointerDown={event => handleCropHandlePointerDown(event, "bottom")} />
+            </div>
+          )}
           <div className="absolute bottom-2 left-2 rounded-[var(--radius-md-design)] px-2 py-1" style={{ background: "rgba(0,0,0,0.42)", color: "white", fontSize: 11 }}>
-            拖拽图片选择需要显示的内容
+            {cropEditMode ? "拖拽裁切框或边缘调整裁切尺寸" : "拖拽图片选择需要显示的内容"}
           </div>
         </div>
 
@@ -1442,13 +1635,16 @@ function SocialMediaSizePanel({
                 }}
                 onClick={() => togglePreset(preset.id)}
               >
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[var(--radius-md-design)]" style={{ background: preset.tone }}>
+                <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-[var(--radius-md-design)]" style={{ background: preset.tone }}>
+                  <SocialPlatformIcon platform={preset.platform} />
                   <div
+                    className="absolute bottom-1 right-1"
                     style={{
-                      width: preset.width >= preset.height ? 34 : Math.max(16, Math.round(34 * preset.width / preset.height)),
-                      height: preset.height >= preset.width ? 34 : Math.max(16, Math.round(34 * preset.height / preset.width)),
-                      borderRadius: 4,
-                      border: "2px solid rgba(255,255,255,0.86)",
+                      width: preset.width >= preset.height ? 14 : Math.max(7, Math.round(14 * preset.width / preset.height)),
+                      height: preset.height >= preset.width ? 14 : Math.max(7, Math.round(14 * preset.height / preset.width)),
+                      borderRadius: 2,
+                      border: "1.5px solid rgba(255,255,255,0.9)",
+                      background: "rgba(255,255,255,0.16)",
                     }}
                   />
                 </div>
@@ -1464,10 +1660,29 @@ function SocialMediaSizePanel({
         </div>
 
         <div className="mt-3 rounded-[var(--radius-md-design)] p-3" style={{ background: field, border: `1px solid ${border}` }}>
-          <label className="mb-2 flex items-center gap-2" style={{ color: text, fontSize: 12, fontWeight: 650 }}>
-            <input type="checkbox" checked={customEnabled} onChange={event => setCustomEnabled(event.target.checked)} />
-            自定义尺寸
-          </label>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <label className="flex items-center gap-2" style={{ color: text, fontSize: 12, fontWeight: 650 }}>
+              <input type="checkbox" checked={customEnabled} onChange={event => setCustomEnabled(event.target.checked)} />
+              自定义尺寸
+            </label>
+            <button
+              type="button"
+              className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-md-design)] transition-all active:scale-95"
+              title="裁切尺寸"
+              aria-label="裁切尺寸"
+              style={{
+                background: cropEditMode ? "oklch(0.58 0.22 290 / 0.18)" : isDark ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.72)",
+                color: cropEditMode ? "oklch(0.72 0.20 290)" : text,
+                border: `1px solid ${cropEditMode ? "oklch(0.62 0.22 290 / 0.56)" : border}`,
+              }}
+              onClick={() => {
+                setCropEditMode(prev => !prev);
+                setCustomEnabled(true);
+              }}
+            >
+              <Crop size={15} />
+            </button>
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <label style={{ color: sub, fontSize: 11 }}>
               宽度
@@ -1499,7 +1714,7 @@ function SocialMediaSizePanel({
         </div>
       </div>
 
-      <div className="flex gap-2 px-3 py-3" style={{ borderTop: `1px solid ${border}` }}>
+      <div className="flex shrink-0 gap-2 px-3 py-3" style={{ borderTop: `1px solid ${border}`, background: bg }}>
         <button className="h-9 flex-1 rounded-[var(--radius-md-design)] active:scale-95" style={{ background: field, color: text, fontSize: 13, border: `1px solid ${border}` }} onClick={onClose}>
           取消
         </button>
@@ -1537,6 +1752,7 @@ function AssetMoreCommandPanel({ isDark, command, initialAdjustments, imageSrc, 
 }) {
   const [adjustments, setAdjustments] = useState<AssetAdjustmentValues>(initialAdjustments || DEFAULT_ASSET_ADJUSTMENTS);
   const [renderedPreview, setRenderedPreview] = useState("");
+  const onPreviewChangeRef = useRef(onPreviewChange);
   const previewFilter = createAssetAdjustmentFilter(adjustments);
   const bg = isDark ? "rgba(24,24,34,0.98)" : "rgba(255,255,255,0.98)";
   const border = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)";
@@ -1561,9 +1777,13 @@ function AssetMoreCommandPanel({ isDark, command, initialAdjustments, imageSrc, 
   ];
 
   useEffect(() => {
+    onPreviewChangeRef.current = onPreviewChange;
+  }, [onPreviewChange]);
+
+  useEffect(() => {
     if (command !== "adjust") return;
-    onPreviewChange?.(adjustments);
-  }, [adjustments, command, onPreviewChange]);
+    onPreviewChangeRef.current?.(adjustments);
+  }, [adjustments, command]);
 
   useEffect(() => {
     if (command !== "adjust" || !imageSrc) {
@@ -1846,14 +2066,29 @@ interface Annotation {
   color?: string;
 }
 
+type GlobalAnnotation = Annotation & { nodeId: string };
+
+type AnnotationReference = {
+  id: string;
+  nodeId: string;
+  title: string;
+  src: string;
+  x: number;
+  y: number;
+  text: string;
+};
+
 // ── AnnotationBubble 组件 ──
 function AnnotationBubble({
-  ann, isDark, onUpdate, onRemove
+  ann, isDark, onUpdate, onRemove, onAiEdit, onAddReference, isReferenceActive
 }: {
   ann: Annotation;
   isDark: boolean;
   onUpdate: (id: string, patch: Partial<Annotation>) => void;
   onRemove: (id: string) => void;
+  onAiEdit: (id: string, text: string) => void;
+  onAddReference: (id: string, text: string) => void;
+  isReferenceActive?: boolean;
 }) {
   const [draft, setDraft] = useState(ann.text);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -2131,6 +2366,71 @@ function AnnotationBubble({
             {ann.text || <span style={{ color: subColor, fontStyle: "italic" }}>点击编辑注释...</span>}
           </div>
         )}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "8px 10px 10px",
+            borderTop: `1px solid ${ann.done ? doneBorder : bubbleBorder}`,
+          }}
+        >
+          <button
+            type="button"
+            className="type-caption"
+            style={{
+              flex: 1,
+              minWidth: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 5,
+              borderRadius: 6,
+              border: `1px solid ${bubbleBorder}`,
+              background: isReferenceActive ? `${accentColor}22` : "transparent",
+              color: isReferenceActive ? accentColor : textColor,
+              padding: "5px 8px",
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+            }}
+            onClick={() => {
+              const nextText = (ann.editing ? draft : ann.text).trim();
+              onUpdate(ann.id, { text: nextText, editing: false });
+              onAddReference(ann.id, nextText);
+            }}
+          >
+            <PlusCircle size={12} />
+            {isReferenceActive ? "已引用" : "加入引用"}
+          </button>
+          <button
+            type="button"
+            className="type-caption"
+            style={{
+              flex: 1,
+              minWidth: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 5,
+              borderRadius: 6,
+              border: "none",
+              background: `linear-gradient(135deg, ${accentColor}, oklch(0.70 0.18 205))`,
+              color: "white",
+              padding: "5px 8px",
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+              boxShadow: "0 8px 18px rgba(0,0,0,0.16)",
+            }}
+            onClick={() => {
+              const nextText = (ann.editing ? draft : ann.text).trim();
+              onUpdate(ann.id, { text: nextText, editing: false });
+              onAiEdit(ann.id, nextText);
+            }}
+          >
+            <WandSparkles size={12} />
+            AI 修改
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -4762,9 +5062,17 @@ function BottomPromptBar({
               className="relative flex items-center gap-1.5 pr-1 pl-1 py-0.5 rounded-[var(--radius-pill)] type-caption"
               style={{ background: chipBg, border: `1px solid ${chipBorder}`, color: chipText }}
             >
-              {/* Default material icon */}
-              <span className="flex items-center justify-center" style={{ width: 18, height: 18, borderRadius: 3, background: isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)", flexShrink: 0 }}>
-                <ImageIcon size={10} style={{ opacity: 0.75 }} />
+              <span className="flex items-center justify-center overflow-hidden" style={{ width: 18, height: 18, borderRadius: 3, background: isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)", flexShrink: 0 }}>
+                {asset.src ? (
+                  <img
+                    src={asset.src}
+                    alt=""
+                    draggable={false}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <ImageIcon size={10} style={{ opacity: 0.75 }} />
+                )}
               </span>
               <span>{asset.title}</span>
               {/* Per-chip remove button */}
@@ -6355,7 +6663,35 @@ function deserializeCanvasAssistantMessages(raw: string | null): CanvasAssistant
   }
 }
 
-function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, onToggleCollapsed, onLoginRequest, referencedAssets, onRemoveReference, onMergeReferences, selectedCount, helpPromptNonce }: { projectId: string; isDark: boolean; collapsed: boolean; isAuthenticated: boolean; onToggleCollapsed: () => void; onLoginRequest: () => void; referencedAssets: { id: string; title: string; src: string }[]; onRemoveReference: (id: string) => void; onMergeReferences: (assets: { id: string; title: string; src: string }[]) => void; selectedCount: number; helpPromptNonce: number }) {
+function CanvasAssistantPanel({
+  projectId,
+  isDark,
+  collapsed,
+  isAuthenticated,
+  onToggleCollapsed,
+  onLoginRequest,
+  referencedAssets,
+  annotationReferences,
+  onRemoveReference,
+  onRemoveAnnotationReference,
+  onMergeReferences,
+  selectedCount,
+  helpPromptNonce,
+}: {
+  projectId: string;
+  isDark: boolean;
+  collapsed: boolean;
+  isAuthenticated: boolean;
+  onToggleCollapsed: () => void;
+  onLoginRequest: () => void;
+  referencedAssets: { id: string; title: string; src: string }[];
+  annotationReferences: AnnotationReference[];
+  onRemoveReference: (id: string) => void;
+  onRemoveAnnotationReference: (id: string) => void;
+  onMergeReferences: (assets: { id: string; title: string; src: string }[]) => void;
+  selectedCount: number;
+  helpPromptNonce: number;
+}) {
   const [, navigate] = useLocation();
   const [inputFocused, setInputFocused] = useState(false);
   const [prompt, setPrompt] = useState("");
@@ -6416,9 +6752,19 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
     navigate("/workspace");
   };
   const hasPrompt = prompt.trim().length > 0;
-  const hasContext = selectedCount > 0 || referencedAssets.length > 0;
+  const hasAnnotationReferences = annotationReferences.length > 0;
+  const totalReferenceCount = referencedAssets.length + annotationReferences.length;
+  const hasContext = selectedCount > 0 || totalReferenceCount > 0;
   const canSubmit = (hasPrompt || hasContext) && !isSubmitting;
-  const contextLabel = selectedCount > 1 ? `已选中 ${selectedCount} 个对象` : selectedCount === 1 ? "已选中 1 个对象" : referencedAssets.length > 0 ? `引用素材 ${referencedAssets.length} 个` : "";
+  const contextLabel = selectedCount > 1
+    ? `已选中 ${selectedCount} 个对象`
+    : selectedCount === 1
+      ? "已选中 1 个对象"
+      : hasAnnotationReferences
+        ? `注释引用 ${annotationReferences.length} 个`
+        : referencedAssets.length > 0
+          ? `引用素材 ${referencedAssets.length} 个`
+          : "";
   const assistantModel = canvasAssistantModels.find(model => model.id === assistantModelId) || canvasAssistantModels[0];
 
   const handleReferenceSelectionToggle = useCallback((referenceId: string) => {
@@ -6699,18 +7045,33 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
     setPrompt("");
     setIsSubmitting(true);
     const context = contextLabel || "当前画布";
+    const annotationContext = annotationReferences.map((ann, index) => (
+      `注释 ${index + 1}：来自「${ann.title}」，位置 x=${ann.x.toFixed(1)}%、y=${ann.y.toFixed(1)}%，修改建议：${ann.text || "未填写"}`
+    )).join("\n");
+    const routedPrompt = annotationContext
+      ? [
+          `上下文：${context}`,
+          "用户选择了多个画面注释点，请根据这些注释点的图片、位置和文案组合生成一张全新的图片。",
+          annotationContext,
+          `用户请求：${submittedText}`,
+        ].join("\n")
+      : `上下文：${context}\n用户请求：${submittedText}`;
+    const assistantImages = [
+      ...referencedAssets.map(asset => ({ src: asset.src, title: asset.title })),
+      ...annotationReferences.map((ann, index) => ({ src: ann.src, title: `注释 ${index + 1} · ${ann.title}` })),
+    ];
     try {
       const decision = await routeCreativeIntent({
         module: "right-ai-assistant",
         model: "gpt-4o",
-        prompt: `上下文：${context}\n用户请求：${submittedText}`,
-        referencedAssets: referencedAssets.map(asset => ({ src: asset.src, title: asset.title })),
+        prompt: routedPrompt,
+        referencedAssets: assistantImages,
         recentMessages: messages.slice(-8).map(message => ({ role: message.role, content: message.content })),
         preferImageWhenReferences: true,
-        allowReferenceSearch: true,
+        allowReferenceSearch: !hasAnnotationReferences,
       });
 
-      if (decision.mode === "reference_search") {
+      if (decision.mode === "reference_search" && !hasAnnotationReferences) {
         const searchQuery = decision.searchQuery?.trim() || submittedText;
         const result = await searchReferenceImages({ query: searchQuery, limit: 10 });
         setMessages(prev => [...prev, {
@@ -6722,8 +7083,8 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
           referenceSearchQuery: searchQuery,
           followUpPrompt: `我已经记住你选中的「${searchQuery}」参考图了。接下来告诉我你最想保留的风格、构图、色彩或主体特征，我会继续判断是追问还是直接出图。`,
         }]);
-      } else if (decision.mode === "image") {
-        const imagePrompt = decision.imagePrompt?.trim() || submittedText;
+      } else if (decision.mode === "image" || hasAnnotationReferences) {
+        const imagePrompt = decision.imagePrompt?.trim() || routedPrompt;
         const generationId = `right-assistant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         const payload: ImageGeneratorPayload = {
           prompt: imagePrompt,
@@ -6731,7 +7092,7 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
           ratio: "1:1",
           count: 1,
           style: "右侧 AI 助手",
-          referencesEnabled: referencedAssets.length > 0,
+          referencesEnabled: assistantImages.length > 0,
           generationId,
         };
         window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "pending" } }));
@@ -7038,12 +7399,67 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
                   </div>
                 );
               })()}
+              {annotationReferences.length > 0 && (() => {
+                const MAX_VISIBLE = 4;
+                const visible = annotationReferences.slice(0, MAX_VISIBLE);
+                const overflow = annotationReferences.length - MAX_VISIBLE;
+                const tagBg = isDark ? "oklch(0.62 0.20 145 / 0.16)" : "oklch(0.62 0.17 145 / 0.10)";
+                const tagBorder = isDark ? "oklch(0.72 0.16 145 / 0.32)" : "oklch(0.48 0.15 145 / 0.26)";
+                const tagText = isDark ? "oklch(0.82 0.012 270)" : "oklch(0.25 0.012 270)";
+                return (
+                  <div className="flex flex-wrap gap-1.5 mb-2" style={{ maxHeight: 58, overflow: "hidden" }}>
+                    {visible.map((ref, idx) => {
+                      const isLast = idx === MAX_VISIBLE - 1 && overflow > 0;
+                      return (
+                        <div
+                          key={ref.id}
+                          className="flex items-center gap-1 rounded-[var(--radius-md-design)] px-1.5 py-0.5"
+                          style={{ background: tagBg, border: `1px solid ${tagBorder}`, maxWidth: 164, flexShrink: 0 }}
+                          title={`注释 ${idx + 1}：${ref.text || ref.title}`}
+                        >
+                          <MapPin size={12} style={{ color: "oklch(0.62 0.18 145)", flexShrink: 0 }} />
+                          <span className="type-caption truncate" style={{ color: tagText, maxWidth: isLast ? 56 : 104, fontSize: 11 }}>
+                            {isLast ? "更多注释" : `注释${idx + 1} ${ref.text || ref.title}`}
+                          </span>
+                          {isLast ? (
+                            <span
+                              className="flex items-center justify-center rounded-full flex-shrink-0"
+                              style={{
+                                width: 18,
+                                height: 18,
+                                background: "oklch(0.52 0.18 145)",
+                                color: "white",
+                                fontSize: 10,
+                                fontWeight: 700,
+                                lineHeight: 1,
+                              }}
+                              title={`还有 ${overflow + 1} 个注释引用`}
+                            >
+                              {overflow + 1}
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => onRemoveAnnotationReference(ref.id)}
+                              className="flex items-center justify-center flex-shrink-0 rounded-full transition-opacity hover:opacity-70"
+                              style={{ color: isDark ? "oklch(0.62 0.008 270)" : "oklch(0.50 0.008 270)", background: "transparent", border: "none", padding: 0, lineHeight: 1 }}
+                              title="移除注释引用"
+                              aria-label="移除注释引用"
+                            >
+                              <X size={9} />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
               <textarea
                 ref={textareaRef}
                 value={prompt}
                 onChange={e => setPrompt(e.target.value)}
                 onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
-                placeholder={referencedAssets.length > 0 ? `基于 ${referencedAssets.length} 个引用素材，描述你的创作意图...` : "输入对当前画布的想法..."}
+                placeholder={annotationReferences.length > 0 ? `基于 ${annotationReferences.length} 个注释点，描述组合生成意图...` : referencedAssets.length > 0 ? `基于 ${referencedAssets.length} 个引用素材，描述你的创作意图...` : "输入对当前画布的想法..."}
                 rows={2}
                 className="w-full bg-transparent outline-none resize-none disabled:cursor-not-allowed"
                 style={{ color: text, opacity: 1, fontSize: 12, lineHeight: 1.5, minHeight: 86 }}
@@ -7298,6 +7714,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [pendingProject, setPendingProject] = useState<Project | null>(null);
   // ── Referenced assets: auto-populated from selected image nodes ──
   const [referencedAssets, setReferencedAssets] = useState<{ id: string; title: string; src: string }[]>([]);
+  const [annotationReferences, setAnnotationReferences] = useState<AnnotationReference[]>([]);
   const mergeReferencedAssets = useCallback((assets: { id: string; title: string; src: string }[]) => {
     setReferencedAssets(assets);
   }, []);
@@ -7657,7 +8074,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
   // ── 全局注释状态（注释气泡在画布最顶层渲染） ──
   // GlobalAnnotation 在 Annotation 基础上增加 nodeId 和节点内百分比坐标
-  const [globalAnnotations, setGlobalAnnotations] = useState<(Annotation & { nodeId: string })[]>([]);
+  const [globalAnnotations, setGlobalAnnotations] = useState<GlobalAnnotation[]>([]);
   // 监听节点发出的创建注释事件
   useEffect(() => {
     const handler = (e: Event) => {
@@ -7676,7 +8093,82 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
   const removeGlobalAnnotation = useCallback((id: string) => {
     setGlobalAnnotations(prev => prev.filter(a => a.id !== id));
+    setAnnotationReferences(prev => prev.filter(reference => reference.id !== id));
   }, []);
+
+  const getAnnotationReferenceFromId = useCallback((id: string, textOverride?: string): AnnotationReference | null => {
+    const ann = globalAnnotations.find(item => item.id === id);
+    if (!ann) return null;
+    const node = nodesRef.current.find(item => item.id === ann.nodeId && item.type === "asset");
+    if (!node) return null;
+    const data = node.data as Record<string, unknown>;
+    const asset = GENERATED_ASSETS.find(item => item.id === data.assetId) || GENERATED_ASSETS[0];
+    const src = (data.localSrc as string | undefined) || asset?.src || "";
+    if (!src) return null;
+    return {
+      id: ann.id,
+      nodeId: ann.nodeId,
+      title: (data.title as string | undefined) || asset?.title || "选中图片",
+      src,
+      x: ann.x,
+      y: ann.y,
+      text: (typeof textOverride === "string" ? textOverride : ann.text).trim(),
+    };
+  }, [globalAnnotations]);
+
+  const handleAnnotationAddReference = useCallback((id: string, text: string) => {
+    const reference = getAnnotationReferenceFromId(id, text);
+    if (!reference) {
+      toast("注释引用失败", { description: "当前注释没有可用的图片来源" });
+      return;
+    }
+    setAnnotationReferences(prev => {
+      const next = prev.filter(item => item.id !== reference.id);
+      return [...next, reference];
+    });
+    setIsAssistantCollapsed(false);
+    toast("已加入注释引用", { description: reference.text || reference.title });
+  }, [getAnnotationReferenceFromId]);
+
+  const handleAnnotationAiEdit = useCallback(async (id: string, text: string) => {
+    const reference = getAnnotationReferenceFromId(id, text);
+    if (!reference) {
+      toast("AI 修改失败", { description: "当前注释没有可用的图片来源" });
+      return;
+    }
+    if (!reference.text.trim()) {
+      toast("请先输入注释修改建议");
+      return;
+    }
+    const sourceNode = nodesRef.current.find(item => item.id === reference.nodeId && item.type === "asset");
+    if (!sourceNode) {
+      toast("AI 修改失败", { description: "找不到对应图片节点" });
+      return;
+    }
+    const sourceSize = getCanvasNodeSize(sourceNode);
+    const prompt = [
+      "基于原图生成一张新的局部修改结果图。",
+      `只重点修改注释点附近区域：x=${reference.x.toFixed(1)}%、y=${reference.y.toFixed(1)}%。`,
+      "除该注释点相关区域外，尽量保持原图主体、构图、比例、风格、光影、颜色和其他未提及内容不变。",
+      "不要覆盖或改变原始图片节点，输出完整新图。",
+      `用户修改建议：${reference.text}`,
+    ].join("\n");
+    toast("注释 AI 修改中", { description: "将在原图旁生成新的修改结果" });
+    await runDerivedImageGeneration({
+      sourceNode,
+      prompt,
+      style: "注释修改结果",
+      nextW: sourceSize.width,
+      nextH: sourceSize.height,
+      run: async () => editImageWithPrompt({
+        imageSrc: reference.src,
+        model: "gpt-image-2",
+        prompt,
+        targetWidth: sourceSize.width,
+        targetHeight: sourceSize.height,
+      }),
+    });
+  }, [getAnnotationReferenceFromId, runDerivedImageGeneration]);
 
   const cloneNodesForHistory = useCallback((items: Node[]) => items.map(node => ({
     ...node,
@@ -9821,7 +10313,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const assetId = (node.data as Record<string, unknown>).assetId as string;
       const title = ((node.data as Record<string, unknown>).title as string) || nodeId;
       const asset = GENERATED_ASSETS.find(a => a.id === assetId) || GENERATED_ASSETS[0];
-      return { id: nodeId, title, src: asset?.src || "" };
+      const localSrc = (node.data as Record<string, unknown>).localSrc as string | undefined;
+      return { id: nodeId, title, src: localSrc || asset?.src || "" };
     }).filter(Boolean) as { id: string; title: string; src: string }[];
     setReferencedAssets(refs);
   }, [selectedNodeIds, nodes]);
@@ -11006,7 +11499,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         onLoginRequest={openLoginModal}
         onToggleCollapsed={() => setIsAssistantCollapsed(value => !value)}
         referencedAssets={referencedAssets}
+        annotationReferences={annotationReferences}
         onRemoveReference={(id) => setReferencedAssets(prev => prev.filter(r => r.id !== id))}
+        onRemoveAnnotationReference={(id) => setAnnotationReferences(prev => prev.filter(r => r.id !== id))}
         onMergeReferences={mergeReferencedAssets}
         selectedCount={selectedNodeIds.length}
         helpPromptNonce={helpPromptNonce}
@@ -11820,6 +12315,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           isDark={isDark}
           onUpdate={updateGlobalAnnotation}
           onRemove={removeGlobalAnnotation}
+          onAiEdit={handleAnnotationAiEdit}
+          onAddReference={handleAnnotationAddReference}
+          referencedAnnotationIds={new Set(annotationReferences.map(reference => reference.id))}
         />
       )}
 
@@ -11829,14 +12327,17 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
 // ── 全局注释层组件 ──
 function GlobalAnnotationLayer({
-  annotations, nodes, viewport, isDark, onUpdate, onRemove
+  annotations, nodes, viewport, isDark, onUpdate, onRemove, onAiEdit, onAddReference, referencedAnnotationIds
 }: {
-  annotations: (Annotation & { nodeId: string; screenX?: number; screenY?: number })[];
+  annotations: (GlobalAnnotation & { screenX?: number; screenY?: number })[];
   nodes: Node[];
   viewport: { x: number; y: number; zoom: number };
   isDark: boolean;
   onUpdate: (id: string, patch: Partial<Annotation>) => void;
   onRemove: (id: string) => void;
+  onAiEdit: (id: string, text: string) => void;
+  onAddReference: (id: string, text: string) => void;
+  referencedAnnotationIds: Set<string>;
 }) {
   // 将注释的节点内百分比坐标转换为屏幕坐标
   // 公式: screenX = viewport.x + node.position.x * viewport.zoom + (xPct/100) * nodeWidth * viewport.zoom
@@ -11870,6 +12371,9 @@ function GlobalAnnotationLayer({
               isDark={isDark}
               onUpdate={onUpdate}
               onRemove={onRemove}
+              onAiEdit={onAiEdit}
+              onAddReference={onAddReference}
+              isReferenceActive={referencedAnnotationIds.has(ann.id)}
             />
           </div>
         );
