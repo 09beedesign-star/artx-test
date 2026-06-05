@@ -1326,6 +1326,14 @@ function normalizeAssetAdjustments(value: unknown): AssetAdjustmentValues {
   };
 }
 
+function areAssetAdjustmentsEqual(a: AssetAdjustmentValues, b: AssetAdjustmentValues) {
+  return a.color === b.color
+    && a.brightness === b.brightness
+    && a.contrast === b.contrast
+    && a.saturation === b.saturation
+    && a.sharpness === b.sharpness;
+}
+
 function createAssetAdjustmentFilter(adjustments: AssetAdjustmentValues) {
   const brightness = Math.max(0.25, Math.min(2, 1 + adjustments.brightness / 130));
   const contrast = Math.max(0.25, Math.min(2.2, 1 + adjustments.contrast / 150));
@@ -1753,6 +1761,7 @@ function AssetMoreCommandPanel({ isDark, command, initialAdjustments, imageSrc, 
   const [adjustments, setAdjustments] = useState<AssetAdjustmentValues>(initialAdjustments || DEFAULT_ASSET_ADJUSTMENTS);
   const [renderedPreview, setRenderedPreview] = useState("");
   const onPreviewChangeRef = useRef(onPreviewChange);
+  const didPublishPreviewRef = useRef(false);
   const previewFilter = createAssetAdjustmentFilter(adjustments);
   const bg = isDark ? "rgba(24,24,34,0.98)" : "rgba(255,255,255,0.98)";
   const border = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)";
@@ -1782,6 +1791,10 @@ function AssetMoreCommandPanel({ isDark, command, initialAdjustments, imageSrc, 
 
   useEffect(() => {
     if (command !== "adjust") return;
+    if (!didPublishPreviewRef.current) {
+      didPublishPreviewRef.current = true;
+      return;
+    }
     onPreviewChangeRef.current?.(adjustments);
   }, [adjustments, command]);
 
@@ -11268,10 +11281,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             onApply={handleAssetMorePanelApply}
             onPreviewChange={(adjustments) => {
               if (assetMorePanel.command !== "adjust") return;
-              setNodes(nds => nds.map(n => n.id === assetMorePanel.nodeId && n.type === "asset"
-                ? { ...n, data: { ...(n.data as Record<string, unknown>), assetAdjustmentPreview: adjustments } }
-                : n
-              ));
+              setNodes(nds => nds.map(n => {
+                if (n.id !== assetMorePanel.nodeId || n.type !== "asset") return n;
+                const data = n.data as Record<string, unknown>;
+                const currentPreview = normalizeAssetAdjustments(data.assetAdjustmentPreview);
+                if (areAssetAdjustmentsEqual(currentPreview, adjustments)) return n;
+                return { ...n, data: { ...data, assetAdjustmentPreview: adjustments } };
+              }));
             }}
           />
         )
