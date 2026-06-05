@@ -2366,6 +2366,71 @@ function AnnotationBubble({
             {ann.text || <span style={{ color: subColor, fontStyle: "italic" }}>点击编辑注释...</span>}
           </div>
         )}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "8px 10px 10px",
+            borderTop: `1px solid ${ann.done ? doneBorder : bubbleBorder}`,
+          }}
+        >
+          <button
+            type="button"
+            className="type-caption"
+            style={{
+              flex: 1,
+              minWidth: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 5,
+              borderRadius: 6,
+              border: `1px solid ${bubbleBorder}`,
+              background: isReferenceActive ? `${accentColor}22` : "transparent",
+              color: isReferenceActive ? accentColor : textColor,
+              padding: "5px 8px",
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+            }}
+            onClick={() => {
+              const nextText = (ann.editing ? draft : ann.text).trim();
+              onUpdate(ann.id, { text: nextText, editing: false });
+              onAddReference(ann.id, nextText);
+            }}
+          >
+            <PlusCircle size={12} />
+            {isReferenceActive ? "已引用" : "加入引用"}
+          </button>
+          <button
+            type="button"
+            className="type-caption"
+            style={{
+              flex: 1,
+              minWidth: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 5,
+              borderRadius: 6,
+              border: "none",
+              background: `linear-gradient(135deg, ${accentColor}, oklch(0.70 0.18 205))`,
+              color: "white",
+              padding: "5px 8px",
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+              boxShadow: "0 8px 18px rgba(0,0,0,0.16)",
+            }}
+            onClick={() => {
+              const nextText = (ann.editing ? draft : ann.text).trim();
+              onUpdate(ann.id, { text: nextText, editing: false });
+              onAiEdit(ann.id, nextText);
+            }}
+          >
+            <WandSparkles size={12} />
+            AI 修改
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -4997,9 +5062,17 @@ function BottomPromptBar({
               className="relative flex items-center gap-1.5 pr-1 pl-1 py-0.5 rounded-[var(--radius-pill)] type-caption"
               style={{ background: chipBg, border: `1px solid ${chipBorder}`, color: chipText }}
             >
-              {/* Default material icon */}
-              <span className="flex items-center justify-center" style={{ width: 18, height: 18, borderRadius: 3, background: isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)", flexShrink: 0 }}>
-                <ImageIcon size={10} style={{ opacity: 0.75 }} />
+              <span className="flex items-center justify-center overflow-hidden" style={{ width: 18, height: 18, borderRadius: 3, background: isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)", flexShrink: 0 }}>
+                {asset.src ? (
+                  <img
+                    src={asset.src}
+                    alt=""
+                    draggable={false}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <ImageIcon size={10} style={{ opacity: 0.75 }} />
+                )}
               </span>
               <span>{asset.title}</span>
               {/* Per-chip remove button */}
@@ -6590,7 +6663,35 @@ function deserializeCanvasAssistantMessages(raw: string | null): CanvasAssistant
   }
 }
 
-function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, onToggleCollapsed, onLoginRequest, referencedAssets, onRemoveReference, onMergeReferences, selectedCount, helpPromptNonce }: { projectId: string; isDark: boolean; collapsed: boolean; isAuthenticated: boolean; onToggleCollapsed: () => void; onLoginRequest: () => void; referencedAssets: { id: string; title: string; src: string }[]; onRemoveReference: (id: string) => void; onMergeReferences: (assets: { id: string; title: string; src: string }[]) => void; selectedCount: number; helpPromptNonce: number }) {
+function CanvasAssistantPanel({
+  projectId,
+  isDark,
+  collapsed,
+  isAuthenticated,
+  onToggleCollapsed,
+  onLoginRequest,
+  referencedAssets,
+  annotationReferences,
+  onRemoveReference,
+  onRemoveAnnotationReference,
+  onMergeReferences,
+  selectedCount,
+  helpPromptNonce,
+}: {
+  projectId: string;
+  isDark: boolean;
+  collapsed: boolean;
+  isAuthenticated: boolean;
+  onToggleCollapsed: () => void;
+  onLoginRequest: () => void;
+  referencedAssets: { id: string; title: string; src: string }[];
+  annotationReferences: AnnotationReference[];
+  onRemoveReference: (id: string) => void;
+  onRemoveAnnotationReference: (id: string) => void;
+  onMergeReferences: (assets: { id: string; title: string; src: string }[]) => void;
+  selectedCount: number;
+  helpPromptNonce: number;
+}) {
   const [, navigate] = useLocation();
   const [inputFocused, setInputFocused] = useState(false);
   const [prompt, setPrompt] = useState("");
@@ -6651,9 +6752,19 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
     navigate("/workspace");
   };
   const hasPrompt = prompt.trim().length > 0;
-  const hasContext = selectedCount > 0 || referencedAssets.length > 0;
+  const hasAnnotationReferences = annotationReferences.length > 0;
+  const totalReferenceCount = referencedAssets.length + annotationReferences.length;
+  const hasContext = selectedCount > 0 || totalReferenceCount > 0;
   const canSubmit = (hasPrompt || hasContext) && !isSubmitting;
-  const contextLabel = selectedCount > 1 ? `已选中 ${selectedCount} 个对象` : selectedCount === 1 ? "已选中 1 个对象" : referencedAssets.length > 0 ? `引用素材 ${referencedAssets.length} 个` : "";
+  const contextLabel = selectedCount > 1
+    ? `已选中 ${selectedCount} 个对象`
+    : selectedCount === 1
+      ? "已选中 1 个对象"
+      : hasAnnotationReferences
+        ? `注释引用 ${annotationReferences.length} 个`
+        : referencedAssets.length > 0
+          ? `引用素材 ${referencedAssets.length} 个`
+          : "";
   const assistantModel = canvasAssistantModels.find(model => model.id === assistantModelId) || canvasAssistantModels[0];
 
   const handleReferenceSelectionToggle = useCallback((referenceId: string) => {
@@ -6934,18 +7045,33 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
     setPrompt("");
     setIsSubmitting(true);
     const context = contextLabel || "当前画布";
+    const annotationContext = annotationReferences.map((ann, index) => (
+      `注释 ${index + 1}：来自「${ann.title}」，位置 x=${ann.x.toFixed(1)}%、y=${ann.y.toFixed(1)}%，修改建议：${ann.text || "未填写"}`
+    )).join("\n");
+    const routedPrompt = annotationContext
+      ? [
+          `上下文：${context}`,
+          "用户选择了多个画面注释点，请根据这些注释点的图片、位置和文案组合生成一张全新的图片。",
+          annotationContext,
+          `用户请求：${submittedText}`,
+        ].join("\n")
+      : `上下文：${context}\n用户请求：${submittedText}`;
+    const assistantImages = [
+      ...referencedAssets.map(asset => ({ src: asset.src, title: asset.title })),
+      ...annotationReferences.map((ann, index) => ({ src: ann.src, title: `注释 ${index + 1} · ${ann.title}` })),
+    ];
     try {
       const decision = await routeCreativeIntent({
         module: "right-ai-assistant",
         model: "gpt-4o",
-        prompt: `上下文：${context}\n用户请求：${submittedText}`,
-        referencedAssets: referencedAssets.map(asset => ({ src: asset.src, title: asset.title })),
+        prompt: routedPrompt,
+        referencedAssets: assistantImages,
         recentMessages: messages.slice(-8).map(message => ({ role: message.role, content: message.content })),
         preferImageWhenReferences: true,
-        allowReferenceSearch: true,
+        allowReferenceSearch: !hasAnnotationReferences,
       });
 
-      if (decision.mode === "reference_search") {
+      if (decision.mode === "reference_search" && !hasAnnotationReferences) {
         const searchQuery = decision.searchQuery?.trim() || submittedText;
         const result = await searchReferenceImages({ query: searchQuery, limit: 10 });
         setMessages(prev => [...prev, {
@@ -6957,8 +7083,8 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
           referenceSearchQuery: searchQuery,
           followUpPrompt: `我已经记住你选中的「${searchQuery}」参考图了。接下来告诉我你最想保留的风格、构图、色彩或主体特征，我会继续判断是追问还是直接出图。`,
         }]);
-      } else if (decision.mode === "image") {
-        const imagePrompt = decision.imagePrompt?.trim() || submittedText;
+      } else if (decision.mode === "image" || hasAnnotationReferences) {
+        const imagePrompt = decision.imagePrompt?.trim() || routedPrompt;
         const generationId = `right-assistant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         const payload: ImageGeneratorPayload = {
           prompt: imagePrompt,
@@ -6966,7 +7092,7 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
           ratio: "1:1",
           count: 1,
           style: "右侧 AI 助手",
-          referencesEnabled: referencedAssets.length > 0,
+          referencesEnabled: assistantImages.length > 0,
           generationId,
         };
         window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "pending" } }));
@@ -7273,12 +7399,67 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
                   </div>
                 );
               })()}
+              {annotationReferences.length > 0 && (() => {
+                const MAX_VISIBLE = 4;
+                const visible = annotationReferences.slice(0, MAX_VISIBLE);
+                const overflow = annotationReferences.length - MAX_VISIBLE;
+                const tagBg = isDark ? "oklch(0.62 0.20 145 / 0.16)" : "oklch(0.62 0.17 145 / 0.10)";
+                const tagBorder = isDark ? "oklch(0.72 0.16 145 / 0.32)" : "oklch(0.48 0.15 145 / 0.26)";
+                const tagText = isDark ? "oklch(0.82 0.012 270)" : "oklch(0.25 0.012 270)";
+                return (
+                  <div className="flex flex-wrap gap-1.5 mb-2" style={{ maxHeight: 58, overflow: "hidden" }}>
+                    {visible.map((ref, idx) => {
+                      const isLast = idx === MAX_VISIBLE - 1 && overflow > 0;
+                      return (
+                        <div
+                          key={ref.id}
+                          className="flex items-center gap-1 rounded-[var(--radius-md-design)] px-1.5 py-0.5"
+                          style={{ background: tagBg, border: `1px solid ${tagBorder}`, maxWidth: 164, flexShrink: 0 }}
+                          title={`注释 ${idx + 1}：${ref.text || ref.title}`}
+                        >
+                          <MapPin size={12} style={{ color: "oklch(0.62 0.18 145)", flexShrink: 0 }} />
+                          <span className="type-caption truncate" style={{ color: tagText, maxWidth: isLast ? 56 : 104, fontSize: 11 }}>
+                            {isLast ? "更多注释" : `注释${idx + 1} ${ref.text || ref.title}`}
+                          </span>
+                          {isLast ? (
+                            <span
+                              className="flex items-center justify-center rounded-full flex-shrink-0"
+                              style={{
+                                width: 18,
+                                height: 18,
+                                background: "oklch(0.52 0.18 145)",
+                                color: "white",
+                                fontSize: 10,
+                                fontWeight: 700,
+                                lineHeight: 1,
+                              }}
+                              title={`还有 ${overflow + 1} 个注释引用`}
+                            >
+                              {overflow + 1}
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => onRemoveAnnotationReference(ref.id)}
+                              className="flex items-center justify-center flex-shrink-0 rounded-full transition-opacity hover:opacity-70"
+                              style={{ color: isDark ? "oklch(0.62 0.008 270)" : "oklch(0.50 0.008 270)", background: "transparent", border: "none", padding: 0, lineHeight: 1 }}
+                              title="移除注释引用"
+                              aria-label="移除注释引用"
+                            >
+                              <X size={9} />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
               <textarea
                 ref={textareaRef}
                 value={prompt}
                 onChange={e => setPrompt(e.target.value)}
                 onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
-                placeholder={referencedAssets.length > 0 ? `基于 ${referencedAssets.length} 个引用素材，描述你的创作意图...` : "输入对当前画布的想法..."}
+                placeholder={annotationReferences.length > 0 ? `基于 ${annotationReferences.length} 个注释点，描述组合生成意图...` : referencedAssets.length > 0 ? `基于 ${referencedAssets.length} 个引用素材，描述你的创作意图...` : "输入对当前画布的想法..."}
                 rows={2}
                 className="w-full bg-transparent outline-none resize-none disabled:cursor-not-allowed"
                 style={{ color: text, opacity: 1, fontSize: 12, lineHeight: 1.5, minHeight: 86 }}
@@ -7533,6 +7714,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [pendingProject, setPendingProject] = useState<Project | null>(null);
   // ── Referenced assets: auto-populated from selected image nodes ──
   const [referencedAssets, setReferencedAssets] = useState<{ id: string; title: string; src: string }[]>([]);
+  const [annotationReferences, setAnnotationReferences] = useState<AnnotationReference[]>([]);
   const mergeReferencedAssets = useCallback((assets: { id: string; title: string; src: string }[]) => {
     setReferencedAssets(assets);
   }, []);
@@ -7892,7 +8074,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
   // ── 全局注释状态（注释气泡在画布最顶层渲染） ──
   // GlobalAnnotation 在 Annotation 基础上增加 nodeId 和节点内百分比坐标
-  const [globalAnnotations, setGlobalAnnotations] = useState<(Annotation & { nodeId: string })[]>([]);
+  const [globalAnnotations, setGlobalAnnotations] = useState<GlobalAnnotation[]>([]);
   // 监听节点发出的创建注释事件
   useEffect(() => {
     const handler = (e: Event) => {
@@ -7911,7 +8093,82 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
   const removeGlobalAnnotation = useCallback((id: string) => {
     setGlobalAnnotations(prev => prev.filter(a => a.id !== id));
+    setAnnotationReferences(prev => prev.filter(reference => reference.id !== id));
   }, []);
+
+  const getAnnotationReferenceFromId = useCallback((id: string, textOverride?: string): AnnotationReference | null => {
+    const ann = globalAnnotations.find(item => item.id === id);
+    if (!ann) return null;
+    const node = nodesRef.current.find(item => item.id === ann.nodeId && item.type === "asset");
+    if (!node) return null;
+    const data = node.data as Record<string, unknown>;
+    const asset = GENERATED_ASSETS.find(item => item.id === data.assetId) || GENERATED_ASSETS[0];
+    const src = (data.localSrc as string | undefined) || asset?.src || "";
+    if (!src) return null;
+    return {
+      id: ann.id,
+      nodeId: ann.nodeId,
+      title: (data.title as string | undefined) || asset?.title || "选中图片",
+      src,
+      x: ann.x,
+      y: ann.y,
+      text: (typeof textOverride === "string" ? textOverride : ann.text).trim(),
+    };
+  }, [globalAnnotations]);
+
+  const handleAnnotationAddReference = useCallback((id: string, text: string) => {
+    const reference = getAnnotationReferenceFromId(id, text);
+    if (!reference) {
+      toast("注释引用失败", { description: "当前注释没有可用的图片来源" });
+      return;
+    }
+    setAnnotationReferences(prev => {
+      const next = prev.filter(item => item.id !== reference.id);
+      return [...next, reference];
+    });
+    setIsAssistantCollapsed(false);
+    toast("已加入注释引用", { description: reference.text || reference.title });
+  }, [getAnnotationReferenceFromId]);
+
+  const handleAnnotationAiEdit = useCallback(async (id: string, text: string) => {
+    const reference = getAnnotationReferenceFromId(id, text);
+    if (!reference) {
+      toast("AI 修改失败", { description: "当前注释没有可用的图片来源" });
+      return;
+    }
+    if (!reference.text.trim()) {
+      toast("请先输入注释修改建议");
+      return;
+    }
+    const sourceNode = nodesRef.current.find(item => item.id === reference.nodeId && item.type === "asset");
+    if (!sourceNode) {
+      toast("AI 修改失败", { description: "找不到对应图片节点" });
+      return;
+    }
+    const sourceSize = getCanvasNodeSize(sourceNode);
+    const prompt = [
+      "基于原图生成一张新的局部修改结果图。",
+      `只重点修改注释点附近区域：x=${reference.x.toFixed(1)}%、y=${reference.y.toFixed(1)}%。`,
+      "除该注释点相关区域外，尽量保持原图主体、构图、比例、风格、光影、颜色和其他未提及内容不变。",
+      "不要覆盖或改变原始图片节点，输出完整新图。",
+      `用户修改建议：${reference.text}`,
+    ].join("\n");
+    toast("注释 AI 修改中", { description: "将在原图旁生成新的修改结果" });
+    await runDerivedImageGeneration({
+      sourceNode,
+      prompt,
+      style: "注释修改结果",
+      nextW: sourceSize.width,
+      nextH: sourceSize.height,
+      run: async () => editImageWithPrompt({
+        imageSrc: reference.src,
+        model: "gpt-image-2",
+        prompt,
+        targetWidth: sourceSize.width,
+        targetHeight: sourceSize.height,
+      }),
+    });
+  }, [getAnnotationReferenceFromId, runDerivedImageGeneration]);
 
   const cloneNodesForHistory = useCallback((items: Node[]) => items.map(node => ({
     ...node,
@@ -10056,7 +10313,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const assetId = (node.data as Record<string, unknown>).assetId as string;
       const title = ((node.data as Record<string, unknown>).title as string) || nodeId;
       const asset = GENERATED_ASSETS.find(a => a.id === assetId) || GENERATED_ASSETS[0];
-      return { id: nodeId, title, src: asset?.src || "" };
+      const localSrc = (node.data as Record<string, unknown>).localSrc as string | undefined;
+      return { id: nodeId, title, src: localSrc || asset?.src || "" };
     }).filter(Boolean) as { id: string; title: string; src: string }[];
     setReferencedAssets(refs);
   }, [selectedNodeIds, nodes]);
@@ -11241,7 +11499,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         onLoginRequest={openLoginModal}
         onToggleCollapsed={() => setIsAssistantCollapsed(value => !value)}
         referencedAssets={referencedAssets}
+        annotationReferences={annotationReferences}
         onRemoveReference={(id) => setReferencedAssets(prev => prev.filter(r => r.id !== id))}
+        onRemoveAnnotationReference={(id) => setAnnotationReferences(prev => prev.filter(r => r.id !== id))}
         onMergeReferences={mergeReferencedAssets}
         selectedCount={selectedNodeIds.length}
         helpPromptNonce={helpPromptNonce}
@@ -12055,6 +12315,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           isDark={isDark}
           onUpdate={updateGlobalAnnotation}
           onRemove={removeGlobalAnnotation}
+          onAiEdit={handleAnnotationAiEdit}
+          onAddReference={handleAnnotationAddReference}
+          referencedAnnotationIds={new Set(annotationReferences.map(reference => reference.id))}
         />
       )}
 
@@ -12064,14 +12327,17 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
 // ── 全局注释层组件 ──
 function GlobalAnnotationLayer({
-  annotations, nodes, viewport, isDark, onUpdate, onRemove
+  annotations, nodes, viewport, isDark, onUpdate, onRemove, onAiEdit, onAddReference, referencedAnnotationIds
 }: {
-  annotations: (Annotation & { nodeId: string; screenX?: number; screenY?: number })[];
+  annotations: (GlobalAnnotation & { screenX?: number; screenY?: number })[];
   nodes: Node[];
   viewport: { x: number; y: number; zoom: number };
   isDark: boolean;
   onUpdate: (id: string, patch: Partial<Annotation>) => void;
   onRemove: (id: string) => void;
+  onAiEdit: (id: string, text: string) => void;
+  onAddReference: (id: string, text: string) => void;
+  referencedAnnotationIds: Set<string>;
 }) {
   // 将注释的节点内百分比坐标转换为屏幕坐标
   // 公式: screenX = viewport.x + node.position.x * viewport.zoom + (xPct/100) * nodeWidth * viewport.zoom
@@ -12105,6 +12371,9 @@ function GlobalAnnotationLayer({
               isDark={isDark}
               onUpdate={onUpdate}
               onRemove={onRemove}
+              onAiEdit={onAiEdit}
+              onAddReference={onAddReference}
+              isReferenceActive={referencedAnnotationIds.has(ann.id)}
             />
           </div>
         );
