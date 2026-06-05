@@ -4374,6 +4374,8 @@ const initialEdges: Edge[] = [];
 
 const CANVAS_STATE_STORAGE_PREFIX = "artx:canvas-state:";
 const CANVAS_STATE_SESSION_PREFIX = "artx:canvas-state:fallback:";
+const CANVAS_IMAGE_DB_NAME = "artx-canvas-images";
+const CANVAS_IMAGE_STORE_NAME = "images";
 const EXTRACT_TEXT_LOADING_MESSAGE = "正在提取文案中...";
 
 type PersistedCanvasState = {
@@ -4393,6 +4395,99 @@ function canvasStateStorageKey(projectId: string) {
 
 function canvasStateSessionKey(projectId: string) {
   return `${CANVAS_STATE_SESSION_PREFIX}${projectId || "p1"}`;
+}
+
+function canvasImagePayloadKey(projectId: string, nodeId: string) {
+  return `${projectId || "p1"}:${nodeId}`;
+}
+
+function openCanvasImageDb() {
+  return new Promise<IDBDatabase | null>((resolve) => {
+    if (typeof window === "undefined" || !("indexedDB" in window)) {
+      resolve(null);
+      return;
+    }
+    const request = window.indexedDB.open(CANVAS_IMAGE_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(CANVAS_IMAGE_STORE_NAME)) {
+        db.createObjectStore(CANVAS_IMAGE_STORE_NAME);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => resolve(null);
+  });
+}
+
+async function persistCanvasNodeImagePayloads(projectId: string, nodes: Node[]) {
+  const imageEntries = nodes
+    .filter(node => node.type === "asset")
+    .map(node => {
+      const data = node.data as Record<string, unknown>;
+      const localSrc = typeof data.localSrc === "string" ? data.localSrc : "";
+      return localSrc.startsWith("data:") ? { key: canvasImagePayloadKey(projectId, node.id), localSrc } : null;
+    })
+    .filter(Boolean) as { key: string; localSrc: string }[];
+  if (imageEntries.length === 0) return;
+  const db = await openCanvasImageDb();
+  if (!db) return;
+  await new Promise<void>((resolve) => {
+    const transaction = db.transaction(CANVAS_IMAGE_STORE_NAME, "readwrite");
+    const store = transaction.objectStore(CANVAS_IMAGE_STORE_NAME);
+    imageEntries.forEach(entry => store.put(entry.localSrc, entry.key));
+    transaction.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    transaction.onerror = () => {
+      db.close();
+      resolve();
+    };
+  });
+}
+
+async function hydrateCanvasNodeImagePayloads(projectId: string, nodes: Node[]) {
+  const missingAssetNodes = nodes.filter(node => {
+    if (node.type !== "asset") return false;
+    const data = node.data as Record<string, unknown>;
+    return data.fullImageStoredInSession === true && typeof data.localSrc !== "string";
+  });
+  if (missingAssetNodes.length === 0) return nodes;
+  const db = await openCanvasImageDb();
+  if (!db) return nodes;
+  const restored = new Map<string, string>();
+  await new Promise<void>((resolve) => {
+    const transaction = db.transaction(CANVAS_IMAGE_STORE_NAME, "readonly");
+    const store = transaction.objectStore(CANVAS_IMAGE_STORE_NAME);
+    missingAssetNodes.forEach(node => {
+      const request = store.get(canvasImagePayloadKey(projectId, node.id));
+      request.onsuccess = () => {
+        if (typeof request.result === "string") restored.set(node.id, request.result);
+      };
+    });
+    transaction.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    transaction.onerror = () => {
+      db.close();
+      resolve();
+    };
+  });
+  if (restored.size === 0) return nodes;
+  return nodes.map(node => {
+    const localSrc = restored.get(node.id);
+    if (!localSrc || node.type !== "asset") return node;
+    const data = node.data as Record<string, unknown>;
+    return {
+      ...node,
+      data: {
+        ...data,
+        localSrc,
+        fullImageStoredInSession: undefined,
+      },
+    };
+  });
 }
 
 function stripLargeCanvasNodePayloads(nodes: Node[]) {
@@ -4438,6 +4533,7 @@ function safeWriteCanvasState(projectId: string, state: PersistedCanvasState) {
   const sessionKey = canvasStateSessionKey(projectId);
   const serializedFullState = JSON.stringify(state);
   let sessionSaved = false;
+  void persistCanvasNodeImagePayloads(projectId, state.nodes);
 
   try {
     window.sessionStorage.setItem(sessionKey, serializedFullState);
@@ -7211,6 +7307,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const restoredNodes = saved?.nodes || initialNodes;
     const restoredEdges = saved?.edges || initialEdges;
     const updatedAt = saved?.updatedAt || formatProjectHistoryTimestamp();
+    let cancelled = false;
     isRestoringRef.current = true;
     setNodes(restoredNodes);
     setEdges(restoredEdges);
@@ -7222,10 +7319,27 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         .then(cover => updateWorkspaceProjectHistory(projectId, { cover, nodeCount: restoredNodes.length, updatedAt }))
         .catch(() => {});
     }
+    hydrateCanvasNodeImagePayloads(projectId, restoredNodes).then(hydratedNodes => {
+      if (cancelled || hydratedNodes === restoredNodes) return;
+      isRestoringRef.current = true;
+      setNodes(hydratedNodes);
+      const hydratedCoverSource = getCanvasStateCoverSource(hydratedNodes);
+      if (hydratedCoverSource) {
+        createCanvasCoverThumbnail(hydratedCoverSource)
+          .then(cover => updateWorkspaceProjectHistory(projectId, { cover, nodeCount: hydratedNodes.length, updatedAt }))
+          .catch(() => {});
+      }
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        isRestoringRef.current = false;
+      }));
+    });
     requestAnimationFrame(() => requestAnimationFrame(() => {
       isRestoringRef.current = false;
       didHydrateCanvasStateRef.current = true;
     }));
+    return () => {
+      cancelled = true;
+    };
   }, [projectId, setEdges, setNodes]);
 
   useEffect(() => {
