@@ -1166,59 +1166,117 @@ function AssetFloatingToolbar({ isDark, position, onAction }: {
 
 
 type AssetAdjustmentValues = {
-  exposure: number;
+  color: number;
+  brightness: number;
   contrast: number;
   saturation: number;
-  temperature: number;
-  tint: number;
-  highlights: number;
-  shadows: number;
+  sharpness: number;
 };
 
 const DEFAULT_ASSET_ADJUSTMENTS: AssetAdjustmentValues = {
-  exposure: 0,
+  color: 0,
+  brightness: 0,
   contrast: 0,
   saturation: 0,
-  temperature: 0,
-  tint: 0,
-  highlights: 0,
-  shadows: 0,
+  sharpness: 0,
 };
 
 function normalizeAssetAdjustments(value: unknown): AssetAdjustmentValues {
-  const source = typeof value === "object" && value !== null ? value as Partial<Record<keyof AssetAdjustmentValues, unknown>> : {};
-  const read = (key: keyof AssetAdjustmentValues) => {
+  const source = typeof value === "object" && value !== null ? value as Record<string, unknown> : {};
+  const read = (key: keyof AssetAdjustmentValues, fallback = DEFAULT_ASSET_ADJUSTMENTS[key]) => {
     const raw = source[key];
-    return typeof raw === "number" && Number.isFinite(raw) ? Math.max(-100, Math.min(100, raw)) : DEFAULT_ASSET_ADJUSTMENTS[key];
+    return typeof raw === "number" && Number.isFinite(raw) ? Math.max(-100, Math.min(100, raw)) : fallback;
   };
+  const legacyTemperature = typeof source.temperature === "number" ? source.temperature : 0;
+  const legacyTint = typeof source.tint === "number" ? source.tint : 0;
   return {
-    exposure: read("exposure"),
+    color: read("color", Math.max(-100, Math.min(100, (legacyTemperature + legacyTint) / 2))),
+    brightness: read("brightness", typeof source.exposure === "number" ? source.exposure : 0),
     contrast: read("contrast"),
     saturation: read("saturation"),
-    temperature: read("temperature"),
-    tint: read("tint"),
-    highlights: read("highlights"),
-    shadows: read("shadows"),
+    sharpness: read("sharpness"),
   };
 }
 
 function createAssetAdjustmentFilter(adjustments: AssetAdjustmentValues) {
-  const brightness = Math.max(0.25, Math.min(2, 1 + adjustments.exposure / 180 + adjustments.highlights / 320 - adjustments.shadows / 420));
+  const brightness = Math.max(0.25, Math.min(2, 1 + adjustments.brightness / 130));
   const contrast = Math.max(0.25, Math.min(2.2, 1 + adjustments.contrast / 150));
-  const saturation = Math.max(0, Math.min(2.4, 1 + adjustments.saturation / 125 + Math.abs(adjustments.tint) / 600));
-  const sepia = Math.max(0, Math.min(0.42, Math.abs(adjustments.temperature) / 360 + Math.abs(adjustments.tint) / 520));
-  const hueRotate = adjustments.temperature * 0.14 + adjustments.tint * 0.22;
-  return `brightness(${brightness.toFixed(3)}) contrast(${contrast.toFixed(3)}) saturate(${saturation.toFixed(3)}) sepia(${sepia.toFixed(3)}) hue-rotate(${hueRotate.toFixed(1)}deg)`;
+  const saturation = Math.max(0, Math.min(2.6, 1 + adjustments.saturation / 120));
+  const hueRotate = adjustments.color * 1.8;
+  const softness = adjustments.sharpness < 0 ? ` blur(${Math.abs(adjustments.sharpness) * 0.025}px)` : "";
+  return `brightness(${brightness.toFixed(3)}) contrast(${contrast.toFixed(3)}) saturate(${saturation.toFixed(3)}) hue-rotate(${hueRotate.toFixed(1)}deg)${softness}`;
 }
 
-function AssetMoreCommandPanel({ isDark, command, initialAdjustments, onClose, onApply }: {
+function loadImageForCanvas(src: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    if (!src.startsWith("data:")) image.crossOrigin = "anonymous";
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("图片加载失败"));
+    image.src = src;
+  });
+}
+
+function sharpenCanvasImage(ctx: CanvasRenderingContext2D, width: number, height: number, sharpness: number) {
+  if (sharpness <= 0 || width < 3 || height < 3) return;
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const src = imageData.data;
+  const out = new Uint8ClampedArray(src);
+  const amount = Math.min(2.2, sharpness / 45);
+  const center = 1 + 4 * amount;
+  const side = -amount;
+  const idx = (x: number, y: number) => (y * width + x) * 4;
+
+  for (let y = 1; y < height - 1; y += 1) {
+    for (let x = 1; x < width - 1; x += 1) {
+      const i = idx(x, y);
+      const top = idx(x, y - 1);
+      const bottom = idx(x, y + 1);
+      const left = idx(x - 1, y);
+      const right = idx(x + 1, y);
+      for (let c = 0; c < 3; c += 1) {
+        out[i + c] = Math.max(0, Math.min(255,
+          src[i + c] * center +
+          src[top + c] * side +
+          src[bottom + c] * side +
+          src[left + c] * side +
+          src[right + c] * side
+        ));
+      }
+      out[i + 3] = src[i + 3];
+    }
+  }
+  ctx.putImageData(new ImageData(out, width, height), 0, 0);
+}
+
+async function applyAssetAdjustmentsToImage(src: string, adjustments: AssetAdjustmentValues) {
+  const image = await loadImageForCanvas(src);
+  const width = Math.max(1, image.naturalWidth || image.width);
+  const height = Math.max(1, image.naturalHeight || image.height);
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) throw new Error("当前浏览器不支持图片处理");
+  ctx.filter = createAssetAdjustmentFilter({ ...adjustments, sharpness: Math.min(0, adjustments.sharpness) });
+  ctx.drawImage(image, 0, 0, width, height);
+  ctx.filter = "none";
+  sharpenCanvasImage(ctx, width, height, adjustments.sharpness);
+  return canvas.toDataURL("image/png");
+}
+
+function AssetMoreCommandPanel({ isDark, command, initialAdjustments, imageSrc, onClose, onApply, onPreviewChange }: {
   isDark: boolean;
   command: string;
   initialAdjustments?: AssetAdjustmentValues;
   onClose: () => void;
   onApply: (action: string, adjustments?: AssetAdjustmentValues) => void;
+  imageSrc?: string;
+  onPreviewChange?: (adjustments: AssetAdjustmentValues) => void;
 }) {
   const [adjustments, setAdjustments] = useState<AssetAdjustmentValues>(initialAdjustments || DEFAULT_ASSET_ADJUSTMENTS);
+  const [renderedPreview, setRenderedPreview] = useState("");
+  const previewFilter = createAssetAdjustmentFilter(adjustments);
   const bg = isDark ? "rgba(24,24,34,0.98)" : "rgba(255,255,255,0.98)";
   const border = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)";
   const text = isDark ? "rgba(255,255,255,0.88)" : "rgba(28,28,40,0.88)";
@@ -1228,20 +1286,41 @@ function AssetMoreCommandPanel({ isDark, command, initialAdjustments, onClose, o
   const config: Record<string, { title: string; description: string; actions: string[] }> = {
     mockup: { title: "Mockup", description: "选择场景，将当前图片套入产品样机。", actions: ["包装袋", "手机屏幕", "海报墙"] },
     expand: { title: "扩展", description: "按比例扩展画面边界，保留主体视觉。", actions: ["1:1", "4:5", "16:9"] },
-    adjust: { title: "调整", description: "调整图片的曝光、对比度、色彩和明暗层次。", actions: [] },
+    adjust: { title: "调整", description: "实时调整图片色彩、亮度、对比度、饱和度和锐利度。", actions: [] },
     crop: { title: "裁切", description: "选择裁切比例，图片节点会更新为新的尺寸。", actions: ["自由", "1:1", "3:4", "4:3", "16:9", "9:16"] },
     vector: { title: "矢量", description: "将图片轮廓转为可编辑矢量元素。", actions: ["提取轮廓", "扁平化", "高清矢量"] },
   };
   const current = config[command] || config.adjust;
   const adjustItems: Array<{ key: keyof AssetAdjustmentValues; label: string }> = [
-    { key: "exposure", label: "Exposure" },
-    { key: "contrast", label: "Contrast" },
-    { key: "saturation", label: "Saturation" },
-    { key: "temperature", label: "Temperature" },
-    { key: "tint", label: "Tint" },
-    { key: "highlights", label: "Highlights" },
-    { key: "shadows", label: "Shadows" },
+    { key: "color", label: "色彩" },
+    { key: "brightness", label: "亮度" },
+    { key: "contrast", label: "对比度" },
+    { key: "saturation", label: "饱和度" },
+    { key: "sharpness", label: "锐利度" },
   ];
+
+  useEffect(() => {
+    if (command !== "adjust") return;
+    onPreviewChange?.(adjustments);
+  }, [adjustments, command, onPreviewChange]);
+
+  useEffect(() => {
+    if (command !== "adjust" || !imageSrc) {
+      setRenderedPreview("");
+      return;
+    }
+    let cancelled = false;
+    applyAssetAdjustmentsToImage(imageSrc, adjustments)
+      .then(result => {
+        if (!cancelled) setRenderedPreview(result);
+      })
+      .catch(() => {
+        if (!cancelled) setRenderedPreview("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [adjustments, command, imageSrc]);
 
   return (
     <div
@@ -1271,6 +1350,24 @@ function AssetMoreCommandPanel({ isDark, command, initialAdjustments, onClose, o
       <div className="p-3">
         {command === "adjust" ? (
           <div className="flex flex-col gap-3 py-1">
+            {imageSrc && (
+              <div
+                className="relative overflow-hidden rounded-[var(--radius-md-design)]"
+                style={{
+                  aspectRatio: "16/10",
+                  background: field,
+                  border: `1px solid ${border}`,
+                }}
+              >
+                <img
+                  src={renderedPreview || imageSrc}
+                  alt="调整预览"
+                  draggable={false}
+                  className="h-full w-full object-contain"
+                  style={{ filter: renderedPreview ? "none" : previewFilter }}
+                />
+              </div>
+            )}
             {adjustItems.map(item => (
               <label key={item.key} className="grid items-center gap-3" style={{ gridTemplateColumns: "94px 1fr" }}>
                 <span
@@ -1321,7 +1418,7 @@ function AssetMoreCommandPanel({ isDark, command, initialAdjustments, onClose, o
           style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))", color: "white", fontSize: 13, fontWeight: 650 }}
           onClick={() => onApply(current.title, command === "adjust" ? adjustments : undefined)}
         >
-          {command === "vector" ? "生成新图片" : "应用到当前图片"}
+          {command === "adjust" ? "应用图片" : command === "vector" ? "生成新图片" : "应用到当前图片"}
         </button>
       </div>
     </div>
@@ -1839,7 +1936,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const displayTitle = (data.title as string) || asset?.title || "素材节点";
   const rotation = (data.rotation as number) || 0;
   const flipX = Boolean(data.flipX);
-  const assetAdjustments = normalizeAssetAdjustments(data.assetAdjustments);
+  const assetAdjustments = normalizeAssetAdjustments((data.assetAdjustmentPreview as AssetAdjustmentValues | undefined) || data.assetAdjustments);
   const assetAdjustmentFilter = createAssetAdjustmentFilter(assetAdjustments);
   const cropX = Math.max(0, Math.min(100, Number((data as { cropX?: number }).cropX ?? 0)));
   const cropY = Math.max(0, Math.min(100, Number((data as { cropY?: number }).cropY ?? 0)));
@@ -6899,6 +6996,18 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [downloadGroupId, setDownloadGroupId] = useState<string | null>(null);
   const [downloadFormat, setDownloadFormat] = useState<'jpg' | 'png' | 'webp'>('png');
   const [assetMorePanel, setAssetMorePanel] = useState<{ command: string; nodeId: string } | null>(null);
+  const closeAssetMorePanel = useCallback(() => {
+    const previewNodeId = assetMorePanel?.nodeId;
+    setAssetMorePanel(null);
+    if (!previewNodeId) return;
+    setNodes(nds => nds.map(n => {
+      if (n.id !== previewNodeId || n.type !== "asset") return n;
+      const data = n.data as Record<string, unknown>;
+      if (!data.assetAdjustmentPreview) return n;
+      const { assetAdjustmentPreview, ...restData } = data;
+      return { ...n, data: restData };
+    }));
+  }, [assetMorePanel?.nodeId, setNodes]);
   const containerRef = useRef<HTMLDivElement>(null);
   const middlePanRef = useRef<{ clientX: number; clientY: number; viewport: { x: number; y: number; zoom: number } } | null>(null);
   const historyRef = useRef<{ nodes: Node[]; edges: Edge[] }[]>([]);
@@ -10055,6 +10164,48 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       });
       return;
     }
+    if (assetMorePanel.command === "adjust") {
+      const sourceNode = nodesRef.current.find(n => n.id === assetMorePanel.nodeId && n.type === "asset");
+      if (!sourceNode) {
+        closeAssetMorePanel();
+        return;
+      }
+      const data = sourceNode.data as Record<string, unknown>;
+      const asset = GENERATED_ASSETS.find(item => item.id === data.assetId) || GENERATED_ASSETS[0];
+      const imageSrc = (data.localSrc as string | undefined) || asset?.src;
+      if (!imageSrc) {
+        toast("调整失败", { description: "当前图片没有可处理的图像来源" });
+        closeAssetMorePanel();
+        return;
+      }
+      const nextAdjustments = adjustments || normalizeAssetAdjustments(data.assetAdjustmentPreview || data.assetAdjustments);
+      try {
+        const adjustedDataUrl = await applyAssetAdjustmentsToImage(imageSrc, nextAdjustments);
+        pushHistory();
+        setNodes(nds => nds.map(n => {
+          if (n.id !== assetMorePanel.nodeId || n.type !== "asset") return n;
+          const nodeData = n.data as Record<string, unknown>;
+          const { assetAdjustmentPreview, ...restData } = nodeData;
+          return {
+            ...n,
+            data: {
+              ...restData,
+              localSrc: adjustedDataUrl,
+              assetAdjustments: DEFAULT_ASSET_ADJUSTMENTS,
+              lastLovartCommand: label,
+              isEditing: false,
+            },
+          };
+        }));
+        toast("已应用图片调整", { description: "最终调试结果已写入当前图片" });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "请稍后重试";
+        toast("调整失败", { description: message });
+      } finally {
+        setAssetMorePanel(null);
+      }
+      return;
+    }
     pushHistory();
     setNodes(nds => nds.map(n => {
       if (n.id !== assetMorePanel.nodeId || n.type !== "asset") return n;
@@ -10098,17 +10249,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           },
         };
       }
-      if (assetMorePanel.command === "adjust") {
-        return {
-          ...n,
-          data: {
-            ...data,
-            assetAdjustments: adjustments || normalizeAssetAdjustments(data.assetAdjustments),
-            lastLovartCommand: label,
-            isEditing: false,
-          },
-        };
-      }
       return {
         ...n,
         data: {
@@ -10120,8 +10260,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     }));
     toast(label, { description: "已应用到当前图片节点" });
     setAssetMorePanel(null);
-  }, [assetMorePanel, nodesRef, pushHistory, runDerivedImageGeneration, setNodes]);
+  }, [assetMorePanel, closeAssetMorePanel, nodesRef, pushHistory, runDerivedImageGeneration, setNodes]);
   const selectedImageNode = selectedVisualNodeIds.length === 1 ? nodes.find(n => n.id === selectedVisualNodeIds[0] && (n.type === "asset" || n.type === "canvasFrame")) : null;
+  const assetMorePanelNode = assetMorePanel ? nodes.find(n => n.id === assetMorePanel.nodeId && n.type === "asset") : null;
+  const assetMorePanelData = assetMorePanelNode?.data as Record<string, unknown> | undefined;
+  const assetMorePanelAsset = assetMorePanelData ? GENERATED_ASSETS.find(item => item.id === assetMorePanelData.assetId) || GENERATED_ASSETS[0] : null;
+  const assetMorePanelImageSrc = assetMorePanelData ? (assetMorePanelData.localSrc as string | undefined) || assetMorePanelAsset?.src || "" : "";
   const selectedImageBounds = selectedImageNode ? getCanvasNodeBounds(selectedImageNode) : getCanvasNodesBounds(nodes, selectedVisualNodeIds);
   const attachedImageToolbarPosition = selectedImageBounds
     ? {
@@ -10156,9 +10300,17 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         <AssetMoreCommandPanel
           isDark={isDark}
           command={assetMorePanel.command}
-          initialAdjustments={normalizeAssetAdjustments((nodes.find(n => n.id === assetMorePanel.nodeId)?.data as Record<string, unknown> | undefined)?.assetAdjustments)}
-          onClose={() => setAssetMorePanel(null)}
+          initialAdjustments={normalizeAssetAdjustments(assetMorePanelData?.assetAdjustmentPreview || assetMorePanelData?.assetAdjustments)}
+          imageSrc={assetMorePanelImageSrc}
+          onClose={closeAssetMorePanel}
           onApply={handleAssetMorePanelApply}
+          onPreviewChange={(adjustments) => {
+            if (assetMorePanel.command !== "adjust") return;
+            setNodes(nds => nds.map(n => n.id === assetMorePanel.nodeId && n.type === "asset"
+              ? { ...n, data: { ...(n.data as Record<string, unknown>), assetAdjustmentPreview: adjustments } }
+              : n
+            ));
+          }}
         />
       )}
 
