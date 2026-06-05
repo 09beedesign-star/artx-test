@@ -2244,8 +2244,6 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
 
   const dispW = imgW || initW;
   const dispH = imgH || initH;
-  const [expandRect, setExpandRect] = useState({ x: -18, y: -18, w: 136, h: 136 });
-
   const resetEraseCanvases = useCallback(() => {
     const overlay = eraseCanvasRef.current;
     const mask = eraseMaskCanvasRef.current;
@@ -2271,7 +2269,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     if (isCropping) setCropRect({ x: 0, y: 0, w: 100, h: 100 });
   }, [isCropping]);
   useEffect(() => {
-    if (isExpanding) setExpandRect({ x: -18, y: -18, w: 136, h: 136 });
+    if (isExpanding) setCropRect({ x: -18, y: -18, w: 136, h: 136 });
   }, [isExpanding]);
   useEffect(() => {
     if (extractedTextPanelOpen) setExtractedTextDraft(extractedText);
@@ -2412,6 +2410,25 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
       const minSize = 12;
       setCropRect(() => {
         const next = { ...drag.startRect };
+        if (isExpanding) {
+          if (drag.edge === "left") {
+            const newX = Math.max(-140, Math.min(0, drag.startRect.x + dx));
+            next.w = Math.max(100 - newX, drag.startRect.w + drag.startRect.x - newX);
+            next.x = newX;
+          }
+          if (drag.edge === "right") {
+            next.w = Math.max(100 - drag.startRect.x, Math.min(260, drag.startRect.w + dx));
+          }
+          if (drag.edge === "top") {
+            const newY = Math.max(-140, Math.min(0, drag.startRect.y + dy));
+            next.h = Math.max(100 - newY, drag.startRect.h + drag.startRect.y - newY);
+            next.y = newY;
+          }
+          if (drag.edge === "bottom") {
+            next.h = Math.max(100 - drag.startRect.y, Math.min(260, drag.startRect.h + dy));
+          }
+          return next;
+        }
         if (drag.edge === "left") {
           const newX = Math.max(0, Math.min(drag.startRect.x + drag.startRect.w - minSize, drag.startRect.x + dx));
           next.w = drag.startRect.w + drag.startRect.x - newX;
@@ -2438,7 +2455,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [cropRect, dispH, dispW]);
+  }, [cropRect, dispH, dispW, isExpanding]);
 
   const applyCropRatio = useCallback((ratio: number | null) => {
     if (!ratio) {
@@ -2468,47 +2485,9 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     window.dispatchEvent(new CustomEvent("asset-crop-cancel", { detail: { nodeId } }));
   }, [nodeId]);
 
-  const handleExpandEdgeMouseDown = useCallback((e: React.MouseEvent, edge: "left" | "right" | "top" | "bottom") => {
-    e.preventDefault();
-    e.stopPropagation();
-    const startRect = expandRect;
-    const startClientX = e.clientX;
-    const startClientY = e.clientY;
-    const onMove = (event: MouseEvent) => {
-      const dx = ((event.clientX - startClientX) / Math.max(1, dispW)) * 100;
-      const dy = ((event.clientY - startClientY) / Math.max(1, dispH)) * 100;
-      setExpandRect(() => {
-        const next = { ...startRect };
-        if (edge === "left") {
-          const newX = Math.max(-140, Math.min(0, startRect.x + dx));
-          next.w = Math.max(100 - newX, startRect.w + startRect.x - newX);
-          next.x = newX;
-        }
-        if (edge === "right") {
-          next.w = Math.max(100 - startRect.x, Math.min(260, startRect.w + dx));
-        }
-        if (edge === "top") {
-          const newY = Math.max(-140, Math.min(0, startRect.y + dy));
-          next.h = Math.max(100 - newY, startRect.h + startRect.y - newY);
-          next.y = newY;
-        }
-        if (edge === "bottom") {
-          next.h = Math.max(100 - startRect.y, Math.min(260, startRect.h + dy));
-        }
-        return next;
-      });
-    };
-    const onUp = () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }, [dispH, dispW, expandRect]);
-
   const applyExpandRatio = useCallback((ratio: number | null) => {
     if (!ratio) {
-      setExpandRect({ x: -18, y: -18, w: 136, h: 136 });
+      setCropRect({ x: -18, y: -18, w: 136, h: 136 });
       return;
     }
     const imageRatio = dispW / Math.max(1, dispH);
@@ -2519,7 +2498,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     } else {
       w = Math.max(100, Math.min(220, h * ratio / imageRatio));
     }
-    setExpandRect({ x: (100 - w) / 2, y: (100 - h) / 2, w, h });
+    setCropRect({ x: (100 - w) / 2, y: (100 - h) / 2, w, h });
   }, [dispH, dispW]);
 
   const cancelExpand = useCallback(() => {
@@ -2629,8 +2608,8 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
       return;
     }
     const expandedCanvas = document.createElement("canvas");
-    const nextW = Math.max(1, Math.round(dispW * (expandRect.w / 100)));
-    const nextH = Math.max(1, Math.round(dispH * (expandRect.h / 100)));
+    const nextW = Math.max(1, Math.round(dispW * (cropRect.w / 100)));
+    const nextH = Math.max(1, Math.round(dispH * (cropRect.h / 100)));
     expandedCanvas.width = nextW;
     expandedCanvas.height = nextH;
     const expandedCtx = expandedCanvas.getContext("2d");
@@ -2649,8 +2628,8 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     const image = new Image();
     image.crossOrigin = "anonymous";
     image.onload = () => {
-      const dx = Math.round((-expandRect.x / 100) * dispW);
-      const dy = Math.round((-expandRect.y / 100) * dispH);
+      const dx = Math.round((-cropRect.x / 100) * dispW);
+      const dy = Math.round((-cropRect.y / 100) * dispH);
       expandedCtx.clearRect(0, 0, nextW, nextH);
       expandedCtx.drawImage(image, dx, dy, dispW, dispH);
       maskCtx.fillStyle = "white";
@@ -2669,7 +2648,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     };
     image.onerror = () => toast("AI 扩展失败", { description: "无法读取当前图片" });
     image.src = imageSrc;
-  }, [dispH, dispW, expandRect, getRenderedImageSource, nodeId]);
+  }, [cropRect, dispH, dispW, getRenderedImageSource, nodeId]);
 
   const applyErase = useCallback(async () => {
     if (!eraseHasPaintRef.current || !eraseMaskCanvasRef.current) {
@@ -2759,7 +2738,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
             border: `2px solid ${borderColor}`,
             borderRadius: 4,
             boxShadow: shadow,
-            overflow: isCropping || isErasing ? "visible" : "hidden",
+            overflow: isCropping || isExpanding || isErasing ? "visible" : "hidden",
             transition: "border-color 0.15s, box-shadow 0.15s",
           }}
         >
@@ -2925,26 +2904,38 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
               <div
                 className="absolute"
                 style={{
-                  left: `${expandRect.x}%`,
-                  top: `${expandRect.y}%`,
-                  width: `${expandRect.w}%`,
-                  height: `${expandRect.h}%`,
+                  left: `${cropRect.x}%`,
+                  top: `${cropRect.y}%`,
+                  width: `${cropRect.w}%`,
+                  height: `${cropRect.h}%`,
                   border: "1.5px dashed rgba(255,255,255,0.95)",
                   background: "rgba(255,255,255,0.04)",
                   boxShadow: "0 0 0 999px rgba(0,0,0,0.26)",
                 }}
               >
-                <div style={{ position: "absolute", left: `${(-expandRect.x / expandRect.w) * 100}%`, top: `${(-expandRect.y / expandRect.h) * 100}%`, width: `${(100 / expandRect.w) * 100}%`, height: `${(100 / expandRect.h) * 100}%`, border: "1px solid rgba(255,255,255,0.72)" }} />
-                <div onMouseDown={e => handleExpandEdgeMouseDown(e, "left")} style={{ position: "absolute", left: -6, top: 0, width: 12, height: "100%", cursor: "ew-resize" }} />
-                <div onMouseDown={e => handleExpandEdgeMouseDown(e, "right")} style={{ position: "absolute", right: -6, top: 0, width: 12, height: "100%", cursor: "ew-resize" }} />
-                <div onMouseDown={e => handleExpandEdgeMouseDown(e, "top")} style={{ position: "absolute", left: 0, top: -6, width: "100%", height: 12, cursor: "ns-resize" }} />
-                <div onMouseDown={e => handleExpandEdgeMouseDown(e, "bottom")} style={{ position: "absolute", left: 0, bottom: -6, width: "100%", height: 12, cursor: "ns-resize" }} />
+                <div style={{ position: "absolute", left: `${(-cropRect.x / cropRect.w) * 100}%`, top: `${(-cropRect.y / cropRect.h) * 100}%`, width: `${(100 / cropRect.w) * 100}%`, height: `${(100 / cropRect.h) * 100}%`, border: "1px solid rgba(255,255,255,0.72)" }} />
+                <div onMouseDown={e => handleCropEdgeMouseDown(e, "left")} style={{ position: "absolute", left: -6, top: 0, width: 12, height: "100%", cursor: "ew-resize" }} />
+                <div onMouseDown={e => handleCropEdgeMouseDown(e, "right")} style={{ position: "absolute", right: -6, top: 0, width: 12, height: "100%", cursor: "ew-resize" }} />
+                <div onMouseDown={e => handleCropEdgeMouseDown(e, "top")} style={{ position: "absolute", left: 0, top: -6, width: "100%", height: 12, cursor: "ns-resize" }} />
+                <div onMouseDown={e => handleCropEdgeMouseDown(e, "bottom")} style={{ position: "absolute", left: 0, bottom: -6, width: "100%", height: 12, cursor: "ns-resize" }} />
               </div>
               <div
-                className="absolute left-1/2 top-3 flex items-center gap-1.5 rounded-[var(--radius-lg-design)] px-2 py-1 shadow-xl"
-                style={{ transform: "translateX(-50%)", background: "rgba(18,18,28,0.92)", border: "1px solid rgba(255,255,255,0.16)", color: "white", backdropFilter: "blur(14px)" }}
+                className="absolute left-1/2 flex items-center gap-1.5 rounded-[var(--radius-lg-design)] px-2 py-1.5 shadow-xl"
+                style={{
+                  top: `calc(100% + ${Math.round(12 / Math.max(0.2, viewport.zoom || 1))}px)`,
+                  transform: `translateX(-50%) scale(${1 / Math.max(0.2, viewport.zoom || 1)})`,
+                  transformOrigin: "top center",
+                  background: "rgba(18,18,28,0.94)",
+                  border: "1px solid rgba(255,255,255,0.16)",
+                  color: "white",
+                  backdropFilter: "blur(14px)",
+                  whiteSpace: "nowrap",
+                  flexWrap: "nowrap",
+                  maxWidth: "calc(100vw - 32px)",
+                }}
                 onMouseDown={e => e.stopPropagation()}
               >
+                <Expand size={14} />
                 {[
                   { label: "自由", ratio: null },
                   { label: "1:1", ratio: 1 },
@@ -2955,14 +2946,9 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
                     {item.label}
                   </button>
                 ))}
-              </div>
-              <div
-                className="absolute bottom-3 left-1/2 flex items-center gap-2 rounded-[var(--radius-lg-design)] px-2 py-1.5 shadow-xl"
-                style={{ transform: "translateX(-50%)", background: "rgba(18,18,28,0.94)", border: "1px solid rgba(255,255,255,0.16)", backdropFilter: "blur(14px)" }}
-                onMouseDown={e => e.stopPropagation()}
-              >
-                <button type="button" className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5" style={{ color: "rgba(255,255,255,0.78)", background: "rgba(255,255,255,0.08)" }} onClick={cancelExpand}>取消</button>
-                <button type="button" className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5" style={{ color: "white", background: "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.72 0.18 205))" }} onClick={() => { void confirmExpand(); }}>立即使用</button>
+                <span style={{ width: 1, alignSelf: "stretch", background: "rgba(255,255,255,0.14)" }} />
+                <button type="button" className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5" style={{ minWidth: 58, whiteSpace: "nowrap", wordBreak: "keep-all", color: "rgba(255,255,255,0.78)", background: "rgba(255,255,255,0.08)" }} onClick={cancelExpand}>取消</button>
+                <button type="button" className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5" style={{ minWidth: 72, whiteSpace: "nowrap", wordBreak: "keep-all", color: "white", background: "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.72 0.18 205))" }} onClick={() => { void confirmExpand(); }}>立即使用</button>
               </div>
             </div>
           )}
