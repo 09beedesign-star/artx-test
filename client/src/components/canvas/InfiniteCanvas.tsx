@@ -6385,7 +6385,7 @@ function CanvasTopToolPalette({ isDark, onImageGeneratorOpenChange }: { isDark: 
   return (
     <div
       className="fixed nodrag nopan"
-      style={{ top: 68, left: "50%", transform: "translateX(calc(-50% - 84px))", zIndex: 1300, width: 320 }}
+      style={{ top: 68, left: "50%", transform: "translateX(calc(-50% - 84px))", zIndex: 110, width: 320 }}
       onMouseDown={e => e.stopPropagation()}
     >
       {/* 几何形二级菜单 */}
@@ -7595,7 +7595,7 @@ function CanvasSearchBar({ isDark, currentProjectId, onProjectRequest, onAssetAd
 
   // Always expanded — no collapse
   return (
-    <div ref={ref} className="absolute nodrag nopan" style={{ top: 12, left: "50%", transform: "translateX(-50%)", zIndex: 1400, width: 320 }}>
+    <div ref={ref} className="absolute nodrag nopan" style={{ top: 12, left: "50%", transform: "translateX(-50%)", zIndex: 110, width: 320 }}>
       <div
         className="flex items-center gap-2 px-3 rounded-[var(--radius-lg-design)] shadow-lg overflow-hidden"
         style={{ height: 38, background: bg, border: `1px solid ${open ? "oklch(0.62 0.22 290 / 0.55)" : border}`, backdropFilter: "blur(14px)", transition: "border-color 0.18s ease" }}
