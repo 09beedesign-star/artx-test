@@ -635,9 +635,13 @@ function createEraseFallbackComposite(imageSrc: string, maskSrc: string) {
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
       <defs>
+        <filter id="invert-alpha" x="0" y="0" width="1024" height="1024" color-interpolation-filters="sRGB">
+          <feComponentTransfer>
+            <feFuncA type="table" tableValues="1 0" />
+          </feComponentTransfer>
+        </filter>
         <mask id="erase-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
-          <rect x="0" y="0" width="1024" height="1024" fill="black" />
-          <image href="${escapeSvgAttr(maskSrc)}" x="0" y="0" width="1024" height="1024" preserveAspectRatio="none" />
+          <image href="${escapeSvgAttr(maskSrc)}" x="0" y="0" width="1024" height="1024" preserveAspectRatio="none" filter="url(#invert-alpha)" />
         </mask>
       </defs>
       <image href="${escapeSvgAttr(imageSrc)}" x="0" y="0" width="1024" height="1024" preserveAspectRatio="none" />
