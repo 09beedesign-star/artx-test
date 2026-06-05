@@ -58,11 +58,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const result = await fetchAuth(action, { username, password });
       if (!result.ok || !result.token || !result.user) {
-        if (isGithubPagesTest()) {
-          const localResult = authenticateLocally(action, username, password);
-          if (localResult.ok) applyStoredSession();
-          return localResult;
-        }
         return { ok: false, error: result.error || "登录失败，请稍后重试" };
       }
       if (!persistSession({ token: result.token, user: result.user })) {
@@ -197,13 +192,17 @@ async function fetchAuth(action: "register" | "login" | "me" | "logout" | "socia
   const apiBaseUrl = getAuthApiBaseUrl();
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 12_000);
-  const response = await fetch(`${apiBaseUrl}/api/auth/${action}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-    signal: controller.signal,
-  });
-  window.clearTimeout(timeout);
+  let response: Response;
+  try {
+    response = await fetch(`${apiBaseUrl}/api/auth/${action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timeout);
+  }
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) {
     throw new Error("Auth API returned non-JSON");
@@ -220,6 +219,9 @@ function authenticateLocally(action: "login" | "register", username: string, pas
   const existing = users.find(item => item.username === username);
   if (action === "register" && existing) {
     return { ok: false, error: "账号已存在，请直接登录" };
+  }
+  if (action === "login" && !existing) {
+    return { ok: false, error: "账号不存在，请先注册" };
   }
   const now = new Date().toISOString();
   const user = existing || {

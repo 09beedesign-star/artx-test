@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Eye, EyeOff, Mail, Sparkles, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -15,6 +15,12 @@ export default function LoginRegisterDialog() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!loginModalOpen) return;
+    setError("");
+    setSubmitting(false);
+  }, [loginModalOpen]);
 
   if (!loginModalOpen) return null;
 
