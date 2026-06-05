@@ -10,8 +10,21 @@ export interface WorkspaceHistoryProject {
 
 const STORAGE_KEY = "artx:workspace-project-history";
 const SESSION_FALLBACK_KEY = "artx:workspace-project-history:fallback";
+const REAL_WORKSPACE_RESET_KEY = "artx:workspace-project-history:reset-real-start-20260606";
 const MAX_HISTORY_PROJECTS = 40;
 const MAX_COVER_LENGTH = 180_000;
+
+function isRealWorkspaceProjectId(id: string) {
+  return id.startsWith("canvas-");
+}
+
+function ensureRealWorkspaceHistoryReset() {
+  if (typeof window === "undefined") return;
+  if (window.localStorage.getItem(REAL_WORKSPACE_RESET_KEY) === "1") return;
+  window.localStorage.removeItem(STORAGE_KEY);
+  window.sessionStorage.removeItem(SESSION_FALLBACK_KEY);
+  window.localStorage.setItem(REAL_WORKSPACE_RESET_KEY, "1");
+}
 
 function formatTimestamp(date = new Date()) {
   const pad = (value: number) => String(value).padStart(2, "0");
@@ -35,13 +48,14 @@ function sortWorkspaceProjectHistory(projects: WorkspaceHistoryProject[]) {
 
 export function readWorkspaceProjectHistory(): WorkspaceHistoryProject[] {
   if (typeof window === "undefined") return [];
+  ensureRealWorkspaceHistoryReset();
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY) || window.sessionStorage.getItem(SESSION_FALLBACK_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     const projects = parsed.filter((item): item is WorkspaceHistoryProject => {
-      return Boolean(item && typeof item.id === "string" && typeof item.title === "string");
+      return Boolean(item && typeof item.id === "string" && typeof item.title === "string" && isRealWorkspaceProjectId(item.id));
     }).map(normalizeWorkspaceHistoryProject);
     return sortWorkspaceProjectHistory(projects);
   } catch {
@@ -94,11 +108,13 @@ function writeWorkspaceProjectHistory(projects: WorkspaceHistoryProject[]) {
 }
 
 export function upsertWorkspaceProjectHistory(project: WorkspaceHistoryProject) {
+  if (!isRealWorkspaceProjectId(project.id)) return;
   const projects = readWorkspaceProjectHistory().filter(item => item.id !== project.id);
   writeWorkspaceProjectHistory([normalizeWorkspaceHistoryProject(project), ...projects]);
 }
 
 export function updateWorkspaceProjectHistory(id: string, patch: Partial<WorkspaceHistoryProject>) {
+  if (!isRealWorkspaceProjectId(id)) return;
   const projects = readWorkspaceProjectHistory();
   const existingIndex = projects.findIndex(item => item.id === id);
   if (existingIndex >= 0) {
@@ -121,6 +137,7 @@ export function updateWorkspaceProjectHistory(id: string, patch: Partial<Workspa
 }
 
 export function touchWorkspaceProjectHistory(id: string) {
+  if (!isRealWorkspaceProjectId(id)) return;
   updateWorkspaceProjectHistory(id, { updatedAt: formatTimestamp() });
 }
 

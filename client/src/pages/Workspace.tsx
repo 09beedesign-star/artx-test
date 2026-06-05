@@ -7,18 +7,24 @@
 import { useState } from "react";
 import TopBar from "@/components/workspace/TopBar";
 import InfiniteCanvas from "@/components/canvas/InfiniteCanvas";
-import { BG_GLOW, PROJECTS } from "@/lib/workspace-data";
+import { BG_GLOW } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
 import { readWorkspaceProjectHistory } from "@/lib/project-history";
 
-export default function Workspace({ projectId = "p1" }: { projectId?: string }) {
+export default function Workspace({ projectId = "" }: { projectId?: string }) {
   const [activeProjectId] = useState(projectId);
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-  const historyProject = readWorkspaceProjectHistory().find(project => project.id === activeProjectId);
-  const currentProject = historyProject || PROJECTS.find(project => project.id === activeProjectId) || PROJECTS[0];
-  const currentProjectMeta = currentProject as typeof currentProject & { createdAt?: string };
-  const projectCreatedAt = currentProjectMeta.createdAt || currentProject.updatedAt;
+  const isRealProject = activeProjectId.startsWith("canvas-");
+  const canvasProjectId = isRealProject ? activeProjectId : "__blank-workspace__";
+  const historyProject = isRealProject ? readWorkspaceProjectHistory().find(project => project.id === activeProjectId) : undefined;
+  const currentProject = historyProject || {
+    id: activeProjectId,
+    title: "空白画布",
+    updatedAt: "",
+    createdAt: "",
+  };
+  const projectCreatedAt = currentProject.createdAt || currentProject.updatedAt;
 
   return (
     <div
@@ -50,7 +56,7 @@ export default function Workspace({ projectId = "p1" }: { projectId?: string }) 
 
       {/* Full-width canvas */}
       <div className="flex flex-1 overflow-hidden" style={{ position: "relative", zIndex: 1 }}>
-        <InfiniteCanvas projectId={activeProjectId} />
+        <InfiniteCanvas projectId={canvasProjectId} />
       </div>
     </div>
   );
