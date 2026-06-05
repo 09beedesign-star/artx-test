@@ -17,7 +17,6 @@ import {
   FolderOpen, Clock,
 } from "lucide-react";
 import { toast } from "sonner";
-import { POSTER_1, POSTER_2, BRAND_KIT, SOCIAL_AD } from "@/lib/workspace-data";
 import {
   createWorkspaceHistoryProject,
   readWorkspaceProjectHistory,
@@ -50,14 +49,6 @@ function fromHistoryProject(project: WorkspaceHistoryProject): WsProject {
     createdAt: project.createdAt,
   };
 }
-
-const INITIAL_PROJECTS: WsProject[] = [
-  { id: "p1", title: "跑鞋产品页", cover: POSTER_2, updatedAt: "2 小时前", nodeCount: 8 },
-  { id: "p2", title: "咖啡品牌系统", cover: BRAND_KIT, updatedAt: "昨天", nodeCount: 12 },
-  { id: "p3", title: "时尚大片海报", cover: POSTER_1, updatedAt: "3 天前", nodeCount: 5 },
-  { id: "p4", title: "科技产品广告", cover: SOCIAL_AD, updatedAt: "上周", nodeCount: 7 },
-  { id: "p5", title: "登山品牌视频", cover: null, updatedAt: "2 周前", nodeCount: 3 },
-];
 
 // ── Inline Dropdown Menu ───────────────────────────────────────
 function CardMenu({
@@ -319,7 +310,7 @@ export default function WorkspaceDashboard() {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
-  const [projects, setProjects] = useState<WsProject[]>(INITIAL_PROJECTS);
+  const [projects, setProjects] = useState<WsProject[]>([]);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string[] | null>(null);
@@ -330,7 +321,7 @@ export default function WorkspaceDashboard() {
 
   useEffect(() => {
     const historyProjects = readWorkspaceProjectHistory().map(fromHistoryProject);
-    setProjects([...historyProjects, ...INITIAL_PROJECTS.filter(project => !historyProjects.some(item => item.id === project.id))]);
+    setProjects(historyProjects);
   }, []);
 
   const handleCreate = useCallback((payload: CreateProjectPayload) => {
