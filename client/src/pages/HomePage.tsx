@@ -129,6 +129,15 @@ const PROMPT_SUGGESTIONS = [
 
 const HOME_TYPEWRITER_PROMPT = "hello，欢迎来到。ArtX,正式开启你的。灵感AI创意之旅吧！";
 
+function getHomeRecentProjects() {
+  return readWorkspaceProjectHistory()
+    .filter(project => {
+      const title = project.title.trim();
+      return title !== "新建画布";
+    })
+    .slice(0, 5);
+}
+
 // ── artx-style AI Input Box ──────────────────────────────────
 function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: string) => void }) {
   const [value, setValue] = useState("");
@@ -394,12 +403,12 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!isAuthenticated) return;
-    setRecentProjects(readWorkspaceProjectHistory());
+    setRecentProjects(getHomeRecentProjects());
   }, [isAuthenticated]);
 
   const handleRecentProjectOpen = (projectId: string) => {
     touchWorkspaceProjectHistory(projectId);
-    setRecentProjects(readWorkspaceProjectHistory());
+    setRecentProjects(getHomeRecentProjects());
     navigate(`/project/${projectId}`);
   };
 
