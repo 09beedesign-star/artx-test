@@ -419,6 +419,43 @@ async function returnOriginalImageAsTransparentPng(buffer: Buffer): Promise<{ im
   };
 }
 
+async function removeBackgroundByConservativeEdgeColor(buffer: Buffer): Promise<{ images: GeneratedImage[] }> {
+  const sharp = (await import("sharp")).default;
+  const { data, info } = await sharp(buffer, { limitInputPixels: false })
+    .rotate()
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const width = info.width;
+  const height = info.height;
+  const output = Buffer.from(data);
+  const backgroundMask = createConnectedEdgeBackgroundMask(output, width, height, 30);
+
+  let transparentPixels = 0;
+  for (let pixel = 0; pixel < backgroundMask.length; pixel += 1) {
+    if (!backgroundMask[pixel]) continue;
+    output[pixel * 4 + 3] = 0;
+    transparentPixels += 1;
+  }
+
+  if (transparentPixels / (width * height) < 0.01) {
+    throw new Error("Edge-color fallback did not find removable background");
+  }
+
+  const png = await sharp(output, {
+    raw: { width, height, channels: 4 },
+    limitInputPixels: false,
+  }).png().toBuffer();
+
+  return {
+    images: [{
+      src: `data:image/png;base64,${png.toString("base64")}`,
+      width,
+      height,
+    }],
+  };
+}
+
 async function applyConservativeAlphaMaskToOriginalImage(originalBuffer: Buffer, maskPngBuffer: Buffer): Promise<{ images: GeneratedImage[] }> {
   const sharp = (await import("sharp")).default;
   const { data: originalData, info: originalInfo } = await sharp(originalBuffer, { limitInputPixels: false })
@@ -458,8 +495,8 @@ async function applyConservativeAlphaMaskToOriginalImage(originalBuffer: Buffer,
 
   const totalPixels = originalInfo.width * originalInfo.height;
   if (transparentPixels / totalPixels < 0.03) {
-    console.warn("Background removal produced little transparent area; returning the direct segmentation result");
-    return normalizeTransparentPng(maskPngBuffer);
+    console.warn("Background removal produced little transparent area; using edge-color fallback");
+    return removeBackgroundByConservativeEdgeColor(originalBuffer);
   }
 
   const png = await sharp(output, {
@@ -533,7 +570,8 @@ async function applyRawAlphaMaskToOriginalImage(originalBuffer: Buffer, alphaMas
   }
 
   if (transparentPixels / totalPixels < 0.03) {
-    throw new Error("Alpha mask did not remove enough background");
+    console.warn("Raw alpha mask did not remove enough background; using edge-color fallback");
+    return removeBackgroundByConservativeEdgeColor(originalBuffer);
   }
 
   const png = await sharp(output, {
@@ -579,8 +617,13 @@ async function removeBackgroundPreservingForegroundPixels(src: string): Promise<
     const png = Buffer.from(await blob.arrayBuffer());
     return applyConservativeAlphaMaskToOriginalImage(buffer, png);
   } catch (error) {
-    console.warn("Segmentation background removal failed, preserving original image instead of risking foreground loss", error);
-    return returnOriginalImageAsTransparentPng(buffer);
+    console.warn("Segmentation background removal failed, using edge-color fallback", error);
+    try {
+      return await removeBackgroundByConservativeEdgeColor(buffer);
+    } catch (fallbackError) {
+      console.warn("Edge-color background removal failed, preserving original image", fallbackError);
+      return returnOriginalImageAsTransparentPng(buffer);
+    }
   }
 }
 
