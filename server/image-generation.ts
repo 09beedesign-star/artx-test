@@ -438,35 +438,28 @@ async function applyConservativeAlphaMaskToOriginalImage(originalBuffer: Buffer,
   const protectedForeground = new Uint8Array(originalInfo.width * originalInfo.height);
   for (let index = 0; index < maskData.length; index += 4) {
     const pixel = index / 4;
-    if (maskData[index + 3] >= 12) protectedForeground[pixel] = 1;
+    if (maskData[index + 3] >= 192) protectedForeground[pixel] = 1;
   }
   const expandedProtectedForeground = dilateBinaryMask(
     protectedForeground,
     originalInfo.width,
     originalInfo.height,
-    Math.max(3, Math.round(Math.min(originalInfo.width, originalInfo.height) * 0.008)),
-  );
-  const edgeBackgroundMask = createConnectedEdgeBackgroundMask(
-    output,
-    originalInfo.width,
-    originalInfo.height,
-    18,
+    Math.max(2, Math.round(Math.min(originalInfo.width, originalInfo.height) * 0.004)),
   );
   let transparentPixels = 0;
   for (let index = 0; index < output.length; index += 4) {
     const pixel = index / 4;
     const protectedBySegmentation = expandedProtectedForeground[pixel] === 1;
-    const segmentationSaysDefiniteBackground = maskData[index + 3] <= 2;
-    const edgeSaysBackground = edgeBackgroundMask[pixel] === 1;
-    const shouldRemove = segmentationSaysDefiniteBackground && edgeSaysBackground && !protectedBySegmentation;
-    output[index + 3] = shouldRemove ? 0 : originalData[index + 3];
-    if (shouldRemove) transparentPixels += 1;
+    const modelAlpha = maskData[index + 3];
+    const nextAlpha = protectedBySegmentation ? originalData[index + 3] : Math.min(originalData[index + 3], modelAlpha);
+    output[index + 3] = nextAlpha;
+    if (nextAlpha < 8) transparentPixels += 1;
   }
 
   const totalPixels = originalInfo.width * originalInfo.height;
-  if (transparentPixels / totalPixels > 0.92) {
-    console.warn("Background removal skipped because the mask would remove nearly the whole image");
-    return returnOriginalImageAsTransparentPng(originalBuffer);
+  if (transparentPixels / totalPixels < 0.03) {
+    console.warn("Background removal produced little transparent area; returning the direct segmentation result");
+    return normalizeTransparentPng(maskPngBuffer);
   }
 
   const png = await sharp(output, {
@@ -479,6 +472,27 @@ async function applyConservativeAlphaMaskToOriginalImage(originalBuffer: Buffer,
       src: `data:image/png;base64,${png.toString("base64")}`,
       width: originalInfo.width,
       height: originalInfo.height,
+    }],
+  };
+}
+
+async function normalizeTransparentPng(buffer: Buffer): Promise<{ images: GeneratedImage[] }> {
+  const sharp = (await import("sharp")).default;
+  const { data, info } = await sharp(buffer, { limitInputPixels: false })
+    .rotate()
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const png = await sharp(data, {
+    raw: { width: info.width, height: info.height, channels: 4 },
+    limitInputPixels: false,
+  }).png().toBuffer();
+
+  return {
+    images: [{
+      src: `data:image/png;base64,${png.toString("base64")}`,
+      width: info.width,
+      height: info.height,
     }],
   };
 }
