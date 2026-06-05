@@ -48,7 +48,7 @@ import {
   Triangle, Pencil, MessageCircle, Star, Minus as MinusIcon,
   BadgeCheck, ScanSearch, Move, PanelTopOpen, ImageOff, Check,
   WandSparkles,
-  Shirt, Expand, Frame, RotateCw,
+  Shirt, Expand, Frame, RotateCw, MapPin, PlusCircle,
 } from "lucide-react";
 
 // 「井号 + 方框」图标 — 创建画布专用
@@ -1238,6 +1238,69 @@ const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
   { id: "pinduoduo-main-square", platform: "拼多多", title: "主图方版", width: 800, height: 800, tone: "oklch(0.72 0.20 28)" },
 ];
 
+function SocialPlatformIcon({ platform, size = 22 }: { platform: string; size?: number }) {
+  const common = {
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    xmlns: "http://www.w3.org/2000/svg",
+    "aria-hidden": true,
+  };
+  const fill = "rgba(255,255,255,0.96)";
+  const stroke = "rgba(255,255,255,0.96)";
+  const strokeProps = { stroke, strokeWidth: 1.9, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+
+  if (platform === "小红书") return (
+    <svg {...common}><rect x="4" y="4" width="16" height="16" rx="4" fill={fill} /><path d="M8 9h8M8 13h8M9 17h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" style={{ color: "rgba(0,0,0,0.22)" }} /></svg>
+  );
+  if (platform === "抖音" || platform === "TikTok") return (
+    <svg {...common}><path d="M14 4v9.2a4.2 4.2 0 1 1-3.2-4.1V12a1.8 1.8 0 1 0 1.2 1.7V4h2z" fill={fill} /><path d="M14 5.5c1.2 2 2.6 3 4.5 3.2v2.4c-2-.1-3.5-.8-4.5-1.8V5.5z" fill={fill} /></svg>
+  );
+  if (platform === "视频号" || platform === "公众号") return (
+    <svg {...common}><path d="M5 8.5c0-2 1.9-3.7 4.3-3.7 1.6 0 3 .7 3.8 1.8.5-.2 1.1-.3 1.7-.3 2.3 0 4.2 1.6 4.2 3.7s-1.9 3.7-4.2 3.7h-.4l-2.1 2.2.4-2.6a4.6 4.6 0 0 1-1.3-.9c-.6.2-1.3.3-2 .3h-.6l-2.5 2.4.6-2.9A4.1 4.1 0 0 1 5 8.5z" fill={fill} /><circle cx="8.7" cy="8.8" r=".8" fill="rgba(0,0,0,0.22)" /><circle cx="12.4" cy="8.8" r=".8" fill="rgba(0,0,0,0.22)" /></svg>
+  );
+  if (platform === "快手") return (
+    <svg {...common}><rect x="5" y="7" width="12" height="10" rx="3" fill={fill} /><circle cx="8.2" cy="5.8" r="2" fill={fill} /><circle cx="13" cy="5.8" r="2" fill={fill} /><path d="m17 11 3-2v6l-3-2v-2z" fill={fill} /><circle cx="9.3" cy="12" r="1.2" fill="rgba(0,0,0,0.22)" /><circle cx="13.2" cy="12" r="1.2" fill="rgba(0,0,0,0.22)" /></svg>
+  );
+  if (platform === "B站") return (
+    <svg {...common}><rect x="4" y="7" width="16" height="12" rx="3" fill={fill} /><path d="m8 4 2.5 3M16 4l-2.5 3" {...strokeProps} /><circle cx="9.5" cy="13" r="1" fill="rgba(0,0,0,0.22)" /><circle cx="14.5" cy="13" r="1" fill="rgba(0,0,0,0.22)" /></svg>
+  );
+  if (platform === "微博") return (
+    <svg {...common}><ellipse cx="11" cy="13" rx="7" ry="5" fill={fill} /><circle cx="9" cy="12.5" r="1.1" fill="rgba(0,0,0,0.22)" /><circle cx="13" cy="12.5" r="1.1" fill="rgba(0,0,0,0.22)" /><path d="M15.8 6.2c1.7.3 2.9 1.4 3.3 3M16.3 3.4c3 .6 5 2.7 5.5 5.7" {...strokeProps} /></svg>
+  );
+  if (platform === "Facebook") return (
+    <svg {...common}><path d="M14 8.2h2.2V5h-2.6c-2.8 0-4.4 1.7-4.4 4.3V12H7v3.2h2.2V21H13v-5.8h2.8l.5-3.2H13V9.7c0-.9.4-1.5 1-1.5z" fill={fill} /></svg>
+  );
+  if (platform === "X") return (
+    <svg {...common}><path d="M4 4h4.7l4.2 5.6L17.7 4H21l-6.5 7.6L21 20h-4.7l-4.6-6.1L6.5 20H3.2l7-8.1L4 4zm3 2.2 10.5 11.6H18L7.6 6.2H7z" fill={fill} /></svg>
+  );
+  if (platform === "Instagram") return (
+    <svg {...common}><rect x="5" y="5" width="14" height="14" rx="4" fill={fill} /><circle cx="12" cy="12" r="3.1" fill="none" stroke="rgba(0,0,0,0.22)" strokeWidth="1.8" /><circle cx="16.2" cy="7.8" r="1" fill="rgba(0,0,0,0.22)" /></svg>
+  );
+  if (platform === "LinkedIn") return (
+    <svg {...common}><rect x="4" y="4" width="16" height="16" rx="3" fill={fill} /><rect x="7" y="10" width="2.4" height="7" fill="rgba(0,0,0,0.22)" /><circle cx="8.2" cy="7.6" r="1.3" fill="rgba(0,0,0,0.22)" /><path d="M11.2 10h2.2v1c.5-.7 1.2-1.2 2.2-1.2 1.7 0 2.7 1.2 2.7 3.3V17h-2.4v-3.5c0-1-.5-1.6-1.2-1.6s-1.2.5-1.2 1.6V17h-2.3v-7z" fill="rgba(0,0,0,0.22)" /></svg>
+  );
+  if (platform === "YouTube") return (
+    <svg {...common}><rect x="3.5" y="7" width="17" height="10" rx="3" fill={fill} /><path d="m10.5 10 4 2-4 2v-4z" fill="rgba(0,0,0,0.24)" /></svg>
+  );
+  if (platform === "Pinterest") return (
+    <svg {...common}><circle cx="12" cy="12" r="8.5" fill={fill} /><path d="M11.1 15.2c-.4 1.7-.8 3.1-1.8 4.4-.2-1.6-.3-3.1.2-4.8l1.1-4.5s-.3-.6-.3-1.4c0-1.3.8-2.3 1.8-2.3.8 0 1.2.6 1.2 1.4 0 .9-.6 2.2-.9 3.4-.2 1 .5 1.8 1.5 1.8 1.8 0 3-2.2 3-4.8 0-2-1.3-3.5-3.8-3.5-2.8 0-4.5 2.1-4.5 4.4 0 .8.2 1.4.6 1.9.2.2.2.3.1.6l-.2.8c-.1.3-.3.4-.6.3-1.3-.5-1.9-1.9-1.9-3.5 0-2.6 2.2-5.8 6.7-5.8 3.6 0 6 2.6 6 5.4 0 3.7-2.1 6.5-5.2 6.5-1 0-2-.5-2.4-1.1l-.6 2.8z" fill="rgba(0,0,0,0.22)" transform="scale(.78) translate(3.4 1.7)" /></svg>
+  );
+  if (platform === "亚马逊") return (
+    <svg {...common}><path d="M5 7.5h14l-1.2 11H6.2L5 7.5z" fill={fill} /><path d="M9 7.5a3 3 0 0 1 6 0" {...strokeProps} /><path d="M8 14c2.4 1.7 5.4 1.7 8 0" stroke="rgba(0,0,0,0.24)" strokeWidth="1.6" strokeLinecap="round" /></svg>
+  );
+  if (platform === "虾皮") return (
+    <svg {...common}><path d="M6 8h12l-1 11H7L6 8z" fill={fill} /><path d="M9 8a3 3 0 0 1 6 0" {...strokeProps} /><path d="M10 15.4c.7.5 1.5.8 2.4.8 1.1 0 1.8-.5 1.8-1.2 0-.8-.7-1.1-1.9-1.5-1.2-.4-2.1-.9-2.1-2s.9-2 2.3-2c.8 0 1.5.2 2.1.6" stroke="rgba(0,0,0,0.24)" strokeWidth="1.35" strokeLinecap="round" /></svg>
+  );
+  if (platform === "淘宝 / 天猫" || platform === "京东" || platform === "拼多多") return (
+    <svg {...common}><rect x="4" y="6" width="16" height="13" rx="3" fill={fill} /><path d="M8 6a4 4 0 0 1 8 0" {...strokeProps} /><path d="M8 13h8M10 10h4M10 16h4" stroke="rgba(0,0,0,0.22)" strokeWidth="1.5" strokeLinecap="round" /></svg>
+  );
+  return (
+    <svg {...common}><rect x="5" y="5" width="14" height="14" rx="4" fill={fill} /><path d="M8 13.5 10.5 11l2.1 2.1 2.9-3.2L18 13.5V17H6v-3.5h2z" fill="rgba(0,0,0,0.22)" /></svg>
+  );
+}
+
 const DEFAULT_ASSET_ADJUSTMENTS: AssetAdjustmentValues = {
   color: 0,
   brightness: 0,
@@ -1572,13 +1635,16 @@ function SocialMediaSizePanel({
                 }}
                 onClick={() => togglePreset(preset.id)}
               >
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[var(--radius-md-design)]" style={{ background: preset.tone }}>
+                <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-[var(--radius-md-design)]" style={{ background: preset.tone }}>
+                  <SocialPlatformIcon platform={preset.platform} />
                   <div
+                    className="absolute bottom-1 right-1"
                     style={{
-                      width: preset.width >= preset.height ? 34 : Math.max(16, Math.round(34 * preset.width / preset.height)),
-                      height: preset.height >= preset.width ? 34 : Math.max(16, Math.round(34 * preset.height / preset.width)),
-                      borderRadius: 4,
-                      border: "2px solid rgba(255,255,255,0.86)",
+                      width: preset.width >= preset.height ? 14 : Math.max(7, Math.round(14 * preset.width / preset.height)),
+                      height: preset.height >= preset.width ? 14 : Math.max(7, Math.round(14 * preset.height / preset.width)),
+                      borderRadius: 2,
+                      border: "1.5px solid rgba(255,255,255,0.9)",
+                      background: "rgba(255,255,255,0.16)",
                     }}
                   />
                 </div>
@@ -2000,14 +2066,29 @@ interface Annotation {
   color?: string;
 }
 
+type GlobalAnnotation = Annotation & { nodeId: string };
+
+type AnnotationReference = {
+  id: string;
+  nodeId: string;
+  title: string;
+  src: string;
+  x: number;
+  y: number;
+  text: string;
+};
+
 // ── AnnotationBubble 组件 ──
 function AnnotationBubble({
-  ann, isDark, onUpdate, onRemove
+  ann, isDark, onUpdate, onRemove, onAiEdit, onAddReference, isReferenceActive
 }: {
   ann: Annotation;
   isDark: boolean;
   onUpdate: (id: string, patch: Partial<Annotation>) => void;
   onRemove: (id: string) => void;
+  onAiEdit: (id: string, text: string) => void;
+  onAddReference: (id: string, text: string) => void;
+  isReferenceActive?: boolean;
 }) {
   const [draft, setDraft] = useState(ann.text);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
