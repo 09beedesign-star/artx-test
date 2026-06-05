@@ -21,6 +21,7 @@ import {
   createWorkspaceHistoryProject,
   readWorkspaceProjectHistory,
   removeWorkspaceProjectHistory,
+  touchWorkspaceProjectHistory,
   updateWorkspaceProjectHistory,
   upsertWorkspaceProjectHistory,
   type WorkspaceHistoryProject,
@@ -386,6 +387,12 @@ export default function WorkspaceDashboard() {
     toast(`已删除 ${deleteConfirm.length} 个项目`);
   }, [deleteConfirm]);
 
+  const handleOpenProject = useCallback((id: string) => {
+    touchWorkspaceProjectHistory(id);
+    setProjects(readWorkspaceProjectHistory().map(fromHistoryProject));
+    navigate(`/project/${id}`);
+  }, [navigate]);
+
   return (
     <div className="flex flex-col h-screen overflow-hidden" style={{ background: bg, transition: "background 0.25s ease" }}>
       <TopBar credits={0} onNewProjectClick={() => setShowCreate(true)} onCreateProject={handleCreate} />
@@ -409,7 +416,7 @@ export default function WorkspaceDashboard() {
                 project={project}
                 renaming={renamingId === project.id}
                 isDark={isDark}
-                onOpen={() => navigate(`/project/${project.id}`)}
+                onOpen={() => handleOpenProject(project.id)}
                 onRename={() => setRenamingId(project.id)}
                 onDuplicate={() => handleDuplicate(project.id)}
                 onDelete={() => handleDelete([project.id])}
