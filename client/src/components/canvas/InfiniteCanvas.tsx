@@ -1352,7 +1352,10 @@ function SocialMediaSizePanel({
   const [customWidth, setCustomWidth] = useState(1080);
   const [customHeight, setCustomHeight] = useState(1080);
   const [crop, setCrop] = useState({ x: 0, y: 0, width: 1, height: 1 });
+  const [cropEditMode, setCropEditMode] = useState(false);
+  const [naturalSize, setNaturalSize] = useState({ width: 1080, height: 1080 });
   const dragRef = useRef<null | {
+    mode: "pan" | "move" | "left" | "right" | "top" | "bottom";
     startX: number;
     startY: number;
     startCrop: SocialMediaExportPayload["crop"];
@@ -1367,13 +1370,45 @@ function SocialMediaSizePanel({
   const validCustom = customEnabled && customWidth >= 64 && customHeight >= 64;
   const canGenerate = selectedPresets.length > 0 || validCustom;
 
+  useEffect(() => {
+    if (!imageSrc) return;
+    let cancelled = false;
+    loadImageForCanvas(imageSrc)
+      .then(image => {
+        if (!cancelled) setNaturalSize({
+          width: Math.max(1, image.naturalWidth || image.width),
+          height: Math.max(1, image.naturalHeight || image.height),
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [imageSrc]);
+
+  useEffect(() => {
+    if (!cropEditMode) return;
+    setCustomEnabled(true);
+    setCustomWidth(Math.max(64, Math.round(naturalSize.width * crop.width)));
+    setCustomHeight(Math.max(64, Math.round(naturalSize.height * crop.height)));
+  }, [crop, cropEditMode, naturalSize.height, naturalSize.width]);
+
   const togglePreset = (id: string) => {
     setSelectedPresetIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]);
   };
 
   const handleCropPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
-    dragRef.current = { startX: event.clientX, startY: event.clientY, startCrop: crop, bounds };
+    dragRef.current = { mode: cropEditMode ? "move" : "pan", startX: event.clientX, startY: event.clientY, startCrop: crop, bounds };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handleCropHandlePointerDown = (event: React.PointerEvent<HTMLDivElement>, mode: "left" | "right" | "top" | "bottom") => {
+    event.preventDefault();
+    event.stopPropagation();
+    const bounds = event.currentTarget.parentElement?.parentElement?.getBoundingClientRect();
+    if (!bounds) return;
+    dragRef.current = { mode, startX: event.clientX, startY: event.clientY, startCrop: crop, bounds };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
@@ -1382,10 +1417,34 @@ function SocialMediaSizePanel({
     if (!drag) return;
     const dx = (event.clientX - drag.startX) / Math.max(1, drag.bounds.width);
     const dy = (event.clientY - drag.startY) / Math.max(1, drag.bounds.height);
-    setCrop({
-      ...drag.startCrop,
-      x: Math.max(0, Math.min(1 - drag.startCrop.width, drag.startCrop.x + dx)),
-      y: Math.max(0, Math.min(1 - drag.startCrop.height, drag.startCrop.y + dy)),
+    const minSize = 0.08;
+    if (drag.mode === "pan" || drag.mode === "move") {
+      setCrop({
+        ...drag.startCrop,
+        x: Math.max(0, Math.min(1 - drag.startCrop.width, drag.startCrop.x + dx)),
+        y: Math.max(0, Math.min(1 - drag.startCrop.height, drag.startCrop.y + dy)),
+      });
+      return;
+    }
+    setCrop(() => {
+      const next = { ...drag.startCrop };
+      if (drag.mode === "left") {
+        const nextX = Math.max(0, Math.min(drag.startCrop.x + drag.startCrop.width - minSize, drag.startCrop.x + dx));
+        next.width = drag.startCrop.width + drag.startCrop.x - nextX;
+        next.x = nextX;
+      }
+      if (drag.mode === "right") {
+        next.width = Math.max(minSize, Math.min(1 - drag.startCrop.x, drag.startCrop.width + dx));
+      }
+      if (drag.mode === "top") {
+        const nextY = Math.max(0, Math.min(drag.startCrop.y + drag.startCrop.height - minSize, drag.startCrop.y + dy));
+        next.height = drag.startCrop.height + drag.startCrop.y - nextY;
+        next.y = nextY;
+      }
+      if (drag.mode === "bottom") {
+        next.height = Math.max(minSize, Math.min(1 - drag.startCrop.y, drag.startCrop.height + dy));
+      }
+      return next;
     });
   };
 
@@ -1396,11 +1455,24 @@ function SocialMediaSizePanel({
   return (
     <div
       className="absolute nodrag nopan rounded-[var(--radius-lg-design)] shadow-2xl"
-      style={{ right: 24, top: 82, width: 420, background: bg, border: `1px solid ${border}`, backdropFilter: "blur(20px)", zIndex: 2300, overflow: "hidden" }}
+      style={{
+        right: 24,
+        top: 64,
+        width: 420,
+        height: "min(820px, calc(100vh - 92px))",
+        minHeight: "min(600px, calc(100vh - 92px))",
+        display: "flex",
+        flexDirection: "column",
+        background: bg,
+        border: `1px solid ${border}`,
+        backdropFilter: "blur(20px)",
+        zIndex: 2300,
+        overflow: "hidden",
+      }}
       onMouseDown={e => e.stopPropagation()}
       onClick={e => e.stopPropagation()}
     >
-      <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: `1px solid ${border}` }}>
+      <div className="flex shrink-0 items-center justify-between px-4 py-3" style={{ borderBottom: `1px solid ${border}` }}>
         <div>
           <p style={{ color: text, fontSize: 14, fontWeight: 650 }}>社媒平台尺寸</p>
           <p style={{ color: sub, fontSize: 11, marginTop: 2 }}>选择一个或多个平台尺寸，生成对应规格的新图片节点。</p>
@@ -1410,7 +1482,7 @@ function SocialMediaSizePanel({
         </button>
       </div>
 
-      <div className="max-h-[70vh] overflow-y-auto p-3" style={{ scrollbarWidth: "thin" }}>
+      <div className="min-h-0 flex-1 overflow-y-auto p-3" style={{ scrollbarWidth: "thin" }}>
         <div
           className="relative mb-3 overflow-hidden rounded-[var(--radius-md-design)]"
           style={{ aspectRatio: "16/10", background: field, border: `1px solid ${border}` }}
@@ -1423,8 +1495,27 @@ function SocialMediaSizePanel({
             <img src={imageSrc} alt="尺寸裁切预览" draggable={false} className="absolute object-cover" style={getSocialPreviewCropStyle(crop)} />
           ) : null}
           <div className="absolute inset-0 pointer-events-none" style={{ boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.26)" }} />
+          {cropEditMode && (
+            <div
+              className="absolute cursor-move"
+              style={{
+                left: `${crop.x * 100}%`,
+                top: `${crop.y * 100}%`,
+                width: `${crop.width * 100}%`,
+                height: `${crop.height * 100}%`,
+                border: "2px solid rgba(255,255,255,0.95)",
+                boxShadow: "0 0 0 999px rgba(0,0,0,0.36), 0 0 0 1px rgba(108,92,231,0.85)",
+              }}
+            >
+              <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: "linear-gradient(to right, rgba(255,255,255,0.36) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.36) 1px, transparent 1px)", backgroundSize: "33.333% 33.333%" }} />
+              <div className="absolute -left-1.5 top-0 h-full w-3 cursor-ew-resize" onPointerDown={event => handleCropHandlePointerDown(event, "left")} />
+              <div className="absolute -right-1.5 top-0 h-full w-3 cursor-ew-resize" onPointerDown={event => handleCropHandlePointerDown(event, "right")} />
+              <div className="absolute -top-1.5 left-0 h-3 w-full cursor-ns-resize" onPointerDown={event => handleCropHandlePointerDown(event, "top")} />
+              <div className="absolute -bottom-1.5 left-0 h-3 w-full cursor-ns-resize" onPointerDown={event => handleCropHandlePointerDown(event, "bottom")} />
+            </div>
+          )}
           <div className="absolute bottom-2 left-2 rounded-[var(--radius-md-design)] px-2 py-1" style={{ background: "rgba(0,0,0,0.42)", color: "white", fontSize: 11 }}>
-            拖拽图片选择需要显示的内容
+            {cropEditMode ? "拖拽裁切框或边缘调整裁切尺寸" : "拖拽图片选择需要显示的内容"}
           </div>
         </div>
 
@@ -1464,10 +1555,29 @@ function SocialMediaSizePanel({
         </div>
 
         <div className="mt-3 rounded-[var(--radius-md-design)] p-3" style={{ background: field, border: `1px solid ${border}` }}>
-          <label className="mb-2 flex items-center gap-2" style={{ color: text, fontSize: 12, fontWeight: 650 }}>
-            <input type="checkbox" checked={customEnabled} onChange={event => setCustomEnabled(event.target.checked)} />
-            自定义尺寸
-          </label>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <label className="flex items-center gap-2" style={{ color: text, fontSize: 12, fontWeight: 650 }}>
+              <input type="checkbox" checked={customEnabled} onChange={event => setCustomEnabled(event.target.checked)} />
+              自定义尺寸
+            </label>
+            <button
+              type="button"
+              className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-md-design)] transition-all active:scale-95"
+              title="裁切尺寸"
+              aria-label="裁切尺寸"
+              style={{
+                background: cropEditMode ? "oklch(0.58 0.22 290 / 0.18)" : isDark ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.72)",
+                color: cropEditMode ? "oklch(0.72 0.20 290)" : text,
+                border: `1px solid ${cropEditMode ? "oklch(0.62 0.22 290 / 0.56)" : border}`,
+              }}
+              onClick={() => {
+                setCropEditMode(prev => !prev);
+                setCustomEnabled(true);
+              }}
+            >
+              <Crop size={15} />
+            </button>
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <label style={{ color: sub, fontSize: 11 }}>
               宽度
@@ -1499,7 +1609,7 @@ function SocialMediaSizePanel({
         </div>
       </div>
 
-      <div className="flex gap-2 px-3 py-3" style={{ borderTop: `1px solid ${border}` }}>
+      <div className="flex shrink-0 gap-2 px-3 py-3" style={{ borderTop: `1px solid ${border}`, background: bg }}>
         <button className="h-9 flex-1 rounded-[var(--radius-md-design)] active:scale-95" style={{ background: field, color: text, fontSize: 13, border: `1px solid ${border}` }} onClick={onClose}>
           取消
         </button>
