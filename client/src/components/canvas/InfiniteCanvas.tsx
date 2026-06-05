@@ -76,7 +76,7 @@ import CropEditor from "@/components/canvas/CropEditor";
 import RotateEditor from "@/components/canvas/RotateEditor";
 import { callLLM, editImageWithPrompt, eraseImageObjects, expandImageWithMask, generateImages as generateAiImages, removeImageBackground, searchReferenceImages, type ReferenceImageResult } from "@/lib/ai";
 import { routeCreativeIntent } from "@/lib/ai-intent";
-import { createWorkspaceHistoryProject, updateWorkspaceProjectHistory } from "@/lib/project-history";
+import { createWorkspaceHistoryProject, touchWorkspaceProjectHistory, updateWorkspaceProjectHistory } from "@/lib/project-history";
 
 const ENABLE_NODE_CONNECTIONS = false;
 
@@ -6857,6 +6857,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       didHydrateCanvasStateRef.current = true;
     }));
   }, [projectId, setEdges, setNodes]);
+
+  useEffect(() => {
+    touchWorkspaceProjectHistory(projectId);
+  }, [projectId]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !didHydrateCanvasStateRef.current || isRestoringRef.current) return;
