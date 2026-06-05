@@ -1814,14 +1814,14 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   }, []);
 
   const localSrc = (data as Record<string, unknown>).localSrc as string | undefined;
-  const asset = GENERATED_ASSETS.find(a => a.id === (data.assetId as string)) || GENERATED_ASSETS[0];
+  const asset = GENERATED_ASSETS.find(a => a.id === (data.assetId as string));
   const isGeneratingImage = Boolean((data as { isGeneratingImage?: boolean }).isGeneratingImage);
   const isRemovingBackground = Boolean((data as { isRemovingBackground?: boolean }).isRemovingBackground);
   const isErasingImage = Boolean((data as { isErasingImage?: boolean }).isErasingImage);
   const isExtractingText = Boolean((data as { isExtractingText?: boolean }).isExtractingText);
   const isAiProcessingImage = isGeneratingImage || isRemovingBackground || isErasingImage;
   const processingLabel = isGeneratingImage ? "正在全力生成中" : isErasingImage ? "AI 擦除中" : isRemovingBackground ? "AI 去背景中" : "AI 处理中";
-  const displaySrc = isAiProcessingImage ? "" : (localSrc || asset.src);
+  const displaySrc = isAiProcessingImage ? "" : (localSrc || asset?.src || "");
   const isEditing = !!(data as { isEditing?: boolean }).isEditing;
   const isCropping = !!(data as { isCropping?: boolean }).isCropping;
   const isErasing = !!(data as { isErasing?: boolean }).isErasing;
@@ -1836,7 +1836,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const eraseLastPointRef = useRef<{ x: number; y: number } | null>(null);
   const eraseHasPaintRef = useRef(false);
   const [extractedTextDraft, setExtractedTextDraft] = useState(extractedText);
-  const displayTitle = (data.title as string) || asset.title || "素材节点";
+  const displayTitle = (data.title as string) || asset?.title || "素材节点";
   const rotation = (data.rotation as number) || 0;
   const flipX = Boolean(data.flipX);
   const assetAdjustments = normalizeAssetAdjustments(data.assetAdjustments);
@@ -1856,8 +1856,8 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     : { width: "100%", height: "100%" };
 
   // 初始尺寸：以自然尺寸比例计算
-  const naturalWidth = localSrc ? 720 : Math.max(1, asset.width || 720);
-  const naturalHeight = localSrc ? 960 : Math.max(1, asset.height || 960);
+  const naturalWidth = localSrc ? 720 : Math.max(1, asset?.width || (data.imgW as number) || 260);
+  const naturalHeight = localSrc ? 960 : Math.max(1, asset?.height || (data.imgH as number) || 200);
   const maxNodeSide = 360;
   const minNodeSide = 120;
   const initScale = Math.min(1, maxNodeSide / Math.max(naturalWidth, naturalHeight));
@@ -2458,10 +2458,10 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
               )}
               <span className="type-caption" style={{ fontWeight: 600 }}>{processingLabel}</span>
             </div>
-          ) : (
-            <img
-              src={displaySrc}
-              alt={displayTitle}
+	          ) : displaySrc ? (
+	            <img
+	              src={displaySrc}
+	              alt={displayTitle}
               draggable={false}
               style={{
                 ...imgCropStyle,
@@ -2471,9 +2471,19 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
                 transform: `scaleX(${flipX ? -1 : 1}) rotate(${rotation}deg)`,
                 filter: assetAdjustmentFilter,
                 transition: "transform 0.18s cubic-bezier(0.23,1,0.32,1)",
-              }}
-            />
-          )}
+	              }}
+	            />
+	          ) : (
+	            <div
+	              className="absolute inset-0 flex items-center justify-center px-4 text-center type-caption"
+	              style={{
+	                color: isDark ? "oklch(0.70 0.01 270)" : "oklch(0.42 0.012 255)",
+	                background: isDark ? "oklch(0.16 0.012 270)" : "oklch(0.94 0.006 255)",
+	              }}
+	            >
+	              图片未保存，请重新上传
+	            </div>
+	          )}
           {isCropping && (
             <div className="absolute inset-0 nodrag nopan" style={{ zIndex: 90 }}>
               <div className="absolute inset-0 pointer-events-none" style={{ background: "rgba(0,0,0,0.34)" }} />
@@ -3970,9 +3980,9 @@ function getCanvasNodeSize(node: Node): CanvasNodeSize {
   if (node.type === "asset") {
     const nodeData = node.data as Record<string, unknown>;
     const assetId = nodeData.assetId as string;
-    const asset = GENERATED_ASSETS.find(a => a.id === assetId) || GENERATED_ASSETS[0];
-    const naturalWidth = Math.max(1, asset.width || 720);
-    const naturalHeight = Math.max(1, asset.height || 960);
+	    const asset = GENERATED_ASSETS.find(a => a.id === assetId);
+	    const naturalWidth = Math.max(1, asset?.width || 260);
+	    const naturalHeight = Math.max(1, asset?.height || 200);
     const scale = Math.min(1, 360 / Math.max(naturalWidth, naturalHeight));
     const width = Math.max(180, Math.round(naturalWidth * scale));
     const height = Math.max(120, Math.round(naturalHeight * scale));
@@ -4019,6 +4029,7 @@ const initialNodes: Node[] = [];
 const initialEdges: Edge[] = [];
 
 const CANVAS_STATE_STORAGE_PREFIX = "artx:canvas-state:";
+const CANVAS_STATE_SESSION_PREFIX = "artx:canvas-state:fallback:";
 
 type PersistedCanvasState = {
   nodes: Node[];
@@ -4035,17 +4046,23 @@ function canvasStateStorageKey(projectId: string) {
   return `${CANVAS_STATE_STORAGE_PREFIX}${projectId || "p1"}`;
 }
 
+function canvasStateSessionKey(projectId: string) {
+  return `${CANVAS_STATE_SESSION_PREFIX}${projectId || "p1"}`;
+}
+
 function safeReadCanvasState(projectId: string): PersistedCanvasState | null {
   if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(canvasStateStorageKey(projectId));
+  const readRawState = (raw: string | null) => {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as PersistedCanvasState;
     if (!Array.isArray(parsed.nodes) || !Array.isArray(parsed.edges)) return null;
     return parsed;
+  };
+  try {
+    return readRawState(window.sessionStorage.getItem(canvasStateSessionKey(projectId))) || readRawState(window.localStorage.getItem(canvasStateStorageKey(projectId)));
   } catch {
     try {
-      window.localStorage.removeItem(canvasStateStorageKey(projectId));
+      window.sessionStorage.removeItem(canvasStateSessionKey(projectId));
     } catch {
       /* ignore storage cleanup errors */
     }
@@ -4053,43 +4070,21 @@ function safeReadCanvasState(projectId: string): PersistedCanvasState | null {
   }
 }
 
-function stripLargeCanvasNodePayloads(nodes: Node[]) {
-  return nodes.map(node => {
-    const data = node.data as Record<string, unknown>;
-    const localSrc = typeof data.localSrc === "string" ? data.localSrc : "";
-    if (!localSrc.startsWith("data:")) return node;
-    return {
-      ...node,
-      data: {
-        ...data,
-        localSrc: undefined,
-        volatileImageDropped: true,
-      },
-    };
-  });
-}
-
 function safeWriteCanvasState(projectId: string, state: PersistedCanvasState) {
   if (typeof window === "undefined") return;
   const key = canvasStateStorageKey(projectId);
+  const sessionKey = canvasStateSessionKey(projectId);
+  const serialized = JSON.stringify(state);
   try {
-    window.localStorage.setItem(key, JSON.stringify(state));
+    window.localStorage.setItem(key, serialized);
+    window.sessionStorage.removeItem(sessionKey);
   } catch (error) {
-    const lighterState: PersistedCanvasState = {
-      ...state,
-      nodes: stripLargeCanvasNodePayloads(state.nodes),
-    };
     try {
-      window.localStorage.setItem(key, JSON.stringify(lighterState));
-      toast("画布已保存轻量状态", { description: "本地存储空间不足，部分外部图片不会在刷新后保留原图数据" });
+      window.sessionStorage.setItem(sessionKey, serialized);
+      toast("画布已保存到当前会话", { description: "本地持久空间不足，本次打开期间会保留完整画布内容" });
     } catch {
-      try {
-        window.localStorage.removeItem(key);
-      } catch {
-        /* ignore storage cleanup errors */
-      }
       const message = error instanceof Error ? error.message : "浏览器本地存储空间不足";
-      toast("画布自动保存失败", { description: message });
+      toast("画布自动保存失败", { description: `${message}，已保留上一次可用保存状态` });
     }
   }
 }
@@ -5861,9 +5856,14 @@ function formatCanvasMessageTime(value: Date) {
 }
 
 const CANVAS_ASSISTANT_MESSAGES_STORAGE_PREFIX = "artx:canvas-assistant-messages:";
+const CANVAS_ASSISTANT_MESSAGES_SESSION_PREFIX = "artx:canvas-assistant-messages:fallback:";
 
 function canvasAssistantMessagesStorageKey(projectId: string) {
   return `${CANVAS_ASSISTANT_MESSAGES_STORAGE_PREFIX}${projectId || "p1"}`;
+}
+
+function canvasAssistantMessagesSessionKey(projectId: string) {
+  return `${CANVAS_ASSISTANT_MESSAGES_SESSION_PREFIX}${projectId || "p1"}`;
 }
 
 function serializeCanvasAssistantMessages(messages: CanvasAssistantMessage[]) {
@@ -5910,7 +5910,10 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
   const [regeneratingMessageId, setRegeneratingMessageId] = useState<string | null>(null);
   const [selectedReferenceIds, setSelectedReferenceIds] = useState<string[]>([]);
   const [messages, setMessages] = useState<CanvasAssistantMessage[]>(() => {
-    const stored = typeof window === "undefined" ? [] : deserializeCanvasAssistantMessages(window.localStorage.getItem(canvasAssistantMessagesStorageKey(projectId)));
+    const stored = typeof window === "undefined" ? [] : deserializeCanvasAssistantMessages(
+      window.sessionStorage.getItem(canvasAssistantMessagesSessionKey(projectId)) ||
+      window.localStorage.getItem(canvasAssistantMessagesStorageKey(projectId))
+    );
     return stored.length > 0 ? stored : [
       { id: "assistant-seed-1", role: "assistant", content: "你好，下面开始你的创作吧！", timestamp: new Date() },
     ];
@@ -6042,7 +6045,10 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const stored = deserializeCanvasAssistantMessages(window.localStorage.getItem(canvasAssistantMessagesStorageKey(projectId)));
+    const stored = deserializeCanvasAssistantMessages(
+      window.sessionStorage.getItem(canvasAssistantMessagesSessionKey(projectId)) ||
+      window.localStorage.getItem(canvasAssistantMessagesStorageKey(projectId))
+    );
     setMessages(stored.length > 0 ? stored : [
       { id: "assistant-seed-1", role: "assistant", content: "你好，下面开始你的创作吧！", timestamp: new Date() },
     ]);
@@ -6050,10 +6056,16 @@ function CanvasAssistantPanel({ projectId, isDark, collapsed, isAuthenticated, o
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    const serialized = JSON.stringify(serializeCanvasAssistantMessages(messages));
     try {
-      window.localStorage.setItem(canvasAssistantMessagesStorageKey(projectId), JSON.stringify(serializeCanvasAssistantMessages(messages)));
+      window.localStorage.setItem(canvasAssistantMessagesStorageKey(projectId), serialized);
+      window.sessionStorage.removeItem(canvasAssistantMessagesSessionKey(projectId));
     } catch {
-      /* ignore storage quota errors */
+      try {
+        window.sessionStorage.setItem(canvasAssistantMessagesSessionKey(projectId), serialized);
+      } catch {
+        /* ignore storage quota errors */
+      }
     }
   }, [messages, projectId]);
 
