@@ -2511,6 +2511,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const displayTitle = (data.title as string) || asset?.title || "素材节点";
   const rotation = (data.rotation as number) || 0;
   const flipX = Boolean(data.flipX);
+  const stableUiScale = 1 / Math.max(0.2, viewport.zoom || 1);
   const assetAdjustments = normalizeAssetAdjustments((data.assetAdjustmentPreview as AssetAdjustmentValues | undefined) || data.assetAdjustments);
   const assetAdjustmentFilter = createAssetAdjustmentFilter(assetAdjustments);
   const cropX = Math.max(0, Math.min(100, Number((data as { cropX?: number }).cropX ?? 0)));
@@ -3365,10 +3366,10 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
           <div
             className="absolute nodrag nopan shadow-2xl"
             style={{
-              left: dispW + 14,
+              left: dispW + 14 * stableUiScale,
               top: 0,
               width: 292,
-              maxHeight: Math.max(180, Math.min(420, dispH)),
+              maxHeight: 420,
               borderRadius: 8,
               overflow: "hidden",
               background: isDark ? "rgba(20,20,30,0.96)" : "rgba(255,255,255,0.98)",
@@ -3377,9 +3378,12 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
               backdropFilter: "blur(16px)",
               zIndex: 110,
               pointerEvents: "all",
+              transform: `scale(${stableUiScale})`,
+              transformOrigin: "top left",
             }}
             onMouseDown={event => event.stopPropagation()}
             onClick={event => event.stopPropagation()}
+            onWheel={event => event.stopPropagation()}
           >
             <div
               className="flex items-center justify-between gap-2 px-3 py-2"
@@ -3411,7 +3415,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
               className="w-full nodrag nopan"
               style={{
                 minHeight: 138,
-                maxHeight: Math.max(128, Math.min(364, dispH - 44)),
+                maxHeight: 336,
                 padding: 12,
                 resize: "none",
                 outline: "none",
@@ -3423,10 +3427,13 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
                 whiteSpace: "pre-wrap",
                 userSelect: "text",
                 cursor: "text",
+                overflowY: "auto",
+                overscrollBehavior: "contain",
               }}
               onChange={event => setExtractedTextDraft(event.target.value)}
               onMouseDown={event => event.stopPropagation()}
               onClick={event => event.stopPropagation()}
+              onWheel={event => event.stopPropagation()}
               onKeyDown={event => event.stopPropagation()}
             />
             <div
