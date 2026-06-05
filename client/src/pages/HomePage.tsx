@@ -129,6 +129,15 @@ const PROMPT_SUGGESTIONS = [
 
 const HOME_TYPEWRITER_PROMPT = "hello，欢迎来到。ArtX,正式开启你的。灵感AI创意之旅吧！";
 
+function getHomeRecentProjects() {
+  return readWorkspaceProjectHistory()
+    .filter(project => {
+      const title = project.title.trim();
+      return title !== "新建画布";
+    })
+    .slice(0, 5);
+}
+
 // ── artx-style AI Input Box ──────────────────────────────────
 function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: string) => void }) {
   const [value, setValue] = useState("");
@@ -394,22 +403,12 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!isAuthenticated) return;
-    setRecentProjects(readWorkspaceProjectHistory());
+    setRecentProjects(getHomeRecentProjects());
   }, [isAuthenticated]);
-
-  const handleStartDesign = () => {
-    if (!isAuthenticated) {
-      openLoginModal();
-      return;
-    }
-    const project = createWorkspaceHistoryProject();
-    setRecentProjects(readWorkspaceProjectHistory());
-    navigate(`/project/${project.id}`);
-  };
 
   const handleRecentProjectOpen = (projectId: string) => {
     touchWorkspaceProjectHistory(projectId);
-    setRecentProjects(readWorkspaceProjectHistory());
+    setRecentProjects(getHomeRecentProjects());
     navigate(`/project/${projectId}`);
   };
 
@@ -509,27 +508,16 @@ export default function HomePage() {
               </h2>
             </div>
 
-            <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
-              <button
-                onClick={handleStartDesign}
-                className="rounded-[var(--radius-lg-design)] overflow-hidden text-left group transition-all hover:scale-[1.02] cursor-pointer"
-                style={{ background: cardBg, border: `1px solid ${cardBorder}`, boxShadow: "0 2px 12px rgba(0,0,0,0.12)" }}
-              >
-                <div className="relative overflow-hidden flex items-center justify-center" style={{ aspectRatio: "16/9", background: isDark ? "oklch(0.16 0.014 270)" : "oklch(0.94 0.006 255)" }}>
-                  <LayoutGrid size={24} style={{ color: "oklch(0.62 0.22 290)" }} />
-                </div>
-                <div className="px-3 py-2.5">
-                  <p className="type-caption truncate" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>新建画布</p>
-                  <p className="type-caption mt-1" style={{ color: sub, fontSize: 11 }}>单击创建</p>
-                </div>
-              </button>
-
+            <div
+              className="flex gap-3 overflow-x-auto overflow-y-hidden pb-1"
+              style={{ scrollbarWidth: "none" }}
+            >
               {recentProjects.map(project => (
                 <div
                   key={project.id}
                   onClick={() => handleRecentProjectOpen(project.id)}
-                  className="rounded-[var(--radius-lg-design)] overflow-hidden text-left group transition-all hover:scale-[1.02] cursor-pointer"
-                  style={{ background: cardBg, border: `1px solid ${cardBorder}`, boxShadow: "0 2px 12px rgba(0,0,0,0.12)" }}
+                  className="shrink-0 rounded-[var(--radius-lg-design)] overflow-hidden text-left group transition-all hover:scale-[1.02] cursor-pointer"
+                  style={{ width: 220, background: cardBg, border: `1px solid ${cardBorder}`, boxShadow: "0 2px 12px rgba(0,0,0,0.12)" }}
                 >
                   <div className="relative overflow-hidden" style={{ aspectRatio: "16/9" }}>
                     {project.cover ? (
