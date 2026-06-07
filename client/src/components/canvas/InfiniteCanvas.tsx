@@ -4619,6 +4619,12 @@ type ImageGeneratorPayload = {
   sourceBackgroundSrc?: string;
 };
 
+type ImageGeneratorReferenceAsset = {
+  id: string;
+  title: string;
+  src: string;
+};
+
 type ElementLayerPlan = {
   foregroundPrompt: string;
   backgroundPrompt: string;
@@ -4650,6 +4656,20 @@ function inferImageRatio(width: number, height: number) {
   return candidates.reduce((best, current) => (
     Math.abs(current.value - ratio) < Math.abs(best.value - ratio) ? current : best
   )).id;
+}
+
+function getImageDisplaySizeForRatio(ratio: string): { w: number; h: number } {
+  const ratioSize: Record<string, { w: number; h: number }> = {
+    "1:1": { w: 260, h: 260 },
+    "4:5": { w: 240, h: 300 },
+    "5:4": { w: 300, h: 240 },
+    "3:4": { w: 240, h: 320 },
+    "4:3": { w: 320, h: 240 },
+    "16:9": { w: 320, h: 180 },
+    "9:16": { w: 180, h: 320 },
+    "21:9": { w: 360, h: 154 },
+  };
+  return ratioSize[ratio] || ratioSize["1:1"];
 }
 
 function getCanvasNodeSize(node: Node): CanvasNodeSize {
@@ -4696,6 +4716,12 @@ function getAssetNodeImageSource(node: Node): string {
   if (localSrc) return localSrc;
   const asset = GENERATED_ASSETS.find(item => item.id === data.assetId);
   return asset?.src || "";
+}
+
+function getAssetNodeDisplayTitle(node: Node): string {
+  const data = node.data as Record<string, unknown>;
+  const asset = GENERATED_ASSETS.find(item => item.id === data.assetId);
+  return (data.title as string | undefined) || asset?.title || "画布图片";
 }
 
 function getCanvasNodeBounds(node: Node): CanvasNodeBounds {
@@ -6059,7 +6085,6 @@ function ImageGeneratorPopover({ isDark, onClose }: { isDark: boolean; onClose: 
   const [modelOpen, setModelOpen] = useState(false);
   const [ratio, setRatio] = useState("1:1");
   const [count, setCount] = useState(2);
-  const [style, setStyle] = useState("品牌视觉");
   const [referencesEnabled, setReferencesEnabled] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const modelRef = useRef<HTMLDivElement>(null);
@@ -6072,8 +6097,8 @@ function ImageGeneratorPopover({ isDark, onClose }: { isDark: boolean; onClose: 
   const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
   const accent = "oklch(0.64 0.22 285)";
   const selectedModel = IMAGE_AI_MODELS.find(item => item.id === model) || IMAGE_AI_MODELS[0];
-  const ratios = ["1:1", "4:5", "16:9"];
-  const styles = ["品牌视觉", "产品摄影", "海报大片"];
+  const ratios = ["1:1", "4:5", "5:4", "3:4", "4:3", "16:9", "9:16", "21:9"];
+  const counts = [1, 2, 3, 4];
   const canGenerate = prompt.trim().length > 0 && !isGenerating;
 
   useEffect(() => {
@@ -6090,6 +6115,7 @@ function ImageGeneratorPopover({ isDark, onClose }: { isDark: boolean; onClose: 
 
   const controlButtonStyle = (active: boolean): React.CSSProperties => ({
     height: 30,
+    minWidth: 52,
     padding: "0 10px",
     borderRadius: "var(--radius-md-design)",
     border: `1px solid ${active ? "oklch(0.64 0.22 285 / 0.52)" : border}`,
@@ -6099,6 +6125,15 @@ function ImageGeneratorPopover({ isDark, onClose }: { isDark: boolean; onClose: 
     transition: "background 0.16s ease, border-color 0.16s ease, transform 0.16s ease",
   });
 
+  const requestCanvasReferences = useCallback(() => new Promise<ImageGeneratorReferenceAsset[]>((resolve) => {
+    window.dispatchEvent(new CustomEvent("image-generator-reference-request", {
+      detail: {
+        resolve: (assets: ImageGeneratorReferenceAsset[]) => resolve(assets),
+      },
+    }));
+    window.setTimeout(() => resolve([]), 120);
+  }), []);
+
   const handleGenerate = async () => {
     if (!canGenerate) {
       toast("请输入图像生成提示词");
@@ -6106,24 +6141,47 @@ function ImageGeneratorPopover({ isDark, onClose }: { isDark: boolean; onClose: 
     }
     setIsGenerating(true);
     const generationId = `image-gen-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const payload: ImageGeneratorPayload = { prompt, model, ratio, count, style, referencesEnabled, generationId };
+    const canvasReferences = referencesEnabled ? await requestCanvasReferences() : [];
+    const referenceSummary = canvasReferences.length
+      ? [
+          "参考当前画布图片生成。请结合参考图中的主体、构图、色彩、材质和视觉氛围，但不要直接复制画面。",
+          ...canvasReferences.slice(0, 8).map((asset, index) => `参考图 ${index + 1}：${asset.title}`),
+          `用户提示：${prompt.trim()}`,
+        ].join("\n")
+      : prompt.trim();
+    const payload: ImageGeneratorPayload = {
+      prompt: referenceSummary,
+      model,
+      ratio,
+      count,
+      style: "图像生成器",
+      referencesEnabled: canvasReferences.length > 0,
+      generationId,
+      sourceBackgroundSrc: canvasReferences[0]?.src,
+    };
     window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "pending" } }));
     try {
-      const baseUrl = import.meta.env.VITE_AI_API_BASE_URL?.replace(/\/+$/, "") || "";
-      const response = await fetch(`${baseUrl}/api/images/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const contentType = response.headers.get("content-type") || "";
-      const text = await response.text();
-      const trimmed = text.trim();
-      const isJson = contentType.includes("application/json") || trimmed.startsWith("{") || trimmed.startsWith("[");
-      if (!isJson) {
-        throw new Error(`图像生成失败: received non-JSON response from ${response.url || "API"}${trimmed ? ` (${trimmed.slice(0, 180).replace(/\s+/g, " ")})` : ""}`);
+      let result: { images: Array<{ src: string; width: number; height: number }> };
+      if (canvasReferences[0]?.src) {
+        const ratioSize = getImageDisplaySizeForRatio(ratio);
+        const images = await Promise.all(Array.from({ length: count }, async (_, index) => {
+          const editResult = await editImageWithPrompt({
+            imageSrc: canvasReferences[0].src,
+            prompt: [
+              referenceSummary,
+              `生成第 ${index + 1} 张变体。`,
+              "输出一张全新的图片，参考当前画布图片的视觉信息，并严格遵守用户提示。",
+            ].join("\n"),
+            model,
+            targetWidth: ratioSize.w,
+            targetHeight: ratioSize.h,
+          });
+          return editResult.images[0];
+        }));
+        result = { images: images.filter(Boolean) };
+      } else {
+        result = await generateAiImages(payload);
       }
-      const result = JSON.parse(text) as { error?: string; images?: Array<{ src: string; width: number; height: number }> };
-      if (!response.ok) throw new Error(result.error || "图像生成失败");
       window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "completed", images: result.images } }));
       setIsGenerating(false);
       setPrompt("");
@@ -6141,7 +6199,7 @@ function ImageGeneratorPopover({ isDark, onClose }: { isDark: boolean; onClose: 
       className="absolute top-full mt-2 overflow-hidden rounded-[var(--radius-xl-design)] shadow-2xl"
       style={{
         right: 0,
-        width: 390,
+        width: 430,
         background: bg,
         border: `1px solid ${border}`,
         backdropFilter: "blur(22px)",
@@ -6183,7 +6241,7 @@ function ImageGeneratorPopover({ isDark, onClose }: { isDark: boolean; onClose: 
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-2 gap-3">
+        <div className="mt-3 grid grid-cols-[1fr_1.45fr] gap-3">
           <div>
             <p className="mb-1.5 type-caption" style={{ color: sub }}>模型</p>
             <div ref={modelRef} className="relative">
@@ -6256,24 +6314,13 @@ function ImageGeneratorPopover({ isDark, onClose }: { isDark: boolean; onClose: 
           </div>
           <div>
             <p className="mb-1.5 type-caption" style={{ color: sub }}>画幅</p>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="grid grid-cols-4 gap-1.5">
               {ratios.map(item => (
                 <button key={item} type="button" style={controlButtonStyle(ratio === item)} className="active:scale-95" onClick={() => setRatio(item)}>
                   {item}
                 </button>
               ))}
             </div>
-          </div>
-        </div>
-
-        <div className="mt-3">
-          <p className="mb-1.5 type-caption" style={{ color: sub }}>风格</p>
-          <div className="flex flex-wrap gap-1.5">
-            {styles.map(item => (
-              <button key={item} type="button" style={controlButtonStyle(style === item)} className="active:scale-95" onClick={() => setStyle(item)}>
-                {item}
-              </button>
-            ))}
           </div>
         </div>
 
@@ -6300,7 +6347,7 @@ function ImageGeneratorPopover({ isDark, onClose }: { isDark: boolean; onClose: 
           <div className="flex items-center gap-2">
             <span className="type-caption" style={{ color: sub }}>数量</span>
             <div className="flex items-center gap-1 rounded-[var(--radius-md-design)] p-1" style={{ background: fieldBg, border: `1px solid ${border}` }}>
-              {[1, 2, 4].map(item => (
+              {counts.map(item => (
                 <button key={item} type="button" style={controlButtonStyle(count === item)} className="h-7 min-w-8 active:scale-95" onClick={() => setCount(item)}>
                   {item}
                 </button>
@@ -7757,6 +7804,29 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const edgesRef = useRef(edges);
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
   useEffect(() => { edgesRef.current = edges; }, [edges]);
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ resolve?: (assets: ImageGeneratorReferenceAsset[]) => void }>).detail;
+      const selectedAssetIds = new Set(nodesRef.current.filter(node => node.selected && node.type === "asset").map(node => node.id));
+      const assets = nodesRef.current
+        .filter(node => node.type === "asset")
+        .sort((a, b) => {
+          const aSelected = selectedAssetIds.has(a.id) ? 0 : 1;
+          const bSelected = selectedAssetIds.has(b.id) ? 0 : 1;
+          return aSelected - bSelected;
+        })
+        .map(node => ({
+          id: node.id,
+          title: getAssetNodeDisplayTitle(node),
+          src: getAssetNodeImageSource(node),
+        }))
+        .filter(asset => Boolean(asset.src))
+        .slice(0, 8);
+      detail?.resolve?.(assets);
+    };
+    window.addEventListener("image-generator-reference-request", handler);
+    return () => window.removeEventListener("image-generator-reference-request", handler);
+  }, []);
   const didHydrateCanvasStateRef = useRef(false);
   const [nodeCtxMenu, setNodeCtxMenu] = useState<NodeCtxState | null>(null);
   const [clipboard, setClipboard] = useState<Node[]>([]);
@@ -9165,12 +9235,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const center = rect
         ? screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
         : { x: 120, y: 80 };
-      const ratioSize: Record<string, { w: number; h: number }> = {
-        "1:1": { w: 260, h: 260 },
-        "4:5": { w: 240, h: 300 },
-        "16:9": { w: 320, h: 180 },
-      };
-      const size = detail.displaySize || ratioSize[detail.ratio] || ratioSize["1:1"];
+      const size = detail.displaySize || getImageDisplaySizeForRatio(detail.ratio);
       const anchor = detail.placement || {
         x: center.x - size.w / 2,
         y: center.y - size.h / 2,
@@ -11683,7 +11748,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       {imageGeneratorModalOpen && (
         <div
           className="absolute inset-0 nodrag nopan"
-          style={{ zIndex: 1290, background: "rgba(0,0,0,0.08)", cursor: "default" }}
+          style={{ zIndex: 105, background: "rgba(0,0,0,0.08)", cursor: "default" }}
           onMouseDown={event => {
             event.preventDefault();
             event.stopPropagation();
