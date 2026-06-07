@@ -117,7 +117,12 @@ function extractGeneratedImages(providerData: ImageGenerationResponse, baseUrl: 
 const ratioToSize: Record<string, { size: string; width: number; height: number }> = {
   "1:1": { size: "1024x1024", width: 1024, height: 1024 },
   "4:5": { size: "1024x1536", width: 1024, height: 1280 },
+  "5:4": { size: "1536x1024", width: 1280, height: 1024 },
+  "3:4": { size: "1024x1536", width: 1024, height: 1365 },
+  "4:3": { size: "1536x1024", width: 1365, height: 1024 },
   "16:9": { size: "1536x1024", width: 1536, height: 864 },
+  "9:16": { size: "1024x1536", width: 864, height: 1536 },
+  "21:9": { size: "1536x1024", width: 1536, height: 658 },
 };
 
 function getImagesEndpoint(baseUrl: string) {
