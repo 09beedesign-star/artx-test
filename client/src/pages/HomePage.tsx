@@ -183,7 +183,7 @@ export default function HomePage() {
             setActiveTab("home");
             navigate("/");
           }}
-          className="h-9 w-[194px] origin-left shrink-0 scale-[0.7] transition-opacity hover:opacity-85"
+          className="h-9 w-[194px] origin-left shrink-0 scale-[0.56] transition-opacity hover:opacity-85"
           aria-label="ArtXStudio 首页"
         >
           <img
