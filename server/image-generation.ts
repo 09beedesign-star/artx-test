@@ -377,6 +377,39 @@ function createConnectedEdgeBackgroundMask(data: Buffer, width: number, height: 
   return visited;
 }
 
+function createConnectedMaskFromEdgeCandidates(candidates: Uint8Array, width: number, height: number) {
+  const visited = new Uint8Array(width * height);
+  const queue: number[] = [];
+  const enqueue = (x: number, y: number) => {
+    if (x < 0 || y < 0 || x >= width || y >= height) return;
+    const pixel = y * width + x;
+    if (visited[pixel] || !candidates[pixel]) return;
+    visited[pixel] = 1;
+    queue.push(pixel);
+  };
+
+  for (let x = 0; x < width; x += 1) {
+    enqueue(x, 0);
+    enqueue(x, height - 1);
+  }
+  for (let y = 1; y < height - 1; y += 1) {
+    enqueue(0, y);
+    enqueue(width - 1, y);
+  }
+
+  for (let cursor = 0; cursor < queue.length; cursor += 1) {
+    const pixel = queue[cursor];
+    const x = pixel % width;
+    const y = Math.floor(pixel / width);
+    enqueue(x + 1, y);
+    enqueue(x - 1, y);
+    enqueue(x, y + 1);
+    enqueue(x, y - 1);
+  }
+
+  return visited;
+}
+
 function dilateBinaryMask(mask: Uint8Array, width: number, height: number, radius: number) {
   const output = new Uint8Array(mask);
   const radiusSquared = radius * radius;
@@ -398,6 +431,38 @@ function dilateBinaryMask(mask: Uint8Array, width: number, height: number, radiu
           if (dx * dx + dy * dy <= radiusSquared) output[nextY * width + nextX] = 1;
         }
       }
+    }
+  }
+
+  return output;
+}
+
+function erodeBinaryMask(mask: Uint8Array, width: number, height: number, radius: number) {
+  const output = new Uint8Array(mask);
+  const radiusSquared = radius * radius;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const pixel = y * width + x;
+      if (!mask[pixel]) continue;
+      let keep = true;
+      const minY = Math.max(0, y - radius);
+      const maxY = Math.min(height - 1, y + radius);
+      const minX = Math.max(0, x - radius);
+      const maxX = Math.min(width - 1, x + radius);
+
+      for (let nextY = minY; nextY <= maxY && keep; nextY += 1) {
+        for (let nextX = minX; nextX <= maxX; nextX += 1) {
+          const dx = nextX - x;
+          const dy = nextY - y;
+          if (dx * dx + dy * dy > radiusSquared) continue;
+          if (!mask[nextY * width + nextX]) {
+            keep = false;
+            break;
+          }
+        }
+      }
+      if (!keep) output[pixel] = 0;
     }
   }
 
@@ -491,30 +556,32 @@ async function applyConservativeAlphaMaskToOriginalImage(originalBuffer: Buffer,
     .raw()
     .toBuffer({ resolveWithObject: true });
 
+  const width = originalInfo.width;
+  const height = originalInfo.height;
+  const totalPixels = width * height;
   const output = Buffer.from(originalData);
-  const protectedForeground = new Uint8Array(originalInfo.width * originalInfo.height);
+  const backgroundCandidates = new Uint8Array(totalPixels);
   for (let index = 0; index < maskData.length; index += 4) {
     const pixel = index / 4;
-    if (maskData[index + 3] >= 192) protectedForeground[pixel] = 1;
+    if (maskData[index + 3] <= 180) backgroundCandidates[pixel] = 1;
   }
-  const expandedProtectedForeground = dilateBinaryMask(
-    protectedForeground,
-    originalInfo.width,
-    originalInfo.height,
-    Math.max(2, Math.round(Math.min(originalInfo.width, originalInfo.height) * 0.004)),
-  );
+  const connectedBackground = createConnectedMaskFromEdgeCandidates(backgroundCandidates, width, height);
+  const hardBackground = erodeBinaryMask(connectedBackground, width, height, 1);
+  const featherBackground = dilateBinaryMask(hardBackground, width, height, 1);
   let transparentPixels = 0;
   for (let index = 0; index < output.length; index += 4) {
     const pixel = index / 4;
-    const protectedBySegmentation = expandedProtectedForeground[pixel] === 1;
-    const modelAlpha = maskData[index + 3];
-    const nextAlpha = protectedBySegmentation ? originalData[index + 3] : Math.min(originalData[index + 3], modelAlpha);
-    output[index + 3] = nextAlpha;
-    if (nextAlpha < 8) transparentPixels += 1;
+    if (hardBackground[pixel]) {
+      output[index + 3] = 0;
+      transparentPixels += 1;
+    } else if (featherBackground[pixel] && maskData[index + 3] < 240) {
+      output[index + 3] = Math.min(originalData[index + 3], Math.max(64, maskData[index + 3]));
+    } else {
+      output[index + 3] = originalData[index + 3];
+    }
   }
   clearNearTransparentPixels(output);
 
-  const totalPixels = originalInfo.width * originalInfo.height;
   if (transparentPixels / totalPixels < 0.03) {
     console.warn("Background removal produced little transparent area; using edge-color fallback");
     return removeBackgroundByConservativeEdgeColor(originalBuffer);
@@ -568,26 +635,28 @@ async function applyRawAlphaMaskToOriginalImage(originalBuffer: Buffer, alphaMas
     throw new Error(`Unexpected alpha mask size: ${alphaMaskBuffer.length}`);
   }
 
+  const width = originalInfo.width;
+  const height = originalInfo.height;
   const output = Buffer.from(originalData);
-  const protectedForeground = new Uint8Array(totalPixels);
+  const backgroundCandidates = new Uint8Array(totalPixels);
   for (let pixel = 0; pixel < totalPixels; pixel += 1) {
-    if (alphaMaskBuffer[pixel] >= 192) protectedForeground[pixel] = 1;
+    if (alphaMaskBuffer[pixel] <= 180) backgroundCandidates[pixel] = 1;
   }
-  const expandedProtectedForeground = dilateBinaryMask(
-    protectedForeground,
-    originalInfo.width,
-    originalInfo.height,
-    Math.max(2, Math.round(Math.min(originalInfo.width, originalInfo.height) * 0.004)),
-  );
+  const connectedBackground = createConnectedMaskFromEdgeCandidates(backgroundCandidates, width, height);
+  const hardBackground = erodeBinaryMask(connectedBackground, width, height, 1);
+  const featherBackground = dilateBinaryMask(hardBackground, width, height, 1);
 
   let transparentPixels = 0;
   for (let pixel = 0; pixel < totalPixels; pixel += 1) {
     const index = pixel * 4;
-    const nextAlpha = expandedProtectedForeground[pixel]
-      ? originalData[index + 3]
-      : Math.min(originalData[index + 3], alphaMaskBuffer[pixel]);
-    output[index + 3] = nextAlpha;
-    if (nextAlpha < 8) transparentPixels += 1;
+    if (hardBackground[pixel]) {
+      output[index + 3] = 0;
+      transparentPixels += 1;
+    } else if (featherBackground[pixel] && alphaMaskBuffer[pixel] < 240) {
+      output[index + 3] = Math.min(originalData[index + 3], Math.max(64, alphaMaskBuffer[pixel]));
+    } else {
+      output[index + 3] = originalData[index + 3];
+    }
   }
   clearNearTransparentPixels(output);
 
@@ -597,15 +666,15 @@ async function applyRawAlphaMaskToOriginalImage(originalBuffer: Buffer, alphaMas
   }
 
   const png = await sharp(output, {
-    raw: { width: originalInfo.width, height: originalInfo.height, channels: 4 },
+    raw: { width, height, channels: 4 },
     limitInputPixels: false,
   }).png().toBuffer();
 
   return {
     images: [{
       src: `data:image/png;base64,${png.toString("base64")}`,
-      width: originalInfo.width,
-      height: originalInfo.height,
+      width,
+      height,
     }],
   };
 }
