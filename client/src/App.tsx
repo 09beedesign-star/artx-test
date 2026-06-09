@@ -27,9 +27,7 @@ function AppRoutes() {
     <Switch>
       {/* 首页 */}
       <Route path="/">
-        <AppShell>
-          <HomePage />
-        </AppShell>
+        <HomePage />
       </Route>
 
       {/* 工作台（项目列表） */}
