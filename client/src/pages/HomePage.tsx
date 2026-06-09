@@ -139,7 +139,7 @@ function getHomeRecentProjects() {
 }
 
 // ── artx-style AI Input Box ──────────────────────────────────
-function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: string) => void }) {
+function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: string, modelId: string) => void }) {
   const [value, setValue] = useState("");
   const [modelOpen, setModelOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState(IMAGE_AI_MODELS[0]);
@@ -191,7 +191,7 @@ function HeroInputBox({ isDark, onSubmit }: { isDark: boolean; onSubmit: (text: 
 
   const handleSubmit = () => {
     if (!value.trim()) return;
-    onSubmit(value.trim());
+    onSubmit(value.trim(), selectedModel.id);
     setValue("");
   };
 
@@ -412,7 +412,7 @@ export default function HomePage() {
     navigate(`/project/${projectId}`);
   };
 
-  const handlePromptSubmit = (text: string) => {
+  const handlePromptSubmit = (text: string, modelId: string) => {
     if (!isAuthenticated) {
       openLoginModal();
       return;
@@ -422,6 +422,7 @@ export default function HomePage() {
     sessionStorage.setItem("artx:pending-home-prompt", JSON.stringify({
       projectId: project.id,
       prompt: text,
+      model: modelId,
       createdAt: project.createdAt,
     }));
     toast("已创建新画布", { description: text.slice(0, 80) });

@@ -5011,6 +5011,7 @@ function BottomPromptBar({
   const [isSending, setIsSending] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const autoRunPromptRef = useRef<string | null>(null);
+  const autoRunModelRef = useRef<string | null>(null);
   const hasRefs = referencedAssets.length > 0;
   const bg = isDark ? "rgba(22,22,30,0.80)" : "rgba(255,255,255,0.82)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
@@ -5032,6 +5033,8 @@ function BottomPromptBar({
     if ((effectivePrompt || hasRefs) && !isSending) {
       const submittedPrompt = effectivePrompt;
       const submittedRefs = typeof overridePrompt === "string" ? [] : referencedAssets.map(asset => ({ ...asset }));
+      const selectedGenerationModel = autoRunModelRef.current || model;
+      autoRunModelRef.current = null;
       setIsSending(true);
       setPrompt("");
       setRows(1);
@@ -5049,7 +5052,7 @@ function BottomPromptBar({
           const generationId = `bottom-prompt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
           const payload: ImageGeneratorPayload = {
             prompt: imagePrompt,
-            model: "gpt-image-2",
+            model: selectedGenerationModel,
             ratio: "1:1",
             count: 1,
             style: "智能判断",
@@ -5084,16 +5087,20 @@ function BottomPromptBar({
     const raw = window.sessionStorage.getItem("artx:pending-home-prompt");
     if (!raw) return;
     try {
-      const payload = JSON.parse(raw) as { projectId?: string; prompt?: string };
+      const payload = JSON.parse(raw) as { projectId?: string; prompt?: string; model?: string };
       if (payload.projectId !== projectId || !payload.prompt?.trim()) return;
       window.sessionStorage.removeItem("artx:pending-home-prompt");
       const nextPrompt = payload.prompt.trim();
       setPrompt(nextPrompt);
       setRows(Math.min(nextPrompt.split("\n").length, 5));
       autoRunPromptRef.current = nextPrompt;
+      autoRunModelRef.current = IMAGE_AI_MODELS.some(model => model.id === payload.model) ? payload.model! : null;
       window.setTimeout(() => {
         const promptToRun = autoRunPromptRef.current;
         autoRunPromptRef.current = null;
+        if (autoRunModelRef.current) {
+          setModel(autoRunModelRef.current);
+        }
         if (promptToRun) void handleSend(promptToRun);
       }, 360);
     } catch {
@@ -7047,7 +7054,7 @@ function CanvasAssistantPanel({
     const raw = sessionStorage.getItem("artx:pending-home-prompt");
     if (!raw) return;
     try {
-      const payload = JSON.parse(raw) as { projectId?: string; prompt?: string };
+      const payload = JSON.parse(raw) as { projectId?: string; prompt?: string; model?: string };
       if (payload.projectId !== projectId || !payload.prompt?.trim()) return;
       pendingHomePromptHandledRef.current = true;
       sessionStorage.removeItem("artx:pending-home-prompt");
@@ -7074,7 +7081,7 @@ function CanvasAssistantPanel({
             const generationId = `home-prompt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
             const imagePayload: ImageGeneratorPayload = {
               prompt: imagePrompt,
-              model: "gpt-image-2",
+              model: IMAGE_AI_MODELS.some(model => model.id === payload.model) ? payload.model! : assistantModel.id,
               ratio: "1:1",
               count: 1,
               style: "首页创作",
@@ -7194,7 +7201,7 @@ function CanvasAssistantPanel({
         const generationId = `right-assistant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         const payload: ImageGeneratorPayload = {
           prompt: imagePrompt,
-          model: "gpt-image-2",
+          model: assistantModel.id,
           ratio: "1:1",
           count: 1,
           style: "右侧 AI 助手",
