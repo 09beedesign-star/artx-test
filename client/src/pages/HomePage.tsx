@@ -161,7 +161,7 @@ export default function HomePage() {
   };
 
   return (
-    <main className="h-screen overflow-y-auto bg-black text-white snap-y snap-mandatory scroll-smooth">
+    <main className="h-screen overflow-y-auto bg-black text-white scroll-smooth">
       <header className="fixed left-0 right-0 top-0 z-50 flex h-[64px] items-center gap-4 bg-black/20 px-4 backdrop-blur-[18px] sm:px-8 lg:px-20">
         <button
           type="button"
@@ -201,7 +201,7 @@ export default function HomePage() {
           </button>
         )}
       </header>
-      <section ref={homeRef} className="relative min-h-screen overflow-hidden snap-start">
+      <section ref={homeRef} className="relative min-h-screen overflow-hidden">
         <div
           className="absolute left-1/2 top-1/2 z-10 h-[900px] w-[1600px] origin-center"
           style={{ transform: `translate(-50%, -50%) scale(${stageScale})` }}
@@ -243,7 +243,7 @@ export default function HomePage() {
         </button>
       </section>
 
-      <section ref={inspirationRef} className="min-h-screen snap-start bg-[#080808] px-6 py-20 sm:px-10 lg:px-20">
+      <section ref={inspirationRef} className="min-h-screen bg-[#080808] px-6 py-20 sm:px-10 lg:px-20">
         <div className="mx-auto max-w-[1600px]">
           <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
