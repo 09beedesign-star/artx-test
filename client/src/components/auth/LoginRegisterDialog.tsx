@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Github, Mail, MessageCircle, X } from "lucide-react";
+import { Github, Mail, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import WechatIcon from "./WechatIcon";
 
 // Global Login / Register Dialog
 // 首页使用 HomePage 内部右侧面板；其它场景统一使用这个居中弹窗。
@@ -126,7 +127,7 @@ export default function LoginRegisterDialog() {
 
             <div className="flex flex-col gap-[10px]">
               <SocialButton icon={<Mail size={18} className="text-[#ea4335]" />} label="使用 Gmail 登录" onClick={() => void handleSocialAuth("google")} />
-              <SocialButton icon={<MessageCircle size={18} className="text-[#19b36b]" />} label="使用微信登录" onClick={() => void handleSocialAuth("wechat")} />
+              <SocialButton icon={<WechatIcon size={18} className="text-[#07C160]" />} label="使用微信登录" onClick={() => void handleSocialAuth("wechat")} />
               <SocialButton icon={<Github size={18} className="text-[#7fb2ff]" />} label="使用 GitHub 登录" onClick={() => void handleSocialAuth("github")} />
               <SocialButton icon={<span className="text-xl leading-none text-[#3f7cff]">∞</span>} label="使用 Meta 登录" onClick={() => void handleSocialAuth("meta")} />
             </div>
