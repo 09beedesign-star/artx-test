@@ -404,6 +404,16 @@ function dilateBinaryMask(mask: Uint8Array, width: number, height: number, radiu
   return output;
 }
 
+function clearNearTransparentPixels(data: Buffer, alphaThreshold = 20) {
+  for (let index = 0; index < data.length; index += 4) {
+    if (data[index + 3] > alphaThreshold) continue;
+    data[index] = 0;
+    data[index + 1] = 0;
+    data[index + 2] = 0;
+    data[index + 3] = 0;
+  }
+}
+
 async function returnOriginalImageAsTransparentPng(buffer: Buffer): Promise<{ images: GeneratedImage[] }> {
   const sharp = (await import("sharp")).default;
   const { data, info } = await sharp(buffer, { limitInputPixels: false })
@@ -446,6 +456,7 @@ async function removeBackgroundByConservativeEdgeColor(buffer: Buffer): Promise<
     output[pixel * 4 + 3] = 0;
     transparentPixels += 1;
   }
+  clearNearTransparentPixels(output);
 
   if (transparentPixels / (width * height) < 0.01) {
     throw new Error("Edge-color fallback did not find removable background");
@@ -501,6 +512,7 @@ async function applyConservativeAlphaMaskToOriginalImage(originalBuffer: Buffer,
     output[index + 3] = nextAlpha;
     if (nextAlpha < 8) transparentPixels += 1;
   }
+  clearNearTransparentPixels(output);
 
   const totalPixels = originalInfo.width * originalInfo.height;
   if (transparentPixels / totalPixels < 0.03) {
@@ -577,6 +589,7 @@ async function applyRawAlphaMaskToOriginalImage(originalBuffer: Buffer, alphaMas
     output[index + 3] = nextAlpha;
     if (nextAlpha < 8) transparentPixels += 1;
   }
+  clearNearTransparentPixels(output);
 
   if (transparentPixels / totalPixels < 0.03) {
     console.warn("Raw alpha mask did not remove enough background; using edge-color fallback");
