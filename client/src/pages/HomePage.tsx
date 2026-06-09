@@ -46,6 +46,7 @@ export default function HomePage() {
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
+  const homeRef = useRef<HTMLElement>(null);
   const inspirationRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -114,9 +115,13 @@ export default function HomePage() {
     inspirationRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  const scrollToHome = () => {
+    homeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   return (
     <main className="h-screen overflow-y-auto bg-black text-white snap-y snap-mandatory scroll-smooth">
-      <section className="relative min-h-screen overflow-hidden snap-start">
+      <section ref={homeRef} className="relative min-h-screen overflow-hidden snap-start">
         <HeroBackdrop />
         <header className="absolute left-6 right-6 top-6 z-20 flex items-center justify-between sm:left-10 sm:right-10 lg:left-20 lg:right-20">
           <button
@@ -137,6 +142,13 @@ export default function HomePage() {
             </button>
           )}
         </header>
+        <LandingSideNav
+          onHome={scrollToHome}
+          onInspiration={scrollToInspiration}
+          onSkills={() => navigate("/skills")}
+          onWorkspace={() => navigate("/workspace")}
+          onHelp={() => navigate("/help")}
+        />
 
         <div className="relative z-10 grid min-h-screen items-center gap-8 px-6 py-24 sm:px-10 lg:grid-cols-[minmax(0,1fr)_472px] lg:px-20 xl:px-24">
           <HeroStatement />
@@ -223,6 +235,51 @@ export default function HomePage() {
         </div>
       </section>
     </main>
+  );
+}
+
+function LandingSideNav({
+  onHome,
+  onInspiration,
+  onSkills,
+  onWorkspace,
+  onHelp,
+}: {
+  onHome: () => void;
+  onInspiration: () => void;
+  onSkills: () => void;
+  onWorkspace: () => void;
+  onHelp: () => void;
+}) {
+  const navItems = [
+    { label: "首页", onClick: onHome },
+    { label: "灵感来源", onClick: onInspiration },
+    { label: "技能商店", onClick: onSkills },
+    { label: "工作台", onClick: onWorkspace },
+  ];
+
+  return (
+    <nav className="absolute left-6 top-[112px] z-20 hidden w-[150px] flex-col gap-2 sm:left-10 lg:left-20 lg:flex" aria-label="首页导航">
+      <div className="flex flex-col gap-2">
+        {navItems.map(item => (
+          <button
+            key={item.label}
+            type="button"
+            onClick={item.onClick}
+            className="h-9 appearance-none rounded-md border border-white/10 bg-black/18 px-3 text-left text-sm font-medium text-white/62 backdrop-blur-md transition-colors hover:border-white/35 hover:bg-white/8 hover:text-white"
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+      <button
+        type="button"
+        onClick={onHelp}
+        className="mt-2 h-9 appearance-none rounded-md border border-[#936bff]/35 bg-[#936bff]/10 px-3 text-left text-sm font-medium text-[#b9a4ff] backdrop-blur-md transition-colors hover:border-[#b9a4ff]/70 hover:bg-[#936bff]/18 hover:text-white"
+      >
+        帮助与反馈
+      </button>
+    </nav>
   );
 }
 
