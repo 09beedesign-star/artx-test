@@ -50,7 +50,16 @@ function createEraseFallbackComposite(imageSrc: string, maskSrc: string) {
 }
 
 function getAiApiBaseUrl() {
-  return import.meta.env.VITE_AI_API_BASE_URL?.replace(/\/+$/, "") || "";
+  const configured = (
+    import.meta.env.VITE_AI_API_BASE_URL ||
+    import.meta.env.VITE_API_BASE_URL ||
+    ""
+  ).replace(/\/+$/, "");
+  if (configured) return configured;
+  if (typeof window !== "undefined" && window.location.hostname.endsWith("github.io")) {
+    return "https://artx-test.onrender.com";
+  }
+  return "";
 }
 
 async function readJsonResponse<T extends ApiErrorResponse>(response: Response, fallbackError: string): Promise<T> {
@@ -60,7 +69,10 @@ async function readJsonResponse<T extends ApiErrorResponse>(response: Response, 
 
   if (!isJson) {
     const snippet = text.trim().slice(0, 180).replace(/\s+/g, " ");
-    throw new Error(`${fallbackError}: received non-JSON response from ${response.url || "API"}${snippet ? ` (${snippet})` : ""}`);
+    const looksLikeHtml = snippet.startsWith("<!DOCTYPE") || snippet.startsWith("<html") || snippet.startsWith("<");
+    throw new Error(looksLikeHtml
+      ? `${fallbackError}: AI 后端地址未正确连接，当前请求返回了网页内容，请稍后刷新后重试`
+      : `${fallbackError}: received non-JSON response from ${response.url || "API"}${snippet ? ` (${snippet})` : ""}`);
   }
 
   return JSON.parse(text) as T;
