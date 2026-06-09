@@ -3311,8 +3311,9 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
               <div
                 className="absolute left-1/2 flex items-center gap-2 rounded-[var(--radius-lg-design)] px-2.5 py-2 shadow-xl"
                 style={{
-                  top: "calc(100% + 12px)",
-                  transform: "translateX(-50%)",
+                  top: `calc(100% + ${12 * stableUiScale}px)`,
+                  transform: `translateX(-50%) scale(${stableUiScale})`,
+                  transformOrigin: "top center",
                   background: "rgba(18,18,28,0.94)",
                   border: "1px solid rgba(255,255,255,0.16)",
                   color: "white",
