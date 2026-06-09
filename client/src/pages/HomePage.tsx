@@ -7,11 +7,11 @@ import {
   Heart,
   ImagePlus,
   Mail,
-  MessageCircle,
   PlayCircle,
   Send,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import WechatIcon from "@/components/auth/WechatIcon";
 import asteroidImage from "@/assets/ardot/3_3.png";
 import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
 import { BRAND_KIT, POSTER_1, POSTER_2, SOCIAL_AD } from "@/lib/workspace-data";
@@ -557,7 +557,7 @@ function LoginPanel({
 
         <div className="flex flex-col gap-[10px]">
           <SocialButton icon={<Mail size={18} className="text-[#ea4335]" />} label="使用 Gmail 登录" onClick={() => onSocialAuth("google")} />
-          <SocialButton icon={<MessageCircle size={18} className="text-[#19b36b]" />} label="使用微信登录" onClick={() => onSocialAuth("wechat")} />
+          <SocialButton icon={<WechatIcon size={18} className="text-[#07C160]" />} label="使用微信登录" onClick={() => onSocialAuth("wechat")} />
           <SocialButton icon={<Github size={18} className="text-[#7fb2ff]" />} label="使用 GitHub 登录" onClick={() => onSocialAuth("github")} />
           <SocialButton icon={<span className="text-xl leading-none text-[#3f7cff]">∞</span>} label="使用 Meta 登录" onClick={() => onSocialAuth("meta")} />
         </div>
