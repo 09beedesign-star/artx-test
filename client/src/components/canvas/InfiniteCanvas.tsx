@@ -4604,6 +4604,7 @@ const edgeTypes: EdgeTypes = {
 };
 
 type ImageGeneratorPayload = {
+  projectId?: string;
   prompt: string;
   model: string;
   ratio: string;
@@ -4761,6 +4762,7 @@ const initialEdges: Edge[] = [];
 
 const CANVAS_STATE_STORAGE_PREFIX = "artx:canvas-state:";
 const CANVAS_STATE_SESSION_PREFIX = "artx:canvas-state:fallback:";
+const CANVAS_IMAGE_GENERATION_TASKS_STORAGE_KEY = "artx:canvas-image-generation-tasks";
 const CANVAS_IMAGE_DB_NAME = "artx-canvas-images";
 const CANVAS_IMAGE_STORE_NAME = "images";
 const EXTRACT_TEXT_LOADING_MESSAGE = "正在提取文案中...";
@@ -4769,6 +4771,14 @@ type PersistedCanvasState = {
   nodes: Node[];
   edges: Edge[];
   updatedAt: string;
+};
+
+type PersistedImageGenerationTask = Omit<ImageGeneratorPayload, "generationId" | "status" | "images"> & {
+  generationId: string;
+  status: "pending" | "completed" | "failed";
+  updatedAt: number;
+  consumedAt?: number;
+  images?: Array<{ src?: string; width: number; height: number; storedKey?: string }>;
 };
 
 function formatProjectHistoryTimestamp(date = new Date()) {
@@ -4788,6 +4798,118 @@ function canvasImagePayloadKey(projectId: string, nodeId: string) {
   return `${projectId || "p1"}:${nodeId}`;
 }
 
+function imageGenerationTaskImageKey(projectId: string, generationId: string, index: number) {
+  return `${projectId || "p1"}:image-task:${generationId}:${index}`;
+}
+
+function readPersistedImageGenerationTasks() {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(CANVAS_IMAGE_GENERATION_TASKS_STORAGE_KEY) || "[]") as PersistedImageGenerationTask[];
+    return Array.isArray(parsed) ? parsed.filter(task => task?.generationId) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePersistedImageGenerationTasks(tasks: PersistedImageGenerationTask[]) {
+  if (typeof window === "undefined") return;
+  const pruned = tasks
+    .slice()
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+    .slice(0, 60);
+  try {
+    window.localStorage.setItem(CANVAS_IMAGE_GENERATION_TASKS_STORAGE_KEY, JSON.stringify(pruned));
+  } catch {
+    const lightweight = pruned.map(task => task.status === "completed"
+      ? { ...task, images: undefined, consumedAt: task.consumedAt || Date.now() }
+      : task
+    );
+    try {
+      window.localStorage.setItem(CANVAS_IMAGE_GENERATION_TASKS_STORAGE_KEY, JSON.stringify(lightweight.slice(0, 30)));
+    } catch {
+      /* ignore image task persistence quota errors */
+    }
+  }
+}
+
+function persistImageGenerationTask(detail: ImageGeneratorPayload, fallbackProjectId: string) {
+  if (typeof window === "undefined" || !detail.prompt?.trim()) return;
+  const generationId = detail.generationId || `image-gen-${Date.now()}`;
+  const status = detail.status || "pending";
+  const projectId = detail.projectId || fallbackProjectId || "p1";
+  const tasks = readPersistedImageGenerationTasks();
+  const previous = tasks.find(task => task.generationId === generationId && (task.projectId || "p1") === projectId);
+  const lightweightImages = detail.images?.map((image, index) => ({
+    width: image.width,
+    height: image.height,
+    src: image.src?.startsWith("data:") ? undefined : image.src,
+    storedKey: image.src?.startsWith("data:") ? imageGenerationTaskImageKey(projectId, generationId, index) : undefined,
+  }));
+  const nextTask: PersistedImageGenerationTask = {
+    ...(previous || {}),
+    ...detail,
+    projectId,
+    generationId,
+    status,
+    images: lightweightImages || previous?.images,
+    updatedAt: Date.now(),
+    consumedAt: status === "pending" ? undefined : previous?.consumedAt,
+  };
+  writePersistedImageGenerationTasks([
+    nextTask,
+    ...tasks.filter(task => !(task.generationId === generationId && (task.projectId || "p1") === projectId)),
+  ]);
+}
+
+function dispatchImageGenerationTask(detail: ImageGeneratorPayload, fallbackProjectId = "p1") {
+  const nextDetail = {
+    ...detail,
+    projectId: detail.projectId || fallbackProjectId,
+    generationId: detail.generationId || `image-gen-${Date.now()}`,
+  };
+  if (nextDetail.status === "completed" && nextDetail.images?.length) {
+    void persistImageGenerationTaskImages(nextDetail.projectId, nextDetail.generationId, nextDetail.images)
+      .then(() => persistImageGenerationTask(nextDetail, fallbackProjectId));
+  } else {
+    persistImageGenerationTask(nextDetail, fallbackProjectId);
+  }
+  window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: nextDetail }));
+}
+
+function markImageGenerationTaskConsumed(projectId: string, generationId: string) {
+  const tasks = readPersistedImageGenerationTasks();
+  let changed = false;
+  const next = tasks.map(task => {
+    if (task.generationId !== generationId || (task.projectId || "p1") !== (projectId || "p1")) return task;
+    changed = true;
+    return { ...task, consumedAt: Date.now(), updatedAt: Date.now() };
+  });
+  if (changed) writePersistedImageGenerationTasks(next);
+}
+
+async function consumeCompletedImageGenerationTasks(projectId: string) {
+  const tasks = readPersistedImageGenerationTasks();
+  const matching = tasks.filter(task => (
+    (task.projectId || "p1") === (projectId || "p1") &&
+    task.status === "completed" &&
+    !task.consumedAt &&
+    Array.isArray(task.images) &&
+    task.images.length > 0
+  ));
+  if (matching.length === 0) return [];
+  const consumedAt = Date.now();
+  writePersistedImageGenerationTasks(tasks.map(task => (
+    matching.some(item => item.generationId === task.generationId && (item.projectId || "p1") === (task.projectId || "p1"))
+      ? { ...task, consumedAt, updatedAt: consumedAt }
+      : task
+  )));
+  return Promise.all(matching.map(async task => ({
+    ...task,
+    images: await hydrateImageGenerationTaskImages(projectId, task),
+  })));
+}
+
 function openCanvasImageDb() {
   return new Promise<IDBDatabase | null>((resolve) => {
     if (typeof window === "undefined" || !("indexedDB" in window)) {
@@ -4804,6 +4926,71 @@ function openCanvasImageDb() {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => resolve(null);
   });
+}
+
+async function persistImageGenerationTaskImages(projectId: string, generationId: string, images: Array<{ src: string; width: number; height: number }>) {
+  const imageEntries = images
+    .map((image, index) => (
+      image.src?.startsWith("data:")
+        ? { key: imageGenerationTaskImageKey(projectId, generationId, index), localSrc: image.src }
+        : null
+    ))
+    .filter(Boolean) as { key: string; localSrc: string }[];
+  if (imageEntries.length === 0) return;
+  const db = await openCanvasImageDb();
+  if (!db) return;
+  await new Promise<void>((resolve) => {
+    const transaction = db.transaction(CANVAS_IMAGE_STORE_NAME, "readwrite");
+    const store = transaction.objectStore(CANVAS_IMAGE_STORE_NAME);
+    imageEntries.forEach(entry => store.put(entry.localSrc, entry.key));
+    transaction.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    transaction.onerror = () => {
+      db.close();
+      resolve();
+    };
+  });
+}
+
+async function hydrateImageGenerationTaskImages(projectId: string, task: PersistedImageGenerationTask) {
+  const images = task.images || [];
+  const missing = images.filter(image => image.storedKey && !image.src);
+  if (missing.length === 0) {
+    return images.filter((image): image is { src: string; width: number; height: number } => Boolean(image.src));
+  }
+  const db = await openCanvasImageDb();
+  if (!db) {
+    return images.filter((image): image is { src: string; width: number; height: number } => Boolean(image.src));
+  }
+  const restored = new Map<string, string>();
+  await new Promise<void>((resolve) => {
+    const transaction = db.transaction(CANVAS_IMAGE_STORE_NAME, "readonly");
+    const store = transaction.objectStore(CANVAS_IMAGE_STORE_NAME);
+    missing.forEach(image => {
+      if (!image.storedKey) return;
+      const request = store.get(image.storedKey);
+      request.onsuccess = () => {
+        if (typeof request.result === "string" && image.storedKey) restored.set(image.storedKey, request.result);
+      };
+    });
+    transaction.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    transaction.onerror = () => {
+      db.close();
+      resolve();
+    };
+  });
+  return images
+    .map(image => ({
+      src: image.src || (image.storedKey ? restored.get(image.storedKey) : undefined) || "",
+      width: image.width,
+      height: image.height,
+    }))
+    .filter(image => Boolean(image.src));
 }
 
 async function persistCanvasNodeImagePayloads(projectId: string, nodes: Node[]) {
@@ -5053,6 +5240,7 @@ function BottomPromptBar({
           const imagePrompt = decision.imagePrompt?.trim() || submittedPrompt || "基于引用素材生成一张视觉图像。";
           const generationId = `bottom-prompt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
           const payload: ImageGeneratorPayload = {
+            projectId,
             prompt: imagePrompt,
             model: selectedGenerationModel,
             ratio: "1:1",
@@ -5061,14 +5249,14 @@ function BottomPromptBar({
             referencesEnabled: submittedRefs.length > 0,
             generationId,
           };
-          window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "pending" } }));
+          dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
           toast("AI 判断为生成图片", { description: imagePrompt.slice(0, 90) });
           try {
             const result = await generateAiImages(payload);
-            window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "completed", images: result.images } }));
+            dispatchImageGenerationTask({ ...payload, status: "completed", images: result.images }, projectId);
           } catch (error) {
             const message = error instanceof Error ? error.message : "请稍后重试";
-            window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "failed", error: message } }));
+            dispatchImageGenerationTask({ ...payload, status: "failed", error: message }, projectId);
             throw error;
           }
           return;
@@ -6088,7 +6276,7 @@ function TopLeftToolbar({ isDark, onAdd }: { isDark: boolean; onAdd: (type: stri
 }
 
 
-function ImageGeneratorPopover({ isDark, onClose }: { isDark: boolean; onClose: () => void }) {
+function ImageGeneratorPopover({ isDark, projectId, onClose }: { isDark: boolean; projectId: string; onClose: () => void }) {
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState("gpt-image-2");
   const [modelOpen, setModelOpen] = useState(false);
@@ -6159,6 +6347,7 @@ function ImageGeneratorPopover({ isDark, onClose }: { isDark: boolean; onClose: 
         ].join("\n")
       : prompt.trim();
     const payload: ImageGeneratorPayload = {
+      projectId,
       prompt: referenceSummary,
       model,
       ratio,
@@ -6168,7 +6357,7 @@ function ImageGeneratorPopover({ isDark, onClose }: { isDark: boolean; onClose: 
       generationId,
       sourceBackgroundSrc: canvasReferences[0]?.src,
     };
-    window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "pending" } }));
+    dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
     try {
       let result: { images: Array<{ src: string; width: number; height: number }> };
       if (canvasReferences[0]?.src) {
@@ -6191,13 +6380,13 @@ function ImageGeneratorPopover({ isDark, onClose }: { isDark: boolean; onClose: 
       } else {
         result = await generateAiImages(payload);
       }
-      window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "completed", images: result.images } }));
+      dispatchImageGenerationTask({ ...payload, status: "completed", images: result.images }, projectId);
       setIsGenerating(false);
       setPrompt("");
       onClose();
     } catch (error) {
       const message = error instanceof Error ? error.message : "请稍后重试";
-      window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "failed", error: message } }));
+      dispatchImageGenerationTask({ ...payload, status: "failed", error: message }, projectId);
       toast("图像生成失败", { description: message });
       setIsGenerating(false);
     }
@@ -6384,7 +6573,7 @@ function ImageGeneratorPopover({ isDark, onClose }: { isDark: boolean; onClose: 
 }
 
 // ── Canvas Top Tool Palette ─────────────────────────────────────
-function CanvasTopToolPalette({ isDark, onImageGeneratorOpenChange }: { isDark: boolean; onImageGeneratorOpenChange?: (open: boolean) => void }) {
+function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }: { isDark: boolean; projectId: string; onImageGeneratorOpenChange?: (open: boolean) => void }) {
   const [active, setActive] = useState("move");
   const [shapeOpen, setShapeOpen] = useState(false);
   const [drawOpen, setDrawOpen] = useState(false); // 铅笔子菜单
@@ -6608,7 +6797,7 @@ function CanvasTopToolPalette({ isDark, onImageGeneratorOpenChange }: { isDark: 
       )}
 
       {imageGeneratorOpen && (
-        <ImageGeneratorPopover isDark={isDark} onClose={() => setImageGeneratorOpen(false)} />
+        <ImageGeneratorPopover isDark={isDark} projectId={projectId} onClose={() => setImageGeneratorOpen(false)} />
       )}
 
       {/* 主工具栏 */}
@@ -7046,6 +7235,7 @@ function CanvasAssistantPanel({
     }
     const generationId = `chat-regenerate-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const imagePayload: ImageGeneratorPayload = {
+      projectId,
       prompt: promptText,
       model: message.imageBackup?.model || "gpt-image-2",
       ratio: message.imageBackup?.ratio || "1:1",
@@ -7055,13 +7245,13 @@ function CanvasAssistantPanel({
       generationId,
     };
     setRegeneratingMessageId(message.id);
-    window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...imagePayload, status: "pending" } }));
+    dispatchImageGenerationTask({ ...imagePayload, status: "pending" }, projectId);
     try {
       const result = await generateAiImages(imagePayload);
-      window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...imagePayload, status: "completed", images: result.images } }));
+      dispatchImageGenerationTask({ ...imagePayload, status: "completed", images: result.images }, projectId);
     } catch (error) {
       const failureMessage = error instanceof Error ? error.message : "请稍后重试";
-      window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...imagePayload, status: "failed", error: failureMessage } }));
+      dispatchImageGenerationTask({ ...imagePayload, status: "failed", error: failureMessage }, projectId);
       toast("AI 生成失败", { description: failureMessage });
     } finally {
       setRegeneratingMessageId(null);
@@ -7099,6 +7289,7 @@ function CanvasAssistantPanel({
             const imagePrompt = decision.imagePrompt?.trim() || submittedText;
             const generationId = `home-prompt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
             const imagePayload: ImageGeneratorPayload = {
+              projectId,
               prompt: imagePrompt,
               model: IMAGE_AI_MODELS.some(model => model.id === payload.model) ? payload.model! : assistantImageModel.id,
               ratio: "1:1",
@@ -7107,9 +7298,9 @@ function CanvasAssistantPanel({
               referencesEnabled: false,
               generationId,
             };
-            window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...imagePayload, status: "pending" } }));
+            dispatchImageGenerationTask({ ...imagePayload, status: "pending" }, projectId);
             const result = await generateAiImages(imagePayload);
-            window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...imagePayload, status: "completed", images: result.images } }));
+            dispatchImageGenerationTask({ ...imagePayload, status: "completed", images: result.images }, projectId);
             setMessages(prev => [...prev, {
               id: `assistant-${Date.now()}`,
               role: "assistant",
@@ -7238,6 +7429,7 @@ function CanvasAssistantPanel({
         const imagePrompt = decision.imagePrompt?.trim() || routedPrompt;
         const generationId = `right-assistant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         const payload: ImageGeneratorPayload = {
+          projectId,
           prompt: imagePrompt,
           model: assistantImageModel.id,
           ratio: "1:1",
@@ -7247,9 +7439,9 @@ function CanvasAssistantPanel({
           generationId,
           sourceBackgroundSrc: assistantImages[0]?.src,
         };
-        window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "pending" } }));
+        dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
         const result = await generateAiImages(payload);
-        window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "completed", images: result.images } }));
+        dispatchImageGenerationTask({ ...payload, status: "completed", images: result.images }, projectId);
         setMessages(prev => [...prev, {
           id: `assistant-${Date.now()}`,
           role: "assistant",
@@ -7864,6 +8056,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
   const [nodes, setNodes, onNodesChange] = useNodesState(restoredCanvasState?.nodes || initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(restoredCanvasState?.edges || initialEdges);
+  const [canvasRestoreTick, setCanvasRestoreTick] = useState(0);
   // 始终跟踪最新的 nodes/edges，供 pushHistory 读取（避免闭包捕获旧值）
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
@@ -7955,6 +8148,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     requestAnimationFrame(() => requestAnimationFrame(() => {
       isRestoringRef.current = false;
       didHydrateCanvasStateRef.current = true;
+      setCanvasRestoreTick(value => value + 1);
     }));
     return () => {
       cancelled = true;
@@ -8082,6 +8276,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         ? getAssetNodeImageSource(latestSourceNode)
         : "";
     const payload: ImageGeneratorPayload = {
+      projectId,
       prompt,
       model: "gpt-image-2",
       ratio: inferImageRatio(nextW, nextH),
@@ -8094,18 +8289,18 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       titleBase: style,
       sourceBackgroundSrc: sourceBackgroundSrc || undefined,
     };
-    window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "pending" } }));
+    dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
     try {
       const result = await run();
-      window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "completed", images: result.images } }));
+      dispatchImageGenerationTask({ ...payload, status: "completed", images: result.images }, projectId);
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : "请稍后重试";
-      window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: { ...payload, status: "failed", error: message } }));
+      dispatchImageGenerationTask({ ...payload, status: "failed", error: message }, projectId);
       toast(`${style}失败`, { description: message });
       return false;
     }
-  }, [getDerivedImagePlacement, getLatestAssetNode]);
+  }, [getDerivedImagePlacement, getLatestAssetNode, projectId]);
 
   const createGeneratedImageNode = useCallback((backup: NonNullable<CanvasAssistantMessage["imageBackup"]>, position: { x: number; y: number }): Node => ({
     id: backup.nodeId,
@@ -9306,6 +9501,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const handleImageGenerate = (event: Event) => {
       const detail = (event as CustomEvent<ImageGeneratorPayload>).detail;
       if (!detail?.prompt?.trim()) return;
+      persistImageGenerationTask(detail, projectId);
+      if (detail.projectId && detail.projectId !== projectId) return;
       const generationId = detail.generationId || `image-gen-${Date.now()}`;
       const container = containerRef.current;
       const rect = container?.getBoundingClientRect();
@@ -9354,6 +9551,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
       if (detail.status === "failed") {
         setNodes(nds => nds.filter(n => !((n.data as Record<string, unknown>)?.generationId === generationId)));
+        markImageGenerationTaskConsumed(projectId, generationId);
         return;
       }
 
@@ -9433,12 +9631,33 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       backupItems.forEach(item => {
         window.dispatchEvent(new CustomEvent("ai-image-generated-backup", { detail: item }));
       });
+      markImageGenerationTaskConsumed(projectId, generationId);
       toast("图像已生成到画布", { description: detail.prompt.slice(0, 58) });
       window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
     };
     window.addEventListener("image-generator-submit", handleImageGenerate);
     return () => window.removeEventListener("image-generator-submit", handleImageGenerate);
-  }, [edgesRef, pushHistory, screenToFlowPosition, setNodes]);
+  }, [edgesRef, projectId, pushHistory, screenToFlowPosition, setNodes]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !didHydrateCanvasStateRef.current || isRestoringRef.current) return;
+    let cancelled = false;
+    consumeCompletedImageGenerationTasks(projectId).then(completedTasks => {
+      if (cancelled || completedTasks.length === 0) return;
+      completedTasks.forEach(task => {
+        window.dispatchEvent(new CustomEvent("image-generator-submit", {
+          detail: {
+            ...task,
+            projectId,
+            status: "completed",
+          },
+        }));
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [canvasRestoreTick, projectId]);
 
   const handleProjectSaveAndNavigate = useCallback(() => {
     if (!pendingProject) return;
@@ -11858,7 +12077,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       )}
 
       {/* Canvas top tool palette — centered above the canvas area */}
-      <CanvasTopToolPalette isDark={isDark} onImageGeneratorOpenChange={setImageGeneratorModalOpen} />
+      <CanvasTopToolPalette isDark={isDark} projectId={projectId} onImageGeneratorOpenChange={setImageGeneratorModalOpen} />
 
       {/* Back button — top-left */}
       {!imageGeneratorModalOpen && <BackButton isDark={isDark} />}
