@@ -3,7 +3,7 @@
  * Global top navigation: search, theme switcher (Radix DropdownMenu), credits, user info
  */
 import { useState, type ElementType } from "react";
-import { ChevronDown, Sparkles, Moon, Sun, Monitor, Check, UserRound, LogOut, Search, KeyRound, Copy, RefreshCw } from "lucide-react";
+import { ChevronDown, Sparkles, Moon, Monitor, Check, UserRound, LogOut, Search, KeyRound, Copy, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { useTheme, type ThemeMode } from "@/contexts/ThemeContext";
@@ -39,7 +39,6 @@ interface TopBarProps {
 
 const THEME_OPTIONS: { mode: ThemeMode; icon: ElementType; label: string }[] = [
   { mode: "dark",   icon: Moon,    label: "深色" },
-  { mode: "light",  icon: Sun,     label: "浅色" },
   { mode: "system", icon: Monitor, label: "跟随系统" },
 ];
 
