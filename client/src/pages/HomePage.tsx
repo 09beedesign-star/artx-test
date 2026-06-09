@@ -37,6 +37,11 @@ const HOME_PROMPT = "hello，欢迎来到。ArtX,正式开启你的。灵感AI�
 
 type PanelMode = "prelogin" | "login" | "register";
 
+const getStageScale = () => {
+  if (typeof window === "undefined") return 1;
+  return Math.min(window.innerWidth / 1600, window.innerHeight / 900);
+};
+
 export default function HomePage() {
   const [, navigate] = useLocation();
   const { isAuthenticated, login, register, socialAuth } = useAuth();
@@ -46,12 +51,22 @@ export default function HomePage() {
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
+  const [stageScale, setStageScale] = useState(getStageScale);
   const homeRef = useRef<HTMLElement>(null);
   const inspirationRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (isAuthenticated) setPanelMode("prelogin");
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    const updateStageScale = () => {
+      setStageScale(getStageScale());
+    };
+    updateStageScale();
+    window.addEventListener("resize", updateStageScale);
+    return () => window.removeEventListener("resize", updateStageScale);
+  }, []);
 
   const displayedMode = isAuthenticated ? "prelogin" : panelMode;
 
@@ -123,36 +138,39 @@ export default function HomePage() {
     <main className="h-screen overflow-y-auto bg-black text-white snap-y snap-mandatory scroll-smooth">
       <section ref={homeRef} className="relative min-h-screen overflow-hidden snap-start">
         <HeroBackdrop />
-        <header className="absolute left-6 right-6 top-6 z-20 flex items-center justify-between sm:left-10 sm:right-10 lg:left-20 lg:right-20">
-          <button
-            type="button"
-            onClick={() => navigate("/")}
-            className="text-[28px] font-bold leading-none tracking-normal text-white transition-opacity hover:opacity-85 sm:text-[32px]"
-            aria-label="ArtXStudio 首页"
-          >
-            ArtX<span className="font-normal">Studio</span>
-          </button>
-          {isAuthenticated && (
+        <div
+          className="absolute left-1/2 top-1/2 z-10 h-[900px] w-[1600px] origin-center"
+          style={{ transform: `translate(-50%, -50%) scale(${stageScale})` }}
+        >
+          <header className="absolute left-[80px] right-[80px] top-[40px] z-20 flex h-[40px] items-center">
             <button
               type="button"
-              onClick={() => navigate("/workspace")}
-              className="h-10 rounded-md border border-white/20 px-4 text-sm font-medium text-white/80 transition-colors hover:border-white/45 hover:text-white"
+              onClick={() => navigate("/")}
+              className="text-[32px] font-bold leading-none tracking-normal text-white transition-opacity hover:opacity-85"
+              aria-label="ArtXStudio 首页"
             >
-              进入工作台
+              ArtX<span className="font-normal">Studio</span>
             </button>
-          )}
-        </header>
-        <LandingSideNav
-          onHome={scrollToHome}
-          onInspiration={scrollToInspiration}
-          onSkills={() => navigate("/skills")}
-          onWorkspace={() => navigate("/workspace")}
-          onHelp={() => navigate("/help")}
-        />
+            <LandingTopNav
+              onHome={scrollToHome}
+              onInspiration={scrollToInspiration}
+              onSkills={() => navigate("/skills")}
+              onWorkspace={() => navigate("/workspace")}
+              onHelp={() => navigate("/help")}
+            />
+            {isAuthenticated && (
+              <button
+                type="button"
+                onClick={() => navigate("/workspace")}
+                className="ml-auto h-10 rounded-md border border-white/20 px-4 text-sm font-medium text-white/80 transition-colors hover:border-white/45 hover:text-white"
+              >
+                进入工作台
+              </button>
+            )}
+          </header>
 
-        <div className="relative z-10 grid min-h-screen items-center gap-8 px-6 py-24 sm:px-10 lg:grid-cols-[minmax(0,1fr)_472px] lg:px-20 xl:px-24">
           <HeroStatement />
-          <div className="relative mx-auto h-[min(726px,calc(100vh-150px))] w-full max-w-[472px] min-h-[620px] lg:mx-0 lg:ml-auto">
+          <div className="absolute left-[1001px] top-[87px] h-[726px] w-[472px]">
             <div className={`absolute inset-0 transition-all duration-500 ease-out ${displayedMode === "prelogin" ? "pointer-events-auto opacity-100 translate-y-0" : "pointer-events-none opacity-0 translate-y-3"}`}>
               <PreloginPanel
                 prompt={prompt}
@@ -238,7 +256,7 @@ export default function HomePage() {
   );
 }
 
-function LandingSideNav({
+function LandingTopNav({
   onHome,
   onInspiration,
   onSkills,
@@ -259,14 +277,14 @@ function LandingSideNav({
   ];
 
   return (
-    <nav className="absolute left-6 top-[112px] z-20 hidden w-[150px] flex-col gap-2 sm:left-10 lg:left-20 lg:flex" aria-label="首页导航">
-      <div className="flex flex-col gap-2">
+    <nav className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-3" aria-label="首页导航">
+      <div className="flex items-center gap-3">
         {navItems.map(item => (
           <button
             key={item.label}
             type="button"
             onClick={item.onClick}
-            className="h-9 appearance-none rounded-md border border-white/10 bg-black/18 px-3 text-left text-sm font-medium text-white/62 backdrop-blur-md transition-colors hover:border-white/35 hover:bg-white/8 hover:text-white"
+            className="h-9 min-w-[82px] appearance-none rounded-md border border-white/10 bg-black/18 px-3 text-center text-sm font-medium text-white/62 backdrop-blur-md transition-colors hover:border-white/35 hover:bg-white/8 hover:text-white"
           >
             {item.label}
           </button>
@@ -275,7 +293,7 @@ function LandingSideNav({
       <button
         type="button"
         onClick={onHelp}
-        className="mt-2 h-9 appearance-none rounded-md border border-[#936bff]/35 bg-[#936bff]/10 px-3 text-left text-sm font-medium text-[#b9a4ff] backdrop-blur-md transition-colors hover:border-[#b9a4ff]/70 hover:bg-[#936bff]/18 hover:text-white"
+        className="h-9 min-w-[102px] appearance-none rounded-md border border-[#936bff]/35 bg-[#936bff]/10 px-3 text-center text-sm font-medium text-[#b9a4ff] backdrop-blur-md transition-colors hover:border-[#b9a4ff]/70 hover:bg-[#936bff]/18 hover:text-white"
       >
         帮助与反馈
       </button>
@@ -300,22 +318,22 @@ function HeroBackdrop() {
 
 function HeroStatement() {
   return (
-    <div className="relative min-h-[540px] max-w-[720px] pt-20 lg:pt-0">
-      <div className="absolute left-[10%] top-0 hidden h-[78%] w-px bg-white/10 lg:block" />
-      <div className="absolute left-[10%] top-[60%] hidden h-[300px] w-px origin-top rotate-[28deg] bg-white/10 lg:block" />
-      <div className="absolute bottom-5 left-[8%] hidden h-[70px] w-[70px] rounded-full border border-white/45 lg:block">
+    <div className="absolute inset-0">
+      <div className="absolute left-[215px] top-[80px] h-[672px] w-px bg-white/10" />
+      <div className="absolute left-[215px] top-[752px] h-[300px] w-px origin-top rotate-[28deg] bg-white/10" />
+      <div className="absolute left-[180px] top-[735px] h-[70px] w-[70px] rounded-full border border-white/45">
         <span className="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white" />
       </div>
-      <div className="relative ml-0 mt-[16vh] flex max-w-[510px] gap-5 sm:ml-[17%] lg:mt-[22vh]">
+      <div className="absolute left-[244px] top-[270px] flex max-w-[510px] gap-5">
         <div className="mt-3 h-[289px] w-[7px] shrink-0 bg-gradient-to-b from-[#7475ff] via-[#4dc1ed] via-30% via-[#fff400] via-55% to-[#ff00b5]" />
         <div>
-          <p className="text-[56px] font-black leading-[0.98] tracking-normal text-white sm:text-[70px]">AI</p>
-          <h1 className="mt-1 text-[48px] font-black leading-[1.05] tracking-normal text-white sm:text-[70px] sm:leading-[74px]">
+          <p className="text-[70px] font-black leading-[0.98] tracking-normal text-white">AI</p>
+          <h1 className="mt-1 text-[70px] font-black leading-[74px] tracking-normal text-white">
             用魔法勾勒<br />你想象中的<br />世界
           </h1>
         </div>
       </div>
-      <p className="absolute bottom-0 left-[17%] hidden text-[24px] leading-7 text-white/16 lg:block">
+      <p className="absolute left-[208px] top-[782px] text-[24px] leading-7 text-white/16">
         Artificial intelligence drives<br />limitless creativity
       </p>
     </div>
