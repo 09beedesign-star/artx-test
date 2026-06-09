@@ -100,7 +100,7 @@ export default function PasswordGate({ onGranted }: { onGranted: () => void }) {
         }}
       >
         {/* Logo */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 28 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 28, transform: "scale(0.7)", transformOrigin: "left center" }}>
           <div style={{
             width: 36, height: 36, borderRadius: 10,
             background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",

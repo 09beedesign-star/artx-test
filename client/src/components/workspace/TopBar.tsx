@@ -406,9 +406,9 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
               onClick={handleConfirmLogout}
               className="h-9 min-w-[112px] rounded-[var(--radius-md-design)] type-caption"
               style={{
-                background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
+                background: "#936CFF",
                 color: "white",
-                boxShadow: "0 8px 24px oklch(0.58 0.22 290 / 0.22)",
+                boxShadow: "0 8px 24px rgba(147,108,255,0.22)",
               }}
             >
               确认退出
