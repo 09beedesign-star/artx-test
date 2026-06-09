@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Github, Mail, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import WechatIcon from "./WechatIcon";
+import useTypingPlaceholder from "./useTypingPlaceholder";
 
 // Global Login / Register Dialog
 // 首页使用 HomePage 内部右侧面板；其它场景统一使用这个居中弹窗。
@@ -176,6 +177,8 @@ function LabeledInput({
   type?: string;
   autoComplete?: string;
 }) {
+  const animatedPlaceholder = useTypingPlaceholder(placeholder);
+
   return (
     <label className="block">
       <span className="mb-1.5 block text-[13px] font-medium text-white">{label}</span>
@@ -183,7 +186,7 @@ function LabeledInput({
         type={type}
         value={value}
         onChange={event => onChange(event.target.value)}
-        placeholder={placeholder}
+        placeholder={animatedPlaceholder}
         autoComplete={autoComplete}
         className="h-[46px] w-full rounded-[10px] border border-[#545454] bg-[#222] px-3.5 text-sm text-white outline-none transition-[border-color,box-shadow] placeholder:text-[#7d7d7d] focus:border-[#936CFF] focus:shadow-[0_0_0_3px_rgba(147,108,255,0.22)]"
       />
