@@ -74,7 +74,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import CropEditor from "@/components/canvas/CropEditor";
 import RotateEditor from "@/components/canvas/RotateEditor";
-import { callLLM, editImageWithPrompt, eraseImageObjects, expandImageWithMask, generateImages as generateAiImages, removeImageBackground, searchReferenceImages, type ReferenceImageResult } from "@/lib/ai";
+import { callLLM, editImageWithPrompt, eraseImageObjects, expandImageWithMask, generateImages as generateAiImages, removeImageBackground, requestAiAuth, searchReferenceImages, type ReferenceImageResult } from "@/lib/ai";
 import { routeCreativeIntent } from "@/lib/ai-intent";
 import { createWorkspaceHistoryProject, touchWorkspaceProjectHistory, updateWorkspaceProjectHistory } from "@/lib/project-history";
 import generationGradient from "@/assets/generation/ai-generation-gradient.png";
@@ -3627,6 +3627,10 @@ function PromptNodeComponent({ data, selected }: { data: Record<string, unknown>
           disabled={!prompt.trim() || isGenerating}
           onClick={async () => {
             if (!prompt.trim() || isGenerating) return;
+            if (!requestAiAuth()) {
+              toast("请先登录", { description: "登录后即可使用 AI 能力" });
+              return;
+            }
             setIsGenerating(true);
             try {
               const result = await callLLM({
@@ -5221,6 +5225,10 @@ function BottomPromptBar({
   const handleSend = async (overridePrompt?: string) => {
     const effectivePrompt = typeof overridePrompt === "string" ? overridePrompt : prompt.trim();
     if ((effectivePrompt || hasRefs) && !isSending) {
+      if (!requestAiAuth()) {
+        toast("请先登录", { description: "登录后即可使用 AI 能力" });
+        return;
+      }
       const submittedPrompt = effectivePrompt;
       const submittedRefs = typeof overridePrompt === "string" ? [] : referencedAssets.map(asset => ({ ...asset }));
       const selectedGenerationModel = autoRunModelRef.current || model;
@@ -6337,6 +6345,10 @@ function ImageGeneratorPopover({ isDark, projectId, onClose }: { isDark: boolean
       toast("请输入图像生成提示词");
       return;
     }
+    if (!requestAiAuth()) {
+      toast("请先登录", { description: "登录后即可使用 AI 能力" });
+      return;
+    }
     setIsGenerating(true);
     const generationId = `image-gen-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const canvasReferences = referencesEnabled ? await requestCanvasReferences() : [];
@@ -7114,6 +7126,11 @@ function CanvasAssistantPanel({
   }, [onMergeReferences, referencedAssets, selectedReferenceIds]);
   const runAssistantCapability = async (module: string, instruction: string) => {
     if (isSubmitting) return;
+    if (!isAuthenticated) {
+      onLoginRequest();
+      toast("请先登录", { description: "登录后即可使用 AI 能力" });
+      return;
+    }
     const userMessage = {
       id: `user-${Date.now()}`,
       role: "user" as const,
@@ -7229,6 +7246,11 @@ function CanvasAssistantPanel({
 
   const handleRegenerateImageFromMessage = async (message: CanvasAssistantMessage) => {
     if (regeneratingMessageId) return;
+    if (!isAuthenticated) {
+      onLoginRequest();
+      toast("请先登录", { description: "登录后即可使用 AI 能力" });
+      return;
+    }
     const promptText = (message.imageBackup?.prompt || message.content).trim();
     if (!promptText) {
       toast("没有可用于生成图片的提示词");
@@ -7268,6 +7290,11 @@ function CanvasAssistantPanel({
       if (payload.projectId !== projectId || !payload.prompt?.trim()) return;
       pendingHomePromptHandledRef.current = true;
       sessionStorage.removeItem("artx:pending-home-prompt");
+      if (!isAuthenticated) {
+        onLoginRequest();
+        toast("请先登录", { description: "登录后即可使用 AI 能力" });
+        return;
+      }
       const submittedText = payload.prompt.trim();
       const userMessage = {
         id: `home-user-${Date.now()}`,
@@ -7327,7 +7354,7 @@ function CanvasAssistantPanel({
     } catch {
       sessionStorage.removeItem("artx:pending-home-prompt");
     }
-  }, [assistantImageModel.id, assistantTextModel.id, collapsed, projectId]);
+  }, [assistantImageModel.id, assistantTextModel.id, collapsed, isAuthenticated, onLoginRequest, projectId]);
 
   useEffect(() => {
     if (helpPromptNonce <= 0 || collapsed) return;
@@ -7354,6 +7381,11 @@ function CanvasAssistantPanel({
   });
 
   const handleSubmit = async () => {
+    if (!isAuthenticated) {
+      onLoginRequest();
+      toast("请先登录", { description: "登录后即可使用 AI 能力" });
+      return;
+    }
     if (!hasPrompt && !hasContext) {
       toast("请输入画布想法或选择对象");
       return;
@@ -8117,6 +8149,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const latestNode = getLatestAssetNode(nodeId);
     return latestNode ? getAssetNodeImageSource(latestNode) : "";
   }, [getLatestAssetNode]);
+  const requireAiAccess = useCallback(() => {
+    if (isAuthenticated) return true;
+    openLoginModal();
+    toast("请先登录", { description: "登录后即可使用 AI 能力" });
+    return false;
+  }, [isAuthenticated, openLoginModal]);
 
   useEffect(() => {
     const saved = safeReadCanvasState(projectId);
@@ -8540,6 +8578,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   }, [getAnnotationReferenceFromId]);
 
   const handleAnnotationAiEdit = useCallback(async (id: string, text: string) => {
+    if (!requireAiAccess()) return;
     const reference = getAnnotationReferenceFromId(id, text);
     if (!reference) {
       toast("AI 修改失败", { description: "当前注释没有可用的图片来源" });
@@ -8578,7 +8617,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         targetHeight: sourceSize.height,
       }),
     });
-  }, [getAnnotationReferenceFromId, getLatestAssetImageSource, runDerivedImageGeneration]);
+  }, [getAnnotationReferenceFromId, getLatestAssetImageSource, requireAiAccess, runDerivedImageGeneration]);
 
   const cloneNodesForHistory = useCallback((items: Node[]) => items.map(node => ({
     ...node,
@@ -11070,6 +11109,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   }, [selectedTextNode]);
   const handleAssetEditSubmit = useCallback(async (payload: { prompt: string; model: string; references: Array<{ id: string; title: string; src: string }> }) => {
     if (!editAsset) return;
+    if (!requireAiAccess()) return;
     const sourceNode = nodesRef.current.find(n => n.id === editAsset.nodeId && n.type === "asset");
     if (!sourceNode) return;
     const latestImageSrc = getLatestAssetImageSource(editAsset.nodeId) || editAsset.src;
@@ -11106,10 +11146,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const message = error instanceof Error ? error.message : "请稍后重试";
       toast("快捷编辑失败", { description: message });
     }
-  }, [editAsset, getLatestAssetImageSource, nodesRef, runDerivedImageGeneration]);
+  }, [editAsset, getLatestAssetImageSource, nodesRef, requireAiAccess, runDerivedImageGeneration]);
   const handleSingleImageToolbarAction = useCallback(async (action: string) => {
     const nodeId = selectedVisualNodeIds[0];
     if (!nodeId) return;
+    const aiToolbarActions = new Set(["quick-edit", "remove-background", "erase", "edit-text", "edit-elements", "expand", "vector"]);
+    if (aiToolbarActions.has(action) && !requireAiAccess()) return;
     setNodes(nds => nds.map(n => n.id === nodeId && n.type === "asset" ? { ...n, data: clearAssetCommandState(n.data as Record<string, unknown>) } : n));
     clearInactiveAssetCommands([nodeId]);
     const targetNode = nodesRef.current.find(n => n.id === nodeId && (n.type === "asset" || n.type === "canvasFrame"));
@@ -11487,7 +11529,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       more: "更多",
     };
     toast(labels[action] || "功能即将上线", { description: "已保留 Lovart 命令入口，后续可接入对应 AI 处理能力" });
-  }, [clearAssetCommandState, clearInactiveAssetCommands, createExtractedTextNode, getLatestAssetImageSource, handleNodeAction, nodesRef, pushHistory, runDerivedImageGeneration, selectedVisualNodeIds, setNodes]);
+  }, [clearAssetCommandState, clearInactiveAssetCommands, createExtractedTextNode, getLatestAssetImageSource, handleNodeAction, nodesRef, pushHistory, requireAiAccess, runDerivedImageGeneration, selectedVisualNodeIds, setNodes]);
   const handleSocialMediaSizeGenerate = useCallback(async (payload: SocialMediaExportPayload) => {
     if (!assetMorePanel) return;
     const sourceNode = nodesRef.current.find(n => n.id === assetMorePanel.nodeId && n.type === "asset");
