@@ -1567,7 +1567,7 @@ function SocialMediaSizePanel({
       className="absolute nodrag nopan rounded-[var(--radius-lg-design)] shadow-2xl"
       style={{
         right: 24,
-        top: 64,
+        top: "max(8px, 64px - 200px)",
         width: 420,
         height: "min(820px, calc(100vh - 92px))",
         minHeight: "min(600px, calc(100vh - 92px))",
@@ -7911,6 +7911,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const mergeReferencedAssets = useCallback((assets: { id: string; title: string; src: string }[]) => {
     setReferencedAssets(assets);
   }, []);
+  const getLatestAssetNode = useCallback((nodeId: string) => (
+    nodesRef.current.find(node => node.id === nodeId && node.type === "asset") || null
+  ), []);
+  const getLatestAssetImageSource = useCallback((nodeId: string) => {
+    const latestNode = getLatestAssetNode(nodeId);
+    return latestNode ? getAssetNodeImageSource(latestNode) : "";
+  }, [getLatestAssetNode]);
 
   useEffect(() => {
     const saved = safeReadCanvasState(projectId);
@@ -8062,10 +8069,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     placement?: { x: number; y: number };
     run: () => Promise<{ images: Array<{ src: string; width: number; height: number }> }>;
   }) => {
-    const resolvedDisplayW = Math.max(1, Math.round(displayW ?? getCanvasNodeSize(sourceNode).width));
-    const resolvedDisplayH = Math.max(1, Math.round(displayH ?? getCanvasNodeSize(sourceNode).height));
+    const latestSourceNode = sourceNode.type === "asset" ? (getLatestAssetNode(sourceNode.id) || sourceNode) : sourceNode;
+    const resolvedDisplayW = Math.max(1, Math.round(displayW ?? getCanvasNodeSize(latestSourceNode).width));
+    const resolvedDisplayH = Math.max(1, Math.round(displayH ?? getCanvasNodeSize(latestSourceNode).height));
     const generationId = `${style}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const sourceBackgroundSrc = getAssetNodeImageSource(sourceNode);
+    const sourceBackgroundSrc = latestSourceNode.type === "asset" ? getAssetNodeImageSource(latestSourceNode) : "";
     const payload: ImageGeneratorPayload = {
       prompt,
       model: "gpt-image-2",
@@ -8074,7 +8082,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       style,
       referencesEnabled: false,
       generationId,
-      placement: placement || getDerivedImagePlacement(sourceNode, resolvedDisplayW, resolvedDisplayH),
+      placement: placement || getDerivedImagePlacement(latestSourceNode, resolvedDisplayW, resolvedDisplayH),
       displaySize: { w: resolvedDisplayW, h: resolvedDisplayH },
       titleBase: style,
       sourceBackgroundSrc: sourceBackgroundSrc || undefined,
@@ -8090,7 +8098,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       toast(`${style}失败`, { description: message });
       return false;
     }
-  }, [getDerivedImagePlacement]);
+  }, [getDerivedImagePlacement, getLatestAssetNode]);
 
   const createGeneratedImageNode = useCallback((backup: NonNullable<CanvasAssistantMessage["imageBackup"]>, position: { x: number; y: number }): Node => ({
     id: backup.nodeId,
@@ -8298,7 +8306,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     if (!node) return null;
     const data = node.data as Record<string, unknown>;
     const asset = GENERATED_ASSETS.find(item => item.id === data.assetId) || GENERATED_ASSETS[0];
-    const src = (data.localSrc as string | undefined) || asset?.src || "";
+    const src = getAssetNodeImageSource(node);
     if (!src) return null;
     return {
       id: ann.id,
@@ -8340,6 +8348,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       toast("AI 修改失败", { description: "找不到对应图片节点" });
       return;
     }
+    const latestImageSrc = getLatestAssetImageSource(reference.nodeId) || reference.src;
     const sourceSize = getCanvasNodeSize(sourceNode);
     const prompt = [
       "基于原图生成一张新的局部修改结果图。",
@@ -8356,14 +8365,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       nextW: sourceSize.width,
       nextH: sourceSize.height,
       run: async () => editImageWithPrompt({
-        imageSrc: reference.src,
+        imageSrc: latestImageSrc,
         model: "gpt-image-2",
         prompt,
         targetWidth: sourceSize.width,
         targetHeight: sourceSize.height,
       }),
     });
-  }, [getAnnotationReferenceFromId, runDerivedImageGeneration]);
+  }, [getAnnotationReferenceFromId, getLatestAssetImageSource, runDerivedImageGeneration]);
 
   const cloneNodesForHistory = useCallback((items: Node[]) => items.map(node => ({
     ...node,
@@ -9230,15 +9239,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       } : n));
       toast("已添加文本备注", { description: "备注已附加到当前图片素材" });
     } else if (action === "edit-asset") {
-      const node = nodes.find(n => n.id === nodeId);
+      const node = getLatestAssetNode(nodeId) || nodes.find(n => n.id === nodeId);
       if (node && node.type === "asset") {
         const nodeData = node.data as Record<string, unknown>;
-        const localSrc = nodeData.localSrc as string | undefined;
         const assetId = nodeData.assetId as string;
         const nodeTitle = (nodeData.title as string) || "图片";
         const asset = GENERATED_ASSETS.find(a => a.id === assetId) || GENERATED_ASSETS[0];
-        // 优先使用本地拖入的图片，否则使用预设素材图
-        const src = localSrc || asset?.src || "";
+        const src = getAssetNodeImageSource(node);
         const title = nodeTitle || asset?.title || "图片";
         setIsZoomingToEdit(true);
         // 平滑缩放至当前选中节点
@@ -9250,7 +9257,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         }, 950);
       }
     }
-  }, [nodes, clipboard, getActionNodeIds, pushHistory, setNodes, setEdges]);
+  }, [nodes, clipboard, getActionNodeIds, getLatestAssetNode, pushHistory, setNodes, setEdges]);
 
   // ── Add node from position ──
   const addNode = useCallback((_type: string, x: number, y: number) => {
@@ -10507,11 +10514,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const refs = imageNodeIds.map(nodeId => {
       const node = nodes.find(n => n.id === nodeId);
       if (!node) return null;
-      const assetId = (node.data as Record<string, unknown>).assetId as string;
       const title = ((node.data as Record<string, unknown>).title as string) || nodeId;
-      const asset = GENERATED_ASSETS.find(a => a.id === assetId) || GENERATED_ASSETS[0];
-      const localSrc = (node.data as Record<string, unknown>).localSrc as string | undefined;
-      return { id: nodeId, title, src: localSrc || asset?.src || "" };
+      return { id: nodeId, title, src: getAssetNodeImageSource(node) };
     }).filter(Boolean) as { id: string; title: string; src: string }[];
     setReferencedAssets(refs);
   }, [selectedNodeIds, nodes]);
@@ -10838,12 +10842,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     if (!editAsset) return;
     const sourceNode = nodesRef.current.find(n => n.id === editAsset.nodeId && n.type === "asset");
     if (!sourceNode) return;
+    const latestImageSrc = getLatestAssetImageSource(editAsset.nodeId) || editAsset.src;
     try {
       const sourceSize = getCanvasNodeSize(sourceNode);
       const optimizedPrompt = await callLLM({
         module: "image-quick-edit-prompt",
         model: "gpt-4o",
-        images: [{ src: editAsset.src, title: editAsset.title }, ...payload.references],
+        images: [{ src: latestImageSrc, title: editAsset.title }, ...payload.references],
         prompt: [
           "请理解主图和可选参考图，为图片模型生成一段中文生图提示词。",
           "目标是基于原图内容做快捷编辑，但输出必须是一张新的结果图。",
@@ -10871,7 +10876,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const message = error instanceof Error ? error.message : "请稍后重试";
       toast("快捷编辑失败", { description: message });
     }
-  }, [editAsset, nodesRef, runDerivedImageGeneration]);
+  }, [editAsset, getLatestAssetImageSource, nodesRef, runDerivedImageGeneration]);
   const handleSingleImageToolbarAction = useCallback(async (action: string) => {
     const nodeId = selectedVisualNodeIds[0];
     if (!nodeId) return;
@@ -10901,8 +10906,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     if (action === "remove-background") {
       if (!targetNode) return;
       const data = targetNode.data as Record<string, unknown>;
-      const asset = GENERATED_ASSETS.find(item => item.id === data.assetId) || GENERATED_ASSETS[0];
-      const imageSrc = (data.localSrc as string | undefined) || asset?.src;
+      const imageSrc = getLatestAssetImageSource(nodeId);
       if (!imageSrc) {
         toast("去背景失败", { description: "当前图片没有可处理的图像来源" });
         return;
@@ -10928,9 +10932,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     }
     if (action === "crop") {
       if (!targetNode || targetNode.type !== "asset") return;
-      const data = targetNode.data as Record<string, unknown>;
-      const asset = GENERATED_ASSETS.find(item => item.id === data.assetId) || GENERATED_ASSETS[0];
-      const imageSrc = (data.localSrc as string | undefined) || asset?.src || "";
+      const imageSrc = getLatestAssetImageSource(nodeId);
       if (!imageSrc) {
         toast("裁切失败", { description: "当前图片没有可裁切的图像来源" });
         return;
@@ -10964,8 +10966,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const targetNode = nodesRef.current.find(n => n.id === nodeId && n.type === "asset");
       if (!targetNode) return;
       const data = targetNode.data as Record<string, unknown>;
-      const asset = GENERATED_ASSETS.find(item => item.id === data.assetId) || GENERATED_ASSETS[0];
-      const imageSrc = (data.localSrc as string | undefined) || asset?.src;
+      const imageSrc = getLatestAssetImageSource(nodeId);
       if (!imageSrc) {
         toast("文案提取失败", { description: "当前图片没有可识别的图像来源" });
         return;
@@ -11040,8 +11041,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const assetNode = nodesRef.current.find(n => n.id === nodeId && n.type === "asset");
       if (!assetNode) return;
       const data = assetNode.data as Record<string, unknown>;
-      const asset = GENERATED_ASSETS.find(item => item.id === data.assetId) || GENERATED_ASSETS[0];
-      const imageSrc = (data.localSrc as string | undefined) || asset?.src;
+      const imageSrc = getLatestAssetImageSource(nodeId);
       if (!imageSrc) {
         toast("编辑元素失败", { description: "当前图片没有可处理的图像来源" });
         return;
@@ -11176,9 +11176,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     }
     if (action === "flip-rotate") {
       if (!targetNode || targetNode.type !== "asset") return;
-      const data = targetNode.data as Record<string, unknown>;
-      const asset = GENERATED_ASSETS.find(item => item.id === data.assetId) || GENERATED_ASSETS[0];
-      const imageSrc = (data.localSrc as string | undefined) || asset?.src || "";
+      const imageSrc = getLatestAssetImageSource(nodeId);
       if (!imageSrc) {
         toast("旋转失败", { description: "当前图片没有可旋转的图像来源" });
         return;
@@ -11201,7 +11199,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       more: "更多",
     };
     toast(labels[action] || "功能即将上线", { description: "已保留 Lovart 命令入口，后续可接入对应 AI 处理能力" });
-  }, [clearAssetCommandState, clearInactiveAssetCommands, createExtractedTextNode, handleNodeAction, nodesRef, pushHistory, runDerivedImageGeneration, selectedVisualNodeIds, setNodes]);
+  }, [clearAssetCommandState, clearInactiveAssetCommands, createExtractedTextNode, getLatestAssetImageSource, handleNodeAction, nodesRef, pushHistory, runDerivedImageGeneration, selectedVisualNodeIds, setNodes]);
   const handleSocialMediaSizeGenerate = useCallback(async (payload: SocialMediaExportPayload) => {
     if (!assetMorePanel) return;
     const sourceNode = nodesRef.current.find(n => n.id === assetMorePanel.nodeId && n.type === "asset");
@@ -11209,9 +11207,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       setAssetMorePanel(null);
       return;
     }
-    const data = sourceNode.data as Record<string, unknown>;
-    const asset = GENERATED_ASSETS.find(item => item.id === data.assetId) || GENERATED_ASSETS[0];
-    const imageSrc = (data.localSrc as string | undefined) || asset?.src;
+    const imageSrc = getLatestAssetImageSource(assetMorePanel.nodeId);
     if (!imageSrc) {
       toast("生成失败", { description: "当前图片没有可处理的图像来源" });
       setAssetMorePanel(null);
@@ -11275,7 +11271,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     } finally {
       setAssetMorePanel(null);
     }
-  }, [assetMorePanel, nodesRef, pushHistory, setNodes]);
+  }, [assetMorePanel, getLatestAssetImageSource, nodesRef, pushHistory, setNodes]);
   const handleAssetMorePanelApply = useCallback(async (label: string, adjustments?: AssetAdjustmentValues) => {
     if (!assetMorePanel) return;
     if (assetMorePanel.command === "vector") {
@@ -11284,9 +11280,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         setAssetMorePanel(null);
         return;
       }
-      const data = sourceNode.data as Record<string, unknown>;
-      const asset = GENERATED_ASSETS.find(item => item.id === data.assetId) || GENERATED_ASSETS[0];
-      const imageSrc = (data.localSrc as string | undefined) || asset?.src;
+      const imageSrc = getLatestAssetImageSource(assetMorePanel.nodeId);
       if (!imageSrc) {
         toast("矢量化失败", { description: "当前图片没有可处理的图像来源" });
         setAssetMorePanel(null);
@@ -11322,8 +11316,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         return;
       }
       const data = sourceNode.data as Record<string, unknown>;
-      const asset = GENERATED_ASSETS.find(item => item.id === data.assetId) || GENERATED_ASSETS[0];
-      const imageSrc = (data.localSrc as string | undefined) || asset?.src;
+      const imageSrc = getLatestAssetImageSource(assetMorePanel.nodeId);
       if (!imageSrc) {
         toast("调整失败", { description: "当前图片没有可处理的图像来源" });
         closeAssetMorePanel();
@@ -11341,6 +11334,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             ...n,
             data: {
               ...restData,
+              // Bake the adjusted pixels into localSrc so every later AI/edit command starts from this image.
               localSrc: adjustedDataUrl,
               assetAdjustments: DEFAULT_ASSET_ADJUSTMENTS,
               lastLovartCommand: label,
@@ -11411,12 +11405,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     }));
     toast(label, { description: "已应用到当前图片节点" });
     setAssetMorePanel(null);
-  }, [assetMorePanel, closeAssetMorePanel, nodesRef, pushHistory, runDerivedImageGeneration, setNodes]);
+  }, [assetMorePanel, closeAssetMorePanel, getLatestAssetImageSource, nodesRef, pushHistory, runDerivedImageGeneration, setNodes]);
   const selectedImageNode = selectedVisualNodeIds.length === 1 ? nodes.find(n => n.id === selectedVisualNodeIds[0] && (n.type === "asset" || n.type === "canvasFrame")) : null;
   const assetMorePanelNode = assetMorePanel ? nodes.find(n => n.id === assetMorePanel.nodeId && n.type === "asset") : null;
   const assetMorePanelData = assetMorePanelNode?.data as Record<string, unknown> | undefined;
-  const assetMorePanelAsset = assetMorePanelData ? GENERATED_ASSETS.find(item => item.id === assetMorePanelData.assetId) || GENERATED_ASSETS[0] : null;
-  const assetMorePanelImageSrc = assetMorePanelData ? (assetMorePanelData.localSrc as string | undefined) || assetMorePanelAsset?.src || "" : "";
+  const assetMorePanelImageSrc = assetMorePanel ? getLatestAssetImageSource(assetMorePanel.nodeId) : "";
   const selectedImageBounds = selectedImageNode ? getCanvasNodeBounds(selectedImageNode) : getCanvasNodesBounds(nodes, selectedVisualNodeIds);
   const attachedImageToolbarPosition = selectedImageBounds
     ? {
