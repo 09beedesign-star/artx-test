@@ -154,6 +154,11 @@ const supportedImageModels = new Set([
   "gemini-3.1-flash-image-preview",
 ]);
 
+const chatCompatibleImageModels = new Set([
+  "gemini-3.1-flash-image",
+  "gemini-3.1-flash-image-preview",
+]);
+
 function buildPrompt(input: ImageGenerateInput) {
   const stylePrefix = input.style ? `风格：${input.style}\n` : "";
   return `${stylePrefix}${input.prompt.trim()}`;
@@ -179,6 +184,15 @@ function extractChoiceImages(providerData: ImageGenerationResponse, baseUrl: str
   while (match) {
     imageUrls.push({ src: toAbsoluteUrl(match[1], baseUrl) });
     match = imagePattern.exec(content);
+  }
+  const urlPattern = /(https?:\/\/[^\s"'<>]+\.(?:png|jpe?g|webp)(?:\?[^\s"'<>]*)?)/gi;
+  let urlMatch = urlPattern.exec(content);
+  while (urlMatch) {
+    const src = urlMatch[1];
+    if (!imageUrls.some(item => item.src === src)) {
+      imageUrls.push({ src: toAbsoluteUrl(src, baseUrl) });
+    }
+    urlMatch = urlPattern.exec(content);
   }
   return imageUrls;
 }
@@ -913,7 +927,9 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
 
   let providerData: ImageGenerationResponse;
   try {
-    providerData = await callImageProvider(requestBody, apiKey, baseUrl);
+    providerData = chatCompatibleImageModels.has(requestBody.model)
+      ? await callImageChatProvider(requestBody, apiKey, baseUrl)
+      : await callImageProvider(requestBody, apiKey, baseUrl);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (isUnsupportedImagesApiError(message)) {
