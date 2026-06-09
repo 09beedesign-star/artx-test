@@ -9239,15 +9239,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       } : n));
       toast("已添加文本备注", { description: "备注已附加到当前图片素材" });
     } else if (action === "edit-asset") {
-      const node = nodes.find(n => n.id === nodeId);
+      const node = getLatestAssetNode(nodeId) || nodes.find(n => n.id === nodeId);
       if (node && node.type === "asset") {
         const nodeData = node.data as Record<string, unknown>;
-        const localSrc = nodeData.localSrc as string | undefined;
         const assetId = nodeData.assetId as string;
         const nodeTitle = (nodeData.title as string) || "图片";
         const asset = GENERATED_ASSETS.find(a => a.id === assetId) || GENERATED_ASSETS[0];
-        // 优先使用本地拖入的图片，否则使用预设素材图
-        const src = localSrc || asset?.src || "";
+        const src = getAssetNodeImageSource(node);
         const title = nodeTitle || asset?.title || "图片";
         setIsZoomingToEdit(true);
         // 平滑缩放至当前选中节点
@@ -9259,7 +9257,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         }, 950);
       }
     }
-  }, [nodes, clipboard, getActionNodeIds, pushHistory, setNodes, setEdges]);
+  }, [nodes, clipboard, getActionNodeIds, getLatestAssetNode, pushHistory, setNodes, setEdges]);
 
   // ── Add node from position ──
   const addNode = useCallback((_type: string, x: number, y: number) => {
@@ -10516,9 +10514,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const refs = imageNodeIds.map(nodeId => {
       const node = nodes.find(n => n.id === nodeId);
       if (!node) return null;
-      const assetId = (node.data as Record<string, unknown>).assetId as string;
       const title = ((node.data as Record<string, unknown>).title as string) || nodeId;
-      void assetId;
       return { id: nodeId, title, src: getAssetNodeImageSource(node) };
     }).filter(Boolean) as { id: string; title: string; src: string }[];
     setReferencedAssets(refs);
