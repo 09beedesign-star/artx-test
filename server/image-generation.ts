@@ -143,7 +143,11 @@ function getProviderConfig() {
   return { apiKey, baseUrl, model };
 }
 
-const supportedImageModels = new Set(["gpt-image-2"]);
+const supportedImageModels = new Set([
+  "gpt-image-2",
+  "gemini-3.1-flash-image",
+  "gemini-3.1-flash-image-preview",
+]);
 
 function buildPrompt(input: ImageGenerateInput) {
   const stylePrefix = input.style ? `风格：${input.style}\n` : "";
