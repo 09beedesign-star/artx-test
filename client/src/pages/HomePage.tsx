@@ -36,6 +36,7 @@ const PROMPT_SUGGESTIONS = [
 const HOME_PROMPT = "hello，欢迎来到。ArtX,正式开启你的。灵感AI创意之旅吧！";
 
 type PanelMode = "prelogin" | "login" | "register";
+type LandingTab = "home" | "inspiration" | "skills" | "workspace" | "help";
 
 const getStageScale = () => {
   if (typeof window === "undefined") return 1;
@@ -52,6 +53,7 @@ export default function HomePage() {
   const [authError, setAuthError] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
   const [stageScale, setStageScale] = useState(getStageScale);
+  const [activeTab, setActiveTab] = useState<LandingTab>("home");
   const homeRef = useRef<HTMLElement>(null);
   const inspirationRef = useRef<HTMLElement>(null);
 
@@ -66,6 +68,28 @@ export default function HomePage() {
     updateStageScale();
     window.addEventListener("resize", updateStageScale);
     return () => window.removeEventListener("resize", updateStageScale);
+  }, []);
+
+  useEffect(() => {
+    const sections = [
+      { tab: "home" as const, ref: homeRef },
+      { tab: "inspiration" as const, ref: inspirationRef },
+    ];
+    const observer = new IntersectionObserver(
+      entries => {
+        const visibleEntry = entries
+          .filter(entry => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+        const visibleSection = sections.find(section => section.ref.current === visibleEntry?.target);
+        if (visibleSection) setActiveTab(visibleSection.tab);
+      },
+      { threshold: [0.45, 0.65] },
+    );
+
+    sections.forEach(section => {
+      if (section.ref.current) observer.observe(section.ref.current);
+    });
+    return () => observer.disconnect();
   }, []);
 
   const displayedMode = isAuthenticated ? "prelogin" : panelMode;
@@ -127,50 +151,64 @@ export default function HomePage() {
   };
 
   const scrollToInspiration = () => {
+    setActiveTab("inspiration");
     inspirationRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const scrollToHome = () => {
+    setActiveTab("home");
     homeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   return (
     <main className="h-screen overflow-y-auto bg-black text-white snap-y snap-mandatory scroll-smooth">
+      <header className="fixed left-0 right-0 top-0 z-50 flex h-[76px] items-center bg-black/20 px-8 backdrop-blur-[18px] sm:px-12 lg:px-20">
+        <button
+          type="button"
+          onClick={() => {
+            setActiveTab("home");
+            navigate("/");
+          }}
+          className="text-[32px] font-bold leading-none tracking-normal text-white transition-opacity hover:opacity-85"
+          aria-label="ArtXStudio 首页"
+        >
+          ArtX<span className="font-normal">Studio</span>
+        </button>
+        <LandingTopNav
+          activeTab={activeTab}
+          onHome={scrollToHome}
+          onInspiration={scrollToInspiration}
+          onSkills={() => {
+            setActiveTab("skills");
+            navigate("/skills");
+          }}
+          onWorkspace={() => {
+            setActiveTab("workspace");
+            navigate("/workspace");
+          }}
+          onHelp={() => {
+            setActiveTab("help");
+            navigate("/help");
+          }}
+        />
+        {isAuthenticated && (
+          <button
+            type="button"
+            onClick={() => navigate("/workspace")}
+            className="ml-auto h-10 rounded-md px-4 text-sm font-medium text-white/80 transition-colors hover:bg-white/8 hover:text-white"
+          >
+            进入工作台
+          </button>
+        )}
+      </header>
       <section ref={homeRef} className="relative min-h-screen overflow-hidden snap-start">
-        <HeroBackdrop />
         <div
           className="absolute left-1/2 top-1/2 z-10 h-[900px] w-[1600px] origin-center"
           style={{ transform: `translate(-50%, -50%) scale(${stageScale})` }}
         >
-          <header className="absolute left-[80px] right-[80px] top-[40px] z-20 flex h-[40px] items-center">
-            <button
-              type="button"
-              onClick={() => navigate("/")}
-              className="text-[32px] font-bold leading-none tracking-normal text-white transition-opacity hover:opacity-85"
-              aria-label="ArtXStudio 首页"
-            >
-              ArtX<span className="font-normal">Studio</span>
-            </button>
-            <LandingTopNav
-              onHome={scrollToHome}
-              onInspiration={scrollToInspiration}
-              onSkills={() => navigate("/skills")}
-              onWorkspace={() => navigate("/workspace")}
-              onHelp={() => navigate("/help")}
-            />
-            {isAuthenticated && (
-              <button
-                type="button"
-                onClick={() => navigate("/workspace")}
-                className="ml-auto h-10 rounded-md border border-white/20 px-4 text-sm font-medium text-white/80 transition-colors hover:border-white/45 hover:text-white"
-              >
-                进入工作台
-              </button>
-            )}
-          </header>
-
+          <HeroBackdrop />
           <HeroStatement />
-          <div className="absolute left-[1001px] top-[87px] h-[726px] w-[472px]">
+          <div className="absolute left-[1001px] top-[117px] h-[726px] w-[472px]">
             <div className={`absolute inset-0 transition-all duration-500 ease-out ${displayedMode === "prelogin" ? "pointer-events-auto opacity-100 translate-y-0" : "pointer-events-none opacity-0 translate-y-3"}`}>
               <PreloginPanel
                 prompt={prompt}
@@ -257,12 +295,14 @@ export default function HomePage() {
 }
 
 function LandingTopNav({
+  activeTab,
   onHome,
   onInspiration,
   onSkills,
   onWorkspace,
   onHelp,
 }: {
+  activeTab: LandingTab;
   onHome: () => void;
   onInspiration: () => void;
   onSkills: () => void;
@@ -270,33 +310,29 @@ function LandingTopNav({
   onHelp: () => void;
 }) {
   const navItems = [
-    { label: "首页", onClick: onHome },
-    { label: "灵感来源", onClick: onInspiration },
-    { label: "技能商店", onClick: onSkills },
-    { label: "工作台", onClick: onWorkspace },
+    { key: "home" as const, label: "首页", onClick: onHome },
+    { key: "inspiration" as const, label: "灵感来源", onClick: onInspiration },
+    { key: "skills" as const, label: "技能商店", onClick: onSkills },
+    { key: "workspace" as const, label: "工作台", onClick: onWorkspace },
+    { key: "help" as const, label: "帮助与反馈", onClick: onHelp },
   ];
 
   return (
     <nav className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-3" aria-label="首页导航">
-      <div className="flex items-center gap-3">
-        {navItems.map(item => (
-          <button
-            key={item.label}
-            type="button"
-            onClick={item.onClick}
-            className="h-9 min-w-[82px] appearance-none rounded-md border border-white/10 bg-black/18 px-3 text-center text-sm font-medium text-white/62 backdrop-blur-md transition-colors hover:border-white/35 hover:bg-white/8 hover:text-white"
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
-      <button
-        type="button"
-        onClick={onHelp}
-        className="h-9 min-w-[102px] appearance-none rounded-md border border-[#936bff]/35 bg-[#936bff]/10 px-3 text-center text-sm font-medium text-[#b9a4ff] backdrop-blur-md transition-colors hover:border-[#b9a4ff]/70 hover:bg-[#936bff]/18 hover:text-white"
-      >
-        帮助与反馈
-      </button>
+      {navItems.map(item => (
+        <button
+          key={item.key}
+          type="button"
+          onClick={item.onClick}
+          className={`h-9 min-w-[82px] appearance-none rounded-md px-3 text-center text-sm font-medium transition-colors ${
+            activeTab === item.key
+              ? "bg-[#936bff] text-white shadow-[0_8px_20px_rgba(147,107,255,0.28)]"
+              : "bg-transparent text-white/62 hover:bg-white/8 hover:text-white"
+          }`}
+        >
+          {item.label}
+        </button>
+      ))}
     </nav>
   );
 }
