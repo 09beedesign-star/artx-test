@@ -10,6 +10,8 @@ type ApiErrorResponse = {
   message?: string;
 };
 
+const AUTH_STORAGE_KEY = "artx-auth-session";
+
 export type GeneratedImageResult = {
   src: string;
   width: number;
@@ -62,6 +64,31 @@ function getAiApiBaseUrl() {
   return "";
 }
 
+export function hasActiveAuthSession() {
+  if (typeof window === "undefined") return false;
+  try {
+    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw) as { token?: string; user?: { id?: string; username?: string } };
+    return Boolean(parsed.token && parsed.user?.id && parsed.user?.username);
+  } catch {
+    return false;
+  }
+}
+
+export function requestAiAuth() {
+  if (hasActiveAuthSession()) return true;
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("artx:login-required", { detail: { reason: "ai" } }));
+  }
+  return false;
+}
+
+function requireAiAuth() {
+  if (requestAiAuth()) return;
+  throw new Error("请先登录后使用 AI 能力");
+}
+
 async function readJsonResponse<T extends ApiErrorResponse>(response: Response, fallbackError: string): Promise<T> {
   const contentType = response.headers.get("content-type") || "";
   const text = await response.text();
@@ -91,6 +118,7 @@ export async function callLLM({
   model?: string;
   module: string;
 }) {
+  requireAiAuth();
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/llm`;
   const response = await fetch(endpoint, {
@@ -114,6 +142,7 @@ export async function searchReferenceImages({
   query: string;
   limit?: number;
 }) {
+  requireAiAuth();
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/references/search`;
   const response = await fetch(endpoint, {
@@ -145,6 +174,7 @@ export async function generateImages({
   style?: string;
   referencesEnabled?: boolean;
 }) {
+  requireAiAuth();
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/images/generate`;
   const response = await fetch(endpoint, {
@@ -170,6 +200,7 @@ export async function removeImageBackground({
   model?: string;
   prompt?: string;
 }) {
+  requireAiAuth();
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/images/remove-background`;
   const response = await fetch(endpoint, {
@@ -199,6 +230,7 @@ export async function editImageWithPrompt({
   targetWidth?: number;
   targetHeight?: number;
 }) {
+  requireAiAuth();
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/images/edit`;
   const response = await fetch(endpoint, {
@@ -230,6 +262,7 @@ export async function eraseImageObjects({
   targetWidth?: number;
   targetHeight?: number;
 }) {
+  requireAiAuth();
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/images/erase`;
   try {
@@ -277,6 +310,7 @@ export async function expandImageWithMask({
   targetWidth?: number;
   targetHeight?: number;
 }) {
+  requireAiAuth();
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/images/erase`;
   const response = await fetch(endpoint, {

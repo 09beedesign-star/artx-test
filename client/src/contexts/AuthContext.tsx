@@ -54,6 +54,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  useEffect(() => {
+    const handleLoginRequired = () => setLoginModalOpen(true);
+    window.addEventListener("artx:login-required", handleLoginRequired);
+    return () => window.removeEventListener("artx:login-required", handleLoginRequired);
+  }, []);
+
   const authenticate = async (action: "login" | "register", username: string, password: string) => {
     try {
       const result = await fetchAuth(action, { username, password });

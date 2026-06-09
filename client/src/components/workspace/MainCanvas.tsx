@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { INITIAL_MESSAGES, GENERATED_ASSETS, PROJECTS } from "@/lib/workspace-data";
 import type { ChatMessage, GeneratedAsset, AgentStep } from "@/lib/workspace-data";
-import { callLLM } from "@/lib/ai";
+import { callLLM, requestAiAuth } from "@/lib/ai";
 import { routeCreativeIntent } from "@/lib/ai-intent";
 
 const SUGGESTIONS = [
@@ -43,6 +43,10 @@ export default function MainCanvas({ projectId = "p1" }: MainCanvasProps) {
 
   const handleSend = async () => {
     if (!input.trim() || isGenerating) return;
+    if (!requestAiAuth()) {
+      toast("请先登录", { description: "登录后即可使用 AI 能力" });
+      return;
+    }
     const userMsg: ChatMessage = {
       id: `m${Date.now()}`,
       role: "user",
