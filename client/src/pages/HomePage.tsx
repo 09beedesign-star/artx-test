@@ -35,6 +35,9 @@ const PROMPT_SUGGESTIONS = [
 ];
 
 const HOME_PROMPT = "hello，欢迎来到。ArtX,正式开启你的。灵感AI创意之旅吧！";
+const PROMPT_TYPE_DURATION_MS = 5000;
+const PROMPT_PAUSE_DURATION_MS = 3000;
+const PROMPT_FRAME_MS = 80;
 
 type PanelMode = "prelogin" | "login" | "register";
 type LandingTab = "home" | "inspiration" | "skills" | "workspace" | "help";
@@ -49,6 +52,7 @@ export default function HomePage() {
   const { isAuthenticated, login, register, socialAuth } = useAuth();
   const [panelMode, setPanelMode] = useState<PanelMode>(isAuthenticated ? "prelogin" : "prelogin");
   const [prompt, setPrompt] = useState(HOME_PROMPT);
+  const [promptTouched, setPromptTouched] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState("");
@@ -136,8 +140,7 @@ export default function HomePage() {
     showRegisterPanel();
   };
 
-  const handleAuthSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handleAuthAction = async (action: "register" | "login") => {
     if (!email.trim() || !password.trim()) {
       setAuthError("请输入邮箱和密码");
       return;
@@ -145,17 +148,22 @@ export default function HomePage() {
 
     setAuthBusy(true);
     setAuthError("");
-    const result = displayedMode === "register"
+    const result = action === "register"
       ? await register(email.trim(), password)
       : await login(email.trim(), password);
     setAuthBusy(false);
 
     if (!result.ok) {
-      setAuthError(result.error || "登录失败，请稍后重试");
+      setAuthError(result.error || (action === "register" ? "注册失败，请稍后重试" : "登录失败，请稍后重试"));
       return;
     }
-    toast(displayedMode === "register" ? "注册成功" : "登录成功", { description: "欢迎回到 ArtX Studio" });
+    toast(action === "register" ? "注册成功" : "登录成功", { description: "欢迎回到 ArtX Studio" });
     createProjectFromPrompt();
+  };
+
+  const handleAuthSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void handleAuthAction("login");
   };
 
   const handleSocialAuth = async (provider: "google" | "wechat" | "apple" | "github" | "meta") => {
@@ -243,16 +251,19 @@ export default function HomePage() {
           <HeroStatement />
           <div className="absolute left-[1001px] top-[117px] h-[726px] w-[472px]">
             <div className={`absolute inset-0 transition-all duration-500 ease-out ${displayedMode === "prelogin" ? "pointer-events-auto opacity-100 translate-y-0" : "pointer-events-none opacity-0 translate-y-3"}`}>
-              <PreloginPanel
-                prompt={prompt}
-                onPromptChange={setPrompt}
+                <PreloginPanel
+                  prompt={prompt}
+                promptTouched={promptTouched}
+                onPromptChange={value => {
+                  setPromptTouched(true);
+                  setPrompt(value);
+                }}
                 onSend={handlePreloginSend}
                 onToolClick={handlePreloginToolClick}
               />
             </div>
             <div className={`absolute inset-0 transition-all duration-500 ease-out ${displayedMode === "prelogin" ? "pointer-events-none opacity-0 -translate-y-3" : "pointer-events-auto opacity-100 translate-y-0"}`}>
               <LoginPanel
-                mode={displayedMode === "register" ? "register" : "login"}
                 email={email}
                 password={password}
                 busy={authBusy}
@@ -260,7 +271,7 @@ export default function HomePage() {
                 onEmailChange={setEmail}
                 onPasswordChange={setPassword}
                 onSubmit={handleAuthSubmit}
-                onModeChange={setPanelMode}
+                onAuthAction={handleAuthAction}
                 onSocialAuth={handleSocialAuth}
               />
             </div>
@@ -420,15 +431,19 @@ function GlassPanel({ children }: { children: React.ReactNode }) {
 
 function PreloginPanel({
   prompt,
+  promptTouched,
   onPromptChange,
   onSend,
   onToolClick,
 }: {
   prompt: string;
+  promptTouched: boolean;
   onPromptChange: (value: string) => void;
   onSend: () => void;
   onToolClick: () => void;
 }) {
+  const animatedPrompt = usePromptTypingAnimation(HOME_PROMPT, promptTouched);
+
   return (
     <GlassPanel>
       <div className="flex h-full flex-col">
@@ -452,7 +467,7 @@ function PreloginPanel({
 
         <div className="mb-6 mt-6 flex min-h-[282px] flex-1 flex-col justify-between rounded-[10px] border border-[#545454] bg-[#212121] p-4">
           <textarea
-            value={prompt}
+            value={promptTouched ? prompt : animatedPrompt}
             onChange={event => onPromptChange(event.target.value)}
             className="h-36 resize-none bg-transparent text-sm leading-[22px] text-white outline-none placeholder:text-[#7d7d7d]"
             placeholder={HOME_PROMPT}
@@ -485,7 +500,6 @@ function PreloginPanel({
 }
 
 function LoginPanel({
-  mode,
   email,
   password,
   busy,
@@ -493,10 +507,9 @@ function LoginPanel({
   onEmailChange,
   onPasswordChange,
   onSubmit,
-  onModeChange,
+  onAuthAction,
   onSocialAuth,
 }: {
-  mode: "login" | "register";
   email: string;
   password: string;
   busy: boolean;
@@ -504,15 +517,13 @@ function LoginPanel({
   onEmailChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
-  onModeChange: (mode: PanelMode) => void;
+  onAuthAction: (action: "register" | "login") => void;
   onSocialAuth: (provider: "google" | "wechat" | "apple" | "github" | "meta") => void;
 }) {
-  const isRegister = mode === "register";
-
   return (
     <GlassPanel>
       <form className="flex h-full flex-col" onSubmit={onSubmit}>
-        <PanelHeader title={isRegister ? "创建 ArtX Studio 账号" : "欢迎使用 ArtX Studio"} />
+        <PanelHeader />
 
         <div className="mt-8 flex flex-col gap-5">
           <LabeledInput
@@ -527,7 +538,7 @@ function LoginPanel({
             type="password"
             value={password}
             onChange={onPasswordChange}
-            autoComplete={isRegister ? "new-password" : "current-password"}
+            autoComplete="current-password"
             placeholder="请输入密码"
           />
         </div>
@@ -541,13 +552,23 @@ function LoginPanel({
           </button>
         </div>
 
-        <button
-          type="submit"
-          disabled={busy}
-          className="mt-5 h-12 rounded-[10px] bg-[#936CFF] text-base font-semibold text-white shadow-[0_10px_28px_rgba(147,108,255,0.25)] transition-all hover:bg-[#A384FF] disabled:opacity-60"
-        >
-          {busy ? "请稍候..." : isRegister ? "注 册" : "登 录"}
-        </button>
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onAuthAction("register")}
+            className="h-12 rounded-[10px] bg-[#2F80ED] text-base font-semibold text-white shadow-[0_10px_28px_rgba(47,128,237,0.24)] transition-all hover:bg-[#4A96FF] disabled:opacity-60"
+          >
+            {busy ? "请稍候..." : "注 册"}
+          </button>
+          <button
+            type="submit"
+            disabled={busy}
+            className="h-12 rounded-[10px] bg-[#936CFF] text-base font-semibold text-white shadow-[0_10px_28px_rgba(147,108,255,0.25)] transition-all hover:bg-[#A384FF] disabled:opacity-60"
+          >
+            {busy ? "请稍候..." : "登 录"}
+          </button>
+        </div>
 
         <div className="my-5 flex items-center gap-3">
           <span className="h-px flex-1 bg-[#939393]" />
@@ -562,16 +583,39 @@ function LoginPanel({
           <SocialButton icon={<span className="text-xl leading-none text-[#3f7cff]">∞</span>} label="使用 Meta 登录" onClick={() => onSocialAuth("meta")} />
         </div>
 
-        <button
-          type="button"
-          onClick={() => onModeChange(isRegister ? "login" : "register")}
-          className="mt-5 appearance-none bg-transparent text-center text-[13px] text-[#936CFF] transition-colors hover:text-[#A384FF]"
-        >
-          {isRegister ? "已有账号？立即登录" : "还没有账号？立即注册"}
-        </button>
+        <p className="mt-5 text-center text-[13px] text-[#7d7d7d]">注册或登录后即可继续使用 ArtX Studio</p>
       </form>
     </GlassPanel>
   );
+}
+
+function usePromptTypingAnimation(text: string, paused: boolean) {
+  const [displayedText, setDisplayedText] = useState("");
+
+  useEffect(() => {
+    if (paused) return;
+
+    const characters = Array.from(text);
+    const cycleDuration = PROMPT_TYPE_DURATION_MS + PROMPT_PAUSE_DURATION_MS;
+    const startedAt = Date.now();
+
+    const update = () => {
+      const elapsed = (Date.now() - startedAt) % cycleDuration;
+      if (elapsed >= PROMPT_TYPE_DURATION_MS) {
+        setDisplayedText(text);
+        return;
+      }
+
+      const visibleCount = Math.floor((elapsed / PROMPT_TYPE_DURATION_MS) * characters.length);
+      setDisplayedText(characters.slice(0, visibleCount).join(""));
+    };
+
+    update();
+    const intervalId = window.setInterval(update, PROMPT_FRAME_MS);
+    return () => window.clearInterval(intervalId);
+  }, [paused, text]);
+
+  return paused ? text : displayedText;
 }
 
 function PanelHeader({
