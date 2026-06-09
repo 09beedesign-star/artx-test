@@ -7527,12 +7527,12 @@ function CanvasAssistantPanel({
                       {formatCanvasMessageTime(message.timestamp)}
                     </p>
                     <div
-                      className="rounded-[var(--radius-lg-design)] p-4"
+                      className="rounded-[var(--radius-lg-design)] px-4 py-3"
                       style={{
-                        background: isUser ? "linear-gradient(135deg, oklch(0.58 0.22 285), oklch(0.68 0.18 205))" : chipBg,
-                        border: `1px solid ${isUser ? "oklch(0.70 0.18 225 / 0.30)" : border}`,
-                        color: isUser ? "white" : text,
-                        boxShadow: isUser ? "0 10px 24px oklch(0.58 0.22 260 / 0.16)" : "none",
+                        background: isUser ? "#C5ED47" : chipBg,
+                        border: `1px solid ${isUser ? "rgba(197,237,71,0.48)" : border}`,
+                        color: isUser ? "#000" : text,
+                        boxShadow: isUser ? "0 10px 24px rgba(197,237,71,0.16)" : "none",
                       }}
                       onDoubleClick={backup ? () => handleImageBackupDoubleClick(backup) : undefined}
                       title={backup ? "双击可在画布中定位或找回这张图片" : undefined}
@@ -7556,7 +7556,7 @@ function CanvasAssistantPanel({
                         </div>
                       ) : (
                         <div className="flex flex-col gap-3">
-                          <p className="type-caption leading-6 whitespace-pre-wrap" style={{ color: isUser ? "white" : text }}>{message.content}</p>
+                          <p className="type-caption leading-6 whitespace-pre-wrap" style={{ color: isUser ? "#000" : text }}>{message.content}</p>
                           {message.referenceOptions && message.referenceOptions.length > 0 && (
                             <div className="flex flex-col gap-3">
                               <div className="grid grid-cols-2 gap-2">
