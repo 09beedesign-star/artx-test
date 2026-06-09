@@ -27,30 +27,6 @@ export type ReferenceImageResult = {
   source: string;
 };
 
-function escapeSvgAttr(value: string) {
-  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
-}
-
-function createEraseFallbackComposite(imageSrc: string, maskSrc: string) {
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-      <defs>
-        <filter id="invert-alpha" x="0" y="0" width="1024" height="1024" color-interpolation-filters="sRGB">
-          <feComponentTransfer>
-            <feFuncA type="table" tableValues="1 0" />
-          </feComponentTransfer>
-        </filter>
-        <mask id="erase-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
-          <image href="${escapeSvgAttr(maskSrc)}" x="0" y="0" width="1024" height="1024" preserveAspectRatio="none" filter="url(#invert-alpha)" />
-        </mask>
-      </defs>
-      <image href="${escapeSvgAttr(imageSrc)}" x="0" y="0" width="1024" height="1024" preserveAspectRatio="none" />
-      <rect x="0" y="0" width="1024" height="1024" fill="#8B5CF6" opacity="0.82" mask="url(#erase-mask)" />
-    </svg>
-  `.trim();
-  return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}`;
-}
-
 function getAiApiBaseUrl() {
   const configured = (
     import.meta.env.VITE_AI_API_BASE_URL ||
@@ -265,34 +241,18 @@ export async function eraseImageObjects({
   requireAiAuth();
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/images/erase`;
-  try {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ imageSrc, maskSrc, model, prompt, targetWidth, targetHeight }),
-    });
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ imageSrc, maskSrc, model, prompt, targetWidth, targetHeight }),
+  });
 
-    const result = await readJsonResponse<ApiErrorResponse & { images?: GeneratedImageResult[] }>(response, "AI 擦除失败");
-    if (!response.ok) {
-      throw new Error(result.error || result.message || "AI 擦除失败");
-    }
-
-    return { images: result.images || [] };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!/Cannot POST \/api\/images\/erase|received non-JSON response|Bad gateway|502/i.test(message)) {
-      throw error;
-    }
+  const result = await readJsonResponse<ApiErrorResponse & { images?: GeneratedImageResult[] }>(response, "AI 擦除失败");
+  if (!response.ok) {
+    throw new Error(result.error || result.message || "AI 擦除失败");
   }
 
-  const fallbackComposite = createEraseFallbackComposite(imageSrc, maskSrc);
-  return editImageWithPrompt({
-    imageSrc: fallbackComposite,
-    model,
-    targetWidth,
-    targetHeight,
-    prompt: prompt || "The semi-transparent purple overlay marks the exact area to remove. Remove only the content under the purple overlay, reconstruct the background naturally, keep all unmarked regions unchanged, and leave no visible artifacts.",
-  });
+  return { images: result.images || [] };
 }
 
 export async function expandImageWithMask({

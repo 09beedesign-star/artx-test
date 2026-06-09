@@ -798,30 +798,6 @@ async function removeBackgroundPreservingForegroundPixels(src: string): Promise<
   }
 }
 
-function escapeSvgAttr(value: string) {
-  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
-}
-
-function createEraseFallbackComposite(imageSrc: string, maskSrc: string) {
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-      <defs>
-        <filter id="invert-alpha" x="0" y="0" width="1024" height="1024" color-interpolation-filters="sRGB">
-          <feComponentTransfer>
-            <feFuncA type="table" tableValues="1 0" />
-          </feComponentTransfer>
-        </filter>
-        <mask id="erase-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
-          <image href="${escapeSvgAttr(maskSrc)}" x="0" y="0" width="1024" height="1024" preserveAspectRatio="none" filter="url(#invert-alpha)" />
-        </mask>
-      </defs>
-      <image href="${escapeSvgAttr(imageSrc)}" x="0" y="0" width="1024" height="1024" preserveAspectRatio="none" />
-      <rect x="0" y="0" width="1024" height="1024" fill="#8B5CF6" opacity="0.82" mask="url(#erase-mask)" />
-    </svg>
-  `.trim();
-  return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
-}
-
 async function didEraseChangeMaskedArea(sourceBuffer: Buffer, resultSrc: string, maskSrc: string, width: number, height: number) {
   const sharp = (await import("sharp")).default;
   const { buffer: resultBuffer } = await imageSrcToBuffer(resultSrc);
@@ -858,6 +834,160 @@ async function didEraseChangeMaskedArea(sourceBuffer: Buffer, resultSrc: string,
 
   if (maskedPixels < Math.max(16, width * height * 0.0002)) return true;
   return totalDelta / maskedPixels >= 18;
+}
+
+async function compositeEraseResultOnlyInsideMask(
+  sourceBuffer: Buffer,
+  resultSrc: string,
+  maskSrc: string,
+  width: number,
+  height: number,
+): Promise<GeneratedImage> {
+  const sharp = (await import("sharp")).default;
+  const { buffer: resultBuffer } = await imageSrcToBuffer(resultSrc);
+  const { data: sourceData } = await sharp(sourceBuffer, { limitInputPixels: false })
+    .rotate()
+    .resize(width, height, { fit: "fill" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const { data: resultData } = await sharp(resultBuffer, { limitInputPixels: false })
+    .rotate()
+    .resize(width, height, { fit: "fill" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const { buffer: maskBuffer } = await imageSrcToBuffer(maskSrc);
+  const { data: maskData } = await sharp(maskBuffer, { limitInputPixels: false })
+    .rotate()
+    .resize(width, height, { fit: "fill" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const output = Buffer.from(sourceData);
+  for (let index = 0; index < output.length; index += 4) {
+    const maskAlpha = maskData[index + 3];
+    if (maskAlpha > 250) continue;
+    const strength = Math.max(0, Math.min(1, (255 - maskAlpha) / 255));
+    const eased = Math.min(1, strength * 1.18);
+    output[index] = Math.round(sourceData[index] * (1 - eased) + resultData[index] * eased);
+    output[index + 1] = Math.round(sourceData[index + 1] * (1 - eased) + resultData[index + 1] * eased);
+    output[index + 2] = Math.round(sourceData[index + 2] * (1 - eased) + resultData[index + 2] * eased);
+    output[index + 3] = Math.round(sourceData[index + 3] * (1 - eased) + resultData[index + 3] * eased);
+  }
+
+  const png = await sharp(output, {
+    raw: { width, height, channels: 4 },
+    limitInputPixels: false,
+  }).png().toBuffer();
+
+  return {
+    src: `data:image/png;base64,${png.toString("base64")}`,
+    width,
+    height,
+  };
+}
+
+async function createLocalEraseFallback(sourceBuffer: Buffer, maskSrc: string, width: number, height: number): Promise<{ images: GeneratedImage[] }> {
+  const sharp = (await import("sharp")).default;
+  const { data: sourceData } = await sharp(sourceBuffer, { limitInputPixels: false })
+    .rotate()
+    .resize(width, height, { fit: "fill" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const { buffer: maskBuffer } = await imageSrcToBuffer(maskSrc);
+  const { data: maskData } = await sharp(maskBuffer, { limitInputPixels: false })
+    .rotate()
+    .resize(width, height, { fit: "fill" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const output = Buffer.from(sourceData);
+  const masked = new Uint8Array(width * height);
+  for (let index = 0; index < maskData.length; index += 4) {
+    if (maskData[index + 3] <= 220) masked[index / 4] = 1;
+  }
+  const fillRadius = 32;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const pixel = y * width + x;
+      if (!masked[pixel]) continue;
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let a = 0;
+      let count = 0;
+      for (let radius = 2; radius <= fillRadius && count < 12; radius += 2) {
+        for (let dy = -radius; dy <= radius; dy += radius) {
+          for (let dx = -radius; dx <= radius; dx += 2) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+            const np = ny * width + nx;
+            if (masked[np]) continue;
+            const ni = np * 4;
+            r += sourceData[ni];
+            g += sourceData[ni + 1];
+            b += sourceData[ni + 2];
+            a += sourceData[ni + 3];
+            count += 1;
+          }
+        }
+        for (let dx = -radius; dx <= radius; dx += radius) {
+          for (let dy = -radius + 2; dy <= radius - 2; dy += 2) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+            const np = ny * width + nx;
+            if (masked[np]) continue;
+            const ni = np * 4;
+            r += sourceData[ni];
+            g += sourceData[ni + 1];
+            b += sourceData[ni + 2];
+            a += sourceData[ni + 3];
+            count += 1;
+          }
+        }
+      }
+      if (count === 0) continue;
+      const index = pixel * 4;
+      output[index] = Math.round(r / count);
+      output[index + 1] = Math.round(g / count);
+      output[index + 2] = Math.round(b / count);
+      output[index + 3] = Math.round(a / count);
+    }
+  }
+
+  const blurredPatch = await sharp(output, {
+    raw: { width, height, channels: 4 },
+    limitInputPixels: false,
+  }).blur(3).raw().toBuffer();
+
+  for (let index = 0; index < output.length; index += 4) {
+    if (maskData[index + 3] > 220) continue;
+    const strength = Math.max(0, Math.min(1, (255 - maskData[index + 3]) / 255));
+    const eased = Math.min(1, strength * 1.12);
+    output[index] = Math.round(sourceData[index] * (1 - eased) + blurredPatch[index] * eased);
+    output[index + 1] = Math.round(sourceData[index + 1] * (1 - eased) + blurredPatch[index + 1] * eased);
+    output[index + 2] = Math.round(sourceData[index + 2] * (1 - eased) + blurredPatch[index + 2] * eased);
+    output[index + 3] = Math.round(sourceData[index + 3] * (1 - eased) + blurredPatch[index + 3] * eased);
+  }
+
+  const png = await sharp(output, {
+    raw: { width, height, channels: 4 },
+    limitInputPixels: false,
+  }).png().toBuffer();
+
+  return {
+    images: [{
+      src: `data:image/png;base64,${png.toString("base64")}`,
+      width,
+      height,
+    }],
+  };
 }
 
 async function imageSrcToFile(src: string): Promise<File> {
@@ -1047,23 +1177,13 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<{ image
   const sourceImage = bufferToImageFile(sourceImageData.buffer, sourceImageData.mimeType);
   const maskImage = await imageSrcToFile(input.maskSrc);
   const selectedModel = input.model && supportedImageModels.has(input.model) ? input.model : model;
-  const prompt = input.prompt || "Remove only the objects or scene elements covered by the mask. Reconstruct the background naturally, preserve the rest of the image exactly, and leave no visible artifacts.";
+  const prompt = [
+    input.prompt || "Remove only the objects or scene elements covered by the mask.",
+    "The mask is the only editable area. Preserve every unmasked pixel, subject, background, lighting, color, camera angle, and composition exactly.",
+    "Do not regenerate the whole image. Do not change anything outside the mask. Fill only the masked region with natural surrounding background.",
+  ].join(" ");
   const editSize = getEditSizeForAspect(targetWidth, targetHeight);
-  const fallbackErase = () => {
-    const compositeSrc = createEraseFallbackComposite(input.imageSrc, input.maskSrc);
-    return editImageWithPrompt({
-      imageSrc: compositeSrc,
-      model: selectedModel,
-      targetWidth,
-      targetHeight,
-      prompt: [
-        "The semi-transparent purple overlay marks the exact area to remove.",
-        "Remove every visible object, shape, text, or scene element under the purple overlay.",
-        "Fill that area with natural surrounding background so the marked content disappears seamlessly.",
-        "Keep all unmarked regions unchanged. Do not keep the purple overlay. Leave no visible retouch artifacts.",
-      ].join(" "),
-    });
-  };
+  const fallbackErase = () => createLocalEraseFallback(sourceImageData.buffer, input.maskSrc, targetWidth, targetHeight);
 
   const createBody = (withResponseFormat: boolean) => {
     const body = new FormData();
@@ -1087,6 +1207,7 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<{ image
       providerData = await callImageEditProvider(createBody(false), apiKey, baseUrl);
     }
   } catch (error) {
+    console.warn("Image erase provider failed; using local masked fallback", error);
     return fallbackErase();
   }
 
@@ -1108,8 +1229,16 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<{ image
     const changed = await didEraseChangeMaskedArea(sourceImageData.buffer, images[0].src, input.maskSrc, targetWidth, targetHeight);
     if (!changed) return fallbackErase();
   } catch (error) {
-    console.warn("Erase result validation failed; keeping provider result", error);
+    console.warn("Erase result validation failed; using local masked fallback", error);
+    return fallbackErase();
   }
 
-  return { images };
+  const composited = await compositeEraseResultOnlyInsideMask(
+    sourceImageData.buffer,
+    images[0].src,
+    input.maskSrc,
+    targetWidth,
+    targetHeight,
+  );
+  return { images: [composited] };
 }
