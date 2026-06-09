@@ -162,7 +162,7 @@ export default function HomePage() {
 
   return (
     <main className="h-screen overflow-y-auto bg-black text-white snap-y snap-mandatory scroll-smooth">
-      <header className="fixed left-0 right-0 top-0 z-50 flex h-[76px] items-center gap-4 bg-black/20 px-4 backdrop-blur-[18px] sm:px-8 lg:px-20">
+      <header className="fixed left-0 right-0 top-0 z-50 flex h-[64px] items-center gap-4 bg-black/20 px-4 backdrop-blur-[18px] sm:px-8 lg:px-20">
         <button
           type="button"
           onClick={() => {
@@ -401,13 +401,12 @@ function PreloginPanel({
         <div className="mt-6">
           <p className="mb-2 text-[13px] font-medium text-[#7d7d7d]">试试这些提示</p>
           <div className="flex flex-col gap-[10px]">
-            {PROMPT_SUGGESTIONS.map((item, index) => (
+            {PROMPT_SUGGESTIONS.map(item => (
               <button
                 key={item}
                 type="button"
                 onClick={() => onPromptChange(item)}
-                className="h-11 appearance-none rounded-[10px] border border-[#454545] bg-transparent px-3.5 text-left text-sm transition-colors hover:border-white/55"
-                style={{ color: index === 1 ? "#ffffff" : "#7d7d7d" }}
+                className="h-11 appearance-none rounded-[10px] border border-[#454545] bg-transparent px-3.5 text-left text-sm text-[#7d7d7d] transition-colors hover:border-white/55 hover:text-white"
               >
                 {item}
               </button>
@@ -497,11 +496,14 @@ function LoginPanel({
           />
         </div>
 
-        <button type="button" className="mt-4 appearance-none self-end bg-transparent text-[13px] font-medium text-[#7d7d7d] transition-colors hover:text-white">
-          忘记密码？
-        </button>
-
-        {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
+        <div className="mt-4 flex h-5 items-center justify-between gap-3">
+          <p className={`min-w-0 flex-1 truncate text-left text-[13px] font-medium text-red-300 ${error ? "visible" : "invisible"}`}>
+            {error || " "}
+          </p>
+          <button type="button" className="shrink-0 appearance-none bg-transparent text-[13px] font-medium text-[#7d7d7d] transition-colors hover:text-white">
+            忘记密码？
+          </button>
+        </div>
 
         <button
           type="submit"
