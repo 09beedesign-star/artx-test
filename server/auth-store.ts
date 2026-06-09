@@ -34,7 +34,7 @@ function normalizeUsername(value: unknown) {
 }
 
 function normalizeProvider(value: unknown) {
-  return value === "google" || value === "wechat" || value === "apple" ? value : "";
+  return value === "google" || value === "wechat" || value === "apple" || value === "github" || value === "meta" ? value : "";
 }
 
 function loginKey(username: string) {

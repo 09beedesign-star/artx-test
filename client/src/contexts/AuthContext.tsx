@@ -22,7 +22,7 @@ interface AuthContextValue {
   closeLoginModal: () => void;
   login: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   register: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
-  socialAuth: (provider: "google" | "wechat" | "apple") => Promise<{ ok: boolean; error?: string }>;
+  socialAuth: (provider: "google" | "wechat" | "apple" | "github" | "meta") => Promise<{ ok: boolean; error?: string }>;
   logout: () => void;
 }
 
