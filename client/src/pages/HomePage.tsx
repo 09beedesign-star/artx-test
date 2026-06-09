@@ -162,14 +162,14 @@ export default function HomePage() {
 
   return (
     <main className="h-screen overflow-y-auto bg-black text-white snap-y snap-mandatory scroll-smooth">
-      <header className="fixed left-0 right-0 top-0 z-50 flex h-[76px] items-center bg-black/20 px-8 backdrop-blur-[18px] sm:px-12 lg:px-20">
+      <header className="fixed left-0 right-0 top-0 z-50 flex h-[76px] items-center gap-4 bg-black/20 px-4 backdrop-blur-[18px] sm:px-8 lg:px-20">
         <button
           type="button"
           onClick={() => {
             setActiveTab("home");
             navigate("/");
           }}
-          className="text-[32px] font-bold leading-none tracking-normal text-white transition-opacity hover:opacity-85"
+          className="shrink-0 text-[24px] font-bold leading-none tracking-normal text-white transition-opacity hover:opacity-85 sm:text-[32px]"
           aria-label="ArtXStudio 首页"
         >
           ArtX<span className="font-normal">Studio</span>
@@ -318,13 +318,13 @@ function LandingTopNav({
   ];
 
   return (
-    <nav className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-3" aria-label="首页导航">
+    <nav className="ml-auto flex min-w-0 flex-1 items-center gap-2 overflow-x-auto sm:gap-3 lg:absolute lg:left-1/2 lg:top-1/2 lg:ml-0 lg:flex-none lg:-translate-x-1/2 lg:-translate-y-1/2 lg:overflow-visible" aria-label="首页导航">
       {navItems.map(item => (
         <button
           key={item.key}
           type="button"
           onClick={item.onClick}
-          className={`h-9 min-w-[82px] appearance-none rounded-md px-3 text-center text-sm font-medium transition-colors ${
+          className={`h-9 shrink-0 appearance-none rounded-md px-3 text-center text-xs font-medium transition-colors sm:min-w-[82px] sm:text-sm ${
             activeTab === item.key
               ? "bg-[#936bff] text-white shadow-[0_8px_20px_rgba(147,107,255,0.28)]"
               : "bg-transparent text-white/62 hover:bg-white/8 hover:text-white"
