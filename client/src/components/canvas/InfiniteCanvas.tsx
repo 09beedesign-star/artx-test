@@ -77,6 +77,8 @@ import RotateEditor from "@/components/canvas/RotateEditor";
 import { callLLM, editImageWithPrompt, eraseImageObjects, expandImageWithMask, generateImages as generateAiImages, removeImageBackground, searchReferenceImages, type ReferenceImageResult } from "@/lib/ai";
 import { routeCreativeIntent } from "@/lib/ai-intent";
 import { createWorkspaceHistoryProject, touchWorkspaceProjectHistory, updateWorkspaceProjectHistory } from "@/lib/project-history";
+import generationGradient from "@/assets/generation/ai-generation-gradient.png";
+import generationMark from "@/assets/generation/ai-generation-mark.svg";
 
 const ENABLE_NODE_CONNECTIONS = false;
 
@@ -3092,12 +3094,10 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
           )}
           {isAiProcessingImage ? (
             <div
-              className="absolute inset-0 flex flex-col items-center justify-center gap-3"
+              className={isGeneratingImage ? "artx-ai-generation-loading absolute inset-0 flex flex-col items-center justify-center gap-3" : "absolute inset-0 flex flex-col items-center justify-center gap-3"}
               style={{
                 background: isGeneratingImage
-                  ? sourceBackgroundSrc
-                    ? "rgba(18,18,28,0.34)"
-                    : "linear-gradient(135deg, oklch(0.34 0.20 275) 0%, oklch(0.46 0.22 250) 48%, oklch(0.40 0.22 305) 100%)"
+                  ? `url(${generationGradient}) center / cover no-repeat`
                   : isDark ? "oklch(0.16 0.018 270)" : "oklch(0.96 0.006 270)",
                 color: isGeneratingImage ? "rgba(255,255,255,0.88)" : isDark ? "rgba(255,255,255,0.72)" : "rgba(24,24,32,0.62)",
                 zIndex: 1,
@@ -3105,22 +3105,15 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
             >
               {isGeneratingImage ? (
                 <div
-                  className="animate-spin"
+                  className="artx-ai-generation-mark-shell"
                   aria-hidden="true"
-                  style={{
-                    width: 38,
-                    height: 38,
-                    borderRadius: "50%",
-                    border: "1px solid rgba(255,255,255,0.28)",
-                    background: "rgba(255,255,255,0.14)",
-                    boxShadow: "0 12px 32px rgba(23,18,85,0.34), inset 0 0 0 1px rgba(255,255,255,0.20)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    backdropFilter: "blur(8px)",
-                  }}
                 >
-                  <Sparkles size={17} strokeWidth={2.4} />
+                  <img
+                    src={generationMark}
+                    alt=""
+                    className="artx-ai-generation-mark"
+                    draggable={false}
+                  />
                 </div>
               ) : (
                 <div
