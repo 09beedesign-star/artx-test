@@ -2,18 +2,17 @@
  * TopBar — Neo-Studio Dark Design System
  * Global top navigation: search, theme switcher (Radix DropdownMenu), credits, user info
  */
-import { useState, type ElementType } from "react";
-import { ChevronDown, Sparkles, Moon, Monitor, Check, UserRound, LogOut, Search, KeyRound, Copy, RefreshCw } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ChevronDown, Sparkles, Check, UserRound, LogOut, Search, KeyRound, Copy, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
-import { useTheme, type ThemeMode } from "@/contexts/ThemeContext";
+import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { type CreateProjectPayload } from "@/components/workspace/CreateProjectDialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -37,13 +36,19 @@ interface TopBarProps {
   showSearch?: boolean;
 }
 
-const THEME_OPTIONS: { mode: ThemeMode; icon: ElementType; label: string }[] = [
-  { mode: "dark",   icon: Moon,    label: "深色" },
-  { mode: "system", icon: Monitor, label: "跟随系统" },
+const AVATAR_COLORS = [
+  "#4F8CFF",
+  "#FF6B57",
+  "#21B573",
+  "#FFB020",
+  "#8F5BFF",
+  "#00A7A7",
+  "#E84D89",
+  "#6C7A89",
 ];
 
 export default function TopBar({ credits = 0, projectTitle, projectTime, showSearch = false }: TopBarProps) {
-  const { mode, setMode, resolvedTheme } = useTheme();
+  const { resolvedTheme } = useTheme();
   const { isAuthenticated, user, openLoginModal, logout } = useAuth();
   const [, navigate] = useLocation();
 
@@ -55,7 +60,6 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
   const textSec   = isDark ? "oklch(0.50 0.01 270)"        : "oklch(0.50 0.012 255)";
   const hoverBg   = isDark ? "oklch(1 0 0 / 5%)"           : "oklch(0 0 0 / 0.04)";
 
-  const ActiveIcon = THEME_OPTIONS.find((o) => o.mode === mode)?.icon ?? Moon;
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false);
   const [apiKey, setApiKey] = useState("");
@@ -67,6 +71,10 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
   const searchSub = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.50 0.012 255)";
   const displayName = user?.username || "用户名";
   const avatarLetter = displayName.trim().slice(0, 1).toUpperCase() || "U";
+  const avatarColor = useMemo(() => {
+    const seed = displayName.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
+    return AVATAR_COLORS[seed % AVATAR_COLORS.length];
+  }, [displayName]);
 
   const handleConfirmLogout = () => {
     logout();
@@ -187,57 +195,6 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
 
       {isAuthenticated && (<>
 
-      {/* ── Theme switcher via Radix DropdownMenu ── */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-md-design)] transition-colors outline-none"
-            style={{ color: textSec }}
-            title="切换主题"
-          >
-            <ActiveIcon size={15} />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="end"
-          sideOffset={6}
-          className="min-w-[140px]"
-          style={{
-            background: isDark ? "oklch(0.15 0.018 270)" : "oklch(0.995 0.002 80)",
-            border: `1px solid ${isDark ? "oklch(1 0 0 / 12%)" : "oklch(0.88 0.006 255)"}`,
-            boxShadow: "0 8px 32px oklch(0 0 0 / 0.25)",
-          }}
-        >
-          <DropdownMenuLabel
-            className="type-caption uppercase px-3 pt-2 pb-1"
-            style={{ color: textSec }}
-          >
-            主题
-          </DropdownMenuLabel>
-          <DropdownMenuSeparator style={{ background: isDark ? "oklch(1 0 0 / 8%)" : "oklch(0.88 0.006 255)" }} />
-          {THEME_OPTIONS.map(({ mode: m, icon: Icon, label }) => {
-            const isActive = mode === m;
-            return (
-              <DropdownMenuItem
-                key={m}
-                onClick={() => setMode(m)}
-                className="flex items-center gap-2.5 px-3 py-2 type-caption cursor-pointer"
-                style={{
-                  color: isActive ? "oklch(0.78 0.18 290)" : textPri,
-                  background: isActive ? "oklch(0.58 0.22 290 / 0.12)" : "transparent",
-                }}
-              >
-                <Icon size={13} style={{ color: isActive ? "oklch(0.78 0.18 290)" : textSec }} />
-                <span>{label}</span>
-                {isActive && (
-                  <Check size={11} className="ml-auto" style={{ color: "oklch(0.72 0.18 200)" }} />
-                )}
-              </DropdownMenuItem>
-            );
-          })}
-        </DropdownMenuContent>
-      </DropdownMenu>
-
       {/* Credits */}
       <div
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-md-design)] cursor-pointer transition-colors"
@@ -258,7 +215,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
           >
             <div
               className="w-7 h-7 rounded-[var(--radius-pill)] flex items-center justify-center type-caption"
-              style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))", color: "white" }}
+              style={{ background: avatarColor, color: "white" }}
             >
               {avatarLetter}
             </div>

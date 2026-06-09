@@ -8,6 +8,7 @@ import { useLocation } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
 import {
   Home, Sparkles, Library, FolderOpen,
   HelpCircle, Send,
@@ -63,16 +64,11 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
             style={{ color: textPrimary }}
             aria-label="返回 artx 首页"
           >
-            <span
-              className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-md-design)]"
-              style={{
-                background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.62 0.20 210))",
-                boxShadow: "0 3px 12px oklch(0.58 0.22 290 / 0.30)",
-              }}
-            >
-              <Sparkles size={13} color="white" />
-            </span>
-            <span className="type-body-sm tracking-tight">artx</span>
+            <img
+              src={artxStudioLogo}
+              alt="ArtXStudio"
+              className="block h-7 w-[152px] object-contain object-left"
+            />
           </button>
         )}
         {children}
@@ -173,23 +169,18 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
       >
         {/* Logo */}
         <div className="flex items-center gap-2.5 px-4 pt-5 pb-4">
-          <div
-            className="w-7 h-7 rounded-[var(--radius-md-design)] flex items-center justify-center flex-shrink-0 cursor-pointer"
-            style={{
-              background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.62 0.20 210))",
-              boxShadow: "0 3px 12px oklch(0.58 0.22 290 / 0.30)",
-            }}
+          <button
+            type="button"
+            className="h-7 w-[152px] cursor-pointer transition-opacity hover:opacity-85"
             onClick={() => navigate("/")}
+            aria-label="ArtXStudio 首页"
           >
-            <Sparkles size={13} color="white" />
-          </div>
-          <span
-            className="type-body-sm tracking-tight cursor-pointer"
-            style={{ color: textPrimary }}
-            onClick={() => navigate("/")}
-          >
-            artx
-          </span>
+            <img
+              src={artxStudioLogo}
+              alt="ArtXStudio"
+              className="block h-full w-full object-contain object-left"
+            />
+          </button>
         </div>
 
         {/* ── Scrollable nav body ── */}

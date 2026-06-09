@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import asteroidImage from "@/assets/ardot/3_3.png";
+import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
 import { BRAND_KIT, POSTER_1, POSTER_2, SOCIAL_AD } from "@/lib/workspace-data";
 import { createWorkspaceHistoryProject } from "@/lib/project-history";
 
@@ -169,10 +170,14 @@ export default function HomePage() {
             setActiveTab("home");
             navigate("/");
           }}
-          className="shrink-0 text-[24px] font-bold leading-none tracking-normal text-white transition-opacity hover:opacity-85 sm:text-[32px]"
+          className="h-9 w-[194px] shrink-0 transition-opacity hover:opacity-85"
           aria-label="ArtXStudio 首页"
         >
-          ArtX<span className="font-normal">Studio</span>
+          <img
+            src={artxStudioLogo}
+            alt="ArtXStudio"
+            className="block h-full w-full object-contain object-left"
+          />
         </button>
         <LandingTopNav
           activeTab={activeTab}
