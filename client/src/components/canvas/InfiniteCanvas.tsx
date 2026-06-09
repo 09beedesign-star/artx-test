@@ -4628,6 +4628,7 @@ type ImageGeneratorReferenceAsset = {
 
 type ElementLayerPlan = {
   foregroundPrompt: string;
+  middlePrompt: string;
   backgroundPrompt: string;
   extractedText: string;
   textStyleHint?: string;
@@ -11052,7 +11053,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const baseX = assetNode.position.x + sourceSize.width + 36;
       const baseY = assetNode.position.y;
 
-      toast("AI 编辑元素中", { description: "正在拆分主体层、背景层和文案层" });
+      toast("AI 编辑元素中", { description: "正在拆分前景层、中景层和背景层" });
       try {
         const planner = await callLLM({
           module: "image-edit-elements-plan",
@@ -11060,12 +11061,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           images: [{ src: imageSrc, title: typeof data.title === "string" ? data.title : "选中图片" }],
           prompt: [
             "你正在为设计画布生成图片分层计划。",
-            "请识别这张图里的前景主体、背景区域，以及画面里可见的文案。",
+            "请识别这张图里的前景主体、中景元素、背景区域，以及画面里可见的文案。",
+            "目标是至少拆成三张图片层：前景层、中景层、背景层。每一层都必须输出为完整画幅的新图片，不覆盖原图。",
             "返回严格 JSON，不要使用代码块，不要附加解释。",
             "JSON 结构：",
-            "{\"foregroundPrompt\":\"...\",\"backgroundPrompt\":\"...\",\"extractedText\":\"...\",\"textStyleHint\":\"...\"}",
-            "foregroundPrompt：用于生成一张只保留前景主体、背景透明或极弱化的图片编辑提示词。",
-            "backgroundPrompt：用于生成一张移除主体和主要文案后的干净背景层提示词。",
+            "{\"foregroundPrompt\":\"...\",\"middlePrompt\":\"...\",\"backgroundPrompt\":\"...\",\"extractedText\":\"...\",\"textStyleHint\":\"...\"}",
+            "foregroundPrompt：用于生成前景层，只保留最前面的主体物/人物/产品，背景透明或极弱化。",
+            "middlePrompt：用于生成中景层，只保留前景主体之后、背景之前的次级元素、装饰、道具、阴影、文字或空间元素，移除最前景主体并弱化背景。",
+            "backgroundPrompt：用于生成背景层，移除前景主体、中景元素和主要文案，补齐干净背景。",
             "extractedText：把画面中的全部可读文案按原顺序输出；若没有则输出空字符串。",
             "textStyleHint：简要描述文案层适合的排版气质，比如 headline、small、bold。",
           ].join("\n"),
@@ -11079,8 +11082,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         }
 
         const fallbackPlan: ElementLayerPlan = {
-          foregroundPrompt: "Extract the main foreground subject from the image as a standalone layer. Keep the subject identity, edge details, lighting, and texture intact. Remove or minimize the background and return a clean isolated subject on transparent or nearly transparent background.",
-          backgroundPrompt: "Remove the main subject and any visible text from the image, then reconstruct a clean background plate that matches the original perspective, lighting, color, and texture naturally, without leaving retouch traces.",
+          foregroundPrompt: "Create the foreground layer from this image. Keep only the closest main subject as an isolated standalone layer, preserving identity, edges, lighting, texture, proportions, and details. Remove or strongly minimize everything behind it; use transparent or neutral empty background where possible. Output the full original canvas size.",
+          middlePrompt: "Create the middle layer from this image. Remove the closest main foreground subject. Keep only secondary mid-ground elements such as props, shadows, decorative objects, typography, product accessories, or scene elements that sit between foreground and background. Remove or strongly fade the far background. Output the full original canvas size.",
+          backgroundPrompt: "Create the background layer from this image. Remove the foreground subject, middle-ground objects, shadows, and visible text, then reconstruct a clean background plate matching the original perspective, lighting, colors, texture, and depth naturally, without retouch traces. Output the full original canvas size.",
           extractedText: "",
           textStyleHint: "headline",
         };
@@ -11088,6 +11092,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           ...fallbackPlan,
           ...(parsedPlan || {}),
           foregroundPrompt: parsedPlan?.foregroundPrompt?.trim() || fallbackPlan.foregroundPrompt,
+          middlePrompt: parsedPlan?.middlePrompt?.trim() || fallbackPlan.middlePrompt,
           backgroundPrompt: parsedPlan?.backgroundPrompt?.trim() || fallbackPlan.backgroundPrompt,
           extractedText: parsedPlan?.extractedText?.trim() || "",
           textStyleHint: parsedPlan?.textStyleHint?.trim() || fallbackPlan.textStyleHint,
@@ -11109,11 +11114,27 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
         await runDerivedImageGeneration({
           sourceNode: assetNode,
+          prompt: resolvedPlan.middlePrompt,
+          style: "中景层",
+          nextW: Number(data.imgW || sourceSize.width),
+          nextH: Number(data.imgH || sourceSize.height),
+          placement: { x: baseX, y: baseY + sourceSize.height + 28 },
+          run: async () => editImageWithPrompt({
+            imageSrc,
+            model: "gpt-image-2",
+            prompt: resolvedPlan.middlePrompt,
+            targetWidth: sourceSize.width,
+            targetHeight: sourceSize.height,
+          }),
+        });
+
+        await runDerivedImageGeneration({
+          sourceNode: assetNode,
           prompt: resolvedPlan.backgroundPrompt,
           style: "背景层",
           nextW: Number(data.imgW || sourceSize.width),
           nextH: Number(data.imgH || sourceSize.height),
-          placement: { x: baseX, y: baseY + sourceSize.height + 28 },
+          placement: { x: baseX, y: baseY + (sourceSize.height + 28) * 2 },
           run: async () => editImageWithPrompt({
             imageSrc,
             model: "gpt-image-2",
@@ -11128,7 +11149,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           const textNode = createExtractedTextNode(
             assetNode,
             resolvedPlan.extractedText,
-            { x: baseX, y: baseY + (sourceSize.height + 28) * 2 },
+            { x: baseX, y: baseY + (sourceSize.height + 28) * 3 },
             resolvedPlan.textStyleHint,
           );
           setNodes(nds => [...nds.map(n => ({ ...n, selected: false })), { ...textNode, selected: true }]);
@@ -11137,8 +11158,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
         toast("编辑元素完成", {
           description: resolvedPlan.extractedText
-            ? "已生成主体层、背景层和可编辑文案层，原图保持不变"
-            : "已生成主体层和背景层，当前图片未识别到可拆分文案",
+            ? "已生成前景层、中景层、背景层和可编辑文案层，原图保持不变"
+            : "已生成前景层、中景层和背景层，原图保持不变",
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : "请稍后重试";
