@@ -42,7 +42,7 @@ type ImageGenerationResponse = {
   images?: Array<{ b64_json?: string; url?: string }>;
   data?: Array<{ b64_json?: string; url?: string }>;
   choices?: Array<{ message?: { content?: string } }>;
-  error?: { message?: string };
+  error?: { message?: string } | string;
 };
 
 type AsyncImageTaskResponse = {
@@ -135,6 +135,11 @@ function getImageEditsEndpoint(baseUrl: string) {
   return `${normalized}${normalized.endsWith("/v1") ? "" : "/v1"}/images/edits`;
 }
 
+function getChatEndpoint(baseUrl: string) {
+  const normalized = baseUrl.replace(/\/+$/, "");
+  return `${normalized}${normalized.endsWith("/v1") ? "" : "/v1"}/chat/completions`;
+}
+
 function getProviderConfig() {
   const apiKey = process.env.AI_IMAGE_API_KEY_OVERRIDE || process.env.AI_IMAGE_API_KEY || process.env.OPENAI_API_KEY;
   const baseUrl = process.env.AI_IMAGE_BASE_URL || process.env.OPENAI_BASE_URL || "https://api.openai.com";
@@ -178,6 +183,24 @@ function extractChoiceImages(providerData: ImageGenerationResponse, baseUrl: str
   return imageUrls;
 }
 
+function safeParseJson<T>(raw: string): T | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+function getProviderErrorMessage(data: ImageGenerationResponse | null, fallback: string) {
+  if (!data?.error) return data?.message || fallback;
+  return typeof data.error === "string" ? data.error : data.error.message || fallback;
+}
+
+function isUnsupportedImagesApiError(message: string) {
+  return /images api is not supported|not supported for this platform|unsupported.*images/i.test(message);
+}
+
 async function callImageProvider(body: Record<string, unknown>, apiKey: string, baseUrl: string) {
   const response = await fetch(getImagesEndpoint(baseUrl), {
     method: "POST",
@@ -189,10 +212,40 @@ async function callImageProvider(body: Record<string, unknown>, apiKey: string, 
   });
 
   const text = await response.text();
-  const data = text ? (JSON.parse(text) as ImageGenerationResponse) : {};
+  const data = safeParseJson<ImageGenerationResponse>(text) || {};
 
   if (!response.ok) {
-    throw new Error(data.error?.message || `Image provider returned ${response.status}`);
+    throw new Error(getProviderErrorMessage(data, text || `Image provider returned ${response.status}`));
+  }
+
+  return data;
+}
+
+async function callImageChatProvider(body: Record<string, unknown>, apiKey: string, baseUrl: string) {
+  const response = await fetch(getChatEndpoint(baseUrl), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: body.model,
+      messages: [{
+        role: "user",
+        content: [
+          "请根据下面的提示生成图片，并在回复中返回图片 URL 或 markdown 图片链接。",
+          String(body.prompt || ""),
+          `目标尺寸：${body.size || "1024x1024"}。`,
+        ].join("\n"),
+      }],
+    }),
+  });
+
+  const text = await response.text();
+  const data = safeParseJson<ImageGenerationResponse>(text) || {};
+
+  if (!response.ok) {
+    throw new Error(getProviderErrorMessage(data, text || `Image chat provider returned ${response.status}`));
   }
 
   return data;
@@ -212,10 +265,10 @@ async function callImageEditProvider(
   });
 
   const text = await response.text();
-  const data = text ? (JSON.parse(text) as ImageGenerationResponse) : {};
+  const data = safeParseJson<ImageGenerationResponse>(text) || {};
 
   if (!response.ok) {
-    throw new Error(data.error?.message || `Image edit provider returned ${response.status}`);
+    throw new Error(getProviderErrorMessage(data, text || `Image edit provider returned ${response.status}`));
   }
 
   return data;
@@ -850,9 +903,14 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
     providerData = await callImageProvider(requestBody, apiKey, baseUrl);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (!message.toLowerCase().includes("response_format")) throw error;
-    const { response_format: _responseFormat, ...fallbackBody } = requestBody;
-    providerData = await callImageProvider(fallbackBody, apiKey, baseUrl);
+    if (isUnsupportedImagesApiError(message)) {
+      providerData = await callImageChatProvider(requestBody, apiKey, baseUrl);
+    } else if (message.toLowerCase().includes("response_format")) {
+      const { response_format: _responseFormat, ...fallbackBody } = requestBody;
+      providerData = await callImageProvider(fallbackBody, apiKey, baseUrl);
+    } else {
+      throw new Error(`图片生成接口暂不可用：${message}`);
+    }
   }
 
   if (providerData.task_id) {
@@ -862,7 +920,7 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
   const images = extractGeneratedImages(providerData, baseUrl, ratio.width, ratio.height);
 
   if (images.length === 0) {
-    throw new Error("Image provider returned no images");
+    throw new Error("图片模型未返回可用图片，请切换 GPT Image 2 或 Nano Banana 图片模型后重试");
   }
 
   return { images };
