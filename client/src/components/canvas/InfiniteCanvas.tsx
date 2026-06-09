@@ -2493,7 +2493,8 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const isErasingImage = Boolean((data as { isErasingImage?: boolean }).isErasingImage);
   const isExtractingText = Boolean((data as { isExtractingText?: boolean }).isExtractingText);
   const isAiProcessingImage = isGeneratingImage || isRemovingBackground || isErasingImage;
-  const processingLabel = isGeneratingImage ? "正在全力生成中" : isErasingImage ? "AI 擦除中" : isRemovingBackground ? "AI 去背景中" : "AI 处理中";
+  const processingLabel = ((data as { processingTitle?: string }).processingTitle || (isGeneratingImage ? "正在全力生成中" : isErasingImage ? "AI 擦除中" : isRemovingBackground ? "AI 去背景中" : "AI 处理中")) as string;
+  const processingSubtitle = ((data as { processingSubtitle?: string }).processingSubtitle || "") as string;
   const displaySrc = isAiProcessingImage ? "" : (localSrc || asset?.src || "");
   const sourceBackgroundSrc = (data as { sourceBackgroundSrc?: string }).sourceBackgroundSrc;
   const isEditing = !!(data as { isEditing?: boolean }).isEditing;
@@ -3127,7 +3128,14 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
                   }}
                 />
               )}
-              <span className="type-caption" style={{ fontWeight: 600 }}>{processingLabel}</span>
+              <div className="flex flex-col items-center gap-1 px-5 text-center">
+                <span className="type-caption" style={{ fontWeight: 600 }}>{processingLabel}</span>
+                {processingSubtitle && (
+                  <span className="type-caption" style={{ maxWidth: 260, opacity: 0.82, lineHeight: 1.55, textTransform: "none", letterSpacing: 0 }}>
+                    {processingSubtitle}
+                  </span>
+                )}
+              </div>
             </div>
 	          ) : displaySrc ? (
 	            <img
@@ -11269,6 +11277,32 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const sourceSize = getCanvasNodeSize(assetNode);
       const baseX = assetNode.position.x + sourceSize.width + 36;
       const baseY = assetNode.position.y;
+      const splittingNodeId = `element-split-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const splittingDisplayW = Math.max(220, Math.round(sourceSize.width));
+      const splittingDisplayH = Math.max(160, Math.round(sourceSize.height));
+
+      pushHistory();
+      setNodes(nds => [...nds.map(n => ({ ...n, selected: false })), {
+        id: splittingNodeId,
+        type: "asset" as const,
+        position: { x: baseX, y: baseY },
+        style: { width: splittingDisplayW, height: splittingDisplayH },
+        data: {
+          id: splittingNodeId,
+          assetId: "default",
+          title: "图层拆分中",
+          assetType: "AI 生成",
+          tags: ["编辑元素", "图层拆分", "生成中"],
+          imgW: splittingDisplayW,
+          imgH: splittingDisplayH,
+          isGeneratingImage: true,
+          processingTitle: "正在进行图层拆分请稍候...",
+          processingSubtitle: "(tips：视图片大小，计算时间可能会稍微延长，谢谢)",
+          sourceBackgroundSrc: imageSrc,
+        },
+        selected: true,
+      }]);
+      setSelectedNodeIds([splittingNodeId]);
 
       toast("AI 编辑元素中", { description: "正在拆分前景层、中景层和背景层" });
       try {
@@ -11391,6 +11425,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       } catch (error) {
         const message = error instanceof Error ? error.message : "请稍后重试";
         toast("编辑元素失败", { description: message });
+      } finally {
+        setNodes(nds => nds.filter(n => n.id !== splittingNodeId));
       }
       return;
     }
