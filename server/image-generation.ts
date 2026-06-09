@@ -660,6 +660,44 @@ function createEraseFallbackComposite(imageSrc: string, maskSrc: string) {
   return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
 }
 
+async function didEraseChangeMaskedArea(sourceBuffer: Buffer, resultSrc: string, maskSrc: string, width: number, height: number) {
+  const sharp = (await import("sharp")).default;
+  const { buffer: resultBuffer } = await imageSrcToBuffer(resultSrc);
+  const { data: sourceData } = await sharp(sourceBuffer, { limitInputPixels: false })
+    .rotate()
+    .resize(width, height, { fit: "fill" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const { data: resultData } = await sharp(resultBuffer, { limitInputPixels: false })
+    .rotate()
+    .resize(width, height, { fit: "fill" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const { buffer: maskBuffer } = await imageSrcToBuffer(maskSrc);
+  const { data: maskData } = await sharp(maskBuffer, { limitInputPixels: false })
+    .rotate()
+    .resize(width, height, { fit: "fill" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  let maskedPixels = 0;
+  let totalDelta = 0;
+  for (let index = 0; index < maskData.length; index += 4) {
+    if (maskData[index + 3] > 64) continue;
+    maskedPixels += 1;
+    totalDelta += Math.abs(sourceData[index] - resultData[index]);
+    totalDelta += Math.abs(sourceData[index + 1] - resultData[index + 1]);
+    totalDelta += Math.abs(sourceData[index + 2] - resultData[index + 2]);
+    totalDelta += Math.abs(sourceData[index + 3] - resultData[index + 3]);
+  }
+
+  if (maskedPixels < Math.max(16, width * height * 0.0002)) return true;
+  return totalDelta / maskedPixels >= 18;
+}
+
 async function imageSrcToFile(src: string): Promise<File> {
   const { buffer, mimeType } = await imageSrcToBuffer(src);
   return bufferToImageFile(buffer, mimeType);
@@ -837,6 +875,21 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<{ image
   const selectedModel = input.model && supportedImageModels.has(input.model) ? input.model : model;
   const prompt = input.prompt || "Remove only the objects or scene elements covered by the mask. Reconstruct the background naturally, preserve the rest of the image exactly, and leave no visible artifacts.";
   const editSize = getEditSizeForAspect(targetWidth, targetHeight);
+  const fallbackErase = () => {
+    const compositeSrc = createEraseFallbackComposite(input.imageSrc, input.maskSrc);
+    return editImageWithPrompt({
+      imageSrc: compositeSrc,
+      model: selectedModel,
+      targetWidth,
+      targetHeight,
+      prompt: [
+        "The semi-transparent purple overlay marks the exact area to remove.",
+        "Remove every visible object, shape, text, or scene element under the purple overlay.",
+        "Fill that area with natural surrounding background so the marked content disappears seamlessly.",
+        "Keep all unmarked regions unchanged. Do not keep the purple overlay. Leave no visible retouch artifacts.",
+      ].join(" "),
+    });
+  };
 
   const createBody = (withResponseFormat: boolean) => {
     const body = new FormData();
@@ -860,17 +913,7 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<{ image
       providerData = await callImageEditProvider(createBody(false), apiKey, baseUrl);
     }
   } catch (error) {
-    const compositeSrc = createEraseFallbackComposite(input.imageSrc, input.maskSrc);
-    return editImageWithPrompt({
-      imageSrc: compositeSrc,
-      model: selectedModel,
-      targetWidth,
-      targetHeight,
-      prompt: [
-        "The semi-transparent purple overlay marks the exact area to remove.",
-        "Remove only the content under the purple overlay, reconstruct the background naturally, keep all unmarked regions unchanged, and leave no visible artifacts.",
-      ].join(" "),
-    });
+    return fallbackErase();
   }
 
   if (providerData.task_id) {
@@ -885,6 +928,13 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<{ image
 
   if (images.length === 0) {
     throw new Error("Image erase provider returned no images");
+  }
+
+  try {
+    const changed = await didEraseChangeMaskedArea(sourceImageData.buffer, images[0].src, input.maskSrc, targetWidth, targetHeight);
+    if (!changed) return fallbackErase();
+  } catch (error) {
+    console.warn("Erase result validation failed; keeping provider result", error);
   }
 
   return { images };
