@@ -7369,6 +7369,7 @@ function CanvasAssistantPanel({
     setPrompt("");
     setIsSubmitting(true);
     const context = contextLabel || "当前画布";
+    const hasVisualReferences = referencedAssets.length > 0 || annotationReferences.length > 0;
     const annotationContext = annotationReferences.map((ann, index) => (
       `注释 ${index + 1}：来自「${ann.title}」，位置 x=${ann.x.toFixed(1)}%、y=${ann.y.toFixed(1)}%，修改建议：${ann.text || "未填写"}`
     )).join("\n");
@@ -7379,7 +7380,9 @@ function CanvasAssistantPanel({
           annotationContext,
           `用户请求：${submittedText}`,
         ].join("\n")
-      : `上下文：${context}\n用户请求：${submittedText}`;
+      : hasVisualReferences
+        ? `上下文：${context}\n用户请求：${submittedText}`
+        : submittedText;
     const assistantImages = [
       ...referencedAssets.map(asset => ({ src: asset.src, title: asset.title })),
       ...annotationReferences.map((ann, index) => ({ src: ann.src, title: `注释 ${index + 1} · ${ann.title}` })),
