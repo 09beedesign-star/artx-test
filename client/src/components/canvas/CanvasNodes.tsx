@@ -15,7 +15,7 @@ import type { CanvasNode } from "@/hooks/useCanvas";
 import { GENERATED_ASSETS } from "@/lib/workspace-data";
 import type { ChatMessage, AgentStep } from "@/lib/workspace-data";
 import { IMAGE_AI_MODELS, TEXT_AI_MODELS } from "@/lib/workspace-data";
-import { callLLM } from "@/lib/ai";
+import { callLLM, requestAiAuth } from "@/lib/ai";
 
 type AiModelOption = typeof TEXT_AI_MODELS[number] | typeof IMAGE_AI_MODELS[number];
 
@@ -239,6 +239,10 @@ export function ChatNode({ node, isSelected, onDragStart, onSelect, onRemove }: 
 
   const handleSend = async () => {
     if (!input.trim() || isGenerating) return;
+    if (!requestAiAuth()) {
+      toast("请先登录", { description: "登录后即可使用 AI 能力" });
+      return;
+    }
     const userMsg: ChatMessage = { id: `c${Date.now()}`, role: "user", content: input.trim(), timestamp: new Date() };
     setMessages((p) => [...p, userMsg]);
     setInput("");
@@ -424,6 +428,10 @@ export function PromptNode({
           <button onClick={async (e) => {
               e.stopPropagation();
               if (!prompt.trim() || isGenerating) return;
+              if (!requestAiAuth()) {
+                toast("请先登录", { description: "登录后即可使用 AI 能力" });
+                return;
+              }
               if (onGenerate) {
                 onGenerate(prompt);
                 return;
