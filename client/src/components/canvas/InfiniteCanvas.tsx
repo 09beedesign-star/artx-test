@@ -69,7 +69,7 @@ function CreateCanvasIcon({ size = 17 }: { size?: number }) {
 import { useLocation } from "wouter";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
-import { GENERATED_ASSETS, IMAGE_AI_MODELS, PROJECTS, type GeneratedAsset, type Project } from "@/lib/workspace-data";
+import { GENERATED_ASSETS, IMAGE_AI_MODELS, PROJECTS, TEXT_AI_MODELS, type GeneratedAsset, type Project } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import CropEditor from "@/components/canvas/CropEditor";
@@ -6708,7 +6708,10 @@ function SaveProjectConfirmDialog({ isDark, project, onCancel, onSave }: {
 }
 
 
-const CANVAS_ASSISTANT_MODEL_STORAGE_KEY = "artx:canvas-assistant-model";
+const CANVAS_ASSISTANT_IMAGE_MODEL_STORAGE_KEY = "artx:canvas-assistant-image-model";
+const CANVAS_ASSISTANT_TEXT_MODEL_STORAGE_KEY = "artx:canvas-assistant-text-model";
+const CANVAS_ASSISTANT_MODEL_TAB_STORAGE_KEY = "artx:canvas-assistant-model-tab";
+type CanvasAssistantModelTab = "image" | "text";
 
 type CanvasAssistantMessage = {
   id: string;
@@ -6815,11 +6818,20 @@ function CanvasAssistantPanel({
   const [commandMenuOpen, setCommandMenuOpen] = useState(false);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
   const [netSearchEnabled, setNetSearchEnabled] = useState(false);
-  const canvasAssistantModels = IMAGE_AI_MODELS;
-  const [assistantModelId, setAssistantModelId] = useState(() => {
+  const [assistantModelTab, setAssistantModelTab] = useState<CanvasAssistantModelTab>(() => {
+    if (typeof window === "undefined") return "image";
+    const stored = window.localStorage.getItem(CANVAS_ASSISTANT_MODEL_TAB_STORAGE_KEY);
+    return stored === "text" ? "text" : "image";
+  });
+  const [assistantImageModelId, setAssistantImageModelId] = useState(() => {
     if (typeof window === "undefined") return "gpt-image-2";
-    const stored = window.localStorage.getItem(CANVAS_ASSISTANT_MODEL_STORAGE_KEY);
-    return canvasAssistantModels.some(model => model.id === stored) ? stored! : "gpt-image-2";
+    const stored = window.localStorage.getItem(CANVAS_ASSISTANT_IMAGE_MODEL_STORAGE_KEY) || window.localStorage.getItem("artx:canvas-assistant-model");
+    return IMAGE_AI_MODELS.some(model => model.id === stored) ? stored! : "gpt-image-2";
+  });
+  const [assistantTextModelId, setAssistantTextModelId] = useState(() => {
+    if (typeof window === "undefined") return "gpt-5.4";
+    const stored = window.localStorage.getItem(CANVAS_ASSISTANT_TEXT_MODEL_STORAGE_KEY);
+    return TEXT_AI_MODELS.some(model => model.id === stored) ? stored! : "gpt-5.4";
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [regeneratingMessageId, setRegeneratingMessageId] = useState<string | null>(null);
@@ -6878,7 +6890,10 @@ function CanvasAssistantPanel({
         : referencedAssets.length > 0
           ? `引用素材 ${referencedAssets.length} 个`
           : "";
-  const assistantModel = canvasAssistantModels.find(model => model.id === assistantModelId) || canvasAssistantModels[0];
+  const assistantImageModel = IMAGE_AI_MODELS.find(model => model.id === assistantImageModelId) || IMAGE_AI_MODELS[0];
+  const assistantTextModel = TEXT_AI_MODELS.find(model => model.id === assistantTextModelId) || TEXT_AI_MODELS[0];
+  const assistantModelOptions = assistantModelTab === "image" ? IMAGE_AI_MODELS : TEXT_AI_MODELS;
+  const assistantModel = assistantModelTab === "image" ? assistantImageModel : assistantTextModel;
 
   const handleReferenceSelectionToggle = useCallback((referenceId: string) => {
     setSelectedReferenceIds(prev => (
@@ -6918,7 +6933,7 @@ function CanvasAssistantPanel({
     try {
       const result = await callLLM({
         module,
-        model: assistantModel.id,
+        model: assistantTextModel.id,
         images: referencedAssets.map(asset => ({ src: asset.src, title: asset.title })),
         messages: [
           ...messages.slice(-8).map(message => ({ role: message.role, content: message.content })),
@@ -6962,11 +6977,13 @@ function CanvasAssistantPanel({
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(CANVAS_ASSISTANT_MODEL_STORAGE_KEY, assistantModel.id);
+      window.localStorage.setItem(CANVAS_ASSISTANT_MODEL_TAB_STORAGE_KEY, assistantModelTab);
+      window.localStorage.setItem(CANVAS_ASSISTANT_IMAGE_MODEL_STORAGE_KEY, assistantImageModel.id);
+      window.localStorage.setItem(CANVAS_ASSISTANT_TEXT_MODEL_STORAGE_KEY, assistantTextModel.id);
     } catch {
       /* ignore storage quota errors */
     }
-  }, [assistantModel.id]);
+  }, [assistantImageModel.id, assistantModelTab, assistantTextModel.id]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -7081,7 +7098,7 @@ function CanvasAssistantPanel({
             const generationId = `home-prompt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
             const imagePayload: ImageGeneratorPayload = {
               prompt: imagePrompt,
-              model: IMAGE_AI_MODELS.some(model => model.id === payload.model) ? payload.model! : assistantModel.id,
+              model: IMAGE_AI_MODELS.some(model => model.id === payload.model) ? payload.model! : assistantImageModel.id,
               ratio: "1:1",
               count: 1,
               style: "首页创作",
@@ -7116,7 +7133,7 @@ function CanvasAssistantPanel({
     } catch {
       sessionStorage.removeItem("artx:pending-home-prompt");
     }
-  }, [assistantModel.id, collapsed, projectId]);
+  }, [assistantImageModel.id, assistantTextModel.id, collapsed, projectId]);
 
   useEffect(() => {
     if (helpPromptNonce <= 0 || collapsed) return;
@@ -7174,9 +7191,28 @@ function CanvasAssistantPanel({
       ...annotationReferences.map((ann, index) => ({ src: ann.src, title: `注释 ${index + 1} · ${ann.title}` })),
     ];
     try {
+      if (assistantModelTab === "text") {
+        const result = await callLLM({
+          module: "right-ai-assistant-chat",
+          model: assistantTextModel.id,
+          images: assistantImages,
+          messages: [
+            ...messages.slice(-8).map(message => ({ role: message.role, content: message.content })),
+            { role: "user", content: routedPrompt },
+          ],
+        });
+        setMessages(prev => [...prev, {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content: result.text,
+          timestamp: new Date(),
+        }]);
+        return;
+      }
+
       const decision = await routeCreativeIntent({
         module: "right-ai-assistant",
-        model: "gpt-4o",
+        model: assistantTextModel.id,
         prompt: routedPrompt,
         referencedAssets: assistantImages,
         recentMessages: messages.slice(-8).map(message => ({ role: message.role, content: message.content })),
@@ -7201,7 +7237,7 @@ function CanvasAssistantPanel({
         const generationId = `right-assistant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         const payload: ImageGeneratorPayload = {
           prompt: imagePrompt,
-          model: assistantModel.id,
+          model: assistantImageModel.id,
           ratio: "1:1",
           count: 1,
           style: "右侧 AI 助手",
@@ -7592,7 +7628,7 @@ function CanvasAssistantPanel({
                     title="选择模型"
                     aria-label="选择模型"
                   >
-                    <span>{assistantModel.label}</span>
+                    <span>{assistantModelTab === "image" ? "生图" : "对话"} · {assistantModel.label}</span>
                     <ChevronDown size={12} style={{ opacity: 0.6, transform: agentMenuOpen ? "rotate(180deg)" : "none", transition: "transform 0.16s ease" }} />
                   </button>
                   {agentMenuOpen && (
@@ -7606,10 +7642,27 @@ function CanvasAssistantPanel({
                         zIndex: 130,
                       }}
                     >
-                      <div className="px-3 py-2 border-b" style={{ borderColor: border }}>
-                        <p className="type-caption uppercase tracking-wider" style={{ color: sub }}>选择模型</p>
+                      <div className="grid grid-cols-2 gap-1 p-1.5" style={{ borderBottom: `1px solid ${border}` }}>
+                        {([
+                          { id: "image" as const, label: "生图" },
+                          { id: "text" as const, label: "对话" },
+                        ]).map(tab => (
+                          <button
+                            key={tab.id}
+                            type="button"
+                            className="h-7 rounded-[var(--radius-md-design)] type-caption transition-colors"
+                            style={{
+                              color: assistantModelTab === tab.id ? text : sub,
+                              background: assistantModelTab === tab.id ? "oklch(0.64 0.22 285 / 0.16)" : "transparent",
+                              border: `1px solid ${assistantModelTab === tab.id ? "oklch(0.64 0.22 285 / 0.40)" : "transparent"}`,
+                            }}
+                            onClick={() => setAssistantModelTab(tab.id)}
+                          >
+                            {tab.label}
+                          </button>
+                        ))}
                       </div>
-                      {canvasAssistantModels.map(model => (
+                      {assistantModelOptions.map(model => (
                         <button
                           key={model.id}
                           type="button"
@@ -7618,8 +7671,11 @@ function CanvasAssistantPanel({
                           onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
                           onMouseLeave={e => (e.currentTarget.style.background = assistantModel.id === model.id ? "oklch(0.64 0.22 285 / 0.12)" : "transparent")}
                           onClick={() => {
-                            setAssistantModelId(model.id);
-                            window.localStorage.setItem(CANVAS_ASSISTANT_MODEL_STORAGE_KEY, model.id);
+                            if (assistantModelTab === "image") {
+                              setAssistantImageModelId(model.id);
+                            } else {
+                              setAssistantTextModelId(model.id);
+                            }
                             setAgentMenuOpen(false);
                           }}
                         >
