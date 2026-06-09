@@ -361,7 +361,7 @@ function PreloginPanel({
           </div>
         </div>
 
-        <div className="mt-6 flex min-h-[282px] flex-1 flex-col justify-between rounded-[10px] border border-[#545454] bg-[#212121] p-4">
+        <div className="mb-6 mt-6 flex min-h-[282px] flex-1 flex-col justify-between rounded-[10px] border border-[#545454] bg-[#212121] p-4">
           <textarea
             value={prompt}
             onChange={event => onPromptChange(event.target.value)}
