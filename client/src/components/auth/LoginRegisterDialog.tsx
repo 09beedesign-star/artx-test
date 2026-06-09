@@ -6,7 +6,6 @@ import { useAuth } from "@/contexts/AuthContext";
 // 首页使用 HomePage 内部右侧面板；其它场景统一使用这个居中弹窗。
 export default function LoginRegisterDialog() {
   const { loginModalOpen, closeLoginModal, login, register, socialAuth } = useAuth();
-  const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -20,10 +19,7 @@ export default function LoginRegisterDialog() {
 
   if (!loginModalOpen) return null;
 
-  const isRegister = mode === "register";
-
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handleAuthAction = async (action: "register" | "login") => {
     const normalizedEmail = email.trim();
     setError("");
 
@@ -33,14 +29,19 @@ export default function LoginRegisterDialog() {
     }
 
     setSubmitting(true);
-    const result = isRegister
+    const result = action === "register"
       ? await register(normalizedEmail, password)
       : await login(normalizedEmail, password);
     setSubmitting(false);
 
     if (!result.ok) {
-      setError(result.error || (isRegister ? "注册失败，请稍后重试" : "登录失败，请稍后重试"));
+      setError(result.error || (action === "register" ? "注册失败，请稍后重试" : "登录失败，请稍后重试"));
     }
+  };
+
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void handleAuthAction("login");
   };
 
   const handleSocialAuth = async (provider: "google" | "wechat" | "github" | "meta") => {
@@ -70,7 +71,7 @@ export default function LoginRegisterDialog() {
 
         <GlassPanel>
           <form className="flex h-full flex-col" onSubmit={handleSubmit}>
-            <PanelHeader title={isRegister ? "创建 ArtX Studio 账号" : "欢迎使用 ArtX Studio"} />
+            <PanelHeader />
 
             <div className="mt-8 flex flex-col gap-5">
               <LabeledInput
@@ -85,7 +86,7 @@ export default function LoginRegisterDialog() {
                 type="password"
                 value={password}
                 onChange={setPassword}
-                autoComplete={isRegister ? "new-password" : "current-password"}
+                autoComplete="current-password"
                 placeholder="请输入密码"
               />
             </div>
@@ -99,13 +100,23 @@ export default function LoginRegisterDialog() {
               </button>
             </div>
 
-            <button
-              type="submit"
-              disabled={submitting}
-              className="mt-5 h-12 rounded-[10px] bg-[#936CFF] text-base font-semibold text-white shadow-[0_10px_28px_rgba(147,108,255,0.25)] transition-all hover:bg-[#A384FF] disabled:opacity-60"
-            >
-              {submitting ? "请稍候..." : isRegister ? "注 册" : "登 录"}
-            </button>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => void handleAuthAction("register")}
+                className="h-12 rounded-[10px] bg-[#2F80ED] text-base font-semibold text-white shadow-[0_10px_28px_rgba(47,128,237,0.24)] transition-all hover:bg-[#4A96FF] disabled:opacity-60"
+              >
+                {submitting ? "请稍候..." : "注 册"}
+              </button>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="h-12 rounded-[10px] bg-[#936CFF] text-base font-semibold text-white shadow-[0_10px_28px_rgba(147,108,255,0.25)] transition-all hover:bg-[#A384FF] disabled:opacity-60"
+              >
+                {submitting ? "请稍候..." : "登 录"}
+              </button>
+            </div>
 
             <div className="my-5 flex items-center gap-3">
               <span className="h-px flex-1 bg-[#939393]" />
@@ -120,16 +131,7 @@ export default function LoginRegisterDialog() {
               <SocialButton icon={<span className="text-xl leading-none text-[#3f7cff]">∞</span>} label="使用 Meta 登录" onClick={() => void handleSocialAuth("meta")} />
             </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                setMode(isRegister ? "login" : "register");
-                setError("");
-              }}
-              className="mt-5 appearance-none bg-transparent text-center text-[13px] text-[#936CFF] transition-colors hover:text-[#A384FF]"
-            >
-              {isRegister ? "已有账号？立即登录" : "还没有账号？立即注册"}
-            </button>
+            <p className="mt-5 text-center text-[13px] text-[#7d7d7d]">注册或登录后即可继续使用 ArtX Studio</p>
           </form>
         </GlassPanel>
       </div>
