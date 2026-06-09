@@ -68,7 +68,12 @@ function getProviderConfig() {
   };
 }
 
-const supportedTextModels = new Set(["gpt-4o"]);
+const supportedTextModels = new Set([
+  "gpt-4o",
+  "gpt-5.4",
+  "gpt-5.4-mini",
+  "gpt-5.5",
+]);
 
 function flattenMessageContent(content: TextMessage["content"]): string {
   if (typeof content === "string") return content;
