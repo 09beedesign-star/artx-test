@@ -122,6 +122,12 @@ export default function HomePage() {
     setPanelMode("register");
   };
 
+  const showRegisterWindow = () => {
+    showRegisterPanel();
+    setActiveTab("home");
+    homeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   const handlePreloginToolClick = () => {
     if (isAuthenticated) {
       createProjectFromPrompt();
@@ -221,7 +227,7 @@ export default function HomePage() {
         {!isAuthenticated && (
           <button
             type="button"
-            onClick={showRegisterPanel}
+            onClick={showRegisterWindow}
             className="ml-auto h-10 shrink-0 rounded-md bg-[#936CFF] px-4 text-sm font-medium text-white shadow-[0_8px_20px_rgba(147,108,255,0.24)] transition-colors hover:bg-[#A384FF]"
           >
             登录 / 注册
