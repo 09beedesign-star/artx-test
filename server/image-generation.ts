@@ -201,6 +201,19 @@ function isUnsupportedImagesApiError(message: string) {
   return /images api is not supported|not supported for this platform|unsupported.*images/i.test(message);
 }
 
+function isMissingReferenceImagesError(message: string) {
+  return /no reference images found|reference images?.*not found|missing reference images/i.test(message);
+}
+
+function stripReferenceContextFromPrompt(prompt: string) {
+  return prompt
+    .split("\n")
+    .filter((line) => !/参考当前画布|引用素材|上下文：当前画布|reference image/i.test(line))
+    .join("\n")
+    .replace(/用户请求：/g, "")
+    .trim() || prompt.trim();
+}
+
 async function callImageProvider(body: Record<string, unknown>, apiKey: string, baseUrl: string) {
   const response = await fetch(getImagesEndpoint(baseUrl), {
     method: "POST",
@@ -905,6 +918,11 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
     const message = error instanceof Error ? error.message : String(error);
     if (isUnsupportedImagesApiError(message)) {
       providerData = await callImageChatProvider(requestBody, apiKey, baseUrl);
+    } else if (isMissingReferenceImagesError(message)) {
+      providerData = await callImageProvider({
+        ...requestBody,
+        prompt: stripReferenceContextFromPrompt(String(requestBody.prompt || "")),
+      }, apiKey, baseUrl);
     } else if (message.toLowerCase().includes("response_format")) {
       const { response_format: _responseFormat, ...fallbackBody } = requestBody;
       providerData = await callImageProvider(fallbackBody, apiKey, baseUrl);
