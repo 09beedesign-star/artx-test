@@ -117,6 +117,19 @@ export default function HomePage() {
     setPanelMode("login");
   };
 
+  const showRegisterPanel = () => {
+    setAuthError("");
+    setPanelMode("register");
+  };
+
+  const handlePreloginToolClick = () => {
+    if (isAuthenticated) {
+      createProjectFromPrompt();
+      return;
+    }
+    showRegisterPanel();
+  };
+
   const handleAuthSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!email.trim() || !password.trim()) {
@@ -170,7 +183,7 @@ export default function HomePage() {
             setActiveTab("home");
             navigate("/");
           }}
-          className="h-9 w-[194px] shrink-0 transition-opacity hover:opacity-85"
+          className="h-9 w-[194px] origin-left shrink-0 scale-[0.7] transition-opacity hover:opacity-85"
           aria-label="ArtXStudio 首页"
         >
           <img
@@ -205,6 +218,15 @@ export default function HomePage() {
             进入工作台
           </button>
         )}
+        {!isAuthenticated && (
+          <button
+            type="button"
+            onClick={showRegisterPanel}
+            className="ml-auto h-10 shrink-0 rounded-md bg-[#936CFF] px-4 text-sm font-medium text-white shadow-[0_8px_20px_rgba(147,108,255,0.24)] transition-colors hover:bg-[#A384FF]"
+          >
+            登录 / 注册
+          </button>
+        )}
       </header>
       <section ref={homeRef} className="relative min-h-screen overflow-hidden">
         <div
@@ -219,6 +241,7 @@ export default function HomePage() {
                 prompt={prompt}
                 onPromptChange={setPrompt}
                 onSend={handlePreloginSend}
+                onToolClick={handlePreloginToolClick}
               />
             </div>
             <div className={`absolute inset-0 transition-all duration-500 ease-out ${displayedMode === "prelogin" ? "pointer-events-none opacity-0 -translate-y-3" : "pointer-events-auto opacity-100 translate-y-0"}`}>
@@ -393,10 +416,12 @@ function PreloginPanel({
   prompt,
   onPromptChange,
   onSend,
+  onToolClick,
 }: {
   prompt: string;
   onPromptChange: (value: string) => void;
   onSend: () => void;
+  onToolClick: () => void;
 }) {
   return (
     <GlassPanel>
@@ -428,12 +453,12 @@ function PreloginPanel({
           />
           <div className="flex h-10 items-center justify-between">
             <div className="flex items-center gap-4 text-[#7d7d7d]">
-              <button type="button" className="flex h-8 items-center gap-1.5 rounded-md text-xs transition-colors hover:text-white">
+              <button type="button" onClick={onToolClick} className="flex h-8 items-center gap-1.5 rounded-md text-xs transition-colors hover:text-white">
                 <ImagePlus size={15} />
                 添加参考图
               </button>
               <span className="h-4 w-px bg-[#454545]" />
-              <button type="button" className="flex h-8 items-center gap-1 rounded-md text-xs transition-colors hover:text-white">
+              <button type="button" onClick={onToolClick} className="flex h-8 items-center gap-1 rounded-md text-xs transition-colors hover:text-white">
                 图像生成
                 <ChevronDown size={14} />
               </button>

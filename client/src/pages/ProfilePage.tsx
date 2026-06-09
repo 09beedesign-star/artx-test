@@ -22,7 +22,30 @@ interface ProfileDraft {
 }
 
 const PROFILE_STORAGE_KEY = "artx:creator-profile";
+const PROFILE_BACKGROUND_KEY = "artx:profile-background-color";
 const DEFAULT_DESCRIPTION = "这是您的 ArtXStudio 创作者主页";
+const PROFILE_BACKGROUND_COLORS = [
+  "#000000",
+  "#1A1A1A",
+  "#2B2D42",
+  "#1B1F3B",
+  "#0F172A",
+  "#12332E",
+  "#224C3A",
+  "#5A3E2B",
+  "#7A3E2E",
+  "#3B1F2B",
+  "#41246D",
+  "#936CFF",
+  "#6D7DFF",
+  "#2F80ED",
+  "#00A3A3",
+  "#37B24D",
+  "#F59F00",
+  "#FF6B6B",
+  "#E64980",
+  "#F8F9FA",
+];
 
 function readStoredProfile(): Partial<ProfileDraft> {
   try {
@@ -31,6 +54,12 @@ function readStoredProfile(): Partial<ProfileDraft> {
   } catch {
     return {};
   }
+}
+
+function readStoredProfileBackground() {
+  if (typeof window === "undefined") return PROFILE_BACKGROUND_COLORS[0];
+  const stored = localStorage.getItem(PROFILE_BACKGROUND_KEY);
+  return stored && PROFILE_BACKGROUND_COLORS.includes(stored) ? stored : PROFILE_BACKGROUND_COLORS[0];
 }
 
 export default function ProfilePage() {
@@ -55,10 +84,15 @@ export default function ProfilePage() {
   });
   const [editOpen, setEditOpen] = useState(false);
   const [draft, setDraft] = useState<ProfileDraft>(profile);
+  const [profileBackground, setProfileBackground] = useState(readStoredProfileBackground);
 
   useEffect(() => {
     localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile));
   }, [profile]);
+
+  useEffect(() => {
+    localStorage.setItem(PROFILE_BACKGROUND_KEY, profileBackground);
+  }, [profileBackground]);
 
   const textPrimary = isDark ? "rgba(255,255,255,0.88)" : "rgba(20,20,36,0.88)";
   const textSecondary = isDark ? "rgba(255,255,255,0.56)" : "rgba(20,20,36,0.56)";
@@ -124,7 +158,7 @@ export default function ProfilePage() {
               backdropFilter: "blur(20px)",
             }}
           >
-            <div className="h-40" style={{ background: "#000" }} />
+            <div className="h-40 transition-colors duration-200" style={{ background: profileBackground }} />
             <div className="px-8 pb-8">
               <div className="-mt-12 flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
                 <div className="flex items-end gap-5">
@@ -160,18 +194,48 @@ export default function ProfilePage() {
                     <p className="type-body-sm mt-1" style={{ color: textSecondary }}>{profile.description}</p>
                   </div>
                 </div>
-                <button
-                  onClick={openEdit}
-                  className="flex items-center gap-2 rounded-[var(--radius-lg-design)] px-4 py-2 type-caption transition-opacity hover:opacity-85"
-                  style={{
-                    background: isDark ? "rgba(255,255,255,0.08)" : "rgba(20,20,36,0.06)",
-                    border: `1px solid ${border}`,
-                    color: textPrimary,
-                  }}
-                >
-                  <Pencil size={14} />
-                  编辑资料
-                </button>
+                <div className="flex flex-col items-start gap-3 md:items-end">
+                  <button
+                    onClick={openEdit}
+                    className="flex items-center gap-2 rounded-[var(--radius-lg-design)] px-4 py-2 type-caption transition-opacity hover:opacity-85"
+                    style={{
+                      background: isDark ? "rgba(255,255,255,0.08)" : "rgba(20,20,36,0.06)",
+                      border: `1px solid ${border}`,
+                      color: textPrimary,
+                    }}
+                  >
+                    <Pencil size={14} />
+                    编辑资料
+                  </button>
+                  <div
+                    className="rounded-[var(--radius-lg-design)] p-3"
+                    style={{
+                      background: isDark ? "rgba(0,0,0,0.22)" : "rgba(255,255,255,0.58)",
+                      border: `1px solid ${border}`,
+                    }}
+                  >
+                    <p className="mb-2 type-caption" style={{ color: textSecondary }}>主页背景</p>
+                    <div className="grid grid-cols-10 gap-1.5">
+                      {PROFILE_BACKGROUND_COLORS.map(color => {
+                        const selected = profileBackground === color;
+                        return (
+                          <button
+                            key={color}
+                            type="button"
+                            onClick={() => setProfileBackground(color)}
+                            className="h-5 w-5 rounded-[6px] transition-transform hover:scale-110"
+                            style={{
+                              background: color,
+                              border: selected ? "2px solid #936CFF" : `1px solid ${isDark ? "rgba(255,255,255,0.22)" : "rgba(20,20,36,0.18)"}`,
+                              boxShadow: selected ? "0 0 0 2px rgba(147,108,255,0.22)" : "none",
+                            }}
+                            aria-label={`选择主页背景色 ${color}`}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="mt-7 grid gap-4 md:grid-cols-[1.1fr_0.9fr]">

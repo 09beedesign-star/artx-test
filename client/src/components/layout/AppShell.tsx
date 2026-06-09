@@ -60,7 +60,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
         {!isAuthenticated && (
           <button
             onClick={() => navigate("/")}
-            className="fixed left-4 top-3 z-30 flex items-center gap-2.5 rounded-[var(--radius-md-design)] px-1 py-1 transition-opacity hover:opacity-85"
+            className="fixed left-4 top-3 z-30 flex origin-left scale-[0.7] items-center gap-2.5 rounded-[var(--radius-md-design)] px-1 py-1 transition-opacity hover:opacity-85"
             style={{ color: textPrimary }}
             aria-label="返回 artx 首页"
           >
@@ -171,7 +171,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
         <div className="flex items-center gap-2.5 px-4 pt-5 pb-4">
           <button
             type="button"
-            className="h-7 w-[152px] cursor-pointer transition-opacity hover:opacity-85"
+            className="h-7 w-[152px] origin-left scale-[0.7] cursor-pointer transition-opacity hover:opacity-85"
             onClick={() => navigate("/")}
             aria-label="ArtXStudio 首页"
           >
