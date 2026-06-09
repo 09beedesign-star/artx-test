@@ -4718,15 +4718,6 @@ function getAssetNodeImageSource(node: Node): string {
   return asset?.src || "";
 }
 
-async function getAssetNodeRenderedImageSource(node: Node): Promise<string> {
-  const imageSrc = getAssetNodeImageSource(node);
-  if (!imageSrc || node.type !== "asset") return imageSrc;
-  const data = node.data as Record<string, unknown>;
-  const adjustments = normalizeAssetAdjustments(data.assetAdjustmentPreview || data.assetAdjustments);
-  if (areAssetAdjustmentsEqual(adjustments, DEFAULT_ASSET_ADJUSTMENTS)) return imageSrc;
-  return applyAssetAdjustmentsToImage(imageSrc, adjustments);
-}
-
 function getAssetNodeDisplayTitle(node: Node): string {
   const data = node.data as Record<string, unknown>;
   const asset = GENERATED_ASSETS.find(item => item.id === data.assetId);
@@ -10915,9 +10906,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     if (action === "remove-background") {
       if (!targetNode) return;
       const data = targetNode.data as Record<string, unknown>;
-      const imageSrc = targetNode.type === "asset"
-        ? await getAssetNodeRenderedImageSource(targetNode)
-        : getLatestAssetImageSource(nodeId);
+      const imageSrc = getLatestAssetImageSource(nodeId);
       if (!imageSrc) {
         toast("去背景失败", { description: "当前图片没有可处理的图像来源" });
         return;
