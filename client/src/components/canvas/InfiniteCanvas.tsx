@@ -8075,7 +8075,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const resolvedDisplayW = Math.max(1, Math.round(displayW ?? getCanvasNodeSize(latestSourceNode).width));
     const resolvedDisplayH = Math.max(1, Math.round(displayH ?? getCanvasNodeSize(latestSourceNode).height));
     const generationId = `${style}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const sourceBackgroundSrc = latestSourceNode.type === "asset" ? getAssetNodeImageSource(latestSourceNode) : "";
+    const sourceBackgroundSrc = style === "去背景结果"
+      ? ""
+      : latestSourceNode.type === "asset"
+        ? getAssetNodeImageSource(latestSourceNode)
+        : "";
     const payload: ImageGeneratorPayload = {
       prompt,
       model: "gpt-image-2",
