@@ -195,7 +195,7 @@ export default function HomePage() {
           <button
             type="button"
             onClick={() => navigate("/workspace")}
-            className="ml-auto h-10 rounded-md px-4 text-sm font-medium text-white/80 transition-colors hover:bg-white/8 hover:text-white"
+            className="ml-auto h-10 rounded-md border border-[#936CFF] bg-transparent px-4 text-sm font-medium text-[#936CFF] transition-colors hover:bg-[#936CFF] hover:text-white"
           >
             进入工作台
           </button>
@@ -326,7 +326,7 @@ function LandingTopNav({
           onClick={item.onClick}
           className={`h-9 shrink-0 appearance-none rounded-md px-3 text-center text-xs font-medium transition-colors sm:min-w-[82px] sm:text-sm ${
             activeTab === item.key
-              ? "bg-[#936bff] text-white shadow-[0_8px_20px_rgba(147,107,255,0.28)]"
+              ? "bg-[#936CFF] text-white shadow-[0_8px_20px_rgba(147,108,255,0.28)]"
               : "bg-transparent text-white/62 hover:bg-white/8 hover:text-white"
           }`}
         >
@@ -436,7 +436,7 @@ function PreloginPanel({
             <button
               type="button"
               onClick={onSend}
-              className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#936bff] text-white shadow-[0_8px_22px_rgba(147,107,255,0.28)] transition-all hover:bg-[#a17dff] active:scale-95"
+              className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#936CFF] text-white shadow-[0_8px_22px_rgba(147,108,255,0.28)] transition-all hover:bg-[#A384FF] active:scale-95"
               aria-label="发送并登录"
             >
               <Send size={16} />
@@ -508,7 +508,7 @@ function LoginPanel({
         <button
           type="submit"
           disabled={busy}
-          className="mt-5 h-12 rounded-[10px] bg-[#936bff] text-base font-semibold text-white shadow-[0_10px_28px_rgba(88,86,214,0.25)] transition-all hover:bg-[#a17dff] disabled:opacity-60"
+          className="mt-5 h-12 rounded-[10px] bg-[#936CFF] text-base font-semibold text-white shadow-[0_10px_28px_rgba(147,108,255,0.25)] transition-all hover:bg-[#A384FF] disabled:opacity-60"
         >
           {busy ? "请稍候..." : isRegister ? "注 册" : "登 录"}
         </button>
@@ -529,7 +529,7 @@ function LoginPanel({
         <button
           type="button"
           onClick={() => onModeChange(isRegister ? "login" : "register")}
-          className="mt-5 appearance-none bg-transparent text-center text-[13px] text-[#936bff] transition-colors hover:text-[#aa8aff]"
+          className="mt-5 appearance-none bg-transparent text-center text-[13px] text-[#936CFF] transition-colors hover:text-[#A384FF]"
         >
           {isRegister ? "已有账号？立即登录" : "还没有账号？立即注册"}
         </button>
@@ -575,7 +575,7 @@ function LabeledInput({
         onChange={event => onChange(event.target.value)}
         placeholder={placeholder}
         autoComplete={autoComplete}
-        className="h-[46px] w-full rounded-[10px] border border-[#545454] bg-[#222] px-3.5 text-sm text-white outline-none transition-[border-color,box-shadow] placeholder:text-[#7d7d7d] focus:border-[#8f6cff] focus:shadow-[0_0_0_3px_rgba(147,107,255,0.22)]"
+        className="h-[46px] w-full rounded-[10px] border border-[#545454] bg-[#222] px-3.5 text-sm text-white outline-none transition-[border-color,box-shadow] placeholder:text-[#7d7d7d] focus:border-[#936CFF] focus:shadow-[0_0_0_3px_rgba(147,108,255,0.22)]"
       />
     </label>
   );
