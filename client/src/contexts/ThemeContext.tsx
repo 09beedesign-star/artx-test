@@ -32,7 +32,11 @@ export function ThemeProvider({
 }: ThemeProviderProps) {
   const [mode, setModeState] = useState<ThemeMode>(() => {
     const stored = localStorage.getItem("theme-mode");
-    if (stored === "dark" || stored === "light" || stored === "system") return stored;
+    if (stored === "light") {
+      localStorage.setItem("theme-mode", "dark");
+      return "dark";
+    }
+    if (stored === "dark" || stored === "system") return stored;
     return defaultTheme;
   });
 
@@ -60,12 +64,13 @@ export function ThemeProvider({
   }, [resolvedTheme]);
 
   const setMode = (m: ThemeMode) => {
-    setModeState(m);
-    localStorage.setItem("theme-mode", m);
+    const nextMode = m === "light" ? "dark" : m;
+    setModeState(nextMode);
+    localStorage.setItem("theme-mode", nextMode);
   };
 
   const toggleTheme = () => {
-    setMode(resolvedTheme === "dark" ? "light" : "dark");
+    setMode(resolvedTheme === "dark" ? "system" : "dark");
   };
 
   return (
