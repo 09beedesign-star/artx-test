@@ -425,12 +425,12 @@ html.light, .light {
     z-index: -1;
     border-radius: inherit;
     background:
-      linear-gradient(115deg, transparent 0%, rgba(255,255,255,0) 33%, rgba(255,255,255,0.72) 48%, rgba(255,255,255,0.20) 55%, transparent 70%),
-      linear-gradient(90deg, rgba(255,255,255,0.24), rgba(255,255,255,0.04), rgba(255,255,255,0.24));
+      linear-gradient(115deg, transparent 0%, rgba(255,255,255,0) 38%, rgba(255,255,255,0.20) 49%, rgba(255,255,255,0.07) 56%, transparent 70%),
+      linear-gradient(90deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02), rgba(255,255,255,0.08));
     background-size: 260% 260%, 100% 100%;
     mix-blend-mode: screen;
-    opacity: 0.76;
-    animation: artx-generation-node-sweep 2.6s cubic-bezier(0.45, 0, 0.2, 1) infinite;
+    opacity: 0.34;
+    animation: artx-generation-node-sweep 3.2s cubic-bezier(0.45, 0, 0.2, 1) infinite;
     pointer-events: none;
   }
 
@@ -446,25 +446,25 @@ html.light, .light {
       linear-gradient(180deg, rgba(255,255,255,0.95), rgba(255,255,255,0.08) 28%, rgba(255,255,255,0.08) 72%, rgba(255,255,255,0.95)) left / 1px 100% no-repeat,
       linear-gradient(180deg, rgba(255,255,255,0.95), rgba(255,255,255,0.08) 28%, rgba(255,255,255,0.08) 72%, rgba(255,255,255,0.95)) right / 1px 100% no-repeat;
     box-shadow:
-      inset 0 0 28px rgba(255,255,255,0.14),
-      0 0 34px rgba(164,114,255,0.36),
-      0 0 58px rgba(255,123,154,0.20);
-    animation: artx-generation-border-breathe 2.4s ease-in-out infinite;
+      inset 0 0 18px rgba(255,255,255,0.08),
+      0 0 22px rgba(164,114,255,0.20),
+      0 0 38px rgba(255,123,154,0.10);
+    animation: artx-generation-border-breathe 2.8s ease-in-out infinite;
     pointer-events: none;
   }
 
   .artx-ai-generation-mark-shell {
     position: relative;
-    width: min(44%, 164px);
-    min-width: 92px;
-    max-width: 168px;
+    width: min(34%, 126px);
+    min-width: 76px;
+    max-width: 132px;
     display: grid;
     place-items: center;
     filter:
-      drop-shadow(0 0 12px rgba(255,255,255,0.86))
-      drop-shadow(0 0 26px rgba(183,116,255,0.72))
-      drop-shadow(0 0 44px rgba(255,132,168,0.45));
-    animation: artx-generation-mark-breathe 1.85s ease-in-out infinite;
+      drop-shadow(0 0 8px rgba(255,255,255,0.58))
+      drop-shadow(0 0 18px rgba(183,116,255,0.38))
+      drop-shadow(0 0 30px rgba(255,132,168,0.22));
+    animation: artx-generation-mark-breathe 2.2s ease-in-out infinite;
   }
 
   .artx-ai-generation-mark {
@@ -478,54 +478,52 @@ html.light, .light {
   @keyframes artx-generation-node-sweep {
     0% {
       background-position: -170% 50%, 0 0;
-      opacity: 0.34;
+      opacity: 0.16;
     }
     38% {
-      opacity: 0.88;
+      opacity: 0.34;
     }
     72% {
       background-position: 160% 50%, 0 0;
-      opacity: 0.58;
+      opacity: 0.24;
     }
     100% {
       background-position: 160% 50%, 0 0;
-      opacity: 0.34;
+      opacity: 0.16;
     }
   }
 
   @keyframes artx-generation-border-breathe {
     0%, 100% {
-      opacity: 0.62;
+      opacity: 0.48;
       box-shadow:
-        inset 0 0 22px rgba(255,255,255,0.10),
-        0 0 24px rgba(164,114,255,0.28),
-        0 0 44px rgba(255,123,154,0.16);
+        inset 0 0 16px rgba(255,255,255,0.06),
+        0 0 18px rgba(164,114,255,0.16),
+        0 0 30px rgba(255,123,154,0.08);
     }
     50% {
-      opacity: 1;
+      opacity: 0.72;
       box-shadow:
-        inset 0 0 34px rgba(255,255,255,0.18),
-        0 0 42px rgba(164,114,255,0.48),
-        0 0 74px rgba(255,123,154,0.26);
+        inset 0 0 22px rgba(255,255,255,0.10),
+        0 0 26px rgba(164,114,255,0.24),
+        0 0 42px rgba(255,123,154,0.12);
     }
   }
 
   @keyframes artx-generation-mark-breathe {
     0%, 100% {
-      opacity: 0.78;
-      transform: scale(0.965);
+      opacity: 0.82;
       filter:
-        drop-shadow(0 0 8px rgba(255,255,255,0.68))
-        drop-shadow(0 0 18px rgba(183,116,255,0.50))
-        drop-shadow(0 0 34px rgba(255,132,168,0.32));
+        drop-shadow(0 0 6px rgba(255,255,255,0.50))
+        drop-shadow(0 0 14px rgba(183,116,255,0.32))
+        drop-shadow(0 0 24px rgba(255,132,168,0.18));
     }
     50% {
       opacity: 1;
-      transform: scale(1.025);
       filter:
-        drop-shadow(0 0 15px rgba(255,255,255,0.96))
-        drop-shadow(0 0 32px rgba(183,116,255,0.82))
-        drop-shadow(0 0 56px rgba(255,132,168,0.48));
+        drop-shadow(0 0 10px rgba(255,255,255,0.78))
+        drop-shadow(0 0 22px rgba(183,116,255,0.48))
+        drop-shadow(0 0 34px rgba(255,132,168,0.28));
     }
   }
 
