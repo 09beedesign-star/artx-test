@@ -173,36 +173,38 @@ export default function ProfilePage() {
             }}
           >
             <div className="relative h-40 transition-colors duration-200" style={{ background: displayedProfileBackground }}>
-              <button
-                type="button"
-                onClick={backgroundPickerOpen ? () => setBackgroundPickerOpen(false) : openBackgroundPicker}
-                className="absolute right-4 top-4 flex h-9 items-center gap-2 rounded-[var(--radius-md-design)] px-3 type-caption shadow-[0_10px_24px_rgba(0,0,0,0.22)] transition-colors hover:bg-black/45"
-                style={{
-                  background: "rgba(0,0,0,0.32)",
-                  border: "1px solid rgba(255,255,255,0.22)",
-                  color: "white",
-                  backdropFilter: "blur(16px)",
-                }}
-                aria-expanded={backgroundPickerOpen}
-              >
-                <Palette size={14} />
-                主页背景
-              </button>
+              {!backgroundPickerOpen && (
+                <button
+                  type="button"
+                  onClick={openBackgroundPicker}
+                  className="absolute right-4 top-4 flex h-9 items-center gap-2 rounded-[var(--radius-md-design)] px-3 type-caption shadow-[0_10px_24px_rgba(0,0,0,0.22)] transition-colors hover:bg-black/45"
+                  style={{
+                    background: "rgba(0,0,0,0.32)",
+                    border: "1px solid rgba(255,255,255,0.22)",
+                    color: "white",
+                    backdropFilter: "blur(16px)",
+                  }}
+                  aria-expanded={false}
+                >
+                  <Palette size={14} />
+                  主页背景
+                </button>
+              )}
 
               {backgroundPickerOpen && (
                 <div
-                  className="absolute right-4 top-14 z-10 w-[286px] rounded-[var(--radius-lg-design)] p-3 shadow-[0_18px_44px_rgba(0,0,0,0.34)]"
+                  className="absolute right-4 top-4 z-10 w-[246px] rounded-[var(--radius-lg-design)] p-2 shadow-[0_18px_44px_rgba(0,0,0,0.34)]"
                   style={{
                     background: "rgba(18,18,24,0.82)",
                     border: "1px solid rgba(255,255,255,0.20)",
                     backdropFilter: "blur(20px)",
                   }}
                 >
-                  <div className="mb-3 flex items-center justify-between">
+                  <div className="mb-2 flex items-center justify-between">
                     <p className="type-caption" style={{ color: "rgba(255,255,255,0.82)" }}>选择背景颜色</p>
                     <span className="type-caption" style={{ color: "rgba(255,255,255,0.48)" }}>{pendingProfileBackground}</span>
                   </div>
-                  <div className="grid grid-cols-10 gap-1.5">
+                  <div className="grid grid-cols-10 gap-1">
                     {PROFILE_BACKGROUND_COLORS.map(color => {
                       const selected = pendingProfileBackground === color;
                       return (
@@ -210,7 +212,7 @@ export default function ProfilePage() {
                           key={color}
                           type="button"
                           onClick={() => setPendingProfileBackground(color)}
-                          className="flex h-5 w-5 items-center justify-center rounded-[6px] transition-transform hover:scale-110"
+                          className="flex h-4 w-4 items-center justify-center rounded-[5px] transition-transform hover:scale-110"
                           style={{
                             background: color,
                             border: selected ? "2px solid #936CFF" : "1px solid rgba(255,255,255,0.28)",
@@ -218,7 +220,7 @@ export default function ProfilePage() {
                           }}
                           aria-label={`选择主页背景色 ${color}`}
                         >
-                          {selected && <Check size={11} color={color === "#F8F9FA" ? "#111" : "white"} strokeWidth={3} />}
+                          {selected && <Check size={9} color={color === "#F8F9FA" ? "#111" : "white"} strokeWidth={3} />}
                         </button>
                       );
                     })}
@@ -226,7 +228,7 @@ export default function ProfilePage() {
                   <button
                     type="button"
                     onClick={confirmBackground}
-                    className="mt-3 h-9 w-full rounded-[var(--radius-md-design)] bg-[#936CFF] type-caption text-white transition-colors hover:bg-[#A384FF]"
+                    className="mt-2 h-8 w-full rounded-[var(--radius-md-design)] bg-[#936CFF] type-caption text-white transition-colors hover:bg-[#A384FF]"
                   >
                     确定
                   </button>
