@@ -10,6 +10,13 @@ type ApiErrorResponse = {
   message?: string;
 };
 
+type OrchestrateResponse = ApiErrorResponse & {
+  text?: string;
+  model?: string;
+  images?: GeneratedImageResult[];
+  image_base64?: string;
+};
+
 const AUTH_STORAGE_KEY = "artx-auth-session";
 
 function normalizeAiErrorMessage(message: string, fallback: string) {
@@ -88,6 +95,40 @@ async function readJsonResponse<T extends ApiErrorResponse>(response: Response, 
   return JSON.parse(text) as T;
 }
 
+async function postAiOrchestrate(body: Record<string, unknown>, fallbackError: string) {
+  const baseUrl = getAiApiBaseUrl();
+  const endpoint = `${baseUrl}/api/ai/orchestrate`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  const result = await readJsonResponse<OrchestrateResponse>(response, fallbackError);
+  if (!response.ok) {
+    throw new Error(result.error || result.message || fallbackError);
+  }
+
+  return result;
+}
+
+async function postImageExpand(body: Record<string, unknown>, fallbackError: string) {
+  const baseUrl = getAiApiBaseUrl();
+  const endpoint = `${baseUrl}/api/images/expand`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  const result = await readJsonResponse<ApiErrorResponse & { images?: GeneratedImageResult[] }>(response, fallbackError);
+  if (!response.ok) {
+    throw new Error(result.error || result.message || fallbackError);
+  }
+
+  return result;
+}
+
 export async function callLLM({
   prompt,
   messages,
@@ -102,20 +143,20 @@ export async function callLLM({
   module: string;
 }) {
   requireAiAuth();
-  const baseUrl = getAiApiBaseUrl();
-  const endpoint = `${baseUrl}/api/llm`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, messages, images, model, module }),
-  });
+  const result = await postAiOrchestrate({
+    capability: "chat",
+    intent: module,
+    operation: module,
+    prompt,
+    messages,
+    images,
+    model,
+  }, "AI 请求失败");
 
-  const result = await readJsonResponse<ApiErrorResponse & { text?: string; model?: string }>(response, "AI 请求失败");
-  if (!response.ok) {
-    throw new Error(result.error || result.message || "AI 请求失败");
-  }
-
-  return result as { text: string; model: string };
+  return {
+    text: result.text || "",
+    model: result.model || model || "gpt-5.4-mini",
+  };
 }
 
 export async function searchReferenceImages({
@@ -158,18 +199,20 @@ export async function generateImages({
   referencesEnabled?: boolean;
 }) {
   requireAiAuth();
-  const baseUrl = getAiApiBaseUrl();
-  const endpoint = `${baseUrl}/api/images/generate`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, model, ratio, count, style, referencesEnabled }),
-  });
-
-  const result = await readJsonResponse<ApiErrorResponse & { images?: GeneratedImageResult[] }>(response, "图像生成失败");
-  if (!response.ok) {
-    throw new Error(normalizeAiErrorMessage(result.error || result.message || "", "图像生成失败"));
-  }
+  const promptWithContext = [
+    style ? `风格：${style}` : "",
+    referencesEnabled ? "参考当前画布和已引用素材进行生成。" : "",
+    prompt,
+  ].filter(Boolean).join("\n");
+  const result = await postAiOrchestrate({
+    capability: "text_to_image",
+    intent: "text_to_image",
+    operation: "generate",
+    prompt: promptWithContext,
+    model,
+    ratio,
+    count,
+  }, "图像生成失败");
 
   return { images: result.images || [] };
 }
@@ -184,18 +227,14 @@ export async function removeImageBackground({
   prompt?: string;
 }) {
   requireAiAuth();
-  const baseUrl = getAiApiBaseUrl();
-  const endpoint = `${baseUrl}/api/images/remove-background`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ imageSrc, model, prompt }),
-  });
-
-  const result = await readJsonResponse<ApiErrorResponse & { images?: GeneratedImageResult[] }>(response, "去背景失败");
-  if (!response.ok) {
-    throw new Error(result.error || result.message || "去背景失败");
-  }
+  const result = await postAiOrchestrate({
+    capability: "background_removal",
+    intent: "background_removal",
+    operation: "remove-background",
+    imageSrc,
+    model,
+    prompt,
+  }, "去背景失败");
 
   return { images: result.images || [] };
 }
@@ -214,18 +253,16 @@ export async function editImageWithPrompt({
   targetHeight?: number;
 }) {
   requireAiAuth();
-  const baseUrl = getAiApiBaseUrl();
-  const endpoint = `${baseUrl}/api/images/edit`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ imageSrc, model, prompt, targetWidth, targetHeight }),
-  });
-
-  const result = await readJsonResponse<ApiErrorResponse & { images?: GeneratedImageResult[] }>(response, "AI 图片编辑失败");
-  if (!response.ok) {
-    throw new Error(result.error || result.message || "AI 图片编辑失败");
-  }
+  const result = await postAiOrchestrate({
+    capability: "image_edit",
+    intent: "image_edit",
+    operation: "edit",
+    imageSrc,
+    model,
+    prompt,
+    targetWidth,
+    targetHeight,
+  }, "AI 图片编辑失败");
 
   return { images: result.images || [] };
 }
@@ -246,18 +283,17 @@ export async function eraseImageObjects({
   targetHeight?: number;
 }) {
   requireAiAuth();
-  const baseUrl = getAiApiBaseUrl();
-  const endpoint = `${baseUrl}/api/images/erase`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ imageSrc, maskSrc, model, prompt, targetWidth, targetHeight }),
-  });
-
-  const result = await readJsonResponse<ApiErrorResponse & { images?: GeneratedImageResult[] }>(response, "AI 擦除失败");
-  if (!response.ok) {
-    throw new Error(result.error || result.message || "AI 擦除失败");
-  }
+  const result = await postAiOrchestrate({
+    capability: "element_erasure",
+    intent: "element_erasure",
+    operation: "erase",
+    imageSrc,
+    maskSrc,
+    model,
+    prompt,
+    targetWidth,
+    targetHeight,
+  }, "AI 擦除失败");
 
   return { images: result.images || [] };
 }
@@ -278,25 +314,14 @@ export async function expandImageWithMask({
   targetHeight?: number;
 }) {
   requireAiAuth();
-  const baseUrl = getAiApiBaseUrl();
-  const endpoint = `${baseUrl}/api/images/erase`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      imageSrc,
-      maskSrc,
-      model,
-      targetWidth,
-      targetHeight,
-      prompt: prompt || "Extend the image naturally only inside the masked blank area. Preserve all unmasked pixels exactly and never generate beyond the requested boundary.",
-    }),
-  });
-
-  const result = await readJsonResponse<ApiErrorResponse & { images?: GeneratedImageResult[] }>(response, "AI 扩展失败");
-  if (!response.ok) {
-    throw new Error(result.error || result.message || "AI 扩展失败");
-  }
+  const result = await postImageExpand({
+    imageSrc,
+    maskSrc,
+    model,
+    targetWidth,
+    targetHeight,
+    prompt: prompt || "Extend the image naturally only inside the masked blank area. Preserve all unmasked pixels exactly and never generate beyond the requested boundary.",
+  }, "AI 扩展失败");
 
   return { images: result.images || [] };
 }
