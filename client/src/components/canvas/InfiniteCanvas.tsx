@@ -7663,26 +7663,23 @@ function CanvasAssistantPanel({
                       )}
                     </div>
                     <div className="mt-2 flex items-center gap-2" style={{ justifyContent: isUser ? "flex-end" : "flex-start" }}>
-                      <button
-                        className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-opacity hover:opacity-75"
-                        style={{
-                          color: regeneratingMessageId === message.id ? "oklch(0.58 0.22 285)" : sub,
-                          background: "transparent",
-                        }}
-                        title="AI 生成图片"
-                        aria-label="AI 生成图片"
-                        disabled={Boolean(regeneratingMessageId)}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void handleRegenerateImageFromMessage(message);
-                        }}
-                      >
-                        {regeneratingMessageId === message.id ? <RefreshCw size={13} className="animate-spin" /> : <Sparkles size={13} />}
-                      </button>
                       {!backup && (
                         <>
-                          <button className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-opacity hover:opacity-75" style={{ color: sub, background: "transparent" }} title="刷新" aria-label="刷新" onClick={() => toast("已刷新该条对话")}>
-                            <Repeat2 size={13} />
+                          <button
+                            className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-opacity hover:opacity-75 disabled:opacity-50"
+                            style={{
+                              color: regeneratingMessageId === message.id ? "oklch(0.58 0.22 285)" : sub,
+                              background: "transparent",
+                            }}
+                            title="再次生成"
+                            aria-label="再次生成"
+                            disabled={Boolean(regeneratingMessageId)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleRegenerateImageFromMessage(message);
+                            }}
+                          >
+                            {regeneratingMessageId === message.id ? <RefreshCw size={13} className="animate-spin" /> : <Repeat2 size={13} />}
                           </button>
                           <button className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-opacity hover:opacity-75" style={{ color: sub, background: "transparent" }} title="复制" aria-label="复制" onClick={() => { navigator.clipboard?.writeText(message.content); toast("已复制对话内容"); }}>
                             <Copy size={13} />
