@@ -8122,7 +8122,7 @@ function CanvasAssistantPanel({
                   const textWidth = segment.text
                     ? Math.min(260, Math.max(18, segment.text.length * 13 + 10))
                     : composerSegments.length === 1
-                      ? 220
+                      ? 360
                       : 18;
                   return (
                     <textarea
@@ -8150,14 +8150,17 @@ function CanvasAssistantPanel({
                         : ""}
                       cols={1}
                       rows={1}
-                      className="min-w-0 shrink-0 bg-transparent outline-none resize-none disabled:cursor-not-allowed"
+                      wrap="off"
+                      className="min-w-0 shrink-0 overflow-hidden whitespace-nowrap bg-transparent outline-none resize-none disabled:cursor-not-allowed"
                       style={{
                         color: text,
                         opacity: 1,
                         fontSize: 12,
-                        lineHeight: 1.5,
+                        lineHeight: "24px",
+                        scrollbarWidth: "none",
                         minHeight: 24,
-                        maxHeight: 96,
+                        maxHeight: 24,
+                        overflow: "hidden",
                         width: `${textWidth}px`,
                         minWidth: `${textWidth}px`,
                         maxWidth: `${textWidth}px`,
