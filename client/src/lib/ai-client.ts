@@ -63,9 +63,8 @@ export type OrchestrateResponse = {
   skill?: string;
 };
 
-function getAiApiBaseUrl() {
+function getBackendApiBaseUrl() {
   const configured = (
-    import.meta.env.VITE_AI_API_BASE_URL ||
     import.meta.env.VITE_API_BASE_URL ||
     ""
   ).replace(/\/+$/, "");
@@ -88,7 +87,7 @@ async function readJsonResponse<T extends ApiErrorResponse>(response: Response, 
 }
 
 async function postJson<T extends ApiErrorResponse>(path: string, body: unknown, fallbackError: string): Promise<T> {
-  const endpoint = `${getAiApiBaseUrl()}${path}`;
+  const endpoint = `${getBackendApiBaseUrl()}${path}`;
   const response = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -114,7 +113,7 @@ export async function expandImage(input: OrchestrateRequest) {
 }
 
 export async function listBrandKits() {
-  const response = await fetch(`${getAiApiBaseUrl()}/api/brand-kits`);
+  const response = await fetch(`${getBackendApiBaseUrl()}/api/brand-kits`);
   const result = await readJsonResponse<{ kits?: BrandKit[] } & ApiErrorResponse>(response, "品牌包读取失败");
   if (!response.ok) throw new Error(result.error || result.message || "品牌包读取失败");
   return { kits: result.kits || [] };
