@@ -1412,10 +1412,25 @@ async function createSocialMediaSizedImage(src: string, size: { width: number; h
   const cropY = Math.max(0, Math.min(1, crop.y));
   const cropW = Math.max(0.02, Math.min(1 - cropX, crop.width));
   const cropH = Math.max(0.02, Math.min(1 - cropY, crop.height));
-  const sx = Math.round(cropX * naturalW);
-  const sy = Math.round(cropY * naturalH);
-  const sw = Math.max(1, Math.round(cropW * naturalW));
-  const sh = Math.max(1, Math.round(cropH * naturalH));
+  const targetRatio = size.width / Math.max(1, size.height);
+  const cropRatio = (cropW * naturalW) / Math.max(1, cropH * naturalH);
+  let fittedX = cropX;
+  let fittedY = cropY;
+  let fittedW = cropW;
+  let fittedH = cropH;
+  if (Math.abs(cropRatio - targetRatio) > 0.001) {
+    if (cropRatio > targetRatio) {
+      fittedW = Math.max(0.02, Math.min(cropW, (cropH * naturalH * targetRatio) / naturalW));
+      fittedX = Math.max(0, Math.min(1 - fittedW, cropX + (cropW - fittedW) / 2));
+    } else {
+      fittedH = Math.max(0.02, Math.min(cropH, (cropW * naturalW) / Math.max(1, targetRatio * naturalH)));
+      fittedY = Math.max(0, Math.min(1 - fittedH, cropY + (cropH - fittedH) / 2));
+    }
+  }
+  const sx = Math.round(fittedX * naturalW);
+  const sy = Math.round(fittedY * naturalH);
+  const sw = Math.max(1, Math.round(fittedW * naturalW));
+  const sh = Math.max(1, Math.round(fittedH * naturalH));
   const canvas = document.createElement("canvas");
   canvas.width = size.width;
   canvas.height = size.height;
