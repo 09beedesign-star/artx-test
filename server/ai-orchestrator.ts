@@ -164,6 +164,7 @@ export class AIOrchestrator {
       model: route.model,
       ratio: input.ratio,
       count: input.count,
+      images,
     });
 
     return {

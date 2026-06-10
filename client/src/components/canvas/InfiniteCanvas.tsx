@@ -4718,6 +4718,7 @@ type ImageGeneratorPayload = {
   displaySize?: { w: number; h: number };
   titleBase?: string;
   sourceBackgroundSrc?: string;
+  referencedAssets?: Array<{ src: string; title?: string }>;
 };
 
 type ImageGeneratorReferenceAsset = {
@@ -4965,6 +4966,7 @@ function persistImageGenerationTask(detail: ImageGeneratorPayload, fallbackProje
     generationId,
     status,
     images: lightweightImages || previous?.images,
+    referencedAssets: undefined,
     updatedAt: Date.now(),
     consumedAt: status === "pending" ? undefined : previous?.consumedAt,
   };
@@ -7809,6 +7811,7 @@ function CanvasAssistantPanel({
           count: 1,
           style: "右侧 AI 助手",
           referencesEnabled: assistantImages.length > 0,
+          referencedAssets: assistantImages,
           generationId,
           sourceBackgroundSrc: assistantImages[0]?.src,
         };
