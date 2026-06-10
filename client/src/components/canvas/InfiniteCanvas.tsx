@@ -6923,6 +6923,9 @@ const CANVAS_ASSISTANT_IMAGE_MODEL_STORAGE_KEY = "artx:canvas-assistant-image-mo
 const CANVAS_ASSISTANT_TEXT_MODEL_STORAGE_KEY = "artx:canvas-assistant-text-model";
 const CANVAS_ASSISTANT_MODEL_TAB_STORAGE_KEY = "artx:canvas-assistant-model-tab";
 type CanvasAssistantModelTab = "image" | "text";
+type AssistantComposerSegment =
+  | { id: string; type: "text"; text: string }
+  | { id: string; type: "image"; asset: { id: string; title: string; src: string } };
 
 type CanvasAssistantMessage = {
   id: string;
@@ -6990,6 +6993,65 @@ function deserializeCanvasAssistantMessages(raw: string | null): CanvasAssistant
   }
 }
 
+function createAssistantTextSegment(text = ""): AssistantComposerSegment {
+  return { id: `seg-text-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, type: "text", text };
+}
+
+function createAssistantImageSegment(asset: { id: string; title: string; src: string }): AssistantComposerSegment {
+  return { id: `seg-image-${asset.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, type: "image", asset };
+}
+
+function normalizeAssistantComposerSegments(segments: AssistantComposerSegment[]) {
+  const normalized: AssistantComposerSegment[] = [];
+  segments.forEach(segment => {
+    if (segment.type === "text") {
+      const previous = normalized[normalized.length - 1];
+      if (previous?.type === "text") {
+        normalized[normalized.length - 1] = { ...previous, text: previous.text + segment.text };
+      } else {
+        normalized.push({ ...segment });
+      }
+      return;
+    }
+    normalized.push(segment);
+  });
+  if (normalized.length === 0 || normalized[normalized.length - 1].type !== "text") {
+    normalized.push(createAssistantTextSegment(""));
+  }
+  return normalized;
+}
+
+function getAssistantComposerText(segments: AssistantComposerSegment[]) {
+  return segments
+    .map(segment => segment.type === "text" ? segment.text : `引用图：${segment.asset.title}`)
+    .join("")
+    .trim();
+}
+
+function getAssistantComposerPrompt(segments: AssistantComposerSegment[]) {
+  let imageIndex = 0;
+  return segments
+    .map(segment => {
+      if (segment.type === "text") return segment.text.trim();
+      imageIndex += 1;
+      return `引用图 ${imageIndex}：${segment.asset.title}`;
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function getAssistantComposerImages(segments: AssistantComposerSegment[]) {
+  const seen = new Set<string>();
+  return segments
+    .filter((segment): segment is Extract<AssistantComposerSegment, { type: "image" }> => segment.type === "image")
+    .filter(segment => {
+      if (seen.has(segment.asset.id)) return false;
+      seen.add(segment.asset.id);
+      return true;
+    })
+    .map(segment => segment.asset);
+}
+
 function CanvasAssistantPanel({
   projectId,
   isDark,
@@ -7021,8 +7083,11 @@ function CanvasAssistantPanel({
 }) {
   const [, navigate] = useLocation();
   const [inputFocused, setInputFocused] = useState(false);
-  const [prompt, setPrompt] = useState("");
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [composerSegments, setComposerSegments] = useState<AssistantComposerSegment[]>(() => [createAssistantTextSegment("")]);
+  const composerInputRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
+  const activeComposerSegmentIdRef = useRef<string | null>(null);
+  const activeComposerCursorRef = useRef(0);
+  const syncedReferenceIdsRef = useRef<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const commandMenuRef = useRef<HTMLDivElement>(null);
   const assistantModelRef = useRef<HTMLDivElement>(null);
@@ -7087,9 +7152,57 @@ function CanvasAssistantPanel({
     setCommandMenuOpen(false);
     navigate("/workspace");
   };
-  const hasPrompt = prompt.trim().length > 0;
+  const focusComposerSegment = useCallback((segmentId?: string | null) => {
+    window.setTimeout(() => {
+      const id = segmentId || activeComposerSegmentIdRef.current || composerSegments.find(segment => segment.type === "text")?.id;
+      const input = id ? composerInputRefs.current[id] : null;
+      input?.focus();
+      if (input) {
+        const nextPosition = input.value.length;
+        input.setSelectionRange(nextPosition, nextPosition);
+      }
+    }, 60);
+  }, [composerSegments]);
+
+  const setComposerTextSegment = useCallback((segmentId: string, value: string) => {
+    setComposerSegments(prev => normalizeAssistantComposerSegments(prev.map(segment => (
+      segment.id === segmentId && segment.type === "text" ? { ...segment, text: value } : segment
+    ))));
+  }, []);
+
+  const rememberComposerCursor = useCallback((segmentId: string, target: HTMLTextAreaElement) => {
+    activeComposerSegmentIdRef.current = segmentId;
+    activeComposerCursorRef.current = target.selectionStart ?? target.value.length;
+  }, []);
+
+  const removeComposerImageSegment = useCallback((segmentId: string, assetId: string) => {
+    setComposerSegments(prev => normalizeAssistantComposerSegments(prev.filter(segment => segment.id !== segmentId)));
+    onRemoveReference(assetId);
+    syncedReferenceIdsRef.current.delete(assetId);
+  }, [onRemoveReference]);
+
+  const handleComposerTextKeyDown = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>, segmentId: string) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      void handleSubmit();
+      return;
+    }
+    if (event.key !== "Backspace") return;
+    const target = event.currentTarget;
+    if (target.selectionStart !== 0 || target.selectionEnd !== 0) return;
+    const index = composerSegments.findIndex(segment => segment.id === segmentId);
+    const previous = index > 0 ? composerSegments[index - 1] : null;
+    if (previous?.type !== "image") return;
+    event.preventDefault();
+    removeComposerImageSegment(previous.id, previous.asset.id);
+  }, [composerSegments, removeComposerImageSegment]);
+
+  const composerText = getAssistantComposerText(composerSegments);
+  const composerPrompt = getAssistantComposerPrompt(composerSegments);
+  const composerImages = getAssistantComposerImages(composerSegments);
+  const hasPrompt = composerText.length > 0;
   const hasAnnotationReferences = annotationReferences.length > 0;
-  const totalReferenceCount = referencedAssets.length + annotationReferences.length;
+  const totalReferenceCount = composerImages.length + annotationReferences.length;
   const hasContext = selectedCount > 0 || totalReferenceCount > 0;
   const canSubmit = (hasPrompt || hasContext) && !isSubmitting;
   const contextLabel = selectedCount > 1
@@ -7098,8 +7211,8 @@ function CanvasAssistantPanel({
       ? "已选中 1 个对象"
       : hasAnnotationReferences
         ? `注释引用 ${annotationReferences.length} 个`
-        : referencedAssets.length > 0
-          ? `引用素材 ${referencedAssets.length} 个`
+        : composerImages.length > 0
+          ? `引用素材 ${composerImages.length} 个`
           : "";
   const assistantImageModel = IMAGE_AI_MODELS.find(model => model.id === assistantImageModelId) || IMAGE_AI_MODELS[0];
   const assistantTextModel = TEXT_AI_MODELS.find(model => model.id === assistantTextModelId) || TEXT_AI_MODELS[0];
@@ -7131,6 +7244,44 @@ function CanvasAssistantPanel({
     }]);
     setSelectedReferenceIds([]);
   }, [onMergeReferences, referencedAssets, selectedReferenceIds]);
+
+  useEffect(() => {
+    const newAssets = referencedAssets.filter(asset => !syncedReferenceIdsRef.current.has(asset.id));
+    if (newAssets.length === 0) return;
+    setComposerSegments(prev => {
+      let next = [...prev];
+      newAssets.forEach(asset => {
+        syncedReferenceIdsRef.current.add(asset.id);
+        const activeId = activeComposerSegmentIdRef.current;
+        const activeIndex = next.findIndex(segment => segment.id === activeId && segment.type === "text");
+        if (activeIndex >= 0 && next[activeIndex].type === "text") {
+          const activeText = next[activeIndex].text;
+          const cursor = Math.max(0, Math.min(activeComposerCursorRef.current, activeText.length));
+          const before = activeText.slice(0, cursor);
+          const after = activeText.slice(cursor);
+          const afterSegment = createAssistantTextSegment(after);
+          next = [
+            ...next.slice(0, activeIndex),
+            { ...next[activeIndex], text: before },
+            createAssistantImageSegment(asset),
+            afterSegment,
+            ...next.slice(activeIndex + 1),
+          ];
+          activeComposerSegmentIdRef.current = afterSegment.id;
+          activeComposerCursorRef.current = after.length;
+        } else {
+          next = [
+            ...next,
+            createAssistantImageSegment(asset),
+            createAssistantTextSegment(""),
+          ];
+        }
+      });
+      return normalizeAssistantComposerSegments(next);
+    });
+    focusComposerSegment();
+  }, [focusComposerSegment, referencedAssets]);
+
   const runAssistantCapability = async (module: string, instruction: string) => {
     if (isSubmitting) return;
     if (!isAuthenticated) {
@@ -7310,7 +7461,7 @@ function CanvasAssistantPanel({
         timestamp: new Date(),
       };
       setMessages(prev => [...prev, userMessage]);
-      setPrompt(submittedText);
+      setComposerSegments([createAssistantTextSegment(submittedText)]);
       setIsSubmitting(true);
 
       window.setTimeout(async () => {
@@ -7354,7 +7505,7 @@ function CanvasAssistantPanel({
           const message = error instanceof Error ? error.message : "请稍后重试";
           toast("首页提示词自动处理失败", { description: message });
         } finally {
-          setPrompt("");
+          setComposerSegments([createAssistantTextSegment("")]);
           setIsSubmitting(false);
         }
       }, 360);
@@ -7365,9 +7516,9 @@ function CanvasAssistantPanel({
 
   useEffect(() => {
     if (helpPromptNonce <= 0 || collapsed) return;
-    setPrompt(prev => prev.trim() ? prev : "我需要帮助解决：");
-    window.setTimeout(() => textareaRef.current?.focus(), 80);
-  }, [helpPromptNonce, collapsed]);
+    setComposerSegments(prev => getAssistantComposerText(prev) ? prev : [createAssistantTextSegment("我需要帮助解决：")]);
+    focusComposerSegment();
+  }, [focusComposerSegment, helpPromptNonce, collapsed]);
 
   useEffect(() => {
     if (collapsed) return;
@@ -7387,7 +7538,7 @@ function CanvasAssistantPanel({
     transition: "background 0.16s ease, color 0.16s ease, transform 0.16s ease",
   });
 
-  const handleSubmit = async () => {
+  async function handleSubmit() {
     if (!isAuthenticated) {
       onLoginRequest();
       toast("请先登录", { description: "登录后即可使用 AI 能力" });
@@ -7397,7 +7548,9 @@ function CanvasAssistantPanel({
       toast("请输入画布想法或选择对象");
       return;
     }
-    const submittedText = prompt.trim() || `请基于${contextLabel || "当前画布"}继续处理。`;
+    const submittedComposerPrompt = composerPrompt || `请基于${contextLabel || "当前画布"}继续处理。`;
+    const submittedText = composerText || submittedComposerPrompt;
+    const submittedImages = composerImages.map(asset => ({ src: asset.src, title: asset.title }));
     const userMessage = {
       id: `user-${Date.now()}`,
       role: "user" as const,
@@ -7405,10 +7558,12 @@ function CanvasAssistantPanel({
       timestamp: new Date(),
     };
     setMessages(prev => [...prev, userMessage]);
-    setPrompt("");
+    setComposerSegments([createAssistantTextSegment("")]);
+    syncedReferenceIdsRef.current.clear();
+    onMergeReferences([]);
     setIsSubmitting(true);
     const context = contextLabel || "当前画布";
-    const hasVisualReferences = referencedAssets.length > 0 || annotationReferences.length > 0;
+    const hasVisualReferences = submittedImages.length > 0 || annotationReferences.length > 0;
     const annotationContext = annotationReferences.map((ann, index) => (
       `注释 ${index + 1}：来自「${ann.title}」，位置 x=${ann.x.toFixed(1)}%、y=${ann.y.toFixed(1)}%，修改建议：${ann.text || "未填写"}`
     )).join("\n");
@@ -7417,13 +7572,13 @@ function CanvasAssistantPanel({
           `上下文：${context}`,
           "用户选择了多个画面注释点，请根据这些注释点的图片、位置和文案组合生成一张全新的图片。",
           annotationContext,
-          `用户请求：${submittedText}`,
+          `用户请求：${submittedComposerPrompt}`,
         ].join("\n")
       : hasVisualReferences
-        ? `上下文：${context}\n用户请求：${submittedText}`
-        : submittedText;
+        ? `上下文：${context}\n用户按顺序提供了图文混排提示词，请严格理解引用图与其前后描述之间的关系。\n用户请求：${submittedComposerPrompt}`
+        : submittedComposerPrompt;
     const assistantImages = [
-      ...referencedAssets.map(asset => ({ src: asset.src, title: asset.title })),
+      ...submittedImages,
       ...annotationReferences.map((ann, index) => ({ src: ann.src, title: `注释 ${index + 1} · ${ann.title}` })),
     ];
     try {
@@ -7505,7 +7660,7 @@ function CanvasAssistantPanel({
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }
 
   return (
     <aside
@@ -7726,63 +7881,70 @@ function CanvasAssistantPanel({
                   </span>
                 </div>
               )}
-              {/* 引用标签 — 在输入框内部顶部，最多显示两行，超出折叠为数字徽章 */}
-              {referencedAssets.length > 0 && (() => {
-                // 每行最多放 2 个标签（约 140px 宽），两行最多 4 个
-                const MAX_VISIBLE = 4;
-                const visible = referencedAssets.slice(0, MAX_VISIBLE);
-                const overflow = referencedAssets.length - MAX_VISIBLE;
-                const tagBg = isDark ? "oklch(0.58 0.20 290 / 0.18)" : "oklch(0.58 0.18 290 / 0.10)";
-                const tagBorder = isDark ? "oklch(0.72 0.18 290 / 0.35)" : "oklch(0.52 0.18 290 / 0.30)";
-                const tagText = isDark ? "oklch(0.82 0.012 270)" : "oklch(0.28 0.012 270)";
-                return (
-                  <div className="flex flex-wrap gap-1.5 mb-2" style={{ maxHeight: 58, overflow: "hidden" }}>
-                    {visible.map((ref, idx) => {
-                      const isLast = idx === MAX_VISIBLE - 1 && overflow > 0;
-                      return (
-                        <div
-                          key={ref.id}
-                          className="flex items-center gap-1 rounded-[var(--radius-md-design)] px-1.5 py-0.5"
-                          style={{ background: tagBg, border: `1px solid ${tagBorder}`, maxWidth: 130, flexShrink: 0 }}
+              <div
+                className="mb-2 flex min-h-[86px] flex-wrap items-start gap-1.5 rounded-[var(--radius-md-design)] px-1 py-1"
+                style={{ color: text }}
+                onMouseDown={() => focusComposerSegment()}
+              >
+                {composerSegments.map(segment => {
+                  if (segment.type === "image") {
+                    return (
+                      <span
+                        key={segment.id}
+                        className="inline-flex max-w-[164px] items-center gap-1 rounded-[var(--radius-md-design)] px-1.5 py-0.5 align-middle"
+                        style={{
+                          background: isDark ? "oklch(0.58 0.20 290 / 0.18)" : "oklch(0.58 0.18 290 / 0.10)",
+                          border: `1px solid ${isDark ? "oklch(0.72 0.18 290 / 0.35)" : "oklch(0.52 0.18 290 / 0.30)"}`,
+                          color: isDark ? "oklch(0.82 0.012 270)" : "oklch(0.28 0.012 270)",
+                        }}
+                      >
+                        <img src={segment.asset.src} alt={segment.asset.title} style={{ width: 18, height: 18, borderRadius: 3, objectFit: "cover", flexShrink: 0 }} />
+                        <span className="type-caption truncate" style={{ maxWidth: 104, fontSize: 11 }}>{segment.asset.title}</span>
+                        <button
+                          type="button"
+                          onMouseDown={event => event.stopPropagation()}
+                          onClick={() => removeComposerImageSegment(segment.id, segment.asset.id)}
+                          className="flex items-center justify-center flex-shrink-0 rounded-full transition-opacity hover:opacity-70"
+                          style={{ color: isDark ? "oklch(0.62 0.008 270)" : "oklch(0.50 0.008 270)", background: "transparent", border: "none", padding: 0, lineHeight: 1 }}
+                          title="移除引用"
+                          aria-label="移除引用"
                         >
-                          <img src={ref.src} alt={ref.title} style={{ width: 16, height: 16, borderRadius: 2, objectFit: "cover", flexShrink: 0 }} />
-                          <span className="type-caption truncate" style={{ color: tagText, maxWidth: isLast ? 40 : 72, fontSize: 11 }}>
-                            {isLast ? "..." : ref.title}
-                          </span>
-                          {isLast ? (
-                            // 蓝色圆环数字徽章
-                            <span
-                              className="flex items-center justify-center rounded-full flex-shrink-0"
-                              style={{
-                                width: 18, height: 18,
-                                background: "oklch(0.52 0.22 260)",
-                                color: "white",
-                                fontSize: 10,
-                                fontWeight: 700,
-                                lineHeight: 1,
-                                border: "2px solid oklch(0.72 0.18 260 / 0.6)",
-                              }}
-                              title={`还有 ${overflow + 1} 个引用`}
-                            >
-                              {overflow + 1}
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() => onRemoveReference(ref.id)}
-                              className="flex items-center justify-center flex-shrink-0 rounded-full transition-opacity hover:opacity-70"
-                              style={{ color: isDark ? "oklch(0.62 0.008 270)" : "oklch(0.50 0.008 270)", background: "transparent", border: "none", padding: 0, lineHeight: 1 }}
-                              title="移除引用"
-                              aria-label="移除引用"
-                            >
-                              <X size={9} />
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })()}
+                          <X size={9} />
+                        </button>
+                      </span>
+                    );
+                  }
+                  return (
+                    <textarea
+                      key={segment.id}
+                      ref={node => { composerInputRefs.current[segment.id] = node; }}
+                      value={segment.text}
+                      onChange={event => {
+                        rememberComposerCursor(segment.id, event.currentTarget);
+                        setComposerTextSegment(segment.id, event.target.value);
+                      }}
+                      onClick={event => rememberComposerCursor(segment.id, event.currentTarget)}
+                      onKeyUp={event => rememberComposerCursor(segment.id, event.currentTarget)}
+                      onKeyDown={event => handleComposerTextKeyDown(event, segment.id)}
+                      onFocus={() => {
+                        activeComposerSegmentIdRef.current = segment.id;
+                        const input = composerInputRefs.current[segment.id];
+                        activeComposerCursorRef.current = input?.selectionStart ?? segment.text.length;
+                        setInputFocused(true);
+                      }}
+                      onBlur={() => setInputFocused(false)}
+                      placeholder={composerSegments.length === 1 && segment.text.length === 0
+                        ? annotationReferences.length > 0
+                          ? `基于 ${annotationReferences.length} 个注释点，描述组合生成意图...`
+                          : "输入对当前画布的想法，可在文字之间插入引用图片..."
+                        : ""}
+                      rows={1}
+                      className="min-w-[72px] flex-1 bg-transparent outline-none resize-none disabled:cursor-not-allowed"
+                      style={{ color: text, opacity: 1, fontSize: 12, lineHeight: 1.5, minHeight: 24, maxHeight: 96 }}
+                    />
+                  );
+                })}
+              </div>
               {annotationReferences.length > 0 && (() => {
                 const MAX_VISIBLE = 4;
                 const visible = annotationReferences.slice(0, MAX_VISIBLE);
@@ -7838,18 +8000,6 @@ function CanvasAssistantPanel({
                   </div>
                 );
               })()}
-              <textarea
-                ref={textareaRef}
-                value={prompt}
-                onChange={e => setPrompt(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
-                placeholder={annotationReferences.length > 0 ? `基于 ${annotationReferences.length} 个注释点，描述组合生成意图...` : referencedAssets.length > 0 ? `基于 ${referencedAssets.length} 个引用素材，描述你的创作意图...` : "输入对当前画布的想法..."}
-                rows={2}
-                className="w-full bg-transparent outline-none resize-none disabled:cursor-not-allowed"
-                style={{ color: text, opacity: 1, fontSize: 12, lineHeight: 1.5, minHeight: 86 }}
-                onFocus={() => setInputFocused(true)}
-                onBlur={() => setInputFocused(false)}
-              />
               <div className="flex items-center justify-between pt-2">
                 <div ref={assistantModelRef} className="relative flex items-center" style={{ color: sub }}>
                   <button
