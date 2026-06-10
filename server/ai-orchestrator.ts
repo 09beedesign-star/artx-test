@@ -123,10 +123,11 @@ export class AIOrchestrator {
         maskSrc,
         model: route.model,
         prompt: prompt || (capability === "image_expansion"
-          ? "Extend the image naturally only inside the masked blank area. Preserve all unmasked pixels exactly."
+          ? "Outpaint the image naturally inside only the transparent masked blank area. Analyze the original image content, background, lighting, perspective, colors, texture, and subject edges, then generate matching continuation content seamlessly. Preserve every unmasked pixel exactly. Do not create a blurred border or vignette."
           : "Remove only the masked content and rebuild the area naturally. Preserve unmasked pixels."),
         targetWidth: input.targetWidth,
         targetHeight: input.targetHeight,
+        disableLocalFallback: capability === "image_expansion",
       });
       return {
         type: "image",
