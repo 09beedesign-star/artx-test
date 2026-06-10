@@ -1,7 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 const AUTH_STORAGE_KEY = "artx-auth-session";
-const LOCAL_AUTH_USERS_KEY = "artx-local-auth-users";
 
 interface AuthUser {
   id: string;
@@ -50,7 +49,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsAuthenticated(false);
       setUser(null);
     }).catch(() => {
-      // Keep the local session when the test server is temporarily unreachable.
+      localStorage.removeItem(AUTH_STORAGE_KEY);
+      setIsAuthenticated(false);
+      setUser(null);
     });
   }, []);
 
@@ -64,11 +65,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const result = await fetchAuth(action, { username, password });
       if (!result.ok || !result.token || !result.user) {
-        if (isGithubPagesTest()) {
-          const localResult = authenticateLocally(action, username, password);
-          if (localResult.ok) applyStoredSession();
-          return localResult;
-        }
         return { ok: false, error: result.error || "登录失败，请稍后重试" };
       }
       if (!persistSession({ token: result.token, user: result.user })) {
@@ -79,21 +75,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoginModalOpen(false);
       return { ok: true };
     } catch {
-      if (isGithubPagesTest()) {
-        const localResult = authenticateLocally(action, username, password);
-        if (localResult.ok) applyStoredSession();
-        return localResult;
-      }
-      return { ok: false, error: "测试服务暂时不可用，请稍后重试" };
+      return { ok: false, error: "认证服务暂时不可用，请稍后重试" };
     }
-  };
-
-  const applyStoredSession = () => {
-    const stored = readStoredSession();
-    if (!stored) return;
-    setIsAuthenticated(true);
-    setUser(stored.user);
-    setLoginModalOpen(false);
   };
 
   const value = useMemo<AuthContextValue>(() => ({
@@ -108,11 +91,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const result = await fetchAuth("social", { provider });
         if (!result.ok || !result.token || !result.user) {
-          if (isGithubPagesTest()) {
-            const localResult = authenticateLocally("registerOrLogin", `${provider}@artx.test`, provider);
-            if (localResult.ok) applyStoredSession();
-            return localResult;
-          }
           return { ok: false, error: result.error || "第三方登录暂时不可用" };
         }
         if (!persistSession({ token: result.token, user: result.user })) {
@@ -123,12 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setLoginModalOpen(false);
         return { ok: true };
       } catch {
-        if (isGithubPagesTest()) {
-          const localResult = authenticateLocally("registerOrLogin", `${provider}@artx.test`, provider);
-          if (localResult.ok) applyStoredSession();
-          return localResult;
-        }
-        return { ok: false, error: "测试服务暂时不可用，请稍后重试" };
+        return { ok: false, error: "认证服务暂时不可用，请稍后重试" };
       }
     },
     logout: () => {
@@ -221,64 +194,6 @@ async function fetchAuth(action: "register" | "login" | "me" | "logout" | "socia
     ...data,
     ok: response.ok,
   } as { ok: boolean; error?: string; token?: string; user?: AuthUser };
-}
-
-function authenticateLocally(action: "login" | "register" | "registerOrLogin", username: string, password: string) {
-  const users = readLocalUsers();
-  const existing = users.find(item => item.username === username);
-  if (action === "register" && existing) {
-    return { ok: false, error: "账号已存在，请直接登录" };
-  }
-  if (action === "login" && !existing) {
-    return { ok: false, error: "账号不存在，请先注册" };
-  }
-  const now = new Date().toISOString();
-  const user = existing || {
-    id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    username,
-    password,
-    createdAt: now,
-  };
-  if (existing && existing.password !== password) {
-    return { ok: false, error: "账号或密码错误" };
-  }
-  if (!existing) {
-    users.push(user);
-    writeLocalUsers(users);
-  }
-  const session = {
-    token: `local-test:${user.id}:${Date.now()}`,
-    user: { id: user.id, username: user.username, createdAt: user.createdAt },
-  };
-  if (!persistSession(session)) {
-    return { ok: false, error: "浏览器本地存储空间不足，已尝试清理旧画布缓存，请重新登录" };
-  }
-  return { ok: true };
-}
-
-function readLocalUsers() {
-  try {
-    const raw = localStorage.getItem(LOCAL_AUTH_USERS_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed.filter((item): item is AuthUser & { password: string } => {
-      return Boolean(item && typeof item.id === "string" && typeof item.username === "string" && typeof item.password === "string");
-    }) : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeLocalUsers(users: Array<AuthUser & { password: string }>) {
-  try {
-    localStorage.setItem(LOCAL_AUTH_USERS_KEY, JSON.stringify(users));
-  } catch {
-    clearLargeArtxLocalCache();
-    localStorage.setItem(LOCAL_AUTH_USERS_KEY, JSON.stringify(users));
-  }
-}
-
-function isGithubPagesTest() {
-  return typeof window !== "undefined" && window.location.hostname.endsWith("github.io");
 }
 
 function getAuthApiBaseUrl() {
