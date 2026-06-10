@@ -15,6 +15,7 @@ export type OrchestrateRequest = {
   imageSrc?: string;
   image_url?: string;
   image_base64?: string;
+  images?: Array<{ src: string; title?: string }>;
   maskSrc?: string;
   mask_url?: string;
   mask_base64?: string;
@@ -73,6 +74,7 @@ export class AIOrchestrator {
     const capability = inferCapability(input);
     const route = resolveModelRoute(capability, input.model);
     const imageSrc = input.imageSrc || input.image_url || asDataUrl(input.image_base64);
+    const images = input.images?.length ? input.images : imageSrc ? [{ src: imageSrc }] : undefined;
     const maskSrc = input.maskSrc || input.mask_url || asDataUrl(input.mask_base64);
     const brandKit = input.brandKitId ? await getBrandKit(input.brandKitId) : undefined;
     const skill = input.skillId ? await getSkill(input.skillId) : await matchSkill(capability, input.prompt);
@@ -84,7 +86,7 @@ export class AIOrchestrator {
         messages: input.messages,
         model: route.model,
         module: capability,
-        images: imageSrc ? [{ src: imageSrc }] : undefined,
+        images,
       });
       return {
         type: "text",

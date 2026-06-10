@@ -41,6 +41,7 @@ export type OrchestrateRequest = {
   imageSrc?: string;
   image_url?: string;
   image_base64?: string;
+  images?: Array<{ src: string; title?: string }>;
   maskSrc?: string;
   mask_url?: string;
   mask_base64?: string;
