@@ -6951,6 +6951,21 @@ function formatCanvasMessageTime(value: Date) {
 
 const CANVAS_ASSISTANT_MESSAGES_STORAGE_PREFIX = "artx:canvas-assistant-messages:";
 const CANVAS_ASSISTANT_MESSAGES_SESSION_PREFIX = "artx:canvas-assistant-messages:fallback:";
+const CANVAS_ASSISTANT_PANEL_WIDTH_STORAGE_KEY = "artx:canvas-assistant-panel-width";
+const CANVAS_ASSISTANT_PANEL_DEFAULT_WIDTH = 372;
+const CANVAS_ASSISTANT_PANEL_MIN_WIDTH = 280;
+const CANVAS_ASSISTANT_PANEL_MAX_WIDTH = 560;
+const CANVAS_ASSISTANT_COLLAPSED_PEEK_WIDTH = 112;
+const CANVAS_MAIN_MIN_WIDTH = 360;
+
+function clampCanvasAssistantPanelWidth(value: number, containerWidth?: number) {
+  const fallbackMax = CANVAS_ASSISTANT_PANEL_DEFAULT_WIDTH;
+  const availableMax = typeof containerWidth === "number" && Number.isFinite(containerWidth)
+    ? Math.max(CANVAS_ASSISTANT_PANEL_MIN_WIDTH, containerWidth - CANVAS_MAIN_MIN_WIDTH)
+    : fallbackMax;
+  const max = Math.min(CANVAS_ASSISTANT_PANEL_MAX_WIDTH, availableMax);
+  return Math.round(Math.min(Math.max(value, CANVAS_ASSISTANT_PANEL_MIN_WIDTH), max));
+}
 
 function canvasAssistantMessagesStorageKey(projectId: string) {
   return `${CANVAS_ASSISTANT_MESSAGES_STORAGE_PREFIX}${projectId || "p1"}`;
@@ -6997,6 +7012,8 @@ function CanvasAssistantPanel({
   onMergeReferences,
   selectedCount,
   helpPromptNonce,
+  panelWidth,
+  collapsedPeekWidth,
 }: {
   projectId: string;
   isDark: boolean;
@@ -7011,6 +7028,8 @@ function CanvasAssistantPanel({
   onMergeReferences: (assets: { id: string; title: string; src: string }[]) => void;
   selectedCount: number;
   helpPromptNonce: number;
+  panelWidth: number;
+  collapsedPeekWidth: number;
 }) {
   const [, navigate] = useLocation();
   const [inputFocused, setInputFocused] = useState(false);
@@ -7059,8 +7078,6 @@ function CanvasAssistantPanel({
   const hoverBg = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 5%)";
   const activeGlow = "0 0 0 3px oklch(0.60 0.22 285 / 0.12), 0 18px 44px rgba(0,0,0,0.24)";
   const inputShadow = "0 16px 42px rgba(210,214,224,0.10), 0 0 0 1px rgba(210,214,224,0.10)";
-  const panelWidth = "clamp(280px, 32vw, 372px)";
-  const collapsedPeekWidth = 112;
   const handleCreateCanvasProject = () => {
     const project = createWorkspaceHistoryProject();
     toast("已新建画布", { description: project.title });
@@ -8089,6 +8106,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const { screenToFlowPosition, getEdges, getNodes, fitView, getViewport, setViewport } = useReactFlow();
   const viewport = useViewport();
   const restoredCanvasState = useMemo(() => safeReadCanvasState(projectId), [projectId]);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(restoredCanvasState?.nodes || initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(restoredCanvasState?.edges || initialEdges);
@@ -8127,6 +8145,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const pasteEventSeenAtRef = useRef(0);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [isAssistantCollapsed, setIsAssistantCollapsed] = useState(false);
+  const [assistantPanelWidth, setAssistantPanelWidth] = useState(() => {
+    if (typeof window === "undefined") return CANVAS_ASSISTANT_PANEL_DEFAULT_WIDTH;
+    const stored = Number(window.localStorage.getItem(CANVAS_ASSISTANT_PANEL_WIDTH_STORAGE_KEY));
+    const containerWidth = window.innerWidth;
+    return clampCanvasAssistantPanelWidth(Number.isFinite(stored) && stored > 0 ? stored : CANVAS_ASSISTANT_PANEL_DEFAULT_WIDTH, containerWidth);
+  });
+  const [assistantSplitterHover, setAssistantSplitterHover] = useState(false);
+  const [assistantSplitterDragging, setAssistantSplitterDragging] = useState(false);
   const [helpPromptNonce, setHelpPromptNonce] = useState(0);
   const [imageGeneratorModalOpen, setImageGeneratorModalOpen] = useState(false);
   const [isCanvasLocked, setIsCanvasLocked] = useState(false);
@@ -8141,6 +8167,53 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [annotationReferences, setAnnotationReferences] = useState<AnnotationReference[]>([]);
   const mergeReferencedAssets = useCallback((assets: { id: string; title: string; src: string }[]) => {
     setReferencedAssets(assets);
+  }, []);
+  const updateAssistantPanelWidthFromPointer = useCallback((clientX: number) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    const containerWidth = rect?.width ?? (typeof window === "undefined" ? undefined : window.innerWidth);
+    const nextWidth = clampCanvasAssistantPanelWidth((rect?.right ?? clientX + assistantPanelWidth) - clientX, containerWidth);
+    setAssistantPanelWidth(nextWidth);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(CANVAS_ASSISTANT_PANEL_WIDTH_STORAGE_KEY, String(nextWidth));
+    }
+  }, [assistantPanelWidth]);
+  const handleAssistantSplitterMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setAssistantSplitterDragging(true);
+    updateAssistantPanelWidthFromPointer(event.clientX);
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    const handleMove = (moveEvent: MouseEvent) => {
+      moveEvent.preventDefault();
+      updateAssistantPanelWidthFromPointer(moveEvent.clientX);
+    };
+    const handleUp = () => {
+      setAssistantSplitterDragging(false);
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+    };
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+  }, [updateAssistantPanelWidthFromPointer]);
+  useEffect(() => {
+    const handleResize = () => {
+      const containerWidth = containerRef.current?.getBoundingClientRect().width ?? window.innerWidth;
+      setAssistantPanelWidth(prev => {
+        const next = clampCanvasAssistantPanelWidth(prev, containerWidth);
+        if (next !== prev) {
+          window.localStorage.setItem(CANVAS_ASSISTANT_PANEL_WIDTH_STORAGE_KEY, String(next));
+        }
+        return next;
+      });
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
   }, []);
   const getLatestAssetNode = useCallback((nodeId: string) => (
     nodesRef.current.find(node => node.id === nodeId && node.type === "asset") || null
@@ -8250,7 +8323,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       return { ...n, data: restData };
     }));
   }, [assetMorePanel?.nodeId, setNodes]);
-  const containerRef = useRef<HTMLDivElement>(null);
   const middlePanRef = useRef<{ clientX: number; clientY: number; viewport: { x: number; y: number; zoom: number } } | null>(null);
   const historyRef = useRef<{ nodes: Node[]; edges: Edge[] }[]>([]);
   const MAX_HISTORY_STEPS = 50;
@@ -11900,7 +11972,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         defaultEdgeOptions={{ type: "tapnow" }}
         connectionLineStyle={{ stroke: "rgba(255,255,255,0.5)", strokeWidth: 2.5 }}
         connectionLineType={"bezier" as any}
-        style={{ background: canvasBg, width: isAssistantCollapsed ? "calc(100% - 112px)" : "calc(100% - clamp(280px, 32vw, 372px))" }}
+        style={{
+          background: canvasBg,
+          width: isAssistantCollapsed
+            ? `calc(100% - ${CANVAS_ASSISTANT_COLLAPSED_PEEK_WIDTH}px)`
+            : `calc(100% - ${assistantPanelWidth}px)`,
+        }}
         proOptions={{ hideAttribution: true }}
         selectionOnDrag
         selectionMode={SelectionMode.Partial}
@@ -12028,7 +12105,47 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         onMergeReferences={mergeReferencedAssets}
         selectedCount={selectedNodeIds.length}
         helpPromptNonce={helpPromptNonce}
+        panelWidth={assistantPanelWidth}
+        collapsedPeekWidth={CANVAS_ASSISTANT_COLLAPSED_PEEK_WIDTH}
       />
+
+      {!isAssistantCollapsed && (
+        <div
+          className="absolute inset-y-0 nodrag nopan"
+          style={{
+            right: assistantPanelWidth - 5,
+            width: 10,
+            zIndex: 140,
+            cursor: "col-resize",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            pointerEvents: "all",
+          }}
+          onMouseEnter={() => setAssistantSplitterHover(true)}
+          onMouseLeave={() => setAssistantSplitterHover(false)}
+          onMouseDown={handleAssistantSplitterMouseDown}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="调整画布和对话框宽度"
+          title="拖动调整画布和对话框宽度"
+        >
+          <div
+            style={{
+              width: assistantSplitterHover || assistantSplitterDragging ? 4 : 2,
+              height: assistantSplitterHover || assistantSplitterDragging ? 74 : 54,
+              borderRadius: 999,
+              background: assistantSplitterHover || assistantSplitterDragging
+                ? "oklch(0.62 0.23 290)"
+                : isDark ? "oklch(1 0 0 / 12%)" : "oklch(0 0 0 / 12%)",
+              boxShadow: assistantSplitterHover || assistantSplitterDragging
+                ? "0 0 0 4px oklch(0.62 0.23 290 / 0.14), 0 8px 24px rgba(116,70,255,0.28)"
+                : "none",
+              transition: "width 0.16s ease, height 0.16s ease, background 0.16s ease, box-shadow 0.16s ease",
+            }}
+          />
+        </div>
+      )}
 
       {selectedVisualNodeIds.length === 1 && !multiVisualSelectionActive && (
         <AssetFloatingToolbar
