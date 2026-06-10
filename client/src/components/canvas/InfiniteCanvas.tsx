@@ -6630,7 +6630,7 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
     { id: "move",         label: "移动",       icon: <MousePointer2 size={17} /> },
     { id: "annotate",     label: "注释",       icon: <MessageCircle size={17} /> },
     { id: "upload",       label: "上传图片",   icon: <ImagePlus size={17} /> },
-    { id: "smart-canvas", label: "创建画布",   icon: <CreateCanvasIcon size={17} /> },
+    { id: "smart-canvas", label: "创建画板",   icon: <CreateCanvasIcon size={17} /> },
     { id: "shape",        label: "几何形",     icon: <Triangle size={17} /> },
     { id: "draw",         label: "铅笔",       icon: <Pencil size={17} /> },
     { id: "text",         label: "文字",       icon: <Type size={17} /> },
@@ -8495,8 +8495,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [pendingRect, setPendingRect] = useState<DrawRect | null>(null); // 松开鼠标后待确认
   const [canvasInputW, setCanvasInputW] = useState("");
   const [canvasInputH, setCanvasInputH] = useState("");
+  const [canvasNameInput, setCanvasNameInput] = useState("");
+  const [canvasSocialPresetId, setCanvasSocialPresetId] = useState("");
   const [canvasBgColor, setCanvasBgColor] = useState("#2a2a30"); // 默认深灰色
   const [presetOpen, setPresetOpen] = useState(false); // 预设尺寸下拉展开状态
+  const [socialPresetOpen, setSocialPresetOpen] = useState(false);
   // 色彩选择器的 DOM ref（必须在组件顶层声明，不能在 IIFE 内）
   const colorSbRef = useRef<HTMLDivElement>(null);
   const colorHueRef = useRef<HTMLDivElement>(null);
@@ -10234,6 +10237,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     if (!pendingRect) return;
     const w = parseInt(canvasInputW) || 800;
     const h = parseInt(canvasInputH) || 600;
+    const selectedSocialPreset = SOCIAL_MEDIA_SIZE_PRESETS.find(preset => preset.id === canvasSocialPresetId);
+    const title = canvasNameInput.trim() || (selectedSocialPreset ? `${selectedSocialPreset.platform} ${selectedSocialPreset.title}` : "画板");
     const minX = Math.min(pendingRect.startX, pendingRect.endX);
     const minY = Math.min(pendingRect.startY, pendingRect.endY);
     // 将屏幕坐标转换为 flow 坐标
@@ -10248,20 +10253,24 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         type: "canvasFrame",
         position: flowPos,
         style: { width: w, height: h, background: bgColor },
-        data: { id, title: "画布", width: w, height: h, bgColor },
+        data: { id, title, width: w, height: h, bgColor, socialPresetId: selectedSocialPreset?.id },
       }];
     });
     setPendingRect(null);
     setCanvasInputW("");
     setCanvasInputH("");
-    // 保持当前工具为「创建画布」，用户可继续拖拽创建新画布
-    toast("画布已创建，可继续拖拽创建", { description: `${w} × ${h} px` });
-  }, [canvasBgColor, canvasInputH, canvasInputW, pendingRect, pushHistory, screenToFlowPosition, setNodes]);
+    setCanvasNameInput("");
+    setCanvasSocialPresetId("");
+    // 保持当前工具为「创建画板」，用户可继续拖拽创建新画板
+    toast("画板已创建，可继续拖拽创建", { description: `${title} · ${w} × ${h} px` });
+  }, [canvasBgColor, canvasInputH, canvasInputW, canvasNameInput, canvasSocialPresetId, pendingRect, pushHistory, screenToFlowPosition, setNodes]);
 
   const handleCreateCanvasCancel = useCallback(() => {
     setPendingRect(null);
     setCanvasInputW("");
     setCanvasInputH("");
+    setCanvasNameInput("");
+    setCanvasSocialPresetId("");
   }, []);
 
   // ── 几何形创建确认/取消 ──
@@ -12628,7 +12637,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const rw = Math.abs(pendingRect.endX - pendingRect.startX);
         const rh = Math.abs(pendingRect.endY - pendingRect.startY);
         // 弹窗宽度
-        const popW = 240;
+        const popW = 360;
         // 默认显示在矩形右侧，若超出视口则显示在左侧
         const containerW = containerRef.current?.offsetWidth || 800;
         const containerH = containerRef.current?.offsetHeight || 600;
@@ -12690,7 +12699,30 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             >
               {/* 内容区——可滚动 */}
               <div style={{ flex: 1, overflowY: "auto", padding: "14px 14px 0", minHeight: 0 }}>
-              <p style={{ color: text, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>设置画布尺寸</p>
+              <p style={{ color: text, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>设置画板</p>
+
+              <div style={{ marginBottom: 10 }}>
+                <p style={{ color: sub, fontSize: 10, marginBottom: 4, letterSpacing: "0.04em" }}>画板名称</p>
+                <input
+                  autoFocus
+                  type="text"
+                  value={canvasNameInput}
+                  onChange={e => setCanvasNameInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") handleCreateCanvasConfirm(); if (e.key === "Escape") handleCreateCanvasCancel(); }}
+                  placeholder="例如：小红书笔记封面"
+                  style={{
+                    width: "100%",
+                    background: inputBg,
+                    border: `1px solid ${inputBorder}`,
+                    borderRadius: 6,
+                    outline: "none",
+                    color: text,
+                    fontSize: 12,
+                    padding: "7px 8px",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
 
               {/* 预设尺寸——可折叠下拉区域 */}
               {(() => {
@@ -12751,6 +12783,95 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                         <span style={{ fontSize: 11, color: sub, marginLeft: "auto" }}>{p.desc}</span>
                       </button>
                     ))}
+                  </div>
+                );
+              })()}
+
+              {/* 社媒平台尺寸——复用图片命令中的规格库 */}
+              {(() => {
+                const selectedSocialPreset = SOCIAL_MEDIA_SIZE_PRESETS.find(preset => preset.id === canvasSocialPresetId);
+                const groupedPlatforms = Array.from(new Set(SOCIAL_MEDIA_SIZE_PRESETS.map(preset => preset.platform)));
+                return (
+                  <div style={{ marginBottom: 10, borderRadius: 7, border: `1px solid ${isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"}`, overflow: "hidden" }}>
+                    <button
+                      onClick={() => setSocialPresetOpen(v => !v)}
+                      style={{
+                        display: "flex", alignItems: "center", justifyContent: "space-between",
+                        width: "100%", padding: "7px 10px",
+                        background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+                        border: "none", cursor: "pointer", color: text,
+                      }}
+                    >
+                      <span style={{ fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                        <Sparkles size={13} />
+                        <span>社媒平台尺寸</span>
+                        {selectedSocialPreset && (
+                          <span style={{ color: "oklch(0.65 0.22 290)", fontSize: 11, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {selectedSocialPreset.platform} · {selectedSocialPreset.title}
+                          </span>
+                        )}
+                      </span>
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+                        style={{ transform: socialPresetOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.18s", flexShrink: 0 }}>
+                        <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                    {socialPresetOpen && (
+                      <div style={{ maxHeight: 236, overflowY: "auto", borderTop: `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"}`, scrollbarWidth: "thin" }}>
+                        {groupedPlatforms.map(platform => (
+                          <div key={platform}>
+                            <div style={{
+                              position: "sticky", top: 0, zIndex: 1,
+                              display: "flex", alignItems: "center", gap: 7,
+                              padding: "7px 10px 5px",
+                              background: isDark ? "rgba(22,22,30,0.96)" : "rgba(255,255,255,0.96)",
+                              color: sub, fontSize: 11, fontWeight: 650,
+                            }}>
+                              <SocialPlatformIcon platform={platform} size={15} />
+                              {platform}
+                            </div>
+                            {SOCIAL_MEDIA_SIZE_PRESETS.filter(preset => preset.platform === platform).map(preset => {
+                              const active = preset.id === canvasSocialPresetId;
+                              return (
+                                <button
+                                  key={preset.id}
+                                  onClick={() => {
+                                    setCanvasSocialPresetId(preset.id);
+                                    setCanvasInputW(String(preset.width));
+                                    setCanvasInputH(String(preset.height));
+                                    if (!canvasNameInput.trim()) setCanvasNameInput(`${preset.platform} ${preset.title}`);
+                                  }}
+                                  style={{
+                                    display: "grid",
+                                    gridTemplateColumns: "1fr auto",
+                                    gap: 8,
+                                    alignItems: "center",
+                                    width: "100%",
+                                    padding: "7px 10px",
+                                    background: active ? (isDark ? "rgba(147,108,255,0.16)" : "rgba(147,108,255,0.10)") : "transparent",
+                                    border: "none",
+                                    borderTop: `1px solid ${isDark ? "rgba(255,255,255,0.045)" : "rgba(0,0,0,0.045)"}`,
+                                    color: text,
+                                    cursor: "pointer",
+                                    textAlign: "left",
+                                  }}
+                                  onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.background = isDark ? "rgba(255,255,255,0.055)" : "rgba(0,0,0,0.035)"; }}
+                                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = active ? (isDark ? "rgba(147,108,255,0.16)" : "rgba(147,108,255,0.10)") : "transparent"; }}
+                                >
+                                  <span style={{ minWidth: 0 }}>
+                                    <span style={{ display: "block", fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{preset.title}</span>
+                                    <span style={{ display: "block", marginTop: 1, color: sub, fontSize: 10 }}>{Math.round((preset.width / preset.height) * 100) / 100}:1</span>
+                                  </span>
+                                  <span style={{ color: active ? "oklch(0.74 0.18 290)" : sub, fontSize: 11, fontWeight: 650, whiteSpace: "nowrap" }}>
+                                    {preset.width} × {preset.height}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })()}
@@ -12871,7 +12992,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                   <p style={{ color: sub, fontSize: 10, marginBottom: 4, letterSpacing: "0.04em" }}>宽度 W</p>
                   <div style={{ display: "flex", alignItems: "center", background: inputBg, border: `1px solid ${inputBorder}`, borderRadius: 6, overflow: "hidden" }}>
                     <input
-                      autoFocus
                       type="number"
                       min={1}
                       value={canvasInputW}
