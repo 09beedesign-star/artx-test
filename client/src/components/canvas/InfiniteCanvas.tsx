@@ -3046,8 +3046,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
       const dy = Math.round((-cropRect.y / 100) * dispH);
       expandedCtx.clearRect(0, 0, nextW, nextH);
       expandedCtx.drawImage(image, dx, dy, dispW, dispH);
-      maskCtx.fillStyle = "white";
-      maskCtx.fillRect(0, 0, nextW, nextH);
+      maskCtx.clearRect(0, 0, nextW, nextH);
       maskCtx.fillStyle = "black";
       maskCtx.fillRect(dx, dy, dispW, dispH);
       window.dispatchEvent(new CustomEvent("asset-expand-apply", {
