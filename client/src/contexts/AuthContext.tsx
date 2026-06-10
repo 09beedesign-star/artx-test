@@ -21,7 +21,7 @@ interface AuthContextValue {
   closeLoginModal: () => void;
   login: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   register: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
-  socialAuth: (provider: "google" | "wechat" | "apple" | "github" | "meta") => Promise<{ ok: boolean; error?: string }>;
+  socialAuth: (provider: "google" | "wechat" | "github" | "meta") => Promise<{ ok: boolean; error?: string }>;
   logout: () => void;
 }
 
@@ -33,6 +33,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loginModalOpen, setLoginModalOpen] = useState(false);
 
   useEffect(() => {
+    const callbackResult = readOAuthCallbackResult();
+    if (callbackResult && "token" in callbackResult && callbackResult.token && callbackResult.user?.id && callbackResult.user.username) {
+      if (persistSession({ token: callbackResult.token, user: callbackResult.user })) {
+        setIsAuthenticated(true);
+        setUser(callbackResult.user);
+        setLoginModalOpen(false);
+      }
+      clearOAuthCallbackParams();
+      return;
+    }
+    if (callbackResult && "error" in callbackResult && callbackResult.error) {
+      clearOAuthCallbackParams();
+    }
+
     const stored = readStoredSession();
     if (!stored) return;
 
@@ -89,16 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     register: (username: string, password: string) => authenticate("register", username, password),
     socialAuth: async (provider) => {
       try {
-        const result = await fetchAuth("social", { provider });
-        if (!result.ok || !result.token || !result.user) {
-          return { ok: false, error: result.error || "第三方登录暂时不可用" };
-        }
-        if (!persistSession({ token: result.token, user: result.user })) {
-          return { ok: false, error: "浏览器本地存储空间不足，已尝试清理旧画布缓存，请重新登录" };
-        }
-        setIsAuthenticated(true);
-        setUser(result.user);
-        setLoginModalOpen(false);
+        window.location.href = getOAuthStartUrl(provider);
         return { ok: true };
       } catch {
         return { ok: false, error: "认证服务暂时不可用，请稍后重试" };
@@ -116,6 +121,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }), [isAuthenticated, user, loginModalOpen]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+function readOAuthCallbackResult(): (AuthSession & { error?: never }) | { error: string } | null {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const encodedResult = params.get("auth_result");
+    const authError = params.get("auth_error");
+    if (authError) return { error: authError };
+    if (!encodedResult) return null;
+    const decoded = JSON.parse(base64UrlDecode(encodedResult)) as Partial<AuthSession>;
+    if (!decoded.token || !decoded.user?.id || !decoded.user.username) return null;
+    return { token: decoded.token, user: decoded.user };
+  } catch {
+    return null;
+  }
+}
+
+function clearOAuthCallbackParams() {
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("auth_result");
+    url.searchParams.delete("auth_error");
+    window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
+  } catch {
+    // Ignore URL cleanup failures.
+  }
+}
+
+function base64UrlDecode(value: string) {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+  const binary = window.atob(padded);
+  const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
 }
 
 export function useAuth() {
@@ -194,6 +233,12 @@ async function fetchAuth(action: "register" | "login" | "me" | "logout" | "socia
     ...data,
     ok: response.ok,
   } as { ok: boolean; error?: string; token?: string; user?: AuthUser };
+}
+
+function getOAuthStartUrl(provider: "google" | "wechat" | "github" | "meta") {
+  const apiBaseUrl = getAuthApiBaseUrl();
+  const returnTo = window.location.href;
+  return `${apiBaseUrl}/api/auth/oauth/${provider}/start?returnTo=${encodeURIComponent(returnTo)}`;
 }
 
 function getAuthApiBaseUrl() {

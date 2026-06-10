@@ -31,3 +31,25 @@ services:
         sync: false
       - key: VITE_API_BASE_URL
         sync: false
+      - key: OAUTH_PUBLIC_BASE_URL
+        value: https://artx-test.onrender.com
+      - key: OAUTH_FRONTEND_URL
+        value: https://09beedesign-star.github.io/artx-test/
+      - key: OAUTH_STATE_SECRET
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: META_CLIENT_ID
+        sync: false
+      - key: META_CLIENT_SECRET
+        sync: false
+      - key: WECHAT_CLIENT_ID
+        sync: false
+      - key: WECHAT_CLIENT_SECRET
+        sync: false
