@@ -290,14 +290,14 @@ export default function HomePage() {
 
       <section ref={inspirationRef} className="min-h-screen bg-[#080808] px-6 py-20 sm:px-10 lg:px-20">
         <div className="mx-auto max-w-[1600px]">
-          <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div className="mb-8">
             <div>
               <p className="mb-3 text-sm font-medium text-[#9370ff]">Inspiration Source</p>
               <h2 className="text-[34px] font-black leading-tight text-white sm:text-[44px]">灵感来源</h2>
+              <p className="mt-3 whitespace-nowrap text-sm leading-3 text-white/45">
+                从社区作品、品牌视觉和社媒创意中快速找到方向，登录后可直接创建为你的新画布。
+              </p>
             </div>
-            <p className="max-w-[420px] text-sm leading-6 text-white/45">
-              从社区作品、品牌视觉和社媒创意中快速找到方向，登录后可直接创建为你的新画布。
-            </p>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
