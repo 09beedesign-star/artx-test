@@ -1188,6 +1188,7 @@ type SocialMediaExportPayload = {
   presets: SocialMediaSizePreset[];
   customSize?: { width: number; height: number };
   crop: { x: number; y: number; width: number; height: number };
+  crops?: Record<string, { x: number; y: number; width: number; height: number }>;
 };
 
 const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
@@ -1415,19 +1416,6 @@ async function createSocialMediaSizedImage(src: string, size: { width: number; h
   const sy = Math.round(cropY * naturalH);
   const sw = Math.max(1, Math.round(cropW * naturalW));
   const sh = Math.max(1, Math.round(cropH * naturalH));
-  const sourceRatio = sw / sh;
-  const targetRatio = size.width / size.height;
-  let nextSx = sx;
-  let nextSy = sy;
-  let nextSw = sw;
-  let nextSh = sh;
-  if (sourceRatio > targetRatio) {
-    nextSw = Math.max(1, Math.round(sh * targetRatio));
-    nextSx = sx + Math.round((sw - nextSw) / 2);
-  } else if (sourceRatio < targetRatio) {
-    nextSh = Math.max(1, Math.round(sw / targetRatio));
-    nextSy = sy + Math.round((sh - nextSh) / 2);
-  }
   const canvas = document.createElement("canvas");
   canvas.width = size.width;
   canvas.height = size.height;
@@ -1435,7 +1423,7 @@ async function createSocialMediaSizedImage(src: string, size: { width: number; h
   if (!ctx) throw new Error("当前浏览器不支持图片处理");
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(image, nextSx, nextSy, nextSw, nextSh, 0, 0, size.width, size.height);
+  ctx.drawImage(image, sx, sy, sw, sh, 0, 0, size.width, size.height);
   return canvas.toDataURL("image/png");
 }
 
@@ -1464,6 +1452,8 @@ function SocialMediaSizePanel({
   const [customWidth, setCustomWidth] = useState(1080);
   const [customHeight, setCustomHeight] = useState(1080);
   const [crop, setCrop] = useState({ x: 0, y: 0, width: 1, height: 1 });
+  const [cropByKey, setCropByKey] = useState<Record<string, SocialMediaExportPayload["crop"]>>({});
+  const [previewKey, setPreviewKey] = useState("custom");
   const [cropEditMode, setCropEditMode] = useState(false);
   const [naturalSize, setNaturalSize] = useState({ width: 1080, height: 1080 });
   const dragRef = useRef<null | {
@@ -1479,8 +1469,31 @@ function SocialMediaSizePanel({
   const sub = isDark ? "rgba(255,255,255,0.50)" : "rgba(28,28,40,0.48)";
   const field = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
   const selectedPresets = SOCIAL_MEDIA_SIZE_PRESETS.filter(item => selectedPresetIds.includes(item.id));
+  const previewPreset = SOCIAL_MEDIA_SIZE_PRESETS.find(item => item.id === previewKey) || selectedPresets[selectedPresets.length - 1] || null;
+  const previewSize = previewPreset
+    ? { key: previewPreset.id, width: previewPreset.width, height: previewPreset.height, label: `${previewPreset.platform} ${previewPreset.title}` }
+    : { key: "custom", width: customWidth, height: customHeight, label: "自定义尺寸" };
+  const previewCrop = cropByKey[previewSize.key] || crop;
   const validCustom = customEnabled && customWidth >= 64 && customHeight >= 64;
   const canGenerate = selectedPresets.length > 0 || validCustom;
+
+  const createCropForSize = useCallback((size: { width: number; height: number }) => {
+    const sourceRatio = naturalSize.width / Math.max(1, naturalSize.height);
+    const targetRatio = size.width / Math.max(1, size.height);
+    if (sourceRatio > targetRatio) {
+      const width = Math.max(0.02, Math.min(1, targetRatio / sourceRatio));
+      return { x: (1 - width) / 2, y: 0, width, height: 1 };
+    }
+    const height = Math.max(0.02, Math.min(1, sourceRatio / targetRatio));
+    return { x: 0, y: (1 - height) / 2, width: 1, height };
+  }, [naturalSize.height, naturalSize.width]);
+
+  const ensurePreviewCrop = useCallback((key: string, size: { width: number; height: number }) => {
+    setCropByKey(prev => {
+      if (prev[key]) return prev;
+      return { ...prev, [key]: createCropForSize(size) };
+    });
+  }, [createCropForSize]);
 
   useEffect(() => {
     if (!imageSrc) return;
@@ -1499,19 +1512,36 @@ function SocialMediaSizePanel({
   }, [imageSrc]);
 
   useEffect(() => {
+    setCropByKey(prev => {
+      const next: Record<string, SocialMediaExportPayload["crop"]> = {};
+      for (const preset of SOCIAL_MEDIA_SIZE_PRESETS) {
+        next[preset.id] = prev[preset.id] || createCropForSize(preset);
+      }
+      next.custom = prev.custom || createCropForSize({ width: customWidth, height: customHeight });
+      return next;
+    });
+  }, [createCropForSize, customHeight, customWidth]);
+
+  useEffect(() => {
     if (!cropEditMode) return;
+    if (previewSize.key !== "custom") return;
     setCustomEnabled(true);
-    setCustomWidth(Math.max(64, Math.round(naturalSize.width * crop.width)));
-    setCustomHeight(Math.max(64, Math.round(naturalSize.height * crop.height)));
-  }, [crop, cropEditMode, naturalSize.height, naturalSize.width]);
+    setCustomWidth(Math.max(64, Math.round(naturalSize.width * previewCrop.width)));
+    setCustomHeight(Math.max(64, Math.round(naturalSize.height * previewCrop.height)));
+  }, [cropEditMode, naturalSize.height, naturalSize.width, previewCrop.height, previewCrop.width, previewSize.key]);
 
   const togglePreset = (id: string) => {
+    const preset = SOCIAL_MEDIA_SIZE_PRESETS.find(item => item.id === id);
+    if (!preset) return;
+    ensurePreviewCrop(id, preset);
+    setPreviewKey(id);
+    setCrop(cropByKey[id] || createCropForSize(preset));
     setSelectedPresetIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]);
   };
 
   const handleCropPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
-    dragRef.current = { mode: cropEditMode ? "move" : "pan", startX: event.clientX, startY: event.clientY, startCrop: crop, bounds };
+    dragRef.current = { mode: cropEditMode ? "move" : "pan", startX: event.clientX, startY: event.clientY, startCrop: previewCrop, bounds };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
@@ -1520,7 +1550,7 @@ function SocialMediaSizePanel({
     event.stopPropagation();
     const bounds = event.currentTarget.parentElement?.parentElement?.getBoundingClientRect();
     if (!bounds) return;
-    dragRef.current = { mode, startX: event.clientX, startY: event.clientY, startCrop: crop, bounds };
+    dragRef.current = { mode, startX: event.clientX, startY: event.clientY, startCrop: previewCrop, bounds };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
@@ -1530,15 +1560,19 @@ function SocialMediaSizePanel({
     const dx = (event.clientX - drag.startX) / Math.max(1, drag.bounds.width);
     const dy = (event.clientY - drag.startY) / Math.max(1, drag.bounds.height);
     const minSize = 0.08;
+    const publishCrop = (nextCrop: SocialMediaExportPayload["crop"]) => {
+      setCrop(nextCrop);
+      setCropByKey(prev => ({ ...prev, [previewSize.key]: nextCrop }));
+    };
     if (drag.mode === "pan" || drag.mode === "move") {
-      setCrop({
+      publishCrop({
         ...drag.startCrop,
-        x: Math.max(0, Math.min(1 - drag.startCrop.width, drag.startCrop.x + dx)),
-        y: Math.max(0, Math.min(1 - drag.startCrop.height, drag.startCrop.y + dy)),
+        x: Math.max(0, Math.min(1 - drag.startCrop.width, drag.startCrop.x - dx * drag.startCrop.width)),
+        y: Math.max(0, Math.min(1 - drag.startCrop.height, drag.startCrop.y - dy * drag.startCrop.height)),
       });
       return;
     }
-    setCrop(() => {
+    const nextCrop = (() => {
       const next = { ...drag.startCrop };
       if (drag.mode === "left") {
         const nextX = Math.max(0, Math.min(drag.startCrop.x + drag.startCrop.width - minSize, drag.startCrop.x + dx));
@@ -1557,7 +1591,8 @@ function SocialMediaSizePanel({
         next.height = Math.max(minSize, Math.min(1 - drag.startCrop.y, drag.startCrop.height + dy));
       }
       return next;
-    });
+    })();
+    publishCrop(nextCrop);
   };
 
   const handleCropPointerUp = () => {
@@ -1597,26 +1632,33 @@ function SocialMediaSizePanel({
       <div className="min-h-0 flex-1 overflow-y-auto p-3" style={{ scrollbarWidth: "thin" }}>
         <div
           className="relative mb-3 overflow-hidden rounded-[var(--radius-md-design)]"
-          style={{ aspectRatio: "16/10", background: field, border: `1px solid ${border}` }}
+          style={{
+            aspectRatio: `${previewSize.width}/${previewSize.height}`,
+            maxHeight: 420,
+            minHeight: 180,
+            background: field,
+            border: `1px solid ${border}`,
+            cursor: imageSrc ? "grab" : "default",
+          }}
           onPointerDown={handleCropPointerDown}
           onPointerMove={handleCropPointerMove}
           onPointerUp={handleCropPointerUp}
           onPointerCancel={handleCropPointerUp}
         >
           {imageSrc ? (
-            <img src={imageSrc} alt="尺寸裁切预览" draggable={false} className="absolute object-cover" style={getSocialPreviewCropStyle(crop)} />
+            <img src={imageSrc} alt="尺寸裁切预览" draggable={false} className="absolute object-cover select-none" style={getSocialPreviewCropStyle(previewCrop)} />
           ) : null}
           <div className="absolute inset-0 pointer-events-none" style={{ boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.26)" }} />
-          {cropEditMode && (
+          {cropEditMode && previewSize.key === "custom" && (
             <div
               className="absolute cursor-move"
               style={{
-                left: `${crop.x * 100}%`,
-                top: `${crop.y * 100}%`,
-                width: `${crop.width * 100}%`,
-                height: `${crop.height * 100}%`,
+                left: 0,
+                top: 0,
+                width: "100%",
+                height: "100%",
                 border: "2px solid rgba(255,255,255,0.95)",
-                boxShadow: "0 0 0 999px rgba(0,0,0,0.36), 0 0 0 1px rgba(108,92,231,0.85)",
+                boxShadow: "0 0 0 1px rgba(108,92,231,0.85)",
               }}
             >
               <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: "linear-gradient(to right, rgba(255,255,255,0.36) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.36) 1px, transparent 1px)", backgroundSize: "33.333% 33.333%" }} />
@@ -1627,7 +1669,7 @@ function SocialMediaSizePanel({
             </div>
           )}
           <div className="absolute bottom-2 left-2 rounded-[var(--radius-md-design)] px-2 py-1" style={{ background: "rgba(0,0,0,0.42)", color: "white", fontSize: 11 }}>
-            {cropEditMode ? "拖拽裁切框或边缘调整裁切尺寸" : "拖拽图片选择需要显示的内容"}
+            {previewSize.label} · {previewSize.width} × {previewSize.height} · 拖拽图片选择需要显示的内容
           </div>
         </div>
 
@@ -1688,6 +1730,8 @@ function SocialMediaSizePanel({
               onClick={() => {
                 setCropEditMode(prev => !prev);
                 setCustomEnabled(true);
+                setPreviewKey("custom");
+                ensurePreviewCrop("custom", { width: customWidth, height: customHeight });
               }}
             >
               <Crop size={15} />
@@ -1702,7 +1746,18 @@ function SocialMediaSizePanel({
                 max={8192}
                 value={customWidth}
                 disabled={!customEnabled}
-                onChange={event => setCustomWidth(Math.max(64, Math.min(8192, Number(event.target.value) || 64)))}
+                onFocus={() => {
+                  setPreviewKey("custom");
+                  ensurePreviewCrop("custom", { width: customWidth, height: customHeight });
+                }}
+                onChange={event => {
+                  const nextWidth = Math.max(64, Math.min(8192, Number(event.target.value) || 64));
+                  setCustomWidth(nextWidth);
+                  const nextCrop = createCropForSize({ width: nextWidth, height: customHeight });
+                  setCrop(nextCrop);
+                  setCropByKey(prev => ({ ...prev, custom: nextCrop }));
+                  setPreviewKey("custom");
+                }}
                 className="mt-1 h-8 w-full rounded-[var(--radius-md-design)] px-2 outline-none"
                 style={{ background: isDark ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.72)", color: text, border: `1px solid ${border}` }}
               />
@@ -1715,7 +1770,18 @@ function SocialMediaSizePanel({
                 max={8192}
                 value={customHeight}
                 disabled={!customEnabled}
-                onChange={event => setCustomHeight(Math.max(64, Math.min(8192, Number(event.target.value) || 64)))}
+                onFocus={() => {
+                  setPreviewKey("custom");
+                  ensurePreviewCrop("custom", { width: customWidth, height: customHeight });
+                }}
+                onChange={event => {
+                  const nextHeight = Math.max(64, Math.min(8192, Number(event.target.value) || 64));
+                  setCustomHeight(nextHeight);
+                  const nextCrop = createCropForSize({ width: customWidth, height: nextHeight });
+                  setCrop(nextCrop);
+                  setCropByKey(prev => ({ ...prev, custom: nextCrop }));
+                  setPreviewKey("custom");
+                }}
                 className="mt-1 h-8 w-full rounded-[var(--radius-md-design)] px-2 outline-none"
                 style={{ background: isDark ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.72)", color: text, border: `1px solid ${border}` }}
               />
@@ -1741,7 +1807,8 @@ function SocialMediaSizePanel({
           onClick={() => onGenerate({
             presets: selectedPresets,
             customSize: validCustom ? { width: customWidth, height: customHeight } : undefined,
-            crop,
+            crop: previewCrop,
+            crops: cropByKey,
           })}
         >
           生成
@@ -11640,7 +11707,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     try {
       const sourceSize = getCanvasNodeSize(sourceNode);
       const generated = await Promise.all(outputSizes.map(async (item, index) => {
-        const localSrc = await createSocialMediaSizedImage(imageSrc, { width: item.width, height: item.height }, payload.crop);
+        const localSrc = await createSocialMediaSizedImage(imageSrc, { width: item.width, height: item.height }, payload.crops?.[item.id] || payload.crop);
         const displaySize = getImportedImageDisplaySize(item.width, item.height);
         const id = `social-size-${Date.now()}-${index}`;
         return {
