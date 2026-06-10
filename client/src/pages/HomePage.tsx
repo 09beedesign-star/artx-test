@@ -216,7 +216,11 @@ export default function HomePage() {
           }}
           onWorkspace={() => {
             setActiveTab("workspace");
-            navigate("/workspace");
+            if (isAuthenticated) {
+              navigate("/workspace");
+              return;
+            }
+            showRegisterPanel();
           }}
           onHelp={() => {
             setActiveTab("help");
@@ -305,7 +309,13 @@ export default function HomePage() {
               <button
                 key={project.id}
                 type="button"
-                onClick={() => navigate(`/project/${project.id}`)}
+                onClick={() => {
+                  if (isAuthenticated) {
+                    navigate(`/project/${project.id}`);
+                    return;
+                  }
+                  showRegisterPanel();
+                }}
                 className="group overflow-hidden rounded-md border border-white/10 bg-[#151515] text-left shadow-[0_18px_50px_rgba(0,0,0,0.28)] transition-transform hover:-translate-y-1"
               >
                 <div className="relative aspect-video overflow-hidden">
