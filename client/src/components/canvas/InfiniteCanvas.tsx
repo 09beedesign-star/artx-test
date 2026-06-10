@@ -8060,7 +8060,7 @@ function CanvasAssistantPanel({
                 </div>
               )}
               <div
-                className="mb-2 flex min-h-[86px] flex-wrap items-start gap-1.5 rounded-[var(--radius-md-design)] px-1 py-1"
+                className="mb-2 flex min-h-[86px] flex-wrap items-start gap-1 rounded-[var(--radius-md-design)] px-1 py-1"
                 style={{ color: text }}
                 onMouseDown={() => focusComposerSegment()}
               >
@@ -8123,10 +8123,10 @@ function CanvasAssistantPanel({
                     );
                   }
                   const textWidth = segment.text
-                    ? Math.min(260, Math.max(18, segment.text.length * 13 + 10))
+                    ? Math.min(260, Math.max(16, segment.text.length * 12))
                     : composerSegments.length === 1
                       ? 360
-                      : 18;
+                      : 12;
                   return (
                     <textarea
                       key={segment.id}
@@ -8154,7 +8154,7 @@ function CanvasAssistantPanel({
                       cols={1}
                       rows={1}
                       wrap="off"
-                      className="min-w-0 shrink-0 overflow-hidden whitespace-nowrap bg-transparent outline-none resize-none disabled:cursor-not-allowed"
+                      className="min-w-0 shrink-0 overflow-hidden whitespace-nowrap border-0 bg-transparent p-0 outline-none resize-none disabled:cursor-not-allowed"
                       style={{
                         color: text,
                         opacity: 1,
@@ -8168,6 +8168,7 @@ function CanvasAssistantPanel({
                         minWidth: `${textWidth}px`,
                         maxWidth: `${textWidth}px`,
                         flexBasis: `${textWidth}px`,
+                        margin: 0,
                       }}
                     />
                   );
