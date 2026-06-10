@@ -9372,7 +9372,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           model: "gpt-image-2",
           targetWidth: detail.nextW,
           targetHeight: detail.nextH,
-          prompt: "Extend the image naturally only inside the masked blank area. Keep the original unmasked image pixels unchanged, continue texture, lighting, perspective, and objects seamlessly, and do not generate outside the requested boundary.",
+          prompt: "Outpaint only the blank transparent extension area outside the original image. Preserve the original unmasked image pixels exactly. Generate new surrounding scene content that naturally continues the background, floor, wall, light, shadows, colors, texture, perspective, and edge details. Do not enlarge, duplicate, mirror, repeat, or redraw the original subject/person/object. Do not paste a scaled copy of the original image into the extension. The extension must look like new matching environment around the original image, not a zoomed or repeated version of the original.",
         }),
       });
     };

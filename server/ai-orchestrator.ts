@@ -123,7 +123,7 @@ export class AIOrchestrator {
         maskSrc,
         model: route.model,
         prompt: prompt || (capability === "image_expansion"
-          ? "Outpaint the image naturally inside only the transparent masked blank area. Analyze the original image content, background, lighting, perspective, colors, texture, and subject edges, then generate matching continuation content seamlessly. Preserve every unmasked pixel exactly. Do not create a blurred border or vignette."
+          ? "Outpaint only the blank transparent extension area outside the original image. Preserve every unmasked pixel exactly. Analyze the original background, floor, wall, light, shadows, color, texture, perspective, and edge details, then generate new matching surrounding environment only in the editable area. Do not enlarge, duplicate, mirror, repeat, or redraw the original subject/person/object. Do not paste a scaled copy of the original image into the extension. Do not create a blurred border or vignette."
           : "Remove only the masked content and rebuild the area naturally. Preserve unmasked pixels."),
         targetWidth: input.targetWidth,
         targetHeight: input.targetHeight,
