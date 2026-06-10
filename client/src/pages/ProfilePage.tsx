@@ -237,7 +237,7 @@ export default function ProfilePage() {
             </div>
             <div className="relative z-10 px-8 pb-8">
               <div className="-mt-12 flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
-                <div className="flex items-end gap-5">
+                <div className="flex items-center gap-5">
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
@@ -265,7 +265,7 @@ export default function ProfilePage() {
                     className="hidden"
                     onChange={event => handleAvatarFile(event.target.files?.[0], "profile")}
                   />
-                  <div className="relative z-10 translate-y-8 pb-2 md:translate-y-7">
+                  <div className="relative z-10 pb-2">
                     <h1 className="type-title-sm" style={{ color: textPrimary, fontSize: 26, fontWeight: 680 }}>{profile.displayName}</h1>
                     <p className="type-body-sm mt-1" style={{ color: textSecondary }}>{profile.description}</p>
                   </div>
