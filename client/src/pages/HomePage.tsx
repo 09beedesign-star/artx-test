@@ -34,7 +34,7 @@ const PROMPT_SUGGESTIONS = [
   "把这张照片变成水彩画风格",
 ];
 
-const HOME_PROMPT = "hello，欢迎来到。ArtX,正式开启你的。灵感AI创意之旅吧！";
+const HOME_PROMPT = "hello，欢迎来到ArtXStudio ！用一句提示词正式开启你的灵感AI创意之旅吧！";
 const PROMPT_TYPE_DURATION_MS = 5000;
 const PROMPT_PAUSE_DURATION_MS = 3000;
 const PROMPT_FRAME_MS = 80;
