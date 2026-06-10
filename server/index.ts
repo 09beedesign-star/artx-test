@@ -5,7 +5,7 @@ import { fileURLToPath } from "url";
 import { editImageWithPrompt, eraseImageObjects, generateImages, removeImageBackground } from "./image-generation";
 import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
-import { handleAuthAction } from "./auth-store";
+import { createOAuthStartUrl, handleAuthAction, handleOAuthCallback } from "./auth-store";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -106,6 +106,35 @@ async function startServer() {
       res.status(result.status).json(result.body);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Auth request failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.get("/api/auth/oauth/:provider/start", (req, res) => {
+    try {
+      const provider = req.params.provider;
+      if (provider !== "google" && provider !== "wechat" && provider !== "github" && provider !== "meta") {
+        res.status(400).json({ error: "不支持的第三方登录方式" });
+        return;
+      }
+      const returnTo = typeof req.query.returnTo === "string" ? req.query.returnTo : "";
+      res.redirect(createOAuthStartUrl(provider, returnTo));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "OAuth start failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.get("/api/auth/oauth/:provider/callback", async (req, res) => {
+    const provider = req.params.provider;
+    if (provider !== "google" && provider !== "wechat" && provider !== "github" && provider !== "meta") {
+      res.status(400).json({ error: "不支持的第三方登录方式" });
+      return;
+    }
+    try {
+      res.redirect(await handleOAuthCallback(provider, req.query as Record<string, unknown>));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "OAuth callback failed";
       res.status(500).json({ error: message });
     }
   });

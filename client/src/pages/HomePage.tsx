@@ -166,7 +166,7 @@ export default function HomePage() {
     void handleAuthAction("login");
   };
 
-  const handleSocialAuth = async (provider: "google" | "wechat" | "apple" | "github" | "meta") => {
+  const handleSocialAuth = async (provider: "google" | "wechat" | "github" | "meta") => {
     setAuthBusy(true);
     setAuthError("");
     const result = await socialAuth(provider);
@@ -518,7 +518,7 @@ function LoginPanel({
   onPasswordChange: (value: string) => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
   onAuthAction: (action: "register" | "login") => void;
-  onSocialAuth: (provider: "google" | "wechat" | "apple" | "github" | "meta") => void;
+  onSocialAuth: (provider: "google" | "wechat" | "github" | "meta") => void;
 }) {
   return (
     <GlassPanel>
