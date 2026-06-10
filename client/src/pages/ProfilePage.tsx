@@ -265,7 +265,7 @@ export default function ProfilePage() {
                     className="hidden"
                     onChange={event => handleAvatarFile(event.target.files?.[0], "profile")}
                   />
-                  <div className="relative z-10 pb-2">
+                  <div className="relative z-10 -translate-y-3 pb-2">
                     <h1 className="type-title-sm" style={{ color: textPrimary, fontSize: 26, fontWeight: 680 }}>{profile.displayName}</h1>
                     <p className="type-body-sm mt-1" style={{ color: textSecondary }}>{profile.description}</p>
                   </div>
