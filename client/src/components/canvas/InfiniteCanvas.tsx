@@ -8069,7 +8069,7 @@ function CanvasAssistantPanel({
                     return (
                       <span
                         key={segment.id}
-                        className="inline-flex max-w-[164px] items-center gap-1 rounded-[var(--radius-md-design)] px-1.5 py-0.5 align-middle"
+                        className="inline-flex max-w-[82px] items-center gap-1 rounded-[var(--radius-md-design)] px-1.5 py-0.5 align-middle"
                         style={{
                           background: isDark ? "oklch(0.58 0.20 290 / 0.18)" : "oklch(0.58 0.18 290 / 0.10)",
                           border: `1px solid ${isDark ? "oklch(0.72 0.18 290 / 0.35)" : "oklch(0.52 0.18 290 / 0.30)"}`,
@@ -8077,7 +8077,7 @@ function CanvasAssistantPanel({
                         }}
                       >
                         <img src={segment.asset.src} alt={segment.asset.title} style={{ width: 18, height: 18, borderRadius: 3, objectFit: "cover", flexShrink: 0 }} />
-                        <span className="type-caption truncate" style={{ maxWidth: 104, fontSize: 11 }}>{segment.asset.title}</span>
+                        <span className="type-caption truncate" style={{ maxWidth: 44, fontSize: 11 }}>{segment.asset.title}</span>
                         <button
                           type="button"
                           onMouseDown={event => event.stopPropagation()}
@@ -8096,7 +8096,7 @@ function CanvasAssistantPanel({
                     return (
                       <span
                         key={segment.id}
-                        className="inline-flex max-w-[184px] items-center gap-1 rounded-[var(--radius-md-design)] px-1.5 py-0.5 align-middle"
+                        className="inline-flex max-w-[92px] items-center gap-1 rounded-[var(--radius-md-design)] px-1.5 py-0.5 align-middle"
                         style={{
                           background: isDark ? "oklch(0.62 0.20 145 / 0.16)" : "oklch(0.62 0.17 145 / 0.10)",
                           border: `1px solid ${isDark ? "oklch(0.72 0.16 145 / 0.32)" : "oklch(0.48 0.15 145 / 0.26)"}`,
@@ -8105,7 +8105,7 @@ function CanvasAssistantPanel({
                         title={`注释：${segment.annotation.text || segment.annotation.title}`}
                       >
                         <MapPin size={12} style={{ color: "oklch(0.62 0.18 145)", flexShrink: 0 }} />
-                        <span className="type-caption truncate" style={{ maxWidth: 128, fontSize: 11 }}>
+                        <span className="type-caption truncate" style={{ maxWidth: 56, fontSize: 11 }}>
                           {segment.annotation.text || segment.annotation.title}
                         </span>
                         <button
