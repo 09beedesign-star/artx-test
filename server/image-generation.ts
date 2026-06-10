@@ -41,7 +41,7 @@ type ImageGenerationResponse = {
   message?: string;
   images?: Array<{ b64_json?: string; url?: string }>;
   data?: Array<{ b64_json?: string; url?: string }>;
-  choices?: Array<{ message?: { content?: string } }>;
+  choices?: Array<{ message?: { content?: string | unknown[]; images?: Array<{ b64_json?: string; url?: string }> } }>;
   error?: { message?: string } | string;
 };
 
@@ -90,7 +90,12 @@ function resolveGeneratedImageSrc(src: string, baseUrl: string) {
 }
 
 function extractGeneratedImages(providerData: ImageGenerationResponse, baseUrl: string, width: number, height: number) {
-  const items = providerData.data || providerData.images || [];
+  const choiceImageItems = providerData.choices?.flatMap(choice => choice.message?.images || []) || [];
+  const items = [
+    ...(providerData.data || []),
+    ...(providerData.images || []),
+    ...choiceImageItems,
+  ];
   const images = items
     .map((item) => {
       const src = item.b64_json
@@ -155,7 +160,6 @@ const supportedImageModels = new Set([
 ]);
 
 const chatCompatibleImageModels = new Set([
-  "gpt-image-2",
   "gemini-3.1-flash-image",
   "gemini-3.1-flash-image-preview",
 ]);
@@ -178,23 +182,61 @@ function toAbsoluteUrl(url: string, baseUrl: string) {
 }
 
 function extractChoiceImages(providerData: ImageGenerationResponse, baseUrl: string) {
-  const content = providerData.choices?.[0]?.message?.content || "";
+  const content = providerData.choices?.map(choice => choice.message?.content || "").flat();
   const imageUrls: { src: string }[] = [];
-  const imagePattern = /!\[[^\]]*\]\(([^)]+)\)/g;
-  let match = imagePattern.exec(content);
-  while (match) {
-    imageUrls.push({ src: toAbsoluteUrl(match[1], baseUrl) });
-    match = imagePattern.exec(content);
-  }
-  const urlPattern = /(https?:\/\/[^\s"'<>]+\.(?:png|jpe?g|webp)(?:\?[^\s"'<>]*)?)/gi;
-  let urlMatch = urlPattern.exec(content);
-  while (urlMatch) {
-    const src = urlMatch[1];
-    if (!imageUrls.some(item => item.src === src)) {
-      imageUrls.push({ src: toAbsoluteUrl(src, baseUrl) });
+
+  const addSrc = (src?: string) => {
+    if (!src) return;
+    const trimmed = src.trim();
+    if (!trimmed) return;
+    const isImage = trimmed.startsWith("data:image/") || /^https?:\/\//i.test(trimmed) || /\.(?:png|jpe?g|webp)(?:\?|$)/i.test(trimmed);
+    if (!isImage) return;
+    const absolute = toAbsoluteUrl(trimmed, baseUrl);
+    if (!imageUrls.some(item => item.src === absolute)) {
+      imageUrls.push({ src: absolute });
     }
-    urlMatch = urlPattern.exec(content);
-  }
+  };
+
+  const walk = (value: unknown) => {
+    if (!value) return;
+    if (typeof value === "string") {
+      const imagePattern = /!\[[^\]]*\]\(([^)]+)\)/g;
+      let match = imagePattern.exec(value);
+      while (match) {
+        addSrc(match[1]);
+        match = imagePattern.exec(value);
+      }
+
+      const dataUrlPattern = /(data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+)/g;
+      let dataUrlMatch = dataUrlPattern.exec(value);
+      while (dataUrlMatch) {
+        addSrc(dataUrlMatch[1]);
+        dataUrlMatch = dataUrlPattern.exec(value);
+      }
+
+      const urlPattern = /(https?:\/\/[^\s"'<>]+\.(?:png|jpe?g|webp)(?:\?[^\s"'<>]*)?)/gi;
+      let urlMatch = urlPattern.exec(value);
+      while (urlMatch) {
+        addSrc(urlMatch[1]);
+        urlMatch = urlPattern.exec(value);
+      }
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach(walk);
+      return;
+    }
+    if (typeof value !== "object") return;
+    const record = value as Record<string, unknown>;
+    if (typeof record.b64_json === "string") addSrc(`data:image/png;base64,${record.b64_json}`);
+    if (typeof record.url === "string") addSrc(record.url);
+    if (typeof record.image_url === "string") addSrc(record.image_url);
+    if (record.image_url && typeof record.image_url === "object") walk(record.image_url);
+    if (typeof record.image === "string") addSrc(record.image);
+    Object.values(record).forEach(walk);
+  };
+
+  walk(content);
   return imageUrls;
 }
 
@@ -214,6 +256,10 @@ function getProviderErrorMessage(data: ImageGenerationResponse | null, fallback:
 
 function isUnsupportedImagesApiError(message: string) {
   return /images api is not supported|not supported for this platform|unsupported.*images/i.test(message);
+}
+
+function isChatCompatibleImageModel(model?: string) {
+  return Boolean(model && chatCompatibleImageModels.has(model));
 }
 
 function isMissingReferenceImagesError(message: string) {
@@ -1058,19 +1104,19 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
 
   let providerData: ImageGenerationResponse;
   try {
-    providerData = chatCompatibleImageModels.has(requestBody.model)
+    providerData = isChatCompatibleImageModel(requestBody.model)
       ? await callImageChatProvider(requestBody, apiKey, baseUrl)
       : await callImageProvider(requestBody, apiKey, baseUrl);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (isUnsupportedImagesApiError(message)) {
       providerData = await callImageChatProvider(requestBody, apiKey, baseUrl);
-    } else if (isMissingReferenceImagesError(message)) {
+    } else if (isMissingReferenceImagesError(message) && !isChatCompatibleImageModel(requestBody.model)) {
       providerData = await callImageProvider({
         ...requestBody,
         prompt: stripReferenceContextFromPrompt(String(requestBody.prompt || "")),
       }, apiKey, baseUrl);
-    } else if (message.toLowerCase().includes("response_format")) {
+    } else if (message.toLowerCase().includes("response_format") && !isChatCompatibleImageModel(requestBody.model)) {
       const { response_format: _responseFormat, ...fallbackBody } = requestBody;
       providerData = await callImageProvider(fallbackBody, apiKey, baseUrl);
     } else {
