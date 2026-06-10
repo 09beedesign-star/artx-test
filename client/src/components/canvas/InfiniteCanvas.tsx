@@ -11886,10 +11886,19 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const assetMorePanelData = assetMorePanelNode?.data as Record<string, unknown> | undefined;
   const assetMorePanelImageSrc = assetMorePanel ? getLatestAssetImageSource(assetMorePanel.nodeId) : "";
   const selectedImageBounds = selectedImageNode ? getCanvasNodeBounds(selectedImageNode) : getCanvasNodesBounds(nodes, selectedVisualNodeIds);
+  const selectedImageData = selectedImageNode?.data as Record<string, unknown> | undefined;
+  const selectedImageHasInlineCommandPanel = Boolean(
+    selectedImageData?.isCropping ||
+    selectedImageData?.isErasing ||
+    selectedImageData?.isExpanding ||
+    selectedImageData?.isEditing
+  );
   const attachedImageToolbarPosition = selectedImageBounds
     ? {
         left: selectedImageBounds.x * viewport.zoom + viewport.x - 8,
-        top: selectedImageBounds.centerY * viewport.zoom + viewport.y,
+        top: selectedImageHasInlineCommandPanel
+          ? Math.max(54, selectedImageBounds.y * viewport.zoom + viewport.y + 36)
+          : selectedImageBounds.centerY * viewport.zoom + viewport.y,
       }
     : { left: 31, top: 0 };
   const displayNodes = nodes.map(n => {
