@@ -155,6 +155,7 @@ const supportedImageModels = new Set([
 ]);
 
 const chatCompatibleImageModels = new Set([
+  "gpt-image-2",
   "gemini-3.1-flash-image",
   "gemini-3.1-flash-image-preview",
 ]);
