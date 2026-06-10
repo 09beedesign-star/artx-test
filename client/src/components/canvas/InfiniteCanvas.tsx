@@ -8003,6 +8003,11 @@ function CanvasAssistantPanel({
                       </span>
                     );
                   }
+                  const textWidth = segment.text
+                    ? Math.min(260, Math.max(24, segment.text.length * 13 + 18))
+                    : composerSegments.length === 1
+                      ? 220
+                      : 72;
                   return (
                     <textarea
                       key={segment.id}
@@ -8028,8 +8033,8 @@ function CanvasAssistantPanel({
                           : "输入对当前画布的想法，可在文字之间插入引用图片..."
                         : ""}
                       rows={1}
-                      className="min-w-[72px] flex-1 bg-transparent outline-none resize-none disabled:cursor-not-allowed"
-                      style={{ color: text, opacity: 1, fontSize: 12, lineHeight: 1.5, minHeight: 24, maxHeight: 96 }}
+                      className="shrink-0 bg-transparent outline-none resize-none disabled:cursor-not-allowed"
+                      style={{ color: text, opacity: 1, fontSize: 12, lineHeight: 1.5, minHeight: 24, maxHeight: 96, width: textWidth }}
                     />
                   );
                 })}
