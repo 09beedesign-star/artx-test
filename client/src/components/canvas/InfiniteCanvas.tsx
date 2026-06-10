@@ -7802,20 +7802,37 @@ function CanvasAssistantPanel({
       } else if (decision.mode === "image" || hasAnnotationReferences) {
         const imagePrompt = decision.imagePrompt?.trim() || routedPrompt;
         const generationId = `right-assistant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        const shouldEditTargetReference = assistantImages.length >= 2;
+        const targetReference = shouldEditTargetReference ? assistantImages[assistantImages.length - 1] : undefined;
+        const sourceReferences = shouldEditTargetReference ? assistantImages.slice(0, -1) : assistantImages;
         const payload: ImageGeneratorPayload = {
           projectId,
-          prompt: imagePrompt,
-          model: assistantImageModel.id,
+          prompt: shouldEditTargetReference
+            ? [
+                imagePrompt,
+                "Use the last referenced image as the target canvas. Preserve the target person's identity, pose, composition, background, lighting, camera angle, and aspect ratio.",
+                "Use the earlier referenced images only as visual references for the requested object, accessory, texture, pattern, color, or detail.",
+                "Do not generate a new unrelated person or scene.",
+              ].join("\n")
+            : imagePrompt,
+          model: shouldEditTargetReference ? "gpt-image-2" : assistantImageModel.id,
           ratio: "1:1",
           count: 1,
-          style: "右侧 AI 助手",
+          style: shouldEditTargetReference ? "引用编辑结果" : "右侧 AI 助手",
           referencesEnabled: assistantImages.length > 0,
           referencedAssets: assistantImages,
           generationId,
-          sourceBackgroundSrc: assistantImages[0]?.src,
+          sourceBackgroundSrc: targetReference?.src || assistantImages[0]?.src,
         };
         dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
-        const result = await generateAiImages(payload);
+        const result = shouldEditTargetReference && targetReference
+          ? await editImageWithPrompt({
+              imageSrc: targetReference.src,
+              model: "gpt-image-2",
+              prompt: payload.prompt,
+              referencedAssets: sourceReferences,
+            })
+          : await generateAiImages(payload);
         dispatchImageGenerationTask({ ...payload, status: "completed", images: result.images }, projectId);
         setMessages(prev => [...prev, {
           id: `assistant-${Date.now()}`,

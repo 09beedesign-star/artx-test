@@ -248,12 +248,14 @@ export async function editImageWithPrompt({
   prompt,
   targetWidth,
   targetHeight,
+  referencedAssets = [],
 }: {
   imageSrc: string;
   model?: string;
   prompt: string;
   targetWidth?: number;
   targetHeight?: number;
+  referencedAssets?: Array<{ src: string; title?: string }>;
 }) {
   requireAiAuth();
   const result = await postAiOrchestrate({
@@ -265,6 +267,7 @@ export async function editImageWithPrompt({
     prompt,
     targetWidth,
     targetHeight,
+    images: referencedAssets,
   }, "AI 图片编辑失败");
 
   return { images: result.images || [] };
