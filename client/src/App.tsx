@@ -2,6 +2,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { Route, Router as WouterRouter, Switch } from "wouter";
+import { useEffect } from "react";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider } from "./contexts/AuthContext";
@@ -13,6 +14,8 @@ import Workspace from "./pages/Workspace";
 import SettingsPage from "./pages/SettingsPage";
 import ProfilePage from "./pages/ProfilePage";
 import LoginRegisterDialog from "./components/auth/LoginRegisterDialog";
+import { useAuth } from "./contexts/AuthContext";
+import { useLocation } from "wouter";
 // ── 新增路由页面（补充缺失交互，不替换已有路由）──
 import InspirationPage from "./pages/InspirationPage";
 import SkillsPage from "./pages/SkillsPage";
@@ -32,9 +35,11 @@ function AppRoutes() {
 
       {/* 工作台（项目列表） */}
       <Route path="/workspace">
-        <AppShell>
-          <WorkspaceDashboard />
-        </AppShell>
+        <RequireAuth>
+          <AppShell>
+            <WorkspaceDashboard />
+          </AppShell>
+        </RequireAuth>
       </Route>
 
       {/* 创作社区 */}
@@ -94,13 +99,31 @@ function AppRoutes() {
 
       {/* 项目画布（无 AppShell 侧边栏，画布自带返回按钮） */}
       <Route path="/project/:id">
-        {(params) => <Workspace projectId={params.id} />}
+        {(params) => (
+          <RequireAuth>
+            <Workspace projectId={params.id} />
+          </RequireAuth>
+        )}
       </Route>
 
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
   );
+}
+
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, openLoginModal } = useAuth();
+  const [, navigate] = useLocation();
+
+  useEffect(() => {
+    if (isAuthenticated) return;
+    openLoginModal();
+    navigate("/");
+  }, [isAuthenticated, navigate, openLoginModal]);
+
+  if (!isAuthenticated) return <HomePage />;
+  return <>{children}</>;
 }
 
 function App() {

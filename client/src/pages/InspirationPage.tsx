@@ -5,6 +5,7 @@
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useAuth } from "@/contexts/AuthContext";
 import TopBar from "@/components/workspace/TopBar";
 import { ArrowRight, Layers, Sparkles } from "lucide-react";
 import { BG_GLOW, BRAND_KIT, POSTER_1, POSTER_2, SOCIAL_AD } from "@/lib/workspace-data";
@@ -72,6 +73,7 @@ function getTopicFromSearch(search: string) {
 export default function InspirationPage() {
   const [location, navigate] = useLocation();
   const { resolvedTheme } = useTheme();
+  const { isAuthenticated, openLoginModal } = useAuth();
   const isDark = resolvedTheme === "dark";
   const initialTopic = useMemo(() => getTopicFromSearch(globalThis.location?.search || ""), [location]);
   const [activeTopic, setActiveTopic] = useState(initialTopic);
@@ -137,7 +139,13 @@ export default function InspirationPage() {
             {TOPIC_CARDS[activeTopic].map(card => (
               <button
                 key={card.title}
-                onClick={() => navigate("/project/p1")}
+                onClick={() => {
+                  if (isAuthenticated) {
+                    navigate("/project/p1");
+                    return;
+                  }
+                  openLoginModal();
+                }}
                 className="group overflow-hidden rounded-[var(--radius-lg-design)] text-left transition-all hover:scale-[1.015] active:scale-[0.99]"
                 style={{ background: cardBg, border: `1px solid ${border}`, boxShadow: "0 12px 36px oklch(0 0 0 / 0.16)" }}
               >

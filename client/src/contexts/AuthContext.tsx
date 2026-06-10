@@ -28,8 +28,9 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [user, setUser] = useState<AuthUser | null>(null);
+  const initialSession = useMemo(() => readStoredSession(), []);
+  const [isAuthenticated, setIsAuthenticated] = useState(Boolean(initialSession));
+  const [user, setUser] = useState<AuthUser | null>(initialSession?.user || null);
   const [loginModalOpen, setLoginModalOpen] = useState(false);
 
   useEffect(() => {
