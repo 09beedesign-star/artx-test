@@ -19,6 +19,7 @@ type EditImageInput = {
   prompt: string;
   targetWidth?: number;
   targetHeight?: number;
+  images?: Array<{ src: string; title?: string }>;
 };
 
 type EraseImageInput = {
@@ -1195,14 +1196,29 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   const targetHeight = coerceTargetDimension(input.targetHeight) || sourceImageDimensions.height;
   const sourceImage = bufferToImageFile(sourceImageData.buffer, sourceImageData.mimeType);
   const selectedModel = input.model && supportedImageModels.has(input.model) ? input.model : model;
+  const referenceImages = input.images?.filter(image => image.src?.trim()) || [];
   const editSize = getEditSizeForAspect(targetWidth, targetHeight);
   const aspectInstruction = `Keep the final image canvas aspect ratio exactly ${targetWidth}:${targetHeight}. Do not return a square image unless the source is square.`;
 
-  const createBody = (withResponseFormat: boolean) => {
+  const createBody = async (withResponseFormat: boolean) => {
     const body = new FormData();
     body.append("model", selectedModel);
     body.append("image", sourceImage);
-    body.append("prompt", `${input.prompt}\n\n${aspectInstruction}`);
+    for (const image of referenceImages.slice(0, 6)) {
+      body.append("image", await imageSrcToFile(image.src));
+    }
+    body.append("prompt", [
+      input.prompt,
+      referenceImages.length
+        ? [
+            "Use the source image as the target canvas and preserve its subject identity, pose, composition, background, lighting, and aspect ratio.",
+            "Use the additional reference images only as visual references for the specific objects, accessories, style, texture, or details requested by the user.",
+            "Do not create a new unrelated person, scene, or background.",
+            ...referenceImages.map((image, index) => `Reference image ${index + 1}: ${image.title || "untitled"}`),
+          ].join("\n")
+        : "",
+      aspectInstruction,
+    ].filter(Boolean).join("\n\n"));
     body.append("n", "1");
     body.append("size", editSize);
     if (withResponseFormat) body.append("response_format", "b64_json");
@@ -1211,11 +1227,11 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
 
   let providerData: ImageGenerationResponse;
   try {
-    providerData = await callImageEditProvider(createBody(true), apiKey, baseUrl);
+    providerData = await callImageEditProvider(await createBody(true), apiKey, baseUrl);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (!message.toLowerCase().includes("response_format")) throw error;
-    providerData = await callImageEditProvider(createBody(false), apiKey, baseUrl);
+    providerData = await callImageEditProvider(await createBody(false), apiKey, baseUrl);
   }
 
   if (providerData.task_id) {

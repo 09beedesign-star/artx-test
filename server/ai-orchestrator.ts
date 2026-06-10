@@ -148,6 +148,7 @@ export class AIOrchestrator {
         prompt: prompt || "Edit the image according to the user instruction. Preserve composition and aspect ratio.",
         targetWidth: input.targetWidth,
         targetHeight: input.targetHeight,
+        images,
       });
       return {
         type: "image",
