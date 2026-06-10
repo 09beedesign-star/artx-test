@@ -12129,16 +12129,16 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         >
           <div
             style={{
-              width: assistantSplitterHover || assistantSplitterDragging ? 4 : 2,
-              height: assistantSplitterHover || assistantSplitterDragging ? 74 : 54,
+              width: 2,
+              height: "100%",
               borderRadius: 999,
               background: assistantSplitterHover || assistantSplitterDragging
                 ? "oklch(0.62 0.23 290)"
-                : isDark ? "oklch(1 0 0 / 12%)" : "oklch(0 0 0 / 12%)",
+                : isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)",
               boxShadow: assistantSplitterHover || assistantSplitterDragging
-                ? "0 0 0 4px oklch(0.62 0.23 290 / 0.14), 0 8px 24px rgba(116,70,255,0.28)"
+                ? "0 0 0 3px oklch(0.62 0.23 290 / 0.10), 0 0 18px rgba(116,70,255,0.22)"
                 : "none",
-              transition: "width 0.16s ease, height 0.16s ease, background 0.16s ease, box-shadow 0.16s ease",
+              transition: "background 0.16s ease, box-shadow 0.16s ease",
             }}
           />
         </div>
