@@ -2765,10 +2765,10 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
       window.dispatchEvent(new CustomEvent("asset-click-selection", { detail: { selectedIds: nextSelectedIds } }));
       const selectedVisualIds = new Set(nextSelectedIds.filter(id => {
         const node = nextNodes.find(item => item.id === id);
-        return node?.type === "asset" || node?.type === "canvasFrame";
+        return isTopLayerNodeType(node?.type);
       }));
       if (selectedVisualIds.size === 0) return nextNodes;
-      const topZ = Math.max(0, ...nextNodes.map(n => typeof n.zIndex === "number" ? n.zIndex : 0)) + 1;
+      const topZ = getNextTopZ(nextNodes);
       return [
         ...nextNodes.filter(n => !selectedVisualIds.has(n.id)),
         ...nextNodes.filter(n => selectedVisualIds.has(n.id)).map(n => ({ ...n, zIndex: topZ })),
@@ -4834,6 +4834,19 @@ function getCanvasNodesBounds(nodes: Node[], ids: string[]): CanvasNodeBounds | 
   const right = Math.max(...bounds.map(b => b.right));
   const bottom = Math.max(...bounds.map(b => b.bottom));
   return { x, y, width: right - x, height: bottom - y, right, bottom, centerX: x + (right - x) / 2, centerY: y + (bottom - y) / 2 };
+}
+
+function isTopLayerNodeType(type: string | undefined | null) {
+  return type === "asset" ||
+    type === "canvasFrame" ||
+    type === "text" ||
+    type === "shape" ||
+    type === "freehand" ||
+    type === "pen";
+}
+
+function getNextTopZ(nodes: Node[]) {
+  return Math.max(0, ...nodes.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
 }
 
 function canvasRectsOverlap(a: CanvasNodeBounds, b: CanvasNodeBounds, padding = 0) {
@@ -10093,14 +10106,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     clearInactiveAssetCommands(nextSelectedIds);
     const selectedVisualIds = new Set(
       selectedNodes
-        .filter(node => node.type === "asset" || node.type === "canvasFrame")
+        .filter(node => isTopLayerNodeType(node.type))
         .map(node => node.id)
     );
     if (selectedVisualIds.size > 0) {
       setNodes(nds => {
         const selectedVisualNodes = nds.filter(node => selectedVisualIds.has(node.id));
         if (selectedVisualNodes.length === 0) return nds;
-        const topZ = Math.max(0, ...nds.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
+        const topZ = getNextTopZ(nds);
         const raisedVisualNodes = selectedVisualNodes.map(node => ({ ...node, zIndex: topZ }));
         const selectedVisualOrder = selectedVisualNodes.map(node => node.id).join(",");
         const currentTopOrder = nds.slice(-selectedVisualNodes.length).map(node => node.id).join(",");
@@ -10210,7 +10223,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         },
       };
       pushHistory();
-      setNodes(nds => [...nds, newNode]);
+      setNodes(nds => [
+        ...nds.map(n => ({ ...n, selected: false })),
+        { ...newNode, selected: true, zIndex: getNextTopZ(nds) },
+      ]);
+      setSelectedNodeIds([id]);
       // 创建完成后自动切换回移动工具
       window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
     }
@@ -10234,11 +10251,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     freehandNodeOriginRef.current = flowOrigin;
     setNodes(nds => {
       pushHistory(nds, edgesRef.current);
-      return [...nds, {
+      return [...nds.map(n => ({ ...n, selected: false })), {
         id: nid,
         type: "freehand",
         position: flowOrigin,
         style: { width: 1, height: 1 },
+        selected: true,
+        zIndex: getNextTopZ(nds),
         data: {
           id: nid,
           width: 1, height: 1,
@@ -10250,6 +10269,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       }];
     });
     setFreehandNodeId(nid);
+    setSelectedNodeIds([nid]);
   }, [activeToolMode, edgesRef, pushHistory, screenToFlowPosition, setNodes]);
 
   const handleFreehandMouseMove = useCallback((e: React.MouseEvent) => {
@@ -10354,15 +10374,18 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const newAnchor: PenAnchor = { x: 0, y: 0, type: isAlt ? "corner" : "smooth", inDx: 0, inDy: 0, outDx: 0, outDy: 0 };
       setNodes(nds => {
         pushHistory(nds, edgesRef.current);
-        return [...nds, {
+        return [...nds.map(n => ({ ...n, selected: false })), {
           id: nid,
           type: "pen",
           position: flowPos,
           style: { width: 1, height: 1 },
+          selected: true,
+          zIndex: getNextTopZ(nds),
           data: { id: nid, width: 1, height: 1, anchors: [newAnchor], closed: false, anchorEditMode: true, stroke: "#6366f1", strokeWidth: 2, fill: "none", opacity: 1 },
         }];
       });
       setPenNodeId(nid);
+      setSelectedNodeIds([nid]);
       // 记录拖拽手柄起始信息
       penDragHandleRef.current = { startX: screenX, startY: screenY, anchorIdx: 0 };
     } else {
@@ -10512,11 +10535,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       };
       setNodes(nds => {
         pushHistory(nds, edgesRef.current);
-        return [...nds, {
+        return [...nds.map(n => ({ ...n, selected: false })), {
           id: nodeId,
           type: "shape",
           position: flowPos,
           style: { width: fw, height: fh },
+          selected: true,
+          zIndex: getNextTopZ(nds),
           data: {
             id: nodeId,
             shapeType,
@@ -10531,6 +10556,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           },
         }];
       });
+      setSelectedNodeIds([nodeId]);
       return;
     }
 
@@ -10596,11 +10622,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const id = `shape-${Date.now()}`;
     setNodes(nds => {
       pushHistory(nds, edgesRef.current);
-      return [...nds, {
+      return [...nds.map(n => ({ ...n, selected: false })), {
         id,
         type: "shape",
         position: flowPos,
         style: { width: w, height: h },
+        selected: true,
+        zIndex: getNextTopZ(nds),
         data: {
           id,
           shapeType: shapeDialog.type,
@@ -10613,6 +10641,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         },
       }];
     });
+    setSelectedNodeIds([id]);
     setShapeDialog(null);
     toast(`已创建${shapeDialog.label}`, { description: `${w} × ${h} px` });
   }, [containerRef, edgesRef, pushHistory, screenToFlowPosition, setNodes, shapeCornerRadius, shapeDialog, shapeFill, shapeH, shapeOpacity, shapeStroke, shapeStrokeW, shapeW]);
@@ -11225,11 +11254,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       if (!detail?.nodeId) return;
       const additive = Boolean(detail.additive);
       setNodes(nds => {
-        const target = nds.find(node => node.id === detail.nodeId && (node.type === "asset" || node.type === "canvasFrame"));
+        const target = nds.find(node => node.id === detail.nodeId && isTopLayerNodeType(node.type));
         if (!target) return nds;
         const selectedIds = new Set(additive ? nds.filter(node => node.selected).map(node => node.id) : []);
         selectedIds.add(target.id);
-        const topZ = Math.max(0, ...nds.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
+        const topZ = getNextTopZ(nds);
         setSelectedNodeIds(Array.from(selectedIds));
         return [
           ...nds.filter(node => node.id !== target.id).map(node => ({ ...node, selected: selectedIds.has(node.id) })),
