@@ -8003,10 +8003,10 @@ function CanvasAssistantPanel({
                     );
                   }
                   const textWidth = segment.text
-                    ? Math.min(260, Math.max(24, segment.text.length * 13 + 18))
+                    ? Math.min(260, Math.max(18, segment.text.length * 13 + 10))
                     : composerSegments.length === 1
                       ? 220
-                      : 72;
+                      : 18;
                   return (
                     <textarea
                       key={segment.id}
@@ -8031,9 +8031,21 @@ function CanvasAssistantPanel({
                           ? `基于 ${composerAnnotations.length} 个注释点，描述组合生成意图...`
                           : "输入对当前画布的想法，可在文字之间插入引用图片..."
                         : ""}
+                      cols={1}
                       rows={1}
-                      className="shrink-0 bg-transparent outline-none resize-none disabled:cursor-not-allowed"
-                      style={{ color: text, opacity: 1, fontSize: 12, lineHeight: 1.5, minHeight: 24, maxHeight: 96, width: textWidth }}
+                      className="min-w-0 shrink-0 bg-transparent outline-none resize-none disabled:cursor-not-allowed"
+                      style={{
+                        color: text,
+                        opacity: 1,
+                        fontSize: 12,
+                        lineHeight: 1.5,
+                        minHeight: 24,
+                        maxHeight: 96,
+                        width: `${textWidth}px`,
+                        minWidth: `${textWidth}px`,
+                        maxWidth: `${textWidth}px`,
+                        flexBasis: `${textWidth}px`,
+                      }}
                     />
                   );
                 })}
