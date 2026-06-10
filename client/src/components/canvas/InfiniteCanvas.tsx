@@ -8076,7 +8076,7 @@ function CanvasAssistantPanel({
                 </div>
               )}
               <div
-                className="mb-2 flex min-h-[86px] flex-wrap items-start gap-1 rounded-[var(--radius-md-design)] px-1 py-1"
+                className="mb-2 flex min-h-[86px] flex-wrap items-start gap-[1px] rounded-[var(--radius-md-design)] px-1 py-1"
                 style={{ color: text }}
                 onMouseDown={() => focusComposerSegment()}
               >
