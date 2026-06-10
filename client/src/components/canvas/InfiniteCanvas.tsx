@@ -1038,6 +1038,7 @@ function AssetFloatingToolbar({ isDark, position, onAction }: {
     { icon: <BadgeCheck size={15} />, label: "快捷编辑", action: "quick-edit" },
     { icon: <ScanSearch size={15} />, label: "放大", action: "upscale" },
     { icon: <ImageOff size={15} />, label: "去背景", action: "remove-background" },
+    { icon: <Expand size={15} />, label: "扩展", action: "expand" },
     { icon: <Crop size={15} />, label: "裁切", action: "crop" },
     { icon: <Eraser size={15} />, label: "橡皮工具", action: "erase" },
     { icon: <PanelTopOpen size={15} />, label: "编辑元素", action: "edit-elements" },
@@ -1048,7 +1049,6 @@ function AssetFloatingToolbar({ isDark, position, onAction }: {
   ];
   const moreItems = [
     { icon: <Shirt size={18} />, label: "社媒平台尺寸", action: "mockup" },
-    { icon: <Expand size={18} />, label: "扩展", action: "expand", dot: true },
     { icon: <ImageIcon size={18} />, label: "调整", action: "adjust", dot: true },
     { icon: <Frame size={18} />, label: "矢量", action: "vector", dot: true, cost: 9 },
     { icon: <RotateCw size={18} />, label: "翻转与旋转", action: "flip-rotate", dot: true },
