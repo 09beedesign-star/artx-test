@@ -172,7 +172,7 @@ export default function ProfilePage() {
               backdropFilter: "blur(20px)",
             }}
           >
-            <div className="relative h-40 transition-colors duration-200" style={{ background: displayedProfileBackground }}>
+            <div className="relative z-0 h-40 transition-colors duration-200" style={{ background: displayedProfileBackground }}>
               {!backgroundPickerOpen && (
                 <button
                   type="button"
@@ -235,13 +235,13 @@ export default function ProfilePage() {
                 </div>
               )}
             </div>
-            <div className="px-8 pb-8">
+            <div className="relative z-10 px-8 pb-8">
               <div className="-mt-12 flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
                 <div className="flex items-end gap-5">
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="group relative flex h-24 w-24 items-center justify-center overflow-hidden rounded-[28px]"
+                    className="group relative z-10 flex h-24 w-24 items-center justify-center overflow-hidden rounded-[28px]"
                     style={{
                       background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.62 0.20 210))",
                       border: `4px solid ${isDark ? "oklch(0.13 0.012 270)" : "white"}`,
@@ -265,7 +265,7 @@ export default function ProfilePage() {
                     className="hidden"
                     onChange={event => handleAvatarFile(event.target.files?.[0], "profile")}
                   />
-                  <div className="pb-2">
+                  <div className="relative z-10 pb-2">
                     <h1 className="type-title-sm" style={{ color: textPrimary, fontSize: 26, fontWeight: 680 }}>{profile.displayName}</h1>
                     <p className="type-body-sm mt-1" style={{ color: textSecondary }}>{profile.description}</p>
                   </div>
