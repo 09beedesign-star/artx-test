@@ -28,6 +28,7 @@ type EraseImageInput = {
   prompt?: string;
   targetWidth?: number;
   targetHeight?: number;
+  disableLocalFallback?: boolean;
 };
 
 type GeneratedImage = {
@@ -1260,7 +1261,12 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<{ image
     "Do not regenerate the whole image. Do not change anything outside the mask. Fill only the masked region with natural surrounding background.",
   ].join(" ");
   const editSize = getEditSizeForAspect(targetWidth, targetHeight);
-  const fallbackErase = () => createLocalEraseFallback(sourceImageData.buffer, input.maskSrc, targetWidth, targetHeight);
+  const fallbackErase = () => {
+    if (input.disableLocalFallback) {
+      throw new Error("AI 扩图未返回可用内容，请稍后重试或切换支持图片编辑的模型");
+    }
+    return createLocalEraseFallback(sourceImageData.buffer, input.maskSrc, targetWidth, targetHeight);
+  };
 
   const createBody = (withResponseFormat: boolean) => {
     const body = new FormData();
