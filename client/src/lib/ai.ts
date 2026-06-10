@@ -190,6 +190,7 @@ export async function generateImages({
   count = 1,
   style,
   referencesEnabled = false,
+  referencedAssets = [],
 }: {
   prompt: string;
   model?: string;
@@ -197,6 +198,7 @@ export async function generateImages({
   count?: number;
   style?: string;
   referencesEnabled?: boolean;
+  referencedAssets?: Array<{ src: string; title?: string }>;
 }) {
   requireAiAuth();
   const promptWithContext = [
@@ -212,6 +214,7 @@ export async function generateImages({
     model,
     ratio,
     count,
+    images: referencedAssets,
   }, "图像生成失败");
 
   return { images: result.images || [] };
