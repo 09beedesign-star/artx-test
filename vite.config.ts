@@ -46,6 +46,8 @@ function loadLocalEnv() {
 
 loadLocalEnv();
 
+const isProductionBuild = process.env.NODE_ENV === "production";
+
 type LogSource = "browserConsole" | "networkRequests" | "sessionReplay";
 
 function ensureLogDir() {
@@ -248,6 +250,19 @@ function vitePluginGithubPagesSpaFallback(): Plugin {
   };
 }
 
+function vitePluginRemovePublicDebugAssets(): Plugin {
+  return {
+    name: "artx-remove-public-debug-assets",
+    closeBundle() {
+      if (!isProductionBuild) return;
+      const debugDir = path.resolve(import.meta.dirname, "dist/public/__manus__");
+      if (fs.existsSync(debugDir)) {
+        fs.rmSync(debugDir, { recursive: true, force: true });
+      }
+    },
+  };
+}
+
 type JsonApiHandler = (payload: unknown) => Promise<unknown>;
 
 function vitePluginJsonApi(name: string, route: string, handler: JsonApiHandler, fallbackError: string): Plugin {
@@ -322,9 +337,11 @@ function vitePluginAuthApi(): Plugin {
 const plugins = [
   react(),
   tailwindcss(),
-  jsxLocPlugin(),
-  vitePluginManusRuntime(),
-  vitePluginManusDebugCollector(),
+  ...(!isProductionBuild ? [
+    jsxLocPlugin(),
+    vitePluginManusRuntime(),
+    vitePluginManusDebugCollector(),
+  ] : []),
   vitePluginStorageProxy(),
   vitePluginAuthApi(),
   vitePluginJsonApi("artx-ai-image-api", "/api/images/generate", generateImages, "Image generation failed"),
@@ -338,6 +355,7 @@ const plugins = [
     return searchReferenceImages(query, limit);
   }, "Reference search failed"),
   vitePluginGithubPagesSpaFallback(),
+  vitePluginRemovePublicDebugAssets(),
 ];
 
 export default defineConfig({
@@ -358,7 +376,15 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    sourcemap: false,
+    minify: "esbuild",
   },
+  esbuild: isProductionBuild
+    ? {
+        drop: ["console", "debugger"],
+        legalComments: "none",
+      }
+    : undefined,
   server: {
     port: 3000,
     strictPort: true, // Keep the local preview URL stable.
