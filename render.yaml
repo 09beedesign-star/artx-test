@@ -27,8 +27,6 @@ services:
         value: https://api.openai.com
       - key: AI_TEXT_MODEL
         value: gpt-4o
-      - key: VITE_AI_API_BASE_URL
-        sync: false
       - key: VITE_API_BASE_URL
         sync: false
       - key: OAUTH_PUBLIC_BASE_URL

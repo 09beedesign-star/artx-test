@@ -41,9 +41,8 @@ export type ReferenceImageResult = {
   source: string;
 };
 
-function getAiApiBaseUrl() {
+function getBackendApiBaseUrl() {
   const configured = (
-    import.meta.env.VITE_AI_API_BASE_URL ||
     import.meta.env.VITE_API_BASE_URL ||
     ""
   ).replace(/\/+$/, "");
@@ -96,7 +95,7 @@ async function readJsonResponse<T extends ApiErrorResponse>(response: Response, 
 }
 
 async function postAiOrchestrate(body: Record<string, unknown>, fallbackError: string) {
-  const baseUrl = getAiApiBaseUrl();
+  const baseUrl = getBackendApiBaseUrl();
   const endpoint = `${baseUrl}/api/ai/orchestrate`;
   const response = await fetch(endpoint, {
     method: "POST",
@@ -113,7 +112,7 @@ async function postAiOrchestrate(body: Record<string, unknown>, fallbackError: s
 }
 
 async function postImageExpand(body: Record<string, unknown>, fallbackError: string) {
-  const baseUrl = getAiApiBaseUrl();
+  const baseUrl = getBackendApiBaseUrl();
   const endpoint = `${baseUrl}/api/images/expand`;
   const response = await fetch(endpoint, {
     method: "POST",
@@ -167,7 +166,7 @@ export async function searchReferenceImages({
   limit?: number;
 }) {
   requireAiAuth();
-  const baseUrl = getAiApiBaseUrl();
+  const baseUrl = getBackendApiBaseUrl();
   const endpoint = `${baseUrl}/api/references/search`;
   const response = await fetch(endpoint, {
     method: "POST",
