@@ -4,6 +4,7 @@ type ImageGenerateInput = {
   ratio?: string;
   count?: number;
   style?: string;
+  images?: Array<{ src: string; title?: string }>;
 };
 
 type RemoveBackgroundInput = {
@@ -262,6 +263,10 @@ function isChatCompatibleImageModel(model?: string) {
   return Boolean(model && chatCompatibleImageModels.has(model));
 }
 
+function shouldUseReferenceImageChatPath(model?: string, images?: Array<{ src?: string }>) {
+  return isChatCompatibleImageModel(model) || Boolean(images?.length);
+}
+
 function isMissingReferenceImagesError(message: string) {
   return /no reference images found|reference images?.*not found|missing reference images/i.test(message);
 }
@@ -296,6 +301,32 @@ async function callImageProvider(body: Record<string, unknown>, apiKey: string, 
 }
 
 async function callImageChatProvider(body: Record<string, unknown>, apiKey: string, baseUrl: string) {
+  const referenceImages = Array.isArray(body.images)
+    ? (body.images as Array<{ src?: string; title?: string }>).filter(image => typeof image.src === "string" && image.src.trim())
+    : [];
+  const content: Array<
+    | { type: "text"; text: string }
+    | { type: "image_url"; image_url: { url: string } }
+  > = [{
+    type: "text",
+    text: [
+      "请根据下面的提示生成图片，并在回复中返回图片 URL、markdown 图片链接或 base64 图片。",
+      "如果提供了引用图，必须严格理解每张引用图的用途：例如提取某张图里的物件、把另一张图作为主体/背景/姿态参考。",
+      "不要凭空生成无关人物、场景或道具；输出必须和用户指定的引用关系一致。",
+      String(body.prompt || ""),
+      `目标尺寸：${body.size || "1024x1024"}。`,
+      referenceImages.length
+        ? [
+            "引用图说明：",
+            ...referenceImages.map((image, index) => `引用图 ${index + 1}：${image.title || "未命名图片"}`),
+          ].join("\n")
+        : "",
+    ].filter(Boolean).join("\n"),
+  }];
+  referenceImages.slice(0, 8).forEach(image => {
+    content.push({ type: "image_url", image_url: { url: image.src! } });
+  });
+
   const response = await fetch(getChatEndpoint(baseUrl), {
     method: "POST",
     headers: {
@@ -304,14 +335,7 @@ async function callImageChatProvider(body: Record<string, unknown>, apiKey: stri
     },
     body: JSON.stringify({
       model: body.model,
-      messages: [{
-        role: "user",
-        content: [
-          "请根据下面的提示生成图片，并在回复中返回图片 URL 或 markdown 图片链接。",
-          String(body.prompt || ""),
-          `目标尺寸：${body.size || "1024x1024"}。`,
-        ].join("\n"),
-      }],
+      messages: [{ role: "user", content }],
     }),
   });
 
@@ -1094,29 +1118,35 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
 
   const ratio = ratioToSize[input.ratio || "1:1"] || ratioToSize["1:1"];
   const count = Math.max(1, Math.min(Number(input.count) || 1, 4));
+  const referenceImages = input.images?.filter(image => image.src?.trim()) || [];
+  const requestedModel = input.model && supportedImageModels.has(input.model) ? input.model : model;
+  const routedModel = shouldUseReferenceImageChatPath(requestedModel, referenceImages)
+    ? (isChatCompatibleImageModel(requestedModel) ? requestedModel : "gemini-3.1-flash-image")
+    : requestedModel;
   const requestBody = {
-    model: input.model && supportedImageModels.has(input.model) ? input.model : model,
+    model: routedModel,
     prompt: buildPrompt(input),
     n: count,
     size: ratio.size,
     response_format: "b64_json",
+    images: referenceImages,
   };
 
   let providerData: ImageGenerationResponse;
   try {
-    providerData = isChatCompatibleImageModel(requestBody.model)
+    providerData = shouldUseReferenceImageChatPath(requestBody.model, referenceImages)
       ? await callImageChatProvider(requestBody, apiKey, baseUrl)
       : await callImageProvider(requestBody, apiKey, baseUrl);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (isUnsupportedImagesApiError(message)) {
       providerData = await callImageChatProvider(requestBody, apiKey, baseUrl);
-    } else if (isMissingReferenceImagesError(message) && !isChatCompatibleImageModel(requestBody.model)) {
+    } else if (isMissingReferenceImagesError(message) && !shouldUseReferenceImageChatPath(requestBody.model, referenceImages)) {
       providerData = await callImageProvider({
         ...requestBody,
         prompt: stripReferenceContextFromPrompt(String(requestBody.prompt || "")),
       }, apiKey, baseUrl);
-    } else if (message.toLowerCase().includes("response_format") && !isChatCompatibleImageModel(requestBody.model)) {
+    } else if (message.toLowerCase().includes("response_format") && !shouldUseReferenceImageChatPath(requestBody.model, referenceImages)) {
       const { response_format: _responseFormat, ...fallbackBody } = requestBody;
       providerData = await callImageProvider(fallbackBody, apiKey, baseUrl);
     } else {
