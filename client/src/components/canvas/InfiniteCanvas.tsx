@@ -8745,7 +8745,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const resolvedDisplayW = Math.max(1, Math.round(displayW ?? getCanvasNodeSize(latestSourceNode).width));
     const resolvedDisplayH = Math.max(1, Math.round(displayH ?? getCanvasNodeSize(latestSourceNode).height));
     const generationId = `${style}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const transparentLayerStyles = new Set(["去背景结果", "主体层", "中景层"]);
+    const transparentLayerStyles = new Set(["去背景结果", "主体层", "中景层", "扩展结果"]);
     const sourceBackgroundSrc = transparentLayerStyles.has(style)
       ? ""
       : latestSourceNode.type === "asset"
@@ -10079,7 +10079,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 tags: [detail.model, detail.ratio, `${images.length}张`, detail.referencesEnabled ? "参考画布" : "无参考"],
                 imgW: size.w,
                 imgH: size.h,
-                sourceBackgroundSrc: (data.sourceBackgroundSrc as string | undefined) || detail.sourceBackgroundSrc,
+                sourceBackgroundSrc: undefined,
               },
             };
           });
@@ -10106,7 +10106,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               tags: [detail.model, detail.ratio, `${images.length}张`, detail.referencesEnabled ? "参考画布" : "无参考"],
               imgW: size.w,
               imgH: size.h,
-              sourceBackgroundSrc: detail.sourceBackgroundSrc,
+              sourceBackgroundSrc: undefined,
             },
           };
         });
