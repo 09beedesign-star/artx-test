@@ -30,6 +30,7 @@ type EraseImageInput = {
   targetWidth?: number;
   targetHeight?: number;
   disableLocalFallback?: boolean;
+  preserveUnmaskedPixels?: boolean;
 };
 
 type GeneratedImage = {
@@ -1322,6 +1323,10 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<{ image
 
   if (images.length === 0) {
     throw new Error("Image erase provider returned no images");
+  }
+
+  if (input.preserveUnmaskedPixels === false) {
+    return { images };
   }
 
   try {
