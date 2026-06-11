@@ -46,7 +46,7 @@ function loadLocalEnv() {
 
 loadLocalEnv();
 
-const isProductionBuild = process.env.NODE_ENV === "production";
+const isProductionBuild = process.env.NODE_ENV === "production" || process.env.GITHUB_PAGES === "true";
 
 type LogSource = "browserConsole" | "networkRequests" | "sessionReplay";
 
