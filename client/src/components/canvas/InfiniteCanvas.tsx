@@ -3073,7 +3073,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
                 style={{ right: -1, backgroundColor: "rgba(255,255,255,0.80)", borderColor: "rgba(255,255,255,0.60)" }} />
             </>
           )}
-          {sourceBackgroundSrc && (
+          {sourceBackgroundSrc && isAiProcessingImage && (
             <img
               src={sourceBackgroundSrc}
               alt=""

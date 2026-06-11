@@ -128,6 +128,7 @@ export class AIOrchestrator {
         targetWidth: input.targetWidth,
         targetHeight: input.targetHeight,
         disableLocalFallback: capability === "image_expansion",
+        preserveUnmaskedPixels: capability !== "image_expansion",
       });
       return {
         type: "image",
