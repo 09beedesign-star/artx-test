@@ -667,7 +667,7 @@ async function removeBackgroundByConservativeEdgeColor(buffer: Buffer): Promise<
   const width = info.width;
   const height = info.height;
   const output = Buffer.from(data);
-  const backgroundMask = createConnectedEdgeBackgroundMask(output, width, height, 30);
+  const backgroundMask = createConnectedEdgeBackgroundMask(output, width, height, 58);
 
   let transparentPixels = 0;
   for (let pixel = 0; pixel < backgroundMask.length; pixel += 1) {
@@ -717,7 +717,11 @@ async function applyConservativeAlphaMaskToOriginalImage(originalBuffer: Buffer,
   const backgroundCandidates = new Uint8Array(totalPixels);
   for (let index = 0; index < maskData.length; index += 4) {
     const pixel = index / 4;
-    if (maskData[index + 3] <= 180) backgroundCandidates[pixel] = 1;
+    if (maskData[index + 3] <= 220) backgroundCandidates[pixel] = 1;
+  }
+  const edgeBackground = createConnectedEdgeBackgroundMask(originalData, width, height, 58);
+  for (let pixel = 0; pixel < totalPixels; pixel += 1) {
+    if (edgeBackground[pixel]) backgroundCandidates[pixel] = 1;
   }
   const connectedBackground = createConnectedMaskFromEdgeCandidates(backgroundCandidates, width, height);
   const hardBackground = erodeBinaryMask(connectedBackground, width, height, 1);
@@ -794,7 +798,11 @@ async function applyRawAlphaMaskToOriginalImage(originalBuffer: Buffer, alphaMas
   const output = Buffer.from(originalData);
   const backgroundCandidates = new Uint8Array(totalPixels);
   for (let pixel = 0; pixel < totalPixels; pixel += 1) {
-    if (alphaMaskBuffer[pixel] <= 180) backgroundCandidates[pixel] = 1;
+    if (alphaMaskBuffer[pixel] <= 220) backgroundCandidates[pixel] = 1;
+  }
+  const edgeBackground = createConnectedEdgeBackgroundMask(originalData, width, height, 58);
+  for (let pixel = 0; pixel < totalPixels; pixel += 1) {
+    if (edgeBackground[pixel]) backgroundCandidates[pixel] = 1;
   }
   const connectedBackground = createConnectedMaskFromEdgeCandidates(backgroundCandidates, width, height);
   const hardBackground = erodeBinaryMask(connectedBackground, width, height, 1);
