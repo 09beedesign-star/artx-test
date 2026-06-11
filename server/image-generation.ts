@@ -253,9 +253,94 @@ function safeParseJson<T>(raw: string): T | null {
   }
 }
 
-function getProviderErrorMessage(data: ImageGenerationResponse | null, fallback: string) {
+class ImageProviderRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number,
+    readonly retryable = false,
+  ) {
+    super(message);
+    this.name = "ImageProviderRequestError";
+  }
+}
+
+const imageProviderRetryDelayMs = 1800;
+
+function getProviderHost(baseUrl: string) {
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return baseUrl.replace(/^https?:\/\//, "").split("/")[0] || "上游服务";
+  }
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isHtmlResponse(raw: string) {
+  return /^\s*<!doctype html/i.test(raw) || /^\s*<html[\s>]/i.test(raw);
+}
+
+function isCloudflare524(raw: string, status?: number) {
+  return status === 524 || /error code 524|524:\s*a timeout occurred|a timeout occurred/i.test(raw);
+}
+
+function getProviderErrorMessage(
+  data: ImageGenerationResponse | null,
+  fallback: string,
+  options?: { status?: number; baseUrl?: string; raw?: string },
+) {
+  const raw = options?.raw || fallback;
+  const host = options?.baseUrl ? getProviderHost(options.baseUrl) : "上游服务";
+  if (isCloudflare524(raw, options?.status)) {
+    return `图片模型服务超时，请稍后重试。当前上游 ${host} 返回 524。`;
+  }
+  if (isHtmlResponse(raw)) {
+    return `图片模型服务返回了非 JSON 页面（HTTP ${options?.status || "unknown"}），请稍后重试。`;
+  }
   if (!data?.error) return data?.message || fallback;
   return typeof data.error === "string" ? data.error : data.error.message || fallback;
+}
+
+function isRetryableProviderError(status: number | undefined, raw: string) {
+  return isCloudflare524(raw, status) || status === 408 || status === 429 || Boolean(status && status >= 500);
+}
+
+async function readImageProviderResponse(
+  response: Response,
+  baseUrl: string,
+  context: string,
+): Promise<ImageGenerationResponse> {
+  const text = await response.text();
+  const data = safeParseJson<ImageGenerationResponse>(text) || {};
+
+  if (!response.ok) {
+    throw new ImageProviderRequestError(
+      getProviderErrorMessage(data, text || `${context} returned ${response.status}`, {
+        status: response.status,
+        baseUrl,
+        raw: text,
+      }),
+      response.status,
+      isRetryableProviderError(response.status, text),
+    );
+  }
+
+  return data;
+}
+
+async function withImageProviderRetry<T>(operation: () => Promise<T>) {
+  try {
+    return await operation();
+  } catch (error) {
+    const shouldRetry = error instanceof ImageProviderRequestError
+      ? error.retryable
+      : error instanceof TypeError;
+    if (!shouldRetry) throw error;
+    await delay(imageProviderRetryDelayMs);
+    return operation();
+  }
 }
 
 function isUnsupportedImagesApiError(message: string) {
@@ -284,23 +369,18 @@ function stripReferenceContextFromPrompt(prompt: string) {
 }
 
 async function callImageProvider(body: Record<string, unknown>, apiKey: string, baseUrl: string) {
-  const response = await fetch(getImagesEndpoint(baseUrl), {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
+  return withImageProviderRetry(async () => {
+    const response = await fetch(getImagesEndpoint(baseUrl), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+
+    return readImageProviderResponse(response, baseUrl, "Image provider");
   });
-
-  const text = await response.text();
-  const data = safeParseJson<ImageGenerationResponse>(text) || {};
-
-  if (!response.ok) {
-    throw new Error(getProviderErrorMessage(data, text || `Image provider returned ${response.status}`));
-  }
-
-  return data;
 }
 
 async function callImageChatProvider(body: Record<string, unknown>, apiKey: string, baseUrl: string) {
@@ -330,26 +410,21 @@ async function callImageChatProvider(body: Record<string, unknown>, apiKey: stri
     content.push({ type: "image_url", image_url: { url: image.src! } });
   });
 
-  const response = await fetch(getChatEndpoint(baseUrl), {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: body.model,
-      messages: [{ role: "user", content }],
-    }),
+  return withImageProviderRetry(async () => {
+    const response = await fetch(getChatEndpoint(baseUrl), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: body.model,
+        messages: [{ role: "user", content }],
+      }),
+    });
+
+    return readImageProviderResponse(response, baseUrl, "Image chat provider");
   });
-
-  const text = await response.text();
-  const data = safeParseJson<ImageGenerationResponse>(text) || {};
-
-  if (!response.ok) {
-    throw new Error(getProviderErrorMessage(data, text || `Image chat provider returned ${response.status}`));
-  }
-
-  return data;
 }
 
 async function callImageEditProvider(
@@ -357,22 +432,17 @@ async function callImageEditProvider(
   apiKey: string,
   baseUrl: string,
 ): Promise<ImageGenerationResponse> {
-  const response = await fetch(getImageEditsEndpoint(baseUrl), {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body,
+  return withImageProviderRetry(async () => {
+    const response = await fetch(getImageEditsEndpoint(baseUrl), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body,
+    });
+
+    return readImageProviderResponse(response, baseUrl, "Image edit provider");
   });
-
-  const text = await response.text();
-  const data = safeParseJson<ImageGenerationResponse>(text) || {};
-
-  if (!response.ok) {
-    throw new Error(getProviderErrorMessage(data, text || `Image edit provider returned ${response.status}`));
-  }
-
-  return data;
 }
 
 function getImageFileName(mimeType: string) {
