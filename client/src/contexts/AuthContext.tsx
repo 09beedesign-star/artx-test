@@ -212,18 +212,14 @@ function clearLargeArtxLocalCache() {
 
 async function fetchAuth(action: "register" | "login" | "me" | "logout" | "social", payload: Record<string, unknown>) {
   const apiBaseUrl = getAuthApiBaseUrl();
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 12_000);
   let response: Response;
   try {
-    response = await fetch(`${apiBaseUrl}/api/auth/${action}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
+    response = await postAuthRequest(apiBaseUrl, action, payload);
+  } catch (error) {
+    await warmAuthApi(apiBaseUrl);
+    response = await postAuthRequest(apiBaseUrl, action, payload, 45_000).catch(() => {
+      throw error;
     });
-  } finally {
-    window.clearTimeout(timeout);
   }
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) {
@@ -234,6 +230,40 @@ async function fetchAuth(action: "register" | "login" | "me" | "logout" | "socia
     ...data,
     ok: response.ok,
   } as { ok: boolean; error?: string; token?: string; user?: AuthUser };
+}
+
+async function postAuthRequest(
+  apiBaseUrl: string,
+  action: "register" | "login" | "me" | "logout" | "social",
+  payload: Record<string, unknown>,
+  timeoutMs = 30_000,
+) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(`${apiBaseUrl}/api/auth/${action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+async function warmAuthApi(apiBaseUrl: string) {
+  try {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15_000);
+    try {
+      await fetch(`${apiBaseUrl}/api/health`, { signal: controller.signal });
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  } catch {
+    // The follow-up auth request will surface the final availability state.
+  }
 }
 
 function getOAuthStartUrl(provider: "google" | "wechat" | "github" | "meta") {
