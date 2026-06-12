@@ -3,15 +3,12 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 import {
   ChevronDown,
-  Github,
   Heart,
   ImagePlus,
-  Mail,
   PlayCircle,
   Send,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import WechatIcon from "@/components/auth/WechatIcon";
 import asteroidImage from "@/assets/ardot/3_3.png";
 import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
 import { BRAND_KIT, POSTER_1, POSTER_2, SOCIAL_AD } from "@/lib/workspace-data";
@@ -49,7 +46,7 @@ const getStageScale = () => {
 
 export default function HomePage() {
   const [, navigate] = useLocation();
-  const { isAuthenticated, login, register, socialAuth } = useAuth();
+  const { isAuthenticated, login, register } = useAuth();
   const [panelMode, setPanelMode] = useState<PanelMode>(isAuthenticated ? "prelogin" : "prelogin");
   const [prompt, setPrompt] = useState(HOME_PROMPT);
   const [promptTouched, setPromptTouched] = useState(false);
@@ -166,18 +163,6 @@ export default function HomePage() {
     void handleAuthAction("login");
   };
 
-  const handleSocialAuth = async (provider: "google" | "wechat" | "github" | "meta") => {
-    setAuthBusy(true);
-    setAuthError("");
-    const result = await socialAuth(provider);
-    setAuthBusy(false);
-    if (!result.ok) {
-      setAuthError(result.error || "第三方登录暂时不可用");
-      return;
-    }
-    toast("登录成功", { description: "欢迎回到 ArtX Studio" });
-  };
-
   const scrollToInspiration = () => {
     setActiveTab("inspiration");
     inspirationRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -276,7 +261,6 @@ export default function HomePage() {
                 onPasswordChange={setPassword}
                 onSubmit={handleAuthSubmit}
                 onAuthAction={handleAuthAction}
-                onSocialAuth={handleSocialAuth}
               />
             </div>
           </div>
@@ -518,7 +502,6 @@ function LoginPanel({
   onPasswordChange,
   onSubmit,
   onAuthAction,
-  onSocialAuth,
 }: {
   email: string;
   password: string;
@@ -528,7 +511,6 @@ function LoginPanel({
   onPasswordChange: (value: string) => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
   onAuthAction: (action: "register" | "login") => void;
-  onSocialAuth: (provider: "google" | "wechat" | "github" | "meta") => void;
 }) {
   return (
     <GlassPanel>
@@ -578,19 +560,6 @@ function LoginPanel({
           >
             {busy ? "请稍候..." : "登 录"}
           </button>
-        </div>
-
-        <div className="my-5 flex items-center gap-3">
-          <span className="h-px flex-1 bg-[#939393]" />
-          <span className="text-[13px] text-white">或</span>
-          <span className="h-px flex-1 bg-[#939393]" />
-        </div>
-
-        <div className="flex flex-col gap-[10px]">
-          <SocialButton icon={<Mail size={18} className="text-[#ea4335]" />} label="使用 Gmail 登录" onClick={() => onSocialAuth("google")} />
-          <SocialButton icon={<WechatIcon size={18} className="text-[#07C160]" />} label="使用微信登录" onClick={() => onSocialAuth("wechat")} />
-          <SocialButton icon={<Github size={18} className="text-[#7fb2ff]" />} label="使用 GitHub 登录" onClick={() => onSocialAuth("github")} />
-          <SocialButton icon={<span className="text-xl leading-none text-[#3f7cff]">∞</span>} label="使用 Meta 登录" onClick={() => onSocialAuth("meta")} />
         </div>
 
         <p className="mt-5 text-center text-[13px] text-[#7d7d7d]">注册或登录后即可继续使用 ArtX Studio</p>
@@ -668,26 +637,5 @@ function LabeledInput({
         className="h-[46px] w-full rounded-[10px] border border-[#545454] bg-[#222] px-3.5 text-sm text-white outline-none transition-[border-color,box-shadow] placeholder:text-[#7d7d7d] focus:border-[#936CFF] focus:shadow-[0_0_0_3px_rgba(147,108,255,0.22)]"
       />
     </label>
-  );
-}
-
-function SocialButton({
-  icon,
-  label,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex h-11 appearance-none items-center justify-center gap-3 rounded-[10px] border border-[#737373] bg-transparent text-sm font-medium text-white transition-colors hover:border-white"
-    >
-      {icon}
-      {label}
-    </button>
   );
 }

@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
-import { Github, Mail, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import WechatIcon from "./WechatIcon";
 
 // Global Login / Register Dialog
 // 首页使用 HomePage 内部右侧面板；其它场景统一使用这个居中弹窗。
 export default function LoginRegisterDialog() {
-  const { loginModalOpen, closeLoginModal, login, register, socialAuth } = useAuth();
+  const { loginModalOpen, closeLoginModal, login, register } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -43,14 +42,6 @@ export default function LoginRegisterDialog() {
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     void handleAuthAction("login");
-  };
-
-  const handleSocialAuth = async (provider: "google" | "wechat" | "github" | "meta") => {
-    setError("");
-    setSubmitting(true);
-    const result = await socialAuth(provider);
-    setSubmitting(false);
-    if (!result.ok) setError(result.error || "第三方登录暂时不可用");
   };
 
   return (
@@ -119,19 +110,6 @@ export default function LoginRegisterDialog() {
               </button>
             </div>
 
-            <div className="my-5 flex items-center gap-3">
-              <span className="h-px flex-1 bg-[#939393]" />
-              <span className="text-[13px] text-white">或</span>
-              <span className="h-px flex-1 bg-[#939393]" />
-            </div>
-
-            <div className="flex flex-col gap-[10px]">
-              <SocialButton icon={<Mail size={18} className="text-[#ea4335]" />} label="使用 Gmail 登录" onClick={() => void handleSocialAuth("google")} />
-              <SocialButton icon={<WechatIcon size={18} className="text-[#07C160]" />} label="使用微信登录" onClick={() => void handleSocialAuth("wechat")} />
-              <SocialButton icon={<Github size={18} className="text-[#7fb2ff]" />} label="使用 GitHub 登录" onClick={() => void handleSocialAuth("github")} />
-              <SocialButton icon={<span className="text-xl leading-none text-[#3f7cff]">∞</span>} label="使用 Meta 登录" onClick={() => void handleSocialAuth("meta")} />
-            </div>
-
             <p className="mt-5 text-center text-[13px] text-[#7d7d7d]">注册或登录后即可继续使用 ArtX Studio</p>
           </form>
         </GlassPanel>
@@ -188,26 +166,5 @@ function LabeledInput({
         className="h-[46px] w-full rounded-[10px] border border-[#545454] bg-[#222] px-3.5 text-sm text-white outline-none transition-[border-color,box-shadow] placeholder:text-[#7d7d7d] focus:border-[#936CFF] focus:shadow-[0_0_0_3px_rgba(147,108,255,0.22)]"
       />
     </label>
-  );
-}
-
-function SocialButton({
-  icon,
-  label,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex h-11 appearance-none items-center justify-center gap-3 rounded-[10px] border border-[#737373] bg-transparent text-sm font-medium text-white transition-colors hover:border-white"
-    >
-      {icon}
-      {label}
-    </button>
   );
 }
