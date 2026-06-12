@@ -150,12 +150,7 @@ function ModelSelector({ model, onChange, isDark }: { model: string; onChange: (
                 onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
               >
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: m.color, flexShrink: 0, display: "inline-block" }} />
-                <span className="flex min-w-0 flex-col leading-tight">
-                  <span className="type-caption" style={{ textTransform: "none", letterSpacing: "0.02em" }}>{m.label}</span>
-                  {"description" in m && m.description ? (
-                    <span className="truncate" style={{ fontSize: 10, opacity: 0.58, letterSpacing: 0 }}>{m.description}</span>
-                  ) : null}
-                </span>
+                <span className="type-caption" style={{ textTransform: "none", letterSpacing: "0.02em" }}>{m.label}</span>
               </button>
             ))}
           </div>
@@ -2093,7 +2088,7 @@ function AssetPromptPanel({ isDark, assetSrc, onExpand }: {
   isDark: boolean; assetSrc: string; onExpand: () => void;
 }) {
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState("auto");
+  const [model, setModel] = useState("gpt-image-2");
   const panelBg = isDark ? "rgba(22,22,30,0.97)" : "rgba(240,240,248,0.97)";
   const panelBorder = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const textColor = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.20 0.008 270)";
@@ -3622,7 +3617,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
 function ChatNodeComponent({ data, selected }: { data: Record<string, unknown>; selected: boolean }) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-  const [model, setModel] = useState("auto");
+  const [model, setModel] = useState("gpt-image-2");
   const { deleteElements } = useReactFlow();
   const nodeId = (data as { id?: string }).id || "";
 
@@ -3686,7 +3681,7 @@ function ChatNodeComponent({ data, selected }: { data: Record<string, unknown>; 
 function PromptNodeComponent({ data, selected }: { data: Record<string, unknown>; selected: boolean }) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-  const [model, setModel] = useState("auto");
+  const [model, setModel] = useState("gpt-4o");
   const [prompt, setPrompt] = useState((data.prompt as string) || "");
   const [isGenerating, setIsGenerating] = useState(false);
   const { deleteElements } = useReactFlow();
@@ -5316,7 +5311,7 @@ function BottomPromptBar({
   onClearAllReferences: () => void;
 }) {
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState("auto");
+  const [model, setModel] = useState("gpt-4o");
   const [rows, setRows] = useState(1);
   const [isSending, setIsSending] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -5356,7 +5351,7 @@ function BottomPromptBar({
       try {
         const decision = await routeCreativeIntent({
           module: "bottom-global-prompt-router",
-          model: "auto",
+          model: "gpt-4o",
           prompt: submittedPrompt || "请基于引用素材继续创作。",
           referencedAssets: submittedRefs,
           preferImageWhenReferences: true,
@@ -5970,7 +5965,7 @@ function AssetEditPromptBar({
 }) {
   const [prompt, setPrompt] = useState("");
   const [uploadedRefs, setUploadedRefs] = useState<Array<{ id: string; title: string; src: string }>>([]);
-  const [model, setModel] = useState("auto");
+  const [model, setModel] = useState("gpt-image-2");
   const [visible, setVisible] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -6406,7 +6401,7 @@ function TopLeftToolbar({ isDark, onAdd }: { isDark: boolean; onAdd: (type: stri
 
 function ImageGeneratorPopover({ isDark, projectId, onClose }: { isDark: boolean; projectId: string; onClose: () => void }) {
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState("auto");
+  const [model, setModel] = useState("gpt-image-2");
   const [modelOpen, setModelOpen] = useState(false);
   const [ratio, setRatio] = useState("1:1");
   const [count, setCount] = useState(2);
@@ -6598,7 +6593,7 @@ function ImageGeneratorPopover({ isDark, projectId, onClose }: { isDark: boolean
                     border: `1px solid ${border}`,
                     minWidth: 220,
                     width: "max-content",
-                    maxHeight: 180,
+                    maxHeight: 132,
                     zIndex: 80,
                     backdropFilter: "blur(16px)",
                   }}
@@ -6606,7 +6601,7 @@ function ImageGeneratorPopover({ isDark, projectId, onClose }: { isDark: boolean
                   <div
                     className="model-selector-scroll"
                     style={{
-                      maxHeight: 180,
+                      maxHeight: 132,
                       overflowY: "auto",
                       overscrollBehavior: "contain",
                       scrollbarWidth: "thin",
@@ -6631,12 +6626,7 @@ function ImageGeneratorPopover({ isDark, projectId, onClose }: { isDark: boolean
                         >
                           <span className="flex min-w-0 items-center gap-2.5">
                             <span className="h-4 w-4 rounded-[var(--radius-pill)] shrink-0" style={{ background: item.color }} />
-                            <span className="min-w-0">
-                              <span className="truncate type-caption block" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>{item.label}</span>
-                              {"description" in item && item.description ? (
-                                <span className="truncate block" style={{ color: sub, fontSize: 10, letterSpacing: 0 }}>{item.description}</span>
-                              ) : null}
-                            </span>
+                            <span className="truncate type-caption" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>{item.label}</span>
                           </span>
                           {active && <Check size={13} style={{ color: accent, flexShrink: 0 }} />}
                         </button>
@@ -7126,6 +7116,15 @@ function deserializeCanvasAssistantMessages(raw: string | null): CanvasAssistant
   }
 }
 
+function formatAiImageRecordContent(backup: NonNullable<CanvasAssistantMessage["imageBackup"]>) {
+  return [
+    `AI 操作记录：${backup.style || "图片生成"}`,
+    `模型：${backup.model || "auto"} · 画幅：${backup.ratio || "1:1"}`,
+    "提示词：",
+    backup.prompt || "未记录提示词",
+  ].join("\n");
+}
+
 function createAssistantTextSegment(text = ""): AssistantComposerSegment {
   return { id: `seg-text-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, type: "text", text };
 }
@@ -7263,14 +7262,14 @@ function CanvasAssistantPanel({
     return stored === "text" ? "text" : "image";
   });
   const [assistantImageModelId, setAssistantImageModelId] = useState(() => {
-    if (typeof window === "undefined") return "auto";
+    if (typeof window === "undefined") return "gpt-image-2";
     const stored = window.localStorage.getItem(CANVAS_ASSISTANT_IMAGE_MODEL_STORAGE_KEY) || window.localStorage.getItem("artx:canvas-assistant-model");
-    return IMAGE_AI_MODELS.some(model => model.id === stored) ? stored! : "auto";
+    return IMAGE_AI_MODELS.some(model => model.id === stored) ? stored! : "gpt-image-2";
   });
   const [assistantTextModelId, setAssistantTextModelId] = useState(() => {
-    if (typeof window === "undefined") return "auto";
+    if (typeof window === "undefined") return "gpt-5.4";
     const stored = window.localStorage.getItem(CANVAS_ASSISTANT_TEXT_MODEL_STORAGE_KEY);
-    return TEXT_AI_MODELS.some(model => model.id === stored) ? stored! : "auto";
+    return TEXT_AI_MODELS.some(model => model.id === stored) ? stored! : "gpt-5.4";
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [regeneratingMessageId, setRegeneratingMessageId] = useState<string | null>(null);
@@ -7568,7 +7567,6 @@ function CanvasAssistantPanel({
   }, [messages, projectId]);
 
   useEffect(() => {
-    if (collapsed) return;
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<CanvasAssistantMessage["imageBackup"]>).detail;
       if (!detail?.src || !detail.nodeId) return;
@@ -7577,7 +7575,7 @@ function CanvasAssistantPanel({
         return [...prev, {
           id: `image-backup-${detail.nodeId}`,
           role: "assistant",
-          content: `已生成图片备份：${detail.title}`,
+          content: formatAiImageRecordContent(detail),
           timestamp: new Date(),
           imageBackup: detail,
         }];
@@ -7585,7 +7583,7 @@ function CanvasAssistantPanel({
     };
     window.addEventListener("ai-image-generated-backup", handler);
     return () => window.removeEventListener("ai-image-generated-backup", handler);
-  }, [collapsed]);
+  }, []);
 
   const handleImageBackupDoubleClick = (backup: NonNullable<CanvasAssistantMessage["imageBackup"]>) => {
     window.dispatchEvent(new CustomEvent("ai-image-backup-activate", { detail: backup }));
@@ -7607,7 +7605,7 @@ function CanvasAssistantPanel({
     const imagePayload: ImageGeneratorPayload = {
       projectId,
       prompt: promptText,
-      model: message.imageBackup?.model || "auto",
+      model: message.imageBackup?.model || "gpt-image-2",
       ratio: message.imageBackup?.ratio || "1:1",
       count: 1,
       style: message.imageBackup?.style || "聊天气泡",
@@ -7657,7 +7655,7 @@ function CanvasAssistantPanel({
         try {
           const decision = await routeCreativeIntent({
             module: "home-prompt-canvas-router",
-            model: "auto",
+            model: "gpt-4o",
             prompt: submittedText,
           });
           if (decision.mode === "image") {
@@ -7967,6 +7965,9 @@ function CanvasAssistantPanel({
                             }}
                           />
                           <p className="type-caption leading-5" style={{ color: text, fontWeight: 600 }}>{backup.title}</p>
+                          <p className="type-caption leading-5 whitespace-pre-wrap" style={{ color: sub }}>
+                            {formatAiImageRecordContent(backup)}
+                          </p>
                           <p className="type-caption leading-5" style={{ color: sub }}>双击气泡可定位或找回图片</p>
                         </div>
                       ) : (
@@ -8271,11 +8272,8 @@ function CanvasAssistantPanel({
                         >
                           <div className="flex items-center gap-2.5">
                             <div className="w-4 h-4 rounded-[var(--radius-pill)]" style={{ background: model.color }} />
-                            <div className="min-w-0">
+                            <div>
                               <p className="type-caption" style={{ textTransform: "none", letterSpacing: "0.02em" }}>{model.label}</p>
-                              {"description" in model && model.description ? (
-                                <p className="truncate" style={{ fontSize: 10, opacity: 0.58, letterSpacing: 0 }}>{model.description}</p>
-                              ) : null}
                             </div>
                           </div>
                           {assistantModel.id === model.id && (
