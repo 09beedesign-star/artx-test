@@ -127,7 +127,7 @@ export class AIOrchestrator {
           : "Remove only the masked content and rebuild the area naturally. Preserve unmasked pixels."),
         targetWidth: input.targetWidth,
         targetHeight: input.targetHeight,
-        disableLocalFallback: capability === "image_expansion",
+        disableLocalFallback: capability === "image_expansion" || capability === "element_erasure",
         preserveUnmaskedPixels: capability !== "image_expansion",
       });
       return {
