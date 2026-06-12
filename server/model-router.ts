@@ -30,6 +30,7 @@ const TEXT_MODELS = new Set([
 function normalizeModelName(model?: string) {
   const value = (model || "").trim();
   if (!value) return "";
+  if (value.toLowerCase() === "auto") return "";
   if (value === "IMAGE2" || value === "image2") return "gpt-image-2";
   if (value === "nano-banana") return "gemini-3.1-flash-image";
   if (value === "nano-banana-lite") return "gemini-3.1-flash-image-preview";
@@ -65,7 +66,7 @@ export function resolveModelRoute(capability: AiCapability, requestedModel?: str
 
 export function listAvailableModels() {
   return {
-    image: Array.from(IMAGE_MODELS),
-    text: Array.from(TEXT_MODELS),
+    image: ["auto", ...Array.from(IMAGE_MODELS)],
+    text: ["auto", ...Array.from(TEXT_MODELS)],
   };
 }
