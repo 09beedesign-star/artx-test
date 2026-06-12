@@ -1142,6 +1142,57 @@ async function createLocalEraseFallback(sourceBuffer: Buffer, maskSrc: string, w
   };
 }
 
+async function normalizeEraseMaskForProvider(maskSrc: string, width: number, height: number): Promise<File> {
+  const sharp = (await import("sharp")).default;
+  const { buffer: maskBuffer } = await imageSrcToBuffer(maskSrc);
+  const { data: maskData } = await sharp(maskBuffer, { limitInputPixels: false })
+    .rotate()
+    .resize(width, height, { fit: "fill" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const editable = new Uint8Array(width * height);
+  for (let index = 0; index < maskData.length; index += 4) {
+    if (maskData[index + 3] < 245) editable[index / 4] = 1;
+  }
+
+  const expanded = new Uint8Array(editable);
+  const radius = 2;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const pixel = y * width + x;
+      if (!editable[pixel]) continue;
+      for (let dy = -radius; dy <= radius; dy += 1) {
+        for (let dx = -radius; dx <= radius; dx += 1) {
+          if ((dx * dx) + (dy * dy) > radius * radius) continue;
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+          expanded[(ny * width) + nx] = 1;
+        }
+      }
+    }
+  }
+
+  const output = Buffer.alloc(width * height * 4, 255);
+  for (let pixel = 0; pixel < expanded.length; pixel += 1) {
+    const index = pixel * 4;
+    if (!expanded[pixel]) continue;
+    output[index] = 0;
+    output[index + 1] = 0;
+    output[index + 2] = 0;
+    output[index + 3] = 0;
+  }
+
+  const png = await sharp(output, {
+    raw: { width, height, channels: 4 },
+    limitInputPixels: false,
+  }).png().toBuffer();
+
+  return bufferToImageFile(png, "image/png");
+}
+
 async function imageSrcToFile(src: string): Promise<File> {
   const { buffer, mimeType } = await imageSrcToBuffer(src);
   return bufferToImageFile(buffer, mimeType);
@@ -1348,17 +1399,20 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<{ image
   const targetWidth = coerceTargetDimension(input.targetWidth) || sourceImageDimensions.width;
   const targetHeight = coerceTargetDimension(input.targetHeight) || sourceImageDimensions.height;
   const sourceImage = bufferToImageFile(sourceImageData.buffer, sourceImageData.mimeType);
-  const maskImage = await imageSrcToFile(input.maskSrc);
+  const maskImage = await normalizeEraseMaskForProvider(input.maskSrc, targetWidth, targetHeight);
   const selectedModel = input.model && supportedImageModels.has(input.model) ? input.model : model;
   const prompt = [
-    input.prompt || "Remove only the objects or scene elements covered by the mask.",
-    "The mask is the only editable area. Preserve every unmasked pixel, subject, background, lighting, color, camera angle, and composition exactly.",
-    "Do not regenerate the whole image. Do not change anything outside the mask. Fill only the masked region with natural surrounding background.",
+    input.prompt || "Remove the visible object, text, mark, or scene element covered by the transparent mask area.",
+    "The transparent mask is the only editable area. White mask pixels are protected pixels and must remain unchanged.",
+    "Completely remove all content touched by the editable area, including edges and semi-transparent residue.",
+    "Reconstruct only the erased area with plausible surrounding background, texture, lighting, perspective, and shadows.",
+    "Do not blur the erased area. Do not leave ghosting, halos, smudges, copied fragments, or softened patches.",
+    "Do not regenerate the whole image. Preserve every unmasked pixel, subject, background, color, camera angle, and composition exactly.",
   ].join(" ");
   const editSize = getEditSizeForAspect(targetWidth, targetHeight);
   const fallbackErase = () => {
     if (input.disableLocalFallback) {
-      throw new Error("AI 扩图未返回可用内容，请稍后重试或切换支持图片编辑的模型");
+      throw new Error("AI 图片编辑未返回可用内容，请稍后重试或切换支持图片编辑的模型");
     }
     return createLocalEraseFallback(sourceImageData.buffer, input.maskSrc, targetWidth, targetHeight);
   };
