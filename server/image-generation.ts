@@ -703,44 +703,29 @@ function clearNearTransparentPixels(data: Buffer, alphaThreshold = 20) {
   }
 }
 
-async function featherAlphaEdges(data: Buffer, width: number, height: number) {
+async function featherAlphaEdges(data: Buffer, width: number, height: number, radius = 1.1) {
+  const sharp = (await import("sharp")).default;
   const alpha = Buffer.alloc(width * height);
   for (let pixel = 0; pixel < alpha.length; pixel += 1) {
     alpha[pixel] = data[pixel * 4 + 3];
   }
 
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const pixel = y * width + x;
-      const index = pixel * 4;
-      const currentAlpha = alpha[pixel];
-      let hasOpaqueNeighbor = false;
-      let hasTransparentNeighbor = false;
+  const softenedAlpha = await sharp(alpha, {
+    raw: { width, height, channels: 1 },
+    limitInputPixels: false,
+  }).blur(radius).raw().toBuffer();
 
-      for (let dy = -1; dy <= 1; dy += 1) {
-        for (let dx = -1; dx <= 1; dx += 1) {
-          if (dx === 0 && dy === 0) continue;
-          const nx = x + dx;
-          const ny = y + dy;
-          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
-          const neighborAlpha = alpha[(ny * width) + nx];
-          if (neighborAlpha >= 248) hasOpaqueNeighbor = true;
-          if (neighborAlpha <= 8) hasTransparentNeighbor = true;
-        }
-      }
-
-      if (currentAlpha <= 8) {
-        data[index + 3] = hasOpaqueNeighbor ? 72 : 0;
-      } else if (currentAlpha >= 248) {
-        data[index + 3] = hasTransparentNeighbor ? 236 : 255;
-      } else if (hasOpaqueNeighbor || hasTransparentNeighbor) {
-        data[index + 3] = Math.max(160, Math.min(236, currentAlpha));
-      } else {
-        data[index + 3] = currentAlpha >= 180 ? 255 : 0;
-      }
+  for (let pixel = 0; pixel < softenedAlpha.length; pixel += 1) {
+    const index = pixel * 4;
+    const currentAlpha = data[index + 3];
+    if (currentAlpha === 0 || currentAlpha === 255) {
+      const soft = softenedAlpha[pixel];
+      if (soft > 12 && soft < 245) data[index + 3] = soft;
+    } else {
+      data[index + 3] = Math.max(currentAlpha, softenedAlpha[pixel]);
     }
   }
-  clearNearTransparentPixels(data, 12);
+  clearNearTransparentPixels(data, 10);
 }
 
 async function returnOriginalImageAsTransparentPng(buffer: Buffer): Promise<{ images: GeneratedImage[] }> {
@@ -778,16 +763,15 @@ async function removeBackgroundByConservativeEdgeColor(buffer: Buffer): Promise<
   const height = info.height;
   const output = Buffer.from(data);
   const backgroundMask = createConnectedEdgeBackgroundMask(output, width, height, 34);
-  const hardBackground = erodeBinaryMask(backgroundMask, width, height, 1);
 
   let transparentPixels = 0;
-  for (let pixel = 0; pixel < hardBackground.length; pixel += 1) {
-    if (!hardBackground[pixel]) continue;
+  for (let pixel = 0; pixel < backgroundMask.length; pixel += 1) {
+    if (!backgroundMask[pixel]) continue;
     output[pixel * 4 + 3] = 0;
     transparentPixels += 1;
   }
   clearNearTransparentPixels(output);
-  await featherAlphaEdges(output, width, height);
+  await featherAlphaEdges(output, width, height, 1.1);
 
   if (transparentPixels / (width * height) < 0.01) {
     throw new Error("Edge-color fallback did not find removable background");
@@ -829,10 +813,10 @@ async function applyConservativeAlphaMaskToOriginalImage(originalBuffer: Buffer,
   const backgroundCandidates = new Uint8Array(totalPixels);
   for (let index = 0; index < maskData.length; index += 4) {
     const pixel = index / 4;
-    if (maskData[index + 3] <= 96) backgroundCandidates[pixel] = 1;
+    if (maskData[index + 3] <= 220) backgroundCandidates[pixel] = 1;
   }
   const connectedBackground = createConnectedMaskFromEdgeCandidates(backgroundCandidates, width, height);
-  const hardBackground = erodeBinaryMask(connectedBackground, width, height, 1);
+  const hardBackground = erodeBinaryMask(connectedBackground, width, height, 2);
   const featherBackground = dilateBinaryMask(hardBackground, width, height, 1);
   let transparentPixels = 0;
   for (let index = 0; index < output.length; index += 4) {
@@ -840,14 +824,14 @@ async function applyConservativeAlphaMaskToOriginalImage(originalBuffer: Buffer,
     if (hardBackground[pixel]) {
       output[index + 3] = 0;
       transparentPixels += 1;
-    } else if (featherBackground[pixel] && maskData[index + 3] <= 160) {
-      output[index + 3] = Math.min(originalData[index + 3], Math.max(160, maskData[index + 3]));
+    } else if (featherBackground[pixel] && maskData[index + 3] < 240) {
+      output[index + 3] = Math.min(originalData[index + 3], Math.max(64, maskData[index + 3]));
     } else {
       output[index + 3] = originalData[index + 3];
     }
   }
   clearNearTransparentPixels(output);
-  await featherAlphaEdges(output, width, height);
+  await featherAlphaEdges(output, width, height, 1.1);
 
   if (transparentPixels / totalPixels < 0.03) {
     console.warn("Background removal produced little transparent area; using edge-color fallback");
@@ -907,10 +891,10 @@ async function applyRawAlphaMaskToOriginalImage(originalBuffer: Buffer, alphaMas
   const output = Buffer.from(originalData);
   const backgroundCandidates = new Uint8Array(totalPixels);
   for (let pixel = 0; pixel < totalPixels; pixel += 1) {
-    if (alphaMaskBuffer[pixel] <= 96) backgroundCandidates[pixel] = 1;
+    if (alphaMaskBuffer[pixel] <= 220) backgroundCandidates[pixel] = 1;
   }
   const connectedBackground = createConnectedMaskFromEdgeCandidates(backgroundCandidates, width, height);
-  const hardBackground = erodeBinaryMask(connectedBackground, width, height, 1);
+  const hardBackground = erodeBinaryMask(connectedBackground, width, height, 2);
   const featherBackground = dilateBinaryMask(hardBackground, width, height, 1);
 
   let transparentPixels = 0;
@@ -919,14 +903,14 @@ async function applyRawAlphaMaskToOriginalImage(originalBuffer: Buffer, alphaMas
     if (hardBackground[pixel]) {
       output[index + 3] = 0;
       transparentPixels += 1;
-    } else if (featherBackground[pixel] && alphaMaskBuffer[pixel] <= 160) {
-      output[index + 3] = Math.min(originalData[index + 3], Math.max(160, alphaMaskBuffer[pixel]));
+    } else if (featherBackground[pixel] && alphaMaskBuffer[pixel] < 240) {
+      output[index + 3] = Math.min(originalData[index + 3], Math.max(64, alphaMaskBuffer[pixel]));
     } else {
       output[index + 3] = originalData[index + 3];
     }
   }
   clearNearTransparentPixels(output);
-  await featherAlphaEdges(output, width, height);
+  await featherAlphaEdges(output, width, height, 1.1);
 
   if (transparentPixels / totalPixels < 0.03) {
     console.warn("Raw alpha mask did not remove enough background; using edge-color fallback");
