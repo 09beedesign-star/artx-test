@@ -92,9 +92,6 @@ function ModelSwitcher({
                   <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: m.color }} />
                   <div className="flex flex-col leading-tight">
                     <span className="font-medium">{m.label}</span>
-                    {"description" in m && m.description ? (
-                      <span className="truncate" style={{ fontSize: 10, opacity: 0.58, letterSpacing: 0 }}>{m.description}</span>
-                    ) : null}
                   </div>
                   {isActive && <div className="ml-auto w-1.5 h-1.5 rounded-full" style={{ background: "oklch(0.72 0.18 200)" }} />}
                 </button>
@@ -153,7 +150,7 @@ export function NodeWrapper({
 
 export function AssetNode({ node, isSelected, onDragStart, onSelect, onRemove }: Omit<NodeWrapperProps, "children" | "className" | "fullDrag">) {
   const asset = GENERATED_ASSETS.find((a) => a.id === (node.data.assetId as string)) || GENERATED_ASSETS[0];
-  const [modelId, setModelId] = useState("auto");
+  const [modelId, setModelId] = useState("gpt-image-2");
 
   const typeColor: Record<string, string> = { image: "oklch(0.78 0.18 290)", video: "oklch(0.72 0.18 200)", brand: "oklch(0.78 0.18 60)", poster: "oklch(0.80 0.18 330)" };
   const typeLabel: Record<string, string> = { image: "图片", video: "视频", brand: "品牌", poster: "海报" };
@@ -237,7 +234,7 @@ export function ChatNode({ node, isSelected, onDragStart, onSelect, onRemove }: 
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_CHAT);
   const [input, setInput] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
-  const [modelId, setModelId] = useState("auto");
+  const [modelId, setModelId] = useState("gpt-4o");
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const handleSend = async () => {
@@ -391,7 +388,7 @@ export function PromptNode({
   node, isSelected, onDragStart, onSelect, onRemove, onGenerate,
 }: Omit<NodeWrapperProps, "children" | "className" | "fullDrag"> & { onGenerate?: (prompt: string) => void }) {
   const [prompt, setPrompt] = useState((node.data.prompt as string) || "");
-  const [modelId, setModelId] = useState("auto");
+  const [modelId, setModelId] = useState("gpt-4o");
   const [isGenerating, setIsGenerating] = useState(false);
 
   return (
@@ -486,7 +483,7 @@ const NOTE_COLORS = [
 export function TextNode({ node, isSelected, onDragStart, onSelect, onRemove }: Omit<NodeWrapperProps, "children" | "className" | "fullDrag">) {
   const [text, setText] = useState((node.data.text as string) || "在此输入备注…");
   const [colorIdx] = useState((node.data.colorIdx as number) || 0);
-  const [modelId, setModelId] = useState("auto");
+  const [modelId, setModelId] = useState("gpt-4o");
   const color = NOTE_COLORS[colorIdx % NOTE_COLORS.length];
 
   return (

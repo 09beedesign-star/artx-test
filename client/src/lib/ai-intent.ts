@@ -73,7 +73,7 @@ export function inferCreativeIntentDecision(raw: string, fallbackPrompt: string)
 export async function routeCreativeIntent({
   module,
   prompt,
-  model = "auto",
+  model = "gpt-4o",
   referencedAssets = [],
   recentMessages = [],
   preferImageWhenReferences = true,
@@ -157,7 +157,7 @@ export async function routeCreativeIntent({
 
 export async function generateIntentImages({
   prompt,
-  model = "auto",
+  model = "gpt-image-2",
   ratio = "1:1",
   count = 1,
   style = "智能路由",
