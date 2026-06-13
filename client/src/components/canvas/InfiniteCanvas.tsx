@@ -7005,15 +7005,6 @@ function deserializeCanvasAssistantMessages(raw: string | null): CanvasAssistant
   }
 }
 
-function formatAiImageRecordContent(backup: NonNullable<CanvasAssistantMessage["imageBackup"]>) {
-  return [
-    `AI 操作记录：${backup.style || "图片生成"}`,
-    `模型：${backup.model || "auto"} · 画幅：${backup.ratio || "1:1"}`,
-    "提示词：",
-    backup.prompt || "未记录提示词",
-  ].join("\n");
-}
-
 function createAssistantTextSegment(text = ""): AssistantComposerSegment {
   return { id: `seg-text-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, type: "text", text };
 }
@@ -7454,6 +7445,7 @@ function CanvasAssistantPanel({
   }, [messages, projectId]);
 
   useEffect(() => {
+    if (collapsed) return;
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<CanvasAssistantMessage["imageBackup"]>).detail;
       if (!detail?.src || !detail.nodeId) return;
@@ -7462,7 +7454,7 @@ function CanvasAssistantPanel({
         return [...prev, {
           id: `image-backup-${detail.nodeId}`,
           role: "assistant",
-          content: formatAiImageRecordContent(detail),
+          content: `已生成图片备份：${detail.title}`,
           timestamp: new Date(),
           imageBackup: detail,
         }];
@@ -7470,7 +7462,7 @@ function CanvasAssistantPanel({
     };
     window.addEventListener("ai-image-generated-backup", handler);
     return () => window.removeEventListener("ai-image-generated-backup", handler);
-  }, []);
+  }, [collapsed]);
 
   const handleImageBackupDoubleClick = (backup: NonNullable<CanvasAssistantMessage["imageBackup"]>) => {
     window.dispatchEvent(new CustomEvent("ai-image-backup-activate", { detail: backup }));
@@ -7852,9 +7844,6 @@ function CanvasAssistantPanel({
                             }}
                           />
                           <p className="type-caption leading-5" style={{ color: text, fontWeight: 600 }}>{backup.title}</p>
-                          <p className="type-caption leading-5 whitespace-pre-wrap" style={{ color: sub }}>
-                            {formatAiImageRecordContent(backup)}
-                          </p>
                           <p className="type-caption leading-5" style={{ color: sub }}>双击气泡可定位或找回图片</p>
                         </div>
                       ) : (
