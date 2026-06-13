@@ -41,8 +41,9 @@ export type ReferenceImageResult = {
   source: string;
 };
 
-function getBackendApiBaseUrl() {
+function getAiApiBaseUrl() {
   const configured = (
+    import.meta.env.VITE_AI_API_BASE_URL ||
     import.meta.env.VITE_API_BASE_URL ||
     ""
   ).replace(/\/+$/, "");
@@ -95,7 +96,7 @@ async function readJsonResponse<T extends ApiErrorResponse>(response: Response, 
 }
 
 async function postAiOrchestrate(body: Record<string, unknown>, fallbackError: string) {
-  const baseUrl = getBackendApiBaseUrl();
+  const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/ai/orchestrate`;
   const response = await fetch(endpoint, {
     method: "POST",
@@ -112,7 +113,7 @@ async function postAiOrchestrate(body: Record<string, unknown>, fallbackError: s
 }
 
 async function postImageExpand(body: Record<string, unknown>, fallbackError: string) {
-  const baseUrl = getBackendApiBaseUrl();
+  const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/images/expand`;
   const response = await fetch(endpoint, {
     method: "POST",
@@ -154,7 +155,7 @@ export async function callLLM({
 
   return {
     text: result.text || "",
-    model: result.model || model || "auto",
+    model: result.model || model || "gpt-5.4-mini",
   };
 }
 
@@ -166,7 +167,7 @@ export async function searchReferenceImages({
   limit?: number;
 }) {
   requireAiAuth();
-  const baseUrl = getBackendApiBaseUrl();
+  const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/references/search`;
   const response = await fetch(endpoint, {
     method: "POST",
@@ -184,7 +185,7 @@ export async function searchReferenceImages({
 
 export async function generateImages({
   prompt,
-  model = "auto",
+  model = "gpt-image-2",
   ratio = "1:1",
   count = 1,
   style,
@@ -221,7 +222,7 @@ export async function generateImages({
 
 export async function removeImageBackground({
   imageSrc,
-  model = "auto",
+  model = "gpt-image-2",
   prompt,
 }: {
   imageSrc: string;
@@ -243,7 +244,7 @@ export async function removeImageBackground({
 
 export async function editImageWithPrompt({
   imageSrc,
-  model = "auto",
+  model = "gpt-image-2",
   prompt,
   targetWidth,
   targetHeight,
@@ -275,7 +276,7 @@ export async function editImageWithPrompt({
 export async function eraseImageObjects({
   imageSrc,
   maskSrc,
-  model = "auto",
+  model = "gpt-image-2",
   prompt,
   targetWidth,
   targetHeight,
@@ -306,7 +307,7 @@ export async function eraseImageObjects({
 export async function expandImageWithMask({
   imageSrc,
   maskSrc,
-  model = "auto",
+  model = "gpt-image-2",
   prompt,
   targetWidth,
   targetHeight,

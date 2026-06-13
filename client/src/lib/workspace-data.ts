@@ -2,14 +2,12 @@
 
 // ── AI Models ────────────────────────────────────────────────
 export const IMAGE_AI_MODELS = [
-  { id: "auto", label: "Auto", color: "oklch(0.68 0.18 285)", description: "根据提示词自动匹配最合适的图片模型进行生成" },
   { id: "gpt-image-2", label: "GPT Image 2", color: "oklch(0.72 0.18 200)" },
   { id: "gemini-3.1-flash-image", label: "🍌Nano Banana 3.1", color: "oklch(0.82 0.18 92)" },
   { id: "gemini-3.1-flash-image-preview", label: "🍌Nano Banana 3.1 lite", color: "oklch(0.72 0.16 108)" },
 ];
 
 export const TEXT_AI_MODELS = [
-  { id: "auto", label: "Auto", color: "oklch(0.68 0.18 285)", description: "根据提示词自动匹配最合适的大语言模型进行回复" },
   { id: "gpt-4o", label: "GPT-4o", color: "oklch(0.72 0.18 160)" },
   { id: "gpt-5.4", label: "GPT-5.4", color: "oklch(0.70 0.16 255)" },
   { id: "gpt-5.4-mini", label: "GPT-5.4 mini", color: "oklch(0.74 0.14 230)" },
