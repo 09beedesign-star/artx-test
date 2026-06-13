@@ -77,8 +77,6 @@ import RotateEditor from "@/components/canvas/RotateEditor";
 import { callLLM, editImageWithPrompt, eraseImageObjects, expandImageWithMask, generateImages as generateAiImages, removeImageBackground, requestAiAuth, searchReferenceImages, type ReferenceImageResult } from "@/lib/ai";
 import { routeCreativeIntent } from "@/lib/ai-intent";
 import { createWorkspaceHistoryProject, touchWorkspaceProjectHistory, updateWorkspaceProjectHistory } from "@/lib/project-history";
-import generationGradient from "@/assets/generation/ai-generation-gradient.png";
-import generationMark from "@/assets/generation/ai-generation-mark.svg";
 
 const ENABLE_NODE_CONNECTIONS = false;
 
@@ -1019,10 +1017,9 @@ function TextFloatingToolbar({
 }
 
 // ── Asset Node Floating Toolbar ──────────────────────────────
-function AssetFloatingToolbar({ isDark, position, targetType = "asset", onAction }: {
+function AssetFloatingToolbar({ isDark, position, onAction }: {
   isDark: boolean;
   position: { left: number; top: number };
-  targetType?: "asset" | "canvasFrame";
   onAction: (action: string) => void;
 }) {
   const [hoveredAction, setHoveredAction] = useState<string | null>(null);
@@ -1035,23 +1032,21 @@ function AssetFloatingToolbar({ isDark, position, targetType = "asset", onAction
   const moreBg = isDark ? "rgba(24,24,34,0.98)" : "rgba(255,255,255,0.98)";
   const moreText = isDark ? "rgba(255,255,255,0.88)" : "rgba(28,28,40,0.88)";
   const moreSub = isDark ? "rgba(255,255,255,0.48)" : "rgba(28,28,40,0.45)";
-  const tools = targetType === "canvasFrame"
-    ? [{ icon: <Download size={15} />, label: "导出画板", action: "download" }]
-    : [
-        { icon: <BadgeCheck size={15} />, label: "快捷编辑", action: "quick-edit" },
-        { icon: <ScanSearch size={15} />, label: "放大", action: "upscale" },
-        { icon: <ImageOff size={15} />, label: "去背景", action: "remove-background" },
-        { icon: <Expand size={15} />, label: "扩展", action: "expand" },
-        { icon: <Crop size={15} />, label: "裁切", action: "crop" },
-        { icon: <Eraser size={15} />, label: "橡皮工具", action: "erase" },
-        { icon: <PanelTopOpen size={15} />, label: "编辑元素", action: "edit-elements" },
-        { icon: <Type size={15} />, label: "编辑文字", action: "edit-text" },
-        { icon: <Move size={15} />, label: "移动对象", action: "move-object" },
-        { icon: <MoreHorizontal size={15} />, label: "更多", action: "more", dot: true },
-        { icon: <Download size={15} />, label: "下载", action: "download" },
-      ];
+  const tools = [
+    { icon: <BadgeCheck size={15} />, label: "快捷编辑", action: "quick-edit" },
+    { icon: <ScanSearch size={15} />, label: "放大", action: "upscale" },
+    { icon: <ImageOff size={15} />, label: "去背景", action: "remove-background" },
+    { icon: <Crop size={15} />, label: "裁切", action: "crop" },
+    { icon: <Eraser size={15} />, label: "橡皮工具", action: "erase" },
+    { icon: <PanelTopOpen size={15} />, label: "编辑元素", action: "edit-elements" },
+    { icon: <Type size={15} />, label: "编辑文字", action: "edit-text" },
+    { icon: <Move size={15} />, label: "移动对象", action: "move-object" },
+    { icon: <MoreHorizontal size={15} />, label: "更多", action: "more", dot: true },
+    { icon: <Download size={15} />, label: "下载", action: "download" },
+  ];
   const moreItems = [
     { icon: <Shirt size={18} />, label: "社媒平台尺寸", action: "mockup" },
+    { icon: <Expand size={18} />, label: "扩展", action: "expand", dot: true },
     { icon: <ImageIcon size={18} />, label: "调整", action: "adjust", dot: true },
     { icon: <Frame size={18} />, label: "矢量", action: "vector", dot: true, cost: 9 },
     { icon: <RotateCw size={18} />, label: "翻转与旋转", action: "flip-rotate", dot: true },
@@ -1088,7 +1083,7 @@ function AssetFloatingToolbar({ isDark, position, targetType = "asset", onAction
         aria-label={item.label}
         onClick={(e) => {
           e.stopPropagation();
-          if (targetType !== "canvasFrame" && item.action === "more") {
+          if (item.action === "more") {
             setMoreOpen(value => !value);
             return;
           }
@@ -1191,7 +1186,6 @@ type SocialMediaExportPayload = {
   presets: SocialMediaSizePreset[];
   customSize?: { width: number; height: number };
   crop: { x: number; y: number; width: number; height: number };
-  crops?: Record<string, { x: number; y: number; width: number; height: number }>;
 };
 
 const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
@@ -1415,25 +1409,23 @@ async function createSocialMediaSizedImage(src: string, size: { width: number; h
   const cropY = Math.max(0, Math.min(1, crop.y));
   const cropW = Math.max(0.02, Math.min(1 - cropX, crop.width));
   const cropH = Math.max(0.02, Math.min(1 - cropY, crop.height));
-  const targetRatio = size.width / Math.max(1, size.height);
-  const cropRatio = (cropW * naturalW) / Math.max(1, cropH * naturalH);
-  let fittedX = cropX;
-  let fittedY = cropY;
-  let fittedW = cropW;
-  let fittedH = cropH;
-  if (Math.abs(cropRatio - targetRatio) > 0.001) {
-    if (cropRatio > targetRatio) {
-      fittedW = Math.max(0.02, Math.min(cropW, (cropH * naturalH * targetRatio) / naturalW));
-      fittedX = Math.max(0, Math.min(1 - fittedW, cropX + (cropW - fittedW) / 2));
-    } else {
-      fittedH = Math.max(0.02, Math.min(cropH, (cropW * naturalW) / Math.max(1, targetRatio * naturalH)));
-      fittedY = Math.max(0, Math.min(1 - fittedH, cropY + (cropH - fittedH) / 2));
-    }
+  const sx = Math.round(cropX * naturalW);
+  const sy = Math.round(cropY * naturalH);
+  const sw = Math.max(1, Math.round(cropW * naturalW));
+  const sh = Math.max(1, Math.round(cropH * naturalH));
+  const sourceRatio = sw / sh;
+  const targetRatio = size.width / size.height;
+  let nextSx = sx;
+  let nextSy = sy;
+  let nextSw = sw;
+  let nextSh = sh;
+  if (sourceRatio > targetRatio) {
+    nextSw = Math.max(1, Math.round(sh * targetRatio));
+    nextSx = sx + Math.round((sw - nextSw) / 2);
+  } else if (sourceRatio < targetRatio) {
+    nextSh = Math.max(1, Math.round(sw / targetRatio));
+    nextSy = sy + Math.round((sh - nextSh) / 2);
   }
-  const sx = Math.round(fittedX * naturalW);
-  const sy = Math.round(fittedY * naturalH);
-  const sw = Math.max(1, Math.round(fittedW * naturalW));
-  const sh = Math.max(1, Math.round(fittedH * naturalH));
   const canvas = document.createElement("canvas");
   canvas.width = size.width;
   canvas.height = size.height;
@@ -1441,7 +1433,7 @@ async function createSocialMediaSizedImage(src: string, size: { width: number; h
   if (!ctx) throw new Error("当前浏览器不支持图片处理");
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(image, sx, sy, sw, sh, 0, 0, size.width, size.height);
+  ctx.drawImage(image, nextSx, nextSy, nextSw, nextSh, 0, 0, size.width, size.height);
   return canvas.toDataURL("image/png");
 }
 
@@ -1470,8 +1462,6 @@ function SocialMediaSizePanel({
   const [customWidth, setCustomWidth] = useState(1080);
   const [customHeight, setCustomHeight] = useState(1080);
   const [crop, setCrop] = useState({ x: 0, y: 0, width: 1, height: 1 });
-  const [cropByKey, setCropByKey] = useState<Record<string, SocialMediaExportPayload["crop"]>>({});
-  const [previewKey, setPreviewKey] = useState("custom");
   const [cropEditMode, setCropEditMode] = useState(false);
   const [naturalSize, setNaturalSize] = useState({ width: 1080, height: 1080 });
   const dragRef = useRef<null | {
@@ -1487,31 +1477,8 @@ function SocialMediaSizePanel({
   const sub = isDark ? "rgba(255,255,255,0.50)" : "rgba(28,28,40,0.48)";
   const field = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
   const selectedPresets = SOCIAL_MEDIA_SIZE_PRESETS.filter(item => selectedPresetIds.includes(item.id));
-  const previewPreset = SOCIAL_MEDIA_SIZE_PRESETS.find(item => item.id === previewKey) || selectedPresets[selectedPresets.length - 1] || null;
-  const previewSize = previewPreset
-    ? { key: previewPreset.id, width: previewPreset.width, height: previewPreset.height, label: `${previewPreset.platform} ${previewPreset.title}` }
-    : { key: "custom", width: customWidth, height: customHeight, label: "自定义尺寸" };
-  const previewCrop = cropByKey[previewSize.key] || crop;
   const validCustom = customEnabled && customWidth >= 64 && customHeight >= 64;
   const canGenerate = selectedPresets.length > 0 || validCustom;
-
-  const createCropForSize = useCallback((size: { width: number; height: number }) => {
-    const sourceRatio = naturalSize.width / Math.max(1, naturalSize.height);
-    const targetRatio = size.width / Math.max(1, size.height);
-    if (sourceRatio > targetRatio) {
-      const width = Math.max(0.02, Math.min(1, targetRatio / sourceRatio));
-      return { x: (1 - width) / 2, y: 0, width, height: 1 };
-    }
-    const height = Math.max(0.02, Math.min(1, sourceRatio / targetRatio));
-    return { x: 0, y: (1 - height) / 2, width: 1, height };
-  }, [naturalSize.height, naturalSize.width]);
-
-  const ensurePreviewCrop = useCallback((key: string, size: { width: number; height: number }) => {
-    setCropByKey(prev => {
-      if (prev[key]) return prev;
-      return { ...prev, [key]: createCropForSize(size) };
-    });
-  }, [createCropForSize]);
 
   useEffect(() => {
     if (!imageSrc) return;
@@ -1530,36 +1497,19 @@ function SocialMediaSizePanel({
   }, [imageSrc]);
 
   useEffect(() => {
-    setCropByKey(prev => {
-      const next: Record<string, SocialMediaExportPayload["crop"]> = {};
-      for (const preset of SOCIAL_MEDIA_SIZE_PRESETS) {
-        next[preset.id] = prev[preset.id] || createCropForSize(preset);
-      }
-      next.custom = prev.custom || createCropForSize({ width: customWidth, height: customHeight });
-      return next;
-    });
-  }, [createCropForSize, customHeight, customWidth]);
-
-  useEffect(() => {
     if (!cropEditMode) return;
-    if (previewSize.key !== "custom") return;
     setCustomEnabled(true);
-    setCustomWidth(Math.max(64, Math.round(naturalSize.width * previewCrop.width)));
-    setCustomHeight(Math.max(64, Math.round(naturalSize.height * previewCrop.height)));
-  }, [cropEditMode, naturalSize.height, naturalSize.width, previewCrop.height, previewCrop.width, previewSize.key]);
+    setCustomWidth(Math.max(64, Math.round(naturalSize.width * crop.width)));
+    setCustomHeight(Math.max(64, Math.round(naturalSize.height * crop.height)));
+  }, [crop, cropEditMode, naturalSize.height, naturalSize.width]);
 
   const togglePreset = (id: string) => {
-    const preset = SOCIAL_MEDIA_SIZE_PRESETS.find(item => item.id === id);
-    if (!preset) return;
-    ensurePreviewCrop(id, preset);
-    setPreviewKey(id);
-    setCrop(cropByKey[id] || createCropForSize(preset));
     setSelectedPresetIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]);
   };
 
   const handleCropPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
-    dragRef.current = { mode: cropEditMode ? "move" : "pan", startX: event.clientX, startY: event.clientY, startCrop: previewCrop, bounds };
+    dragRef.current = { mode: cropEditMode ? "move" : "pan", startX: event.clientX, startY: event.clientY, startCrop: crop, bounds };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
@@ -1568,7 +1518,7 @@ function SocialMediaSizePanel({
     event.stopPropagation();
     const bounds = event.currentTarget.parentElement?.parentElement?.getBoundingClientRect();
     if (!bounds) return;
-    dragRef.current = { mode, startX: event.clientX, startY: event.clientY, startCrop: previewCrop, bounds };
+    dragRef.current = { mode, startX: event.clientX, startY: event.clientY, startCrop: crop, bounds };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
@@ -1578,19 +1528,15 @@ function SocialMediaSizePanel({
     const dx = (event.clientX - drag.startX) / Math.max(1, drag.bounds.width);
     const dy = (event.clientY - drag.startY) / Math.max(1, drag.bounds.height);
     const minSize = 0.08;
-    const publishCrop = (nextCrop: SocialMediaExportPayload["crop"]) => {
-      setCrop(nextCrop);
-      setCropByKey(prev => ({ ...prev, [previewSize.key]: nextCrop }));
-    };
     if (drag.mode === "pan" || drag.mode === "move") {
-      publishCrop({
+      setCrop({
         ...drag.startCrop,
-        x: Math.max(0, Math.min(1 - drag.startCrop.width, drag.startCrop.x - dx * drag.startCrop.width)),
-        y: Math.max(0, Math.min(1 - drag.startCrop.height, drag.startCrop.y - dy * drag.startCrop.height)),
+        x: Math.max(0, Math.min(1 - drag.startCrop.width, drag.startCrop.x + dx)),
+        y: Math.max(0, Math.min(1 - drag.startCrop.height, drag.startCrop.y + dy)),
       });
       return;
     }
-    const nextCrop = (() => {
+    setCrop(() => {
       const next = { ...drag.startCrop };
       if (drag.mode === "left") {
         const nextX = Math.max(0, Math.min(drag.startCrop.x + drag.startCrop.width - minSize, drag.startCrop.x + dx));
@@ -1609,8 +1555,7 @@ function SocialMediaSizePanel({
         next.height = Math.max(minSize, Math.min(1 - drag.startCrop.y, drag.startCrop.height + dy));
       }
       return next;
-    })();
-    publishCrop(nextCrop);
+    });
   };
 
   const handleCropPointerUp = () => {
@@ -1650,33 +1595,26 @@ function SocialMediaSizePanel({
       <div className="min-h-0 flex-1 overflow-y-auto p-3" style={{ scrollbarWidth: "thin" }}>
         <div
           className="relative mb-3 overflow-hidden rounded-[var(--radius-md-design)]"
-          style={{
-            aspectRatio: `${previewSize.width}/${previewSize.height}`,
-            maxHeight: 420,
-            minHeight: 180,
-            background: field,
-            border: `1px solid ${border}`,
-            cursor: imageSrc ? "grab" : "default",
-          }}
+          style={{ aspectRatio: "16/10", background: field, border: `1px solid ${border}` }}
           onPointerDown={handleCropPointerDown}
           onPointerMove={handleCropPointerMove}
           onPointerUp={handleCropPointerUp}
           onPointerCancel={handleCropPointerUp}
         >
           {imageSrc ? (
-            <img src={imageSrc} alt="尺寸裁切预览" draggable={false} className="absolute object-cover select-none" style={getSocialPreviewCropStyle(previewCrop)} />
+            <img src={imageSrc} alt="尺寸裁切预览" draggable={false} className="absolute object-cover" style={getSocialPreviewCropStyle(crop)} />
           ) : null}
           <div className="absolute inset-0 pointer-events-none" style={{ boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.26)" }} />
-          {cropEditMode && previewSize.key === "custom" && (
+          {cropEditMode && (
             <div
               className="absolute cursor-move"
               style={{
-                left: 0,
-                top: 0,
-                width: "100%",
-                height: "100%",
+                left: `${crop.x * 100}%`,
+                top: `${crop.y * 100}%`,
+                width: `${crop.width * 100}%`,
+                height: `${crop.height * 100}%`,
                 border: "2px solid rgba(255,255,255,0.95)",
-                boxShadow: "0 0 0 1px rgba(108,92,231,0.85)",
+                boxShadow: "0 0 0 999px rgba(0,0,0,0.36), 0 0 0 1px rgba(108,92,231,0.85)",
               }}
             >
               <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: "linear-gradient(to right, rgba(255,255,255,0.36) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.36) 1px, transparent 1px)", backgroundSize: "33.333% 33.333%" }} />
@@ -1687,7 +1625,7 @@ function SocialMediaSizePanel({
             </div>
           )}
           <div className="absolute bottom-2 left-2 rounded-[var(--radius-md-design)] px-2 py-1" style={{ background: "rgba(0,0,0,0.42)", color: "white", fontSize: 11 }}>
-            {previewSize.label} · {previewSize.width} × {previewSize.height} · 拖拽图片选择需要显示的内容
+            {cropEditMode ? "拖拽裁切框或边缘调整裁切尺寸" : "拖拽图片选择需要显示的内容"}
           </div>
         </div>
 
@@ -1748,8 +1686,6 @@ function SocialMediaSizePanel({
               onClick={() => {
                 setCropEditMode(prev => !prev);
                 setCustomEnabled(true);
-                setPreviewKey("custom");
-                ensurePreviewCrop("custom", { width: customWidth, height: customHeight });
               }}
             >
               <Crop size={15} />
@@ -1764,18 +1700,7 @@ function SocialMediaSizePanel({
                 max={8192}
                 value={customWidth}
                 disabled={!customEnabled}
-                onFocus={() => {
-                  setPreviewKey("custom");
-                  ensurePreviewCrop("custom", { width: customWidth, height: customHeight });
-                }}
-                onChange={event => {
-                  const nextWidth = Math.max(64, Math.min(8192, Number(event.target.value) || 64));
-                  setCustomWidth(nextWidth);
-                  const nextCrop = createCropForSize({ width: nextWidth, height: customHeight });
-                  setCrop(nextCrop);
-                  setCropByKey(prev => ({ ...prev, custom: nextCrop }));
-                  setPreviewKey("custom");
-                }}
+                onChange={event => setCustomWidth(Math.max(64, Math.min(8192, Number(event.target.value) || 64)))}
                 className="mt-1 h-8 w-full rounded-[var(--radius-md-design)] px-2 outline-none"
                 style={{ background: isDark ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.72)", color: text, border: `1px solid ${border}` }}
               />
@@ -1788,18 +1713,7 @@ function SocialMediaSizePanel({
                 max={8192}
                 value={customHeight}
                 disabled={!customEnabled}
-                onFocus={() => {
-                  setPreviewKey("custom");
-                  ensurePreviewCrop("custom", { width: customWidth, height: customHeight });
-                }}
-                onChange={event => {
-                  const nextHeight = Math.max(64, Math.min(8192, Number(event.target.value) || 64));
-                  setCustomHeight(nextHeight);
-                  const nextCrop = createCropForSize({ width: customWidth, height: nextHeight });
-                  setCrop(nextCrop);
-                  setCropByKey(prev => ({ ...prev, custom: nextCrop }));
-                  setPreviewKey("custom");
-                }}
+                onChange={event => setCustomHeight(Math.max(64, Math.min(8192, Number(event.target.value) || 64)))}
                 className="mt-1 h-8 w-full rounded-[var(--radius-md-design)] px-2 outline-none"
                 style={{ background: isDark ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.72)", color: text, border: `1px solid ${border}` }}
               />
@@ -1825,8 +1739,7 @@ function SocialMediaSizePanel({
           onClick={() => onGenerate({
             presets: selectedPresets,
             customSize: validCustom ? { width: customWidth, height: customHeight } : undefined,
-            crop: previewCrop,
-            crops: cropByKey,
+            crop,
           })}
         >
           生成
@@ -2606,14 +2519,6 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const cropY = Math.max(0, Math.min(100, Number((data as { cropY?: number }).cropY ?? 0)));
   const cropW = Math.max(1, Math.min(100 - cropX, Number((data as { cropW?: number }).cropW ?? 100)));
   const cropH = Math.max(1, Math.min(100 - cropY, Number((data as { cropH?: number }).cropH ?? 100)));
-  const frameClipInsets = (data as {
-    frameClipInsets?: { top: number; right: number; bottom: number; left: number };
-  }).frameClipInsets;
-  const frameClipStyle: React.CSSProperties | undefined = frameClipInsets
-    ? {
-        clipPath: `inset(${frameClipInsets.top}px ${frameClipInsets.right}px ${frameClipInsets.bottom}px ${frameClipInsets.left}px)`,
-      }
-    : undefined;
   const imgCropStyle: React.CSSProperties = isCropping || cropX > 0 || cropY > 0 || cropW < 100 || cropH < 100
     ? {
         position: "absolute",
@@ -2783,10 +2688,10 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
       window.dispatchEvent(new CustomEvent("asset-click-selection", { detail: { selectedIds: nextSelectedIds } }));
       const selectedVisualIds = new Set(nextSelectedIds.filter(id => {
         const node = nextNodes.find(item => item.id === id);
-        return isTopLayerNodeType(node?.type);
+        return node?.type === "asset" || node?.type === "canvasFrame";
       }));
       if (selectedVisualIds.size === 0) return nextNodes;
-      const topZ = getNextTopZ(nextNodes);
+      const topZ = Math.max(0, ...nextNodes.map(n => typeof n.zIndex === "number" ? n.zIndex : 0)) + 1;
       return [
         ...nextNodes.filter(n => !selectedVisualIds.has(n.id)),
         ...nextNodes.filter(n => selectedVisualIds.has(n.id)).map(n => ({ ...n, zIndex: topZ })),
@@ -3176,7 +3081,6 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
               draggable={false}
               className="absolute inset-0 h-full w-full"
               style={{
-                ...frameClipStyle,
                 objectFit: "cover",
                 filter: "blur(24px) saturate(1.12) brightness(0.78)",
                 transform: "scale(1.14)",
@@ -3188,11 +3092,12 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
           )}
           {isAiProcessingImage ? (
             <div
-              className={isGeneratingImage ? "artx-ai-generation-loading absolute inset-0 flex flex-col items-center justify-center gap-3" : "absolute inset-0 flex flex-col items-center justify-center gap-3"}
+              className="absolute inset-0 flex flex-col items-center justify-center gap-3"
               style={{
-                ...frameClipStyle,
                 background: isGeneratingImage
-                  ? `url(${generationGradient}) center / cover no-repeat`
+                  ? sourceBackgroundSrc
+                    ? "rgba(18,18,28,0.34)"
+                    : "linear-gradient(135deg, oklch(0.34 0.20 275) 0%, oklch(0.46 0.22 250) 48%, oklch(0.40 0.22 305) 100%)"
                   : isDark ? "oklch(0.16 0.018 270)" : "oklch(0.96 0.006 270)",
                 color: isGeneratingImage ? "rgba(255,255,255,0.88)" : isDark ? "rgba(255,255,255,0.72)" : "rgba(24,24,32,0.62)",
                 zIndex: 1,
@@ -3200,15 +3105,22 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
             >
               {isGeneratingImage ? (
                 <div
-                  className="artx-ai-generation-mark-shell"
+                  className="animate-spin"
                   aria-hidden="true"
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: "50%",
+                    border: "1px solid rgba(255,255,255,0.28)",
+                    background: "rgba(255,255,255,0.14)",
+                    boxShadow: "0 12px 32px rgba(23,18,85,0.34), inset 0 0 0 1px rgba(255,255,255,0.20)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backdropFilter: "blur(8px)",
+                  }}
                 >
-                  <img
-                    src={generationMark}
-                    alt=""
-                    className="artx-ai-generation-mark"
-                    draggable={false}
-                  />
+                  <Sparkles size={17} strokeWidth={2.4} />
                 </div>
               ) : (
                 <div
@@ -3237,7 +3149,6 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
 	              alt={displayTitle}
               draggable={false}
               style={{
-                ...frameClipStyle,
                 ...imgCropStyle,
                 display: "block",
                 objectFit: "contain",
@@ -3253,7 +3164,6 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
 	            <div
 	              className="absolute inset-0 flex items-center justify-center px-4 text-center type-caption"
 	              style={{
-                  ...frameClipStyle,
 	                color: isDark ? "oklch(0.70 0.01 270)" : "oklch(0.42 0.012 255)",
 	                background: isDark ? "oklch(0.16 0.012 270)" : "oklch(0.94 0.006 255)",
 	              }}
@@ -4854,19 +4764,6 @@ function getCanvasNodesBounds(nodes: Node[], ids: string[]): CanvasNodeBounds | 
   return { x, y, width: right - x, height: bottom - y, right, bottom, centerX: x + (right - x) / 2, centerY: y + (bottom - y) / 2 };
 }
 
-function isTopLayerNodeType(type: string | undefined | null) {
-  return type === "asset" ||
-    type === "canvasFrame" ||
-    type === "text" ||
-    type === "shape" ||
-    type === "freehand" ||
-    type === "pen";
-}
-
-function getNextTopZ(nodes: Node[]) {
-  return Math.max(0, ...nodes.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
-}
-
 function canvasRectsOverlap(a: CanvasNodeBounds, b: CanvasNodeBounds, padding = 0) {
   return a.x < b.right + padding && a.right + padding > b.x && a.y < b.bottom + padding && a.bottom + padding > b.y;
 }
@@ -5567,7 +5464,6 @@ function NodeContextMenu({ menu, onClose, onAction, isDark }: {
   const isSelectionMenu = menu.nodeType === "selection" || selectedCount > 1;
   const isGroupContainerMenu = menu.nodeType === "group-container" || menu.nodeType === "group-container-inside";
   const isVisualNodeMenu = menu.nodeType === "asset" || menu.nodeType === "canvasFrame";
-  const isCanvasFrameMenu = menu.nodeType === "canvasFrame";
 
   // Group container right-click menu: 解散打组 / 进入打组 / 重命名
   const isInsideGroup = menu.nodeType === "group-container-inside";
@@ -5596,16 +5492,14 @@ function NodeContextMenu({ menu, onClose, onAction, isDark }: {
   ];
 
   // Single node menu: NO 解散打组 (removed per spec)
-  const singleItems = isCanvasFrameMenu
-    ? [{ icon: <Download size={13} />, label: "导出画板", action: "download", color: iconColor }]
-    : [
-        { icon: <Wand2 size={13} />, label: "智能优化", action: "edit-asset", color: iconColor },
-        ...(isVisualNodeMenu ? [{ icon: <Download size={13} />, label: "下载图片", action: "download", color: iconColor }] : []),
-        { icon: <Copy size={13} />, label: "复制", action: "copy", color: iconColor },
-        { icon: <Clipboard size={13} />, label: "粘贴", action: "paste", color: iconColor },
-        { icon: <Type size={13} />, label: "添加文本备注", action: "add-note", color: iconColor },
-        { icon: <Trash2 size={13} />, label: "删除节点", action: "delete", color: dangerColor },
-      ];
+  const singleItems = [
+    { icon: <Wand2 size={13} />, label: "智能优化", action: "edit-asset", color: iconColor },
+    ...(isVisualNodeMenu ? [{ icon: <Download size={13} />, label: "下载图片", action: "download", color: iconColor }] : []),
+    { icon: <Copy size={13} />, label: "复制", action: "copy", color: iconColor },
+    { icon: <Clipboard size={13} />, label: "粘贴", action: "paste", color: iconColor },
+    { icon: <Type size={13} />, label: "添加文本备注", action: "add-note", color: iconColor },
+    { icon: <Trash2 size={13} />, label: "删除节点", action: "delete", color: dangerColor },
+  ];
 
   const items = isGroupContainerMenu ? groupContainerItems : isSelectionMenu ? selectionItems : singleItems;
 
@@ -6744,7 +6638,7 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
     { id: "move",         label: "移动",       icon: <MousePointer2 size={17} /> },
     { id: "annotate",     label: "注释",       icon: <MessageCircle size={17} /> },
     { id: "upload",       label: "上传图片",   icon: <ImagePlus size={17} /> },
-    { id: "smart-canvas", label: "创建画板",   icon: <CreateCanvasIcon size={17} /> },
+    { id: "smart-canvas", label: "创建画布",   icon: <CreateCanvasIcon size={17} /> },
     { id: "shape",        label: "几何形",     icon: <Triangle size={17} /> },
     { id: "draw",         label: "铅笔",       icon: <Pencil size={17} /> },
     { id: "text",         label: "文字",       icon: <Type size={17} /> },
@@ -7069,21 +6963,6 @@ function formatCanvasMessageTime(value: Date) {
 
 const CANVAS_ASSISTANT_MESSAGES_STORAGE_PREFIX = "artx:canvas-assistant-messages:";
 const CANVAS_ASSISTANT_MESSAGES_SESSION_PREFIX = "artx:canvas-assistant-messages:fallback:";
-const CANVAS_ASSISTANT_PANEL_WIDTH_STORAGE_KEY = "artx:canvas-assistant-panel-width";
-const CANVAS_ASSISTANT_PANEL_DEFAULT_WIDTH = 372;
-const CANVAS_ASSISTANT_PANEL_MIN_WIDTH = 280;
-const CANVAS_ASSISTANT_PANEL_MAX_WIDTH = 560;
-const CANVAS_ASSISTANT_COLLAPSED_PEEK_WIDTH = 112;
-const CANVAS_MAIN_MIN_WIDTH = 360;
-
-function clampCanvasAssistantPanelWidth(value: number, containerWidth?: number) {
-  const fallbackMax = CANVAS_ASSISTANT_PANEL_DEFAULT_WIDTH;
-  const availableMax = typeof containerWidth === "number" && Number.isFinite(containerWidth)
-    ? Math.max(CANVAS_ASSISTANT_PANEL_MIN_WIDTH, containerWidth - CANVAS_MAIN_MIN_WIDTH)
-    : fallbackMax;
-  const max = Math.min(CANVAS_ASSISTANT_PANEL_MAX_WIDTH, availableMax);
-  return Math.round(Math.min(Math.max(value, CANVAS_ASSISTANT_PANEL_MIN_WIDTH), max));
-}
 
 function canvasAssistantMessagesStorageKey(projectId: string) {
   return `${CANVAS_ASSISTANT_MESSAGES_STORAGE_PREFIX}${projectId || "p1"}`;
@@ -7114,15 +6993,6 @@ function deserializeCanvasAssistantMessages(raw: string | null): CanvasAssistant
   } catch {
     return [];
   }
-}
-
-function formatAiImageRecordContent(backup: NonNullable<CanvasAssistantMessage["imageBackup"]>) {
-  return [
-    `AI 操作记录：${backup.style || "图片生成"}`,
-    `模型：${backup.model || "auto"} · 画幅：${backup.ratio || "1:1"}`,
-    "提示词：",
-    backup.prompt || "未记录提示词",
-  ].join("\n");
 }
 
 function createAssistantTextSegment(text = ""): AssistantComposerSegment {
@@ -7223,8 +7093,6 @@ function CanvasAssistantPanel({
   onMergeReferences,
   selectedCount,
   helpPromptNonce,
-  panelWidth,
-  collapsedPeekWidth,
 }: {
   projectId: string;
   isDark: boolean;
@@ -7239,8 +7107,6 @@ function CanvasAssistantPanel({
   onMergeReferences: (assets: { id: string; title: string; src: string }[]) => void;
   selectedCount: number;
   helpPromptNonce: number;
-  panelWidth: number;
-  collapsedPeekWidth: number;
 }) {
   const [, navigate] = useLocation();
   const [inputFocused, setInputFocused] = useState(false);
@@ -7293,6 +7159,8 @@ function CanvasAssistantPanel({
   const hoverBg = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 5%)";
   const activeGlow = "0 0 0 3px oklch(0.60 0.22 285 / 0.12), 0 18px 44px rgba(0,0,0,0.24)";
   const inputShadow = "0 16px 42px rgba(210,214,224,0.10), 0 0 0 1px rgba(210,214,224,0.10)";
+  const panelWidth = "clamp(280px, 32vw, 372px)";
+  const collapsedPeekWidth = 112;
   const handleCreateCanvasProject = () => {
     const project = createWorkspaceHistoryProject();
     toast("已新建画布", { description: project.title });
@@ -7567,6 +7435,7 @@ function CanvasAssistantPanel({
   }, [messages, projectId]);
 
   useEffect(() => {
+    if (collapsed) return;
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<CanvasAssistantMessage["imageBackup"]>).detail;
       if (!detail?.src || !detail.nodeId) return;
@@ -7575,7 +7444,7 @@ function CanvasAssistantPanel({
         return [...prev, {
           id: `image-backup-${detail.nodeId}`,
           role: "assistant",
-          content: formatAiImageRecordContent(detail),
+          content: `已生成图片备份：${detail.title}`,
           timestamp: new Date(),
           imageBackup: detail,
         }];
@@ -7583,7 +7452,7 @@ function CanvasAssistantPanel({
     };
     window.addEventListener("ai-image-generated-backup", handler);
     return () => window.removeEventListener("ai-image-generated-backup", handler);
-  }, []);
+  }, [collapsed]);
 
   const handleImageBackupDoubleClick = (backup: NonNullable<CanvasAssistantMessage["imageBackup"]>) => {
     window.dispatchEvent(new CustomEvent("ai-image-backup-activate", { detail: backup }));
@@ -7801,7 +7670,20 @@ function CanvasAssistantPanel({
         allowReferenceSearch: !hasAnnotationReferences,
       });
 
-      const generateAssistantImage = async (imagePrompt: string) => {
+      if (decision.mode === "reference_search" && !hasAnnotationReferences) {
+        const searchQuery = decision.searchQuery?.trim() || submittedText;
+        const result = await searchReferenceImages({ query: searchQuery, limit: 10 });
+        setMessages(prev => [...prev, {
+          id: `assistant-reference-${Date.now()}`,
+          role: "assistant",
+          content: decision.followUp || `我先帮你抓了 ${result.images.length} 张「${searchQuery}」参考图，你先选几张最接近你想法的方向，我再继续追问或直接出图。`,
+          timestamp: new Date(),
+          referenceOptions: result.images,
+          referenceSearchQuery: searchQuery,
+          followUpPrompt: `我已经记住你选中的「${searchQuery}」参考图了。接下来告诉我你最想保留的风格、构图、色彩或主体特征，我会继续判断是追问还是直接出图。`,
+        }]);
+      } else if (decision.mode === "image" || hasAnnotationReferences) {
+        const imagePrompt = decision.imagePrompt?.trim() || routedPrompt;
         const generationId = `right-assistant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         const shouldEditTargetReference = assistantImages.length >= 2;
         const targetReference = shouldEditTargetReference ? assistantImages[assistantImages.length - 1] : undefined;
@@ -7841,28 +7723,6 @@ function CanvasAssistantPanel({
           content: `已根据你的请求生成图片：${imagePrompt}`,
           timestamp: new Date(),
         }]);
-      };
-
-      if (decision.mode === "reference_search" && !hasAnnotationReferences) {
-        const searchQuery = decision.searchQuery?.trim() || submittedText;
-        try {
-          const result = await searchReferenceImages({ query: searchQuery, limit: 10 });
-          if (result.images.length === 0) throw new Error("No reference images found");
-          setMessages(prev => [...prev, {
-            id: `assistant-reference-${Date.now()}`,
-            role: "assistant",
-            content: decision.followUp || `我先帮你抓了 ${result.images.length} 张「${searchQuery}」参考图，你先选几张最接近你想法的方向，我再继续追问或直接出图。`,
-            timestamp: new Date(),
-            referenceOptions: result.images,
-            referenceSearchQuery: searchQuery,
-            followUpPrompt: `我已经记住你选中的「${searchQuery}」参考图了。接下来告诉我你最想保留的风格、构图、色彩或主体特征，我会继续判断是追问还是直接出图。`,
-          }]);
-        } catch {
-          await generateAssistantImage(submittedComposerPrompt || submittedText || searchQuery);
-        }
-      } else if (decision.mode === "image" || hasAnnotationReferences) {
-        const imagePrompt = decision.imagePrompt?.trim() || routedPrompt;
-        await generateAssistantImage(imagePrompt);
       } else {
         setMessages(prev => [...prev, {
           id: `assistant-${Date.now()}`,
@@ -7949,12 +7809,12 @@ function CanvasAssistantPanel({
                       {formatCanvasMessageTime(message.timestamp)}
                     </p>
                     <div
-                      className="rounded-[var(--radius-lg-design)] px-4 py-3"
+                      className="rounded-[var(--radius-lg-design)] p-4"
                       style={{
-                        background: isUser ? "#C5ED47" : chipBg,
-                        border: `1px solid ${isUser ? "rgba(197,237,71,0.48)" : border}`,
-                        color: isUser ? "#000" : text,
-                        boxShadow: isUser ? "0 10px 24px rgba(197,237,71,0.16)" : "none",
+                        background: isUser ? "linear-gradient(135deg, oklch(0.58 0.22 285), oklch(0.68 0.18 205))" : chipBg,
+                        border: `1px solid ${isUser ? "oklch(0.70 0.18 225 / 0.30)" : border}`,
+                        color: isUser ? "white" : text,
+                        boxShadow: isUser ? "0 10px 24px oklch(0.58 0.22 260 / 0.16)" : "none",
                       }}
                       onDoubleClick={backup ? () => handleImageBackupDoubleClick(backup) : undefined}
                       title={backup ? "双击可在画布中定位或找回这张图片" : undefined}
@@ -7974,14 +7834,11 @@ function CanvasAssistantPanel({
                             }}
                           />
                           <p className="type-caption leading-5" style={{ color: text, fontWeight: 600 }}>{backup.title}</p>
-                          <p className="type-caption leading-5 whitespace-pre-wrap" style={{ color: sub }}>
-                            {formatAiImageRecordContent(backup)}
-                          </p>
                           <p className="type-caption leading-5" style={{ color: sub }}>双击气泡可定位或找回图片</p>
                         </div>
                       ) : (
                         <div className="flex flex-col gap-3">
-                          <p className="type-caption leading-6 whitespace-pre-wrap" style={{ color: isUser ? "#000" : text }}>{message.content}</p>
+                          <p className="type-caption leading-6 whitespace-pre-wrap" style={{ color: isUser ? "white" : text }}>{message.content}</p>
                           {message.referenceOptions && message.referenceOptions.length > 0 && (
                             <div className="flex flex-col gap-3">
                               <div className="grid grid-cols-2 gap-2">
@@ -8167,7 +8024,7 @@ function CanvasAssistantPanel({
                   const textWidth = segment.text
                     ? Math.min(260, Math.max(16, segment.text.length * 12))
                     : composerSegments.length === 1
-                      ? 360
+                      ? 220
                       : 12;
                   return (
                     <textarea
@@ -8195,17 +8052,14 @@ function CanvasAssistantPanel({
                         : ""}
                       cols={1}
                       rows={1}
-                      wrap="off"
-                      className="min-w-0 shrink-0 overflow-hidden whitespace-nowrap border-0 bg-transparent p-0 outline-none resize-none disabled:cursor-not-allowed"
+                      className="min-w-0 shrink-0 border-0 bg-transparent p-0 outline-none resize-none disabled:cursor-not-allowed"
                       style={{
                         color: text,
                         opacity: 1,
                         fontSize: 12,
-                        lineHeight: "24px",
-                        scrollbarWidth: "none",
+                        lineHeight: 1.5,
                         minHeight: 24,
-                        maxHeight: 24,
-                        overflow: "hidden",
+                        maxHeight: 96,
                         width: `${textWidth}px`,
                         minWidth: `${textWidth}px`,
                         maxWidth: `${textWidth}px`,
@@ -8459,7 +8313,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const { screenToFlowPosition, getEdges, getNodes, fitView, getViewport, setViewport } = useReactFlow();
   const viewport = useViewport();
   const restoredCanvasState = useMemo(() => safeReadCanvasState(projectId), [projectId]);
-  const containerRef = useRef<HTMLDivElement>(null);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(restoredCanvasState?.nodes || initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(restoredCanvasState?.edges || initialEdges);
@@ -8469,33 +8322,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const edgesRef = useRef(edges);
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
   useEffect(() => { edgesRef.current = edges; }, [edges]);
-  useEffect(() => {
-    const legacyEmbeddedNodes = nodes.filter(node =>
-      node.type === "asset" &&
-      Boolean((node.data as Record<string, unknown>).embeddedInFrame) &&
-      Boolean(node.parentId)
-    );
-    if (legacyEmbeddedNodes.length === 0) return;
-    setNodes(nds => nds.map(node => {
-      if (
-        node.type !== "asset" ||
-        !node.parentId ||
-        !(node.data as Record<string, unknown>).embeddedInFrame
-      ) {
-        return node;
-      }
-      const frame = nds.find(item => item.id === node.parentId && item.type === "canvasFrame");
-      const absolutePosition = frame
-        ? { x: frame.position.x + node.position.x, y: frame.position.y + node.position.y }
-        : node.position;
-      return {
-        ...node,
-        position: absolutePosition,
-        parentId: undefined,
-        extent: undefined,
-      };
-    }));
-  }, [nodes, setNodes]);
   useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ resolve?: (assets: ImageGeneratorReferenceAsset[]) => void }>).detail;
@@ -8525,14 +8351,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const pasteEventSeenAtRef = useRef(0);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [isAssistantCollapsed, setIsAssistantCollapsed] = useState(false);
-  const [assistantPanelWidth, setAssistantPanelWidth] = useState(() => {
-    if (typeof window === "undefined") return CANVAS_ASSISTANT_PANEL_DEFAULT_WIDTH;
-    const stored = Number(window.localStorage.getItem(CANVAS_ASSISTANT_PANEL_WIDTH_STORAGE_KEY));
-    const containerWidth = window.innerWidth;
-    return clampCanvasAssistantPanelWidth(Number.isFinite(stored) && stored > 0 ? stored : CANVAS_ASSISTANT_PANEL_DEFAULT_WIDTH, containerWidth);
-  });
-  const [assistantSplitterHover, setAssistantSplitterHover] = useState(false);
-  const [assistantSplitterDragging, setAssistantSplitterDragging] = useState(false);
   const [helpPromptNonce, setHelpPromptNonce] = useState(0);
   const [imageGeneratorModalOpen, setImageGeneratorModalOpen] = useState(false);
   const [isCanvasLocked, setIsCanvasLocked] = useState(false);
@@ -8547,53 +8365,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [annotationReferences, setAnnotationReferences] = useState<AnnotationReference[]>([]);
   const mergeReferencedAssets = useCallback((assets: { id: string; title: string; src: string }[]) => {
     setReferencedAssets(assets);
-  }, []);
-  const updateAssistantPanelWidthFromPointer = useCallback((clientX: number) => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    const containerWidth = rect?.width ?? (typeof window === "undefined" ? undefined : window.innerWidth);
-    const nextWidth = clampCanvasAssistantPanelWidth((rect?.right ?? clientX + assistantPanelWidth) - clientX, containerWidth);
-    setAssistantPanelWidth(nextWidth);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(CANVAS_ASSISTANT_PANEL_WIDTH_STORAGE_KEY, String(nextWidth));
-    }
-  }, [assistantPanelWidth]);
-  const handleAssistantSplitterMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-    setAssistantSplitterDragging(true);
-    updateAssistantPanelWidthFromPointer(event.clientX);
-    const previousCursor = document.body.style.cursor;
-    const previousUserSelect = document.body.style.userSelect;
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    const handleMove = (moveEvent: MouseEvent) => {
-      moveEvent.preventDefault();
-      updateAssistantPanelWidthFromPointer(moveEvent.clientX);
-    };
-    const handleUp = () => {
-      setAssistantSplitterDragging(false);
-      document.body.style.cursor = previousCursor;
-      document.body.style.userSelect = previousUserSelect;
-      window.removeEventListener("mousemove", handleMove);
-      window.removeEventListener("mouseup", handleUp);
-    };
-    window.addEventListener("mousemove", handleMove);
-    window.addEventListener("mouseup", handleUp);
-  }, [updateAssistantPanelWidthFromPointer]);
-  useEffect(() => {
-    const handleResize = () => {
-      const containerWidth = containerRef.current?.getBoundingClientRect().width ?? window.innerWidth;
-      setAssistantPanelWidth(prev => {
-        const next = clampCanvasAssistantPanelWidth(prev, containerWidth);
-        if (next !== prev) {
-          window.localStorage.setItem(CANVAS_ASSISTANT_PANEL_WIDTH_STORAGE_KEY, String(next));
-        }
-        return next;
-      });
-    };
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
   }, []);
   const getLatestAssetNode = useCallback((nodeId: string) => (
     nodesRef.current.find(node => node.id === nodeId && node.type === "asset") || null
@@ -8690,7 +8461,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
   const [downloadGroupId, setDownloadGroupId] = useState<string | null>(null);
   const [downloadFormat, setDownloadFormat] = useState<'jpg' | 'png' | 'webp'>('png');
-  const [canvasExportFormat, setCanvasExportFormat] = useState<'psd' | 'jpg' | 'svg'>('jpg');
   const [assetMorePanel, setAssetMorePanel] = useState<{ command: string; nodeId: string } | null>(null);
   const closeAssetMorePanel = useCallback(() => {
     const previewNodeId = assetMorePanel?.nodeId;
@@ -8704,6 +8474,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       return { ...n, data: restData };
     }));
   }, [assetMorePanel?.nodeId, setNodes]);
+  const containerRef = useRef<HTMLDivElement>(null);
   const middlePanRef = useRef<{ clientX: number; clientY: number; viewport: { x: number; y: number; zoom: number } } | null>(null);
   const historyRef = useRef<{ nodes: Node[]; edges: Edge[] }[]>([]);
   const MAX_HISTORY_STEPS = 50;
@@ -8730,7 +8501,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   // key: nodeId, value: { x, y } 记录按下 Alt 时节点的原始位置
   const altDragOriginRef = useRef<Map<string, { x: number; y: number }>>(new Map());
   const isAltDragRef = useRef(false);
-  const dragStartPositionRef = useRef<Map<string, { x: number; y: number }>>(new Map());
   // ── 工具模式 ──
   const [activeToolMode, setActiveToolMode] = useState<string>("move");
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -8880,11 +8650,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [pendingRect, setPendingRect] = useState<DrawRect | null>(null); // 松开鼠标后待确认
   const [canvasInputW, setCanvasInputW] = useState("");
   const [canvasInputH, setCanvasInputH] = useState("");
-  const [canvasNameInput, setCanvasNameInput] = useState("");
-  const [canvasSocialPresetId, setCanvasSocialPresetId] = useState("");
   const [canvasBgColor, setCanvasBgColor] = useState("#2a2a30"); // 默认深灰色
   const [presetOpen, setPresetOpen] = useState(false); // 预设尺寸下拉展开状态
-  const [socialPresetOpen, setSocialPresetOpen] = useState(false);
   // 色彩选择器的 DOM ref（必须在组件顶层声明，不能在 IIFE 内）
   const colorSbRef = useRef<HTMLDivElement>(null);
   const colorHueRef = useRef<HTMLDivElement>(null);
@@ -9901,11 +9668,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const selectedFrameNodes = nodes.filter(n => actionIds.includes(n.id) && n.type === "canvasFrame");
       if (selectedAssetNodes.length === 0) {
         if (selectedFrameNodes.length > 0) {
-          const frameNode = selectedFrameNodes[0];
-          setDownloadGroupId(null);
-          setCanvasExportFormat("jpg");
-          setDownloadDialogOpen(true);
-          (window as unknown as Record<string, unknown>).__artx_canvas_export_node__ = frameNode;
+          toast("画布下载即将上线", { description: "当前画布节点已接入图片同款命令入口，导出画布内容会后续接入" });
           return;
         }
         toast("没有可下载的图片节点");
@@ -10175,35 +9938,21 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     clearInactiveAssetCommands(nextSelectedIds);
     const selectedVisualIds = new Set(
       selectedNodes
-        .filter(node => isTopLayerNodeType(node.type))
+        .filter(node => node.type === "asset" || node.type === "canvasFrame")
         .map(node => node.id)
     );
     if (selectedVisualIds.size > 0) {
       setNodes(nds => {
         const selectedVisualNodes = nds.filter(node => selectedVisualIds.has(node.id));
         if (selectedVisualNodes.length === 0) return nds;
-        const topZ = getNextTopZ(nds);
+        const topZ = Math.max(0, ...nds.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
         const raisedVisualNodes = selectedVisualNodes.map(node => ({ ...node, zIndex: topZ }));
-        const selectedFrameIds = new Set(selectedVisualNodes.filter(node => node.type === "canvasFrame").map(node => node.id));
-        const embeddedAssetIds = new Set(
-          nds
-            .filter(node => node.type === "asset" && selectedFrameIds.has((node.data as Record<string, unknown>).embeddedInFrame as string))
-            .map(node => node.id)
-        );
-        const raisedEmbeddedAssets = nds
-          .filter(node => embeddedAssetIds.has(node.id))
-          .map(node => ({ ...node, zIndex: topZ + 1 }));
         const selectedVisualOrder = selectedVisualNodes.map(node => node.id).join(",");
         const currentTopOrder = nds.slice(-selectedVisualNodes.length).map(node => node.id).join(",");
-        if (
-          embeddedAssetIds.size === 0 &&
-          selectedVisualOrder === currentTopOrder &&
-          selectedVisualNodes.every(node => (node.zIndex || 0) >= topZ - 1)
-        ) return nds;
+        if (selectedVisualOrder === currentTopOrder && selectedVisualNodes.every(node => (node.zIndex || 0) >= topZ - 1)) return nds;
         return [
-          ...nds.filter(node => !selectedVisualIds.has(node.id) && !embeddedAssetIds.has(node.id)),
+          ...nds.filter(node => !selectedVisualIds.has(node.id)),
           ...raisedVisualNodes,
-          ...raisedEmbeddedAssets,
         ];
       });
     }
@@ -10306,11 +10055,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         },
       };
       pushHistory();
-      setNodes(nds => [
-        ...nds.map(n => ({ ...n, selected: false })),
-        { ...newNode, selected: true, zIndex: getNextTopZ(nds) },
-      ]);
-      setSelectedNodeIds([id]);
+      setNodes(nds => [...nds, newNode]);
       // 创建完成后自动切换回移动工具
       window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
     }
@@ -10334,13 +10079,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     freehandNodeOriginRef.current = flowOrigin;
     setNodes(nds => {
       pushHistory(nds, edgesRef.current);
-      return [...nds.map(n => ({ ...n, selected: false })), {
+      return [...nds, {
         id: nid,
         type: "freehand",
         position: flowOrigin,
         style: { width: 1, height: 1 },
-        selected: true,
-        zIndex: getNextTopZ(nds),
         data: {
           id: nid,
           width: 1, height: 1,
@@ -10352,7 +10095,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       }];
     });
     setFreehandNodeId(nid);
-    setSelectedNodeIds([nid]);
   }, [activeToolMode, edgesRef, pushHistory, screenToFlowPosition, setNodes]);
 
   const handleFreehandMouseMove = useCallback((e: React.MouseEvent) => {
@@ -10457,18 +10199,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const newAnchor: PenAnchor = { x: 0, y: 0, type: isAlt ? "corner" : "smooth", inDx: 0, inDy: 0, outDx: 0, outDy: 0 };
       setNodes(nds => {
         pushHistory(nds, edgesRef.current);
-        return [...nds.map(n => ({ ...n, selected: false })), {
+        return [...nds, {
           id: nid,
           type: "pen",
           position: flowPos,
           style: { width: 1, height: 1 },
-          selected: true,
-          zIndex: getNextTopZ(nds),
           data: { id: nid, width: 1, height: 1, anchors: [newAnchor], closed: false, anchorEditMode: true, stroke: "#6366f1", strokeWidth: 2, fill: "none", opacity: 1 },
         }];
       });
       setPenNodeId(nid);
-      setSelectedNodeIds([nid]);
       // 记录拖拽手柄起始信息
       penDragHandleRef.current = { startX: screenX, startY: screenY, anchorIdx: 0 };
     } else {
@@ -10618,13 +10357,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       };
       setNodes(nds => {
         pushHistory(nds, edgesRef.current);
-        return [...nds.map(n => ({ ...n, selected: false })), {
+        return [...nds, {
           id: nodeId,
           type: "shape",
           position: flowPos,
           style: { width: fw, height: fh },
-          selected: true,
-          zIndex: getNextTopZ(nds),
           data: {
             id: nodeId,
             shapeType,
@@ -10639,7 +10376,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           },
         }];
       });
-      setSelectedNodeIds([nodeId]);
       return;
     }
 
@@ -10653,8 +10389,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     if (!pendingRect) return;
     const w = parseInt(canvasInputW) || 800;
     const h = parseInt(canvasInputH) || 600;
-    const selectedSocialPreset = SOCIAL_MEDIA_SIZE_PRESETS.find(preset => preset.id === canvasSocialPresetId);
-    const title = canvasNameInput.trim() || (selectedSocialPreset ? `${selectedSocialPreset.platform} ${selectedSocialPreset.title}` : "画板");
     const minX = Math.min(pendingRect.startX, pendingRect.endX);
     const minY = Math.min(pendingRect.startY, pendingRect.endY);
     // 将屏幕坐标转换为 flow 坐标
@@ -10669,24 +10403,20 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         type: "canvasFrame",
         position: flowPos,
         style: { width: w, height: h, background: bgColor },
-        data: { id, title, width: w, height: h, bgColor, socialPresetId: selectedSocialPreset?.id },
+        data: { id, title: "画布", width: w, height: h, bgColor },
       }];
     });
     setPendingRect(null);
     setCanvasInputW("");
     setCanvasInputH("");
-    setCanvasNameInput("");
-    setCanvasSocialPresetId("");
-    // 保持当前工具为「创建画板」，用户可继续拖拽创建新画板
-    toast("画板已创建，可继续拖拽创建", { description: `${title} · ${w} × ${h} px` });
-  }, [canvasBgColor, canvasInputH, canvasInputW, canvasNameInput, canvasSocialPresetId, pendingRect, pushHistory, screenToFlowPosition, setNodes]);
+    // 保持当前工具为「创建画布」，用户可继续拖拽创建新画布
+    toast("画布已创建，可继续拖拽创建", { description: `${w} × ${h} px` });
+  }, [canvasBgColor, canvasInputH, canvasInputW, pendingRect, pushHistory, screenToFlowPosition, setNodes]);
 
   const handleCreateCanvasCancel = useCallback(() => {
     setPendingRect(null);
     setCanvasInputW("");
     setCanvasInputH("");
-    setCanvasNameInput("");
-    setCanvasSocialPresetId("");
   }, []);
 
   // ── 几何形创建确认/取消 ──
@@ -10705,13 +10435,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const id = `shape-${Date.now()}`;
     setNodes(nds => {
       pushHistory(nds, edgesRef.current);
-      return [...nds.map(n => ({ ...n, selected: false })), {
+      return [...nds, {
         id,
         type: "shape",
         position: flowPos,
         style: { width: w, height: h },
-        selected: true,
-        zIndex: getNextTopZ(nds),
         data: {
           id,
           shapeType: shapeDialog.type,
@@ -10724,7 +10452,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         },
       }];
     });
-    setSelectedNodeIds([id]);
     setShapeDialog(null);
     toast(`已创建${shapeDialog.label}`, { description: `${w} × ${h} px` });
   }, [containerRef, edgesRef, pushHistory, screenToFlowPosition, setNodes, shapeCornerRadius, shapeDialog, shapeFill, shapeH, shapeOpacity, shapeStroke, shapeStrokeW, shapeW]);
@@ -11026,119 +10753,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     image.src = src;
   }), []);
 
-  const loadCanvasImage = useCallback((src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
-    const image = new window.Image();
-    image.crossOrigin = "anonymous";
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("图片加载失败"));
-    image.src = src;
-  }), []);
-
-  const renderCanvasFrameToCanvas = useCallback(async (frameNode: Node) => {
-    const frameBounds = getCanvasNodeBounds(frameNode);
-    const frameData = frameNode.data as Record<string, unknown>;
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(frameBounds.width));
-    canvas.height = Math.max(1, Math.round(frameBounds.height));
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("当前浏览器不支持画板导出");
-    ctx.fillStyle = (frameData.bgColor as string) || (frameNode.style?.background as string) || "#2a2a30";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    const embeddedAssets = nodesRef.current
-      .filter(n => n.type === "asset" && (n.data as Record<string, unknown>).embeddedInFrame === frameNode.id)
-      .sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
-
-    for (const assetNode of embeddedAssets) {
-      const src = getNodeImageSrc(assetNode);
-      if (!src) continue;
-      try {
-        const image = await loadCanvasImage(src);
-        const bounds = getCanvasNodeBounds(assetNode);
-        const drawX = bounds.x - frameBounds.x;
-        const drawY = bounds.y - frameBounds.y;
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(0, 0, canvas.width, canvas.height);
-        ctx.clip();
-        ctx.drawImage(image, drawX, drawY, bounds.width, bounds.height);
-        ctx.restore();
-      } catch {
-        // Skip images that cannot be read because the rest of the board can still export.
-      }
-    }
-    return canvas;
-  }, [getNodeImageSrc, loadCanvasImage, nodesRef]);
-
-  const canvasToJpegBlob = useCallback((canvas: HTMLCanvasElement) => new Promise<Blob | null>(resolve => {
-    canvas.toBlob(blob => resolve(blob), "image/jpeg", 0.92);
-  }), []);
-
-  const createFlatPsdBlob = useCallback((canvas: HTMLCanvasElement) => {
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("当前浏览器不支持 PSD 导出");
-    const { width, height } = canvas;
-    const rgba = ctx.getImageData(0, 0, width, height).data;
-    const channelLength = width * height;
-    const header = new Uint8Array(26);
-    const view = new DataView(header.buffer);
-    header.set([0x38, 0x42, 0x50, 0x53], 0); // 8BPS
-    view.setUint16(4, 1); // version
-    view.setUint16(12, 3); // RGB channels
-    view.setUint32(14, height);
-    view.setUint32(18, width);
-    view.setUint16(22, 8); // bits per channel
-    view.setUint16(24, 3); // RGB color mode
-    const emptySection = new Uint8Array(4);
-    const compression = new Uint8Array([0, 0]); // raw data
-    const channels = new Uint8Array(channelLength * 3);
-    for (let i = 0; i < channelLength; i += 1) {
-      channels[i] = rgba[i * 4];
-      channels[channelLength + i] = rgba[i * 4 + 1];
-      channels[channelLength * 2 + i] = rgba[i * 4 + 2];
-    }
-    return new Blob([header, emptySection, emptySection, emptySection, compression, channels], { type: "image/vnd.adobe.photoshop" });
-  }, []);
-
-  const createCanvasFrameSvgBlob = useCallback(async (frameNode: Node) => {
-    const frameBounds = getCanvasNodeBounds(frameNode);
-    const frameData = frameNode.data as Record<string, unknown>;
-    const bg = (frameData.bgColor as string) || (frameNode.style?.background as string) || "#2a2a30";
-    const esc = (value: string) => value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const imageNodes = nodesRef.current
-      .filter(n => n.type === "asset" && (n.data as Record<string, unknown>).embeddedInFrame === frameNode.id)
-      .sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
-    const imageTags = imageNodes.map(node => {
-      const src = getNodeImageSrc(node);
-      if (!src) return "";
-      const bounds = getCanvasNodeBounds(node);
-      return `<image href="${esc(src)}" x="${bounds.x - frameBounds.x}" y="${bounds.y - frameBounds.y}" width="${bounds.width}" height="${bounds.height}" preserveAspectRatio="none" />`;
-    }).join("");
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(frameBounds.width)}" height="${Math.round(frameBounds.height)}" viewBox="0 0 ${Math.round(frameBounds.width)} ${Math.round(frameBounds.height)}"><defs><clipPath id="boardClip"><rect x="0" y="0" width="${Math.round(frameBounds.width)}" height="${Math.round(frameBounds.height)}" /></clipPath></defs><rect width="100%" height="100%" fill="${esc(bg)}" /><g clip-path="url(#boardClip)">${imageTags}</g></svg>`;
-    return new Blob([svg], { type: "image/svg+xml" });
-  }, [getNodeImageSrc, nodesRef]);
-
-  const exportCanvasFrame = useCallback(async (frameNode: Node, format: 'psd' | 'jpg' | 'svg') => {
-    const data = frameNode.data as Record<string, unknown>;
-    const safeName = sanitizeDownloadName((data.title as string) || "artx-board");
-    const toastId = toast.loading("正在导出画板...");
-    try {
-      if (format === "svg") {
-        saveAs(await createCanvasFrameSvgBlob(frameNode), `${safeName}.svg`);
-      } else {
-        const canvas = await renderCanvasFrameToCanvas(frameNode);
-        const blob = format === "psd" ? createFlatPsdBlob(canvas) : await canvasToJpegBlob(canvas);
-        if (!blob) throw new Error("导出结果为空");
-        saveAs(blob, `${safeName}.${format}`);
-      }
-      toast.dismiss(toastId);
-      toast("画板已导出", { description: `${safeName}.${format}` });
-    } catch (error) {
-      toast.dismiss(toastId);
-      toast("画板导出失败", { description: error instanceof Error ? error.message : "请稍后重试" });
-    }
-  }, [canvasToJpegBlob, createCanvasFrameSvgBlob, createFlatPsdBlob, renderCanvasFrameToCanvas, sanitizeDownloadName]);
-
   // ── 批量下载实现：将多个图片打包成 ZIP ──
   const handleBatchDownload = useCallback(async (
     targetNodes: Node[],
@@ -11187,9 +10801,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     // 拖拽开始：记录历史
     pushHistory();
     isDraggingRef.current = true;
-    dragStartPositionRef.current = new Map(
-      nodesRef.current.map(item => [item.id, { x: item.position.x, y: item.position.y }])
-    );
 
     if (!(_event.altKey)) {
       isAltDragRef.current = false;
@@ -11229,7 +10840,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       // 幽灵节点放在数组开头（渲染层最低），被拖动节点在其上方
       return [...ghosts, ...nds];
     });
-  }, [nodes, nodesRef, pushHistory, selectedNodeIds, setNodes]);
+  }, [nodes, pushHistory, selectedNodeIds, setNodes]);
 
   // 拖拽结束时：若是 Alt 拖拽，将幽灵节点升级为正式原图（留在原位），被拖动的节点保持在落点成为副本
   // ── 检测图片节点是否拖入画布帧，若是则嵌入 ──
@@ -11327,62 +10938,32 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     toast(`已复制 ${count} 个图片节点`, { description: "原图保持不动，新副本在拖拽落点" });
   }, [setNodes]);
 
-  const handleNormalNodeDrag = useCallback((_event: MouseEvent, node: Node) => {
-    if (node.type !== "canvasFrame") return;
-    const dragStart = dragStartPositionRef.current.get(node.id);
-    if (!dragStart) return;
-    const dx = node.position.x - dragStart.x;
-    const dy = node.position.y - dragStart.y;
-    setNodes(nds => nds.map(n => {
-      if (n.type !== "asset") return n;
-      const data = n.data as Record<string, unknown>;
-      if (data.embeddedInFrame !== node.id) return n;
-      const start = dragStartPositionRef.current.get(n.id);
-      if (!start) return n;
-      return { ...n, position: { x: start.x + dx, y: start.y + dy }, zIndex: Math.max(n.zIndex || 0, (node.zIndex || 0) + 1) };
-    }));
-  }, [setNodes]);
-
-  // ── 普通拖拽结束：检测图片是否进入画布帧并嵌入/脱离 ──
+  // ── 普通拖拽结束：检测图片是否进入画布帧并嵌入 ──
   const handleNormalDragStop = useCallback((_event: MouseEvent, node: Node) => {
     isDraggingRef.current = false;
+    if (node.type !== "asset") return;
     // 从最新的 nodesRef 中读取当前所有节点
     const allNodes = nodesRef.current;
     const draggedNode = allNodes.find(n => n.id === node.id);
     if (!draggedNode) return;
-    if (draggedNode.type === "canvasFrame") {
-      handleNormalNodeDrag(_event, draggedNode);
-      return;
-    }
-    if (draggedNode.type !== "asset") return;
     const frame = checkAndEmbedIntoFrame(draggedNode, allNodes);
-    const currentFrameId = (draggedNode.data as Record<string, unknown>).embeddedInFrame as string | undefined;
-    if (!frame && !currentFrameId) return;
+    if (!frame) return;
+    // 嵌入：将图片位置转为相对于画布帧的坐标
+    const relX = draggedNode.position.x - frame.position.x;
+    const relY = draggedNode.position.y - frame.position.y;
     setNodes(nds => nds.map(n => {
       if (n.id !== node.id) return n;
-      const data = n.data as Record<string, unknown>;
-      if (!frame) {
-        return {
-          ...n,
-          data: { ...data, embeddedInFrame: undefined, frameClipInsets: undefined },
-          parentId: undefined,
-          extent: undefined,
-        };
-      }
       return {
         ...n,
-        data: { ...data, embeddedInFrame: frame.id },
-        zIndex: Math.max(n.zIndex || 0, (frame.zIndex || 0) + 1),
-        parentId: undefined,
-        extent: undefined,
+        position: { x: relX, y: relY },
+        data: { ...(n.data as Record<string, unknown>), embeddedInFrame: frame.id },
+        zIndex: (frame.zIndex || 0) + 1,
+        parentId: frame.id,
+        extent: "parent" as const,
       };
     }));
-    if (frame && frame.id !== currentFrameId) {
-      toast("图片已放入画板", { description: "图片可在画板内自由移动" });
-    } else if (!frame && currentFrameId) {
-      toast("图片已脱离画板", { description: "图片恢复为自由节点" });
-    }
-  }, [checkAndEmbedIntoFrame, handleNormalNodeDrag, nodesRef, setNodes]);
+    toast("图片已嵌入画布", { description: "图片将随画布一起移动" });
+  }, [checkAndEmbedIntoFrame, nodesRef, setNodes]);
 
   // ── Handle group actions from context menu ──
   const handleGroupAction = useCallback((action: string) => {
@@ -11450,25 +11031,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       if (!detail?.nodeId) return;
       const additive = Boolean(detail.additive);
       setNodes(nds => {
-        const target = nds.find(node => node.id === detail.nodeId && isTopLayerNodeType(node.type));
+        const target = nds.find(node => node.id === detail.nodeId && (node.type === "asset" || node.type === "canvasFrame"));
         if (!target) return nds;
         const selectedIds = new Set(additive ? nds.filter(node => node.selected).map(node => node.id) : []);
         selectedIds.add(target.id);
-        const topZ = getNextTopZ(nds);
+        const topZ = Math.max(0, ...nds.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
         setSelectedNodeIds(Array.from(selectedIds));
-        const embeddedIds = new Set(
-          target.type === "canvasFrame"
-            ? nds
-                .filter(node => node.type === "asset" && (node.data as Record<string, unknown>).embeddedInFrame === target.id)
-                .map(node => node.id)
-            : []
-        );
         return [
-          ...nds
-            .filter(node => node.id !== target.id && !embeddedIds.has(node.id))
-            .map(node => ({ ...node, selected: selectedIds.has(node.id) })),
+          ...nds.filter(node => node.id !== target.id).map(node => ({ ...node, selected: selectedIds.has(node.id) })),
           { ...target, selected: true, zIndex: topZ },
-          ...nds.filter(node => embeddedIds.has(node.id)).map(node => ({ ...node, zIndex: topZ + 1 })),
         ];
       });
     };
@@ -12215,7 +11786,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     try {
       const sourceSize = getCanvasNodeSize(sourceNode);
       const generated = await Promise.all(outputSizes.map(async (item, index) => {
-        const localSrc = await createSocialMediaSizedImage(imageSrc, { width: item.width, height: item.height }, payload.crops?.[item.id] || payload.crop);
+        const localSrc = await createSocialMediaSizedImage(imageSrc, { width: item.width, height: item.height }, payload.crop);
         const displaySize = getImportedImageDisplaySize(item.width, item.height);
         const id = `social-size-${Date.now()}-${index}`;
         return {
@@ -12394,42 +11965,16 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const assetMorePanelData = assetMorePanelNode?.data as Record<string, unknown> | undefined;
   const assetMorePanelImageSrc = assetMorePanel ? getLatestAssetImageSource(assetMorePanel.nodeId) : "";
   const selectedImageBounds = selectedImageNode ? getCanvasNodeBounds(selectedImageNode) : getCanvasNodesBounds(nodes, selectedVisualNodeIds);
-  const selectedImageData = selectedImageNode?.data as Record<string, unknown> | undefined;
-  const selectedImageHasInlineCommandPanel = Boolean(
-    selectedImageData?.isCropping ||
-    selectedImageData?.isErasing ||
-    selectedImageData?.isExpanding ||
-    selectedImageData?.isEditing
-  );
   const attachedImageToolbarPosition = selectedImageBounds
     ? {
         left: selectedImageBounds.x * viewport.zoom + viewport.x - 8,
-        top: selectedImageHasInlineCommandPanel
-          ? Math.max(54, selectedImageBounds.y * viewport.zoom + viewport.y + 36)
-          : selectedImageBounds.centerY * viewport.zoom + viewport.y,
+        top: selectedImageBounds.centerY * viewport.zoom + viewport.y,
       }
     : { left: 31, top: 0 };
   const displayNodes = nodes.map(n => {
-    const nodeData = n.data as Record<string, unknown>;
-    const embeddedFrameId = n.type === "asset" ? nodeData.embeddedInFrame as string | undefined : undefined;
-    const embeddedFrame = embeddedFrameId
-      ? nodes.find(item => item.id === embeddedFrameId && item.type === "canvasFrame")
-      : null;
-    const frameClipInsets = embeddedFrame
-      ? (() => {
-          const assetBounds = getCanvasNodeBounds(n);
-          const frameBounds = getCanvasNodeBounds(embeddedFrame);
-          const left = Math.max(0, Math.round(frameBounds.x - assetBounds.x));
-          const top = Math.max(0, Math.round(frameBounds.y - assetBounds.y));
-          const right = Math.max(0, Math.round(assetBounds.right - frameBounds.right));
-          const bottom = Math.max(0, Math.round(assetBounds.bottom - frameBounds.bottom));
-          return { top, right, bottom, left };
-        })()
-      : undefined;
     const data = {
       ...n.data,
       multiSelectionActive: n.type === "asset" && multiImageSelectionActive && selectedImageNodeIds.includes(n.id),
-      frameClipInsets,
     };
     return n.type === "asset" && editAsset && n.id === editAsset.nodeId
       ? { ...n, data: { ...data, isEditing: true } }
@@ -12579,12 +12124,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         defaultEdgeOptions={{ type: "tapnow" }}
         connectionLineStyle={{ stroke: "rgba(255,255,255,0.5)", strokeWidth: 2.5 }}
         connectionLineType={"bezier" as any}
-        style={{
-          background: canvasBg,
-          width: isAssistantCollapsed
-            ? `calc(100% - ${CANVAS_ASSISTANT_COLLAPSED_PEEK_WIDTH}px)`
-            : `calc(100% - ${assistantPanelWidth}px)`,
-        }}
+        style={{ background: canvasBg, width: isAssistantCollapsed ? "calc(100% - 112px)" : "calc(100% - clamp(280px, 32vw, 372px))" }}
         proOptions={{ hideAttribution: true }}
         selectionOnDrag
         selectionMode={SelectionMode.Partial}
@@ -12598,9 +12138,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         zoomOnScroll={false}
         panOnScroll={!isCanvasLocked}
         onNodeDragStart={handleAltDragStart as any}
-        onNodeDrag={(event, node) => {
-          handleNormalNodeDrag(event as unknown as MouseEvent, node);
-        }}
         onNodeDragStop={(event, node, nodes) => {
           handleAltDragStop(event as unknown as MouseEvent, node);
           handleNormalDragStop(event as unknown as MouseEvent, node);
@@ -12715,53 +12252,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         onMergeReferences={mergeReferencedAssets}
         selectedCount={selectedNodeIds.length}
         helpPromptNonce={helpPromptNonce}
-        panelWidth={assistantPanelWidth}
-        collapsedPeekWidth={CANVAS_ASSISTANT_COLLAPSED_PEEK_WIDTH}
       />
-
-      {!isAssistantCollapsed && (
-        <div
-          className="absolute inset-y-0 nodrag nopan"
-          style={{
-            right: assistantPanelWidth - 5,
-            width: 10,
-            zIndex: 140,
-            cursor: "col-resize",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            pointerEvents: "all",
-          }}
-          onMouseEnter={() => setAssistantSplitterHover(true)}
-          onMouseLeave={() => setAssistantSplitterHover(false)}
-          onMouseDown={handleAssistantSplitterMouseDown}
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="调整画布和对话框宽度"
-          title="拖动调整画布和对话框宽度"
-        >
-          <div
-            style={{
-              width: 2,
-              height: "100%",
-              borderRadius: 999,
-              background: assistantSplitterHover || assistantSplitterDragging
-                ? "oklch(0.62 0.23 290)"
-                : isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)",
-              boxShadow: assistantSplitterHover || assistantSplitterDragging
-                ? "0 0 0 3px oklch(0.62 0.23 290 / 0.10), 0 0 18px rgba(116,70,255,0.22)"
-                : "none",
-              transition: "background 0.16s ease, box-shadow 0.16s ease",
-            }}
-          />
-        </div>
-      )}
 
       {selectedVisualNodeIds.length === 1 && !multiVisualSelectionActive && (
         <AssetFloatingToolbar
           isDark={isDark}
           position={attachedImageToolbarPosition}
-          targetType={selectedImageNode?.type === "canvasFrame" ? "canvasFrame" : "asset"}
           onAction={handleSingleImageToolbarAction}
         />
       )}
@@ -13028,10 +12524,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         <div
           className="fixed inset-0 flex items-center justify-center"
           style={{ background: "rgba(0,0,0,0.60)", backdropFilter: "blur(10px)", zIndex: 6000 }}
-          onMouseDown={() => {
-            setDownloadDialogOpen(false);
-            (window as unknown as Record<string, unknown>).__artx_canvas_export_node__ = undefined;
-          }}
+          onMouseDown={() => setDownloadDialogOpen(false)}
         >
           <div
             className="w-[min(380px,calc(100vw-32px))] rounded-[var(--radius-lg-design)] overflow-hidden shadow-2xl"
@@ -13053,8 +12546,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                   {(() => {
                     const dlNodes = (window as unknown as Record<string, unknown>).__artx_download_nodes__ as Node[] | undefined;
                     const singleDl = (window as unknown as Record<string, unknown>).__artx_single_download__ as { title: string } | undefined;
-                    const canvasExport = (window as unknown as Record<string, unknown>).__artx_canvas_export_node__ as Node | undefined;
-                    if (canvasExport) return "导出画板";
                     if (singleDl && !dlNodes) return `下载图片`;
                     const count = dlNodes?.length || 0;
                     return `批量下载 ${count} 张图片`;
@@ -13062,10 +12553,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 </span>
               </div>
               <button
-                onClick={() => {
-                  setDownloadDialogOpen(false);
-                  (window as unknown as Record<string, unknown>).__artx_canvas_export_node__ = undefined;
-                }}
+                onClick={() => setDownloadDialogOpen(false)}
                 className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-all hover:opacity-70"
                 style={{ color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.50 0.01 270)" }}
               >
@@ -13077,27 +12565,17 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             <div className="px-5 py-4">
               <p className="type-caption mb-3" style={{ color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.50 0.01 270)" }}>选择下载格式</p>
               <div className="flex gap-2">
-                {((window as unknown as Record<string, unknown>).__artx_canvas_export_node__
-                  ? (['psd', 'jpg', 'svg'] as const)
-                  : (['png', 'jpg', 'webp'] as const)
-                ).map(fmt => (
+                {(['png', 'jpg', 'webp'] as const).map(fmt => (
                   <button
                     key={fmt}
-                    onClick={() => {
-                      if ((window as unknown as Record<string, unknown>).__artx_canvas_export_node__) {
-                        setCanvasExportFormat(fmt as 'psd' | 'jpg' | 'svg');
-                      } else {
-                        setDownloadFormat(fmt as 'png' | 'jpg' | 'webp');
-                      }
-                    }}
+                    onClick={() => setDownloadFormat(fmt)}
                     className="flex-1 py-2.5 rounded-[var(--radius-md-design)] type-caption font-medium transition-all"
-                    data-active={((window as unknown as Record<string, unknown>).__artx_canvas_export_node__ ? canvasExportFormat : downloadFormat) === fmt}
                     style={{
-                      background: ((window as unknown as Record<string, unknown>).__artx_canvas_export_node__ ? canvasExportFormat : downloadFormat) === fmt
+                      background: downloadFormat === fmt
                         ? "oklch(0.58 0.22 290 / 0.18)"
                         : (isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 4%)"),
-                      border: `1px solid ${((window as unknown as Record<string, unknown>).__artx_canvas_export_node__ ? canvasExportFormat : downloadFormat) === fmt ? "oklch(0.62 0.22 290 / 0.50)" : (isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)")}`,
-                      color: ((window as unknown as Record<string, unknown>).__artx_canvas_export_node__ ? canvasExportFormat : downloadFormat) === fmt
+                      border: `1px solid ${downloadFormat === fmt ? "oklch(0.62 0.22 290 / 0.50)" : (isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)")}`,
+                      color: downloadFormat === fmt
                         ? (isDark ? "oklch(0.82 0.18 290)" : "oklch(0.42 0.18 290)")
                         : (isDark ? "oklch(0.65 0.008 270)" : "oklch(0.45 0.008 270)"),
                     }}
@@ -13107,19 +12585,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 ))}
               </div>
               <p className="type-caption mt-2" style={{ color: isDark ? "oklch(0.42 0.01 270)" : "oklch(0.58 0.01 270)", fontSize: 11 }}>
-                {(window as unknown as Record<string, unknown>).__artx_canvas_export_node__
-                  ? canvasExportFormat === 'psd' ? 'PSD 为 Photoshop 可打开的扁平画板文件' : canvasExportFormat === 'svg' ? 'SVG 保留画板尺寸和内部图片引用' : 'JPG 导出当前画板视觉内容'
-                  : downloadFormat === 'jpg' ? 'JPEG 有损压缩，文件较小' : downloadFormat === 'webp' ? 'WebP 现代格式，小且清晰' : 'PNG 无损压，支持透明背景'}
+                {downloadFormat === 'jpg' ? 'JPEG 有损压缩，文件较小' : downloadFormat === 'webp' ? 'WebP 现代格式，小且清晰' : 'PNG 无损压，支持透明背景'}
               </p>
             </div>
 
             {/* 操作按钮 */}
             <div className="flex gap-2 px-5 pb-5">
               <button
-                onClick={() => {
-                  setDownloadDialogOpen(false);
-                  (window as unknown as Record<string, unknown>).__artx_canvas_export_node__ = undefined;
-                }}
+                onClick={() => setDownloadDialogOpen(false)}
                 className="flex-1 py-2.5 rounded-[var(--radius-md-design)] type-caption transition-all hover:opacity-80"
                 style={{
                   background: isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)",
@@ -13134,12 +12607,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                   setDownloadDialogOpen(false);
                   const dlNodes = (window as unknown as Record<string, unknown>).__artx_download_nodes__ as Node[] | undefined;
                   const singleDl = (window as unknown as Record<string, unknown>).__artx_single_download__ as { title: string; src: string } | undefined;
-                  const canvasExport = (window as unknown as Record<string, unknown>).__artx_canvas_export_node__ as Node | undefined;
 
-                  if (canvasExport) {
-                    await exportCanvasFrame(canvasExport, canvasExportFormat);
-                    (window as unknown as Record<string, unknown>).__artx_canvas_export_node__ = undefined;
-                  } else if (singleDl && !dlNodes) {
+                  if (singleDl && !dlNodes) {
                     const safeName = sanitizeDownloadName(singleDl.title);
                     const blob = await imageSrcToFormatBlob(singleDl.src, downloadFormat);
                     if (!blob) {
@@ -13269,7 +12738,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const rw = Math.abs(pendingRect.endX - pendingRect.startX);
         const rh = Math.abs(pendingRect.endY - pendingRect.startY);
         // 弹窗宽度
-        const popW = 360;
+        const popW = 240;
         // 默认显示在矩形右侧，若超出视口则显示在左侧
         const containerW = containerRef.current?.offsetWidth || 800;
         const containerH = containerRef.current?.offsetHeight || 600;
@@ -13331,30 +12800,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             >
               {/* 内容区——可滚动 */}
               <div style={{ flex: 1, overflowY: "auto", padding: "14px 14px 0", minHeight: 0 }}>
-              <p style={{ color: text, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>设置画板</p>
-
-              <div style={{ marginBottom: 10 }}>
-                <p style={{ color: sub, fontSize: 10, marginBottom: 4, letterSpacing: "0.04em" }}>画板名称</p>
-                <input
-                  autoFocus
-                  type="text"
-                  value={canvasNameInput}
-                  onChange={e => setCanvasNameInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter") handleCreateCanvasConfirm(); if (e.key === "Escape") handleCreateCanvasCancel(); }}
-                  placeholder="例如：小红书笔记封面"
-                  style={{
-                    width: "100%",
-                    background: inputBg,
-                    border: `1px solid ${inputBorder}`,
-                    borderRadius: 6,
-                    outline: "none",
-                    color: text,
-                    fontSize: 12,
-                    padding: "7px 8px",
-                    boxSizing: "border-box",
-                  }}
-                />
-              </div>
+              <p style={{ color: text, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>设置画布尺寸</p>
 
               {/* 预设尺寸——可折叠下拉区域 */}
               {(() => {
@@ -13415,95 +12861,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                         <span style={{ fontSize: 11, color: sub, marginLeft: "auto" }}>{p.desc}</span>
                       </button>
                     ))}
-                  </div>
-                );
-              })()}
-
-              {/* 社媒平台尺寸——复用图片命令中的规格库 */}
-              {(() => {
-                const selectedSocialPreset = SOCIAL_MEDIA_SIZE_PRESETS.find(preset => preset.id === canvasSocialPresetId);
-                const groupedPlatforms = Array.from(new Set(SOCIAL_MEDIA_SIZE_PRESETS.map(preset => preset.platform)));
-                return (
-                  <div style={{ marginBottom: 10, borderRadius: 7, border: `1px solid ${isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"}`, overflow: "hidden" }}>
-                    <button
-                      onClick={() => setSocialPresetOpen(v => !v)}
-                      style={{
-                        display: "flex", alignItems: "center", justifyContent: "space-between",
-                        width: "100%", padding: "7px 10px",
-                        background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
-                        border: "none", cursor: "pointer", color: text,
-                      }}
-                    >
-                      <span style={{ fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                        <Sparkles size={13} />
-                        <span>社媒平台尺寸</span>
-                        {selectedSocialPreset && (
-                          <span style={{ color: "oklch(0.65 0.22 290)", fontSize: 11, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {selectedSocialPreset.platform} · {selectedSocialPreset.title}
-                          </span>
-                        )}
-                      </span>
-                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
-                        style={{ transform: socialPresetOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.18s", flexShrink: 0 }}>
-                        <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </button>
-                    {socialPresetOpen && (
-                      <div style={{ maxHeight: 236, overflowY: "auto", borderTop: `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"}`, scrollbarWidth: "thin" }}>
-                        {groupedPlatforms.map(platform => (
-                          <div key={platform}>
-                            <div style={{
-                              position: "sticky", top: 0, zIndex: 1,
-                              display: "flex", alignItems: "center", gap: 7,
-                              padding: "7px 10px 5px",
-                              background: isDark ? "rgba(22,22,30,0.96)" : "rgba(255,255,255,0.96)",
-                              color: sub, fontSize: 11, fontWeight: 650,
-                            }}>
-                              <SocialPlatformIcon platform={platform} size={15} />
-                              {platform}
-                            </div>
-                            {SOCIAL_MEDIA_SIZE_PRESETS.filter(preset => preset.platform === platform).map(preset => {
-                              const active = preset.id === canvasSocialPresetId;
-                              return (
-                                <button
-                                  key={preset.id}
-                                  onClick={() => {
-                                    setCanvasSocialPresetId(preset.id);
-                                    setCanvasInputW(String(preset.width));
-                                    setCanvasInputH(String(preset.height));
-                                    if (!canvasNameInput.trim()) setCanvasNameInput(`${preset.platform} ${preset.title}`);
-                                  }}
-                                  style={{
-                                    display: "grid",
-                                    gridTemplateColumns: "1fr auto",
-                                    gap: 8,
-                                    alignItems: "center",
-                                    width: "100%",
-                                    padding: "7px 10px",
-                                    background: active ? (isDark ? "rgba(147,108,255,0.16)" : "rgba(147,108,255,0.10)") : "transparent",
-                                    border: "none",
-                                    borderTop: `1px solid ${isDark ? "rgba(255,255,255,0.045)" : "rgba(0,0,0,0.045)"}`,
-                                    color: text,
-                                    cursor: "pointer",
-                                    textAlign: "left",
-                                  }}
-                                  onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.background = isDark ? "rgba(255,255,255,0.055)" : "rgba(0,0,0,0.035)"; }}
-                                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = active ? (isDark ? "rgba(147,108,255,0.16)" : "rgba(147,108,255,0.10)") : "transparent"; }}
-                                >
-                                  <span style={{ minWidth: 0 }}>
-                                    <span style={{ display: "block", fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{preset.title}</span>
-                                    <span style={{ display: "block", marginTop: 1, color: sub, fontSize: 10 }}>{Math.round((preset.width / preset.height) * 100) / 100}:1</span>
-                                  </span>
-                                  <span style={{ color: active ? "oklch(0.74 0.18 290)" : sub, fontSize: 11, fontWeight: 650, whiteSpace: "nowrap" }}>
-                                    {preset.width} × {preset.height}
-                                  </span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        ))}
-                      </div>
-                    )}
                   </div>
                 );
               })()}
@@ -13624,6 +12981,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                   <p style={{ color: sub, fontSize: 10, marginBottom: 4, letterSpacing: "0.04em" }}>宽度 W</p>
                   <div style={{ display: "flex", alignItems: "center", background: inputBg, border: `1px solid ${inputBorder}`, borderRadius: 6, overflow: "hidden" }}>
                     <input
+                      autoFocus
                       type="number"
                       min={1}
                       value={canvasInputW}

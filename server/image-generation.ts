@@ -703,46 +703,6 @@ function clearNearTransparentPixels(data: Buffer, alphaThreshold = 20) {
   }
 }
 
-async function featherAlphaEdges(data: Buffer, width: number, height: number) {
-  const alpha = Buffer.alloc(width * height);
-  for (let pixel = 0; pixel < alpha.length; pixel += 1) {
-    alpha[pixel] = data[pixel * 4 + 3];
-  }
-
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const pixel = y * width + x;
-      const index = pixel * 4;
-      const currentAlpha = alpha[pixel];
-      let hasOpaqueNeighbor = false;
-      let hasTransparentNeighbor = false;
-
-      for (let dy = -1; dy <= 1; dy += 1) {
-        for (let dx = -1; dx <= 1; dx += 1) {
-          if (dx === 0 && dy === 0) continue;
-          const nx = x + dx;
-          const ny = y + dy;
-          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
-          const neighborAlpha = alpha[(ny * width) + nx];
-          if (neighborAlpha >= 248) hasOpaqueNeighbor = true;
-          if (neighborAlpha <= 8) hasTransparentNeighbor = true;
-        }
-      }
-
-      if (currentAlpha <= 8) {
-        data[index + 3] = hasOpaqueNeighbor ? 72 : 0;
-      } else if (currentAlpha >= 248) {
-        data[index + 3] = hasTransparentNeighbor ? 236 : 255;
-      } else if (hasOpaqueNeighbor || hasTransparentNeighbor) {
-        data[index + 3] = Math.max(160, Math.min(236, currentAlpha));
-      } else {
-        data[index + 3] = currentAlpha >= 180 ? 255 : 0;
-      }
-    }
-  }
-  clearNearTransparentPixels(data, 12);
-}
-
 async function returnOriginalImageAsTransparentPng(buffer: Buffer): Promise<{ images: GeneratedImage[] }> {
   const sharp = (await import("sharp")).default;
   const { data, info } = await sharp(buffer, { limitInputPixels: false })
@@ -777,17 +737,15 @@ async function removeBackgroundByConservativeEdgeColor(buffer: Buffer): Promise<
   const width = info.width;
   const height = info.height;
   const output = Buffer.from(data);
-  const backgroundMask = createConnectedEdgeBackgroundMask(output, width, height, 34);
-  const hardBackground = erodeBinaryMask(backgroundMask, width, height, 1);
+  const backgroundMask = createConnectedEdgeBackgroundMask(output, width, height, 58);
 
   let transparentPixels = 0;
-  for (let pixel = 0; pixel < hardBackground.length; pixel += 1) {
-    if (!hardBackground[pixel]) continue;
+  for (let pixel = 0; pixel < backgroundMask.length; pixel += 1) {
+    if (!backgroundMask[pixel]) continue;
     output[pixel * 4 + 3] = 0;
     transparentPixels += 1;
   }
   clearNearTransparentPixels(output);
-  await featherAlphaEdges(output, width, height);
 
   if (transparentPixels / (width * height) < 0.01) {
     throw new Error("Edge-color fallback did not find removable background");
@@ -829,7 +787,11 @@ async function applyConservativeAlphaMaskToOriginalImage(originalBuffer: Buffer,
   const backgroundCandidates = new Uint8Array(totalPixels);
   for (let index = 0; index < maskData.length; index += 4) {
     const pixel = index / 4;
-    if (maskData[index + 3] <= 96) backgroundCandidates[pixel] = 1;
+    if (maskData[index + 3] <= 220) backgroundCandidates[pixel] = 1;
+  }
+  const edgeBackground = createConnectedEdgeBackgroundMask(originalData, width, height, 58);
+  for (let pixel = 0; pixel < totalPixels; pixel += 1) {
+    if (edgeBackground[pixel]) backgroundCandidates[pixel] = 1;
   }
   const connectedBackground = createConnectedMaskFromEdgeCandidates(backgroundCandidates, width, height);
   const hardBackground = erodeBinaryMask(connectedBackground, width, height, 1);
@@ -840,14 +802,13 @@ async function applyConservativeAlphaMaskToOriginalImage(originalBuffer: Buffer,
     if (hardBackground[pixel]) {
       output[index + 3] = 0;
       transparentPixels += 1;
-    } else if (featherBackground[pixel] && maskData[index + 3] <= 160) {
-      output[index + 3] = Math.min(originalData[index + 3], Math.max(160, maskData[index + 3]));
+    } else if (featherBackground[pixel] && maskData[index + 3] < 240) {
+      output[index + 3] = Math.min(originalData[index + 3], Math.max(64, maskData[index + 3]));
     } else {
       output[index + 3] = originalData[index + 3];
     }
   }
   clearNearTransparentPixels(output);
-  await featherAlphaEdges(output, width, height);
 
   if (transparentPixels / totalPixels < 0.03) {
     console.warn("Background removal produced little transparent area; using edge-color fallback");
@@ -907,7 +868,11 @@ async function applyRawAlphaMaskToOriginalImage(originalBuffer: Buffer, alphaMas
   const output = Buffer.from(originalData);
   const backgroundCandidates = new Uint8Array(totalPixels);
   for (let pixel = 0; pixel < totalPixels; pixel += 1) {
-    if (alphaMaskBuffer[pixel] <= 96) backgroundCandidates[pixel] = 1;
+    if (alphaMaskBuffer[pixel] <= 220) backgroundCandidates[pixel] = 1;
+  }
+  const edgeBackground = createConnectedEdgeBackgroundMask(originalData, width, height, 58);
+  for (let pixel = 0; pixel < totalPixels; pixel += 1) {
+    if (edgeBackground[pixel]) backgroundCandidates[pixel] = 1;
   }
   const connectedBackground = createConnectedMaskFromEdgeCandidates(backgroundCandidates, width, height);
   const hardBackground = erodeBinaryMask(connectedBackground, width, height, 1);
@@ -919,14 +884,13 @@ async function applyRawAlphaMaskToOriginalImage(originalBuffer: Buffer, alphaMas
     if (hardBackground[pixel]) {
       output[index + 3] = 0;
       transparentPixels += 1;
-    } else if (featherBackground[pixel] && alphaMaskBuffer[pixel] <= 160) {
-      output[index + 3] = Math.min(originalData[index + 3], Math.max(160, alphaMaskBuffer[pixel]));
+    } else if (featherBackground[pixel] && alphaMaskBuffer[pixel] < 240) {
+      output[index + 3] = Math.min(originalData[index + 3], Math.max(64, alphaMaskBuffer[pixel]));
     } else {
       output[index + 3] = originalData[index + 3];
     }
   }
   clearNearTransparentPixels(output);
-  await featherAlphaEdges(output, width, height);
 
   if (transparentPixels / totalPixels < 0.03) {
     console.warn("Raw alpha mask did not remove enough background; using edge-color fallback");
@@ -1178,57 +1142,6 @@ async function createLocalEraseFallback(sourceBuffer: Buffer, maskSrc: string, w
   };
 }
 
-async function normalizeEraseMaskForProvider(maskSrc: string, width: number, height: number): Promise<File> {
-  const sharp = (await import("sharp")).default;
-  const { buffer: maskBuffer } = await imageSrcToBuffer(maskSrc);
-  const { data: maskData } = await sharp(maskBuffer, { limitInputPixels: false })
-    .rotate()
-    .resize(width, height, { fit: "fill" })
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-
-  const editable = new Uint8Array(width * height);
-  for (let index = 0; index < maskData.length; index += 4) {
-    if (maskData[index + 3] < 245) editable[index / 4] = 1;
-  }
-
-  const expanded = new Uint8Array(editable);
-  const radius = 2;
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const pixel = y * width + x;
-      if (!editable[pixel]) continue;
-      for (let dy = -radius; dy <= radius; dy += 1) {
-        for (let dx = -radius; dx <= radius; dx += 1) {
-          if ((dx * dx) + (dy * dy) > radius * radius) continue;
-          const nx = x + dx;
-          const ny = y + dy;
-          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
-          expanded[(ny * width) + nx] = 1;
-        }
-      }
-    }
-  }
-
-  const output = Buffer.alloc(width * height * 4, 255);
-  for (let pixel = 0; pixel < expanded.length; pixel += 1) {
-    const index = pixel * 4;
-    if (!expanded[pixel]) continue;
-    output[index] = 0;
-    output[index + 1] = 0;
-    output[index + 2] = 0;
-    output[index + 3] = 0;
-  }
-
-  const png = await sharp(output, {
-    raw: { width, height, channels: 4 },
-    limitInputPixels: false,
-  }).png().toBuffer();
-
-  return bufferToImageFile(png, "image/png");
-}
-
 async function imageSrcToFile(src: string): Promise<File> {
   const { buffer, mimeType } = await imageSrcToBuffer(src);
   return bufferToImageFile(buffer, mimeType);
@@ -1435,20 +1348,17 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<{ image
   const targetWidth = coerceTargetDimension(input.targetWidth) || sourceImageDimensions.width;
   const targetHeight = coerceTargetDimension(input.targetHeight) || sourceImageDimensions.height;
   const sourceImage = bufferToImageFile(sourceImageData.buffer, sourceImageData.mimeType);
-  const maskImage = await normalizeEraseMaskForProvider(input.maskSrc, targetWidth, targetHeight);
+  const maskImage = await imageSrcToFile(input.maskSrc);
   const selectedModel = input.model && supportedImageModels.has(input.model) ? input.model : model;
   const prompt = [
-    input.prompt || "Remove the visible object, text, mark, or scene element covered by the transparent mask area.",
-    "The transparent mask is the only editable area. White mask pixels are protected pixels and must remain unchanged.",
-    "Completely remove all content touched by the editable area, including edges and semi-transparent residue.",
-    "Reconstruct only the erased area with plausible surrounding background, texture, lighting, perspective, and shadows.",
-    "Do not blur the erased area. Do not leave ghosting, halos, smudges, copied fragments, or softened patches.",
-    "Do not regenerate the whole image. Preserve every unmasked pixel, subject, background, color, camera angle, and composition exactly.",
+    input.prompt || "Remove only the objects or scene elements covered by the mask.",
+    "The mask is the only editable area. Preserve every unmasked pixel, subject, background, lighting, color, camera angle, and composition exactly.",
+    "Do not regenerate the whole image. Do not change anything outside the mask. Fill only the masked region with natural surrounding background.",
   ].join(" ");
   const editSize = getEditSizeForAspect(targetWidth, targetHeight);
   const fallbackErase = () => {
     if (input.disableLocalFallback) {
-      throw new Error("AI 图片编辑未返回可用内容，请稍后重试或切换支持图片编辑的模型");
+      throw new Error("AI 扩图未返回可用内容，请稍后重试或切换支持图片编辑的模型");
     }
     return createLocalEraseFallback(sourceImageData.buffer, input.maskSrc, targetWidth, targetHeight);
   };
