@@ -69,5 +69,9 @@ export async function searchReferenceImages(query: string, limit = 10): Promise<
     .filter((item): item is ReferenceImageResult => Boolean(item))
     .slice(0, Math.max(8, Math.min(limit, 10)));
 
+  if (images.length === 0) {
+    throw new Error("No reference images found");
+  }
+
   return { images };
 }

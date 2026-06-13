@@ -7688,7 +7688,20 @@ function CanvasAssistantPanel({
         allowReferenceSearch: !hasAnnotationReferences,
       });
 
-      const generateAssistantImage = async (imagePrompt: string) => {
+      if (decision.mode === "reference_search" && !hasAnnotationReferences) {
+        const searchQuery = decision.searchQuery?.trim() || submittedText;
+        const result = await searchReferenceImages({ query: searchQuery, limit: 10 });
+        setMessages(prev => [...prev, {
+          id: `assistant-reference-${Date.now()}`,
+          role: "assistant",
+          content: decision.followUp || `我先帮你抓了 ${result.images.length} 张「${searchQuery}」参考图，你先选几张最接近你想法的方向，我再继续追问或直接出图。`,
+          timestamp: new Date(),
+          referenceOptions: result.images,
+          referenceSearchQuery: searchQuery,
+          followUpPrompt: `我已经记住你选中的「${searchQuery}」参考图了。接下来告诉我你最想保留的风格、构图、色彩或主体特征，我会继续判断是追问还是直接出图。`,
+        }]);
+      } else if (decision.mode === "image" || hasAnnotationReferences) {
+        const imagePrompt = decision.imagePrompt?.trim() || routedPrompt;
         const generationId = `right-assistant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         const shouldEditTargetReference = assistantImages.length >= 2;
         const targetReference = shouldEditTargetReference ? assistantImages[assistantImages.length - 1] : undefined;
@@ -7728,28 +7741,6 @@ function CanvasAssistantPanel({
           content: `已根据你的请求生成图片：${imagePrompt}`,
           timestamp: new Date(),
         }]);
-      };
-
-      if (decision.mode === "reference_search" && !hasAnnotationReferences) {
-        const searchQuery = decision.searchQuery?.trim() || submittedText;
-        try {
-          const result = await searchReferenceImages({ query: searchQuery, limit: 10 });
-          if (result.images.length === 0) throw new Error("No reference images found");
-          setMessages(prev => [...prev, {
-            id: `assistant-reference-${Date.now()}`,
-            role: "assistant",
-            content: decision.followUp || `我先帮你抓了 ${result.images.length} 张「${searchQuery}」参考图，你先选几张最接近你想法的方向，我再继续追问或直接出图。`,
-            timestamp: new Date(),
-            referenceOptions: result.images,
-            referenceSearchQuery: searchQuery,
-            followUpPrompt: `我已经记住你选中的「${searchQuery}」参考图了。接下来告诉我你最想保留的风格、构图、色彩或主体特征，我会继续判断是追问还是直接出图。`,
-          }]);
-        } catch {
-          await generateAssistantImage(submittedComposerPrompt || submittedText || searchQuery);
-        }
-      } else if (decision.mode === "image" || hasAnnotationReferences) {
-        const imagePrompt = decision.imagePrompt?.trim() || routedPrompt;
-        await generateAssistantImage(imagePrompt);
       } else {
         setMessages(prev => [...prev, {
           id: `assistant-${Date.now()}`,
