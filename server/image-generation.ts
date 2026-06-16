@@ -634,6 +634,31 @@ function createConnectedMaskFromEdgeCandidates(candidates: Uint8Array, width: nu
   return visited;
 }
 
+function createForegroundProtectionMaskFromAlpha(alphaAt: (pixel: number) => number, width: number, height: number) {
+  const totalPixels = width * height;
+  const foreground = new Uint8Array(totalPixels);
+  const likelyForegroundThreshold = 72;
+
+  for (let pixel = 0; pixel < totalPixels; pixel += 1) {
+    if (alphaAt(pixel) >= likelyForegroundThreshold) foreground[pixel] = 1;
+  }
+
+  const closeRadius = Math.max(2, Math.min(6, Math.round(Math.max(width, height) / 280)));
+  const closed = erodeBinaryMask(dilateBinaryMask(foreground, width, height, closeRadius), width, height, Math.max(1, closeRadius - 1));
+  const inverse = new Uint8Array(totalPixels);
+  for (let pixel = 0; pixel < totalPixels; pixel += 1) {
+    inverse[pixel] = closed[pixel] ? 0 : 1;
+  }
+
+  const edgeBackground = createConnectedMaskFromEdgeCandidates(inverse, width, height);
+  const protectedForeground = new Uint8Array(totalPixels);
+  for (let pixel = 0; pixel < totalPixels; pixel += 1) {
+    protectedForeground[pixel] = edgeBackground[pixel] ? 0 : 1;
+  }
+
+  return dilateBinaryMask(protectedForeground, width, height, 1);
+}
+
 function dilateBinaryMask(mask: Uint8Array, width: number, height: number, radius: number) {
   const output = new Uint8Array(mask);
   const radiusSquared = radius * radius;
@@ -787,11 +812,17 @@ async function applyConservativeAlphaMaskToOriginalImage(originalBuffer: Buffer,
   const backgroundCandidates = new Uint8Array(totalPixels);
   for (let index = 0; index < maskData.length; index += 4) {
     const pixel = index / 4;
-    if (maskData[index + 3] <= 220) backgroundCandidates[pixel] = 1;
+    if (maskData[index + 3] <= 112) backgroundCandidates[pixel] = 1;
   }
+  const foregroundProtection = createForegroundProtectionMaskFromAlpha(
+    (pixel) => maskData[pixel * 4 + 3],
+    width,
+    height,
+  );
   const edgeBackground = createConnectedEdgeBackgroundMask(originalData, width, height, 58);
   for (let pixel = 0; pixel < totalPixels; pixel += 1) {
-    if (edgeBackground[pixel]) backgroundCandidates[pixel] = 1;
+    if (!foregroundProtection[pixel] && edgeBackground[pixel]) backgroundCandidates[pixel] = 1;
+    if (foregroundProtection[pixel]) backgroundCandidates[pixel] = 0;
   }
   const connectedBackground = createConnectedMaskFromEdgeCandidates(backgroundCandidates, width, height);
   const hardBackground = erodeBinaryMask(connectedBackground, width, height, 1);
@@ -802,7 +833,7 @@ async function applyConservativeAlphaMaskToOriginalImage(originalBuffer: Buffer,
     if (hardBackground[pixel]) {
       output[index + 3] = 0;
       transparentPixels += 1;
-    } else if (featherBackground[pixel] && maskData[index + 3] < 240) {
+    } else if (!foregroundProtection[pixel] && featherBackground[pixel] && maskData[index + 3] < 240) {
       output[index + 3] = Math.min(originalData[index + 3], Math.max(64, maskData[index + 3]));
     } else {
       output[index + 3] = originalData[index + 3];
@@ -868,11 +899,17 @@ async function applyRawAlphaMaskToOriginalImage(originalBuffer: Buffer, alphaMas
   const output = Buffer.from(originalData);
   const backgroundCandidates = new Uint8Array(totalPixels);
   for (let pixel = 0; pixel < totalPixels; pixel += 1) {
-    if (alphaMaskBuffer[pixel] <= 220) backgroundCandidates[pixel] = 1;
+    if (alphaMaskBuffer[pixel] <= 112) backgroundCandidates[pixel] = 1;
   }
+  const foregroundProtection = createForegroundProtectionMaskFromAlpha(
+    (pixel) => alphaMaskBuffer[pixel],
+    width,
+    height,
+  );
   const edgeBackground = createConnectedEdgeBackgroundMask(originalData, width, height, 58);
   for (let pixel = 0; pixel < totalPixels; pixel += 1) {
-    if (edgeBackground[pixel]) backgroundCandidates[pixel] = 1;
+    if (!foregroundProtection[pixel] && edgeBackground[pixel]) backgroundCandidates[pixel] = 1;
+    if (foregroundProtection[pixel]) backgroundCandidates[pixel] = 0;
   }
   const connectedBackground = createConnectedMaskFromEdgeCandidates(backgroundCandidates, width, height);
   const hardBackground = erodeBinaryMask(connectedBackground, width, height, 1);
@@ -884,7 +921,7 @@ async function applyRawAlphaMaskToOriginalImage(originalBuffer: Buffer, alphaMas
     if (hardBackground[pixel]) {
       output[index + 3] = 0;
       transparentPixels += 1;
-    } else if (featherBackground[pixel] && alphaMaskBuffer[pixel] < 240) {
+    } else if (!foregroundProtection[pixel] && featherBackground[pixel] && alphaMaskBuffer[pixel] < 240) {
       output[index + 3] = Math.min(originalData[index + 3], Math.max(64, alphaMaskBuffer[pixel]));
     } else {
       output[index + 3] = originalData[index + 3];
