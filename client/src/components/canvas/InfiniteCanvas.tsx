@@ -77,6 +77,7 @@ import RotateEditor from "@/components/canvas/RotateEditor";
 import { callLLM, editImageWithPrompt, eraseImageObjects, expandImageWithMask, generateImages as generateAiImages, removeImageBackground, requestAiAuth, searchReferenceImages, type ReferenceImageResult } from "@/lib/ai";
 import { routeCreativeIntent } from "@/lib/ai-intent";
 import { createWorkspaceHistoryProject, touchWorkspaceProjectHistory, updateWorkspaceProjectHistory } from "@/lib/project-history";
+import { buildSkillPromptContext, PENDING_SKILL_LOAD_KEY, type PendingSkillLoad } from "@/lib/skill-store";
 import generationGradient from "@/assets/generation/ai-generation-gradient.png";
 import generationMark from "@/assets/generation/ai-generation-mark.svg";
 
@@ -150,7 +151,12 @@ function ModelSelector({ model, onChange, isDark }: { model: string; onChange: (
                 onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
               >
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: m.color, flexShrink: 0, display: "inline-block" }} />
-                <span className="type-caption" style={{ textTransform: "none", letterSpacing: "0.02em" }}>{m.label}</span>
+                <span className="flex min-w-0 flex-col leading-tight">
+                  <span className="type-caption" style={{ textTransform: "none", letterSpacing: "0.02em" }}>{m.label}</span>
+                  {"description" in m && m.description ? (
+                    <span className="truncate" style={{ fontSize: 10, opacity: 0.58, letterSpacing: 0 }}>{m.description}</span>
+                  ) : null}
+                </span>
               </button>
             ))}
           </div>
@@ -1043,12 +1049,12 @@ function AssetFloatingToolbar({ isDark, position, onAction }: {
     { icon: <PanelTopOpen size={15} />, label: "编辑元素", action: "edit-elements" },
     { icon: <Type size={15} />, label: "编辑文字", action: "edit-text" },
     { icon: <Move size={15} />, label: "移动对象", action: "move-object" },
+    { icon: <Expand size={15} />, label: "扩展", action: "expand", dot: true },
     { icon: <MoreHorizontal size={15} />, label: "更多", action: "more", dot: true },
     { icon: <Download size={15} />, label: "下载", action: "download" },
   ];
   const moreItems = [
     { icon: <Shirt size={18} />, label: "社媒平台尺寸", action: "mockup" },
-    { icon: <Expand size={18} />, label: "扩展", action: "expand", dot: true },
     { icon: <ImageIcon size={18} />, label: "调整", action: "adjust", dot: true },
     { icon: <Frame size={18} />, label: "矢量", action: "vector", dot: true, cost: 9 },
     { icon: <RotateCw size={18} />, label: "翻转与旋转", action: "flip-rotate", dot: true },
@@ -1241,6 +1247,28 @@ const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
 ];
 
 function SocialPlatformIcon({ platform, size = 22 }: { platform: string; size?: number }) {
+  const brandColors: Record<string, string> = {
+    "小红书": "#FF2442",
+    "抖音": "#000000",
+    "TikTok": "#000000",
+    "视频号": "#07C160",
+    "公众号": "#07C160",
+    "快手": "#FF4906",
+    "B站": "#00A1D6",
+    "微博": "#E6162D",
+    "Facebook": "#1877F2",
+    "X": "#000000",
+    "Instagram": "#E4405F",
+    "LinkedIn": "#0A66C2",
+    "YouTube": "#FF0000",
+    "Pinterest": "#E60023",
+    "亚马逊": "#FF9900",
+    "虾皮": "#EE4D2D",
+    "淘宝 / 天猫": "#FF5000",
+    "京东": "#E1251B",
+    "拼多多": "#E02E24",
+  };
+  const brandColor = brandColors[platform] || "#6D5DFB";
   const common = {
     width: size,
     height: size,
@@ -1249,58 +1277,31 @@ function SocialPlatformIcon({ platform, size = 22 }: { platform: string; size?: 
     xmlns: "http://www.w3.org/2000/svg",
     "aria-hidden": true,
   };
-  const fill = "rgba(255,255,255,0.96)";
-  const stroke = "rgba(255,255,255,0.96)";
-  const strokeProps = { stroke, strokeWidth: 1.9, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  const icon = "rgba(255,255,255,0.96)";
+  const strokeProps = { stroke: icon, strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  const wrap = (children: React.ReactNode) => (
+    <svg {...common}>
+      <rect x="1.5" y="1.5" width="21" height="21" rx="6" fill={brandColor} />
+      {children}
+    </svg>
+  );
 
-  if (platform === "小红书") return (
-    <svg {...common}><rect x="4" y="4" width="16" height="16" rx="4" fill={fill} /><path d="M8 9h8M8 13h8M9 17h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" style={{ color: "rgba(0,0,0,0.22)" }} /></svg>
-  );
-  if (platform === "抖音" || platform === "TikTok") return (
-    <svg {...common}><path d="M14 4v9.2a4.2 4.2 0 1 1-3.2-4.1V12a1.8 1.8 0 1 0 1.2 1.7V4h2z" fill={fill} /><path d="M14 5.5c1.2 2 2.6 3 4.5 3.2v2.4c-2-.1-3.5-.8-4.5-1.8V5.5z" fill={fill} /></svg>
-  );
-  if (platform === "视频号" || platform === "公众号") return (
-    <svg {...common}><path d="M5 8.5c0-2 1.9-3.7 4.3-3.7 1.6 0 3 .7 3.8 1.8.5-.2 1.1-.3 1.7-.3 2.3 0 4.2 1.6 4.2 3.7s-1.9 3.7-4.2 3.7h-.4l-2.1 2.2.4-2.6a4.6 4.6 0 0 1-1.3-.9c-.6.2-1.3.3-2 .3h-.6l-2.5 2.4.6-2.9A4.1 4.1 0 0 1 5 8.5z" fill={fill} /><circle cx="8.7" cy="8.8" r=".8" fill="rgba(0,0,0,0.22)" /><circle cx="12.4" cy="8.8" r=".8" fill="rgba(0,0,0,0.22)" /></svg>
-  );
-  if (platform === "快手") return (
-    <svg {...common}><rect x="5" y="7" width="12" height="10" rx="3" fill={fill} /><circle cx="8.2" cy="5.8" r="2" fill={fill} /><circle cx="13" cy="5.8" r="2" fill={fill} /><path d="m17 11 3-2v6l-3-2v-2z" fill={fill} /><circle cx="9.3" cy="12" r="1.2" fill="rgba(0,0,0,0.22)" /><circle cx="13.2" cy="12" r="1.2" fill="rgba(0,0,0,0.22)" /></svg>
-  );
-  if (platform === "B站") return (
-    <svg {...common}><rect x="4" y="7" width="16" height="12" rx="3" fill={fill} /><path d="m8 4 2.5 3M16 4l-2.5 3" {...strokeProps} /><circle cx="9.5" cy="13" r="1" fill="rgba(0,0,0,0.22)" /><circle cx="14.5" cy="13" r="1" fill="rgba(0,0,0,0.22)" /></svg>
-  );
-  if (platform === "微博") return (
-    <svg {...common}><ellipse cx="11" cy="13" rx="7" ry="5" fill={fill} /><circle cx="9" cy="12.5" r="1.1" fill="rgba(0,0,0,0.22)" /><circle cx="13" cy="12.5" r="1.1" fill="rgba(0,0,0,0.22)" /><path d="M15.8 6.2c1.7.3 2.9 1.4 3.3 3M16.3 3.4c3 .6 5 2.7 5.5 5.7" {...strokeProps} /></svg>
-  );
-  if (platform === "Facebook") return (
-    <svg {...common}><path d="M14 8.2h2.2V5h-2.6c-2.8 0-4.4 1.7-4.4 4.3V12H7v3.2h2.2V21H13v-5.8h2.8l.5-3.2H13V9.7c0-.9.4-1.5 1-1.5z" fill={fill} /></svg>
-  );
-  if (platform === "X") return (
-    <svg {...common}><path d="M4 4h4.7l4.2 5.6L17.7 4H21l-6.5 7.6L21 20h-4.7l-4.6-6.1L6.5 20H3.2l7-8.1L4 4zm3 2.2 10.5 11.6H18L7.6 6.2H7z" fill={fill} /></svg>
-  );
-  if (platform === "Instagram") return (
-    <svg {...common}><rect x="5" y="5" width="14" height="14" rx="4" fill={fill} /><circle cx="12" cy="12" r="3.1" fill="none" stroke="rgba(0,0,0,0.22)" strokeWidth="1.8" /><circle cx="16.2" cy="7.8" r="1" fill="rgba(0,0,0,0.22)" /></svg>
-  );
-  if (platform === "LinkedIn") return (
-    <svg {...common}><rect x="4" y="4" width="16" height="16" rx="3" fill={fill} /><rect x="7" y="10" width="2.4" height="7" fill="rgba(0,0,0,0.22)" /><circle cx="8.2" cy="7.6" r="1.3" fill="rgba(0,0,0,0.22)" /><path d="M11.2 10h2.2v1c.5-.7 1.2-1.2 2.2-1.2 1.7 0 2.7 1.2 2.7 3.3V17h-2.4v-3.5c0-1-.5-1.6-1.2-1.6s-1.2.5-1.2 1.6V17h-2.3v-7z" fill="rgba(0,0,0,0.22)" /></svg>
-  );
-  if (platform === "YouTube") return (
-    <svg {...common}><rect x="3.5" y="7" width="17" height="10" rx="3" fill={fill} /><path d="m10.5 10 4 2-4 2v-4z" fill="rgba(0,0,0,0.24)" /></svg>
-  );
-  if (platform === "Pinterest") return (
-    <svg {...common}><circle cx="12" cy="12" r="8.5" fill={fill} /><path d="M11.1 15.2c-.4 1.7-.8 3.1-1.8 4.4-.2-1.6-.3-3.1.2-4.8l1.1-4.5s-.3-.6-.3-1.4c0-1.3.8-2.3 1.8-2.3.8 0 1.2.6 1.2 1.4 0 .9-.6 2.2-.9 3.4-.2 1 .5 1.8 1.5 1.8 1.8 0 3-2.2 3-4.8 0-2-1.3-3.5-3.8-3.5-2.8 0-4.5 2.1-4.5 4.4 0 .8.2 1.4.6 1.9.2.2.2.3.1.6l-.2.8c-.1.3-.3.4-.6.3-1.3-.5-1.9-1.9-1.9-3.5 0-2.6 2.2-5.8 6.7-5.8 3.6 0 6 2.6 6 5.4 0 3.7-2.1 6.5-5.2 6.5-1 0-2-.5-2.4-1.1l-.6 2.8z" fill="rgba(0,0,0,0.22)" transform="scale(.78) translate(3.4 1.7)" /></svg>
-  );
-  if (platform === "亚马逊") return (
-    <svg {...common}><path d="M5 7.5h14l-1.2 11H6.2L5 7.5z" fill={fill} /><path d="M9 7.5a3 3 0 0 1 6 0" {...strokeProps} /><path d="M8 14c2.4 1.7 5.4 1.7 8 0" stroke="rgba(0,0,0,0.24)" strokeWidth="1.6" strokeLinecap="round" /></svg>
-  );
-  if (platform === "虾皮") return (
-    <svg {...common}><path d="M6 8h12l-1 11H7L6 8z" fill={fill} /><path d="M9 8a3 3 0 0 1 6 0" {...strokeProps} /><path d="M10 15.4c.7.5 1.5.8 2.4.8 1.1 0 1.8-.5 1.8-1.2 0-.8-.7-1.1-1.9-1.5-1.2-.4-2.1-.9-2.1-2s.9-2 2.3-2c.8 0 1.5.2 2.1.6" stroke="rgba(0,0,0,0.24)" strokeWidth="1.35" strokeLinecap="round" /></svg>
-  );
-  if (platform === "淘宝 / 天猫" || platform === "京东" || platform === "拼多多") return (
-    <svg {...common}><rect x="4" y="6" width="16" height="13" rx="3" fill={fill} /><path d="M8 6a4 4 0 0 1 8 0" {...strokeProps} /><path d="M8 13h8M10 10h4M10 16h4" stroke="rgba(0,0,0,0.22)" strokeWidth="1.5" strokeLinecap="round" /></svg>
-  );
-  return (
-    <svg {...common}><rect x="5" y="5" width="14" height="14" rx="4" fill={fill} /><path d="M8 13.5 10.5 11l2.1 2.1 2.9-3.2L18 13.5V17H6v-3.5h2z" fill="rgba(0,0,0,0.22)" /></svg>
-  );
+  if (platform === "小红书") return wrap(<><rect x="6" y="5.8" width="12" height="12.4" rx="3.2" {...strokeProps} /><path d="M8.4 10h7.2M8.4 13h7.2M9.5 16h5" {...strokeProps} /></>);
+  if (platform === "抖音" || platform === "TikTok") return wrap(<><path d="M14 5.2v8.2a3.9 3.9 0 1 1-3.1-3.8v2.6a1.55 1.55 0 1 0 1.1 1.5V5.2h2z" fill={icon} /><path d="M14 6.2c1 1.7 2.4 2.7 4.1 2.9v2.1c-1.7-.1-3-.7-4.1-1.6V6.2z" fill={icon} /></>);
+  if (platform === "视频号" || platform === "公众号") return wrap(<><path d="M5.8 9c0-2 1.9-3.6 4.2-3.6 1.5 0 2.8.6 3.5 1.6.5-.2 1-.3 1.6-.3 2.2 0 4 1.5 4 3.5s-1.8 3.5-4 3.5h-.5l-1.9 2 .4-2.4c-.5-.2-.9-.5-1.2-.8-.6.2-1.2.3-1.9.3h-.6l-2.2 2.1.5-2.6A3.8 3.8 0 0 1 5.8 9z" {...strokeProps} /><circle cx="9" cy="9" r=".7" fill={icon} /><circle cx="12.4" cy="9" r=".7" fill={icon} /></>);
+  if (platform === "快手") return wrap(<><rect x="6" y="8.2" width="10.7" height="8.6" rx="2.7" {...strokeProps} /><circle cx="8.8" cy="6.6" r="1.6" {...strokeProps} /><circle cx="13" cy="6.6" r="1.6" {...strokeProps} /><path d="m16.8 11.2 2.5-1.5v4.6l-2.5-1.5v-1.6z" {...strokeProps} /><circle cx="9.5" cy="12.4" r=".8" fill={icon} /><circle cx="13.2" cy="12.4" r=".8" fill={icon} /></>);
+  if (platform === "B站") return wrap(<><rect x="4.8" y="7.8" width="14.4" height="10.2" rx="3" {...strokeProps} /><path d="m8.3 5.2 2.2 2.6M15.7 5.2l-2.2 2.6" {...strokeProps} /><circle cx="9.7" cy="13" r=".8" fill={icon} /><circle cx="14.3" cy="13" r=".8" fill={icon} /></>);
+  if (platform === "微博") return wrap(<><ellipse cx="11" cy="13" rx="6.3" ry="4.4" {...strokeProps} /><circle cx="9" cy="12.6" r=".8" fill={icon} /><circle cx="12.7" cy="12.6" r=".8" fill={icon} /><path d="M15.7 6.3c1.5.3 2.6 1.3 3 2.8M16.2 4c2.5.5 4.2 2.3 4.7 4.8" {...strokeProps} /></>);
+  if (platform === "Facebook") return wrap(<path d="M14.2 8.4h2V5.3h-2.5c-2.6 0-4.1 1.6-4.1 4.1V12H7.5v3h2.1v5h3.5v-5h2.7l.4-3h-3.1V9.8c0-.9.4-1.4 1.1-1.4z" fill={icon} />);
+  if (platform === "X") return wrap(<path d="M5.2 5.4h3.4l3.6 4.8 4.1-4.8h2.4l-5.3 6.2 5.6 7h-3.4l-3.9-5.2-4.4 5.2H4.8l5.7-6.6-5.3-6.6zm2.2 1.6 8.9 10h.8l-8.9-10h-.8z" fill={icon} />);
+  if (platform === "Instagram") return wrap(<><rect x="5.5" y="5.5" width="13" height="13" rx="4" {...strokeProps} /><circle cx="12" cy="12" r="3.1" {...strokeProps} /><circle cx="16" cy="8" r=".9" fill={icon} /></>);
+  if (platform === "LinkedIn") return wrap(<><rect x="6.2" y="10" width="2.4" height="7.4" fill={icon} /><circle cx="7.4" cy="7.3" r="1.35" fill={icon} /><path d="M11 10h2.2v1c.5-.7 1.2-1.2 2.2-1.2 1.7 0 2.7 1.2 2.7 3.4v4.2h-2.4v-3.8c0-1-.5-1.6-1.2-1.6s-1.2.5-1.2 1.6v3.8H11V10z" fill={icon} /></>);
+  if (platform === "YouTube") return wrap(<><rect x="4.2" y="7.4" width="15.6" height="9.2" rx="3" {...strokeProps} /><path d="m10.7 9.8 4.2 2.2-4.2 2.2V9.8z" fill={icon} /></>);
+  if (platform === "Pinterest") return wrap(<path d="M10.9 15.2c-.4 1.7-.8 3-1.8 4.2-.2-1.5-.2-3 .2-4.6l1-4.1s-.3-.6-.3-1.4c0-1.3.8-2.3 1.8-2.3.8 0 1.2.6 1.2 1.4 0 .8-.5 2.1-.8 3.2-.2 1 .5 1.7 1.5 1.7 1.8 0 3-2.1 3-4.6 0-2-1.3-3.4-3.7-3.4-2.7 0-4.3 2-4.3 4.2 0 .8.2 1.4.6 1.8.2.2.2.3.1.6l-.2.8c-.1.3-.3.4-.6.3-1.2-.5-1.8-1.8-1.8-3.3 0-2.5 2.1-5.5 6.4-5.5 3.5 0 5.8 2.5 5.8 5.2 0 3.5-2 6.2-5 6.2-1 0-1.9-.5-2.3-1.1l-.8 2.7z" fill={icon} transform="scale(.78) translate(3.3 1.8)" />);
+  if (platform === "亚马逊") return wrap(<><path d="M5.8 8h12.4l-1 9.8H6.8L5.8 8z" {...strokeProps} /><path d="M9.2 8a2.8 2.8 0 0 1 5.6 0" {...strokeProps} /><path d="M8.6 14.2c2.1 1.5 4.9 1.5 6.9 0" {...strokeProps} /></>);
+  if (platform === "虾皮") return wrap(<><path d="M6.4 8.2h11.2l-.9 9.8H7.3l-.9-9.8z" {...strokeProps} /><path d="M9.3 8.2a2.7 2.7 0 0 1 5.4 0" {...strokeProps} /><path d="M10 15.2c.7.5 1.5.8 2.3.8 1 0 1.7-.5 1.7-1.1 0-.8-.7-1-1.8-1.4-1.1-.4-2-.9-2-2s.9-1.9 2.2-1.9c.8 0 1.5.2 2 .6" {...strokeProps} /></>);
+  if (platform === "淘宝 / 天猫" || platform === "京东" || platform === "拼多多") return wrap(<><rect x="5" y="7" width="14" height="11" rx="3" {...strokeProps} /><path d="M8.5 7a3.5 3.5 0 0 1 7 0M8.4 13h7.2M10 10.4h4M10 15.5h4" {...strokeProps} /></>);
+  return wrap(<><rect x="5.5" y="5.5" width="13" height="13" rx="4" {...strokeProps} /><path d="M8 13.7 10.4 11l2.1 2.1 2.9-3.2 2.6 3.8V17H6v-3.3h2z" fill={icon} /></>);
 }
 
 const DEFAULT_ASSET_ADJUSTMENTS: AssetAdjustmentValues = {
@@ -2003,7 +2004,7 @@ function AssetPromptPanel({ isDark, assetSrc, onExpand }: {
   isDark: boolean; assetSrc: string; onExpand: () => void;
 }) {
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState("gpt-image-2");
+  const [model, setModel] = useState("auto");
   const panelBg = isDark ? "rgba(22,22,30,0.97)" : "rgba(240,240,248,0.97)";
   const panelBorder = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const textColor = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.20 0.008 270)";
@@ -3163,6 +3164,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
 	            <div
 	              className="absolute inset-0 flex items-center justify-center px-4 text-center type-caption"
 	              style={{
+                  ...frameClipStyle,
 	                color: isDark ? "oklch(0.70 0.01 270)" : "oklch(0.42 0.012 255)",
 	                background: isDark ? "oklch(0.16 0.012 270)" : "oklch(0.94 0.006 255)",
 	              }}
@@ -3526,7 +3528,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
 function ChatNodeComponent({ data, selected }: { data: Record<string, unknown>; selected: boolean }) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-  const [model, setModel] = useState("gpt-image-2");
+  const [model, setModel] = useState("auto");
   const { deleteElements } = useReactFlow();
   const nodeId = (data as { id?: string }).id || "";
 
@@ -5198,12 +5200,14 @@ function getImportedImageDisplaySize(naturalWidth: number, naturalHeight: number
 function BottomPromptBar({
   isDark,
   projectId,
+  activeSkill,
   referencedAssets,
   onRemoveReference,
   onClearAllReferences,
 }: {
   isDark: boolean;
   projectId: string;
+  activeSkill: PendingSkillLoad | null;
   referencedAssets: { id: string; title: string; src: string }[];
   onRemoveReference: (id: string) => void;
   onClearAllReferences: () => void;
@@ -5216,6 +5220,7 @@ function BottomPromptBar({
   const autoRunPromptRef = useRef<string | null>(null);
   const autoRunModelRef = useRef<string | null>(null);
   const hasRefs = referencedAssets.length > 0;
+  const skillContext = activeSkill ? buildSkillPromptContext(activeSkill) : "";
   const bg = isDark ? "rgba(22,22,30,0.80)" : "rgba(255,255,255,0.82)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const activeBorder = "oklch(0.62 0.22 290 / 60%)";
@@ -5238,9 +5243,13 @@ function BottomPromptBar({
         toast("请先登录", { description: "登录后即可使用 AI 能力" });
         return;
       }
-      const submittedPrompt = effectivePrompt;
+      const submittedPrompt = activeSkill && effectivePrompt
+        ? `${skillContext}\n\n用户提示：${effectivePrompt}`
+        : effectivePrompt;
+      const visiblePrompt = effectivePrompt;
       const submittedRefs = typeof overridePrompt === "string" ? [] : referencedAssets.map(asset => ({ ...asset }));
       const selectedGenerationModel = autoRunModelRef.current || model;
+      const selectedTextModel = selectedGenerationModel === "auto" ? "auto" : "gpt-5.4-mini";
       autoRunModelRef.current = null;
       setIsSending(true);
       setPrompt("");
@@ -5280,7 +5289,18 @@ function BottomPromptBar({
           return;
         }
 
-        toast("AI 已回复", { description: (decision.reply || submittedPrompt).slice(0, 120) });
+        const textResult = await callLLM({
+          module: "bottom-global-prompt-chat",
+          model: selectedTextModel,
+          images: submittedRefs.map(asset => ({ src: asset.src, title: asset.title })),
+          prompt: submittedPrompt || visiblePrompt || "请基于当前上下文回复用户。",
+        });
+        toast("AI 已回复", { description: (decision.reply || visiblePrompt || submittedPrompt).slice(0, 120) });
+        window.dispatchEvent(new CustomEvent("canvas-assistant-external-message", {
+          detail: {
+            content: textResult.text || decision.reply || visiblePrompt || submittedPrompt,
+          },
+        }));
       } catch (error) {
         const message = error instanceof Error ? error.message : "请稍后重试";
         toast("全局提示词处理失败", { description: message });
@@ -5333,29 +5353,40 @@ function BottomPromptBar({
     ? referencedAssets.length === 1
       ? `基于「${referencedAssets[0].title}」描述你的创作意图...`
       : `基于 ${referencedAssets.length} 个引用素材描述你的创作意图...`
-    : "描述你想创作的内容，AI 将在画布上生成节点...";
+    : activeSkill
+      ? `已加载「${activeSkill.name}」，描述你想用它生成什么...`
+      : "描述你想创作的内容，AI 将在画布上生成节点...";
 
   return (
     <div
       className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-[var(--radius-lg-design)] shadow-2xl overflow-hidden"
       style={{
         background: bg,
-        border: `1.5px solid ${hasRefs ? activeBorder : border}`,
+        border: `1.5px solid ${hasRefs || activeSkill ? activeBorder : border}`,
         backdropFilter: "blur(20px)",
         width: "min(680px, calc(100% - 420px))",
         zIndex: 50,
         transition: "border-color 0.25s cubic-bezier(0.23,1,0.32,1), box-shadow 0.25s cubic-bezier(0.23,1,0.32,1)",
-        boxShadow: hasRefs
+        boxShadow: hasRefs || activeSkill
           ? `0 0 0 3px oklch(0.62 0.22 290 / 0.12), 0 10px 34px rgba(210,214,224,0.10)`
           : `0 10px 34px rgba(210,214,224,0.10)`,
       }}
     >
       {/* Multi-reference chip row */}
-      {hasRefs && (
+      {(activeSkill || hasRefs) && (
         <div
           className="flex items-center gap-1.5 px-3 pt-2.5 pb-2 flex-wrap"
           style={{ borderBottom: `1px solid ${divider}` }}
         >
+          {activeSkill && (
+            <div
+              className="relative flex items-center gap-1.5 pr-2 pl-2 py-1 rounded-[var(--radius-pill)] type-caption"
+              style={{ background: chipBg, border: `1px solid ${chipBorder}`, color: chipText }}
+            >
+              <Sparkles size={11} />
+              <span>已加载 Skill：{activeSkill.name}</span>
+            </div>
+          )}
           {referencedAssets.map(asset => (
             <div
               key={asset.id}
@@ -5860,7 +5891,7 @@ function AssetEditPromptBar({
 }) {
   const [prompt, setPrompt] = useState("");
   const [uploadedRefs, setUploadedRefs] = useState<Array<{ id: string; title: string; src: string }>>([]);
-  const [model, setModel] = useState("gpt-image-2");
+  const [model, setModel] = useState("auto");
   const [visible, setVisible] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -6296,7 +6327,7 @@ function TopLeftToolbar({ isDark, onAdd }: { isDark: boolean; onAdd: (type: stri
 
 function ImageGeneratorPopover({ isDark, projectId, onClose }: { isDark: boolean; projectId: string; onClose: () => void }) {
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState("gpt-image-2");
+  const [model, setModel] = useState("auto");
   const [modelOpen, setModelOpen] = useState(false);
   const [ratio, setRatio] = useState("1:1");
   const [count, setCount] = useState(2);
@@ -6521,7 +6552,12 @@ function ImageGeneratorPopover({ isDark, projectId, onClose }: { isDark: boolean
                         >
                           <span className="flex min-w-0 items-center gap-2.5">
                             <span className="h-4 w-4 rounded-[var(--radius-pill)] shrink-0" style={{ background: item.color }} />
-                            <span className="truncate type-caption" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>{item.label}</span>
+                            <span className="flex min-w-0 flex-col leading-tight">
+                              <span className="truncate type-caption" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>{item.label}</span>
+                              {"description" in item && item.description ? (
+                                <span className="truncate" style={{ color: sub, fontSize: 10, letterSpacing: 0 }}>{item.description}</span>
+                              ) : null}
+                            </span>
                           </span>
                           {active && <Check size={13} style={{ color: accent, flexShrink: 0 }} />}
                         </button>
@@ -7084,6 +7120,7 @@ function CanvasAssistantPanel({
   projectId,
   isDark,
   collapsed,
+  activeSkill,
   isAuthenticated,
   onToggleCollapsed,
   onLoginRequest,
@@ -7098,6 +7135,7 @@ function CanvasAssistantPanel({
   projectId: string;
   isDark: boolean;
   collapsed: boolean;
+  activeSkill: PendingSkillLoad | null;
   isAuthenticated: boolean;
   onToggleCollapsed: () => void;
   onLoginRequest: () => void;
@@ -7129,14 +7167,14 @@ function CanvasAssistantPanel({
     return stored === "text" ? "text" : "image";
   });
   const [assistantImageModelId, setAssistantImageModelId] = useState(() => {
-    if (typeof window === "undefined") return "gpt-image-2";
+    if (typeof window === "undefined") return "auto";
     const stored = window.localStorage.getItem(CANVAS_ASSISTANT_IMAGE_MODEL_STORAGE_KEY) || window.localStorage.getItem("artx:canvas-assistant-model");
-    return IMAGE_AI_MODELS.some(model => model.id === stored) ? stored! : "gpt-image-2";
+    return IMAGE_AI_MODELS.some(model => model.id === stored) ? stored! : "auto";
   });
   const [assistantTextModelId, setAssistantTextModelId] = useState(() => {
-    if (typeof window === "undefined") return "gpt-5.4";
+    if (typeof window === "undefined") return "auto";
     const stored = window.localStorage.getItem(CANVAS_ASSISTANT_TEXT_MODEL_STORAGE_KEY);
-    return TEXT_AI_MODELS.some(model => model.id === stored) ? stored! : "gpt-5.4";
+    return TEXT_AI_MODELS.some(model => model.id === stored) ? stored! : "auto";
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [regeneratingMessageId, setRegeneratingMessageId] = useState<string | null>(null);
@@ -7258,6 +7296,7 @@ function CanvasAssistantPanel({
   const assistantTextModel = TEXT_AI_MODELS.find(model => model.id === assistantTextModelId) || TEXT_AI_MODELS[0];
   const assistantModelOptions = assistantModelTab === "image" ? IMAGE_AI_MODELS : TEXT_AI_MODELS;
   const assistantModel = assistantModelTab === "image" ? assistantImageModel : assistantTextModel;
+  const activeSkillContext = activeSkill ? buildSkillPromptContext(activeSkill) : "";
 
   const handleReferenceSelectionToggle = useCallback((referenceId: string) => {
     setSelectedReferenceIds(prev => (
@@ -7421,6 +7460,27 @@ function CanvasAssistantPanel({
   }, [projectId]);
 
   useEffect(() => {
+    if (!activeSkill || collapsed) return;
+    const messageId = `skill-load-${activeSkill.id}-${activeSkill.loadedAt}`;
+    setMessages(prev => {
+      if (prev.some(message => message.id === messageId)) return prev;
+      return [...prev, {
+        id: messageId,
+        role: "assistant",
+        content: [
+          `已加载 Skill：${activeSkill.name}`,
+          `类型：${activeSkill.categoryLabel} / ${activeSkill.subcategory}`,
+          activeSkill.summary,
+          "现在你可以在下方输入提示词，我会把这个 skill 的能力接入画布生成流程。",
+        ].join("\n"),
+        timestamp: new Date(),
+      }];
+    });
+    setComposerSegments(prev => getAssistantComposerText(prev) ? prev : [createAssistantTextSegment(`使用「${activeSkill.name}」生成：`)]);
+    focusComposerSegment();
+  }, [activeSkill, collapsed, focusComposerSegment]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     const serialized = JSON.stringify(serializeCanvasAssistantMessages(messages));
     try {
@@ -7453,6 +7513,23 @@ function CanvasAssistantPanel({
     };
     window.addEventListener("ai-image-generated-backup", handler);
     return () => window.removeEventListener("ai-image-generated-backup", handler);
+  }, [collapsed]);
+
+  useEffect(() => {
+    if (collapsed) return;
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ content?: string }>).detail;
+      const content = detail?.content?.trim();
+      if (!content) return;
+      setMessages(prev => [...prev, {
+        id: `external-assistant-${Date.now()}`,
+        role: "assistant",
+        content,
+        timestamp: new Date(),
+      }]);
+    };
+    window.addEventListener("canvas-assistant-external-message", handler);
+    return () => window.removeEventListener("canvas-assistant-external-message", handler);
   }, [collapsed]);
 
   const handleImageBackupDoubleClick = (backup: NonNullable<CanvasAssistantMessage["imageBackup"]>) => {
@@ -7605,8 +7682,11 @@ function CanvasAssistantPanel({
       toast("请输入画布想法或选择对象");
       return;
     }
-    const submittedComposerPrompt = composerPrompt || `请基于${contextLabel || "当前画布"}继续处理。`;
-    const submittedText = composerText || submittedComposerPrompt;
+    const rawSubmittedComposerPrompt = composerPrompt || `请基于${contextLabel || "当前画布"}继续处理。`;
+    const submittedComposerPrompt = activeSkill
+      ? `${activeSkillContext}\n\n用户请求：${rawSubmittedComposerPrompt}`
+      : rawSubmittedComposerPrompt;
+    const submittedText = composerText || rawSubmittedComposerPrompt;
     const submittedImages = composerImages.map(asset => ({ src: asset.src, title: asset.title }));
     const submittedAnnotations = composerAnnotations;
     const userMessage = {
@@ -7642,7 +7722,23 @@ function CanvasAssistantPanel({
       ...submittedAnnotations.map((ann, index) => ({ src: ann.src, title: `注释 ${index + 1} · ${ann.title}` })),
     ];
     try {
-      if (assistantModelTab === "text") {
+      const isAutoAssistantModel =
+        (assistantModelTab === "image" && assistantImageModel.id === "auto") ||
+        (assistantModelTab === "text" && assistantTextModel.id === "auto");
+
+      const decision = isAutoAssistantModel || assistantModelTab === "image"
+        ? await routeCreativeIntent({
+            module: "right-ai-assistant",
+            model: assistantTextModel.id === "auto" ? "auto" : assistantTextModel.id,
+            prompt: routedPrompt,
+            referencedAssets: assistantImages,
+            recentMessages: messages.slice(-8).map(message => ({ role: message.role, content: message.content })),
+            preferImageWhenReferences: true,
+            allowReferenceSearch: !hasAnnotationReferences,
+          })
+        : null;
+
+      if (assistantModelTab === "text" && !isAutoAssistantModel) {
         const result = await callLLM({
           module: "right-ai-assistant-chat",
           model: assistantTextModel.id,
@@ -7661,17 +7757,26 @@ function CanvasAssistantPanel({
         return;
       }
 
-      const decision = await routeCreativeIntent({
-        module: "right-ai-assistant",
-        model: assistantTextModel.id,
-        prompt: routedPrompt,
-        referencedAssets: assistantImages,
-        recentMessages: messages.slice(-8).map(message => ({ role: message.role, content: message.content })),
-        preferImageWhenReferences: true,
-        allowReferenceSearch: !hasAnnotationReferences,
-      });
+      if (isAutoAssistantModel && decision?.mode === "text") {
+        const result = await callLLM({
+          module: "right-ai-assistant-auto-chat",
+          model: "auto",
+          images: assistantImages,
+          messages: [
+            ...messages.slice(-8).map(message => ({ role: message.role, content: message.content })),
+            { role: "user", content: routedPrompt },
+          ],
+        });
+        setMessages(prev => [...prev, {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content: result.text || decision.reply || submittedText,
+          timestamp: new Date(),
+        }]);
+        return;
+      }
 
-      if (decision.mode === "reference_search" && !hasAnnotationReferences) {
+      if (decision?.mode === "reference_search" && !hasAnnotationReferences) {
         const searchQuery = decision.searchQuery?.trim() || submittedText;
         const result = await searchReferenceImages({ query: searchQuery, limit: 10 });
         setMessages(prev => [...prev, {
@@ -7683,8 +7788,8 @@ function CanvasAssistantPanel({
           referenceSearchQuery: searchQuery,
           followUpPrompt: `我已经记住你选中的「${searchQuery}」参考图了。接下来告诉我你最想保留的风格、构图、色彩或主体特征，我会继续判断是追问还是直接出图。`,
         }]);
-      } else if (decision.mode === "image" || hasAnnotationReferences) {
-        const imagePrompt = decision.imagePrompt?.trim() || routedPrompt;
+      } else if (decision?.mode === "image" || hasAnnotationReferences) {
+        const imagePrompt = decision?.imagePrompt?.trim() || routedPrompt;
         const generationId = `right-assistant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         const shouldEditTargetReference = assistantImages.length >= 2;
         const targetReference = shouldEditTargetReference ? assistantImages[assistantImages.length - 1] : undefined;
@@ -7725,10 +7830,19 @@ function CanvasAssistantPanel({
           timestamp: new Date(),
         }]);
       } else {
+        const result = await callLLM({
+          module: "right-ai-assistant-chat",
+          model: assistantTextModel.id === "auto" ? "auto" : assistantTextModel.id,
+          images: assistantImages,
+          messages: [
+            ...messages.slice(-8).map(message => ({ role: message.role, content: message.content })),
+            { role: "user", content: routedPrompt },
+          ],
+        });
         setMessages(prev => [...prev, {
           id: `assistant-${Date.now()}`,
           role: "assistant",
-          content: decision.reply || submittedText,
+          content: result.text || decision?.reply || submittedText,
           timestamp: new Date(),
         }]);
       }
@@ -8138,6 +8252,9 @@ function CanvasAssistantPanel({
                             <div className="w-4 h-4 rounded-[var(--radius-pill)]" style={{ background: model.color }} />
                             <div>
                               <p className="type-caption" style={{ textTransform: "none", letterSpacing: "0.02em" }}>{model.label}</p>
+                              {"description" in model && model.description ? (
+                                <p className="truncate" style={{ color: sub, fontSize: 10, letterSpacing: 0, maxWidth: 150 }}>{model.description}</p>
+                              ) : null}
                             </div>
                           </div>
                           {assistantModel.id === model.id && (
@@ -8380,6 +8497,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [isAssistantCollapsed, setIsAssistantCollapsed] = useState(false);
   const [helpPromptNonce, setHelpPromptNonce] = useState(0);
+  const [activeSkill, setActiveSkill] = useState<PendingSkillLoad | null>(null);
   const [imageGeneratorModalOpen, setImageGeneratorModalOpen] = useState(false);
   const [isCanvasLocked, setIsCanvasLocked] = useState(false);
   // ── Edit-asset state: zoom in on canvas then show editing prompt bar ──
@@ -8407,6 +8525,22 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     toast("请先登录", { description: "登录后即可使用 AI 能力" });
     return false;
   }, [isAuthenticated, openLoginModal]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const raw = window.sessionStorage.getItem(PENDING_SKILL_LOAD_KEY);
+    if (!raw) return;
+    try {
+      const payload = JSON.parse(raw) as PendingSkillLoad;
+      if (!payload?.id || !payload?.name) return;
+      window.sessionStorage.removeItem(PENDING_SKILL_LOAD_KEY);
+      setActiveSkill(payload);
+      setIsAssistantCollapsed(false);
+      toast("Skill 已加载到画布", { description: payload.name });
+    } catch {
+      window.sessionStorage.removeItem(PENDING_SKILL_LOAD_KEY);
+    }
+  }, [projectId]);
 
   useEffect(() => {
     const saved = safeReadCanvasState(projectId);
@@ -12382,6 +12516,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         projectId={projectId}
         isDark={isDark}
         collapsed={isAssistantCollapsed}
+        activeSkill={activeSkill}
         isAuthenticated={isAuthenticated}
         onLoginRequest={openLoginModal}
         onToggleCollapsed={() => setIsAssistantCollapsed(value => !value)}
