@@ -69,6 +69,7 @@ function CreateCanvasIcon({ size = 17 }: { size?: number }) {
 import { useLocation } from "wouter";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
+import type { Psd } from "ag-psd";
 import { GENERATED_ASSETS, IMAGE_AI_MODELS, PROJECTS, TEXT_AI_MODELS, type GeneratedAsset, type Project } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -82,6 +83,9 @@ import generationGradient from "@/assets/generation/ai-generation-gradient.png";
 import generationMark from "@/assets/generation/ai-generation-mark.svg";
 
 const ENABLE_NODE_CONNECTIONS = false;
+const BRAND_PURPLE = "oklch(0.58 0.22 290)";
+const BRAND_PURPLE_2 = "oklch(0.72 0.18 200)";
+const BRAND_PURPLE_GRADIENT = `linear-gradient(135deg, ${BRAND_PURPLE}, ${BRAND_PURPLE_2})`;
 
 // ── Model Selector ─────────────────────────────────────────────
 function ModelSelector({ model, onChange, isDark }: { model: string; onChange: (m: string) => void; isDark: boolean }) {
@@ -1172,6 +1176,70 @@ function AssetFloatingToolbar({ isDark, position, onAction }: {
   );
 }
 
+function CanvasFrameFloatingToolbar({ isDark, position, onAction }: {
+  isDark: boolean;
+  position: { left: number; top: number };
+  onAction: (action: string) => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const toolBg = isDark ? "rgba(22,22,30,0.88)" : "rgba(255,255,255,0.86)";
+  const toolBorder = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)";
+  const iconColor = isDark ? "rgba(255,255,255,0.78)" : "rgba(28,28,40,0.84)";
+  const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+  const tooltipBg = isDark ? "rgba(18,18,26,0.96)" : "rgba(30,30,40,0.92)";
+  return (
+    <div
+      className="absolute nodrag nopan"
+      style={{ left: position.left, top: position.top, transform: "translate(-100%, -50%)", zIndex: 1600 }}
+      onMouseDown={e => e.stopPropagation()}
+      onClick={e => e.stopPropagation()}
+    >
+      <div
+        className="flex flex-col items-center rounded-[var(--radius-md-design)]"
+        style={{
+          background: toolBg,
+          border: `1px solid ${toolBorder}`,
+          backdropFilter: "blur(16px)",
+          boxShadow: isDark ? "0 8px 32px rgba(0,0,0,0.45)" : "0 4px 20px rgba(0,0,0,0.12)",
+          padding: 4,
+        }}
+      >
+        <div className="relative">
+          {hovered && (
+            <div
+              className="absolute left-full ml-2 top-1/2 pointer-events-none"
+              style={{
+                transform: "translateY(-50%)",
+                background: tooltipBg,
+                color: "rgba(255,255,255,0.92)",
+                borderRadius: 6,
+                padding: "4px 9px",
+                fontSize: 11,
+                whiteSpace: "nowrap",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.28)",
+                zIndex: 10,
+              }}
+            >
+              <div style={{ position: "absolute", left: -4, top: "50%", transform: "translateY(-50%)", width: 0, height: 0, borderTop: "4px solid transparent", borderBottom: "4px solid transparent", borderRight: `4px solid ${tooltipBg}` }} />
+              导出画板
+            </div>
+          )}
+          <button
+            aria-label="导出画板"
+            className="relative w-8 h-8 rounded-[var(--radius-md-design)] flex items-center justify-center transition-all active:scale-90"
+            style={{ color: iconColor, background: hovered ? hoverBg : "transparent" }}
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
+            onClick={() => onAction("export-frame")}
+          >
+            <Download size={15} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 type AssetAdjustmentValues = {
   color: number;
@@ -2060,7 +2128,7 @@ function AssetPromptPanel({ isDark, assetSrc, onExpand }: {
         </button>
         <span className="type-caption" style={{ color: chipText }}>1×</span>
         <button className="w-7 h-7 rounded-[var(--radius-pill)] flex items-center justify-center transition-all hover:opacity-90"
-          style={{ background: "oklch(0.58 0.22 290)", color: "white" }}
+          style={{ background: BRAND_PURPLE_GRADIENT, color: "white" }}
           onClick={e => { e.stopPropagation(); if (prompt.trim()) { toast("AI 正在处理图片", { description: prompt.slice(0, 50) }); setPrompt(""); } else toast("请先输入描述"); }}>
           <Send size={12} />
         </button>
@@ -3581,7 +3649,7 @@ function ChatNodeComponent({ data, selected }: { data: Record<string, unknown>; 
           style={{ background: inputBg, border: `1px solid ${inputBorder}` }}>
           <input className="flex-1 bg-transparent type-caption outline-none" style={{ color: text }}
             placeholder="继续对话..." onClick={e => e.stopPropagation()} />
-          <button className="p-1 rounded-[var(--radius-xs)]" style={{ color: subtext }}><Send size={11} /></button>
+          <button className="p-1 rounded-[var(--radius-xs)]" style={{ background: BRAND_PURPLE_GRADIENT, color: "white" }}><Send size={11} color="white" /></button>
         </div>
       </div>
     </NodeWrapper>
@@ -3630,7 +3698,7 @@ function PromptNodeComponent({ data, selected }: { data: Record<string, unknown>
       </div>
       <div className="px-3 pb-3 nodrag nopan">
         <button className="w-full py-1.5 rounded-[var(--radius-md-design)] type-caption flex items-center justify-center gap-1.5 transition-opacity hover:opacity-90 disabled:opacity-60"
-          style={{ background: "oklch(0.58 0.22 290)", color: "white" }}
+          style={{ background: BRAND_PURPLE_GRADIENT, color: "white" }}
           disabled={!prompt.trim() || isGenerating}
           onClick={async () => {
             if (!prompt.trim() || isGenerating) return;
@@ -3941,7 +4009,9 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
     <div
       style={{
         width: w, height: h,
-        background: bg,
+        background: bg.startsWith("#") ? `${bg}80` : bg,
+        opacity: bg.startsWith("#") ? 1 : 0.5,
+        backdropFilter: "blur(2px)",
         border: `1.5px solid ${borderColor}`,
         borderRadius: 8,
         boxSizing: "border-box",
@@ -5456,7 +5526,7 @@ function BottomPromptBar({
           onClick={() => void handleSend()}
           disabled={isSending}
           className="w-7 h-7 rounded-[var(--radius-md-design)] flex items-center justify-center hover:opacity-80"
-          style={{ background: hasContent ? "oklch(0.58 0.22 290)" : (isDark ? "oklch(0.22 0.015 270)" : "oklch(0.88 0.005 270)") }}
+          style={{ background: hasContent ? BRAND_PURPLE_GRADIENT : (isDark ? "oklch(0.22 0.015 270)" : "oklch(0.88 0.005 270)") }}
         >
           {isSending ? <RefreshCw size={13} color="white" className="animate-spin" /> : <Send size={13} color={hasContent ? "white" : (isDark ? "oklch(0.40 0.01 270)" : "oklch(0.65 0.01 270)")} />}
         </button>
@@ -6062,7 +6132,7 @@ function AssetEditPromptBar({
         <button
           onClick={handleSend}
           className="w-7 h-7 rounded-[var(--radius-md-design)] flex items-center justify-center hover:opacity-80 active:scale-90 transition-all"
-          style={{ background: prompt.trim() || uploadedRefs.length > 0 ? "oklch(0.58 0.22 290)" : (isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)") }}
+          style={{ background: prompt.trim() || uploadedRefs.length > 0 ? BRAND_PURPLE_GRADIENT : (isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)") }}
         >
           <Send size={13} color={prompt.trim() || uploadedRefs.length > 0 ? "white" : (isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.30)")} />
         </button>
@@ -8298,16 +8368,16 @@ function CanvasAssistantPanel({
                     disabled={!canSubmit}
                     className="w-12 h-12 rounded-[var(--radius-lg-design)] flex items-center justify-center disabled:cursor-not-allowed transition-all hover:scale-[1.03] active:scale-95"
                     style={{
-                      background: canSubmit || isSubmitting ? "#C5ED47" : (isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"),
-                      color: canSubmit || isSubmitting ? "#000" : sub,
+                      background: canSubmit || isSubmitting ? BRAND_PURPLE_GRADIENT : (isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"),
+                      color: canSubmit || isSubmitting ? "white" : sub,
                       opacity: isAuthenticated ? 1 : 0.65,
-                      boxShadow: canSubmit ? "0 12px 30px rgba(197,237,71,0.24)" : "none",
+                      boxShadow: canSubmit ? "0 12px 30px oklch(0.58 0.22 290 / 0.24)" : "none",
                     }}
                     onClick={handleSubmit}
                     title={isSubmitting ? "处理中" : "发送"}
                     aria-label={isSubmitting ? "处理中" : "发送"}
                   >
-                    {isSubmitting ? <RefreshCw size={16} className="animate-spin" /> : <Send size={18} />}
+                    {isSubmitting ? <RefreshCw size={16} className="animate-spin" /> : <Send size={18} color={canSubmit ? "white" : undefined} />}
                   </button>
                 </div>
               </div>
@@ -8650,7 +8720,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   // ── Download dialog state ──
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
   const [downloadGroupId, setDownloadGroupId] = useState<string | null>(null);
-  const [downloadFormat, setDownloadFormat] = useState<'jpg' | 'png' | 'webp'>('png');
+  const [downloadFormat, setDownloadFormat] = useState<'jpg' | 'png' | 'webp' | 'psd'>('png');
+  const [downloadTargetKind, setDownloadTargetKind] = useState<"image" | "frame">("image");
   const [assetMorePanel, setAssetMorePanel] = useState<{ command: string; nodeId: string } | null>(null);
   const closeAssetMorePanel = useCallback(() => {
     const previewNodeId = assetMorePanel?.nodeId;
@@ -10140,12 +10211,34 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const selectedVisualNodes = nds.filter(node => selectedVisualIds.has(node.id));
         if (selectedVisualNodes.length === 0) return nds;
         const topZ = Math.max(0, ...nds.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
-        const raisedVisualNodes = selectedVisualNodes.map(node => ({ ...node, zIndex: topZ }));
-        const selectedVisualOrder = selectedVisualNodes.map(node => node.id).join(",");
-        const currentTopOrder = nds.slice(-selectedVisualNodes.length).map(node => node.id).join(",");
-        if (selectedVisualOrder === currentTopOrder && selectedVisualNodes.every(node => (node.zIndex || 0) >= topZ - 1)) return nds;
+        const frameIds = new Set(selectedVisualNodes.filter(node => node.type === "canvasFrame").map(node => node.id));
+        const embeddedAssetIds = new Set(
+          nds
+            .filter(node => node.type === "asset" && frameIds.has((node.data as Record<string, unknown>).embeddedInFrame as string))
+            .map(node => node.id)
+        );
+        const raiseIds = new Set(Array.from(selectedVisualIds).concat(Array.from(embeddedAssetIds)));
+        const selectedVisualOrder = Array.from(raiseIds).join(",");
+        const currentTopOrder = nds.slice(-raiseIds.size).map(node => node.id).join(",");
+        if (selectedVisualOrder === currentTopOrder && nds.filter(node => raiseIds.has(node.id)).every(node => (node.zIndex || 0) >= topZ - 1)) return nds;
+        const raisedVisualNodes = nds
+          .filter(node => raiseIds.has(node.id))
+          .sort((a, b) => {
+            const aEmbedded = a.type === "asset" && frameIds.has((a.data as Record<string, unknown>).embeddedInFrame as string);
+            const bEmbedded = b.type === "asset" && frameIds.has((b.data as Record<string, unknown>).embeddedInFrame as string);
+            if (aEmbedded === bEmbedded) return 0;
+            return aEmbedded ? 1 : -1;
+          })
+          .map(node => {
+            const data = node.data as Record<string, unknown>;
+            const parentFrameId = data.embeddedInFrame as string | undefined;
+            return {
+              ...node,
+              zIndex: parentFrameId && frameIds.has(parentFrameId) ? topZ + 1000 : topZ,
+            };
+          });
         return [
-          ...nds.filter(node => !selectedVisualIds.has(node.id)),
+          ...nds.filter(node => !raiseIds.has(node.id)),
           ...raisedVisualNodes,
         ];
       });
@@ -10953,6 +11046,115 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     image.src = src;
   }), []);
 
+  const loadImageElement = useCallback((src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new window.Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("图片加载失败"));
+    image.src = src;
+  }), []);
+
+  const getFrameExportAssetNodes = useCallback((frameNode: Node) => {
+    const frameBounds = getCanvasNodeBounds(frameNode);
+    return nodesRef.current
+      .filter(node => {
+        if (node.type !== "asset") return false;
+        const data = node.data as Record<string, unknown>;
+        if (data.embeddedInFrame === frameNode.id) return true;
+        const bounds = getCanvasNodeBounds(node);
+        return (
+          bounds.right > frameBounds.x &&
+          bounds.x < frameBounds.right &&
+          bounds.bottom > frameBounds.y &&
+          bounds.y < frameBounds.bottom
+        );
+      })
+      .sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
+  }, []);
+
+  const drawAssetToFrameContext = useCallback(async (
+    context: CanvasRenderingContext2D,
+    assetNode: Node,
+    frameBounds: ReturnType<typeof getCanvasNodeBounds>
+  ) => {
+    const src = getNodeImageSrc(assetNode);
+    if (!src) return;
+    const image = await loadImageElement(src);
+    const bounds = getCanvasNodeBounds(assetNode);
+    context.drawImage(
+      image,
+      bounds.x - frameBounds.x,
+      bounds.y - frameBounds.y,
+      bounds.width,
+      bounds.height
+    );
+  }, [getNodeImageSrc, loadImageElement]);
+
+  const exportCanvasFrame = useCallback(async (frameNode: Node, format: "png" | "jpg" | "psd") => {
+    const frameBounds = getCanvasNodeBounds(frameNode);
+    const width = Math.max(1, Math.round(frameBounds.width));
+    const height = Math.max(1, Math.round(frameBounds.height));
+    const title = sanitizeDownloadName(((frameNode.data as Record<string, unknown>).title as string) || "artx-artboard");
+    const assetNodes = getFrameExportAssetNodes(frameNode);
+
+    if (format === "psd") {
+      try {
+        const children: NonNullable<Psd["children"]> = [];
+        for (const assetNode of assetNodes) {
+          const src = getNodeImageSrc(assetNode);
+          if (!src) continue;
+          const image = await loadImageElement(src);
+          const bounds = getCanvasNodeBounds(assetNode);
+          const layerCanvas = document.createElement("canvas");
+          layerCanvas.width = Math.max(1, Math.round(bounds.width));
+          layerCanvas.height = Math.max(1, Math.round(bounds.height));
+          const layerContext = layerCanvas.getContext("2d");
+          if (!layerContext) continue;
+          layerContext.drawImage(image, 0, 0, layerCanvas.width, layerCanvas.height);
+          children.push({
+            name: ((assetNode.data as Record<string, unknown>).title as string) || assetNode.id,
+            left: Math.round(bounds.x - frameBounds.x),
+            top: Math.round(bounds.y - frameBounds.y),
+            right: Math.round(bounds.x - frameBounds.x + bounds.width),
+            bottom: Math.round(bounds.y - frameBounds.y + bounds.height),
+            canvas: layerCanvas,
+          });
+        }
+        const { writePsd } = await import("ag-psd");
+        const psd: Psd = { width, height, children };
+        const buffer = writePsd(psd);
+        saveAs(new Blob([buffer], { type: "application/octet-stream" }), `${title}.psd`);
+        toast("已导出 PSD", { description: "画板内图片已保留为可编辑图层" });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "PSD 生成失败";
+        toast("导出 PSD 失败", { description: message });
+      }
+      return;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      toast("导出失败", { description: "当前浏览器不支持 Canvas 导出" });
+      return;
+    }
+    if (format === "jpg") {
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, width, height);
+    }
+    await Promise.all(assetNodes.map(assetNode => drawAssetToFrameContext(context, assetNode, frameBounds)));
+    canvas.toBlob(blob => {
+      if (!blob) {
+        toast("导出失败", { description: "画板生成图片失败" });
+        return;
+      }
+      saveAs(blob, `${title}.${format}`);
+      toast("已导出画板", { description: `${width} × ${height}px` });
+    }, format === "jpg" ? "image/jpeg" : "image/png", format === "jpg" ? 0.92 : undefined);
+  }, [drawAssetToFrameContext, getFrameExportAssetNodes, getNodeImageSrc, loadImageElement, sanitizeDownloadName]);
+
   // ── 批量下载实现：将多个图片打包成 ZIP ──
   const handleBatchDownload = useCallback(async (
     targetNodes: Node[],
@@ -11141,6 +11343,29 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     toast(`已复制 ${count} 个图片节点`, { description: "原图保持不动，新副本在拖拽落点" });
   }, [setNodes]);
 
+  const syncEmbeddedAssetsWithFrameDrag = useCallback((frameNode: Node) => {
+    if (frameNode.type !== "canvasFrame") return;
+    const dragStart = dragStartPositionRef.current.get(frameNode.id);
+    if (!dragStart) return;
+    const dx = frameNode.position.x - dragStart.x;
+    const dy = frameNode.position.y - dragStart.y;
+    setNodes(nds => nds.map(n => {
+      if (n.id === frameNode.id || n.type !== "asset") return n;
+      const data = n.data as Record<string, unknown>;
+      if (data.embeddedInFrame !== frameNode.id) return n;
+      const start = dragStartPositionRef.current.get(n.id);
+      if (!start) return n;
+      return {
+        ...n,
+        position: { x: start.x + dx, y: start.y + dy },
+      };
+    }));
+  }, [setNodes]);
+
+  const handleNodeDrag = useCallback((_event: MouseEvent, node: Node) => {
+    syncEmbeddedAssetsWithFrameDrag(node);
+  }, [syncEmbeddedAssetsWithFrameDrag]);
+
   // ── 普通拖拽结束：检测图片是否进入画布帧并嵌入/脱离 ──
   const handleNormalDragStop = useCallback((_event: MouseEvent, node: Node) => {
     isDraggingRef.current = false;
@@ -11149,23 +11374,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const draggedNode = allNodes.find(n => n.id === node.id);
     if (!draggedNode) return;
     if (draggedNode.type === "canvasFrame") {
-      const dragStart = dragStartPositionRef.current.get(draggedNode.id);
-      if (!dragStart) return;
-      const dx = draggedNode.position.x - dragStart.x;
-      const dy = draggedNode.position.y - dragStart.y;
-      if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return;
-      setNodes(nds => nds.map(n => {
-        if (n.type !== "asset") return n;
-        const data = n.data as Record<string, unknown>;
-        if (data.embeddedInFrame !== draggedNode.id) return n;
-        const start = dragStartPositionRef.current.get(n.id);
-        return {
-          ...n,
-          position: start
-            ? { x: start.x + dx, y: start.y + dy }
-            : { x: n.position.x + dx, y: n.position.y + dy },
-        };
-      }));
+      syncEmbeddedAssetsWithFrameDrag(draggedNode);
       return;
     }
     if (draggedNode.type !== "asset") return;
@@ -11196,7 +11405,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     } else if (!frame && currentFrameId) {
       toast("图片已脱离画板", { description: "图片恢复为自由节点" });
     }
-  }, [checkAndEmbedIntoFrame, nodesRef, setNodes]);
+  }, [checkAndEmbedIntoFrame, nodesRef, setNodes, syncEmbeddedAssetsWithFrameDrag]);
 
   // ── Handle group actions from context menu ──
   const handleGroupAction = useCallback((action: string) => {
@@ -11614,6 +11823,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const targetNode = nodesRef.current.find(n => n.id === nodeId && (n.type === "asset" || n.type === "canvasFrame"));
     const isCanvasFrame = targetNode?.type === "canvasFrame";
     if (isCanvasFrame) {
+      if (action === "export-frame" || action === "download") {
+        setDownloadTargetKind("frame");
+        setDownloadFormat("png");
+        setDownloadDialogOpen(true);
+        (window as unknown as Record<string, unknown>).__artx_frame_download_node__ = targetNode;
+        return;
+      }
       if (["quick-edit", "edit-elements", "edit-text", "multi-angle", "move-object"].includes(action)) {
         toast("画布命令", { description: "画布节点已复用图片节点命令框架，可拖动、缩放、复制、删除与调整层级" });
         return;
@@ -12185,6 +12401,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setAssetMorePanel(null);
   }, [assetMorePanel, closeAssetMorePanel, getLatestAssetImageSource, nodesRef, pushHistory, runDerivedImageGeneration, setNodes]);
   const selectedImageNode = selectedVisualNodeIds.length === 1 ? nodes.find(n => n.id === selectedVisualNodeIds[0] && (n.type === "asset" || n.type === "canvasFrame")) : null;
+  const selectedCanvasFrameNode = selectedImageNode?.type === "canvasFrame" ? selectedImageNode : null;
   const assetMorePanelNode = assetMorePanel ? nodes.find(n => n.id === assetMorePanel.nodeId && n.type === "asset") : null;
   const assetMorePanelData = assetMorePanelNode?.data as Record<string, unknown> | undefined;
   const assetMorePanelImageSrc = assetMorePanel ? getLatestAssetImageSource(assetMorePanel.nodeId) : "";
@@ -12379,6 +12596,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         zoomOnScroll={false}
         panOnScroll={!isCanvasLocked}
         onNodeDragStart={handleAltDragStart as any}
+        onNodeDrag={handleNodeDrag as any}
         onNodeDragStop={(event, node, nodes) => {
           handleAltDragStop(event as unknown as MouseEvent, node);
           handleNormalDragStop(event as unknown as MouseEvent, node);
@@ -12496,7 +12714,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         helpPromptNonce={helpPromptNonce}
       />
 
-      {selectedVisualNodeIds.length === 1 && !multiVisualSelectionActive && (
+      {selectedVisualNodeIds.length === 1 && !multiVisualSelectionActive && selectedCanvasFrameNode && (
+        <CanvasFrameFloatingToolbar
+          isDark={isDark}
+          position={attachedImageToolbarPosition}
+          onAction={handleSingleImageToolbarAction}
+        />
+      )}
+
+      {selectedVisualNodeIds.length === 1 && !multiVisualSelectionActive && !selectedCanvasFrameNode && (
         <AssetFloatingToolbar
           isDark={isDark}
           position={attachedImageToolbarPosition}
@@ -12766,7 +12992,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         <div
           className="fixed inset-0 flex items-center justify-center"
           style={{ background: "rgba(0,0,0,0.60)", backdropFilter: "blur(10px)", zIndex: 6000 }}
-          onMouseDown={() => setDownloadDialogOpen(false)}
+          onMouseDown={() => {
+            setDownloadDialogOpen(false);
+            if (downloadTargetKind === "frame") {
+              (window as unknown as Record<string, unknown>).__artx_frame_download_node__ = undefined;
+              setDownloadTargetKind("image");
+            }
+          }}
         >
           <div
             className="w-[min(380px,calc(100vw-32px))] rounded-[var(--radius-lg-design)] overflow-hidden shadow-2xl"
@@ -12786,6 +13018,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 </div>
                 <span className="type-caption" style={{ color: isDark ? "oklch(0.85 0.008 270)" : "oklch(0.18 0.008 270)", fontWeight: 600 }}>
                   {(() => {
+                    if (downloadTargetKind === "frame") return "导出画板";
                     const dlNodes = (window as unknown as Record<string, unknown>).__artx_download_nodes__ as Node[] | undefined;
                     const singleDl = (window as unknown as Record<string, unknown>).__artx_single_download__ as { title: string } | undefined;
                     if (singleDl && !dlNodes) return `下载图片`;
@@ -12795,7 +13028,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 </span>
               </div>
               <button
-                onClick={() => setDownloadDialogOpen(false)}
+                onClick={() => {
+                  setDownloadDialogOpen(false);
+                  if (downloadTargetKind === "frame") {
+                    (window as unknown as Record<string, unknown>).__artx_frame_download_node__ = undefined;
+                    setDownloadTargetKind("image");
+                  }
+                }}
                 className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-all hover:opacity-70"
                 style={{ color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.50 0.01 270)" }}
               >
@@ -12807,7 +13046,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             <div className="px-5 py-4">
               <p className="type-caption mb-3" style={{ color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.50 0.01 270)" }}>选择下载格式</p>
               <div className="flex gap-2">
-                {(['png', 'jpg', 'webp'] as const).map(fmt => (
+                {(downloadTargetKind === "frame" ? (['psd', 'jpg', 'png'] as const) : (['png', 'jpg', 'webp'] as const)).map(fmt => (
                   <button
                     key={fmt}
                     onClick={() => setDownloadFormat(fmt)}
@@ -12827,14 +13066,26 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 ))}
               </div>
               <p className="type-caption mt-2" style={{ color: isDark ? "oklch(0.42 0.01 270)" : "oklch(0.58 0.01 270)", fontSize: 11 }}>
-                {downloadFormat === 'jpg' ? 'JPEG 有损压缩，文件较小' : downloadFormat === 'webp' ? 'WebP 现代格式，小且清晰' : 'PNG 无损压，支持透明背景'}
+                {downloadTargetKind === "frame"
+                  ? downloadFormat === "psd"
+                    ? "PSD 保留画板内图片分层，可在 Photoshop 中继续编辑"
+                    : downloadFormat === "jpg"
+                      ? "JPG 按画板原始尺寸导出，白色背景"
+                      : "PNG 按画板原始尺寸导出，支持透明背景"
+                  : downloadFormat === 'jpg' ? 'JPEG 有损压缩，文件较小' : downloadFormat === 'webp' ? 'WebP 现代格式，小且清晰' : 'PNG 无损压，支持透明背景'}
               </p>
             </div>
 
             {/* 操作按钮 */}
             <div className="flex gap-2 px-5 pb-5">
               <button
-                onClick={() => setDownloadDialogOpen(false)}
+                onClick={() => {
+                  setDownloadDialogOpen(false);
+                  if (downloadTargetKind === "frame") {
+                    (window as unknown as Record<string, unknown>).__artx_frame_download_node__ = undefined;
+                    setDownloadTargetKind("image");
+                  }
+                }}
                 className="flex-1 py-2.5 rounded-[var(--radius-md-design)] type-caption transition-all hover:opacity-80"
                 style={{
                   background: isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)",
@@ -12847,12 +13098,19 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               <button
                 onClick={async () => {
                   setDownloadDialogOpen(false);
+                  if (downloadTargetKind === "frame") {
+                    const frameNode = (window as unknown as Record<string, unknown>).__artx_frame_download_node__ as Node | undefined;
+                    if (frameNode) await exportCanvasFrame(frameNode, downloadFormat === "psd" ? "psd" : downloadFormat === "jpg" ? "jpg" : "png");
+                    (window as unknown as Record<string, unknown>).__artx_frame_download_node__ = undefined;
+                    setDownloadTargetKind("image");
+                    return;
+                  }
                   const dlNodes = (window as unknown as Record<string, unknown>).__artx_download_nodes__ as Node[] | undefined;
                   const singleDl = (window as unknown as Record<string, unknown>).__artx_single_download__ as { title: string; src: string } | undefined;
 
                   if (singleDl && !dlNodes) {
                     const safeName = sanitizeDownloadName(singleDl.title);
-                    const blob = await imageSrcToFormatBlob(singleDl.src, downloadFormat);
+                    const blob = await imageSrcToFormatBlob(singleDl.src, downloadFormat === "webp" ? "webp" : downloadFormat === "jpg" ? "jpg" : "png");
                     if (!blob) {
                       toast("下载失败", { description: "当前图片暂时无法保存，请稍后重试" });
                     } else {
@@ -12864,7 +13122,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                     const groupName = downloadGroupId === "__selection__"
                       ? "artx-selected-images"
                       : (groupNames[downloadGroupId || ""] || "artx-group");
-                    await handleBatchDownload(dlNodes, downloadFormat, groupName);
+                    await handleBatchDownload(dlNodes, downloadFormat === "webp" ? "webp" : downloadFormat === "jpg" ? "jpg" : "png", groupName);
                     (window as unknown as Record<string, unknown>).__artx_download_nodes__ = undefined;
                   }
                 }}
