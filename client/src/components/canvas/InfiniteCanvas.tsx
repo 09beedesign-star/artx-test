@@ -7156,7 +7156,7 @@ function CanvasAssistantPanel({
   const chipBg = isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 4%)";
   const elevatedBg = isDark ? "oklch(0.17 0.016 270 / 0.98)" : "oklch(1 0 0 / 0.98)";
   const hoverBg = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 5%)";
-  const activeGlow = "0 0 0 3px oklch(0.60 0.22 285 / 0.12), 0 18px 44px rgba(0,0,0,0.24)";
+  const activeGlow = "0 0 0 3px rgba(197,237,71,0.14), 0 18px 44px rgba(0,0,0,0.24)";
   const inputShadow = "0 16px 42px rgba(210,214,224,0.10), 0 0 0 1px rgba(210,214,224,0.10)";
   const panelWidth = "clamp(280px, 32vw, 372px)";
   const collapsedPeekWidth = 112;
@@ -7810,10 +7810,10 @@ function CanvasAssistantPanel({
                     <div
                       className="rounded-[var(--radius-lg-design)] p-4"
                       style={{
-                        background: isUser ? "linear-gradient(135deg, oklch(0.58 0.22 285), oklch(0.68 0.18 205))" : chipBg,
-                        border: `1px solid ${isUser ? "oklch(0.70 0.18 225 / 0.30)" : border}`,
-                        color: isUser ? "white" : text,
-                        boxShadow: isUser ? "0 10px 24px oklch(0.58 0.22 260 / 0.16)" : "none",
+                        background: isUser ? "#C5ED47" : chipBg,
+                        border: `1px solid ${isUser ? "rgba(197,237,71,0.48)" : border}`,
+                        color: isUser ? "#000" : text,
+                        boxShadow: isUser ? "0 10px 24px rgba(197,237,71,0.16)" : "none",
                       }}
                       onDoubleClick={backup ? () => handleImageBackupDoubleClick(backup) : undefined}
                       title={backup ? "双击可在画布中定位或找回这张图片" : undefined}
@@ -7837,7 +7837,7 @@ function CanvasAssistantPanel({
                         </div>
                       ) : (
                         <div className="flex flex-col gap-3">
-                          <p className="type-caption leading-6 whitespace-pre-wrap" style={{ color: isUser ? "white" : text }}>{message.content}</p>
+                          <p className="type-caption leading-6 whitespace-pre-wrap" style={{ color: isUser ? "#000" : text }}>{message.content}</p>
                           {message.referenceOptions && message.referenceOptions.length > 0 && (
                             <div className="flex flex-col gap-3">
                               <div className="grid grid-cols-2 gap-2">
@@ -7849,9 +7849,9 @@ function CanvasAssistantPanel({
                                       type="button"
                                       className="overflow-hidden rounded-[var(--radius-md-design)] text-left transition-all"
                                       style={{
-                                        border: `1px solid ${active ? "oklch(0.66 0.18 285 / 0.58)" : border}`,
-                                        background: active ? "oklch(0.62 0.20 285 / 0.10)" : "transparent",
-                                        boxShadow: active ? "0 0 0 2px oklch(0.62 0.20 285 / 0.12)" : "none",
+                                        border: `1px solid ${active ? "rgba(197,237,71,0.58)" : border}`,
+                                        background: active ? "rgba(197,237,71,0.12)" : "transparent",
+                                        boxShadow: active ? "0 0 0 2px rgba(197,237,71,0.14)" : "none",
                                       }}
                                       onClick={() => handleReferenceSelectionToggle(item.id)}
                                     >
@@ -7878,8 +7878,8 @@ function CanvasAssistantPanel({
                                   type="button"
                                   className="rounded-[var(--radius-md-design)] px-3 py-1.5 type-caption transition-opacity hover:opacity-85"
                                   style={{
-                                    background: "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.70 0.18 205))",
-                                    color: "white",
+                                    background: "#C5ED47",
+                                    color: "#000",
                                     opacity: selectedReferenceIds.length > 0 ? 1 : 0.5,
                                   }}
                                   disabled={selectedReferenceIds.length === 0}
@@ -7899,7 +7899,7 @@ function CanvasAssistantPanel({
                           <button
                             className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-opacity hover:opacity-75 disabled:opacity-50"
                             style={{
-                              color: regeneratingMessageId === message.id ? "oklch(0.58 0.22 285)" : sub,
+                              color: regeneratingMessageId === message.id ? "#C5ED47" : sub,
                               background: "transparent",
                             }}
                             title="再次生成"
@@ -7938,7 +7938,7 @@ function CanvasAssistantPanel({
               className="relative rounded-[var(--radius-xl-design)] px-3 py-3 transition-all duration-200"
               style={{
                 background: isDark ? "oklch(0.105 0.012 270 / 0.94)" : chipBg,
-                border: `1px solid ${inputFocused ? "oklch(0.66 0.18 270 / 0.42)" : border}`,
+                border: `1px solid ${inputFocused ? "rgba(197,237,71,0.42)" : border}`,
                 boxShadow: inputFocused ? activeGlow : inputShadow,
               }}
             >
@@ -7952,7 +7952,7 @@ function CanvasAssistantPanel({
                       color: text,
                     }}
                   >
-                    <span style={{ width: 14, height: 14, borderRadius: 4, background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.68 0.18 205))", display: "inline-block" }} />
+                    <span style={{ width: 14, height: 14, borderRadius: 4, background: "#C5ED47", display: "inline-block" }} />
                     <span className="truncate">{contextLabel}</span>
                   </span>
                 </div>
@@ -7969,8 +7969,8 @@ function CanvasAssistantPanel({
                         key={segment.id}
                         className="inline-flex max-w-[82px] items-center gap-1 rounded-[var(--radius-md-design)] px-1.5 py-0.5 align-middle"
                         style={{
-                          background: isDark ? "oklch(0.58 0.20 290 / 0.18)" : "oklch(0.58 0.18 290 / 0.10)",
-                          border: `1px solid ${isDark ? "oklch(0.72 0.18 290 / 0.35)" : "oklch(0.52 0.18 290 / 0.30)"}`,
+                          background: isDark ? "rgba(197,237,71,0.16)" : "rgba(197,237,71,0.10)",
+                          border: `1px solid ${isDark ? "rgba(197,237,71,0.36)" : "rgba(138,170,40,0.30)"}`,
                           color: isDark ? "oklch(0.82 0.012 270)" : "oklch(0.28 0.012 270)",
                         }}
                       >
@@ -8106,8 +8106,8 @@ function CanvasAssistantPanel({
                             className="h-7 rounded-[var(--radius-md-design)] type-caption transition-colors"
                             style={{
                               color: assistantModelTab === tab.id ? text : sub,
-                              background: assistantModelTab === tab.id ? "oklch(0.64 0.22 285 / 0.16)" : "transparent",
-                              border: `1px solid ${assistantModelTab === tab.id ? "oklch(0.64 0.22 285 / 0.40)" : "transparent"}`,
+                              background: assistantModelTab === tab.id ? "rgba(197,237,71,0.14)" : "transparent",
+                              border: `1px solid ${assistantModelTab === tab.id ? "rgba(197,237,71,0.40)" : "transparent"}`,
                             }}
                             onClick={() => setAssistantModelTab(tab.id)}
                           >
@@ -8120,9 +8120,9 @@ function CanvasAssistantPanel({
                           key={model.id}
                           type="button"
                           className="flex w-full items-center justify-between px-3 py-2.5 text-left type-caption transition-colors"
-                          style={{ color: text, background: assistantModel.id === model.id ? "oklch(0.64 0.22 285 / 0.12)" : "transparent" }}
+                          style={{ color: text, background: assistantModel.id === model.id ? "rgba(197,237,71,0.12)" : "transparent" }}
                           onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
-                          onMouseLeave={e => (e.currentTarget.style.background = assistantModel.id === model.id ? "oklch(0.64 0.22 285 / 0.12)" : "transparent")}
+                          onMouseLeave={e => (e.currentTarget.style.background = assistantModel.id === model.id ? "rgba(197,237,71,0.12)" : "transparent")}
                           onClick={() => {
                             if (assistantModelTab === "image") {
                               setAssistantImageModelId(model.id);
@@ -8139,7 +8139,7 @@ function CanvasAssistantPanel({
                             </div>
                           </div>
                           {assistantModel.id === model.id && (
-                            <Check size={13} style={{ color: "oklch(0.72 0.22 290)" }} />
+                            <Check size={13} style={{ color: "#C5ED47" }} />
                           )}
                         </button>
                       ))}
@@ -8151,10 +8151,10 @@ function CanvasAssistantPanel({
                     disabled={!canSubmit}
                     className="w-12 h-12 rounded-[var(--radius-lg-design)] flex items-center justify-center disabled:cursor-not-allowed transition-all hover:scale-[1.03] active:scale-95"
                     style={{
-                      background: canSubmit || isSubmitting ? "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.70 0.18 205))" : (isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"),
-                      color: canSubmit || isSubmitting ? "white" : sub,
+                      background: canSubmit || isSubmitting ? "#C5ED47" : (isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"),
+                      color: canSubmit || isSubmitting ? "#000" : sub,
                       opacity: isAuthenticated ? 1 : 0.65,
-                      boxShadow: canSubmit ? "0 12px 30px oklch(0.62 0.22 260 / 0.24)" : "none",
+                      boxShadow: canSubmit ? "0 12px 30px rgba(197,237,71,0.24)" : "none",
                     }}
                     onClick={handleSubmit}
                     title={isSubmitting ? "处理中" : "发送"}
