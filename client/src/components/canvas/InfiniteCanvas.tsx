@@ -153,9 +153,9 @@ function ModelSelector({ model, onChange, isDark }: { model: string; onChange: (
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: m.color, flexShrink: 0, display: "inline-block" }} />
                 <span className="flex min-w-0 flex-col leading-tight">
                   <span className="type-caption" style={{ textTransform: "none", letterSpacing: "0.02em" }}>{m.label}</span>
-                  {"description" in m && m.description ? (
-                    <span className="truncate" style={{ fontSize: 10, opacity: 0.58, letterSpacing: 0 }}>{m.description}</span>
-                  ) : null}
+                  {(() => { const description = (m as unknown as { description?: unknown }).description; return typeof description === "string" && description ? (
+                    <span className="truncate" style={{ fontSize: 10, opacity: 0.58, letterSpacing: 0 }}>{description}</span>
+                  ) : null; })()}
                 </span>
               </button>
             ))}
@@ -6558,9 +6558,9 @@ function ImageGeneratorPopover({ isDark, projectId, onClose }: { isDark: boolean
                             <span className="h-4 w-4 rounded-[var(--radius-pill)] shrink-0" style={{ background: item.color }} />
                             <span className="flex min-w-0 flex-col leading-tight">
                               <span className="truncate type-caption" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>{item.label}</span>
-                              {"description" in item && item.description ? (
-                                <span className="truncate" style={{ color: sub, fontSize: 10, letterSpacing: 0 }}>{item.description}</span>
-                              ) : null}
+                              {(() => { const description = (item as unknown as { description?: unknown }).description; return typeof description === "string" && description ? (
+                                <span className="truncate" style={{ color: sub, fontSize: 10, letterSpacing: 0 }}>{description}</span>
+                              ) : null; })()}
                             </span>
                           </span>
                           {active && <Check size={13} style={{ color: accent, flexShrink: 0 }} />}
@@ -8319,9 +8319,9 @@ function CanvasAssistantPanel({
                             <div className="w-4 h-4 rounded-[var(--radius-pill)]" style={{ background: model.color }} />
                             <div>
                               <p className="type-caption" style={{ textTransform: "none", letterSpacing: "0.02em" }}>{model.label}</p>
-                              {"description" in model && model.description ? (
-                                <p className="truncate" style={{ color: sub, fontSize: 10, letterSpacing: 0, maxWidth: 150 }}>{model.description}</p>
-                              ) : null}
+                              {(() => { const description = (model as unknown as { description?: unknown }).description; return typeof description === "string" && description ? (
+                                <p className="truncate" style={{ color: sub, fontSize: 10, letterSpacing: 0, maxWidth: 150 }}>{description}</p>
+                              ) : null; })()}
                             </div>
                           </div>
                           {assistantModel.id === model.id && (
