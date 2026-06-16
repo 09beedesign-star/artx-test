@@ -2521,6 +2521,14 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const cropY = Math.max(0, Math.min(100, Number((data as { cropY?: number }).cropY ?? 0)));
   const cropW = Math.max(1, Math.min(100 - cropX, Number((data as { cropW?: number }).cropW ?? 100)));
   const cropH = Math.max(1, Math.min(100 - cropY, Number((data as { cropH?: number }).cropH ?? 100)));
+  const frameClipInsets = (data as {
+    frameClipInsets?: { top: number; right: number; bottom: number; left: number };
+  }).frameClipInsets;
+  const frameClipStyle: React.CSSProperties | undefined = frameClipInsets
+    ? {
+        clipPath: `inset(${frameClipInsets.top}px ${frameClipInsets.right}px ${frameClipInsets.bottom}px ${frameClipInsets.left}px)`,
+      }
+    : undefined;
   const imgCropStyle: React.CSSProperties = isCropping || cropX > 0 || cropY > 0 || cropW < 100 || cropH < 100
     ? {
         position: "absolute",
@@ -3083,6 +3091,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
               draggable={false}
               className="absolute inset-0 h-full w-full"
               style={{
+                ...frameClipStyle,
                 objectFit: "cover",
                 filter: "blur(24px) saturate(1.12) brightness(0.78)",
                 transform: "scale(1.14)",
@@ -3096,6 +3105,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
             <div
               className={isGeneratingImage ? "artx-ai-generation-loading absolute inset-0 flex flex-col items-center justify-center gap-3" : "absolute inset-0 flex flex-col items-center justify-center gap-3"}
               style={{
+                ...frameClipStyle,
                 background: isGeneratingImage
                   ? `url(${generationGradient}) center / cover no-repeat`
                   : isDark ? "oklch(0.16 0.018 270)" : "oklch(0.96 0.006 270)",
@@ -3137,6 +3147,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
 	              alt={displayTitle}
               draggable={false}
               style={{
+                ...frameClipStyle,
                 ...imgCropStyle,
                 display: "block",
                 objectFit: "contain",
@@ -8310,6 +8321,33 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
   useEffect(() => { edgesRef.current = edges; }, [edges]);
   useEffect(() => {
+    const legacyEmbeddedNodes = nodes.filter(node =>
+      node.type === "asset" &&
+      Boolean((node.data as Record<string, unknown>).embeddedInFrame) &&
+      Boolean(node.parentId)
+    );
+    if (legacyEmbeddedNodes.length === 0) return;
+    setNodes(nds => nds.map(node => {
+      if (
+        node.type !== "asset" ||
+        !node.parentId ||
+        !(node.data as Record<string, unknown>).embeddedInFrame
+      ) {
+        return node;
+      }
+      const frame = nds.find(item => item.id === node.parentId && item.type === "canvasFrame");
+      const absolutePosition = frame
+        ? { x: frame.position.x + node.position.x, y: frame.position.y + node.position.y }
+        : node.position;
+      return {
+        ...node,
+        position: absolutePosition,
+        parentId: undefined,
+        extent: undefined,
+      };
+    }));
+  }, [nodes, setNodes]);
+  useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ resolve?: (assets: ImageGeneratorReferenceAsset[]) => void }>).detail;
       const selectedAssetIds = new Set(nodesRef.current.filter(node => node.selected && node.type === "asset").map(node => node.id));
@@ -8488,6 +8526,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   // key: nodeId, value: { x, y } 记录按下 Alt 时节点的原始位置
   const altDragOriginRef = useRef<Map<string, { x: number; y: number }>>(new Map());
   const isAltDragRef = useRef(false);
+  const dragStartPositionRef = useRef<Map<string, { x: number; y: number }>>(new Map());
   // ── 工具模式 ──
   const [activeToolMode, setActiveToolMode] = useState<string>("move");
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -10797,6 +10836,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     // 拖拽开始：记录历史
     pushHistory();
     isDraggingRef.current = true;
+    dragStartPositionRef.current = new Map(
+      nodesRef.current.map(item => [item.id, { x: item.position.x, y: item.position.y }])
+    );
 
     if (!(_event.altKey)) {
       isAltDragRef.current = false;
@@ -10836,7 +10878,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       // 幽灵节点放在数组开头（渲染层最低），被拖动节点在其上方
       return [...ghosts, ...nds];
     });
-  }, [nodes, pushHistory, selectedNodeIds, setNodes]);
+  }, [nodes, nodesRef, pushHistory, selectedNodeIds, setNodes]);
 
   // 拖拽结束时：若是 Alt 拖拽，将幽灵节点升级为正式原图（留在原位），被拖动的节点保持在落点成为副本
   // ── 检测图片节点是否拖入画布帧，若是则嵌入 ──
@@ -10934,31 +10976,61 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     toast(`已复制 ${count} 个图片节点`, { description: "原图保持不动，新副本在拖拽落点" });
   }, [setNodes]);
 
-  // ── 普通拖拽结束：检测图片是否进入画布帧并嵌入 ──
+  // ── 普通拖拽结束：检测图片是否进入画布帧并嵌入/脱离 ──
   const handleNormalDragStop = useCallback((_event: MouseEvent, node: Node) => {
     isDraggingRef.current = false;
-    if (node.type !== "asset") return;
     // 从最新的 nodesRef 中读取当前所有节点
     const allNodes = nodesRef.current;
     const draggedNode = allNodes.find(n => n.id === node.id);
     if (!draggedNode) return;
+    if (draggedNode.type === "canvasFrame") {
+      const dragStart = dragStartPositionRef.current.get(draggedNode.id);
+      if (!dragStart) return;
+      const dx = draggedNode.position.x - dragStart.x;
+      const dy = draggedNode.position.y - dragStart.y;
+      if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return;
+      setNodes(nds => nds.map(n => {
+        if (n.type !== "asset") return n;
+        const data = n.data as Record<string, unknown>;
+        if (data.embeddedInFrame !== draggedNode.id) return n;
+        const start = dragStartPositionRef.current.get(n.id);
+        return {
+          ...n,
+          position: start
+            ? { x: start.x + dx, y: start.y + dy }
+            : { x: n.position.x + dx, y: n.position.y + dy },
+        };
+      }));
+      return;
+    }
+    if (draggedNode.type !== "asset") return;
     const frame = checkAndEmbedIntoFrame(draggedNode, allNodes);
-    if (!frame) return;
-    // 嵌入：将图片位置转为相对于画布帧的坐标
-    const relX = draggedNode.position.x - frame.position.x;
-    const relY = draggedNode.position.y - frame.position.y;
+    const currentFrameId = (draggedNode.data as Record<string, unknown>).embeddedInFrame as string | undefined;
+    if (!frame && !currentFrameId) return;
     setNodes(nds => nds.map(n => {
       if (n.id !== node.id) return n;
+      const data = n.data as Record<string, unknown>;
+      if (!frame) {
+        return {
+          ...n,
+          data: { ...data, embeddedInFrame: undefined, frameClipInsets: undefined },
+          parentId: undefined,
+          extent: undefined,
+        };
+      }
       return {
         ...n,
-        position: { x: relX, y: relY },
-        data: { ...(n.data as Record<string, unknown>), embeddedInFrame: frame.id },
+        data: { ...data, embeddedInFrame: frame.id },
         zIndex: (frame.zIndex || 0) + 1,
-        parentId: frame.id,
-        extent: "parent" as const,
+        parentId: undefined,
+        extent: undefined,
       };
     }));
-    toast("图片已嵌入画布", { description: "图片将随画布一起移动" });
+    if (frame && frame.id !== currentFrameId) {
+      toast("图片已放入画板", { description: "图片可在画板内自由移动" });
+    } else if (!frame && currentFrameId) {
+      toast("图片已脱离画板", { description: "图片恢复为自由节点" });
+    }
   }, [checkAndEmbedIntoFrame, nodesRef, setNodes]);
 
   // ── Handle group actions from context menu ──
@@ -11959,9 +12031,26 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       }
     : { left: 31, top: 0 };
   const displayNodes = nodes.map(n => {
+    const nodeData = n.data as Record<string, unknown>;
+    const embeddedFrameId = n.type === "asset" ? nodeData.embeddedInFrame as string | undefined : undefined;
+    const embeddedFrame = embeddedFrameId
+      ? nodes.find(item => item.id === embeddedFrameId && item.type === "canvasFrame")
+      : null;
+    const frameClipInsets = embeddedFrame
+      ? (() => {
+          const assetBounds = getCanvasNodeBounds(n);
+          const frameBounds = getCanvasNodeBounds(embeddedFrame);
+          const left = Math.max(0, Math.round(frameBounds.x - assetBounds.x));
+          const top = Math.max(0, Math.round(frameBounds.y - assetBounds.y));
+          const right = Math.max(0, Math.round(assetBounds.right - frameBounds.right));
+          const bottom = Math.max(0, Math.round(assetBounds.bottom - frameBounds.bottom));
+          return { top, right, bottom, left };
+        })()
+      : undefined;
     const data = {
       ...n.data,
       multiSelectionActive: n.type === "asset" && multiImageSelectionActive && selectedImageNodeIds.includes(n.id),
+      frameClipInsets,
     };
     return n.type === "asset" && editAsset && n.id === editAsset.nodeId
       ? { ...n, data: { ...data, isEditing: true } }
