@@ -3,9 +3,7 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 import {
   ChevronDown,
-  Heart,
   ImagePlus,
-  PlayCircle,
   Send,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -14,15 +12,30 @@ import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
 import { BRAND_KIT, POSTER_1, POSTER_2, SOCIAL_AD } from "@/lib/workspace-data";
 import { createWorkspaceHistoryProject } from "@/lib/project-history";
 
-const COMMUNITY_PROJECTS = [
-  { id: "community-1", title: "未来跑鞋视觉实验", updatedAt: "社区精选", cover: POSTER_2, author: "Emma_Wilson", plays: "4478", likes: "125" },
-  { id: "community-2", title: "咖啡品牌灵感板", updatedAt: "用户作品", cover: BRAND_KIT, author: "Emma_Wilson", plays: "4478", likes: "125" },
-  { id: "community-3", title: "城市户外广告片", updatedAt: "社区精选", cover: POSTER_1, author: "Emma_Wilson", plays: "4478", likes: "125" },
-  { id: "community-4", title: "智能设备发布海报", updatedAt: "用户作品", cover: SOCIAL_AD, author: "Emma_Wilson", plays: "4478", likes: "125" },
-  { id: "community-5", title: "潮流服饰大片", updatedAt: "灵感推荐", cover: POSTER_1, author: "Emma_Wilson", plays: "4478", likes: "125" },
-  { id: "community-6", title: "新消费包装系统", updatedAt: "社区精选", cover: BRAND_KIT, author: "Emma_Wilson", plays: "4478", likes: "125" },
-  { id: "community-7", title: "运动科技主视觉", updatedAt: "用户作品", cover: POSTER_2, author: "Emma_Wilson", plays: "4478", likes: "125" },
-  { id: "community-8", title: "社媒营销创意图", updatedAt: "灵感推荐", cover: SOCIAL_AD, author: "Emma_Wilson", plays: "4478", likes: "125" },
+const INSPIRATION_TOPICS = [
+  "产品海报",
+  "品牌视觉",
+  "社媒配图",
+  "电商主图",
+  "活动长图",
+  "Logo 灵感",
+  "包装设计",
+  "落地页视觉",
+];
+
+const INSPIRATION_CARDS = [
+  { topic: "产品海报", title: "运动产品性能海报", desc: "速度感、材质特写、强对比主视觉", cover: POSTER_2, height: "h-[360px]" },
+  { topic: "品牌视觉", title: "咖啡品牌视觉系统", desc: "Logo、色彩、字体、应用延展", cover: BRAND_KIT, height: "h-[430px]" },
+  { topic: "社媒配图", title: "小红书种草封面", desc: "标题层级、场景图、笔记封面", cover: SOCIAL_AD, height: "h-[300px]" },
+  { topic: "电商主图", title: "平台首图套系", desc: "白底、场景、卖点、规格组合", cover: POSTER_2, height: "h-[390px]" },
+  { topic: "活动长图", title: "品牌活动邀请函", desc: "时间地点、主题视觉、流程信息", cover: POSTER_1, height: "h-[460px]" },
+  { topic: "Logo 灵感", title: "几何符号生成", desc: "图形提炼、比例、正负形探索", cover: BRAND_KIT, height: "h-[320px]" },
+  { topic: "包装设计", title: "食品包装系列", desc: "口味区分、货架识别、插画元素", cover: BRAND_KIT, height: "h-[410px]" },
+  { topic: "落地页视觉", title: "SaaS 产品首屏", desc: "产品界面、价值主张、转化按钮", cover: SOCIAL_AD, height: "h-[340px]" },
+  { topic: "产品海报", title: "新品发布主 KV", desc: "适合首发、预热、倒计时传播", cover: POSTER_1, height: "h-[380px]" },
+  { topic: "社媒配图", title: "Instagram 视觉矩阵", desc: "九宫格、故事图、短帖素材", cover: POSTER_1, height: "h-[440px]" },
+  { topic: "电商主图", title: "详情页视觉段落", desc: "功能解释、材质说明、对比图", cover: SOCIAL_AD, height: "h-[315px]" },
+  { topic: "包装设计", title: "美妆包装视觉", desc: "材质、瓶身、礼盒和陈列图", cover: POSTER_1, height: "h-[370px]" },
 ];
 
 const PROMPT_SUGGESTIONS = [
@@ -270,7 +283,7 @@ export default function HomePage() {
           type="button"
           onClick={scrollToInspiration}
           className="absolute bottom-5 left-1/2 z-20 flex h-10 w-10 -translate-x-1/2 items-center justify-center rounded-full border border-white/20 bg-black/20 text-white/70 backdrop-blur-md transition-all hover:border-white/45 hover:text-white"
-          aria-label="滚动到灵感发现"
+          aria-label="滚动到灵感选题"
         >
           <ChevronDown size={20} />
         </button>
@@ -278,51 +291,52 @@ export default function HomePage() {
 
       <section ref={inspirationRef} className="min-h-screen bg-[#080808] px-6 py-20 sm:px-10 lg:px-20">
         <div className="mx-auto max-w-[1600px]">
-          <div className="mb-8">
+          <div className="mb-7 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="mb-3 text-sm font-medium text-[#9370ff]">Inspiration Source</p>
-              <h2 className="text-[34px] font-black leading-tight text-white sm:text-[44px]">灵感来源</h2>
-              <p className="mt-3 whitespace-nowrap text-sm leading-3 text-white/45">
-                从社区作品、品牌视觉和社媒创意中快速找到方向，登录后可直接创建为你的新画布。
+              <p className="mb-3 text-sm font-medium text-[#9370ff]">Inspiration Topics</p>
+              <h2 className="text-[34px] font-black leading-tight text-white sm:text-[44px]">灵感选题</h2>
+              <p className="mt-3 max-w-[620px] text-sm leading-6 text-white/45">
+                从产品海报、品牌视觉、社媒配图到电商主图，直接选择创作方向并进入画布。
               </p>
+            </div>
+            <div className="flex max-w-full gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
+              {INSPIRATION_TOPICS.map(topic => (
+                <button
+                  key={topic}
+                  type="button"
+                  onClick={() => navigate(`/inspiration?topic=${encodeURIComponent(topic)}`)}
+                  className="shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-2 text-xs font-medium text-white/62 transition-colors hover:border-[#936CFF]/50 hover:bg-[#936CFF]/15 hover:text-white"
+                >
+                  {topic}
+                </button>
+              ))}
             </div>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {COMMUNITY_PROJECTS.map(project => (
+          <div className="columns-1 gap-4 sm:columns-2 lg:columns-3 2xl:columns-4">
+            {INSPIRATION_CARDS.map(card => (
               <button
-                key={project.id}
+                key={`${card.topic}-${card.title}`}
                 type="button"
                 onClick={() => {
                   if (isAuthenticated) {
-                    navigate(`/project/${project.id}`);
+                    navigate(`/inspiration?topic=${encodeURIComponent(card.topic)}`);
                     return;
                   }
                   showRegisterPanel();
                 }}
-                className="group overflow-hidden rounded-md border border-white/10 bg-[#151515] text-left shadow-[0_18px_50px_rgba(0,0,0,0.28)] transition-transform hover:-translate-y-1"
+                className="group mb-4 block w-full break-inside-avoid overflow-hidden rounded-md border border-white/10 bg-[#151515] text-left shadow-[0_18px_50px_rgba(0,0,0,0.28)] transition-transform hover:-translate-y-1"
               >
-                <div className="relative aspect-video overflow-hidden">
-                  <img src={project.cover} alt={project.title} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                <div className={`relative ${card.height} overflow-hidden`}>
+                  <img src={card.cover} alt={card.title} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/0 to-black/0" />
+                  <div className="absolute left-3 top-3 rounded-full bg-black/45 px-2.5 py-1 text-xs font-medium text-white/82 backdrop-blur-md">
+                    {card.topic}
+                  </div>
                 </div>
                 <div className="p-4">
-                  <div className="mb-3 flex items-center gap-2">
-                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#f7d795] to-[#d98261] text-xs font-bold text-[#28160c]">
-                      EW
-                    </div>
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-white">{project.author}</span>
-                    <span className="flex items-center gap-1 text-xs font-medium text-white/55">
-                      <PlayCircle size={14} fill="currentColor" strokeWidth={0} />
-                      {project.plays}
-                    </span>
-                    <span className="flex items-center gap-1 text-xs font-medium text-white/55">
-                      <Heart size={14} fill="currentColor" strokeWidth={0} />
-                      {project.likes}
-                    </span>
-                  </div>
-                  <p className="truncate text-sm font-semibold text-white">{project.title}</p>
-                  <p className="mt-1 text-xs text-white/42">{project.updatedAt}</p>
+                  <p className="truncate text-sm font-semibold text-white">{card.title}</p>
+                  <p className="mt-2 text-xs leading-5 text-white/45">{card.desc}</p>
                 </div>
               </button>
             ))}
@@ -350,7 +364,7 @@ function LandingTopNav({
 }) {
   const navItems = [
     { key: "home" as const, label: "首页", onClick: onHome },
-    { key: "inspiration" as const, label: "灵感来源", onClick: onInspiration },
+    { key: "inspiration" as const, label: "灵感选题", onClick: onInspiration },
     { key: "skills" as const, label: "技能商店", onClick: onSkills },
     { key: "workspace" as const, label: "工作台", onClick: onWorkspace },
     { key: "help" as const, label: "帮助与反馈", onClick: onHelp },
