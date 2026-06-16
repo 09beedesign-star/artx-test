@@ -92,6 +92,9 @@ function ModelSwitcher({
                   <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: m.color }} />
                   <div className="flex flex-col leading-tight">
                     <span className="font-medium">{m.label}</span>
+                    {"description" in m && m.description ? (
+                      <span className="truncate" style={{ color: textSec, fontSize: 10, maxWidth: 148 }}>{m.description}</span>
+                    ) : null}
                   </div>
                   {isActive && <div className="ml-auto w-1.5 h-1.5 rounded-full" style={{ background: "oklch(0.72 0.18 200)" }} />}
                 </button>

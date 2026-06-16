@@ -155,7 +155,7 @@ export async function callLLM({
 
   return {
     text: result.text || "",
-    model: result.model || model || "gpt-5.4-mini",
+    model: result.model || model || "auto",
   };
 }
 
@@ -185,7 +185,7 @@ export async function searchReferenceImages({
 
 export async function generateImages({
   prompt,
-  model = "gpt-image-2",
+  model = "auto",
   ratio = "1:1",
   count = 1,
   style,
