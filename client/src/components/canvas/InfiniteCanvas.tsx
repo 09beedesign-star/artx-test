@@ -11317,6 +11317,29 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     toast(`已复制 ${count} 个图片节点`, { description: "原图保持不动，新副本在拖拽落点" });
   }, [setNodes]);
 
+  const syncEmbeddedAssetsWithFrameDrag = useCallback((frameNode: Node) => {
+    if (frameNode.type !== "canvasFrame") return;
+    const dragStart = dragStartPositionRef.current.get(frameNode.id);
+    if (!dragStart) return;
+    const dx = frameNode.position.x - dragStart.x;
+    const dy = frameNode.position.y - dragStart.y;
+    setNodes(nds => nds.map(n => {
+      if (n.id === frameNode.id || n.type !== "asset") return n;
+      const data = n.data as Record<string, unknown>;
+      if (data.embeddedInFrame !== frameNode.id) return n;
+      const start = dragStartPositionRef.current.get(n.id);
+      if (!start) return n;
+      return {
+        ...n,
+        position: { x: start.x + dx, y: start.y + dy },
+      };
+    }));
+  }, [setNodes]);
+
+  const handleNodeDrag = useCallback((_event: MouseEvent, node: Node) => {
+    syncEmbeddedAssetsWithFrameDrag(node);
+  }, [syncEmbeddedAssetsWithFrameDrag]);
+
   // ── 普通拖拽结束：检测图片是否进入画布帧并嵌入/脱离 ──
   const handleNormalDragStop = useCallback((_event: MouseEvent, node: Node) => {
     isDraggingRef.current = false;
@@ -11325,23 +11348,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const draggedNode = allNodes.find(n => n.id === node.id);
     if (!draggedNode) return;
     if (draggedNode.type === "canvasFrame") {
-      const dragStart = dragStartPositionRef.current.get(draggedNode.id);
-      if (!dragStart) return;
-      const dx = draggedNode.position.x - dragStart.x;
-      const dy = draggedNode.position.y - dragStart.y;
-      if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return;
-      setNodes(nds => nds.map(n => {
-        if (n.type !== "asset") return n;
-        const data = n.data as Record<string, unknown>;
-        if (data.embeddedInFrame !== draggedNode.id) return n;
-        const start = dragStartPositionRef.current.get(n.id);
-        return {
-          ...n,
-          position: start
-            ? { x: start.x + dx, y: start.y + dy }
-            : { x: n.position.x + dx, y: n.position.y + dy },
-        };
-      }));
+      syncEmbeddedAssetsWithFrameDrag(draggedNode);
       return;
     }
     if (draggedNode.type !== "asset") return;
@@ -11372,7 +11379,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     } else if (!frame && currentFrameId) {
       toast("图片已脱离画板", { description: "图片恢复为自由节点" });
     }
-  }, [checkAndEmbedIntoFrame, nodesRef, setNodes]);
+  }, [checkAndEmbedIntoFrame, nodesRef, setNodes, syncEmbeddedAssetsWithFrameDrag]);
 
   // ── Handle group actions from context menu ──
   const handleGroupAction = useCallback((action: string) => {
@@ -12562,6 +12569,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         zoomOnScroll={false}
         panOnScroll={!isCanvasLocked}
         onNodeDragStart={handleAltDragStart as any}
+        onNodeDrag={handleNodeDrag as any}
         onNodeDragStop={(event, node, nodes) => {
           handleAltDragStop(event as unknown as MouseEvent, node);
           handleNormalDragStop(event as unknown as MouseEvent, node);
