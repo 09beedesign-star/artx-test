@@ -3941,7 +3941,10 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
     <div
       style={{
         width: w, height: h,
-        background: bg,
+        background: bg.startsWith("#")
+          ? `${bg}${isDark ? "73" : "66"}`
+          : bg,
+        backdropFilter: "blur(2px)",
         border: `1.5px solid ${borderColor}`,
         borderRadius: 8,
         boxSizing: "border-box",
@@ -4632,6 +4635,7 @@ type ImageGeneratorPayload = {
   titleBase?: string;
   sourceBackgroundSrc?: string;
   referencedAssets?: Array<{ src: string; title?: string }>;
+  targetFrameId?: string;
 };
 
 type ImageGeneratorReferenceAsset = {
@@ -5201,6 +5205,7 @@ function BottomPromptBar({
   referencedAssets,
   onRemoveReference,
   onClearAllReferences,
+  targetFrameId,
 }: {
   isDark: boolean;
   projectId: string;
@@ -5208,6 +5213,7 @@ function BottomPromptBar({
   referencedAssets: { id: string; title: string; src: string }[];
   onRemoveReference: (id: string) => void;
   onClearAllReferences: () => void;
+  targetFrameId?: string;
 }) {
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState("gpt-4o");
@@ -5272,6 +5278,7 @@ function BottomPromptBar({
             style: "智能判断",
             referencesEnabled: submittedRefs.length > 0,
             generationId,
+            targetFrameId,
           };
           dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
           toast("AI 判断为生成图片", { description: imagePrompt.slice(0, 90) });
@@ -7128,6 +7135,7 @@ function CanvasAssistantPanel({
   onMergeReferences,
   selectedCount,
   helpPromptNonce,
+  targetFrameId,
 }: {
   projectId: string;
   isDark: boolean;
@@ -7143,6 +7151,7 @@ function CanvasAssistantPanel({
   onMergeReferences: (assets: { id: string; title: string; src: string }[]) => void;
   selectedCount: number;
   helpPromptNonce: number;
+  targetFrameId?: string;
 }) {
   const [, navigate] = useLocation();
   const [inputFocused, setInputFocused] = useState(false);
@@ -7555,6 +7564,7 @@ function CanvasAssistantPanel({
       style: message.imageBackup?.style || "聊天气泡",
       referencesEnabled: false,
       generationId,
+      targetFrameId,
     };
     setRegeneratingMessageId(message.id);
     dispatchImageGenerationTask({ ...imagePayload, status: "pending" }, projectId);
@@ -7809,6 +7819,7 @@ function CanvasAssistantPanel({
           referencedAssets: assistantImages,
           generationId,
           sourceBackgroundSrc: targetReference?.src || assistantImages[0]?.src,
+          targetFrameId,
         };
         dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
         const result = shouldEditTargetReference && targetReference
@@ -9940,10 +9951,21 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         ? screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
         : { x: 120, y: 80 };
       const size = detail.displaySize || getImageDisplaySizeForRatio(detail.ratio);
-      const anchor = detail.placement || {
-        x: center.x - size.w / 2,
-        y: center.y - size.h / 2,
-      };
+      const targetFrame = detail.targetFrameId
+        ? nodesRef.current.find(node => node.id === detail.targetFrameId && node.type === "canvasFrame")
+        : null;
+      const targetFrameSize = targetFrame ? getCanvasNodeSize(targetFrame) : null;
+      const anchor = detail.placement || (targetFrame && targetFrameSize
+        ? {
+            x: targetFrame.position.x + Math.max(16, (targetFrameSize.width - size.w) / 2),
+            y: targetFrame.position.y + Math.max(16, (targetFrameSize.height - size.h) / 2),
+          }
+        : {
+            x: center.x - size.w / 2,
+            y: center.y - size.h / 2,
+          });
+      const embeddedData = targetFrame ? { embeddedInFrame: targetFrame.id } : {};
+      const embeddedZIndex = targetFrame ? Math.max((targetFrame.zIndex || 0) + 1000, 1000) : undefined;
       if (detail.status === "pending") {
         setNodes(nds => {
           pushHistory(nds, edgesRef.current);
@@ -9957,8 +9979,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 y: anchor.y,
               },
               style: { width: size.w, height: size.h },
+              zIndex: embeddedZIndex,
               data: {
                 id,
+                ...embeddedData,
                 assetId: "default",
                 generationId,
                 generationIndex: index,
@@ -10023,6 +10047,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 title: detail.titleBase ? `${detail.titleBase}${images.length > 1 ? ` ${index + 1}` : ""}` : `生成图像 · ${detail.style}${images.length > 1 ? ` ${index + 1}` : ""}`,
                 assetType: "AI 生成",
                 tags: [detail.model, detail.ratio, `${images.length}张`, detail.referencesEnabled ? "参考画布" : "无参考"],
+                ...embeddedData,
                 imgW: size.w,
                 imgH: size.h,
                 sourceBackgroundSrc: undefined,
@@ -10040,8 +10065,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               x: anchor.x + index * (size.w + 24),
               y: anchor.y,
             },
+            zIndex: embeddedZIndex,
             data: {
               id,
+              ...embeddedData,
               assetId: "default",
               generationId,
               generationIndex: index,
@@ -12164,6 +12191,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         top: selectedImageBounds.centerY * viewport.zoom + viewport.y,
       }
     : { left: 31, top: 0 };
+  const activeGenerationFrameId = useMemo(() => {
+    const selectedNodes = nodes.filter(node => selectedNodeIds.includes(node.id));
+    const selectedFrame = selectedNodes.find(node => node.type === "canvasFrame");
+    if (selectedFrame) return selectedFrame.id;
+    const embeddedAsset = selectedNodes.find(node => node.type === "asset" && (node.data as Record<string, unknown>).embeddedInFrame);
+    return embeddedAsset ? ((embeddedAsset.data as Record<string, unknown>).embeddedInFrame as string) : undefined;
+  }, [nodes, selectedNodeIds]);
   const displayNodes = nodes.map(n => {
     const nodeData = n.data as Record<string, unknown>;
     const embeddedFrameId = n.type === "asset" ? nodeData.embeddedInFrame as string | undefined : undefined;
@@ -12463,6 +12497,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         onMergeReferences={mergeReferencedAssets}
         selectedCount={selectedNodeIds.length}
         helpPromptNonce={helpPromptNonce}
+        targetFrameId={activeGenerationFrameId}
       />
 
       {selectedVisualNodeIds.length === 1 && !multiVisualSelectionActive && (
