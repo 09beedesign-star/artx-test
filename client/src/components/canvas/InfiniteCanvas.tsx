@@ -3888,9 +3888,6 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
       const newH = Math.max(60, Math.round(drag.startH + dy));
       setLocalW(newW);
       setLocalH(newH);
-      window.dispatchEvent(new CustomEvent("canvas-frame-resize-preview", {
-        detail: { id, width: newW, height: newH },
-      }));
     };
 
     const onMouseUp = (mu: MouseEvent) => {
@@ -6675,7 +6672,7 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
     { id: "move",         label: "移动",       icon: <MousePointer2 size={17} /> },
     { id: "annotate",     label: "注释",       icon: <MessageCircle size={17} /> },
     { id: "upload",       label: "上传图片",   icon: <ImagePlus size={17} /> },
-    { id: "smart-canvas", label: "创建画板",   icon: <CreateCanvasIcon size={17} /> },
+    { id: "smart-canvas", label: "创建画布",   icon: <CreateCanvasIcon size={17} /> },
     { id: "shape",        label: "几何形",     icon: <Triangle size={17} /> },
     { id: "draw",         label: "铅笔",       icon: <Pencil size={17} /> },
     { id: "text",         label: "文字",       icon: <Type size={17} /> },
@@ -7196,18 +7193,18 @@ function CanvasAssistantPanel({
   const chipBg = isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 4%)";
   const elevatedBg = isDark ? "oklch(0.17 0.016 270 / 0.98)" : "oklch(1 0 0 / 0.98)";
   const hoverBg = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 5%)";
-  const activeGlow = "0 0 0 3px oklch(0.65 0.22 290 / 0.18), 0 18px 44px rgba(0,0,0,0.24)";
+  const activeGlow = "0 0 0 3px rgba(197,237,71,0.14), 0 18px 44px rgba(0,0,0,0.24)";
   const inputShadow = "0 16px 42px rgba(210,214,224,0.10), 0 0 0 1px rgba(210,214,224,0.10)";
   const panelWidth = "clamp(280px, 32vw, 372px)";
   const collapsedPeekWidth = 112;
   const handleCreateCanvasProject = () => {
     const project = createWorkspaceHistoryProject();
-    toast("已新建画板", { description: project.title });
+    toast("已新建画布", { description: project.title });
     navigate(`/project/${project.id}`);
   };
 
   const actionButtons = [
-    { label: "新建画板", icon: <PlusSquare size={16} />, onClick: handleCreateCanvasProject },
+    { label: "新建画布", icon: <PlusSquare size={16} />, onClick: handleCreateCanvasProject },
     { label: "分享对话", icon: <Share2 size={16} />, onClick: () => toast("分享对话", { description: "分享能力准备中" }) },
     { label: collapsed ? "展开对话框" : "收起对话框", icon: <ChevronLeft size={16} style={{ transform: collapsed ? "none" : "rotate(180deg)", transition: "transform 0.2s ease" }} />, onClick: onToggleCollapsed },
   ];
@@ -7926,10 +7923,10 @@ function CanvasAssistantPanel({
                     <div
                       className="rounded-[var(--radius-lg-design)] p-4"
                       style={{
-                        background: "#B6FF00",
-                        border: "1px solid rgba(182,255,0,0.62)",
-                        color: "#101600",
-                        boxShadow: "0 10px 28px rgba(182,255,0,0.22)",
+                        background: isUser ? "#C5ED47" : chipBg,
+                        border: `1px solid ${isUser ? "rgba(197,237,71,0.48)" : border}`,
+                        color: isUser ? "#000" : text,
+                        boxShadow: isUser ? "0 10px 24px rgba(197,237,71,0.16)" : "none",
                       }}
                       onDoubleClick={backup ? () => handleImageBackupDoubleClick(backup) : undefined}
                       title={backup ? "双击可在画布中定位或找回这张图片" : undefined}
@@ -7953,7 +7950,7 @@ function CanvasAssistantPanel({
                         </div>
                       ) : (
                         <div className="flex flex-col gap-3">
-                          <p className="type-caption leading-6 whitespace-pre-wrap" style={{ color: "#101600" }}>{message.content}</p>
+                          <p className="type-caption leading-6 whitespace-pre-wrap" style={{ color: isUser ? "#000" : text }}>{message.content}</p>
                           {message.referenceOptions && message.referenceOptions.length > 0 && (
                             <div className="flex flex-col gap-3">
                               <div className="grid grid-cols-2 gap-2">
@@ -7965,9 +7962,9 @@ function CanvasAssistantPanel({
                                       type="button"
                                       className="overflow-hidden rounded-[var(--radius-md-design)] text-left transition-all"
                                       style={{
-                                        border: `1px solid ${active ? "oklch(0.65 0.22 290 / 0.58)" : border}`,
-                                        background: active ? "oklch(0.65 0.22 290 / 0.12)" : "transparent",
-                                        boxShadow: active ? "0 0 0 2px oklch(0.65 0.22 290 / 0.14)" : "none",
+                                        border: `1px solid ${active ? "rgba(197,237,71,0.58)" : border}`,
+                                        background: active ? "rgba(197,237,71,0.12)" : "transparent",
+                                        boxShadow: active ? "0 0 0 2px rgba(197,237,71,0.14)" : "none",
                                       }}
                                       onClick={() => handleReferenceSelectionToggle(item.id)}
                                     >
@@ -7994,8 +7991,8 @@ function CanvasAssistantPanel({
                                   type="button"
                                   className="rounded-[var(--radius-md-design)] px-3 py-1.5 type-caption transition-opacity hover:opacity-85"
                                   style={{
-                                    background: "oklch(0.65 0.22 290)",
-                                    color: "white",
+                                    background: "#C5ED47",
+                                    color: "#000",
                                     opacity: selectedReferenceIds.length > 0 ? 1 : 0.5,
                                   }}
                                   disabled={selectedReferenceIds.length === 0}
@@ -8015,7 +8012,7 @@ function CanvasAssistantPanel({
                           <button
                             className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-opacity hover:opacity-75 disabled:opacity-50"
                             style={{
-                              color: regeneratingMessageId === message.id ? "oklch(0.65 0.22 290)" : sub,
+                              color: regeneratingMessageId === message.id ? "#C5ED47" : sub,
                               background: "transparent",
                             }}
                             title="再次生成"
@@ -8040,7 +8037,7 @@ function CanvasAssistantPanel({
               })}
               {isSubmitting && (
                 <div className="flex justify-start">
-                  <div className="max-w-[86%] rounded-[var(--radius-lg-design)] px-4 py-3" style={{ background: "#B6FF00", border: "1px solid rgba(182,255,0,0.62)", color: "#101600" }}>
+                  <div className="max-w-[86%] rounded-[var(--radius-lg-design)] px-4 py-3" style={{ background: chipBg, border: `1px solid ${border}`, color: sub }}>
               <span className="type-caption">AI 正在回复中...</span>
                   </div>
                 </div>
@@ -8054,7 +8051,7 @@ function CanvasAssistantPanel({
               className="relative rounded-[var(--radius-xl-design)] px-3 py-3 transition-all duration-200"
               style={{
                 background: isDark ? "oklch(0.105 0.012 270 / 0.94)" : chipBg,
-                border: `1px solid ${inputFocused ? "oklch(0.65 0.22 290 / 0.52)" : border}`,
+                border: `1px solid ${inputFocused ? "rgba(197,237,71,0.42)" : border}`,
                 boxShadow: inputFocused ? activeGlow : inputShadow,
               }}
             >
@@ -8068,7 +8065,7 @@ function CanvasAssistantPanel({
                       color: text,
                     }}
                   >
-                    <span style={{ width: 14, height: 14, borderRadius: 4, background: "oklch(0.65 0.22 290)", display: "inline-block" }} />
+                    <span style={{ width: 14, height: 14, borderRadius: 4, background: "#C5ED47", display: "inline-block" }} />
                     <span className="truncate">{contextLabel}</span>
                   </span>
                 </div>
@@ -8085,8 +8082,8 @@ function CanvasAssistantPanel({
                         key={segment.id}
                         className="inline-flex max-w-[82px] items-center gap-1 rounded-[var(--radius-md-design)] px-1.5 py-0.5 align-middle"
                         style={{
-                          background: isDark ? "oklch(0.65 0.22 290 / 0.16)" : "oklch(0.65 0.22 290 / 0.10)",
-                          border: `1px solid ${isDark ? "oklch(0.65 0.22 290 / 0.38)" : "oklch(0.55 0.20 290 / 0.30)"}`,
+                          background: isDark ? "rgba(197,237,71,0.16)" : "rgba(197,237,71,0.10)",
+                          border: `1px solid ${isDark ? "rgba(197,237,71,0.36)" : "rgba(138,170,40,0.30)"}`,
                           color: isDark ? "oklch(0.82 0.012 270)" : "oklch(0.28 0.012 270)",
                         }}
                       >
@@ -8222,8 +8219,8 @@ function CanvasAssistantPanel({
                             className="h-7 rounded-[var(--radius-md-design)] type-caption transition-colors"
                             style={{
                               color: assistantModelTab === tab.id ? text : sub,
-                              background: assistantModelTab === tab.id ? "oklch(0.65 0.22 290 / 0.14)" : "transparent",
-                              border: `1px solid ${assistantModelTab === tab.id ? "oklch(0.65 0.22 290 / 0.42)" : "transparent"}`,
+                              background: assistantModelTab === tab.id ? "rgba(197,237,71,0.14)" : "transparent",
+                              border: `1px solid ${assistantModelTab === tab.id ? "rgba(197,237,71,0.40)" : "transparent"}`,
                             }}
                             onClick={() => setAssistantModelTab(tab.id)}
                           >
@@ -8236,9 +8233,9 @@ function CanvasAssistantPanel({
                           key={model.id}
                           type="button"
                           className="flex w-full items-center justify-between px-3 py-2.5 text-left type-caption transition-colors"
-                          style={{ color: text, background: assistantModel.id === model.id ? "oklch(0.65 0.22 290 / 0.12)" : "transparent" }}
+                          style={{ color: text, background: assistantModel.id === model.id ? "rgba(197,237,71,0.12)" : "transparent" }}
                           onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
-                          onMouseLeave={e => (e.currentTarget.style.background = assistantModel.id === model.id ? "oklch(0.65 0.22 290 / 0.12)" : "transparent")}
+                          onMouseLeave={e => (e.currentTarget.style.background = assistantModel.id === model.id ? "rgba(197,237,71,0.12)" : "transparent")}
                           onClick={() => {
                             if (assistantModelTab === "image") {
                               setAssistantImageModelId(model.id);
@@ -8258,7 +8255,7 @@ function CanvasAssistantPanel({
                             </div>
                           </div>
                           {assistantModel.id === model.id && (
-                            <Check size={13} style={{ color: "oklch(0.65 0.22 290)" }} />
+                            <Check size={13} style={{ color: "#C5ED47" }} />
                           )}
                         </button>
                       ))}
@@ -8270,10 +8267,10 @@ function CanvasAssistantPanel({
                     disabled={!canSubmit}
                     className="w-12 h-12 rounded-[var(--radius-lg-design)] flex items-center justify-center disabled:cursor-not-allowed transition-all hover:scale-[1.03] active:scale-95"
                     style={{
-                      background: canSubmit || isSubmitting ? "oklch(0.65 0.22 290)" : (isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"),
-                      color: canSubmit || isSubmitting ? "white" : sub,
+                      background: canSubmit || isSubmitting ? "#C5ED47" : (isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"),
+                      color: canSubmit || isSubmitting ? "#000" : sub,
                       opacity: isAuthenticated ? 1 : 0.65,
-                      boxShadow: canSubmit ? "0 12px 30px oklch(0.65 0.22 290 / 0.28)" : "none",
+                      boxShadow: canSubmit ? "0 12px 30px rgba(197,237,71,0.24)" : "none",
                     }}
                     onClick={handleSubmit}
                     title={isSubmitting ? "处理中" : "发送"}
@@ -9133,37 +9130,24 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     return () => window.removeEventListener("asset-resize-active", handler);
   }, []);
 
-  const applyCanvasFrameSize = useCallback((detail: { id: string; width: number; height: number }) => {
-    setNodes(nds => nds.map(n => {
-      if (n.id !== detail.id || n.type !== "canvasFrame") return n;
-      return {
-        ...n,
-        style: { ...n.style, width: detail.width, height: detail.height },
-        data: { ...(n.data as Record<string, unknown>), width: detail.width, height: detail.height },
-      };
-    }));
-  }, [setNodes]);
-
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<{ id: string; width: number; height: number }>).detail;
       if (!detail?.id || isRestoringRef.current) return;
-      applyCanvasFrameSize(detail);
-    };
-    window.addEventListener("canvas-frame-resize-preview", handler);
-    return () => window.removeEventListener("canvas-frame-resize-preview", handler);
-  }, [applyCanvasFrameSize]);
-
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent<{ id: string; width: number; height: number }>).detail;
-      if (!detail?.id || isRestoringRef.current) return;
+      // 尺寸调整前先入历史（传入当前快照）
       pushHistory(nodesRef.current, edgesRef.current);
-      applyCanvasFrameSize(detail);
+      setNodes(nds => nds.map(n => {
+        if (n.id !== detail.id || n.type !== "canvasFrame") return n;
+        return {
+          ...n,
+          style: { ...n.style, width: detail.width, height: detail.height },
+          data: { ...(n.data as Record<string, unknown>), width: detail.width, height: detail.height },
+        };
+      }));
     };
     window.addEventListener("canvas-frame-resize", handler);
     return () => window.removeEventListener("canvas-frame-resize", handler);
-  }, [applyCanvasFrameSize, pushHistory]);
+  }, [pushHistory, setNodes]);
 
   // 监听图片节点缩放结束事件，将操作纳入历史记录
   useEffect(() => {
@@ -10125,35 +10109,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const selectedVisualNodes = nds.filter(node => selectedVisualIds.has(node.id));
         if (selectedVisualNodes.length === 0) return nds;
         const topZ = Math.max(0, ...nds.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
-        const frameIds = new Set(selectedVisualNodes.filter(node => node.type === "canvasFrame").map(node => node.id));
-        const embeddedAssetIds = new Set(
-          nds
-            .filter(node => node.type === "asset" && frameIds.has((node.data as Record<string, unknown>).embeddedInFrame as string))
-            .map(node => node.id)
-        );
-        const raiseIds = new Set([...selectedVisualIds, ...embeddedAssetIds]);
-        const selectedVisualOrder = Array.from(raiseIds).join(",");
-        const currentTopOrder = nds.slice(-raiseIds.size).map(node => node.id).join(",");
-        if (selectedVisualOrder === currentTopOrder && nds.filter(node => raiseIds.has(node.id)).every(node => (node.zIndex || 0) >= topZ - 1)) return nds;
-        const raisedNodes = nds
-          .filter(node => raiseIds.has(node.id))
-          .sort((a, b) => {
-            const aEmbedded = a.type === "asset" && frameIds.has((a.data as Record<string, unknown>).embeddedInFrame as string);
-            const bEmbedded = b.type === "asset" && frameIds.has((b.data as Record<string, unknown>).embeddedInFrame as string);
-            if (aEmbedded === bEmbedded) return 0;
-            return aEmbedded ? 1 : -1;
-          })
-          .map(node => {
-            const data = node.data as Record<string, unknown>;
-            const parentFrameId = data.embeddedInFrame as string | undefined;
-            return {
-              ...node,
-              zIndex: parentFrameId && frameIds.has(parentFrameId) ? topZ + 1000 : topZ,
-            };
-          });
+        const raisedVisualNodes = selectedVisualNodes.map(node => ({ ...node, zIndex: topZ }));
+        const selectedVisualOrder = selectedVisualNodes.map(node => node.id).join(",");
+        const currentTopOrder = nds.slice(-selectedVisualNodes.length).map(node => node.id).join(",");
+        if (selectedVisualOrder === currentTopOrder && selectedVisualNodes.every(node => (node.zIndex || 0) >= topZ - 1)) return nds;
         return [
-          ...nds.filter(node => !raiseIds.has(node.id)),
-          ...raisedNodes,
+          ...nds.filter(node => !selectedVisualIds.has(node.id)),
+          ...raisedVisualNodes,
         ];
       });
     }
@@ -10615,7 +10577,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setCanvasNameInput("");
     setCanvasSocialPresetId("");
     // 保持当前工具为「创建画布」，用户可继续拖拽创建新画布
-    toast("画板已创建，可继续拖拽创建", { description: `${title} · ${w} × ${h} px` });
+    toast("画布已创建，可继续拖拽创建", { description: `${title} · ${w} × ${h} px` });
   }, [canvasBgColor, canvasInputH, canvasInputW, canvasNameInput, canvasSocialPresetId, pendingRect, pushHistory, screenToFlowPosition, setNodes]);
 
   const handleCreateCanvasCancel = useCallback(() => {
@@ -11053,34 +11015,30 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   }, [nodes, nodesRef, pushHistory, selectedNodeIds, setNodes]);
 
   // 拖拽结束时：若是 Alt 拖拽，将幽灵节点升级为正式原图（留在原位），被拖动的节点保持在落点成为副本
-  // ── 检测鼠标落点是否进入画板，鼠标在画板内即嵌入，拖出即脱离 ──
-  const findFrameAtPoint = useCallback((point: { x: number; y: number }, allNodes: Node[]) => {
-    const frames = allNodes
-      .filter(n => n.type === "canvasFrame")
-      .sort((a, b) => (b.zIndex || 0) - (a.zIndex || 0));
-    return frames.find(frame => {
-      const fd = frame.data as Record<string, unknown>;
-      const fw = (fd.width as number) || Number(frame.style?.width) || 800;
-      const fh = (fd.height as number) || Number(frame.style?.height) || 600;
+  // ── 检测图片节点是否拖入画布帧，若是则嵌入 ──
+  const checkAndEmbedIntoFrame = useCallback((draggedNode: Node, allNodes: Node[]) => {
+    if (draggedNode.type !== "asset") return null;
+    const nodePos = draggedNode.position;
+    // 找到鼠标中心点所在的 canvasFrame 节点
+    const nodeData = draggedNode.data as Record<string, unknown>;
+    const nW = (nodeData.imgW as number) || 200;
+    const nH = (nodeData.imgH as number) || 200;
+    const centerX = nodePos.x + nW / 2;
+    const centerY = nodePos.y + nH / 2;
+    const frame = allNodes.find(n => {
+      if (n.type !== "canvasFrame") return false;
+      const fd = n.data as Record<string, unknown>;
+      const fw = (fd.width as number) || 800;
+      const fh = (fd.height as number) || 600;
       return (
-        point.x >= frame.position.x &&
-        point.x <= frame.position.x + fw &&
-        point.y >= frame.position.y &&
-        point.y <= frame.position.y + fh
+        centerX >= n.position.x &&
+        centerX <= n.position.x + fw &&
+        centerY >= n.position.y &&
+        centerY <= n.position.y + fh
       );
-    }) || null;
+    });
+    return frame || null;
   }, []);
-
-  const getDragPoint = useCallback((event: MouseEvent, fallbackNode: Node) => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (rect) {
-      return screenToFlowPosition({ x: event.clientX, y: event.clientY });
-    }
-    const nodeData = fallbackNode.data as Record<string, unknown>;
-    const nW = (nodeData.imgW as number) || Number(fallbackNode.style?.width) || 200;
-    const nH = (nodeData.imgH as number) || Number(fallbackNode.style?.height) || 200;
-    return { x: fallbackNode.position.x + nW / 2, y: fallbackNode.position.y + nH / 2 };
-  }, [screenToFlowPosition]);
 
   const handleAltDragStop = useCallback((_event: MouseEvent, _node: Node) => {
     isDraggingRef.current = false;
@@ -11152,70 +11110,62 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     toast(`已复制 ${count} 个图片节点`, { description: "原图保持不动，新副本在拖拽落点" });
   }, [setNodes]);
 
-  const handleFrameDragMove = useCallback((_event: MouseEvent, node: Node) => {
-    if (node.type !== "canvasFrame") return;
-    const dragStart = dragStartPositionRef.current.get(node.id);
-    if (!dragStart) return;
-    const dx = node.position.x - dragStart.x;
-    const dy = node.position.y - dragStart.y;
-    setNodes(nds => nds.map(n => {
-      if (n.id === node.id || n.type !== "asset") return n;
-      const data = n.data as Record<string, unknown>;
-      if (data.embeddedInFrame !== node.id) return n;
-      const start = dragStartPositionRef.current.get(n.id);
-      return {
-        ...n,
-        position: start
-          ? { x: start.x + dx, y: start.y + dy }
-          : { x: n.position.x + dx, y: n.position.y + dy },
-      };
-    }));
-  }, [setNodes]);
-
-  // ── 普通拖拽结束：按鼠标落点检测图片是否进入画板并嵌入/脱离 ──
-  const handleNormalDragStop = useCallback((event: MouseEvent, node: Node) => {
+  // ── 普通拖拽结束：检测图片是否进入画布帧并嵌入/脱离 ──
+  const handleNormalDragStop = useCallback((_event: MouseEvent, node: Node) => {
     isDraggingRef.current = false;
+    // 从最新的 nodesRef 中读取当前所有节点
     const allNodes = nodesRef.current;
     const draggedNode = allNodes.find(n => n.id === node.id);
     if (!draggedNode) return;
     if (draggedNode.type === "canvasFrame") {
-      handleFrameDragMove(event, draggedNode);
+      const dragStart = dragStartPositionRef.current.get(draggedNode.id);
+      if (!dragStart) return;
+      const dx = draggedNode.position.x - dragStart.x;
+      const dy = draggedNode.position.y - dragStart.y;
+      if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return;
+      setNodes(nds => nds.map(n => {
+        if (n.type !== "asset") return n;
+        const data = n.data as Record<string, unknown>;
+        if (data.embeddedInFrame !== draggedNode.id) return n;
+        const start = dragStartPositionRef.current.get(n.id);
+        return {
+          ...n,
+          position: start
+            ? { x: start.x + dx, y: start.y + dy }
+            : { x: n.position.x + dx, y: n.position.y + dy },
+        };
+      }));
       return;
     }
     if (draggedNode.type !== "asset") return;
-    const dropPoint = getDragPoint(event, draggedNode);
-    const frame = findFrameAtPoint(dropPoint, allNodes);
+    const frame = checkAndEmbedIntoFrame(draggedNode, allNodes);
     const currentFrameId = (draggedNode.data as Record<string, unknown>).embeddedInFrame as string | undefined;
     if (!frame && !currentFrameId) return;
-    setNodes(nds => {
-      const topZ = Math.max(0, ...nds.map(item => typeof item.zIndex === "number" ? item.zIndex : 0)) + 1;
-      return nds.map(n => {
-        if (n.id !== node.id) return n;
-        const data = n.data as Record<string, unknown>;
-        if (!frame) {
-          return {
-            ...n,
-            zIndex: topZ,
-            data: { ...data, embeddedInFrame: undefined, frameClipInsets: undefined },
-            parentId: undefined,
-            extent: undefined,
-          };
-        }
+    setNodes(nds => nds.map(n => {
+      if (n.id !== node.id) return n;
+      const data = n.data as Record<string, unknown>;
+      if (!frame) {
         return {
           ...n,
-          data: { ...data, embeddedInFrame: frame.id },
-          zIndex: Math.max(topZ, (frame.zIndex || 0) + 1),
+          data: { ...data, embeddedInFrame: undefined, frameClipInsets: undefined },
           parentId: undefined,
           extent: undefined,
         };
-      });
-    });
+      }
+      return {
+        ...n,
+        data: { ...data, embeddedInFrame: frame.id },
+        zIndex: (frame.zIndex || 0) + 1,
+        parentId: undefined,
+        extent: undefined,
+      };
+    }));
     if (frame && frame.id !== currentFrameId) {
       toast("图片已放入画板", { description: "图片可在画板内自由移动" });
     } else if (!frame && currentFrameId) {
       toast("图片已脱离画板", { description: "图片恢复为自由节点" });
     }
-  }, [findFrameAtPoint, getDragPoint, handleFrameDragMove, nodesRef, setNodes]);
+  }, [checkAndEmbedIntoFrame, nodesRef, setNodes]);
 
   // ── Handle group actions from context menu ──
   const handleGroupAction = useCallback((action: string) => {
@@ -11289,15 +11239,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         selectedIds.add(target.id);
         const topZ = Math.max(0, ...nds.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
         setSelectedNodeIds(Array.from(selectedIds));
-        const embeddedAssetIds = target.type === "canvasFrame"
-          ? new Set(nds.filter(node => node.type === "asset" && (node.data as Record<string, unknown>).embeddedInFrame === target.id).map(node => node.id))
-          : new Set<string>();
         return [
-          ...nds
-            .filter(node => node.id !== target.id && !embeddedAssetIds.has(node.id))
-            .map(node => ({ ...node, selected: selectedIds.has(node.id) })),
+          ...nds.filter(node => node.id !== target.id).map(node => ({ ...node, selected: selectedIds.has(node.id) })),
           { ...target, selected: true, zIndex: topZ },
-          ...nds.filter(node => embeddedAssetIds.has(node.id)).map(node => ({ ...node, selected: selectedIds.has(node.id), zIndex: topZ + 1000 })),
         ];
       });
     };
@@ -12230,12 +12174,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       ? (() => {
           const assetBounds = getCanvasNodeBounds(n);
           const frameBounds = getCanvasNodeBounds(embeddedFrame);
-          const assetWidth = Math.max(1, Math.round(assetBounds.right - assetBounds.x));
-          const assetHeight = Math.max(1, Math.round(assetBounds.bottom - assetBounds.y));
-          const left = Math.max(0, Math.min(assetWidth - 1, Math.round(frameBounds.x - assetBounds.x)));
-          const top = Math.max(0, Math.min(assetHeight - 1, Math.round(frameBounds.y - assetBounds.y)));
-          const right = Math.max(0, Math.min(assetWidth - left - 1, Math.round(assetBounds.right - frameBounds.right)));
-          const bottom = Math.max(0, Math.min(assetHeight - top - 1, Math.round(assetBounds.bottom - frameBounds.bottom)));
+          const left = Math.max(0, Math.round(frameBounds.x - assetBounds.x));
+          const top = Math.max(0, Math.round(frameBounds.y - assetBounds.y));
+          const right = Math.max(0, Math.round(assetBounds.right - frameBounds.right));
+          const bottom = Math.max(0, Math.round(assetBounds.bottom - frameBounds.bottom));
           return { top, right, bottom, left };
         })()
       : undefined;
@@ -12244,12 +12186,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       multiSelectionActive: n.type === "asset" && multiImageSelectionActive && selectedImageNodeIds.includes(n.id),
       frameClipInsets,
     };
-    const layerPatch = embeddedFrame
-      ? { zIndex: Math.max((typeof n.zIndex === "number" ? n.zIndex : 0), (typeof embeddedFrame.zIndex === "number" ? embeddedFrame.zIndex : 0) + 1000) }
-      : {};
     return n.type === "asset" && editAsset && n.id === editAsset.nodeId
-      ? { ...n, ...layerPatch, data: { ...data, isEditing: true } }
-      : { ...n, ...layerPatch, data };
+      ? { ...n, data: { ...data, isEditing: true } }
+      : { ...n, data };
   });
 
   return (
@@ -12409,9 +12348,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         zoomOnScroll={false}
         panOnScroll={!isCanvasLocked}
         onNodeDragStart={handleAltDragStart as any}
-        onNodeDrag={(event, node) => {
-          handleFrameDragMove(event as unknown as MouseEvent, node);
-        }}
         onNodeDragStop={(event, node, nodes) => {
           handleAltDragStop(event as unknown as MouseEvent, node);
           handleNormalDragStop(event as unknown as MouseEvent, node);
@@ -12915,7 +12851,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         </div>
       )}
 
-      {/* 创建画板：拖拽矩形预览 */}
+      {/* 创建画布：拖拽矩形预览 */}
       {drawingRect && (() => {
         const rx = Math.min(drawingRect.startX, drawingRect.endX);
         const ry = Math.min(drawingRect.startY, drawingRect.endY);
@@ -13006,7 +12942,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         );
       })()}
 
-      {/* 创建画板：宽高输入弹窗 */}
+      {/* 创建画布：宽高输入弹窗 */}
       {pendingRect && (() => {
         const rx = Math.min(pendingRect.startX, pendingRect.endX);
         const ry = Math.min(pendingRect.startY, pendingRect.endY);
@@ -13075,10 +13011,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             >
               {/* 内容区——可滚动 */}
               <div style={{ flex: 1, overflowY: "auto", padding: "14px 14px 0", minHeight: 0 }}>
-              <p style={{ color: text, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>设置画板</p>
+              <p style={{ color: text, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>设置画布</p>
 
               <div style={{ marginBottom: 10 }}>
-                <p style={{ color: sub, fontSize: 10, marginBottom: 4, letterSpacing: "0.04em" }}>画板名称</p>
+                <p style={{ color: sub, fontSize: 10, marginBottom: 4, letterSpacing: "0.04em" }}>画布名称</p>
                 <input
                   autoFocus
                   type="text"

@@ -491,9 +491,9 @@ html.light, .light {
 
   .artx-ai-generation-mark-shell {
     position: relative;
-    width: min(44%, 164px);
-    min-width: 92px;
-    max-width: 168px;
+    width: min(28%, 112px);
+    min-width: 64px;
+    max-width: 118px;
     display: grid;
     place-items: center;
     filter:

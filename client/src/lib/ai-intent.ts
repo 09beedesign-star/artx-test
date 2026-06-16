@@ -157,7 +157,7 @@ export async function routeCreativeIntent({
 
 export async function generateIntentImages({
   prompt,
-  model = "gpt-image-2",
+  model = "auto",
   ratio = "1:1",
   count = 1,
   style = "智能路由",
