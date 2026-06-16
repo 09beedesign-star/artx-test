@@ -7810,11 +7810,11 @@ function CanvasAssistantPanel({
                       className="rounded-[var(--radius-lg-design)] p-4"
                       style={{
                         background: isUser
-                          ? "oklch(0.62 0.18 145)"
-                          : isDark ? "oklch(0.28 0.08 145 / 0.42)" : "oklch(0.92 0.055 145 / 0.88)",
-                        border: `1px solid ${isUser ? "oklch(0.72 0.16 145 / 0.42)" : isDark ? "oklch(0.58 0.13 145 / 0.30)" : "oklch(0.70 0.12 145 / 0.34)"}`,
-                        color: isUser ? "#000" : text,
-                        boxShadow: isUser ? "0 10px 24px oklch(0.62 0.18 145 / 0.16)" : "0 10px 22px oklch(0.62 0.16 145 / 0.10)",
+                          ? "#B6FF00"
+                          : isDark ? "rgba(182,255,0,0.18)" : "#EAFFC2",
+                        border: `1px solid ${isUser ? "rgba(182,255,0,0.58)" : isDark ? "rgba(182,255,0,0.28)" : "rgba(128,190,0,0.32)"}`,
+                        color: isUser ? "#101600" : text,
+                        boxShadow: isUser ? "0 10px 28px rgba(182,255,0,0.24)" : "0 10px 24px rgba(182,255,0,0.12)",
                       }}
                       onDoubleClick={backup ? () => handleImageBackupDoubleClick(backup) : undefined}
                       title={backup ? "双击可在画布中定位或找回这张图片" : undefined}
@@ -7838,7 +7838,7 @@ function CanvasAssistantPanel({
                         </div>
                       ) : (
                         <div className="flex flex-col gap-3">
-                          <p className="type-caption leading-6 whitespace-pre-wrap" style={{ color: isUser ? "#000" : text }}>{message.content}</p>
+                          <p className="type-caption leading-6 whitespace-pre-wrap" style={{ color: isUser ? "#101600" : text }}>{message.content}</p>
                           {message.referenceOptions && message.referenceOptions.length > 0 && (
                             <div className="flex flex-col gap-3">
                               <div className="grid grid-cols-2 gap-2">
@@ -9987,14 +9987,22 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const selectedVisualOrder = Array.from(raiseIds).join(",");
         const currentTopOrder = nds.slice(-raiseIds.size).map(node => node.id).join(",");
         if (selectedVisualOrder === currentTopOrder && nds.filter(node => raiseIds.has(node.id)).every(node => (node.zIndex || 0) >= topZ - 1)) return nds;
-        const raisedNodes = nds.filter(node => raiseIds.has(node.id)).map(node => {
-          const data = node.data as Record<string, unknown>;
-          const parentFrameId = data.embeddedInFrame as string | undefined;
-          return {
-            ...node,
-            zIndex: parentFrameId && frameIds.has(parentFrameId) ? topZ + 1 : topZ,
-          };
-        });
+        const raisedNodes = nds
+          .filter(node => raiseIds.has(node.id))
+          .sort((a, b) => {
+            const aEmbedded = a.type === "asset" && frameIds.has((a.data as Record<string, unknown>).embeddedInFrame as string);
+            const bEmbedded = b.type === "asset" && frameIds.has((b.data as Record<string, unknown>).embeddedInFrame as string);
+            if (aEmbedded === bEmbedded) return 0;
+            return aEmbedded ? 1 : -1;
+          })
+          .map(node => {
+            const data = node.data as Record<string, unknown>;
+            const parentFrameId = data.embeddedInFrame as string | undefined;
+            return {
+              ...node,
+              zIndex: parentFrameId && frameIds.has(parentFrameId) ? topZ + 1000 : topZ,
+            };
+          });
         return [
           ...nds.filter(node => !raiseIds.has(node.id)),
           ...raisedNodes,
@@ -11141,7 +11149,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             .filter(node => node.id !== target.id && !embeddedAssetIds.has(node.id))
             .map(node => ({ ...node, selected: selectedIds.has(node.id) })),
           { ...target, selected: true, zIndex: topZ },
-          ...nds.filter(node => embeddedAssetIds.has(node.id)).map(node => ({ ...node, selected: selectedIds.has(node.id), zIndex: topZ + 1 })),
+          ...nds.filter(node => embeddedAssetIds.has(node.id)).map(node => ({ ...node, selected: selectedIds.has(node.id), zIndex: topZ + 1000 })),
         ];
       });
     };
@@ -12086,9 +12094,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       multiSelectionActive: n.type === "asset" && multiImageSelectionActive && selectedImageNodeIds.includes(n.id),
       frameClipInsets,
     };
+    const layerPatch = embeddedFrame
+      ? { zIndex: Math.max((typeof n.zIndex === "number" ? n.zIndex : 0), (typeof embeddedFrame.zIndex === "number" ? embeddedFrame.zIndex : 0) + 1000) }
+      : {};
     return n.type === "asset" && editAsset && n.id === editAsset.nodeId
-      ? { ...n, data: { ...data, isEditing: true } }
-      : { ...n, data };
+      ? { ...n, ...layerPatch, data: { ...data, isEditing: true } }
+      : { ...n, ...layerPatch, data };
   });
 
   return (
