@@ -330,13 +330,22 @@ export default function InspirationPage() {
       </div>
 
       {selectedItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6" style={{ background: "oklch(0 0 0 / 0.62)", backdropFilter: "blur(14px)" }} onClick={() => setSelectedItem(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6" style={{ background: "oklch(0.42 0.004 260 / 0.72)", backdropFilter: "blur(10px)" }} onClick={() => setSelectedItem(null)}>
           <section
-            className="max-h-full w-full overflow-hidden rounded-[var(--radius-lg-design)]"
+            className="relative max-h-full w-full overflow-hidden rounded-[var(--radius-lg-design)]"
             style={{ maxWidth: 980, background: cardBg, border: `1px solid ${border}`, boxShadow: "0 24px 80px oklch(0 0 0 / 0.34)" }}
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex items-start justify-between gap-4 p-4" style={{ borderBottom: `1px solid ${border}` }}>
+            <button
+              onClick={() => setSelectedItem(null)}
+              className="absolute right-3 top-3 z-10 shrink-0 rounded-[var(--radius-pill)] p-2 transition-all hover:scale-105 active:scale-95"
+              style={{ background: isDark ? "oklch(0 0 0 / 0.46)" : "oklch(1 0 0 / 0.88)", border: `1px solid ${border}`, color: text, backdropFilter: "blur(12px)" }}
+              aria-label="关闭弹层"
+            >
+              <X size={16} />
+            </button>
+
+            <div className="p-4 pr-14" style={{ borderBottom: `1px solid ${border}` }}>
               <div className="min-w-0">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                   <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: activeBg, color: "oklch(0.80 0.17 290)", letterSpacing: 0, textTransform: "none" }}>
@@ -348,14 +357,6 @@ export default function InspirationPage() {
                 </div>
                 <h2 className="type-body-sm leading-6" style={{ color: text, fontWeight: 760 }}>{selectedItem.title}</h2>
               </div>
-              <button
-                onClick={() => setSelectedItem(null)}
-                className="shrink-0 rounded-[var(--radius-pill)] p-2 transition-all hover:scale-105 active:scale-95"
-                style={{ background: isDark ? "oklch(1 0 0 / 7%)" : "oklch(0 0 0 / 5%)", border: `1px solid ${border}`, color: text }}
-                aria-label="关闭弹层"
-              >
-                <X size={16} />
-              </button>
             </div>
 
             <div className="grid max-h-[calc(100vh-160px)] overflow-y-auto lg:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)]">
