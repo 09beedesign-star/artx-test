@@ -2765,16 +2765,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
         return { ...n, selected: sel };
       });
       window.dispatchEvent(new CustomEvent("asset-click-selection", { detail: { selectedIds: nextSelectedIds } }));
-      const selectedVisualIds = new Set(nextSelectedIds.filter(id => {
-        const node = nextNodes.find(item => item.id === id);
-        return node?.type === "asset" || node?.type === "canvasFrame";
-      }));
-      if (selectedVisualIds.size === 0) return nextNodes;
-      const topZ = Math.max(0, ...nextNodes.map(n => typeof n.zIndex === "number" ? n.zIndex : 0)) + 1;
-      return [
-        ...nextNodes.filter(n => !selectedVisualIds.has(n.id)),
-        ...nextNodes.filter(n => selectedVisualIds.has(n.id)).map(n => ({ ...n, zIndex: topZ })),
-      ];
+      return raiseVisualNodesWithEmbeddedAssets(nextNodes, nextSelectedIds);
     });
     window.dispatchEvent(new CustomEvent("asset-reference", {
       detail: { id: nodeId, title: displayTitle, src: displaySrc, ctrlKey: additive }
@@ -4821,6 +4812,49 @@ function getCanvasNodeBounds(node: Node): CanvasNodeBounds {
     centerX: node.position.x + size.width / 2,
     centerY: node.position.y + size.height / 2,
   };
+}
+
+function raiseVisualNodesWithEmbeddedAssets(nodes: Node[], selectedIds: Iterable<string>) {
+  const selectedVisualIds = new Set(
+    Array.from(selectedIds).filter(id => {
+      const node = nodes.find(item => item.id === id);
+      return node?.type === "asset" || node?.type === "canvasFrame";
+    })
+  );
+  if (selectedVisualIds.size === 0) return nodes;
+
+  const selectedFrameIds = new Set(
+    nodes
+      .filter(node => selectedVisualIds.has(node.id) && node.type === "canvasFrame")
+      .map(node => node.id)
+  );
+  const embeddedAssetIds = new Set(
+    nodes
+      .filter(node => node.type === "asset" && selectedFrameIds.has((node.data as Record<string, unknown>).embeddedInFrame as string))
+      .map(node => node.id)
+  );
+  const raiseIds = new Set(Array.from(selectedVisualIds).concat(Array.from(embeddedAssetIds)));
+  const topZ = Math.max(0, ...nodes.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
+  const selectedIdSet = new Set(selectedIds);
+
+  const raisedNodes = nodes
+    .filter(node => raiseIds.has(node.id))
+    .sort((a, b) => {
+      const aEmbedded = embeddedAssetIds.has(a.id);
+      const bEmbedded = embeddedAssetIds.has(b.id);
+      if (aEmbedded === bEmbedded) return 0;
+      return aEmbedded ? 1 : -1;
+    })
+    .map(node => ({
+      ...node,
+      selected: selectedIdSet.has(node.id),
+      zIndex: embeddedAssetIds.has(node.id) ? topZ + 1 : topZ,
+    }));
+
+  return [
+    ...nodes.filter(node => !raiseIds.has(node.id)).map(node => ({ ...node, selected: selectedIdSet.has(node.id) })),
+    ...raisedNodes,
+  ];
 }
 
 function getCanvasNodesBounds(nodes: Node[], ids: string[]): CanvasNodeBounds | null {
@@ -9238,14 +9272,17 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       if (!detail?.id || isRestoringRef.current) return;
       // 尺寸调整前先入历史（传入当前快照）
       pushHistory(nodesRef.current, edgesRef.current);
-      setNodes(nds => nds.map(n => {
-        if (n.id !== detail.id || n.type !== "canvasFrame") return n;
-        return {
-          ...n,
-          style: { ...n.style, width: detail.width, height: detail.height },
-          data: { ...(n.data as Record<string, unknown>), width: detail.width, height: detail.height },
-        };
-      }));
+      setNodes(nds => {
+        const resizedNodes = nds.map(n => {
+          if (n.id !== detail.id || n.type !== "canvasFrame") return n;
+          return {
+            ...n,
+            style: { ...n.style, width: detail.width, height: detail.height },
+            data: { ...(n.data as Record<string, unknown>), width: detail.width, height: detail.height },
+          };
+        });
+        return raiseVisualNodesWithEmbeddedAssets(resizedNodes, [detail.id]);
+      });
     };
     window.addEventListener("canvas-frame-resize", handler);
     return () => window.removeEventListener("canvas-frame-resize", handler);
@@ -10201,46 +10238,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const handleSelectionChange = useCallback(({ nodes: selectedNodes }: { nodes: Node[] }) => {
     const nextSelectedIds = selectedNodes.map(n => n.id);
     clearInactiveAssetCommands(nextSelectedIds);
-    const selectedVisualIds = new Set(
-      selectedNodes
-        .filter(node => node.type === "asset" || node.type === "canvasFrame")
-        .map(node => node.id)
-    );
-    if (selectedVisualIds.size > 0) {
+    const selectedVisualIds = selectedNodes
+      .filter(node => node.type === "asset" || node.type === "canvasFrame")
+      .map(node => node.id);
+    if (selectedVisualIds.length > 0) {
       setNodes(nds => {
-        const selectedVisualNodes = nds.filter(node => selectedVisualIds.has(node.id));
-        if (selectedVisualNodes.length === 0) return nds;
-        const topZ = Math.max(0, ...nds.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
-        const frameIds = new Set(selectedVisualNodes.filter(node => node.type === "canvasFrame").map(node => node.id));
-        const embeddedAssetIds = new Set(
-          nds
-            .filter(node => node.type === "asset" && frameIds.has((node.data as Record<string, unknown>).embeddedInFrame as string))
-            .map(node => node.id)
-        );
-        const raiseIds = new Set(Array.from(selectedVisualIds).concat(Array.from(embeddedAssetIds)));
-        const selectedVisualOrder = Array.from(raiseIds).join(",");
-        const currentTopOrder = nds.slice(-raiseIds.size).map(node => node.id).join(",");
-        if (selectedVisualOrder === currentTopOrder && nds.filter(node => raiseIds.has(node.id)).every(node => (node.zIndex || 0) >= topZ - 1)) return nds;
-        const raisedVisualNodes = nds
-          .filter(node => raiseIds.has(node.id))
-          .sort((a, b) => {
-            const aEmbedded = a.type === "asset" && frameIds.has((a.data as Record<string, unknown>).embeddedInFrame as string);
-            const bEmbedded = b.type === "asset" && frameIds.has((b.data as Record<string, unknown>).embeddedInFrame as string);
-            if (aEmbedded === bEmbedded) return 0;
-            return aEmbedded ? 1 : -1;
-          })
-          .map(node => {
-            const data = node.data as Record<string, unknown>;
-            const parentFrameId = data.embeddedInFrame as string | undefined;
-            return {
-              ...node,
-              zIndex: parentFrameId && frameIds.has(parentFrameId) ? topZ + 1000 : topZ,
-            };
-          });
-        return [
-          ...nds.filter(node => !raiseIds.has(node.id)),
-          ...raisedVisualNodes,
-        ];
+        const raised = raiseVisualNodesWithEmbeddedAssets(nds, nextSelectedIds);
+        return raised === nds ? nds : raised;
       });
     }
     setSelectedNodeIds(nextSelectedIds);
@@ -11477,12 +11481,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         if (!target) return nds;
         const selectedIds = new Set(additive ? nds.filter(node => node.selected).map(node => node.id) : []);
         selectedIds.add(target.id);
-        const topZ = Math.max(0, ...nds.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
         setSelectedNodeIds(Array.from(selectedIds));
-        return [
-          ...nds.filter(node => node.id !== target.id).map(node => ({ ...node, selected: selectedIds.has(node.id) })),
-          { ...target, selected: true, zIndex: topZ },
-        ];
+        return raiseVisualNodesWithEmbeddedAssets(nds, selectedIds);
       });
     };
     window.addEventListener("visual-node-select-to-front", handler);
