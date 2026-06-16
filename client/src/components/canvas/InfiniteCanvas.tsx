@@ -3886,6 +3886,9 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
       const newH = Math.max(60, Math.round(drag.startH + dy));
       setLocalW(newW);
       setLocalH(newH);
+      window.dispatchEvent(new CustomEvent("canvas-frame-resize-preview", {
+        detail: { id, width: newW, height: newH },
+      }));
     };
 
     const onMouseUp = (mu: MouseEvent) => {
@@ -8996,24 +8999,37 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     return () => window.removeEventListener("asset-resize-active", handler);
   }, []);
 
+  const applyCanvasFrameSize = useCallback((detail: { id: string; width: number; height: number }) => {
+    setNodes(nds => nds.map(n => {
+      if (n.id !== detail.id || n.type !== "canvasFrame") return n;
+      return {
+        ...n,
+        style: { ...n.style, width: detail.width, height: detail.height },
+        data: { ...(n.data as Record<string, unknown>), width: detail.width, height: detail.height },
+      };
+    }));
+  }, [setNodes]);
+
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<{ id: string; width: number; height: number }>).detail;
       if (!detail?.id || isRestoringRef.current) return;
-      // 尺寸调整前先入历史（传入当前快照）
+      applyCanvasFrameSize(detail);
+    };
+    window.addEventListener("canvas-frame-resize-preview", handler);
+    return () => window.removeEventListener("canvas-frame-resize-preview", handler);
+  }, [applyCanvasFrameSize]);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ id: string; width: number; height: number }>).detail;
+      if (!detail?.id || isRestoringRef.current) return;
       pushHistory(nodesRef.current, edgesRef.current);
-      setNodes(nds => nds.map(n => {
-        if (n.id !== detail.id || n.type !== "canvasFrame") return n;
-        return {
-          ...n,
-          style: { ...n.style, width: detail.width, height: detail.height },
-          data: { ...(n.data as Record<string, unknown>), width: detail.width, height: detail.height },
-        };
-      }));
+      applyCanvasFrameSize(detail);
     };
     window.addEventListener("canvas-frame-resize", handler);
     return () => window.removeEventListener("canvas-frame-resize", handler);
-  }, [pushHistory, setNodes]);
+  }, [applyCanvasFrameSize, pushHistory]);
 
   // 监听图片节点缩放结束事件，将操作纳入历史记录
   useEffect(() => {
@@ -12080,10 +12096,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       ? (() => {
           const assetBounds = getCanvasNodeBounds(n);
           const frameBounds = getCanvasNodeBounds(embeddedFrame);
-          const left = Math.max(0, Math.round(frameBounds.x - assetBounds.x));
-          const top = Math.max(0, Math.round(frameBounds.y - assetBounds.y));
-          const right = Math.max(0, Math.round(assetBounds.right - frameBounds.right));
-          const bottom = Math.max(0, Math.round(assetBounds.bottom - frameBounds.bottom));
+          const assetWidth = Math.max(1, Math.round(assetBounds.right - assetBounds.x));
+          const assetHeight = Math.max(1, Math.round(assetBounds.bottom - assetBounds.y));
+          const left = Math.max(0, Math.min(assetWidth - 1, Math.round(frameBounds.x - assetBounds.x)));
+          const top = Math.max(0, Math.min(assetHeight - 1, Math.round(frameBounds.y - assetBounds.y)));
+          const right = Math.max(0, Math.min(assetWidth - left - 1, Math.round(assetBounds.right - frameBounds.right)));
+          const bottom = Math.max(0, Math.min(assetHeight - top - 1, Math.round(assetBounds.bottom - frameBounds.bottom)));
           return { top, right, bottom, left };
         })()
       : undefined;
