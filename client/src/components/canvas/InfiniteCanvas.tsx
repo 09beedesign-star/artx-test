@@ -4753,6 +4753,63 @@ function getCanvasNodeBounds(node: Node): CanvasNodeBounds {
   };
 }
 
+function raiseVisualNodesWithEmbeddedAssets(nodes: Node[], selectedIds: Iterable<string>) {
+  const selectedVisualIds = new Set(
+    Array.from(selectedIds).filter(id => {
+      const node = nodes.find(item => item.id === id);
+      return node?.type === "asset" || node?.type === "canvasFrame";
+    })
+  );
+  if (selectedVisualIds.size === 0) return nodes;
+
+  const selectedFrameIds = new Set(
+    nodes
+      .filter(node => selectedVisualIds.has(node.id) && node.type === "canvasFrame")
+      .map(node => node.id)
+  );
+  const selectedFrameBounds = nodes
+    .filter(node => selectedFrameIds.has(node.id))
+    .map(getCanvasNodeBounds);
+  const embeddedAssetIds = new Set(
+    nodes
+      .filter(node => {
+        if (node.type !== "asset") return false;
+        if (selectedFrameIds.has((node.data as Record<string, unknown>).embeddedInFrame as string)) return true;
+        if (selectedFrameBounds.length === 0) return false;
+        const bounds = getCanvasNodeBounds(node);
+        return selectedFrameBounds.some(frameBounds => (
+          bounds.right > frameBounds.x &&
+          bounds.x < frameBounds.right &&
+          bounds.bottom > frameBounds.y &&
+          bounds.y < frameBounds.bottom
+        ));
+      })
+      .map(node => node.id)
+  );
+  const raiseIds = new Set(Array.from(selectedVisualIds).concat(Array.from(embeddedAssetIds)));
+  const topZ = Math.max(0, ...nodes.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
+  const selectedIdSet = new Set(selectedIds);
+
+  const raisedNodes = nodes
+    .filter(node => raiseIds.has(node.id))
+    .sort((a, b) => {
+      const aEmbedded = embeddedAssetIds.has(a.id);
+      const bEmbedded = embeddedAssetIds.has(b.id);
+      if (aEmbedded === bEmbedded) return 0;
+      return aEmbedded ? 1 : -1;
+    })
+    .map(node => ({
+      ...node,
+      selected: selectedIdSet.has(node.id),
+      zIndex: embeddedAssetIds.has(node.id) ? topZ + 1 : topZ,
+    }));
+
+  return [
+    ...nodes.filter(node => !raiseIds.has(node.id)).map(node => ({ ...node, selected: selectedIdSet.has(node.id) })),
+    ...raisedNodes,
+  ];
+}
+
 function getCanvasNodesBounds(nodes: Node[], ids: string[]): CanvasNodeBounds | null {
   const selected = nodes.filter(n => ids.includes(n.id));
   if (selected.length === 0) return null;
