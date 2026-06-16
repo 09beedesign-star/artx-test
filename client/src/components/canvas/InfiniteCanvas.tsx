@@ -6964,6 +6964,7 @@ function SaveProjectConfirmDialog({ isDark, project, onCancel, onSave }: {
 const CANVAS_ASSISTANT_IMAGE_MODEL_STORAGE_KEY = "artx:canvas-assistant-image-model";
 const CANVAS_ASSISTANT_TEXT_MODEL_STORAGE_KEY = "artx:canvas-assistant-text-model";
 const CANVAS_ASSISTANT_MODEL_TAB_STORAGE_KEY = "artx:canvas-assistant-model-tab";
+const CANVAS_REFERENCE_IMAGE_DND_TYPE = "application/x-artx-reference-image";
 type CanvasAssistantModelTab = "image" | "text";
 type AssistantComposerSegment =
   | { id: string; type: "text"; text: string }
@@ -7206,6 +7207,26 @@ function CanvasAssistantPanel({
   const inputShadow = "0 16px 42px rgba(210,214,224,0.10), 0 0 0 1px rgba(210,214,224,0.10)";
   const panelWidth = "clamp(280px, 32vw, 372px)";
   const collapsedPeekWidth = 112;
+  const assistantBubbleBg = "#2B2B31";
+  const assistantBubbleBorder = "rgba(255,255,255,0.10)";
+  const assistantBubbleText = "oklch(0.9 0.006 270)";
+  const userBubbleBg = "#B6E32E";
+  const userBubbleBorder = "rgba(182,227,46,0.64)";
+  const userBubbleText = "#101600";
+  const purpleButtonColor = "oklch(0.72 0.18 290)";
+  const purpleButtonBorder = "oklch(0.65 0.22 290 / 0.58)";
+  const purpleButtonHover = "oklch(0.65 0.22 290 / 0.12)";
+  const purpleButtonActive = "oklch(0.65 0.22 290 / 0.20)";
+  const purpleOutlineButtonStyle = (disabled = false): React.CSSProperties => ({
+    border: `1px solid ${purpleButtonBorder}`,
+    background: "transparent",
+    color: purpleButtonColor,
+    opacity: disabled ? 0.45 : 1,
+  });
+  const setPurpleButtonState = (target: HTMLElement, state: "base" | "hover" | "active") => {
+    target.style.background = state === "base" ? "transparent" : state === "hover" ? purpleButtonHover : purpleButtonActive;
+    target.style.transform = state === "active" ? "scale(0.96)" : "scale(1)";
+  };
   const handleCreateCanvasProject = () => {
     const project = createWorkspaceHistoryProject();
     toast("已新建画布", { description: project.title });
@@ -7329,6 +7350,22 @@ function CanvasAssistantPanel({
     }]);
     setSelectedReferenceIds([]);
   }, [onMergeReferences, referencedAssets, selectedReferenceIds]);
+
+  const handleReferenceImageActivate = useCallback((item: ReferenceImageResult) => {
+    window.dispatchEvent(new CustomEvent("canvas-reference-image-add", {
+      detail: { id: item.id, title: item.title, src: item.src, source: item.source },
+    }));
+  }, []);
+
+  const handleReferenceImageDragStart = useCallback((event: React.DragEvent, item: ReferenceImageResult) => {
+    event.dataTransfer.setData(CANVAS_REFERENCE_IMAGE_DND_TYPE, JSON.stringify({
+      id: item.id,
+      title: item.title,
+      src: item.src,
+      source: item.source,
+    }));
+    event.dataTransfer.effectAllowed = "copy";
+  }, []);
 
   const insertComposerToken = useCallback((createTokenSegment: () => AssistantComposerSegment) => {
     let nextFocusSegmentId: string | null = null;
@@ -7934,10 +7971,10 @@ function CanvasAssistantPanel({
                     <div
                       className="rounded-[var(--radius-lg-design)] p-4"
                       style={{
-                        background: isUser ? "#C5ED47" : chipBg,
-                        border: `1px solid ${isUser ? "rgba(197,237,71,0.48)" : border}`,
-                        color: isUser ? "#000" : text,
-                        boxShadow: isUser ? "0 10px 24px rgba(197,237,71,0.16)" : "none",
+                        background: isUser ? userBubbleBg : assistantBubbleBg,
+                        border: `1px solid ${isUser ? userBubbleBorder : assistantBubbleBorder}`,
+                        color: isUser ? userBubbleText : assistantBubbleText,
+                        boxShadow: isUser ? "0 10px 28px rgba(182,227,46,0.18)" : "0 10px 28px rgba(0,0,0,0.24)",
                       }}
                       onDoubleClick={backup ? () => handleImageBackupDoubleClick(backup) : undefined}
                       title={backup ? "双击可在画布中定位或找回这张图片" : undefined}
@@ -7956,12 +7993,12 @@ function CanvasAssistantPanel({
                               cursor: "zoom-in",
                             }}
                           />
-                          <p className="type-caption leading-5" style={{ color: text, fontWeight: 600 }}>{backup.title}</p>
-                          <p className="type-caption leading-5" style={{ color: sub }}>双击气泡可定位或找回图片</p>
+                          <p className="type-caption leading-5" style={{ color: assistantBubbleText, fontWeight: 600 }}>{backup.title}</p>
+                          <p className="type-caption leading-5" style={{ color: "oklch(0.68 0.01 270)" }}>双击气泡可定位或找回图片</p>
                         </div>
                       ) : (
                         <div className="flex flex-col gap-3">
-                          <p className="type-caption leading-6 whitespace-pre-wrap" style={{ color: isUser ? "#000" : text }}>{message.content}</p>
+                          <p className="type-caption leading-6 whitespace-pre-wrap" style={{ color: isUser ? userBubbleText : assistantBubbleText }}>{message.content}</p>
                           {message.referenceOptions && message.referenceOptions.length > 0 && (
                             <div className="flex flex-col gap-3">
                               <div className="grid grid-cols-2 gap-2">
@@ -7971,13 +8008,21 @@ function CanvasAssistantPanel({
                                     <button
                                       key={item.id}
                                       type="button"
+                                      draggable
                                       className="overflow-hidden rounded-[var(--radius-md-design)] text-left transition-all"
                                       style={{
-                                        border: `1px solid ${active ? "rgba(197,237,71,0.58)" : border}`,
-                                        background: active ? "rgba(197,237,71,0.12)" : "transparent",
-                                        boxShadow: active ? "0 0 0 2px rgba(197,237,71,0.14)" : "none",
+                                        border: `1px solid ${active ? "oklch(0.65 0.22 290 / 0.58)" : border}`,
+                                        background: active ? "oklch(0.65 0.22 290 / 0.12)" : "transparent",
+                                        boxShadow: active ? "0 0 0 2px oklch(0.65 0.22 290 / 0.14)" : "none",
+                                        cursor: "grab",
                                       }}
                                       onClick={() => handleReferenceSelectionToggle(item.id)}
+                                      onDoubleClick={(event) => {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        handleReferenceImageActivate(item);
+                                      }}
+                                      onDragStart={(event) => handleReferenceImageDragStart(event, item)}
                                     >
                                       <img
                                         src={item.src}
@@ -8001,12 +8046,12 @@ function CanvasAssistantPanel({
                                 <button
                                   type="button"
                                   className="rounded-[var(--radius-md-design)] px-3 py-1.5 type-caption transition-opacity hover:opacity-85"
-                                  style={{
-                                    background: "#C5ED47",
-                                    color: "#000",
-                                    opacity: selectedReferenceIds.length > 0 ? 1 : 0.5,
-                                  }}
+                                  style={purpleOutlineButtonStyle(selectedReferenceIds.length === 0)}
                                   disabled={selectedReferenceIds.length === 0}
+                                  onMouseEnter={(event) => setPurpleButtonState(event.currentTarget, "hover")}
+                                  onMouseDown={(event) => setPurpleButtonState(event.currentTarget, "active")}
+                                  onMouseUp={(event) => setPurpleButtonState(event.currentTarget, "hover")}
+                                  onMouseLeave={(event) => setPurpleButtonState(event.currentTarget, "base")}
                                   onClick={() => handleReferenceSelectionApply(message)}
                                 >
                                   确认参考图
@@ -8023,12 +8068,16 @@ function CanvasAssistantPanel({
                           <button
                             className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-opacity hover:opacity-75 disabled:opacity-50"
                             style={{
-                              color: regeneratingMessageId === message.id ? "#C5ED47" : sub,
-                              background: "transparent",
+                              ...purpleOutlineButtonStyle(Boolean(regeneratingMessageId)),
+                              color: regeneratingMessageId === message.id ? purpleButtonColor : purpleButtonColor,
                             }}
                             title="再次生成"
                             aria-label="再次生成"
                             disabled={Boolean(regeneratingMessageId)}
+                            onMouseEnter={(event) => setPurpleButtonState(event.currentTarget, "hover")}
+                            onMouseDown={(event) => setPurpleButtonState(event.currentTarget, "active")}
+                            onMouseUp={(event) => setPurpleButtonState(event.currentTarget, "hover")}
+                            onMouseLeave={(event) => setPurpleButtonState(event.currentTarget, "base")}
                             onClick={(event) => {
                               event.stopPropagation();
                               void handleRegenerateImageFromMessage(message);
@@ -8036,7 +8085,17 @@ function CanvasAssistantPanel({
                           >
                             {regeneratingMessageId === message.id ? <RefreshCw size={13} className="animate-spin" /> : <Repeat2 size={13} />}
                           </button>
-                          <button className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-opacity hover:opacity-75" style={{ color: sub, background: "transparent" }} title="复制" aria-label="复制" onClick={() => { navigator.clipboard?.writeText(message.content); toast("已复制对话内容"); }}>
+                          <button
+                            className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-opacity hover:opacity-75"
+                            style={purpleOutlineButtonStyle()}
+                            title="复制"
+                            aria-label="复制"
+                            onMouseEnter={(event) => setPurpleButtonState(event.currentTarget, "hover")}
+                            onMouseDown={(event) => setPurpleButtonState(event.currentTarget, "active")}
+                            onMouseUp={(event) => setPurpleButtonState(event.currentTarget, "hover")}
+                            onMouseLeave={(event) => setPurpleButtonState(event.currentTarget, "base")}
+                            onClick={() => { navigator.clipboard?.writeText(message.content); toast("已复制对话内容"); }}
+                          >
                             <Copy size={13} />
                           </button>
                         </>
@@ -8048,7 +8107,7 @@ function CanvasAssistantPanel({
               })}
               {isSubmitting && (
                 <div className="flex justify-start">
-                  <div className="max-w-[86%] rounded-[var(--radius-lg-design)] px-4 py-3" style={{ background: chipBg, border: `1px solid ${border}`, color: sub }}>
+                  <div className="max-w-[86%] rounded-[var(--radius-lg-design)] px-4 py-3" style={{ background: assistantBubbleBg, border: `1px solid ${assistantBubbleBorder}`, color: assistantBubbleText, boxShadow: "0 10px 28px rgba(0,0,0,0.24)" }}>
               <span className="type-caption">AI 正在回复中...</span>
                   </div>
                 </div>
@@ -10136,13 +10195,35 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const selectedVisualNodes = nds.filter(node => selectedVisualIds.has(node.id));
         if (selectedVisualNodes.length === 0) return nds;
         const topZ = Math.max(0, ...nds.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
-        const raisedVisualNodes = selectedVisualNodes.map(node => ({ ...node, zIndex: topZ }));
-        const selectedVisualOrder = selectedVisualNodes.map(node => node.id).join(",");
-        const currentTopOrder = nds.slice(-selectedVisualNodes.length).map(node => node.id).join(",");
-        if (selectedVisualOrder === currentTopOrder && selectedVisualNodes.every(node => (node.zIndex || 0) >= topZ - 1)) return nds;
+        const frameIds = new Set(selectedVisualNodes.filter(node => node.type === "canvasFrame").map(node => node.id));
+        const embeddedAssetIds = new Set(
+          nds
+            .filter(node => node.type === "asset" && frameIds.has((node.data as Record<string, unknown>).embeddedInFrame as string))
+            .map(node => node.id)
+        );
+        const raiseIds = new Set(Array.from(selectedVisualIds).concat(Array.from(embeddedAssetIds)));
+        const selectedVisualOrder = Array.from(raiseIds).join(",");
+        const currentTopOrder = nds.slice(-raiseIds.size).map(node => node.id).join(",");
+        if (selectedVisualOrder === currentTopOrder && nds.filter(node => raiseIds.has(node.id)).every(node => (node.zIndex || 0) >= topZ - 1)) return nds;
+        const raisedNodes = nds
+          .filter(node => raiseIds.has(node.id))
+          .sort((a, b) => {
+            const aEmbedded = a.type === "asset" && frameIds.has((a.data as Record<string, unknown>).embeddedInFrame as string);
+            const bEmbedded = b.type === "asset" && frameIds.has((b.data as Record<string, unknown>).embeddedInFrame as string);
+            if (aEmbedded === bEmbedded) return 0;
+            return aEmbedded ? 1 : -1;
+          })
+          .map(node => {
+            const data = node.data as Record<string, unknown>;
+            const parentFrameId = data.embeddedInFrame as string | undefined;
+            return {
+              ...node,
+              zIndex: parentFrameId && frameIds.has(parentFrameId) ? topZ + 1000 : topZ,
+            };
+          });
         return [
           ...nds.filter(node => !selectedVisualIds.has(node.id)),
-          ...raisedVisualNodes,
+          ...raisedNodes,
         ];
       });
     }
@@ -10662,12 +10743,81 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setRenameValue(groupNames[groupId] || "");
   }, [groupNames]);
 
+  const createReferenceImageSourceNode = useCallback((item: { id?: string; title?: string; src: string; source?: string }, index: number, origin: { x: number; y: number }) => new Promise<Node>((resolve, reject) => {
+    const img = new window.Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const id = `reference-image-${Date.now()}-${index}`;
+      const { width: nodeWidth, height: nodeHeight } = getImportedImageDisplaySize(img.naturalWidth || img.width, img.naturalHeight || img.height);
+      resolve({
+        id,
+        type: "asset",
+        position: {
+          x: origin.x - nodeWidth / 2 + index * 32,
+          y: origin.y - nodeHeight / 2 + index * 32,
+        },
+        style: { width: nodeWidth, height: nodeHeight },
+        data: {
+          id,
+          assetId: "default",
+          localSrc: item.src,
+          title: item.title || "参考图片",
+          assetType: "图片",
+          tags: item.source ? [item.source, "参考图"] : DEFAULT_ASSET_TAGS,
+          imgW: nodeWidth,
+          imgH: nodeHeight,
+        },
+      });
+    };
+    img.onerror = () => reject(new Error("参考图片加载失败"));
+    img.src = item.src;
+  }), []);
+
+  const addReferenceImageToCanvas = useCallback(async (
+    item: { id?: string; title?: string; src: string; source?: string },
+    origin: { x: number; y: number },
+    message = "参考图已显示在画布中"
+  ) => {
+    try {
+      const node = await createReferenceImageSourceNode(item, 0, origin);
+      const nodeSize = getCanvasNodeSize(node);
+      const nodeCenter = {
+        x: node.position.x + nodeSize.width / 2,
+        y: node.position.y + nodeSize.height / 2,
+      };
+      const targetFrame = nodesRef.current
+        .filter(n => n.type === "canvasFrame")
+        .sort((a, b) => (b.zIndex || 0) - (a.zIndex || 0))
+        .find(frame => {
+          const frameSize = getCanvasNodeSize(frame);
+          return (
+            nodeCenter.x >= frame.position.x &&
+            nodeCenter.x <= frame.position.x + frameSize.width &&
+            nodeCenter.y >= frame.position.y &&
+            nodeCenter.y <= frame.position.y + frameSize.height
+          );
+        });
+      const embeddedData = targetFrame ? { embeddedInFrame: targetFrame.id } : {};
+      pushHistory();
+      setNodes(nds => nds.map(existing => ({ ...existing, selected: false })).concat({
+        ...node,
+        selected: true,
+        data: { ...(node.data as Record<string, unknown>), ...embeddedData },
+      }));
+      setSelectedNodeIds([node.id]);
+      toast(message, { description: item.title || "参考图片" });
+    } catch (error) {
+      const description = error instanceof Error ? error.message : "请重新选择参考图片";
+      toast("参考图加入失败", { description });
+    }
+  }, [createReferenceImageSourceNode, pushHistory, setNodes]);
+
   // ── Local file drag-drop handlers ──
   const handleCanvasDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    // Only handle file drags from OS (not internal ReactFlow node drags)
-    if (!e.dataTransfer.types.includes("Files")) return;
+    const isReferenceDrag = e.dataTransfer.types.includes(CANVAS_REFERENCE_IMAGE_DND_TYPE);
+    if (!e.dataTransfer.types.includes("Files") && !isReferenceDrag) return;
     dragCounterRef.current += 1;
     setIsDragOver(true);
   }, []);
@@ -10675,7 +10825,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const handleCanvasDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!e.dataTransfer.types.includes("Files")) return;
+    const isReferenceDrag = e.dataTransfer.types.includes(CANVAS_REFERENCE_IMAGE_DND_TYPE);
+    if (!e.dataTransfer.types.includes("Files") && !isReferenceDrag) return;
     e.dataTransfer.dropEffect = "copy";
     const rect = containerRef.current?.getBoundingClientRect();
     if (rect) setDragPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
@@ -10684,7 +10835,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const handleCanvasDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!e.dataTransfer.types.includes("Files")) return;
+    const isReferenceDrag = e.dataTransfer.types.includes(CANVAS_REFERENCE_IMAGE_DND_TYPE);
+    if (!e.dataTransfer.types.includes("Files") && !isReferenceDrag) return;
     dragCounterRef.current -= 1;
     if (dragCounterRef.current <= 0) {
       dragCounterRef.current = 0;
@@ -10699,6 +10851,19 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     dragCounterRef.current = 0;
     setIsDragOver(false);
     setDragPos(null);
+    const referencePayload = e.dataTransfer.getData(CANVAS_REFERENCE_IMAGE_DND_TYPE);
+    if (referencePayload) {
+      try {
+        const item = JSON.parse(referencePayload) as { id?: string; title?: string; src?: string; source?: string };
+        if (!item.src) throw new Error("missing src");
+        const dropPos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+        void addReferenceImageToCanvas({ ...item, src: item.src }, dropPos, "参考图已加入画布");
+        return;
+      } catch {
+        toast("参考图拖入失败", { description: "请重新拖拽参考图片" });
+        return;
+      }
+    }
     const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith("image/"));
     if (files.length === 0) { toast("请拖入图片文件（JPG / PNG / GIF / WebP）"); return; }
     const rect = containerRef.current?.getBoundingClientRect();
@@ -10737,7 +10902,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       reader.readAsDataURL(file);
     });
     toast(`已导入 ${files.length} 张图片`, { description: "本地图片已成功添加到画布" });
-  }, [pushHistory, screenToFlowPosition, setNodes]);
+  }, [addReferenceImageToCanvas, pushHistory, screenToFlowPosition, setNodes]);
 
   const createClipboardImageNode = useCallback((blob: Blob, index: number, origin: { x: number; y: number }) => new Promise<Node>((resolve, reject) => {
     const reader = new FileReader();
@@ -10874,6 +11039,21 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     }
     return pasteClipboardImageSources(sources);
   }, [pasteClipboardImages, pasteClipboardImageSources]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ id?: string; title?: string; src?: string; source?: string }>).detail;
+      if (!detail?.src) return;
+      const rect = containerRef.current?.getBoundingClientRect();
+      const origin = screenToFlowPosition({
+        x: (rect?.left || 0) + (rect?.width || window.innerWidth) / 2,
+        y: (rect?.top || 0) + (rect?.height || window.innerHeight) / 2,
+      });
+      void addReferenceImageToCanvas({ ...detail, src: detail.src }, origin);
+    };
+    window.addEventListener("canvas-reference-image-add", handler);
+    return () => window.removeEventListener("canvas-reference-image-add", handler);
+  }, [addReferenceImageToCanvas, screenToFlowPosition]);
 
   const pasteClipboardFromNavigator = useCallback(async () => {
     if (!navigator.clipboard?.read) return false;
