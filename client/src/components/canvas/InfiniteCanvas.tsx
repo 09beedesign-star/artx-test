@@ -4641,7 +4641,6 @@ type ImageGeneratorReferenceAsset = {
 
 type ElementLayerPlan = {
   foregroundPrompt: string;
-  middlePrompt: string;
   backgroundPrompt: string;
   extractedText: string;
   textStyleHint?: string;
@@ -11573,7 +11572,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       }]);
       setSelectedNodeIds([splittingNodeId]);
 
-      toast("AI 编辑元素中", { description: "正在拆分前景层、中景层和背景层" });
+      toast("AI 编辑元素中", { description: "正在拆分主体层、背景层和占位层" });
       try {
         const planner = await callLLM({
           module: "image-edit-elements-plan",
@@ -11581,15 +11580,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           images: [{ src: imageSrc, title: typeof data.title === "string" ? data.title : "选中图片" }],
           prompt: [
             "你正在为设计画布生成图片分层计划。",
-            "请识别这张图里的前景主体、中景元素、背景区域，以及画面里可见的文案。",
-            "目标是至少拆成三张图片层：前景层、中景层、背景层。每一层都必须输出为完整画幅的新图片，不覆盖原图。",
-            "强制透明规则：前景层和中景层必须输出 PNG 透明图层，非本层内容的所有像素 alpha=0；只有背景层允许 alpha=100 的不透明背景。",
+            "请把图像拆成接近专业设计软件的图层：主体整体层、背景场景层、可编辑文案信息。",
+            "主体整体层必须包含最前景完整主体以及与主体绑定的座椅/道具/服装/鞋子/手部，不要把人体和座椅拆碎。",
+            "背景场景层必须移除主体整体层，保留并补全后方背景、地面、墙面、品牌符号、阴影和被主体遮挡的区域。",
+            "不要生成碎片化的中景残渣层，不要输出人物、裤子、椅子或鞋子的残片。",
             "返回严格 JSON，不要使用代码块，不要附加解释。",
             "JSON 结构：",
-            "{\"foregroundPrompt\":\"...\",\"middlePrompt\":\"...\",\"backgroundPrompt\":\"...\",\"extractedText\":\"...\",\"textStyleHint\":\"...\"}",
-            "foregroundPrompt：用于生成前景层，只保留最前面的主体物/人物/产品；其它所有区域必须完全透明 alpha=0。",
-            "middlePrompt：用于生成中景层，只保留前景主体之后、背景之前的次级元素、装饰、道具、阴影、文字或空间元素；移除最前景主体和最底层背景，其它所有区域必须完全透明 alpha=0。",
-            "backgroundPrompt：用于生成背景层，移除前景主体、中景元素和主要文案，补齐干净背景；背景层可以完全不透明 alpha=100。",
+            "{\"foregroundPrompt\":\"...\",\"backgroundPrompt\":\"...\",\"extractedText\":\"...\",\"textStyleHint\":\"...\"}",
+            "foregroundPrompt：用于生成主体整体层，只保留完整人物/产品/座椅/手脚/服装等绑定主体，其它区域完全透明 alpha=0。",
+            "backgroundPrompt：用于生成背景场景层，完整保留后方 W 标志、蓝色背景、地面透视和光影；移除主体整体层并自然补齐被遮挡区域，输出不透明背景图。",
             "extractedText：把画面中的全部可读文案按原顺序输出；若没有则输出空字符串。",
             "textStyleHint：简要描述文案层适合的排版气质，比如 headline、small、bold。",
           ].join("\n"),
@@ -11603,9 +11602,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         }
 
         const fallbackPlan: ElementLayerPlan = {
-          foregroundPrompt: "Create a transparent PNG foreground layer from this image. Keep only the closest main subject as an isolated standalone layer, preserving identity, edges, lighting, texture, proportions, and details. Every pixel that is not part of this foreground subject must be fully transparent with alpha=0. Keep the full original canvas size and do not add any background.",
-          middlePrompt: "Create a transparent PNG middle layer from this image. Remove the closest main foreground subject and remove the bottom background plate. Keep only secondary mid-ground elements such as props, shadows, decorative objects, typography, product accessories, or scene elements that sit between foreground and background. Every pixel that is not part of the middle layer must be fully transparent with alpha=0. Keep the full original canvas size and do not add any background.",
-          backgroundPrompt: "Create the opaque bottom background layer from this image. Remove the foreground subject, middle-ground objects, shadows, and visible text, then reconstruct a clean background plate matching the original perspective, lighting, colors, texture, and depth naturally, without retouch traces. The background layer may be fully opaque alpha=100. Output the full original canvas size.",
+          foregroundPrompt: "Create a transparent PNG subject layer from this image. Keep the complete main subject group as one intact layer, including the person, chair/seat, hands, shoes, clothes, beard, glasses, and all objects physically attached to the subject. Do not cut holes in the body, pants, chair, hands, shoes, or clothing. Remove only the background, wall, floor, and rear logo. Every non-subject pixel must be fully transparent alpha=0. Preserve full original canvas size.",
+          backgroundPrompt: "Create the opaque background plate from this image. Remove the complete main subject group including person, chair, hands, shoes, clothes, and foreground shadows. Preserve the rear blue wall, large W logo, floor, perspective, lighting, gradient, texture, and shadow logic. Reconstruct the areas hidden behind the subject naturally, with no subject fragments, no black holes, no transparent pixels, and no retouch artifacts. Output the full original canvas size.",
           extractedText: "",
           textStyleHint: "headline",
         };
@@ -11613,7 +11611,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           ...fallbackPlan,
           ...(parsedPlan || {}),
           foregroundPrompt: parsedPlan?.foregroundPrompt?.trim() || fallbackPlan.foregroundPrompt,
-          middlePrompt: parsedPlan?.middlePrompt?.trim() || fallbackPlan.middlePrompt,
           backgroundPrompt: parsedPlan?.backgroundPrompt?.trim() || fallbackPlan.backgroundPrompt,
           extractedText: parsedPlan?.extractedText?.trim() || "",
           textStyleHint: parsedPlan?.textStyleHint?.trim() || fallbackPlan.textStyleHint,
@@ -11629,33 +11626,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           run: async () => removeImageBackground({
             imageSrc,
             model: "gpt-image-2",
-            prompt: `${resolvedPlan.foregroundPrompt}\n\nLayer alpha requirement: keep only the foreground layer. All non-foreground pixels must be fully transparent alpha=0. Preserve the original full canvas size.`,
+            prompt: `${resolvedPlan.foregroundPrompt}\n\nLayer alpha requirement: keep the complete subject group as one intact foreground layer. Do not remove any interior subject pixels. All non-subject background pixels must be fully transparent alpha=0. Preserve the original full canvas size.`,
           }),
-        });
-
-        await runDerivedImageGeneration({
-          sourceNode: assetNode,
-          prompt: resolvedPlan.middlePrompt,
-          style: "中景层",
-          nextW: Number(data.imgW || sourceSize.width),
-          nextH: Number(data.imgH || sourceSize.height),
-          placement: { x: baseX, y: baseY + sourceSize.height + 28 },
-          run: async () => {
-            const isolatedMiddle = await editImageWithPrompt({
-              imageSrc,
-              model: "gpt-image-2",
-              prompt: `${resolvedPlan.middlePrompt}\n\nFirst isolate only the middle-ground layer. Remove the foreground subject and do not include the bottom background plate. Keep the original canvas aspect ratio.`,
-              targetWidth: sourceSize.width,
-              targetHeight: sourceSize.height,
-            });
-            const middleSrc = isolatedMiddle.images[0]?.src;
-            if (!middleSrc) throw new Error("中景层生成结果为空");
-            return removeImageBackground({
-              imageSrc: middleSrc,
-              model: "gpt-image-2",
-              prompt: `${resolvedPlan.middlePrompt}\n\nFinal cleanup: keep only the middle-ground layer content. Every pixel outside the middle-ground layer must be fully transparent alpha=0. Preserve the full canvas size and do not add any background.`,
-            });
-          },
         });
 
         await runDerivedImageGeneration({
@@ -11664,15 +11636,33 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           style: "背景层",
           nextW: Number(data.imgW || sourceSize.width),
           nextH: Number(data.imgH || sourceSize.height),
-          placement: { x: baseX, y: baseY + (sourceSize.height + 28) * 2 },
+          placement: { x: baseX, y: baseY + sourceSize.height + 28 },
           run: async () => editImageWithPrompt({
             imageSrc,
             model: "gpt-image-2",
-            prompt: resolvedPlan.backgroundPrompt,
+            prompt: `${resolvedPlan.backgroundPrompt}\n\nCritical layer instruction: this output is the bottom background plate only. It must contain no visible person, chair, clothes, shoes, hands, face, skin, beard, glasses, or subject fragments. It should look like the original blue background and W logo existed behind the removed subject.`,
             targetWidth: sourceSize.width,
             targetHeight: sourceSize.height,
           }),
         });
+
+        pushHistory();
+        const frameNodeId = `element-frame-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        setNodes(nds => [...nds.map(n => ({ ...n, selected: false })), {
+          id: frameNodeId,
+          type: "canvasFrame" as const,
+          position: { x: baseX, y: baseY + (sourceSize.height + 28) * 2 },
+          style: { width: sourceSize.width, height: sourceSize.height },
+          data: {
+            id: frameNodeId,
+            title: "Frame",
+            frameW: sourceSize.width,
+            frameH: sourceSize.height,
+            backgroundColor: "transparent",
+          },
+          selected: true,
+        }]);
+        setSelectedNodeIds([frameNodeId]);
 
         if (resolvedPlan.extractedText) {
           pushHistory();
@@ -11688,8 +11678,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
         toast("编辑元素完成", {
           description: resolvedPlan.extractedText
-            ? "已生成前景层、中景层、背景层和可编辑文案层，原图保持不变"
-            : "已生成前景层、中景层和背景层，原图保持不变",
+            ? "已生成主体层、背景层、Frame 和可编辑文案层，原图保持不变"
+            : "已生成主体层、背景层和 Frame，原图保持不变",
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : "请稍后重试";
