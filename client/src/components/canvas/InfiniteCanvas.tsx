@@ -7809,12 +7809,10 @@ function CanvasAssistantPanel({
                     <div
                       className="rounded-[var(--radius-lg-design)] p-4"
                       style={{
-                        background: isUser
-                          ? "#B6FF00"
-                          : isDark ? "rgba(182,255,0,0.18)" : "#EAFFC2",
-                        border: `1px solid ${isUser ? "rgba(182,255,0,0.58)" : isDark ? "rgba(182,255,0,0.28)" : "rgba(128,190,0,0.32)"}`,
-                        color: isUser ? "#101600" : text,
-                        boxShadow: isUser ? "0 10px 28px rgba(182,255,0,0.24)" : "0 10px 24px rgba(182,255,0,0.12)",
+                        background: "#B6FF00",
+                        border: "1px solid rgba(182,255,0,0.62)",
+                        color: "#101600",
+                        boxShadow: "0 10px 28px rgba(182,255,0,0.22)",
                       }}
                       onDoubleClick={backup ? () => handleImageBackupDoubleClick(backup) : undefined}
                       title={backup ? "双击可在画布中定位或找回这张图片" : undefined}
@@ -7838,7 +7836,7 @@ function CanvasAssistantPanel({
                         </div>
                       ) : (
                         <div className="flex flex-col gap-3">
-                          <p className="type-caption leading-6 whitespace-pre-wrap" style={{ color: isUser ? "#101600" : text }}>{message.content}</p>
+                          <p className="type-caption leading-6 whitespace-pre-wrap" style={{ color: "#101600" }}>{message.content}</p>
                           {message.referenceOptions && message.referenceOptions.length > 0 && (
                             <div className="flex flex-col gap-3">
                               <div className="grid grid-cols-2 gap-2">
@@ -7925,7 +7923,7 @@ function CanvasAssistantPanel({
               })}
               {isSubmitting && (
                 <div className="flex justify-start">
-                  <div className="max-w-[86%] rounded-[var(--radius-lg-design)] px-4 py-3" style={{ background: chipBg, border: `1px solid ${border}`, color: sub }}>
+                  <div className="max-w-[86%] rounded-[var(--radius-lg-design)] px-4 py-3" style={{ background: "#B6FF00", border: "1px solid rgba(182,255,0,0.62)", color: "#101600" }}>
               <span className="type-caption">AI 正在回复中...</span>
                   </div>
                 </div>
