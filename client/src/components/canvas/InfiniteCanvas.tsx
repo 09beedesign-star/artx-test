@@ -8153,7 +8153,7 @@ function CanvasAssistantPanel({
                   const textWidth = segment.text
                     ? Math.min(260, Math.max(16, segment.text.length * 12))
                     : composerSegments.length === 1
-                      ? 220
+                      ? 300
                       : 12;
                   return (
                     <textarea
@@ -8180,15 +8180,16 @@ function CanvasAssistantPanel({
                           : "输入对当前画布的想法，可在文字之间插入引用图片..."
                         : ""}
                       cols={1}
-                      rows={1}
+                      rows={composerSegments.length === 1 && segment.text.length === 0 ? 2 : 1}
                       className="min-w-0 shrink-0 border-0 bg-transparent p-0 outline-none resize-none disabled:cursor-not-allowed"
                       style={{
                         color: text,
                         opacity: 1,
                         fontSize: 12,
-                        lineHeight: 1.5,
-                        minHeight: 24,
-                        maxHeight: 96,
+                        lineHeight: 1.55,
+                        minHeight: composerSegments.length === 1 && segment.text.length === 0 ? 40 : 24,
+                        maxHeight: 120,
+                        overflow: "hidden",
                         width: `${textWidth}px`,
                         minWidth: `${textWidth}px`,
                         maxWidth: `${textWidth}px`,
