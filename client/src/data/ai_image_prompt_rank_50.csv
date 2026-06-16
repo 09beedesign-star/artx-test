@@ -1,0 +1,326 @@
+﻿rank,field,model,title,repo_no,description,prompt,image_url,all_image_urls,detail_url,source_url,author,author_url,published_at
+1,视觉设计,Nano Banana Pro,带肖像和中英文定制的宽引言卡,1,一个用于生成宽幅引言卡的提示，卡片上有一位名人的肖像，背景为棕色，引言文字为浅金色衬线字体。布局为文字占据三分之二，人物占据三分之一。引言文字和作者可参数化以便重复使用。,"一张宽幅引言卡片，上面印有一位名人，背景为棕色，引言文字为浅金色衬线字体：“{argument name=""famous_quote"" default=""Stay Hungry, Stay Foolish""}”，下方是较小的文字：“—{argument name=""author"" default=""Steve Jobs""}”。文字前面有一个大而柔和的引号。人物肖像在左侧，文字在右侧。文字占据图片的三分之二，肖像占据三分之一，肖像部分带有轻微的渐变过渡效果。",https://cms-assets.youmind.com/media/1763886933714_5zqn1e_G6QBjQHbgAE3Yt_.jpg,"https://cms-assets.youmind.com/media/1763886933714_5zqn1e_G6QBjQHbgAE3Yt_.jpg
+https://cms-assets.youmind.com/media/1763886938314_wbcfc7_G6QBiiracAInQ8z.jpg
+https://cms-assets.youmind.com/media/1763886941069_1d9ace_G6QBii_acAIRxKd.jpg
+https://cms-assets.youmind.com/media/1763886946388_nwahev_G6QBikOaEAAmYkO.jpg",https://youmind.com/zh-CN/nano-banana-pro-prompts?id=151,https://x.com/stark_nico99/status/1991718646570426763,Nicolechan,https://x.com/stark_nico99,2025年11月21日
+2,视觉设计,Nano Banana Pro,高级液态玻璃 Bento 网格产品信息图，含 8 个模块,2,使用 bento grid 8 模块布局创建信息图，用户可以指定食品、药品、科技等类别中的任何产品名称，选择语言、背景样式和主网格样式。,"输入变量：[插入产品名称]
+语言：[插入语言]
+
+系统指令：
+创建一个包含 8 个模块（卡片 2 到 8 只显示文本标题）的优质液态玻璃 Bento 网格产品信息图。
+1) 产品分析：
+→ 识别产品的主导自然色 → “主色调”
+→ 识别类别：食品 / 药品 / 科技
+2) 调色板（源自主色调）：
+→ 产品 + 强调色：完全饱和的主色调
+→ 图标、边框：柔和的主色调（30-40% 饱和度，绝不使用黑色）
+3) 视觉风格：
+→ 主打产品：真实摄影（真实、优质）、3D 玻璃版本 [二选一]
+→ 卡片：Apple 液态玻璃（85-90% 透明），带有极细边框和微妙的阴影，营造浮动深度并反射背景颜色
+→ 背景保持在卡片后面，卡片所在区域高度模糊 [二选一]：
+  - 飘渺：产品精髓、柔和的焦散、抽象的光晕
+  - 微距：产品纹理特写、高度模糊
+  - 图案：产品柔和重复，不透明度为 10-15%
+  - 情境：相关环境，模糊 + 去饱和
+→ 添加微妙的动态效果
+→ 不对称 Bento 网格，16:9 横向
+→ 主卡片：28-30% | 信息模块：70-72%
+4) 模块内容（8 张卡片）：
+M1 — 主打：以真实照片 / 3D 玻璃 / 风格化诠释（三选一）的精美形式展示产品 + 产品名称标签
+M2 — 核心优势：4 个独特优势 + 主色调图标
+M3 — 使用方法：4 种使用方法 + 图标
+M4 — 关键指标：5 个精确数据点
+格式：[图标] [标签] [粗体值] [单位]
+食品：卡路里：[X] 千卡/100 克，碳水化合物：[X] 克（膳食纤维 [X] 克，糖 [X] 克），蛋白质：[X] 克，[关键维生素]：[X] 毫克（每日摄入量 [X]%），[关键矿物质]：[X] 毫克（每日摄入量 [X]%）
+药品：活性成分：[名称]，强度：[X] 毫克，起效时间：[X] 分钟，持续时间：[X] 小时，半衰期：[X] 小时
+科技：芯片：[型号]，电池续航：[X] 小时，重量：[X] 克，[关键规格]：[值]，连接性：[协议]
+M5 — 适用人群：4 组推荐人群，带有绿色对勾图标 | 3 组注意事项人群，带有琥珀色警告图标
+M6 — 重要提示：4 项注意事项 + 警告图标
+M7 — 快速参考：
+→ 食品：血糖指数 + 带有图标的膳食标签
+→ 药品：副作用 + 严重程度，带有图标
+→ 科技：兼容性 + 认证，带有图标
+M8 — 你知道吗：3 个事实（起源、科学、全球统计数据）+ 图标
+输出：1 张图片，16:9 横向，超优质液态玻璃信息图。",https://cms-assets.youmind.com/media/1768962051381_l9uih4_537980579-6f29d32a-c786-40c4-bd5a-79c640737496.png,"https://cms-assets.youmind.com/media/1768962051381_l9uih4_537980579-6f29d32a-c786-40c4-bd5a-79c640737496.png
+https://cms-assets.youmind.com/media/1768962076321_nu4c5q_537981099-d18d0e38-f7ac-4781-a5da-6d68e2380885.png",https://youmind.com/zh-CN/nano-banana-pro-prompts?id=6847,https://x.com/MansiSanghani1/status/2013550795224961492,Mansi Sanghani,https://x.com/MansiSanghani1,2026年1月20日
+3,视觉设计,Nano Banana Pro,手绘风格标题图片提示（来自照片）,3,手绘风格的头部图片，描绘一个人正在介绍 Nano Banana Pro。,"完全重塑上传的人物。
+将其作为一篇笔记文章的标题图片，该人物在文章中介绍“Nano Banana Pro”。
+长宽比：横向 16:9。
+风格和颜色：简洁、手绘风格、斜体，带有蓝绿色渐变。
+标题文字：“深入解读 Google 全新 AI ‘Nano Banana Pro’”。",https://cms-assets.youmind.com/media/1763885651870_4szbai_G6VZiROagAAqsIh.jpg,"https://cms-assets.youmind.com/media/1763885651870_4szbai_G6VZiROagAAqsIh.jpg
+https://cms-assets.youmind.com/media/1763885654537_qf6h9o_G6VZiRWaIAA_9x5.jpg",https://youmind.com/zh-CN/nano-banana-pro-prompts?id=498,https://x.com/akirakudo_ai/status/1992096860765561190,セミナー講師専門AIコンシェルジュ｜工藤 晶,https://x.com/akirakudo_ai,2025年11月22日
+4,视觉设计,Nano Banana Pro,信息图 / 教育视觉图 - AR 悬崖风景人像分析,32,一个高科技提示词，用于对努沙佩尼达 (Nusa Penida) 悬崖边的风景人像进行增强现实分析，并叠加数据图层。,"{
+  ""image_description"": {
+    ""overall_theme"": ""高科技增强现实分析，呈现户外风景人像"",
+    ""resolution"": ""4K 超高清，超写实，带有清晰的数据叠加层"",
+    ""subject"": {
+      ""name"": ""Woman_Model_A"",
+      ""pose"": ""坐姿侧面，向左看，侧身"",
+      ""attire"": {
+        ""garment"": ""垂褶单肩褶皱丝绸绿裙"",
+        ""color_hex"": ""#1E6641"",
+        ""footwear"": ""栗色靴子"",
+        ""accessory"": {
+          ""type"": ""双色皮革/金属包"",
+          ""details"": ""金色搭扣特征""
+        }
+      }
+    },
+    ""environment"": {
+      ""location"": ""努沙佩尼达 (Nusa Penida) 悬崖"",
+      ""terrain"": ""岩石小径"",
+      ""details"": {
+        ""main_trees"": {
+          ""type"": ""蕨类树木"",
+          ""count"": 3
+        },
+        ""vegetation"": ""茂密的苔藓树木，鲜艳的红花，异国情调的植物"",
+        ""boundary"": ""带有粗绳栏杆的木制围栏柱"",
+        ""background"": ""远处被薄雾部分遮挡的树木覆盖的悬崖，有飞鸟"",
+        ""specific_sign"": ""围栏柱上的小标志，文字为 'Kelingking'""
+      }
+    },
+    ""data_overlay"": {
+      ""style"": ""半透明青色数字界面，带有发光的网格线和面板轮廓"",
+      ""panels"": [
+        {
+          ""position"": ""左上角（垂直堆叠）"",
+          ""content"": [
+            ""分析：主体检测 (SUBJECT_DETECT)"",
+            ""姿势：坐姿侧面 (SEATED_PROFILE)"",
+            ""服装：垂褶单肩 (DRAPED_ONE_SHOULDER)"",
+            ""颜色：#1E6641_丝绸绿"",
+            ""配饰 1：双色包"",
+            ""材质：皮革/金属"",
+            ""鞋跟：栗色靴子""
+          ]
+        },
+        {
+          ""position"": ""顶部中心（浮动块）"",
+          ""content"": ""坐标：-8.7495° S, 115.0934° E""
+        },
+        {
+          ""position"": ""左侧中心（嵌入式注释）"",
+          ""linked_to"": ""最左侧的蕨类树木"",
+          ""content"": ""蕨类树木 (数量: 3)""
+        },
+        {
+          ""position"": ""右侧中心（嵌入式注释）"",
+          ""linked_to"": ""最右侧的蕨类树木"",
+          ""content"": ""蕨类树木 (数量: 3)""
+        },
+        {
+          ""position"": ""右上角（注释）"",
+          ""linked_to"": ""悬崖"",
+          ""content"": ""悬崖距离 (约: 450m)""
+        },
+        {
+          ""position"": ""右下角（格式化 JSON 块）"",
+          ""content"": ""{\n  \""model\"": {\n    \""name\"": \""Woman_Model_A\"",\n    \""pose\"": \""坐姿向左看侧面\""\n  },\n  \""apparel\"": {\n    \""garment\"": \""褶皱丝绸绿裙\"",\n    \""style\"": \""单肩垂褶\""\n  },\n  \""bag\"": {\n    \""type\"": \""双色皮革/金色搭扣\"",\n    \""brand\"": \""奢华配饰\""\n  },\n  \""location\"": \""努沙佩尼达悬崖\"",\n  \""terrain\"": \""岩石小径\""\n}""
+        }
+      ]
+    }
+  }
+}",https://cms-assets.youmind.com/media/1781424058640_02zl8s_HKrYUBHbMAAq3Be.jpg,https://cms-assets.youmind.com/media/1781424058640_02zl8s_HKrYUBHbMAAq3Be.jpg,https://youmind.com/zh-CN/nano-banana-pro-prompts?id=25462,https://x.com/nxnusratul/status/2065701229779648666,NUSRAT,https://x.com/nxnusratul,2026年6月13日
+5,视觉设计,Nano Banana Pro,信息图 / 教育视觉图 - 工程产品信息图设计,39,一份用于创建专业工程信息图的详细提示词，采用网格布局，包含各种电子产品的爆炸视图和技术注释。,"超精细技术工程信息图，简洁的 {argument name=""background color"" default=""白色""} 背景，由清晰的黑色分隔线划分为精确的 {argument name=""grid layout"" default=""2×2 网格""}。蓝图风格的工业设计可视化，包含逼真的 3D 渲染、透明剖面图、爆炸视图、尺寸标注、技术说明框、测量指南以及颜色编码的工程箭头（红色、蓝色、绿色、橙色）。专业产品设计演示，Apple 风格工业设计文档，高端技术插图。左上角：{argument name=""primary subject"" default=""现代智能手机""} 以倾斜视角展示，屏幕已移除，露出紧密排列的内部组件。可见 L 型电池、先进的逻辑板、处理器芯片、摄像头模组、Face ID 传感器、Taptic Engine、散热路径、排线、螺丝、连接器和散热架构。组件周围有精确的工程标签和尺寸线。右上角：带有大变焦镜头的专业无反相机。镜头组件的纵向剖面图，展示了多个镜片、光学组、光圈机构、图像传感器、快门系统、电子元件和取景器结构。额外的爆炸子图展示了光圈叶片的构造和组装顺序。详细的光学工程注释。左下角：高级无线耳机充电盒，呈半透明且拆解状态。一个耳机放置在内部，第二个耳机悬浮在上方，呈爆炸视图配置。内部锂聚合物电池、微型逻辑板、充电触点、布线通道、磁铁和紧凑的电子架构通过透明外壳清晰可见。技术标注和组件识别标记。右下角：带有炭灰色键帽和单个红色强调键的现代机械键盘。水平透明剖面部分展示了机械轴体、轴座、弹簧、卫星轴、PCB 电路、LED 灯和内部框架结构。下边缘包括放大的轴体横截面图和几何 PCB 原理图蓝图。全程包含工程测量和组件注释。高度详细的 CAD 可视化，工业设计展示项目，精密工程绘图，爆炸组装图，透明材质，逼真渲染，超清晰对焦，简洁排版，科学信息图美学，专业产品拆解文档，白皮书风格，8K 分辨率，博物馆级技术插图，对称布局，卓越的清晰度。",https://cms-assets.youmind.com/media/1780730531515_a71pno_HKEHL3YbsAAFhpN.jpg,https://cms-assets.youmind.com/media/1780730531515_a71pno_HKEHL3YbsAAFhpN.jpg,https://youmind.com/zh-CN/nano-banana-pro-prompts?id=24219,https://x.com/luciaverseai/status/2062938095109255382,⁠ luciaAI,https://x.com/luciaverseai,2026年6月5日
+6,视觉设计,Nano Banana Pro,信息图 / 教育视觉图 - 图片转信息图指南,41,将地点的视觉图像转换为描述该地点的说明性信息图或视觉指南。,"将此图片转换为描述该地点的 {argument name=""format"" default=""信息可视化指南""}。",https://cms-assets.youmind.com/media/1780560163372_nepo00_HJ3Bf2XbgAExD8e.jpg,https://cms-assets.youmind.com/media/1780560163372_nepo00_HJ3Bf2XbgAExD8e.jpg,https://youmind.com/zh-CN/nano-banana-pro-prompts?id=23911,https://x.com/AIExplorerTim/status/2062017023081848863,AI探路者Tim,https://x.com/AIExplorerTim,2026年6月3日
+7,视觉设计,Nano Banana Pro,信息图 / 教育视觉图 - 功能性外套设计规格表,44,一份详细的男士功能性外套时尚设计规格表与产品布局，涵盖模块化造型与科技感材质展示。,"一份 {argument name=""collection name"" default=""AMZ Collection""} 时尚设计规格表与产品布局，以长图信息图形式呈现，展示男士功能性外套。左侧为全身照，模特为 32 岁男性，留短须，剪渐变发型，身穿深橄榄绿与板岩灰配以亮橙色点缀的硬核多口袋机能夹克及配套工装裤。页面顶部醒目地展示了标题 ""{argument name=""title"" default=""AMZLECTION - URBAN FRONTIER SERIES""}"" 和 ""AERO SHELL PARKA SYSTEM""，采用粗体、简洁的无衬线字体，并附有其作为系统工程师和城市探险家的职业简介。右侧为技术性的 ""关节与分层研究"" 分解图，展示了多个背部和前部轮廓角度，详细说明了拉链系统、关节袖设计及兜帽收纳方式。中心部分提供宏观特写镜头，突出展示了科技感材质，包括防撕裂科技面料、密封拉链以及防滑衬里袖口。下方 ""模块化造型"" 一栏展示了该服装的多种穿搭方式，例如全防护系统或轻量化城市外壳。布局底部设有标注为 ""模块化配件"" 的网格区域，展示了多功能腰带、触屏兼容科技手套、EDC 多功能工具和头灯等配件。旁边是 ""城市调色板与材质"" 色卡条，显示了板岩灰、橄榄绿、夜空黑、烈焰橙和科技象牙白，随后是一个全面的 ""技术规格"" 模块，概述了该高性能装备的面料、保暖层、闭合方式、口袋及功能特性。",https://cms-assets.youmind.com/media/1779954402372_liq6q6_HJUQCtgWcAQ8xE1.jpg,https://cms-assets.youmind.com/media/1779954402372_liq6q6_HJUQCtgWcAQ8xE1.jpg,https://youmind.com/zh-CN/nano-banana-pro-prompts?id=22788,https://x.com/Minahil42298354/status/2059570046972670409,Minahil,https://x.com/Minahil42298354,2026年5月27日
+8,广告设计,Nano Banana Pro,社交媒体帖子 - 火车广告风格的书籍广告图片,20,一个详细的日文提示，用于生成一个 16:9 的商业书籍风格广告，其中包含特定书籍图片和日文文案要点。,"请生成一张广告图片。
+
+==== 广告规格 ===
+- 宽高比：16:9（横向）
+- 广告产品：第一张附件图片中的书籍
+- 主要吸睛点：将第一张附件图片中的书籍以三维方式呈现
+- 语言：日语
+- 风格：商业书籍广告
+
+# 需包含的文字：
+- 前导文案：【发售约一周后决定加印】
+
+书籍《{argument name=""book_title_en"" default=""Designing from Zero with AI""}》现正热销中。
+
+亚马逊畅销书排行榜
+商业设计类销量排名第一（截至 10/15）
+https://t.co/QxbYpfFVj6",https://cms-assets.youmind.com/media/1763885539326_yao7in_G6WBYReawAAcp2x.jpg,https://cms-assets.youmind.com/media/1763885539326_yao7in_G6WBYReawAAcp2x.jpg,https://youmind.com/zh-CN/nano-banana-pro-prompts?id=532,https://x.com/kawai_design/status/1992142466255114727,KAWAI,https://x.com/kawai_design,2025年11月22日
+9,广告设计,Nano Banana Pro,信息图 / 教育视觉图 - 芒果冰沙信息图与商业摄影,42,一套用于高端饮品广告的提示词，包含芒果冰沙的爆炸式垂直信息图，具有逼真的质感和摄影棚灯光效果。,"- 一张高端饮品产品摄影图，主体为一杯 {argument name=""fruit"" default=""mango""} 冰沙，放置在明亮的纯色热带黄色摄影棚背景中心，装在透明的高玻璃杯中。冰沙呈现出浓郁的奶油芒果质感，配有新鲜芒果片装饰、冷凝水珠和鲜艳的色彩。柔和的商业灯光营造出干净的反射效果，并在玻璃杯下方投下逼真的阴影。超清晰对焦，高端饮品广告风格，超写实，8K 分辨率。
+长宽比：1:1
+
+创作一张超写实的芒果冰沙爆炸式垂直信息图构图。
+从上到下的结构：
+奶油泡沫层（轻盈透气的奶油质感）
+→ 芒果果泥层（浓郁鲜艳的芒果质感）
+→ 新鲜芒果块（多汁的水果细节）
+→ 冰块层（清晰逼真的冰块质感）
+→ 玻璃杯底（极简透明玻璃）
+完美对齐，热带黄色背景，柔和逼真的阴影，高端饮品信息图设计。
+使用以下确切标签，添加带有细指示线的简洁信息图文字标签：
+“Cream”（奶油）
+“Mango Puree”（芒果果泥）
+“Mango”（芒果）
+“Ice”（冰块）
+“Glass”（玻璃杯）
+超写实饮品细节，高端商业摄影，8K 分辨率。
+长宽比：1:1",https://cms-assets.youmind.com/media/1780301400416_nn1i04_HJo97qLbAAAaQ98.jpg,https://cms-assets.youmind.com/media/1780301400416_nn1i04_HJo97qLbAAAaQ98.jpg,https://youmind.com/zh-CN/nano-banana-pro-prompts?id=23393,https://x.com/Strength04_X/status/2061027904738496976,𝐌,https://x.com/Strength04_X,2026年5月31日
+10,广告设计,Nano Banana Pro,产品营销 - 都市夏季街头时尚人像,86,一个用于创作专业街头时尚摄影的高细节提示词，展现了一位在都市精品店背景下、拥有铜红色头发的年轻女性。,"超写实的街头时尚人像，一位拥有 {argument name=""hair color"" default=""长直铜红色头发""} 的年轻女性站在城市人行道上，背景是一间现代精品店的店面。她身穿 {argument name=""summer outfit"" default=""一顶黑色棒球帽，一件修身白色罗纹背心，内搭一件淡薄荷绿与奶油色条纹吊带衫，下身穿着柔和淡色调的宽松条纹夏季短裤""}。双手拿着一副蓝色墨镜，并携带一个 {argument name=""bag description"" default=""奶油色与森林绿配色的设计师款行李袋""}。自然妆容，肤色透亮，淡粉色嘴唇，表情从容自信。现代生活方式美学，休闲夏季时尚，Clean Fit 风格，高端街头服饰 Lookbook。她身后是一家时尚设计商店，拥有大面积玻璃窗、温暖的室内灯光、极简主义家居装饰陈列、服装架以及现代零售建筑风格。柔和的自然日光，玻璃上真实的倒影，地道的都市氛围，照片级的皮肤质感，编辑级时尚摄影，高端生活方式广告大片，高细节，奢侈购物区美学，8K 画质。",https://cms-assets.youmind.com/media/1781598285395_z67ocw_HK3S0PabQAAlbl3.jpg,"https://cms-assets.youmind.com/media/1781598285395_z67ocw_HK3S0PabQAAlbl3.jpg
+https://cms-assets.youmind.com/media/1781598286941_fkh5si_HK3S0PQbYAA0SNG.jpg",https://youmind.com/zh-CN/nano-banana-pro-prompts?id=25750,https://x.com/mizq06/status/2066540428757983240,Miz,https://x.com/mizq06,2026年6月15日
+11,广告设计,Nano Banana Pro,产品营销 - 奢华金茶杯与山间溪流,88,一个奢华品牌营销提示词，展示了置于纯净山间溪流中的金茶杯，并配有慢动作水流物理效果。,"为 {argument name=""brand"" default=""Nano Banana Pro""} 打造的超高端电影级广告。一只奢华的金茶杯优雅地放置在纯净山间溪流的流动水龙头下。清澈见底的溪水以慢动作注入杯中，激起迷人的水花和闪烁的水滴。{argument name=""logo"" default=""Nano Banana Pro logo""} 精致地镌刻在杯身上，散发着温暖的金色光芒。周围环绕着圆润的河石、郁郁葱葱的绿植和晨间的薄雾。戏剧性的电影级布光、体积光束、超写实水流物理效果、微距细节、奢华商业广告风格、浅景深、8K HDR、照片级真实纹理、高端品牌营销、慢动作水花特效、抛光金属上的倒影、获奖级广告摄影、电影级调色、大师级品质、超精细细节。",https://cms-assets.youmind.com/media/1781598282809_b9o11n_HK2lbBfXEAEQzqt.jpg,https://cms-assets.youmind.com/media/1781598282809_b9o11n_HK2lbBfXEAEQzqt.jpg,https://youmind.com/zh-CN/nano-banana-pro-prompts?id=25740,https://x.com/Maddox_Digital/status/2066489755810898335,Maddox,https://x.com/Maddox_Digital,2026年6月15日
+12,广告设计,Nano Banana Pro,产品营销 - 爆裂熔岩焦糖甜点,89,一份高端食品广告提示词，描绘了金色太妃糖撞击瞬间，伴随液态金飞溅和糖晶体效果。,"一份高级 {argument name=""confectionery"" default=""金色太妃糖""} 悬浮在镜面般光滑的黑色表面上方，撞击瞬间产生巨大的 {argument name=""liquid"" default=""熔岩焦糖爆炸，液态金向外飞溅，呈现慢动作效果""}，成千上万颗闪烁的糖晶体如钻石般在空中漂浮，{argument name=""lighting"" default=""戏剧性的摄影棚灯光""}，超写实纹理，奢华甜点广告，电影级景深，微距摄影，超精细反射，16K 杰作，美食摄影奖得主。",https://cms-assets.youmind.com/media/1781598281138_6ys9f7_HK2Msh7asAAHf3-.jpg,"https://cms-assets.youmind.com/media/1781598281138_6ys9f7_HK2Msh7asAAHf3-.jpg
+https://cms-assets.youmind.com/media/1781598281193_wqpgqr_HK2Msh0bMAAsiG3.jpg
+https://cms-assets.youmind.com/media/1781598281449_mhw9oi_HK2Msh6bUAAD5wE.jpg
+https://cms-assets.youmind.com/media/1781598281755_5f8bjs_HK2Mshyb0AA8G8X.jpg",https://youmind.com/zh-CN/nano-banana-pro-prompts?id=25738,https://x.com/iamrealsnow/status/2066462510103056548,Snow,https://x.com/iamrealsnow,2026年6月15日
+13,广告设计,Nano Banana Pro,产品营销 - 红色灯光时尚编辑人像,90,一张高对比度的电影感时尚人像，展现了一位身着黑色服装的女性，置身于饱和的红色摄影棚环境中。,"照片主体：{argument name=""subject"" default=""一位自信、优雅的女性，身穿黑色拉链夹克、黑色修身长裤和黑色皮靴""}，以放松且后仰的姿势坐在 {argument name=""furniture"" default=""极简摄影棚内的一把现代细金属框架椅子""} 上。她向后倚靠，双腿向前伸展，一只手放在椅扶手上，另一只手放在大腿上，神情平静从容地看向侧方。{argument name=""lighting"" default=""戏剧性的全场景红色灯光""} 照亮了整个布景，背景和地面都沐浴在浓郁饱和的红光中。高对比度电影感灯光，微妙的阴影，超逼真的细节，焦点清晰，奢华时尚编辑摄影，干净的极简构图，高端杂志封面美学，强大而精致的气场，8K 分辨率，超写实。",https://cms-assets.youmind.com/media/1781598281685_ys6fxh_HK05zjEasAAfa4Z.jpg,"https://cms-assets.youmind.com/media/1781598281685_ys6fxh_HK05zjEasAAfa4Z.jpg
+https://cms-assets.youmind.com/media/1781598281776_4yw327_HK05zjAakAAlC3p.jpg",https://youmind.com/zh-CN/nano-banana-pro-prompts?id=25737,https://x.com/SimplyAnnisa/status/2066371365121261693,Anissa,https://x.com/SimplyAnnisa,2026年6月15日
+14,广告设计,Nano Banana Pro,产品营销 - 足球人像混合创作,91,一个创意提示词，用于生成将球员面部与足球缝合在一起的混合人像，呈现逼真的皮革与皮肤质感。,"超写实照片级人像，{argument name=""player name"" default=""[球员全名]""} 的半张脸与半个经典足球无缝缝合，皮肤与皮革交接处有精细的缝线细节，高度还原的皮肤纹理、毛孔、汗水，逼真的足球板块与接缝，戏剧性的电影级光效，焦点清晰，白色无缝背景，9:16 比例，专业摄影棚摄影，4k 分辨率。",https://cms-assets.youmind.com/media/1781512132016_ehc2bc_HKyw57BWsAALgCw.jpg,"https://cms-assets.youmind.com/media/1781512132016_ehc2bc_HKyw57BWsAALgCw.jpg
+https://cms-assets.youmind.com/media/1781512132022_yvxm3g_HKyw58OWwAAmZmV.jpg
+https://cms-assets.youmind.com/media/1781512132161_or2jre_HKyw59xXQAA4gOo.jpg
+https://cms-assets.youmind.com/media/1781512132894_bva16c_HKyw5-NW8AAGoBF.jpg",https://youmind.com/zh-CN/nano-banana-pro-prompts?id=25575,https://x.com/ShamsAmin56/status/2066220842485469445,Shams,https://x.com/ShamsAmin56,2026年6月14日
+15,logo 设计,GPT Image 2,产品营销 - Oakley 滑板风格太阳镜广告,99,一个混合媒介眼镜品牌广告，将手绘滑板卡通形象与写实的太阳镜及大胆的极简主义文案相结合。,"为 {argument name=""brand name"" default=""OAKLEY""} 创建一张极简主义风格的竖版品牌广告海报。在干净的白色摄影棚背景上，绘制一个黑白水墨风格的卡通滑板少年，他有着刺猬头、大头、坏笑的表情、交叉的双臂，穿着 T 恤、长短裤、袜子和运动鞋。他自信地站立，一只脚着地，另一只脚踩在倾斜的滑板上；在轮子附近添加少量手绘的尘土和地面涂鸦。将一副写实的黑色环绕式太阳镜放置在卡通少年的眼睛位置，通过混合媒介拼贴的方式实现视觉融合，镜片呈现光泽感，厚实的弧形镜腿向左右延伸，带有细腻的反光，并在纸面上投下柔和的阴影。在顶部中心位置，添加粗体大写的标题 {argument name=""headline text"" default=""SEE DIFFERENT.\nBE DIFFERENT.""}，使用间距宽大的黑色无衬线字体，分为两行，居中置于人物上方。在底部中心位置，放置 {argument name=""brand logo"" default=""Oakley 椭圆形 O 标志""}，其下方为品牌文字标识 {argument name=""wordmark text"" default=""OAKLEY""}，两者均为黑色。风格：高端眼镜平面广告，高对比度单色调，俏皮的手绘插画与写实产品摄影相结合，留白充足，构图简洁，无额外文字，无边框，无水印。",https://cms-assets.youmind.com/media/1781517904611_3135xy_HKyQ6_GbcAEKmg7.jpg,https://cms-assets.youmind.com/media/1781517904611_3135xy_HKyQ6_GbcAEKmg7.jpg,https://youmind.com/zh-CN/gpt-image-2-prompts?id=25723,https://x.com/IliaKitchenko/status/2066185680284450875#reversed-0,Ilia Kitchenko,https://x.com/IliaKitchenko,2026年6月14日
+16,logo 设计,GPT Image 2,产品营销 - VANTORÉ 奢华腕表广告,102,一款高端方形时尚广告，展示了一位身着西装的男性模特和奢华瑞士腕表品牌，适用于高端腕表营销活动。,"目标：为 {argument name=""brand name"" default=""VANTORÉ""} 创作一则奢华瑞士腕表广告，画面包含一位时尚的男性模特，呈现高端时尚姿态。
+
+画布：1:1 正方形奢华杂志广告，采用暖米色与炭灰色调，高端编辑摄影与精致平面设计相结合。构图采用左右分割：左侧为模特，右侧为品牌标识与腕表细节。
+
+布局：左侧展示一位英俊的男性模特，背景为极简主义地中海风格的米色建筑，带有高大的圆形拱门和强烈的午后阴影。他的面部被一个居中的暖棕色柔边正方形模糊处理，但深色波浪卷发清晰可见。他身着剪裁合身的 {argument name=""suit color"" default=""灰褐色""} 西装，搭配深棕色/黑色开领衬衫和同色系口袋巾，一只手插在裤兜里。另一只手整理着西装翻领，以便清晰展示左手腕上的奢华腕表。右侧为炭灰色垂直面板，配有优雅的高端排版，右下角放置腕表产品渲染图。
+
+文字内容：在右侧面板顶部，放置一个极简的金色 V 字形字母组合 Logo，下方为大号间距的金色衬线字体品牌名“{argument name=""brand name"" default=""VANTORÉ""}”，下方以小号间距大写字母标注“SWISS MADE”。居中标题为“{argument name=""headline text"" default=""TIME REDEFINED""}”，采用大号白色高对比度衬线大写字母，分为两行排列。下方添加一条细金色分割线。线下方书写小号间距金色大写字母“CRAFTED FOR LEADERS”，随后是小号斜体白色字体的“Swiss Made Collection”。再下方书写极小号间距金色大写字母“PRECISION • PRESTIGE • PERFORMANCE”。
+
+产品细节：包含 2 只清晰可见的腕表：一只佩戴在模特手腕上，另一只为右下角的独立产品渲染图。两款腕表均为黑色表盘、玫瑰金表壳与指针、纤细刻度及黑色皮质表带。在独立腕表下方，书写小号金色间距大写字母“VANTORÉ HERITAGE”以及更小号的白色间距大写字母“AUTOMATIC”。
+
+底部功能行：在左下角包含 3 个小型金色线条图标及白色标签：1 个盾牌图标标注“5 YEAR WARRANTY”，1 个水滴图标标注“5 ATM WATER RESISTANT”，以及 1 个瑞士十字图标标注“SWISS MOVEMENT”。
+
+视觉风格：高端腕表营销活动，电影感暖阳，干练的西装剪裁，真实的织物纹理，浅景深，优雅的拱门阴影，极简布局，炭灰色背景上精致的金色与白色排版，奢华编辑风格。
+
+约束条件：保持模特在左、排版与产品腕表在右的布局，维持简洁的奢华感，确保腕表清晰可见，不出现额外人物，除 3 个功能图标外不添加其他图标，且避免任何水印或社交媒体 UI。",https://cms-assets.youmind.com/media/1781517906476_2ep1sp_HKxx8JFa8AAQAc1.jpg,https://cms-assets.youmind.com/media/1781517906476_2ep1sp_HKxx8JFa8AAQAc1.jpg,https://youmind.com/zh-CN/gpt-image-2-prompts?id=25729,https://x.com/sha_zdiii/status/2066151610418684147#reversed-0,shah_zadii,https://x.com/sha_zdiii,2026年6月14日
+17,logo 设计,GPT Image 2,产品营销 - 奢华分屏腕表广告大片,103,一款高端方形时尚广告排版，包含两位男性模特、建筑背景、奢华腕表产品特写以及优雅的品牌排版。,"为 {argument name=""brand name"" default=""VANTORÉ""} 创作一张 1:1 的奢华方形高端男士腕表广告大片。构图采用垂直分屏，呈现两种对比鲜明的建筑时尚编辑风格：左侧为暖米色石材，配有高耸拱门和斜向阳光阴影；右侧为深海军蓝现代建筑，配有垂直立柱和低矮平台。放置两位完全不同的成年男性模特，两人的面部均被柔和的矩形模糊遮罩刻意遮挡。左侧模特 1 身着浅鼠尾草绿双排扣西装，搭配金色纽扣、敞开的白色衬衫、口袋巾，左手佩戴银色链带腕表；他自信站立，一手整理西装，一手插在裤兜里。右侧模特 2 身着深酒红色高领毛衣、深色长款大衣、炭灰色百褶长裤和黑色皮鞋，左手佩戴深色表带计时码表；他姿态放松，一手插兜，一手靠近胸前。在大型衬线字体品牌名 {argument name=""brand name"" default=""VANTORÉ""} 上方居中放置品牌字母组合标志，下方配以小号字间距文本“SWISS MADE”。在画面中下部，添加优雅的白色大写衬线字体主标题：{argument name=""headline text"" default=""TIME REDEFINED""}，下方配有一条细金色分割线，以及小号字间距金色大写字母标语 {argument name=""tagline"" default=""CRAFTED FOR LEADERS""}。在底部两侧各包含一个大型腕表产品切图：左侧产品腕表标注为 {argument name=""left watch model"" default=""VERIDIAN""}，为不锈钢链带腕表，配深绿色表盘，自动机械风格，并附带文本行“AUTOMATIC”、“SWISS MOVEMENT”、“SAPPHIRE CRYSTAL”；右侧产品腕表标注为 {argument name=""right watch model"" default=""OBSIDIAN""}，为深色皮带计时码表，配海军蓝表盘，并附带文本行“CHRONOGRAPH”、“SWISS MOVEMENT”、“5 ATM WATER RESISTANT”。在底部中心，包含三个极简功能图标及标签：盾牌图标标注“2 YEAR WARRANTY”，水滴图标标注“5 ATM WATER RESISTANT”，以及类似医疗十字的加号图标标注“SWISS MOVEMENT”。采用高级时尚广告灯光，写实摄影，精致对比度，干净的留白，居中奢华排版，微妙的金色点缀，清晰的织物纹理，抛光金属腕表高光，无多余物体，无水印，无额外文本。",https://cms-assets.youmind.com/media/1781517905683_xu27r4_HKxxdSHaUAA4yG-.jpg,https://cms-assets.youmind.com/media/1781517905683_xu27r4_HKxxdSHaUAA4yG-.jpg,https://youmind.com/zh-CN/gpt-image-2-prompts?id=25727,https://x.com/sha_zdiii/status/2066151080526786614#reversed-0,shah_zadii,https://x.com/sha_zdiii,2026年6月14日
+18,logo 设计,GPT Image 2,产品营销 - 产品设计目录排版,92,一份用于创建专业产品设计目录页面的详细提示词，包含生活方式主图以及带有正投影图的技术规格面板。,"创建一个垂直 3:4 的 {argument name=""page type"" default=""产品设计目录页面""}，并使用 {argument name=""background"" default=""温暖的中性纸质背景""}。
+
+顶部区域 — 生活方式主图：将产品（使用上传的图片作为精确参考，保持其形态、比例、材质和特征，无需重新设计）置于中心位置，并留出充足的留白。场景设定为极简建筑室内，配有纹理灰泥墙和质感细腻的混凝土/石材地面。{argument name=""lighting"" default=""光线为侧向照射的自然阳光，柔和但投射出高对比度的阴影""}。以编辑类生活方式摄影风格渲染，高真实感，采用温暖且柔和的色彩分级。
+
+底部区域 — 采用整洁模块化网格布局的技术规格面板：
+- 左下及中心：展示正视图、侧视图和四分之三剖面/侧面图的建筑正投影线条图。线条采用柔和的红色或棕褐色，精细的技术线条粗细，配以极简的编辑类尺寸标注和结构说明。
+- 右下：3-4 个源自产品实际材质（如适用，包括织物、皮革、金属、木材或塑料）的材质样本，采用方形或矩形格式，并配有简短的编辑类说明文字。
+
+排版：极简编辑风格，仅使用细微的说明文字，无大标题，颜色为柔和的黑色或深棕色。
+
+整体氛围：设计目录 / 产品设计期刊 — 建筑感、高端、宁静。无杂乱元素，无鲜艳色彩，无厚重的品牌标识，无装饰性图形，技术图纸中无透视畸变。",https://cms-assets.youmind.com/media/1781517885660_hx9t17_HK1-2g9bsAAFnkb.jpg,https://cms-assets.youmind.com/media/1781517885660_hx9t17_HK1-2g9bsAAFnkb.jpg,https://youmind.com/zh-CN/gpt-image-2-prompts?id=25675,https://x.com/iamaiistudio/status/2066447564132745574,PromptLab,https://x.com/iamaiistudio,2026年6月15日
+19,logo 设计,GPT Image 2,产品营销 - GPT Image 2 推理海报,95,一张光泽感 3D 社交媒体海报，展示了一个立方体大脑图标，并配有醒目的文案，解释了 GPT Image 2 的“规划-搜索-生成-验证”工作流程。,"目标：为 {argument name=""product name"" default=""GPT Image 2""} 创建一张精致的竖版宣传海报，通过俏皮的 3D 玩具风格视觉效果，解释该图像模型在渲染前会进行思考。
+
+画布：4:5 竖版社交媒体海报，深钴蓝色背景，带有微妙的径向光晕和柔和的晕影，呈现高分辨率光泽感 3D 渲染美学。
+
+主视觉：上半部分中心是一个超现实的 3D 物体：一个圆润且富有光泽的宝蓝色立方体，右侧嵌入一个闪亮的粉色大脑半球。立方体略微倾斜，露出左前侧和顶部，带有柔和的摄影棚高光、圆角和落影。大脑应看起来像充气的糖果或硅胶，具有圆润的褶皱、明亮的粉色高光，以及在与立方体连接处散发的柔和洋红色光芒。
+
+装饰元素：在海报周围散布 34 个小的悬浮糖果/五彩纸屑物体，避开主要文字区域。包括以下可见类型：1 个黄色星星、2 个弯曲的软糖形状、11 个短胶囊状糖粒、11 个小球体/圆点、4 个较大的光泽球体、3 个微小圆点和 2 个边缘碎片。使用粉色、黄色、薄荷绿、紫色、橙色、白色和红色，并带有柔和的阴影和光泽高光。
+
+文字排版：使用居中的粗体白色无衬线字体。中间的大标题：“{argument name=""headline text"" default=""It reasons, then renders.""}”分为两行，采用极粗的字重、简洁的几何无衬线字体，并带有轻微的阴影以增强对比度。下方是较小的粗体副标题：“{argument name=""subtitle text"" default=""GPT Image 2 plans your image before it makes a pixel.""}”，分为两行居中排列。
+
+指令卡片：在下方三分之一处放置一个圆角灰白色命令卡片面板，带有微妙的投影，类似于可复制的提示词框。在卡片右侧附带一个珊瑚红色的圆角矩形按钮，部分位于卡片后方，上面用深色粗体文字标注“COPY”。卡片内显示 4 行深炭灰色的等宽字体：“PLAN: composition and constraints.”、“SEARCH: facts you need, or SKIP.”、“GENERATE: the brief.”、“VERIFY: check output before showing.”
+
+页脚：左下角添加一个微小的白色线条艺术风格狗/吉祥物图标，后接小号大写白色无衬线文字“{argument name=""footer label"" default=""GPT IMAGE 2 · PLAIN AND SIMPLE""}”。右下角添加进度文字“{argument name=""progress text"" default=""1 / 7""}”。
+
+视觉风格：明亮的现代 3D 广告风格，光泽塑料材质，糖果色调，圆润友好的形态，强烈的对比度，清晰的排版，柔和逼真的阴影，不包含写实人物，无水印，无额外文字。",https://cms-assets.youmind.com/media/1781517891325_nbxjdr_HKytcX3WMAAH_GO.jpg,"https://cms-assets.youmind.com/media/1781517891325_nbxjdr_HKytcX3WMAAH_GO.jpg
+https://cms-assets.youmind.com/media/1781517891326_qpy6v0_HKytcUlXMAAhQdj.jpg
+https://cms-assets.youmind.com/media/1781517891364_mbu028_HKytcXjWYAACPD7.jpg
+https://cms-assets.youmind.com/media/1781517891977_z07j93_HKytcUjXIAEgGwV.jpg",https://youmind.com/zh-CN/gpt-image-2-prompts?id=25689,https://x.com/THCHouseStudio/status/2066217082631450726#reversed-0,The House of Curiosity,https://x.com/THCHouseStudio,2026年6月14日
+20,logo 设计,GPT Image 2,产品营销 - 生成式盆景展览海报,101,一张极简主义风格的日式展览海报，以写实的盆景树为核心，叠加生成式几何图形与精致的排版设计。,"目标：为一场生成式自然盆景展创作一张极简瑞士风格的展览海报，以陶瓷盆中的写实盆景树为中心，将植物摄影与精确的算法图表图形相结合。
+
+画布：竖版海报，3:4 长宽比，米白色暖色纸张背景，留白充裕，呈现清晰的印刷设计质感。
+
+主体：一棵成熟的盆景树，写实风格，置于中心偏下方。树干粗壮扭曲呈深褐色，根部外露，茂密的亮绿色松针状叶片呈层叠的水平状排列，土壤覆盖着苔藓，盆器为一个浅圆形灰色混凝土陶瓷盆，带有细微的污渍与阴影。盆景应呈现出如同高端产品摄影般融入设计海报的效果。
+
+排版：使用纤细的现代无衬线大写字体，仅限黑色与深灰色。左上角的主标题为“{argument name=""headline text"" default=""BONSAI SYSTEM""}”，采用超大号纤细字体分两行排列。上方小字为“GENERATIVE NATURE”和“SERIES 01”。标题下方书写“GENERATIVE FORM”，随后是一个三行的小列表：“ALGORITHM”、“VARIATION”、“EQUILIBRIUM”。右上角书写“{argument name=""city and year"" default=""TOKYO 2026""}”。左下角书写活动日期，分三行堆叠：“{argument name=""event dates"" default=""MAY 08 / JUN 21 / 2026""}”，其中 2026 字号显著放大。下方添加“AT”和“TOKYO GENERATIVE LAB”。左侧中部添加小标语“NATURE IS THE ORIGINAL ALGORITHM.”。旁边添加竖排日文：“盆栽系統”。底部中心包含 5 个微小的编号索引标签：“01 SEED”、“02 GROWTH”、“03 FORM”、“04 BALANCE”、“05 TIME”。右下角包含“WWW.GENERATIVE-LAB.JP”。
+
+几何布局：在盆景周围叠加一套浅灰色与黑色的精致技术图表系统。包括：盆景后方居中 1 个巨大的淡色圆环，贯穿顶部的 1 条垂直中心线，穿过叶片区域的 1 条水平线，水平线上 2 个小型黑色圆点节点，右上角叶片后方 1 个矩形网格面板，从右上角向下扫过的 1 组多条纤细弧形等高线，右下角 1 个较小的嵌套弧线角落图案，2 个由微小黑点组成的点阵块，2 个小型浅灰色方块，以及右上角网格附近 1 个狭长的实心黑色垂直矩形。
+
+布局细节：海报应具有数学般的构图感与编辑感，盆景占据中下部区域，排版严格对齐边距。使用纤细的分隔线和短水平线作为点缀。保持干净的单色图形系统，唯一的强色彩为绿色的盆景叶片。
+
+视觉风格：高端博物馆海报，日式设计影响，包豪斯/瑞士风格排版，生成式算法图表美学，精确的矢量叠加，微妙的纸张纹理，写实的植物与盆器，无杂乱元素。
+
+约束：保持所有文字清晰易读，不得添加额外的植物或人物，不得添加水印，仅使用一棵盆景树和一个盆，保留稀疏的米白色背景和黑色几何设计语言。",https://cms-assets.youmind.com/media/1781517899168_po916o_HKx9b37bYAAjLpj.jpg,https://cms-assets.youmind.com/media/1781517899168_po916o_HKx9b37bYAAjLpj.jpg,https://youmind.com/zh-CN/gpt-image-2-prompts?id=25709,https://x.com/RokuMasuda/status/2066164273378910395#reversed-0,Roku｜AI × BizDev,https://x.com/RokuMasuda,2026年6月14日
+21,IP 设计,Nano Banana Pro,漫画 / 故事板 - 档案回收行动人员角色设计图,73,一份全面的科幻角色设计图提示词，展示了身着战术装甲的回收行动人员的正视图、侧视图和背视图。,"全身角色设计图，正视图，侧视图，背视图，{argument name=""character role"" default=""档案回收行动人员""}，写实科幻，{argument name=""armor color"" default=""白色和深灰色""} 战术装甲，工业设计，装甲风衣，蓝色垂直面罩头盔，强化胸甲，多功能腰带，回收装备，非军事美学，未来感回收单元，高度细节，纯白背景，超写实图像，写实，真实生活。",https://cms-assets.youmind.com/media/1781424051793_bqtprz_HKuz485WUAAVbHj.jpg,https://cms-assets.youmind.com/media/1781424051793_bqtprz_HKuz485WUAAVbHj.jpg,https://youmind.com/zh-CN/nano-banana-pro-prompts?id=25446,https://x.com/Cortex__Visual/status/2065942650599977026,Cortex Visual ・ AI Movies,https://x.com/Cortex__Visual,2026年6月13日
+22,IP 设计,Nano Banana Pro,漫画 / 故事板 - 未来机动战士驾驶员,74,一张电影感十足的荷兰式倾斜镜头照片，展现了一位身着科幻驾驶服的年轻女性，画面呈现忧郁的灯光和超写实的细节。,"一张电影感十足、荷兰式倾斜、全身拍摄的照片，主角是 <<<image_1>>> 中一位 {argument name=""subject"" default=""年轻女性""}，她侧身酷飒地走着，双手正戴上一顶灰白色的机动战士驾驶员头盔，头盔配有金属黑色面罩。她穿着一套紧身且细节丰富的 {argument name=""outfit"" default=""未来感白色机动战士驾驶服""}，上面带有细微的磨损痕迹，包括划痕和污垢纹理。灯光为 {argument name=""lighting"" default=""柔和、冷色调且漫射""}，营造出一种忧郁而内省的氛围，色调以淡蓝色、纯白色和点缀的柔和灰色为主。背景是模糊的极简主义科幻室内空间，建筑风格简洁明亮。使用 35mm 镜头拍摄，景深较浅，焦点清晰地落在她的脸部和身体上，高质量数字摄影，超写实，细节复杂，柔和的电影级高光，空灵的氛围。发型凌乱自然。面罩不应反射出摄影师。慵懒地注视着镜头。",https://cms-assets.youmind.com/media/1781424064326_au4qs1_HKqGyNeacAArkgV.jpg,https://cms-assets.youmind.com/media/1781424064326_au4qs1_HKqGyNeacAArkgV.jpg,https://youmind.com/zh-CN/nano-banana-pro-prompts?id=25475,https://x.com/SakiH_AI/status/2065611616042029240,Saki H. 咲希,https://x.com/SakiH_AI,2026年6月13日
+23,IP 设计,Nano Banana Pro,漫画 / 故事板 - 未来感太空飞行员电影感镜头,77,一张科幻电影感肖像，展示了一位身着未来感制服、手持头盔的女性飞行员，并使用图像参考以保持一致性。,"一张电影感、荷兰式倾斜、全身镜头，主角为 {argument name=""subject"" default=""年轻女性""}，参考 <<<image_1>>>，侧身酷飒地走着，一只手拿着一个灰白色的 {argument name=""prop"" default=""机动战士飞行员头盔""}，配有金属黑色面罩。她穿着一套紧身、细节丰富的 {argument name=""outfit"" default=""未来感白色机动战士飞行服""}，带有细微的磨损痕迹，包括擦痕和污垢纹理。眼神酷飒地注视着镜头。光线柔和、冷峻且弥散，营造出忧郁和内省的氛围，色调以淡蓝、纯白和柔和的灰色为主。背景是模糊的极简主义科幻室内空间，建筑风格简洁明亮。使用 35mm 镜头拍摄，浅景深，焦点清晰地聚焦在她的脸部和身体上，高质量数字摄影，超写实，细节复杂，柔和的电影感高光，空灵的氛围。中分直长发发型。面罩不应有摄影师的倒影",https://cms-assets.youmind.com/media/1781336383804_bgwq3i_HKknahcbwAAWudC.jpg,https://cms-assets.youmind.com/media/1781336383804_bgwq3i_HKknahcbwAAWudC.jpg,https://youmind.com/zh-CN/nano-banana-pro-prompts?id=25296,https://x.com/SakiH_AI/status/2065225427845833043,Saki H. 咲希,https://x.com/SakiH_AI,2026年6月12日
+24,IP 设计,Nano Banana Pro,漫画 / 故事板 - 科幻机动战士驾驶员肖像,81,一张电影质感的科幻肖像，描绘了一位手持驾驶员头盔的年轻女性，侧重于超写实的纹理和忧郁的氛围。,"一张电影质感的中景特写，主角为 {argument name=""subject"" default=""年轻女性""}，如 <<<image_1>>> 所示，侧身站立，额头轻轻抵在手中所持的灰白色 {argument name=""helmet type"" default=""机动战士驾驶员头盔""} 的金属黑色面罩上。她身穿一套 {argument name=""outfit"" default=""细节丰富的未来主义白色机动战士驾驶服""}，带有细微的磨损痕迹，包括划痕和污垢纹理。光线柔和、冷峻且弥散，营造出一种忧郁而内省的氛围，色调以淡蓝、纯白和柔和的灰色为主。背景是模糊的极简主义科幻室内空间，建筑风格简洁明亮。使用 85mm 镜头拍摄，景深较浅，焦点清晰地落在她的脸部和头盔纹理上，高质量数字摄影，超写实，细节复杂，柔和的电影级高光，空灵的氛围。发型凌乱自然。面罩不应反射出摄影师。",https://cms-assets.youmind.com/media/1781165159272_98ij8n_HKeLEl2acAAvNL0.jpg,https://cms-assets.youmind.com/media/1781165159272_98ij8n_HKeLEl2acAAvNL0.jpg,https://youmind.com/zh-CN/nano-banana-pro-prompts?id=25013,https://x.com/SakiH_AI/status/2064771994797891671,Saki H. 咲希,https://x.com/SakiH_AI,2026年6月10日
+25,IP 设计,Nano Banana Pro,电商主图 - 超写实角色钥匙扣,101,一个多功能的提示词，可将任何角色转化为具有影棚灯光和简洁背景的写实产品风格钥匙扣。,"创建一个灵感源自 {argument name=""character theme"" default=""动漫、电子游戏、电影……""} 的钥匙扣，纯净白色背景，产品摄影风格，柔和的影棚灯光",https://cms-assets.youmind.com/media/1780125550077_wn7cvw_HJehK-mXQAMIKr_.jpg,"https://cms-assets.youmind.com/media/1780125550077_wn7cvw_HJehK-mXQAMIKr_.jpg
+https://cms-assets.youmind.com/media/1780125550072_on9uid_HJehLMSWEAMQEIo.jpg
+https://cms-assets.youmind.com/media/1780125550119_2kcz3f_HJehLWWXsAAwPET.jpg
+https://cms-assets.youmind.com/media/1780125550990_jy18nm_HJehLkZWUAAf7aF.jpg",https://youmind.com/zh-CN/nano-banana-pro-prompts?id=23131,https://x.com/CharaspowerAI/status/2060292577333535214,Pierrick Chevallier | IA,https://x.com/CharaspowerAI,2026年5月29日
+26,IP 设计,GPT Image 2,电商主图 - Lumina 机甲手办产品摄影,112,一个用于生成名为 Lumina 的盒装动漫风装甲仿生人模型套件的超写实玩具摄影提示词。,"创作一张超写实的工作室产品摄影图，展示名为 {argument name=""character name"" default=""LUMINA""} 的未来感收藏级模型套件。场景中需包含 4 个核心展示元素：左侧 1 个大型零售包装盒，右侧 1 个放置在黑色展示底座上的完整组装模型，前方 1 个独立黑色信息铭牌，以及底座上附带的 1 个小型名牌。该模型为一个高挑的动漫风格女性仿生人 / 哨兵单位，拥有强壮的装甲结构，采用奶油白分段式装甲板、黑色机械关节、外露活塞、圆形肩部和膝部机构、微小铆钉、刻线以及精致的金属金色点缀。她留着长长的淡金色双马尾，头部带有类似猫耳的机械鳍，面部为平滑且刻意遮挡的方形区域，无五官。让她保持直立姿势，双腿分开，双臂自然垂在身体两侧，由连接在底座上的垂直黑色后支架支撑。装甲应呈现出精致的高端塑料模型套件质感，厚重且细节丰富，而非流线型，并带有明显的独立块状板件和组装缝隙。身后的零售包装盒呈高大的长方形，正面为哑光灰色，侧面书脊为黑色。盒身正面印有该装甲模型的巨幅图像，同样具有遮挡的方形面部区域，背景带有淡淡的技术线条图。在左上角添加一个红白相间的品牌标志，文字为 ""MECHA BRIX""。在黑色侧面书脊上，印有巨大的垂直文字 ""LUMINA"" 和较小的垂直文字 ""SENTINEL UNIT""。在下侧面板上包含 3 个堆叠的小型预览缩略图，展示模型的不同视角。在包装盒正面下方添加产品标识：""18+""、""MBX-001""、""2386 PCS"" 以及一条写有 ""MECHA BRIX COLLECTOR SERIES"" 的金色条带。前方的独立铭牌应为黑色，带有银色边框和白色文字：大标题 ""LUMINA""，副标题 ""MBX-001""，以及四行规格说明：""HEIGHT: 40.2 cm""、""CLASS: MULTI-PURPOSE ANDROID""、""FRAME: LUMINITE ALLOY""、""SYSTEM: LUMINA OS VER 1.0""。底座名牌应写有 ""LUMINA""，下方附带较小文字 ""SENTINEL UNIT""。使用深炭灰色无缝工作室背景，带有柔和反射的亮黑色地板，从左上方进行戏剧性的柔光箱布光，高对比度，焦点清晰，阴影真实，呈现高端玩具摄影美学，3/4 正面视角，方形构图。避免出现额外角色、额外包装盒、额外文字、除指定虚构品牌外的其他标志，并避免展示写实的人类面孔。",https://cms-assets.youmind.com/media/1781256099883_wia0eg_HKh5JR-bEAE0uTt.jpg,https://cms-assets.youmind.com/media/1781256099883_wia0eg_HKh5JR-bEAE0uTt.jpg,https://youmind.com/zh-CN/gpt-image-2-prompts?id=25252,https://x.com/kabumira862571/status/2065033638350307478#reversed-0,カーブミラー,https://x.com/kabumira862571,2026年6月11日
+27,IP 设计,Nano Banana Pro,漫画 / 故事板 - 极简主义狗狗素描剪贴画,72,一套干净、极简的剪贴画提示词，包含在纯色背景上带有粗黑色轮廓的顽皮白狗素描。,"一系列 {argument name=""subject"" default=""六只白狗""} 带有粗犷的 {argument name=""outline style"" default=""黑色轮廓""}，散布在干净明亮的白色背景上，间距均匀，构图平衡。每只狗狗都以不同的顽皮姿态呈现——奔跑、跳跃、打滚、坐着、摇尾巴和玩耍时的俯冲——捕捉到了动态瞬间，充满活力。插画风格简洁且具有卡通感，线条随性、手绘感强，线条干净，几乎没有阴影，仅使用白色形状上的黑色轮廓，呈现出清爽的图形外观。整体 {argument name=""mood"" default=""轻松愉快""}，就像儿童绘本或极简漫画中的素描一样。",https://cms-assets.youmind.com/media/1781512146488_x5nm62_HKsifYOXwAAWpiM.jpg,https://cms-assets.youmind.com/media/1781512146488_x5nm62_HKsifYOXwAAWpiM.jpg,https://youmind.com/zh-CN/nano-banana-pro-prompts?id=25602,https://x.com/heathergreen/status/2065948834476511290,Heather Green,https://x.com/heathergreen,2026年6月14日
+28,IP 设计,Nano Banana Pro,漫画 / 故事板 - 90 年代复古动画项目,67,以经典的 1990 年代动画风格创建专业的分镜项目网格，非常适合视觉叙事规划和角色参考表。,"一张整洁专业的项目表，背景为 {argument name=""background color"" default=""暖奶油色背景""}，采用 {argument name=""style"" default=""90 年代复古动画风格""}，布局为 8 个画格的网格（每行 4 个，共 2 行），并带有醒目的黑色标题栏",https://cms-assets.youmind.com/media/1781598287304_l4vukg_HK1uuQIakAAh9Z4.jpg,https://cms-assets.youmind.com/media/1781598287304_l4vukg_HK1uuQIakAAh9Z4.jpg,https://youmind.com/zh-CN/nano-banana-pro-prompts?id=25749,https://x.com/josephweb3/status/2066430418153595100,"Joseph (∇, ∇)",https://x.com/josephweb3,2026年6月15日
+29,电影海报设计,Nano Banana Pro,YouTube 缩略图 - 电影感义警主题海报,52,一款高对比度的电影感海报提示词，描绘了一位身着战术套装的蒙面义警，配有醒目的排版和粗犷的黑色电影美学。,一张电影感的竖版海报，描绘了一位身着碳纤维战术套装的蒙面义警。角色位于前景，呈现出粗犷的哑光黑色质感。背景采用了巨大的粗体模板风格排版，呈现深绯红色，并带有厚重的金属划痕和风化纹理。灯光低调且富有戏剧性，套装边缘的微弱轮廓光勾勒出装甲板的细节。高对比度的黑色电影美学，氛围感十足，细节锐利，8k 分辨率。极端微距特写，聚焦于一张狰狞的绿色皮肤面孔，重点刻画鼻子、紧锁的眉头和闪烁着强烈绿光的眼睛。皮肤呈现出超高细节，布满深皱纹、汗水以及粗糙的皮革质感。画面中心垂直叠加着“HULK”字样，采用大型粗体、风化效果的白色无衬线字体，并带有金属划痕质感。色调以深祖母绿和阴影为主，画面中充斥着爆炸性的绿色能量粒子和飞溅的碎片。电影级布光，粗犷的氛围，8k 分辨率，超写实，充满侵略性和力量感。,https://cms-assets.youmind.com/media/1778657221748_h4cc7u_HIG59DebMAAIM25.jpg,"https://cms-assets.youmind.com/media/1778657221748_h4cc7u_HIG59DebMAAIM25.jpg
+https://cms-assets.youmind.com/media/1778657221820_srt4ws_HIG59DSbMAAFx7N.jpg
+https://cms-assets.youmind.com/media/1778657221773_jvlbzr_HIG59HvaQAEVxYo.jpg
+https://cms-assets.youmind.com/media/1778657222547_16g73f_HIG59FMbQAA6Gnw.jpg",https://youmind.com/zh-CN/nano-banana-pro-prompts?id=19783,https://x.com/iamsofiaijaz/status/2054127368365908220,Aijaz,https://x.com/iamsofiaijaz,2026年5月12日
+30,电影海报设计,Nano Banana Pro,YouTube 缩略图 - 电影感月光天台人像拼贴,50,一个精致的多帧提示词，旨在创作一张情感丰富、具有电影质感的拼贴画，展现人物在城市天台、巨大满月下的场景，侧重于氛围感和环境质感。,"使用上传的人脸参考图作为精确的身份参考。在所有帧中保持完美的面部一致性——相同的面部结构、肤色、发型、眼型、胡须质感、鼻子、嘴唇和逼真的比例。请勿改变人物身份。创作一张超电影感的多帧夜景摄影拼贴画，主角为 {argument name=""subject"" default=""年轻男子""}，站在 {argument name=""location"" default=""天台""} 上，背景是 {argument name=""celestial body"" default=""巨大的发光满月""}。整体氛围应具有情感张力、梦幻感、内省感和电影感。构图布局（6 帧电影感网格）：1. 广角天台镜头，巨大的月亮主导多云的夜空。2. 侧面人像，仰望月亮。3. 眼睛的极度特写，反射出月光和云层。4. 电影感背影剪影，背景为城市天际线灯光。5. 手部特写，放在天台栏杆上，浅景深效果。6. 氛围感天空帧，充满星星、云层、月光和薄雾。环境：夜间城市天台，远处的城市天际线带有逼真的光斑（bokeh），明亮的月亮周围有戏剧性的云层，衣服和头发有轻微的风吹动感，湿润的天台表面带有反光高光，大气中的雾气和电影感朦胧感。光影：柔和的蓝色月光作为主光，下方有微妙的温暖城市灯光，逼真的夜间阴影，体积感月光，剪影周围的轮廓光，高动态范围电影感对比度。相机与摄影风格：使用 Sony A7R IV / ARRI Alexa 风格拍摄，85mm 人像镜头 + 35mm 电影感广角镜头，超写实，自然的皮肤质感，浅景深，锐利的眼睛细节，胶片颗粒感，HDR 夜景摄影，情绪化调色，高级电影感构图，超高细节，Unreal Engine 真实感，Netflix 风格视觉氛围。调色板：深午夜蓝，银色月光，柔和的黑色阴影，冷青色调，温暖的金色城市光斑。质量标签：杰作，最佳质量，超细节，8k，写实，电影感光影，体积雾，逼真的皮肤质感，大气透视，戏剧性构图，高对比度，情感叙事，电影剧照美学，高级电影感拼贴，高度细节的云层，逼真的反射。负面提示词：低质量，模糊的面部，糟糕的解剖结构，扭曲的眼睛，多余的手指，色彩过饱和，卡通，CGI 感，重复的帧，皮肤细节不足，噪点图像，变形的手，虚假的灯光，色彩暗淡，变形的面部，不切实际的月亮比例，文字，水印，Logo，裁剪的面部",https://cms-assets.youmind.com/media/1778830063254_js3sqi_HIQOJqjaQAAJP_d.jpg,"https://cms-assets.youmind.com/media/1778830063254_js3sqi_HIQOJqjaQAAJP_d.jpg
+https://cms-assets.youmind.com/media/1778830063413_d9xtx0_HIQOJqkasAAEq2w.jpg",https://youmind.com/zh-CN/nano-banana-pro-prompts?id=20149,https://x.com/Professor_134/status/2054782899917136167,Professor,https://x.com/Professor_134,2026年5月14日
+31,电影海报设计,Nano Banana Pro,YouTube 缩略图 - 好莱坞大片般的街市漫步,63,基于上传图片，生成一张极具电影感、好莱坞风格的照片的提示词。场景设定为繁忙的夜市街头，灯光色彩斑斓，周围人群带有动态模糊效果，强调主体的清晰对焦、自信的步态和强烈的戏剧性对比。,生成一张极具电影感、好莱坞风格的照片，主体人物使用上传图片中的面部。人物自信地穿行于夜晚熙熙攘攘的街市中，街市里灯火辉煌，霓虹闪烁，摊位熠熠生辉。镜头采用略低角度的中景拍摄，营造出一种强劲而富有戏剧性的氛围。周围的人群呈动态模糊，营造出活力与混乱感，而主体人物则清晰锐利，处于焦点之中。冷暖光线交织，倒映在地面和周围环境上。淡淡的烟雾和氛围感增强了场景的深度。人物身着时尚现代的服装，例如夹克、T 恤、牛仔裤和运动鞋。电影级灯光、戏剧性对比、鲜艳色彩、浅景深、超逼真、电影场景构图、8K、好莱坞电影质感。,https://cms-assets.youmind.com/media/1774421477984_goxo7r_HEMUD0tbUAAlveq.jpg,https://cms-assets.youmind.com/media/1774421477984_goxo7r_HEMUD0tbUAAlveq.jpg,https://youmind.com/zh-CN/nano-banana-pro-prompts?id=12725,https://x.com/NikhilRajX/status/2036493515715408145,Nikhil,https://x.com/NikhilRajX,2026年3月24日
+32,电影海报设计,Nano Banana Pro,漫画 / 故事板 - 电影级暗黑奇幻战斗,78,一张极具戏剧性的中世纪奇幻电影剧照，捕捉了一位骑士在雨中森林面对冲锋而来的暗影生物的瞬间。,"{argument name=""character name"" default=""Aldric""} 站在 {argument name=""setting"" default=""雨中死寂森林""} 中，双手紧握长剑，双脚深陷泥泞，正面迎击一个正全速向他冲来的 {argument name=""enemy"" default=""巨大的暗影人形生物""}。怪物由阴影、泥土和腐烂的布料构成，双眼闪烁着红光，带着巨大的冲击力。Aldric 的长剑即将刺入怪物的腹部，利用其冲锋的惯性。电影级暗黑奇幻风格，戏剧性氛围，写实的中世纪盔甲，雾气，碰撞前的紧张感，低角度拍摄，超写实，电影剧照",https://cms-assets.youmind.com/media/1781251723499_2jd502_HKhpOkMXoAAkq24.jpg,"https://cms-assets.youmind.com/media/1781251723499_2jd502_HKhpOkMXoAAkq24.jpg
+https://cms-assets.youmind.com/media/1781251723566_9yghhh_HKhpE9HWYAAdI6M.jpg
+https://cms-assets.youmind.com/media/1781251723652_4w5dmk_HKhpL0mXcAABqVr.jpg",https://youmind.com/zh-CN/nano-banana-pro-prompts?id=25130,https://x.com/Cortex__Visual/status/2065016152913272900,Cortex Visual ・ AI Movies,https://x.com/Cortex__Visual,2026年6月11日
+33,电影海报设计,Nano Banana Pro,漫画 / 故事板 - 电影感狂野西部枪手,70,一个关于旧西部枪手肖像的电影感提示词，专注于 19 世纪的真实质感和戏剧性的日落光影。,"（脸部将由上传的参考图像提供）：
+
+一张令人惊叹的电影感肖像，主角为 {argument name=""character"" default=""粗犷的旧西部枪手""}，使用上传参考图像中完全一致的面部特征、身份、发型、肤色和面部结构，独自站在尘土飞扬的边境街道上，沐浴在日落的余晖中。他那件饱经风霜的深棕色皮质长风衣在沙漠的风中轻轻飘动，内搭细节精致的边境马甲、褪色的亚麻衬衫、古董枪带、雕花银扣，以及沾满路尘的旧牛仔靴。他的表情沉稳、自信且富有传奇色彩，散发着那种名字在边境小镇间被传颂的男人的气场。
+
+他身后延伸着 1880 年代真实的西部定居点，街道两旁排列着木制酒馆、马厩、贸易站、拴马桩、油灯、马车和饱经风雨的店面。金色的阳光倾泻在街道上，在尘土飞扬的地面上投下戏剧性的长影，尘埃颗粒在空气中漂浮，被温暖的电影光线照亮。一匹壮丽的栗色马在附近等候，马鞍上装饰着复杂的皮革工艺和陈旧的黄铜细节。
+
+整个场景仿佛史诗级西部杰作中的一帧画面，将经典边境电影的宏大感与奢华的编辑摄影风格相结合。每一个细节都以非凡的写实感呈现：真实的皮革质感、逼真的织物褶皱、风化的木纹、细腻的皮肤纹理、可见的毛孔、栩栩如生的眼睛、自然的脸部阴影以及完美平衡的电影级调色。氛围唤起自由、冒险、神秘和永恒的边境传奇感。
+
+超写实摄影，中画幅相机，Hasselblad 品质，电影级西部杰作，Sergio Leone 风格构图，戏剧性日落光影，体积光，大气尘埃，浅景深，超精细纹理，真实的 19 世纪边境风格，粗犷的男性优雅，照片级皮肤渲染，获奖摄影作品，奢华时尚编辑风格与狂野西部电影的碰撞，史诗级环境叙事，大师级构图，HDR，全局光照，自然色彩调色板，8K 超精细，视觉震撼，传奇西部英雄美学。",https://cms-assets.youmind.com/media/1781512132572_wue46o_HKxIMqLaEAAugWI.jpg,https://cms-assets.youmind.com/media/1781512132572_wue46o_HKxIMqLaEAAugWI.jpg,https://youmind.com/zh-CN/nano-banana-pro-prompts?id=25574,https://x.com/Madhuribhai/status/2066105714557550604,WeWant Mars,https://x.com/Madhuribhai,2026年6月14日
+34,电影海报设计,Nano Banana Pro,漫画 / 故事板 - 饱经风霜的战士肖像,69,一个超写实的电影级提示词，描绘了一位在雨水和汗水中浸透的久经沙场的男性战士，强调极致的表面细节和氛围光影。,"一张超写实的电影级特写肖像，描绘了一位饱经风霜、赤裸上身的男性战士，在残酷的战斗后，因疲惫或坚定的决心而低垂着头。他留着浓密的深色乱发——湿透、结块，沉重地垂在低下的额头前。浓密的深色胡须覆盖着他的下颌和下巴。他的脸向下倾斜约 45 度，主要展示了头顶和侧面、强壮粗壮的脖子，以及占据画面下方的宽阔裸肩。他的皮肤被雨水和汗水浸透，闪烁着强烈的光泽。他的脸部和颈部有明显的战斗痕迹——额头、眉骨、脸颊和肩膀上有许多细小的割伤、撕裂伤和血迹，皮肤因撞击而红肿淤青。雨水在他周围清晰可见——雨丝在背景映衬下显得锐利，落在他的皮肤和头发上，溅起细小的水雾。背景是模糊的冷灰绿色雾气环境——暗示着户外竞技场、雨中战场或开阔的战斗场景——漫射的白色光源在他身后营造出朦胧的氛围光。光影效果极具戏剧性和电影感——冷蓝灰色的环境光包裹着整个场景，而微妙的暖色调则捕捉到了眉骨、鼻梁、颧骨和肩膀上的皮肤高光。色调：深炭黑、冷灰绿、柔和橄榄色、温暖的血红色点缀、湿润的皮肤高光。艺术风格：超写实黑暗电影概念艺术或电子游戏过场动画画质——《最后生还者》（The Last of Us）/《战神》（God of War）美学，皮肤、头发和水流的极致表面细节，体积感雨水氛围，8K 分辨率。
+请使用提供的面部参考图——保留参考对象精确的面部骨骼结构、鼻型、下颌线、胡须纹理、肤色以及整体面部特征。在保持核心面部特征完全可辨认的前提下，叠加战斗损伤、雨水和疲惫的处理效果。",https://cms-assets.youmind.com/media/1781512130516_mpfwhc_HKzChyXWAAApPcc.jpg,https://cms-assets.youmind.com/media/1781512130516_mpfwhc_HKzChyXWAAApPcc.jpg,https://youmind.com/zh-CN/nano-banana-pro-prompts?id=25571,https://x.com/iamahmedfaraz66/status/2066240219310141511,Ahmad Faraz,https://x.com/iamahmedfaraz66,2026年6月14日
+35,电影海报设计,GPT Image 2,产品营销 - FIFA 世界杯极简海报,105,一款高端体育品牌推广提示词，用于创作极简风格的世界杯海报，包含单色肖像、碎片化编辑效果及高级排版。,"创作一张高级的 FIFA 世界杯海报设计，主角为 {argument name=""player type"" default=""传奇足球巨星""}。极简白色背景，画面主体为巨大的单色特写肖像。肖像被分割成若干水平切片，切片间留有细长的白色缝隙，营造出摩登的碎片化编辑效果。左侧采用大型垂直粗体排版，以 {argument name=""color scheme"" default=""国家队配色""} 拼写出球员姓名。前景叠加球员全身动作姿态，身穿国家队球衣，自信庆祝。右上角放置国旗和足协徽章。肖像附近配有优雅的亲笔签名。底部有柔和的雾气/烟雾淡出效果。奢华体育杂志美学，{argument name=""branding style"" default=""Nike 风格""} 广告宣传，高对比度黑白肖像，面部细节清晰，构图简洁，高级排版，海报设计，体育品牌推广，编辑排版，电影级布光，超写实，8k，专业平面设计，留白，现代 FIFA 世界杯宣传艺术作品。
+
+风格关键词：
+体育海报，编辑设计，现代排版，单色肖像，动态运动员姿态，白色极简背景，高级品牌推广，高端广告，世界杯宣传活动，超细节，照片级真实，平面设计杰作",https://cms-assets.youmind.com/media/1781517887908_uxk588_HKxrYnra8AA93-E.jpg,"https://cms-assets.youmind.com/media/1781517887908_uxk588_HKxrYnra8AA93-E.jpg
+https://cms-assets.youmind.com/media/1781517887846_7qskdd_HKxrYnmaAAAc_zO.jpg",https://youmind.com/zh-CN/gpt-image-2-prompts?id=25683,https://x.com/ChillaiKalan__/status/2066144411801555173,K,https://x.com/ChillaiKalan__,2026年6月14日
+36,电商海报设计,Nano Banana Pro,电商主图 - 奢华镜面自拍人像,92,一款适用于奢华衣帽间镜面自拍的手机摄影风格提示词，具备精准的人脸锁定功能与现代美学。,"完全使用上传的参考人脸，零修改）人脸锁定 — 零修改策略。人脸必须保持 100% 一致。长宽比 • 3:4。风格：超现代手机摄影。场景：奢华步入式衣帽间的镜面自拍。服装：{argument name=""dress"" default=""缎面翡翠绿吊带裙""}。道具：手持 {argument name=""phone"" default=""钛金属 iPhone 17 Pro Max""}，可见三镜头细节。姿势：站在镜子前，微微一笑，单手叉腰。光照：自然光，背景：设计师包袋和柔光货架。相机：手机摄影风格，焦点清晰。图像质量：8K，真实皮肤质感。",https://cms-assets.youmind.com/media/1781336382283_ahyfxz_HKlQpLpbMAAy-po.jpg,https://cms-assets.youmind.com/media/1781336382283_ahyfxz_HKlQpLpbMAAy-po.jpg,https://youmind.com/zh-CN/nano-banana-pro-prompts?id=25292,https://x.com/Salina4nco/status/2065270575439007863,Salina,https://x.com/Salina4nco,2026年6月12日
+37,电商海报设计,Nano Banana Pro,电商主图 - 微距奢华饼干牛奶飞溅,93,一个商业食品摄影提示词，用于生成带有动态牛奶飞溅效果的高细节饼干图像。,"超写实 {argument name=""product name"" default=""[BISCUIT NAME]""} 饼干在半空中动态堆叠，微微破碎以展现丰富质地，奶油夹心 / 黄油层清晰可见，戏剧性的牛奶飞溅在饼干周围形成艺术曲线，细小的饼干碎屑悬浮在空中，光泽的牛奶液滴定格在运动瞬间，{argument name=""background"" default=""深色摄影棚渐变背景""}，电影级专业灯光，微距食品摄影，超清晰对焦，高对比度，高端奢华商业广告风格，戏剧性飞溅效果，超精细纹理，照片级真实感，8K 超高分辨率
+宽高比 {argument name=""aspect ratio"" default=""3:4""}",https://cms-assets.youmind.com/media/1781165157861_nidqfn_HKbsM0SbkAAiGTg.jpg,"https://cms-assets.youmind.com/media/1781165157861_nidqfn_HKbsM0SbkAAiGTg.jpg
+https://cms-assets.youmind.com/media/1781165157728_0kes3r_HKbsM0Ua4AAr7g_.jpg",https://youmind.com/zh-CN/nano-banana-pro-prompts?id=25010,https://x.com/CodeOfFuture/status/2064597275809366318,Aaqib | Ai,https://x.com/CodeOfFuture,2026年6月10日
+38,电商海报设计,Nano Banana Pro,电商主图 - 写实亚洲女性家居服肖像,94,一份详细的提示词，用于生成一位身着特定家居服的亚洲女性在乡村清晨背景下的特写肖像。,"创作一张高度写实的特写肖像，主角是一位拥有明亮瓷白肌肤和完美对称五官的年轻亚洲女性。她站在户外的居家环境中，例如前廊、庭院或花园区域。她的身体微微侧向，头部转向镜头，表情平静、柔和且温婉。服装：穿着一套配套的 {argument name=""clothing style"" default=""睡衣/家居服套装""}。奶油色短款上衣，带有 {argument name=""pattern"" default=""樱桃图案""}。短袖边缘饰有精致的白色蕾丝波浪花边。V 领设计，胸前饰有一枚优雅的小红丝带。深红色高腰短裤，配有松紧腰带。腰带中央饰有小红丝带。短裤下摆带有白色蕾丝波浪花边细节。配饰：优雅的金色项链，带有显示名字“{argument name=""name"" default=""Fitri""}”的小吊坠。精致的小耳钉。妆容：自然妆感。肌肤自然透亮，可见真实的皮肤纹理和细微毛孔。浓密且修剪整齐的自然眉毛。浓密、卷翘的戏剧感睫毛。粉嫩的嘴唇，看起来水润、饱满且富有光泽。发型：乌黑长发。发质极其顺滑、丝滑且充满健康光泽。扎成单马尾。马尾下部呈现卷曲波浪状。顶部发丝略显蓬松凌乱。几缕发丝自然地垂落在额头和脸颊两侧。背景：身后可见黑色铁艺围栏。围栏外是道路和绿色的稻田。远处可见山脉。明亮清澈的蓝天。身旁有一棵树，仅在画面中部分可见。光线：清晨的自然阳光。面部光线柔和明亮。色彩清新明快，色调明亮，包含丰富的绿色和生动的蓝色。摄影风格：半身肖像。特写构图。超写实摄影。高细节和栩栩如生的皮肤纹理。自然的景深。生动、真实的背景。专业肖像摄影。焦点清晰地对准面部。9:16 竖屏比例。照片级真实感、超细节、高分辨率、写实光影、真实阴影、真实色彩。重要提示：请勿改变女性的面部特征或面部结构。在应用所描述的发型、服装、妆容、姿势、光线和环境时，请务必保持其原始面容不变。",https://cms-assets.youmind.com/media/1780990823300_5pbthd_HKQyhUGa0AAq5ag.jpg,"https://cms-assets.youmind.com/media/1780990823300_5pbthd_HKQyhUGa0AAq5ag.jpg
+https://cms-assets.youmind.com/media/1780990823394_ou7xyv_HKQyhVwbYAAe84x.jpg
+https://cms-assets.youmind.com/media/1780990823409_oxz1lz_HKQyhYEawAAh1vD.jpg",https://youmind.com/zh-CN/nano-banana-pro-prompts?id=24715,https://x.com/Kashberg_0/status/2063830086663709083,Kashberg,https://x.com/Kashberg_0,2026年6月8日
+39,电商海报设计,Nano Banana Pro,电商主图 - 鼠尾草绿单色时尚图册,95,一场专业的时尚摄影棚拍摄，展示了鼠尾草绿色的现代单色穿搭，呈现极简主义美学。,"一场专业的时尚摄影棚拍摄，主角为一位 {argument name=""subject"" default=""年轻东亚女性""}，留着利落的下巴长度波波头，展示现代 {argument name=""style"" default=""鼠尾草绿单色穿搭""}。她身穿剪裁合身的鼠尾草绿衬衫式马甲，搭配同色系高腰阔腿裤，肩上优雅地披着一件质感十足的鼠尾草绿超大款羊毛风衣。配饰包括叠戴的金色链条项链（带钥匙吊坠）、精致的金手镯，以及米色厚底绑带渔夫凉鞋。场景以极简、柔和的薄荷绿为背景，营造出干净、高级且现代的审美风格。提示词应生成一系列全身和四分之三身的多角度镜头：自信站立且单手插兜、坐在简单的木质板条箱上姿态放松、以及调整风衣翻领时微笑的动态半身照。光线柔和均匀，凸显了利落的剪裁、织物的质感以及优雅从容的神态。",https://cms-assets.youmind.com/media/1780990824528_abcl0b_HKI60mUXgAAur67.jpg,"https://cms-assets.youmind.com/media/1780990824528_abcl0b_HKI60mUXgAAur67.jpg
+https://cms-assets.youmind.com/media/1780990824500_vonz8e_HKI60qxW0AA26tJ.jpg",https://youmind.com/zh-CN/nano-banana-pro-prompts?id=24378,https://x.com/Minahil42298354/status/2063276259350618487,Minahil,https://x.com/Minahil42298354,2026年6月6日
+40,电商海报设计,Nano Banana Pro,电商主图 - 巴基斯坦长裙时尚,96,优雅的影棚时尚摄影，展现精致的传统巴基斯坦刺绣与电影级布光。,"一张高质量的专业时尚摄影作品，模特身着优雅的 {argument name=""dress style"" default=""及地天蓝色巴基斯坦长裙""}。裙身侧边和下摆饰有 {argument name=""details"" default=""精致的银色花卉刺绣、亮片和珠饰""}。领口采用独特的镂空设计，并点缀着银色装饰。面料选用轻盈飘逸的薄纱或雪纺。模特梳着优雅的盘发，搭配小型花卉发饰、垂坠耳环和配套手镯。背景为 {argument name=""background"" default=""柔和模糊的影棚场景，点缀着浅蓝色和白色的花朵""}。电影级布光，奢华氛围，8k 分辨率，高度细腻的织物纹理。",https://cms-assets.youmind.com/media/1780818183213_t743v6_HKGimf8WgAAGyyh.jpg,https://cms-assets.youmind.com/media/1780818183213_t743v6_HKGimf8WgAAGyyh.jpg,https://youmind.com/zh-CN/nano-banana-pro-prompts?id=24369,https://x.com/ayzalnooor24521/status/2063108897456705790,ayzalnoor,https://x.com/ayzalnooor24521,2026年6月6日
+41,电商海报设计,Nano Banana Pro,电商主图 - 高端 UGC 时尚广告大片,97,一个用于生成高端时尚广告大片图像的精细提示词，展示了现代极简主义背景下的模特，并重点刻画了服装质感与电影级光影效果。,"一个高端 UGC 时尚广告大片，主角为 {argument name=""subject"" default=""一位留着一头柔顺黑长直发的年轻东亚女性""}，正在展示一款产品。她身穿 {argument name=""outfit"" default=""一件深栗色针织高领短袖上衣，肩部带有优雅的褶皱设计，侧面有抽褶细节，搭配白色抽绳工装短裤""}。
+采用多角度电影感序列风格，同时展示全身生活照和近距离面料质感。场景设定为 {argument name=""environment"" default=""一个极简主义风格的现代公寓，配有奶油色弧形沙发、一面大型金边落地镜以及明亮的窗户""}。柔和、漫射的清晨自然光照亮场景，投射出柔和的阴影。
+照片级真实感，高端商业品质，使用 85mm 镜头拍摄，f/1.8 光圈，焦点清晰地聚焦于酒红色面料的细腻纹理，干净的调色，8K 分辨率。",https://cms-assets.youmind.com/media/1780645919757_0jpqt5_HJ8WQ9WbIAApkYy.jpg,https://cms-assets.youmind.com/media/1780645919757_0jpqt5_HJ8WQ9WbIAApkYy.jpg,https://youmind.com/zh-CN/nano-banana-pro-prompts?id=24077,https://x.com/CaliraVal/status/2062391667567767855,Calira,https://x.com/CaliraVal,2026年6月4日
+42,电商海报设计,Nano Banana Pro,电商主图 - 极简风服装店时尚人像,98,一张极简主义服装店内的全身时尚编辑人像，具备清晰的对焦和电影级灯光效果。,"一张全身时尚人像，画面中一位 {argument name=""subject"" default=""时尚年轻女性""} 自信地站在 {argument name=""location"" default=""现代极简主义服装店""} 内。她留着柔顺的深色长卷发，配有轻薄刘海，皮肤白皙，五官精致。她身穿一件修身的 {argument name=""outfit top"" default=""浅灰色短款拉链连帽衫""}，搭配带有大侧袋的深蓝色阔腿工装裤和厚底白色运动鞋。她双臂交叉，展现出冷静且自信的态度。背景是温暖的木质室内装潢、陈列着中性色调服装的衣架、柔和的环境光以及抛光地板。电影级灯光，超写实，清晰对焦，高细节，时尚编辑摄影风格，4K，景深效果。",https://cms-assets.youmind.com/media/1780645927302_7piitf_HJ8DE5JWsAAI0Kc.jpg,https://cms-assets.youmind.com/media/1780645927302_7piitf_HJ8DE5JWsAAI0Kc.jpg,https://youmind.com/zh-CN/nano-banana-pro-prompts?id=24097,https://x.com/Lianaalane/status/2062370546395042253,liana,https://x.com/Lianaalane,2026年6月4日
+43,电商海报设计,Nano Banana Pro,电商主图 - 都市街头时尚拼贴海报,106,一个为 Z 世代街头时尚海报设计的创意提示词，采用拼贴风格，包含重复的人物模特、超大廓形服装以及带有醒目排版的层叠式编辑布局。,"现代都市 {argument name=""fashion style"" default=""时尚拼贴海报""}，{argument name=""target audience"" default=""Z 世代街头时尚活动""}，与上传图片相同的人脸，一位女性模特以多种时尚姿势重复出现，超大廓形休闲装，高级电商摄影，垂直编辑布局，顶部带有巨大的粗体压缩字体，贴纸剪裁边缘，层叠式拼贴层级，动态笔触图形，非对称构图，{argument name=""brand inspiration"" default=""Gucci 风格""} 品牌感，手写笔触文字装饰，潮流感",https://cms-assets.youmind.com/media/1779435489228_sk9rre_HIz3XwrWYAAk_P1.jpg,https://cms-assets.youmind.com/media/1779435489228_sk9rre_HIz3XwrWYAAk_P1.jpg,https://youmind.com/zh-CN/nano-banana-pro-prompts?id=21802,https://x.com/Lianaalane/status/2057291128463085646,liana,https://x.com/Lianaalane,2026年5月21日
+44,电商海报设计,GPT Image 2,电商主图 - 韩系时尚 Lookbook 网格提示词,106,生成一个 2x3 的网格编辑风格 Lookbook，确保六种不同穿搭和姿势下的角色身份高度一致。,"创建一个高端韩系时尚 Lookbook，在全部六个画面中呈现相同的 {argument name=""subject"" default=""日本女性""}，并确保整张图像中人物身份的高度一致性。她的面部特征、年龄、族裔、发型、身体比例和整体气质在每个面板中都应保持不变，确保一眼就能看出是同一个人穿着不同的服装。
+
+构图采用简洁优雅的 2×3 网格，包含六个等大的全身面板。保持模特比例一致、面板间距清晰，并呈现平衡的编辑对称感。在顶部中心位置，加入精致的奢华衬线字体，内容为：'{argument name=""title"" default=""LOOKBOOK — The Edit • Vol. 01""}'。
+
+每个面板应展示不同的穿搭和自然的时尚姿势：
+
+1. 米色廓形西装外套、白色上衣、阔腿裤和高跟鞋。
+2. 短款皮夹克、修身上衣、工装裤和奢华运动鞋。
+3. 黑色修身晚礼服，搭配精致配饰。
+4. 白色廓形衬衫搭配牛仔短裤。
+5. 米色针织毛衣搭配百褶中长裙。
+6. 同色系剪裁夹克与半身裙套装。
+
+为每个造型设计独特的站姿和细微的表情变化，同时保持模特身份和奢华大片质感。肢体语言应展现出自信、干练的气质，适合高端百货公司的时尚目录。
+
+使用无缝的暖象牙米色无影棚背景，不含任何道具或家具。光线应柔和、漫射，灵感源自《Vogue Korea》大片，营造出真实的阴影、自然的皮肤纹理、可见的毛孔以及细腻的织物细节。最终图像应呈现出超高端商业时尚摄影的质感，具备 HDR 品质、照片级细节和 8K 级清晰度。
+
+优先保证：严格的身份一致性、每个面板的全身可见度、清晰的面板分割、一致的比例以及精致的奢华呈现。
+
+避免：身份改变、面部不一致、换脸、人物被裁剪、主体重叠、多余肢体、解剖结构错误、杂乱背景、道具、家具、Logo、水印、动漫风格、CGI、插画、过度磨皮的塑料感皮肤、模糊或低分辨率输出。",https://cms-assets.youmind.com/media/1781517880899_5ccotd_HKvzG8-WMAESIkx.jpg,https://cms-assets.youmind.com/media/1781517880899_5ccotd_HKvzG8-WMAESIkx.jpg,https://youmind.com/zh-CN/gpt-image-2-prompts?id=25663,https://x.com/CruzzCtrl1/status/2066012163097981332,MatteoCruz,https://x.com/CruzzCtrl1,2026年6月14日
+45,电商海报设计,GPT Image 2,电商主图 - 现代街头风与奢华 T 恤设计,117,一系列用于设计高端、极简及复古风格图形 T 恤的专业提示词。,创作一张高端时尚产品照片，展示一件现代超大廓形街头风 T 恤。T 恤正面印有专业设计的大型图形。设计风格：当代都市街头风，大胆的排版与未来感几何元素相结合，简洁的矢量艺术，细腻的做旧纹理，高级丝网印刷质感，构图平衡，视觉冲击力强且易于穿搭。配色方案：黑色、白色、银色，点缀电光蓝。设计应呈现出奢华街头服饰系列的质感。照片级织物纹理，逼真的褶皱，优质纯棉材质，摄影棚灯光，时尚大片质感，超高细节，清晰对焦，适合电商展示，引领潮流的服装设计。设计一件现代奢华时尚 T 恤，配以优雅的极简图形。正面艺术设计结合了精致的排版、抽象线条艺术和微妙的几何图案。留白简洁，具备高级品牌美感，灵感源自当代设计师品牌。高品质刺绣与印花细节，布局平衡，单色调配以金色点缀。照片级 T 恤样机，优质重磅棉，逼真的织物纹理，摄影棚产品摄影，奢华时尚大片质感，细节丰富且具备商业价值。创作一件时尚的现代 T 恤，采用大胆的复古风格图形设计。复古插画与当代排版相结合，做旧印花效果，层次丰富的纹理，引人注目的构图，可穿戴的街头美学。色彩浓郁，艺术深度感强，呈现高级丝网印刷外观，逼真的服装褶皱，专业服装样机，时尚目录品质，细节丰富，潮流感强，适合在线服装品牌。创作一件超高端现代 T 恤，正面印有大面积图形，呈现出畅销时尚品牌的设计感。结合大胆的排版、艺术插画、多层图形元素，高级街头美学，构图平衡，符合 Z 世代审美，逼真的丝网印刷纹理，奢华服装品牌质感。照片级样机，超大廓形重磅棉 T 恤，摄影棚灯光，时尚编辑部质感，细节丰富，可直接投入生产的专业服装设计。,https://cms-assets.youmind.com/media/1781169534244_yeo7z0_HKa42G4aYAAD6yg.jpg,"https://cms-assets.youmind.com/media/1781169534244_yeo7z0_HKa42G4aYAAD6yg.jpg
+https://cms-assets.youmind.com/media/1781169534009_qfzb8p_HKa42G7bMAA8I2E.jpg
+https://cms-assets.youmind.com/media/1781169534032_o7xh15_HKa42HHbMAAmBIy.jpg
+https://cms-assets.youmind.com/media/1781169534637_7zgdbm_HKa42JmbMAE1ivU.jpg",https://youmind.com/zh-CN/gpt-image-2-prompts?id=25047,https://x.com/j_smeaton99/status/2064540729528267108,Jack,https://x.com/j_smeaton99,2026年6月10日
+46,创意视觉,Nano Banana Pro,YouTube 缩略图 - 雄伟象群云朵摄影,47,一个超现实的提示词，用于创作在稀树草原上空由体积云形成的细节逼真的大象摄影作品。,"超写实摄影，巨大的体积云形成了雄伟的 {argument name=""animal"" default=""大象""} 形状，云层结构细节丰富且解剖学准确，拥有巨大的象牙和高扬的象鼻，柔软而致密的积云具有逼真的深度和质感，戏剧性的黄金时刻光影，阳光穿透云层，微妙的阴影和高光增强了形态感。
+前景：广阔的 {argument name=""landscape"" default=""非洲稀树草原草甸""}，带有逼真的干草、大气透视和电影级的景深。多只 {argument name=""wildlife"" default=""斑马""} 在田野中自然地吃草。空中：一群鸟在巨大的大象云周围盘旋，增加了比例感和动感。
+环境：电影级天空，带有温暖的橙色和蓝色渐变色调，轻微的雾气，自然色彩分级，超写实光照，全局光照，体积雾，物理精确的阴影。
+风格：DSLR 摄影，85mm 镜头，f/2.8 光圈，浅景深，HDR，8K 分辨率，锐利对焦，错综复杂的细节，照片级真实感，无 CGI 感。
+氛围：雄伟、平静、超现实但可信，野生动物纪录片的真实感。",https://cms-assets.youmind.com/media/1779520912765_xaxki4_HI7WAKoaIAAt_AA.jpg,"https://cms-assets.youmind.com/media/1779520912765_xaxki4_HI7WAKoaIAAt_AA.jpg
+https://cms-assets.youmind.com/media/1779520912719_l7qw3k_HI7WAN3a8AAPv2y.jpg",https://youmind.com/zh-CN/nano-banana-pro-prompts?id=22005,https://x.com/itxabdullaa/status/2057817382773731346,ÀBDŪLLÂH,https://x.com/itxabdullaa,2026年5月22日
+47,创意视觉,Nano Banana Pro,YouTube 缩略图 - 奇幻书籍可视化网格,55,一种富有创意的加权提示词公式，用于生成 2x2 的书籍内部奇幻立体模型网格。,"2x2 网格，针对 4 本名著执行此操作 render_target = ( {argument name=""main object"" default=""giant_sliced_open_hardcover_fantasy_book""} * 2.0 ) + ( {argument name=""inner scene"" default=""inferred_magical_library_diorama_inside""} * 1.8 ) + ( miniature_main_characters_fighting_bad_guys * 1.5 ) + ( floating_old_english_map_overlay_top_right * 2.0 ) + ( tiny_ink_bottles_and_quills_exterior * 1.0 ) + ( {argument name=""background"" default=""clean_parchment_paper_studio_background""} * 1.2 ) - ( e_reader / 2.0 ) - ( modern_clothing / 2.0 ) - ( messy_desk )",https://cms-assets.youmind.com/media/1777620059461_wtbh6l_HHAk_0ZbUAAqjvu.jpg,https://cms-assets.youmind.com/media/1777620059461_wtbh6l_HHAk_0ZbUAAqjvu.jpg,https://youmind.com/zh-CN/nano-banana-pro-prompts?id=17257,https://x.com/Gdgtify/status/2049903356987195814,Gadgetify,https://x.com/Gdgtify,2026年4月30日
+48,创意视觉,Nano Banana Pro,漫画 / 故事板 - 照片转蜡笔画,84,将普通照片转换为可爱、充满童趣的蜡笔画，同时保留原始构图。,"将 {argument name=""subject"" default=""上传的照片""} 转换为 {argument name=""style"" default=""可爱童趣的蜡笔画""}，同时保留原始姿势、构图、服装、表情和背景。使用 {argument name=""texture"" default=""色彩丰富的蜡笔和彩色铅笔质感""}，呈现凌乱的涂鸦、颤抖的轮廓以及纹理纸张上不均匀的着色效果。将人物面部简化为拥有大眼睛和红润脸颊的可爱卡通形象。以俏皮的手绘风格保留山脉、湖泊、树木、云朵和天空。在右下角添加一张带有白色边框和细微阴影的圆角参考图，显示原始图像。色彩鲜艳，充满魅力，趣味十足，手工感强，高细节的蜡笔艺术作品。",https://cms-assets.youmind.com/media/1780990828835_yi3dyy_HKTM4pEa8AArTKB.jpg,https://cms-assets.youmind.com/media/1780990828835_yi3dyy_HKTM4pEa8AArTKB.jpg,https://youmind.com/zh-CN/nano-banana-pro-prompts?id=24726,https://x.com/tweetbyfurkan/status/2063999815005138984,Furkan,https://x.com/tweetbyfurkan,2026年6月8日
+49,创意视觉,GPT Image 2,电商主图 - 手工珐琅磁吸纪念品,113,将提示词翻译为日文，以便使用 Image 2.0 创作具有 3D 深度和金色边缘的逼真珐琅纪念磁贴。,"根据参考照片创作一款 3D 手工珐琅纪念磁贴。特点包括凹陷的珐琅表面、纤细的金色边缘、柔和的摄影棚光影、以 {argument name=""landmark"" default=""泰姬陵""} 为原型的有机轮廓，以及奢华的 {argument name=""color scheme"" default=""深绿色与金色""} 配色。",https://cms-assets.youmind.com/media/1781256086196_836b5p_HJ2_DUFb0AAus0v.jpg,"https://cms-assets.youmind.com/media/1781256086196_836b5p_HJ2_DUFb0AAus0v.jpg
+https://cms-assets.youmind.com/media/1781256086242_jizgva_HJ2_DjpbcAEQ1KN.jpg
+https://cms-assets.youmind.com/media/1781256086194_9wbak2_HJ2_D0jasAAZ1a5.jpg
+https://cms-assets.youmind.com/media/1781256086821_pbvbl2_HJ2_EB5agAARQBH.jpg",https://youmind.com/zh-CN/gpt-image-2-prompts?id=25220,https://x.com/sunnariwakaru1/status/2064906617196523600,すん / 2つのアイ（AI・EYE）の専門家 / Codexであなたの仕事は自動化できる!,https://x.com/sunnariwakaru1,2026年6月11日
+50,创意视觉,GPT Image 2,电商主图 - 奢华香氛蜡烛产品摄影,118,为蜡烛和家居香氛生成温暖且富有氛围感的产品图像，重点呈现融化的蜡烛质感以及舒适、高端的生活方式氛围。,"制作温暖且富有氛围感的 {argument name=""product"" default=""蜡烛和家居香氛""} 产品图像，传达奢华、舒适与宁静的质感。此提示词旨在捕捉摇曳的烛光、融化的蜡烛质感、{argument name=""material"" default=""琥珀色玻璃""} 的温润感，以及所有能促使买家点击“购买”的感官视觉线索。非常适合蜡烛品牌、Etsy 蜡烛卖家、家居香氛初创公司以及希望通过图像唤起产品全方位感官体验的生活方式品牌。",https://cms-assets.youmind.com/media/1781082661483_i3h8io_HKXABwca0AAybVN.jpg,https://cms-assets.youmind.com/media/1781082661483_i3h8io_HKXABwca0AAybVN.jpg,https://youmind.com/zh-CN/gpt-image-2-prompts?id=24902,https://x.com/Aiwithkami/status/2064267156163051983,Kami AI,https://x.com/Aiwithkami,2026年6月9日
