@@ -6,7 +6,7 @@ import { useLocation } from "wouter";
 import TopBar from "@/components/workspace/TopBar";
 import promptCsv from "@/data/ai_image_prompt_rank_50.csv?raw";
 import { useTheme } from "@/contexts/ThemeContext";
-import { ArrowUpRight, ImageIcon, Layers, Search, Sparkles, Tags } from "lucide-react";
+import { ImageIcon, Layers, Search, Sparkles, Tags, X } from "lucide-react";
 import { BG_GLOW } from "@/lib/workspace-data";
 
 type PromptItem = {
@@ -17,8 +17,6 @@ type PromptItem = {
   description: string;
   prompt: string;
   imageUrl: string;
-  detailUrl: string;
-  sourceUrl: string;
   author: string;
 };
 
@@ -86,8 +84,6 @@ function loadPromptItems(csv: string): PromptItem[] {
       description: get(record, "description"),
       prompt: get(record, "prompt"),
       imageUrl: get(record, "image_url"),
-      detailUrl: get(record, "detail_url"),
-      sourceUrl: get(record, "source_url"),
       author: get(record, "author"),
     }))
     .filter((item) => item.title && item.imageUrl);
@@ -115,6 +111,7 @@ export default function InspirationPage() {
     return models.includes(model) ? model : ALL_MODELS;
   });
   const [query, setQuery] = useState("");
+  const [selectedItem, setSelectedItem] = useState<PromptItem | null>(null);
 
   const bg = isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)";
   const text = isDark ? "oklch(0.88 0.008 270)" : "oklch(0.20 0.008 270)";
@@ -173,7 +170,7 @@ export default function InspirationPage() {
               </div>
               <h1 className="type-display-sm" style={{ color: text, letterSpacing: 0 }}>50 组高热图片提示词灵感</h1>
               <p className="type-body-sm mt-3 max-w-3xl leading-6" style={{ color: sub }}>
-                汇总 Nano Banana Pro 与 GPT Image 2 的热门案例，按分类浏览图片、提示词、模型与来源。
+                汇总 Nano Banana Pro 与 GPT Image 2 的热门案例，按分类浏览图片、提示词与模型。
               </p>
             </div>
 
@@ -260,14 +257,28 @@ export default function InspirationPage() {
 
           <section className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}>
             {filteredItems.map((item) => (
-              <article
+              <button
                 key={`${item.rank}-${item.title}`}
-                className="group overflow-hidden rounded-[var(--radius-lg-design)] transition-all hover:-translate-y-0.5"
+                onClick={() => setSelectedItem(item)}
+                className="group overflow-hidden rounded-[var(--radius-lg-design)] text-left transition-all hover:-translate-y-0.5 active:scale-[0.99]"
                 style={{ background: cardBg, border: `1px solid ${border}`, boxShadow: shadow }}
               >
                 <div className="relative overflow-hidden bg-black" style={{ aspectRatio: "16 / 10" }}>
-                  <img src={item.imageUrl} alt={item.title} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" loading="lazy" />
-                  <div className="absolute inset-x-0 top-0 flex items-center justify-between gap-2 p-3">
+                  <img
+                    src={item.imageUrl}
+                    alt={item.title}
+                    className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    loading="lazy"
+                    onError={(event) => {
+                      event.currentTarget.style.display = "none";
+                    }}
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center px-6 text-center" style={{ background: "linear-gradient(135deg, oklch(0.20 0.05 290), oklch(0.18 0.04 205))", zIndex: 0 }}>
+                    <span className="type-caption leading-5" style={{ color: "oklch(0.88 0.02 270)", letterSpacing: 0, textTransform: "none" }}>
+                      本地图片待同步
+                    </span>
+                  </div>
+                  <div className="absolute inset-x-0 top-0 flex items-center justify-between gap-2 p-3" style={{ zIndex: 2 }}>
                     <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: "oklch(0 0 0 / 0.48)", color: "white", backdropFilter: "blur(10px)", letterSpacing: 0, textTransform: "none" }}>
                       #{item.rank}
                     </span>
@@ -306,39 +317,77 @@ export default function InspirationPage() {
                   >
                     {item.prompt}
                   </p>
-
-                  <div className="mt-auto flex items-center gap-2 pt-4">
-                    {item.detailUrl && (
-                      <a
-                        href={item.detailUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1.5 rounded-[var(--radius-pill)] px-3 py-2 type-caption transition-all hover:scale-[1.02] active:scale-95"
-                        style={{ background: isDark ? "oklch(1 0 0 / 7%)" : "oklch(0 0 0 / 4%)", border: `1px solid ${border}`, color: text, letterSpacing: 0, textTransform: "none" }}
-                      >
-                        详情
-                        <ArrowUpRight size={13} />
-                      </a>
-                    )}
-                    {item.sourceUrl && (
-                      <a
-                        href={item.sourceUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1.5 rounded-[var(--radius-pill)] px-3 py-2 type-caption transition-all hover:scale-[1.02] active:scale-95"
-                        style={{ background: "transparent", border: `1px solid ${border}`, color: sub, letterSpacing: 0, textTransform: "none" }}
-                      >
-                        来源
-                        <ArrowUpRight size={13} />
-                      </a>
-                    )}
+                  <div className="mt-auto pt-4">
+                    <span className="type-caption" style={{ color: isDark ? "oklch(0.78 0.14 290)" : "oklch(0.52 0.17 290)", letterSpacing: 0, textTransform: "none" }}>
+                      点击查看完整提示词
+                    </span>
                   </div>
                 </div>
-              </article>
+              </button>
             ))}
           </section>
         </main>
       </div>
+
+      {selectedItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6" style={{ background: "oklch(0 0 0 / 0.62)", backdropFilter: "blur(14px)" }} onClick={() => setSelectedItem(null)}>
+          <section
+            className="max-h-full w-full overflow-hidden rounded-[var(--radius-lg-design)]"
+            style={{ maxWidth: 980, background: cardBg, border: `1px solid ${border}`, boxShadow: "0 24px 80px oklch(0 0 0 / 0.34)" }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 p-4" style={{ borderBottom: `1px solid ${border}` }}>
+              <div className="min-w-0">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: activeBg, color: "oklch(0.80 0.17 290)", letterSpacing: 0, textTransform: "none" }}>
+                    {selectedItem.field}
+                  </span>
+                  <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: isDark ? "oklch(1 0 0 / 7%)" : "oklch(0 0 0 / 5%)", color: sub, letterSpacing: 0, textTransform: "none" }}>
+                    {selectedItem.model}
+                  </span>
+                </div>
+                <h2 className="type-body-sm leading-6" style={{ color: text, fontWeight: 760 }}>{selectedItem.title}</h2>
+              </div>
+              <button
+                onClick={() => setSelectedItem(null)}
+                className="shrink-0 rounded-[var(--radius-pill)] p-2 transition-all hover:scale-105 active:scale-95"
+                style={{ background: isDark ? "oklch(1 0 0 / 7%)" : "oklch(0 0 0 / 5%)", border: `1px solid ${border}`, color: text }}
+                aria-label="关闭弹层"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="grid max-h-[calc(100vh-160px)] overflow-y-auto lg:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)]">
+              <div className="bg-black">
+                <div className="relative min-h-[280px]">
+                  <img
+                    src={selectedItem.imageUrl}
+                    alt={selectedItem.title}
+                    className="relative z-10 h-full max-h-[70vh] min-h-[280px] w-full object-contain"
+                    onError={(event) => {
+                      event.currentTarget.style.display = "none";
+                    }}
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center px-8 text-center" style={{ background: "linear-gradient(135deg, oklch(0.20 0.05 290), oklch(0.18 0.04 205))" }}>
+                    <span className="type-body-sm" style={{ color: "oklch(0.88 0.02 270)", fontWeight: 650 }}>
+                      本地图片待同步
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="p-4">
+                <p className="type-caption leading-5" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>{selectedItem.description}</p>
+                <div className="mt-4 rounded-[var(--radius-md-design)] p-4" style={{ background: isDark ? "oklch(0 0 0 / 0.18)" : "oklch(0 0 0 / 0.035)", border: `1px solid ${border}` }}>
+                  <p className="whitespace-pre-wrap type-caption leading-6" style={{ color: text, letterSpacing: 0, textTransform: "none" }}>
+                    {selectedItem.prompt}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
