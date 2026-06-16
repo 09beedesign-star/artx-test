@@ -153,9 +153,9 @@ function ModelSelector({ model, onChange, isDark }: { model: string; onChange: (
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: m.color, flexShrink: 0, display: "inline-block" }} />
                 <span className="flex min-w-0 flex-col leading-tight">
                   <span className="type-caption" style={{ textTransform: "none", letterSpacing: "0.02em" }}>{m.label}</span>
-                  {(() => { const description = (m as unknown as { description?: unknown }).description; return typeof description === "string" && description ? (
-                    <span className="truncate" style={{ fontSize: 10, opacity: 0.58, letterSpacing: 0 }}>{description}</span>
-                  ) : null; })()}
+                  {"description" in m && m.description ? (
+                    <span className="truncate" style={{ fontSize: 10, opacity: 0.58, letterSpacing: 0 }}>{m.description}</span>
+                  ) : null}
                 </span>
               </button>
             ))}
@@ -3941,10 +3941,7 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
     <div
       style={{
         width: w, height: h,
-        background: bg.startsWith("#")
-          ? `${bg}${isDark ? "73" : "66"}`
-          : bg,
-        backdropFilter: "blur(2px)",
+        background: bg,
         border: `1.5px solid ${borderColor}`,
         borderRadius: 8,
         boxSizing: "border-box",
@@ -4635,7 +4632,6 @@ type ImageGeneratorPayload = {
   titleBase?: string;
   sourceBackgroundSrc?: string;
   referencedAssets?: Array<{ src: string; title?: string }>;
-  targetFrameId?: string;
 };
 
 type ImageGeneratorReferenceAsset = {
@@ -5205,7 +5201,6 @@ function BottomPromptBar({
   referencedAssets,
   onRemoveReference,
   onClearAllReferences,
-  targetFrameId,
 }: {
   isDark: boolean;
   projectId: string;
@@ -5213,7 +5208,6 @@ function BottomPromptBar({
   referencedAssets: { id: string; title: string; src: string }[];
   onRemoveReference: (id: string) => void;
   onClearAllReferences: () => void;
-  targetFrameId?: string;
 }) {
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState("gpt-4o");
@@ -5278,7 +5272,6 @@ function BottomPromptBar({
             style: "智能判断",
             referencesEnabled: submittedRefs.length > 0,
             generationId,
-            targetFrameId,
           };
           dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
           toast("AI 判断为生成图片", { description: imagePrompt.slice(0, 90) });
@@ -6558,9 +6551,9 @@ function ImageGeneratorPopover({ isDark, projectId, onClose }: { isDark: boolean
                             <span className="h-4 w-4 rounded-[var(--radius-pill)] shrink-0" style={{ background: item.color }} />
                             <span className="flex min-w-0 flex-col leading-tight">
                               <span className="truncate type-caption" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>{item.label}</span>
-                              {(() => { const description = (item as unknown as { description?: unknown }).description; return typeof description === "string" && description ? (
-                                <span className="truncate" style={{ color: sub, fontSize: 10, letterSpacing: 0 }}>{description}</span>
-                              ) : null; })()}
+                              {"description" in item && item.description ? (
+                                <span className="truncate" style={{ color: sub, fontSize: 10, letterSpacing: 0 }}>{item.description}</span>
+                              ) : null}
                             </span>
                           </span>
                           {active && <Check size={13} style={{ color: accent, flexShrink: 0 }} />}
@@ -6964,8 +6957,7 @@ function SaveProjectConfirmDialog({ isDark, project, onCancel, onSave }: {
 const CANVAS_ASSISTANT_IMAGE_MODEL_STORAGE_KEY = "artx:canvas-assistant-image-model";
 const CANVAS_ASSISTANT_TEXT_MODEL_STORAGE_KEY = "artx:canvas-assistant-text-model";
 const CANVAS_ASSISTANT_MODEL_TAB_STORAGE_KEY = "artx:canvas-assistant-model-tab";
-const CANVAS_REFERENCE_IMAGE_DND_TYPE = "application/x-artx-reference-image";
-type CanvasAssistantModelTab = "image" | "text";
+type CanvasAssistantModelTab = "auto" | "image" | "text";
 type AssistantComposerSegment =
   | { id: string; type: "text"; text: string }
   | { id: string; type: "image"; asset: { id: string; title: string; src: string } }
@@ -7048,6 +7040,13 @@ function createAssistantImageSegment(asset: { id: string; title: string; src: st
 function createAssistantAnnotationSegment(annotation: AnnotationReference): AssistantComposerSegment {
   return { id: `seg-annotation-${annotation.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, type: "annotation", annotation };
 }
+
+const ASSISTANT_AUTO_MODEL = {
+  id: "auto",
+  label: "Auto",
+  color: "oklch(0.68 0.18 285)",
+  description: "根据提示词自动匹配最合适的模型进行生成",
+};
 
 function normalizeAssistantComposerSegments(segments: AssistantComposerSegment[]) {
   const normalized: AssistantComposerSegment[] = [];
@@ -7136,7 +7135,6 @@ function CanvasAssistantPanel({
   onMergeReferences,
   selectedCount,
   helpPromptNonce,
-  targetFrameId,
 }: {
   projectId: string;
   isDark: boolean;
@@ -7152,7 +7150,6 @@ function CanvasAssistantPanel({
   onMergeReferences: (assets: { id: string; title: string; src: string }[]) => void;
   selectedCount: number;
   helpPromptNonce: number;
-  targetFrameId?: string;
 }) {
   const [, navigate] = useLocation();
   const [inputFocused, setInputFocused] = useState(false);
@@ -7169,9 +7166,9 @@ function CanvasAssistantPanel({
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
   const [netSearchEnabled, setNetSearchEnabled] = useState(false);
   const [assistantModelTab, setAssistantModelTab] = useState<CanvasAssistantModelTab>(() => {
-    if (typeof window === "undefined") return "image";
+    if (typeof window === "undefined") return "auto";
     const stored = window.localStorage.getItem(CANVAS_ASSISTANT_MODEL_TAB_STORAGE_KEY);
-    return stored === "text" ? "text" : "image";
+    return stored === "image" || stored === "text" ? stored : "auto";
   });
   const [assistantImageModelId, setAssistantImageModelId] = useState(() => {
     if (typeof window === "undefined") return "auto";
@@ -7207,26 +7204,6 @@ function CanvasAssistantPanel({
   const inputShadow = "0 16px 42px rgba(210,214,224,0.10), 0 0 0 1px rgba(210,214,224,0.10)";
   const panelWidth = "clamp(280px, 32vw, 372px)";
   const collapsedPeekWidth = 112;
-  const assistantBubbleBg = "#2B2B31";
-  const assistantBubbleBorder = "rgba(255,255,255,0.10)";
-  const assistantBubbleText = "oklch(0.9 0.006 270)";
-  const userBubbleBg = "#B6E32E";
-  const userBubbleBorder = "rgba(182,227,46,0.64)";
-  const userBubbleText = "#101600";
-  const purpleButtonColor = "oklch(0.72 0.18 290)";
-  const purpleButtonBorder = "oklch(0.65 0.22 290 / 0.58)";
-  const purpleButtonHover = "oklch(0.65 0.22 290 / 0.12)";
-  const purpleButtonActive = "oklch(0.65 0.22 290 / 0.20)";
-  const purpleOutlineButtonStyle = (disabled = false): React.CSSProperties => ({
-    border: `1px solid ${purpleButtonBorder}`,
-    background: "transparent",
-    color: purpleButtonColor,
-    opacity: disabled ? 0.45 : 1,
-  });
-  const setPurpleButtonState = (target: HTMLElement, state: "base" | "hover" | "active") => {
-    target.style.background = state === "base" ? "transparent" : state === "hover" ? purpleButtonHover : purpleButtonActive;
-    target.style.transform = state === "active" ? "scale(0.96)" : "scale(1)";
-  };
   const handleCreateCanvasProject = () => {
     const project = createWorkspaceHistoryProject();
     toast("已新建画布", { description: project.title });
@@ -7319,10 +7296,22 @@ function CanvasAssistantPanel({
         : composerImages.length > 0
           ? `引用素材 ${composerImages.length} 个`
           : "";
-  const assistantImageModel = IMAGE_AI_MODELS.find(model => model.id === assistantImageModelId) || IMAGE_AI_MODELS[0];
-  const assistantTextModel = TEXT_AI_MODELS.find(model => model.id === assistantTextModelId) || TEXT_AI_MODELS[0];
-  const assistantModelOptions = assistantModelTab === "image" ? IMAGE_AI_MODELS : TEXT_AI_MODELS;
-  const assistantModel = assistantModelTab === "image" ? assistantImageModel : assistantTextModel;
+  const assistantImageModel = IMAGE_AI_MODELS.find(model => model.id === assistantImageModelId && model.id !== "auto")
+    || IMAGE_AI_MODELS.find(model => model.id !== "auto")
+    || IMAGE_AI_MODELS[0];
+  const assistantTextModel = TEXT_AI_MODELS.find(model => model.id === assistantTextModelId && model.id !== "auto")
+    || TEXT_AI_MODELS.find(model => model.id !== "auto")
+    || TEXT_AI_MODELS[0];
+  const assistantModelOptions = assistantModelTab === "image"
+    ? IMAGE_AI_MODELS.filter(model => model.id !== "auto")
+    : assistantModelTab === "text"
+      ? TEXT_AI_MODELS.filter(model => model.id !== "auto")
+      : [];
+  const assistantModel = assistantModelTab === "auto"
+    ? ASSISTANT_AUTO_MODEL
+    : assistantModelTab === "image"
+      ? assistantImageModel
+      : assistantTextModel;
   const activeSkillContext = activeSkill ? buildSkillPromptContext(activeSkill) : "";
 
   const handleReferenceSelectionToggle = useCallback((referenceId: string) => {
@@ -7350,22 +7339,6 @@ function CanvasAssistantPanel({
     }]);
     setSelectedReferenceIds([]);
   }, [onMergeReferences, referencedAssets, selectedReferenceIds]);
-
-  const handleReferenceImageActivate = useCallback((item: ReferenceImageResult) => {
-    window.dispatchEvent(new CustomEvent("canvas-reference-image-add", {
-      detail: { id: item.id, title: item.title, src: item.src, source: item.source },
-    }));
-  }, []);
-
-  const handleReferenceImageDragStart = useCallback((event: React.DragEvent, item: ReferenceImageResult) => {
-    event.dataTransfer.setData(CANVAS_REFERENCE_IMAGE_DND_TYPE, JSON.stringify({
-      id: item.id,
-      title: item.title,
-      src: item.src,
-      source: item.source,
-    }));
-    event.dataTransfer.effectAllowed = "copy";
-  }, []);
 
   const insertComposerToken = useCallback((createTokenSegment: () => AssistantComposerSegment) => {
     let nextFocusSegmentId: string | null = null;
@@ -7601,7 +7574,6 @@ function CanvasAssistantPanel({
       style: message.imageBackup?.style || "聊天气泡",
       referencesEnabled: false,
       generationId,
-      targetFrameId,
     };
     setRegeneratingMessageId(message.id);
     dispatchImageGenerationTask({ ...imagePayload, status: "pending" }, projectId);
@@ -7766,14 +7738,12 @@ function CanvasAssistantPanel({
       ...submittedAnnotations.map((ann, index) => ({ src: ann.src, title: `注释 ${index + 1} · ${ann.title}` })),
     ];
     try {
-      const isAutoAssistantModel =
-        (assistantModelTab === "image" && assistantImageModel.id === "auto") ||
-        (assistantModelTab === "text" && assistantTextModel.id === "auto");
+      const isAutoAssistantModel = assistantModelTab === "auto";
 
       const decision = isAutoAssistantModel || assistantModelTab === "image"
         ? await routeCreativeIntent({
             module: "right-ai-assistant",
-            model: assistantTextModel.id === "auto" ? "auto" : assistantTextModel.id,
+            model: isAutoAssistantModel ? "auto" : assistantTextModel.id,
             prompt: routedPrompt,
             referencedAssets: assistantImages,
             recentMessages: messages.slice(-8).map(message => ({ role: message.role, content: message.content })),
@@ -7856,7 +7826,6 @@ function CanvasAssistantPanel({
           referencedAssets: assistantImages,
           generationId,
           sourceBackgroundSrc: targetReference?.src || assistantImages[0]?.src,
-          targetFrameId,
         };
         dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
         const result = shouldEditTargetReference && targetReference
@@ -7877,7 +7846,7 @@ function CanvasAssistantPanel({
       } else {
         const result = await callLLM({
           module: "right-ai-assistant-chat",
-          model: assistantTextModel.id === "auto" ? "auto" : assistantTextModel.id,
+          model: isAutoAssistantModel ? "auto" : assistantTextModel.id,
           images: assistantImages,
           messages: [
             ...messages.slice(-8).map(message => ({ role: message.role, content: message.content })),
@@ -7971,10 +7940,10 @@ function CanvasAssistantPanel({
                     <div
                       className="rounded-[var(--radius-lg-design)] p-4"
                       style={{
-                        background: isUser ? userBubbleBg : assistantBubbleBg,
-                        border: `1px solid ${isUser ? userBubbleBorder : assistantBubbleBorder}`,
-                        color: isUser ? userBubbleText : assistantBubbleText,
-                        boxShadow: isUser ? "0 10px 28px rgba(182,227,46,0.18)" : "0 10px 28px rgba(0,0,0,0.24)",
+                        background: isUser ? "#C5ED47" : chipBg,
+                        border: `1px solid ${isUser ? "rgba(197,237,71,0.48)" : border}`,
+                        color: isUser ? "#000" : text,
+                        boxShadow: isUser ? "0 10px 24px rgba(197,237,71,0.16)" : "none",
                       }}
                       onDoubleClick={backup ? () => handleImageBackupDoubleClick(backup) : undefined}
                       title={backup ? "双击可在画布中定位或找回这张图片" : undefined}
@@ -7993,12 +7962,12 @@ function CanvasAssistantPanel({
                               cursor: "zoom-in",
                             }}
                           />
-                          <p className="type-caption leading-5" style={{ color: assistantBubbleText, fontWeight: 600 }}>{backup.title}</p>
-                          <p className="type-caption leading-5" style={{ color: "oklch(0.68 0.01 270)" }}>双击气泡可定位或找回图片</p>
+                          <p className="type-caption leading-5" style={{ color: text, fontWeight: 600 }}>{backup.title}</p>
+                          <p className="type-caption leading-5" style={{ color: sub }}>双击气泡可定位或找回图片</p>
                         </div>
                       ) : (
                         <div className="flex flex-col gap-3">
-                          <p className="type-caption leading-6 whitespace-pre-wrap" style={{ color: isUser ? userBubbleText : assistantBubbleText }}>{message.content}</p>
+                          <p className="type-caption leading-6 whitespace-pre-wrap" style={{ color: isUser ? "#000" : text }}>{message.content}</p>
                           {message.referenceOptions && message.referenceOptions.length > 0 && (
                             <div className="flex flex-col gap-3">
                               <div className="grid grid-cols-2 gap-2">
@@ -8008,21 +7977,13 @@ function CanvasAssistantPanel({
                                     <button
                                       key={item.id}
                                       type="button"
-                                      draggable
                                       className="overflow-hidden rounded-[var(--radius-md-design)] text-left transition-all"
                                       style={{
-                                        border: `1px solid ${active ? "oklch(0.65 0.22 290 / 0.58)" : border}`,
-                                        background: active ? "oklch(0.65 0.22 290 / 0.12)" : "transparent",
-                                        boxShadow: active ? "0 0 0 2px oklch(0.65 0.22 290 / 0.14)" : "none",
-                                        cursor: "grab",
+                                        border: `1px solid ${active ? "rgba(197,237,71,0.58)" : border}`,
+                                        background: active ? "rgba(197,237,71,0.12)" : "transparent",
+                                        boxShadow: active ? "0 0 0 2px rgba(197,237,71,0.14)" : "none",
                                       }}
                                       onClick={() => handleReferenceSelectionToggle(item.id)}
-                                      onDoubleClick={(event) => {
-                                        event.preventDefault();
-                                        event.stopPropagation();
-                                        handleReferenceImageActivate(item);
-                                      }}
-                                      onDragStart={(event) => handleReferenceImageDragStart(event, item)}
                                     >
                                       <img
                                         src={item.src}
@@ -8046,12 +8007,12 @@ function CanvasAssistantPanel({
                                 <button
                                   type="button"
                                   className="rounded-[var(--radius-md-design)] px-3 py-1.5 type-caption transition-opacity hover:opacity-85"
-                                  style={purpleOutlineButtonStyle(selectedReferenceIds.length === 0)}
+                                  style={{
+                                    background: "#C5ED47",
+                                    color: "#000",
+                                    opacity: selectedReferenceIds.length > 0 ? 1 : 0.5,
+                                  }}
                                   disabled={selectedReferenceIds.length === 0}
-                                  onMouseEnter={(event) => setPurpleButtonState(event.currentTarget, "hover")}
-                                  onMouseDown={(event) => setPurpleButtonState(event.currentTarget, "active")}
-                                  onMouseUp={(event) => setPurpleButtonState(event.currentTarget, "hover")}
-                                  onMouseLeave={(event) => setPurpleButtonState(event.currentTarget, "base")}
                                   onClick={() => handleReferenceSelectionApply(message)}
                                 >
                                   确认参考图
@@ -8068,16 +8029,12 @@ function CanvasAssistantPanel({
                           <button
                             className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-opacity hover:opacity-75 disabled:opacity-50"
                             style={{
-                              ...purpleOutlineButtonStyle(Boolean(regeneratingMessageId)),
-                              color: regeneratingMessageId === message.id ? purpleButtonColor : purpleButtonColor,
+                              color: regeneratingMessageId === message.id ? "#C5ED47" : sub,
+                              background: "transparent",
                             }}
                             title="再次生成"
                             aria-label="再次生成"
                             disabled={Boolean(regeneratingMessageId)}
-                            onMouseEnter={(event) => setPurpleButtonState(event.currentTarget, "hover")}
-                            onMouseDown={(event) => setPurpleButtonState(event.currentTarget, "active")}
-                            onMouseUp={(event) => setPurpleButtonState(event.currentTarget, "hover")}
-                            onMouseLeave={(event) => setPurpleButtonState(event.currentTarget, "base")}
                             onClick={(event) => {
                               event.stopPropagation();
                               void handleRegenerateImageFromMessage(message);
@@ -8085,17 +8042,7 @@ function CanvasAssistantPanel({
                           >
                             {regeneratingMessageId === message.id ? <RefreshCw size={13} className="animate-spin" /> : <Repeat2 size={13} />}
                           </button>
-                          <button
-                            className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-opacity hover:opacity-75"
-                            style={purpleOutlineButtonStyle()}
-                            title="复制"
-                            aria-label="复制"
-                            onMouseEnter={(event) => setPurpleButtonState(event.currentTarget, "hover")}
-                            onMouseDown={(event) => setPurpleButtonState(event.currentTarget, "active")}
-                            onMouseUp={(event) => setPurpleButtonState(event.currentTarget, "hover")}
-                            onMouseLeave={(event) => setPurpleButtonState(event.currentTarget, "base")}
-                            onClick={() => { navigator.clipboard?.writeText(message.content); toast("已复制对话内容"); }}
-                          >
+                          <button className="h-7 w-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-opacity hover:opacity-75" style={{ color: sub, background: "transparent" }} title="复制" aria-label="复制" onClick={() => { navigator.clipboard?.writeText(message.content); toast("已复制对话内容"); }}>
                             <Copy size={13} />
                           </button>
                         </>
@@ -8107,7 +8054,7 @@ function CanvasAssistantPanel({
               })}
               {isSubmitting && (
                 <div className="flex justify-start">
-                  <div className="max-w-[86%] rounded-[var(--radius-lg-design)] px-4 py-3" style={{ background: assistantBubbleBg, border: `1px solid ${assistantBubbleBorder}`, color: assistantBubbleText, boxShadow: "0 10px 28px rgba(0,0,0,0.24)" }}>
+                  <div className="max-w-[86%] rounded-[var(--radius-lg-design)] px-4 py-3" style={{ background: chipBg, border: `1px solid ${border}`, color: sub }}>
               <span className="type-caption">AI 正在回复中...</span>
                   </div>
                 </div>
@@ -8264,7 +8211,9 @@ function CanvasAssistantPanel({
                     title="选择模型"
                     aria-label="选择模型"
                   >
-                    <span>{assistantModelTab === "image" ? "生图" : "对话"} · {assistantModel.label}</span>
+                    <span>
+                      {assistantModelTab === "auto" ? "Auto" : assistantModelTab === "image" ? "生图" : "对话"} · {assistantModel.label}
+                    </span>
                     <ChevronDown size={12} style={{ opacity: 0.6, transform: agentMenuOpen ? "rotate(180deg)" : "none", transition: "transform 0.16s ease" }} />
                   </button>
                   {agentMenuOpen && (
@@ -8278,8 +8227,9 @@ function CanvasAssistantPanel({
                         zIndex: 130,
                       }}
                     >
-                      <div className="grid grid-cols-2 gap-1 p-1.5" style={{ borderBottom: `1px solid ${border}` }}>
+                      <div className="grid grid-cols-3 gap-1 p-1.5" style={{ borderBottom: `1px solid ${border}` }}>
                         {([
+                          { id: "auto" as const, label: "Auto" },
                           { id: "image" as const, label: "生图" },
                           { id: "text" as const, label: "对话" },
                         ]).map(tab => (
@@ -8298,37 +8248,47 @@ function CanvasAssistantPanel({
                           </button>
                         ))}
                       </div>
-                      {assistantModelOptions.map(model => (
-                        <button
-                          key={model.id}
-                          type="button"
-                          className="flex w-full items-center justify-between px-3 py-2.5 text-left type-caption transition-colors"
-                          style={{ color: text, background: assistantModel.id === model.id ? "rgba(197,237,71,0.12)" : "transparent" }}
-                          onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
-                          onMouseLeave={e => (e.currentTarget.style.background = assistantModel.id === model.id ? "rgba(197,237,71,0.12)" : "transparent")}
-                          onClick={() => {
-                            if (assistantModelTab === "image") {
-                              setAssistantImageModelId(model.id);
-                            } else {
-                              setAssistantTextModelId(model.id);
-                            }
-                            setAgentMenuOpen(false);
-                          }}
-                        >
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-4 h-4 rounded-[var(--radius-pill)]" style={{ background: model.color }} />
-                            <div>
-                              <p className="type-caption" style={{ textTransform: "none", letterSpacing: "0.02em" }}>{model.label}</p>
-                              {(() => { const description = (model as unknown as { description?: unknown }).description; return typeof description === "string" && description ? (
-                                <p className="truncate" style={{ color: sub, fontSize: 10, letterSpacing: 0, maxWidth: 150 }}>{description}</p>
-                              ) : null; })()}
-                            </div>
+                      {assistantModelTab === "auto" ? (
+                        <div className="flex items-start gap-2.5 px-3 py-3">
+                          <div className="mt-0.5 h-4 w-4 rounded-[var(--radius-pill)]" style={{ background: ASSISTANT_AUTO_MODEL.color }} />
+                          <div className="min-w-0">
+                            <p className="type-caption" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>Auto</p>
+                            <p className="mt-1 leading-4" style={{ color: sub, fontSize: 10, letterSpacing: 0 }}>
+                              根据用户输入自动判断使用对话模型或图片生成模型。
+                            </p>
                           </div>
-                          {assistantModel.id === model.id && (
-                            <Check size={13} style={{ color: "#C5ED47" }} />
-                          )}
-                        </button>
-                      ))}
+                        </div>
+                      ) : assistantModelOptions.map(model => (
+                          <button
+                            key={model.id}
+                            type="button"
+                            className="flex w-full items-center justify-between px-3 py-2.5 text-left type-caption transition-colors"
+                            style={{ color: text, background: assistantModel.id === model.id ? "rgba(197,237,71,0.12)" : "transparent" }}
+                            onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+                            onMouseLeave={e => (e.currentTarget.style.background = assistantModel.id === model.id ? "rgba(197,237,71,0.12)" : "transparent")}
+                            onClick={() => {
+                              if (assistantModelTab === "image") {
+                                setAssistantImageModelId(model.id);
+                              } else {
+                                setAssistantTextModelId(model.id);
+                              }
+                              setAgentMenuOpen(false);
+                            }}
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-4 h-4 rounded-[var(--radius-pill)]" style={{ background: model.color }} />
+                              <div>
+                                <p className="type-caption" style={{ textTransform: "none", letterSpacing: "0.02em" }}>{model.label}</p>
+                                {"description" in model && model.description ? (
+                                  <p className="truncate" style={{ color: sub, fontSize: 10, letterSpacing: 0, maxWidth: 150 }}>{model.description}</p>
+                                ) : null}
+                              </div>
+                            </div>
+                            {assistantModel.id === model.id && (
+                              <Check size={13} style={{ color: "#C5ED47" }} />
+                            )}
+                          </button>
+                        ))}
                     </div>
                   )}
                 </div>
@@ -10010,21 +9970,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         ? screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
         : { x: 120, y: 80 };
       const size = detail.displaySize || getImageDisplaySizeForRatio(detail.ratio);
-      const targetFrame = detail.targetFrameId
-        ? nodesRef.current.find(node => node.id === detail.targetFrameId && node.type === "canvasFrame")
-        : null;
-      const targetFrameSize = targetFrame ? getCanvasNodeSize(targetFrame) : null;
-      const anchor = detail.placement || (targetFrame && targetFrameSize
-        ? {
-            x: targetFrame.position.x + Math.max(16, (targetFrameSize.width - size.w) / 2),
-            y: targetFrame.position.y + Math.max(16, (targetFrameSize.height - size.h) / 2),
-          }
-        : {
-            x: center.x - size.w / 2,
-            y: center.y - size.h / 2,
-          });
-      const embeddedData = targetFrame ? { embeddedInFrame: targetFrame.id } : {};
-      const embeddedZIndex = targetFrame ? Math.max((targetFrame.zIndex || 0) + 1000, 1000) : undefined;
+      const anchor = detail.placement || {
+        x: center.x - size.w / 2,
+        y: center.y - size.h / 2,
+      };
       if (detail.status === "pending") {
         setNodes(nds => {
           pushHistory(nds, edgesRef.current);
@@ -10038,10 +9987,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 y: anchor.y,
               },
               style: { width: size.w, height: size.h },
-              zIndex: embeddedZIndex,
               data: {
                 id,
-                ...embeddedData,
                 assetId: "default",
                 generationId,
                 generationIndex: index,
@@ -10106,7 +10053,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 title: detail.titleBase ? `${detail.titleBase}${images.length > 1 ? ` ${index + 1}` : ""}` : `生成图像 · ${detail.style}${images.length > 1 ? ` ${index + 1}` : ""}`,
                 assetType: "AI 生成",
                 tags: [detail.model, detail.ratio, `${images.length}张`, detail.referencesEnabled ? "参考画布" : "无参考"],
-                ...embeddedData,
                 imgW: size.w,
                 imgH: size.h,
                 sourceBackgroundSrc: undefined,
@@ -10124,10 +10070,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               x: anchor.x + index * (size.w + 24),
               y: anchor.y,
             },
-            zIndex: embeddedZIndex,
             data: {
               id,
-              ...embeddedData,
               assetId: "default",
               generationId,
               generationIndex: index,
@@ -10195,35 +10139,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const selectedVisualNodes = nds.filter(node => selectedVisualIds.has(node.id));
         if (selectedVisualNodes.length === 0) return nds;
         const topZ = Math.max(0, ...nds.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
-        const frameIds = new Set(selectedVisualNodes.filter(node => node.type === "canvasFrame").map(node => node.id));
-        const embeddedAssetIds = new Set(
-          nds
-            .filter(node => node.type === "asset" && frameIds.has((node.data as Record<string, unknown>).embeddedInFrame as string))
-            .map(node => node.id)
-        );
-        const raiseIds = new Set(Array.from(selectedVisualIds).concat(Array.from(embeddedAssetIds)));
-        const selectedVisualOrder = Array.from(raiseIds).join(",");
-        const currentTopOrder = nds.slice(-raiseIds.size).map(node => node.id).join(",");
-        if (selectedVisualOrder === currentTopOrder && nds.filter(node => raiseIds.has(node.id)).every(node => (node.zIndex || 0) >= topZ - 1)) return nds;
-        const raisedNodes = nds
-          .filter(node => raiseIds.has(node.id))
-          .sort((a, b) => {
-            const aEmbedded = a.type === "asset" && frameIds.has((a.data as Record<string, unknown>).embeddedInFrame as string);
-            const bEmbedded = b.type === "asset" && frameIds.has((b.data as Record<string, unknown>).embeddedInFrame as string);
-            if (aEmbedded === bEmbedded) return 0;
-            return aEmbedded ? 1 : -1;
-          })
-          .map(node => {
-            const data = node.data as Record<string, unknown>;
-            const parentFrameId = data.embeddedInFrame as string | undefined;
-            return {
-              ...node,
-              zIndex: parentFrameId && frameIds.has(parentFrameId) ? topZ + 1000 : topZ,
-            };
-          });
+        const raisedVisualNodes = selectedVisualNodes.map(node => ({ ...node, zIndex: topZ }));
+        const selectedVisualOrder = selectedVisualNodes.map(node => node.id).join(",");
+        const currentTopOrder = nds.slice(-selectedVisualNodes.length).map(node => node.id).join(",");
+        if (selectedVisualOrder === currentTopOrder && selectedVisualNodes.every(node => (node.zIndex || 0) >= topZ - 1)) return nds;
         return [
           ...nds.filter(node => !selectedVisualIds.has(node.id)),
-          ...raisedNodes,
+          ...raisedVisualNodes,
         ];
       });
     }
@@ -10743,81 +10665,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setRenameValue(groupNames[groupId] || "");
   }, [groupNames]);
 
-  const createReferenceImageSourceNode = useCallback((item: { id?: string; title?: string; src: string; source?: string }, index: number, origin: { x: number; y: number }) => new Promise<Node>((resolve, reject) => {
-    const img = new window.Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      const id = `reference-image-${Date.now()}-${index}`;
-      const { width: nodeWidth, height: nodeHeight } = getImportedImageDisplaySize(img.naturalWidth || img.width, img.naturalHeight || img.height);
-      resolve({
-        id,
-        type: "asset",
-        position: {
-          x: origin.x - nodeWidth / 2 + index * 32,
-          y: origin.y - nodeHeight / 2 + index * 32,
-        },
-        style: { width: nodeWidth, height: nodeHeight },
-        data: {
-          id,
-          assetId: "default",
-          localSrc: item.src,
-          title: item.title || "参考图片",
-          assetType: "图片",
-          tags: item.source ? [item.source, "参考图"] : DEFAULT_ASSET_TAGS,
-          imgW: nodeWidth,
-          imgH: nodeHeight,
-        },
-      });
-    };
-    img.onerror = () => reject(new Error("参考图片加载失败"));
-    img.src = item.src;
-  }), []);
-
-  const addReferenceImageToCanvas = useCallback(async (
-    item: { id?: string; title?: string; src: string; source?: string },
-    origin: { x: number; y: number },
-    message = "参考图已显示在画布中"
-  ) => {
-    try {
-      const node = await createReferenceImageSourceNode(item, 0, origin);
-      const nodeSize = getCanvasNodeSize(node);
-      const nodeCenter = {
-        x: node.position.x + nodeSize.width / 2,
-        y: node.position.y + nodeSize.height / 2,
-      };
-      const targetFrame = nodesRef.current
-        .filter(n => n.type === "canvasFrame")
-        .sort((a, b) => (b.zIndex || 0) - (a.zIndex || 0))
-        .find(frame => {
-          const frameSize = getCanvasNodeSize(frame);
-          return (
-            nodeCenter.x >= frame.position.x &&
-            nodeCenter.x <= frame.position.x + frameSize.width &&
-            nodeCenter.y >= frame.position.y &&
-            nodeCenter.y <= frame.position.y + frameSize.height
-          );
-        });
-      const embeddedData = targetFrame ? { embeddedInFrame: targetFrame.id } : {};
-      pushHistory();
-      setNodes(nds => nds.map(existing => ({ ...existing, selected: false })).concat({
-        ...node,
-        selected: true,
-        data: { ...(node.data as Record<string, unknown>), ...embeddedData },
-      }));
-      setSelectedNodeIds([node.id]);
-      toast(message, { description: item.title || "参考图片" });
-    } catch (error) {
-      const description = error instanceof Error ? error.message : "请重新选择参考图片";
-      toast("参考图加入失败", { description });
-    }
-  }, [createReferenceImageSourceNode, pushHistory, setNodes]);
-
   // ── Local file drag-drop handlers ──
   const handleCanvasDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const isReferenceDrag = e.dataTransfer.types.includes(CANVAS_REFERENCE_IMAGE_DND_TYPE);
-    if (!e.dataTransfer.types.includes("Files") && !isReferenceDrag) return;
+    // Only handle file drags from OS (not internal ReactFlow node drags)
+    if (!e.dataTransfer.types.includes("Files")) return;
     dragCounterRef.current += 1;
     setIsDragOver(true);
   }, []);
@@ -10825,8 +10678,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const handleCanvasDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const isReferenceDrag = e.dataTransfer.types.includes(CANVAS_REFERENCE_IMAGE_DND_TYPE);
-    if (!e.dataTransfer.types.includes("Files") && !isReferenceDrag) return;
+    if (!e.dataTransfer.types.includes("Files")) return;
     e.dataTransfer.dropEffect = "copy";
     const rect = containerRef.current?.getBoundingClientRect();
     if (rect) setDragPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
@@ -10835,8 +10687,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const handleCanvasDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const isReferenceDrag = e.dataTransfer.types.includes(CANVAS_REFERENCE_IMAGE_DND_TYPE);
-    if (!e.dataTransfer.types.includes("Files") && !isReferenceDrag) return;
+    if (!e.dataTransfer.types.includes("Files")) return;
     dragCounterRef.current -= 1;
     if (dragCounterRef.current <= 0) {
       dragCounterRef.current = 0;
@@ -10851,19 +10702,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     dragCounterRef.current = 0;
     setIsDragOver(false);
     setDragPos(null);
-    const referencePayload = e.dataTransfer.getData(CANVAS_REFERENCE_IMAGE_DND_TYPE);
-    if (referencePayload) {
-      try {
-        const item = JSON.parse(referencePayload) as { id?: string; title?: string; src?: string; source?: string };
-        if (!item.src) throw new Error("missing src");
-        const dropPos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-        void addReferenceImageToCanvas({ ...item, src: item.src }, dropPos, "参考图已加入画布");
-        return;
-      } catch {
-        toast("参考图拖入失败", { description: "请重新拖拽参考图片" });
-        return;
-      }
-    }
     const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith("image/"));
     if (files.length === 0) { toast("请拖入图片文件（JPG / PNG / GIF / WebP）"); return; }
     const rect = containerRef.current?.getBoundingClientRect();
@@ -10902,7 +10740,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       reader.readAsDataURL(file);
     });
     toast(`已导入 ${files.length} 张图片`, { description: "本地图片已成功添加到画布" });
-  }, [addReferenceImageToCanvas, pushHistory, screenToFlowPosition, setNodes]);
+  }, [pushHistory, screenToFlowPosition, setNodes]);
 
   const createClipboardImageNode = useCallback((blob: Blob, index: number, origin: { x: number; y: number }) => new Promise<Node>((resolve, reject) => {
     const reader = new FileReader();
@@ -11039,21 +10877,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     }
     return pasteClipboardImageSources(sources);
   }, [pasteClipboardImages, pasteClipboardImageSources]);
-
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ id?: string; title?: string; src?: string; source?: string }>).detail;
-      if (!detail?.src) return;
-      const rect = containerRef.current?.getBoundingClientRect();
-      const origin = screenToFlowPosition({
-        x: (rect?.left || 0) + (rect?.width || window.innerWidth) / 2,
-        y: (rect?.top || 0) + (rect?.height || window.innerHeight) / 2,
-      });
-      void addReferenceImageToCanvas({ ...detail, src: detail.src }, origin);
-    };
-    window.addEventListener("canvas-reference-image-add", handler);
-    return () => window.removeEventListener("canvas-reference-image-add", handler);
-  }, [addReferenceImageToCanvas, screenToFlowPosition]);
 
   const pasteClipboardFromNavigator = useCallback(async () => {
     if (!navigator.clipboard?.read) return false;
@@ -11317,29 +11140,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     toast(`已复制 ${count} 个图片节点`, { description: "原图保持不动，新副本在拖拽落点" });
   }, [setNodes]);
 
-  const syncEmbeddedAssetsWithFrameDrag = useCallback((frameNode: Node) => {
-    if (frameNode.type !== "canvasFrame") return;
-    const dragStart = dragStartPositionRef.current.get(frameNode.id);
-    if (!dragStart) return;
-    const dx = frameNode.position.x - dragStart.x;
-    const dy = frameNode.position.y - dragStart.y;
-    setNodes(nds => nds.map(n => {
-      if (n.id === frameNode.id || n.type !== "asset") return n;
-      const data = n.data as Record<string, unknown>;
-      if (data.embeddedInFrame !== frameNode.id) return n;
-      const start = dragStartPositionRef.current.get(n.id);
-      if (!start) return n;
-      return {
-        ...n,
-        position: { x: start.x + dx, y: start.y + dy },
-      };
-    }));
-  }, [setNodes]);
-
-  const handleNodeDrag = useCallback((_event: MouseEvent, node: Node) => {
-    syncEmbeddedAssetsWithFrameDrag(node);
-  }, [syncEmbeddedAssetsWithFrameDrag]);
-
   // ── 普通拖拽结束：检测图片是否进入画布帧并嵌入/脱离 ──
   const handleNormalDragStop = useCallback((_event: MouseEvent, node: Node) => {
     isDraggingRef.current = false;
@@ -11348,7 +11148,23 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const draggedNode = allNodes.find(n => n.id === node.id);
     if (!draggedNode) return;
     if (draggedNode.type === "canvasFrame") {
-      syncEmbeddedAssetsWithFrameDrag(draggedNode);
+      const dragStart = dragStartPositionRef.current.get(draggedNode.id);
+      if (!dragStart) return;
+      const dx = draggedNode.position.x - dragStart.x;
+      const dy = draggedNode.position.y - dragStart.y;
+      if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return;
+      setNodes(nds => nds.map(n => {
+        if (n.type !== "asset") return n;
+        const data = n.data as Record<string, unknown>;
+        if (data.embeddedInFrame !== draggedNode.id) return n;
+        const start = dragStartPositionRef.current.get(n.id);
+        return {
+          ...n,
+          position: start
+            ? { x: start.x + dx, y: start.y + dy }
+            : { x: n.position.x + dx, y: n.position.y + dy },
+        };
+      }));
       return;
     }
     if (draggedNode.type !== "asset") return;
@@ -11379,7 +11195,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     } else if (!frame && currentFrameId) {
       toast("图片已脱离画板", { description: "图片恢复为自由节点" });
     }
-  }, [checkAndEmbedIntoFrame, nodesRef, setNodes, syncEmbeddedAssetsWithFrameDrag]);
+  }, [checkAndEmbedIntoFrame, nodesRef, setNodes]);
 
   // ── Handle group actions from context menu ──
   const handleGroupAction = useCallback((action: string) => {
@@ -12378,13 +12194,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         top: selectedImageBounds.centerY * viewport.zoom + viewport.y,
       }
     : { left: 31, top: 0 };
-  const activeGenerationFrameId = useMemo(() => {
-    const selectedNodes = nodes.filter(node => selectedNodeIds.includes(node.id));
-    const selectedFrame = selectedNodes.find(node => node.type === "canvasFrame");
-    if (selectedFrame) return selectedFrame.id;
-    const embeddedAsset = selectedNodes.find(node => node.type === "asset" && (node.data as Record<string, unknown>).embeddedInFrame);
-    return embeddedAsset ? ((embeddedAsset.data as Record<string, unknown>).embeddedInFrame as string) : undefined;
-  }, [nodes, selectedNodeIds]);
   const displayNodes = nodes.map(n => {
     const nodeData = n.data as Record<string, unknown>;
     const embeddedFrameId = n.type === "asset" ? nodeData.embeddedInFrame as string | undefined : undefined;
@@ -12569,7 +12378,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         zoomOnScroll={false}
         panOnScroll={!isCanvasLocked}
         onNodeDragStart={handleAltDragStart as any}
-        onNodeDrag={handleNodeDrag as any}
         onNodeDragStop={(event, node, nodes) => {
           handleAltDragStop(event as unknown as MouseEvent, node);
           handleNormalDragStop(event as unknown as MouseEvent, node);
@@ -12685,7 +12493,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         onMergeReferences={mergeReferencedAssets}
         selectedCount={selectedNodeIds.length}
         helpPromptNonce={helpPromptNonce}
-        targetFrameId={activeGenerationFrameId}
       />
 
       {selectedVisualNodeIds.length === 1 && !multiVisualSelectionActive && (
