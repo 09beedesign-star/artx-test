@@ -6636,7 +6636,7 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
     { id: "move",         label: "移动",       icon: <MousePointer2 size={17} /> },
     { id: "annotate",     label: "注释",       icon: <MessageCircle size={17} /> },
     { id: "upload",       label: "上传图片",   icon: <ImagePlus size={17} /> },
-    { id: "smart-canvas", label: "创建画布",   icon: <CreateCanvasIcon size={17} /> },
+    { id: "smart-canvas", label: "创建画板",   icon: <CreateCanvasIcon size={17} /> },
     { id: "shape",        label: "几何形",     icon: <Triangle size={17} /> },
     { id: "draw",         label: "铅笔",       icon: <Pencil size={17} /> },
     { id: "text",         label: "文字",       icon: <Type size={17} /> },
@@ -7161,12 +7161,12 @@ function CanvasAssistantPanel({
   const collapsedPeekWidth = 112;
   const handleCreateCanvasProject = () => {
     const project = createWorkspaceHistoryProject();
-    toast("已新建画布", { description: project.title });
+    toast("已新建画板", { description: project.title });
     navigate(`/project/${project.id}`);
   };
 
   const actionButtons = [
-    { label: "新建画布", icon: <PlusSquare size={16} />, onClick: handleCreateCanvasProject },
+    { label: "新建画板", icon: <PlusSquare size={16} />, onClick: handleCreateCanvasProject },
     { label: "分享对话", icon: <Share2 size={16} />, onClick: () => toast("分享对话", { description: "分享能力准备中" }) },
     { label: collapsed ? "展开对话框" : "收起对话框", icon: <ChevronLeft size={16} style={{ transform: collapsed ? "none" : "rotate(180deg)", transition: "transform 0.2s ease" }} />, onClick: onToggleCollapsed },
   ];
@@ -9975,13 +9975,27 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const selectedVisualNodes = nds.filter(node => selectedVisualIds.has(node.id));
         if (selectedVisualNodes.length === 0) return nds;
         const topZ = Math.max(0, ...nds.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
-        const raisedVisualNodes = selectedVisualNodes.map(node => ({ ...node, zIndex: topZ }));
-        const selectedVisualOrder = selectedVisualNodes.map(node => node.id).join(",");
-        const currentTopOrder = nds.slice(-selectedVisualNodes.length).map(node => node.id).join(",");
-        if (selectedVisualOrder === currentTopOrder && selectedVisualNodes.every(node => (node.zIndex || 0) >= topZ - 1)) return nds;
+        const frameIds = new Set(selectedVisualNodes.filter(node => node.type === "canvasFrame").map(node => node.id));
+        const embeddedAssetIds = new Set(
+          nds
+            .filter(node => node.type === "asset" && frameIds.has((node.data as Record<string, unknown>).embeddedInFrame as string))
+            .map(node => node.id)
+        );
+        const raiseIds = new Set([...selectedVisualIds, ...embeddedAssetIds]);
+        const selectedVisualOrder = Array.from(raiseIds).join(",");
+        const currentTopOrder = nds.slice(-raiseIds.size).map(node => node.id).join(",");
+        if (selectedVisualOrder === currentTopOrder && nds.filter(node => raiseIds.has(node.id)).every(node => (node.zIndex || 0) >= topZ - 1)) return nds;
+        const raisedNodes = nds.filter(node => raiseIds.has(node.id)).map(node => {
+          const data = node.data as Record<string, unknown>;
+          const parentFrameId = data.embeddedInFrame as string | undefined;
+          return {
+            ...node,
+            zIndex: parentFrameId && frameIds.has(parentFrameId) ? topZ + 1 : topZ,
+          };
+        });
         return [
-          ...nds.filter(node => !selectedVisualIds.has(node.id)),
-          ...raisedVisualNodes,
+          ...nds.filter(node => !raiseIds.has(node.id)),
+          ...raisedNodes,
         ];
       });
     }
@@ -10443,7 +10457,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setCanvasNameInput("");
     setCanvasSocialPresetId("");
     // 保持当前工具为「创建画布」，用户可继续拖拽创建新画布
-    toast("画布已创建，可继续拖拽创建", { description: `${title} · ${w} × ${h} px` });
+    toast("画板已创建，可继续拖拽创建", { description: `${title} · ${w} × ${h} px` });
   }, [canvasBgColor, canvasInputH, canvasInputW, canvasNameInput, canvasSocialPresetId, pendingRect, pushHistory, screenToFlowPosition, setNodes]);
 
   const handleCreateCanvasCancel = useCallback(() => {
@@ -10881,30 +10895,34 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   }, [nodes, nodesRef, pushHistory, selectedNodeIds, setNodes]);
 
   // 拖拽结束时：若是 Alt 拖拽，将幽灵节点升级为正式原图（留在原位），被拖动的节点保持在落点成为副本
-  // ── 检测图片节点是否拖入画布帧，若是则嵌入 ──
-  const checkAndEmbedIntoFrame = useCallback((draggedNode: Node, allNodes: Node[]) => {
-    if (draggedNode.type !== "asset") return null;
-    const nodePos = draggedNode.position;
-    // 找到鼠标中心点所在的 canvasFrame 节点
-    const nodeData = draggedNode.data as Record<string, unknown>;
-    const nW = (nodeData.imgW as number) || 200;
-    const nH = (nodeData.imgH as number) || 200;
-    const centerX = nodePos.x + nW / 2;
-    const centerY = nodePos.y + nH / 2;
-    const frame = allNodes.find(n => {
-      if (n.type !== "canvasFrame") return false;
-      const fd = n.data as Record<string, unknown>;
-      const fw = (fd.width as number) || 800;
-      const fh = (fd.height as number) || 600;
+  // ── 检测鼠标落点是否进入画板，鼠标在画板内即嵌入，拖出即脱离 ──
+  const findFrameAtPoint = useCallback((point: { x: number; y: number }, allNodes: Node[]) => {
+    const frames = allNodes
+      .filter(n => n.type === "canvasFrame")
+      .sort((a, b) => (b.zIndex || 0) - (a.zIndex || 0));
+    return frames.find(frame => {
+      const fd = frame.data as Record<string, unknown>;
+      const fw = (fd.width as number) || Number(frame.style?.width) || 800;
+      const fh = (fd.height as number) || Number(frame.style?.height) || 600;
       return (
-        centerX >= n.position.x &&
-        centerX <= n.position.x + fw &&
-        centerY >= n.position.y &&
-        centerY <= n.position.y + fh
+        point.x >= frame.position.x &&
+        point.x <= frame.position.x + fw &&
+        point.y >= frame.position.y &&
+        point.y <= frame.position.y + fh
       );
-    });
-    return frame || null;
+    }) || null;
   }, []);
+
+  const getDragPoint = useCallback((event: MouseEvent, fallbackNode: Node) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (rect) {
+      return screenToFlowPosition({ x: event.clientX, y: event.clientY });
+    }
+    const nodeData = fallbackNode.data as Record<string, unknown>;
+    const nW = (nodeData.imgW as number) || Number(fallbackNode.style?.width) || 200;
+    const nH = (nodeData.imgH as number) || Number(fallbackNode.style?.height) || 200;
+    return { x: fallbackNode.position.x + nW / 2, y: fallbackNode.position.y + nH / 2 };
+  }, [screenToFlowPosition]);
 
   const handleAltDragStop = useCallback((_event: MouseEvent, _node: Node) => {
     isDraggingRef.current = false;
@@ -10976,62 +10994,70 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     toast(`已复制 ${count} 个图片节点`, { description: "原图保持不动，新副本在拖拽落点" });
   }, [setNodes]);
 
-  // ── 普通拖拽结束：检测图片是否进入画布帧并嵌入/脱离 ──
-  const handleNormalDragStop = useCallback((_event: MouseEvent, node: Node) => {
+  const handleFrameDragMove = useCallback((_event: MouseEvent, node: Node) => {
+    if (node.type !== "canvasFrame") return;
+    const dragStart = dragStartPositionRef.current.get(node.id);
+    if (!dragStart) return;
+    const dx = node.position.x - dragStart.x;
+    const dy = node.position.y - dragStart.y;
+    setNodes(nds => nds.map(n => {
+      if (n.id === node.id || n.type !== "asset") return n;
+      const data = n.data as Record<string, unknown>;
+      if (data.embeddedInFrame !== node.id) return n;
+      const start = dragStartPositionRef.current.get(n.id);
+      return {
+        ...n,
+        position: start
+          ? { x: start.x + dx, y: start.y + dy }
+          : { x: n.position.x + dx, y: n.position.y + dy },
+      };
+    }));
+  }, [setNodes]);
+
+  // ── 普通拖拽结束：按鼠标落点检测图片是否进入画板并嵌入/脱离 ──
+  const handleNormalDragStop = useCallback((event: MouseEvent, node: Node) => {
     isDraggingRef.current = false;
-    // 从最新的 nodesRef 中读取当前所有节点
     const allNodes = nodesRef.current;
     const draggedNode = allNodes.find(n => n.id === node.id);
     if (!draggedNode) return;
     if (draggedNode.type === "canvasFrame") {
-      const dragStart = dragStartPositionRef.current.get(draggedNode.id);
-      if (!dragStart) return;
-      const dx = draggedNode.position.x - dragStart.x;
-      const dy = draggedNode.position.y - dragStart.y;
-      if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return;
-      setNodes(nds => nds.map(n => {
-        if (n.type !== "asset") return n;
-        const data = n.data as Record<string, unknown>;
-        if (data.embeddedInFrame !== draggedNode.id) return n;
-        const start = dragStartPositionRef.current.get(n.id);
-        return {
-          ...n,
-          position: start
-            ? { x: start.x + dx, y: start.y + dy }
-            : { x: n.position.x + dx, y: n.position.y + dy },
-        };
-      }));
+      handleFrameDragMove(event, draggedNode);
       return;
     }
     if (draggedNode.type !== "asset") return;
-    const frame = checkAndEmbedIntoFrame(draggedNode, allNodes);
+    const dropPoint = getDragPoint(event, draggedNode);
+    const frame = findFrameAtPoint(dropPoint, allNodes);
     const currentFrameId = (draggedNode.data as Record<string, unknown>).embeddedInFrame as string | undefined;
     if (!frame && !currentFrameId) return;
-    setNodes(nds => nds.map(n => {
-      if (n.id !== node.id) return n;
-      const data = n.data as Record<string, unknown>;
-      if (!frame) {
+    setNodes(nds => {
+      const topZ = Math.max(0, ...nds.map(item => typeof item.zIndex === "number" ? item.zIndex : 0)) + 1;
+      return nds.map(n => {
+        if (n.id !== node.id) return n;
+        const data = n.data as Record<string, unknown>;
+        if (!frame) {
+          return {
+            ...n,
+            zIndex: topZ,
+            data: { ...data, embeddedInFrame: undefined, frameClipInsets: undefined },
+            parentId: undefined,
+            extent: undefined,
+          };
+        }
         return {
           ...n,
-          data: { ...data, embeddedInFrame: undefined, frameClipInsets: undefined },
+          data: { ...data, embeddedInFrame: frame.id },
+          zIndex: Math.max(topZ, (frame.zIndex || 0) + 1),
           parentId: undefined,
           extent: undefined,
         };
-      }
-      return {
-        ...n,
-        data: { ...data, embeddedInFrame: frame.id },
-        zIndex: (frame.zIndex || 0) + 1,
-        parentId: undefined,
-        extent: undefined,
-      };
-    }));
+      });
+    });
     if (frame && frame.id !== currentFrameId) {
       toast("图片已放入画板", { description: "图片可在画板内自由移动" });
     } else if (!frame && currentFrameId) {
       toast("图片已脱离画板", { description: "图片恢复为自由节点" });
     }
-  }, [checkAndEmbedIntoFrame, nodesRef, setNodes]);
+  }, [findFrameAtPoint, getDragPoint, handleFrameDragMove, nodesRef, setNodes]);
 
   // ── Handle group actions from context menu ──
   const handleGroupAction = useCallback((action: string) => {
@@ -11105,9 +11131,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         selectedIds.add(target.id);
         const topZ = Math.max(0, ...nds.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
         setSelectedNodeIds(Array.from(selectedIds));
+        const embeddedAssetIds = target.type === "canvasFrame"
+          ? new Set(nds.filter(node => node.type === "asset" && (node.data as Record<string, unknown>).embeddedInFrame === target.id).map(node => node.id))
+          : new Set<string>();
         return [
-          ...nds.filter(node => node.id !== target.id).map(node => ({ ...node, selected: selectedIds.has(node.id) })),
+          ...nds
+            .filter(node => node.id !== target.id && !embeddedAssetIds.has(node.id))
+            .map(node => ({ ...node, selected: selectedIds.has(node.id) })),
           { ...target, selected: true, zIndex: topZ },
+          ...nds.filter(node => embeddedAssetIds.has(node.id)).map(node => ({ ...node, selected: selectedIds.has(node.id), zIndex: topZ + 1 })),
         ];
       });
     };
@@ -12214,6 +12246,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         zoomOnScroll={false}
         panOnScroll={!isCanvasLocked}
         onNodeDragStart={handleAltDragStart as any}
+        onNodeDrag={(event, node) => {
+          handleFrameDragMove(event as unknown as MouseEvent, node);
+        }}
         onNodeDragStop={(event, node, nodes) => {
           handleAltDragStop(event as unknown as MouseEvent, node);
           handleNormalDragStop(event as unknown as MouseEvent, node);
@@ -12716,7 +12751,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         </div>
       )}
 
-      {/* 创建画布：拖拽矩形预览 */}
+      {/* 创建画板：拖拽矩形预览 */}
       {drawingRect && (() => {
         const rx = Math.min(drawingRect.startX, drawingRect.endX);
         const ry = Math.min(drawingRect.startY, drawingRect.endY);
@@ -12807,7 +12842,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         );
       })()}
 
-      {/* 创建画布：宽高输入弹窗 */}
+      {/* 创建画板：宽高输入弹窗 */}
       {pendingRect && (() => {
         const rx = Math.min(pendingRect.startX, pendingRect.endX);
         const ry = Math.min(pendingRect.startY, pendingRect.endY);
@@ -12876,10 +12911,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             >
               {/* 内容区——可滚动 */}
               <div style={{ flex: 1, overflowY: "auto", padding: "14px 14px 0", minHeight: 0 }}>
-              <p style={{ color: text, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>设置画布</p>
+              <p style={{ color: text, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>设置画板</p>
 
               <div style={{ marginBottom: 10 }}>
-                <p style={{ color: sub, fontSize: 10, marginBottom: 4, letterSpacing: "0.04em" }}>画布名称</p>
+                <p style={{ color: sub, fontSize: 10, marginBottom: 4, letterSpacing: "0.04em" }}>画板名称</p>
                 <input
                   autoFocus
                   type="text"
