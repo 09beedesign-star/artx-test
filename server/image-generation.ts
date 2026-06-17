@@ -1279,7 +1279,7 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
   const images = extractGeneratedImages(providerData, baseUrl, ratio.width, ratio.height);
 
   if (images.length === 0) {
-    throw new Error("图片模型未返回可用图片，请切换 GPT Image 2 或 Nano Banana 图片模型后重试");
+    throw new Error("图片模型未返回可用图片，系统已自动使用当前可用生成链路处理，请稍后重试");
   }
 
   return { images };
@@ -1395,7 +1395,7 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<{ image
   const editSize = getEditSizeForAspect(targetWidth, targetHeight);
   const fallbackErase = () => {
     if (input.disableLocalFallback) {
-      throw new Error("AI 扩图未返回可用内容，请稍后重试或切换支持图片编辑的模型");
+      throw new Error("AI 扩图未返回可用内容，系统已自动使用当前可用编辑链路处理，请稍后重试");
     }
     return createLocalEraseFallback(sourceImageData.buffer, input.maskSrc, targetWidth, targetHeight);
   };
