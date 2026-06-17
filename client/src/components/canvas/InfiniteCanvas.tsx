@@ -3920,6 +3920,7 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
     : isDark ? "oklch(1 0 0 / 20%)" : "oklch(0 0 0 / 18%)";
   // 使用用户选择的背景色，默认深灰色
   const bg = (data.bgColor as string) || "#2a2a30";
+  const frameBackground = bg.startsWith("#") ? withHexAlpha(bg, 0.5) : bg;
   const labelColor = isDark ? "oklch(0.55 0.01 270)" : "oklch(0.52 0.01 270)";
   const handleColor = isDark ? "oklch(0.65 0.22 290 / 0.80)" : "oklch(0.50 0.20 290 / 0.80)";
   const handleNodeCtxMenu = useCallback((e: React.MouseEvent) => {
@@ -3941,7 +3942,9 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
     <div
       style={{
         width: w, height: h,
-        background: bg,
+background: frameBackground,
+        opacity: 1,
+        backdropFilter: "blur(2px)",
         border: `1.5px solid ${borderColor}`,
         borderRadius: 8,
         boxSizing: "border-box",
@@ -3950,6 +3953,7 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
       }}
       onContextMenu={handleNodeCtxMenu}
       onClick={handleCanvasFrameClick}
+      onDoubleClick={handleCanvasFrameClick}
     >
       {/* 左上角标题 */}
       <div
@@ -4751,6 +4755,19 @@ function getCanvasNodeBounds(node: Node): CanvasNodeBounds {
     centerX: node.position.x + size.width / 2,
     centerY: node.position.y + size.height / 2,
   };
+}
+
+function withHexAlpha(hex: string, alpha: number) {
+  const normalized = hex.trim();
+  const match = normalized.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (!match) return normalized;
+  const raw = match[1].length === 3
+    ? match[1].split("").map(char => `${char}${char}`).join("")
+    : match[1];
+  const r = parseInt(raw.slice(0, 2), 16);
+  const g = parseInt(raw.slice(2, 4), 16);
+  const b = parseInt(raw.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 function raiseVisualNodesWithEmbeddedAssets(nodes: Node[], selectedIds: Iterable<string>) {
