@@ -9,34 +9,84 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import asteroidImage from "@/assets/ardot/3_3.png";
 import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
-import { BRAND_KIT, POSTER_1, POSTER_2, SOCIAL_AD } from "@/lib/workspace-data";
+import promptCsv from "@/data/ai_image_prompt_rank_50.csv?raw";
 import { createWorkspaceHistoryProject } from "@/lib/project-history";
 
-const INSPIRATION_TOPICS = [
-  "产品海报",
-  "品牌视觉",
-  "社媒配图",
-  "电商主图",
-  "活动长图",
-  "Logo 灵感",
-  "包装设计",
-  "落地页视觉",
-];
+type InspirationPrompt = {
+  rank: number;
+  field: string;
+  model: string;
+  title: string;
+  description: string;
+  prompt: string;
+  imageUrl: string;
+  author: string;
+};
 
-const INSPIRATION_CARDS = [
-  { topic: "产品海报", title: "运动产品性能海报", desc: "速度感、材质特写、强对比主视觉", cover: POSTER_2, height: "h-[360px]" },
-  { topic: "品牌视觉", title: "咖啡品牌视觉系统", desc: "Logo、色彩、字体、应用延展", cover: BRAND_KIT, height: "h-[430px]" },
-  { topic: "社媒配图", title: "小红书种草封面", desc: "标题层级、场景图、笔记封面", cover: SOCIAL_AD, height: "h-[300px]" },
-  { topic: "电商主图", title: "平台首图套系", desc: "白底、场景、卖点、规格组合", cover: POSTER_2, height: "h-[390px]" },
-  { topic: "活动长图", title: "品牌活动邀请函", desc: "时间地点、主题视觉、流程信息", cover: POSTER_1, height: "h-[460px]" },
-  { topic: "Logo 灵感", title: "几何符号生成", desc: "图形提炼、比例、正负形探索", cover: BRAND_KIT, height: "h-[320px]" },
-  { topic: "包装设计", title: "食品包装系列", desc: "口味区分、货架识别、插画元素", cover: BRAND_KIT, height: "h-[410px]" },
-  { topic: "落地页视觉", title: "SaaS 产品首屏", desc: "产品界面、价值主张、转化按钮", cover: SOCIAL_AD, height: "h-[340px]" },
-  { topic: "产品海报", title: "新品发布主 KV", desc: "适合首发、预热、倒计时传播", cover: POSTER_1, height: "h-[380px]" },
-  { topic: "社媒配图", title: "Instagram 视觉矩阵", desc: "九宫格、故事图、短帖素材", cover: POSTER_1, height: "h-[440px]" },
-  { topic: "电商主图", title: "详情页视觉段落", desc: "功能解释、材质说明、对比图", cover: SOCIAL_AD, height: "h-[315px]" },
-  { topic: "包装设计", title: "美妆包装视觉", desc: "材质、瓶身、礼盒和陈列图", cover: POSTER_1, height: "h-[370px]" },
-];
+function parsePromptCsv(csv: string) {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let value = "";
+  let inQuote = false;
+
+  for (let index = 0; index < csv.length; index += 1) {
+    const char = csv[index];
+    const next = csv[index + 1];
+    if (inQuote) {
+      if (char === '"' && next === '"') {
+        value += '"';
+        index += 1;
+      } else if (char === '"') {
+        inQuote = false;
+      } else {
+        value += char;
+      }
+      continue;
+    }
+    if (char === '"') inQuote = true;
+    else if (char === ",") {
+      row.push(value);
+      value = "";
+    } else if (char === "\n") {
+      row.push(value);
+      rows.push(row);
+      row = [];
+      value = "";
+    } else if (char !== "\r") {
+      value += char;
+    }
+  }
+
+  if (value || row.length) {
+    row.push(value);
+    rows.push(row);
+  }
+  return rows;
+}
+
+function loadHomeInspirationPrompts(csv: string): InspirationPrompt[] {
+  const rows = parsePromptCsv(csv.replace(/^\uFEFF/, ""));
+  const header = rows[0] ?? [];
+  const get = (record: string[], key: string) => record[header.indexOf(key)]?.trim() ?? "";
+
+  return rows
+    .slice(1)
+    .filter(record => record.length > 1)
+    .map(record => ({
+      rank: Number(get(record, "rank")) || 0,
+      field: get(record, "field"),
+      model: get(record, "model"),
+      title: get(record, "title"),
+      description: get(record, "description"),
+      prompt: get(record, "prompt"),
+      imageUrl: get(record, "image_url"),
+      author: get(record, "author"),
+    }))
+    .filter(item => item.title && item.imageUrl);
+}
+
+const HOME_INSPIRATION_PROMPTS = loadHomeInspirationPrompts(promptCsv).slice(0, 12);
+const INSPIRATION_TOPICS = Array.from(new Set(HOME_INSPIRATION_PROMPTS.map(item => item.field))).slice(0, 8);
 
 const PROMPT_SUGGESTIONS = [
   "帮我生成一张赛博朋克风格插画",
@@ -304,7 +354,7 @@ export default function HomePage() {
                 <button
                   key={topic}
                   type="button"
-                  onClick={() => navigate(`/inspiration?topic=${encodeURIComponent(topic)}`)}
+                  onClick={() => navigate(`/inspiration?field=${encodeURIComponent(topic)}`)}
                   className="shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-2 text-xs font-medium text-white/62 transition-colors hover:border-[#936CFF]/50 hover:bg-[#936CFF]/15 hover:text-white"
                 >
                   {topic}
@@ -314,29 +364,40 @@ export default function HomePage() {
           </div>
 
           <div className="columns-1 gap-4 sm:columns-2 lg:columns-3 2xl:columns-4">
-            {INSPIRATION_CARDS.map(card => (
+            {HOME_INSPIRATION_PROMPTS.map((card, index) => (
               <button
-                key={`${card.topic}-${card.title}`}
+                key={`${card.rank}-${card.title}`}
                 type="button"
                 onClick={() => {
                   if (isAuthenticated) {
-                    navigate(`/inspiration?topic=${encodeURIComponent(card.topic)}`);
+                    navigate(`/inspiration?field=${encodeURIComponent(card.field)}`);
                     return;
                   }
                   showRegisterPanel();
                 }}
                 className="group mb-4 block w-full break-inside-avoid overflow-hidden rounded-md border border-white/10 bg-[#151515] text-left shadow-[0_18px_50px_rgba(0,0,0,0.28)] transition-transform hover:-translate-y-1"
               >
-                <div className={`relative ${card.height} overflow-hidden`}>
-                  <img src={card.cover} alt={card.title} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                <div className={`relative ${index % 5 === 0 ? "h-[430px]" : index % 5 === 1 ? "h-[340px]" : index % 5 === 2 ? "h-[390px]" : index % 5 === 3 ? "h-[300px]" : "h-[460px]"} overflow-hidden bg-[#111]`}>
+                  <img
+                    src={card.imageUrl}
+                    alt={card.title}
+                    className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    loading="lazy"
+                    onError={event => {
+                      event.currentTarget.style.display = "none";
+                    }}
+                  />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/0 to-black/0" />
                   <div className="absolute left-3 top-3 rounded-full bg-black/45 px-2.5 py-1 text-xs font-medium text-white/82 backdrop-blur-md">
-                    {card.topic}
+                    {card.field}
+                  </div>
+                  <div className="absolute right-3 top-3 rounded-full bg-black/45 px-2.5 py-1 text-xs font-medium text-white/82 backdrop-blur-md">
+                    {card.model}
                   </div>
                 </div>
                 <div className="p-4">
                   <p className="truncate text-sm font-semibold text-white">{card.title}</p>
-                  <p className="mt-2 text-xs leading-5 text-white/45">{card.desc}</p>
+                  <p className="mt-2 text-xs leading-5 text-white/45">{card.description}</p>
                 </div>
               </button>
             ))}
