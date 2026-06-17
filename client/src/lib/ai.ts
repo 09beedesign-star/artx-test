@@ -21,7 +21,7 @@ const AUTH_STORAGE_KEY = "artx-auth-session";
 
 function normalizeAiErrorMessage(message: string, fallback: string) {
   if (/images api is not supported|not supported for this platform|unsupported.*images/i.test(message)) {
-    return "当前图片模型不支持 Images API，系统已切换兼容生成链路；如果仍失败，请稍后重试或切换 Nano Banana 图片模型";
+    return "当前图片模型不支持 Images API，系统已自动切换兼容生成链路；如果仍失败，请稍后重试";
   }
   return message || fallback;
 }
