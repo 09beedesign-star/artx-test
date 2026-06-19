@@ -89,6 +89,7 @@ function HdIcon({ size = 15 }: { size?: number }) {
 import { useLocation } from "wouter";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
+import { writePsdBuffer } from "ag-psd";
 import { GENERATED_ASSETS, IMAGE_AI_MODELS, PROJECTS, TEXT_AI_MODELS, type GeneratedAsset, type Project } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -2085,6 +2086,72 @@ function AssetMoreCommandPanel({ isDark, command, initialAdjustments, imageSrc, 
         >
           {command === "adjust" ? "应用图片" : command === "vector" ? "生成新图片" : "应用到当前图片"}
         </button>
+      </div>
+    </div>
+  );
+}
+
+function ArtboardFloatingToolbar({ isDark, position, onExport }: {
+  isDark: boolean;
+  position: { left: number; top: number };
+  onExport: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const toolBg = isDark ? "rgba(22,22,30,0.88)" : "rgba(255,255,255,0.86)";
+  const toolBorder = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)";
+  const iconColor = isDark ? "rgba(255,255,255,0.76)" : "rgba(28,28,40,0.82)";
+  const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+  const tooltipBg = isDark ? "rgba(18,18,26,0.96)" : "rgba(30,30,40,0.92)";
+  return (
+    <div
+      className="absolute nodrag nopan"
+      style={{ left: position.left, top: position.top, transform: "translate(-100%, -50%)", zIndex: 1500 }}
+      onMouseDown={e => e.stopPropagation()}
+      onClick={e => e.stopPropagation()}
+    >
+      <div
+        className="flex flex-col items-center rounded-[var(--radius-md-design)]"
+        style={{
+          background: toolBg,
+          border: `1px solid ${toolBorder}`,
+          color: iconColor,
+          backdropFilter: "blur(16px)",
+          boxShadow: isDark ? "0 8px 32px rgba(0,0,0,0.45)" : "0 4px 20px rgba(0,0,0,0.12)",
+          padding: 4,
+        }}
+      >
+        <div className="relative">
+          {hovered && (
+            <div
+              className="absolute left-full ml-2 top-1/2 pointer-events-none"
+              style={{
+                transform: "translateY(-50%)",
+                background: tooltipBg,
+                color: "rgba(255,255,255,0.92)",
+                border: "1px solid rgba(255,255,255,0.10)",
+                borderRadius: 8,
+                padding: "6px 8px",
+                fontSize: 12,
+                whiteSpace: "nowrap",
+                boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+                zIndex: 10,
+              }}
+            >
+              导出画板
+            </div>
+          )}
+          <button
+            type="button"
+            aria-label="导出画板"
+            className="relative w-8 h-8 rounded-[var(--radius-md-design)] flex items-center justify-center transition-all active:scale-90"
+            style={{ background: hovered ? hoverBg : "transparent", color: iconColor }}
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
+            onClick={onExport}
+          >
+            <Download size={15} />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -4100,9 +4167,7 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
   }, [id]);
   const handleCanvasFrameClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    const additive = e.ctrlKey || e.metaKey;
     window.dispatchEvent(new CustomEvent("asset-click-selection", { detail: { selectedIds: [id] } }));
-    window.dispatchEvent(new CustomEvent("visual-node-select-to-front", { detail: { nodeId: id, additive } }));
   }, [id]);
   const handleCanvasFrameDoubleClick = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -4113,7 +4178,7 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
     <div
       style={{
         width: w, height: h,
-        background: bg,
+        background: "transparent",
         border: `1.5px solid ${borderColor}`,
         borderRadius: 8,
         boxSizing: "border-box",
@@ -4124,6 +4189,17 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
       onClick={handleCanvasFrameClick}
       onDoubleClick={handleCanvasFrameDoubleClick}
     >
+      <div
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          inset: 0,
+          borderRadius: 8,
+          background: bg,
+          pointerEvents: "none",
+          zIndex: 0,
+        }}
+      />
       {/* 左上角标题 */}
       <div
         style={{
@@ -4136,6 +4212,7 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
           whiteSpace: "nowrap",
           letterSpacing: "0.02em",
           userSelect: "none",
+          zIndex: 2,
         }}
       >
         {title} · {w} × {h} px
@@ -4836,6 +4913,7 @@ const createDefaultAssetData = (id: string, title = "素材节点") => ({
 
 type CanvasNodeSize = { width: number; height: number };
 type CanvasNodeBounds = { x: number; y: number; width: number; height: number; right: number; bottom: number; centerX: number; centerY: number };
+type ArtboardExportFormat = "psd" | "jpg" | "png";
 
 function inferImageRatio(width: number, height: number) {
   const ratio = width / Math.max(1, height);
@@ -4916,31 +4994,22 @@ function getCanvasNodeSize(node: Node): CanvasNodeSize {
   return { width: 260, height: 200 };
 }
 
-function fitEmbeddedAssetInsideFrame(assetNode: Node, frameNode: Node, nextFrameWidth: number, nextFrameHeight: number, scaleX: number, scaleY: number) {
+function clampEmbeddedAssetToFrame(assetNode: Node, frameNode: Node, nextFrameWidth: number, nextFrameHeight: number) {
   const size = getCanvasNodeSize(assetNode);
   const frameOriginX = frameNode.position.x;
   const frameOriginY = frameNode.position.y;
-  const relativeX = assetNode.position.x - frameOriginX;
-  const relativeY = assetNode.position.y - frameOriginY;
-  const uniformScale = Math.max(0.01, Math.min(scaleX, scaleY));
-  let nextWidth = Math.max(1, Math.round(size.width * uniformScale));
-  let nextHeight = Math.max(1, Math.round(size.height * uniformScale));
-
-  if (nextWidth > nextFrameWidth || nextHeight > nextFrameHeight) {
-    const containScale = Math.min(nextFrameWidth / nextWidth, nextFrameHeight / nextHeight);
-    nextWidth = Math.max(1, Math.round(nextWidth * containScale));
-    nextHeight = Math.max(1, Math.round(nextHeight * containScale));
-  }
-
+  const nextWidth = size.width;
+  const nextHeight = size.height;
+  const minX = frameOriginX;
+  const minY = frameOriginY;
   const maxX = frameOriginX + Math.max(0, nextFrameWidth - nextWidth);
   const maxY = frameOriginY + Math.max(0, nextFrameHeight - nextHeight);
-  const nextX = Math.min(Math.max(frameOriginX + relativeX * scaleX, frameOriginX), maxX);
-  const nextY = Math.min(Math.max(frameOriginY + relativeY * scaleY, frameOriginY), maxY);
+  const nextX = Math.min(Math.max(assetNode.position.x, minX), maxX);
+  const nextY = Math.min(Math.max(assetNode.position.y, minY), maxY);
 
   return {
     ...assetNode,
     position: { x: nextX, y: nextY },
-    style: { ...assetNode.style, width: nextWidth, height: nextHeight },
     data: {
       ...(assetNode.data as Record<string, unknown>),
       imgW: nextWidth,
@@ -8936,6 +9005,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
   const [downloadGroupId, setDownloadGroupId] = useState<string | null>(null);
   const [downloadFormat, setDownloadFormat] = useState<'jpg' | 'png' | 'webp'>('png');
+  const [artboardExportNodeId, setArtboardExportNodeId] = useState<string | null>(null);
+  const [artboardExportFormat, setArtboardExportFormat] = useState<ArtboardExportFormat>("png");
   const [assetMorePanel, setAssetMorePanel] = useState<{ command: string; nodeId: string } | null>(null);
   const closeAssetMorePanel = useCallback(() => {
     const previewNodeId = assetMorePanel?.nodeId;
@@ -9458,9 +9529,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       setNodes(nds => {
         const frame = nds.find(n => n.id === detail.id && n.type === "canvasFrame");
         if (!frame) return nds;
-        const previousSize = getCanvasNodeSize(frame);
-        const scaleX = detail.width / Math.max(1, previousSize.width);
-        const scaleY = detail.height / Math.max(1, previousSize.height);
         const normalizedFrame = normalizeCanvasFrameNode(frame);
         const normalizedData = normalizedFrame.data as Record<string, unknown>;
         const resizedFrame = {
@@ -9472,7 +9540,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           if (n.id === detail.id) return resizedFrame;
           const data = n.data as Record<string, unknown>;
           if (n.type === "asset" && data.embeddedInFrame === detail.id) {
-            return fitEmbeddedAssetInsideFrame(n, frame, detail.width, detail.height, scaleX, scaleY);
+            return clampEmbeddedAssetToFrame(n, frame, detail.width, detail.height);
           }
           return n;
         });
@@ -10165,7 +10233,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const selectedFrameNodes = nodes.filter(n => actionIds.includes(n.id) && n.type === "canvasFrame");
       if (selectedAssetNodes.length === 0) {
         if (selectedFrameNodes.length > 0) {
-          toast("画布下载即将上线", { description: "当前画布节点已接入图片同款命令入口，导出画布内容会后续接入" });
+          setArtboardExportNodeId(selectedFrameNodes[0].id);
+          setArtboardExportFormat("png");
           return;
         }
         toast("没有可下载的图片节点");
@@ -11257,6 +11326,141 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     image.src = src;
   }), []);
 
+  const loadImageElement = useCallback((src: string) => new Promise<HTMLImageElement | null>((resolve) => {
+    if (!src) {
+      resolve(null);
+      return;
+    }
+    const image = new window.Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => resolve(image);
+    image.onerror = () => resolve(null);
+    image.src = src;
+  }), []);
+
+  const getArtboardAssetNodes = useCallback((frameNode: Node, allNodes = nodesRef.current) => {
+    const frameBounds = getCanvasNodeBounds(frameNode);
+    return allNodes.filter(node => {
+      if (node.type !== "asset") return false;
+      const data = node.data as Record<string, unknown>;
+      if (data.embeddedInFrame === frameNode.id) return true;
+      const bounds = getCanvasNodeBounds(node);
+      return canvasRectsOverlap(bounds, frameBounds, 0);
+    });
+  }, [nodesRef]);
+
+  const renderArtboardToCanvas = useCallback(async (frameNode: Node, format: "jpg" | "png") => {
+    const frameData = frameNode.data as Record<string, unknown>;
+    const frameSize = getCanvasNodeSize(frameNode);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(frameSize.width));
+    canvas.height = Math.max(1, Math.round(frameSize.height));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    if (format === "jpg") {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    ctx.fillStyle = withCanvasFrameAlpha(frameData.originalBgColor || frameData.bgColor || "#2a2a30");
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const frameBounds = getCanvasNodeBounds(frameNode);
+    const assetNodes = getArtboardAssetNodes(frameNode).sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
+    for (const assetNode of assetNodes) {
+      const src = getNodeImageSrc(assetNode);
+      const image = await loadImageElement(src);
+      if (!image) continue;
+      const bounds = getCanvasNodeBounds(assetNode);
+      ctx.drawImage(image, bounds.x - frameBounds.x, bounds.y - frameBounds.y, bounds.width, bounds.height);
+    }
+    return canvas;
+  }, [getArtboardAssetNodes, getNodeImageSrc, loadImageElement]);
+
+  const handleArtboardExport = useCallback(async (format: ArtboardExportFormat, frameNodeId: string) => {
+    const frameNode = nodesRef.current.find(node => node.id === frameNodeId && node.type === "canvasFrame");
+    if (!frameNode) {
+      toast("导出失败", { description: "没有找到当前画板" });
+      return;
+    }
+    const frameData = frameNode.data as Record<string, unknown>;
+    const title = sanitizeDownloadName((frameData.title as string) || "artx-artboard");
+    const frameBounds = getCanvasNodeBounds(frameNode);
+    const frameSize = getCanvasNodeSize(frameNode);
+    const assetNodes = getArtboardAssetNodes(frameNode).sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
+
+    if (format === "psd") {
+      const toastId = toast.loading("正在导出 PSD 分层文件...");
+      try {
+        const children = [];
+        for (const assetNode of assetNodes) {
+          const src = getNodeImageSrc(assetNode);
+          const image = await loadImageElement(src);
+          if (!image) continue;
+          const bounds = getCanvasNodeBounds(assetNode);
+          const layerCanvas = document.createElement("canvas");
+          layerCanvas.width = Math.max(1, Math.round(bounds.width));
+          layerCanvas.height = Math.max(1, Math.round(bounds.height));
+          const layerCtx = layerCanvas.getContext("2d");
+          if (!layerCtx) continue;
+          layerCtx.drawImage(image, 0, 0, layerCanvas.width, layerCanvas.height);
+          const imageData = layerCtx.getImageData(0, 0, layerCanvas.width, layerCanvas.height);
+          const data = assetNode.data as Record<string, unknown>;
+          children.push({
+            name: sanitizeDownloadName((data.title as string) || getAssetNodeDisplayTitle(assetNode)),
+            left: Math.round(bounds.x - frameBounds.x),
+            top: Math.round(bounds.y - frameBounds.y),
+            right: Math.round(bounds.x - frameBounds.x + bounds.width),
+            bottom: Math.round(bounds.y - frameBounds.y + bounds.height),
+            imageData,
+          });
+        }
+        const bgCanvas = document.createElement("canvas");
+        bgCanvas.width = Math.max(1, Math.round(frameSize.width));
+        bgCanvas.height = Math.max(1, Math.round(frameSize.height));
+        const bgCtx = bgCanvas.getContext("2d");
+        if (bgCtx) {
+          bgCtx.fillStyle = withCanvasFrameAlpha(frameData.originalBgColor || frameData.bgColor || "#2a2a30");
+          bgCtx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
+          const bgData = bgCtx.getImageData(0, 0, bgCanvas.width, bgCanvas.height);
+          children.unshift({
+            name: "Artboard Background",
+            left: 0,
+            top: 0,
+            right: bgCanvas.width,
+            bottom: bgCanvas.height,
+            imageData: bgData,
+          });
+        }
+        const buffer = writePsdBuffer({
+          width: Math.max(1, Math.round(frameSize.width)),
+          height: Math.max(1, Math.round(frameSize.height)),
+          children,
+        });
+        saveAs(new Blob([buffer], { type: "image/vnd.adobe.photoshop" }), `${title}.psd`);
+        toast.dismiss(toastId);
+        toast("PSD 已导出", { description: "图片节点已保留为 Photoshop 可编辑图层" });
+      } catch (error) {
+        toast.dismiss(toastId);
+        toast("PSD 导出失败", { description: error instanceof Error ? error.message : "请稍后重试" });
+      }
+      return;
+    }
+
+    const canvas = await renderArtboardToCanvas(frameNode, format);
+    if (!canvas) {
+      toast("导出失败", { description: "当前浏览器无法创建画板导出图" });
+      return;
+    }
+    const mimeType = format === "jpg" ? "image/jpeg" : "image/png";
+    canvas.toBlob(blob => {
+      if (!blob) {
+        toast("导出失败", { description: "无法生成图片文件" });
+        return;
+      }
+      saveAs(blob, `${title}.${format}`);
+      toast("画板已导出", { description: `${format.toUpperCase()} · ${Math.round(frameSize.width)} × ${Math.round(frameSize.height)} px` });
+    }, mimeType, format === "jpg" ? 0.92 : undefined);
+  }, [getArtboardAssetNodes, getNodeImageSrc, loadImageElement, nodesRef, renderArtboardToCanvas, sanitizeDownloadName]);
+
   // ── 批量下载实现：将多个图片打包成 ZIP ──
   const handleBatchDownload = useCallback(async (
     targetNodes: Node[],
@@ -11502,6 +11706,22 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     }
   }, [checkAndEmbedIntoFrame, nodesRef, setNodes]);
 
+  const handleNodeDrag = useCallback((_event: React.MouseEvent, node: Node) => {
+    if (node.type !== "canvasFrame") return;
+    const dragStart = dragStartPositionRef.current.get(node.id);
+    if (!dragStart) return;
+    const dx = node.position.x - dragStart.x;
+    const dy = node.position.y - dragStart.y;
+    setNodes(nds => nds.map(n => {
+      if (n.type !== "asset") return n;
+      const data = n.data as Record<string, unknown>;
+      if (data.embeddedInFrame !== node.id) return n;
+      const start = dragStartPositionRef.current.get(n.id);
+      if (!start) return n;
+      return { ...n, position: { x: start.x + dx, y: start.y + dy } };
+    }));
+  }, [setNodes]);
+
   // ── Handle group actions from context menu ──
   const handleGroupAction = useCallback((action: string) => {
     const groupId = (window as unknown as Record<string, unknown>).__artx_ctx_group_id__ as string | undefined;
@@ -11569,7 +11789,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       if (!detail?.nodeId) return;
       const additive = Boolean(detail.additive);
       setNodes(nds => {
-        const target = nds.find(node => node.id === detail.nodeId && (node.type === "asset" || node.type === "canvasFrame"));
+        const target = nds.find(node => node.id === detail.nodeId && node.type === "asset");
         if (!target) return nds;
         const selectedIds = new Set(additive ? nds.filter(node => node.selected).map(node => node.id) : []);
         selectedIds.add(target.id);
@@ -11775,6 +11995,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
   // Inject isEditing flag into the target node's data so AssetNodeComponent can show the mask
   const selectedImageNodeIds = selectedNodeIds.filter(id => nodes.some(n => n.id === id && n.type === "asset"));
+  const selectedFrameNodeIds = selectedNodeIds.filter(id => nodes.some(n => n.id === id && n.type === "canvasFrame"));
   const selectedVisualNodeIds = selectedNodeIds.filter(id => nodes.some(n => n.id === id && (n.type === "asset" || n.type === "canvasFrame")));
   const multiImageSelectionActive = selectedImageNodeIds.length > 1;
   const multiVisualSelectionActive = selectedVisualNodeIds.length > 1;
@@ -12559,9 +12780,16 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       multiSelectionActive: n.type === "asset" && multiImageSelectionActive && selectedImageNodeIds.includes(n.id),
       frameClipInsets,
     };
-    return n.type === "asset" && editAsset && n.id === editAsset.nodeId
+    const displayNode = n.type === "asset" && editAsset && n.id === editAsset.nodeId
       ? { ...n, data: { ...data, isEditing: true } }
       : { ...n, data };
+    if (n.type === "asset" && embeddedFrame) {
+      return {
+        ...displayNode,
+        zIndex: Math.max((embeddedFrame.zIndex || 0) + 1, typeof n.zIndex === "number" ? n.zIndex : 0),
+      };
+    }
+    return displayNode;
   });
 
   return (
@@ -12721,6 +12949,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         zoomOnScroll={false}
         panOnScroll={!isCanvasLocked}
         onNodeDragStart={handleAltDragStart as any}
+        onNodeDrag={handleNodeDrag as any}
         onNodeDragStop={(event, node, nodes) => {
           handleAltDragStop(event as unknown as MouseEvent, node);
           handleNormalDragStop(event as unknown as MouseEvent, node);
@@ -12839,11 +13068,22 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         helpPromptNonce={helpPromptNonce}
       />
 
-      {selectedVisualNodeIds.length === 1 && !multiVisualSelectionActive && (
+      {selectedImageNodeIds.length === 1 && selectedFrameNodeIds.length === 0 && !multiVisualSelectionActive && (
         <AssetFloatingToolbar
           isDark={isDark}
           position={attachedImageToolbarPosition}
           onAction={handleSingleImageToolbarAction}
+        />
+      )}
+
+      {selectedFrameNodeIds.length === 1 && selectedImageNodeIds.length === 0 && !multiVisualSelectionActive && (
+        <ArtboardFloatingToolbar
+          isDark={isDark}
+          position={attachedImageToolbarPosition}
+          onExport={() => {
+            setArtboardExportNodeId(selectedFrameNodeIds[0]);
+            setArtboardExportFormat("png");
+          }}
         />
       )}
 
@@ -13219,6 +13459,103 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 }}
               >
                 开始下载
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {artboardExportNodeId && (
+        <div
+          className="fixed inset-0 flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.60)", backdropFilter: "blur(10px)", zIndex: 6000 }}
+          onMouseDown={() => setArtboardExportNodeId(null)}
+        >
+          <div
+            className="w-[min(400px,calc(100vw-32px))] rounded-[var(--radius-lg-design)] overflow-hidden shadow-2xl"
+            style={{
+              background: isDark ? "oklch(0.15 0.018 270)" : "oklch(0.995 0.002 80)",
+              border: `1px solid ${isDark ? "oklch(1 0 0 / 12%)" : "oklch(0.88 0.006 255)"}`,
+            }}
+            onMouseDown={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4"
+              style={{ borderBottom: `1px solid ${isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"}` }}>
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-[var(--radius-md-design)] flex items-center justify-center"
+                  style={{ background: "oklch(0.58 0.22 290 / 0.15)" }}>
+                  <Download size={14} style={{ color: "oklch(0.72 0.18 290)" }} />
+                </div>
+                <span className="type-caption" style={{ color: isDark ? "oklch(0.85 0.008 270)" : "oklch(0.18 0.008 270)", fontWeight: 600 }}>
+                  导出画板
+                </span>
+              </div>
+              <button
+                onClick={() => setArtboardExportNodeId(null)}
+                className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-all hover:opacity-70"
+                style={{ color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.50 0.01 270)" }}
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            <div className="px-5 py-4">
+              <p className="type-caption mb-3" style={{ color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.50 0.01 270)" }}>选择导出格式</p>
+              <div className="grid grid-cols-3 gap-2">
+                {(["psd", "jpg", "png"] as const).map(fmt => (
+                  <button
+                    key={fmt}
+                    onClick={() => setArtboardExportFormat(fmt)}
+                    className="py-2.5 rounded-[var(--radius-md-design)] type-caption font-medium transition-all"
+                    style={{
+                      background: artboardExportFormat === fmt
+                        ? "oklch(0.58 0.22 290 / 0.18)"
+                        : (isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 4%)"),
+                      border: `1px solid ${artboardExportFormat === fmt ? "oklch(0.62 0.22 290 / 0.50)" : (isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)")}`,
+                      color: artboardExportFormat === fmt
+                        ? (isDark ? "oklch(0.82 0.18 290)" : "oklch(0.42 0.18 290)")
+                        : (isDark ? "oklch(0.65 0.008 270)" : "oklch(0.45 0.008 270)"),
+                    }}
+                  >
+                    .{fmt.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+              <p className="type-caption mt-2" style={{ color: isDark ? "oklch(0.42 0.01 270)" : "oklch(0.58 0.01 270)", fontSize: 11 }}>
+                {artboardExportFormat === "psd"
+                  ? "PSD 会保留画板内图片节点为 Photoshop 可编辑图层"
+                  : artboardExportFormat === "jpg"
+                    ? "JPG 按画板原始尺寸导出，背景会合成为白底"
+                    : "PNG 按画板原始尺寸导出，保留画板视觉背景"}
+              </p>
+            </div>
+
+            <div className="flex gap-2 px-5 pb-5">
+              <button
+                onClick={() => setArtboardExportNodeId(null)}
+                className="flex-1 py-2.5 rounded-[var(--radius-md-design)] type-caption transition-all hover:opacity-80"
+                style={{
+                  background: isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)",
+                  border: `1px solid ${isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)"}`,
+                  color: isDark ? "oklch(0.60 0.01 270)" : "oklch(0.50 0.01 270)",
+                }}
+              >
+                取消
+              </button>
+              <button
+                onClick={async () => {
+                  const targetId = artboardExportNodeId;
+                  setArtboardExportNodeId(null);
+                  await handleArtboardExport(artboardExportFormat, targetId);
+                }}
+                className="flex-1 py-2.5 rounded-[var(--radius-md-design)] type-caption font-medium transition-all active:scale-95"
+                style={{
+                  background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
+                  color: "white",
+                  boxShadow: "0 4px 16px oklch(0.58 0.22 290 / 0.30)",
+                }}
+              >
+                开始导出
               </button>
             </div>
           </div>
