@@ -4804,7 +4804,7 @@ type ImageGeneratorPayload = {
   displaySize?: { w: number; h: number };
   titleBase?: string;
   sourceBackgroundSrc?: string;
-  referencedAssets?: Array<{ src: string; title?: string }>;
+  referencedAssets?: Array<{ src: string; title?: string; width?: number; height?: number }>;
   skillId?: string;
 };
 
@@ -4812,6 +4812,8 @@ type ImageGeneratorReferenceAsset = {
   id: string;
   title: string;
   src: string;
+  width?: number;
+  height?: number;
 };
 
 type ElementLayerPlan = {
@@ -5484,7 +5486,7 @@ function BottomPromptBar({
   projectId: string;
   activeSkill: PendingSkillLoad | null;
   onActiveSkillChange: (skill: PendingSkillLoad | null) => void;
-  referencedAssets: { id: string; title: string; src: string }[];
+  referencedAssets: ImageGeneratorReferenceAsset[];
   onRemoveReference: (id: string) => void;
   onClearAllReferences: () => void;
 }) {
@@ -5557,6 +5559,10 @@ function BottomPromptBar({
         });
         if (decision.mode === "image") {
           const imagePrompt = decision.imagePrompt?.trim() || submittedPrompt || "基于引用素材生成一张视觉图像。";
+          const targetReference = submittedRefs[submittedRefs.length - 1];
+          const targetDisplaySize = targetReference?.width && targetReference?.height
+            ? { w: targetReference.width, h: targetReference.height }
+            : undefined;
           const finalImagePrompt = buildSkillAppliedImagePrompt({
             activeSkill,
             skillContext,
@@ -5573,6 +5579,7 @@ function BottomPromptBar({
             style: "智能判断",
             referencesEnabled: submittedRefs.length > 0,
             generationId,
+            displaySize: targetDisplaySize,
             skillId: activeSkill?.id,
           };
           dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
@@ -7274,7 +7281,7 @@ const CANVAS_ASSISTANT_MODEL_TAB_STORAGE_KEY = "artx:canvas-assistant-model-tab"
 type CanvasAssistantModelTab = "image" | "text";
 type AssistantComposerSegment =
   | { id: string; type: "text"; text: string }
-  | { id: string; type: "image"; asset: { id: string; title: string; src: string } }
+  | { id: string; type: "image"; asset: ImageGeneratorReferenceAsset }
   | { id: string; type: "annotation"; annotation: AnnotationReference };
 
 type CanvasAssistantMessage = {
@@ -7347,7 +7354,7 @@ function createAssistantTextSegment(text = ""): AssistantComposerSegment {
   return { id: `seg-text-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, type: "text", text };
 }
 
-function createAssistantImageSegment(asset: { id: string; title: string; src: string }): AssistantComposerSegment {
+function createAssistantImageSegment(asset: ImageGeneratorReferenceAsset): AssistantComposerSegment {
   return { id: `seg-image-${asset.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, type: "image", asset };
 }
 
@@ -7452,11 +7459,11 @@ function CanvasAssistantPanel({
   isAuthenticated: boolean;
   onToggleCollapsed: () => void;
   onLoginRequest: () => void;
-  referencedAssets: { id: string; title: string; src: string }[];
+  referencedAssets: ImageGeneratorReferenceAsset[];
   annotationReferences: AnnotationReference[];
   onRemoveReference: (id: string) => void;
   onRemoveAnnotationReference: (id: string) => void;
-  onMergeReferences: (assets: { id: string; title: string; src: string }[]) => void;
+  onMergeReferences: (assets: ImageGeneratorReferenceAsset[]) => void;
   selectedCount: number;
   helpPromptNonce: number;
 }) {
@@ -7795,17 +7802,16 @@ function CanvasAssistantPanel({
         id: messageId,
         role: "assistant",
         content: [
-          `已加载 Skill：${activeSkill.name}`,
-          `类型：${activeSkill.categoryLabel} / ${activeSkill.subcategory}`,
-          `能力说明：${activeSkill.summary}`,
-          `Skill 提示词：${activeSkill.capabilityPrompt}`,
-          activeSkill.canvasSizes?.length ? `适配尺寸：${activeSkill.canvasSizes.join("、")}` : "",
-          "现在你可以在下方输入提示词，我会把这个 skill 的能力接入画布生成流程。",
+          `${activeSkill.name} 已开启。`,
+          `你只需要输入想做什么，比如主题、产品、活动信息、目标平台或风格要求。`,
+          `我会自动套用「${activeSkill.subcategory}」的生成能力，把你的提示词整理成可出图的方案，并在画布中生成图片。`,
+          activeSkill.canvasSizes?.length ? `适合尺寸：${activeSkill.canvasSizes.slice(0, 4).join("、")}` : "",
+          `试试输入：帮我做一张关于「新品发布」的${activeSkill.subcategory}，风格高级、有视觉冲击力。`,
         ].filter(Boolean).join("\n"),
         timestamp: new Date(),
       }];
     });
-    setComposerSegments(prev => getAssistantComposerText(prev) ? prev : [createAssistantTextSegment(`使用「${activeSkill.name}」生成：`)]);
+    setComposerSegments(prev => getAssistantComposerText(prev) ? prev : [createAssistantTextSegment(`帮我生成一张${activeSkill.subcategory}：`)]);
     focusComposerSegment();
   }, [activeSkill, collapsed, focusComposerSegment]);
 
@@ -8016,7 +8022,7 @@ function CanvasAssistantPanel({
       ? `${activeSkillContext}\n\n用户请求：${rawSubmittedComposerPrompt}`
       : rawSubmittedComposerPrompt;
     const submittedText = composerText || rawSubmittedComposerPrompt;
-    const submittedImages = composerImages.map(asset => ({ src: asset.src, title: asset.title }));
+    const submittedImages = composerImages.map(asset => ({ ...asset }));
     const submittedAnnotations = composerAnnotations;
     const userMessage = {
       id: `user-${Date.now()}`,
@@ -8046,9 +8052,9 @@ function CanvasAssistantPanel({
       : hasVisualReferences
         ? `上下文：${context}\n用户按顺序提供了图文混排提示词，请严格理解引用图与其前后描述之间的关系。\n用户请求：${submittedComposerPrompt}`
         : submittedComposerPrompt;
-    const assistantImages = [
+    const assistantImages: ImageGeneratorReferenceAsset[] = [
       ...submittedImages,
-      ...submittedAnnotations.map((ann, index) => ({ src: ann.src, title: `注释 ${index + 1} · ${ann.title}` })),
+      ...submittedAnnotations.map((ann, index) => ({ id: ann.id, src: ann.src, title: `注释 ${index + 1} · ${ann.title}` })),
     ];
     try {
       const decision = assistantModelTab === "image"
@@ -8106,6 +8112,9 @@ function CanvasAssistantPanel({
         const shouldEditTargetReference = assistantImages.length >= 2;
         const targetReference = shouldEditTargetReference ? assistantImages[assistantImages.length - 1] : undefined;
         const sourceReferences = shouldEditTargetReference ? assistantImages.slice(0, -1) : assistantImages;
+        const targetDisplaySize = targetReference?.width && targetReference?.height
+          ? { w: targetReference.width, h: targetReference.height }
+          : undefined;
         const payload: ImageGeneratorPayload = {
           projectId,
           prompt: shouldEditTargetReference
@@ -8123,6 +8132,7 @@ function CanvasAssistantPanel({
           referencesEnabled: assistantImages.length > 0,
           referencedAssets: assistantImages,
           generationId,
+          displaySize: targetDisplaySize,
           sourceBackgroundSrc: targetReference?.src || assistantImages[0]?.src,
           skillId: activeSkill?.id,
         };
@@ -8134,6 +8144,8 @@ function CanvasAssistantPanel({
               prompt: payload.prompt,
               referencedAssets: sourceReferences,
               skillId: activeSkill?.id,
+              targetWidth: targetReference.width,
+              targetHeight: targetReference.height,
             })
           : await generateAiImages(payload);
         dispatchImageGenerationTask({ ...payload, status: "completed", images: result.images }, projectId);
@@ -8808,9 +8820,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [isZoomingToEdit, setIsZoomingToEdit] = useState(false);
   const [pendingProject, setPendingProject] = useState<Project | null>(null);
   // ── Referenced assets: auto-populated from selected image nodes ──
-  const [referencedAssets, setReferencedAssets] = useState<{ id: string; title: string; src: string }[]>([]);
+  const [referencedAssets, setReferencedAssets] = useState<ImageGeneratorReferenceAsset[]>([]);
   const [annotationReferences, setAnnotationReferences] = useState<AnnotationReference[]>([]);
-  const mergeReferencedAssets = useCallback((assets: { id: string; title: string; src: string }[]) => {
+  const mergeReferencedAssets = useCallback((assets: ImageGeneratorReferenceAsset[]) => {
     setReferencedAssets(assets);
   }, []);
   const getLatestAssetNode = useCallback((nodeId: string) => (
@@ -8980,8 +8992,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     style,
     nextW,
     nextH,
-    displayW,
-    displayH,
     placement,
     run,
   }: {
@@ -8990,14 +9000,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     style: string;
     nextW: number;
     nextH: number;
-    displayW?: number;
-    displayH?: number;
     placement?: { x: number; y: number };
     run: () => Promise<{ images: Array<{ src: string; width: number; height: number }> }>;
   }) => {
     const latestSourceNode = sourceNode.type === "asset" ? (getLatestAssetNode(sourceNode.id) || sourceNode) : sourceNode;
-    const resolvedDisplayW = Math.max(1, Math.round(displayW ?? getCanvasNodeSize(latestSourceNode).width));
-    const resolvedDisplayH = Math.max(1, Math.round(displayH ?? getCanvasNodeSize(latestSourceNode).height));
+    const sourceDisplaySize = getCanvasNodeSize(latestSourceNode);
+    const resolvedDisplayW = Math.max(1, Math.round(sourceDisplaySize.width));
+    const resolvedDisplayH = Math.max(1, Math.round(sourceDisplaySize.height));
     const generationId = `${style}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const transparentLayerStyles = new Set(["去背景结果", "主体层", "中景层", "扩展结果"]);
     const sourceBackgroundSrc = transparentLayerStyles.has(style)
@@ -9009,7 +9018,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       projectId,
       prompt,
       model: "gpt-image-2",
-      ratio: inferImageRatio(nextW, nextH),
+      ratio: inferImageRatio(resolvedDisplayW, resolvedDisplayH),
       count: 1,
       style,
       referencesEnabled: false,
@@ -9639,8 +9648,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         style: "扩展结果",
         nextW: detail.nextW,
         nextH: detail.nextH,
-        displayW: detail.nextW,
-        displayH: detail.nextH,
         run: async () => expandImageWithMask({
           imageSrc: detail.imageSrc,
           maskSrc: detail.maskSrc,
@@ -11529,8 +11536,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const node = nodes.find(n => n.id === nodeId);
       if (!node) return null;
       const title = ((node.data as Record<string, unknown>).title as string) || nodeId;
-      return { id: nodeId, title, src: getAssetNodeImageSource(node) };
-    }).filter(Boolean) as { id: string; title: string; src: string }[];
+      const size = getCanvasNodeSize(node);
+      return { id: nodeId, title, src: getAssetNodeImageSource(node), width: size.width, height: size.height };
+    }).filter(Boolean) as ImageGeneratorReferenceAsset[];
     setReferencedAssets(refs);
   }, [selectedNodeIds, nodes]);
 
@@ -11930,8 +11938,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         style: "HD 高清结果",
         nextW: sourceSize.width,
         nextH: sourceSize.height,
-        displayW: sourceSize.width,
-        displayH: sourceSize.height,
         run: async () => enhanceImageToHd({
           imageSrc,
           level: "4k",
