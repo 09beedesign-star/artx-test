@@ -63,7 +63,7 @@ export function resolveModelRoute(capability: AiCapability, requestedModel?: str
 
 export function listAvailableModels() {
   return {
-    image: ["auto", ...Array.from(IMAGE_MODELS)],
-    text: ["auto", ...Array.from(TEXT_MODELS)],
+    image: [...Array.from(IMAGE_MODELS)],
+    text: [...Array.from(TEXT_MODELS)],
   };
 }
