@@ -4154,6 +4154,7 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
   const borderColor = selected
     ? "oklch(0.65 0.22 290)"
     : isDark ? "oklch(1 0 0 / 20%)" : "oklch(0 0 0 / 18%)";
+  const selectedFrameGlow = "0 0 0 2px oklch(0.65 0.22 290 / 0.88), 0 0 0 7px oklch(0.65 0.22 290 / 0.18), 0 18px 46px oklch(0.65 0.22 290 / 0.14)";
   // 使用用户选择的背景色，默认深灰色
   const bg = withCanvasFrameAlpha(data.bgColor || (data.originalBgColor as string) || "#2a2a30");
   const labelColor = isDark ? "oklch(0.55 0.01 270)" : "oklch(0.52 0.01 270)";
@@ -4184,7 +4185,8 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
         borderRadius: 8,
         boxSizing: "border-box",
         position: "relative",
-        transition: isResizing ? "none" : "border-color 0.15s",
+        boxShadow: selected ? selectedFrameGlow : "none",
+        transition: isResizing ? "none" : "border-color 0.15s, box-shadow 0.15s",
       }}
       onContextMenu={handleNodeCtxMenu}
       onClick={handleCanvasFrameClick}
@@ -11400,6 +11402,16 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     }
   }, [pasteClipboardImages, pasteClipboardImageSources]);
 
+  const pasteInternalClipboardNodes = useCallback((offset = 24) => {
+    if (clipboard.length === 0) return false;
+    pushHistory();
+    const pasted = createPastedNodes(clipboard, offset);
+    setNodes(nds => nds.map(n => ({ ...n, selected: false })).concat(pasted));
+    setSelectedNodeIds(pasted.map(n => n.id));
+    toast(`已粘贴 ${pasted.length} 个元素`, { description: "新节点已选中，可直接拖动定位" });
+    return true;
+  }, [clipboard, createPastedNodes, pushHistory, setNodes]);
+
   // ── 获取节点的图片源 (localSrc 优先，其次 GENERATED_ASSETS) ──
   const getNodeImageSrc = useCallback((node: Node): string => {
     const data = node.data as Record<string, unknown>;
@@ -11934,7 +11946,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       void pasteClipboardPayload(event.clipboardData).then(pasted => {
         if (!pasted) {
           void pasteClipboardFromNavigator().then(fallbackPasted => {
-            if (!fallbackPasted) toast("未读取到可粘贴图片", { description: "请在浏览器中复制图片本身，或复制图片地址后再粘贴" });
+            if (fallbackPasted) return;
+            if (pasteInternalClipboardNodes()) return;
+            toast("未读取到可粘贴图片", { description: "请在浏览器中复制图片本身，或复制图片地址后再粘贴" });
           });
         }
       });
@@ -11995,22 +12009,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       }
       // 粘贴：Ctrl+V (Windows) / Cmd+V (Mac)
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
-        if (clipboard.length > 0) {
-          e.preventDefault();
-          pushHistory();
-          const pasted = createPastedNodes(clipboard, 24);
-          setNodes(nds => nds.map(n => ({ ...n, selected: false })).concat(pasted));
-          setSelectedNodeIds(pasted.map(n => n.id));
-          toast(`已粘贴 ${pasted.length} 个元素`, { description: "新节点已选中，可直接拖动定位" });
-        } else {
-          const requestedAt = Date.now();
-          window.setTimeout(() => {
-            if (pasteEventSeenAtRef.current >= requestedAt) return;
-            void pasteClipboardFromNavigator().then(pasted => {
-              if (!pasted) toast("未读取到可粘贴图片", { description: "请在浏览器中复制图片本身，或复制图片地址后再粘贴" });
-            });
-          }, 120);
-        }
+        const requestedAt = Date.now();
+        window.setTimeout(() => {
+          if (pasteEventSeenAtRef.current >= requestedAt) return;
+          void pasteClipboardFromNavigator().then(pastedExternalImage => {
+            if (pastedExternalImage) return;
+            if (pasteInternalClipboardNodes()) return;
+            toast("未读取到可粘贴图片", { description: "请在浏览器中复制图片本身，或复制图片地址后再粘贴" });
+          });
+        }, 120);
         return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "g") {
@@ -12031,7 +12038,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       window.removeEventListener("paste", handlePaste);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [clipboard, createPastedNodes, getClipboardNodesFromIds, nodes, pasteClipboardFromNavigator, pasteClipboardPayload, pushHistory, selectedNodeIds, setEdges, setNodes, undoCanvas]);
+  }, [getClipboardNodesFromIds, nodes, pasteClipboardFromNavigator, pasteClipboardPayload, pasteInternalClipboardNodes, pushHistory, selectedNodeIds, setEdges, setNodes, undoCanvas]);
 
   // ── C-key lasso: cut edges intersecting the lasso rect ──
   const handleLassoCut = useCallback((lassoRect: LassoRect) => {
