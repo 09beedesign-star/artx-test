@@ -207,78 +207,70 @@ export default function SkillsPage() {
                   ))}
                 </div>
               </div>
-            </div>
-
-            <div
-              className="grid gap-3 rounded-[var(--radius-lg-design)] border p-3 xl:grid-cols-[360px_minmax(0,1fr)]"
-              style={{
-                background: panel,
-                borderColor: border,
-                backdropFilter: "blur(18px)",
-              }}
-            >
-              <div className="grid grid-cols-3 gap-2">
-                {heroStats.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <div
-                      key={item.label}
-                      className="rounded-[var(--radius-md-design)] border p-2.5"
-                      style={{
-                        borderColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(20,20,36,0.10)",
-                        background: isDark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.76)",
-                      }}
-                    >
-                      <div className="mb-1.5 flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm-design)]" style={{ background: `${item.accent}22`, color: item.accent }}>
-                        <Icon size={13} />
-                      </div>
-                      <p className="text-[22px] font-semibold leading-none" style={{ color: text }}>{item.value}</p>
-                      <p className="mt-1 text-xs" style={{ color: faint }}>{item.label}</p>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="rounded-[var(--radius-md-design)] border p-2.5" style={{ borderColor: border, background: isDark ? "rgba(0,0,0,0.14)" : "rgba(255,255,255,0.62)" }}>
-                <div className="mb-1.5 flex items-center justify-between">
-                  <div className="flex items-center gap-2" style={{ color: text }}>
-                    <Boxes size={15} />
-                    <span className="text-sm font-medium">分类覆盖</span>
-                  </div>
-                  <span className="text-xs" style={{ color: faint }}>商店结构</span>
-                </div>
-                <div className="grid gap-1 md:grid-cols-2">
-                  {categoryOrder.map((category) => {
-                    const meta = skillCategoryMeta[category];
+              <div className="relative mt-3 grid gap-3 xl:grid-cols-[360px_minmax(0,1fr)]">
+                <div className="grid grid-cols-3 gap-2">
+                  {heroStats.map((item) => {
+                    const Icon = item.icon;
                     return (
-                      <button
-                        key={category}
-                        type="button"
-                        onClick={() => setActiveCategory(category)}
-                        className="group flex w-full items-center gap-2.5 rounded-[var(--radius-md-design)] px-2 py-0.5 text-left transition-opacity hover:opacity-85"
+                      <div
+                        key={item.label}
+                        className="rounded-[var(--radius-md-design)] border p-2.5"
                         style={{
-                          background: activeCategory === category ? "rgba(144,88,252,0.16)" : "transparent",
+                          borderColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(20,20,36,0.10)",
+                          background: isDark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.76)",
                         }}
                       >
-                        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: meta.accent }} />
-                        <span className="min-w-0 flex-1">
-                          <span className="flex items-center justify-between gap-2">
-                            <span className="text-sm font-medium" style={{ color: text }}>{meta.label}</span>
-                            <span className="text-xs font-semibold" style={{ color: activeCategory === category ? skillButtonPurple : faint }}>{categoryCounts[category]}</span>
-                          </span>
-                          <span className="mt-0.5 block h-1.5 overflow-hidden rounded-full" style={{ background: isDark ? "rgba(255,255,255,0.08)" : "rgba(20,20,36,0.08)" }}>
-                            <span
-                              className="block h-full rounded-full"
-                              style={{
-                                width: `${Math.max(14, (categoryCounts[category] / skillStoreStats.total) * 100)}%`,
-                                background: meta.accent,
-                              }}
-                            />
-                          </span>
-                        </span>
-                      </button>
+                        <div className="mb-1.5 flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm-design)]" style={{ background: `${item.accent}22`, color: item.accent }}>
+                          <Icon size={13} />
+                        </div>
+                        <p className="text-[22px] font-semibold leading-none" style={{ color: text }}>{item.value}</p>
+                        <p className="mt-1 text-xs" style={{ color: faint }}>{item.label}</p>
+                      </div>
                     );
                   })}
+                </div>
+
+                <div className="rounded-[var(--radius-md-design)] border p-2.5" style={{ borderColor: border, background: isDark ? "rgba(0,0,0,0.14)" : "rgba(255,255,255,0.62)" }}>
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <div className="flex items-center gap-2" style={{ color: text }}>
+                      <Boxes size={15} />
+                      <span className="text-sm font-medium">分类覆盖</span>
+                    </div>
+                    <span className="text-xs" style={{ color: faint }}>商店结构</span>
+                  </div>
+                  <div className="grid gap-1 md:grid-cols-2">
+                    {categoryOrder.map((category) => {
+                      const meta = skillCategoryMeta[category];
+                      return (
+                        <button
+                          key={category}
+                          type="button"
+                          onClick={() => setActiveCategory(category)}
+                          className="group flex w-full items-center gap-2.5 rounded-[var(--radius-md-design)] px-2 py-0.5 text-left transition-opacity hover:opacity-85"
+                          style={{
+                            background: activeCategory === category ? "rgba(144,88,252,0.16)" : "transparent",
+                          }}
+                        >
+                          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: meta.accent }} />
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-medium" style={{ color: text }}>{meta.label}</span>
+                              <span className="text-xs font-semibold" style={{ color: activeCategory === category ? skillButtonPurple : faint }}>{categoryCounts[category]}</span>
+                            </span>
+                            <span className="mt-0.5 block h-1.5 overflow-hidden rounded-full" style={{ background: isDark ? "rgba(255,255,255,0.08)" : "rgba(20,20,36,0.08)" }}>
+                              <span
+                                className="block h-full rounded-full"
+                                style={{
+                                  width: `${Math.max(14, (categoryCounts[category] / skillStoreStats.total) * 100)}%`,
+                                  background: meta.accent,
+                                }}
+                              />
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             </div>
