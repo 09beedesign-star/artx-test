@@ -6,7 +6,7 @@ import { useLocation } from "wouter";
 import TopBar from "@/components/workspace/TopBar";
 import promptCsv from "@/data/ai_image_prompt_rank_50.csv?raw";
 import { useTheme } from "@/contexts/ThemeContext";
-import { Search, Sparkles, X } from "lucide-react";
+import { Sparkles, X } from "lucide-react";
 import { BG_GLOW } from "@/lib/workspace-data";
 
 type PromptItem = {
@@ -104,7 +104,6 @@ export default function InspirationPage() {
     const field = getParam("field", ALL_FIELDS);
     return fields.includes(field) ? field : ALL_FIELDS;
   });
-  const [query, setQuery] = useState("");
   const [selectedItem, setSelectedItem] = useState<PromptItem | null>(null);
 
   const bg = isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)";
@@ -117,14 +116,11 @@ export default function InspirationPage() {
   const shadow = isDark ? "0 18px 46px oklch(0 0 0 / 0.24)" : "0 14px 34px oklch(0 0 0 / 0.08)";
 
   const filteredItems = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-
     return PROMPT_ITEMS.filter((item) => {
       const matchesField = activeField === ALL_FIELDS || item.field === activeField;
-      const haystack = `${item.title} ${item.description} ${item.prompt} ${item.author}`.toLowerCase();
-      return matchesField && (!normalizedQuery || haystack.includes(normalizedQuery));
+      return matchesField;
     });
-  }, [activeField, query]);
+  }, [activeField]);
 
   const updateFilters = (nextField: string) => {
     setActiveField(nextField);
@@ -158,9 +154,8 @@ export default function InspirationPage() {
             </div>
           </section>
 
-          <section className="mb-6 rounded-[var(--radius-lg-design)] p-3" style={{ background: panelBg, border: `1px solid ${border}`, backdropFilter: "blur(18px)" }}>
-            <div className="flex flex-col gap-3">
-              <div className="flex flex-wrap items-center gap-2">
+          <section className="mb-6 rounded-[var(--radius-lg-design)] p-3.5" style={{ background: panelBg, border: `1px solid ${border}`, backdropFilter: "blur(18px)" }}>
+            <div className="flex flex-wrap items-center gap-2">
                 {fields.map((field) => {
                   const active = field === activeField;
                   return (
@@ -178,21 +173,6 @@ export default function InspirationPage() {
                     </button>
                   );
                 })}
-              </div>
-
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-
-                <label className="flex min-w-0 items-center gap-2 rounded-[var(--radius-pill)] px-3 py-2 sm:w-[320px]" style={{ background: isDark ? "oklch(0 0 0 / 0.20)" : "oklch(1 0 0 / 0.9)", border: `1px solid ${border}` }}>
-                  <Search size={15} style={{ color: sub }} />
-                  <input
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    placeholder="搜索标题、作者或提示词"
-                    className="w-full min-w-0 bg-transparent type-caption outline-none"
-                    style={{ color: text, letterSpacing: 0, textTransform: "none" }}
-                  />
-                </label>
-              </div>
             </div>
           </section>
 
