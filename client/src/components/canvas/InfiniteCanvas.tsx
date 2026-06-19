@@ -38,7 +38,7 @@ import { toast } from "sonner";
 import {
   Image as ImageIcon, MessageSquare, Type, Wand2,
   Sparkles, Trash2, Send, Paperclip, ChevronDown,
-  X, Copy, Clipboard, Edit3, PlusSquare, FileText,
+  X, Copy, Clipboard, Edit3, PlusSquare, FileText, Scissors,
   ZoomIn, Download, Crop, Box, Eraser,
   MoreHorizontal, FolderOutput, Maximize2, Mic, RefreshCw,
   ChevronLeft, Home, LayoutGrid, Lock, Unlock, Plus, Minus,
@@ -105,6 +105,7 @@ import generationMark from "@/assets/generation/ai-generation-mark.svg";
 const ENABLE_NODE_CONNECTIONS = false;
 
 const CANVAS_FRAME_BACKGROUND_ALPHA = 0.5;
+const CLIPBOARD_NODE_TYPES = ["asset", "shape", "freehand", "pen", "canvasFrame", "text"];
 
 function withCanvasFrameAlpha(color: unknown, alpha = CANVAS_FRAME_BACKGROUND_ALPHA) {
   const fallback = `rgba(42,42,48,${alpha})`;
@@ -5901,6 +5902,7 @@ function NodeContextMenu({ menu, onClose, onAction, isDark }: {
   // Multi-selection menu: 打组 / 取消编组 / 自动布局 / 下载
   const selectionItems = [
     { icon: <Copy size={13} />, label: "复制", action: "copy", color: iconColor },
+    { icon: <Scissors size={13} />, label: "剪切", action: "cut", color: iconColor },
     { icon: <Clipboard size={13} />, label: "粘贴", action: "paste", color: iconColor },
     { icon: <Boxes size={13} />, label: "打组", action: "group", color: iconColor },
     { icon: <LayoutGrid size={13} />, label: "自动排列", action: "auto-layout", color: iconColor },
@@ -5915,6 +5917,7 @@ function NodeContextMenu({ menu, onClose, onAction, isDark }: {
     { icon: <Wand2 size={13} />, label: "智能优化", action: "edit-asset", color: iconColor },
     ...(isVisualNodeMenu ? [{ icon: <Download size={13} />, label: "下载图片", action: "download", color: iconColor }] : []),
     { icon: <Copy size={13} />, label: "复制", action: "copy", color: iconColor },
+    { icon: <Scissors size={13} />, label: "剪切", action: "cut", color: iconColor },
     { icon: <Clipboard size={13} />, label: "粘贴", action: "paste", color: iconColor },
     { icon: <Type size={13} />, label: "添加文本备注", action: "add-note", color: iconColor },
     { icon: <Trash2 size={13} />, label: "删除节点", action: "delete", color: dangerColor },
@@ -8980,6 +8983,29 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const mergeReferencedAssets = useCallback((assets: ImageGeneratorReferenceAsset[]) => {
     setReferencedAssets(assets);
   }, []);
+  const getClipboardNodesFromIds = useCallback((ids: string[], sourceNodes = nodesRef.current) => (
+    ids
+      .map(id => sourceNodes.find(node => node.id === id && CLIPBOARD_NODE_TYPES.includes(node.type ?? "")))
+      .filter(Boolean) as Node[]
+  ), []);
+  const createPastedNodes = useCallback((sourceNodes: Node[], offset = 24) => {
+    const now = Date.now();
+    return sourceNodes.map((node, index) => {
+      const id = `${node.type}-paste-${now}-${index}`;
+      return {
+        ...node,
+        id,
+        selected: true,
+        position: { x: node.position.x + offset, y: node.position.y + offset },
+        data: {
+          ...(node.data as Record<string, unknown>),
+          id,
+          groupId: undefined,
+          isEditing: false,
+        },
+      };
+    });
+  }, []);
   const getLatestAssetNode = useCallback((nodeId: string) => (
     nodesRef.current.find(node => node.id === nodeId && node.type === "asset") || null
   ), []);
@@ -10185,26 +10211,25 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       setEdges(eds => eds.filter(e => !actionIds.includes(e.source) && !actionIds.includes(e.target)));
       setSelectedNodeIds([]);
     } else if (action === "copy") {
-      const copied = nodes.filter(n => actionIds.includes(n.id));
-      if (copied.length > 0) { setClipboard(copied); toast(`已复制 ${copied.length} 个画布`); }
+      const copied = getClipboardNodesFromIds(actionIds, nodes);
+      if (copied.length > 0) { setClipboard(copied); toast(`已复制 ${copied.length} 个元素`); }
+    } else if (action === "cut") {
+      const cutNodes = getClipboardNodesFromIds(actionIds, nodes);
+      if (cutNodes.length > 0) {
+        pushHistory();
+        setClipboard(cutNodes);
+        setNodes(nds => nds.filter(n => !cutNodes.some(node => node.id === n.id)));
+        setEdges(eds => eds.filter(e => !cutNodes.some(node => node.id === e.source || node.id === e.target)));
+        setSelectedNodeIds([]);
+        toast(`已剪切 ${cutNodes.length} 个元素`, { description: "可使用 Ctrl/Command + V 粘贴" });
+      }
     } else if (action === "paste") {
       if (clipboard.length > 0) {
         pushHistory();
-        const now = Date.now();
-        const idMap = new Map(clipboard.map((node, index) => [node.id, `${node.type}-${now}-${index}`]));
-        const pasted = clipboard.map((node, index) => {
-          const id = idMap.get(node.id) || `${node.type}-${now}-${index}`;
-          return {
-            ...node,
-            id,
-            selected: true,
-            position: { x: node.position.x + 48, y: node.position.y + 48 },
-            data: { ...(node.data as Record<string, unknown>), id, groupId: (node.data as Record<string, unknown>).groupId ? `group-${now}` : undefined },
-          };
-        });
+        const pasted = createPastedNodes(clipboard, 48);
         setNodes(nds => nds.map(n => ({ ...n, selected: false })).concat(pasted));
         setSelectedNodeIds(pasted.map(n => n.id));
-        toast(`已粘贴 ${pasted.length} 个画布`);
+        toast(`已粘贴 ${pasted.length} 个元素`);
       } else { toast("剪贴板为空"); }
     } else if (action === "group") {
       if (actionIds.length < 2) { toast("请至少选择 2 个画布再打组"); return; }
@@ -10386,7 +10411,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         }, 950);
       }
     }
-  }, [nodes, clipboard, getActionNodeIds, getLatestAssetNode, pushHistory, setNodes, setEdges]);
+  }, [clipboard, createPastedNodes, getActionNodeIds, getClipboardNodesFromIds, getLatestAssetNode, nodes, pushHistory, setEdges, setNodes]);
 
   // ── Add node from position ──
   const addNode = useCallback((_type: string, x: number, y: number) => {
@@ -11919,8 +11944,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const isTyping = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
       if (isTyping) return;
       // 支持复制/删除/粘贴的节点类型
-      const deletableTypes = ["asset", "shape", "freehand", "pen", "canvasFrame", "text"];
-      const selectedDeletableIds = selectedNodeIds.filter(id => nodes.some(n => n.id === id && deletableTypes.includes(n.type ?? "")));
+      const selectedDeletableIds = selectedNodeIds.filter(id => nodes.some(n => n.id === id && CLIPBOARD_NODE_TYPES.includes(n.type ?? "")));
       if ((e.key === "Delete" || e.key === "Backspace") && selectedDeletableIds.length > 0) {
         e.preventDefault();
         pushHistory();
@@ -11939,11 +11963,26 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         undoCanvas();
         return;
       }
+      // 剪切：Ctrl+X (Windows) / Cmd+X (Mac) — 图片、画板、文字、图形等画布节点统一支持
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "x") {
+        const toCut = getClipboardNodesFromIds(selectedNodeIds, nodes);
+        if (toCut.length > 0) {
+          e.preventDefault();
+          pushHistory();
+          setClipboard(toCut);
+          setNodes(nds => nds.filter(n => !toCut.some(node => node.id === n.id)));
+          setEdges(eds => eds.filter(e => !toCut.some(node => node.id === e.source || node.id === e.target)));
+          setSelectedNodeIds([]);
+          const isMac = navigator.platform.toUpperCase().includes("MAC") || navigator.userAgent.includes("Mac");
+          toast(`已剪切 ${toCut.length} 个元素`, {
+            description: isMac ? "按 ⌘V 粘贴到画布" : "按 Ctrl+V 粘贴到画布",
+          });
+        }
+        return;
+      }
       // 复制：Ctrl+C (Windows) / Cmd+C (Mac) — 支持所有节点类型
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
-        const toCopy = selectedNodeIds
-          .map(id => nodes.find(n => n.id === id && deletableTypes.includes(n.type ?? "")))
-          .filter(Boolean) as Node[];
+        const toCopy = getClipboardNodesFromIds(selectedNodeIds, nodes);
         if (toCopy.length > 0) {
           e.preventDefault();
           setClipboard(toCopy);
@@ -11959,19 +11998,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         if (clipboard.length > 0) {
           e.preventDefault();
           pushHistory();
-          const now = Date.now();
-          const pasted = clipboard.map((node, index) => ({
-            ...node,
-            id: `${node.type}-paste-${now}-${index}`,
-            selected: true,
-            position: { x: node.position.x + 24, y: node.position.y + 24 },
-            data: {
-              ...(node.data as Record<string, unknown>),
-              id: `${node.type}-paste-${now}-${index}`,
-              // 不继承打组，粘贴为独立节点
-              groupId: undefined,
-            },
-          }));
+          const pasted = createPastedNodes(clipboard, 24);
           setNodes(nds => nds.map(n => ({ ...n, selected: false })).concat(pasted));
           setSelectedNodeIds(pasted.map(n => n.id));
           toast(`已粘贴 ${pasted.length} 个元素`, { description: "新节点已选中，可直接拖动定位" });
@@ -12004,7 +12031,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       window.removeEventListener("paste", handlePaste);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [nodes, clipboard, setClipboard, pasteClipboardFromNavigator, pasteClipboardPayload, pushHistory, selectedNodeIds, setEdges, setNodes, undoCanvas]);
+  }, [clipboard, createPastedNodes, getClipboardNodesFromIds, nodes, pasteClipboardFromNavigator, pasteClipboardPayload, pushHistory, selectedNodeIds, setEdges, setNodes, undoCanvas]);
 
   // ── C-key lasso: cut edges intersecting the lasso rect ──
   const handleLassoCut = useCallback((lassoRect: LassoRect) => {
