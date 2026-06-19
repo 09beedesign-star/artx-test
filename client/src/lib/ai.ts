@@ -202,7 +202,7 @@ export async function searchReferenceImages({
 
 export async function generateImages({
   prompt,
-  model = "auto",
+  model = "gpt-image-2",
   ratio = "1:1",
   count = 1,
   style,

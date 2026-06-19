@@ -51,7 +51,7 @@ import {
   Shirt, Expand, Frame, RotateCw, MapPin, PlusCircle,
 } from "lucide-react";
 
-// 「井号 + 方框」图标 — 创建画布专用
+// 「井号 + 方框」图标 — 创建画板专用
 function CreateCanvasIcon({ size = 17 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 17 17" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -97,11 +97,40 @@ import RotateEditor from "@/components/canvas/RotateEditor";
 import { callLLM, editImageWithPrompt, enhanceImageToHd, eraseImageObjects, expandImageWithMask, generateImages as generateAiImages, removeImageBackground, requestAiAuth, searchReferenceImages, type ReferenceImageResult } from "@/lib/ai";
 import { routeCreativeIntent } from "@/lib/ai-intent";
 import { createWorkspaceHistoryProject, touchWorkspaceProjectHistory, updateWorkspaceProjectHistory } from "@/lib/project-history";
-import { buildSkillPromptContext, PENDING_SKILL_LOAD_KEY, type PendingSkillLoad } from "@/lib/skill-store";
+import { buildSkillPromptContext, createPendingSkillLoad, PENDING_SKILL_LOAD_KEY, skillStoreItems, type PendingSkillLoad } from "@/lib/skill-store";
 import generationGradient from "@/assets/generation/ai-generation-gradient.png";
 import generationMark from "@/assets/generation/ai-generation-mark.svg";
 
 const ENABLE_NODE_CONNECTIONS = false;
+
+const CANVAS_FRAME_BACKGROUND_ALPHA = 0.5;
+
+function withCanvasFrameAlpha(color: unknown, alpha = CANVAS_FRAME_BACKGROUND_ALPHA) {
+  const fallback = `rgba(42,42,48,${alpha})`;
+  if (typeof color !== "string" || !color.trim()) return fallback;
+  const value = color.trim();
+  const hexMatch = value.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (hexMatch) {
+    const raw = hexMatch[1].length === 3
+      ? hexMatch[1].split("").map(char => char + char).join("")
+      : hexMatch[1];
+    const intValue = parseInt(raw, 16);
+    const r = (intValue >> 16) & 255;
+    const g = (intValue >> 8) & 255;
+    const b = intValue & 255;
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+  const rgbMatch = value.match(/^rgba?\(([^)]+)\)$/i);
+  if (rgbMatch) {
+    const parts = rgbMatch[1].split(",").map(part => part.trim());
+    if (parts.length >= 3) {
+      return `rgba(${parts[0]},${parts[1]},${parts[2]},${alpha})`;
+    }
+  }
+  return value.startsWith("oklch(") && !value.includes("/")
+    ? value.replace(/\)$/, ` / ${alpha})`)
+    : value;
+}
 
 // ── Model Selector ─────────────────────────────────────────────
 function ModelSelector({ model, onChange, isDark }: { model: string; onChange: (m: string) => void; isDark: boolean }) {
@@ -180,6 +209,125 @@ function ModelSelector({ model, onChange, isDark }: { model: string; onChange: (
               </button>
             ))}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SkillPointSelector({
+  activeSkill,
+  onChange,
+  isDark,
+}: {
+  activeSkill: PendingSkillLoad | null;
+  onChange: (skill: PendingSkillLoad | null) => void;
+  isDark: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const selectorRef = useRef<HTMLDivElement>(null);
+  const groupedSkills = useMemo(() => {
+    const groups = new Map<string, typeof skillStoreItems>();
+    skillStoreItems.forEach(skill => {
+      const key = skill.subcategory || skill.category;
+      groups.set(key, [...(groups.get(key) || []), skill]);
+    });
+    return Array.from(groups.entries());
+  }, []);
+  const bg = isDark ? "oklch(0.13 0.015 270)" : "oklch(0.96 0.004 270)";
+  const border = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
+  const text = isDark ? "oklch(0.75 0.01 270)" : "oklch(0.35 0.01 270)";
+  const popBg = isDark ? "oklch(0.16 0.018 270)" : "oklch(0.99 0.004 270)";
+  const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
+  const activeBg = isDark ? "oklch(0.58 0.22 290 / 0.18)" : "oklch(0.58 0.22 290 / 0.12)";
+  const activeText = isDark ? "oklch(0.82 0.16 290)" : "oklch(0.46 0.18 290)";
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!selectorRef.current?.contains(event.target as HTMLElement)) setOpen(false);
+    };
+    window.addEventListener("mousedown", handlePointerDown);
+    return () => window.removeEventListener("mousedown", handlePointerDown);
+  }, [open]);
+
+  return (
+    <div ref={selectorRef} className="relative nodrag nopan" style={{ zIndex: open ? 1200 : 100 }}>
+      <button
+        type="button"
+        title="极点选择器 / Skill"
+        onClick={() => setOpen(value => !value)}
+        className="flex h-8 items-center gap-1.5 rounded-[var(--radius-md-design)] px-2.5 type-caption transition-colors"
+        style={{ background: activeSkill ? activeBg : bg, border: `1px solid ${activeSkill ? "oklch(0.62 0.22 290 / 45%)" : border}`, color: activeSkill ? activeText : text }}
+      >
+        <CircleDot size={13} />
+        <span className="max-w-[92px] truncate">{activeSkill ? activeSkill.name : "极点 Skill"}</span>
+        <ChevronDown size={10} style={{ opacity: 0.65 }} />
+      </button>
+      {open && (
+        <div
+          className="model-selector-scroll absolute bottom-[calc(100%+8px)] left-0 overflow-y-auto rounded-[var(--radius-md-design)] p-1 shadow-2xl"
+          style={{
+            width: 288,
+            maxHeight: 360,
+            background: popBg,
+            border: `1px solid ${border}`,
+            color: text,
+            zIndex: 1201,
+          }}
+        >
+          {activeSkill && (
+            <button
+              type="button"
+              onClick={() => {
+                onChange(null);
+                setOpen(false);
+                toast("已取消 Skill", { description: "输入框恢复为普通 AI 创作模式" });
+              }}
+              className="flex w-full items-center gap-2 rounded-[var(--radius-sm-design)] px-2.5 py-2 text-left type-caption"
+              style={{ color: isDark ? "rgba(255,255,255,0.58)" : "rgba(20,20,36,0.58)" }}
+              onMouseEnter={event => { event.currentTarget.style.background = hoverBg; }}
+              onMouseLeave={event => { event.currentTarget.style.background = "transparent"; }}
+            >
+              <X size={13} />
+              取消当前 Skill
+            </button>
+          )}
+          {groupedSkills.map(([group, skills]) => (
+            <div key={group}>
+              <div className="px-2.5 pb-1 pt-2 text-[11px] font-semibold" style={{ color: isDark ? "rgba(255,255,255,0.42)" : "rgba(20,20,36,0.42)" }}>
+                {group}
+              </div>
+              {skills.map(skill => {
+                const Icon = skill.icon;
+                const active = activeSkill?.id === skill.id;
+                return (
+                  <button
+                    key={skill.id}
+                    type="button"
+                    onClick={() => {
+                      const pendingSkill = createPendingSkillLoad(skill);
+                      onChange(pendingSkill);
+                      setOpen(false);
+                      toast("Skill 已加载到画布", { description: pendingSkill.name });
+                    }}
+                    className="flex w-full items-start gap-2 rounded-[var(--radius-sm-design)] px-2.5 py-2 text-left transition-colors"
+                    style={{ background: active ? activeBg : "transparent", color: active ? activeText : text }}
+                    onMouseEnter={event => { if (!active) event.currentTarget.style.background = hoverBg; }}
+                    onMouseLeave={event => { event.currentTarget.style.background = active ? activeBg : "transparent"; }}
+                  >
+                    <Icon size={15} style={{ marginTop: 1, flexShrink: 0 }} />
+                    <span className="min-w-0">
+                      <span className="block truncate text-xs font-semibold">{skill.name}</span>
+                      <span className="mt-0.5 block line-clamp-2 text-[11px]" style={{ color: isDark ? "rgba(255,255,255,0.46)" : "rgba(20,20,36,0.50)" }}>
+                        {skill.summary}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -2024,7 +2172,7 @@ function AssetPromptPanel({ isDark, assetSrc, onExpand }: {
   isDark: boolean; assetSrc: string; onExpand: () => void;
 }) {
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState("auto");
+  const [model, setModel] = useState("gpt-image-2");
   const panelBg = isDark ? "rgba(22,22,30,0.97)" : "rgba(240,240,248,0.97)";
   const panelBorder = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const textColor = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.20 0.008 270)";
@@ -3548,7 +3696,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
 function ChatNodeComponent({ data, selected }: { data: Record<string, unknown>; selected: boolean }) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-  const [model, setModel] = useState("auto");
+  const [model, setModel] = useState("gpt-image-2");
   const { deleteElements } = useReactFlow();
   const nodeId = (data as { id?: string }).id || "";
 
@@ -3939,7 +4087,7 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
     ? "oklch(0.65 0.22 290)"
     : isDark ? "oklch(1 0 0 / 20%)" : "oklch(0 0 0 / 18%)";
   // 使用用户选择的背景色，默认深灰色
-  const bg = (data.bgColor as string) || "#2a2a30";
+  const bg = withCanvasFrameAlpha(data.bgColor || (data.originalBgColor as string) || "#2a2a30");
   const labelColor = isDark ? "oklch(0.55 0.01 270)" : "oklch(0.52 0.01 270)";
   const handleColor = isDark ? "oklch(0.65 0.22 290 / 0.80)" : "oklch(0.50 0.20 290 / 0.80)";
   const handleNodeCtxMenu = useCallback((e: React.MouseEvent) => {
@@ -3956,6 +4104,10 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
     window.dispatchEvent(new CustomEvent("asset-click-selection", { detail: { selectedIds: [id] } }));
     window.dispatchEvent(new CustomEvent("visual-node-select-to-front", { detail: { nodeId: id, additive } }));
   }, [id]);
+  const handleCanvasFrameDoubleClick = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
 
   return (
     <div
@@ -3970,6 +4122,7 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
       }}
       onContextMenu={handleNodeCtxMenu}
       onClick={handleCanvasFrameClick}
+      onDoubleClick={handleCanvasFrameDoubleClick}
     >
       {/* 左上角标题 */}
       <div
@@ -4761,6 +4914,39 @@ function getCanvasNodeSize(node: Node): CanvasNodeSize {
   return { width: 260, height: 200 };
 }
 
+function fitEmbeddedAssetInsideFrame(assetNode: Node, frameNode: Node, nextFrameWidth: number, nextFrameHeight: number, scaleX: number, scaleY: number) {
+  const size = getCanvasNodeSize(assetNode);
+  const frameOriginX = frameNode.position.x;
+  const frameOriginY = frameNode.position.y;
+  const relativeX = assetNode.position.x - frameOriginX;
+  const relativeY = assetNode.position.y - frameOriginY;
+  const uniformScale = Math.max(0.01, Math.min(scaleX, scaleY));
+  let nextWidth = Math.max(1, Math.round(size.width * uniformScale));
+  let nextHeight = Math.max(1, Math.round(size.height * uniformScale));
+
+  if (nextWidth > nextFrameWidth || nextHeight > nextFrameHeight) {
+    const containScale = Math.min(nextFrameWidth / nextWidth, nextFrameHeight / nextHeight);
+    nextWidth = Math.max(1, Math.round(nextWidth * containScale));
+    nextHeight = Math.max(1, Math.round(nextHeight * containScale));
+  }
+
+  const maxX = frameOriginX + Math.max(0, nextFrameWidth - nextWidth);
+  const maxY = frameOriginY + Math.max(0, nextFrameHeight - nextHeight);
+  const nextX = Math.min(Math.max(frameOriginX + relativeX * scaleX, frameOriginX), maxX);
+  const nextY = Math.min(Math.max(frameOriginY + relativeY * scaleY, frameOriginY), maxY);
+
+  return {
+    ...assetNode,
+    position: { x: nextX, y: nextY },
+    style: { ...assetNode.style, width: nextWidth, height: nextHeight },
+    data: {
+      ...(assetNode.data as Record<string, unknown>),
+      imgW: nextWidth,
+      imgH: nextHeight,
+    },
+  };
+}
+
 function getAssetNodeImageSource(node: Node): string {
   if (node.type !== "asset") return "";
   const data = node.data as Record<string, unknown>;
@@ -5155,13 +5341,33 @@ function stripLargeCanvasNodePayloads(nodes: Node[]) {
   });
 }
 
+function normalizeCanvasFrameNode(node: Node): Node {
+  if (node.type !== "canvasFrame") return node;
+  const data = node.data as Record<string, unknown>;
+  const rawBg = data.originalBgColor || data.bgColor || (node.style as Record<string, unknown> | undefined)?.background || "#2a2a30";
+  const translucentBg = withCanvasFrameAlpha(rawBg);
+  return {
+    ...node,
+    style: { ...node.style, background: translucentBg },
+    data: {
+      ...data,
+      bgColor: translucentBg,
+      originalBgColor: data.originalBgColor || rawBg,
+    },
+  };
+}
+
+function normalizeCanvasFrameNodes(nodes: Node[]) {
+  return nodes.map(normalizeCanvasFrameNode);
+}
+
 function safeReadCanvasState(projectId: string): PersistedCanvasState | null {
   if (typeof window === "undefined") return null;
   const readRawState = (raw: string | null) => {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as PersistedCanvasState;
     if (!Array.isArray(parsed.nodes) || !Array.isArray(parsed.edges)) return null;
-    const nodes = removePendingImageGenerationNodes(parsed.nodes);
+    const nodes = normalizeCanvasFrameNodes(removePendingImageGenerationNodes(parsed.nodes));
     const nodeIds = new Set(nodes.map(node => node.id));
     const edges = parsed.edges.filter(edge => nodeIds.has(edge.source) && nodeIds.has(edge.target));
     return { ...parsed, nodes, edges };
@@ -5182,7 +5388,7 @@ function safeWriteCanvasState(projectId: string, state: PersistedCanvasState) {
   if (typeof window === "undefined") return;
   const key = canvasStateStorageKey(projectId);
   const sessionKey = canvasStateSessionKey(projectId);
-  const cleanedNodes = removePendingImageGenerationNodes(state.nodes);
+  const cleanedNodes = normalizeCanvasFrameNodes(removePendingImageGenerationNodes(state.nodes));
   const nodeIds = new Set(cleanedNodes.map(node => node.id));
   const cleanedState: PersistedCanvasState = {
     ...state,
@@ -5269,6 +5475,7 @@ function BottomPromptBar({
   isDark,
   projectId,
   activeSkill,
+  onActiveSkillChange,
   referencedAssets,
   onRemoveReference,
   onClearAllReferences,
@@ -5276,6 +5483,7 @@ function BottomPromptBar({
   isDark: boolean;
   projectId: string;
   activeSkill: PendingSkillLoad | null;
+  onActiveSkillChange: (skill: PendingSkillLoad | null) => void;
   referencedAssets: { id: string; title: string; src: string }[];
   onRemoveReference: (id: string) => void;
   onClearAllReferences: () => void;
@@ -5332,7 +5540,7 @@ function BottomPromptBar({
       const visiblePrompt = effectivePrompt;
       const submittedRefs = typeof overridePrompt === "string" ? [] : referencedAssets.map(asset => ({ ...asset }));
       const selectedGenerationModel = autoRunModelRef.current || model;
-      const selectedTextModel = selectedGenerationModel === "auto" ? "auto" : "gpt-5.4-mini";
+      const selectedTextModel = "gpt-5.4-mini";
       autoRunModelRef.current = null;
       setIsSending(true);
       setPrompt("");
@@ -5546,6 +5754,7 @@ function BottomPromptBar({
       </div>
       <div className="flex items-center gap-2 px-3 pb-3" style={{ paddingTop: 8 }}>
         <ModelSelector model={model} onChange={setModel} isDark={isDark} />
+        <SkillPointSelector activeSkill={activeSkill} onChange={onActiveSkillChange} isDark={isDark} />
         <button
           className="flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-md-design)] type-caption hover:opacity-80"
           style={{ color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.55 0.01 270)" }}
@@ -5993,7 +6202,7 @@ function AssetEditPromptBar({
 }) {
   const [prompt, setPrompt] = useState("");
   const [uploadedRefs, setUploadedRefs] = useState<Array<{ id: string; title: string; src: string }>>([]);
-  const [model, setModel] = useState("auto");
+  const [model, setModel] = useState("gpt-image-2");
   const [visible, setVisible] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -6429,7 +6638,7 @@ function TopLeftToolbar({ isDark, onAdd }: { isDark: boolean; onAdd: (type: stri
 
 function ImageGeneratorPopover({ isDark, projectId, onClose }: { isDark: boolean; projectId: string; onClose: () => void }) {
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState("auto");
+  const [model, setModel] = useState("gpt-image-2");
   const [modelOpen, setModelOpen] = useState(false);
   const [ratio, setRatio] = useState("1:1");
   const [count, setCount] = useState(2);
@@ -6777,7 +6986,7 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
     { id: "move",         label: "移动",       icon: <MousePointer2 size={17} /> },
     { id: "annotate",     label: "注释",       icon: <MessageCircle size={17} /> },
     { id: "upload",       label: "上传图片",   icon: <ImagePlus size={17} /> },
-    { id: "smart-canvas", label: "创建画布",   icon: <CreateCanvasIcon size={17} /> },
+    { id: "smart-canvas", label: "创建画板",   icon: <CreateCanvasIcon size={17} /> },
     { id: "shape",        label: "几何形",     icon: <Triangle size={17} /> },
     { id: "draw",         label: "铅笔",       icon: <Pencil size={17} /> },
     { id: "text",         label: "文字",       icon: <Type size={17} /> },
@@ -7062,7 +7271,7 @@ function SaveProjectConfirmDialog({ isDark, project, onCancel, onSave }: {
 const CANVAS_ASSISTANT_IMAGE_MODEL_STORAGE_KEY = "artx:canvas-assistant-image-model";
 const CANVAS_ASSISTANT_TEXT_MODEL_STORAGE_KEY = "artx:canvas-assistant-text-model";
 const CANVAS_ASSISTANT_MODEL_TAB_STORAGE_KEY = "artx:canvas-assistant-model-tab";
-type CanvasAssistantModelTab = "auto" | "image" | "text";
+type CanvasAssistantModelTab = "image" | "text";
 type AssistantComposerSegment =
   | { id: string; type: "text"; text: string }
   | { id: string; type: "image"; asset: { id: string; title: string; src: string } }
@@ -7146,13 +7355,6 @@ function createAssistantAnnotationSegment(annotation: AnnotationReference): Assi
   return { id: `seg-annotation-${annotation.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, type: "annotation", annotation };
 }
 
-const ASSISTANT_AUTO_MODEL = {
-  id: "auto",
-  label: "Auto",
-  color: "oklch(0.68 0.18 285)",
-  description: "根据提示词自动匹配最合适的模型进行生成",
-};
-
 function normalizeAssistantComposerSegments(segments: AssistantComposerSegment[]) {
   const normalized: AssistantComposerSegment[] = [];
   segments.forEach(segment => {
@@ -7230,6 +7432,7 @@ function CanvasAssistantPanel({
   isDark,
   collapsed,
   activeSkill,
+  onActiveSkillChange,
   isAuthenticated,
   onToggleCollapsed,
   onLoginRequest,
@@ -7245,6 +7448,7 @@ function CanvasAssistantPanel({
   isDark: boolean;
   collapsed: boolean;
   activeSkill: PendingSkillLoad | null;
+  onActiveSkillChange: (skill: PendingSkillLoad | null) => void;
   isAuthenticated: boolean;
   onToggleCollapsed: () => void;
   onLoginRequest: () => void;
@@ -7271,19 +7475,19 @@ function CanvasAssistantPanel({
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
   const [netSearchEnabled, setNetSearchEnabled] = useState(false);
   const [assistantModelTab, setAssistantModelTab] = useState<CanvasAssistantModelTab>(() => {
-    if (typeof window === "undefined") return "auto";
+    if (typeof window === "undefined") return "image";
     const stored = window.localStorage.getItem(CANVAS_ASSISTANT_MODEL_TAB_STORAGE_KEY);
-    return stored === "image" || stored === "text" ? stored : "auto";
+    return stored === "text" ? "text" : "image";
   });
   const [assistantImageModelId, setAssistantImageModelId] = useState(() => {
-    if (typeof window === "undefined") return "auto";
+    if (typeof window === "undefined") return "gpt-image-2";
     const stored = window.localStorage.getItem(CANVAS_ASSISTANT_IMAGE_MODEL_STORAGE_KEY) || window.localStorage.getItem("artx:canvas-assistant-model");
-    return IMAGE_AI_MODELS.some(model => model.id === stored) ? stored! : "auto";
+    return IMAGE_AI_MODELS.some(model => model.id === stored) ? stored! : "gpt-image-2";
   });
   const [assistantTextModelId, setAssistantTextModelId] = useState(() => {
-    if (typeof window === "undefined") return "auto";
+    if (typeof window === "undefined") return "gpt-5.4-mini";
     const stored = window.localStorage.getItem(CANVAS_ASSISTANT_TEXT_MODEL_STORAGE_KEY);
-    return TEXT_AI_MODELS.some(model => model.id === stored) ? stored! : "auto";
+    return TEXT_AI_MODELS.some(model => model.id === stored) ? stored! : "gpt-5.4-mini";
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [regeneratingMessageId, setRegeneratingMessageId] = useState<string | null>(null);
@@ -7413,22 +7617,12 @@ function CanvasAssistantPanel({
         : composerImages.length > 0
           ? `引用素材 ${composerImages.length} 个`
           : "";
-  const assistantImageModel = IMAGE_AI_MODELS.find(model => model.id === assistantImageModelId && model.id !== "auto")
-    || IMAGE_AI_MODELS.find(model => model.id !== "auto")
-    || IMAGE_AI_MODELS[0];
-  const assistantTextModel = TEXT_AI_MODELS.find(model => model.id === assistantTextModelId && model.id !== "auto")
-    || TEXT_AI_MODELS.find(model => model.id !== "auto")
-    || TEXT_AI_MODELS[0];
+  const assistantImageModel = IMAGE_AI_MODELS.find(model => model.id === assistantImageModelId) || IMAGE_AI_MODELS[0];
+  const assistantTextModel = TEXT_AI_MODELS.find(model => model.id === assistantTextModelId) || TEXT_AI_MODELS[0];
   const assistantModelOptions = assistantModelTab === "image"
-    ? IMAGE_AI_MODELS.filter(model => model.id !== "auto")
-    : assistantModelTab === "text"
-      ? TEXT_AI_MODELS.filter(model => model.id !== "auto")
-      : [];
-  const assistantModel = assistantModelTab === "auto"
-    ? ASSISTANT_AUTO_MODEL
-    : assistantModelTab === "image"
-      ? assistantImageModel
-      : assistantTextModel;
+    ? IMAGE_AI_MODELS
+    : TEXT_AI_MODELS;
+  const assistantModel = assistantModelTab === "image" ? assistantImageModel : assistantTextModel;
   const activeSkillContext = activeSkill ? buildSkillPromptContext(activeSkill) : "";
 
   const handleReferenceSelectionToggle = useCallback((referenceId: string) => {
@@ -7857,12 +8051,10 @@ function CanvasAssistantPanel({
       ...submittedAnnotations.map((ann, index) => ({ src: ann.src, title: `注释 ${index + 1} · ${ann.title}` })),
     ];
     try {
-      const isAutoAssistantModel = assistantModelTab === "auto";
-
-      const decision = isAutoAssistantModel || assistantModelTab === "image"
+      const decision = assistantModelTab === "image"
         ? await routeCreativeIntent({
             module: "right-ai-assistant",
-            model: isAutoAssistantModel ? "auto" : assistantTextModel.id,
+            model: assistantTextModel.id,
             prompt: routedPrompt,
             referencedAssets: assistantImages,
             recentMessages: messages.slice(-8).map(message => ({ role: message.role, content: message.content })),
@@ -7871,7 +8063,7 @@ function CanvasAssistantPanel({
           })
         : null;
 
-      if (assistantModelTab === "text" && !isAutoAssistantModel) {
+      if (assistantModelTab === "text") {
         const result = await callLLM({
           module: "right-ai-assistant-chat",
           model: assistantTextModel.id,
@@ -7885,25 +8077,6 @@ function CanvasAssistantPanel({
           id: `assistant-${Date.now()}`,
           role: "assistant",
           content: result.text,
-          timestamp: new Date(),
-        }]);
-        return;
-      }
-
-      if (isAutoAssistantModel && decision?.mode === "text") {
-        const result = await callLLM({
-          module: "right-ai-assistant-auto-chat",
-          model: "auto",
-          images: assistantImages,
-          messages: [
-            ...messages.slice(-8).map(message => ({ role: message.role, content: message.content })),
-            { role: "user", content: routedPrompt },
-          ],
-        });
-        setMessages(prev => [...prev, {
-          id: `assistant-${Date.now()}`,
-          role: "assistant",
-          content: result.text || decision.reply || submittedText,
           timestamp: new Date(),
         }]);
         return;
@@ -7973,7 +8146,7 @@ function CanvasAssistantPanel({
       } else {
         const result = await callLLM({
           module: "right-ai-assistant-chat",
-          model: isAutoAssistantModel ? "auto" : assistantTextModel.id,
+          model: assistantTextModel.id,
           images: assistantImages,
           messages: [
             ...messages.slice(-8).map(message => ({ role: message.role, content: message.content })),
@@ -8336,36 +8509,36 @@ function CanvasAssistantPanel({
                 })}
               </div>
               <div className="flex items-center justify-between pt-2">
-                <div ref={assistantModelRef} className="relative flex items-center" style={{ color: sub }}>
-                  <button
-                    type="button"
-                    className="flex items-center gap-1.5 rounded-[var(--radius-lg-design)] px-2.5 py-1.5 type-caption transition-colors active:scale-95"
-                    style={{ background: agentMenuOpen ? hoverBg : "transparent", color: agentMenuOpen ? text : sub }}
-                    onClick={() => { setAgentMenuOpen(v => !v); setCommandMenuOpen(false); }}
-                    onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
-                    onMouseLeave={e => (e.currentTarget.style.background = agentMenuOpen ? hoverBg : "transparent")}
-                    title="选择模型"
-                    aria-label="选择模型"
-                  >
-                    <span>
-                      {assistantModelTab === "auto" ? "Auto" : assistantModelTab === "image" ? "生图" : "对话"} · {assistantModel.label}
-                    </span>
-                    <ChevronDown size={12} style={{ opacity: 0.6, transform: agentMenuOpen ? "rotate(180deg)" : "none", transition: "transform 0.16s ease" }} />
-                  </button>
-                  {agentMenuOpen && (
-                    <div
-                      className="absolute bottom-full left-0 mb-2 overflow-hidden rounded-[var(--radius-lg-design)] shadow-2xl"
-                      style={{
-                        background: isDark ? "oklch(0.16 0.015 270)" : "oklch(0.97 0.004 270)",
-                        border: `1px solid ${border}`,
-                        minWidth: 200,
-                        backdropFilter: "blur(16px)",
-                        zIndex: 130,
-                      }}
+                <div className="flex items-center gap-1.5">
+                  <div ref={assistantModelRef} className="relative flex items-center" style={{ color: sub }}>
+                    <button
+                      type="button"
+                      className="flex items-center gap-1.5 rounded-[var(--radius-lg-design)] px-2.5 py-1.5 type-caption transition-colors active:scale-95"
+                      style={{ background: agentMenuOpen ? hoverBg : "transparent", color: agentMenuOpen ? text : sub }}
+                      onClick={() => { setAgentMenuOpen(v => !v); setCommandMenuOpen(false); }}
+                      onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+                      onMouseLeave={e => (e.currentTarget.style.background = agentMenuOpen ? hoverBg : "transparent")}
+                      title="选择模型"
+                      aria-label="选择模型"
                     >
-                      <div className="grid grid-cols-3 gap-1 p-1.5" style={{ borderBottom: `1px solid ${border}` }}>
+                      <span>
+                        {assistantModelTab === "image" ? "生图" : "对话"} · {assistantModel.label}
+                      </span>
+                      <ChevronDown size={12} style={{ opacity: 0.6, transform: agentMenuOpen ? "rotate(180deg)" : "none", transition: "transform 0.16s ease" }} />
+                    </button>
+                    {agentMenuOpen && (
+                      <div
+                        className="absolute bottom-full left-0 mb-2 overflow-hidden rounded-[var(--radius-lg-design)] shadow-2xl"
+                        style={{
+                          background: isDark ? "oklch(0.16 0.015 270)" : "oklch(0.97 0.004 270)",
+                          border: `1px solid ${border}`,
+                          minWidth: 200,
+                          backdropFilter: "blur(16px)",
+                          zIndex: 130,
+                        }}
+                      >
+                      <div className="grid grid-cols-2 gap-1 p-1.5" style={{ borderBottom: `1px solid ${border}` }}>
                         {([
-                          { id: "auto" as const, label: "Auto" },
                           { id: "image" as const, label: "生图" },
                           { id: "text" as const, label: "对话" },
                         ]).map(tab => (
@@ -8384,17 +8557,7 @@ function CanvasAssistantPanel({
                           </button>
                         ))}
                       </div>
-                      {assistantModelTab === "auto" ? (
-                        <div className="flex items-start gap-2.5 px-3 py-3">
-                          <div className="mt-0.5 h-4 w-4 rounded-[var(--radius-pill)]" style={{ background: ASSISTANT_AUTO_MODEL.color }} />
-                          <div className="min-w-0">
-                            <p className="type-caption" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>Auto</p>
-                            <p className="mt-1 leading-4" style={{ color: sub, fontSize: 10, letterSpacing: 0 }}>
-                              根据用户输入自动判断使用对话模型或图片生成模型。
-                            </p>
-                          </div>
-                        </div>
-                      ) : assistantModelOptions.map(model => (
+                      {assistantModelOptions.map(model => (
                           <button
                             key={model.id}
                             type="button"
@@ -8425,8 +8588,10 @@ function CanvasAssistantPanel({
                             )}
                           </button>
                         ))}
-                    </div>
-                  )}
+                      </div>
+                    )}
+                  </div>
+                  <SkillPointSelector activeSkill={activeSkill} onChange={onActiveSkillChange} isDark={isDark} />
                 </div>
                 <div className="flex items-center gap-1.5">
                   <button
@@ -8595,7 +8760,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const viewport = useViewport();
   const restoredCanvasState = useMemo(() => safeReadCanvasState(projectId), [projectId]);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(restoredCanvasState?.nodes || initialNodes);
+  const [nodes, setNodes, onNodesChange] = useNodesState(normalizeCanvasFrameNodes(restoredCanvasState?.nodes || initialNodes));
   const [edges, setEdges, onEdgesChange] = useEdgesState(restoredCanvasState?.edges || initialEdges);
   const [canvasRestoreTick, setCanvasRestoreTick] = useState(0);
   // 始终跟踪最新的 nodes/edges，供 pushHistory 读取（避免闭包捕获旧值）
@@ -8603,33 +8768,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const edgesRef = useRef(edges);
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
   useEffect(() => { edgesRef.current = edges; }, [edges]);
-  useEffect(() => {
-    const legacyEmbeddedNodes = nodes.filter(node =>
-      node.type === "asset" &&
-      Boolean((node.data as Record<string, unknown>).embeddedInFrame) &&
-      Boolean(node.parentId)
-    );
-    if (legacyEmbeddedNodes.length === 0) return;
-    setNodes(nds => nds.map(node => {
-      if (
-        node.type !== "asset" ||
-        !node.parentId ||
-        !(node.data as Record<string, unknown>).embeddedInFrame
-      ) {
-        return node;
-      }
-      const frame = nds.find(item => item.id === node.parentId && item.type === "canvasFrame");
-      const absolutePosition = frame
-        ? { x: frame.position.x + node.position.x, y: frame.position.y + node.position.y }
-        : node.position;
-      return {
-        ...node,
-        position: absolutePosition,
-        parentId: undefined,
-        extent: undefined,
-      };
-    }));
-  }, [nodes, setNodes]);
   useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ resolve?: (assets: ImageGeneratorReferenceAsset[]) => void }>).detail;
@@ -8707,7 +8845,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
   useEffect(() => {
     const saved = safeReadCanvasState(projectId);
-    const restoredNodes = saved?.nodes || initialNodes;
+    const restoredNodes = normalizeCanvasFrameNodes(saved?.nodes || initialNodes);
     const restoredEdges = saved?.edges || initialEdges;
     const updatedAt = saved?.updatedAt || formatProjectHistoryTimestamp();
     let cancelled = false;
@@ -8970,7 +9108,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     return () => window.removeEventListener("workspace-upload-request", handleWorkspaceUploadRequest);
   }, []);
 
-  // ── 创建画布工具：拖拽绘制矩形状态 ──
+  // ── 创建画板工具：拖拽绘制矩形状态 ──
   type DrawRect = { startX: number; startY: number; endX: number; endY: number };
   const [drawingRect, setDrawingRect] = useState<DrawRect | null>(null);
   const [pendingRect, setPendingRect] = useState<DrawRect | null>(null); // 松开鼠标后待确认
@@ -9280,7 +9418,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setEdges(cloneEdgesForHistory(previous.edges));
     setSelectedNodeIds(previous.nodes.filter(n => n.selected).map(n => n.id));
     setNodeCtxMenu(null);
-    // 如果当前工具是「创建画布」，保持工具不变，用户可直接继续拖拽
+    // 如果当前工具是「创建画板」，保持工具不变，用户可直接继续拖拽
     // （activeToolMode 通过闭包读取，无需额外处理）
     // 用双帧 rAF 确保 ReactFlow 内部的所有 onNodesChange 均在屏蔽窗口内完成
     requestAnimationFrame(() => requestAnimationFrame(() => { isRestoringRef.current = false; }));
@@ -9302,14 +9440,28 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       if (!detail?.id || isRestoringRef.current) return;
       // 尺寸调整前先入历史（传入当前快照）
       pushHistory(nodesRef.current, edgesRef.current);
-      setNodes(nds => nds.map(n => {
-        if (n.id !== detail.id || n.type !== "canvasFrame") return n;
-        return {
-          ...n,
-          style: { ...n.style, width: detail.width, height: detail.height },
-          data: { ...(n.data as Record<string, unknown>), width: detail.width, height: detail.height },
+      setNodes(nds => {
+        const frame = nds.find(n => n.id === detail.id && n.type === "canvasFrame");
+        if (!frame) return nds;
+        const previousSize = getCanvasNodeSize(frame);
+        const scaleX = detail.width / Math.max(1, previousSize.width);
+        const scaleY = detail.height / Math.max(1, previousSize.height);
+        const normalizedFrame = normalizeCanvasFrameNode(frame);
+        const normalizedData = normalizedFrame.data as Record<string, unknown>;
+        const resizedFrame = {
+          ...normalizedFrame,
+          style: { ...normalizedFrame.style, width: detail.width, height: detail.height },
+          data: { ...normalizedData, width: detail.width, height: detail.height },
         };
-      }));
+        return nds.map(n => {
+          if (n.id === detail.id) return resizedFrame;
+          const data = n.data as Record<string, unknown>;
+          if (n.type === "asset" && data.embeddedInFrame === detail.id) {
+            return fitEmbeddedAssetInsideFrame(n, frame, detail.width, detail.height, scaleX, scaleY);
+          }
+          return n;
+        });
+      });
     };
     window.addEventListener("canvas-frame-resize", handler);
     return () => window.removeEventListener("canvas-frame-resize", handler);
@@ -10267,7 +10419,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     clearInactiveAssetCommands(nextSelectedIds);
     const selectedVisualIds = new Set(
       selectedNodes
-        .filter(node => node.type === "asset" || node.type === "canvasFrame")
+        .filter(node => node.type === "asset")
         .map(node => node.id)
     );
     if (selectedVisualIds.size > 0) {
@@ -10340,7 +10492,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         ? { ...n, data: { ...n.data, anchorEditMode: false } }
         : n
     ));
-    // 创建画布模式：点击不触发 paneClick 的其他逻辑
+    // 创建画板模式：点击不触发 paneClick 的其他逻辑
     if (activeToolMode === "smart-canvas") return;
     // 点击画布空白处关闭智能优化输入框
     if (editAsset) {
@@ -10615,7 +10767,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     return () => window.removeEventListener("keydown", handler);
   }, [activeToolMode]);
 
-  // ── 创建画布：鼠标事件处理 ──
+  // ── 创建画板：鼠标事件处理 ──
   const handleCreateCanvasMouseDown = useCallback((e: React.MouseEvent) => {
     const isCanvas = activeToolMode === "smart-canvas";
     const isShape = activeToolMode.startsWith("shape-draw:");
@@ -10708,7 +10860,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       return;
     }
 
-    // 创建画布：显示弹窗
+    // 创建画板：显示弹窗
     setPendingRect(dr);
     setCanvasInputW(String(Math.round(rawW / viewport.zoom)));
     setCanvasInputH(String(Math.round(rawH / viewport.zoom)));
@@ -10725,7 +10877,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     // 将屏幕坐标转换为 flow 坐标
     const flowPos = screenToFlowPosition({ x: (containerRef.current?.getBoundingClientRect().left || 0) + minX, y: (containerRef.current?.getBoundingClientRect().top || 0) + minY });
     const id = `canvas-frame-${Date.now()}`;
-    const bgColor = canvasBgColor;
+    const originalBgColor = canvasBgColor;
+    const bgColor = withCanvasFrameAlpha(originalBgColor);
     setNodes(nds => {
       // 在 updater 内调用，传入 prev 快照，确保记录的是添加节点前的真实状态
       pushHistory(nds, edgesRef.current);
@@ -10734,7 +10887,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         type: "canvasFrame",
         position: flowPos,
         style: { width: w, height: h, background: bgColor },
-        data: { id, title, width: w, height: h, bgColor, socialPresetId: selectedSocialPreset?.id },
+        data: { id, title, width: w, height: h, bgColor, originalBgColor, socialPresetId: selectedSocialPreset?.id },
       }];
     });
     setPendingRect(null);
@@ -10742,8 +10895,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setCanvasInputH("");
     setCanvasNameInput("");
     setCanvasSocialPresetId("");
-    // 保持当前工具为「创建画布」，用户可继续拖拽创建新画布
-    toast("画布已创建，可继续拖拽创建", { description: `${title} · ${w} × ${h} px` });
+    // 保持当前工具为「创建画板」，用户可继续拖拽创建新画板
+    toast("画板已创建，可继续拖拽创建", { description: `${title} · ${w} × ${h} px` });
   }, [canvasBgColor, canvasInputH, canvasInputW, canvasNameInput, canvasSocialPresetId, pendingRect, pushHistory, screenToFlowPosition, setNodes]);
 
   const handleCreateCanvasCancel = useCallback(() => {
@@ -12639,6 +12792,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         isDark={isDark}
         collapsed={isAssistantCollapsed}
         activeSkill={activeSkill}
+        onActiveSkillChange={setActiveSkill}
         isAuthenticated={isAuthenticated}
         onLoginRequest={openLoginModal}
         onToggleCollapsed={() => setIsAssistantCollapsed(value => !value)}
@@ -13037,7 +13191,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         </div>
       )}
 
-      {/* 创建画布：拖拽矩形预览 */}
+      {/* 创建画板：拖拽矩形预览 */}
       {drawingRect && (() => {
         const rx = Math.min(drawingRect.startX, drawingRect.endX);
         const ry = Math.min(drawingRect.startY, drawingRect.endY);
@@ -13128,7 +13282,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         );
       })()}
 
-      {/* 创建画布：宽高输入弹窗 */}
+      {/* 创建画板：宽高输入弹窗 */}
       {pendingRect && (() => {
         const rx = Math.min(pendingRect.startX, pendingRect.endX);
         const ry = Math.min(pendingRect.startY, pendingRect.endY);
@@ -13197,10 +13351,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             >
               {/* 内容区——可滚动 */}
               <div style={{ flex: 1, overflowY: "auto", padding: "14px 14px 0", minHeight: 0 }}>
-              <p style={{ color: text, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>设置画布</p>
+              <p style={{ color: text, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>设置画板</p>
 
               <div style={{ marginBottom: 10 }}>
-                <p style={{ color: sub, fontSize: 10, marginBottom: 4, letterSpacing: "0.04em" }}>画布名称</p>
+                <p style={{ color: sub, fontSize: 10, marginBottom: 4, letterSpacing: "0.04em" }}>画板名称</p>
                 <input
                   autoFocus
                   type="text"
