@@ -16,8 +16,6 @@ export type ModelRoute = {
 const IMAGE_MODELS = new Set([
   "gpt-image-2",
   "gpt-image-2-4k",
-  "gemini-3.1-flash-image",
-  "gemini-3.1-flash-image-preview",
 ]);
 
 const TEXT_MODELS = new Set([
@@ -32,8 +30,7 @@ function normalizeModelName(model?: string) {
   if (!value) return "";
   if (value.toLowerCase() === "auto") return "";
   if (value === "IMAGE2" || value === "image2") return "gpt-image-2";
-  if (value === "nano-banana") return "gemini-3.1-flash-image";
-  if (value === "nano-banana-lite") return "gemini-3.1-flash-image-preview";
+  if (value === "nano-banana" || value === "nano-banana-lite") return "gpt-image-2";
   return value;
 }
 

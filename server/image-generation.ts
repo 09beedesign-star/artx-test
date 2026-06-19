@@ -187,14 +187,9 @@ function getPicWishConfig() {
 
 const supportedImageModels = new Set([
   "gpt-image-2",
-  "gemini-3.1-flash-image",
-  "gemini-3.1-flash-image-preview",
 ]);
 
-const chatCompatibleImageModels = new Set([
-  "gemini-3.1-flash-image",
-  "gemini-3.1-flash-image-preview",
-]);
+const chatCompatibleImageModels = new Set<string>();
 
 function buildPrompt(input: ImageGenerateInput) {
   const stylePrefix = input.style ? `风格：${input.style}\n` : "";
@@ -1500,7 +1495,7 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
   const referenceImages = input.images?.filter(image => image.src?.trim()) || [];
   const requestedModel = input.model && supportedImageModels.has(input.model) ? input.model : model;
   const routedModel = shouldUseReferenceImageChatPath(requestedModel, referenceImages)
-    ? (isChatCompatibleImageModel(requestedModel) ? requestedModel : "gemini-3.1-flash-image")
+    ? (isChatCompatibleImageModel(requestedModel) ? requestedModel : "gpt-image-2")
     : requestedModel;
   const requestBody = {
     model: routedModel,
