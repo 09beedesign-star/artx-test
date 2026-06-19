@@ -4652,6 +4652,7 @@ type ImageGeneratorPayload = {
   titleBase?: string;
   sourceBackgroundSrc?: string;
   referencedAssets?: Array<{ src: string; title?: string }>;
+  skillId?: string;
 };
 
 type ImageGeneratorReferenceAsset = {
@@ -4705,6 +4706,22 @@ function getImageDisplaySizeForRatio(ratio: string): { w: number; h: number } {
     "21:9": { w: 360, h: 154 },
   };
   return ratioSize[ratio] || ratioSize["1:1"];
+}
+
+function buildSkillAppliedImagePrompt(input: {
+  activeSkill: PendingSkillLoad | null;
+  skillContext: string;
+  userPrompt: string;
+  imagePrompt: string;
+}) {
+  const imagePrompt = input.imagePrompt.trim();
+  if (!input.activeSkill) return imagePrompt;
+  return [
+    input.skillContext,
+    `用户原始提示：${input.userPrompt.trim() || "请按当前 Skill 能力生成视觉内容。"}`,
+    "最终生图要求：必须优先遵守上方 Skill 的能力说明、执行规则、尺寸和关键词，再结合用户原始提示完成图片生成。",
+    imagePrompt && imagePrompt !== input.userPrompt.trim() ? `路由优化后的图像提示：${imagePrompt}` : "",
+  ].filter(Boolean).join("\n\n");
 }
 
 function getCanvasNodeSize(node: Node): CanvasNodeSize {
@@ -5332,16 +5349,23 @@ function BottomPromptBar({
         });
         if (decision.mode === "image") {
           const imagePrompt = decision.imagePrompt?.trim() || submittedPrompt || "基于引用素材生成一张视觉图像。";
+          const finalImagePrompt = buildSkillAppliedImagePrompt({
+            activeSkill,
+            skillContext,
+            userPrompt: visiblePrompt,
+            imagePrompt,
+          });
           const generationId = `bottom-prompt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
           const payload: ImageGeneratorPayload = {
             projectId,
-            prompt: imagePrompt,
+            prompt: finalImagePrompt,
             model: selectedGenerationModel,
             ratio: "1:1",
             count: 1,
             style: "智能判断",
             referencesEnabled: submittedRefs.length > 0,
             generationId,
+            skillId: activeSkill?.id,
           };
           dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
           toast("AI 判断为生成图片", { description: imagePrompt.slice(0, 90) });
@@ -7899,6 +7923,12 @@ function CanvasAssistantPanel({
         }]);
       } else if (decision?.mode === "image" || hasAnnotationReferences) {
         const imagePrompt = decision?.imagePrompt?.trim() || routedPrompt;
+        const finalImagePrompt = buildSkillAppliedImagePrompt({
+          activeSkill,
+          skillContext: activeSkillContext,
+          userPrompt: rawSubmittedComposerPrompt,
+          imagePrompt,
+        });
         const generationId = `right-assistant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         const shouldEditTargetReference = assistantImages.length >= 2;
         const targetReference = shouldEditTargetReference ? assistantImages[assistantImages.length - 1] : undefined;
@@ -7907,12 +7937,12 @@ function CanvasAssistantPanel({
           projectId,
           prompt: shouldEditTargetReference
             ? [
-                imagePrompt,
+                finalImagePrompt,
                 "Use the last referenced image as the target canvas. Preserve the target person's identity, pose, composition, background, lighting, camera angle, and aspect ratio.",
                 "Use the earlier referenced images only as visual references for the requested object, accessory, texture, pattern, color, or detail.",
                 "Do not generate a new unrelated person or scene.",
               ].join("\n")
-            : imagePrompt,
+            : finalImagePrompt,
           model: shouldEditTargetReference ? "gpt-image-2" : assistantImageModel.id,
           ratio: "1:1",
           count: 1,
@@ -7921,6 +7951,7 @@ function CanvasAssistantPanel({
           referencedAssets: assistantImages,
           generationId,
           sourceBackgroundSrc: targetReference?.src || assistantImages[0]?.src,
+          skillId: activeSkill?.id,
         };
         dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
         const result = shouldEditTargetReference && targetReference
@@ -7929,6 +7960,7 @@ function CanvasAssistantPanel({
               model: "gpt-image-2",
               prompt: payload.prompt,
               referencedAssets: sourceReferences,
+              skillId: activeSkill?.id,
             })
           : await generateAiImages(payload);
         dispatchImageGenerationTask({ ...payload, status: "completed", images: result.images }, projectId);
