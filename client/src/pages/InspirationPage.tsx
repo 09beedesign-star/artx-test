@@ -6,8 +6,9 @@ import { useLocation } from "wouter";
 import TopBar from "@/components/workspace/TopBar";
 import promptCsv from "@/data/ai_image_prompt_rank_50.csv?raw";
 import { useTheme } from "@/contexts/ThemeContext";
-import { Sparkles, X } from "lucide-react";
+import { Copy, Sparkles, X } from "lucide-react";
 import { BG_GLOW } from "@/lib/workspace-data";
+import { toast } from "sonner";
 
 type PromptItem = {
   rank: number;
@@ -139,6 +140,15 @@ export default function InspirationPage() {
     if (nextField !== ALL_FIELDS) params.set("field", nextField);
     const suffix = params.toString();
     navigate(`/inspiration${suffix ? `?${suffix}` : ""}`);
+  };
+
+  const handleCopyPrompt = async (prompt: string) => {
+    try {
+      await navigator.clipboard.writeText(prompt);
+      toast("提示词已复制");
+    } catch {
+      toast("复制失败", { description: "请手动选中提示词复制" });
+    }
   };
 
   return (
@@ -309,13 +319,28 @@ export default function InspirationPage() {
                   </div>
                 </div>
               </div>
-              <div className="p-4">
+              <div className="relative p-4 pb-16">
                 <p className="type-caption leading-5" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>{selectedItem.description}</p>
                 <div className="mt-4 rounded-[var(--radius-md-design)] p-4" style={{ background: isDark ? "oklch(0 0 0 / 0.18)" : "oklch(0 0 0 / 0.035)", border: `1px solid ${border}` }}>
                   <p className="whitespace-pre-wrap type-caption leading-6" style={{ color: text, letterSpacing: 0, textTransform: "none" }}>
                     {selectedItem.prompt}
                   </p>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => handleCopyPrompt(selectedItem.prompt)}
+                  className="absolute bottom-4 right-4 flex h-9 w-9 items-center justify-center rounded-[var(--radius-md-design)] transition-all hover:-translate-y-0.5 active:scale-95"
+                  style={{
+                    background: isDark ? "oklch(1 0 0 / 7%)" : "oklch(1 0 0 / 0.90)",
+                    border: `1px solid ${border}`,
+                    boxShadow: isDark ? "0 10px 24px rgba(0,0,0,0.22)" : "0 10px 24px rgba(20,20,30,0.10)",
+                    color: "oklch(0.74 0.20 290)",
+                  }}
+                  aria-label="复制提示词"
+                  title="复制提示词"
+                >
+                  <Copy size={15} />
+                </button>
               </div>
             </div>
           </section>
