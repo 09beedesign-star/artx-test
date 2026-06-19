@@ -11947,10 +11947,29 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         style: "HD 高清结果",
         nextW: sourceSize.width,
         nextH: sourceSize.height,
-        run: async () => enhanceImageToHd({
-          imageSrc,
-          level: "4k",
-        }),
+        run: async () => {
+          try {
+            return await enhanceImageToHd({
+              imageSrc,
+              level: "4k",
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            const shouldFallbackToImageEdit = /Cannot POST|non-JSON|网页内容|404|not found|未正确连接/i.test(message);
+            if (!shouldFallbackToImageEdit) throw error;
+            return editImageWithPrompt({
+              imageSrc,
+              model: "gpt-image-2",
+              prompt: [
+                "Enhance this image to a crisp 4K-quality result.",
+                "Preserve the original composition, aspect ratio, subject identity, colors, layout, and all visible content.",
+                "Do not add new objects, do not crop, do not change the design. Improve clarity, edge detail, texture fidelity, and perceived resolution only.",
+              ].join("\n"),
+              targetWidth: sourceSize.width,
+              targetHeight: sourceSize.height,
+            });
+          }
+        },
       });
       return;
     }
