@@ -21,6 +21,17 @@ type PromptItem = {
 };
 
 const ALL_FIELDS = "全部分类";
+const PROMPT_IMAGE_VERSION = import.meta.env.VITE_COMMIT_SHA || "local";
+
+function resolvePromptImageUrl(path: string) {
+  if (!path) return "";
+  if (/^(https?:|data:|blob:)/.test(path)) return path;
+  const base = import.meta.env.BASE_URL || "/";
+  const normalizedBase = base.endsWith("/") ? base : `${base}/`;
+  const normalizedPath = path.replace(/^\/+/, "");
+  const separator = normalizedPath.includes("?") ? "&" : "?";
+  return `${normalizedBase}${normalizedPath}${separator}v=${encodeURIComponent(PROMPT_IMAGE_VERSION)}`;
+}
 
 function parseCsv(csv: string) {
   const rows: string[][] = [];
@@ -82,7 +93,7 @@ function loadPromptItems(csv: string): PromptItem[] {
       title: get(record, "title"),
       description: get(record, "description"),
       prompt: get(record, "prompt"),
-      imageUrl: get(record, "image_url"),
+      imageUrl: resolvePromptImageUrl(get(record, "image_url")),
       author: get(record, "author"),
     }))
     .filter((item) => item.title && item.imageUrl);
