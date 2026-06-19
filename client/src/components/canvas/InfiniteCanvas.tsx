@@ -7347,6 +7347,11 @@ function SaveProjectConfirmDialog({ isDark, project, onCancel, onSave }: {
 const CANVAS_ASSISTANT_IMAGE_MODEL_STORAGE_KEY = "artx:canvas-assistant-image-model";
 const CANVAS_ASSISTANT_TEXT_MODEL_STORAGE_KEY = "artx:canvas-assistant-text-model";
 const CANVAS_ASSISTANT_MODEL_TAB_STORAGE_KEY = "artx:canvas-assistant-model-tab";
+const CANVAS_ASSISTANT_WIDTH_STORAGE_KEY = "artx:canvas-assistant-width";
+const CANVAS_ASSISTANT_DEFAULT_WIDTH = 372;
+const CANVAS_ASSISTANT_MIN_WIDTH = 280;
+const CANVAS_ASSISTANT_MAX_WIDTH = 560;
+const CANVAS_ASSISTANT_COLLAPSED_WIDTH = 112;
 type CanvasAssistantModelTab = "image" | "text";
 type AssistantComposerSegment =
   | { id: string; type: "text"; text: string }
@@ -7519,6 +7524,8 @@ function CanvasAssistantPanel({
   onMergeReferences,
   selectedCount,
   helpPromptNonce,
+  width,
+  onWidthChange,
 }: {
   projectId: string;
   isDark: boolean;
@@ -7535,6 +7542,8 @@ function CanvasAssistantPanel({
   onMergeReferences: (assets: ImageGeneratorReferenceAsset[]) => void;
   selectedCount: number;
   helpPromptNonce: number;
+  width: number;
+  onWidthChange: (width: number) => void;
 }) {
   const [, navigate] = useLocation();
   const [inputFocused, setInputFocused] = useState(false);
@@ -7547,8 +7556,11 @@ function CanvasAssistantPanel({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const commandMenuRef = useRef<HTMLDivElement>(null);
   const assistantModelRef = useRef<HTMLDivElement>(null);
+  const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const [commandMenuOpen, setCommandMenuOpen] = useState(false);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
+  const [resizerHover, setResizerHover] = useState(false);
+  const [resizingPanel, setResizingPanel] = useState(false);
   const [netSearchEnabled, setNetSearchEnabled] = useState(false);
   const [assistantModelTab, setAssistantModelTab] = useState<CanvasAssistantModelTab>(() => {
     if (typeof window === "undefined") return "image";
@@ -7587,8 +7599,8 @@ function CanvasAssistantPanel({
   const hoverBg = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 5%)";
   const activeGlow = "0 0 0 3px rgba(197,237,71,0.14), 0 18px 44px rgba(0,0,0,0.24)";
   const inputShadow = "0 16px 42px rgba(210,214,224,0.10), 0 0 0 1px rgba(210,214,224,0.10)";
-  const panelWidth = "clamp(280px, 32vw, 372px)";
-  const collapsedPeekWidth = 112;
+  const panelWidth = collapsed ? CANVAS_ASSISTANT_COLLAPSED_WIDTH : width;
+  const dividerActive = resizerHover || resizingPanel;
   const handleCreateCanvasProject = () => {
     const project = createWorkspaceHistoryProject();
     toast("已新建画布", { description: project.title });
@@ -8063,6 +8075,42 @@ function CanvasAssistantPanel({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, isSubmitting, collapsed]);
 
+  const handleResizePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (collapsed || event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    resizeStateRef.current = { startX: event.clientX, startWidth: width };
+    setResizingPanel(true);
+
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "ew-resize";
+    document.body.style.userSelect = "none";
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const state = resizeStateRef.current;
+      if (!state) return;
+      const viewportMax = Math.max(CANVAS_ASSISTANT_MIN_WIDTH, window.innerWidth - 160);
+      const maxWidth = Math.min(CANVAS_ASSISTANT_MAX_WIDTH, viewportMax);
+      const nextWidth = Math.round(Math.min(maxWidth, Math.max(CANVAS_ASSISTANT_MIN_WIDTH, state.startWidth + state.startX - moveEvent.clientX)));
+      onWidthChange(nextWidth);
+    };
+
+    const handlePointerUp = () => {
+      resizeStateRef.current = null;
+      setResizingPanel(false);
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
+  }, [collapsed, onWidthChange, width]);
+
   const iconButtonStyle = (active = false): React.CSSProperties => ({
     width: 28,
     height: 28,
@@ -8256,13 +8304,45 @@ function CanvasAssistantPanel({
         width: panelWidth,
         maxWidth: "calc(100vw - 48px)",
         background: bg,
-        borderLeft: collapsed ? "none" : `1px solid ${border}`,
+        borderLeft: collapsed ? "none" : `1px solid ${dividerActive ? "rgba(147,108,255,0.62)" : border}`,
         zIndex: 120,
         backdropFilter: "blur(22px)",
-        transform: collapsed ? `translateX(calc(100% - ${collapsedPeekWidth}px))` : "translateX(0)",
+        transform: collapsed ? `translateX(calc(100% - ${CANVAS_ASSISTANT_COLLAPSED_WIDTH}px))` : "translateX(0)",
         boxShadow: collapsed ? "none" : isDark ? "-12px 0 40px rgba(0,0,0,0.18)" : "-12px 0 36px rgba(30,35,55,0.08)",
       }}
     >
+      {!collapsed && (
+        <div
+          className="absolute inset-y-0 left-0 nodrag nopan"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="调整对话框宽度"
+          onPointerDown={handleResizePointerDown}
+          onMouseEnter={() => setResizerHover(true)}
+          onMouseLeave={() => setResizerHover(false)}
+          style={{
+            width: 12,
+            transform: "translateX(-6px)",
+            cursor: "ew-resize",
+            zIndex: 4,
+            touchAction: "none",
+          }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              left: 5,
+              top: 0,
+              width: 2,
+              height: "100%",
+              borderRadius: 2,
+              background: dividerActive ? "#936CFF" : "transparent",
+              boxShadow: dividerActive ? "0 0 14px rgba(147,108,255,0.42)" : "none",
+              transition: resizingPanel ? "none" : "background 0.16s ease, box-shadow 0.16s ease",
+            }}
+          />
+        </div>
+      )}
       <div
         className="h-14 flex items-center px-4"
         style={{ gap: 12, justifyContent: collapsed ? "flex-start" : "flex-end" }}
@@ -8878,6 +8958,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const pasteEventSeenAtRef = useRef(0);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [isAssistantCollapsed, setIsAssistantCollapsed] = useState(false);
+  const [assistantWidth, setAssistantWidth] = useState(() => {
+    if (typeof window === "undefined") return CANVAS_ASSISTANT_DEFAULT_WIDTH;
+    const stored = Number(window.localStorage.getItem(CANVAS_ASSISTANT_WIDTH_STORAGE_KEY));
+    if (!Number.isFinite(stored)) return CANVAS_ASSISTANT_DEFAULT_WIDTH;
+    return Math.min(CANVAS_ASSISTANT_MAX_WIDTH, Math.max(CANVAS_ASSISTANT_MIN_WIDTH, Math.round(stored)));
+  });
   const [helpPromptNonce, setHelpPromptNonce] = useState(0);
   const [activeSkill, setActiveSkill] = useState<PendingSkillLoad | null>(null);
   const [imageGeneratorModalOpen, setImageGeneratorModalOpen] = useState(false);
@@ -9037,6 +9123,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     }
     return () => window.removeEventListener("artx:activate-help-prompt", handleHelpPrompt);
   }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(CANVAS_ASSISTANT_WIDTH_STORAGE_KEY, String(assistantWidth));
+    } catch {
+      /* ignore storage quota errors */
+    }
+  }, [assistantWidth]);
   const isRestoringRef = useRef(false); // undo 过程中屏蔽副作用
   const isAssetResizingRef = useRef(false);
   // ── Local file drag-drop state ──
@@ -12935,7 +13029,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         defaultEdgeOptions={{ type: "tapnow" }}
         connectionLineStyle={{ stroke: "rgba(255,255,255,0.5)", strokeWidth: 2.5 }}
         connectionLineType={"bezier" as any}
-        style={{ background: canvasBg, width: isAssistantCollapsed ? "calc(100% - 112px)" : "calc(100% - clamp(280px, 32vw, 372px))" }}
+        style={{ background: canvasBg, width: `calc(100% - ${isAssistantCollapsed ? CANVAS_ASSISTANT_COLLAPSED_WIDTH : assistantWidth}px)` }}
         proOptions={{ hideAttribution: true }}
         selectionOnDrag
         selectionMode={SelectionMode.Partial}
@@ -13066,6 +13160,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         onMergeReferences={mergeReferencedAssets}
         selectedCount={selectedNodeIds.length}
         helpPromptNonce={helpPromptNonce}
+        width={assistantWidth}
+        onWidthChange={setAssistantWidth}
       />
 
       {selectedImageNodeIds.length === 1 && selectedFrameNodeIds.length === 0 && !multiVisualSelectionActive && (
