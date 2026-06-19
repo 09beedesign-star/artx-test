@@ -66,6 +66,26 @@ function CreateCanvasIcon({ size = 17 }: { size?: number }) {
     </svg>
   );
 }
+
+function HdIcon({ size = 15 }: { size?: number }) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: size + 5,
+        height: size,
+        fontSize: Math.max(9, Math.round(size * 0.62)),
+        fontWeight: 800,
+        lineHeight: 1,
+        letterSpacing: 0,
+      }}
+    >
+      HD
+    </span>
+  );
+}
 import { useLocation } from "wouter";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
@@ -74,7 +94,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import CropEditor from "@/components/canvas/CropEditor";
 import RotateEditor from "@/components/canvas/RotateEditor";
-import { callLLM, editImageWithPrompt, eraseImageObjects, expandImageWithMask, generateImages as generateAiImages, removeImageBackground, requestAiAuth, searchReferenceImages, type ReferenceImageResult } from "@/lib/ai";
+import { callLLM, editImageWithPrompt, enhanceImageToHd, eraseImageObjects, expandImageWithMask, generateImages as generateAiImages, removeImageBackground, requestAiAuth, searchReferenceImages, type ReferenceImageResult } from "@/lib/ai";
 import { routeCreativeIntent } from "@/lib/ai-intent";
 import { createWorkspaceHistoryProject, touchWorkspaceProjectHistory, updateWorkspaceProjectHistory } from "@/lib/project-history";
 import { buildSkillPromptContext, PENDING_SKILL_LOAD_KEY, type PendingSkillLoad } from "@/lib/skill-store";
@@ -1042,7 +1062,7 @@ function AssetFloatingToolbar({ isDark, position, onAction }: {
   const moreSub = isDark ? "rgba(255,255,255,0.48)" : "rgba(28,28,40,0.45)";
   const tools = [
     { icon: <BadgeCheck size={15} />, label: "快捷编辑", action: "quick-edit" },
-    { icon: <ScanSearch size={15} />, label: "放大", action: "upscale" },
+    { icon: <HdIcon size={15} />, label: "HD 高清", action: "upscale" },
     { icon: <ImageOff size={15} />, label: "去背景", action: "remove-background" },
     { icon: <Crop size={15} />, label: "裁切", action: "crop" },
     { icon: <Eraser size={15} />, label: "橡皮工具", action: "erase" },
@@ -2697,7 +2717,16 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
         return { ...n, selected: sel };
       });
       window.dispatchEvent(new CustomEvent("asset-click-selection", { detail: { selectedIds: nextSelectedIds } }));
-      return raiseVisualNodesWithEmbeddedAssets(nextNodes, nextSelectedIds);
+      const selectedVisualIds = new Set(nextSelectedIds.filter(id => {
+        const node = nextNodes.find(item => item.id === id);
+        return node?.type === "asset" || node?.type === "canvasFrame";
+      }));
+      if (selectedVisualIds.size === 0) return nextNodes;
+      const topZ = Math.max(0, ...nextNodes.map(n => typeof n.zIndex === "number" ? n.zIndex : 0)) + 1;
+      return [
+        ...nextNodes.filter(n => !selectedVisualIds.has(n.id)),
+        ...nextNodes.filter(n => selectedVisualIds.has(n.id)).map(n => ({ ...n, zIndex: topZ })),
+      ];
     });
     window.dispatchEvent(new CustomEvent("asset-reference", {
       detail: { id: nodeId, title: displayTitle, src: displaySrc, ctrlKey: additive }
@@ -3932,7 +3961,7 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
     <div
       style={{
         width: w, height: h,
-        background: "transparent",
+        background: bg,
         border: `1.5px solid ${borderColor}`,
         borderRadius: 8,
         boxSizing: "border-box",
@@ -3941,20 +3970,7 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
       }}
       onContextMenu={handleNodeCtxMenu}
       onClick={handleCanvasFrameClick}
-      onDoubleClick={handleCanvasFrameClick}
     >
-      <div
-        aria-hidden="true"
-        style={{
-          position: "absolute",
-          inset: 0,
-          background: bg,
-          borderRadius: 6,
-          opacity: 0.5,
-          pointerEvents: "none",
-          zIndex: 0,
-        }}
-      />
       {/* 左上角标题 */}
       <div
         style={{
@@ -3967,7 +3983,6 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
           whiteSpace: "nowrap",
           letterSpacing: "0.02em",
           userSelect: "none",
-          zIndex: 2,
         }}
       >
         {title} · {w} × {h} px
@@ -4758,84 +4773,6 @@ function getCanvasNodeBounds(node: Node): CanvasNodeBounds {
   };
 }
 
-function raiseVisualNodesWithEmbeddedAssets(nodes: Node[], selectedIds: Iterable<string>) {
-  const selectedVisualIds = new Set(
-    Array.from(selectedIds).filter(id => {
-      const node = nodes.find(item => item.id === id);
-      return node?.type === "asset" || node?.type === "canvasFrame";
-    })
-  );
-  if (selectedVisualIds.size === 0) return nodes;
-
-  const selectedFrameIds = new Set(
-    nodes
-      .filter(node => selectedVisualIds.has(node.id) && node.type === "canvasFrame")
-      .map(node => node.id)
-  );
-  const selectedFrameBounds = nodes
-    .filter(node => selectedFrameIds.has(node.id))
-    .map(getCanvasNodeBounds);
-  const embeddedAssetIds = new Set(
-    nodes
-      .filter(node => {
-        if (node.type !== "asset") return false;
-        if (selectedFrameIds.has((node.data as Record<string, unknown>).embeddedInFrame as string)) return true;
-        if (selectedFrameBounds.length === 0) return false;
-        const bounds = getCanvasNodeBounds(node);
-        return selectedFrameBounds.some(frameBounds => (
-          bounds.right > frameBounds.x &&
-          bounds.x < frameBounds.right &&
-          bounds.bottom > frameBounds.y &&
-          bounds.y < frameBounds.bottom
-        ));
-      })
-      .map(node => node.id)
-  );
-  const raiseIds = new Set(Array.from(selectedVisualIds).concat(Array.from(embeddedAssetIds)));
-  const topZ = Math.max(0, ...nodes.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
-  const selectedIdSet = new Set(selectedIds);
-
-  const raisedNodes = nodes
-    .filter(node => raiseIds.has(node.id))
-    .sort((a, b) => {
-      const aEmbedded = embeddedAssetIds.has(a.id);
-      const bEmbedded = embeddedAssetIds.has(b.id);
-      if (aEmbedded === bEmbedded) return 0;
-      return aEmbedded ? 1 : -1;
-    })
-    .map(node => ({
-      ...node,
-      selected: selectedIdSet.has(node.id),
-      zIndex: embeddedAssetIds.has(node.id) ? topZ + 1 : topZ,
-    }));
-
-  return [
-    ...nodes.filter(node => !raiseIds.has(node.id)).map(node => ({ ...node, selected: selectedIdSet.has(node.id) })),
-    ...raisedNodes,
-  ];
-}
-
-function getFrameRelatedAssetIds(nodes: Node[], frameNode: Node) {
-  if (frameNode.type !== "canvasFrame") return new Set<string>();
-  const frameBounds = getCanvasNodeBounds(frameNode);
-  return new Set(
-    nodes
-      .filter(node => {
-        if (node.type !== "asset") return false;
-        const data = node.data as Record<string, unknown>;
-        if (data.embeddedInFrame === frameNode.id) return true;
-        const bounds = getCanvasNodeBounds(node);
-        return (
-          bounds.right > frameBounds.x &&
-          bounds.x < frameBounds.right &&
-          bounds.bottom > frameBounds.y &&
-          bounds.y < frameBounds.bottom
-        );
-      })
-      .map(node => node.id)
-  );
-}
-
 function getCanvasNodesBounds(nodes: Node[], ids: string[]): CanvasNodeBounds | null {
   const selected = nodes.filter(n => ids.includes(n.id));
   if (selected.length === 0) return null;
@@ -4876,6 +4813,21 @@ type PersistedImageGenerationTask = Omit<ImageGeneratorPayload, "generationId" |
   images?: Array<{ src?: string; width: number; height: number; storedKey?: string }>;
 };
 
+function isPendingImageGenerationNode(node: Node) {
+  if (node.type !== "asset") return false;
+  const data = node.data as Record<string, unknown>;
+  const title = typeof data.title === "string" ? data.title : "";
+  return (
+    data.isGeneratingImage === true ||
+    (typeof data.generationId === "string" && !data.localSrc) ||
+    title.includes("正在全力生成中")
+  );
+}
+
+function removePendingImageGenerationNodes(nodes: Node[]) {
+  return nodes.filter(node => !isPendingImageGenerationNode(node));
+}
+
 function formatProjectHistoryTimestamp(date = new Date()) {
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
@@ -4901,7 +4853,12 @@ function readPersistedImageGenerationTasks() {
   if (typeof window === "undefined") return [];
   try {
     const parsed = JSON.parse(window.localStorage.getItem(CANVAS_IMAGE_GENERATION_TASKS_STORAGE_KEY) || "[]") as PersistedImageGenerationTask[];
-    return Array.isArray(parsed) ? parsed.filter(task => task?.generationId) : [];
+    if (!Array.isArray(parsed)) return [];
+    const activeTasks = parsed.filter(task => task?.generationId && task.status !== "pending");
+    if (activeTasks.length !== parsed.length) {
+      window.localStorage.setItem(CANVAS_IMAGE_GENERATION_TASKS_STORAGE_KEY, JSON.stringify(activeTasks));
+    }
+    return activeTasks;
   } catch {
     return [];
   }
@@ -4934,6 +4891,10 @@ function persistImageGenerationTask(detail: ImageGeneratorPayload, fallbackProje
   const status = detail.status || "pending";
   const projectId = detail.projectId || fallbackProjectId || "p1";
   const tasks = readPersistedImageGenerationTasks();
+  if (status === "pending") {
+    writePersistedImageGenerationTasks(tasks.filter(task => !(task.generationId === generationId && (task.projectId || "p1") === projectId)));
+    return;
+  }
   const previous = tasks.find(task => task.generationId === generationId && (task.projectId || "p1") === projectId);
   const lightweightImages = detail.images?.map((image, index) => ({
     width: image.width,
@@ -4950,7 +4911,7 @@ function persistImageGenerationTask(detail: ImageGeneratorPayload, fallbackProje
     images: lightweightImages || previous?.images,
     referencedAssets: undefined,
     updatedAt: Date.now(),
-    consumedAt: status === "pending" ? undefined : previous?.consumedAt,
+    consumedAt: previous?.consumedAt,
   };
   writePersistedImageGenerationTasks([
     nextTask,
@@ -5090,7 +5051,7 @@ async function hydrateImageGenerationTaskImages(projectId: string, task: Persist
 }
 
 async function persistCanvasNodeImagePayloads(projectId: string, nodes: Node[]) {
-  const imageEntries = nodes
+  const imageEntries = removePendingImageGenerationNodes(nodes)
     .filter(node => node.type === "asset")
     .map(node => {
       const data = node.data as Record<string, unknown>;
@@ -5161,7 +5122,7 @@ async function hydrateCanvasNodeImagePayloads(projectId: string, nodes: Node[]) 
 }
 
 function stripLargeCanvasNodePayloads(nodes: Node[]) {
-  return nodes.map(node => {
+  return removePendingImageGenerationNodes(nodes).map(node => {
     if (node.type !== "asset") return node;
     const data = node.data as Record<string, unknown>;
     const localSrc = typeof data.localSrc === "string" ? data.localSrc : "";
@@ -5183,7 +5144,10 @@ function safeReadCanvasState(projectId: string): PersistedCanvasState | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as PersistedCanvasState;
     if (!Array.isArray(parsed.nodes) || !Array.isArray(parsed.edges)) return null;
-    return parsed;
+    const nodes = removePendingImageGenerationNodes(parsed.nodes);
+    const nodeIds = new Set(nodes.map(node => node.id));
+    const edges = parsed.edges.filter(edge => nodeIds.has(edge.source) && nodeIds.has(edge.target));
+    return { ...parsed, nodes, edges };
   };
   try {
     return readRawState(window.sessionStorage.getItem(canvasStateSessionKey(projectId))) || readRawState(window.localStorage.getItem(canvasStateStorageKey(projectId)));
@@ -5201,9 +5165,16 @@ function safeWriteCanvasState(projectId: string, state: PersistedCanvasState) {
   if (typeof window === "undefined") return;
   const key = canvasStateStorageKey(projectId);
   const sessionKey = canvasStateSessionKey(projectId);
-  const serializedFullState = JSON.stringify(state);
+  const cleanedNodes = removePendingImageGenerationNodes(state.nodes);
+  const nodeIds = new Set(cleanedNodes.map(node => node.id));
+  const cleanedState: PersistedCanvasState = {
+    ...state,
+    nodes: cleanedNodes,
+    edges: state.edges.filter(edge => nodeIds.has(edge.source) && nodeIds.has(edge.target)),
+  };
+  const serializedFullState = JSON.stringify(cleanedState);
   let sessionSaved = false;
-  void persistCanvasNodeImagePayloads(projectId, state.nodes);
+  void persistCanvasNodeImagePayloads(projectId, cleanedState.nodes);
 
   try {
     window.sessionStorage.setItem(sessionKey, serializedFullState);
@@ -5214,8 +5185,8 @@ function safeWriteCanvasState(projectId: string, state: PersistedCanvasState) {
 
   try {
     const persistedState = sessionSaved
-      ? { ...state, nodes: stripLargeCanvasNodePayloads(state.nodes) }
-      : state;
+      ? { ...cleanedState, nodes: stripLargeCanvasNodePayloads(cleanedState.nodes) }
+      : cleanedState;
     window.localStorage.setItem(key, JSON.stringify(persistedState));
     if (!sessionSaved) window.sessionStorage.removeItem(sessionKey);
   } catch {
@@ -10262,11 +10233,24 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const handleSelectionChange = useCallback(({ nodes: selectedNodes }: { nodes: Node[] }) => {
     const nextSelectedIds = selectedNodes.map(n => n.id);
     clearInactiveAssetCommands(nextSelectedIds);
-    const hasVisualSelection = selectedNodes.some(node => node.type === "asset" || node.type === "canvasFrame");
-    if (hasVisualSelection) {
+    const selectedVisualIds = new Set(
+      selectedNodes
+        .filter(node => node.type === "asset" || node.type === "canvasFrame")
+        .map(node => node.id)
+    );
+    if (selectedVisualIds.size > 0) {
       setNodes(nds => {
-        const raised = raiseVisualNodesWithEmbeddedAssets(nds, nextSelectedIds);
-        return raised === nds ? nds : raised;
+        const selectedVisualNodes = nds.filter(node => selectedVisualIds.has(node.id));
+        if (selectedVisualNodes.length === 0) return nds;
+        const topZ = Math.max(0, ...nds.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
+        const raisedVisualNodes = selectedVisualNodes.map(node => ({ ...node, zIndex: topZ }));
+        const selectedVisualOrder = selectedVisualNodes.map(node => node.id).join(",");
+        const currentTopOrder = nds.slice(-selectedVisualNodes.length).map(node => node.id).join(",");
+        if (selectedVisualOrder === currentTopOrder && selectedVisualNodes.every(node => (node.zIndex || 0) >= topZ - 1)) return nds;
+        return [
+          ...nds.filter(node => !selectedVisualIds.has(node.id)),
+          ...raisedVisualNodes,
+        ];
       });
     }
     setSelectedNodeIds(nextSelectedIds);
@@ -11260,27 +11244,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     toast(`已复制 ${count} 个图片节点`, { description: "原图保持不动，新副本在拖拽落点" });
   }, [setNodes]);
 
-  const handleFrameNodeDrag = useCallback((_event: MouseEvent, node: Node) => {
-    if (node.type !== "canvasFrame") return;
-    const dragStart = dragStartPositionRef.current.get(node.id);
-    if (!dragStart) return;
-    const dx = node.position.x - dragStart.x;
-    const dy = node.position.y - dragStart.y;
-    if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return;
-    const relatedAssetIds = getFrameRelatedAssetIds(nodesRef.current, node);
-    if (relatedAssetIds.size === 0) return;
-    setNodes(nds => nds.map(n => {
-      if (n.type !== "asset" || !relatedAssetIds.has(n.id)) return n;
-      const start = dragStartPositionRef.current.get(n.id);
-      if (!start) return n;
-      return {
-        ...n,
-        data: { ...(n.data as Record<string, unknown>), embeddedInFrame: node.id },
-        position: { x: start.x + dx, y: start.y + dy },
-      };
-    }));
-  }, [setNodes]);
-
   // ── 普通拖拽结束：检测图片是否进入画布帧并嵌入/脱离 ──
   const handleNormalDragStop = useCallback((_event: MouseEvent, node: Node) => {
     isDraggingRef.current = false;
@@ -11294,14 +11257,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const dx = draggedNode.position.x - dragStart.x;
       const dy = draggedNode.position.y - dragStart.y;
       if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return;
-      const relatedAssetIds = getFrameRelatedAssetIds(allNodes, draggedNode);
       setNodes(nds => nds.map(n => {
         if (n.type !== "asset") return n;
-        if (!relatedAssetIds.has(n.id)) return n;
+        const data = n.data as Record<string, unknown>;
+        if (data.embeddedInFrame !== draggedNode.id) return n;
         const start = dragStartPositionRef.current.get(n.id);
         return {
           ...n,
-          data: { ...(n.data as Record<string, unknown>), embeddedInFrame: draggedNode.id },
           position: start
             ? { x: start.x + dx, y: start.y + dy }
             : { x: n.position.x + dx, y: n.position.y + dy },
@@ -11409,8 +11371,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         if (!target) return nds;
         const selectedIds = new Set(additive ? nds.filter(node => node.selected).map(node => node.id) : []);
         selectedIds.add(target.id);
+        const topZ = Math.max(0, ...nds.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
         setSelectedNodeIds(Array.from(selectedIds));
-        return raiseVisualNodesWithEmbeddedAssets(nds, selectedIds);
+        return [
+          ...nds.filter(node => node.id !== target.id).map(node => ({ ...node, selected: selectedIds.has(node.id) })),
+          { ...target, selected: true, zIndex: topZ },
+        ];
       });
     };
     window.addEventListener("visual-node-select-to-front", handler);
@@ -11744,7 +11710,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const handleSingleImageToolbarAction = useCallback(async (action: string) => {
     const nodeId = selectedVisualNodeIds[0];
     if (!nodeId) return;
-    const aiToolbarActions = new Set(["quick-edit", "remove-background", "erase", "edit-text", "edit-elements", "expand", "vector"]);
+    const aiToolbarActions = new Set(["quick-edit", "upscale", "remove-background", "erase", "edit-text", "edit-elements", "expand", "vector"]);
     if (aiToolbarActions.has(action) && !requireAiAccess()) return;
     setNodes(nds => nds.map(n => n.id === nodeId && n.type === "asset" ? { ...n, data: clearAssetCommandState(n.data as Record<string, unknown>) } : n));
     clearInactiveAssetCommands([nodeId]);
@@ -11765,8 +11731,27 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       return;
     }
     if (action === "upscale") {
-      window.dispatchEvent(new CustomEvent("asset-preview-request", { detail: { nodeId } }));
-      toast("放大预览", { description: "已打开当前图片预览，高清放大处理入口待接入" });
+      if (!targetNode || targetNode.type !== "asset") return;
+      const imageSrc = getLatestAssetImageSource(nodeId);
+      if (!imageSrc) {
+        toast("高清化失败", { description: "当前图片没有可处理的图像来源" });
+        return;
+      }
+      const sourceSize = getCanvasNodeSize(targetNode);
+      toast("HD 高清化中", { description: "正在生成 4K 高清图片，新图会出现在原图旁边" });
+      await runDerivedImageGeneration({
+        sourceNode: targetNode,
+        prompt: "HD 高清化 4K",
+        style: "HD 高清结果",
+        nextW: sourceSize.width,
+        nextH: sourceSize.height,
+        displayW: sourceSize.width,
+        displayH: sourceSize.height,
+        run: async () => enhanceImageToHd({
+          imageSrc,
+          level: "4k",
+        }),
+      });
       return;
     }
     if (action === "remove-background") {
@@ -12102,6 +12087,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     }
     const labels: Record<string, string> = {
       "remove-background": "去背景",
+      upscale: "HD 高清",
       erase: "橡皮工具",
       "edit-elements": "编辑元素",
       "edit-text": "编辑文字",
@@ -12516,7 +12502,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         zoomOnScroll={false}
         panOnScroll={!isCanvasLocked}
         onNodeDragStart={handleAltDragStart as any}
-        onNodeDrag={handleFrameNodeDrag as any}
         onNodeDragStop={(event, node, nodes) => {
           handleAltDragStop(event as unknown as MouseEvent, node);
           handleNormalDragStop(event as unknown as MouseEvent, node);

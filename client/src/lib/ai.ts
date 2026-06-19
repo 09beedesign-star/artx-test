@@ -129,6 +129,23 @@ async function postImageExpand(body: Record<string, unknown>, fallbackError: str
   return result;
 }
 
+async function postImageEnhance(body: Record<string, unknown>, fallbackError: string) {
+  const baseUrl = getAiApiBaseUrl();
+  const endpoint = `${baseUrl}/api/images/enhance`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  const result = await readJsonResponse<ApiErrorResponse & { images?: GeneratedImageResult[] }>(response, fallbackError);
+  if (!response.ok) {
+    throw new Error(result.error || result.message || fallbackError);
+  }
+
+  return result;
+}
+
 export async function callLLM({
   prompt,
   messages,
@@ -238,6 +255,22 @@ export async function removeImageBackground({
     model,
     prompt,
   }, "去背景失败");
+
+  return { images: result.images || [] };
+}
+
+export async function enhanceImageToHd({
+  imageSrc,
+  level = "4k",
+}: {
+  imageSrc: string;
+  level?: "4k";
+}) {
+  requireAiAuth();
+  const result = await postImageEnhance({
+    imageSrc,
+    level,
+  }, "图片高清化失败");
 
   return { images: result.images || [] };
 }

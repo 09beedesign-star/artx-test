@@ -13,6 +13,11 @@ type RemoveBackgroundInput = {
   prompt?: string;
 };
 
+type EnhanceImageInput = {
+  imageSrc: string;
+  level?: "4k";
+};
+
 type EditImageInput = {
   imageSrc: string;
   model?: string;
@@ -67,6 +72,22 @@ type AsyncImageTaskResponse = {
   rawResult?: ImageGenerationResponse;
   status?: string;
   error?: { message?: string } | string;
+};
+
+type PicWishSegmentationResponse = {
+  status?: number;
+  message?: string;
+  data?: {
+    task_id?: string;
+    image?: string;
+    mask?: string;
+    mask_obj?: string;
+    image_obj?: string;
+    image_width?: number;
+    image_height?: number;
+    progress?: number;
+    state?: number;
+  };
 };
 
 function normalizeAsyncTaskResult(data: AsyncImageTaskResponse): {
@@ -155,6 +176,13 @@ function getProviderConfig() {
   const model = process.env.AI_IMAGE_MODEL || "gpt-image-2";
 
   return { apiKey, baseUrl, model };
+}
+
+function getPicWishConfig() {
+  return {
+    apiKey: process.env.PICWISH_API_KEY || process.env.AOS_API_KEY || "",
+    baseUrl: (process.env.PICWISH_BASE_URL || "https://techsz.aoscdn.com").replace(/\/+$/, ""),
+  };
 }
 
 const supportedImageModels = new Set([
@@ -494,6 +522,139 @@ async function imageSrcToBuffer(src: string): Promise<{ buffer: Buffer; mimeType
 
 function bufferToImageFile(buffer: Buffer, mimeType: string) {
   return new File([buffer], getImageFileName(mimeType), { type: mimeType });
+}
+
+type PicWishVisualTaskType = "segmentation" | "scale" | "self-face-cutout" | "watermark";
+
+function getPicWishTaskEndpoint(baseUrl: string, taskType: PicWishVisualTaskType) {
+  return `${baseUrl.replace(/\/+$/, "")}/api/tasks/visual/${taskType}`;
+}
+
+function getPicWishResultImageUrl(data: PicWishSegmentationResponse) {
+  return data.data?.image || "";
+}
+
+function getPicWishTaskId(data: PicWishSegmentationResponse) {
+  return data.data?.task_id || "";
+}
+
+function getPicWishErrorMessage(data: PicWishSegmentationResponse | null, fallback: string) {
+  return data?.message || fallback || "PicWish background removal failed";
+}
+
+async function readPicWishJson(response: Response, context: string): Promise<PicWishSegmentationResponse> {
+  const text = await response.text();
+  const data = safeParseJson<PicWishSegmentationResponse>(text);
+  if (!response.ok || !data) {
+    throw new Error(getPicWishErrorMessage(data, `${context} returned ${response.status}${text ? `: ${text.slice(0, 180)}` : ""}`));
+  }
+  if (typeof data.status === "number" && data.status !== 200) {
+    throw new Error(getPicWishErrorMessage(data, `${context} returned status ${data.status}`));
+  }
+  return data;
+}
+
+async function downloadUrlToBuffer(url: string) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to download PicWish result: ${response.status}`);
+  }
+  return Buffer.from(await response.arrayBuffer());
+}
+
+async function downloadPicWishImageAsTransparentPng(url: string, fallbackSize?: { width?: number; height?: number }): Promise<{ images: GeneratedImage[] }> {
+  const buffer = await downloadUrlToBuffer(url);
+  const normalized = await normalizeTransparentPng(buffer);
+  const image = normalized.images[0];
+  if (!image) return normalized;
+  return {
+    images: [{
+      ...image,
+      width: fallbackSize?.width || image.width,
+      height: fallbackSize?.height || image.height,
+    }],
+  };
+}
+
+async function pollPicWishTask(taskType: PicWishVisualTaskType, taskId: string, apiKey: string, baseUrl: string): Promise<PicWishSegmentationResponse> {
+  const endpoint = `${getPicWishTaskEndpoint(baseUrl, taskType)}/${encodeURIComponent(taskId)}`;
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    await delay(1000);
+    const data = await readPicWishJson(await fetch(endpoint, {
+      method: "GET",
+      headers: {
+        "X-API-KEY": apiKey,
+      },
+    }), `PicWish ${taskType} polling`);
+    if (getPicWishResultImageUrl(data)) return data;
+    if (data.data?.state && data.data.state < 0) {
+      throw new Error(getPicWishErrorMessage(data, `PicWish ${taskType} task failed`));
+    }
+  }
+  throw new Error(`PicWish ${taskType} timed out`);
+}
+
+async function runPicWishImageTask(
+  taskType: PicWishVisualTaskType,
+  buffer: Buffer,
+  mimeType: string,
+  options?: { maskBuffer?: Buffer; maskMimeType?: string },
+): Promise<{ images: GeneratedImage[] }> {
+  const { apiKey, baseUrl } = getPicWishConfig();
+  if (!apiKey) {
+    throw new Error("Missing PICWISH_API_KEY");
+  }
+
+  const body = new FormData();
+  body.append("sync", "0");
+  body.append("image_file", bufferToImageFile(buffer, mimeType));
+  if (options?.maskBuffer) {
+    body.append("mask_file", bufferToImageFile(options.maskBuffer, options.maskMimeType || "image/png"));
+  }
+
+  const created = await readPicWishJson(await fetch(getPicWishTaskEndpoint(baseUrl, taskType), {
+    method: "POST",
+    headers: {
+      "X-API-KEY": apiKey,
+    },
+    body,
+  }), `PicWish ${taskType}`);
+
+  const immediateResult = getPicWishResultImageUrl(created);
+  const taskId = getPicWishTaskId(created);
+  const result = immediateResult
+    ? created
+    : taskId
+      ? await pollPicWishTask(taskType, taskId, apiKey, baseUrl)
+      : null;
+  if (!result) {
+    throw new Error("PicWish did not return a task id");
+  }
+  const imageUrl = getPicWishResultImageUrl(result);
+  if (!imageUrl) {
+    throw new Error("PicWish did not return a result image");
+  }
+  return downloadPicWishImageAsTransparentPng(imageUrl, {
+    width: result.data?.image_width,
+    height: result.data?.image_height,
+  });
+}
+
+async function removeBackgroundWithPicWish(buffer: Buffer, mimeType: string): Promise<{ images: GeneratedImage[] }> {
+  return runPicWishImageTask("segmentation", buffer, mimeType);
+}
+
+async function removeFaceWithPicWish(buffer: Buffer, mimeType: string): Promise<{ images: GeneratedImage[] }> {
+  return runPicWishImageTask("self-face-cutout", buffer, mimeType);
+}
+
+async function eraseWithPicWish(imageBuffer: Buffer, imageMimeType: string, maskBuffer: Buffer, maskMimeType: string): Promise<{ images: GeneratedImage[] }> {
+  return runPicWishImageTask("watermark", imageBuffer, imageMimeType, { maskBuffer, maskMimeType });
+}
+
+async function enhanceImageWithPicWish(src: string): Promise<{ images: GeneratedImage[] }> {
+  const { buffer, mimeType } = await imageSrcToBuffer(src);
+  return runPicWishImageTask("scale", buffer, mimeType);
 }
 
 async function getImageBufferDimensions(buffer: Buffer): Promise<{ width: number; height: number }> {
@@ -903,6 +1064,78 @@ async function normalizeTransparentPng(buffer: Buffer): Promise<{ images: Genera
   };
 }
 
+async function combineForegroundAlphaFromCutouts(originalBuffer: Buffer, cutoutBuffers: Buffer[]): Promise<{ images: GeneratedImage[] }> {
+  const sharp = (await import("sharp")).default;
+  const { data: originalData, info: originalInfo } = await sharp(originalBuffer, { limitInputPixels: false })
+    .rotate()
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const width = originalInfo.width;
+  const height = originalInfo.height;
+  const output = Buffer.from(originalData);
+  const totalPixels = width * height;
+  const combinedAlpha = new Uint8Array(totalPixels);
+
+  for (const cutoutBuffer of cutoutBuffers) {
+    const { data: cutoutData } = await sharp(cutoutBuffer, { limitInputPixels: false })
+      .rotate()
+      .resize(width, height, { fit: "fill" })
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    for (let pixel = 0; pixel < totalPixels; pixel += 1) {
+      const alpha = cutoutData[pixel * 4 + 3];
+      if (alpha > combinedAlpha[pixel]) combinedAlpha[pixel] = alpha;
+    }
+  }
+
+  const foregroundProtection = createForegroundProtectionMaskFromAlpha(
+    (pixel) => combinedAlpha[pixel],
+    width,
+    height,
+  );
+  for (let pixel = 0; pixel < totalPixels; pixel += 1) {
+    const index = pixel * 4;
+    const alpha = Math.max(combinedAlpha[pixel], foregroundProtection[pixel] ? Math.min(255, combinedAlpha[pixel] + 18) : 0);
+    output[index + 3] = alpha < 12 ? 0 : alpha;
+  }
+  clearNearTransparentPixels(output, 12);
+
+  const png = await sharp(output, {
+    raw: { width, height, channels: 4 },
+    limitInputPixels: false,
+  }).png().toBuffer();
+
+  return {
+    images: [{
+      src: `data:image/png;base64,${png.toString("base64")}`,
+      width,
+      height,
+    }],
+  };
+}
+
+async function removeBackgroundWithQualityCutout(buffer: Buffer, mimeType: string): Promise<{ images: GeneratedImage[] }> {
+  const cutoutBuffers: Buffer[] = [];
+  const segmentation = await removeBackgroundWithPicWish(buffer, mimeType);
+  const segmentationSrc = segmentation.images[0]?.src;
+  if (segmentationSrc) {
+    cutoutBuffers.push((await imageSrcToBuffer(segmentationSrc)).buffer);
+  }
+
+  try {
+    const faceCutout = await removeFaceWithPicWish(buffer, mimeType);
+    const faceSrc = faceCutout.images[0]?.src;
+    if (faceSrc) cutoutBuffers.push((await imageSrcToBuffer(faceSrc)).buffer);
+  } catch (faceError) {
+    console.warn("PicWish face cutout enhancement failed; using segmentation cutout only", faceError);
+  }
+
+  if (cutoutBuffers.length === 0) return segmentation;
+  return combineForegroundAlphaFromCutouts(buffer, cutoutBuffers);
+}
+
 async function applyRawAlphaMaskToOriginalImage(originalBuffer: Buffer, alphaMaskBuffer: Buffer): Promise<{ images: GeneratedImage[] }> {
   const sharp = (await import("sharp")).default;
   const { data: originalData, info: originalInfo } = await sharp(originalBuffer, { limitInputPixels: false })
@@ -971,7 +1204,13 @@ async function applyRawAlphaMaskToOriginalImage(originalBuffer: Buffer, alphaMas
 }
 
 async function removeBackgroundPreservingForegroundPixels(src: string): Promise<{ images: GeneratedImage[] }> {
-  const { buffer } = await imageSrcToBuffer(src);
+  const { buffer, mimeType } = await imageSrcToBuffer(src);
+
+  try {
+    return await removeBackgroundWithQualityCutout(buffer, mimeType);
+  } catch (picWishError) {
+    console.warn("PicWish quality background removal failed, using local segmentation fallback", picWishError);
+  }
 
   try {
     const { removeBackground: removeBackgroundWithSegmentation, segmentForeground } = await import("@imgly/background-removal-node");
@@ -1315,6 +1554,14 @@ export async function removeImageBackground(input: RemoveBackgroundInput): Promi
   return removeBackgroundPreservingForegroundPixels(input.imageSrc);
 }
 
+export async function enhanceImage(input: EnhanceImageInput): Promise<{ images: GeneratedImage[] }> {
+  if (!input.imageSrc?.trim()) {
+    throw new Error("Missing imageSrc");
+  }
+
+  return enhanceImageWithPicWish(input.imageSrc);
+}
+
 export async function editImageWithPrompt(input: EditImageInput): Promise<{ images: GeneratedImage[] }> {
   if (!input.imageSrc?.trim()) {
     throw new Error("Missing imageSrc");
@@ -1403,11 +1650,12 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<{ image
   }
 
   const sourceImageData = await imageSrcToBuffer(input.imageSrc);
+  const maskImageData = await imageSrcToBuffer(input.maskSrc);
   const sourceImageDimensions = await getImageBufferDimensions(sourceImageData.buffer);
   const targetWidth = coerceTargetDimension(input.targetWidth) || sourceImageDimensions.width;
   const targetHeight = coerceTargetDimension(input.targetHeight) || sourceImageDimensions.height;
   const sourceImage = bufferToImageFile(sourceImageData.buffer, sourceImageData.mimeType);
-  const maskImage = await imageSrcToFile(input.maskSrc);
+  const maskImage = bufferToImageFile(maskImageData.buffer, maskImageData.mimeType);
   const selectedModel = input.model && supportedImageModels.has(input.model) ? input.model : model;
   const prompt = [
     input.prompt || "Remove only the objects or scene elements covered by the mask.",
@@ -1421,6 +1669,21 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<{ image
     }
     return createLocalEraseFallback(sourceImageData.buffer, input.maskSrc, targetWidth, targetHeight);
   };
+
+  if (!input.disableLocalFallback) {
+    try {
+      const picWishResult = await eraseWithPicWish(
+        sourceImageData.buffer,
+        sourceImageData.mimeType,
+        maskImageData.buffer,
+        maskImageData.mimeType,
+      );
+      const normalized = await normalizeGeneratedImagesToTargetAspect(picWishResult.images, targetWidth, targetHeight);
+      if (normalized.length > 0) return { images: normalized };
+    } catch (picWishError) {
+      console.warn("PicWish erase failed; using image edit provider fallback", picWishError);
+    }
+  }
 
   const createBody = (withResponseFormat: boolean) => {
     const body = new FormData();
