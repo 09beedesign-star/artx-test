@@ -388,16 +388,16 @@ export default function HomePage() {
                     }}
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/0 to-black/0" />
-                  <div className="absolute left-3 top-3 rounded-full bg-black/45 px-2.5 py-1 text-xs font-medium text-white/82 backdrop-blur-md">
+                  <div className="absolute left-3 top-3 max-w-[58%] truncate whitespace-nowrap rounded-full bg-black/45 px-2.5 py-1 text-xs font-medium text-white/82 backdrop-blur-md">
                     {card.field}
                   </div>
-                  <div className="absolute right-3 top-3 rounded-full bg-black/45 px-2.5 py-1 text-xs font-medium text-white/82 backdrop-blur-md">
+                  <div className="absolute right-3 top-3 max-w-[38%] truncate whitespace-nowrap rounded-full bg-black/45 px-2.5 py-1 text-xs font-medium text-white/82 backdrop-blur-md">
                     {card.model}
                   </div>
                 </div>
-                <div className="p-4">
-                  <p className="truncate text-sm font-semibold text-white">{card.title}</p>
-                  <p className="mt-2 text-xs leading-5 text-white/45">{card.description}</p>
+                <div className="min-w-0 p-4">
+                  <p className="truncate whitespace-nowrap text-sm font-semibold text-white">{card.title}</p>
+                  <p className="mt-2 truncate whitespace-nowrap text-xs leading-5 text-white/45">{card.description}</p>
                 </div>
               </button>
             ))}
