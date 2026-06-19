@@ -6,7 +6,7 @@ import { useLocation } from "wouter";
 import TopBar from "@/components/workspace/TopBar";
 import promptCsv from "@/data/ai_image_prompt_rank_50.csv?raw";
 import { useTheme } from "@/contexts/ThemeContext";
-import { ImageIcon, Layers, Search, Sparkles, Tags, X } from "lucide-react";
+import { Search, Sparkles, X } from "lucide-react";
 import { BG_GLOW } from "@/lib/workspace-data";
 
 type PromptItem = {
@@ -21,7 +21,6 @@ type PromptItem = {
 };
 
 const ALL_FIELDS = "全部分类";
-const ALL_MODELS = "全部模型";
 
 function parseCsv(csv: string) {
   const rows: string[][] = [];
@@ -101,14 +100,9 @@ export default function InspirationPage() {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const fields = useMemo(() => [ALL_FIELDS, ...Array.from(new Set(PROMPT_ITEMS.map((item) => item.field)))], []);
-  const models = useMemo(() => [ALL_MODELS, ...Array.from(new Set(PROMPT_ITEMS.map((item) => item.model)))], []);
   const [activeField, setActiveField] = useState(() => {
     const field = getParam("field", ALL_FIELDS);
     return fields.includes(field) ? field : ALL_FIELDS;
-  });
-  const [activeModel, setActiveModel] = useState(() => {
-    const model = getParam("model", ALL_MODELS);
-    return models.includes(model) ? model : ALL_MODELS;
   });
   const [query, setQuery] = useState("");
   const [selectedItem, setSelectedItem] = useState<PromptItem | null>(null);
@@ -127,26 +121,15 @@ export default function InspirationPage() {
 
     return PROMPT_ITEMS.filter((item) => {
       const matchesField = activeField === ALL_FIELDS || item.field === activeField;
-      const matchesModel = activeModel === ALL_MODELS || item.model === activeModel;
       const haystack = `${item.title} ${item.description} ${item.prompt} ${item.author}`.toLowerCase();
-      return matchesField && matchesModel && (!normalizedQuery || haystack.includes(normalizedQuery));
+      return matchesField && (!normalizedQuery || haystack.includes(normalizedQuery));
     });
-  }, [activeField, activeModel, query]);
+  }, [activeField, query]);
 
-  const updateFilters = (nextField: string, nextModel = activeModel) => {
+  const updateFilters = (nextField: string) => {
     setActiveField(nextField);
     const params = new URLSearchParams();
     if (nextField !== ALL_FIELDS) params.set("field", nextField);
-    if (nextModel !== ALL_MODELS) params.set("model", nextModel);
-    const suffix = params.toString();
-    navigate(`/inspiration${suffix ? `?${suffix}` : ""}`);
-  };
-
-  const updateModel = (nextModel: string) => {
-    setActiveModel(nextModel);
-    const params = new URLSearchParams();
-    if (activeField !== ALL_FIELDS) params.set("field", activeField);
-    if (nextModel !== ALL_MODELS) params.set("model", nextModel);
     const suffix = params.toString();
     navigate(`/inspiration${suffix ? `?${suffix}` : ""}`);
   };
@@ -162,7 +145,7 @@ export default function InspirationPage() {
 
       <div className="flex-1 overflow-y-auto" style={{ position: "relative", zIndex: 1 }}>
         <main className="mx-auto px-5 py-8 sm:px-8 sm:py-10" style={{ maxWidth: 1320 }}>
-          <section className="mb-6 grid gap-5 lg:grid-cols-[1fr_360px] lg:items-end">
+          <section className="mb-6">
             <div>
               <div className="mb-3 flex items-center gap-2">
                 <Sparkles size={15} style={{ color: "oklch(0.72 0.22 290)" }} />
@@ -170,25 +153,8 @@ export default function InspirationPage() {
               </div>
               <h1 className="type-display-sm" style={{ color: text, letterSpacing: 0 }}>50 组高热图片提示词灵感</h1>
               <p className="type-body-sm mt-3 max-w-3xl leading-6" style={{ color: sub }}>
-                汇总 Nano Banana Pro 与 GPT Image 2 的热门案例，按分类浏览图片、提示词与模型。
+                汇总热门 AI 图片案例，按分类浏览图片与提示词。
               </p>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                { icon: ImageIcon, label: "图片案例", value: PROMPT_ITEMS.length },
-                { icon: Tags, label: "分类", value: fields.length - 1 },
-                { icon: Layers, label: "模型", value: models.length - 1 },
-              ].map((stat) => {
-                const Icon = stat.icon;
-                return (
-                  <div key={stat.label} className="rounded-[var(--radius-lg-design)] p-3" style={{ background: panelBg, border: `1px solid ${border}` }}>
-                    <Icon size={15} style={{ color: "oklch(0.72 0.22 290)" }} />
-                    <div className="type-body-sm mt-2" style={{ color: text, fontWeight: 750 }}>{stat.value}</div>
-                    <div className="type-caption mt-0.5" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>{stat.label}</div>
-                  </div>
-                );
-              })}
             </div>
           </section>
 
@@ -215,25 +181,6 @@ export default function InspirationPage() {
               </div>
 
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <div className="flex items-center gap-2 overflow-x-auto overflow-y-hidden" style={{ scrollbarWidth: "none", whiteSpace: "nowrap" }}>
-                  {models.map((model) => {
-                    const active = model === activeModel;
-                    return (
-                      <button
-                        key={model}
-                        onClick={() => updateModel(model)}
-                        className="shrink-0 rounded-[var(--radius-pill)] px-3 py-2 type-caption transition-all active:scale-95"
-                        style={{
-                          background: active ? "oklch(0.72 0.18 200 / 0.16)" : "transparent",
-                          border: `1px solid ${active ? "oklch(0.72 0.18 200 / 0.38)" : border}`,
-                          color: active ? "oklch(0.80 0.13 200)" : sub,
-                        }}
-                      >
-                        {model}
-                      </button>
-                    );
-                  })}
-                </div>
 
                 <label className="flex min-w-0 items-center gap-2 rounded-[var(--radius-pill)] px-3 py-2" style={{ background: isDark ? "oklch(0 0 0 / 0.20)" : "oklch(1 0 0 / 0.9)", border: `1px solid ${border}` }}>
                   <Search size={15} style={{ color: sub }} />
@@ -278,12 +225,9 @@ export default function InspirationPage() {
                       本地图片待同步
                     </span>
                   </div>
-                  <div className="absolute inset-x-0 top-0 flex items-center justify-between gap-2 p-3" style={{ zIndex: 2 }}>
+                  <div className="absolute inset-x-0 top-0 flex items-center gap-2 p-3" style={{ zIndex: 2 }}>
                     <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: "oklch(0 0 0 / 0.48)", color: "white", backdropFilter: "blur(10px)", letterSpacing: 0, textTransform: "none" }}>
                       #{item.rank}
-                    </span>
-                    <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: "oklch(0 0 0 / 0.48)", color: "white", backdropFilter: "blur(10px)", letterSpacing: 0, textTransform: "none" }}>
-                      {item.model}
                     </span>
                   </div>
                 </div>
@@ -350,9 +294,6 @@ export default function InspirationPage() {
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                   <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: activeBg, color: "oklch(0.80 0.17 290)", letterSpacing: 0, textTransform: "none" }}>
                     {selectedItem.field}
-                  </span>
-                  <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: isDark ? "oklch(1 0 0 / 7%)" : "oklch(0 0 0 / 5%)", color: sub, letterSpacing: 0, textTransform: "none" }}>
-                    {selectedItem.model}
                   </span>
                 </div>
                 <h2 className="type-body-sm leading-6" style={{ color: text, fontWeight: 760 }}>{selectedItem.title}</h2>
