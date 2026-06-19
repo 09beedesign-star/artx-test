@@ -142,7 +142,7 @@ export default function SkillsPage() {
 
       <div className="min-h-0 flex-1 overflow-y-auto" style={{ position: "relative", zIndex: 1 }}>
         <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-5 px-6 pb-10 pt-5">
-          <section className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_420px]">
+          <section className="grid gap-3">
             <div
               className="relative overflow-hidden rounded-[var(--radius-lg-design)] border px-5 py-4"
               style={{
@@ -210,7 +210,7 @@ export default function SkillsPage() {
             </div>
 
             <div
-              className="rounded-[var(--radius-lg-design)] border p-3"
+              className="grid gap-3 rounded-[var(--radius-lg-design)] border p-3 xl:grid-cols-[360px_minmax(0,1fr)]"
               style={{
                 background: panel,
                 borderColor: border,
@@ -239,7 +239,7 @@ export default function SkillsPage() {
                 })}
               </div>
 
-              <div className="mt-2.5 rounded-[var(--radius-md-design)] border p-2.5" style={{ borderColor: border, background: isDark ? "rgba(0,0,0,0.14)" : "rgba(255,255,255,0.62)" }}>
+              <div className="rounded-[var(--radius-md-design)] border p-2.5" style={{ borderColor: border, background: isDark ? "rgba(0,0,0,0.14)" : "rgba(255,255,255,0.62)" }}>
                 <div className="mb-1.5 flex items-center justify-between">
                   <div className="flex items-center gap-2" style={{ color: text }}>
                     <Boxes size={15} />
@@ -247,37 +247,39 @@ export default function SkillsPage() {
                   </div>
                   <span className="text-xs" style={{ color: faint }}>商店结构</span>
                 </div>
-                {categoryOrder.map((category) => {
-                  const meta = skillCategoryMeta[category];
-                  return (
-                    <button
-                      key={category}
-                      type="button"
-                      onClick={() => setActiveCategory(category)}
-                      className="group mb-1 flex w-full items-center gap-2.5 rounded-[var(--radius-md-design)] px-2 py-0.5 text-left transition-opacity last:mb-0 hover:opacity-85"
-                      style={{
-                        background: activeCategory === category ? "rgba(144,88,252,0.16)" : "transparent",
-                      }}
-                    >
-                      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: meta.accent }} />
-                      <span className="min-w-0 flex-1">
-                        <span className="flex items-center justify-between gap-2">
-                          <span className="text-sm font-medium" style={{ color: text }}>{meta.label}</span>
-                          <span className="text-xs font-semibold" style={{ color: activeCategory === category ? skillButtonPurple : faint }}>{categoryCounts[category]}</span>
+                <div className="grid gap-1 md:grid-cols-2">
+                  {categoryOrder.map((category) => {
+                    const meta = skillCategoryMeta[category];
+                    return (
+                      <button
+                        key={category}
+                        type="button"
+                        onClick={() => setActiveCategory(category)}
+                        className="group flex w-full items-center gap-2.5 rounded-[var(--radius-md-design)] px-2 py-0.5 text-left transition-opacity hover:opacity-85"
+                        style={{
+                          background: activeCategory === category ? "rgba(144,88,252,0.16)" : "transparent",
+                        }}
+                      >
+                        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: meta.accent }} />
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-medium" style={{ color: text }}>{meta.label}</span>
+                            <span className="text-xs font-semibold" style={{ color: activeCategory === category ? skillButtonPurple : faint }}>{categoryCounts[category]}</span>
+                          </span>
+                          <span className="mt-0.5 block h-1.5 overflow-hidden rounded-full" style={{ background: isDark ? "rgba(255,255,255,0.08)" : "rgba(20,20,36,0.08)" }}>
+                            <span
+                              className="block h-full rounded-full"
+                              style={{
+                                width: `${Math.max(14, (categoryCounts[category] / skillStoreStats.total) * 100)}%`,
+                                background: meta.accent,
+                              }}
+                            />
+                          </span>
                         </span>
-                        <span className="mt-0.5 block h-1.5 overflow-hidden rounded-full" style={{ background: isDark ? "rgba(255,255,255,0.08)" : "rgba(20,20,36,0.08)" }}>
-                          <span
-                            className="block h-full rounded-full"
-                            style={{
-                              width: `${Math.max(14, (categoryCounts[category] / skillStoreStats.total) * 100)}%`,
-                              background: meta.accent,
-                            }}
-                          />
-                        </span>
-                      </span>
-                    </button>
-                  );
-                })}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </section>
