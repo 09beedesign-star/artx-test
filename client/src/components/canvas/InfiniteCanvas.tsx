@@ -2697,16 +2697,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
         return { ...n, selected: sel };
       });
       window.dispatchEvent(new CustomEvent("asset-click-selection", { detail: { selectedIds: nextSelectedIds } }));
-      const selectedVisualIds = new Set(nextSelectedIds.filter(id => {
-        const node = nextNodes.find(item => item.id === id);
-        return node?.type === "asset" || node?.type === "canvasFrame";
-      }));
-      if (selectedVisualIds.size === 0) return nextNodes;
-      const topZ = Math.max(0, ...nextNodes.map(n => typeof n.zIndex === "number" ? n.zIndex : 0)) + 1;
-      return [
-        ...nextNodes.filter(n => !selectedVisualIds.has(n.id)),
-        ...nextNodes.filter(n => selectedVisualIds.has(n.id)).map(n => ({ ...n, zIndex: topZ })),
-      ];
+      return raiseVisualNodesWithEmbeddedAssets(nextNodes, nextSelectedIds);
     });
     window.dispatchEvent(new CustomEvent("asset-reference", {
       detail: { id: nodeId, title: displayTitle, src: displaySrc, ctrlKey: additive }
@@ -3920,7 +3911,6 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
     : isDark ? "oklch(1 0 0 / 20%)" : "oklch(0 0 0 / 18%)";
   // 使用用户选择的背景色，默认深灰色
   const bg = (data.bgColor as string) || "#2a2a30";
-  const frameBackground = bg.startsWith("#") ? withHexAlpha(bg, 0.5) : bg;
   const labelColor = isDark ? "oklch(0.55 0.01 270)" : "oklch(0.52 0.01 270)";
   const handleColor = isDark ? "oklch(0.65 0.22 290 / 0.80)" : "oklch(0.50 0.20 290 / 0.80)";
   const handleNodeCtxMenu = useCallback((e: React.MouseEvent) => {
@@ -3942,9 +3932,7 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
     <div
       style={{
         width: w, height: h,
-background: frameBackground,
-        opacity: 1,
-        backdropFilter: "blur(2px)",
+        background: "transparent",
         border: `1.5px solid ${borderColor}`,
         borderRadius: 8,
         boxSizing: "border-box",
@@ -3955,6 +3943,18 @@ background: frameBackground,
       onClick={handleCanvasFrameClick}
       onDoubleClick={handleCanvasFrameClick}
     >
+      <div
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: bg,
+          borderRadius: 6,
+          opacity: 0.5,
+          pointerEvents: "none",
+          zIndex: 0,
+        }}
+      />
       {/* 左上角标题 */}
       <div
         style={{
@@ -3967,6 +3967,7 @@ background: frameBackground,
           whiteSpace: "nowrap",
           letterSpacing: "0.02em",
           userSelect: "none",
+          zIndex: 2,
         }}
       >
         {title} · {w} × {h} px
@@ -4757,19 +4758,6 @@ function getCanvasNodeBounds(node: Node): CanvasNodeBounds {
   };
 }
 
-function withHexAlpha(hex: string, alpha: number) {
-  const normalized = hex.trim();
-  const match = normalized.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
-  if (!match) return normalized;
-  const raw = match[1].length === 3
-    ? match[1].split("").map(char => `${char}${char}`).join("")
-    : match[1];
-  const r = parseInt(raw.slice(0, 2), 16);
-  const g = parseInt(raw.slice(2, 4), 16);
-  const b = parseInt(raw.slice(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
 function raiseVisualNodesWithEmbeddedAssets(nodes: Node[], selectedIds: Iterable<string>) {
   const selectedVisualIds = new Set(
     Array.from(selectedIds).filter(id => {
@@ -4825,6 +4813,27 @@ function raiseVisualNodesWithEmbeddedAssets(nodes: Node[], selectedIds: Iterable
     ...nodes.filter(node => !raiseIds.has(node.id)).map(node => ({ ...node, selected: selectedIdSet.has(node.id) })),
     ...raisedNodes,
   ];
+}
+
+function getFrameRelatedAssetIds(nodes: Node[], frameNode: Node) {
+  if (frameNode.type !== "canvasFrame") return new Set<string>();
+  const frameBounds = getCanvasNodeBounds(frameNode);
+  return new Set(
+    nodes
+      .filter(node => {
+        if (node.type !== "asset") return false;
+        const data = node.data as Record<string, unknown>;
+        if (data.embeddedInFrame === frameNode.id) return true;
+        const bounds = getCanvasNodeBounds(node);
+        return (
+          bounds.right > frameBounds.x &&
+          bounds.x < frameBounds.right &&
+          bounds.bottom > frameBounds.y &&
+          bounds.y < frameBounds.bottom
+        );
+      })
+      .map(node => node.id)
+  );
 }
 
 function getCanvasNodesBounds(nodes: Node[], ids: string[]): CanvasNodeBounds | null {
@@ -10253,24 +10262,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const handleSelectionChange = useCallback(({ nodes: selectedNodes }: { nodes: Node[] }) => {
     const nextSelectedIds = selectedNodes.map(n => n.id);
     clearInactiveAssetCommands(nextSelectedIds);
-    const selectedVisualIds = new Set(
-      selectedNodes
-        .filter(node => node.type === "asset" || node.type === "canvasFrame")
-        .map(node => node.id)
-    );
-    if (selectedVisualIds.size > 0) {
+    const hasVisualSelection = selectedNodes.some(node => node.type === "asset" || node.type === "canvasFrame");
+    if (hasVisualSelection) {
       setNodes(nds => {
-        const selectedVisualNodes = nds.filter(node => selectedVisualIds.has(node.id));
-        if (selectedVisualNodes.length === 0) return nds;
-        const topZ = Math.max(0, ...nds.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
-        const raisedVisualNodes = selectedVisualNodes.map(node => ({ ...node, zIndex: topZ }));
-        const selectedVisualOrder = selectedVisualNodes.map(node => node.id).join(",");
-        const currentTopOrder = nds.slice(-selectedVisualNodes.length).map(node => node.id).join(",");
-        if (selectedVisualOrder === currentTopOrder && selectedVisualNodes.every(node => (node.zIndex || 0) >= topZ - 1)) return nds;
-        return [
-          ...nds.filter(node => !selectedVisualIds.has(node.id)),
-          ...raisedVisualNodes,
-        ];
+        const raised = raiseVisualNodesWithEmbeddedAssets(nds, nextSelectedIds);
+        return raised === nds ? nds : raised;
       });
     }
     setSelectedNodeIds(nextSelectedIds);
@@ -11264,6 +11260,27 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     toast(`已复制 ${count} 个图片节点`, { description: "原图保持不动，新副本在拖拽落点" });
   }, [setNodes]);
 
+  const handleFrameNodeDrag = useCallback((_event: MouseEvent, node: Node) => {
+    if (node.type !== "canvasFrame") return;
+    const dragStart = dragStartPositionRef.current.get(node.id);
+    if (!dragStart) return;
+    const dx = node.position.x - dragStart.x;
+    const dy = node.position.y - dragStart.y;
+    if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return;
+    const relatedAssetIds = getFrameRelatedAssetIds(nodesRef.current, node);
+    if (relatedAssetIds.size === 0) return;
+    setNodes(nds => nds.map(n => {
+      if (n.type !== "asset" || !relatedAssetIds.has(n.id)) return n;
+      const start = dragStartPositionRef.current.get(n.id);
+      if (!start) return n;
+      return {
+        ...n,
+        data: { ...(n.data as Record<string, unknown>), embeddedInFrame: node.id },
+        position: { x: start.x + dx, y: start.y + dy },
+      };
+    }));
+  }, [setNodes]);
+
   // ── 普通拖拽结束：检测图片是否进入画布帧并嵌入/脱离 ──
   const handleNormalDragStop = useCallback((_event: MouseEvent, node: Node) => {
     isDraggingRef.current = false;
@@ -11277,13 +11294,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const dx = draggedNode.position.x - dragStart.x;
       const dy = draggedNode.position.y - dragStart.y;
       if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return;
+      const relatedAssetIds = getFrameRelatedAssetIds(allNodes, draggedNode);
       setNodes(nds => nds.map(n => {
         if (n.type !== "asset") return n;
-        const data = n.data as Record<string, unknown>;
-        if (data.embeddedInFrame !== draggedNode.id) return n;
+        if (!relatedAssetIds.has(n.id)) return n;
         const start = dragStartPositionRef.current.get(n.id);
         return {
           ...n,
+          data: { ...(n.data as Record<string, unknown>), embeddedInFrame: draggedNode.id },
           position: start
             ? { x: start.x + dx, y: start.y + dy }
             : { x: n.position.x + dx, y: n.position.y + dy },
@@ -11391,12 +11409,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         if (!target) return nds;
         const selectedIds = new Set(additive ? nds.filter(node => node.selected).map(node => node.id) : []);
         selectedIds.add(target.id);
-        const topZ = Math.max(0, ...nds.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
         setSelectedNodeIds(Array.from(selectedIds));
-        return [
-          ...nds.filter(node => node.id !== target.id).map(node => ({ ...node, selected: selectedIds.has(node.id) })),
-          { ...target, selected: true, zIndex: topZ },
-        ];
+        return raiseVisualNodesWithEmbeddedAssets(nds, selectedIds);
       });
     };
     window.addEventListener("visual-node-select-to-front", handler);
@@ -12502,6 +12516,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         zoomOnScroll={false}
         panOnScroll={!isCanvasLocked}
         onNodeDragStart={handleAltDragStart as any}
+        onNodeDrag={handleFrameNodeDrag as any}
         onNodeDragStop={(event, node, nodes) => {
           handleAltDragStop(event as unknown as MouseEvent, node);
           handleNormalDragStop(event as unknown as MouseEvent, node);
