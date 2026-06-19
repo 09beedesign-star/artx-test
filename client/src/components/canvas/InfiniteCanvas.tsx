@@ -11922,6 +11922,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       if (Array.isArray(detail.selectedIds)) {
         clearInactiveAssetCommands(detail.selectedIds);
         setSelectedNodeIds(detail.selectedIds);
+        setNodes(nds => nds.map(node => ({ ...node, selected: detail.selectedIds!.includes(node.id) })));
       }
     };
     window.addEventListener("asset-click-selection", handler);
