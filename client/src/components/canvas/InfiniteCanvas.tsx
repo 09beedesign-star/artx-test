@@ -4203,6 +4203,20 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
           zIndex: 0,
         }}
       />
+      {selected && (
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            inset: -3,
+            border: "2px solid oklch(0.65 0.22 290)",
+            borderRadius: 11,
+            boxShadow: "0 0 0 4px oklch(0.65 0.22 290 / 0.16), 0 0 22px oklch(0.65 0.22 290 / 0.34)",
+            pointerEvents: "none",
+            zIndex: 3,
+          }}
+        />
+      )}
       {/* 左上角标题 */}
       <div
         style={{
