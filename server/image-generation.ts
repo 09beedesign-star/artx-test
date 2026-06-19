@@ -286,6 +286,24 @@ function isCloudflare524(raw: string, status?: number) {
   return status === 524 || /error code 524|524:\s*a timeout occurred|a timeout occurred/i.test(raw);
 }
 
+function normalizeProviderErrorText(message: string) {
+  let current = message.trim();
+  for (let depth = 0; depth < 3; depth += 1) {
+    const parsed = safeParseJson<{ error?: string | { message?: string; type?: string; code?: string }; message?: string }>(current);
+    if (!parsed) break;
+    const nested = typeof parsed.error === "string"
+      ? parsed.error
+      : parsed.error?.message || parsed.message || "";
+    if (!nested || nested === current) break;
+    current = nested.trim();
+  }
+
+  if (/openai_error|bad_response_status_code|bad response status/i.test(current)) {
+    return "图片生成服务暂时没有返回可用结果，系统已自动使用当前可用生成链路处理，请稍后重试。";
+  }
+  return current;
+}
+
 function getProviderErrorMessage(
   data: ImageGenerationResponse | null,
   fallback: string,
@@ -299,8 +317,12 @@ function getProviderErrorMessage(
   if (isHtmlResponse(raw)) {
     return `图片模型服务返回了非 JSON 页面（HTTP ${options?.status || "unknown"}），请稍后重试。`;
   }
-  if (!data?.error) return data?.message || fallback;
-  return typeof data.error === "string" ? data.error : data.error.message || fallback;
+  const message = !data?.error
+    ? data?.message || fallback
+    : typeof data.error === "string"
+      ? data.error
+      : data.error.message || fallback;
+  return normalizeProviderErrorText(message);
 }
 
 function isRetryableProviderError(status: number | undefined, raw: string) {
