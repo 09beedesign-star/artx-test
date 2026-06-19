@@ -267,7 +267,7 @@ export default function InspirationPage() {
                   <img
                     src={item.imageUrl}
                     alt={item.title}
-                    className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    className="relative z-10 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                     loading="lazy"
                     onError={(event) => {
                       event.currentTarget.style.display = "none";
