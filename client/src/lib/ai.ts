@@ -208,6 +208,7 @@ export async function generateImages({
   style,
   referencesEnabled = false,
   referencedAssets = [],
+  skillId,
 }: {
   prompt: string;
   model?: string;
@@ -216,6 +217,7 @@ export async function generateImages({
   style?: string;
   referencesEnabled?: boolean;
   referencedAssets?: Array<{ src: string; title?: string }>;
+  skillId?: string;
 }) {
   requireAiAuth();
   const promptWithContext = [
@@ -232,6 +234,7 @@ export async function generateImages({
     ratio,
     count,
     images: referencedAssets,
+    skillId,
   }, "图像生成失败");
 
   return { images: result.images || [] };
@@ -282,6 +285,7 @@ export async function editImageWithPrompt({
   targetWidth,
   targetHeight,
   referencedAssets = [],
+  skillId,
 }: {
   imageSrc: string;
   model?: string;
@@ -289,6 +293,7 @@ export async function editImageWithPrompt({
   targetWidth?: number;
   targetHeight?: number;
   referencedAssets?: Array<{ src: string; title?: string }>;
+  skillId?: string;
 }) {
   requireAiAuth();
   const result = await postAiOrchestrate({
@@ -301,6 +306,7 @@ export async function editImageWithPrompt({
     targetWidth,
     targetHeight,
     images: referencedAssets,
+    skillId,
   }, "AI 图片编辑失败");
 
   return { images: result.images || [] };
