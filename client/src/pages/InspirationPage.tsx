@@ -205,27 +205,27 @@ export default function InspirationPage() {
                       本地图片待同步
                     </span>
                   </div>
-                  <div className="absolute inset-x-0 top-0 flex items-center gap-2 p-3" style={{ zIndex: 2 }}>
-                    <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: "oklch(0 0 0 / 0.48)", color: "white", backdropFilter: "blur(10px)", letterSpacing: 0, textTransform: "none" }}>
+                  <div className="absolute inset-x-0 top-0 flex min-w-0 items-center gap-2 p-3" style={{ zIndex: 2 }}>
+                    <span className="shrink-0 whitespace-nowrap rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: "oklch(0 0 0 / 0.48)", color: "white", backdropFilter: "blur(10px)", letterSpacing: 0, textTransform: "none" }}>
                       #{item.rank}
                     </span>
                   </div>
                 </div>
 
                 <div className="flex min-h-[270px] flex-col p-4">
-                  <div className="mb-3 flex items-center gap-2">
-                    <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: activeBg, color: "oklch(0.80 0.17 290)", letterSpacing: 0, textTransform: "none" }}>
+                  <div className="mb-3 flex min-w-0 items-center gap-2">
+                    <span className="min-w-0 max-w-[58%] truncate whitespace-nowrap rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: activeBg, color: "oklch(0.80 0.17 290)", letterSpacing: 0, textTransform: "none" }}>
                       {item.field}
                     </span>
                     {item.author && (
-                      <span className="truncate type-caption" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>
+                      <span className="min-w-0 flex-1 truncate whitespace-nowrap type-caption" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>
                         {item.author}
                       </span>
                     )}
                   </div>
 
-                  <h2 className="type-body-sm leading-5" style={{ color: text, fontWeight: 750 }}>{item.title}</h2>
-                  <p className="type-caption mt-2 leading-5" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>{item.description}</p>
+                  <h2 className="min-w-0 truncate whitespace-nowrap type-body-sm leading-5" style={{ color: text, fontWeight: 750 }}>{item.title}</h2>
+                  <p className="min-w-0 truncate whitespace-nowrap type-caption mt-2 leading-5" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>{item.description}</p>
                   <p
                     className="mt-3 rounded-[var(--radius-md-design)] p-3 type-caption leading-5"
                     style={{
@@ -271,12 +271,12 @@ export default function InspirationPage() {
 
             <div className="p-4 pr-14" style={{ borderBottom: `1px solid ${border}` }}>
               <div className="min-w-0">
-                <div className="mb-2 flex flex-wrap items-center gap-2">
-                  <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: activeBg, color: "oklch(0.80 0.17 290)", letterSpacing: 0, textTransform: "none" }}>
+                <div className="mb-2 flex min-w-0 items-center gap-2">
+                  <span className="max-w-full truncate whitespace-nowrap rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: activeBg, color: "oklch(0.80 0.17 290)", letterSpacing: 0, textTransform: "none" }}>
                     {selectedItem.field}
                   </span>
                 </div>
-                <h2 className="type-body-sm leading-6" style={{ color: text, fontWeight: 760 }}>{selectedItem.title}</h2>
+                <h2 className="min-w-0 truncate whitespace-nowrap type-body-sm leading-6" style={{ color: text, fontWeight: 760 }}>{selectedItem.title}</h2>
               </div>
             </div>
 
