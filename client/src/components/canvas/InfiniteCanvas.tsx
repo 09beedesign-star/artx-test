@@ -97,11 +97,40 @@ import RotateEditor from "@/components/canvas/RotateEditor";
 import { callLLM, editImageWithPrompt, enhanceImageToHd, eraseImageObjects, expandImageWithMask, generateImages as generateAiImages, removeImageBackground, requestAiAuth, searchReferenceImages, type ReferenceImageResult } from "@/lib/ai";
 import { routeCreativeIntent } from "@/lib/ai-intent";
 import { createWorkspaceHistoryProject, touchWorkspaceProjectHistory, updateWorkspaceProjectHistory } from "@/lib/project-history";
-import { buildSkillPromptContext, PENDING_SKILL_LOAD_KEY, type PendingSkillLoad } from "@/lib/skill-store";
+import { buildSkillPromptContext, createPendingSkillLoad, PENDING_SKILL_LOAD_KEY, skillStoreItems, type PendingSkillLoad } from "@/lib/skill-store";
 import generationGradient from "@/assets/generation/ai-generation-gradient.png";
 import generationMark from "@/assets/generation/ai-generation-mark.svg";
 
 const ENABLE_NODE_CONNECTIONS = false;
+
+const CANVAS_FRAME_BACKGROUND_ALPHA = 0.5;
+
+function withCanvasFrameAlpha(color: unknown, alpha = CANVAS_FRAME_BACKGROUND_ALPHA) {
+  const fallback = `rgba(42,42,48,${alpha})`;
+  if (typeof color !== "string" || !color.trim()) return fallback;
+  const value = color.trim();
+  const hexMatch = value.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (hexMatch) {
+    const raw = hexMatch[1].length === 3
+      ? hexMatch[1].split("").map(char => char + char).join("")
+      : hexMatch[1];
+    const intValue = parseInt(raw, 16);
+    const r = (intValue >> 16) & 255;
+    const g = (intValue >> 8) & 255;
+    const b = intValue & 255;
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+  const rgbMatch = value.match(/^rgba?\(([^)]+)\)$/i);
+  if (rgbMatch) {
+    const parts = rgbMatch[1].split(",").map(part => part.trim());
+    if (parts.length >= 3) {
+      return `rgba(${parts[0]},${parts[1]},${parts[2]},${alpha})`;
+    }
+  }
+  return value.startsWith("oklch(") && !value.includes("/")
+    ? value.replace(/\)$/, ` / ${alpha})`)
+    : value;
+}
 
 // ── Model Selector ─────────────────────────────────────────────
 function ModelSelector({ model, onChange, isDark }: { model: string; onChange: (m: string) => void; isDark: boolean }) {
@@ -180,6 +209,125 @@ function ModelSelector({ model, onChange, isDark }: { model: string; onChange: (
               </button>
             ))}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SkillPointSelector({
+  activeSkill,
+  onChange,
+  isDark,
+}: {
+  activeSkill: PendingSkillLoad | null;
+  onChange: (skill: PendingSkillLoad | null) => void;
+  isDark: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const selectorRef = useRef<HTMLDivElement>(null);
+  const groupedSkills = useMemo(() => {
+    const groups = new Map<string, typeof skillStoreItems>();
+    skillStoreItems.forEach(skill => {
+      const key = skill.subcategory || skill.category;
+      groups.set(key, [...(groups.get(key) || []), skill]);
+    });
+    return Array.from(groups.entries());
+  }, []);
+  const bg = isDark ? "oklch(0.13 0.015 270)" : "oklch(0.96 0.004 270)";
+  const border = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
+  const text = isDark ? "oklch(0.75 0.01 270)" : "oklch(0.35 0.01 270)";
+  const popBg = isDark ? "oklch(0.16 0.018 270)" : "oklch(0.99 0.004 270)";
+  const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
+  const activeBg = isDark ? "oklch(0.58 0.22 290 / 0.18)" : "oklch(0.58 0.22 290 / 0.12)";
+  const activeText = isDark ? "oklch(0.82 0.16 290)" : "oklch(0.46 0.18 290)";
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!selectorRef.current?.contains(event.target as HTMLElement)) setOpen(false);
+    };
+    window.addEventListener("mousedown", handlePointerDown);
+    return () => window.removeEventListener("mousedown", handlePointerDown);
+  }, [open]);
+
+  return (
+    <div ref={selectorRef} className="relative nodrag nopan" style={{ zIndex: open ? 1200 : 100 }}>
+      <button
+        type="button"
+        title="极点选择器 / Skill"
+        onClick={() => setOpen(value => !value)}
+        className="flex h-8 items-center gap-1.5 rounded-[var(--radius-md-design)] px-2.5 type-caption transition-colors"
+        style={{ background: activeSkill ? activeBg : bg, border: `1px solid ${activeSkill ? "oklch(0.62 0.22 290 / 45%)" : border}`, color: activeSkill ? activeText : text }}
+      >
+        <CircleDot size={13} />
+        <span className="max-w-[92px] truncate">{activeSkill ? activeSkill.name : "极点 Skill"}</span>
+        <ChevronDown size={10} style={{ opacity: 0.65 }} />
+      </button>
+      {open && (
+        <div
+          className="model-selector-scroll absolute bottom-[calc(100%+8px)] left-0 overflow-y-auto rounded-[var(--radius-md-design)] p-1 shadow-2xl"
+          style={{
+            width: 288,
+            maxHeight: 360,
+            background: popBg,
+            border: `1px solid ${border}`,
+            color: text,
+            zIndex: 1201,
+          }}
+        >
+          {activeSkill && (
+            <button
+              type="button"
+              onClick={() => {
+                onChange(null);
+                setOpen(false);
+                toast("已取消 Skill", { description: "输入框恢复为普通 AI 创作模式" });
+              }}
+              className="flex w-full items-center gap-2 rounded-[var(--radius-sm-design)] px-2.5 py-2 text-left type-caption"
+              style={{ color: isDark ? "rgba(255,255,255,0.58)" : "rgba(20,20,36,0.58)" }}
+              onMouseEnter={event => { event.currentTarget.style.background = hoverBg; }}
+              onMouseLeave={event => { event.currentTarget.style.background = "transparent"; }}
+            >
+              <X size={13} />
+              取消当前 Skill
+            </button>
+          )}
+          {groupedSkills.map(([group, skills]) => (
+            <div key={group}>
+              <div className="px-2.5 pb-1 pt-2 text-[11px] font-semibold" style={{ color: isDark ? "rgba(255,255,255,0.42)" : "rgba(20,20,36,0.42)" }}>
+                {group}
+              </div>
+              {skills.map(skill => {
+                const Icon = skill.icon;
+                const active = activeSkill?.id === skill.id;
+                return (
+                  <button
+                    key={skill.id}
+                    type="button"
+                    onClick={() => {
+                      const pendingSkill = createPendingSkillLoad(skill);
+                      onChange(pendingSkill);
+                      setOpen(false);
+                      toast("Skill 已加载到画布", { description: pendingSkill.name });
+                    }}
+                    className="flex w-full items-start gap-2 rounded-[var(--radius-sm-design)] px-2.5 py-2 text-left transition-colors"
+                    style={{ background: active ? activeBg : "transparent", color: active ? activeText : text }}
+                    onMouseEnter={event => { if (!active) event.currentTarget.style.background = hoverBg; }}
+                    onMouseLeave={event => { event.currentTarget.style.background = active ? activeBg : "transparent"; }}
+                  >
+                    <Icon size={15} style={{ marginTop: 1, flexShrink: 0 }} />
+                    <span className="min-w-0">
+                      <span className="block truncate text-xs font-semibold">{skill.name}</span>
+                      <span className="mt-0.5 block line-clamp-2 text-[11px]" style={{ color: isDark ? "rgba(255,255,255,0.46)" : "rgba(20,20,36,0.50)" }}>
+                        {skill.summary}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -3939,7 +4087,7 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
     ? "oklch(0.65 0.22 290)"
     : isDark ? "oklch(1 0 0 / 20%)" : "oklch(0 0 0 / 18%)";
   // 使用用户选择的背景色，默认深灰色
-  const bg = (data.bgColor as string) || "#2a2a30";
+  const bg = withCanvasFrameAlpha(data.bgColor || (data.originalBgColor as string) || "#2a2a30");
   const labelColor = isDark ? "oklch(0.55 0.01 270)" : "oklch(0.52 0.01 270)";
   const handleColor = isDark ? "oklch(0.65 0.22 290 / 0.80)" : "oklch(0.50 0.20 290 / 0.80)";
   const handleNodeCtxMenu = useCallback((e: React.MouseEvent) => {
@@ -3956,6 +4104,10 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
     window.dispatchEvent(new CustomEvent("asset-click-selection", { detail: { selectedIds: [id] } }));
     window.dispatchEvent(new CustomEvent("visual-node-select-to-front", { detail: { nodeId: id, additive } }));
   }, [id]);
+  const handleCanvasFrameDoubleClick = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
 
   return (
     <div
@@ -3970,6 +4122,7 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
       }}
       onContextMenu={handleNodeCtxMenu}
       onClick={handleCanvasFrameClick}
+      onDoubleClick={handleCanvasFrameDoubleClick}
     >
       {/* 左上角标题 */}
       <div
@@ -5138,13 +5291,33 @@ function stripLargeCanvasNodePayloads(nodes: Node[]) {
   });
 }
 
+function normalizeCanvasFrameNode(node: Node): Node {
+  if (node.type !== "canvasFrame") return node;
+  const data = node.data as Record<string, unknown>;
+  const rawBg = data.originalBgColor || data.bgColor || (node.style as Record<string, unknown> | undefined)?.background || "#2a2a30";
+  const translucentBg = withCanvasFrameAlpha(rawBg);
+  return {
+    ...node,
+    style: { ...node.style, background: translucentBg },
+    data: {
+      ...data,
+      bgColor: translucentBg,
+      originalBgColor: data.originalBgColor || rawBg,
+    },
+  };
+}
+
+function normalizeCanvasFrameNodes(nodes: Node[]) {
+  return nodes.map(normalizeCanvasFrameNode);
+}
+
 function safeReadCanvasState(projectId: string): PersistedCanvasState | null {
   if (typeof window === "undefined") return null;
   const readRawState = (raw: string | null) => {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as PersistedCanvasState;
     if (!Array.isArray(parsed.nodes) || !Array.isArray(parsed.edges)) return null;
-    const nodes = removePendingImageGenerationNodes(parsed.nodes);
+    const nodes = normalizeCanvasFrameNodes(removePendingImageGenerationNodes(parsed.nodes));
     const nodeIds = new Set(nodes.map(node => node.id));
     const edges = parsed.edges.filter(edge => nodeIds.has(edge.source) && nodeIds.has(edge.target));
     return { ...parsed, nodes, edges };
@@ -5165,7 +5338,7 @@ function safeWriteCanvasState(projectId: string, state: PersistedCanvasState) {
   if (typeof window === "undefined") return;
   const key = canvasStateStorageKey(projectId);
   const sessionKey = canvasStateSessionKey(projectId);
-  const cleanedNodes = removePendingImageGenerationNodes(state.nodes);
+  const cleanedNodes = normalizeCanvasFrameNodes(removePendingImageGenerationNodes(state.nodes));
   const nodeIds = new Set(cleanedNodes.map(node => node.id));
   const cleanedState: PersistedCanvasState = {
     ...state,
@@ -5252,6 +5425,7 @@ function BottomPromptBar({
   isDark,
   projectId,
   activeSkill,
+  onActiveSkillChange,
   referencedAssets,
   onRemoveReference,
   onClearAllReferences,
@@ -5259,6 +5433,7 @@ function BottomPromptBar({
   isDark: boolean;
   projectId: string;
   activeSkill: PendingSkillLoad | null;
+  onActiveSkillChange: (skill: PendingSkillLoad | null) => void;
   referencedAssets: { id: string; title: string; src: string }[];
   onRemoveReference: (id: string) => void;
   onClearAllReferences: () => void;
@@ -5522,6 +5697,7 @@ function BottomPromptBar({
       </div>
       <div className="flex items-center gap-2 px-3 pb-3" style={{ paddingTop: 8 }}>
         <ModelSelector model={model} onChange={setModel} isDark={isDark} />
+        <SkillPointSelector activeSkill={activeSkill} onChange={onActiveSkillChange} isDark={isDark} />
         <button
           className="flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-md-design)] type-caption hover:opacity-80"
           style={{ color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.55 0.01 270)" }}
@@ -7206,6 +7382,7 @@ function CanvasAssistantPanel({
   isDark,
   collapsed,
   activeSkill,
+  onActiveSkillChange,
   isAuthenticated,
   onToggleCollapsed,
   onLoginRequest,
@@ -7221,6 +7398,7 @@ function CanvasAssistantPanel({
   isDark: boolean;
   collapsed: boolean;
   activeSkill: PendingSkillLoad | null;
+  onActiveSkillChange: (skill: PendingSkillLoad | null) => void;
   isAuthenticated: boolean;
   onToggleCollapsed: () => void;
   onLoginRequest: () => void;
@@ -8304,33 +8482,34 @@ function CanvasAssistantPanel({
                 })}
               </div>
               <div className="flex items-center justify-between pt-2">
-                <div ref={assistantModelRef} className="relative flex items-center" style={{ color: sub }}>
-                  <button
-                    type="button"
-                    className="flex items-center gap-1.5 rounded-[var(--radius-lg-design)] px-2.5 py-1.5 type-caption transition-colors active:scale-95"
-                    style={{ background: agentMenuOpen ? hoverBg : "transparent", color: agentMenuOpen ? text : sub }}
-                    onClick={() => { setAgentMenuOpen(v => !v); setCommandMenuOpen(false); }}
-                    onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
-                    onMouseLeave={e => (e.currentTarget.style.background = agentMenuOpen ? hoverBg : "transparent")}
-                    title="选择模型"
-                    aria-label="选择模型"
-                  >
-                    <span>
-                      {assistantModelTab === "auto" ? "Auto" : assistantModelTab === "image" ? "生图" : "对话"} · {assistantModel.label}
-                    </span>
-                    <ChevronDown size={12} style={{ opacity: 0.6, transform: agentMenuOpen ? "rotate(180deg)" : "none", transition: "transform 0.16s ease" }} />
-                  </button>
-                  {agentMenuOpen && (
-                    <div
-                      className="absolute bottom-full left-0 mb-2 overflow-hidden rounded-[var(--radius-lg-design)] shadow-2xl"
-                      style={{
-                        background: isDark ? "oklch(0.16 0.015 270)" : "oklch(0.97 0.004 270)",
-                        border: `1px solid ${border}`,
-                        minWidth: 200,
-                        backdropFilter: "blur(16px)",
-                        zIndex: 130,
-                      }}
+                <div className="flex items-center gap-1.5">
+                  <div ref={assistantModelRef} className="relative flex items-center" style={{ color: sub }}>
+                    <button
+                      type="button"
+                      className="flex items-center gap-1.5 rounded-[var(--radius-lg-design)] px-2.5 py-1.5 type-caption transition-colors active:scale-95"
+                      style={{ background: agentMenuOpen ? hoverBg : "transparent", color: agentMenuOpen ? text : sub }}
+                      onClick={() => { setAgentMenuOpen(v => !v); setCommandMenuOpen(false); }}
+                      onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+                      onMouseLeave={e => (e.currentTarget.style.background = agentMenuOpen ? hoverBg : "transparent")}
+                      title="选择模型"
+                      aria-label="选择模型"
                     >
+                      <span>
+                        {assistantModelTab === "auto" ? "Auto" : assistantModelTab === "image" ? "生图" : "对话"} · {assistantModel.label}
+                      </span>
+                      <ChevronDown size={12} style={{ opacity: 0.6, transform: agentMenuOpen ? "rotate(180deg)" : "none", transition: "transform 0.16s ease" }} />
+                    </button>
+                    {agentMenuOpen && (
+                      <div
+                        className="absolute bottom-full left-0 mb-2 overflow-hidden rounded-[var(--radius-lg-design)] shadow-2xl"
+                        style={{
+                          background: isDark ? "oklch(0.16 0.015 270)" : "oklch(0.97 0.004 270)",
+                          border: `1px solid ${border}`,
+                          minWidth: 200,
+                          backdropFilter: "blur(16px)",
+                          zIndex: 130,
+                        }}
+                      >
                       <div className="grid grid-cols-3 gap-1 p-1.5" style={{ borderBottom: `1px solid ${border}` }}>
                         {([
                           { id: "auto" as const, label: "Auto" },
@@ -8393,8 +8572,10 @@ function CanvasAssistantPanel({
                             )}
                           </button>
                         ))}
-                    </div>
-                  )}
+                      </div>
+                    )}
+                  </div>
+                  <SkillPointSelector activeSkill={activeSkill} onChange={onActiveSkillChange} isDark={isDark} />
                 </div>
                 <div className="flex items-center gap-1.5">
                   <button
@@ -8563,7 +8744,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const viewport = useViewport();
   const restoredCanvasState = useMemo(() => safeReadCanvasState(projectId), [projectId]);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(restoredCanvasState?.nodes || initialNodes);
+  const [nodes, setNodes, onNodesChange] = useNodesState(normalizeCanvasFrameNodes(restoredCanvasState?.nodes || initialNodes));
   const [edges, setEdges, onEdgesChange] = useEdgesState(restoredCanvasState?.edges || initialEdges);
   const [canvasRestoreTick, setCanvasRestoreTick] = useState(0);
   // 始终跟踪最新的 nodes/edges，供 pushHistory 读取（避免闭包捕获旧值）
@@ -8571,33 +8752,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const edgesRef = useRef(edges);
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
   useEffect(() => { edgesRef.current = edges; }, [edges]);
-  useEffect(() => {
-    const legacyEmbeddedNodes = nodes.filter(node =>
-      node.type === "asset" &&
-      Boolean((node.data as Record<string, unknown>).embeddedInFrame) &&
-      Boolean(node.parentId)
-    );
-    if (legacyEmbeddedNodes.length === 0) return;
-    setNodes(nds => nds.map(node => {
-      if (
-        node.type !== "asset" ||
-        !node.parentId ||
-        !(node.data as Record<string, unknown>).embeddedInFrame
-      ) {
-        return node;
-      }
-      const frame = nds.find(item => item.id === node.parentId && item.type === "canvasFrame");
-      const absolutePosition = frame
-        ? { x: frame.position.x + node.position.x, y: frame.position.y + node.position.y }
-        : node.position;
-      return {
-        ...node,
-        position: absolutePosition,
-        parentId: undefined,
-        extent: undefined,
-      };
-    }));
-  }, [nodes, setNodes]);
   useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ resolve?: (assets: ImageGeneratorReferenceAsset[]) => void }>).detail;
@@ -8675,7 +8829,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
   useEffect(() => {
     const saved = safeReadCanvasState(projectId);
-    const restoredNodes = saved?.nodes || initialNodes;
+    const restoredNodes = normalizeCanvasFrameNodes(saved?.nodes || initialNodes);
     const restoredEdges = saved?.edges || initialEdges;
     const updatedAt = saved?.updatedAt || formatProjectHistoryTimestamp();
     let cancelled = false;
@@ -9272,10 +9426,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       pushHistory(nodesRef.current, edgesRef.current);
       setNodes(nds => nds.map(n => {
         if (n.id !== detail.id || n.type !== "canvasFrame") return n;
+        const normalizedFrame = normalizeCanvasFrameNode(n);
+        const normalizedData = normalizedFrame.data as Record<string, unknown>;
         return {
-          ...n,
-          style: { ...n.style, width: detail.width, height: detail.height },
-          data: { ...(n.data as Record<string, unknown>), width: detail.width, height: detail.height },
+          ...normalizedFrame,
+          style: { ...normalizedFrame.style, width: detail.width, height: detail.height },
+          data: { ...normalizedData, width: detail.width, height: detail.height },
         };
       }));
     };
@@ -10235,7 +10391,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     clearInactiveAssetCommands(nextSelectedIds);
     const selectedVisualIds = new Set(
       selectedNodes
-        .filter(node => node.type === "asset" || node.type === "canvasFrame")
+        .filter(node => node.type === "asset")
         .map(node => node.id)
     );
     if (selectedVisualIds.size > 0) {
@@ -10693,7 +10849,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     // 将屏幕坐标转换为 flow 坐标
     const flowPos = screenToFlowPosition({ x: (containerRef.current?.getBoundingClientRect().left || 0) + minX, y: (containerRef.current?.getBoundingClientRect().top || 0) + minY });
     const id = `canvas-frame-${Date.now()}`;
-    const bgColor = canvasBgColor;
+    const originalBgColor = canvasBgColor;
+    const bgColor = withCanvasFrameAlpha(originalBgColor);
     setNodes(nds => {
       // 在 updater 内调用，传入 prev 快照，确保记录的是添加节点前的真实状态
       pushHistory(nds, edgesRef.current);
@@ -10702,7 +10859,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         type: "canvasFrame",
         position: flowPos,
         style: { width: w, height: h, background: bgColor },
-        data: { id, title, width: w, height: h, bgColor, socialPresetId: selectedSocialPreset?.id },
+        data: { id, title, width: w, height: h, bgColor, originalBgColor, socialPresetId: selectedSocialPreset?.id },
       }];
     });
     setPendingRect(null);
@@ -12607,6 +12764,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         isDark={isDark}
         collapsed={isAssistantCollapsed}
         activeSkill={activeSkill}
+        onActiveSkillChange={setActiveSkill}
         isAuthenticated={isAuthenticated}
         onLoginRequest={openLoginModal}
         onToggleCollapsed={() => setIsAssistantCollapsed(value => !value)}
