@@ -164,7 +164,7 @@ export default function SkillsPage() {
                     设计图片类 Skills
                   </h1>
                   <p className="mt-2 max-w-[720px] text-sm leading-6" style={{ color: sub }}>
-                    已整理 30 个可放入平台商店的技能入口，覆盖创作、编辑、分析和导出。每个卡片都保留来源仓库，后续可以接 GitHub token 或你们自己的下载榜自动刷新。
+                    使用技能，让你的创意效率即刻提速翻倍。
                   </p>
                 </div>
 
