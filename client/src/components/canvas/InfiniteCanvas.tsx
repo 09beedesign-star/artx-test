@@ -4100,9 +4100,7 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
   }, [id]);
   const handleCanvasFrameClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    const additive = e.ctrlKey || e.metaKey;
     window.dispatchEvent(new CustomEvent("asset-click-selection", { detail: { selectedIds: [id] } }));
-    window.dispatchEvent(new CustomEvent("visual-node-select-to-front", { detail: { nodeId: id, additive } }));
   }, [id]);
   const handleCanvasFrameDoubleClick = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -4113,7 +4111,7 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
     <div
       style={{
         width: w, height: h,
-        background: bg,
+        background: "transparent",
         border: `1.5px solid ${borderColor}`,
         borderRadius: 8,
         boxSizing: "border-box",
@@ -4124,6 +4122,17 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
       onClick={handleCanvasFrameClick}
       onDoubleClick={handleCanvasFrameDoubleClick}
     >
+      <div
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          inset: 0,
+          borderRadius: 8,
+          background: bg,
+          pointerEvents: "none",
+          zIndex: 0,
+        }}
+      />
       {/* 左上角标题 */}
       <div
         style={{
@@ -4136,6 +4145,7 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
           whiteSpace: "nowrap",
           letterSpacing: "0.02em",
           userSelect: "none",
+          zIndex: 2,
         }}
       >
         {title} · {w} × {h} px
@@ -4916,31 +4926,22 @@ function getCanvasNodeSize(node: Node): CanvasNodeSize {
   return { width: 260, height: 200 };
 }
 
-function fitEmbeddedAssetInsideFrame(assetNode: Node, frameNode: Node, nextFrameWidth: number, nextFrameHeight: number, scaleX: number, scaleY: number) {
+function clampEmbeddedAssetToFrame(assetNode: Node, frameNode: Node, nextFrameWidth: number, nextFrameHeight: number) {
   const size = getCanvasNodeSize(assetNode);
   const frameOriginX = frameNode.position.x;
   const frameOriginY = frameNode.position.y;
-  const relativeX = assetNode.position.x - frameOriginX;
-  const relativeY = assetNode.position.y - frameOriginY;
-  const uniformScale = Math.max(0.01, Math.min(scaleX, scaleY));
-  let nextWidth = Math.max(1, Math.round(size.width * uniformScale));
-  let nextHeight = Math.max(1, Math.round(size.height * uniformScale));
-
-  if (nextWidth > nextFrameWidth || nextHeight > nextFrameHeight) {
-    const containScale = Math.min(nextFrameWidth / nextWidth, nextFrameHeight / nextHeight);
-    nextWidth = Math.max(1, Math.round(nextWidth * containScale));
-    nextHeight = Math.max(1, Math.round(nextHeight * containScale));
-  }
-
+  const nextWidth = size.width;
+  const nextHeight = size.height;
+  const minX = frameOriginX;
+  const minY = frameOriginY;
   const maxX = frameOriginX + Math.max(0, nextFrameWidth - nextWidth);
   const maxY = frameOriginY + Math.max(0, nextFrameHeight - nextHeight);
-  const nextX = Math.min(Math.max(frameOriginX + relativeX * scaleX, frameOriginX), maxX);
-  const nextY = Math.min(Math.max(frameOriginY + relativeY * scaleY, frameOriginY), maxY);
+  const nextX = Math.min(Math.max(assetNode.position.x, minX), maxX);
+  const nextY = Math.min(Math.max(assetNode.position.y, minY), maxY);
 
   return {
     ...assetNode,
     position: { x: nextX, y: nextY },
-    style: { ...assetNode.style, width: nextWidth, height: nextHeight },
     data: {
       ...(assetNode.data as Record<string, unknown>),
       imgW: nextWidth,
@@ -9452,9 +9453,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       setNodes(nds => {
         const frame = nds.find(n => n.id === detail.id && n.type === "canvasFrame");
         if (!frame) return nds;
-        const previousSize = getCanvasNodeSize(frame);
-        const scaleX = detail.width / Math.max(1, previousSize.width);
-        const scaleY = detail.height / Math.max(1, previousSize.height);
         const normalizedFrame = normalizeCanvasFrameNode(frame);
         const normalizedData = normalizedFrame.data as Record<string, unknown>;
         const resizedFrame = {
@@ -9466,7 +9464,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           if (n.id === detail.id) return resizedFrame;
           const data = n.data as Record<string, unknown>;
           if (n.type === "asset" && data.embeddedInFrame === detail.id) {
-            return fitEmbeddedAssetInsideFrame(n, frame, detail.width, detail.height, scaleX, scaleY);
+            return clampEmbeddedAssetToFrame(n, frame, detail.width, detail.height);
           }
           return n;
         });
@@ -11560,7 +11558,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       if (!detail?.nodeId) return;
       const additive = Boolean(detail.additive);
       setNodes(nds => {
-        const target = nds.find(node => node.id === detail.nodeId && (node.type === "asset" || node.type === "canvasFrame"));
+        const target = nds.find(node => node.id === detail.nodeId && node.type === "asset");
         if (!target) return nds;
         const selectedIds = new Set(additive ? nds.filter(node => node.selected).map(node => node.id) : []);
         selectedIds.add(target.id);
