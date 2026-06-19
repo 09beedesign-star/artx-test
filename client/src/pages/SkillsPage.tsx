@@ -142,32 +142,32 @@ export default function SkillsPage() {
 
       <div className="min-h-0 flex-1 overflow-y-auto" style={{ position: "relative", zIndex: 1 }}>
         <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-5 px-6 pb-10 pt-5">
-          <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_420px]">
+          <section className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_420px]">
             <div
-              className="relative overflow-hidden rounded-[var(--radius-lg-design)] border p-6"
+              className="relative overflow-hidden rounded-[var(--radius-lg-design)] border p-5"
               style={{
                 background: isDark
                   ? "linear-gradient(135deg, rgba(144,88,252,0.16), rgba(255,255,255,0.055) 42%, rgba(0,208,255,0.09))"
                   : "linear-gradient(135deg, rgba(144,88,252,0.12), rgba(255,255,255,0.86) 42%, rgba(0,208,255,0.10))",
                 borderColor: isDark ? "rgba(255,255,255,0.14)" : "rgba(20,20,36,0.10)",
                 backdropFilter: "blur(18px)",
-                minHeight: 236,
+                minHeight: 188,
               }}
             >
               <div
-                className="pointer-events-none absolute right-8 top-6 h-36 w-36 rounded-full"
-                style={{ background: "rgba(144,88,252,0.18)", filter: "blur(38px)" }}
+                className="pointer-events-none absolute right-6 top-3 h-28 w-28 rounded-full"
+                style={{ background: "rgba(144,88,252,0.18)", filter: "blur(34px)" }}
               />
               <div
-                className="pointer-events-none absolute bottom-0 right-40 h-24 w-44 rounded-full"
-                style={{ background: "rgba(0,208,255,0.12)", filter: "blur(36px)" }}
+                className="pointer-events-none absolute bottom-0 right-32 h-20 w-40 rounded-full"
+                style={{ background: "rgba(0,208,255,0.12)", filter: "blur(30px)" }}
               />
 
-              <div className="relative flex h-full flex-col justify-between gap-7">
+              <div className="relative flex h-full flex-col justify-between gap-4">
                 <div>
-                  <div className="mb-5 flex flex-wrap items-center gap-2">
+                  <div className="mb-4 flex flex-wrap items-center gap-2">
                     <span
-                      className="inline-flex h-8 items-center gap-2 rounded-[var(--radius-md-design)] border px-2.5 type-caption"
+                      className="inline-flex h-7 items-center gap-2 rounded-[var(--radius-md-design)] border px-2.5 type-caption"
                       style={{
                         color: isDark ? "rgba(255,255,255,0.82)" : "rgba(20,20,36,0.76)",
                         borderColor: isDark ? "rgba(255,255,255,0.16)" : "rgba(20,20,36,0.10)",
@@ -182,10 +182,10 @@ export default function SkillsPage() {
                     </span>
                   </div>
 
-                  <h1 className="max-w-[720px] text-[44px] font-semibold leading-[1.05]" style={{ color: text, letterSpacing: 0 }}>
+                  <h1 className="max-w-[720px] text-[38px] font-semibold leading-[1.04]" style={{ color: text, letterSpacing: 0 }}>
                     设计图片类 Skills
                   </h1>
-                  <p className="mt-3 max-w-[580px] text-base leading-7" style={{ color: sub }}>
+                  <p className="mt-2 max-w-[580px] text-sm leading-6" style={{ color: sub }}>
                     使用技能，让你的创意效率即刻提速翻倍。
                   </p>
                 </div>
@@ -194,7 +194,7 @@ export default function SkillsPage() {
                   {["品牌套件", "图像编辑", "质量分析", "多尺寸导出"].map((label, index) => (
                     <span
                       key={label}
-                      className="inline-flex h-8 items-center rounded-[var(--radius-md-design)] border px-3 text-xs"
+                      className="inline-flex h-7 items-center rounded-[var(--radius-md-design)] border px-3 text-xs"
                       style={{
                         color: isDark ? "rgba(255,255,255,0.78)" : "rgba(20,20,36,0.72)",
                         borderColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(20,20,36,0.08)",
@@ -211,12 +211,12 @@ export default function SkillsPage() {
             </div>
 
             <div
-              className="rounded-[var(--radius-lg-design)] border p-4"
+              className="rounded-[var(--radius-lg-design)] border p-3"
               style={{
                 background: panel,
                 borderColor: border,
                 backdropFilter: "blur(18px)",
-                minHeight: 236,
+                minHeight: 188,
               }}
             >
               <div className="grid grid-cols-3 gap-2">
@@ -225,26 +225,26 @@ export default function SkillsPage() {
                   return (
                     <div
                       key={item.label}
-                      className="rounded-[var(--radius-md-design)] border p-3"
+                      className="rounded-[var(--radius-md-design)] border p-2.5"
                       style={{
                         borderColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(20,20,36,0.10)",
                         background: isDark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.76)",
                       }}
                     >
-                      <div className="mb-3 flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm-design)]" style={{ background: `${item.accent}22`, color: item.accent }}>
-                        <Icon size={14} />
+                      <div className="mb-2 flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm-design)]" style={{ background: `${item.accent}22`, color: item.accent }}>
+                        <Icon size={13} />
                       </div>
-                      <p className="text-[28px] font-semibold leading-none" style={{ color: text }}>{item.value}</p>
-                      <p className="mt-2 text-xs" style={{ color: faint }}>{item.label}</p>
+                      <p className="text-[24px] font-semibold leading-none" style={{ color: text }}>{item.value}</p>
+                      <p className="mt-1.5 text-xs" style={{ color: faint }}>{item.label}</p>
                     </div>
                   );
                 })}
               </div>
 
-              <div className="mt-4 rounded-[var(--radius-md-design)] border p-3" style={{ borderColor: border, background: isDark ? "rgba(0,0,0,0.14)" : "rgba(255,255,255,0.62)" }}>
-                <div className="mb-3 flex items-center justify-between">
+              <div className="mt-3 rounded-[var(--radius-md-design)] border p-2.5" style={{ borderColor: border, background: isDark ? "rgba(0,0,0,0.14)" : "rgba(255,255,255,0.62)" }}>
+                <div className="mb-2 flex items-center justify-between">
                   <div className="flex items-center gap-2" style={{ color: text }}>
-                    <Boxes size={16} />
+                    <Boxes size={15} />
                     <span className="text-sm font-medium">分类覆盖</span>
                   </div>
                   <span className="text-xs" style={{ color: faint }}>商店结构</span>
@@ -256,7 +256,7 @@ export default function SkillsPage() {
                       key={category}
                       type="button"
                       onClick={() => setActiveCategory(category)}
-                      className="group mb-2 flex w-full items-center gap-3 rounded-[var(--radius-md-design)] px-2 py-1.5 text-left transition-opacity last:mb-0 hover:opacity-85"
+                      className="group mb-1.5 flex w-full items-center gap-2.5 rounded-[var(--radius-md-design)] px-2 py-1 text-left transition-opacity last:mb-0 hover:opacity-85"
                       style={{
                         background: activeCategory === category ? "rgba(144,88,252,0.16)" : "transparent",
                       }}
@@ -267,7 +267,7 @@ export default function SkillsPage() {
                           <span className="text-sm font-medium" style={{ color: text }}>{meta.label}</span>
                           <span className="text-xs font-semibold" style={{ color: activeCategory === category ? skillButtonPurple : faint }}>{categoryCounts[category]}</span>
                         </span>
-                        <span className="mt-1 block h-1.5 overflow-hidden rounded-full" style={{ background: isDark ? "rgba(255,255,255,0.08)" : "rgba(20,20,36,0.08)" }}>
+                        <span className="mt-0.5 block h-1.5 overflow-hidden rounded-full" style={{ background: isDark ? "rgba(255,255,255,0.08)" : "rgba(20,20,36,0.08)" }}>
                           <span
                             className="block h-full rounded-full"
                             style={{
