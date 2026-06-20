@@ -1,9 +1,10 @@
 import { useRef, useState, type ChangeEvent } from "react";
-import { ImagePlus, Send, Trash2, X } from "lucide-react";
+import { ImagePlus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import TopBar from "@/components/workspace/TopBar";
 import { useTheme } from "@/contexts/ThemeContext";
 import { BG_GLOW } from "@/lib/workspace-data";
+import generationMark from "@/assets/generation/ai-generation-mark.svg";
 
 interface FeedbackImage {
   id: string;
@@ -159,10 +160,10 @@ export default function HelpPage() {
               <button
                 type="button"
                 onClick={handleSubmit}
-                className="flex h-10 items-center gap-2 rounded-[var(--radius-md-design)] px-5 type-body-sm font-medium text-white transition-transform active:scale-[0.98]"
-                style={{ background: "linear-gradient(135deg, #936CFF, #7C4DFF)", boxShadow: "0 14px 30px rgba(124,77,255,0.28)" }}
+                className="flex h-10 items-center gap-2 rounded-[var(--radius-md-design)] px-5 type-body-sm font-medium transition-transform hover:opacity-90 active:scale-[0.98]"
+                style={{ background: "#C5ED47", color: "#000", boxShadow: "0 14px 30px rgba(197,237,71,0.24)" }}
               >
-                <Send size={15} />
+                <img src={generationMark} alt="" aria-hidden="true" draggable={false} className="h-4 w-4 object-contain" style={{ filter: "brightness(0)" }} />
                 提交
               </button>
             </div>

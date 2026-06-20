@@ -37,7 +37,7 @@ import "@xyflow/react/dist/style.css";
 import { toast } from "sonner";
 import {
   Image as ImageIcon, MessageSquare, Type, Wand2,
-  Sparkles, Trash2, Send, Paperclip, ChevronDown,
+  Sparkles, Trash2, Paperclip, ChevronDown,
   X, Copy, Clipboard, Edit3, PlusSquare, FileText, Scissors,
   ZoomIn, Download, Crop, Box, Eraser,
   MoreHorizontal, FolderOutput, Maximize2, Mic, RefreshCw,
@@ -2297,9 +2297,9 @@ function AssetPromptPanel({ isDark, assetSrc, onExpand }: {
         </button>
         <span className="type-caption" style={{ color: chipText }}>1×</span>
         <button className="w-7 h-7 rounded-[var(--radius-pill)] flex items-center justify-center transition-all hover:opacity-90"
-          style={{ background: "oklch(0.58 0.22 290)", color: "white" }}
+          style={{ background: "#C5ED47", color: "#000" }}
           onClick={e => { e.stopPropagation(); if (prompt.trim()) { toast("AI 正在处理图片", { description: prompt.slice(0, 50) }); setPrompt(""); } else toast("请先输入描述"); }}>
-          <Send size={12} />
+          <img src={generationMark} alt="" aria-hidden="true" draggable={false} style={{ width: 13, height: 13, objectFit: "contain", filter: "brightness(0)" }} />
         </button>
       </div>
     </div>
@@ -3839,7 +3839,9 @@ function ChatNodeComponent({ data, selected }: { data: Record<string, unknown>; 
           style={{ background: inputBg, border: `1px solid ${inputBorder}` }}>
           <input className="flex-1 bg-transparent type-caption outline-none" style={{ color: text }}
             placeholder="继续对话..." onClick={e => e.stopPropagation()} />
-          <button className="p-1 rounded-[var(--radius-xs)]" style={{ color: subtext }}><Send size={11} /></button>
+          <button className="h-6 w-6 flex-shrink-0 rounded-[var(--radius-xs)] flex items-center justify-center hover:opacity-90" style={{ background: "#C5ED47", color: "#000" }}>
+            <img src={generationMark} alt="" aria-hidden="true" draggable={false} style={{ width: 12, height: 12, objectFit: "contain", filter: "brightness(0)" }} />
+          </button>
         </div>
       </div>
     </NodeWrapper>
@@ -6545,9 +6547,21 @@ function AssetEditPromptBar({
         <button
           onClick={handleSend}
           className="w-7 h-7 rounded-[var(--radius-md-design)] flex items-center justify-center hover:opacity-80 active:scale-90 transition-all"
-          style={{ background: prompt.trim() || uploadedRefs.length > 0 ? "oklch(0.58 0.22 290)" : (isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)") }}
+          style={{ background: prompt.trim() || uploadedRefs.length > 0 ? "#C5ED47" : (isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)") }}
         >
-          <Send size={13} color={prompt.trim() || uploadedRefs.length > 0 ? "white" : (isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.30)")} />
+          <img
+            src={generationMark}
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+            style={{
+              width: 14,
+              height: 14,
+              objectFit: "contain",
+              filter: prompt.trim() || uploadedRefs.length > 0 ? "brightness(0)" : (isDark ? "brightness(0) invert(0.42)" : "brightness(0) opacity(0.50)"),
+              opacity: prompt.trim() || uploadedRefs.length > 0 ? 1 : 0.78,
+            }}
+          />
         </button>
       </div>
     </div>

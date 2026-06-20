@@ -4,11 +4,11 @@ import { toast } from "sonner";
 import {
   ChevronDown,
   ImagePlus,
-  Send,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import asteroidImage from "@/assets/ardot/3_3.png";
 import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
+import generationMark from "@/assets/generation/ai-generation-mark.svg";
 import promptCsv from "@/data/ai_image_prompt_rank_50.csv?raw";
 import { createWorkspaceHistoryProject } from "@/lib/project-history";
 
@@ -568,10 +568,10 @@ function PreloginPanel({
             <button
               type="button"
               onClick={onSend}
-              className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#936CFF] text-white shadow-[0_8px_22px_rgba(147,108,255,0.28)] transition-all hover:bg-[#A384FF] active:scale-95"
+              className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#C5ED47] shadow-[0_8px_22px_rgba(197,237,71,0.25)] transition-all hover:opacity-90 active:scale-95"
               aria-label="发送并登录"
             >
-              <Send size={16} />
+              <img src={generationMark} alt="" aria-hidden="true" draggable={false} className="h-4 w-4 object-contain" style={{ filter: "brightness(0)" }} />
             </button>
           </div>
         </div>
