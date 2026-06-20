@@ -7,7 +7,7 @@ import { useState, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
-  X, Download, Maximize2, Sparkles, Send, Loader2,
+  X, Download, Maximize2, Sparkles, Loader2,
   Check, GripVertical, MessageSquare, Type, MoreHorizontal,
   Paperclip, Wand2, Cpu, ChevronDown,
 } from "lucide-react";
@@ -16,6 +16,7 @@ import { GENERATED_ASSETS } from "@/lib/workspace-data";
 import type { ChatMessage, AgentStep } from "@/lib/workspace-data";
 import { IMAGE_AI_MODELS, TEXT_AI_MODELS } from "@/lib/workspace-data";
 import { callLLM, requestAiAuth } from "@/lib/ai";
+import generationMark from "@/assets/generation/ai-generation-mark.svg";
 
 type AiModelOption = typeof TEXT_AI_MODELS[number] | typeof IMAGE_AI_MODELS[number];
 
@@ -366,8 +367,8 @@ export function ChatNode({ node, isSelected, onDragStart, onSelect, onRemove }: 
               style={{ color: "oklch(0.85 0.008 270)", lineHeight: 1.5 }} />
             <button onClick={(e) => { e.stopPropagation(); handleSend(); }} disabled={!input.trim() || isGenerating}
               className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0 disabled:opacity-40 transition-all"
-              style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))" }}>
-              <Send size={10} className="text-white" />
+              style={{ background: "#C5ED47" }}>
+              <img src={generationMark} alt="" aria-hidden="true" draggable={false} className="h-3 w-3 object-contain" style={{ filter: "brightness(0)" }} />
             </button>
           </div>
         </div>
