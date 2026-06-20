@@ -5156,7 +5156,7 @@ const CANVAS_IMAGE_GENERATION_TASKS_STORAGE_KEY = "artx:canvas-image-generation-
 const CANVAS_IMAGE_DB_NAME = "artx-canvas-images";
 const CANVAS_IMAGE_STORE_NAME = "images";
 const EXTRACT_TEXT_LOADING_MESSAGE = "正在提取文案中...";
-const AI_GENERATION_NETWORK_ERROR_MESSAGE = "对不起，网络开了个小差，请稍后重试。";
+const AI_GENERATION_NETWORK_ERROR_MESSAGE = "对不起，网络开了个小差，请稍后重试";
 
 type PersistedCanvasState = {
   nodes: Node[];

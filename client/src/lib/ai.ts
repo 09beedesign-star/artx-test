@@ -18,8 +18,8 @@ type OrchestrateResponse = ApiErrorResponse & {
 };
 
 const AUTH_STORAGE_KEY = "artx-auth-session";
-const AI_REQUEST_TIMEOUT_MS = 180000;
-const AI_TIMEOUT_ERROR_MESSAGE = "对不起，网络开了个小差，请稍后重试。";
+const AI_REQUEST_TIMEOUT_MS = 300000;
+const AI_TIMEOUT_ERROR_MESSAGE = "对不起，网络开了个小差，请稍后重试";
 
 function normalizeAiErrorMessage(message: string, fallback: string) {
   if (/images api is not supported|not supported for this platform|unsupported.*images/i.test(message)) {
