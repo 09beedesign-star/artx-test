@@ -95,11 +95,10 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import CropEditor from "@/components/canvas/CropEditor";
 import RotateEditor from "@/components/canvas/RotateEditor";
-import { callLLM, editImageWithPrompt, enhanceImageToHd, eraseImageObjects, expandImageWithMask, generateImages as generateAiImages, removeImageBackground, requestAiAuth, searchReferenceImages, type ReferenceImageResult } from "@/lib/ai";
+import { callLLM, editImageWithPrompt, enhanceImageToHd, eraseImageObjects, expandImageWithMask, generateImages as generateAiImages, getBackgroundImageGenerationTask, removeImageBackground, requestAiAuth, searchReferenceImages, startBackgroundImageGeneration, type ReferenceImageResult } from "@/lib/ai";
 import { routeCreativeIntent } from "@/lib/ai-intent";
 import { createWorkspaceHistoryProject, touchWorkspaceProjectHistory, updateWorkspaceProjectHistory } from "@/lib/project-history";
 import { buildSkillPromptContext, createPendingSkillLoad, PENDING_SKILL_LOAD_KEY, skillStoreItems, type PendingSkillLoad } from "@/lib/skill-store";
-import generationGradient from "@/assets/generation/ai-generation-gradient.png";
 import generationMark from "@/assets/generation/ai-generation-mark.svg";
 
 const ENABLE_NODE_CONNECTIONS = false;
@@ -1220,15 +1219,15 @@ function AssetFloatingToolbar({ isDark, position, onAction }: {
     { icon: <PanelTopOpen size={15} />, label: "编辑元素", action: "edit-elements" },
     { icon: <Type size={15} />, label: "编辑文字", action: "edit-text" },
     { icon: <Move size={15} />, label: "移动对象", action: "move-object" },
-    { icon: <Expand size={15} />, label: "扩展", action: "expand", dot: true },
-    { icon: <MoreHorizontal size={15} />, label: "更多", action: "more", dot: true },
+    { icon: <Expand size={15} />, label: "扩展", action: "expand" },
+    { icon: <MoreHorizontal size={15} />, label: "更多", action: "more" },
     { icon: <Download size={15} />, label: "下载", action: "download" },
   ];
   const moreItems = [
     { icon: <Shirt size={18} />, label: "社媒平台尺寸", action: "mockup" },
-    { icon: <ImageIcon size={18} />, label: "调整", action: "adjust", dot: true },
-    { icon: <Frame size={18} />, label: "矢量", action: "vector", dot: true, cost: 9 },
-    { icon: <RotateCw size={18} />, label: "翻转与旋转", action: "flip-rotate", dot: true },
+    { icon: <ImageIcon size={18} />, label: "调整", action: "adjust" },
+    { icon: <Frame size={18} />, label: "矢量", action: "vector", cost: 9 },
+    { icon: <RotateCw size={18} />, label: "翻转与旋转", action: "flip-rotate" },
   ];
   useEffect(() => {
     if (!moreOpen) return;
@@ -1237,7 +1236,7 @@ function AssetFloatingToolbar({ isDark, position, onAction }: {
     return () => { window.clearTimeout(t); window.removeEventListener("mousedown", handler); };
   }, [moreOpen]);
   const buttonClass = "relative w-8 h-8 rounded-[var(--radius-md-design)] flex items-center justify-center transition-all active:scale-90";
-  const renderButton = (item: { icon: ReactNode; label: string; action: string; dot?: boolean }) => (
+  const renderButton = (item: { icon: ReactNode; label: string; action: string }) => (
     <div key={item.action} className="relative">
       {hoveredAction === item.action && (
         <div
@@ -1275,7 +1274,6 @@ function AssetFloatingToolbar({ isDark, position, onAction }: {
         onMouseLeave={e => { e.currentTarget.style.background = item.action === "more" && moreOpen ? hoverBg : "transparent"; setHoveredAction(null); }}
       >
         {item.icon}
-        {item.dot && <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-[var(--radius-pill)]" style={{ background: "oklch(0.60 0.22 260)" }} />}
       </button>
     </div>
   );
@@ -1313,7 +1311,6 @@ function AssetFloatingToolbar({ isDark, position, onAction }: {
             >
               <span className="relative flex h-5 w-5 items-center justify-center" style={{ color: moreText, flexShrink: 0 }}>
                 {item.icon}
-                {item.dot && <span style={{ position: "absolute", right: -3, top: -3, width: 6, height: 6, borderRadius: "50%", background: "oklch(0.62 0.22 25)" }} />}
               </span>
               <span style={{ flex: 1 }}>{item.label}</span>
               {item.cost && (
@@ -2732,8 +2729,15 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const isErasingImage = Boolean((data as { isErasingImage?: boolean }).isErasingImage);
   const isExtractingText = Boolean((data as { isExtractingText?: boolean }).isExtractingText);
   const isAiProcessingImage = isGeneratingImage || isGenerationFailed || isRemovingBackground || isErasingImage;
-  const processingLabel = ((data as { processingTitle?: string }).processingTitle || (isGenerationFailed ? AI_GENERATION_NETWORK_ERROR_MESSAGE : isGeneratingImage ? "正在全力生成中" : isErasingImage ? "AI 擦除中" : isRemovingBackground ? "AI 去背景中" : "AI 处理中")) as string;
+  const processingLabel = ((data as { processingTitle?: string }).processingTitle || (isGenerationFailed ? AI_GENERATION_NETWORK_ERROR_MESSAGE : isGeneratingImage ? "正在开足马力为您生成图片" : isErasingImage ? "AI 擦除中" : isRemovingBackground ? "AI 去背景中" : "AI 处理中")) as string;
   const processingSubtitle = ((data as { processingSubtitle?: string }).processingSubtitle || "") as string;
+  const processingLines = (() => {
+    if (isGenerationFailed) return ["生成图片失败", AI_GENERATION_NETWORK_ERROR_MESSAGE];
+    if (isGeneratingImage) return ["正在开足马力", "为您生成图片"];
+    if (processingSubtitle) return [processingLabel, processingSubtitle];
+    const midpoint = Math.ceil(processingLabel.length / 2);
+    return [processingLabel.slice(0, midpoint), processingLabel.slice(midpoint)].filter(Boolean);
+  })();
   const displaySrc = isAiProcessingImage ? "" : (localSrc || asset?.src || "");
   const sourceBackgroundSrc = (data as { sourceBackgroundSrc?: string }).sourceBackgroundSrc;
   const isEditing = !!(data as { isEditing?: boolean }).isEditing;
@@ -3348,36 +3352,23 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
                 background: isGenerationFailed
                   ? isDark ? "linear-gradient(135deg, #303038, #1d1d23)" : "linear-gradient(135deg, #d6d6da, #eeeeef)"
                   : isGeneratingImage
-                  ? `url(${generationGradient}) center / cover no-repeat`
+                  ? isDark ? "#050506" : "#101114"
                   : isDark ? "oklch(0.16 0.018 270)" : "oklch(0.96 0.006 270)",
-                color: isGenerationFailed ? isDark ? "rgba(255,255,255,0.76)" : "rgba(35,35,42,0.70)" : isGeneratingImage ? "rgba(255,255,255,0.88)" : isDark ? "rgba(255,255,255,0.72)" : "rgba(24,24,32,0.62)",
-                filter: isGenerationFailed ? "grayscale(1)" : undefined,
+                color: "rgba(255,255,255,0.30)",
                 zIndex: 1,
               }}
             >
-              {isGenerationFailed ? (
+              {isGenerationFailed || isGeneratingImage ? (
                 <div
-                  aria-hidden="true"
-                  style={{
-                    width: 52,
-                    height: 52,
-                    borderRadius: 18,
-                    display: "grid",
-                    placeItems: "center",
-                    background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
-                    color: "currentColor",
-                    fontSize: 26,
-                    fontWeight: 700,
-                  }}
-                >
-                  !
-                </div>
-              ) : isGeneratingImage ? (
-                <div
-                  className="artx-ai-generation-mark-shell"
+                  className={isGenerationFailed ? "artx-ai-generation-mark-shell artx-ai-generation-mark-shell-failed" : "artx-ai-generation-mark-shell"}
                   aria-hidden="true"
                 >
-                  <img src={generationMark} alt="" className="artx-ai-generation-mark" draggable={false} />
+                  <img
+                    src={generationMark}
+                    alt=""
+                    className={isGenerationFailed ? "artx-ai-generation-mark artx-ai-generation-mark-failed" : "artx-ai-generation-mark"}
+                    draggable={false}
+                  />
                 </div>
               ) : (
                 <div
@@ -3391,13 +3382,25 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
                   }}
                 />
               )}
-              <div className="flex flex-col items-center gap-1 px-5 text-center">
-                <span className="type-caption" style={{ fontWeight: 600 }}>{processingLabel}</span>
-                {processingSubtitle && !isGenerationFailed && (
-                  <span className="type-caption" style={{ maxWidth: 260, opacity: 0.82, lineHeight: 1.55, textTransform: "none", letterSpacing: 0 }}>
-                    {processingSubtitle}
+              <div className="flex flex-col items-center px-5 text-center" style={{ gap: 2 }}>
+                {processingLines.slice(0, 2).map((line, index) => (
+                  <span
+                    key={`${line}-${index}`}
+                    style={{
+                      maxWidth: 280,
+                      color: "rgba(255,255,255,0.30)",
+                      fontSize: 16,
+                      fontWeight: 500,
+                      lineHeight: "22px",
+                      letterSpacing: 0,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {line}
                   </span>
-                )}
+                ))}
               </div>
             </div>
 	          ) : displaySrc ? (
@@ -4174,7 +4177,50 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
 
   const w = localW;
   const h = localH;
-  const title = (data.title as string) || "画布";
+  const title = (data.title as string) || "画板";
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(title);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const isCommittingTitleRef = useRef(false);
+
+  useEffect(() => {
+    if (!isEditingTitle) setTitleDraft(title);
+  }, [isEditingTitle, title]);
+
+  useEffect(() => {
+    if (!isEditingTitle) return;
+    requestAnimationFrame(() => {
+      titleInputRef.current?.focus();
+      titleInputRef.current?.select();
+    });
+  }, [isEditingTitle]);
+
+  const startTitleEdit = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    isCommittingTitleRef.current = false;
+    setTitleDraft(title);
+    setIsEditingTitle(true);
+  }, [title]);
+
+  const commitTitleEdit = useCallback(() => {
+    if (isCommittingTitleRef.current) return;
+    isCommittingTitleRef.current = true;
+    const nextTitle = titleDraft.trim() || title || "画板";
+    setTitleDraft(nextTitle);
+    setIsEditingTitle(false);
+    if (nextTitle === title) return;
+    window.dispatchEvent(new CustomEvent("canvas-frame-title-change", {
+      detail: { id, title: nextTitle },
+    }));
+  }, [id, title, titleDraft]);
+
+  const cancelTitleEdit = useCallback(() => {
+    isCommittingTitleRef.current = true;
+    setTitleDraft(title);
+    setIsEditingTitle(false);
+  }, [title]);
+
   const borderColor = selected
     ? "oklch(0.65 0.22 290)"
     : isDark ? "oklch(1 0 0 / 20%)" : "oklch(0 0 0 / 18%)";
@@ -4261,22 +4307,67 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
         />
       )}
       {/* 左上角标题 */}
-      <div
-        style={{
-          position: "absolute",
-          top: -22,
-          left: 0,
-          fontSize: 11,
-          fontWeight: 500,
-          color: labelColor,
-          whiteSpace: "nowrap",
-          letterSpacing: "0.02em",
-          userSelect: "none",
-          zIndex: 2,
-        }}
-      >
-        {title} · {w} × {h} px
-      </div>
+      {isEditingTitle ? (
+        <input
+          ref={titleInputRef}
+          className="nodrag nopan"
+          value={titleDraft}
+          onChange={e => setTitleDraft(e.target.value)}
+          onBlur={commitTitleEdit}
+          onKeyDown={e => {
+            if (e.key === "Enter") commitTitleEdit();
+            if (e.key === "Escape") cancelTitleEdit();
+          }}
+          onMouseDown={e => e.stopPropagation()}
+          onPointerDown={e => e.stopPropagation()}
+          onClick={e => e.stopPropagation()}
+          onDoubleClick={e => e.stopPropagation()}
+          style={{
+            position: "absolute",
+            top: -28,
+            left: 0,
+            width: Math.max(132, Math.min(260, w - 20)),
+            height: 24,
+            border: "1px solid oklch(0.65 0.22 290)",
+            borderRadius: 6,
+            background: isDark ? "rgba(20,20,24,0.92)" : "rgba(255,255,255,0.94)",
+            boxShadow: isDark ? "0 8px 22px rgba(0,0,0,0.35)" : "0 8px 22px rgba(0,0,0,0.14)",
+            color: isDark ? "#f6f3ff" : "#201a2b",
+            fontSize: 11,
+            fontWeight: 600,
+            lineHeight: "22px",
+            outline: "none",
+            padding: "0 8px",
+            zIndex: 30,
+          }}
+          aria-label="编辑画板名称"
+        />
+      ) : (
+        <div
+          className="nodrag"
+          onMouseDown={e => e.stopPropagation()}
+          onPointerDown={e => e.stopPropagation()}
+          onDoubleClick={startTitleEdit}
+          title="双击重命名画板"
+          style={{
+            position: "absolute",
+            top: -22,
+            left: 0,
+            maxWidth: Math.max(120, w - 16),
+            fontSize: 11,
+            fontWeight: 500,
+            color: labelColor,
+            whiteSpace: "nowrap",
+            letterSpacing: "0.02em",
+            userSelect: "none",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            cursor: "text",
+          }}
+        >
+          {title} · {w} × {h} px
+        </div>
+      )}
 
       {/* 右下角拖拽手柄 — 18×18 圆形，内含伸缩图标 */}
       <div
@@ -5054,7 +5145,64 @@ function getCanvasNodeSize(node: Node): CanvasNodeSize {
   return { width: 260, height: 200 };
 }
 
-function clampEmbeddedAssetToFrame(assetNode: Node, frameNode: Node, nextFrameWidth: number, nextFrameHeight: number) {
+function rectanglesOverlap(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number },
+  gap = 28,
+) {
+  return !(
+    a.x + a.width + gap <= b.x ||
+    b.x + b.width + gap <= a.x ||
+    a.y + a.height + gap <= b.y ||
+    b.y + b.height + gap <= a.y
+  );
+}
+
+function resolveNonOverlappingCanvasPosition(
+  nodes: Node[],
+  desired: { x: number; y: number },
+  size: { width: number; height: number },
+  ignoreIds: string[] = [],
+) {
+  const ignored = new Set(ignoreIds);
+  const occupied = nodes
+    .filter(node => !ignored.has(node.id))
+    .map(node => {
+      const nodeSize = getCanvasNodeSize(node);
+      return {
+        x: node.position.x,
+        y: node.position.y,
+        width: nodeSize.width,
+        height: nodeSize.height,
+      };
+    });
+
+  const stepX = Math.max(120, size.width + 36);
+  const stepY = Math.max(96, size.height + 36);
+  const candidates = [{ ...desired }];
+  for (let row = 0; row < 8; row += 1) {
+    for (let col = 0; col < 8; col += 1) {
+      if (row === 0 && col === 0) continue;
+      candidates.push({
+        x: desired.x + col * stepX,
+        y: desired.y + row * stepY,
+      });
+    }
+  }
+  for (let col = 1; col <= 8; col += 1) {
+    candidates.push({
+      x: desired.x + col * stepX,
+      y: desired.y - stepY,
+    });
+  }
+
+  return candidates.find(candidate => {
+    const rect = { x: candidate.x, y: candidate.y, width: size.width, height: size.height };
+    return !occupied.some(item => rectanglesOverlap(rect, item));
+  }) || candidates[candidates.length - 1] || desired;
+}
+
+function fitEmbeddedAssetInsideFrame(assetNode: Node, frameNode: Node, nextFrameWidth: number, nextFrameHeight: number, scaleX: number, scaleY: number) {
   const size = getCanvasNodeSize(assetNode);
   const frameOriginX = frameNode.position.x;
   const frameOriginY = frameNode.position.y;
@@ -5152,6 +5300,7 @@ function createSkillStartNodes(skill: PendingSkillLoad): Node[] {
 
 const CANVAS_STATE_STORAGE_PREFIX = "artx:canvas-state:";
 const CANVAS_STATE_SESSION_PREFIX = "artx:canvas-state:fallback:";
+const TEST_CANVAS_STATE_RESET_KEY = "artx:canvas-state:reset-test-canvases-20260620";
 const CANVAS_IMAGE_GENERATION_TASKS_STORAGE_KEY = "artx:canvas-image-generation-tasks";
 const CANVAS_IMAGE_DB_NAME = "artx-canvas-images";
 const CANVAS_IMAGE_STORE_NAME = "images";
@@ -5168,6 +5317,7 @@ type PersistedImageGenerationTask = Omit<ImageGeneratorPayload, "generationId" |
   generationId: string;
   status: "pending" | "completed" | "failed";
   updatedAt: number;
+  backgroundStartedAt?: number;
   consumedAt?: number;
   images?: Array<{ src?: string; width: number; height: number; storedKey?: string }>;
 };
@@ -5201,6 +5351,31 @@ function canvasStateSessionKey(projectId: string) {
   return `${CANVAS_STATE_SESSION_PREFIX}${projectId || "p1"}`;
 }
 
+function isRealCanvasProjectId(projectId: string) {
+  return projectId.startsWith("canvas-");
+}
+
+function ensureTestCanvasStateReset() {
+  if (typeof window === "undefined") return;
+  if (window.localStorage.getItem(TEST_CANVAS_STATE_RESET_KEY) === "1") return;
+  const shouldRemoveCanvasKey = (key: string) => {
+    if (!key.startsWith(CANVAS_STATE_STORAGE_PREFIX) && !key.startsWith(CANVAS_STATE_SESSION_PREFIX)) return false;
+    const projectId = key
+      .replace(CANVAS_STATE_SESSION_PREFIX, "")
+      .replace(CANVAS_STATE_STORAGE_PREFIX, "");
+    return Boolean(projectId && !isRealCanvasProjectId(projectId));
+  };
+  for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
+    const key = window.localStorage.key(index);
+    if (key && shouldRemoveCanvasKey(key)) window.localStorage.removeItem(key);
+  }
+  for (let index = window.sessionStorage.length - 1; index >= 0; index -= 1) {
+    const key = window.sessionStorage.key(index);
+    if (key && shouldRemoveCanvasKey(key)) window.sessionStorage.removeItem(key);
+  }
+  window.localStorage.setItem(TEST_CANVAS_STATE_RESET_KEY, "1");
+}
+
 function canvasImagePayloadKey(projectId: string, nodeId: string) {
   return `${projectId || "p1"}:${nodeId}`;
 }
@@ -5214,10 +5389,7 @@ function readPersistedImageGenerationTasks() {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(CANVAS_IMAGE_GENERATION_TASKS_STORAGE_KEY) || "[]") as PersistedImageGenerationTask[];
     if (!Array.isArray(parsed)) return [];
-    const activeTasks = parsed.filter(task => task?.generationId && task.status !== "pending");
-    if (activeTasks.length !== parsed.length) {
-      window.localStorage.setItem(CANVAS_IMAGE_GENERATION_TASKS_STORAGE_KEY, JSON.stringify(activeTasks));
-    }
+    const activeTasks = parsed.filter(task => task?.generationId);
     return activeTasks;
   } catch {
     return [];
@@ -5270,6 +5442,7 @@ function persistImageGenerationTask(detail: ImageGeneratorPayload, fallbackProje
     status,
     images: lightweightImages || previous?.images,
     referencedAssets: undefined,
+    backgroundStartedAt: previous?.backgroundStartedAt,
     updatedAt: Date.now(),
     consumedAt: previous?.consumedAt,
   };
@@ -5277,6 +5450,17 @@ function persistImageGenerationTask(detail: ImageGeneratorPayload, fallbackProje
     nextTask,
     ...tasks.filter(task => !(task.generationId === generationId && (task.projectId || "p1") === projectId)),
   ]);
+}
+
+function markImageGenerationTaskBackgroundStarted(projectId: string, generationId: string) {
+  const tasks = readPersistedImageGenerationTasks();
+  let changed = false;
+  const next = tasks.map(task => {
+    if (task.generationId !== generationId || (task.projectId || "p1") !== (projectId || "p1")) return task;
+    changed = true;
+    return { ...task, backgroundStartedAt: task.backgroundStartedAt || Date.now(), updatedAt: Date.now() };
+  });
+  if (changed) writePersistedImageGenerationTasks(next);
 }
 
 function dispatchImageGenerationTask(detail: ImageGeneratorPayload, fallbackProjectId = "p1") {
@@ -5325,6 +5509,14 @@ async function consumeCompletedImageGenerationTasks(projectId: string) {
     ...task,
     images: await hydrateImageGenerationTaskImages(projectId, task),
   })));
+}
+
+function readPendingImageGenerationTasks(projectId: string) {
+  return readPersistedImageGenerationTasks().filter(task => (
+    (task.projectId || "p1") === (projectId || "p1") &&
+    task.status === "pending" &&
+    !task.consumedAt
+  ));
 }
 
 function openCanvasImageDb() {
@@ -5482,7 +5674,7 @@ async function hydrateCanvasNodeImagePayloads(projectId: string, nodes: Node[]) 
 }
 
 function stripLargeCanvasNodePayloads(nodes: Node[]) {
-  return removePendingImageGenerationNodes(nodes).map(node => {
+  return nodes.map(node => {
     if (node.type !== "asset") return node;
     const data = node.data as Record<string, unknown>;
     const localSrc = typeof data.localSrc === "string" ? data.localSrc : "";
@@ -5520,11 +5712,12 @@ function normalizeCanvasFrameNodes(nodes: Node[]) {
 
 function safeReadCanvasState(projectId: string): PersistedCanvasState | null {
   if (typeof window === "undefined") return null;
+  ensureTestCanvasStateReset();
   const readRawState = (raw: string | null) => {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as PersistedCanvasState;
     if (!Array.isArray(parsed.nodes) || !Array.isArray(parsed.edges)) return null;
-    const nodes = normalizeCanvasFrameNodes(removePendingImageGenerationNodes(parsed.nodes));
+    const nodes = normalizeCanvasFrameNodes(parsed.nodes);
     const nodeIds = new Set(nodes.map(node => node.id));
     const edges = parsed.edges.filter(edge => nodeIds.has(edge.source) && nodeIds.has(edge.target));
     return { ...parsed, nodes, edges };
@@ -5543,9 +5736,10 @@ function safeReadCanvasState(projectId: string): PersistedCanvasState | null {
 
 function safeWriteCanvasState(projectId: string, state: PersistedCanvasState) {
   if (typeof window === "undefined") return;
+  ensureTestCanvasStateReset();
   const key = canvasStateStorageKey(projectId);
   const sessionKey = canvasStateSessionKey(projectId);
-  const cleanedNodes = normalizeCanvasFrameNodes(removePendingImageGenerationNodes(state.nodes));
+  const cleanedNodes = normalizeCanvasFrameNodes(state.nodes);
   const nodeIds = new Set(cleanedNodes.map(node => node.id));
   const cleanedState: PersistedCanvasState = {
     ...state,
@@ -7478,11 +7672,6 @@ function SaveProjectConfirmDialog({ isDark, project, onCancel, onSave }: {
 const CANVAS_ASSISTANT_IMAGE_MODEL_STORAGE_KEY = "artx:canvas-assistant-image-model";
 const CANVAS_ASSISTANT_TEXT_MODEL_STORAGE_KEY = "artx:canvas-assistant-text-model";
 const CANVAS_ASSISTANT_MODEL_TAB_STORAGE_KEY = "artx:canvas-assistant-model-tab";
-const CANVAS_ASSISTANT_WIDTH_STORAGE_KEY = "artx:canvas-assistant-width";
-const CANVAS_ASSISTANT_DEFAULT_WIDTH = 372;
-const CANVAS_ASSISTANT_MIN_WIDTH = 280;
-const CANVAS_ASSISTANT_MAX_WIDTH = 560;
-const CANVAS_ASSISTANT_COLLAPSED_WIDTH = 112;
 type CanvasAssistantModelTab = "image" | "text";
 type AssistantComposerSegment =
   | { id: string; type: "text"; text: string }
@@ -8824,7 +9013,7 @@ function CanvasAssistantPanel({
                       title="选择模型"
                       aria-label="选择模型"
                     >
-                      <span className="min-w-0 flex-1 truncate">
+                      <span>
                         {assistantModelTab === "image" ? "生图" : "对话"} · {assistantModel.label}
                       </span>
                       <ChevronDown size={12} style={{ opacity: 0.6, transform: agentMenuOpen ? "rotate(180deg)" : "none", transition: "transform 0.16s ease", flexShrink: 0 }} />
@@ -9136,7 +9325,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   // ── Referenced assets: auto-populated from selected image nodes ──
   const [referencedAssets, setReferencedAssets] = useState<ImageGeneratorReferenceAsset[]>([]);
   const [annotationReferences, setAnnotationReferences] = useState<AnnotationReference[]>([]);
-  const pendingSkillCanvasSeedRef = useRef<PendingSkillLoad | null>(null);
   const mergeReferencedAssets = useCallback((assets: ImageGeneratorReferenceAsset[]) => {
     setReferencedAssets(assets);
   }, []);
@@ -9170,6 +9358,59 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const latestNode = getLatestAssetNode(nodeId);
     return latestNode ? getAssetNodeImageSource(latestNode) : "";
   }, [getLatestAssetNode]);
+  const ensureBackgroundImageGeneration = useCallback((task: PersistedImageGenerationTask | ImageGeneratorPayload) => {
+    const generationId = task.generationId;
+    const taskProjectId = task.projectId || projectId;
+    if (!generationId || !task.prompt?.trim()) return;
+    if ((task as PersistedImageGenerationTask).status && (task as PersistedImageGenerationTask).status !== "pending") return;
+
+    const startTask = async () => {
+      try {
+        if (!(task as PersistedImageGenerationTask).backgroundStartedAt) {
+          markImageGenerationTaskBackgroundStarted(taskProjectId, generationId);
+          await startBackgroundImageGeneration({
+            taskId: generationId,
+            prompt: task.prompt,
+            model: task.model,
+            ratio: task.ratio,
+            count: task.count,
+            style: task.style,
+            referencesEnabled: task.referencesEnabled,
+            referencedAssets: task.referencedAssets,
+            skillId: task.skillId,
+          });
+        }
+      } catch {
+        /* The foreground request may still finish; polling below handles eventual state. */
+      }
+    };
+
+    const pollTask = async () => {
+      for (let attempt = 0; attempt < 90; attempt += 1) {
+        try {
+          const result = await getBackgroundImageGenerationTask(generationId);
+          if (result.status === "completed" && result.images?.length) {
+            dispatchImageGenerationTask({ ...(task as ImageGeneratorPayload), generationId, projectId: taskProjectId, status: "completed", images: result.images }, taskProjectId);
+            return;
+          }
+          if (result.status === "failed") {
+            dispatchImageGenerationTask({ ...(task as ImageGeneratorPayload), generationId, projectId: taskProjectId, status: "failed", error: result.error || AI_GENERATION_NETWORK_ERROR_MESSAGE }, taskProjectId);
+            return;
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "";
+          if (/not found/i.test(message) && attempt > 2) {
+            dispatchImageGenerationTask({ ...(task as ImageGeneratorPayload), generationId, projectId: taskProjectId, status: "failed", error: AI_GENERATION_NETWORK_ERROR_MESSAGE }, taskProjectId);
+            return;
+          }
+        }
+        await new Promise(resolve => window.setTimeout(resolve, 3000));
+      }
+    };
+
+    void startTask();
+    void pollTask();
+  }, [projectId]);
   const requireAiAccess = useCallback(() => {
     if (isAuthenticated) return true;
     openLoginModal();
@@ -9343,10 +9584,19 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [activeToolMode, setActiveToolMode] = useState<string>("move");
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
-  const getDerivedImagePlacement = useCallback((sourceNode: Node, displayW: number, displayH: number) => ({
-    x: sourceNode.position.x + getCanvasNodeSize(sourceNode).width + 36,
-    y: sourceNode.position.y + Math.max(0, (getCanvasNodeSize(sourceNode).height - displayH) / 2),
-  }), []);
+  const getDerivedImagePlacement = useCallback((sourceNode: Node, displayW: number, displayH: number) => {
+    const sourceSize = getCanvasNodeSize(sourceNode);
+    const desired = {
+      x: sourceNode.position.x + sourceSize.width + 36,
+      y: sourceNode.position.y + Math.max(0, (sourceSize.height - displayH) / 2),
+    };
+    return resolveNonOverlappingCanvasPosition(
+      nodesRef.current,
+      desired,
+      { width: displayW, height: displayH },
+      [sourceNode.id],
+    );
+  }, []);
 
   const runDerivedImageGeneration = useCallback(async ({
     sourceNode,
@@ -9770,7 +10020,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const center = rect
         ? screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
         : { x: 120, y: 80 };
-      const position = { x: center.x - backup.width / 2, y: center.y - backup.height / 2 };
+      const position = resolveNonOverlappingCanvasPosition(
+        nodesRef.current,
+        { x: center.x - backup.width / 2, y: center.y - backup.height / 2 },
+        { width: backup.width, height: backup.height },
+      );
       pushHistory(nodesRef.current, edgesRef.current);
       setNodes(nds => [...nds.map(n => ({ ...n, selected: false })), { ...createGeneratedImageNode(backup, position), selected: true }]);
       setSelectedNodeIds([backup.nodeId]);
@@ -9839,6 +10093,32 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     };
     window.addEventListener("canvas-frame-resize", handler);
     return () => window.removeEventListener("canvas-frame-resize", handler);
+  }, [pushHistory, setNodes]);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ id: string; title: string }>).detail;
+      const nextTitle = detail?.title?.trim();
+      if (!detail?.id || !nextTitle || isRestoringRef.current) return;
+      const target = nodesRef.current.find(n => n.id === detail.id && n.type === "canvasFrame");
+      if (!target) return;
+      const currentTitle = ((target.data as Record<string, unknown>).title as string | undefined) || "画板";
+      if (currentTitle === nextTitle) return;
+      pushHistory(nodesRef.current, edgesRef.current);
+      setNodes(nds => nds.map(n => {
+        if (n.id !== detail.id || n.type !== "canvasFrame") return n;
+        return {
+          ...n,
+          data: {
+            ...(n.data as Record<string, unknown>),
+            title: nextTitle,
+          },
+        };
+      }));
+      toast("画板名称已更新", { description: nextTitle });
+    };
+    window.addEventListener("canvas-frame-title-change", handler);
+    return () => window.removeEventListener("canvas-frame-title-change", handler);
   }, [pushHistory, setNodes]);
 
   // 监听图片节点缩放结束事件，将操作纳入历史记录
@@ -10638,17 +10918,25 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         y: center.y - size.h / 2,
       };
       if (detail.status === "pending") {
+        ensureBackgroundImageGeneration({ ...detail, projectId, generationId, status: "pending" });
         setNodes(nds => {
           pushHistory(nds, edgesRef.current);
+          const placedNodes: Node[] = [];
           const placeholderNodes = Array.from({ length: Math.max(1, detail.count || 1) }, (_, index) => {
             const id = `generated-${generationId}-${index}`;
-            return {
+            const desired = {
+              x: anchor.x + index * (size.w + 24),
+              y: anchor.y,
+            };
+            const position = resolveNonOverlappingCanvasPosition(
+              [...nds, ...placedNodes],
+              desired,
+              { width: size.w, height: size.h },
+            );
+            const placeholderNode = {
               id,
               type: "asset" as const,
-              position: {
-                x: anchor.x + index * (size.w + 24),
-                y: anchor.y,
-              },
+              position,
               style: { width: size.w, height: size.h },
               data: {
                 id,
@@ -10664,6 +10952,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 sourceBackgroundSrc: detail.sourceBackgroundSrc,
               },
             };
+            placedNodes.push(placeholderNode);
+            return placeholderNode;
           });
           return [...nds, ...placeholderNodes];
         });
@@ -10739,15 +11029,22 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           });
         }
         pushHistory(nds, edgesRef.current);
+        const placedNodes: Node[] = [];
         const generatedNodes = images.map((image, index) => {
           const id = `generated-${generationId}-${index}`;
-          return {
+          const desired = {
+            x: anchor.x + index * (size.w + 24),
+            y: anchor.y,
+          };
+          const position = resolveNonOverlappingCanvasPosition(
+            [...nds, ...placedNodes],
+            desired,
+            { width: size.w, height: size.h },
+          );
+          const generatedNode = {
             id,
             type: "asset" as const,
-            position: {
-              x: anchor.x + index * (size.w + 24),
-              y: anchor.y,
-            },
+            position,
             data: {
               id,
               assetId: "default",
@@ -10763,6 +11060,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               sourceBackgroundSrc: undefined,
             },
           };
+          placedNodes.push(generatedNode);
+          return generatedNode;
         });
         return [...nds, ...generatedNodes];
       });
@@ -10775,11 +11074,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     };
     window.addEventListener("image-generator-submit", handleImageGenerate);
     return () => window.removeEventListener("image-generator-submit", handleImageGenerate);
-  }, [edgesRef, projectId, pushHistory, screenToFlowPosition, setNodes]);
+  }, [edgesRef, ensureBackgroundImageGeneration, projectId, pushHistory, screenToFlowPosition, setNodes]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !didHydrateCanvasStateRef.current || isRestoringRef.current) return;
     let cancelled = false;
+    readPendingImageGenerationTasks(projectId).forEach(task => {
+      ensureBackgroundImageGeneration(task);
+    });
     consumeCompletedImageGenerationTasks(projectId).then(completedTasks => {
       if (cancelled || completedTasks.length === 0) return;
       completedTasks.forEach(task => {
@@ -10795,7 +11097,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     return () => {
       cancelled = true;
     };
-  }, [canvasRestoreTick, projectId]);
+  }, [canvasRestoreTick, ensureBackgroundImageGeneration, projectId]);
 
   const handleProjectSaveAndNavigate = useCallback(() => {
     if (!pendingProject) return;
@@ -12676,12 +12978,18 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const splittingNodeId = `element-split-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       const splittingDisplayW = Math.max(220, Math.round(sourceSize.width));
       const splittingDisplayH = Math.max(160, Math.round(sourceSize.height));
+      const splittingPosition = resolveNonOverlappingCanvasPosition(
+        nodesRef.current,
+        { x: baseX, y: baseY },
+        { width: splittingDisplayW, height: splittingDisplayH },
+        [assetNode.id],
+      );
 
       pushHistory();
       setNodes(nds => [...nds.map(n => ({ ...n, selected: false })), {
         id: splittingNodeId,
         type: "asset" as const,
-        position: { x: baseX, y: baseY },
+        position: splittingPosition,
         style: { width: splittingDisplayW, height: splittingDisplayH },
         data: {
           id: splittingNodeId,
@@ -12750,7 +13058,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           style: "主体层",
           nextW: Number(data.imgW || sourceSize.width),
           nextH: Number(data.imgH || sourceSize.height),
-          placement: { x: baseX, y: baseY },
+          placement: splittingPosition,
           run: async () => removeImageBackground({
             imageSrc,
             model: "gpt-image-2",
@@ -12764,7 +13072,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           style: "背景层",
           nextW: Number(data.imgW || sourceSize.width),
           nextH: Number(data.imgH || sourceSize.height),
-          placement: { x: baseX, y: baseY + sourceSize.height + 28 },
+          placement: resolveNonOverlappingCanvasPosition(
+            nodesRef.current,
+            { x: splittingPosition.x, y: splittingPosition.y + sourceSize.height + 28 },
+            { width: sourceSize.width, height: sourceSize.height },
+            [assetNode.id],
+          ),
           run: async () => editImageWithPrompt({
             imageSrc,
             model: "gpt-image-2",
@@ -12776,10 +13089,16 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
         pushHistory();
         const frameNodeId = `element-frame-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        const framePosition = resolveNonOverlappingCanvasPosition(
+          nodesRef.current,
+          { x: splittingPosition.x, y: splittingPosition.y + (sourceSize.height + 28) * 2 },
+          { width: sourceSize.width, height: sourceSize.height },
+          [assetNode.id],
+        );
         setNodes(nds => [...nds.map(n => ({ ...n, selected: false })), {
           id: frameNodeId,
           type: "canvasFrame" as const,
-          position: { x: baseX, y: baseY + (sourceSize.height + 28) * 2 },
+          position: framePosition,
           style: { width: sourceSize.width, height: sourceSize.height },
           data: {
             id: frameNodeId,
@@ -12797,7 +13116,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           const textNode = createExtractedTextNode(
             assetNode,
             resolvedPlan.extractedText,
-            { x: baseX, y: baseY + (sourceSize.height + 28) * 3 },
+            resolveNonOverlappingCanvasPosition(
+              nodesRef.current,
+              { x: framePosition.x, y: framePosition.y + sourceSize.height + 28 },
+              { width: sourceSize.width, height: Math.max(120, Math.min(sourceSize.height, 220)) },
+              [assetNode.id],
+            ),
             resolvedPlan.textStyleHint,
           );
           setNodes(nds => [...nds.map(n => ({ ...n, selected: false })), { ...textNode, selected: true }]);

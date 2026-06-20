@@ -6,7 +6,7 @@ import { useLocation } from "wouter";
 import TopBar from "@/components/workspace/TopBar";
 import promptCsv from "@/data/ai_image_prompt_rank_50.csv?raw";
 import { useTheme } from "@/contexts/ThemeContext";
-import { Copy, Sparkles, X } from "lucide-react";
+import { ImageIcon, Layers, Sparkles, Tags, X } from "lucide-react";
 import { BG_GLOW } from "@/lib/workspace-data";
 import { toast } from "sonner";
 
@@ -116,6 +116,10 @@ export default function InspirationPage() {
     const field = getParam("field", ALL_FIELDS);
     return fields.includes(field) ? field : ALL_FIELDS;
   });
+  const [activeModel, setActiveModel] = useState(() => {
+    const model = getParam("model", ALL_MODELS);
+    return models.includes(model) ? model : ALL_MODELS;
+  });
   const [selectedItem, setSelectedItem] = useState<PromptItem | null>(null);
 
   const bg = isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)";
@@ -130,9 +134,10 @@ export default function InspirationPage() {
   const filteredItems = useMemo(() => {
     return PROMPT_ITEMS.filter((item) => {
       const matchesField = activeField === ALL_FIELDS || item.field === activeField;
-      return matchesField;
+      const matchesModel = activeModel === ALL_MODELS || item.model === activeModel;
+      return matchesField && matchesModel;
     });
-  }, [activeField]);
+  }, [activeField, activeModel]);
 
   const updateFilters = (nextField: string) => {
     setActiveField(nextField);
@@ -176,14 +181,15 @@ export default function InspirationPage() {
           </section>
 
           <section className="mb-6 rounded-[var(--radius-lg-design)] p-3.5" style={{ background: panelBg, border: `1px solid ${border}`, backdropFilter: "blur(18px)" }}>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-wrap items-center gap-2">
                 {fields.map((field) => {
                   const active = field === activeField;
                   return (
                     <button
                       key={field}
                       onClick={() => updateFilters(field)}
-                      className="shrink-0 rounded-[var(--radius-pill)] px-3.5 py-2 type-caption transition-all active:scale-95"
+                      className="max-w-[168px] shrink-0 truncate whitespace-nowrap rounded-[var(--radius-pill)] px-3.5 py-2 type-caption transition-all active:scale-95"
                       style={{
                         background: active ? activeBg : "transparent",
                         border: `1px solid ${active ? "oklch(0.62 0.22 290 / 0.42)" : border}`,
@@ -194,6 +200,30 @@ export default function InspirationPage() {
                     </button>
                   );
                 })}
+              </div>
+
+              <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex flex-wrap items-center gap-2">
+                  {models.map((model) => {
+                    const active = model === activeModel;
+                    return (
+                    <button
+                      key={model}
+                      onClick={() => updateModel(model)}
+                        className="max-w-[168px] shrink-0 truncate whitespace-nowrap rounded-[var(--radius-pill)] px-3 py-2 type-caption transition-all active:scale-95"
+                        style={{
+                          background: active ? "oklch(0.72 0.18 200 / 0.16)" : "transparent",
+                          border: `1px solid ${active ? "oklch(0.72 0.18 200 / 0.38)" : border}`,
+                          color: active ? "oklch(0.80 0.13 200)" : sub,
+                        }}
+                      >
+                        {model}
+                      </button>
+                    );
+                  })}
+                </div>
+
+              </div>
             </div>
           </section>
 
@@ -226,9 +256,12 @@ export default function InspirationPage() {
                       本地图片待同步
                     </span>
                   </div>
-                  <div className="absolute inset-x-0 top-0 flex min-w-0 items-center gap-2 p-3" style={{ zIndex: 2 }}>
-                    <span className="shrink-0 whitespace-nowrap rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: "oklch(0 0 0 / 0.48)", color: "white", backdropFilter: "blur(10px)", letterSpacing: 0, textTransform: "none" }}>
+                  <div className="absolute inset-x-0 top-0 flex min-w-0 items-center justify-between gap-2 p-3" style={{ zIndex: 2 }}>
+                    <span className="shrink-0 rounded-[var(--radius-pill)] px-2.5 py-1 type-caption whitespace-nowrap" style={{ background: "oklch(0 0 0 / 0.48)", color: "white", backdropFilter: "blur(10px)", letterSpacing: 0, textTransform: "none" }}>
                       #{item.rank}
+                    </span>
+                    <span className="min-w-0 truncate whitespace-nowrap rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: "oklch(0 0 0 / 0.48)", color: "white", backdropFilter: "blur(10px)", letterSpacing: 0, textTransform: "none" }}>
+                      {item.model}
                     </span>
                   </div>
                 </div>

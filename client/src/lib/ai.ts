@@ -17,6 +17,13 @@ type OrchestrateResponse = ApiErrorResponse & {
   image_base64?: string;
 };
 
+export type BackgroundImageTask = {
+  taskId: string;
+  status: "pending" | "completed" | "failed";
+  images?: GeneratedImageResult[];
+  error?: string;
+};
+
 const AUTH_STORAGE_KEY = "artx-auth-session";
 const AI_REQUEST_TIMEOUT_MS = 300000;
 const AI_TIMEOUT_ERROR_MESSAGE = "对不起，网络开了个小差，请稍后重试";
@@ -209,7 +216,71 @@ export async function generateImages({
   referencesEnabled = false,
   referencedAssets = [],
   skillId,
+  generationId,
 }: {
+  prompt: string;
+  model?: string;
+  ratio?: string;
+  count?: number;
+  style?: string;
+  referencesEnabled?: boolean;
+  referencedAssets?: Array<{ src: string; title?: string }>;
+  skillId?: string;
+  generationId?: string;
+}) {
+  requireAiAuth();
+  const promptWithContext = [
+    style ? `风格：${style}` : "",
+    referencesEnabled ? "参考当前画布和已引用素材进行生成。" : "",
+    prompt,
+  ].filter(Boolean).join("\n");
+  if (generationId) {
+    await startBackgroundImageGeneration({
+      taskId: generationId,
+      prompt,
+      model,
+      ratio,
+      count,
+      style,
+      referencesEnabled,
+      referencedAssets,
+      skillId,
+    });
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const task = await getBackgroundImageGenerationTask(generationId);
+      if (task.status === "completed") return { images: task.images || [] };
+      if (task.status === "failed") throw new Error(task.error || "图像生成失败");
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+    throw new Error(AI_TIMEOUT_ERROR_MESSAGE);
+  }
+  const result = await postAiOrchestrate({
+    capability: "text_to_image",
+    intent: "text_to_image",
+    operation: "generate",
+    prompt: promptWithContext,
+    model,
+    ratio,
+    count,
+    images: referencedAssets,
+    skillId,
+  }, "图像生成失败");
+
+  return { images: result.images || [] };
+}
+
+export async function startBackgroundImageGeneration({
+  taskId,
+  prompt,
+  model = "gpt-image-2",
+  ratio = "1:1",
+  count = 1,
+  style,
+  referencesEnabled = false,
+  referencedAssets = [],
+  skillId,
+}: {
+  taskId: string;
   prompt: string;
   model?: string;
   ratio?: string;
@@ -225,19 +296,27 @@ export async function generateImages({
     referencesEnabled ? "参考当前画布和已引用素材进行生成。" : "",
     prompt,
   ].filter(Boolean).join("\n");
-  const result = await postAiOrchestrate({
-    capability: "text_to_image",
-    intent: "text_to_image",
-    operation: "generate",
+  const result = await fetchAiJson<BackgroundImageTask>(`${getAiApiBaseUrl()}/api/images/tasks`, {
+    taskId,
     prompt: promptWithContext,
     model,
     ratio,
     count,
     images: referencedAssets,
     skillId,
-  }, "图像生成失败");
+  }, "后台图像生成启动失败", 20000);
+  return result;
+}
 
-  return { images: result.images || [] };
+export async function getBackgroundImageGenerationTask(taskId: string) {
+  requireAiAuth();
+  const endpoint = `${getAiApiBaseUrl()}/api/images/tasks/${encodeURIComponent(taskId)}`;
+  const response = await fetch(endpoint, { method: "GET" });
+  const result = await readJsonResponse<BackgroundImageTask>(response, "后台图像生成查询失败");
+  if (!response.ok) {
+    throw new Error(result.error || "后台图像生成查询失败");
+  }
+  return result;
 }
 
 export async function removeImageBackground({

@@ -3,37 +3,20 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 import {
   ChevronDown,
+  Github,
+  Heart,
   ImagePlus,
+  Mail,
+  MessageCircle,
+  PlayCircle,
+  Send,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import asteroidImage from "@/assets/ardot/3_3.png";
 import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
-import generationMark from "@/assets/generation/ai-generation-mark.svg";
-import promptCsv from "@/data/ai_image_prompt_rank_50.csv?raw";
+import { BRAND_KIT, POSTER_1, POSTER_2, SOCIAL_AD } from "@/lib/workspace-data";
 import { createWorkspaceHistoryProject } from "@/lib/project-history";
-
-type InspirationPrompt = {
-  rank: number;
-  field: string;
-  model: string;
-  title: string;
-  description: string;
-  prompt: string;
-  imageUrl: string;
-  author: string;
-};
-
-const PROMPT_IMAGE_VERSION = import.meta.env.VITE_COMMIT_SHA || "local";
-
-function resolvePromptImageUrl(path: string) {
-  if (!path) return "";
-  if (/^(https?:|data:|blob:)/.test(path)) return path;
-  const base = import.meta.env.BASE_URL || "/";
-  const normalizedBase = base.endsWith("/") ? base : `${base}/`;
-  const normalizedPath = path.replace(/^\/+/, "");
-  const separator = normalizedPath.includes("?") ? "&" : "?";
-  return `${normalizedBase}${normalizedPath}${separator}v=${encodeURIComponent(PROMPT_IMAGE_VERSION)}`;
-}
+import { requestAiAuth } from "@/lib/ai";
 
 function parsePromptCsv(csv: string) {
   const rows: string[][] = [];
@@ -106,10 +89,7 @@ const PROMPT_SUGGESTIONS = [
   "把这张照片变成水彩画风格",
 ];
 
-const HOME_PROMPT = "hello，欢迎来到ArtXStudio ！用一句提示词正式开启你的灵感AI创意之旅吧！";
-const PROMPT_TYPE_DURATION_MS = 5000;
-const PROMPT_PAUSE_DURATION_MS = 3000;
-const PROMPT_FRAME_MS = 80;
+const HOME_PROMPT = "hello，欢迎来到。ArtX,正式开启你的。灵感AI创意之旅吧！";
 
 type PanelMode = "prelogin" | "login" | "register";
 type LandingTab = "home" | "inspiration" | "skills" | "workspace" | "help";
@@ -121,10 +101,9 @@ const getStageScale = () => {
 
 export default function HomePage() {
   const [, navigate] = useLocation();
-  const { isAuthenticated, login, register } = useAuth();
+  const { isAuthenticated, login, register, socialAuth } = useAuth();
   const [panelMode, setPanelMode] = useState<PanelMode>(isAuthenticated ? "prelogin" : "prelogin");
   const [prompt, setPrompt] = useState(HOME_PROMPT);
-  const [promptTouched, setPromptTouched] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState("");
@@ -186,33 +165,15 @@ export default function HomePage() {
   };
 
   const handlePreloginSend = () => {
-    if (isAuthenticated) {
-      createProjectFromPrompt();
+    if (!isAuthenticated || !requestAiAuth()) {
+      setPanelMode("login");
       return;
     }
-    setPanelMode("login");
+    createProjectFromPrompt();
   };
 
-  const showRegisterPanel = () => {
-    setAuthError("");
-    setPanelMode("register");
-  };
-
-  const showRegisterWindow = () => {
-    showRegisterPanel();
-    setActiveTab("home");
-    homeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
-
-  const handlePreloginToolClick = () => {
-    if (isAuthenticated) {
-      createProjectFromPrompt();
-      return;
-    }
-    showRegisterPanel();
-  };
-
-  const handleAuthAction = async (action: "register" | "login") => {
+  const handleAuthSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     if (!email.trim() || !password.trim()) {
       setAuthError("请输入邮箱和密码");
       return;
@@ -220,22 +181,29 @@ export default function HomePage() {
 
     setAuthBusy(true);
     setAuthError("");
-    const result = action === "register"
+    const result = displayedMode === "register"
       ? await register(email.trim(), password)
       : await login(email.trim(), password);
     setAuthBusy(false);
 
     if (!result.ok) {
-      setAuthError(result.error || (action === "register" ? "注册失败，请稍后重试" : "登录失败，请稍后重试"));
+      setAuthError(result.error || "登录失败，请稍后重试");
       return;
     }
-    toast(action === "register" ? "注册成功" : "登录成功", { description: "欢迎回到 ArtX Studio" });
+    toast(displayedMode === "register" ? "注册成功" : "登录成功", { description: "欢迎回到 ArtX Studio" });
     createProjectFromPrompt();
   };
 
-  const handleAuthSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    void handleAuthAction("login");
+  const handleSocialAuth = async (provider: "google" | "wechat" | "apple" | "github" | "meta") => {
+    setAuthBusy(true);
+    setAuthError("");
+    const result = await socialAuth(provider);
+    setAuthBusy(false);
+    if (!result.ok) {
+      setAuthError(result.error || "第三方登录暂时不可用");
+      return;
+    }
+    toast("登录成功", { description: "欢迎回到 ArtX Studio" });
   };
 
   const scrollToInspiration = () => {
@@ -257,7 +225,7 @@ export default function HomePage() {
             setActiveTab("home");
             navigate("/");
           }}
-          className="h-9 w-[194px] origin-left shrink-0 scale-[0.56] transition-opacity hover:opacity-85"
+          className="h-9 w-[194px] shrink-0 transition-opacity hover:opacity-85"
           aria-label="ArtXStudio 首页"
         >
           <img
@@ -276,11 +244,7 @@ export default function HomePage() {
           }}
           onWorkspace={() => {
             setActiveTab("workspace");
-            if (isAuthenticated) {
-              navigate("/workspace");
-              return;
-            }
-            showRegisterPanel();
+            navigate("/workspace");
           }}
           onHelp={() => {
             setActiveTab("help");
@@ -288,22 +252,15 @@ export default function HomePage() {
           }}
         />
         {isAuthenticated && (
-          <button
-            type="button"
-            onClick={() => navigate("/workspace")}
-            className="ml-auto h-10 rounded-md border border-[#936CFF] bg-transparent px-4 text-sm font-medium text-[#936CFF] transition-colors hover:bg-[#936CFF] hover:text-white"
-          >
-            进入工作台
-          </button>
-        )}
-        {!isAuthenticated && (
-          <button
-            type="button"
-            onClick={showRegisterWindow}
-            className="ml-auto h-10 shrink-0 rounded-md bg-[#936CFF] px-4 text-sm font-medium text-white shadow-[0_8px_20px_rgba(147,108,255,0.24)] transition-colors hover:bg-[#A384FF]"
-          >
-            登录 / 注册
-          </button>
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => navigate("/workspace")}
+              className="h-10 rounded-md border border-[#936CFF] bg-transparent px-4 text-sm font-medium text-[#936CFF] transition-colors hover:bg-[#936CFF] hover:text-white"
+            >
+              进入工作台
+            </button>
+          </div>
         )}
       </header>
       <section ref={homeRef} className="relative min-h-screen overflow-hidden">
@@ -315,19 +272,15 @@ export default function HomePage() {
           <HeroStatement />
           <div className="absolute left-[1001px] top-[117px] h-[726px] w-[472px]">
             <div className={`absolute inset-0 transition-all duration-500 ease-out ${displayedMode === "prelogin" ? "pointer-events-auto opacity-100 translate-y-0" : "pointer-events-none opacity-0 translate-y-3"}`}>
-                <PreloginPanel
-                  prompt={prompt}
-                promptTouched={promptTouched}
-                onPromptChange={value => {
-                  setPromptTouched(true);
-                  setPrompt(value);
-                }}
+              <PreloginPanel
+                prompt={prompt}
+                onPromptChange={setPrompt}
                 onSend={handlePreloginSend}
-                onToolClick={handlePreloginToolClick}
               />
             </div>
             <div className={`absolute inset-0 transition-all duration-500 ease-out ${displayedMode === "prelogin" ? "pointer-events-none opacity-0 -translate-y-3" : "pointer-events-auto opacity-100 translate-y-0"}`}>
               <LoginPanel
+                mode={displayedMode === "register" ? "register" : "login"}
                 email={email}
                 password={password}
                 busy={authBusy}
@@ -335,7 +288,8 @@ export default function HomePage() {
                 onEmailChange={setEmail}
                 onPasswordChange={setPassword}
                 onSubmit={handleAuthSubmit}
-                onAuthAction={handleAuthAction}
+                onModeChange={setPanelMode}
+                onSocialAuth={handleSocialAuth}
               />
             </div>
           </div>
@@ -345,7 +299,7 @@ export default function HomePage() {
           type="button"
           onClick={scrollToInspiration}
           className="absolute bottom-5 left-1/2 z-20 flex h-10 w-10 -translate-x-1/2 items-center justify-center rounded-full border border-white/20 bg-black/20 text-white/70 backdrop-blur-md transition-all hover:border-white/45 hover:text-white"
-          aria-label="滚动到灵感选题"
+          aria-label="滚动到灵感发现"
         >
           <ChevronDown size={20} />
         </button>
@@ -353,63 +307,45 @@ export default function HomePage() {
 
       <section ref={inspirationRef} className="min-h-screen bg-[#080808] px-6 py-20 sm:px-10 lg:px-20">
         <div className="mx-auto max-w-[1600px]">
-          <div className="mb-7 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="mb-3 text-sm font-medium text-[#9370ff]">Inspiration Topics</p>
-              <h2 className="text-[34px] font-black leading-tight text-white sm:text-[44px]">灵感选题</h2>
-              <p className="mt-3 max-w-[620px] text-sm leading-6 text-white/45">
-                从产品海报、品牌视觉、社媒配图到电商主图，直接选择创作方向并进入画布。
-              </p>
+              <p className="mb-3 text-sm font-medium text-[#9370ff]">Inspiration Source</p>
+              <h2 className="text-[34px] font-black leading-tight text-white sm:text-[44px]">灵感来源</h2>
             </div>
-            <div className="flex max-w-full gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
-              {INSPIRATION_TOPICS.map(topic => (
-                <button
-                  key={topic}
-                  type="button"
-                  onClick={() => navigate(`/inspiration?field=${encodeURIComponent(topic)}`)}
-                  className="shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-2 text-xs font-medium text-white/62 transition-colors hover:border-[#936CFF]/50 hover:bg-[#936CFF]/15 hover:text-white"
-                >
-                  {topic}
-                </button>
-              ))}
-            </div>
+            <p className="max-w-[420px] text-sm leading-6 text-white/45">
+              从社区作品、品牌视觉和社媒创意中快速找到方向，登录后可直接创建为你的新画布。
+            </p>
           </div>
 
-          <div className="columns-1 gap-4 sm:columns-2 lg:columns-3 2xl:columns-4">
-            {HOME_INSPIRATION_PROMPTS.map((card, index) => (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {COMMUNITY_PROJECTS.map(project => (
               <button
-                key={`${card.rank}-${card.title}`}
+                key={project.id}
                 type="button"
-                onClick={() => {
-                  if (isAuthenticated) {
-                    navigate(`/inspiration?field=${encodeURIComponent(card.field)}`);
-                    return;
-                  }
-                  showRegisterPanel();
-                }}
-                className="group mb-4 block w-full break-inside-avoid overflow-hidden rounded-md border border-white/10 bg-[#151515] text-left shadow-[0_18px_50px_rgba(0,0,0,0.28)] transition-transform hover:-translate-y-1"
+                onClick={() => navigate(`/project/${project.id}`)}
+                className="group overflow-hidden rounded-md border border-white/10 bg-[#151515] text-left shadow-[0_18px_50px_rgba(0,0,0,0.28)] transition-transform hover:-translate-y-1"
               >
-                <div className={`relative ${index % 5 === 0 ? "h-[430px]" : index % 5 === 1 ? "h-[340px]" : index % 5 === 2 ? "h-[390px]" : index % 5 === 3 ? "h-[300px]" : "h-[460px]"} overflow-hidden bg-[#111]`}>
-                  <img
-                    src={card.imageUrl}
-                    alt={card.title}
-                    className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                    loading="lazy"
-                    onError={event => {
-                      event.currentTarget.style.display = "none";
-                    }}
-                  />
+                <div className="relative aspect-video overflow-hidden">
+                  <img src={project.cover} alt={project.title} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/0 to-black/0" />
-                  <div className="absolute left-3 top-3 max-w-[58%] truncate whitespace-nowrap rounded-full bg-black/45 px-2.5 py-1 text-xs font-medium text-white/82 backdrop-blur-md">
-                    {card.field}
-                  </div>
-                  <div className="absolute right-3 top-3 max-w-[38%] truncate whitespace-nowrap rounded-full bg-black/45 px-2.5 py-1 text-xs font-medium text-white/82 backdrop-blur-md">
-                    {card.model}
-                  </div>
                 </div>
-                <div className="min-w-0 p-4">
-                  <p className="truncate whitespace-nowrap text-sm font-semibold text-white">{card.title}</p>
-                  <p className="mt-2 truncate whitespace-nowrap text-xs leading-5 text-white/45">{card.description}</p>
+                <div className="p-4">
+                  <div className="mb-3 flex items-center gap-2">
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#f7d795] to-[#d98261] text-xs font-bold text-[#28160c]">
+                      EW
+                    </div>
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-white">{project.author}</span>
+                    <span className="flex items-center gap-1 text-xs font-medium text-white/55">
+                      <PlayCircle size={14} fill="currentColor" strokeWidth={0} />
+                      {project.plays}
+                    </span>
+                    <span className="flex items-center gap-1 text-xs font-medium text-white/55">
+                      <Heart size={14} fill="currentColor" strokeWidth={0} />
+                      {project.likes}
+                    </span>
+                  </div>
+                  <p className="truncate text-sm font-semibold text-white">{project.title}</p>
+                  <p className="mt-1 text-xs text-white/42">{project.updatedAt}</p>
                 </div>
               </button>
             ))}
@@ -437,7 +373,7 @@ function LandingTopNav({
 }) {
   const navItems = [
     { key: "home" as const, label: "首页", onClick: onHome },
-    { key: "inspiration" as const, label: "灵感选题", onClick: onInspiration },
+    { key: "inspiration" as const, label: "灵感来源", onClick: onInspiration },
     { key: "skills" as const, label: "技能商店", onClick: onSkills },
     { key: "workspace" as const, label: "工作台", onClick: onWorkspace },
     { key: "help" as const, label: "帮助与反馈", onClick: onHelp },
@@ -512,19 +448,13 @@ function GlassPanel({ children }: { children: React.ReactNode }) {
 
 function PreloginPanel({
   prompt,
-  promptTouched,
   onPromptChange,
   onSend,
-  onToolClick,
 }: {
   prompt: string;
-  promptTouched: boolean;
   onPromptChange: (value: string) => void;
   onSend: () => void;
-  onToolClick: () => void;
 }) {
-  const animatedPrompt = usePromptTypingAnimation(HOME_PROMPT, promptTouched);
-
   return (
     <GlassPanel>
       <div className="flex h-full flex-col">
@@ -538,9 +468,9 @@ function PreloginPanel({
                 key={item}
                 type="button"
                 onClick={() => onPromptChange(item)}
-                className="h-11 appearance-none rounded-[10px] border border-[#454545] bg-transparent px-3.5 text-left text-sm text-[#7d7d7d] transition-colors hover:border-white/55 hover:text-white"
+                className="h-11 min-w-0 appearance-none overflow-hidden rounded-[10px] border border-[#454545] bg-transparent px-3.5 text-left text-sm text-[#7d7d7d] transition-colors hover:border-white/55 hover:text-white"
               >
-                {item}
+                <span className="block min-w-0 truncate whitespace-nowrap">{item}</span>
               </button>
             ))}
           </div>
@@ -548,19 +478,19 @@ function PreloginPanel({
 
         <div className="mb-6 mt-6 flex min-h-[282px] flex-1 flex-col justify-between rounded-[10px] border border-[#545454] bg-[#212121] p-4">
           <textarea
-            value={promptTouched ? prompt : animatedPrompt}
+            value={prompt}
             onChange={event => onPromptChange(event.target.value)}
             className="h-36 resize-none bg-transparent text-sm leading-[22px] text-white outline-none placeholder:text-[#7d7d7d]"
             placeholder={HOME_PROMPT}
           />
           <div className="flex h-10 items-center justify-between">
             <div className="flex items-center gap-4 text-[#7d7d7d]">
-              <button type="button" onClick={onToolClick} className="flex h-8 items-center gap-1.5 rounded-md text-xs transition-colors hover:text-white">
+              <button type="button" className="flex h-8 items-center gap-1.5 rounded-md text-xs transition-colors hover:text-white">
                 <ImagePlus size={15} />
                 添加参考图
               </button>
               <span className="h-4 w-px bg-[#454545]" />
-              <button type="button" onClick={onToolClick} className="flex h-8 items-center gap-1 rounded-md text-xs transition-colors hover:text-white">
+              <button type="button" className="flex h-8 items-center gap-1 rounded-md text-xs transition-colors hover:text-white">
                 图像生成
                 <ChevronDown size={14} />
               </button>
@@ -568,10 +498,10 @@ function PreloginPanel({
             <button
               type="button"
               onClick={onSend}
-              className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#C5ED47] shadow-[0_8px_22px_rgba(197,237,71,0.25)] transition-all hover:opacity-90 active:scale-95"
+              className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#936CFF] text-white shadow-[0_8px_22px_rgba(147,108,255,0.28)] transition-all hover:bg-[#A384FF] active:scale-95"
               aria-label="发送并登录"
             >
-              <img src={generationMark} alt="" aria-hidden="true" draggable={false} className="h-4 w-4 object-contain" style={{ filter: "brightness(0)" }} />
+              <Send size={16} />
             </button>
           </div>
         </div>
@@ -581,6 +511,7 @@ function PreloginPanel({
 }
 
 function LoginPanel({
+  mode,
   email,
   password,
   busy,
@@ -588,8 +519,10 @@ function LoginPanel({
   onEmailChange,
   onPasswordChange,
   onSubmit,
-  onAuthAction,
+  onModeChange,
+  onSocialAuth,
 }: {
+  mode: "login" | "register";
   email: string;
   password: string;
   busy: boolean;
@@ -597,12 +530,15 @@ function LoginPanel({
   onEmailChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
-  onAuthAction: (action: "register" | "login") => void;
+  onModeChange: (mode: PanelMode) => void;
+  onSocialAuth: (provider: "google" | "wechat" | "apple" | "github" | "meta") => void;
 }) {
+  const isRegister = mode === "register";
+
   return (
     <GlassPanel>
       <form className="flex h-full flex-col" onSubmit={onSubmit}>
-        <PanelHeader />
+        <PanelHeader title={isRegister ? "创建 ArtX Studio 账号" : "欢迎使用 ArtX Studio"} />
 
         <div className="mt-8 flex flex-col gap-5">
           <LabeledInput
@@ -617,7 +553,7 @@ function LoginPanel({
             type="password"
             value={password}
             onChange={onPasswordChange}
-            autoComplete="current-password"
+            autoComplete={isRegister ? "new-password" : "current-password"}
             placeholder="请输入密码"
           />
         </div>
@@ -631,57 +567,37 @@ function LoginPanel({
           </button>
         </div>
 
-        <div className="mt-5 grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => onAuthAction("register")}
-            className="h-12 rounded-[10px] bg-[#2F80ED] text-base font-semibold text-white shadow-[0_10px_28px_rgba(47,128,237,0.24)] transition-all hover:bg-[#4A96FF] disabled:opacity-60"
-          >
-            {busy ? "请稍候..." : "注 册"}
-          </button>
-          <button
-            type="submit"
-            disabled={busy}
-            className="h-12 rounded-[10px] bg-[#936CFF] text-base font-semibold text-white shadow-[0_10px_28px_rgba(147,108,255,0.25)] transition-all hover:bg-[#A384FF] disabled:opacity-60"
-          >
-            {busy ? "请稍候..." : "登 录"}
-          </button>
+        <button
+          type="submit"
+          disabled={busy}
+          className="mt-5 h-12 rounded-[10px] bg-[#936CFF] text-base font-semibold text-white shadow-[0_10px_28px_rgba(147,108,255,0.25)] transition-all hover:bg-[#A384FF] disabled:opacity-60"
+        >
+          {busy ? "请稍候..." : isRegister ? "注 册" : "登 录"}
+        </button>
+
+        <div className="my-5 flex items-center gap-3">
+          <span className="h-px flex-1 bg-[#939393]" />
+          <span className="text-[13px] text-white">或</span>
+          <span className="h-px flex-1 bg-[#939393]" />
         </div>
 
-        <p className="mt-5 text-center text-[13px] text-[#7d7d7d]">注册或登录后即可继续使用 ArtX Studio</p>
+        <div className="flex flex-col gap-[10px]">
+          <SocialButton icon={<Mail size={18} className="text-[#ea4335]" />} label="使用 Gmail 登录" onClick={() => onSocialAuth("google")} />
+          <SocialButton icon={<MessageCircle size={18} className="text-[#19b36b]" />} label="使用微信登录" onClick={() => onSocialAuth("wechat")} />
+          <SocialButton icon={<Github size={18} className="text-[#7fb2ff]" />} label="使用 GitHub 登录" onClick={() => onSocialAuth("github")} />
+          <SocialButton icon={<span className="text-xl leading-none text-[#3f7cff]">∞</span>} label="使用 Meta 登录" onClick={() => onSocialAuth("meta")} />
+        </div>
+
+        <button
+          type="button"
+          onClick={() => onModeChange(isRegister ? "login" : "register")}
+          className="mt-5 appearance-none bg-transparent text-center text-[13px] text-[#936CFF] transition-colors hover:text-[#A384FF]"
+        >
+          {isRegister ? "已有账号？立即登录" : "还没有账号？立即注册"}
+        </button>
       </form>
     </GlassPanel>
   );
-}
-
-function usePromptTypingAnimation(text: string, paused: boolean) {
-  const [displayedText, setDisplayedText] = useState("");
-
-  useEffect(() => {
-    if (paused) return;
-
-    const characters = Array.from(text);
-    const cycleDuration = PROMPT_TYPE_DURATION_MS + PROMPT_PAUSE_DURATION_MS;
-    const startedAt = Date.now();
-
-    const update = () => {
-      const elapsed = (Date.now() - startedAt) % cycleDuration;
-      if (elapsed >= PROMPT_TYPE_DURATION_MS) {
-        setDisplayedText(text);
-        return;
-      }
-
-      const visibleCount = Math.floor((elapsed / PROMPT_TYPE_DURATION_MS) * characters.length);
-      setDisplayedText(characters.slice(0, visibleCount).join(""));
-    };
-
-    update();
-    const intervalId = window.setInterval(update, PROMPT_FRAME_MS);
-    return () => window.clearInterval(intervalId);
-  }, [paused, text]);
-
-  return paused ? text : displayedText;
 }
 
 function PanelHeader({
@@ -724,5 +640,26 @@ function LabeledInput({
         className="h-[46px] w-full rounded-[10px] border border-[#545454] bg-[#222] px-3.5 text-sm text-white outline-none transition-[border-color,box-shadow] placeholder:text-[#7d7d7d] focus:border-[#936CFF] focus:shadow-[0_0_0_3px_rgba(147,108,255,0.22)]"
       />
     </label>
+  );
+}
+
+function SocialButton({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex h-11 appearance-none items-center justify-center gap-3 rounded-[10px] border border-[#737373] bg-transparent text-sm font-medium text-white transition-colors hover:border-white"
+    >
+      {icon}
+      {label}
+    </button>
   );
 }
