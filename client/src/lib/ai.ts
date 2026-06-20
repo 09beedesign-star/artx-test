@@ -18,6 +18,8 @@ type OrchestrateResponse = ApiErrorResponse & {
 };
 
 const AUTH_STORAGE_KEY = "artx-auth-session";
+const AI_REQUEST_TIMEOUT_MS = 180000;
+const AI_TIMEOUT_ERROR_MESSAGE = "对不起，网络开了个小差，请稍后重试。";
 
 function normalizeAiErrorMessage(message: string, fallback: string) {
   if (/images api is not supported|not supported for this platform|unsupported.*images/i.test(message)) {
@@ -95,55 +97,53 @@ async function readJsonResponse<T extends ApiErrorResponse>(response: Response, 
   return JSON.parse(text) as T;
 }
 
+async function fetchAiJson<T extends ApiErrorResponse>(
+  endpoint: string,
+  body: Record<string, unknown>,
+  fallbackError: string,
+  timeoutMs = AI_REQUEST_TIMEOUT_MS,
+): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    const result = await readJsonResponse<T>(response, fallbackError);
+    if (!response.ok) {
+      throw new Error(result.error || result.message || fallbackError);
+    }
+    return result;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(AI_TIMEOUT_ERROR_MESSAGE);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 async function postAiOrchestrate(body: Record<string, unknown>, fallbackError: string) {
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/ai/orchestrate`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-
-  const result = await readJsonResponse<OrchestrateResponse>(response, fallbackError);
-  if (!response.ok) {
-    throw new Error(result.error || result.message || fallbackError);
-  }
-
-  return result;
+  return fetchAiJson<OrchestrateResponse>(endpoint, body, fallbackError);
 }
 
 async function postImageExpand(body: Record<string, unknown>, fallbackError: string) {
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/images/expand`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-
-  const result = await readJsonResponse<ApiErrorResponse & { images?: GeneratedImageResult[] }>(response, fallbackError);
-  if (!response.ok) {
-    throw new Error(result.error || result.message || fallbackError);
-  }
-
-  return result;
+  return fetchAiJson<ApiErrorResponse & { images?: GeneratedImageResult[] }>(endpoint, body, fallbackError);
 }
 
 async function postImageEnhance(body: Record<string, unknown>, fallbackError: string) {
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/images/enhance`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-
-  const result = await readJsonResponse<ApiErrorResponse & { images?: GeneratedImageResult[] }>(response, fallbackError);
-  if (!response.ok) {
-    throw new Error(result.error || result.message || fallbackError);
-  }
-
-  return result;
+  return fetchAiJson<ApiErrorResponse & { images?: GeneratedImageResult[] }>(endpoint, body, fallbackError);
 }
 
 export async function callLLM({

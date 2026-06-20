@@ -2727,11 +2727,12 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const localSrc = (data as Record<string, unknown>).localSrc as string | undefined;
   const asset = GENERATED_ASSETS.find(a => a.id === (data.assetId as string));
   const isGeneratingImage = Boolean((data as { isGeneratingImage?: boolean }).isGeneratingImage);
+  const isGenerationFailed = Boolean((data as { isGenerationFailed?: boolean }).isGenerationFailed);
   const isRemovingBackground = Boolean((data as { isRemovingBackground?: boolean }).isRemovingBackground);
   const isErasingImage = Boolean((data as { isErasingImage?: boolean }).isErasingImage);
   const isExtractingText = Boolean((data as { isExtractingText?: boolean }).isExtractingText);
-  const isAiProcessingImage = isGeneratingImage || isRemovingBackground || isErasingImage;
-  const processingLabel = ((data as { processingTitle?: string }).processingTitle || (isGeneratingImage ? "正在全力生成中" : isErasingImage ? "AI 擦除中" : isRemovingBackground ? "AI 去背景中" : "AI 处理中")) as string;
+  const isAiProcessingImage = isGeneratingImage || isGenerationFailed || isRemovingBackground || isErasingImage;
+  const processingLabel = ((data as { processingTitle?: string }).processingTitle || (isGenerationFailed ? AI_GENERATION_NETWORK_ERROR_MESSAGE : isGeneratingImage ? "正在全力生成中" : isErasingImage ? "AI 擦除中" : isRemovingBackground ? "AI 去背景中" : "AI 处理中")) as string;
   const processingSubtitle = ((data as { processingSubtitle?: string }).processingSubtitle || "") as string;
   const displaySrc = isAiProcessingImage ? "" : (localSrc || asset?.src || "");
   const sourceBackgroundSrc = (data as { sourceBackgroundSrc?: string }).sourceBackgroundSrc;
@@ -3321,7 +3322,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
                 style={{ right: -1, backgroundColor: "rgba(255,255,255,0.80)", borderColor: "rgba(255,255,255,0.60)" }} />
             </>
           )}
-          {sourceBackgroundSrc && isAiProcessingImage && (
+          {sourceBackgroundSrc && isAiProcessingImage && !isGenerationFailed && (
             <img
               src={sourceBackgroundSrc}
               alt=""
@@ -3341,17 +3342,37 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
           )}
           {isAiProcessingImage ? (
             <div
-              className={isGeneratingImage ? "artx-ai-generation-loading absolute inset-0 flex flex-col items-center justify-center gap-3" : "absolute inset-0 flex flex-col items-center justify-center gap-3"}
+              className={isGeneratingImage && !isGenerationFailed ? "artx-ai-generation-loading absolute inset-0 flex flex-col items-center justify-center gap-3" : "absolute inset-0 flex flex-col items-center justify-center gap-3"}
               style={{
                 ...frameClipStyle,
-                background: isGeneratingImage
+                background: isGenerationFailed
+                  ? isDark ? "linear-gradient(135deg, #303038, #1d1d23)" : "linear-gradient(135deg, #d6d6da, #eeeeef)"
+                  : isGeneratingImage
                   ? `url(${generationGradient}) center / cover no-repeat`
                   : isDark ? "oklch(0.16 0.018 270)" : "oklch(0.96 0.006 270)",
-                color: isGeneratingImage ? "rgba(255,255,255,0.88)" : isDark ? "rgba(255,255,255,0.72)" : "rgba(24,24,32,0.62)",
+                color: isGenerationFailed ? isDark ? "rgba(255,255,255,0.76)" : "rgba(35,35,42,0.70)" : isGeneratingImage ? "rgba(255,255,255,0.88)" : isDark ? "rgba(255,255,255,0.72)" : "rgba(24,24,32,0.62)",
+                filter: isGenerationFailed ? "grayscale(1)" : undefined,
                 zIndex: 1,
               }}
             >
-              {isGeneratingImage ? (
+              {isGenerationFailed ? (
+                <div
+                  aria-hidden="true"
+                  style={{
+                    width: 52,
+                    height: 52,
+                    borderRadius: 18,
+                    display: "grid",
+                    placeItems: "center",
+                    background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
+                    color: "currentColor",
+                    fontSize: 26,
+                    fontWeight: 700,
+                  }}
+                >
+                  !
+                </div>
+              ) : isGeneratingImage ? (
                 <div
                   className="artx-ai-generation-mark-shell"
                   aria-hidden="true"
@@ -3372,7 +3393,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
               )}
               <div className="flex flex-col items-center gap-1 px-5 text-center">
                 <span className="type-caption" style={{ fontWeight: 600 }}>{processingLabel}</span>
-                {processingSubtitle && (
+                {processingSubtitle && !isGenerationFailed && (
                   <span className="type-caption" style={{ maxWidth: 260, opacity: 0.82, lineHeight: 1.55, textTransform: "none", letterSpacing: 0 }}>
                     {processingSubtitle}
                   </span>
@@ -5109,6 +5130,7 @@ const CANVAS_IMAGE_GENERATION_TASKS_STORAGE_KEY = "artx:canvas-image-generation-
 const CANVAS_IMAGE_DB_NAME = "artx-canvas-images";
 const CANVAS_IMAGE_STORE_NAME = "images";
 const EXTRACT_TEXT_LOADING_MESSAGE = "正在提取文案中...";
+const AI_GENERATION_NETWORK_ERROR_MESSAGE = "对不起，网络开了个小差，请稍后重试。";
 
 type PersistedCanvasState = {
   nodes: Node[];
@@ -5127,6 +5149,7 @@ type PersistedImageGenerationTask = Omit<ImageGeneratorPayload, "generationId" |
 function isPendingImageGenerationNode(node: Node) {
   if (node.type !== "asset") return false;
   const data = node.data as Record<string, unknown>;
+  if (data.isGenerationFailed === true) return false;
   const title = typeof data.title === "string" ? data.title : "";
   return (
     data.isGeneratingImage === true ||
@@ -10597,7 +10620,22 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       }
 
       if (detail.status === "failed") {
-        setNodes(nds => nds.filter(n => !((n.data as Record<string, unknown>)?.generationId === generationId)));
+        setNodes(nds => nds.map(n => {
+          const data = n.data as Record<string, unknown>;
+          if (data.generationId !== generationId) return n;
+          return {
+            ...n,
+            data: {
+              ...data,
+              isGeneratingImage: false,
+              isGenerationFailed: true,
+              processingTitle: AI_GENERATION_NETWORK_ERROR_MESSAGE,
+              processingSubtitle: "",
+              title: AI_GENERATION_NETWORK_ERROR_MESSAGE,
+              sourceBackgroundSrc: undefined,
+            },
+          };
+        }));
         markImageGenerationTaskConsumed(projectId, generationId);
         return;
       }
