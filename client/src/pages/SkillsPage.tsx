@@ -189,53 +189,28 @@ export default function SkillsPage() {
                   </span>
                 </div>
 
-                <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
-                  <div>
+                <div>
                   <h1 className="max-w-[720px] text-[38px] font-semibold leading-[1.04]" style={{ color: text, letterSpacing: 0 }}>
                     设计图片类 Skills
                   </h1>
                   <p className="mt-2 max-w-[580px] text-sm leading-6" style={{ color: sub }}>
                     使用技能，让你的创意效率即刻提速翻倍。
                   </p>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2 xl:max-w-[420px] xl:justify-end">
-                    {["品牌系统", "Logo 识别", "产品页", "视觉质检"].map((label, index) => (
-                      <span
-                        key={label}
-                        className="inline-flex h-7 items-center rounded-[var(--radius-md-design)] border px-3 text-xs"
-                        style={{
-                          color: isDark ? "rgba(255,255,255,0.78)" : "rgba(20,20,36,0.72)",
-                          borderColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(20,20,36,0.08)",
-                          background: index === 0
-                            ? "rgba(144,88,252,0.18)"
-                            : isDark ? "rgba(255,255,255,0.055)" : "rgba(255,255,255,0.70)",
-                        }}
-                      >
-                        {label}
-                      </span>
-                    ))}
-                  </div>
                 </div>
+              </div>
 
                 <div className="mt-4 grid gap-3 xl:grid-cols-[360px_minmax(0,1fr)]">
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid min-h-[118px] grid-cols-3">
                     {heroStats.map((item) => {
                       const Icon = item.icon;
                       return (
                         <div
                           key={item.label}
-                          className="rounded-[var(--radius-md-design)] border p-2.5"
-                          style={{
-                            borderColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(20,20,36,0.10)",
-                            background: isDark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.76)",
-                          }}
+                          className="flex min-h-[118px] flex-col items-center justify-center gap-1.5 text-center"
                         >
-                          <div className="mb-1.5 flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm-design)]" style={{ background: `${item.accent}22`, color: item.accent }}>
-                            <Icon size={13} />
-                          </div>
-                          <p className="text-[22px] font-semibold leading-none" style={{ color: text }}>{item.value}</p>
-                          <p className="mt-1 text-xs" style={{ color: faint }}>{item.label}</p>
+                          <Icon size={22} style={{ color: item.accent }} />
+                          <p className="text-[34px] font-semibold leading-none" style={{ color: text }}>{item.value}</p>
+                          <p className="text-xs" style={{ color: faint }}>{item.label}</p>
                         </div>
                       );
                     })}
@@ -284,7 +259,6 @@ export default function SkillsPage() {
                     </div>
                   </div>
                 </div>
-              </div>
             </div>
           </section>
 
