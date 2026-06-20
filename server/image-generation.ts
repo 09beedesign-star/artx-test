@@ -744,24 +744,13 @@ async function compositeEraseResultInsidePicWishMask(
     .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
-  const softMaskData = await sharp(picWishMaskBuffer, { limitInputPixels: false })
-    .rotate()
-    .resize(width, height, { fit: "fill" })
-    .ensureAlpha()
-    .blur(1.4)
-    .raw()
-    .toBuffer();
-
   const output = Buffer.from(sourceData);
   for (let index = 0; index < output.length; index += 4) {
-    const hardStrength = hardMaskData[index] / 255;
-    const softStrength = softMaskData[index] / 255;
-    const strength = Math.max(hardStrength, softStrength * 0.72);
-    if (strength <= 0.01) continue;
-    output[index] = Math.round(sourceData[index] * (1 - strength) + resultData[index] * strength);
-    output[index + 1] = Math.round(sourceData[index + 1] * (1 - strength) + resultData[index + 1] * strength);
-    output[index + 2] = Math.round(sourceData[index + 2] * (1 - strength) + resultData[index + 2] * strength);
-    output[index + 3] = Math.round(sourceData[index + 3] * (1 - strength) + resultData[index + 3] * strength);
+    if (hardMaskData[index] < 128) continue;
+    output[index] = resultData[index];
+    output[index + 1] = resultData[index + 1];
+    output[index + 2] = resultData[index + 2];
+    output[index + 3] = resultData[index + 3];
   }
 
   const png = await sharp(output, {
