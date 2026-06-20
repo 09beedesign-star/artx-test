@@ -655,6 +655,127 @@ async function eraseWithPicWish(imageBuffer: Buffer, imageMimeType: string, mask
   return runPicWishImageTask("watermark", imageBuffer, imageMimeType, { maskBuffer, maskMimeType });
 }
 
+async function createPicWishEraseMasks(maskBuffer: Buffer, width: number, height: number): Promise<{ providerMaskBuffer: Buffer; eraseMaskBuffer: Buffer }> {
+  const sharp = (await import("sharp")).default;
+  const { data } = await sharp(maskBuffer, { limitInputPixels: false })
+    .rotate()
+    .resize(width, height, { fit: "fill" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const erasePixels = new Uint8Array(width * height);
+  for (let index = 0; index < data.length; index += 4) {
+    // The canvas eraser stores painted strokes as transparent pixels.
+    if (data[index + 3] < 250) erasePixels[index / 4] = 1;
+  }
+
+  const expandedErasePixels = new Uint8Array(erasePixels);
+  const expansionRadius = Math.max(2, Math.min(10, Math.round(Math.max(width, height) * 0.006)));
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const pixel = y * width + x;
+      if (!erasePixels[pixel]) continue;
+      for (let dy = -expansionRadius; dy <= expansionRadius; dy += 1) {
+        for (let dx = -expansionRadius; dx <= expansionRadius; dx += 1) {
+          if ((dx * dx) + (dy * dy) > expansionRadius * expansionRadius) continue;
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+          expandedErasePixels[ny * width + nx] = 1;
+        }
+      }
+    }
+  }
+
+  const providerMask = Buffer.alloc(width * height * 4);
+  const eraseMask = Buffer.alloc(width * height * 4);
+  for (let pixel = 0; pixel < expandedErasePixels.length; pixel += 1) {
+    const index = pixel * 4;
+    const shouldErase = expandedErasePixels[pixel] === 1;
+    // PicWish object removal treats the dark mask area as the region to remove.
+    providerMask[index] = shouldErase ? 0 : 255;
+    providerMask[index + 1] = shouldErase ? 0 : 255;
+    providerMask[index + 2] = shouldErase ? 0 : 255;
+    providerMask[index + 3] = 255;
+    // Internal compositing uses white as the editable/replace area.
+    eraseMask[index] = shouldErase ? 255 : 0;
+    eraseMask[index + 1] = shouldErase ? 255 : 0;
+    eraseMask[index + 2] = shouldErase ? 255 : 0;
+    eraseMask[index + 3] = 255;
+  }
+
+  const providerMaskBuffer = await sharp(providerMask, {
+    raw: { width, height, channels: 4 },
+    limitInputPixels: false,
+  }).png().toBuffer();
+  const eraseMaskBuffer = await sharp(eraseMask, {
+    raw: { width, height, channels: 4 },
+    limitInputPixels: false,
+  }).png().toBuffer();
+
+  return { providerMaskBuffer, eraseMaskBuffer };
+}
+
+async function compositeEraseResultInsidePicWishMask(
+  sourceBuffer: Buffer,
+  resultSrc: string,
+  picWishMaskBuffer: Buffer,
+  width: number,
+  height: number,
+): Promise<GeneratedImage> {
+  const sharp = (await import("sharp")).default;
+  const { buffer: resultBuffer } = await imageSrcToBuffer(resultSrc);
+  const { data: sourceData } = await sharp(sourceBuffer, { limitInputPixels: false })
+    .rotate()
+    .resize(width, height, { fit: "fill" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const { data: resultData } = await sharp(resultBuffer, { limitInputPixels: false })
+    .rotate()
+    .resize(width, height, { fit: "fill" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const { data: hardMaskData } = await sharp(picWishMaskBuffer, { limitInputPixels: false })
+    .rotate()
+    .resize(width, height, { fit: "fill" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const softMaskData = await sharp(picWishMaskBuffer, { limitInputPixels: false })
+    .rotate()
+    .resize(width, height, { fit: "fill" })
+    .ensureAlpha()
+    .blur(1.4)
+    .raw()
+    .toBuffer();
+
+  const output = Buffer.from(sourceData);
+  for (let index = 0; index < output.length; index += 4) {
+    const hardStrength = hardMaskData[index] / 255;
+    const softStrength = softMaskData[index] / 255;
+    const strength = Math.max(hardStrength, softStrength * 0.72);
+    if (strength <= 0.01) continue;
+    output[index] = Math.round(sourceData[index] * (1 - strength) + resultData[index] * strength);
+    output[index + 1] = Math.round(sourceData[index + 1] * (1 - strength) + resultData[index + 1] * strength);
+    output[index + 2] = Math.round(sourceData[index + 2] * (1 - strength) + resultData[index + 2] * strength);
+    output[index + 3] = Math.round(sourceData[index + 3] * (1 - strength) + resultData[index + 3] * strength);
+  }
+
+  const png = await sharp(output, {
+    raw: { width, height, channels: 4 },
+    limitInputPixels: false,
+  }).png().toBuffer();
+
+  return {
+    src: `data:image/png;base64,${png.toString("base64")}`,
+    width,
+    height,
+  };
+}
+
 async function enhanceImageWithPicWish(src: string): Promise<{ images: GeneratedImage[] }> {
   const { buffer, mimeType } = await imageSrcToBuffer(src);
   return runPicWishImageTask("scale", buffer, mimeType);
@@ -1675,14 +1796,26 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<{ image
 
   if (!input.disableLocalFallback) {
     try {
+      const { providerMaskBuffer, eraseMaskBuffer } = await createPicWishEraseMasks(maskImageData.buffer, targetWidth, targetHeight);
       const picWishResult = await eraseWithPicWish(
         sourceImageData.buffer,
         sourceImageData.mimeType,
-        maskImageData.buffer,
-        maskImageData.mimeType,
+        providerMaskBuffer,
+        "image/png",
       );
       const normalized = await normalizeGeneratedImagesToTargetAspect(picWishResult.images, targetWidth, targetHeight);
-      if (normalized.length > 0) return { images: normalized };
+      if (normalized.length > 0) {
+        const changed = await didEraseChangeMaskedArea(sourceImageData.buffer, normalized[0].src, input.maskSrc, targetWidth, targetHeight);
+        if (!changed) return fallbackErase();
+        const composited = await compositeEraseResultInsidePicWishMask(
+          sourceImageData.buffer,
+          normalized[0].src,
+          eraseMaskBuffer,
+          targetWidth,
+          targetHeight,
+        );
+        return { images: [composited] };
+      }
     } catch (picWishError) {
       console.warn("PicWish erase failed; using image edit provider fallback", picWishError);
     }
