@@ -5126,6 +5126,30 @@ const initialNodes: Node[] = [];
 
 const initialEdges: Edge[] = [];
 
+function createSkillStartNodes(skill: PendingSkillLoad): Node[] {
+  const promptLine = skill.capability === "image_edit"
+    ? `先选择或上传一张图片，然后输入：${skill.capabilityPrompt}`
+    : `试试输入：帮我生成一张${skill.subcategory}，风格高级、有视觉冲击力。`;
+  const id = `skill-start-${skill.id}-${Date.now()}`;
+  return [{
+    id,
+    type: "text",
+    position: { x: -260, y: -160 },
+    selected: true,
+    data: {
+      id,
+      text: `已加载 Skill：${skill.name}\n\n${skill.summary}\n\n${promptLine}`,
+      width: 520,
+      height: 220,
+      fontSize: 22,
+      fontWeight: 500,
+      lineHeight: 1.45,
+      color: "#9058fc",
+      fontFamily: "Inter",
+    },
+  }];
+}
+
 const CANVAS_STATE_STORAGE_PREFIX = "artx:canvas-state:";
 const CANVAS_STATE_SESSION_PREFIX = "artx:canvas-state:fallback:";
 const CANVAS_IMAGE_GENERATION_TASKS_STORAGE_KEY = "artx:canvas-image-generation-tasks";
@@ -9112,6 +9136,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   // ── Referenced assets: auto-populated from selected image nodes ──
   const [referencedAssets, setReferencedAssets] = useState<ImageGeneratorReferenceAsset[]>([]);
   const [annotationReferences, setAnnotationReferences] = useState<AnnotationReference[]>([]);
+  const pendingSkillCanvasSeedRef = useRef<PendingSkillLoad | null>(null);
   const mergeReferencedAssets = useCallback((assets: ImageGeneratorReferenceAsset[]) => {
     setReferencedAssets(assets);
   }, []);
@@ -9161,6 +9186,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       if (!payload?.id || !payload?.name) return;
       window.sessionStorage.removeItem(PENDING_SKILL_LOAD_KEY);
       setActiveSkill(payload);
+      pendingSkillCanvasSeedRef.current = payload;
       setIsAssistantCollapsed(false);
       toast("Skill 已加载到画布", { description: payload.name });
     } catch {
@@ -9200,6 +9226,17 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       }));
     });
     requestAnimationFrame(() => requestAnimationFrame(() => {
+      const pendingSkill = pendingSkillCanvasSeedRef.current;
+      if (!cancelled && pendingSkill && restoredNodes.length === 0) {
+        const startNodes = createSkillStartNodes(pendingSkill);
+        pendingSkillCanvasSeedRef.current = null;
+        setNodes(startNodes);
+        setSelectedNodeIds(startNodes.map(node => node.id));
+        updateWorkspaceProjectHistory(projectId, getCanvasProjectHistoryPatch(startNodes, formatProjectHistoryTimestamp()));
+        window.setTimeout(() => {
+          void fitView({ padding: 0.34, duration: 320 });
+        }, 80);
+      }
       isRestoringRef.current = false;
       didHydrateCanvasStateRef.current = true;
       setCanvasRestoreTick(value => value + 1);
@@ -9207,7 +9244,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     return () => {
       cancelled = true;
     };
-  }, [projectId, setEdges, setNodes]);
+  }, [fitView, projectId, setEdges, setNodes]);
 
   useEffect(() => {
     touchWorkspaceProjectHistory(projectId);
