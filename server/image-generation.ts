@@ -525,8 +525,11 @@ function getPicWishTaskEndpoint(baseUrl: string, taskType: PicWishVisualTaskType
   return `${baseUrl.replace(/\/+$/, "")}/api/tasks/visual/${taskType}`;
 }
 
-function getPicWishResultImageUrl(data: PicWishSegmentationResponse) {
-  return data.data?.image || "";
+function getPicWishResultImageUrl(data: PicWishSegmentationResponse, taskType?: PicWishVisualTaskType) {
+  if (taskType === "segmentation") {
+    return data.data?.image_obj || data.data?.image || "";
+  }
+  return data.data?.image || data.data?.image_obj || "";
 }
 
 function getPicWishTaskId(data: PicWishSegmentationResponse) {
@@ -581,7 +584,7 @@ async function pollPicWishTask(taskType: PicWishVisualTaskType, taskId: string, 
         "X-API-KEY": apiKey,
       },
     }), `PicWish ${taskType} polling`);
-    if (getPicWishResultImageUrl(data)) return data;
+    if (getPicWishResultImageUrl(data, taskType)) return data;
     if (data.data?.state && data.data.state < 0) {
       throw new Error(getPicWishErrorMessage(data, `PicWish ${taskType} task failed`));
     }
@@ -603,6 +606,11 @@ async function runPicWishImageTask(
   const body = new FormData();
   body.append("sync", "0");
   body.append("image_file", bufferToImageFile(buffer, mimeType));
+  if (taskType === "segmentation") {
+    // PicWish segmentation supports object-oriented output fields. Requesting
+    // them helps keep the whole foreground group, not only a detected person.
+    body.append("output_type", "1");
+  }
   if (options?.maskBuffer) {
     body.append("mask_file", bufferToImageFile(options.maskBuffer, options.maskMimeType || "image/png"));
   }
@@ -615,7 +623,7 @@ async function runPicWishImageTask(
     body,
   }), `PicWish ${taskType}`);
 
-  const immediateResult = getPicWishResultImageUrl(created);
+  const immediateResult = getPicWishResultImageUrl(created, taskType);
   const taskId = getPicWishTaskId(created);
   const result = immediateResult
     ? created
@@ -625,7 +633,7 @@ async function runPicWishImageTask(
   if (!result) {
     throw new Error("PicWish did not return a task id");
   }
-  const imageUrl = getPicWishResultImageUrl(result);
+  const imageUrl = getPicWishResultImageUrl(result, taskType);
   if (!imageUrl) {
     throw new Error("PicWish did not return a result image");
   }
