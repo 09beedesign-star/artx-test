@@ -264,7 +264,7 @@ function SkillPointSelector({
         style={{ background: activeSkill ? activeBg : bg, border: `1px solid ${activeSkill ? "oklch(0.62 0.22 290 / 45%)" : border}`, color: activeSkill ? activeText : text }}
       >
         <CircleDot size={13} style={{ flexShrink: 0 }} />
-        <span className="min-w-0 flex-1 truncate">{activeSkill ? activeSkill.name : "极点 Skill"}</span>
+        <span className="min-w-0 flex-1 truncate">Skill</span>
         <ChevronDown size={10} style={{ opacity: 0.65, flexShrink: 0 }} />
       </button>
       {open && (
