@@ -9234,8 +9234,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         setSelectedNodeIds(startNodes.map(node => node.id));
         updateWorkspaceProjectHistory(projectId, getCanvasProjectHistoryPatch(startNodes, formatProjectHistoryTimestamp()));
         window.setTimeout(() => {
-          void fitView({ padding: 0.34, duration: 320 });
+          setViewport({ x: 360, y: 240, zoom: 1 }, { duration: 320 });
         }, 80);
+      } else if (!cancelled) {
+        setViewport({ x: 0, y: 0, zoom: 1 }, { duration: 0 });
       }
       isRestoringRef.current = false;
       didHydrateCanvasStateRef.current = true;
@@ -9244,7 +9246,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     return () => {
       cancelled = true;
     };
-  }, [fitView, projectId, setEdges, setNodes]);
+  }, [projectId, setEdges, setNodes, setViewport]);
 
   useEffect(() => {
     touchWorkspaceProjectHistory(projectId);
@@ -13258,8 +13260,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         edgeTypes={edgeTypes}
         onPaneContextMenu={handlePaneContextMenu as any}
         onClick={handlePaneClick}
-        fitView
-        fitViewOptions={{ padding: 0.15 }}
+        defaultViewport={{ x: 0, y: 0, zoom: 1 }}
         minZoom={0.1}
         maxZoom={4}
         defaultEdgeOptions={{ type: "tapnow" }}
