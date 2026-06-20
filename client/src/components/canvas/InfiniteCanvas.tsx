@@ -162,12 +162,13 @@ function ModelSelector({ model, onChange, isDark }: { model: string; onChange: (
     <div ref={modelRef} className="relative nodrag nopan" style={{ zIndex: open ? 1200 : 100 }}>
       <button
         onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
-        className="flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-md-design)] type-caption transition-all"
+        className="flex h-8 max-w-[168px] items-center gap-1.5 rounded-[var(--radius-md-design)] px-2 type-caption transition-all"
         style={{ background: bg, border: `1px solid ${border}`, color: text }}
+        title={current.label}
       >
         <span style={{ width: 6, height: 6, borderRadius: "50%", background: current.color, flexShrink: 0, display: "inline-block" }} />
-        {current.label}
-        <ChevronDown size={10} style={{ opacity: 0.6 }} />
+        <span className="min-w-0 flex-1 truncate">{current.label}</span>
+        <ChevronDown size={10} style={{ opacity: 0.6, flexShrink: 0 }} />
       </button>
       {open && (
         <div
@@ -259,12 +260,12 @@ function SkillPointSelector({
         type="button"
         title="极点选择器 / Skill"
         onClick={() => setOpen(value => !value)}
-        className="flex h-8 items-center gap-1.5 rounded-[var(--radius-md-design)] px-2.5 type-caption transition-colors"
+        className="flex h-8 max-w-[168px] items-center gap-1.5 rounded-[var(--radius-md-design)] px-2.5 type-caption transition-colors"
         style={{ background: activeSkill ? activeBg : bg, border: `1px solid ${activeSkill ? "oklch(0.62 0.22 290 / 45%)" : border}`, color: activeSkill ? activeText : text }}
       >
-        <CircleDot size={13} />
-        <span className="max-w-[92px] truncate">{activeSkill ? activeSkill.name : "极点 Skill"}</span>
-        <ChevronDown size={10} style={{ opacity: 0.65 }} />
+        <CircleDot size={13} style={{ flexShrink: 0 }} />
+        <span className="min-w-0 flex-1 truncate">{activeSkill ? activeSkill.name : "极点 Skill"}</span>
+        <ChevronDown size={10} style={{ opacity: 0.65, flexShrink: 0 }} />
       </button>
       {open && (
         <div
@@ -5597,8 +5598,7 @@ function BottomPromptBar({
 
   const resizePromptTextarea = useCallback((input: HTMLTextAreaElement | null) => {
     if (!input) return;
-    input.style.height = "auto";
-    input.style.height = `${Math.max(24, input.scrollHeight)}px`;
+    input.style.height = "32px";
   }, []);
 
   // Auto-focus textarea when references change
@@ -5834,35 +5834,36 @@ function BottomPromptBar({
           }}
           onKeyDown={handleKeyDown}
           rows={rows}
-          className="w-full whitespace-pre-wrap break-words bg-transparent type-caption leading-relaxed resize-none outline-none"
+          wrap="off"
+          className="h-8 w-full overflow-hidden whitespace-nowrap bg-transparent type-caption leading-8 resize-none outline-none"
           style={{
             color: text,
-            maxHeight: "min(34vh, 220px)",
-            overflowY: "auto",
-            scrollbarWidth: "thin",
-            scrollbarColor: `${isDark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.18)"} transparent`,
+            maxHeight: 32,
+            overflowX: "hidden",
+            overflowY: "hidden",
+            textOverflow: "ellipsis",
           }}
           placeholder={placeholderText}
         />
       </div>
-      <div className="flex items-center gap-2 px-3 pb-3" style={{ paddingTop: 8 }}>
+      <div className="flex h-11 items-center gap-2 px-3 pb-3" style={{ paddingTop: 8 }}>
         <ModelSelector model={model} onChange={setModel} isDark={isDark} />
         <SkillPointSelector activeSkill={activeSkill} onChange={onActiveSkillChange} isDark={isDark} />
         <button
-          className="flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-md-design)] type-caption hover:opacity-80"
+          className="flex h-8 max-w-[104px] items-center gap-1.5 rounded-[var(--radius-md-design)] px-2 type-caption hover:opacity-80"
           style={{ color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.55 0.01 270)" }}
           onClick={() => toast("参考图", { description: "功能即将上线" })}
         >
-          <Paperclip size={12} /><span>参考图</span>
+          <Paperclip size={12} style={{ flexShrink: 0 }} /><span className="min-w-0 truncate">参考图</span>
         </button>
         <div className="flex-1" />
-        <span className="type-caption" style={{ color: isDark ? "oklch(0.38 0.008 270)" : "oklch(0.62 0.008 270)" }}>
+        <span className="min-w-0 max-w-[152px] truncate type-caption" style={{ color: isDark ? "oklch(0.38 0.008 270)" : "oklch(0.62 0.008 270)" }}>
           {isSending ? "AI 处理中" : `${hasRefs ? "Ctrl+单击 多选 · " : ""}回车发送`}
         </span>
         <button
           onClick={() => void handleSend()}
           disabled={isSending}
-          className="w-7 h-7 rounded-[var(--radius-md-design)] flex items-center justify-center hover:opacity-80"
+          className="h-8 w-8 flex-shrink-0 rounded-[var(--radius-md-design)] flex items-center justify-center hover:opacity-80"
           style={{ background: hasContent ? "oklch(0.58 0.22 290)" : (isDark ? "oklch(0.22 0.015 270)" : "oklch(0.88 0.005 270)") }}
         >
           {isSending ? <RefreshCw size={13} color="white" className="animate-spin" /> : <Send size={13} color={hasContent ? "white" : (isDark ? "oklch(0.40 0.01 270)" : "oklch(0.65 0.01 270)")} />}
@@ -7642,8 +7643,7 @@ function CanvasAssistantPanel({
 
   const resizeComposerTextarea = useCallback((input: HTMLTextAreaElement | null) => {
     if (!input) return;
-    input.style.height = "auto";
-    input.style.height = `${Math.max(24, input.scrollHeight)}px`;
+    input.style.height = "32px";
   }, []);
 
   useEffect(() => {
@@ -8568,12 +8568,10 @@ function CanvasAssistantPanel({
                 </div>
               )}
               <div
-                className="mb-2 flex min-h-[86px] flex-wrap items-start gap-[1px] overflow-y-auto rounded-[var(--radius-md-design)] px-1 py-1"
+                className="mb-2 flex h-8 items-center gap-1 overflow-hidden rounded-[var(--radius-md-design)] px-1 py-0"
                 style={{
                   color: text,
-                  maxHeight: "min(42vh, 280px)",
-                  scrollbarWidth: "thin",
-                  scrollbarColor: `${isDark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.18)"} transparent`,
+                  maxHeight: 32,
                 }}
                 onMouseDown={() => focusComposerSegment()}
               >
@@ -8635,11 +8633,11 @@ function CanvasAssistantPanel({
                       </span>
                     );
                   }
-                  const textWidth = segment.text
-                    ? Math.min(260, Math.max(16, segment.text.length * 12))
-                    : composerSegments.length === 1
-                      ? 220
-                      : 12;
+                  const textWidth = composerSegments.length === 1
+                    ? 360
+                    : segment.text
+                      ? Math.min(240, Math.max(32, segment.text.length * 8))
+                      : 24;
                   return (
                     <textarea
                       key={segment.id}
@@ -8670,14 +8668,18 @@ function CanvasAssistantPanel({
                         : ""}
                       cols={1}
                       rows={1}
-                      className="min-w-0 shrink-0 whitespace-pre-wrap break-words border-0 bg-transparent p-0 outline-none resize-none disabled:cursor-not-allowed"
+                      wrap="off"
+                      className="min-w-0 shrink-0 whitespace-nowrap border-0 bg-transparent p-0 outline-none resize-none disabled:cursor-not-allowed"
                       style={{
                         color: text,
                         opacity: 1,
                         fontSize: 12,
-                        lineHeight: 1.5,
-                        minHeight: 24,
+                        lineHeight: "32px",
+                        height: 32,
+                        minHeight: 32,
+                        maxHeight: 32,
                         overflow: "hidden",
+                        textOverflow: "ellipsis",
                         width: `${textWidth}px`,
                         minWidth: `${textWidth}px`,
                         maxWidth: `${textWidth}px`,
@@ -8688,12 +8690,12 @@ function CanvasAssistantPanel({
                   );
                 })}
               </div>
-              <div className="flex items-center justify-between pt-2">
-                <div className="flex items-center gap-1.5">
+              <div className="flex h-8 items-center justify-between pt-0">
+                <div className="flex min-w-0 items-center gap-1.5">
                   <div ref={assistantModelRef} className="relative flex items-center" style={{ color: sub }}>
                     <button
                       type="button"
-                      className="flex items-center gap-1.5 rounded-[var(--radius-lg-design)] px-2.5 py-1.5 type-caption transition-colors active:scale-95"
+                      className="flex h-8 max-w-[176px] items-center gap-1.5 rounded-[var(--radius-lg-design)] px-2.5 type-caption transition-colors active:scale-95"
                       style={{ background: agentMenuOpen ? hoverBg : "transparent", color: agentMenuOpen ? text : sub }}
                       onClick={() => { setAgentMenuOpen(v => !v); setCommandMenuOpen(false); }}
                       onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
@@ -8701,10 +8703,10 @@ function CanvasAssistantPanel({
                       title="选择模型"
                       aria-label="选择模型"
                     >
-                      <span>
+                      <span className="min-w-0 flex-1 truncate">
                         {assistantModelTab === "image" ? "生图" : "对话"} · {assistantModel.label}
                       </span>
-                      <ChevronDown size={12} style={{ opacity: 0.6, transform: agentMenuOpen ? "rotate(180deg)" : "none", transition: "transform 0.16s ease" }} />
+                      <ChevronDown size={12} style={{ opacity: 0.6, transform: agentMenuOpen ? "rotate(180deg)" : "none", transition: "transform 0.16s ease", flexShrink: 0 }} />
                     </button>
                     {agentMenuOpen && (
                       <div
@@ -8776,7 +8778,7 @@ function CanvasAssistantPanel({
                 <div className="flex items-center gap-1.5">
                   <button
                     disabled={!canSubmit}
-                    className="w-12 h-12 rounded-[var(--radius-lg-design)] flex items-center justify-center disabled:cursor-not-allowed transition-all hover:scale-[1.03] active:scale-95"
+                    className="h-8 w-8 rounded-[var(--radius-lg-design)] flex items-center justify-center disabled:cursor-not-allowed transition-all hover:scale-[1.03] active:scale-95"
                     style={{
                       background: canSubmit || isSubmitting ? "#C5ED47" : (isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"),
                       color: canSubmit || isSubmitting ? "#000" : sub,
