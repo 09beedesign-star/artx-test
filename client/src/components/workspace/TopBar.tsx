@@ -181,7 +181,13 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
       {!isAuthenticated && (
         <button
           onClick={openLoginModal}
-          className="h-10 shrink-0 rounded-md bg-[#936CFF] px-4 text-sm font-medium text-white shadow-[0_8px_20px_rgba(147,108,255,0.24)] transition-colors hover:bg-[#A384FF] active:scale-95"
+          className="flex items-center gap-1.5 px-4 py-2 rounded-[var(--radius-md-design)] type-caption transition-all duration-150 active:scale-95"
+          style={{
+            background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
+            color: "white",
+            fontSize: 13,
+            boxShadow: "0 8px 24px oklch(0.58 0.22 290 / 0.24)",
+          }}
         >
           开始体验
         </button>
@@ -400,9 +406,9 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
               onClick={handleConfirmLogout}
               className="h-9 min-w-[112px] rounded-[var(--radius-md-design)] type-caption"
               style={{
-                background: "#936CFF",
+                background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
                 color: "white",
-                boxShadow: "0 8px 24px rgba(147,108,255,0.22)",
+                boxShadow: "0 8px 24px oklch(0.58 0.22 290 / 0.22)",
               }}
             >
               确认退出

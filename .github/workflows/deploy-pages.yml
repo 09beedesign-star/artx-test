@@ -3,6 +3,8 @@ name: Deploy GitHub Pages
 on:
   push:
     branches:
+      - main
+      - gh-pages
       - feature/interaction-framework
   workflow_dispatch:
 
@@ -38,17 +40,8 @@ jobs:
         env:
           GITHUB_PAGES: "true"
           GITHUB_PAGES_REPO: ${{ github.event.repository.name }}
-          VITE_DEPLOY_ENV: github-pages-test
-          VITE_DEPLOY_BRANCH: ${{ github.ref_name }}
-          VITE_DEPLOY_REPOSITORY: ${{ github.repository }}
-          VITE_COMMIT_SHA: ${{ github.sha }}
-          VITE_BUILD_TIME: ${{ github.event.head_commit.timestamp || github.run_started_at }}
-          VITE_GITHUB_RUN_ID: ${{ github.run_id }}
-          VITE_TEST_FRONTEND_URL: https://09beedesign-star.github.io/artx-test/
-          VITE_TEST_BACKEND_URL: https://artx-test.onrender.com
-          VITE_API_BASE_URL: https://artx-test.onrender.com
-          VITE_AUTH_API_BASE_URL: https://artx-test.onrender.com
-          VITE_AI_API_BASE_URL: https://artx-test.onrender.com
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL || secrets.VITE_API_BASE_URL || 'https://artx-test.onrender.com' }}
+          VITE_AI_API_BASE_URL: ${{ vars.VITE_AI_API_BASE_URL || secrets.VITE_AI_API_BASE_URL || vars.VITE_API_BASE_URL || secrets.VITE_API_BASE_URL || 'https://artx-test.onrender.com' }}
         run: pnpm exec vite build
 
       - name: Setup Pages

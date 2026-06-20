@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
 import {
   Home, Sparkles, Library, FolderOpen,
-  HelpCircle,
+  HelpCircle, Send,
 } from "lucide-react";
 
 
@@ -60,7 +60,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
         {!isAuthenticated && (
           <button
             onClick={() => navigate("/")}
-            className="fixed left-4 top-3 z-30 flex origin-left scale-[0.715] items-center gap-2.5 rounded-[var(--radius-md-design)] px-1 py-1 transition-opacity hover:opacity-85"
+            className="fixed left-4 top-3 z-30 flex items-center gap-2.5 rounded-[var(--radius-md-design)] px-1 py-1 transition-opacity hover:opacity-85"
             style={{ color: textPrimary }}
             aria-label="返回 artx 首页"
           >
@@ -116,12 +116,12 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
                   onClick={submitHelpPrompt}
                   className="h-9 min-w-[96px] inline-flex items-center justify-center gap-1.5 rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-90"
                   style={{
-                    background: "#C5ED47",
-                    color: "#000",
-                    boxShadow: "0 8px 22px rgba(197,237,71,0.24)",
+                    background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
+                    color: "white",
+                    boxShadow: "0 8px 22px oklch(0.58 0.22 290 / 0.24)",
                   }}
                 >
-                  <img src={generationMark} alt="" aria-hidden="true" draggable={false} className="h-3.5 w-3.5 object-contain" style={{ filter: "brightness(0)" }} />
+                  <Send size={13} />
                   提交
                 </button>
               </div>
@@ -261,12 +261,12 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
                 onClick={submitHelpPrompt}
                 className="h-9 min-w-[96px] inline-flex items-center justify-center gap-1.5 rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-90"
                 style={{
-                  background: "#C5ED47",
-                  color: "#000",
-                  boxShadow: "0 8px 22px rgba(197,237,71,0.24)",
+                  background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
+                  color: "white",
+                  boxShadow: "0 8px 22px oklch(0.58 0.22 290 / 0.24)",
                 }}
               >
-                <img src={generationMark} alt="" aria-hidden="true" draggable={false} className="h-3.5 w-3.5 object-contain" style={{ filter: "brightness(0)" }} />
+                <Send size={13} />
                 提交
               </button>
             </div>
