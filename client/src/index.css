@@ -688,6 +688,8 @@ html.light, .light {
   bottom: 32px !important;
   width: 260px !important;
   transform: translateX(-50%) !important;
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
 }
 
 [data-sonner-toaster].toaster [data-sonner-toast][data-styled="true"] {
