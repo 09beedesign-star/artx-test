@@ -4160,6 +4160,7 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
   const bg = withCanvasFrameAlpha(data.bgColor || (data.originalBgColor as string) || "#2a2a30");
   const labelColor = isDark ? "oklch(0.55 0.01 270)" : "oklch(0.52 0.01 270)";
   const handleColor = isDark ? "oklch(0.65 0.22 290 / 0.80)" : "oklch(0.50 0.20 290 / 0.80)";
+  const embedFlash = Boolean(data.embedFlash);
   const handleNodeCtxMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -4204,6 +4205,24 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
           zIndex: 0,
         }}
       />
+      {embedFlash && (
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 2,
+            borderRadius: "8px 8px 0 0",
+            background: "oklch(0.72 0.24 290)",
+            boxShadow: "0 0 0 1px oklch(0.72 0.24 290 / 0.34), 0 0 18px oklch(0.72 0.24 290 / 0.70)",
+            pointerEvents: "none",
+            zIndex: 4,
+            animation: "artxArtboardEmbedFlash 0.72s ease-out both",
+          }}
+        />
+      )}
       {selected && (
         <div
           aria-hidden="true"
@@ -11757,6 +11776,23 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     return frame || null;
   }, []);
 
+  const flashArtboardEmbedState = useCallback((frameId: string) => {
+    const startedAt = Date.now();
+    setNodes(nds => nds.map(n => {
+      if (n.id !== frameId || n.type !== "canvasFrame") return n;
+      return { ...n, data: { ...(n.data as Record<string, unknown>), embedFlash: startedAt } };
+    }));
+    window.setTimeout(() => {
+      setNodes(nds => nds.map(n => {
+        if (n.id !== frameId || n.type !== "canvasFrame") return n;
+        const data = n.data as Record<string, unknown>;
+        if (data.embedFlash !== startedAt) return n;
+        const { embedFlash, ...restData } = data;
+        return { ...n, data: restData };
+      }));
+    }, 760);
+  }, [setNodes]);
+
   const handleAltDragStop = useCallback((_event: MouseEvent, _node: Node) => {
     isDraggingRef.current = false;
     if (!isAltDragRef.current) return;
@@ -11878,11 +11914,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       };
     }));
     if (frame && frame.id !== currentFrameId) {
+      flashArtboardEmbedState(frame.id);
       toast("图片已放入画板", { description: "图片可在画板内自由移动" });
     } else if (!frame && currentFrameId) {
+      flashArtboardEmbedState(currentFrameId);
       toast("图片已脱离画板", { description: "图片恢复为自由节点" });
     }
-  }, [checkAndEmbedIntoFrame, nodesRef, setNodes]);
+  }, [checkAndEmbedIntoFrame, flashArtboardEmbedState, nodesRef, setNodes]);
 
   const handleNodeDrag = useCallback((_event: React.MouseEvent, node: Node) => {
     if (node.type !== "canvasFrame") return;
