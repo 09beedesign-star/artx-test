@@ -16,3 +16,4 @@
 - Formal admin access uses role-based permissions: ordinary users are `viewer`, default `09bee` is `super_admin`, and admin routes require `admin:access` instead of only checking login.
 - Canvas persistence rule: real user projects use `canvas-*` IDs and must keep the latest edited nodes/edges in local storage; non-real test canvas states can be reset without touching user projects.
 - Image generation recovery rule: text-to-image tasks with a `generationId` are also started on the backend `/api/images/tasks` background endpoint, so closing the browser can still recover completed or failed results when the user returns.
+- Canvas assistant composer rule: image reference chips and annotation reference chips are ordered prompt segments; drag reordering must preserve the same order in both displayed prompt text and the reference image array sent to AI.

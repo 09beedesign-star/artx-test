@@ -7684,6 +7684,30 @@ function getAssistantComposerAnnotations(segments: AssistantComposerSegment[]) {
     .map(segment => segment.annotation);
 }
 
+function getAssistantComposerVisualReferences(segments: AssistantComposerSegment[]) {
+  const seenImages = new Set<string>();
+  const seenAnnotations = new Set<string>();
+  let annotationIndex = 0;
+  return segments.flatMap(segment => {
+    if (segment.type === "image") {
+      if (seenImages.has(segment.asset.id)) return [];
+      seenImages.add(segment.asset.id);
+      return [{ ...segment.asset }];
+    }
+    if (segment.type === "annotation") {
+      if (seenAnnotations.has(segment.annotation.id)) return [];
+      seenAnnotations.add(segment.annotation.id);
+      annotationIndex += 1;
+      return [{
+        id: segment.annotation.id,
+        src: segment.annotation.src,
+        title: `注释 ${annotationIndex} · ${segment.annotation.title}`,
+      }];
+    }
+    return [];
+  });
+}
+
 function CanvasAssistantPanel({
   projectId,
   isDark,
@@ -7724,6 +7748,8 @@ function CanvasAssistantPanel({
   const [, navigate] = useLocation();
   const [inputFocused, setInputFocused] = useState(false);
   const [composerSegments, setComposerSegments] = useState<AssistantComposerSegment[]>(() => [createAssistantTextSegment("")]);
+  const [draggingComposerSegmentId, setDraggingComposerSegmentId] = useState<string | null>(null);
+  const [dragOverComposerSegmentId, setDragOverComposerSegmentId] = useState<string | null>(null);
   const composerInputRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const activeComposerSegmentIdRef = useRef<string | null>(null);
   const activeComposerCursorRef = useRef(0);
@@ -7867,6 +7893,51 @@ function CanvasAssistantPanel({
     onRemoveAnnotationReference(annotationId);
     syncedAnnotationIdsRef.current.delete(annotationId);
   }, [onRemoveAnnotationReference]);
+
+  const moveComposerTokenSegment = useCallback((sourceId: string, targetId: string, placement: "before" | "after" = "before") => {
+    if (!sourceId || !targetId || sourceId === targetId) return;
+    setComposerSegments(prev => {
+      const source = prev.find(segment => segment.id === sourceId);
+      const target = prev.find(segment => segment.id === targetId);
+      if (!source || !target || (source.type !== "image" && source.type !== "annotation")) return prev;
+      const withoutSource = prev.filter(segment => segment.id !== sourceId);
+      const targetIndex = withoutSource.findIndex(segment => segment.id === targetId);
+      if (targetIndex < 0) return prev;
+      const insertIndex = placement === "after" ? targetIndex + 1 : targetIndex;
+      return normalizeAssistantComposerSegments([
+        ...withoutSource.slice(0, insertIndex),
+        source,
+        ...withoutSource.slice(insertIndex),
+      ]);
+    });
+  }, []);
+
+  const handleComposerTokenDragStart = useCallback((event: React.DragEvent<HTMLElement>, segmentId: string) => {
+    setDraggingComposerSegmentId(segmentId);
+    setDragOverComposerSegmentId(null);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", segmentId);
+  }, []);
+
+  const handleComposerSegmentDragOver = useCallback((event: React.DragEvent<HTMLElement>, segmentId: string) => {
+    if (!draggingComposerSegmentId || draggingComposerSegmentId === segmentId) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDragOverComposerSegmentId(segmentId);
+  }, [draggingComposerSegmentId]);
+
+  const handleComposerSegmentDrop = useCallback((event: React.DragEvent<HTMLElement>, targetId: string, placement: "before" | "after" = "before") => {
+    event.preventDefault();
+    const sourceId = event.dataTransfer.getData("text/plain") || draggingComposerSegmentId;
+    if (sourceId) moveComposerTokenSegment(sourceId, targetId, placement);
+    setDraggingComposerSegmentId(null);
+    setDragOverComposerSegmentId(null);
+  }, [draggingComposerSegmentId, moveComposerTokenSegment]);
+
+  const handleComposerDragEnd = useCallback(() => {
+    setDraggingComposerSegmentId(null);
+    setDragOverComposerSegmentId(null);
+  }, []);
 
   const handleComposerTextKeyDown = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>, segmentId: string) => {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -8306,6 +8377,7 @@ function CanvasAssistantPanel({
     const submittedText = composerText || rawSubmittedComposerPrompt;
     const submittedImages = composerImages.map(asset => ({ ...asset }));
     const submittedAnnotations = composerAnnotations;
+    const submittedVisualReferences = getAssistantComposerVisualReferences(composerSegments);
     const userMessage = {
       id: `user-${Date.now()}`,
       role: "user" as const,
@@ -8334,10 +8406,7 @@ function CanvasAssistantPanel({
       : hasVisualReferences
         ? `上下文：${context}\n用户按顺序提供了图文混排提示词，请严格理解引用图与其前后描述之间的关系。\n用户请求：${submittedComposerPrompt}`
         : submittedComposerPrompt;
-    const assistantImages: ImageGeneratorReferenceAsset[] = [
-      ...submittedImages,
-      ...submittedAnnotations.map((ann, index) => ({ id: ann.id, src: ann.src, title: `注释 ${index + 1} · ${ann.title}` })),
-    ];
+    const assistantImages: ImageGeneratorReferenceAsset[] = submittedVisualReferences;
     if (activeSkill?.capability === "image_edit" && assistantImages.length === 0) {
       setMessages(prev => [...prev, {
         id: `assistant-skill-reference-required-${Date.now()}`,
@@ -8757,12 +8826,21 @@ function CanvasAssistantPanel({
                     return (
                       <span
                         key={segment.id}
+                        draggable
+                        onDragStart={event => handleComposerTokenDragStart(event, segment.id)}
+                        onDragOver={event => handleComposerSegmentDragOver(event, segment.id)}
+                        onDrop={event => handleComposerSegmentDrop(event, segment.id, "before")}
+                        onDragEnd={handleComposerDragEnd}
                         className="inline-flex max-w-[82px] items-center gap-1 rounded-[var(--radius-md-design)] px-1.5 py-0.5 align-middle"
                         style={{
                           background: isDark ? "rgba(197,237,71,0.16)" : "rgba(197,237,71,0.10)",
-                          border: `1px solid ${isDark ? "rgba(197,237,71,0.36)" : "rgba(138,170,40,0.30)"}`,
+                          border: `1px solid ${dragOverComposerSegmentId === segment.id ? "rgba(197,237,71,0.86)" : isDark ? "rgba(197,237,71,0.36)" : "rgba(138,170,40,0.30)"}`,
                           color: isDark ? "oklch(0.82 0.012 270)" : "oklch(0.28 0.012 270)",
+                          cursor: "grab",
+                          opacity: draggingComposerSegmentId === segment.id ? 0.42 : 1,
+                          boxShadow: dragOverComposerSegmentId === segment.id ? "0 0 0 2px rgba(197,237,71,0.18)" : "none",
                         }}
+                        title="拖拽调整引用顺序"
                       >
                         <img src={segment.asset.src} alt={segment.asset.title} style={{ width: 18, height: 18, borderRadius: 3, objectFit: "cover", flexShrink: 0 }} />
                         <span className="type-caption truncate" style={{ maxWidth: 44, fontSize: 11 }}>{segment.asset.title}</span>
@@ -8784,11 +8862,19 @@ function CanvasAssistantPanel({
                     return (
                       <span
                         key={segment.id}
+                        draggable
+                        onDragStart={event => handleComposerTokenDragStart(event, segment.id)}
+                        onDragOver={event => handleComposerSegmentDragOver(event, segment.id)}
+                        onDrop={event => handleComposerSegmentDrop(event, segment.id, "before")}
+                        onDragEnd={handleComposerDragEnd}
                         className="inline-flex max-w-[92px] items-center gap-1 rounded-[var(--radius-md-design)] px-1.5 py-0.5 align-middle"
                         style={{
                           background: isDark ? "oklch(0.62 0.20 145 / 0.16)" : "oklch(0.62 0.17 145 / 0.10)",
-                          border: `1px solid ${isDark ? "oklch(0.72 0.16 145 / 0.32)" : "oklch(0.48 0.15 145 / 0.26)"}`,
+                          border: `1px solid ${dragOverComposerSegmentId === segment.id ? "oklch(0.72 0.16 145 / 0.78)" : isDark ? "oklch(0.72 0.16 145 / 0.32)" : "oklch(0.48 0.15 145 / 0.26)"}`,
                           color: isDark ? "oklch(0.82 0.012 270)" : "oklch(0.25 0.012 270)",
+                          cursor: "grab",
+                          opacity: draggingComposerSegmentId === segment.id ? 0.42 : 1,
+                          boxShadow: dragOverComposerSegmentId === segment.id ? "0 0 0 2px rgba(52,211,153,0.16)" : "none",
                         }}
                         title={`注释：${segment.annotation.text || segment.annotation.title}`}
                       >
@@ -8829,6 +8915,12 @@ function CanvasAssistantPanel({
                         setComposerTextSegment(segment.id, event.target.value);
                       }}
                       onClick={event => rememberComposerCursor(segment.id, event.currentTarget)}
+                      onDragOver={event => handleComposerSegmentDragOver(event, segment.id)}
+                      onDrop={event => {
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        const placement = event.clientX > rect.left + rect.width / 2 ? "after" : "before";
+                        handleComposerSegmentDrop(event, segment.id, placement);
+                      }}
                       onKeyUp={event => rememberComposerCursor(segment.id, event.currentTarget)}
                       onKeyDown={event => handleComposerTextKeyDown(event, segment.id)}
                       onFocus={() => {
