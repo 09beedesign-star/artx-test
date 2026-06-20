@@ -3,7 +3,7 @@
  * Design: Neo-Studio — wide sidebar with nav groups
  * Sections: 首页 / 灵感选题 / 技能商店 / 工作台
  */
-import { useState } from "react";
+import { useRef, useState, type ChangeEvent } from "react";
 import { useLocation } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
 import {
   Home, Sparkles, Library, FolderOpen,
-  HelpCircle, Send,
+  HelpCircle, ImagePlus, Send, X,
 } from "lucide-react";
 
 
@@ -20,12 +20,22 @@ interface AppShellProps {
   hideSidebar?: boolean;
 }
 
+interface HelpScreenshot {
+  id: string;
+  name: string;
+  url: string;
+}
+
+const MAX_HELP_SCREENSHOTS = 4;
+
 export default function AppShell({ children, hideSidebar = false }: AppShellProps) {
   const [location, navigate] = useLocation();
   const { resolvedTheme } = useTheme();
   const { isAuthenticated } = useAuth();
   const [helpOpen, setHelpOpen] = useState(false);
   const [helpPrompt, setHelpPrompt] = useState("");
+  const [helpScreenshots, setHelpScreenshots] = useState<HelpScreenshot[]>([]);
+  const helpFileInputRef = useRef<HTMLInputElement>(null);
   const isDark = resolvedTheme === "dark";
   const shouldHideSidebar = hideSidebar || !isAuthenticated;
 
@@ -45,14 +55,157 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   };
 
   const closeHelpPrompt = () => {
+    helpScreenshots.forEach(image => URL.revokeObjectURL(image.url));
     setHelpOpen(false);
     setHelpPrompt("");
+    setHelpScreenshots([]);
+    if (helpFileInputRef.current) helpFileInputRef.current.value = "";
   };
 
   const submitHelpPrompt = () => {
-    toast("AI 帮助", { description: helpPrompt.trim() || "有什么问题可以问我，我会尽量帮你解答。" });
+    if (!helpPrompt.trim() && helpScreenshots.length === 0) {
+      toast.error("请先输入问题或上传截图");
+      return;
+    }
+    toast("问题已提交", {
+      description: helpScreenshots.length > 0
+        ? `已附带 ${helpScreenshots.length} 张截图`
+        : helpPrompt.trim().slice(0, 80),
+    });
     closeHelpPrompt();
   };
+
+  const handleHelpScreenshotUpload = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []).filter(file => file.type.startsWith("image/"));
+    if (files.length === 0) return;
+
+    const available = MAX_HELP_SCREENSHOTS - helpScreenshots.length;
+    if (available <= 0) {
+      toast.error("最多只能上传 4 张截图");
+      event.target.value = "";
+      return;
+    }
+
+    if (files.length > available) {
+      toast("已达到上传上限", { description: `本次只添加前 ${available} 张截图` });
+    }
+
+    const nextImages = files.slice(0, available).map(file => ({
+      id: `${file.name}-${file.lastModified}-${crypto.randomUUID?.() || Date.now()}`,
+      name: file.name,
+      url: URL.createObjectURL(file),
+    }));
+
+    setHelpScreenshots(current => [...current, ...nextImages]);
+    event.target.value = "";
+  };
+
+  const removeHelpScreenshot = (id: string) => {
+    setHelpScreenshots(current => {
+      const target = current.find(image => image.id === id);
+      if (target) URL.revokeObjectURL(target.url);
+      return current.filter(image => image.id !== id);
+    });
+  };
+
+  const helpDialog = helpOpen ? (
+    <div
+      className="fixed inset-0 flex items-center justify-center px-6"
+      style={{ zIndex: 10000, background: "rgba(0,0,0,0.20)" }}
+      onMouseDown={e => {
+        if (e.target === e.currentTarget) closeHelpPrompt();
+      }}
+    >
+      <div
+        className="w-[min(560px,calc(100vw-32px))] rounded-[var(--radius-xl-design)] p-4 shadow-2xl"
+        style={{
+          background: isDark ? "rgba(22,22,30,0.98)" : "rgba(255,255,255,0.98)",
+          border: `1px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)"}`,
+          backdropFilter: "blur(18px)",
+        }}
+        onMouseDown={e => e.stopPropagation()}
+      >
+        <textarea
+          autoFocus
+          value={helpPrompt}
+          onChange={e => setHelpPrompt(e.target.value)}
+          placeholder="请描述你碰到的问题，也可以上传截图。"
+          className="w-full resize-none rounded-[var(--radius-lg-design)] border bg-transparent p-3 outline-none leading-6"
+          rows={5}
+          style={{
+            borderColor: isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)",
+            color: textPrimary,
+            fontSize: 15,
+          }}
+        />
+
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          {helpScreenshots.map(image => (
+            <div
+              key={image.id}
+              className="group relative h-16 w-16 overflow-hidden rounded-[var(--radius-md-design)] border"
+              style={{ borderColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)" }}
+            >
+              <img src={image.url} alt={image.name} className="h-full w-full object-cover" />
+              <button
+                type="button"
+                onClick={() => removeHelpScreenshot(image.id)}
+                className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-[var(--radius-sm-design)] bg-black/70 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                aria-label="移除截图"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          ))}
+
+          {helpScreenshots.length < MAX_HELP_SCREENSHOTS && (
+            <button
+              type="button"
+              onClick={() => helpFileInputRef.current?.click()}
+              className="flex h-16 w-16 flex-col items-center justify-center gap-1 rounded-[var(--radius-md-design)] border border-dashed transition-opacity hover:opacity-80"
+              style={{
+                borderColor: isDark ? "rgba(255,255,255,0.16)" : "rgba(0,0,0,0.16)",
+                color: textSecondary,
+                background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.035)",
+              }}
+            >
+              <ImagePlus size={17} />
+              <span style={{ fontSize: 10 }}>{helpScreenshots.length}/{MAX_HELP_SCREENSHOTS}</span>
+            </button>
+          )}
+          <input ref={helpFileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleHelpScreenshotUpload} />
+        </div>
+
+        <div className="mt-4 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={closeHelpPrompt}
+            className="h-9 min-w-[88px] rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-80"
+            style={{
+              background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)",
+              border: `1px solid ${isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)"}`,
+              color: textPrimary,
+            }}
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={submitHelpPrompt}
+            className="h-9 min-w-[96px] inline-flex items-center justify-center gap-1.5 rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-90"
+            style={{
+              background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
+              color: "white",
+              boxShadow: "0 8px 22px oklch(0.58 0.22 290 / 0.24)",
+            }}
+          >
+            <Send size={13} />
+            提交
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
 
   if (shouldHideSidebar) {
     return (
@@ -72,62 +225,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
           </button>
         )}
         {children}
-        {helpOpen && (
-          <div
-            className="fixed inset-0 flex items-center justify-center px-6"
-            style={{ zIndex: 10000, background: "rgba(0,0,0,0.20)" }}
-            onMouseDown={e => {
-              if (e.target === e.currentTarget) closeHelpPrompt();
-            }}
-          >
-            <div
-              className="w-[min(520px,calc(100vw-32px))] rounded-[var(--radius-xl-design)] p-4 shadow-2xl"
-              style={{
-                background: isDark ? "rgba(22,22,30,0.98)" : "rgba(255,255,255,0.98)",
-                border: `1px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)"}`,
-                backdropFilter: "blur(18px)",
-              }}
-              onMouseDown={e => e.stopPropagation()}
-            >
-              <textarea
-                autoFocus
-                value={helpPrompt}
-                onChange={e => setHelpPrompt(e.target.value)}
-                placeholder="有什么问题可以问我，我会尽量帮你解答。"
-                className="w-full resize-none bg-transparent outline-none leading-6"
-                rows={5}
-                style={{ color: textPrimary, fontSize: 15 }}
-              />
-              <div className="mt-4 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={closeHelpPrompt}
-                  className="h-9 min-w-[88px] rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-80"
-                  style={{
-                    background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)",
-                    border: `1px solid ${isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)"}`,
-                    color: textPrimary,
-                  }}
-                >
-                  取消
-                </button>
-                <button
-                  type="button"
-                  onClick={submitHelpPrompt}
-                  className="h-9 min-w-[96px] inline-flex items-center justify-center gap-1.5 rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-90"
-                  style={{
-                    background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
-                    color: "white",
-                    boxShadow: "0 8px 22px oklch(0.58 0.22 290 / 0.24)",
-                  }}
-                >
-                  <Send size={13} />
-                  提交
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        {helpDialog}
       </>
     );
   }
@@ -217,62 +315,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
       <main className="flex-1 overflow-hidden">
         {children}
       </main>
-      {helpOpen && (
-        <div
-          className="fixed inset-0 flex items-center justify-center px-6"
-          style={{ zIndex: 10000, background: "rgba(0,0,0,0.20)" }}
-          onMouseDown={e => {
-            if (e.target === e.currentTarget) closeHelpPrompt();
-          }}
-        >
-          <div
-            className="w-[min(520px,calc(100vw-32px))] rounded-[var(--radius-xl-design)] p-4 shadow-2xl"
-            style={{
-              background: isDark ? "rgba(22,22,30,0.98)" : "rgba(255,255,255,0.98)",
-              border: `1px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)"}`,
-              backdropFilter: "blur(18px)",
-            }}
-            onMouseDown={e => e.stopPropagation()}
-          >
-            <textarea
-              autoFocus
-              value={helpPrompt}
-              onChange={e => setHelpPrompt(e.target.value)}
-              placeholder="有什么问题可以问我，我会尽量帮你解答。"
-              className="w-full resize-none bg-transparent outline-none leading-6"
-              rows={5}
-              style={{ color: textPrimary, fontSize: 15 }}
-            />
-            <div className="mt-4 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={closeHelpPrompt}
-                className="h-9 min-w-[88px] rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-80"
-                style={{
-                  background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)",
-                  border: `1px solid ${isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)"}`,
-                  color: textPrimary,
-                }}
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={submitHelpPrompt}
-                className="h-9 min-w-[96px] inline-flex items-center justify-center gap-1.5 rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-90"
-                style={{
-                  background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
-                  color: "white",
-                  boxShadow: "0 8px 22px oklch(0.58 0.22 290 / 0.24)",
-                }}
-              >
-                <Send size={13} />
-                提交
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {helpDialog}
     </div>
   );
 }

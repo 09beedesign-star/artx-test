@@ -15,7 +15,6 @@ import {
 import {
   Boxes,
   CheckCircle2,
-  Download,
   Filter,
   GitFork,
   Loader2,
@@ -386,21 +385,6 @@ export default function SkillsPage() {
                       </span>
                     ))}
                   </div>
-
-                  {skill.canvasSizes && (
-                    <div className="mt-3 flex flex-wrap gap-1.5">
-                      {skill.canvasSizes.slice(0, 5).map((size) => (
-                        <span
-                          key={size}
-                          className="inline-flex items-center gap-1 rounded-[var(--radius-sm-design)] px-2 py-1 text-xs"
-                          style={{ color: "white", background: skillButtonPurple }}
-                        >
-                          <Download size={11} />
-                          {size}
-                        </span>
-                      ))}
-                    </div>
-                  )}
 
                   <div className="mt-auto pt-3">
                     <div className="mb-3 flex items-center justify-between gap-2">

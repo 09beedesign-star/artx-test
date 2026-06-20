@@ -6,7 +6,8 @@ import { useLocation } from "wouter";
 import TopBar from "@/components/workspace/TopBar";
 import promptCsv from "@/data/ai_image_prompt_rank_50.csv?raw";
 import { useTheme } from "@/contexts/ThemeContext";
-import { ImageIcon, Layers, Sparkles, Tags, X } from "lucide-react";
+import { Copy, ImageIcon, Layers, Sparkles, Tags, X } from "lucide-react";
+import { toast } from "sonner";
 import { BG_GLOW } from "@/lib/workspace-data";
 
 type PromptItem = {
@@ -147,6 +148,15 @@ export default function InspirationPage() {
     navigate(`/inspiration${suffix ? `?${suffix}` : ""}`);
   };
 
+  const copyPrompt = async (prompt: string) => {
+    try {
+      await navigator.clipboard.writeText(prompt);
+      toast("提示词已复制");
+    } catch {
+      toast("复制失败", { description: "请手动复制提示词内容" });
+    }
+  };
+
   return (
     <div className="flex h-screen flex-col overflow-hidden" style={{ background: bg, position: "relative", transition: "background 0.25s ease" }}>
       {isDark && (
@@ -268,9 +278,6 @@ export default function InspirationPage() {
                     <span className="shrink-0 rounded-[var(--radius-pill)] px-2.5 py-1 type-caption whitespace-nowrap" style={{ background: "oklch(0 0 0 / 0.48)", color: "white", backdropFilter: "blur(10px)", letterSpacing: 0, textTransform: "none" }}>
                       #{item.rank}
                     </span>
-                    <span className="min-w-0 truncate whitespace-nowrap rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: "oklch(0 0 0 / 0.48)", color: "white", backdropFilter: "blur(10px)", letterSpacing: 0, textTransform: "none" }}>
-                      {item.model}
-                    </span>
                   </div>
                 </div>
 
@@ -322,23 +329,31 @@ export default function InspirationPage() {
             style={{ maxWidth: 980, background: cardBg, border: `1px solid ${border}`, boxShadow: "0 24px 80px oklch(0 0 0 / 0.34)" }}
             onClick={(event) => event.stopPropagation()}
           >
-            <button
-              onClick={() => setSelectedItem(null)}
-              className="absolute right-3 top-3 z-10 shrink-0 rounded-[var(--radius-pill)] p-2 transition-all hover:scale-105 active:scale-95"
-              style={{ background: isDark ? "oklch(0 0 0 / 0.46)" : "oklch(1 0 0 / 0.88)", border: `1px solid ${border}`, color: text, backdropFilter: "blur(12px)" }}
-              aria-label="关闭弹层"
-            >
-              <X size={16} />
-            </button>
+            <div className="absolute right-3 top-3 z-10 flex items-center" style={{ gap: 16 }}>
+              <button
+                onClick={() => copyPrompt(selectedItem.prompt)}
+                className="shrink-0 rounded-[var(--radius-pill)] p-2 transition-all hover:scale-105 active:scale-95"
+                style={{ background: isDark ? "oklch(0 0 0 / 0.46)" : "oklch(1 0 0 / 0.88)", border: `1px solid ${border}`, color: text, backdropFilter: "blur(12px)" }}
+                aria-label="复制提示词"
+                title="复制提示词"
+              >
+                <Copy size={16} />
+              </button>
+              <button
+                onClick={() => setSelectedItem(null)}
+                className="shrink-0 rounded-[var(--radius-pill)] p-2 transition-all hover:scale-105 active:scale-95"
+                style={{ background: isDark ? "oklch(0 0 0 / 0.46)" : "oklch(1 0 0 / 0.88)", border: `1px solid ${border}`, color: text, backdropFilter: "blur(12px)" }}
+                aria-label="关闭弹层"
+              >
+                <X size={16} />
+              </button>
+            </div>
 
             <div className="p-4 pr-14" style={{ borderBottom: `1px solid ${border}` }}>
               <div className="min-w-0">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                   <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: activeBg, color: "oklch(0.80 0.17 290)", letterSpacing: 0, textTransform: "none" }}>
                     {selectedItem.field}
-                  </span>
-                  <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: isDark ? "oklch(1 0 0 / 7%)" : "oklch(0 0 0 / 5%)", color: sub, letterSpacing: 0, textTransform: "none" }}>
-                    {selectedItem.model}
                   </span>
                 </div>
                 <h2 className="type-body-sm leading-6" style={{ color: text, fontWeight: 760 }}>{selectedItem.title}</h2>
