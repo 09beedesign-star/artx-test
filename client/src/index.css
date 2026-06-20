@@ -680,14 +680,14 @@ html.light, .light {
   border-radius: 6px;
 }
 
-/* ── ArtX centered status toast ─────────────────────────────── */
+/* ── ArtX bottom-centered status toast ──────────────────────── */
 [data-sonner-toaster].toaster {
   left: 50% !important;
   right: auto !important;
-  top: 50% !important;
-  bottom: auto !important;
+  top: auto !important;
+  bottom: 32px !important;
   width: 260px !important;
-  transform: translate(-50%, -50%) !important;
+  transform: translateX(-50%) !important;
 }
 
 [data-sonner-toaster].toaster [data-sonner-toast][data-styled="true"] {
@@ -780,8 +780,10 @@ html.light, .light {
   [data-sonner-toaster].toaster {
     left: 50% !important;
     right: auto !important;
+    top: auto !important;
+    bottom: 32px !important;
     width: 260px !important;
-    transform: translate(-50%, -50%) !important;
+    transform: translateX(-50%) !important;
   }
 
   [data-sonner-toaster].toaster [data-sonner-toast] {
