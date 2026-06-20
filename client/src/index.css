@@ -669,3 +669,8 @@ html.light, .light {
 .react-flow__minimap svg {
   border-radius: 6px;
 }
+
+.react-flow__node-canvasFrame {
+  background: transparent !important;
+  border-radius: 8px;
+}

@@ -5456,7 +5456,7 @@ function normalizeCanvasFrameNode(node: Node): Node {
   const translucentBg = withCanvasFrameAlpha(rawBg);
   return {
     ...node,
-    style: { ...node.style, background: translucentBg },
+    style: { ...node.style, background: "transparent" },
     data: {
       ...data,
       bgColor: translucentBg,
@@ -11158,7 +11158,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         id,
         type: "canvasFrame",
         position: flowPos,
-        style: { width: w, height: h, background: bgColor },
+        style: { width: w, height: h, background: "transparent" },
         data: { id, title, width: w, height: h, bgColor, originalBgColor, socialPresetId: selectedSocialPreset?.id },
       }];
     });
