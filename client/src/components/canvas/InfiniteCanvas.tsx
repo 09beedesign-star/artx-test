@@ -2624,6 +2624,188 @@ function AnnotationBubble({
   );
 }
 
+function AssetInlineNote({
+  text,
+  open,
+  editing,
+  isDark,
+  onUpdate,
+}: {
+  text: string;
+  open: boolean;
+  editing: boolean;
+  isDark: boolean;
+  onUpdate: (patch: Record<string, unknown>) => void;
+}) {
+  const [draft, setDraft] = useState(text);
+
+  useEffect(() => {
+    if (editing || open) setDraft(text);
+  }, [editing, open, text]);
+
+  if (!open) return null;
+
+  const bubbleBg = isDark ? "rgba(18,18,28,0.96)" : "rgba(255,255,255,0.98)";
+  const bubbleBorder = isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.12)";
+  const textColor = isDark ? "rgba(255,255,255,0.86)" : "rgba(24,24,36,0.86)";
+  const subColor = isDark ? "rgba(255,255,255,0.48)" : "rgba(24,24,36,0.48)";
+  const iconBtnHover = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+  const accentColor = "oklch(0.62 0.22 290)";
+
+  const removeNote = () => onUpdate({ note: "", noteOpen: false, noteEditing: false });
+  const closeLikeAnnotation = () => {
+    const nextText = (editing ? draft : text).trim();
+    if (nextText) {
+      onUpdate({ note: nextText, noteOpen: false, noteEditing: false });
+    } else {
+      removeNote();
+    }
+  };
+  const cancelEdit = () => {
+    if (text.trim()) {
+      setDraft(text);
+      onUpdate({ noteEditing: false });
+    } else {
+      removeNote();
+    }
+  };
+  const saveNote = () => {
+    const nextText = draft.trim();
+    if (!nextText) {
+      removeNote();
+      return;
+    }
+    onUpdate({ note: nextText, noteOpen: true, noteEditing: false });
+  };
+
+  return (
+    <div
+      className="absolute nodrag nopan"
+      style={{
+        top: "calc(100% + 10px)",
+        left: "50%",
+        width: "min(320px, max(220px, 100%))",
+        transform: "translateX(-50%)",
+        zIndex: 120,
+        color: textColor,
+      }}
+      onMouseDown={event => event.stopPropagation()}
+      onClick={event => event.stopPropagation()}
+      onContextMenu={event => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+    >
+      <div
+        style={{
+          background: bubbleBg,
+          border: `1px solid ${bubbleBorder}`,
+          borderRadius: 10,
+          boxShadow: "0 10px 30px rgba(0,0,0,0.22)",
+          backdropFilter: "blur(16px)",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "6px 6px 6px 10px",
+            borderBottom: `1px solid ${bubbleBorder}`,
+          }}
+        >
+          <span style={{ fontSize: 10, color: subColor, letterSpacing: "0.03em" }}>文本备注</span>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button
+              title={text.trim() || draft.trim() ? "折叠备注" : "撤销备注"}
+              style={{ width: 22, height: 22, borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center", color: subColor, background: "transparent", border: "none", cursor: "pointer" }}
+              onClick={closeLikeAnnotation}
+              onMouseEnter={e => (e.currentTarget.style.background = iconBtnHover)}
+              onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+            >
+              <X size={12} />
+            </button>
+            <button
+              title="完成并删除备注"
+              style={{
+                width: 34,
+                height: 22,
+                borderRadius: 5,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: subColor,
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                fontSize: 10,
+                fontWeight: 600,
+              }}
+              onClick={removeNote}
+              onMouseEnter={e => (e.currentTarget.style.background = iconBtnHover)}
+              onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+            >
+              Done
+            </button>
+          </div>
+        </div>
+
+        {editing ? (
+          <div style={{ padding: "8px 10px 10px" }}>
+            <textarea
+              value={draft}
+              onChange={event => setDraft(event.target.value)}
+              placeholder="输入图片备注..."
+              rows={3}
+              autoFocus
+              style={{
+                width: "100%",
+                background: "transparent",
+                border: "none",
+                outline: "none",
+                resize: "none",
+                fontSize: 12,
+                lineHeight: 1.6,
+                color: textColor,
+                fontFamily: "inherit",
+              }}
+              onKeyDown={event => {
+                if (event.key === "Escape") cancelEdit();
+                if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) saveNote();
+              }}
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginTop: 6 }}>
+              <button
+                style={{ fontSize: 11, padding: "4px 12px", borderRadius: 5, background: "transparent", border: `1px solid ${bubbleBorder}`, color: subColor, cursor: "pointer" }}
+                onClick={cancelEdit}
+              >
+                取消
+              </button>
+              <button
+                style={{ fontSize: 11, padding: "4px 12px", borderRadius: 5, background: accentColor, border: "none", color: "white", cursor: "pointer" }}
+                onClick={saveNote}
+              >
+                备注
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div
+            style={{ padding: "9px 10px 10px", fontSize: 12, lineHeight: 1.6, color: textColor, minHeight: 34, cursor: "text", whiteSpace: "pre-wrap" }}
+            onClick={() => {
+              setDraft(text);
+              onUpdate({ noteEditing: true });
+            }}
+          >
+            {text || <span style={{ color: subColor, fontStyle: "italic" }}>点击编辑备注...</span>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>; selected: boolean }) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
@@ -2685,6 +2867,9 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const extractedText = ((data as { extractedText?: string }).extractedText || "") as string;
   const extractedTextPanelOpen = Boolean((data as { extractedTextPanelOpen?: boolean }).extractedTextPanelOpen);
   const isApplyingExtractedText = Boolean((data as { isApplyingExtractedText?: boolean }).isApplyingExtractedText);
+  const noteText = ((data as { note?: string }).note || "") as string;
+  const noteOpen = Boolean((data as { noteOpen?: boolean }).noteOpen);
+  const noteEditing = Boolean((data as { noteEditing?: boolean }).noteEditing);
   const [eraseBrushSize, setEraseBrushSize] = useState<number>(Number((data as { eraseBrushSize?: number }).eraseBrushSize) || 42);
   const eraseCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const eraseMaskCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -3192,6 +3377,14 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     ));
   }, [nodeId, setFlowNodes]);
 
+  const updateInlineNote = useCallback((patch: Record<string, unknown>) => {
+    setFlowNodes(nds => nds.map(n =>
+      n.id === nodeId && n.type === "asset"
+        ? { ...n, data: { ...(n.data as Record<string, unknown>), ...patch } }
+        : n
+    ));
+  }, [nodeId, setFlowNodes]);
+
   const applyExtractedTextToNewImage = useCallback(async () => {
     const nextText = extractedTextDraft.trim();
     if (!nextText) {
@@ -3685,6 +3878,13 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
             </div>
           </div>
         )}
+        <AssetInlineNote
+          text={noteText}
+          open={noteOpen}
+          editing={noteEditing}
+          isDark={isDark}
+          onUpdate={updateInlineNote}
+        />
         {/* 四角缩放锚点：固定 6px 圆环 */}
         {selected && (
           <>
@@ -6439,10 +6639,11 @@ function LassoEraser({ isDark, onCut }: { isDark: boolean; onCut: (rect: LassoRe
 
 // ── Asset Edit Prompt Bar (in-canvas, no overlay) ──────────────────────────────────────────────
 function AssetEditPromptBar({
-  asset, isDark, onClose, onSubmit,
+  asset, isDark, canvasRightInset, onClose, onSubmit,
 }: {
   asset: { id: string; title: string; src: string };
   isDark: boolean;
+  canvasRightInset: number;
   onClose: () => void;
   onSubmit: (payload: { prompt: string; model: string; references: Array<{ id: string; title: string; src: string }> }) => void;
 }) {
@@ -6516,8 +6717,11 @@ function AssetEditPromptBar({
       style={{
         position: "absolute",
         bottom: 16,
-        left: "50%",
-        width: "min(680px, calc(100% - 420px))",
+        left: 24,
+        right: Math.max(136, canvasRightInset) + 24,
+        width: "min(680px, 100%)",
+        marginLeft: "auto",
+        marginRight: "auto",
         zIndex: 200,
         background: isDark ? "rgba(18,18,28,0.97)" : "rgba(255,255,255,0.97)",
         backdropFilter: "blur(24px)",
@@ -6525,10 +6729,10 @@ function AssetEditPromptBar({
         boxShadow: `0 0 0 3px oklch(0.62 0.22 290 / 0.12), 0 12px 48px rgba(0,0,0,0.28)`,
         borderRadius: "var(--radius-md-design)",
         overflow: "hidden",
-        // Slide-up entrance, always centered horizontally
+        // Slide-up entrance, centered inside the visible canvas area only.
         transform: visible
-          ? "translateX(-50%) translateY(0)"
-          : "translateX(-50%) translateY(20px)",
+          ? "translateY(0)"
+          : "translateY(20px)",
         opacity: visible ? 1 : 0,
         transition: "transform 0.35s cubic-bezier(0.23,1,0.32,1), opacity 0.30s ease",
       }}
@@ -10758,9 +10962,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       pushHistory();
       setNodes(nds => nds.map(n => actionIds.includes(n.id) ? {
         ...n,
-        data: { ...(n.data as Record<string, unknown>), note: "双击图片或使用编辑素材继续描述备注" }
+        data: { ...(n.data as Record<string, unknown>), note: ((n.data as Record<string, unknown>).note as string) || "", noteOpen: true, noteEditing: true }
       } : n));
-      toast("已添加文本备注", { description: "备注已附加到当前图片素材" });
+      toast("已打开文本备注", { description: "备注框已显示在图片节点下方" });
     } else if (action === "edit-asset") {
       const node = getLatestAssetNode(nodeId) || nodes.find(n => n.id === nodeId);
       if (node && node.type === "asset") {
@@ -13700,6 +13904,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         <AssetEditPromptBar
           asset={editAsset}
           isDark={isDark}
+          canvasRightInset={isAssistantCollapsed ? 112 : assistantPanelWidth}
           onSubmit={(payload) => { void handleAssetEditSubmit(payload); }}
           onClose={() => {
             setEditAsset(null);
