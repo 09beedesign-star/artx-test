@@ -103,9 +103,6 @@ importers:
       '@xyflow/react':
         specifier: ^12.10.2
         version: 12.10.2(@types/react@19.2.1)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)
-      ag-psd:
-        specifier: ^30.1.1
-        version: 30.1.1
       axios:
         specifier: ^1.12.0
         version: 1.12.2
@@ -2014,9 +2011,6 @@ packages:
   add@2.0.6:
     resolution: {integrity: sha512-j5QzrmsokwWWp6kUcJQySpbG+xfOBqqKnup3OIk1pz+kB/80SLorZ9V8zHFLO92Lcd+hbvq8bT+zOGoPkmBV0Q==}
 
-  ag-psd@30.1.1:
-    resolution: {integrity: sha512-0GbWYR4Rvm1QnWCYeMiVbUJBXnSyTUKvNUK2tIIVDt/wrUVUL9pHTsnwqOTonEC2RRh5I/aUcGydc1LNgXfJWA==}
-
   aria-hidden@1.2.6:
     resolution: {integrity: sha512-ik3ZgC9dY/lYVVM++OISsaYDeg1tb0VtP5uL3ouh1koGOaUMDPpbFIei4JkFimWUFPn90sbMNMXQAIVOlnYKJA==}
     engines: {node: '>=10'}
@@ -3316,9 +3310,6 @@ packages:
 
   pako@1.0.11:
     resolution: {integrity: sha512-4hLB8Py4zZce5s4yd9XzopqwVv/yGNhV1Bl8NTmCq1763HeK2+EwVTv+leGeL13Dnh2wfbqowVPXCIO0z4taYw==}
-
-  pako@2.1.0:
-    resolution: {integrity: sha512-w+eufiZ1WuJYgPXbV/PO3NCMEc3xqylkKHzp8bxp1uW4qaSNQUkwmLLEc3kKsfz8lpV1F8Ht3U1Cm+9Srog2ug==}
 
   parse-entities@4.0.2:
     resolution: {integrity: sha512-GG2AQYWoLgL877gQIKeRPGO1xF9+eG1ujIb5soS5gPvLQ1y2o8FL90w2QWNdf9I361Mpp7726c+lj3U0qK1uGw==}
@@ -5778,11 +5769,6 @@ snapshots:
 
   add@2.0.6: {}
 
-  ag-psd@30.1.1:
-    dependencies:
-      base64-js: 1.5.1
-      pako: 2.1.0
-
   aria-hidden@1.2.6:
     dependencies:
       tslib: 2.8.1
@@ -7381,8 +7367,6 @@ snapshots:
   package-manager-detector@1.5.0: {}
 
   pako@1.0.11: {}
-
-  pako@2.1.0: {}
 
   parse-entities@4.0.2:
     dependencies:
