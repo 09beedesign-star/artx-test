@@ -7604,6 +7604,10 @@ function createAssistantTextSegment(text = ""): AssistantComposerSegment {
   return { id: `seg-text-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, type: "text", text };
 }
 
+function isAssistantTokenSegment(segment: AssistantComposerSegment) {
+  return segment.type === "image" || segment.type === "annotation";
+}
+
 function createAssistantImageSegment(asset: ImageGeneratorReferenceAsset): AssistantComposerSegment {
   return { id: `seg-image-${asset.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, type: "image", asset };
 }
@@ -7617,12 +7621,16 @@ function normalizeAssistantComposerSegments(segments: AssistantComposerSegment[]
   segments.forEach(segment => {
     if (segment.type === "text") {
       const previous = normalized[normalized.length - 1];
-      if (previous?.type === "text") {
+      if (previous?.type === "text" && (previous.text.length > 0 || segment.text.length > 0)) {
         normalized[normalized.length - 1] = { ...previous, text: previous.text + segment.text };
       } else {
         normalized.push({ ...segment });
       }
       return;
+    }
+    const previous = normalized[normalized.length - 1];
+    if (previous && isAssistantTokenSegment(previous)) {
+      normalized.push(createAssistantTextSegment(""));
     }
     normalized.push(segment);
   });
@@ -8900,7 +8908,7 @@ function CanvasAssistantPanel({
                     ? Math.min(260, Math.max(16, segment.text.length * 12))
                     : composerSegments.length === 1
                       ? 220
-                      : 12;
+                      : 28;
                   return (
                     <textarea
                       key={segment.id}
@@ -8937,7 +8945,7 @@ function CanvasAssistantPanel({
                         : ""}
                       cols={1}
                       rows={1}
-                      className="min-w-0 shrink-0 whitespace-pre-wrap break-words border-0 bg-transparent p-0 outline-none resize-none disabled:cursor-not-allowed"
+                      className="min-w-0 shrink-0 whitespace-pre-wrap break-words border-0 bg-transparent px-1 py-0 outline-none resize-none disabled:cursor-not-allowed"
                       style={{
                         color: text,
                         opacity: 1,
