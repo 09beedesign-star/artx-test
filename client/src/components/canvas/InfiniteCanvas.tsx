@@ -7018,8 +7018,8 @@ function ImageGeneratorPopover({ isDark, projectId, onClose }: { isDark: boolean
     >
       <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: `1px solid ${border}` }}>
         <div className="flex items-center gap-2">
-          <span className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-md-design)]" style={{ background: "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.72 0.18 205))", color: "white" }}>
-            <WandSparkles size={16} />
+          <span className="flex h-8 w-8 items-center justify-center" style={{ color: "oklch(0.72 0.18 205)" }}>
+            <WandSparkles size={25} strokeWidth={1.85} />
           </span>
           <div>
             <p className="type-caption" style={{ color: text }}>图像生成器</p>
@@ -7172,13 +7172,24 @@ function ImageGeneratorPopover({ isDark, projectId, onClose }: { isDark: boolean
             disabled={!canGenerate}
             className="flex h-10 items-center gap-2 rounded-[var(--radius-lg-design)] px-4 transition-all hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed"
             style={{
-              background: canGenerate ? "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.72 0.18 205))" : hoverBg,
-              color: canGenerate ? "white" : sub,
-              boxShadow: canGenerate ? "0 12px 28px oklch(0.62 0.22 260 / 0.22)" : "none",
+              background: canGenerate ? "#C5ED47" : hoverBg,
+              color: canGenerate ? "#000" : sub,
+              boxShadow: canGenerate ? "0 12px 30px rgba(197,237,71,0.24)" : "none",
             }}
             onClick={handleGenerate}
           >
-            {isGenerating ? <RefreshCw size={15} className="animate-spin" /> : <Sparkles size={15} />}
+            {isGenerating ? (
+              <RefreshCw size={15} className="animate-spin" />
+            ) : (
+              <img
+                src={generationMark}
+                alt=""
+                aria-hidden="true"
+                draggable={false}
+                className="h-4 w-4 object-contain"
+                style={{ filter: "brightness(0)" }}
+              />
+            )}
             <span className="type-caption">{isGenerating ? "生成中" : "生成图像"}</span>
           </button>
         </div>
@@ -7677,6 +7688,8 @@ function CanvasAssistantPanel({
   projectId,
   isDark,
   collapsed,
+  panelWidth,
+  onPanelResize,
   activeSkill,
   onActiveSkillChange,
   isAuthenticated,
@@ -7693,6 +7706,8 @@ function CanvasAssistantPanel({
   projectId: string;
   isDark: boolean;
   collapsed: boolean;
+  panelWidth: number;
+  onPanelResize: (width: number) => void;
   activeSkill: PendingSkillLoad | null;
   onActiveSkillChange: (skill: PendingSkillLoad | null) => void;
   isAuthenticated: boolean;
@@ -7757,8 +7772,36 @@ function CanvasAssistantPanel({
   const hoverBg = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 5%)";
   const activeGlow = "0 0 0 3px rgba(197,237,71,0.14), 0 18px 44px rgba(0,0,0,0.24)";
   const inputShadow = "0 16px 42px rgba(210,214,224,0.10), 0 0 0 1px rgba(210,214,224,0.10)";
-  const panelWidth = "clamp(280px, 32vw, 372px)";
   const collapsedPeekWidth = 112;
+  const [splitterActive, setSplitterActive] = useState(false);
+  const [splitterHover, setSplitterHover] = useState(false);
+  const handleSplitterPointerDown = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    if (collapsed) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setSplitterActive(true);
+    const startX = event.clientX;
+    const startWidth = panelWidth;
+    const getBounds = () => {
+      const viewportWidth = typeof window === "undefined" ? 1280 : window.innerWidth;
+      return {
+        min: 280,
+        max: Math.max(320, Math.min(560, viewportWidth - 360)),
+      };
+    };
+    const handleMove = (moveEvent: PointerEvent) => {
+      const bounds = getBounds();
+      const nextWidth = Math.max(bounds.min, Math.min(bounds.max, startWidth + startX - moveEvent.clientX));
+      onPanelResize(Math.round(nextWidth));
+    };
+    const handleUp = () => {
+      setSplitterActive(false);
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+    };
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp, { once: true });
+  }, [collapsed, onPanelResize, panelWidth]);
   const handleCreateCanvasProject = () => {
     const project = createWorkspaceHistoryProject();
     toast("已新建画布", { description: project.title });
@@ -8443,6 +8486,46 @@ function CanvasAssistantPanel({
         boxShadow: collapsed ? "none" : isDark ? "-12px 0 40px rgba(0,0,0,0.18)" : "-12px 0 36px rgba(30,35,55,0.08)",
       }}
     >
+      {!collapsed && (
+        <button
+          type="button"
+          aria-label="拖拽调整对话区宽度"
+          title="拖拽调整对话区宽度"
+          className="absolute inset-y-0 left-0 nodrag nopan cursor-ew-resize"
+          style={{
+            width: 14,
+            transform: "translateX(-7px)",
+            zIndex: 2,
+            background: "transparent",
+            border: 0,
+            padding: 0,
+          }}
+          onPointerDown={handleSplitterPointerDown}
+          onPointerEnter={() => setSplitterHover(true)}
+          onPointerLeave={() => setSplitterHover(false)}
+        >
+          <span
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              insetBlock: 0,
+              left: "50%",
+              width: splitterActive ? 4 : splitterHover ? 3 : 1,
+              transform: "translateX(-50%)",
+              borderRadius: 999,
+              background: (splitterHover || splitterActive)
+                ? "oklch(0.62 0.22 290)"
+                : border,
+              boxShadow: (splitterHover || splitterActive)
+                ? "0 0 0 1px rgba(144,88,252,0.18), 0 0 18px rgba(144,88,252,0.64)"
+                : "none",
+              transition: splitterActive
+                ? "none"
+                : "width 160ms ease, background 160ms ease, box-shadow 160ms ease",
+            }}
+          />
+        </button>
+      )}
       <div
         className="h-14 flex items-center px-4"
         style={{ gap: 12, justifyContent: collapsed ? "flex-start" : "flex-end" }}
@@ -9075,6 +9158,22 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const pasteEventSeenAtRef = useRef(0);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [isAssistantCollapsed, setIsAssistantCollapsed] = useState(false);
+  const [assistantPanelWidth, setAssistantPanelWidth] = useState(() => {
+    if (typeof window === "undefined") return 372;
+    return Math.max(280, Math.min(372, Math.round(window.innerWidth * 0.32)));
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleResize = () => {
+      setAssistantPanelWidth(width => {
+        const maxWidth = Math.max(320, Math.min(560, window.innerWidth - 360));
+        return Math.max(280, Math.min(maxWidth, width));
+      });
+    };
+    window.addEventListener("resize", handleResize);
+    handleResize();
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
   const [helpPromptNonce, setHelpPromptNonce] = useState(0);
   const [activeSkill, setActiveSkill] = useState<PendingSkillLoad | null>(null);
   const [imageGeneratorModalOpen, setImageGeneratorModalOpen] = useState(false);
@@ -13124,7 +13223,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         defaultEdgeOptions={{ type: "tapnow" }}
         connectionLineStyle={{ stroke: "rgba(255,255,255,0.5)", strokeWidth: 2.5 }}
         connectionLineType={"bezier" as any}
-        style={{ background: canvasBg, width: isAssistantCollapsed ? "calc(100% - 112px)" : "calc(100% - clamp(280px, 32vw, 372px))" }}
+        style={{ background: canvasBg, width: isAssistantCollapsed ? "calc(100% - 112px)" : `calc(100% - ${assistantPanelWidth}px)`, transition: "width 160ms ease" }}
         proOptions={{ hideAttribution: true }}
         selectionOnDrag
         selectionMode={SelectionMode.Partial}
@@ -13242,6 +13341,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         projectId={projectId}
         isDark={isDark}
         collapsed={isAssistantCollapsed}
+        panelWidth={assistantPanelWidth}
+        onPanelResize={setAssistantPanelWidth}
         activeSkill={activeSkill}
         onActiveSkillChange={setActiveSkill}
         isAuthenticated={isAuthenticated}
