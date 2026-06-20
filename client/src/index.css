@@ -575,6 +575,25 @@ html.light, .light {
     }
   }
 
+  @keyframes artxArtboardEmbedFlash {
+    0% {
+      opacity: 0;
+      transform: scaleX(0.22);
+    }
+    18% {
+      opacity: 1;
+      transform: scaleX(1);
+    }
+    62% {
+      opacity: 0.9;
+      transform: scaleX(1);
+    }
+    100% {
+      opacity: 0;
+      transform: scaleX(1);
+    }
+  }
+
   /* Gradient border spin for loading */
   @keyframes spin-gradient {
     from { transform: rotate(0deg); }
