@@ -5902,19 +5902,20 @@ function BottomPromptBar({
           {isSending ? (
             <RefreshCw size={13} color={hasContent ? "#000" : "white"} className="animate-spin" />
           ) : (
-            <span
+            <img
+              src={generationMark}
+              alt=""
               aria-hidden="true"
-              className="select-none"
+              draggable={false}
               style={{
-                color: hasContent ? "#000" : (isDark ? "oklch(0.40 0.01 270)" : "oklch(0.65 0.01 270)"),
-                fontSize: 15,
-                fontWeight: 900,
-                lineHeight: 1,
-                letterSpacing: 0,
+                width: 16,
+                height: 16,
+                display: "block",
+                objectFit: "contain",
+                filter: hasContent ? "brightness(0)" : (isDark ? "brightness(0) invert(0.42)" : "brightness(0) opacity(0.50)"),
+                opacity: hasContent ? 1 : 0.78,
               }}
-            >
-              A
-            </span>
+            />
           )}
         </button>
       </div>
@@ -8851,18 +8852,20 @@ function CanvasAssistantPanel({
                     {isSubmitting ? (
                       <RefreshCw size={16} className="animate-spin" />
                     ) : (
-                      <span
+                      <img
+                        src={generationMark}
+                        alt=""
                         aria-hidden="true"
-                        className="select-none"
+                        draggable={false}
                         style={{
-                          fontSize: 15,
-                          fontWeight: 900,
-                          lineHeight: 1,
-                          letterSpacing: 0,
+                          width: 17,
+                          height: 17,
+                          display: "block",
+                          objectFit: "contain",
+                          filter: canSubmit || isSubmitting ? "brightness(0)" : (isDark ? "brightness(0) invert(0.42)" : "brightness(0) opacity(0.50)"),
+                          opacity: canSubmit || isSubmitting ? 1 : 0.78,
                         }}
-                      >
-                        A
-                      </span>
+                      />
                     )}
                   </button>
                 </div>
