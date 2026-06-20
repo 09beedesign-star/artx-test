@@ -5864,9 +5864,25 @@ function BottomPromptBar({
           onClick={() => void handleSend()}
           disabled={isSending}
           className="h-8 w-8 flex-shrink-0 rounded-[var(--radius-md-design)] flex items-center justify-center hover:opacity-80"
-          style={{ background: hasContent ? "oklch(0.58 0.22 290)" : (isDark ? "oklch(0.22 0.015 270)" : "oklch(0.88 0.005 270)") }}
+          style={{ background: hasContent ? "#C5ED47" : (isDark ? "oklch(0.22 0.015 270)" : "oklch(0.88 0.005 270)") }}
         >
-          {isSending ? <RefreshCw size={13} color="white" className="animate-spin" /> : <Send size={13} color={hasContent ? "white" : (isDark ? "oklch(0.40 0.01 270)" : "oklch(0.65 0.01 270)")} />}
+          {isSending ? (
+            <RefreshCw size={13} color={hasContent ? "#000" : "white"} className="animate-spin" />
+          ) : (
+            <span
+              aria-hidden="true"
+              className="select-none"
+              style={{
+                color: hasContent ? "#000" : (isDark ? "oklch(0.40 0.01 270)" : "oklch(0.65 0.01 270)"),
+                fontSize: 15,
+                fontWeight: 900,
+                lineHeight: 1,
+                letterSpacing: 0,
+              }}
+            >
+              A
+            </span>
+          )}
         </button>
       </div>
     </div>
@@ -8789,7 +8805,22 @@ function CanvasAssistantPanel({
                     title={isSubmitting ? "处理中" : "发送"}
                     aria-label={isSubmitting ? "处理中" : "发送"}
                   >
-                    {isSubmitting ? <RefreshCw size={16} className="animate-spin" /> : <Send size={18} />}
+                    {isSubmitting ? (
+                      <RefreshCw size={16} className="animate-spin" />
+                    ) : (
+                      <span
+                        aria-hidden="true"
+                        className="select-none"
+                        style={{
+                          fontSize: 15,
+                          fontWeight: 900,
+                          lineHeight: 1,
+                          letterSpacing: 0,
+                        }}
+                      >
+                        A
+                      </span>
+                    )}
                   </button>
                 </div>
               </div>
