@@ -256,11 +256,18 @@ function SkillPointSelector({
         type="button"
         title="极点选择器 / Skill"
         onClick={() => setOpen(value => !value)}
-        className="flex h-8 items-center gap-1.5 rounded-[var(--radius-md-design)] px-2.5 type-caption transition-colors"
-        style={{ background: activeSkill ? activeBg : bg, border: `1px solid ${activeSkill ? "oklch(0.62 0.22 290 / 45%)" : border}`, color: activeSkill ? activeText : text }}
+        className="flex h-8 max-w-[74px] items-center gap-1 rounded-[var(--radius-md-design)] px-2 transition-colors"
+        style={{
+          background: activeSkill ? activeBg : bg,
+          border: `1px solid ${activeSkill ? "oklch(0.62 0.22 290 / 45%)" : border}`,
+          color: activeSkill ? activeText : text,
+          fontSize: 11,
+          lineHeight: "14px",
+          letterSpacing: 0,
+        }}
       >
-        <CircleDot size={13} />
-        <span className="max-w-[92px] truncate">{activeSkill ? activeSkill.name : "极点 Skill"}</span>
+        <CircleDot size={12} style={{ flex: "0 0 auto" }} />
+        <span className="min-w-0 max-w-[38px] truncate">{activeSkill ? activeSkill.name : "Skill"}</span>
         <ChevronDown size={10} style={{ opacity: 0.65 }} />
       </button>
       {open && (
@@ -8492,12 +8499,13 @@ function CanvasAssistantPanel({
                       {formatCanvasMessageTime(message.timestamp)}
                     </p>
                     <div
-                      className="rounded-[var(--radius-lg-design)] p-4"
+                      className="rounded-[var(--radius-lg-design)]"
                       style={{
                         background: isUser ? "#C5ED47" : chipBg,
                         border: `1px solid ${isUser ? "rgba(197,237,71,0.48)" : border}`,
                         color: isUser ? "#000" : text,
                         boxShadow: isUser ? "0 10px 24px rgba(197,237,71,0.16)" : "none",
+                        padding: "8px",
                       }}
                       onDoubleClick={backup ? () => handleImageBackupDoubleClick(backup) : undefined}
                       title={backup ? "双击可在画布中定位或找回这张图片" : undefined}
@@ -8516,12 +8524,22 @@ function CanvasAssistantPanel({
                               cursor: "zoom-in",
                             }}
                           />
-                          <p className="type-caption leading-5" style={{ color: text, fontWeight: 600 }}>{backup.title}</p>
-                          <p className="type-caption leading-5" style={{ color: sub }}>双击气泡可定位或找回图片</p>
+                          <p className="type-caption" style={{ color: text, fontWeight: 600, lineHeight: "16px" }}>{backup.title}</p>
+                          <p className="type-caption" style={{ color: sub, lineHeight: "16px" }}>双击气泡可定位或找回图片</p>
                         </div>
                       ) : (
-                        <div className="flex flex-col gap-3">
-                          <p className="type-caption leading-6 whitespace-pre-wrap" style={{ color: isUser ? "#000" : text }}>{message.content}</p>
+                        <div className="flex flex-col" style={{ gap: 8 }}>
+                          <p
+                            className="type-caption whitespace-pre-wrap"
+                            style={{
+                              color: isUser ? "#000" : text,
+                              fontSize: 12,
+                              lineHeight: "16px",
+                              letterSpacing: "0.6px",
+                            }}
+                          >
+                            {message.content}
+                          </p>
                           {message.referenceOptions && message.referenceOptions.length > 0 && (
                             <div className="flex flex-col gap-3">
                               <div className="grid grid-cols-2 gap-2">
@@ -8762,23 +8780,29 @@ function CanvasAssistantPanel({
                   );
                 })}
               </div>
-              <div className="flex items-center justify-between pt-2">
-                <div className="flex items-center gap-1.5">
-                  <div ref={assistantModelRef} className="relative flex items-center" style={{ color: sub }}>
+              <div className="flex items-center justify-between pt-2" style={{ gap: 6 }}>
+                <div className="flex min-w-0 items-center" style={{ gap: 6 }}>
+                  <div ref={assistantModelRef} className="relative flex min-w-0 items-center" style={{ color: sub }}>
                     <button
                       type="button"
-                      className="flex items-center gap-1.5 rounded-[var(--radius-lg-design)] px-2.5 py-1.5 type-caption transition-colors active:scale-95"
-                      style={{ background: agentMenuOpen ? hoverBg : "transparent", color: agentMenuOpen ? text : sub }}
+                      className="flex h-8 max-w-[126px] items-center gap-1 rounded-[var(--radius-lg-design)] px-2 transition-colors active:scale-95"
+                      style={{
+                        background: agentMenuOpen ? hoverBg : "transparent",
+                        color: agentMenuOpen ? text : sub,
+                        fontSize: 11,
+                        lineHeight: "14px",
+                        letterSpacing: 0,
+                      }}
                       onClick={() => { setAgentMenuOpen(v => !v); setCommandMenuOpen(false); }}
                       onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
                       onMouseLeave={e => (e.currentTarget.style.background = agentMenuOpen ? hoverBg : "transparent")}
                       title="选择模型"
                       aria-label="选择模型"
                     >
-                      <span>
+                      <span className="min-w-0 max-w-[100px] truncate">
                         {assistantModelTab === "image" ? "生图" : "对话"} · {assistantModel.label}
                       </span>
-                      <ChevronDown size={12} style={{ opacity: 0.6, transform: agentMenuOpen ? "rotate(180deg)" : "none", transition: "transform 0.16s ease" }} />
+                      <ChevronDown size={10} style={{ flex: "0 0 auto", opacity: 0.6, transform: agentMenuOpen ? "rotate(180deg)" : "none", transition: "transform 0.16s ease" }} />
                     </button>
                     {agentMenuOpen && (
                       <div
@@ -8847,10 +8871,10 @@ function CanvasAssistantPanel({
                   </div>
                   <SkillPointSelector activeSkill={activeSkill} onChange={onActiveSkillChange} isDark={isDark} />
                 </div>
-                <div className="flex items-center gap-1.5">
+                <div className="flex shrink-0 items-center" style={{ gap: 6 }}>
                   <button
                     disabled={!canSubmit}
-                    className="w-12 h-12 rounded-[var(--radius-lg-design)] flex items-center justify-center disabled:cursor-not-allowed transition-all hover:scale-[1.03] active:scale-95"
+                    className="h-10 w-10 rounded-[var(--radius-lg-design)] flex items-center justify-center disabled:cursor-not-allowed transition-all hover:scale-[1.03] active:scale-95"
                     style={{
                       background: canSubmit || isSubmitting ? "#C5ED47" : (isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"),
                       color: canSubmit || isSubmitting ? "#000" : sub,
