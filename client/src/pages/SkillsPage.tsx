@@ -26,7 +26,16 @@ import {
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
-const categoryOrder: SkillStoreCategory[] = ["creative", "editing", "analysis", "export"];
+const categoryOrder: SkillStoreCategory[] = [
+  "brand_system",
+  "logo_identity",
+  "landing_page",
+  "commerce_poster",
+  "product_visual",
+  "video_storyboard",
+  "image_editing",
+  "visual_audit",
+];
 const skillButtonPurple = "#9058fc";
 const skillButtonPurpleBorder = "rgba(144, 88, 252, 0.56)";
 const skillButtonPurpleShadow = "0 10px 26px rgba(144, 88, 252, 0.25)";
@@ -190,7 +199,7 @@ export default function SkillsPage() {
                 </div>
 
                 <div className="flex flex-wrap gap-2 xl:max-w-[360px] xl:justify-end">
-                  {["品牌套件", "图像编辑", "质量分析", "多尺寸导出"].map((label, index) => (
+                  {["品牌系统", "Logo 识别", "产品页", "视觉质检"].map((label, index) => (
                     <span
                       key={label}
                       className="inline-flex h-7 items-center rounded-[var(--radius-md-design)] border px-3 text-xs"
