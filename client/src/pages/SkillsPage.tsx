@@ -109,7 +109,7 @@ export default function SkillsPage() {
     if (typeof window !== "undefined") {
       window.sessionStorage.setItem("artx:pending-skill-load", JSON.stringify(createPendingSkillLoad(skill)));
     }
-  toast("Skill 已快速加载", { description: `正在进入画布：${skill.name}` });
+    toast("Skill 已快速加载", { description: `正在进入画布：${skill.name}` });
     navigate("/project/__blank-workspace__");
   };
 
@@ -153,7 +153,7 @@ export default function SkillsPage() {
         <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-5 px-6 pb-10 pt-5">
           <section className="grid gap-3">
             <div
-              className="relative overflow-hidden rounded-[var(--radius-lg-design)] border px-5 py-4"
+              className="relative overflow-hidden rounded-[var(--radius-lg-design)] border p-5"
               style={{
                 background: isDark
                   ? "linear-gradient(135deg, rgba(144,88,252,0.16), rgba(255,255,255,0.055) 42%, rgba(0,208,255,0.09))"
@@ -171,114 +171,117 @@ export default function SkillsPage() {
                 style={{ background: "rgba(0,208,255,0.10)", filter: "blur(26px)" }}
               />
 
-              <div className="relative grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
-                <div>
-                  <div className="mb-3 flex flex-wrap items-center gap-2">
-                    <span
-                      className="inline-flex h-7 items-center gap-2 rounded-[var(--radius-md-design)] border px-2.5 type-caption"
-                      style={{
-                        color: isDark ? "rgba(255,255,255,0.82)" : "rgba(20,20,36,0.76)",
-                        borderColor: isDark ? "rgba(255,255,255,0.16)" : "rgba(20,20,36,0.10)",
-                        background: isDark ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.72)",
-                      }}
-                    >
-                      <Sparkles size={13} style={{ color: "#c5ed47" }} />
-                      Skill Store
-                    </span>
-                    <span className="type-caption" style={{ color: faint }}>
-                      GitHub 热度快照 · stars / adoption 汇总
-                    </span>
-                  </div>
+              <div className="relative">
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <span
+                    className="inline-flex h-7 items-center gap-2 rounded-[var(--radius-md-design)] border px-2.5 type-caption"
+                    style={{
+                      color: isDark ? "rgba(255,255,255,0.82)" : "rgba(20,20,36,0.76)",
+                      borderColor: isDark ? "rgba(255,255,255,0.16)" : "rgba(20,20,36,0.10)",
+                      background: isDark ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.72)",
+                    }}
+                  >
+                    <Sparkles size={13} style={{ color: "#c5ed47" }} />
+                    Skill Store
+                  </span>
+                  <span className="type-caption" style={{ color: faint }}>
+                    GitHub 热度快照 · stars / adoption 汇总
+                  </span>
+                </div>
 
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
+                  <div>
                   <h1 className="max-w-[720px] text-[38px] font-semibold leading-[1.04]" style={{ color: text, letterSpacing: 0 }}>
                     设计图片类 Skills
                   </h1>
                   <p className="mt-2 max-w-[580px] text-sm leading-6" style={{ color: sub }}>
                     使用技能，让你的创意效率即刻提速翻倍。
                   </p>
-                </div>
+                  </div>
 
-                <div className="flex flex-wrap gap-2 xl:max-w-[360px] xl:justify-end">
-                  {["品牌系统", "Logo 识别", "产品页", "视觉质检"].map((label, index) => (
-                    <span
-                      key={label}
-                      className="inline-flex h-7 items-center rounded-[var(--radius-md-design)] border px-3 text-xs"
-                      style={{
-                        color: isDark ? "rgba(255,255,255,0.78)" : "rgba(20,20,36,0.72)",
-                        borderColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(20,20,36,0.08)",
-                        background: index === 0
-                          ? "rgba(144,88,252,0.18)"
-                          : isDark ? "rgba(255,255,255,0.055)" : "rgba(255,255,255,0.70)",
-                      }}
-                    >
-                      {label}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <div className="relative mt-3 grid gap-3 xl:grid-cols-[360px_minmax(0,1fr)]">
-                <div className="grid grid-cols-3 gap-2">
-                  {heroStats.map((item) => {
-                    const Icon = item.icon;
-                    return (
-                      <div
-                        key={item.label}
-                        className="rounded-[var(--radius-md-design)] border p-2.5"
+                  <div className="flex flex-wrap gap-2 xl:max-w-[420px] xl:justify-end">
+                    {["品牌系统", "Logo 识别", "产品页", "视觉质检"].map((label, index) => (
+                      <span
+                        key={label}
+                        className="inline-flex h-7 items-center rounded-[var(--radius-md-design)] border px-3 text-xs"
                         style={{
-                          borderColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(20,20,36,0.10)",
-                          background: isDark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.76)",
+                          color: isDark ? "rgba(255,255,255,0.78)" : "rgba(20,20,36,0.72)",
+                          borderColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(20,20,36,0.08)",
+                          background: index === 0
+                            ? "rgba(144,88,252,0.18)"
+                            : isDark ? "rgba(255,255,255,0.055)" : "rgba(255,255,255,0.70)",
                         }}
                       >
-                        <div className="mb-1.5 flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm-design)]" style={{ background: `${item.accent}22`, color: item.accent }}>
-                          <Icon size={13} />
-                        </div>
-                        <p className="text-[22px] font-semibold leading-none" style={{ color: text }}>{item.value}</p>
-                        <p className="mt-1 text-xs" style={{ color: faint }}>{item.label}</p>
-                      </div>
-                    );
-                  })}
+                        {label}
+                      </span>
+                    ))}
+                  </div>
                 </div>
 
-                <div className="rounded-[var(--radius-md-design)] border p-2.5" style={{ borderColor: border, background: isDark ? "rgba(0,0,0,0.14)" : "rgba(255,255,255,0.62)" }}>
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <div className="flex items-center gap-2" style={{ color: text }}>
-                      <Boxes size={15} />
-                      <span className="text-sm font-medium">分类覆盖</span>
-                    </div>
-                    <span className="text-xs" style={{ color: faint }}>商店结构</span>
-                  </div>
-                  <div className="grid gap-1 md:grid-cols-2">
-                    {categoryOrder.map((category) => {
-                      const meta = skillCategoryMeta[category];
+                <div className="mt-4 grid gap-3 xl:grid-cols-[360px_minmax(0,1fr)]">
+                  <div className="grid grid-cols-3 gap-2">
+                    {heroStats.map((item) => {
+                      const Icon = item.icon;
                       return (
-                        <button
-                          key={category}
-                          type="button"
-                          onClick={() => setActiveCategory(category)}
-                          className="group flex w-full items-center gap-2.5 rounded-[var(--radius-md-design)] px-2 py-0.5 text-left transition-opacity hover:opacity-85"
+                        <div
+                          key={item.label}
+                          className="rounded-[var(--radius-md-design)] border p-2.5"
                           style={{
-                            background: activeCategory === category ? "rgba(144,88,252,0.16)" : "transparent",
+                            borderColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(20,20,36,0.10)",
+                            background: isDark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.76)",
                           }}
                         >
-                          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: meta.accent }} />
-                          <span className="min-w-0 flex-1">
-                            <span className="flex items-center justify-between gap-2">
-                              <span className="text-sm font-medium" style={{ color: text }}>{meta.label}</span>
-                              <span className="text-xs font-semibold" style={{ color: activeCategory === category ? skillButtonPurple : faint }}>{categoryCounts[category]}</span>
-                            </span>
-                            <span className="mt-0.5 block h-1.5 overflow-hidden rounded-full" style={{ background: isDark ? "rgba(255,255,255,0.08)" : "rgba(20,20,36,0.08)" }}>
-                              <span
-                                className="block h-full rounded-full"
-                                style={{
-                                  width: `${Math.max(14, (categoryCounts[category] / skillStoreStats.total) * 100)}%`,
-                                  background: meta.accent,
-                                }}
-                              />
-                            </span>
-                          </span>
-                        </button>
+                          <div className="mb-1.5 flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm-design)]" style={{ background: `${item.accent}22`, color: item.accent }}>
+                            <Icon size={13} />
+                          </div>
+                          <p className="text-[22px] font-semibold leading-none" style={{ color: text }}>{item.value}</p>
+                          <p className="mt-1 text-xs" style={{ color: faint }}>{item.label}</p>
+                        </div>
                       );
                     })}
+                  </div>
+
+                  <div className="rounded-[var(--radius-md-design)] border p-3" style={{ borderColor: border, background: isDark ? "rgba(0,0,0,0.14)" : "rgba(255,255,255,0.62)" }}>
+                    <div className="mb-2 flex items-center justify-between">
+                      <div className="flex items-center gap-2" style={{ color: text }}>
+                        <Boxes size={15} />
+                        <span className="text-sm font-medium">分类覆盖</span>
+                      </div>
+                      <span className="text-xs" style={{ color: faint }}>商店结构</span>
+                    </div>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {categoryOrder.map((category) => {
+                        const meta = skillCategoryMeta[category];
+                        return (
+                          <button
+                            key={category}
+                            type="button"
+                            onClick={() => setActiveCategory(category)}
+                            className="group flex w-full items-center gap-2.5 rounded-[var(--radius-md-design)] px-2 py-1 text-left transition-opacity hover:opacity-85"
+                            style={{
+                              background: activeCategory === category ? "rgba(144,88,252,0.16)" : "transparent",
+                            }}
+                          >
+                            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: meta.accent }} />
+                            <span className="min-w-0 flex-1">
+                              <span className="flex items-center justify-between gap-2">
+                                <span className="text-sm font-medium" style={{ color: text }}>{meta.label}</span>
+                                <span className="text-xs font-semibold" style={{ color: activeCategory === category ? skillButtonPurple : faint }}>{categoryCounts[category]}</span>
+                              </span>
+                              <span className="mt-0.5 block h-1.5 overflow-hidden rounded-full" style={{ background: isDark ? "rgba(255,255,255,0.08)" : "rgba(20,20,36,0.08)" }}>
+                                <span
+                                  className="block h-full rounded-full"
+                                  style={{
+                                    width: `${Math.max(14, (categoryCounts[category] / skillStoreStats.total) * 100)}%`,
+                                    background: meta.accent,
+                                  }}
+                                />
+                              </span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               </div>

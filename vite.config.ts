@@ -1,11 +1,12 @@
 import { jsxLocPlugin } from "@builder.io/vite-plugin-jsx-loc";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
-import { handleAuthAction } from "./server/auth-store";
+import { getAdminSessionFromAuthorization, handleAuthAction } from "./server/auth-store";
 import { editImageWithPrompt, eraseImageObjects, generateImages, removeImageBackground } from "./server/image-generation";
 import { searchReferenceImages } from "./server/reference-search";
 import { generateText } from "./server/text-generation";
@@ -264,15 +265,53 @@ function vitePluginGithubPagesSpaFallback(): Plugin {
   };
 }
 
-function vitePluginRemovePublicDebugAssets(): Plugin {
+function gitValue(command: string, fallback = "") {
+  try {
+    return execSync(command, { cwd: PROJECT_ROOT, encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    return fallback;
+  }
+}
+
+function getBuildMetadata() {
+  const commitSha = process.env.VITE_COMMIT_SHA || process.env.GITHUB_SHA || gitValue("git rev-parse HEAD", "local");
+  const branch =
+    process.env.VITE_DEPLOY_BRANCH ||
+    process.env.GITHUB_REF_NAME ||
+    gitValue("git branch --show-current", "local");
+  const buildTime = process.env.VITE_BUILD_TIME || new Date().toISOString();
+  const testFrontendUrl = process.env.VITE_TEST_FRONTEND_URL || "https://09beedesign-star.github.io/artx-test/";
+  const testBackendUrl = process.env.VITE_TEST_BACKEND_URL || process.env.VITE_API_BASE_URL || "https://artx-test.onrender.com";
+
   return {
-    name: "artx-remove-public-debug-assets",
+    app: "artx",
+    environment: process.env.GITHUB_PAGES === "true" ? "github-pages-test" : "local",
+    commitSha,
+    shortCommit: commitSha.slice(0, 7),
+    branch,
+    buildTime,
+    repository: process.env.GITHUB_REPOSITORY || gitValue("git config --get remote.test.url", ""),
+    githubRunId: process.env.GITHUB_RUN_ID || "",
+    frontendUrl: testFrontendUrl,
+    backendUrl: testBackendUrl,
+    pagesBasePath:
+      process.env.GITHUB_PAGES === "true"
+        ? `/${process.env.GITHUB_PAGES_REPO || "artx"}/`
+        : "/",
+  };
+}
+
+function vitePluginDeploymentMetadata(): Plugin {
+  return {
+    name: "artx-deployment-metadata",
     closeBundle() {
-      if (!isProductionBuild) return;
-      const debugDir = path.resolve(import.meta.dirname, "dist/public/__manus__");
-      if (fs.existsSync(debugDir)) {
-        fs.rmSync(debugDir, { recursive: true, force: true });
+      const outDir = path.resolve(import.meta.dirname, "dist/public");
+      if (!fs.existsSync(outDir)) {
+        return;
       }
+
+      const metadata = getBuildMetadata();
+      fs.writeFileSync(path.join(outDir, "deployment.json"), `${JSON.stringify(metadata, null, 2)}\n`, "utf-8");
     },
   };
 }
@@ -348,6 +387,28 @@ function vitePluginAuthApi(): Plugin {
   };
 }
 
+function vitePluginAdminApi(): Plugin {
+  return {
+    name: "artx-admin-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/admin/session", (req, res, next) => {
+        if (req.method !== "GET") {
+          return next();
+        }
+
+        getAdminSessionFromAuthorization(req.headers.authorization).then((result) => {
+          res.writeHead(result.status, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(result.body));
+        }).catch((error) => {
+          const message = error instanceof Error ? error.message : "Admin session check failed";
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: message }));
+        });
+      });
+    },
+  };
+}
+
 const plugins = [
   react(),
   tailwindcss(),
@@ -358,6 +419,7 @@ const plugins = [
   ] : []),
   vitePluginStorageProxy(),
   vitePluginAuthApi(),
+  vitePluginAdminApi(),
   vitePluginJsonApi("artx-ai-image-api", "/api/images/generate", generateImages, "Image generation failed"),
   vitePluginJsonApi("artx-ai-remove-background-api", "/api/images/remove-background", removeImageBackground, "Background removal failed"),
   vitePluginJsonApi("artx-ai-edit-image-api", "/api/images/edit", editImageWithPrompt, "Image edit failed"),
@@ -369,7 +431,7 @@ const plugins = [
     return searchReferenceImages(query, limit);
   }, "Reference search failed"),
   vitePluginGithubPagesSpaFallback(),
-  vitePluginRemovePublicDebugAssets(),
+  vitePluginDeploymentMetadata(),
 ];
 
 export default defineConfig({

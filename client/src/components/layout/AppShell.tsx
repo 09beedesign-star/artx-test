@@ -9,7 +9,6 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
-import generationMark from "@/assets/generation/ai-generation-mark.svg";
 import {
   Home, Sparkles, Library, FolderOpen,
   HelpCircle,
@@ -172,7 +171,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
         <div className="flex items-center gap-2.5 px-4 pt-5 pb-4">
           <button
             type="button"
-            className="h-7 w-[152px] origin-left scale-[0.715] cursor-pointer transition-opacity hover:opacity-85"
+            className="h-7 w-[152px] cursor-pointer transition-opacity hover:opacity-85"
             onClick={() => navigate("/")}
             aria-label="ArtXStudio 首页"
           >

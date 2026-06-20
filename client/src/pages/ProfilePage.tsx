@@ -3,7 +3,7 @@
  * Presents the current user's public profile overview while preserving the artx visual language.
  */
 import { useEffect, useRef, useState } from "react";
-import { Camera, Check, Mail, MapPin, Palette, Pencil, Sparkles, Upload, UserRound, X } from "lucide-react";
+import { Camera, Mail, MapPin, Pencil, Sparkles, Upload, UserRound, X } from "lucide-react";
 import TopBar from "@/components/workspace/TopBar";
 import { BG_GLOW } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -22,30 +22,7 @@ interface ProfileDraft {
 }
 
 const PROFILE_STORAGE_KEY = "artx:creator-profile";
-const PROFILE_BACKGROUND_KEY = "artx:profile-background-color";
 const DEFAULT_DESCRIPTION = "这是您的 ArtXStudio 创作者主页";
-const PROFILE_BACKGROUND_COLORS = [
-  "#000000",
-  "#1A1A1A",
-  "#2B2D42",
-  "#1B1F3B",
-  "#0F172A",
-  "#12332E",
-  "#224C3A",
-  "#5A3E2B",
-  "#7A3E2E",
-  "#3B1F2B",
-  "#41246D",
-  "#936CFF",
-  "#6D7DFF",
-  "#2F80ED",
-  "#00A3A3",
-  "#37B24D",
-  "#F59F00",
-  "#FF6B6B",
-  "#E64980",
-  "#F8F9FA",
-];
 
 function readStoredProfile(): Partial<ProfileDraft> {
   try {
@@ -54,12 +31,6 @@ function readStoredProfile(): Partial<ProfileDraft> {
   } catch {
     return {};
   }
-}
-
-function readStoredProfileBackground() {
-  if (typeof window === "undefined") return PROFILE_BACKGROUND_COLORS[0];
-  const stored = localStorage.getItem(PROFILE_BACKGROUND_KEY);
-  return stored && PROFILE_BACKGROUND_COLORS.includes(stored) ? stored : PROFILE_BACKGROUND_COLORS[0];
 }
 
 export default function ProfilePage() {
@@ -84,17 +55,10 @@ export default function ProfilePage() {
   });
   const [editOpen, setEditOpen] = useState(false);
   const [draft, setDraft] = useState<ProfileDraft>(profile);
-  const [profileBackground, setProfileBackground] = useState(readStoredProfileBackground);
-  const [backgroundPickerOpen, setBackgroundPickerOpen] = useState(false);
-  const [pendingProfileBackground, setPendingProfileBackground] = useState(profileBackground);
 
   useEffect(() => {
     localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile));
   }, [profile]);
-
-  useEffect(() => {
-    localStorage.setItem(PROFILE_BACKGROUND_KEY, profileBackground);
-  }, [profileBackground]);
 
   const textPrimary = isDark ? "rgba(255,255,255,0.88)" : "rgba(20,20,36,0.88)";
   const textSecondary = isDark ? "rgba(255,255,255,0.56)" : "rgba(20,20,36,0.56)";
@@ -104,7 +68,6 @@ export default function ProfilePage() {
   const panelBg = isDark ? "rgba(18,18,24,0.98)" : "rgba(255,255,255,0.98)";
   const inputBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(20,20,36,0.045)";
   const tags = profile.tags.split(/[、,，]/).map(tag => tag.trim()).filter(Boolean);
-  const displayedProfileBackground = backgroundPickerOpen ? pendingProfileBackground : profileBackground;
 
   const handleAvatarFile = (file: File | undefined, target: "profile" | "draft") => {
     if (!file) return;
@@ -127,17 +90,6 @@ export default function ProfilePage() {
   const openEdit = () => {
     setDraft(profile);
     setEditOpen(true);
-  };
-
-  const openBackgroundPicker = () => {
-    setPendingProfileBackground(profileBackground);
-    setBackgroundPickerOpen(true);
-  };
-
-  const confirmBackground = () => {
-    setProfileBackground(pendingProfileBackground);
-    setBackgroundPickerOpen(false);
-    toast.success("主页背景已更新");
   };
 
   const saveProfile = () => {
@@ -172,76 +124,14 @@ export default function ProfilePage() {
               backdropFilter: "blur(20px)",
             }}
           >
-            <div className="relative z-0 h-40 transition-colors duration-200" style={{ background: displayedProfileBackground }}>
-              {!backgroundPickerOpen && (
-                <button
-                  type="button"
-                  onClick={openBackgroundPicker}
-                  className="absolute right-4 top-4 flex h-9 items-center gap-2 rounded-[var(--radius-md-design)] px-3 type-caption shadow-[0_10px_24px_rgba(0,0,0,0.22)] transition-colors hover:bg-black/45"
-                  style={{
-                    background: "rgba(0,0,0,0.32)",
-                    border: "1px solid rgba(255,255,255,0.22)",
-                    color: "white",
-                    backdropFilter: "blur(16px)",
-                  }}
-                  aria-expanded={false}
-                >
-                  <Palette size={14} />
-                  主页背景
-                </button>
-              )}
-
-              {backgroundPickerOpen && (
-                <div
-                  className="absolute right-4 top-4 z-10 w-[246px] rounded-[var(--radius-lg-design)] p-2 shadow-[0_18px_44px_rgba(0,0,0,0.34)]"
-                  style={{
-                    background: "rgba(18,18,24,0.82)",
-                    border: "1px solid rgba(255,255,255,0.20)",
-                    backdropFilter: "blur(20px)",
-                  }}
-                >
-                  <div className="mb-2 flex items-center justify-between">
-                    <p className="type-caption" style={{ color: "rgba(255,255,255,0.82)" }}>选择背景颜色</p>
-                    <span className="type-caption" style={{ color: "rgba(255,255,255,0.48)" }}>{pendingProfileBackground}</span>
-                  </div>
-                  <div className="grid grid-cols-10 gap-1">
-                    {PROFILE_BACKGROUND_COLORS.map(color => {
-                      const selected = pendingProfileBackground === color;
-                      return (
-                        <button
-                          key={color}
-                          type="button"
-                          onClick={() => setPendingProfileBackground(color)}
-                          className="flex h-4 w-4 items-center justify-center rounded-[5px] transition-transform hover:scale-110"
-                          style={{
-                            background: color,
-                            border: selected ? "2px solid #936CFF" : "1px solid rgba(255,255,255,0.28)",
-                            boxShadow: selected ? "0 0 0 2px rgba(147,108,255,0.26)" : "none",
-                          }}
-                          aria-label={`选择主页背景色 ${color}`}
-                        >
-                          {selected && <Check size={9} color={color === "#F8F9FA" ? "#111" : "white"} strokeWidth={3} />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={confirmBackground}
-                    className="mt-2 h-8 w-full rounded-[var(--radius-md-design)] bg-[#936CFF] type-caption text-white transition-colors hover:bg-[#A384FF]"
-                  >
-                    确定
-                  </button>
-                </div>
-              )}
-            </div>
-            <div className="relative z-10 px-8 pb-8">
+            <div className="h-40" style={{ background: "#000" }} />
+            <div className="px-8 pb-8">
               <div className="-mt-12 flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
-                <div className="flex items-center gap-5">
+                <div className="flex items-end gap-5">
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="group relative z-10 flex h-24 w-24 items-center justify-center overflow-hidden rounded-[28px]"
+                    className="group relative flex h-24 w-24 items-center justify-center overflow-hidden rounded-[28px]"
                     style={{
                       background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.62 0.20 210))",
                       border: `4px solid ${isDark ? "oklch(0.13 0.012 270)" : "white"}`,
@@ -265,25 +155,23 @@ export default function ProfilePage() {
                     className="hidden"
                     onChange={event => handleAvatarFile(event.target.files?.[0], "profile")}
                   />
-                  <div className="relative z-10 pb-2">
+                  <div className="pb-2">
                     <h1 className="type-title-sm" style={{ color: textPrimary, fontSize: 26, fontWeight: 680 }}>{profile.displayName}</h1>
                     <p className="type-body-sm mt-1" style={{ color: textSecondary }}>{profile.description}</p>
                   </div>
                 </div>
-                <div className="flex flex-col items-start gap-3 md:items-end">
-                  <button
-                    onClick={openEdit}
-                    className="flex items-center gap-2 rounded-[var(--radius-lg-design)] px-4 py-2 type-caption transition-opacity hover:opacity-85"
-                    style={{
-                      background: isDark ? "rgba(255,255,255,0.08)" : "rgba(20,20,36,0.06)",
-                      border: `1px solid ${border}`,
-                      color: textPrimary,
-                    }}
-                  >
-                    <Pencil size={14} />
-                    编辑资料
-                  </button>
-                </div>
+                <button
+                  onClick={openEdit}
+                  className="flex items-center gap-2 rounded-[var(--radius-lg-design)] px-4 py-2 type-caption transition-opacity hover:opacity-85"
+                  style={{
+                    background: isDark ? "rgba(255,255,255,0.08)" : "rgba(20,20,36,0.06)",
+                    border: `1px solid ${border}`,
+                    color: textPrimary,
+                  }}
+                >
+                  <Pencil size={14} />
+                  编辑资料
+                </button>
               </div>
 
               <div className="mt-7 grid gap-4 md:grid-cols-[1.1fr_0.9fr]">

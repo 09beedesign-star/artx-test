@@ -80,9 +80,9 @@ type PicWishSegmentationResponse = {
   data?: {
     task_id?: string;
     image?: string;
+    image_obj?: string;
     mask?: string;
     mask_obj?: string;
-    image_obj?: string;
     image_width?: number;
     image_height?: number;
     progress?: number;

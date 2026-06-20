@@ -7,10 +7,31 @@ import { createBrandKit, deleteBrandKit, getBrandKit, listBrandKits, parseBrandK
 import { editImageWithPrompt, enhanceImage, eraseImageObjects, generateImages, removeImageBackground } from "./image-generation";
 import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
-import { handleAuthAction } from "./auth-store";
+import { getAdminSessionFromAuthorization, handleAuthAction } from "./auth-store";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+type BackgroundImageTask = {
+  taskId: string;
+  status: "pending" | "completed" | "failed";
+  input: Record<string, unknown>;
+  images?: Array<{ src: string; width: number; height: number }>;
+  error?: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+const backgroundImageTasks = new Map<string, BackgroundImageTask>();
+
+function pruneBackgroundImageTasks() {
+  const now = Date.now();
+  Array.from(backgroundImageTasks.entries()).forEach(([taskId, task]) => {
+    if (now - task.updatedAt > 24 * 60 * 60 * 1000) {
+      backgroundImageTasks.delete(taskId);
+    }
+  });
+}
 
 async function startServer() {
   const app = express();
@@ -48,6 +69,57 @@ async function startServer() {
       const message = error instanceof Error ? error.message : "Image generation failed";
       res.status(500).json({ error: message });
     }
+  });
+
+  app.post("/api/images/tasks", async (req, res) => {
+    const taskId = typeof req.body?.taskId === "string" && req.body.taskId.trim()
+      ? req.body.taskId.trim()
+      : `image-task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    pruneBackgroundImageTasks();
+    const existing = backgroundImageTasks.get(taskId);
+    if (existing) {
+      res.json(existing);
+      return;
+    }
+
+    const task: BackgroundImageTask = {
+      taskId,
+      status: "pending",
+      input: req.body,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    backgroundImageTasks.set(taskId, task);
+    res.json(task);
+
+    void generateImages(req.body)
+      .then(result => {
+        backgroundImageTasks.set(taskId, {
+          ...task,
+          status: "completed",
+          images: result.images,
+          updatedAt: Date.now(),
+        });
+      })
+      .catch(error => {
+        const message = error instanceof Error ? error.message : "Image generation failed";
+        backgroundImageTasks.set(taskId, {
+          ...task,
+          status: "failed",
+          error: message,
+          updatedAt: Date.now(),
+        });
+      });
+  });
+
+  app.get("/api/images/tasks/:taskId", (req, res) => {
+    pruneBackgroundImageTasks();
+    const task = backgroundImageTasks.get(req.params.taskId);
+    if (!task) {
+      res.status(404).json({ error: "Image task not found", taskId: req.params.taskId, status: "failed" });
+      return;
+    }
+    res.json(task);
   });
 
   app.post("/api/images/remove-background", async (req, res) => {
@@ -208,6 +280,16 @@ async function startServer() {
       res.status(result.status).json(result.body);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Auth request failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.get("/api/admin/session", async (req, res) => {
+    try {
+      const result = await getAdminSessionFromAuthorization(req.headers.authorization);
+      res.status(result.status).json(result.body);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Admin session check failed";
       res.status(500).json({ error: message });
     }
   });

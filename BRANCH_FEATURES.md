@@ -17,7 +17,7 @@
 
 | 定义数字 | 对象 | 路径/地址 | 说明 |
 | --- | --- | --- | --- |
-| `00` | GitHub 代码仓库 | `https://github.com/09beedesign-star/artx/tree/feature/interaction-framework` | ArtX 远程仓库的 `feature/interaction-framework` 分支 |
+| `00` | ArtX 测试发布仓库 | `https://github.com/09beedesign-star/artx-test/tree/feature/interaction-framework` | 只用于测试环境发布的 `test/feature/interaction-framework` 分支 |
 | `01` | ArtX 本地总分支 | `feature/interaction-framework` | 本地交互框架总分支 |
 | `02` | ArtX 提示词输入框子分支 | `feature/interaction-framework-artx-input` | 提示词输入框功能子分支 |
 
@@ -25,7 +25,7 @@
 
 | 指令 | 默认目标 | 说明 |
 | --- | --- | --- |
-| `推送到测试环境` | `00` | 默认推送到测试约定目标 |
+| `推送到测试环境` | `00` | 先同步最新 `test/feature/interaction-framework`，再合入当前任务改动，验证后只推送到该测试分支 |
 | `推送到正式环境` | `art X v1.0 go` 代码仓库 | 默认推送到正式发布仓库 |
 
 ### 本地总分支
