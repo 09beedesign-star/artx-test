@@ -20,7 +20,6 @@ const PROJECT_ROOT = import.meta.dirname;
 const LOG_DIR = path.join(PROJECT_ROOT, ".manus-logs");
 const MAX_LOG_SIZE_BYTES = 1 * 1024 * 1024; // 1MB per log file
 const TRIM_TARGET_BYTES = Math.floor(MAX_LOG_SIZE_BYTES * 0.6); // Trim to 60% to avoid constant re-trimming
-const BUILD_COMMIT_SHA = process.env.GITHUB_SHA || process.env.VITE_COMMIT_SHA || "local";
 
 function loadLocalEnv() {
   const envPath = path.join(PROJECT_ROOT, ".env");
@@ -47,8 +46,6 @@ function loadLocalEnv() {
 }
 
 loadLocalEnv();
-
-const isProductionBuild = process.env.NODE_ENV === "production" || process.env.GITHUB_PAGES === "true";
 
 type LogSource = "browserConsole" | "networkRequests" | "sessionReplay";
 
@@ -240,24 +237,11 @@ function vitePluginStorageProxy(): Plugin {
 function vitePluginGithubPagesSpaFallback(): Plugin {
   return {
     name: "github-pages-spa-fallback",
-    transformIndexHtml(html) {
-      if (process.env.GITHUB_PAGES !== "true") return html;
-      return html.replace(
-        "</head>",
-        `<script>window.__ARTX_BUILD__=${JSON.stringify({ commitSha: BUILD_COMMIT_SHA, builtAt: new Date().toISOString() })};</script></head>`,
-      );
-    },
     closeBundle() {
       if (process.env.GITHUB_PAGES !== "true") return;
       const outDir = path.resolve(import.meta.dirname, "dist/public");
       const indexPath = path.join(outDir, "index.html");
       const notFoundPath = path.join(outDir, "404.html");
-      const deploymentPath = path.join(outDir, "deployment.json");
-      fs.writeFileSync(
-        deploymentPath,
-        `${JSON.stringify({ commitSha: BUILD_COMMIT_SHA, builtAt: new Date().toISOString() }, null, 2)}\n`,
-        "utf-8",
-      );
       if (fs.existsSync(indexPath)) {
         fs.copyFileSync(indexPath, notFoundPath);
       }
@@ -412,11 +396,9 @@ function vitePluginAdminApi(): Plugin {
 const plugins = [
   react(),
   tailwindcss(),
-  ...(!isProductionBuild ? [
-    jsxLocPlugin(),
-    vitePluginManusRuntime(),
-    vitePluginManusDebugCollector(),
-  ] : []),
+  jsxLocPlugin(),
+  vitePluginManusRuntime(),
+  vitePluginManusDebugCollector(),
   vitePluginStorageProxy(),
   vitePluginAuthApi(),
   vitePluginAdminApi(),
@@ -452,15 +434,7 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
-    sourcemap: false,
-    minify: "esbuild",
   },
-  esbuild: isProductionBuild
-    ? {
-        drop: ["console", "debugger"],
-        legalComments: "none",
-      }
-    : undefined,
   server: {
     port: 3000,
     strictPort: true, // Keep the local preview URL stable.

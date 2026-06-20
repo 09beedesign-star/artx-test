@@ -145,17 +145,6 @@ function createUser(username: string, password: string, role: AdminRole = "viewe
   };
 }
 
-function createOAuthUser(profile: OAuthProfile): StoredUser {
-  const password = crypto.randomBytes(18).toString("hex");
-  const user = createUser(profile.email || `${profile.provider}-${profile.subject}@artx.social`, password);
-  user.loginKey = oauthLoginKey(profile.provider, profile.subject);
-  user.oauthProvider = profile.provider;
-  user.oauthSubject = profile.subject;
-  user.displayName = profile.name || profile.email || profile.provider;
-  user.avatarUrl = profile.avatarUrl;
-  return user;
-}
-
 async function loadDatabase(): Promise<AuthDatabase> {
   await fs.mkdir(DATA_DIR, { recursive: true });
   let db: AuthDatabase = { users: [], sessions: [], auditLogs: [] };

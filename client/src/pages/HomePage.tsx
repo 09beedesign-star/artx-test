@@ -18,70 +18,16 @@ import { BRAND_KIT, POSTER_1, POSTER_2, SOCIAL_AD } from "@/lib/workspace-data";
 import { createWorkspaceHistoryProject } from "@/lib/project-history";
 import { requestAiAuth } from "@/lib/ai";
 
-function parsePromptCsv(csv: string) {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let value = "";
-  let inQuote = false;
-
-  for (let index = 0; index < csv.length; index += 1) {
-    const char = csv[index];
-    const next = csv[index + 1];
-    if (inQuote) {
-      if (char === '"' && next === '"') {
-        value += '"';
-        index += 1;
-      } else if (char === '"') {
-        inQuote = false;
-      } else {
-        value += char;
-      }
-      continue;
-    }
-    if (char === '"') inQuote = true;
-    else if (char === ",") {
-      row.push(value);
-      value = "";
-    } else if (char === "\n") {
-      row.push(value);
-      rows.push(row);
-      row = [];
-      value = "";
-    } else if (char !== "\r") {
-      value += char;
-    }
-  }
-
-  if (value || row.length) {
-    row.push(value);
-    rows.push(row);
-  }
-  return rows;
-}
-
-function loadHomeInspirationPrompts(csv: string): InspirationPrompt[] {
-  const rows = parsePromptCsv(csv.replace(/^\uFEFF/, ""));
-  const header = rows[0] ?? [];
-  const get = (record: string[], key: string) => record[header.indexOf(key)]?.trim() ?? "";
-
-  return rows
-    .slice(1)
-    .filter(record => record.length > 1)
-    .map(record => ({
-      rank: Number(get(record, "rank")) || 0,
-      field: get(record, "field"),
-      model: get(record, "model"),
-      title: get(record, "title"),
-      description: get(record, "description"),
-      prompt: get(record, "prompt"),
-      imageUrl: resolvePromptImageUrl(get(record, "image_url")),
-      author: get(record, "author"),
-    }))
-    .filter(item => item.title && item.imageUrl);
-}
-
-const HOME_INSPIRATION_PROMPTS = loadHomeInspirationPrompts(promptCsv).slice(0, 50);
-const INSPIRATION_TOPICS = Array.from(new Set(HOME_INSPIRATION_PROMPTS.map(item => item.field))).slice(0, 8);
+const COMMUNITY_PROJECTS = [
+  { id: "community-1", title: "未来跑鞋视觉实验", updatedAt: "社区精选", cover: POSTER_2, author: "Emma_Wilson", plays: "4478", likes: "125" },
+  { id: "community-2", title: "咖啡品牌灵感板", updatedAt: "用户作品", cover: BRAND_KIT, author: "Emma_Wilson", plays: "4478", likes: "125" },
+  { id: "community-3", title: "城市户外广告片", updatedAt: "社区精选", cover: POSTER_1, author: "Emma_Wilson", plays: "4478", likes: "125" },
+  { id: "community-4", title: "智能设备发布海报", updatedAt: "用户作品", cover: SOCIAL_AD, author: "Emma_Wilson", plays: "4478", likes: "125" },
+  { id: "community-5", title: "潮流服饰大片", updatedAt: "灵感推荐", cover: POSTER_1, author: "Emma_Wilson", plays: "4478", likes: "125" },
+  { id: "community-6", title: "新消费包装系统", updatedAt: "社区精选", cover: BRAND_KIT, author: "Emma_Wilson", plays: "4478", likes: "125" },
+  { id: "community-7", title: "运动科技主视觉", updatedAt: "用户作品", cover: POSTER_2, author: "Emma_Wilson", plays: "4478", likes: "125" },
+  { id: "community-8", title: "社媒营销创意图", updatedAt: "灵感推荐", cover: SOCIAL_AD, author: "Emma_Wilson", plays: "4478", likes: "125" },
+];
 
 const PROMPT_SUGGESTIONS = [
   "帮我生成一张赛博朋克风格插画",

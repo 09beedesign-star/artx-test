@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 const AUTH_STORAGE_KEY = "artx-auth-session";
+const LOCAL_AUTH_USERS_KEY = "artx-local-auth-users";
 
 interface AuthUser {
   id: string;
@@ -31,26 +32,11 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const initialSession = useMemo(() => readStoredSession(), []);
-  const [isAuthenticated, setIsAuthenticated] = useState(Boolean(initialSession));
-  const [user, setUser] = useState<AuthUser | null>(initialSession?.user || null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [loginModalOpen, setLoginModalOpen] = useState(false);
 
   useEffect(() => {
-    const callbackResult = readOAuthCallbackResult();
-    if (callbackResult && "token" in callbackResult && callbackResult.token && callbackResult.user?.id && callbackResult.user.username) {
-      if (persistSession({ token: callbackResult.token, user: callbackResult.user })) {
-        setIsAuthenticated(true);
-        setUser(callbackResult.user);
-        setLoginModalOpen(false);
-      }
-      clearOAuthCallbackParams();
-      return;
-    }
-    if (callbackResult && "error" in callbackResult && callbackResult.error) {
-      clearOAuthCallbackParams();
-    }
-
     const stored = readStoredSession();
     if (!stored) return;
 
@@ -68,9 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsAuthenticated(false);
       setUser(null);
     }).catch(() => {
-      localStorage.removeItem(AUTH_STORAGE_KEY);
-      setIsAuthenticated(false);
-      setUser(null);
+      // Keep the local session when the test server is temporarily unreachable.
     });
   }, []);
 
@@ -84,6 +68,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const result = await fetchAuth(action, { username, password });
       if (!result.ok || !result.token || !result.user) {
+        if (isGithubPagesTest()) {
+          const localResult = authenticateLocally(action, username, password);
+          if (localResult.ok) applyStoredSession();
+          return localResult;
+        }
         return { ok: false, error: result.error || "登录失败，请稍后重试" };
       }
       const normalizedUser = normalizeAuthUser(result.user);
@@ -95,8 +84,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoginModalOpen(false);
       return { ok: true };
     } catch {
-      return { ok: false, error: "认证服务暂时不可用，请稍后重试" };
+      if (isGithubPagesTest()) {
+        const localResult = authenticateLocally(action, username, password);
+        if (localResult.ok) applyStoredSession();
+        return localResult;
+      }
+      return { ok: false, error: "测试服务暂时不可用，请稍后重试" };
     }
+  };
+
+  const applyStoredSession = () => {
+    const stored = readStoredSession();
+    if (!stored) return;
+    setIsAuthenticated(true);
+    setUser(stored.user);
+    setLoginModalOpen(false);
   };
 
   const value = useMemo<AuthContextValue>(() => ({
@@ -127,7 +129,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setLoginModalOpen(false);
         return { ok: true };
       } catch {
-        return { ok: false, error: "认证服务暂时不可用，请稍后重试" };
+        if (isGithubPagesTest()) {
+          const localResult = authenticateLocally("registerOrLogin", `${provider}@artx.test`, provider);
+          if (localResult.ok) applyStoredSession();
+          return localResult;
+        }
+        return { ok: false, error: "测试服务暂时不可用，请稍后重试" };
       }
     },
     logout: () => {
@@ -142,40 +149,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }), [isAuthenticated, user, loginModalOpen]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-}
-
-function readOAuthCallbackResult(): (AuthSession & { error?: never }) | { error: string } | null {
-  try {
-    const params = new URLSearchParams(window.location.search);
-    const encodedResult = params.get("auth_result");
-    const authError = params.get("auth_error");
-    if (authError) return { error: authError };
-    if (!encodedResult) return null;
-    const decoded = JSON.parse(base64UrlDecode(encodedResult)) as Partial<AuthSession>;
-    if (!decoded.token || !decoded.user?.id || !decoded.user.username) return null;
-    return { token: decoded.token, user: decoded.user };
-  } catch {
-    return null;
-  }
-}
-
-function clearOAuthCallbackParams() {
-  try {
-    const url = new URL(window.location.href);
-    url.searchParams.delete("auth_result");
-    url.searchParams.delete("auth_error");
-    window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
-  } catch {
-    // Ignore URL cleanup failures.
-  }
-}
-
-function base64UrlDecode(value: string) {
-  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
-  const binary = window.atob(padded);
-  const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
 }
 
 export function useAuth() {
@@ -282,14 +255,18 @@ function clearLargeArtxLocalCache() {
 
 async function fetchAuth(action: "register" | "login" | "me" | "logout" | "social", payload: Record<string, unknown>) {
   const apiBaseUrl = getAuthApiBaseUrl();
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 12_000);
   let response: Response;
   try {
-    response = await postAuthRequest(apiBaseUrl, action, payload);
-  } catch (error) {
-    await warmAuthApi(apiBaseUrl);
-    response = await postAuthRequest(apiBaseUrl, action, payload, 45_000).catch(() => {
-      throw error;
+    response = await fetch(`${apiBaseUrl}/api/auth/${action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
     });
+  } finally {
+    window.clearTimeout(timeout);
   }
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) {
@@ -337,35 +314,27 @@ function authenticateLocally(action: "login" | "register" | "registerOrLogin", u
 
 function readLocalUsers() {
   try {
-    return await fetch(`${apiBaseUrl}/api/auth/${action}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-  } finally {
-    window.clearTimeout(timeout);
-  }
-}
-
-async function warmAuthApi(apiBaseUrl: string) {
-  try {
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 15_000);
-    try {
-      await fetch(`${apiBaseUrl}/api/health`, { signal: controller.signal });
-    } finally {
-      window.clearTimeout(timeout);
-    }
+    const raw = localStorage.getItem(LOCAL_AUTH_USERS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((item): item is AuthUser & { password: string } => {
+      return Boolean(item && typeof item.id === "string" && typeof item.username === "string" && typeof item.password === "string");
+    }) : [];
   } catch {
-    // The follow-up auth request will surface the final availability state.
+    return [];
   }
 }
 
-function getOAuthStartUrl(provider: "google" | "wechat" | "github" | "meta") {
-  const apiBaseUrl = getAuthApiBaseUrl();
-  const returnTo = window.location.href;
-  return `${apiBaseUrl}/api/auth/oauth/${provider}/start?returnTo=${encodeURIComponent(returnTo)}`;
+function writeLocalUsers(users: Array<AuthUser & { password: string }>) {
+  try {
+    localStorage.setItem(LOCAL_AUTH_USERS_KEY, JSON.stringify(users));
+  } catch {
+    clearLargeArtxLocalCache();
+    localStorage.setItem(LOCAL_AUTH_USERS_KEY, JSON.stringify(users));
+  }
+}
+
+function isGithubPagesTest() {
+  return typeof window !== "undefined" && window.location.hostname.endsWith("github.io");
 }
 
 function getAuthApiBaseUrl() {
