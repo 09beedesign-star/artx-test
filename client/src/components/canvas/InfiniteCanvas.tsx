@@ -5646,6 +5646,10 @@ function BottomPromptBar({
         : effectivePrompt;
       const visiblePrompt = effectivePrompt;
       const submittedRefs = typeof overridePrompt === "string" ? [] : referencedAssets.map(asset => ({ ...asset }));
+      if (activeSkill?.capability === "image_edit" && submittedRefs.length === 0) {
+        toast("请先选择一张图片", { description: "「局部编辑改图」需要基于画布图片或参考图进行编辑。" });
+        return;
+      }
       const selectedGenerationModel = autoRunModelRef.current || model;
       const selectedTextModel = "gpt-5.4-mini";
       autoRunModelRef.current = null;
@@ -5690,7 +5694,17 @@ function BottomPromptBar({
           dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
           toast("AI 判断为生成图片", { description: imagePrompt.slice(0, 90) });
           try {
-            const result = await generateAiImages(payload);
+            const result = activeSkill?.capability === "image_edit" && targetReference
+              ? await editImageWithPrompt({
+                  imageSrc: targetReference.src,
+                  model: "gpt-image-2",
+                  prompt: payload.prompt,
+                  referencedAssets: submittedRefs.slice(0, -1),
+                  skillId: activeSkill.id,
+                  targetWidth: targetReference.width,
+                  targetHeight: targetReference.height,
+                })
+              : await generateAiImages(payload);
             dispatchImageGenerationTask({ ...payload, status: "completed", images: result.images }, projectId);
           } catch (error) {
             const message = error instanceof Error ? error.message : "请稍后重试";
@@ -8227,6 +8241,16 @@ function CanvasAssistantPanel({
       ...submittedImages,
       ...submittedAnnotations.map((ann, index) => ({ id: ann.id, src: ann.src, title: `注释 ${index + 1} · ${ann.title}` })),
     ];
+    if (activeSkill?.capability === "image_edit" && assistantImages.length === 0) {
+      setMessages(prev => [...prev, {
+        id: `assistant-skill-reference-required-${Date.now()}`,
+        role: "assistant",
+        content: "「局部编辑改图」需要先选择一张画布图片或上传参考图。我会基于那张图片执行去背景、擦除、扩图、换风格或局部重绘。",
+        timestamp: new Date(),
+      }]);
+      setIsSubmitting(false);
+      return;
+    }
     try {
       const decision = assistantModelTab === "image"
         ? await routeCreativeIntent({
@@ -8280,7 +8304,7 @@ function CanvasAssistantPanel({
           imagePrompt,
         });
         const generationId = `right-assistant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-        const shouldEditTargetReference = assistantImages.length >= 2;
+        const shouldEditTargetReference = activeSkill?.capability === "image_edit" ? assistantImages.length >= 1 : assistantImages.length >= 2;
         const targetReference = shouldEditTargetReference ? assistantImages[assistantImages.length - 1] : undefined;
         const sourceReferences = shouldEditTargetReference ? assistantImages.slice(0, -1) : assistantImages;
         const targetDisplaySize = targetReference?.width && targetReference?.height
