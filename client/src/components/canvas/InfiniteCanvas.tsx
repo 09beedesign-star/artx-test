@@ -6888,7 +6888,7 @@ function ImageGeneratorPopover({ isDark, projectId, onClose }: { isDark: boolean
   const [modelOpen, setModelOpen] = useState(false);
   const [ratio, setRatio] = useState("1:1");
   const [count, setCount] = useState(2);
-  const [referencesEnabled, setReferencesEnabled] = useState(true);
+  const [referencesEnabled, setReferencesEnabled] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const modelRef = useRef<HTMLDivElement>(null);
 
@@ -9049,7 +9049,7 @@ function CanvasAssistantPanel({
                 <div className="flex shrink-0 items-center" style={{ gap: 6 }}>
                   <button
                     disabled={!canSubmit}
-                    className="h-10 w-10 rounded-[var(--radius-lg-design)] flex items-center justify-center disabled:cursor-not-allowed transition-all hover:scale-[1.03] active:scale-95"
+                    className="h-8 w-8 rounded-[var(--radius-lg-design)] flex items-center justify-center disabled:cursor-not-allowed transition-all hover:scale-[1.03] active:scale-95"
                     style={{
                       background: canSubmit || isSubmitting ? "#C5ED47" : (isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"),
                       color: canSubmit || isSubmitting ? "#000" : sub,
@@ -9060,7 +9060,7 @@ function CanvasAssistantPanel({
                     title={isSubmitting ? "处理中" : "发送"}
                     aria-label={isSubmitting ? "处理中" : "发送"}
                   >
-                    {isSubmitting ? <RefreshCw size={16} className="animate-spin" /> : <Send size={18} />}
+                    {isSubmitting ? <RefreshCw size={14} className="animate-spin" /> : <Send size={15} />}
                   </button>
                 </div>
               </div>
