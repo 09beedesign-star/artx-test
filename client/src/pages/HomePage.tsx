@@ -162,9 +162,17 @@ export default function HomePage() {
     homeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  const handleStartExperience = () => {
+    if (isAuthenticated) {
+      navigate("/workspace");
+      return;
+    }
+    setPanelMode("login");
+  };
+
   return (
     <main className="h-screen overflow-y-auto bg-black text-white scroll-smooth">
-      <header className="fixed left-0 right-0 top-0 z-50 flex h-[64px] items-center gap-4 bg-black/20 px-4 backdrop-blur-[18px] sm:px-8 lg:px-20">
+      <header className="fixed left-0 right-0 top-0 z-50 flex h-[64px] items-center gap-3 bg-black/20 px-4 backdrop-blur-[18px] sm:gap-4 sm:px-8 lg:px-20">
         <button
           type="button"
           onClick={() => {
@@ -197,17 +205,15 @@ export default function HomePage() {
             navigate("/help");
           }}
         />
-        {isAuthenticated && (
-          <div className="ml-auto flex shrink-0 items-center gap-2">
-            <button
-              type="button"
-              onClick={() => navigate("/workspace")}
-              className="h-10 rounded-md border border-[#936CFF] bg-transparent px-4 text-sm font-medium text-[#936CFF] transition-colors hover:bg-[#936CFF] hover:text-white"
-            >
-              进入工作台
-            </button>
-          </div>
-        )}
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={handleStartExperience}
+            className="h-10 shrink-0 whitespace-nowrap rounded-md bg-[#936CFF] px-4 text-sm font-medium text-white shadow-[0_10px_28px_rgba(147,108,255,0.30)] transition-colors hover:bg-[#8257ff]"
+          >
+            开始体验
+          </button>
+        </div>
       </header>
       <section ref={homeRef} className="relative min-h-screen overflow-hidden">
         <div
