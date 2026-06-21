@@ -8,6 +8,13 @@ export type AiModelOption = {
   description?: string;
 };
 
+export const AUTO_AI_MODEL: AiModelOption = {
+  id: "auto",
+  label: "auto",
+  color: "oklch(0.78 0.18 120)",
+  description: "根据提示词自动选择对话或生图模型",
+};
+
 export const IMAGE_AI_MODELS: AiModelOption[] = [
   { id: "gpt-image-2", label: "GPT Image 2", color: "oklch(0.72 0.18 200)" },
 ];
@@ -17,6 +24,14 @@ export const TEXT_AI_MODELS: AiModelOption[] = [
   { id: "gpt-5.4", label: "GPT-5.4", color: "oklch(0.70 0.16 255)" },
   { id: "gpt-5.4-mini", label: "GPT-5.4 mini", color: "oklch(0.74 0.14 230)" },
   { id: "gpt-5.5", label: "GPT-5.5", color: "oklch(0.66 0.18 280)" },
+];
+
+export const IMAGE_AI_MODEL_OPTIONS: AiModelOption[] = [AUTO_AI_MODEL, ...IMAGE_AI_MODELS];
+export const TEXT_AI_MODEL_OPTIONS: AiModelOption[] = [AUTO_AI_MODEL, ...TEXT_AI_MODELS];
+export const ALL_AI_MODEL_OPTIONS: AiModelOption[] = [
+  AUTO_AI_MODEL,
+  ...IMAGE_AI_MODELS,
+  ...TEXT_AI_MODELS,
 ];
 
 export type AssetType = "image" | "video" | "brand" | "poster";

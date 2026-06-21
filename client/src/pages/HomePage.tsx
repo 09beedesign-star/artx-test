@@ -103,7 +103,7 @@ export default function HomePage() {
     sessionStorage.setItem("artx:pending-home-prompt", JSON.stringify({
       projectId: project.id,
       prompt: text,
-      model: "artx-image-v1",
+      model: "auto",
       createdAt: project.createdAt,
     }));
     toast("已创建新画布", { description: text.slice(0, 80) });
