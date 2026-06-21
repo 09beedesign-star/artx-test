@@ -3806,59 +3806,65 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
               />
               <canvas ref={eraseMaskCanvasRef} style={{ display: "none" }} />
               <div
-                className="absolute left-1/2 flex items-center gap-2 rounded-[var(--radius-lg-design)] px-2.5 py-2 shadow-xl"
+                className="absolute left-1/2 rounded-[var(--radius-lg-design)] shadow-xl"
                 style={{
                   top: `calc(100% + ${12 * stableUiScale}px)`,
                   transform: `translateX(-50%) scale(${stableUiScale})`,
                   transformOrigin: "top center",
+                  width: 704,
+                  padding: "10px 16px",
                   background: "rgba(18,18,28,0.94)",
                   border: "1px solid rgba(255,255,255,0.16)",
                   color: "white",
                   backdropFilter: "blur(14px)",
-                  whiteSpace: "nowrap",
-                  flexWrap: "nowrap",
                   maxWidth: "calc(100vw - 32px)",
                 }}
                 onPointerDown={event => event.stopPropagation()}
                 onClick={event => event.stopPropagation()}
               >
-                <Eraser size={14} />
-                <span className="type-caption" style={{ fontWeight: 700, whiteSpace: "nowrap" }}>橡皮工具</span>
-                <input
-                  type="range"
-                  min={12}
-                  max={96}
-                  step={2}
-                  value={eraseBrushSize}
-                  aria-label="橡皮尺寸"
-                  onChange={event => setEraseBrushSize(Number(event.target.value))}
-                  style={{ width: 92, accentColor: "oklch(0.66 0.23 290)" }}
-                />
-                <span className="type-caption" style={{ minWidth: 34, color: "rgba(255,255,255,0.72)" }}>{eraseBrushSize}px</span>
-                {[
-                  { label: "清空", onClick: resetEraseCanvases, primary: false },
-                  { label: "取消", onClick: cancelErase, primary: false },
-                  { label: "立即使用", onClick: applyErase, primary: true },
-                ].map(action => (
-                  <button
-                    key={action.label}
-                    type="button"
-                    className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5"
-                    style={{
-                      minWidth: action.primary ? 72 : 52,
-                      color: action.primary ? "white" : "rgba(255,255,255,0.78)",
-                      background: action.primary ? "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.72 0.18 205))" : "rgba(255,255,255,0.08)",
-                      whiteSpace: "nowrap",
-                      wordBreak: "keep-all",
-                      writingMode: "horizontal-tb",
-                      textAlign: "center",
-                      lineHeight: 1.2,
-                    }}
-                    onClick={action.onClick}
-                  >
-                    {action.label}
-                  </button>
-                ))}
+                <div className="flex items-center justify-center gap-2">
+                  <Eraser size={12} />
+                  <span className="type-caption" style={{ fontWeight: 700, fontSize: 12, whiteSpace: "nowrap" }}>橡皮工具</span>
+                  <input
+                    type="range"
+                    min={12}
+                    max={96}
+                    step={2}
+                    value={eraseBrushSize}
+                    aria-label="橡皮尺寸"
+                    onChange={event => setEraseBrushSize(Number(event.target.value))}
+                    style={{ width: 146, accentColor: "oklch(0.66 0.23 290)" }}
+                  />
+                  <span className="type-caption" style={{ minWidth: 32, fontSize: 12, color: "rgba(255,255,255,0.72)" }}>{eraseBrushSize}px</span>
+                </div>
+                <div className="mt-2 flex items-center justify-center gap-2">
+                  {[
+                    { label: "清空", onClick: resetEraseCanvases, primary: false },
+                    { label: "取消", onClick: cancelErase, primary: false },
+                    { label: "立即使用", onClick: applyErase, primary: true },
+                  ].map(action => (
+                    <button
+                      key={action.label}
+                      type="button"
+                      className="type-caption rounded-[var(--radius-md-design)]"
+                      style={{
+                        width: action.primary ? 96 : 82,
+                        height: 34,
+                        color: action.primary ? "white" : "rgba(255,255,255,0.78)",
+                        background: action.primary ? "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.72 0.18 205))" : "rgba(255,255,255,0.08)",
+                        whiteSpace: "nowrap",
+                        wordBreak: "keep-all",
+                        writingMode: "horizontal-tb",
+                        textAlign: "center",
+                        lineHeight: 1.2,
+                        fontSize: 12,
+                      }}
+                      onClick={action.onClick}
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           )}
