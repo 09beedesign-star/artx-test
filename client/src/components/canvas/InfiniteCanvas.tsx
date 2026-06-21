@@ -5120,6 +5120,7 @@ type ImageGeneratorPayload = {
   status?: "pending" | "completed" | "failed";
   error?: string;
   images?: Array<{ src: string; width: number; height: number }>;
+  generationStartedAt?: number;
   placement?: { x: number; y: number };
   displaySize?: { w: number; h: number };
   titleBase?: string;
@@ -5382,6 +5383,7 @@ const CANVAS_IMAGE_DB_NAME = "artx-canvas-images";
 const CANVAS_IMAGE_STORE_NAME = "images";
 const EXTRACT_TEXT_LOADING_MESSAGE = "正在提取文案中...";
 const AI_GENERATION_NETWORK_ERROR_MESSAGE = "对不起，网络开了个小差，请稍后重试";
+const AI_GENERATION_TIMEOUT_MS = 300_000;
 
 type PersistedCanvasState = {
   nodes: Node[];
@@ -5393,10 +5395,44 @@ type PersistedImageGenerationTask = Omit<ImageGeneratorPayload, "generationId" |
   generationId: string;
   status: "pending" | "completed" | "failed";
   updatedAt: number;
+  createdAt?: number;
+  generationStartedAt?: number;
   backgroundStartedAt?: number;
   consumedAt?: number;
   images?: Array<{ src?: string; width: number; height: number; storedKey?: string }>;
 };
+
+function getTimestampFromGenerationId(generationId?: string) {
+  const match = generationId?.match(/\d{13}/);
+  if (!match) return undefined;
+  const timestamp = Number(match[0]);
+  return Number.isFinite(timestamp) ? timestamp : undefined;
+}
+
+function getImageGenerationStartedAt(input: {
+  generationId?: string;
+  generationStartedAt?: unknown;
+  createdAt?: unknown;
+  backgroundStartedAt?: unknown;
+  updatedAt?: unknown;
+}) {
+  const explicitStartedAt = typeof input.generationStartedAt === "number" ? input.generationStartedAt : undefined;
+  const createdAt = typeof input.createdAt === "number" ? input.createdAt : undefined;
+  const idTimestamp = getTimestampFromGenerationId(input.generationId);
+  const backgroundStartedAt = typeof input.backgroundStartedAt === "number" ? input.backgroundStartedAt : undefined;
+  const updatedAt = typeof input.updatedAt === "number" ? input.updatedAt : undefined;
+  return explicitStartedAt || createdAt || idTimestamp || backgroundStartedAt || updatedAt || Date.now();
+}
+
+function isImageGenerationTimedOut(input: {
+  generationId?: string;
+  generationStartedAt?: unknown;
+  createdAt?: unknown;
+  backgroundStartedAt?: unknown;
+  updatedAt?: unknown;
+}, now = Date.now()) {
+  return now - getImageGenerationStartedAt(input) >= AI_GENERATION_TIMEOUT_MS;
+}
 
 function isPendingImageGenerationNode(node: Node) {
   if (node.type !== "asset") return false;
@@ -5499,11 +5535,8 @@ function persistImageGenerationTask(detail: ImageGeneratorPayload, fallbackProje
   const status = detail.status || "pending";
   const projectId = detail.projectId || fallbackProjectId || "p1";
   const tasks = readPersistedImageGenerationTasks();
-  if (status === "pending") {
-    writePersistedImageGenerationTasks(tasks.filter(task => !(task.generationId === generationId && (task.projectId || "p1") === projectId)));
-    return;
-  }
   const previous = tasks.find(task => task.generationId === generationId && (task.projectId || "p1") === projectId);
+  const now = Date.now();
   const lightweightImages = detail.images?.map((image, index) => ({
     width: image.width,
     height: image.height,
@@ -5518,8 +5551,10 @@ function persistImageGenerationTask(detail: ImageGeneratorPayload, fallbackProje
     status,
     images: lightweightImages || previous?.images,
     referencedAssets: undefined,
+    createdAt: previous?.createdAt || detail.generationStartedAt || getTimestampFromGenerationId(generationId) || now,
+    generationStartedAt: previous?.generationStartedAt || detail.generationStartedAt || getTimestampFromGenerationId(generationId) || now,
     backgroundStartedAt: previous?.backgroundStartedAt,
-    updatedAt: Date.now(),
+    updatedAt: now,
     consumedAt: previous?.consumedAt,
   };
   writePersistedImageGenerationTasks([
@@ -5588,7 +5623,28 @@ async function consumeCompletedImageGenerationTasks(projectId: string) {
 }
 
 function readPendingImageGenerationTasks(projectId: string) {
-  return readPersistedImageGenerationTasks().filter(task => (
+  const now = Date.now();
+  const tasks = readPersistedImageGenerationTasks();
+  let changed = false;
+  const nextTasks = tasks.map(task => {
+    if (
+      (task.projectId || "p1") === (projectId || "p1") &&
+      task.status === "pending" &&
+      !task.consumedAt &&
+      isImageGenerationTimedOut(task, now)
+    ) {
+      changed = true;
+      return {
+        ...task,
+        status: "failed" as const,
+        error: AI_GENERATION_NETWORK_ERROR_MESSAGE,
+        updatedAt: now,
+      };
+    }
+    return task;
+  });
+  if (changed) writePersistedImageGenerationTasks(nextTasks);
+  return nextTasks.filter(task => (
     (task.projectId || "p1") === (projectId || "p1") &&
     task.status === "pending" &&
     !task.consumedAt
@@ -9506,6 +9562,21 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const taskProjectId = task.projectId || projectId;
     if (!generationId || !task.prompt?.trim()) return;
     if ((task as PersistedImageGenerationTask).status && (task as PersistedImageGenerationTask).status !== "pending") return;
+    const startedAt = getImageGenerationStartedAt(task);
+    const failTimedOutTask = () => {
+      dispatchImageGenerationTask({
+        ...(task as ImageGeneratorPayload),
+        generationId,
+        projectId: taskProjectId,
+        status: "failed",
+        error: AI_GENERATION_NETWORK_ERROR_MESSAGE,
+        generationStartedAt: startedAt,
+      }, taskProjectId);
+    };
+    if (Date.now() - startedAt >= AI_GENERATION_TIMEOUT_MS) {
+      failTimedOutTask();
+      return;
+    }
 
     const startTask = async () => {
       try {
@@ -9529,7 +9600,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     };
 
     const pollTask = async () => {
-      for (let attempt = 0; attempt < 90; attempt += 1) {
+      while (Date.now() - startedAt < AI_GENERATION_TIMEOUT_MS) {
         try {
           const result = await getBackgroundImageGenerationTask(generationId);
           if (result.status === "completed" && result.images?.length) {
@@ -9542,13 +9613,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : "";
-          if (/not found/i.test(message) && attempt > 2) {
+          if (/not found/i.test(message) && Date.now() - startedAt > 9_000) {
             dispatchImageGenerationTask({ ...(task as ImageGeneratorPayload), generationId, projectId: taskProjectId, status: "failed", error: AI_GENERATION_NETWORK_ERROR_MESSAGE }, taskProjectId);
             return;
           }
         }
         await new Promise(resolve => window.setTimeout(resolve, 3000));
       }
+      failTimedOutTask();
     };
 
     void startTask();
@@ -11040,7 +11112,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         y: center.y - size.h / 2,
       };
       if (detail.status === "pending") {
-        ensureBackgroundImageGeneration({ ...detail, projectId, generationId, status: "pending" });
+        const generationStartedAt = detail.generationStartedAt || getTimestampFromGenerationId(generationId) || Date.now();
+        ensureBackgroundImageGeneration({ ...detail, projectId, generationId, status: "pending", generationStartedAt });
         setNodes(nds => {
           pushHistory(nds, edgesRef.current);
           const placedNodes: Node[] = [];
@@ -11064,6 +11137,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 id,
                 assetId: "default",
                 generationId,
+                generationStartedAt,
                 generationIndex: index,
                 isGeneratingImage: true,
                 title: `正在全力生成中${detail.count > 1 ? ` ${index + 1}` : ""}`,
@@ -11140,6 +11214,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 ...data,
                 localSrc: image.src,
                 isGeneratingImage: false,
+                isGenerationFailed: false,
                 title: detail.titleBase ? `${detail.titleBase}${images.length > 1 ? ` ${index + 1}` : ""}` : `生成图像 · ${detail.style}${images.length > 1 ? ` ${index + 1}` : ""}`,
                 assetType: "AI 生成",
                 tags: [detail.model, detail.ratio, `${images.length}张`, detail.referencesEnabled ? "参考画布" : "无参考"],
@@ -11174,6 +11249,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               generationIndex: index,
               localSrc: image.src,
               isGeneratingImage: false,
+              isGenerationFailed: false,
               title: detail.titleBase ? `${detail.titleBase}${images.length > 1 ? ` ${index + 1}` : ""}` : `生成图像 · ${detail.style}${images.length > 1 ? ` ${index + 1}` : ""}`,
               assetType: "AI 生成",
               tags: [detail.model, detail.ratio, `${images.length}张`, detail.referencesEnabled ? "参考画布" : "无参考"],
@@ -11220,6 +11296,62 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       cancelled = true;
     };
   }, [canvasRestoreTick, ensureBackgroundImageGeneration, projectId]);
+
+  const failTimedOutImageGenerationNodes = useCallback(() => {
+    const now = Date.now();
+    let timedOutGenerationIds: string[] = [];
+    setNodes(nds => {
+      let changed = false;
+      const nextNodes = nds.map(node => {
+        if (node.type !== "asset") return node;
+        const data = node.data as Record<string, unknown>;
+        if (data.isGeneratingImage !== true || data.isGenerationFailed === true) return node;
+        if (!isImageGenerationTimedOut({
+          generationId: typeof data.generationId === "string" ? data.generationId : undefined,
+          generationStartedAt: data.generationStartedAt,
+        }, now)) {
+          return node;
+        }
+        changed = true;
+        if (typeof data.generationId === "string") timedOutGenerationIds.push(data.generationId);
+        return {
+          ...node,
+          data: {
+            ...data,
+            isGeneratingImage: false,
+            isGenerationFailed: true,
+            processingTitle: AI_GENERATION_NETWORK_ERROR_MESSAGE,
+            processingSubtitle: "",
+            title: AI_GENERATION_NETWORK_ERROR_MESSAGE,
+            sourceBackgroundSrc: undefined,
+          },
+        };
+      });
+      return changed ? nextNodes : nds;
+    });
+    timedOutGenerationIds = Array.from(new Set(timedOutGenerationIds));
+    timedOutGenerationIds.forEach(generationId => {
+      dispatchImageGenerationTask({
+        projectId,
+        generationId,
+        prompt: AI_GENERATION_NETWORK_ERROR_MESSAGE,
+        model: "timeout",
+        ratio: "1:1",
+        count: 1,
+        style: "超时失败",
+        referencesEnabled: false,
+        status: "failed",
+        error: AI_GENERATION_NETWORK_ERROR_MESSAGE,
+      }, projectId);
+    });
+  }, [projectId, setNodes]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    failTimedOutImageGenerationNodes();
+    const interval = window.setInterval(failTimedOutImageGenerationNodes, 5000);
+    return () => window.clearInterval(interval);
+  }, [failTimedOutImageGenerationNodes]);
 
   const handleProjectSaveAndNavigate = useCallback(() => {
     if (!pendingProject) return;
