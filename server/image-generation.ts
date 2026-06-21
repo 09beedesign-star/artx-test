@@ -38,6 +38,11 @@ type EraseImageInput = {
   preserveUnmaskedPixels?: boolean;
 };
 
+type ExtractImageTextInput = {
+  imageSrc: string;
+  model?: string;
+};
+
 type GeneratedImage = {
   src: string;
   width: number;
@@ -51,6 +56,12 @@ type ImageGenerationResponse = {
   images?: Array<{ b64_json?: string; url?: string }>;
   data?: Array<{ b64_json?: string; url?: string }>;
   choices?: Array<{ message?: { content?: string | unknown[]; images?: Array<{ b64_json?: string; url?: string }> } }>;
+  error?: { message?: string } | string;
+};
+
+type ImageTextResponse = {
+  choices?: Array<{ message?: { content?: string } }>;
+  output_text?: string;
   error?: { message?: string } | string;
 };
 
@@ -1783,6 +1794,50 @@ export async function enhanceImage(input: EnhanceImageInput): Promise<{ images: 
   }
 
   return enhanceImageWithPicWish(input.imageSrc);
+}
+
+export async function extractImageText(input: ExtractImageTextInput): Promise<{ text: string; provider: string }> {
+  if (!input.imageSrc?.trim()) {
+    throw new Error("Missing imageSrc");
+  }
+
+  const { apiKey, baseUrl, model } = getProviderConfig();
+  if (!apiKey) {
+    throw new Error("Missing AI_IMAGE_API_KEY");
+  }
+
+  const response = await fetch(getChatEndpoint(baseUrl), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: input.model || model,
+      messages: [{
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "请识别图片中所有可见文字，按阅读顺序输出原文。不要解释，不要翻译。如果没有可读文字，返回空字符串。",
+          },
+          { type: "image_url", image_url: { url: input.imageSrc } },
+        ],
+      }],
+      temperature: 0,
+    }),
+  });
+  const raw = await response.text();
+  const data = safeParseJson<ImageTextResponse>(raw) || {};
+  if (!response.ok) {
+    const message = typeof data.error === "string" ? data.error : data.error?.message;
+    throw new Error(message || `Image OCR provider returned ${response.status}`);
+  }
+
+  return {
+    text: (data.choices?.[0]?.message?.content || data.output_text || "").trim(),
+    provider: "vision-chat-ocr",
+  };
 }
 
 export async function editImageWithPrompt(input: EditImageInput): Promise<{ images: GeneratedImage[] }> {
