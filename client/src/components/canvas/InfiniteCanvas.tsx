@@ -2903,6 +2903,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const eraseLastPointRef = useRef<{ x: number; y: number } | null>(null);
   const eraseHasPaintRef = useRef(false);
   const [extractedTextDraft, setExtractedTextDraft] = useState(extractedText);
+  const extractedTextPanelRef = useRef<HTMLDivElement | null>(null);
   const displayTitle = (data.title as string) || asset?.title || "素材节点";
   const rotation = (data.rotation as number) || 0;
   const flipX = Boolean(data.flipX);
@@ -3441,6 +3442,14 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
         imageSrc,
         originalText: extractedText,
         editedText: nextText,
+        panelScreenRect: extractedTextPanelRef.current
+          ? {
+              left: extractedTextPanelRef.current.getBoundingClientRect().left,
+              top: extractedTextPanelRef.current.getBoundingClientRect().top,
+              right: extractedTextPanelRef.current.getBoundingClientRect().right,
+              bottom: extractedTextPanelRef.current.getBoundingClientRect().bottom,
+            }
+          : undefined,
       },
     }));
   }, [extractedText, extractedTextDraft, getRenderedImageSource, nodeId, setFlowNodes]);
@@ -3797,6 +3806,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
         </div>
         {extractedTextPanelOpen && (
           <div
+            ref={extractedTextPanelRef}
             className="absolute nodrag nopan shadow-2xl"
             style={{
               left: dispW + 14 * stableUiScale,
@@ -10657,11 +10667,23 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
   useEffect(() => {
     const applyHandler = async (e: Event) => {
-      const detail = (e as CustomEvent<{ nodeId: string; imageSrc: string; originalText: string; editedText: string }>).detail;
+      const detail = (e as CustomEvent<{
+        nodeId: string;
+        imageSrc: string;
+        originalText: string;
+        editedText: string;
+        panelScreenRect?: { left: number; top: number; right: number; bottom: number };
+      }>).detail;
       if (!detail?.nodeId || !detail.imageSrc || !detail.editedText.trim()) return;
       const sourceNode = nodesRef.current.find(n => n.id === detail.nodeId && n.type === "asset");
       if (!sourceNode) return;
       const sourceSize = getCanvasNodeSize(sourceNode);
+      const textPanelPlacement = detail.panelScreenRect
+        ? screenToFlowPosition({
+            x: detail.panelScreenRect.right + 12,
+            y: detail.panelScreenRect.top,
+          })
+        : undefined;
       try {
         const fallbackPrompt = `将图片中的文案替换为：${detail.editedText}`;
         await runDerivedImageGeneration({
@@ -10670,6 +10692,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           style: "文案编辑结果",
           nextW: sourceSize.width,
           nextH: sourceSize.height,
+          placement: textPanelPlacement,
           run: async () => {
             const optimizedPrompt = await callLLM({
               module: "image-text-relayout",
@@ -10731,7 +10754,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     };
     window.addEventListener("asset-text-edit-apply", applyHandler);
     return () => window.removeEventListener("asset-text-edit-apply", applyHandler);
-  }, [runDerivedImageGeneration, setNodes]);
+  }, [runDerivedImageGeneration, screenToFlowPosition, setNodes]);
 
   // ── 几何形参数面板（全局渲染，紧贴节点选框右侧 +6px） ──
   const [shapeCtxMenu, setShapeCtxMenu] = useState<{
