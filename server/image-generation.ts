@@ -18,10 +18,6 @@ type EnhanceImageInput = {
   level?: "4k";
 };
 
-type ExtractImageTextInput = {
-  imageSrc: string;
-};
-
 type EditImageInput = {
   imageSrc: string;
   model?: string;
@@ -89,17 +85,6 @@ type PicWishSegmentationResponse = {
     mask_obj?: string;
     image_width?: number;
     image_height?: number;
-    progress?: number;
-    state?: number;
-  };
-};
-
-type PicWishOcrResponse = {
-  status?: number;
-  message?: string;
-  data?: {
-    task_id?: string;
-    file?: string;
     progress?: number;
     state?: number;
   };
@@ -534,7 +519,7 @@ function bufferToImageFile(buffer: Buffer, mimeType: string) {
   return new File([buffer], getImageFileName(mimeType), { type: mimeType });
 }
 
-type PicWishVisualTaskType = "segmentation" | "scale" | "self-face-cutout" | "watermark";
+type PicWishVisualTaskType = "segmentation" | "scale" | "self-face-cutout" | "watermark" | "inpaint";
 
 function getPicWishTaskEndpoint(baseUrl: string, taskType: PicWishVisualTaskType) {
   return `${baseUrl.replace(/\/+$/, "")}/api/tasks/visual/${taskType}`;
@@ -658,99 +643,6 @@ async function runPicWishImageTask(
   });
 }
 
-function getPicWishOcrEndpoint(baseUrl: string) {
-  return `${baseUrl.replace(/\/+$/, "")}/api/tasks/document/ocr`;
-}
-
-function getPicWishOcrTaskId(data: PicWishOcrResponse) {
-  return data.data?.task_id || "";
-}
-
-function getPicWishOcrFileUrl(data: PicWishOcrResponse) {
-  return data.data?.file || "";
-}
-
-async function readPicWishOcrJson(response: Response, context: string): Promise<PicWishOcrResponse> {
-  const text = await response.text();
-  const data = safeParseJson<PicWishOcrResponse>(text);
-  if (!response.ok || !data) {
-    throw new Error(data?.message || `${context} returned ${response.status}${text ? `: ${text.slice(0, 180)}` : ""}`);
-  }
-  if (typeof data.status === "number" && data.status !== 200) {
-    throw new Error(data.message || `${context} returned status ${data.status}`);
-  }
-  return data;
-}
-
-async function pollPicWishOcrTask(taskId: string, apiKey: string, baseUrl: string): Promise<PicWishOcrResponse> {
-  const endpoint = `${getPicWishOcrEndpoint(baseUrl)}/${encodeURIComponent(taskId)}`;
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    await delay(1000);
-    const data = await readPicWishOcrJson(await fetch(endpoint, {
-      method: "GET",
-      headers: { "X-API-KEY": apiKey },
-    }), "PicWish OCR polling");
-    if (getPicWishOcrFileUrl(data)) return data;
-    if (data.data?.state && data.data.state < 0) {
-      throw new Error(data.message || "PicWish OCR task failed");
-    }
-  }
-  throw new Error("PicWish OCR timed out");
-}
-
-async function downloadPicWishOcrText(url: string, baseUrl: string) {
-  const absoluteUrl = toAbsoluteUrl(url, baseUrl);
-  const response = await fetch(absoluteUrl);
-  const text = await response.text();
-  if (!response.ok) {
-    throw new Error(`Failed to download PicWish OCR result: ${response.status}${text ? `: ${text.slice(0, 180)}` : ""}`);
-  }
-  return text.trim();
-}
-
-async function extractTextWithPicWish(imageSrc: string): Promise<{ text: string; provider: string }> {
-  const { apiKey, baseUrl } = getPicWishConfig();
-  if (!apiKey) {
-    throw new Error("Missing PICWISH_API_KEY");
-  }
-
-  const body = new FormData();
-  body.append("sync", "0");
-  body.append("format", "txt");
-  if (/^https?:\/\//i.test(imageSrc)) {
-    body.append("image_url", imageSrc);
-  } else {
-    const imageData = await imageSrcToBuffer(imageSrc);
-    body.append("image_file", bufferToImageFile(imageData.buffer, imageData.mimeType));
-  }
-
-  const created = await readPicWishOcrJson(await fetch(getPicWishOcrEndpoint(baseUrl), {
-    method: "POST",
-    headers: { "X-API-KEY": apiKey },
-    body,
-  }), "PicWish OCR");
-
-  const immediateFile = getPicWishOcrFileUrl(created);
-  const taskId = getPicWishOcrTaskId(created);
-  const result = immediateFile
-    ? created
-    : taskId
-      ? await pollPicWishOcrTask(taskId, apiKey, baseUrl)
-      : null;
-  if (!result) {
-    throw new Error("PicWish OCR did not return a task id");
-  }
-  const fileUrl = getPicWishOcrFileUrl(result);
-  if (!fileUrl) {
-    throw new Error("PicWish OCR did not return a result file");
-  }
-
-  return {
-    text: await downloadPicWishOcrText(fileUrl, baseUrl),
-    provider: "picwish-smart-ocr",
-  };
-}
-
 async function removeBackgroundWithPicWish(buffer: Buffer, mimeType: string): Promise<{ images: GeneratedImage[] }> {
   return runPicWishImageTask("segmentation", buffer, mimeType);
 }
@@ -760,7 +652,7 @@ async function removeFaceWithPicWish(buffer: Buffer, mimeType: string): Promise<
 }
 
 async function eraseWithPicWish(imageBuffer: Buffer, imageMimeType: string, maskBuffer: Buffer, maskMimeType: string): Promise<{ images: GeneratedImage[] }> {
-  return runPicWishImageTask("watermark", imageBuffer, imageMimeType, { maskBuffer, maskMimeType });
+  return runPicWishImageTask("inpaint", imageBuffer, imageMimeType, { maskBuffer, maskMimeType });
 }
 
 async function createPicWishEraseMasks(maskBuffer: Buffer, width: number, height: number): Promise<{ providerMaskBuffer: Buffer; eraseMaskBuffer: Buffer }> {
@@ -1891,14 +1783,6 @@ export async function enhanceImage(input: EnhanceImageInput): Promise<{ images: 
   }
 
   return enhanceImageWithPicWish(input.imageSrc);
-}
-
-export async function extractImageText(input: ExtractImageTextInput): Promise<{ text: string; provider: string }> {
-  if (!input.imageSrc?.trim()) {
-    throw new Error("Missing imageSrc");
-  }
-
-  return extractTextWithPicWish(input.imageSrc);
 }
 
 export async function editImageWithPrompt(input: EditImageInput): Promise<{ images: GeneratedImage[] }> {
