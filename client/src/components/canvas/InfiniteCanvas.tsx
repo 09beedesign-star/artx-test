@@ -87,7 +87,7 @@ function HdIcon({ size = 15 }: { size?: number }) {
   );
 }
 
-function AiAnnotationIcon({ size = 17 }: { size?: number }) {
+function AiAnnotationIcon({ size = 17, cutoutBg = "rgba(22,22,30,0.96)" }: { size?: number; cutoutBg?: string }) {
   return (
     <span
       style={{
@@ -100,15 +100,30 @@ function AiAnnotationIcon({ size = 17 }: { size?: number }) {
       }}
     >
       <MessageCircle size={size} />
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          right: -2,
+          top: -3,
+          width: Math.max(10, Math.round(size * 0.64)),
+          height: Math.max(10, Math.round(size * 0.64)),
+          borderRadius: "50%",
+          background: cutoutBg,
+          boxShadow: `0 0 0 1px ${cutoutBg}`,
+          pointerEvents: "none",
+        }}
+      />
       <Sparkles
-        size={Math.max(8, Math.round(size * 0.58))}
+        size={Math.max(7, Math.round(size * 0.52))}
         strokeWidth={2.4}
         style={{
           position: "absolute",
-          right: -3,
-          top: -4,
+          right: -1,
+          top: -3,
           color: "oklch(0.74 0.20 290)",
           filter: "drop-shadow(0 0 5px oklch(0.64 0.22 290 / 0.55))",
+          pointerEvents: "none",
         }}
       />
     </span>
@@ -118,9 +133,11 @@ function AiAnnotationIcon({ size = 17 }: { size?: number }) {
 function AiDecoratedIcon({
   children,
   size = 15,
+  cutoutBg = "rgba(22,22,30,0.96)",
 }: {
   children: ReactNode;
   size?: number;
+  cutoutBg?: string;
 }) {
   return (
     <span
@@ -134,13 +151,27 @@ function AiDecoratedIcon({
       }}
     >
       {children}
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          right: -3,
+          top: -4,
+          width: Math.max(9, Math.round(size * 0.62)),
+          height: Math.max(9, Math.round(size * 0.62)),
+          borderRadius: "50%",
+          background: cutoutBg,
+          boxShadow: `0 0 0 1px ${cutoutBg}`,
+          pointerEvents: "none",
+        }}
+      />
       <Sparkles
-        size={Math.max(7, Math.round(size * 0.52))}
+        size={Math.max(6, Math.round(size * 0.46))}
         strokeWidth={2.4}
         style={{
           position: "absolute",
-          right: -4,
-          top: -4,
+          right: -2,
+          top: -3,
           color: "oklch(0.74 0.20 290)",
           filter: "drop-shadow(0 0 5px oklch(0.64 0.22 290 / 0.48))",
           pointerEvents: "none",
@@ -288,6 +319,8 @@ function SkillPointSelector({
 }) {
   const [open, setOpen] = useState(false);
   const selectorRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [popoverStyle, setPopoverStyle] = useState<React.CSSProperties | null>(null);
   const groupedSkills = useMemo(() => {
     const groups = new Map<string, typeof skillStoreItems>();
     skillStoreItems.forEach(skill => {
@@ -303,22 +336,57 @@ function SkillPointSelector({
   const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
   const activeBg = isDark ? "oklch(0.58 0.22 290 / 0.18)" : "oklch(0.58 0.22 290 / 0.12)";
   const activeText = isDark ? "oklch(0.82 0.16 290)" : "oklch(0.46 0.18 290)";
+  const updatePopoverPosition = useCallback(() => {
+    const trigger = selectorRef.current;
+    if (!trigger) return;
+    const margin = 12;
+    const gap = 8;
+    const width = Math.min(288, Math.max(220, window.innerWidth - margin * 2));
+    const maxHeight = Math.max(180, Math.min(360, window.innerHeight - margin * 2));
+    const rect = trigger.getBoundingClientRect();
+    const spaceAbove = rect.top - margin - gap;
+    const spaceBelow = window.innerHeight - rect.bottom - margin - gap;
+    const openAbove = spaceAbove >= Math.min(maxHeight, 260) || spaceAbove >= spaceBelow;
+    const availableHeight = Math.max(160, Math.min(maxHeight, openAbove ? spaceAbove : spaceBelow));
+    const left = Math.min(Math.max(margin, rect.left), window.innerWidth - width - margin);
+    const top = openAbove
+      ? Math.max(margin, rect.top - gap - availableHeight)
+      : Math.min(window.innerHeight - margin - availableHeight, rect.bottom + gap);
+    setPopoverStyle({
+      position: "fixed",
+      left,
+      top,
+      width,
+      maxHeight: availableHeight,
+    });
+  }, []);
 
   useEffect(() => {
     if (!open) return;
     const handlePointerDown = (event: MouseEvent) => {
-      if (!selectorRef.current?.contains(event.target as HTMLElement)) setOpen(false);
+      const target = event.target as HTMLElement;
+      if (!selectorRef.current?.contains(target) && !popoverRef.current?.contains(target)) setOpen(false);
     };
+    updatePopoverPosition();
     window.addEventListener("mousedown", handlePointerDown);
-    return () => window.removeEventListener("mousedown", handlePointerDown);
-  }, [open]);
+    window.addEventListener("resize", updatePopoverPosition);
+    window.addEventListener("scroll", updatePopoverPosition, true);
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("resize", updatePopoverPosition);
+      window.removeEventListener("scroll", updatePopoverPosition, true);
+    };
+  }, [open, updatePopoverPosition]);
 
   return (
     <div ref={selectorRef} className="relative nodrag nopan" style={{ zIndex: open ? 1200 : 100 }}>
       <button
         type="button"
         title="极点选择器 / Skill"
-        onClick={() => setOpen(value => !value)}
+        onClick={() => {
+          setOpen(value => !value);
+          requestAnimationFrame(updatePopoverPosition);
+        }}
         className="flex h-8 max-w-[74px] items-center gap-1 rounded-[var(--radius-md-design)] px-2 transition-colors"
         style={{
           background: activeSkill ? activeBg : bg,
@@ -335,14 +403,14 @@ function SkillPointSelector({
       </button>
       {open && (
         <div
-          className="model-selector-scroll absolute bottom-[calc(100%+8px)] left-0 overflow-y-auto rounded-[var(--radius-md-design)] p-1 shadow-2xl"
+          ref={popoverRef}
+          className="model-selector-scroll overflow-y-auto rounded-[var(--radius-md-design)] p-1 shadow-2xl"
           style={{
-            width: 288,
-            maxHeight: 360,
+            ...(popoverStyle || {}),
             background: popBg,
             border: `1px solid ${border}`,
             color: text,
-            zIndex: 1201,
+            zIndex: 9999,
           }}
         >
           {activeSkill && (
@@ -1277,17 +1345,20 @@ function AssetFloatingToolbar({ isDark, position, onAction }: {
   const moreBg = isDark ? "rgba(24,24,34,0.98)" : "rgba(255,255,255,0.98)";
   const moreText = isDark ? "rgba(255,255,255,0.88)" : "rgba(28,28,40,0.88)";
   const moreSub = isDark ? "rgba(255,255,255,0.48)" : "rgba(28,28,40,0.45)";
+  const dividerColor = isDark ? "rgba(255,255,255,0.28)" : "rgba(28,28,40,0.22)";
   const tools = [
     { icon: <Move size={15} />, label: "移动对象", action: "move-object" },
     { icon: <RotateCw size={15} />, label: "旋转与反转", action: "flip-rotate" },
     { icon: <Crop size={15} />, label: "裁切", action: "crop" },
-    { icon: <AiDecoratedIcon><BadgeCheck size={15} /></AiDecoratedIcon>, label: "智能编辑", action: "quick-edit" },
-    { icon: <AiDecoratedIcon><ImageOff size={15} /></AiDecoratedIcon>, label: "去背景", action: "remove-background" },
-    { icon: <AiDecoratedIcon><Eraser size={15} /></AiDecoratedIcon>, label: "橡皮工具", action: "erase" },
-    { icon: <AiDecoratedIcon><PanelTopOpen size={15} /></AiDecoratedIcon>, label: "编辑元素", action: "edit-elements" },
-    { icon: <AiDecoratedIcon><Type size={15} /></AiDecoratedIcon>, label: "智能文案", action: "edit-text" },
+    { type: "divider" as const, key: "after-transform" },
+    { icon: <AiDecoratedIcon cutoutBg={toolBg}><BadgeCheck size={15} /></AiDecoratedIcon>, label: "智能编辑", action: "quick-edit" },
+    { icon: <AiDecoratedIcon cutoutBg={toolBg}><ImageOff size={15} /></AiDecoratedIcon>, label: "去背景", action: "remove-background" },
+    { icon: <AiDecoratedIcon cutoutBg={toolBg}><Eraser size={15} /></AiDecoratedIcon>, label: "橡皮工具", action: "erase" },
+    { icon: <AiDecoratedIcon cutoutBg={toolBg}><PanelTopOpen size={15} /></AiDecoratedIcon>, label: "编辑元素", action: "edit-elements" },
+    { icon: <AiDecoratedIcon cutoutBg={toolBg}><Type size={15} /></AiDecoratedIcon>, label: "智能文案", action: "edit-text" },
     { icon: <HdIcon size={15} />, label: "HD 4K", action: "upscale" },
     { icon: <Expand size={15} />, label: "扩展", action: "expand" },
+    { type: "divider" as const, key: "after-expand" },
     { icon: <MoreHorizontal size={15} />, label: "更多", action: "more" },
     { icon: <Download size={15} />, label: "下载", action: "download" },
   ];
@@ -1303,6 +1374,20 @@ function AssetFloatingToolbar({ isDark, position, onAction }: {
     return () => { window.clearTimeout(t); window.removeEventListener("mousedown", handler); };
   }, [moreOpen]);
   const buttonClass = "relative w-8 h-8 rounded-[var(--radius-md-design)] flex items-center justify-center transition-all active:scale-90";
+  const renderDivider = (key: string) => (
+    <div
+      key={key}
+      aria-hidden="true"
+      style={{
+        width: 22,
+        height: 2,
+        borderRadius: 999,
+        background: dividerColor,
+        margin: "5px 0",
+        flex: "0 0 auto",
+      }}
+    />
+  );
   const renderButton = (item: { icon: ReactNode; label: string; action: string }) => (
     <div key={item.action} className="relative">
       {hoveredAction === item.action && (
@@ -1401,7 +1486,7 @@ function AssetFloatingToolbar({ isDark, position, onAction }: {
           gap: 0,
         }}
       >
-        {tools.map(renderButton)}
+        {tools.map(item => item.type === "divider" ? renderDivider(item.key) : renderButton(item))}
       </div>
     </div>
   );
@@ -6845,11 +6930,11 @@ function AssetEditPromptBar({
         position: "absolute",
         bottom: 16,
         left: 24,
-        right: Math.max(136, canvasRightInset) + 24,
-        width: "min(680px, 100%)",
+        right: Math.max(136, canvasRightInset) + 32,
+        maxWidth: "min(680px, calc(100% - 56px))",
         marginLeft: "auto",
         marginRight: "auto",
-        zIndex: 200,
+        zIndex: 106,
         background: isDark ? "rgba(18,18,28,0.97)" : "rgba(255,255,255,0.97)",
         backdropFilter: "blur(24px)",
         border: `1.5px solid oklch(0.62 0.22 290 / 55%)`,
@@ -7568,6 +7653,7 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
   const activeColor = "oklch(0.65 0.22 290)";
   const popBg = isDark ? "rgba(24,24,34,0.96)" : "rgba(255,255,255,0.96)";
   const tooltipBg = isDark ? "rgba(18,18,26,0.96)" : "rgba(30,30,40,0.92)";
+  const toolbarDividerColor = isDark ? "rgba(255,255,255,0.28)" : "rgba(28,28,40,0.22)";
 
   // 工具列表
   const tools = [
@@ -7578,7 +7664,7 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
     { id: "draw",         label: "铅笔",       icon: <Pencil size={17} /> },
     { id: "text",         label: "文字",       icon: <Type size={17} /> },
     { id: "image-ai",     label: "智能生图",   icon: <Sparkles size={17} /> },
-    { id: "annotate",     label: "智能注释",   icon: <AiAnnotationIcon size={17} /> },
+    { id: "annotate",     label: "智能注释",   icon: <AiAnnotationIcon size={17} cutoutBg={bg} /> },
   ];
 
   // 几何形二级菜单
@@ -7763,42 +7849,57 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
         style={{ background: bg, border: `1px solid ${border}`, backdropFilter: "blur(18px)" }}
       >
         {tools.map(tool => (
-          <div key={tool.id} className="relative">
-            {/* Hover tooltip — 显示在图标下方 */}
-            {hoveredId === tool.id && (
+          <Fragment key={tool.id}>
+            {tool.id === "image-ai" && (
               <div
-                className="absolute top-full mt-2 left-1/2 pointer-events-none"
+                aria-hidden="true"
                 style={{
-                  transform: "translateX(-50%)",
-                  background: tooltipBg,
-                  color: "rgba(255,255,255,0.92)",
-                  borderRadius: 6,
-                  padding: "4px 9px",
-                  fontSize: 11,
-                  whiteSpace: "nowrap",
-                  boxShadow: "0 4px 16px rgba(0,0,0,0.28)",
-                  zIndex: 10,
+                  width: 2,
+                  height: 24,
+                  borderRadius: 999,
+                  background: toolbarDividerColor,
+                  margin: "0 6px",
+                  flex: "0 0 auto",
                 }}
-              >
-                {/* 小三角朝上 */}
-                <div style={{ position: "absolute", top: -4, left: "50%", transform: "translateX(-50%)", width: 0, height: 0, borderLeft: "4px solid transparent", borderRight: "4px solid transparent", borderBottom: `4px solid ${tooltipBg}` }} />
-                {tool.label}
-              </div>
+              />
             )}
-            <button
-              aria-label={tool.label}
-              className="relative flex h-9 w-9 items-center justify-center rounded-[var(--radius-md-design)] transition-all active:scale-95"
-              style={{
-                color: active === tool.id ? activeColor : textColor,
-                background: active === tool.id ? activeBg : "transparent",
-              }}
-              onClick={() => handleToolClick(tool.id)}
-              onMouseEnter={() => setHoveredId(tool.id)}
-              onMouseLeave={() => setHoveredId(null)}
-            >
-              {tool.icon}
-            </button>
-          </div>
+            <div className="relative">
+              {/* Hover tooltip — 显示在图标下方 */}
+              {hoveredId === tool.id && (
+                <div
+                  className="absolute top-full mt-2 left-1/2 pointer-events-none"
+                  style={{
+                    transform: "translateX(-50%)",
+                    background: tooltipBg,
+                    color: "rgba(255,255,255,0.92)",
+                    borderRadius: 6,
+                    padding: "4px 9px",
+                    fontSize: 11,
+                    whiteSpace: "nowrap",
+                    boxShadow: "0 4px 16px rgba(0,0,0,0.28)",
+                    zIndex: 10,
+                  }}
+                >
+                  {/* 小三角朝上 */}
+                  <div style={{ position: "absolute", top: -4, left: "50%", transform: "translateX(-50%)", width: 0, height: 0, borderLeft: "4px solid transparent", borderRight: "4px solid transparent", borderBottom: `4px solid ${tooltipBg}` }} />
+                  {tool.label}
+                </div>
+              )}
+              <button
+                aria-label={tool.label}
+                className="relative flex h-9 w-9 items-center justify-center rounded-[var(--radius-md-design)] transition-all active:scale-95"
+                style={{
+                  color: active === tool.id ? activeColor : textColor,
+                  background: active === tool.id ? activeBg : "transparent",
+                }}
+                onClick={() => handleToolClick(tool.id)}
+                onMouseEnter={() => setHoveredId(tool.id)}
+                onMouseLeave={() => setHoveredId(null)}
+              >
+                {tool.icon}
+              </button>
+            </div>
+          </Fragment>
         ))}
       </div>
     </div>
@@ -8090,7 +8191,7 @@ function CanvasAssistantPanel({
   const [composerSegments, setComposerSegments] = useState<AssistantComposerSegment[]>(() => [createAssistantTextSegment("")]);
   const [draggingComposerSegmentId, setDraggingComposerSegmentId] = useState<string | null>(null);
   const [dragOverComposerSegmentId, setDragOverComposerSegmentId] = useState<string | null>(null);
-  const composerInputRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
+  const composerInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const activeComposerSegmentIdRef = useRef<string | null>(null);
   const activeComposerCursorRef = useRef(0);
   const syncedReferenceIdsRef = useRef<Set<string>>(new Set());
@@ -8192,36 +8293,41 @@ function CanvasAssistantPanel({
     navigate("/workspace");
   };
 
-  const resizeComposerTextarea = useCallback((input: HTMLTextAreaElement | null) => {
-    if (!input) return;
-    input.style.height = "auto";
-    input.style.height = `${Math.max(24, input.scrollHeight)}px`;
-  }, []);
-
-  useEffect(() => {
-    Object.values(composerInputRefs.current).forEach(resizeComposerTextarea);
-  }, [composerSegments, resizeComposerTextarea]);
-
   const focusComposerSegment = useCallback((segmentId?: string | null) => {
     window.setTimeout(() => {
       const id = segmentId || activeComposerSegmentIdRef.current || composerSegments.find(segment => segment.type === "text")?.id;
       const input = id ? composerInputRefs.current[id] : null;
-      resizeComposerTextarea(input);
       input?.focus();
       if (input) {
         const nextPosition = input.value.length;
         input.setSelectionRange(nextPosition, nextPosition);
       }
     }, 60);
-  }, [composerSegments, resizeComposerTextarea]);
+  }, [composerSegments]);
+
+  const focusLeadingComposerSegment = useCallback(() => {
+    const firstTextSegment = composerSegments.find(segment => segment.type === "text");
+    if (!firstTextSegment) {
+      focusComposerSegment();
+      return;
+    }
+    activeComposerSegmentIdRef.current = firstTextSegment.id;
+    activeComposerCursorRef.current = 0;
+    window.setTimeout(() => {
+      const input = composerInputRefs.current[firstTextSegment.id];
+      input?.focus();
+      input?.setSelectionRange(0, 0);
+    }, 60);
+  }, [composerSegments, focusComposerSegment]);
 
   const setComposerTextSegment = useCallback((segmentId: string, value: string) => {
+    const singleLineValue = value.replace(/\s*\n+\s*/g, " ");
     setComposerSegments(prev => normalizeAssistantComposerSegments(prev.map(segment => (
-      segment.id === segmentId && segment.type === "text" ? { ...segment, text: value } : segment
+      segment.id === segmentId && segment.type === "text" ? { ...segment, text: singleLineValue } : segment
     ))));
   }, []);
 
-  const rememberComposerCursor = useCallback((segmentId: string, target: HTMLTextAreaElement) => {
+  const rememberComposerCursor = useCallback((segmentId: string, target: HTMLInputElement) => {
     activeComposerSegmentIdRef.current = segmentId;
     activeComposerCursorRef.current = target.selectionStart ?? target.value.length;
   }, []);
@@ -8283,7 +8389,7 @@ function CanvasAssistantPanel({
     setDragOverComposerSegmentId(null);
   }, []);
 
-  const handleComposerTextKeyDown = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>, segmentId: string) => {
+  const handleComposerTextKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement>, segmentId: string) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       void handleSubmit();
@@ -9166,7 +9272,16 @@ function CanvasAssistantPanel({
                   scrollbarWidth: "thin",
                   scrollbarColor: `${isDark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.18)"} transparent`,
                 }}
-                onMouseDown={() => focusComposerSegment()}
+                onMouseDown={(event) => {
+                  const target = event.target as HTMLElement;
+                  if (target.closest("[data-composer-token], input")) return;
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  if (event.clientX - rect.left <= 44) {
+                    focusLeadingComposerSegment();
+                    return;
+                  }
+                  focusComposerSegment();
+                }}
               >
                 {composerSegments.map(segment => {
                   if (segment.type === "image") {
@@ -9178,6 +9293,7 @@ function CanvasAssistantPanel({
                         onDragOver={event => handleComposerSegmentDragOver(event, segment.id)}
                         onDrop={event => handleComposerSegmentDrop(event, segment.id, "before")}
                         onDragEnd={handleComposerDragEnd}
+                        data-composer-token="image"
                         className="inline-flex max-w-[82px] items-center gap-1 rounded-[var(--radius-md-design)] px-1.5 py-0.5 align-middle"
                         style={{
                           background: isDark ? "rgba(197,237,71,0.16)" : "rgba(197,237,71,0.10)",
@@ -9214,6 +9330,7 @@ function CanvasAssistantPanel({
                         onDragOver={event => handleComposerSegmentDragOver(event, segment.id)}
                         onDrop={event => handleComposerSegmentDrop(event, segment.id, "before")}
                         onDragEnd={handleComposerDragEnd}
+                        data-composer-token="annotation"
                         className="inline-flex max-w-[92px] items-center gap-1 rounded-[var(--radius-md-design)] px-1.5 py-0.5 align-middle"
                         style={{
                           background: isDark ? "oklch(0.62 0.20 145 / 0.16)" : "oklch(0.62 0.17 145 / 0.10)",
@@ -9244,21 +9361,20 @@ function CanvasAssistantPanel({
                     );
                   }
                   const textWidth = segment.text
-                    ? Math.min(260, Math.max(16, segment.text.length * 12))
+                    ? Math.min(520, Math.max(16, segment.text.length * 12))
                     : composerSegments.length === 1
                       ? 220
-                      : 28;
+                      : 4;
                   return (
-                    <textarea
+                    <input
                       key={segment.id}
+                      type="text"
                       ref={node => {
                         composerInputRefs.current[segment.id] = node;
-                        resizeComposerTextarea(node);
                       }}
                       value={segment.text}
                       onChange={event => {
                         rememberComposerCursor(segment.id, event.currentTarget);
-                        resizeComposerTextarea(event.currentTarget);
                         setComposerTextSegment(segment.id, event.target.value);
                       }}
                       onClick={event => rememberComposerCursor(segment.id, event.currentTarget)}
@@ -9282,20 +9398,21 @@ function CanvasAssistantPanel({
                           ? `基于 ${composerAnnotations.length} 个注释点，描述组合生成意图...`
                           : "输入对当前画布的想法，可在文字之间插入引用图片..."
                         : ""}
-                      cols={1}
-                      rows={1}
-                      className="min-w-0 shrink-0 whitespace-pre-wrap break-words border-0 bg-transparent px-1 py-0 outline-none resize-none disabled:cursor-not-allowed"
+                      className="min-w-0 shrink-0 whitespace-nowrap border-0 bg-transparent px-1 py-0 outline-none disabled:cursor-not-allowed"
                       style={{
                         color: text,
                         opacity: 1,
                         fontSize: 12,
-                        lineHeight: 1.5,
+                        lineHeight: "24px",
+                        height: 24,
                         minHeight: 24,
                         overflow: "hidden",
                         width: `${textWidth}px`,
                         minWidth: `${textWidth}px`,
                         maxWidth: `${textWidth}px`,
                         flexBasis: `${textWidth}px`,
+                        wordBreak: "keep-all",
+                        overflowWrap: "normal",
                         margin: 0,
                       }}
                     />
@@ -13637,11 +13754,33 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const assetMorePanelData = assetMorePanelNode?.data as Record<string, unknown> | undefined;
   const assetMorePanelImageSrc = assetMorePanel ? getLatestAssetImageSource(assetMorePanel.nodeId) : "";
   const selectedImageBounds = selectedImageNode ? getCanvasNodeBounds(selectedImageNode) : getCanvasNodesBounds(nodes, selectedVisualNodeIds);
+  const selectedImageData = selectedImageNode?.data as Record<string, unknown> | undefined;
+  const selectedImageHasBottomPanel = Boolean(
+    selectedImageNode?.type === "asset" && (
+      selectedImageData?.isErasing ||
+      selectedImageData?.isExpanding ||
+      selectedImageData?.isCropping ||
+      selectedImageData?.isEditing
+    )
+  );
+  const imageToolbarScreenHeight = 436;
+  const imageToolbarGap = 14;
+  const imageToolbarBottomPanelReserve = selectedImageHasBottomPanel ? 96 : 0;
   const attachedImageToolbarPosition = selectedImageBounds
-    ? {
-        left: selectedImageBounds.x * viewport.zoom + viewport.x - 8,
-        top: selectedImageBounds.centerY * viewport.zoom + viewport.y,
-      }
+    ? (() => {
+        const screenTop = selectedImageBounds.y * viewport.zoom + viewport.y;
+        const screenBottom = selectedImageBounds.bottom * viewport.zoom + viewport.y - imageToolbarBottomPanelReserve;
+        const minTop = screenTop + imageToolbarGap + imageToolbarScreenHeight / 2;
+        const maxTop = screenBottom - imageToolbarGap - imageToolbarScreenHeight / 2;
+        const desiredTop = selectedImageBounds.centerY * viewport.zoom + viewport.y;
+        const top = maxTop >= minTop
+          ? Math.min(Math.max(desiredTop, minTop), maxTop)
+          : Math.min(desiredTop, Math.max(screenTop + imageToolbarGap + imageToolbarScreenHeight / 2, screenBottom - imageToolbarGap));
+        return {
+          left: selectedImageBounds.x * viewport.zoom + viewport.x - 8,
+          top,
+        };
+      })()
     : { left: 31, top: 0 };
   const displayNodesBase = nodes.map(n => {
     const nodeData = n.data as Record<string, unknown>;
