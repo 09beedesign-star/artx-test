@@ -71,6 +71,20 @@ GitHub Pages 构建时固定写入：
 
 前端 AI/API/Auth 请求应全部打到测试后端。若 AI 表现异常，优先检查 Render 环境变量和 `/api/health`，而不是重新发布前端。
 
+## 图片 AI 能力接口
+
+测试后端中的图片 AI 能力统一由 `server/index.ts` 暴露，前端通过 `client/src/lib/ai.ts` 调用。佐糖/PicWish 凭据只配置在 Render 环境变量中，代码仓库只保留变量名和调用路径，不写入密钥值。
+
+| 能力 | 前端命令入口 | 前端 API | 后端路由 | 后端能力 |
+| --- | --- | --- | --- | --- |
+| 去背景 | 图片节点左侧树状 bar「去背景」 | `removeImageBackground` | `POST /api/images/remove-background` | PicWish `segmentation` + 前景保护后处理 |
+| HD 高清化 | 图片节点左侧树状 bar「HD 4K」 | `enhanceImageToHd` | `POST /api/images/enhance` | PicWish `scale` |
+| 橡皮擦除 | 图片节点左侧树状 bar「橡皮工具」 | `eraseImageObjects` | `POST /api/images/erase` | PicWish `inpaint`，涂抹蒙版黑色为擦除区域、白色为保护区域 |
+| 去水印能力 | 图片节点左侧树状 bar「去水印」 | `removeImageWatermark` | `POST /api/images/remove-watermark` | PicWish `watermark` |
+| 智能创建背景 | 顶部常驻栏「智能创建背景」 | `createProductBackground` | `POST /api/images/create-background` | PicWish `r-background` |
+
+去水印能力不复用橡皮擦除接口；橡皮擦除继续只调用 PicWish `inpaint`，避免去水印和涂抹擦除两类能力互相影响。
+
 ## 禁止事项
 
 - 不要把分叉很久的本地分支直接强推覆盖测试分支。

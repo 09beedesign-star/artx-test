@@ -4,7 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { AIOrchestrator } from "./ai-orchestrator";
 import { createBrandKit, deleteBrandKit, getBrandKit, listBrandKits, parseBrandKitFromImage } from "./brand-kit";
-import { createProductBackground, editImageWithPrompt, enhanceImage, eraseImageObjects, extractImageText, generateImages, removeImageBackground } from "./image-generation";
+import { createProductBackground, editImageWithPrompt, enhanceImage, eraseImageObjects, extractImageText, generateImages, removeImageBackground, removeImageWatermark } from "./image-generation";
 import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
 import { getAdminSessionFromAuthorization, handleAuthAction } from "./auth-store";
@@ -138,6 +138,16 @@ async function startServer() {
       res.json(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Image enhancement failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.post("/api/images/remove-watermark", async (req, res) => {
+    try {
+      const result = await removeImageWatermark(req.body);
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Image watermark removal failed";
       res.status(500).json({ error: message });
     }
   });
