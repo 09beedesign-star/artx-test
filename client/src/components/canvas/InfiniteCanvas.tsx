@@ -8395,7 +8395,6 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
   const [drawOpen, setDrawOpen] = useState(false); // 铅笔子菜单
   const [imageGeneratorOpen, setImageGeneratorOpen] = useState(false);
   const [productBackgroundOpen, setProductBackgroundOpen] = useState(false);
-  const [fontDesignOpen, setFontDesignOpen] = useState(false);
   const [drawColor, setDrawColor] = useState(isDark ? "#c4b5fd" : "#1a1a2e"); // 铅笔颜色
   const [drawWidth, setDrawWidth] = useState(2); // 铅笔粗细 px
   const [hoveredId, setHoveredId] = useState<string | null>(null);
@@ -8436,7 +8435,6 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
     { id: "image-ai",     label: "智能生图",   icon: <Sparkles size={17} /> },
     { id: "annotate",     label: "智能注释",   icon: <AiAnnotationIcon size={17} cutoutBg={bg} /> },
     { id: "product-bg",   label: "智能创建背景", icon: <GalleryVerticalEnd size={17} /> },
-    { id: "font-design",  label: "字体设计",   icon: <FontDesignIcon size={17} cutoutBg={bg} /> },
     { id: "move",         label: "移动",       icon: <MousePointer2 size={17} /> },
     { id: "upload",       label: "上传图片",   icon: <ImagePlus size={17} /> },
     { id: "smart-canvas", label: "创建画板",   icon: <CreateCanvasIcon size={17} /> },
@@ -8461,7 +8459,6 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
       setDrawOpen(false);
       setImageGeneratorOpen(false);
       setProductBackgroundOpen(false);
-      setFontDesignOpen(false);
       setActive(id);
       window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: id } }));
       return;
@@ -8471,7 +8468,6 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
       setShapeOpen(false);
       setImageGeneratorOpen(false);
       setProductBackgroundOpen(false);
-      setFontDesignOpen(false);
       setActive(id);
       window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: id } }));
       // 广播当前铅笔参数
@@ -8483,25 +8479,13 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
       setShapeOpen(false);
       setDrawOpen(false);
       setProductBackgroundOpen(false);
-      setFontDesignOpen(false);
       setActive(id);
       window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: id } }));
-      return;
-    }
-    if (id === "font-design") {
-      setFontDesignOpen(v => !v);
-      setImageGeneratorOpen(false);
-      setProductBackgroundOpen(false);
-      setShapeOpen(false);
-      setDrawOpen(false);
-      setActive(id);
-      window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
       return;
     }
     if (id === "product-bg") {
       setProductBackgroundOpen(v => !v);
       setImageGeneratorOpen(false);
-      setFontDesignOpen(false);
       setShapeOpen(false);
       setDrawOpen(false);
       setActive(id);
@@ -8513,7 +8497,6 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
       setDrawOpen(false);
       setImageGeneratorOpen(false);
       setProductBackgroundOpen(false);
-      setFontDesignOpen(false);
       setActive("move");
       window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
       window.dispatchEvent(new CustomEvent("workspace-upload-request"));
@@ -8523,7 +8506,6 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
     setDrawOpen(false);
     setImageGeneratorOpen(false);
     setProductBackgroundOpen(false);
-    setFontDesignOpen(false);
     setActive(id);
     // 向 InnerCanvas 广播工具模式变化
     window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: id } }));
@@ -8649,10 +8631,6 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
 
       {imageGeneratorOpen && (
         <ImageGeneratorPopover isDark={isDark} projectId={projectId} onClose={() => setImageGeneratorOpen(false)} />
-      )}
-
-      {fontDesignOpen && (
-        <FontDesignDialog isDark={isDark} projectId={projectId} onClose={() => setFontDesignOpen(false)} />
       )}
 
       {productBackgroundOpen && (
