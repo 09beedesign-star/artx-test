@@ -219,7 +219,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import CropEditor from "@/components/canvas/CropEditor";
 import RotateEditor from "@/components/canvas/RotateEditor";
-import { callLLM, editImageWithPrompt, enhanceImageToHd, eraseImageObjects, expandImageWithMask, extractImageText, generateImages as generateAiImages, getBackgroundImageGenerationTask, removeImageBackground, requestAiAuth, searchReferenceImages, startBackgroundImageGeneration, type ReferenceImageResult } from "@/lib/ai";
+import { callLLM, createProductBackground, editImageWithPrompt, enhanceImageToHd, eraseImageObjects, expandImageWithMask, extractImageText, generateImages as generateAiImages, getBackgroundImageGenerationTask, removeImageBackground, requestAiAuth, searchReferenceImages, startBackgroundImageGeneration, type ReferenceImageResult } from "@/lib/ai";
 import { routeCreativeIntent } from "@/lib/ai-intent";
 import { createWorkspaceHistoryProject, readWorkspaceProjectHistory, touchWorkspaceProjectHistory, updateWorkspaceProjectHistory, type WorkspaceHistoryProject } from "@/lib/project-history";
 import { buildSkillPromptContext, createPendingSkillLoad, PENDING_SKILL_LOAD_KEY, skillStoreItems, type PendingSkillLoad } from "@/lib/skill-store";
@@ -7930,29 +7930,284 @@ function FontDesignDialog({ isDark, projectId, onClose }: { isDark: boolean; pro
   );
 }
 
+type ProductBackgroundDialogDetail = {
+  imageSrc: string;
+  fileName?: string;
+  prompt: string;
+  style: string;
+  ratio: string;
+  resolution: "2k" | "4k";
+  customWidth?: number;
+  customHeight?: number;
+};
+
 function ProductBackgroundDialog({ isDark, onClose }: { isDark: boolean; onClose: () => void }) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [imageSrc, setImageSrc] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [selectedStyle, setSelectedStyle] = useState("商务科技感");
+  const [ratio, setRatio] = useState("1:1");
+  const [resolution, setResolution] = useState<"2k" | "4k">("2k");
+  const [customWidth, setCustomWidth] = useState("");
+  const [customHeight, setCustomHeight] = useState("");
   const bg = isDark ? "rgba(18,18,28,0.98)" : "rgba(255,255,255,0.98)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const text = isDark ? "rgba(255,255,255,0.88)" : "rgba(22,22,34,0.88)";
   const sub = isDark ? "rgba(255,255,255,0.48)" : "rgba(22,22,34,0.50)";
+  const fieldBg = isDark ? "rgba(255,255,255,0.055)" : "rgba(0,0,0,0.035)";
+  const activeBorder = "rgba(197,237,71,0.55)";
+  const accent = "#C5ED47";
+  const ratios = ["1:1", "4:5", "5:4", "3:4", "4:3", "16:9", "9:16", "21:9"];
+  const styles = [
+    { name: "商务科技感", src: "linear-gradient(135deg,#0f172a 0%,#2563eb 55%,#c5ed47 100%)", prompt: "clean premium technology showroom, cool lighting, glass and metal platform" },
+    { name: "中国风", src: "linear-gradient(135deg,#7f1d1d 0%,#dc2626 52%,#f8d477 100%)", prompt: "modern Chinese style, warm red and gold, subtle silk texture, elegant product stage" },
+    { name: "欧美潮流", src: "linear-gradient(135deg,#111111 0%,#f97316 56%,#f9fafb 100%)", prompt: "bold western fashion campaign, urban studio lighting, editorial composition" },
+    { name: "日韩风", src: "linear-gradient(135deg,#fde2e4 0%,#a7f3d0 52%,#ffffff 100%)", prompt: "soft Japanese Korean commercial background, clean pastel studio, fresh lifestyle mood" },
+    { name: "赛博风", src: "linear-gradient(135deg,#09090b 0%,#7c3aed 50%,#22d3ee 100%)", prompt: "cyber neon commercial set, futuristic light strips, glossy reflective floor" },
+    { name: "可爱呆萌系", src: "linear-gradient(135deg,#fbcfe8 0%,#bfdbfe 50%,#fef3c7 100%)", prompt: "cute playful commercial scene, rounded props, soft colorful lighting" },
+    { name: "二次元系", src: "linear-gradient(135deg,#312e81 0%,#f0abfc 52%,#60a5fa 100%)", prompt: "anime inspired product background, vibrant clean illustration style, dynamic lighting" },
+  ];
+
+  const readFile = useCallback((file: File) => {
+    if (!file.type.startsWith("image/")) {
+      toast("请选择图片文件");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = event => {
+      const nextSrc = event.target?.result;
+      if (typeof nextSrc !== "string") return;
+      setImageSrc(nextSrc);
+      setFileName(file.name);
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
+  const handleCreate = () => {
+    if (!imageSrc) {
+      toast("请先添加产品图");
+      return;
+    }
+    const width = Number(customWidth);
+    const height = Number(customHeight);
+    const hasOnlyOneCustomSide = Boolean(customWidth) !== Boolean(customHeight);
+    if (hasOnlyOneCustomSide) {
+      toast("请同时填写自定义宽高");
+      return;
+    }
+    const stylePrompt = styles.find(item => item.name === selectedStyle)?.prompt || "";
+    const detail: ProductBackgroundDialogDetail = {
+      imageSrc,
+      fileName,
+      prompt: [stylePrompt, prompt.trim()].filter(Boolean).join("\n"),
+      style: selectedStyle,
+      ratio,
+      resolution,
+      customWidth: Number.isFinite(width) && width > 0 ? Math.round(width) : undefined,
+      customHeight: Number.isFinite(height) && height > 0 ? Math.round(height) : undefined,
+    };
+    window.dispatchEvent(new CustomEvent<ProductBackgroundDialogDetail>("product-background-create", { detail }));
+    onClose();
+  };
+
   return (
-    <div className="fixed inset-0 flex items-center justify-center" style={{ zIndex: 3500, pointerEvents: "none" }}>
+    <div className="fixed inset-0 flex items-center justify-center" style={{ zIndex: 3500, pointerEvents: "none", background: "rgba(0,0,0,0.34)", backdropFilter: "blur(8px)" }}>
       <div
-        className="w-[min(440px,calc(100vw-40px))] rounded-[var(--radius-xl-design)] p-5 shadow-2xl"
+        className="w-[min(820px,calc(100vw-40px))] max-h-[min(780px,calc(100vh-56px))] overflow-y-auto rounded-[var(--radius-xl-design)] p-5 shadow-2xl"
         style={{ pointerEvents: "auto", background: bg, border: `1px solid ${border}`, backdropFilter: "blur(22px)", boxShadow: "0 24px 80px rgba(0,0,0,0.38)" }}
         onMouseDown={event => event.stopPropagation()}
         onClick={event => event.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="type-caption" style={{ color: text, fontSize: 14 }}>智能创建背景</p>
-            <p className="mt-2 type-caption leading-5" style={{ color: sub }}>
-              这个入口已放入顶部 AI 工具区。完整的佐糖创建背景面板和接口会按单独任务接入，避免和本次字体设计能力混改。
-            </p>
+        <div className="flex items-start justify-between gap-4 pb-4" style={{ borderBottom: `1px solid ${border}` }}>
+          <div className="flex items-center gap-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-lg-design)]" style={{ color: accent, background: "rgba(197,237,71,0.14)" }}>
+              <AiDecoratedIcon size={17} cutoutBg={bg}>
+                <GalleryVerticalEnd size={17} />
+              </AiDecoratedIcon>
+            </span>
+            <div>
+              <p className="type-caption" style={{ color: text, fontSize: 14, fontWeight: 700 }}>智能创建背景</p>
+              <p className="mt-1 type-caption leading-5" style={{ color: sub }}>
+                上传产品图，输入或选择商业背景风格，生成新的产品商业化背景图。
+              </p>
+            </div>
           </div>
           <button type="button" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-md-design)] hover:opacity-75" style={{ color: sub }} onClick={onClose} aria-label="关闭智能创建背景">
             <X size={15} />
           </button>
+        </div>
+
+        <div className="mt-5 grid gap-5 md:grid-cols-[280px_1fr]">
+          <button
+            type="button"
+            className="relative flex min-h-[320px] flex-col items-center justify-center overflow-hidden rounded-[var(--radius-lg-design)] px-4 text-center transition-transform hover:scale-[1.01]"
+            style={{ background: fieldBg, border: `1.5px dashed ${imageSrc ? activeBorder : border}`, color: text }}
+            onClick={() => fileInputRef.current?.click()}
+            onDragOver={event => event.preventDefault()}
+            onDrop={event => {
+              event.preventDefault();
+              const file = event.dataTransfer.files?.[0];
+              if (file) readFile(file);
+            }}
+          >
+            {imageSrc ? (
+              <>
+                <img src={imageSrc} alt={fileName || "产品图"} className="absolute inset-0 h-full w-full object-contain p-4" draggable={false} />
+                <span className="absolute bottom-3 left-3 right-3 rounded-[var(--radius-md-design)] px-3 py-2 text-left" style={{ background: isDark ? "rgba(0,0,0,0.62)" : "rgba(255,255,255,0.84)", border: `1px solid ${border}` }}>
+                  <span className="block truncate type-caption" style={{ color: text, fontWeight: 700 }}>{fileName || "产品图"}</span>
+                  <span className="block type-caption" style={{ color: sub }}>点击更换或拖入新图片</span>
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-[var(--radius-lg-design)]" style={{ background: "rgba(197,237,71,0.14)", color: accent }}>
+                  <ImagePlus size={24} />
+                </span>
+                <span className="type-body-sm" style={{ fontWeight: 700 }}>将产品图拖到这里</span>
+                <span className="mt-2 max-w-[220px] type-caption leading-5" style={{ color: sub }}>支持 PNG、JPG、WebP，也可以点击选择本地图片。</span>
+              </>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={event => {
+                const file = event.currentTarget.files?.[0];
+                if (file) readFile(file);
+                event.currentTarget.value = "";
+              }}
+            />
+          </button>
+
+          <div className="space-y-4">
+            <div>
+              <label className="mb-2 block type-caption" style={{ color: sub }}>背景关键词</label>
+              <textarea
+                value={prompt}
+                onChange={event => setPrompt(event.target.value)}
+                placeholder="例如：高端护肤品展台、冷白光、玻璃质感、商业广告海报背景"
+                rows={4}
+                className="w-full resize-none rounded-[var(--radius-lg-design)] p-3 outline-none"
+                style={{ background: fieldBg, border: `1px solid ${border}`, color: text, fontSize: 13, lineHeight: 1.6 }}
+              />
+            </div>
+
+            <div>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <span className="type-caption" style={{ color: sub }}>风格标签</span>
+                <span className="type-caption" style={{ color: sub }}>可选择标签，也可只使用自定义关键词</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {styles.map(item => {
+                  const active = selectedStyle === item.name;
+                  return (
+                    <button
+                      key={item.name}
+                      type="button"
+                      className="flex min-w-0 items-center gap-2 rounded-[var(--radius-md-design)] p-2 text-left transition-transform hover:scale-[1.01] active:scale-95"
+                      style={{ background: active ? "rgba(197,237,71,0.14)" : fieldBg, border: `1px solid ${active ? activeBorder : border}`, color: text }}
+                      onClick={() => setSelectedStyle(item.name)}
+                    >
+                      <span
+                        className="h-10 w-12 shrink-0 rounded-[var(--radius-md-design)]"
+                        style={{
+                          background: item.src,
+                          boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.18)",
+                        }}
+                      />
+                      <span className="min-w-0">
+                        <span className="block truncate type-caption" style={{ fontWeight: 700 }}>{item.name}</span>
+                        <span className="block truncate type-caption" style={{ color: sub, fontSize: 10 }}>{item.prompt.split(",")[0]}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-2 block type-caption" style={{ color: sub }}>常用画幅</label>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {ratios.map(item => (
+                    <button
+                      key={item}
+                      type="button"
+                      className="h-8 rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-85"
+                      style={{ background: ratio === item ? "rgba(197,237,71,0.14)" : fieldBg, border: `1px solid ${ratio === item ? activeBorder : border}`, color: text }}
+                      onClick={() => setRatio(item)}
+                    >
+                      {item}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-2 block type-caption" style={{ color: sub }}>分辨率</label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {(["2k", "4k"] as const).map(item => (
+                    <button
+                      key={item}
+                      type="button"
+                      className="h-8 rounded-[var(--radius-md-design)] type-caption uppercase transition-opacity hover:opacity-85"
+                      style={{ background: resolution === item ? "rgba(197,237,71,0.14)" : fieldBg, border: `1px solid ${resolution === item ? activeBorder : border}`, color: text }}
+                      onClick={() => setResolution(item)}
+                    >
+                      {item}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-2 block type-caption" style={{ color: sub }}>自定义比例/尺寸</label>
+              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                <input
+                  value={customWidth}
+                  onChange={event => setCustomWidth(event.target.value.replace(/[^\d]/g, ""))}
+                  placeholder="宽，例如 2048"
+                  className="h-9 min-w-0 rounded-[var(--radius-md-design)] px-3 outline-none"
+                  style={{ background: fieldBg, border: `1px solid ${border}`, color: text, fontSize: 12 }}
+                />
+                <span className="type-caption" style={{ color: sub }}>×</span>
+                <input
+                  value={customHeight}
+                  onChange={event => setCustomHeight(event.target.value.replace(/[^\d]/g, ""))}
+                  placeholder="高，例如 3072"
+                  className="h-9 min-w-0 rounded-[var(--radius-md-design)] px-3 outline-none"
+                  style={{ background: fieldBg, border: `1px solid ${border}`, color: text, fontSize: 12 }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-5 flex items-center justify-between gap-3">
+          <p className="type-caption" style={{ color: sub }}>结果会以新的图片节点生成在画布中，不覆盖原图。</p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="h-10 rounded-[var(--radius-md-design)] px-4 type-caption transition-opacity hover:opacity-85"
+              style={{ background: fieldBg, border: `1px solid ${border}`, color: text }}
+              onClick={onClose}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className="flex h-10 items-center gap-2 rounded-[var(--radius-md-design)] px-5 type-caption transition-transform hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+              style={{ background: accent, color: "#000", boxShadow: "0 12px 30px rgba(197,237,71,0.22)" }}
+              disabled={!imageSrc}
+              onClick={handleCreate}
+            >
+              <WandSparkles size={15} />
+              创建背景
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -8006,8 +8261,8 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
   const tools = [
     { id: "image-ai",     label: "智能生图",   icon: <Sparkles size={17} /> },
     { id: "annotate",     label: "智能注释",   icon: <AiAnnotationIcon size={17} cutoutBg={bg} /> },
-    { id: "font-design",  label: "字体设计",   icon: <FontDesignIcon size={17} cutoutBg={bg} /> },
     { id: "product-bg",   label: "智能创建背景", icon: <GalleryVerticalEnd size={17} /> },
+    { id: "font-design",  label: "字体设计",   icon: <FontDesignIcon size={17} cutoutBg={bg} /> },
     { id: "move",         label: "移动",       icon: <MousePointer2 size={17} /> },
     { id: "upload",       label: "上传图片",   icon: <ImagePlus size={17} /> },
     { id: "smart-canvas", label: "创建画板",   icon: <CreateCanvasIcon size={17} /> },
@@ -10886,6 +11141,78 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     window.addEventListener("ai-image-backup-activate", handler);
     return () => window.removeEventListener("ai-image-backup-activate", handler);
   }, [createGeneratedImageNode, fitView, focusGeneratedImageNode, pushHistory, screenToFlowPosition, setNodes]);
+
+  useEffect(() => {
+    const handler = async (event: Event) => {
+      const detail = (event as CustomEvent<ProductBackgroundDialogDetail>).detail;
+      if (!detail?.imageSrc) return;
+      if (!requireAiAccess()) return;
+      const container = containerRef.current;
+      const rect = container?.getBoundingClientRect();
+      const center = rect
+        ? screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
+        : { x: 160, y: 120 };
+      const ratioSize = getImageDisplaySizeForRatio(detail.ratio || "1:1");
+      const displayW = detail.customWidth && detail.customHeight
+        ? Math.min(560, Math.max(220, Math.round(detail.customWidth / 5)))
+        : ratioSize.w;
+      const displayH = detail.customWidth && detail.customHeight
+        ? Math.min(560, Math.max(220, Math.round(detail.customHeight / 5)))
+        : ratioSize.h;
+      const sourceId = `product-bg-source-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const sourcePosition = resolveNonOverlappingCanvasPosition(
+        nodesRef.current,
+        { x: center.x - displayW / 2, y: center.y - displayH / 2 },
+        { width: displayW, height: displayH },
+      );
+      const sourceNode: Node = {
+        id: sourceId,
+        type: "asset",
+        position: sourcePosition,
+        style: { width: displayW, height: displayH },
+        selected: true,
+        data: {
+          id: sourceId,
+          assetId: "default",
+          localSrc: detail.imageSrc,
+          title: detail.fileName || "产品图",
+          assetType: "产品图",
+          tags: ["智能创建背景", detail.style],
+          imgW: displayW,
+          imgH: displayH,
+        },
+      };
+      pushHistory(nodesRef.current, edgesRef.current);
+      setNodes(nds => [...nds.map(n => ({ ...n, selected: false })), sourceNode]);
+      setSelectedNodeIds([sourceId]);
+      toast("智能创建背景中", { description: "已创建产品图节点，结果会在旁边生成" });
+      await runDerivedImageGeneration({
+        sourceNode,
+        prompt: [
+          detail.style ? `背景风格：${detail.style}` : "",
+          detail.prompt || "智能创建商业化产品背景",
+          `输出规格：${detail.customWidth && detail.customHeight ? `${detail.customWidth}x${detail.customHeight}` : `${detail.ratio} ${detail.resolution.toUpperCase()}`}`,
+        ].filter(Boolean).join("\n"),
+        style: "智能背景结果",
+        nextW: detail.customWidth || ratioSize.w,
+        nextH: detail.customHeight || ratioSize.h,
+        preserveSourceDisplaySize: false,
+        displayW,
+        displayH,
+        run: async () => createProductBackground({
+          imageSrc: detail.imageSrc,
+          prompt: detail.prompt,
+          style: detail.style,
+          ratio: detail.ratio,
+          resolution: detail.resolution,
+          customWidth: detail.customWidth,
+          customHeight: detail.customHeight,
+        }),
+      });
+    };
+    window.addEventListener("product-background-create", handler);
+    return () => window.removeEventListener("product-background-create", handler);
+  }, [edgesRef, pushHistory, requireAiAccess, runDerivedImageGeneration, screenToFlowPosition, setNodes]);
 
   const undoCanvas = useCallback(() => {
     const previous = historyRef.current.pop();
