@@ -153,6 +153,12 @@ async function postImageEnhance(body: Record<string, unknown>, fallbackError: st
   return fetchAiJson<ApiErrorResponse & { images?: GeneratedImageResult[] }>(endpoint, body, fallbackError);
 }
 
+async function postProductBackground(body: Record<string, unknown>, fallbackError: string) {
+  const baseUrl = getAiApiBaseUrl();
+  const endpoint = `${baseUrl}/api/images/create-background`;
+  return fetchAiJson<ApiErrorResponse & { images?: GeneratedImageResult[] }>(endpoint, body, fallbackError);
+}
+
 async function postImageOcr(body: Record<string, unknown>, fallbackError: string) {
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/images/ocr`;
@@ -359,6 +365,37 @@ export async function enhanceImageToHd({
     imageSrc,
     level,
   }, "图片高清化失败");
+
+  return { images: result.images || [] };
+}
+
+export async function createProductBackground({
+  imageSrc,
+  prompt,
+  style,
+  ratio = "1:1",
+  resolution = "2k",
+  customWidth,
+  customHeight,
+}: {
+  imageSrc: string;
+  prompt?: string;
+  style?: string;
+  ratio?: string;
+  resolution?: "2k" | "4k";
+  customWidth?: number;
+  customHeight?: number;
+}) {
+  requireAiAuth();
+  const result = await postProductBackground({
+    imageSrc,
+    prompt,
+    style,
+    ratio,
+    resolution,
+    customWidth,
+    customHeight,
+  }, "智能创建背景失败");
 
   return { images: result.images || [] };
 }

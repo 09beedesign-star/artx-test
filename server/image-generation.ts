@@ -18,6 +18,16 @@ type EnhanceImageInput = {
   level?: "4k";
 };
 
+type CreateBackgroundInput = {
+  imageSrc: string;
+  prompt?: string;
+  style?: string;
+  ratio?: string;
+  resolution?: "2k" | "4k";
+  customWidth?: number;
+  customHeight?: number;
+};
+
 type EditImageInput = {
   imageSrc: string;
   model?: string;
@@ -530,7 +540,7 @@ function bufferToImageFile(buffer: Buffer, mimeType: string) {
   return new File([buffer], getImageFileName(mimeType), { type: mimeType });
 }
 
-type PicWishVisualTaskType = "segmentation" | "scale" | "self-face-cutout" | "watermark" | "inpaint";
+type PicWishVisualTaskType = "segmentation" | "scale" | "self-face-cutout" | "watermark" | "inpaint" | "r-background";
 
 function getPicWishTaskEndpoint(baseUrl: string, taskType: PicWishVisualTaskType) {
   return `${baseUrl.replace(/\/+$/, "")}/api/tasks/visual/${taskType}`;
@@ -607,7 +617,7 @@ async function runPicWishImageTask(
   taskType: PicWishVisualTaskType,
   buffer: Buffer,
   mimeType: string,
-  options?: { maskBuffer?: Buffer; maskMimeType?: string },
+  options?: { maskBuffer?: Buffer; maskMimeType?: string; fields?: Record<string, string | number | boolean | undefined> },
 ): Promise<{ images: GeneratedImage[] }> {
   const { apiKey, baseUrl } = getPicWishConfig();
   if (!apiKey) {
@@ -625,6 +635,10 @@ async function runPicWishImageTask(
   if (options?.maskBuffer) {
     body.append("mask_file", bufferToImageFile(options.maskBuffer, options.maskMimeType || "image/png"));
   }
+  Object.entries(options?.fields || {}).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") return;
+    body.append(key, String(value));
+  });
 
   const created = await readPicWishJson(await fetch(getPicWishTaskEndpoint(baseUrl, taskType), {
     method: "POST",
@@ -780,6 +794,48 @@ async function compositeEraseResultInsidePicWishMask(
 async function enhanceImageWithPicWish(src: string): Promise<{ images: GeneratedImage[] }> {
   const { buffer, mimeType } = await imageSrcToBuffer(src);
   return runPicWishImageTask("scale", buffer, mimeType);
+}
+
+function getBackgroundOutputSize(input: CreateBackgroundInput, fallbackWidth: number, fallbackHeight: number) {
+  const customWidth = coerceTargetDimension(input.customWidth);
+  const customHeight = coerceTargetDimension(input.customHeight);
+  if (customWidth && customHeight) return { width: customWidth, height: customHeight };
+
+  const baseLongSide = input.resolution === "4k" ? 3840 : 2048;
+  const ratio = ratioToSize[input.ratio || "1:1"];
+  if (ratio) {
+    const aspect = ratio.width / Math.max(1, ratio.height);
+    if (aspect >= 1) {
+      return { width: baseLongSide, height: Math.max(1, Math.round(baseLongSide / aspect)) };
+    }
+    return { width: Math.max(1, Math.round(baseLongSide * aspect)), height: baseLongSide };
+  }
+
+  const aspect = fallbackWidth / Math.max(1, fallbackHeight);
+  if (aspect >= 1) {
+    return { width: baseLongSide, height: Math.max(1, Math.round(baseLongSide / aspect)) };
+  }
+  return { width: Math.max(1, Math.round(baseLongSide * aspect)), height: baseLongSide };
+}
+
+async function createBackgroundWithPicWish(input: CreateBackgroundInput): Promise<{ images: GeneratedImage[] }> {
+  const { buffer, mimeType } = await imageSrcToBuffer(input.imageSrc);
+  const sourceDimensions = await getImageBufferDimensions(buffer);
+  const output = getBackgroundOutputSize(input, sourceDimensions.width, sourceDimensions.height);
+  const prompt = [
+    input.style ? `商业背景风格：${input.style}` : "",
+    input.prompt || "为产品图生成干净、真实、商业化的背景，保持产品主体完整清晰。",
+    "Keep the original product intact. Generate a new commercial background that matches lighting, perspective, shadows, and product scale.",
+  ].filter(Boolean).join("\n");
+
+  return runPicWishImageTask("r-background", buffer, mimeType, {
+    fields: {
+      prompt,
+      scene_type: 105,
+      width: output.width,
+      height: output.height,
+    },
+  });
 }
 
 async function getImageBufferDimensions(buffer: Buffer): Promise<{ width: number; height: number }> {
@@ -1838,6 +1894,32 @@ export async function extractImageText(input: ExtractImageTextInput): Promise<{ 
     text: (data.choices?.[0]?.message?.content || data.output_text || "").trim(),
     provider: "vision-chat-ocr",
   };
+}
+
+export async function createProductBackground(input: CreateBackgroundInput): Promise<{ images: GeneratedImage[] }> {
+  if (!input.imageSrc?.trim()) {
+    throw new Error("Missing imageSrc");
+  }
+
+  try {
+    return await createBackgroundWithPicWish(input);
+  } catch (picWishError) {
+    console.warn("PicWish create background failed; using image edit provider fallback", picWishError);
+    const sourceImageData = await imageSrcToBuffer(input.imageSrc);
+    const sourceDimensions = await getImageBufferDimensions(sourceImageData.buffer);
+    const output = getBackgroundOutputSize(input, sourceDimensions.width, sourceDimensions.height);
+    return editImageWithPrompt({
+      imageSrc: input.imageSrc,
+      targetWidth: output.width,
+      targetHeight: output.height,
+      prompt: [
+        input.style ? `背景风格：${input.style}` : "",
+        input.prompt || "创建商业化产品背景",
+        "Use the uploaded product image as the exact foreground product. Preserve the product shape, material, colors, logo, text, and proportions.",
+        "Only create a new realistic commercial background behind and around the product. Match lighting, shadows, perspective, and contact shadow naturally.",
+      ].filter(Boolean).join("\n"),
+    });
+  }
 }
 
 export async function editImageWithPrompt(input: EditImageInput): Promise<{ images: GeneratedImage[] }> {
