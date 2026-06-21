@@ -213,7 +213,7 @@ function FontDesignIcon({
 import { useLocation } from "wouter";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
-import { GENERATED_ASSETS, IMAGE_AI_MODELS, PROJECTS, TEXT_AI_MODELS, type GeneratedAsset, type Project } from "@/lib/workspace-data";
+import { ALL_AI_MODEL_OPTIONS, AUTO_AI_MODEL, GENERATED_ASSETS, IMAGE_AI_MODELS, IMAGE_AI_MODEL_OPTIONS, PROJECTS, TEXT_AI_MODELS, type AiModelOption, type GeneratedAsset, type Project } from "@/lib/workspace-data";
 import { SOCIAL_MEDIA_SIZE_PRESETS, SocialPlatformIcon, type SocialMediaExportPayload, type SocialMediaSizePreset } from "@/lib/social-media-presets";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -257,17 +257,27 @@ function withCanvasFrameAlpha(color: unknown, alpha = CANVAS_FRAME_BACKGROUND_AL
 }
 
 // ── Model Selector ─────────────────────────────────────────────
-function ModelSelector({ model, onChange, isDark }: { model: string; onChange: (m: string) => void; isDark: boolean }) {
+function ModelSelector({
+  model,
+  onChange,
+  isDark,
+  models = IMAGE_AI_MODEL_OPTIONS,
+}: {
+  model: string;
+  onChange: (m: string) => void;
+  isDark: boolean;
+  models?: AiModelOption[];
+}) {
   const [open, setOpen] = useState(false);
   const modelRef = useRef<HTMLDivElement>(null);
-  const current = IMAGE_AI_MODELS.find(m => m.id === model) || IMAGE_AI_MODELS[0];
+  const current = models.find(m => m.id === model) || AUTO_AI_MODEL;
   const bg = isDark ? "oklch(0.13 0.015 270)" : "oklch(0.96 0.004 270)";
   const border = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
   const text = isDark ? "oklch(0.75 0.01 270)" : "oklch(0.35 0.01 270)";
   const popBg = isDark ? "oklch(0.16 0.018 270)" : "oklch(0.99 0.004 270)";
   const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
   const rowHeight = 40;
-  const panelHeight = Math.min(IMAGE_AI_MODELS.length * rowHeight, 320);
+  const panelHeight = Math.min(models.length * rowHeight, 320);
 
   useEffect(() => {
     if (!open) return;
@@ -314,7 +324,7 @@ function ModelSelector({ model, onChange, isDark }: { model: string; onChange: (
             }}
             onWheel={e => e.stopPropagation()}
           >
-            {IMAGE_AI_MODELS.map(m => (
+            {models.map(m => (
               <button
                 key={m.id}
                 onClick={() => { onChange(m.id); setOpen(false); }}
@@ -2294,7 +2304,7 @@ function AssetPromptPanel({ isDark, assetSrc, onExpand }: {
   isDark: boolean; assetSrc: string; onExpand: () => void;
 }) {
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState("gpt-image-2");
+  const [model, setModel] = useState("auto");
   const panelBg = isDark ? "rgba(22,22,30,0.97)" : "rgba(240,240,248,0.97)";
   const panelBorder = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const textColor = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.20 0.008 270)";
@@ -4061,7 +4071,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
 function ChatNodeComponent({ data, selected }: { data: Record<string, unknown>; selected: boolean }) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-  const [model, setModel] = useState("gpt-image-2");
+  const [model, setModel] = useState("auto");
   const { deleteElements } = useReactFlow();
   const nodeId = (data as { id?: string }).id || "";
 
@@ -4125,7 +4135,7 @@ function ChatNodeComponent({ data, selected }: { data: Record<string, unknown>; 
 function PromptNodeComponent({ data, selected }: { data: Record<string, unknown>; selected: boolean }) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-  const [model, setModel] = useState("gpt-4o");
+  const [model, setModel] = useState("auto");
   const [prompt, setPrompt] = useState((data.prompt as string) || "");
   const [isGenerating, setIsGenerating] = useState(false);
   const { deleteElements } = useReactFlow();
@@ -6199,7 +6209,7 @@ function BottomPromptBar({
   onClearAllReferences: () => void;
 }) {
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState("gpt-4o");
+  const [model, setModel] = useState("auto");
   const [rows, setRows] = useState(1);
   const [isSending, setIsSending] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -6351,7 +6361,7 @@ function BottomPromptBar({
       setRows(Math.max(1, nextPrompt.split("\n").length));
       window.setTimeout(() => resizePromptTextarea(textareaRef.current), 0);
       autoRunPromptRef.current = nextPrompt;
-      autoRunModelRef.current = IMAGE_AI_MODELS.some(model => model.id === payload.model) ? payload.model! : null;
+      autoRunModelRef.current = ALL_AI_MODEL_OPTIONS.some(model => model.id === payload.model) ? payload.model! : null;
       window.setTimeout(() => {
         const promptToRun = autoRunPromptRef.current;
         autoRunPromptRef.current = null;
@@ -6930,7 +6940,7 @@ function AssetEditPromptBar({
 }) {
   const [prompt, setPrompt] = useState("");
   const [uploadedRefs, setUploadedRefs] = useState<Array<{ id: string; title: string; src: string }>>([]);
-  const [model, setModel] = useState("gpt-image-2");
+  const [model, setModel] = useState("auto");
   const [visible, setVisible] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -7369,7 +7379,7 @@ function TopLeftToolbar({ isDark, onAdd }: { isDark: boolean; onAdd: (type: stri
 
 function ImageGeneratorPopover({ isDark, projectId, onClose }: { isDark: boolean; projectId: string; onClose: () => void }) {
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState("gpt-image-2");
+  const [model, setModel] = useState("auto");
   const [modelOpen, setModelOpen] = useState(false);
   const [ratio, setRatio] = useState("1:1");
   const [count, setCount] = useState(2);
@@ -7384,7 +7394,7 @@ function ImageGeneratorPopover({ isDark, projectId, onClose }: { isDark: boolean
   const fieldBg = isDark ? "rgba(255,255,255,0.055)" : "rgba(0,0,0,0.035)";
   const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
   const accent = "oklch(0.64 0.22 285)";
-  const selectedModel = IMAGE_AI_MODELS.find(item => item.id === model) || IMAGE_AI_MODELS[0];
+  const selectedModel = IMAGE_AI_MODEL_OPTIONS.find(item => item.id === model) || AUTO_AI_MODEL;
   const ratios = ["1:1", "4:5", "5:4", "3:4", "4:3", "16:9", "9:16", "21:9"];
   const counts = [1, 2, 3, 4];
   const canGenerate = prompt.trim().length > 0 && !isGenerating;
@@ -7577,7 +7587,7 @@ function ImageGeneratorPopover({ isDark, projectId, onClose }: { isDark: boolean
                     }}
                     onWheel={e => e.stopPropagation()}
                   >
-                    {IMAGE_AI_MODELS.map(item => {
+                    {IMAGE_AI_MODEL_OPTIONS.map(item => {
                       const active = selectedModel.id === item.id;
                       return (
                         <button
@@ -8759,6 +8769,8 @@ const CANVAS_ASSISTANT_IMAGE_MODEL_STORAGE_KEY = "artx:canvas-assistant-image-mo
 const CANVAS_ASSISTANT_TEXT_MODEL_STORAGE_KEY = "artx:canvas-assistant-text-model";
 const CANVAS_ASSISTANT_MODEL_TAB_STORAGE_KEY = "artx:canvas-assistant-model-tab";
 const CANVAS_ASSISTANT_AUTO_MODE_STORAGE_KEY = "artx:canvas-assistant-auto-mode";
+const CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION_KEY = "artx:canvas-assistant-auto-default-version";
+const CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION = "2026-06-21-auto-default";
 type CanvasAssistantModelTab = "image" | "text";
 type AssistantComposerSegment =
   | { id: string; type: "text"; text: string }
@@ -9004,6 +9016,11 @@ function CanvasAssistantPanel({
   const [netSearchEnabled, setNetSearchEnabled] = useState(false);
   const [assistantAutoMode, setAssistantAutoMode] = useState(() => {
     if (typeof window === "undefined") return true;
+    if (window.localStorage.getItem(CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION_KEY) !== CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION) {
+      window.localStorage.setItem(CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION_KEY, CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION);
+      window.localStorage.setItem(CANVAS_ASSISTANT_AUTO_MODE_STORAGE_KEY, "1");
+      return true;
+    }
     return window.localStorage.getItem(CANVAS_ASSISTANT_AUTO_MODE_STORAGE_KEY) !== "0";
   });
   const [assistantModelTab, setAssistantModelTab] = useState<CanvasAssistantModelTab>(() => {
@@ -9571,7 +9588,7 @@ function CanvasAssistantPanel({
             const imagePayload: ImageGeneratorPayload = {
               projectId,
               prompt: imagePrompt,
-              model: IMAGE_AI_MODELS.some(model => model.id === payload.model) ? payload.model! : assistantImageModel.id,
+              model: ALL_AI_MODEL_OPTIONS.some(model => model.id === payload.model) ? payload.model! : assistantImageModel.id,
               ratio: "1:1",
               count: 1,
               style: "首页创作",
@@ -9760,7 +9777,7 @@ function CanvasAssistantPanel({
                 "Do not generate a new unrelated person or scene.",
               ].join("\n")
             : finalImagePrompt,
-          model: shouldEditTargetReference ? "gpt-image-2" : assistantImageModel.id,
+          model: shouldEditTargetReference ? "gpt-image-2" : (assistantAutoMode ? "auto" : assistantImageModel.id),
           ratio: "1:1",
           count: 1,
           style: shouldEditTargetReference ? "引用编辑结果" : "右侧 AI 助手",
@@ -10273,7 +10290,7 @@ function CanvasAssistantPanel({
                       aria-label="选择模型"
                     >
                       <span className="min-w-0 max-w-[100px] truncate">
-                        {assistantAutoMode ? "auto" : assistantModelTab === "image" ? "生图" : "对话"} · {assistantModel.label}
+                        {assistantAutoMode ? "auto" : `${assistantModelTab === "image" ? "生图" : "对话"} · ${assistantModel.label}`}
                       </span>
                       <ChevronDown size={10} style={{ flex: "0 0 auto", opacity: 0.6, transform: agentMenuOpen ? "rotate(180deg)" : "none", transition: "transform 0.16s ease" }} />
                     </button>
@@ -10356,6 +10373,7 @@ function CanvasAssistantPanel({
                               } else {
                                 setAssistantTextModelId(model.id);
                               }
+                              setAssistantAutoMode(false);
                               setAgentMenuOpen(false);
                             }}
                           >
