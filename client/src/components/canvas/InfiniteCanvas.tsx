@@ -189,7 +189,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import CropEditor from "@/components/canvas/CropEditor";
 import RotateEditor from "@/components/canvas/RotateEditor";
-import { callLLM, editImageWithPrompt, enhanceImageToHd, eraseImageObjects, expandImageWithMask, generateImages as generateAiImages, getBackgroundImageGenerationTask, removeImageBackground, requestAiAuth, searchReferenceImages, startBackgroundImageGeneration, type ReferenceImageResult } from "@/lib/ai";
+import { callLLM, editImageWithPrompt, enhanceImageToHd, eraseImageObjects, expandImageWithMask, extractImageText, generateImages as generateAiImages, getBackgroundImageGenerationTask, removeImageBackground, requestAiAuth, searchReferenceImages, startBackgroundImageGeneration, type ReferenceImageResult } from "@/lib/ai";
 import { routeCreativeIntent } from "@/lib/ai-intent";
 import { createWorkspaceHistoryProject, readWorkspaceProjectHistory, touchWorkspaceProjectHistory, updateWorkspaceProjectHistory, type WorkspaceHistoryProject } from "@/lib/project-history";
 import { buildSkillPromptContext, createPendingSkillLoad, PENDING_SKILL_LOAD_KEY, skillStoreItems, type PendingSkillLoad } from "@/lib/skill-store";
@@ -11158,11 +11158,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               prompt: [
                 "请根据原始图片，生成一段给图片模型使用的中文编辑提示词。",
                 "目标：把图片中原有的文案替换成用户编辑后的文案，并同步微调排版。",
+                "流程背景：原始文案已通过 OCR/多模态识别提取，用户已在编辑窗口中完成修改。",
                 "要求：输出必须是一张新的结果图，不能影响原图。",
                 "要求：新图画布比例必须与原图完全一致，不允许变成方图、不允许拉伸或改变构图比例。",
                 "要求：尽量保留原始画面主体、风格、色彩、背景、构图和品牌识别特征。",
-                "要求：只修改与文字相关的区域和为了新文案适配所必须发生的细微版式调整。",
+                "要求：优先定位并清除原文案所在区域，只修改文字区域和为了新文案适配所必须发生的细微版式调整。",
+                "要求：不要改动人物、产品、背景、Logo、非文字装饰元素和整体构图。",
+                "要求：新文案必须准确可读，不允许乱码，不允许替换成无关文字。",
                 "要求：如果新文案更长或更短，自动优化字号、行距、字重、留白、对齐和文字区块位置，让画面自然、专业、无明显修补痕迹。",
+                "要求：保持商业设计输出品质，文字层级、视觉重心、品牌感和排版节奏都要像真实设计稿。",
                 "只输出可直接给图片模型使用的提示词，不要解释。",
                 `原图文案：${detail.originalText || "未识别到可读文案"}`,
                 `替换后的新文案：${detail.editedText}`,
@@ -13642,18 +13646,40 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
       toast("正在提取画面文案", { description: "识别完成后会显示在图片右侧" });
       try {
-        const result = await callLLM({
-          module: "multimodal-text-extraction",
-          model: "gpt-4o",
-          images: [{ src: imageSrc, title: typeof data.title === "string" ? data.title : "选中图片" }],
-          prompt: [
-            "请提取图片画面中所有可见文字文案。",
-            "只输出提取到的文字内容，保持原有语言、大小写、标点和换行顺序。",
-            "不要添加解释、标题、项目符号或额外说明。",
-            "如果画面中没有可读文字，只输出：未识别到可读文案",
-          ].join("\n"),
-        });
-        const text = result.text.trim() || "未识别到可读文案";
+        let ocrText = "";
+        try {
+          const ocrResult = await extractImageText({ imageSrc });
+          ocrText = ocrResult.text.trim();
+        } catch (ocrError) {
+          console.warn("PicWish OCR failed; falling back to multimodal text extraction", ocrError);
+        }
+        const result = ocrText
+          ? await callLLM({
+              module: "commercial-ocr-copy-structure",
+              model: "gpt-4o",
+              images: [{ src: imageSrc, title: typeof data.title === "string" ? data.title : "选中图片" }],
+              prompt: [
+                "你是商业设计图片的文案结构整理助手。",
+                "下面是 OCR 从图片中识别出的文字，请结合图片画面理解它们在商业设计中的层级。",
+                "把文案整理成用户可直接编辑的文本，保持原有语言、大小写、标点和换行顺序。",
+                "不要解释，不要添加项目符号，不要输出 JSON。",
+                "如果能判断层级，可以用自然换行保留主标题、副标题、卖点、按钮文案的阅读顺序。",
+                "如果 OCR 有明显重复或无意义碎片，请轻度去重和清理，但不要改写用户原文。",
+                `OCR 识别结果：\n${ocrText}`,
+              ].join("\n"),
+            })
+          : await callLLM({
+              module: "multimodal-text-extraction",
+              model: "gpt-4o",
+              images: [{ src: imageSrc, title: typeof data.title === "string" ? data.title : "选中图片" }],
+              prompt: [
+                "请提取图片画面中所有可见文字文案。",
+                "只输出提取到的文字内容，保持原有语言、大小写、标点和换行顺序。",
+                "不要添加解释、标题、项目符号或额外说明。",
+                "如果画面中没有可读文字，只输出：未识别到可读文案",
+              ].join("\n"),
+            });
+        const text = result.text.trim() || ocrText || "未识别到可读文案";
         setNodes(nds => nds.map(n =>
           n.id === nodeId && n.type === "asset"
             ? {

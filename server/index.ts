@@ -4,7 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { AIOrchestrator } from "./ai-orchestrator";
 import { createBrandKit, deleteBrandKit, getBrandKit, listBrandKits, parseBrandKitFromImage } from "./brand-kit";
-import { editImageWithPrompt, enhanceImage, eraseImageObjects, generateImages, removeImageBackground } from "./image-generation";
+import { editImageWithPrompt, enhanceImage, eraseImageObjects, extractImageText, generateImages, removeImageBackground } from "./image-generation";
 import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
 import { getAdminSessionFromAuthorization, handleAuthAction } from "./auth-store";
@@ -138,6 +138,16 @@ async function startServer() {
       res.json(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Image enhancement failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.post("/api/images/ocr", async (req, res) => {
+    try {
+      const result = await extractImageText(req.body);
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Image OCR failed";
       res.status(500).json({ error: message });
     }
   });
