@@ -13840,6 +13840,24 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         undoCanvas();
         return;
       }
+      // 全选图片与画板：Ctrl+A (Windows) / Cmd+A (Mac)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
+        const selectableIds = nodes
+          .filter(n => n.type === "asset" || n.type === "canvasFrame")
+          .map(n => n.id);
+        if (selectableIds.length > 0) {
+          e.preventDefault();
+          const selectableSet = new Set(selectableIds);
+          setNodes(nds => nds.map(n => ({ ...n, selected: selectableSet.has(n.id) })));
+          setSelectedNodeIds(selectableIds);
+          const assetCount = nodes.filter(n => n.type === "asset").length;
+          const frameCount = nodes.filter(n => n.type === "canvasFrame").length;
+          toast(`已选中 ${selectableIds.length} 个对象`, {
+            description: `图片 ${assetCount} 个，画板 ${frameCount} 个`,
+          });
+        }
+        return;
+      }
       // 复制：Ctrl+C (Windows) / Cmd+C (Mac) — 支持所有节点类型
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
         const toCopy = selectedNodeIds
