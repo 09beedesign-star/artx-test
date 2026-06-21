@@ -3,11 +3,8 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 import {
   ChevronDown,
-  Github,
   Heart,
   ImagePlus,
-  Mail,
-  MessageCircle,
   PlayCircle,
   Send,
 } from "lucide-react";
@@ -47,7 +44,7 @@ const getStageScale = () => {
 
 export default function HomePage() {
   const [, navigate] = useLocation();
-  const { isAuthenticated, login, register, socialAuth } = useAuth();
+  const { isAuthenticated, login, register } = useAuth();
   const [panelMode, setPanelMode] = useState<PanelMode>(isAuthenticated ? "prelogin" : "prelogin");
   const [prompt, setPrompt] = useState(HOME_PROMPT);
   const [email, setEmail] = useState("");
@@ -118,16 +115,15 @@ export default function HomePage() {
     createProjectFromPrompt();
   };
 
-  const handleAuthSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handleAuthAction = async (action: "login" | "register") => {
     if (!email.trim() || !password.trim()) {
-      setAuthError("请输入邮箱和密码");
+      setAuthError("请输入邮箱或 ID 和密码");
       return;
     }
 
     setAuthBusy(true);
     setAuthError("");
-    const result = displayedMode === "register"
+    const result = action === "register"
       ? await register(email.trim(), password)
       : await login(email.trim(), password);
     setAuthBusy(false);
@@ -136,21 +132,15 @@ export default function HomePage() {
       setAuthError(result.error || "登录失败，请稍后重试");
       return;
     }
-    toast(displayedMode === "register" ? "注册成功" : "登录成功", { description: "欢迎回到 ArtX Studio" });
+    toast(action === "register" ? "注册成功" : "登录成功", { description: "欢迎回到 ArtX Studio" });
     createProjectFromPrompt();
   };
 
-  const handleSocialAuth = async (provider: "google" | "wechat" | "apple" | "github" | "meta") => {
-    setAuthBusy(true);
-    setAuthError("");
-    const result = await socialAuth(provider);
-    setAuthBusy(false);
-    if (!result.ok) {
-      setAuthError(result.error || "第三方登录暂时不可用");
-      return;
-    }
-    toast("登录成功", { description: "欢迎回到 ArtX Studio" });
+  const handleAuthSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    await handleAuthAction("login");
   };
+
 
   const scrollToInspiration = () => {
     setActiveTab("inspiration");
@@ -240,8 +230,7 @@ export default function HomePage() {
                 onEmailChange={setEmail}
                 onPasswordChange={setPassword}
                 onSubmit={handleAuthSubmit}
-                onModeChange={setPanelMode}
-                onSocialAuth={handleSocialAuth}
+                onAuthAction={handleAuthAction}
               />
             </div>
           </div>
@@ -471,8 +460,7 @@ function LoginPanel({
   onEmailChange,
   onPasswordChange,
   onSubmit,
-  onModeChange,
-  onSocialAuth,
+  onAuthAction,
 }: {
   mode: "login" | "register";
   email: string;
@@ -482,8 +470,7 @@ function LoginPanel({
   onEmailChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
-  onModeChange: (mode: PanelMode) => void;
-  onSocialAuth: (provider: "google" | "wechat" | "apple" | "github" | "meta") => void;
+  onAuthAction: (action: "login" | "register") => void | Promise<void>;
 }) {
   const isRegister = mode === "register";
 
@@ -494,11 +481,11 @@ function LoginPanel({
 
         <div className="mt-8 flex flex-col gap-5">
           <LabeledInput
-            label="邮箱地址"
+            label="邮箱或 ID"
             value={email}
             onChange={onEmailChange}
             autoComplete="username"
-            placeholder="请输入你的账号或邮箱"
+            placeholder="请输入邮箱或 ID"
           />
           <LabeledInput
             label="密码"
@@ -519,34 +506,27 @@ function LoginPanel({
           </button>
         </div>
 
-        <button
-          type="submit"
-          disabled={busy}
-          className="mt-5 h-12 rounded-[10px] bg-[#936CFF] text-base font-semibold text-white shadow-[0_10px_28px_rgba(147,108,255,0.25)] transition-all hover:bg-[#A384FF] disabled:opacity-60"
-        >
-          {busy ? "请稍候..." : isRegister ? "注 册" : "登 录"}
-        </button>
-
-        <div className="my-5 flex items-center gap-3">
-          <span className="h-px flex-1 bg-[#939393]" />
-          <span className="text-[13px] text-white">或</span>
-          <span className="h-px flex-1 bg-[#939393]" />
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void onAuthAction("register")}
+            className="h-12 rounded-[10px] bg-[#2F80ED] text-base font-semibold text-white shadow-[0_10px_28px_rgba(47,128,237,0.24)] transition-all hover:bg-[#4A96FF] disabled:opacity-60"
+          >
+            {busy ? "请稍候..." : "注 册"}
+          </button>
+          <button
+            type="submit"
+            disabled={busy}
+            className="h-12 rounded-[10px] bg-[#936CFF] text-base font-semibold text-white shadow-[0_10px_28px_rgba(147,108,255,0.25)] transition-all hover:bg-[#A384FF] disabled:opacity-60"
+          >
+            {busy ? "请稍候..." : "登 录"}
+          </button>
         </div>
 
-        <div className="flex flex-col gap-[10px]">
-          <SocialButton icon={<Mail size={18} className="text-[#ea4335]" />} label="使用 Gmail 登录" onClick={() => onSocialAuth("google")} />
-          <SocialButton icon={<MessageCircle size={18} className="text-[#19b36b]" />} label="使用微信登录" onClick={() => onSocialAuth("wechat")} />
-          <SocialButton icon={<Github size={18} className="text-[#7fb2ff]" />} label="使用 GitHub 登录" onClick={() => onSocialAuth("github")} />
-          <SocialButton icon={<span className="text-xl leading-none text-[#3f7cff]">∞</span>} label="使用 Meta 登录" onClick={() => onSocialAuth("meta")} />
-        </div>
-
-        <button
-          type="button"
-          onClick={() => onModeChange(isRegister ? "login" : "register")}
-          className="mt-5 appearance-none bg-transparent text-center text-[13px] text-[#936CFF] transition-colors hover:text-[#A384FF]"
-        >
-          {isRegister ? "已有账号？立即登录" : "还没有账号？立即注册"}
-        </button>
+        <p className="mt-5 text-center text-[13px] text-[#7d7d7d]">
+          注册支持邮箱或 ID；已有密码账号可直接登录。
+        </p>
       </form>
     </GlassPanel>
   );
@@ -592,26 +572,5 @@ function LabeledInput({
         className="h-[46px] w-full rounded-[10px] border border-[#545454] bg-[#222] px-3.5 text-sm text-white outline-none transition-[border-color,box-shadow] placeholder:text-[#7d7d7d] focus:border-[#936CFF] focus:shadow-[0_0_0_3px_rgba(147,108,255,0.22)]"
       />
     </label>
-  );
-}
-
-function SocialButton({
-  icon,
-  label,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex h-11 appearance-none items-center justify-center gap-3 rounded-[10px] border border-[#737373] bg-transparent text-sm font-medium text-white transition-colors hover:border-white"
-    >
-      {icon}
-      {label}
-    </button>
   );
 }

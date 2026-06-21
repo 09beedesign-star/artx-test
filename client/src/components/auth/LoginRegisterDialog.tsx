@@ -67,11 +67,11 @@ export default function LoginRegisterDialog() {
 
             <div className="mt-8 flex flex-col gap-5">
               <LabeledInput
-                label="邮箱地址"
+                label="邮箱或 ID"
                 value={email}
                 onChange={setEmail}
                 autoComplete="username"
-                placeholder="请输入你的账号或邮箱"
+                placeholder="请输入邮箱或 ID"
               />
               <LabeledInput
                 label="密码"
