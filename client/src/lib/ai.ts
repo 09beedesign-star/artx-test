@@ -153,6 +153,12 @@ async function postImageEnhance(body: Record<string, unknown>, fallbackError: st
   return fetchAiJson<ApiErrorResponse & { images?: GeneratedImageResult[] }>(endpoint, body, fallbackError);
 }
 
+async function postImageOcr(body: Record<string, unknown>, fallbackError: string) {
+  const baseUrl = getAiApiBaseUrl();
+  const endpoint = `${baseUrl}/api/images/ocr`;
+  return fetchAiJson<ApiErrorResponse & { text?: string; provider?: string }>(endpoint, body, fallbackError);
+}
+
 export async function callLLM({
   prompt,
   messages,
@@ -355,6 +361,19 @@ export async function enhanceImageToHd({
   }, "图片高清化失败");
 
   return { images: result.images || [] };
+}
+
+export async function extractImageText({
+  imageSrc,
+}: {
+  imageSrc: string;
+}) {
+  requireAiAuth();
+  const result = await postImageOcr({ imageSrc }, "智能文案 OCR 失败");
+  return {
+    text: result.text || "",
+    provider: result.provider || "picwish-smart-ocr",
+  };
 }
 
 export async function editImageWithPrompt({
