@@ -3,6 +3,7 @@ import { Image as ImageIcon, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useTheme } from "@/contexts/ThemeContext";
+import { SOCIAL_MEDIA_SIZE_PRESETS, SocialPlatformIcon, type SocialMediaSizePreset } from "@/lib/social-media-presets";
 
 export interface CreateProjectPayload {
   id: string;
@@ -12,6 +13,7 @@ export interface CreateProjectPayload {
   owner: string;
   note: string;
   cover: string | null;
+  socialPreset?: SocialMediaSizePreset | null;
 }
 
 interface CreateProjectDialogProps {
@@ -68,6 +70,8 @@ export default function CreateProjectDialog({
   const [owner, setOwner] = useState("");
   const [note, setNote] = useState("");
   const [cover, setCover] = useState<string | null>(null);
+  const [socialSizeOpen, setSocialSizeOpen] = useState(false);
+  const [socialPresetId, setSocialPresetId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -77,6 +81,8 @@ export default function CreateProjectDialog({
     setOwner("");
     setNote("");
     setCover(null);
+    setSocialSizeOpen(false);
+    setSocialPresetId(null);
   }, [open]);
 
   const bg = isDark ? "oklch(0.15 0.018 270)" : "oklch(0.995 0.002 80)";
@@ -88,6 +94,8 @@ export default function CreateProjectDialog({
   const fieldClass = "w-full h-10 px-3 rounded-[var(--radius-md-design)] type-caption outline-none transition-colors";
   const labelStyle = { color: sub };
   const inputStyle = { background: inputBg, border: `1px solid ${border}`, color: text };
+  const selectedSocialPreset = SOCIAL_MEDIA_SIZE_PRESETS.find(preset => preset.id === socialPresetId) || null;
+  const socialPlatforms = Array.from(new Set(SOCIAL_MEDIA_SIZE_PRESETS.map(preset => preset.platform)));
 
   const handleCoverChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -117,6 +125,7 @@ export default function CreateProjectDialog({
       owner: owner.trim(),
       note: note.trim(),
       cover,
+      socialPreset: selectedSocialPreset,
     });
     onOpenChange(false);
   };
@@ -176,6 +185,116 @@ export default function CreateProjectDialog({
                   style={inputStyle}
                   placeholder="补充项目目标、交付范围或协作说明..."
                 />
+              </div>
+              <div
+                className="overflow-hidden rounded-[var(--radius-md-design)]"
+                style={{ background: inputBg, border: `1px solid ${border}` }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setSocialSizeOpen(value => !value)}
+                  className="flex h-10 w-full items-center justify-between gap-3 px-3 text-left transition-opacity hover:opacity-85"
+                  style={{ color: text }}
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-md-design)]" style={{ background: "oklch(0.62 0.22 290 / 0.14)" }}>
+                      {selectedSocialPreset ? <SocialPlatformIcon platform={selectedSocialPreset.platform} size={18} /> : <ImageIcon size={14} style={{ color: "oklch(0.62 0.22 290)" }} />}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate type-caption" style={{ color: text }}>
+                        社媒尺寸
+                      </span>
+                      <span className="block truncate" style={{ color: sub, fontSize: 11 }}>
+                        {selectedSocialPreset
+                          ? `${selectedSocialPreset.platform} · ${selectedSocialPreset.title} · ${selectedSocialPreset.width} × ${selectedSocialPreset.height}`
+                          : "选择平台规格，创建时记录对应画板尺寸"}
+                      </span>
+                    </span>
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      color: sub,
+                      fontSize: 12,
+                      transform: socialSizeOpen ? "rotate(180deg)" : "rotate(0deg)",
+                      transition: "transform 0.16s ease",
+                    }}
+                  >
+                    ˅
+                  </span>
+                </button>
+
+                {socialSizeOpen && (
+                  <div
+                    className="max-h-[238px] overflow-y-auto"
+                    style={{ borderTop: `1px solid ${border}`, scrollbarWidth: "thin" }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setSocialPresetId(null)}
+                      className="flex w-full items-center justify-between px-3 py-2 text-left transition-colors"
+                      style={{
+                        background: !selectedSocialPreset ? "oklch(0.62 0.22 290 / 0.12)" : "transparent",
+                        color: text,
+                      }}
+                    >
+                      <span className="type-caption">不使用社媒尺寸</span>
+                      {!selectedSocialPreset && <span style={{ color: "oklch(0.62 0.22 290)", fontSize: 12 }}>已选</span>}
+                    </button>
+                    {socialPlatforms.map(platform => (
+                      <div key={platform}>
+                        <div
+                          className="sticky top-0 z-10 flex items-center gap-2 px-3 py-1.5"
+                          style={{
+                            background: isDark ? "rgba(28,28,38,0.98)" : "rgba(250,250,252,0.98)",
+                            color: sub,
+                            fontSize: 11,
+                            fontWeight: 650,
+                            borderTop: `1px solid ${border}`,
+                          }}
+                        >
+                          <SocialPlatformIcon platform={platform} size={16} />
+                          <span>{platform}</span>
+                        </div>
+                        {SOCIAL_MEDIA_SIZE_PRESETS.filter(preset => preset.platform === platform).map(preset => {
+                          const active = preset.id === socialPresetId;
+                          return (
+                            <button
+                              key={preset.id}
+                              type="button"
+                              onClick={() => {
+                                setSocialPresetId(preset.id);
+                                if (!name.trim()) setName(`${preset.platform} ${preset.title}`);
+                              }}
+                              className="grid w-full grid-cols-[1fr_auto] items-center gap-3 px-3 py-2 text-left transition-colors"
+                              style={{
+                                background: active ? "oklch(0.62 0.22 290 / 0.14)" : "transparent",
+                                borderTop: `1px solid ${isDark ? "rgba(255,255,255,0.055)" : "rgba(0,0,0,0.055)"}`,
+                                color: text,
+                              }}
+                              onMouseEnter={event => {
+                                if (!active) event.currentTarget.style.background = isDark ? "rgba(255,255,255,0.055)" : "rgba(0,0,0,0.035)";
+                              }}
+                              onMouseLeave={event => {
+                                event.currentTarget.style.background = active ? "oklch(0.62 0.22 290 / 0.14)" : "transparent";
+                              }}
+                            >
+                              <span className="min-w-0">
+                                <span className="block truncate type-caption" style={{ color: text }}>{preset.title}</span>
+                                <span className="block truncate" style={{ color: sub, fontSize: 10 }}>
+                                  {Math.round((preset.width / preset.height) * 100) / 100}:1
+                                </span>
+                              </span>
+                              <span style={{ color: active ? "oklch(0.72 0.18 290)" : sub, fontSize: 11, fontWeight: 650, whiteSpace: "nowrap" }}>
+                                {preset.width} × {preset.height}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
