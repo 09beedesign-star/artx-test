@@ -13,6 +13,8 @@ export type SocialMediaExportPayload = {
   presets: SocialMediaSizePreset[];
   customSize?: { width: number; height: number };
   crop: { x: number; y: number; width: number; height: number };
+  transform?: { offsetX: number; offsetY: number; scale: number };
+  format?: "png" | "jpg" | "webp";
 };
 
 export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
