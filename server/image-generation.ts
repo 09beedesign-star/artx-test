@@ -2004,28 +2004,14 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<{ image
     throw new Error("Missing maskSrc");
   }
 
-  const { apiKey, baseUrl, model } = getProviderConfig();
-  if (!apiKey) {
-    throw new Error("Missing AI_IMAGE_API_KEY");
-  }
-
   const sourceImageData = await imageSrcToBuffer(input.imageSrc);
   const maskImageData = await imageSrcToBuffer(input.maskSrc);
   const sourceImageDimensions = await getImageBufferDimensions(sourceImageData.buffer);
   const targetWidth = coerceTargetDimension(input.targetWidth) || sourceImageDimensions.width;
   const targetHeight = coerceTargetDimension(input.targetHeight) || sourceImageDimensions.height;
-  const sourceImage = bufferToImageFile(sourceImageData.buffer, sourceImageData.mimeType);
-  const maskImage = bufferToImageFile(maskImageData.buffer, maskImageData.mimeType);
-  const selectedModel = input.model && supportedImageModels.has(input.model) ? input.model : model;
-  const prompt = [
-    input.prompt || "Remove only the objects or scene elements covered by the mask.",
-    "The mask is the only editable area. Preserve every unmasked pixel, subject, background, lighting, color, camera angle, and composition exactly.",
-    "Do not regenerate the whole image. Do not change anything outside the mask. Fill only the masked region with natural surrounding background.",
-  ].join(" ");
-  const editSize = getEditSizeForAspect(targetWidth, targetHeight);
   const fallbackErase = () => {
     if (input.disableLocalFallback) {
-      throw new Error("AI 扩图未返回可用内容，系统已自动使用当前可用编辑链路处理，请稍后重试");
+      throw new Error("AI 擦除未返回可用内容，请稍后重试");
     }
     return createLocalEraseFallback(sourceImageData.buffer, input.maskSrc, targetWidth, targetHeight);
   };
@@ -2058,68 +2044,8 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<{ image
         return { images: [composited] };
       }
     } catch (picWishError) {
-      console.warn("PicWish erase failed; using image edit provider fallback", picWishError);
+      console.warn("PicWish erase failed; using local masked fallback", picWishError);
     }
   }
-
-  const createBody = (withResponseFormat: boolean) => {
-    const body = new FormData();
-    body.append("model", selectedModel);
-    body.append("image", sourceImage);
-    body.append("mask", maskImage);
-    body.append("prompt", prompt);
-    body.append("n", "1");
-    body.append("size", editSize);
-    if (withResponseFormat) body.append("response_format", "b64_json");
-    return body;
-  };
-
-  let providerData: ImageGenerationResponse;
-  try {
-    try {
-      providerData = await callImageEditProvider(createBody(true), apiKey, baseUrl);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (!message.toLowerCase().includes("response_format")) throw error;
-      providerData = await callImageEditProvider(createBody(false), apiKey, baseUrl);
-    }
-  } catch (error) {
-    console.warn("Image erase provider failed; using local masked fallback", error);
-    return fallbackErase();
-  }
-
-  if (providerData.task_id) {
-    providerData = await pollAsyncImageTask(providerData.task_id, apiKey, baseUrl);
-  }
-
-  const images = await normalizeGeneratedImagesToTargetAspect(
-    extractGeneratedImages(providerData, baseUrl, targetWidth, targetHeight),
-    targetWidth,
-    targetHeight,
-  );
-
-  if (images.length === 0) {
-    throw new Error("Image erase provider returned no images");
-  }
-
-  if (input.preserveUnmaskedPixels === false) {
-    return { images };
-  }
-
-  try {
-    const changed = await didEraseChangeMaskedArea(sourceImageData.buffer, images[0].src, input.maskSrc, targetWidth, targetHeight);
-    if (!changed) return fallbackErase();
-  } catch (error) {
-    console.warn("Erase result validation failed; using local masked fallback", error);
-    return fallbackErase();
-  }
-
-  const composited = await compositeEraseResultOnlyInsideMask(
-    sourceImageData.buffer,
-    images[0].src,
-    input.maskSrc,
-    targetWidth,
-    targetHeight,
-  );
-  return { images: [composited] };
+  return fallbackErase();
 }

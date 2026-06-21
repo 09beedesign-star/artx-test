@@ -7633,6 +7633,59 @@ const FONT_DESIGN_STYLES: FontDesignStyle[] = ["高级极简", "潮流酸性", "
 const FONT_DESIGN_RATIOS = ["1:1", "4:5", "16:9", "9:16"];
 const FONT_DESIGN_COUNTS = [1, 2, 3, 4];
 
+const FONT_DESIGN_STYLE_PREVIEWS: Record<FontDesignStyle, { image: string; sample: string; description: string }> = {
+  "高级极简": {
+    image: new URL("../../../../inspiration-images/prompt-02.jpg", import.meta.url).href,
+    sample: "MONO",
+    description: "干净留白、现代字重、低噪声排版",
+  },
+  "潮流酸性": {
+    image: new URL("../../../../inspiration-images/prompt-43.jpg", import.meta.url).href,
+    sample: "ACID",
+    description: "高饱和撞色、弯曲字体、潮流海报感",
+  },
+  "国潮书法": {
+    image: new URL("../../../../inspiration-images/prompt-11.jpg", import.meta.url).href,
+    sample: "山海",
+    description: "书法笔势、金红氛围、东方品牌感",
+  },
+  "科技未来": {
+    image: new URL("../../../../inspiration-images/prompt-24.jpg", import.meta.url).href,
+    sample: "FUTURE",
+    description: "冷光线框、锐利结构、数字科技气质",
+  },
+  "可爱软萌": {
+    image: new URL("../../../../inspiration-images/prompt-48.jpg", import.meta.url).href,
+    sample: "POP",
+    description: "柔和色块、圆润字形、轻松亲和",
+  },
+  "奢华杂志": {
+    image: new URL("../../../../inspiration-images/prompt-13.jpg", import.meta.url).href,
+    sample: "VOGUE",
+    description: "高级摄影、强对比标题、封面层级",
+  },
+  "街头涂鸦": {
+    image: new URL("../../../../inspiration-images/prompt-45.jpg", import.meta.url).href,
+    sample: "STREET",
+    description: "街头图形、粗体字、贴纸拼贴感",
+  },
+  "二次元标题": {
+    image: new URL("../../../../inspiration-images/prompt-33.jpg", import.meta.url).href,
+    sample: "ANIME",
+    description: "鲜亮渐变、动感边线、标题冲击力",
+  },
+  "复古港风": {
+    image: new URL("../../../../inspiration-images/prompt-31.jpg", import.meta.url).href,
+    sample: "RETRO",
+    description: "暖色胶片、复古招牌、怀旧商业感",
+  },
+  "欧美海报": {
+    image: new URL("../../../../inspiration-images/prompt-10.jpg", import.meta.url).href,
+    sample: "POSTER",
+    description: "编辑大片、粗体标题、国际海报版式",
+  },
+};
+
 function detectFontDesignLanguage(text: string) {
   const hasChinese = /[\u3400-\u9fff]/.test(text);
   const hasLatin = /[A-Za-z]/.test(text);
@@ -7683,12 +7736,16 @@ function FontDesignDialog({ isDark, projectId, onClose }: { isDark: boolean; pro
   const [isGenerating, setIsGenerating] = useState(false);
 
   const bg = isDark ? "rgba(18,18,28,0.98)" : "rgba(255,255,255,0.98)";
+  const panelBg = isDark ? "rgba(255,255,255,0.055)" : "rgba(0,0,0,0.035)";
+  const raisedBg = isDark ? "rgba(255,255,255,0.075)" : "rgba(255,255,255,0.78)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
-  const text = isDark ? "rgba(255,255,255,0.88)" : "rgba(22,22,34,0.88)";
-  const sub = isDark ? "rgba(255,255,255,0.46)" : "rgba(22,22,34,0.50)";
-  const fieldBg = isDark ? "rgba(255,255,255,0.055)" : "rgba(0,0,0,0.035)";
+  const text = isDark ? "rgba(255,255,255,0.90)" : "rgba(22,22,34,0.90)";
+  const sub = isDark ? "rgba(255,255,255,0.50)" : "rgba(22,22,34,0.52)";
   const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
-  const accent = "oklch(0.64 0.22 285)";
+  const accent = "#C5ED47";
+  const aiAccent = "oklch(0.64 0.22 285)";
+  const activeBorder = "oklch(0.64 0.22 285 / 0.54)";
+  const activeStyle = FONT_DESIGN_STYLE_PREVIEWS[stylePreset];
   const canGenerate = textValue.trim().length > 0 && !isGenerating;
   const hasUnsavedInput = textValue.trim().length > 0 || extraPrompt.trim().length > 0;
   const requestClose = useCallback(() => {
@@ -7697,15 +7754,14 @@ function FontDesignDialog({ isDark, projectId, onClose }: { isDark: boolean; pro
     onClose();
   }, [hasUnsavedInput, isGenerating, onClose]);
 
-  const pillStyle = (active: boolean): React.CSSProperties => ({
-    minHeight: 30,
-    padding: "0 10px",
+  const optionButtonStyle = (active: boolean): React.CSSProperties => ({
+    minHeight: 32,
     borderRadius: "var(--radius-md-design)",
-    border: `1px solid ${active ? "oklch(0.64 0.22 285 / 0.52)" : border}`,
-    background: active ? "oklch(0.64 0.22 285 / 0.16)" : fieldBg,
+    border: `1px solid ${active ? activeBorder : border}`,
+    background: active ? "oklch(0.64 0.22 285 / 0.15)" : panelBg,
     color: active ? (isDark ? "white" : "oklch(0.38 0.18 285)") : text,
     fontSize: 12,
-    transition: "background 0.16s ease, border-color 0.16s ease, transform 0.16s ease",
+    transition: "background 0.16s ease, border-color 0.16s ease, transform 0.16s ease, opacity 0.16s ease",
   });
 
   const handleGenerate = async () => {
@@ -7772,116 +7828,156 @@ function FontDesignDialog({ isDark, projectId, onClose }: { isDark: boolean; pro
       style={{ zIndex: 20000, pointerEvents: "none", padding: 20 }}
     >
       <div
-        className="max-h-[calc(100vh-40px)] w-[min(760px,calc(100vw-40px))] overflow-y-auto rounded-[var(--radius-xl-design)] shadow-2xl"
+        className="max-h-[calc(100vh-40px)] w-[min(980px,calc(100vw-40px))] overflow-y-auto rounded-[var(--radius-xl-design)] shadow-2xl"
         style={{
           pointerEvents: "auto",
           background: bg,
           border: `1px solid ${border}`,
-          backdropFilter: "blur(24px)",
-          boxShadow: "0 30px 100px rgba(0,0,0,0.42)",
+          backdropFilter: "blur(26px)",
+          boxShadow: "0 30px 100px rgba(0,0,0,0.46)",
         }}
         onMouseDown={e => e.stopPropagation()}
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: `1px solid ${border}` }}>
+        <div className="flex items-start justify-between gap-4 px-5 py-4" style={{ borderBottom: `1px solid ${border}` }}>
           <div className="flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-lg-design)]" style={{ color: accent, background: "oklch(0.64 0.22 285 / 0.14)" }}>
-              <FontDesignIcon size={17} cutoutBg={bg} />
+            <span className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-lg-design)]" style={{ color: aiAccent, background: "oklch(0.64 0.22 285 / 0.14)" }}>
+              <FontDesignIcon size={18} cutoutBg={bg} />
             </span>
             <div>
-              <p className="type-caption" style={{ color: text, fontSize: 14 }}>字体设计</p>
-              <p className="type-caption" style={{ color: sub, fontSize: 11 }}>输入中英文文字，快速生成有排版感的设计字图</p>
+              <p className="type-caption" style={{ color: text, fontSize: 14, fontWeight: 750 }}>字体设计</p>
+              <p className="mt-1 type-caption" style={{ color: sub, fontSize: 11 }}>输入中英文文字，选择用途与风格，生成可继续编辑的设计字图</p>
             </div>
           </div>
-          <button type="button" className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-md-design)] hover:opacity-75" style={{ color: sub }} onClick={requestClose} aria-label="关闭字体设计">
+          <button type="button" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-md-design)] hover:opacity-75" style={{ color: sub }} onClick={requestClose} aria-label="关闭字体设计">
             <X size={15} />
           </button>
         </div>
 
-        <div className="grid gap-4 p-5 md:grid-cols-[1.05fr_1fr]">
+        <div className="grid gap-5 p-5 lg:grid-cols-[330px_1fr]">
           <div className="space-y-4">
-            <div className="rounded-[var(--radius-lg-design)] p-3" style={{ background: fieldBg, border: `1px solid ${border}` }}>
-              <p className="mb-2 type-caption" style={{ color: sub }}>设计文字</p>
-              <textarea
-                value={textValue}
-                onChange={event => setTextValue(event.target.value)}
-                rows={3}
-                maxLength={80}
-                className="w-full resize-none bg-transparent outline-none"
-                style={{ color: text, fontSize: 24, lineHeight: 1.35, fontWeight: 700, letterSpacing: 0 }}
-                placeholder="例如：山海计划 / FUTURE LAB / 星河 Studio"
-                autoFocus
-              />
-              <div className="mt-2 flex items-center justify-between" style={{ color: sub }}>
-                <span className="type-caption">{detectFontDesignLanguage(textValue || "文字")}</span>
-                <span className="type-caption">{textValue.trim().length}/80</span>
+            <div className="overflow-hidden rounded-[var(--radius-lg-design)]" style={{ background: panelBg, border: `1px solid ${border}` }}>
+              <div className="relative h-36 overflow-hidden">
+                <img src={activeStyle.image} alt={`${stylePreset} 预览`} className="h-full w-full object-cover" draggable={false} />
+                <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(0,0,0,0.08), rgba(0,0,0,0.70))" }} />
+                <div className="absolute bottom-3 left-3 right-3">
+                  <div className="type-caption" style={{ color: "white", fontSize: 24, fontWeight: 900, letterSpacing: 0, textShadow: "0 8px 24px rgba(0,0,0,0.55)" }}>
+                    {textValue.trim() || activeStyle.sample}
+                  </div>
+                  <div className="mt-1 type-caption" style={{ color: "rgba(255,255,255,0.68)" }}>{stylePreset} · {activeStyle.description}</div>
+                </div>
+              </div>
+              <div className="p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="type-caption" style={{ color: sub }}>设计文字</p>
+                  <span className="type-caption" style={{ color: sub }}>{detectFontDesignLanguage(textValue || "文字")} · {textValue.trim().length}/80</span>
+                </div>
+                <textarea
+                  value={textValue}
+                  onChange={event => setTextValue(event.target.value)}
+                  rows={3}
+                  maxLength={80}
+                  className="w-full resize-none rounded-[var(--radius-md-design)] bg-transparent p-3 outline-none"
+                  style={{ color: text, background: raisedBg, border: `1px solid ${border}`, fontSize: 23, lineHeight: 1.32, fontWeight: 800, letterSpacing: 0 }}
+                  placeholder="山海计划 / FUTURE LAB / 星河 Studio"
+                  autoFocus
+                />
               </div>
             </div>
 
-            <div>
-              <p className="mb-2 type-caption" style={{ color: sub }}>补充提示词</p>
-              <textarea
-                value={extraPrompt}
-                onChange={event => setExtraPrompt(event.target.value)}
-                rows={4}
-                maxLength={260}
-                className="w-full resize-none rounded-[var(--radius-lg-design)] bg-transparent p-3 outline-none"
-                style={{ background: fieldBg, border: `1px solid ${border}`, color: text, fontSize: 13, lineHeight: 1.65 }}
-                placeholder="描述行业、颜色、情绪、材质或排版方向，例如：黑金配色，适合高端香氛品牌，文字要有杂志封面感..."
-              />
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <div>
+            <div className="rounded-[var(--radius-lg-design)] p-3" style={{ background: panelBg, border: `1px solid ${border}` }}>
               <p className="mb-2 type-caption" style={{ color: sub }}>用途</p>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 {FONT_DESIGN_PURPOSES.map(item => (
-                  <button key={item} type="button" className="active:scale-95" style={pillStyle(purpose === item)} onClick={() => setPurpose(item)}>
+                  <button key={item} type="button" className="active:scale-95" style={optionButtonStyle(purpose === item)} onClick={() => setPurpose(item)}>
                     {item}
                   </button>
                 ))}
               </div>
             </div>
 
-            <div>
-              <p className="mb-2 type-caption" style={{ color: sub }}>风格模板</p>
-              <div className="grid grid-cols-2 gap-2">
-                {FONT_DESIGN_STYLES.map(item => (
-                  <button key={item} type="button" className="flex items-center justify-between active:scale-95" style={pillStyle(stylePreset === item)} onClick={() => setStylePreset(item)}>
-                    <span>{item}</span>
-                    {stylePreset === item && <Check size={13} style={{ color: accent }} />}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             <div className="grid grid-cols-[1fr_0.9fr] gap-3">
-              <div>
+              <div className="rounded-[var(--radius-lg-design)] p-3" style={{ background: panelBg, border: `1px solid ${border}` }}>
                 <p className="mb-2 type-caption" style={{ color: sub }}>画幅</p>
                 <div className="grid grid-cols-2 gap-2">
                   {FONT_DESIGN_RATIOS.map(item => (
-                    <button key={item} type="button" className="active:scale-95" style={pillStyle(ratio === item)} onClick={() => setRatio(item)}>
+                    <button key={item} type="button" className="active:scale-95" style={optionButtonStyle(ratio === item)} onClick={() => setRatio(item)}>
                       {item}
                     </button>
                   ))}
                 </div>
               </div>
-              <div>
+              <div className="rounded-[var(--radius-lg-design)] p-3" style={{ background: panelBg, border: `1px solid ${border}` }}>
                 <p className="mb-2 type-caption" style={{ color: sub }}>数量</p>
                 <div className="grid grid-cols-2 gap-2">
                   {FONT_DESIGN_COUNTS.map(item => (
-                    <button key={item} type="button" className="active:scale-95" style={pillStyle(count === item)} onClick={() => setCount(item)}>
+                    <button key={item} type="button" className="active:scale-95" style={optionButtonStyle(count === item)} onClick={() => setCount(item)}>
                       {item}
                     </button>
                   ))}
                 </div>
               </div>
             </div>
+          </div>
 
-            <div className="flex items-center justify-between rounded-[var(--radius-lg-design)] px-3 py-2" style={{ background: fieldBg, border: `1px solid ${border}` }}>
+          <div className="space-y-4">
+            <div className="rounded-[var(--radius-lg-design)] p-3" style={{ background: panelBg, border: `1px solid ${border}` }}>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <p className="type-caption" style={{ color: text, fontWeight: 750 }}>风格模板</p>
+                  <p className="mt-1 type-caption" style={{ color: sub, fontSize: 11 }}>每张预览展示对应风格的大致视觉方向</p>
+                </div>
+                <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ color: aiAccent, background: "oklch(0.64 0.22 285 / 0.12)", border: `1px solid ${activeBorder}` }}>{stylePreset}</span>
+              </div>
+              <div className="grid max-h-[420px] grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3">
+                {FONT_DESIGN_STYLES.map(item => {
+                  const active = stylePreset === item;
+                  const preview = FONT_DESIGN_STYLE_PREVIEWS[item];
+                  return (
+                    <button
+                      key={item}
+                      type="button"
+                      className="group overflow-hidden rounded-[var(--radius-lg-design)] text-left transition-transform hover:scale-[1.01] active:scale-95"
+                      style={{ background: active ? "oklch(0.64 0.22 285 / 0.14)" : raisedBg, border: `1px solid ${active ? activeBorder : border}`, color: text }}
+                      onClick={() => setStylePreset(item)}
+                    >
+                      <span className="relative block h-20 overflow-hidden">
+                        <img src={preview.image} alt={`${item} 风格预览`} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" draggable={false} />
+                        <span className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(0,0,0,0.02), rgba(0,0,0,0.58))" }} />
+                        <span className="absolute bottom-2 left-2 right-2 flex items-center justify-between gap-2">
+                          <span className="truncate type-caption" style={{ color: "white", fontWeight: 850, letterSpacing: 0 }}>{preview.sample}</span>
+                          {active && <Check size={14} style={{ color: accent, flexShrink: 0, filter: "drop-shadow(0 0 8px rgba(197,237,71,0.45))" }} />}
+                        </span>
+                      </span>
+                      <span className="block p-2">
+                        <span className="block truncate type-caption" style={{ color: text, fontWeight: 750 }}>{item}</span>
+                        <span className="mt-0.5 block line-clamp-2 type-caption" style={{ color: sub, fontSize: 10, lineHeight: 1.35 }}>{preview.description}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="rounded-[var(--radius-lg-design)] p-3" style={{ background: panelBg, border: `1px solid ${border}` }}>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="type-caption" style={{ color: sub }}>补充提示词</p>
+                <span className="type-caption" style={{ color: sub }}>{extraPrompt.trim().length}/260</span>
+              </div>
+              <textarea
+                value={extraPrompt}
+                onChange={event => setExtraPrompt(event.target.value)}
+                rows={4}
+                maxLength={260}
+                className="w-full resize-none rounded-[var(--radius-md-design)] bg-transparent p-3 outline-none"
+                style={{ background: raisedBg, border: `1px solid ${border}`, color: text, fontSize: 13, lineHeight: 1.6 }}
+                placeholder="描述行业、颜色、情绪、材质或排版方向，例如：黑金配色，适合高端香氛品牌，文字要有杂志封面感..."
+              />
+            </div>
+
+            <div className="flex items-center justify-between rounded-[var(--radius-lg-design)] px-3 py-2.5" style={{ background: panelBg, border: `1px solid ${border}` }}>
               <div>
-                <p className="type-caption" style={{ color: text }}>透明底</p>
+                <p className="type-caption" style={{ color: text, fontWeight: 750 }}>透明底</p>
                 <p className="type-caption" style={{ color: sub, fontSize: 11 }}>适合叠加到海报、产品图和品牌视觉中</p>
               </div>
               <button
@@ -7897,18 +7993,20 @@ function FontDesignDialog({ isDark, projectId, onClose }: { isDark: boolean; pro
           </div>
         </div>
 
-        <div className="flex items-center justify-between px-5 py-4" style={{ borderTop: `1px solid ${border}` }}>
+        <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between" style={{ borderTop: `1px solid ${border}` }}>
           <p className="type-caption" style={{ color: sub }}>生成后会在画布中创建新的图片节点，并在右侧对话区保留记录。</p>
           <button
             type="button"
             disabled={!canGenerate}
-            className="flex h-10 items-center gap-2 rounded-[var(--radius-lg-design)] px-4 transition-all hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed"
+            className="flex h-10 items-center justify-center gap-2 rounded-[var(--radius-md-design)] px-5 transition-all hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed"
             style={{
-              background: canGenerate ? "#C5ED47" : hoverBg,
+              minWidth: 148,
+              background: canGenerate ? accent : hoverBg,
               color: canGenerate ? "#000" : sub,
               boxShadow: canGenerate ? "0 14px 34px rgba(197,237,71,0.30)" : "none",
               cursor: canGenerate ? "pointer" : "not-allowed",
               opacity: canGenerate ? 1 : 0.56,
+              fontWeight: 750,
             }}
             onMouseEnter={event => {
               if (!canGenerate) return;
@@ -7916,12 +8014,12 @@ function FontDesignDialog({ isDark, projectId, onClose }: { isDark: boolean; pro
               event.currentTarget.style.boxShadow = "0 18px 42px rgba(197,237,71,0.38)";
             }}
             onMouseLeave={event => {
-              event.currentTarget.style.background = canGenerate ? "#C5ED47" : hoverBg;
+              event.currentTarget.style.background = canGenerate ? accent : hoverBg;
               event.currentTarget.style.boxShadow = canGenerate ? "0 14px 34px rgba(197,237,71,0.30)" : "none";
             }}
             onClick={handleGenerate}
           >
-            {isGenerating ? <RefreshCw size={15} className="animate-spin" /> : <FontDesignIcon size={15} cutoutBg="#C5ED47" />}
+            {isGenerating ? <RefreshCw size={15} className="animate-spin" /> : <FontDesignIcon size={15} cutoutBg={accent} />}
             <span className="type-caption">{isGenerating ? "生成中" : "生成字体设计"}</span>
           </button>
         </div>
