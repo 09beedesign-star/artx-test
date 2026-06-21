@@ -180,6 +180,36 @@ function AiDecoratedIcon({
     </span>
   );
 }
+
+function FontDesignIcon({
+  size = 17,
+  cutoutBg = "rgba(22,22,30,0.96)",
+}: {
+  size?: number;
+  cutoutBg?: string;
+}) {
+  return (
+    <AiDecoratedIcon size={size} cutoutBg={cutoutBg}>
+      <span
+        aria-hidden="true"
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: size,
+          height: size,
+          fontSize: Math.max(13, Math.round(size * 0.9)),
+          fontWeight: 900,
+          lineHeight: 1,
+          fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+          letterSpacing: 0,
+        }}
+      >
+        A
+      </span>
+    </AiDecoratedIcon>
+  );
+}
 import { useLocation } from "wouter";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
@@ -7660,6 +7690,12 @@ function FontDesignDialog({ isDark, projectId, onClose }: { isDark: boolean; pro
   const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
   const accent = "oklch(0.64 0.22 285)";
   const canGenerate = textValue.trim().length > 0 && !isGenerating;
+  const hasUnsavedInput = textValue.trim().length > 0 || extraPrompt.trim().length > 0;
+  const requestClose = useCallback(() => {
+    if (isGenerating) return;
+    if (hasUnsavedInput && !window.confirm("确认退出字体设计吗？")) return;
+    onClose();
+  }, [hasUnsavedInput, isGenerating, onClose]);
 
   const pillStyle = (active: boolean): React.CSSProperties => ({
     minHeight: 30,
@@ -7733,10 +7769,10 @@ function FontDesignDialog({ isDark, projectId, onClose }: { isDark: boolean; pro
   return (
     <div
       className="fixed inset-0 flex items-center justify-center"
-      style={{ zIndex: 3600, pointerEvents: "none" }}
+      style={{ zIndex: 20000, pointerEvents: "none", padding: 20 }}
     >
       <div
-        className="w-[min(760px,calc(100vw-40px))] overflow-hidden rounded-[var(--radius-xl-design)] shadow-2xl"
+        className="max-h-[calc(100vh-40px)] w-[min(760px,calc(100vw-40px))] overflow-y-auto rounded-[var(--radius-xl-design)] shadow-2xl"
         style={{
           pointerEvents: "auto",
           background: bg,
@@ -7750,16 +7786,14 @@ function FontDesignDialog({ isDark, projectId, onClose }: { isDark: boolean; pro
         <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: `1px solid ${border}` }}>
           <div className="flex items-center gap-3">
             <span className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-lg-design)]" style={{ color: accent, background: "oklch(0.64 0.22 285 / 0.14)" }}>
-              <AiDecoratedIcon size={17} cutoutBg={bg}>
-                <Type size={17} />
-              </AiDecoratedIcon>
+              <FontDesignIcon size={17} cutoutBg={bg} />
             </span>
             <div>
               <p className="type-caption" style={{ color: text, fontSize: 14 }}>字体设计</p>
               <p className="type-caption" style={{ color: sub, fontSize: 11 }}>输入中英文文字，快速生成有排版感的设计字图</p>
             </div>
           </div>
-          <button type="button" className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-md-design)] hover:opacity-75" style={{ color: sub }} onClick={onClose} aria-label="关闭字体设计">
+          <button type="button" className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-md-design)] hover:opacity-75" style={{ color: sub }} onClick={requestClose} aria-label="关闭字体设计">
             <X size={15} />
           </button>
         </div>
@@ -7872,11 +7906,22 @@ function FontDesignDialog({ isDark, projectId, onClose }: { isDark: boolean; pro
             style={{
               background: canGenerate ? "#C5ED47" : hoverBg,
               color: canGenerate ? "#000" : sub,
-              boxShadow: canGenerate ? "0 12px 30px rgba(197,237,71,0.24)" : "none",
+              boxShadow: canGenerate ? "0 14px 34px rgba(197,237,71,0.30)" : "none",
+              cursor: canGenerate ? "pointer" : "not-allowed",
+              opacity: canGenerate ? 1 : 0.56,
+            }}
+            onMouseEnter={event => {
+              if (!canGenerate) return;
+              event.currentTarget.style.background = "#D6FF59";
+              event.currentTarget.style.boxShadow = "0 18px 42px rgba(197,237,71,0.38)";
+            }}
+            onMouseLeave={event => {
+              event.currentTarget.style.background = canGenerate ? "#C5ED47" : hoverBg;
+              event.currentTarget.style.boxShadow = canGenerate ? "0 14px 34px rgba(197,237,71,0.30)" : "none";
             }}
             onClick={handleGenerate}
           >
-            {isGenerating ? <RefreshCw size={15} className="animate-spin" /> : <Type size={15} />}
+            {isGenerating ? <RefreshCw size={15} className="animate-spin" /> : <FontDesignIcon size={15} cutoutBg="#C5ED47" />}
             <span className="type-caption">{isGenerating ? "生成中" : "生成字体设计"}</span>
           </button>
         </div>
@@ -7928,7 +7973,7 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
 
   // 点击画布空白处时关闭子菜单
   useEffect(() => {
-    const handler = () => { setShapeOpen(false); setDrawOpen(false); setImageGeneratorOpen(false); setProductBackgroundOpen(false); setFontDesignOpen(false); };
+    const handler = () => { setShapeOpen(false); setDrawOpen(false); setImageGeneratorOpen(false); setProductBackgroundOpen(false); };
     window.addEventListener("pane-click", handler);
     return () => window.removeEventListener("pane-click", handler);
   }, []);
@@ -7961,7 +8006,7 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
   const tools = [
     { id: "image-ai",     label: "智能生图",   icon: <Sparkles size={17} /> },
     { id: "annotate",     label: "智能注释",   icon: <AiAnnotationIcon size={17} cutoutBg={bg} /> },
-    { id: "font-design",  label: "字体设计",   icon: <AiDecoratedIcon size={17} cutoutBg={bg}><Type size={17} /></AiDecoratedIcon> },
+    { id: "font-design",  label: "字体设计",   icon: <FontDesignIcon size={17} cutoutBg={bg} /> },
     { id: "product-bg",   label: "智能创建背景", icon: <GalleryVerticalEnd size={17} /> },
     { id: "move",         label: "移动",       icon: <MousePointer2 size={17} /> },
     { id: "upload",       label: "上传图片",   icon: <ImagePlus size={17} /> },
