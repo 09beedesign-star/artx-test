@@ -48,7 +48,7 @@ import {
   Triangle, Pencil, MessageCircle, Star, Minus as MinusIcon,
   BadgeCheck, ScanSearch, Move, PanelTopOpen, ImageOff, Check,
   WandSparkles,
-  Shirt, Expand, Frame, RotateCw, MapPin, PlusCircle, GalleryVerticalEnd,
+  Shirt, Expand, Frame, RotateCw, MapPin, PlusCircle, GalleryVerticalEnd, Droplets,
 } from "lucide-react";
 
 // 「井号 + 方框」图标 — 创建画板专用
@@ -219,7 +219,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import CropEditor from "@/components/canvas/CropEditor";
 import RotateEditor from "@/components/canvas/RotateEditor";
-import { callLLM, createProductBackground, editImageWithPrompt, enhanceImageToHd, eraseImageObjects, expandImageWithMask, extractImageText, generateImages as generateAiImages, getBackgroundImageGenerationTask, removeImageBackground, requestAiAuth, searchReferenceImages, startBackgroundImageGeneration, type ReferenceImageResult } from "@/lib/ai";
+import { callLLM, createProductBackground, editImageWithPrompt, enhanceImageToHd, eraseImageObjects, expandImageWithMask, extractImageText, generateImages as generateAiImages, getBackgroundImageGenerationTask, removeImageBackground, removeImageWatermark, requestAiAuth, searchReferenceImages, startBackgroundImageGeneration, type ReferenceImageResult } from "@/lib/ai";
 import { routeCreativeIntent } from "@/lib/ai-intent";
 import { createWorkspaceHistoryProject, readWorkspaceProjectHistory, touchWorkspaceProjectHistory, updateWorkspaceProjectHistory, type WorkspaceHistoryProject } from "@/lib/project-history";
 import { buildSkillPromptContext, createPendingSkillLoad, PENDING_SKILL_LOAD_KEY, skillStoreItems, type PendingSkillLoad } from "@/lib/skill-store";
@@ -1398,6 +1398,7 @@ function AssetFloatingToolbar({ isDark, position, onAction }: {
     { icon: <AiDecoratedIcon cutoutBg={toolBg}><PanelTopOpen size={15} /></AiDecoratedIcon>, label: "编辑元素", action: "edit-elements" },
     { icon: <AiDecoratedIcon cutoutBg={toolBg}><Type size={15} /></AiDecoratedIcon>, label: "智能文案", action: "edit-text" },
     { icon: <HdIcon size={15} />, label: "HD 4K", action: "upscale" },
+    { icon: <AiDecoratedIcon cutoutBg={toolBg}><Droplets size={15} /></AiDecoratedIcon>, label: "去水印", action: "remove-watermark" },
     { icon: <Expand size={15} />, label: "扩展", action: "expand" },
     { type: "divider" as const, key: "after-expand" },
     { icon: <MoreHorizontal size={15} />, label: "更多", action: "more" },
@@ -14145,7 +14146,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const handleSingleImageToolbarAction = useCallback(async (action: string) => {
     const nodeId = selectedVisualNodeIds[0];
     if (!nodeId) return;
-    const aiToolbarActions = new Set(["quick-edit", "upscale", "remove-background", "erase", "edit-text", "edit-elements", "expand", "vector"]);
+    const aiToolbarActions = new Set(["quick-edit", "upscale", "remove-background", "remove-watermark", "erase", "edit-text", "edit-elements", "expand", "vector"]);
     if (aiToolbarActions.has(action) && !requireAiAccess()) return;
     setNodes(nds => nds.map(n => n.id === nodeId && n.type === "asset" ? { ...n, data: clearAssetCommandState(n.data as Record<string, unknown>) } : n));
     clearInactiveAssetCommands([nodeId]);
@@ -14156,7 +14157,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         toast("画布命令", { description: "画布节点已复用图片节点命令框架，可拖动、缩放、复制、删除与调整层级" });
         return;
       }
-      if (["upscale", "remove-background", "erase"].includes(action)) {
+      if (["upscale", "remove-background", "remove-watermark", "erase"].includes(action)) {
         toast("画布节点暂不支持该 AI 图片处理", { description: "请选择具体图片节点后使用此命令" });
         return;
       }
@@ -14226,6 +14227,25 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           model: "gpt-image-2",
           prompt: "Remove the background from this image. Keep the foreground subject sharp and return a PNG with the background fully transparent and alpha set to 0.",
         }),
+      });
+      return;
+    }
+    if (action === "remove-watermark") {
+      if (!targetNode || targetNode.type !== "asset") return;
+      const imageSrc = getLatestAssetImageSource(nodeId);
+      if (!imageSrc) {
+        toast("去水印失败", { description: "当前图片没有可处理的图像来源" });
+        return;
+      }
+      const sourceSize = getCanvasNodeSize(targetNode);
+      toast("AI 去水印中", { description: "正在移除图片水印，新图会出现在原图旁边" });
+      await runDerivedImageGeneration({
+        sourceNode: targetNode,
+        prompt: "去水印",
+        style: "去水印结果",
+        nextW: sourceSize.width,
+        nextH: sourceSize.height,
+        run: async () => removeImageWatermark({ imageSrc }),
       });
       return;
     }
@@ -14568,6 +14588,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     }
     const labels: Record<string, string> = {
       "remove-background": "去背景",
+      "remove-watermark": "去水印",
       upscale: "HD 4K",
       erase: "橡皮工具",
       "edit-elements": "编辑元素",

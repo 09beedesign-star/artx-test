@@ -18,6 +18,10 @@ type EnhanceImageInput = {
   level?: "4k";
 };
 
+type RemoveWatermarkInput = {
+  imageSrc: string;
+};
+
 type CreateBackgroundInput = {
   imageSrc: string;
   prompt?: string;
@@ -800,6 +804,11 @@ async function compositeEraseResultInsidePicWishMask(
 async function enhanceImageWithPicWish(src: string): Promise<{ images: GeneratedImage[] }> {
   const { buffer, mimeType } = await imageSrcToBuffer(src);
   return runPicWishImageTask("scale", buffer, mimeType);
+}
+
+async function removeWatermarkWithPicWish(src: string): Promise<{ images: GeneratedImage[] }> {
+  const { buffer, mimeType } = await imageSrcToBuffer(src);
+  return runPicWishImageTask("watermark", buffer, mimeType);
 }
 
 function getBackgroundOutputSize(input: CreateBackgroundInput, fallbackWidth: number, fallbackHeight: number) {
@@ -1856,6 +1865,14 @@ export async function enhanceImage(input: EnhanceImageInput): Promise<{ images: 
   }
 
   return enhanceImageWithPicWish(input.imageSrc);
+}
+
+export async function removeImageWatermark(input: RemoveWatermarkInput): Promise<{ images: GeneratedImage[] }> {
+  if (!input.imageSrc?.trim()) {
+    throw new Error("Missing imageSrc");
+  }
+
+  return removeWatermarkWithPicWish(input.imageSrc);
 }
 
 export async function extractImageText(input: ExtractImageTextInput): Promise<{ text: string; provider: string }> {

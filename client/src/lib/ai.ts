@@ -172,6 +172,12 @@ async function postImageEnhance(body: Record<string, unknown>, fallbackError: st
   return fetchAiJson<ApiErrorResponse & { images?: GeneratedImageResult[] }>(endpoint, body, fallbackError);
 }
 
+async function postImageWatermarkRemoval(body: Record<string, unknown>, fallbackError: string) {
+  const baseUrl = getAiApiBaseUrl();
+  const endpoint = `${baseUrl}/api/images/remove-watermark`;
+  return fetchAiJson<ApiErrorResponse & { images?: GeneratedImageResult[] }>(endpoint, body, fallbackError);
+}
+
 async function postProductBackground(body: Record<string, unknown>, fallbackError: string) {
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/images/create-background`;
@@ -389,6 +395,16 @@ export async function enhanceImageToHd({
     level,
   }, "图片高清化失败");
 
+  return { images: result.images || [] };
+}
+
+export async function removeImageWatermark({
+  imageSrc,
+}: {
+  imageSrc: string;
+}) {
+  requireAiAuth();
+  const result = await postImageWatermarkRemoval({ imageSrc }, "去水印失败");
   return { images: result.images || [] };
 }
 
