@@ -600,7 +600,7 @@ function ImagePreviewModal({ src, title, onClose, isDark }: {
 
   return (
     <div
-      className="fixed inset-0 flex items-center justify-center"
+      className="fixed inset-x-0 flex justify-center"
       style={{ background: "rgba(0,0,0,0.88)", backdropFilter: "blur(12px)", zIndex: 9999 }}
       onClick={onClose}
     >
@@ -7892,11 +7892,11 @@ function FontDesignDialog({ isDark, projectId, onClose }: { isDark: boolean; pro
 
   return (
     <div
-      className="fixed inset-0 flex items-center justify-center"
-      style={{ zIndex: 20000, pointerEvents: "none", padding: 28 }}
+      className="fixed inset-x-0 flex justify-center"
+      style={{ zIndex: 20000, pointerEvents: "none", top: 88, padding: "0 28px" }}
     >
       <div
-        className="flex max-h-[min(760px,calc(100dvh-56px))] w-[min(1120px,calc(100vw-56px))] flex-col overflow-hidden rounded-[var(--radius-xl-design)] shadow-2xl"
+        className="flex max-h-[calc(100dvh-112px)] w-[min(1120px,calc(100vw-56px))] flex-col overflow-hidden rounded-[var(--radius-xl-design)] shadow-2xl"
         style={{
           pointerEvents: "auto",
           background: bg,
@@ -7997,7 +7997,7 @@ function FontDesignDialog({ isDark, projectId, onClose }: { isDark: boolean; pro
                 </div>
                 <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ color: aiAccent, background: "oklch(0.64 0.22 285 / 0.12)", border: `1px solid ${activeBorder}` }}>{stylePreset}</span>
               </div>
-              <div className="grid max-h-[292px] grid-cols-[repeat(auto-fit,minmax(132px,1fr))] gap-2 overflow-y-auto overflow-x-hidden pr-1">
+              <div className="grid max-h-[420px] grid-cols-[repeat(auto-fit,minmax(156px,1fr))] gap-2 overflow-y-auto overflow-x-hidden pr-1">
                 {FONT_DESIGN_STYLES.map(item => {
                   const active = stylePreset === item;
                   const preview = FONT_DESIGN_STYLE_PREVIEWS[item];
@@ -8009,17 +8009,17 @@ function FontDesignDialog({ isDark, projectId, onClose }: { isDark: boolean; pro
                       style={{ background: active ? "oklch(0.64 0.22 285 / 0.14)" : raisedBg, border: `1px solid ${active ? activeBorder : border}`, color: text }}
                       onClick={() => setStylePreset(item)}
                     >
-                      <span className="relative block h-16 overflow-hidden">
+                      <span className="relative block h-20 overflow-hidden">
                         <img src={preview.image} alt={`${item} 风格预览`} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" draggable={false} />
                         <span className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(0,0,0,0.02), rgba(0,0,0,0.58))" }} />
                         <span className="absolute bottom-2 left-2 right-2 flex items-center justify-between gap-2">
-                          <span className="truncate type-caption" style={{ color: "white", fontWeight: 850, letterSpacing: 0 }}>{preview.sample}</span>
+                          <span className="min-w-0 type-caption" style={{ color: "white", fontWeight: 850, letterSpacing: 0 }}>{preview.sample}</span>
                           {active && <Check size={14} style={{ color: accent, flexShrink: 0, filter: "drop-shadow(0 0 8px rgba(197,237,71,0.45))" }} />}
                         </span>
                       </span>
                       <span className="block p-2">
-                        <span className="block truncate type-caption" style={{ color: text, fontWeight: 750 }}>{item}</span>
-                        <span className="mt-0.5 block truncate type-caption" style={{ color: sub, fontSize: 10, lineHeight: 1.35 }}>{preview.description}</span>
+                        <span className="block type-caption" style={{ color: text, fontWeight: 750, whiteSpace: "normal" }}>{item}</span>
+                        <span className="mt-0.5 block type-caption" style={{ color: sub, fontSize: 10, lineHeight: 1.35, whiteSpace: "normal" }}>{preview.description}</span>
                       </span>
                     </button>
                   );
@@ -8178,7 +8178,7 @@ function ProductBackgroundDialog({ isDark, onClose }: { isDark: boolean; onClose
   };
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center" style={{ zIndex: 3500, pointerEvents: "none", background: "rgba(0,0,0,0.34)", backdropFilter: "blur(8px)" }}>
+    <div className="fixed inset-x-0 flex justify-center" style={{ zIndex: 3500, pointerEvents: "none", background: "rgba(0,0,0,0.34)", backdropFilter: "blur(8px)" }}>
       <div
         className="w-[min(820px,calc(100vw-40px))] max-h-[min(780px,calc(100vh-56px))] overflow-y-auto rounded-[var(--radius-xl-design)] p-5 shadow-2xl"
         style={{ pointerEvents: "auto", background: bg, border: `1px solid ${border}`, backdropFilter: "blur(22px)", boxShadow: "0 24px 80px rgba(0,0,0,0.38)" }}
@@ -8730,7 +8730,7 @@ function SaveProjectConfirmDialog({ isDark, project, onCancel, onSave }: {
 
   return (
     <div
-      className="fixed inset-0 flex items-center justify-center"
+      className="fixed inset-x-0 flex justify-center"
       style={{ background: "rgba(0,0,0,0.58)", backdropFilter: "blur(8px)", zIndex: 4000 }}
       onMouseDown={onCancel}
     >
@@ -15150,7 +15150,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       {/* Rename group dialog */}
       {renamingGroupId && (
         <div
-          className="fixed inset-0 flex items-center justify-center"
+          className="fixed inset-x-0 flex justify-center"
           style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)", zIndex: 5000 }}
           onMouseDown={() => setRenamingGroupId(null)}
         >
@@ -15376,7 +15376,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       {/* 批量下载格式选择弹窗 */}
       {downloadDialogOpen && (
         <div
-          className="fixed inset-0 flex items-center justify-center"
+          className="fixed inset-x-0 flex justify-center"
           style={{ background: "rgba(0,0,0,0.60)", backdropFilter: "blur(10px)", zIndex: 6000 }}
           onMouseDown={() => setDownloadDialogOpen(false)}
         >
