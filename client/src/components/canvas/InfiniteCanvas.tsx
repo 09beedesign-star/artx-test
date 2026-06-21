@@ -1364,7 +1364,7 @@ function AssetFloatingToolbar({ isDark, position, onAction }: {
     { icon: <Download size={15} />, label: "下载", action: "download" },
   ];
   const moreItems = [
-    { icon: <Shirt size={18} />, label: "社媒平台尺寸", action: "mockup" },
+    { icon: <Shirt size={18} />, label: "多平台封面", action: "mockup" },
     { icon: <ImageIcon size={18} />, label: "调整", action: "adjust" },
     { icon: <Frame size={18} />, label: "矢量", action: "vector", cost: 9 },
   ];
@@ -1554,6 +1554,20 @@ function loadImageForCanvas(src: string) {
   });
 }
 
+type BrowserDirectoryHandle = {
+  getDirectoryHandle: (name: string, options?: { create?: boolean }) => Promise<BrowserDirectoryHandle>;
+  getFileHandle: (name: string, options?: { create?: boolean }) => Promise<{
+    createWritable: () => Promise<{
+      write: (data: Blob) => Promise<void>;
+      close: () => Promise<void>;
+    }>;
+  }>;
+};
+
+type BrowserWindowWithDirectoryPicker = Window & {
+  showDirectoryPicker?: () => Promise<BrowserDirectoryHandle>;
+};
+
 function sharpenCanvasImage(ctx: CanvasRenderingContext2D, width: number, height: number, sharpness: number) {
   if (sharpness <= 0 || width < 3 || height < 3) return;
   const imageData = ctx.getImageData(0, 0, width, height);
@@ -1638,13 +1652,46 @@ async function createSocialMediaSizedImage(src: string, size: { width: number; h
   return canvas.toDataURL("image/png");
 }
 
-function getSocialPreviewCropStyle(crop: SocialMediaExportPayload["crop"]) {
-  return {
-    left: `${-(crop.x / crop.width) * 100}%`,
-    top: `${-(crop.y / crop.height) * 100}%`,
-    width: `${100 / crop.width}%`,
-    height: `${100 / crop.height}%`,
-  };
+async function createMultiPlatformCoverBlob(
+  src: string,
+  size: { width: number; height: number },
+  transform: NonNullable<SocialMediaExportPayload["transform"]>,
+  format: NonNullable<SocialMediaExportPayload["format"]>,
+) {
+  const image = await loadImageForCanvas(src);
+  const naturalW = Math.max(1, image.naturalWidth || image.width);
+  const naturalH = Math.max(1, image.naturalHeight || image.height);
+  const targetRatio = size.width / size.height;
+  const baseScale = naturalW / naturalH > targetRatio
+    ? size.height / naturalH
+    : size.width / naturalW;
+  const drawScale = baseScale * Math.max(1, transform.scale || 1);
+  const drawW = naturalW * drawScale;
+  const drawH = naturalH * drawScale;
+  const canvas = document.createElement("canvas");
+  canvas.width = size.width;
+  canvas.height = size.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("当前浏览器不支持图片处理");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  if (format === "jpg") {
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, size.width, size.height);
+  } else {
+    ctx.clearRect(0, 0, size.width, size.height);
+  }
+  ctx.drawImage(
+    image,
+    (size.width - drawW) / 2 + transform.offsetX * size.width,
+    (size.height - drawH) / 2 + transform.offsetY * size.height,
+    drawW,
+    drawH,
+  );
+  const mimeType = format === "jpg" ? "image/jpeg" : format === "webp" ? "image/webp" : "image/png";
+  const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, mimeType, format === "png" ? undefined : 0.94));
+  if (!blob) throw new Error("图片导出失败");
+  return blob;
 }
 
 function SocialMediaSizePanel({
@@ -1662,14 +1709,12 @@ function SocialMediaSizePanel({
   const [customEnabled, setCustomEnabled] = useState(false);
   const [customWidth, setCustomWidth] = useState(1080);
   const [customHeight, setCustomHeight] = useState(1080);
-  const [crop, setCrop] = useState({ x: 0, y: 0, width: 1, height: 1 });
-  const [cropEditMode, setCropEditMode] = useState(false);
-  const [naturalSize, setNaturalSize] = useState({ width: 1080, height: 1080 });
+  const [exportFormat, setExportFormat] = useState<"png" | "jpg" | "webp">("png");
+  const [coverTransform, setCoverTransform] = useState({ offsetX: 0, offsetY: 0, scale: 1 });
   const dragRef = useRef<null | {
-    mode: "pan" | "move" | "left" | "right" | "top" | "bottom";
     startX: number;
     startY: number;
-    startCrop: SocialMediaExportPayload["crop"];
+    startTransform: { offsetX: number; offsetY: number; scale: number };
     bounds: DOMRect;
   }>(null);
   const bg = isDark ? "rgba(24,24,34,0.98)" : "rgba(255,255,255,0.98)";
@@ -1680,29 +1725,15 @@ function SocialMediaSizePanel({
   const selectedPresets = SOCIAL_MEDIA_SIZE_PRESETS.filter(item => selectedPresetIds.includes(item.id));
   const validCustom = customEnabled && customWidth >= 64 && customHeight >= 64;
   const canGenerate = selectedPresets.length > 0 || validCustom;
-
-  useEffect(() => {
-    if (!imageSrc) return;
-    let cancelled = false;
-    loadImageForCanvas(imageSrc)
-      .then(image => {
-        if (!cancelled) setNaturalSize({
-          width: Math.max(1, image.naturalWidth || image.width),
-          height: Math.max(1, image.naturalHeight || image.height),
-        });
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [imageSrc]);
-
-  useEffect(() => {
-    if (!cropEditMode) return;
-    setCustomEnabled(true);
-    setCustomWidth(Math.max(64, Math.round(naturalSize.width * crop.width)));
-    setCustomHeight(Math.max(64, Math.round(naturalSize.height * crop.height)));
-  }, [crop, cropEditMode, naturalSize.height, naturalSize.width]);
+  const previewPreset = selectedPresets[0] || (validCustom ? {
+    id: "custom",
+    platform: "自定义",
+    title: "自定义封面",
+    width: customWidth,
+    height: customHeight,
+    tone: "oklch(0.62 0.22 290)",
+  } : SOCIAL_MEDIA_SIZE_PRESETS[0]);
+  const previewRatio = Math.max(0.2, Math.min(3.2, previewPreset.width / previewPreset.height));
 
   const togglePreset = (id: string) => {
     setSelectedPresetIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]);
@@ -1710,16 +1741,7 @@ function SocialMediaSizePanel({
 
   const handleCropPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
-    dragRef.current = { mode: cropEditMode ? "move" : "pan", startX: event.clientX, startY: event.clientY, startCrop: crop, bounds };
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
-
-  const handleCropHandlePointerDown = (event: React.PointerEvent<HTMLDivElement>, mode: "left" | "right" | "top" | "bottom") => {
-    event.preventDefault();
-    event.stopPropagation();
-    const bounds = event.currentTarget.parentElement?.parentElement?.getBoundingClientRect();
-    if (!bounds) return;
-    dragRef.current = { mode, startX: event.clientX, startY: event.clientY, startCrop: crop, bounds };
+    dragRef.current = { startX: event.clientX, startY: event.clientY, startTransform: coverTransform, bounds };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
@@ -1728,39 +1750,24 @@ function SocialMediaSizePanel({
     if (!drag) return;
     const dx = (event.clientX - drag.startX) / Math.max(1, drag.bounds.width);
     const dy = (event.clientY - drag.startY) / Math.max(1, drag.bounds.height);
-    const minSize = 0.08;
-    if (drag.mode === "pan" || drag.mode === "move") {
-      setCrop({
-        ...drag.startCrop,
-        x: Math.max(0, Math.min(1 - drag.startCrop.width, drag.startCrop.x + dx)),
-        y: Math.max(0, Math.min(1 - drag.startCrop.height, drag.startCrop.y + dy)),
-      });
-      return;
-    }
-    setCrop(() => {
-      const next = { ...drag.startCrop };
-      if (drag.mode === "left") {
-        const nextX = Math.max(0, Math.min(drag.startCrop.x + drag.startCrop.width - minSize, drag.startCrop.x + dx));
-        next.width = drag.startCrop.width + drag.startCrop.x - nextX;
-        next.x = nextX;
-      }
-      if (drag.mode === "right") {
-        next.width = Math.max(minSize, Math.min(1 - drag.startCrop.x, drag.startCrop.width + dx));
-      }
-      if (drag.mode === "top") {
-        const nextY = Math.max(0, Math.min(drag.startCrop.y + drag.startCrop.height - minSize, drag.startCrop.y + dy));
-        next.height = drag.startCrop.height + drag.startCrop.y - nextY;
-        next.y = nextY;
-      }
-      if (drag.mode === "bottom") {
-        next.height = Math.max(minSize, Math.min(1 - drag.startCrop.y, drag.startCrop.height + dy));
-      }
-      return next;
+    setCoverTransform({
+      ...drag.startTransform,
+      offsetX: Math.max(-1, Math.min(1, drag.startTransform.offsetX + dx)),
+      offsetY: Math.max(-1, Math.min(1, drag.startTransform.offsetY + dy)),
     });
   };
 
   const handleCropPointerUp = () => {
     dragRef.current = null;
+  };
+
+  const handlePreviewWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setCoverTransform(prev => ({
+      ...prev,
+      scale: Math.max(1, Math.min(4, Number((prev.scale + (event.deltaY > 0 ? -0.08 : 0.08)).toFixed(2)))),
+    }));
   };
 
   return (
@@ -1785,8 +1792,8 @@ function SocialMediaSizePanel({
     >
       <div className="flex shrink-0 items-center justify-between px-4 py-3" style={{ borderBottom: `1px solid ${border}` }}>
         <div>
-          <p style={{ color: text, fontSize: 14, fontWeight: 650 }}>社媒平台尺寸</p>
-          <p style={{ color: sub, fontSize: 11, marginTop: 2 }}>选择一个或多个平台尺寸，生成对应规格的新图片节点。</p>
+          <p style={{ color: text, fontSize: 14, fontWeight: 650 }}>多平台封面</p>
+          <p style={{ color: sub, fontSize: 11, marginTop: 2 }}>选择图片和平台尺寸，导出所见裁取内容到本地。</p>
         </div>
         <button className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-md-design)]" style={{ color: sub }} onClick={onClose} aria-label="关闭">
           <X size={14} />
@@ -1795,39 +1802,59 @@ function SocialMediaSizePanel({
 
       <div className="min-h-0 flex-1 overflow-y-auto p-3" style={{ scrollbarWidth: "thin" }}>
         <div
-          className="relative mb-3 overflow-hidden rounded-[var(--radius-md-design)]"
-          style={{ aspectRatio: "16/10", background: field, border: `1px solid ${border}` }}
+          className="relative mx-auto mb-3 overflow-hidden rounded-[var(--radius-md-design)]"
+          style={{
+            aspectRatio: `${previewPreset.width}/${previewPreset.height}`,
+            width: previewRatio < 0.82 ? "58%" : "100%",
+            maxHeight: 300,
+            background: field,
+            border: `1px solid ${border}`,
+            cursor: "grab",
+          }}
           onPointerDown={handleCropPointerDown}
           onPointerMove={handleCropPointerMove}
           onPointerUp={handleCropPointerUp}
           onPointerCancel={handleCropPointerUp}
+          onWheel={handlePreviewWheel}
         >
           {imageSrc ? (
-            <img src={imageSrc} alt="尺寸裁切预览" draggable={false} className="absolute object-cover" style={getSocialPreviewCropStyle(crop)} />
+            <img
+              src={imageSrc}
+              alt="多平台封面裁取预览"
+              draggable={false}
+              className="absolute h-full w-full object-cover"
+              style={{
+                left: `${coverTransform.offsetX * 100}%`,
+                top: `${coverTransform.offsetY * 100}%`,
+                transform: `scale(${coverTransform.scale})`,
+                transformOrigin: "center",
+              }}
+            />
           ) : null}
           <div className="absolute inset-0 pointer-events-none" style={{ boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.26)" }} />
-          {cropEditMode && (
-            <div
-              className="absolute cursor-move"
-              style={{
-                left: `${crop.x * 100}%`,
-                top: `${crop.y * 100}%`,
-                width: `${crop.width * 100}%`,
-                height: `${crop.height * 100}%`,
-                border: "2px solid rgba(255,255,255,0.95)",
-                boxShadow: "0 0 0 999px rgba(0,0,0,0.36), 0 0 0 1px rgba(108,92,231,0.85)",
-              }}
-            >
-              <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: "linear-gradient(to right, rgba(255,255,255,0.36) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.36) 1px, transparent 1px)", backgroundSize: "33.333% 33.333%" }} />
-              <div className="absolute -left-1.5 top-0 h-full w-3 cursor-ew-resize" onPointerDown={event => handleCropHandlePointerDown(event, "left")} />
-              <div className="absolute -right-1.5 top-0 h-full w-3 cursor-ew-resize" onPointerDown={event => handleCropHandlePointerDown(event, "right")} />
-              <div className="absolute -top-1.5 left-0 h-3 w-full cursor-ns-resize" onPointerDown={event => handleCropHandlePointerDown(event, "top")} />
-              <div className="absolute -bottom-1.5 left-0 h-3 w-full cursor-ns-resize" onPointerDown={event => handleCropHandlePointerDown(event, "bottom")} />
-            </div>
-          )}
           <div className="absolute bottom-2 left-2 rounded-[var(--radius-md-design)] px-2 py-1" style={{ background: "rgba(0,0,0,0.42)", color: "white", fontSize: 11 }}>
-            {cropEditMode ? "拖拽裁切框或边缘调整裁切尺寸" : "拖拽图片选择需要显示的内容"}
+            拖拽调整位置，滚轮缩放内容
           </div>
+        </div>
+
+        <div className="mb-3 grid grid-cols-3 gap-2">
+          {(["png", "jpg", "webp"] as const).map(format => {
+            const active = exportFormat === format;
+            return (
+              <button
+                key={format}
+                className="h-8 rounded-[var(--radius-md-design)] text-[11px] font-semibold uppercase transition-all active:scale-95"
+                style={{
+                  background: active ? "oklch(0.58 0.22 290 / 0.18)" : field,
+                  border: `1px solid ${active ? "oklch(0.62 0.22 290 / 0.56)" : border}`,
+                  color: active ? "oklch(0.78 0.18 290)" : text,
+                }}
+                onClick={() => setExportFormat(format)}
+              >
+                {format === "jpg" ? "JPG" : format.toUpperCase()}
+              </button>
+            );
+          })}
         </div>
 
         <div className="grid grid-cols-2 gap-2">
@@ -1877,19 +1904,16 @@ function SocialMediaSizePanel({
             <button
               type="button"
               className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-md-design)] transition-all active:scale-95"
-              title="裁切尺寸"
-              aria-label="裁切尺寸"
+              title="重置预览"
+              aria-label="重置预览"
               style={{
-                background: cropEditMode ? "oklch(0.58 0.22 290 / 0.18)" : isDark ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.72)",
-                color: cropEditMode ? "oklch(0.72 0.20 290)" : text,
-                border: `1px solid ${cropEditMode ? "oklch(0.62 0.22 290 / 0.56)" : border}`,
+                background: isDark ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.72)",
+                color: text,
+                border: `1px solid ${border}`,
               }}
-              onClick={() => {
-                setCropEditMode(prev => !prev);
-                setCustomEnabled(true);
-              }}
+              onClick={() => setCoverTransform({ offsetX: 0, offsetY: 0, scale: 1 })}
             >
-              <Crop size={15} />
+              <RefreshCw size={15} />
             </button>
           </div>
           <div className="grid grid-cols-2 gap-2">
@@ -1940,10 +1964,12 @@ function SocialMediaSizePanel({
           onClick={() => onGenerate({
             presets: selectedPresets,
             customSize: validCustom ? { width: customWidth, height: customHeight } : undefined,
-            crop,
+            crop: { x: 0, y: 0, width: 1, height: 1 },
+            transform: coverTransform,
+            format: exportFormat,
           })}
         >
-          生成
+          导出
         </button>
       </div>
     </div>
@@ -1971,7 +1997,7 @@ function AssetMoreCommandPanel({ isDark, command, initialAdjustments, imageSrc, 
   const field = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
   const hover = isDark ? "rgba(255,255,255,0.09)" : "rgba(0,0,0,0.06)";
   const config: Record<string, { title: string; description: string; actions: string[] }> = {
-    mockup: { title: "社媒平台尺寸", description: "选择平台图片规格并生成新尺寸图片。", actions: [] },
+    mockup: { title: "多平台封面", description: "选择平台封面规格并导出本地图片。", actions: [] },
     expand: { title: "扩展", description: "按比例扩展画面边界，保留主体视觉。", actions: ["1:1", "4:5", "16:9"] },
     adjust: { title: "调整", description: "实时调整图片色彩、亮度、对比度、饱和度和锐利度。", actions: [] },
     crop: { title: "裁切", description: "选择裁切比例，图片节点会更新为新的尺寸。", actions: ["自由", "1:1", "3:4", "4:3", "16:9", "9:16"] },
@@ -13453,7 +13479,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       erase: "橡皮工具",
       "edit-elements": "编辑元素",
       "edit-text": "智能文案",
-      mockup: "社媒平台尺寸",
+      mockup: "多平台封面",
       expand: "扩展",
       adjust: "调整",
       crop: "裁剪",
@@ -13465,26 +13491,23 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   }, [clearAssetCommandState, clearInactiveAssetCommands, createExtractedTextNode, getLatestAssetImageSource, handleNodeAction, nodesRef, pushHistory, requireAiAccess, runDerivedImageGeneration, selectedVisualNodeIds, setNodes]);
   const handleSocialMediaSizeGenerate = useCallback(async (payload: SocialMediaExportPayload) => {
     if (!assetMorePanel) return;
-    const sourceNode = nodesRef.current.find(n => n.id === assetMorePanel.nodeId && n.type === "asset");
-    if (!sourceNode) {
-      setAssetMorePanel(null);
-      return;
-    }
     const imageSrc = getLatestAssetImageSource(assetMorePanel.nodeId);
     if (!imageSrc) {
-      toast("生成失败", { description: "当前图片没有可处理的图像来源" });
+      toast("导出失败", { description: "当前图片没有可处理的图像来源" });
       setAssetMorePanel(null);
       return;
     }
     const outputSizes = [
       ...payload.presets.map(preset => ({
         id: preset.id,
+        platform: preset.platform,
         label: `${preset.platform} ${preset.title}`,
         width: preset.width,
         height: preset.height,
       })),
       ...(payload.customSize ? [{
         id: "custom",
+        platform: "自定义",
         label: "自定义尺寸",
         width: payload.customSize.width,
         height: payload.customSize.height,
@@ -13492,49 +13515,46 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     ];
     if (outputSizes.length === 0) return;
 
+    const toastId = toast.loading(`正在导出 ${outputSizes.length} 张多平台封面...`);
     try {
-      const sourceSize = getCanvasNodeSize(sourceNode);
-      const generated = await Promise.all(outputSizes.map(async (item, index) => {
-        const localSrc = await createSocialMediaSizedImage(imageSrc, { width: item.width, height: item.height }, payload.crop);
-        const displaySize = getImportedImageDisplaySize(item.width, item.height);
-        const id = `social-size-${Date.now()}-${index}`;
-        return {
-          id,
-          type: "asset" as const,
-          position: {
-            x: sourceNode.position.x + sourceSize.width + 44 + index * 34,
-            y: sourceNode.position.y + index * 34,
-          },
-          style: { width: displaySize.width, height: displaySize.height },
-          selected: true,
-          data: {
-            id,
-            assetId: "default",
-            localSrc,
-            title: `${item.label} ${item.width}×${item.height}`,
-            assetType: "社媒尺寸",
-            tags: ["社媒平台尺寸", item.label],
-            imgW: displaySize.width,
-            imgH: displaySize.height,
-            outputWidth: item.width,
-            outputHeight: item.height,
-          },
-        };
+      const zip = new JSZip();
+      const format = payload.format || "png";
+      const exportedFiles = await Promise.all(outputSizes.map(async item => {
+        const blob = await createMultiPlatformCoverBlob(
+          imageSrc,
+          { width: item.width, height: item.height },
+          payload.transform || { offsetX: 0, offsetY: 0, scale: 1 },
+          format,
+        );
+        const ext = format === "jpg" ? "jpeg" : format;
+        const fileName = `${sanitizeDownloadName(`${item.platform} ${item.width}×${item.height}`)}.${ext}`;
+        zip.file(fileName, blob);
+        return { fileName, blob };
       }));
-      pushHistory();
-      setNodes(nds => [
-        ...nds.map(n => ({ ...n, selected: false })),
-        ...generated,
-      ]);
-      setSelectedNodeIds(generated.map(node => node.id));
-      toast("社媒平台尺寸已生成", { description: `已生成 ${generated.length} 张新规格图片` });
+      const picker = (window as BrowserWindowWithDirectoryPicker).showDirectoryPicker;
+      if (picker) {
+        const rootHandle = await picker();
+        const folderHandle = await rootHandle.getDirectoryHandle("ArtX 多平台封面", { create: true });
+        for (const file of exportedFiles) {
+          const fileHandle = await folderHandle.getFileHandle(file.fileName, { create: true });
+          const writable = await fileHandle.createWritable();
+          await writable.write(file.blob);
+          await writable.close();
+        }
+      } else {
+        const zipBlob = await zip.generateAsync({ type: "blob" });
+        saveAs(zipBlob, `ArtX 多平台封面-${Date.now()}.zip`);
+      }
+      toast.dismiss(toastId);
+      toast("多平台封面已导出", { description: `已保存 ${outputSizes.length} 张 ${format.toUpperCase()} 图片` });
     } catch (error) {
+      toast.dismiss(toastId);
       const message = error instanceof Error ? error.message : "请稍后重试";
-      toast("生成失败", { description: message });
+      toast("导出失败", { description: message });
     } finally {
       setAssetMorePanel(null);
     }
-  }, [assetMorePanel, getLatestAssetImageSource, nodesRef, pushHistory, setNodes]);
+  }, [assetMorePanel, getLatestAssetImageSource, sanitizeDownloadName]);
   const handleAssetMorePanelApply = useCallback(async (label: string, adjustments?: AssetAdjustmentValues) => {
     if (!assetMorePanel) return;
     if (assetMorePanel.command === "vector") {
@@ -14647,7 +14667,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 );
               })()}
 
-              {/* 社媒平台尺寸——复用图片命令中的规格库 */}
+              {/* 多平台封面——复用图片命令中的规格库 */}
               {(() => {
                 const selectedSocialPreset = SOCIAL_MEDIA_SIZE_PRESETS.find(preset => preset.id === canvasSocialPresetId);
                 const groupedPlatforms = Array.from(new Set(SOCIAL_MEDIA_SIZE_PRESETS.map(preset => preset.platform)));
@@ -14664,7 +14684,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                     >
                       <span style={{ fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                         <Sparkles size={13} />
-                        <span>社媒平台尺寸</span>
+                        <span>多平台封面</span>
                         {selectedSocialPreset && (
                           <span style={{ color: "oklch(0.65 0.22 290)", fontSize: 11, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {selectedSocialPreset.platform} · {selectedSocialPreset.title}
