@@ -18,4 +18,5 @@
 - Image generation recovery rule: text-to-image tasks with a `generationId` are also started on the backend `/api/images/tasks` background endpoint, so closing the browser can still recover completed or failed results when the user returns.
 - Canvas assistant composer rule: image reference chips and annotation reference chips are ordered prompt segments; drag reordering must preserve the same order in both displayed prompt text and the reference image array sent to AI.
 - Eraser AI rule: canvas eraser strokes call PicWish/佐糖 image object removal through `server/image-generation.ts#eraseWithPicWish`, using the `inpaint` visual task with the existing white-remove/black-protect mask input.
+- Gemini image model rule: selectable Gemini/Nano Banana image models are exposed through `IMAGE_AI_MODELS` and routed as chat-compatible image models in `server/image-generation.ts`, so they avoid the unsupported Images API path.
 - Font design dialog layout rule: the panel must stay centered, avoid horizontal scrolling, keep style previews as real proportional cards instead of thin strips, and fit common browser heights with vertical-only internal scrolling.
