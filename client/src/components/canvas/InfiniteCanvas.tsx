@@ -86,6 +86,69 @@ function HdIcon({ size = 15 }: { size?: number }) {
     </span>
   );
 }
+
+function AiAnnotationIcon({ size = 17 }: { size?: number }) {
+  return (
+    <span
+      style={{
+        position: "relative",
+        display: "inline-flex",
+        width: size,
+        height: size,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <MessageCircle size={size} />
+      <Sparkles
+        size={Math.max(8, Math.round(size * 0.58))}
+        strokeWidth={2.4}
+        style={{
+          position: "absolute",
+          right: -3,
+          top: -4,
+          color: "oklch(0.74 0.20 290)",
+          filter: "drop-shadow(0 0 5px oklch(0.64 0.22 290 / 0.55))",
+        }}
+      />
+    </span>
+  );
+}
+
+function AiDecoratedIcon({
+  children,
+  size = 15,
+}: {
+  children: ReactNode;
+  size?: number;
+}) {
+  return (
+    <span
+      style={{
+        position: "relative",
+        display: "inline-flex",
+        width: size,
+        height: size,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      {children}
+      <Sparkles
+        size={Math.max(7, Math.round(size * 0.52))}
+        strokeWidth={2.4}
+        style={{
+          position: "absolute",
+          right: -4,
+          top: -4,
+          color: "oklch(0.74 0.20 290)",
+          filter: "drop-shadow(0 0 5px oklch(0.64 0.22 290 / 0.48))",
+          pointerEvents: "none",
+        }}
+      />
+    </span>
+  );
+}
 import { useLocation } from "wouter";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
@@ -1215,14 +1278,15 @@ function AssetFloatingToolbar({ isDark, position, onAction }: {
   const moreText = isDark ? "rgba(255,255,255,0.88)" : "rgba(28,28,40,0.88)";
   const moreSub = isDark ? "rgba(255,255,255,0.48)" : "rgba(28,28,40,0.45)";
   const tools = [
-    { icon: <BadgeCheck size={15} />, label: "快捷编辑", action: "quick-edit" },
-    { icon: <HdIcon size={15} />, label: "HD 高清", action: "upscale" },
-    { icon: <ImageOff size={15} />, label: "去背景", action: "remove-background" },
-    { icon: <Crop size={15} />, label: "裁切", action: "crop" },
-    { icon: <Eraser size={15} />, label: "橡皮工具", action: "erase" },
-    { icon: <PanelTopOpen size={15} />, label: "编辑元素", action: "edit-elements" },
-    { icon: <Type size={15} />, label: "编辑文字", action: "edit-text" },
     { icon: <Move size={15} />, label: "移动对象", action: "move-object" },
+    { icon: <RotateCw size={15} />, label: "旋转与反转", action: "flip-rotate" },
+    { icon: <Crop size={15} />, label: "裁切", action: "crop" },
+    { icon: <AiDecoratedIcon><BadgeCheck size={15} /></AiDecoratedIcon>, label: "智能编辑", action: "quick-edit" },
+    { icon: <AiDecoratedIcon><ImageOff size={15} /></AiDecoratedIcon>, label: "去背景", action: "remove-background" },
+    { icon: <AiDecoratedIcon><Eraser size={15} /></AiDecoratedIcon>, label: "橡皮工具", action: "erase" },
+    { icon: <AiDecoratedIcon><PanelTopOpen size={15} /></AiDecoratedIcon>, label: "编辑元素", action: "edit-elements" },
+    { icon: <AiDecoratedIcon><Type size={15} /></AiDecoratedIcon>, label: "智能文案", action: "edit-text" },
+    { icon: <HdIcon size={15} />, label: "HD 4K", action: "upscale" },
     { icon: <Expand size={15} />, label: "扩展", action: "expand" },
     { icon: <MoreHorizontal size={15} />, label: "更多", action: "more" },
     { icon: <Download size={15} />, label: "下载", action: "download" },
@@ -1231,7 +1295,6 @@ function AssetFloatingToolbar({ isDark, position, onAction }: {
     { icon: <Shirt size={18} />, label: "社媒平台尺寸", action: "mockup" },
     { icon: <ImageIcon size={18} />, label: "调整", action: "adjust" },
     { icon: <Frame size={18} />, label: "矢量", action: "vector", cost: 9 },
-    { icon: <RotateCw size={18} />, label: "翻转与旋转", action: "flip-rotate" },
   ];
   useEffect(() => {
     if (!moreOpen) return;
@@ -2686,7 +2749,7 @@ function AssetInlineNote({
         left: "50%",
         width: "min(320px, max(220px, 100%))",
         transform: "translateX(-50%)",
-        zIndex: 120,
+        zIndex: 5000,
         color: textColor,
       }}
       onMouseDown={event => event.stopPropagation()}
@@ -5104,6 +5167,16 @@ const nodeTypes: NodeTypes = {
   freehand: FreehandNodeComponent as unknown as NodeTypes["freehand"],
   text: TextNodeComponent as unknown as NodeTypes["text"],
 };
+
+const SELECT_TO_FRONT_NODE_TYPES = new Set(["asset", "shape", "freehand", "pen", "text"]);
+
+function shouldSelectToFront(node: Node | undefined) {
+  return Boolean(node?.type && SELECT_TO_FRONT_NODE_TYPES.has(node.type));
+}
+
+function nextCanvasTopZ(nodes: Node[]) {
+  return Math.max(0, ...nodes.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
+}
 const edgeTypes: EdgeTypes = {
   tapnow: TapnowEdge as unknown as EdgeTypes["tapnow"],
 };
@@ -6338,8 +6411,6 @@ function NodeContextMenu({ menu, onClose, onAction, isDark }: {
 
   // Single node menu: NO 解散打组 (removed per spec)
   const singleItems = [
-    { icon: <Wand2 size={13} />, label: "智能优化", action: "edit-asset", color: iconColor },
-    ...(isVisualNodeMenu ? [{ icon: <Download size={13} />, label: "下载图片", action: "download", color: iconColor }] : []),
     { icon: <Copy size={13} />, label: "复制", action: "copy", color: iconColor },
     { icon: <Clipboard size={13} />, label: "粘贴", action: "paste", color: iconColor },
     { icon: <Type size={13} />, label: "添加文本备注", action: "add-note", color: iconColor },
@@ -7501,13 +7572,13 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
   // 工具列表
   const tools = [
     { id: "move",         label: "移动",       icon: <MousePointer2 size={17} /> },
-    { id: "annotate",     label: "注释",       icon: <MessageCircle size={17} /> },
     { id: "upload",       label: "上传图片",   icon: <ImagePlus size={17} /> },
     { id: "smart-canvas", label: "创建画板",   icon: <CreateCanvasIcon size={17} /> },
     { id: "shape",        label: "几何形",     icon: <Triangle size={17} /> },
     { id: "draw",         label: "铅笔",       icon: <Pencil size={17} /> },
     { id: "text",         label: "文字",       icon: <Type size={17} /> },
     { id: "image-ai",     label: "智能生图",   icon: <Sparkles size={17} /> },
+    { id: "annotate",     label: "智能注释",   icon: <AiAnnotationIcon size={17} /> },
   ];
 
   // 几何形二级菜单
@@ -11074,10 +11145,19 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       }
     } else if (action === "add-note") {
       pushHistory();
-      setNodes(nds => nds.map(n => actionIds.includes(n.id) ? {
-        ...n,
-        data: { ...(n.data as Record<string, unknown>), note: ((n.data as Record<string, unknown>).note as string) || "", noteOpen: true, noteEditing: true }
-      } : n));
+      setNodes(nds => {
+        const topZ = Math.max(0, ...nds.map(n => typeof n.zIndex === "number" ? n.zIndex : 0)) + 1;
+        const actionIdSet = new Set(actionIds);
+        const updated = nds.map(n => actionIdSet.has(n.id) ? {
+          ...n,
+          zIndex: topZ,
+          data: { ...(n.data as Record<string, unknown>), note: ((n.data as Record<string, unknown>).note as string) || "", noteOpen: true, noteEditing: true }
+        } : n);
+        return [
+          ...updated.filter(n => !actionIdSet.has(n.id)),
+          ...updated.filter(n => actionIdSet.has(n.id)),
+        ];
+      });
       toast("已打开文本备注", { description: "备注框已显示在图片节点下方" });
     } else if (action === "edit-asset") {
       const node = getLatestAssetNode(nodeId) || nodes.find(n => n.id === nodeId);
@@ -11407,14 +11487,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     clearInactiveAssetCommands(nextSelectedIds);
     const selectedVisualIds = new Set(
       selectedNodes
-        .filter(node => node.type === "asset")
+        .filter(shouldSelectToFront)
         .map(node => node.id)
     );
     if (selectedVisualIds.size > 0) {
       setNodes(nds => {
         const selectedVisualNodes = nds.filter(node => selectedVisualIds.has(node.id));
         if (selectedVisualNodes.length === 0) return nds;
-        const topZ = Math.max(0, ...nds.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
+        const topZ = nextCanvasTopZ(nds);
         const raisedVisualNodes = selectedVisualNodes.map(node => ({ ...node, zIndex: topZ }));
         const selectedVisualOrder = selectedVisualNodes.map(node => node.id).join(",");
         const currentTopOrder = nds.slice(-selectedVisualNodes.length).map(node => node.id).join(",");
@@ -11524,7 +11604,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         },
       };
       pushHistory();
-      setNodes(nds => [...nds, newNode]);
+      setNodes(nds => {
+        const topZ = nextCanvasTopZ(nds);
+        return [
+          ...nds.map(n => ({ ...n, selected: false })),
+          { ...newNode, selected: true, zIndex: topZ },
+        ];
+      });
+      setSelectedNodeIds([id]);
       // 创建完成后自动切换回移动工具
       window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
     }
@@ -11548,11 +11635,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     freehandNodeOriginRef.current = flowOrigin;
     setNodes(nds => {
       pushHistory(nds, edgesRef.current);
-      return [...nds, {
+      const topZ = nextCanvasTopZ(nds);
+      return [...nds.map(n => ({ ...n, selected: false })), {
         id: nid,
         type: "freehand",
         position: flowOrigin,
         style: { width: 1, height: 1 },
+        selected: true,
+        zIndex: topZ,
         data: {
           id: nid,
           width: 1, height: 1,
@@ -11564,6 +11654,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       }];
     });
     setFreehandNodeId(nid);
+    setSelectedNodeIds([nid]);
   }, [activeToolMode, edgesRef, pushHistory, screenToFlowPosition, setNodes]);
 
   const handleFreehandMouseMove = useCallback((e: React.MouseEvent) => {
@@ -11636,11 +11727,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const shiftedPts = pts.map(p => ({ x: p.x - bx, y: p.y - by }));
         return {
           ...n,
+          selected: true,
           position: { x: origin.x + bx, y: origin.y + by },
           style: { ...n.style, width: bw, height: bh },
           data: { ...n.data, points: shiftedPts, width: bw, height: bh },
         };
       }));
+      setSelectedNodeIds([nid]);
     }
 
     // 完成后切回移动工具
@@ -11668,15 +11761,19 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const newAnchor: PenAnchor = { x: 0, y: 0, type: isAlt ? "corner" : "smooth", inDx: 0, inDy: 0, outDx: 0, outDy: 0 };
       setNodes(nds => {
         pushHistory(nds, edgesRef.current);
-        return [...nds, {
+        const topZ = nextCanvasTopZ(nds);
+        return [...nds.map(n => ({ ...n, selected: false })), {
           id: nid,
           type: "pen",
           position: flowPos,
           style: { width: 1, height: 1 },
+          selected: true,
+          zIndex: topZ,
           data: { id: nid, width: 1, height: 1, anchors: [newAnchor], closed: false, anchorEditMode: true, stroke: "#6366f1", strokeWidth: 2, fill: "none", opacity: 1 },
         }];
       });
       setPenNodeId(nid);
+      setSelectedNodeIds([nid]);
       // 记录拖拽手柄起始信息
       penDragHandleRef.current = { startX: screenX, startY: screenY, anchorIdx: 0 };
     } else {
@@ -11826,11 +11923,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       };
       setNodes(nds => {
         pushHistory(nds, edgesRef.current);
-        return [...nds, {
+        const topZ = nextCanvasTopZ(nds);
+        return [...nds.map(n => ({ ...n, selected: false })), {
           id: nodeId,
           type: "shape",
           position: flowPos,
           style: { width: fw, height: fh },
+          selected: true,
+          zIndex: topZ,
           data: {
             id: nodeId,
             shapeType,
@@ -11845,6 +11945,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           },
         }];
       });
+      setSelectedNodeIds([nodeId]);
       return;
     }
 
@@ -11911,11 +12012,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const id = `shape-${Date.now()}`;
     setNodes(nds => {
       pushHistory(nds, edgesRef.current);
-      return [...nds, {
+      const topZ = nextCanvasTopZ(nds);
+      return [...nds.map(n => ({ ...n, selected: false })), {
         id,
         type: "shape",
         position: flowPos,
         style: { width: w, height: h },
+        selected: true,
+        zIndex: topZ,
         data: {
           id,
           shapeType: shapeDialog.type,
@@ -11928,6 +12032,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         },
       }];
     });
+    setSelectedNodeIds([id]);
     setShapeDialog(null);
     toast(`已创建${shapeDialog.label}`, { description: `${w} × ${h} px` });
   }, [containerRef, edgesRef, pushHistory, screenToFlowPosition, setNodes, shapeCornerRadius, shapeDialog, shapeFill, shapeH, shapeOpacity, shapeStroke, shapeStrokeW, shapeW]);
@@ -12541,15 +12646,22 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       if (!detail?.nodeId) return;
       const additive = Boolean(detail.additive);
       setNodes(nds => {
-        const target = nds.find(node => node.id === detail.nodeId && (node.type === "asset" || node.type === "canvasFrame"));
+        const target = nds.find(node => node.id === detail.nodeId && (shouldSelectToFront(node) || node.type === "canvasFrame"));
         if (!target) return nds;
         const selectedIds = new Set(additive ? nds.filter(node => node.selected).map(node => node.id) : []);
         selectedIds.add(target.id);
-        const topZ = Math.max(0, ...nds.map(node => typeof node.zIndex === "number" ? node.zIndex : 0)) + 1;
+        const shouldRaise = shouldSelectToFront(target);
+        const topZ = shouldRaise ? nextCanvasTopZ(nds) : undefined;
         setSelectedNodeIds(Array.from(selectedIds));
+        const nextNodes = nds.map(node => {
+          const selected = selectedIds.has(node.id);
+          if (node.id !== target.id) return { ...node, selected };
+          return { ...target, selected: true, ...(shouldRaise ? { zIndex: topZ } : {}) };
+        });
+        if (!shouldRaise) return nextNodes;
         return [
-          ...nds.filter(node => node.id !== target.id).map(node => ({ ...node, selected: selectedIds.has(node.id) })),
-          { ...target, selected: true, zIndex: topZ },
+          ...nextNodes.filter(node => node.id !== target.id),
+          nextNodes.find(node => node.id === target.id)!,
         ];
       });
     };
@@ -13300,16 +13412,16 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     }
     const labels: Record<string, string> = {
       "remove-background": "去背景",
-      upscale: "HD 高清",
+      upscale: "HD 4K",
       erase: "橡皮工具",
       "edit-elements": "编辑元素",
-      "edit-text": "编辑文字",
+      "edit-text": "智能文案",
       mockup: "社媒平台尺寸",
       expand: "扩展",
       adjust: "调整",
       crop: "裁剪",
       vector: "矢量",
-      "flip-rotate": "翻转与旋转",
+      "flip-rotate": "旋转与反转",
       more: "更多",
     };
     toast(labels[action] || "功能即将上线", { description: "已保留 Lovart 命令入口，后续可接入对应 AI 处理能力" });
@@ -13531,7 +13643,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         top: selectedImageBounds.centerY * viewport.zoom + viewport.y,
       }
     : { left: 31, top: 0 };
-  const displayNodes = nodes.map(n => {
+  const displayNodesBase = nodes.map(n => {
     const nodeData = n.data as Record<string, unknown>;
     const embeddedFrameId = n.type === "asset" ? nodeData.embeddedInFrame as string | undefined : undefined;
     const embeddedFrame = embeddedFrameId
@@ -13557,6 +13669,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       ? { ...n, data: { ...data, isEditing: true } }
       : { ...n, data };
   });
+  const displayNodes = [
+    ...displayNodesBase.filter(n => !(n.type === "asset" && Boolean((n.data as Record<string, unknown>).noteOpen))),
+    ...displayNodesBase
+      .filter(n => n.type === "asset" && Boolean((n.data as Record<string, unknown>).noteOpen))
+      .map(n => ({ ...n, zIndex: Math.max(10000, typeof n.zIndex === "number" ? n.zIndex : 0) })),
+  ];
 
   return (
     <div
