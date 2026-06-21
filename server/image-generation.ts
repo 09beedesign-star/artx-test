@@ -64,11 +64,20 @@ type GeneratedImage = {
 };
 
 type ImageGenerationResponse = {
+  success?: boolean;
   task_id?: string;
+  taskId?: string;
   status?: string;
   message?: string;
+  b64_json?: string;
+  url?: string;
+  image?: string;
+  image_url?: string | { url?: string };
   images?: Array<{ b64_json?: string; url?: string }>;
   data?: Array<{ b64_json?: string; url?: string }>;
+  result?: ImageGenerationResponse;
+  rawResult?: ImageGenerationResponse;
+  output?: unknown;
   choices?: Array<{ message?: { content?: string | unknown[]; images?: Array<{ b64_json?: string; url?: string }> } }>;
   error?: { message?: string } | string;
 };
@@ -87,6 +96,10 @@ type AsyncImageTaskResponse = {
     error?: string;
     result?: ImageGenerationResponse;
     rawResult?: ImageGenerationResponse;
+    images?: Array<{ b64_json?: string; url?: string }>;
+    image?: string;
+    image_url?: string | { url?: string };
+    output?: unknown;
     upstreamStatus?: number;
     requestPath?: string;
     resolvedRequestPath?: string;
@@ -125,11 +138,24 @@ function normalizeAsyncTaskResult(data: AsyncImageTaskResponse): {
     typeof data.error === "string"
       ? data.error
       : data.error?.message || task?.error;
+  const taskResult = task?.result || task?.rawResult;
+  const directTaskResult = task && (task.images || task.image || task.image_url || task.output)
+    ? {
+        images: task.images,
+        image: task.image,
+        image_url: task.image_url,
+        output: task.output,
+      }
+    : undefined;
+  const directResult = data.result || data.rawResult;
+  const topLevelResult = (data as unknown as ImageGenerationResponse).images || (data as unknown as ImageGenerationResponse).image || (data as unknown as ImageGenerationResponse).image_url || (data as unknown as ImageGenerationResponse).output
+    ? data as unknown as ImageGenerationResponse
+    : undefined;
 
   return {
     status: task?.status || data.status,
     error,
-    result: task?.result || task?.rawResult || data.result || data.rawResult,
+    result: taskResult || directTaskResult || directResult || topLevelResult,
   };
 }
 
@@ -141,7 +167,16 @@ function resolveGeneratedImageSrc(src: string, baseUrl: string) {
 
 function extractGeneratedImages(providerData: ImageGenerationResponse, baseUrl: string, width: number, height: number) {
   const choiceImageItems = providerData.choices?.flatMap(choice => choice.message?.images || []) || [];
+  const directItems: Array<{ b64_json?: string; url?: string }> = [];
+  if (providerData.b64_json) directItems.push({ b64_json: providerData.b64_json });
+  if (providerData.url) directItems.push({ url: providerData.url });
+  if (typeof providerData.image === "string") directItems.push({ url: providerData.image });
+  if (typeof providerData.image_url === "string") directItems.push({ url: providerData.image_url });
+  if (providerData.image_url && typeof providerData.image_url === "object" && providerData.image_url.url) {
+    directItems.push({ url: providerData.image_url.url });
+  }
   const items = [
+    ...directItems,
     ...(providerData.data || []),
     ...(providerData.images || []),
     ...choiceImageItems,
@@ -239,7 +274,6 @@ function toAbsoluteUrl(url: string, baseUrl: string) {
 }
 
 function extractChoiceImages(providerData: ImageGenerationResponse, baseUrl: string) {
-  const content = providerData.choices?.map(choice => choice.message?.content || "").flat();
   const imageUrls: { src: string }[] = [];
 
   const addSrc = (src?: string) => {
@@ -293,7 +327,10 @@ function extractChoiceImages(providerData: ImageGenerationResponse, baseUrl: str
     Object.values(record).forEach(walk);
   };
 
-  walk(content);
+  walk(providerData.choices?.map(choice => choice.message?.content || "").flat());
+  walk(providerData.output);
+  walk(providerData.result);
+  walk(providerData.rawResult);
   return imageUrls;
 }
 
@@ -1752,38 +1789,55 @@ async function imageSrcToFile(src: string): Promise<File> {
 
 async function pollAsyncImageTask(taskId: string, apiKey: string, baseUrl: string): Promise<ImageGenerationResponse> {
   const normalized = baseUrl.replace(/\/+$/, "");
-  const endpoint = `${normalized}${normalized.endsWith("/v1") ? "" : "/v1"}/async-images/${taskId}`;
+  const apiRoot = `${normalized}${normalized.endsWith("/v1") ? "" : "/v1"}`;
+  const endpoints = [
+    `${apiRoot}/images/generations/${encodeURIComponent(taskId)}`,
+    `${apiRoot}/async/images/generations/${encodeURIComponent(taskId)}`,
+    `${apiRoot}/async-images/${encodeURIComponent(taskId)}`,
+  ];
 
   for (let attempt = 0; attempt < 90; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
-    const response = await fetch(endpoint, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-    });
+    let lastError = "";
+    for (const endpoint of endpoints) {
+      const response = await fetch(endpoint, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+      });
 
-    const text = await response.text();
-    const data = text ? (JSON.parse(text) as AsyncImageTaskResponse) : {};
-    const normalizedTask = normalizeAsyncTaskResult(data);
-    const status = normalizedTask.status;
+      const text = await response.text();
+      const data = safeParseJson<AsyncImageTaskResponse>(text) || {};
+      const normalizedTask = normalizeAsyncTaskResult(data);
+      const status = (normalizedTask.status || "").toLowerCase();
 
-    if (!response.ok) {
-      throw new Error(normalizedTask.error || `Image polling returned ${response.status}`);
+      if (!response.ok) {
+        lastError = normalizedTask.error || `Image polling returned ${response.status}`;
+        if (response.status === 404) continue;
+        throw new Error(lastError);
+      }
+
+      if (status === "failed" || status === "error") {
+        throw new Error(normalizedTask.error || "Image generation failed");
+      }
+
+      if (normalizedTask.result) {
+        const resultImages = extractGeneratedImages(normalizedTask.result, baseUrl, 1, 1);
+        if (resultImages.length > 0 || status === "succeeded" || status === "completed" || status === "success") {
+          return normalizedTask.result;
+        }
+      }
+
+      if (status && status !== "queued" && status !== "processing" && status !== "pending" && status !== "running") {
+        throw new Error(`Unexpected image task status: ${status}`);
+      }
     }
 
-    if (status === "failed") {
-      throw new Error(normalizedTask.error || "Image generation failed");
-    }
-
-    if ((status === "succeeded" || status === "completed_without_image") && normalizedTask.result) {
-      return normalizedTask.result;
-    }
-
-    if (status && status !== "queued" && status !== "processing") {
-      throw new Error(`Unexpected image task status: ${status}`);
+    if (lastError && attempt === 0 && !/404/.test(lastError)) {
+      throw new Error(lastError);
     }
   }
 
@@ -1838,8 +1892,9 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
     }
   }
 
-  if (providerData.task_id) {
-    providerData = await pollAsyncImageTask(providerData.task_id, apiKey, baseUrl);
+  const asyncTaskId = providerData.task_id || providerData.taskId;
+  if (asyncTaskId) {
+    providerData = await pollAsyncImageTask(asyncTaskId, apiKey, baseUrl);
   }
 
   const images = extractGeneratedImages(providerData, baseUrl, ratio.width, ratio.height);
@@ -2022,8 +2077,9 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
     providerData = await callImageEditProvider(await createBody(false), apiKey, baseUrl);
   }
 
-  if (providerData.task_id) {
-    providerData = await pollAsyncImageTask(providerData.task_id, apiKey, baseUrl);
+  const asyncTaskId = providerData.task_id || providerData.taskId;
+  if (asyncTaskId) {
+    providerData = await pollAsyncImageTask(asyncTaskId, apiKey, baseUrl);
   }
 
   const images = await normalizeGeneratedImagesToTargetAspect(
