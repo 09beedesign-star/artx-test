@@ -7788,6 +7788,7 @@ function SaveProjectConfirmDialog({ isDark, project, onCancel, onSave }: {
 const CANVAS_ASSISTANT_IMAGE_MODEL_STORAGE_KEY = "artx:canvas-assistant-image-model";
 const CANVAS_ASSISTANT_TEXT_MODEL_STORAGE_KEY = "artx:canvas-assistant-text-model";
 const CANVAS_ASSISTANT_MODEL_TAB_STORAGE_KEY = "artx:canvas-assistant-model-tab";
+const CANVAS_ASSISTANT_AUTO_MODE_STORAGE_KEY = "artx:canvas-assistant-auto-mode";
 type CanvasAssistantModelTab = "image" | "text";
 type AssistantComposerSegment =
   | { id: string; type: "text"; text: string }
@@ -8029,6 +8030,10 @@ function CanvasAssistantPanel({
   const [commandMenuOpen, setCommandMenuOpen] = useState(false);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
   const [netSearchEnabled, setNetSearchEnabled] = useState(false);
+  const [assistantAutoMode, setAssistantAutoMode] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return window.localStorage.getItem(CANVAS_ASSISTANT_AUTO_MODE_STORAGE_KEY) !== "0";
+  });
   const [assistantModelTab, setAssistantModelTab] = useState<CanvasAssistantModelTab>(() => {
     if (typeof window === "undefined") return "image";
     const stored = window.localStorage.getItem(CANVAS_ASSISTANT_MODEL_TAB_STORAGE_KEY);
@@ -8395,13 +8400,14 @@ function CanvasAssistantPanel({
 
   useEffect(() => {
     try {
+      window.localStorage.setItem(CANVAS_ASSISTANT_AUTO_MODE_STORAGE_KEY, assistantAutoMode ? "1" : "0");
       window.localStorage.setItem(CANVAS_ASSISTANT_MODEL_TAB_STORAGE_KEY, assistantModelTab);
       window.localStorage.setItem(CANVAS_ASSISTANT_IMAGE_MODEL_STORAGE_KEY, assistantImageModel.id);
       window.localStorage.setItem(CANVAS_ASSISTANT_TEXT_MODEL_STORAGE_KEY, assistantTextModel.id);
     } catch {
       /* ignore storage quota errors */
     }
-  }, [assistantImageModel.id, assistantModelTab, assistantTextModel.id]);
+  }, [assistantAutoMode, assistantImageModel.id, assistantModelTab, assistantTextModel.id]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -8686,7 +8692,8 @@ function CanvasAssistantPanel({
       return;
     }
     try {
-      const decision = assistantModelTab === "image"
+      const shouldRouteIntent = assistantAutoMode || assistantModelTab === "image";
+      const decision = shouldRouteIntent
         ? await routeCreativeIntent({
             module: "right-ai-assistant",
             model: assistantTextModel.id,
@@ -8698,7 +8705,8 @@ function CanvasAssistantPanel({
           })
         : null;
 
-      if (assistantModelTab === "text") {
+      const shouldReplyWithText = assistantModelTab === "text" && (!assistantAutoMode || decision?.mode !== "image" && decision?.mode !== "reference_search" && !hasAnnotationReferences);
+      if (shouldReplyWithText) {
         const result = await callLLM({
           module: "right-ai-assistant-chat",
           model: assistantTextModel.id,
@@ -9243,7 +9251,7 @@ function CanvasAssistantPanel({
                       aria-label="选择模型"
                     >
                       <span className="min-w-0 max-w-[100px] truncate">
-                        {assistantModelTab === "image" ? "生图" : "对话"} · {assistantModel.label}
+                        {assistantAutoMode ? "auto" : assistantModelTab === "image" ? "生图" : "对话"} · {assistantModel.label}
                       </span>
                       <ChevronDown size={10} style={{ flex: "0 0 auto", opacity: 0.6, transform: agentMenuOpen ? "rotate(180deg)" : "none", transition: "transform 0.16s ease" }} />
                     </button>
@@ -9258,6 +9266,40 @@ function CanvasAssistantPanel({
                           zIndex: 130,
                         }}
                       >
+                      <div className="flex items-center justify-between gap-3 px-3 py-2.5" style={{ borderBottom: `1px solid ${border}` }}>
+                        <div>
+                          <p className="type-caption" style={{ color: text, fontWeight: 700, textTransform: "none", letterSpacing: 0 }}>auto</p>
+                          <p className="type-caption" style={{ color: sub, fontSize: 10, lineHeight: "13px", letterSpacing: 0 }}>根据提示词自动选择对话或生图</p>
+                        </div>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={assistantAutoMode}
+                          className="relative shrink-0 rounded-[var(--radius-pill)] transition-all"
+                          style={{
+                            width: 38,
+                            height: 22,
+                            background: assistantAutoMode ? "#C5ED47" : (isDark ? "oklch(1 0 0 / 14%)" : "oklch(0 0 0 / 12%)"),
+                            border: `1px solid ${assistantAutoMode ? "rgba(197,237,71,0.60)" : border}`,
+                          }}
+                          onClick={() => setAssistantAutoMode(value => !value)}
+                        >
+                          <span
+                            aria-hidden="true"
+                            style={{
+                              position: "absolute",
+                              top: 3,
+                              left: assistantAutoMode ? 19 : 3,
+                              width: 16,
+                              height: 16,
+                              borderRadius: 999,
+                              background: assistantAutoMode ? "#111827" : (isDark ? "oklch(0.68 0.01 270)" : "#fff"),
+                              boxShadow: "0 1px 4px rgba(0,0,0,0.22)",
+                              transition: "left 0.16s ease, background 0.16s ease",
+                            }}
+                          />
+                        </button>
+                      </div>
                       <div className="grid grid-cols-2 gap-1 p-1.5" style={{ borderBottom: `1px solid ${border}` }}>
                         {([
                           { id: "image" as const, label: "生图" },
