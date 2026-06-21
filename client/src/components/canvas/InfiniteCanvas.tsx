@@ -8127,13 +8127,13 @@ function ProductBackgroundDialog({ isDark, onClose }: { isDark: boolean; onClose
   const accent = "#C5ED47";
   const ratios = ["1:1", "4:5", "5:4", "3:4", "4:3", "16:9", "9:16", "21:9"];
   const styles = [
-    { name: "商务科技感", src: "linear-gradient(135deg,#0f172a 0%,#2563eb 55%,#c5ed47 100%)", prompt: "clean premium technology showroom, cool lighting, glass and metal platform" },
-    { name: "中国风", src: "linear-gradient(135deg,#7f1d1d 0%,#dc2626 52%,#f8d477 100%)", prompt: "modern Chinese style, warm red and gold, subtle silk texture, elegant product stage" },
-    { name: "欧美潮流", src: "linear-gradient(135deg,#111111 0%,#f97316 56%,#f9fafb 100%)", prompt: "bold western fashion campaign, urban studio lighting, editorial composition" },
-    { name: "日韩风", src: "linear-gradient(135deg,#fde2e4 0%,#a7f3d0 52%,#ffffff 100%)", prompt: "soft Japanese Korean commercial background, clean pastel studio, fresh lifestyle mood" },
-    { name: "赛博风", src: "linear-gradient(135deg,#09090b 0%,#7c3aed 50%,#22d3ee 100%)", prompt: "cyber neon commercial set, futuristic light strips, glossy reflective floor" },
-    { name: "可爱呆萌系", src: "linear-gradient(135deg,#fbcfe8 0%,#bfdbfe 50%,#fef3c7 100%)", prompt: "cute playful commercial scene, rounded props, soft colorful lighting" },
-    { name: "二次元系", src: "linear-gradient(135deg,#312e81 0%,#f0abfc 52%,#60a5fa 100%)", prompt: "anime inspired product background, vibrant clean illustration style, dynamic lighting" },
+    { name: "商务科技感", image: new URL("../../../../inspiration-images/prompt-24.jpg", import.meta.url).href, prompt: "clean premium technology showroom, cool lighting, glass and metal platform" },
+    { name: "中国风", image: new URL("../../../../inspiration-images/prompt-11.jpg", import.meta.url).href, prompt: "modern Chinese style, warm red and gold, subtle silk texture, elegant product stage" },
+    { name: "欧美潮流", image: new URL("../../../../inspiration-images/prompt-10.jpg", import.meta.url).href, prompt: "bold western fashion campaign, urban studio lighting, editorial composition" },
+    { name: "日韩风", image: new URL("../../../../inspiration-images/prompt-48.jpg", import.meta.url).href, prompt: "soft Japanese Korean commercial background, clean pastel studio, fresh lifestyle mood" },
+    { name: "赛博风", image: new URL("../../../../inspiration-images/prompt-43.jpg", import.meta.url).href, prompt: "cyber neon commercial set, futuristic light strips, glossy reflective floor" },
+    { name: "可爱呆萌系", image: new URL("../../../../inspiration-images/prompt-47.jpg", import.meta.url).href, prompt: "cute playful commercial scene, rounded props, soft colorful lighting" },
+    { name: "二次元系", image: new URL("../../../../inspiration-images/prompt-33.jpg", import.meta.url).href, prompt: "anime inspired product background, vibrant clean illustration style, dynamic lighting" },
   ];
 
   const readFile = useCallback((file: File) => {
@@ -8179,14 +8179,17 @@ function ProductBackgroundDialog({ isDark, onClose }: { isDark: boolean; onClose
   };
 
   return (
-    <div className="fixed inset-x-0 flex justify-center" style={{ zIndex: 3500, pointerEvents: "none", background: "rgba(0,0,0,0.34)", backdropFilter: "blur(8px)" }}>
+    <div
+      className="fixed inset-x-0 bottom-6 flex justify-center"
+      style={{ zIndex: 3500, pointerEvents: "none", top: 88, padding: "0 28px" }}
+    >
       <div
-        className="w-[min(820px,calc(100vw-40px))] max-h-[min(780px,calc(100vh-56px))] overflow-y-auto rounded-[var(--radius-xl-design)] p-5 shadow-2xl"
-        style={{ pointerEvents: "auto", background: bg, border: `1px solid ${border}`, backdropFilter: "blur(22px)", boxShadow: "0 24px 80px rgba(0,0,0,0.38)" }}
+        className="flex max-h-[calc(100dvh-112px)] w-[min(1180px,calc(100vw-56px))] flex-col overflow-hidden rounded-[var(--radius-xl-design)] shadow-2xl"
+        style={{ pointerEvents: "auto", background: bg, border: `1px solid ${border}`, backdropFilter: "blur(24px)", boxShadow: "0 30px 100px rgba(0,0,0,0.44)" }}
         onMouseDown={event => event.stopPropagation()}
         onClick={event => event.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-4 pb-4" style={{ borderBottom: `1px solid ${border}` }}>
+        <div className="flex items-start justify-between gap-4 px-5 py-4" style={{ borderBottom: `1px solid ${border}` }}>
           <div className="flex items-center gap-3">
             <span className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-lg-design)]" style={{ color: accent, background: "rgba(197,237,71,0.14)" }}>
               <AiDecoratedIcon size={17} cutoutBg={bg}>
@@ -8205,10 +8208,10 @@ function ProductBackgroundDialog({ isDark, onClose }: { isDark: boolean; onClose
           </button>
         </div>
 
-        <div className="mt-5 grid gap-5 md:grid-cols-[280px_1fr]">
+        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto overflow-x-hidden p-4 lg:grid-cols-[300px_minmax(0,1fr)_280px]">
           <button
             type="button"
-            className="relative flex min-h-[320px] flex-col items-center justify-center overflow-hidden rounded-[var(--radius-lg-design)] px-4 text-center transition-transform hover:scale-[1.01]"
+            className="relative flex min-h-[360px] min-w-0 flex-col items-center justify-center overflow-hidden rounded-[var(--radius-lg-design)] px-4 text-center transition-transform hover:scale-[1.01]"
             style={{ background: fieldBg, border: `1.5px dashed ${imageSrc ? activeBorder : border}`, color: text }}
             onClick={() => fileInputRef.current?.click()}
             onDragOver={event => event.preventDefault()}
@@ -8248,9 +8251,42 @@ function ProductBackgroundDialog({ isDark, onClose }: { isDark: boolean; onClose
             />
           </button>
 
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <div>
-              <label className="mb-2 block type-caption" style={{ color: sub }}>背景关键词</label>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <span className="type-caption" style={{ color: text, fontWeight: 750 }}>商业背景风格</span>
+                <span className="type-caption" style={{ color: sub }}>选择一个方向，也可以继续补充关键词</span>
+              </div>
+              <div className="grid max-h-[392px] grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2 overflow-y-auto overflow-x-hidden pr-1">
+                {styles.map(item => {
+                  const active = selectedStyle === item.name;
+                  return (
+                    <button
+                      key={item.name}
+                      type="button"
+                      className="group min-w-0 overflow-hidden rounded-[var(--radius-lg-design)] text-left transition-transform hover:scale-[1.01] active:scale-95"
+                      style={{ background: active ? "rgba(197,237,71,0.14)" : fieldBg, border: `1px solid ${active ? activeBorder : border}`, color: text }}
+                      onClick={() => setSelectedStyle(item.name)}
+                    >
+                      <span className="relative block h-24 overflow-hidden">
+                        <img src={item.image} alt={`${item.name} 背景风格预览`} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" draggable={false} />
+                        <span className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(0,0,0,0.02), rgba(0,0,0,0.66))" }} />
+                        <span className="absolute bottom-2 left-2 right-2 flex items-center justify-between gap-2">
+                          <span className="type-caption" style={{ color: "white", fontWeight: 850 }}>{item.name}</span>
+                          {active && <Check size={14} style={{ color: accent, flexShrink: 0, filter: "drop-shadow(0 0 8px rgba(197,237,71,0.45))" }} />}
+                        </span>
+                      </span>
+                      <span className="block p-2">
+                        <span className="block type-caption" style={{ color: sub, fontSize: 10, lineHeight: 1.35 }}>{item.prompt.split(",")[0]}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-2 block type-caption" style={{ color: text, fontWeight: 750 }}>背景关键词</label>
               <textarea
                 value={prompt}
                 onChange={event => setPrompt(event.target.value)}
@@ -8260,78 +8296,45 @@ function ProductBackgroundDialog({ isDark, onClose }: { isDark: boolean; onClose
                 style={{ background: fieldBg, border: `1px solid ${border}`, color: text, fontSize: 13, lineHeight: 1.6 }}
               />
             </div>
+          </div>
 
-            <div>
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <span className="type-caption" style={{ color: sub }}>风格标签</span>
-                <span className="type-caption" style={{ color: sub }}>可选择标签，也可只使用自定义关键词</span>
-              </div>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {styles.map(item => {
-                  const active = selectedStyle === item.name;
-                  return (
-                    <button
-                      key={item.name}
-                      type="button"
-                      className="flex min-w-0 items-center gap-2 rounded-[var(--radius-md-design)] p-2 text-left transition-transform hover:scale-[1.01] active:scale-95"
-                      style={{ background: active ? "rgba(197,237,71,0.14)" : fieldBg, border: `1px solid ${active ? activeBorder : border}`, color: text }}
-                      onClick={() => setSelectedStyle(item.name)}
-                    >
-                      <span
-                        className="h-10 w-12 shrink-0 rounded-[var(--radius-md-design)]"
-                        style={{
-                          background: item.src,
-                          boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.18)",
-                        }}
-                      />
-                      <span className="min-w-0">
-                        <span className="block truncate type-caption" style={{ fontWeight: 700 }}>{item.name}</span>
-                        <span className="block truncate type-caption" style={{ color: sub, fontSize: 10 }}>{item.prompt.split(",")[0]}</span>
-                      </span>
-                    </button>
-                  );
-                })}
+          <div className="min-w-0 space-y-4">
+            <div className="rounded-[var(--radius-lg-design)] p-3" style={{ background: fieldBg, border: `1px solid ${border}` }}>
+              <label className="mb-2 block type-caption" style={{ color: text, fontWeight: 750 }}>常用画幅</label>
+              <div className="grid grid-cols-2 gap-2">
+                {ratios.map(item => (
+                  <button
+                    key={item}
+                    type="button"
+                    className="h-9 rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-85"
+                    style={{ background: ratio === item ? "rgba(197,237,71,0.14)" : (isDark ? "rgba(0,0,0,0.18)" : "rgba(255,255,255,0.72)"), border: `1px solid ${ratio === item ? activeBorder : border}`, color: text }}
+                    onClick={() => setRatio(item)}
+                  >
+                    {item}
+                  </button>
+                ))}
               </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <label className="mb-2 block type-caption" style={{ color: sub }}>常用画幅</label>
-                <div className="grid grid-cols-4 gap-1.5">
-                  {ratios.map(item => (
-                    <button
-                      key={item}
-                      type="button"
-                      className="h-8 rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-85"
-                      style={{ background: ratio === item ? "rgba(197,237,71,0.14)" : fieldBg, border: `1px solid ${ratio === item ? activeBorder : border}`, color: text }}
-                      onClick={() => setRatio(item)}
-                    >
-                      {item}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="mb-2 block type-caption" style={{ color: sub }}>分辨率</label>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {(["2k", "4k"] as const).map(item => (
-                    <button
-                      key={item}
-                      type="button"
-                      className="h-8 rounded-[var(--radius-md-design)] type-caption uppercase transition-opacity hover:opacity-85"
-                      style={{ background: resolution === item ? "rgba(197,237,71,0.14)" : fieldBg, border: `1px solid ${resolution === item ? activeBorder : border}`, color: text }}
-                      onClick={() => setResolution(item)}
-                    >
-                      {item}
-                    </button>
-                  ))}
-                </div>
+            <div className="rounded-[var(--radius-lg-design)] p-3" style={{ background: fieldBg, border: `1px solid ${border}` }}>
+              <label className="mb-2 block type-caption" style={{ color: text, fontWeight: 750 }}>分辨率</label>
+              <div className="grid grid-cols-2 gap-2">
+                {(["2k", "4k"] as const).map(item => (
+                  <button
+                    key={item}
+                    type="button"
+                    className="h-9 rounded-[var(--radius-md-design)] type-caption uppercase transition-opacity hover:opacity-85"
+                    style={{ background: resolution === item ? "rgba(197,237,71,0.14)" : (isDark ? "rgba(0,0,0,0.18)" : "rgba(255,255,255,0.72)"), border: `1px solid ${resolution === item ? activeBorder : border}`, color: text }}
+                    onClick={() => setResolution(item)}
+                  >
+                    {item}
+                  </button>
+                ))}
               </div>
             </div>
 
-            <div>
-              <label className="mb-2 block type-caption" style={{ color: sub }}>自定义比例/尺寸</label>
+            <div className="rounded-[var(--radius-lg-design)] p-3" style={{ background: fieldBg, border: `1px solid ${border}` }}>
+              <label className="mb-2 block type-caption" style={{ color: text, fontWeight: 750 }}>自定义比例/尺寸</label>
               <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
                 <input
                   value={customWidth}
@@ -8350,30 +8353,34 @@ function ProductBackgroundDialog({ isDark, onClose }: { isDark: boolean; onClose
                 />
               </div>
             </div>
-          </div>
-        </div>
 
-        <div className="mt-5 flex items-center justify-between gap-3">
-          <p className="type-caption" style={{ color: sub }}>结果会以新的图片节点生成在画布中，不覆盖原图。</p>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className="h-10 rounded-[var(--radius-md-design)] px-4 type-caption transition-opacity hover:opacity-85"
-              style={{ background: fieldBg, border: `1px solid ${border}`, color: text }}
-              onClick={onClose}
-            >
-              取消
-            </button>
-            <button
-              type="button"
-              className="flex h-10 items-center gap-2 rounded-[var(--radius-md-design)] px-5 type-caption transition-transform hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-              style={{ background: accent, color: "#000", boxShadow: "0 12px 30px rgba(197,237,71,0.22)" }}
-              disabled={!imageSrc}
-              onClick={handleCreate}
-            >
-              <WandSparkles size={15} />
-              创建背景
-            </button>
+            <div className="rounded-[var(--radius-lg-design)] p-3" style={{ background: fieldBg, border: `1px solid ${border}` }}>
+              <p className="type-caption" style={{ color: text, fontWeight: 750 }}>生成方式</p>
+              <p className="mt-1 type-caption leading-5" style={{ color: sub }}>
+                结果会以新的图片节点生成在画布中，不覆盖原图。自定义宽高为空时使用当前画幅和分辨率。
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="h-10 rounded-[var(--radius-md-design)] px-4 type-caption transition-opacity hover:opacity-85"
+                style={{ background: fieldBg, border: `1px solid ${border}`, color: text }}
+                onClick={onClose}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="flex h-10 items-center gap-2 rounded-[var(--radius-md-design)] px-5 type-caption transition-transform hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+                style={{ background: accent, color: "#000", boxShadow: "0 12px 30px rgba(197,237,71,0.22)" }}
+                disabled={!imageSrc}
+                onClick={handleCreate}
+              >
+                <WandSparkles size={15} />
+                创建背景
+              </button>
+            </div>
           </div>
         </div>
       </div>
