@@ -6,10 +6,16 @@ import { useAuth } from "@/contexts/AuthContext";
 // 首页使用 HomePage 内部右侧面板；其它场景统一使用这个居中弹窗。
 export default function LoginRegisterDialog() {
   const { loginModalOpen, closeLoginModal, login, register } = useAuth();
+  const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const isRegister = mode === "register";
+  const authModes: Array<{ id: "login" | "register"; label: string }> = [
+    { id: "login", label: "登录" },
+    { id: "register", label: "注册" },
+  ];
 
   useEffect(() => {
     if (!loginModalOpen) return;
@@ -41,7 +47,7 @@ export default function LoginRegisterDialog() {
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    void handleAuthAction("login");
+    void handleAuthAction(mode);
   };
 
   return (
@@ -65,7 +71,27 @@ export default function LoginRegisterDialog() {
           <form className="flex h-full flex-col" onSubmit={handleSubmit}>
             <PanelHeader />
 
-            <div className="mt-8 flex flex-col gap-5">
+            <div className="mt-6 grid h-11 grid-cols-2 rounded-[10px] border border-[#454545] bg-[#151515] p-1">
+              {authModes.map(item => {
+                const active = mode === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      setMode(item.id);
+                      setError("");
+                    }}
+                    className={`rounded-[8px] text-sm font-semibold transition-all ${active ? "text-white shadow-[0_8px_22px_rgba(147,108,255,0.26)]" : "text-[#7d7d7d] hover:text-white"}`}
+                    style={{ background: active ? "#936CFF" : "transparent" }}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-6 flex flex-col gap-5">
               <LabeledInput
                 label="邮箱地址"
                 value={email}
@@ -78,7 +104,7 @@ export default function LoginRegisterDialog() {
                 type="password"
                 value={password}
                 onChange={setPassword}
-                autoComplete="current-password"
+                autoComplete={isRegister ? "new-password" : "current-password"}
                 placeholder="请输入密码"
               />
             </div>
@@ -92,23 +118,13 @@ export default function LoginRegisterDialog() {
               </button>
             </div>
 
-            <div className="mt-5 grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                disabled={submitting}
-                onClick={() => void handleAuthAction("register")}
-                className="h-12 rounded-[10px] bg-[#2F80ED] text-base font-semibold text-white shadow-[0_10px_28px_rgba(47,128,237,0.24)] transition-all hover:bg-[#4A96FF] disabled:opacity-60"
-              >
-                {submitting ? "请稍候..." : "注 册"}
-              </button>
-              <button
-                type="submit"
-                disabled={submitting}
-                className="h-12 rounded-[10px] bg-[#936CFF] text-base font-semibold text-white shadow-[0_10px_28px_rgba(147,108,255,0.25)] transition-all hover:bg-[#A384FF] disabled:opacity-60"
-              >
-                {submitting ? "请稍候..." : "登 录"}
-              </button>
-            </div>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="mt-5 h-12 rounded-[10px] bg-[#936CFF] text-base font-semibold text-white shadow-[0_10px_28px_rgba(147,108,255,0.25)] transition-all hover:bg-[#A384FF] disabled:opacity-60"
+            >
+              {submitting ? "请稍候..." : isRegister ? "注 册" : "登 录"}
+            </button>
 
             <p className="mt-5 text-center text-[13px] text-[#7d7d7d]">注册或登录后即可继续使用 ArtX Studio</p>
           </form>
