@@ -9843,9 +9843,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : "";
-          if (/not found/i.test(message) && Date.now() - startedAt > 9_000) {
-            dispatchImageGenerationTask({ ...(task as ImageGeneratorPayload), generationId, projectId: taskProjectId, status: "failed", error: AI_GENERATION_NETWORK_ERROR_MESSAGE }, taskProjectId);
-            return;
+          if (!/not found/i.test(message)) {
+            console.warn("Background image generation polling failed", error);
           }
         }
         await new Promise(resolve => window.setTimeout(resolve, 3000));
@@ -11401,6 +11400,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         setNodes(nds => nds.map(n => {
           const data = n.data as Record<string, unknown>;
           if (data.generationId !== generationId) return n;
+          if (data.isGeneratingImage !== true || typeof data.localSrc === "string") return n;
           return {
             ...n,
             data: {
