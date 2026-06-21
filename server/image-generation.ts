@@ -208,9 +208,14 @@ function getPicWishConfig() {
 
 const supportedImageModels = new Set([
   "gpt-image-2",
+  "gemini-3.1-flash-image",
+  "gemini-3.1-flash-image-preview",
 ]);
 
-const chatCompatibleImageModels = new Set<string>();
+const chatCompatibleImageModels = new Set<string>([
+  "gemini-3.1-flash-image",
+  "gemini-3.1-flash-image-preview",
+]);
 
 function buildPrompt(input: ImageGenerateInput) {
   const stylePrefix = input.style ? `风格：${input.style}\n` : "";
@@ -1944,6 +1949,26 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   const referenceImages = input.images?.filter(image => image.src?.trim()) || [];
   const editSize = getEditSizeForAspect(targetWidth, targetHeight);
   const aspectInstruction = `Keep the final image canvas aspect ratio exactly ${targetWidth}:${targetHeight}. Do not return a square image unless the source is square.`;
+
+  if (isChatCompatibleImageModel(selectedModel)) {
+    const sourceDataUrl = `data:${sourceImageData.mimeType};base64,${sourceImageData.buffer.toString("base64")}`;
+    return generateImages({
+      prompt: [
+        input.prompt,
+        "Use reference image 1 as the target canvas. Preserve its subject identity, pose, composition, lighting, camera angle, and aspect ratio unless the user explicitly asks to change them.",
+        "Use any later reference images only for the requested object, accessory, style, texture, or detail.",
+        "Return one complete edited image, not a text explanation.",
+        aspectInstruction,
+      ].join("\n\n"),
+      model: selectedModel,
+      ratio: "1:1",
+      count: 1,
+      images: [
+        { src: sourceDataUrl, title: "target image" },
+        ...referenceImages,
+      ],
+    });
+  }
 
   const createBody = async (withResponseFormat: boolean) => {
     const body = new FormData();
