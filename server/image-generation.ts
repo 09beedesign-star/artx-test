@@ -1400,6 +1400,115 @@ async function didEraseChangeMaskedArea(sourceBuffer: Buffer, resultSrc: string,
   return totalDelta / maskedPixels >= 18;
 }
 
+function colorDistance(a: [number, number, number], b: [number, number, number]) {
+  const dr = a[0] - b[0];
+  const dg = a[1] - b[1];
+  const db = a[2] - b[2];
+  return Math.sqrt(dr * dr + dg * dg + db * db);
+}
+
+async function doesEraseBlendIntoBackground(sourceBuffer: Buffer, resultSrc: string, maskSrc: string, width: number, height: number) {
+  const sharp = (await import("sharp")).default;
+  const { buffer: resultBuffer } = await imageSrcToBuffer(resultSrc);
+  const { data: sourceData } = await sharp(sourceBuffer, { limitInputPixels: false })
+    .rotate()
+    .resize(width, height, { fit: "fill" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const { data: resultData } = await sharp(resultBuffer, { limitInputPixels: false })
+    .rotate()
+    .resize(width, height, { fit: "fill" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const { buffer: maskBuffer } = await imageSrcToBuffer(maskSrc);
+  const { data: maskData } = await sharp(maskBuffer, { limitInputPixels: false })
+    .rotate()
+    .resize(width, height, { fit: "fill" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  let maskedPixels = 0;
+  let sourceMaskedR = 0;
+  let sourceMaskedG = 0;
+  let sourceMaskedB = 0;
+  let resultMaskedR = 0;
+  let resultMaskedG = 0;
+  let resultMaskedB = 0;
+  const boundaryVisited = new Uint8Array(width * height);
+  let boundaryCount = 0;
+  let boundaryR = 0;
+  let boundaryG = 0;
+  let boundaryB = 0;
+
+  const pushBoundary = (pixel: number) => {
+    if (boundaryVisited[pixel]) return;
+    boundaryVisited[pixel] = 1;
+    const index = pixel * 4;
+    boundaryR += sourceData[index];
+    boundaryG += sourceData[index + 1];
+    boundaryB += sourceData[index + 2];
+    boundaryCount += 1;
+  };
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const pixel = y * width + x;
+      const index = pixel * 4;
+      if (maskData[index + 3] > 64) continue;
+      maskedPixels += 1;
+      sourceMaskedR += sourceData[index];
+      sourceMaskedG += sourceData[index + 1];
+      sourceMaskedB += sourceData[index + 2];
+      resultMaskedR += resultData[index];
+      resultMaskedG += resultData[index + 1];
+      resultMaskedB += resultData[index + 2];
+
+      for (let dy = -1; dy <= 1; dy += 1) {
+        for (let dx = -1; dx <= 1; dx += 1) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+          const np = ny * width + nx;
+          const ni = np * 4;
+          if (maskData[ni + 3] <= 64) continue;
+          pushBoundary(np);
+        }
+      }
+    }
+  }
+
+  if (maskedPixels < Math.max(24, width * height * 0.0003) || boundaryCount < 12) return true;
+
+  const sourceMaskedAvg: [number, number, number] = [
+    Math.round(sourceMaskedR / maskedPixels),
+    Math.round(sourceMaskedG / maskedPixels),
+    Math.round(sourceMaskedB / maskedPixels),
+  ];
+  const resultMaskedAvg: [number, number, number] = [
+    Math.round(resultMaskedR / maskedPixels),
+    Math.round(resultMaskedG / maskedPixels),
+    Math.round(resultMaskedB / maskedPixels),
+  ];
+  const boundaryAvg: [number, number, number] = [
+    Math.round(boundaryR / boundaryCount),
+    Math.round(boundaryG / boundaryCount),
+    Math.round(boundaryB / boundaryCount),
+  ];
+
+  const sourceToBoundary = colorDistance(sourceMaskedAvg, boundaryAvg);
+  const resultToBoundary = colorDistance(resultMaskedAvg, boundaryAvg);
+  const sourceToResult = colorDistance(sourceMaskedAvg, resultMaskedAvg);
+
+  if (resultToBoundary <= 34) return true;
+  if (resultToBoundary + 10 <= sourceToBoundary) return true;
+  if (sourceToResult >= 28 && resultToBoundary + 6 <= sourceToBoundary) return true;
+  return false;
+}
+
 async function compositeEraseResultOnlyInsideMask(
   sourceBuffer: Buffer,
   resultSrc: string,
@@ -1797,6 +1906,11 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<{ image
       if (normalized.length > 0) {
         const changed = await didEraseChangeMaskedArea(sourceImageData.buffer, normalized[0].src, input.maskSrc, targetWidth, targetHeight);
         if (!changed) return fallbackErase();
+        const blended = await doesEraseBlendIntoBackground(sourceImageData.buffer, normalized[0].src, input.maskSrc, targetWidth, targetHeight);
+        if (!blended) {
+          console.warn("PicWish erase result still resembles masked foreground; switching to image edit fallback");
+          throw new Error("PicWish erase did not blend into background");
+        }
         const composited = await compositeEraseResultInsidePicWishMask(
           sourceImageData.buffer,
           normalized[0].src,
