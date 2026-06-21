@@ -11281,6 +11281,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const asset = GENERATED_ASSETS.find(a => a.id === assetId) || GENERATED_ASSETS[0];
         const src = getAssetNodeImageSource(node);
         const title = nodeTitle || asset?.title || "图片";
+        setSelectedNodeIds([]);
+        setNodes(nds => nds.map(item => ({ ...item, selected: false })));
         setIsZoomingToEdit(true);
         // 平滑缩放至当前选中节点
         fitView({ nodes: [{ id: nodeId }], duration: 900, padding: 0.08 });
