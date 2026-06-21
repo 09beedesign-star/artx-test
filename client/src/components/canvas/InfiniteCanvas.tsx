@@ -48,7 +48,7 @@ import {
   Triangle, Pencil, MessageCircle, Star, Minus as MinusIcon,
   BadgeCheck, ScanSearch, Move, PanelTopOpen, ImageOff, Check,
   WandSparkles,
-  Shirt, Expand, Frame, RotateCw, MapPin, PlusCircle,
+  Shirt, Expand, Frame, RotateCw, MapPin, PlusCircle, GalleryVerticalEnd,
 } from "lucide-react";
 
 // 「井号 + 方框」图标 — 创建画板专用
@@ -7589,19 +7589,340 @@ function ImageGeneratorPopover({ isDark, projectId, onClose }: { isDark: boolean
   );
 }
 
+type FontDesignPurpose = "Logo 字" | "海报标题" | "品牌标题" | "社媒封面" | "电商主标题" | "活动主视觉";
+type FontDesignStyle = "高级极简" | "潮流酸性" | "国潮书法" | "科技未来" | "可爱软萌" | "奢华杂志" | "街头涂鸦" | "二次元标题" | "复古港风" | "欧美海报";
+
+const FONT_DESIGN_PURPOSES: FontDesignPurpose[] = ["Logo 字", "海报标题", "品牌标题", "社媒封面", "电商主标题", "活动主视觉"];
+const FONT_DESIGN_STYLES: FontDesignStyle[] = ["高级极简", "潮流酸性", "国潮书法", "科技未来", "可爱软萌", "奢华杂志", "街头涂鸦", "二次元标题", "复古港风", "欧美海报"];
+const FONT_DESIGN_RATIOS = ["1:1", "4:5", "16:9", "9:16"];
+const FONT_DESIGN_COUNTS = [1, 2, 3, 4];
+
+function detectFontDesignLanguage(text: string) {
+  const hasChinese = /[\u3400-\u9fff]/.test(text);
+  const hasLatin = /[A-Za-z]/.test(text);
+  if (hasChinese && hasLatin) return "中英混排";
+  if (hasChinese) return "中文";
+  if (hasLatin) return "英文";
+  return "通用文字";
+}
+
+function buildFontDesignPrompt(input: {
+  text: string;
+  purpose: FontDesignPurpose;
+  style: FontDesignStyle;
+  extraPrompt: string;
+  transparentBackground: boolean;
+}) {
+  const language = detectFontDesignLanguage(input.text);
+  return [
+    "Create a polished typographic design image for ArtX canvas.",
+    `Exact text to render: ${input.text}`,
+    `Language mode: ${language}.`,
+    `Use case: ${input.purpose}.`,
+    `Visual style: ${input.style}.`,
+    input.extraPrompt.trim() ? `Additional user direction: ${input.extraPrompt.trim()}` : "",
+    "Critical text rules:",
+    "- The rendered text must exactly match the user's text. Do not replace, translate, summarize, misspell, or add extra characters.",
+    "- Chinese characters must be complete, legible, and not distorted into meaningless glyphs.",
+    "- English letters must keep accurate spelling, spacing, and capitalization.",
+    "- For mixed Chinese and English, make both scripts feel unified in rhythm, weight, layout, and visual hierarchy.",
+    "Design rules:",
+    "- Make it feel like intentional font design, not plain typed text.",
+    "- Use strong composition, balanced negative space, title hierarchy, subtle decorative details, and professional layout rhythm.",
+    "- Keep the main text clear enough for users to read at a glance.",
+    input.transparentBackground
+      ? "Output on a clean transparent or visually isolated background suitable for compositing; avoid busy backgrounds."
+      : "Use a tasteful background treatment that supports the typography without overpowering readability.",
+  ].filter(Boolean).join("\n");
+}
+
+function FontDesignDialog({ isDark, projectId, onClose }: { isDark: boolean; projectId: string; onClose: () => void }) {
+  const [textValue, setTextValue] = useState("");
+  const [purpose, setPurpose] = useState<FontDesignPurpose>("海报标题");
+  const [stylePreset, setStylePreset] = useState<FontDesignStyle>("高级极简");
+  const [extraPrompt, setExtraPrompt] = useState("");
+  const [ratio, setRatio] = useState("1:1");
+  const [count, setCount] = useState(2);
+  const [transparentBackground, setTransparentBackground] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  const bg = isDark ? "rgba(18,18,28,0.98)" : "rgba(255,255,255,0.98)";
+  const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
+  const text = isDark ? "rgba(255,255,255,0.88)" : "rgba(22,22,34,0.88)";
+  const sub = isDark ? "rgba(255,255,255,0.46)" : "rgba(22,22,34,0.50)";
+  const fieldBg = isDark ? "rgba(255,255,255,0.055)" : "rgba(0,0,0,0.035)";
+  const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+  const accent = "oklch(0.64 0.22 285)";
+  const canGenerate = textValue.trim().length > 0 && !isGenerating;
+
+  const pillStyle = (active: boolean): React.CSSProperties => ({
+    minHeight: 30,
+    padding: "0 10px",
+    borderRadius: "var(--radius-md-design)",
+    border: `1px solid ${active ? "oklch(0.64 0.22 285 / 0.52)" : border}`,
+    background: active ? "oklch(0.64 0.22 285 / 0.16)" : fieldBg,
+    color: active ? (isDark ? "white" : "oklch(0.38 0.18 285)") : text,
+    fontSize: 12,
+    transition: "background 0.16s ease, border-color 0.16s ease, transform 0.16s ease",
+  });
+
+  const handleGenerate = async () => {
+    if (!textValue.trim()) {
+      toast("请输入要设计的文字");
+      return;
+    }
+    if (!requestAiAuth()) {
+      toast("请先登录", { description: "登录后即可使用 AI 能力" });
+      return;
+    }
+    setIsGenerating(true);
+    const cleanText = textValue.trim();
+    const generationId = `font-design-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const prompt = buildFontDesignPrompt({
+      text: cleanText,
+      purpose,
+      style: stylePreset,
+      extraPrompt,
+      transparentBackground,
+    });
+    const size = getImageDisplaySizeForRatio(ratio);
+    const payload: ImageGeneratorPayload = {
+      projectId,
+      prompt,
+      model: "gpt-image-2",
+      ratio,
+      count,
+      style: `字体设计 · ${stylePreset}`,
+      referencesEnabled: false,
+      generationId,
+      displaySize: size,
+      titleBase: `字体设计 · ${cleanText.slice(0, 12)}`,
+    };
+    dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
+    window.dispatchEvent(new CustomEvent("canvas-assistant-external-message", {
+      detail: {
+        content: [
+          `字体设计请求：${cleanText}`,
+          `用途：${purpose}`,
+          `风格：${stylePreset}`,
+          `画幅：${ratio}，数量：${count}`,
+          transparentBackground ? "背景：透明底/便于合成" : "",
+          extraPrompt.trim() ? `补充：${extraPrompt.trim()}` : "",
+        ].filter(Boolean).join("\n"),
+      },
+    }));
+    try {
+      const result = await generateAiImages(payload);
+      dispatchImageGenerationTask({ ...payload, status: "completed", images: result.images }, projectId);
+      setIsGenerating(false);
+      onClose();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "请稍后重试";
+      dispatchImageGenerationTask({ ...payload, status: "failed", error: message }, projectId);
+      toast("字体设计生成失败", { description: message });
+      setIsGenerating(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 flex items-center justify-center"
+      style={{ zIndex: 3600, pointerEvents: "none" }}
+    >
+      <div
+        className="w-[min(760px,calc(100vw-40px))] overflow-hidden rounded-[var(--radius-xl-design)] shadow-2xl"
+        style={{
+          pointerEvents: "auto",
+          background: bg,
+          border: `1px solid ${border}`,
+          backdropFilter: "blur(24px)",
+          boxShadow: "0 30px 100px rgba(0,0,0,0.42)",
+        }}
+        onMouseDown={e => e.stopPropagation()}
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: `1px solid ${border}` }}>
+          <div className="flex items-center gap-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-lg-design)]" style={{ color: accent, background: "oklch(0.64 0.22 285 / 0.14)" }}>
+              <AiDecoratedIcon size={17} cutoutBg={bg}>
+                <Type size={17} />
+              </AiDecoratedIcon>
+            </span>
+            <div>
+              <p className="type-caption" style={{ color: text, fontSize: 14 }}>字体设计</p>
+              <p className="type-caption" style={{ color: sub, fontSize: 11 }}>输入中英文文字，快速生成有排版感的设计字图</p>
+            </div>
+          </div>
+          <button type="button" className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-md-design)] hover:opacity-75" style={{ color: sub }} onClick={onClose} aria-label="关闭字体设计">
+            <X size={15} />
+          </button>
+        </div>
+
+        <div className="grid gap-4 p-5 md:grid-cols-[1.05fr_1fr]">
+          <div className="space-y-4">
+            <div className="rounded-[var(--radius-lg-design)] p-3" style={{ background: fieldBg, border: `1px solid ${border}` }}>
+              <p className="mb-2 type-caption" style={{ color: sub }}>设计文字</p>
+              <textarea
+                value={textValue}
+                onChange={event => setTextValue(event.target.value)}
+                rows={3}
+                maxLength={80}
+                className="w-full resize-none bg-transparent outline-none"
+                style={{ color: text, fontSize: 24, lineHeight: 1.35, fontWeight: 700, letterSpacing: 0 }}
+                placeholder="例如：山海计划 / FUTURE LAB / 星河 Studio"
+                autoFocus
+              />
+              <div className="mt-2 flex items-center justify-between" style={{ color: sub }}>
+                <span className="type-caption">{detectFontDesignLanguage(textValue || "文字")}</span>
+                <span className="type-caption">{textValue.trim().length}/80</span>
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-2 type-caption" style={{ color: sub }}>补充提示词</p>
+              <textarea
+                value={extraPrompt}
+                onChange={event => setExtraPrompt(event.target.value)}
+                rows={4}
+                maxLength={260}
+                className="w-full resize-none rounded-[var(--radius-lg-design)] bg-transparent p-3 outline-none"
+                style={{ background: fieldBg, border: `1px solid ${border}`, color: text, fontSize: 13, lineHeight: 1.65 }}
+                placeholder="描述行业、颜色、情绪、材质或排版方向，例如：黑金配色，适合高端香氛品牌，文字要有杂志封面感..."
+              />
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <p className="mb-2 type-caption" style={{ color: sub }}>用途</p>
+              <div className="grid grid-cols-3 gap-2">
+                {FONT_DESIGN_PURPOSES.map(item => (
+                  <button key={item} type="button" className="active:scale-95" style={pillStyle(purpose === item)} onClick={() => setPurpose(item)}>
+                    {item}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-2 type-caption" style={{ color: sub }}>风格模板</p>
+              <div className="grid grid-cols-2 gap-2">
+                {FONT_DESIGN_STYLES.map(item => (
+                  <button key={item} type="button" className="flex items-center justify-between active:scale-95" style={pillStyle(stylePreset === item)} onClick={() => setStylePreset(item)}>
+                    <span>{item}</span>
+                    {stylePreset === item && <Check size={13} style={{ color: accent }} />}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-[1fr_0.9fr] gap-3">
+              <div>
+                <p className="mb-2 type-caption" style={{ color: sub }}>画幅</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {FONT_DESIGN_RATIOS.map(item => (
+                    <button key={item} type="button" className="active:scale-95" style={pillStyle(ratio === item)} onClick={() => setRatio(item)}>
+                      {item}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="mb-2 type-caption" style={{ color: sub }}>数量</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {FONT_DESIGN_COUNTS.map(item => (
+                    <button key={item} type="button" className="active:scale-95" style={pillStyle(count === item)} onClick={() => setCount(item)}>
+                      {item}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between rounded-[var(--radius-lg-design)] px-3 py-2" style={{ background: fieldBg, border: `1px solid ${border}` }}>
+              <div>
+                <p className="type-caption" style={{ color: text }}>透明底</p>
+                <p className="type-caption" style={{ color: sub, fontSize: 11 }}>适合叠加到海报、产品图和品牌视觉中</p>
+              </div>
+              <button
+                type="button"
+                className="relative h-6 w-11 rounded-[var(--radius-pill)] transition-colors"
+                style={{ background: transparentBackground ? accent : hoverBg }}
+                onClick={() => setTransparentBackground(value => !value)}
+                aria-label="透明底"
+              >
+                <span style={{ position: "absolute", top: 3, left: transparentBackground ? 23 : 3, width: 18, height: 18, borderRadius: "var(--radius-md-design)", background: "white", transition: "left 0.16s ease", boxShadow: "0 2px 8px rgba(0,0,0,0.25)" }} />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between px-5 py-4" style={{ borderTop: `1px solid ${border}` }}>
+          <p className="type-caption" style={{ color: sub }}>生成后会在画布中创建新的图片节点，并在右侧对话区保留记录。</p>
+          <button
+            type="button"
+            disabled={!canGenerate}
+            className="flex h-10 items-center gap-2 rounded-[var(--radius-lg-design)] px-4 transition-all hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed"
+            style={{
+              background: canGenerate ? "#C5ED47" : hoverBg,
+              color: canGenerate ? "#000" : sub,
+              boxShadow: canGenerate ? "0 12px 30px rgba(197,237,71,0.24)" : "none",
+            }}
+            onClick={handleGenerate}
+          >
+            {isGenerating ? <RefreshCw size={15} className="animate-spin" /> : <Type size={15} />}
+            <span className="type-caption">{isGenerating ? "生成中" : "生成字体设计"}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProductBackgroundDialog({ isDark, onClose }: { isDark: boolean; onClose: () => void }) {
+  const bg = isDark ? "rgba(18,18,28,0.98)" : "rgba(255,255,255,0.98)";
+  const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
+  const text = isDark ? "rgba(255,255,255,0.88)" : "rgba(22,22,34,0.88)";
+  const sub = isDark ? "rgba(255,255,255,0.48)" : "rgba(22,22,34,0.50)";
+  return (
+    <div className="fixed inset-0 flex items-center justify-center" style={{ zIndex: 3500, pointerEvents: "none" }}>
+      <div
+        className="w-[min(440px,calc(100vw-40px))] rounded-[var(--radius-xl-design)] p-5 shadow-2xl"
+        style={{ pointerEvents: "auto", background: bg, border: `1px solid ${border}`, backdropFilter: "blur(22px)", boxShadow: "0 24px 80px rgba(0,0,0,0.38)" }}
+        onMouseDown={event => event.stopPropagation()}
+        onClick={event => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="type-caption" style={{ color: text, fontSize: 14 }}>智能创建背景</p>
+            <p className="mt-2 type-caption leading-5" style={{ color: sub }}>
+              这个入口已放入顶部 AI 工具区。完整的佐糖创建背景面板和接口会按单独任务接入，避免和本次字体设计能力混改。
+            </p>
+          </div>
+          <button type="button" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-md-design)] hover:opacity-75" style={{ color: sub }} onClick={onClose} aria-label="关闭智能创建背景">
+            <X size={15} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Canvas Top Tool Palette ─────────────────────────────────────
 function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }: { isDark: boolean; projectId: string; onImageGeneratorOpenChange?: (open: boolean) => void }) {
   const [active, setActive] = useState("move");
   const [shapeOpen, setShapeOpen] = useState(false);
   const [drawOpen, setDrawOpen] = useState(false); // 铅笔子菜单
   const [imageGeneratorOpen, setImageGeneratorOpen] = useState(false);
+  const [productBackgroundOpen, setProductBackgroundOpen] = useState(false);
+  const [fontDesignOpen, setFontDesignOpen] = useState(false);
   const [drawColor, setDrawColor] = useState(isDark ? "#c4b5fd" : "#1a1a2e"); // 铅笔颜色
   const [drawWidth, setDrawWidth] = useState(2); // 铅笔粗细 px
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   // 点击画布空白处时关闭子菜单
   useEffect(() => {
-    const handler = () => { setShapeOpen(false); setDrawOpen(false); setImageGeneratorOpen(false); };
+    const handler = () => { setShapeOpen(false); setDrawOpen(false); setImageGeneratorOpen(false); setProductBackgroundOpen(false); setFontDesignOpen(false); };
     window.addEventListener("pane-click", handler);
     return () => window.removeEventListener("pane-click", handler);
   }, []);
@@ -7632,14 +7953,16 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
 
   // 工具列表
   const tools = [
+    { id: "image-ai",     label: "智能生图",   icon: <Sparkles size={17} /> },
+    { id: "annotate",     label: "智能注释",   icon: <AiAnnotationIcon size={17} cutoutBg={bg} /> },
+    { id: "font-design",  label: "字体设计",   icon: <AiDecoratedIcon size={17} cutoutBg={bg}><Type size={17} /></AiDecoratedIcon> },
+    { id: "product-bg",   label: "智能创建背景", icon: <GalleryVerticalEnd size={17} /> },
     { id: "move",         label: "移动",       icon: <MousePointer2 size={17} /> },
     { id: "upload",       label: "上传图片",   icon: <ImagePlus size={17} /> },
     { id: "smart-canvas", label: "创建画板",   icon: <CreateCanvasIcon size={17} /> },
     { id: "shape",        label: "几何形",     icon: <Triangle size={17} /> },
     { id: "draw",         label: "铅笔",       icon: <Pencil size={17} /> },
     { id: "text",         label: "文字",       icon: <Type size={17} /> },
-    { id: "image-ai",     label: "智能生图",   icon: <Sparkles size={17} /> },
-    { id: "annotate",     label: "智能注释",   icon: <AiAnnotationIcon size={17} cutoutBg={bg} /> },
   ];
 
   // 几何形二级菜单
@@ -7657,6 +7980,8 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
       setShapeOpen(v => !v);
       setDrawOpen(false);
       setImageGeneratorOpen(false);
+      setProductBackgroundOpen(false);
+      setFontDesignOpen(false);
       setActive(id);
       window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: id } }));
       return;
@@ -7665,6 +7990,8 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
       setDrawOpen(v => !v);
       setShapeOpen(false);
       setImageGeneratorOpen(false);
+      setProductBackgroundOpen(false);
+      setFontDesignOpen(false);
       setActive(id);
       window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: id } }));
       // 广播当前铅笔参数
@@ -7675,14 +8002,38 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
       setImageGeneratorOpen(v => !v);
       setShapeOpen(false);
       setDrawOpen(false);
+      setProductBackgroundOpen(false);
+      setFontDesignOpen(false);
       setActive(id);
       window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: id } }));
+      return;
+    }
+    if (id === "font-design") {
+      setFontDesignOpen(v => !v);
+      setImageGeneratorOpen(false);
+      setProductBackgroundOpen(false);
+      setShapeOpen(false);
+      setDrawOpen(false);
+      setActive(id);
+      window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
+      return;
+    }
+    if (id === "product-bg") {
+      setProductBackgroundOpen(v => !v);
+      setImageGeneratorOpen(false);
+      setFontDesignOpen(false);
+      setShapeOpen(false);
+      setDrawOpen(false);
+      setActive(id);
+      window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
       return;
     }
     if (id === "upload") {
       setShapeOpen(false);
       setDrawOpen(false);
       setImageGeneratorOpen(false);
+      setProductBackgroundOpen(false);
+      setFontDesignOpen(false);
       setActive("move");
       window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
       window.dispatchEvent(new CustomEvent("workspace-upload-request"));
@@ -7691,6 +8042,8 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
     setShapeOpen(false);
     setDrawOpen(false);
     setImageGeneratorOpen(false);
+    setProductBackgroundOpen(false);
+    setFontDesignOpen(false);
     setActive(id);
     // 向 InnerCanvas 广播工具模式变化
     window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: id } }));
@@ -7818,6 +8171,14 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
         <ImageGeneratorPopover isDark={isDark} projectId={projectId} onClose={() => setImageGeneratorOpen(false)} />
       )}
 
+      {fontDesignOpen && (
+        <FontDesignDialog isDark={isDark} projectId={projectId} onClose={() => setFontDesignOpen(false)} />
+      )}
+
+      {productBackgroundOpen && (
+        <ProductBackgroundDialog isDark={isDark} onClose={() => setProductBackgroundOpen(false)} />
+      )}
+
       {/* 主工具栏 */}
       <div
         className="flex items-center justify-between rounded-[var(--radius-lg-design)] px-2 py-1 shadow-lg"
@@ -7825,7 +8186,7 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
       >
         {tools.map(tool => (
           <Fragment key={tool.id}>
-            {tool.id === "image-ai" && (
+            {tool.id === "move" && (
               <div
                 aria-hidden="true"
                 style={{
@@ -8167,6 +8528,8 @@ function CanvasAssistantPanel({
   const [draggingComposerSegmentId, setDraggingComposerSegmentId] = useState<string | null>(null);
   const [dragOverComposerSegmentId, setDragOverComposerSegmentId] = useState<string | null>(null);
   const composerInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const composerMeasureRef = useRef<HTMLSpanElement>(null);
+  const [composerTextWidths, setComposerTextWidths] = useState<Record<string, number>>({});
   const activeComposerSegmentIdRef = useRef<string | null>(null);
   const activeComposerCursorRef = useRef(0);
   const syncedReferenceIdsRef = useRef<Set<string>>(new Set());
@@ -8301,6 +8664,27 @@ function CanvasAssistantPanel({
       segment.id === segmentId && segment.type === "text" ? { ...segment, text: singleLineValue } : segment
     ))));
   }, []);
+
+  useEffect(() => {
+    const measure = composerMeasureRef.current;
+    if (!measure) return;
+    const nextWidths: Record<string, number> = {};
+    composerSegments.forEach(segment => {
+      if (segment.type !== "text") return;
+      if (!segment.text) {
+        nextWidths[segment.id] = composerSegments.length === 1 ? 220 : 32;
+        return;
+      }
+      measure.textContent = segment.text;
+      nextWidths[segment.id] = Math.min(520, Math.max(32, Math.ceil(measure.scrollWidth) + 18));
+    });
+    setComposerTextWidths(previous => {
+      const previousKeys = Object.keys(previous);
+      const nextKeys = Object.keys(nextWidths);
+      if (previousKeys.length === nextKeys.length && nextKeys.every(key => previous[key] === nextWidths[key])) return previous;
+      return nextWidths;
+    });
+  }, [composerSegments]);
 
   const rememberComposerCursor = useCallback((segmentId: string, target: HTMLInputElement) => {
     activeComposerSegmentIdRef.current = segmentId;
@@ -9258,6 +9642,17 @@ function CanvasAssistantPanel({
                   focusComposerSegment();
                 }}
               >
+                <span
+                  ref={composerMeasureRef}
+                  aria-hidden="true"
+                  className="pointer-events-none invisible absolute whitespace-pre"
+                  style={{
+                    fontSize: 12,
+                    lineHeight: "24px",
+                    fontFamily: "inherit",
+                    letterSpacing: 0,
+                  }}
+                />
                 {composerSegments.map(segment => {
                   if (segment.type === "image") {
                     return (
@@ -9335,11 +9730,11 @@ function CanvasAssistantPanel({
                       </span>
                     );
                   }
-                  const textWidth = segment.text
-                    ? Math.min(520, Math.max(16, segment.text.length * 12))
+                  const textWidth = composerTextWidths[segment.id] ?? (segment.text
+                    ? Math.min(520, Math.max(32, segment.text.length * 13 + 18))
                     : composerSegments.length === 1
                       ? 220
-                      : 4;
+                      : 32);
                   return (
                     <input
                       key={segment.id}
@@ -9373,7 +9768,7 @@ function CanvasAssistantPanel({
                           ? `基于 ${composerAnnotations.length} 个注释点，描述组合生成意图...`
                           : "输入对当前画布的想法，可在文字之间插入引用图片..."
                         : ""}
-                      className="min-w-0 shrink-0 whitespace-nowrap border-0 bg-transparent px-1 py-0 outline-none disabled:cursor-not-allowed"
+                      className="min-w-0 shrink-0 whitespace-nowrap border-0 bg-transparent px-1.5 py-0 outline-none disabled:cursor-not-allowed"
                       style={{
                         color: text,
                         opacity: 1,
