@@ -8066,7 +8066,7 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
   return (
     <div
       className="fixed nodrag nopan"
-      style={{ top: 68, left: "50%", transform: "translateX(calc(-50% - 84px))", zIndex: 110, width: 320 }}
+      style={{ top: 68, left: "50%", transform: "translateX(calc(-50% - 84px))", zIndex: 110, width: "max-content", maxWidth: "calc(100vw - 160px)" }}
       onMouseDown={e => e.stopPropagation()}
     >
       {/* 几何形二级菜单 */}
@@ -8187,7 +8187,7 @@ function CanvasTopToolPalette({ isDark, projectId, onImageGeneratorOpenChange }:
 
       {/* 主工具栏 */}
       <div
-        className="flex items-center justify-between rounded-[var(--radius-lg-design)] px-2 py-1 shadow-lg"
+        className="flex w-max items-center rounded-[var(--radius-lg-design)] px-2 py-1 shadow-lg"
         style={{ background: bg, border: `1px solid ${border}`, backdropFilter: "blur(18px)" }}
       >
         {tools.map(tool => (
