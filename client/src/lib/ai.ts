@@ -27,6 +27,7 @@ export type BackgroundImageTask = {
 const AUTH_STORAGE_KEY = "artx-auth-session";
 const AI_REQUEST_TIMEOUT_MS = 300000;
 const AI_TIMEOUT_ERROR_MESSAGE = "对不起，网络开了个小差，请稍后重试";
+const ART_X_TEST_AI_API_BASE_URL = "https://artx-test.onrender.com";
 
 function normalizeAiErrorMessage(message: string, fallback: string) {
   if (/images api is not supported|not supported for this platform|unsupported.*images/i.test(message)) {
@@ -56,11 +57,29 @@ function getAiApiBaseUrl() {
     import.meta.env.VITE_API_BASE_URL ||
     ""
   ).replace(/\/+$/, "");
-  if (configured) return configured;
-  if (typeof window !== "undefined" && window.location.hostname.endsWith("github.io")) {
-    return "https://artx-test.onrender.com";
+  if (typeof window !== "undefined") {
+    const hostname = window.location.hostname;
+    const isGithubPages = hostname.endsWith("github.io");
+    const isRelativeConfigured = configured.startsWith("/") || configured.startsWith(".");
+    const configuredHost = (() => {
+      try {
+        return configured ? new URL(configured, window.location.href).hostname : "";
+      } catch {
+        return "";
+      }
+    })();
+    if (isGithubPages && (!configured || isRelativeConfigured || configuredHost.endsWith("github.io"))) {
+      return ART_X_TEST_AI_API_BASE_URL;
+    }
   }
+  if (configured) return configured;
+  if (typeof window !== "undefined" && window.location.hostname.endsWith("github.io")) return ART_X_TEST_AI_API_BASE_URL;
   return "";
+}
+
+function isAiBackendConnectionError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /AI 后端地址未正确连接|网页内容|non-JSON response|Failed to fetch|NetworkError|后台图像生成启动失败|后台图像生成查询失败/i.test(message);
 }
 
 export function hasActiveAuthSession() {
@@ -247,24 +266,28 @@ export async function generateImages({
     prompt,
   ].filter(Boolean).join("\n");
   if (generationId) {
-    await startBackgroundImageGeneration({
-      taskId: generationId,
-      prompt,
-      model,
-      ratio,
-      count,
-      style,
-      referencesEnabled,
-      referencedAssets,
-      skillId,
-    });
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      const task = await getBackgroundImageGenerationTask(generationId);
-      if (task.status === "completed") return { images: task.images || [] };
-      if (task.status === "failed") throw new Error(task.error || "图像生成失败");
-      await new Promise(resolve => setTimeout(resolve, 3000));
+    try {
+      await startBackgroundImageGeneration({
+        taskId: generationId,
+        prompt,
+        model,
+        ratio,
+        count,
+        style,
+        referencesEnabled,
+        referencedAssets,
+        skillId,
+      });
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        const task = await getBackgroundImageGenerationTask(generationId);
+        if (task.status === "completed") return { images: task.images || [] };
+        if (task.status === "failed") throw new Error(task.error || "图像生成失败");
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+      throw new Error(AI_TIMEOUT_ERROR_MESSAGE);
+    } catch (error) {
+      if (!isAiBackendConnectionError(error)) throw error;
     }
-    throw new Error(AI_TIMEOUT_ERROR_MESSAGE);
   }
   const result = await postAiOrchestrate({
     capability: "text_to_image",
