@@ -7893,10 +7893,10 @@ function FontDesignDialog({ isDark, projectId, onClose }: { isDark: boolean; pro
   return (
     <div
       className="fixed inset-0 flex items-center justify-center"
-      style={{ zIndex: 20000, pointerEvents: "none", padding: 20 }}
+      style={{ zIndex: 20000, pointerEvents: "none", padding: 28 }}
     >
       <div
-        className="max-h-[calc(100vh-40px)] w-[min(980px,calc(100vw-40px))] overflow-y-auto rounded-[var(--radius-xl-design)] shadow-2xl"
+        className="flex max-h-[min(760px,calc(100dvh-56px))] w-[min(1120px,calc(100vw-56px))] flex-col overflow-hidden rounded-[var(--radius-xl-design)] shadow-2xl"
         style={{
           pointerEvents: "auto",
           background: bg,
@@ -7922,10 +7922,10 @@ function FontDesignDialog({ isDark, projectId, onClose }: { isDark: boolean; pro
           </button>
         </div>
 
-        <div className="grid gap-5 p-5 lg:grid-cols-[330px_1fr]">
-          <div className="space-y-4">
+        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto overflow-x-hidden p-4 lg:grid-cols-[315px_minmax(0,1fr)]">
+          <div className="min-w-0 space-y-3">
             <div className="overflow-hidden rounded-[var(--radius-lg-design)]" style={{ background: panelBg, border: `1px solid ${border}` }}>
-              <div className="relative h-36 overflow-hidden">
+              <div className="relative h-28 overflow-hidden">
                 <img src={activeStyle.image} alt={`${stylePreset} 预览`} className="h-full w-full object-cover" draggable={false} />
                 <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(0,0,0,0.08), rgba(0,0,0,0.70))" }} />
                 <div className="absolute bottom-3 left-3 right-3">
@@ -7943,10 +7943,10 @@ function FontDesignDialog({ isDark, projectId, onClose }: { isDark: boolean; pro
                 <textarea
                   value={textValue}
                   onChange={event => setTextValue(event.target.value)}
-                  rows={3}
+                  rows={2}
                   maxLength={80}
                   className="w-full resize-none rounded-[var(--radius-md-design)] bg-transparent p-3 outline-none"
-                  style={{ color: text, background: raisedBg, border: `1px solid ${border}`, fontSize: 23, lineHeight: 1.32, fontWeight: 800, letterSpacing: 0 }}
+                  style={{ color: text, background: raisedBg, border: `1px solid ${border}`, fontSize: 21, lineHeight: 1.3, fontWeight: 800, letterSpacing: 0 }}
                   placeholder="山海计划 / FUTURE LAB / 星河 Studio"
                   autoFocus
                 />
@@ -7988,7 +7988,7 @@ function FontDesignDialog({ isDark, projectId, onClose }: { isDark: boolean; pro
             </div>
           </div>
 
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-3">
             <div className="rounded-[var(--radius-lg-design)] p-3" style={{ background: panelBg, border: `1px solid ${border}` }}>
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
@@ -7997,7 +7997,7 @@ function FontDesignDialog({ isDark, projectId, onClose }: { isDark: boolean; pro
                 </div>
                 <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ color: aiAccent, background: "oklch(0.64 0.22 285 / 0.12)", border: `1px solid ${activeBorder}` }}>{stylePreset}</span>
               </div>
-              <div className="grid max-h-[420px] grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3">
+              <div className="grid max-h-[292px] grid-cols-[repeat(auto-fit,minmax(132px,1fr))] gap-2 overflow-y-auto overflow-x-hidden pr-1">
                 {FONT_DESIGN_STYLES.map(item => {
                   const active = stylePreset === item;
                   const preview = FONT_DESIGN_STYLE_PREVIEWS[item];
@@ -8009,7 +8009,7 @@ function FontDesignDialog({ isDark, projectId, onClose }: { isDark: boolean; pro
                       style={{ background: active ? "oklch(0.64 0.22 285 / 0.14)" : raisedBg, border: `1px solid ${active ? activeBorder : border}`, color: text }}
                       onClick={() => setStylePreset(item)}
                     >
-                      <span className="relative block h-20 overflow-hidden">
+                      <span className="relative block h-16 overflow-hidden">
                         <img src={preview.image} alt={`${item} 风格预览`} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" draggable={false} />
                         <span className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(0,0,0,0.02), rgba(0,0,0,0.58))" }} />
                         <span className="absolute bottom-2 left-2 right-2 flex items-center justify-between gap-2">
@@ -8019,7 +8019,7 @@ function FontDesignDialog({ isDark, projectId, onClose }: { isDark: boolean; pro
                       </span>
                       <span className="block p-2">
                         <span className="block truncate type-caption" style={{ color: text, fontWeight: 750 }}>{item}</span>
-                        <span className="mt-0.5 block line-clamp-2 type-caption" style={{ color: sub, fontSize: 10, lineHeight: 1.35 }}>{preview.description}</span>
+                        <span className="mt-0.5 block truncate type-caption" style={{ color: sub, fontSize: 10, lineHeight: 1.35 }}>{preview.description}</span>
                       </span>
                     </button>
                   );
@@ -8035,7 +8035,7 @@ function FontDesignDialog({ isDark, projectId, onClose }: { isDark: boolean; pro
               <textarea
                 value={extraPrompt}
                 onChange={event => setExtraPrompt(event.target.value)}
-                rows={4}
+                rows={3}
                 maxLength={260}
                 className="w-full resize-none rounded-[var(--radius-md-design)] bg-transparent p-3 outline-none"
                 style={{ background: raisedBg, border: `1px solid ${border}`, color: text, fontSize: 13, lineHeight: 1.6 }}
