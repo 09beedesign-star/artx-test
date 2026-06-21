@@ -1739,6 +1739,15 @@ function SocialMediaSizePanel({
     setSelectedPresetIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]);
   };
 
+  const selectAllPresets = () => {
+    setSelectedPresetIds(SOCIAL_MEDIA_SIZE_PRESETS.map(preset => preset.id));
+  };
+
+  const clearSelectedPresets = () => {
+    setSelectedPresetIds([]);
+    setCustomEnabled(false);
+  };
+
   const handleCropPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
     dragRef.current = { startX: event.clientX, startY: event.clientY, startTransform: coverTransform, bounds };
@@ -1793,7 +1802,7 @@ function SocialMediaSizePanel({
       <div className="flex shrink-0 items-center justify-between px-4 py-3" style={{ borderBottom: `1px solid ${border}` }}>
         <div>
           <p style={{ color: text, fontSize: 14, fontWeight: 650 }}>多平台封面</p>
-          <p style={{ color: sub, fontSize: 11, marginTop: 2 }}>选择图片和平台尺寸，导出所见裁取内容到本地。</p>
+          <p style={{ color: sub, fontSize: 11, marginTop: 2 }}>可多选平台尺寸，统一调节后一次性批量保存。</p>
         </div>
         <button className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-md-design)]" style={{ color: sub }} onClick={onClose} aria-label="关闭">
           <X size={14} />
@@ -1855,6 +1864,33 @@ function SocialMediaSizePanel({
               </button>
             );
           })}
+        </div>
+
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <span
+            className="rounded-[var(--radius-md-design)] px-2 py-1"
+            style={{ background: field, border: `1px solid ${border}`, color: sub, fontSize: 11 }}
+          >
+            已选 {selectedPresets.length + (validCustom ? 1 : 0)} 个封面尺寸
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="h-7 rounded-[var(--radius-md-design)] px-2 text-[11px] font-semibold active:scale-95"
+              style={{ background: field, border: `1px solid ${border}`, color: text }}
+              onClick={selectAllPresets}
+            >
+              全选
+            </button>
+            <button
+              type="button"
+              className="h-7 rounded-[var(--radius-md-design)] px-2 text-[11px] font-semibold active:scale-95"
+              style={{ background: field, border: `1px solid ${border}`, color: text }}
+              onClick={clearSelectedPresets}
+            >
+              清空
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-2">
@@ -1969,7 +2005,7 @@ function SocialMediaSizePanel({
             format: exportFormat,
           })}
         >
-          导出
+          {canGenerate ? `批量导出 ${selectedPresets.length + (validCustom ? 1 : 0)} 张` : "批量导出"}
         </button>
       </div>
     </div>
