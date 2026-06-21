@@ -723,11 +723,12 @@ async function createPicWishEraseMasks(maskBuffer: Buffer, width: number, height
   for (let pixel = 0; pixel < expandedErasePixels.length; pixel += 1) {
     const index = pixel * 4;
     const shouldErase = expandedErasePixels[pixel] === 1;
-    // PicWish object removal expects the area to remove to be white and the
-    // protected area to be black.
-    providerMask[index] = shouldErase ? 255 : 0;
-    providerMask[index + 1] = shouldErase ? 255 : 0;
-    providerMask[index + 2] = shouldErase ? 255 : 0;
+    // PicWish object removal treats black as the editable/removal area and
+    // white as protected content. Keep the internal mask below as white-remove
+    // because it is used only for our own final compositing.
+    providerMask[index] = shouldErase ? 0 : 255;
+    providerMask[index + 1] = shouldErase ? 0 : 255;
+    providerMask[index + 2] = shouldErase ? 0 : 255;
     providerMask[index + 3] = 255;
     // Internal compositing uses white as the editable/replace area.
     eraseMask[index] = shouldErase ? 255 : 0;
