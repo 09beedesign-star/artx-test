@@ -6122,6 +6122,64 @@ function getImportedImageDisplaySize(naturalWidth: number, naturalHeight: number
   };
 }
 
+function normalizeDroppedImageUrl(value: string) {
+  const source = value.trim();
+  if (!source || /^(javascript|mailto|tel):/i.test(source)) return "";
+  if (/^(data:image\/|blob:|https?:\/\/)/i.test(source)) return source;
+  return "";
+}
+
+function getFirstSrcsetCandidate(srcset: string | null) {
+  const firstCandidate = srcset?.split(",")[0]?.trim();
+  return firstCandidate?.split(/\s+/)[0] || "";
+}
+
+function extractImageSourcesFromDataTransfer(dataTransfer: DataTransfer | null | undefined) {
+  const sources: string[] = [];
+  const addSource = (value: string) => {
+    const normalized = normalizeDroppedImageUrl(value);
+    if (normalized) sources.push(normalized);
+  };
+
+  const html = dataTransfer?.getData("text/html") || "";
+  if (html) {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    Array.from(doc.querySelectorAll("img")).forEach(img => {
+      addSource(img.getAttribute("src") || img.src);
+      addSource(getFirstSrcsetCandidate(img.getAttribute("srcset")));
+      addSource(img.getAttribute("data-src") || "");
+      addSource(img.getAttribute("data-original") || "");
+    });
+    Array.from(doc.querySelectorAll("source")).forEach(source => {
+      addSource(source.getAttribute("src") || "");
+      addSource(getFirstSrcsetCandidate(source.getAttribute("srcset")));
+    });
+  }
+
+  const uriList = dataTransfer?.getData("text/uri-list") || "";
+  uriList
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(line => line && !line.startsWith("#"))
+    .forEach(addSource);
+
+  const plain = dataTransfer?.getData("text/plain") || "";
+  plain
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .forEach(addSource);
+
+  return Array.from(new Set(sources));
+}
+
+function dataTransferHasExternalImage(dataTransfer: DataTransfer | null | undefined) {
+  const types = Array.from(dataTransfer?.types || []);
+  if (types.includes("Files")) {
+    return Array.from(dataTransfer?.items || []).some(item => item.kind === "file" && item.type.startsWith("image/"));
+  }
+  return types.some(type => type === "text/html" || type === "text/uri-list" || type === "text/plain");
+}
+
 // ── Bottom AI Prompt Bar ───────────────────────────────────────
 function BottomPromptBar({
   isDark,
@@ -10134,10 +10192,11 @@ function CanvasAssistantPanel({
                       </span>
                     );
                   }
+                  const isSingleEmptyTextSegment = composerSegments.length === 1 && segment.text.length === 0;
                   const textWidth = composerTextWidths[segment.id] ?? (segment.text
                     ? Math.min(520, Math.max(32, segment.text.length * 13 + 18))
-                    : composerSegments.length === 1
-                      ? 220
+                    : isSingleEmptyTextSegment
+                      ? 320
                       : 32);
                   return (
                     <input
@@ -10172,19 +10231,20 @@ function CanvasAssistantPanel({
                           ? `基于 ${composerAnnotations.length} 个注释点，描述组合生成意图...`
                           : "输入对当前画布的想法，可在文字之间插入引用图片..."
                         : ""}
-                      className="min-w-0 shrink-0 whitespace-nowrap border-0 bg-transparent px-1.5 py-0 outline-none disabled:cursor-not-allowed"
+                      className="min-w-0 whitespace-nowrap border-0 bg-transparent px-1.5 py-1 outline-none disabled:cursor-not-allowed"
                       style={{
                         color: text,
                         opacity: 1,
                         fontSize: 12,
-                        lineHeight: "24px",
-                        height: 24,
-                        minHeight: 24,
+                        lineHeight: "20px",
+                        height: 28,
+                        minHeight: 28,
                         overflow: "hidden",
-                        width: `${textWidth}px`,
-                        minWidth: `${textWidth}px`,
-                        maxWidth: `${textWidth}px`,
-                        flexBasis: `${textWidth}px`,
+                        width: isSingleEmptyTextSegment ? "100%" : `${textWidth}px`,
+                        minWidth: isSingleEmptyTextSegment ? 0 : `${textWidth}px`,
+                        maxWidth: isSingleEmptyTextSegment ? "100%" : `${textWidth}px`,
+                        flex: isSingleEmptyTextSegment ? "1 1 100%" : "0 0 auto",
+                        flexBasis: isSingleEmptyTextSegment ? "100%" : `${textWidth}px`,
                         wordBreak: "keep-all",
                         overflowWrap: "normal",
                         margin: 0,
@@ -13038,29 +13098,77 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setRenameValue(groupNames[groupId] || "");
   }, [groupNames]);
 
-  // ── Local file drag-drop handlers ──
+  const createDroppedImageSourceNode = useCallback((src: string, index: number, origin: { x: number; y: number }) => new Promise<Node>((resolve, reject) => {
+    const img = new window.Image();
+    img.onload = () => {
+      const id = `external-image-${Date.now()}-${index}`;
+      const { width: nodeWidth, height: nodeHeight } = getImportedImageDisplaySize(img.naturalWidth || img.width, img.naturalHeight || img.height);
+      resolve({
+        id,
+        type: "asset",
+        selected: true,
+        position: {
+          x: origin.x - nodeWidth / 2 + index * 32,
+          y: origin.y - nodeHeight / 2 + index * 32,
+        },
+        style: { width: nodeWidth, height: nodeHeight },
+        data: {
+          id,
+          assetId: "default",
+          localSrc: src,
+          title: `拖入图片 ${index + 1}`,
+          assetType: "图片",
+          tags: DEFAULT_ASSET_TAGS,
+          imgW: nodeWidth,
+          imgH: nodeHeight,
+        },
+      });
+    };
+    img.onerror = () => reject(new Error("外部图片链接加载失败"));
+    img.src = src;
+  }), []);
+
+  const addDroppedImageSources = useCallback(async (sources: string[], origin: { x: number; y: number }) => {
+    const uniqueSources = Array.from(new Set(sources.map(normalizeDroppedImageUrl).filter(Boolean)));
+    if (uniqueSources.length === 0) return false;
+    try {
+      const droppedNodes = await Promise.all(uniqueSources.map((src, index) => createDroppedImageSourceNode(src, index, origin)));
+      if (droppedNodes.length === 0) return false;
+      pushHistory();
+      setNodes(nds => [...nds.map(node => ({ ...node, selected: false })), ...droppedNodes]);
+      setSelectedNodeIds(droppedNodes.map(node => node.id));
+      toast(`已拖入 ${droppedNodes.length} 张图片`, { description: "外部网页图片已添加到画布" });
+      window.dispatchEvent(new CustomEvent("tool-mode-change", { detail: { mode: "move" } }));
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "请确认该网站允许图片跨站加载，或先复制图片后粘贴";
+      toast("拖入图片失败", { description: message });
+      return false;
+    }
+  }, [createDroppedImageSourceNode, pushHistory, setNodes]);
+
+  // ── Local/external image drag-drop handlers ──
   const handleCanvasDragEnter = useCallback((e: React.DragEvent) => {
+    if (!dataTransferHasExternalImage(e.dataTransfer)) return;
     e.preventDefault();
     e.stopPropagation();
-    // Only handle file drags from OS (not internal ReactFlow node drags)
-    if (!e.dataTransfer.types.includes("Files")) return;
     dragCounterRef.current += 1;
     setIsDragOver(true);
   }, []);
 
   const handleCanvasDragOver = useCallback((e: React.DragEvent) => {
+    if (!dataTransferHasExternalImage(e.dataTransfer)) return;
     e.preventDefault();
     e.stopPropagation();
-    if (!e.dataTransfer.types.includes("Files")) return;
     e.dataTransfer.dropEffect = "copy";
     const rect = containerRef.current?.getBoundingClientRect();
     if (rect) setDragPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
   }, []);
 
   const handleCanvasDragLeave = useCallback((e: React.DragEvent) => {
+    if (!dataTransferHasExternalImage(e.dataTransfer)) return;
     e.preventDefault();
     e.stopPropagation();
-    if (!e.dataTransfer.types.includes("Files")) return;
     dragCounterRef.current -= 1;
     if (dragCounterRef.current <= 0) {
       dragCounterRef.current = 0;
@@ -13070,17 +13178,28 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   }, []);
 
   const handleCanvasDrop = useCallback((e: React.DragEvent) => {
+    if (!dataTransferHasExternalImage(e.dataTransfer)) return;
     e.preventDefault();
     e.stopPropagation();
     dragCounterRef.current = 0;
     setIsDragOver(false);
     setDragPos(null);
-    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith("image/"));
-    if (files.length === 0) { toast("请拖入图片文件（JPG / PNG / GIF / WebP）"); return; }
     const rect = containerRef.current?.getBoundingClientRect();
     const baseX = e.clientX - (rect?.left || 0);
     const baseY = e.clientY - (rect?.top || 0);
+    const origin = screenToFlowPosition({ x: (rect?.left || 0) + baseX, y: (rect?.top || 0) + baseY });
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith("image/"));
+    if (files.length === 0) {
+      const sources = extractImageSourcesFromDataTransfer(e.dataTransfer);
+      if (sources.length > 0) {
+        void addDroppedImageSources(sources, origin);
+        return;
+      }
+      toast("请拖入图片文件或网页图片", { description: "支持 JPG、PNG、GIF、WebP 文件，也支持从网页直接拖入图片" });
+      return;
+    }
     pushHistory();
+    const pendingIds = files.map((_, index) => `local-${Date.now()}-${index}`);
     files.forEach((file, index) => {
       const reader = new FileReader();
       reader.onload = (ev) => {
@@ -13089,11 +13208,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const img = new window.Image();
         img.onload = () => {
           const dropPos = screenToFlowPosition({ x: (rect?.left || 0) + baseX + index * 32, y: (rect?.top || 0) + baseY + index * 32 });
-          const id = `local-${Date.now()}-${index}`;
+          const id = pendingIds[index];
           const { width: nodeWidth, height: nodeHeight } = getImportedImageDisplaySize(img.naturalWidth, img.naturalHeight);
-          setNodes(nds => [...nds, {
+          const nextNode: Node = {
             id,
             type: "asset",
+            selected: true,
             position: { x: dropPos.x - nodeWidth / 2, y: dropPos.y - nodeHeight / 2 },
             style: { width: nodeWidth, height: nodeHeight },
             data: {
@@ -13106,14 +13226,16 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               imgW: nodeWidth,
               imgH: nodeHeight,
             },
-          }]);
+          };
+          setNodes(nds => [...nds.map(node => ({ ...node, selected: false })), nextNode]);
         };
         img.src = dataUrl;
       };
       reader.readAsDataURL(file);
     });
+    setSelectedNodeIds(pendingIds);
     toast(`已导入 ${files.length} 张图片`, { description: "本地图片已成功添加到画布" });
-  }, [pushHistory, screenToFlowPosition, setNodes]);
+  }, [addDroppedImageSources, pushHistory, screenToFlowPosition, setNodes]);
 
   const createClipboardImageNode = useCallback((blob: Blob, index: number, origin: { x: number; y: number }) => new Promise<Node>((resolve, reject) => {
     const reader = new FileReader();
