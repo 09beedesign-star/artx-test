@@ -2943,6 +2943,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const { setNodes: setFlowNodes, getNode } = useReactFlow();
   const nodeId = (data as { id?: string }).id || "";
   const [toolMode, setToolMode] = useState<string>("move");
+  const [hoveringAssetNode, setHoveringAssetNode] = useState(false);
   // 图片尺寸状态（支持拖拽缩放）
   const [imgW, setImgW] = useState<number>((data.imgW as number) || 0);
   const [imgH, setImgH] = useState<number>((data.imgH as number) || 0);
@@ -3067,6 +3068,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
 
   const dispW = imgW || initW;
   const dispH = imgH || initH;
+  const regenerateDetail = getRegenerableImageNodeDetail(nodeId, data, { w: dispW, h: dispH });
   const resetEraseCanvases = useCallback(() => {
     const overlay = eraseCanvasRef.current;
     const mask = eraseMaskCanvasRef.current;
@@ -3573,6 +3575,8 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
         onClick={handleAssetClick}
         onClickCapture={handleImageAnnotateClick}
         onMouseDownCapture={handleAssetMouseDownCapture}
+        onMouseEnter={() => setHoveringAssetNode(true)}
+        onMouseLeave={() => setHoveringAssetNode(false)}
       >
         <div
           className="relative"
@@ -3912,6 +3916,38 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
           )}
           {isEditing && (
             <div className="absolute inset-0 pointer-events-none" style={{ background: "rgba(0,0,0,0.15)" }} />
+          )}
+          {regenerateDetail && !isGeneratingImage && !isRemovingBackground && !isErasingImage && !isExtractingText && (
+            <button
+              type="button"
+              aria-label="再次生成"
+              title="再次生成"
+              className="absolute nodrag nopan flex items-center justify-center rounded-[var(--radius-lg-design)] shadow-xl transition-all duration-150"
+              style={{
+                right: 10,
+                bottom: 10,
+                width: 60,
+                height: 60,
+                zIndex: 115,
+                background: "#C5ED47",
+                color: "#000",
+                opacity: hoveringAssetNode ? 1 : 0,
+                transform: hoveringAssetNode ? "translateY(0) scale(1)" : "translateY(4px) scale(0.94)",
+                pointerEvents: hoveringAssetNode ? "auto" : "none",
+                boxShadow: "0 12px 30px rgba(197,237,71,0.32)",
+              }}
+              onMouseDown={event => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onClick={event => {
+                event.preventDefault();
+                event.stopPropagation();
+                window.dispatchEvent(new CustomEvent<ImageRegenerateRequestDetail>("asset-regenerate-request", { detail: regenerateDetail }));
+              }}
+            >
+              <RefreshCw size={24} strokeWidth={2.4} />
+            </button>
           )}
         </div>
         {extractedTextPanelOpen && (
@@ -5283,6 +5319,22 @@ type ImageGeneratorPayload = {
   skillId?: string;
 };
 
+type ImageRegenerateRequestDetail = {
+  nodeId: string;
+  generationId?: string;
+  generationIndex?: number;
+  status: "completed" | "failed";
+  prompt: string;
+  model: string;
+  ratio: string;
+  style: string;
+  titleBase?: string;
+  referencesEnabled: boolean;
+  referencedAssets?: Array<{ src: string; title?: string; width?: number; height?: number }>;
+  displaySize: { w: number; h: number };
+  sourceBackgroundSrc?: string;
+};
+
 type ImageGeneratorReferenceAsset = {
   id: string;
   title: string;
@@ -5766,6 +5818,47 @@ function dispatchImageGenerationTask(detail: ImageGeneratorPayload, fallbackProj
     persistImageGenerationTask(nextDetail, fallbackProjectId);
   }
   window.dispatchEvent(new CustomEvent("image-generator-submit", { detail: nextDetail }));
+}
+
+function getRegenerableImageNodeDetail(nodeId: string, data: Record<string, unknown>, displaySize: { w: number; h: number }): ImageRegenerateRequestDetail | null {
+  if (data.assetType !== "AI 生成") return null;
+  const prompt = typeof data.generationPrompt === "string" ? data.generationPrompt : "";
+  const model = typeof data.generationModel === "string" ? data.generationModel : "";
+  const ratio = typeof data.generationRatio === "string" ? data.generationRatio : "";
+  const style = typeof data.generationStyle === "string" ? data.generationStyle : "";
+  if (!prompt.trim() || !model || !ratio || !style) return null;
+  return {
+    nodeId,
+    generationId: typeof data.generationId === "string" ? data.generationId : undefined,
+    generationIndex: typeof data.generationIndex === "number" ? data.generationIndex : undefined,
+    status: data.isGenerationFailed === true ? "failed" : "completed",
+    prompt,
+    model,
+    ratio,
+    style,
+    titleBase: typeof data.generationTitleBase === "string" ? data.generationTitleBase : undefined,
+    referencesEnabled: data.generationReferencesEnabled === true,
+    referencedAssets: Array.isArray(data.generationReferencedAssets)
+      ? data.generationReferencedAssets as Array<{ src: string; title?: string; width?: number; height?: number }>
+      : undefined,
+    displaySize,
+    sourceBackgroundSrc: typeof data.generationSourceBackgroundSrc === "string"
+      ? data.generationSourceBackgroundSrc
+      : typeof data.sourceBackgroundSrc === "string" ? data.sourceBackgroundSrc : undefined,
+  };
+}
+
+function getImageGenerationNodeMetadata(detail: ImageGeneratorPayload) {
+  return {
+    generationPrompt: detail.prompt,
+    generationModel: detail.model,
+    generationRatio: detail.ratio,
+    generationStyle: detail.style,
+    generationTitleBase: detail.titleBase,
+    generationReferencesEnabled: detail.referencesEnabled,
+    generationReferencedAssets: detail.referencedAssets,
+    generationSourceBackgroundSrc: detail.sourceBackgroundSrc,
+  };
 }
 
 function markImageGenerationTaskConsumed(projectId: string, generationId: string) {
@@ -12438,6 +12531,92 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   }, [pushHistory, screenToFlowPosition, setNodes]);
 
   useEffect(() => {
+    const handleAssetRegenerateRequest = (event: Event) => {
+      const detail = (event as CustomEvent<ImageRegenerateRequestDetail>).detail;
+      if (!detail?.prompt?.trim()) return;
+      const startedAt = Date.now();
+      if (detail.status === "failed") {
+        const generationId = `image-regenerate-${startedAt}-${Math.random().toString(36).slice(2, 7)}`;
+        const payload: ImageGeneratorPayload = {
+          projectId,
+          prompt: detail.prompt,
+          model: detail.model,
+          ratio: detail.ratio,
+          count: 1,
+          style: detail.style,
+          referencesEnabled: detail.referencesEnabled,
+          referencedAssets: detail.referencedAssets,
+          generationId,
+          generationStartedAt: startedAt,
+          displaySize: detail.displaySize,
+          titleBase: detail.titleBase,
+          sourceBackgroundSrc: detail.sourceBackgroundSrc,
+        };
+        setNodes(nds => nds.map(node => {
+          if (node.id !== detail.nodeId || node.type !== "asset") return node;
+          const data = node.data as Record<string, unknown>;
+          return {
+            ...node,
+            data: {
+              ...data,
+              generationId,
+              generationStartedAt: startedAt,
+              generationIndex: 0,
+              isGeneratingImage: true,
+              isGenerationFailed: false,
+              localSrc: undefined,
+              processingTitle: undefined,
+              processingSubtitle: undefined,
+              title: "正在全力生成中",
+              tags: [detail.model, detail.ratio, "生成中", detail.referencesEnabled ? "参考画布" : "无参考"],
+              imgW: detail.displaySize.w,
+              imgH: detail.displaySize.h,
+              sourceBackgroundSrc: detail.sourceBackgroundSrc,
+              ...getImageGenerationNodeMetadata(payload),
+            },
+          };
+        }));
+        ensureBackgroundImageGeneration({ ...payload, status: "pending" });
+        toast("正在再次生成", { description: detail.prompt.slice(0, 58) });
+        return;
+      }
+
+      const sourceNode = nodesRef.current.find(node => node.id === detail.nodeId);
+      const sourceSize = sourceNode ? getCanvasNodeSize(sourceNode) : { width: detail.displaySize.w, height: detail.displaySize.h };
+      const desired = sourceNode
+        ? resolveNonOverlappingCanvasPosition(
+            nodesRef.current,
+            {
+              x: sourceNode.position.x + sourceSize.width + 36,
+              y: sourceNode.position.y,
+            },
+            { width: detail.displaySize.w, height: detail.displaySize.h },
+            [sourceNode.id],
+          )
+        : undefined;
+      const generationId = `regenerate-${startedAt}-${Math.random().toString(36).slice(2, 7)}`;
+      dispatchImageGenerationTask({
+        projectId,
+        prompt: detail.prompt,
+        model: detail.model,
+        ratio: detail.ratio,
+        count: 1,
+        style: detail.style,
+        referencesEnabled: detail.referencesEnabled,
+        referencedAssets: detail.referencedAssets,
+        generationId,
+        generationStartedAt: startedAt,
+        displaySize: detail.displaySize,
+        placement: desired,
+        titleBase: detail.titleBase,
+        sourceBackgroundSrc: detail.sourceBackgroundSrc,
+      }, projectId);
+    };
+    window.addEventListener("asset-regenerate-request", handleAssetRegenerateRequest);
+    return () => window.removeEventListener("asset-regenerate-request", handleAssetRegenerateRequest);
+  }, [ensureBackgroundImageGeneration, projectId, setNodes]);
+
+  useEffect(() => {
     const handleImageGenerate = (event: Event) => {
       const detail = (event as CustomEvent<ImageGeneratorPayload>).detail;
       if (!detail?.prompt?.trim()) return;
@@ -12474,6 +12653,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                   processingSubtitle: undefined,
                   title: data.title || `正在全力生成中${detail.count > 1 ? ` ${Number(data.generationIndex || 0) + 1}` : ""}`,
                   sourceBackgroundSrc: detail.sourceBackgroundSrc,
+                  ...getImageGenerationNodeMetadata(detail),
                 },
               };
             });
@@ -12509,6 +12689,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 imgW: size.w,
                 imgH: size.h,
                 sourceBackgroundSrc: detail.sourceBackgroundSrc,
+                ...getImageGenerationNodeMetadata(detail),
               },
             };
             placedNodes.push(placeholderNode);
@@ -12536,6 +12717,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               processingSubtitle: "",
               title: AI_GENERATION_NETWORK_ERROR_MESSAGE,
               sourceBackgroundSrc: undefined,
+              ...getImageGenerationNodeMetadata(detail),
             },
           };
         }));
@@ -12585,6 +12767,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 imgW: size.w,
                 imgH: size.h,
                 sourceBackgroundSrc: undefined,
+                ...getImageGenerationNodeMetadata(detail),
               },
             };
           });
@@ -12620,6 +12803,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               imgW: size.w,
               imgH: size.h,
               sourceBackgroundSrc: undefined,
+              ...getImageGenerationNodeMetadata(detail),
             },
           };
           placedNodes.push(generatedNode);
