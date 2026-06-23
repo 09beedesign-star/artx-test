@@ -1393,7 +1393,6 @@ function AssetFloatingToolbar({ isDark, position, onAction }: {
     { icon: <RotateCw size={15} />, label: "旋转与反转", action: "flip-rotate" },
     { icon: <Crop size={15} />, label: "裁切", action: "crop" },
     { type: "divider" as const, key: "after-transform" },
-    { icon: <AiDecoratedIcon cutoutBg={toolBg}><BadgeCheck size={15} /></AiDecoratedIcon>, label: "智能编辑", action: "quick-edit" },
     { icon: <AiDecoratedIcon cutoutBg={toolBg}><ImageOff size={15} /></AiDecoratedIcon>, label: "去背景", action: "remove-background" },
     { icon: <AiDecoratedIcon cutoutBg={toolBg}><Eraser size={15} /></AiDecoratedIcon>, label: "橡皮工具", action: "erase" },
     { icon: <AiDecoratedIcon cutoutBg={toolBg}><PanelTopOpen size={15} /></AiDecoratedIcon>, label: "编辑元素", action: "edit-elements" },
@@ -5315,6 +5314,8 @@ type ImageGeneratorPayload = {
   displaySize?: { w: number; h: number };
   titleBase?: string;
   sourceBackgroundSrc?: string;
+  sourceImageSrc?: string;
+  editMode?: boolean;
   referencedAssets?: Array<{ src: string; title?: string; width?: number; height?: number }>;
   skillId?: string;
 };
@@ -5333,6 +5334,8 @@ type ImageRegenerateRequestDetail = {
   referencedAssets?: Array<{ src: string; title?: string; width?: number; height?: number }>;
   displaySize: { w: number; h: number };
   sourceBackgroundSrc?: string;
+  imageSrc?: string;
+  editMode?: boolean;
 };
 
 type ImageGeneratorReferenceAsset = {
@@ -5845,6 +5848,10 @@ function getRegenerableImageNodeDetail(nodeId: string, data: Record<string, unkn
     sourceBackgroundSrc: typeof data.generationSourceBackgroundSrc === "string"
       ? data.generationSourceBackgroundSrc
       : typeof data.sourceBackgroundSrc === "string" ? data.sourceBackgroundSrc : undefined,
+    imageSrc: typeof data.generationSourceImageSrc === "string"
+      ? data.generationSourceImageSrc
+      : typeof data.localSrc === "string" ? data.localSrc : undefined,
+    editMode: data.generationEditMode === true,
   };
 }
 
@@ -5858,6 +5865,8 @@ function getImageGenerationNodeMetadata(detail: ImageGeneratorPayload) {
     generationReferencesEnabled: detail.referencesEnabled,
     generationReferencedAssets: detail.referencedAssets,
     generationSourceBackgroundSrc: detail.sourceBackgroundSrc,
+    generationSourceImageSrc: detail.sourceImageSrc || detail.sourceBackgroundSrc,
+    generationEditMode: detail.editMode === true,
   };
 }
 
@@ -11215,11 +11224,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       displaySize: { w: resolvedDisplayW, h: resolvedDisplayH },
       titleBase: style,
       sourceBackgroundSrc: sourceBackgroundSrc || undefined,
+      sourceImageSrc: latestSourceNode.type === "asset" ? getAssetNodeImageSource(latestSourceNode) : undefined,
+      editMode: true,
     };
     dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
     try {
       const result = await run();
-      dispatchImageGenerationTask({ ...payload, status: "completed", images: result.images }, projectId);
+      dispatchImageGenerationTask({ ...payload, status: "completed", images: result.images.slice(0, 1) }, projectId);
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : "请稍后重试";
@@ -11444,10 +11455,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const latestImageSrc = getLatestAssetImageSource(reference.nodeId) || reference.src;
     const sourceSize = getCanvasNodeSize(sourceNode);
     const prompt = [
-      "基于原图生成一张新的局部修改结果图。",
+      "你正在执行图片局部编辑，不是重新生成一张新图。",
+      "必须把原图作为唯一基础画布，只在用户标注区域附近做最小必要修改。",
       `只重点修改注释点附近区域：x=${reference.x.toFixed(1)}%、y=${reference.y.toFixed(1)}%。`,
-      "除该注释点相关区域外，尽量保持原图主体、构图、比例、风格、光影、颜色和其他未提及内容不变。",
-      "不要覆盖或改变原始图片节点，输出完整新图。",
+      "原图中的所有人物、角色、文字、海报构图、背景、镜头、比例、光影、颜色、风格和未提及内容必须保持不变。",
+      "禁止把画面改成新的场景、替换主体、重画成另一张不相关图片。",
+      "输出完整新图，但视觉上应像原图只发生了这一次局部修改。",
       `用户修改建议：${reference.text}`,
     ].join("\n");
     toast("注释 AI 修改中", { description: "将在原图旁生成新的修改结果" });
@@ -12551,6 +12564,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           displaySize: detail.displaySize,
           titleBase: detail.titleBase,
           sourceBackgroundSrc: detail.sourceBackgroundSrc,
+          sourceImageSrc: detail.imageSrc,
+          editMode: detail.editMode,
         };
         setNodes(nds => nds.map(node => {
           if (node.id !== detail.nodeId || node.type !== "asset") return node;
@@ -12576,7 +12591,25 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             },
           };
         }));
-        ensureBackgroundImageGeneration({ ...payload, status: "pending" });
+        if (detail.editMode && detail.imageSrc) {
+          dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
+          void editImageWithPrompt({
+            imageSrc: detail.imageSrc,
+            model: detail.model,
+            prompt: detail.prompt,
+            referencedAssets: detail.referencedAssets,
+            targetWidth: detail.displaySize.w,
+            targetHeight: detail.displaySize.h,
+          })
+            .then(result => dispatchImageGenerationTask({ ...payload, status: "completed", images: result.images.slice(0, 1) }, projectId))
+            .catch(error => {
+              const message = error instanceof Error ? error.message : AI_GENERATION_NETWORK_ERROR_MESSAGE;
+              dispatchImageGenerationTask({ ...payload, status: "failed", error: message }, projectId);
+              toast("再次生成失败", { description: message });
+            });
+        } else {
+          ensureBackgroundImageGeneration({ ...payload, status: "pending" });
+        }
         toast("正在再次生成", { description: detail.prompt.slice(0, 58) });
         return;
       }
@@ -12595,7 +12628,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           )
         : undefined;
       const generationId = `regenerate-${startedAt}-${Math.random().toString(36).slice(2, 7)}`;
-      dispatchImageGenerationTask({
+      const payload: ImageGeneratorPayload = {
         projectId,
         prompt: detail.prompt,
         model: detail.model,
@@ -12610,7 +12643,26 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         placement: desired,
         titleBase: detail.titleBase,
         sourceBackgroundSrc: detail.sourceBackgroundSrc,
-      }, projectId);
+        sourceImageSrc: detail.imageSrc,
+        editMode: detail.editMode,
+      };
+      dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
+      if (detail.editMode && detail.imageSrc) {
+        void editImageWithPrompt({
+          imageSrc: detail.imageSrc,
+          model: detail.model,
+          prompt: detail.prompt,
+          referencedAssets: detail.referencedAssets,
+          targetWidth: detail.displaySize.w,
+          targetHeight: detail.displaySize.h,
+        })
+          .then(result => dispatchImageGenerationTask({ ...payload, status: "completed", images: result.images.slice(0, 1) }, projectId))
+          .catch(error => {
+            const message = error instanceof Error ? error.message : AI_GENERATION_NETWORK_ERROR_MESSAGE;
+            dispatchImageGenerationTask({ ...payload, status: "failed", error: message }, projectId);
+            toast("再次生成失败", { description: message });
+          });
+      }
     };
     window.addEventListener("asset-regenerate-request", handleAssetRegenerateRequest);
     return () => window.removeEventListener("asset-regenerate-request", handleAssetRegenerateRequest);
@@ -12633,9 +12685,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         x: center.x - size.w / 2,
         y: center.y - size.h / 2,
       };
+      const requestedCount = 1;
       if (detail.status === "pending") {
         const generationStartedAt = detail.generationStartedAt || getTimestampFromGenerationId(generationId) || Date.now();
-        ensureBackgroundImageGeneration({ ...detail, projectId, generationId, status: "pending", generationStartedAt });
+        if (detail.editMode !== true) {
+          ensureBackgroundImageGeneration({ ...detail, projectId, generationId, count: requestedCount, status: "pending", generationStartedAt });
+        }
         setNodes(nds => {
           const existingPlaceholders = nds.filter(n => (n.data as Record<string, unknown>)?.generationId === generationId);
           if (existingPlaceholders.length > 0) {
@@ -12651,7 +12706,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                   isGenerationFailed: false,
                   processingTitle: undefined,
                   processingSubtitle: undefined,
-                  title: data.title || `正在全力生成中${detail.count > 1 ? ` ${Number(data.generationIndex || 0) + 1}` : ""}`,
+                  title: data.title || "正在全力生成中",
                   sourceBackgroundSrc: detail.sourceBackgroundSrc,
                   ...getImageGenerationNodeMetadata(detail),
                 },
@@ -12660,7 +12715,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           }
           pushHistory(nds, edgesRef.current);
           const placedNodes: Node[] = [];
-          const placeholderNodes = Array.from({ length: Math.max(1, detail.count || 1) }, (_, index) => {
+          const placeholderNodes = Array.from({ length: requestedCount }, (_, index) => {
             const id = `generated-${generationId}-${index}`;
             const desired = {
               x: anchor.x + index * (size.w + 24),
@@ -12683,7 +12738,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 generationStartedAt,
                 generationIndex: index,
                 isGeneratingImage: true,
-                title: `正在全力生成中${detail.count > 1 ? ` ${index + 1}` : ""}`,
+                title: `正在全力生成中${requestedCount > 1 ? ` ${index + 1}` : ""}`,
                 assetType: "AI 生成",
                 tags: [detail.model, detail.ratio, "生成中", detail.referencesEnabled ? "参考画布" : "无参考"],
                 imgW: size.w,
@@ -12725,13 +12780,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         return;
       }
 
-      const images = detail.images?.length
+      const images = (detail.images?.length
         ? detail.images
         : [GENERATED_ASSETS[Math.abs(detail.prompt.length + detail.count) % GENERATED_ASSETS.length]].map(asset => ({
             src: asset.src,
             width: asset.width,
             height: asset.height,
-          }));
+          }))).slice(0, requestedCount);
       const backupItems = images.map((image, index) => ({
         nodeId: `generated-${generationId}-${index}`,
         generationId,
