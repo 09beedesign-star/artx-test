@@ -73,6 +73,8 @@ type ImageGenerationResponse = {
   url?: string;
   image?: string;
   image_url?: string | { url?: string };
+  imageBase64?: string;
+  imageUrl?: string;
   images?: Array<{ b64_json?: string; url?: string }>;
   data?: Array<{ b64_json?: string; url?: string }>;
   result?: ImageGenerationResponse;
@@ -99,6 +101,8 @@ type AsyncImageTaskResponse = {
     images?: Array<{ b64_json?: string; url?: string }>;
     image?: string;
     image_url?: string | { url?: string };
+    imageBase64?: string;
+    imageUrl?: string;
     output?: unknown;
     upstreamStatus?: number;
     requestPath?: string;
@@ -138,11 +142,24 @@ function normalizeAsyncTaskResult(data: AsyncImageTaskResponse): {
     typeof data.error === "string"
       ? data.error
       : data.error?.message || task?.error;
-  const taskResult = task?.result || task?.rawResult;
-  const directTaskResult = task && (task.images || task.image || task.image_url || task.output)
+  const taskResult = task?.result || task?.rawResult
+    ? {
+        ...(task?.result || {}),
+        rawResult: task?.rawResult,
+        image: task?.imageBase64 || task?.image,
+        imageBase64: task?.imageBase64,
+        imageUrl: task?.imageUrl,
+        image_url: task?.image_url,
+        images: task?.images,
+        output: task?.output,
+      }
+    : undefined;
+  const directTaskResult = task && (task.images || task.image || task.image_url || task.imageBase64 || task.imageUrl || task.output)
     ? {
         images: task.images,
-        image: task.image,
+        image: task.imageBase64 || task.image,
+        imageBase64: task.imageBase64,
+        imageUrl: task.imageUrl,
         image_url: task.image_url,
         output: task.output,
       }
@@ -171,6 +188,8 @@ function extractGeneratedImages(providerData: ImageGenerationResponse, baseUrl: 
   if (providerData.b64_json) directItems.push({ b64_json: providerData.b64_json });
   if (providerData.url) directItems.push({ url: providerData.url });
   if (typeof providerData.image === "string") directItems.push({ url: providerData.image });
+  if (typeof providerData.imageBase64 === "string") directItems.push({ b64_json: providerData.imageBase64 });
+  if (typeof providerData.imageUrl === "string") directItems.push({ url: providerData.imageUrl });
   if (typeof providerData.image_url === "string") directItems.push({ url: providerData.image_url });
   if (providerData.image_url && typeof providerData.image_url === "object" && providerData.image_url.url) {
     directItems.push({ url: providerData.image_url.url });
@@ -480,14 +499,26 @@ function stripReferenceContextFromPrompt(prompt: string) {
     .trim() || prompt.trim();
 }
 
+function getImageProviderJsonHeaders(apiKey: string) {
+  return {
+    Authorization: `Bearer ${apiKey}`,
+    "Content-Type": "application/json",
+    "User-Agent": "Hermes-Agent/0.16.0",
+  };
+}
+
+function getImageProviderHeaders(apiKey: string) {
+  return {
+    Authorization: `Bearer ${apiKey}`,
+    "User-Agent": "Hermes-Agent/0.16.0",
+  };
+}
+
 async function callImageProvider(body: Record<string, unknown>, apiKey: string, baseUrl: string) {
   return withImageProviderRetry(async () => {
     const response = await fetch(getImagesEndpoint(baseUrl), {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
+      headers: getImageProviderJsonHeaders(apiKey),
       body: JSON.stringify(body),
     });
 
@@ -525,10 +556,7 @@ async function callImageChatProvider(body: Record<string, unknown>, apiKey: stri
   return withImageProviderRetry(async () => {
     const response = await fetch(getChatEndpoint(baseUrl), {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
+      headers: getImageProviderJsonHeaders(apiKey),
       body: JSON.stringify({
         model: body.model,
         messages: [{ role: "user", content }],
@@ -547,9 +575,7 @@ async function callImageEditProvider(
   return withImageProviderRetry(async () => {
     const response = await fetch(getImageEditsEndpoint(baseUrl), {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-      },
+      headers: getImageProviderHeaders(apiKey),
       body,
     });
 
@@ -1806,22 +1832,20 @@ async function pollAsyncImageTask(taskId: string, apiKey: string, baseUrl: strin
   const normalized = baseUrl.replace(/\/+$/, "");
   const apiRoot = `${normalized}${normalized.endsWith("/v1") ? "" : "/v1"}`;
   const endpoints = [
+    `${apiRoot}/async-images/${encodeURIComponent(taskId)}`,
     `${apiRoot}/images/generations/${encodeURIComponent(taskId)}`,
     `${apiRoot}/async/images/generations/${encodeURIComponent(taskId)}`,
-    `${apiRoot}/async-images/${encodeURIComponent(taskId)}`,
   ];
 
-  for (let attempt = 0; attempt < 90; attempt += 1) {
+  for (let attempt = 0; attempt < 150; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
     let lastError = "";
+    let sawActiveTask = false;
     for (const endpoint of endpoints) {
       const response = await fetch(endpoint, {
         method: "GET",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
+        headers: getImageProviderJsonHeaders(apiKey),
       });
 
       const text = await response.text();
@@ -1849,7 +1873,14 @@ async function pollAsyncImageTask(taskId: string, apiKey: string, baseUrl: strin
       if (status && status !== "queued" && status !== "processing" && status !== "pending" && status !== "running") {
         throw new Error(`Unexpected image task status: ${status}`);
       }
+
+      if (status === "queued" || status === "processing" || status === "pending" || status === "running") {
+        sawActiveTask = true;
+        break;
+      }
     }
+
+    if (sawActiveTask) continue;
 
     if (lastError && attempt === 0 && !/404/.test(lastError)) {
       throw new Error(lastError);
@@ -1907,9 +1938,21 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
     }
   }
 
-  const asyncTaskId = providerData.task_id || providerData.taskId;
+  let asyncTaskId = providerData.task_id || providerData.taskId;
   if (asyncTaskId) {
-    providerData = await pollAsyncImageTask(asyncTaskId, apiKey, baseUrl);
+    try {
+      providerData = await pollAsyncImageTask(asyncTaskId, apiKey, baseUrl);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/timed out/i.test(message) || shouldUseReferenceImageChatPath(requestBody.model, referenceImages)) {
+        throw error;
+      }
+      providerData = await callImageProvider(requestBody, apiKey, baseUrl);
+      asyncTaskId = providerData.task_id || providerData.taskId;
+      if (asyncTaskId) {
+        providerData = await pollAsyncImageTask(asyncTaskId, apiKey, baseUrl);
+      }
+    }
   }
 
   const images = extractGeneratedImages(providerData, baseUrl, ratio.width, ratio.height);
