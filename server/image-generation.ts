@@ -817,13 +817,28 @@ async function compositeEraseResultInsidePicWishMask(
     .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
+  const featherRadius = Math.max(3, Math.min(18, Math.round(Math.max(width, height) * 0.008)));
+  const { data: softMaskData } = await sharp(picWishMaskBuffer, { limitInputPixels: false })
+    .rotate()
+    .resize(width, height, { fit: "fill" })
+    .grayscale()
+    .blur(featherRadius)
+    .raw()
+    .toBuffer({ resolveWithObject: true });
   const output = Buffer.from(sourceData);
   for (let index = 0; index < output.length; index += 4) {
-    if (hardMaskData[index] < 128) continue;
-    output[index] = resultData[index];
-    output[index + 1] = resultData[index + 1];
-    output[index + 2] = resultData[index + 2];
-    output[index + 3] = resultData[index + 3];
+    const hardMaskValue = hardMaskData[index];
+    const softMaskValue = softMaskData[index / 4] ?? 0;
+    if (hardMaskValue < 128 && softMaskValue < 4) continue;
+
+    const blend = hardMaskValue >= 248
+      ? 1
+      : Math.max(0, Math.min(1, softMaskValue / 255));
+    const inverseBlend = 1 - blend;
+    output[index] = Math.round((sourceData[index] * inverseBlend) + (resultData[index] * blend));
+    output[index + 1] = Math.round((sourceData[index + 1] * inverseBlend) + (resultData[index + 1] * blend));
+    output[index + 2] = Math.round((sourceData[index + 2] * inverseBlend) + (resultData[index + 2] * blend));
+    output[index + 3] = Math.round((sourceData[index + 3] * inverseBlend) + (resultData[index + 3] * blend));
   }
 
   const png = await sharp(output, {
