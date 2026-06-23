@@ -7,6 +7,7 @@
  * 4. Asset node double-click zoom is disabled; image download is available from the node context menu
  */
 import { useCallback, useState, useRef, useEffect, useMemo, type ReactNode, Fragment } from "react";
+import { createPortal } from "react-dom";
 import {
   ReactFlow,
   Background,
@@ -8178,9 +8179,9 @@ function ProductBackgroundDialog({ isDark, onClose }: { isDark: boolean; onClose
     onClose();
   };
 
-  return (
+  const dialog = (
     <div
-      className="fixed inset-x-0 bottom-6 flex justify-center"
+      className="fixed inset-x-0 flex justify-center"
       style={{ zIndex: 3500, pointerEvents: "none", top: 88, padding: "0 28px" }}
     >
       <div
@@ -8386,6 +8387,9 @@ function ProductBackgroundDialog({ isDark, onClose }: { isDark: boolean; onClose
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") return dialog;
+  return createPortal(dialog, document.body);
 }
 
 // ── Canvas Top Tool Palette ─────────────────────────────────────
