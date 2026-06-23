@@ -8152,6 +8152,12 @@ function ProductBackgroundDialog({ isDark, onClose }: { isDark: boolean; onClose
     reader.readAsDataURL(file);
   }, []);
 
+  const stopFileDragEvent = (event: React.DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "copy";
+  };
+
   const handleCreate = () => {
     if (!imageSrc) {
       toast("请先添加产品图");
@@ -8189,6 +8195,13 @@ function ProductBackgroundDialog({ isDark, onClose }: { isDark: boolean; onClose
         style={{ pointerEvents: "auto", background: bg, border: `1px solid ${border}`, backdropFilter: "blur(24px)", boxShadow: "0 30px 100px rgba(0,0,0,0.44)" }}
         onMouseDown={event => event.stopPropagation()}
         onClick={event => event.stopPropagation()}
+        onDragEnter={stopFileDragEvent}
+        onDragOver={stopFileDragEvent}
+        onDragLeave={event => event.stopPropagation()}
+        onDrop={event => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
       >
         <div className="flex items-start justify-between gap-4 px-5 py-4" style={{ borderBottom: `1px solid ${border}` }}>
           <div className="flex items-center gap-3">
@@ -8215,9 +8228,11 @@ function ProductBackgroundDialog({ isDark, onClose }: { isDark: boolean; onClose
             className="relative flex min-h-[360px] min-w-0 flex-col items-center justify-center overflow-hidden rounded-[var(--radius-lg-design)] px-4 text-center transition-transform hover:scale-[1.01]"
             style={{ background: fieldBg, border: `1.5px dashed ${imageSrc ? activeBorder : border}`, color: text }}
             onClick={() => fileInputRef.current?.click()}
-            onDragOver={event => event.preventDefault()}
+            onDragEnter={stopFileDragEvent}
+            onDragOver={stopFileDragEvent}
             onDrop={event => {
               event.preventDefault();
+              event.stopPropagation();
               const file = event.dataTransfer.files?.[0];
               if (file) readFile(file);
             }}
