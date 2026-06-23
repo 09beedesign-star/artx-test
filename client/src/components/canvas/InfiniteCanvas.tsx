@@ -4664,18 +4664,13 @@ function ShapeNodeComponent({ id, data, selected }: { id: string; data: Record<s
   const stroke = (data.stroke as string) || "none";
   const strokeW = (data.strokeWidth as number) || 0;
   const opacity = (data.opacity as number) ?? 1;
-  const isEditMode = !!(data.anchorEditMode as boolean);
+  const isEditMode = !!(data.anchorEditMode as boolean) && shapeType !== "circle";
 
-  // 初始化锚点（圆形用四个方向控制点）
+  // 初始化锚点（圆形不开放锚点编辑，直接按节点尺寸绘制椭圆）
   const [anchors, setAnchors] = useState<{ x: number; y: number }[]>(() => {
     if (data.anchors) return data.anchors as { x: number; y: number }[];
     if (shapeType === "triangle") return [{ x: w/2, y: 0 }, { x: w, y: h }, { x: 0, y: h }];
-    if (shapeType === "circle") return [
-      { x: w/2, y: 0 },    // 上
-      { x: w, y: h/2 },    // 右
-      { x: w/2, y: h },    // 下
-      { x: 0, y: h/2 },    // 左
-    ];
+    if (shapeType === "circle") return [];
     if (shapeType === "star") {
       const pts: { x: number; y: number }[] = [];
       for (let i = 0; i < 10; i++) {
@@ -4693,81 +4688,66 @@ function ShapeNodeComponent({ id, data, selected }: { id: string; data: Record<s
   // 右键菜单状态
   // 参数菜单已移至 InnerCanvas 层统一管理，此处无需本地状态
 
-  const draggingAnchorRef = useRef<number | null>(null);
+  const draggingAnchorRef = useRef<{ idx: number; historyPushed: boolean } | null>(null);
 
-  // 圆形锚点吸附辅助函数：只移动被拖拽的那个锚点，吸附到橙圆轮廓上
-  // idx: 0=上 1=右 2=下 3=左
-  // 圆形路径由 buildCirclePath 根据四个锚点推算橙圆，所以每个锚点可独立移动
-  const snapCircleAnchor = useCallback((prev: { x: number; y: number }[], idx: number, rawX: number, rawY: number) => {
-    const updated = [...prev];
-    // 上/下锚点：锁定 X 到橙圆垂直轴（由左右锚点中点确定）
-    if (idx === 0 || idx === 2) {
-      const cx = (prev[3].x + prev[1].x) / 2;
-      updated[idx] = { x: cx, y: rawY };
-    } else {
-      // 左/右锚点：锁定 Y 到橙圆水平轴（由上下锚点中点确定）
-      const cy = (prev[0].y + prev[2].y) / 2;
-      updated[idx] = { x: rawX, y: cy };
-    }
-    return updated;
-  }, []);
+  const rebaseShapeAnchors = (pts: { x: number; y: number }[]) => {
+    const pad = 8;
+    const minX = Math.min(...pts.map(a => a.x)) - pad;
+    const minY = Math.min(...pts.map(a => a.y)) - pad;
+    const maxX = Math.max(...pts.map(a => a.x)) + pad;
+    const maxY = Math.max(...pts.map(a => a.y)) + pad;
+    const newW = Math.max(maxX - minX, 20);
+    const newH = Math.max(maxY - minY, 20);
+    return {
+      dx: minX,
+      dy: minY,
+      newW,
+      newH,
+      anchors: pts.map(a => ({ x: a.x - minX, y: a.y - minY })),
+    };
+  };
 
   // 锚点拖拽处理
   const handleAnchorMouseDown = useCallback((e: React.MouseEvent, idx: number) => {
+    if (shapeType === "circle") return;
     e.preventDefault(); e.stopPropagation();
-    draggingAnchorRef.current = idx;
+    draggingAnchorRef.current = { idx, historyPushed: false };
     const nodeEl = (e.currentTarget as HTMLElement).closest(".react-flow__node");
-    const onMove = (mv: MouseEvent) => {
+    const applyPointerPosition = (clientX: number, clientY: number) => {
       const rect = nodeEl?.getBoundingClientRect();
       if (!rect) return;
-      const nx = mv.clientX - rect.left;
-      const ny = mv.clientY - rect.top;
-      if (shapeType === "circle") {
-        // 圆形锚点：吸附到橙圆轮廓
-        setAnchors(prev => snapCircleAnchor(prev, idx, nx, ny));
-      } else {
-        setAnchors(prev => prev.map((a, i) => i === idx ? { x: nx, y: ny } : a));
-      }
+      const nx = (clientX - rect.left) / vpZoom;
+      const ny = (clientY - rect.top) / vpZoom;
+      setAnchors(prev => {
+        const updated = prev.map((a, i) => i === idx ? { x: nx, y: ny } : a);
+        const rebased = rebaseShapeAnchors(updated);
+        const shouldPushHistory = !draggingAnchorRef.current?.historyPushed;
+        if (draggingAnchorRef.current) draggingAnchorRef.current.historyPushed = true;
+        window.dispatchEvent(new CustomEvent("shape-anchor-offset", {
+          detail: { nodeId: id, ...rebased, commit: shouldPushHistory },
+        }));
+        return rebased.anchors;
+      });
     };
-    const onUp = (upEvent: MouseEvent) => {
+    applyPointerPosition(e.clientX, e.clientY);
+    const onMove = (mv: MouseEvent) => {
+      applyPointerPosition(mv.clientX, mv.clientY);
+    };
+    const onUp = () => {
       draggingAnchorRef.current = null;
-      const rect = nodeEl?.getBoundingClientRect();
-      if (rect) {
-        const finalX = upEvent.clientX - rect.left;
-        const finalY = upEvent.clientY - rect.top;
-        setAnchors(prev => {
-          const updated = shapeType === "circle"
-            ? snapCircleAnchor(prev, idx, finalX, finalY)
-            : prev.map((a, i) => i === idx ? { x: finalX, y: finalY } : a);
-          // 重算包围盒，让选框始终包裹所有锚点
-          const pad = 8; // 边距
-          const minX = Math.min(...updated.map(a => a.x)) - pad;
-          const minY = Math.min(...updated.map(a => a.y)) - pad;
-          const maxX = Math.max(...updated.map(a => a.x)) + pad;
-          const maxY = Math.max(...updated.map(a => a.y)) + pad;
-          const newW = Math.max(maxX - minX, 20);
-          const newH = Math.max(maxY - minY, 20);
-          // 将锚点坐标转换为相对于新包围盒的坐标
-          const rebasedAnchors = updated.map(a => ({ x: a.x - minX, y: a.y - minY }));
-          // 派发事件由 InnerCanvas 统一处理节点位置偏移（需要 viewport.zoom 转换）
-          window.dispatchEvent(new CustomEvent("shape-anchor-offset", {
-            detail: { nodeId: id, dx: minX, dy: minY, newW, newH, anchors: rebasedAnchors }
-          }));
-          return rebasedAnchors;
-        });
-      }
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [id, shapeType, snapCircleAnchor, setFlowNodes]);
+  }, [id, shapeType, vpZoom]);
 
   // 双击进入锚点编辑模式
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
+    if (shapeType === "circle") return;
     setFlowNodes(nds => nds.map(n => n.id === id ? { ...n, data: { ...n.data, anchorEditMode: true, anchors } } : n));
-  }, [anchors, id, setFlowNodes]);
+  }, [anchors, id, setFlowNodes, shapeType]);
 
   // 右键弹出参数菜单：派发事件由 InnerCanvas 统一渲染（避免 ReactFlow transform 干扰 position:fixed）
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
@@ -4796,7 +4776,12 @@ function ShapeNodeComponent({ id, data, selected }: { id: string; data: Record<s
   };
 
   const buildPath = (pts: { x: number; y: number }[]) => {
-    if (shapeType === "circle") return buildCirclePath(pts);
+    if (shapeType === "circle") return buildCirclePath(pts.length >= 4 ? pts : [
+      { x: w/2, y: 0 },
+      { x: w, y: h/2 },
+      { x: w/2, y: h },
+      { x: 0, y: h/2 },
+    ]);
     if (shapeType === "line") return `M ${pts[0]?.x ?? 0} ${pts[0]?.y ?? h/2} L ${pts[1]?.x ?? w} ${pts[1]?.y ?? h/2}`;
     if (shapeType === "arrow") {
       const x1 = pts[0]?.x ?? 0; const y1 = pts[0]?.y ?? h/2;
@@ -4810,11 +4795,24 @@ function ShapeNodeComponent({ id, data, selected }: { id: string; data: Record<s
   };
 
   const borderColor = selected ? "oklch(0.65 0.22 290)" : "transparent";
+  const selectedShadow = selected
+    ? "0 0 0 2px oklch(0.65 0.22 290 / 0.72), 0 0 0 6px oklch(0.65 0.22 290 / 0.18)"
+    : "none";
   const isLine = shapeType === "line" || shapeType === "arrow";
 
   return (
     <div
-      style={{ width: w, height: h, position: "relative", outline: `2px solid ${borderColor}`, outlineOffset: 3, cursor: isEditMode ? "crosshair" : "default" }}
+      style={{
+        width: w,
+        height: h,
+        position: "relative",
+        border: `2px solid ${borderColor}`,
+        boxShadow: selectedShadow,
+        borderRadius: 4,
+        boxSizing: "border-box",
+        transition: draggingAnchorRef.current ? "none" : "border-color 0.15s, box-shadow 0.15s",
+        cursor: isEditMode ? "crosshair" : "default",
+      }}
       onDoubleClick={handleDoubleClick}
       onContextMenu={handleContextMenu}
     >
@@ -6186,6 +6184,7 @@ function extractImageSourcesFromDataTransfer(dataTransfer: DataTransfer | null |
 
 function dataTransferHasExternalImage(dataTransfer: DataTransfer | null | undefined) {
   const types = Array.from(dataTransfer?.types || []);
+  if (types.includes("application/x-artx-composer-token")) return false;
   if (types.includes("Files")) {
     return Array.from(dataTransfer?.items || []).some(item => item.kind === "file" && item.type.startsWith("image/"));
   }
@@ -8296,7 +8295,7 @@ function ProductBackgroundDialog({ isDark, canvasRightInset, onClose }: { isDark
           onPointerCancel={handleDragEnd}
         >
           <div className="flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-lg-design)]" style={{ color: accent, background: "rgba(197,237,71,0.14)" }}>
+            <span className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-lg-design)]" style={{ color: accent, background: "transparent" }}>
               <AiDecoratedIcon size={17} cutoutBg={bg}>
                 <GalleryVerticalEnd size={17} />
               </AiDecoratedIcon>
@@ -8358,13 +8357,13 @@ function ProductBackgroundDialog({ isDark, canvasRightInset, onClose }: { isDark
             />
           </button>
 
-          <div className="min-w-0 space-y-3">
-            <div>
+          <div className="flex min-h-0 min-w-0 flex-col gap-3">
+            <div className="flex min-h-0 flex-1 flex-col">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <span className="type-caption" style={{ color: text, fontWeight: 750 }}>商业背景风格</span>
                 <span className="type-caption" style={{ color: sub }}>选择一个方向，也可以继续补充关键词</span>
               </div>
-              <div className="grid max-h-[232px] grid-cols-[repeat(auto-fit,minmax(136px,1fr))] gap-2 overflow-y-auto overflow-x-hidden pr-1">
+              <div className="grid min-h-0 flex-1 grid-cols-[repeat(auto-fit,minmax(136px,1fr))] content-start gap-2 overflow-y-auto overflow-x-hidden pr-1">
                 {styles.map(item => {
                   const active = selectedStyle === item.name;
                   return (
@@ -8376,7 +8375,13 @@ function ProductBackgroundDialog({ isDark, canvasRightInset, onClose }: { isDark
                       onClick={() => setSelectedStyle(item.name)}
                     >
                       <span className="relative block h-16 overflow-hidden">
-                        <img src={item.image} alt={`${item.name} 背景风格预览`} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" draggable={false} />
+                        <img
+                          src={item.image}
+                          alt={`${item.name} 背景风格预览`}
+                          className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.08]"
+                          style={{ objectPosition: "center center" }}
+                          draggable={false}
+                        />
                         <span className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(0,0,0,0.02), rgba(0,0,0,0.66))" }} />
                         <span className="absolute bottom-2 left-2 right-2 flex items-center justify-between gap-2">
                           <span className="type-caption" style={{ color: "white", fontWeight: 850 }}>{item.name}</span>
@@ -8392,14 +8397,14 @@ function ProductBackgroundDialog({ isDark, canvasRightInset, onClose }: { isDark
               </div>
             </div>
 
-            <div>
+            <div className="flex min-h-[92px] flex-col">
               <label className="mb-2 block type-caption" style={{ color: text, fontWeight: 750 }}>背景关键词</label>
               <textarea
                 value={prompt}
                 onChange={event => setPrompt(event.target.value)}
                 placeholder="例如：高端护肤品展台、冷白光、玻璃质感、商业广告海报背景"
                 rows={2}
-                className="w-full resize-none rounded-[var(--radius-lg-design)] p-3 outline-none"
+                className="min-h-0 flex-1 w-full resize-none rounded-[var(--radius-lg-design)] p-3 outline-none"
                 style={{ background: fieldBg, border: `1px solid ${border}`, color: text, fontSize: 13, lineHeight: 1.55 }}
               />
             </div>
@@ -8482,7 +8487,7 @@ function ProductBackgroundDialog({ isDark, canvasRightInset, onClose }: { isDark
           <button
             type="button"
             className="flex h-10 items-center gap-2 rounded-[var(--radius-md-design)] px-6 type-caption transition-transform hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-            style={{ background: accent, color: "#050607", boxShadow: "0 14px 34px rgba(197,237,71,0.34)" }}
+            style={{ background: "#C5ED47", color: "#050607", boxShadow: "0 14px 34px rgba(197,237,71,0.34)" }}
             disabled={!imageSrc}
             onClick={handleCreate}
           >
@@ -9145,6 +9150,13 @@ function CanvasAssistantPanel({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [regeneratingMessageId, setRegeneratingMessageId] = useState<string | null>(null);
   const [selectedReferenceIds, setSelectedReferenceIds] = useState<string[]>([]);
+  const [composerPreview, setComposerPreview] = useState<{
+    src: string;
+    title: string;
+    x: number;
+    y: number;
+    visible: boolean;
+  } | null>(null);
   const [messages, setMessages] = useState<CanvasAssistantMessage[]>(() => {
     const stored = typeof window === "undefined" ? [] : deserializeCanvasAssistantMessages(
       window.sessionStorage.getItem(canvasAssistantMessagesSessionKey(projectId)) ||
@@ -9309,17 +9321,20 @@ function CanvasAssistantPanel({
     setDragOverComposerSegmentId(null);
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", segmentId);
+    event.dataTransfer.setData("application/x-artx-composer-token", segmentId);
   }, []);
 
   const handleComposerSegmentDragOver = useCallback((event: React.DragEvent<HTMLElement>, segmentId: string) => {
     if (!draggingComposerSegmentId || draggingComposerSegmentId === segmentId) return;
     event.preventDefault();
+    event.stopPropagation();
     event.dataTransfer.dropEffect = "move";
     setDragOverComposerSegmentId(segmentId);
   }, [draggingComposerSegmentId]);
 
   const handleComposerSegmentDrop = useCallback((event: React.DragEvent<HTMLElement>, targetId: string, placement: "before" | "after" = "before") => {
     event.preventDefault();
+    event.stopPropagation();
     const sourceId = event.dataTransfer.getData("text/plain") || draggingComposerSegmentId;
     if (sourceId) moveComposerTokenSegment(sourceId, targetId, placement);
     setDraggingComposerSegmentId(null);
@@ -9330,6 +9345,48 @@ function CanvasAssistantPanel({
     setDraggingComposerSegmentId(null);
     setDragOverComposerSegmentId(null);
   }, []);
+
+  const showComposerReferencePreview = useCallback((event: React.MouseEvent<HTMLElement>, src: string, title: string) => {
+    if (!src) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    setComposerPreview({
+      src,
+      title,
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+      visible: true,
+    });
+  }, []);
+
+  const hideComposerReferencePreview = useCallback(() => {
+    setComposerPreview(prev => prev ? { ...prev, visible: false } : prev);
+  }, []);
+
+  const isComposerTokenDragEvent = useCallback((event: React.DragEvent<HTMLElement>) => (
+    Array.from(event.dataTransfer.types || []).includes("application/x-artx-composer-token")
+  ), []);
+
+  const handleComposerShellDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (!isComposerTokenDragEvent(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = draggingComposerSegmentId ? "move" : "none";
+  }, [draggingComposerSegmentId, isComposerTokenDragEvent]);
+
+  const handleComposerShellDragLeave = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (!isComposerTokenDragEvent(event)) return;
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof globalThis.Node && event.currentTarget.contains(nextTarget)) return;
+    setDragOverComposerSegmentId(null);
+  }, [isComposerTokenDragEvent]);
+
+  const handleComposerShellDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (!isComposerTokenDragEvent(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setDraggingComposerSegmentId(null);
+    setDragOverComposerSegmentId(null);
+  }, [isComposerTokenDragEvent]);
 
   const handleComposerTextKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement>, segmentId: string) => {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -10224,6 +10281,9 @@ function CanvasAssistantPanel({
                   }
                   focusComposerSegment();
                 }}
+                onDragOver={handleComposerShellDragOver}
+                onDragLeave={handleComposerShellDragLeave}
+                onDrop={handleComposerShellDrop}
               >
                 <span
                   ref={composerMeasureRef}
@@ -10246,8 +10306,10 @@ function CanvasAssistantPanel({
                         onDragOver={event => handleComposerSegmentDragOver(event, segment.id)}
                         onDrop={event => handleComposerSegmentDrop(event, segment.id, "before")}
                         onDragEnd={handleComposerDragEnd}
+                        onMouseEnter={event => showComposerReferencePreview(event, segment.asset.src, segment.asset.title)}
+                        onMouseLeave={hideComposerReferencePreview}
                         data-composer-token="image"
-                        className="inline-flex max-w-[82px] items-center gap-1 rounded-[var(--radius-md-design)] px-1.5 py-0.5 align-middle"
+                        className="group relative inline-flex max-w-[82px] items-center gap-1 overflow-visible rounded-[var(--radius-md-design)] px-1.5 py-0.5 align-middle"
                         style={{
                           background: isDark ? "rgba(197,237,71,0.16)" : "rgba(197,237,71,0.10)",
                           border: `1px solid ${dragOverComposerSegmentId === segment.id ? "rgba(197,237,71,0.86)" : isDark ? "rgba(197,237,71,0.36)" : "rgba(138,170,40,0.30)"}`,
@@ -10283,8 +10345,10 @@ function CanvasAssistantPanel({
                         onDragOver={event => handleComposerSegmentDragOver(event, segment.id)}
                         onDrop={event => handleComposerSegmentDrop(event, segment.id, "before")}
                         onDragEnd={handleComposerDragEnd}
+                        onMouseEnter={event => showComposerReferencePreview(event, segment.annotation.src, segment.annotation.text || segment.annotation.title)}
+                        onMouseLeave={hideComposerReferencePreview}
                         data-composer-token="annotation"
-                        className="inline-flex max-w-[92px] items-center gap-1 rounded-[var(--radius-md-design)] px-1.5 py-0.5 align-middle"
+                        className="group relative inline-flex max-w-[92px] items-center gap-1 overflow-visible rounded-[var(--radius-md-design)] px-1.5 py-0.5 align-middle"
                         style={{
                           background: isDark ? "oklch(0.62 0.20 145 / 0.16)" : "oklch(0.62 0.17 145 / 0.10)",
                           border: `1px solid ${dragOverComposerSegmentId === segment.id ? "oklch(0.72 0.16 145 / 0.78)" : isDark ? "oklch(0.72 0.16 145 / 0.32)" : "oklch(0.48 0.15 145 / 0.26)"}`,
@@ -10526,6 +10590,32 @@ function CanvasAssistantPanel({
               )}
             </div>
           </div>
+          {composerPreview && (
+            <div
+              className="pointer-events-none fixed z-[260] origin-center overflow-hidden rounded-[var(--radius-md-design)] shadow-2xl transition-all duration-200 ease-out"
+              style={{
+                left: composerPreview.x,
+                top: composerPreview.y,
+                width: 160,
+                maxWidth: 160,
+                transform: `translate(-50%, -50%) scale(${composerPreview.visible ? 1 : 0.28})`,
+                opacity: composerPreview.visible ? 1 : 0,
+                border: `1px solid ${isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.14)"}`,
+                background: isDark ? "rgba(13,14,18,0.96)" : "rgba(255,255,255,0.96)",
+              }}
+              onTransitionEnd={() => {
+                setComposerPreview(prev => prev && !prev.visible ? null : prev);
+              }}
+            >
+              <img
+                src={composerPreview.src}
+                alt={composerPreview.title}
+                draggable={false}
+                className="block h-auto w-full object-contain"
+                style={{ maxWidth: 160 }}
+              />
+            </div>
+          )}
         </>
       )}
     </aside>
@@ -11866,20 +11956,17 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   useEffect(() => {
     const handler = (e: Event) => {
       if (isRestoringRef.current) return;
-      const detail = (e as CustomEvent<{ nodeId: string; dx: number; dy: number; newW: number; newH: number; anchors: {x:number;y:number}[] }>).detail;
+      const detail = (e as CustomEvent<{ nodeId: string; dx: number; dy: number; newW: number; newH: number; anchors: {x:number;y:number}[]; commit?: boolean }>).detail;
       if (!detail?.nodeId) return;
       isRestoringRef.current = true;
       setNodes(nds => {
-        pushHistory(nds, edgesRef.current);
+        if (detail.commit) pushHistory(nds, edgesRef.current);
         return nds.map(n => {
           if (n.id !== detail.nodeId) return n;
           // 将节点 position 向 offset 方向偏移，保持图形在画布中的绝对位置不变
-          const vp = getViewport();
-          const offsetXFlow = detail.dx / vp.zoom;
-          const offsetYFlow = detail.dy / vp.zoom;
           return {
             ...n,
-            position: { x: n.position.x + offsetXFlow, y: n.position.y + offsetYFlow },
+            position: { x: n.position.x + detail.dx, y: n.position.y + detail.dy },
             style: { ...n.style, width: detail.newW, height: detail.newH },
             data: { ...n.data, width: detail.newW, height: detail.newH, anchors: detail.anchors, _anchorOffset: undefined },
           };
@@ -11889,7 +11976,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     };
     window.addEventListener("shape-anchor-offset", handler);
     return () => window.removeEventListener("shape-anchor-offset", handler);
-  }, [pushHistory, setNodes, edgesRef, getViewport]);
+  }, [pushHistory, setNodes, edgesRef]);
 
   // 处理文件选择后将图片添加到画布
   // 记录上传模式下用户点击的画布坐标
@@ -13031,6 +13118,17 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     if (!rect) return;
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
+    if (activeToolMode === "shape-draw:circle" && e.altKey) {
+      const start = drawStartRef.current;
+      const size = Math.max(Math.abs(x - start.x), Math.abs(y - start.y));
+      setDrawingRect({
+        startX: start.x,
+        startY: start.y,
+        endX: start.x + Math.sign(x - start.x || 1) * size,
+        endY: start.y + Math.sign(y - start.y || 1) * size,
+      });
+      return;
+    }
     setDrawingRect({ startX: drawStartRef.current.x, startY: drawStartRef.current.y, endX: x, endY: y });
   }, []);
 
@@ -13040,7 +13138,16 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     if (!rect) return;
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    const dr = { startX: drawStartRef.current.x, startY: drawStartRef.current.y, endX: x, endY: y };
+    let dr = { startX: drawStartRef.current.x, startY: drawStartRef.current.y, endX: x, endY: y };
+    if (activeToolMode === "shape-draw:circle" && e.altKey) {
+      const size = Math.max(Math.abs(x - dr.startX), Math.abs(y - dr.startY));
+      dr = {
+        startX: dr.startX,
+        startY: dr.startY,
+        endX: dr.startX + Math.sign(x - dr.startX || 1) * size,
+        endY: dr.startY + Math.sign(y - dr.startY || 1) * size,
+      };
+    }
     const rawW = Math.abs(dr.endX - dr.startX);
     const rawH = Math.abs(dr.endY - dr.startY);
     isDrawingRef.current = false;
@@ -13063,7 +13170,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       // 计算初始锚点
       const getInitAnchors = (type: string, w: number, h: number) => {
         if (type === "triangle") return [{ x: w/2, y: 0 }, { x: w, y: h }, { x: 0, y: h }];
-        if (type === "circle") return [{ x: w/2, y: 0 }, { x: w, y: h/2 }, { x: w/2, y: h }, { x: 0, y: h/2 }];
+        if (type === "circle") return undefined;
         if (type === "star") {
           const pts: { x: number; y: number }[] = [];
           for (let i = 0; i < 10; i++) {
