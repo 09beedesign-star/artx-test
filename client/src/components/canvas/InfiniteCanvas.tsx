@@ -10993,6 +10993,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     displayW,
     displayH,
     placement,
+    generationId: providedGenerationId,
     run,
   }: {
     sourceNode: Node;
@@ -11004,13 +11005,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     displayW?: number;
     displayH?: number;
     placement?: { x: number; y: number };
+    generationId?: string;
     run: () => Promise<{ images: Array<{ src: string; width: number; height: number }> }>;
   }) => {
     const latestSourceNode = sourceNode.type === "asset" ? (getLatestAssetNode(sourceNode.id) || sourceNode) : sourceNode;
     const sourceDisplaySize = getCanvasNodeSize(latestSourceNode);
     const resolvedDisplayW = Math.max(1, Math.round(preserveSourceDisplaySize ? sourceDisplaySize.width : (displayW ?? sourceDisplaySize.width)));
     const resolvedDisplayH = Math.max(1, Math.round(preserveSourceDisplaySize ? sourceDisplaySize.height : (displayH ?? sourceDisplaySize.height)));
-    const generationId = `${style}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const generationId = providedGenerationId || `${style}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const transparentLayerStyles = new Set(["去背景结果", "主体层", "中景层", "扩展结果"]);
     const sourceBackgroundSrc = transparentLayerStyles.has(style)
       ? ""
@@ -12409,6 +12411,26 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const generationStartedAt = detail.generationStartedAt || getTimestampFromGenerationId(generationId) || Date.now();
         ensureBackgroundImageGeneration({ ...detail, projectId, generationId, status: "pending", generationStartedAt });
         setNodes(nds => {
+          const existingPlaceholders = nds.filter(n => (n.data as Record<string, unknown>)?.generationId === generationId);
+          if (existingPlaceholders.length > 0) {
+            return nds.map(n => {
+              const data = n.data as Record<string, unknown>;
+              if (data.generationId !== generationId) return n;
+              return {
+                ...n,
+                data: {
+                  ...data,
+                  generationStartedAt,
+                  isGeneratingImage: true,
+                  isGenerationFailed: false,
+                  processingTitle: undefined,
+                  processingSubtitle: undefined,
+                  title: data.title || `正在全力生成中${detail.count > 1 ? ` ${Number(data.generationIndex || 0) + 1}` : ""}`,
+                  sourceBackgroundSrc: detail.sourceBackgroundSrc,
+                },
+              };
+            });
+          }
           pushHistory(nds, edgesRef.current);
           const placedNodes: Node[] = [];
           const placeholderNodes = Array.from({ length: Math.max(1, detail.count || 1) }, (_, index) => {
@@ -14212,8 +14234,26 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const sourceNode = nodesRef.current.find(n => n.id === editAsset.nodeId && n.type === "asset");
     if (!sourceNode) return;
     const latestImageSrc = getLatestAssetImageSource(editAsset.nodeId) || editAsset.src;
+    const sourceSize = getCanvasNodeSize(sourceNode);
+    const generationId = `快捷编辑结果-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const placeholderPrompt = payload.prompt || `基于原图优化：${editAsset.title}`;
+    const sourceBackgroundSrc = getAssetNodeImageSource(sourceNode);
+    const placeholderPayload: ImageGeneratorPayload = {
+      projectId,
+      prompt: placeholderPrompt,
+      model: payload.model || "gpt-image-2",
+      ratio: inferImageRatio(sourceSize.width, sourceSize.height),
+      count: 1,
+      style: "快捷编辑结果",
+      referencesEnabled: payload.references.length > 0,
+      generationId,
+      placement: getDerivedImagePlacement(sourceNode, sourceSize.width, sourceSize.height),
+      displaySize: { w: sourceSize.width, h: sourceSize.height },
+      titleBase: "快捷编辑结果",
+      sourceBackgroundSrc: sourceBackgroundSrc || undefined,
+    };
+    dispatchImageGenerationTask({ ...placeholderPayload, status: "pending" }, projectId);
     try {
-      const sourceSize = getCanvasNodeSize(sourceNode);
       const optimizedPrompt = await callLLM({
         module: "image-quick-edit-prompt",
         model: "gpt-4o",
@@ -14232,6 +14272,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         style: "快捷编辑结果",
         nextW: sourceSize.width,
         nextH: sourceSize.height,
+        placement: placeholderPayload.placement,
+        generationId,
         run: async () => generateAiImages({
           prompt: optimizedPrompt.text.trim() || payload.prompt || `基于原图优化：${editAsset.title}`,
           model: "gpt-image-2",
@@ -14243,9 +14285,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "请稍后重试";
+      dispatchImageGenerationTask({ ...placeholderPayload, status: "failed", error: message }, projectId);
       toast("快捷编辑失败", { description: message });
     }
-  }, [editAsset, getLatestAssetImageSource, nodesRef, requireAiAccess, runDerivedImageGeneration]);
+  }, [editAsset, getDerivedImagePlacement, getLatestAssetImageSource, nodesRef, projectId, requireAiAccess, runDerivedImageGeneration]);
   const handleSingleImageToolbarAction = useCallback(async (action: string) => {
     const nodeId = selectedVisualNodeIds[0];
     if (!nodeId) return;
