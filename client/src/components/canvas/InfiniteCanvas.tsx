@@ -11066,46 +11066,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     },
   }), []);
 
-  const createExtractedTextNode = useCallback((sourceNode: Node, text: string, placement?: { x: number; y: number }, styleHint?: string): Node => {
-    const sourceSize = getCanvasNodeSize(sourceNode);
-    const lines = text.split(/\r?\n/).filter(Boolean);
-    const longestLine = lines.reduce((max, line) => Math.max(max, line.length), 0);
-    const compactHint = (styleHint || "").toLowerCase();
-    const fontSize = compactHint.includes("small") ? 22 : compactHint.includes("headline") ? 36 : 28;
-    const width = Math.min(Math.max(280, longestLine * Math.max(14, fontSize * 0.72)), Math.max(360, sourceSize.width));
-    const height = Math.max(120, Math.min(sourceSize.height, lines.length * Math.round(fontSize * 1.7) + 40));
-    const nextPosition = placement || {
-      x: sourceNode.position.x + sourceSize.width + 36,
-      y: sourceNode.position.y,
-    };
-    const id = `text-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    return {
-      id,
-      type: "text" as const,
-      position: nextPosition,
-      style: { width, minHeight: height },
-      data: {
-        id,
-        text,
-        fontFamily: "Inter",
-        fontSize,
-        fontWeight: compactHint.includes("bold") || compactHint.includes("headline") ? 600 : 400,
-        color: isDark ? "#ffffff" : "#151522",
-        textAlign: "left",
-        lineHeight: 1.35,
-        letterSpacing: 0,
-        textDecoration: "none",
-        textTransform: "none",
-        strokeColor: "",
-        strokeWidth: 0,
-        width,
-        height,
-        isEditing: false,
-      },
-      selected: false,
-    };
-  }, [isDark]);
-
   const focusGeneratedImageNode = useCallback((nodeId: string) => {
     setNodes(nds => nds.map(n => ({ ...n, selected: n.id === nodeId })));
     setSelectedNodeIds([nodeId]);
@@ -14638,51 +14598,27 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           }),
         });
 
-        pushHistory();
-        const frameNodeId = `element-frame-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-        const framePosition = resolveNonOverlappingCanvasPosition(
-          nodesRef.current,
-          { x: splittingPosition.x, y: splittingPosition.y + (sourceSize.height + 28) * 2 },
-          { width: sourceSize.width, height: sourceSize.height },
-          [assetNode.id],
-        );
-        setNodes(nds => [...nds.map(n => ({ ...n, selected: false })), {
-          id: frameNodeId,
-          type: "canvasFrame" as const,
-          position: framePosition,
-          style: { width: sourceSize.width, height: sourceSize.height },
-          data: {
-            id: frameNodeId,
-            title: "Frame",
-            frameW: sourceSize.width,
-            frameH: sourceSize.height,
-            backgroundColor: "transparent",
-          },
-          selected: true,
-        }]);
-        setSelectedNodeIds([frameNodeId]);
-
         if (resolvedPlan.extractedText) {
-          pushHistory();
-          const textNode = createExtractedTextNode(
-            assetNode,
-            resolvedPlan.extractedText,
-            resolveNonOverlappingCanvasPosition(
-              nodesRef.current,
-              { x: framePosition.x, y: framePosition.y + sourceSize.height + 28 },
-              { width: sourceSize.width, height: Math.max(120, Math.min(sourceSize.height, 220)) },
-              [assetNode.id],
-            ),
-            resolvedPlan.textStyleHint,
-          );
-          setNodes(nds => [...nds.map(n => ({ ...n, selected: false })), { ...textNode, selected: true }]);
-          setSelectedNodeIds([textNode.id]);
+          setNodes(nds => nds.map(n => n.id === assetNode.id && n.type === "asset"
+            ? {
+                ...n,
+                selected: true,
+                data: {
+                  ...(n.data as Record<string, unknown>),
+                  extractedTextPanelOpen: true,
+                  isExtractingText: false,
+                  extractedText: resolvedPlan.extractedText,
+                },
+              }
+            : { ...n, selected: false }
+          ));
+          setSelectedNodeIds([assetNode.id]);
         }
 
         toast("编辑元素完成", {
           description: resolvedPlan.extractedText
-            ? "已生成主体层、背景层、Frame 和可编辑文案层，原图保持不变"
-            : "已生成主体层、背景层和 Frame，原图保持不变",
+            ? "已生成主体层和背景层，文案已显示在右侧浮窗"
+            : "已生成主体层和背景层，原图保持不变",
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : "请稍后重试";
@@ -14748,7 +14684,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       more: "更多",
     };
     toast(labels[action] || "功能即将上线", { description: "已保留 Lovart 命令入口，后续可接入对应 AI 处理能力" });
-  }, [clearAssetCommandState, clearInactiveAssetCommands, createExtractedTextNode, getLatestAssetImageSource, handleNodeAction, nodesRef, pushHistory, requireAiAccess, runDerivedImageGeneration, selectedVisualNodeIds, setNodes]);
+  }, [clearAssetCommandState, clearInactiveAssetCommands, getLatestAssetImageSource, handleNodeAction, nodesRef, pushHistory, requireAiAccess, runDerivedImageGeneration, selectedVisualNodeIds, setNodes]);
   const handleSocialMediaSizeGenerate = useCallback(async (payload: SocialMediaExportPayload) => {
     if (!assetMorePanel) return;
     const imageSrc = getLatestAssetImageSource(assetMorePanel.nodeId);
