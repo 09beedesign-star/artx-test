@@ -3686,20 +3686,31 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
                   }}
                 />
               )}
-              <div className="flex flex-col items-center px-5 text-center" style={{ gap: 2 }}>
+              <div
+                className="flex flex-col items-center px-5 text-center"
+                style={{
+                  gap: 2,
+                  width: "100%",
+                  maxWidth: 300,
+                }}
+              >
                 {processingLines.slice(0, 2).map((line, index) => (
                   <span
                     key={`${line}-${index}`}
                     style={{
-                      maxWidth: 280,
+                      width: "100%",
                       color: "rgba(255,255,255,0.30)",
                       fontSize: 16,
                       fontWeight: 500,
                       lineHeight: "22px",
                       letterSpacing: 0,
-                      whiteSpace: "nowrap",
+                      whiteSpace: "normal",
+                      overflowWrap: "break-word",
+                      wordBreak: "break-word",
+                      display: "-webkit-box",
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: "vertical",
                       overflow: "hidden",
-                      textOverflow: "ellipsis",
                     }}
                   >
                     {line}
@@ -4760,7 +4771,7 @@ function ShapeNodeComponent({ id, data, selected }: { id: string; data: Record<s
   // 右键菜单状态
   // 参数菜单已移至 InnerCanvas 层统一管理，此处无需本地状态
 
-  const draggingAnchorRef = useRef<{ idx: number; historyPushed: boolean } | null>(null);
+  const draggingAnchorRef = useRef<{ idx: number } | null>(null);
 
   const rebaseShapeAnchors = (pts: { x: number; y: number }[]) => {
     const pad = 8;
@@ -4783,7 +4794,10 @@ function ShapeNodeComponent({ id, data, selected }: { id: string; data: Record<s
   const handleAnchorMouseDown = useCallback((e: React.MouseEvent, idx: number) => {
     if (shapeType === "circle") return;
     e.preventDefault(); e.stopPropagation();
-    draggingAnchorRef.current = { idx, historyPushed: false };
+    draggingAnchorRef.current = { idx };
+    window.dispatchEvent(new CustomEvent("shape-anchor-history-start", {
+      detail: { nodeId: id },
+    }));
     const nodeEl = (e.currentTarget as HTMLElement).closest(".react-flow__node");
     const applyPointerPosition = (clientX: number, clientY: number) => {
       const rect = nodeEl?.getBoundingClientRect();
@@ -4793,10 +4807,8 @@ function ShapeNodeComponent({ id, data, selected }: { id: string; data: Record<s
       setAnchors(prev => {
         const updated = prev.map((a, i) => i === idx ? { x: nx, y: ny } : a);
         const rebased = rebaseShapeAnchors(updated);
-        const shouldPushHistory = !draggingAnchorRef.current?.historyPushed;
-        if (draggingAnchorRef.current) draggingAnchorRef.current.historyPushed = true;
         window.dispatchEvent(new CustomEvent("shape-anchor-offset", {
-          detail: { nodeId: id, ...rebased, commit: shouldPushHistory },
+          detail: { nodeId: id, ...rebased },
         }));
         return rebased.anchors;
       });
@@ -12538,11 +12550,23 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   useEffect(() => {
     const handler = (e: Event) => {
       if (isRestoringRef.current) return;
-      const detail = (e as CustomEvent<{ nodeId: string; dx: number; dy: number; newW: number; newH: number; anchors: {x:number;y:number}[]; commit?: boolean }>).detail;
+      const detail = (e as CustomEvent<{ nodeId: string }>).detail;
+      if (!detail?.nodeId) return;
+      const target = nodesRef.current.find(node => node.id === detail.nodeId);
+      if (!target) return;
+      pushHistory(nodesRef.current, edgesRef.current);
+    };
+    window.addEventListener("shape-anchor-history-start", handler);
+    return () => window.removeEventListener("shape-anchor-history-start", handler);
+  }, [pushHistory, edgesRef]);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      if (isRestoringRef.current) return;
+      const detail = (e as CustomEvent<{ nodeId: string; dx: number; dy: number; newW: number; newH: number; anchors: {x:number;y:number}[] }>).detail;
       if (!detail?.nodeId) return;
       isRestoringRef.current = true;
       setNodes(nds => {
-        if (detail.commit) pushHistory(nds, edgesRef.current);
         return nds.map(n => {
           if (n.id !== detail.nodeId) return n;
           // 将节点 position 向 offset 方向偏移，保持图形在画布中的绝对位置不变
