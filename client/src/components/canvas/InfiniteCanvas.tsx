@@ -10682,7 +10682,7 @@ function CanvasAssistantPanel({
                   className="pointer-events-none invisible absolute whitespace-pre"
                   style={{
                     fontSize: 12,
-                    lineHeight: "24px",
+                    lineHeight: "12px",
                     fontFamily: "inherit",
                     letterSpacing: 0,
                   }}
@@ -10855,7 +10855,7 @@ function CanvasAssistantPanel({
                           borderRadius: shouldHighlightTextSegment ? 5 : 0,
                           opacity: 1,
                           fontSize: 12,
-                          lineHeight: "20px",
+                          lineHeight: "12px",
                           minHeight: 104,
                           overflow: "hidden",
                           width: "100%",
@@ -10904,7 +10904,7 @@ function CanvasAssistantPanel({
                           borderRadius: shouldHighlightTextSegment ? 5 : 0,
                           opacity: 1,
                           fontSize: 12,
-                          lineHeight: "20px",
+                          lineHeight: "12px",
                           height: 28,
                           minHeight: 28,
                           overflow: "hidden",
