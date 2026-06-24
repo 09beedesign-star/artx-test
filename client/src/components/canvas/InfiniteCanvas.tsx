@@ -220,7 +220,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import CropEditor from "@/components/canvas/CropEditor";
 import RotateEditor from "@/components/canvas/RotateEditor";
-import { callLLM, createProductBackground, editImageWithPrompt, enhanceImageToHd, eraseImageObjects, expandImageWithMask, extractImageText, generateImages as generateAiImages, getBackgroundImageGenerationTask, removeImageBackground, removeImageWatermark, requestAiAuth, searchReferenceImages, startBackgroundImageGeneration, type ReferenceImageResult } from "@/lib/ai";
+import { callLLM, createProductBackground, editImageWithPrompt, enhanceImageToHd, eraseImageObjects, expandImageWithMask, extractImageText, generateImages as generateAiImages, getBackgroundImageGenerationTask, removeImageBackground, removeImageWatermark, requestAiAuth, searchReferenceImages, startBackgroundImageGeneration, type GeneratedImagesResponse, type ReferenceImageResult } from "@/lib/ai";
 import { routeCreativeIntent } from "@/lib/ai-intent";
 import { createWorkspaceHistoryProject, readWorkspaceProjectHistory, touchWorkspaceProjectHistory, updateWorkspaceProjectHistory, type WorkspaceHistoryProject } from "@/lib/project-history";
 import { buildSkillPromptContext, createPendingSkillLoad, PENDING_SKILL_LOAD_KEY, skillStoreItems, type PendingSkillLoad } from "@/lib/skill-store";
@@ -229,6 +229,12 @@ import generationMark from "@/assets/generation/ai-generation-mark.svg";
 const ENABLE_NODE_CONNECTIONS = false;
 
 const CANVAS_FRAME_BACKGROUND_ALPHA = 0.5;
+const CANVAS_CROSS_PROJECT_CLIPBOARD_KEY = "artx:canvas-cross-project-clipboard";
+const CROSS_CANVAS_COPY_TYPES = ["asset", "canvasFrame"] as const;
+
+function isCrossCanvasCopyNode(node: Node) {
+  return CROSS_CANVAS_COPY_TYPES.includes(node.type as (typeof CROSS_CANVAS_COPY_TYPES)[number]);
+}
 
 function withCanvasFrameAlpha(color: unknown, alpha = CANVAS_FRAME_BACKGROUND_ALPHA) {
   const fallback = `rgba(42,42,48,${alpha})`;
@@ -3358,7 +3364,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     };
     const overlayCtx = overlay.getContext("2d");
     const maskCtx = mask.getContext("2d");
-    if (overlayCtx) draw(overlayCtx, "rgba(128, 70, 255, 0.72)");
+    if (overlayCtx) draw(overlayCtx, "rgba(128, 70, 255, 0.4)");
     if (maskCtx) {
       maskCtx.save();
       maskCtx.globalCompositeOperation = "destination-out";
@@ -6690,6 +6696,7 @@ interface NodeCtxState {
   nodeType: string;
   selectedIds?: string[];
   grouped?: boolean;
+  pasteOnly?: boolean;
 }
 
 function NodeContextMenu({ menu, onClose, onAction, isDark }: {
@@ -6745,7 +6752,11 @@ function NodeContextMenu({ menu, onClose, onAction, isDark }: {
     { icon: <Trash2 size={13} />, label: "删除节点", action: "delete", color: dangerColor },
   ];
 
-  const items = isGroupContainerMenu ? groupContainerItems : isSelectionMenu ? selectionItems : singleItems;
+  const pasteItems = [
+    { icon: <Clipboard size={13} />, label: "粘贴", action: "paste", color: iconColor },
+  ];
+
+  const items = menu.pasteOnly ? pasteItems : isGroupContainerMenu ? groupContainerItems : isSelectionMenu ? selectionItems : singleItems;
 
   useEffect(() => {
     const handler = (e: MouseEvent) => { onClose(); };
@@ -11188,6 +11199,40 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     handleResize();
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+
+  const readCrossCanvasClipboard = useCallback(() => {
+    if (typeof window === "undefined") return [] as Node[];
+    try {
+      const raw = window.localStorage.getItem(CANVAS_CROSS_PROJECT_CLIPBOARD_KEY);
+      if (!raw) return [] as Node[];
+      const parsed = JSON.parse(raw) as { nodes?: Node[] };
+      return Array.isArray(parsed.nodes) ? parsed.nodes.filter(isCrossCanvasCopyNode) : [];
+    } catch {
+      return [] as Node[];
+    }
+  }, []);
+
+  const writeCrossCanvasClipboard = useCallback((nodesToCopy: Node[]) => {
+    const copyable = nodesToCopy.filter(isCrossCanvasCopyNode);
+    setClipboard(copyable);
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem(CANVAS_CROSS_PROJECT_CLIPBOARD_KEY, JSON.stringify({
+          copiedAt: Date.now(),
+          nodes: copyable,
+        }));
+      } catch {
+        toast("跨画布剪贴板保存失败", { description: "当前浏览器存储空间可能已满" });
+      }
+    }
+    return copyable;
+  }, []);
+
+  const getCrossCanvasClipboard = useCallback(() => {
+    const local = clipboard.filter(isCrossCanvasCopyNode);
+    return local.length > 0 ? local : readCrossCanvasClipboard();
+  }, [clipboard, readCrossCanvasClipboard]);
+
   const [helpPromptNonce, setHelpPromptNonce] = useState(0);
   const [activeSkill, setActiveSkill] = useState<PendingSkillLoad | null>(null);
   const [imageGeneratorModalOpen, setImageGeneratorModalOpen] = useState(false);
@@ -11466,7 +11511,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     displayH?: number;
     placement?: { x: number; y: number };
     generationId?: string;
-    run: () => Promise<{ images: Array<{ src: string; width: number; height: number }> }>;
+    run: () => Promise<GeneratedImagesResponse>;
   }) => {
     const latestSourceNode = sourceNode.type === "asset" ? (getLatestAssetNode(sourceNode.id) || sourceNode) : sourceNode;
     const sourceDisplaySize = getCanvasNodeSize(latestSourceNode);
@@ -11498,6 +11543,20 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
     try {
       const result = await run();
+      const providerTaskIds = result.providerTaskIds?.length
+        ? result.providerTaskIds
+        : result.providerTaskId
+          ? [result.providerTaskId]
+          : [];
+      if (providerTaskIds.length > 0) {
+        toast("AI 任务 ID 已返回", { description: providerTaskIds.join(", ") });
+        console.info("[artx-ai-task]", {
+          capability: style,
+          generationId,
+          providerTaskId: providerTaskIds[0],
+          providerTaskIds,
+        });
+      }
       dispatchImageGenerationTask({ ...payload, status: "completed", images: result.images.slice(0, 1) }, projectId);
       return true;
     } catch (error) {
@@ -11815,6 +11874,52 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       { nodes: cloneNodesForHistory(ns), edges: cloneEdgesForHistory(es) },
     ];
   }, [cloneEdgesForHistory, cloneNodesForHistory]);
+
+  const pasteCrossCanvasClipboard = useCallback((origin?: XYPosition) => {
+    const source = getCrossCanvasClipboard();
+    if (source.length === 0) {
+      toast("剪贴板为空", { description: "请先复制图片节点或画板" });
+      return false;
+    }
+
+    pushHistory();
+    const now = Date.now();
+    const minX = Math.min(...source.map(node => node.position.x));
+    const minY = Math.min(...source.map(node => node.position.y));
+    const idMap = new Map(source.map((node, index) => [node.id, `${node.type}-paste-${now}-${index}`]));
+    const groupMap = new Map<string, string>();
+    const offsetX = origin ? origin.x - minX : 24;
+    const offsetY = origin ? origin.y - minY : 24;
+    const pasted = source.map((node, index) => {
+      const id = idMap.get(node.id) || `${node.type}-paste-${now}-${index}`;
+      const data = { ...(node.data as Record<string, unknown>) };
+      const oldGroupId = typeof data.groupId === "string" ? data.groupId : undefined;
+      const groupId = oldGroupId
+        ? groupMap.get(oldGroupId) || (() => {
+            const nextGroupId = `group-${now}-${groupMap.size}`;
+            groupMap.set(oldGroupId, nextGroupId);
+            return nextGroupId;
+          })()
+        : undefined;
+      return {
+        ...node,
+        id,
+        selected: true,
+        position: { x: node.position.x + offsetX, y: node.position.y + offsetY },
+        data: {
+          ...data,
+          id,
+          groupId,
+        },
+      };
+    });
+    setNodes(nds => nds.map(n => ({ ...n, selected: false })).concat(pasted));
+    setSelectedNodeIds(pasted.map(n => n.id));
+    const assetCount = pasted.filter(node => node.type === "asset").length;
+    const frameCount = pasted.filter(node => node.type === "canvasFrame").length;
+    toast(`已粘贴 ${pasted.length} 个对象`, { description: `图片 ${assetCount} 个，画板 ${frameCount} 个` });
+    return true;
+  }, [getCrossCanvasClipboard, pushHistory, setNodes]);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -12517,11 +12622,21 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   // ── Right-click: blank canvas shows batch menu only when nodes are selected ──
   const handlePaneContextMenu = useCallback((e: React.MouseEvent | MouseEvent) => {
     e.preventDefault();
+    const rect = containerRef.current?.getBoundingClientRect();
     if (selectedNodeIds.length === 0) {
+      if (getCrossCanvasClipboard().length > 0) {
+        setNodeCtxMenu({
+          x: e.clientX - (rect?.left || 0),
+          y: e.clientY - (rect?.top || 0),
+          nodeId: "__pane__",
+          nodeType: "pane",
+          pasteOnly: true,
+        });
+        return;
+      }
       setNodeCtxMenu(null);
       return;
     }
-    const rect = containerRef.current?.getBoundingClientRect();
     setNodeCtxMenu({
       x: e.clientX - (rect?.left || 0),
       y: e.clientY - (rect?.top || 0),
@@ -12530,7 +12645,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       selectedIds: selectedNodeIds,
       grouped: areNodesGrouped(selectedNodeIds),
     });
-  }, [areNodesGrouped, selectedNodeIds]);
+  }, [areNodesGrouped, getCrossCanvasClipboard, selectedNodeIds]);
 
   // ── Node right-click via custom event ──
   useEffect(() => {
@@ -12562,27 +12677,20 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       setEdges(eds => eds.filter(e => !actionIds.includes(e.source) && !actionIds.includes(e.target)));
       setSelectedNodeIds([]);
     } else if (action === "copy") {
-      const copied = nodes.filter(n => actionIds.includes(n.id));
-      if (copied.length > 0) { setClipboard(copied); toast(`已复制 ${copied.length} 个画布`); }
+      const copied = writeCrossCanvasClipboard(nodes.filter(n => actionIds.includes(n.id)));
+      if (copied.length > 0) {
+        const assetCount = copied.filter(node => node.type === "asset").length;
+        const frameCount = copied.filter(node => node.type === "canvasFrame").length;
+        toast(`已复制 ${copied.length} 个对象`, { description: `图片 ${assetCount} 个，画板 ${frameCount} 个，可切换画布后粘贴` });
+      } else {
+        toast("没有可复制的对象", { description: "跨画布复制当前仅支持图片节点和画板" });
+      }
     } else if (action === "paste") {
-      if (clipboard.length > 0) {
-        pushHistory();
-        const now = Date.now();
-        const idMap = new Map(clipboard.map((node, index) => [node.id, `${node.type}-${now}-${index}`]));
-        const pasted = clipboard.map((node, index) => {
-          const id = idMap.get(node.id) || `${node.type}-${now}-${index}`;
-          return {
-            ...node,
-            id,
-            selected: true,
-            position: { x: node.position.x + 48, y: node.position.y + 48 },
-            data: { ...(node.data as Record<string, unknown>), id, groupId: (node.data as Record<string, unknown>).groupId ? `group-${now}` : undefined },
-          };
-        });
-        setNodes(nds => nds.map(n => ({ ...n, selected: false })).concat(pasted));
-        setSelectedNodeIds(pasted.map(n => n.id));
-        toast(`已粘贴 ${pasted.length} 个画布`);
-      } else { toast("剪贴板为空"); }
+      const rect = containerRef.current?.getBoundingClientRect();
+      const menuOrigin = nodeCtxMenu && rect
+        ? screenToFlowPosition({ x: rect.left + nodeCtxMenu.x, y: rect.top + nodeCtxMenu.y })
+        : undefined;
+      pasteCrossCanvasClipboard(menuOrigin);
     } else if (action === "group") {
       if (actionIds.length < 2) { toast("请至少选择 2 个画布再打组"); return; }
       pushHistory();
@@ -12722,12 +12830,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         setDownloadDialogOpen(true);
         // 存储单张下载信息到 window 临时存储
         (window as unknown as Record<string, unknown>).__artx_single_download__ = { title, src, node };
+        (window as unknown as Record<string, unknown>).__artx_download_nodes__ = undefined;
       } else {
         // 多张直接弹出格式选择对话框打包下载
         setDownloadGroupId("__selection__");
         setDownloadFormat('png');
         setDownloadDialogOpen(true);
         (window as unknown as Record<string, unknown>).__artx_download_nodes__ = selectedAssetNodes;
+        (window as unknown as Record<string, unknown>).__artx_single_download__ = undefined;
       }
     } else if (action === "add-asset") {
       const node = nodes.find(n => n.id === nodeId);
@@ -14420,6 +14530,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const groupNodes = nodes.filter(n => (n.data as Record<string, unknown>).groupId === groupId && n.type === "asset");
       if (groupNodes.length === 0) { toast("该打组没有图片节点"); return; }
       (window as unknown as Record<string, unknown>).__artx_download_nodes__ = groupNodes;
+      (window as unknown as Record<string, unknown>).__artx_single_download__ = undefined;
       setDownloadGroupId(groupId);
       setDownloadFormat('png');
       setDownloadDialogOpen(true);
@@ -14563,13 +14674,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       // 复制：Ctrl+C (Windows) / Cmd+C (Mac) — 支持所有节点类型
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
         const toCopy = selectedNodeIds
-          .map(id => nodes.find(n => n.id === id && editableCanvasTypes.includes(n.type ?? "")))
+          .map(id => nodes.find(n => n.id === id && isCrossCanvasCopyNode(n)))
           .filter(Boolean) as Node[];
         if (toCopy.length > 0) {
           e.preventDefault();
-          setClipboard(toCopy);
+          const copied = writeCrossCanvasClipboard(toCopy);
           const isMac = navigator.platform.toUpperCase().includes("MAC") || navigator.userAgent.includes("Mac");
-          toast(`已复制 ${toCopy.length} 个元素`, {
+          toast(`已复制 ${copied.length} 个对象`, {
             description: isMac ? "按 ⌘V 粘贴到画布" : "按 Ctrl+V 粘贴到画布",
           });
         }
@@ -14577,25 +14688,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       }
       // 粘贴：Ctrl+V (Windows) / Cmd+V (Mac)
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
-        if (clipboard.length > 0) {
+        if (getCrossCanvasClipboard().length > 0) {
           e.preventDefault();
-          pushHistory();
-          const now = Date.now();
-          const pasted = clipboard.map((node, index) => ({
-            ...node,
-            id: `${node.type}-paste-${now}-${index}`,
-            selected: true,
-            position: { x: node.position.x + 24, y: node.position.y + 24 },
-            data: {
-              ...(node.data as Record<string, unknown>),
-              id: `${node.type}-paste-${now}-${index}`,
-              // 不继承打组，粘贴为独立节点
-              groupId: undefined,
-            },
-          }));
-          setNodes(nds => nds.map(n => ({ ...n, selected: false })).concat(pasted));
-          setSelectedNodeIds(pasted.map(n => n.id));
-          toast(`已粘贴 ${pasted.length} 个元素`, { description: "新节点已选中，可直接拖动定位" });
+          pasteCrossCanvasClipboard();
         } else {
           const requestedAt = Date.now();
           window.setTimeout(() => {
@@ -14625,7 +14720,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       window.removeEventListener("paste", handlePaste);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [nodes, clipboard, setClipboard, pasteClipboardFromNavigator, pasteClipboardPayload, pushHistory, selectedNodeIds, setEdges, setNodes, undoCanvas]);
+  }, [nodes, getCrossCanvasClipboard, pasteClipboardFromNavigator, pasteClipboardPayload, pasteCrossCanvasClipboard, pushHistory, selectedNodeIds, setEdges, setNodes, undoCanvas, writeCrossCanvasClipboard]);
 
   // ── C-key lasso: cut edges intersecting the lasso rect ──
   const handleLassoCut = useCallback((lassoRect: LassoRect) => {
@@ -15249,6 +15344,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       toast("移动对象", { description: "拖动画布中的选中图片即可移动位置" });
       return;
     }
+    if (action === "download") {
+      handleNodeAction("download", nodeId);
+      return;
+    }
     if (action === "expand") {
       setNodes(nds => nds.map(n =>
         n.id === nodeId && n.type === "asset"
@@ -15271,6 +15370,17 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     }
     if (["mockup", "adjust", "vector"].includes(action)) {
       setAssetMorePanel({ command: action, nodeId });
+      return;
+    }
+    if (action === "crop") {
+      if (!targetNode || targetNode.type !== "asset") return;
+      const imageSrc = getLatestAssetImageSource(nodeId);
+      if (!imageSrc) {
+        toast("裁切失败", { description: "当前图片没有可裁切的图像来源" });
+        return;
+      }
+      clearInactiveAssetCommands([nodeId]);
+      setCropEditorState({ nodeId, imageSrc });
       return;
     }
     if (action === "flip-rotate") {
