@@ -304,14 +304,17 @@
     - 成功 rectangles：`1624b20a-a32d-49e7-b0c6-586b948c3116`
     - 成功透明洞蒙版：`c59f4121-d585-4825-8bc2-db0b83f37441`
     - 失败黑底白块旧蒙版：`2bdd8a54-7dad-4d41-885d-6c7ddcb9d85a`、`0ecb02d2-4098-41cb-b98a-87fa38fd01d5`
+    - 发布后成功前端透明洞蒙版 `/api/images/erase`：`32a0b5dc-7094-4122-84a2-b224fc7eebd6`
+    - 发布后成功正式编排入口 `/api/ai/orchestrate` + `element_erasure`：`a32f80d3-5aa1-43a2-9afd-f031146573e2`
+    - 发布后 rectangles 仅接口成功但视觉未擦除：`eaacf97d-464a-4b1d-b584-322a8363a7ee`
   - request endpoint: `POST /api/tasks/visual/watermark`, `GET /api/tasks/visual/watermark/{task_id}`
-  - result: 服务端蒙版转换改为优先识别透明擦除洞；若不存在透明洞，则识别白色高亮区域为擦除区域；无有效擦除区域时直接失败。
-  - error: N/A
+  - result: 服务端蒙版转换改为优先识别透明擦除洞；若不存在透明洞，则识别白色高亮区域为擦除区域；无有效擦除区域时直接失败。测试环境发布后，前端真实透明洞蒙版在 `/api/images/erase` 与 `/api/ai/orchestrate` 两条入口均返回 `providerTaskId/providerTaskIds`，输出图中心红块像素 `centerRed=0/7056`。
+  - error: 黑底白块旧测试素材发布后仍返回 `PicWish masked removal task failed`；这不是前端真实擦除蒙版路径，不能作为页面擦除失败证据，但后续若要继续支持旧白块测试素材，需要单独查 PicWish 对该类 mask 的限制。
 - 测试环境：
   - frontend: <https://09beedesign-star.github.io/artx-test/>
   - backend: <https://artx-test.onrender.com>
   - branch: `test/feature/interaction-framework`
-  - commitSha: N/A
-  - deployment check: 待发布后更新。
-- 验证：待发布后重新用固定黑底白块蒙版、前端透明洞蒙版和真实页面擦除流程回归。
-- 已知风险 / 待回归：需要确认成功图片视觉上确实擦除目标区域，而不只是接口返回图片。
+  - commitSha: `db5d3eb6293c24f7e19f044dfa4e2fbbc75f9db7`
+  - deployment check: `deployment.json` 已返回 `shortCommit=db5d3eb`；`/api/health` 返回 `{"ok":true,"eraserTaskIdContract":true}`。
+- 验证：`npm run check`、`npm run build`、`node scripts/verify-eraser-picwish-inpaint.mjs`、`node scripts/verify-smart-background.mjs`、`node scripts/verify-watermark-removal.mjs` 均通过；线上 `/api/images/erase` 和 `/api/ai/orchestrate` 使用前端真实透明洞蒙版均成功返回 PicWish task id，并通过像素检查确认目标红块已被清除。
+- 已知风险 / 待回归：需要用户在浏览器真实画布再做一轮人工擦除场测；不要用 rectangles 或旧黑底白块测试素材的视觉结果替代前端真实蒙版路径判断。
