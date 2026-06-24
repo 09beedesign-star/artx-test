@@ -368,6 +368,7 @@ function SkillPointSelector({
   const [open, setOpen] = useState(false);
   const selectorRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const [portalRoot, setPortalRoot] = useState<HTMLElement | null>(null);
   const [popoverStyle, setPopoverStyle] = useState<React.CSSProperties | null>(null);
   const groupedSkills = useMemo(() => {
     const groups = new Map<string, typeof skillStoreItems>();
@@ -384,6 +385,9 @@ function SkillPointSelector({
   const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
   const activeBg = isDark ? "oklch(0.58 0.22 290 / 0.18)" : "oklch(0.58 0.22 290 / 0.12)";
   const activeText = isDark ? "oklch(0.82 0.16 290)" : "oklch(0.46 0.18 290)";
+  useEffect(() => {
+    setPortalRoot(document.body);
+  }, []);
   const updatePopoverPosition = useCallback(() => {
     const trigger = selectorRef.current;
     if (!trigger) return;
@@ -426,6 +430,73 @@ function SkillPointSelector({
     };
   }, [open, updatePopoverPosition]);
 
+  const popover = open && (
+    <div
+      ref={popoverRef}
+      className="model-selector-scroll overflow-y-auto rounded-[var(--radius-md-design)] p-1 shadow-2xl nodrag nopan"
+      style={{
+        ...(popoverStyle || {}),
+        background: popBg,
+        border: `1px solid ${border}`,
+        color: text,
+        zIndex: 9999,
+      }}
+    >
+      {activeSkill && (
+        <button
+          type="button"
+          onClick={() => {
+            onChange(null);
+            setOpen(false);
+            toast("已取消 Skill", { description: "输入框恢复为普通 AI 创作模式" });
+          }}
+          className="flex w-full items-center gap-2 rounded-[var(--radius-sm-design)] px-2.5 py-2 text-left type-caption"
+          style={{ color: isDark ? "rgba(255,255,255,0.58)" : "rgba(20,20,36,0.58)" }}
+          onMouseEnter={event => { event.currentTarget.style.background = hoverBg; }}
+          onMouseLeave={event => { event.currentTarget.style.background = "transparent"; }}
+        >
+          <X size={13} />
+          取消当前 Skill
+        </button>
+      )}
+      {groupedSkills.map(([group, skills]) => (
+        <div key={group}>
+          <div className="px-2.5 pb-1 pt-2 text-[11px] font-semibold" style={{ color: isDark ? "rgba(255,255,255,0.42)" : "rgba(20,20,36,0.42)" }}>
+            {group}
+          </div>
+          {skills.map(skill => {
+            const Icon = skill.icon;
+            const active = activeSkill?.id === skill.id;
+            return (
+              <button
+                key={skill.id}
+                type="button"
+                onClick={() => {
+                  const pendingSkill = createPendingSkillLoad(skill);
+                  onChange(pendingSkill);
+                  setOpen(false);
+                  toast("Skill 已加载到画布", { description: pendingSkill.name });
+                }}
+                className="flex w-full items-start gap-2 rounded-[var(--radius-sm-design)] px-2.5 py-2 text-left transition-colors"
+                style={{ background: active ? activeBg : "transparent", color: active ? activeText : text }}
+                onMouseEnter={event => { if (!active) event.currentTarget.style.background = hoverBg; }}
+                onMouseLeave={event => { event.currentTarget.style.background = active ? activeBg : "transparent"; }}
+              >
+                <Icon size={15} style={{ marginTop: 1, flexShrink: 0 }} />
+                <span className="min-w-0">
+                  <span className="block truncate text-xs font-semibold">{skill.name}</span>
+                  <span className="mt-0.5 block line-clamp-2 text-[11px]" style={{ color: isDark ? "rgba(255,255,255,0.46)" : "rgba(20,20,36,0.50)" }}>
+                    {skill.summary}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+
   return (
     <div ref={selectorRef} className="relative nodrag nopan" style={{ zIndex: open ? 1200 : 100 }}>
       <button
@@ -449,72 +520,7 @@ function SkillPointSelector({
         <span className="min-w-0 max-w-[38px] truncate">{activeSkill ? activeSkill.name : "Skill"}</span>
         <ChevronDown size={10} style={{ opacity: 0.65 }} />
       </button>
-      {open && (
-        <div
-          ref={popoverRef}
-          className="model-selector-scroll overflow-y-auto rounded-[var(--radius-md-design)] p-1 shadow-2xl"
-          style={{
-            ...(popoverStyle || {}),
-            background: popBg,
-            border: `1px solid ${border}`,
-            color: text,
-            zIndex: 9999,
-          }}
-        >
-          {activeSkill && (
-            <button
-              type="button"
-              onClick={() => {
-                onChange(null);
-                setOpen(false);
-                toast("已取消 Skill", { description: "输入框恢复为普通 AI 创作模式" });
-              }}
-              className="flex w-full items-center gap-2 rounded-[var(--radius-sm-design)] px-2.5 py-2 text-left type-caption"
-              style={{ color: isDark ? "rgba(255,255,255,0.58)" : "rgba(20,20,36,0.58)" }}
-              onMouseEnter={event => { event.currentTarget.style.background = hoverBg; }}
-              onMouseLeave={event => { event.currentTarget.style.background = "transparent"; }}
-            >
-              <X size={13} />
-              取消当前 Skill
-            </button>
-          )}
-          {groupedSkills.map(([group, skills]) => (
-            <div key={group}>
-              <div className="px-2.5 pb-1 pt-2 text-[11px] font-semibold" style={{ color: isDark ? "rgba(255,255,255,0.42)" : "rgba(20,20,36,0.42)" }}>
-                {group}
-              </div>
-              {skills.map(skill => {
-                const Icon = skill.icon;
-                const active = activeSkill?.id === skill.id;
-                return (
-                  <button
-                    key={skill.id}
-                    type="button"
-                    onClick={() => {
-                      const pendingSkill = createPendingSkillLoad(skill);
-                      onChange(pendingSkill);
-                      setOpen(false);
-                      toast("Skill 已加载到画布", { description: pendingSkill.name });
-                    }}
-                    className="flex w-full items-start gap-2 rounded-[var(--radius-sm-design)] px-2.5 py-2 text-left transition-colors"
-                    style={{ background: active ? activeBg : "transparent", color: active ? activeText : text }}
-                    onMouseEnter={event => { if (!active) event.currentTarget.style.background = hoverBg; }}
-                    onMouseLeave={event => { event.currentTarget.style.background = active ? activeBg : "transparent"; }}
-                  >
-                    <Icon size={15} style={{ marginTop: 1, flexShrink: 0 }} />
-                    <span className="min-w-0">
-                      <span className="block truncate text-xs font-semibold">{skill.name}</span>
-                      <span className="mt-0.5 block line-clamp-2 text-[11px]" style={{ color: isDark ? "rgba(255,255,255,0.46)" : "rgba(20,20,36,0.50)" }}>
-                        {skill.summary}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-      )}
+      {portalRoot && popover ? createPortal(popover, portalRoot) : popover}
     </div>
   );
 }
