@@ -748,11 +748,82 @@ async function removeFaceWithPicWish(buffer: Buffer, mimeType: string): Promise<
   return runPicWishImageTask("self-face-cutout", buffer, mimeType);
 }
 
-async function eraseWithPicWish(imageBuffer: Buffer, imageMimeType: string, maskBuffer: Buffer, maskMimeType: string): Promise<{ images: GeneratedImage[] }> {
-  return runPicWishImageTask("inpaint", imageBuffer, imageMimeType, { maskBuffer, maskMimeType });
+async function createPicWishInpaintTask(
+  imageBuffer: Buffer,
+  imageMimeType: string,
+  maskBuffer: Buffer,
+  maskMimeType: string,
+) {
+  const { apiKey, baseUrl } = getPicWishConfig();
+  if (!apiKey) {
+    throw new Error("Missing PICWISH_API_KEY");
+  }
+
+  const endpoint = `${baseUrl.replace(/\/+$/, "")}/api/tasks/visual/inpaint`;
+  const body = new FormData();
+  body.append("sync", "0");
+  body.append("image_file", bufferToImageFile(imageBuffer, imageMimeType));
+  body.append("mask_file", bufferToImageFile(maskBuffer, maskMimeType));
+
+  const created = await readPicWishJson(await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "X-API-KEY": apiKey,
+    },
+    body,
+  }), "PicWish inpaint");
+
+  const taskId = getPicWishTaskId(created);
+  if (!taskId) {
+    throw new Error("PicWish inpaint did not return a task id");
+  }
+  return { taskId, apiKey, baseUrl };
 }
 
-async function createPicWishEraseMasks(maskBuffer: Buffer, width: number, height: number): Promise<{ providerMaskBuffer: Buffer; eraseMaskBuffer: Buffer }> {
+async function pollPicWishInpaintTask(taskId: string, apiKey: string, baseUrl: string): Promise<{ images: GeneratedImage[] }> {
+  const endpoint = `${baseUrl.replace(/\/+$/, "")}/api/tasks/visual/inpaint/${encodeURIComponent(taskId)}`;
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    if (attempt > 0) await delay(1000);
+    const data = await readPicWishJson(await fetch(endpoint, {
+      method: "GET",
+      headers: {
+        "X-API-KEY": apiKey,
+      },
+    }), "PicWish inpaint polling");
+    const state = Number(data.data?.state || 0);
+    if (state > 0) {
+      const imageUrl = data.data?.image || "";
+      if (!imageUrl) {
+        throw new Error("PicWish inpaint did not return a result image");
+      }
+      return downloadPicWishImageAsTransparentPng(imageUrl, {
+        width: data.data?.image_width,
+        height: data.data?.image_height,
+      });
+    }
+    if (state < 0) {
+      throw new Error(getPicWishErrorMessage(data, "PicWish inpaint task failed"));
+    }
+  }
+  throw new Error("PicWish inpaint timed out");
+}
+
+async function eraseWithPicWish(
+  imageBuffer: Buffer,
+  imageMimeType: string,
+  maskBuffer: Buffer,
+  maskMimeType: string,
+): Promise<{ images: GeneratedImage[] }> {
+  const { taskId, apiKey, baseUrl } = await createPicWishInpaintTask(
+    imageBuffer,
+    imageMimeType,
+    maskBuffer,
+    maskMimeType,
+  );
+  return pollPicWishInpaintTask(taskId, apiKey, baseUrl);
+}
+
+async function createPicWishEraseMask(maskBuffer: Buffer, width: number, height: number): Promise<Buffer> {
   const sharp = (await import("sharp")).default;
   const { data } = await sharp(maskBuffer, { limitInputPixels: false })
     .rotate()
@@ -786,97 +857,22 @@ async function createPicWishEraseMasks(maskBuffer: Buffer, width: number, height
   }
 
   const providerMask = Buffer.alloc(width * height * 4);
-  const eraseMask = Buffer.alloc(width * height * 4);
   for (let pixel = 0; pixel < expandedErasePixels.length; pixel += 1) {
     const index = pixel * 4;
     const shouldErase = expandedErasePixels[pixel] === 1;
-    // PicWish object removal treats black as the editable/removal area and
-    // white as protected content. Keep the internal mask below as white-remove
-    // because it is used only for our own final compositing.
-    providerMask[index] = shouldErase ? 0 : 255;
-    providerMask[index + 1] = shouldErase ? 0 : 255;
-    providerMask[index + 2] = shouldErase ? 0 : 255;
+    // PicWish inpaint follows the documented mask contract:
+    // white = remove area, black = preserve area.
+    providerMask[index] = shouldErase ? 255 : 0;
+    providerMask[index + 1] = shouldErase ? 255 : 0;
+    providerMask[index + 2] = shouldErase ? 255 : 0;
     providerMask[index + 3] = 255;
-    // Internal compositing uses white as the editable/replace area.
-    eraseMask[index] = shouldErase ? 255 : 0;
-    eraseMask[index + 1] = shouldErase ? 255 : 0;
-    eraseMask[index + 2] = shouldErase ? 255 : 0;
-    eraseMask[index + 3] = 255;
   }
 
   const providerMaskBuffer = await sharp(providerMask, {
     raw: { width, height, channels: 4 },
     limitInputPixels: false,
   }).png().toBuffer();
-  const eraseMaskBuffer = await sharp(eraseMask, {
-    raw: { width, height, channels: 4 },
-    limitInputPixels: false,
-  }).png().toBuffer();
-
-  return { providerMaskBuffer, eraseMaskBuffer };
-}
-
-async function compositeEraseResultInsidePicWishMask(
-  sourceBuffer: Buffer,
-  resultSrc: string,
-  picWishMaskBuffer: Buffer,
-  width: number,
-  height: number,
-): Promise<GeneratedImage> {
-  const sharp = (await import("sharp")).default;
-  const { buffer: resultBuffer } = await imageSrcToBuffer(resultSrc);
-  const { data: sourceData } = await sharp(sourceBuffer, { limitInputPixels: false })
-    .rotate()
-    .resize(width, height, { fit: "fill" })
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const { data: resultData } = await sharp(resultBuffer, { limitInputPixels: false })
-    .rotate()
-    .resize(width, height, { fit: "fill" })
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const { data: hardMaskData } = await sharp(picWishMaskBuffer, { limitInputPixels: false })
-    .rotate()
-    .resize(width, height, { fit: "fill" })
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const featherRadius = Math.max(3, Math.min(18, Math.round(Math.max(width, height) * 0.008)));
-  const { data: softMaskData } = await sharp(picWishMaskBuffer, { limitInputPixels: false })
-    .rotate()
-    .resize(width, height, { fit: "fill" })
-    .grayscale()
-    .blur(featherRadius)
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const output = Buffer.from(sourceData);
-  for (let index = 0; index < output.length; index += 4) {
-    const hardMaskValue = hardMaskData[index];
-    const softMaskValue = softMaskData[index / 4] ?? 0;
-    if (hardMaskValue < 128 && softMaskValue < 4) continue;
-
-    const blend = hardMaskValue >= 248
-      ? 1
-      : Math.max(0, Math.min(1, softMaskValue / 255));
-    const inverseBlend = 1 - blend;
-    output[index] = Math.round((sourceData[index] * inverseBlend) + (resultData[index] * blend));
-    output[index + 1] = Math.round((sourceData[index + 1] * inverseBlend) + (resultData[index + 1] * blend));
-    output[index + 2] = Math.round((sourceData[index + 2] * inverseBlend) + (resultData[index + 2] * blend));
-    output[index + 3] = Math.round((sourceData[index + 3] * inverseBlend) + (resultData[index + 3] * blend));
-  }
-
-  const png = await sharp(output, {
-    raw: { width, height, channels: 4 },
-    limitInputPixels: false,
-  }).png().toBuffer();
-
-  return {
-    src: `data:image/png;base64,${png.toString("base64")}`,
-    width,
-    height,
-  };
+  return providerMaskBuffer;
 }
 
 async function enhanceImageWithPicWish(src: string): Promise<{ images: GeneratedImage[] }> {
@@ -1522,307 +1518,6 @@ async function removeBackgroundPreservingForegroundPixels(src: string): Promise<
   }
 }
 
-async function didEraseChangeMaskedArea(sourceBuffer: Buffer, resultSrc: string, maskSrc: string, width: number, height: number) {
-  const sharp = (await import("sharp")).default;
-  const { buffer: resultBuffer } = await imageSrcToBuffer(resultSrc);
-  const { data: sourceData } = await sharp(sourceBuffer, { limitInputPixels: false })
-    .rotate()
-    .resize(width, height, { fit: "fill" })
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const { data: resultData } = await sharp(resultBuffer, { limitInputPixels: false })
-    .rotate()
-    .resize(width, height, { fit: "fill" })
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const { buffer: maskBuffer } = await imageSrcToBuffer(maskSrc);
-  const { data: maskData } = await sharp(maskBuffer, { limitInputPixels: false })
-    .rotate()
-    .resize(width, height, { fit: "fill" })
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-
-  let maskedPixels = 0;
-  let totalDelta = 0;
-  for (let index = 0; index < maskData.length; index += 4) {
-    if (maskData[index + 3] > 64) continue;
-    maskedPixels += 1;
-    totalDelta += Math.abs(sourceData[index] - resultData[index]);
-    totalDelta += Math.abs(sourceData[index + 1] - resultData[index + 1]);
-    totalDelta += Math.abs(sourceData[index + 2] - resultData[index + 2]);
-    totalDelta += Math.abs(sourceData[index + 3] - resultData[index + 3]);
-  }
-
-  if (maskedPixels < Math.max(16, width * height * 0.0002)) return true;
-  return totalDelta / maskedPixels >= 18;
-}
-
-function colorDistance(a: [number, number, number], b: [number, number, number]) {
-  const dr = a[0] - b[0];
-  const dg = a[1] - b[1];
-  const db = a[2] - b[2];
-  return Math.sqrt(dr * dr + dg * dg + db * db);
-}
-
-async function doesEraseBlendIntoBackground(sourceBuffer: Buffer, resultSrc: string, maskSrc: string, width: number, height: number) {
-  const sharp = (await import("sharp")).default;
-  const { buffer: resultBuffer } = await imageSrcToBuffer(resultSrc);
-  const { data: sourceData } = await sharp(sourceBuffer, { limitInputPixels: false })
-    .rotate()
-    .resize(width, height, { fit: "fill" })
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const { data: resultData } = await sharp(resultBuffer, { limitInputPixels: false })
-    .rotate()
-    .resize(width, height, { fit: "fill" })
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const { buffer: maskBuffer } = await imageSrcToBuffer(maskSrc);
-  const { data: maskData } = await sharp(maskBuffer, { limitInputPixels: false })
-    .rotate()
-    .resize(width, height, { fit: "fill" })
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-
-  let maskedPixels = 0;
-  let sourceMaskedR = 0;
-  let sourceMaskedG = 0;
-  let sourceMaskedB = 0;
-  let resultMaskedR = 0;
-  let resultMaskedG = 0;
-  let resultMaskedB = 0;
-  const boundaryVisited = new Uint8Array(width * height);
-  let boundaryCount = 0;
-  let boundaryR = 0;
-  let boundaryG = 0;
-  let boundaryB = 0;
-
-  const pushBoundary = (pixel: number) => {
-    if (boundaryVisited[pixel]) return;
-    boundaryVisited[pixel] = 1;
-    const index = pixel * 4;
-    boundaryR += sourceData[index];
-    boundaryG += sourceData[index + 1];
-    boundaryB += sourceData[index + 2];
-    boundaryCount += 1;
-  };
-
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const pixel = y * width + x;
-      const index = pixel * 4;
-      if (maskData[index + 3] > 64) continue;
-      maskedPixels += 1;
-      sourceMaskedR += sourceData[index];
-      sourceMaskedG += sourceData[index + 1];
-      sourceMaskedB += sourceData[index + 2];
-      resultMaskedR += resultData[index];
-      resultMaskedG += resultData[index + 1];
-      resultMaskedB += resultData[index + 2];
-
-      for (let dy = -1; dy <= 1; dy += 1) {
-        for (let dx = -1; dx <= 1; dx += 1) {
-          if (dx === 0 && dy === 0) continue;
-          const nx = x + dx;
-          const ny = y + dy;
-          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
-          const np = ny * width + nx;
-          const ni = np * 4;
-          if (maskData[ni + 3] <= 64) continue;
-          pushBoundary(np);
-        }
-      }
-    }
-  }
-
-  if (maskedPixels < Math.max(24, width * height * 0.0003) || boundaryCount < 12) return true;
-
-  const sourceMaskedAvg: [number, number, number] = [
-    Math.round(sourceMaskedR / maskedPixels),
-    Math.round(sourceMaskedG / maskedPixels),
-    Math.round(sourceMaskedB / maskedPixels),
-  ];
-  const resultMaskedAvg: [number, number, number] = [
-    Math.round(resultMaskedR / maskedPixels),
-    Math.round(resultMaskedG / maskedPixels),
-    Math.round(resultMaskedB / maskedPixels),
-  ];
-  const boundaryAvg: [number, number, number] = [
-    Math.round(boundaryR / boundaryCount),
-    Math.round(boundaryG / boundaryCount),
-    Math.round(boundaryB / boundaryCount),
-  ];
-
-  const sourceToBoundary = colorDistance(sourceMaskedAvg, boundaryAvg);
-  const resultToBoundary = colorDistance(resultMaskedAvg, boundaryAvg);
-  const sourceToResult = colorDistance(sourceMaskedAvg, resultMaskedAvg);
-
-  if (resultToBoundary <= 34) return true;
-  if (resultToBoundary + 10 <= sourceToBoundary) return true;
-  if (sourceToResult >= 28 && resultToBoundary + 6 <= sourceToBoundary) return true;
-  return false;
-}
-
-async function compositeEraseResultOnlyInsideMask(
-  sourceBuffer: Buffer,
-  resultSrc: string,
-  maskSrc: string,
-  width: number,
-  height: number,
-): Promise<GeneratedImage> {
-  const sharp = (await import("sharp")).default;
-  const { buffer: resultBuffer } = await imageSrcToBuffer(resultSrc);
-  const { data: sourceData } = await sharp(sourceBuffer, { limitInputPixels: false })
-    .rotate()
-    .resize(width, height, { fit: "fill" })
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const { data: resultData } = await sharp(resultBuffer, { limitInputPixels: false })
-    .rotate()
-    .resize(width, height, { fit: "fill" })
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const { buffer: maskBuffer } = await imageSrcToBuffer(maskSrc);
-  const { data: maskData } = await sharp(maskBuffer, { limitInputPixels: false })
-    .rotate()
-    .resize(width, height, { fit: "fill" })
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-
-  const output = Buffer.from(sourceData);
-  for (let index = 0; index < output.length; index += 4) {
-    const maskAlpha = maskData[index + 3];
-    if (maskAlpha > 250) continue;
-    const strength = Math.max(0, Math.min(1, (255 - maskAlpha) / 255));
-    const eased = Math.min(1, strength * 1.18);
-    output[index] = Math.round(sourceData[index] * (1 - eased) + resultData[index] * eased);
-    output[index + 1] = Math.round(sourceData[index + 1] * (1 - eased) + resultData[index + 1] * eased);
-    output[index + 2] = Math.round(sourceData[index + 2] * (1 - eased) + resultData[index + 2] * eased);
-    output[index + 3] = Math.round(sourceData[index + 3] * (1 - eased) + resultData[index + 3] * eased);
-  }
-
-  const png = await sharp(output, {
-    raw: { width, height, channels: 4 },
-    limitInputPixels: false,
-  }).png().toBuffer();
-
-  return {
-    src: `data:image/png;base64,${png.toString("base64")}`,
-    width,
-    height,
-  };
-}
-
-async function createLocalEraseFallback(sourceBuffer: Buffer, maskSrc: string, width: number, height: number): Promise<{ images: GeneratedImage[] }> {
-  const sharp = (await import("sharp")).default;
-  const { data: sourceData } = await sharp(sourceBuffer, { limitInputPixels: false })
-    .rotate()
-    .resize(width, height, { fit: "fill" })
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const { buffer: maskBuffer } = await imageSrcToBuffer(maskSrc);
-  const { data: maskData } = await sharp(maskBuffer, { limitInputPixels: false })
-    .rotate()
-    .resize(width, height, { fit: "fill" })
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-
-  const output = Buffer.from(sourceData);
-  const masked = new Uint8Array(width * height);
-  for (let index = 0; index < maskData.length; index += 4) {
-    if (maskData[index + 3] <= 220) masked[index / 4] = 1;
-  }
-  const fillRadius = 32;
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const pixel = y * width + x;
-      if (!masked[pixel]) continue;
-      let r = 0;
-      let g = 0;
-      let b = 0;
-      let a = 0;
-      let count = 0;
-      for (let radius = 2; radius <= fillRadius && count < 12; radius += 2) {
-        for (let dy = -radius; dy <= radius; dy += radius) {
-          for (let dx = -radius; dx <= radius; dx += 2) {
-            const nx = x + dx;
-            const ny = y + dy;
-            if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
-            const np = ny * width + nx;
-            if (masked[np]) continue;
-            const ni = np * 4;
-            r += sourceData[ni];
-            g += sourceData[ni + 1];
-            b += sourceData[ni + 2];
-            a += sourceData[ni + 3];
-            count += 1;
-          }
-        }
-        for (let dx = -radius; dx <= radius; dx += radius) {
-          for (let dy = -radius + 2; dy <= radius - 2; dy += 2) {
-            const nx = x + dx;
-            const ny = y + dy;
-            if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
-            const np = ny * width + nx;
-            if (masked[np]) continue;
-            const ni = np * 4;
-            r += sourceData[ni];
-            g += sourceData[ni + 1];
-            b += sourceData[ni + 2];
-            a += sourceData[ni + 3];
-            count += 1;
-          }
-        }
-      }
-      if (count === 0) continue;
-      const index = pixel * 4;
-      output[index] = Math.round(r / count);
-      output[index + 1] = Math.round(g / count);
-      output[index + 2] = Math.round(b / count);
-      output[index + 3] = Math.round(a / count);
-    }
-  }
-
-  const blurredPatch = await sharp(output, {
-    raw: { width, height, channels: 4 },
-    limitInputPixels: false,
-  }).blur(3).raw().toBuffer();
-
-  for (let index = 0; index < output.length; index += 4) {
-    if (maskData[index + 3] > 220) continue;
-    const strength = Math.max(0, Math.min(1, (255 - maskData[index + 3]) / 255));
-    const eased = Math.min(1, strength * 1.12);
-    output[index] = Math.round(sourceData[index] * (1 - eased) + blurredPatch[index] * eased);
-    output[index + 1] = Math.round(sourceData[index + 1] * (1 - eased) + blurredPatch[index + 1] * eased);
-    output[index + 2] = Math.round(sourceData[index + 2] * (1 - eased) + blurredPatch[index + 2] * eased);
-    output[index + 3] = Math.round(sourceData[index + 3] * (1 - eased) + blurredPatch[index + 3] * eased);
-  }
-
-  const png = await sharp(output, {
-    raw: { width, height, channels: 4 },
-    limitInputPixels: false,
-  }).png().toBuffer();
-
-  return {
-    images: [{
-      src: `data:image/png;base64,${png.toString("base64")}`,
-      width,
-      height,
-    }],
-  };
-}
-
 async function imageSrcToFile(src: string): Promise<File> {
   const { buffer, mimeType } = await imageSrcToBuffer(src);
   return bufferToImageFile(buffer, mimeType);
@@ -2166,43 +1861,16 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<{ image
   const sourceImageDimensions = await getImageBufferDimensions(sourceImageData.buffer);
   const targetWidth = coerceTargetDimension(input.targetWidth) || sourceImageDimensions.width;
   const targetHeight = coerceTargetDimension(input.targetHeight) || sourceImageDimensions.height;
-  const fallbackErase = () => {
-    if (input.disableLocalFallback) {
-      throw new Error("AI 擦除未返回可用内容，请稍后重试");
-    }
-    return createLocalEraseFallback(sourceImageData.buffer, input.maskSrc, targetWidth, targetHeight);
-  };
-
-  if (!input.disableLocalFallback) {
-    try {
-      const { providerMaskBuffer, eraseMaskBuffer } = await createPicWishEraseMasks(maskImageData.buffer, targetWidth, targetHeight);
-      const picWishResult = await eraseWithPicWish(
-        sourceImageData.buffer,
-        sourceImageData.mimeType,
-        providerMaskBuffer,
-        "image/png",
-      );
-      const normalized = await normalizeGeneratedImagesToTargetAspect(picWishResult.images, targetWidth, targetHeight);
-      if (normalized.length > 0) {
-        const changed = await didEraseChangeMaskedArea(sourceImageData.buffer, normalized[0].src, input.maskSrc, targetWidth, targetHeight);
-        if (!changed) return fallbackErase();
-        const blended = await doesEraseBlendIntoBackground(sourceImageData.buffer, normalized[0].src, input.maskSrc, targetWidth, targetHeight);
-        if (!blended) {
-          console.warn("PicWish erase result still resembles masked foreground; switching to image edit fallback");
-          throw new Error("PicWish erase did not blend into background");
-        }
-        const composited = await compositeEraseResultInsidePicWishMask(
-          sourceImageData.buffer,
-          normalized[0].src,
-          eraseMaskBuffer,
-          targetWidth,
-          targetHeight,
-        );
-        return { images: [composited] };
-      }
-    } catch (picWishError) {
-      console.warn("PicWish erase failed; using local masked fallback", picWishError);
-    }
+  const providerMaskBuffer = await createPicWishEraseMask(maskImageData.buffer, targetWidth, targetHeight);
+  const picWishResult = await eraseWithPicWish(
+    sourceImageData.buffer,
+    sourceImageData.mimeType,
+    providerMaskBuffer,
+    "image/png",
+  );
+  const normalized = await normalizeGeneratedImagesToTargetAspect(picWishResult.images, targetWidth, targetHeight);
+  if (normalized.length === 0) {
+    throw new Error("AI 擦除未返回可用内容，请稍后重试");
   }
-  return fallbackErase();
+  return { images: normalized };
 }
