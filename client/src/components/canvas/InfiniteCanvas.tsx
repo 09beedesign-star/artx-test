@@ -8796,7 +8796,11 @@ function CanvasTopToolPalette({
 
   // 点击画布空白处时关闭子菜单
   useEffect(() => {
-    const handler = () => { setShapeOpen(false); setDrawOpen(false); setImageGeneratorOpen(false); setProductBackgroundOpen(false); };
+    const handler = () => {
+      setShapeOpen(false);
+      setDrawOpen(false);
+      setImageGeneratorOpen(false);
+    };
     window.addEventListener("pane-click", handler);
     return () => window.removeEventListener("pane-click", handler);
   }, []);
