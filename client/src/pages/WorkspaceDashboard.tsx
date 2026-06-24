@@ -337,9 +337,6 @@ export default function WorkspaceDashboard() {
       ...fromHistoryProject({
         ...historyProject,
         cover: payload.cover,
-        socialPresetId: payload.socialPreset?.id,
-        canvasWidth: payload.socialPreset?.width,
-        canvasHeight: payload.socialPreset?.height,
       }),
       deliveryAt: payload.deliveryAt,
       owner: payload.owner,
@@ -443,7 +440,7 @@ export default function WorkspaceDashboard() {
 
       </div>
 
-      <CreateProjectDialog open={showCreate} onOpenChange={setShowCreate} onCreate={handleCreate} title="新建画板" />
+      <CreateProjectDialog open={showCreate} onOpenChange={setShowCreate} onCreate={handleCreate} title="新建画布" />
       {deleteConfirm && <DeleteConfirmDialog count={deleteConfirm.length} onConfirm={confirmDelete} onCancel={() => setDeleteConfirm(null)} isDark={isDark} />}
     </div>
   );
