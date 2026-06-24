@@ -1049,13 +1049,13 @@ async function eraseWithPicWish(
       width: created.data?.image_width,
       height: created.data?.image_height,
     });
-    return { ...result, providerTaskId: taskId };
+    return withProviderTaskIds(result, taskId ? [taskId] : []);
   }
   if (!taskId) {
     throw new Error("PicWish inpaint did not return a task id");
   }
   const result = await pollPicWishInpaintTask(taskId, apiKey, baseUrl);
-  return { ...result, providerTaskId: taskId };
+  return withProviderTaskIds(result, [taskId]);
 }
 
 async function createPicWishEraseMask(maskBuffer: Buffer, width: number, height: number): Promise<Buffer> {
@@ -1110,12 +1110,12 @@ async function createPicWishEraseMask(maskBuffer: Buffer, width: number, height:
   return providerMaskBuffer;
 }
 
-async function enhanceImageWithPicWish(src: string): Promise<{ images: GeneratedImage[] }> {
+async function enhanceImageWithPicWish(src: string): Promise<GeneratedImageResult> {
   const { buffer, mimeType } = await imageSrcToBuffer(src);
   return runPicWishImageTask("scale", buffer, mimeType);
 }
 
-async function removeWatermarkWithPicWish(src: string): Promise<{ images: GeneratedImage[] }> {
+async function removeWatermarkWithPicWish(src: string): Promise<GeneratedImageResult> {
   const { buffer, mimeType } = await imageSrcToBuffer(src);
   return runPicWishImageTask("watermark", buffer, mimeType);
 }
@@ -1142,7 +1142,7 @@ function getBackgroundOutputSize(input: CreateBackgroundInput, fallbackWidth: nu
   return { width: Math.max(1, Math.round(baseLongSide * aspect)), height: baseLongSide };
 }
 
-async function createBackgroundWithPicWish(input: CreateBackgroundInput): Promise<{ images: GeneratedImage[] }> {
+async function createBackgroundWithPicWish(input: CreateBackgroundInput): Promise<GeneratedImageResult> {
   const { buffer, mimeType } = await imageSrcToBuffer(input.imageSrc);
   const sourceDimensions = await getImageBufferDimensions(buffer);
   const output = getBackgroundOutputSize(input, sourceDimensions.width, sourceDimensions.height);
@@ -1621,9 +1621,10 @@ async function combineForegroundAlphaFromCutouts(originalBuffer: Buffer, cutoutB
   };
 }
 
-async function removeBackgroundWithQualityCutout(buffer: Buffer, mimeType: string): Promise<{ images: GeneratedImage[] }> {
+async function removeBackgroundWithQualityCutout(buffer: Buffer, mimeType: string): Promise<GeneratedImageResult> {
   const cutoutBuffers: Buffer[] = [];
   const segmentation = await removeBackgroundWithPicWish(buffer, mimeType);
+  const providerTaskIds = collectProviderTaskIds(segmentation);
   const segmentationSrc = segmentation.images[0]?.src;
   if (segmentationSrc) {
     cutoutBuffers.push((await imageSrcToBuffer(segmentationSrc)).buffer);
@@ -1631,6 +1632,7 @@ async function removeBackgroundWithQualityCutout(buffer: Buffer, mimeType: strin
 
   try {
     const faceCutout = await removeFaceWithPicWish(buffer, mimeType);
+    providerTaskIds.push(...collectProviderTaskIds(faceCutout));
     const faceSrc = faceCutout.images[0]?.src;
     if (faceSrc) cutoutBuffers.push((await imageSrcToBuffer(faceSrc)).buffer);
   } catch (faceError) {
@@ -1638,7 +1640,8 @@ async function removeBackgroundWithQualityCutout(buffer: Buffer, mimeType: strin
   }
 
   if (cutoutBuffers.length === 0) return segmentation;
-  return combineForegroundAlphaFromCutouts(buffer, cutoutBuffers);
+  const combined = await combineForegroundAlphaFromCutouts(buffer, cutoutBuffers);
+  return withProviderTaskIds(combined, providerTaskIds);
 }
 
 async function applyRawAlphaMaskToOriginalImage(originalBuffer: Buffer, alphaMaskBuffer: Buffer): Promise<{ images: GeneratedImage[] }> {
@@ -1708,7 +1711,7 @@ async function applyRawAlphaMaskToOriginalImage(originalBuffer: Buffer, alphaMas
   };
 }
 
-async function removeBackgroundPreservingForegroundPixels(src: string): Promise<{ images: GeneratedImage[] }> {
+async function removeBackgroundPreservingForegroundPixels(src: string): Promise<GeneratedImageResult> {
   const { buffer, mimeType } = await imageSrcToBuffer(src);
 
   try {
@@ -1894,7 +1897,7 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
   return { images };
 }
 
-export async function removeImageBackground(input: RemoveBackgroundInput): Promise<{ images: GeneratedImage[] }> {
+export async function removeImageBackground(input: RemoveBackgroundInput): Promise<GeneratedImageResult> {
   if (!input.imageSrc?.trim()) {
     throw new Error("Missing imageSrc");
   }
@@ -1902,7 +1905,7 @@ export async function removeImageBackground(input: RemoveBackgroundInput): Promi
   return removeBackgroundPreservingForegroundPixels(input.imageSrc);
 }
 
-export async function enhanceImage(input: EnhanceImageInput): Promise<{ images: GeneratedImage[] }> {
+export async function enhanceImage(input: EnhanceImageInput): Promise<GeneratedImageResult> {
   if (!input.imageSrc?.trim()) {
     throw new Error("Missing imageSrc");
   }
@@ -1910,7 +1913,7 @@ export async function enhanceImage(input: EnhanceImageInput): Promise<{ images: 
   return enhanceImageWithPicWish(input.imageSrc);
 }
 
-export async function removeImageWatermark(input: RemoveWatermarkInput): Promise<{ images: GeneratedImage[] }> {
+export async function removeImageWatermark(input: RemoveWatermarkInput): Promise<GeneratedImageResult> {
   if (!input.imageSrc?.trim()) {
     throw new Error("Missing imageSrc");
   }
@@ -1962,7 +1965,7 @@ export async function extractImageText(input: ExtractImageTextInput): Promise<{ 
   };
 }
 
-export async function createProductBackground(input: CreateBackgroundInput): Promise<{ images: GeneratedImage[] }> {
+export async function createProductBackground(input: CreateBackgroundInput): Promise<GeneratedImageResult> {
   if (!input.imageSrc?.trim()) {
     throw new Error("Missing imageSrc");
   }
@@ -1974,7 +1977,7 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
     const sourceImageData = await imageSrcToBuffer(input.imageSrc);
     const sourceDimensions = await getImageBufferDimensions(sourceImageData.buffer);
     const output = getBackgroundOutputSize(input, sourceDimensions.width, sourceDimensions.height);
-    return editImageWithPrompt({
+    const fallbackResult = await editImageWithPrompt({
       imageSrc: input.imageSrc,
       targetWidth: output.width,
       targetHeight: output.height,
@@ -1985,6 +1988,7 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
         "Only create a new realistic commercial background behind and around the product. Match lighting, shadows, perspective, and contact shadow naturally.",
       ].filter(Boolean).join("\n"),
     });
+    return fallbackResult;
   }
 }
 
@@ -2120,5 +2124,5 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<Generat
   if (normalized.length === 0) {
     throw new Error("AI 擦除未返回可用内容，请稍后重试");
   }
-  return { images: normalized, providerTaskId: picWishResult.providerTaskId };
+  return withProviderTaskIds({ images: normalized }, collectProviderTaskIds(picWishResult));
 }
