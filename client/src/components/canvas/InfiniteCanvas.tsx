@@ -16367,7 +16367,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       {/* 批量下载格式选择弹窗 */}
       {downloadDialogOpen && (
         <div
-          className="fixed inset-x-0 flex justify-center"
+          className="fixed inset-0 flex items-center justify-center p-4"
           style={{ background: "rgba(0,0,0,0.60)", backdropFilter: "blur(10px)", zIndex: 6000 }}
           onMouseDown={() => setDownloadDialogOpen(false)}
         >
