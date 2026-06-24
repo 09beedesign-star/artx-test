@@ -1475,7 +1475,7 @@ function AssetFloatingToolbar({ isDark, position, onAction }: {
   return (
     <div
       className="absolute nodrag nopan"
-      style={{ left: position.left, top: position.top, transform: "translate(-100%, -50%)", zIndex: 1600 }}
+      style={{ left: position.left, top: position.top, transform: "translate(-100%, -50%)", zIndex: 90 }}
       onMouseDown={e => e.stopPropagation()}
       onClick={e => e.stopPropagation()}
     >
@@ -1697,7 +1697,7 @@ async function createMultiPlatformCoverBlob(
   src: string,
   size: { width: number; height: number },
   transform: NonNullable<SocialMediaExportPayload["transform"]>,
-  format: NonNullable<SocialMediaExportPayload["format"]>,
+  format: "png" | "jpg" | "webp",
 ) {
   const image = await loadImageForCanvas(src);
   const naturalW = Math.max(1, image.naturalWidth || image.width);
@@ -6315,6 +6315,13 @@ function BottomPromptBar({
   const [model, setModel] = useState("auto");
   const [rows, setRows] = useState(1);
   const [isSending, setIsSending] = useState(false);
+  const [referencePreview, setReferencePreview] = useState<{
+    src: string;
+    title: string;
+    x: number;
+    y: number;
+    visible: boolean;
+  } | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const autoRunPromptRef = useRef<string | null>(null);
   const autoRunModelRef = useRef<string | null>(null);
@@ -6490,6 +6497,22 @@ function BottomPromptBar({
     }
   };
 
+  const showReferencePreview = useCallback((event: React.MouseEvent<HTMLElement>, asset: ImageGeneratorReferenceAsset) => {
+    if (!asset.src) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    setReferencePreview({
+      src: asset.src,
+      title: asset.title,
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+      visible: true,
+    });
+  }, []);
+
+  const hideReferencePreview = useCallback(() => {
+    setReferencePreview(prev => prev ? { ...prev, visible: false } : prev);
+  }, []);
+
   const hasContent = prompt.trim() || hasRefs;
   const placeholderText = hasRefs
     ? referencedAssets.length === 1
@@ -6500,6 +6523,7 @@ function BottomPromptBar({
       : "描述你想创作的内容，AI 将在画布上生成节点...";
 
   return (
+    <>
     <div
       className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-[var(--radius-lg-design)] shadow-2xl overflow-hidden"
       style={{
@@ -6534,6 +6558,8 @@ function BottomPromptBar({
               key={asset.id}
               className="relative flex items-center gap-1.5 pr-1 pl-1 py-0.5 rounded-[var(--radius-pill)] type-caption"
               style={{ background: chipBg, border: `1px solid ${chipBorder}`, color: chipText }}
+              onMouseEnter={event => showReferencePreview(event, asset)}
+              onMouseLeave={hideReferencePreview}
             >
               <span className="flex items-center justify-center overflow-hidden" style={{ width: 18, height: 18, borderRadius: 3, background: isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)", flexShrink: 0 }}>
                 {asset.src ? (
@@ -6618,6 +6644,34 @@ function BottomPromptBar({
         </button>
       </div>
     </div>
+    {referencePreview && typeof document !== "undefined" && createPortal(
+      <div
+        className="pointer-events-none fixed z-[260] origin-center overflow-hidden rounded-[var(--radius-md-design)] shadow-2xl transition-all duration-200 ease-out"
+        style={{
+          left: referencePreview.x,
+          top: referencePreview.y,
+          width: 160,
+          maxWidth: 160,
+          transform: `translate(-50%, -50%) scale(${referencePreview.visible ? 1 : 0.28})`,
+          opacity: referencePreview.visible ? 1 : 0,
+          border: `1px solid ${isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.14)"}`,
+          background: isDark ? "rgba(13,14,18,0.96)" : "rgba(255,255,255,0.96)",
+        }}
+        onTransitionEnd={() => {
+          setReferencePreview(prev => prev && !prev.visible ? null : prev);
+        }}
+      >
+        <img
+          src={referencePreview.src}
+          alt={referencePreview.title}
+          draggable={false}
+          className="block h-auto w-full object-contain"
+          style={{ maxWidth: 160 }}
+        />
+      </div>,
+      document.body,
+    )}
+    </>
   );
 }
 
@@ -9213,8 +9267,18 @@ function CanvasAssistantPanel({
   const [draggingComposerSegmentId, setDraggingComposerSegmentId] = useState<string | null>(null);
   const [dragOverComposerSegmentId, setDragOverComposerSegmentId] = useState<string | null>(null);
   const composerInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const composerSegmentRefs = useRef<Record<string, HTMLElement | null>>({});
+  const composerShellRef = useRef<HTMLDivElement | null>(null);
   const composerMeasureRef = useRef<HTMLSpanElement>(null);
   const [composerTextWidths, setComposerTextWidths] = useState<Record<string, number>>({});
+  const [composerBoxSelection, setComposerBoxSelection] = useState<{
+    active: boolean;
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+    selectedIds: string[];
+  } | null>(null);
   const activeComposerSegmentIdRef = useRef<string | null>(null);
   const activeComposerCursorRef = useRef(0);
   const syncedReferenceIdsRef = useRef<Set<string>>(new Set());
@@ -9447,6 +9511,75 @@ function CanvasAssistantPanel({
     setDraggingComposerSegmentId(null);
     setDragOverComposerSegmentId(null);
   }, []);
+
+  const getComposerSegmentSelectionText = useCallback((ids: string[]) => {
+    if (ids.length === 0) return "";
+    const selected = new Set(ids);
+    return composerSegments
+      .filter(segment => selected.has(segment.id))
+      .map(segment => {
+        if (segment.type === "text") return segment.text;
+        if (segment.type === "image") return `引用图：${segment.asset.title}`;
+        return `注释：${segment.annotation.text || segment.annotation.title}`;
+      })
+      .join("")
+      .trim();
+  }, [composerSegments]);
+
+  const updateComposerBoxSelection = useCallback((startX: number, startY: number, currentX: number, currentY: number, active: boolean) => {
+    const selectionRect = {
+      left: Math.min(startX, currentX),
+      right: Math.max(startX, currentX),
+      top: Math.min(startY, currentY),
+      bottom: Math.max(startY, currentY),
+    };
+    const selectedIds = composerSegments
+      .filter(segment => {
+        const element = composerSegmentRefs.current[segment.id];
+        if (!element) return false;
+        const rect = element.getBoundingClientRect();
+        return rect.right >= selectionRect.left
+          && rect.left <= selectionRect.right
+          && rect.bottom >= selectionRect.top
+          && rect.top <= selectionRect.bottom;
+      })
+      .map(segment => segment.id);
+    setComposerBoxSelection({ active, startX, startY, currentX, currentY, selectedIds });
+  }, [composerSegments]);
+
+  const handleComposerBoxSelectMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    const target = event.target as HTMLElement;
+    if (target.closest("button, input")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    updateComposerBoxSelection(startX, startY, startX, startY, true);
+    const handleMove = (moveEvent: MouseEvent) => {
+      updateComposerBoxSelection(startX, startY, moveEvent.clientX, moveEvent.clientY, true);
+    };
+    const handleUp = (upEvent: MouseEvent) => {
+      updateComposerBoxSelection(startX, startY, upEvent.clientX, upEvent.clientY, false);
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+    };
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp, { once: true });
+  }, [updateComposerBoxSelection]);
+
+  useEffect(() => {
+    if (!composerBoxSelection || composerBoxSelection.active || composerBoxSelection.selectedIds.length === 0) return;
+    const handleCopy = (event: ClipboardEvent) => {
+      const selectedText = getComposerSegmentSelectionText(composerBoxSelection.selectedIds);
+      if (!selectedText) return;
+      event.preventDefault();
+      event.clipboardData?.setData("text/plain", selectedText);
+      toast("已复制选中内容");
+    };
+    document.addEventListener("copy", handleCopy);
+    return () => document.removeEventListener("copy", handleCopy);
+  }, [composerBoxSelection, getComposerSegmentSelectionText]);
 
   const showComposerReferencePreview = useCallback((event: React.MouseEvent<HTMLElement>, src: string, title: string) => {
     if (!src) return;
@@ -10366,14 +10499,18 @@ function CanvasAssistantPanel({
                 </div>
               )}
               <div
+                ref={composerShellRef}
                 className="mb-2 flex min-h-[86px] flex-wrap items-start gap-[1px] overflow-y-auto rounded-[var(--radius-md-design)] px-1 py-1"
                 style={{
+                  position: "relative",
                   color: text,
                   maxHeight: "min(42vh, 280px)",
                   scrollbarWidth: "thin",
                   scrollbarColor: `${isDark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.18)"} transparent`,
                 }}
                 onMouseDown={(event) => {
+                  handleComposerBoxSelectMouseDown(event);
+                  if (event.defaultPrevented) return;
                   const target = event.target as HTMLElement;
                   if (target.closest("[data-composer-token], input")) return;
                   const rect = event.currentTarget.getBoundingClientRect();
@@ -10398,11 +10535,38 @@ function CanvasAssistantPanel({
                     letterSpacing: 0,
                   }}
                 />
+                {composerBoxSelection && composerShellRef.current && (() => {
+                  const rect = composerShellRef.current.getBoundingClientRect();
+                  const left = Math.min(composerBoxSelection.startX, composerBoxSelection.currentX) - rect.left + composerShellRef.current.scrollLeft;
+                  const top = Math.min(composerBoxSelection.startY, composerBoxSelection.currentY) - rect.top + composerShellRef.current.scrollTop;
+                  const width = Math.abs(composerBoxSelection.currentX - composerBoxSelection.startX);
+                  const height = Math.abs(composerBoxSelection.currentY - composerBoxSelection.startY);
+                  if (!composerBoxSelection.active || width < 3 || height < 3) return null;
+                  return (
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute rounded-[var(--radius-sm-design)]"
+                      style={{
+                        left,
+                        top,
+                        width,
+                        height,
+                        background: "rgba(197,237,71,0.10)",
+                        border: "1px solid rgba(197,237,71,0.55)",
+                        zIndex: 4,
+                      }}
+                    />
+                  );
+                })()}
                 {composerSegments.map(segment => {
+                  const isBoxSelected = composerBoxSelection?.selectedIds.includes(segment.id) ?? false;
                   if (segment.type === "image") {
                     return (
                       <span
                         key={segment.id}
+                        ref={node => {
+                          composerSegmentRefs.current[segment.id] = node;
+                        }}
                         draggable
                         onDragStart={event => handleComposerTokenDragStart(event, segment.id)}
                         onDragOver={event => handleComposerSegmentDragOver(event, segment.id)}
@@ -10418,7 +10582,7 @@ function CanvasAssistantPanel({
                           color: isDark ? "oklch(0.82 0.012 270)" : "oklch(0.28 0.012 270)",
                           cursor: "grab",
                           opacity: draggingComposerSegmentId === segment.id ? 0.42 : 1,
-                          boxShadow: dragOverComposerSegmentId === segment.id ? "0 0 0 2px rgba(197,237,71,0.18)" : "none",
+                          boxShadow: isBoxSelected ? "0 0 0 2px rgba(197,237,71,0.62)" : dragOverComposerSegmentId === segment.id ? "0 0 0 2px rgba(197,237,71,0.18)" : "none",
                         }}
                         title="拖拽调整引用顺序"
                       >
@@ -10442,6 +10606,9 @@ function CanvasAssistantPanel({
                     return (
                       <span
                         key={segment.id}
+                        ref={node => {
+                          composerSegmentRefs.current[segment.id] = node;
+                        }}
                         draggable
                         onDragStart={event => handleComposerTokenDragStart(event, segment.id)}
                         onDragOver={event => handleComposerSegmentDragOver(event, segment.id)}
@@ -10457,7 +10624,7 @@ function CanvasAssistantPanel({
                           color: isDark ? "oklch(0.82 0.012 270)" : "oklch(0.25 0.012 270)",
                           cursor: "grab",
                           opacity: draggingComposerSegmentId === segment.id ? 0.42 : 1,
-                          boxShadow: dragOverComposerSegmentId === segment.id ? "0 0 0 2px rgba(52,211,153,0.16)" : "none",
+                          boxShadow: isBoxSelected ? "0 0 0 2px rgba(197,237,71,0.62)" : dragOverComposerSegmentId === segment.id ? "0 0 0 2px rgba(52,211,153,0.16)" : "none",
                         }}
                         title={`注释：${segment.annotation.text || segment.annotation.title}`}
                       >
@@ -10491,6 +10658,7 @@ function CanvasAssistantPanel({
                       type="text"
                       ref={node => {
                         composerInputRefs.current[segment.id] = node;
+                        composerSegmentRefs.current[segment.id] = node;
                       }}
                       value={segment.text}
                       onChange={event => {
@@ -10521,6 +10689,8 @@ function CanvasAssistantPanel({
                       className="min-w-0 whitespace-nowrap border-0 bg-transparent px-1.5 py-1 outline-none disabled:cursor-not-allowed"
                       style={{
                         color: text,
+                        background: isBoxSelected ? "rgba(197,237,71,0.16)" : "transparent",
+                        borderRadius: isBoxSelected ? 5 : 0,
                         opacity: 1,
                         fontSize: 12,
                         lineHeight: "20px",
@@ -11115,7 +11285,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   // ── Download dialog state ──
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
   const [downloadGroupId, setDownloadGroupId] = useState<string | null>(null);
-  const [downloadFormat, setDownloadFormat] = useState<'jpg' | 'png' | 'webp'>('png');
+  const [downloadFormat, setDownloadFormat] = useState<"jpg" | "png">("png");
   const [assetMorePanel, setAssetMorePanel] = useState<{ command: string; nodeId: string } | null>(null);
   const closeAssetMorePanel = useCallback(() => {
     const previewNodeId = assetMorePanel?.nodeId;
@@ -13863,44 +14033,46 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
   const sanitizeDownloadName = useCallback((value: string) => value.replace(/[/\\:*?"<>|]/g, "_").trim() || "artx-image", []);
 
-  const imageSrcToFormatBlob = useCallback((src: string, format: "jpg" | "png" | "webp") => new Promise<Blob | null>((resolve) => {
-    if (!src) {
-      resolve(null);
-      return;
-    }
-    const mimeType = format === "jpg" ? "image/jpeg" : format === "webp" ? "image/webp" : "image/png";
-    const image = new window.Image();
-    image.crossOrigin = "anonymous";
-    image.onload = () => {
-      try {
-        const canvas = document.createElement("canvas");
-        canvas.width = image.naturalWidth || image.width || 800;
-        canvas.height = image.naturalHeight || image.height || 600;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) {
-          resolve(null);
-          return;
-        }
-        if (format === "jpg") {
-          ctx.fillStyle = "#fff";
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-        }
-        ctx.drawImage(image, 0, 0);
-        canvas.toBlob(blob => resolve(blob), mimeType, format === "jpg" ? 0.92 : undefined);
-      } catch {
-        fetch(src).then(response => response.blob()).then(blob => resolve(blob)).catch(() => resolve(null));
+  const imageSrcToFormatBlob = useCallback(async (src: string, format: "jpg" | "png") => {
+    if (!src) return null;
+    const mimeType = format === "jpg" ? "image/jpeg" : "image/png";
+    let objectUrl: string | null = null;
+    try {
+      let imageSrc = src;
+      if (!src.startsWith("data:")) {
+        const response = await fetch(src, { mode: "cors", credentials: "omit" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const blob = await response.blob();
+        objectUrl = URL.createObjectURL(blob);
+        imageSrc = objectUrl;
       }
-    };
-    image.onerror = () => {
-      fetch(src).then(response => response.blob()).then(blob => resolve(blob)).catch(() => resolve(null));
-    };
-    image.src = src;
-  }), []);
+      const image = await loadImageForCanvas(imageSrc);
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth || image.width || 800;
+      canvas.height = image.naturalHeight || image.height || 600;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+      if (format === "jpg") {
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      } else {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+      ctx.drawImage(image, 0, 0);
+      return await new Promise<Blob | null>(resolve => {
+        canvas.toBlob(resolve, mimeType, format === "jpg" ? 0.92 : undefined);
+      });
+    } catch {
+      return null;
+    } finally {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    }
+  }, []);
 
   // ── 批量下载实现：将多个图片打包成 ZIP ──
   const handleBatchDownload = useCallback(async (
     targetNodes: Node[],
-    format: 'jpg' | 'png' | 'webp',
+    format: "jpg" | "png",
     zipName = 'artx-images'
   ) => {
     const assetNodes = targetNodes.filter(n => n.type === "asset");
@@ -13910,7 +14082,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
     try {
       const zip = new JSZip();
-      const mimeType = format === 'jpg' ? 'image/jpeg' : format === 'webp' ? 'image/webp' : 'image/png';
       const ext = format;
 
       await Promise.all(assetNodes.map(async (node, index) => {
@@ -15891,7 +16062,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             <div className="px-5 py-4">
               <p className="type-caption mb-3" style={{ color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.50 0.01 270)" }}>选择下载格式</p>
               <div className="flex gap-2">
-                {(['png', 'jpg', 'webp'] as const).map(fmt => (
+                {(["png", "jpg"] as const).map(fmt => (
                   <button
                     key={fmt}
                     onClick={() => setDownloadFormat(fmt)}
@@ -15911,7 +16082,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 ))}
               </div>
               <p className="type-caption mt-2" style={{ color: isDark ? "oklch(0.42 0.01 270)" : "oklch(0.58 0.01 270)", fontSize: 11 }}>
-                {downloadFormat === 'jpg' ? 'JPEG 有损压缩，文件较小' : downloadFormat === 'webp' ? 'WebP 现代格式，小且清晰' : 'PNG 无损压，支持透明背景'}
+                {downloadFormat === "jpg" ? "JPEG 有损压缩，文件较小" : "PNG 无损压缩，支持 Alpha 透明背景"}
               </p>
             </div>
 
