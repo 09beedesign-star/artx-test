@@ -15072,28 +15072,36 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         model: "gpt-4o",
         images: [{ src: latestImageSrc, title: editAsset.title }, ...payload.references],
         prompt: [
-          "请理解主图和可选参考图，为图片模型生成一段中文生图提示词。",
-          "目标是基于原图内容做快捷编辑，但输出必须是一张新的结果图。",
-          "保留原图主体、构图和关键识别特征，只根据用户要求修改。",
+          "请理解主图和可选参考图，为图片编辑模型生成一段中文局部编辑提示词。",
+          "目标是基于原图做局部编辑，不是重新生成一张语义相似的新图。",
+          "必须把主图作为唯一基础画布，保留原图人物/主体身份、脸部、姿态、轮廓、服装、构图、镜头、光影、比例和未提及区域。",
+          "只根据用户要求做最小必要修改。可选参考图只能作为局部对象、材质、风格或细节参考。",
+          "禁止重画成另一个人、另一个姿态、另一个场景或新的不相关图片。",
           "只输出可直接给图片模型使用的提示词，不要解释。",
           `用户要求：${payload.prompt || "请智能优化这张图片，保持主体识别一致。"}`,
         ].join("\n"),
       });
+      const finalPrompt = [
+        optimizedPrompt.text.trim() || payload.prompt || `基于原图优化：${editAsset.title}`,
+        "Critical editing rule: use the selected image as the target canvas, not just a loose reference.",
+        "Preserve the original subject identity, face, pose, silhouette, clothing, composition, camera angle, lighting, colors, aspect ratio, and all unmentioned areas.",
+        "Only apply the user's requested local edit with the smallest necessary visual change. Do not regenerate a new person or scene.",
+      ].join("\n");
       await runDerivedImageGeneration({
         sourceNode,
-        prompt: optimizedPrompt.text.trim() || payload.prompt || `基于原图优化：${editAsset.title}`,
+        prompt: finalPrompt,
         style: "快捷编辑结果",
         nextW: sourceSize.width,
         nextH: sourceSize.height,
         placement: placeholderPayload.placement,
         generationId,
-        run: async () => generateAiImages({
-          prompt: optimizedPrompt.text.trim() || payload.prompt || `基于原图优化：${editAsset.title}`,
-          model: "gpt-image-2",
-          ratio: inferImageRatio(sourceSize.width, sourceSize.height),
-          count: 1,
-          style: "快捷编辑",
-          referencesEnabled: payload.references.length > 0,
+        run: async () => editImageWithPrompt({
+          imageSrc: latestImageSrc,
+          prompt: finalPrompt,
+          model: payload.model || "gpt-image-2",
+          referencedAssets: payload.references,
+          targetWidth: sourceSize.width,
+          targetHeight: sourceSize.height,
         }),
       });
     } catch (error) {
