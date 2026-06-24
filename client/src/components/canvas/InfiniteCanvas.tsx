@@ -14430,6 +14430,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     try {
       const zip = new JSZip();
       const ext = format;
+      const usedNames = new Map<string, number>();
 
       await Promise.all(assetNodes.map(async (node, index) => {
         const data = node.data as Record<string, unknown>;
@@ -14440,9 +14441,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const blob = await imageSrcToFormatBlob(src, format);
 
         if (blob) {
-          // 清洁文件名，去除非法字符
           const safeName = sanitizeDownloadName(title);
-          zip.file(`${safeName}.${ext}`, blob);
+          const duplicateCount = usedNames.get(safeName) || 0;
+          usedNames.set(safeName, duplicateCount + 1);
+          const finalName = duplicateCount === 0 ? safeName : `${safeName}-${duplicateCount + 1}`;
+          zip.file(`${finalName}.${ext}`, blob);
         }
       }));
 
