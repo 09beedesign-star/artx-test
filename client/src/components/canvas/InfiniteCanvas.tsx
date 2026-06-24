@@ -14520,9 +14520,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const target = e.target as HTMLElement | null;
       const isTyping = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
       if (isTyping) return;
-      // 支持复制/删除/粘贴的节点类型
-      const deletableTypes = ["asset", "shape", "freehand", "pen", "canvasFrame", "text"];
-      const selectedDeletableIds = selectedNodeIds.filter(id => nodes.some(n => n.id === id && deletableTypes.includes(n.type ?? "")));
+      // 支持复制/删除/粘贴/全选的画布内容节点类型
+      const editableCanvasTypes = ["asset", "shape", "freehand", "pen", "canvasFrame", "text"];
+      const selectedDeletableIds = selectedNodeIds.filter(id => nodes.some(n => editableCanvasTypes.includes(n.type ?? "")));
       if ((e.key === "Delete" || e.key === "Backspace") && selectedDeletableIds.length > 0) {
         e.preventDefault();
         pushHistory();
@@ -14541,10 +14541,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         undoCanvas();
         return;
       }
-      // 全选图片与画板：Ctrl+A (Windows) / Cmd+A (Mac)
+      // 全选画布内所有内容：Ctrl+A (Windows) / Cmd+A (Mac)
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
         const selectableIds = nodes
-          .filter(n => n.type === "asset" || n.type === "canvasFrame")
+          .filter(n => editableCanvasTypes.includes(n.type ?? ""))
           .map(n => n.id);
         if (selectableIds.length > 0) {
           e.preventDefault();
@@ -14553,8 +14553,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           setSelectedNodeIds(selectableIds);
           const assetCount = nodes.filter(n => n.type === "asset").length;
           const frameCount = nodes.filter(n => n.type === "canvasFrame").length;
+          const otherCount = selectableIds.length - assetCount - frameCount;
           toast(`已选中 ${selectableIds.length} 个对象`, {
-            description: `图片 ${assetCount} 个，画板 ${frameCount} 个`,
+            description: `图片 ${assetCount} 个，画板 ${frameCount} 个，其他 ${otherCount} 个`,
           });
         }
         return;
@@ -14562,7 +14563,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       // 复制：Ctrl+C (Windows) / Cmd+C (Mac) — 支持所有节点类型
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
         const toCopy = selectedNodeIds
-          .map(id => nodes.find(n => n.id === id && deletableTypes.includes(n.type ?? "")))
+          .map(id => nodes.find(n => n.id === id && editableCanvasTypes.includes(n.type ?? "")))
           .filter(Boolean) as Node[];
         if (toCopy.length > 0) {
           e.preventDefault();
