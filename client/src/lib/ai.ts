@@ -205,6 +205,12 @@ async function postProductBackground(body: Record<string, unknown>, fallbackErro
   return fetchAiJson<ApiErrorResponse & Partial<GeneratedImagesResponse>>(endpoint, body, fallbackError);
 }
 
+async function postImageErase(body: Record<string, unknown>, fallbackError: string) {
+  const baseUrl = getAiApiBaseUrl();
+  const endpoint = `${baseUrl}/api/images/erase`;
+  return fetchAiJson<ApiErrorResponse & Partial<GeneratedImagesResponse>>(endpoint, body, fallbackError);
+}
+
 async function postImageOcr(body: Record<string, unknown>, fallbackError: string) {
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/images/ocr`;
@@ -431,28 +437,37 @@ export async function removeImageWatermark({
 
 export async function createProductBackground({
   imageSrc,
+  backgroundReferenceSrc,
+  backgroundReferenceName,
   prompt,
   style,
   ratio = "1:1",
   resolution = "2k",
+  count = 1,
   customWidth,
   customHeight,
 }: {
   imageSrc: string;
+  backgroundReferenceSrc?: string;
+  backgroundReferenceName?: string;
   prompt?: string;
   style?: string;
   ratio?: string;
   resolution?: "2k" | "4k";
+  count?: number;
   customWidth?: number;
   customHeight?: number;
 }) {
   requireAiAuth();
   const result = await postProductBackground({
     imageSrc,
+    backgroundReferenceSrc,
+    backgroundReferenceName,
     prompt,
     style,
     ratio,
     resolution,
+    count,
     customWidth,
     customHeight,
   }, "智能创建背景失败");
@@ -523,10 +538,7 @@ export async function eraseImageObjects({
   targetHeight?: number;
 }) {
   requireAiAuth();
-  const result = await postAiOrchestrate({
-    capability: "element_erasure",
-    intent: "element_erasure",
-    operation: "erase",
+  const result = await postImageErase({
     imageSrc,
     maskSrc,
     model,
@@ -535,7 +547,11 @@ export async function eraseImageObjects({
     targetHeight,
   }, "AI 擦除失败");
 
-  return toGeneratedImagesResponse(result);
+  const normalized = toGeneratedImagesResponse(result);
+  if (!normalized.providerTaskId && !(normalized.providerTaskIds && normalized.providerTaskIds.length > 0)) {
+    throw new Error("AI 擦除失败: PicWish taskId 缺失，结果已拒绝写入");
+  }
+  return normalized;
 }
 
 export async function expandImageWithMask({

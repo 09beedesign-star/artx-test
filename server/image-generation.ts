@@ -24,10 +24,13 @@ type RemoveWatermarkInput = {
 
 type CreateBackgroundInput = {
   imageSrc: string;
+  backgroundReferenceSrc?: string;
+  backgroundReferenceName?: string;
   prompt?: string;
   style?: string;
   ratio?: string;
   resolution?: "2k" | "4k";
+  count?: number;
   customWidth?: number;
   customHeight?: number;
 };
@@ -899,7 +902,7 @@ async function createPicWishInpaintTask(
     rectangles?: Array<{ x: number; y: number; width: number; height: number }> | string;
     sync?: boolean;
   },
-): Promise<{ taskId?: string; apiKey: string; baseUrl: string; created: PicWishSegmentationResponse; imageUrl?: string }> {
+): Promise<{ taskId: string; apiKey: string; baseUrl: string; created: PicWishSegmentationResponse; imageUrl?: string }> {
   const { apiKey, baseUrl } = getPicWishConfig();
   if (!apiKey) {
     throw new Error("Missing PICWISH_API_KEY");
@@ -954,8 +957,17 @@ async function createPicWishInpaintTask(
     durationMs: Date.now() - startedAt,
     hasMask: Boolean(input.maskBuffer || input.maskUrl),
   });
-  if (!taskId && !imageUrl) {
-    logPicWishEvent("failure", { taskType: "inpaint", endpoint, status: created.status, durationMs: Date.now() - startedAt, error: "PicWish inpaint did not return a task id or result image", hasMask: Boolean(input.maskBuffer || input.maskUrl) });
+  if (!taskId) {
+    logPicWishEvent("failure", {
+      taskType: "inpaint",
+      endpoint,
+      status: created.status,
+      durationMs: Date.now() - startedAt,
+      error: imageUrl
+        ? "PicWish inpaint returned an image but no task id"
+        : "PicWish inpaint did not return a task id",
+      hasMask: Boolean(input.maskBuffer || input.maskUrl),
+    });
     throw new Error("PicWish inpaint did not return a task id");
   }
   return { taskId, apiKey, baseUrl, created, imageUrl };
@@ -1049,10 +1061,7 @@ async function eraseWithPicWish(
       width: created.data?.image_width,
       height: created.data?.image_height,
     });
-    return withProviderTaskIds(result, taskId ? [taskId] : []);
-  }
-  if (!taskId) {
-    throw new Error("PicWish inpaint did not return a task id");
+    return withProviderTaskIds(result, [taskId]);
   }
   const result = await pollPicWishInpaintTask(taskId, apiKey, baseUrl);
   return withProviderTaskIds(result, [taskId]);
@@ -1969,14 +1978,40 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
   if (!input.imageSrc?.trim()) {
     throw new Error("Missing imageSrc");
   }
+  const count = Math.max(1, Math.min(Number(input.count) || 1, 4));
+  const hasBackgroundReference = Boolean(input.backgroundReferenceSrc?.trim());
+  const sourceImageData = await imageSrcToBuffer(input.imageSrc);
+  const sourceDimensions = await getImageBufferDimensions(sourceImageData.buffer);
+  const output = getBackgroundOutputSize(input, sourceDimensions.width, sourceDimensions.height);
+
+  if (hasBackgroundReference || count > 1) {
+    const references = [
+      { src: input.imageSrc, title: "产品图" },
+      ...(hasBackgroundReference
+        ? [{ src: input.backgroundReferenceSrc!, title: input.backgroundReferenceName || "背景参考图" }]
+        : []),
+    ];
+    return generateImages({
+      prompt: [
+        input.style ? `背景风格：${input.style}` : "",
+        input.prompt || "创建商业化产品背景",
+        "Use reference image 1 as the exact product subject. Preserve the product shape, material, colors, logo, text, proportions, and foreground identity.",
+        hasBackgroundReference
+          ? "Use reference image 2 only as the background style reference. Match its color mood, lighting, perspective, material texture, spatial depth, and commercial photography feel without copying protected or distinctive elements exactly."
+          : "Create a realistic commercial background behind and around the product. Match lighting, shadows, perspective, and contact shadow naturally.",
+        "Return complete product commercial images. Do not crop or distort the product.",
+      ].filter(Boolean).join("\n"),
+      ratio: input.ratio || "1:1",
+      count,
+      style: input.style,
+      images: references,
+    });
+  }
 
   try {
     return await createBackgroundWithPicWish(input);
   } catch (picWishError) {
     console.warn("PicWish create background failed; using image edit provider fallback", picWishError);
-    const sourceImageData = await imageSrcToBuffer(input.imageSrc);
-    const sourceDimensions = await getImageBufferDimensions(sourceImageData.buffer);
-    const output = getBackgroundOutputSize(input, sourceDimensions.width, sourceDimensions.height);
     const fallbackResult = await editImageWithPrompt({
       imageSrc: input.imageSrc,
       targetWidth: output.width,

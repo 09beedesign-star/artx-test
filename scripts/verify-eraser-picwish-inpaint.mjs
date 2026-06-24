@@ -65,6 +65,18 @@ if (!/maskBuffer/.test(eraseSource) || !/maskMimeType/.test(eraseSource) || !/po
   throw new Error("橡皮擦必须继续传入用户涂抹蒙版");
 }
 
+if (!createTaskSource.includes("if (!taskId)")) {
+  throw new Error("PicWish inpaint 创建后必须强制校验 taskId");
+}
+
+if (!createTaskSource.includes("returned an image but no task id")) {
+  throw new Error("PicWish inpaint 返回图片但没有 taskId 时必须记录失败日志");
+}
+
+if (!eraseSource.includes("withProviderTaskIds(result, [taskId])")) {
+  throw new Error("橡皮擦成功结果必须绑定 PicWish taskId");
+}
+
 if (!/providerMask\[index\]\s*=\s*shouldErase\s*\?\s*255\s*:\s*0/.test(maskSource)) {
   throw new Error("传给 PicWish inpaint 的蒙版必须是白色=擦除区域、黑色=保护区域");
 }
