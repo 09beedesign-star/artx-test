@@ -5467,6 +5467,49 @@ function getImageDisplaySizeForRatio(ratio: string): { w: number; h: number } {
   return ratioSize[ratio] || ratioSize["1:1"];
 }
 
+function getSmartBackgroundRatioValue(ratio: string) {
+  const ratioValue: Record<string, number> = {
+    "1:1": 1,
+    "4:5": 4 / 5,
+    "5:4": 5 / 4,
+    "3:4": 3 / 4,
+    "4:3": 4 / 3,
+    "16:9": 16 / 9,
+    "9:16": 9 / 16,
+    "21:9": 21 / 9,
+  };
+  return ratioValue[ratio] || ratioValue["1:1"];
+}
+
+function getSmartBackgroundOutputSize(
+  ratio: string,
+  resolution: "2k" | "4k",
+  customWidth?: number,
+  customHeight?: number,
+) {
+  if (customWidth && customHeight) {
+    return { width: Math.max(1, Math.round(customWidth)), height: Math.max(1, Math.round(customHeight)) };
+  }
+  const aspect = getSmartBackgroundRatioValue(ratio);
+  const longSide = resolution === "4k" ? 3840 : 2048;
+  if (aspect >= 1) {
+    return { width: longSide, height: Math.max(1, Math.round(longSide / aspect)) };
+  }
+  return { width: Math.max(1, Math.round(longSide * aspect)), height: longSide };
+}
+
+async function getImageDisplaySizeFromSource(src: string, fallback: { w: number; h: number }) {
+  try {
+    const image = await loadImageForCanvas(src);
+    const naturalW = Math.max(1, image.naturalWidth || image.width);
+    const naturalH = Math.max(1, image.naturalHeight || image.height);
+    const size = getImportedImageDisplaySize(naturalW, naturalH);
+    return { w: size.width, h: size.height };
+  } catch {
+    return fallback;
+  }
+}
+
 function buildSkillAppliedImagePrompt(input: {
   activeSkill: PendingSkillLoad | null;
   skillContext: string;
@@ -12093,13 +12136,23 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         ? screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
         : { x: 160, y: 120 };
       const ratioSize = getImageDisplaySizeForRatio(detail.ratio || "1:1");
+      const outputSize = getSmartBackgroundOutputSize(
+        detail.ratio || "1:1",
+        detail.resolution,
+        detail.customWidth,
+        detail.customHeight,
+      );
       const displayW = detail.customWidth && detail.customHeight
         ? Math.min(560, Math.max(220, Math.round(detail.customWidth / 5)))
         : ratioSize.w;
       const displayH = detail.customWidth && detail.customHeight
         ? Math.min(560, Math.max(220, Math.round(detail.customHeight / 5)))
         : ratioSize.h;
-      const sourceId = `product-bg-source-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const backgroundReferenceDisplaySize = detail.backgroundReferenceSrc
+        ? await getImageDisplaySizeFromSource(detail.backgroundReferenceSrc, ratioSize)
+        : null;
+      const createdAt = Date.now();
+      const sourceId = `product-bg-source-${createdAt}-${Math.random().toString(36).slice(2, 7)}`;
       const sourcePosition = resolveNonOverlappingCanvasPosition(
         nodesRef.current,
         { x: center.x - displayW / 2, y: center.y - displayH / 2 },
@@ -12122,24 +12175,73 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           imgH: displayH,
         },
       };
+      const backgroundReferenceNode: Node | null = detail.backgroundReferenceSrc && backgroundReferenceDisplaySize ? (() => {
+        const referenceId = `product-bg-reference-${createdAt}-${Math.random().toString(36).slice(2, 7)}`;
+        const referencePosition = resolveNonOverlappingCanvasPosition(
+          nodesRef.current.concat(sourceNode),
+          {
+            x: sourcePosition.x + displayW + 36,
+            y: sourcePosition.y + Math.max(0, (displayH - backgroundReferenceDisplaySize.h) / 2),
+          },
+          { width: backgroundReferenceDisplaySize.w, height: backgroundReferenceDisplaySize.h },
+          [sourceId],
+        );
+        return {
+          id: referenceId,
+          type: "asset",
+          position: referencePosition,
+          style: { width: backgroundReferenceDisplaySize.w, height: backgroundReferenceDisplaySize.h },
+          selected: false,
+          data: {
+            id: referenceId,
+            assetId: "default",
+            localSrc: detail.backgroundReferenceSrc,
+            title: detail.backgroundReferenceName || "背景参考图",
+            assetType: "背景参考图",
+            tags: ["智能创建背景", "背景参考", detail.style],
+            imgW: backgroundReferenceDisplaySize.w,
+            imgH: backgroundReferenceDisplaySize.h,
+          },
+        };
+      })() : null;
+      const resultAnchorNode = backgroundReferenceNode || sourceNode;
+      const resultAnchorSize = getCanvasNodeSize(resultAnchorNode);
+      const resultPlacement = resolveNonOverlappingCanvasPosition(
+        nodesRef.current.concat(backgroundReferenceNode ? [sourceNode, backgroundReferenceNode] : [sourceNode]),
+        {
+          x: resultAnchorNode.position.x + resultAnchorSize.width + 36,
+          y: resultAnchorNode.position.y + Math.max(0, (resultAnchorSize.height - displayH) / 2),
+        },
+        { width: displayW, height: displayH },
+        [sourceId, backgroundReferenceNode?.id].filter(Boolean) as string[],
+      );
       pushHistory(nodesRef.current, edgesRef.current);
-      setNodes(nds => [...nds.map(n => ({ ...n, selected: false })), sourceNode]);
+      setNodes(nds => [
+        ...nds.map(n => ({ ...n, selected: false })),
+        sourceNode,
+        ...(backgroundReferenceNode ? [backgroundReferenceNode] : []),
+      ]);
       setSelectedNodeIds([sourceId]);
-      toast("智能创建背景中", { description: "已创建产品图节点，结果会在旁边生成" });
+      toast("智能创建背景中", {
+        description: backgroundReferenceNode
+          ? "已创建产品图和背景参考图节点，结果会在旁边生成"
+          : "已创建产品图节点，结果会在旁边生成",
+      });
       await runDerivedImageGeneration({
         sourceNode,
         prompt: [
           detail.style ? `背景风格：${detail.style}` : "",
           detail.prompt || "智能创建商业化产品背景",
           detail.backgroundReferenceSrc ? `背景参考图：${detail.backgroundReferenceName || "已上传参考图"}，生成与参考图相似的背景风格` : "",
-          `输出规格：${detail.customWidth && detail.customHeight ? `${detail.customWidth}x${detail.customHeight}` : `${detail.ratio} ${detail.resolution.toUpperCase()}`}`,
+          `输出规格：${outputSize.width}x${outputSize.height}，画面比例必须为 ${detail.ratio || "1:1"}，不允许黑边、空白边或只生成内框。`,
         ].filter(Boolean).join("\n"),
         style: "智能背景结果",
-        nextW: detail.customWidth || ratioSize.w,
-        nextH: detail.customHeight || ratioSize.h,
+        nextW: outputSize.width,
+        nextH: outputSize.height,
         preserveSourceDisplaySize: false,
         displayW,
         displayH,
+        placement: resultPlacement,
         resultCount: detail.count,
         run: async () => createProductBackground({
           imageSrc: detail.imageSrc,
@@ -12150,8 +12252,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           ratio: detail.ratio,
           resolution: detail.resolution,
           count: detail.count,
-          customWidth: detail.customWidth,
-          customHeight: detail.customHeight,
+          customWidth: outputSize.width,
+          customHeight: outputSize.height,
         }),
       });
     };
