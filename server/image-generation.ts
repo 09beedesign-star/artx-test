@@ -42,8 +42,14 @@ type EditImageInput = {
 };
 
 type EraseImageInput = {
-  imageSrc: string;
-  maskSrc: string;
+  imageSrc?: string;
+  imageUrl?: string;
+  image_url?: string;
+  maskSrc?: string;
+  maskUrl?: string;
+  mask_url?: string;
+  rectangles?: Array<{ x: number; y: number; width: number; height: number }> | string;
+  sync?: 0 | 1 | boolean | string | number;
   model?: string;
   prompt?: string;
   targetWidth?: number;
@@ -62,6 +68,31 @@ type GeneratedImage = {
   width: number;
   height: number;
 };
+
+type GeneratedImageResult = {
+  images: GeneratedImage[];
+  providerTaskId?: string;
+  providerTaskIds?: string[];
+};
+
+function collectProviderTaskIds(...results: Array<Pick<GeneratedImageResult, "providerTaskId" | "providerTaskIds"> | undefined>) {
+  const taskIds: string[] = [];
+  for (const result of results) {
+    if (!result) continue;
+    if (result.providerTaskId) taskIds.push(result.providerTaskId);
+    taskIds.push(...(result.providerTaskIds || []));
+  }
+  return Array.from(new Set(taskIds.filter(Boolean)));
+}
+
+function withProviderTaskIds(result: { images: GeneratedImage[] }, taskIds: string[]): GeneratedImageResult {
+  const uniqueTaskIds = Array.from(new Set(taskIds.filter(Boolean)));
+  return {
+    ...result,
+    providerTaskId: uniqueTaskIds[0],
+    providerTaskIds: uniqueTaskIds.length > 0 ? uniqueTaskIds : undefined,
+  };
+}
 
 type ImageGenerationResponse = {
   success?: boolean;
@@ -766,7 +797,7 @@ async function runPicWishImageTask(
   buffer: Buffer,
   mimeType: string,
   options?: { maskBuffer?: Buffer; maskMimeType?: string; fields?: Record<string, string | number | boolean | undefined> },
-): Promise<{ images: GeneratedImage[] }> {
+): Promise<GeneratedImageResult> {
   const { apiKey, baseUrl } = getPicWishConfig();
   if (!apiKey) {
     throw new Error("Missing PICWISH_API_KEY");
@@ -841,26 +872,34 @@ async function runPicWishImageTask(
     width: result.data?.image_width,
     height: result.data?.image_height,
   });
-  return downloadPicWishImageAsTransparentPng(imageUrl, {
+  const resolvedTaskId = getPicWishTaskId(result) || taskId;
+  const downloaded = await downloadPicWishImageAsTransparentPng(imageUrl, {
     width: result.data?.image_width,
     height: result.data?.image_height,
   });
+  return withProviderTaskIds(downloaded, resolvedTaskId ? [resolvedTaskId] : []);
 }
 
-async function removeBackgroundWithPicWish(buffer: Buffer, mimeType: string): Promise<{ images: GeneratedImage[] }> {
+async function removeBackgroundWithPicWish(buffer: Buffer, mimeType: string): Promise<GeneratedImageResult> {
   return runPicWishImageTask("segmentation", buffer, mimeType);
 }
 
-async function removeFaceWithPicWish(buffer: Buffer, mimeType: string): Promise<{ images: GeneratedImage[] }> {
+async function removeFaceWithPicWish(buffer: Buffer, mimeType: string): Promise<GeneratedImageResult> {
   return runPicWishImageTask("self-face-cutout", buffer, mimeType);
 }
 
 async function createPicWishInpaintTask(
-  imageBuffer: Buffer,
-  imageMimeType: string,
-  maskBuffer: Buffer,
-  maskMimeType: string,
-) {
+  input: {
+    imageBuffer?: Buffer;
+    imageMimeType?: string;
+    imageUrl?: string;
+    maskBuffer?: Buffer;
+    maskMimeType?: string;
+    maskUrl?: string;
+    rectangles?: Array<{ x: number; y: number; width: number; height: number }> | string;
+    sync?: boolean;
+  },
+): Promise<{ taskId?: string; apiKey: string; baseUrl: string; created: PicWishSegmentationResponse; imageUrl?: string }> {
   const { apiKey, baseUrl } = getPicWishConfig();
   if (!apiKey) {
     throw new Error("Missing PICWISH_API_KEY");
@@ -868,12 +907,26 @@ async function createPicWishInpaintTask(
 
   const endpoint = `${baseUrl.replace(/\/+$/, "")}/api/tasks/visual/inpaint`;
   const body = new FormData();
-  body.append("sync", "0");
-  body.append("image_file", bufferToImageFile(imageBuffer, imageMimeType));
-  body.append("mask_file", bufferToImageFile(maskBuffer, maskMimeType));
+  body.append("sync", input.sync ? "1" : "0");
+  if (input.imageUrl) {
+    body.append("image_url", input.imageUrl);
+  } else if (input.imageBuffer) {
+    body.append("image_file", bufferToImageFile(input.imageBuffer, input.imageMimeType || "image/png"));
+  } else {
+    throw new Error("Missing image source for PicWish inpaint");
+  }
+  if (input.maskUrl) {
+    body.append("mask_url", input.maskUrl);
+  } else if (input.maskBuffer) {
+    body.append("mask_file", bufferToImageFile(input.maskBuffer, input.maskMimeType || "image/png"));
+  } else if (input.rectangles) {
+    body.append("rectangles", typeof input.rectangles === "string" ? input.rectangles : JSON.stringify(input.rectangles));
+  } else {
+    throw new Error("Missing removal area for PicWish inpaint");
+  }
 
   const startedAt = Date.now();
-  logPicWishEvent("request", { taskType: "inpaint", endpoint, hasMask: true });
+  logPicWishEvent("request", { taskType: "inpaint", endpoint, hasMask: Boolean(input.maskBuffer || input.maskUrl) });
   let created: PicWishSegmentationResponse;
   try {
     created = await readPicWishJson(await fetch(endpoint, {
@@ -885,11 +938,12 @@ async function createPicWishInpaintTask(
     }), "PicWish inpaint");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    logPicWishEvent("failure", { taskType: "inpaint", endpoint, durationMs: Date.now() - startedAt, error: message, hasMask: true });
+    logPicWishEvent("failure", { taskType: "inpaint", endpoint, durationMs: Date.now() - startedAt, error: message, hasMask: Boolean(input.maskBuffer || input.maskUrl) });
     throw error;
   }
 
   const taskId = getPicWishTaskId(created);
+  const imageUrl = getPicWishResultImageUrl(created, "inpaint");
   logPicWishEvent("created", {
     taskType: "inpaint",
     endpoint,
@@ -898,19 +952,19 @@ async function createPicWishInpaintTask(
     state: created.data?.state,
     progress: created.data?.progress,
     durationMs: Date.now() - startedAt,
-    hasMask: true,
+    hasMask: Boolean(input.maskBuffer || input.maskUrl),
   });
-  if (!taskId) {
-    logPicWishEvent("failure", { taskType: "inpaint", endpoint, status: created.status, durationMs: Date.now() - startedAt, error: "PicWish inpaint did not return a task id", hasMask: true });
+  if (!taskId && !imageUrl) {
+    logPicWishEvent("failure", { taskType: "inpaint", endpoint, status: created.status, durationMs: Date.now() - startedAt, error: "PicWish inpaint did not return a task id or result image", hasMask: Boolean(input.maskBuffer || input.maskUrl) });
     throw new Error("PicWish inpaint did not return a task id");
   }
-  return { taskId, apiKey, baseUrl };
+  return { taskId, apiKey, baseUrl, created, imageUrl };
 }
 
 async function pollPicWishInpaintTask(taskId: string, apiKey: string, baseUrl: string): Promise<{ images: GeneratedImage[] }> {
   const endpoint = `${baseUrl.replace(/\/+$/, "")}/api/tasks/visual/inpaint/${encodeURIComponent(taskId)}`;
   const startedAt = Date.now();
-  for (let attempt = 0; attempt < 30; attempt += 1) {
+  for (let attempt = 0; attempt < 180; attempt += 1) {
     if (attempt > 0) await delay(1000);
     let data: PicWishSegmentationResponse;
     try {
@@ -938,6 +992,7 @@ async function pollPicWishInpaintTask(taskId: string, apiKey: string, baseUrl: s
     });
     if (state > 0) {
       const imageUrl = data.data?.image || "";
+      if (state !== 1 && !imageUrl) continue;
       if (!imageUrl) {
         logPicWishEvent("failure", { taskType: "inpaint", endpoint, taskId, status: data.status, state, progress: data.data?.progress, durationMs: Date.now() - startedAt, error: "PicWish inpaint did not return a result image" });
         throw new Error("PicWish inpaint did not return a result image");
@@ -977,18 +1032,30 @@ async function pollPicWishInpaintTask(taskId: string, apiKey: string, baseUrl: s
 }
 
 async function eraseWithPicWish(
-  imageBuffer: Buffer,
-  imageMimeType: string,
-  maskBuffer: Buffer,
-  maskMimeType: string,
-): Promise<{ images: GeneratedImage[] }> {
-  const { taskId, apiKey, baseUrl } = await createPicWishInpaintTask(
-    imageBuffer,
-    imageMimeType,
-    maskBuffer,
-    maskMimeType,
-  );
-  return pollPicWishInpaintTask(taskId, apiKey, baseUrl);
+  input: {
+    imageBuffer?: Buffer;
+    imageMimeType?: string;
+    imageUrl?: string;
+    maskBuffer?: Buffer;
+    maskMimeType?: string;
+    maskUrl?: string;
+    rectangles?: Array<{ x: number; y: number; width: number; height: number }> | string;
+    sync?: boolean;
+  },
+): Promise<GeneratedImageResult> {
+  const { taskId, apiKey, baseUrl, created, imageUrl } = await createPicWishInpaintTask(input);
+  if (imageUrl) {
+    const result = await downloadPicWishImageAsTransparentPng(imageUrl, {
+      width: created.data?.image_width,
+      height: created.data?.image_height,
+    });
+    return { ...result, providerTaskId: taskId };
+  }
+  if (!taskId) {
+    throw new Error("PicWish inpaint did not return a task id");
+  }
+  const result = await pollPicWishInpaintTask(taskId, apiKey, baseUrl);
+  return { ...result, providerTaskId: taskId };
 }
 
 async function createPicWishEraseMask(maskBuffer: Buffer, width: number, height: number): Promise<Buffer> {
@@ -2016,29 +2083,42 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   return { images };
 }
 
-export async function eraseImageObjects(input: EraseImageInput): Promise<{ images: GeneratedImage[] }> {
-  if (!input.imageSrc?.trim()) {
+export async function eraseImageObjects(input: EraseImageInput): Promise<GeneratedImageResult> {
+  const sourceImageSrc = input.imageSrc?.trim();
+  const sourceImageUrl = (input.imageUrl || input.image_url || "").trim();
+  const maskSrc = input.maskSrc?.trim();
+  const maskUrl = (input.maskUrl || input.mask_url || "").trim();
+  if (!sourceImageSrc && !sourceImageUrl) {
     throw new Error("Missing imageSrc");
   }
-  if (!input.maskSrc?.trim()) {
+  if (!maskSrc && !maskUrl && !input.rectangles) {
     throw new Error("Missing maskSrc");
   }
 
-  const sourceImageData = await imageSrcToBuffer(input.imageSrc);
-  const maskImageData = await imageSrcToBuffer(input.maskSrc);
-  const sourceImageDimensions = await getImageBufferDimensions(sourceImageData.buffer);
+  const sourceImageData = sourceImageSrc ? await imageSrcToBuffer(sourceImageSrc) : null;
+  const maskImageData = maskSrc ? await imageSrcToBuffer(maskSrc) : null;
+  const sourceImageDimensions = sourceImageData
+    ? await getImageBufferDimensions(sourceImageData.buffer)
+    : { width: coerceTargetDimension(input.targetWidth) || 1024, height: coerceTargetDimension(input.targetHeight) || 1024 };
   const targetWidth = coerceTargetDimension(input.targetWidth) || sourceImageDimensions.width;
   const targetHeight = coerceTargetDimension(input.targetHeight) || sourceImageDimensions.height;
-  const providerMaskBuffer = await createPicWishEraseMask(maskImageData.buffer, targetWidth, targetHeight);
-  const picWishResult = await eraseWithPicWish(
-    sourceImageData.buffer,
-    sourceImageData.mimeType,
-    providerMaskBuffer,
-    "image/png",
-  );
+  const providerMaskBuffer = maskImageData
+    ? await createPicWishEraseMask(maskImageData.buffer, targetWidth, targetHeight)
+    : undefined;
+  const sync = input.sync === true || input.sync === 1 || input.sync === "1";
+  const picWishResult = await eraseWithPicWish({
+    imageBuffer: sourceImageData?.buffer,
+    imageMimeType: sourceImageData?.mimeType,
+    imageUrl: sourceImageUrl || undefined,
+    maskBuffer: providerMaskBuffer,
+    maskMimeType: providerMaskBuffer ? "image/png" : undefined,
+    maskUrl: maskUrl || undefined,
+    rectangles: input.rectangles,
+    sync,
+  });
   const normalized = await normalizeGeneratedImagesToTargetAspect(picWishResult.images, targetWidth, targetHeight);
   if (normalized.length === 0) {
     throw new Error("AI 擦除未返回可用内容，请稍后重试");
   }
-  return { images: normalized };
+  return { images: normalized, providerTaskId: picWishResult.providerTaskId };
 }

@@ -33,6 +33,7 @@ export type OrchestrateResponse = {
   text?: string;
   images?: Array<{ src: string; width: number; height: number }>;
   image_base64?: string;
+  providerTaskId?: string;
   route: string;
   skill?: string;
 };
@@ -136,6 +137,7 @@ export class AIOrchestrator {
         model: route.model,
         images: result.images,
         image_base64: firstImageBase64(result.images),
+        providerTaskId: result.providerTaskId,
         route: route.provider,
         skill: skill?.id,
       };

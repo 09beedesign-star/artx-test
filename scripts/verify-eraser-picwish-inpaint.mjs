@@ -41,8 +41,24 @@ if (!/X-API-KEY/.test(createTaskSource) || !/X-API-KEY/.test(pollTaskSource)) {
   throw new Error("橡皮擦 PicWish 请求必须使用 X-API-KEY 认证");
 }
 
-if (!/mask_file/.test(createTaskSource) || !/sync", "0"/.test(createTaskSource)) {
-  throw new Error("橡皮擦必须通过 mask_file 和 sync=0 创建异步 inpaint 任务");
+if (!/body\.append\("sync", input\.sync \? "1" : "0"\)/.test(createTaskSource)) {
+  throw new Error("橡皮擦必须支持 PicWish sync=0 和 sync=1");
+}
+
+if (!/image_url/.test(createTaskSource) || !/image_file/.test(createTaskSource)) {
+  throw new Error("橡皮擦必须支持 image_url 和 image_file 两种原图来源");
+}
+
+if (!/mask_url/.test(createTaskSource) || !/mask_file/.test(createTaskSource) || !/rectangles/.test(createTaskSource)) {
+  throw new Error("橡皮擦必须支持 mask_url、mask_file 和 rectangles 三种去除区域");
+}
+
+if (!/attempt < 180/.test(pollTaskSource)) {
+  throw new Error("橡皮擦异步轮询最长必须支持 180 秒");
+}
+
+if (!/state > 0/.test(pollTaskSource) || !/state < 0/.test(pollTaskSource) || !/imageUrl/.test(pollTaskSource)) {
+  throw new Error("橡皮擦轮询必须结合 data.state 和 data.image 判断成功/失败");
 }
 
 if (!/maskBuffer/.test(eraseSource) || !/maskMimeType/.test(eraseSource) || !/pollPicWishInpaintTask/.test(eraseSource)) {
@@ -61,4 +77,4 @@ if (/createLocalEraseFallback|compositeEraseResultInsidePicWishMask|didEraseChan
   throw new Error("eraseImageObjects 不能再走旧橡皮擦链路");
 }
 
-console.log("PicWish eraser route uses the documented inpaint API with white-remove masks and no old eraser fallback.");
+console.log("PicWish eraser route matches the documented inpaint API, including sync modes, URL/file inputs, rectangles, 180s polling, and white-remove masks.");
