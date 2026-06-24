@@ -6547,7 +6547,7 @@ function BottomPromptBar({
       src: asset.src,
       title: asset.title,
       x: rect.left + rect.width / 2,
-      y: rect.top + rect.height / 2,
+      y: rect.top - 12,
       visible: true,
     });
   }, []);
@@ -6572,15 +6572,13 @@ function BottomPromptBar({
       className="absolute bottom-4 rounded-[var(--radius-lg-design)] shadow-2xl overflow-hidden"
       style={{
         background: bg,
-        border: `1.5px solid ${hasRefs || activeSkill ? activeBorder : border}`,
+        border: `1.5px solid ${border}`,
         backdropFilter: "blur(20px)",
         left: 24,
         right: promptRightOffset,
         zIndex: 50,
         transition: "border-color 0.25s cubic-bezier(0.23,1,0.32,1), box-shadow 0.25s cubic-bezier(0.23,1,0.32,1)",
-        boxShadow: hasRefs || activeSkill
-          ? `0 0 0 3px oklch(0.62 0.22 290 / 0.12), 0 10px 34px rgba(210,214,224,0.10)`
-          : `0 10px 34px rgba(210,214,224,0.10)`,
+        boxShadow: `0 10px 34px rgba(210,214,224,0.10)`,
       }}
     >
       {/* Multi-reference chip row */}
@@ -6696,12 +6694,13 @@ function BottomPromptBar({
           left: referencePreview.x,
           top: referencePreview.y,
           maxWidth: 160,
-          transform: `translate(-50%, -50%) scale(${referencePreview.visible ? 1 : 0.28})`,
-          transformOrigin: "center center",
+          transform: `translate(-50%, -100%) scale(${referencePreview.visible ? 1 : 0.28})`,
+          transformOrigin: "center bottom",
           opacity: referencePreview.visible ? 1 : 0,
           border: `1px solid ${isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.14)"}`,
           background: isDark ? "rgba(13,14,18,0.96)" : "rgba(255,255,255,0.96)",
           willChange: "transform, opacity",
+          boxShadow: isDark ? "0 22px 46px rgba(0,0,0,0.44)" : "0 18px 38px rgba(0,0,0,0.16)",
         }}
         onTransitionEnd={() => {
           setReferencePreview(prev => prev && !prev.visible ? null : prev);
@@ -9764,7 +9763,7 @@ function CanvasAssistantPanel({
       src,
       title,
       x: rect.left + rect.width / 2,
-      y: rect.top + rect.height / 2,
+      y: rect.top - 12,
       visible: true,
     });
   }, []);
@@ -11104,12 +11103,13 @@ function CanvasAssistantPanel({
                 left: composerPreview.x,
                 top: composerPreview.y,
                 maxWidth: 160,
-                transform: `translate(-50%, -50%) scale(${composerPreview.visible ? 1 : 0.28})`,
-                transformOrigin: "center center",
+                transform: `translate(-50%, -100%) scale(${composerPreview.visible ? 1 : 0.28})`,
+                transformOrigin: "center bottom",
                 opacity: composerPreview.visible ? 1 : 0,
                 border: `1px solid ${isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.14)"}`,
                 background: isDark ? "rgba(13,14,18,0.96)" : "rgba(255,255,255,0.96)",
                 willChange: "transform, opacity",
+                boxShadow: isDark ? "0 22px 46px rgba(0,0,0,0.44)" : "0 18px 38px rgba(0,0,0,0.16)",
               }}
               onTransitionEnd={() => {
                 setComposerPreview(prev => prev && !prev.visible ? null : prev);
