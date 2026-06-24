@@ -50,6 +50,19 @@ export type GeneratedImagesResponse = {
   providerTaskIds?: string[];
 };
 
+function toGeneratedImagesResponse(result: Partial<GeneratedImagesResponse>): GeneratedImagesResponse {
+  const providerTaskIds = result.providerTaskIds?.length
+    ? result.providerTaskIds
+    : result.providerTaskId
+      ? [result.providerTaskId]
+      : undefined;
+  return {
+    images: result.images || [],
+    providerTaskId: result.providerTaskId || providerTaskIds?.[0],
+    providerTaskIds,
+  };
+}
+
 export type ReferenceImageResult = {
   id: string;
   title: string;
@@ -315,7 +328,7 @@ export async function generateImages({
     skillId,
   }, "图像生成失败");
 
-  return { images: result.images || [] };
+  return toGeneratedImagesResponse(result);
 }
 
 export async function startBackgroundImageGeneration({
@@ -413,7 +426,7 @@ export async function removeImageWatermark({
 }) {
   requireAiAuth();
   const result = await postImageWatermarkRemoval({ imageSrc }, "去水印失败");
-  return { images: result.images || [] };
+  return toGeneratedImagesResponse(result);
 }
 
 export async function createProductBackground({
@@ -444,7 +457,7 @@ export async function createProductBackground({
     customHeight,
   }, "智能创建背景失败");
 
-  return { images: result.images || [] };
+  return toGeneratedImagesResponse(result);
 }
 
 export async function extractImageText({
@@ -522,7 +535,7 @@ export async function eraseImageObjects({
     targetHeight,
   }, "AI 擦除失败");
 
-  return { images: result.images || [], providerTaskId: result.providerTaskId };
+  return toGeneratedImagesResponse(result);
 }
 
 export async function expandImageWithMask({
@@ -550,5 +563,5 @@ export async function expandImageWithMask({
     prompt: prompt || "Extend the image naturally only inside the masked blank area. Preserve all unmasked pixels exactly and never generate beyond the requested boundary.",
   }, "AI 扩展失败");
 
-  return { images: result.images || [] };
+  return toGeneratedImagesResponse(result);
 }
