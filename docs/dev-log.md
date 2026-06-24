@@ -45,6 +45,30 @@
 - 已知风险 / 待回归：
 ```
 
+## 2026-06-24 09:47
+
+- 任务：替换橡皮擦 AI 能力并发布当前主站改动到测试环境
+- 原因：原橡皮擦效果更接近局部模糊，不能稳定按用户紫色涂抹区域进行真实背景补齐；需要按 PicWish 智能消除笔文档替换为官方 inpaint 链路，并保留既有画布交互改动。
+- 影响范围：`server/image-generation.ts` 橡皮擦链路、`scripts/verify-eraser-picwish-inpaint.mjs` 专项校验、`client/src/components/canvas/InfiniteCanvas.tsx` 当前画布交互改动、`MEMORY.md` 项目规则、`docs/dev-log.md` 日志。
+- AI 联调：
+  - capability: image object erasure / eraser
+  - entry: canvas image left toolbar eraser command
+  - model/provider: PicWish / 佐糖 inpaint
+  - generationId: N/A
+  - backendTaskId: N/A
+  - providerTaskId: N/A
+  - request endpoint: `POST /api/tasks/visual/inpaint`, `GET /api/tasks/visual/inpaint/{task_id}`
+  - result: 已改为 PicWish 官方 white-remove / black-protect 蒙版契约，移除旧本地模糊兜底和旧二次合成判断。
+  - error: N/A
+- 测试环境：
+  - frontend: <https://09beedesign-star.github.io/artx-test/>
+  - backend: <https://artx-test.onrender.com>
+  - branch: `test/feature/interaction-framework`
+  - commitSha: `0f74789e71e47218fd649cf5814379017ac311e1`
+  - deployment check: `deployment.json` 已返回 commitSha `0f74789e71e47218fd649cf5814379017ac311e1`，后端 `/api/health` 返回 `{"ok":true}`。
+- 验证：`node scripts/verify-eraser-picwish-inpaint.mjs`、`npm run check`、`npm run build` 均通过；远端 `test/feature/interaction-framework` 已推送到 `0f74789e71e47218fd649cf5814379017ac311e1`。
+- 已知风险 / 待回归：需要在测试链接用真实图片复测橡皮擦结果是否按紫色区域消除并补齐背景；`lithos-hero-test/` 仍为本地未跟踪临时目录，未纳入本次测试发布。
+
 ## 2026-06-24 00:00
 
 - 任务：创建统一开发日志
