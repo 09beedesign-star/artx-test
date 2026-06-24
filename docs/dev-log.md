@@ -117,6 +117,30 @@
 - 验证：`npm run check`、`npm run build` 均通过；专项代码回归确认 `crop` action 在默认 toast 之前触发 `setCropEditorState({ nodeId, imageSrc })`，`CropEditor` 确认后仍写回 `localSrc: croppedDataUrl` 与裁切后节点尺寸。
 - 已知风险 / 待回归：本地项目页当前没有可直接点击的图片节点，浏览器交互回归未能完整点选裁切按钮；需要在含图片节点的画布中手动复测打开裁切弹层、确认裁切、取消裁切三条路径。
 
+## 2026-06-24 16:10
+
+- 任务：强制测试环境重建以校验橡皮擦 taskId 合约
+- 原因：本地代码与远端测试分支都已包含 PicWish `providerTaskId/providerTaskIds` 返回逻辑，但测试后端接口实测仍未返回这些字段，需要通过一次最小变更触发 Render 重新构建，确认是否为部署未跟上导致。
+- 影响范围：仅追加开发日志，业务代码不变；用于触发测试分支重新部署并复测 `/api/images/erase` 与 `/api/ai/orchestrate`。
+- AI 联调：
+  - capability: `element_erasure`
+  - entry: `/api/images/erase`, `/api/ai/orchestrate`
+  - model/provider: PicWish / 佐糖 inpaint
+  - generationId: N/A
+  - backendTaskId: N/A
+  - providerTaskId: N/A
+  - request endpoint: `POST /api/tasks/visual/inpaint`, `GET /api/tasks/visual/inpaint/{task_id}`
+  - result: 待测试环境重建完成后复测
+  - error: N/A
+- 测试环境：
+  - frontend: <https://09beedesign-star.github.io/artx-test/>
+  - backend: <https://artx-test.onrender.com>
+  - branch: `test/feature/interaction-framework`
+  - commitSha: 待发布
+  - deployment check: 待发布
+- 验证：待测试环境部署完成后补充。
+- 已知风险 / 待回归：若重建后接口仍缺少 `providerTaskId/providerTaskIds`，则需要进一步排查 Render 实际构建来源或运行产物缓存。
+
 ## 2026-06-24 10:42
 
 - 任务：支持跨画布复制粘贴图片节点和画板
