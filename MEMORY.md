@@ -9,6 +9,7 @@
 ## Working Notes
 
 - Follow `AGENTS.md` for ArtX test release workflow before any test environment publishing.
+- Development log rule: when the user says "添加日志", "记一下日志", or asks to log a task, append the record to `docs/dev-log.md` using the established template; AI-related records must include `generationId`, `backendTaskId`, and `providerTaskId` or explicitly mark missing IDs as `N/A`.
 - Credential values are not stored here; only credential locations may be recorded if needed.
 - Product model: users pay for compute, compute is converted into platform credits/points, and admin tooling should track feedback, payments, accounts, and quota/credit operations.
 - Admin prototype should include a top-right notification center for urgent operations such as payment exceptions, runtime errors, integration latency, and credit/risk events.
