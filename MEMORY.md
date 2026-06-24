@@ -9,6 +9,7 @@
 ## Working Notes
 
 - Follow `AGENTS.md` for ArtX test release workflow before any test environment publishing.
+- Log lookup rule: when the user says "查看日志" in this workspace, read `docs/dev-log.md` by default.
 - Development log rule: when the user says "添加日志", "记一下日志", or asks to log a task, append the record to `docs/dev-log.md` using the established template; AI-related records must include `generationId`, `backendTaskId`, and `providerTaskId` or explicitly mark missing IDs as `N/A`.
 - Credential values are not stored here; only credential locations may be recorded if needed.
 - Product model: users pay for compute, compute is converted into platform credits/points, and admin tooling should track feedback, payments, accounts, and quota/credit operations.
@@ -20,6 +21,7 @@
 - Canvas assistant composer rule: image reference chips and annotation reference chips are ordered prompt segments; drag reordering must preserve the same order in both displayed prompt text and the reference image array sent to AI.
 - Eraser AI rule: canvas eraser strokes call PicWish/佐糖 image object removal through `server/image-generation.ts#eraseWithPicWish`, using the documented `POST /api/tasks/visual/inpaint` and `GET /api/tasks/visual/inpaint/{task_id}` flow. The provider mask is white-remove/black-protect, matching the PicWish inpaint contract.
 - Eraser isolation rule: the eraser path must not use local blur fallback, old masked compositing, or old result-guessing heuristics. If PicWish inpaint fails or returns no image, surface the failure instead of fabricating a blurred result; do not change outpaint, annotation, smart background, HD, layer editing, watermark, or background-removal paths when tuning eraser.
+- PicWish logging rule: all PicWish/佐糖 calls must log server-side `[picwish]` JSON events for request, created task, polling, success, failure, and result download. Logs may include task type, endpoint, taskId, state, progress, duration, dimensions, and errors, but must never include API key values.
 - Watermark removal rule: the image toolbar `去水印` command calls `client/src/lib/ai.ts#removeImageWatermark`, `POST /api/images/remove-watermark`, and PicWish/佐糖 `watermark` visual task; it must stay separate from eraser `inpaint`.
 - Gemini image model rule: selectable Gemini/Nano Banana image models are exposed through `IMAGE_AI_MODELS` and routed as chat-compatible image models in `server/image-generation.ts`, so they avoid the unsupported Images API path.
 - BKEEL image generation rule: `https://token.bkeel.com/v1/images/generations` returns an async `task_id`; image generation must poll the task result instead of expecting a synchronous `data[0].b64_json` response.

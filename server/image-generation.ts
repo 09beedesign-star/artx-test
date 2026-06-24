@@ -132,6 +132,48 @@ type PicWishSegmentationResponse = {
   };
 };
 
+type PicWishLogEvent = "request" | "created" | "poll" | "success" | "failure" | "download";
+
+function logPicWishEvent(
+  event: PicWishLogEvent,
+  details: {
+    taskType: PicWishVisualTaskType;
+    endpoint?: string;
+    taskId?: string;
+    status?: number;
+    state?: number;
+    progress?: number;
+    attempt?: number;
+    durationMs?: number;
+    width?: number;
+    height?: number;
+    error?: string;
+    hasMask?: boolean;
+  },
+) {
+  const log = {
+    provider: "picwish",
+    event,
+    taskType: details.taskType,
+    endpoint: details.endpoint,
+    taskId: details.taskId,
+    status: details.status,
+    state: details.state,
+    progress: details.progress,
+    attempt: details.attempt,
+    durationMs: details.durationMs,
+    width: details.width,
+    height: details.height,
+    hasMask: details.hasMask,
+    error: details.error,
+  };
+  if (event === "failure") {
+    console.warn("[picwish]", JSON.stringify(log));
+  } else {
+    console.info("[picwish]", JSON.stringify(log));
+  }
+}
+
 function normalizeAsyncTaskResult(data: AsyncImageTaskResponse): {
   status?: string;
   error?: string;
@@ -669,19 +711,53 @@ async function downloadPicWishImageAsTransparentPng(url: string, fallbackSize?: 
 
 async function pollPicWishTask(taskType: PicWishVisualTaskType, taskId: string, apiKey: string, baseUrl: string): Promise<PicWishSegmentationResponse> {
   const endpoint = `${getPicWishTaskEndpoint(baseUrl, taskType)}/${encodeURIComponent(taskId)}`;
+  const startedAt = Date.now();
   for (let attempt = 0; attempt < 30; attempt += 1) {
     await delay(1000);
-    const data = await readPicWishJson(await fetch(endpoint, {
-      method: "GET",
-      headers: {
-        "X-API-KEY": apiKey,
-      },
-    }), `PicWish ${taskType} polling`);
-    if (getPicWishResultImageUrl(data, taskType)) return data;
+    let data: PicWishSegmentationResponse;
+    try {
+      data = await readPicWishJson(await fetch(endpoint, {
+        method: "GET",
+        headers: {
+          "X-API-KEY": apiKey,
+        },
+      }), `PicWish ${taskType} polling`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logPicWishEvent("failure", { taskType, endpoint, taskId, attempt: attempt + 1, durationMs: Date.now() - startedAt, error: message });
+      throw error;
+    }
+    logPicWishEvent("poll", {
+      taskType,
+      endpoint,
+      taskId,
+      status: data.status,
+      state: data.data?.state,
+      progress: data.data?.progress,
+      attempt: attempt + 1,
+      durationMs: Date.now() - startedAt,
+    });
+    if (getPicWishResultImageUrl(data, taskType)) {
+      logPicWishEvent("success", {
+        taskType,
+        endpoint,
+        taskId,
+        status: data.status,
+        state: data.data?.state,
+        progress: data.data?.progress,
+        durationMs: Date.now() - startedAt,
+        width: data.data?.image_width,
+        height: data.data?.image_height,
+      });
+      return data;
+    }
     if (data.data?.state && data.data.state < 0) {
-      throw new Error(getPicWishErrorMessage(data, `PicWish ${taskType} task failed`));
+      const message = getPicWishErrorMessage(data, `PicWish ${taskType} task failed`);
+      logPicWishEvent("failure", { taskType, endpoint, taskId, status: data.status, state: data.data.state, progress: data.data.progress, durationMs: Date.now() - startedAt, error: message });
+      throw new Error(message);
     }
   }
+  logPicWishEvent("failure", { taskType, endpoint, taskId, durationMs: Date.now() - startedAt, error: `PicWish ${taskType} timed out` });
   throw new Error(`PicWish ${taskType} timed out`);
 }
 
@@ -712,28 +788,59 @@ async function runPicWishImageTask(
     body.append(key, String(value));
   });
 
-  const created = await readPicWishJson(await fetch(getPicWishTaskEndpoint(baseUrl, taskType), {
-    method: "POST",
-    headers: {
-      "X-API-KEY": apiKey,
-    },
-    body,
-  }), `PicWish ${taskType}`);
+  const endpoint = getPicWishTaskEndpoint(baseUrl, taskType);
+  const startedAt = Date.now();
+  logPicWishEvent("request", { taskType, endpoint, hasMask: Boolean(options?.maskBuffer) });
+
+  let created: PicWishSegmentationResponse;
+  try {
+    created = await readPicWishJson(await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "X-API-KEY": apiKey,
+      },
+      body,
+    }), `PicWish ${taskType}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logPicWishEvent("failure", { taskType, endpoint, durationMs: Date.now() - startedAt, error: message, hasMask: Boolean(options?.maskBuffer) });
+    throw error;
+  }
 
   const immediateResult = getPicWishResultImageUrl(created, taskType);
   const taskId = getPicWishTaskId(created);
+  logPicWishEvent("created", {
+    taskType,
+    endpoint,
+    taskId,
+    status: created.status,
+    state: created.data?.state,
+    progress: created.data?.progress,
+    durationMs: Date.now() - startedAt,
+    hasMask: Boolean(options?.maskBuffer),
+  });
   const result = immediateResult
     ? created
     : taskId
       ? await pollPicWishTask(taskType, taskId, apiKey, baseUrl)
       : null;
   if (!result) {
+    logPicWishEvent("failure", { taskType, endpoint, durationMs: Date.now() - startedAt, error: "PicWish did not return a task id", hasMask: Boolean(options?.maskBuffer) });
     throw new Error("PicWish did not return a task id");
   }
   const imageUrl = getPicWishResultImageUrl(result, taskType);
   if (!imageUrl) {
+    logPicWishEvent("failure", { taskType, endpoint, taskId, durationMs: Date.now() - startedAt, error: "PicWish did not return a result image", hasMask: Boolean(options?.maskBuffer) });
     throw new Error("PicWish did not return a result image");
   }
+  logPicWishEvent("download", {
+    taskType,
+    endpoint: imageUrl,
+    taskId: getPicWishTaskId(result) || taskId,
+    durationMs: Date.now() - startedAt,
+    width: result.data?.image_width,
+    height: result.data?.image_height,
+  });
   return downloadPicWishImageAsTransparentPng(imageUrl, {
     width: result.data?.image_width,
     height: result.data?.image_height,
@@ -765,16 +872,36 @@ async function createPicWishInpaintTask(
   body.append("image_file", bufferToImageFile(imageBuffer, imageMimeType));
   body.append("mask_file", bufferToImageFile(maskBuffer, maskMimeType));
 
-  const created = await readPicWishJson(await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "X-API-KEY": apiKey,
-    },
-    body,
-  }), "PicWish inpaint");
+  const startedAt = Date.now();
+  logPicWishEvent("request", { taskType: "inpaint", endpoint, hasMask: true });
+  let created: PicWishSegmentationResponse;
+  try {
+    created = await readPicWishJson(await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "X-API-KEY": apiKey,
+      },
+      body,
+    }), "PicWish inpaint");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logPicWishEvent("failure", { taskType: "inpaint", endpoint, durationMs: Date.now() - startedAt, error: message, hasMask: true });
+    throw error;
+  }
 
   const taskId = getPicWishTaskId(created);
+  logPicWishEvent("created", {
+    taskType: "inpaint",
+    endpoint,
+    taskId,
+    status: created.status,
+    state: created.data?.state,
+    progress: created.data?.progress,
+    durationMs: Date.now() - startedAt,
+    hasMask: true,
+  });
   if (!taskId) {
+    logPicWishEvent("failure", { taskType: "inpaint", endpoint, status: created.status, durationMs: Date.now() - startedAt, error: "PicWish inpaint did not return a task id", hasMask: true });
     throw new Error("PicWish inpaint did not return a task id");
   }
   return { taskId, apiKey, baseUrl };
@@ -782,29 +909,70 @@ async function createPicWishInpaintTask(
 
 async function pollPicWishInpaintTask(taskId: string, apiKey: string, baseUrl: string): Promise<{ images: GeneratedImage[] }> {
   const endpoint = `${baseUrl.replace(/\/+$/, "")}/api/tasks/visual/inpaint/${encodeURIComponent(taskId)}`;
+  const startedAt = Date.now();
   for (let attempt = 0; attempt < 30; attempt += 1) {
     if (attempt > 0) await delay(1000);
-    const data = await readPicWishJson(await fetch(endpoint, {
-      method: "GET",
-      headers: {
-        "X-API-KEY": apiKey,
-      },
-    }), "PicWish inpaint polling");
+    let data: PicWishSegmentationResponse;
+    try {
+      data = await readPicWishJson(await fetch(endpoint, {
+        method: "GET",
+        headers: {
+          "X-API-KEY": apiKey,
+        },
+      }), "PicWish inpaint polling");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logPicWishEvent("failure", { taskType: "inpaint", endpoint, taskId, attempt: attempt + 1, durationMs: Date.now() - startedAt, error: message });
+      throw error;
+    }
     const state = Number(data.data?.state || 0);
+    logPicWishEvent("poll", {
+      taskType: "inpaint",
+      endpoint,
+      taskId,
+      status: data.status,
+      state,
+      progress: data.data?.progress,
+      attempt: attempt + 1,
+      durationMs: Date.now() - startedAt,
+    });
     if (state > 0) {
       const imageUrl = data.data?.image || "";
       if (!imageUrl) {
+        logPicWishEvent("failure", { taskType: "inpaint", endpoint, taskId, status: data.status, state, progress: data.data?.progress, durationMs: Date.now() - startedAt, error: "PicWish inpaint did not return a result image" });
         throw new Error("PicWish inpaint did not return a result image");
       }
+      logPicWishEvent("success", {
+        taskType: "inpaint",
+        endpoint,
+        taskId,
+        status: data.status,
+        state,
+        progress: data.data?.progress,
+        durationMs: Date.now() - startedAt,
+        width: data.data?.image_width,
+        height: data.data?.image_height,
+      });
+      logPicWishEvent("download", {
+        taskType: "inpaint",
+        endpoint: imageUrl,
+        taskId,
+        durationMs: Date.now() - startedAt,
+        width: data.data?.image_width,
+        height: data.data?.image_height,
+      });
       return downloadPicWishImageAsTransparentPng(imageUrl, {
         width: data.data?.image_width,
         height: data.data?.image_height,
       });
     }
     if (state < 0) {
-      throw new Error(getPicWishErrorMessage(data, "PicWish inpaint task failed"));
+      const message = getPicWishErrorMessage(data, "PicWish inpaint task failed");
+      logPicWishEvent("failure", { taskType: "inpaint", endpoint, taskId, status: data.status, state, progress: data.data?.progress, durationMs: Date.now() - startedAt, error: message });
+      throw new Error(message);
     }
   }
+  logPicWishEvent("failure", { taskType: "inpaint", endpoint, taskId, durationMs: Date.now() - startedAt, error: "PicWish inpaint timed out" });
   throw new Error("PicWish inpaint timed out");
 }
 
