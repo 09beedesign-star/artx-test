@@ -58,7 +58,7 @@ async function startServer() {
   app.use(express.json({ limit: "25mb" }));
 
   app.get("/api/health", (_req, res) => {
-    res.json({ ok: true });
+    res.json({ ok: true, eraserTaskIdContract: true });
   });
 
   app.post("/api/images/generate", async (req, res) => {
