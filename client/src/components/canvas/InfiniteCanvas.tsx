@@ -486,6 +486,7 @@ function SkillPointSelector({
           {skills.map(skill => {
             const Icon = skill.icon;
             const active = activeSkill?.id === skill.id;
+            const iconColor = skillIconColor(skill.id);
             return (
               <button
                 key={skill.id}
@@ -501,7 +502,18 @@ function SkillPointSelector({
                 onMouseEnter={event => { if (!active) event.currentTarget.style.background = hoverBg; }}
                 onMouseLeave={event => { event.currentTarget.style.background = active ? activeBg : "transparent"; }}
               >
-                <Icon size={15} style={{ color: skillIconColor(skill.id), marginTop: 1, flexShrink: 0 }} />
+                <Icon
+                  size={15}
+                  color={iconColor}
+                  stroke={iconColor}
+                  strokeWidth={2.35}
+                  style={{
+                    color: iconColor,
+                    filter: `drop-shadow(0 0 5px ${iconColor}66)`,
+                    marginTop: 1,
+                    flexShrink: 0,
+                  }}
+                />
                 <span className="min-w-0">
                   <span className="block truncate text-xs font-semibold">{skill.name}</span>
                   <span className="mt-0.5 block line-clamp-2 text-[11px]" style={{ color: isDark ? "rgba(255,255,255,0.46)" : "rgba(20,20,36,0.50)" }}>
