@@ -385,6 +385,25 @@ function SkillPointSelector({
   const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
   const activeBg = isDark ? "oklch(0.58 0.22 290 / 0.18)" : "oklch(0.58 0.22 290 / 0.12)";
   const activeText = isDark ? "oklch(0.82 0.16 290)" : "oklch(0.46 0.18 290)";
+  const skillIconColor = useCallback((id: string) => {
+    const palette = [
+      "#ff7ab6",
+      "#7c5cff",
+      "#00d0ff",
+      "#42d392",
+      "#ffb020",
+      "#ff6b4a",
+      "#c5ed47",
+      "#4f9cff",
+      "#f76fff",
+      "#26d9b5",
+    ];
+    let hash = 0;
+    for (let index = 0; index < id.length; index += 1) {
+      hash = (hash * 31 + id.charCodeAt(index)) >>> 0;
+    }
+    return palette[hash % palette.length];
+  }, []);
   useEffect(() => {
     setPortalRoot(document.body);
   }, []);
@@ -482,7 +501,7 @@ function SkillPointSelector({
                 onMouseEnter={event => { if (!active) event.currentTarget.style.background = hoverBg; }}
                 onMouseLeave={event => { event.currentTarget.style.background = active ? activeBg : "transparent"; }}
               >
-                <Icon size={15} style={{ marginTop: 1, flexShrink: 0 }} />
+                <Icon size={15} style={{ color: skillIconColor(skill.id), marginTop: 1, flexShrink: 0 }} />
                 <span className="min-w-0">
                   <span className="block truncate text-xs font-semibold">{skill.name}</span>
                   <span className="mt-0.5 block line-clamp-2 text-[11px]" style={{ color: isDark ? "rgba(255,255,255,0.46)" : "rgba(20,20,36,0.50)" }}>
