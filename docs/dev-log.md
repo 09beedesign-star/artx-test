@@ -260,3 +260,31 @@
   - deployment check: N/A
 - 验证：文档创建完成。
 - 已知风险 / 待回归：后续 AI 能力需要在接口返回或日志中补齐 `providerTaskId`，否则无法事后查询第三方任务号。
+
+## 2026-06-24 18:10
+
+- 任务：修正橡皮擦 PicWish 官方对象消除接口
+- 原因：Render 新版本已确认真正调用到 PicWish，但 `POST /api/tasks/visual/inpaint` 创建成功后立刻轮询返回 `state=-1`；同时 PicWish 官方 remove-objects 文档实际给出的对象擦除接口是 `visual/watermark` 配 `mask_file/mask_url`，说明当前橡皮擦选错了接口。
+- 影响范围：`server/image-generation.ts` 橡皮擦 PicWish 路由；`scripts/verify-eraser-picwish-inpaint.mjs` 专项校验；`MEMORY.md`、`docs/dev-log.md` 文档同步。
+- AI 联调：
+  - capability: image object erasure / eraser
+  - entry: canvas image left toolbar eraser command
+  - model/provider: PicWish / 佐糖 masked removal
+  - generationId: N/A
+  - backendTaskId: N/A
+  - providerTaskId:
+    - `0de68636-395d-4edd-a98e-78ac72266437`
+    - `b281edb1-2933-460f-80a5-21add7de99f4`
+  - request endpoint:
+    - 失败旧链路：`POST /api/tasks/visual/inpaint`, `GET /api/tasks/visual/inpaint/{task_id}`
+    - 修正新链路：`POST /api/tasks/visual/watermark`, `GET /api/tasks/visual/watermark/{task_id}`
+  - result: Render 线上日志已证明旧 `inpaint` 会创建任务但立刻 `state=-1` 失败；改为官方 remove-objects `watermark` 链路并继续透传 `providerTaskId/providerTaskIds`。
+  - error: `PicWish inpaint task failed`
+- 测试环境：
+  - frontend: <https://09beedesign-star.github.io/artx-test/>
+  - backend: <https://artx-test.onrender.com>
+  - branch: `test/feature/interaction-framework`
+  - commitSha: N/A
+  - deployment check: `/api/health` 已返回 `{"ok":true,"eraserTaskIdContract":true}`，确认后端已切到新代码。
+- 验证：已通过 Render 日志确认旧错误链路的真实失败位置；待重新发布测试环境后，使用固定样本与前端真实擦除再回归。
+- 已知风险 / 待回归：需要再次发布并验证 `providerTaskId/providerTaskIds` 是否随成功响应返回，且图片效果不再是失败/空结果。
