@@ -47,6 +47,30 @@
 
 ## 2026-06-24 11:16
 
+- 任务：统一 PicWish 能力 taskId 可追溯响应
+- 原因：不只橡皮擦，所有调用 PicWish/佐糖的能力都需要在接口响应和浏览器日志中回溯到具体 `task_id`，方便测试环境生成图片后记录到开发日志。
+- 影响范围：`server/image-generation.ts` PicWish 通用任务、去背/脸部抠图/高清/去水印/智能背景/橡皮擦结果返回；`server/ai-orchestrator.ts` 图片编排响应；`client/src/lib/ai.ts` AI 图片响应类型；`client/src/components/canvas/InfiniteCanvas.tsx` 派生图片生成日志。
+- AI 联调：
+  - capability: PicWish `segmentation` / `self-face-cutout` / `scale` / `watermark` / `r-background` / `inpaint`
+  - entry: `/api/images/remove-background`, `/api/images/enhance`, `/api/images/remove-watermark`, `/api/images/create-background`, `/api/images/erase`, `/api/images/expand`, `/api/ai/orchestrate`
+  - model/provider: PicWish/佐糖 visual tasks
+  - generationId: N/A
+  - backendTaskId: N/A
+  - providerTaskId: N/A
+  - request endpoint: `/api/tasks/visual/{taskType}`
+  - result: 成功响应会返回 `providerTaskId`；去背等多 task 链路会额外返回 `providerTaskIds`
+  - error: N/A
+- 测试环境：
+  - frontend: <https://09beedesign-star.github.io/artx-test/>
+  - backend: <https://artx-test.onrender.com>
+  - branch: `test/feature/interaction-framework`
+  - commitSha: N/A
+  - deployment check: N/A
+- 验证：`npm run check`、`npm run build` 均通过；代码回归确认 PicWish 通用任务成功后会返回 `providerTaskId/providerTaskIds`，前端派生图片生成会在 `[artx-ai-task]` 日志中打印完整 task ID 数组。
+- 已知风险 / 待回归：尚未发布到测试环境；需要在测试环境实际跑一次去背、高清、去水印、智能背景、橡皮擦，确认浏览器 `[artx-ai-task]` 日志和接口响应里的 `providerTaskId/providerTaskIds` 能对应 Render `[picwish]` 日志。
+
+## 2026-06-24 11:16
+
 - 任务：修复图片竖状 bar 下载命令
 - 原因：图片竖状工具栏的“下载”按钮没有接入已有的 `handleNodeAction("download")` 下载链路，点击后落入默认 toast 分支，导致下载没有生效。
 - 影响范围：`client/src/components/canvas/InfiniteCanvas.tsx` 中图片竖状工具栏 `download` action、单张下载与批量下载临时缓存隔离逻辑。
