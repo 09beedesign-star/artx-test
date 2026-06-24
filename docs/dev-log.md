@@ -45,6 +45,30 @@
 - 已知风险 / 待回归：
 ```
 
+## 2026-06-24 10:18
+
+- 任务：修正引入标签 hover 缩略图预览
+- 原因：用户要求鼠标 hover 到提示词输入框中的引入标签时，以标签中心为圆心放大显示对应缩略图，hover 结束后缩回消失。
+- 影响范围：`client/src/components/canvas/InfiniteCanvas.tsx` 中画布底部提示词引用标签、右侧对话输入框图片引用标签和注释标签的 hover 预览样式。
+- AI 联调：
+  - capability: N/A
+  - entry: N/A
+  - model/provider: N/A
+  - generationId: N/A
+  - backendTaskId: N/A
+  - providerTaskId: N/A
+  - request endpoint: N/A
+  - result: N/A
+  - error: N/A
+- 测试环境：
+  - frontend: <https://09beedesign-star.github.io/artx-test/>
+  - backend: <https://artx-test.onrender.com>
+  - branch: `test/feature/interaction-framework`
+  - commitSha: N/A
+  - deployment check: N/A
+- 验证：`npm run check`、`npm run build` 均通过。
+- 已知风险 / 待回归：尚未发布到测试环境；需要在浏览器中分别 hover 底部提示词引用标签和右侧对话输入框引用标签，确认预览图片按原图比例显示且宽度不超过 160px。
+
 ## 2026-06-24 09:47
 
 - 任务：替换橡皮擦 AI 能力并发布当前主站改动到测试环境
