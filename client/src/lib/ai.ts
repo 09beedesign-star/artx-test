@@ -15,6 +15,7 @@ type OrchestrateResponse = ApiErrorResponse & {
   model?: string;
   images?: GeneratedImageResult[];
   image_base64?: string;
+  providerTaskId?: string;
 };
 
 export type BackgroundImageTask = {
@@ -40,6 +41,11 @@ export type GeneratedImageResult = {
   src: string;
   width: number;
   height: number;
+};
+
+export type GeneratedImagesResponse = {
+  images: GeneratedImageResult[];
+  providerTaskId?: string;
 };
 
 export type ReferenceImageResult = {
@@ -514,7 +520,7 @@ export async function eraseImageObjects({
     targetHeight,
   }, "AI 擦除失败");
 
-  return { images: result.images || [] };
+  return { images: result.images || [], providerTaskId: result.providerTaskId };
 }
 
 export async function expandImageWithMask({

@@ -45,6 +45,102 @@
 - 已知风险 / 待回归：
 ```
 
+## 2026-06-24 11:16
+
+- 任务：修复图片竖状 bar 下载命令
+- 原因：图片竖状工具栏的“下载”按钮没有接入已有的 `handleNodeAction("download")` 下载链路，点击后落入默认 toast 分支，导致下载没有生效。
+- 影响范围：`client/src/components/canvas/InfiniteCanvas.tsx` 中图片竖状工具栏 `download` action、单张下载与批量下载临时缓存隔离逻辑。
+- AI 联调：
+  - capability: N/A
+  - entry: N/A
+  - model/provider: N/A
+  - generationId: N/A
+  - backendTaskId: N/A
+  - providerTaskId: N/A
+  - request endpoint: N/A
+  - result: N/A
+  - error: N/A
+- 测试环境：
+  - frontend: <https://09beedesign-star.github.io/artx-test/>
+  - backend: <https://artx-test.onrender.com>
+  - branch: `test/feature/interaction-framework`
+  - commitSha: N/A
+  - deployment check: N/A
+- 验证：`npm run check`、`npm run build` 均通过；专项代码回归确认竖状 bar `download` action 会调用 `handleNodeAction("download", nodeId)`，单张下载写入 `__artx_single_download__` 时会清理批量缓存，批量下载写入 `__artx_download_nodes__` 时会清理单张缓存。
+- 已知风险 / 待回归：尚未发布到测试环境；需要在含图片节点的画布中手动复测竖状 bar 下载入口弹出格式选择，并分别保存 PNG/JPG。
+
+## 2026-06-24 11:02
+
+- 任务：恢复图片节点裁切命令
+- 原因：图片竖状工具栏的“裁切”入口没有接回最近的 `CropEditor` 裁切弹层，点击后落入默认 toast 分支，表现为裁切命令无效。
+- 影响范围：`client/src/components/canvas/InfiniteCanvas.tsx` 中图片节点工具栏 `crop` action 到 `CropEditor` 的入口逻辑；未改动扩展、橡皮工具、旋转与反转、多平台封面等命令。
+- AI 联调：
+  - capability: N/A
+  - entry: N/A
+  - model/provider: N/A
+  - generationId: N/A
+  - backendTaskId: N/A
+  - providerTaskId: N/A
+  - request endpoint: N/A
+  - result: N/A
+  - error: N/A
+- 测试环境：
+  - frontend: <https://09beedesign-star.github.io/artx-test/>
+  - backend: <https://artx-test.onrender.com>
+  - branch: `test/feature/interaction-framework`
+  - commitSha: N/A
+  - deployment check: N/A
+- 验证：`npm run check`、`npm run build` 均通过；专项代码回归确认 `crop` action 在默认 toast 之前触发 `setCropEditorState({ nodeId, imageSrc })`，`CropEditor` 确认后仍写回 `localSrc: croppedDataUrl` 与裁切后节点尺寸。
+- 已知风险 / 待回归：本地项目页当前没有可直接点击的图片节点，浏览器交互回归未能完整点选裁切按钮；需要在含图片节点的画布中手动复测打开裁切弹层、确认裁切、取消裁切三条路径。
+
+## 2026-06-24 10:42
+
+- 任务：支持跨画布复制粘贴图片节点和画板
+- 原因：用户需要在一个画布中单选或框选图片节点/画板后，通过快捷键或右键复制，切换到另一个画布后继续粘贴。
+- 影响范围：`client/src/components/canvas/InfiniteCanvas.tsx` 的节点右键菜单、画布空白右键粘贴菜单、快捷键复制粘贴、跨画布本地剪贴板持久化。
+- AI 联调：
+  - capability: N/A
+  - entry: N/A
+  - model/provider: N/A
+  - generationId: N/A
+  - backendTaskId: N/A
+  - providerTaskId: N/A
+  - request endpoint: N/A
+  - result: N/A
+  - error: N/A
+- 测试环境：
+  - frontend: <https://09beedesign-star.github.io/artx-test/>
+  - backend: <https://artx-test.onrender.com>
+  - branch: `test/feature/interaction-framework`
+  - commitSha: N/A
+  - deployment check: N/A
+- 验证：`npm run check`、`npm run build` 均通过。
+- 已知风险 / 待回归：尚未发布到测试环境；需要在浏览器中复测图片节点和画板通过 `Ctrl/Cmd+C`、`Ctrl/Cmd+V` 以及右键复制/右键粘贴跨画布流转。
+
+## 2026-06-24 10:42
+
+- 任务：把橡皮擦 PicWish taskId 写回接口响应和前端可见日志
+- 原因：用户需要在测试环境成功生成橡皮擦 AI 图片后，直接拿到 PicWish `inpaint` 任务 ID，避免只能去 Render 服务端日志里反查。
+- 影响范围：`server/image-generation.ts` 橡皮擦返回值、`server/ai-orchestrator.ts` 响应透传、`client/src/lib/ai.ts` 类型与返回值、`client/src/components/canvas/InfiniteCanvas.tsx` 橡皮擦成功提示与控制台日志、`MEMORY.md` 项目规则、`docs/dev-log.md` 日志。
+- AI 联调：
+  - capability: image object erasure / eraser
+  - entry: canvas image left toolbar eraser command
+  - model/provider: PicWish / 佐糖 inpaint
+  - generationId: N/A
+  - backendTaskId: N/A
+  - providerTaskId: N/A
+  - request endpoint: `POST /api/tasks/visual/inpaint`, `GET /api/tasks/visual/inpaint/{task_id}`
+  - result: 代码已将 PicWish 创建任务返回的 `taskId` 作为 `providerTaskId` 透传到 `/api/ai/orchestrate` 响应；前端成功后会 toast 显示任务 ID，并输出 `[artx-ai-task]` 控制台日志。
+  - error: N/A
+- 测试环境：
+  - frontend: <https://09beedesign-star.github.io/artx-test/>
+  - backend: <https://artx-test.onrender.com>
+  - branch: `test/feature/interaction-framework`
+  - commitSha: N/A
+  - deployment check: N/A
+- 验证：`npm run check`、`npm run build` 均通过。
+- 已知风险 / 待回归：尚未发布到测试环境；真实 `providerTaskId` 只有在测试环境实际完成一次橡皮擦 AI 生成后才会出现。
+
 ## 2026-06-24 10:18
 
 - 任务：修正引入标签 hover 缩略图预览
