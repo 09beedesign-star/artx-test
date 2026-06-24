@@ -4849,7 +4849,7 @@ function ShapeNodeComponent({ id, data, selected }: { id: string; data: Record<s
 
   const borderColor = selected ? "oklch(0.65 0.22 290)" : "transparent";
   const selectedShadow = selected
-    ? "0 0 0 2px oklch(0.65 0.22 290 / 0.72), 0 0 0 6px oklch(0.65 0.22 290 / 0.18)"
+    ? "0 0 0 1px oklch(0.65 0.22 290 / 0.72), 0 0 0 3px oklch(0.65 0.22 290 / 0.18)"
     : "none";
   const isLine = shapeType === "line" || shapeType === "arrow";
 
@@ -4859,11 +4859,10 @@ function ShapeNodeComponent({ id, data, selected }: { id: string; data: Record<s
         width: w,
         height: h,
         position: "relative",
-        border: `2px solid ${borderColor}`,
-        boxShadow: selectedShadow,
+        border: "none",
         borderRadius: 4,
         boxSizing: "border-box",
-        transition: draggingAnchorRef.current ? "none" : "border-color 0.15s, box-shadow 0.15s",
+        transition: draggingAnchorRef.current ? "none" : "box-shadow 0.15s",
         cursor: isEditMode ? "crosshair" : "default",
       }}
       onDoubleClick={handleDoubleClick}
@@ -4884,6 +4883,20 @@ function ShapeNodeComponent({ id, data, selected }: { id: string; data: Record<s
           strokeLinejoin="round"
         />
       </svg>
+      {selected ? (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            border: `1px solid ${borderColor}`,
+            boxShadow: selectedShadow,
+            borderRadius: 4,
+            boxSizing: "border-box",
+            pointerEvents: "none",
+            zIndex: 12,
+          }}
+        />
+      ) : null}
       {isEditMode && anchors.map((a, idx) => {
         // 锚点大小固定为屏幕 10px，通过 1/vpZoom 反向缩放补偿画布缩放
         const anchorScreenPx = 10;
@@ -6287,6 +6300,7 @@ function BottomPromptBar({
   referencedAssets,
   onRemoveReference,
   onClearAllReferences,
+  canvasRightInset = 0,
 }: {
   isDark: boolean;
   projectId: string;
@@ -6295,6 +6309,7 @@ function BottomPromptBar({
   referencedAssets: ImageGeneratorReferenceAsset[];
   onRemoveReference: (id: string) => void;
   onClearAllReferences: () => void;
+  canvasRightInset?: number;
 }) {
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState("auto");
@@ -6498,6 +6513,7 @@ function BottomPromptBar({
     setReferencePreview(prev => prev ? { ...prev, visible: false } : prev);
   }, []);
 
+  const promptRightOffset = Math.max(24, canvasRightInset + 24);
   const hasContent = prompt.trim() || hasRefs;
   const placeholderText = hasRefs
     ? referencedAssets.length === 1
@@ -6510,12 +6526,13 @@ function BottomPromptBar({
   return (
     <>
     <div
-      className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-[var(--radius-lg-design)] shadow-2xl overflow-hidden"
+      className="absolute bottom-4 rounded-[var(--radius-lg-design)] shadow-2xl overflow-hidden"
       style={{
         background: bg,
         border: `1.5px solid ${hasRefs || activeSkill ? activeBorder : border}`,
         backdropFilter: "blur(20px)",
-        width: "min(680px, calc(100% - 420px))",
+        left: 24,
+        right: promptRightOffset,
         zIndex: 50,
         transition: "border-color 0.25s cubic-bezier(0.23,1,0.32,1), box-shadow 0.25s cubic-bezier(0.23,1,0.32,1)",
         boxShadow: hasRefs || activeSkill
@@ -6597,10 +6614,10 @@ function BottomPromptBar({
           className="w-full whitespace-pre-wrap break-words bg-transparent type-caption leading-relaxed resize-none outline-none"
           style={{
             color: text,
-            maxHeight: "min(34vh, 220px)",
-            overflowY: "auto",
-            scrollbarWidth: "thin",
-            scrollbarColor: `${isDark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.18)"} transparent`,
+            minHeight: 76,
+            maxHeight: "min(42vh, 300px)",
+            overflowY: "hidden",
+            scrollbarWidth: "none",
           }}
           placeholder={placeholderText}
         />
@@ -8247,24 +8264,31 @@ function FontDesignDialog({ isDark, projectId, onClose }: { isDark: boolean; pro
 type ProductBackgroundDialogDetail = {
   imageSrc: string;
   fileName?: string;
+  backgroundReferenceSrc?: string;
+  backgroundReferenceName?: string;
   prompt: string;
   style: string;
   ratio: string;
   resolution: "2k" | "4k";
+  count: number;
   customWidth?: number;
   customHeight?: number;
 };
 
 function ProductBackgroundDialog({ isDark, canvasRightInset, onClose }: { isDark: boolean; canvasRightInset: number; onClose: () => void }) {
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const productFileInputRef = useRef<HTMLInputElement | null>(null);
+  const backgroundFileInputRef = useRef<HTMLInputElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ pointerId: number; offsetX: number; offsetY: number } | null>(null);
   const [imageSrc, setImageSrc] = useState("");
   const [fileName, setFileName] = useState("");
+  const [backgroundReferenceSrc, setBackgroundReferenceSrc] = useState("");
+  const [backgroundReferenceName, setBackgroundReferenceName] = useState("");
   const [prompt, setPrompt] = useState("");
   const [selectedStyle, setSelectedStyle] = useState("商务科技感");
   const [ratio, setRatio] = useState("1:1");
   const [resolution, setResolution] = useState<"2k" | "4k">("2k");
+  const [count, setCount] = useState(1);
   const [customWidth, setCustomWidth] = useState("");
   const [customHeight, setCustomHeight] = useState("");
   const [panelPosition, setPanelPosition] = useState<{ left: number; top: number } | null>(null);
@@ -8283,7 +8307,6 @@ function ProductBackgroundDialog({ isDark, canvasRightInset, onClose }: { isDark
     { name: "日韩风", image: new URL("../../assets/smart-background/jk-pastel.jpg", import.meta.url).href, prompt: "soft Japanese Korean commercial background, clean pastel studio, fresh lifestyle mood" },
     { name: "赛博朋克", image: new URL("../../assets/smart-background/cyberpunk.jpg", import.meta.url).href, prompt: "cyberpunk neon commercial set, futuristic light strips, glossy reflective floor" },
     { name: "可爱呆萌系", image: new URL("../../assets/smart-background/cute-toy.jpg", import.meta.url).href, prompt: "cute playful commercial scene, rounded props, soft colorful lighting" },
-    { name: "二次元系", image: new URL("../../assets/smart-background/anime-style.jpg", import.meta.url).href, prompt: "anime inspired product background, vibrant clean illustration style, dynamic lighting" },
   ];
 
   const clampPanelPosition = useCallback((left: number, top: number) => {
@@ -8358,7 +8381,7 @@ function ProductBackgroundDialog({ isDark, canvasRightInset, onClose }: { isDark
     event.stopPropagation();
   };
 
-  const readFile = useCallback((file: File) => {
+  const readFileToSlot = useCallback((file: File, slot: "product" | "background") => {
     if (!file.type.startsWith("image/")) {
       toast("请选择图片文件");
       return;
@@ -8367,11 +8390,45 @@ function ProductBackgroundDialog({ isDark, canvasRightInset, onClose }: { isDark
     reader.onload = event => {
       const nextSrc = event.target?.result;
       if (typeof nextSrc !== "string") return;
-      setImageSrc(nextSrc);
-      setFileName(file.name);
+      if (slot === "product") {
+        setImageSrc(nextSrc);
+        setFileName(file.name);
+      } else {
+        setBackgroundReferenceSrc(nextSrc);
+        setBackgroundReferenceName(file.name);
+      }
     };
     reader.readAsDataURL(file);
   }, []);
+
+  const readDragImageToSlot = useCallback((dataTransfer: DataTransfer, slot: "product" | "background") => {
+    const file = Array.from(dataTransfer.files || []).find(item => item.type.startsWith("image/"));
+    if (file) {
+      readFileToSlot(file, slot);
+      return true;
+    }
+
+    const uriList = dataTransfer.getData("text/uri-list")
+      .split("\n")
+      .map(item => item.trim())
+      .find(item => item && !item.startsWith("#"));
+    const html = dataTransfer.getData("text/html");
+    const plain = dataTransfer.getData("text/plain").trim();
+    const htmlImageSrc = html.match(/<img[^>]+src=["']([^"']+)["']/i)?.[1];
+    const nextSrc = htmlImageSrc || uriList || (/^https?:\/\//i.test(plain) ? plain : "");
+    if (!nextSrc) {
+      toast("没有读取到图片", { description: "请拖拽图片本身，或拖拽可访问的图片地址" });
+      return false;
+    }
+    if (slot === "product") {
+      setImageSrc(nextSrc);
+      setFileName("网页图片");
+    } else {
+      setBackgroundReferenceSrc(nextSrc);
+      setBackgroundReferenceName("网页背景参考图");
+    }
+    return true;
+  }, [readFileToSlot]);
 
   const stopFileDragEvent = (event: React.DragEvent<HTMLElement>) => {
     event.preventDefault();
@@ -8395,16 +8452,75 @@ function ProductBackgroundDialog({ isDark, canvasRightInset, onClose }: { isDark
     const detail: ProductBackgroundDialogDetail = {
       imageSrc,
       fileName,
+      backgroundReferenceSrc,
+      backgroundReferenceName,
       prompt: [stylePrompt, prompt.trim()].filter(Boolean).join("\n"),
       style: selectedStyle,
       ratio,
       resolution,
+      count,
       customWidth: Number.isFinite(width) && width > 0 ? Math.round(width) : undefined,
       customHeight: Number.isFinite(height) && height > 0 ? Math.round(height) : undefined,
     };
     window.dispatchEvent(new CustomEvent<ProductBackgroundDialogDetail>("product-background-create", { detail }));
     onClose();
   };
+
+  const renderUploadSlot = (
+    slot: "product" | "background",
+    config: {
+      title: string;
+      hint: string;
+      src: string;
+      name: string;
+      inputRef: React.RefObject<HTMLInputElement | null>;
+      icon: ReactNode;
+    },
+  ) => (
+    <button
+      type="button"
+      data-no-panel-drag="true"
+      className="relative flex min-h-[116px] min-w-0 flex-1 flex-col items-center justify-center overflow-hidden rounded-[var(--radius-lg-design)] px-3 text-center transition-transform hover:scale-[1.01]"
+      style={{ background: fieldBg, border: `1.5px dashed ${config.src ? activeBorder : border}`, color: text }}
+      onClick={() => config.inputRef.current?.click()}
+      onDragEnter={stopFileDragEvent}
+      onDragOver={stopFileDragEvent}
+      onDrop={event => {
+        event.preventDefault();
+        event.stopPropagation();
+        readDragImageToSlot(event.dataTransfer, slot);
+      }}
+    >
+      {config.src ? (
+        <>
+          <img src={config.src} alt={config.name || config.title} className="absolute inset-0 h-full w-full object-contain p-3" draggable={false} />
+          <span className="absolute bottom-2 left-2 right-2 rounded-[var(--radius-md-design)] px-2.5 py-1.5 text-left" style={{ background: isDark ? "rgba(0,0,0,0.62)" : "rgba(255,255,255,0.84)", border: `1px solid ${border}` }}>
+            <span className="block truncate type-caption" style={{ color: text, fontWeight: 700 }}>{config.name || config.title}</span>
+            <span className="block type-caption" style={{ color: sub, fontSize: 10 }}>点击更换或拖入新图片</span>
+          </span>
+        </>
+      ) : (
+        <>
+          <span className="mb-2 flex h-10 w-10 items-center justify-center rounded-[var(--radius-lg-design)]" style={{ background: "rgba(197,237,71,0.14)", color: accent }}>
+            {config.icon}
+          </span>
+          <span className="type-caption" style={{ fontWeight: 750 }}>{config.title}</span>
+          <span className="mt-1 max-w-[160px] type-caption leading-4" style={{ color: sub, fontSize: 10 }}>{config.hint}</span>
+        </>
+      )}
+      <input
+        ref={config.inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={event => {
+          const file = event.currentTarget.files?.[0];
+          if (file) readFileToSlot(file, slot);
+          event.currentTarget.value = "";
+        }}
+      />
+    </button>
+  );
 
   const dialog = (
     <div
@@ -8460,49 +8576,24 @@ function ProductBackgroundDialog({ isDark, canvasRightInset, onClose }: { isDark
         </div>
 
         <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto overflow-x-hidden px-4 pb-2.5 pt-4 lg:grid-cols-[200px_minmax(0,1fr)_236px]">
-          <button
-            type="button"
-            className="relative flex min-h-[200px] min-w-0 flex-col items-center justify-center overflow-hidden rounded-[var(--radius-lg-design)] px-4 text-center transition-transform hover:scale-[1.01] lg:min-h-[244px]"
-            style={{ background: fieldBg, border: `1.5px dashed ${imageSrc ? activeBorder : border}`, color: text }}
-            onClick={() => fileInputRef.current?.click()}
-            onDragEnter={stopFileDragEvent}
-            onDragOver={stopFileDragEvent}
-            onDrop={event => {
-              event.preventDefault();
-              event.stopPropagation();
-              const file = event.dataTransfer.files?.[0];
-              if (file) readFile(file);
-            }}
-          >
-            {imageSrc ? (
-              <>
-                <img src={imageSrc} alt={fileName || "产品图"} className="absolute inset-0 h-full w-full object-contain p-4" draggable={false} />
-                <span className="absolute bottom-3 left-3 right-3 rounded-[var(--radius-md-design)] px-3 py-2 text-left" style={{ background: isDark ? "rgba(0,0,0,0.62)" : "rgba(255,255,255,0.84)", border: `1px solid ${border}` }}>
-                  <span className="block truncate type-caption" style={{ color: text, fontWeight: 700 }}>{fileName || "产品图"}</span>
-                  <span className="block type-caption" style={{ color: sub }}>点击更换或拖入新图片</span>
-                </span>
-              </>
-            ) : (
-              <>
-                <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-[var(--radius-lg-design)]" style={{ background: "rgba(197,237,71,0.14)", color: accent }}>
-                  <ImagePlus size={24} />
-                </span>
-                <span className="type-body-sm" style={{ fontWeight: 700 }}>将产品图拖到这里</span>
-                <span className="mt-2 max-w-[220px] type-caption leading-5" style={{ color: sub }}>支持 PNG、JPG、WebP，也可以点击选择本地图片。</span>
-              </>
-            )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={event => {
-                const file = event.currentTarget.files?.[0];
-                if (file) readFile(file);
-                event.currentTarget.value = "";
-              }}
-            />
-          </button>
+          <div className="flex min-h-[244px] min-w-0 flex-col gap-2.5">
+            {renderUploadSlot("product", {
+              title: "产品图上传区",
+              hint: "拖入网页图片或本地图片，作为需要换背景的产品主体。",
+              src: imageSrc,
+              name: fileName,
+              inputRef: productFileInputRef,
+              icon: <ImagePlus size={22} />,
+            })}
+            {renderUploadSlot("background", {
+              title: "背景参考图上传区",
+              hint: "导入参考图后，AI 会生成相似风格的商业背景。",
+              src: backgroundReferenceSrc,
+              name: backgroundReferenceName,
+              inputRef: backgroundFileInputRef,
+              icon: <GalleryVerticalEnd size={21} />,
+            })}
+          </div>
 
           <div className="flex min-h-0 min-w-0 flex-col gap-3">
             <div className="flex min-h-0 flex-1 flex-col">
@@ -8510,33 +8601,35 @@ function ProductBackgroundDialog({ isDark, canvasRightInset, onClose }: { isDark
                 <span className="type-caption" style={{ color: text, fontWeight: 750 }}>商业背景风格</span>
                 <span className="type-caption" style={{ color: sub }}>选择一个方向，也可以继续补充关键词</span>
               </div>
-              <div className="grid min-h-0 flex-1 grid-cols-[repeat(auto-fit,minmax(136px,1fr))] content-start gap-2 overflow-y-auto overflow-x-hidden pr-1">
+              <div className="grid min-h-0 flex-1 grid-cols-[repeat(auto-fit,minmax(136px,1fr))] content-start gap-2 overflow-y-auto overflow-x-hidden pr-1" style={{ scrollbarGutter: "stable" }}>
                 {styles.map(item => {
                   const active = selectedStyle === item.name;
                   return (
                     <button
                       key={item.name}
                       type="button"
-                      className="group min-w-0 overflow-hidden rounded-[var(--radius-lg-design)] text-left transition-transform hover:scale-[1.01] active:scale-95"
-                      style={{ background: active ? "rgba(197,237,71,0.14)" : fieldBg, border: `1px solid ${active ? activeBorder : border}`, color: text }}
+                      className="group min-w-0 overflow-hidden rounded-[var(--radius-lg-design)] text-left transition-colors duration-150 active:opacity-90"
+                      style={{ height: 54, background: active ? "rgba(197,237,71,0.14)" : fieldBg, border: `1px solid ${active ? activeBorder : border}`, color: text, contain: "layout paint" }}
                       onClick={() => setSelectedStyle(item.name)}
                     >
-                      <span className="relative block h-16 overflow-hidden">
+                      <span className="relative block h-full overflow-hidden" style={{ background: fieldBg }}>
                         <img
                           src={item.image}
                           alt={`${item.name} 背景风格预览`}
-                          className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.08]"
-                          style={{ objectPosition: "center center" }}
+                          className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]"
+                          style={{ objectPosition: "center center", transformOrigin: "center center", backfaceVisibility: "hidden" }}
                           draggable={false}
                         />
-                        <span className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(0,0,0,0.02), rgba(0,0,0,0.66))" }} />
-                        <span className="absolute bottom-2 left-2 right-2 flex items-center justify-between gap-2">
-                          <span className="type-caption" style={{ color: "white", fontWeight: 850 }}>{item.name}</span>
+                        <span className="absolute inset-[-1px]" style={{ background: "linear-gradient(180deg, rgba(0,0,0,0.10), rgba(0,0,0,0.76))" }} />
+                        <span className="absolute inset-x-2 bottom-1.5 flex items-end justify-between gap-2">
+                          <span className="min-w-0">
+                            <span className="block truncate type-caption" style={{ color: "white", fontWeight: 850, fontSize: 11, lineHeight: 1.1 }}>{item.name}</span>
+                            <span className="mt-0.5 block truncate type-caption" style={{ color: "rgba(255,255,255,0.72)", fontSize: 9, lineHeight: 1.1 }}>
+                              {item.prompt.split(",")[0]}
+                            </span>
+                          </span>
                           {active && <Check size={14} style={{ color: accent, flexShrink: 0, filter: "drop-shadow(0 0 8px rgba(197,237,71,0.45))" }} />}
                         </span>
-                      </span>
-                      <span className="block p-1.5">
-                        <span className="block type-caption" style={{ color: sub, fontSize: 10, lineHeight: 1.35 }}>{item.prompt.split(",")[0]}</span>
                       </span>
                     </button>
                   );
@@ -8544,13 +8637,13 @@ function ProductBackgroundDialog({ isDark, canvasRightInset, onClose }: { isDark
               </div>
             </div>
 
-            <div className="flex min-h-[92px] flex-col">
+            <div className="flex min-h-[156px] flex-col">
               <label className="mb-2 block type-caption" style={{ color: text, fontWeight: 750 }}>背景关键词</label>
               <textarea
                 value={prompt}
                 onChange={event => setPrompt(event.target.value)}
                 placeholder="例如：高端护肤品展台、冷白光、玻璃质感、商业广告海报背景"
-                rows={2}
+                rows={5}
                 className="min-h-0 flex-1 w-full resize-none rounded-[var(--radius-lg-design)] p-3 outline-none"
                 style={{ background: fieldBg, border: `1px solid ${border}`, color: text, fontSize: 13, lineHeight: 1.55 }}
               />
@@ -8593,6 +8686,23 @@ function ProductBackgroundDialog({ isDark, canvasRightInset, onClose }: { isDark
             </div>
 
             <div className="rounded-[var(--radius-lg-design)] p-2.5" style={{ background: fieldBg, border: `1px solid ${border}` }}>
+              <label className="mb-1.5 block type-caption" style={{ color: text, fontWeight: 750 }}>生成数量</label>
+              <div className="grid grid-cols-4 gap-1.5">
+                {[1, 2, 3, 4].map(item => (
+                  <button
+                    key={item}
+                    type="button"
+                    className="h-8 rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-85"
+                    style={{ background: count === item ? "rgba(197,237,71,0.14)" : (isDark ? "rgba(0,0,0,0.18)" : "rgba(255,255,255,0.72)"), border: `1px solid ${count === item ? activeBorder : border}`, color: text }}
+                    onClick={() => setCount(item)}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-[var(--radius-lg-design)] p-2.5" style={{ background: fieldBg, border: `1px solid ${border}` }}>
               <label className="mb-1.5 block type-caption" style={{ color: text, fontWeight: 750 }}>自定义比例/尺寸</label>
               <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-1.5">
                 <input
@@ -8613,12 +8723,6 @@ function ProductBackgroundDialog({ isDark, canvasRightInset, onClose }: { isDark
               </div>
             </div>
 
-            <div className="rounded-[var(--radius-lg-design)] p-2.5" style={{ background: fieldBg, border: `1px solid ${border}` }}>
-              <p className="type-caption" style={{ color: text, fontWeight: 750 }}>生成方式</p>
-              <p className="mt-1 type-caption leading-4" style={{ color: sub }}>
-                结果会以新的图片节点生成在画布中，不覆盖原图。自定义宽高为空时使用当前画幅和分辨率。
-              </p>
-            </div>
           </div>
         </div>
 
@@ -8639,7 +8743,7 @@ function ProductBackgroundDialog({ isDark, canvasRightInset, onClose }: { isDark
             onClick={handleCreate}
           >
             <WandSparkles size={15} />
-            创建背景
+            {backgroundReferenceSrc ? `参考背景生成 ${count} 张` : `创建背景 ${count} 张`}
           </button>
         </div>
       </div>
@@ -9136,6 +9240,9 @@ function normalizeAssistantComposerSegments(segments: AssistantComposerSegment[]
   if (normalized.length === 0 || normalized[normalized.length - 1].type !== "text") {
     normalized.push(createAssistantTextSegment(""));
   }
+  const hasToken = normalized.some(isAssistantTokenSegment);
+  const hasText = normalized.some(segment => segment.type === "text" && segment.text.trim().length > 0);
+  if (!hasToken && !hasText) return [createAssistantTextSegment("")];
   return normalized;
 }
 
@@ -10496,7 +10603,7 @@ function CanvasAssistantPanel({
             </div>
           </div>
 
-          <div className="shrink-0 p-4 mt-auto">
+          <div className="shrink-0 px-3 pb-4 pt-3 mt-auto">
             <div
               className="relative rounded-[var(--radius-xl-design)] px-3 py-3 transition-all duration-200"
               style={{
@@ -10522,11 +10629,11 @@ function CanvasAssistantPanel({
               )}
               <div
                 ref={composerShellRef}
-                className="mb-2 flex min-h-[86px] flex-wrap items-start gap-[1px] overflow-y-auto rounded-[var(--radius-md-design)] px-1 py-1"
+                className="mb-2 flex min-h-[122px] flex-wrap items-start gap-[1px] overflow-y-auto rounded-[var(--radius-md-design)] px-1 py-1"
                 style={{
                   position: "relative",
                   color: text,
-                  maxHeight: "min(42vh, 280px)",
+                  maxHeight: "min(48vh, 360px)",
                   scrollbarWidth: "thin",
                   scrollbarColor: `${isDark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.18)"} transparent`,
                 }}
@@ -10684,6 +10791,7 @@ function CanvasAssistantPanel({
                     : isSingleEmptyTextSegment
                       ? 320
                       : 2);
+                  const shouldHighlightTextSegment = isBoxSelected && (segment.text.length > 0 || isSingleEmptyTextSegment);
                   return (
                     isSingleEmptyTextSegment ? (
                       <textarea
@@ -10720,12 +10828,12 @@ function CanvasAssistantPanel({
                         className="min-w-0 resize-none whitespace-pre-wrap border-0 bg-transparent px-1.5 py-1 outline-none disabled:cursor-not-allowed"
                         style={{
                           color: text,
-                          background: isBoxSelected ? "rgba(197,237,71,0.16)" : "transparent",
-                          borderRadius: isBoxSelected ? 5 : 0,
+                          background: shouldHighlightTextSegment ? "rgba(197,237,71,0.16)" : "transparent",
+                          borderRadius: shouldHighlightTextSegment ? 5 : 0,
                           opacity: 1,
                           fontSize: 12,
                           lineHeight: "20px",
-                          minHeight: 68,
+                          minHeight: 104,
                           overflow: "hidden",
                           width: "100%",
                           minWidth: 0,
@@ -10769,8 +10877,8 @@ function CanvasAssistantPanel({
                         className="min-w-0 whitespace-nowrap border-0 bg-transparent px-1.5 py-1 outline-none disabled:cursor-not-allowed"
                         style={{
                           color: text,
-                          background: isBoxSelected ? "rgba(197,237,71,0.16)" : "transparent",
-                          borderRadius: isBoxSelected ? 5 : 0,
+                          background: shouldHighlightTextSegment ? "rgba(197,237,71,0.16)" : "transparent",
+                          borderRadius: shouldHighlightTextSegment ? 5 : 0,
                           opacity: 1,
                           fontSize: 12,
                           lineHeight: "20px",
@@ -10829,7 +10937,6 @@ function CanvasAssistantPanel({
                       <div className="flex items-center justify-between gap-3 px-3 py-2.5" style={{ borderBottom: `1px solid ${border}` }}>
                         <div>
                           <p className="type-caption" style={{ color: text, fontWeight: 700, textTransform: "none", letterSpacing: 0 }}>auto</p>
-                          <p className="type-caption" style={{ color: sub, fontSize: 10, lineHeight: "13px", letterSpacing: 0 }}>根据提示词自动选择对话或生图</p>
                         </div>
                         <button
                           type="button"
@@ -11472,6 +11579,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     displayH,
     placement,
     generationId: providedGenerationId,
+    resultCount = 1,
     run,
   }: {
     sourceNode: Node;
@@ -11484,6 +11592,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     displayH?: number;
     placement?: { x: number; y: number };
     generationId?: string;
+    resultCount?: number;
     run: () => Promise<GeneratedImagesResponse>;
   }) => {
     const latestSourceNode = sourceNode.type === "asset" ? (getLatestAssetNode(sourceNode.id) || sourceNode) : sourceNode;
@@ -11502,7 +11611,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       prompt,
       model: "gpt-image-2",
       ratio: inferImageRatio(resolvedDisplayW, resolvedDisplayH),
-      count: 1,
+      count: Math.max(1, Math.min(Number(resultCount) || 1, 4)),
       style,
       referencesEnabled: false,
       generationId,
@@ -11530,7 +11639,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           providerTaskIds,
         });
       }
-      dispatchImageGenerationTask({ ...payload, status: "completed", images: result.images.slice(0, 1) }, projectId);
+      dispatchImageGenerationTask({ ...payload, status: "completed", images: result.images.slice(0, payload.count) }, projectId);
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : "请稍后重试";
@@ -11975,6 +12084,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         prompt: [
           detail.style ? `背景风格：${detail.style}` : "",
           detail.prompt || "智能创建商业化产品背景",
+          detail.backgroundReferenceSrc ? `背景参考图：${detail.backgroundReferenceName || "已上传参考图"}，生成与参考图相似的背景风格` : "",
           `输出规格：${detail.customWidth && detail.customHeight ? `${detail.customWidth}x${detail.customHeight}` : `${detail.ratio} ${detail.resolution.toUpperCase()}`}`,
         ].filter(Boolean).join("\n"),
         style: "智能背景结果",
@@ -11983,12 +12093,16 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         preserveSourceDisplaySize: false,
         displayW,
         displayH,
+        resultCount: detail.count,
         run: async () => createProductBackground({
           imageSrc: detail.imageSrc,
+          backgroundReferenceSrc: detail.backgroundReferenceSrc,
+          backgroundReferenceName: detail.backgroundReferenceName,
           prompt: detail.prompt,
           style: detail.style,
           ratio: detail.ratio,
           resolution: detail.resolution,
+          count: detail.count,
           customWidth: detail.customWidth,
           customHeight: detail.customHeight,
         }),
@@ -13029,7 +13143,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         x: center.x - size.w / 2,
         y: center.y - size.h / 2,
       };
-      const requestedCount = 1;
+      const requestedCount = Math.max(1, Math.min(Number(detail.count) || 1, 4));
       if (detail.status === "pending") {
         const generationStartedAt = detail.generationStartedAt || getTimestampFromGenerationId(generationId) || Date.now();
         if (detail.editMode !== true) {
