@@ -16,6 +16,7 @@ type OrchestrateResponse = ApiErrorResponse & {
   images?: GeneratedImageResult[];
   image_base64?: string;
   providerTaskId?: string;
+  providerTaskIds?: string[];
 };
 
 export type BackgroundImageTask = {
@@ -46,6 +47,7 @@ export type GeneratedImageResult = {
 export type GeneratedImagesResponse = {
   images: GeneratedImageResult[];
   providerTaskId?: string;
+  providerTaskIds?: string[];
 };
 
 export type ReferenceImageResult = {
@@ -169,25 +171,25 @@ async function postAiOrchestrate(body: Record<string, unknown>, fallbackError: s
 async function postImageExpand(body: Record<string, unknown>, fallbackError: string) {
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/images/expand`;
-  return fetchAiJson<ApiErrorResponse & { images?: GeneratedImageResult[] }>(endpoint, body, fallbackError);
+  return fetchAiJson<ApiErrorResponse & Partial<GeneratedImagesResponse>>(endpoint, body, fallbackError);
 }
 
 async function postImageEnhance(body: Record<string, unknown>, fallbackError: string) {
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/images/enhance`;
-  return fetchAiJson<ApiErrorResponse & { images?: GeneratedImageResult[] }>(endpoint, body, fallbackError);
+  return fetchAiJson<ApiErrorResponse & Partial<GeneratedImagesResponse>>(endpoint, body, fallbackError);
 }
 
 async function postImageWatermarkRemoval(body: Record<string, unknown>, fallbackError: string) {
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/images/remove-watermark`;
-  return fetchAiJson<ApiErrorResponse & { images?: GeneratedImageResult[] }>(endpoint, body, fallbackError);
+  return fetchAiJson<ApiErrorResponse & Partial<GeneratedImagesResponse>>(endpoint, body, fallbackError);
 }
 
 async function postProductBackground(body: Record<string, unknown>, fallbackError: string) {
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/images/create-background`;
-  return fetchAiJson<ApiErrorResponse & { images?: GeneratedImageResult[] }>(endpoint, body, fallbackError);
+  return fetchAiJson<ApiErrorResponse & Partial<GeneratedImagesResponse>>(endpoint, body, fallbackError);
 }
 
 async function postImageOcr(body: Record<string, unknown>, fallbackError: string) {
