@@ -4,18 +4,18 @@
 
 - 测试前端链接：<https://09beedesign-star.github.io/artx-test/>
 - 测试发布 remote：`test`
-- 测试发布分支：`feature/interaction-framework`
+- 测试发布分支：`feature/interaction-framework`（完整远端引用：`test/feature/interaction-framework`）
 - 测试后端：<https://artx-test.onrender.com>
 
-测试环境只认 `test/feature/interaction-framework` 触发的 GitHub Pages artifact。`test/main`、`gh-pages` 手工产物、Manus 临时预览都不能作为“已提交测试环境”的判断依据。
+测试环境只认远端引用 `test/feature/interaction-framework` 对应的 GitHub Pages artifact。`test/main`、`gh-pages` 手工产物、Manus 临时预览都不能作为“已提交测试环境”的判断依据。
 
 ## 用户口径
 
 当用户说“把当前任务发布到测试环境”或只说“发布到测试环境”时，按这句执行：
 
-> 先同步最新 `test/feature/interaction-framework`，再合入当前任务改动，验证后推送到 `test/feature/interaction-framework`，不要发布正式环境。
+> 先同步最新 `test/feature/interaction-framework`，再合入当前任务改动，验证后推送到 remote `test` 的 `feature/interaction-framework`，不要发布正式环境。
 
-发布后必须检查 `deployment.json` 或浏览器里的 `window.__ARTX_BUILD__`，确认线上 `commitSha` 与 `test/feature/interaction-framework` 一致。
+发布后必须检查 `deployment.json` 或浏览器里的 `window.__ARTX_BUILD__`，确认线上 `commitSha` 与远端引用 `test/feature/interaction-framework` 一致。
 
 ## 多任务发布规则
 
@@ -26,7 +26,7 @@
    git fetch test --prune
    ```
 
-3. 从 `test/feature/interaction-framework` 创建或更新一个干净发布分支，再合入目标任务改动。
+3. 从远端引用 `test/feature/interaction-framework` 创建或更新一个干净发布分支，再合入目标任务改动。
 4. 合并后运行：
 
    ```bash
@@ -55,7 +55,7 @@
 
 必须确认这些字段与预期一致：
 
-- `commitSha` 等于 `test/feature/interaction-framework` 当前提交。
+- `commitSha` 等于远端引用 `test/feature/interaction-framework` 当前提交。
 - `branch` 是 `feature/interaction-framework`。
 - `backendUrl` 是 `https://artx-test.onrender.com`。
 
