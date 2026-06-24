@@ -27,7 +27,8 @@ assert(files.server.includes("removeWatermarkWithPicWish"), "server has PicWish 
 assert(files.server.includes('runPicWishImageTask("watermark"'), "watermark removal uses PicWish watermark task");
 const eraseMatch = files.server.match(/async function eraseWithPicWish[\s\S]*?\n}/);
 assert(Boolean(eraseMatch), "server has eraseWithPicWish wrapper");
-assert(!eraseMatch?.[0].includes('runPicWishImageTask("watermark"'), "eraser must not call watermark task");
+assert(files.server.includes("createPicWishMaskedRemovalTask"), "eraser uses the separate PicWish masked removal task wrapper");
+assert(!eraseMatch?.[0].includes('removeWatermarkWithPicWish'), "eraser must stay separate from the toolbar watermark removal helper");
 assert(files.docs.includes("去水印能力"), "test deployment docs mention watermark removal capability");
 
 if (process.exitCode) {

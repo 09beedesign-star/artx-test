@@ -288,3 +288,30 @@
   - deployment check: `/api/health` 已返回 `{"ok":true,"eraserTaskIdContract":true}`，确认后端已切到新代码。
 - 验证：已通过 Render 日志确认旧错误链路的真实失败位置；待重新发布测试环境后，使用固定样本与前端真实擦除再回归。
 - 已知风险 / 待回归：需要再次发布并验证 `providerTaskId/providerTaskIds` 是否随成功响应返回，且图片效果不再是失败/空结果。
+
+## 2026-06-24 20:38
+
+- 任务：补齐橡皮擦真实前端蒙版转换兼容
+- 原因：测试环境已证明 PicWish `visual/watermark` 对象消除链路可成功返回 `providerTaskId`；`rectangles` 和前端同形态的透明洞蒙版均成功，但黑底白块类蒙版失败，需要服务端同时兼容真实前端透明擦除洞和旧/测试白色涂抹区域。
+- 影响范围：`server/image-generation.ts` 的 `createPicWishEraseMask`；橡皮擦专项校验脚本；智能背景和去水印校验脚本中关于橡皮擦路由的旧断言。
+- AI 联调：
+  - capability: image object erasure / eraser
+  - entry: canvas image left toolbar eraser command
+  - model/provider: PicWish / 佐糖 masked removal
+  - generationId: N/A
+  - backendTaskId: N/A
+  - providerTaskId:
+    - 成功 rectangles：`1624b20a-a32d-49e7-b0c6-586b948c3116`
+    - 成功透明洞蒙版：`c59f4121-d585-4825-8bc2-db0b83f37441`
+    - 失败黑底白块旧蒙版：`2bdd8a54-7dad-4d41-885d-6c7ddcb9d85a`、`0ecb02d2-4098-41cb-b98a-87fa38fd01d5`
+  - request endpoint: `POST /api/tasks/visual/watermark`, `GET /api/tasks/visual/watermark/{task_id}`
+  - result: 服务端蒙版转换改为优先识别透明擦除洞；若不存在透明洞，则识别白色高亮区域为擦除区域；无有效擦除区域时直接失败。
+  - error: N/A
+- 测试环境：
+  - frontend: <https://09beedesign-star.github.io/artx-test/>
+  - backend: <https://artx-test.onrender.com>
+  - branch: `test/feature/interaction-framework`
+  - commitSha: N/A
+  - deployment check: 待发布后更新。
+- 验证：待发布后重新用固定黑底白块蒙版、前端透明洞蒙版和真实页面擦除流程回归。
+- 已知风险 / 待回归：需要确认成功图片视觉上确实擦除目标区域，而不只是接口返回图片。

@@ -1078,10 +1078,36 @@ async function createPicWishEraseMask(maskBuffer: Buffer, width: number, height:
     .raw()
     .toBuffer({ resolveWithObject: true });
 
+  let transparentPixels = 0;
+  let brightOpaquePixels = 0;
+  let darkOpaquePixels = 0;
+  for (let index = 0; index < data.length; index += 4) {
+    const alpha = data[index + 3];
+    if (alpha < 250) {
+      transparentPixels += 1;
+      continue;
+    }
+    const luminance = (data[index] + data[index + 1] + data[index + 2]) / 3;
+    if (luminance > 220) brightOpaquePixels += 1;
+    if (luminance < 32) darkOpaquePixels += 1;
+  }
+
+  const totalPixels = width * height;
+  const hasTransparentStroke = transparentPixels > 0 && transparentPixels < totalPixels * 0.95;
+  const hasBrightStroke = !hasTransparentStroke && brightOpaquePixels > 0 && brightOpaquePixels < totalPixels * 0.95;
+  if (!hasTransparentStroke && !hasBrightStroke) {
+    throw new Error("PicWish erase mask does not contain a usable removal area");
+  }
+
   const erasePixels = new Uint8Array(width * height);
   for (let index = 0; index < data.length; index += 4) {
-    // The canvas eraser stores painted strokes as transparent pixels.
-    if (data[index + 3] < 250) erasePixels[index / 4] = 1;
+    const alpha = data[index + 3];
+    const luminance = (data[index] + data[index + 1] + data[index + 2]) / 3;
+    // The canvas eraser stores painted strokes as transparent pixels. Some
+    // regression tests and older mask producers use white strokes on black.
+    if (hasTransparentStroke ? alpha < 250 : luminance > 220) {
+      erasePixels[index / 4] = 1;
+    }
   }
 
   const expandedErasePixels = new Uint8Array(erasePixels);

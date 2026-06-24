@@ -81,6 +81,14 @@ if (!/providerMask\[index\]\s*=\s*shouldErase\s*\?\s*255\s*:\s*0/.test(maskSourc
   throw new Error("传给 PicWish masked removal 的蒙版必须是白色=擦除区域、黑色=保护区域");
 }
 
+if (!/hasTransparentStroke/.test(maskSource) || !/hasBrightStroke/.test(maskSource)) {
+  throw new Error("橡皮擦蒙版必须兼容前端透明擦除洞和白色涂抹区域两种输入语义");
+}
+
+if (!/PicWish erase mask does not contain a usable removal area/.test(maskSource)) {
+  throw new Error("橡皮擦蒙版没有可用擦除区域时必须显式失败");
+}
+
 if (/createLocalEraseFallback|compositeEraseResultInsidePicWishMask|didEraseChangeMaskedArea|doesEraseBlendIntoBackground|compositeEraseResultOnlyInsideMask/.test(source)) {
   throw new Error("旧橡皮擦兜底、合成或二次判断代码仍有残留");
 }
