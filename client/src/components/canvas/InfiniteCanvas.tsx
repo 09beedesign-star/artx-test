@@ -3921,12 +3921,13 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
               type="button"
               aria-label="再次生成"
               title="再次生成"
-              className="absolute nodrag nopan flex items-center justify-center rounded-[var(--radius-lg-design)] shadow-xl transition-all duration-150"
+              className="absolute nodrag nopan flex items-center justify-center gap-1.5 rounded-[var(--radius-md-design)] shadow-xl transition-all duration-150"
               style={{
                 right: 10,
                 bottom: 10,
-                width: 60,
-                height: 60,
+                height: 30,
+                minWidth: 74,
+                padding: "0 9px",
                 zIndex: 115,
                 background: "#C5ED47",
                 color: "#000",
@@ -3934,6 +3935,10 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
                 transform: hoveringAssetNode ? "translateY(0) scale(1)" : "translateY(4px) scale(0.94)",
                 pointerEvents: hoveringAssetNode ? "auto" : "none",
                 boxShadow: "0 12px 30px rgba(197,237,71,0.32)",
+                fontSize: 11,
+                fontWeight: 700,
+                lineHeight: 1,
+                whiteSpace: "nowrap",
               }}
               onMouseDown={event => {
                 event.preventDefault();
@@ -3945,7 +3950,8 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
                 window.dispatchEvent(new CustomEvent<ImageRegenerateRequestDetail>("asset-regenerate-request", { detail: regenerateDetail }));
               }}
             >
-              <RefreshCw size={24} strokeWidth={2.4} />
+              <RefreshCw size={12} strokeWidth={2.4} />
+              <span>再次生成</span>
             </button>
           )}
         </div>
@@ -6650,12 +6656,13 @@ function BottomPromptBar({
         style={{
           left: referencePreview.x,
           top: referencePreview.y,
-          width: 160,
           maxWidth: 160,
           transform: `translate(-50%, -50%) scale(${referencePreview.visible ? 1 : 0.28})`,
+          transformOrigin: "center center",
           opacity: referencePreview.visible ? 1 : 0,
           border: `1px solid ${isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.14)"}`,
           background: isDark ? "rgba(13,14,18,0.96)" : "rgba(255,255,255,0.96)",
+          willChange: "transform, opacity",
         }}
         onTransitionEnd={() => {
           setReferencePreview(prev => prev && !prev.visible ? null : prev);
@@ -6666,7 +6673,7 @@ function BottomPromptBar({
           alt={referencePreview.title}
           draggable={false}
           className="block h-auto w-full object-contain"
-          style={{ maxWidth: 160 }}
+          style={{ maxWidth: 160, width: "auto", height: "auto" }}
         />
       </div>,
       document.body,
@@ -9452,6 +9459,23 @@ function CanvasAssistantPanel({
     activeComposerCursorRef.current = target.selectionStart ?? target.value.length;
   }, []);
 
+  const removeComposerSegmentsByIds = useCallback((ids: string[]) => {
+    if (ids.length === 0) return;
+    const selected = new Set(ids);
+    composerSegments.forEach(segment => {
+      if (!selected.has(segment.id)) return;
+      if (segment.type === "image") {
+        onRemoveReference(segment.asset.id);
+        syncedReferenceIdsRef.current.delete(segment.asset.id);
+      } else if (segment.type === "annotation") {
+        onRemoveAnnotationReference(segment.annotation.id);
+        syncedAnnotationIdsRef.current.delete(segment.annotation.id);
+      }
+    });
+    setComposerSegments(prev => normalizeAssistantComposerSegments(prev.filter(segment => !selected.has(segment.id))));
+    setComposerBoxSelection(null);
+  }, [composerSegments, onRemoveAnnotationReference, onRemoveReference]);
+
   const removeComposerImageSegment = useCallback((segmentId: string, assetId: string) => {
     setComposerSegments(prev => normalizeAssistantComposerSegments(prev.filter(segment => segment.id !== segmentId)));
     onRemoveReference(assetId);
@@ -9483,6 +9507,7 @@ function CanvasAssistantPanel({
   }, []);
 
   const handleComposerTokenDragStart = useCallback((event: React.DragEvent<HTMLElement>, segmentId: string) => {
+    setComposerBoxSelection(null);
     setDraggingComposerSegmentId(segmentId);
     setDragOverComposerSegmentId(null);
     event.dataTransfer.effectAllowed = "move";
@@ -9550,7 +9575,7 @@ function CanvasAssistantPanel({
   const handleComposerBoxSelectMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     const target = event.target as HTMLElement;
-    if (target.closest("button, input")) return;
+    if (target.closest("button, input, textarea, [data-composer-token]")) return;
     event.preventDefault();
     event.stopPropagation();
     const startX = event.clientX;
@@ -9580,6 +9605,19 @@ function CanvasAssistantPanel({
     document.addEventListener("copy", handleCopy);
     return () => document.removeEventListener("copy", handleCopy);
   }, [composerBoxSelection, getComposerSegmentSelectionText]);
+
+  useEffect(() => {
+    if (!composerBoxSelection || composerBoxSelection.active || composerBoxSelection.selectedIds.length === 0) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, [contenteditable='true']")) return;
+      if (event.key !== "Backspace" && event.key !== "Delete") return;
+      event.preventDefault();
+      removeComposerSegmentsByIds(composerBoxSelection.selectedIds);
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [composerBoxSelection, removeComposerSegmentsByIds]);
 
   const showComposerReferencePreview = useCallback((event: React.MouseEvent<HTMLElement>, src: string, title: string) => {
     if (!src) return;
@@ -10572,6 +10610,10 @@ function CanvasAssistantPanel({
                         onDragOver={event => handleComposerSegmentDragOver(event, segment.id)}
                         onDrop={event => handleComposerSegmentDrop(event, segment.id, "before")}
                         onDragEnd={handleComposerDragEnd}
+                        onMouseDown={event => {
+                          event.stopPropagation();
+                          setComposerBoxSelection(null);
+                        }}
                         onMouseEnter={event => showComposerReferencePreview(event, segment.asset.src, segment.asset.title)}
                         onMouseLeave={hideComposerReferencePreview}
                         data-composer-token="image"
@@ -10580,7 +10622,8 @@ function CanvasAssistantPanel({
                           background: isDark ? "rgba(197,237,71,0.16)" : "rgba(197,237,71,0.10)",
                           border: `1px solid ${dragOverComposerSegmentId === segment.id ? "rgba(197,237,71,0.86)" : isDark ? "rgba(197,237,71,0.36)" : "rgba(138,170,40,0.30)"}`,
                           color: isDark ? "oklch(0.82 0.012 270)" : "oklch(0.28 0.012 270)",
-                          cursor: "grab",
+                          cursor: draggingComposerSegmentId === segment.id ? "grabbing" : "grab",
+                          userSelect: "none",
                           opacity: draggingComposerSegmentId === segment.id ? 0.42 : 1,
                           boxShadow: isBoxSelected ? "0 0 0 2px rgba(197,237,71,0.62)" : dragOverComposerSegmentId === segment.id ? "0 0 0 2px rgba(197,237,71,0.18)" : "none",
                         }}
@@ -10614,6 +10657,10 @@ function CanvasAssistantPanel({
                         onDragOver={event => handleComposerSegmentDragOver(event, segment.id)}
                         onDrop={event => handleComposerSegmentDrop(event, segment.id, "before")}
                         onDragEnd={handleComposerDragEnd}
+                        onMouseDown={event => {
+                          event.stopPropagation();
+                          setComposerBoxSelection(null);
+                        }}
                         onMouseEnter={event => showComposerReferencePreview(event, segment.annotation.src, segment.annotation.text || segment.annotation.title)}
                         onMouseLeave={hideComposerReferencePreview}
                         data-composer-token="annotation"
@@ -10622,7 +10669,8 @@ function CanvasAssistantPanel({
                           background: isDark ? "oklch(0.62 0.20 145 / 0.16)" : "oklch(0.62 0.17 145 / 0.10)",
                           border: `1px solid ${dragOverComposerSegmentId === segment.id ? "oklch(0.72 0.16 145 / 0.78)" : isDark ? "oklch(0.72 0.16 145 / 0.32)" : "oklch(0.48 0.15 145 / 0.26)"}`,
                           color: isDark ? "oklch(0.82 0.012 270)" : "oklch(0.25 0.012 270)",
-                          cursor: "grab",
+                          cursor: draggingComposerSegmentId === segment.id ? "grabbing" : "grab",
+                          userSelect: "none",
                           opacity: draggingComposerSegmentId === segment.id ? 0.42 : 1,
                           boxShadow: isBoxSelected ? "0 0 0 2px rgba(197,237,71,0.62)" : dragOverComposerSegmentId === segment.id ? "0 0 0 2px rgba(52,211,153,0.16)" : "none",
                         }}
@@ -10653,60 +10701,109 @@ function CanvasAssistantPanel({
                       ? 320
                       : 32);
                   return (
-                    <input
-                      key={segment.id}
-                      type="text"
-                      ref={node => {
-                        composerInputRefs.current[segment.id] = node;
-                        composerSegmentRefs.current[segment.id] = node;
-                      }}
-                      value={segment.text}
-                      onChange={event => {
-                        rememberComposerCursor(segment.id, event.currentTarget);
-                        setComposerTextSegment(segment.id, event.target.value);
-                      }}
-                      onClick={event => rememberComposerCursor(segment.id, event.currentTarget)}
-                      onDragOver={event => handleComposerSegmentDragOver(event, segment.id)}
-                      onDrop={event => {
-                        const rect = event.currentTarget.getBoundingClientRect();
-                        const placement = event.clientX > rect.left + rect.width / 2 ? "after" : "before";
-                        handleComposerSegmentDrop(event, segment.id, placement);
-                      }}
-                      onKeyUp={event => rememberComposerCursor(segment.id, event.currentTarget)}
-                      onKeyDown={event => handleComposerTextKeyDown(event, segment.id)}
-                      onFocus={() => {
-                        activeComposerSegmentIdRef.current = segment.id;
-                        const input = composerInputRefs.current[segment.id];
-                        activeComposerCursorRef.current = input?.selectionStart ?? segment.text.length;
-                        setInputFocused(true);
-                      }}
-                      onBlur={() => setInputFocused(false)}
-                      placeholder={composerSegments.length === 1 && segment.text.length === 0
-                        ? composerAnnotations.length > 0
+                    isSingleEmptyTextSegment ? (
+                      <textarea
+                        key={segment.id}
+                        ref={node => {
+                          composerInputRefs.current[segment.id] = node as unknown as HTMLInputElement | null;
+                          composerSegmentRefs.current[segment.id] = node;
+                        }}
+                        value={segment.text}
+                        rows={3}
+                        onChange={event => {
+                          rememberComposerCursor(segment.id, event.currentTarget as unknown as HTMLInputElement);
+                          setComposerTextSegment(segment.id, event.target.value);
+                        }}
+                        onClick={event => rememberComposerCursor(segment.id, event.currentTarget as unknown as HTMLInputElement)}
+                        onKeyUp={event => rememberComposerCursor(segment.id, event.currentTarget as unknown as HTMLInputElement)}
+                        onKeyDown={event => {
+                          if (event.key === "Enter" && !event.shiftKey) {
+                            event.preventDefault();
+                            void handleSubmit();
+                          }
+                        }}
+                        onFocus={() => {
+                          activeComposerSegmentIdRef.current = segment.id;
+                          const input = composerInputRefs.current[segment.id];
+                          activeComposerCursorRef.current = input?.selectionStart ?? segment.text.length;
+                          setInputFocused(true);
+                        }}
+                        onBlur={() => setInputFocused(false)}
+                        placeholder={composerAnnotations.length > 0
                           ? `基于 ${composerAnnotations.length} 个注释点，描述组合生成意图...`
                           : "输入对当前画布的想法，可在文字之间插入引用图片..."
-                        : ""}
-                      className="min-w-0 whitespace-nowrap border-0 bg-transparent px-1.5 py-1 outline-none disabled:cursor-not-allowed"
-                      style={{
-                        color: text,
-                        background: isBoxSelected ? "rgba(197,237,71,0.16)" : "transparent",
-                        borderRadius: isBoxSelected ? 5 : 0,
-                        opacity: 1,
-                        fontSize: 12,
-                        lineHeight: "20px",
-                        height: 28,
-                        minHeight: 28,
-                        overflow: "hidden",
-                        width: isSingleEmptyTextSegment ? "100%" : `${textWidth}px`,
-                        minWidth: isSingleEmptyTextSegment ? 0 : `${textWidth}px`,
-                        maxWidth: isSingleEmptyTextSegment ? "100%" : `${textWidth}px`,
-                        flex: isSingleEmptyTextSegment ? "1 1 100%" : "0 0 auto",
-                        flexBasis: isSingleEmptyTextSegment ? "100%" : `${textWidth}px`,
-                        wordBreak: "keep-all",
-                        overflowWrap: "normal",
-                        margin: 0,
-                      }}
-                    />
+                        }
+                        className="min-w-0 resize-none whitespace-pre-wrap border-0 bg-transparent px-1.5 py-1 outline-none disabled:cursor-not-allowed"
+                        style={{
+                          color: text,
+                          background: isBoxSelected ? "rgba(197,237,71,0.16)" : "transparent",
+                          borderRadius: isBoxSelected ? 5 : 0,
+                          opacity: 1,
+                          fontSize: 12,
+                          lineHeight: "20px",
+                          minHeight: 68,
+                          overflow: "hidden",
+                          width: "100%",
+                          minWidth: 0,
+                          maxWidth: "100%",
+                          flex: "1 1 100%",
+                          flexBasis: "100%",
+                          wordBreak: "break-word",
+                          overflowWrap: "anywhere",
+                          margin: 0,
+                        }}
+                      />
+                    ) : (
+                      <input
+                        key={segment.id}
+                        type="text"
+                        ref={node => {
+                          composerInputRefs.current[segment.id] = node;
+                          composerSegmentRefs.current[segment.id] = node;
+                        }}
+                        value={segment.text}
+                        onChange={event => {
+                          rememberComposerCursor(segment.id, event.currentTarget);
+                          setComposerTextSegment(segment.id, event.target.value);
+                        }}
+                        onClick={event => rememberComposerCursor(segment.id, event.currentTarget)}
+                        onDragOver={event => handleComposerSegmentDragOver(event, segment.id)}
+                        onDrop={event => {
+                          const rect = event.currentTarget.getBoundingClientRect();
+                          const placement = event.clientX > rect.left + rect.width / 2 ? "after" : "before";
+                          handleComposerSegmentDrop(event, segment.id, placement);
+                        }}
+                        onKeyUp={event => rememberComposerCursor(segment.id, event.currentTarget)}
+                        onKeyDown={event => handleComposerTextKeyDown(event, segment.id)}
+                        onFocus={() => {
+                          activeComposerSegmentIdRef.current = segment.id;
+                          const input = composerInputRefs.current[segment.id];
+                          activeComposerCursorRef.current = input?.selectionStart ?? segment.text.length;
+                          setInputFocused(true);
+                        }}
+                        onBlur={() => setInputFocused(false)}
+                        className="min-w-0 whitespace-nowrap border-0 bg-transparent px-1.5 py-1 outline-none disabled:cursor-not-allowed"
+                        style={{
+                          color: text,
+                          background: isBoxSelected ? "rgba(197,237,71,0.16)" : "transparent",
+                          borderRadius: isBoxSelected ? 5 : 0,
+                          opacity: 1,
+                          fontSize: 12,
+                          lineHeight: "20px",
+                          height: 28,
+                          minHeight: 28,
+                          overflow: "hidden",
+                          width: `${textWidth}px`,
+                          minWidth: `${textWidth}px`,
+                          maxWidth: `${textWidth}px`,
+                          flex: "0 0 auto",
+                          flexBasis: `${textWidth}px`,
+                          wordBreak: "keep-all",
+                          overflowWrap: "normal",
+                          margin: 0,
+                        }}
+                      />
+                    )
                   );
                 })}
               </div>
@@ -10868,12 +10965,13 @@ function CanvasAssistantPanel({
               style={{
                 left: composerPreview.x,
                 top: composerPreview.y,
-                width: 160,
                 maxWidth: 160,
                 transform: `translate(-50%, -50%) scale(${composerPreview.visible ? 1 : 0.28})`,
+                transformOrigin: "center center",
                 opacity: composerPreview.visible ? 1 : 0,
                 border: `1px solid ${isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.14)"}`,
                 background: isDark ? "rgba(13,14,18,0.96)" : "rgba(255,255,255,0.96)",
+                willChange: "transform, opacity",
               }}
               onTransitionEnd={() => {
                 setComposerPreview(prev => prev && !prev.visible ? null : prev);
@@ -10884,7 +10982,7 @@ function CanvasAssistantPanel({
                 alt={composerPreview.title}
                 draggable={false}
                 className="block h-auto w-full object-contain"
-                style={{ maxWidth: 160 }}
+                style={{ maxWidth: 160, width: "auto", height: "auto" }}
               />
             </div>
           )}
