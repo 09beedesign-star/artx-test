@@ -14533,28 +14533,43 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const zip = new JSZip();
       const ext = format;
       const usedNames = new Map<string, number>();
+      const packagedFiles: Array<{ fileName: string; blob: Blob }> = [];
 
-      await Promise.all(assetNodes.map(async (node, index) => {
+      for (let index = 0; index < assetNodes.length; index += 1) {
+        const node = assetNodes[index];
         const data = node.data as Record<string, unknown>;
         const title = (data.title as string) || `image-${index + 1}`;
         const src = getNodeImageSrc(node);
-        if (!src) return;
+        if (!src) continue;
 
         const blob = await imageSrcToFormatBlob(src, format);
+        if (!blob) continue;
 
-        if (blob) {
-          const safeName = sanitizeDownloadName(title);
-          const duplicateCount = usedNames.get(safeName) || 0;
-          usedNames.set(safeName, duplicateCount + 1);
-          const finalName = duplicateCount === 0 ? safeName : `${safeName}-${duplicateCount + 1}`;
-          zip.file(`${finalName}.${ext}`, blob);
-        }
-      }));
+        const safeName = sanitizeDownloadName(title);
+        const duplicateCount = usedNames.get(safeName) || 0;
+        usedNames.set(safeName, duplicateCount + 1);
+        const finalName = duplicateCount === 0 ? safeName : `${safeName}-${duplicateCount + 1}`;
+        packagedFiles.push({ fileName: `${finalName}.${ext}`, blob });
+      }
+
+      if (packagedFiles.length === 0) {
+        toast.dismiss(toastId);
+        toast("下载失败", { description: "没有可写入压缩包的图片，请稍后重试" });
+        return;
+      }
+
+      packagedFiles.forEach(({ fileName, blob }) => {
+        zip.file(fileName, blob);
+      });
 
       const zipBlob = await zip.generateAsync({ type: "blob" });
       saveAs(zipBlob, `${zipName}.zip`);
       toast.dismiss(toastId);
-      toast("下载完成", { description: `已将 ${assetNodes.length} 张图片打包为 ${zipName}.zip` });
+      toast("下载完成", {
+        description: packagedFiles.length === assetNodes.length
+          ? `已将 ${packagedFiles.length} 张图片打包为 ${zipName}.zip`
+          : `已打包 ${packagedFiles.length} 张图片，另有 ${assetNodes.length - packagedFiles.length} 张未能写入压缩包`,
+      });
     } catch (err) {
       toast.dismiss(toastId);
       toast("下载失败", { description: "请检查网络连接后重试" });
