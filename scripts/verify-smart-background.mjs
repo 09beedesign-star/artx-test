@@ -25,6 +25,11 @@ assert(files.ai.includes("/api/images/create-background"), "client API points to
 assert(files.index.includes('app.post("/api/images/create-background"'), "server exposes create-background route");
 assert(files.server.includes('"r-background"'), "PicWish r-background task type is registered");
 assert(files.server.includes('runPicWishImageTask("r-background"'), "smart background uses PicWish r-background task");
+assert(files.server.includes("normalizeProductBackgroundResultToOutput"), "smart background normalizes generated bitmap dimensions before returning");
+assert(files.server.includes("Final bitmap size must be exactly"), "smart background prompt includes exact target bitmap instruction");
+assert(files.server.includes("Do not leave black bars, empty areas, transparent gutters, blurred borders, or letterboxing."), "smart background explicitly rejects black bars and empty areas");
+assert(files.server.includes("return normalizeProductBackgroundResultToOutput(generated, output);"), "reference-background generation path is normalized to selected output size");
+assert(files.server.includes("await normalizeProductBackgroundResultToOutput(await createBackgroundWithPicWish(input), output)"), "PicWish r-background path is normalized to selected output size");
 assert(files.server.includes("createPicWishMaskedRemovalTask"), "eraser remains on the isolated PicWish masked removal path");
 
 if (process.exitCode) {

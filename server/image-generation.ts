@@ -1247,6 +1247,15 @@ async function normalizeGeneratedImagesToTargetAspect(
   }));
 }
 
+async function normalizeProductBackgroundResultToOutput(
+  result: GeneratedImageResult,
+  output: { width: number; height: number },
+): Promise<GeneratedImageResult> {
+  return withProviderTaskIds({
+    images: await normalizeGeneratedImagesToTargetAspect(result.images, output.width, output.height),
+  }, collectProviderTaskIds(result));
+}
+
 function pixelDistance(data: Buffer, index: number, color: [number, number, number]) {
   const dr = data[index] - color[0];
   const dg = data[index + 1] - color[1];
@@ -2011,6 +2020,13 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
   const sourceImageData = await imageSrcToBuffer(input.imageSrc);
   const sourceDimensions = await getImageBufferDimensions(sourceImageData.buffer);
   const output = getBackgroundOutputSize(input, sourceDimensions.width, sourceDimensions.height);
+  const outputInstruction = [
+    `Final bitmap size must be exactly ${output.width}x${output.height}px.`,
+    `Final canvas aspect ratio must exactly match ${output.width}:${output.height} (${input.ratio || "selected ratio"}).`,
+    "Fill the entire canvas edge to edge with generated background content.",
+    "Do not leave black bars, empty areas, transparent gutters, blurred borders, or letterboxing.",
+    "If the reference background has a different aspect ratio, naturally extend or recompose the background to cover the full target canvas while keeping the product included.",
+  ].join(" ");
 
   if (hasBackgroundReference || count > 1) {
     const references = [
@@ -2019,7 +2035,7 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
         ? [{ src: input.backgroundReferenceSrc!, title: input.backgroundReferenceName || "背景参考图" }]
         : []),
     ];
-    return generateImages({
+    const generated = await generateImages({
       prompt: [
         input.style ? `背景风格：${input.style}` : "",
         input.prompt || "创建商业化产品背景",
@@ -2027,6 +2043,7 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
         hasBackgroundReference
           ? "Use reference image 2 only as the background style reference. Match its color mood, lighting, perspective, material texture, spatial depth, and commercial photography feel without copying protected or distinctive elements exactly."
           : "Create a realistic commercial background behind and around the product. Match lighting, shadows, perspective, and contact shadow naturally.",
+        outputInstruction,
         "Return complete product commercial images. Do not crop or distort the product.",
       ].filter(Boolean).join("\n"),
       ratio: input.ratio || "1:1",
@@ -2034,10 +2051,11 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
       style: input.style,
       images: references,
     });
+    return normalizeProductBackgroundResultToOutput(generated, output);
   }
 
   try {
-    return await createBackgroundWithPicWish(input);
+    return await normalizeProductBackgroundResultToOutput(await createBackgroundWithPicWish(input), output);
   } catch (picWishError) {
     console.warn("PicWish create background failed; using image edit provider fallback", picWishError);
     const fallbackResult = await editImageWithPrompt({
@@ -2049,9 +2067,10 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
         input.prompt || "创建商业化产品背景",
         "Use the uploaded product image as the exact foreground product. Preserve the product shape, material, colors, logo, text, and proportions.",
         "Only create a new realistic commercial background behind and around the product. Match lighting, shadows, perspective, and contact shadow naturally.",
+        outputInstruction,
       ].filter(Boolean).join("\n"),
     });
-    return fallbackResult;
+    return normalizeProductBackgroundResultToOutput(fallbackResult, output);
   }
 }
 
