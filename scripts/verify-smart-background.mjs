@@ -20,6 +20,11 @@ assert(files.canvas.indexOf('label: "智能创建背景"') < files.canvas.indexO
 assert(files.canvas.includes("ProductBackgroundDialogDetail"), "smart background dialog emits structured details");
 assert(files.canvas.includes('window.addEventListener("product-background-create"'), "canvas handles smart background generation event");
 assert(files.canvas.includes("createProductBackground({"), "canvas calls createProductBackground client API");
+assert(files.canvas.includes("getSmartBackgroundOutputSize"), "canvas computes explicit smart background output dimensions");
+assert(files.canvas.includes("product-bg-reference-"), "canvas creates a node for uploaded background reference images");
+assert(files.canvas.includes("backgroundReferenceNode"), "canvas tracks background reference node placement");
+assert(files.canvas.includes("customWidth: outputSize.width"), "smart background request passes explicit output width");
+assert(files.canvas.includes("customHeight: outputSize.height"), "smart background request passes explicit output height");
 assert(files.ai.includes("postProductBackground"), "client API has create-background POST wrapper");
 assert(files.ai.includes("/api/images/create-background"), "client API points to create-background endpoint");
 assert(files.index.includes('app.post("/api/images/create-background"'), "server exposes create-background route");
