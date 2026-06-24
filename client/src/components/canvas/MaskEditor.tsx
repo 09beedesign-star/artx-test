@@ -31,7 +31,7 @@ export function MaskEditor({ imageSrc, width, height, className, onCancel, onApp
     if (!canvas || !context) return;
 
     const point = getCanvasPoint(canvas, event);
-    context.fillStyle = "rgba(150, 84, 255, 0.82)";
+    context.fillStyle = "rgba(150, 84, 255, 0.18)";
     context.beginPath();
     context.arc(point.x, point.y, brushSize / 2, 0, Math.PI * 2);
     context.fill();

@@ -3364,7 +3364,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     };
     const overlayCtx = overlay.getContext("2d");
     const maskCtx = mask.getContext("2d");
-    if (overlayCtx) draw(overlayCtx, "rgba(128, 70, 255, 0.4)");
+    if (overlayCtx) draw(overlayCtx, "rgba(128, 70, 255, 0.18)");
     if (maskCtx) {
       maskCtx.save();
       maskCtx.globalCompositeOperation = "destination-out";
@@ -5513,39 +5513,6 @@ function resolveNonOverlappingCanvasPosition(
     const rect = { x: candidate.x, y: candidate.y, width: size.width, height: size.height };
     return !occupied.some(item => rectanglesOverlap(rect, item));
   }) || candidates[candidates.length - 1] || desired;
-}
-
-function fitEmbeddedAssetInsideFrame(assetNode: Node, frameNode: Node, nextFrameWidth: number, nextFrameHeight: number, scaleX: number, scaleY: number) {
-  const size = getCanvasNodeSize(assetNode);
-  const frameOriginX = frameNode.position.x;
-  const frameOriginY = frameNode.position.y;
-  const relativeX = assetNode.position.x - frameOriginX;
-  const relativeY = assetNode.position.y - frameOriginY;
-  const uniformScale = Math.max(0.01, Math.min(scaleX, scaleY));
-  let nextWidth = Math.max(1, Math.round(size.width * uniformScale));
-  let nextHeight = Math.max(1, Math.round(size.height * uniformScale));
-
-  if (nextWidth > nextFrameWidth || nextHeight > nextFrameHeight) {
-    const containScale = Math.min(nextFrameWidth / nextWidth, nextFrameHeight / nextHeight);
-    nextWidth = Math.max(1, Math.round(nextWidth * containScale));
-    nextHeight = Math.max(1, Math.round(nextHeight * containScale));
-  }
-
-  const maxX = frameOriginX + Math.max(0, nextFrameWidth - nextWidth);
-  const maxY = frameOriginY + Math.max(0, nextFrameHeight - nextHeight);
-  const nextX = Math.min(Math.max(frameOriginX + relativeX * scaleX, frameOriginX), maxX);
-  const nextY = Math.min(Math.max(frameOriginY + relativeY * scaleY, frameOriginY), maxY);
-
-  return {
-    ...assetNode,
-    position: { x: nextX, y: nextY },
-    style: { ...assetNode.style, width: nextWidth, height: nextHeight },
-    data: {
-      ...(assetNode.data as Record<string, unknown>),
-      imgW: nextWidth,
-      imgH: nextHeight,
-    },
-  };
 }
 
 function getAssetNodeImageSource(node: Node): string {
@@ -9451,7 +9418,7 @@ function CanvasAssistantPanel({
     composerSegments.forEach(segment => {
       if (segment.type !== "text") return;
       if (!segment.text) {
-        nextWidths[segment.id] = composerSegments.length === 1 ? 220 : 32;
+        nextWidths[segment.id] = composerSegments.length === 1 ? 220 : 2;
         return;
       }
       measure.textContent = segment.text;
@@ -10710,7 +10677,7 @@ function CanvasAssistantPanel({
                     ? Math.min(520, Math.max(32, segment.text.length * 13 + 18))
                     : isSingleEmptyTextSegment
                       ? 320
-                      : 32);
+                      : 2);
                   return (
                     isSingleEmptyTextSegment ? (
                       <textarea
@@ -12062,9 +12029,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       setNodes(nds => {
         const frame = nds.find(n => n.id === detail.id && n.type === "canvasFrame");
         if (!frame) return nds;
-        const previousSize = getCanvasNodeSize(frame);
-        const scaleX = detail.width / Math.max(1, previousSize.width);
-        const scaleY = detail.height / Math.max(1, previousSize.height);
         const normalizedFrame = normalizeCanvasFrameNode(frame);
         const normalizedData = normalizedFrame.data as Record<string, unknown>;
         const resizedFrame = {
@@ -12074,10 +12038,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         };
         return nds.map(n => {
           if (n.id === detail.id) return resizedFrame;
-          const data = n.data as Record<string, unknown>;
-          if (n.type === "asset" && data.embeddedInFrame === detail.id) {
-            return fitEmbeddedAssetInsideFrame(n, frame, detail.width, detail.height, scaleX, scaleY);
-          }
           return n;
         });
       });
