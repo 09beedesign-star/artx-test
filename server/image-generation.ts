@@ -310,6 +310,18 @@ const ratioToSize: Record<string, { size: string; width: number; height: number 
   "21:9": { size: "1536x1024", width: 1536, height: 658 },
 };
 
+function getClosestSupportedRatioId(width: number, height: number) {
+  const safeWidth = Math.max(1, width);
+  const safeHeight = Math.max(1, height);
+  const targetAspect = safeWidth / safeHeight;
+  return Object.entries(ratioToSize).reduce((best, current) => {
+    const [, currentSize] = current;
+    const currentAspect = currentSize.width / Math.max(1, currentSize.height);
+    const bestAspect = best[1].width / Math.max(1, best[1].height);
+    return Math.abs(currentAspect - targetAspect) < Math.abs(bestAspect - targetAspect) ? current : best;
+  })[0];
+}
+
 function getImagesEndpoint(baseUrl: string) {
   const normalized = baseUrl.replace(/\/+$/, "");
   return `${normalized}${normalized.endsWith("/v1") ? "" : "/v1"}/images/generations`;
@@ -1256,6 +1268,45 @@ async function normalizeProductBackgroundResultToOutput(
   }, collectProviderTaskIds(result));
 }
 
+async function createStrictProductBackgroundVariants(
+  input: CreateBackgroundInput,
+  output: { width: number; height: number },
+  count: number,
+): Promise<GeneratedImageResult> {
+  const sharedPrompt = [
+    input.style ? `背景风格：${input.style}` : "",
+    input.prompt || "创建商业化产品背景",
+    "Treat the uploaded product image as the locked foreground subject and target canvas.",
+    "The product silhouette, width-to-height proportion, perspective, camera angle, position, orientation, material, logo, printed text, seams, edges, and all visible geometry must stay identical to the source image.",
+    "Do not stretch, compress, widen, slim, enlarge, shrink, rotate, repaint, redesign, or reshape the product in any way.",
+    "Only generate or replace the background area around the product, while preserving realistic contact shadow, lighting direction, perspective depth, and commercial photography quality.",
+    input.backgroundReferenceSrc?.trim()
+      ? "Use the extra reference image only for background style, color mood, lighting, texture, spatial depth, and atmosphere. Never apply its shape language to the product."
+      : "",
+    `Final bitmap size must be exactly ${output.width}x${output.height}px.`,
+    `Final canvas aspect ratio must exactly match ${output.width}:${output.height}.`,
+    "The final output must fully fill the selected canvas with no black bars, no transparent margins, and no letterboxing.",
+  ].filter(Boolean).join("\n");
+
+  const variantResults = await Promise.all(
+    Array.from({ length: count }, () => editImageWithPrompt({
+      imageSrc: input.imageSrc,
+      targetWidth: output.width,
+      targetHeight: output.height,
+      prompt: sharedPrompt,
+      images: input.backgroundReferenceSrc?.trim()
+        ? [{ src: input.backgroundReferenceSrc, title: input.backgroundReferenceName || "背景参考图" }]
+        : [],
+    })),
+  );
+
+  const images = variantResults.flatMap(result => result.images).slice(0, count);
+  if (images.length === 0) {
+    throw new Error("Smart background edit provider returned no images");
+  }
+  return { images };
+}
+
 function pixelDistance(data: Buffer, index: number, color: [number, number, number]) {
   const dr = data[index] - color[0];
   const dg = data[index + 1] - color[1];
@@ -2029,28 +2080,7 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
   ].join(" ");
 
   if (hasBackgroundReference || count > 1) {
-    const references = [
-      { src: input.imageSrc, title: "产品图" },
-      ...(hasBackgroundReference
-        ? [{ src: input.backgroundReferenceSrc!, title: input.backgroundReferenceName || "背景参考图" }]
-        : []),
-    ];
-    const generated = await generateImages({
-      prompt: [
-        input.style ? `背景风格：${input.style}` : "",
-        input.prompt || "创建商业化产品背景",
-        "Use reference image 1 as the exact product subject. Preserve the product shape, material, colors, logo, text, proportions, and foreground identity.",
-        hasBackgroundReference
-          ? "Use reference image 2 only as the background style reference. Match its color mood, lighting, perspective, material texture, spatial depth, and commercial photography feel without copying protected or distinctive elements exactly."
-          : "Create a realistic commercial background behind and around the product. Match lighting, shadows, perspective, and contact shadow naturally.",
-        outputInstruction,
-        "Return complete product commercial images. Do not crop or distort the product.",
-      ].filter(Boolean).join("\n"),
-      ratio: input.ratio || "1:1",
-      count,
-      style: input.style,
-      images: references,
-    });
+    const generated = await createStrictProductBackgroundVariants(input, output, count);
     return normalizeProductBackgroundResultToOutput(generated, output);
   }
 
@@ -2095,6 +2125,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   const selectedModel = input.model && supportedImageModels.has(input.model) ? input.model : model;
   const referenceImages = input.images?.filter(image => image.src?.trim()) || [];
   const editSize = getEditSizeForAspect(targetWidth, targetHeight);
+  const requestedRatio = getClosestSupportedRatioId(targetWidth, targetHeight);
   const aspectInstruction = `Keep the final image canvas aspect ratio exactly ${targetWidth}:${targetHeight}. Do not return a square image unless the source is square.`;
 
   if (isChatCompatibleImageModel(selectedModel)) {
@@ -2108,7 +2139,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
         aspectInstruction,
       ].join("\n\n"),
       model: selectedModel,
-      ratio: "1:1",
+      ratio: requestedRatio,
       count: 1,
       images: [
         { src: sourceDataUrl, title: "target image" },
