@@ -109,7 +109,8 @@ const rechargePacks = [
     id: "pack-small",
     name: "轻量补充",
     credits: "小额积分包",
-    placeholder: "例如 50",
+    minAmount: 20,
+    placeholder: "最低 20",
     usage: "临时补充生成额度",
     perks: [
       { label: "标准图片生成额度", included: true },
@@ -122,7 +123,8 @@ const rechargePacks = [
     id: "pack-growth",
     name: "增长补充",
     credits: "中额积分包",
-    placeholder: "例如 150",
+    minAmount: 120,
+    placeholder: "最低 120",
     usage: "适合连续作业",
     perks: [
       { label: "高清图片生成额度", included: true },
@@ -135,7 +137,8 @@ const rechargePacks = [
     id: "pack-scale",
     name: "规模补充",
     credits: "大额积分包",
-    placeholder: "例如 500",
+    minAmount: 300,
+    placeholder: "最低 300",
     usage: "适合批量生成与团队项目",
     perks: [
       { label: "批量商业图生成额度", included: true },
@@ -353,9 +356,9 @@ export default function BillingPage() {
 
   const normalizeRechargeAmount = (value: string) => value.replace(/[^\d]/g, "").slice(0, 6);
 
-  const validateRechargeAmount = (value: string) => {
+  const validateRechargeAmount = (value: string, minAmount = 20) => {
     const amount = Number(value);
-    if (!Number.isFinite(amount) || amount < 10) return "请输入不低于 HKD 10 的充值金额";
+    if (!Number.isFinite(amount) || amount < minAmount) return `请输入不低于 HKD ${minAmount} 的充值金额`;
     if (amount % 5 !== 0) return "充值金额必须以 0 或 5 结尾";
     return "";
   };
@@ -365,8 +368,9 @@ export default function BillingPage() {
       openLoginModal();
       return;
     }
+    const pack = rechargePacks.find(item => item.id === packId);
     const rawAmount = rechargeAmounts[packId] || "";
-    const error = validateRechargeAmount(rawAmount);
+    const error = validateRechargeAmount(rawAmount, pack?.minAmount || 20);
     if (error) {
       toast("充值金额不可用", { description: error });
       return;
@@ -520,7 +524,6 @@ export default function BillingPage() {
                   <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div>
                       <h2 className="type-title-sm" style={{ color: text, fontSize: 20, fontWeight: 680 }}>订阅服务</h2>
-                      <p className="mt-1 type-caption" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>按整体创作服务收费，周期支持月付、季付与年付。</p>
                     </div>
                     <div className="inline-grid grid-cols-3 gap-1 rounded-[var(--radius-lg-design)] border p-1" style={{ borderColor: border, background: panelStrong }}>
                       {BILLING_CYCLES.map(cycle => {
@@ -636,7 +639,6 @@ export default function BillingPage() {
                   <div className="mb-4 flex items-center justify-between gap-3">
                     <div>
                       <h2 className="type-title-sm" style={{ color: text, fontSize: 20, fontWeight: 680 }}>积分充值</h2>
-                      <p className="mt-1 type-caption" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>积分只代表可用创作额度，不绑定某一个模型。</p>
                     </div>
                     <WalletCards size={20} style={{ color: green }} />
                   </div>
