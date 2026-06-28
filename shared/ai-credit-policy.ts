@@ -114,7 +114,7 @@ export const AI_PLAN_DISCOUNTS: AiPlanDiscountPolicy[] = [
   { planId: "lite", multiplier: 1.08, label: "入门加价" },
   { planId: "creator", multiplier: 1, label: "标准" },
   { planId: "pro", multiplier: 0.95, label: "Pro 95 折" },
-  { planId: "studio", multiplier: 0.9, label: "Studio 9 折" },
+  { planId: "studio", multiplier: 0.85, label: "Studio 85 折" },
   { planId: "business", multiplier: 0.82, label: "Business 82 折" },
 ];
 

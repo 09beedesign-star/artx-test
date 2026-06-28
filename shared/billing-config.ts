@@ -43,10 +43,10 @@ export const MEMBERSHIP_PLANS: MembershipPlan[] = [
     id: "lite",
     name: "Lite 入门版",
     shortName: "Lite",
-    monthlyPrice: 109,
-    quarterlyPrice: 319,
-    annualPrice: 1059,
-    monthlyCredits: 2000,
+    monthlyPrice: 19,
+    quarterlyPrice: 51,
+    annualPrice: 174,
+    monthlyCredits: 247,
     audience: "轻度体验、学生、低门槛转化",
     tagline: "适合刚开始用 AI 做图和文案的个人用户。",
     features: ["基础图片生成", "提示词优化", "标准队列", "每日登录奖励"],
@@ -67,10 +67,10 @@ export const MEMBERSHIP_PLANS: MembershipPlan[] = [
     id: "pro",
     name: "Pro 专业版",
     shortName: "Pro",
-    monthlyPrice: 499,
-    quarterlyPrice: 1489,
-    annualPrice: 3299,
-    monthlyCredits: 11000,
+    monthlyPrice: 89,
+    quarterlyPrice: 240,
+    annualPrice: 817,
+    monthlyCredits: 1157,
     audience: "高频设计、商单、核心推荐",
     tagline: "新平台主推档，覆盖高频创作同时保留毛利。",
     features: ["高级图片模型", "优先队列", "批量生成折扣", "商单工作流"],
@@ -80,10 +80,10 @@ export const MEMBERSHIP_PLANS: MembershipPlan[] = [
     id: "studio",
     name: "Studio 工作室版",
     shortName: "Studio",
-    monthlyPrice: 929,
-    quarterlyPrice: 2789,
-    annualPrice: 9819,
-    monthlyCredits: 27000,
+    monthlyPrice: 139,
+    quarterlyPrice: 375,
+    annualPrice: 1276,
+    monthlyCredits: 1807,
     audience: "小团队、批量生成",
     tagline: "适合小团队批量产出海报、商品图和素材变体。",
     features: ["团队共享额度", "更高并发", "批量内容生产", "高级编辑工具"],
@@ -116,19 +116,19 @@ export const BILLING_CYCLES: BillingCycle[] = [
     id: "quarterly",
     label: "季度",
     months: 3,
-    multiplier: 3,
-    badge: "约 9 折",
-    bonusRate: 0.05,
-    creditRule: "每月发放套餐积分，额外送 5% 奖励积分",
+    multiplier: 2.7,
+    badge: "9 折",
+    bonusRate: 0,
+    creditRule: "按月付总价 9 折结算，积分按实付金额统一增加 30% 算力点",
   },
   {
     id: "annual",
     label: "全年",
     months: 12,
-    multiplier: 12,
-    badge: "最划算",
-    bonusRate: 0.2,
-    creditRule: "每月发放套餐积分，额外送 20% 奖励积分",
+    multiplier: 9.18,
+    badge: "季度价再 85 折",
+    bonusRate: 0,
+    creditRule: "在季度优惠基础上再享 85 折，积分按实付金额统一增加 30% 算力点",
     recommended: true,
   },
 ];
@@ -144,15 +144,10 @@ export const CREDIT_COST_RULES = [
 ];
 
 export function getPlanQuote(plan: MembershipPlan, cycle: BillingCycle): PlanQuote {
-  const cyclePrices: Record<BillingCycleId, number> = {
-    monthly: plan.monthlyPrice,
-    quarterly: plan.quarterlyPrice,
-    annual: plan.annualPrice,
-  };
-  const price = cyclePrices[cycle.id];
-  const baseCredits = plan.monthlyCredits * cycle.months;
-  const bonusCredits = Math.round(baseCredits * cycle.bonusRate);
-  const totalCredits = baseCredits + bonusCredits;
+  const price = Math.round(plan.monthlyPrice * cycle.multiplier);
+  const totalCredits = Math.round(price * CREDIT_RECHARGE_RATE * 1.3);
+  const baseCredits = Math.round(price * CREDIT_RECHARGE_RATE);
+  const bonusCredits = totalCredits - baseCredits;
   const creditsPerYuan = totalCredits / price;
   const unitPrice = price / totalCredits;
 

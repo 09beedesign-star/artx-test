@@ -97,7 +97,18 @@ type OrderDetail = {
   feedbackEntries: Feedback[];
   notes: Array<{ id: string; actorName: string; content: string; createdAt: string }>;
   paymentEvents: Array<{ id: string; type: string; status: string; providerTransactionId?: string; amount?: number; signatureValid?: boolean; message: string; createdAt: string }>;
-  refundEvents: Array<{ id: string; amount: number; creditsDeducted: number; reason: string; actorName: string; createdAt: string }>;
+  refundEvents: Array<{
+    id: string;
+    amount: number;
+    creditsDeducted: number;
+    reason: string;
+    status: string;
+    providerRefundId?: string;
+    currentStep: string;
+    actorName: string;
+    createdAt: string;
+    flow?: Array<{ id: string; label: string; status: "done" | "current" | "pending" | "failed"; detail: string; createdAt?: string }>;
+  }>;
   timeline: Array<{ id: string; type: string; status: string; message: string; createdAt: string }>;
 };
 
@@ -1764,6 +1775,7 @@ function OrderDetailPanel({
         }))}
         empty="暂无积分流水"
       />
+      <RefundFlowSection refundEvents={detail?.refundEvents || []} />
       <MiniSection
         title="处理备注"
         rows={(detail?.notes || []).map((item) => ({
@@ -1791,6 +1803,58 @@ function InfoLine({ label, value, mono = false }: { label: string; value: string
     <div className="rounded-md border border-white/8 bg-slate-950/30 p-3">
       <div className="text-slate-500">{label}</div>
       <div className={cn("mt-1 break-all text-slate-100", mono && "font-mono")}>{value}</div>
+    </div>
+  );
+}
+
+function RefundFlowSection({ refundEvents }: { refundEvents: OrderDetail["refundEvents"] }) {
+  const latest = refundEvents[0];
+  if (!latest) {
+    return (
+      <div className="rounded-md border border-white/8 bg-slate-950/25 p-3">
+        <div className="mb-2 text-sm font-medium">退款钱款流向</div>
+        <div className="text-xs text-slate-500">暂无退款流程</div>
+      </div>
+    );
+  }
+
+  const nodes = latest.flow || [];
+  return (
+    <div className="rounded-md border border-white/8 bg-slate-950/25 p-3">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <div className="text-sm font-medium">退款钱款流向</div>
+          <div className="mt-1 text-xs text-slate-500">
+            当前进程：{latest.currentStep || "退款处理中"} · {formatCurrency(latest.amount)}
+          </div>
+        </div>
+        <Badge className={statusClass(latest.status === "failed" ? "failed" : latest.status === "succeeded" ? "resolved" : "pending")}>
+          {latest.status}
+        </Badge>
+      </div>
+      <div className="space-y-2">
+        {nodes.map((node, index) => (
+          <div key={node.id} className="grid grid-cols-[22px_1fr] gap-3">
+            <div className="flex flex-col items-center">
+              <div className={cn(
+                "mt-1 size-3 rounded-full border",
+                node.status === "done" && "border-emerald-300 bg-emerald-300",
+                node.status === "current" && "border-cyan-300 bg-cyan-300",
+                node.status === "pending" && "border-slate-500 bg-transparent",
+                node.status === "failed" && "border-rose-300 bg-rose-300",
+              )} />
+              {index < nodes.length - 1 && <div className="mt-1 h-full min-h-8 w-px bg-white/10" />}
+            </div>
+            <div className="rounded-md bg-white/[0.03] p-2 text-xs">
+              <div className="flex items-center justify-between gap-3">
+                <div className="font-medium text-slate-200">{node.label}</div>
+                <div className="text-slate-500">{node.createdAt || "待处理"}</div>
+              </div>
+              <div className="mt-1 text-slate-500">{node.detail}</div>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

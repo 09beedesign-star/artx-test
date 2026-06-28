@@ -59,9 +59,9 @@ const subscriptionPlans = [
     features: [
       { label: "多人项目协作预留", included: true },
       { label: "商业画板与素材管理", included: true },
+      { label: "AI 创作消耗 85 折", included: true },
       { label: "最高图片生成并发占位", included: true },
       { label: "专属高峰期任务通道", included: true },
-      { label: "发票与用量报表预留", included: true },
     ],
   },
 ];
@@ -209,6 +209,7 @@ export default function BillingPage() {
   const [, navigate] = useLocation();
   const [activeTab, setActiveTab] = useState<BillingTab>(() => readInitialTab());
   const [activeCycle, setActiveCycle] = useState<BillingCycleId>("monthly");
+  const [selectedPlanId, setSelectedPlanId] = useState<MembershipPlanId>("pro");
   const [payingPlanId, setPayingPlanId] = useState<string | null>(null);
   const [balance, setBalance] = useState(75);
   const [currentPlan, setCurrentPlan] = useState("Free");
@@ -305,7 +306,7 @@ export default function BillingPage() {
       return;
     }
     const targetPlan = subscriptionPlans.find(item => item.id === planId);
-    if (targetPlan && currentPlanLevel >= targetPlan.level) {
+    if (targetPlan && currentPlanLevel > targetPlan.level) {
       toast("当前方案不可降级", {
         description: "已订阅用户只能升级到更高方案。",
       });
@@ -486,7 +487,7 @@ export default function BillingPage() {
             </div>
           </section>
 
-          <section className="grid gap-4 lg:grid-cols-[280px_1fr]">
+          <section className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)]">
             <aside className="rounded-[var(--radius-xl-design)] border p-2 backdrop-blur-xl" style={{ background: panel, borderColor: border }}>
               {billingTabs.map(tab => {
                 const active = activeTab === tab.id;
@@ -539,30 +540,42 @@ export default function BillingPage() {
                     </div>
                   </div>
 
-                  <div className="grid gap-3 xl:grid-cols-3">
+                  <div className="grid items-stretch gap-3 md:grid-cols-3">
                     {subscriptionPlans.map(planConfig => {
                       const plan = MEMBERSHIP_PLANS.find(item => item.id === planConfig.id) || MEMBERSHIP_PLANS[0];
                       const quote = getPlanQuote(plan, activeCycleConfig);
-                      const disabledByPlan = currentPlanLevel >= planConfig.level;
+                      const disabledByPlan = currentPlanLevel > planConfig.level;
                       const originalPrice = Math.ceil(quote.price * 1.42 / 10) * 10 + 9;
+                      const selected = selectedPlanId === plan.id;
                       return (
                         <article
                         key={planConfig.id}
-                        className="flex min-h-[360px] flex-col rounded-[var(--radius-xl-design)] border p-4"
+                        role="button"
+                        tabIndex={0}
+                        aria-pressed={selected}
+                        className="flex h-full min-h-[360px] min-w-0 cursor-pointer flex-col rounded-[var(--radius-xl-design)] border p-3 transition-all duration-150 hover:-translate-y-0.5 xl:p-4"
+                        onClick={() => setSelectedPlanId(plan.id)}
+                        onPointerDownCapture={() => setSelectedPlanId(plan.id)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            setSelectedPlanId(plan.id);
+                          }
+                        }}
                         style={{
-                          background: planConfig.highlight ? "linear-gradient(180deg, oklch(0.18 0.04 292 / 0.92), oklch(0.12 0.014 270 / 0.92))" : panelStrong,
-                          borderColor: planConfig.highlight ? "oklch(0.68 0.20 292 / 0.55)" : border,
-                          boxShadow: planConfig.highlight ? "0 20px 56px oklch(0.58 0.22 290 / 0.18)" : "none",
+                          background: selected ? "linear-gradient(180deg, oklch(0.18 0.04 292 / 0.92), oklch(0.12 0.014 270 / 0.92))" : panelStrong,
+                          borderColor: selected ? "oklch(0.68 0.20 292 / 0.62)" : border,
+                          boxShadow: selected ? "0 20px 56px oklch(0.58 0.22 290 / 0.18)" : "none",
                         }}
                       >
                         <div className="mb-4 flex items-start justify-between gap-3">
-                          <div>
+                          <div className="min-w-0">
                             <p className="type-caption" style={{ color: planConfig.highlight ? green : sub }}>{planConfig.audience}</p>
                             <h3 className="mt-1" style={{ color: text, fontSize: 22, fontWeight: 720 }}>{plan.name}</h3>
                           </div>
-                          {planConfig.highlight && (
-                            <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: "oklch(0.78 0.18 110 / 0.16)", color: green }}>
-                              推荐
+                          {(selected || planConfig.highlight) && (
+                            <span className="shrink-0 rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: selected ? "oklch(0.68 0.20 292 / 0.18)" : "oklch(0.78 0.18 110 / 0.16)", color: selected ? text : green }}>
+                              {selected ? "已选择" : "推荐"}
                             </span>
                           )}
                         </div>
@@ -570,7 +583,7 @@ export default function BillingPage() {
                         <div className="rounded-[var(--radius-lg-design)] border p-3" style={{ borderColor: border, background: isDark ? "oklch(0.09 0.012 270 / 0.56)" : "oklch(0 0 0 / 3%)" }}>
                           <div className="type-caption" style={{ color: faint }}>ArtX 标准价</div>
                           <div className="mt-1 flex flex-wrap items-end gap-2">
-                            <span style={{ color: text, fontSize: 24, fontWeight: 760 }}>{formatCurrency(quote.price)}</span>
+                            <span style={{ color: text, fontSize: 22, fontWeight: 760 }}>{formatCurrency(quote.price)}</span>
                             <span className="pb-1 type-caption" style={{ color: sub }}>/ {cycleLabel}</span>
                             <span className="pb-1 type-caption" style={{ color: faint, textDecoration: "line-through", textDecorationThickness: 1 }}>
                               {formatCurrency(originalPrice)}
@@ -594,13 +607,17 @@ export default function BillingPage() {
 
                         <button
                           type="button"
-                          onClick={() => startSubscriptionPayment(plan.id, `${plan.name} ${cycleLabel}`)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setSelectedPlanId(plan.id);
+                            startSubscriptionPayment(plan.id, `${plan.name} ${cycleLabel}`);
+                          }}
                           disabled={payingPlanId === plan.id || disabledByPlan}
                           className="mt-5 h-10 rounded-[var(--radius-md-design)] type-caption transition-all hover:opacity-90 active:scale-[0.98]"
                           style={{
-                            background: disabledByPlan ? "oklch(1 0 0 / 8%)" : planConfig.highlight ? green : "oklch(0.68 0.20 292 / 0.18)",
-                            color: disabledByPlan ? faint : planConfig.highlight ? "#10130A" : text,
-                            border: `1px solid ${disabledByPlan ? "oklch(1 0 0 / 10%)" : planConfig.highlight ? "transparent" : "oklch(0.68 0.20 292 / 0.32)"}`,
+                            background: disabledByPlan ? "oklch(1 0 0 / 8%)" : selected ? green : "oklch(0.68 0.20 292 / 0.18)",
+                            color: disabledByPlan ? faint : selected ? "#10130A" : text,
+                            border: `1px solid ${disabledByPlan ? "oklch(1 0 0 / 10%)" : selected ? "transparent" : "oklch(0.68 0.20 292 / 0.32)"}`,
                             cursor: disabledByPlan ? "not-allowed" : "pointer",
                             fontWeight: 700,
                           }}
