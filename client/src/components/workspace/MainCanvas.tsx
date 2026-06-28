@@ -16,6 +16,7 @@ import { INITIAL_MESSAGES, GENERATED_ASSETS, PROJECTS } from "@/lib/workspace-da
 import type { ChatMessage, GeneratedAsset, AgentStep } from "@/lib/workspace-data";
 import { callLLM, requestAiAuth } from "@/lib/ai";
 import { routeCreativeIntent } from "@/lib/ai-intent";
+import { goToUpgradePage } from "@/lib/billing-state";
 import generationMark from "@/assets/generation/ai-generation-mark.svg";
 
 const SUGGESTIONS = [
@@ -313,7 +314,15 @@ function ChatView({
           </div>
         </div>
         <p className="text-center text-[10px] mt-2" style={{ color: "oklch(0.35 0.01 270)" }}>
-          按 Enter 发送 · Shift+Enter 换行 · 每次生成消耗约 5 积分
+          按 Enter 发送 · Shift+Enter 换行 · 每次生成消耗约 5 积分 ·{" "}
+          <button
+            type="button"
+            onClick={() => goToUpgradePage("composer-credit-hint")}
+            className="underline-offset-2 hover:underline"
+            style={{ color: "#C5ED47" }}
+          >
+            升级套餐
+          </button>
         </p>
       </div>
     </>

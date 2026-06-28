@@ -3025,7 +3025,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const processingLabel = ((data as { processingTitle?: string }).processingTitle || (isGenerationFailed ? AI_GENERATION_NETWORK_ERROR_MESSAGE : isGeneratingImage ? "正在开足马力为您生成图片" : isErasingImage ? "AI 擦除中" : isRemovingBackground ? "AI 去背景中" : "AI 处理中")) as string;
   const processingSubtitle = ((data as { processingSubtitle?: string }).processingSubtitle || "") as string;
   const processingLines = (() => {
-    if (isGenerationFailed) return ["生成图片失败", AI_GENERATION_NETWORK_ERROR_MESSAGE];
+    if (isGenerationFailed) return ["生成图片失败", "对不起，网络开了个小差，请稍后重试"];
     if (isGeneratingImage) return ["正在开足马力", "为您生成图片"];
     if (processingSubtitle) return [processingLabel, processingSubtitle];
     const midpoint = Math.ceil(processingLabel.length / 2);
@@ -3706,21 +3706,22 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
                   maxWidth: 300,
                 }}
               >
-                {processingLines.slice(0, 2).map((line, index) => (
+                {processingLines.map((line, index) => (
                   <span
                     key={`${line}-${index}`}
                     style={{
                       width: "100%",
                       color: "rgba(255,255,255,0.30)",
-                      fontSize: 16,
+                      fontSize: isGenerationFailed ? 11 : 16,
                       fontWeight: 500,
-                      lineHeight: "22px",
+                      lineHeight: isGenerationFailed ? "15px" : "22px",
                       letterSpacing: 0,
                       whiteSpace: "normal",
                       overflowWrap: "break-word",
                       wordBreak: "break-word",
-                      display: "-webkit-box",
-                      WebkitLineClamp: 2,
+                      textAlign: "center",
+                      display: isGenerationFailed ? "block" : "-webkit-box",
+                      WebkitLineClamp: isGenerationFailed ? 1 : 2,
                       WebkitBoxOrient: "vertical",
                       overflow: "hidden",
                     }}
@@ -6318,6 +6319,15 @@ function getImportedImageDisplaySize(naturalWidth: number, naturalHeight: number
   };
 }
 
+function readBlobAsDataUrl(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => reject(reader.error || new Error("读取图片失败"));
+    reader.readAsDataURL(blob);
+  });
+}
+
 function normalizeDroppedImageUrl(value: string) {
   const source = value.trim();
   if (!source || /^(javascript|mailto|tel):/i.test(source)) return "";
@@ -6377,6 +6387,16 @@ function dataTransferHasExternalImage(dataTransfer: DataTransfer | null | undefi
   return types.some(type => type === "text/html" || type === "text/uri-list" || type === "text/plain");
 }
 
+function dedupeDroppedImageFiles(files: File[]) {
+  const seen = new Set<string>();
+  return files.filter(file => {
+    const key = [file.name, file.type, file.size, file.lastModified].join("::");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 // ── Bottom AI Prompt Bar ───────────────────────────────────────
 function BottomPromptBar({
   isDark,
@@ -6399,6 +6419,7 @@ function BottomPromptBar({
 }) {
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState("auto");
+  const [ratio, setRatio] = useState("1:1");
   const [rows, setRows] = useState(1);
   const [isSending, setIsSending] = useState(false);
   const [referencePreview, setReferencePreview] = useState<{
@@ -6422,6 +6443,7 @@ function BottomPromptBar({
   const chipBorder = isDark ? "oklch(0.62 0.22 290 / 0.35)" : "oklch(0.58 0.22 290 / 0.30)";
   const chipText = isDark ? "oklch(0.80 0.18 290)" : "oklch(0.42 0.18 290)";
   const removeColor = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.58 0.01 270)";
+  const ratioOptions = ["1:1", "4:5", "5:4", "3:4", "4:3", "16:9", "9:16", "21:9"];
 
   const resizePromptTextarea = useCallback((input: HTMLTextAreaElement | null) => {
     if (!input) return;
@@ -6492,12 +6514,12 @@ function BottomPromptBar({
             projectId,
             prompt: finalImagePrompt,
             model: selectedGenerationModel,
-            ratio: "1:1",
+            ratio,
             count: 1,
             style: "智能判断",
             referencesEnabled: submittedRefs.length > 0,
             generationId,
-            displaySize: targetDisplaySize,
+            displaySize: targetDisplaySize || getImageDisplaySizeForRatio(ratio),
             skillId: activeSkill?.id,
           };
           dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
@@ -6510,8 +6532,8 @@ function BottomPromptBar({
                   prompt: payload.prompt,
                   referencedAssets: submittedRefs.slice(0, -1),
                   skillId: activeSkill.id,
-                  targetWidth: targetReference.width,
-                  targetHeight: targetReference.height,
+                  targetWidth: targetReference.width || getImageDisplaySizeForRatio(ratio).w,
+                  targetHeight: targetReference.height || getImageDisplaySizeForRatio(ratio).h,
                 })
               : await generateAiImages(payload);
             dispatchImageGenerationTask({ ...payload, status: "completed", images: result.images }, projectId);
@@ -6708,6 +6730,25 @@ function BottomPromptBar({
       </div>
       <div className="flex items-center gap-2 px-3 pb-3" style={{ paddingTop: 8 }}>
         <ModelSelector model={model} onChange={setModel} isDark={isDark} />
+        <div
+          className="flex h-8 items-center gap-1 rounded-[var(--radius-md-design)] px-2"
+          style={{ background: isDark ? "rgba(255,255,255,0.055)" : "rgba(0,0,0,0.035)", color: text }}
+        >
+          <Frame size={12} style={{ opacity: 0.78, flex: "0 0 auto" }} />
+          <select
+            aria-label="选择画幅比例"
+            value={ratio}
+            onChange={event => setRatio(event.target.value)}
+            className="bg-transparent outline-none"
+            style={{ color: text, fontSize: 12, appearance: "none", border: "none" }}
+          >
+            {ratioOptions.map(item => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        </div>
         <SkillPointSelector activeSkill={activeSkill} onChange={onActiveSkillChange} isDark={isDark} />
         <button
           className="flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-md-design)] type-caption hover:opacity-80"
@@ -9222,7 +9263,7 @@ const CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION_KEY = "artx:canvas-assistant-auto-de
 const CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION = "2026-06-21-auto-default";
 type CanvasAssistantModelTab = "image" | "text";
 type AssistantComposerSegment =
-  | { id: string; type: "text"; text: string }
+  | { id: string; type: "text"; text: string; preserveEmpty?: boolean }
   | { id: string; type: "image"; asset: ImageGeneratorReferenceAsset }
   | { id: string; type: "annotation"; annotation: AnnotationReference };
 
@@ -9292,8 +9333,8 @@ function deserializeCanvasAssistantMessages(raw: string | null): CanvasAssistant
   }
 }
 
-function createAssistantTextSegment(text = ""): AssistantComposerSegment {
-  return { id: `seg-text-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, type: "text", text };
+function createAssistantTextSegment(text = "", preserveEmpty = false): AssistantComposerSegment {
+  return { id: `seg-text-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, type: "text", text, preserveEmpty };
 }
 
 function isAssistantTokenSegment(segment: AssistantComposerSegment) {
@@ -9313,7 +9354,7 @@ function normalizeAssistantComposerSegments(segments: AssistantComposerSegment[]
   segments.forEach(segment => {
     if (segment.type === "text") {
       const previous = normalized[normalized.length - 1];
-      if (previous?.type === "text" && (previous.text.length > 0 || segment.text.length > 0)) {
+      if (previous?.type === "text" && !previous.preserveEmpty && !segment.preserveEmpty && (previous.text.length > 0 || segment.text.length > 0)) {
         normalized[normalized.length - 1] = { ...previous, text: previous.text + segment.text };
       } else {
         normalized.push({ ...segment });
@@ -9361,6 +9402,14 @@ function getAssistantComposerPrompt(segments: AssistantComposerSegment[]) {
     })
     .filter(Boolean)
     .join("\n");
+}
+
+function splitComposerTextSegment(segment: Extract<AssistantComposerSegment, { type: "text" }>, cursor: number) {
+  const safeCursor = Math.max(0, Math.min(cursor, segment.text.length));
+  return {
+    beforeText: segment.text.slice(0, safeCursor),
+    afterText: segment.text.slice(safeCursor),
+  };
 }
 
 function getAssistantComposerImages(segments: AssistantComposerSegment[]) {
@@ -9453,7 +9502,7 @@ function CanvasAssistantPanel({
   const [composerSegments, setComposerSegments] = useState<AssistantComposerSegment[]>(() => [createAssistantTextSegment("")]);
   const [draggingComposerSegmentId, setDraggingComposerSegmentId] = useState<string | null>(null);
   const [dragOverComposerSegmentId, setDragOverComposerSegmentId] = useState<string | null>(null);
-  const composerInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const composerInputRefs = useRef<Record<string, HTMLInputElement | HTMLTextAreaElement | null>>({});
   const composerSegmentRefs = useRef<Record<string, HTMLElement | null>>({});
   const composerShellRef = useRef<HTMLDivElement | null>(null);
   const composerMeasureRef = useRef<HTMLSpanElement>(null);
@@ -9475,6 +9524,7 @@ function CanvasAssistantPanel({
   const assistantModelRef = useRef<HTMLDivElement>(null);
   const [commandMenuOpen, setCommandMenuOpen] = useState(false);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
+  const [assistantRatio, setAssistantRatio] = useState("1:1");
   const [netSearchEnabled, setNetSearchEnabled] = useState(false);
   const [assistantAutoMode, setAssistantAutoMode] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -9606,11 +9656,65 @@ function CanvasAssistantPanel({
     }, 60);
   }, [composerSegments, focusComposerSegment]);
 
+  const focusTrailingComposerSegment = useCallback(() => {
+    const trailingTextSegment = [...composerSegments].reverse().find(segment => segment.type === "text");
+    if (!trailingTextSegment) {
+      focusComposerSegment();
+      return;
+    }
+    activeComposerSegmentIdRef.current = trailingTextSegment.id;
+    activeComposerCursorRef.current = trailingTextSegment.text.length;
+    window.setTimeout(() => {
+      const input = composerInputRefs.current[trailingTextSegment.id];
+      input?.focus();
+      const caretPosition = input?.value.length ?? trailingTextSegment.text.length;
+      input?.setSelectionRange(caretPosition, caretPosition);
+    }, 60);
+  }, [composerSegments, focusComposerSegment]);
+
+  const insertCaretComposerSegmentAt = useCallback((textSegmentId: string, cursor: number) => {
+    let nextFocusSegmentId: string | null = null;
+    let nextCursor = 0;
+    setComposerSegments(prev => {
+      const next = [...prev];
+      const segmentIndex = next.findIndex(segment => segment.id === textSegmentId && segment.type === "text");
+      if (segmentIndex < 0) return prev;
+      const segment = next[segmentIndex];
+      if (segment.type !== "text") return prev;
+      const { beforeText, afterText } = splitComposerTextSegment(segment, cursor);
+      const insertedSegment = createAssistantTextSegment("", true);
+      nextFocusSegmentId = insertedSegment.id;
+      nextCursor = 0;
+      activeComposerSegmentIdRef.current = insertedSegment.id;
+      activeComposerCursorRef.current = 0;
+      return normalizeAssistantComposerSegments([
+        ...next.slice(0, segmentIndex),
+        { ...segment, text: beforeText },
+        insertedSegment,
+        createAssistantTextSegment(afterText),
+        ...next.slice(segmentIndex + 1),
+      ]);
+    });
+    window.setTimeout(() => {
+      if (!nextFocusSegmentId) return;
+      const input = composerInputRefs.current[nextFocusSegmentId];
+      input?.focus();
+      input?.setSelectionRange(nextCursor, nextCursor);
+    }, 60);
+  }, []);
+
   const setComposerTextSegment = useCallback((segmentId: string, value: string) => {
     const singleLineValue = value.replace(/\s*\n+\s*/g, " ");
     setComposerSegments(prev => normalizeAssistantComposerSegments(prev.map(segment => (
       segment.id === segmentId && segment.type === "text" ? { ...segment, text: singleLineValue } : segment
     ))));
+  }, []);
+
+  const resizeComposerTextarea = useCallback((target: HTMLTextAreaElement | null) => {
+    if (!target) return;
+    const isCaretSlot = target.dataset.composerCaretSlot === "true";
+    target.style.height = "auto";
+    target.style.height = isCaretSlot ? "22px" : `${Math.max(24, target.scrollHeight)}px`;
   }, []);
 
   useEffect(() => {
@@ -9634,7 +9738,7 @@ function CanvasAssistantPanel({
     });
   }, [composerSegments]);
 
-  const rememberComposerCursor = useCallback((segmentId: string, target: HTMLInputElement) => {
+  const rememberComposerCursor = useCallback((segmentId: string, target: HTMLInputElement | HTMLTextAreaElement) => {
     activeComposerSegmentIdRef.current = segmentId;
     activeComposerCursorRef.current = target.selectionStart ?? target.value.length;
   }, []);
@@ -9841,7 +9945,7 @@ function CanvasAssistantPanel({
     setDragOverComposerSegmentId(null);
   }, [isComposerTokenDragEvent]);
 
-  const handleComposerTextKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement>, segmentId: string) => {
+  const handleComposerTextKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>, segmentId: string) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       void handleSubmit();
@@ -9886,6 +9990,7 @@ function CanvasAssistantPanel({
     : TEXT_AI_MODELS;
   const assistantModel = assistantModelTab === "image" ? assistantImageModel : assistantTextModel;
   const activeSkillContext = activeSkill ? buildSkillPromptContext(activeSkill) : "";
+  const assistantRatioOptions = ["1:1", "4:5", "5:4", "3:4", "4:3", "16:9", "9:16", "21:9"];
 
   const handleReferenceSelectionToggle = useCallback((referenceId: string) => {
     setSelectedReferenceIds(prev => (
@@ -10392,13 +10497,13 @@ function CanvasAssistantPanel({
               ].join("\n")
             : finalImagePrompt,
           model: shouldEditTargetReference ? "gpt-image-2" : (assistantAutoMode ? "auto" : assistantImageModel.id),
-          ratio: "1:1",
+          ratio: assistantRatio,
           count: 1,
           style: shouldEditTargetReference ? "引用编辑结果" : "右侧 AI 助手",
           referencesEnabled: assistantImages.length > 0,
           referencedAssets: assistantImages,
           generationId,
-          displaySize: targetDisplaySize,
+          displaySize: targetDisplaySize || getImageDisplaySizeForRatio(assistantRatio),
           sourceBackgroundSrc: targetReference?.src || assistantImages[0]?.src,
           skillId: activeSkill?.id,
         };
@@ -10410,8 +10515,8 @@ function CanvasAssistantPanel({
               prompt: payload.prompt,
               referencedAssets: sourceReferences,
               skillId: activeSkill?.id,
-              targetWidth: targetReference.width,
-              targetHeight: targetReference.height,
+              targetWidth: targetReference.width || getImageDisplaySizeForRatio(assistantRatio).w,
+              targetHeight: targetReference.height || getImageDisplaySizeForRatio(assistantRatio).h,
             })
           : await generateAiImages(payload);
         dispatchImageGenerationTask({ ...payload, status: "completed", images: result.images }, projectId);
@@ -10722,6 +10827,8 @@ function CanvasAssistantPanel({
                 style={{
                   position: "relative",
                   color: text,
+                  columnGap: 2,
+                  rowGap: 4,
                   maxHeight: "min(48vh, 360px)",
                   scrollbarWidth: "thin",
                   scrollbarColor: `${isDark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.18)"} transparent`,
@@ -10730,7 +10837,7 @@ function CanvasAssistantPanel({
                   handleComposerBoxSelectMouseDown(event);
                   if (event.defaultPrevented) return;
                   const target = event.target as HTMLElement;
-                  if (target.closest("[data-composer-token], input")) return;
+                  if (target.closest("[data-composer-token], input, textarea")) return;
                   const rect = event.currentTarget.getBoundingClientRect();
                   if (event.clientX - rect.left <= 44) {
                     focusLeadingComposerSegment();
@@ -10748,7 +10855,7 @@ function CanvasAssistantPanel({
                   className="pointer-events-none invisible absolute whitespace-pre"
                   style={{
                     fontSize: 12,
-                    lineHeight: "12px",
+                    lineHeight: "20px",
                     fontFamily: "inherit",
                     letterSpacing: 0,
                   }}
@@ -10776,110 +10883,194 @@ function CanvasAssistantPanel({
                     />
                   );
                 })()}
-                {composerSegments.map(segment => {
+                <button
+                  type="button"
+                  aria-label="在开头插入文案"
+                  className="shrink-0 self-stretch rounded-[var(--radius-sm-design)] bg-transparent p-0"
+                  style={{
+                    width: 8,
+                    height: 22,
+                    cursor: "text",
+                    border: "none",
+                    opacity: 0.001,
+                  }}
+                  onMouseDown={event => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setComposerBoxSelection(null);
+                    focusLeadingComposerSegment();
+                  }}
+                />
+                {composerSegments.map((segment, segmentIndex) => {
                   const isBoxSelected = composerBoxSelection?.selectedIds.includes(segment.id) ?? false;
                   if (segment.type === "image") {
+                    const previousTextSegment = segmentIndex > 0 ? composerSegments[segmentIndex - 1] : null;
+                    const nextTextSegment = composerSegments[segmentIndex + 1];
                     return (
-                      <span
-                        key={segment.id}
-                        ref={node => {
-                          composerSegmentRefs.current[segment.id] = node;
-                        }}
-                        draggable
-                        onDragStart={event => handleComposerTokenDragStart(event, segment.id)}
-                        onDragOver={event => handleComposerSegmentDragOver(event, segment.id)}
-                        onDrop={event => handleComposerSegmentDrop(event, segment.id, "before")}
-                        onDragEnd={handleComposerDragEnd}
-                        onMouseDown={event => {
-                          event.stopPropagation();
-                          setComposerBoxSelection(null);
-                        }}
-                        onMouseEnter={event => showComposerReferencePreview(event, segment.asset.src, segment.asset.title)}
-                        onMouseLeave={hideComposerReferencePreview}
-                        data-composer-token="image"
-                        className="group relative inline-flex max-w-[82px] items-center gap-1 overflow-visible rounded-[var(--radius-md-design)] px-1.5 py-0.5 align-middle"
-                        style={{
-                          background: isDark ? "rgba(197,237,71,0.16)" : "rgba(197,237,71,0.10)",
-                          border: `1px solid ${dragOverComposerSegmentId === segment.id ? "rgba(197,237,71,0.86)" : isDark ? "rgba(197,237,71,0.36)" : "rgba(138,170,40,0.30)"}`,
-                          color: isDark ? "oklch(0.82 0.012 270)" : "oklch(0.28 0.012 270)",
-                          cursor: draggingComposerSegmentId === segment.id ? "grabbing" : "grab",
-                          userSelect: "none",
-                          opacity: draggingComposerSegmentId === segment.id ? 0.42 : 1,
-                          boxShadow: isBoxSelected ? "0 0 0 2px rgba(197,237,71,0.62)" : dragOverComposerSegmentId === segment.id ? "0 0 0 2px rgba(197,237,71,0.18)" : "none",
-                        }}
-                        title="拖拽调整引用顺序"
-                      >
-                        <img src={segment.asset.src} alt={segment.asset.title} style={{ width: 18, height: 18, borderRadius: 3, objectFit: "cover", flexShrink: 0 }} />
-                        <span className="type-caption truncate" style={{ maxWidth: 44, fontSize: 11 }}>{segment.asset.title}</span>
+                      <Fragment key={segment.id}>
                         <button
                           type="button"
-                          onMouseDown={event => event.stopPropagation()}
-                          onClick={() => removeComposerImageSegment(segment.id, segment.asset.id)}
-                          className="flex items-center justify-center flex-shrink-0 rounded-full transition-opacity hover:opacity-70"
-                          style={{ color: isDark ? "oklch(0.62 0.008 270)" : "oklch(0.50 0.008 270)", background: "transparent", border: "none", padding: 0, lineHeight: 1 }}
-                          title="移除引用"
-                          aria-label="移除引用"
+                          aria-label="在标签前插入文案"
+                          className="shrink-0 rounded-[var(--radius-sm-design)] bg-transparent p-0"
+                          style={{ width: 8, height: 22, cursor: "text", border: "none", opacity: 0.001 }}
+                          onMouseDown={event => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setComposerBoxSelection(null);
+                            if (previousTextSegment?.type === "text") {
+                              insertCaretComposerSegmentAt(previousTextSegment.id, previousTextSegment.text.length);
+                            } else {
+                              focusLeadingComposerSegment();
+                            }
+                          }}
+                        />
+                        <span
+                          ref={node => {
+                            composerSegmentRefs.current[segment.id] = node;
+                          }}
+                          draggable
+                          onDragStart={event => handleComposerTokenDragStart(event, segment.id)}
+                          onDragOver={event => handleComposerSegmentDragOver(event, segment.id)}
+                          onDrop={event => handleComposerSegmentDrop(event, segment.id, "before")}
+                          onDragEnd={handleComposerDragEnd}
+                          onMouseDown={event => {
+                            event.stopPropagation();
+                            setComposerBoxSelection(null);
+                          }}
+                          onMouseEnter={event => showComposerReferencePreview(event, segment.asset.src, segment.asset.title)}
+                          onMouseLeave={hideComposerReferencePreview}
+                          data-composer-token="image"
+                          className="group relative inline-flex max-w-[82px] items-center gap-1 overflow-visible rounded-[var(--radius-md-design)] px-1.5 py-0.5 align-middle"
+                          style={{
+                            background: isDark ? "rgba(197,237,71,0.16)" : "rgba(197,237,71,0.10)",
+                            border: `1px solid ${dragOverComposerSegmentId === segment.id ? "rgba(197,237,71,0.86)" : isDark ? "rgba(197,237,71,0.36)" : "rgba(138,170,40,0.30)"}`,
+                            color: isDark ? "oklch(0.82 0.012 270)" : "oklch(0.28 0.012 270)",
+                            cursor: draggingComposerSegmentId === segment.id ? "grabbing" : "grab",
+                            userSelect: "none",
+                            opacity: draggingComposerSegmentId === segment.id ? 0.42 : 1,
+                            boxShadow: isBoxSelected ? "0 0 0 2px rgba(197,237,71,0.62)" : dragOverComposerSegmentId === segment.id ? "0 0 0 2px rgba(197,237,71,0.18)" : "none",
+                          }}
+                          title="拖拽调整引用顺序"
                         >
-                          <X size={9} />
-                        </button>
-                      </span>
-                    );
-                  }
-                  if (segment.type === "annotation") {
-                    return (
-                      <span
-                        key={segment.id}
-                        ref={node => {
-                          composerSegmentRefs.current[segment.id] = node;
-                        }}
-                        draggable
-                        onDragStart={event => handleComposerTokenDragStart(event, segment.id)}
-                        onDragOver={event => handleComposerSegmentDragOver(event, segment.id)}
-                        onDrop={event => handleComposerSegmentDrop(event, segment.id, "before")}
-                        onDragEnd={handleComposerDragEnd}
-                        onMouseDown={event => {
-                          event.stopPropagation();
-                          setComposerBoxSelection(null);
-                        }}
-                        onMouseEnter={event => showComposerReferencePreview(event, segment.annotation.src, segment.annotation.text || segment.annotation.title)}
-                        onMouseLeave={hideComposerReferencePreview}
-                        data-composer-token="annotation"
-                        className="group relative inline-flex max-w-[92px] items-center gap-1 overflow-visible rounded-[var(--radius-md-design)] px-1.5 py-0.5 align-middle"
-                        style={{
-                          background: isDark ? "oklch(0.62 0.20 145 / 0.16)" : "oklch(0.62 0.17 145 / 0.10)",
-                          border: `1px solid ${dragOverComposerSegmentId === segment.id ? "oklch(0.72 0.16 145 / 0.78)" : isDark ? "oklch(0.72 0.16 145 / 0.32)" : "oklch(0.48 0.15 145 / 0.26)"}`,
-                          color: isDark ? "oklch(0.82 0.012 270)" : "oklch(0.25 0.012 270)",
-                          cursor: draggingComposerSegmentId === segment.id ? "grabbing" : "grab",
-                          userSelect: "none",
-                          opacity: draggingComposerSegmentId === segment.id ? 0.42 : 1,
-                          boxShadow: isBoxSelected ? "0 0 0 2px rgba(197,237,71,0.62)" : dragOverComposerSegmentId === segment.id ? "0 0 0 2px rgba(52,211,153,0.16)" : "none",
-                        }}
-                        title={`注释：${segment.annotation.text || segment.annotation.title}`}
-                      >
-                        <MapPin size={12} style={{ color: "oklch(0.62 0.18 145)", flexShrink: 0 }} />
-                        <span className="type-caption truncate" style={{ maxWidth: 56, fontSize: 11 }}>
-                          {segment.annotation.text || segment.annotation.title}
+                          <img src={segment.asset.src} alt={segment.asset.title} style={{ width: 18, height: 18, borderRadius: 3, objectFit: "cover", flexShrink: 0 }} />
+                          <span className="type-caption truncate" style={{ maxWidth: 44, fontSize: 11 }}>{segment.asset.title}</span>
+                          <button
+                            type="button"
+                            onMouseDown={event => event.stopPropagation()}
+                            onClick={() => removeComposerImageSegment(segment.id, segment.asset.id)}
+                            className="flex items-center justify-center flex-shrink-0 rounded-full transition-opacity hover:opacity-70"
+                            style={{ color: isDark ? "oklch(0.62 0.008 270)" : "oklch(0.50 0.008 270)", background: "transparent", border: "none", padding: 0, lineHeight: 1 }}
+                            title="移除引用"
+                            aria-label="移除引用"
+                          >
+                            <X size={9} />
+                          </button>
                         </span>
                         <button
                           type="button"
-                          onMouseDown={event => event.stopPropagation()}
-                          onClick={() => removeComposerAnnotationSegment(segment.id, segment.annotation.id)}
-                          className="flex items-center justify-center flex-shrink-0 rounded-full transition-opacity hover:opacity-70"
-                          style={{ color: isDark ? "oklch(0.62 0.008 270)" : "oklch(0.50 0.008 270)", background: "transparent", border: "none", padding: 0, lineHeight: 1 }}
-                          title="移除注释引用"
-                          aria-label="移除注释引用"
+                          aria-label="在标签后插入文案"
+                          className="shrink-0 rounded-[var(--radius-sm-design)] bg-transparent p-0"
+                          style={{ width: 8, height: 22, cursor: "text", border: "none", opacity: 0.001 }}
+                          onMouseDown={event => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setComposerBoxSelection(null);
+                            if (nextTextSegment?.type === "text") {
+                              insertCaretComposerSegmentAt(nextTextSegment.id, 0);
+                            } else {
+                              focusTrailingComposerSegment();
+                            }
+                          }}
+                        />
+                      </Fragment>
+                    );
+                  }
+                  if (segment.type === "annotation") {
+                    const previousTextSegment = segmentIndex > 0 ? composerSegments[segmentIndex - 1] : null;
+                    const nextTextSegment = composerSegments[segmentIndex + 1];
+                    return (
+                      <Fragment key={segment.id}>
+                        <button
+                          type="button"
+                          aria-label="在标签前插入文案"
+                          className="shrink-0 rounded-[var(--radius-sm-design)] bg-transparent p-0"
+                          style={{ width: 8, height: 22, cursor: "text", border: "none", opacity: 0.001 }}
+                          onMouseDown={event => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setComposerBoxSelection(null);
+                            if (previousTextSegment?.type === "text") {
+                              insertCaretComposerSegmentAt(previousTextSegment.id, previousTextSegment.text.length);
+                            } else {
+                              focusLeadingComposerSegment();
+                            }
+                          }}
+                        />
+                        <span
+                          ref={node => {
+                            composerSegmentRefs.current[segment.id] = node;
+                          }}
+                          draggable
+                          onDragStart={event => handleComposerTokenDragStart(event, segment.id)}
+                          onDragOver={event => handleComposerSegmentDragOver(event, segment.id)}
+                          onDrop={event => handleComposerSegmentDrop(event, segment.id, "before")}
+                          onDragEnd={handleComposerDragEnd}
+                          onMouseDown={event => {
+                            event.stopPropagation();
+                            setComposerBoxSelection(null);
+                          }}
+                          onMouseEnter={event => showComposerReferencePreview(event, segment.annotation.src, segment.annotation.text || segment.annotation.title)}
+                          onMouseLeave={hideComposerReferencePreview}
+                          data-composer-token="annotation"
+                          className="group relative inline-flex max-w-[92px] items-center gap-1 overflow-visible rounded-[var(--radius-md-design)] px-1.5 py-0.5 align-middle"
+                          style={{
+                            background: isDark ? "oklch(0.62 0.20 145 / 0.16)" : "oklch(0.62 0.17 145 / 0.10)",
+                            border: `1px solid ${dragOverComposerSegmentId === segment.id ? "oklch(0.72 0.16 145 / 0.78)" : isDark ? "oklch(0.72 0.16 145 / 0.32)" : "oklch(0.48 0.15 145 / 0.26)"}`,
+                            color: isDark ? "oklch(0.82 0.012 270)" : "oklch(0.25 0.012 270)",
+                            cursor: draggingComposerSegmentId === segment.id ? "grabbing" : "grab",
+                            userSelect: "none",
+                            opacity: draggingComposerSegmentId === segment.id ? 0.42 : 1,
+                            boxShadow: isBoxSelected ? "0 0 0 2px rgba(197,237,71,0.62)" : dragOverComposerSegmentId === segment.id ? "0 0 0 2px rgba(52,211,153,0.16)" : "none",
+                          }}
+                          title={`注释：${segment.annotation.text || segment.annotation.title}`}
                         >
-                          <X size={9} />
-                        </button>
-                      </span>
+                          <MapPin size={12} style={{ color: "oklch(0.62 0.18 145)", flexShrink: 0 }} />
+                          <span className="type-caption truncate" style={{ maxWidth: 56, fontSize: 11 }}>
+                            {segment.annotation.text || segment.annotation.title}
+                          </span>
+                          <button
+                            type="button"
+                            onMouseDown={event => event.stopPropagation()}
+                            onClick={() => removeComposerAnnotationSegment(segment.id, segment.annotation.id)}
+                            className="flex items-center justify-center flex-shrink-0 rounded-full transition-opacity hover:opacity-70"
+                            style={{ color: isDark ? "oklch(0.62 0.008 270)" : "oklch(0.50 0.008 270)", background: "transparent", border: "none", padding: 0, lineHeight: 1 }}
+                            title="移除注释引用"
+                            aria-label="移除注释引用"
+                          >
+                            <X size={9} />
+                          </button>
+                        </span>
+                        <button
+                          type="button"
+                          aria-label="在标签后插入文案"
+                          className="shrink-0 rounded-[var(--radius-sm-design)] bg-transparent p-0"
+                          style={{ width: 8, height: 22, cursor: "text", border: "none", opacity: 0.001 }}
+                          onMouseDown={event => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setComposerBoxSelection(null);
+                            if (nextTextSegment?.type === "text") {
+                              insertCaretComposerSegmentAt(nextTextSegment.id, 0);
+                            } else {
+                              focusTrailingComposerSegment();
+                            }
+                          }}
+                        />
+                      </Fragment>
                     );
                   }
                   const isSingleEmptyTextSegment = composerSegments.length === 1 && segment.text.length === 0;
-                  const textWidth = composerTextWidths[segment.id] ?? (segment.text
-                    ? Math.min(520, Math.max(32, segment.text.length * 13 + 18))
-                    : isSingleEmptyTextSegment
-                      ? 320
-                      : 2);
+                  const isInlineCaretSlot = segment.type === "text" && segment.text.length === 0 && segment.preserveEmpty && !isSingleEmptyTextSegment;
                   const shouldHighlightTextSegment = isBoxSelected && (segment.text.length > 0 || isSingleEmptyTextSegment);
                   return (
                     isSingleEmptyTextSegment ? (
@@ -10894,6 +11085,7 @@ function CanvasAssistantPanel({
                         onChange={event => {
                           rememberComposerCursor(segment.id, event.currentTarget as unknown as HTMLInputElement);
                           setComposerTextSegment(segment.id, event.target.value);
+                          resizeComposerTextarea(event.currentTarget);
                         }}
                         onClick={event => rememberComposerCursor(segment.id, event.currentTarget as unknown as HTMLInputElement)}
                         onKeyUp={event => rememberComposerCursor(segment.id, event.currentTarget as unknown as HTMLInputElement)}
@@ -10914,14 +11106,14 @@ function CanvasAssistantPanel({
                           ? `基于 ${composerAnnotations.length} 个注释点，描述组合生成意图...`
                           : "输入对当前画布的想法，可在文字之间插入引用图片..."
                         }
-                        className="min-w-0 resize-none whitespace-pre-wrap border-0 bg-transparent px-1.5 py-1 outline-none disabled:cursor-not-allowed"
+                        className="min-w-0 resize-none whitespace-pre-wrap border-0 bg-transparent px-1.5 py-0 outline-none disabled:cursor-not-allowed"
                         style={{
                           color: text,
                           background: shouldHighlightTextSegment ? "rgba(197,237,71,0.16)" : "transparent",
                           borderRadius: shouldHighlightTextSegment ? 5 : 0,
                           opacity: 1,
                           fontSize: 12,
-                          lineHeight: "12px",
+                          lineHeight: "20px",
                           minHeight: 104,
                           overflow: "hidden",
                           width: "100%",
@@ -10935,17 +11127,20 @@ function CanvasAssistantPanel({
                         }}
                       />
                     ) : (
-                      <input
+                      <textarea
                         key={segment.id}
-                        type="text"
+                        data-composer-caret-slot={isInlineCaretSlot ? "true" : undefined}
                         ref={node => {
                           composerInputRefs.current[segment.id] = node;
                           composerSegmentRefs.current[segment.id] = node;
+                          resizeComposerTextarea(node);
                         }}
                         value={segment.text}
+                        rows={1}
                         onChange={event => {
                           rememberComposerCursor(segment.id, event.currentTarget);
                           setComposerTextSegment(segment.id, event.target.value);
+                          resizeComposerTextarea(event.currentTarget);
                         }}
                         onClick={event => rememberComposerCursor(segment.id, event.currentTarget)}
                         onDragOver={event => handleComposerSegmentDragOver(event, segment.id)}
@@ -10963,30 +11158,52 @@ function CanvasAssistantPanel({
                           setInputFocused(true);
                         }}
                         onBlur={() => setInputFocused(false)}
-                        className="min-w-0 whitespace-nowrap border-0 bg-transparent px-1.5 py-1 outline-none disabled:cursor-not-allowed"
+                        className="min-w-0 resize-none whitespace-pre-wrap border-0 bg-transparent px-1.5 py-0 outline-none disabled:cursor-not-allowed"
                         style={{
                           color: text,
+                          caretColor: text,
                           background: shouldHighlightTextSegment ? "rgba(197,237,71,0.16)" : "transparent",
                           borderRadius: shouldHighlightTextSegment ? 5 : 0,
                           opacity: 1,
                           fontSize: 12,
-                          lineHeight: "12px",
-                          height: 28,
-                          minHeight: 28,
+                          lineHeight: "20px",
+                          height: isInlineCaretSlot ? 22 : undefined,
+                          minHeight: isInlineCaretSlot ? 22 : 24,
+                          maxHeight: isInlineCaretSlot ? 22 : 132,
                           overflow: "hidden",
-                          width: `${textWidth}px`,
-                          minWidth: `${textWidth}px`,
-                          maxWidth: `${textWidth}px`,
-                          flex: "0 0 auto",
-                          flexBasis: `${textWidth}px`,
-                          wordBreak: "keep-all",
-                          overflowWrap: "normal",
+                          width: isInlineCaretSlot ? 2 : composerTextWidths[segment.id] ?? "100%",
+                          minWidth: isInlineCaretSlot ? 2 : 2,
+                          maxWidth: "100%",
+                          flex: isInlineCaretSlot ? "0 0 2px" : `0 1 ${composerTextWidths[segment.id] ?? 180}px`,
+                          flexBasis: isInlineCaretSlot ? 2 : composerTextWidths[segment.id] ?? 180,
+                          wordBreak: "break-word",
+                          overflowWrap: "anywhere",
                           margin: 0,
+                          paddingLeft: isInlineCaretSlot ? 0 : undefined,
+                          paddingRight: isInlineCaretSlot ? 0 : undefined,
                         }}
                       />
                     )
                   );
                 })}
+                <button
+                  type="button"
+                  aria-label="在末尾插入文案"
+                  className="shrink-0 self-stretch rounded-[var(--radius-sm-design)] bg-transparent p-0"
+                  style={{
+                    width: 8,
+                    height: 22,
+                    cursor: "text",
+                    border: "none",
+                    opacity: 0.001,
+                  }}
+                  onMouseDown={event => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setComposerBoxSelection(null);
+                    focusTrailingComposerSegment();
+                  }}
+                />
               </div>
               <div className="flex items-center justify-between pt-2" style={{ gap: 6 }}>
                 <div className="flex min-w-0 items-center" style={{ gap: 6 }}>
@@ -11110,6 +11327,39 @@ function CanvasAssistantPanel({
                         ))}
                       </div>
                     )}
+                  </div>
+                  <div className="relative flex min-w-0 items-center" style={{ color: sub }}>
+                    <div
+                      className="flex h-8 items-center gap-1 rounded-[var(--radius-lg-design)] px-2"
+                      style={{
+                        background: hoverBg,
+                        color: text,
+                        fontSize: 11,
+                        lineHeight: "14px",
+                        letterSpacing: 0,
+                      }}
+                    >
+                      <Frame size={12} style={{ opacity: 0.78, flex: "0 0 auto" }} />
+                      <select
+                        aria-label="选择画幅比例"
+                        value={assistantRatio}
+                        onChange={event => setAssistantRatio(event.target.value)}
+                        className="min-w-0 bg-transparent outline-none"
+                        style={{
+                          color: text,
+                          fontSize: 11,
+                          lineHeight: "14px",
+                          appearance: "none",
+                          border: "none",
+                        }}
+                      >
+                        {assistantRatioOptions.map(item => (
+                          <option key={item} value={item}>
+                            {item}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                   <SkillPointSelector activeSkill={activeSkill} onChange={onActiveSkillChange} isDark={isDark} />
                 </div>
@@ -14167,35 +14417,62 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setRenameValue(groupNames[groupId] || "");
   }, [groupNames]);
 
-  const createDroppedImageSourceNode = useCallback((src: string, index: number, origin: { x: number; y: number }) => new Promise<Node>((resolve, reject) => {
-    const img = new window.Image();
-    img.onload = () => {
-      const id = `external-image-${Date.now()}-${index}`;
-      const { width: nodeWidth, height: nodeHeight } = getImportedImageDisplaySize(img.naturalWidth || img.width, img.naturalHeight || img.height);
-      resolve({
+  const createDroppedImageSourceNode = useCallback(async (src: string, index: number, origin: { x: number; y: number }) => {
+    const loadImageFromSource = (imageSrc: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new window.Image();
+      if (!imageSrc.startsWith("data:")) {
+        img.crossOrigin = "anonymous";
+        img.referrerPolicy = "no-referrer";
+      }
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error("外部图片链接加载失败"));
+      img.src = imageSrc;
+    });
+
+    let resolvedSrc = src;
+    let img: HTMLImageElement;
+    try {
+      img = await loadImageFromSource(src);
+    } catch (initialError) {
+      if (!/^https?:\/\//i.test(src)) throw initialError;
+      try {
+        const response = await fetch(src, {
+          mode: "cors",
+          credentials: "omit",
+          referrerPolicy: "no-referrer",
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const blob = await response.blob();
+        resolvedSrc = await readBlobAsDataUrl(blob);
+        img = await loadImageFromSource(resolvedSrc);
+      } catch {
+        throw initialError;
+      }
+    }
+
+    const id = `external-image-${Date.now()}-${index}`;
+    const { width: nodeWidth, height: nodeHeight } = getImportedImageDisplaySize(img.naturalWidth || img.width, img.naturalHeight || img.height);
+    return {
+      id,
+      type: "asset",
+      selected: true,
+      position: {
+        x: origin.x - nodeWidth / 2 + index * 32,
+        y: origin.y - nodeHeight / 2 + index * 32,
+      },
+      style: { width: nodeWidth, height: nodeHeight },
+      data: {
         id,
-        type: "asset",
-        selected: true,
-        position: {
-          x: origin.x - nodeWidth / 2 + index * 32,
-          y: origin.y - nodeHeight / 2 + index * 32,
-        },
-        style: { width: nodeWidth, height: nodeHeight },
-        data: {
-          id,
-          assetId: "default",
-          localSrc: src,
-          title: `拖入图片 ${index + 1}`,
-          assetType: "图片",
-          tags: DEFAULT_ASSET_TAGS,
-          imgW: nodeWidth,
-          imgH: nodeHeight,
-        },
-      });
-    };
-    img.onerror = () => reject(new Error("外部图片链接加载失败"));
-    img.src = src;
-  }), []);
+        assetId: "default",
+        localSrc: resolvedSrc,
+        title: `拖入图片 ${index + 1}`,
+        assetType: "图片",
+        tags: DEFAULT_ASSET_TAGS,
+        imgW: nodeWidth,
+        imgH: nodeHeight,
+      },
+    } satisfies Node;
+  }, []);
 
   const addDroppedImageSources = useCallback(async (sources: string[], origin: { x: number; y: number }) => {
     const uniqueSources = Array.from(new Set(sources.map(normalizeDroppedImageUrl).filter(Boolean)));
@@ -14257,7 +14534,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const baseX = e.clientX - (rect?.left || 0);
     const baseY = e.clientY - (rect?.top || 0);
     const origin = screenToFlowPosition({ x: (rect?.left || 0) + baseX, y: (rect?.top || 0) + baseY });
-    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith("image/"));
+    const files = dedupeDroppedImageFiles(Array.from(e.dataTransfer.files).filter(f => f.type.startsWith("image/")));
     if (files.length === 0) {
       const sources = extractImageSourcesFromDataTransfer(e.dataTransfer);
       if (sources.length > 0) {
@@ -14947,18 +15224,20 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       }
       // 粘贴：Ctrl+V (Windows) / Cmd+V (Mac)
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
-        if (getCrossCanvasClipboard().length > 0) {
-          e.preventDefault();
-          pasteCrossCanvasClipboard();
-        } else {
-          const requestedAt = Date.now();
-          window.setTimeout(() => {
-            if (pasteEventSeenAtRef.current >= requestedAt) return;
-            void pasteClipboardFromNavigator().then(pasted => {
-              if (!pasted) toast("未读取到可粘贴图片", { description: "请在浏览器中复制图片本身，或复制图片地址后再粘贴" });
-            });
-          }, 120);
-        }
+        const hasInternalClipboard = getCrossCanvasClipboard().length > 0;
+        const requestedAt = Date.now();
+        window.setTimeout(() => {
+          if (pasteEventSeenAtRef.current >= requestedAt) return;
+          void pasteClipboardFromNavigator().then(pasted => {
+            if (pasted) return;
+            if (hasInternalClipboard) {
+              e.preventDefault();
+              pasteCrossCanvasClipboard();
+              return;
+            }
+            toast("未读取到可粘贴图片", { description: "请在浏览器中复制图片本身，或复制图片地址后再粘贴" });
+          });
+        }, 120);
         return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "g") {

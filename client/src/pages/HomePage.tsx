@@ -7,6 +7,7 @@ import {
   ImagePlus,
   PlayCircle,
   Send,
+  Sparkles,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import asteroidImage from "@/assets/ardot/3_3.png";
@@ -14,6 +15,7 @@ import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
 import { BRAND_KIT, POSTER_1, POSTER_2, SOCIAL_AD } from "@/lib/workspace-data";
 import { createWorkspaceHistoryProject } from "@/lib/project-history";
 import { requestAiAuth } from "@/lib/ai";
+import { BILLING_CHANGED_EVENT, getStoredCreditBalance, goToUpgradePage } from "@/lib/billing-state";
 import promptCsv from "@/data/ai_image_prompt_rank_50.csv?raw";
 
 const PROMPT_SUGGESTIONS = [
@@ -120,6 +122,7 @@ export default function HomePage() {
   const [authBusy, setAuthBusy] = useState(false);
   const [stageScale, setStageScale] = useState(getStageScale);
   const [activeTab, setActiveTab] = useState<LandingTab>("home");
+  const [creditBalance, setCreditBalance] = useState(() => getStoredCreditBalance());
   const homeRef = useRef<HTMLElement>(null);
   const inspirationRef = useRef<HTMLElement>(null);
 
@@ -134,6 +137,16 @@ export default function HomePage() {
     updateStageScale();
     window.addEventListener("resize", updateStageScale);
     return () => window.removeEventListener("resize", updateStageScale);
+  }, []);
+
+  useEffect(() => {
+    const syncCredits = () => setCreditBalance(getStoredCreditBalance());
+    window.addEventListener(BILLING_CHANGED_EVENT, syncCredits);
+    window.addEventListener("storage", syncCredits);
+    return () => {
+      window.removeEventListener(BILLING_CHANGED_EVENT, syncCredits);
+      window.removeEventListener("storage", syncCredits);
+    };
   }, []);
 
   useEffect(() => {
@@ -263,6 +276,26 @@ export default function HomePage() {
           }}
         />
         <div className="ml-auto flex shrink-0 items-center gap-2">
+          {isAuthenticated && (
+            <>
+              <button
+                type="button"
+                onClick={() => goToUpgradePage("home-credits")}
+                className="hidden h-10 items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.055] px-3 text-sm text-white/82 transition-colors hover:bg-white/[0.09] sm:flex"
+              >
+                <Sparkles size={14} className="text-[#C5ED47]" />
+                <span>{creditBalance.toLocaleString("zh-CN")}</span>
+                <span className="text-white/45">积分</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => goToUpgradePage("home-upgrade")}
+                className="h-10 shrink-0 whitespace-nowrap rounded-md bg-[#C5ED47] px-4 text-sm font-semibold text-[#10140a] shadow-[0_10px_28px_rgba(197,237,71,0.22)] transition-colors hover:bg-[#d6ff58]"
+              >
+                升级
+              </button>
+            </>
+          )}
           <button
             type="button"
             onClick={handleStartExperience}
