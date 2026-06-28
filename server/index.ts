@@ -8,7 +8,7 @@ import { createProductBackground, editImageWithPrompt, enhanceImage, eraseImageO
 import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
 import { getAdminSessionFromAuthorization, getSessionUserFromAuthorization, handleAuthAction } from "./auth-store";
-import { createBillingOrder, getBillingOrderForPayment, getBillingSnapshotForUser, handleAdminApiRequest, markBillingOrderPaid } from "./admin-store";
+import { createBillingOrder, createCreditRechargeOrder, getBillingOrderForPayment, getBillingSnapshotForUser, handleAdminApiRequest, markBillingOrderPaid } from "./admin-store";
 import {
   createWallytPayment,
   getClientIp,
@@ -106,6 +106,8 @@ async function startServer() {
         orderId,
         actorName: "wallyt",
         expectedAmountCents: totalFee,
+        providerTransactionId: payload.transaction_id,
+        eventType: "wallyt_callback",
       });
 
       res.type("text/plain").status(result.status === 200 ? 200 : 409).send(result.status === 200 ? "success" : "fail");
@@ -394,13 +396,21 @@ async function startServer() {
     try {
       const user = await requireSessionUser(req, res);
       if (!user) return;
-      const result = await createBillingOrder({
-        userId: user.id,
-        username: user.username,
-        planId: typeof req.body?.planId === "string" ? req.body.planId : "",
-        cycleId: typeof req.body?.cycleId === "string" ? req.body.cycleId : "",
-        paymentMethod: req.body?.paymentMethod === "alipay" ? "alipay" : "wechat",
-      });
+      const paymentMethod = req.body?.paymentMethod === "alipay" ? "alipay" : "wechat";
+      const result = req.body?.type === "recharge"
+        ? await createCreditRechargeOrder({
+          userId: user.id,
+          username: user.username,
+          amount: Number(req.body?.amount || 0),
+          paymentMethod,
+        })
+        : await createBillingOrder({
+          userId: user.id,
+          username: user.username,
+          planId: typeof req.body?.planId === "string" ? req.body.planId : "",
+          cycleId: typeof req.body?.cycleId === "string" ? req.body.cycleId : "",
+          paymentMethod,
+        });
       res.status(result.status).json(result.body);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Billing order create failed";
@@ -430,7 +440,7 @@ async function startServer() {
       const mode = req.body?.mode === "wap" ? "wap" : "native";
       const payment = await createWallytPayment({
         orderId: order.id,
-        body: `ArtX ${order.packageName} 会员服务`,
+        body: order.packageName === "积分充值" ? "ArtX 积分充值" : `ArtX ${order.packageName} 会员服务`,
         amount: order.amount,
         paymentMethod,
         mode,
@@ -466,6 +476,8 @@ async function startServer() {
             orderId: order.id,
             actorName: "wallyt-query",
             expectedAmountCents: Number(raw.total_fee || order.amountCents),
+            providerTransactionId: raw.transaction_id,
+            eventType: "wallyt_query",
           });
         }
       }

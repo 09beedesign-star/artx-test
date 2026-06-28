@@ -176,3 +176,13 @@ export function formatCurrency(value: number) {
 export function formatCredits(value: number) {
   return value.toLocaleString("zh-CN");
 }
+
+export const CREDIT_RECHARGE_RATE = 10;
+
+export function quoteCreditRecharge(amount: number) {
+  const normalizedAmount = Math.max(0, Math.round(amount));
+  return {
+    amount: normalizedAmount,
+    credits: normalizedAmount * CREDIT_RECHARGE_RATE,
+  };
+}
