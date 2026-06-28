@@ -12,9 +12,7 @@ import CommunityPage from "./pages/CommunityPage";
 import Workspace from "./pages/Workspace";
 import SettingsPage from "./pages/SettingsPage";
 import ProfilePage from "./pages/ProfilePage";
-import UpgradePage from "./pages/UpgradePage";
 import LoginRegisterDialog from "./components/auth/LoginRegisterDialog";
-import MembershipUpgradeDialog from "./components/billing/MembershipUpgradeDialog";
 // ── 新增路由页面（补充缺失交互，不替换已有路由）──
 import InspirationPage from "./pages/InspirationPage";
 import SkillsPage from "./pages/SkillsPage";
@@ -22,6 +20,7 @@ import AssetsPage from "./pages/AssetsPage";
 import HelpPage from "./pages/HelpPage";
 import LoadingLoopPage from "./pages/LoadingLoopPage";
 import AdminPrototypePage from "./pages/AdminPrototypePage";
+import BillingPage from "./pages/BillingPage";
 import { useAuth } from "./contexts/AuthContext";
 
 const routerBase = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -66,13 +65,6 @@ function AppRoutes() {
         </AppShell>
       </Route>
 
-      {/* 会员升级 / 积分充值 */}
-      <Route path="/upgrade">
-        <AppShell>
-          <UpgradePage />
-        </AppShell>
-      </Route>
-
       {/* 个人主页 */}
       <Route path="/profile">
         <AppShell>
@@ -107,6 +99,12 @@ function AppRoutes() {
       <Route path="/help">
         <AppShell>
           <HelpPage />
+        </AppShell>
+      </Route>
+
+      <Route path="/billing">
+        <AppShell>
+          <BillingPage />
         </AppShell>
       </Route>
 
@@ -205,7 +203,6 @@ function App() {
           <TooltipProvider>
             <Toaster />
             <LoginRegisterDialog />
-            <MembershipUpgradeDialog />
             <WouterRouter base={routerBase}>
               <AppRoutes />
             </WouterRouter>

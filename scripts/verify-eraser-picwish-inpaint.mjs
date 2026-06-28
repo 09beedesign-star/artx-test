@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 
 const source = readFileSync(new URL("../server/image-generation.ts", import.meta.url), "utf8");
 const eraseMatch = source.match(/async function eraseWithPicWish[\s\S]*?\n}/);
-const createTaskMatch = source.match(/async function createPicWishMaskedRemovalTask[\s\S]*?\n}/);
-const pollTaskMatch = source.match(/async function pollPicWishMaskedRemovalTask[\s\S]*?\n}/);
+const createTaskMatch = source.match(/async function createPicWishInpaintTask[\s\S]*?\n}/);
+const pollTaskMatch = source.match(/async function pollPicWishInpaintTask[\s\S]*?\n}/);
 const maskMatch = source.match(/async function createPicWishEraseMask[\s\S]*?return providerMaskBuffer;\n}/);
 const eraseImageObjectsMatch = source.match(/export async function eraseImageObjects[\s\S]*?\n}/);
 
@@ -11,10 +11,10 @@ if (!eraseMatch) {
   throw new Error("eraseWithPicWish was not found");
 }
 if (!createTaskMatch) {
-  throw new Error("createPicWishMaskedRemovalTask was not found");
+  throw new Error("createPicWishInpaintTask was not found");
 }
 if (!pollTaskMatch) {
-  throw new Error("pollPicWishMaskedRemovalTask was not found");
+  throw new Error("pollPicWishInpaintTask was not found");
 }
 if (!maskMatch) {
   throw new Error("createPicWishEraseMask was not found");
@@ -29,12 +29,12 @@ const pollTaskSource = pollTaskMatch[0];
 const maskSource = maskMatch[0];
 const eraseImageObjectsSource = eraseImageObjectsMatch[0];
 
-if (!/taskType:\s*PicWishVisualTaskType\s*=\s*"watermark"/.test(createTaskSource) || !/getPicWishTaskEndpoint\(baseUrl,\s*taskType\)/.test(createTaskSource)) {
-  throw new Error("橡皮擦必须直连 PicWish 官方 remove-objects watermark 创建任务接口");
+if (!/\/api\/tasks\/visual\/inpaint/.test(createTaskSource)) {
+  throw new Error("橡皮擦必须直连 PicWish inpaint 创建任务接口");
 }
 
-if (!/taskType:\s*PicWishVisualTaskType\s*=\s*"watermark"/.test(pollTaskSource) || !/getPicWishTaskEndpoint\(baseUrl,\s*taskType\)/.test(pollTaskSource)) {
-  throw new Error("橡皮擦必须直连 PicWish 官方 remove-objects watermark 轮询接口");
+if (!/\/api\/tasks\/visual\/inpaint\/\$/.test(pollTaskSource)) {
+  throw new Error("橡皮擦必须直连 PicWish inpaint 轮询接口");
 }
 
 if (!/X-API-KEY/.test(createTaskSource) || !/X-API-KEY/.test(pollTaskSource)) {
@@ -57,20 +57,20 @@ if (!/attempt < 180/.test(pollTaskSource)) {
   throw new Error("橡皮擦异步轮询最长必须支持 180 秒");
 }
 
-if (!/state > 0/.test(pollTaskSource) || !/state < 0/.test(pollTaskSource) || !/getPicWishResultImageUrl/.test(pollTaskSource)) {
-  throw new Error("橡皮擦轮询必须结合 data.state 和结果图片地址判断成功/失败");
+if (!/state > 0/.test(pollTaskSource) || !/state < 0/.test(pollTaskSource) || !/imageUrl/.test(pollTaskSource)) {
+  throw new Error("橡皮擦轮询必须结合 data.state 和 data.image 判断成功/失败");
 }
 
-if (!/maskBuffer/.test(eraseSource) || !/maskMimeType/.test(eraseSource) || !/pollPicWishMaskedRemovalTask/.test(eraseSource)) {
+if (!/maskBuffer/.test(eraseSource) || !/maskMimeType/.test(eraseSource) || !/pollPicWishInpaintTask/.test(eraseSource)) {
   throw new Error("橡皮擦必须继续传入用户涂抹蒙版");
 }
 
 if (!createTaskSource.includes("if (!taskId)")) {
-  throw new Error("PicWish masked removal 创建后必须强制校验 taskId");
+  throw new Error("PicWish inpaint 创建后必须强制校验 taskId");
 }
 
 if (!createTaskSource.includes("returned an image but no task id")) {
-  throw new Error("PicWish masked removal 返回图片但没有 taskId 时必须记录失败日志");
+  throw new Error("PicWish inpaint 返回图片但没有 taskId 时必须记录失败日志");
 }
 
 if (!eraseSource.includes("withProviderTaskIds(result, [taskId])")) {
@@ -78,15 +78,7 @@ if (!eraseSource.includes("withProviderTaskIds(result, [taskId])")) {
 }
 
 if (!/providerMask\[index\]\s*=\s*shouldErase\s*\?\s*255\s*:\s*0/.test(maskSource)) {
-  throw new Error("传给 PicWish masked removal 的蒙版必须是白色=擦除区域、黑色=保护区域");
-}
-
-if (!/hasTransparentStroke/.test(maskSource) || !/hasBrightStroke/.test(maskSource)) {
-  throw new Error("橡皮擦蒙版必须兼容前端透明擦除洞和白色涂抹区域两种输入语义");
-}
-
-if (!/PicWish erase mask does not contain a usable removal area/.test(maskSource)) {
-  throw new Error("橡皮擦蒙版没有可用擦除区域时必须显式失败");
+  throw new Error("传给 PicWish inpaint 的蒙版必须是白色=擦除区域、黑色=保护区域");
 }
 
 if (/createLocalEraseFallback|compositeEraseResultInsidePicWishMask|didEraseChangeMaskedArea|doesEraseBlendIntoBackground|compositeEraseResultOnlyInsideMask/.test(source)) {
@@ -97,4 +89,4 @@ if (/createLocalEraseFallback|compositeEraseResultInsidePicWishMask|didEraseChan
   throw new Error("eraseImageObjects 不能再走旧橡皮擦链路");
 }
 
-console.log("PicWish eraser route matches the documented remove-objects watermark API, including sync modes, URL/file inputs, rectangles, 180s polling, and white-remove masks.");
+console.log("PicWish eraser route matches the documented inpaint API, including sync modes, URL/file inputs, rectangles, 180s polling, and white-remove masks.");

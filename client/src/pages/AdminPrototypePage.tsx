@@ -648,6 +648,7 @@ function AdminPrototypePage() {
       userId: selectedUser.id,
       delta,
       reason: "后台人工额度调整",
+      confirmHighRisk: Math.abs(delta) >= 10000,
     }, `${selectedUser.name} 的额度调整已提交：${creditAmount(delta)} 积分，审计日志已生成。`);
   }
 
@@ -684,6 +685,7 @@ function AdminPrototypePage() {
         providerDefault: item.provider,
       })),
       planDiscounts: discountDraft,
+      confirmation: "CONFIRM_AI_BILLING_POLICY",
     }, "AI 扣分策略和套餐折扣已保存。");
   }
 

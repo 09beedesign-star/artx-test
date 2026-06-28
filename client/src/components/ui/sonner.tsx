@@ -1,8 +1,51 @@
+import { useEffect } from "react";
 import { useTheme } from "next-themes";
 import { Toaster as Sonner, type ToasterProps } from "sonner";
 
 const Toaster = ({ ...props }: ToasterProps) => {
   const { theme = "system" } = useTheme();
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const updateToastOverflow = () => {
+      document.querySelectorAll<HTMLElement>("[data-sonner-toast]").forEach((toast) => {
+        const content = toast.querySelector<HTMLElement>("[data-content]");
+        if (!content) return;
+
+        const isOverflowing = content.scrollWidth > content.clientWidth + 1 || content.scrollHeight > content.clientHeight + 1;
+        toast.dataset.artxOverflow = isOverflowing ? "true" : "false";
+
+        if (!isOverflowing || toast.querySelector("[data-artx-toast-expand]")) return;
+
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.artxToastExpand = "true";
+        button.setAttribute("aria-label", "展开提示");
+        button.title = "展开提示";
+        button.textContent = "展开";
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const expanded = toast.dataset.artxExpanded === "true";
+          toast.dataset.artxExpanded = expanded ? "false" : "true";
+          button.textContent = expanded ? "展开" : "收起";
+          button.setAttribute("aria-label", expanded ? "展开提示" : "收起提示");
+          button.title = expanded ? "展开提示" : "收起提示";
+        });
+        toast.appendChild(button);
+      });
+    };
+
+    const observer = new MutationObserver(updateToastOverflow);
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    const interval = window.setInterval(updateToastOverflow, 300);
+    updateToastOverflow();
+
+    return () => {
+      observer.disconnect();
+      window.clearInterval(interval);
+    };
+  }, []);
 
   return (
     <Sonner
@@ -15,22 +58,12 @@ const Toaster = ({ ...props }: ToasterProps) => {
       className="toaster group"
       style={
         {
-          "--width": "fit-content",
-          "--max-width": "600px",
+          "--width": "260px",
           "--normal-bg": "rgba(0,0,0,0.60)",
-          "--normal-text": "rgba(255,255,255,0.52)",
+          "--normal-text": "rgba(255,255,255,0.92)",
           "--normal-border": "rgba(255,255,255,0.10)",
-          fontSize: "6px",
-          lineHeight: "1.2",
         } as React.CSSProperties
       }
-      toastOptions={{
-        classNames: {
-          toast: "!w-fit !max-w-[600px] !min-w-0 !px-3 !py-2",
-          title: "!text-[6px] !leading-[1.2] !text-[rgba(255,255,255,0.52)] !font-normal",
-          description: "!text-[6px] !leading-[1.2] !text-[rgba(255,255,255,0.52)] !font-normal !whitespace-normal !break-words",
-        },
-      }}
       {...props}
     />
   );

@@ -9,6 +9,7 @@
     "start": "NODE_ENV=production node dist/index.js",
     "preview": "vite preview --host",
     "check": "tsc --noEmit",
+    "verify:admin": "tsx scripts/verify-admin-backend.mjs && tsx scripts/verify-admin-session-expiry.mjs",
     "check:skills": "node scripts/verify-skills.mjs",
     "format": "prettier --write .",
     "verify:test-deploy": "scripts/verify-test-deployment.sh"

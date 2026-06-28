@@ -228,6 +228,43 @@ export type AdminApiResult = {
 
 const DATA_DIR = process.env.ARTX_DATA_DIR || path.join(process.cwd(), ".artx-data");
 const DATA_FILE = path.join(DATA_DIR, "admin-data.json");
+const ADMIN_DATA_BACKEND = process.env.ARTX_ADMIN_DATA_BACKEND || "json";
+
+type AdminDataRepository = {
+  load(): Promise<Partial<AdminData> | null>;
+  save(data: AdminData): Promise<void>;
+};
+
+class JsonAdminDataRepository implements AdminDataRepository {
+  constructor(private readonly dataDir: string, private readonly dataFile: string) {}
+
+  async load() {
+    await fs.mkdir(this.dataDir, { recursive: true });
+    try {
+      const raw = await fs.readFile(this.dataFile, "utf-8");
+      return JSON.parse(raw) as Partial<AdminData>;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+  }
+
+  async save(data: AdminData) {
+    await fs.mkdir(this.dataDir, { recursive: true });
+    const tmpFile = `${this.dataFile}.${process.pid}.${Date.now()}.tmp`;
+    await fs.writeFile(tmpFile, `${JSON.stringify(data, null, 2)}\n`, "utf-8");
+    await fs.rename(tmpFile, this.dataFile);
+  }
+}
+
+function createAdminDataRepository(): AdminDataRepository {
+  if (ADMIN_DATA_BACKEND !== "json") {
+    throw new Error(`Unsupported ARTX_ADMIN_DATA_BACKEND=${ADMIN_DATA_BACKEND}. Use json until the Postgres adapter is implemented.`);
+  }
+  return new JsonAdminDataRepository(DATA_DIR, DATA_FILE);
+}
+
+const adminDataRepository = createAdminDataRepository();
 
 function nowIso() {
   return new Date().toISOString();
@@ -547,27 +584,21 @@ async function normalizeDataAsync(value: Partial<AdminData>): Promise<AdminData>
 }
 
 async function loadAdminData(): Promise<AdminData> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  try {
-    const raw = await fs.readFile(DATA_FILE, "utf-8");
-    const data = await normalizeDataAsync(JSON.parse(raw) as Partial<AdminData>);
+  const stored = await adminDataRepository.load();
+  if (stored) {
+    const data = await normalizeDataAsync(stored);
     ensureBillingConsistency(data);
     return data;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    const seeded = await seedAdminData();
-    ensureBillingConsistency(seeded);
-    await saveAdminData(seeded);
-    return seeded;
   }
+  const seeded = await seedAdminData();
+  ensureBillingConsistency(seeded);
+  await saveAdminData(seeded);
+  return seeded;
 }
 
 async function saveAdminData(data: AdminData) {
   ensureBillingConsistency(data);
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  const tmpFile = `${DATA_FILE}.${process.pid}.${Date.now()}.tmp`;
-  await fs.writeFile(tmpFile, `${JSON.stringify(data, null, 2)}\n`, "utf-8");
-  await fs.rename(tmpFile, DATA_FILE);
+  await adminDataRepository.save(data);
 }
 
 function appendAuditLog(
@@ -771,6 +802,10 @@ function getProviderTaskId(input: Pick<AiUsageRecordInput, "providerTaskId" | "p
   return input.providerTaskId || input.providerTaskIds?.[0] || "provider-task-missing";
 }
 
+function hasConfirmation(body: Record<string, unknown>, expected: string) {
+  return typeof body.confirmation === "string" && body.confirmation.trim() === expected;
+}
+
 export async function handleAdminApiRequest(
   method: string,
   pathname: string,
@@ -864,6 +899,9 @@ export async function handleAdminApiRequest(
     const user = data.users.find((item) => item.id === userId);
     if (!user) return jsonError(404, "用户不存在");
     if (!Number.isFinite(delta) || delta === 0) return jsonError(400, "调整额度必须是非零数字");
+    if (Math.abs(delta) >= 10000 && body.confirmHighRisk !== true) {
+      return jsonError(409, "大额额度调整需要二次确认");
+    }
 
     const before = { credits: user.credits };
     user.credits = Math.max(0, user.credits + delta);
@@ -945,6 +983,9 @@ export async function handleAdminApiRequest(
   }
 
   if (method === "POST" && route === "ai-billing-policies/save") {
+    if (!hasConfirmation(body, "CONFIRM_AI_BILLING_POLICY")) {
+      return jsonError(409, "更新 AI 扣分策略需要二次确认");
+    }
     const policies = Array.isArray(body.policies) ? body.policies : [];
     const planDiscounts = Array.isArray(body.planDiscounts) ? body.planDiscounts : [];
     data.aiBillingPolicies = policies.map((item) => ({
@@ -1080,14 +1121,44 @@ export async function createBillingOrder(params: {
   };
 }
 
+export async function getBillingOrderForPayment(orderId: string) {
+  const data = await loadAdminData();
+  const order = data.orders.find((item) => item.id === orderId);
+  if (!order) return null;
+
+  return {
+    id: order.id,
+    userId: order.userId,
+    packageName: order.packageName,
+    channel: order.channel,
+    amount: order.amount,
+    amountCents: Math.max(1, Math.round(order.amount * 100)),
+    expectedCredits: order.expectedCredits,
+    status: order.status,
+    createdAt: order.createdAt,
+    paidAt: order.paidAt,
+  };
+}
+
 export async function markBillingOrderPaid(params: {
   orderId: string;
   actorName: string;
+  expectedAmountCents?: number;
 }) {
   const data = await loadAdminData();
   const order = data.orders.find((item) => item.id === params.orderId);
   if (!order) {
     return { status: 404, body: { error: "订单不存在" } };
+  }
+
+  if (typeof params.expectedAmountCents === "number") {
+    const actualAmountCents = Math.max(1, Math.round(order.amount * 100));
+    if (actualAmountCents !== params.expectedAmountCents) {
+      order.reconciliation = "mismatch";
+      order.event = "支付金额与本地订单不一致";
+      await saveAdminData(data);
+      return { status: 409, body: { error: "支付金额与本地订单不一致" } };
+    }
   }
 
   const user = data.users.find((item) => item.id === order.userId);

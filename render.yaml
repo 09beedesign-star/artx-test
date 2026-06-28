@@ -51,3 +51,13 @@ services:
         sync: false
       - key: WECHAT_CLIENT_SECRET
         sync: false
+      - key: WALLYT_DOMAIN_URL
+        value: https://paycert.wepayez.com/pay/gateway
+      - key: WALLYT_MCH_ID
+        sync: false
+      - key: WALLYT_SIGNATURE_KEY
+        sync: false
+      - key: WALLYT_NOTIFY_URL
+        value: https://artx-test.onrender.com/api/billing/wallyt/callback
+      - key: WALLYT_WX_APP_ID
+        sync: false

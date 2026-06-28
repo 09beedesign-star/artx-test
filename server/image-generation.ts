@@ -310,18 +310,6 @@ const ratioToSize: Record<string, { size: string; width: number; height: number 
   "21:9": { size: "1536x1024", width: 1536, height: 658 },
 };
 
-function getClosestSupportedRatioId(width: number, height: number) {
-  const safeWidth = Math.max(1, width);
-  const safeHeight = Math.max(1, height);
-  const targetAspect = safeWidth / safeHeight;
-  return Object.entries(ratioToSize).reduce((best, current) => {
-    const [, currentSize] = current;
-    const currentAspect = currentSize.width / Math.max(1, currentSize.height);
-    const bestAspect = best[1].width / Math.max(1, best[1].height);
-    return Math.abs(currentAspect - targetAspect) < Math.abs(bestAspect - targetAspect) ? current : best;
-  })[0];
-}
-
 function getImagesEndpoint(baseUrl: string) {
   const normalized = baseUrl.replace(/\/+$/, "");
   return `${normalized}${normalized.endsWith("/v1") ? "" : "/v1"}/images/generations`;
@@ -903,7 +891,7 @@ async function removeFaceWithPicWish(buffer: Buffer, mimeType: string): Promise<
   return runPicWishImageTask("self-face-cutout", buffer, mimeType);
 }
 
-async function createPicWishMaskedRemovalTask(
+async function createPicWishInpaintTask(
   input: {
     imageBuffer?: Buffer;
     imageMimeType?: string;
@@ -920,8 +908,7 @@ async function createPicWishMaskedRemovalTask(
     throw new Error("Missing PICWISH_API_KEY");
   }
 
-  const taskType: PicWishVisualTaskType = "watermark";
-  const endpoint = getPicWishTaskEndpoint(baseUrl, taskType);
+  const endpoint = `${baseUrl.replace(/\/+$/, "")}/api/tasks/visual/inpaint`;
   const body = new FormData();
   body.append("sync", input.sync ? "1" : "0");
   if (input.imageUrl) {
@@ -929,7 +916,7 @@ async function createPicWishMaskedRemovalTask(
   } else if (input.imageBuffer) {
     body.append("image_file", bufferToImageFile(input.imageBuffer, input.imageMimeType || "image/png"));
   } else {
-    throw new Error("Missing image source for PicWish masked removal");
+    throw new Error("Missing image source for PicWish inpaint");
   }
   if (input.maskUrl) {
     body.append("mask_url", input.maskUrl);
@@ -938,11 +925,11 @@ async function createPicWishMaskedRemovalTask(
   } else if (input.rectangles) {
     body.append("rectangles", typeof input.rectangles === "string" ? input.rectangles : JSON.stringify(input.rectangles));
   } else {
-    throw new Error("Missing removal area for PicWish masked removal");
+    throw new Error("Missing removal area for PicWish inpaint");
   }
 
   const startedAt = Date.now();
-  logPicWishEvent("request", { taskType, endpoint, hasMask: Boolean(input.maskBuffer || input.maskUrl) });
+  logPicWishEvent("request", { taskType: "inpaint", endpoint, hasMask: Boolean(input.maskBuffer || input.maskUrl) });
   let created: PicWishSegmentationResponse;
   try {
     created = await readPicWishJson(await fetch(endpoint, {
@@ -951,17 +938,17 @@ async function createPicWishMaskedRemovalTask(
         "X-API-KEY": apiKey,
       },
       body,
-    }), "PicWish masked removal");
+    }), "PicWish inpaint");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    logPicWishEvent("failure", { taskType, endpoint, durationMs: Date.now() - startedAt, error: message, hasMask: Boolean(input.maskBuffer || input.maskUrl) });
+    logPicWishEvent("failure", { taskType: "inpaint", endpoint, durationMs: Date.now() - startedAt, error: message, hasMask: Boolean(input.maskBuffer || input.maskUrl) });
     throw error;
   }
 
   const taskId = getPicWishTaskId(created);
-  const imageUrl = getPicWishResultImageUrl(created, taskType);
+  const imageUrl = getPicWishResultImageUrl(created, "inpaint");
   logPicWishEvent("created", {
-    taskType,
+    taskType: "inpaint",
     endpoint,
     taskId,
     status: created.status,
@@ -972,23 +959,22 @@ async function createPicWishMaskedRemovalTask(
   });
   if (!taskId) {
     logPicWishEvent("failure", {
-      taskType,
+      taskType: "inpaint",
       endpoint,
       status: created.status,
       durationMs: Date.now() - startedAt,
       error: imageUrl
-        ? "PicWish masked removal returned an image but no task id"
-        : "PicWish masked removal did not return a task id",
+        ? "PicWish inpaint returned an image but no task id"
+        : "PicWish inpaint did not return a task id",
       hasMask: Boolean(input.maskBuffer || input.maskUrl),
     });
-    throw new Error("PicWish masked removal did not return a task id");
+    throw new Error("PicWish inpaint did not return a task id");
   }
   return { taskId, apiKey, baseUrl, created, imageUrl };
 }
 
-async function pollPicWishMaskedRemovalTask(taskId: string, apiKey: string, baseUrl: string): Promise<{ images: GeneratedImage[] }> {
-  const taskType: PicWishVisualTaskType = "watermark";
-  const endpoint = `${getPicWishTaskEndpoint(baseUrl, taskType)}/${encodeURIComponent(taskId)}`;
+async function pollPicWishInpaintTask(taskId: string, apiKey: string, baseUrl: string): Promise<{ images: GeneratedImage[] }> {
+  const endpoint = `${baseUrl.replace(/\/+$/, "")}/api/tasks/visual/inpaint/${encodeURIComponent(taskId)}`;
   const startedAt = Date.now();
   for (let attempt = 0; attempt < 180; attempt += 1) {
     if (attempt > 0) await delay(1000);
@@ -999,15 +985,15 @@ async function pollPicWishMaskedRemovalTask(taskId: string, apiKey: string, base
         headers: {
           "X-API-KEY": apiKey,
         },
-      }), "PicWish masked removal polling");
+      }), "PicWish inpaint polling");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      logPicWishEvent("failure", { taskType, endpoint, taskId, attempt: attempt + 1, durationMs: Date.now() - startedAt, error: message });
+      logPicWishEvent("failure", { taskType: "inpaint", endpoint, taskId, attempt: attempt + 1, durationMs: Date.now() - startedAt, error: message });
       throw error;
     }
     const state = Number(data.data?.state || 0);
     logPicWishEvent("poll", {
-      taskType,
+      taskType: "inpaint",
       endpoint,
       taskId,
       status: data.status,
@@ -1017,14 +1003,14 @@ async function pollPicWishMaskedRemovalTask(taskId: string, apiKey: string, base
       durationMs: Date.now() - startedAt,
     });
     if (state > 0) {
-      const imageUrl = getPicWishResultImageUrl(data, taskType) || "";
+      const imageUrl = data.data?.image || "";
       if (state !== 1 && !imageUrl) continue;
       if (!imageUrl) {
-        logPicWishEvent("failure", { taskType, endpoint, taskId, status: data.status, state, progress: data.data?.progress, durationMs: Date.now() - startedAt, error: "PicWish masked removal did not return a result image" });
-        throw new Error("PicWish masked removal did not return a result image");
+        logPicWishEvent("failure", { taskType: "inpaint", endpoint, taskId, status: data.status, state, progress: data.data?.progress, durationMs: Date.now() - startedAt, error: "PicWish inpaint did not return a result image" });
+        throw new Error("PicWish inpaint did not return a result image");
       }
       logPicWishEvent("success", {
-        taskType,
+        taskType: "inpaint",
         endpoint,
         taskId,
         status: data.status,
@@ -1035,7 +1021,7 @@ async function pollPicWishMaskedRemovalTask(taskId: string, apiKey: string, base
         height: data.data?.image_height,
       });
       logPicWishEvent("download", {
-        taskType,
+        taskType: "inpaint",
         endpoint: imageUrl,
         taskId,
         durationMs: Date.now() - startedAt,
@@ -1048,13 +1034,13 @@ async function pollPicWishMaskedRemovalTask(taskId: string, apiKey: string, base
       });
     }
     if (state < 0) {
-      const message = getPicWishErrorMessage(data, "PicWish masked removal task failed");
-      logPicWishEvent("failure", { taskType, endpoint, taskId, status: data.status, state, progress: data.data?.progress, durationMs: Date.now() - startedAt, error: message });
+      const message = getPicWishErrorMessage(data, "PicWish inpaint task failed");
+      logPicWishEvent("failure", { taskType: "inpaint", endpoint, taskId, status: data.status, state, progress: data.data?.progress, durationMs: Date.now() - startedAt, error: message });
       throw new Error(message);
     }
   }
-  logPicWishEvent("failure", { taskType, endpoint, taskId, durationMs: Date.now() - startedAt, error: "PicWish masked removal timed out" });
-  throw new Error("PicWish masked removal timed out");
+  logPicWishEvent("failure", { taskType: "inpaint", endpoint, taskId, durationMs: Date.now() - startedAt, error: "PicWish inpaint timed out" });
+  throw new Error("PicWish inpaint timed out");
 }
 
 async function eraseWithPicWish(
@@ -1069,7 +1055,7 @@ async function eraseWithPicWish(
     sync?: boolean;
   },
 ): Promise<GeneratedImageResult> {
-  const { taskId, apiKey, baseUrl, created, imageUrl } = await createPicWishMaskedRemovalTask(input);
+  const { taskId, apiKey, baseUrl, created, imageUrl } = await createPicWishInpaintTask(input);
   if (imageUrl) {
     const result = await downloadPicWishImageAsTransparentPng(imageUrl, {
       width: created.data?.image_width,
@@ -1077,7 +1063,7 @@ async function eraseWithPicWish(
     });
     return withProviderTaskIds(result, [taskId]);
   }
-  const result = await pollPicWishMaskedRemovalTask(taskId, apiKey, baseUrl);
+  const result = await pollPicWishInpaintTask(taskId, apiKey, baseUrl);
   return withProviderTaskIds(result, [taskId]);
 }
 
@@ -1090,36 +1076,10 @@ async function createPicWishEraseMask(maskBuffer: Buffer, width: number, height:
     .raw()
     .toBuffer({ resolveWithObject: true });
 
-  let transparentPixels = 0;
-  let brightOpaquePixels = 0;
-  let darkOpaquePixels = 0;
-  for (let index = 0; index < data.length; index += 4) {
-    const alpha = data[index + 3];
-    if (alpha < 250) {
-      transparentPixels += 1;
-      continue;
-    }
-    const luminance = (data[index] + data[index + 1] + data[index + 2]) / 3;
-    if (luminance > 220) brightOpaquePixels += 1;
-    if (luminance < 32) darkOpaquePixels += 1;
-  }
-
-  const totalPixels = width * height;
-  const hasTransparentStroke = transparentPixels > 0 && transparentPixels < totalPixels * 0.95;
-  const hasBrightStroke = !hasTransparentStroke && brightOpaquePixels > 0 && brightOpaquePixels < totalPixels * 0.95;
-  if (!hasTransparentStroke && !hasBrightStroke) {
-    throw new Error("PicWish erase mask does not contain a usable removal area");
-  }
-
   const erasePixels = new Uint8Array(width * height);
   for (let index = 0; index < data.length; index += 4) {
-    const alpha = data[index + 3];
-    const luminance = (data[index] + data[index + 1] + data[index + 2]) / 3;
-    // The canvas eraser stores painted strokes as transparent pixels. Some
-    // regression tests and older mask producers use white strokes on black.
-    if (hasTransparentStroke ? alpha < 250 : luminance > 220) {
-      erasePixels[index / 4] = 1;
-    }
+    // The canvas eraser stores painted strokes as transparent pixels.
+    if (data[index + 3] < 250) erasePixels[index / 4] = 1;
   }
 
   const expandedErasePixels = new Uint8Array(erasePixels);
@@ -1257,54 +1217,6 @@ async function normalizeGeneratedImagesToTargetAspect(
       height: targetHeight,
     };
   }));
-}
-
-async function normalizeProductBackgroundResultToOutput(
-  result: GeneratedImageResult,
-  output: { width: number; height: number },
-): Promise<GeneratedImageResult> {
-  return withProviderTaskIds({
-    images: await normalizeGeneratedImagesToTargetAspect(result.images, output.width, output.height),
-  }, collectProviderTaskIds(result));
-}
-
-async function createStrictProductBackgroundVariants(
-  input: CreateBackgroundInput,
-  output: { width: number; height: number },
-  count: number,
-): Promise<GeneratedImageResult> {
-  const sharedPrompt = [
-    input.style ? `背景风格：${input.style}` : "",
-    input.prompt || "创建商业化产品背景",
-    "Treat the uploaded product image as the locked foreground subject and target canvas.",
-    "The product silhouette, width-to-height proportion, perspective, camera angle, position, orientation, material, logo, printed text, seams, edges, and all visible geometry must stay identical to the source image.",
-    "Do not stretch, compress, widen, slim, enlarge, shrink, rotate, repaint, redesign, or reshape the product in any way.",
-    "Only generate or replace the background area around the product, while preserving realistic contact shadow, lighting direction, perspective depth, and commercial photography quality.",
-    input.backgroundReferenceSrc?.trim()
-      ? "Use the extra reference image only for background style, color mood, lighting, texture, spatial depth, and atmosphere. Never apply its shape language to the product."
-      : "",
-    `Final bitmap size must be exactly ${output.width}x${output.height}px.`,
-    `Final canvas aspect ratio must exactly match ${output.width}:${output.height}.`,
-    "The final output must fully fill the selected canvas with no black bars, no transparent margins, and no letterboxing.",
-  ].filter(Boolean).join("\n");
-
-  const variantResults = await Promise.all(
-    Array.from({ length: count }, () => editImageWithPrompt({
-      imageSrc: input.imageSrc,
-      targetWidth: output.width,
-      targetHeight: output.height,
-      prompt: sharedPrompt,
-      images: input.backgroundReferenceSrc?.trim()
-        ? [{ src: input.backgroundReferenceSrc, title: input.backgroundReferenceName || "背景参考图" }]
-        : [],
-    })),
-  );
-
-  const images = variantResults.flatMap(result => result.images).slice(0, count);
-  if (images.length === 0) {
-    throw new Error("Smart background edit provider returned no images");
-  }
-  return { images };
 }
 
 function pixelDistance(data: Buffer, index: number, color: [number, number, number]) {
@@ -1920,7 +1832,7 @@ async function pollAsyncImageTask(taskId: string, apiKey: string, baseUrl: strin
   throw new Error("Image generation timed out");
 }
 
-export async function generateImages(input: ImageGenerateInput): Promise<GeneratedImageResult> {
+export async function generateImages(input: ImageGenerateInput): Promise<{ images: GeneratedImage[] }> {
   if (!input.prompt?.trim()) {
     throw new Error("Missing prompt");
   }
@@ -2071,21 +1983,33 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
   const sourceImageData = await imageSrcToBuffer(input.imageSrc);
   const sourceDimensions = await getImageBufferDimensions(sourceImageData.buffer);
   const output = getBackgroundOutputSize(input, sourceDimensions.width, sourceDimensions.height);
-  const outputInstruction = [
-    `Final bitmap size must be exactly ${output.width}x${output.height}px.`,
-    `Final canvas aspect ratio must exactly match ${output.width}:${output.height} (${input.ratio || "selected ratio"}).`,
-    "Fill the entire canvas edge to edge with generated background content.",
-    "Do not leave black bars, empty areas, transparent gutters, blurred borders, or letterboxing.",
-    "If the reference background has a different aspect ratio, naturally extend or recompose the background to cover the full target canvas while keeping the product included.",
-  ].join(" ");
 
   if (hasBackgroundReference || count > 1) {
-    const generated = await createStrictProductBackgroundVariants(input, output, count);
-    return normalizeProductBackgroundResultToOutput(generated, output);
+    const references = [
+      { src: input.imageSrc, title: "产品图" },
+      ...(hasBackgroundReference
+        ? [{ src: input.backgroundReferenceSrc!, title: input.backgroundReferenceName || "背景参考图" }]
+        : []),
+    ];
+    return generateImages({
+      prompt: [
+        input.style ? `背景风格：${input.style}` : "",
+        input.prompt || "创建商业化产品背景",
+        "Use reference image 1 as the exact product subject. Preserve the product shape, material, colors, logo, text, proportions, and foreground identity.",
+        hasBackgroundReference
+          ? "Use reference image 2 only as the background style reference. Match its color mood, lighting, perspective, material texture, spatial depth, and commercial photography feel without copying protected or distinctive elements exactly."
+          : "Create a realistic commercial background behind and around the product. Match lighting, shadows, perspective, and contact shadow naturally.",
+        "Return complete product commercial images. Do not crop or distort the product.",
+      ].filter(Boolean).join("\n"),
+      ratio: input.ratio || "1:1",
+      count,
+      style: input.style,
+      images: references,
+    });
   }
 
   try {
-    return await normalizeProductBackgroundResultToOutput(await createBackgroundWithPicWish(input), output);
+    return await createBackgroundWithPicWish(input);
   } catch (picWishError) {
     console.warn("PicWish create background failed; using image edit provider fallback", picWishError);
     const fallbackResult = await editImageWithPrompt({
@@ -2097,10 +2021,9 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
         input.prompt || "创建商业化产品背景",
         "Use the uploaded product image as the exact foreground product. Preserve the product shape, material, colors, logo, text, and proportions.",
         "Only create a new realistic commercial background behind and around the product. Match lighting, shadows, perspective, and contact shadow naturally.",
-        outputInstruction,
       ].filter(Boolean).join("\n"),
     });
-    return normalizeProductBackgroundResultToOutput(fallbackResult, output);
+    return fallbackResult;
   }
 }
 
@@ -2125,7 +2048,6 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   const selectedModel = input.model && supportedImageModels.has(input.model) ? input.model : model;
   const referenceImages = input.images?.filter(image => image.src?.trim()) || [];
   const editSize = getEditSizeForAspect(targetWidth, targetHeight);
-  const requestedRatio = getClosestSupportedRatioId(targetWidth, targetHeight);
   const aspectInstruction = `Keep the final image canvas aspect ratio exactly ${targetWidth}:${targetHeight}. Do not return a square image unless the source is square.`;
 
   if (isChatCompatibleImageModel(selectedModel)) {
@@ -2139,7 +2061,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
         aspectInstruction,
       ].join("\n\n"),
       model: selectedModel,
-      ratio: requestedRatio,
+      ratio: "1:1",
       count: 1,
       images: [
         { src: sourceDataUrl, title: "target image" },
