@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import {
   ArrowUpRight,
-  BadgePercent,
   Check,
   CreditCard,
   Crown,
@@ -17,9 +16,9 @@ import TopBar from "@/components/workspace/TopBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { BG_GLOW } from "@/lib/workspace-data";
+import { BILLING_CYCLES, MEMBERSHIP_PLANS, formatCurrency, getPlanQuote, type BillingCycleId, type MembershipPlanId } from "@shared/billing-config";
 
 type BillingTab = "subscription" | "recharge" | "upgrade";
-type BillingCycle = "monthly" | "quarterly" | "annual";
 
 const billingTabs: Array<{ id: BillingTab; label: string; description: string }> = [
   { id: "subscription", label: "订阅服务", description: "整体创作服务订阅" },
@@ -27,40 +26,22 @@ const billingTabs: Array<{ id: BillingTab; label: string; description: string }>
   { id: "upgrade", label: "升级方案", description: "当前方案与高阶方案对比" },
 ];
 
-const billingCycles: Array<{ id: BillingCycle; label: string; badge: string }> = [
-  { id: "monthly", label: "月付", badge: "灵活" },
-  { id: "quarterly", label: "季付", badge: "推荐" },
-  { id: "annual", label: "年付", badge: "更划算" },
-];
-
 const subscriptionPlans = [
   {
-    id: "lite",
-    name: "Lite",
+    id: "lite" as MembershipPlanId,
     audience: "个人创作者",
-    novaBase: "待补齐",
-    artxPrice: "Nova × 70%",
-    credits: "基础创作额度",
     highlight: false,
     features: ["AI 对话与提示词共创", "图片生成与智能编辑", "智能背景基础队列", "标准清晰度导出"],
   },
   {
-    id: "pro",
-    name: "Pro",
+    id: "pro" as MembershipPlanId,
     audience: "高频创作与电商内容",
-    novaBase: "待补齐",
-    artxPrice: "Nova × 70%",
-    credits: "进阶创作额度",
     highlight: true,
     features: ["GPT + Image Two + Nano Banana 能力池", "批量图片生成", "高清导出与 HD 提升", "更高任务队列优先级"],
   },
   {
-    id: "studio",
-    name: "Studio",
+    id: "studio" as MembershipPlanId,
     audience: "团队与商业项目",
-    novaBase: "待补齐",
-    artxPrice: "Nova × 70%",
-    credits: "团队创作额度",
     highlight: false,
     features: ["多人项目协作预留", "商业画板与素材管理", "更高并发任务占位", "发票与用量报表预留"],
   },
@@ -133,16 +114,24 @@ function getAuthToken() {
 
 async function billingFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getAuthToken();
-  const response = await fetch(`${getBillingApiBaseUrl()}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers || {}),
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${getBillingApiBaseUrl()}${path}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options.headers || {}),
+      },
+    });
+  } catch {
+    throw new Error("测试后端支付接口暂时不可访问，请稍后重试");
+  }
   const contentType = response.headers.get("content-type") || "";
-  const data = contentType.includes("application/json") ? await response.json().catch(() => ({})) : {};
+  if (!contentType.includes("application/json")) {
+    throw new Error("测试后端支付接口还未部署完成，请稍后再试");
+  }
+  const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(typeof data?.error === "string" ? data.error : "请求失败，请稍后重试");
   }
@@ -154,7 +143,7 @@ export default function BillingPage() {
   const { isAuthenticated, openLoginModal } = useAuth();
   const [, navigate] = useLocation();
   const [activeTab, setActiveTab] = useState<BillingTab>(() => readInitialTab());
-  const [activeCycle, setActiveCycle] = useState<BillingCycle>("monthly");
+  const [activeCycle, setActiveCycle] = useState<BillingCycleId>("monthly");
   const [payingPlanId, setPayingPlanId] = useState<string | null>(null);
 
   const isDark = resolvedTheme === "dark";
@@ -169,7 +158,11 @@ export default function BillingPage() {
   const purple = "oklch(0.68 0.20 292)";
 
   const cycleLabel = useMemo(
-    () => billingCycles.find(item => item.id === activeCycle)?.label || "月付",
+    () => BILLING_CYCLES.find(item => item.id === activeCycle)?.label || "月付",
+    [activeCycle],
+  );
+  const activeCycleConfig = useMemo(
+    () => BILLING_CYCLES.find(item => item.id === activeCycle) || BILLING_CYCLES[0],
     [activeCycle],
   );
 
@@ -263,7 +256,7 @@ export default function BillingPage() {
                   订阅、充值与升级
                 </h1>
                 <p className="mt-2 max-w-[760px] type-body-sm leading-6" style={{ color: sub }}>
-                  GPT 大语言模型、Image Two 与 Nano Banana 作为统一创作能力池提供服务。价格框架按 Nova 同档公开价的 70% 占位，待补齐 Nova 套餐后替换为正式数据。
+                  GPT 大语言模型、Image Two 与 Nano Banana 作为统一创作能力池提供服务。当前先开放订阅、充值与升级框架，正式套餐价格和权益会在配置完成后生效。
                 </p>
               </div>
 
@@ -313,15 +306,6 @@ export default function BillingPage() {
                 );
               })}
 
-              <div className="mt-3 rounded-[var(--radius-lg-design)] border p-3" style={{ borderColor: border, background: isDark ? "oklch(0.09 0.012 270 / 0.70)" : "oklch(0 0 0 / 3%)" }}>
-                <div className="mb-2 flex items-center gap-2 type-caption" style={{ color: green }}>
-                  <BadgePercent size={13} />
-                  Nova 对标规则
-                </div>
-                <p className="type-caption leading-5" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>
-                  整体服务价格按 Nova 同档公开价 × 70% 建立占位标准，不按单个模型拆分收费。
-                </p>
-              </div>
             </aside>
 
             <div className="min-w-0">
@@ -333,7 +317,7 @@ export default function BillingPage() {
                       <p className="mt-1 type-caption" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>按整体创作服务收费，周期支持月付、季付与年付。</p>
                     </div>
                     <div className="inline-grid grid-cols-3 gap-1 rounded-[var(--radius-lg-design)] border p-1" style={{ borderColor: border, background: panelStrong }}>
-                      {billingCycles.map(cycle => {
+                      {BILLING_CYCLES.map(cycle => {
                         const active = activeCycle === cycle.id;
                         return (
                           <button
@@ -351,22 +335,25 @@ export default function BillingPage() {
                   </div>
 
                   <div className="grid gap-3 xl:grid-cols-3">
-                    {subscriptionPlans.map(plan => (
-                      <article
-                        key={plan.id}
+                    {subscriptionPlans.map(planConfig => {
+                      const plan = MEMBERSHIP_PLANS.find(item => item.id === planConfig.id) || MEMBERSHIP_PLANS[0];
+                      const quote = getPlanQuote(plan, activeCycleConfig);
+                      return (
+                        <article
+                        key={planConfig.id}
                         className="flex min-h-[360px] flex-col rounded-[var(--radius-xl-design)] border p-4"
                         style={{
-                          background: plan.highlight ? "linear-gradient(180deg, oklch(0.18 0.04 292 / 0.92), oklch(0.12 0.014 270 / 0.92))" : panelStrong,
-                          borderColor: plan.highlight ? "oklch(0.68 0.20 292 / 0.55)" : border,
-                          boxShadow: plan.highlight ? "0 20px 56px oklch(0.58 0.22 290 / 0.18)" : "none",
+                          background: planConfig.highlight ? "linear-gradient(180deg, oklch(0.18 0.04 292 / 0.92), oklch(0.12 0.014 270 / 0.92))" : panelStrong,
+                          borderColor: planConfig.highlight ? "oklch(0.68 0.20 292 / 0.55)" : border,
+                          boxShadow: planConfig.highlight ? "0 20px 56px oklch(0.58 0.22 290 / 0.18)" : "none",
                         }}
                       >
                         <div className="mb-4 flex items-start justify-between gap-3">
                           <div>
-                            <p className="type-caption" style={{ color: plan.highlight ? green : sub }}>{plan.audience}</p>
+                            <p className="type-caption" style={{ color: planConfig.highlight ? green : sub }}>{planConfig.audience}</p>
                             <h3 className="mt-1" style={{ color: text, fontSize: 22, fontWeight: 720 }}>{plan.name}</h3>
                           </div>
-                          {plan.highlight && (
+                          {planConfig.highlight && (
                             <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: "oklch(0.78 0.18 110 / 0.16)", color: green }}>
                               推荐
                             </span>
@@ -376,14 +363,14 @@ export default function BillingPage() {
                         <div className="rounded-[var(--radius-lg-design)] border p-3" style={{ borderColor: border, background: isDark ? "oklch(0.09 0.012 270 / 0.56)" : "oklch(0 0 0 / 3%)" }}>
                           <div className="type-caption" style={{ color: faint }}>ArtX 标准价</div>
                           <div className="mt-1 flex items-end gap-2">
-                            <span style={{ color: text, fontSize: 24, fontWeight: 760 }}>{plan.artxPrice}</span>
+                            <span style={{ color: text, fontSize: 24, fontWeight: 760 }}>{formatCurrency(quote.price)}</span>
                             <span className="pb-1 type-caption" style={{ color: sub }}>/ {cycleLabel}</span>
                           </div>
-                          <div className="mt-1 type-caption" style={{ color: faint, letterSpacing: 0, textTransform: "none" }}>Nova 对标价：{plan.novaBase}</div>
+                          <div className="mt-1 type-caption" style={{ color: faint, letterSpacing: 0, textTransform: "none" }}>{quote.totalCredits.toLocaleString("zh-HK")} 创作积分</div>
                         </div>
 
                         <ul className="mt-4 flex-1 space-y-2.5">
-                          {plan.features.map(feature => (
+                          {planConfig.features.map(feature => (
                             <li key={feature} className="flex items-start gap-2 type-caption leading-5" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>
                               <Check size={13} style={{ color: green, flex: "0 0 auto", marginTop: 2 }} />
                               <span>{feature}</span>
@@ -396,12 +383,13 @@ export default function BillingPage() {
                           onClick={() => startSubscriptionPayment(plan.id, `${plan.name} ${cycleLabel}`)}
                           disabled={payingPlanId === plan.id}
                           className="mt-5 h-10 rounded-[var(--radius-md-design)] type-caption transition-all hover:opacity-90 active:scale-[0.98]"
-                          style={{ background: plan.highlight ? green : "oklch(0.68 0.20 292 / 0.18)", color: plan.highlight ? "#10130A" : text, border: `1px solid ${plan.highlight ? "transparent" : "oklch(0.68 0.20 292 / 0.32)"}`, fontWeight: 700 }}
+                          style={{ background: planConfig.highlight ? green : "oklch(0.68 0.20 292 / 0.18)", color: planConfig.highlight ? "#10130A" : text, border: `1px solid ${planConfig.highlight ? "transparent" : "oklch(0.68 0.20 292 / 0.32)"}`, fontWeight: 700 }}
                         >
                           {payingPlanId === plan.id ? "创建支付中" : "选择订阅"}
                         </button>
                       </article>
-                    ))}
+                      );
+                    })}
                   </div>
                 </section>
               )}
