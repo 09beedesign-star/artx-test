@@ -3,7 +3,7 @@
  * Global top navigation: search, theme switcher (Radix DropdownMenu), credits, user info
  */
 import { useMemo, useState } from "react";
-import { ChevronDown, Sparkles, Check, UserRound, LogOut, Search, KeyRound, Copy, RefreshCw, Crown } from "lucide-react";
+import { ChevronDown, Sparkles, Check, UserRound, LogOut, Search, KeyRound, Copy, RefreshCw, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -224,14 +224,14 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
           onClick={() => navigate("/billing?tab=upgrade")}
           className="flex h-8 items-center gap-1.5 rounded-[var(--radius-md-design)] px-2.5 type-caption transition-all duration-150 active:scale-95"
           style={{
-            background: "linear-gradient(135deg, oklch(0.78 0.18 110), oklch(0.68 0.18 145))",
+            background: "#C5ED47",
             color: "oklch(0.12 0.02 160)",
-            boxShadow: "0 8px 22px oklch(0.72 0.18 130 / 0.18)",
+            boxShadow: "0 8px 22px oklch(0.72 0.18 130 / 0.16)",
             fontWeight: 650,
           }}
           title="进入订阅、充值与升级"
         >
-          <Crown size={13} />
+          <Zap size={13} />
           <span>升级</span>
         </button>
       </div>
