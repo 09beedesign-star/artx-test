@@ -2,13 +2,14 @@ import express from "express";
 import { createServer } from "http";
 import path from "path";
 import { fileURLToPath } from "url";
+import "./env";
 import { AIOrchestrator } from "./ai-orchestrator";
 import { createBrandKit, deleteBrandKit, getBrandKit, listBrandKits, parseBrandKitFromImage } from "./brand-kit";
 import { createProductBackground, editImageWithPrompt, enhanceImage, eraseImageObjects, extractImageText, generateImages, removeImageBackground, removeImageWatermark } from "./image-generation";
 import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
 import { getAdminSessionFromAuthorization, getSessionUserFromAuthorization, handleAuthAction } from "./auth-store";
-import { createBillingOrder, createCreditRechargeOrder, getBillingOrderForPayment, getBillingSnapshotForUser, handleAdminApiRequest, markBillingOrderPaid } from "./admin-store";
+import { createBillingOrder, createCreditRechargeOrder, getBillingOrderForPayment, getBillingSnapshotForUser, handleAdminApiRequest, markBillingOrderPaid, recordBillingPaymentFailure } from "./admin-store";
 import {
   createWallytPayment,
   getClientIp,
@@ -90,14 +91,41 @@ async function startServer() {
       const config = getWallytConfig();
       const orderId = payload.out_trade_no || "";
       const totalFee = Number(payload.total_fee || 0);
+      const signatureValid = verifyWallytSignature(payload);
 
-      if (!rawBody || !orderId || !verifyWallytSignature(payload) || payload.mch_id !== config.mchId || !isWallytPaymentSuccess(payload)) {
+      if (!rawBody || !orderId || !signatureValid || payload.mch_id !== config.mchId || !isWallytPaymentSuccess(payload)) {
+        await recordBillingPaymentFailure({
+          orderId,
+          actorName: "wallyt",
+          expectedAmountCents: Number.isFinite(totalFee) ? totalFee : undefined,
+          providerTransactionId: payload.transaction_id,
+          signatureValid,
+          eventType: "wallyt_callback_failed",
+          message: !rawBody
+            ? "威富通回调为空"
+            : !orderId
+              ? "威富通回调缺少本地订单号"
+              : !signatureValid
+                ? "威富通回调验签失败"
+                : payload.mch_id !== config.mchId
+                  ? "威富通回调商户号不匹配"
+                  : `威富通回调支付状态非成功：status=${payload.status || "-"} result_code=${payload.result_code || "-"} pay_result=${payload.pay_result || "-"}`,
+        });
         res.type("text/plain").status(400).send("fail");
         return;
       }
 
       const order = await getBillingOrderForPayment(orderId);
       if (!order || order.amountCents !== totalFee) {
+        await recordBillingPaymentFailure({
+          orderId,
+          actorName: "wallyt",
+          expectedAmountCents: totalFee,
+          providerTransactionId: payload.transaction_id,
+          signatureValid,
+          eventType: "wallyt_callback_amount_mismatch",
+          message: !order ? "威富通回调对应本地订单不存在" : "威富通回调金额与本地订单不一致",
+        });
         res.type("text/plain").status(409).send("fail");
         return;
       }
@@ -478,6 +506,16 @@ async function startServer() {
             expectedAmountCents: Number(raw.total_fee || order.amountCents),
             providerTransactionId: raw.transaction_id,
             eventType: "wallyt_query",
+          });
+        } else if (!("queryError" in raw) && raw.status === "0" && raw.result_code === "0" && (raw.trade_state === "CLOSED" || raw.trade_state === "PAYERROR")) {
+          await recordBillingPaymentFailure({
+            orderId: order.id,
+            actorName: "wallyt-query",
+            expectedAmountCents: Number(raw.total_fee || order.amountCents),
+            providerTransactionId: raw.transaction_id,
+            signatureValid: true,
+            eventType: "wallyt_query_failed",
+            message: `威富通查询返回交易异常：${raw.trade_state}`,
           });
         }
       }

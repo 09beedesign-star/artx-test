@@ -85,9 +85,21 @@ type RefundEvent = {
   amount: number;
   creditsDeducted: number;
   reason: string;
+  status: "requested" | "credits_deducted" | "submitted" | "processing" | "succeeded" | "failed";
+  providerRefundId?: string;
+  currentStep: string;
+  flow: RefundFlowNode[];
   actorId: string;
   actorName: string;
   createdAt: string;
+};
+
+type RefundFlowNode = {
+  id: string;
+  label: string;
+  status: "done" | "current" | "pending" | "failed";
+  detail: string;
+  createdAt?: string;
 };
 
 type CreditLedgerEntry = {
@@ -454,7 +466,7 @@ function buildCapabilityStatus(): CapabilityStatusItem[] {
     { id: "cap_alerts", domain: "告警与消息提醒", status: "ready", summary: "后台可读写敏捷处理消息，并支持已读与审计", source: "/api/admin/alerts*" },
     { id: "cap_feedback", domain: "反馈与工单", status: "ready", summary: "已支持反馈列表与状态流转，且能写审计日志", source: "/api/admin/feedback*" },
     { id: "cap_audit", domain: "审计日志", status: "ready", summary: "后台写操作已统一写入 audit log", source: "/api/admin/audit-logs" },
-    { id: "cap_orders", domain: "支付订单", status: "partial", summary: "后台已接入服务端订单创建、支付确认和总览聚合，但仍未接真实微信/支付宝 webhook", source: "/api/billing/* + /api/admin/orders" },
+    { id: "cap_orders", domain: "支付订单", status: "ready", summary: "已通过威富通接入微信/支付宝下单、回调验签、主动查询、异常告警和后台订单对账", source: "server/wallyt-payment.ts + /api/billing/* + /api/admin/orders" },
     { id: "cap_credits", domain: "积分与额度", status: "partial", summary: "后台已与服务端积分余额、流水、人工调整统一，但 AI 消耗账本仍未完全接入", source: "/api/billing/* + /api/admin/credits" },
     { id: "cap_risk", domain: "风控事件", status: "partial", summary: "后台已有风险事件、告警和大额调整预警，但缺真实风控规则引擎输入", source: "/api/admin/risk-events + alerts" },
   ];
@@ -561,6 +573,7 @@ async function seedAdminData(): Promise<AdminData> {
       { id: "task_8088", generationId: "gen_8088", backendTaskId: "image-task-8088", providerTaskId: "openai_resp_492", userId: "usr_1220", user: "北辰增长", capability: "文案生成", provider: "OpenAI", model: "gpt-4.1-mini", status: "timeout", latencyMs: 30100, failureReason: "任务超时，可恢复", inputUnits: 6400, outputUnits: 1800, estimatedCost: 0.18, chargedCredits: 0, grossMargin: 0, createdAt: "昨天 16:49" },
     ],
     providers: [
+      { id: "pay_wallyt", name: "威富通", category: "聚合支付", state: envStatus(["WALLYT_MCH_ID", "WALLYT_SIGNATURE_KEY"]) === "configured" ? "在线" : "未配置", latencyMs: 220, owner: "Finance", configLocation: "server env: WALLYT_*", credentialStatus: envStatus(["WALLYT_MCH_ID", "WALLYT_SIGNATURE_KEY"]), lastCheckedAt: "刚刚" },
       { id: "pay_wechat", name: "微信支付", category: "国内支付", state: envStatus(["WECHAT_PAY_MCH_ID", "WECHAT_PAY_PRIVATE_KEY"]) === "configured" ? "在线" : "未配置", latencyMs: 226, owner: "Finance", configLocation: "server env: WECHAT_PAY_*", credentialStatus: envStatus(["WECHAT_PAY_MCH_ID", "WECHAT_PAY_PRIVATE_KEY"]), lastCheckedAt: "刚刚" },
       { id: "pay_alipay", name: "支付宝", category: "国内支付", state: envStatus(["ALIPAY_APP_ID", "ALIPAY_PRIVATE_KEY"]) === "configured" ? "在线" : "未配置", latencyMs: 194, owner: "Finance", configLocation: "server env: ALIPAY_*", credentialStatus: envStatus(["ALIPAY_APP_ID", "ALIPAY_PRIVATE_KEY"]), lastCheckedAt: "刚刚" },
       { id: "ai_openai", name: "OpenAI", category: "模型供应商", state: envStatus(["OPENAI_API_KEY"]) === "configured" ? "在线" : "未配置", latencyMs: 438, owner: "AI Ops", configLocation: "server env: OPENAI_*", credentialStatus: envStatus(["OPENAI_API_KEY"]), lastCheckedAt: "刚刚" },
@@ -867,8 +880,8 @@ function buildPaymentTimeline(order: PaymentOrder, credits: CreditLedgerEntry[],
     ...(order.refundEvents || []).map((event) => ({
       id: event.id,
       type: "退款处理",
-      status: "success",
-      message: `${event.reason} · 退款 ${event.amount} · 扣回 ${event.creditsDeducted} 积分`,
+      status: event.status === "failed" ? "failed" : event.status === "succeeded" ? "success" : "pending",
+      message: `${event.currentStep || "退款处理中"} · ${event.reason} · 退款 ${event.amount} · 扣回 ${event.creditsDeducted} 积分`,
       createdAt: event.createdAt,
     })),
     ...auditLogs.map((log) => ({
@@ -1072,16 +1085,55 @@ export async function handleAdminApiRequest(
     order.event = "后台标记退款";
     order.refundAmount = (order.refundAmount || 0) + order.amount;
     order.refundedCredits = (order.refundedCredits || 0) + creditsToDeduct;
-    order.refundEvents = [
+    const refundFlow: RefundFlowNode[] = [
       {
-        id: `refund_${Date.now().toString(36)}`,
-        amount: order.amount,
-        creditsDeducted: creditsToDeduct,
-        reason,
-        actorId: actor.id,
-        actorName: actor.username,
+        id: "request",
+        label: "后台发起退款",
+        status: "done",
+        detail: `${actor.username} 已确认退款原因：${reason}`,
         createdAt: refundedAt,
       },
+      {
+        id: "credit_clawback",
+        label: "平台积分扣回",
+        status: "done",
+        detail: creditsToDeduct > 0 ? `已从用户余额扣回 ${creditsToDeduct} 积分` : "用户可用余额不足，未扣回积分，需人工复核",
+        createdAt: refundedAt,
+      },
+      {
+        id: "provider_submit",
+        label: "提交支付渠道退款",
+        status: "current",
+        detail: "等待接入微信/支付宝/威富通真实退款接口后提交渠道退款",
+        createdAt: refundedAt,
+      },
+      {
+        id: "provider_processing",
+        label: "渠道退款处理中",
+        status: "pending",
+        detail: "等待第三方支付渠道返回处理状态",
+      },
+      {
+        id: "refund_completed",
+        label: "用户资金到账",
+        status: "pending",
+        detail: "等待渠道确认退款成功并记录到账时间",
+      },
+    ];
+    const refundEvent: RefundEvent = {
+      id: `refund_${Date.now().toString(36)}`,
+      amount: order.amount,
+      creditsDeducted: creditsToDeduct,
+      reason,
+      status: "submitted",
+      currentStep: "提交支付渠道退款",
+      flow: refundFlow,
+      actorId: actor.id,
+      actorName: actor.username,
+      createdAt: refundedAt,
+    };
+    order.refundEvents = [
+      refundEvent,
       ...(order.refundEvents || []),
     ].slice(0, 50);
     if (creditsToDeduct > 0) {
@@ -1530,6 +1582,76 @@ export async function markBillingOrderPaid(params: {
       paidAt: order.paidAt,
     },
   };
+}
+
+export async function recordBillingPaymentFailure(params: {
+  orderId?: string;
+  actorName: string;
+  message: string;
+  expectedAmountCents?: number;
+  providerTransactionId?: string;
+  signatureValid?: boolean;
+  eventType?: string;
+}) {
+  const data = await loadAdminData();
+  const order = params.orderId ? data.orders.find((item) => item.id === params.orderId) : undefined;
+  const occurredAt = nowIso();
+  const paymentEvent: PaymentEvent = {
+    id: `payevt_${Date.now().toString(36)}`,
+    type: params.eventType || "payment_failed",
+    status: "failed",
+    providerTransactionId: params.providerTransactionId,
+    amount: typeof params.expectedAmountCents === "number" ? params.expectedAmountCents / 100 : order?.amount,
+    signatureValid: params.signatureValid,
+    message: params.message,
+    createdAt: occurredAt,
+  };
+
+  if (order) {
+    if (order.status !== "paid" && order.status !== "refunded") {
+      order.status = "failed";
+    }
+    order.reconciliation = "mismatch";
+    order.event = params.message;
+    order.providerTransactionId = params.providerTransactionId || order.providerTransactionId;
+    order.paymentEvents = [
+      paymentEvent,
+      ...(order.paymentEvents || []),
+    ].slice(0, 50);
+  }
+
+  const alert: OpsAlert = {
+    id: `al_${crypto.randomUUID().slice(0, 8)}`,
+    category: "支付",
+    title: order ? "威富通支付异常" : "威富通未知支付回调",
+    detail: order ? `${order.id}：${params.message}` : params.message,
+    severity: "critical",
+    time: formatRelativeTime(occurredAt),
+    owner: "Finance",
+    unread: true,
+    linkedSection: "orders",
+  };
+  data.alerts = [
+    alert,
+    ...data.alerts,
+  ].slice(0, 50);
+
+  appendAuditLog(data, {
+    id: "billing",
+    username: params.actorName,
+  }, {
+    action: order ? "订单支付异常" : "未知支付回调异常",
+    target: order?.id || params.orderId || "unknown",
+    reason: params.message,
+    after: {
+      providerTransactionId: params.providerTransactionId,
+      signatureValid: params.signatureValid,
+      expectedAmountCents: params.expectedAmountCents,
+    },
+  });
+
+  await saveAdminData(data);
+  return { status: order ? 200 : 404, body: order ? { order, paymentEvent } : { paymentEvent } };
 }
 
 export async function quoteAdminAiUsage(input: {

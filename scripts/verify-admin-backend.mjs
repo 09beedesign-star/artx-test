@@ -190,6 +190,9 @@ try {
   assert.equal(refund.status, 200, "confirmed refund should pass");
   assert.equal(refund.body.order.status, "refunded", "refunded order should be marked refunded");
   assert.ok(refund.body.refundEvents.some((item) => item.reason === "verify refund"), "refund event should be recorded");
+  assert.equal(refund.body.refundEvents[0].currentStep, "提交支付渠道退款", "refund should expose current money-flow step");
+  assert.ok(refund.body.refundEvents[0].flow.some((node) => node.id === "provider_submit" && node.status === "current"), "refund flow should mark provider submit as current");
+  assert.ok(refund.body.refundEvents[0].flow.some((node) => node.id === "refund_completed" && node.status === "pending"), "refund flow should include pending user-funds-arrival node");
   assert.ok(refund.body.creditEntries.some((entry) => entry.type === "退款扣回"), "refund credit clawback should be recorded");
 
   const reissueOrder = await createBillingOrder({

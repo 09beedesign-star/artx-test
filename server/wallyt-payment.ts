@@ -149,10 +149,14 @@ function decodeXmlValue(value: string) {
 
 export function parseWallytXml(xml: string) {
   const result: Record<string, string> = {};
+  const content = xml
+    .trim()
+    .replace(/^<xml>/i, "")
+    .replace(/<\/xml>$/i, "");
   const tagPattern = /<([A-Za-z0-9_]+)>([\s\S]*?)<\/\1>/g;
   let match: RegExpExecArray | null;
-  while ((match = tagPattern.exec(xml))) {
-    if (match[1] !== "xml") result[match[1]] = decodeXmlValue(match[2].trim());
+  while ((match = tagPattern.exec(content))) {
+    result[match[1]] = decodeXmlValue(match[2].trim());
   }
   return result;
 }
