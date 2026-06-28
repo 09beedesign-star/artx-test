@@ -1920,7 +1920,7 @@ async function pollAsyncImageTask(taskId: string, apiKey: string, baseUrl: strin
   throw new Error("Image generation timed out");
 }
 
-export async function generateImages(input: ImageGenerateInput): Promise<{ images: GeneratedImage[] }> {
+export async function generateImages(input: ImageGenerateInput): Promise<GeneratedImageResult> {
   if (!input.prompt?.trim()) {
     throw new Error("Missing prompt");
   }

@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-type AuthAction = "register" | "login" | "me" | "logout" | "social";
+type AuthAction = "register" | "login" | "me" | "logout" | "social" | "forgot-password" | "reset-password";
 type AdminRole = "viewer" | "support" | "finance" | "admin" | "super_admin";
 
 const ROLE_PERMISSIONS: Record<AdminRole, string[]> = {
@@ -50,7 +50,12 @@ interface StoredUser {
   createdAt: string;
   role?: AdminRole;
   permissions?: string[];
+  status?: "active" | "disabled";
+  resetTokenHash?: string;
+  resetTokenExpiresAt?: string;
 }
+
+export type PublicAuthUser = ReturnType<typeof publicUser>;
 
 interface StoredSession {
   tokenHash: string;
@@ -98,6 +103,7 @@ function publicUser(user: StoredUser) {
     username: user.username,
     createdAt: user.createdAt,
     role,
+    status: user.status === "disabled" ? "disabled" : "active",
     permissions: getUserPermissions({ ...user, role }),
     isAdmin: canAccessAdmin({ ...user, role }),
   };
@@ -142,6 +148,7 @@ function createUser(username: string, password: string, role: AdminRole = "viewe
     createdAt: new Date().toISOString(),
     role,
     permissions: [],
+    status: "active",
   };
 }
 
@@ -196,6 +203,7 @@ function normalizeDatabase(parsed: Partial<AuthDatabase>): AuthDatabase {
         ...user,
         role: normalizeRole(user.role),
         permissions: Array.isArray(user.permissions) ? user.permissions : [],
+        status: user.status === "disabled" ? "disabled" : "active",
       }))
       : [],
     sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [],
@@ -270,6 +278,10 @@ async function saveDatabase(db: AuthDatabase) {
   await fs.rename(tmpFile, DATA_FILE);
 }
 
+function generateResetToken() {
+  return crypto.randomBytes(18).toString("hex");
+}
+
 function createSession(db: AuthDatabase, userId: string) {
   const token = crypto.randomBytes(32).toString("hex");
   db.sessions.push({
@@ -310,6 +322,59 @@ async function getUserByToken(token: string) {
   const session = token ? db.sessions.find((item) => item.tokenHash === hashToken(token)) : undefined;
   const user = session ? db.users.find((item) => item.id === session.userId) : undefined;
   return { db, session, user };
+}
+
+export async function getSessionUserFromAuthorization(authorization: unknown) {
+  const token = getBearerTokenFromHeader(authorization);
+  const { user } = await getUserByToken(token);
+
+  if (!user) {
+    return { status: 401 as const, body: { error: "登录已失效，请重新登录" } };
+  }
+
+  return { status: 200 as const, body: { user: publicUser(user) } };
+}
+
+export async function listAuthUsers() {
+  const db = await loadDatabase();
+  return db.users.map((user) => publicUser(user));
+}
+
+export async function updateAuthUserAdmin(input: {
+  actorId: string;
+  actorName: string;
+  userId: string;
+  role?: AdminRole;
+  status?: "active" | "disabled";
+}) {
+  const db = await loadDatabase();
+  const user = db.users.find((item) => item.id === input.userId);
+  if (!user) {
+    return { status: 404 as const, body: { error: "用户不存在" } };
+  }
+
+  if (input.role) {
+    user.role = normalizeRole(input.role);
+  }
+  if (input.status) {
+    user.status = input.status;
+    if (input.status === "disabled") {
+      db.sessions = db.sessions.filter((item) => item.userId !== user.id);
+    }
+  }
+
+  appendAuditLog(db, {
+    actorId: input.actorId,
+    action: "admin.user.update",
+    target: user.id,
+    meta: {
+      role: user.role,
+      status: user.status,
+      actorName: input.actorName,
+    },
+  });
+  await saveDatabase(db);
+  return { status: 200 as const, body: { user: publicUser(user) } };
 }
 
 export async function getAdminSessionFromAuthorization(authorization: unknown) {
@@ -360,6 +425,9 @@ export async function handleAuthAction(action: AuthAction, payload: unknown) {
     if (!user || hashPassword(password, user.salt) !== user.passwordHash) {
       return { status: 401, body: { error: "账号或密码错误，请重新输入" } };
     }
+    if (user.status === "disabled") {
+      return { status: 403, body: { error: "当前账号已被停用，请联系管理员" } };
+    }
 
     const token = createSession(db, user.id);
     await saveDatabase(db);
@@ -391,7 +459,61 @@ export async function handleAuthAction(action: AuthAction, payload: unknown) {
     if (!user) {
       return { status: 401, body: { error: "登录已失效" } };
     }
+    if (user.status === "disabled") {
+      return { status: 403, body: { error: "当前账号已被停用，请联系管理员" } };
+    }
     return { status: 200, body: { user: publicUser(user) } };
+  }
+
+  if (action === "forgot-password") {
+    const username = normalizeUsername(body.username);
+    if (!username) {
+      return { status: 400, body: { error: "请输入账号或邮箱" } };
+    }
+    const user = db.users.find((item) => item.loginKey === loginKey(username));
+    if (!user) {
+      return { status: 404, body: { error: "账号不存在" } };
+    }
+    const resetToken = generateResetToken();
+    user.resetTokenHash = hashToken(resetToken);
+    user.resetTokenExpiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+    await saveDatabase(db);
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        resetToken,
+        expiresAt: user.resetTokenExpiresAt,
+      },
+    };
+  }
+
+  if (action === "reset-password") {
+    const token = typeof body.resetToken === "string" ? body.resetToken.trim() : "";
+    const password = typeof body.password === "string" ? body.password : "";
+    if (!token) {
+      return { status: 400, body: { error: "缺少重置令牌" } };
+    }
+    if (password.trim().length < 4) {
+      return { status: 400, body: { error: "密码至少需要 4 位" } };
+    }
+    const tokenHash = hashToken(token);
+    const user = db.users.find((item) =>
+      item.resetTokenHash === tokenHash &&
+      item.resetTokenExpiresAt &&
+      Date.parse(item.resetTokenExpiresAt) > Date.now()
+    );
+    if (!user) {
+      return { status: 400, body: { error: "重置令牌无效或已过期" } };
+    }
+    const salt = crypto.randomBytes(16).toString("hex");
+    user.salt = salt;
+    user.passwordHash = hashPassword(password, salt);
+    user.resetTokenHash = undefined;
+    user.resetTokenExpiresAt = undefined;
+    db.sessions = db.sessions.filter((item) => item.userId !== user.id);
+    await saveDatabase(db);
+    return { status: 200, body: { ok: true } };
   }
 
   if (action === "logout") {

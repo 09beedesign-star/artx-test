@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -50,9 +50,9 @@ type AdminSection =
 
 type Status = "normal" | "watch" | "blocked";
 type OrderStatus = "paid" | "pending" | "failed" | "refunded";
-type FeedbackStatus = "new" | "processing" | "resolved";
+type FeedbackStatus = "new" | "processing" | "waiting_user" | "resolved" | "closed";
 type AlertSeverity = "critical" | "warning" | "info";
-type AlertCategory = "支付" | "报错" | "接口" | "额度";
+type AlertCategory = "支付" | "报错" | "接口" | "额度" | "风控";
 
 type AdminUser = {
   id: string;
@@ -61,6 +61,9 @@ type AdminUser = {
   plan: string;
   credits: number;
   spent: number;
+  totalRecharge?: number;
+  frozenCredits?: number;
+  organization?: string;
   status: Status;
   lastSeen: string;
   risk: string;
@@ -72,8 +75,12 @@ type Order = {
   channel: string;
   amount: number;
   credits: number;
+  expectedCredits?: number;
+  issuedCredits?: number;
   status: OrderStatus;
   createdAt: string;
+  event?: string;
+  reconciliation?: "matched" | "pending" | "mismatch";
 };
 
 type Feedback = {
@@ -95,6 +102,141 @@ type OpsAlert = {
   time: string;
   owner: string;
   unread: boolean;
+  linkedSection?: AdminSection;
+};
+
+type CreditEvent = {
+  id: string;
+  user: string;
+  type: string;
+  amount: string;
+  actor: string;
+  note: string;
+};
+
+type Integration = {
+  id?: string;
+  name: string;
+  category: string;
+  state: string;
+  latency: string;
+  owner: string;
+  configLocation?: string;
+  credentialStatus?: string;
+};
+
+type AuditRow = {
+  actor: string;
+  action: string;
+  target: string;
+  time: string;
+  reason?: string;
+};
+
+type AiTask = {
+  id: string;
+  generationId: string;
+  backendTaskId: string;
+  providerTaskId: string;
+  user: string;
+  capability: string;
+  provider: string;
+  model: string;
+  status: string;
+  latencyMs: number;
+  failureReason: string;
+  estimatedCost: number;
+  chargedCredits: number;
+  grossMargin: number;
+  createdAt: string;
+};
+
+type RiskEvent = {
+  id: string;
+  title: string;
+  detail: string;
+  status: string;
+  severity: "high" | "medium" | "low";
+  target: string;
+  createdAt: string;
+};
+
+type PricingPlan = {
+  id: string;
+  name: string;
+  price: number;
+  credits: number;
+  channel: string;
+  status: string;
+};
+
+type OverviewData = {
+  metrics: {
+    todayRevenue: number;
+    paymentExceptions: number;
+    issuedCredits: number;
+    consumedCredits: number;
+    remainingCredits: number;
+    aiSuccessRate: number;
+    pendingFeedback: number;
+    highRiskEvents: number;
+  };
+  operationsQueue: Array<{ title: string; body: string; priority: string; section?: AdminSection }>;
+  maturity: Array<{ label: string; value: number }>;
+  aiCostSummary?: {
+    totalEstimatedCost: number;
+    totalChargedCredits: number;
+    successCount: number;
+    failedCount: number;
+    avgGrossMargin: number;
+  };
+  aiBillingPolicies?: Array<{
+    capability: string;
+    capabilityKey?: string;
+    unit: string;
+    baseCredits: number;
+    estimatedCostPerUnit: number;
+    provider: string;
+  }>;
+  planDiscounts?: Array<{
+    planId: string;
+    multiplier: number;
+    label: string;
+  }>;
+  capabilityStatus?: Array<{ id: string; domain: string; status: "ready" | "partial" | "missing"; summary: string; source: string }>;
+  aiCostBreakdownByProvider?: Array<{
+    key: string;
+    label: string;
+    estimatedCost: number;
+    chargedCredits: number;
+    successCount: number;
+    failedCount: number;
+    avgGrossMargin: number;
+  }>;
+  aiCostBreakdownByModel?: Array<{
+    key: string;
+    label: string;
+    estimatedCost: number;
+    chargedCredits: number;
+    successCount: number;
+    failedCount: number;
+    avgGrossMargin: number;
+  }>;
+};
+
+type AdminPayload = {
+  overview?: OverviewData;
+  users?: Array<AdminUser & { totalRecharge?: number; frozenCredits?: number; organization?: string }>;
+  orders?: Array<Order & { issuedCredits?: number; expectedCredits?: number }>;
+  credits?: Array<{ id: string; user: string; type: string; delta: number; operator: string; source: string; reason: string }>;
+  aiTasks?: AiTask[];
+  providers?: Array<Integration & { latencyMs?: number }>;
+  feedback?: Feedback[];
+  alerts?: OpsAlert[];
+  riskEvents?: RiskEvent[];
+  auditLogs?: Array<{ actorName?: string; action: string; target: string; createdAt: string; reason?: string }>;
+  plans?: PricingPlan[];
+  capabilityStatus?: Array<{ id: string; domain: string; status: "ready" | "partial" | "missing"; summary: string; source: string }>;
 };
 
 const sections: Array<{
@@ -272,21 +414,21 @@ const alertSeed: OpsAlert[] = [
   },
 ];
 
-const creditEvents = [
+const creditEvents: CreditEvent[] = [
   { id: "cr_771", user: "林澈", type: "购买入账", amount: "+20,000", actor: "Stripe 回调", note: "ord_90341" },
   { id: "cr_769", user: "Mira Studio", type: "任务消耗", amount: "-3,420", actor: "系统", note: "视频生成 x 12" },
   { id: "cr_762", user: "陈一鸣", type: "人工补偿", amount: "+500", actor: "Admin Eric", note: "支付延迟补偿" },
   { id: "cr_758", user: "北辰增长", type: "冻结额度", amount: "-80,000", actor: "风控规则", note: "异常调用峰值" },
 ];
 
-const integrations = [
+const integrations: Integration[] = [
   { name: "Stripe", category: "国际卡支付", state: "在线", latency: "286ms", owner: "Finance" },
   { name: "支付宝", category: "国内支付", state: "在线", latency: "194ms", owner: "Finance" },
   { name: "Render API", category: "后端部署", state: "观察", latency: "812ms", owner: "Infra" },
   { name: "Model Gateway", category: "模型供应商", state: "在线", latency: "438ms", owner: "AI Ops" },
 ];
 
-const auditRows = [
+const auditRows: AuditRow[] = [
   { actor: "Admin Eric", action: "给陈一鸣补偿 500 积分", target: "usr_1189", time: "今天 12:06" },
   { actor: "Stripe Webhook", action: "订单支付成功并入账", target: "ord_90341", time: "今天 11:24" },
   { actor: "Risk Rule #07", action: "冻结北辰增长部分额度", target: "usr_1220", time: "昨天 16:51" },
@@ -304,22 +446,24 @@ function statusLabel(status: Status | OrderStatus | FeedbackStatus) {
     refunded: "已退款",
     new: "新反馈",
     processing: "处理中",
+    waiting_user: "等待用户",
     resolved: "已解决",
+    closed: "已关闭",
   };
 
   return map[status] ?? status;
 }
 
 function statusClass(status: Status | OrderStatus | FeedbackStatus | string) {
-  if (["normal", "paid", "resolved", "在线"].includes(status)) {
+  if (["normal", "paid", "resolved", "closed", "在线", "启用", "success", "mitigated"].includes(status)) {
     return "border-emerald-400/30 bg-emerald-400/10 text-emerald-200";
   }
 
-  if (["watch", "pending", "processing", "观察"].includes(status)) {
+  if (["watch", "pending", "processing", "waiting_user", "观察", "草稿", "reviewing"].includes(status)) {
     return "border-amber-400/35 bg-amber-400/10 text-amber-100";
   }
 
-  if (["blocked", "failed", "P0"].includes(status)) {
+  if (["blocked", "failed", "P0", "异常", "未配置", "open", "timeout"].includes(status)) {
     return "border-rose-400/35 bg-rose-400/10 text-rose-100";
   }
 
@@ -334,63 +478,213 @@ function formatCredits(value: number) {
   return value.toLocaleString("zh-CN");
 }
 
+function readAdminToken() {
+  try {
+    const raw = localStorage.getItem("artx-auth-session");
+    const parsed = raw ? JSON.parse(raw) as { token?: string } : null;
+    return parsed?.token || "";
+  } catch {
+    return "";
+  }
+}
+
+function creditAmount(delta: number) {
+  const prefix = delta > 0 ? "+" : "";
+  return `${prefix}${formatCredits(delta)}`;
+}
+
+function normalizeAdminPayload(payload: AdminPayload) {
+  const normalizedUsers = (payload.users || users).map((item) => ({
+    ...item,
+    spent: item.spent ?? item.totalRecharge ?? 0,
+  }));
+  const normalizedOrders = (payload.orders || orders).map((item) => ({
+    ...item,
+    credits: item.credits ?? item.issuedCredits ?? item.expectedCredits ?? 0,
+  }));
+  const normalizedCredits: CreditEvent[] = (payload.credits || []).map((item) => ({
+    id: item.id,
+    user: item.user,
+    type: item.type,
+    amount: creditAmount(item.delta),
+    actor: item.operator,
+    note: item.source || item.reason,
+  }));
+  const normalizedProviders = (payload.providers || integrations).map((item) => ({
+    ...item,
+    latency: item.latency || `${"latencyMs" in item ? item.latencyMs ?? 0 : 0}ms`,
+  }));
+  const normalizedAuditRows: AuditRow[] = (payload.auditLogs || []).map((item) => ({
+    actor: item.actorName || "System",
+    action: item.action,
+    target: item.target,
+    time: item.createdAt,
+    reason: item.reason,
+  }));
+
+  return {
+    overview: payload.overview ? { ...payload.overview, capabilityStatus: payload.capabilityStatus || payload.overview.capabilityStatus || [] } : payload.overview,
+    users: normalizedUsers,
+    orders: normalizedOrders,
+    credits: normalizedCredits.length ? normalizedCredits : creditEvents,
+    aiTasks: payload.aiTasks || [],
+    providers: normalizedProviders,
+    feedback: payload.feedback || feedbackSeed,
+    alerts: payload.alerts || alertSeed,
+    riskEvents: payload.riskEvents || [],
+    auditRows: normalizedAuditRows.length ? normalizedAuditRows : auditRows,
+    plans: payload.plans || [],
+  };
+}
+
+type AdminState = ReturnType<typeof normalizeAdminPayload>;
+
 function AdminPrototypePage() {
   const { user } = useAuth();
   const [activeSection, setActiveSection] = useState<AdminSection>("overview");
+  const [adminData, setAdminData] = useState<AdminState>(() => normalizeAdminPayload({}));
   const [selectedUserId, setSelectedUserId] = useState(users[0].id);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | Status>("all");
-  const [feedbackItems, setFeedbackItems] = useState(feedbackSeed);
-  const [alerts, setAlerts] = useState(alertSeed);
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [creditDelta, setCreditDelta] = useState(500);
-  const [notice, setNotice] = useState("原型已载入：可切换模块、筛选账户、处理反馈、模拟额度调整。");
+  const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState("正在连接后台数据接口：/api/admin/overview。");
+  const [policyDraft, setPolicyDraft] = useState<Array<{ capability: string; capabilityKey?: string; unit: string; baseCredits: number; estimatedCostPerUnit: number; provider: string }>>([]);
+  const [discountDraft, setDiscountDraft] = useState<Array<{ planId: string; multiplier: number; label: string }>>([]);
 
-  const selectedUser = users.find((user) => user.id === selectedUserId) ?? users[0];
-  const paidRevenue = orders
+  const fetchAdminData = useCallback(async (message?: string) => {
+    const token = readAdminToken();
+    if (!token) {
+      setLoading(false);
+      setNotice("未找到后台登录令牌，请先用具备 admin:access 的账号登录。");
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/admin/overview", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || "后台接口请求失败");
+      }
+      const nextData = normalizeAdminPayload(payload);
+      setAdminData(nextData);
+      setPolicyDraft(nextData.overview?.aiBillingPolicies || []);
+      setDiscountDraft(nextData.overview?.planDiscounts || []);
+      setSelectedUserId((current) => nextData.users.some((item) => item.id === current) ? current : nextData.users[0]?.id || "");
+      setNotice(message || "后台数据已接入：支付、积分、AI 任务、供应商健康、反馈、告警和审计均来自 /api/admin/*。");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "后台数据加载失败");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAdminData();
+  }, [fetchAdminData]);
+
+  async function adminPost(path: string, payload: Record<string, unknown>, successMessage: string) {
+    const token = readAdminToken();
+    if (!token) {
+      setNotice("未找到后台登录令牌，请重新登录后再操作。");
+      return;
+    }
+    try {
+      const response = await fetch(path, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "后台写操作失败");
+      setAdminData(normalizeAdminPayload(result));
+      setNotice(successMessage);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "后台写操作失败");
+    }
+  }
+
+  const selectedUser = adminData.users.find((item) => item.id === selectedUserId) ?? adminData.users[0] ?? users[0];
+  const metrics = adminData.overview?.metrics;
+  const paidRevenue = metrics?.todayRevenue ?? adminData.orders
     .filter((order) => order.status === "paid")
     .reduce((sum, order) => sum + order.amount, 0);
-  const issuedCredits = orders.reduce((sum, order) => sum + order.credits, 0);
-  const remainingCredits = users.reduce((sum, user) => sum + user.credits, 0);
-  const unreadAlerts = alerts.filter((alert) => alert.unread).length;
-  const urgentAlerts = alerts.filter((alert) => alert.severity === "critical").length;
+  const issuedCredits = metrics?.issuedCredits ?? adminData.orders.reduce((sum, order) => sum + order.credits, 0);
+  const remainingCredits = metrics?.remainingCredits ?? adminData.users.reduce((sum, item) => sum + item.credits, 0);
+  const unreadAlerts = adminData.alerts.filter((alert) => alert.unread).length;
+  const urgentAlerts = adminData.alerts.filter((alert) => alert.severity === "critical").length;
 
   const filteredUsers = useMemo(() => {
-    return users.filter((user) => {
+    return adminData.users.filter((user) => {
       const matchesQuery = `${user.name} ${user.email} ${user.plan}`
         .toLowerCase()
         .includes(query.toLowerCase());
       const matchesStatus = statusFilter === "all" || user.status === statusFilter;
       return matchesQuery && matchesStatus;
     });
-  }, [query, statusFilter]);
+  }, [adminData.users, query, statusFilter]);
 
   function handleResolveFeedback(id: string) {
-    setFeedbackItems((items) =>
-      items.map((item) => (item.id === id ? { ...item, status: "resolved" } : item))
-    );
-    setNotice("反馈状态已更新：客服视角会立即看到已解决。");
+    adminPost(`/api/admin/feedback/${id}/status`, { status: "resolved", reason: "后台标记解决" }, "反馈状态已写入后台，并生成操作审计。");
+  }
+
+  function handleUserRole(id: string, role: "support" | "finance" | "admin") {
+    adminPost(`/api/admin/users/${id}/role`, { role }, `用户角色已更新为 ${role}。`);
+  }
+
+  function handleUserStatus(id: string, status: "normal" | "blocked") {
+    adminPost(`/api/admin/users/${id}/status`, { status }, status === "blocked" ? "用户已停用并强制退出。" : "用户已恢复。");
   }
 
   function handleCreditAdjustment(direction: "plus" | "minus") {
-    const symbol = direction === "plus" ? "+" : "-";
-    setNotice(
-      `${selectedUser.name} 的额度调整已模拟提交：${symbol}${formatCredits(
-        creditDelta
-      )} 积分，已生成审计记录。`
-    );
+    const delta = Math.abs(creditDelta) * (direction === "plus" ? 1 : -1);
+    adminPost("/api/admin/credits/adjust", {
+      userId: selectedUser.id,
+      delta,
+      reason: "后台人工额度调整",
+    }, `${selectedUser.name} 的额度调整已提交：${creditAmount(delta)} 积分，审计日志已生成。`);
   }
 
   function handleMarkAlertRead(id: string) {
-    setAlerts((items) =>
-      items.map((item) => (item.id === id ? { ...item, unread: false } : item))
-    );
-    setNotice("消息已标记处理：对应问题仍会保留在通知中心供追踪。");
+    adminPost(`/api/admin/alerts/${id}/read`, {}, "消息已标记处理，并保留在通知中心供追踪。");
   }
 
   function handleMarkAllAlertsRead() {
-    setAlerts((items) => items.map((item) => ({ ...item, unread: false })));
-    setNotice("所有敏捷处理消息已标记为已读。");
+    adminPost("/api/admin/alerts/read-all", {}, "所有敏捷处理消息已标记为已读，操作已进入审计日志。");
+  }
+
+  function handlePolicyDraftChange(index: number, key: "baseCredits" | "estimatedCostPerUnit", value: string) {
+    setPolicyDraft((current) => current.map((item, itemIndex) => itemIndex === index ? {
+      ...item,
+      [key]: Number(value) || 0,
+    } : item));
+  }
+
+  function handleDiscountDraftChange(index: number, value: string) {
+    setDiscountDraft((current) => current.map((item, itemIndex) => itemIndex === index ? {
+      ...item,
+      multiplier: Number(value) || 1,
+    } : item));
+  }
+
+  function handleSaveAiPolicies() {
+    adminPost("/api/admin/ai-billing-policies/save", {
+      policies: policyDraft.map((item) => ({
+        capability: item.capabilityKey || item.capability,
+        label: item.capability,
+        billingUnit: item.unit === "按张" ? "per_image" : "per_request",
+        baseCredits: item.baseCredits,
+        estimatedCostPerUnit: item.estimatedCostPerUnit,
+        providerDefault: item.provider,
+      })),
+      planDiscounts: discountDraft,
+    }, "AI 扣分策略和套餐折扣已保存。");
   }
 
   return (
@@ -471,7 +765,7 @@ function AdminPrototypePage() {
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <NotificationCenter
-                  alerts={alerts}
+                  alerts={adminData.alerts}
                   open={alertsOpen}
                   unreadCount={unreadAlerts}
                   urgentCount={urgentAlerts}
@@ -486,14 +780,14 @@ function AdminPrototypePage() {
                 <Button
                   variant="outline"
                   className="border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
-                  onClick={() => setNotice("已模拟拉取第三方支付与模型接口健康状态。")}
+                  onClick={() => fetchAdminData("已刷新第三方支付、模型供应商和告警状态。")}
                 >
                   <Activity className="size-4" />
                   刷新接口状态
                 </Button>
                 <Button
                   className="bg-cyan-300 text-slate-950 hover:bg-cyan-200"
-                  onClick={() => setNotice("已模拟打开新套餐配置：下一步可接入真实套餐表单。")}
+                  onClick={() => setActiveSection("audit")}
                 >
                   <Plus className="size-4" />
                   新建套餐
@@ -504,7 +798,7 @@ function AdminPrototypePage() {
 
           <div className="space-y-5 p-4 md:p-6">
             <div className="rounded-md border border-cyan-300/20 bg-cyan-300/8 px-4 py-3 text-sm text-cyan-50">
-              {notice}
+              {loading ? "正在加载后台运营数据..." : notice}
             </div>
 
             <div className="flex flex-col gap-3 rounded-md border border-emerald-300/20 bg-emerald-300/[0.055] px-4 py-3 text-sm text-emerald-50 md:flex-row md:items-center md:justify-between">
@@ -541,8 +835,8 @@ function AdminPrototypePage() {
               <MetricCard
                 icon={AlertTriangle}
                 label="待处理风险"
-                value="3"
-                detail="接口、账户、支付异常"
+                value={formatCredits((metrics?.paymentExceptions ?? 0) + (metrics?.highRiskEvents ?? 0))}
+                detail="支付异常 + 高风险事件"
               />
             </section>
 
@@ -559,7 +853,7 @@ function AdminPrototypePage() {
                   setCreditDelta={setCreditDelta}
                   onAdjust={handleCreditAdjustment}
                 />
-                <RiskPanel />
+                <RiskPanel riskEvents={adminData.riskEvents} plans={adminData.plans} />
               </aside>
             </section>
           </div>
@@ -578,18 +872,14 @@ function AdminPrototypePage() {
                 <h2 className="text-base font-semibold">今日运营队列</h2>
                 <p className="text-sm text-slate-400">先处理影响收入和额度可信度的问题。</p>
               </div>
-              <Badge tone="amber">4 项待办</Badge>
+              <Badge tone="amber">{adminData.overview?.operationsQueue.length || adminData.alerts.length} 项待办</Badge>
             </div>
             <div className="space-y-3">
-              {[
-                ["支付回调延迟", "微信支付 ord_90310 待确认，需自动补偿规则兜底", "P0"],
-                ["异常消耗", "北辰增长 10 分钟内消耗 80K 积分，已冻结部分额度", "P0"],
-                ["接口延迟", "Render API 平均延迟高于阈值，影响任务状态同步", "P1"],
-                ["客服反馈", "2 条支付/额度相关反馈未关闭", "P1"],
-              ].map(([title, body, priority]) => (
+              {(adminData.overview?.operationsQueue || []).map(({ title, body, priority, section }) => (
                 <div
                   key={title}
-                  className="flex items-start gap-3 rounded-md border border-white/8 bg-white/[0.03] p-3"
+                  className="flex cursor-pointer items-start gap-3 rounded-md border border-white/8 bg-white/[0.03] p-3 transition hover:bg-white/[0.055]"
+                  onClick={() => section && setActiveSection(section)}
                 >
                   <div className="mt-0.5 flex size-8 items-center justify-center rounded-md bg-white/7">
                     <AlertTriangle className="size-4 text-amber-200" />
@@ -610,13 +900,7 @@ function AdminPrototypePage() {
             <h2 className="text-base font-semibold">后台模块成熟度</h2>
             <p className="mt-1 text-sm text-slate-400">用于判断 MVP 后台先做什么。</p>
             <div className="mt-5 space-y-4">
-              {[
-                ["账户管理", 88],
-                ["支付订单", 76],
-                ["额度流水", 92],
-                ["反馈工单", 64],
-                ["风控审计", 58],
-              ].map(([label, value]) => (
+              {(adminData.overview?.maturity || []).map(({ label, value }) => (
                 <div key={label}>
                   <div className="mb-2 flex justify-between text-sm">
                     <span>{label}</span>
@@ -628,6 +912,25 @@ function AdminPrototypePage() {
                       style={{ width: `${value}%` }}
                     />
                   </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-md border border-white/10 bg-slate-950/40 p-4 xl:col-span-2">
+            <h2 className="text-base font-semibold">能力接入状态</h2>
+            <p className="mt-1 text-sm text-slate-400">这里会自动省略已完成项之外的重工判断，帮你看还差哪些真实接口。</p>
+            <div className="mt-4 grid gap-3">
+              {(adminData.overview?.capabilityStatus || []).map((item) => (
+                <div key={item.id} className="rounded-md border border-white/8 bg-white/[0.03] p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="text-sm font-medium">{item.domain}</div>
+                    <Badge className={statusClass(item.status === "ready" ? "normal" : item.status === "partial" ? "watch" : "blocked")}>
+                      {item.status === "ready" ? "已接好" : item.status === "partial" ? "部分接好" : "未接"}
+                    </Badge>
+                  </div>
+                  <p className="mt-2 text-sm text-slate-400">{item.summary}</p>
+                  <div className="mt-2 text-xs text-slate-500">{item.source}</div>
                 </div>
               ))}
             </div>
@@ -676,7 +979,44 @@ function AdminPrototypePage() {
                   <TableCell>
                     <Badge className={statusClass(user.status)}>{statusLabel(user.status)}</Badge>
                   </TableCell>
-                  <TableCell className="text-slate-400">{user.lastSeen}</TableCell>
+                  <TableCell className="text-slate-400">
+                    <div>{user.lastSeen}</div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleUserRole(user.id, "support");
+                        }}
+                      >
+                        设为客服
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleUserRole(user.id, "finance");
+                        }}
+                      >
+                        设为财务
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleUserStatus(user.id, user.status === "blocked" ? "normal" : "blocked");
+                        }}
+                      >
+                        {user.status === "blocked" ? "恢复账号" : "停用账号"}
+                      </Button>
+                    </div>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -686,7 +1026,7 @@ function AdminPrototypePage() {
     }
 
     if (activeSection === "orders") {
-      return <OrdersTable />;
+      return <OrdersTable orders={adminData.orders} />;
     }
 
     if (activeSection === "credits") {
@@ -694,7 +1034,7 @@ function AdminPrototypePage() {
         <DataList
           title="积分与额度流水"
           description="每一笔入账、消耗、冻结、人工调整都必须可追溯。"
-          rows={creditEvents.map((event) => ({
+          rows={adminData.credits.map((event) => ({
             title: `${event.user} · ${event.type}`,
             meta: `${event.actor} · ${event.note}`,
             value: event.amount,
@@ -707,7 +1047,7 @@ function AdminPrototypePage() {
     if (activeSection === "feedback") {
       return (
         <div className="space-y-3">
-          {feedbackItems.map((item) => (
+          {adminData.feedback.map((item) => (
             <div
               key={item.id}
               className="rounded-md border border-white/10 bg-slate-950/35 p-4"
@@ -742,16 +1082,132 @@ function AdminPrototypePage() {
 
     if (activeSection === "integrations") {
       return (
-        <DataList
-          title="第三方接口健康度"
-          description="支付、模型、部署和网关都要有状态、延迟、负责人。"
-          rows={integrations.map((item) => ({
-            title: `${item.name} · ${item.category}`,
-            meta: `${item.owner} · ${item.latency}`,
-            value: item.state,
-            icon: item.state === "在线" ? BadgeCheck : AlertTriangle,
-          }))}
-        />
+        <div className="space-y-5">
+          <DataList
+            title="第三方接口健康度"
+            description="支付、模型、部署和网关都要有状态、延迟、负责人。"
+            rows={adminData.providers.map((item) => ({
+              title: `${item.name} · ${item.category}`,
+              meta: `${item.owner} · ${item.latency} · ${item.configLocation || "server env"}`,
+              value: item.state,
+              icon: item.state === "在线" ? BadgeCheck : AlertTriangle,
+            }))}
+          />
+          <DataList
+            title="AI 任务追踪"
+            description="保留 generationId / backendTaskId / providerTaskId，便于排查用户投诉和供应商日志。"
+            rows={adminData.aiTasks.map((task) => ({
+              title: `${task.capability} · ${task.model}`,
+              meta: `${task.user} · ${task.generationId} / ${task.backendTaskId} / ${task.providerTaskId} · 预估成本 ${formatCurrency(task.estimatedCost)}`,
+              value: task.status === "success" ? `${task.chargedCredits} 积分 · 毛利 ${(task.grossMargin * 100).toFixed(0)}%` : task.failureReason || task.status,
+              icon: task.status === "success" ? BadgeCheck : AlertTriangle,
+            }))}
+          />
+          <DataList
+            title="AI 扣分策略配置"
+            description="所有 AI 能力按统一策略表结算，并叠加套餐档位折扣。"
+            rows={[]}
+          />
+          <div className="rounded-md border border-white/10 bg-slate-950/35 p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold">AI 扣分策略配置区</h3>
+                <p className="mt-1 text-xs text-slate-400">修改后会直接影响服务端真实扣分与后台毛利统计。</p>
+              </div>
+              <Button className="bg-cyan-300 text-slate-950 hover:bg-cyan-200" onClick={handleSaveAiPolicies}>
+                保存策略
+              </Button>
+            </div>
+            <div className="space-y-3">
+              {policyDraft.map((policy, index) => (
+                <div key={policy.capability} className="grid gap-3 rounded-md border border-white/8 bg-white/[0.03] p-3 md:grid-cols-[1.4fr_120px_120px_1fr]">
+                  <div>
+                    <div className="text-sm font-medium">{policy.capability}</div>
+                    <div className="text-xs text-slate-500">{policy.unit} · {policy.provider}</div>
+                  </div>
+                  <Input
+                    value={String(policy.baseCredits)}
+                    onChange={(event) => handlePolicyDraftChange(index, "baseCredits", event.target.value)}
+                    className="border-white/12 bg-white/5"
+                  />
+                  <Input
+                    value={String(policy.estimatedCostPerUnit)}
+                    onChange={(event) => handlePolicyDraftChange(index, "estimatedCostPerUnit", event.target.value)}
+                    className="border-white/12 bg-white/5"
+                  />
+                  <div className="text-xs text-slate-400 flex items-center">
+                    当前供应商：{policy.provider}
+                  </div>
+                </div>
+              ))}
+              <div className="grid gap-3 md:grid-cols-2">
+                {discountDraft.map((discount, index) => (
+                  <div key={discount.planId} className="rounded-md border border-white/8 bg-white/[0.03] p-3">
+                    <div className="text-sm font-medium">{discount.planId} 套餐折扣</div>
+                    <div className="mt-1 text-xs text-slate-500">{discount.label}</div>
+                    <Input
+                      value={String(discount.multiplier)}
+                      onChange={(event) => handleDiscountDraftChange(index, event.target.value)}
+                      className="mt-3 border-white/12 bg-white/5"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <DataList
+            title="预估成本与毛利报表"
+            description="用来快速判断 AI 供应商成本、积分消耗和毛利健康度。"
+            rows={[
+              {
+                title: "总预估成本",
+                meta: "仅统计已成功任务",
+                value: formatCurrency(adminData.overview?.aiCostSummary?.totalEstimatedCost || 0),
+                icon: CircleDollarSign,
+              },
+              {
+                title: "总积分消耗",
+                meta: "折扣后真实扣减",
+                value: `${formatCredits(adminData.overview?.aiCostSummary?.totalChargedCredits || 0)} 积分`,
+                icon: WalletCards,
+              },
+              {
+                title: "成功 / 失败任务",
+                meta: "用于观察稳定性",
+                value: `${adminData.overview?.aiCostSummary?.successCount || 0} / ${adminData.overview?.aiCostSummary?.failedCount || 0}`,
+                icon: Activity,
+              },
+              {
+                title: "平均毛利",
+                meta: "按成功任务平均",
+                value: `${Math.round((adminData.overview?.aiCostSummary?.avgGrossMargin || 0) * 100)}%`,
+                icon: Gauge,
+              },
+            ]}
+          />
+          <div className="grid gap-4 xl:grid-cols-2">
+            <DataList
+              title="按供应商毛利明细"
+              description="看哪家供应商最耗钱、最影响毛利。"
+              rows={(adminData.overview?.aiCostBreakdownByProvider || []).map((item) => ({
+                title: item.label,
+                meta: `成功 ${item.successCount} / 失败 ${item.failedCount} · 成本 ${formatCurrency(item.estimatedCost)}`,
+                value: `${formatCredits(item.chargedCredits)} 积分 · ${Math.round(item.avgGrossMargin * 100)}%`,
+                icon: Gauge,
+              }))}
+            />
+            <DataList
+              title="按模型毛利明细"
+              description="看不同模型的积分回收与成本表现。"
+              rows={(adminData.overview?.aiCostBreakdownByModel || []).map((item) => ({
+                title: item.label,
+                meta: `成功 ${item.successCount} / 失败 ${item.failedCount} · 成本 ${formatCurrency(item.estimatedCost)}`,
+                value: `${formatCredits(item.chargedCredits)} 积分 · ${Math.round(item.avgGrossMargin * 100)}%`,
+                icon: Activity,
+              }))}
+            />
+          </div>
+        </div>
       );
     }
 
@@ -761,9 +1217,13 @@ function AdminPrototypePage() {
           title="风控规则"
           description="先覆盖资金和额度异常，再扩展到设备、IP、频率限制。"
           rows={[
-            { title: "短时高消耗", meta: "10 分钟内超过套餐余额 35%", value: "启用", icon: Gauge },
+            ...adminData.riskEvents.map((event) => ({
+              title: event.title,
+              meta: `${event.detail} · ${event.target}`,
+              value: event.status,
+              icon: event.severity === "high" ? AlertTriangle : ShieldCheck,
+            })),
             { title: "支付失败重试", meta: "同卡 5 次失败后进入观察", value: "启用", icon: CreditCard },
-            { title: "多账户设备", meta: "同设备注册 8 个账户", value: "观察", icon: Users },
             { title: "人工大额赠送", meta: "超过 10,000 积分需要二次确认", value: "启用", icon: ShieldCheck },
           ]}
         />
@@ -771,16 +1231,28 @@ function AdminPrototypePage() {
     }
 
     return (
-      <DataList
-        title="管理员操作审计"
-        description="钱和额度相关操作必须记录人、时间、目标和原因。"
-        rows={auditRows.map((row) => ({
-          title: row.action,
-          meta: `${row.actor} · ${row.target}`,
-          value: row.time,
-          icon: History,
-        }))}
-      />
+      <div className="space-y-5">
+        <DataList
+          title="管理员操作审计"
+          description="钱和额度相关操作必须记录人、时间、目标和原因。"
+          rows={adminData.auditRows.map((row) => ({
+            title: row.action,
+            meta: `${row.actor} · ${row.target}${row.reason ? ` · ${row.reason}` : ""}`,
+            value: row.time,
+            icon: History,
+          }))}
+        />
+        <DataList
+          title="套餐/价格配置"
+          description="第一版以国内支付优先，微信支付和支付宝先接入，Stripe/PayPal 后续扩展。"
+          rows={adminData.plans.map((plan) => ({
+            title: `${plan.name} · ${formatCurrency(plan.price)}`,
+            meta: `${formatCredits(plan.credits)} 积分 · ${plan.channel}`,
+            value: plan.status === "active" ? "启用" : "草稿",
+            icon: CircleDollarSign,
+          }))}
+        />
+      </div>
     );
   }
 }
@@ -958,6 +1430,7 @@ function alertSection(category: AlertCategory): AdminSection {
     报错: "integrations",
     接口: "integrations",
     额度: "risk",
+    风控: "risk",
   };
 
   return map[category];
@@ -1037,7 +1510,7 @@ function Toolbar({
   );
 }
 
-function OrdersTable() {
+function OrdersTable({ orders }: { orders: Order[] }) {
   return (
     <Table className="min-w-[760px]">
       <TableHeader>
@@ -1048,6 +1521,7 @@ function OrdersTable() {
           <TableHead>金额</TableHead>
           <TableHead>兑换积分</TableHead>
           <TableHead>状态</TableHead>
+          <TableHead>对账</TableHead>
           <TableHead>时间</TableHead>
         </TableRow>
       </TableHeader>
@@ -1061,6 +1535,11 @@ function OrdersTable() {
             <TableCell>{formatCredits(order.credits)}</TableCell>
             <TableCell>
               <Badge className={statusClass(order.status)}>{statusLabel(order.status)}</Badge>
+            </TableCell>
+            <TableCell>
+              <Badge className={statusClass(order.reconciliation || "matched")}>
+                {order.reconciliation === "mismatch" ? "异常" : order.reconciliation === "pending" ? "待对账" : "一致"}
+              </Badge>
             </TableCell>
             <TableCell className="text-slate-400">{order.createdAt}</TableCell>
           </TableRow>
@@ -1142,7 +1621,10 @@ function UserDetailPanel({
   );
 }
 
-function RiskPanel() {
+function RiskPanel({ riskEvents, plans }: { riskEvents: RiskEvent[]; plans: PricingPlan[] }) {
+  const highRiskCount = riskEvents.filter((event) => event.severity === "high" && event.status !== "mitigated").length;
+  const activePlans = plans.filter((plan) => plan.status === "active").length;
+
   return (
     <div className="rounded-md border border-white/10 bg-white/[0.035] p-4">
       <div className="mb-4 flex items-center justify-between">
@@ -1152,9 +1634,9 @@ function RiskPanel() {
       <div className="space-y-3">
         {[
           ["支付对账", "第三方支付金额、订单、入账积分必须每日核对"],
-          ["额度负债", "未消耗积分是平台未来成本，需要看余额池"],
+          ["额度负债", `当前 ${activePlans} 个启用套餐，未消耗积分需要进入成本池`],
           ["密钥治理", "后台只展示状态和位置，不展示密钥值"],
-          ["高危权限", "退款、封号、大额赠送需要二次确认"],
+          ["高危权限", `${highRiskCount} 个高风险事件需要二次确认或人工复核`],
         ].map(([title, body]) => (
           <div key={title} className="rounded-md border border-white/8 bg-slate-950/30 p-3">
             <div className="text-sm font-medium">{title}</div>

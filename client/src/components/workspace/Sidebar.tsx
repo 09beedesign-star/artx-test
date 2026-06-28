@@ -13,6 +13,7 @@ import {
 import { PROJECTS, NAV_ITEMS } from "@/lib/workspace-data";
 import type { Project } from "@/lib/workspace-data";
 import { useAuth } from "@/contexts/AuthContext";
+import { getStoredCreditBalance, goToUpgradePage } from "@/lib/billing-state";
 
 interface SidebarProps {
   activeProjectId: string;
@@ -30,6 +31,7 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
   const { user } = useAuth();
   const displayName = user?.username || "用户名";
   const avatarLetter = displayName.trim().slice(0, 1).toUpperCase() || "U";
+  const creditBalance = getStoredCreditBalance();
 
   const handleNavClick = (id: string) => {
     if (id !== "projects" && id !== "home") {
@@ -156,7 +158,7 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
       <div className="px-2 pb-3 space-y-0.5 shrink-0" style={{ borderTop: "1px solid oklch(1 0 0 / 6%)", paddingTop: 12 }}>
         {/* Upgrade CTA */}
         <button
-          onClick={() => toast("升级计划", { description: "功能即将上线" })}
+          onClick={() => goToUpgradePage("workspace-sidebar-upgrade")}
           className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-150 group"
           style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290 / 0.15), oklch(0.72 0.18 200 / 0.15))", border: "1px solid oklch(0.58 0.22 290 / 0.3)" }}
         >
@@ -174,7 +176,7 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-[12px] font-medium text-white truncate">{displayName}</div>
-            <div className="text-[11px]" style={{ color: "oklch(0.50 0.01 270)" }}>免费版 · 75 积分</div>
+            <div className="text-[11px]" style={{ color: "oklch(0.50 0.01 270)" }}>免费版 · {creditBalance} 积分</div>
           </div>
           <ChevronRight size={12} style={{ color: "oklch(0.45 0.01 270)" }} />
         </div>

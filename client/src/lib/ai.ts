@@ -103,6 +103,17 @@ function isAiBackendConnectionError(error: unknown) {
   return /AI 后端地址未正确连接|网页内容|non-JSON response|Failed to fetch|NetworkError|后台图像生成启动失败|后台图像生成查询失败/i.test(message);
 }
 
+function readAuthToken() {
+  if (typeof window === "undefined") return "";
+  try {
+    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) as { token?: string } : null;
+    return typeof parsed?.token === "string" ? parsed.token : "";
+  } catch {
+    return "";
+  }
+}
+
 export function hasActiveAuthSession() {
   if (typeof window === "undefined") return false;
   try {
@@ -152,10 +163,14 @@ async function fetchAiJson<T extends ApiErrorResponse>(
 ): Promise<T> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const token = readAuthToken();
   try {
     const response = await fetch(endpoint, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify(body),
       signal: controller.signal,
     });
@@ -257,9 +272,13 @@ export async function searchReferenceImages({
   requireAiAuth();
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/references/search`;
+  const token = readAuthToken();
   const response = await fetch(endpoint, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     body: JSON.stringify({ query, limit }),
   });
 
@@ -379,7 +398,11 @@ export async function startBackgroundImageGeneration({
 export async function getBackgroundImageGenerationTask(taskId: string) {
   requireAiAuth();
   const endpoint = `${getAiApiBaseUrl()}/api/images/tasks/${encodeURIComponent(taskId)}`;
-  const response = await fetch(endpoint, { method: "GET" });
+  const token = readAuthToken();
+  const response = await fetch(endpoint, {
+    method: "GET",
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
   const result = await readJsonResponse<BackgroundImageTask>(response, "后台图像生成查询失败");
   if (!response.ok) {
     throw new Error(result.error || "后台图像生成查询失败");

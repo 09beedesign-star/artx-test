@@ -12,7 +12,9 @@ import CommunityPage from "./pages/CommunityPage";
 import Workspace from "./pages/Workspace";
 import SettingsPage from "./pages/SettingsPage";
 import ProfilePage from "./pages/ProfilePage";
+import UpgradePage from "./pages/UpgradePage";
 import LoginRegisterDialog from "./components/auth/LoginRegisterDialog";
+import MembershipUpgradeDialog from "./components/billing/MembershipUpgradeDialog";
 // ── 新增路由页面（补充缺失交互，不替换已有路由）──
 import InspirationPage from "./pages/InspirationPage";
 import SkillsPage from "./pages/SkillsPage";
@@ -61,6 +63,13 @@ function AppRoutes() {
       <Route path="/settings">
         <AppShell>
           <SettingsPage />
+        </AppShell>
+      </Route>
+
+      {/* 会员升级 / 积分充值 */}
+      <Route path="/upgrade">
+        <AppShell>
+          <UpgradePage />
         </AppShell>
       </Route>
 
@@ -196,6 +205,7 @@ function App() {
           <TooltipProvider>
             <Toaster />
             <LoginRegisterDialog />
+            <MembershipUpgradeDialog />
             <WouterRouter base={routerBase}>
               <AppRoutes />
             </WouterRouter>

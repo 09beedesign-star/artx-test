@@ -11,8 +11,9 @@ import { toast } from "sonner";
 import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
 import {
   Home, Sparkles, Library, FolderOpen,
-  HelpCircle, ImagePlus, Send, X,
+  HelpCircle, ImagePlus, Send, X, Zap,
 } from "lucide-react";
+import { goToUpgradePage } from "@/lib/billing-state";
 
 
 interface AppShellProps {
@@ -298,6 +299,20 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
         <div
           className="px-2 pb-4 pt-2 flex flex-col gap-0.5"
         >
+          <button
+            onClick={() => goToUpgradePage("appshell-upgrade")}
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-[var(--radius-md-design)] type-caption transition-all text-left"
+            style={{
+              background: isDark ? "rgba(197,237,71,0.10)" : "rgba(76,92,10,0.08)",
+              border: `1px solid ${isDark ? "rgba(197,237,71,0.22)" : "rgba(76,92,10,0.14)"}`,
+              color: isDark ? "rgba(247,255,208,0.92)" : "rgba(48,56,8,0.86)",
+            }}
+            onMouseEnter={e => ((e.currentTarget as HTMLElement).style.opacity = "0.88")}
+            onMouseLeave={e => ((e.currentTarget as HTMLElement).style.opacity = "1")}
+          >
+            <Zap size={15} strokeWidth={1.8} style={{ flexShrink: 0 }} />
+            <span className="truncate">升级到 Pro</span>
+          </button>
           <button
             onClick={activateHelpPrompt}
             className="w-full flex items-center gap-3 px-3 py-2 rounded-[var(--radius-md-design)] type-caption transition-all text-left"
