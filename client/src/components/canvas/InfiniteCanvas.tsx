@@ -9714,7 +9714,7 @@ function CanvasAssistantPanel({
     if (!target) return;
     const isCaretSlot = target.dataset.composerCaretSlot === "true";
     target.style.height = "auto";
-    target.style.height = isCaretSlot ? "22px" : `${Math.max(24, target.scrollHeight)}px`;
+    target.style.height = isCaretSlot ? "18px" : `${Math.max(20, target.scrollHeight)}px`;
   }, []);
 
   useEffect(() => {
@@ -9728,7 +9728,7 @@ function CanvasAssistantPanel({
         return;
       }
       measure.textContent = segment.text;
-      nextWidths[segment.id] = Math.min(520, Math.max(32, Math.ceil(measure.scrollWidth) + 18));
+      nextWidths[segment.id] = Math.min(520, Math.max(12, Math.ceil(measure.scrollWidth) + 4));
     });
     setComposerTextWidths(previous => {
       const previousKeys = Object.keys(previous);
@@ -10827,8 +10827,9 @@ function CanvasAssistantPanel({
                 style={{
                   position: "relative",
                   color: text,
-                  columnGap: 2,
-                  rowGap: 4,
+                  alignContent: "flex-start",
+                  columnGap: 1,
+                  rowGap: 2,
                   maxHeight: "min(48vh, 360px)",
                   scrollbarWidth: "thin",
                   scrollbarColor: `${isDark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.18)"} transparent`,
@@ -10855,7 +10856,7 @@ function CanvasAssistantPanel({
                   className="pointer-events-none invisible absolute whitespace-pre"
                   style={{
                     fontSize: 12,
-                    lineHeight: "20px",
+                    lineHeight: "18px",
                     fontFamily: "inherit",
                     letterSpacing: 0,
                   }}
@@ -10888,8 +10889,8 @@ function CanvasAssistantPanel({
                   aria-label="在开头插入文案"
                   className="shrink-0 self-stretch rounded-[var(--radius-sm-design)] bg-transparent p-0"
                   style={{
-                    width: 8,
-                    height: 22,
+                    width: 4,
+                    height: 18,
                     cursor: "text",
                     border: "none",
                     opacity: 0.001,
@@ -10912,7 +10913,7 @@ function CanvasAssistantPanel({
                           type="button"
                           aria-label="在标签前插入文案"
                           className="shrink-0 rounded-[var(--radius-sm-design)] bg-transparent p-0"
-                          style={{ width: 8, height: 22, cursor: "text", border: "none", opacity: 0.001 }}
+                          style={{ width: 4, height: 18, cursor: "text", border: "none", opacity: 0.001 }}
                           onMouseDown={event => {
                             event.preventDefault();
                             event.stopPropagation();
@@ -10940,7 +10941,7 @@ function CanvasAssistantPanel({
                           onMouseEnter={event => showComposerReferencePreview(event, segment.asset.src, segment.asset.title)}
                           onMouseLeave={hideComposerReferencePreview}
                           data-composer-token="image"
-                          className="group relative inline-flex max-w-[82px] items-center gap-1 overflow-visible rounded-[var(--radius-md-design)] px-1.5 py-0.5 align-middle"
+                          className="group relative inline-flex max-w-[78px] items-center gap-0.5 overflow-visible rounded-[var(--radius-md-design)] px-1 py-[1px] align-middle"
                           style={{
                             background: isDark ? "rgba(197,237,71,0.16)" : "rgba(197,237,71,0.10)",
                             border: `1px solid ${dragOverComposerSegmentId === segment.id ? "rgba(197,237,71,0.86)" : isDark ? "rgba(197,237,71,0.36)" : "rgba(138,170,40,0.30)"}`,
@@ -10952,8 +10953,8 @@ function CanvasAssistantPanel({
                           }}
                           title="拖拽调整引用顺序"
                         >
-                          <img src={segment.asset.src} alt={segment.asset.title} style={{ width: 18, height: 18, borderRadius: 3, objectFit: "cover", flexShrink: 0 }} />
-                          <span className="type-caption truncate" style={{ maxWidth: 44, fontSize: 11 }}>{segment.asset.title}</span>
+                          <img src={segment.asset.src} alt={segment.asset.title} style={{ width: 16, height: 16, borderRadius: 3, objectFit: "cover", flexShrink: 0 }} />
+                          <span className="type-caption truncate" style={{ maxWidth: 42, fontSize: 10.5, lineHeight: "14px" }}>{segment.asset.title}</span>
                           <button
                             type="button"
                             onMouseDown={event => event.stopPropagation()}
@@ -10970,7 +10971,7 @@ function CanvasAssistantPanel({
                           type="button"
                           aria-label="在标签后插入文案"
                           className="shrink-0 rounded-[var(--radius-sm-design)] bg-transparent p-0"
-                          style={{ width: 8, height: 22, cursor: "text", border: "none", opacity: 0.001 }}
+                          style={{ width: 4, height: 18, cursor: "text", border: "none", opacity: 0.001 }}
                           onMouseDown={event => {
                             event.preventDefault();
                             event.stopPropagation();
@@ -10994,7 +10995,7 @@ function CanvasAssistantPanel({
                           type="button"
                           aria-label="在标签前插入文案"
                           className="shrink-0 rounded-[var(--radius-sm-design)] bg-transparent p-0"
-                          style={{ width: 8, height: 22, cursor: "text", border: "none", opacity: 0.001 }}
+                          style={{ width: 4, height: 18, cursor: "text", border: "none", opacity: 0.001 }}
                           onMouseDown={event => {
                             event.preventDefault();
                             event.stopPropagation();
@@ -11022,7 +11023,7 @@ function CanvasAssistantPanel({
                           onMouseEnter={event => showComposerReferencePreview(event, segment.annotation.src, segment.annotation.text || segment.annotation.title)}
                           onMouseLeave={hideComposerReferencePreview}
                           data-composer-token="annotation"
-                          className="group relative inline-flex max-w-[92px] items-center gap-1 overflow-visible rounded-[var(--radius-md-design)] px-1.5 py-0.5 align-middle"
+                          className="group relative inline-flex max-w-[86px] items-center gap-0.5 overflow-visible rounded-[var(--radius-md-design)] px-1 py-[1px] align-middle"
                           style={{
                             background: isDark ? "oklch(0.62 0.20 145 / 0.16)" : "oklch(0.62 0.17 145 / 0.10)",
                             border: `1px solid ${dragOverComposerSegmentId === segment.id ? "oklch(0.72 0.16 145 / 0.78)" : isDark ? "oklch(0.72 0.16 145 / 0.32)" : "oklch(0.48 0.15 145 / 0.26)"}`,
@@ -11034,8 +11035,8 @@ function CanvasAssistantPanel({
                           }}
                           title={`注释：${segment.annotation.text || segment.annotation.title}`}
                         >
-                          <MapPin size={12} style={{ color: "oklch(0.62 0.18 145)", flexShrink: 0 }} />
-                          <span className="type-caption truncate" style={{ maxWidth: 56, fontSize: 11 }}>
+                          <MapPin size={11} style={{ color: "oklch(0.62 0.18 145)", flexShrink: 0 }} />
+                          <span className="type-caption truncate" style={{ maxWidth: 52, fontSize: 10.5, lineHeight: "14px" }}>
                             {segment.annotation.text || segment.annotation.title}
                           </span>
                           <button
@@ -11054,7 +11055,7 @@ function CanvasAssistantPanel({
                           type="button"
                           aria-label="在标签后插入文案"
                           className="shrink-0 rounded-[var(--radius-sm-design)] bg-transparent p-0"
-                          style={{ width: 8, height: 22, cursor: "text", border: "none", opacity: 0.001 }}
+                          style={{ width: 4, height: 18, cursor: "text", border: "none", opacity: 0.001 }}
                           onMouseDown={event => {
                             event.preventDefault();
                             event.stopPropagation();
@@ -11071,6 +11072,9 @@ function CanvasAssistantPanel({
                   }
                   const isSingleEmptyTextSegment = composerSegments.length === 1 && segment.text.length === 0;
                   const isInlineCaretSlot = segment.type === "text" && segment.text.length === 0 && segment.preserveEmpty && !isSingleEmptyTextSegment;
+                  const inlineTextWidth = segment.text.length > 0
+                    ? composerTextWidths[segment.id] ?? Math.min(520, Math.max(12, segment.text.length * 12 + 4))
+                    : 2;
                   const shouldHighlightTextSegment = isBoxSelected && (segment.text.length > 0 || isSingleEmptyTextSegment);
                   return (
                     isSingleEmptyTextSegment ? (
@@ -11106,14 +11110,14 @@ function CanvasAssistantPanel({
                           ? `基于 ${composerAnnotations.length} 个注释点，描述组合生成意图...`
                           : "输入对当前画布的想法，可在文字之间插入引用图片..."
                         }
-                        className="min-w-0 resize-none whitespace-pre-wrap border-0 bg-transparent px-1.5 py-0 outline-none disabled:cursor-not-allowed"
+                        className="min-w-0 resize-none whitespace-pre-wrap border-0 bg-transparent px-1 py-0 outline-none disabled:cursor-not-allowed"
                         style={{
                           color: text,
                           background: shouldHighlightTextSegment ? "rgba(197,237,71,0.16)" : "transparent",
                           borderRadius: shouldHighlightTextSegment ? 5 : 0,
                           opacity: 1,
                           fontSize: 12,
-                          lineHeight: "20px",
+                          lineHeight: "18px",
                           minHeight: 104,
                           overflow: "hidden",
                           width: "100%",
@@ -11158,7 +11162,7 @@ function CanvasAssistantPanel({
                           setInputFocused(true);
                         }}
                         onBlur={() => setInputFocused(false)}
-                        className="min-w-0 resize-none whitespace-pre-wrap border-0 bg-transparent px-1.5 py-0 outline-none disabled:cursor-not-allowed"
+                        className="min-w-0 resize-none whitespace-pre-wrap border-0 bg-transparent px-0.5 py-0 outline-none disabled:cursor-not-allowed"
                         style={{
                           color: text,
                           caretColor: text,
@@ -11166,16 +11170,16 @@ function CanvasAssistantPanel({
                           borderRadius: shouldHighlightTextSegment ? 5 : 0,
                           opacity: 1,
                           fontSize: 12,
-                          lineHeight: "20px",
-                          height: isInlineCaretSlot ? 22 : undefined,
-                          minHeight: isInlineCaretSlot ? 22 : 24,
-                          maxHeight: isInlineCaretSlot ? 22 : 132,
+                          lineHeight: "18px",
+                          height: isInlineCaretSlot ? 18 : undefined,
+                          minHeight: isInlineCaretSlot ? 18 : 20,
+                          maxHeight: isInlineCaretSlot ? 18 : 120,
                           overflow: "hidden",
-                          width: isInlineCaretSlot ? 2 : composerTextWidths[segment.id] ?? "100%",
+                          width: isInlineCaretSlot ? 2 : inlineTextWidth,
                           minWidth: isInlineCaretSlot ? 2 : 2,
-                          maxWidth: "100%",
-                          flex: isInlineCaretSlot ? "0 0 2px" : `0 1 ${composerTextWidths[segment.id] ?? 180}px`,
-                          flexBasis: isInlineCaretSlot ? 2 : composerTextWidths[segment.id] ?? 180,
+                          maxWidth: isInlineCaretSlot ? 2 : inlineTextWidth,
+                          flex: isInlineCaretSlot ? "0 0 2px" : `0 0 ${inlineTextWidth}px`,
+                          flexBasis: isInlineCaretSlot ? 2 : inlineTextWidth,
                           wordBreak: "break-word",
                           overflowWrap: "anywhere",
                           margin: 0,
@@ -11191,8 +11195,8 @@ function CanvasAssistantPanel({
                   aria-label="在末尾插入文案"
                   className="shrink-0 self-stretch rounded-[var(--radius-sm-design)] bg-transparent p-0"
                   style={{
-                    width: 8,
-                    height: 22,
+                    width: 4,
+                    height: 18,
                     cursor: "text",
                     border: "none",
                     opacity: 0.001,

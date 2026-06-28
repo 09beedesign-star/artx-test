@@ -208,32 +208,48 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
 
       {isAuthenticated && (<>
 
-      {/* Credits */}
+      {/* Credits + upgrade */}
       <div
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-md-design)] cursor-pointer transition-colors"
-        style={{ color: textPri }}
-        onClick={() => goToUpgradePage("topbar-credits")}
-      >
-        <Sparkles size={13} style={{ color: "oklch(0.78 0.18 290)" }} />
-        <span className="type-caption">{displayCredits}</span>
-        <span className="type-caption" style={{ color: textSec }}>积分</span>
-      </div>
-
-      <button
-        type="button"
-        onClick={() => goToUpgradePage("topbar-upgrade")}
-        className="flex items-center gap-1.5 rounded-[var(--radius-md-design)] px-3 py-1.5 type-caption transition-all duration-150 active:scale-95"
+        className="flex items-center rounded-[var(--radius-lg-design)] p-1"
         style={{
-          height: 32,
-          background: "linear-gradient(135deg, oklch(0.78 0.18 110), oklch(0.68 0.18 145))",
-          color: "oklch(0.12 0.02 160)",
-          boxShadow: "0 8px 22px oklch(0.72 0.18 130 / 0.18)",
-          fontWeight: 650,
+          height: 40,
+          gap: 6,
+          background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 4%)",
+          border: `1px solid ${isDark ? "oklch(1 0 0 / 12%)" : "oklch(0 0 0 / 10%)"}`,
+          boxShadow: isDark ? "inset 0 1px 0 oklch(1 0 0 / 6%)" : "inset 0 1px 0 oklch(1 0 0 / 70%)",
         }}
       >
-        <Crown size={13} />
-        <span>升级</span>
-      </button>
+        <button
+          type="button"
+          className="flex h-8 items-center gap-1.5 rounded-[var(--radius-md-design)] px-2.5 type-caption transition-colors"
+          style={{
+            color: textPri,
+            background: "transparent",
+            border: "none",
+          }}
+          onClick={() => goToUpgradePage("topbar-credits")}
+        >
+          <Sparkles size={13} style={{ color: "oklch(0.78 0.18 290)" }} />
+          <span>{displayCredits}</span>
+          <span style={{ color: textSec }}>积分</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => goToUpgradePage("topbar-upgrade")}
+          className="flex h-8 items-center gap-1.5 rounded-[var(--radius-md-design)] px-3 type-caption transition-all duration-150 active:scale-95"
+          style={{
+            background: "linear-gradient(135deg, oklch(0.78 0.18 110), oklch(0.68 0.18 145))",
+            color: "oklch(0.12 0.02 160)",
+            boxShadow: "0 8px 22px oklch(0.72 0.18 130 / 0.18)",
+            border: "none",
+            fontWeight: 650,
+          }}
+        >
+          <Crown size={13} />
+          <span>升级</span>
+        </button>
+      </div>
 
       {/* User menu */}
       <DropdownMenu>
