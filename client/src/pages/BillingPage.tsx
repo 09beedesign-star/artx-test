@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import {
   ArrowUpRight,
@@ -16,7 +16,7 @@ import TopBar from "@/components/workspace/TopBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { BG_GLOW } from "@/lib/workspace-data";
-import { BILLING_CYCLES, MEMBERSHIP_PLANS, formatCurrency, getPlanQuote, type BillingCycleId, type MembershipPlanId } from "@shared/billing-config";
+import { BILLING_CYCLES, MEMBERSHIP_PLANS, formatCurrency, getPlanQuote, quoteCreditRecharge, type BillingCycleId, type MembershipPlanId } from "@shared/billing-config";
 
 type BillingTab = "subscription" | "recharge" | "upgrade";
 
@@ -68,10 +68,26 @@ type BillingPayResponse = {
   error?: string;
 };
 
+type BillingSummaryResponse = {
+  balance?: number;
+  orders?: Array<{ id: string; status: string; amount: number; credits: number }>;
+  error?: string;
+};
+
+type BillingStatusResponse = {
+  order?: {
+    id: string;
+    status: "paid" | "pending" | "failed" | "refunded";
+    amount: number;
+    expectedCredits?: number;
+  };
+  error?: string;
+};
+
 const rechargePacks = [
-  { id: "pack-small", name: "轻量补充", credits: "小额积分包", bonus: "赠送比例待定", usage: "临时补充生成额度" },
-  { id: "pack-growth", name: "增长补充", credits: "中额积分包", bonus: "赠送比例待定", usage: "适合连续作业" },
-  { id: "pack-scale", name: "规模补充", credits: "大额积分包", bonus: "赠送比例待定", usage: "适合批量生成与团队项目" },
+  { id: "pack-small", name: "轻量补充", credits: "小额积分包", placeholder: "例如 50", usage: "临时补充生成额度" },
+  { id: "pack-growth", name: "增长补充", credits: "中额积分包", placeholder: "例如 150", usage: "适合连续作业" },
+  { id: "pack-scale", name: "规模补充", credits: "大额积分包", placeholder: "例如 500", usage: "适合批量生成与团队项目" },
 ];
 
 const upgradeRows = [
@@ -145,6 +161,23 @@ export default function BillingPage() {
   const [activeTab, setActiveTab] = useState<BillingTab>(() => readInitialTab());
   const [activeCycle, setActiveCycle] = useState<BillingCycleId>("monthly");
   const [payingPlanId, setPayingPlanId] = useState<string | null>(null);
+  const [balance, setBalance] = useState(75);
+  const [balanceFlash, setBalanceFlash] = useState(false);
+  const [rechargeAmounts, setRechargeAmounts] = useState<Record<string, string>>({
+    "pack-small": "50",
+    "pack-growth": "150",
+    "pack-scale": "500",
+  });
+  const [payingRechargeId, setPayingRechargeId] = useState<string | null>(null);
+  const [paymentDialog, setPaymentDialog] = useState<{
+    open: boolean;
+    orderId: string;
+    payUrl: string;
+    title: string;
+    amount: number;
+    credits: number;
+    status: "pending" | "success";
+  } | null>(null);
 
   const isDark = resolvedTheme === "dark";
   const bg = isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)";
@@ -165,6 +198,40 @@ export default function BillingPage() {
     () => BILLING_CYCLES.find(item => item.id === activeCycle) || BILLING_CYCLES[0],
     [activeCycle],
   );
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    billingFetch<BillingSummaryResponse>("/api/billing/summary")
+      .then(result => {
+        if (typeof result.balance === "number") setBalance(result.balance);
+      })
+      .catch(() => {});
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!paymentDialog?.open || paymentDialog.status === "success") return;
+    const interval = window.setInterval(async () => {
+      try {
+        const result = await billingFetch<BillingStatusResponse>(`/api/billing/orders/${paymentDialog.orderId}/status`);
+        if (result.order?.status === "paid") {
+          setPaymentDialog(current => current ? { ...current, status: "success" } : current);
+          const summary = await billingFetch<BillingSummaryResponse>("/api/billing/summary").catch(() => null);
+          if (summary && typeof summary.balance === "number") {
+            setBalance(summary.balance);
+            setBalanceFlash(true);
+            window.setTimeout(() => setBalanceFlash(false), 900);
+          }
+          toast("充值成功", {
+            description: "感谢您的支持，积分余额已同步刷新。",
+          });
+          window.clearInterval(interval);
+        }
+      } catch {
+        // Keep polling while the payment page is open.
+      }
+    }, 3500);
+    return () => window.clearInterval(interval);
+  }, [paymentDialog?.open, paymentDialog?.orderId, paymentDialog?.status]);
 
   const switchTab = (tab: BillingTab) => {
     setActiveTab(tab);
@@ -215,6 +282,72 @@ export default function BillingPage() {
     }
   };
 
+  const normalizeRechargeAmount = (value: string) => value.replace(/[^\d]/g, "").slice(0, 6);
+
+  const validateRechargeAmount = (value: string) => {
+    const amount = Number(value);
+    if (!Number.isFinite(amount) || amount < 10) return "请输入不低于 HKD 10 的充值金额";
+    if (amount % 5 !== 0) return "充值金额必须以 0 或 5 结尾";
+    return "";
+  };
+
+  const startRechargePayment = async (packId: string, packName: string) => {
+    if (!isAuthenticated) {
+      openLoginModal();
+      return;
+    }
+    const rawAmount = rechargeAmounts[packId] || "";
+    const error = validateRechargeAmount(rawAmount);
+    if (error) {
+      toast("充值金额不可用", { description: error });
+      return;
+    }
+    const amount = Number(rawAmount);
+    const quote = quoteCreditRecharge(amount);
+
+    setPayingRechargeId(packId);
+    try {
+      const orderResult = await billingFetch<BillingOrderResponse>("/api/billing/orders", {
+        method: "POST",
+        body: JSON.stringify({
+          type: "recharge",
+          amount,
+          paymentMethod: "wechat",
+        }),
+      });
+      if (!orderResult.order) {
+        throw new Error(orderResult.error || "充值订单创建失败");
+      }
+
+      const payResult = await billingFetch<BillingPayResponse>(`/api/billing/orders/${orderResult.order.id}/pay`, {
+        method: "POST",
+        body: JSON.stringify({
+          paymentMethod: "wechat",
+          mode: "native",
+        }),
+      });
+      if (!payResult.payment?.payUrl) {
+        throw new Error(payResult.error || "威富通支付链接创建失败");
+      }
+
+      setPaymentDialog({
+        open: true,
+        orderId: orderResult.order.id,
+        payUrl: payResult.payment.payUrl,
+        title: packName,
+        amount,
+        credits: quote.credits,
+        status: "pending",
+      });
+    } catch (error) {
+      toast("支付暂时不可用", {
+        description: error instanceof Error ? error.message : "请稍后重试",
+      });
+    } finally {
+      setPayingRechargeId(null);
+    }
+  };
+
   const showPendingToast = (label: string) => {
     toast("功能待配置", {
       description: `${label} 的具体金额和支付动作还未启用。`,
@@ -237,7 +370,7 @@ export default function BillingPage() {
       )}
 
       <div style={{ position: "relative", zIndex: 1 }}>
-        <TopBar credits={75} />
+        <TopBar credits={balance} />
       </div>
 
       <main className="flex-1 overflow-auto" style={{ position: "relative", zIndex: 1 }}>
@@ -263,7 +396,7 @@ export default function BillingPage() {
               <div className="grid min-w-[min(100%,520px)] grid-cols-3 gap-2">
                 {[
                   { label: "当前计划", value: "Free", icon: Crown },
-                  { label: "积分余额", value: "75", icon: WalletCards },
+                  { label: "积分余额", value: balance.toLocaleString("zh-HK"), icon: WalletCards, rolling: true },
                   { label: "订阅状态", value: "待升级", icon: Rocket },
                 ].map(item => {
                   const Icon = item.icon;
@@ -273,7 +406,17 @@ export default function BillingPage() {
                         <Icon size={13} />
                         {item.label}
                       </div>
-                      <div style={{ color: text, fontSize: 18, fontWeight: 680 }}>{item.value}</div>
+                      <div
+                        style={{
+                          color: text,
+                          fontSize: 18,
+                          fontWeight: 680,
+                          transform: item.rolling && balanceFlash ? "translateY(-4px)" : "translateY(0)",
+                          transition: "transform 420ms ease, color 420ms ease",
+                        }}
+                      >
+                        {item.value}
+                      </div>
                     </div>
                   );
                 })}
@@ -411,17 +554,36 @@ export default function BillingPage() {
                         </div>
                         <h3 style={{ color: text, fontSize: 19, fontWeight: 700 }}>{pack.name}</h3>
                         <p className="mt-2 type-caption" style={{ color: sub }}>{pack.credits}</p>
-                        <div className="mt-4 rounded-[var(--radius-lg-design)] border px-3 py-2 type-caption" style={{ borderColor: border, color: faint }}>
-                          {pack.bonus}
+                        <label className="mt-4 block">
+                          <span className="mb-2 block type-caption" style={{ color: faint, letterSpacing: 0, textTransform: "none" }}>输入充值金额 HKD</span>
+                          <input
+                            value={rechargeAmounts[pack.id] || ""}
+                            onChange={event => {
+                              const nextValue = normalizeRechargeAmount(event.target.value);
+                              setRechargeAmounts(current => ({ ...current, [pack.id]: nextValue }));
+                            }}
+                            inputMode="numeric"
+                            placeholder={pack.placeholder}
+                            className="h-10 w-full rounded-[var(--radius-lg-design)] border px-3 type-caption outline-none transition-colors"
+                            style={{
+                              borderColor: border,
+                              background: isDark ? "oklch(0.09 0.012 270 / 0.54)" : "oklch(1 0 0 / 0.72)",
+                              color: text,
+                            }}
+                          />
+                        </label>
+                        <div className="mt-3 type-caption" style={{ color: faint, letterSpacing: 0, textTransform: "none" }}>
+                          可兑换 {quoteCreditRecharge(Number(rechargeAmounts[pack.id] || 0)).credits.toLocaleString("zh-HK")} 积分
                         </div>
                         <p className="mt-4 min-h-[40px] type-caption leading-5" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>{pack.usage}</p>
                         <button
                           type="button"
-                          onClick={() => showPendingToast(pack.name)}
+                          onClick={() => startRechargePayment(pack.id, pack.name)}
+                          disabled={payingRechargeId === pack.id}
                           className="mt-5 h-10 w-full rounded-[var(--radius-md-design)] type-caption transition-all hover:opacity-90 active:scale-[0.98]"
                           style={{ background: green, color: "#10130A", fontWeight: 720 }}
                         >
-                          充值
+                          {payingRechargeId === pack.id ? "创建支付中" : "充值"}
                         </button>
                       </article>
                     ))}
@@ -479,6 +641,69 @@ export default function BillingPage() {
           </section>
         </div>
       </main>
+      {paymentDialog?.open && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center px-4"
+          style={{ background: "oklch(0 0 0 / 0.62)", backdropFilter: "blur(12px)" }}
+        >
+          <div
+            className="w-full max-w-[420px] rounded-[var(--radius-xl-design)] border p-5"
+            style={{ background: panelStrong, borderColor: border, boxShadow: "0 24px 80px oklch(0 0 0 / 0.38)" }}
+          >
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <h3 style={{ color: text, fontSize: 20, fontWeight: 720 }}>
+                  {paymentDialog.status === "success" ? "充值成功" : "扫码完成支付"}
+                </h3>
+                <p className="mt-1 type-caption" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>
+                  {paymentDialog.status === "success"
+                    ? "感谢您的支持，积分余额已同步刷新。"
+                    : `${paymentDialog.title} · HKD ${paymentDialog.amount.toLocaleString("zh-HK")} · ${paymentDialog.credits.toLocaleString("zh-HK")} 积分`}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPaymentDialog(null)}
+                className="h-8 w-8 rounded-[var(--radius-md-design)] type-caption"
+                style={{ color: sub, background: isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)" }}
+              >
+                ×
+              </button>
+            </div>
+
+            {paymentDialog.status === "success" ? (
+              <div className="rounded-[var(--radius-lg-design)] border p-4 text-center" style={{ borderColor: "oklch(0.78 0.18 110 / 0.34)", background: "oklch(0.78 0.18 110 / 0.10)" }}>
+                <div style={{ color: green, fontSize: 26, fontWeight: 760 }}>+{paymentDialog.credits.toLocaleString("zh-HK")}</div>
+                <p className="mt-1 type-caption" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>积分已到账</p>
+              </div>
+            ) : (
+              <>
+                <div className="rounded-[var(--radius-lg-design)] border p-3 text-center" style={{ borderColor: border, background: isDark ? "oklch(0.08 0.01 270 / 0.86)" : "white" }}>
+                  {/\.(png|jpg|jpeg|gif|webp)(\?|$)/i.test(paymentDialog.payUrl) ? (
+                    <img src={paymentDialog.payUrl} alt="支付二维码" className="mx-auto h-[220px] w-[220px] rounded-[var(--radius-md-design)] object-contain" />
+                  ) : (
+                    <div className="flex h-[220px] flex-col items-center justify-center gap-3">
+                      <WalletCards size={34} style={{ color: green }} />
+                      <a
+                        href={paymentDialog.payUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-[var(--radius-md-design)] px-4 py-2 type-caption"
+                        style={{ background: green, color: "#10130A", fontWeight: 720 }}
+                      >
+                        打开支付页面
+                      </a>
+                    </div>
+                  )}
+                </div>
+                <p className="mt-3 text-center type-caption" style={{ color: faint, letterSpacing: 0, textTransform: "none" }}>
+                  支付完成后会自动刷新积分余额
+                </p>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

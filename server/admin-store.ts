@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { AI_CREDIT_POLICIES, AI_PLAN_DISCOUNTS, type AiBillingCapability, type AiBillingPolicy, type AiPlanDiscountPolicy } from "../shared/ai-credit-policy";
-import { BILLING_CYCLES, MEMBERSHIP_PLANS, getPlanQuote } from "../shared/billing-config";
+import { BILLING_CYCLES, MEMBERSHIP_PLANS, getPlanQuote, quoteCreditRecharge } from "../shared/billing-config";
 import { getAdminSessionFromAuthorization, listAuthUsers, type PublicAuthUser, updateAuthUserAdmin } from "./auth-store";
 
 type AdminStatus = "normal" | "watch" | "blocked";
@@ -53,6 +53,41 @@ type PaymentOrder = {
   paidAt?: string;
   event: string;
   reconciliation: "matched" | "pending" | "mismatch";
+  providerTransactionId?: string;
+  refundAmount?: number;
+  refundedCredits?: number;
+  notes?: OrderNote[];
+  paymentEvents?: PaymentEvent[];
+  refundEvents?: RefundEvent[];
+};
+
+type PaymentEvent = {
+  id: string;
+  type: string;
+  status: "success" | "failed" | "pending";
+  providerTransactionId?: string;
+  amount?: number;
+  signatureValid?: boolean;
+  message: string;
+  createdAt: string;
+};
+
+type OrderNote = {
+  id: string;
+  actorId: string;
+  actorName: string;
+  content: string;
+  createdAt: string;
+};
+
+type RefundEvent = {
+  id: string;
+  amount: number;
+  creditsDeducted: number;
+  reason: string;
+  actorId: string;
+  actorName: string;
+  createdAt: string;
 };
 
 type CreditLedgerEntry = {
@@ -806,6 +841,67 @@ function hasConfirmation(body: Record<string, unknown>, expected: string) {
   return typeof body.confirmation === "string" && body.confirmation.trim() === expected;
 }
 
+function buildPaymentTimeline(order: PaymentOrder, credits: CreditLedgerEntry[], auditLogs: AuditLog[]) {
+  return [
+    {
+      id: `${order.id}:created`,
+      type: "订单创建",
+      status: "pending",
+      message: order.event || "订单已创建",
+      createdAt: order.createdAt,
+    },
+    ...(order.paymentEvents || []).map((event) => ({
+      id: event.id,
+      type: event.type,
+      status: event.status,
+      message: event.message,
+      createdAt: event.createdAt,
+    })),
+    ...credits.map((entry) => ({
+      id: entry.id,
+      type: entry.type,
+      status: entry.delta >= 0 ? "success" : "pending",
+      message: `${entry.reason} · ${entry.delta > 0 ? "+" : ""}${entry.delta} 积分`,
+      createdAt: entry.createdAt,
+    })),
+    ...(order.refundEvents || []).map((event) => ({
+      id: event.id,
+      type: "退款处理",
+      status: "success",
+      message: `${event.reason} · 退款 ${event.amount} · 扣回 ${event.creditsDeducted} 积分`,
+      createdAt: event.createdAt,
+    })),
+    ...auditLogs.map((log) => ({
+      id: log.id,
+      type: "审计",
+      status: "success",
+      message: `${log.actorName} · ${log.action}`,
+      createdAt: log.createdAt,
+    })),
+  ].sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+}
+
+function buildOrderDetail(data: AdminData, orderId: string) {
+  const order = data.orders.find((item) => item.id === orderId);
+  if (!order) return null;
+  const creditEntries = data.credits.filter((entry) => entry.source === order.id);
+  const auditEntries = data.auditLogs.filter((entry) => entry.target === order.id);
+  const feedbackEntries = data.feedback.filter((entry) => entry.linkedOrderId === order.id);
+  const user = data.users.find((item) => item.id === order.userId);
+
+  return {
+    order,
+    user,
+    creditEntries,
+    auditEntries,
+    feedbackEntries,
+    notes: order.notes || [],
+    paymentEvents: order.paymentEvents || [],
+    refundEvents: order.refundEvents || [],
+    timeline: buildPaymentTimeline(order, creditEntries, auditEntries),
+  };
+}
+
 export async function handleAdminApiRequest(
   method: string,
   pathname: string,
@@ -828,6 +924,12 @@ export async function handleAdminApiRequest(
   }
   if (method === "GET" && route === "users") return { status: 200, body: { users: data.users } };
   if (method === "GET" && route === "orders") return { status: 200, body: { orders: data.orders } };
+  const orderDetailMatch = route.match(/^orders\/([^/]+)$/);
+  if (method === "GET" && orderDetailMatch) {
+    const detail = buildOrderDetail(data, orderDetailMatch[1]);
+    if (!detail) return jsonError(404, "订单不存在");
+    return { status: 200, body: detail };
+  }
   if (method === "GET" && route === "credits") return { status: 200, body: { credits: data.credits, users: data.users } };
   if (method === "GET" && route === "ai-tasks") return { status: 200, body: { aiTasks: data.aiTasks, providers: data.providers } };
   if (method === "GET" && route === "providers") return { status: 200, body: { providers: data.providers } };
@@ -890,6 +992,123 @@ export async function handleAdminApiRequest(
     });
     await saveAdminData(data);
     return { status: 200, body: fullPayload(data) };
+  }
+
+  const orderNoteMatch = route.match(/^orders\/([^/]+)\/notes$/);
+  if (method === "POST" && orderNoteMatch) {
+    const order = data.orders.find((item) => item.id === orderNoteMatch[1]);
+    if (!order) return jsonError(404, "订单不存在");
+    const content = typeof body.content === "string" ? body.content.trim() : "";
+    if (!content) return jsonError(400, "处理备注不能为空");
+    const note: OrderNote = {
+      id: `note_${Date.now().toString(36)}`,
+      actorId: actor.id,
+      actorName: actor.username,
+      content,
+      createdAt: nowIso(),
+    };
+    order.notes = [note, ...(order.notes || [])].slice(0, 50);
+    appendAuditLog(data, actor, {
+      action: "新增订单处理备注",
+      target: order.id,
+      reason: content,
+    });
+    await saveAdminData(data);
+    return { status: 200, body: buildOrderDetail(data, order.id) };
+  }
+
+  const orderReissueMatch = route.match(/^orders\/([^/]+)\/reissue$/);
+  if (method === "POST" && orderReissueMatch) {
+    const order = data.orders.find((item) => item.id === orderReissueMatch[1]);
+    if (!order) return jsonError(404, "订单不存在");
+    if (!hasConfirmation(body, "CONFIRM_REISSUE_ORDER")) return jsonError(409, "人工补单需要二次确认");
+    const reason = typeof body.reason === "string" && body.reason.trim() ? body.reason.trim() : "后台人工补单";
+    const before = { status: order.status, issuedCredits: order.issuedCredits, reconciliation: order.reconciliation };
+    const paid = await markBillingOrderPaid({ orderId: order.id, actorName: `${actor.username} / 人工补单` });
+    if (paid.status !== 200) return paid;
+    const refreshed = await loadAdminData();
+    const updatedOrder = refreshed.orders.find((item) => item.id === order.id);
+    if (updatedOrder) {
+      updatedOrder.paymentEvents = [
+        {
+          id: `payevt_${Date.now().toString(36)}`,
+          type: "manual_reissue",
+          status: "success",
+          amount: updatedOrder.amount,
+          message: reason,
+          createdAt: nowIso(),
+        },
+        ...(updatedOrder.paymentEvents || []),
+      ].slice(0, 50);
+      updatedOrder.event = "后台人工补单并入账";
+      appendAuditLog(refreshed, actor, {
+        action: "人工补单并入账",
+        target: updatedOrder.id,
+        reason,
+        before,
+        after: { status: updatedOrder.status, issuedCredits: updatedOrder.issuedCredits, reconciliation: updatedOrder.reconciliation },
+      });
+      await saveAdminData(refreshed);
+      return { status: 200, body: buildOrderDetail(refreshed, updatedOrder.id) };
+    }
+    return jsonError(404, "订单不存在");
+  }
+
+  const orderRefundMatch = route.match(/^orders\/([^/]+)\/refund$/);
+  if (method === "POST" && orderRefundMatch) {
+    const order = data.orders.find((item) => item.id === orderRefundMatch[1]);
+    if (!order) return jsonError(404, "订单不存在");
+    if (!hasConfirmation(body, "CONFIRM_REFUND_ORDER")) return jsonError(409, "退款处理需要二次确认");
+    if (order.status !== "paid") return jsonError(409, "只有已支付订单可以标记退款");
+    const reason = typeof body.reason === "string" && body.reason.trim() ? body.reason.trim() : "后台人工退款";
+    const user = data.users.find((item) => item.id === order.userId);
+    if (!user) return jsonError(404, "订单关联用户不存在");
+    const before = { status: order.status, credits: user.credits, issuedCredits: order.issuedCredits };
+    const creditsToDeduct = Math.min(user.credits, order.issuedCredits);
+    const refundedAt = nowIso();
+    order.status = "refunded";
+    order.reconciliation = "matched";
+    order.event = "后台标记退款";
+    order.refundAmount = (order.refundAmount || 0) + order.amount;
+    order.refundedCredits = (order.refundedCredits || 0) + creditsToDeduct;
+    order.refundEvents = [
+      {
+        id: `refund_${Date.now().toString(36)}`,
+        amount: order.amount,
+        creditsDeducted: creditsToDeduct,
+        reason,
+        actorId: actor.id,
+        actorName: actor.username,
+        createdAt: refundedAt,
+      },
+      ...(order.refundEvents || []),
+    ].slice(0, 50);
+    if (creditsToDeduct > 0) {
+      user.credits = Math.max(0, user.credits - creditsToDeduct);
+      data.credits = [
+        {
+          id: `cr_${Date.now().toString(36)}`,
+          userId: user.id,
+          user: user.name,
+          type: "退款扣回",
+          delta: -creditsToDeduct,
+          reason,
+          source: order.id,
+          operator: actor.username,
+          createdAt: refundedAt,
+        },
+        ...data.credits,
+      ].slice(0, 500);
+    }
+    appendAuditLog(data, actor, {
+      action: "订单退款处理",
+      target: order.id,
+      reason,
+      before,
+      after: { status: order.status, credits: user.credits, refundAmount: order.refundAmount, refundedCredits: order.refundedCredits },
+    });
+    await saveAdminData(data);
+    return { status: 200, body: buildOrderDetail(data, order.id) };
   }
 
   if (method === "POST" && route === "credits/adjust") {
@@ -1121,6 +1340,82 @@ export async function createBillingOrder(params: {
   };
 }
 
+export async function createCreditRechargeOrder(params: {
+  userId: string;
+  username: string;
+  amount: number;
+  paymentMethod: "wechat" | "alipay";
+}) {
+  const amount = Math.round(Number(params.amount));
+  if (!Number.isFinite(amount) || amount < 10) {
+    return { status: 400, body: { error: "充值金额不能低于 HKD 10" } };
+  }
+  if (amount % 5 !== 0) {
+    return { status: 400, body: { error: "充值金额必须以 0 或 5 结尾" } };
+  }
+
+  const quote = quoteCreditRecharge(amount);
+  const data = await loadAdminData();
+  let user = data.users.find((item) => item.id === params.userId);
+  if (!user) {
+    user = {
+      id: params.userId,
+      name: params.username.split("@")[0] || params.username,
+      email: params.username.includes("@") ? params.username : `${params.username}@example.com`,
+      account: params.username,
+      registeredAt: formatDateTime(nowIso()),
+      loginMethod: params.username.includes("@artx.social") ? "social" : "email",
+      role: "viewer",
+      status: "normal",
+      plan: "Free",
+      organization: "个人",
+      credits: 0,
+      frozenCredits: 0,
+      expiredCredits: 0,
+      totalRecharge: 0,
+      totalConsumed: 0,
+      lastSeen: "刚刚",
+      risk: "低",
+    };
+    data.users = [user, ...data.users];
+  }
+
+  const orderCreatedAt = nowIso();
+  const order: PaymentOrder = {
+    id: `rch_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
+    userId: user.id,
+    user: user.name,
+    packageName: "积分充值",
+    channel: params.paymentMethod === "wechat" ? "微信支付" : "支付宝",
+    amount: quote.amount,
+    expectedCredits: quote.credits,
+    issuedCredits: 0,
+    status: "pending",
+    createdAt: orderCreatedAt,
+    event: "充值订单已创建，等待支付",
+    reconciliation: "pending",
+  };
+
+  data.orders = [order, ...data.orders].slice(0, 200);
+  await saveAdminData(data);
+
+  return {
+    status: 200,
+    body: {
+      order: {
+        id: order.id,
+        planName: order.packageName,
+        paymentMethod: params.paymentMethod,
+        amount: quote.amount,
+        credits: quote.credits,
+        bonusCredits: 0,
+        status: "pending",
+        createdAt: orderCreatedAt,
+      },
+    },
+  };
+}
+
 export async function getBillingOrderForPayment(orderId: string) {
   const data = await loadAdminData();
   const order = data.orders.find((item) => item.id === orderId);
@@ -1144,6 +1439,8 @@ export async function markBillingOrderPaid(params: {
   orderId: string;
   actorName: string;
   expectedAmountCents?: number;
+  providerTransactionId?: string;
+  eventType?: string;
 }) {
   const data = await loadAdminData();
   const order = data.orders.find((item) => item.id === params.orderId);
@@ -1173,6 +1470,20 @@ export async function markBillingOrderPaid(params: {
     order.reconciliation = "matched";
     order.event = "支付成功并入账";
     order.paidAt = paidAt;
+    order.providerTransactionId = params.providerTransactionId || order.providerTransactionId;
+    order.paymentEvents = [
+      {
+        id: `payevt_${Date.now().toString(36)}`,
+        type: params.eventType || "payment_success",
+        status: "success",
+        providerTransactionId: params.providerTransactionId,
+        amount: order.amount,
+        signatureValid: true,
+        message: `${params.actorName} 确认支付成功`,
+        createdAt: paidAt,
+      },
+      ...(order.paymentEvents || []),
+    ].slice(0, 50);
 
     user.credits += order.expectedCredits;
     user.plan = order.packageName;
