@@ -2,13 +2,12 @@
  * TopBar — Neo-Studio Dark Design System
  * Global top navigation: search, theme switcher (Radix DropdownMenu), credits, user info
  */
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { ChevronDown, Sparkles, Check, UserRound, LogOut, Search, KeyRound, Copy, RefreshCw, Crown } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { BILLING_CHANGED_EVENT, getStoredCreditBalance, goToUpgradePage } from "@/lib/billing-state";
 import { type CreateProjectPayload } from "@/components/workspace/CreateProjectDialog";
 import {
   DropdownMenu,
@@ -66,7 +65,6 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
   const [apiKey, setApiKey] = useState("");
   const [apiKeyCopied, setApiKeyCopied] = useState(false);
   const [apiKeyCreationConfirmed, setApiKeyCreationConfirmed] = useState(false);
-  const [storedCredits, setStoredCredits] = useState(() => getStoredCreditBalance());
 
   const searchBg = isDark ? "oklch(0.16 0.016 270 / 0.90)" : "oklch(0.97 0.003 270 / 0.92)";
   const searchBorder = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
@@ -77,17 +75,6 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
     const seed = displayName.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
     return AVATAR_COLORS[seed % AVATAR_COLORS.length];
   }, [displayName]);
-  const displayCredits = credits > 0 ? credits : storedCredits;
-
-  useEffect(() => {
-    const syncCredits = () => setStoredCredits(getStoredCreditBalance());
-    window.addEventListener(BILLING_CHANGED_EVENT, syncCredits);
-    window.addEventListener("storage", syncCredits);
-    return () => {
-      window.removeEventListener(BILLING_CHANGED_EVENT, syncCredits);
-      window.removeEventListener("storage", syncCredits);
-    };
-  }, []);
 
   const handleConfirmLogout = () => {
     logout();
@@ -208,9 +195,9 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
 
       {isAuthenticated && (<>
 
-      {/* Credits + upgrade */}
+      {/* Credits + billing */}
       <div
-        className="flex items-center rounded-[var(--radius-lg-design)] p-1"
+        className="flex items-center rounded-[var(--radius-lg-design)] p-1 transition-colors"
         style={{
           height: 40,
           gap: 6,
@@ -222,29 +209,27 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
         <button
           type="button"
           className="flex h-8 items-center gap-1.5 rounded-[var(--radius-md-design)] px-2.5 type-caption transition-colors"
-          style={{
-            color: textPri,
-            background: "transparent",
-            border: "none",
-          }}
-          onClick={() => goToUpgradePage("topbar-credits")}
+          style={{ color: textPri, background: "transparent" }}
+          onClick={() => navigate("/billing?tab=recharge")}
+          onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+          title="查看积分与充值"
         >
           <Sparkles size={13} style={{ color: "oklch(0.78 0.18 290)" }} />
-          <span>{displayCredits}</span>
+          <span>{credits}</span>
           <span style={{ color: textSec }}>积分</span>
         </button>
-
         <button
           type="button"
-          onClick={() => goToUpgradePage("topbar-upgrade")}
-          className="flex h-8 items-center gap-1.5 rounded-[var(--radius-md-design)] px-3 type-caption transition-all duration-150 active:scale-95"
+          onClick={() => navigate("/billing?tab=upgrade")}
+          className="flex h-8 items-center gap-1.5 rounded-[var(--radius-md-design)] px-2.5 type-caption transition-all duration-150 active:scale-95"
           style={{
             background: "linear-gradient(135deg, oklch(0.78 0.18 110), oklch(0.68 0.18 145))",
             color: "oklch(0.12 0.02 160)",
             boxShadow: "0 8px 22px oklch(0.72 0.18 130 / 0.18)",
-            border: "none",
             fontWeight: 650,
           }}
+          title="进入订阅、充值与升级"
         >
           <Crown size={13} />
           <span>升级</span>

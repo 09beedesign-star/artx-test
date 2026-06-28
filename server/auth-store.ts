@@ -53,6 +53,9 @@ interface StoredUser {
   status?: "active" | "disabled";
   resetTokenHash?: string;
   resetTokenExpiresAt?: string;
+  failedLoginCount?: number;
+  lockedUntil?: string;
+  lastLoginAt?: string;
 }
 
 export type PublicAuthUser = ReturnType<typeof publicUser>;
@@ -61,6 +64,7 @@ interface StoredSession {
   tokenHash: string;
   userId: string;
   createdAt: string;
+  expiresAt: string;
 }
 
 interface AuthDatabase {
@@ -74,6 +78,9 @@ const DATA_FILE = path.join(DATA_DIR, "auth-users.json");
 const DEFAULT_USERNAME = "09bee";
 const DEFAULT_PASSWORD = "1234";
 const DEFAULT_ADMIN_ROLE: AdminRole = "super_admin";
+const SESSION_TTL_MS = Number(process.env.ARTX_SESSION_TTL_MS || 1000 * 60 * 60 * 12);
+const LOGIN_LOCK_THRESHOLD = Number(process.env.ARTX_LOGIN_LOCK_THRESHOLD || 5);
+const LOGIN_LOCK_MS = Number(process.env.ARTX_LOGIN_LOCK_MS || 1000 * 60 * 15);
 
 interface AdminAuditLog {
   id: string;
@@ -204,9 +211,12 @@ function normalizeDatabase(parsed: Partial<AuthDatabase>): AuthDatabase {
         role: normalizeRole(user.role),
         permissions: Array.isArray(user.permissions) ? user.permissions : [],
         status: user.status === "disabled" ? "disabled" : "active",
+        failedLoginCount: Number(user.failedLoginCount || 0),
       }))
       : [],
-    sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [],
+    sessions: Array.isArray(parsed.sessions)
+      ? parsed.sessions.filter((session) => !session.expiresAt || Date.parse(session.expiresAt) > Date.now())
+      : [],
     auditLogs: Array.isArray(parsed.auditLogs) ? parsed.auditLogs : [],
   };
 }
@@ -284,10 +294,12 @@ function generateResetToken() {
 
 function createSession(db: AuthDatabase, userId: string) {
   const token = crypto.randomBytes(32).toString("hex");
+  const createdAt = new Date();
   db.sessions.push({
     tokenHash: hashToken(token),
     userId,
-    createdAt: new Date().toISOString(),
+    createdAt: createdAt.toISOString(),
+    expiresAt: new Date(createdAt.getTime() + SESSION_TTL_MS).toISOString(),
   });
   return token;
 }
@@ -320,6 +332,11 @@ function getBearerTokenFromHeader(value: unknown) {
 async function getUserByToken(token: string) {
   const db = await loadDatabase();
   const session = token ? db.sessions.find((item) => item.tokenHash === hashToken(token)) : undefined;
+  if (session?.expiresAt && Date.parse(session.expiresAt) <= Date.now()) {
+    db.sessions = db.sessions.filter((item) => item !== session);
+    await saveDatabase(db);
+    return { db, session: undefined, user: undefined };
+  }
   const user = session ? db.users.find((item) => item.id === session.userId) : undefined;
   return { db, session, user };
 }
@@ -348,9 +365,29 @@ export async function updateAuthUserAdmin(input: {
   status?: "active" | "disabled";
 }) {
   const db = await loadDatabase();
+  const actor = db.users.find((item) => item.id === input.actorId);
   const user = db.users.find((item) => item.id === input.userId);
   if (!user) {
     return { status: 404 as const, body: { error: "用户不存在" } };
+  }
+  const actorRole = normalizeRole(actor?.role);
+  const targetRole = normalizeRole(user.role);
+  const isSelf = input.actorId === user.id;
+  const activeSuperAdminCount = db.users.filter((item) =>
+    normalizeRole(item.role) === "super_admin" && item.status !== "disabled"
+  ).length;
+
+  if (targetRole === "super_admin" && actorRole !== "super_admin") {
+    return { status: 403 as const, body: { error: "只有 super_admin 可以修改超级管理员账号" } };
+  }
+  if (input.role && targetRole === "super_admin" && normalizeRole(input.role) !== "super_admin" && activeSuperAdminCount <= 1) {
+    return { status: 409 as const, body: { error: "不能降级最后一个 super_admin" } };
+  }
+  if (input.status === "disabled" && targetRole === "super_admin" && activeSuperAdminCount <= 1) {
+    return { status: 409 as const, body: { error: "不能停用最后一个 super_admin" } };
+  }
+  if (isSelf && input.status === "disabled") {
+    return { status: 409 as const, body: { error: "不能停用当前登录的管理员账号" } };
   }
 
   if (input.role) {
@@ -422,13 +459,32 @@ export async function handleAuthAction(action: AuthAction, payload: unknown) {
     const password = typeof body.password === "string" ? body.password : "";
     const user = db.users.find((item) => item.loginKey === loginKey(username));
 
+    if (user?.lockedUntil && Date.parse(user.lockedUntil) > Date.now()) {
+      return { status: 429, body: { error: "登录失败次数过多，请稍后再试", lockedUntil: user.lockedUntil } };
+    }
     if (!user || hashPassword(password, user.salt) !== user.passwordHash) {
+      if (user) {
+        user.failedLoginCount = Number(user.failedLoginCount || 0) + 1;
+        if (user.failedLoginCount >= LOGIN_LOCK_THRESHOLD) {
+          user.lockedUntil = new Date(Date.now() + LOGIN_LOCK_MS).toISOString();
+          appendAuditLog(db, {
+            actorId: user.id,
+            action: "auth.login.locked",
+            target: user.id,
+            meta: { failedLoginCount: user.failedLoginCount, lockedUntil: user.lockedUntil },
+          });
+        }
+        await saveDatabase(db);
+      }
       return { status: 401, body: { error: "账号或密码错误，请重新输入" } };
     }
     if (user.status === "disabled") {
       return { status: 403, body: { error: "当前账号已被停用，请联系管理员" } };
     }
 
+    user.failedLoginCount = 0;
+    user.lockedUntil = undefined;
+    user.lastLoginAt = new Date().toISOString();
     const token = createSession(db, user.id);
     await saveDatabase(db);
     return { status: 200, body: { token, user: publicUser(user) } };

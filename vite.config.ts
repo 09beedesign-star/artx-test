@@ -6,8 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
-import { getSessionUserFromAuthorization, handleAuthAction } from "./server/auth-store";
-import { createBillingOrder, getBillingSnapshotForUser, handleAdminApiRequest, markBillingOrderPaid } from "./server/admin-store";
+import { getAdminSessionFromAuthorization, handleAuthAction } from "./server/auth-store";
 import { editImageWithPrompt, eraseImageObjects, generateImages, removeImageBackground } from "./server/image-generation";
 import { searchReferenceImages } from "./server/reference-search";
 import { generateText } from "./server/text-generation";
@@ -376,118 +375,18 @@ function vitePluginAdminApi(): Plugin {
   return {
     name: "artx-admin-api",
     configureServer(server: ViteDevServer) {
-      server.middlewares.use("/api/admin", (req, res, next) => {
-        if (!["GET", "POST"].includes(req.method || "")) {
+      server.middlewares.use("/api/admin/session", (req, res, next) => {
+        if (req.method !== "GET") {
           return next();
         }
 
-        let body = "";
-        req.on("data", (chunk) => {
-          body += chunk.toString();
-        });
-
-        req.on("end", async () => {
-          try {
-            const payload = body ? JSON.parse(body) : {};
-            const fullPath = `/api/admin${req.url || ""}`;
-            const result = await handleAdminApiRequest(req.method || "GET", fullPath, req.headers.authorization, payload);
-            res.writeHead(result.status, { "Content-Type": "application/json" });
-            res.end(JSON.stringify(result.body));
-          } catch (error) {
-            const message = error instanceof Error ? error.message : "Admin request failed";
-            res.writeHead(500, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: message }));
-          }
-        });
-      });
-    },
-  };
-}
-
-function vitePluginBillingApi(): Plugin {
-  return {
-    name: "artx-billing-api",
-    configureServer(server: ViteDevServer) {
-      server.middlewares.use("/api/billing", (req, res, next) => {
-        const method = req.method || "GET";
-        const route = (req.url || "").split("?")[0];
-
-        if (method === "GET" && route === "/summary") {
-          void (async () => {
-            try {
-              const session = await getSessionUserFromAuthorization(req.headers.authorization);
-              if (session.status !== 200) {
-                res.writeHead(session.status, { "Content-Type": "application/json" });
-                res.end(JSON.stringify(session.body));
-                return;
-              }
-              const snapshot = await getBillingSnapshotForUser(session.body.user.id);
-              if (!snapshot) {
-                res.writeHead(404, { "Content-Type": "application/json" });
-                res.end(JSON.stringify({ error: "账本账户不存在" }));
-                return;
-              }
-              res.writeHead(200, { "Content-Type": "application/json" });
-              res.end(JSON.stringify(snapshot));
-            } catch (error) {
-              const message = error instanceof Error ? error.message : "Billing summary failed";
-              res.writeHead(500, { "Content-Type": "application/json" });
-              res.end(JSON.stringify({ error: message }));
-            }
-          })();
-          return;
-        }
-
-        if (method !== "POST") {
-          return next();
-        }
-
-        let body = "";
-        req.on("data", (chunk) => {
-          body += chunk.toString();
-        });
-
-        req.on("end", async () => {
-          try {
-            const payload = body ? JSON.parse(body) : {};
-            const session = await getSessionUserFromAuthorization(req.headers.authorization);
-            if (session.status !== 200) {
-              res.writeHead(session.status, { "Content-Type": "application/json" });
-              res.end(JSON.stringify(session.body));
-              return;
-            }
-
-            if (route === "/orders") {
-              const result = await createBillingOrder({
-                userId: session.body.user.id,
-                username: session.body.user.username,
-                planId: String(payload.planId || ""),
-                cycleId: String(payload.cycleId || ""),
-                paymentMethod: payload.paymentMethod === "alipay" ? "alipay" : "wechat",
-              });
-              res.writeHead(result.status, { "Content-Type": "application/json" });
-              res.end(JSON.stringify(result.body));
-              return;
-            }
-
-            const payMatch = route.match(/^\/orders\/([^/]+)\/pay$/);
-            if (payMatch) {
-              const result = await markBillingOrderPaid({
-                orderId: payMatch[1],
-                actorName: `${session.body.user.username} / 模拟支付`,
-              });
-              res.writeHead(result.status, { "Content-Type": "application/json" });
-              res.end(JSON.stringify(result.body));
-              return;
-            }
-
-            res.writeHead(404, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "Unknown billing route" }));
-          } catch (error) {
-            const message = error instanceof Error ? error.message : "Billing request failed";
-            res.writeHead(500, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: message }));
-          }
+        getAdminSessionFromAuthorization(req.headers.authorization).then((result) => {
+          res.writeHead(result.status, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(result.body));
+        }).catch((error) => {
+          const message = error instanceof Error ? error.message : "Admin session check failed";
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: message }));
         });
       });
     },
@@ -503,7 +402,6 @@ const plugins = [
   vitePluginStorageProxy(),
   vitePluginAuthApi(),
   vitePluginAdminApi(),
-  vitePluginBillingApi(),
   vitePluginJsonApi("artx-ai-image-api", "/api/images/generate", generateImages, "Image generation failed"),
   vitePluginJsonApi("artx-ai-remove-background-api", "/api/images/remove-background", removeImageBackground, "Background removal failed"),
   vitePluginJsonApi("artx-ai-edit-image-api", "/api/images/edit", editImageWithPrompt, "Image edit failed"),

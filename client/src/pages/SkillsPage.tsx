@@ -400,15 +400,19 @@ export default function SkillsPage() {
                       <button
                         type="button"
                         onClick={() => handleQuickLoad(skill)}
-                        className="inline-flex h-9 flex-1 items-center justify-center rounded-[var(--radius-md-design)] text-xs font-semibold transition-opacity hover:opacity-90 active:scale-[0.99]"
+                        className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-[var(--radius-md-design)] text-xs font-semibold transition-opacity hover:opacity-90 active:scale-[0.99]"
                         style={{
                           background: skillButtonPurple,
                           color: "white",
                           boxShadow: skillButtonPurpleShadow,
                         }}
                       >
-                        快速加载到画布
+                        <Loader2 size={13} />
+                        快速加载
                       </button>
+                      <span className="hidden text-xs md:inline" style={{ color: faint }}>
+                        进入画布并连接生成
+                      </span>
                     </div>
                   </div>
                 </article>

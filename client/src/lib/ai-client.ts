@@ -3,8 +3,6 @@ type ApiErrorResponse = {
   message?: string;
 };
 
-const AUTH_STORAGE_KEY = "artx-auth-session";
-
 export type AiCapability =
   | "chat"
   | "text_to_image"
@@ -77,17 +75,6 @@ function getBackendApiBaseUrl() {
   return "";
 }
 
-function readAuthToken() {
-  if (typeof window === "undefined") return "";
-  try {
-    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) as { token?: string } : null;
-    return typeof parsed?.token === "string" ? parsed.token : "";
-  } catch {
-    return "";
-  }
-}
-
 async function readJsonResponse<T extends ApiErrorResponse>(response: Response, fallbackError: string): Promise<T> {
   const text = await response.text();
   const contentType = response.headers.get("content-type") || "";
@@ -101,13 +88,9 @@ async function readJsonResponse<T extends ApiErrorResponse>(response: Response, 
 
 async function postJson<T extends ApiErrorResponse>(path: string, body: unknown, fallbackError: string): Promise<T> {
   const endpoint = `${getBackendApiBaseUrl()}${path}`;
-  const token = readAuthToken();
   const response = await fetch(endpoint, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   const result = await readJsonResponse<T>(response, fallbackError);
