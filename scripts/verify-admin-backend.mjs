@@ -67,8 +67,28 @@ try {
   assert.equal(orderResult.status, 200, "billing order should be created");
   const orderId = orderResult.body.order.id;
 
-  const paid = await markBillingOrderPaid({ orderId, actorName: "verify-admin-backend" });
+  const detailBeforePay = await admin("GET", `/api/admin/orders/${orderId}`, adminToken);
+  assert.equal(detailBeforePay.status, 200, "order detail should load before payment");
+  assert.equal(detailBeforePay.body.order.id, orderId);
+
+  const note = await admin("POST", `/api/admin/orders/${orderId}/notes`, adminToken, {
+    content: "verify order note",
+  });
+  assert.equal(note.status, 200, "order note should be saved");
+  assert.ok(note.body.notes.some((item) => item.content === "verify order note"), "order detail should include notes");
+
+  const paid = await markBillingOrderPaid({
+    orderId,
+    actorName: "verify-admin-backend",
+    providerTransactionId: "txn_verify_001",
+    eventType: "verify_payment",
+  });
   assert.equal(paid.status, 200, "billing order should be marked paid");
+  const detailAfterPay = await admin("GET", `/api/admin/orders/${orderId}`, adminToken);
+  assert.equal(detailAfterPay.status, 200, "order detail should load after payment");
+  assert.equal(detailAfterPay.body.order.providerTransactionId, "txn_verify_001");
+  assert.ok(detailAfterPay.body.paymentEvents.some((item) => item.providerTransactionId === "txn_verify_001"), "order detail should include payment event");
+  assert.ok(detailAfterPay.body.creditEntries.some((entry) => entry.source === orderId && entry.delta > 0), "order detail should include credit entry");
   const snapshot = await getBillingSnapshotForUser(ordinaryUser.id);
   assert.ok(snapshot.balance > 0, "paid order should issue credits");
   assert.ok(snapshot.ledger.some((entry) => entry.source === orderId && entry.delta > 0), "paid order should write credit ledger");
@@ -158,6 +178,39 @@ try {
     confirmHighRisk: true,
   });
   assert.equal(confirmedLargeAdjustment.status, 200, "confirmed large credit adjustment should pass");
+
+  const refundMissingConfirmation = await admin("POST", `/api/admin/orders/${orderId}/refund`, adminToken, {
+    reason: "verify refund missing confirmation",
+  });
+  assert.equal(refundMissingConfirmation.status, 409, "refund should require confirmation");
+  const refund = await admin("POST", `/api/admin/orders/${orderId}/refund`, adminToken, {
+    reason: "verify refund",
+    confirmation: "CONFIRM_REFUND_ORDER",
+  });
+  assert.equal(refund.status, 200, "confirmed refund should pass");
+  assert.equal(refund.body.order.status, "refunded", "refunded order should be marked refunded");
+  assert.ok(refund.body.refundEvents.some((item) => item.reason === "verify refund"), "refund event should be recorded");
+  assert.ok(refund.body.creditEntries.some((entry) => entry.type === "退款扣回"), "refund credit clawback should be recorded");
+
+  const reissueOrder = await createBillingOrder({
+    userId: ordinaryUser.id,
+    username: ordinaryUser.username,
+    planId: "lite",
+    cycleId: "monthly",
+    paymentMethod: "alipay",
+  });
+  assert.equal(reissueOrder.status, 200);
+  const reissueMissingConfirmation = await admin("POST", `/api/admin/orders/${reissueOrder.body.order.id}/reissue`, adminToken, {
+    reason: "verify reissue missing confirmation",
+  });
+  assert.equal(reissueMissingConfirmation.status, 409, "reissue should require confirmation");
+  const reissue = await admin("POST", `/api/admin/orders/${reissueOrder.body.order.id}/reissue`, adminToken, {
+    reason: "verify reissue",
+    confirmation: "CONFIRM_REISSUE_ORDER",
+  });
+  assert.equal(reissue.status, 200, "confirmed reissue should pass");
+  assert.equal(reissue.body.order.status, "paid", "reissued order should be paid");
+  assert.ok(reissue.body.paymentEvents.some((item) => item.type === "manual_reissue"), "reissue event should be recorded");
 
   const finalOverview = await admin("GET", "/api/admin/overview", adminToken);
   assert.equal(finalOverview.status, 200);

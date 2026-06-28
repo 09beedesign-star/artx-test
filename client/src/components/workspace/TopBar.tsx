@@ -221,7 +221,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
         </button>
         <button
           type="button"
-          onClick={() => navigate("/billing?tab=upgrade")}
+          onClick={() => navigate("/billing?tab=subscription")}
           className="flex h-8 items-center gap-1.5 rounded-[var(--radius-md-design)] px-2.5 type-caption transition-all duration-150 active:scale-95"
           style={{
             background: "#C5ED47",

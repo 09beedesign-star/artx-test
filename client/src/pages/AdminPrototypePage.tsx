@@ -72,6 +72,8 @@ type AdminUser = {
 type Order = {
   id: string;
   user: string;
+  userId?: string;
+  packageName?: string;
   channel: string;
   amount: number;
   credits: number;
@@ -79,8 +81,24 @@ type Order = {
   issuedCredits?: number;
   status: OrderStatus;
   createdAt: string;
+  paidAt?: string;
   event?: string;
   reconciliation?: "matched" | "pending" | "mismatch";
+  providerTransactionId?: string;
+  refundAmount?: number;
+  refundedCredits?: number;
+};
+
+type OrderDetail = {
+  order: Order;
+  user?: AdminUser;
+  creditEntries: Array<{ id: string; user: string; type: string; delta: number; operator: string; source: string; reason: string; createdAt: string }>;
+  auditEntries: Array<{ id: string; actorName: string; action: string; target: string; createdAt: string; reason?: string }>;
+  feedbackEntries: Feedback[];
+  notes: Array<{ id: string; actorName: string; content: string; createdAt: string }>;
+  paymentEvents: Array<{ id: string; type: string; status: string; providerTransactionId?: string; amount?: number; signatureValid?: boolean; message: string; createdAt: string }>;
+  refundEvents: Array<{ id: string; amount: number; creditsDeducted: number; reason: string; actorName: string; createdAt: string }>;
+  timeline: Array<{ id: string; type: string; status: string; message: string; createdAt: string }>;
 };
 
 type Feedback = {
@@ -552,6 +570,9 @@ function AdminPrototypePage() {
   const [notice, setNotice] = useState("正在连接后台数据接口：/api/admin/overview。");
   const [policyDraft, setPolicyDraft] = useState<Array<{ capability: string; capabilityKey?: string; unit: string; baseCredits: number; estimatedCostPerUnit: number; provider: string }>>([]);
   const [discountDraft, setDiscountDraft] = useState<Array<{ planId: string; multiplier: number; label: string }>>([]);
+  const [selectedOrderId, setSelectedOrderId] = useState("");
+  const [orderDetail, setOrderDetail] = useState<OrderDetail | null>(null);
+  const [orderNote, setOrderNote] = useState("");
 
   const fetchAdminData = useCallback(async (message?: string) => {
     const token = readAdminToken();
@@ -574,6 +595,7 @@ function AdminPrototypePage() {
       setPolicyDraft(nextData.overview?.aiBillingPolicies || []);
       setDiscountDraft(nextData.overview?.planDiscounts || []);
       setSelectedUserId((current) => nextData.users.some((item) => item.id === current) ? current : nextData.users[0]?.id || "");
+      setSelectedOrderId((current) => nextData.orders.some((item) => item.id === current) ? current : nextData.orders[0]?.id || "");
       setNotice(message || "后台数据已接入：支付、积分、AI 任务、供应商健康、反馈、告警和审计均来自 /api/admin/*。");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "后台数据加载失败");
@@ -582,9 +604,30 @@ function AdminPrototypePage() {
     }
   }, []);
 
+  const fetchOrderDetail = useCallback(async (orderId: string) => {
+    const token = readAdminToken();
+    if (!token || !orderId) return;
+    try {
+      const response = await fetch(`/api/admin/orders/${encodeURIComponent(orderId)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "订单详情加载失败");
+      setOrderDetail(payload as OrderDetail);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "订单详情加载失败");
+    }
+  }, []);
+
   useEffect(() => {
     fetchAdminData();
   }, [fetchAdminData]);
+
+  useEffect(() => {
+    if (selectedOrderId) {
+      fetchOrderDetail(selectedOrderId);
+    }
+  }, [fetchOrderDetail, selectedOrderId]);
 
   async function adminPost(path: string, payload: Record<string, unknown>, successMessage: string) {
     const token = readAdminToken();
@@ -610,7 +653,33 @@ function AdminPrototypePage() {
     }
   }
 
+  async function adminPostOrder(path: string, payload: Record<string, unknown>, successMessage: string) {
+    const token = readAdminToken();
+    if (!token) {
+      setNotice("未找到后台登录令牌，请重新登录后再操作。");
+      return;
+    }
+    try {
+      const response = await fetch(path, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "订单操作失败");
+      setOrderDetail(result as OrderDetail);
+      await fetchAdminData(successMessage);
+      setNotice(successMessage);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "订单操作失败");
+    }
+  }
+
   const selectedUser = adminData.users.find((item) => item.id === selectedUserId) ?? adminData.users[0] ?? users[0];
+  const selectedOrder = adminData.orders.find((item) => item.id === selectedOrderId) ?? adminData.orders[0];
   const metrics = adminData.overview?.metrics;
   const paidRevenue = metrics?.todayRevenue ?? adminData.orders
     .filter((order) => order.status === "paid")
@@ -687,6 +756,35 @@ function AdminPrototypePage() {
       planDiscounts: discountDraft,
       confirmation: "CONFIRM_AI_BILLING_POLICY",
     }, "AI 扣分策略和套餐折扣已保存。");
+  }
+
+  function handleSelectOrder(orderId: string) {
+    setSelectedOrderId(orderId);
+    setOrderNote("");
+  }
+
+  function handleAddOrderNote() {
+    if (!selectedOrderId) return;
+    adminPostOrder(`/api/admin/orders/${encodeURIComponent(selectedOrderId)}/notes`, {
+      content: orderNote,
+    }, "订单处理备注已保存，并写入审计日志。");
+    setOrderNote("");
+  }
+
+  function handleReissueOrder() {
+    if (!selectedOrderId) return;
+    adminPostOrder(`/api/admin/orders/${encodeURIComponent(selectedOrderId)}/reissue`, {
+      reason: "后台人工补单",
+      confirmation: "CONFIRM_REISSUE_ORDER",
+    }, "订单已人工补单，积分入账和支付事件已记录。");
+  }
+
+  function handleRefundOrder() {
+    if (!selectedOrderId) return;
+    adminPostOrder(`/api/admin/orders/${encodeURIComponent(selectedOrderId)}/refund`, {
+      reason: "后台人工退款",
+      confirmation: "CONFIRM_REFUND_ORDER",
+    }, "订单已标记退款，已按可用余额扣回积分并记录审计。");
   }
 
   return (
@@ -1028,7 +1126,22 @@ function AdminPrototypePage() {
     }
 
     if (activeSection === "orders") {
-      return <OrdersTable orders={adminData.orders} />;
+      return (
+        <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+          <div className="overflow-hidden rounded-md border border-white/10 bg-white/[0.03]">
+            <OrdersTable orders={adminData.orders} selectedOrderId={selectedOrder?.id || ""} onSelect={handleSelectOrder} />
+          </div>
+          <OrderDetailPanel
+            detail={orderDetail}
+            fallbackOrder={selectedOrder}
+            note={orderNote}
+            onNoteChange={setOrderNote}
+            onAddNote={handleAddOrderNote}
+            onReissue={handleReissueOrder}
+            onRefund={handleRefundOrder}
+          />
+        </div>
+      );
     }
 
     if (activeSection === "credits") {
@@ -1512,7 +1625,15 @@ function Toolbar({
   );
 }
 
-function OrdersTable({ orders }: { orders: Order[] }) {
+function OrdersTable({
+  orders,
+  selectedOrderId,
+  onSelect,
+}: {
+  orders: Order[];
+  selectedOrderId: string;
+  onSelect: (orderId: string) => void;
+}) {
   return (
     <Table className="min-w-[760px]">
       <TableHeader>
@@ -1529,7 +1650,11 @@ function OrdersTable({ orders }: { orders: Order[] }) {
       </TableHeader>
       <TableBody>
         {orders.map((order) => (
-          <TableRow key={order.id} className="border-white/8 hover:bg-white/[0.04]">
+          <TableRow
+            key={order.id}
+            className={cn("cursor-pointer border-white/8 hover:bg-white/[0.04]", selectedOrderId === order.id && "bg-cyan-300/10")}
+            onClick={() => onSelect(order.id)}
+          >
             <TableCell className="font-mono text-xs text-slate-400">{order.id}</TableCell>
             <TableCell>{order.user}</TableCell>
             <TableCell>{order.channel}</TableCell>
@@ -1548,6 +1673,156 @@ function OrdersTable({ orders }: { orders: Order[] }) {
         ))}
       </TableBody>
     </Table>
+  );
+}
+
+function OrderDetailPanel({
+  detail,
+  fallbackOrder,
+  note,
+  onNoteChange,
+  onAddNote,
+  onReissue,
+  onRefund,
+}: {
+  detail: OrderDetail | null;
+  fallbackOrder?: Order;
+  note: string;
+  onNoteChange: (value: string) => void;
+  onAddNote: () => void;
+  onReissue: () => void;
+  onRefund: () => void;
+}) {
+  const order = detail?.order || fallbackOrder;
+  if (!order) {
+    return (
+      <div className="rounded-md border border-white/10 bg-white/[0.03] p-4 text-sm text-slate-400">
+        选择一笔订单查看对账详情。
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4 rounded-md border border-white/10 bg-white/[0.03] p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="font-mono text-xs text-slate-500">{order.id}</div>
+          <h3 className="mt-1 text-base font-semibold">{order.user} · {order.packageName || "订单详情"}</h3>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Badge className={statusClass(order.status)}>{statusLabel(order.status)}</Badge>
+            <Badge className={statusClass(order.reconciliation || "matched")}>
+              {order.reconciliation === "mismatch" ? "对账异常" : order.reconciliation === "pending" ? "待对账" : "对账一致"}
+            </Badge>
+          </div>
+        </div>
+        <div className="text-right text-sm">
+          <div className="font-semibold">{formatCurrency(order.amount)}</div>
+          <div className="text-xs text-slate-400">{formatCredits(order.expectedCredits || order.credits)} 应发积分</div>
+        </div>
+      </div>
+
+      <div className="grid gap-3 text-xs sm:grid-cols-2">
+        <InfoLine label="支付渠道" value={order.channel} />
+        <InfoLine label="第三方交易号" value={order.providerTransactionId || "待回调/待查询"} mono />
+        <InfoLine label="实发积分" value={formatCredits(order.issuedCredits || 0)} />
+        <InfoLine label="退款/扣回" value={`${formatCurrency(order.refundAmount || 0)} / ${formatCredits(order.refundedCredits || 0)} 积分`} />
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-3">
+        <Button variant="outline" className="border-white/15 bg-white/5" onClick={onAddNote} disabled={!note.trim()}>
+          保存备注
+        </Button>
+        <Button variant="outline" className="border-amber-300/30 bg-amber-300/10 text-amber-100" onClick={onReissue} disabled={order.status === "paid"}>
+          人工补单
+        </Button>
+        <Button variant="outline" className="border-rose-300/30 bg-rose-300/10 text-rose-100" onClick={onRefund} disabled={order.status !== "paid"}>
+          标记退款
+        </Button>
+      </div>
+      <Input
+        value={note}
+        onChange={(event) => onNoteChange(event.target.value)}
+        placeholder="记录处理备注，例如：用户提供微信支付截图，待核对交易号"
+        className="border-white/12 bg-white/5"
+      />
+
+      <MiniSection
+        title="支付事件"
+        rows={(detail?.paymentEvents || []).map((item) => ({
+          title: `${item.type} · ${item.status}`,
+          meta: `${item.message} · ${item.createdAt}`,
+          value: item.providerTransactionId || "N/A",
+        }))}
+        empty="暂无第三方支付事件"
+      />
+      <MiniSection
+        title="积分流水"
+        rows={(detail?.creditEntries || []).map((item) => ({
+          title: `${item.type} · ${item.delta > 0 ? "+" : ""}${item.delta}`,
+          meta: `${item.reason} · ${item.createdAt}`,
+          value: item.operator,
+        }))}
+        empty="暂无积分流水"
+      />
+      <MiniSection
+        title="处理备注"
+        rows={(detail?.notes || []).map((item) => ({
+          title: item.actorName,
+          meta: item.content,
+          value: item.createdAt,
+        }))}
+        empty="暂无处理备注"
+      />
+      <MiniSection
+        title="对账时间线"
+        rows={(detail?.timeline || []).slice(0, 8).map((item) => ({
+          title: item.type,
+          meta: item.message,
+          value: item.createdAt,
+        }))}
+        empty="暂无时间线"
+      />
+    </div>
+  );
+}
+
+function InfoLine({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="rounded-md border border-white/8 bg-slate-950/30 p-3">
+      <div className="text-slate-500">{label}</div>
+      <div className={cn("mt-1 break-all text-slate-100", mono && "font-mono")}>{value}</div>
+    </div>
+  );
+}
+
+function MiniSection({
+  title,
+  rows,
+  empty,
+}: {
+  title: string;
+  rows: Array<{ title: string; meta: string; value: string }>;
+  empty: string;
+}) {
+  return (
+    <div className="rounded-md border border-white/8 bg-slate-950/25 p-3">
+      <div className="mb-2 text-sm font-medium">{title}</div>
+      {rows.length ? (
+        <div className="space-y-2">
+          {rows.map((row, index) => (
+            <div key={`${row.title}-${index}`} className="grid gap-2 rounded-md bg-white/[0.03] p-2 text-xs sm:grid-cols-[1fr_auto]">
+              <div>
+                <div className="font-medium text-slate-200">{row.title}</div>
+                <div className="mt-1 text-slate-500">{row.meta}</div>
+              </div>
+              <div className="font-mono text-slate-400">{row.value}</div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-xs text-slate-500">{empty}</div>
+      )}
+    </div>
   );
 }
 

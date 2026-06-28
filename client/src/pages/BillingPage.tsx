@@ -5,11 +5,10 @@ import {
   Check,
   CreditCard,
   Crown,
-  Layers3,
   Rocket,
   Sparkles,
   WalletCards,
-  Zap,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import TopBar from "@/components/workspace/TopBar";
@@ -18,12 +17,11 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { BG_GLOW } from "@/lib/workspace-data";
 import { BILLING_CYCLES, MEMBERSHIP_PLANS, formatCurrency, getPlanQuote, quoteCreditRecharge, type BillingCycleId, type MembershipPlanId } from "@shared/billing-config";
 
-type BillingTab = "subscription" | "recharge" | "upgrade";
+type BillingTab = "subscription" | "recharge";
 
 const billingTabs: Array<{ id: BillingTab; label: string; description: string }> = [
   { id: "subscription", label: "订阅服务", description: "整体创作服务订阅" },
   { id: "recharge", label: "积分充值", description: "额外购买可用创作额度" },
-  { id: "upgrade", label: "升级方案", description: "当前方案与高阶方案对比" },
 ];
 
 const subscriptionPlans = [
@@ -31,19 +29,40 @@ const subscriptionPlans = [
     id: "lite" as MembershipPlanId,
     audience: "个人创作者",
     highlight: false,
-    features: ["AI 对话与提示词共创", "图片生成与智能编辑", "智能背景基础队列", "标准清晰度导出"],
+    level: 1,
+    features: [
+      { label: "AI 对话与提示词共创", included: true },
+      { label: "基础图片生成与智能编辑", included: true },
+      { label: "智能背景基础队列", included: true },
+      { label: "4K 高清优先导出", included: false },
+      { label: "批量商业图高速队列", included: false },
+    ],
   },
   {
     id: "pro" as MembershipPlanId,
     audience: "高频创作与电商内容",
     highlight: true,
-    features: ["GPT + Image Two + Nano Banana 能力池", "批量图片生成", "高清导出与 HD 提升", "更高任务队列优先级"],
+    level: 2,
+    features: [
+      { label: "GPT + Image Two + Nano Banana 能力池", included: true },
+      { label: "批量图片生成", included: true },
+      { label: "高清导出与 HD 提升", included: true },
+      { label: "商品图优先排队", included: true },
+      { label: "团队并发额度池", included: false },
+    ],
   },
   {
     id: "studio" as MembershipPlanId,
     audience: "团队与商业项目",
     highlight: false,
-    features: ["多人项目协作预留", "商业画板与素材管理", "更高并发任务占位", "发票与用量报表预留"],
+    level: 3,
+    features: [
+      { label: "多人项目协作预留", included: true },
+      { label: "商业画板与素材管理", included: true },
+      { label: "最高图片生成并发占位", included: true },
+      { label: "专属高峰期任务通道", included: true },
+      { label: "发票与用量报表预留", included: true },
+    ],
   },
 ];
 
@@ -70,6 +89,7 @@ type BillingPayResponse = {
 
 type BillingSummaryResponse = {
   balance?: number;
+  plan?: string;
   orders?: Array<{ id: string; status: string; amount: number; credits: number }>;
   error?: string;
 };
@@ -85,22 +105,51 @@ type BillingStatusResponse = {
 };
 
 const rechargePacks = [
-  { id: "pack-small", name: "轻量补充", credits: "小额积分包", placeholder: "例如 50", usage: "临时补充生成额度" },
-  { id: "pack-growth", name: "增长补充", credits: "中额积分包", placeholder: "例如 150", usage: "适合连续作业" },
-  { id: "pack-scale", name: "规模补充", credits: "大额积分包", placeholder: "例如 500", usage: "适合批量生成与团队项目" },
-];
-
-const upgradeRows = [
-  { label: "整体服务", current: "基础能力", target: "完整创作能力池" },
-  { label: "生成额度", current: "基础额度", target: "更高月度额度" },
-  { label: "任务队列", current: "标准队列", target: "优先队列" },
-  { label: "导出能力", current: "标准导出", target: "高清与商业导出" },
+  {
+    id: "pack-small",
+    name: "轻量补充",
+    credits: "小额积分包",
+    placeholder: "例如 50",
+    usage: "临时补充生成额度",
+    perks: [
+      { label: "标准图片生成额度", included: true },
+      { label: "基础智能编辑消耗抵扣", included: true },
+      { label: "高峰期优先排队", included: false },
+      { label: "批量商品图专属通道", included: false },
+    ],
+  },
+  {
+    id: "pack-growth",
+    name: "增长补充",
+    credits: "中额积分包",
+    placeholder: "例如 150",
+    usage: "适合连续作业",
+    perks: [
+      { label: "高清图片生成额度", included: true },
+      { label: "智能背景与去背景抵扣", included: true },
+      { label: "高峰期优先排队", included: true },
+      { label: "团队级并发加速", included: false },
+    ],
+  },
+  {
+    id: "pack-scale",
+    name: "规模补充",
+    credits: "大额积分包",
+    placeholder: "例如 500",
+    usage: "适合批量生成与团队项目",
+    perks: [
+      { label: "批量商业图生成额度", included: true },
+      { label: "智能背景高频消耗抵扣", included: true },
+      { label: "高峰期优先排队", included: true },
+      { label: "大批量任务专属通道", included: true },
+    ],
+  },
 ];
 
 function readInitialTab(): BillingTab {
   if (typeof window === "undefined") return "subscription";
   const value = new URLSearchParams(window.location.search).get("tab");
-  return value === "recharge" || value === "upgrade" ? value : "subscription";
+  return value === "recharge" ? value : "subscription";
 }
 
 function getBillingApiBaseUrl() {
@@ -162,6 +211,7 @@ export default function BillingPage() {
   const [activeCycle, setActiveCycle] = useState<BillingCycleId>("monthly");
   const [payingPlanId, setPayingPlanId] = useState<string | null>(null);
   const [balance, setBalance] = useState(75);
+  const [currentPlan, setCurrentPlan] = useState("Free");
   const [balanceFlash, setBalanceFlash] = useState(false);
   const [rechargeAmounts, setRechargeAmounts] = useState<Record<string, string>>({
     "pack-small": "50",
@@ -204,6 +254,7 @@ export default function BillingPage() {
     billingFetch<BillingSummaryResponse>("/api/billing/summary")
       .then(result => {
         if (typeof result.balance === "number") setBalance(result.balance);
+        if (typeof result.plan === "string" && result.plan.trim()) setCurrentPlan(result.plan.trim());
       })
       .catch(() => {});
   }, [isAuthenticated]);
@@ -238,9 +289,26 @@ export default function BillingPage() {
     navigate(`/billing?tab=${tab}`, { replace: true });
   };
 
+  const getPlanLevel = (planName: string) => {
+    const normalized = planName.toLowerCase();
+    if (normalized.includes("studio") || normalized.includes("business")) return 3;
+    if (normalized.includes("pro")) return 2;
+    if (normalized.includes("lite") || normalized.includes("creator")) return 1;
+    return 0;
+  };
+
+  const currentPlanLevel = getPlanLevel(currentPlan);
+
   const startSubscriptionPayment = async (planId: string, label: string) => {
     if (!isAuthenticated) {
       openLoginModal();
+      return;
+    }
+    const targetPlan = subscriptionPlans.find(item => item.id === planId);
+    if (targetPlan && currentPlanLevel >= targetPlan.level) {
+      toast("当前方案不可降级", {
+        description: "已订阅用户只能升级到更高方案。",
+      });
       return;
     }
 
@@ -348,12 +416,6 @@ export default function BillingPage() {
     }
   };
 
-  const showPendingToast = (label: string) => {
-    toast("功能待配置", {
-      description: `${label} 的具体金额和支付动作还未启用。`,
-    });
-  };
-
   return (
     <div className="flex h-screen flex-col overflow-hidden" style={{ background: bg, position: "relative" }}>
       {isDark && (
@@ -395,7 +457,7 @@ export default function BillingPage() {
 
               <div className="grid min-w-[min(100%,520px)] grid-cols-3 gap-2">
                 {[
-                  { label: "当前计划", value: "Free", icon: Crown },
+                  { label: "当前计划", value: currentPlan, icon: Crown },
                   { label: "积分余额", value: balance.toLocaleString("zh-HK"), icon: WalletCards, rolling: true },
                   { label: "订阅状态", value: "待升级", icon: Rocket },
                 ].map(item => {
@@ -481,6 +543,8 @@ export default function BillingPage() {
                     {subscriptionPlans.map(planConfig => {
                       const plan = MEMBERSHIP_PLANS.find(item => item.id === planConfig.id) || MEMBERSHIP_PLANS[0];
                       const quote = getPlanQuote(plan, activeCycleConfig);
+                      const disabledByPlan = currentPlanLevel >= planConfig.level;
+                      const originalPrice = Math.ceil(quote.price * 1.42 / 10) * 10 + 9;
                       return (
                         <article
                         key={planConfig.id}
@@ -505,18 +569,25 @@ export default function BillingPage() {
 
                         <div className="rounded-[var(--radius-lg-design)] border p-3" style={{ borderColor: border, background: isDark ? "oklch(0.09 0.012 270 / 0.56)" : "oklch(0 0 0 / 3%)" }}>
                           <div className="type-caption" style={{ color: faint }}>ArtX 标准价</div>
-                          <div className="mt-1 flex items-end gap-2">
+                          <div className="mt-1 flex flex-wrap items-end gap-2">
                             <span style={{ color: text, fontSize: 24, fontWeight: 760 }}>{formatCurrency(quote.price)}</span>
                             <span className="pb-1 type-caption" style={{ color: sub }}>/ {cycleLabel}</span>
+                            <span className="pb-1 type-caption" style={{ color: faint, textDecoration: "line-through", textDecorationThickness: 1 }}>
+                              {formatCurrency(originalPrice)}
+                            </span>
                           </div>
                           <div className="mt-1 type-caption" style={{ color: faint, letterSpacing: 0, textTransform: "none" }}>{quote.totalCredits.toLocaleString("zh-HK")} 创作积分</div>
                         </div>
 
                         <ul className="mt-4 flex-1 space-y-2.5">
                           {planConfig.features.map(feature => (
-                            <li key={feature} className="flex items-start gap-2 type-caption leading-5" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>
-                              <Check size={13} style={{ color: green, flex: "0 0 auto", marginTop: 2 }} />
-                              <span>{feature}</span>
+                            <li key={feature.label} className="flex items-start gap-2 type-caption leading-5" style={{ color: feature.included ? sub : faint, letterSpacing: 0, textTransform: "none" }}>
+                              {feature.included ? (
+                                <Check size={13} style={{ color: green, flex: "0 0 auto", marginTop: 2 }} />
+                              ) : (
+                                <X size={13} style={{ color: "oklch(0.58 0.03 270)", flex: "0 0 auto", marginTop: 2 }} />
+                              )}
+                              <span>{feature.label}</span>
                             </li>
                           ))}
                         </ul>
@@ -524,11 +595,17 @@ export default function BillingPage() {
                         <button
                           type="button"
                           onClick={() => startSubscriptionPayment(plan.id, `${plan.name} ${cycleLabel}`)}
-                          disabled={payingPlanId === plan.id}
+                          disabled={payingPlanId === plan.id || disabledByPlan}
                           className="mt-5 h-10 rounded-[var(--radius-md-design)] type-caption transition-all hover:opacity-90 active:scale-[0.98]"
-                          style={{ background: planConfig.highlight ? green : "oklch(0.68 0.20 292 / 0.18)", color: planConfig.highlight ? "#10130A" : text, border: `1px solid ${planConfig.highlight ? "transparent" : "oklch(0.68 0.20 292 / 0.32)"}`, fontWeight: 700 }}
+                          style={{
+                            background: disabledByPlan ? "oklch(1 0 0 / 8%)" : planConfig.highlight ? green : "oklch(0.68 0.20 292 / 0.18)",
+                            color: disabledByPlan ? faint : planConfig.highlight ? "#10130A" : text,
+                            border: `1px solid ${disabledByPlan ? "oklch(1 0 0 / 10%)" : planConfig.highlight ? "transparent" : "oklch(0.68 0.20 292 / 0.32)"}`,
+                            cursor: disabledByPlan ? "not-allowed" : "pointer",
+                            fontWeight: 700,
+                          }}
                         >
-                          {payingPlanId === plan.id ? "创建支付中" : "选择订阅"}
+                          {disabledByPlan ? "当前不可用" : payingPlanId === plan.id ? "创建支付中" : "选择订阅"}
                         </button>
                       </article>
                       );
@@ -575,7 +652,19 @@ export default function BillingPage() {
                         <div className="mt-3 type-caption" style={{ color: faint, letterSpacing: 0, textTransform: "none" }}>
                           可兑换 {quoteCreditRecharge(Number(rechargeAmounts[pack.id] || 0)).credits.toLocaleString("zh-HK")} 积分
                         </div>
-                        <p className="mt-4 min-h-[40px] type-caption leading-5" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>{pack.usage}</p>
+                        <p className="mt-4 type-caption leading-5" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>{pack.usage}</p>
+                        <ul className="mt-4 min-h-[92px] space-y-2">
+                          {pack.perks.map(perk => (
+                            <li key={perk.label} className="flex items-start gap-2 type-caption leading-5" style={{ color: perk.included ? sub : faint, letterSpacing: 0, textTransform: "none" }}>
+                              {perk.included ? (
+                                <Check size={13} style={{ color: green, flex: "0 0 auto", marginTop: 2 }} />
+                              ) : (
+                                <X size={13} style={{ color: "oklch(0.58 0.03 270)", flex: "0 0 auto", marginTop: 2 }} />
+                              )}
+                              <span>{perk.label}</span>
+                            </li>
+                          ))}
+                        </ul>
                         <button
                           type="button"
                           onClick={() => startRechargePayment(pack.id, pack.name)}
@@ -591,52 +680,6 @@ export default function BillingPage() {
                 </section>
               )}
 
-              {activeTab === "upgrade" && (
-                <section className="rounded-[var(--radius-xl-design)] border p-4 backdrop-blur-xl" style={{ background: panel, borderColor: border }}>
-                  <div className="mb-4 flex items-center justify-between gap-3">
-                    <div>
-                      <h2 className="type-title-sm" style={{ color: text, fontSize: 20, fontWeight: 680 }}>升级方案</h2>
-                      <p className="mt-1 type-caption" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>先搭建 Free 到 Pro/Studio 的权益对比框架。</p>
-                    </div>
-                    <Zap size={20} style={{ color: purple }} />
-                  </div>
-
-                  <div className="grid gap-3 xl:grid-cols-[1fr_1.4fr]">
-                    <div className="rounded-[var(--radius-xl-design)] border p-4" style={{ background: panelStrong, borderColor: border }}>
-                      <div className="mb-3 flex items-center gap-2 type-caption" style={{ color: green }}>
-                        <Layers3 size={14} />
-                        当前方案
-                      </div>
-                      <h3 style={{ color: text, fontSize: 24, fontWeight: 740 }}>Free</h3>
-                      <p className="mt-2 type-caption leading-5" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>
-                        用于体验基础画布与 AI 创作流程。升级后会获得更高额度、更多任务能力和优先队列。
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => showPendingToast("升级方案")}
-                        className="mt-6 h-10 w-full rounded-[var(--radius-md-design)] type-caption transition-all hover:opacity-90 active:scale-[0.98]"
-                        style={{ background: green, color: "#10130A", fontWeight: 720 }}
-                      >
-                        升级到 Pro
-                      </button>
-                    </div>
-
-                    <div className="overflow-hidden rounded-[var(--radius-xl-design)] border" style={{ borderColor: border, background: panelStrong }}>
-                      {upgradeRows.map((row, index) => (
-                        <div
-                          key={row.label}
-                          className="grid grid-cols-[120px_1fr_1fr] gap-3 px-4 py-3 type-caption"
-                          style={{ borderTop: index === 0 ? "none" : `1px solid ${border}`, color: sub, letterSpacing: 0, textTransform: "none" }}
-                        >
-                          <span style={{ color: text, fontWeight: 650 }}>{row.label}</span>
-                          <span>{row.current}</span>
-                          <span style={{ color: green }}>{row.target}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </section>
-              )}
             </div>
           </section>
         </div>

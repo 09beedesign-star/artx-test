@@ -1029,15 +1029,16 @@ export async function handleAdminApiRequest(
     const refreshed = await loadAdminData();
     const updatedOrder = refreshed.orders.find((item) => item.id === order.id);
     if (updatedOrder) {
+      const paymentEvent: PaymentEvent = {
+        id: `payevt_${Date.now().toString(36)}`,
+        type: "manual_reissue",
+        status: "success",
+        amount: updatedOrder.amount,
+        message: reason,
+        createdAt: nowIso(),
+      };
       updatedOrder.paymentEvents = [
-        {
-          id: `payevt_${Date.now().toString(36)}`,
-          type: "manual_reissue",
-          status: "success",
-          amount: updatedOrder.amount,
-          message: reason,
-          createdAt: nowIso(),
-        },
+        paymentEvent,
         ...(updatedOrder.paymentEvents || []),
       ].slice(0, 50);
       updatedOrder.event = "后台人工补单并入账";
@@ -1246,6 +1247,7 @@ export async function getBillingSnapshotForUser(userId: string) {
     balance: user.credits,
     frozenCredits: user.frozenCredits,
     expiredCredits: user.expiredCredits,
+    plan: user.plan,
     orders: data.orders.filter((item) => item.userId === userId).slice(0, 20).map((order) => ({
       id: order.id,
       planName: order.packageName,
@@ -1471,17 +1473,18 @@ export async function markBillingOrderPaid(params: {
     order.event = "支付成功并入账";
     order.paidAt = paidAt;
     order.providerTransactionId = params.providerTransactionId || order.providerTransactionId;
+    const paymentEvent: PaymentEvent = {
+      id: `payevt_${Date.now().toString(36)}`,
+      type: params.eventType || "payment_success",
+      status: "success",
+      providerTransactionId: params.providerTransactionId,
+      amount: order.amount,
+      signatureValid: true,
+      message: `${params.actorName} 确认支付成功`,
+      createdAt: paidAt,
+    };
     order.paymentEvents = [
-      {
-        id: `payevt_${Date.now().toString(36)}`,
-        type: params.eventType || "payment_success",
-        status: "success",
-        providerTransactionId: params.providerTransactionId,
-        amount: order.amount,
-        signatureValid: true,
-        message: `${params.actorName} 确认支付成功`,
-        createdAt: paidAt,
-      },
+      paymentEvent,
       ...(order.paymentEvents || []),
     ].slice(0, 50);
 
