@@ -1,0 +1,13 @@
+{
+  "app": "artx",
+  "environment": "github-pages-test",
+  "commitSha": "f08c934e4fc1f7ad4ecfc06efa5202b037f1c79e",
+  "shortCommit": "f08c934",
+  "branch": "feature/interaction-framework",
+  "buildTime": "2026-06-30T08:05:22.615Z",
+  "repository": "",
+  "githubRunId": "",
+  "frontendUrl": "https://09beedesign-star.github.io/artx-test/",
+  "backendUrl": "https://artx-test.onrender.com",
+  "pagesBasePath": "/artx-test/"
+}
