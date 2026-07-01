@@ -227,9 +227,11 @@ export default function BillingPage() {
     open: boolean;
     orderId: string;
     payUrl: string;
+    payUrlType: "qr" | "redirect";
     title: string;
     amount: number;
     credits: number;
+    kind: "subscription" | "recharge";
     status: "pending" | "success";
   } | null>(null);
 
@@ -341,10 +343,19 @@ export default function BillingPage() {
         throw new Error(payResult.error || "威富通支付链接创建失败");
       }
 
-      toast("威富通支付已创建", {
-        description: `${label} 订单已生成，请在打开的页面扫码或继续支付。`,
+      const plan = MEMBERSHIP_PLANS.find(item => item.id === planId) || MEMBERSHIP_PLANS[0];
+      const quote = getPlanQuote(plan, activeCycleConfig);
+      setPaymentDialog({
+        open: true,
+        orderId: orderResult.order.id,
+        payUrl: payResult.payment.payUrl,
+        payUrlType: payResult.payment.payUrlType,
+        title: label,
+        amount: orderResult.order.amount || quote.price,
+        credits: quote.credits,
+        kind: "subscription",
+        status: "pending",
       });
-      window.open(payResult.payment.payUrl, "_blank", "noopener,noreferrer");
     } catch (error) {
       toast("支付暂时不可用", {
         description: error instanceof Error ? error.message : "请稍后重试",
@@ -407,9 +418,11 @@ export default function BillingPage() {
         open: true,
         orderId: orderResult.order.id,
         payUrl: payResult.payment.payUrl,
+        payUrlType: payResult.payment.payUrlType,
         title: packName,
         amount,
         credits: quote.credits,
+        kind: "recharge",
         status: "pending",
       });
     } catch (error) {
@@ -455,9 +468,6 @@ export default function BillingPage() {
                 <h1 className="type-title-sm" style={{ color: text, fontSize: 28, fontWeight: 680, letterSpacing: 0 }}>
                   订阅、充值与升级
                 </h1>
-                <p className="mt-2 max-w-[760px] type-body-sm leading-6" style={{ color: sub }}>
-                  GPT 大语言模型、Image Two 与 Nano Banana 作为统一创作能力池提供服务。当前先开放订阅、充值与升级框架，正式套餐价格和权益会在配置完成后生效。
-                </p>
               </div>
 
               <div className="grid min-w-[min(100%,520px)] grid-cols-3 gap-2">
@@ -715,11 +725,13 @@ export default function BillingPage() {
             <div className="mb-4 flex items-start justify-between gap-4">
               <div>
                 <h3 style={{ color: text, fontSize: 20, fontWeight: 720 }}>
-                  {paymentDialog.status === "success" ? "充值成功" : "扫码完成支付"}
+                  {paymentDialog.status === "success"
+                    ? paymentDialog.kind === "subscription" ? "订阅成功" : "充值成功"
+                    : "扫码完成支付"}
                 </h3>
                 <p className="mt-1 type-caption" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>
                   {paymentDialog.status === "success"
-                    ? "感谢您的支持，积分余额已同步刷新。"
+                    ? paymentDialog.kind === "subscription" ? "感谢您的支持，订阅状态已同步刷新。" : "感谢您的支持，积分余额已同步刷新。"
                     : `${paymentDialog.title} · HKD ${paymentDialog.amount.toLocaleString("zh-HK")} · ${paymentDialog.credits.toLocaleString("zh-HK")} 积分`}
                 </p>
               </div>
@@ -736,30 +748,45 @@ export default function BillingPage() {
             {paymentDialog.status === "success" ? (
               <div className="rounded-[var(--radius-lg-design)] border p-4 text-center" style={{ borderColor: "oklch(0.78 0.18 110 / 0.34)", background: "oklch(0.78 0.18 110 / 0.10)" }}>
                 <div style={{ color: green, fontSize: 26, fontWeight: 760 }}>+{paymentDialog.credits.toLocaleString("zh-HK")}</div>
-                <p className="mt-1 type-caption" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>积分已到账</p>
+                <p className="mt-1 type-caption" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>
+                  {paymentDialog.kind === "subscription" ? "订阅已生效" : "积分已到账"}
+                </p>
               </div>
             ) : (
               <>
                 <div className="rounded-[var(--radius-lg-design)] border p-3 text-center" style={{ borderColor: border, background: isDark ? "oklch(0.08 0.01 270 / 0.86)" : "white" }}>
-                  {/\.(png|jpg|jpeg|gif|webp)(\?|$)/i.test(paymentDialog.payUrl) ? (
-                    <img src={paymentDialog.payUrl} alt="支付二维码" className="mx-auto h-[220px] w-[220px] rounded-[var(--radius-md-design)] object-contain" />
+                  {paymentDialog.payUrlType === "qr" ? (
+                    <img
+                      src={paymentDialog.payUrl}
+                      alt="支付二维码"
+                      className="mx-auto h-[220px] w-[220px] rounded-[var(--radius-md-design)] object-contain"
+                      onError={event => {
+                        event.currentTarget.style.display = "none";
+                        const fallback = event.currentTarget.nextElementSibling as HTMLElement | null;
+                        if (fallback) fallback.style.display = "flex";
+                      }}
+                    />
                   ) : (
-                    <div className="flex h-[220px] flex-col items-center justify-center gap-3">
-                      <WalletCards size={34} style={{ color: green }} />
-                      <a
-                        href={paymentDialog.payUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="rounded-[var(--radius-md-design)] px-4 py-2 type-caption"
-                        style={{ background: green, color: "#10130A", fontWeight: 720 }}
-                      >
-                        打开支付页面
-                      </a>
-                    </div>
+                    <div />
                   )}
+                  <div
+                    className="flex h-[220px] flex-col items-center justify-center gap-3"
+                    style={{ display: paymentDialog.payUrlType === "qr" ? "none" : "flex" }}
+                  >
+                    <WalletCards size={34} style={{ color: green }} />
+                    <a
+                      href={paymentDialog.payUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-[var(--radius-md-design)] px-4 py-2 type-caption"
+                      style={{ background: green, color: "#10130A", fontWeight: 720 }}
+                    >
+                      打开支付页面
+                    </a>
+                  </div>
                 </div>
                 <p className="mt-3 text-center type-caption" style={{ color: faint, letterSpacing: 0, textTransform: "none" }}>
-                  支付完成后会自动刷新积分余额
+                  支付完成后会自动刷新{paymentDialog.kind === "subscription" ? "订阅状态" : "积分余额"}
                 </p>
               </>
             )}
