@@ -14,17 +14,17 @@ import {
 import type { CanvasNode } from "@/hooks/useCanvas";
 import { GENERATED_ASSETS } from "@/lib/workspace-data";
 import type { ChatMessage, AgentStep } from "@/lib/workspace-data";
-import { IMAGE_AI_MODELS, TEXT_AI_MODELS } from "@/lib/workspace-data";
-import { callLLM } from "@/lib/ai";
+import { AUTO_AI_MODEL, IMAGE_AI_MODEL_OPTIONS, TEXT_AI_MODEL_OPTIONS } from "@/lib/workspace-data";
+import { callLLM, requestAiAuth } from "@/lib/ai";
 
-type AiModelOption = typeof TEXT_AI_MODELS[number] | typeof IMAGE_AI_MODELS[number];
+type AiModelOption = typeof TEXT_AI_MODEL_OPTIONS[number] | typeof IMAGE_AI_MODEL_OPTIONS[number];
 
 // ── Model Switcher (shared bottom toolbar) ────────────────────
 
 function ModelSwitcher({
   modelId,
   onChange,
-  models = TEXT_AI_MODELS,
+  models = TEXT_AI_MODEL_OPTIONS,
   isDark = true,
 }: {
   modelId: string;
@@ -33,7 +33,7 @@ function ModelSwitcher({
   isDark?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const current = models.find((m) => m.id === modelId) ?? models[0];
+  const current = models.find((m) => m.id === modelId) ?? AUTO_AI_MODEL;
 
   const chipBg  = isDark ? "oklch(1 0 0 / 5%)"          : "oklch(0 0 0 / 5%)";
   const chipBdr = isDark ? "oklch(1 0 0 / 10%)"          : "oklch(0 0 0 / 10%)";
@@ -92,6 +92,9 @@ function ModelSwitcher({
                   <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: m.color }} />
                   <div className="flex flex-col leading-tight">
                     <span className="font-medium">{m.label}</span>
+                    {"description" in m && m.description ? (
+                      <span className="truncate" style={{ color: textSec, fontSize: 10, maxWidth: 148 }}>{m.description}</span>
+                    ) : null}
                   </div>
                   {isActive && <div className="ml-auto w-1.5 h-1.5 rounded-full" style={{ background: "oklch(0.72 0.18 200)" }} />}
                 </button>
@@ -150,7 +153,7 @@ export function NodeWrapper({
 
 export function AssetNode({ node, isSelected, onDragStart, onSelect, onRemove }: Omit<NodeWrapperProps, "children" | "className" | "fullDrag">) {
   const asset = GENERATED_ASSETS.find((a) => a.id === (node.data.assetId as string)) || GENERATED_ASSETS[0];
-  const [modelId, setModelId] = useState("gpt-image-2");
+  const [modelId, setModelId] = useState("auto");
 
   const typeColor: Record<string, string> = { image: "oklch(0.78 0.18 290)", video: "oklch(0.72 0.18 200)", brand: "oklch(0.78 0.18 60)", poster: "oklch(0.80 0.18 330)" };
   const typeLabel: Record<string, string> = { image: "图片", video: "视频", brand: "品牌", poster: "海报" };
@@ -201,7 +204,7 @@ export function AssetNode({ node, isSelected, onDragStart, onSelect, onRemove }:
         {/* ── Model switcher bottom bar ── */}
         <div className="flex items-center gap-2 px-3 pb-2.5 pt-1" style={{ borderTop: "1px solid oklch(1 0 0 / 6%)" }}
           onMouseDown={(e) => e.stopPropagation()}>
-          <ModelSwitcher modelId={modelId} onChange={setModelId} models={IMAGE_AI_MODELS} isDark={true} />
+          <ModelSwitcher modelId={modelId} onChange={setModelId} models={IMAGE_AI_MODEL_OPTIONS} isDark={true} />
           <div className="flex-1" />
           <button onClick={(e) => { e.stopPropagation(); toast("重新生成", { description: "功能即将上线" }); }}
             className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] transition-all"
@@ -234,11 +237,15 @@ export function ChatNode({ node, isSelected, onDragStart, onSelect, onRemove }: 
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_CHAT);
   const [input, setInput] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
-  const [modelId, setModelId] = useState("gpt-4o");
+  const [modelId, setModelId] = useState("auto");
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const handleSend = async () => {
     if (!input.trim() || isGenerating) return;
+    if (!requestAiAuth()) {
+      toast("请先登录", { description: "登录后即可使用 AI 能力" });
+      return;
+    }
     const userMsg: ChatMessage = { id: `c${Date.now()}`, role: "user", content: input.trim(), timestamp: new Date() };
     setMessages((p) => [...p, userMsg]);
     setInput("");
@@ -384,7 +391,7 @@ export function PromptNode({
   node, isSelected, onDragStart, onSelect, onRemove, onGenerate,
 }: Omit<NodeWrapperProps, "children" | "className" | "fullDrag"> & { onGenerate?: (prompt: string) => void }) {
   const [prompt, setPrompt] = useState((node.data.prompt as string) || "");
-  const [modelId, setModelId] = useState("gpt-4o");
+  const [modelId, setModelId] = useState("auto");
   const [isGenerating, setIsGenerating] = useState(false);
 
   return (
@@ -424,6 +431,10 @@ export function PromptNode({
           <button onClick={async (e) => {
               e.stopPropagation();
               if (!prompt.trim() || isGenerating) return;
+              if (!requestAiAuth()) {
+                toast("请先登录", { description: "登录后即可使用 AI 能力" });
+                return;
+              }
               if (onGenerate) {
                 onGenerate(prompt);
                 return;
@@ -475,7 +486,7 @@ const NOTE_COLORS = [
 export function TextNode({ node, isSelected, onDragStart, onSelect, onRemove }: Omit<NodeWrapperProps, "children" | "className" | "fullDrag">) {
   const [text, setText] = useState((node.data.text as string) || "在此输入备注…");
   const [colorIdx] = useState((node.data.colorIdx as number) || 0);
-  const [modelId, setModelId] = useState("gpt-4o");
+  const [modelId, setModelId] = useState("auto");
   const color = NOTE_COLORS[colorIdx % NOTE_COLORS.length];
 
   return (

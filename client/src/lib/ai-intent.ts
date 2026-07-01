@@ -28,6 +28,9 @@ const DIRECT_IMAGE_PATTERN =
 const DIRECT_TEXT_PATTERN =
   /分析|解释|优化|建议|拆解|怎么做|为什么|回答|文案|改写|总结|思路|策略|方案|提炼|翻译|校对|润色/i;
 
+const MODEL_SWITCH_REPLY_PATTERN =
+  /切换.*模型|模型.*切换|选择.*模型|请选择.*模型|换.*模型|自主切换|手动.*切换|切到.*(生图|对话|图片)|改用.*模型/i;
+
 function extractJsonObject(raw: string) {
   const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
   const start = cleaned.indexOf("{");
@@ -60,11 +63,30 @@ export function inferCreativeIntentDecision(raw: string, fallbackPrompt: string)
     };
   }
   if (parsed?.mode === "text") {
+    const reply = parsed.reply?.trim() || raw.trim();
+    if (MODEL_SWITCH_REPLY_PATTERN.test(reply)) {
+      return {
+        mode: DIRECT_IMAGE_PATTERN.test(fallbackPrompt) ? "image" : "text",
+        reply: DIRECT_IMAGE_PATTERN.test(fallbackPrompt) ? undefined : fallbackPrompt,
+        imagePrompt: DIRECT_IMAGE_PATTERN.test(fallbackPrompt) ? fallbackPrompt : undefined,
+        reason: "拦截模型切换提示，继续自动路由",
+        confidence: "medium",
+      };
+    }
     return {
       mode: "text",
-      reply: parsed.reply?.trim() || raw.trim(),
+      reply,
       reason: parsed.reason,
       confidence: parsed.confidence,
+    };
+  }
+  if (MODEL_SWITCH_REPLY_PATTERN.test(raw)) {
+    return {
+      mode: DIRECT_IMAGE_PATTERN.test(fallbackPrompt) ? "image" : "text",
+      reply: DIRECT_IMAGE_PATTERN.test(fallbackPrompt) ? undefined : fallbackPrompt,
+      imagePrompt: DIRECT_IMAGE_PATTERN.test(fallbackPrompt) ? fallbackPrompt : undefined,
+      reason: "拦截模型切换提示，继续自动路由",
+      confidence: "medium",
     };
   }
   return { mode: "text", reply: raw.trim() };
@@ -137,6 +159,7 @@ export async function routeCreativeIntent({
       "你的目标是像成熟的创意画布产品一样，精准判断当前请求更适合文字回复还是直接生成图片。",
       "只返回 JSON，不要 Markdown，不要额外解释。",
       "JSON 格式：{\"mode\":\"text|image\",\"reply\":\"文字回复内容\",\"imagePrompt\":\"适合图片模型的提示词\",\"reason\":\"一句话原因\",\"confidence\":\"high|medium|low\"}",
+      "禁止回复让用户切换模型、选择模型、改用图片模型或改用对话模型。当前处于 Auto 时，你必须自己判断并返回 text 或 image。",
       allowReferenceSearch
         ? "当用户只提到一个宽泛对象、名词、品类、角色、题材，而没有明确风格与构图时，优先返回 reference_search，并提供 searchQuery 与 followUp。"
         : "",

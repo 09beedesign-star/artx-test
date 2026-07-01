@@ -2,24 +2,106 @@
  * ProfilePage — personal homepage detail page
  * Presents the current user's public profile overview while preserving the artx visual language.
  */
-import { Mail, MapPin, Pencil, Sparkles, UserRound } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Camera, Mail, MapPin, Pencil, Sparkles, Upload, UserRound, X } from "lucide-react";
 import TopBar from "@/components/workspace/TopBar";
 import { BG_GLOW } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
+interface ProfileDraft {
+  displayName: string;
+  description: string;
+  bio: string;
+  email: string;
+  location: string;
+  projects: string;
+  tags: string;
+  avatar: string;
+}
+
+const PROFILE_STORAGE_KEY = "artx:creator-profile";
+const DEFAULT_DESCRIPTION = "这是您的 ArtXStudio 创作者主页";
+
+function readStoredProfile(): Partial<ProfileDraft> {
+  try {
+    const raw = localStorage.getItem(PROFILE_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
 export default function ProfilePage() {
   const { resolvedTheme } = useTheme();
   const { user } = useAuth();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const editAvatarInputRef = useRef<HTMLInputElement>(null);
   const isDark = resolvedTheme === "dark";
-  const displayName = user?.username || "09bee";
+  const fallbackName = user?.username || "09bee";
+  const [profile, setProfile] = useState<ProfileDraft>(() => {
+    const stored = readStoredProfile();
+    return {
+      displayName: stored.displayName || fallbackName,
+      description: stored.description || DEFAULT_DESCRIPTION,
+      bio: stored.bio || "专注品牌视觉、社媒内容与 AI 辅助创作流程。这里用于展示用户的公开信息、创作偏好与项目概览，后续可接入真实账号资料和作品数据。",
+      email: stored.email || fallbackName,
+      location: stored.location || "中国 · 远程协作",
+      projects: stored.projects || "已创建 12 个项目",
+      tags: stored.tags || "品牌视觉、AI 创作、模板设计、灵感整理",
+      avatar: stored.avatar || "",
+    };
+  });
+  const [editOpen, setEditOpen] = useState(false);
+  const [draft, setDraft] = useState<ProfileDraft>(profile);
+
+  useEffect(() => {
+    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile));
+  }, [profile]);
 
   const textPrimary = isDark ? "rgba(255,255,255,0.88)" : "rgba(20,20,36,0.88)";
   const textSecondary = isDark ? "rgba(255,255,255,0.56)" : "rgba(20,20,36,0.56)";
   const textMuted = isDark ? "rgba(255,255,255,0.36)" : "rgba(20,20,36,0.36)";
   const cardBg = isDark ? "rgba(255,255,255,0.055)" : "rgba(255,255,255,0.76)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(20,20,36,0.10)";
+  const panelBg = isDark ? "rgba(18,18,24,0.98)" : "rgba(255,255,255,0.98)";
+  const inputBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(20,20,36,0.045)";
+  const tags = profile.tags.split(/[、,，]/).map(tag => tag.trim()).filter(Boolean);
+
+  const handleAvatarFile = (file: File | undefined, target: "profile" | "draft") => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("请选择图片文件");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const avatar = String(reader.result || "");
+      if (target === "profile") {
+        setProfile(current => ({ ...current, avatar }));
+      } else {
+        setDraft(current => ({ ...current, avatar }));
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const openEdit = () => {
+    setDraft(profile);
+    setEditOpen(true);
+  };
+
+  const saveProfile = () => {
+    setProfile({
+      ...draft,
+      displayName: draft.displayName.trim() || fallbackName,
+      description: draft.description.trim() || DEFAULT_DESCRIPTION,
+      tags: draft.tags.trim() || "品牌视觉、AI 创作、模板设计、灵感整理",
+    });
+    setEditOpen(false);
+    toast.success("个人资料已更新");
+  };
 
   return (
     <div
@@ -42,33 +124,44 @@ export default function ProfilePage() {
               backdropFilter: "blur(20px)",
             }}
           >
-            <div
-              className="h-40"
-              style={{
-                background:
-                  "radial-gradient(circle at 16% 20%, oklch(0.68 0.20 290 / 0.45), transparent 30%), radial-gradient(circle at 72% 28%, oklch(0.68 0.18 210 / 0.38), transparent 34%), linear-gradient(135deg, oklch(0.22 0.04 275), oklch(0.14 0.025 250))",
-              }}
-            />
+            <div className="h-40" style={{ background: "#000" }} />
             <div className="px-8 pb-8">
               <div className="-mt-12 flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
                 <div className="flex items-end gap-5">
-                  <div
-                    className="flex h-24 w-24 items-center justify-center rounded-[28px]"
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="group relative flex h-24 w-24 items-center justify-center overflow-hidden rounded-[28px]"
                     style={{
                       background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.62 0.20 210))",
                       border: `4px solid ${isDark ? "oklch(0.13 0.012 270)" : "white"}`,
                       boxShadow: "0 18px 36px oklch(0.58 0.22 290 / 0.28)",
                     }}
+                    aria-label="上传个人头像"
                   >
-                    <UserRound size={34} color="white" />
-                  </div>
+                    {profile.avatar ? (
+                      <img src={profile.avatar} alt="个人头像" className="h-full w-full object-cover" />
+                    ) : (
+                      <UserRound size={34} color="white" />
+                    )}
+                    <span className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
+                      <Camera size={18} color="white" />
+                    </span>
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={event => handleAvatarFile(event.target.files?.[0], "profile")}
+                  />
                   <div className="pb-2">
-                    <h1 className="type-title-sm" style={{ color: textPrimary, fontSize: 26, fontWeight: 680 }}>{displayName}</h1>
-                    <p className="type-body-sm mt-1" style={{ color: textSecondary }}>artx 创作者个人主页</p>
+                    <h1 className="type-title-sm" style={{ color: textPrimary, fontSize: 26, fontWeight: 680 }}>{profile.displayName}</h1>
+                    <p className="type-body-sm mt-1" style={{ color: textSecondary }}>{profile.description}</p>
                   </div>
                 </div>
                 <button
-                  onClick={() => toast("编辑资料", { description: "功能即将上线" })}
+                  onClick={openEdit}
                   className="flex items-center gap-2 rounded-[var(--radius-lg-design)] px-4 py-2 type-caption transition-opacity hover:opacity-85"
                   style={{
                     background: isDark ? "rgba(255,255,255,0.08)" : "rgba(20,20,36,0.06)",
@@ -88,10 +181,10 @@ export default function ProfilePage() {
                 >
                   <p className="type-body-sm mb-3" style={{ color: textPrimary, fontWeight: 560 }}>个人简介</p>
                   <p className="type-body-sm leading-7" style={{ color: textSecondary }}>
-                    专注品牌视觉、社媒内容与 AI 辅助创作流程。这里用于展示用户的公开信息、创作偏好与项目概览，后续可接入真实账号资料和作品数据。
+                    {profile.bio}
                   </p>
                   <div className="mt-5 flex flex-wrap gap-2">
-                    {['品牌视觉', 'AI 创作', '模板设计', '灵感整理'].map(tag => (
+                    {tags.map(tag => (
                       <span
                         key={tag}
                         className="rounded-[var(--radius-pill)] px-3 py-1 type-caption"
@@ -109,9 +202,9 @@ export default function ProfilePage() {
                 >
                   <p className="type-body-sm mb-4" style={{ color: textPrimary, fontWeight: 560 }}>账号信息</p>
                   <div className="space-y-3 type-caption" style={{ color: textSecondary }}>
-                    <div className="flex items-center gap-2"><Mail size={14} style={{ color: textMuted }} /> {displayName}</div>
-                    <div className="flex items-center gap-2"><MapPin size={14} style={{ color: textMuted }} /> 中国 · 远程协作</div>
-                    <div className="flex items-center gap-2"><Sparkles size={14} style={{ color: textMuted }} /> 已创建 12 个项目</div>
+                    <div className="flex items-center gap-2"><Mail size={14} style={{ color: textMuted }} /> {profile.email}</div>
+                    <div className="flex items-center gap-2"><MapPin size={14} style={{ color: textMuted }} /> {profile.location}</div>
+                    <div className="flex items-center gap-2"><Sparkles size={14} style={{ color: textMuted }} /> {profile.projects}</div>
                   </div>
                 </div>
               </div>
@@ -119,6 +212,153 @@ export default function ProfilePage() {
           </section>
         </div>
       </main>
+
+      {editOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-6"
+          onMouseDown={event => {
+            if (event.target === event.currentTarget) setEditOpen(false);
+          }}
+        >
+          <div
+            className="w-[min(620px,calc(100vw-32px))] rounded-[var(--radius-xl-design)] p-5 shadow-2xl"
+            style={{
+              background: panelBg,
+              border: `1px solid ${border}`,
+              color: textPrimary,
+              backdropFilter: "blur(18px)",
+            }}
+            onMouseDown={event => event.stopPropagation()}
+          >
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <p className="type-title-sm" style={{ fontSize: 18, fontWeight: 680 }}>编辑资料</p>
+                <p className="type-caption mt-1" style={{ color: textSecondary }}>保存后会立即更新您的创作者主页。</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditOpen(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-md-design)]"
+                style={{ background: inputBg, color: textSecondary }}
+                aria-label="关闭编辑资料"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            <div className="mb-5 flex items-center gap-4">
+              <button
+                type="button"
+                onClick={() => editAvatarInputRef.current?.click()}
+                className="relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-[20px]"
+                style={{
+                  background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.62 0.20 210))",
+                  border: `1px solid ${border}`,
+                }}
+              >
+                {draft.avatar ? (
+                  <img src={draft.avatar} alt="个人头像预览" className="h-full w-full object-cover" />
+                ) : (
+                  <UserRound size={24} color="white" />
+                )}
+              </button>
+              <input
+                ref={editAvatarInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={event => handleAvatarFile(event.target.files?.[0], "draft")}
+              />
+              <button
+                type="button"
+                onClick={() => editAvatarInputRef.current?.click()}
+                className="flex h-9 items-center gap-2 rounded-[var(--radius-md-design)] px-3 type-caption"
+                style={{ background: inputBg, border: `1px solid ${border}`, color: textPrimary }}
+              >
+                <Upload size={14} />
+                上传头像
+              </button>
+            </div>
+
+            <div className="grid gap-3">
+              <ProfileInput label="主页名称" value={draft.displayName} onChange={value => setDraft(current => ({ ...current, displayName: value }))} inputBg={inputBg} border={border} textPrimary={textPrimary} />
+              <ProfileInput label="主页描述" value={draft.description} onChange={value => setDraft(current => ({ ...current, description: value }))} inputBg={inputBg} border={border} textPrimary={textPrimary} />
+              <ProfileInput label="个人简介" value={draft.bio} onChange={value => setDraft(current => ({ ...current, bio: value }))} inputBg={inputBg} border={border} textPrimary={textPrimary} multiline />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <ProfileInput label="邮箱/账号" value={draft.email} onChange={value => setDraft(current => ({ ...current, email: value }))} inputBg={inputBg} border={border} textPrimary={textPrimary} />
+                <ProfileInput label="所在地" value={draft.location} onChange={value => setDraft(current => ({ ...current, location: value }))} inputBg={inputBg} border={border} textPrimary={textPrimary} />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <ProfileInput label="项目信息" value={draft.projects} onChange={value => setDraft(current => ({ ...current, projects: value }))} inputBg={inputBg} border={border} textPrimary={textPrimary} />
+                <ProfileInput label="标签" value={draft.tags} onChange={value => setDraft(current => ({ ...current, tags: value }))} inputBg={inputBg} border={border} textPrimary={textPrimary} />
+              </div>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setEditOpen(false)}
+                className="h-9 min-w-[88px] rounded-[var(--radius-md-design)] type-caption"
+                style={{ background: inputBg, border: `1px solid ${border}`, color: textPrimary }}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={saveProfile}
+                className="h-9 min-w-[96px] rounded-[var(--radius-md-design)] type-caption"
+                style={{
+                  background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
+                  color: "white",
+                  boxShadow: "0 8px 24px oklch(0.58 0.22 290 / 0.22)",
+                }}
+              >
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+function ProfileInput({
+  label,
+  value,
+  onChange,
+  inputBg,
+  border,
+  textPrimary,
+  multiline = false,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  inputBg: string;
+  border: string;
+  textPrimary: string;
+  multiline?: boolean;
+}) {
+  return (
+    <label className="grid gap-1.5">
+      <span className="type-caption" style={{ color: "rgba(255,255,255,0.48)" }}>{label}</span>
+      {multiline ? (
+        <textarea
+          value={value}
+          onChange={event => onChange(event.target.value)}
+          rows={4}
+          className="resize-none rounded-[var(--radius-md-design)] px-3 py-2 outline-none"
+          style={{ background: inputBg, border: `1px solid ${border}`, color: textPrimary, fontSize: 13, lineHeight: 1.7 }}
+        />
+      ) : (
+        <input
+          value={value}
+          onChange={event => onChange(event.target.value)}
+          className="h-10 rounded-[var(--radius-md-design)] px-3 outline-none"
+          style={{ background: inputBg, border: `1px solid ${border}`, color: textPrimary, fontSize: 13 }}
+        />
+      )}
+    </label>
   );
 }

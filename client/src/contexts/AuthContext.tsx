@@ -7,6 +7,9 @@ interface AuthUser {
   id: string;
   username: string;
   createdAt?: string;
+  role?: "viewer" | "support" | "finance" | "admin" | "super_admin";
+  permissions?: string[];
+  isAdmin?: boolean;
 }
 
 interface AuthSession {
@@ -22,7 +25,7 @@ interface AuthContextValue {
   closeLoginModal: () => void;
   login: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   register: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
-  socialAuth: (provider: "google" | "wechat" | "apple") => Promise<{ ok: boolean; error?: string }>;
+  socialAuth: (provider: "google" | "wechat" | "apple" | "github" | "meta") => Promise<{ ok: boolean; error?: string }>;
   logout: () => void;
 }
 
@@ -42,8 +45,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     fetchAuth("me", { token: stored.token }).then((result) => {
       if (result.ok && result.user) {
-        persistSession({ token: stored.token, user: result.user });
-        setUser(result.user);
+        const normalizedUser = normalizeAuthUser(result.user);
+        persistSession({ token: stored.token, user: normalizedUser });
+        setUser(normalizedUser);
         return;
       }
       localStorage.removeItem(AUTH_STORAGE_KEY);
@@ -52,6 +56,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }).catch(() => {
       // Keep the local session when the test server is temporarily unreachable.
     });
+  }, []);
+
+  useEffect(() => {
+    const handleLoginRequired = () => setLoginModalOpen(true);
+    window.addEventListener("artx:login-required", handleLoginRequired);
+    return () => window.removeEventListener("artx:login-required", handleLoginRequired);
   }, []);
 
   const authenticate = async (action: "login" | "register", username: string, password: string) => {
@@ -65,11 +75,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         return { ok: false, error: result.error || "登录失败，请稍后重试" };
       }
-      if (!persistSession({ token: result.token, user: result.user })) {
+      const normalizedUser = normalizeAuthUser(result.user);
+      if (!persistSession({ token: result.token, user: normalizedUser })) {
         return { ok: false, error: "浏览器本地存储空间不足，已尝试清理旧画布缓存，请重新登录" };
       }
       setIsAuthenticated(true);
-      setUser(result.user);
+      setUser(normalizedUser);
       setLoginModalOpen(false);
       return { ok: true };
     } catch {
@@ -109,11 +120,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
           return { ok: false, error: result.error || "第三方登录暂时不可用" };
         }
-        if (!persistSession({ token: result.token, user: result.user })) {
+        const normalizedUser = normalizeAuthUser(result.user);
+        if (!persistSession({ token: result.token, user: normalizedUser })) {
           return { ok: false, error: "浏览器本地存储空间不足，已尝试清理旧画布缓存，请重新登录" };
         }
         setIsAuthenticated(true);
-        setUser(result.user);
+        setUser(normalizedUser);
         setLoginModalOpen(false);
         return { ok: true };
       } catch {
@@ -151,10 +163,60 @@ function readStoredSession(): AuthSession | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<AuthSession>;
     if (!parsed.token || !parsed.user?.id || !parsed.user.username) return null;
-    return { token: parsed.token, user: parsed.user };
+    return { token: parsed.token, user: normalizeAuthUser(parsed.user) };
   } catch {
     return null;
   }
+}
+
+function normalizeAuthUser(user: AuthUser): AuthUser {
+  const role = user.role || (user.username === "09bee" ? "super_admin" : "viewer");
+  const rolePermissions: Record<NonNullable<AuthUser["role"]>, string[]> = {
+    viewer: [],
+    support: ["admin:access", "feedback:read", "feedback:write", "users:read"],
+    finance: ["admin:access", "orders:read", "orders:refund", "credits:read", "credits:write"],
+    admin: [
+      "admin:access",
+      "users:read",
+      "users:write",
+      "orders:read",
+      "credits:read",
+      "credits:write",
+      "feedback:read",
+      "feedback:write",
+      "integrations:read",
+      "risk:read",
+      "audit:read",
+    ],
+    super_admin: [
+      "admin:access",
+      "users:read",
+      "users:write",
+      "orders:read",
+      "orders:refund",
+      "credits:read",
+      "credits:write",
+      "feedback:read",
+      "feedback:write",
+      "integrations:read",
+      "integrations:write",
+      "risk:read",
+      "risk:write",
+      "audit:read",
+      "admins:manage",
+    ],
+  };
+  const permissions = Array.from(new Set([
+    ...rolePermissions[role],
+    ...(Array.isArray(user.permissions) ? user.permissions : []),
+  ]));
+
+  return {
+    ...user,
+    role,
+    permissions,
+    isAdmin: permissions.includes("admin:access"),
+  };
 }
 
 function persistSession(session: AuthSession) {
@@ -242,7 +304,7 @@ function authenticateLocally(action: "login" | "register" | "registerOrLogin", u
   }
   const session = {
     token: `local-test:${user.id}:${Date.now()}`,
-    user: { id: user.id, username: user.username, createdAt: user.createdAt },
+    user: normalizeAuthUser({ id: user.id, username: user.username, createdAt: user.createdAt }),
   };
   if (!persistSession(session)) {
     return { ok: false, error: "浏览器本地存储空间不足，已尝试清理旧画布缓存，请重新登录" };

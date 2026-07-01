@@ -6,6 +6,9 @@ export interface WorkspaceHistoryProject {
   nodeCount: number;
   createdAt: string;
   initialPrompt?: string;
+  socialPresetId?: string;
+  canvasWidth?: number;
+  canvasHeight?: number;
 }
 
 const STORAGE_KEY = "artx:workspace-project-history";
@@ -116,6 +119,9 @@ export function updateWorkspaceProjectHistory(id: string, patch: Partial<Workspa
     nodeCount: patch.nodeCount ?? 0,
     createdAt,
     initialPrompt: patch.initialPrompt,
+    socialPresetId: patch.socialPresetId,
+    canvasWidth: patch.canvasWidth,
+    canvasHeight: patch.canvasHeight,
   };
   writeWorkspaceProjectHistory([project, ...projects]);
 }

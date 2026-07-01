@@ -5,11 +5,14 @@
   "license": "MIT",
   "scripts": {
     "dev": "vite --host",
-    "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
+    "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist && node scripts/copy-server-skills.mjs",
     "start": "NODE_ENV=production node dist/index.js",
     "preview": "vite preview --host",
     "check": "tsc --noEmit",
-    "format": "prettier --write ."
+    "verify:admin": "tsx scripts/verify-admin-backend.mjs && tsx scripts/verify-admin-session-expiry.mjs && tsx scripts/verify-wallyt-payment.mjs",
+    "check:skills": "node scripts/verify-skills.mjs",
+    "format": "prettier --write .",
+    "verify:test-deploy": "scripts/verify-test-deployment.sh"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

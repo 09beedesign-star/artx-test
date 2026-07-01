@@ -45,7 +45,7 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
       style={{ background: "oklch(0.12 0.016 270)", borderRight: "1px solid oklch(1 0 0 / 6%)" }}
     >
       {/* Logo */}
-      <div className="flex items-center gap-2.5 px-4 py-4 shrink-0">
+      <div className="flex origin-left scale-[0.7] items-center gap-2.5 px-4 py-4 shrink-0">
         <div
           className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
           style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))" }}

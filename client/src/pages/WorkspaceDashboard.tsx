@@ -38,6 +38,9 @@ interface WsProject {
   deliveryAt?: string;
   owner?: string;
   note?: string;
+  socialPresetId?: string;
+  canvasWidth?: number;
+  canvasHeight?: number;
 }
 
 function fromHistoryProject(project: WorkspaceHistoryProject): WsProject {
@@ -48,6 +51,9 @@ function fromHistoryProject(project: WorkspaceHistoryProject): WsProject {
     updatedAt: project.updatedAt,
     nodeCount: project.nodeCount,
     createdAt: project.createdAt,
+    socialPresetId: project.socialPresetId,
+    canvasWidth: project.canvasWidth,
+    canvasHeight: project.canvasHeight,
   };
 }
 
@@ -299,7 +305,7 @@ function CreateProjectCard({ isDark, onCreate }: { isDark: boolean; onCreate: ()
           style={{ background: "oklch(0.62 0.22 290 / 0.12)", color: "oklch(0.62 0.22 290)" }}>
           <Plus size={20} />
         </div>
-        <span className="type-caption" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>新建画布</span>
+        <span className="type-caption" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>新建画板</span>
       </div>
     </button>
   );
@@ -328,7 +334,10 @@ export default function WorkspaceDashboard() {
   const handleCreate = useCallback((payload: CreateProjectPayload) => {
     const historyProject = createWorkspaceHistoryProject(payload.name);
     const newP: WsProject = {
-      ...fromHistoryProject({ ...historyProject, cover: payload.cover }),
+      ...fromHistoryProject({
+        ...historyProject,
+        cover: payload.cover,
+      }),
       deliveryAt: payload.deliveryAt,
       owner: payload.owner,
       note: payload.note,
@@ -340,6 +349,9 @@ export default function WorkspaceDashboard() {
       updatedAt: newP.updatedAt,
       nodeCount: newP.nodeCount,
       createdAt: newP.createdAt || newP.updatedAt,
+      socialPresetId: newP.socialPresetId,
+      canvasWidth: newP.canvasWidth,
+      canvasHeight: newP.canvasHeight,
     });
     setProjects(ps => [newP, ...ps]);
     setShowCreate(false);
@@ -428,7 +440,7 @@ export default function WorkspaceDashboard() {
 
       </div>
 
-      <CreateProjectDialog open={showCreate} onOpenChange={setShowCreate} onCreate={handleCreate} />
+      <CreateProjectDialog open={showCreate} onOpenChange={setShowCreate} onCreate={handleCreate} title="新建画布" />
       {deleteConfirm && <DeleteConfirmDialog count={deleteConfirm.length} onConfirm={confirmDelete} onCancel={() => setDeleteConfirm(null)} isDark={isDark} />}
     </div>
   );

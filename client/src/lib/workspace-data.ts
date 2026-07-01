@@ -1,12 +1,39 @@
 // Neo-Studio Dark Workspace — Data & Types
 
 // ── AI Models ────────────────────────────────────────────────
-export const IMAGE_AI_MODELS = [
+export type AiModelOption = {
+  id: string;
+  label: string;
+  color: string;
+  description?: string;
+};
+
+export const AUTO_AI_MODEL: AiModelOption = {
+  id: "auto",
+  label: "auto",
+  color: "oklch(0.78 0.18 120)",
+  description: "根据提示词自动选择对话或生图模型",
+};
+
+export const IMAGE_AI_MODELS: AiModelOption[] = [
   { id: "gpt-image-2", label: "GPT Image 2", color: "oklch(0.72 0.18 200)" },
+  { id: "gemini-3.1-flash-image", label: "🍌Nano Banana 3.1", color: "oklch(0.82 0.18 95)" },
+  { id: "gemini-3.1-flash-image-preview", label: "🍌Nano Banana 3.1 lite", color: "oklch(0.78 0.15 105)" },
 ];
 
-export const TEXT_AI_MODELS = [
+export const TEXT_AI_MODELS: AiModelOption[] = [
   { id: "gpt-4o", label: "GPT-4o", color: "oklch(0.72 0.18 160)" },
+  { id: "gpt-5.4", label: "GPT-5.4", color: "oklch(0.70 0.16 255)" },
+  { id: "gpt-5.4-mini", label: "GPT-5.4 mini", color: "oklch(0.74 0.14 230)" },
+  { id: "gpt-5.5", label: "GPT-5.5", color: "oklch(0.66 0.18 280)" },
+];
+
+export const IMAGE_AI_MODEL_OPTIONS: AiModelOption[] = [AUTO_AI_MODEL, ...IMAGE_AI_MODELS];
+export const TEXT_AI_MODEL_OPTIONS: AiModelOption[] = [AUTO_AI_MODEL, ...TEXT_AI_MODELS];
+export const ALL_AI_MODEL_OPTIONS: AiModelOption[] = [
+  AUTO_AI_MODEL,
+  ...IMAGE_AI_MODELS,
+  ...TEXT_AI_MODELS,
 ];
 
 export type AssetType = "image" | "video" | "brand" | "poster";

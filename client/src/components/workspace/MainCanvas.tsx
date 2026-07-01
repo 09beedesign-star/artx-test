@@ -7,15 +7,16 @@ import { useState, useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
-  Send, Paperclip, Wand2, ChevronDown, Image as ImageIcon,
+  Paperclip, Wand2, ChevronDown, Image as ImageIcon,
   Video, Palette, Check, Loader2, Download, Maximize2,
   MoreHorizontal, RefreshCw, Sparkles, Star, Share2,
   Clock, ChevronRight,
 } from "lucide-react";
 import { INITIAL_MESSAGES, GENERATED_ASSETS, PROJECTS } from "@/lib/workspace-data";
 import type { ChatMessage, GeneratedAsset, AgentStep } from "@/lib/workspace-data";
-import { callLLM } from "@/lib/ai";
+import { callLLM, requestAiAuth } from "@/lib/ai";
 import { routeCreativeIntent } from "@/lib/ai-intent";
+import generationMark from "@/assets/generation/ai-generation-mark.svg";
 
 const SUGGESTIONS = [
   "为品牌设计 Logo 套件",
@@ -43,6 +44,10 @@ export default function MainCanvas({ projectId = "p1" }: MainCanvasProps) {
 
   const handleSend = async () => {
     if (!input.trim() || isGenerating) return;
+    if (!requestAiAuth()) {
+      toast("请先登录", { description: "登录后即可使用 AI 能力" });
+      return;
+    }
     const userMsg: ChatMessage = {
       id: `m${Date.now()}`,
       role: "user",
@@ -299,10 +304,10 @@ function ChatView({
             <button
               onClick={onSend}
               disabled={!input.trim() || isGenerating}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold transition-all duration-150 disabled:opacity-40"
-              style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))", color: "white" }}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold transition-all duration-150 disabled:opacity-40 hover:opacity-90"
+              style={{ background: "#C5ED47", color: "#000" }}
             >
-              {isGenerating ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+              {isGenerating ? <Loader2 size={13} className="animate-spin" /> : <img src={generationMark} alt="" aria-hidden="true" draggable={false} className="h-3.5 w-3.5 object-contain" style={{ filter: "brightness(0)" }} />}
               {isGenerating ? "生成中…" : "生成"}
             </button>
           </div>
