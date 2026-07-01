@@ -1,8 +1,8 @@
 {
   "app": "artx",
   "environment": "github-pages-test",
-  "commitSha": "billing-copy-inline-qr",
-  "shortCommit": "billing",
+  "commitSha": "c2fa565852a14c11be9f77f6733a1dccc0637308",
+  "shortCommit": "c2fa565",
   "branch": "feature/interaction-framework",
   "buildTime": "2026-07-01T01:51:04.079Z",
   "repository": "",
