@@ -6317,6 +6317,7 @@ function BottomPromptBar({
 }) {
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState("auto");
+  const [ratio, setRatio] = useState("1:1");
   const [rows, setRows] = useState(1);
   const [isSending, setIsSending] = useState(false);
   const [referencePreview, setReferencePreview] = useState<{
@@ -6340,6 +6341,7 @@ function BottomPromptBar({
   const chipBorder = isDark ? "oklch(0.62 0.22 290 / 0.35)" : "oklch(0.58 0.22 290 / 0.30)";
   const chipText = isDark ? "oklch(0.80 0.18 290)" : "oklch(0.42 0.18 290)";
   const removeColor = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.58 0.01 270)";
+  const ratioOptions = ["1:1", "4:5", "5:4", "3:4", "4:3", "16:9", "9:16", "21:9"];
 
   const resizePromptTextarea = useCallback((input: HTMLTextAreaElement | null) => {
     if (!input) return;
@@ -6410,12 +6412,12 @@ function BottomPromptBar({
             projectId,
             prompt: finalImagePrompt,
             model: selectedGenerationModel,
-            ratio: "1:1",
+            ratio,
             count: 1,
             style: "智能判断",
             referencesEnabled: submittedRefs.length > 0,
             generationId,
-            displaySize: targetDisplaySize,
+            displaySize: targetDisplaySize || getImageDisplaySizeForRatio(ratio),
             skillId: activeSkill?.id,
           };
           dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
@@ -6428,8 +6430,8 @@ function BottomPromptBar({
                   prompt: payload.prompt,
                   referencedAssets: submittedRefs.slice(0, -1),
                   skillId: activeSkill.id,
-                  targetWidth: targetReference.width,
-                  targetHeight: targetReference.height,
+                  targetWidth: targetReference.width || getImageDisplaySizeForRatio(ratio).w,
+                  targetHeight: targetReference.height || getImageDisplaySizeForRatio(ratio).h,
                 })
               : await generateAiImages(payload);
             dispatchImageGenerationTask({ ...payload, status: "completed", images: result.images }, projectId);
@@ -6508,7 +6510,7 @@ function BottomPromptBar({
       src: asset.src,
       title: asset.title,
       x: rect.left + rect.width / 2,
-      y: rect.top + rect.height / 2,
+      y: rect.top - 12,
       visible: true,
     });
   }, []);
@@ -6533,15 +6535,13 @@ function BottomPromptBar({
       className="absolute bottom-4 rounded-[var(--radius-lg-design)] shadow-2xl overflow-hidden"
       style={{
         background: bg,
-        border: `1.5px solid ${hasRefs || activeSkill ? activeBorder : border}`,
+        border: `1.5px solid ${border}`,
         backdropFilter: "blur(20px)",
         left: 24,
         right: promptRightOffset,
         zIndex: 50,
         transition: "border-color 0.25s cubic-bezier(0.23,1,0.32,1), box-shadow 0.25s cubic-bezier(0.23,1,0.32,1)",
-        boxShadow: hasRefs || activeSkill
-          ? `0 0 0 3px oklch(0.62 0.22 290 / 0.12), 0 10px 34px rgba(210,214,224,0.10)`
-          : `0 10px 34px rgba(210,214,224,0.10)`,
+        boxShadow: `0 10px 34px rgba(210,214,224,0.10)`,
       }}
     >
       {/* Multi-reference chip row */}
@@ -6628,6 +6628,25 @@ function BottomPromptBar({
       </div>
       <div className="flex items-center gap-2 px-3 pb-3" style={{ paddingTop: 8 }}>
         <ModelSelector model={model} onChange={setModel} isDark={isDark} />
+        <div
+          className="flex h-8 items-center gap-1 rounded-[var(--radius-md-design)] px-2"
+          style={{ background: isDark ? "rgba(255,255,255,0.055)" : "rgba(0,0,0,0.035)", color: text }}
+        >
+          <Frame size={12} style={{ opacity: 0.78, flex: "0 0 auto" }} />
+          <select
+            aria-label="选择画幅比例"
+            value={ratio}
+            onChange={event => setRatio(event.target.value)}
+            className="bg-transparent outline-none"
+            style={{ color: text, fontSize: 12, appearance: "none", border: "none" }}
+          >
+            {ratioOptions.map(item => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        </div>
         <SkillPointSelector activeSkill={activeSkill} onChange={onActiveSkillChange} isDark={isDark} />
         <button
           className="flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-md-design)] type-caption hover:opacity-80"
@@ -6657,12 +6676,13 @@ function BottomPromptBar({
           left: referencePreview.x,
           top: referencePreview.y,
           maxWidth: 160,
-          transform: `translate(-50%, -50%) scale(${referencePreview.visible ? 1 : 0.28})`,
-          transformOrigin: "center center",
+          transform: `translate(-50%, -100%) scale(${referencePreview.visible ? 1 : 0.28})`,
+          transformOrigin: "center bottom",
           opacity: referencePreview.visible ? 1 : 0,
           border: `1px solid ${isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.14)"}`,
           background: isDark ? "rgba(13,14,18,0.96)" : "rgba(255,255,255,0.96)",
           willChange: "transform, opacity",
+          boxShadow: isDark ? "0 22px 46px rgba(0,0,0,0.44)" : "0 18px 38px rgba(0,0,0,0.16)",
         }}
         onTransitionEnd={() => {
           setReferencePreview(prev => prev && !prev.visible ? null : prev);
