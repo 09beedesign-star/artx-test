@@ -234,6 +234,12 @@ export default function BillingPage() {
     kind: "subscription" | "recharge";
     status: "pending" | "success";
   } | null>(null);
+  const [paymentResultDialog, setPaymentResultDialog] = useState<{
+    open: boolean;
+    amount: number;
+    credits: number;
+    kind: "subscription" | "recharge";
+  } | null>(null);
 
   const isDark = resolvedTheme === "dark";
   const bg = isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)";
@@ -255,6 +261,18 @@ export default function BillingPage() {
     [activeCycle],
   );
 
+  const refreshBillingSummary = async () => {
+    const summary = await billingFetch<BillingSummaryResponse>("/api/billing/summary").catch(() => null);
+    if (!summary) return null;
+    if (typeof summary.balance === "number") {
+      setBalance(summary.balance);
+      setBalanceFlash(true);
+      window.setTimeout(() => setBalanceFlash(false), 900);
+    }
+    if (typeof summary.plan === "string" && summary.plan.trim()) setCurrentPlan(summary.plan.trim());
+    return summary;
+  };
+
   useEffect(() => {
     if (!isAuthenticated) return;
     billingFetch<BillingSummaryResponse>("/api/billing/summary")
@@ -272,12 +290,7 @@ export default function BillingPage() {
         const result = await billingFetch<BillingStatusResponse>(`/api/billing/orders/${paymentDialog.orderId}/status`);
         if (result.order?.status === "paid") {
           setPaymentDialog(current => current ? { ...current, status: "success" } : current);
-          const summary = await billingFetch<BillingSummaryResponse>("/api/billing/summary").catch(() => null);
-          if (summary && typeof summary.balance === "number") {
-            setBalance(summary.balance);
-            setBalanceFlash(true);
-            window.setTimeout(() => setBalanceFlash(false), 900);
-          }
+          await refreshBillingSummary();
           toast("充值成功", {
             description: "感谢您的支持，积分余额已同步刷新。",
           });
@@ -293,6 +306,35 @@ export default function BillingPage() {
   const switchTab = (tab: BillingTab) => {
     setActiveTab(tab);
     navigate(`/billing?tab=${tab}`, { replace: true });
+  };
+
+  const confirmPaymentCompleted = async () => {
+    if (!paymentDialog) return;
+
+    try {
+      const result = await billingFetch<BillingStatusResponse>(`/api/billing/orders/${paymentDialog.orderId}/status`);
+      if (result.order?.status !== "paid" && paymentDialog.status !== "success") {
+        toast("支付状态确认中", {
+          description: "如果您已完成扫码支付，请稍后再点一次“我已支付”。",
+        });
+        return;
+      }
+
+      await refreshBillingSummary();
+      const completedPayment = paymentDialog;
+      setPaymentDialog(null);
+      switchTab(completedPayment.kind === "recharge" ? "recharge" : "subscription");
+      setPaymentResultDialog({
+        open: true,
+        amount: completedPayment.amount,
+        credits: completedPayment.credits,
+        kind: completedPayment.kind,
+      });
+    } catch (error) {
+      toast("支付状态暂时不可确认", {
+        description: error instanceof Error ? error.message : "请稍后重试",
+      });
+    }
   };
 
   const getPlanLevel = (planName: string) => {
@@ -754,12 +796,22 @@ export default function BillingPage() {
               </div>
             ) : (
               <>
-                <div className="rounded-[var(--radius-lg-design)] border p-3 text-center" style={{ borderColor: border, background: isDark ? "oklch(0.08 0.01 270 / 0.86)" : "white" }}>
+                <div className="mb-4 grid grid-cols-2 gap-3">
+                  <div className="rounded-[var(--radius-lg-design)] border px-3 py-4 text-center" style={{ borderColor: "oklch(0.78 0.18 110 / 0.24)", background: "oklch(0.78 0.18 110 / 0.08)" }}>
+                    <div style={{ color: green, fontSize: 28, fontWeight: 800, lineHeight: 1 }}>HKD {paymentDialog.amount.toLocaleString("zh-HK")}</div>
+                    <div className="mt-2 type-caption" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>支付金额</div>
+                  </div>
+                  <div className="rounded-[var(--radius-lg-design)] border px-3 py-4 text-center" style={{ borderColor: "oklch(0.68 0.20 292 / 0.22)", background: "oklch(0.68 0.20 292 / 0.08)" }}>
+                    <div style={{ color: text, fontSize: 28, fontWeight: 800, lineHeight: 1 }}>{paymentDialog.credits.toLocaleString("zh-HK")}</div>
+                    <div className="mt-2 type-caption" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>算力积分</div>
+                  </div>
+                </div>
+                <div className="text-center">
                   {paymentDialog.payUrlType === "qr" ? (
                     <img
                       src={paymentDialog.payUrl}
                       alt="支付二维码"
-                      className="mx-auto h-[220px] w-[220px] rounded-[var(--radius-md-design)] object-contain"
+                      className="mx-auto h-[220px] w-[220px] object-contain"
                       onError={event => {
                         event.currentTarget.style.display = "none";
                         const fallback = event.currentTarget.nextElementSibling as HTMLElement | null;
@@ -788,8 +840,49 @@ export default function BillingPage() {
                 <p className="mt-3 text-center type-caption" style={{ color: faint, letterSpacing: 0, textTransform: "none" }}>
                   支付完成后会自动刷新{paymentDialog.kind === "subscription" ? "订阅状态" : "积分余额"}
                 </p>
+                <button
+                  type="button"
+                  onClick={confirmPaymentCompleted}
+                  className="mt-4 h-11 w-full rounded-[var(--radius-md-design)] type-body transition-all hover:opacity-90 active:scale-[0.98]"
+                  style={{ background: green, color: "#10130A", fontWeight: 760 }}
+                >
+                  我已支付
+                </button>
               </>
             )}
+          </div>
+        </div>
+      )}
+      {paymentResultDialog?.open && (
+        <div
+          className="fixed inset-0 z-[90] flex items-center justify-center px-4"
+          style={{ background: "oklch(0 0 0 / 0.58)", backdropFilter: "blur(12px)" }}
+        >
+          <div
+            className="w-full max-w-[360px] rounded-[var(--radius-xl-design)] border p-5 text-center"
+            style={{ background: panelStrong, borderColor: border, boxShadow: "0 24px 80px oklch(0 0 0 / 0.36)" }}
+          >
+            <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full" style={{ background: green, color: "#10130A" }}>
+              <Check size={22} strokeWidth={2.4} />
+            </div>
+            <h3 className="mt-4" style={{ color: text, fontSize: 20, fontWeight: 760 }}>
+              {paymentResultDialog.kind === "recharge"
+                ? `您已成功支付 ${paymentResultDialog.amount.toLocaleString("zh-HK")} HKD`
+                : "订阅支付已完成"}
+            </h3>
+            <p className="mt-2 type-caption" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>
+              {paymentResultDialog.kind === "recharge"
+                ? `${paymentResultDialog.credits.toLocaleString("zh-HK")} 积分已同步到您的账户。`
+                : "订阅状态已同步刷新，感谢您的支持。"}
+            </p>
+            <button
+              type="button"
+              onClick={() => setPaymentResultDialog(null)}
+              className="mt-5 h-10 w-full rounded-[var(--radius-md-design)] type-caption transition-all hover:opacity-90 active:scale-[0.98]"
+              style={{ background: green, color: "#10130A", fontWeight: 760 }}
+            >
+              我知道了
+            </button>
           </div>
         </div>
       )}
