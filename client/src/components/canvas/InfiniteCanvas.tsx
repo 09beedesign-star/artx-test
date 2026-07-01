@@ -1382,9 +1382,10 @@ function TextFloatingToolbar({
 }
 
 // ── Asset Node Floating Toolbar ──────────────────────────────
-function AssetFloatingToolbar({ isDark, position, onAction }: {
+function AssetFloatingToolbar({ isDark, position, mode = "asset", onAction }: {
   isDark: boolean;
   position: { left: number; top: number };
+  mode?: "asset" | "canvasFrame";
   onAction: (action: string) => void;
 }) {
   const [hoveredAction, setHoveredAction] = useState<string | null>(null);
@@ -1398,7 +1399,7 @@ function AssetFloatingToolbar({ isDark, position, onAction }: {
   const moreText = isDark ? "rgba(255,255,255,0.88)" : "rgba(28,28,40,0.88)";
   const moreSub = isDark ? "rgba(255,255,255,0.48)" : "rgba(28,28,40,0.45)";
   const dividerColor = isDark ? "rgba(255,255,255,0.28)" : "rgba(28,28,40,0.22)";
-  const tools = [
+  const assetTools = [
     { icon: <Move size={15} />, label: "移动对象", action: "move-object" },
     { icon: <RotateCw size={15} />, label: "旋转与反转", action: "flip-rotate" },
     { icon: <Crop size={15} />, label: "裁切", action: "crop" },
@@ -1414,6 +1415,10 @@ function AssetFloatingToolbar({ isDark, position, onAction }: {
     { icon: <MoreHorizontal size={15} />, label: "更多", action: "more" },
     { icon: <Download size={15} />, label: "下载", action: "download" },
   ];
+  const frameTools = [
+    { icon: <Download size={15} />, label: "导出画板", action: "download" },
+  ];
+  const tools = mode === "canvasFrame" ? frameTools : assetTools;
   const moreItems = [
     { icon: <Shirt size={18} />, label: "多平台封面", action: "mockup" },
     { icon: <ImageIcon size={18} />, label: "调整", action: "adjust" },
@@ -3222,6 +3227,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
 
   const handleImageAnnotateClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (toolMode !== "annotate") return;
+    e.preventDefault();
     e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
     const xPct = ((e.clientX - rect.left) / rect.width) * 100;
@@ -16203,6 +16209,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         <AssetFloatingToolbar
           isDark={isDark}
           position={attachedImageToolbarPosition}
+          mode={selectedImageNode?.type === "canvasFrame" ? "canvasFrame" : "asset"}
           onAction={handleSingleImageToolbarAction}
         />
       )}
@@ -17173,9 +17180,7 @@ function GlobalAnnotationLayer({
   const getScreenPos = (ann: Annotation & { nodeId: string }) => {
     const node = nodes.find(n => n.id === ann.nodeId);
     if (!node) return null;
-    // 节点宽度：取 node.width 或默认 240
-    const nw = (node.width as number) || 240;
-    const nh = (node.height as number) || 280;
+    const { width: nw, height: nh } = getCanvasNodeSize(node);
     const sx = viewport.x + (node.position.x + (ann.x / 100) * nw) * viewport.zoom;
     const sy = viewport.y + (node.position.y + (ann.y / 100) * nh) * viewport.zoom;
     return { x: sx, y: sy };
