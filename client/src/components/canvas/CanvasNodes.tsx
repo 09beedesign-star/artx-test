@@ -152,8 +152,17 @@ export function NodeWrapper({
 // ── Asset Node ────────────────────────────────────────────────
 
 export function AssetNode({ node, isSelected, onDragStart, onSelect, onRemove }: Omit<NodeWrapperProps, "children" | "className" | "fullDrag">) {
-  const asset = GENERATED_ASSETS.find((a) => a.id === (node.data.assetId as string)) || GENERATED_ASSETS[0];
+  const asset = GENERATED_ASSETS.find((a) => a.id === (node.data.assetId as string));
   const [modelId, setModelId] = useState("auto");
+  if (!asset) {
+    return (
+      <NodeWrapper node={node} isSelected={isSelected} onDragStart={onDragStart} onSelect={onSelect} onRemove={onRemove} minWidth={180}>
+        <div className="rounded-2xl border border-white/10 bg-[#24242c] p-4 text-sm text-white/60">
+          暂无可用图片
+        </div>
+      </NodeWrapper>
+    );
+  }
 
   const typeColor: Record<string, string> = { image: "oklch(0.78 0.18 290)", video: "oklch(0.72 0.18 200)", brand: "oklch(0.78 0.18 60)", poster: "oklch(0.80 0.18 330)" };
   const typeLabel: Record<string, string> = { image: "图片", video: "视频", brand: "品牌", poster: "海报" };
@@ -220,18 +229,7 @@ export function AssetNode({ node, isSelected, onDragStart, onSelect, onRemove }:
 
 // ── Chat Node ─────────────────────────────────────────────────
 
-const INITIAL_CHAT: ChatMessage[] = [
-  { id: "c1", role: "user", content: "为次世代跑鞋品牌设计产品页视觉资产", timestamp: new Date(Date.now() - 120000) },
-  {
-    id: "c2", role: "assistant", content: "已为跑鞋产品页生成一套视觉资产，聚焦清晰度与性能冲击力。",
-    steps: [
-      { id: "s1", label: "分析用户意图", detail: "Analyzing intent", status: "done" },
-      { id: "s2", label: "搜索参考资料", detail: "Searching references", status: "done" },
-      { id: "s3", label: "生成创意资产", detail: "Generating assets", status: "done" },
-    ],
-    timestamp: new Date(Date.now() - 60000),
-  },
-];
+const INITIAL_CHAT: ChatMessage[] = [];
 
 export function ChatNode({ node, isSelected, onDragStart, onSelect, onRemove }: Omit<NodeWrapperProps, "children" | "className" | "fullDrag">) {
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_CHAT);

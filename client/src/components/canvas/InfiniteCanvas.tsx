@@ -11106,6 +11106,19 @@ function CanvasSearchBar({ isDark, currentProjectId, onProjectRequest, onAssetAd
     const haystack = `${project.title} ${project.subtitle || ""}`.toLowerCase();
     return normalized ? haystack.includes(normalized) : true;
   }).slice(0, 4);
+  const historyProjectResults = readWorkspaceProjectHistory()
+    .filter(project => {
+      if (project.id === currentProjectId && !normalized) return true;
+      const haystack = `${project.title}`.toLowerCase();
+      return normalized ? haystack.includes(normalized) : true;
+    })
+    .map(project => ({
+      id: project.id,
+      title: project.title,
+      subtitle: "",
+      updatedAt: project.updatedAt,
+    }));
+  const visibleProjectResults = (historyProjectResults.length ? historyProjectResults : projectResults).slice(0, 4);
   const assetResults = GENERATED_ASSETS.filter(asset => {
     const haystack = `${asset.title} ${asset.type} ${(asset.tags || []).join(" ")}`.toLowerCase();
     return normalized ? haystack.includes(normalized) : true;
@@ -11157,7 +11170,7 @@ function CanvasSearchBar({ isDark, currentProjectId, onProjectRequest, onAssetAd
           <div className="px-3 py-2" style={{ borderBottom: `1px solid ${divider}` }}>
             <span className="type-caption uppercase" style={{ color: sub }}>项目</span>
           </div>
-          {projectResults.length ? projectResults.map(project => (
+          {visibleProjectResults.length ? visibleProjectResults.map(project => (
             <button
               key={project.id}
               className="flex items-center gap-2.5 w-full px-3 py-2.5 text-left type-caption transition-colors"
@@ -11815,13 +11828,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const node = nodesRef.current.find(item => item.id === ann.nodeId && item.type === "asset");
     if (!node) return null;
     const data = node.data as Record<string, unknown>;
-    const asset = GENERATED_ASSETS.find(item => item.id === data.assetId) || GENERATED_ASSETS[0];
-    const src = getAssetNodeImageSource(node);
-    if (!src) return null;
-    return {
+          const src = getAssetNodeImageSource(node);
+          if (!src) return null;
+          return {
       id: ann.id,
       nodeId: ann.nodeId,
-      title: (data.title as string | undefined) || asset?.title || "选中图片",
+      title: (data.title as string | undefined) || "选中图片",
       src,
       x: ann.x,
       y: ann.y,
@@ -12946,9 +12958,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const nodeData = node.data as Record<string, unknown>;
         const assetId = nodeData.assetId as string;
         const nodeTitle = (nodeData.title as string) || "图片";
-        const asset = GENERATED_ASSETS.find(a => a.id === assetId) || GENERATED_ASSETS[0];
         const src = getAssetNodeImageSource(node);
-        const title = nodeTitle || asset?.title || "图片";
+        const title = nodeTitle || "图片";
         setSelectedNodeIds([]);
         setNodes(nds => nds.map(item => ({ ...item, selected: false })));
         setIsZoomingToEdit(true);
@@ -13236,13 +13247,30 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         return;
       }
 
-      const images = (detail.images?.length
-        ? detail.images
-        : [GENERATED_ASSETS[Math.abs(detail.prompt.length + detail.count) % GENERATED_ASSETS.length]].map(asset => ({
-            src: asset.src,
-            width: asset.width,
-            height: asset.height,
-          }))).slice(0, requestedCount);
+      const images = (detail.images || []).filter(image => image?.src).slice(0, requestedCount);
+      if (images.length === 0) {
+        setNodes(nds => nds.map(n => {
+          const data = n.data as Record<string, unknown>;
+          if (data.generationId !== generationId) return n;
+          if (data.isGeneratingImage !== true || typeof data.localSrc === "string") return n;
+          return {
+            ...n,
+            data: {
+              ...data,
+              isGeneratingImage: false,
+              isGenerationFailed: true,
+              processingTitle: AI_GENERATION_NETWORK_ERROR_MESSAGE,
+              processingSubtitle: "",
+              title: AI_GENERATION_NETWORK_ERROR_MESSAGE,
+              sourceBackgroundSrc: undefined,
+              ...getImageGenerationNodeMetadata(detail),
+            },
+          };
+        }));
+        markImageGenerationTaskConsumed(projectId, generationId);
+        toast("图像生成失败", { description: "AI 未返回可用图片，请稍后重试" });
+        return;
+      }
       const backupItems = images.map((image, index) => ({
         nodeId: `generated-${generationId}-${index}`,
         generationId,

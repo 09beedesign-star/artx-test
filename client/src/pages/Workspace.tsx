@@ -7,18 +7,40 @@
 import { useState } from "react";
 import TopBar from "@/components/workspace/TopBar";
 import InfiniteCanvas from "@/components/canvas/InfiniteCanvas";
-import { BG_GLOW, PROJECTS } from "@/lib/workspace-data";
+import { BG_GLOW } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
-import { readWorkspaceProjectHistory } from "@/lib/project-history";
+import { readWorkspaceProjectHistory, updateWorkspaceProjectHistory } from "@/lib/project-history";
 
-export default function Workspace({ projectId = "p1" }: { projectId?: string }) {
+function ensureProjectMeta(projectId: string) {
+  const historyProject = readWorkspaceProjectHistory().find(project => project.id === projectId);
+  if (historyProject) return historyProject;
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const title = projectId === "__blank-workspace__" ? "新建画布" : `画布 ${projectId.slice(0, 8)}`;
+  updateWorkspaceProjectHistory(projectId, {
+    title,
+    cover: null,
+    updatedAt: timestamp,
+    createdAt: timestamp,
+    nodeCount: 0,
+  });
+  return readWorkspaceProjectHistory().find(project => project.id === projectId) || {
+    id: projectId,
+    title,
+    cover: null,
+    updatedAt: timestamp,
+    createdAt: timestamp,
+    nodeCount: 0,
+  };
+}
+
+export default function Workspace({ projectId = "__blank-workspace__" }: { projectId?: string }) {
   const [activeProjectId] = useState(projectId);
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-  const historyProject = readWorkspaceProjectHistory().find(project => project.id === activeProjectId);
-  const currentProject = historyProject || PROJECTS.find(project => project.id === activeProjectId) || PROJECTS[0];
-  const currentProjectMeta = currentProject as typeof currentProject & { createdAt?: string };
-  const projectCreatedAt = currentProjectMeta.createdAt || currentProject.updatedAt;
+  const currentProject = ensureProjectMeta(activeProjectId);
+  const projectCreatedAt = currentProject.createdAt || currentProject.updatedAt;
 
   return (
     <div
