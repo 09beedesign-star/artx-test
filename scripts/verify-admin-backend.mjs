@@ -93,6 +93,21 @@ try {
   assert.ok(snapshot.balance > 0, "paid order should issue credits");
   assert.ok(snapshot.ledger.some((entry) => entry.source === orderId && entry.delta > 0), "paid order should write credit ledger");
 
+  const externalCollection = await admin("POST", "/api/admin/orders/external-collection", adminToken, {
+    userId: ordinaryUser.id,
+    amount: 20,
+    expectedCredits: 0,
+    packageName: "20 元支付接口测试",
+    collector: "AI 接口方商户",
+    note: "接口方确认已收到一笔 20 元测试付款",
+    issueCredits: false,
+  });
+  assert.equal(externalCollection.status, 200, "external collection record should be saved");
+  assert.equal(externalCollection.body.order.channel, "第三方代收");
+  assert.equal(externalCollection.body.order.status, "paid");
+  assert.ok(externalCollection.body.paymentEvents.some((item) => item.type === "external_collection_confirmed"), "external collection should record payment event");
+  assert.ok(externalCollection.body.auditEntries.some((item) => item.action === "登记接口方代收记录"), "external collection should write audit log");
+
   const beforeCredits = snapshot.balance;
   const successTask = await recordAiUsage({
     userId: ordinaryUser.id,

@@ -44,7 +44,7 @@ type PaymentOrder = {
   userId: string;
   user: string;
   packageName: string;
-  channel: "微信支付" | "支付宝" | "Stripe" | "PayPal";
+  channel: "微信支付" | "支付宝" | "Stripe" | "PayPal" | "第三方代收";
   amount: number;
   expectedCredits: number;
   issuedCredits: number;
@@ -352,7 +352,9 @@ function envStatus(keys: string[]) {
 }
 
 function mapRoleToPlan(role?: string) {
-  return "Free";
+  if (role === "super_admin" || role === "admin") return "Business";
+  if (role === "finance" || role === "support") return "Creator";
+  return "Starter";
 }
 
 function getPlanIdFromUserPlan(planName?: string) {
@@ -362,7 +364,7 @@ function getPlanIdFromUserPlan(planName?: string) {
     || normalized.includes(plan.shortName.toLowerCase())
     || normalized.includes(plan.name.toLowerCase())
   ));
-  return matched?.id || undefined;
+  return matched?.id || "creator";
 }
 
 function quoteAiUsageFromData(data: AdminData, input: {
@@ -935,6 +937,109 @@ export async function handleAdminApiRequest(
   }
   if (method === "GET" && route === "users") return { status: 200, body: { users: data.users } };
   if (method === "GET" && route === "orders") return { status: 200, body: { orders: data.orders } };
+  if (method === "POST" && route === "orders/external-collection") {
+    const amount = Number(body.amount);
+    if (!Number.isFinite(amount) || amount <= 0) return jsonError(400, "收款金额必须大于 0");
+    const expectedCredits = Math.max(0, Math.round(Number(body.expectedCredits || 0)));
+    const userId = typeof body.userId === "string" && body.userId.trim() ? body.userId.trim() : data.users[0]?.id;
+    const user = data.users.find((item) => item.id === userId) || data.users[0];
+    if (!user) return jsonError(404, "未找到可关联的用户账户");
+    const packageName = typeof body.packageName === "string" && body.packageName.trim() ? body.packageName.trim() : "接口方代收确认";
+    const collector = typeof body.collector === "string" && body.collector.trim() ? body.collector.trim() : "AI 接口方商户";
+    const merchantOrderId = typeof body.merchantOrderId === "string" ? body.merchantOrderId.trim() : "";
+    const providerTransactionId = typeof body.providerTransactionId === "string" ? body.providerTransactionId.trim() : "";
+    const note = typeof body.note === "string" && body.note.trim() ? body.note.trim() : "接口方确认已收到款项";
+    const issueCredits = body.issueCredits === true;
+    const recordedAt = nowIso();
+    const order: PaymentOrder = {
+      id: merchantOrderId || `ext_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
+      userId: user.id,
+      user: user.name,
+      packageName,
+      channel: "第三方代收",
+      amount,
+      expectedCredits,
+      issuedCredits: issueCredits ? expectedCredits : 0,
+      status: "paid",
+      createdAt: recordedAt,
+      paidAt: recordedAt,
+      event: issueCredits ? "接口方代收确认并入账" : "接口方代收确认，待发积分",
+      reconciliation: providerTransactionId || merchantOrderId ? "matched" : "pending",
+      providerTransactionId: providerTransactionId || undefined,
+      paymentEvents: [
+        {
+          id: `payevt_${Date.now().toString(36)}`,
+          type: "external_collection_confirmed",
+          status: "success",
+          providerTransactionId: providerTransactionId || undefined,
+          amount,
+          signatureValid: undefined,
+          message: `${collector} 确认收款：${note}`,
+          createdAt: recordedAt,
+        },
+      ],
+      notes: [
+        {
+          id: `note_${Date.now().toString(36)}`,
+          actorId: actor.id,
+          actorName: actor.username,
+          content: `代收方：${collector}；${note}`,
+          createdAt: recordedAt,
+        },
+      ],
+    };
+
+    data.orders = [order, ...data.orders].slice(0, 200);
+    if (issueCredits && expectedCredits > 0) {
+      user.credits += expectedCredits;
+      user.totalRecharge += amount;
+      user.lastSeen = "刚刚";
+      data.credits = [
+        {
+          id: `cr_${Date.now().toString(36)}`,
+          userId: user.id,
+          user: user.name,
+          type: "代收入账",
+          delta: expectedCredits,
+          reason: "接口方代收确认",
+          source: order.id,
+          operator: actor.username,
+          createdAt: recordedAt,
+        },
+        ...data.credits,
+      ].slice(0, 500);
+    }
+    const alert: OpsAlert = {
+      id: `al_${crypto.randomUUID().slice(0, 8)}`,
+      category: "支付",
+      title: "接口方代收记录已登记",
+      detail: `${order.id} · ${collector} 确认收款 ${amount}，${issueCredits ? "已发积分" : "待发积分/对账"}`,
+      severity: providerTransactionId || merchantOrderId ? "info" : "warning",
+      time: formatRelativeTime(recordedAt),
+      owner: "Finance",
+      unread: true,
+      linkedSection: "orders",
+    };
+    data.alerts = [
+      alert,
+      ...data.alerts,
+    ].slice(0, 50);
+    appendAuditLog(data, actor, {
+      action: "登记接口方代收记录",
+      target: order.id,
+      reason: note,
+      after: {
+        amount,
+        expectedCredits,
+        issueCredits,
+        collector,
+        merchantOrderId,
+        providerTransactionId,
+      },
+    });
+    await saveAdminData(data);
+    return { status: 200, body: buildOrderDetail(data, order.id) };
+  }
   const orderDetailMatch = route.match(/^orders\/([^/]+)$/);
   if (method === "GET" && orderDetailMatch) {
     const detail = buildOrderDetail(data, orderDetailMatch[1]);

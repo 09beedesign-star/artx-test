@@ -97,18 +97,7 @@ type OrderDetail = {
   feedbackEntries: Feedback[];
   notes: Array<{ id: string; actorName: string; content: string; createdAt: string }>;
   paymentEvents: Array<{ id: string; type: string; status: string; providerTransactionId?: string; amount?: number; signatureValid?: boolean; message: string; createdAt: string }>;
-  refundEvents: Array<{
-    id: string;
-    amount: number;
-    creditsDeducted: number;
-    reason: string;
-    status: string;
-    providerRefundId?: string;
-    currentStep: string;
-    actorName: string;
-    createdAt: string;
-    flow?: Array<{ id: string; label: string; status: "done" | "current" | "pending" | "failed"; detail: string; createdAt?: string }>;
-  }>;
+  refundEvents: Array<{ id: string; amount: number; creditsDeducted: number; reason: string; actorName: string; createdAt: string }>;
   timeline: Array<{ id: string; type: string; status: string; message: string; createdAt: string }>;
 };
 
@@ -584,6 +573,16 @@ function AdminPrototypePage() {
   const [selectedOrderId, setSelectedOrderId] = useState("");
   const [orderDetail, setOrderDetail] = useState<OrderDetail | null>(null);
   const [orderNote, setOrderNote] = useState("");
+  const [externalCollection, setExternalCollection] = useState({
+    amount: "20",
+    expectedCredits: "0",
+    packageName: "接口方代收确认",
+    collector: "AI 接口方商户",
+    merchantOrderId: "",
+    providerTransactionId: "",
+    note: "接口方确认已收到用户付款",
+    issueCredits: false,
+  });
 
   const fetchAdminData = useCallback(async (message?: string) => {
     const token = readAdminToken();
@@ -796,6 +795,27 @@ function AdminPrototypePage() {
       reason: "后台人工退款",
       confirmation: "CONFIRM_REFUND_ORDER",
     }, "订单已标记退款，已按可用余额扣回积分并记录审计。");
+  }
+
+  function handleExternalCollectionChange(key: keyof typeof externalCollection, value: string | boolean) {
+    setExternalCollection((current) => ({
+      ...current,
+      [key]: value,
+    }));
+  }
+
+  function handleRecordExternalCollection() {
+    adminPostOrder("/api/admin/orders/external-collection", {
+      userId: selectedUser.id,
+      amount: Number(externalCollection.amount || 0),
+      expectedCredits: Number(externalCollection.expectedCredits || 0),
+      packageName: externalCollection.packageName,
+      collector: externalCollection.collector,
+      merchantOrderId: externalCollection.merchantOrderId,
+      providerTransactionId: externalCollection.providerTransactionId,
+      note: externalCollection.note,
+      issueCredits: externalCollection.issueCredits,
+    }, "接口方代收记录已登记到后台订单、支付事件和审计日志。");
   }
 
   return (
@@ -1139,8 +1159,16 @@ function AdminPrototypePage() {
     if (activeSection === "orders") {
       return (
         <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
-          <div className="overflow-hidden rounded-md border border-white/10 bg-white/[0.03]">
-            <OrdersTable orders={adminData.orders} selectedOrderId={selectedOrder?.id || ""} onSelect={handleSelectOrder} />
+          <div className="space-y-4">
+            <ExternalCollectionPanel
+              form={externalCollection}
+              selectedUserName={selectedUser.name}
+              onChange={handleExternalCollectionChange}
+              onSubmit={handleRecordExternalCollection}
+            />
+            <div className="overflow-hidden rounded-md border border-white/10 bg-white/[0.03]">
+              <OrdersTable orders={adminData.orders} selectedOrderId={selectedOrder?.id || ""} onSelect={handleSelectOrder} />
+            </div>
           </div>
           <OrderDetailPanel
             detail={orderDetail}
@@ -1687,6 +1715,64 @@ function OrdersTable({
   );
 }
 
+function ExternalCollectionPanel({
+  form,
+  selectedUserName,
+  onChange,
+  onSubmit,
+}: {
+  form: {
+    amount: string;
+    expectedCredits: string;
+    packageName: string;
+    collector: string;
+    merchantOrderId: string;
+    providerTransactionId: string;
+    note: string;
+    issueCredits: boolean;
+  };
+  selectedUserName: string;
+  onChange: (key: keyof typeof form, value: string | boolean) => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <div className="rounded-md border border-cyan-300/20 bg-cyan-300/[0.045] p-4">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-cyan-100">登记接口方代收记录</h3>
+          <p className="mt-1 text-xs leading-5 text-slate-400">
+            用于记录钱款进入第三方商户账户的事实，关联当前选中用户：{selectedUserName}。
+          </p>
+        </div>
+        <Badge className="border-cyan-300/20 bg-cyan-300/10 text-cyan-100">留痕</Badge>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        <Input value={form.amount} onChange={(event) => onChange("amount", event.target.value)} placeholder="收款金额，例如 20" className="border-white/12 bg-slate-950/40" />
+        <Input value={form.expectedCredits} onChange={(event) => onChange("expectedCredits", event.target.value)} placeholder="应发积分，可先填 0" className="border-white/12 bg-slate-950/40" />
+        <Input value={form.collector} onChange={(event) => onChange("collector", event.target.value)} placeholder="代收方，例如 AI 接口方商户" className="border-white/12 bg-slate-950/40" />
+        <Input value={form.packageName} onChange={(event) => onChange("packageName", event.target.value)} placeholder="订单说明" className="border-white/12 bg-slate-950/40" />
+        <Input value={form.merchantOrderId} onChange={(event) => onChange("merchantOrderId", event.target.value)} placeholder="商户订单号 out_trade_no，可后补" className="border-white/12 bg-slate-950/40" />
+        <Input value={form.providerTransactionId} onChange={(event) => onChange("providerTransactionId", event.target.value)} placeholder="第三方交易号 transaction_id，可后补" className="border-white/12 bg-slate-950/40" />
+      </div>
+      <Input value={form.note} onChange={(event) => onChange("note", event.target.value)} placeholder="备注，例如：接口方确认收到 20 元测试付款" className="mt-3 border-white/12 bg-slate-950/40" />
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+        <label className="flex items-center gap-2 text-xs text-slate-300">
+          <input
+            type="checkbox"
+            checked={form.issueCredits}
+            onChange={(event) => onChange("issueCredits", event.target.checked)}
+            className="size-4 rounded border-white/20 bg-slate-950"
+          />
+          登记后立即发放积分
+        </label>
+        <Button type="button" onClick={onSubmit} className="bg-cyan-300 text-slate-950 hover:bg-cyan-200">
+          登记收款留痕
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function OrderDetailPanel({
   detail,
   fallbackOrder,
@@ -1775,7 +1861,6 @@ function OrderDetailPanel({
         }))}
         empty="暂无积分流水"
       />
-      <RefundFlowSection refundEvents={detail?.refundEvents || []} />
       <MiniSection
         title="处理备注"
         rows={(detail?.notes || []).map((item) => ({
@@ -1803,58 +1888,6 @@ function InfoLine({ label, value, mono = false }: { label: string; value: string
     <div className="rounded-md border border-white/8 bg-slate-950/30 p-3">
       <div className="text-slate-500">{label}</div>
       <div className={cn("mt-1 break-all text-slate-100", mono && "font-mono")}>{value}</div>
-    </div>
-  );
-}
-
-function RefundFlowSection({ refundEvents }: { refundEvents: OrderDetail["refundEvents"] }) {
-  const latest = refundEvents[0];
-  if (!latest) {
-    return (
-      <div className="rounded-md border border-white/8 bg-slate-950/25 p-3">
-        <div className="mb-2 text-sm font-medium">退款钱款流向</div>
-        <div className="text-xs text-slate-500">暂无退款流程</div>
-      </div>
-    );
-  }
-
-  const nodes = latest.flow || [];
-  return (
-    <div className="rounded-md border border-white/8 bg-slate-950/25 p-3">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div>
-          <div className="text-sm font-medium">退款钱款流向</div>
-          <div className="mt-1 text-xs text-slate-500">
-            当前进程：{latest.currentStep || "退款处理中"} · {formatCurrency(latest.amount)}
-          </div>
-        </div>
-        <Badge className={statusClass(latest.status === "failed" ? "failed" : latest.status === "succeeded" ? "resolved" : "pending")}>
-          {latest.status}
-        </Badge>
-      </div>
-      <div className="space-y-2">
-        {nodes.map((node, index) => (
-          <div key={node.id} className="grid grid-cols-[22px_1fr] gap-3">
-            <div className="flex flex-col items-center">
-              <div className={cn(
-                "mt-1 size-3 rounded-full border",
-                node.status === "done" && "border-emerald-300 bg-emerald-300",
-                node.status === "current" && "border-cyan-300 bg-cyan-300",
-                node.status === "pending" && "border-slate-500 bg-transparent",
-                node.status === "failed" && "border-rose-300 bg-rose-300",
-              )} />
-              {index < nodes.length - 1 && <div className="mt-1 h-full min-h-8 w-px bg-white/10" />}
-            </div>
-            <div className="rounded-md bg-white/[0.03] p-2 text-xs">
-              <div className="flex items-center justify-between gap-3">
-                <div className="font-medium text-slate-200">{node.label}</div>
-                <div className="text-slate-500">{node.createdAt || "待处理"}</div>
-              </div>
-              <div className="mt-1 text-slate-500">{node.detail}</div>
-            </div>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
