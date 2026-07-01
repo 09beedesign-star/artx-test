@@ -180,6 +180,15 @@ function getAuthToken() {
   }
 }
 
+function normalizePlanDisplayName(planName?: string) {
+  const normalized = String(planName || "").trim().toLowerCase();
+  if (!normalized || normalized === "starter" || normalized === "free") return "Free";
+  if (normalized.includes("studio") || normalized.includes("business")) return "Studio 工作室版";
+  if (normalized.includes("pro")) return "Pro 专业版";
+  if (normalized.includes("lite") || normalized.includes("creator")) return "Lite 入门版";
+  return planName?.trim() || "Free";
+}
+
 async function billingFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getAuthToken();
   let response: Response;
@@ -260,7 +269,7 @@ export default function BillingPage() {
     billingFetch<BillingSummaryResponse>("/api/billing/summary")
       .then(result => {
         if (typeof result.balance === "number") setBalance(result.balance);
-        if (typeof result.plan === "string" && result.plan.trim()) setCurrentPlan(result.plan.trim());
+        setCurrentPlan(normalizePlanDisplayName(result.plan));
       })
       .catch(() => {});
   }, [isAuthenticated]);
@@ -275,6 +284,7 @@ export default function BillingPage() {
           const summary = await billingFetch<BillingSummaryResponse>("/api/billing/summary").catch(() => null);
           if (summary && typeof summary.balance === "number") {
             setBalance(summary.balance);
+            setCurrentPlan(normalizePlanDisplayName(summary.plan));
             setBalanceFlash(true);
             window.setTimeout(() => setBalanceFlash(false), 900);
           }
@@ -297,9 +307,9 @@ export default function BillingPage() {
 
   const getPlanLevel = (planName: string) => {
     const normalized = planName.toLowerCase();
-    if (normalized.includes("studio") || normalized.includes("business")) return 3;
+    if (normalized.includes("studio")) return 3;
     if (normalized.includes("pro")) return 2;
-    if (normalized.includes("lite") || normalized.includes("creator")) return 1;
+    if (normalized.includes("lite")) return 1;
     return 0;
   };
 

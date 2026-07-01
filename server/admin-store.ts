@@ -352,9 +352,7 @@ function envStatus(keys: string[]) {
 }
 
 function mapRoleToPlan(role?: string) {
-  if (role === "super_admin" || role === "admin") return "Business";
-  if (role === "finance" || role === "support") return "Creator";
-  return "Starter";
+  return "Free";
 }
 
 function getPlanIdFromUserPlan(planName?: string) {
@@ -364,7 +362,7 @@ function getPlanIdFromUserPlan(planName?: string) {
     || normalized.includes(plan.shortName.toLowerCase())
     || normalized.includes(plan.name.toLowerCase())
   ));
-  return matched?.id || "creator";
+  return matched?.id || undefined;
 }
 
 function quoteAiUsageFromData(data: AdminData, input: {
