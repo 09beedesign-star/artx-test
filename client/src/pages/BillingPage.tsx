@@ -180,6 +180,34 @@ function getAuthToken() {
   }
 }
 
+function normalizePlanDisplayName(planName?: string | null) {
+  const raw = String(planName || "").trim();
+  if (!raw) return "Free";
+  const normalized = raw.toLowerCase();
+  if (
+    normalized === "free"
+    || normalized === "starter"
+    || normalized === "demo"
+    || normalized.includes("积分充值")
+    || normalized.includes("recharge")
+  ) {
+    return "Free";
+  }
+
+  const matchedPlan = MEMBERSHIP_PLANS.find((plan) => {
+    const id = plan.id.toLowerCase();
+    const shortName = plan.shortName.toLowerCase();
+    const name = plan.name.toLowerCase();
+    return normalized === id
+      || normalized === shortName
+      || normalized === name
+      || normalized.includes(shortName)
+      || normalized.includes(name);
+  });
+
+  return matchedPlan?.name || raw;
+}
+
 async function billingFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getAuthToken();
   let response: Response;
@@ -269,7 +297,7 @@ export default function BillingPage() {
       setBalanceFlash(true);
       window.setTimeout(() => setBalanceFlash(false), 900);
     }
-    if (typeof summary.plan === "string" && summary.plan.trim()) setCurrentPlan(summary.plan.trim());
+    setCurrentPlan(normalizePlanDisplayName(summary.plan));
     return summary;
   };
 
@@ -278,9 +306,24 @@ export default function BillingPage() {
     billingFetch<BillingSummaryResponse>("/api/billing/summary")
       .then(result => {
         if (typeof result.balance === "number") setBalance(result.balance);
-        if (typeof result.plan === "string" && result.plan.trim()) setCurrentPlan(result.plan.trim());
+        setCurrentPlan(normalizePlanDisplayName(result.plan));
       })
       .catch(() => {});
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated || typeof window === "undefined" || typeof document === "undefined") return;
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") {
+        refreshBillingSummary();
+      }
+    };
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, [isAuthenticated]);
 
   useEffect(() => {
@@ -338,7 +381,7 @@ export default function BillingPage() {
   };
 
   const getPlanLevel = (planName: string) => {
-    const normalized = planName.toLowerCase();
+    const normalized = normalizePlanDisplayName(planName).toLowerCase();
     if (normalized.includes("studio") || normalized.includes("business")) return 3;
     if (normalized.includes("pro")) return 2;
     if (normalized.includes("lite") || normalized.includes("creator")) return 1;

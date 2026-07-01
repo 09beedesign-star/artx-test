@@ -367,6 +367,18 @@ function getPlanIdFromUserPlan(planName?: string) {
   return matched?.id || "creator";
 }
 
+function getMembershipPlanFromName(planName?: string) {
+  const normalized = String(planName || "").trim().toLowerCase();
+  if (!normalized) return undefined;
+  return MEMBERSHIP_PLANS.find((plan) => (
+    normalized === plan.id.toLowerCase()
+    || normalized === plan.shortName.toLowerCase()
+    || normalized === plan.name.toLowerCase()
+    || normalized.includes(plan.shortName.toLowerCase())
+    || normalized.includes(plan.name.toLowerCase())
+  ));
+}
+
 function quoteAiUsageFromData(data: AdminData, input: {
   capability: AiBillingCapability;
   outputCount?: number;
@@ -1445,7 +1457,7 @@ export async function createBillingOrder(params: {
       loginMethod: params.username.includes("@artx.social") ? "social" : "email",
       role: "viewer",
       status: "normal",
-      plan: plan.shortName,
+      plan: "Free",
       organization: "个人",
       credits: 0,
       frozenCredits: 0,
@@ -1644,7 +1656,12 @@ export async function markBillingOrderPaid(params: {
     ].slice(0, 50);
 
     user.credits += order.expectedCredits;
-    user.plan = order.packageName;
+    const paidMembershipPlan = getMembershipPlanFromName(order.packageName);
+    if (paidMembershipPlan) {
+      user.plan = paidMembershipPlan.shortName;
+    } else if (!user.plan || String(user.plan).trim() === "积分充值") {
+      user.plan = "Free";
+    }
     user.lastSeen = "刚刚";
 
     data.credits = [
