@@ -3,10 +3,8 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 import {
   ChevronDown,
-  Heart,
   ImagePlus,
   LogOut,
-  PlayCircle,
   Send,
   Sparkles,
   UserRound,
@@ -22,20 +20,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import asteroidImage from "@/assets/ardot/3_3.png";
 import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
-import { BRAND_KIT, POSTER_1, POSTER_2, SOCIAL_AD } from "@/lib/workspace-data";
+import promptCsv from "@/data/ai_image_prompt_rank_50.csv?raw";
 import { createWorkspaceHistoryProject } from "@/lib/project-history";
 import { requestAiAuth } from "@/lib/ai";
-
-const COMMUNITY_PROJECTS = [
-  { id: "community-1", title: "未来跑鞋视觉实验", updatedAt: "社区精选", cover: POSTER_2, author: "Emma_Wilson", plays: "4478", likes: "125" },
-  { id: "community-2", title: "咖啡品牌灵感板", updatedAt: "用户作品", cover: BRAND_KIT, author: "Emma_Wilson", plays: "4478", likes: "125" },
-  { id: "community-3", title: "城市户外广告片", updatedAt: "社区精选", cover: POSTER_1, author: "Emma_Wilson", plays: "4478", likes: "125" },
-  { id: "community-4", title: "智能设备发布海报", updatedAt: "用户作品", cover: SOCIAL_AD, author: "Emma_Wilson", plays: "4478", likes: "125" },
-  { id: "community-5", title: "潮流服饰大片", updatedAt: "灵感推荐", cover: POSTER_1, author: "Emma_Wilson", plays: "4478", likes: "125" },
-  { id: "community-6", title: "新消费包装系统", updatedAt: "社区精选", cover: BRAND_KIT, author: "Emma_Wilson", plays: "4478", likes: "125" },
-  { id: "community-7", title: "运动科技主视觉", updatedAt: "用户作品", cover: POSTER_2, author: "Emma_Wilson", plays: "4478", likes: "125" },
-  { id: "community-8", title: "社媒营销创意图", updatedAt: "灵感推荐", cover: SOCIAL_AD, author: "Emma_Wilson", plays: "4478", likes: "125" },
-];
 
 const PROMPT_SUGGESTIONS = [
   "帮我生成一张赛博朋克风格插画",
@@ -58,6 +45,80 @@ const AVATAR_COLORS = [
 
 type PanelMode = "prelogin" | "login" | "register";
 type LandingTab = "home" | "inspiration" | "skills" | "workspace" | "help";
+type HomePromptItem = {
+  rank: number;
+  field: string;
+  title: string;
+  description: string;
+  imageUrl: string;
+  author: string;
+};
+
+function parsePromptCsv(csv: string) {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let value = "";
+  let inQuote = false;
+
+  for (let index = 0; index < csv.length; index += 1) {
+    const char = csv[index];
+    const next = csv[index + 1];
+
+    if (inQuote) {
+      if (char === '"' && next === '"') {
+        value += '"';
+        index += 1;
+      } else if (char === '"') {
+        inQuote = false;
+      } else {
+        value += char;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inQuote = true;
+    } else if (char === ",") {
+      row.push(value);
+      value = "";
+    } else if (char === "\n") {
+      row.push(value);
+      rows.push(row);
+      row = [];
+      value = "";
+    } else if (char !== "\r") {
+      value += char;
+    }
+  }
+
+  if (value || row.length) {
+    row.push(value);
+    rows.push(row);
+  }
+
+  return rows;
+}
+
+function loadHomePromptItems(csv: string): HomePromptItem[] {
+  const rows = parsePromptCsv(csv.replace(/^\uFEFF/, ""));
+  const header = rows[0] ?? [];
+  const get = (record: string[], key: string) => record[header.indexOf(key)]?.trim() ?? "";
+
+  return rows
+    .slice(1)
+    .filter((record) => record.length > 1)
+    .map((record) => ({
+      rank: Number(get(record, "rank")) || 0,
+      field: get(record, "field"),
+      title: get(record, "title"),
+      description: get(record, "description"),
+      imageUrl: get(record, "image_url"),
+      author: get(record, "author"),
+    }))
+    .filter((item) => item.title && item.imageUrl);
+}
+
+const HOME_PROMPT_ITEMS = loadHomePromptItems(promptCsv);
 
 const getStageScale = () => {
   if (typeof window === "undefined") return 1;
@@ -394,7 +455,7 @@ export default function HomePage() {
           type="button"
           onClick={scrollToInspiration}
           className="absolute bottom-5 left-1/2 z-20 flex h-10 w-10 -translate-x-1/2 items-center justify-center rounded-full border border-white/20 bg-black/20 text-white/70 backdrop-blur-md transition-all hover:border-white/45 hover:text-white"
-          aria-label="滚动到灵感发现"
+          aria-label="滚动到灵感选题"
         >
           <ChevronDown size={20} />
         </button>
@@ -404,43 +465,51 @@ export default function HomePage() {
         <div className="mx-auto max-w-[1600px]">
           <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="mb-3 text-sm font-medium text-[#9370ff]">Inspiration Source</p>
-              <h2 className="text-[34px] font-black leading-tight text-white sm:text-[44px]">灵感来源</h2>
+              <p className="mb-3 text-sm font-medium text-[#9370ff]">Inspiration Topics</p>
+              <h2 className="text-[34px] font-black leading-tight text-white sm:text-[44px]">灵感选题</h2>
             </div>
             <p className="max-w-[420px] text-sm leading-6 text-white/45">
-              从社区作品、品牌视觉和社媒创意中快速找到方向，登录后可直接创建为你的新画布。
+              50 组热门图片提示词选题，按真实案例封面快速浏览创作方向。
             </p>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {COMMUNITY_PROJECTS.map(project => (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
+            {HOME_PROMPT_ITEMS.map(item => (
               <button
-                key={project.id}
+                key={`${item.rank}-${item.title}`}
                 type="button"
-                onClick={() => navigate(`/project/${project.id}`)}
+                onClick={() => navigate("/inspiration")}
                 className="group overflow-hidden rounded-md border border-white/10 bg-[#151515] text-left shadow-[0_18px_50px_rgba(0,0,0,0.28)] transition-transform hover:-translate-y-1"
               >
-                <div className="relative aspect-video overflow-hidden">
-                  <img src={project.cover} alt={project.title} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                <div className="relative aspect-[16/10] overflow-hidden bg-black">
+                  <img
+                    src={item.imageUrl}
+                    alt={item.title}
+                    className="relative z-10 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    loading="lazy"
+                    onError={(event) => {
+                      event.currentTarget.style.display = "none";
+                    }}
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center px-6 text-center bg-[linear-gradient(135deg,#33224e,#173246)]">
+                    <span className="text-xs leading-5 text-white/76">图片待同步</span>
+                  </div>
                   <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/0 to-black/0" />
+                  <span className="absolute left-3 top-3 z-20 rounded-full bg-black/48 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur-md">
+                    #{item.rank}
+                  </span>
                 </div>
                 <div className="p-4">
-                  <div className="mb-3 flex items-center gap-2">
-                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#f7d795] to-[#d98261] text-xs font-bold text-[#28160c]">
-                      EW
-                    </div>
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-white">{project.author}</span>
-                    <span className="flex items-center gap-1 text-xs font-medium text-white/55">
-                      <PlayCircle size={14} fill="currentColor" strokeWidth={0} />
-                      {project.plays}
+                  <div className="mb-3 flex min-w-0 items-center gap-2">
+                    <span className="min-w-0 max-w-[58%] truncate whitespace-nowrap rounded-full bg-[#936CFF]/18 px-2.5 py-1 text-xs font-medium text-[#c9b8ff]">
+                      {item.field}
                     </span>
-                    <span className="flex items-center gap-1 text-xs font-medium text-white/55">
-                      <Heart size={14} fill="currentColor" strokeWidth={0} />
-                      {project.likes}
+                    <span className="min-w-0 flex-1 truncate whitespace-nowrap text-xs text-white/45">
+                      {item.author}
                     </span>
                   </div>
-                  <p className="truncate text-sm font-semibold text-white">{project.title}</p>
-                  <p className="mt-1 text-xs text-white/42">{project.updatedAt}</p>
+                  <p className="truncate whitespace-nowrap text-sm font-semibold text-white">{item.title}</p>
+                  <p className="mt-1 truncate whitespace-nowrap text-xs text-white/42">{item.description}</p>
                 </div>
               </button>
             ))}
@@ -468,7 +537,7 @@ function LandingTopNav({
 }) {
   const navItems = [
     { key: "home" as const, label: "首页", onClick: onHome },
-    { key: "inspiration" as const, label: "灵感来源", onClick: onInspiration },
+    { key: "inspiration" as const, label: "灵感选题", onClick: onInspiration },
     { key: "skills" as const, label: "技能商店", onClick: onSkills },
     { key: "workspace" as const, label: "工作台", onClick: onWorkspace },
     { key: "help" as const, label: "帮助与反馈", onClick: onHelp },
