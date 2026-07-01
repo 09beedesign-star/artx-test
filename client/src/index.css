@@ -686,7 +686,7 @@ html.light, .light {
   right: auto !important;
   top: auto !important;
   bottom: 32px !important;
-  width: 260px !important;
+  width: min(300px, calc(100vw - 32px)) !important;
   transform: translateX(-50%) !important;
   margin-bottom: 0 !important;
   padding-bottom: 0 !important;
@@ -694,7 +694,7 @@ html.light, .light {
 
 [data-sonner-toaster].toaster [data-sonner-toast][data-styled="true"] {
   align-items: center !important;
-  width: 260px !important;
+  width: min(300px, calc(100vw - 32px)) !important;
   min-height: 60px !important;
   height: 60px !important;
   max-height: 60px !important;
@@ -713,7 +713,7 @@ html.light, .light {
   width: 100% !important;
   display: block !important;
   overflow: hidden !important;
-  white-space: nowrap !important;
+  white-space: normal !important;
 }
 
 [data-sonner-toaster].toaster [data-sonner-toast][data-styled="true"] [data-title],
@@ -725,8 +725,9 @@ html.light, .light {
   font-size: 14px !important;
   line-height: 20px !important;
   letter-spacing: 0 !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
+  text-overflow: clip !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
 }
 
 [data-sonner-toaster].toaster [data-sonner-toast][data-styled="true"] [data-description]::before {
@@ -784,13 +785,13 @@ html.light, .light {
     right: auto !important;
     top: auto !important;
     bottom: 32px !important;
-    width: 260px !important;
+    width: min(300px, calc(100vw - 32px)) !important;
     transform: translateX(-50%) !important;
   }
 
   [data-sonner-toaster].toaster [data-sonner-toast] {
     left: 0 !important;
     right: auto !important;
-    width: 260px !important;
+    width: min(300px, calc(100vw - 32px)) !important;
   }
 }

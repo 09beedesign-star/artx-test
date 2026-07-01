@@ -58,7 +58,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       className="toaster group"
       style={
         {
-          "--width": "260px",
+          "--width": "300px",
           "--normal-bg": "rgba(0,0,0,0.60)",
           "--normal-text": "rgba(255,255,255,0.92)",
           "--normal-border": "rgba(255,255,255,0.10)",
