@@ -5541,8 +5541,24 @@ function resolveNonOverlappingCanvasPosition(
 function getAssetNodeImageSource(node: Node): string {
   if (node.type !== "asset") return "";
   const data = node.data as Record<string, unknown>;
-  const localSrc = data.localSrc as string | undefined;
-  if (localSrc) return localSrc;
+  const directKeys = [
+    "localSrc",
+    "src",
+    "imageSrc",
+    "imageUrl",
+    "url",
+    "resultSrc",
+    "resultUrl",
+    "generatedSrc",
+    "generatedUrl",
+    "previewSrc",
+    "previewUrl",
+    "sourceBackgroundSrc",
+  ];
+  for (const key of directKeys) {
+    const value = data[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
   const asset = GENERATED_ASSETS.find(item => item.id === data.assetId);
   return asset?.src || "";
 }
@@ -14336,18 +14352,20 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       return pasteClipboardImages(imageBlobs);
     }
 
-    const html = clipboardData?.getData("text/html") || "";
-    const plain = clipboardData?.getData("text/plain") || "";
-    const sources: string[] = [];
-    if (html) {
-      const doc = new DOMParser().parseFromString(html, "text/html");
-      sources.push(...Array.from(doc.querySelectorAll("img")).map(img => img.src).filter(Boolean));
-    }
-    if (/^(data:image\/|blob:|https?:\/\/)/i.test(plain.trim())) {
-      sources.push(plain.trim());
-    }
+    const sources = extractImageSourcesFromDataTransfer(clipboardData);
     return pasteClipboardImageSources(sources);
   }, [pasteClipboardImages, pasteClipboardImageSources]);
+
+  const clipboardPayloadLooksExternalImage = useCallback((clipboardData: DataTransfer | null | undefined) => {
+    if (!clipboardData) return false;
+    const items = Array.from(clipboardData.items || []);
+    if (items.some(item => item.type.startsWith("image/"))) return true;
+    if (extractImageSourcesFromDataTransfer(clipboardData).length > 0) return true;
+    const html = clipboardData.getData("text/html") || "";
+    if (/<img\b/i.test(html)) return true;
+    const plain = clipboardData.getData("text/plain")?.trim() || "";
+    return /^(data:image\/|blob:|https?:\/\/)/i.test(plain);
+  }, []);
 
   const pasteClipboardFromNavigator = useCallback(async () => {
     if (!navigator.clipboard?.read) return false;
@@ -14378,13 +14396,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     }
   }, [pasteClipboardImages, pasteClipboardImageSources]);
 
-  // ── 获取节点的图片源 (localSrc 优先，其次 GENERATED_ASSETS) ──
+  // ── 获取节点的图片源（兼容生成、编辑、粘贴、静态素材等多种节点数据） ──
   const getNodeImageSrc = useCallback((node: Node): string => {
-    const data = node.data as Record<string, unknown>;
-    if (data.localSrc) return data.localSrc as string;
-    const assetId = data.assetId as string;
-    const asset = GENERATED_ASSETS.find(a => a.id === assetId);
-    return asset?.src || "";
+    return getAssetNodeImageSource(node);
   }, []);
 
   const sanitizeDownloadName = useCallback((value: string) => value.replace(/[/\\:*?"<>|]/g, "_").trim() || "artx-image", []);
@@ -14633,22 +14647,24 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
   const handleFrameLiveDrag = useCallback((_event: MouseEvent, node: Node) => {
     if (node.type !== "canvasFrame") return;
-    const previous = frameLiveDragPositionRef.current.get(node.id) || dragStartPositionRef.current.get(node.id);
-    if (!previous) {
-      frameLiveDragPositionRef.current.set(node.id, { x: node.position.x, y: node.position.y });
+    const frameStart = dragStartPositionRef.current.get(node.id);
+    if (!frameStart) {
+      dragStartPositionRef.current.set(node.id, { x: node.position.x, y: node.position.y });
       return;
     }
-    const dx = node.position.x - previous.x;
-    const dy = node.position.y - previous.y;
+    const dx = node.position.x - frameStart.x;
+    const dy = node.position.y - frameStart.y;
     frameLiveDragPositionRef.current.set(node.id, { x: node.position.x, y: node.position.y });
     if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return;
     setNodes(nds => nds.map(item => {
       if (item.type !== "asset") return item;
       const data = item.data as Record<string, unknown>;
       if (data.embeddedInFrame !== node.id) return item;
+      const assetStart = dragStartPositionRef.current.get(item.id);
+      if (!assetStart) return item;
       return {
         ...item,
-        position: { x: item.position.x + dx, y: item.position.y + dy },
+        position: { x: assetStart.x + dx, y: assetStart.y + dy },
       };
     }));
   }, [setNodes]);
@@ -14659,9 +14675,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     if (draggedNode.type !== "asset") return null;
     const nodePos = draggedNode.position;
     // 找到鼠标中心点所在的 canvasFrame 节点
-    const nodeData = draggedNode.data as Record<string, unknown>;
-    const nW = (nodeData.imgW as number) || 200;
-    const nH = (nodeData.imgH as number) || 200;
+    const nodeSize = getCanvasNodeSize(draggedNode);
+    const nW = nodeSize.width || 200;
+    const nH = nodeSize.height || 200;
     const centerX = nodePos.x + nW / 2;
     const centerY = nodePos.y + nH / 2;
     const frame = allNodes.find(n => {
@@ -14889,8 +14905,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       if (isTyping) return;
       pasteEventSeenAtRef.current = Date.now();
       event.preventDefault();
+      const hasExternalImagePayload = clipboardPayloadLooksExternalImage(event.clipboardData);
       void pasteClipboardPayload(event.clipboardData).then(pasted => {
         if (!pasted) {
+          if (hasExternalImagePayload) {
+            toast("外部图片粘贴失败", { description: "没有读取到可用图片，请复制图片本身后再粘贴" });
+            return;
+          }
           void pasteClipboardFromNavigator().then(fallbackPasted => {
             if (!fallbackPasted) toast("未读取到可粘贴图片", { description: "请在浏览器中复制图片本身，或复制图片地址后再粘贴" });
           });
@@ -14963,6 +14984,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           if (pasteEventSeenAtRef.current >= requestedAt) return;
           void pasteClipboardFromNavigator().then(pasted => {
             if (pasted) return;
+            const recentExternalPasteAttempt = Date.now() - pasteEventSeenAtRef.current < 500;
+            if (recentExternalPasteAttempt) return;
             if (getCrossCanvasClipboard().length > 0) {
               pasteCrossCanvasClipboard();
             } else {
@@ -14990,7 +15013,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       window.removeEventListener("paste", handlePaste);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [nodes, getCrossCanvasClipboard, pasteClipboardFromNavigator, pasteClipboardPayload, pasteCrossCanvasClipboard, pushHistory, selectedNodeIds, setEdges, setNodes, undoCanvas, writeCrossCanvasClipboard]);
+  }, [nodes, clipboardPayloadLooksExternalImage, getCrossCanvasClipboard, pasteClipboardFromNavigator, pasteClipboardPayload, pasteCrossCanvasClipboard, pushHistory, selectedNodeIds, setEdges, setNodes, undoCanvas, writeCrossCanvasClipboard]);
 
   // ── C-key lasso: cut edges intersecting the lasso rect ──
   const handleLassoCut = useCallback((lassoRect: LassoRect) => {
@@ -16500,7 +16523,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       {/* 批量下载格式选择弹窗 */}
       {downloadDialogOpen && (
         <div
-          className="fixed inset-x-0 flex justify-center"
+          className="fixed inset-0 flex items-center justify-center"
           style={{ background: "rgba(0,0,0,0.60)", backdropFilter: "blur(10px)", zIndex: 6000 }}
           onMouseDown={() => setDownloadDialogOpen(false)}
         >
@@ -17209,19 +17232,20 @@ function GlobalAnnotationLayer({
   return (
     <div
       className="absolute inset-0 pointer-events-none"
-      style={{ zIndex: 9999 }}
+      style={{ zIndex: 100 }}
     >
       {annotations.map(ann => {
         const pos = getScreenPos(ann);
         if (!pos) return null;
+        const screenAnchoredAnn = { ...ann, x: 0, y: 0 };
         return (
           <div
             key={ann.id}
             className="absolute pointer-events-auto"
-            style={{ left: pos.x, top: pos.y, transform: "translateX(-50%)" }}
+            style={{ left: pos.x, top: pos.y }}
           >
             <AnnotationBubble
-              ann={ann}
+              ann={screenAnchoredAnn}
               isDark={isDark}
               onUpdate={onUpdate}
               onRemove={onRemove}
