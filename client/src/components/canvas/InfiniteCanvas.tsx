@@ -11318,6 +11318,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [nodeCtxMenu, setNodeCtxMenu] = useState<NodeCtxState | null>(null);
   const [clipboard, setClipboard] = useState<Node[]>([]);
   const pasteEventSeenAtRef = useRef(0);
+  const internalClipboardCopiedAtRef = useRef(0);
+  const windowBlurredAfterInternalCopyRef = useRef(false);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [isAssistantCollapsed, setIsAssistantCollapsed] = useState(false);
   const [assistantPanelWidth, setAssistantPanelWidth] = useState(() => {
@@ -11352,6 +11354,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const writeCrossCanvasClipboard = useCallback((nodesToCopy: Node[]) => {
     const copyable = nodesToCopy.filter(isCrossCanvasCopyNode);
     setClipboard(copyable);
+    internalClipboardCopiedAtRef.current = Date.now();
+    windowBlurredAfterInternalCopyRef.current = false;
     if (typeof window !== "undefined") {
       try {
         window.localStorage.setItem(CANVAS_CROSS_PROJECT_CLIPBOARD_KEY, JSON.stringify({
@@ -11369,6 +11373,20 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const local = clipboard.filter(isCrossCanvasCopyNode);
     return local.length > 0 ? local : readCrossCanvasClipboard();
   }, [clipboard, readCrossCanvasClipboard]);
+
+  const canUseInternalClipboardFallback = useCallback(() => {
+    if (windowBlurredAfterInternalCopyRef.current) return false;
+    if (Date.now() - internalClipboardCopiedAtRef.current > 2 * 60 * 1000) return false;
+    return getCrossCanvasClipboard().length > 0;
+  }, [getCrossCanvasClipboard]);
+
+  useEffect(() => {
+    const handleWindowBlur = () => {
+      windowBlurredAfterInternalCopyRef.current = true;
+    };
+    window.addEventListener("blur", handleWindowBlur);
+    return () => window.removeEventListener("blur", handleWindowBlur);
+  }, []);
 
   const [helpPromptNonce, setHelpPromptNonce] = useState(0);
   const [activeSkill, setActiveSkill] = useState<PendingSkillLoad | null>(null);
@@ -12761,7 +12779,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     e.preventDefault();
     const rect = containerRef.current?.getBoundingClientRect();
     if (selectedNodeIds.length === 0) {
-      if (getCrossCanvasClipboard().length > 0) {
+      if (canUseInternalClipboardFallback()) {
         setNodeCtxMenu({
           x: e.clientX - (rect?.left || 0),
           y: e.clientY - (rect?.top || 0),
@@ -12782,7 +12800,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       selectedIds: selectedNodeIds,
       grouped: areNodesGrouped(selectedNodeIds),
     });
-  }, [areNodesGrouped, getCrossCanvasClipboard, selectedNodeIds]);
+  }, [areNodesGrouped, canUseInternalClipboardFallback, selectedNodeIds]);
 
   // ── Node right-click via custom event ──
   useEffect(() => {
@@ -14439,6 +14457,19 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     }
   }, []);
 
+  const saveImageSourceWithFallback = useCallback(async (src: string, fileName: string, format: ImageDownloadFormat) => {
+    const blob = await imageSrcToFormatBlob(src, format);
+    if (blob) {
+      saveAs(blob, fileName);
+      return true;
+    }
+    if (/^(data:image\/|blob:|https?:\/\/)/i.test(src)) {
+      saveAs(src, fileName);
+      return true;
+    }
+    return false;
+  }, [imageSrcToFormatBlob]);
+
   const exportFrameAsImageBlob = useCallback(async (frameNode: Node, format: ImageDownloadFormat) => {
     const frameData = frameNode.data as Record<string, unknown>;
     const width = Math.max(1, Math.round((frameData.width as number) || 800));
@@ -14986,7 +15017,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             if (pasted) return;
             const recentExternalPasteAttempt = Date.now() - pasteEventSeenAtRef.current < 500;
             if (recentExternalPasteAttempt) return;
-            if (getCrossCanvasClipboard().length > 0) {
+            if (canUseInternalClipboardFallback()) {
               pasteCrossCanvasClipboard();
             } else {
               toast("未读取到可粘贴图片", { description: "请在浏览器中复制图片本身，或复制图片地址后再粘贴" });
@@ -15013,7 +15044,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       window.removeEventListener("paste", handlePaste);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [nodes, clipboardPayloadLooksExternalImage, getCrossCanvasClipboard, pasteClipboardFromNavigator, pasteClipboardPayload, pasteCrossCanvasClipboard, pushHistory, selectedNodeIds, setEdges, setNodes, undoCanvas, writeCrossCanvasClipboard]);
+  }, [nodes, canUseInternalClipboardFallback, clipboardPayloadLooksExternalImage, pasteClipboardFromNavigator, pasteClipboardPayload, pasteCrossCanvasClipboard, pushHistory, selectedNodeIds, setEdges, setNodes, undoCanvas, writeCrossCanvasClipboard]);
 
   // ── C-key lasso: cut edges intersecting the lasso rect ──
   const handleLassoCut = useCallback((lassoRect: LassoRect) => {
@@ -15098,6 +15129,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
   // Inject isEditing flag into the target node's data so AssetNodeComponent can show the mask
   const selectedImageNodeIds = selectedNodeIds.filter(id => nodes.some(n => n.id === id && n.type === "asset"));
+  const selectedFrameNodeIds = selectedNodeIds.filter(id => nodes.some(n => n.id === id && n.type === "canvasFrame"));
   const selectedVisualNodeIds = selectedNodeIds.filter(id => nodes.some(n => n.id === id && (n.type === "asset" || n.type === "canvasFrame")));
   const multiImageSelectionActive = selectedImageNodeIds.length > 1;
   const multiVisualSelectionActive = selectedVisualNodeIds.length > 1;
@@ -15904,7 +15936,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     toast(label, { description: "已应用到当前图片节点" });
     setAssetMorePanel(null);
   }, [assetMorePanel, closeAssetMorePanel, getLatestAssetImageSource, nodesRef, pushHistory, runDerivedImageGeneration, setNodes]);
-  const selectedImageNode = selectedVisualNodeIds.length === 1 ? nodes.find(n => n.id === selectedVisualNodeIds[0] && (n.type === "asset" || n.type === "canvasFrame")) : null;
+  const selectedFrameNode = selectedFrameNodeIds.length === 1
+    ? nodes.find(n => n.id === selectedFrameNodeIds[0] && n.type === "canvasFrame")
+    : null;
+  const selectedImageNode = selectedFrameNode || (selectedVisualNodeIds.length === 1 ? nodes.find(n => n.id === selectedVisualNodeIds[0] && (n.type === "asset" || n.type === "canvasFrame")) : null);
   const assetMorePanelNode = assetMorePanel ? nodes.find(n => n.id === assetMorePanel.nodeId && n.type === "asset") : null;
   const assetMorePanelData = assetMorePanelNode?.data as Record<string, unknown> | undefined;
   const assetMorePanelImageSrc = assetMorePanel ? getLatestAssetImageSource(assetMorePanel.nodeId) : "";
@@ -16248,12 +16283,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         helpPromptNonce={helpPromptNonce}
       />
 
-      {selectedVisualNodeIds.length === 1 && !multiVisualSelectionActive && (
+      {((selectedVisualNodeIds.length === 1 && !multiVisualSelectionActive) || Boolean(selectedFrameNode)) && (
         <AssetFloatingToolbar
           isDark={isDark}
           position={attachedImageToolbarPosition}
           mode={selectedImageNode?.type === "canvasFrame" ? "canvasFrame" : "asset"}
-          onAction={handleSingleImageToolbarAction}
+          onAction={selectedFrameNode ? (action) => handleNodeAction(action, selectedFrameNode.id) : handleSingleImageToolbarAction}
         />
       )}
 
@@ -16267,7 +16302,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         />
       )}
 
-      {multiVisualSelectionActive && (
+      {multiVisualSelectionActive && selectedFrameNodeIds.length === 0 && (
         <MultiSelectionFloatingToolbar
           isDark={isDark}
           count={selectedVisualNodeIds.length}
@@ -16615,6 +16650,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                   const frameDl = (window as unknown as Record<string, unknown>).__artx_frame_download__ as Node | undefined;
 
                   if (frameDl) {
+                    const toastId = toast.loading("正在导出画板...");
                     const frameData = frameDl.data as Record<string, unknown>;
                     const frameTitle = (frameData.title as string) || (frameData.name as string) || "artx-artboard";
                     const safeName = sanitizeDownloadName(frameTitle);
@@ -16622,20 +16658,23 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                       ? await exportFrameAsPsdBlob(frameDl)
                       : await exportFrameAsImageBlob(frameDl, downloadFormat);
                     if (!blob) {
-                      toast("导出失败", { description: "当前画板暂时无法导出，请稍后重试" });
+                      toast.dismiss(toastId);
+                      toast("导出失败", { description: "当前画板暂时无法读取图片图层，请检查画板内图片是否正常显示" });
                     } else {
                       saveAs(blob, `${safeName}.${downloadFormat}`);
+                      toast.dismiss(toastId);
                       toast("导出完成", { description: `已导出画板 ${safeName}.${downloadFormat}` });
                     }
                     (window as unknown as Record<string, unknown>).__artx_frame_download__ = undefined;
                   } else if (singleDl && !dlNodes) {
+                    const toastId = toast.loading("正在下载图片...");
                     const safeName = sanitizeDownloadName(singleDl.title);
-                    const blob = await imageSrcToFormatBlob(singleDl.src, downloadFormat === "psd" ? "png" : downloadFormat);
-                    if (!blob) {
-                      toast("下载失败", { description: "当前图片暂时无法保存，请稍后重试" });
-                    } else {
-                      saveAs(blob, `${safeName}.${downloadFormat === "psd" ? "png" : downloadFormat}`);
-                    }
+                    const actualFormat = downloadFormat === "psd" ? "png" : downloadFormat;
+                    const fileName = `${safeName}.${actualFormat}`;
+                    const saved = await saveImageSourceWithFallback(singleDl.src, fileName, actualFormat);
+                    toast.dismiss(toastId);
+                    if (!saved) toast("下载失败", { description: "当前图片没有可保存的图像来源" });
+                    else toast("下载完成", { description: `已保存 ${fileName}` });
                     (window as unknown as Record<string, unknown>).__artx_single_download__ = undefined;
                   } else if (dlNodes && dlNodes.length > 0) {
                     // 批量下载
