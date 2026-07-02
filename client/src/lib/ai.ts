@@ -72,7 +72,7 @@ export type ReferenceImageResult = {
   source: string;
 };
 
-function getAiApiBaseUrl() {
+export function getAiApiBaseUrl() {
   const configured = (
     import.meta.env.VITE_AI_API_BASE_URL ||
     import.meta.env.VITE_API_BASE_URL ||

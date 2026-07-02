@@ -221,7 +221,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import CropEditor from "@/components/canvas/CropEditor";
 import RotateEditor from "@/components/canvas/RotateEditor";
-import { callLLM, createProductBackground, editImageWithPrompt, enhanceImageToHd, eraseImageObjects, expandImageWithMask, extractImageText, generateImages as generateAiImages, getBackgroundImageGenerationTask, removeImageBackground, removeImageWatermark, requestAiAuth, searchReferenceImages, startBackgroundImageGeneration, type GeneratedImagesResponse, type ReferenceImageResult } from "@/lib/ai";
+import { callLLM, createProductBackground, editImageWithPrompt, enhanceImageToHd, eraseImageObjects, expandImageWithMask, extractImageText, generateImages as generateAiImages, getAiApiBaseUrl, getBackgroundImageGenerationTask, removeImageBackground, removeImageWatermark, requestAiAuth, searchReferenceImages, startBackgroundImageGeneration, type GeneratedImagesResponse, type ReferenceImageResult } from "@/lib/ai";
 import { routeCreativeIntent } from "@/lib/ai-intent";
 import { createWorkspaceHistoryProject, readWorkspaceProjectHistory, touchWorkspaceProjectHistory, updateWorkspaceProjectHistory, type WorkspaceHistoryProject } from "@/lib/project-history";
 import { buildSkillPromptContext, createPendingSkillLoad, PENDING_SKILL_LOAD_KEY, skillStoreItems, type PendingSkillLoad } from "@/lib/skill-store";
@@ -14421,18 +14421,38 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
   const sanitizeDownloadName = useCallback((value: string) => value.replace(/[/\\:*?"<>|]/g, "_").trim() || "artx-image", []);
 
+  const fetchImageViaBackendProxy = useCallback(async (src: string) => {
+    if (!/^https?:\/\//i.test(src)) return null;
+    try {
+      const endpoint = `${getAiApiBaseUrl()}/api/images/proxy?url=${encodeURIComponent(src)}`;
+      const response = await fetch(endpoint, { method: "GET" });
+      if (!response.ok) return null;
+      const blob = await response.blob();
+      return blob.size > 0 ? URL.createObjectURL(blob) : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
   const imageSrcToFormatBlob = useCallback(async (src: string, format: ImageDownloadFormat) => {
     if (!src) return null;
     const mimeType = format === "jpg" ? "image/jpeg" : "image/png";
     let objectUrl: string | null = null;
+    let proxyObjectUrl: string | null = null;
     try {
       let imageSrc = src;
       if (!src.startsWith("data:")) {
-        const response = await fetch(src, { mode: "cors", credentials: "omit" });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const blob = await response.blob();
-        objectUrl = URL.createObjectURL(blob);
-        imageSrc = objectUrl;
+        try {
+          const response = await fetch(src, { mode: "cors", credentials: "omit" });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const blob = await response.blob();
+          objectUrl = URL.createObjectURL(blob);
+          imageSrc = objectUrl;
+        } catch {
+          proxyObjectUrl = await fetchImageViaBackendProxy(src);
+          if (!proxyObjectUrl) throw new Error("image proxy failed");
+          imageSrc = proxyObjectUrl;
+        }
       }
       const image = await loadImageForCanvas(imageSrc);
       const canvas = document.createElement("canvas");
@@ -14454,21 +14474,46 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       return null;
     } finally {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
+      if (proxyObjectUrl) URL.revokeObjectURL(proxyObjectUrl);
     }
-  }, []);
+  }, [fetchImageViaBackendProxy]);
 
-  const saveImageSourceWithFallback = useCallback(async (src: string, fileName: string, format: ImageDownloadFormat) => {
+  const saveImageSourceAsDownload = useCallback(async (src: string, fileName: string, format: ImageDownloadFormat) => {
     const blob = await imageSrcToFormatBlob(src, format);
-    if (blob) {
-      saveAs(blob, fileName);
-      return true;
-    }
-    if (/^(data:image\/|blob:|https?:\/\/)/i.test(src)) {
-      saveAs(src, fileName);
-      return true;
-    }
-    return false;
+    if (!blob) return false;
+    saveAs(blob, fileName);
+    return true;
   }, [imageSrcToFormatBlob]);
+
+  const getFrameContainedAssetNodes = useCallback((frameNode: Node) => {
+    const frameData = frameNode.data as Record<string, unknown>;
+    const frameWidth = Math.max(1, Number(frameData.width || getCanvasNodeSize(frameNode).width || 800));
+    const frameHeight = Math.max(1, Number(frameData.height || getCanvasNodeSize(frameNode).height || 600));
+    const frameBounds = {
+      x: frameNode.position.x,
+      y: frameNode.position.y,
+      right: frameNode.position.x + frameWidth,
+      bottom: frameNode.position.y + frameHeight,
+    };
+    return nodesRef.current
+      .filter(node => {
+        if (node.type !== "asset") return false;
+        const data = node.data as Record<string, unknown>;
+        if (data.embeddedInFrame === frameNode.id) return true;
+        const size = getCanvasNodeSize(node);
+        const assetBounds = {
+          x: node.position.x,
+          y: node.position.y,
+          right: node.position.x + size.width,
+          bottom: node.position.y + size.height,
+        };
+        return assetBounds.right > frameBounds.x
+          && assetBounds.x < frameBounds.right
+          && assetBounds.bottom > frameBounds.y
+          && assetBounds.y < frameBounds.bottom;
+      })
+      .sort((a, b) => ((a.zIndex as number) || 0) - ((b.zIndex as number) || 0));
+  }, []);
 
   const exportFrameAsImageBlob = useCallback(async (frameNode: Node, format: ImageDownloadFormat) => {
     const frameData = frameNode.data as Record<string, unknown>;
@@ -14490,9 +14535,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       ctx.fillStyle = background;
       ctx.fillRect(0, 0, width, height);
     }
-    const embeddedAssets = nodesRef.current
-      .filter(node => node.type === "asset" && ((node.data as Record<string, unknown>).embeddedInFrame === frameNode.id))
-      .sort((a, b) => ((a.zIndex as number) || 0) - ((b.zIndex as number) || 0));
+    const embeddedAssets = getFrameContainedAssetNodes(frameNode);
     for (const assetNode of embeddedAssets) {
       const src = getNodeImageSrc(assetNode);
       if (!src) continue;
@@ -14513,15 +14556,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     return await new Promise<Blob | null>(resolve => {
       canvas.toBlob(resolve, format === "jpg" ? "image/jpeg" : "image/png", format === "jpg" ? 0.92 : undefined);
     });
-  }, [getNodeImageSrc]);
+  }, [getFrameContainedAssetNodes, getNodeImageSrc]);
 
   const exportFrameAsPsdBlob = useCallback(async (frameNode: Node) => {
     const frameData = frameNode.data as Record<string, unknown>;
     const width = Math.max(1, Math.round((frameData.width as number) || 800));
     const height = Math.max(1, Math.round((frameData.height as number) || 600));
-    const embeddedAssets = nodesRef.current
-      .filter(node => node.type === "asset" && ((node.data as Record<string, unknown>).embeddedInFrame === frameNode.id))
-      .sort((a, b) => ((a.zIndex as number) || 0) - ((b.zIndex as number) || 0));
+    const embeddedAssets = getFrameContainedAssetNodes(frameNode);
     const background = (frameData.backgroundColor as string) || (frameData.bgColor as string) || (frameData.fill as string);
     const compositeCanvas = document.createElement("canvas");
     compositeCanvas.width = width;
@@ -14574,7 +14615,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     };
     const buffer = writePsd(psd, { generateThumbnail: true });
     return new Blob([buffer], { type: "image/vnd.adobe.photoshop" });
-  }, [getNodeImageSrc]);
+  }, [getFrameContainedAssetNodes, getNodeImageSrc]);
 
   // ── 批量下载实现：将多个图片打包成 ZIP ──
   const handleBatchDownload = useCallback(async (
@@ -14612,7 +14653,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       }));
 
       if (successCount === 0) {
-        throw new Error("没有成功读取到可下载图片");
+        throw new Error("没有成功读取到可下载图片，请确认图片已加载完成或稍后重试");
       }
       const zipBlob = await zip.generateAsync({ type: "blob" });
       saveAs(zipBlob, `${zipName}.zip`);
@@ -14620,7 +14661,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       toast("下载完成", { description: `已将 ${successCount} 张图片打包为 ${zipName}.zip` });
     } catch (err) {
       toast.dismiss(toastId);
-      toast("下载失败", { description: "请检查网络连接后重试" });
+      const message = err instanceof Error ? err.message : "请检查网络连接后重试";
+      toast("下载失败", { description: message });
       console.error("[BatchDownload]", err);
     }
   }, [getNodeImageSrc, imageSrcToFormatBlob, sanitizeDownloadName]);
@@ -16671,7 +16713,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                     const safeName = sanitizeDownloadName(singleDl.title);
                     const actualFormat = downloadFormat === "psd" ? "png" : downloadFormat;
                     const fileName = `${safeName}.${actualFormat}`;
-                    const saved = await saveImageSourceWithFallback(singleDl.src, fileName, actualFormat);
+                    const saved = await saveImageSourceAsDownload(singleDl.src, fileName, actualFormat);
                     toast.dismiss(toastId);
                     if (!saved) toast("下载失败", { description: "当前图片没有可保存的图像来源" });
                     else toast("下载完成", { description: `已保存 ${fileName}` });

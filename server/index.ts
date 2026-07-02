@@ -151,6 +151,39 @@ async function startServer() {
     res.json({ ok: true });
   });
 
+  app.get("/api/images/proxy", async (req, res) => {
+    try {
+      const url = typeof req.query.url === "string" ? req.query.url.trim() : "";
+      if (!/^https?:\/\//i.test(url)) {
+        res.status(400).json({ error: "Invalid image url" });
+        return;
+      }
+      const response = await fetch(url, {
+        redirect: "follow",
+        headers: {
+          "User-Agent": "ArtX/1.0 image-download-proxy",
+          "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        },
+      });
+      if (!response.ok) {
+        res.status(response.status).json({ error: `Image fetch failed: ${response.status}` });
+        return;
+      }
+      const contentType = response.headers.get("content-type") || "application/octet-stream";
+      if (!contentType.startsWith("image/") && contentType !== "application/octet-stream") {
+        res.status(415).json({ error: "URL did not return an image" });
+        return;
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Cache-Control", "public, max-age=300");
+      res.send(Buffer.from(arrayBuffer));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Image proxy failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
   app.post("/api/images/generate", async (req, res) => {
     try {
       const result = await generateImages(req.body);
