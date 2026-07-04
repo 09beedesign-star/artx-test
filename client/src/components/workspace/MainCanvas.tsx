@@ -35,7 +35,11 @@ export default function MainCanvas({ projectId = "p1" }: MainCanvasProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeTab, setActiveTab] = useState<"chat" | "gallery">("chat");
   const bottomRef = useRef<HTMLDivElement>(null);
-  const project = PROJECTS.find((p) => p.id === projectId) || PROJECTS[0];
+  const project = PROJECTS.find((p) => p.id === projectId) || {
+    id: projectId || "__blank-workspace__",
+    title: "空白画布",
+    updatedAt: "刚刚",
+  };
   const [starred, setStarred] = useState(false);
 
   useEffect(() => {
@@ -92,7 +96,7 @@ export default function MainCanvas({ projectId = "p1" }: MainCanvasProps) {
                 content: decision.mode === "image"
                   ? `我判断这次请求更适合直接生成图片，已整理为生图任务：${decision.imagePrompt || userMsg.content}`
                   : (decision.reply || userMsg.content),
-                assets: decision.mode === "image" ? [GENERATED_ASSETS[0], GENERATED_ASSETS[1]] : undefined,
+                assets: undefined,
               }
             : m
         )
@@ -287,7 +291,7 @@ function ChatView({
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSend(); }
             }}
-            placeholder="描述你想要生成的设计内容，例如：为一个咖啡品牌设计一套完整的视觉识别系统…"
+            placeholder="描述你想要生成的设计内容..."
             rows={3}
             className="w-full bg-transparent px-4 pt-3 pb-2 text-sm outline-none resize-none"
             style={{ color: "oklch(0.88 0.008 270)", fontSize: 14, lineHeight: 1.6 }}

@@ -15,7 +15,11 @@ interface ProjectHeaderProps {
 }
 
 export default function ProjectHeader({ projectId }: ProjectHeaderProps) {
-  const project = PROJECTS.find((p) => p.id === projectId) || PROJECTS[0];
+  const project = PROJECTS.find((p) => p.id === projectId) || {
+    id: projectId,
+    title: "空白画布",
+    updatedAt: "刚刚",
+  };
   const [starred, setStarred] = useState(false);
 
   return (
