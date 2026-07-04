@@ -222,6 +222,16 @@ type OverviewData = {
     label: string;
   }>;
   capabilityStatus?: Array<{ id: string; domain: string; status: "ready" | "partial" | "missing"; summary: string; source: string }>;
+  productionReadiness?: Array<{
+    id: string;
+    domain: string;
+    status: "ready" | "partial" | "missing";
+    summary: string;
+    requiredKeys: string[];
+    configuredKeys: string[];
+    missingKeys: string[];
+    action: string;
+  }>;
   aiCostBreakdownByProvider?: Array<{
     key: string;
     label: string;
@@ -255,6 +265,7 @@ type AdminPayload = {
   auditLogs?: Array<{ actorName?: string; action: string; target: string; createdAt: string; reason?: string }>;
   plans?: PricingPlan[];
   capabilityStatus?: Array<{ id: string; domain: string; status: "ready" | "partial" | "missing"; summary: string; source: string }>;
+  productionReadiness?: OverviewData["productionReadiness"];
 };
 
 const sections: Array<{
@@ -275,169 +286,37 @@ const sections: Array<{
 
 const users: AdminUser[] = [
   {
-    id: "usr_1028",
-    name: "林澈",
-    email: "lin@example.com",
-    plan: "Pro 20K",
-    credits: 18420,
-    spent: 1299,
+    id: "usr_demo",
+    name: "演示用户",
+    email: "demo@example.com",
+    plan: "Demo",
+    credits: 0,
+    spent: 0,
     status: "normal",
-    lastSeen: "3 分钟前",
+    lastSeen: "刚刚",
     risk: "低",
-  },
-  {
-    id: "usr_1071",
-    name: "Mira Studio",
-    email: "ops@mira.ai",
-    plan: "Team 100K",
-    credits: 76310,
-    spent: 5980,
-    status: "watch",
-    lastSeen: "18 分钟前",
-    risk: "中",
-  },
-  {
-    id: "usr_1189",
-    name: "陈一鸣",
-    email: "chen@example.com",
-    plan: "Starter",
-    credits: 920,
-    spent: 99,
-    status: "normal",
-    lastSeen: "1 小时前",
-    risk: "低",
-  },
-  {
-    id: "usr_1220",
-    name: "北辰增长",
-    email: "finance@beichen.co",
-    plan: "Enterprise",
-    credits: 241900,
-    spent: 32000,
-    status: "blocked",
-    lastSeen: "昨天",
-    risk: "高",
   },
 ];
 
 const orders: Order[] = [
   {
-    id: "ord_90341",
-    user: "林澈",
-    channel: "Stripe",
-    amount: 1299,
-    credits: 20000,
-    status: "paid",
-    createdAt: "今天 11:24",
-  },
-  {
-    id: "ord_90337",
-    user: "Mira Studio",
-    channel: "支付宝",
-    amount: 5980,
-    credits: 100000,
-    status: "paid",
-    createdAt: "今天 09:18",
-  },
-  {
-    id: "ord_90310",
-    user: "陈一鸣",
-    channel: "微信支付",
-    amount: 99,
-    credits: 1200,
+    id: "ord_demo",
+    user: "演示用户",
+    channel: "演示渠道",
+    amount: 0,
+    credits: 0,
     status: "pending",
-    createdAt: "昨天 21:06",
-  },
-  {
-    id: "ord_90288",
-    user: "北辰增长",
-    channel: "PayPal",
-    amount: 32000,
-    credits: 500000,
-    status: "failed",
-    createdAt: "昨天 16:40",
+    createdAt: "演示时间",
+    event: "演示订单，非真实交易",
+    reconciliation: "matched",
   },
 ];
 
-const feedbackSeed: Feedback[] = [
-  {
-    id: "fb_238",
-    user: "Mira Studio",
-    title: "批量生成时希望看到每个任务的积分预估",
-    module: "额度消耗",
-    status: "new",
-    priority: "P1",
-    createdAt: "今天 10:20",
-  },
-  {
-    id: "fb_231",
-    user: "林澈",
-    title: "支付成功后积分到账慢了 2 分钟",
-    module: "支付",
-    status: "processing",
-    priority: "P0",
-    createdAt: "昨天 22:12",
-  },
-  {
-    id: "fb_218",
-    user: "陈一鸣",
-    title: "希望支持导出积分流水",
-    module: "报表",
-    status: "resolved",
-    priority: "P2",
-    createdAt: "6 月 18 日",
-  },
-];
+const feedbackSeed: Feedback[] = [];
 
-const alertSeed: OpsAlert[] = [
-  {
-    id: "al_901",
-    category: "支付",
-    title: "微信支付回调待确认",
-    detail: "ord_90310 已扣款但积分未入账，建议 15 分钟内补偿或重放回调。",
-    severity: "critical",
-    time: "2 分钟前",
-    owner: "Finance",
-    unread: true,
-  },
-  {
-    id: "al_898",
-    category: "报错",
-    title: "模型任务队列出现 5xx",
-    detail: "Model Gateway 最近 10 分钟失败率 7.4%，影响高额度用户批量生成。",
-    severity: "critical",
-    time: "8 分钟前",
-    owner: "AI Ops",
-    unread: true,
-  },
-  {
-    id: "al_892",
-    category: "接口",
-    title: "Render API 延迟升高",
-    detail: "任务状态同步平均 812ms，超过观察阈值，可能导致用户误以为任务卡住。",
-    severity: "warning",
-    time: "19 分钟前",
-    owner: "Infra",
-    unread: true,
-  },
-  {
-    id: "al_886",
-    category: "额度",
-    title: "北辰增长触发异常消耗",
-    detail: "10 分钟内消耗 80K 积分，已冻结部分额度，等待人工复核。",
-    severity: "warning",
-    time: "昨天 16:51",
-    owner: "Risk",
-    unread: false,
-  },
-];
+const alertSeed: OpsAlert[] = [];
 
-const creditEvents: CreditEvent[] = [
-  { id: "cr_771", user: "林澈", type: "购买入账", amount: "+20,000", actor: "Stripe 回调", note: "ord_90341" },
-  { id: "cr_769", user: "Mira Studio", type: "任务消耗", amount: "-3,420", actor: "系统", note: "视频生成 x 12" },
-  { id: "cr_762", user: "陈一鸣", type: "人工补偿", amount: "+500", actor: "Admin Eric", note: "支付延迟补偿" },
-  { id: "cr_758", user: "北辰增长", type: "冻结额度", amount: "-80,000", actor: "风控规则", note: "异常调用峰值" },
-];
+const creditEvents: CreditEvent[] = [];
 
 const integrations: Integration[] = [
   { name: "Stripe", category: "国际卡支付", state: "在线", latency: "286ms", owner: "Finance" },
@@ -446,12 +325,7 @@ const integrations: Integration[] = [
   { name: "Model Gateway", category: "模型供应商", state: "在线", latency: "438ms", owner: "AI Ops" },
 ];
 
-const auditRows: AuditRow[] = [
-  { actor: "Admin Eric", action: "给陈一鸣补偿 500 积分", target: "usr_1189", time: "今天 12:06" },
-  { actor: "Stripe Webhook", action: "订单支付成功并入账", target: "ord_90341", time: "今天 11:24" },
-  { actor: "Risk Rule #07", action: "冻结北辰增长部分额度", target: "usr_1220", time: "昨天 16:51" },
-  { actor: "客服 Ava", action: "将反馈标记为处理中", target: "fb_231", time: "昨天 22:20" },
-];
+const auditRows: AuditRow[] = [];
 
 function statusLabel(status: Status | OrderStatus | FeedbackStatus) {
   const map: Record<string, string> = {
@@ -488,12 +362,23 @@ function statusClass(status: Status | OrderStatus | FeedbackStatus | string) {
   return "border-white/10 bg-white/7 text-white/70";
 }
 
-function formatCurrency(value: number) {
-  return `¥${value.toLocaleString("zh-CN")}`;
+function toFiniteNumber(value: unknown, fallback = 0) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : fallback;
+  if (typeof value === "string" && value.trim()) {
+    const normalized = Number(value.replace(/[^\d.-]/g, ""));
+    return Number.isFinite(normalized) ? normalized : fallback;
+  }
+  return fallback;
 }
 
-function formatCredits(value: number) {
-  return value.toLocaleString("zh-CN");
+function formatCurrency(value: unknown) {
+  const amount = toFiniteNumber(value);
+  return amount === 0 ? "—" : `¥${amount.toLocaleString("zh-CN")}`;
+}
+
+function formatCredits(value: unknown) {
+  const amount = toFiniteNumber(value);
+  return amount === 0 ? "—" : amount.toLocaleString("zh-CN");
 }
 
 function readAdminToken() {
@@ -507,24 +392,33 @@ function readAdminToken() {
 }
 
 function creditAmount(delta: number) {
-  const prefix = delta > 0 ? "+" : "";
-  return `${prefix}${formatCredits(delta)}`;
+  const safeDelta = toFiniteNumber(delta);
+  const prefix = safeDelta > 0 ? "+" : "";
+  return `${prefix}${formatCredits(safeDelta)}`;
 }
 
 function normalizeAdminPayload(payload: AdminPayload) {
   const normalizedUsers = (payload.users || users).map((item) => ({
     ...item,
-    spent: item.spent ?? item.totalRecharge ?? 0,
+    credits: toFiniteNumber(item.credits),
+    spent: toFiniteNumber(item.spent ?? item.totalRecharge),
+    totalRecharge: toFiniteNumber(item.totalRecharge ?? item.spent),
+    frozenCredits: toFiniteNumber(item.frozenCredits),
   }));
   const normalizedOrders = (payload.orders || orders).map((item) => ({
     ...item,
-    credits: item.credits ?? item.issuedCredits ?? item.expectedCredits ?? 0,
+    amount: toFiniteNumber(item.amount),
+    credits: toFiniteNumber(item.credits ?? item.issuedCredits ?? item.expectedCredits),
+    expectedCredits: toFiniteNumber(item.expectedCredits ?? item.credits),
+    issuedCredits: toFiniteNumber(item.issuedCredits),
+    refundAmount: toFiniteNumber(item.refundAmount),
+    refundedCredits: toFiniteNumber(item.refundedCredits),
   }));
   const normalizedCredits: CreditEvent[] = (payload.credits || []).map((item) => ({
     id: item.id,
     user: item.user,
     type: item.type,
-    amount: creditAmount(item.delta),
+    amount: creditAmount(toFiniteNumber(item.delta)),
     actor: item.operator,
     note: item.source || item.reason,
   }));
@@ -557,6 +451,42 @@ function normalizeAdminPayload(payload: AdminPayload) {
 
 type AdminState = ReturnType<typeof normalizeAdminPayload>;
 
+function normalizeOrder(order: Order): Order {
+  return {
+    ...order,
+    amount: toFiniteNumber(order.amount),
+    credits: toFiniteNumber(order.credits ?? order.issuedCredits ?? order.expectedCredits),
+    expectedCredits: toFiniteNumber(order.expectedCredits ?? order.credits),
+    issuedCredits: toFiniteNumber(order.issuedCredits),
+    refundAmount: toFiniteNumber(order.refundAmount),
+    refundedCredits: toFiniteNumber(order.refundedCredits),
+  };
+}
+
+function normalizeOrderDetail(detail: OrderDetail): OrderDetail {
+  return {
+    ...detail,
+    order: normalizeOrder(detail.order),
+    creditEntries: (detail.creditEntries || []).map((item) => ({
+      ...item,
+      delta: toFiniteNumber(item.delta),
+    })),
+    paymentEvents: (detail.paymentEvents || []).map((item) => ({
+      ...item,
+      amount: item.amount === undefined ? undefined : toFiniteNumber(item.amount),
+    })),
+    refundEvents: (detail.refundEvents || []).map((item) => ({
+      ...item,
+      amount: toFiniteNumber(item.amount),
+      creditsDeducted: toFiniteNumber(item.creditsDeducted),
+    })),
+    notes: detail.notes || [],
+    auditEntries: detail.auditEntries || [],
+    feedbackEntries: detail.feedbackEntries || [],
+    timeline: detail.timeline || [],
+  };
+}
+
 function AdminPrototypePage() {
   const { user } = useAuth();
   const [activeSection, setActiveSection] = useState<AdminSection>("overview");
@@ -565,7 +495,7 @@ function AdminPrototypePage() {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | Status>("all");
   const [alertsOpen, setAlertsOpen] = useState(false);
-  const [creditDelta, setCreditDelta] = useState(500);
+  const [creditDelta, setCreditDelta] = useState(0);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("正在连接后台数据接口：/api/admin/overview。");
   const [policyDraft, setPolicyDraft] = useState<Array<{ capability: string; capabilityKey?: string; unit: string; baseCredits: number; estimatedCostPerUnit: number; provider: string }>>([]);
@@ -574,13 +504,13 @@ function AdminPrototypePage() {
   const [orderDetail, setOrderDetail] = useState<OrderDetail | null>(null);
   const [orderNote, setOrderNote] = useState("");
   const [externalCollection, setExternalCollection] = useState({
-    amount: "20",
-    expectedCredits: "0",
-    packageName: "接口方代收确认",
-    collector: "AI 接口方商户",
+    amount: "",
+    expectedCredits: "",
+    packageName: "",
+    collector: "",
     merchantOrderId: "",
     providerTransactionId: "",
-    note: "接口方确认已收到用户付款",
+    note: "",
     issueCredits: false,
   });
 
@@ -623,7 +553,7 @@ function AdminPrototypePage() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || "订单详情加载失败");
-      setOrderDetail(payload as OrderDetail);
+      setOrderDetail(normalizeOrderDetail(payload as OrderDetail));
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "订单详情加载失败");
     }
@@ -680,7 +610,7 @@ function AdminPrototypePage() {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "订单操作失败");
-      setOrderDetail(result as OrderDetail);
+      setOrderDetail(normalizeOrderDetail(result as OrderDetail));
       await fetchAdminData(successMessage);
       setNotice(successMessage);
     } catch (error) {
@@ -819,9 +749,9 @@ function AdminPrototypePage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0b1020] text-slate-100">
-      <div className="grid min-h-screen grid-cols-1 lg:grid-cols-[280px_1fr]">
-        <aside className="border-b border-white/10 bg-[#0f172a] lg:border-b-0 lg:border-r">
+    <div className="min-h-screen overflow-x-hidden bg-[#0b1020] text-slate-100">
+      <div className="min-h-screen lg:pl-[280px]">
+        <aside className="border-b border-white/10 bg-[#0f172a] lg:fixed lg:inset-y-0 lg:left-0 lg:z-20 lg:w-[280px] lg:overflow-hidden lg:border-b-0 lg:border-r">
           <div className="flex h-full flex-col">
             <div className="border-b border-white/10 px-5 py-5">
               <div className="flex items-center gap-3">
@@ -835,7 +765,7 @@ function AdminPrototypePage() {
               </div>
             </div>
 
-            <nav className="grid gap-1 p-3">
+            <nav className="grid gap-1 overflow-y-auto p-3 lg:min-h-0 lg:flex-1">
               {sections.map((section) => {
                 const Icon = section.icon;
                 const isActive = section.id === activeSection;
@@ -876,7 +806,7 @@ function AdminPrototypePage() {
                   今日运营提醒
                 </div>
                 <p className="text-xs leading-5 text-slate-400">
-                  1 笔支付回调延迟、1 个高风险账户、2 条待处理反馈需要跟进。
+                  暂无真实运营提醒，等待接入线上数据。
                 </p>
               </div>
             </div>
@@ -971,13 +901,13 @@ function AdminPrototypePage() {
               />
             </section>
 
-            <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+            <section className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_minmax(320px,360px)]">
               <div className="min-w-0 rounded-md border border-white/10 bg-white/[0.035]">
                 <SectionTabs activeSection={activeSection} setActiveSection={setActiveSection} />
                 <div className="p-4 md:p-5">{renderSection()}</div>
               </div>
 
-              <aside className="space-y-5">
+              <aside className="min-w-0 space-y-5">
                 <UserDetailPanel
                   user={selectedUser}
                   creditDelta={creditDelta}
@@ -1066,6 +996,30 @@ function AdminPrototypePage() {
               ))}
             </div>
           </div>
+
+          <div className="rounded-md border border-white/10 bg-slate-950/40 p-4 xl:col-span-2">
+            <h2 className="text-base font-semibold">正式上线依赖</h2>
+            <p className="mt-1 text-sm text-slate-400">这里按服务器环境变量判断生产接口、存储、告警和备份是否具备上线条件。</p>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {(adminData.overview?.productionReadiness || []).map((item) => (
+                <div key={item.id} className="rounded-md border border-white/8 bg-white/[0.03] p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="text-sm font-medium">{item.domain}</div>
+                    <Badge className={statusClass(item.status === "ready" ? "normal" : item.status === "partial" ? "watch" : "blocked")}>
+                      {item.status === "ready" ? "可上线" : item.status === "partial" ? "部分配置" : "缺配置"}
+                    </Badge>
+                  </div>
+                  <p className="mt-2 text-sm text-slate-400">{item.summary}</p>
+                  {item.missingKeys.length > 0 && (
+                    <div className="mt-2 text-xs text-amber-200">
+                      缺少：{item.missingKeys.join(" / ")}
+                    </div>
+                  )}
+                  <div className="mt-2 text-xs text-slate-500">{item.action}</div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       );
     }
@@ -1079,94 +1033,96 @@ function AdminPrototypePage() {
             statusFilter={statusFilter}
             setStatusFilter={setStatusFilter}
           />
-          <Table className="min-w-[780px]">
-            <TableHeader>
-              <TableRow className="border-white/10 hover:bg-transparent">
-                <TableHead>用户</TableHead>
-                <TableHead>套餐</TableHead>
-                <TableHead>积分余额</TableHead>
-                <TableHead>累计付费</TableHead>
-                <TableHead>状态</TableHead>
-                <TableHead>最近活跃</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredUsers.map((user) => (
-                <TableRow
-                  key={user.id}
-                  className={cn(
-                    "border-white/8 hover:bg-white/[0.04]",
-                    selectedUserId === user.id && "bg-cyan-300/8"
-                  )}
-                  onClick={() => setSelectedUserId(user.id)}
-                >
-                  <TableCell>
-                    <div className="font-medium">{user.name}</div>
-                    <div className="text-xs text-slate-500">{user.email}</div>
-                  </TableCell>
-                  <TableCell>{user.plan}</TableCell>
-                  <TableCell>{formatCredits(user.credits)}</TableCell>
-                  <TableCell>{formatCurrency(user.spent)}</TableCell>
-                  <TableCell>
-                    <Badge className={statusClass(user.status)}>{statusLabel(user.status)}</Badge>
-                  </TableCell>
-                  <TableCell className="text-slate-400">
-                    <div>{user.lastSeen}</div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleUserRole(user.id, "support");
-                        }}
-                      >
-                        设为客服
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleUserRole(user.id, "finance");
-                        }}
-                      >
-                        设为财务
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleUserStatus(user.id, user.status === "blocked" ? "normal" : "blocked");
-                        }}
-                      >
-                        {user.status === "blocked" ? "恢复账号" : "停用账号"}
-                      </Button>
-                    </div>
-                  </TableCell>
+          <div className="overflow-x-auto">
+            <Table className="min-w-[780px]">
+              <TableHeader>
+                <TableRow className="border-white/10 hover:bg-transparent">
+                  <TableHead>用户</TableHead>
+                  <TableHead>套餐</TableHead>
+                  <TableHead>积分余额</TableHead>
+                  <TableHead>累计付费</TableHead>
+                  <TableHead>状态</TableHead>
+                  <TableHead>最近活跃</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {filteredUsers.map((user) => (
+                  <TableRow
+                    key={user.id}
+                    className={cn(
+                      "border-white/8 hover:bg-white/[0.04]",
+                      selectedUserId === user.id && "bg-cyan-300/8"
+                    )}
+                    onClick={() => setSelectedUserId(user.id)}
+                  >
+                    <TableCell>
+                      <div className="font-medium">{user.name}</div>
+                      <div className="break-all text-xs text-slate-500">{user.email}</div>
+                    </TableCell>
+                    <TableCell>{user.plan}</TableCell>
+                    <TableCell>{formatCredits(user.credits)}</TableCell>
+                    <TableCell>{formatCurrency(user.spent)}</TableCell>
+                    <TableCell>
+                      <Badge className={statusClass(user.status)}>{statusLabel(user.status)}</Badge>
+                    </TableCell>
+                    <TableCell className="text-slate-400">
+                      <div>{user.lastSeen}</div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleUserRole(user.id, "support");
+                          }}
+                        >
+                          设为客服
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleUserRole(user.id, "finance");
+                          }}
+                        >
+                          设为财务
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleUserStatus(user.id, user.status === "blocked" ? "normal" : "blocked");
+                          }}
+                        >
+                          {user.status === "blocked" ? "恢复账号" : "停用账号"}
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         </div>
       );
     }
 
     if (activeSection === "orders") {
       return (
-        <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
-          <div className="space-y-4">
+        <div className="grid min-w-0 gap-5 2xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+          <div className="min-w-0 space-y-4">
             <ExternalCollectionPanel
               form={externalCollection}
               selectedUserName={selectedUser.name}
               onChange={handleExternalCollectionChange}
               onSubmit={handleRecordExternalCollection}
             />
-            <div className="overflow-hidden rounded-md border border-white/10 bg-white/[0.03]">
+            <div className="min-w-0 overflow-x-auto rounded-md border border-white/10 bg-white/[0.03]">
               <OrdersTable orders={adminData.orders} selectedOrderId={selectedOrder?.id || ""} onSelect={handleSelectOrder} />
             </div>
           </div>
@@ -1694,9 +1650,9 @@ function OrdersTable({
             className={cn("cursor-pointer border-white/8 hover:bg-white/[0.04]", selectedOrderId === order.id && "bg-cyan-300/10")}
             onClick={() => onSelect(order.id)}
           >
-            <TableCell className="font-mono text-xs text-slate-400">{order.id}</TableCell>
-            <TableCell>{order.user}</TableCell>
-            <TableCell>{order.channel}</TableCell>
+            <TableCell className="max-w-[180px] break-all font-mono text-xs text-slate-400">{order.id}</TableCell>
+            <TableCell className="max-w-[160px] break-words">{order.user}</TableCell>
+            <TableCell className="max-w-[140px] break-words">{order.channel}</TableCell>
             <TableCell>{formatCurrency(order.amount)}</TableCell>
             <TableCell>{formatCredits(order.credits)}</TableCell>
             <TableCell>
@@ -1736,26 +1692,26 @@ function ExternalCollectionPanel({
   onSubmit: () => void;
 }) {
   return (
-    <div className="rounded-md border border-cyan-300/20 bg-cyan-300/[0.045] p-4">
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
+    <div className="min-w-0 rounded-md border border-cyan-300/20 bg-cyan-300/[0.045] p-4">
+      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
           <h3 className="text-sm font-semibold text-cyan-100">登记接口方代收记录</h3>
-          <p className="mt-1 text-xs leading-5 text-slate-400">
+          <p className="mt-1 break-words text-xs leading-5 text-slate-400">
             用于记录钱款进入第三方商户账户的事实，关联当前选中用户：{selectedUserName}。
           </p>
         </div>
-        <Badge className="border-cyan-300/20 bg-cyan-300/10 text-cyan-100">留痕</Badge>
+        <Badge className="w-fit shrink-0 border-cyan-300/20 bg-cyan-300/10 text-cyan-100">留痕</Badge>
       </div>
-      <div className="grid gap-3 md:grid-cols-2">
-        <Input value={form.amount} onChange={(event) => onChange("amount", event.target.value)} placeholder="收款金额，例如 20" className="border-white/12 bg-slate-950/40" />
-        <Input value={form.expectedCredits} onChange={(event) => onChange("expectedCredits", event.target.value)} placeholder="应发积分，可先填 0" className="border-white/12 bg-slate-950/40" />
+      <div className="grid min-w-0 gap-3 xl:grid-cols-2">
+        <Input value={form.amount} onChange={(event) => onChange("amount", event.target.value)} placeholder="收款金额" className="border-white/12 bg-slate-950/40" />
+        <Input value={form.expectedCredits} onChange={(event) => onChange("expectedCredits", event.target.value)} placeholder="应发积分，可留空" className="border-white/12 bg-slate-950/40" />
         <Input value={form.collector} onChange={(event) => onChange("collector", event.target.value)} placeholder="代收方，例如 AI 接口方商户" className="border-white/12 bg-slate-950/40" />
         <Input value={form.packageName} onChange={(event) => onChange("packageName", event.target.value)} placeholder="订单说明" className="border-white/12 bg-slate-950/40" />
         <Input value={form.merchantOrderId} onChange={(event) => onChange("merchantOrderId", event.target.value)} placeholder="商户订单号 out_trade_no，可后补" className="border-white/12 bg-slate-950/40" />
         <Input value={form.providerTransactionId} onChange={(event) => onChange("providerTransactionId", event.target.value)} placeholder="第三方交易号 transaction_id，可后补" className="border-white/12 bg-slate-950/40" />
       </div>
-      <Input value={form.note} onChange={(event) => onChange("note", event.target.value)} placeholder="备注，例如：接口方确认收到 20 元测试付款" className="mt-3 border-white/12 bg-slate-950/40" />
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+      <Input value={form.note} onChange={(event) => onChange("note", event.target.value)} placeholder="备注" className="mt-3 border-white/12 bg-slate-950/40" />
+      <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <label className="flex items-center gap-2 text-xs text-slate-300">
           <input
             type="checkbox"
@@ -1765,7 +1721,7 @@ function ExternalCollectionPanel({
           />
           登记后立即发放积分
         </label>
-        <Button type="button" onClick={onSubmit} className="bg-cyan-300 text-slate-950 hover:bg-cyan-200">
+        <Button type="button" onClick={onSubmit} className="w-full bg-cyan-300 text-slate-950 hover:bg-cyan-200 sm:w-auto">
           登记收款留痕
         </Button>
       </div>
@@ -1793,18 +1749,18 @@ function OrderDetailPanel({
   const order = detail?.order || fallbackOrder;
   if (!order) {
     return (
-      <div className="rounded-md border border-white/10 bg-white/[0.03] p-4 text-sm text-slate-400">
+      <div className="min-w-0 rounded-md border border-white/10 bg-white/[0.03] p-4 text-sm text-slate-400">
         选择一笔订单查看对账详情。
       </div>
     );
   }
 
   return (
-    <div className="space-y-4 rounded-md border border-white/10 bg-white/[0.03] p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="font-mono text-xs text-slate-500">{order.id}</div>
-          <h3 className="mt-1 text-base font-semibold">{order.user} · {order.packageName || "订单详情"}</h3>
+    <div className="min-w-0 space-y-4 rounded-md border border-white/10 bg-white/[0.03] p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="break-all font-mono text-xs text-slate-500">{order.id}</div>
+          <h3 className="mt-1 break-words text-base font-semibold">{order.user} · {order.packageName || "订单详情"}</h3>
           <div className="mt-2 flex flex-wrap gap-2">
             <Badge className={statusClass(order.status)}>{statusLabel(order.status)}</Badge>
             <Badge className={statusClass(order.reconciliation || "matched")}>
@@ -1812,20 +1768,20 @@ function OrderDetailPanel({
             </Badge>
           </div>
         </div>
-        <div className="text-right text-sm">
+        <div className="shrink-0 text-left text-sm lg:text-right">
           <div className="font-semibold">{formatCurrency(order.amount)}</div>
           <div className="text-xs text-slate-400">{formatCredits(order.expectedCredits || order.credits)} 应发积分</div>
         </div>
       </div>
 
-      <div className="grid gap-3 text-xs sm:grid-cols-2">
+      <div className="grid min-w-0 gap-3 text-xs md:grid-cols-2 2xl:grid-cols-1 min-[1680px]:grid-cols-2">
         <InfoLine label="支付渠道" value={order.channel} />
         <InfoLine label="第三方交易号" value={order.providerTransactionId || "待回调/待查询"} mono />
         <InfoLine label="实发积分" value={formatCredits(order.issuedCredits || 0)} />
         <InfoLine label="退款/扣回" value={`${formatCurrency(order.refundAmount || 0)} / ${formatCredits(order.refundedCredits || 0)} 积分`} />
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className="grid gap-2 md:grid-cols-3 2xl:grid-cols-1 min-[1680px]:grid-cols-3">
         <Button variant="outline" className="border-white/15 bg-white/5" onClick={onAddNote} disabled={!note.trim()}>
           保存备注
         </Button>
@@ -1839,7 +1795,7 @@ function OrderDetailPanel({
       <Input
         value={note}
         onChange={(event) => onNoteChange(event.target.value)}
-        placeholder="记录处理备注，例如：用户提供微信支付截图，待核对交易号"
+        placeholder="记录处理备注"
         className="border-white/12 bg-white/5"
       />
 
@@ -1885,7 +1841,7 @@ function OrderDetailPanel({
 
 function InfoLine({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className="rounded-md border border-white/8 bg-slate-950/30 p-3">
+    <div className="min-w-0 rounded-md border border-white/8 bg-slate-950/30 p-3">
       <div className="text-slate-500">{label}</div>
       <div className={cn("mt-1 break-all text-slate-100", mono && "font-mono")}>{value}</div>
     </div>
@@ -1902,17 +1858,17 @@ function MiniSection({
   empty: string;
 }) {
   return (
-    <div className="rounded-md border border-white/8 bg-slate-950/25 p-3">
+    <div className="min-w-0 rounded-md border border-white/8 bg-slate-950/25 p-3">
       <div className="mb-2 text-sm font-medium">{title}</div>
       {rows.length ? (
         <div className="space-y-2">
           {rows.map((row, index) => (
-            <div key={`${row.title}-${index}`} className="grid gap-2 rounded-md bg-white/[0.03] p-2 text-xs sm:grid-cols-[1fr_auto]">
-              <div>
-                <div className="font-medium text-slate-200">{row.title}</div>
-                <div className="mt-1 text-slate-500">{row.meta}</div>
+            <div key={`${row.title}-${index}`} className="grid min-w-0 gap-2 rounded-md bg-white/[0.03] p-2 text-xs lg:grid-cols-[minmax(0,1fr)_auto] 2xl:grid-cols-1 min-[1680px]:grid-cols-[minmax(0,1fr)_auto]">
+              <div className="min-w-0">
+                <div className="break-words font-medium text-slate-200">{row.title}</div>
+                <div className="mt-1 break-words text-slate-500">{row.meta}</div>
               </div>
-              <div className="font-mono text-slate-400">{row.value}</div>
+              <div className="break-all font-mono text-slate-400">{row.value}</div>
             </div>
           ))}
         </div>
@@ -1935,26 +1891,26 @@ function UserDetailPanel({
   onAdjust: (direction: "plus" | "minus") => void;
 }) {
   return (
-    <div className="rounded-md border border-white/10 bg-white/[0.035] p-4">
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <div>
+    <div className="min-w-0 rounded-md border border-white/10 bg-white/[0.035] p-4">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
           <h2 className="text-base font-semibold">账户详情</h2>
           <p className="text-sm text-slate-400">点击用户表格可切换对象。</p>
         </div>
-        <Badge className={statusClass(user.status)}>{statusLabel(user.status)}</Badge>
+        <Badge className={cn("w-fit shrink-0", statusClass(user.status))}>{statusLabel(user.status)}</Badge>
       </div>
 
       <div className="rounded-md border border-white/8 bg-slate-950/35 p-4">
-        <div className="flex items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-md bg-white/8 text-sm font-semibold">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-white/8 text-sm font-semibold">
             {user.name.slice(0, 2)}
           </div>
           <div className="min-w-0">
-            <div className="truncate text-sm font-medium">{user.name}</div>
-            <div className="truncate text-xs text-slate-500">{user.email}</div>
+            <div className="break-words text-sm font-medium">{user.name}</div>
+            <div className="break-all text-xs leading-5 text-slate-500">{user.email}</div>
           </div>
         </div>
-        <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+        <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2 2xl:grid-cols-1 min-[1500px]:grid-cols-2">
           <InfoCell label="套餐" value={user.plan} />
           <InfoCell label="风险" value={user.risk} />
           <InfoCell label="积分余额" value={formatCredits(user.credits)} />
@@ -1970,9 +1926,9 @@ function UserDetailPanel({
           onChange={(event) => setCreditDelta(Number(event.target.value))}
           className="border-white/10 bg-slate-950/40 text-slate-100"
         />
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid gap-2 sm:grid-cols-2 2xl:grid-cols-1 min-[1500px]:grid-cols-2">
           <Button
-            className="bg-emerald-300 text-slate-950 hover:bg-emerald-200"
+            className="min-w-0 bg-emerald-300 text-slate-950 hover:bg-emerald-200"
             onClick={() => onAdjust("plus")}
           >
             <Plus className="size-4" />
@@ -1980,7 +1936,7 @@ function UserDetailPanel({
           </Button>
           <Button
             variant="outline"
-            className="border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
+            className="min-w-0 border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
             onClick={() => onAdjust("minus")}
           >
             <X className="size-4" />
@@ -2063,9 +2019,9 @@ function DataList({
 
 function InfoCell({ label, value }: { label: string; value: string }) {
   return (
-    <div>
+    <div className="min-w-0">
       <div className="text-xs text-slate-500">{label}</div>
-      <div className="mt-1 truncate font-medium">{value}</div>
+      <div className="mt-1 break-words font-medium leading-5">{value}</div>
     </div>
   );
 }

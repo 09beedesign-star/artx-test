@@ -81,7 +81,7 @@ function CardMenu({
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  const bg = isDark ? "rgba(18,18,26,0.97)" : "rgba(248,248,252,0.97)";
+  const bg = isDark ? "#222222" : "rgba(248,248,252,0.97)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const textColor = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.20 0.008 270)";
   const hoverBg = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)";
@@ -155,7 +155,7 @@ function CardMenu({
 function DeleteConfirmDialog({
   count, onConfirm, onCancel, isDark,
 }: { count: number; onConfirm: () => void; onCancel: () => void; isDark: boolean }) {
-  const bg = isDark ? "oklch(0.13 0.012 270)" : "oklch(0.97 0.004 270)";
+  const bg = isDark ? "#222222" : "oklch(0.97 0.004 270)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const text = isDark ? "oklch(0.85 0.008 270)" : "oklch(0.18 0.008 270)";
   const sub = isDark ? "oklch(0.55 0.01 270)" : "oklch(0.50 0.01 270)";
@@ -208,7 +208,7 @@ function ProjectCard({
     if (renaming) { setEditVal(project.title); setTimeout(() => inputRef.current?.select(), 50); }
   }, [renaming, project.title]);
 
-  const cardBg = isDark ? "oklch(0.13 0.012 270)" : "oklch(1 0 0)";
+  const cardBg = isDark ? "#222222" : "oklch(1 0 0)";
   const cardBorder = isDark ? "rgba(255,255,255,0.07)" : "oklch(0.88 0.006 255)";
   const text = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.22 0.018 255)";
   const sub = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.50 0.012 255)";
@@ -227,9 +227,13 @@ function ProjectCard({
       {/* Cover */}
       <div className="relative overflow-hidden" style={{ aspectRatio: "4/3" }}>
         {project.cover ? (
-          <img src={project.cover} alt={project.title} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+          <img
+            src={project.cover}
+            alt={project.title}
+            className="w-full h-auto origin-top object-contain object-top transition-transform duration-300 group-hover:scale-105"
+          />
         ) : (
-          <div className="w-full h-full flex items-center justify-center" style={{ background: isDark ? "oklch(0.16 0.015 270)" : "oklch(0.92 0.005 270)" }}>
+          <div className="w-full h-full flex items-center justify-center" style={{ background: isDark ? "#222222" : "oklch(0.92 0.005 270)" }}>
             <FolderOpen size={32} style={{ color: sub }} />
           </div>
         )}
@@ -283,7 +287,7 @@ function ProjectCard({
 
 // ── Create Project Card ────────────────────────────────────────
 function CreateProjectCard({ isDark, onCreate }: { isDark: boolean; onCreate: () => void }) {
-  const bg = isDark ? "oklch(0.13 0.012 270)" : "oklch(0.97 0.004 270)";
+  const bg = isDark ? "#222222" : "oklch(0.97 0.004 270)";
   const border = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.08)";
   const text = isDark ? "oklch(0.55 0.01 270)" : "oklch(0.50 0.01 270)";
   return (
@@ -293,7 +297,7 @@ function CreateProjectCard({ isDark, onCreate }: { isDark: boolean; onCreate: ()
       style={{ background: bg, border: `1.5px dashed ${border}` }}
       onMouseEnter={e => {
         (e.currentTarget as HTMLElement).style.borderColor = "oklch(0.62 0.22 290 / 0.5)";
-        (e.currentTarget as HTMLElement).style.background = isDark ? "oklch(0.15 0.015 270)" : "oklch(0.95 0.006 270)";
+        (e.currentTarget as HTMLElement).style.background = isDark ? "#222222" : "oklch(0.95 0.006 270)";
       }}
       onMouseLeave={e => {
         (e.currentTarget as HTMLElement).style.borderColor = border;
@@ -322,7 +326,7 @@ export default function WorkspaceDashboard() {
   const [showCreate, setShowCreate] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string[] | null>(null);
 
-  const bg = isDark ? "oklch(0.09 0.012 270)" : "oklch(0.975 0.004 80)";
+  const bg = isDark ? "#222222" : "oklch(0.975 0.004 80)";
   const text = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.22 0.018 255)";
   const sub = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.50 0.012 255)";
 
@@ -407,7 +411,7 @@ export default function WorkspaceDashboard() {
 
   return (
     <div className="flex flex-col h-screen overflow-hidden" style={{ background: bg, transition: "background 0.25s ease" }}>
-      <TopBar credits={0} onNewProjectClick={() => setShowCreate(true)} onCreateProject={handleCreate} />
+      <TopBar credits={0} onNewProjectClick={() => setShowCreate(true)} onCreateProject={handleCreate} glass />
 
       <div className="flex-1 overflow-y-auto px-8 py-6 select-none" style={{ position: "relative" }}>
 

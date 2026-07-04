@@ -79,7 +79,7 @@ export default function CreateProjectDialog({
     setCover(null);
   }, [open]);
 
-  const bg = isDark ? "oklch(0.15 0.018 270)" : "oklch(0.995 0.002 80)";
+  const bg = isDark ? "#222222" : "oklch(0.995 0.002 80)";
   const border = isDark ? "oklch(1 0 0 / 12%)" : "oklch(0.88 0.006 255)";
   const inputBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 4%)";
   const text = isDark ? "oklch(0.85 0.01 270)" : "oklch(0.22 0.018 255)";

@@ -8,8 +8,8 @@ import { createBrandKit, deleteBrandKit, getBrandKit, listBrandKits, parseBrandK
 import { createProductBackground, editImageWithPrompt, enhanceImage, eraseImageObjects, extractImageText, generateImages, removeImageBackground, removeImageWatermark } from "./image-generation";
 import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
-import { getAdminSessionFromAuthorization, getSessionUserFromAuthorization, handleAuthAction } from "./auth-store";
-import { createBillingOrder, createCreditRechargeOrder, getBillingOrderForPayment, getBillingSnapshotForUser, handleAdminApiRequest, markBillingOrderPaid, recordBillingPaymentFailure } from "./admin-store";
+import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization } from "./auth-store";
+import { createBillingOrder, createCreditRechargeOrder, getBillingOrderForPayment, getBillingSnapshotForUser, handleAdminApiRequest, markBillingOrderPaid, recordBillingPaymentCreated, recordBillingPaymentFailure } from "./admin-store";
 import {
   createWallytPayment,
   getClientIp,
@@ -41,6 +41,18 @@ type SessionUser = {
 
 const backgroundImageTasks = new Map<string, BackgroundImageTask>();
 
+function isAdminRequestHost(hostHeader: string | undefined) {
+  const host = (hostHeader || "").split(":")[0]?.toLowerCase() || "";
+  const configuredAdminHost = (process.env.VITE_ADMIN_HOST || "").toLowerCase();
+  return Boolean(host && (host.startsWith("admin.") || (configuredAdminHost && host === configuredAdminHost)));
+}
+
+function getAdminEntryPath() {
+  const token = (process.env.VITE_ADMIN_ACCESS_TOKEN || "").trim();
+  const query = token ? `?admin_token=${encodeURIComponent(token)}` : "";
+  return `/admin-prototype${query}`;
+}
+
 function pruneBackgroundImageTasks() {
   const now = Date.now();
   Array.from(backgroundImageTasks.entries()).forEach(([taskId, task]) => {
@@ -59,6 +71,70 @@ async function requireSessionUser(req: express.Request, res: express.Response): 
   return {
     id: result.body.user.id,
     username: result.body.user.username,
+  };
+}
+
+async function requireApiKeyUser(req: express.Request, res: express.Response): Promise<SessionUser | null> {
+  const result = await getApiKeyUserFromAuthorization(req.headers.authorization);
+  if (result.status !== 200 || !("user" in result.body)) {
+    res.status(result.status).json(result.body);
+    return null;
+  }
+  return {
+    id: result.body.user.id,
+    username: result.body.user.username,
+  };
+}
+
+function getMcpTools() {
+  return [
+    {
+      name: "artx_generate_image",
+      description: "Use ArtX image generation to create one or more images from a text prompt.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          prompt: { type: "string", description: "Image prompt." },
+          model: { type: "string", description: "Optional model id." },
+          ratio: { type: "string", description: "Aspect ratio, for example 1:1, 16:9, 9:16." },
+          count: { type: "number", description: "Image count, 1-4." },
+          style: { type: "string", description: "Optional style name." },
+        },
+        required: ["prompt"],
+      },
+    },
+  ];
+}
+
+async function runMcpTool(name: string, args: Record<string, unknown>) {
+  if (name !== "artx_generate_image") {
+    return { status: 404 as const, body: { error: `Unknown MCP tool: ${name}` } };
+  }
+  const prompt = typeof args.prompt === "string" ? args.prompt.trim() : "";
+  if (!prompt) {
+    return { status: 400 as const, body: { error: "prompt is required" } };
+  }
+  const result = await generateImages({
+    prompt,
+    model: typeof args.model === "string" ? args.model : undefined,
+    ratio: typeof args.ratio === "string" ? args.ratio : "1:1",
+    count: Math.max(1, Math.min(4, Number(args.count || 1))),
+    style: typeof args.style === "string" ? args.style : "智能判断",
+  });
+  const providerMeta = result as typeof result & { providerTaskId?: string; providerTaskIds?: string[] };
+  return {
+    status: 200 as const,
+    body: {
+      content: [
+        {
+          type: "text",
+          text: `ArtX generated ${result.images?.length || 0} image(s).`,
+        },
+      ],
+      images: result.images || [],
+      providerTaskId: providerMeta.providerTaskId,
+      providerTaskIds: providerMeta.providerTaskIds,
+    },
   };
 }
 
@@ -82,6 +158,15 @@ async function startServer() {
     }
 
     next();
+  });
+
+  app.get("/", (req, res, next) => {
+    if (!isAdminRequestHost(req.headers.host)) {
+      next();
+      return;
+    }
+
+    res.redirect(302, getAdminEntryPath());
   });
 
   app.post("/api/billing/wallyt/callback", express.text({ type: ["text/xml", "application/xml", "*/xml", "*/*"], limit: "1mb" }), async (req, res) => {
@@ -404,6 +489,87 @@ async function startServer() {
     }
   });
 
+  app.get("/api/developer/api-keys", async (req, res) => {
+    try {
+      const result = await listApiKeysForAuthorization(req.headers.authorization);
+      res.status(result.status).json(result.body);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "API key list failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.post("/api/developer/api-keys", async (req, res) => {
+    try {
+      const result = await createApiKeyForAuthorization(req.headers.authorization, req.body);
+      res.status(result.status).json(result.body);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "API key create failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.get("/api/mcp/manifest", (_req, res) => {
+    res.json({
+      name: "ArtX Image MCP",
+      version: "0.1.0",
+      transport: "streamable-http",
+      endpoint: "/api/mcp",
+      tools: getMcpTools(),
+    });
+  });
+
+  app.post("/api/mcp/tools/image-generate", async (req, res) => {
+    try {
+      const user = await requireApiKeyUser(req, res);
+      if (!user) return;
+      const result = await runMcpTool("artx_generate_image", req.body && typeof req.body === "object" ? req.body as Record<string, unknown> : {});
+      res.status(result.status).json(result.body);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "MCP image generation failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.post("/api/mcp", async (req, res) => {
+    try {
+      const id = req.body?.id ?? null;
+      const method = typeof req.body?.method === "string" ? req.body.method : "";
+      if (method === "initialize") {
+        res.json({
+          jsonrpc: "2.0",
+          id,
+          result: {
+            protocolVersion: "2024-11-05",
+            capabilities: { tools: {} },
+            serverInfo: { name: "ArtX Image MCP", version: "0.1.0" },
+          },
+        });
+        return;
+      }
+      const user = await requireApiKeyUser(req, res);
+      if (!user) return;
+      if (method === "tools/list") {
+        res.json({ jsonrpc: "2.0", id, result: { tools: getMcpTools() } });
+        return;
+      }
+      if (method === "tools/call") {
+        const params = req.body?.params && typeof req.body.params === "object" ? req.body.params as Record<string, unknown> : {};
+        const name = typeof params.name === "string" ? params.name : "";
+        const args = params.arguments && typeof params.arguments === "object" ? params.arguments as Record<string, unknown> : {};
+        const result = await runMcpTool(name, args);
+        res.status(result.status).json(result.status === 200
+          ? { jsonrpc: "2.0", id, result: result.body }
+          : { jsonrpc: "2.0", id, error: { code: -32602, message: result.body.error } });
+        return;
+      }
+      res.status(404).json({ jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "MCP request failed";
+      res.status(500).json({ jsonrpc: "2.0", id: req.body?.id ?? null, error: { code: -32000, message } });
+    }
+  });
+
   app.get("/api/billing/config", (_req, res) => {
     res.json(getWallytConfigStatus());
   });
@@ -474,6 +640,15 @@ async function startServer() {
         mode,
         callbackUrl: typeof req.body?.callbackUrl === "string" ? req.body.callbackUrl : undefined,
         clientIp: getClientIp(req.headers, req.socket.remoteAddress),
+      });
+
+      await recordBillingPaymentCreated({
+        orderId: order.id,
+        actorName: "wallyt",
+        providerTransactionId: payment.transactionId,
+        paymentMethod,
+        payUrlType: payment.payUrlType,
+        service: payment.service,
       });
 
       res.json({ order, payment });

@@ -1,7 +1,7 @@
 /**
  * InspirationPage — AI image prompt gallery.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import TopBar from "@/components/workspace/TopBar";
 import promptCsv from "@/data/ai_image_prompt_rank_50.csv?raw";
@@ -112,8 +112,11 @@ export default function InspirationPage() {
     return models.includes(model) ? model : ALL_MODELS;
   });
   const [selectedItem, setSelectedItem] = useState<PromptItem | null>(null);
+  const selectedImageRef = useRef<HTMLImageElement | null>(null);
+  const promptScrollRef = useRef<HTMLDivElement | null>(null);
+  const [detailImageHeight, setDetailImageHeight] = useState<number | null>(null);
 
-  const bg = isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)";
+  const bg = isDark ? "#222222" : "var(--design-surface-soft)";
   const text = isDark ? "oklch(0.88 0.008 270)" : "oklch(0.20 0.008 270)";
   const sub = isDark ? "oklch(0.62 0.01 270)" : "oklch(0.49 0.01 270)";
   const cardBg = isDark ? "oklch(0.13 0.012 270)" : "oklch(1 0 0)";
@@ -129,6 +132,35 @@ export default function InspirationPage() {
       return matchesField && matchesModel;
     });
   }, [activeField, activeModel]);
+
+  const measureSelectedImage = () => {
+    const height = selectedImageRef.current?.getBoundingClientRect().height || 0;
+    if (height > 0) setDetailImageHeight(Math.round(height));
+  };
+
+  useEffect(() => {
+    if (!selectedItem) {
+      setDetailImageHeight(null);
+      return;
+    }
+
+    const animationFrame = window.requestAnimationFrame(measureSelectedImage);
+    window.addEventListener("resize", measureSelectedImage);
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      window.removeEventListener("resize", measureSelectedImage);
+    };
+  }, [selectedItem]);
+
+  const scrollPromptDetail = (event: React.WheelEvent<HTMLDivElement>) => {
+    const promptPanel = promptScrollRef.current;
+    if (!promptPanel) return;
+    const target = event.target as Node;
+    if (promptPanel.contains(target)) return;
+
+    event.preventDefault();
+    promptPanel.scrollTop += event.deltaY;
+  };
 
   const updateFilters = (nextField: string, nextModel = activeModel) => {
     setActiveField(nextField);
@@ -160,13 +192,13 @@ export default function InspirationPage() {
   return (
     <div className="flex h-screen flex-col overflow-hidden" style={{ background: bg, position: "relative", transition: "background 0.25s ease" }}>
       {isDark && (
-        <div className="pointer-events-none absolute inset-0" style={{ backgroundImage: `url(${BG_GLOW})`, backgroundSize: "cover", opacity: 0.10, zIndex: 0 }} />
+        <div className="pointer-events-none absolute inset-0" style={{ backgroundImage: `url(${BG_GLOW})`, backgroundSize: "cover", opacity: 0, zIndex: 0 }} />
       )}
       <div style={{ position: "relative", zIndex: 1 }}>
-        <TopBar credits={0} />
+        <TopBar credits={0} glass />
       </div>
 
-      <div className="flex-1 overflow-y-auto" style={{ position: "relative", zIndex: 1 }}>
+      <div className="flex-1 overflow-y-auto" style={{ position: "relative", zIndex: 1, background: "#222222" }}>
         <main className="mx-auto px-5 py-8 sm:px-8 sm:py-10" style={{ maxWidth: 1320 }}>
           <section className="mb-6 grid gap-5 lg:grid-cols-[1fr_360px] lg:items-end">
             <div>
@@ -174,7 +206,7 @@ export default function InspirationPage() {
                 <Sparkles size={15} style={{ color: "oklch(0.72 0.22 290)" }} />
                 <span className="type-caption" style={{ color: "oklch(0.72 0.22 290)" }}>AI 图片生成提示词图库</span>
               </div>
-              <h1 className="type-display-sm" style={{ color: text, letterSpacing: 0 }}>50 组高热图片提示词灵感</h1>
+              <h1 className="type-display-sm" style={{ color: text, letterSpacing: 0 }}>超多优质 AI 图片灵感提示词持续更新中，一键复制，你也能生成高质量的 AI 图片。</h1>
               <p className="type-body-sm mt-3 max-w-3xl leading-6" style={{ color: sub }}>
                 汇总 Nano Banana Pro 与 GPT Image 2 的热门案例，按分类浏览图片、提示词与模型。
               </p>
@@ -256,10 +288,10 @@ export default function InspirationPage() {
               <button
                 key={`${item.rank}-${item.title}`}
                 onClick={() => setSelectedItem(item)}
-                className="group overflow-hidden rounded-[var(--radius-lg-design)] text-left transition-all hover:-translate-y-0.5 active:scale-[0.99]"
+                className="group overflow-hidden rounded-[var(--radius-lg-design)] text-left transition-all"
                 style={{ background: cardBg, border: `1px solid ${border}`, boxShadow: shadow }}
               >
-                <div className="relative overflow-hidden bg-black" style={{ aspectRatio: "16 / 10" }}>
+                <div className="relative overflow-hidden bg-[#222222]" style={{ aspectRatio: "16 / 10" }}>
                   <img
                     src={item.imageUrl}
                     alt={item.title}
@@ -323,17 +355,17 @@ export default function InspirationPage() {
       </div>
 
       {selectedItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6" style={{ background: "oklch(0.42 0.004 260 / 0.72)", backdropFilter: "blur(10px)" }} onClick={() => setSelectedItem(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6" style={{ background: "rgba(34,34,34,0.72)", backdropFilter: "blur(10px)" }} onClick={() => setSelectedItem(null)}>
           <section
             className="relative max-h-full w-full overflow-hidden rounded-[var(--radius-lg-design)]"
-            style={{ maxWidth: 980, background: cardBg, border: `1px solid ${border}`, boxShadow: "0 24px 80px oklch(0 0 0 / 0.34)" }}
+            style={{ maxWidth: 980, background: isDark ? "#222222" : cardBg, border: `1px solid ${border}`, boxShadow: "0 24px 80px rgba(0,0,0,0.34)" }}
             onClick={(event) => event.stopPropagation()}
           >
             <div className="absolute right-3 top-3 z-10 flex items-center" style={{ gap: 16 }}>
               <button
                 onClick={() => copyPrompt(selectedItem.prompt)}
                 className="shrink-0 rounded-[var(--radius-pill)] p-2 transition-all hover:scale-105 active:scale-95"
-                style={{ background: isDark ? "oklch(0 0 0 / 0.46)" : "oklch(1 0 0 / 0.88)", border: `1px solid ${border}`, color: text, backdropFilter: "blur(12px)" }}
+                style={{ background: isDark ? "rgba(34,34,34,0.88)" : "oklch(1 0 0 / 0.88)", border: `1px solid ${border}`, color: text, backdropFilter: "blur(12px)" }}
                 aria-label="复制提示词"
                 title="复制提示词"
               >
@@ -342,7 +374,7 @@ export default function InspirationPage() {
               <button
                 onClick={() => setSelectedItem(null)}
                 className="shrink-0 rounded-[var(--radius-pill)] p-2 transition-all hover:scale-105 active:scale-95"
-                style={{ background: isDark ? "oklch(0 0 0 / 0.46)" : "oklch(1 0 0 / 0.88)", border: `1px solid ${border}`, color: text, backdropFilter: "blur(12px)" }}
+                style={{ background: isDark ? "rgba(34,34,34,0.88)" : "oklch(1 0 0 / 0.88)", border: `1px solid ${border}`, color: text, backdropFilter: "blur(12px)" }}
                 aria-label="关闭弹层"
               >
                 <X size={16} />
@@ -360,13 +392,19 @@ export default function InspirationPage() {
               </div>
             </div>
 
-            <div className="grid max-h-[calc(100vh-160px)] overflow-y-auto lg:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)]">
-              <div className="bg-black">
-                <div className="relative min-h-[280px]">
+            <div
+              className="grid items-start overflow-hidden lg:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)]"
+              style={{ maxHeight: "calc(100vh - 160px)", overscrollBehavior: "contain" }}
+              onWheel={scrollPromptDetail}
+            >
+              <div className="bg-[#222222]">
+                <div className="relative">
                   <img
+                    ref={selectedImageRef}
                     src={selectedItem.imageUrl}
                     alt={selectedItem.title}
-                    className="relative z-10 h-full max-h-[70vh] min-h-[280px] w-full object-contain"
+                    className="relative z-10 block h-auto max-h-[calc(100vh-160px)] w-full object-contain"
+                    onLoad={measureSelectedImage}
                     onError={(event) => {
                       event.currentTarget.style.display = "none";
                     }}
@@ -378,9 +416,17 @@ export default function InspirationPage() {
                   </div>
                 </div>
               </div>
-              <div className="p-4">
+              <div
+                ref={promptScrollRef}
+                className="overflow-y-auto p-4"
+                style={{
+                  height: detailImageHeight ? `${detailImageHeight}px` : "auto",
+                  maxHeight: detailImageHeight ? `${detailImageHeight}px` : "calc(100vh - 160px)",
+                  overscrollBehavior: "contain",
+                }}
+              >
                 <p className="type-caption leading-5" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>{selectedItem.description}</p>
-                <div className="mt-4 rounded-[var(--radius-md-design)] p-4" style={{ background: isDark ? "oklch(0 0 0 / 0.18)" : "oklch(0 0 0 / 0.035)", border: `1px solid ${border}` }}>
+                <div className="mt-4 rounded-[var(--radius-md-design)] p-4" style={{ background: isDark ? "#222222" : "oklch(0 0 0 / 0.035)", border: `1px solid ${border}` }}>
                   <p className="whitespace-pre-wrap type-caption leading-6" style={{ color: text, letterSpacing: 0, textTransform: "none" }}>
                     {selectedItem.prompt}
                   </p>

@@ -1,7 +1,8 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
-import { Route, Router as WouterRouter, Switch } from "wouter";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Route, Router as WouterRouter, Switch, useLocation } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider } from "./contexts/AuthContext";
@@ -18,7 +19,7 @@ import InspirationPage from "./pages/InspirationPage";
 import SkillsPage from "./pages/SkillsPage";
 import AssetsPage from "./pages/AssetsPage";
 import HelpPage from "./pages/HelpPage";
-import LoadingLoopPage from "./pages/LoadingLoopPage";
+import LoadingLoopPage, { CanvasPageLoading, GeneralPageLoading } from "./pages/LoadingLoopPage";
 import AdminPrototypePage from "./pages/AdminPrototypePage";
 import BillingPage from "./pages/BillingPage";
 import { useAuth } from "./contexts/AuthContext";
@@ -26,11 +27,21 @@ import { useAuth } from "./contexts/AuthContext";
 const routerBase = import.meta.env.BASE_URL.replace(/\/$/, "");
 const configuredAdminHost = (import.meta.env.VITE_ADMIN_HOST || "").toLowerCase();
 const configuredAdminAccessToken = (import.meta.env.VITE_ADMIN_ACCESS_TOKEN || "").trim();
+const routeLoadingDurationMs = 720;
+const publicGuestPaths = ["/", "/inspiration", "/skills"];
+const homeAuthPanelStorageKey = "artx:home-auth-panel";
 
 function isAdminHost() {
   if (typeof window === "undefined") return false;
   const host = window.location.hostname.toLowerCase();
   if (host === "localhost" || host === "127.0.0.1") return true;
+  if (configuredAdminHost && host === configuredAdminHost) return true;
+  return host.startsWith("admin.");
+}
+
+function isDedicatedAdminHost() {
+  if (typeof window === "undefined") return false;
+  const host = window.location.hostname.toLowerCase();
   if (configuredAdminHost && host === configuredAdminHost) return true;
   return host.startsWith("admin.");
 }
@@ -41,8 +52,24 @@ function hasAdminTestAccess() {
   return token === configuredAdminAccessToken;
 }
 
+function getAdminEntryPath() {
+  const query = configuredAdminAccessToken ? `?admin_token=${encodeURIComponent(configuredAdminAccessToken)}` : "";
+  return `${routerBase}/admin-prototype${query}`;
+}
+
+function useAdminHostRootRedirect() {
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!isDedicatedAdminHost()) return;
+    if (window.location.pathname !== `${routerBase}/` && window.location.pathname !== routerBase) return;
+
+    window.location.replace(getAdminEntryPath());
+  }, []);
+}
+
 function AppRoutes() {
   const { isAuthenticated, openLoginModal, user } = useAuth();
+  useAdminHostRootRedirect();
 
   return (
     <Switch>
@@ -53,30 +80,38 @@ function AppRoutes() {
 
       {/* 工作台（项目列表） */}
       <Route path="/workspace">
-        <AppShell>
-          <WorkspaceDashboard />
-        </AppShell>
+        <RequireLogin>
+          <AppShell>
+            <WorkspaceDashboard />
+          </AppShell>
+        </RequireLogin>
       </Route>
 
       {/* 创作社区 */}
       <Route path="/community">
-        <AppShell>
-          <CommunityPage />
-        </AppShell>
+        <RequireLogin>
+          <AppShell>
+            <CommunityPage />
+          </AppShell>
+        </RequireLogin>
       </Route>
 
       {/* 设置 */}
       <Route path="/settings">
-        <AppShell>
-          <SettingsPage />
-        </AppShell>
+        <RequireLogin>
+          <AppShell>
+            <SettingsPage />
+          </AppShell>
+        </RequireLogin>
       </Route>
 
       {/* 个人主页 */}
       <Route path="/profile">
-        <AppShell>
-          <ProfilePage />
-        </AppShell>
+        <RequireLogin>
+          <AppShell>
+            <ProfilePage />
+          </AppShell>
+        </RequireLogin>
       </Route>
 
       {/* ── 补充缺失路由（原侧边栏点击无效的导航项）── */}
@@ -97,22 +132,28 @@ function AppRoutes() {
 
       {/* 素材库 */}
       <Route path="/assets">
-        <AppShell>
-          <AssetsPage />
-        </AppShell>
+        <RequireLogin>
+          <AppShell>
+            <AssetsPage />
+          </AppShell>
+        </RequireLogin>
       </Route>
 
       {/* 帮助中心 */}
       <Route path="/help">
-        <AppShell>
-          <HelpPage />
-        </AppShell>
+        <RequireLogin>
+          <AppShell>
+            <HelpPage />
+          </AppShell>
+        </RequireLogin>
       </Route>
 
       <Route path="/billing">
-        <AppShell>
-          <BillingPage />
-        </AppShell>
+        <RequireLogin>
+          <AppShell>
+            <BillingPage />
+          </AppShell>
+        </RequireLogin>
       </Route>
 
       <Route path="/loading">
@@ -133,7 +174,11 @@ function AppRoutes() {
 
       {/* 项目画布（无 AppShell 侧边栏，画布自带返回按钮） */}
       <Route path="/project/:id">
-        {(params) => <Workspace projectId={params.id} />}
+        {(params) => (
+          <RequireLogin>
+            <Workspace projectId={params.id} />
+          </RequireLogin>
+        )}
       </Route>
 
       <Route path="/404" component={NotFound} />
@@ -142,12 +187,80 @@ function AppRoutes() {
   );
 }
 
+function normalizeRoutePath(location: string) {
+  return location.split(/[?#]/)[0] || "/";
+}
+
+function isPublicGuestPath(path: string) {
+  return publicGuestPaths.includes(path);
+}
+
+function isProtectedGuestPath(path: string) {
+  if (path === "/loading") return false;
+  return !isPublicGuestPath(path);
+}
+
+function shouldShowRouteLoading(path: string) {
+  return path !== "/loading";
+}
+
+function RouteLoadingGate({ children }: { children: ReactNode }) {
+  const { isAuthenticated } = useAuth();
+  const [location] = useLocation();
+  const routePath = normalizeRoutePath(location);
+  const previousPathRef = useRef(routePath);
+  const [loadingPath, setLoadingPath] = useState<string | null>(() => (
+    shouldShowRouteLoading(routePath) && (isAuthenticated || !isProtectedGuestPath(routePath)) ? routePath : null
+  ));
+
+  useEffect(() => {
+    if (previousPathRef.current === routePath) return;
+    previousPathRef.current = routePath;
+    setLoadingPath(shouldShowRouteLoading(routePath) && (isAuthenticated || !isProtectedGuestPath(routePath)) ? routePath : null);
+  }, [isAuthenticated, routePath]);
+
+  useEffect(() => {
+    if (!loadingPath) return;
+    const timer = window.setTimeout(() => {
+      setLoadingPath(null);
+    }, routeLoadingDurationMs);
+    return () => window.clearTimeout(timer);
+  }, [loadingPath]);
+
+  return (
+    <>
+      {children}
+      {loadingPath && (
+        <div className="fixed inset-0 z-[2147483000] bg-[#222222]" role="status" aria-live="polite">
+          {loadingPath.startsWith("/project/") ? <CanvasPageLoading /> : <GeneralPageLoading />}
+        </div>
+      )}
+    </>
+  );
+}
+
+function RequireLogin({ children }: { children: ReactNode }) {
+  const { isAuthenticated, closeLoginModal } = useAuth();
+  const [, navigate] = useLocation();
+
+  useEffect(() => {
+    if (isAuthenticated) return;
+    closeLoginModal();
+    sessionStorage.setItem(homeAuthPanelStorageKey, "login");
+    navigate("/");
+  }, [closeLoginModal, isAuthenticated, navigate]);
+
+  if (isAuthenticated) return <>{children}</>;
+
+  return null;
+}
+
 function AdminHostRequired() {
   const targetHost = configuredAdminHost || "admin.yourdomain.com";
   const allowTestToken = Boolean(configuredAdminAccessToken);
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#0b1020] px-6 text-slate-100">
+    <main className="flex min-h-screen items-center justify-center bg-[#222222] px-6 text-slate-100">
       <section className="w-full max-w-[520px] rounded-md border border-white/10 bg-white/[0.035] p-6 text-center shadow-2xl shadow-black/30">
         <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-md bg-slate-200 text-slate-950">
           <span className="text-lg font-semibold">ADM</span>
@@ -171,7 +284,7 @@ function AdminHostRequired() {
 
 function AdminForbidden({ username }: { username: string }) {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#0b1020] px-6 text-slate-100">
+    <main className="flex min-h-screen items-center justify-center bg-[#222222] px-6 text-slate-100">
       <section className="w-full max-w-[520px] rounded-md border border-amber-300/20 bg-amber-300/[0.045] p-6 text-center shadow-2xl shadow-black/30">
         <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-md bg-amber-200 text-slate-950">
           <span className="text-lg font-semibold">!</span>
@@ -187,7 +300,7 @@ function AdminForbidden({ username }: { username: string }) {
 
 function AdminAccessRequired({ onLogin }: { onLogin: () => void }) {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#0b1020] px-6 text-slate-100">
+    <main className="flex min-h-screen items-center justify-center bg-[#222222] px-6 text-slate-100">
       <section className="w-full max-w-[460px] rounded-md border border-white/10 bg-white/[0.035] p-6 text-center shadow-2xl shadow-black/30">
         <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-md bg-cyan-300 text-slate-950">
           <span className="text-lg font-semibold">A</span>
@@ -217,7 +330,9 @@ function App() {
             <Toaster />
             <LoginRegisterDialog />
             <WouterRouter base={routerBase}>
-              <AppRoutes />
+              <RouteLoadingGate>
+                <AppRoutes />
+              </RouteLoadingGate>
             </WouterRouter>
           </TooltipProvider>
         </AuthProvider>

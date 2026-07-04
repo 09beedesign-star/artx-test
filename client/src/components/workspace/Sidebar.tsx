@@ -42,7 +42,7 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
   return (
     <aside
       className="flex flex-col h-full w-[220px] shrink-0"
-      style={{ background: "oklch(0.12 0.016 270)", borderRight: "1px solid oklch(1 0 0 / 6%)" }}
+      style={{ background: "#222222", borderRight: "1px solid oklch(1 0 0 / 6%)" }}
     >
       {/* Logo */}
       <div className="flex origin-left scale-[0.7] items-center gap-2.5 px-4 py-4 shrink-0">

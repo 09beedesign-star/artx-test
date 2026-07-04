@@ -46,7 +46,7 @@ export default function LoginRegisterDialog() {
 
   return (
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/30 px-4 py-8"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#222222]/30 px-4 py-8"
       onMouseDown={event => {
         if (event.target === event.currentTarget) closeLoginModal();
       }}
@@ -55,7 +55,7 @@ export default function LoginRegisterDialog() {
         <button
           type="button"
           onClick={closeLoginModal}
-          className="absolute -right-3 -top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-[#1c1c1c]/90 text-white/70 shadow-[0_12px_32px_rgba(0,0,0,0.35)] backdrop-blur-[18px] transition-colors hover:border-white/35 hover:text-white"
+          className="absolute -right-3 -top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-[#222222]/90 text-white/70 shadow-[0_12px_32px_rgba(0,0,0,0.35)] backdrop-blur-[18px] transition-colors hover:border-white/35 hover:text-white"
           aria-label="关闭登录窗口"
         >
           <X size={16} />
@@ -120,7 +120,7 @@ export default function LoginRegisterDialog() {
 
 function GlassPanel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="h-full w-full overflow-hidden rounded-[20px] border border-[#454545] bg-[#1c1c1c]/70 p-10 shadow-[0_30px_80px_rgba(0,0,0,0.52)] backdrop-blur-[22px]">
+    <div className="h-full w-full overflow-hidden rounded-[20px] border border-[#454545] bg-[#222222]/70 p-10 shadow-[0_30px_80px_rgba(0,0,0,0.52)] backdrop-blur-[22px]">
       {children}
     </div>
   );

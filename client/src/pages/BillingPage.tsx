@@ -177,6 +177,34 @@ function getAuthToken() {
   }
 }
 
+function normalizePlanDisplayName(planName?: string | null) {
+  const raw = String(planName || "").trim();
+  if (!raw) return "Free";
+  const normalized = raw.toLowerCase();
+  if (
+    normalized === "free"
+    || normalized === "starter"
+    || normalized === "demo"
+    || normalized.includes("积分充值")
+    || normalized.includes("recharge")
+  ) {
+    return "Free";
+  }
+
+  const matchedPlan = MEMBERSHIP_PLANS.find((plan) => {
+    const id = plan.id.toLowerCase();
+    const shortName = plan.shortName.toLowerCase();
+    const name = plan.name.toLowerCase();
+    return normalized === id
+      || normalized === shortName
+      || normalized === name
+      || normalized.includes(shortName)
+      || normalized.includes(name);
+  });
+
+  return matchedPlan?.name || raw;
+}
+
 async function billingFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getAuthToken();
   let response: Response;
@@ -209,6 +237,8 @@ export default function BillingPage() {
   const [, navigate] = useLocation();
   const [activeTab, setActiveTab] = useState<BillingTab>(() => readInitialTab());
   const [activeCycle, setActiveCycle] = useState<BillingCycleId>("monthly");
+  const [selectedPlanId, setSelectedPlanId] = useState<MembershipPlanId>("pro");
+  const [hoveredPlanId, setHoveredPlanId] = useState<MembershipPlanId | null>(null);
   const [payingPlanId, setPayingPlanId] = useState<string | null>(null);
   const [balance, setBalance] = useState(75);
   const [currentPlan, setCurrentPlan] = useState("Free");
@@ -230,9 +260,9 @@ export default function BillingPage() {
   } | null>(null);
 
   const isDark = resolvedTheme === "dark";
-  const bg = isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)";
-  const panel = isDark ? "oklch(0.12 0.014 270 / 0.82)" : "oklch(1 0 0 / 0.82)";
-  const panelStrong = isDark ? "oklch(0.15 0.018 270 / 0.92)" : "oklch(1 0 0 / 0.94)";
+  const bg = isDark ? "#222222" : "var(--design-surface-soft)";
+  const panel = isDark ? "#222222" : "oklch(1 0 0 / 0.82)";
+  const panelStrong = isDark ? "#222222" : "oklch(1 0 0 / 0.94)";
   const border = isDark ? "oklch(1 0 0 / 9%)" : "oklch(0 0 0 / 10%)";
   const text = isDark ? "oklch(0.88 0.01 270)" : "oklch(0.22 0.018 255)";
   const sub = isDark ? "oklch(0.58 0.01 270)" : "oklch(0.48 0.012 255)";
@@ -249,14 +279,31 @@ export default function BillingPage() {
     [activeCycle],
   );
 
+  const refreshBillingSummary = async () => {
+    if (!isAuthenticated) return;
+    const result = await billingFetch<BillingSummaryResponse>("/api/billing/summary");
+    if (typeof result.balance === "number") setBalance(result.balance);
+    setCurrentPlan(normalizePlanDisplayName(result.plan));
+  };
+
   useEffect(() => {
     if (!isAuthenticated) return;
-    billingFetch<BillingSummaryResponse>("/api/billing/summary")
-      .then(result => {
-        if (typeof result.balance === "number") setBalance(result.balance);
-        if (typeof result.plan === "string" && result.plan.trim()) setCurrentPlan(result.plan.trim());
-      })
-      .catch(() => {});
+    refreshBillingSummary().catch(() => {});
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated || typeof window === "undefined" || typeof document === "undefined") return;
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") {
+        refreshBillingSummary().catch(() => {});
+      }
+    };
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, [isAuthenticated]);
 
   useEffect(() => {
@@ -269,6 +316,7 @@ export default function BillingPage() {
           const summary = await billingFetch<BillingSummaryResponse>("/api/billing/summary").catch(() => null);
           if (summary && typeof summary.balance === "number") {
             setBalance(summary.balance);
+            setCurrentPlan(normalizePlanDisplayName(summary.plan));
             setBalanceFlash(true);
             window.setTimeout(() => setBalanceFlash(false), 900);
           }
@@ -290,7 +338,7 @@ export default function BillingPage() {
   };
 
   const getPlanLevel = (planName: string) => {
-    const normalized = planName.toLowerCase();
+    const normalized = normalizePlanDisplayName(planName).toLowerCase();
     if (normalized.includes("studio") || normalized.includes("business")) return 3;
     if (normalized.includes("pro")) return 2;
     if (normalized.includes("lite") || normalized.includes("creator")) return 1;
@@ -425,17 +473,17 @@ export default function BillingPage() {
             backgroundImage: `url(${BG_GLOW})`,
             backgroundPosition: "center",
             backgroundSize: "cover",
-            opacity: 0.12,
+            opacity: 0,
             zIndex: 0,
           }}
         />
       )}
 
       <div style={{ position: "relative", zIndex: 1 }}>
-        <TopBar credits={balance} />
+        <TopBar credits={balance} glass />
       </div>
 
-      <main className="flex-1 overflow-auto" style={{ position: "relative", zIndex: 1 }}>
+      <main className="flex-1 overflow-auto" style={{ position: "relative", zIndex: 1, background: "#222222" }}>
         <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5 px-5 py-5 lg:px-8">
           <section
             className="rounded-[var(--radius-xl-design)] border p-5 backdrop-blur-xl"
@@ -451,7 +499,7 @@ export default function BillingPage() {
                   订阅、充值与升级
                 </h1>
                 <p className="mt-2 max-w-[760px] type-body-sm leading-6" style={{ color: sub }}>
-                  GPT 大语言模型、Image Two 与 Nano Banana 作为统一创作能力池提供服务。当前先开放订阅、充值与升级框架，正式套餐价格和权益会在配置完成后生效。
+                  GPT 大语言模型、Image Two 与 Nano Banana 作为统一创作能力池提供服务。
                 </p>
               </div>
 
@@ -544,30 +592,38 @@ export default function BillingPage() {
                       const plan = MEMBERSHIP_PLANS.find(item => item.id === planConfig.id) || MEMBERSHIP_PLANS[0];
                       const quote = getPlanQuote(plan, activeCycleConfig);
                       const disabledByPlan = currentPlanLevel >= planConfig.level;
+                      const activePlanId = hoveredPlanId || selectedPlanId;
+                      const isFocused = activePlanId === plan.id;
+                      const isSelected = selectedPlanId === plan.id;
                       const originalPrice = Math.ceil(quote.price * 1.42 / 10) * 10 + 9;
                       return (
                         <article
                         key={planConfig.id}
+                        onMouseEnter={() => setHoveredPlanId(plan.id)}
+                        onMouseLeave={() => setHoveredPlanId(null)}
+                        onClick={() => setSelectedPlanId(plan.id)}
                         className="flex min-h-[360px] flex-col rounded-[var(--radius-xl-design)] border p-4"
                         style={{
-                          background: planConfig.highlight ? "linear-gradient(180deg, oklch(0.18 0.04 292 / 0.92), oklch(0.12 0.014 270 / 0.92))" : panelStrong,
-                          borderColor: planConfig.highlight ? "oklch(0.68 0.20 292 / 0.55)" : border,
-                          boxShadow: planConfig.highlight ? "0 20px 56px oklch(0.58 0.22 290 / 0.18)" : "none",
+                          background: isFocused ? "linear-gradient(180deg, rgba(144,88,252,0.18), #222222)" : panelStrong,
+                          borderColor: isFocused ? "oklch(0.68 0.20 292 / 0.55)" : border,
+                          boxShadow: isFocused ? "0 20px 56px oklch(0.58 0.22 290 / 0.18)" : "none",
+                          cursor: "pointer",
+                          transition: "border-color 160ms ease, box-shadow 160ms ease, background 160ms ease",
                         }}
                       >
                         <div className="mb-4 flex items-start justify-between gap-3">
                           <div>
-                            <p className="type-caption" style={{ color: planConfig.highlight ? green : sub }}>{planConfig.audience}</p>
-                            <h3 className="mt-1" style={{ color: text, fontSize: 22, fontWeight: 720 }}>{plan.name}</h3>
-                          </div>
-                          {planConfig.highlight && (
-                            <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: "oklch(0.78 0.18 110 / 0.16)", color: green }}>
-                              推荐
-                            </span>
-                          )}
+	                            <p className="type-caption" style={{ color: isFocused ? green : sub }}>{planConfig.audience}</p>
+	                            <h3 className="mt-1" style={{ color: text, fontSize: 22, fontWeight: 720 }}>{plan.name}</h3>
+	                          </div>
+	                          {(isSelected || planConfig.highlight) && (
+	                            <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: "oklch(0.78 0.18 110 / 0.16)", color: green }}>
+	                              {isSelected ? "已选择" : "推荐"}
+	                            </span>
+	                          )}
                         </div>
 
-                        <div className="rounded-[var(--radius-lg-design)] border p-3" style={{ borderColor: border, background: isDark ? "oklch(0.09 0.012 270 / 0.56)" : "oklch(0 0 0 / 3%)" }}>
+                        <div className="rounded-[var(--radius-lg-design)] border p-3" style={{ borderColor: border, background: isDark ? "#222222" : "oklch(0 0 0 / 3%)" }}>
                           <div className="type-caption" style={{ color: faint }}>ArtX 标准价</div>
                           <div className="mt-1 flex flex-wrap items-end gap-2">
                             <span style={{ color: text, fontSize: 24, fontWeight: 760 }}>{formatCurrency(quote.price)}</span>
@@ -594,13 +650,13 @@ export default function BillingPage() {
 
                         <button
                           type="button"
-                          onClick={() => startSubscriptionPayment(plan.id, `${plan.name} ${cycleLabel}`)}
-                          disabled={payingPlanId === plan.id || disabledByPlan}
+	                          onClick={() => startSubscriptionPayment(plan.id, `${plan.name} ${cycleLabel}`)}
+	                          disabled={payingPlanId === plan.id || disabledByPlan}
                           className="mt-5 h-10 rounded-[var(--radius-md-design)] type-caption transition-all hover:opacity-90 active:scale-[0.98]"
                           style={{
-                            background: disabledByPlan ? "oklch(1 0 0 / 8%)" : planConfig.highlight ? green : "oklch(0.68 0.20 292 / 0.18)",
-                            color: disabledByPlan ? faint : planConfig.highlight ? "#10130A" : text,
-                            border: `1px solid ${disabledByPlan ? "oklch(1 0 0 / 10%)" : planConfig.highlight ? "transparent" : "oklch(0.68 0.20 292 / 0.32)"}`,
+	                            background: disabledByPlan ? "oklch(1 0 0 / 8%)" : isSelected ? green : "oklch(0.68 0.20 292 / 0.18)",
+	                            color: disabledByPlan ? faint : isSelected ? "#10130A" : text,
+	                            border: `1px solid ${disabledByPlan ? "oklch(1 0 0 / 10%)" : isSelected ? "transparent" : "oklch(0.68 0.20 292 / 0.32)"}`,
                             cursor: disabledByPlan ? "not-allowed" : "pointer",
                             fontWeight: 700,
                           }}
@@ -644,7 +700,7 @@ export default function BillingPage() {
                             className="h-10 w-full rounded-[var(--radius-lg-design)] border px-3 type-caption outline-none transition-colors"
                             style={{
                               borderColor: border,
-                              background: isDark ? "oklch(0.09 0.012 270 / 0.54)" : "oklch(1 0 0 / 0.72)",
+                              background: isDark ? "#222222" : "oklch(1 0 0 / 0.72)",
                               color: text,
                             }}
                           />
@@ -687,7 +743,7 @@ export default function BillingPage() {
       {paymentDialog?.open && (
         <div
           className="fixed inset-0 z-[80] flex items-center justify-center px-4"
-          style={{ background: "oklch(0 0 0 / 0.62)", backdropFilter: "blur(12px)" }}
+          style={{ background: "rgba(34,34,34,0.72)", backdropFilter: "blur(12px)" }}
         >
           <div
             className="w-full max-w-[420px] rounded-[var(--radius-xl-design)] border p-5"
@@ -721,7 +777,7 @@ export default function BillingPage() {
               </div>
             ) : (
               <>
-                <div className="rounded-[var(--radius-lg-design)] border p-3 text-center" style={{ borderColor: border, background: isDark ? "oklch(0.08 0.01 270 / 0.86)" : "white" }}>
+                <div className="rounded-[var(--radius-lg-design)] border p-3 text-center" style={{ borderColor: border, background: isDark ? "#222222" : "white" }}>
                   {/\.(png|jpg|jpeg|gif|webp)(\?|$)/i.test(paymentDialog.payUrl) ? (
                     <img src={paymentDialog.payUrl} alt="支付二维码" className="mx-auto h-[220px] w-[220px] rounded-[var(--radius-md-design)] object-contain" />
                   ) : (

@@ -413,7 +413,7 @@ function ReferencePanel({ isDark }: { isDark: boolean }) {
               <img src={asset.src} alt={asset.title}
                 className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
             </div>
-            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all duration-200 flex items-center justify-center opacity-0 group-hover:opacity-100">
+            <div className="absolute inset-0 bg-[#222222]/0 group-hover:bg-[#222222]/40 transition-all duration-200 flex items-center justify-center opacity-0 group-hover:opacity-100">
               <span className="text-[11px] text-white font-medium">使用</span>
             </div>
           </div>

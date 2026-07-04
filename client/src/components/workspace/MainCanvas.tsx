@@ -482,7 +482,7 @@ function AssetCard({ asset }: { asset: GeneratedAsset }) {
           alt={asset.title}
           className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
         />
-        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/35 transition-all duration-200 flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
+        <div className="absolute inset-0 bg-[#222222]/0 group-hover:bg-[#222222]/35 transition-all duration-200 flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
           <button
             onClick={(e) => { e.stopPropagation(); toast("下载", { description: "功能即将上线" }); }}
             className="w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-sm transition-colors"

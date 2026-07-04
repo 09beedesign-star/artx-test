@@ -24,7 +24,7 @@ export default function Workspace({ projectId = "p1" }: { projectId?: string }) 
     <div
       className="flex flex-col h-screen overflow-hidden"
       style={{
-        background: isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)",
+        background: "#222222",
         position: "relative",
         transition: "background 0.25s ease",
       }}
@@ -37,7 +37,7 @@ export default function Workspace({ projectId = "p1" }: { projectId?: string }) 
             backgroundImage: `url(${BG_GLOW})`,
             backgroundSize: "cover",
             backgroundPosition: "center",
-            opacity: 0.15,
+            opacity: 0,
             zIndex: 0,
           }}
         />
@@ -45,11 +45,11 @@ export default function Workspace({ projectId = "p1" }: { projectId?: string }) 
 
       {/* Top bar */}
       <div style={{ position: "relative", zIndex: 1 }}>
-        <TopBar credits={0} projectTitle={currentProject.title} projectTime={projectCreatedAt} />
+        <TopBar credits={0} projectTitle={currentProject.title} projectTime={projectCreatedAt} glass />
       </div>
 
       {/* Full-width canvas */}
-      <div className="flex flex-1 overflow-hidden" style={{ position: "relative", zIndex: 1 }}>
+      <div className="flex flex-1 overflow-hidden" style={{ position: "relative", zIndex: 1, background: "#222222" }}>
         <InfiniteCanvas projectId={activeProjectId} />
       </div>
     </div>

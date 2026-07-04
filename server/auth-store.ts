@@ -67,9 +67,21 @@ interface StoredSession {
   expiresAt: string;
 }
 
+interface StoredApiKey {
+  id: string;
+  userId: string;
+  name: string;
+  prefix: string;
+  keyHash: string;
+  createdAt: string;
+  lastUsedAt?: string;
+  status?: "active" | "revoked";
+}
+
 interface AuthDatabase {
   users: StoredUser[];
   sessions: StoredSession[];
+  apiKeys?: StoredApiKey[];
   auditLogs?: AdminAuditLog[];
 }
 
@@ -144,6 +156,10 @@ function hashToken(token: string) {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
+function hashApiKey(key: string) {
+  return crypto.createHash("sha256").update(key).digest("hex");
+}
+
 function createUser(username: string, password: string, role: AdminRole = "viewer"): StoredUser {
   const salt = crypto.randomBytes(16).toString("hex");
   return {
@@ -216,6 +232,14 @@ function normalizeDatabase(parsed: Partial<AuthDatabase>): AuthDatabase {
       : [],
     sessions: Array.isArray(parsed.sessions)
       ? parsed.sessions.filter((session) => !session.expiresAt || Date.parse(session.expiresAt) > Date.now())
+      : [],
+    apiKeys: Array.isArray(parsed.apiKeys)
+      ? parsed.apiKeys
+        .filter((key) => key?.id && key?.userId && key?.keyHash && key?.prefix)
+        .map((key) => ({
+          ...key,
+          status: key.status === "revoked" ? "revoked" : "active",
+        }))
       : [],
     auditLogs: Array.isArray(parsed.auditLogs) ? parsed.auditLogs : [],
   };
@@ -329,6 +353,10 @@ function getBearerTokenFromHeader(value: unknown) {
   return match?.[1]?.trim() || "";
 }
 
+function createApiKeyValue() {
+  return `artx_sk_${crypto.randomBytes(32).toString("base64url")}`;
+}
+
 async function getUserByToken(token: string) {
   const db = await loadDatabase();
   const session = token ? db.sessions.find((item) => item.tokenHash === hashToken(token)) : undefined;
@@ -350,6 +378,78 @@ export async function getSessionUserFromAuthorization(authorization: unknown) {
   }
 
   return { status: 200 as const, body: { user: publicUser(user) } };
+}
+
+export async function listApiKeysForAuthorization(authorization: unknown) {
+  const session = await getSessionUserFromAuthorization(authorization);
+  if (session.status !== 200 || !("user" in session.body)) return session;
+  const db = await loadDatabase();
+  const keys = (db.apiKeys || [])
+    .filter((key) => key.userId === session.body.user.id && key.status !== "revoked")
+    .map((key) => ({
+      id: key.id,
+      name: key.name,
+      prefix: key.prefix,
+      createdAt: key.createdAt,
+      lastUsedAt: key.lastUsedAt,
+      status: key.status || "active",
+    }))
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  return { status: 200 as const, body: { keys } };
+}
+
+export async function createApiKeyForAuthorization(authorization: unknown, payload: unknown) {
+  const session = await getSessionUserFromAuthorization(authorization);
+  if (session.status !== 200 || !("user" in session.body)) return session;
+  const body = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+  const db = await loadDatabase();
+  const value = createApiKeyValue();
+  const createdAt = new Date().toISOString();
+  const key: StoredApiKey = {
+    id: crypto.randomUUID(),
+    userId: session.body.user.id,
+    name: typeof body.name === "string" && body.name.trim() ? body.name.trim().slice(0, 48) : "ArtX API Key",
+    prefix: value.slice(0, 16),
+    keyHash: hashApiKey(value),
+    createdAt,
+    status: "active",
+  };
+  db.apiKeys = [...(db.apiKeys || []), key];
+  appendAuditLog(db, {
+    actorId: session.body.user.id,
+    action: "developer.api_key.create",
+    target: key.id,
+    meta: { name: key.name, prefix: key.prefix },
+  });
+  await saveDatabase(db);
+  return {
+    status: 200 as const,
+    body: {
+      key: {
+        id: key.id,
+        name: key.name,
+        prefix: key.prefix,
+        createdAt,
+        value,
+      },
+    },
+  };
+}
+
+export async function getApiKeyUserFromAuthorization(authorization: unknown) {
+  const token = getBearerTokenFromHeader(authorization);
+  if (!token || !token.startsWith("artx_sk_")) {
+    return { status: 401 as const, body: { error: "请使用有效的 ArtX API key" } };
+  }
+  const db = await loadDatabase();
+  const key = (db.apiKeys || []).find((item) => item.keyHash === hashApiKey(token) && item.status !== "revoked");
+  const user = key ? db.users.find((item) => item.id === key.userId && item.status !== "disabled") : undefined;
+  if (!key || !user) {
+    return { status: 401 as const, body: { error: "API key 无效或已被停用" } };
+  }
+  key.lastUsedAt = new Date().toISOString();
+  await saveDatabase(db);
+  return { status: 200 as const, body: { user: publicUser(user), apiKey: { id: key.id, prefix: key.prefix } } };
 }
 
 export async function listAuthUsers() {

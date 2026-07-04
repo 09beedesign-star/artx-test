@@ -30,6 +30,7 @@ const AUTH_STORAGE_KEY = "artx-auth-session";
 const AI_REQUEST_TIMEOUT_MS = 300000;
 const AI_TIMEOUT_ERROR_MESSAGE = "对不起，网络开了个小差，请稍后重试";
 const ART_X_TEST_AI_API_BASE_URL = "https://artx-test.onrender.com";
+let aiApiBaseOverride: string | null = null;
 
 function normalizeAiErrorMessage(message: string, fallback: string) {
   if (/images api is not supported|not supported for this platform|unsupported.*images/i.test(message)) {
@@ -73,6 +74,7 @@ export type ReferenceImageResult = {
 };
 
 function getAiApiBaseUrl() {
+  if (aiApiBaseOverride) return aiApiBaseOverride;
   const configured = (
     import.meta.env.VITE_AI_API_BASE_URL ||
     import.meta.env.VITE_API_BASE_URL ||
@@ -96,6 +98,21 @@ function getAiApiBaseUrl() {
   if (configured) return configured;
   if (typeof window !== "undefined" && window.location.hostname.endsWith("github.io")) return ART_X_TEST_AI_API_BASE_URL;
   return "";
+}
+
+function getLocalAiFallbackEndpoint(endpoint: string) {
+  if (typeof window === "undefined") return "";
+  try {
+    const current = new URL(endpoint, window.location.href);
+    const isLoopback = current.hostname === "localhost"
+      || current.hostname === "127.0.0.1"
+      || current.hostname === "::1";
+    if (!isLoopback) return "";
+    const fallback = new URL(current.pathname + current.search, ART_X_TEST_AI_API_BASE_URL);
+    return fallback.toString();
+  } catch {
+    return "";
+  }
 }
 
 function isAiBackendConnectionError(error: unknown) {
@@ -149,6 +166,7 @@ async function fetchAiJson<T extends ApiErrorResponse>(
   body: Record<string, unknown>,
   fallbackError: string,
   timeoutMs = AI_REQUEST_TIMEOUT_MS,
+  allowLocalFallback = true,
 ): Promise<T> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -169,9 +187,36 @@ async function fetchAiJson<T extends ApiErrorResponse>(
     if (error instanceof DOMException && error.name === "AbortError") {
       throw new Error(AI_TIMEOUT_ERROR_MESSAGE);
     }
+    const fallbackEndpoint = allowLocalFallback ? getLocalAiFallbackEndpoint(endpoint) : "";
+    if (fallbackEndpoint && fallbackEndpoint !== endpoint && isAiBackendConnectionError(error)) {
+      aiApiBaseOverride = ART_X_TEST_AI_API_BASE_URL;
+      return fetchAiJson<T>(fallbackEndpoint, body, fallbackError, timeoutMs, false);
+    }
     throw error;
   } finally {
     clearTimeout(timeoutId);
+  }
+}
+
+async function fetchAiJsonGet<T extends ApiErrorResponse>(
+  endpoint: string,
+  fallbackError: string,
+  allowLocalFallback = true,
+): Promise<T> {
+  try {
+    const response = await fetch(endpoint, { method: "GET" });
+    const result = await readJsonResponse<T>(response, fallbackError);
+    if (!response.ok) {
+      throw new Error(result.error || result.message || fallbackError);
+    }
+    return result;
+  } catch (error) {
+    const fallbackEndpoint = allowLocalFallback ? getLocalAiFallbackEndpoint(endpoint) : "";
+    if (fallbackEndpoint && fallbackEndpoint !== endpoint && isAiBackendConnectionError(error)) {
+      aiApiBaseOverride = ART_X_TEST_AI_API_BASE_URL;
+      return fetchAiJsonGet<T>(fallbackEndpoint, fallbackError, false);
+    }
+    throw error;
   }
 }
 
@@ -257,16 +302,7 @@ export async function searchReferenceImages({
   requireAiAuth();
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/references/search`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query, limit }),
-  });
-
-  const result = await readJsonResponse<ApiErrorResponse & { images?: ReferenceImageResult[] }>(response, "参考图抓取失败");
-  if (!response.ok) {
-    throw new Error(result.error || result.message || "参考图抓取失败");
-  }
+  const result = await fetchAiJson<ApiErrorResponse & { images?: ReferenceImageResult[] }>(endpoint, { query, limit }, "参考图抓取失败");
 
   return { images: result.images || [] };
 }
@@ -379,12 +415,7 @@ export async function startBackgroundImageGeneration({
 export async function getBackgroundImageGenerationTask(taskId: string) {
   requireAiAuth();
   const endpoint = `${getAiApiBaseUrl()}/api/images/tasks/${encodeURIComponent(taskId)}`;
-  const response = await fetch(endpoint, { method: "GET" });
-  const result = await readJsonResponse<BackgroundImageTask>(response, "后台图像生成查询失败");
-  if (!response.ok) {
-    throw new Error(result.error || "后台图像生成查询失败");
-  }
-  return result;
+  return fetchAiJsonGet<BackgroundImageTask>(endpoint, "后台图像生成查询失败");
 }
 
 export async function removeImageBackground({

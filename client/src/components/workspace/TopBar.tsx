@@ -34,6 +34,7 @@ interface TopBarProps {
   projectTitle?: string;
   projectTime?: string;
   showSearch?: boolean;
+  glass?: boolean;
 }
 
 const AVATAR_COLORS = [
@@ -47,14 +48,16 @@ const AVATAR_COLORS = [
   "#6C7A89",
 ];
 
-export default function TopBar({ credits = 0, projectTitle, projectTime, showSearch = false }: TopBarProps) {
+export default function TopBar({ credits = 0, projectTitle, projectTime, showSearch = false, glass = false }: TopBarProps) {
   const { resolvedTheme } = useTheme();
   const { isAuthenticated, user, openLoginModal, logout } = useAuth();
   const [, navigate] = useLocation();
 
   const isDark = resolvedTheme === "dark";
 
-  const surface   = isDark ? "oklch(0.11 0.015 270)"       : "var(--design-surface-soft)";
+  const surface   = isDark
+    ? (glass ? "rgba(34,34,34,0.20)" : "oklch(0.11 0.015 270)")
+    : (glass ? "rgba(247,247,245,0.72)" : "var(--design-surface-soft)");
   const border    = isDark ? "oklch(1 0 0 / 6%)"           : "var(--hairline)";
   const textPri   = isDark ? "oklch(0.85 0.01 270)"        : "oklch(0.22 0.018 255)";
   const textSec   = isDark ? "oklch(0.50 0.01 270)"        : "oklch(0.50 0.012 255)";
@@ -117,7 +120,14 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
     <>
     <header
       className="flex items-center gap-3 px-4 shrink-0"
-      style={{ height: 52, background: surface, borderBottom: `1px solid ${border}`, zIndex: 10 }}
+      style={{
+        height: 52,
+        background: surface,
+        borderBottom: `1px solid ${border}`,
+        backdropFilter: glass ? "blur(18px)" : undefined,
+        WebkitBackdropFilter: glass ? "blur(18px)" : undefined,
+        zIndex: 10,
+      }}
     >
       {/* Left: project title */}
       <div className="flex items-baseline gap-2 min-w-0" style={{ flex: "0 0 auto", maxWidth: 280 }}>
@@ -181,12 +191,9 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
       {!isAuthenticated && (
         <button
           onClick={openLoginModal}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-[var(--radius-md-design)] type-caption transition-all duration-150 active:scale-95"
+          className="h-10 shrink-0 whitespace-nowrap rounded-md bg-[#936CFF] px-4 text-sm font-medium text-white shadow-[0_10px_28px_rgba(147,108,255,0.30)] transition-colors hover:bg-[#8257ff]"
           style={{
-            background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
-            color: "white",
-            fontSize: 13,
-            boxShadow: "0 8px 24px oklch(0.58 0.22 290 / 0.24)",
+            border: "0",
           }}
         >
           开始体验
@@ -297,13 +304,12 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
         <div className="p-6">
           <AlertDialogHeader className="gap-2 text-left">
             <div
-              className="w-10 h-10 rounded-[var(--radius-md-design)] flex items-center justify-center mb-1"
+              className="mb-1 flex h-8 w-8 items-center justify-center"
               style={{
-                background: isDark ? "oklch(0.72 0.18 200 / 0.14)" : "oklch(0.72 0.18 200 / 0.10)",
-                color: "oklch(0.72 0.18 200)",
+                color: "#C5ED47",
               }}
             >
-              <KeyRound size={18} />
+              <KeyRound size={24} strokeWidth={1.8} />
             </div>
             <AlertDialogTitle
               className="type-title-sm"

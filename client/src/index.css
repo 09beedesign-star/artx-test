@@ -121,7 +121,7 @@
   --hairline-soft: #f1f1f1;
 
   /* ── Dark mode (default) — Deep blue-purple ── */
-  --background: oklch(0.10 0.015 270);
+  --background: #222222;
   --foreground: oklch(0.93 0.008 270);
   --card: oklch(0.14 0.018 270);
   --card-foreground: oklch(0.93 0.008 270);
@@ -686,7 +686,7 @@ html.light, .light {
   right: auto !important;
   top: auto !important;
   bottom: 32px !important;
-  width: 260px !important;
+  width: 200px !important;
   transform: translateX(-50%) !important;
   margin-bottom: 0 !important;
   padding-bottom: 0 !important;
@@ -694,11 +694,14 @@ html.light, .light {
 
 [data-sonner-toaster].toaster [data-sonner-toast][data-styled="true"] {
   align-items: center !important;
-  width: 260px !important;
-  min-height: 60px !important;
-  height: 60px !important;
-  max-height: 60px !important;
-  padding: 0 44px 0 16px !important;
+  left: 50% !important;
+  right: auto !important;
+  width: 200px !important;
+  min-height: 54px !important;
+  height: 54px !important;
+  max-height: 54px !important;
+  transform: translateX(-50%) !important;
+  padding: 8px 12px !important;
   overflow: hidden !important;
   border-radius: var(--radius-lg-design) !important;
   background: rgba(0, 0, 0, 0.60) !important;
@@ -711,22 +714,25 @@ html.light, .light {
 [data-sonner-toaster].toaster [data-sonner-toast][data-styled="true"] [data-content] {
   min-width: 0 !important;
   width: 100% !important;
-  display: block !important;
+  display: -webkit-box !important;
+  -webkit-box-orient: vertical !important;
+  -webkit-line-clamp: 2 !important;
   overflow: hidden !important;
-  white-space: nowrap !important;
+  white-space: normal !important;
+  line-height: 16px !important;
 }
 
 [data-sonner-toaster].toaster [data-sonner-toast][data-styled="true"] [data-title],
 [data-sonner-toaster].toaster [data-sonner-toast][data-styled="true"] [data-description] {
   display: inline !important;
   max-width: 100% !important;
-  overflow: hidden !important;
+  overflow: visible !important;
   color: rgba(255, 255, 255, 0.92) !important;
-  font-size: 14px !important;
-  line-height: 20px !important;
+  font-size: 11px !important;
+  line-height: 16px !important;
   letter-spacing: 0 !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
+  text-overflow: clip !important;
+  white-space: normal !important;
 }
 
 [data-sonner-toaster].toaster [data-sonner-toast][data-styled="true"] [data-description]::before {
@@ -739,17 +745,16 @@ html.light, .light {
 
 [data-sonner-toaster].toaster [data-sonner-toast][data-styled="true"] [data-artx-toast-expand] {
   position: absolute;
-  right: 8px;
-  top: 50%;
+  right: 6px;
+  bottom: 5px;
   display: none;
-  height: 28px;
-  min-width: 32px;
-  transform: translateY(-50%);
+  height: 16px;
+  min-width: 26px;
   border: 0;
   border-radius: var(--radius-sm-design);
   background: rgba(255, 255, 255, 0.10);
   color: rgba(255, 255, 255, 0.92);
-  font-size: 10px;
+  font-size: 9px;
   line-height: 1;
   cursor: pointer;
 }
@@ -761,11 +766,11 @@ html.light, .light {
 }
 
 [data-sonner-toaster].toaster [data-sonner-toast][data-artx-expanded="true"][data-styled="true"] {
+  width: min(360px, calc(100vw - 32px)) !important;
   height: auto !important;
   max-height: min(260px, calc(100vh - 96px)) !important;
   min-height: 60px !important;
-  padding-top: 14px !important;
-  padding-bottom: 14px !important;
+  padding: 14px 44px 14px 14px !important;
   overflow: auto !important;
 }
 
@@ -773,6 +778,7 @@ html.light, .light {
 [data-sonner-toaster].toaster [data-sonner-toast][data-artx-expanded="true"][data-styled="true"] [data-title],
 [data-sonner-toaster].toaster [data-sonner-toast][data-artx-expanded="true"][data-styled="true"] [data-description] {
   display: block !important;
+  -webkit-line-clamp: unset !important;
   overflow: visible !important;
   text-overflow: clip !important;
   white-space: normal !important;
@@ -784,13 +790,14 @@ html.light, .light {
     right: auto !important;
     top: auto !important;
     bottom: 32px !important;
-    width: 260px !important;
+    width: 200px !important;
     transform: translateX(-50%) !important;
   }
 
   [data-sonner-toaster].toaster [data-sonner-toast] {
-    left: 0 !important;
+    left: 50% !important;
     right: auto !important;
-    width: 260px !important;
+    width: 200px !important;
+    transform: translateX(-50%) !important;
   }
 }

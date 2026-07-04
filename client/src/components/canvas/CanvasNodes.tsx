@@ -171,7 +171,7 @@ export function AssetNode({ node, isSelected, onDragStart, onSelect, onRemove }:
         {/* Image */}
         <div className="relative overflow-hidden group/img" style={{ aspectRatio: `${asset.width}/${asset.height}` }}>
           <img src={asset.src} alt={asset.title} className="w-full h-full object-cover pointer-events-none" draggable={false} />
-          <div className="absolute inset-0 bg-black/0 group-hover/img:bg-black/35 transition-all duration-200 flex items-center justify-center gap-2 opacity-0 group-hover/img:opacity-100">
+          <div className="absolute inset-0 bg-[#222222]/0 group-hover/img:bg-[#222222]/35 transition-all duration-200 flex items-center justify-center gap-2 opacity-0 group-hover/img:opacity-100">
             <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); toast("下载", { description: "功能即将上线" }); }}
               className="w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-sm" style={{ background: "oklch(1 0 0 / 20%)" }}>
               <Download size={13} className="text-white" />

@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
-import { getAdminSessionFromAuthorization, handleAuthAction } from "./server/auth-store";
+import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization } from "./server/auth-store";
 import { editImageWithPrompt, eraseImageObjects, generateImages, removeImageBackground } from "./server/image-generation";
 import { searchReferenceImages } from "./server/reference-search";
 import { generateText } from "./server/text-generation";
@@ -393,6 +393,122 @@ function vitePluginAdminApi(): Plugin {
   };
 }
 
+function readRequestJson(req: import("node:http").IncomingMessage) {
+  return new Promise<Record<string, unknown>>((resolve, reject) => {
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk.toString();
+    });
+    req.on("error", reject);
+    req.on("end", () => {
+      try {
+        resolve(body ? JSON.parse(body) as Record<string, unknown> : {});
+      } catch (error) {
+        reject(error);
+      }
+    });
+  });
+}
+
+function sendJson(res: import("node:http").ServerResponse, status: number, payload: unknown) {
+  res.writeHead(status, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(payload));
+}
+
+function vitePluginDeveloperApi(): Plugin {
+  const tools = [
+    {
+      name: "artx_generate_image",
+      description: "Use ArtX image generation to create images from a text prompt.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          prompt: { type: "string" },
+          ratio: { type: "string" },
+          count: { type: "number" },
+        },
+        required: ["prompt"],
+      },
+    },
+  ];
+
+  return {
+    name: "artx-developer-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/developer/api-keys", async (req, res, next) => {
+        try {
+          if (req.method === "GET") {
+            const result = await listApiKeysForAuthorization(req.headers.authorization);
+            sendJson(res, result.status, result.body);
+            return;
+          }
+          if (req.method === "POST") {
+            const payload = await readRequestJson(req);
+            const result = await createApiKeyForAuthorization(req.headers.authorization, payload);
+            sendJson(res, result.status, result.body);
+            return;
+          }
+          next();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Developer API failed";
+          sendJson(res, 500, { error: message });
+        }
+      });
+
+      server.middlewares.use("/api/mcp/manifest", (req, res, next) => {
+        if (req.method !== "GET") {
+          next();
+          return;
+        }
+        sendJson(res, 200, {
+          name: "ArtX Image MCP",
+          version: "0.1.0",
+          transport: "streamable-http",
+          endpoint: "/api/mcp",
+          tools,
+        });
+      });
+
+      server.middlewares.use("/api/mcp", async (req, res, next) => {
+        if (req.method !== "POST") {
+          next();
+          return;
+        }
+        try {
+          const payload = await readRequestJson(req);
+          const id = payload.id ?? null;
+          const method = typeof payload.method === "string" ? payload.method : "";
+          if (method === "initialize") {
+            sendJson(res, 200, {
+              jsonrpc: "2.0",
+              id,
+              result: {
+                protocolVersion: "2024-11-05",
+                capabilities: { tools: {} },
+                serverInfo: { name: "ArtX Image MCP", version: "0.1.0" },
+              },
+            });
+            return;
+          }
+          const auth = await getApiKeyUserFromAuthorization(req.headers.authorization);
+          if (auth.status !== 200) {
+            sendJson(res, auth.status, auth.body);
+            return;
+          }
+          if (method === "tools/list") {
+            sendJson(res, 200, { jsonrpc: "2.0", id, result: { tools } });
+            return;
+          }
+          sendJson(res, 404, { jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "MCP request failed";
+          sendJson(res, 500, { error: message });
+        }
+      });
+    },
+  };
+}
+
 const plugins = [
   react(),
   tailwindcss(),
@@ -402,6 +518,7 @@ const plugins = [
   vitePluginStorageProxy(),
   vitePluginAuthApi(),
   vitePluginAdminApi(),
+  vitePluginDeveloperApi(),
   vitePluginJsonApi("artx-ai-image-api", "/api/images/generate", generateImages, "Image generation failed"),
   vitePluginJsonApi("artx-ai-remove-background-api", "/api/images/remove-background", removeImageBackground, "Background removal failed"),
   vitePluginJsonApi("artx-ai-edit-image-api", "/api/images/edit", editImageWithPrompt, "Image edit failed"),

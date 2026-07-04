@@ -125,7 +125,7 @@ export default function HelpPage() {
                   <button
                     type="button"
                     onClick={() => removeImage(image.id)}
-                    className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm-design)] bg-black/65 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                    className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm-design)] bg-[#222222]/65 text-white opacity-0 transition-opacity group-hover:opacity-100"
                     aria-label="移除图片"
                   >
                     <X size={13} />

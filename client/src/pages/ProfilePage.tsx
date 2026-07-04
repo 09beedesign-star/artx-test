@@ -63,10 +63,10 @@ export default function ProfilePage() {
   const textPrimary = isDark ? "rgba(255,255,255,0.88)" : "rgba(20,20,36,0.88)";
   const textSecondary = isDark ? "rgba(255,255,255,0.56)" : "rgba(20,20,36,0.56)";
   const textMuted = isDark ? "rgba(255,255,255,0.36)" : "rgba(20,20,36,0.36)";
-  const cardBg = isDark ? "rgba(255,255,255,0.055)" : "rgba(255,255,255,0.76)";
+  const cardBg = isDark ? "#222222" : "rgba(255,255,255,0.76)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(20,20,36,0.10)";
-  const panelBg = isDark ? "rgba(18,18,24,0.98)" : "rgba(255,255,255,0.98)";
-  const inputBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(20,20,36,0.045)";
+  const panelBg = isDark ? "#222222" : "rgba(255,255,255,0.98)";
+  const inputBg = isDark ? "#222222" : "rgba(20,20,36,0.045)";
   const tags = profile.tags.split(/[、,，]/).map(tag => tag.trim()).filter(Boolean);
 
   const handleAvatarFile = (file: File | undefined, target: "profile" | "draft") => {
@@ -107,13 +107,13 @@ export default function ProfilePage() {
     <div
       className="flex h-screen flex-col overflow-hidden"
       style={{
-        background: isDark ? "oklch(0.09 0.012 270)" : "oklch(0.975 0.004 80)",
+        background: "#222222",
         color: textPrimary,
       }}
     >
       <TopBar credits={0} />
       <main className="relative flex-1 overflow-y-auto px-8 py-8">
-        <div className="pointer-events-none absolute inset-0 opacity-70" style={{ background: BG_GLOW }} />
+        <div className="pointer-events-none absolute inset-0 opacity-0" style={{ background: BG_GLOW }} />
         <div className="relative mx-auto max-w-5xl">
           <section
             className="overflow-hidden rounded-[var(--radius-xl-design)]"
@@ -124,7 +124,7 @@ export default function ProfilePage() {
               backdropFilter: "blur(20px)",
             }}
           >
-            <div className="h-40" style={{ background: "#000" }} />
+            <div className="h-40" style={{ background: "#222222" }} />
             <div className="px-8 pb-8">
               <div className="-mt-12 flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
                 <div className="flex items-end gap-5">
@@ -134,7 +134,7 @@ export default function ProfilePage() {
                     className="group relative flex h-24 w-24 items-center justify-center overflow-hidden rounded-[28px]"
                     style={{
                       background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.62 0.20 210))",
-                      border: `4px solid ${isDark ? "oklch(0.13 0.012 270)" : "white"}`,
+                      border: `4px solid ${isDark ? "#222222" : "white"}`,
                       boxShadow: "0 18px 36px oklch(0.58 0.22 290 / 0.28)",
                     }}
                     aria-label="上传个人头像"
@@ -144,7 +144,7 @@ export default function ProfilePage() {
                     ) : (
                       <UserRound size={34} color="white" />
                     )}
-                    <span className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
+                    <span className="absolute inset-0 flex items-center justify-center bg-[#222222]/45 opacity-0 transition-opacity group-hover:opacity-100">
                       <Camera size={18} color="white" />
                     </span>
                   </button>
@@ -164,7 +164,7 @@ export default function ProfilePage() {
                   onClick={openEdit}
                   className="flex items-center gap-2 rounded-[var(--radius-lg-design)] px-4 py-2 type-caption transition-opacity hover:opacity-85"
                   style={{
-                    background: isDark ? "rgba(255,255,255,0.08)" : "rgba(20,20,36,0.06)",
+                    background: isDark ? "#222222" : "rgba(20,20,36,0.06)",
                     border: `1px solid ${border}`,
                     color: textPrimary,
                   }}
@@ -177,7 +177,7 @@ export default function ProfilePage() {
               <div className="mt-7 grid gap-4 md:grid-cols-[1.1fr_0.9fr]">
                 <div
                   className="rounded-[var(--radius-lg-design)] p-5"
-                  style={{ background: isDark ? "rgba(0,0,0,0.18)" : "rgba(255,255,255,0.52)", border: `1px solid ${border}` }}
+                  style={{ background: isDark ? "#222222" : "rgba(255,255,255,0.52)", border: `1px solid ${border}` }}
                 >
                   <p className="type-body-sm mb-3" style={{ color: textPrimary, fontWeight: 560 }}>个人简介</p>
                   <p className="type-body-sm leading-7" style={{ color: textSecondary }}>
@@ -188,7 +188,7 @@ export default function ProfilePage() {
                       <span
                         key={tag}
                         className="rounded-[var(--radius-pill)] px-3 py-1 type-caption"
-                        style={{ background: isDark ? "rgba(255,255,255,0.07)" : "rgba(20,20,36,0.06)", color: textSecondary }}
+                        style={{ background: isDark ? "#222222" : "rgba(20,20,36,0.06)", color: textSecondary }}
                       >
                         {tag}
                       </span>
@@ -198,7 +198,7 @@ export default function ProfilePage() {
 
                 <div
                   className="rounded-[var(--radius-lg-design)] p-5"
-                  style={{ background: isDark ? "rgba(0,0,0,0.18)" : "rgba(255,255,255,0.52)", border: `1px solid ${border}` }}
+                  style={{ background: isDark ? "#222222" : "rgba(255,255,255,0.52)", border: `1px solid ${border}` }}
                 >
                   <p className="type-body-sm mb-4" style={{ color: textPrimary, fontWeight: 560 }}>账号信息</p>
                   <div className="space-y-3 type-caption" style={{ color: textSecondary }}>
@@ -215,7 +215,7 @@ export default function ProfilePage() {
 
       {editOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-6"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#222222]/35 px-6"
           onMouseDown={event => {
             if (event.target === event.currentTarget) setEditOpen(false);
           }}

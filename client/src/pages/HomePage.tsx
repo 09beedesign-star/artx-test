@@ -11,20 +11,85 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import asteroidImage from "@/assets/ardot/3_3.png";
 import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
-import { BRAND_KIT, POSTER_1, POSTER_2, SOCIAL_AD } from "@/lib/workspace-data";
+import promptCsv from "@/data/ai_image_prompt_rank_50.csv?raw";
 import { createWorkspaceHistoryProject } from "@/lib/project-history";
 import { requestAiAuth } from "@/lib/ai";
 
-const COMMUNITY_PROJECTS = [
-  { id: "community-1", title: "未来跑鞋视觉实验", updatedAt: "社区精选", cover: POSTER_2, author: "Emma_Wilson", plays: "4478", likes: "125" },
-  { id: "community-2", title: "咖啡品牌灵感板", updatedAt: "用户作品", cover: BRAND_KIT, author: "Emma_Wilson", plays: "4478", likes: "125" },
-  { id: "community-3", title: "城市户外广告片", updatedAt: "社区精选", cover: POSTER_1, author: "Emma_Wilson", plays: "4478", likes: "125" },
-  { id: "community-4", title: "智能设备发布海报", updatedAt: "用户作品", cover: SOCIAL_AD, author: "Emma_Wilson", plays: "4478", likes: "125" },
-  { id: "community-5", title: "潮流服饰大片", updatedAt: "灵感推荐", cover: POSTER_1, author: "Emma_Wilson", plays: "4478", likes: "125" },
-  { id: "community-6", title: "新消费包装系统", updatedAt: "社区精选", cover: BRAND_KIT, author: "Emma_Wilson", plays: "4478", likes: "125" },
-  { id: "community-7", title: "运动科技主视觉", updatedAt: "用户作品", cover: POSTER_2, author: "Emma_Wilson", plays: "4478", likes: "125" },
-  { id: "community-8", title: "社媒营销创意图", updatedAt: "灵感推荐", cover: SOCIAL_AD, author: "Emma_Wilson", plays: "4478", likes: "125" },
-];
+type InspirationRecommendation = {
+  rank: number;
+  field: string;
+  title: string;
+  description: string;
+  imageUrl: string;
+  author: string;
+};
+
+function parseCsv(csv: string) {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let value = "";
+  let inQuote = false;
+
+  for (let index = 0; index < csv.length; index += 1) {
+    const char = csv[index];
+    const next = csv[index + 1];
+
+    if (inQuote) {
+      if (char === '"' && next === '"') {
+        value += '"';
+        index += 1;
+      } else if (char === '"') {
+        inQuote = false;
+      } else {
+        value += char;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inQuote = true;
+    } else if (char === ",") {
+      row.push(value);
+      value = "";
+    } else if (char === "\n") {
+      row.push(value);
+      rows.push(row);
+      row = [];
+      value = "";
+    } else if (char !== "\r") {
+      value += char;
+    }
+  }
+
+  if (value || row.length) {
+    row.push(value);
+    rows.push(row);
+  }
+
+  return rows;
+}
+
+function loadInspirationRecommendations(csv: string): InspirationRecommendation[] {
+  const rows = parseCsv(csv.replace(/^\uFEFF/, ""));
+  const header = rows[0] ?? [];
+  const get = (record: string[], key: string) => record[header.indexOf(key)]?.trim() ?? "";
+
+  return rows
+    .slice(1)
+    .filter((record) => record.length > 1)
+    .map((record) => ({
+      rank: Number(get(record, "rank")) || 0,
+      field: get(record, "field"),
+      title: get(record, "title"),
+      description: get(record, "description"),
+      imageUrl: get(record, "image_url"),
+      author: get(record, "author"),
+    }))
+    .filter((item) => item.title && item.imageUrl);
+}
+
+const INSPIRATION_RECOMMENDATIONS = loadInspirationRecommendations(promptCsv);
+const BRAND_LOGO_SIZE = "h-[20px] w-[109px]";
 
 const PROMPT_SUGGESTIONS = [
   "帮我生成一张赛博朋克风格插画",
@@ -33,9 +98,14 @@ const PROMPT_SUGGESTIONS = [
 ];
 
 const HOME_PROMPT = "hello，欢迎来到。ArtX,正式开启你的。灵感AI创意之旅吧！";
+const HOME_AUTH_PANEL_STORAGE_KEY = "artx:home-auth-panel";
+const PROMPT_TYPE_DURATION_MS = 5000;
+const PROMPT_PAUSE_DURATION_MS = 3000;
+const PROMPT_FRAME_MS = 80;
 
 type PanelMode = "prelogin" | "login" | "register";
 type LandingTab = "home" | "inspiration" | "skills" | "workspace" | "help";
+type LoginBubble = { left: number; top: number; id: number } | null;
 
 const getStageScale = () => {
   if (typeof window === "undefined") return 1;
@@ -47,18 +117,43 @@ export default function HomePage() {
   const { isAuthenticated, login, register } = useAuth();
   const [panelMode, setPanelMode] = useState<PanelMode>(isAuthenticated ? "prelogin" : "prelogin");
   const [prompt, setPrompt] = useState(HOME_PROMPT);
+  const [promptTouched, setPromptTouched] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
   const [stageScale, setStageScale] = useState(getStageScale);
   const [activeTab, setActiveTab] = useState<LandingTab>("home");
+  const [loginBubble, setLoginBubble] = useState<LoginBubble>(null);
+  const activeTabRef = useRef<LandingTab>("home");
+  const hasReachedInspirationRef = useRef(false);
+  const mainRef = useRef<HTMLElement>(null);
   const homeRef = useRef<HTMLElement>(null);
   const inspirationRef = useRef<HTMLElement>(null);
+
+  const setCurrentLandingTab = (tab: LandingTab) => {
+    activeTabRef.current = tab;
+    setActiveTab(tab);
+  };
 
   useEffect(() => {
     if (isAuthenticated) setPanelMode("prelogin");
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!loginBubble) return;
+    const timer = window.setTimeout(() => setLoginBubble(null), 1800);
+    return () => window.clearTimeout(timer);
+  }, [loginBubble]);
+
+  useEffect(() => {
+    const requestedPanel = sessionStorage.getItem(HOME_AUTH_PANEL_STORAGE_KEY);
+    if (requestedPanel !== "login" && requestedPanel !== "register") return;
+    sessionStorage.removeItem(HOME_AUTH_PANEL_STORAGE_KEY);
+    setCurrentLandingTab("home");
+    setPanelMode(requestedPanel);
+    homeRef.current?.scrollIntoView({ behavior: "auto", block: "start" });
+  }, []);
 
   useEffect(() => {
     const updateStageScale = () => {
@@ -80,7 +175,13 @@ export default function HomePage() {
           .filter(entry => entry.isIntersecting)
           .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
         const visibleSection = sections.find(section => section.ref.current === visibleEntry?.target);
-        if (visibleSection) setActiveTab(visibleSection.tab);
+        if (!visibleSection) return;
+
+        const previousTab = activeTabRef.current;
+        setCurrentLandingTab(visibleSection.tab);
+        if (!isAuthenticated && previousTab === "inspiration" && visibleSection.tab === "home") {
+          setPanelMode("prelogin");
+        }
       },
       { threshold: [0.45, 0.65] },
     );
@@ -89,9 +190,24 @@ export default function HomePage() {
       if (section.ref.current) observer.observe(section.ref.current);
     });
     return () => observer.disconnect();
-  }, []);
+  }, [isAuthenticated]);
 
   const displayedMode = isAuthenticated ? "prelogin" : panelMode;
+
+  const handleMainScroll = () => {
+    const main = mainRef.current;
+    const homeHeight = homeRef.current?.offsetHeight || window.innerHeight;
+    const scrollTop = main?.scrollTop ?? 0;
+
+    if (scrollTop >= homeHeight * 0.55) {
+      hasReachedInspirationRef.current = true;
+    }
+
+    if (!isAuthenticated && hasReachedInspirationRef.current && scrollTop <= homeHeight * 0.15) {
+      setPanelMode("prelogin");
+      hasReachedInspirationRef.current = false;
+    }
+  };
 
   const createProjectFromPrompt = () => {
     const text = prompt.trim() || HOME_PROMPT;
@@ -143,12 +259,13 @@ export default function HomePage() {
 
 
   const scrollToInspiration = () => {
-    setActiveTab("inspiration");
+    setCurrentLandingTab("inspiration");
     inspirationRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const scrollToHome = () => {
-    setActiveTab("home");
+    setCurrentLandingTab("home");
+    if (!isAuthenticated) setPanelMode("prelogin");
     homeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
@@ -160,16 +277,35 @@ export default function HomePage() {
     setPanelMode("login");
   };
 
+  const showLoginRequiredBubble = (event: React.MouseEvent<HTMLButtonElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setLoginBubble({
+      left: rect.left + rect.width / 2,
+      top: rect.bottom + 10,
+      id: Date.now(),
+    });
+  };
+
   return (
-    <main className="h-screen overflow-y-auto bg-black text-white scroll-smooth">
-      <header className="fixed left-0 right-0 top-0 z-50 flex h-[64px] items-center gap-3 bg-black/20 px-4 backdrop-blur-[18px] sm:gap-4 sm:px-8 lg:px-20">
+    <main ref={mainRef} onScroll={handleMainScroll} className="h-screen overflow-x-hidden overflow-y-auto bg-[#222222] text-white scroll-smooth">
+      <header className="fixed left-0 right-0 top-0 z-50 flex h-[64px] items-center gap-3 bg-[#222222]/20 px-4 backdrop-blur-[18px] sm:gap-4">
+        {loginBubble && (
+          <div
+            key={loginBubble.id}
+            className="pointer-events-none fixed z-[70] -translate-x-1/2 rounded-md border border-white/10 bg-[#222222]/90 px-3 py-1.5 text-xs font-medium text-white/90 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-md"
+            style={{ left: loginBubble.left, top: loginBubble.top }}
+          >
+            请先登录
+          </div>
+        )}
         <button
           type="button"
           onClick={() => {
-            setActiveTab("home");
+            setCurrentLandingTab("home");
+            if (!isAuthenticated) setPanelMode("prelogin");
             navigate("/");
           }}
-          className="h-9 w-[194px] shrink-0 transition-opacity hover:opacity-85"
+          className={`${BRAND_LOGO_SIZE} shrink-0 transition-opacity hover:opacity-85`}
           aria-label="ArtXStudio 首页"
         >
           <img
@@ -183,15 +319,23 @@ export default function HomePage() {
           onHome={scrollToHome}
           onInspiration={scrollToInspiration}
           onSkills={() => {
-            setActiveTab("skills");
+            setCurrentLandingTab("skills");
             navigate("/skills");
           }}
-          onWorkspace={() => {
-            setActiveTab("workspace");
+          onWorkspace={(event) => {
+            if (!isAuthenticated) {
+              showLoginRequiredBubble(event);
+              return;
+            }
+            setCurrentLandingTab("workspace");
             navigate("/workspace");
           }}
-          onHelp={() => {
-            setActiveTab("help");
+          onHelp={(event) => {
+            if (!isAuthenticated) {
+              showLoginRequiredBubble(event);
+              return;
+            }
+            setCurrentLandingTab("help");
             navigate("/help");
           }}
         />
@@ -201,13 +345,13 @@ export default function HomePage() {
             onClick={handleStartExperience}
             className="h-10 shrink-0 whitespace-nowrap rounded-md bg-[#936CFF] px-4 text-sm font-medium text-white shadow-[0_10px_28px_rgba(147,108,255,0.30)] transition-colors hover:bg-[#8257ff]"
           >
-            开始体验
+            {isAuthenticated ? "进入工作台" : "开始体验"}
           </button>
         </div>
       </header>
-      <section ref={homeRef} className="relative min-h-screen overflow-hidden">
+      <section ref={homeRef} className="relative min-h-screen overflow-hidden bg-[#222222]">
         <div
-          className="absolute left-1/2 top-1/2 z-10 h-[900px] w-[1600px] origin-center"
+          className="absolute left-1/2 top-1/2 z-10 h-[900px] w-[1600px] origin-center bg-[#222222]"
           style={{ transform: `translate(-50%, -50%) scale(${stageScale})` }}
         >
           <HeroBackdrop />
@@ -216,7 +360,11 @@ export default function HomePage() {
             <div className={`absolute inset-0 transition-all duration-500 ease-out ${displayedMode === "prelogin" ? "pointer-events-auto opacity-100 translate-y-0" : "pointer-events-none opacity-0 translate-y-3"}`}>
               <PreloginPanel
                 prompt={prompt}
-                onPromptChange={setPrompt}
+                promptTouched={promptTouched}
+                onPromptChange={value => {
+                  setPromptTouched(true);
+                  setPrompt(value);
+                }}
                 onSend={handlePreloginSend}
               />
             </div>
@@ -231,6 +379,7 @@ export default function HomePage() {
                 onPasswordChange={setPassword}
                 onSubmit={handleAuthSubmit}
                 onAuthAction={handleAuthAction}
+                onBackToPrompt={() => setPanelMode("prelogin")}
               />
             </div>
           </div>
@@ -239,54 +388,55 @@ export default function HomePage() {
         <button
           type="button"
           onClick={scrollToInspiration}
-          className="absolute bottom-5 left-1/2 z-20 flex h-10 w-10 -translate-x-1/2 items-center justify-center rounded-full border border-white/20 bg-black/20 text-white/70 backdrop-blur-md transition-all hover:border-white/45 hover:text-white"
-          aria-label="滚动到灵感发现"
+          className="absolute bottom-5 left-1/2 z-20 flex h-10 w-10 -translate-x-1/2 items-center justify-center rounded-full border border-white/20 bg-[#222222]/20 text-white/70 backdrop-blur-md transition-all hover:border-white/45 hover:text-white"
+          aria-label="滚动到灵感推荐"
         >
           <ChevronDown size={20} />
         </button>
       </section>
 
-      <section ref={inspirationRef} className="min-h-screen bg-[#080808] px-6 py-20 sm:px-10 lg:px-20">
+      <section ref={inspirationRef} className="min-h-screen bg-[#222222] px-6 py-20 sm:px-10 lg:px-20">
         <div className="mx-auto max-w-[1600px]">
           <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="mb-3 text-sm font-medium text-[#9370ff]">Inspiration Source</p>
-              <h2 className="text-[34px] font-black leading-tight text-white sm:text-[44px]">灵感来源</h2>
+              <p className="mb-3 text-sm font-medium text-[#9370ff]">Inspiration Picks</p>
+              <h2 className="text-[34px] font-black leading-tight text-white sm:text-[44px]">灵感推荐</h2>
             </div>
-            <p className="max-w-[420px] text-sm leading-6 text-white/45">
-              从社区作品、品牌视觉和社媒创意中快速找到方向，登录后可直接创建为你的新画布。
-            </p>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {COMMUNITY_PROJECTS.map(project => (
+          <div className="columns-1 gap-4 md:columns-2 xl:columns-4">
+            {INSPIRATION_RECOMMENDATIONS.map(item => (
               <button
-                key={project.id}
+                key={`${item.rank}-${item.title}`}
                 type="button"
-                onClick={() => navigate(`/project/${project.id}`)}
-                className="group overflow-hidden rounded-md border border-white/10 bg-[#151515] text-left shadow-[0_18px_50px_rgba(0,0,0,0.28)] transition-transform hover:-translate-y-1"
+                onClick={() => navigate("/inspiration")}
+                className="group mb-4 w-full break-inside-avoid overflow-hidden rounded-md border border-white/10 bg-[#222222] text-left shadow-[0_18px_50px_rgba(0,0,0,0.28)] transition-transform hover:-translate-y-1"
               >
-                <div className="relative aspect-video overflow-hidden">
-                  <img src={project.cover} alt={project.title} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                <div className="relative overflow-hidden">
+                  <img src={item.imageUrl} alt={item.title} className="h-auto w-full object-cover transition-transform duration-500 group-hover:scale-105" loading="lazy" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/0 to-black/0" />
+                  <span className="absolute left-3 top-3 rounded-full bg-[#222222]/48 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-md">
+                    #{item.rank}
+                  </span>
                 </div>
                 <div className="p-4">
                   <div className="mb-3 flex items-center gap-2">
                     <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#f7d795] to-[#d98261] text-xs font-bold text-[#28160c]">
                       EW
                     </div>
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-white">{project.author}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-white">{item.author || "ArtX"}</span>
                     <span className="flex items-center gap-1 text-xs font-medium text-white/55">
                       <PlayCircle size={14} fill="currentColor" strokeWidth={0} />
-                      {project.plays}
+                      {Math.max(1200, item.rank * 137)}
                     </span>
                     <span className="flex items-center gap-1 text-xs font-medium text-white/55">
                       <Heart size={14} fill="currentColor" strokeWidth={0} />
-                      {project.likes}
+                      {Math.max(88, item.rank * 9)}
                     </span>
                   </div>
-                  <p className="truncate text-sm font-semibold text-white">{project.title}</p>
-                  <p className="mt-1 text-xs text-white/42">{project.updatedAt}</p>
+                  <p className="truncate text-sm font-semibold text-white">{item.title}</p>
+                  <p className="mt-1 truncate text-xs text-white/42">{item.field}</p>
+                  <p className="mt-2 line-clamp-2 text-xs leading-5 text-white/45">{item.description}</p>
                 </div>
               </button>
             ))}
@@ -309,12 +459,12 @@ function LandingTopNav({
   onHome: () => void;
   onInspiration: () => void;
   onSkills: () => void;
-  onWorkspace: () => void;
-  onHelp: () => void;
+  onWorkspace: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  onHelp: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
   const navItems = [
     { key: "home" as const, label: "首页", onClick: onHome },
-    { key: "inspiration" as const, label: "灵感来源", onClick: onInspiration },
+    { key: "inspiration" as const, label: "灵感推荐", onClick: onInspiration },
     { key: "skills" as const, label: "技能商店", onClick: onSkills },
     { key: "workspace" as const, label: "工作台", onClick: onWorkspace },
     { key: "help" as const, label: "帮助与反馈", onClick: onHelp },
@@ -343,14 +493,14 @@ function LandingTopNav({
 function HeroBackdrop() {
   return (
     <>
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_68%_48%,rgba(54,54,54,0.65),transparent_34%),linear-gradient(135deg,#000_8%,#111_52%,#000_100%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_68%_48%,rgba(54,54,54,0.65),transparent_34%),linear-gradient(135deg,#222222_8%,#2a2a2a_52%,#222222_100%)]" />
       <img
         src={asteroidImage}
         alt=""
-        className="absolute left-[-2%] top-0 h-full w-[68%] object-cover opacity-[0.92] mix-blend-screen"
+        className="absolute left-[-2%] top-0 h-full w-[68%] object-cover opacity-[0.92] mix-blend-screen [mask-image:linear-gradient(90deg,transparent_0%,rgba(0,0,0,0.34)_13%,#000_30%,#000_100%)]"
       />
-      <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.18)_0%,rgba(0,0,0,0.08)_48%,rgba(0,0,0,0.84)_70%,#000_100%)]" />
-      <div className="absolute bottom-0 left-0 h-40 w-[55%] bg-gradient-to-t from-black to-transparent" />
+      <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(34,34,34,0.18)_0%,rgba(34,34,34,0.08)_48%,rgba(34,34,34,0.84)_70%,#222222_100%)]" />
+      <div className="absolute bottom-0 left-0 h-40 w-[55%] bg-gradient-to-t from-[#222222] to-transparent" />
     </>
   );
 }
@@ -381,7 +531,7 @@ function HeroStatement() {
 
 function GlassPanel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="h-full w-full overflow-hidden rounded-[20px] border border-[#454545] bg-[#1c1c1c]/70 p-10 shadow-[0_30px_80px_rgba(0,0,0,0.52)] backdrop-blur-[22px]">
+    <div className="h-full w-full overflow-hidden rounded-[20px] border border-[#454545] bg-[#222222]/70 p-10 shadow-[0_30px_80px_rgba(0,0,0,0.52)] backdrop-blur-[22px]">
       {children}
     </div>
   );
@@ -389,13 +539,17 @@ function GlassPanel({ children }: { children: React.ReactNode }) {
 
 function PreloginPanel({
   prompt,
+  promptTouched,
   onPromptChange,
   onSend,
 }: {
   prompt: string;
+  promptTouched: boolean;
   onPromptChange: (value: string) => void;
   onSend: () => void;
 }) {
+  const animatedPrompt = usePromptTypingAnimation(HOME_PROMPT, promptTouched);
+
   return (
     <GlassPanel>
       <div className="flex h-full flex-col">
@@ -419,7 +573,7 @@ function PreloginPanel({
 
         <div className="mb-6 mt-6 flex min-h-[282px] flex-1 flex-col justify-between rounded-[10px] border border-[#545454] bg-[#212121] p-4">
           <textarea
-            value={prompt}
+            value={promptTouched ? prompt : animatedPrompt}
             onChange={event => onPromptChange(event.target.value)}
             className="h-36 resize-none bg-transparent text-sm leading-[22px] text-white outline-none placeholder:text-[#7d7d7d]"
             placeholder={HOME_PROMPT}
@@ -461,6 +615,7 @@ function LoginPanel({
   onPasswordChange,
   onSubmit,
   onAuthAction,
+  onBackToPrompt,
 }: {
   mode: "login" | "register";
   email: string;
@@ -471,6 +626,7 @@ function LoginPanel({
   onPasswordChange: (value: string) => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
   onAuthAction: (action: "login" | "register") => void | Promise<void>;
+  onBackToPrompt: () => void;
 }) {
   const isRegister = mode === "register";
 
@@ -527,9 +683,45 @@ function LoginPanel({
         <p className="mt-5 text-center text-[13px] text-[#7d7d7d]">
           注册支持邮箱或 ID；已有密码账号可直接登录。
         </p>
+        <button
+          type="button"
+          onClick={onBackToPrompt}
+          className="mt-4 h-10 rounded-[10px] border border-[#454545] bg-transparent text-sm font-medium text-[#b8b8b8] transition-colors hover:border-white/45 hover:text-white"
+        >
+          返回提示词输入
+        </button>
       </form>
     </GlassPanel>
   );
+}
+
+function usePromptTypingAnimation(text: string, paused: boolean) {
+  const [displayedText, setDisplayedText] = useState("");
+
+  useEffect(() => {
+    if (paused) return;
+
+    const characters = Array.from(text);
+    const cycleDuration = PROMPT_TYPE_DURATION_MS + PROMPT_PAUSE_DURATION_MS;
+    const startedAt = Date.now();
+
+    const update = () => {
+      const elapsed = (Date.now() - startedAt) % cycleDuration;
+      if (elapsed >= PROMPT_TYPE_DURATION_MS) {
+        setDisplayedText(text);
+        return;
+      }
+
+      const visibleCount = Math.floor((elapsed / PROMPT_TYPE_DURATION_MS) * characters.length);
+      setDisplayedText(characters.slice(0, visibleCount).join(""));
+    };
+
+    update();
+    const intervalId = window.setInterval(update, PROMPT_FRAME_MS);
+    return () => window.clearInterval(intervalId);
+  }, [paused, text]);
+
+  return paused ? text : displayedText;
 }
 
 function PanelHeader({

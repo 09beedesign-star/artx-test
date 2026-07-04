@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
 import {
   Home, Sparkles, Library, FolderOpen,
-  HelpCircle, ImagePlus, Send, X,
+  HelpCircle, ImagePlus, Send, X, KeyRound, Copy, Loader2,
 } from "lucide-react";
 
 
@@ -26,21 +26,58 @@ interface HelpScreenshot {
   url: string;
 }
 
+interface ApiKeyRecord {
+  id: string;
+  name: string;
+  prefix: string;
+  createdAt: string;
+  lastUsedAt?: string;
+}
+
 const MAX_HELP_SCREENSHOTS = 4;
+const BRAND_LOGO_SIZE = "h-[20px] w-[109px]";
+
+function getAppApiBaseUrl() {
+  const configured = (
+    import.meta.env.VITE_API_BASE_URL ||
+    import.meta.env.VITE_AUTH_API_BASE_URL ||
+    ""
+  ).replace(/\/+$/, "");
+  if (configured) return configured;
+  if (typeof window !== "undefined" && window.location.hostname.endsWith("github.io")) {
+    return "https://artx-test.onrender.com";
+  }
+  return typeof window !== "undefined" ? window.location.origin : "";
+}
+
+function getStoredAuthToken() {
+  if (typeof window === "undefined") return "";
+  try {
+    const raw = window.localStorage.getItem("artx-auth-session");
+    const parsed = raw ? JSON.parse(raw) as { token?: string } : null;
+    return parsed?.token || "";
+  } catch {
+    return "";
+  }
+}
 
 export default function AppShell({ children, hideSidebar = false }: AppShellProps) {
   const [location, navigate] = useLocation();
   const { resolvedTheme } = useTheme();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, openLoginModal } = useAuth();
   const [helpOpen, setHelpOpen] = useState(false);
+  const [apiKeyOpen, setApiKeyOpen] = useState(false);
+  const [apiKeyLoading, setApiKeyLoading] = useState(false);
+  const [apiKeyValue, setApiKeyValue] = useState("");
+  const [apiKeys, setApiKeys] = useState<ApiKeyRecord[]>([]);
   const [helpPrompt, setHelpPrompt] = useState("");
   const [helpScreenshots, setHelpScreenshots] = useState<HelpScreenshot[]>([]);
   const helpFileInputRef = useRef<HTMLInputElement>(null);
   const isDark = resolvedTheme === "dark";
-  const shouldHideSidebar = hideSidebar || !isAuthenticated;
+  const shouldHideSidebar = hideSidebar;
 
   // ── Theme tokens ──────────────────────────────────────────────
-  const sidebarBg    = isDark ? "oklch(0.11 0.012 270)" : "var(--design-surface-soft)";
+  const sidebarBg    = isDark ? "#222222" : "var(--design-surface-soft)";
   const sidebarBorder= isDark ? "oklch(1 0 0 / 7%)" : "var(--hairline)";
   const textPrimary  = isDark ? "rgba(255,255,255,0.82)" : "rgba(20,20,36,0.82)";
   const textSecondary= isDark ? "rgba(255,255,255,0.38)" : "rgba(20,20,36,0.38)";
@@ -73,6 +110,59 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
         : helpPrompt.trim().slice(0, 80),
     });
     closeHelpPrompt();
+  };
+
+  const developerFetch = async <T,>(path: string, options: RequestInit = {}) => {
+    const token = getStoredAuthToken();
+    const response = await fetch(`${getAppApiBaseUrl()}${path}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options.headers || {}),
+      },
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(typeof data?.error === "string" ? data.error : "请求失败，请稍后重试");
+    }
+    return data as T;
+  };
+
+  const openApiKeyDialog = () => {
+    if (!isAuthenticated) {
+      openLoginModal();
+      return;
+    }
+    setApiKeyOpen(true);
+    setApiKeyLoading(true);
+    developerFetch<{ keys?: ApiKeyRecord[] }>("/api/developer/api-keys")
+      .then(result => setApiKeys(result.keys || []))
+      .catch(error => toast("API key 暂时不可用", { description: error instanceof Error ? error.message : "请稍后重试" }))
+      .finally(() => setApiKeyLoading(false));
+  };
+
+  const createApiKey = async () => {
+    setApiKeyLoading(true);
+    try {
+      const result = await developerFetch<{ key?: ApiKeyRecord & { value?: string } }>("/api/developer/api-keys", {
+        method: "POST",
+        body: JSON.stringify({ name: "ArtX MCP Key" }),
+      });
+      if (!result.key?.value) throw new Error("API key 生成失败");
+      setApiKeyValue(result.key.value);
+      setApiKeys(current => [result.key as ApiKeyRecord, ...current.filter(item => item.id !== result.key?.id)]);
+      toast("API key 已生成", { description: "完整 key 只在当前弹窗展示一次" });
+    } catch (error) {
+      toast("API key 生成失败", { description: error instanceof Error ? error.message : "请稍后重试" });
+    } finally {
+      setApiKeyLoading(false);
+    }
+  };
+
+  const copyText = async (text: string, label = "内容") => {
+    await navigator.clipboard?.writeText(text);
+    toast(`已复制${label}`);
   };
 
   const handleHelpScreenshotUpload = (event: ChangeEvent<HTMLInputElement>) => {
@@ -150,7 +240,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
               <button
                 type="button"
                 onClick={() => removeHelpScreenshot(image.id)}
-                className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-[var(--radius-sm-design)] bg-black/70 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-[var(--radius-sm-design)] bg-[#222222]/70 text-white opacity-0 transition-opacity group-hover:opacity-100"
                 aria-label="移除截图"
               >
                 <X size={12} />
@@ -207,6 +297,114 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
     </div>
   ) : null;
 
+  const apiBaseUrl = getAppApiBaseUrl();
+  const mcpConfigText = JSON.stringify({
+    mcpServers: {
+      "artx-image": {
+        url: `${apiBaseUrl}/api/mcp`,
+        headers: {
+          Authorization: `Bearer ${apiKeyValue || "YOUR_ARTX_API_KEY"}`,
+        },
+      },
+    },
+  }, null, 2);
+
+  const apiKeyDialog = apiKeyOpen ? (
+    <div
+      className="fixed inset-0 flex items-center justify-center px-6"
+      style={{ zIndex: 10000, background: "rgba(0,0,0,0.42)", backdropFilter: "blur(14px)" }}
+      onMouseDown={e => {
+        if (e.target === e.currentTarget) setApiKeyOpen(false);
+      }}
+    >
+      <div
+        className="max-h-[calc(100vh-48px)] w-[min(760px,calc(100vw-32px))] overflow-y-auto rounded-[var(--radius-xl-design)] p-5 shadow-2xl"
+        style={{
+          background: isDark ? "#222222" : "rgba(255,255,255,0.98)",
+          border: `1px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)"}`,
+        }}
+        onMouseDown={e => e.stopPropagation()}
+      >
+        <div className="mb-5 flex items-start justify-between gap-4">
+          <div>
+            <div className="mb-3 flex h-8 w-8 items-center justify-center" style={{ color: "#C5ED47" }}>
+              <KeyRound size={24} strokeWidth={1.8} />
+            </div>
+            <h2 style={{ color: textPrimary, fontSize: 24, fontWeight: 720 }}>API key</h2>
+            <p className="mt-2 max-w-[560px] leading-6" style={{ color: textSecondary, fontSize: 13 }}>
+              生成后可用于第三方 AI Agent 通过 ArtX MCP 工具调用图片生成能力。
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setApiKeyOpen(false)}
+            className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-md-design)]"
+            style={{ color: textSecondary, background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)" }}
+          >
+            <X size={14} />
+          </button>
+        </div>
+
+        <div className="flex min-w-0 flex-col gap-4">
+          <div className="min-w-0 rounded-[var(--radius-lg-design)] border p-4" style={{ borderColor: sidebarBorder, background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.035)" }}>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <span className="type-caption" style={{ color: textPrimary, fontWeight: 680 }}>生成站点 API key</span>
+              <button
+                type="button"
+                onClick={createApiKey}
+                disabled={apiKeyLoading}
+                className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-md-design)] px-3 type-caption"
+                style={{ background: "#C5ED47", color: "#10130A", fontWeight: 720, opacity: apiKeyLoading ? 0.65 : 1 }}
+              >
+                {apiKeyLoading ? <Loader2 size={13} className="animate-spin" /> : <KeyRound size={13} />}
+                生成
+              </button>
+            </div>
+            <div className="rounded-[var(--radius-md-design)] border p-3" style={{ borderColor: sidebarBorder, background: isDark ? "rgba(0,0,0,0.18)" : "white" }}>
+              <div className="mb-1 type-caption" style={{ color: textSecondary }}>API key</div>
+              <div className="flex items-center gap-2">
+                <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap" style={{ color: textPrimary, fontSize: 12, scrollbarWidth: "thin" }}>
+                  {apiKeyValue || (apiKeys[0] ? `${apiKeys[0].prefix}••••••••••••••••` : "尚未生成")}
+                </code>
+                <button
+                  type="button"
+                  disabled={!apiKeyValue}
+                  onClick={() => apiKeyValue && copyText(apiKeyValue, "API key")}
+                  className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-md-design)]"
+                  style={{ color: apiKeyValue ? textPrimary : textSecondary, background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)" }}
+                >
+                  <Copy size={13} />
+                </button>
+              </div>
+            </div>
+            <div className="mt-3 rounded-[var(--radius-md-design)] border p-3" style={{ borderColor: sidebarBorder, background: isDark ? "rgba(0,0,0,0.18)" : "white" }}>
+              <div className="mb-1 type-caption" style={{ color: textSecondary }}>Base URL</div>
+              <div className="flex items-center gap-2">
+                <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap" style={{ color: textPrimary, fontSize: 12, scrollbarWidth: "thin" }}>{apiBaseUrl}</code>
+                <button type="button" onClick={() => copyText(apiBaseUrl, "Base URL")} className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-md-design)]" style={{ color: textPrimary, background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)" }}>
+                  <Copy size={13} />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="min-w-0 rounded-[var(--radius-lg-design)] border p-4" style={{ borderColor: sidebarBorder, background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.035)" }}>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <span className="type-caption" style={{ color: textPrimary, fontWeight: 680 }}>MCP 配置代码</span>
+              <button type="button" onClick={() => copyText(mcpConfigText, "MCP 配置")} className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-md-design)] px-3 type-caption" style={{ background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)", color: textPrimary }}>
+                <Copy size={13} />
+                复制
+              </button>
+            </div>
+            <pre className="max-h-[260px] max-w-full overflow-auto whitespace-pre-wrap break-all rounded-[var(--radius-md-design)] p-3" style={{ background: isDark ? "rgba(0,0,0,0.28)" : "white", color: textPrimary, fontSize: 11, lineHeight: 1.65, scrollbarWidth: "thin" }}>
+              {mcpConfigText}
+            </pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   if (shouldHideSidebar) {
     return (
       <>
@@ -220,12 +418,13 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
             <img
               src={artxStudioLogo}
               alt="ArtXStudio"
-              className="block h-7 w-[152px] object-contain object-left"
+              className={`block ${BRAND_LOGO_SIZE} object-contain object-left`}
             />
           </button>
         )}
         {children}
         {helpDialog}
+        {apiKeyDialog}
       </>
     );
   }
@@ -235,9 +434,17 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
     icon: Icon, label, path, iconSize = 16,
   }: { icon: React.ElementType; label: string; path: string; iconSize?: number }) => {
     const active = isActive(path);
+    const handleClick = () => {
+      if (!isAuthenticated && path === "/workspace") {
+        openLoginModal();
+        return;
+      }
+      navigate(path);
+    };
+
     return (
       <button
-        onClick={() => navigate(path)}
+        onClick={handleClick}
         className="w-full flex items-center gap-3 px-3 py-2 rounded-[var(--radius-md-design)] type-caption transition-all text-left"
         style={{
           background: active ? activeBg : "transparent",
@@ -253,7 +460,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   };
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen overflow-hidden" style={{ background: "#222222" }}>
       {/* ── Left Sidebar ── */}
       <aside
         className="flex flex-col flex-shrink-0 overflow-hidden"
@@ -269,7 +476,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
         <div className="flex items-center gap-2.5 px-4 pt-5 pb-4">
           <button
             type="button"
-            className="h-7 w-[152px] cursor-pointer transition-opacity hover:opacity-85"
+            className={`${BRAND_LOGO_SIZE} cursor-pointer transition-opacity hover:opacity-85`}
             onClick={() => navigate("/")}
             aria-label="ArtXStudio 首页"
           >
@@ -308,14 +515,25 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
             <HelpCircle size={15} strokeWidth={1.6} style={{ flexShrink: 0, opacity: 0.7 }} />
             <span className="truncate">帮助</span>
           </button>
+          <button
+            onClick={openApiKeyDialog}
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-[var(--radius-md-design)] type-caption transition-all text-left"
+            style={{ background: "transparent", color: textSecondary }}
+            onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = hoverBg)}
+            onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
+          >
+            <KeyRound size={15} strokeWidth={1.6} style={{ flexShrink: 0, opacity: 0.7 }} />
+            <span className="truncate">API key</span>
+          </button>
         </div>
       </aside>
 
       {/* ── Page Content ── */}
-      <main className="flex-1 overflow-hidden">
+      <main className="flex-1 overflow-hidden" style={{ background: "#222222" }}>
         {children}
       </main>
       {helpDialog}
+      {apiKeyDialog}
     </div>
   );
 }
