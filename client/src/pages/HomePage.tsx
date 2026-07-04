@@ -497,8 +497,9 @@ function HeroBackdrop() {
       <img
         src={asteroidImage}
         alt=""
-        className="absolute left-[-2%] top-0 h-full w-[68%] object-cover opacity-[0.92] mix-blend-screen [mask-image:linear-gradient(90deg,transparent_0%,rgba(0,0,0,0.34)_13%,#000_30%,#000_100%)]"
+        className="absolute left-[-2%] top-0 h-full w-[68%] object-cover opacity-[0.92] mix-blend-screen [mask-image:linear-gradient(90deg,transparent_0%,transparent_42%,rgba(0,0,0,0.12)_52%,#000_66%,#000_100%)]"
       />
+      <div className="absolute inset-y-0 left-0 w-[38%] bg-[linear-gradient(90deg,#222222_0%,#222222_58%,rgba(34,34,34,0.92)_72%,rgba(34,34,34,0)_100%)]" />
       <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(34,34,34,0.18)_0%,rgba(34,34,34,0.08)_48%,rgba(34,34,34,0.84)_70%,#222222_100%)]" />
       <div className="absolute bottom-0 left-0 h-40 w-[55%] bg-gradient-to-t from-[#222222] to-transparent" />
     </>
