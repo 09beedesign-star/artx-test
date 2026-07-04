@@ -508,11 +508,6 @@ function HeroBackdrop() {
 function HeroStatement() {
   return (
     <div className="absolute inset-0">
-      <div className="absolute left-[215px] top-[80px] h-[672px] w-px bg-white/10" />
-      <div className="absolute left-[215px] top-[752px] h-[300px] w-px origin-top rotate-[28deg] bg-white/10" />
-      <div className="absolute left-[180px] top-[735px] h-[70px] w-[70px] rounded-full border border-white/45">
-        <span className="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white" />
-      </div>
       <div className="absolute left-[244px] top-[270px] flex max-w-[510px] gap-5">
         <div className="mt-3 h-[289px] w-[7px] shrink-0 bg-gradient-to-b from-[#7475ff] via-[#4dc1ed] via-30% via-[#fff400] via-55% to-[#ff00b5]" />
         <div>
