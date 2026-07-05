@@ -1913,7 +1913,7 @@ function AccountDetailDrawer({
   if (!open) return null;
 
   return (
-    <div className="pointer-events-none fixed inset-y-0 right-0 z-40 w-full max-w-[760px]">
+    <div className="pointer-events-none fixed inset-y-0 right-0 z-40 w-full max-w-[380px]">
       <aside className="pointer-events-auto flex h-full w-full flex-col border-l border-white/10 bg-[#0b1020] shadow-2xl shadow-black/50">
         <div className="flex items-start justify-between gap-3 border-b border-white/10 px-5 py-4">
           <div className="min-w-0">
