@@ -3011,7 +3011,7 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
     const midpoint = Math.ceil(processingLabel.length / 2);
     return [processingLabel.slice(0, midpoint), processingLabel.slice(midpoint)].filter(Boolean);
   })();
-  const displaySrc = isAiProcessingImage ? "" : (localSrc || asset?.src || "");
+  const displaySrc = isAiProcessingImage ? "" : getCanvasRenderableImageSrc(localSrc || asset?.src || "");
   const sourceBackgroundSrc = (data as { sourceBackgroundSrc?: string }).sourceBackgroundSrc;
   const isEditing = !!(data as { isEditing?: boolean }).isEditing;
   const isCropping = !!(data as { isCropping?: boolean }).isCropping;
@@ -5561,9 +5561,9 @@ function getAssetNodeImageSource(node: Node): string {
   if (node.type !== "asset") return "";
   const data = node.data as Record<string, unknown>;
   const localSrc = data.localSrc as string | undefined;
-  if (localSrc) return localSrc;
+  if (localSrc) return getCanvasRenderableImageSrc(localSrc);
   const asset = GENERATED_ASSETS.find(item => item.id === data.assetId);
-  return asset?.src || "";
+  return getCanvasRenderableImageSrc(asset?.src || "");
 }
 
 function getAssetNodeDisplayTitle(node: Node): string {
@@ -9250,6 +9250,20 @@ function getCanvasApiBaseUrl() {
   return typeof window !== "undefined" ? window.location.origin : "";
 }
 
+function getCanvasRenderableImageSrc(src: string) {
+  if (!src || src.startsWith("data:") || /^https?:\/\//i.test(src)) return src;
+  if (!src.startsWith("/uploads/")) return src;
+  let baseUrl = getCanvasApiBaseUrl().replace(/\/+$/, "");
+  if (typeof window !== "undefined") {
+    const hostname = window.location.hostname;
+    const isLocalFrontend = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+    if (isLocalFrontend && baseUrl === window.location.origin) {
+      baseUrl = "https://artx-test.onrender.com";
+    }
+  }
+  return `${baseUrl || "https://artx-test.onrender.com"}${src}`;
+}
+
 type CanvasAssistantModelTab = "image" | "text";
 type AssistantComposerSegment =
   | { id: string; type: "text"; text: string }
@@ -9314,10 +9328,16 @@ function deserializeCanvasAssistantMessages(raw: string | null): CanvasAssistant
     if (!Array.isArray(parsed)) return [];
     return parsed
       .filter(item => item && typeof item.id === "string" && typeof item.role === "string" && typeof item.content === "string" && typeof item.timestamp === "string")
-      .map(item => ({
-        ...item,
-        timestamp: new Date(item.timestamp),
-      })) as CanvasAssistantMessage[];
+      .map(item => {
+        const backup = item.imageBackup && typeof item.imageBackup.src === "string"
+          ? { ...item.imageBackup, src: getCanvasRenderableImageSrc(item.imageBackup.src) }
+          : item.imageBackup;
+        return {
+          ...item,
+          imageBackup: backup,
+          timestamp: new Date(item.timestamp),
+        };
+      }) as CanvasAssistantMessage[];
   } catch {
     return [];
   }
@@ -10186,14 +10206,15 @@ function CanvasAssistantPanel({
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<CanvasAssistantMessage["imageBackup"]>).detail;
       if (!detail?.src || !detail.nodeId) return;
+      const normalizedDetail = { ...detail, src: getCanvasRenderableImageSrc(detail.src) };
       setMessages(prev => {
-        if (prev.some(message => message.imageBackup?.nodeId === detail.nodeId)) return prev;
+        if (prev.some(message => message.imageBackup?.nodeId === normalizedDetail.nodeId)) return prev;
         return [...prev, {
-          id: `image-backup-${detail.nodeId}`,
+          id: `image-backup-${normalizedDetail.nodeId}`,
           role: "assistant",
-          content: `已生成图片备份：${detail.title}`,
+          content: `已生成图片备份：${normalizedDetail.title}`,
           timestamp: new Date(),
-          imageBackup: detail,
+          imageBackup: normalizedDetail,
         }];
       });
     };
@@ -10219,7 +10240,7 @@ function CanvasAssistantPanel({
   }, [collapsed]);
 
   const handleImageBackupDoubleClick = (backup: NonNullable<CanvasAssistantMessage["imageBackup"]>) => {
-    window.dispatchEvent(new CustomEvent("ai-image-backup-activate", { detail: backup }));
+    window.dispatchEvent(new CustomEvent("ai-image-backup-activate", { detail: { ...backup, src: getCanvasRenderableImageSrc(backup.src) } }));
   };
 
   const handleRegenerateImageFromMessage = async (message: CanvasAssistantMessage) => {
@@ -10713,7 +10734,7 @@ function CanvasAssistantPanel({
                       {backup ? (
                         <div className="flex flex-col gap-2">
                           <img
-                            src={backup.src}
+                            src={getCanvasRenderableImageSrc(backup.src)}
                             alt={backup.title}
                             draggable={false}
                             className="w-full rounded-[var(--radius-md-design)]"
@@ -11853,7 +11874,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       assetId: "default",
       generationId: backup.generationId,
       generationIndex: backup.generationIndex,
-      localSrc: backup.src,
+      localSrc: getCanvasRenderableImageSrc(backup.src),
       isGeneratingImage: false,
       title: backup.title,
       assetType: "AI 生成",
@@ -14533,10 +14554,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   // ── 获取节点的图片源 (localSrc 优先，其次 GENERATED_ASSETS) ──
   const getNodeImageSrc = useCallback((node: Node): string => {
     const data = node.data as Record<string, unknown>;
-    if (data.localSrc) return data.localSrc as string;
+    if (data.localSrc) return getCanvasRenderableImageSrc(data.localSrc as string);
     const assetId = data.assetId as string;
     const asset = GENERATED_ASSETS.find(a => a.id === assetId);
-    return asset?.src || "";
+    return getCanvasRenderableImageSrc(asset?.src || "");
   }, []);
 
   const sanitizeDownloadName = useCallback((value: string) => value.replace(/[/\\:*?"<>|]/g, "_").trim() || "artx-image", []);

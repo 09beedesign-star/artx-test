@@ -51,6 +51,24 @@ export type GeneratedImagesResponse = {
   providerTaskIds?: string[];
 };
 
+function getAiAssetBaseUrl() {
+  const apiBaseUrl = getAiApiBaseUrl();
+  return apiBaseUrl || ART_X_TEST_AI_API_BASE_URL;
+}
+
+function normalizeGeneratedImageSrc(src: string) {
+  if (!src || src.startsWith("data:") || /^https?:\/\//i.test(src)) return src;
+  if (src.startsWith("/uploads/")) return `${getAiAssetBaseUrl()}${src}`;
+  return src;
+}
+
+function normalizeGeneratedImage(image: GeneratedImageResult): GeneratedImageResult {
+  return {
+    ...image,
+    src: normalizeGeneratedImageSrc(image.src),
+  };
+}
+
 function toGeneratedImagesResponse(result: Partial<GeneratedImagesResponse>): GeneratedImagesResponse {
   const providerTaskIds = result.providerTaskIds?.length
     ? result.providerTaskIds
@@ -58,9 +76,16 @@ function toGeneratedImagesResponse(result: Partial<GeneratedImagesResponse>): Ge
       ? [result.providerTaskId]
       : undefined;
   return {
-    images: result.images || [],
+    images: (result.images || []).map(normalizeGeneratedImage),
     providerTaskId: result.providerTaskId || providerTaskIds?.[0],
     providerTaskIds,
+  };
+}
+
+function normalizeBackgroundImageTask(task: BackgroundImageTask): BackgroundImageTask {
+  return {
+    ...task,
+    images: task.images?.map(normalizeGeneratedImage),
   };
 }
 
@@ -428,13 +453,14 @@ export async function startBackgroundImageGeneration({
     images: referencedAssets,
     skillId,
   }, "后台图像生成启动失败", 20000);
-  return result;
+  return normalizeBackgroundImageTask(result);
 }
 
 export async function getBackgroundImageGenerationTask(taskId: string) {
   requireAiAuth();
   const endpoint = `${getAiApiBaseUrl()}/api/images/tasks/${encodeURIComponent(taskId)}`;
-  return fetchAiJsonGet<BackgroundImageTask>(endpoint, "后台图像生成查询失败");
+  const task = await fetchAiJsonGet<BackgroundImageTask>(endpoint, "后台图像生成查询失败");
+  return normalizeBackgroundImageTask(task);
 }
 
 export async function removeImageBackground({
