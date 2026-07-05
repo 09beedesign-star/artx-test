@@ -522,7 +522,6 @@ function AdminPrototypePage() {
     .filter((order) => order.status === "paid")
     .reduce((sum, order) => sum + order.amount, 0);
   const issuedCredits = metrics?.issuedCredits ?? adminData.orders.reduce((sum, order) => sum + order.credits, 0);
-  const remainingCredits = metrics?.remainingCredits ?? adminData.users.reduce((sum, item) => sum + item.credits, 0);
   const unreadAlerts = adminData.alerts.filter((alert) => alert.unread).length;
   const urgentAlerts = adminData.alerts.filter((alert) => alert.severity === "critical").length;
 
@@ -863,7 +862,7 @@ function AdminPrototypePage() {
               )}
             </div>
 
-            <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <section className="grid gap-3 md:grid-cols-3">
               <MetricCard
                 icon={CircleDollarSign}
                 label="已确认收入"
@@ -875,12 +874,6 @@ function AdminPrototypePage() {
                 label="已发放积分"
                 value={formatCredits(issuedCredits)}
                 detail="购买入账 + 赠送额度"
-              />
-              <MetricCard
-                icon={WalletCards}
-                label="用户剩余额度"
-                value={formatCredits(remainingCredits)}
-                detail="需要纳入财务负债视角"
               />
               <MetricCard
                 icon={AlertTriangle}
@@ -1130,7 +1123,12 @@ function AdminPrototypePage() {
               <EmptyPanel title="暂无可关联用户" body="需要先有真实用户账户，才能登记接口方代收记录。" />
             )}
             <div className="min-w-0 overflow-x-auto rounded-md border border-white/10 bg-white/[0.03]">
-              <OrdersTable orders={adminData.orders} selectedOrderId={selectedOrder?.id || ""} onSelect={handleSelectOrder} />
+              <OrdersTable
+                orders={adminData.orders}
+                users={adminData.users}
+                selectedOrderId={selectedOrder?.id || ""}
+                onSelect={handleSelectOrder}
+              />
             </div>
           </div>
           <OrderDetailPanel
@@ -1637,19 +1635,29 @@ function Toolbar({
 
 function OrdersTable({
   orders,
+  users,
   selectedOrderId,
   onSelect,
 }: {
   orders: Order[];
+  users: AdminUser[];
   selectedOrderId: string;
   onSelect: (orderId: string) => void;
 }) {
+  const userById = new Map(users.map((user) => [user.id, user]));
+  const userByName = new Map(users.map((user) => [user.name, user]));
+  const getRemainingCredits = (order: Order) => {
+    const user = (order.userId ? userById.get(order.userId) : undefined) || userByName.get(order.user);
+    return typeof user?.credits === "number" ? formatCredits(user.credits) : "未关联";
+  };
+
   return (
-    <Table className="min-w-[760px]">
+    <Table className="min-w-[880px]">
       <TableHeader>
         <TableRow className="border-white/10 hover:bg-transparent">
           <TableHead>订单</TableHead>
           <TableHead>用户</TableHead>
+          <TableHead>剩余额度</TableHead>
           <TableHead>渠道</TableHead>
           <TableHead>金额</TableHead>
           <TableHead>兑换积分</TableHead>
@@ -1668,6 +1676,7 @@ function OrdersTable({
             >
               <TableCell className="font-mono text-xs text-slate-400">{order.id}</TableCell>
               <TableCell>{order.user}</TableCell>
+              <TableCell>{getRemainingCredits(order)}</TableCell>
               <TableCell>{order.channel}</TableCell>
               <TableCell>{formatCurrency(order.amount)}</TableCell>
               <TableCell>{formatCredits(order.credits)}</TableCell>
@@ -1684,7 +1693,7 @@ function OrdersTable({
           ))
         ) : (
           <TableRow className="border-white/8 hover:bg-transparent">
-            <TableCell colSpan={8} className="py-10 text-center text-sm text-slate-500">
+            <TableCell colSpan={9} className="py-10 text-center text-sm text-slate-500">
               暂无真实订单数据
             </TableCell>
           </TableRow>
