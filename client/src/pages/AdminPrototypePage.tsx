@@ -945,7 +945,6 @@ function AdminPrototypePage() {
                 ) : (
                   <EmptyPanel title="暂无真实用户" body="后台不会显示演示用户。注册或导入真实用户后，这里会自动出现账户详情。" />
                 )}
-                <RiskPanel productionChecks={adminData.productionChecks} onJumpTo={setActiveSection} />
               </aside>
             </section>
           </div>
@@ -1174,8 +1173,10 @@ function AdminPrototypePage() {
     }
 
     if (activeSection === "orders") {
+      const paymentCheck = productionCheckById(adminData.productionChecks, "payment_reconciliation");
       return (
         <div className="min-w-0 space-y-5">
+          {paymentCheck && <ProductionCheckPanel check={paymentCheck} title="支付对账状态" />}
           <div className="min-w-0 overflow-x-auto rounded-md border border-white/10 bg-white/[0.03]">
             <OrdersTable
               orders={adminData.orders}
@@ -1211,17 +1212,21 @@ function AdminPrototypePage() {
     }
 
     if (activeSection === "credits") {
+      const creditCheck = productionCheckById(adminData.productionChecks, "credit_liability");
       return (
-        <DataList
-          title="积分与额度流水"
-          description="每一笔入账、消耗、冻结、人工调整都必须可追溯。"
-          rows={adminData.credits.map((event) => ({
-            title: `${event.user} · ${event.type}`,
-            meta: `${event.actor} · ${event.note}`,
-            value: event.amount,
-            icon: event.amount.startsWith("+") ? Gift : LockKeyhole,
-          }))}
-        />
+        <div className="min-w-0 space-y-5">
+          {creditCheck && <ProductionCheckPanel check={creditCheck} title="额度负债状态" />}
+          <DataList
+            title="积分与额度流水"
+            description="每一笔入账、消耗、冻结、人工调整都必须可追溯。"
+            rows={adminData.credits.map((event) => ({
+              title: `${event.user} · ${event.type}`,
+              meta: `${event.actor} · ${event.note}`,
+              value: event.amount,
+              icon: event.amount.startsWith("+") ? Gift : LockKeyhole,
+            }))}
+          />
+        </div>
       );
     }
 
@@ -1266,8 +1271,10 @@ function AdminPrototypePage() {
     }
 
     if (activeSection === "integrations") {
+      const secretCheck = productionCheckById(adminData.productionChecks, "secret_governance");
       return (
         <div className="min-w-0 space-y-5">
+          {secretCheck && <ProductionCheckPanel check={secretCheck} title="密钥治理状态" />}
           <DataList
             title="第三方接口健康度"
             description="支付、模型、部署和网关都要有状态、延迟、负责人。"
@@ -1418,6 +1425,12 @@ function AdminPrototypePage() {
 
     return (
       <div className="min-w-0 space-y-5">
+        {productionCheckById(adminData.productionChecks, "privileged_access") && (
+          <ProductionCheckPanel
+            check={productionCheckById(adminData.productionChecks, "privileged_access")!}
+            title="高危权限状态"
+          />
+        )}
         <DataList
           title="管理员操作审计"
           description="钱和额度相关操作必须记录人、时间、目标和原因。"
@@ -2058,55 +2071,42 @@ function UserDetailPanel({
   );
 }
 
-function RiskPanel({
-  productionChecks,
-  onJumpTo,
+function productionCheckById(productionChecks: ProductionCheck[], id: string) {
+  return productionChecks.find((check) => check.id === id);
+}
+
+function ProductionCheckPanel({
+  check,
+  title,
 }: {
-  productionChecks: ProductionCheck[];
-  onJumpTo: (section: AdminSection) => void;
+  check: ProductionCheck;
+  title: string;
 }) {
   return (
     <div className="rounded-md border border-white/10 bg-white/[0.035] p-4">
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-base font-semibold">上线前必补能力</h2>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-base font-semibold">{title}</h2>
+          <p className="mt-1 text-xs leading-5 text-slate-500">{check.summary}</p>
+        </div>
         <SlidersHorizontal className="size-4 text-slate-500" />
       </div>
-      <div className="space-y-3">
-        {productionChecks.length ? (
-          productionChecks.map((check) => (
-            <div key={check.id} className="min-w-0 rounded-md border border-white/8 bg-slate-950/30 p-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="text-sm font-medium">{check.title}</div>
-                <Badge className={statusClass(check.status === "ready" ? "normal" : check.status === "blocked" ? "blocked" : "watch")}>
-                  {check.status === "ready" ? "已补齐" : check.status === "blocked" ? "需处理" : "观察"}
-                </Badge>
-              </div>
-              <p className="mt-2 text-xs leading-5 text-slate-500">{check.summary}</p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                {Object.entries(check.metrics).slice(0, 4).map(([key, value]) => (
-                  <div key={key} className="rounded-md border border-white/8 bg-white/[0.03] px-2 py-1.5">
-                    <div className="text-[10px] text-slate-500">{check.metricLabels?.[key] || key}</div>
-                    <div className="mt-0.5 text-xs font-medium text-slate-200">{formatCredits(value)}</div>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0 text-xs text-slate-500">{check.evidence.slice(0, 2).join(" · ")}</div>
-                <button
-                  type="button"
-                  className="w-fit rounded-md border border-white/10 px-2 py-1 text-xs text-slate-200 hover:bg-white/8"
-                  onClick={() => onJumpTo(check.actionTarget)}
-                >
-                  查看模块
-                </button>
-              </div>
-            </div>
-          ))
-        ) : (
-          <div className="rounded-md border border-white/8 bg-slate-950/30 p-3 text-xs text-slate-500">
-            正在等待生产检查接口返回真实数据。
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="text-sm font-medium">{check.title}</div>
+        <Badge className={statusClass(check.status === "ready" ? "normal" : check.status === "blocked" ? "blocked" : "watch")}>
+          {check.status === "ready" ? "正常" : check.status === "blocked" ? "需处理" : "观察"}
+        </Badge>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        {Object.entries(check.metrics).slice(0, 4).map(([key, value]) => (
+          <div key={key} className="rounded-md border border-white/8 bg-slate-950/30 px-2 py-1.5">
+            <div className="text-[10px] text-slate-500">{check.metricLabels?.[key] || key}</div>
+            <div className="mt-0.5 text-xs font-medium text-slate-200">{formatCredits(value)}</div>
           </div>
-        )}
+        ))}
+      </div>
+      <div className="mt-3 text-xs text-slate-500">
+        {check.evidence.slice(0, 3).join(" · ")}
       </div>
     </div>
   );
