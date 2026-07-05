@@ -688,6 +688,9 @@ function AdminPrototypePage() {
       : undefined;
     setSelectedOrderId(orderId);
     if (orderUser) {
+      if (orderUser.id !== selectedUserId) {
+        setAccountDetail(null);
+      }
       setSelectedUserId(orderUser.id);
       setAccountDrawerOpen(true);
     }
@@ -695,6 +698,9 @@ function AdminPrototypePage() {
   }
 
   function handleSelectUser(userId: string) {
+    if (userId !== selectedUserId) {
+      setAccountDetail(null);
+    }
     setSelectedUserId(userId);
     const userOrder = adminData.orders.find((order) => order.userId === userId);
     if (userOrder) {
@@ -1907,14 +1913,8 @@ function AccountDetailDrawer({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-40">
-      <button
-        type="button"
-        aria-label="关闭账户详情"
-        className="absolute inset-0 bg-slate-950/55 backdrop-blur-sm"
-        onClick={onClose}
-      />
-      <aside className="absolute right-0 top-0 flex h-full w-full max-w-[760px] flex-col border-l border-white/10 bg-[#0b1020] shadow-2xl shadow-black/50">
+    <div className="pointer-events-none fixed inset-y-0 right-0 z-40 w-full max-w-[760px]">
+      <aside className="pointer-events-auto flex h-full w-full flex-col border-l border-white/10 bg-[#0b1020] shadow-2xl shadow-black/50">
         <div className="flex items-start justify-between gap-3 border-b border-white/10 px-5 py-4">
           <div className="min-w-0">
             <div className="text-xs text-slate-500">账户详情</div>
