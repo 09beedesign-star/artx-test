@@ -6,10 +6,14 @@ import "./env";
 import { AIOrchestrator } from "./ai-orchestrator";
 import { createBrandKit, deleteBrandKit, getBrandKit, listBrandKits, parseBrandKitFromImage } from "./brand-kit";
 import { createProductBackground, editImageWithPrompt, enhanceImage, eraseImageObjects, extractImageText, generateImages, removeImageBackground, removeImageWatermark } from "./image-generation";
+import { getUploadsRoot, storeGeneratedImagesForUser } from "./local-image-storage";
 import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
-import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization } from "./auth-store";
-import { createBillingOrder, createCreditRechargeOrder, getBillingOrderForPayment, getBillingSnapshotForUser, handleAdminApiRequest, markBillingOrderPaid, recordBillingPaymentCreated, recordBillingPaymentFailure } from "./admin-store";
+import { getAdminSessionFromAuthorization, getSessionUserFromAuthorization, handleAuthAction } from "./auth-store";
+import { createBillingOrder, createCreditRechargeOrder, getBillingOrderForPayment, getBillingSnapshotForUser, handleAdminApiRequest, markBillingOrderPaid, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent } from "./admin-store";
+import { getAllowedCorsOrigin } from "./cors";
+import { sendOpsNotification, sendUserEmailNotification } from "./notifications";
+import type { AiBillingCapability } from "../shared/ai-credit-policy";
 import {
   createWallytPayment,
   getClientIp,
@@ -28,6 +32,7 @@ type BackgroundImageTask = {
   taskId: string;
   status: "pending" | "completed" | "failed";
   input: Record<string, unknown>;
+  ownerUserId: string;
   images?: Array<{ src: string; width: number; height: number }>;
   error?: string;
   createdAt: number;
@@ -39,19 +44,19 @@ type SessionUser = {
   username: string;
 };
 
+type AuthAction = "register" | "login" | "me" | "logout" | "social" | "forgot-password" | "reset-password" | "change-password" | "sms-send-code" | "sms-login";
+
+type AiRouteTracking = {
+  capabilityKey: AiBillingCapability;
+  capability: string;
+  provider: string;
+  model?: string;
+  failureMessage: string;
+  outputUnits?: (result: unknown) => number;
+  providerTaskIds?: (result: unknown) => string[] | undefined;
+};
+
 const backgroundImageTasks = new Map<string, BackgroundImageTask>();
-
-function isAdminRequestHost(hostHeader: string | undefined) {
-  const host = (hostHeader || "").split(":")[0]?.toLowerCase() || "";
-  const configuredAdminHost = (process.env.VITE_ADMIN_HOST || "").toLowerCase();
-  return Boolean(host && (host.startsWith("admin.") || (configuredAdminHost && host === configuredAdminHost)));
-}
-
-function getAdminEntryPath() {
-  const token = (process.env.VITE_ADMIN_ACCESS_TOKEN || "").trim();
-  const query = token ? `?admin_token=${encodeURIComponent(token)}` : "";
-  return `/admin-prototype${query}`;
-}
 
 function pruneBackgroundImageTasks() {
   const now = Date.now();
@@ -74,68 +79,255 @@ async function requireSessionUser(req: express.Request, res: express.Response): 
   };
 }
 
-async function requireApiKeyUser(req: express.Request, res: express.Response): Promise<SessionUser | null> {
-  const result = await getApiKeyUserFromAuthorization(req.headers.authorization);
-  if (result.status !== 200 || !("user" in result.body)) {
-    res.status(result.status).json(result.body);
-    return null;
-  }
-  return {
-    id: result.body.user.id,
-    username: result.body.user.username,
-  };
+function getPublicAppUrl() {
+  return (process.env.PUBLIC_APP_URL || process.env.APP_PUBLIC_URL || process.env.SITE_URL || "https://admin.artxsd.com").replace(/\/+$/, "");
 }
 
-function getMcpTools() {
-  return [
-    {
-      name: "artx_generate_image",
-      description: "Use ArtX image generation to create one or more images from a text prompt.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          prompt: { type: "string", description: "Image prompt." },
-          model: { type: "string", description: "Optional model id." },
-          ratio: { type: "string", description: "Aspect ratio, for example 1:1, 16:9, 9:16." },
-          count: { type: "number", description: "Image count, 1-4." },
-          style: { type: "string", description: "Optional style name." },
-        },
-        required: ["prompt"],
-      },
-    },
-  ];
+function getRouteModel(body: unknown, fallback: string) {
+  const record = body && typeof body === "object" ? body as Record<string, unknown> : {};
+  return typeof record.model === "string" && record.model.trim()
+    ? record.model.trim()
+    : fallback;
 }
 
-async function runMcpTool(name: string, args: Record<string, unknown>) {
-  if (name !== "artx_generate_image") {
-    return { status: 404 as const, body: { error: `Unknown MCP tool: ${name}` } };
+function getImageOutputUnits(result: unknown) {
+  const record = result && typeof result === "object" ? result as { images?: unknown[] } : {};
+  return Math.max(1, Array.isArray(record.images) ? record.images.length : 1);
+}
+
+function getProviderTaskIds(result: unknown) {
+  const record = result && typeof result === "object"
+    ? result as { providerTaskId?: unknown; providerTaskIds?: unknown[] }
+    : {};
+  const ids = Array.isArray(record.providerTaskIds)
+    ? record.providerTaskIds.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+  if (typeof record.providerTaskId === "string" && record.providerTaskId.trim()) {
+    ids.unshift(record.providerTaskId.trim());
   }
-  const prompt = typeof args.prompt === "string" ? args.prompt.trim() : "";
-  if (!prompt) {
-    return { status: 400 as const, body: { error: "prompt is required" } };
-  }
-  const result = await generateImages({
-    prompt,
-    model: typeof args.model === "string" ? args.model : undefined,
-    ratio: typeof args.ratio === "string" ? args.ratio : "1:1",
-    count: Math.max(1, Math.min(4, Number(args.count || 1))),
-    style: typeof args.style === "string" ? args.style : "智能判断",
+  return ids.length ? Array.from(new Set(ids)) : undefined;
+}
+
+function capabilityFromOrchestrator(capability: string): AiBillingCapability {
+  if (capability === "chat" || capability === "brand_kit_parse") return "text_generation";
+  if (capability === "element_erasure") return "image_erase";
+  if (capability === "text_to_image") return "text_to_image";
+  if (capability === "background_removal") return "background_removal";
+  if (capability === "image_expansion") return "image_expansion";
+  if (capability === "image_edit") return "image_edit";
+  return "text_generation";
+}
+
+async function recordAiRouteUsage(input: {
+  user: SessionUser;
+  tracking: AiRouteTracking;
+  startedAt: number;
+  status: "success" | "failed";
+  result?: unknown;
+  error?: string;
+}) {
+  const outputUnits = input.status === "success"
+    ? input.tracking.outputUnits?.(input.result) || getImageOutputUnits(input.result)
+    : 0;
+  const providerTaskIds = input.tracking.providerTaskIds?.(input.result) || getProviderTaskIds(input.result);
+  const record = await recordAiUsage({
+    userId: input.user.id,
+    username: input.user.username,
+    capability: input.tracking.capability,
+    capabilityKey: input.tracking.capabilityKey,
+    provider: input.tracking.provider,
+    model: input.tracking.model || "auto",
+    status: input.status,
+    latencyMs: Date.now() - input.startedAt,
+    failureReason: input.error,
+    outputUnits,
+    providerTaskId: providerTaskIds?.[0],
+    providerTaskIds,
   });
-  const providerMeta = result as typeof result & { providerTaskId?: string; providerTaskIds?: string[] };
-  return {
-    status: 200 as const,
-    body: {
-      content: [
-        {
-          type: "text",
-          text: `ArtX generated ${result.images?.length || 0} image(s).`,
-        },
-      ],
-      images: result.images || [],
-      providerTaskId: providerMeta.providerTaskId,
-      providerTaskIds: providerMeta.providerTaskIds,
+
+  if (input.status !== "success") {
+    await sendOpsNotification({
+      title: `AI 任务失败 · ${input.tracking.capability}`,
+      message: `${input.user.username} 调用 ${input.tracking.model || "auto"} 失败：${input.error || input.tracking.failureMessage}`,
+      severity: "warning",
+      category: "ai",
+      metadata: {
+        userId: input.user.id,
+        provider: input.tracking.provider,
+        model: input.tracking.model,
+        capability: input.tracking.capabilityKey,
+      },
+    });
+  }
+
+  return record;
+}
+
+async function handleTrackedAiRequest<T>(
+  req: express.Request,
+  res: express.Response,
+  tracking: AiRouteTracking,
+  handler: (user: SessionUser) => Promise<T>,
+) {
+  const startedAt = Date.now();
+  let user: SessionUser | null = null;
+  try {
+    user = await requireSessionUser(req, res);
+    if (!user) return;
+    const result = await handler(user);
+    await recordAiRouteUsage({ user, tracking, startedAt, status: "success", result });
+    res.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : tracking.failureMessage;
+    if (user) {
+      await recordAiRouteUsage({ user, tracking, startedAt, status: "failed", error: message });
+    }
+    res.status(500).json({ error: message });
+  }
+}
+
+async function recordBillingPaymentFailureAndNotify(params: Parameters<typeof recordBillingPaymentFailure>[0]) {
+  const result = await recordBillingPaymentFailure(params);
+  await sendOpsNotification({
+    title: "威富通支付异常",
+    message: params.message,
+    severity: "critical",
+    category: "payment",
+    metadata: {
+      orderId: params.orderId,
+      eventType: params.eventType,
+      signatureValid: params.signatureValid,
+      expectedAmountCents: params.expectedAmountCents,
     },
-  };
+  });
+  return result;
+}
+
+async function confirmWallytOrderPayment(orderId: string, actorName: string) {
+  const order = await getBillingOrderForPayment(orderId);
+  if (!order || order.status === "paid") return order;
+
+  const raw = await queryWallytOrder(order.id);
+  if (raw.status === "0" && raw.result_code === "0" && raw.trade_state === "SUCCESS") {
+    await markBillingOrderPaid({
+      orderId: order.id,
+      actorName,
+      expectedAmountCents: Number(raw.total_fee || order.amountCents),
+      providerTransactionId: raw.transaction_id,
+      eventType: actorName === "wallyt-auto-query" ? "wallyt_auto_query" : "wallyt_query",
+    });
+    return getBillingOrderForPayment(order.id);
+  }
+
+  if (raw.status === "0" && raw.result_code === "0" && (raw.trade_state === "CLOSED" || raw.trade_state === "PAYERROR")) {
+    await recordBillingPaymentFailureAndNotify({
+      orderId: order.id,
+      actorName,
+      expectedAmountCents: Number(raw.total_fee || order.amountCents),
+      providerTransactionId: raw.transaction_id,
+      signatureValid: true,
+      eventType: "wallyt_query_failed",
+      message: `威富通查询返回交易异常：${raw.trade_state}`,
+    });
+    return getBillingOrderForPayment(order.id);
+  }
+
+  return order;
+}
+
+function scheduleWallytPaymentConfirmation(orderId: string) {
+  const attempts = [5_000, 15_000, 30_000, 60_000, 120_000];
+  for (const delayMs of attempts) {
+    setTimeout(() => {
+      void confirmWallytOrderPayment(orderId, "wallyt-auto-query").catch((error) => {
+        console.warn("[wallyt] auto payment confirmation failed", orderId, error instanceof Error ? error.message : error);
+      });
+    }, delayMs).unref?.();
+  }
+}
+
+async function notifyAuthAction(action: AuthAction, body: Record<string, unknown>, result: { status: number; body: unknown }) {
+  const responseBody = result.body && typeof result.body === "object" ? result.body as Record<string, unknown> : {};
+  const username = typeof body.username === "string" ? body.username.trim() : "";
+  const phone = typeof body.phone === "string" ? body.phone.replace(/[^\d]/g, "") : "";
+
+  if ((action === "login" || action === "sms-login" || action === "sms-send-code") && result.status >= 400) {
+    const target = action === "login"
+      ? username || "unknown-login"
+      : phone ? `phone:${phone.slice(0, 3)}****${phone.slice(-4)}` : "unknown-phone";
+    const highRisk = result.status === 429;
+    await recordRiskEvent({
+      title: action === "login"
+        ? highRisk ? "账号登录触发锁定" : "账号密码登录失败"
+        : action === "sms-send-code"
+          ? "短信验证码发送异常"
+          : highRisk ? "短信验证码错误次数过多" : "短信验证码登录失败",
+      detail: typeof responseBody.error === "string" ? responseBody.error : `auth ${action} failed with ${result.status}`,
+      target,
+      severity: highRisk ? "high" : "medium",
+      actorName: "auth-risk",
+      linkedSection: "risk",
+    });
+    return;
+  }
+
+  if (result.status < 200 || result.status >= 300) return;
+  const user = responseBody.user && typeof responseBody.user === "object"
+    ? responseBody.user as { username?: string; id?: string }
+    : null;
+
+  if ((action === "register" || action === "social" || action === "sms-login") && user?.username) {
+    await sendOpsNotification({
+      title: action === "sms-login" ? "短信验证码登录" : "新用户注册",
+      message: `${user.username} 已完成${action === "sms-login" ? "短信验证码登录" : "注册"}`,
+      severity: "info",
+      category: "auth",
+      metadata: { userId: user.id, action },
+    });
+  }
+
+  if (action === "forgot-password") {
+    const username = typeof body.username === "string" ? body.username.trim() : "";
+    const resetToken = typeof responseBody.resetToken === "string" ? responseBody.resetToken : "";
+    const expiresAt = typeof responseBody.expiresAt === "string" ? responseBody.expiresAt : "";
+    if (username.includes("@") && resetToken) {
+      await sendUserEmailNotification({
+        to: username,
+        subject: "ArtX 密码重置",
+        text: [
+          "你正在重置 ArtX 账号密码。",
+          "",
+          `重置链接：${getPublicAppUrl()}/reset-password?token=${encodeURIComponent(resetToken)}`,
+          `重置令牌：${resetToken}`,
+          expiresAt ? `过期时间：${expiresAt}` : "",
+          "",
+          "如果这不是你本人操作，请忽略此邮件并尽快联系管理员。",
+        ].filter(Boolean).join("\n"),
+      });
+    }
+  }
+
+  if (action === "reset-password") {
+    await sendOpsNotification({
+      title: "用户密码已重置",
+      message: "有用户完成了密码重置流程。",
+      severity: "info",
+      category: "auth",
+    });
+  }
+}
+
+async function storeImageResultForUser<T extends {
+  images?: Array<{ src: string; width: number; height: number }>;
+  providerTaskId?: string;
+  providerTaskIds?: string[];
+}>(result: T, username: string): Promise<T> {
+  if (!result.images?.length) return result;
+  const images = await storeGeneratedImagesForUser(result.images, username, {
+    providerTaskId: result.providerTaskId,
+    providerTaskIds: result.providerTaskIds,
+  });
+  return { ...result, images };
 }
 
 async function startServer() {
@@ -144,9 +336,9 @@ async function startServer() {
   const orchestrator = new AIOrchestrator();
 
   app.use((req, res, next) => {
-    const origin = req.headers.origin;
-    if (origin && /^https:\/\/09beedesign-star\.github\.io$/.test(origin)) {
-      res.setHeader("Access-Control-Allow-Origin", origin);
+    const allowedOrigin = getAllowedCorsOrigin(req.headers.origin);
+    if (allowedOrigin) {
+      res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
       res.setHeader("Vary", "Origin");
     }
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
@@ -160,15 +352,6 @@ async function startServer() {
     next();
   });
 
-  app.get("/", (req, res, next) => {
-    if (!isAdminRequestHost(req.headers.host)) {
-      next();
-      return;
-    }
-
-    res.redirect(302, getAdminEntryPath());
-  });
-
   app.post("/api/billing/wallyt/callback", express.text({ type: ["text/xml", "application/xml", "*/xml", "*/*"], limit: "1mb" }), async (req, res) => {
     try {
       const rawBody = typeof req.body === "string" ? req.body : "";
@@ -179,7 +362,7 @@ async function startServer() {
       const signatureValid = verifyWallytSignature(payload);
 
       if (!rawBody || !orderId || !signatureValid || payload.mch_id !== config.mchId || !isWallytPaymentSuccess(payload)) {
-        await recordBillingPaymentFailure({
+        await recordBillingPaymentFailureAndNotify({
           orderId,
           actorName: "wallyt",
           expectedAmountCents: Number.isFinite(totalFee) ? totalFee : undefined,
@@ -202,7 +385,7 @@ async function startServer() {
 
       const order = await getBillingOrderForPayment(orderId);
       if (!order || order.amountCents !== totalFee) {
-        await recordBillingPaymentFailure({
+        await recordBillingPaymentFailureAndNotify({
           orderId,
           actorName: "wallyt",
           expectedAmountCents: totalFee,
@@ -236,23 +419,66 @@ async function startServer() {
     res.json({ ok: true });
   });
 
-  app.post("/api/images/generate", async (req, res) => {
+  app.get("/api/images/proxy", async (req, res) => {
     try {
-      const result = await generateImages(req.body);
-      res.json(result);
+      const url = typeof req.query.url === "string" ? req.query.url.trim() : "";
+      if (!/^https?:\/\//i.test(url)) {
+        res.status(400).json({ error: "Invalid image url" });
+        return;
+      }
+      const response = await fetch(url, {
+        redirect: "follow",
+        headers: {
+          "User-Agent": "ArtX/1.0 image-download-proxy",
+          "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        },
+      });
+      if (!response.ok) {
+        res.status(response.status).json({ error: `Image fetch failed: ${response.status}` });
+        return;
+      }
+      const contentType = response.headers.get("content-type") || "application/octet-stream";
+      if (!contentType.startsWith("image/") && contentType !== "application/octet-stream") {
+        res.status(415).json({ error: "URL did not return an image" });
+        return;
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Cache-Control", "public, max-age=300");
+      res.send(Buffer.from(arrayBuffer));
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Image generation failed";
+      const message = error instanceof Error ? error.message : "Image proxy failed";
       res.status(500).json({ error: message });
     }
   });
 
+  app.post("/api/images/generate", async (req, res) => {
+    await handleTrackedAiRequest(req, res, {
+      capabilityKey: "text_to_image",
+      capability: "图片生成",
+      provider: "AI_IMAGE",
+      model: getRouteModel(req.body, process.env.AI_IMAGE_MODEL || "gpt-image-2"),
+      failureMessage: "Image generation failed",
+    }, async (user) => {
+      const result = await generateImages(req.body);
+      const images = await storeGeneratedImagesForUser(result.images, user.username);
+      return { ...result, images };
+    });
+  });
+
   app.post("/api/images/tasks", async (req, res) => {
+    const user = await requireSessionUser(req, res);
+    if (!user) return;
     const taskId = typeof req.body?.taskId === "string" && req.body.taskId.trim()
       ? req.body.taskId.trim()
       : `image-task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     pruneBackgroundImageTasks();
     const existing = backgroundImageTasks.get(taskId);
     if (existing) {
+      if (existing.ownerUserId !== user.id) {
+        res.status(404).json({ error: "Image task not found", taskId, status: "failed" });
+        return;
+      }
       res.json(existing);
       return;
     }
@@ -261,6 +487,7 @@ async function startServer() {
       taskId,
       status: "pending",
       input: req.body,
+      ownerUserId: user.id,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -268,16 +495,45 @@ async function startServer() {
     res.json(task);
 
     void generateImages(req.body)
-      .then(result => {
+      .then(async result => {
+        const images = await storeGeneratedImagesForUser(result.images, user.username);
+        await recordAiRouteUsage({
+          user,
+          tracking: {
+            capabilityKey: "text_to_image",
+            capability: "图片生成",
+            provider: "AI_IMAGE",
+            model: getRouteModel(req.body, process.env.AI_IMAGE_MODEL || "gpt-image-2"),
+            failureMessage: "Image generation failed",
+          },
+          startedAt: task.createdAt,
+          status: "success",
+          result: { ...result, images },
+        });
         backgroundImageTasks.set(taskId, {
           ...task,
           status: "completed",
-          images: result.images,
+          images,
           updatedAt: Date.now(),
         });
       })
       .catch(error => {
         const message = error instanceof Error ? error.message : "Image generation failed";
+        void recordAiRouteUsage({
+          user,
+          tracking: {
+            capabilityKey: "text_to_image",
+            capability: "图片生成",
+            provider: "AI_IMAGE",
+            model: getRouteModel(req.body, process.env.AI_IMAGE_MODEL || "gpt-image-2"),
+            failureMessage: "Image generation failed",
+          },
+          startedAt: task.createdAt,
+          status: "failed",
+          error: message,
+        }).catch(recordError => {
+          console.warn("[ai-usage] failed to record background task", recordError instanceof Error ? recordError.message : "unknown error");
+        });
         backgroundImageTasks.set(taskId, {
           ...task,
           status: "failed",
@@ -287,10 +543,12 @@ async function startServer() {
       });
   });
 
-  app.get("/api/images/tasks/:taskId", (req, res) => {
+  app.get("/api/images/tasks/:taskId", async (req, res) => {
+    const user = await requireSessionUser(req, res);
+    if (!user) return;
     pruneBackgroundImageTasks();
     const task = backgroundImageTasks.get(req.params.taskId);
-    if (!task) {
+    if (!task || task.ownerUserId !== user.id) {
       res.status(404).json({ error: "Image task not found", taskId: req.params.taskId, status: "failed" });
       return;
     }
@@ -298,77 +556,105 @@ async function startServer() {
   });
 
   app.post("/api/images/remove-background", async (req, res) => {
-    try {
+    await handleTrackedAiRequest(req, res, {
+      capabilityKey: "background_removal",
+      capability: "抠图 / 去背景",
+      provider: "PicWish/佐糖",
+      model: getRouteModel(req.body, "picwish-segmentation"),
+      failureMessage: "Background removal failed",
+    }, async (user) => {
       const result = await removeImageBackground(req.body);
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Background removal failed";
-      res.status(500).json({ error: message });
-    }
+      return storeImageResultForUser(result, user.username);
+    });
   });
 
   app.post("/api/images/enhance", async (req, res) => {
-    try {
+    await handleTrackedAiRequest(req, res, {
+      capabilityKey: "image_enhance",
+      capability: "高清图片生成",
+      provider: "PicWish/佐糖",
+      model: getRouteModel(req.body, "picwish-scale"),
+      failureMessage: "Image enhancement failed",
+    }, async (user) => {
       const result = await enhanceImage(req.body);
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Image enhancement failed";
-      res.status(500).json({ error: message });
-    }
+      return storeImageResultForUser(result, user.username);
+    });
   });
 
   app.post("/api/images/remove-watermark", async (req, res) => {
-    try {
+    await handleTrackedAiRequest(req, res, {
+      capabilityKey: "watermark_removal",
+      capability: "去水印",
+      provider: "PicWish/佐糖",
+      model: getRouteModel(req.body, "picwish-watermark"),
+      failureMessage: "Image watermark removal failed",
+    }, async (user) => {
       const result = await removeImageWatermark(req.body);
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Image watermark removal failed";
-      res.status(500).json({ error: message });
-    }
+      return storeImageResultForUser(result, user.username);
+    });
   });
 
   app.post("/api/images/create-background", async (req, res) => {
-    try {
+    await handleTrackedAiRequest(req, res, {
+      capabilityKey: "smart_background",
+      capability: "商品图 / 海报一键生成",
+      provider: "PicWish/佐糖",
+      model: getRouteModel(req.body, process.env.AI_IMAGE_MODEL || "picwish-r-background"),
+      failureMessage: "Create background failed",
+    }, async (user) => {
       const result = await createProductBackground(req.body);
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Create background failed";
-      res.status(500).json({ error: message });
-    }
+      return storeImageResultForUser(result, user.username);
+    });
   });
 
   app.post("/api/images/ocr", async (req, res) => {
-    try {
+    await handleTrackedAiRequest(req, res, {
+      capabilityKey: "image_ocr",
+      capability: "图片 OCR / 文案提取",
+      provider: "AI_IMAGE",
+      model: getRouteModel(req.body, process.env.AI_IMAGE_MODEL || "vision-chat-ocr"),
+      failureMessage: "Image OCR failed",
+      outputUnits: () => 1,
+    }, async () => {
       const result = await extractImageText(req.body);
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Image OCR failed";
-      res.status(500).json({ error: message });
-    }
+      return result;
+    });
   });
 
   app.post("/api/images/edit", async (req, res) => {
-    try {
+    await handleTrackedAiRequest(req, res, {
+      capabilityKey: "image_edit",
+      capability: "图片编辑",
+      provider: "AI_IMAGE",
+      model: getRouteModel(req.body, process.env.AI_IMAGE_MODEL || "gpt-image-2"),
+      failureMessage: "Image edit failed",
+    }, async (user) => {
       const result = await editImageWithPrompt(req.body);
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Image edit failed";
-      res.status(500).json({ error: message });
-    }
+      return storeImageResultForUser(result, user.username);
+    });
   });
 
   app.post("/api/images/erase", async (req, res) => {
-    try {
+    await handleTrackedAiRequest(req, res, {
+      capabilityKey: "image_erase",
+      capability: "图片擦除",
+      provider: "PicWish/佐糖",
+      model: getRouteModel(req.body, "picwish-inpaint"),
+      failureMessage: "Image erase failed",
+    }, async (user) => {
       const result = await eraseImageObjects(req.body);
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Image erase failed";
-      res.status(500).json({ error: message });
-    }
+      return storeImageResultForUser(result, user.username);
+    });
   });
 
   app.post("/api/images/expand", async (req, res) => {
-    try {
+    await handleTrackedAiRequest(req, res, {
+      capabilityKey: "image_expansion",
+      capability: "扩图 / 外延生成",
+      provider: "AI_IMAGE",
+      model: getRouteModel(req.body, process.env.AI_IMAGE_MODEL || "gpt-image-2"),
+      failureMessage: "Image expansion failed",
+    }, async (user) => {
       const imageSrc = req.body?.imageSrc || req.body?.image_url || req.body?.image_base64;
       const maskSrc = req.body?.maskSrc || req.body?.mask_url || req.body?.mask_base64;
       const result = await orchestrator.run({
@@ -378,21 +664,29 @@ async function startServer() {
         maskSrc,
         prompt: req.body?.prompt || "Extend the image naturally only inside the masked blank area. Preserve all unmasked pixels exactly and never generate beyond the requested boundary.",
       });
-      res.json({ images: result.images || [], image_base64: result.image_base64, model: result.model });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Image expansion failed";
-      res.status(500).json({ error: message });
-    }
+      const stored = await storeImageResultForUser({
+        images: result.images || [],
+        image_base64: result.image_base64,
+        model: result.model,
+        providerTaskId: result.providerTaskId,
+        providerTaskIds: result.providerTaskIds,
+      }, user.username);
+      return stored;
+    });
   });
 
   app.post("/api/llm", async (req, res) => {
-    try {
+    await handleTrackedAiRequest(req, res, {
+      capabilityKey: "text_generation",
+      capability: "提示词优化 / 文案生成",
+      provider: "AI_TEXT",
+      model: getRouteModel(req.body, process.env.AI_TEXT_MODEL || "gpt-5.4-mini"),
+      failureMessage: "AI request failed",
+      outputUnits: () => 1,
+    }, async () => {
       const result = await generateText(req.body);
-      res.json(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "AI request failed";
-      res.status(500).json({ error: message });
-    }
+      return result;
+    });
   });
 
   app.post("/api/references/search", async (req, res) => {
@@ -408,11 +702,66 @@ async function startServer() {
   });
 
   app.post("/api/ai/orchestrate", async (req, res) => {
+    const startedAt = Date.now();
+    let user: SessionUser | null = null;
     try {
+      user = await requireSessionUser(req, res);
+      if (!user) return;
       const result = await orchestrator.run(req.body);
+      if (result.images?.length) {
+        const images = await storeGeneratedImagesForUser(result.images, user.username, {
+          providerTaskId: result.providerTaskId,
+          providerTaskIds: result.providerTaskIds,
+        });
+        const storedResult = { ...result, images };
+        await recordAiRouteUsage({
+          user,
+          tracking: {
+            capabilityKey: capabilityFromOrchestrator(result.capability),
+            capability: result.capability,
+            provider: result.route,
+            model: result.model,
+            failureMessage: "AI orchestration failed",
+          },
+          startedAt,
+          status: "success",
+          result: storedResult,
+        });
+        res.json(storedResult);
+        return;
+      }
+      await recordAiRouteUsage({
+        user,
+        tracking: {
+          capabilityKey: capabilityFromOrchestrator(result.capability),
+          capability: result.capability,
+          provider: result.route,
+          model: result.model,
+          failureMessage: "AI orchestration failed",
+          outputUnits: () => 1,
+        },
+        startedAt,
+        status: "success",
+        result,
+      });
       res.json(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : "AI orchestration failed";
+      if (user) {
+        await recordAiRouteUsage({
+          user,
+          tracking: {
+            capabilityKey: "text_generation",
+            capability: typeof req.body?.capability === "string" ? req.body.capability : "ai_orchestration",
+            provider: "AI",
+            model: getRouteModel(req.body, "auto"),
+            failureMessage: "AI orchestration failed",
+          },
+          startedAt,
+          status: "failed",
+          error: message,
+        });
+      }
       res.status(500).json({ error: message });
     }
   });
@@ -480,93 +829,13 @@ async function startServer() {
 
   app.post("/api/auth/:action", async (req, res) => {
     try {
-      const action = req.params.action as "register" | "login" | "me" | "logout" | "social";
+      const action = req.params.action as AuthAction;
       const result = await handleAuthAction(action, req.body);
+      await notifyAuthAction(action, req.body && typeof req.body === "object" ? req.body as Record<string, unknown> : {}, result);
       res.status(result.status).json(result.body);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Auth request failed";
       res.status(500).json({ error: message });
-    }
-  });
-
-  app.get("/api/developer/api-keys", async (req, res) => {
-    try {
-      const result = await listApiKeysForAuthorization(req.headers.authorization);
-      res.status(result.status).json(result.body);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "API key list failed";
-      res.status(500).json({ error: message });
-    }
-  });
-
-  app.post("/api/developer/api-keys", async (req, res) => {
-    try {
-      const result = await createApiKeyForAuthorization(req.headers.authorization, req.body);
-      res.status(result.status).json(result.body);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "API key create failed";
-      res.status(500).json({ error: message });
-    }
-  });
-
-  app.get("/api/mcp/manifest", (_req, res) => {
-    res.json({
-      name: "ArtX Image MCP",
-      version: "0.1.0",
-      transport: "streamable-http",
-      endpoint: "/api/mcp",
-      tools: getMcpTools(),
-    });
-  });
-
-  app.post("/api/mcp/tools/image-generate", async (req, res) => {
-    try {
-      const user = await requireApiKeyUser(req, res);
-      if (!user) return;
-      const result = await runMcpTool("artx_generate_image", req.body && typeof req.body === "object" ? req.body as Record<string, unknown> : {});
-      res.status(result.status).json(result.body);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "MCP image generation failed";
-      res.status(500).json({ error: message });
-    }
-  });
-
-  app.post("/api/mcp", async (req, res) => {
-    try {
-      const id = req.body?.id ?? null;
-      const method = typeof req.body?.method === "string" ? req.body.method : "";
-      if (method === "initialize") {
-        res.json({
-          jsonrpc: "2.0",
-          id,
-          result: {
-            protocolVersion: "2024-11-05",
-            capabilities: { tools: {} },
-            serverInfo: { name: "ArtX Image MCP", version: "0.1.0" },
-          },
-        });
-        return;
-      }
-      const user = await requireApiKeyUser(req, res);
-      if (!user) return;
-      if (method === "tools/list") {
-        res.json({ jsonrpc: "2.0", id, result: { tools: getMcpTools() } });
-        return;
-      }
-      if (method === "tools/call") {
-        const params = req.body?.params && typeof req.body.params === "object" ? req.body.params as Record<string, unknown> : {};
-        const name = typeof params.name === "string" ? params.name : "";
-        const args = params.arguments && typeof params.arguments === "object" ? params.arguments as Record<string, unknown> : {};
-        const result = await runMcpTool(name, args);
-        res.status(result.status).json(result.status === 200
-          ? { jsonrpc: "2.0", id, result: result.body }
-          : { jsonrpc: "2.0", id, error: { code: -32602, message: result.body.error } });
-        return;
-      }
-      res.status(404).json({ jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "MCP request failed";
-      res.status(500).json({ jsonrpc: "2.0", id: req.body?.id ?? null, error: { code: -32000, message } });
     }
   });
 
@@ -634,7 +903,7 @@ async function startServer() {
       const mode = req.body?.mode === "wap" ? "wap" : "native";
       const payment = await createWallytPayment({
         orderId: order.id,
-        body: order.packageName === "积分充值" ? "ArtX 积分充值" : `ArtX ${order.packageName} 会员服务`,
+        body: order.paymentDisplayName || (order.packageName === "积分充值" ? "ArtX 积分充值" : `ArtX ${order.packageName} 会员服务`),
         amount: order.amount,
         paymentMethod,
         mode,
@@ -649,7 +918,9 @@ async function startServer() {
         paymentMethod,
         payUrlType: payment.payUrlType,
         service: payment.service,
+        paymentDisplayName: order.paymentDisplayName || `${order.packageName} · ${order.userAccount || order.user}`,
       });
+      scheduleWallytPaymentConfirmation(order.id);
 
       res.json({ order, payment });
     } catch (error) {
@@ -673,26 +944,10 @@ async function startServer() {
       }
 
       if (order.status !== "paid") {
-        const raw = await queryWallytOrder(order.id).catch((error) => ({ queryError: error instanceof Error ? error.message : "query failed" }));
-        if (!("queryError" in raw) && raw.status === "0" && raw.result_code === "0" && raw.trade_state === "SUCCESS") {
-          await markBillingOrderPaid({
-            orderId: order.id,
-            actorName: "wallyt-query",
-            expectedAmountCents: Number(raw.total_fee || order.amountCents),
-            providerTransactionId: raw.transaction_id,
-            eventType: "wallyt_query",
-          });
-        } else if (!("queryError" in raw) && raw.status === "0" && raw.result_code === "0" && (raw.trade_state === "CLOSED" || raw.trade_state === "PAYERROR")) {
-          await recordBillingPaymentFailure({
-            orderId: order.id,
-            actorName: "wallyt-query",
-            expectedAmountCents: Number(raw.total_fee || order.amountCents),
-            providerTransactionId: raw.transaction_id,
-            signatureValid: true,
-            eventType: "wallyt_query_failed",
-            message: `威富通查询返回交易异常：${raw.trade_state}`,
-          });
-        }
+        await confirmWallytOrderPayment(order.id, "wallyt-query").catch((error) => {
+          console.warn("[wallyt] order status query failed", order.id, error instanceof Error ? error.message : error);
+          return null;
+        });
       }
 
       const latest = await getBillingOrderForPayment(order.id);
@@ -729,6 +984,13 @@ async function startServer() {
       ? path.resolve(__dirname, "public")
       : path.resolve(__dirname, "..", "dist", "public");
 
+  app.use("/uploads", express.static(getUploadsRoot(), {
+    etag: true,
+    fallthrough: false,
+    immutable: true,
+    maxAge: "30d",
+  }));
+
   app.use(express.static(staticPath));
 
   // Handle client-side routing - serve index.html for all routes
@@ -736,10 +998,11 @@ async function startServer() {
     res.sendFile(path.join(staticPath, "index.html"));
   });
 
-  const port = process.env.PORT || 3000;
+  const port = Number(process.env.PORT || 3000);
+  const host = process.env.HOST || "127.0.0.1";
 
-  server.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}/`);
+  server.listen(port, host, () => {
+    console.log(`Server running on http://${host}:${port}/`);
   });
 }
 

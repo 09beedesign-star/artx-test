@@ -132,6 +132,22 @@ export function hasActiveAuthSession() {
   }
 }
 
+function getAiAuthToken() {
+  if (typeof window === "undefined") return "";
+  try {
+    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) as { token?: string } : null;
+    return parsed?.token || "";
+  } catch {
+    return "";
+  }
+}
+
+function getAiAuthHeaders(): Record<string, string> {
+  const token = getAiAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export function requestAiAuth() {
   if (hasActiveAuthSession()) return true;
   if (typeof window !== "undefined") {
@@ -173,7 +189,7 @@ async function fetchAiJson<T extends ApiErrorResponse>(
   try {
     const response = await fetch(endpoint, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...getAiAuthHeaders() },
       body: JSON.stringify(body),
       signal: controller.signal,
     });
@@ -204,7 +220,7 @@ async function fetchAiJsonGet<T extends ApiErrorResponse>(
   allowLocalFallback = true,
 ): Promise<T> {
   try {
-    const response = await fetch(endpoint, { method: "GET" });
+    const response = await fetch(endpoint, { method: "GET", headers: getAiAuthHeaders() });
     const result = await readJsonResponse<T>(response, fallbackError);
     if (!response.ok) {
       throw new Error(result.error || result.message || fallbackError);

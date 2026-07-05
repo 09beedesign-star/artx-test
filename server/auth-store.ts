@@ -1,8 +1,10 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { PostgresJsonDocumentStore } from "./postgres-json-store";
+import { normalizeMainlandPhone, sendSmsVerificationCode } from "./sms-service";
 
-type AuthAction = "register" | "login" | "me" | "logout" | "social" | "forgot-password" | "reset-password";
+type AuthAction = "register" | "login" | "me" | "logout" | "social" | "forgot-password" | "reset-password" | "change-password" | "sms-send-code" | "sms-login";
 type AdminRole = "viewer" | "support" | "finance" | "admin" | "super_admin";
 
 const ROLE_PERMISSIONS: Record<AdminRole, string[]> = {
@@ -78,21 +80,36 @@ interface StoredApiKey {
   status?: "active" | "revoked";
 }
 
+interface SmsChallenge {
+  phone: string;
+  codeHash: string;
+  sentAt: string;
+  expiresAt: string;
+  resendAfterAt: string;
+  attempts: number;
+  dailyKey: string;
+  dailyCount: number;
+}
+
 interface AuthDatabase {
   users: StoredUser[];
   sessions: StoredSession[];
   apiKeys?: StoredApiKey[];
+  smsChallenges?: SmsChallenge[];
   auditLogs?: AdminAuditLog[];
 }
 
 const DATA_DIR = process.env.ARTX_DATA_DIR || path.join(process.cwd(), ".artx-data");
 const DATA_FILE = path.join(DATA_DIR, "auth-users.json");
-const DEFAULT_USERNAME = "09bee";
-const DEFAULT_PASSWORD = "1234";
+const AUTH_DATA_BACKEND = process.env.ARTX_AUTH_DATA_BACKEND || process.env.ARTX_ADMIN_DATA_BACKEND || "json";
 const DEFAULT_ADMIN_ROLE: AdminRole = "super_admin";
 const SESSION_TTL_MS = Number(process.env.ARTX_SESSION_TTL_MS || 1000 * 60 * 60 * 12);
 const LOGIN_LOCK_THRESHOLD = Number(process.env.ARTX_LOGIN_LOCK_THRESHOLD || 5);
 const LOGIN_LOCK_MS = Number(process.env.ARTX_LOGIN_LOCK_MS || 1000 * 60 * 15);
+const SMS_CODE_TTL_MS = Number(process.env.SMS_CODE_TTL_MS || 5 * 60 * 1000);
+const SMS_CODE_RESEND_MS = Number(process.env.SMS_CODE_RESEND_MS || 60 * 1000);
+const SMS_CODE_DAILY_LIMIT = Number(process.env.SMS_CODE_DAILY_LIMIT || 10);
+const SMS_CODE_MAX_ATTEMPTS = Number(process.env.SMS_CODE_MAX_ATTEMPTS || 5);
 
 interface AdminAuditLog {
   id: string;
@@ -153,6 +170,10 @@ function hashPassword(password: string, salt: string) {
 }
 
 function hashToken(token: string) {
+  const secret = (process.env.ADMIN_SESSION_SECRET || "").trim();
+  if (secret) {
+    return crypto.createHmac("sha256", secret).update(token).digest("hex");
+  }
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
@@ -175,51 +196,73 @@ function createUser(username: string, password: string, role: AdminRole = "viewe
   };
 }
 
-async function loadDatabase(): Promise<AuthDatabase> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  let db: AuthDatabase = { users: [], sessions: [], auditLogs: [] };
+function getBootstrapAdmin() {
+  const username = normalizeUsername(process.env.ARTX_BOOTSTRAP_ADMIN_USERNAME);
+  const password = typeof process.env.ARTX_BOOTSTRAP_ADMIN_PASSWORD === "string"
+    ? process.env.ARTX_BOOTSTRAP_ADMIN_PASSWORD
+    : "";
 
-  try {
-    const raw = await fs.readFile(DATA_FILE, "utf-8");
-    const parsed = parseAuthDatabase(raw);
-    db = parsed.db;
-    if (parsed.recovered) {
-      await saveDatabase(db);
+  if (!username && !password) return null;
+  if (!username || password.trim().length < 12) {
+    throw new Error("ARTX_BOOTSTRAP_ADMIN_USERNAME and a 12+ character ARTX_BOOTSTRAP_ADMIN_PASSWORD are required for admin bootstrap");
+  }
+  return { username, password };
+}
+
+const authPostgresStore = AUTH_DATA_BACKEND === "postgres"
+  ? new PostgresJsonDocumentStore<AuthDatabase>(process.env.DATABASE_URL || "", "auth-users")
+  : null;
+
+async function loadDatabase(): Promise<AuthDatabase> {
+  let db: AuthDatabase = { users: [], sessions: [], smsChallenges: [], auditLogs: [] };
+
+  if (authPostgresStore) {
+    const stored = await authPostgresStore.load();
+    if (stored) {
+      db = normalizeDatabase(stored);
     }
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code !== "ENOENT") throw error;
+  } else {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    try {
+      const raw = await fs.readFile(DATA_FILE, "utf-8");
+      const parsed = parseAuthDatabase(raw);
+      db = parsed.db;
+      if (parsed.recovered) {
+        await saveDatabase(db);
+      }
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "ENOENT") throw error;
+    }
   }
 
-  if (!db.users.some((user) => user.loginKey === loginKey(DEFAULT_USERNAME))) {
-    const defaultAdmin = createUser(DEFAULT_USERNAME, DEFAULT_PASSWORD, DEFAULT_ADMIN_ROLE);
-    db.users.push(defaultAdmin);
+  const hasActiveAdmin = db.users.some((user) => canAccessAdmin(user) && user.status !== "disabled");
+  const bootstrapAdmin = getBootstrapAdmin();
+  if (!hasActiveAdmin && bootstrapAdmin) {
+    const existing = db.users.find((user) => user.loginKey === loginKey(bootstrapAdmin.username));
+    const admin = existing || createUser(bootstrapAdmin.username, bootstrapAdmin.password, DEFAULT_ADMIN_ROLE);
+    admin.role = DEFAULT_ADMIN_ROLE;
+    admin.permissions = [];
+    admin.status = "active";
+    admin.failedLoginCount = 0;
+    admin.lockedUntil = undefined;
+    if (!existing) {
+      db.users.push(admin);
+    }
     appendAuditLog(db, {
       actorId: "system",
       action: "admin.bootstrap",
-      target: defaultAdmin.id,
-      meta: { username: DEFAULT_USERNAME, role: DEFAULT_ADMIN_ROLE },
+      target: admin.id,
+      meta: { username: bootstrapAdmin.username, role: DEFAULT_ADMIN_ROLE },
     });
     await saveDatabase(db);
-  } else {
-    const defaultAdmin = db.users.find((user) => user.loginKey === loginKey(DEFAULT_USERNAME));
-    if (defaultAdmin && normalizeRole(defaultAdmin.role) !== DEFAULT_ADMIN_ROLE) {
-      defaultAdmin.role = DEFAULT_ADMIN_ROLE;
-      defaultAdmin.permissions = [];
-      appendAuditLog(db, {
-        actorId: "system",
-        action: "admin.role.upgrade",
-        target: defaultAdmin.id,
-        meta: { username: DEFAULT_USERNAME, role: DEFAULT_ADMIN_ROLE },
-      });
-      await saveDatabase(db);
-    }
   }
 
   return db;
 }
 
 function normalizeDatabase(parsed: Partial<AuthDatabase>): AuthDatabase {
+  const now = Date.now();
   return {
     users: Array.isArray(parsed.users)
       ? parsed.users.map((user) => ({
@@ -240,6 +283,13 @@ function normalizeDatabase(parsed: Partial<AuthDatabase>): AuthDatabase {
           ...key,
           status: key.status === "revoked" ? "revoked" : "active",
         }))
+      : [],
+    smsChallenges: Array.isArray(parsed.smsChallenges)
+      ? parsed.smsChallenges.filter((challenge) =>
+        challenge.phone &&
+        challenge.expiresAt &&
+        Date.parse(challenge.expiresAt) > now
+      )
       : [],
     auditLogs: Array.isArray(parsed.auditLogs) ? parsed.auditLogs : [],
   };
@@ -306,6 +356,11 @@ function extractTopLevelJsonObjects(raw: string) {
 }
 
 async function saveDatabase(db: AuthDatabase) {
+  if (authPostgresStore) {
+    await authPostgresStore.save(db);
+    return;
+  }
+
   await fs.mkdir(DATA_DIR, { recursive: true });
   const tmpFile = `${DATA_FILE}.${process.pid}.${Date.now()}.tmp`;
   await fs.writeFile(tmpFile, `${JSON.stringify(db, null, 2)}\n`, "utf-8");
@@ -314,6 +369,26 @@ async function saveDatabase(db: AuthDatabase) {
 
 function generateResetToken() {
   return crypto.randomBytes(18).toString("hex");
+}
+
+function generateSmsCode() {
+  return String(crypto.randomInt(100000, 1000000));
+}
+
+function phoneUsername(phone: string) {
+  return `+86${phone}`;
+}
+
+function currentDayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function pruneSmsChallenges(db: AuthDatabase) {
+  const now = Date.now();
+  db.smsChallenges = (db.smsChallenges || []).filter((challenge) =>
+    challenge.expiresAt &&
+    Date.parse(challenge.expiresAt) > now
+  );
 }
 
 function createSession(db: AuthDatabase, userId: string) {
@@ -353,10 +428,6 @@ function getBearerTokenFromHeader(value: unknown) {
   return match?.[1]?.trim() || "";
 }
 
-function createApiKeyValue() {
-  return `artx_sk_${crypto.randomBytes(32).toString("base64url")}`;
-}
-
 async function getUserByToken(token: string) {
   const db = await loadDatabase();
   const session = token ? db.sessions.find((item) => item.tokenHash === hashToken(token)) : undefined;
@@ -378,6 +449,10 @@ export async function getSessionUserFromAuthorization(authorization: unknown) {
   }
 
   return { status: 200 as const, body: { user: publicUser(user) } };
+}
+
+function createApiKeyValue() {
+  return `artx_sk_${crypto.randomBytes(32).toString("base64url")}`;
 }
 
 export async function listApiKeysForAuthorization(authorization: unknown) {
@@ -533,6 +608,119 @@ export async function handleAuthAction(action: AuthAction, payload: unknown) {
   const db = await loadDatabase();
   const body = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
 
+  if (action === "sms-send-code") {
+    const phone = normalizeMainlandPhone(body.phone);
+    if (!phone) {
+      return { status: 400, body: { error: "请输入有效的中国大陆手机号" } };
+    }
+
+    pruneSmsChallenges(db);
+    const now = Date.now();
+    const today = currentDayKey();
+    const existing = (db.smsChallenges || []).find((item) => item.phone === phone);
+    if (existing?.resendAfterAt && Date.parse(existing.resendAfterAt) > now) {
+      return {
+        status: 429,
+        body: {
+          error: "验证码发送太频繁，请稍后再试",
+          retryAfterSeconds: Math.ceil((Date.parse(existing.resendAfterAt) - now) / 1000),
+        },
+      };
+    }
+    const dailyCount = existing?.dailyKey === today ? Number(existing.dailyCount || 0) : 0;
+    if (dailyCount >= SMS_CODE_DAILY_LIMIT) {
+      return { status: 429, body: { error: "今日验证码发送次数已达上限" } };
+    }
+
+    const code = generateSmsCode();
+    const sent = await sendSmsVerificationCode(phone, code);
+    if (!sent.sent) {
+      return { status: 503, body: { error: sent.reason || "短信服务暂未配置或发送失败" } };
+    }
+
+    const challenge: SmsChallenge = {
+      phone,
+      codeHash: hashToken(`${phone}:${code}`),
+      sentAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + SMS_CODE_TTL_MS).toISOString(),
+      resendAfterAt: new Date(now + SMS_CODE_RESEND_MS).toISOString(),
+      attempts: 0,
+      dailyKey: today,
+      dailyCount: dailyCount + 1,
+    };
+    db.smsChallenges = [
+      challenge,
+      ...(db.smsChallenges || []).filter((item) => item.phone !== phone),
+    ].slice(0, 1000);
+    appendAuditLog(db, {
+      actorId: "sms",
+      action: "auth.sms.send",
+      target: phoneUsername(phone),
+      meta: { provider: sent.provider, requestId: sent.requestId },
+    });
+    await saveDatabase(db);
+
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        expiresAt: challenge.expiresAt,
+        retryAfterSeconds: Math.ceil(SMS_CODE_RESEND_MS / 1000),
+        ...(process.env.SMS_DRY_RUN === "true" ? { debugCode: code } : {}),
+      },
+    };
+  }
+
+  if (action === "sms-login") {
+    const phone = normalizeMainlandPhone(body.phone);
+    const code = typeof body.code === "string" ? body.code.replace(/\D/g, "") : "";
+    if (!phone) {
+      return { status: 400, body: { error: "请输入有效的中国大陆手机号" } };
+    }
+    if (!/^\d{6}$/.test(code)) {
+      return { status: 400, body: { error: "请输入 6 位短信验证码" } };
+    }
+
+    pruneSmsChallenges(db);
+    const challenge = (db.smsChallenges || []).find((item) => item.phone === phone);
+    if (!challenge) {
+      return { status: 400, body: { error: "验证码无效或已过期，请重新获取" } };
+    }
+    if (challenge.attempts >= SMS_CODE_MAX_ATTEMPTS) {
+      db.smsChallenges = (db.smsChallenges || []).filter((item) => item.phone !== phone);
+      await saveDatabase(db);
+      return { status: 429, body: { error: "验证码错误次数过多，请重新获取" } };
+    }
+    if (challenge.codeHash !== hashToken(`${phone}:${code}`)) {
+      challenge.attempts = Number(challenge.attempts || 0) + 1;
+      await saveDatabase(db);
+      return { status: 401, body: { error: "验证码错误" } };
+    }
+
+    const username = phoneUsername(phone);
+    let user = db.users.find((item) => item.loginKey === loginKey(username));
+    if (!user) {
+      user = createUser(username, crypto.randomBytes(18).toString("hex"));
+      db.users.push(user);
+    }
+    if (user.status === "disabled") {
+      return { status: 403, body: { error: "当前账号已被停用，请联系管理员" } };
+    }
+    user.failedLoginCount = 0;
+    user.lockedUntil = undefined;
+    user.lastLoginAt = new Date().toISOString();
+    db.smsChallenges = (db.smsChallenges || []).filter((item) => item.phone !== phone);
+    appendAuditLog(db, {
+      actorId: user.id,
+      action: "auth.sms.login",
+      target: user.id,
+      meta: { username },
+    });
+    const token = createSession(db, user.id);
+    await saveDatabase(db);
+    return { status: 200, body: { token, user: publicUser(user) } };
+  }
+
   if (action === "register") {
     const username = normalizeUsername(body.username);
     const password = typeof body.password === "string" ? body.password : "";
@@ -670,6 +858,46 @@ export async function handleAuthAction(action: AuthAction, payload: unknown) {
     db.sessions = db.sessions.filter((item) => item.userId !== user.id);
     await saveDatabase(db);
     return { status: 200, body: { ok: true } };
+  }
+
+  if (action === "change-password") {
+    const token = getBearerToken(body);
+    const currentPassword = typeof body.currentPassword === "string" ? body.currentPassword : "";
+    const newPassword = typeof body.newPassword === "string" ? body.newPassword : "";
+    if (!token) {
+      return { status: 401, body: { error: "登录已失效，请重新登录" } };
+    }
+    if (newPassword.trim().length < 8) {
+      return { status: 400, body: { error: "新密码至少需要 8 位" } };
+    }
+    const session = db.sessions.find((item) => item.tokenHash === hashToken(token));
+    const user = session ? db.users.find((item) => item.id === session.userId) : undefined;
+    if (!user) {
+      return { status: 401, body: { error: "登录已失效，请重新登录" } };
+    }
+    if (user.status === "disabled") {
+      return { status: 403, body: { error: "当前账号已被停用，请联系管理员" } };
+    }
+    if (hashPassword(currentPassword, user.salt) !== user.passwordHash) {
+      return { status: 401, body: { error: "当前密码不正确" } };
+    }
+    const salt = crypto.randomBytes(16).toString("hex");
+    user.salt = salt;
+    user.passwordHash = hashPassword(newPassword, salt);
+    user.failedLoginCount = 0;
+    user.lockedUntil = undefined;
+    user.resetTokenHash = undefined;
+    user.resetTokenExpiresAt = undefined;
+    db.sessions = db.sessions.filter((item) => item.userId !== user.id);
+    appendAuditLog(db, {
+      actorId: user.id,
+      action: "auth.password.change",
+      target: user.id,
+      meta: { username: user.username },
+    });
+    const nextToken = createSession(db, user.id);
+    await saveDatabase(db);
+    return { status: 200, body: { ok: true, token: nextToken, user: publicUser(user) } };
   }
 
   if (action === "logout") {

@@ -222,16 +222,7 @@ type OverviewData = {
     label: string;
   }>;
   capabilityStatus?: Array<{ id: string; domain: string; status: "ready" | "partial" | "missing"; summary: string; source: string }>;
-  productionReadiness?: Array<{
-    id: string;
-    domain: string;
-    status: "ready" | "partial" | "missing";
-    summary: string;
-    requiredKeys: string[];
-    configuredKeys: string[];
-    missingKeys: string[];
-    action: string;
-  }>;
+  productionReadiness?: Array<{ id: string; domain: string; status: "ready" | "partial" | "missing"; summary: string; requiredKeys: string[]; configuredKeys: string[]; missingKeys: string[]; action: string }>;
   aiCostBreakdownByProvider?: Array<{
     key: string;
     label: string;
@@ -265,7 +256,6 @@ type AdminPayload = {
   auditLogs?: Array<{ actorName?: string; action: string; target: string; createdAt: string; reason?: string }>;
   plans?: PricingPlan[];
   capabilityStatus?: Array<{ id: string; domain: string; status: "ready" | "partial" | "missing"; summary: string; source: string }>;
-  productionReadiness?: OverviewData["productionReadiness"];
 };
 
 const sections: Array<{
@@ -283,49 +273,6 @@ const sections: Array<{
   { id: "risk", label: "风控安全", description: "异常、限流、黑名单", icon: ShieldCheck },
   { id: "audit", label: "操作审计", description: "管理员动作追踪", icon: History },
 ];
-
-const users: AdminUser[] = [
-  {
-    id: "usr_demo",
-    name: "演示用户",
-    email: "demo@example.com",
-    plan: "Demo",
-    credits: 0,
-    spent: 0,
-    status: "normal",
-    lastSeen: "刚刚",
-    risk: "低",
-  },
-];
-
-const orders: Order[] = [
-  {
-    id: "ord_demo",
-    user: "演示用户",
-    channel: "演示渠道",
-    amount: 0,
-    credits: 0,
-    status: "pending",
-    createdAt: "演示时间",
-    event: "演示订单，非真实交易",
-    reconciliation: "matched",
-  },
-];
-
-const feedbackSeed: Feedback[] = [];
-
-const alertSeed: OpsAlert[] = [];
-
-const creditEvents: CreditEvent[] = [];
-
-const integrations: Integration[] = [
-  { name: "Stripe", category: "国际卡支付", state: "在线", latency: "286ms", owner: "Finance" },
-  { name: "支付宝", category: "国内支付", state: "在线", latency: "194ms", owner: "Finance" },
-  { name: "Render API", category: "后端部署", state: "观察", latency: "812ms", owner: "Infra" },
-  { name: "Model Gateway", category: "模型供应商", state: "在线", latency: "438ms", owner: "AI Ops" },
-];
-
-const auditRows: AuditRow[] = [];
 
 function statusLabel(status: Status | OrderStatus | FeedbackStatus) {
   const map: Record<string, string> = {
@@ -362,23 +309,12 @@ function statusClass(status: Status | OrderStatus | FeedbackStatus | string) {
   return "border-white/10 bg-white/7 text-white/70";
 }
 
-function toFiniteNumber(value: unknown, fallback = 0) {
-  if (typeof value === "number") return Number.isFinite(value) ? value : fallback;
-  if (typeof value === "string" && value.trim()) {
-    const normalized = Number(value.replace(/[^\d.-]/g, ""));
-    return Number.isFinite(normalized) ? normalized : fallback;
-  }
-  return fallback;
+function formatCurrency(value: number) {
+  return `¥${value.toLocaleString("zh-CN")}`;
 }
 
-function formatCurrency(value: unknown) {
-  const amount = toFiniteNumber(value);
-  return amount === 0 ? "—" : `¥${amount.toLocaleString("zh-CN")}`;
-}
-
-function formatCredits(value: unknown) {
-  const amount = toFiniteNumber(value);
-  return amount === 0 ? "—" : amount.toLocaleString("zh-CN");
+function formatCredits(value: number) {
+  return value.toLocaleString("zh-CN");
 }
 
 function readAdminToken() {
@@ -392,37 +328,28 @@ function readAdminToken() {
 }
 
 function creditAmount(delta: number) {
-  const safeDelta = toFiniteNumber(delta);
-  const prefix = safeDelta > 0 ? "+" : "";
-  return `${prefix}${formatCredits(safeDelta)}`;
+  const prefix = delta > 0 ? "+" : "";
+  return `${prefix}${formatCredits(delta)}`;
 }
 
 function normalizeAdminPayload(payload: AdminPayload) {
-  const normalizedUsers = (payload.users || users).map((item) => ({
+  const normalizedUsers = (payload.users || []).map((item) => ({
     ...item,
-    credits: toFiniteNumber(item.credits),
-    spent: toFiniteNumber(item.spent ?? item.totalRecharge),
-    totalRecharge: toFiniteNumber(item.totalRecharge ?? item.spent),
-    frozenCredits: toFiniteNumber(item.frozenCredits),
+    spent: item.spent ?? item.totalRecharge ?? 0,
   }));
-  const normalizedOrders = (payload.orders || orders).map((item) => ({
+  const normalizedOrders = (payload.orders || []).map((item) => ({
     ...item,
-    amount: toFiniteNumber(item.amount),
-    credits: toFiniteNumber(item.credits ?? item.issuedCredits ?? item.expectedCredits),
-    expectedCredits: toFiniteNumber(item.expectedCredits ?? item.credits),
-    issuedCredits: toFiniteNumber(item.issuedCredits),
-    refundAmount: toFiniteNumber(item.refundAmount),
-    refundedCredits: toFiniteNumber(item.refundedCredits),
+    credits: item.credits ?? item.issuedCredits ?? item.expectedCredits ?? 0,
   }));
   const normalizedCredits: CreditEvent[] = (payload.credits || []).map((item) => ({
     id: item.id,
     user: item.user,
     type: item.type,
-    amount: creditAmount(toFiniteNumber(item.delta)),
+    amount: creditAmount(item.delta),
     actor: item.operator,
     note: item.source || item.reason,
   }));
-  const normalizedProviders = (payload.providers || integrations).map((item) => ({
+  const normalizedProviders = (payload.providers || []).map((item) => ({
     ...item,
     latency: item.latency || `${"latencyMs" in item ? item.latencyMs ?? 0 : 0}ms`,
   }));
@@ -438,64 +365,28 @@ function normalizeAdminPayload(payload: AdminPayload) {
     overview: payload.overview ? { ...payload.overview, capabilityStatus: payload.capabilityStatus || payload.overview.capabilityStatus || [] } : payload.overview,
     users: normalizedUsers,
     orders: normalizedOrders,
-    credits: normalizedCredits.length ? normalizedCredits : creditEvents,
+    credits: normalizedCredits,
     aiTasks: payload.aiTasks || [],
     providers: normalizedProviders,
-    feedback: payload.feedback || feedbackSeed,
-    alerts: payload.alerts || alertSeed,
+    feedback: payload.feedback || [],
+    alerts: payload.alerts || [],
     riskEvents: payload.riskEvents || [],
-    auditRows: normalizedAuditRows.length ? normalizedAuditRows : auditRows,
+    auditRows: normalizedAuditRows,
     plans: payload.plans || [],
   };
 }
 
 type AdminState = ReturnType<typeof normalizeAdminPayload>;
 
-function normalizeOrder(order: Order): Order {
-  return {
-    ...order,
-    amount: toFiniteNumber(order.amount),
-    credits: toFiniteNumber(order.credits ?? order.issuedCredits ?? order.expectedCredits),
-    expectedCredits: toFiniteNumber(order.expectedCredits ?? order.credits),
-    issuedCredits: toFiniteNumber(order.issuedCredits),
-    refundAmount: toFiniteNumber(order.refundAmount),
-    refundedCredits: toFiniteNumber(order.refundedCredits),
-  };
-}
-
-function normalizeOrderDetail(detail: OrderDetail): OrderDetail {
-  return {
-    ...detail,
-    order: normalizeOrder(detail.order),
-    creditEntries: (detail.creditEntries || []).map((item) => ({
-      ...item,
-      delta: toFiniteNumber(item.delta),
-    })),
-    paymentEvents: (detail.paymentEvents || []).map((item) => ({
-      ...item,
-      amount: item.amount === undefined ? undefined : toFiniteNumber(item.amount),
-    })),
-    refundEvents: (detail.refundEvents || []).map((item) => ({
-      ...item,
-      amount: toFiniteNumber(item.amount),
-      creditsDeducted: toFiniteNumber(item.creditsDeducted),
-    })),
-    notes: detail.notes || [],
-    auditEntries: detail.auditEntries || [],
-    feedbackEntries: detail.feedbackEntries || [],
-    timeline: detail.timeline || [],
-  };
-}
-
 function AdminPrototypePage() {
-  const { user } = useAuth();
+  const { user, changePassword } = useAuth();
   const [activeSection, setActiveSection] = useState<AdminSection>("overview");
   const [adminData, setAdminData] = useState<AdminState>(() => normalizeAdminPayload({}));
-  const [selectedUserId, setSelectedUserId] = useState(users[0].id);
+  const [selectedUserId, setSelectedUserId] = useState("");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | Status>("all");
   const [alertsOpen, setAlertsOpen] = useState(false);
-  const [creditDelta, setCreditDelta] = useState(0);
+  const [creditDelta, setCreditDelta] = useState(500);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("正在连接后台数据接口：/api/admin/overview。");
   const [policyDraft, setPolicyDraft] = useState<Array<{ capability: string; capabilityKey?: string; unit: string; baseCredits: number; estimatedCostPerUnit: number; provider: string }>>([]);
@@ -503,14 +394,20 @@ function AdminPrototypePage() {
   const [selectedOrderId, setSelectedOrderId] = useState("");
   const [orderDetail, setOrderDetail] = useState<OrderDetail | null>(null);
   const [orderNote, setOrderNote] = useState("");
+  const [passwordPanelOpen, setPasswordPanelOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [passwordMessage, setPasswordMessage] = useState("");
   const [externalCollection, setExternalCollection] = useState({
-    amount: "",
-    expectedCredits: "",
-    packageName: "",
-    collector: "",
+    amount: "20",
+    expectedCredits: "0",
+    packageName: "接口方代收确认",
+    collector: "AI 接口方商户",
     merchantOrderId: "",
     providerTransactionId: "",
-    note: "",
+    note: "接口方确认已收到用户付款",
     issueCredits: false,
   });
 
@@ -553,7 +450,7 @@ function AdminPrototypePage() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || "订单详情加载失败");
-      setOrderDetail(normalizeOrderDetail(payload as OrderDetail));
+      setOrderDetail(payload as OrderDetail);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "订单详情加载失败");
     }
@@ -610,7 +507,7 @@ function AdminPrototypePage() {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "订单操作失败");
-      setOrderDetail(normalizeOrderDetail(result as OrderDetail));
+      setOrderDetail(result as OrderDetail);
       await fetchAdminData(successMessage);
       setNotice(successMessage);
     } catch (error) {
@@ -618,7 +515,7 @@ function AdminPrototypePage() {
     }
   }
 
-  const selectedUser = adminData.users.find((item) => item.id === selectedUserId) ?? adminData.users[0] ?? users[0];
+  const selectedUser = adminData.users.find((item) => item.id === selectedUserId) ?? adminData.users[0];
   const selectedOrder = adminData.orders.find((item) => item.id === selectedOrderId) ?? adminData.orders[0];
   const metrics = adminData.overview?.metrics;
   const paidRevenue = metrics?.todayRevenue ?? adminData.orders
@@ -652,6 +549,10 @@ function AdminPrototypePage() {
   }
 
   function handleCreditAdjustment(direction: "plus" | "minus") {
+    if (!selectedUser) {
+      setNotice("请先选择一个真实用户账户。");
+      return;
+    }
     const delta = Math.abs(creditDelta) * (direction === "plus" ? 1 : -1);
     adminPost("/api/admin/credits/adjust", {
       userId: selectedUser.id,
@@ -659,6 +560,35 @@ function AdminPrototypePage() {
       reason: "后台人工额度调整",
       confirmHighRisk: Math.abs(delta) >= 10000,
     }, `${selectedUser.name} 的额度调整已提交：${creditAmount(delta)} 积分，审计日志已生成。`);
+  }
+
+  async function handleChangePassword() {
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setPasswordMessage("请填写当前密码、新密码和确认密码。");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordMessage("两次输入的新密码不一致。");
+      return;
+    }
+    if (newPassword.length < 8) {
+      setPasswordMessage("新密码至少需要 8 位。");
+      return;
+    }
+    setPasswordBusy(true);
+    setPasswordMessage("");
+    const result = await changePassword(currentPassword, newPassword);
+    setPasswordBusy(false);
+    if (!result.ok) {
+      setPasswordMessage(result.error || "密码修改失败。");
+      return;
+    }
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setPasswordPanelOpen(false);
+    setPasswordMessage("");
+    setNotice("密码已更新，当前登录会话已自动换发。");
   }
 
   function handleMarkAlertRead(id: string) {
@@ -735,6 +665,10 @@ function AdminPrototypePage() {
   }
 
   function handleRecordExternalCollection() {
+    if (!selectedUser) {
+      setNotice("请先选择一个真实用户账户。");
+      return;
+    }
     adminPostOrder("/api/admin/orders/external-collection", {
       userId: selectedUser.id,
       amount: Number(externalCollection.amount || 0),
@@ -749,12 +683,12 @@ function AdminPrototypePage() {
   }
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-[#0b1020] text-slate-100">
-      <div className="min-h-screen lg:pl-[280px]">
-        <aside className="border-b border-white/10 bg-[#0f172a] lg:fixed lg:inset-y-0 lg:left-0 lg:z-20 lg:w-[280px] lg:overflow-hidden lg:border-b-0 lg:border-r">
+    <div className="min-h-screen overflow-x-hidden bg-[#0b1020] text-slate-100 lg:h-screen lg:overflow-hidden">
+      <div className="grid min-h-screen grid-cols-1 lg:h-screen lg:grid-cols-[280px_1fr]">
+        <aside className="border-b border-white/10 bg-[#0f172a] lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
           <div className="flex h-full flex-col">
             <div className="border-b border-white/10 px-5 py-5">
-              <div className="flex items-center gap-3">
+              <div className="flex min-w-0 items-center gap-3">
                 <div className="flex size-10 items-center justify-center rounded-md bg-cyan-300 text-slate-950">
                   <Sparkles className="size-5" />
                 </div>
@@ -765,7 +699,7 @@ function AdminPrototypePage() {
               </div>
             </div>
 
-            <nav className="grid gap-1 overflow-y-auto p-3 lg:min-h-0 lg:flex-1">
+            <nav className="grid gap-1 p-3">
               {sections.map((section) => {
                 const Icon = section.icon;
                 const isActive = section.id === activeSection;
@@ -806,14 +740,14 @@ function AdminPrototypePage() {
                   今日运营提醒
                 </div>
                 <p className="text-xs leading-5 text-slate-400">
-                  暂无真实运营提醒，等待接入线上数据。
+                  1 笔支付回调延迟、1 个高风险账户、2 条待处理反馈需要跟进。
                 </p>
               </div>
             </div>
           </div>
         </aside>
 
-        <main className="min-w-0">
+        <main className="min-w-0 lg:h-screen lg:overflow-y-auto">
           <header className="sticky top-0 z-10 border-b border-white/10 bg-[#0b1020]/90 px-4 py-4 backdrop-blur md:px-6">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
               <div>
@@ -840,14 +774,14 @@ function AdminPrototypePage() {
                 />
                 <Button
                   variant="outline"
-                  className="border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
+                  className="min-w-0 border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
                   onClick={() => fetchAdminData("已刷新第三方支付、模型供应商和告警状态。")}
                 >
                   <Activity className="size-4" />
                   刷新接口状态
                 </Button>
                 <Button
-                  className="bg-cyan-300 text-slate-950 hover:bg-cyan-200"
+                  className="w-full bg-cyan-300 text-slate-950 hover:bg-cyan-200 sm:w-auto"
                   onClick={() => setActiveSection("audit")}
                 >
                   <Plus className="size-4" />
@@ -862,16 +796,71 @@ function AdminPrototypePage() {
               {loading ? "正在加载后台运营数据..." : notice}
             </div>
 
-            <div className="flex flex-col gap-3 rounded-md border border-emerald-300/20 bg-emerald-300/[0.055] px-4 py-3 text-sm text-emerald-50 md:flex-row md:items-center md:justify-between">
-              <div>
-                <span className="font-medium">后台权限已启用</span>
-                <span className="ml-2 text-emerald-100/75">
-                  当前账号：{user?.username || "admin"} · 角色：{user?.role || "admin"}
-                </span>
+            <div className="rounded-md border border-emerald-300/20 bg-emerald-300/[0.055] px-4 py-3 text-sm text-emerald-50">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <span className="font-medium">后台权限已启用</span>
+                  <span className="ml-2 text-emerald-100/75">
+                    当前账号：{user?.username || "admin"} · 角色：{user?.role || "admin"}
+                  </span>
+                </div>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <span className="text-xs text-emerald-100/70">
+                    权限：{(user?.permissions || ["admin:access"]).slice(0, 4).join(" / ")}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full border-emerald-300/30 bg-emerald-300/10 text-emerald-50 hover:bg-emerald-300/15 sm:w-auto"
+                    onClick={() => {
+                      setPasswordPanelOpen((value) => !value);
+                      setPasswordMessage("");
+                    }}
+                  >
+                    <LockKeyhole className="size-4" />
+                    修改密码
+                  </Button>
+                </div>
               </div>
-              <span className="text-xs text-emerald-100/70">
-                权限：{(user?.permissions || ["admin:access"]).slice(0, 4).join(" / ")}
-              </span>
+              {passwordPanelOpen && (
+                <div className="mt-4 grid gap-3 border-t border-emerald-300/15 pt-4 lg:grid-cols-[1fr_1fr_1fr_auto]">
+                  <Input
+                    type="password"
+                    value={currentPassword}
+                    onChange={(event) => setCurrentPassword(event.target.value)}
+                    placeholder="当前密码"
+                    autoComplete="current-password"
+                    className="border-emerald-300/20 bg-slate-950/45 text-emerald-50 placeholder:text-emerald-100/35"
+                  />
+                  <Input
+                    type="password"
+                    value={newPassword}
+                    onChange={(event) => setNewPassword(event.target.value)}
+                    placeholder="新密码，至少 8 位"
+                    autoComplete="new-password"
+                    className="border-emerald-300/20 bg-slate-950/45 text-emerald-50 placeholder:text-emerald-100/35"
+                  />
+                  <Input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(event) => setConfirmPassword(event.target.value)}
+                    placeholder="确认新密码"
+                    autoComplete="new-password"
+                    className="border-emerald-300/20 bg-slate-950/45 text-emerald-50 placeholder:text-emerald-100/35"
+                  />
+                  <Button
+                    type="button"
+                    className="bg-emerald-300 text-slate-950 hover:bg-emerald-200"
+                    onClick={handleChangePassword}
+                    disabled={passwordBusy}
+                  >
+                    {passwordBusy ? "提交中" : "保存"}
+                  </Button>
+                  {passwordMessage && (
+                    <div className="text-xs text-amber-100 lg:col-span-4">{passwordMessage}</div>
+                  )}
+                </div>
+              )}
             </div>
 
             <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -908,12 +897,16 @@ function AdminPrototypePage() {
               </div>
 
               <aside className="min-w-0 space-y-5">
-                <UserDetailPanel
-                  user={selectedUser}
-                  creditDelta={creditDelta}
-                  setCreditDelta={setCreditDelta}
-                  onAdjust={handleCreditAdjustment}
-                />
+                {selectedUser ? (
+                  <UserDetailPanel
+                    user={selectedUser}
+                    creditDelta={creditDelta}
+                    setCreditDelta={setCreditDelta}
+                    onAdjust={handleCreditAdjustment}
+                  />
+                ) : (
+                  <EmptyPanel title="暂无真实用户" body="后台不会显示演示用户。注册或导入真实用户后，这里会自动出现账户详情。" />
+                )}
                 <RiskPanel riskEvents={adminData.riskEvents} plans={adminData.plans} />
               </aside>
             </section>
@@ -936,24 +929,28 @@ function AdminPrototypePage() {
               <Badge tone="amber">{adminData.overview?.operationsQueue.length || adminData.alerts.length} 项待办</Badge>
             </div>
             <div className="space-y-3">
-              {(adminData.overview?.operationsQueue || []).map(({ title, body, priority, section }) => (
-                <div
-                  key={title}
-                  className="flex cursor-pointer items-start gap-3 rounded-md border border-white/8 bg-white/[0.03] p-3 transition hover:bg-white/[0.055]"
-                  onClick={() => section && setActiveSection(section)}
-                >
-                  <div className="mt-0.5 flex size-8 items-center justify-center rounded-md bg-white/7">
-                    <AlertTriangle className="size-4 text-amber-200" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <div className="text-sm font-medium">{title}</div>
-                      <Badge tone={priority === "P0" ? "rose" : "amber"}>{priority}</Badge>
+              {(adminData.overview?.operationsQueue || []).length ? (
+                (adminData.overview?.operationsQueue || []).map(({ title, body, priority, section }) => (
+                  <div
+                    key={title}
+                    className="flex cursor-pointer items-start gap-3 rounded-md border border-white/8 bg-white/[0.03] p-3 transition hover:bg-white/[0.055]"
+                    onClick={() => section && setActiveSection(section)}
+                  >
+                    <div className="mt-0.5 flex size-8 items-center justify-center rounded-md bg-white/7">
+                      <AlertTriangle className="size-4 text-amber-200" />
                     </div>
-                    <p className="mt-1 text-sm leading-5 text-slate-400">{body}</p>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <div className="text-sm font-medium">{title}</div>
+                        <Badge tone={priority === "P0" ? "rose" : "amber"}>{priority}</Badge>
+                      </div>
+                      <p className="mt-1 text-sm leading-5 text-slate-400">{body}</p>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))
+              ) : (
+                <EmptyPanel title="暂无运营待办" body="没有真实告警、反馈或风险事件时，这里保持为空。" />
+              )}
             </div>
           </div>
 
@@ -961,18 +958,42 @@ function AdminPrototypePage() {
             <h2 className="text-base font-semibold">后台模块成熟度</h2>
             <p className="mt-1 text-sm text-slate-400">用于判断 MVP 后台先做什么。</p>
             <div className="mt-5 space-y-4">
-              {(adminData.overview?.maturity || []).map(({ label, value }) => (
-                <div key={label}>
-                  <div className="mb-2 flex justify-between text-sm">
-                    <span>{label}</span>
-                    <span className="text-slate-400">{value}%</span>
+              {(adminData.overview?.maturity || []).length ? (
+                (adminData.overview?.maturity || []).map(({ label, value }) => (
+                  <div key={label}>
+                    <div className="mb-2 flex justify-between text-sm">
+                      <span>{label}</span>
+                      <span className="text-slate-400">{value}%</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-white/8">
+                      <div
+                        className="h-2 rounded-full bg-cyan-300"
+                        style={{ width: `${value}%` }}
+                      />
+                    </div>
                   </div>
-                  <div className="h-2 rounded-full bg-white/8">
-                    <div
-                      className="h-2 rounded-full bg-cyan-300"
-                      style={{ width: `${value}%` }}
-                    />
+                ))
+              ) : (
+                <EmptyPanel title="暂无成熟度数据" body="后台不会用演示评分填充模块成熟度。" />
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-md border border-white/10 bg-slate-950/40 p-4 xl:col-span-2">
+            <h2 className="text-base font-semibold">正式上线依赖</h2>
+            <p className="mt-1 text-sm text-slate-400">这里按服务器环境变量判断生产接口、存储、告警和备份是否具备上线条件。</p>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {(adminData.overview?.productionReadiness || []).map((item) => (
+                <div key={item.id} className="rounded-md border border-white/8 bg-white/[0.03] p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="text-sm font-medium">{item.domain}</div>
+                    <Badge className={statusClass(item.status === "ready" ? "normal" : item.status === "partial" ? "watch" : "blocked")}>
+                      {item.status === "ready" ? "可上线" : item.status === "partial" ? "部分配置" : "缺配置"}
+                    </Badge>
                   </div>
+                  <p className="mt-2 text-sm text-slate-400">{item.summary}</p>
+                  {item.missingKeys.length > 0 && <div className="mt-2 text-xs text-amber-200">缺少：{item.missingKeys.join(" / ")}</div>}
+                  <div className="mt-2 text-xs text-slate-500">{item.action}</div>
                 </div>
               ))}
             </div>
@@ -996,30 +1017,6 @@ function AdminPrototypePage() {
               ))}
             </div>
           </div>
-
-          <div className="rounded-md border border-white/10 bg-slate-950/40 p-4 xl:col-span-2">
-            <h2 className="text-base font-semibold">正式上线依赖</h2>
-            <p className="mt-1 text-sm text-slate-400">这里按服务器环境变量判断生产接口、存储、告警和备份是否具备上线条件。</p>
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              {(adminData.overview?.productionReadiness || []).map((item) => (
-                <div key={item.id} className="rounded-md border border-white/8 bg-white/[0.03] p-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="text-sm font-medium">{item.domain}</div>
-                    <Badge className={statusClass(item.status === "ready" ? "normal" : item.status === "partial" ? "watch" : "blocked")}>
-                      {item.status === "ready" ? "可上线" : item.status === "partial" ? "部分配置" : "缺配置"}
-                    </Badge>
-                  </div>
-                  <p className="mt-2 text-sm text-slate-400">{item.summary}</p>
-                  {item.missingKeys.length > 0 && (
-                    <div className="mt-2 text-xs text-amber-200">
-                      缺少：{item.missingKeys.join(" / ")}
-                    </div>
-                  )}
-                  <div className="mt-2 text-xs text-slate-500">{item.action}</div>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
       );
     }
@@ -1033,20 +1030,20 @@ function AdminPrototypePage() {
             statusFilter={statusFilter}
             setStatusFilter={setStatusFilter}
           />
-          <div className="overflow-x-auto">
-            <Table className="min-w-[780px]">
-              <TableHeader>
-                <TableRow className="border-white/10 hover:bg-transparent">
-                  <TableHead>用户</TableHead>
-                  <TableHead>套餐</TableHead>
-                  <TableHead>积分余额</TableHead>
-                  <TableHead>累计付费</TableHead>
-                  <TableHead>状态</TableHead>
-                  <TableHead>最近活跃</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredUsers.map((user) => (
+          <Table className="min-w-[780px]">
+            <TableHeader>
+              <TableRow className="border-white/10 hover:bg-transparent">
+                <TableHead>用户</TableHead>
+                <TableHead>套餐</TableHead>
+                <TableHead>积分余额</TableHead>
+                <TableHead>累计付费</TableHead>
+                <TableHead>状态</TableHead>
+                <TableHead>最近活跃</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredUsers.length ? (
+                filteredUsers.map((user) => (
                   <TableRow
                     key={user.id}
                     className={cn(
@@ -1063,7 +1060,7 @@ function AdminPrototypePage() {
                     <TableCell>{formatCredits(user.credits)}</TableCell>
                     <TableCell>{formatCurrency(user.spent)}</TableCell>
                     <TableCell>
-                      <Badge className={statusClass(user.status)}>{statusLabel(user.status)}</Badge>
+                      <Badge className={cn("w-fit shrink-0", statusClass(user.status))}>{statusLabel(user.status)}</Badge>
                     </TableCell>
                     <TableCell className="text-slate-400">
                       <div>{user.lastSeen}</div>
@@ -1071,7 +1068,7 @@ function AdminPrototypePage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
+                          className="min-w-0 border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
                           onClick={(event) => {
                             event.stopPropagation();
                             handleUserRole(user.id, "support");
@@ -1082,7 +1079,7 @@ function AdminPrototypePage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
+                          className="min-w-0 border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
                           onClick={(event) => {
                             event.stopPropagation();
                             handleUserRole(user.id, "finance");
@@ -1093,7 +1090,7 @@ function AdminPrototypePage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
+                          className="min-w-0 border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
                           onClick={(event) => {
                             event.stopPropagation();
                             handleUserStatus(user.id, user.status === "blocked" ? "normal" : "blocked");
@@ -1104,10 +1101,16 @@ function AdminPrototypePage() {
                       </div>
                     </TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                ))
+              ) : (
+                <TableRow className="border-white/8 hover:bg-transparent">
+                  <TableCell colSpan={6} className="py-10 text-center text-sm text-slate-500">
+                    暂无真实用户数据
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
         </div>
       );
     }
@@ -1115,13 +1118,17 @@ function AdminPrototypePage() {
     if (activeSection === "orders") {
       return (
         <div className="grid min-w-0 gap-5 2xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
-          <div className="min-w-0 space-y-4">
-            <ExternalCollectionPanel
-              form={externalCollection}
-              selectedUserName={selectedUser.name}
-              onChange={handleExternalCollectionChange}
-              onSubmit={handleRecordExternalCollection}
-            />
+          <div className="space-y-4">
+            {selectedUser ? (
+              <ExternalCollectionPanel
+                form={externalCollection}
+                selectedUserName={selectedUser.name}
+                onChange={handleExternalCollectionChange}
+                onSubmit={handleRecordExternalCollection}
+              />
+            ) : (
+              <EmptyPanel title="暂无可关联用户" body="需要先有真实用户账户，才能登记接口方代收记录。" />
+            )}
             <div className="min-w-0 overflow-x-auto rounded-md border border-white/10 bg-white/[0.03]">
               <OrdersTable orders={adminData.orders} selectedOrderId={selectedOrder?.id || ""} onSelect={handleSelectOrder} />
             </div>
@@ -1157,42 +1164,46 @@ function AdminPrototypePage() {
     if (activeSection === "feedback") {
       return (
         <div className="space-y-3">
-          {adminData.feedback.map((item) => (
-            <div
-              key={item.id}
-              className="rounded-md border border-white/10 bg-slate-950/35 p-4"
-            >
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <div className="mb-2 flex flex-wrap items-center gap-2">
-                    <Badge className={statusClass(item.priority)}>{item.priority}</Badge>
-                    <Badge className={statusClass(item.status)}>{statusLabel(item.status)}</Badge>
-                    <span className="text-xs text-slate-500">{item.module}</span>
+          {adminData.feedback.length ? (
+            adminData.feedback.map((item) => (
+              <div
+                key={item.id}
+                className="rounded-md border border-white/10 bg-slate-950/35 p-4"
+              >
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <Badge className={statusClass(item.priority)}>{item.priority}</Badge>
+                      <Badge className={statusClass(item.status)}>{statusLabel(item.status)}</Badge>
+                      <span className="text-xs text-slate-500">{item.module}</span>
+                    </div>
+                    <h3 className="text-sm font-medium">{item.title}</h3>
+                    <p className="mt-1 text-sm text-slate-400">
+                      {item.user} · {item.createdAt}
+                    </p>
                   </div>
-                  <h3 className="text-sm font-medium">{item.title}</h3>
-                  <p className="mt-1 text-sm text-slate-400">
-                    {item.user} · {item.createdAt}
-                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="min-w-0 border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
+                    onClick={() => handleResolveFeedback(item.id)}
+                  >
+                    <Check className="size-4" />
+                    标记解决
+                  </Button>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
-                  onClick={() => handleResolveFeedback(item.id)}
-                >
-                  <Check className="size-4" />
-                  标记解决
-                </Button>
               </div>
-            </div>
-          ))}
+            ))
+          ) : (
+            <EmptyPanel title="暂无真实反馈" body="没有用户反馈时不会显示演示工单。" />
+          )}
         </div>
       );
     }
 
     if (activeSection === "integrations") {
       return (
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-5">
           <DataList
             title="第三方接口健康度"
             description="支付、模型、部署和网关都要有状态、延迟、负责人。"
@@ -1224,7 +1235,7 @@ function AdminPrototypePage() {
                 <h3 className="text-sm font-semibold">AI 扣分策略配置区</h3>
                 <p className="mt-1 text-xs text-slate-400">修改后会直接影响服务端真实扣分与后台毛利统计。</p>
               </div>
-              <Button className="bg-cyan-300 text-slate-950 hover:bg-cyan-200" onClick={handleSaveAiPolicies}>
+              <Button className="w-full bg-cyan-300 text-slate-950 hover:bg-cyan-200 sm:w-auto" onClick={handleSaveAiPolicies}>
                 保存策略
               </Button>
             </div>
@@ -1250,7 +1261,10 @@ function AdminPrototypePage() {
                   </div>
                 </div>
               ))}
-              <div className="grid gap-3 md:grid-cols-2">
+              {!policyDraft.length && (
+                <EmptyPanel title="暂无 AI 扣分策略" body="接口未返回策略前，不展示任何演示策略。" />
+              )}
+              <div className="grid min-w-0 gap-3 xl:grid-cols-2">
                 {discountDraft.map((discount, index) => (
                   <div key={discount.planId} className="rounded-md border border-white/8 bg-white/[0.03] p-3">
                     <div className="text-sm font-medium">{discount.planId} 套餐折扣</div>
@@ -1333,15 +1347,13 @@ function AdminPrototypePage() {
               value: event.status,
               icon: event.severity === "high" ? AlertTriangle : ShieldCheck,
             })),
-            { title: "支付失败重试", meta: "同卡 5 次失败后进入观察", value: "启用", icon: CreditCard },
-            { title: "人工大额赠送", meta: "超过 10,000 积分需要二次确认", value: "启用", icon: ShieldCheck },
           ]}
         />
       );
     }
 
     return (
-      <div className="space-y-5">
+      <div className="min-w-0 space-y-5">
         <DataList
           title="管理员操作审计"
           description="钱和额度相关操作必须记录人、时间、目标和原因。"
@@ -1445,7 +1457,7 @@ function NotificationCenter({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold">敏捷处理消息</div>
-                <p className="mt-1 text-xs leading-5 text-slate-400">
+                <p className="mt-1 break-words text-xs leading-5 text-slate-400">
                   聚合支付异常、系统报错、接口延迟和额度风险。
                 </p>
               </div>
@@ -1465,68 +1477,72 @@ function NotificationCenter({
           </div>
 
           <div className="max-h-[440px] overflow-y-auto">
-            {alerts.map((alert) => (
-              <div
-                key={alert.id}
-                className={cn(
-                  "border-b border-white/8 p-4 last:border-b-0",
-                  alert.unread ? "bg-cyan-300/[0.045]" : "bg-transparent"
-                )}
-              >
-                <div className="flex items-start gap-3">
-                  <div
-                    className={cn(
-                      "mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md border",
-                      alert.severity === "critical"
-                        ? "border-rose-400/30 bg-rose-400/10 text-rose-100"
-                        : "border-amber-400/30 bg-amber-400/10 text-amber-100"
-                    )}
-                  >
-                    {alert.category === "支付" ? (
-                      <CreditCard className="size-4" />
-                    ) : alert.category === "报错" ? (
-                      <AlertTriangle className="size-4" />
-                    ) : alert.category === "接口" ? (
-                      <Activity className="size-4" />
-                    ) : (
-                      <WalletCards className="size-4" />
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge
-                        className={
-                          alert.severity === "critical"
-                            ? statusClass("P0")
-                            : statusClass("watch")
-                        }
-                      >
-                        {alert.category}
-                      </Badge>
-                      <span className="text-xs text-slate-500">{alert.time}</span>
-                      {alert.unread && <span className="size-2 rounded-full bg-cyan-300" />}
+            {alerts.length ? (
+              alerts.map((alert) => (
+                <div
+                  key={alert.id}
+                  className={cn(
+                    "border-b border-white/8 p-4 last:border-b-0",
+                    alert.unread ? "bg-cyan-300/[0.045]" : "bg-transparent"
+                  )}
+                >
+                  <div className="flex items-start gap-3">
+                    <div
+                      className={cn(
+                        "mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md border",
+                        alert.severity === "critical"
+                          ? "border-rose-400/30 bg-rose-400/10 text-rose-100"
+                          : "border-amber-400/30 bg-amber-400/10 text-amber-100"
+                      )}
+                    >
+                      {alert.category === "支付" ? (
+                        <CreditCard className="size-4" />
+                      ) : alert.category === "报错" ? (
+                        <AlertTriangle className="size-4" />
+                      ) : alert.category === "接口" ? (
+                        <Activity className="size-4" />
+                      ) : (
+                        <WalletCards className="size-4" />
+                      )}
                     </div>
-                    <div className="mt-2 text-sm font-medium">{alert.title}</div>
-                    <p className="mt-1 text-xs leading-5 text-slate-400">{alert.detail}</p>
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <span className="text-xs text-slate-500">负责人：{alert.owner}</span>
-                      <button
-                        className="ml-auto rounded-md border border-white/10 px-2 py-1 text-xs text-slate-200 hover:bg-white/8"
-                        onClick={() => onJumpTo(alertSection(alert.category))}
-                      >
-                        查看模块
-                      </button>
-                      <button
-                        className="rounded-md bg-white px-2 py-1 text-xs font-medium text-slate-950 hover:bg-cyan-100"
-                        onClick={() => onMarkRead(alert.id)}
-                      >
-                        标记处理
-                      </button>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge
+                          className={
+                            alert.severity === "critical"
+                              ? statusClass("P0")
+                              : statusClass("watch")
+                          }
+                        >
+                          {alert.category}
+                        </Badge>
+                        <span className="text-xs text-slate-500">{alert.time}</span>
+                        {alert.unread && <span className="size-2 rounded-full bg-cyan-300" />}
+                      </div>
+                      <div className="mt-2 text-sm font-medium">{alert.title}</div>
+                      <p className="mt-1 break-words text-xs leading-5 text-slate-400">{alert.detail}</p>
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <span className="text-xs text-slate-500">负责人：{alert.owner}</span>
+                        <button
+                          className="ml-auto rounded-md border border-white/10 px-2 py-1 text-xs text-slate-200 hover:bg-white/8"
+                          onClick={() => onJumpTo(alertSection(alert.category))}
+                        >
+                          查看模块
+                        </button>
+                        <button
+                          className="rounded-md bg-white px-2 py-1 text-xs font-medium text-slate-950 hover:bg-cyan-100"
+                          onClick={() => onMarkRead(alert.id)}
+                        >
+                          标记处理
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))
+            ) : (
+              <div className="p-4 text-sm text-slate-500">暂无真实告警消息</div>
+            )}
           </div>
         </div>
       )}
@@ -1572,7 +1588,6 @@ function SectionTabs({
     </div>
   );
 }
-
 function Toolbar({
   query,
   setQuery,
@@ -1644,30 +1659,47 @@ function OrdersTable({
         </TableRow>
       </TableHeader>
       <TableBody>
-        {orders.map((order) => (
-          <TableRow
-            key={order.id}
-            className={cn("cursor-pointer border-white/8 hover:bg-white/[0.04]", selectedOrderId === order.id && "bg-cyan-300/10")}
-            onClick={() => onSelect(order.id)}
-          >
-            <TableCell className="max-w-[180px] break-all font-mono text-xs text-slate-400">{order.id}</TableCell>
-            <TableCell className="max-w-[160px] break-words">{order.user}</TableCell>
-            <TableCell className="max-w-[140px] break-words">{order.channel}</TableCell>
-            <TableCell>{formatCurrency(order.amount)}</TableCell>
-            <TableCell>{formatCredits(order.credits)}</TableCell>
-            <TableCell>
-              <Badge className={statusClass(order.status)}>{statusLabel(order.status)}</Badge>
+        {orders.length ? (
+          orders.map((order) => (
+            <TableRow
+              key={order.id}
+              className={cn("cursor-pointer border-white/8 hover:bg-white/[0.04]", selectedOrderId === order.id && "bg-cyan-300/10")}
+              onClick={() => onSelect(order.id)}
+            >
+              <TableCell className="font-mono text-xs text-slate-400">{order.id}</TableCell>
+              <TableCell>{order.user}</TableCell>
+              <TableCell>{order.channel}</TableCell>
+              <TableCell>{formatCurrency(order.amount)}</TableCell>
+              <TableCell>{formatCredits(order.credits)}</TableCell>
+              <TableCell>
+                <Badge className={statusClass(order.status)}>{statusLabel(order.status)}</Badge>
+              </TableCell>
+              <TableCell>
+                <Badge className={statusClass(order.reconciliation || "matched")}>
+                  {order.reconciliation === "mismatch" ? "异常" : order.reconciliation === "pending" ? "待对账" : "一致"}
+                </Badge>
+              </TableCell>
+              <TableCell className="text-slate-400">{order.createdAt}</TableCell>
+            </TableRow>
+          ))
+        ) : (
+          <TableRow className="border-white/8 hover:bg-transparent">
+            <TableCell colSpan={8} className="py-10 text-center text-sm text-slate-500">
+              暂无真实订单数据
             </TableCell>
-            <TableCell>
-              <Badge className={statusClass(order.reconciliation || "matched")}>
-                {order.reconciliation === "mismatch" ? "异常" : order.reconciliation === "pending" ? "待对账" : "一致"}
-              </Badge>
-            </TableCell>
-            <TableCell className="text-slate-400">{order.createdAt}</TableCell>
           </TableRow>
-        ))}
+        )}
       </TableBody>
     </Table>
+  );
+}
+
+function EmptyPanel({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="rounded-md border border-white/10 bg-white/[0.035] p-4">
+      <div className="text-sm font-semibold text-slate-100">{title}</div>
+      <p className="mt-2 text-sm leading-6 text-slate-400">{body}</p>
+    </div>
   );
 }
 
@@ -1694,7 +1726,7 @@ function ExternalCollectionPanel({
   return (
     <div className="min-w-0 rounded-md border border-cyan-300/20 bg-cyan-300/[0.045] p-4">
       <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
+        <div>
           <h3 className="text-sm font-semibold text-cyan-100">登记接口方代收记录</h3>
           <p className="mt-1 break-words text-xs leading-5 text-slate-400">
             用于记录钱款进入第三方商户账户的事实，关联当前选中用户：{selectedUserName}。
@@ -1703,14 +1735,14 @@ function ExternalCollectionPanel({
         <Badge className="w-fit shrink-0 border-cyan-300/20 bg-cyan-300/10 text-cyan-100">留痕</Badge>
       </div>
       <div className="grid min-w-0 gap-3 xl:grid-cols-2">
-        <Input value={form.amount} onChange={(event) => onChange("amount", event.target.value)} placeholder="收款金额" className="border-white/12 bg-slate-950/40" />
-        <Input value={form.expectedCredits} onChange={(event) => onChange("expectedCredits", event.target.value)} placeholder="应发积分，可留空" className="border-white/12 bg-slate-950/40" />
+        <Input value={form.amount} onChange={(event) => onChange("amount", event.target.value)} placeholder="收款金额，例如 20" className="border-white/12 bg-slate-950/40" />
+        <Input value={form.expectedCredits} onChange={(event) => onChange("expectedCredits", event.target.value)} placeholder="应发积分，可先填 0" className="border-white/12 bg-slate-950/40" />
         <Input value={form.collector} onChange={(event) => onChange("collector", event.target.value)} placeholder="代收方，例如 AI 接口方商户" className="border-white/12 bg-slate-950/40" />
         <Input value={form.packageName} onChange={(event) => onChange("packageName", event.target.value)} placeholder="订单说明" className="border-white/12 bg-slate-950/40" />
         <Input value={form.merchantOrderId} onChange={(event) => onChange("merchantOrderId", event.target.value)} placeholder="商户订单号 out_trade_no，可后补" className="border-white/12 bg-slate-950/40" />
         <Input value={form.providerTransactionId} onChange={(event) => onChange("providerTransactionId", event.target.value)} placeholder="第三方交易号 transaction_id，可后补" className="border-white/12 bg-slate-950/40" />
       </div>
-      <Input value={form.note} onChange={(event) => onChange("note", event.target.value)} placeholder="备注" className="mt-3 border-white/12 bg-slate-950/40" />
+      <Input value={form.note} onChange={(event) => onChange("note", event.target.value)} placeholder="备注，例如：接口方确认收到 20 元测试付款" className="mt-3 border-white/12 bg-slate-950/40" />
       <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <label className="flex items-center gap-2 text-xs text-slate-300">
           <input
@@ -1749,7 +1781,7 @@ function OrderDetailPanel({
   const order = detail?.order || fallbackOrder;
   if (!order) {
     return (
-      <div className="min-w-0 rounded-md border border-white/10 bg-white/[0.03] p-4 text-sm text-slate-400">
+      <div className="rounded-md border border-white/10 bg-white/[0.03] p-4 text-sm text-slate-400">
         选择一笔订单查看对账详情。
       </div>
     );
@@ -1757,10 +1789,10 @@ function OrderDetailPanel({
 
   return (
     <div className="min-w-0 space-y-4 rounded-md border border-white/10 bg-white/[0.03] p-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0">
-          <div className="break-all font-mono text-xs text-slate-500">{order.id}</div>
-          <h3 className="mt-1 break-words text-base font-semibold">{order.user} · {order.packageName || "订单详情"}</h3>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="font-mono text-xs text-slate-500">{order.id}</div>
+          <h3 className="mt-1 text-base font-semibold">{order.user} · {order.packageName || "订单详情"}</h3>
           <div className="mt-2 flex flex-wrap gap-2">
             <Badge className={statusClass(order.status)}>{statusLabel(order.status)}</Badge>
             <Badge className={statusClass(order.reconciliation || "matched")}>
@@ -1864,9 +1896,9 @@ function MiniSection({
         <div className="space-y-2">
           {rows.map((row, index) => (
             <div key={`${row.title}-${index}`} className="grid min-w-0 gap-2 rounded-md bg-white/[0.03] p-2 text-xs lg:grid-cols-[minmax(0,1fr)_auto] 2xl:grid-cols-1 min-[1680px]:grid-cols-[minmax(0,1fr)_auto]">
-              <div className="min-w-0">
-                <div className="break-words font-medium text-slate-200">{row.title}</div>
-                <div className="mt-1 break-words text-slate-500">{row.meta}</div>
+              <div>
+                <div className="font-medium text-slate-200">{row.title}</div>
+                <div className="mt-1 text-slate-500">{row.meta}</div>
               </div>
               <div className="break-all font-mono text-slate-400">{row.value}</div>
             </div>
@@ -1891,7 +1923,7 @@ function UserDetailPanel({
   onAdjust: (direction: "plus" | "minus") => void;
 }) {
   return (
-    <div className="min-w-0 rounded-md border border-white/10 bg-white/[0.035] p-4">
+    <div className="rounded-md border border-white/10 bg-white/[0.035] p-4">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h2 className="text-base font-semibold">账户详情</h2>
@@ -1968,7 +2000,7 @@ function RiskPanel({ riskEvents, plans }: { riskEvents: RiskEvent[]; plans: Pric
           ["密钥治理", "后台只展示状态和位置，不展示密钥值"],
           ["高危权限", `${highRiskCount} 个高风险事件需要二次确认或人工复核`],
         ].map(([title, body]) => (
-          <div key={title} className="rounded-md border border-white/8 bg-slate-950/30 p-3">
+          <div key={title} className="min-w-0 rounded-md border border-white/8 bg-slate-950/30 p-3">
             <div className="text-sm font-medium">{title}</div>
             <p className="mt-1 text-xs leading-5 text-slate-500">{body}</p>
           </div>

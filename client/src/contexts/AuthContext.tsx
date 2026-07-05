@@ -25,6 +25,9 @@ interface AuthContextValue {
   closeLoginModal: () => void;
   login: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   register: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  sendSmsCode: (phone: string) => Promise<{ ok: boolean; error?: string; retryAfterSeconds?: number }>;
+  loginWithSmsCode: (phone: string, code: string) => Promise<{ ok: boolean; error?: string }>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<{ ok: boolean; error?: string }>;
   socialAuth: (provider: "google" | "wechat" | "apple" | "github" | "meta") => Promise<{ ok: boolean; error?: string }>;
   logout: () => void;
 }
@@ -93,6 +96,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const authenticateWithSms = async (phone: string, code: string) => {
+    try {
+      const result = await fetchAuth("sms-login", { phone, code });
+      if (!result.ok || !result.token || !result.user) {
+        return { ok: false, error: result.error || "短信验证码登录失败" };
+      }
+      const normalizedUser = normalizeAuthUser(result.user);
+      if (!persistSession({ token: result.token, user: normalizedUser })) {
+        return { ok: false, error: "浏览器本地存储空间不足，已尝试清理旧画布缓存，请重新登录" };
+      }
+      setIsAuthenticated(true);
+      setUser(normalizedUser);
+      setLoginModalOpen(false);
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "短信验证码服务暂时不可用，请稍后重试" };
+    }
+  };
+
   const applyStoredSession = () => {
     const stored = readStoredSession();
     if (!stored) return;
@@ -109,6 +131,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     closeLoginModal: () => setLoginModalOpen(false),
     login: (username: string, password: string) => authenticate("login", username, password),
     register: (username: string, password: string) => authenticate("register", username, password),
+    sendSmsCode: async (phone: string) => {
+      try {
+        const result = await fetchAuth("sms-send-code", { phone });
+        return {
+          ok: result.ok,
+          error: result.error,
+          retryAfterSeconds: result.retryAfterSeconds,
+        };
+      } catch {
+        return { ok: false, error: "短信验证码服务暂时不可用，请稍后重试" };
+      }
+    },
+    loginWithSmsCode: authenticateWithSms,
+    changePassword: async (currentPassword: string, newPassword: string) => {
+      const stored = readStoredSession();
+      if (!stored?.token) {
+        return { ok: false, error: "登录已失效，请重新登录" };
+      }
+      try {
+        const result = await fetchAuth("change-password", {
+          token: stored.token,
+          currentPassword,
+          newPassword,
+        });
+        if (!result.ok || !result.token || !result.user) {
+          return { ok: false, error: result.error || "密码修改失败" };
+        }
+        const normalizedUser = normalizeAuthUser(result.user);
+        if (!persistSession({ token: result.token, user: normalizedUser })) {
+          return { ok: false, error: "浏览器本地存储空间不足，请重新登录后再试" };
+        }
+        setIsAuthenticated(true);
+        setUser(normalizedUser);
+        return { ok: true };
+      } catch {
+        return { ok: false, error: "密码修改服务暂时不可用，请稍后重试" };
+      }
+    },
     socialAuth: async (provider) => {
       try {
         const result = await fetchAuth("social", { provider });
@@ -253,7 +313,7 @@ function clearLargeArtxLocalCache() {
   }
 }
 
-async function fetchAuth(action: "register" | "login" | "me" | "logout" | "social", payload: Record<string, unknown>) {
+async function fetchAuth(action: "register" | "login" | "me" | "logout" | "social" | "sms-send-code" | "sms-login" | "change-password", payload: Record<string, unknown>) {
   const apiBaseUrl = getAuthApiBaseUrl();
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 12_000);
@@ -276,7 +336,7 @@ async function fetchAuth(action: "register" | "login" | "me" | "logout" | "socia
   return {
     ...data,
     ok: response.ok,
-  } as { ok: boolean; error?: string; token?: string; user?: AuthUser };
+  } as { ok: boolean; error?: string; token?: string; user?: AuthUser; retryAfterSeconds?: number };
 }
 
 function authenticateLocally(action: "login" | "register" | "registerOrLogin", username: string, password: string) {

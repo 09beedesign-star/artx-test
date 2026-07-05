@@ -137,7 +137,7 @@ export const LAYERS: Layer[] = [
   { id: "l3", name: "装饰形状", type: "shape", visible: true, locked: false },
 ];
 
-export const NAV_ITEMS = [
+export const NAV_ITEMS: Array<{ id: string; label: string; icon: string; badge?: string | number }> = [
   { id: "home", label: "首页", icon: "Home" },
   { id: "projects", label: "工作台", icon: "FolderOpen", badge: 5 },
   { id: "assets", label: "素材库", icon: "Image" },

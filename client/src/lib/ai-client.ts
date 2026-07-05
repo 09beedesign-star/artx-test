@@ -98,6 +98,22 @@ function isBackendConnectionError(error: unknown) {
   return /non-JSON response|Failed to fetch|NetworkError|网页内容|后端地址未正确连接/i.test(message);
 }
 
+function getAuthToken() {
+  if (typeof window === "undefined") return "";
+  try {
+    const raw = window.localStorage.getItem("artx-auth-session");
+    const parsed = raw ? JSON.parse(raw) as { token?: string } : null;
+    return parsed?.token || "";
+  } catch {
+    return "";
+  }
+}
+
+function getAuthHeaders(): Record<string, string> {
+  const token = getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function readJsonResponse<T extends ApiErrorResponse>(response: Response, fallbackError: string): Promise<T> {
   const text = await response.text();
   const contentType = response.headers.get("content-type") || "";
@@ -114,7 +130,7 @@ async function postJson<T extends ApiErrorResponse>(path: string, body: unknown,
   try {
     const response = await fetch(endpoint, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...getAuthHeaders() },
       body: JSON.stringify(body),
     });
     const result = await readJsonResponse<T>(response, fallbackError);
@@ -135,7 +151,7 @@ async function postJson<T extends ApiErrorResponse>(path: string, body: unknown,
 async function getJson<T extends ApiErrorResponse>(path: string, fallbackError: string, allowLocalFallback = true): Promise<T> {
   const endpoint = `${getBackendApiBaseUrl()}${path}`;
   try {
-    const response = await fetch(endpoint);
+    const response = await fetch(endpoint, { headers: getAuthHeaders() });
     const result = await readJsonResponse<T>(response, fallbackError);
     if (!response.ok) throw new Error(result.error || result.message || fallbackError);
     return result;

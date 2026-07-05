@@ -7,6 +7,10 @@ import path from "node:path";
 const dataDir = await mkdtemp(path.join(os.tmpdir(), "artx-wallyt-"));
 process.env.ARTX_DATA_DIR = dataDir;
 process.env.ARTX_ADMIN_DATA_BACKEND = "json";
+process.env.ARTX_AUTH_DATA_BACKEND = "json";
+process.env.ARTX_BOOTSTRAP_ADMIN_USERNAME = "admin@example.com";
+process.env.ARTX_BOOTSTRAP_ADMIN_PASSWORD = "secure-admin-password";
+process.env.ADMIN_SESSION_SECRET = "test-admin-session-secret";
 process.env.WALLYT_DOMAIN_URL = "https://mock.wallyt.example/pay/gateway";
 process.env.WALLYT_MCH_ID = "190000000001";
 process.env.WALLYT_SIGNATURE_KEY = "test-signature-key";
@@ -138,7 +142,7 @@ try {
     eventType: "wallyt_callback_failed",
   });
   assert.equal(failure.status, 200);
-  const adminLogin = await handleAuthAction("login", { username: "09bee", password: "1234" });
+  const adminLogin = await handleAuthAction("login", { username: "admin@example.com", password: "secure-admin-password" });
   assert.equal(adminLogin.status, 200);
   const detail = await handleAdminApiRequest("GET", `/api/admin/orders/${failedOrder.body.order.id}`, `Bearer ${adminLogin.body.token}`, {});
   assert.equal(detail.status, 200);

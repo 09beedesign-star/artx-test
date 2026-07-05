@@ -214,7 +214,7 @@ function FontDesignIcon({
 import { useLocation } from "wouter";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
-import { writePsd, type Layer, type Psd } from "ag-psd";
+import { writePsd, type Layer, type Psd } from "ag-psd/dist-es";
 import { ALL_AI_MODEL_OPTIONS, AUTO_AI_MODEL, GENERATED_ASSETS, IMAGE_AI_MODELS, IMAGE_AI_MODEL_OPTIONS, PROJECTS, TEXT_AI_MODELS, type AiModelOption, type GeneratedAsset, type Project } from "@/lib/workspace-data";
 import { SOCIAL_MEDIA_SIZE_PRESETS, SocialPlatformIcon, type SocialMediaExportPayload, type SocialMediaSizePreset } from "@/lib/social-media-presets";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -1388,6 +1388,10 @@ function AssetFloatingToolbar({ isDark, position, mode = "asset", onAction }: {
   mode?: "asset" | "canvasFrame";
   onAction: (action: string) => void;
 }) {
+  type FloatingToolButton = { type?: "button"; icon: ReactNode; label: string; action: string };
+  type FloatingToolDivider = { type: "divider"; key: string };
+  type FloatingToolItem = FloatingToolButton | FloatingToolDivider;
+  const isFloatingToolDivider = (item: FloatingToolItem): item is FloatingToolDivider => item.type === "divider";
   const [hoveredAction, setHoveredAction] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const toolBg = isDark ? "rgba(22,22,30,0.88)" : "rgba(255,255,255,0.86)";
@@ -1399,10 +1403,7 @@ function AssetFloatingToolbar({ isDark, position, mode = "asset", onAction }: {
   const moreText = isDark ? "rgba(255,255,255,0.88)" : "rgba(28,28,40,0.88)";
   const moreSub = isDark ? "rgba(255,255,255,0.48)" : "rgba(28,28,40,0.45)";
   const dividerColor = isDark ? "rgba(255,255,255,0.28)" : "rgba(28,28,40,0.22)";
-  type AssetToolbarButton = { icon: ReactNode; label: string; action: string };
-  type AssetToolbarItem = AssetToolbarButton | { type: "divider"; key: string };
-  const isToolbarDivider = (item: AssetToolbarItem): item is Extract<AssetToolbarItem, { type: "divider" }> => "type" in item && item.type === "divider";
-  const assetTools: AssetToolbarItem[] = [
+  const assetTools: FloatingToolItem[] = [
     { icon: <Move size={15} />, label: "移动对象", action: "move-object" },
     { icon: <RotateCw size={15} />, label: "旋转与反转", action: "flip-rotate" },
     { icon: <Crop size={15} />, label: "裁切", action: "crop" },
@@ -1418,7 +1419,7 @@ function AssetFloatingToolbar({ isDark, position, mode = "asset", onAction }: {
     { icon: <MoreHorizontal size={15} />, label: "更多", action: "more" },
     { icon: <Download size={15} />, label: "下载", action: "download" },
   ];
-  const frameTools: AssetToolbarItem[] = [
+  const frameTools: FloatingToolItem[] = [
     { icon: <Download size={15} />, label: "导出画板", action: "download" },
   ];
   const tools = mode === "canvasFrame" ? frameTools : assetTools;
@@ -1448,7 +1449,7 @@ function AssetFloatingToolbar({ isDark, position, mode = "asset", onAction }: {
       }}
     />
   );
-  const renderButton = (item: { icon: ReactNode; label: string; action: string }) => (
+  const renderButton = (item: FloatingToolButton) => (
     <div key={item.action} className="relative">
       {hoveredAction === item.action && (
         <div
@@ -1546,7 +1547,7 @@ function AssetFloatingToolbar({ isDark, position, mode = "asset", onAction }: {
           gap: 0,
         }}
       >
-        {tools.map(item => isToolbarDivider(item) ? renderDivider(item.key) : renderButton(item))}
+        {tools.map(item => isFloatingToolDivider(item) ? renderDivider(item.key) : renderButton(item))}
       </div>
     </div>
   );

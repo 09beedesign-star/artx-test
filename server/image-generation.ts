@@ -254,9 +254,19 @@ function normalizeAsyncTaskResult(data: AsyncImageTaskResponse): {
 
 function resolveGeneratedImageSrc(src: string, baseUrl: string) {
   if (!src) return src;
+  const compact = src.trim().replace(/\s+/g, "");
+  if (isLikelyBase64ImagePayload(compact)) return `data:image/png;base64,${compact}`;
   if (/^https?:\/\//i.test(src) || src.startsWith("data:")) return src;
   return toAbsoluteUrl(src, baseUrl);
 }
+
+function isLikelyBase64ImagePayload(value: string) {
+  return value.length >= 80 &&
+    value.length % 4 === 0 &&
+    /^[A-Za-z0-9+/]+={0,2}$/.test(value);
+}
+
+export const __testNormalizeGeneratedImageSrc = resolveGeneratedImageSrc;
 
 function extractGeneratedImages(providerData: ImageGenerationResponse, baseUrl: string, width: number, height: number) {
   const choiceImageItems = providerData.choices?.flatMap(choice => choice.message?.images || []) || [];
@@ -342,13 +352,16 @@ function getPicWishConfig() {
 
 const supportedImageModels = new Set([
   "gpt-image-2",
+  "gpt-image-2-4k",
   "gemini-3.1-flash-image",
   "gemini-3.1-flash-image-preview",
+  "gemini-3.5-flash-preview",
 ]);
 
 const chatCompatibleImageModels = new Set<string>([
   "gemini-3.1-flash-image",
   "gemini-3.1-flash-image-preview",
+  "gemini-3.5-flash-preview",
 ]);
 
 function buildPrompt(input: ImageGenerateInput) {
@@ -564,6 +577,20 @@ function shouldUseReferenceImageChatPath(model?: string, images?: Array<{ src?: 
 
 function isMissingReferenceImagesError(message: string) {
   return /no reference images found|reference images?.*not found|missing reference images/i.test(message);
+}
+
+function isImageGroupPermissionError(message: string) {
+  return /无权访问|permission|not authorized|forbidden|分组/i.test(message) && /image|图片|专用/i.test(message);
+}
+
+function isProviderCapacityError(message: string) {
+  return /no available compatible accounts|system cpu overloaded|overloaded|capacity|账号池|兼容账号/i.test(message);
+}
+
+function resolveProviderImageModel(model: string) {
+  if (model === "gemini-3.1-flash-image-preview") return "gemini-3.1-flash-image";
+  if (model === "gpt-image-2-4k") return "gemini-3.1-flash-image";
+  return model;
 }
 
 function stripReferenceContextFromPrompt(prompt: string) {
@@ -1726,36 +1753,7 @@ async function removeBackgroundPreservingForegroundPixels(src: string): Promise<
   try {
     return await removeBackgroundWithQualityCutout(buffer, mimeType);
   } catch (picWishError) {
-    console.warn("PicWish quality background removal failed, using local segmentation fallback", picWishError);
-  }
-
-  try {
-    const { removeBackground: removeBackgroundWithSegmentation, segmentForeground } = await import("@imgly/background-removal-node");
-    try {
-      const alphaBlob = await segmentForeground(buffer, {
-        model: "medium",
-        output: {
-          format: "image/x-alpha8",
-          quality: 1,
-        },
-      });
-      const alpha = Buffer.from(await alphaBlob.arrayBuffer());
-      return applyRawAlphaMaskToOriginalImage(buffer, alpha);
-    } catch (alphaError) {
-      console.warn("Raw alpha background removal failed, falling back to PNG segmentation", alphaError);
-    }
-
-    const blob = await removeBackgroundWithSegmentation(buffer, {
-      model: "medium",
-      output: {
-        format: "image/png",
-        quality: 1,
-      },
-    });
-    const png = Buffer.from(await blob.arrayBuffer());
-    return applyConservativeAlphaMaskToOriginalImage(buffer, png);
-  } catch (error) {
-    console.warn("Segmentation background removal failed, using edge-color fallback", error);
+    console.warn("PicWish quality background removal failed, using edge-color fallback", picWishError);
     try {
       return await removeBackgroundByConservativeEdgeColor(buffer);
     } catch (fallbackError) {
@@ -1846,9 +1844,10 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
   const count = Math.max(1, Math.min(Number(input.count) || 1, 4));
   const referenceImages = input.images?.filter(image => image.src?.trim()) || [];
   const requestedModel = input.model && supportedImageModels.has(input.model) ? input.model : model;
-  const routedModel = shouldUseReferenceImageChatPath(requestedModel, referenceImages)
-    ? (isChatCompatibleImageModel(requestedModel) ? requestedModel : "gpt-image-2")
-    : requestedModel;
+  const providerModel = resolveProviderImageModel(requestedModel);
+  const routedModel = shouldUseReferenceImageChatPath(providerModel, referenceImages)
+    ? (isChatCompatibleImageModel(providerModel) ? providerModel : "gpt-image-2")
+    : providerModel;
   const requestBody = {
     model: routedModel,
     prompt: buildPrompt(input),
@@ -1866,7 +1865,17 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (isUnsupportedImagesApiError(message)) {
-      providerData = await callImageChatProvider(requestBody, apiKey, baseUrl);
+      providerData = await callImageChatProvider({
+        ...requestBody,
+      }, apiKey, baseUrl);
+    } else if (
+      requestBody.model !== "gemini-3.1-flash-image" &&
+      (isProviderCapacityError(message) || (requestBody.model === "gpt-image-2-4k" && isImageGroupPermissionError(message)))
+    ) {
+      providerData = await callImageChatProvider({
+        ...requestBody,
+        model: "gemini-3.1-flash-image",
+      }, apiKey, baseUrl);
     } else if (isMissingReferenceImagesError(message) && !shouldUseReferenceImageChatPath(requestBody.model, referenceImages)) {
       providerData = await callImageProvider({
         ...requestBody,
@@ -1897,7 +1906,7 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
     }
   }
 
-  const images = extractGeneratedImages(providerData, baseUrl, ratio.width, ratio.height);
+  const images = extractGeneratedImages(providerData, baseUrl, ratio.width, ratio.height).slice(0, count);
 
   if (images.length === 0) {
     throw new Error("图片模型未返回可用图片，系统已自动使用当前可用生成链路处理，请稍后重试");

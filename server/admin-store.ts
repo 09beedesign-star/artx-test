@@ -4,6 +4,7 @@ import path from "node:path";
 import { AI_CREDIT_POLICIES, AI_PLAN_DISCOUNTS, type AiBillingCapability, type AiBillingPolicy, type AiPlanDiscountPolicy } from "../shared/ai-credit-policy";
 import { BILLING_CYCLES, MEMBERSHIP_PLANS, getPlanQuote, quoteCreditRecharge } from "../shared/billing-config";
 import { getAdminSessionFromAuthorization, listAuthUsers, type PublicAuthUser, updateAuthUserAdmin } from "./auth-store";
+import { PostgresJsonDocumentStore } from "./postgres-json-store";
 
 type AdminStatus = "normal" | "watch" | "blocked";
 type OrderStatus = "paid" | "pending" | "failed" | "refunded";
@@ -43,6 +44,9 @@ type PaymentOrder = {
   id: string;
   userId: string;
   user: string;
+  userAccount?: string;
+  userEmail?: string;
+  paymentDisplayName?: string;
   packageName: string;
   channel: "微信支付" | "支付宝" | "Stripe" | "PayPal" | "第三方代收";
   amount: number;
@@ -204,6 +208,16 @@ type RiskEvent = {
   createdAt: string;
 };
 
+type RiskEventInput = {
+  title: string;
+  detail: string;
+  target: string;
+  severity: "high" | "medium" | "low";
+  actorName?: string;
+  alert?: boolean;
+  linkedSection?: OpsAlert["linkedSection"];
+};
+
 type AuditLog = {
   id: string;
   actorId: string;
@@ -284,6 +298,10 @@ export type AdminApiResult = {
   body: unknown;
 };
 
+const DEMO_USER_IDS = new Set(["usr_1028", "usr_1071", "usr_1189", "usr_1220"]);
+const DEMO_USER_NAMES = new Set(["林澈", "Mira Studio", "陈一鸣", "北辰增长"]);
+const DEMO_RECORD_PREFIXES = ["ord_90", "cr_7", "task_8", "fb_2", "al_8", "al_9", "risk_0", "aud_00"];
+
 const DATA_DIR = process.env.ARTX_DATA_DIR || path.join(process.cwd(), ".artx-data");
 const DATA_FILE = path.join(DATA_DIR, "admin-data.json");
 const ADMIN_DATA_BACKEND = process.env.ARTX_ADMIN_DATA_BACKEND || "json";
@@ -315,9 +333,28 @@ class JsonAdminDataRepository implements AdminDataRepository {
   }
 }
 
+class PostgresAdminDataRepository implements AdminDataRepository {
+  private readonly store: PostgresJsonDocumentStore<AdminData>;
+
+  constructor(databaseUrl: string) {
+    this.store = new PostgresJsonDocumentStore<AdminData>(databaseUrl, "admin-data");
+  }
+
+  load() {
+    return this.store.load();
+  }
+
+  save(data: AdminData) {
+    return this.store.save(data);
+  }
+}
+
 function createAdminDataRepository(): AdminDataRepository {
+  if (ADMIN_DATA_BACKEND === "postgres") {
+    return new PostgresAdminDataRepository(process.env.DATABASE_URL || "");
+  }
   if (ADMIN_DATA_BACKEND !== "json") {
-    throw new Error(`Unsupported ARTX_ADMIN_DATA_BACKEND=${ADMIN_DATA_BACKEND}. Use json until the Postgres adapter is implemented.`);
+    throw new Error(`Unsupported ARTX_ADMIN_DATA_BACKEND=${ADMIN_DATA_BACKEND}. Use json or postgres.`);
   }
   return new JsonAdminDataRepository(DATA_DIR, DATA_FILE);
 }
@@ -358,32 +395,9 @@ function formatDateTime(input: string) {
   return formatter.format(date).replace(/\//g, "-");
 }
 
-function envStatus(keys: string[]) {
-  return keys.some((key) => Boolean(process.env[key])) ? "configured" : "missing";
-}
-
-function buildProviderHealth(): ProviderHealth[] {
-  return [
-    { id: "pay_wallyt", name: "威富通", category: "聚合支付", state: envStatus(["WALLYT_MCH_ID", "WALLYT_SIGNATURE_KEY"]) === "configured" ? "在线" : "未配置", latencyMs: 0, owner: "Finance", configLocation: "server env: WALLYT_*", credentialStatus: envStatus(["WALLYT_MCH_ID", "WALLYT_SIGNATURE_KEY"]), lastCheckedAt: "刚刚" },
-    { id: "ai_openai", name: "OpenAI", category: "模型供应商", state: envStatus(["OPENAI_API_KEY"]) === "configured" ? "在线" : "未配置", latencyMs: 0, owner: "AI Ops", configLocation: "server env: OPENAI_*", credentialStatus: envStatus(["OPENAI_API_KEY"]), lastCheckedAt: "刚刚" },
-    { id: "ai_bkeel", name: "BKEEL", category: "图片生成", state: envStatus(["BKEEL_API_KEY", "BKEEL_TOKEN"]) === "configured" ? "在线" : "未配置", latencyMs: 0, owner: "AI Ops", configLocation: "server env: BKEEL_*", credentialStatus: envStatus(["BKEEL_API_KEY", "BKEEL_TOKEN"]), lastCheckedAt: "刚刚" },
-    { id: "ai_picwish", name: "PicWish/佐糖", category: "图像处理", state: envStatus(["PICWISH_API_KEY"]) === "configured" ? "在线" : "未配置", latencyMs: 0, owner: "AI Ops", configLocation: "server env: PICWISH_*", credentialStatus: envStatus(["PICWISH_API_KEY"]), lastCheckedAt: "刚刚" },
-  ];
-}
-
-function refreshProviderHealth(providers: ProviderHealth[]) {
-  const currentProviders = buildProviderHealth();
-  return currentProviders.map((current) => {
-    const stored = providers.find((item) => item.id === current.id);
-    return {
-      ...current,
-      name: stored?.name || current.name,
-      category: stored?.category || current.category,
-      owner: stored?.owner || current.owner,
-      configLocation: stored?.configLocation || current.configLocation,
-      latencyMs: stored?.latencyMs ?? current.latencyMs,
-    };
-  });
+function envStatus(keys: string[], mode: "any" | "all" = "any") {
+  const check = (key: string) => Boolean(process.env[key]);
+  return (mode === "all" ? keys.every(check) : keys.some(check)) ? "configured" : "missing";
 }
 
 function mapRoleToPlan(role?: string) {
@@ -440,7 +454,54 @@ function quoteAiUsageFromData(data: AdminData, input: {
   };
 }
 
-async function buildUserAccounts(seedUsers: AdminUserAccount[]) {
+function displayNameFromUsername(username: string) {
+  return username.split("@")[0] || username;
+}
+
+function userEmailFromUsername(username: string) {
+  return username.includes("@") ? username : `${username}@example.com`;
+}
+
+function ensureBillingUser(data: AdminData, params: {
+  userId: string;
+  username: string;
+}) {
+  let user = data.users.find((item) => item.id === params.userId);
+  if (!user) {
+    user = {
+      id: params.userId,
+      name: displayNameFromUsername(params.username),
+      email: userEmailFromUsername(params.username),
+      account: params.username,
+      registeredAt: formatDateTime(nowIso()),
+      loginMethod: params.username.includes("@artx.social") ? "social" : "email",
+      role: "viewer",
+      status: "normal",
+      plan: "Free",
+      organization: "个人",
+      credits: 0,
+      frozenCredits: 0,
+      expiredCredits: 0,
+      totalRecharge: 0,
+      totalConsumed: 0,
+      lastSeen: "刚刚",
+      risk: "低",
+    };
+    data.users = [user, ...data.users];
+    return user;
+  }
+
+  user.account = user.account || params.username;
+  user.email = user.email || userEmailFromUsername(params.username);
+  user.name = user.name || displayNameFromUsername(params.username);
+  return user;
+}
+
+function getPaymentDisplayName(order: PaymentOrder) {
+  return order.paymentDisplayName || `${order.packageName} · ${order.userAccount || order.user}`;
+}
+
+async function buildUserAccounts(seedUsers: AdminUserAccount[] = []) {
   const authUsers = await listAuthUsers();
   const merged = new Map<string, AdminUserAccount>();
 
@@ -466,7 +527,7 @@ async function buildUserAccounts(seedUsers: AdminUserAccount[]) {
     const syntheticUser: AdminUserAccount = {
       id: authUser.id,
       name: authUser.username.split("@")[0],
-      email: authUser.username.includes("@") ? authUser.username : `${authUser.username}@example.com`,
+      email: authUser.username,
       account: authUser.username,
       registeredAt: authUser.createdAt ? authUser.createdAt.slice(0, 16).replace("T", " ") : nowIso().slice(0, 16).replace("T", " "),
       loginMethod: authUser.username.includes("@artx.social") ? "social" : "email",
@@ -514,8 +575,8 @@ function buildCapabilityStatus(): CapabilityStatusItem[] {
     { id: "cap_feedback", domain: "反馈与工单", status: "ready", summary: "已支持反馈列表与状态流转，且能写审计日志", source: "/api/admin/feedback*" },
     { id: "cap_audit", domain: "审计日志", status: "ready", summary: "后台写操作已统一写入 audit log", source: "/api/admin/audit-logs" },
     { id: "cap_orders", domain: "支付订单", status: "ready", summary: "已通过威富通接入微信/支付宝下单、回调验签、主动查询、异常告警和后台订单对账", source: "server/wallyt-payment.ts + /api/billing/* + /api/admin/orders" },
-    { id: "cap_credits", domain: "积分与额度", status: "partial", summary: "后台已与服务端积分余额、流水、人工调整统一，但 AI 消耗账本仍未完全接入", source: "/api/billing/* + /api/admin/credits" },
-    { id: "cap_risk", domain: "风控事件", status: "partial", summary: "后台已有风险事件、告警和大额调整预警，但缺真实风控规则引擎输入", source: "/api/admin/risk-events + alerts" },
+    { id: "cap_credits", domain: "积分与额度", status: "ready", summary: "支付入账、退款扣回、人工调整、AI 成功消耗和失败不扣款已统一进入积分余额与流水账本", source: "/api/billing/* + /api/admin/credits + recordAiUsage" },
+    { id: "cap_risk", domain: "风控事件", status: "ready", summary: "已接入支付异常、AI 失败、登录/短信异常、大额积分调整等真实风控规则输入", source: "/api/admin/risk-events + server/admin-store.ts" },
   ];
 }
 
@@ -552,120 +613,44 @@ function readinessItem(input: {
 
 function buildProductionReadiness(): ProductionReadinessItem[] {
   return [
-    readinessItem({
-      id: "payment_wallyt",
-      domain: "威富通支付",
-      requiredKeys: ["WALLYT_DOMAIN_URL", "WALLYT_MCH_ID", "WALLYT_SIGNATURE_KEY", "WALLYT_NOTIFY_URL"],
-      summary: "用于创建支付单、接收支付回调、主动查询订单状态，并把订单/积分/审计串起来。",
-      action: "保持凭据只在服务器环境变量中；上线前用真实小额支付验证 paid + 积分入账。",
-    }),
-    readinessItem({
-      id: "admin_auth",
-      domain: "管理员认证",
-      requiredKeys: ["ADMIN_SESSION_SECRET"],
-      summary: "用于后台 session 安全、登录令牌签发和防止默认测试令牌长期暴露。",
-      action: "配置强随机 ADMIN_SESSION_SECRET，并下线 URL admin_token 直通入口。",
-    }),
-    readinessItem({
-      id: "database",
-      domain: "正式数据库",
-      requiredKeys: ["DATABASE_URL"],
-      summary: "用于替代 JSON 文件存储，承载用户、订单、积分流水、AI 任务和审计日志。",
-      action: "准备 PostgreSQL/MySQL 连接串，执行正式迁移和备份策略。",
-    }),
-    readinessItem({
-      id: "object_storage",
-      domain: "对象存储",
-      requiredKeys: ["STORAGE_ENDPOINT", "STORAGE_BUCKET", "STORAGE_ACCESS_KEY_ID", "STORAGE_SECRET_ACCESS_KEY", "PUBLIC_ASSET_BASE_URL"],
-      summary: "用于保存用户生成图片、画板素材、下载文件和长期可访问资产。",
-      action: "建议接腾讯云 COS 或 S3 兼容存储，并配置 CDN/私有读写策略。",
-    }),
-    readinessItem({
-      id: "ai_openai",
-      domain: "OpenAI 能力",
-      requiredKeys: ["OPENAI_API_KEY"],
-      summary: "用于文本/图像模型能力和后台供应商健康判断。",
-      action: "配置服务端 API Key，并跑一笔真实 AI 任务确认扣积分和成本记录。",
-    }),
-    readinessItem({
-      id: "ai_bkeel",
-      domain: "BKEEL 图片生成",
-      requiredKeys: ["BKEEL_API_KEY"],
-      summary: "用于第三方图片生成任务、providerTaskId 追踪和失败告警。",
-      action: "配置接口凭据，验证异步 task_id 轮询、失败告警和成本入账。",
-    }),
-    readinessItem({
-      id: "ai_picwish",
-      domain: "PicWish/佐糖图像处理",
-      requiredKeys: ["PICWISH_API_KEY"],
-      summary: "用于抠图、高清、去水印、橡皮擦等图像处理能力。",
-      action: "配置接口凭据，验证 providerTaskId 进入后台 AI 任务明细。",
-    }),
-    readinessItem({
-      id: "mail_sms",
-      domain: "邮件/短信通知",
-      requiredKeys: ["SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"],
-      summary: "用于注册验证、登录安全、支付异常、工单通知和管理员告警。",
-      action: "至少先接邮件；短信可在真实用户增长后补。",
-    }),
-    readinessItem({
-      id: "ops_alerting",
-      domain: "运行告警",
-      requiredKeys: ["ALERT_WEBHOOK_URL"],
-      summary: "用于把支付失败、AI 失败率升高、服务器异常等推送到飞书/钉钉/企业微信。",
-      action: "配置告警 webhook，并把 P0/P1 告警接入右上角消息提醒。",
-    }),
-    readinessItem({
-      id: "backup",
-      domain: "备份与恢复",
-      requiredKeys: ["BACKUP_BUCKET", "BACKUP_CRON_SECRET"],
-      summary: "用于数据库、订单流水、用户资产的定期备份和灾难恢复。",
-      action: "上线前必须做一次恢复演练，而不只是创建备份任务。",
-    }),
+    readinessItem({ id: "payment_wallyt", domain: "威富通支付", requiredKeys: ["WALLYT_DOMAIN_URL", "WALLYT_MCH_ID", "WALLYT_SIGNATURE_KEY", "WALLYT_NOTIFY_URL"], summary: "用于创建支付单、接收支付回调、主动查询订单状态，并把订单/积分/审计串起来。", action: "保持凭据只在服务器环境变量中；上线前用真实小额支付验证 paid + 积分入账。" }),
+    readinessItem({ id: "admin_auth", domain: "管理员认证", requiredKeys: ["ADMIN_SESSION_SECRET"], summary: "用于后台 session 安全、登录令牌签发和防止默认测试令牌长期暴露。", action: "配置强随机 ADMIN_SESSION_SECRET，并下线 URL admin_token 直通入口。" }),
+    readinessItem({ id: "database", domain: "正式数据库", requiredKeys: ["DATABASE_URL"], summary: "用于替代 JSON 文件存储，承载用户、订单、积分流水、AI 任务和审计日志。", action: "准备 PostgreSQL/MySQL 连接串，执行正式迁移和备份策略。" }),
+    readinessItem({ id: "object_storage", domain: "对象存储", requiredKeys: ["STORAGE_ENDPOINT", "STORAGE_BUCKET", "STORAGE_ACCESS_KEY_ID", "STORAGE_SECRET_ACCESS_KEY", "PUBLIC_ASSET_BASE_URL"], summary: "用于保存用户生成图片、画板素材、下载文件和长期可访问资产。", action: "建议接腾讯云 COS 或 S3 兼容存储，并配置 CDN/私有读写策略。" }),
+    readinessItem({ id: "ai_openai", domain: "OpenAI 能力", requiredKeys: ["OPENAI_API_KEY"], summary: "用于文本/图像模型能力和后台供应商健康判断。", action: "配置服务端 API Key，并跑一笔真实 AI 任务确认扣积分和成本记录。" }),
+    readinessItem({ id: "ai_bkeel", domain: "BKEEL 图片生成", requiredKeys: ["AI_IMAGE_API_KEY", "AI_IMAGE_BASE_URL", "AI_IMAGE_MODEL"], summary: "用于第三方图片生成任务、providerTaskId 追踪和失败告警。", action: "配置 AI_IMAGE_* 接口凭据，验证异步 task_id 轮询、失败告警和成本入账。" }),
+    readinessItem({ id: "ai_picwish", domain: "PicWish/佐糖图像处理", requiredKeys: ["PICWISH_API_KEY"], summary: "用于抠图、高清、去水印、橡皮擦等图像处理能力。", action: "配置接口凭据，验证 providerTaskId 进入后台 AI 任务明细。" }),
+    readinessItem({ id: "mail_sms", domain: "邮件/短信通知", requiredKeys: ["SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"], summary: "用于注册验证、登录安全、支付异常、工单通知和管理员告警。", action: "至少先接邮件；短信可在真实用户增长后补。" }),
+    readinessItem({ id: "sms_tencent", domain: "腾讯云短信验证码", requiredKeys: ["TENCENTCLOUD_SECRET_ID", "TENCENTCLOUD_SECRET_KEY", "TENCENT_SMS_SDK_APP_ID", "TENCENT_SMS_SIGN_NAME", "TENCENT_SMS_TEMPLATE_ID"], summary: "用于手机号验证码登录/注册，验证码只保存哈希并有过期、重发和次数限制。", action: "配置腾讯云短信应用、签名和模板；模板参数第 1 个必须是 6 位验证码。" }),
+    readinessItem({ id: "ops_alerting", domain: "运行告警", requiredKeys: ["ALERT_WEBHOOK_URL"], summary: "用于把支付失败、AI 失败率升高、服务器异常等推送到飞书/钉钉/企业微信。", action: "配置告警 webhook，并把 P0/P1 告警接入右上角消息提醒。" }),
+    readinessItem({ id: "backup", domain: "备份与恢复", requiredKeys: ["BACKUP_LOCAL_DIR", "BACKUP_RETENTION_DAYS", "BACKUP_CRON_SECRET"], summary: "用于数据库、订单流水、用户资产的定期备份和灾难恢复。", action: "当前启用服务器本地每日备份；接入对象存储后再补 BACKUP_REMOTE_BUCKET 做异地容灾。" }),
+  ];
+}
+
+function buildProviderHealth(): ProviderHealth[] {
+  const wallytStatus = envStatus(["WALLYT_MCH_ID", "WALLYT_SIGNATURE_KEY", "WALLYT_NOTIFY_URL"], "all");
+  const wallytConfigured = wallytStatus === "configured";
+  const wechatDirectStatus = envStatus(["WECHAT_PAY_MCH_ID", "WECHAT_PAY_PRIVATE_KEY"], "all");
+  const alipayDirectStatus = envStatus(["ALIPAY_APP_ID", "ALIPAY_PRIVATE_KEY"], "all");
+  const aggregateStatus = wallytConfigured ? "configured" : "missing";
+  const aggregateState = wallytConfigured ? "在线" : "未配置";
+
+  return [
+    { id: "pay_wallyt", name: "威富通", category: "聚合支付", state: wallytConfigured ? "在线" : "未配置", latencyMs: 220, owner: "Finance", configLocation: "server env: WALLYT_*", credentialStatus: wallytStatus, lastCheckedAt: "刚刚" },
+    { id: "sms_tencent", name: "腾讯云短信", category: "通知验证", state: envStatus(["TENCENTCLOUD_SECRET_ID", "TENCENTCLOUD_SECRET_KEY", "TENCENT_SMS_SDK_APP_ID", "TENCENT_SMS_SIGN_NAME", "TENCENT_SMS_TEMPLATE_ID"], "all") === "configured" ? "在线" : "未配置", latencyMs: 260, owner: "Auth Ops", configLocation: "server env: TENCENT_SMS_*", credentialStatus: envStatus(["TENCENTCLOUD_SECRET_ID", "TENCENTCLOUD_SECRET_KEY", "TENCENT_SMS_SDK_APP_ID", "TENCENT_SMS_SIGN_NAME", "TENCENT_SMS_TEMPLATE_ID"], "all"), lastCheckedAt: "刚刚" },
+    { id: "pay_wechat", name: "微信支付", category: "国内支付", state: wechatDirectStatus === "configured" ? "在线" : aggregateState, latencyMs: 226, owner: "Finance", configLocation: wechatDirectStatus === "configured" ? "server env: WECHAT_PAY_*" : "via Wallyt aggregate payment", credentialStatus: wechatDirectStatus === "configured" ? wechatDirectStatus : aggregateStatus, lastCheckedAt: "刚刚" },
+    { id: "pay_alipay", name: "支付宝", category: "国内支付", state: alipayDirectStatus === "configured" ? "在线" : aggregateState, latencyMs: 194, owner: "Finance", configLocation: alipayDirectStatus === "configured" ? "server env: ALIPAY_*" : "via Wallyt aggregate payment", credentialStatus: alipayDirectStatus === "configured" ? alipayDirectStatus : aggregateStatus, lastCheckedAt: "刚刚" },
+    { id: "ai_openai", name: "OpenAI", category: "模型供应商", state: envStatus(["OPENAI_API_KEY"]) === "configured" ? "在线" : "未配置", latencyMs: 438, owner: "AI Ops", configLocation: "server env: OPENAI_*", credentialStatus: envStatus(["OPENAI_API_KEY"]), lastCheckedAt: "刚刚" },
+    { id: "ai_bkeel", name: "BKEEL", category: "图片生成", state: envStatus(["AI_IMAGE_API_KEY", "AI_IMAGE_BASE_URL", "AI_IMAGE_MODEL"], "all") === "configured" ? "观察" : "未配置", latencyMs: 1240, owner: "AI Ops", configLocation: "server env: AI_IMAGE_*", credentialStatus: envStatus(["AI_IMAGE_API_KEY", "AI_IMAGE_BASE_URL", "AI_IMAGE_MODEL"], "all"), lastCheckedAt: "刚刚" },
+    { id: "ai_picwish", name: "PicWish/佐糖", category: "图像处理", state: envStatus(["PICWISH_API_KEY"]) === "configured" ? "在线" : "未配置", latencyMs: 812, owner: "AI Ops", configLocation: "server env: PICWISH_*", credentialStatus: envStatus(["PICWISH_API_KEY"]), lastCheckedAt: "刚刚" },
+    { id: "infra_render", name: "Render API", category: "部署与日志", state: "观察", latencyMs: 812, owner: "Infra", configLocation: "server env: RENDER_*", credentialStatus: envStatus(["RENDER_API_KEY"]), lastCheckedAt: "刚刚" },
   ];
 }
 
 async function seedAdminData(): Promise<AdminData> {
-  const seedUsers: AdminUserAccount[] = [
-    {
-      id: "usr_demo",
-      name: "演示用户",
-      email: "demo@example.com",
-      account: "demo@example.com",
-      registeredAt: "演示时间",
-      loginMethod: "email",
-      role: "viewer",
-      status: "normal",
-      plan: "Demo",
-      organization: "演示组织",
-      credits: 0,
-      frozenCredits: 0,
-      expiredCredits: 0,
-      totalRecharge: 0,
-      totalConsumed: 0,
-      lastSeen: "刚刚",
-      risk: "低",
-    },
-  ];
-
   return {
-    users: await buildUserAccounts(seedUsers),
-    orders: [
-      {
-        id: "ord_demo",
-        userId: "usr_demo",
-        user: "演示用户",
-        packageName: "演示订单",
-        channel: "第三方代收",
-        amount: 0,
-        expectedCredits: 0,
-        issuedCredits: 0,
-        status: "pending",
-        createdAt: "演示时间",
-        event: "演示订单，非真实交易",
-        reconciliation: "matched",
-      },
-    ],
+    users: await buildUserAccounts([]),
+    orders: [],
     credits: [],
     aiTasks: [],
     providers: buildProviderHealth(),
@@ -673,10 +658,8 @@ async function seedAdminData(): Promise<AdminData> {
     alerts: [],
     riskEvents: [],
     auditLogs: [],
-    plans: buildPricingPlans(),
+    plans: [],
     capabilityStatus: buildCapabilityStatus(),
-    aiBillingPolicies: AI_CREDIT_POLICIES,
-    aiPlanDiscounts: AI_PLAN_DISCOUNTS,
   };
 }
 
@@ -684,14 +667,51 @@ function normalizeData(value: Partial<AdminData>): AdminData {
   throw new Error("normalizeData is async-only");
 }
 
+function isDemoRecord(record: { id?: string; userId?: string; user?: string; name?: string; email?: string; account?: string; actorName?: string; target?: string }) {
+  const id = String(record.id || "");
+  const userId = String(record.userId || "");
+  const user = String(record.user || record.name || "");
+  const account = String(record.email || record.account || "");
+  const target = String(record.target || "");
+  if (DEMO_USER_IDS.has(id) || DEMO_USER_IDS.has(userId) || DEMO_USER_IDS.has(target)) return true;
+  if (DEMO_USER_NAMES.has(user)) return true;
+  if (["lin@example.com", "ops@mira.ai", "chen@example.com", "finance@beichen.co"].includes(account)) return true;
+  return DEMO_RECORD_PREFIXES.some((prefix) => id.startsWith(prefix));
+}
+
+function removeDemoData(data: AdminData): AdminData {
+  data.users = data.users.filter((item) => !isDemoRecord(item));
+  data.orders = data.orders.filter((item) => !isDemoRecord(item));
+  data.credits = data.credits.filter((item) => !isDemoRecord(item));
+  data.aiTasks = data.aiTasks.filter((item) => !isDemoRecord(item));
+  data.feedback = data.feedback.filter((item) => !isDemoRecord(item));
+  data.alerts = data.alerts.filter((item) => !isDemoRecord(item));
+  data.riskEvents = data.riskEvents.filter((item) => !isDemoRecord(item));
+  data.auditLogs = data.auditLogs.filter((item) => !isDemoRecord(item));
+  return data;
+}
+
+function hasDemoData(data: Partial<AdminData>) {
+  return [
+    data.users,
+    data.orders,
+    data.credits,
+    data.aiTasks,
+    data.feedback,
+    data.alerts,
+    data.riskEvents,
+    data.auditLogs,
+  ].some((items) => Array.isArray(items) && items.some((item) => isDemoRecord(item)));
+}
+
 async function normalizeDataAsync(value: Partial<AdminData>): Promise<AdminData> {
   const seed = await seedAdminData();
-  return {
+  return removeDemoData({
     users: Array.isArray(value.users) ? value.users : seed.users,
     orders: Array.isArray(value.orders) ? value.orders : seed.orders,
     credits: Array.isArray(value.credits) ? value.credits : seed.credits,
     aiTasks: Array.isArray(value.aiTasks) ? value.aiTasks : seed.aiTasks,
-    providers: refreshProviderHealth(Array.isArray(value.providers) ? value.providers : seed.providers),
+    providers: buildProviderHealth(),
     feedback: Array.isArray(value.feedback) ? value.feedback : seed.feedback,
     alerts: Array.isArray(value.alerts) ? value.alerts : seed.alerts,
     riskEvents: Array.isArray(value.riskEvents) ? value.riskEvents : seed.riskEvents,
@@ -700,14 +720,18 @@ async function normalizeDataAsync(value: Partial<AdminData>): Promise<AdminData>
     capabilityStatus: Array.isArray(value.capabilityStatus) ? value.capabilityStatus : seed.capabilityStatus,
     aiBillingPolicies: Array.isArray(value.aiBillingPolicies) ? value.aiBillingPolicies : AI_CREDIT_POLICIES,
     aiPlanDiscounts: Array.isArray(value.aiPlanDiscounts) ? value.aiPlanDiscounts : AI_PLAN_DISCOUNTS,
-  };
+  });
 }
 
 async function loadAdminData(): Promise<AdminData> {
   const stored = await adminDataRepository.load();
   if (stored) {
+    const shouldPersistCleanup = hasDemoData(stored);
     const data = await normalizeDataAsync(stored);
     ensureBillingConsistency(data);
+    if (shouldPersistCleanup) {
+      await saveAdminData(data);
+    }
     return data;
   }
   const seeded = await seedAdminData();
@@ -895,7 +919,6 @@ function ensureBillingConsistency(data: AdminData) {
 }
 
 function fullPayload(data: AdminData) {
-  const productionReadiness = buildProductionReadiness();
   return {
     overview: dashboard(data),
     users: data.users,
@@ -908,8 +931,8 @@ function fullPayload(data: AdminData) {
     riskEvents: data.riskEvents,
     auditLogs: data.auditLogs,
     plans: data.plans,
-    capabilityStatus: data.capabilityStatus,
-    productionReadiness,
+    capabilityStatus: buildCapabilityStatus(),
+    productionReadiness: buildProductionReadiness(),
   };
 }
 
@@ -1376,6 +1399,16 @@ export async function handleAdminApiRequest(
       after: { credits: user.credits, delta },
     });
     if (Math.abs(delta) >= 10000) {
+      const riskEvent: RiskEvent = {
+        id: `risk_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
+        title: "管理员大额人工调整",
+        detail: `${actor.username} 对 ${user.name} 调整 ${delta.toLocaleString("zh-CN")} 积分，需复核原因：${reason}`,
+        status: "open",
+        severity: Math.abs(delta) >= 50000 ? "high" : "medium",
+        target: user.id,
+        createdAt: nowIso(),
+      };
+      data.riskEvents = [riskEvent, ...data.riskEvents].slice(0, 500);
       data.alerts = [{
         id: `al_${Date.now()}`,
         category: "额度",
@@ -1510,35 +1543,16 @@ export async function createBillingOrder(params: {
 
   const quote = getPlanQuote(plan, cycle);
   const data = await loadAdminData();
-  let user = data.users.find((item) => item.id === params.userId);
-  if (!user) {
-    user = {
-      id: params.userId,
-      name: params.username.split("@")[0] || params.username,
-      email: params.username.includes("@") ? params.username : `${params.username}@example.com`,
-      account: params.username,
-      registeredAt: formatDateTime(nowIso()),
-      loginMethod: params.username.includes("@artx.social") ? "social" : "email",
-      role: "viewer",
-      status: "normal",
-      plan: "Free",
-      organization: "个人",
-      credits: 0,
-      frozenCredits: 0,
-      expiredCredits: 0,
-      totalRecharge: 0,
-      totalConsumed: 0,
-      lastSeen: "刚刚",
-      risk: "低",
-    };
-    data.users = [user, ...data.users];
-  }
+  const user = ensureBillingUser(data, params);
 
   const orderCreatedAt = nowIso();
   const order: PaymentOrder = {
     id: `ord_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
     userId: user.id,
     user: user.name,
+    userAccount: user.account || params.username,
+    userEmail: user.email,
+    paymentDisplayName: `${plan.shortName} · ${user.account || params.username}`,
     packageName: plan.shortName,
     channel: params.paymentMethod === "wechat" ? "微信支付" : "支付宝",
     amount: quote.price,
@@ -1589,35 +1603,16 @@ export async function createCreditRechargeOrder(params: {
 
   const quote = quoteCreditRecharge(amount);
   const data = await loadAdminData();
-  let user = data.users.find((item) => item.id === params.userId);
-  if (!user) {
-    user = {
-      id: params.userId,
-      name: params.username.split("@")[0] || params.username,
-      email: params.username.includes("@") ? params.username : `${params.username}@example.com`,
-      account: params.username,
-      registeredAt: formatDateTime(nowIso()),
-      loginMethod: params.username.includes("@artx.social") ? "social" : "email",
-      role: "viewer",
-      status: "normal",
-      plan: "Free",
-      organization: "个人",
-      credits: 0,
-      frozenCredits: 0,
-      expiredCredits: 0,
-      totalRecharge: 0,
-      totalConsumed: 0,
-      lastSeen: "刚刚",
-      risk: "低",
-    };
-    data.users = [user, ...data.users];
-  }
+  const user = ensureBillingUser(data, params);
 
   const orderCreatedAt = nowIso();
   const order: PaymentOrder = {
     id: `rch_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
     userId: user.id,
     user: user.name,
+    userAccount: user.account || params.username,
+    userEmail: user.email,
+    paymentDisplayName: `积分充值 · ${user.account || params.username}`,
     packageName: "积分充值",
     channel: params.paymentMethod === "wechat" ? "微信支付" : "支付宝",
     amount: quote.amount,
@@ -1657,6 +1652,10 @@ export async function getBillingOrderForPayment(orderId: string) {
   return {
     id: order.id,
     userId: order.userId,
+    user: order.user,
+    userAccount: order.userAccount,
+    userEmail: order.userEmail,
+    paymentDisplayName: getPaymentDisplayName(order),
     packageName: order.packageName,
     channel: order.channel,
     amount: order.amount,
@@ -1775,6 +1774,7 @@ export async function recordBillingPaymentCreated(params: {
   paymentMethod: "wechat" | "alipay";
   payUrlType: "qr" | "redirect";
   service: string;
+  paymentDisplayName?: string;
 }) {
   const data = await loadAdminData();
   const order = data.orders.find((item) => item.id === params.orderId);
@@ -1783,18 +1783,20 @@ export async function recordBillingPaymentCreated(params: {
   }
 
   const occurredAt = nowIso();
+  const paymentDisplayName = params.paymentDisplayName?.trim() || getPaymentDisplayName(order);
   const paymentEvent: PaymentEvent = {
     id: `payevt_${Date.now().toString(36)}`,
     type: "wallyt_payment_created",
     status: "pending",
     providerTransactionId: params.providerTransactionId,
     amount: order.amount,
-    message: `${params.actorName} 已创建${params.paymentMethod === "wechat" ? "微信" : "支付宝"}支付链接（${params.payUrlType === "qr" ? "扫码" : "跳转"}）`,
+    message: `${params.actorName} 已创建${params.paymentMethod === "wechat" ? "微信" : "支付宝"}支付链接（${params.payUrlType === "qr" ? "扫码" : "跳转"}）：${paymentDisplayName}`,
     createdAt: occurredAt,
   };
 
   order.event = "已创建威富通支付链接，等待用户支付";
   order.providerTransactionId = params.providerTransactionId || order.providerTransactionId;
+  order.paymentDisplayName = paymentDisplayName;
   order.paymentEvents = [
     paymentEvent,
     ...(order.paymentEvents || []),
@@ -1809,11 +1811,57 @@ export async function recordBillingPaymentCreated(params: {
     after: {
       service: params.service,
       payUrlType: params.payUrlType,
+      paymentDisplayName,
+      userId: order.userId,
+      userAccount: order.userAccount,
     },
   });
 
   await saveAdminData(data);
   return { status: 200, body: { orderId: order.id } };
+}
+
+export async function recordRiskEvent(input: RiskEventInput) {
+  const data = await loadAdminData();
+  const createdAt = nowIso();
+  const riskEvent: RiskEvent = {
+    id: `risk_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
+    title: input.title,
+    detail: input.detail,
+    status: "open",
+    severity: input.severity,
+    target: input.target,
+    createdAt,
+  };
+  data.riskEvents = [riskEvent, ...data.riskEvents].slice(0, 500);
+
+  if (input.alert !== false) {
+    const alert: OpsAlert = {
+      id: `al_${crypto.randomUUID().slice(0, 8)}`,
+      category: "风控",
+      title: input.title,
+      detail: input.detail,
+      severity: input.severity === "high" ? "critical" : "warning",
+      time: formatRelativeTime(createdAt),
+      owner: "Risk",
+      unread: true,
+      linkedSection: input.linkedSection || "risk",
+    };
+    data.alerts = [alert, ...data.alerts].slice(0, 50);
+  }
+
+  appendAuditLog(data, {
+    id: "risk",
+    username: input.actorName || "risk-engine",
+  }, {
+    action: "记录风控事件",
+    target: input.target,
+    reason: input.title,
+    after: riskEvent,
+  });
+
+  await saveAdminData(data);
+  return riskEvent;
 }
 
 export async function recordBillingPaymentFailure(params: {
@@ -1867,6 +1915,19 @@ export async function recordBillingPaymentFailure(params: {
     alert,
     ...data.alerts,
   ].slice(0, 50);
+  const paymentRiskEvent: RiskEvent = {
+    id: `risk_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
+    title: order ? "支付订单异常" : "未知支付回调异常",
+    detail: order ? `${order.id}：${params.message}` : params.message,
+    status: "open",
+    severity: params.signatureValid === false || !order ? "high" : "medium",
+    target: order?.id || params.orderId || "unknown-payment",
+    createdAt: occurredAt,
+  };
+  data.riskEvents = [
+    paymentRiskEvent,
+    ...data.riskEvents,
+  ].slice(0, 500);
 
   appendAuditLog(data, {
     id: "billing",
@@ -1987,6 +2048,21 @@ export async function recordAiUsage(input: AiUsageRecordInput) {
         linkedSection: "integrations",
       };
     data.alerts = [failureAlert, ...data.alerts].slice(0, 50);
+    const aiFailureRiskEvent: RiskEvent = {
+      id: `risk_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
+      title: `AI 任务失败 · ${record.capability}`,
+      detail: `${record.user} 的 ${record.model} 任务失败：${record.failureReason || record.status}`,
+      status: "open",
+      severity: /无权访问|signature|token|credential|not configured|未配置|overloaded|No available/i.test(record.failureReason)
+        ? "high"
+        : "medium",
+      target: record.id,
+      createdAt,
+    };
+    data.riskEvents = [
+      aiFailureRiskEvent,
+      ...data.riskEvents,
+    ].slice(0, 500);
   }
 
   await saveAdminData(data);
