@@ -465,6 +465,80 @@ describe("production readiness", () => {
     expect(revokeAdmin.body).toMatchObject({ error: "只有 super_admin 可以分配或撤销管理员权限" });
   });
 
+  it("shows admin user plan names with the same labels as the billing page", async () => {
+    await writeFile(path.join(dataDir, "admin-data.json"), `${JSON.stringify({
+      users: [
+        {
+          id: "plan-user-pro",
+          name: "pro-user",
+          email: "pro-user@example.com",
+          account: "pro-user@example.com",
+          registeredAt: "2026-07-05 10:00",
+          loginMethod: "email",
+          role: "viewer",
+          status: "normal",
+          plan: "Pro 20K",
+          organization: "个人",
+          credits: 100,
+          frozenCredits: 0,
+          expiredCredits: 0,
+          totalRecharge: 0,
+          totalConsumed: 0,
+          lastSeen: "刚刚",
+          risk: "低",
+        },
+        {
+          id: "plan-user-starter",
+          name: "starter-user",
+          email: "starter-user@example.com",
+          account: "starter-user@example.com",
+          registeredAt: "2026-07-05 10:00",
+          loginMethod: "email",
+          role: "viewer",
+          status: "normal",
+          plan: "Starter",
+          organization: "个人",
+          credits: 0,
+          frozenCredits: 0,
+          expiredCredits: 0,
+          totalRecharge: 0,
+          totalConsumed: 0,
+          lastSeen: "刚刚",
+          risk: "低",
+        },
+      ],
+      orders: [],
+      credits: [],
+      aiTasks: [],
+      providers: [],
+      feedback: [],
+      alerts: [],
+      riskEvents: [],
+      auditLogs: [],
+      plans: [],
+      capabilityStatus: [],
+    }, null, 2)}\n`);
+
+    const { getBillingSnapshotForUser, handleAdminApiRequest } = await loadAdminStore();
+    const authorization = await getAdminAuthorization();
+
+    const overviewResult = await handleAdminApiRequest("GET", "/overview", authorization);
+    expect(overviewResult.status).toBe(200);
+    const overviewBody = overviewResult.body as {
+      users: Array<{ id: string; plan: string }>;
+    };
+    expect(overviewBody.users.find((item) => item.id === "plan-user-pro")).toMatchObject({
+      plan: "Pro 专业版",
+    });
+    expect(overviewBody.users.find((item) => item.id === "plan-user-starter")).toMatchObject({
+      plan: "Free",
+    });
+
+    await expect(getBillingSnapshotForUser("plan-user-pro")).resolves.toMatchObject({
+      plan: "Pro 专业版",
+    });
+  });
+
   it("links registered user identity to payment display name and auto-issues credits when payment is confirmed", async () => {
     const { createCreditRechargeOrder, getBillingOrderForPayment, getBillingSnapshotForUser, handleAdminApiRequest, markBillingOrderPaid, recordBillingPaymentCreated } = await loadAdminStore();
     const authorization = await getAdminAuthorization();

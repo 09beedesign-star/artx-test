@@ -414,13 +414,16 @@ function envStatus(keys: string[], mode: "any" | "all" = "any") {
 }
 
 function mapRoleToPlan(role?: string) {
-  if (role === "super_admin" || role === "admin") return "Business";
-  if (role === "finance" || role === "support") return "Creator";
-  return "Starter";
+  if (role === "super_admin" || role === "admin") return "Business 团队版";
+  if (role === "finance" || role === "support") return "Creator 创作者版";
+  return "Free";
 }
 
 function getPlanIdFromUserPlan(planName?: string) {
-  const normalized = String(planName || "").toLowerCase();
+  const normalized = String(planName || "").trim().toLowerCase();
+  if (!normalized || normalized === "free" || normalized === "starter" || normalized === "demo") {
+    return "lite";
+  }
   const matched = MEMBERSHIP_PLANS.find((plan) => (
     normalized.includes(plan.id.toLowerCase())
     || normalized.includes(plan.shortName.toLowerCase())
@@ -439,6 +442,23 @@ function getMembershipPlanFromName(planName?: string) {
     || normalized.includes(plan.shortName.toLowerCase())
     || normalized.includes(plan.name.toLowerCase())
   ));
+}
+
+function normalizePlanDisplayName(planName?: string | null) {
+  const raw = String(planName || "").trim();
+  if (!raw) return "Free";
+  const normalized = raw.toLowerCase();
+  if (
+    normalized === "free"
+    || normalized === "starter"
+    || normalized === "demo"
+    || normalized.includes("积分充值")
+    || normalized.includes("recharge")
+  ) {
+    return "Free";
+  }
+
+  return getMembershipPlanFromName(raw)?.name || raw;
 }
 
 function quoteAiUsageFromData(data: AdminData, input: {
@@ -1076,6 +1096,10 @@ function recalculateUserBilling(data: AdminData) {
 }
 
 function ensureBillingConsistency(data: AdminData) {
+  data.users = data.users.map((user) => ({
+    ...user,
+    plan: normalizePlanDisplayName(user.plan),
+  }));
   data.orders = data.orders.map((order) => ({
     ...order,
     createdAt: formatRelativeTime(order.createdAt),
@@ -1687,7 +1711,7 @@ export async function getBillingSnapshotForUser(userId: string) {
     balance: user.credits,
     frozenCredits: user.frozenCredits,
     expiredCredits: user.expiredCredits,
-    plan: user.plan,
+    plan: normalizePlanDisplayName(user.plan),
     orders: data.orders.filter((item) => item.userId === userId).slice(0, 20).map((order) => ({
       id: order.id,
       planName: order.packageName,
@@ -1897,7 +1921,7 @@ export async function markBillingOrderPaid(params: {
     user.credits += order.expectedCredits;
     const paidMembershipPlan = getMembershipPlanFromName(order.packageName);
     if (paidMembershipPlan) {
-      user.plan = paidMembershipPlan.shortName;
+      user.plan = paidMembershipPlan.name;
     } else if (!user.plan || String(user.plan).trim() === "积分充值") {
       user.plan = "Free";
     }
@@ -2145,7 +2169,7 @@ export async function recordAiUsage(input: AiUsageRecordInput) {
       loginMethod: input.username.includes("@artx.social") ? "social" : "email",
       role: "viewer",
       status: "normal",
-      plan: "Starter",
+      plan: "Free",
       organization: "个人",
       credits: 0,
       frozenCredits: 0,
