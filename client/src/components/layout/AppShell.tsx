@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
 import {
   Home, Sparkles, Library, FolderOpen,
-  HelpCircle, ImagePlus, Send, X, KeyRound, Copy, Loader2,
+  CreditCard, HelpCircle, ImagePlus, Send, X, KeyRound, Copy, Loader2,
 } from "lucide-react";
 
 
@@ -497,6 +497,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
             <NavItem icon={Sparkles} label="灵感选题" path="/inspiration" iconSize={15} />
             <NavItem icon={Library}  label="技能商店" path="/skills"      iconSize={15} />
             <NavItem icon={FolderOpen} label="工作台" path="/workspace" iconSize={15} />
+            <NavItem icon={CreditCard} label="充值与订阅" path="/billing" iconSize={15} />
           </div>
 
         </div>
