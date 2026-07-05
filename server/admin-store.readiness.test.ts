@@ -733,7 +733,7 @@ describe("production readiness", () => {
     const result = await handleAdminApiRequest("GET", "/users/account-detail-user/detail", authorization);
     expect(result.status).toBe(200);
     const body = result.body as {
-      user: { id: string; plan: string };
+      user: { id: string; plan: string; spent: number };
       orders: Array<{ id: string }>;
       paymentEvents: Array<{ id: string; orderId: string }>;
       creditEntries: Array<{ id: string; source: string }>;
@@ -742,7 +742,7 @@ describe("production readiness", () => {
       timeline: Array<{ id: string; orderId?: string }>;
     };
 
-    expect(body.user).toMatchObject({ id: "account-detail-user", plan: "Pro 专业版" });
+    expect(body.user).toMatchObject({ id: "account-detail-user", plan: "Pro 专业版", spent: 100 });
     expect(body.orders.map((order) => order.id).sort()).toEqual(["account_order_1", "account_order_2"]);
     expect(body.paymentEvents.map((event) => event.orderId).sort()).toEqual(["account_order_1", "account_order_2"]);
     expect(body.creditEntries).toEqual([expect.objectContaining({ id: "cr_account_1", source: "account_order_1" })]);

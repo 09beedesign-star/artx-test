@@ -1296,7 +1296,10 @@ function buildAccountDetail(data: AdminData, userId: string) {
   ].sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
 
   return {
-    user,
+    user: {
+      ...user,
+      spent: user.totalRecharge ?? 0,
+    },
     orders,
     creditEntries,
     auditEntries,

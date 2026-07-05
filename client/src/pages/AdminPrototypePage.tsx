@@ -335,12 +335,14 @@ function statusClass(status: Status | OrderStatus | FeedbackStatus | string) {
   return "border-white/10 bg-white/7 text-white/70";
 }
 
-function formatCurrency(value: number) {
-  return `¥${value.toLocaleString("zh-CN")}`;
+function formatCurrency(value?: number | null) {
+  const amount = Number.isFinite(value) ? value as number : 0;
+  return `¥${amount.toLocaleString("zh-CN")}`;
 }
 
-function formatCredits(value: number) {
-  return value.toLocaleString("zh-CN");
+function formatCredits(value?: number | null) {
+  const amount = Number.isFinite(value) ? value as number : 0;
+  return amount.toLocaleString("zh-CN");
 }
 
 function readAdminToken() {
