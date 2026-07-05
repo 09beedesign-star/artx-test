@@ -96,8 +96,11 @@ function getAiApiBaseUrl() {
     }
   }
   if (configured) return configured;
-  if (typeof window !== "undefined" && window.location.hostname.endsWith("github.io")) return ART_X_TEST_AI_API_BASE_URL;
-  return "";
+  if (typeof window !== "undefined") {
+    const hostname = window.location.hostname;
+    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") return "";
+  }
+  return ART_X_TEST_AI_API_BASE_URL;
 }
 
 function getLocalAiFallbackEndpoint(endpoint: string) {

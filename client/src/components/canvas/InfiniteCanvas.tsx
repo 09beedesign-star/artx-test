@@ -6,7 +6,7 @@
  * 3. Right-click on node: context menu with icon commands
  * 4. Asset node double-click zoom is disabled; image download is available from the node context menu
  */
-import { useCallback, useState, useRef, useEffect, useMemo, type ReactNode, Fragment } from "react";
+import { useCallback, useState, useRef, useEffect, useLayoutEffect, useMemo, type ReactNode, Fragment } from "react";
 import { createPortal } from "react-dom";
 import {
   ReactFlow,
@@ -370,6 +370,7 @@ function SkillPointSelector({
   isDark: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [buttonHover, setButtonHover] = useState(false);
   const selectorRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const [popoverStyle, setPopoverStyle] = useState<React.CSSProperties | null>(null);
@@ -441,19 +442,21 @@ function SkillPointSelector({
         }}
         className="flex h-8 max-w-[74px] items-center gap-1 rounded-[var(--radius-md-design)] px-2 transition-colors"
         style={{
-          background: activeSkill ? activeBg : bg,
-          border: `1px solid ${activeSkill ? "oklch(0.62 0.22 290 / 45%)" : border}`,
-          color: activeSkill ? activeText : text,
+          background: activeSkill || open ? activeBg : buttonHover ? hoverBg : bg,
+          border: `1px solid ${activeSkill || open ? "oklch(0.62 0.22 290 / 45%)" : border}`,
+          color: activeSkill || open ? activeText : text,
           fontSize: 11,
           lineHeight: "14px",
           letterSpacing: 0,
         }}
+        onMouseEnter={() => setButtonHover(true)}
+        onMouseLeave={() => setButtonHover(false)}
       >
         <CircleDot size={12} style={{ flex: "0 0 auto" }} />
         <span className="min-w-0 max-w-[38px] truncate">{activeSkill ? activeSkill.name : "Skill"}</span>
         <ChevronDown size={10} style={{ opacity: 0.65 }} />
       </button>
-      {open && (
+      {open && typeof document !== "undefined" && createPortal(
         <div
           ref={popoverRef}
           className="model-selector-scroll overflow-y-auto rounded-[var(--radius-md-design)] p-1 shadow-2xl"
@@ -517,7 +520,8 @@ function SkillPointSelector({
               })}
             </div>
           ))}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -2998,10 +3002,10 @@ function AssetNodeComponent({ data, selected }: { data: Record<string, unknown>;
   const isErasingImage = Boolean((data as { isErasingImage?: boolean }).isErasingImage);
   const isExtractingText = Boolean((data as { isExtractingText?: boolean }).isExtractingText);
   const isAiProcessingImage = isGeneratingImage || isGenerationFailed || isRemovingBackground || isErasingImage;
-  const processingLabel = ((data as { processingTitle?: string }).processingTitle || (isGenerationFailed ? AI_GENERATION_NETWORK_ERROR_MESSAGE : isGeneratingImage ? "正在开足马力为您生成图片" : isErasingImage ? "AI 擦除中" : isRemovingBackground ? "AI 去背景中" : "AI 处理中")) as string;
+  const processingLabel = ((data as { processingTitle?: string }).processingTitle || (isGenerationFailed ? "生成图片失败" : isGeneratingImage ? "正在开足马力为您生成图片" : isErasingImage ? "AI 擦除中" : isRemovingBackground ? "AI 去背景中" : "AI 处理中")) as string;
   const processingSubtitle = ((data as { processingSubtitle?: string }).processingSubtitle || "") as string;
   const processingLines = (() => {
-    if (isGenerationFailed) return ["生成图片失败", AI_GENERATION_NETWORK_ERROR_MESSAGE];
+    if (isGenerationFailed) return ["生成图片失败"];
     if (isGeneratingImage) return ["正在开足马力", "为您生成图片"];
     if (processingSubtitle) return [processingLabel, processingSubtitle];
     const midpoint = Math.ceil(processingLabel.length / 2);
@@ -5448,6 +5452,17 @@ function buildSkillAppliedImagePrompt(input: {
   ].filter(Boolean).join("\n\n");
 }
 
+function getSkillPreferredRatio(activeSkill: PendingSkillLoad | null, fallback = "1:1") {
+  const firstSize = activeSkill?.canvasSizes?.[0];
+  if (!firstSize) return fallback;
+  const match = firstSize.match(/^(\d+)\s*[x×:]\s*(\d+)$/i);
+  if (!match) return fallback;
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return fallback;
+  return inferImageRatio(width, height);
+}
+
 function getCanvasNodeSize(node: Node): CanvasNodeSize {
   if (node.type === "asset") {
     const nodeData = node.data as Record<string, unknown>;
@@ -6383,10 +6398,6 @@ function BottomPromptBar({
         : effectivePrompt;
       const visiblePrompt = effectivePrompt;
       const submittedRefs = typeof overridePrompt === "string" ? [] : referencedAssets.map(asset => ({ ...asset }));
-      if (activeSkill?.capability === "image_edit" && submittedRefs.length === 0) {
-        toast("请先选择一张图片", { description: "「局部编辑改图」需要基于画布图片或参考图进行编辑。" });
-        return;
-      }
       const selectedGenerationModel = autoRunModelRef.current || model;
       const selectedTextModel = "gpt-5.4-mini";
       autoRunModelRef.current = null;
@@ -6396,6 +6407,58 @@ function BottomPromptBar({
       onClearAllReferences();
       resizePromptTextarea(textareaRef.current);
       try {
+        if (activeSkill) {
+          const targetReference = submittedRefs[submittedRefs.length - 1];
+          const targetDisplaySize = targetReference?.width && targetReference?.height
+            ? { w: targetReference.width, h: targetReference.height }
+            : undefined;
+          const skillRatio = getSkillPreferredRatio(activeSkill, ratio);
+          const basePrompt = submittedPrompt || `${skillContext}\n\n用户提示：${visiblePrompt || `请生成一张${activeSkill.subcategory}图片。`}`;
+          const finalImagePrompt = buildSkillAppliedImagePrompt({
+            activeSkill,
+            skillContext,
+            userPrompt: visiblePrompt || `请生成一张${activeSkill.subcategory}图片。`,
+            imagePrompt: basePrompt,
+          });
+          const generationId = `bottom-skill-${activeSkill.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+          const shouldEditTargetReference = activeSkill.capability === "image_edit" && Boolean(targetReference);
+          const payload: ImageGeneratorPayload = {
+            projectId,
+            prompt: finalImagePrompt,
+            model: shouldEditTargetReference ? "gpt-image-2" : selectedGenerationModel,
+            ratio: skillRatio,
+            count: 1,
+            style: activeSkill.name,
+            referencesEnabled: submittedRefs.length > 0,
+            referencedAssets: submittedRefs,
+            generationId,
+            displaySize: targetDisplaySize || getImageDisplaySizeForRatio(skillRatio),
+            sourceBackgroundSrc: targetReference?.src,
+            skillId: activeSkill.id,
+          };
+          dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
+          toast("Skill 已开始生成", { description: activeSkill.name });
+          try {
+            const result = shouldEditTargetReference && targetReference
+              ? await editImageWithPrompt({
+                  imageSrc: targetReference.src,
+                  model: "gpt-image-2",
+                  prompt: payload.prompt,
+                  referencedAssets: submittedRefs.slice(0, -1),
+                  skillId: activeSkill.id,
+                  targetWidth: targetReference.width || getImageDisplaySizeForRatio(skillRatio).w,
+                  targetHeight: targetReference.height || getImageDisplaySizeForRatio(skillRatio).h,
+                })
+              : await generateAiImages(payload);
+            dispatchImageGenerationTask({ ...payload, status: "completed", images: result.images }, projectId);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "请稍后重试";
+            dispatchImageGenerationTask({ ...payload, status: "failed", error: message }, projectId);
+            throw error;
+          }
+          return;
+        }
+
         const decision = await routeCreativeIntent({
           module: "bottom-global-prompt-router",
           model: "gpt-4o",
@@ -6410,8 +6473,8 @@ function BottomPromptBar({
             ? { w: targetReference.width, h: targetReference.height }
             : undefined;
           const finalImagePrompt = buildSkillAppliedImagePrompt({
-            activeSkill,
-            skillContext,
+            activeSkill: null,
+            skillContext: "",
             userPrompt: visiblePrompt,
             imagePrompt,
           });
@@ -6426,22 +6489,11 @@ function BottomPromptBar({
             referencesEnabled: submittedRefs.length > 0,
             generationId,
             displaySize: targetDisplaySize || getImageDisplaySizeForRatio(ratio),
-            skillId: activeSkill?.id,
           };
           dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
           toast("AI 判断为生成图片", { description: imagePrompt.slice(0, 90) });
           try {
-            const result = activeSkill?.capability === "image_edit" && targetReference
-              ? await editImageWithPrompt({
-                  imageSrc: targetReference.src,
-                  model: "gpt-image-2",
-                  prompt: payload.prompt,
-                  referencedAssets: submittedRefs.slice(0, -1),
-                  skillId: activeSkill.id,
-                  targetWidth: targetReference.width || getImageDisplaySizeForRatio(ratio).w,
-                  targetHeight: targetReference.height || getImageDisplaySizeForRatio(ratio).h,
-                })
-              : await generateAiImages(payload);
+            const result = await generateAiImages(payload);
             dispatchImageGenerationTask({ ...payload, status: "completed", images: result.images }, projectId);
           } catch (error) {
             const message = error instanceof Error ? error.message : "请稍后重试";
@@ -6477,9 +6529,10 @@ function BottomPromptBar({
     const raw = window.sessionStorage.getItem("artx:pending-home-prompt");
     if (!raw) return;
     try {
-      const payload = JSON.parse(raw) as { projectId?: string; prompt?: string; model?: string };
+      const payload = JSON.parse(raw) as { projectId?: string; prompt?: string; model?: string; shouldAutoRun?: boolean };
       if (payload.projectId !== projectId || !payload.prompt?.trim()) return;
       window.sessionStorage.removeItem("artx:pending-home-prompt");
+      if (!payload.shouldAutoRun) return;
       const nextPrompt = payload.prompt.trim();
       setPrompt(nextPrompt);
       setRows(Math.max(1, nextPrompt.split("\n").length));
@@ -6527,6 +6580,16 @@ function BottomPromptBar({
     setReferencePreview(prev => prev ? { ...prev, visible: false } : prev);
   }, []);
 
+  const handleSkillChange = useCallback((skill: PendingSkillLoad | null) => {
+    onActiveSkillChange(skill);
+    if (!skill) return;
+    setPrompt(prev => prev.trim() ? prev : `帮我生成一张${skill.subcategory}：`);
+    window.setTimeout(() => {
+      resizePromptTextarea(textareaRef.current);
+      textareaRef.current?.focus();
+    }, 0);
+  }, [onActiveSkillChange, resizePromptTextarea]);
+
   const promptRightOffset = Math.max(24, canvasRightInset + 24);
   const hasContent = prompt.trim() || hasRefs;
   const placeholderText = hasRefs
@@ -6547,6 +6610,8 @@ function BottomPromptBar({
         backdropFilter: "blur(20px)",
         left: 24,
         right: promptRightOffset,
+        minWidth: 0,
+        overflowX: "hidden",
         zIndex: 50,
         transition: "border-color 0.25s cubic-bezier(0.23,1,0.32,1), box-shadow 0.25s cubic-bezier(0.23,1,0.32,1)",
         boxShadow: `0 10px 34px rgba(210,214,224,0.10)`,
@@ -6612,7 +6677,7 @@ function BottomPromptBar({
         </div>
       )}
 
-      <div className="px-4 pt-3 pb-2">
+      <div className="px-4 pt-3 pb-2" style={{ minWidth: 0, overflowX: "hidden" }}>
         <textarea
           ref={textareaRef}
           value={prompt}
@@ -6629,12 +6694,16 @@ function BottomPromptBar({
             minHeight: promptTextareaMinHeight,
             maxHeight: "min(42vh, 250px)",
             overflowY: "hidden",
+            overflowX: "hidden",
             scrollbarWidth: "none",
+            boxSizing: "border-box",
+            maxWidth: "100%",
+            overflowWrap: "anywhere",
           }}
           placeholder={placeholderText}
         />
       </div>
-      <div className="flex items-center gap-2 px-3 pb-3" style={{ paddingTop: 8 }}>
+      <div className="flex min-w-0 items-center gap-2 px-3 pb-3" style={{ paddingTop: 8 }}>
         <ModelSelector model={model} onChange={setModel} isDark={isDark} />
         <div
           className="flex h-8 items-center gap-1 rounded-[var(--radius-md-design)] px-2"
@@ -6655,7 +6724,7 @@ function BottomPromptBar({
             ))}
           </select>
         </div>
-        <SkillPointSelector activeSkill={activeSkill} onChange={onActiveSkillChange} isDark={isDark} />
+        <SkillPointSelector activeSkill={activeSkill} onChange={handleSkillChange} isDark={isDark} />
         <button
           className="flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-md-design)] type-caption hover:opacity-80"
           style={{ color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.55 0.01 270)" }}
@@ -9221,6 +9290,7 @@ function formatCanvasMessageTime(value: Date) {
 
 const CANVAS_ASSISTANT_MESSAGES_STORAGE_PREFIX = "artx:canvas-assistant-messages:";
 const CANVAS_ASSISTANT_MESSAGES_SESSION_PREFIX = "artx:canvas-assistant-messages:fallback:";
+const CANVAS_ASSISTANT_DEFAULT_MESSAGE = "你好，请直接告诉我你想生成什么内容，我会按你的目标给出可执行方案。";
 
 function canvasAssistantMessagesStorageKey(projectId: string) {
   return `${CANVAS_ASSISTANT_MESSAGES_STORAGE_PREFIX}${projectId || "p1"}`;
@@ -9251,6 +9321,15 @@ function deserializeCanvasAssistantMessages(raw: string | null): CanvasAssistant
   } catch {
     return [];
   }
+}
+
+function createCanvasAssistantSeedMessage(): CanvasAssistantMessage {
+  return {
+    id: "assistant-seed-default",
+    role: "assistant",
+    content: CANVAS_ASSISTANT_DEFAULT_MESSAGE,
+    timestamp: new Date(),
+  };
 }
 
 function createAssistantTextSegment(text = ""): AssistantComposerSegment {
@@ -9414,11 +9493,9 @@ function CanvasAssistantPanel({
   const [composerSegments, setComposerSegments] = useState<AssistantComposerSegment[]>(() => [createAssistantTextSegment("")]);
   const [draggingComposerSegmentId, setDraggingComposerSegmentId] = useState<string | null>(null);
   const [dragOverComposerSegmentId, setDragOverComposerSegmentId] = useState<string | null>(null);
-  const composerInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const composerInputRefs = useRef<Record<string, HTMLInputElement | HTMLTextAreaElement | null>>({});
   const composerSegmentRefs = useRef<Record<string, HTMLElement | null>>({});
   const composerShellRef = useRef<HTMLDivElement | null>(null);
-  const composerMeasureRef = useRef<HTMLSpanElement>(null);
-  const [composerTextWidths, setComposerTextWidths] = useState<Record<string, number>>({});
   const [composerBoxSelection, setComposerBoxSelection] = useState<{
     active: boolean;
     startX: number;
@@ -9434,8 +9511,11 @@ function CanvasAssistantPanel({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const commandMenuRef = useRef<HTMLDivElement>(null);
   const assistantModelRef = useRef<HTMLDivElement>(null);
+  const assistantModelPopoverRef = useRef<HTMLDivElement>(null);
   const [commandMenuOpen, setCommandMenuOpen] = useState(false);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
+  const [agentMenuStyle, setAgentMenuStyle] = useState<React.CSSProperties | null>(null);
+  const [agentButtonHover, setAgentButtonHover] = useState(false);
   const [netSearchEnabled, setNetSearchEnabled] = useState(false);
   const [assistantAutoMode, setAssistantAutoMode] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -9476,9 +9556,8 @@ function CanvasAssistantPanel({
       window.sessionStorage.getItem(canvasAssistantMessagesSessionKey(projectId)) ||
       window.localStorage.getItem(canvasAssistantMessagesStorageKey(projectId))
     );
-    return stored.length > 0 ? stored : [
-      { id: "assistant-seed-1", role: "assistant", content: "你好，下面开始你的创作吧！", timestamp: new Date() },
-    ];
+    if (stored.length === 1 && stored[0]?.id === "assistant-seed-1") return [createCanvasAssistantSeedMessage()];
+    return stored.length > 0 ? stored : [createCanvasAssistantSeedMessage()];
   });
   const pendingHomePromptHandledRef = useRef(false);
   const bg = isDark ? "#222222" : "oklch(0.995 0.002 80 / 0.98)";
@@ -9488,9 +9567,42 @@ function CanvasAssistantPanel({
   const chipBg = isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 4%)";
   const elevatedBg = isDark ? "#222222" : "oklch(1 0 0 / 0.98)";
   const hoverBg = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 5%)";
+  const compactSelectorBg = isDark ? "oklch(0.13 0.015 270)" : "oklch(0.96 0.004 270)";
+  const compactSelectorHoverBg = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 5%)";
+  const compactSelectorActiveBg = isDark ? "oklch(0.58 0.22 290 / 0.18)" : "oklch(0.58 0.22 290 / 0.12)";
+  const compactSelectorBorder = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
+  const compactSelectorActiveBorder = "oklch(0.62 0.22 290 / 45%)";
+  const compactSelectorText = isDark ? "oklch(0.75 0.01 270)" : "oklch(0.35 0.01 270)";
+  const compactSelectorActiveText = isDark ? "oklch(0.82 0.16 290)" : "oklch(0.46 0.18 290)";
   const activeGlow = "0 0 0 3px rgba(197,237,71,0.14), 0 18px 44px rgba(0,0,0,0.24)";
   const inputShadow = "0 16px 42px rgba(210,214,224,0.10), 0 0 0 1px rgba(210,214,224,0.10)";
   const collapsedPeekWidth = 112;
+  const updateAgentMenuPosition = useCallback(() => {
+    const trigger = assistantModelRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const margin = 12;
+    const gap = 6;
+    const width = Math.min(288, Math.max(220, window.innerWidth - margin * 2));
+    const modelOptionCount = assistantModelTab === "image" ? IMAGE_AI_MODELS.length : TEXT_AI_MODELS.length;
+    const measuredHeight = assistantModelPopoverRef.current?.offsetHeight || 0;
+    const estimatedHeight = Math.min(248, measuredHeight || (112 + modelOptionCount * 36));
+    const spaceAbove = rect.top - margin - gap;
+    const spaceBelow = window.innerHeight - rect.bottom - margin - gap;
+    const openAbove = spaceAbove >= estimatedHeight || spaceAbove >= spaceBelow;
+    const maxHeight = Math.max(160, Math.min(280, openAbove ? spaceAbove : spaceBelow));
+    const left = Math.min(Math.max(margin, rect.left), window.innerWidth - width - margin);
+    const top = openAbove
+      ? Math.max(margin, rect.top - gap - estimatedHeight)
+      : Math.min(window.innerHeight - margin - Math.min(estimatedHeight, maxHeight), rect.bottom + gap);
+    setAgentMenuStyle({
+      position: "fixed",
+      left,
+      top,
+      width,
+      maxHeight,
+    });
+  }, [assistantModelTab]);
   const [splitterActive, setSplitterActive] = useState(false);
   const [splitterHover, setSplitterHover] = useState(false);
   const handleSplitterPointerDown = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
@@ -9592,28 +9704,7 @@ function CanvasAssistantPanel({
     ))));
   }, []);
 
-  useEffect(() => {
-    const measure = composerMeasureRef.current;
-    if (!measure) return;
-    const nextWidths: Record<string, number> = {};
-    composerSegments.forEach(segment => {
-      if (segment.type !== "text") return;
-      if (!segment.text) {
-        nextWidths[segment.id] = composerSegments.length === 1 ? 220 : 2;
-        return;
-      }
-      measure.textContent = segment.text;
-      nextWidths[segment.id] = Math.min(520, Math.max(32, Math.ceil(measure.scrollWidth) + 18));
-    });
-    setComposerTextWidths(previous => {
-      const previousKeys = Object.keys(previous);
-      const nextKeys = Object.keys(nextWidths);
-      if (previousKeys.length === nextKeys.length && nextKeys.every(key => previous[key] === nextWidths[key])) return previous;
-      return nextWidths;
-    });
-  }, [composerSegments]);
-
-  const rememberComposerCursor = useCallback((segmentId: string, target: HTMLInputElement) => {
+  const rememberComposerCursor = useCallback((segmentId: string, target: HTMLInputElement | HTMLTextAreaElement) => {
     activeComposerSegmentIdRef.current = segmentId;
     activeComposerCursorRef.current = target.selectionStart ?? target.value.length;
   }, []);
@@ -9820,7 +9911,7 @@ function CanvasAssistantPanel({
     setDragOverComposerSegmentId(null);
   }, [isComposerTokenDragEvent]);
 
-  const handleComposerTextKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement>, segmentId: string) => {
+  const handleComposerTextKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>, segmentId: string) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       void handleSubmit();
@@ -9865,6 +9956,13 @@ function CanvasAssistantPanel({
     : TEXT_AI_MODELS;
   const assistantModel = assistantModelTab === "image" ? assistantImageModel : assistantTextModel;
   const activeSkillContext = activeSkill ? buildSkillPromptContext(activeSkill) : "";
+
+  const handleAssistantSkillChange = useCallback((skill: PendingSkillLoad | null) => {
+    onActiveSkillChange(skill);
+    if (!skill) return;
+    setComposerSegments(prev => getAssistantComposerText(prev) ? prev : [createAssistantTextSegment(`帮我生成一张${skill.subcategory}：`)]);
+    focusComposerSegment();
+  }, [focusComposerSegment, onActiveSkillChange]);
 
   const handleReferenceSelectionToggle = useCallback((referenceId: string) => {
     setSelectedReferenceIds(prev => (
@@ -9998,13 +10096,29 @@ function CanvasAssistantPanel({
   useEffect(() => {
     if (!agentMenuOpen) return;
     const handler = (event: PointerEvent) => {
-      if (assistantModelRef.current && event.target instanceof globalThis.Node && !assistantModelRef.current.contains(event.target)) {
+      if (
+        event.target instanceof globalThis.Node &&
+        !assistantModelRef.current?.contains(event.target) &&
+        !assistantModelPopoverRef.current?.contains(event.target)
+      ) {
         setAgentMenuOpen(false);
       }
     };
+    updateAgentMenuPosition();
     document.addEventListener("pointerdown", handler, true);
-    return () => document.removeEventListener("pointerdown", handler, true);
-  }, [agentMenuOpen]);
+    window.addEventListener("resize", updateAgentMenuPosition);
+    window.addEventListener("scroll", updateAgentMenuPosition, true);
+    return () => {
+      document.removeEventListener("pointerdown", handler, true);
+      window.removeEventListener("resize", updateAgentMenuPosition);
+      window.removeEventListener("scroll", updateAgentMenuPosition, true);
+    };
+  }, [agentMenuOpen, updateAgentMenuPosition]);
+
+  useLayoutEffect(() => {
+    if (!agentMenuOpen) return;
+    updateAgentMenuPosition();
+  }, [agentMenuOpen, assistantModelTab, assistantModelOptions.length, updateAgentMenuPosition]);
 
   useEffect(() => {
     try {
@@ -10023,9 +10137,11 @@ function CanvasAssistantPanel({
       window.sessionStorage.getItem(canvasAssistantMessagesSessionKey(projectId)) ||
       window.localStorage.getItem(canvasAssistantMessagesStorageKey(projectId))
     );
-    setMessages(stored.length > 0 ? stored : [
-      { id: "assistant-seed-1", role: "assistant", content: "你好，下面开始你的创作吧！", timestamp: new Date() },
-    ]);
+    if (stored.length === 1 && stored[0]?.id === "assistant-seed-1") {
+      setMessages([createCanvasAssistantSeedMessage()]);
+      return;
+    }
+    setMessages(stored.length > 0 ? stored : [createCanvasAssistantSeedMessage()]);
   }, [projectId]);
 
   useEffect(() => {
@@ -10148,10 +10264,11 @@ function CanvasAssistantPanel({
     const raw = sessionStorage.getItem("artx:pending-home-prompt");
     if (!raw) return;
     try {
-      const payload = JSON.parse(raw) as { projectId?: string; prompt?: string; model?: string };
+      const payload = JSON.parse(raw) as { projectId?: string; prompt?: string; model?: string; shouldAutoRun?: boolean };
       if (payload.projectId !== projectId || !payload.prompt?.trim()) return;
       pendingHomePromptHandledRef.current = true;
       sessionStorage.removeItem("artx:pending-home-prompt");
+      if (!payload.shouldAutoRun) return;
       if (!isAuthenticated) {
         onLoginRequest();
         toast("请先登录", { description: "登录后即可使用 AI 能力" });
@@ -10289,17 +10406,65 @@ function CanvasAssistantPanel({
         ? `上下文：${context}\n用户按顺序提供了图文混排提示词，请严格理解引用图与其前后描述之间的关系。\n用户请求：${submittedComposerPrompt}`
         : submittedComposerPrompt;
     const assistantImages: ImageGeneratorReferenceAsset[] = submittedVisualReferences;
-    if (activeSkill?.capability === "image_edit" && assistantImages.length === 0) {
-      setMessages(prev => [...prev, {
-        id: `assistant-skill-reference-required-${Date.now()}`,
-        role: "assistant",
-        content: "「局部编辑改图」需要先选择一张画布图片或上传参考图。我会基于那张图片执行去背景、擦除、扩图、换风格或局部重绘。",
-        timestamp: new Date(),
-      }]);
-      setIsSubmitting(false);
-      return;
-    }
     try {
+      if (activeSkill) {
+        const finalImagePrompt = buildSkillAppliedImagePrompt({
+          activeSkill,
+          skillContext: activeSkillContext,
+          userPrompt: rawSubmittedComposerPrompt,
+          imagePrompt: routedPrompt,
+        });
+        const skillRatio = getSkillPreferredRatio(activeSkill, "1:1");
+        const generationId = `right-skill-${activeSkill.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        const shouldEditTargetReference = activeSkill.capability === "image_edit" && assistantImages.length >= 1;
+        const targetReference = shouldEditTargetReference ? assistantImages[assistantImages.length - 1] : undefined;
+        const sourceReferences = shouldEditTargetReference ? assistantImages.slice(0, -1) : assistantImages;
+        const targetDisplaySize = targetReference?.width && targetReference?.height
+          ? { w: targetReference.width, h: targetReference.height }
+          : undefined;
+        const payload: ImageGeneratorPayload = {
+          projectId,
+          prompt: shouldEditTargetReference && targetReference
+            ? [
+                finalImagePrompt,
+                "Use the last referenced image as the target canvas. Preserve the target person's identity, pose, composition, background, lighting, camera angle, and aspect ratio.",
+                "Use the earlier referenced images only as visual references for the requested object, accessory, texture, pattern, color, or detail.",
+                "Do not generate a new unrelated person or scene.",
+              ].join("\n")
+            : finalImagePrompt,
+          model: shouldEditTargetReference ? "gpt-image-2" : (assistantAutoMode ? "auto" : assistantImageModel.id),
+          ratio: skillRatio,
+          count: 1,
+          style: activeSkill.name,
+          referencesEnabled: assistantImages.length > 0,
+          referencedAssets: assistantImages,
+          generationId,
+          displaySize: targetDisplaySize || getImageDisplaySizeForRatio(skillRatio),
+          sourceBackgroundSrc: targetReference?.src || assistantImages[0]?.src,
+          skillId: activeSkill.id,
+        };
+        dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
+        const result = shouldEditTargetReference && targetReference
+          ? await editImageWithPrompt({
+              imageSrc: targetReference.src,
+              model: "gpt-image-2",
+              prompt: payload.prompt,
+              referencedAssets: sourceReferences,
+              skillId: activeSkill.id,
+              targetWidth: targetReference.width,
+              targetHeight: targetReference.height,
+            })
+          : await generateAiImages(payload);
+        dispatchImageGenerationTask({ ...payload, status: "completed", images: result.images }, projectId);
+        setMessages(prev => [...prev, {
+          id: `assistant-skill-${Date.now()}`,
+          role: "assistant",
+          content: `已使用「${activeSkill.name}」根据你的提示词生成图片。`,
+          timestamp: new Date(),
+        }]);
+        return;
+      }
+
       const shouldRouteIntent = assistantAutoMode || assistantModelTab === "image";
       const decision = shouldRouteIntent
         ? await routeCreativeIntent({
@@ -10348,13 +10513,13 @@ function CanvasAssistantPanel({
       } else if (decision?.mode === "image" || hasAnnotationReferences) {
         const imagePrompt = decision?.imagePrompt?.trim() || routedPrompt;
         const finalImagePrompt = buildSkillAppliedImagePrompt({
-          activeSkill,
-          skillContext: activeSkillContext,
+          activeSkill: null,
+          skillContext: "",
           userPrompt: rawSubmittedComposerPrompt,
           imagePrompt,
         });
         const generationId = `right-assistant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-        const shouldEditTargetReference = activeSkill?.capability === "image_edit" ? assistantImages.length >= 1 : assistantImages.length >= 2;
+        const shouldEditTargetReference = assistantImages.length >= 2;
         const targetReference = shouldEditTargetReference ? assistantImages[assistantImages.length - 1] : undefined;
         const sourceReferences = shouldEditTargetReference ? assistantImages.slice(0, -1) : assistantImages;
         const targetDisplaySize = targetReference?.width && targetReference?.height
@@ -10379,7 +10544,6 @@ function CanvasAssistantPanel({
           generationId,
           displaySize: targetDisplaySize,
           sourceBackgroundSrc: targetReference?.src || assistantImages[0]?.src,
-          skillId: activeSkill?.id,
         };
         dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
         const result = shouldEditTargetReference && targetReference
@@ -10388,7 +10552,6 @@ function CanvasAssistantPanel({
               model: "gpt-image-2",
               prompt: payload.prompt,
               referencedAssets: sourceReferences,
-              skillId: activeSkill?.id,
               targetWidth: targetReference.width,
               targetHeight: targetReference.height,
             })
@@ -10679,6 +10842,8 @@ function CanvasAssistantPanel({
                 background: isDark ? "#222222" : chipBg,
                 border: `1px solid ${inputFocused ? "rgba(197,237,71,0.42)" : border}`,
                 boxShadow: inputFocused ? activeGlow : inputShadow,
+                minWidth: 0,
+                overflowX: "hidden",
               }}
             >
               {contextLabel && (
@@ -10703,6 +10868,8 @@ function CanvasAssistantPanel({
                   position: "relative",
                   color: text,
                   maxHeight: "min(48vh, 360px)",
+                  minWidth: 0,
+                  overflowX: "hidden",
                   scrollbarWidth: "thin",
                   scrollbarColor: `${isDark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.18)"} transparent`,
                 }}
@@ -10722,17 +10889,6 @@ function CanvasAssistantPanel({
                 onDragLeave={handleComposerShellDragLeave}
                 onDrop={handleComposerShellDrop}
               >
-                <span
-                  ref={composerMeasureRef}
-                  aria-hidden="true"
-                  className="pointer-events-none invisible absolute whitespace-pre"
-                  style={{
-                    fontSize: 12,
-                    lineHeight: "24px",
-                    fontFamily: "inherit",
-                    letterSpacing: 0,
-                  }}
-                />
                 {composerBoxSelection && composerShellRef.current && (() => {
                   const rect = composerShellRef.current.getBoundingClientRect();
                   const left = Math.min(composerBoxSelection.startX, composerBoxSelection.currentX) - rect.left + composerShellRef.current.scrollLeft;
@@ -10854,167 +11010,121 @@ function CanvasAssistantPanel({
                       </span>
                     );
                   }
-                  const isSingleEmptyTextSegment = composerSegments.length === 1 && segment.text.length === 0;
-                  const textWidth = composerTextWidths[segment.id] ?? (segment.text
-                    ? Math.min(520, Math.max(32, segment.text.length * 13 + 18))
-                    : isSingleEmptyTextSegment
-                      ? 320
-                      : 2);
-                  const shouldHighlightTextSegment = isBoxSelected && (segment.text.length > 0 || isSingleEmptyTextSegment);
+                  const shouldHighlightTextSegment = isBoxSelected && segment.text.length > 0;
                   return (
-                    isSingleEmptyTextSegment ? (
-                      <textarea
-                        key={segment.id}
-                        ref={node => {
-                          composerInputRefs.current[segment.id] = node as unknown as HTMLInputElement | null;
-                          composerSegmentRefs.current[segment.id] = node;
-                        }}
-                        value={segment.text}
-                        rows={3}
-                        onChange={event => {
-                          rememberComposerCursor(segment.id, event.currentTarget as unknown as HTMLInputElement);
-                          setComposerTextSegment(segment.id, event.target.value);
-                        }}
-                        onClick={event => rememberComposerCursor(segment.id, event.currentTarget as unknown as HTMLInputElement)}
-                        onKeyUp={event => rememberComposerCursor(segment.id, event.currentTarget as unknown as HTMLInputElement)}
-                        onKeyDown={event => {
-                          if (event.key === "Enter" && !event.shiftKey) {
-                            event.preventDefault();
-                            void handleSubmit();
-                          }
-                        }}
-                        onFocus={() => {
-                          activeComposerSegmentIdRef.current = segment.id;
-                          const input = composerInputRefs.current[segment.id];
-                          activeComposerCursorRef.current = input?.selectionStart ?? segment.text.length;
-                          setInputFocused(true);
-                        }}
-                        onBlur={() => setInputFocused(false)}
-                        placeholder={composerAnnotations.length > 0
-                          ? `基于 ${composerAnnotations.length} 个注释点，描述组合生成意图...`
-                          : "输入对当前画布的想法，可在文字之间插入引用图片..."
+                    <textarea
+                      key={segment.id}
+                      ref={node => {
+                        composerInputRefs.current[segment.id] = node as unknown as HTMLInputElement | null;
+                        composerSegmentRefs.current[segment.id] = node;
+                      }}
+                      value={segment.text}
+                      rows={3}
+                      onChange={event => {
+                        rememberComposerCursor(segment.id, event.currentTarget as unknown as HTMLInputElement);
+                        setComposerTextSegment(segment.id, event.target.value);
+                      }}
+                      onClick={event => rememberComposerCursor(segment.id, event.currentTarget as unknown as HTMLInputElement)}
+                      onDragOver={event => handleComposerSegmentDragOver(event, segment.id)}
+                      onDrop={event => {
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        const placement = event.clientX > rect.left + rect.width / 2 ? "after" : "before";
+                        handleComposerSegmentDrop(event, segment.id, placement);
+                      }}
+                      onKeyUp={event => rememberComposerCursor(segment.id, event.currentTarget as unknown as HTMLInputElement)}
+                      onKeyDown={event => {
+                        if (event.key === "Enter" && !event.shiftKey) {
+                          event.preventDefault();
+                          void handleSubmit();
                         }
-                        className="min-w-0 resize-none whitespace-pre-wrap border-0 bg-transparent px-1.5 py-1 outline-none disabled:cursor-not-allowed"
-                        style={{
-                          color: text,
-                          background: shouldHighlightTextSegment ? "rgba(197,237,71,0.16)" : "transparent",
-                          borderRadius: shouldHighlightTextSegment ? 5 : 0,
-                          opacity: 1,
-                          fontSize: 12,
-                          lineHeight: "20px",
-                          minHeight: 104,
-                          overflow: "hidden",
-                          width: "100%",
-                          minWidth: 0,
-                          maxWidth: "100%",
-                          flex: "1 1 100%",
-                          flexBasis: "100%",
-                          wordBreak: "break-word",
-                          overflowWrap: "anywhere",
-                          margin: 0,
-                        }}
-                      />
-                    ) : (
-                      <input
-                        key={segment.id}
-                        type="text"
-                        ref={node => {
-                          composerInputRefs.current[segment.id] = node;
-                          composerSegmentRefs.current[segment.id] = node;
-                        }}
-                        value={segment.text}
-                        onChange={event => {
-                          rememberComposerCursor(segment.id, event.currentTarget);
-                          setComposerTextSegment(segment.id, event.target.value);
-                        }}
-                        onClick={event => rememberComposerCursor(segment.id, event.currentTarget)}
-                        onDragOver={event => handleComposerSegmentDragOver(event, segment.id)}
-                        onDrop={event => {
-                          const rect = event.currentTarget.getBoundingClientRect();
-                          const placement = event.clientX > rect.left + rect.width / 2 ? "after" : "before";
-                          handleComposerSegmentDrop(event, segment.id, placement);
-                        }}
-                        onKeyUp={event => rememberComposerCursor(segment.id, event.currentTarget)}
-                        onKeyDown={event => handleComposerTextKeyDown(event, segment.id)}
-                        onFocus={() => {
-                          activeComposerSegmentIdRef.current = segment.id;
-                          const input = composerInputRefs.current[segment.id];
-                          activeComposerCursorRef.current = input?.selectionStart ?? segment.text.length;
-                          setInputFocused(true);
-                        }}
-                        onBlur={() => setInputFocused(false)}
-                        className="min-w-0 whitespace-nowrap border-0 bg-transparent px-1.5 py-1 outline-none disabled:cursor-not-allowed"
-                        style={{
-                          color: text,
-                          background: shouldHighlightTextSegment ? "rgba(197,237,71,0.16)" : "transparent",
-                          borderRadius: shouldHighlightTextSegment ? 5 : 0,
-                          opacity: 1,
-                          fontSize: 12,
-                          lineHeight: "20px",
-                          height: 28,
-                          minHeight: 28,
-                          overflow: "hidden",
-                          width: `${textWidth}px`,
-                          minWidth: `${textWidth}px`,
-                          maxWidth: `${textWidth}px`,
-                          flex: "0 0 auto",
-                          flexBasis: `${textWidth}px`,
-                          wordBreak: "keep-all",
-                          overflowWrap: "normal",
-                          margin: 0,
-                        }}
-                      />
-                    )
+                      }}
+                      onFocus={() => {
+                        activeComposerSegmentIdRef.current = segment.id;
+                        const input = composerInputRefs.current[segment.id];
+                        activeComposerCursorRef.current = input?.selectionStart ?? segment.text.length;
+                        setInputFocused(true);
+                      }}
+                      onBlur={() => setInputFocused(false)}
+                      placeholder={composerAnnotations.length > 0
+                        ? `基于 ${composerAnnotations.length} 个注释点，描述组合生成意图...`
+                        : "输入对当前画布的想法，可在文字之间插入引用图片..."
+                      }
+                      className="min-w-0 resize-none whitespace-pre-wrap border-0 bg-transparent px-1.5 py-1 outline-none disabled:cursor-not-allowed"
+                      style={{
+                        color: text,
+                        background: shouldHighlightTextSegment ? "rgba(197,237,71,0.16)" : "transparent",
+                        borderRadius: shouldHighlightTextSegment ? 5 : 0,
+                        opacity: 1,
+                        fontSize: 12,
+                        lineHeight: "20px",
+                        minHeight: 104,
+                        overflow: "hidden",
+                        overflowX: "hidden",
+                        width: "100%",
+                        minWidth: 0,
+                        maxWidth: "100%",
+                        flex: "1 1 100%",
+                        flexBasis: "100%",
+                        wordBreak: "break-word",
+                        overflowWrap: "anywhere",
+                        margin: 0,
+                      }}
+                    />
                   );
                 })}
               </div>
-              <div className="flex items-center justify-between pt-2" style={{ gap: 6 }}>
+              <div className="flex min-w-0 items-center justify-between pt-2" style={{ gap: 6 }}>
                 <div className="flex min-w-0 items-center" style={{ gap: 6 }}>
                   <div ref={assistantModelRef} className="relative flex min-w-0 items-center" style={{ color: sub }}>
                     <button
                       type="button"
-                      className="flex h-8 max-w-[126px] items-center gap-1 rounded-[var(--radius-lg-design)] px-2 transition-colors active:scale-95"
+                      className="flex h-8 max-w-[82px] items-center gap-1 rounded-[var(--radius-md-design)] px-2 transition-colors active:scale-95"
                       style={{
-                        background: agentMenuOpen ? hoverBg : "transparent",
-                        color: agentMenuOpen ? text : sub,
+                        background: agentMenuOpen ? compactSelectorActiveBg : agentButtonHover ? compactSelectorHoverBg : compactSelectorBg,
+                        border: `1px solid ${agentMenuOpen ? compactSelectorActiveBorder : compactSelectorBorder}`,
+                        color: agentMenuOpen ? compactSelectorActiveText : compactSelectorText,
                         fontSize: 11,
                         lineHeight: "14px",
                         letterSpacing: 0,
                       }}
-                      onClick={() => { setAgentMenuOpen(v => !v); setCommandMenuOpen(false); }}
-                      onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
-                      onMouseLeave={e => (e.currentTarget.style.background = agentMenuOpen ? hoverBg : "transparent")}
+                      onClick={() => {
+                        setAgentMenuOpen(v => !v);
+                        setCommandMenuOpen(false);
+                        requestAnimationFrame(updateAgentMenuPosition);
+                      }}
+                      onMouseEnter={() => setAgentButtonHover(true)}
+                      onMouseLeave={() => setAgentButtonHover(false)}
                       title="选择模型"
                       aria-label="选择模型"
                     >
-                      <span className="min-w-0 max-w-[100px] truncate">
+                      <span className="min-w-0 max-w-[56px] truncate">
                         {assistantAutoMode ? "auto" : `${assistantModelTab === "image" ? "生图" : "对话"} · ${assistantModel.label}`}
                       </span>
                       <ChevronDown size={10} style={{ flex: "0 0 auto", opacity: 0.6, transform: agentMenuOpen ? "rotate(180deg)" : "none", transition: "transform 0.16s ease" }} />
                     </button>
-                    {agentMenuOpen && (
+                    {agentMenuOpen && typeof document !== "undefined" && createPortal(
                       <div
-                        className="absolute bottom-full left-0 mb-2 overflow-hidden rounded-[var(--radius-lg-design)] shadow-2xl"
+                        ref={assistantModelPopoverRef}
+                        className="model-selector-scroll overflow-y-auto rounded-[var(--radius-md-design)] p-1 shadow-2xl"
                         style={{
+                          ...(agentMenuStyle || {}),
                           background: isDark ? "oklch(0.16 0.015 270)" : "oklch(0.97 0.004 270)",
                           border: `1px solid ${border}`,
-                          minWidth: 200,
+                          color: text,
                           backdropFilter: "blur(16px)",
-                          zIndex: 130,
+                          zIndex: 9999,
                         }}
                       >
-                      <div className="flex items-center justify-between gap-3 px-3 py-2.5" style={{ borderBottom: `1px solid ${border}` }}>
-                        <div>
-                          <p className="type-caption" style={{ color: text, fontWeight: 700, textTransform: "none", letterSpacing: 0 }}>auto</p>
-                        </div>
+                      <div className="flex items-center justify-between gap-3 rounded-[var(--radius-sm-design)] px-2.5 py-2">
+                        <span className="type-caption" style={{ color: text, fontWeight: 700, textTransform: "none", letterSpacing: 0 }}>auto</span>
                         <button
                           type="button"
                           role="switch"
                           aria-checked={assistantAutoMode}
                           className="relative shrink-0 rounded-[var(--radius-pill)] transition-all"
                           style={{
-                            width: 38,
-                            height: 22,
+                            width: 34,
+                            height: 20,
                             background: assistantAutoMode ? "#C5ED47" : (isDark ? "oklch(1 0 0 / 14%)" : "oklch(0 0 0 / 12%)"),
                             border: `1px solid ${assistantAutoMode ? "rgba(197,237,71,0.60)" : border}`,
                           }}
@@ -11025,9 +11135,9 @@ function CanvasAssistantPanel({
                             style={{
                               position: "absolute",
                               top: 3,
-                              left: assistantAutoMode ? 19 : 3,
-                              width: 16,
-                              height: 16,
+                              left: assistantAutoMode ? 17 : 3,
+                              width: 14,
+                              height: 14,
                               borderRadius: 999,
                               background: assistantAutoMode ? "#111827" : (isDark ? "oklch(0.68 0.01 270)" : "#fff"),
                               boxShadow: "0 1px 4px rgba(0,0,0,0.22)",
@@ -11036,7 +11146,7 @@ function CanvasAssistantPanel({
                           />
                         </button>
                       </div>
-                      <div className="grid grid-cols-2 gap-1 p-1.5" style={{ borderBottom: `1px solid ${border}` }}>
+                      <div className="grid grid-cols-2 gap-1 px-1 pb-1">
                         {([
                           { id: "image" as const, label: "生图" },
                           { id: "text" as const, label: "对话" },
@@ -11060,7 +11170,7 @@ function CanvasAssistantPanel({
                           <button
                             key={model.id}
                             type="button"
-                            className="flex w-full items-center justify-between px-3 py-2.5 text-left type-caption transition-colors"
+                            className="flex w-full items-center justify-between rounded-[var(--radius-sm-design)] px-2.5 py-2 text-left transition-colors"
                             style={{ color: text, background: assistantModel.id === model.id ? "rgba(197,237,71,0.12)" : "transparent" }}
                             onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
                             onMouseLeave={e => (e.currentTarget.style.background = assistantModel.id === model.id ? "rgba(197,237,71,0.12)" : "transparent")}
@@ -11074,10 +11184,10 @@ function CanvasAssistantPanel({
                               setAgentMenuOpen(false);
                             }}
                           >
-                            <div className="flex items-center gap-2.5">
-                              <div className="w-4 h-4 rounded-[var(--radius-pill)]" style={{ background: model.color }} />
-                              <div>
-                                <p className="type-caption" style={{ textTransform: "none", letterSpacing: "0.02em" }}>{model.label}</p>
+                            <div className="flex min-w-0 items-center gap-2.5">
+                              <div className="h-3.5 w-3.5 shrink-0 rounded-[var(--radius-pill)]" style={{ background: model.color }} />
+                              <div className="min-w-0">
+                                <p className="truncate text-xs font-semibold" style={{ color: text, textTransform: "none", letterSpacing: 0 }}>{model.label}</p>
                                 {"description" in model && model.description ? (
                                   <p className="truncate" style={{ color: sub, fontSize: 10, letterSpacing: 0, maxWidth: 150 }}>{model.description}</p>
                                 ) : null}
@@ -11088,10 +11198,11 @@ function CanvasAssistantPanel({
                             )}
                           </button>
                         ))}
-                      </div>
+                      </div>,
+                      document.body
                     )}
                   </div>
-                  <SkillPointSelector activeSkill={activeSkill} onChange={onActiveSkillChange} isDark={isDark} />
+                  <SkillPointSelector activeSkill={activeSkill} onChange={handleAssistantSkillChange} isDark={isDark} />
                 </div>
                 <div className="flex shrink-0 items-center" style={{ gap: 6 }}>
                   <button

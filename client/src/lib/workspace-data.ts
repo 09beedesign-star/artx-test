@@ -16,12 +16,12 @@ export const AUTO_AI_MODEL: AiModelOption = {
 };
 
 export const IMAGE_AI_MODELS: AiModelOption[] = [
-  { id: "gpt-image-2", label: "Image Two", color: "oklch(0.72 0.18 200)" },
-  { id: "gemini-3.1-flash-image", label: "Nano Banana", color: "oklch(0.82 0.18 95)" },
+  { id: "gpt-image-2", label: "GPT image2", color: "oklch(0.72 0.18 200)" },
+  { id: "gemini-3.1-flash-image", label: "Nano banana PRO 3.5", color: "oklch(0.82 0.18 95)" },
 ];
 
 export const TEXT_AI_MODELS: AiModelOption[] = [
-  { id: "gpt-5.4-mini", label: "GPT 大语言模型", color: "oklch(0.74 0.14 230)" },
+  { id: "gpt-5.4-mini", label: "GPT 5.4 - high", color: "oklch(0.74 0.14 230)" },
 ];
 
 export const IMAGE_AI_MODEL_OPTIONS: AiModelOption[] = [AUTO_AI_MODEL, ...IMAGE_AI_MODELS];

@@ -72,6 +72,7 @@ type BillingOrderResponse = {
     amount: number;
     planName: string;
     cycleLabel: string;
+    credits?: number;
     status: string;
   };
   error?: string;
@@ -103,6 +104,13 @@ type BillingStatusResponse = {
   };
   error?: string;
 };
+
+class BillingAuthExpiredError extends Error {
+  constructor(message = "登录已失效，请重新登录") {
+    super(message);
+    this.name = "BillingAuthExpiredError";
+  }
+}
 
 const rechargePacks = [
   {
@@ -160,10 +168,11 @@ function getBillingApiBaseUrl() {
   ).replace(/\/+$/, "");
 
   if (configured) return configured;
-  if (typeof window !== "undefined" && window.location.hostname.endsWith("github.io")) {
-    return "https://artx-test.onrender.com";
-  }
-  return "";
+  return "https://artx-test.onrender.com";
+}
+
+function isQrImagePayUrl(payUrl: string) {
+  return /\.(png|jpg|jpeg|gif|webp)(\?|$)/i.test(payUrl) || /pay\.wepayez\.com\/pay\/qrcode/i.test(payUrl);
 }
 
 function getAuthToken() {
@@ -175,6 +184,12 @@ function getAuthToken() {
   } catch {
     return "";
   }
+}
+
+function clearExpiredAuthSession() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem("artx-auth-session");
+  window.dispatchEvent(new CustomEvent("artx:login-required", { detail: { reason: "billing-auth-expired" } }));
 }
 
 function normalizePlanDisplayName(planName?: string | null) {
@@ -225,6 +240,9 @@ async function billingFetch<T>(path: string, options: RequestInit = {}): Promise
     throw new Error("测试后端支付接口还未部署完成，请稍后再试");
   }
   const data = await response.json().catch(() => ({}));
+  if (response.status === 401) {
+    throw new BillingAuthExpiredError(typeof data?.error === "string" ? data.error : undefined);
+  }
   if (!response.ok) {
     throw new Error(typeof data?.error === "string" ? data.error : "请求失败，请稍后重试");
   }
@@ -251,12 +269,22 @@ export default function BillingPage() {
   const [payingRechargeId, setPayingRechargeId] = useState<string | null>(null);
   const [paymentDialog, setPaymentDialog] = useState<{
     open: boolean;
+    type: "subscription" | "recharge";
     orderId: string;
     payUrl: string;
     title: string;
     amount: number;
     credits: number;
+    cycleLabel?: string;
     status: "pending" | "success";
+  } | null>(null);
+  const [successDialog, setSuccessDialog] = useState<{
+    open: boolean;
+    type: "subscription" | "recharge";
+    title: string;
+    amount: number;
+    credits: number;
+    cycleLabel?: string;
   } | null>(null);
 
   const isDark = resolvedTheme === "dark";
@@ -306,28 +334,51 @@ export default function BillingPage() {
     };
   }, [isAuthenticated]);
 
+  const showPaymentSuccess = async (dialog: NonNullable<typeof paymentDialog>) => {
+    const summary = await billingFetch<BillingSummaryResponse>("/api/billing/summary").catch(() => null);
+    if (summary && typeof summary.balance === "number") {
+      setBalance(summary.balance);
+      setCurrentPlan(normalizePlanDisplayName(summary.plan));
+      setBalanceFlash(true);
+      window.setTimeout(() => setBalanceFlash(false), 900);
+    }
+    setPaymentDialog(null);
+    setSuccessDialog({
+      open: true,
+      type: dialog.type,
+      title: dialog.title,
+      amount: dialog.amount,
+      credits: dialog.credits,
+      cycleLabel: dialog.cycleLabel,
+    });
+  };
+
+  const checkPaymentStatus = async (showPendingToast = false) => {
+    if (!paymentDialog?.open) return;
+    try {
+      const result = await billingFetch<BillingStatusResponse>(`/api/billing/orders/${paymentDialog.orderId}/status`);
+      if (result.order?.status === "paid") {
+        await showPaymentSuccess(paymentDialog);
+        return;
+      }
+      if (showPendingToast) {
+        toast("暂未确认到账", {
+          description: "如果已经完成支付，请稍等几秒后再点一次。",
+        });
+      }
+    } catch (error) {
+      if (showPendingToast) {
+        toast("支付状态查询失败", {
+          description: error instanceof Error ? error.message : "请稍后重试",
+        });
+      }
+    }
+  };
+
   useEffect(() => {
     if (!paymentDialog?.open || paymentDialog.status === "success") return;
-    const interval = window.setInterval(async () => {
-      try {
-        const result = await billingFetch<BillingStatusResponse>(`/api/billing/orders/${paymentDialog.orderId}/status`);
-        if (result.order?.status === "paid") {
-          setPaymentDialog(current => current ? { ...current, status: "success" } : current);
-          const summary = await billingFetch<BillingSummaryResponse>("/api/billing/summary").catch(() => null);
-          if (summary && typeof summary.balance === "number") {
-            setBalance(summary.balance);
-            setCurrentPlan(normalizePlanDisplayName(summary.plan));
-            setBalanceFlash(true);
-            window.setTimeout(() => setBalanceFlash(false), 900);
-          }
-          toast("充值成功", {
-            description: "感谢您的支持，积分余额已同步刷新。",
-          });
-          window.clearInterval(interval);
-        }
-      } catch {
-        // Keep polling while the payment page is open.
-      }
+    const interval = window.setInterval(() => {
+      void checkPaymentStatus(false);
     }, 3500);
     return () => window.clearInterval(interval);
   }, [paymentDialog?.open, paymentDialog?.orderId, paymentDialog?.status]);
@@ -346,6 +397,21 @@ export default function BillingPage() {
   };
 
   const currentPlanLevel = getPlanLevel(currentPlan);
+
+  const handlePaymentError = (error: unknown) => {
+    if (error instanceof BillingAuthExpiredError) {
+      clearExpiredAuthSession();
+      openLoginModal();
+      toast("登录已失效", {
+        description: "请重新登录后再继续订阅或充值。",
+      });
+      return;
+    }
+
+    toast("支付暂时不可用", {
+      description: error instanceof Error ? error.message : "请稍后重试",
+    });
+  };
 
   const startSubscriptionPayment = async (planId: string, label: string) => {
     if (!isAuthenticated) {
@@ -385,14 +451,20 @@ export default function BillingPage() {
         throw new Error(payResult.error || "威富通支付链接创建失败");
       }
 
-      toast("威富通支付已创建", {
-        description: `${label} 订单已生成，请在打开的页面扫码或继续支付。`,
+      const selectedPlan = MEMBERSHIP_PLANS.find(item => item.id === planId);
+      setPaymentDialog({
+        open: true,
+        type: "subscription",
+        orderId: orderResult.order.id,
+        payUrl: payResult.payment.payUrl,
+        title: selectedPlan?.name || orderResult.order.planName || label,
+        amount: orderResult.order.amount,
+        credits: orderResult.order.credits || 0,
+        cycleLabel: orderResult.order.cycleLabel || cycleLabel,
+        status: "pending",
       });
-      window.open(payResult.payment.payUrl, "_blank", "noopener,noreferrer");
     } catch (error) {
-      toast("支付暂时不可用", {
-        description: error instanceof Error ? error.message : "请稍后重试",
-      });
+      handlePaymentError(error);
     } finally {
       setPayingPlanId(null);
     }
@@ -448,6 +520,7 @@ export default function BillingPage() {
 
       setPaymentDialog({
         open: true,
+        type: "recharge",
         orderId: orderResult.order.id,
         payUrl: payResult.payment.payUrl,
         title: packName,
@@ -456,9 +529,7 @@ export default function BillingPage() {
         status: "pending",
       });
     } catch (error) {
-      toast("支付暂时不可用", {
-        description: error instanceof Error ? error.message : "请稍后重试",
-      });
+      handlePaymentError(error);
     } finally {
       setPayingRechargeId(null);
     }
@@ -650,7 +721,7 @@ export default function BillingPage() {
 
                         <button
                           type="button"
-	                          onClick={() => startSubscriptionPayment(plan.id, `${plan.name} ${cycleLabel}`)}
+	                          onClick={() => startSubscriptionPayment(plan.id, plan.name)}
 	                          disabled={payingPlanId === plan.id || disabledByPlan}
                           className="mt-5 h-10 rounded-[var(--radius-md-design)] type-caption transition-all hover:opacity-90 active:scale-[0.98]"
                           style={{
@@ -752,11 +823,11 @@ export default function BillingPage() {
             <div className="mb-4 flex items-start justify-between gap-4">
               <div>
                 <h3 style={{ color: text, fontSize: 20, fontWeight: 720 }}>
-                  {paymentDialog.status === "success" ? "充值成功" : "扫码完成支付"}
+                  扫码完成支付
                 </h3>
                 <p className="mt-1 type-caption" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>
-                  {paymentDialog.status === "success"
-                    ? "感谢您的支持，积分余额已同步刷新。"
+                  {paymentDialog.type === "subscription"
+                    ? `${paymentDialog.title}${paymentDialog.cycleLabel ? ` · ${paymentDialog.cycleLabel}` : ""} · HKD ${paymentDialog.amount.toLocaleString("zh-HK")}`
                     : `${paymentDialog.title} · HKD ${paymentDialog.amount.toLocaleString("zh-HK")} · ${paymentDialog.credits.toLocaleString("zh-HK")} 积分`}
                 </p>
               </div>
@@ -770,36 +841,91 @@ export default function BillingPage() {
               </button>
             </div>
 
-            {paymentDialog.status === "success" ? (
-              <div className="rounded-[var(--radius-lg-design)] border p-4 text-center" style={{ borderColor: "oklch(0.78 0.18 110 / 0.34)", background: "oklch(0.78 0.18 110 / 0.10)" }}>
-                <div style={{ color: green, fontSize: 26, fontWeight: 760 }}>+{paymentDialog.credits.toLocaleString("zh-HK")}</div>
-                <p className="mt-1 type-caption" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>积分已到账</p>
-              </div>
-            ) : (
-              <>
-                <div className="rounded-[var(--radius-lg-design)] border p-3 text-center" style={{ borderColor: border, background: isDark ? "#222222" : "white" }}>
-                  {/\.(png|jpg|jpeg|gif|webp)(\?|$)/i.test(paymentDialog.payUrl) ? (
-                    <img src={paymentDialog.payUrl} alt="支付二维码" className="mx-auto h-[220px] w-[220px] rounded-[var(--radius-md-design)] object-contain" />
-                  ) : (
-                    <div className="flex h-[220px] flex-col items-center justify-center gap-3">
-                      <WalletCards size={34} style={{ color: green }} />
-                      <a
-                        href={paymentDialog.payUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="rounded-[var(--radius-md-design)] px-4 py-2 type-caption"
-                        style={{ background: green, color: "#10130A", fontWeight: 720 }}
-                      >
-                        打开支付页面
-                      </a>
-                    </div>
-                  )}
+            <div className="rounded-[var(--radius-lg-design)] border p-3 text-center" style={{ borderColor: border, background: isDark ? "#222222" : "white" }}>
+              {isQrImagePayUrl(paymentDialog.payUrl) ? (
+                <img src={paymentDialog.payUrl} alt="支付二维码" className="mx-auto h-[220px] w-[220px] rounded-[var(--radius-md-design)] object-contain" />
+              ) : (
+                <div className="flex h-[220px] flex-col items-center justify-center gap-3">
+                  <WalletCards size={34} style={{ color: green }} />
+                  <a
+                    href={paymentDialog.payUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-[var(--radius-md-design)] px-4 py-2 type-caption"
+                    style={{ background: green, color: "#10130A", fontWeight: 720 }}
+                  >
+                    打开支付页面
+                  </a>
                 </div>
-                <p className="mt-3 text-center type-caption" style={{ color: faint, letterSpacing: 0, textTransform: "none" }}>
-                  支付完成后会自动刷新积分余额
+              )}
+            </div>
+            <p className="mt-3 text-center type-caption" style={{ color: faint, letterSpacing: 0, textTransform: "none" }}>
+              支付完成后会自动刷新余额，也可以点击下方按钮确认状态
+            </p>
+            <button
+              type="button"
+              onClick={() => void checkPaymentStatus(true)}
+              className="mt-4 h-10 w-full rounded-[var(--radius-md-design)] type-caption transition-all hover:opacity-90 active:scale-[0.98]"
+              style={{ background: green, color: "#10130A", fontWeight: 720 }}
+            >
+              我已支付
+            </button>
+          </div>
+        </div>
+      )}
+      {successDialog?.open && (
+        <div
+          className="fixed inset-0 z-[90] flex items-center justify-center px-4"
+          style={{ background: "rgba(34,34,34,0.74)", backdropFilter: "blur(14px)" }}
+        >
+          <div
+            className="w-full max-w-[430px] overflow-hidden rounded-[var(--radius-xl-design)] border"
+            style={{ background: panelStrong, borderColor: border, boxShadow: "0 24px 80px oklch(0 0 0 / 0.42)" }}
+          >
+            <div className="h-2 w-full" style={{ background: green }} />
+            <div className="p-5">
+              <div className="mb-4 flex items-start justify-between gap-4">
+                <div>
+                  <h3 style={{ color: text, fontSize: 20, fontWeight: 760 }}>
+                    {successDialog.type === "subscription" ? "订阅成功" : "充值成功"}
+                  </h3>
+                  <p className="mt-1 type-caption" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>
+                    {successDialog.type === "subscription"
+                      ? `您已成功订阅 ${successDialog.title}${successDialog.cycleLabel ? ` · ${successDialog.cycleLabel}` : ""}。`
+                      : `您已成功支付 HKD ${successDialog.amount.toLocaleString("zh-HK")}。`}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSuccessDialog(null)}
+                  className="h-8 w-8 rounded-[var(--radius-md-design)] type-caption"
+                  style={{ color: sub, background: isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)" }}
+                >
+                  ×
+                </button>
+              </div>
+
+              <div
+                className="rounded-[var(--radius-lg-design)] border p-4 text-center"
+                style={{ borderColor: "oklch(0.78 0.18 110 / 0.34)", background: "oklch(0.78 0.18 110 / 0.10)" }}
+              >
+                <div style={{ color: green, fontSize: 26, fontWeight: 760 }}>
+                  {successDialog.type === "subscription" ? successDialog.title : `+${successDialog.credits.toLocaleString("zh-HK")}`}
+                </div>
+                <p className="mt-1 type-caption" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>
+                  {successDialog.type === "subscription" ? "套餐权益与积分余额已同步刷新" : "积分已到账，感谢您的支持"}
                 </p>
-              </>
-            )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSuccessDialog(null)}
+                className="mt-5 h-10 w-full rounded-[var(--radius-md-design)] type-caption transition-all hover:opacity-90 active:scale-[0.98]"
+                style={{ background: green, color: "#10130A", fontWeight: 720 }}
+              >
+                确认
+              </button>
+            </div>
           </div>
         </div>
       )}

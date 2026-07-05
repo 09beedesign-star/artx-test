@@ -57,6 +57,7 @@ type AiRouteTracking = {
 };
 
 const backgroundImageTasks = new Map<string, BackgroundImageTask>();
+const BACKGROUND_IMAGE_TASK_TIMEOUT_MS = 5 * 60 * 1000;
 
 function pruneBackgroundImageTasks() {
   const now = Date.now();
@@ -65,6 +66,17 @@ function pruneBackgroundImageTasks() {
       backgroundImageTasks.delete(taskId);
     }
   });
+}
+
+function resolveBackgroundImageTask(task: BackgroundImageTask) {
+  if (task.status !== "pending") return task;
+  if (Date.now() - task.createdAt <= BACKGROUND_IMAGE_TASK_TIMEOUT_MS) return task;
+  return {
+    ...task,
+    status: "failed" as const,
+    error: "图片生成任务超时，请稍后重试",
+    updatedAt: Date.now(),
+  };
 }
 
 async function requireSessionUser(req: express.Request, res: express.Response): Promise<SessionUser | null> {
@@ -547,10 +559,14 @@ async function startServer() {
     const user = await requireSessionUser(req, res);
     if (!user) return;
     pruneBackgroundImageTasks();
-    const task = backgroundImageTasks.get(req.params.taskId);
+    const rawTask = backgroundImageTasks.get(req.params.taskId);
+    const task = rawTask ? resolveBackgroundImageTask(rawTask) : undefined;
     if (!task || task.ownerUserId !== user.id) {
       res.status(404).json({ error: "Image task not found", taskId: req.params.taskId, status: "failed" });
       return;
+    }
+    if (rawTask && task !== rawTask) {
+      backgroundImageTasks.set(req.params.taskId, task);
     }
     res.json(task);
   });

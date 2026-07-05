@@ -333,6 +333,57 @@ function vitePluginJsonApi(name: string, route: string, handler: JsonApiHandler,
   };
 }
 
+function vitePluginAiOrchestratorApi(): Plugin {
+  const backendUrl = (process.env.VITE_TEST_BACKEND_URL || process.env.VITE_API_BASE_URL || "https://artx-test.onrender.com").replace(/\/+$/, "");
+
+  async function proxyJson(req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse, targetPath: string) {
+    try {
+      const body = req.method === "GET" ? undefined : await readRequestJson(req);
+      const response = await fetch(`${backendUrl}${targetPath}`, {
+        method: req.method,
+        headers: {
+          "Content-Type": "application/json",
+          ...(typeof req.headers.authorization === "string" ? { Authorization: req.headers.authorization } : {}),
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const contentType = response.headers.get("content-type") || "application/json";
+      const text = await response.text();
+      res.writeHead(response.status, { "Content-Type": contentType });
+      res.end(text);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "AI proxy failed";
+      sendJson(res, 502, { error: message });
+    }
+  }
+
+  return {
+    name: "artx-ai-test-backend-proxy",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/ai/orchestrate", async (req, res, next) => {
+        if (req.method !== "POST") {
+          return next();
+        }
+        await proxyJson(req, res, "/api/ai/orchestrate");
+      });
+
+      server.middlewares.use("/api/images/tasks", async (req, res, next) => {
+        if (req.method !== "POST") {
+          return next();
+        }
+        await proxyJson(req, res, "/api/images/tasks");
+      });
+
+      server.middlewares.use("/api/images/tasks/", (req, res, next) => {
+        if (req.method !== "GET") {
+          return next();
+        }
+        void proxyJson(req, res, `/api/images/tasks${req.url || ""}`);
+      });
+    },
+  };
+}
+
 function vitePluginAuthApi(): Plugin {
   return {
     name: "artx-auth-api",
@@ -519,6 +570,7 @@ const plugins = [
   vitePluginAuthApi(),
   vitePluginAdminApi(),
   vitePluginDeveloperApi(),
+  vitePluginAiOrchestratorApi(),
   vitePluginJsonApi("artx-ai-image-api", "/api/images/generate", generateImages, "Image generation failed"),
   vitePluginJsonApi("artx-ai-remove-background-api", "/api/images/remove-background", removeImageBackground, "Background removal failed"),
   vitePluginJsonApi("artx-ai-edit-image-api", "/api/images/edit", editImageWithPrompt, "Image edit failed"),

@@ -211,12 +211,14 @@ export default function HomePage() {
 
   const createProjectFromPrompt = () => {
     const text = prompt.trim() || HOME_PROMPT;
+    const shouldAutoRun = promptTouched && text !== HOME_PROMPT;
     const title = text.length > 18 ? `${text.slice(0, 18)}...` : text;
     const project = createWorkspaceHistoryProject(title || undefined, text);
     sessionStorage.setItem("artx:pending-home-prompt", JSON.stringify({
       projectId: project.id,
       prompt: text,
       model: "auto",
+      shouldAutoRun,
       createdAt: project.createdAt,
     }));
     toast("已创建新画布", { description: text.slice(0, 80) });
