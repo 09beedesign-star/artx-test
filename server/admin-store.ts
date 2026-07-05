@@ -414,9 +414,9 @@ function envStatus(keys: string[], mode: "any" | "all" = "any") {
 }
 
 function mapRoleToPlan(role?: string) {
-  if (role === "super_admin" || role === "admin") return "Business 团队版";
-  if (role === "finance" || role === "support") return "Creator 创作者版";
-  return "Free";
+  if (role === "super_admin" || role === "admin") return "Studio 工作室版";
+  if (role === "finance" || role === "support") return "Pro 专业版";
+  return "Lite 入门版";
 }
 
 function getPlanIdFromUserPlan(planName?: string) {
@@ -446,19 +446,40 @@ function getMembershipPlanFromName(planName?: string) {
 
 function normalizePlanDisplayName(planName?: string | null) {
   const raw = String(planName || "").trim();
-  if (!raw) return "Free";
+  if (!raw) return "Lite 入门版";
   const normalized = raw.toLowerCase();
   if (
     normalized === "free"
     || normalized === "starter"
     || normalized === "demo"
+    || normalized.includes("creator")
+    || normalized.includes("创作者")
     || normalized.includes("积分充值")
     || normalized.includes("recharge")
   ) {
-    return "Free";
+    return "Lite 入门版";
   }
 
-  return getMembershipPlanFromName(raw)?.name || raw;
+  if (
+    normalized.includes("studio")
+    || normalized.includes("business")
+    || normalized.includes("enterprise")
+    || normalized.includes("工作室")
+    || normalized.includes("团队")
+    || normalized.includes("企业")
+  ) {
+    return "Studio 工作室版";
+  }
+
+  if (normalized.includes("pro") || normalized.includes("专业")) {
+    return "Pro 专业版";
+  }
+
+  if (normalized.includes("lite") || normalized.includes("入门")) {
+    return "Lite 入门版";
+  }
+
+  return "Lite 入门版";
 }
 
 function quoteAiUsageFromData(data: AdminData, input: {

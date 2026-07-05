@@ -465,7 +465,7 @@ describe("production readiness", () => {
     expect(revokeAdmin.body).toMatchObject({ error: "只有 super_admin 可以分配或撤销管理员权限" });
   });
 
-  it("shows admin user plan names with the same labels as the billing page", async () => {
+  it("shows admin user plan names with the three billing page plan labels", async () => {
     await writeFile(path.join(dataDir, "admin-data.json"), `${JSON.stringify({
       users: [
         {
@@ -506,6 +506,44 @@ describe("production readiness", () => {
           lastSeen: "刚刚",
           risk: "低",
         },
+        {
+          id: "plan-user-creator",
+          name: "creator-user",
+          email: "creator-user@example.com",
+          account: "creator-user@example.com",
+          registeredAt: "2026-07-05 10:00",
+          loginMethod: "email",
+          role: "viewer",
+          status: "normal",
+          plan: "Creator 创作者版",
+          organization: "个人",
+          credits: 0,
+          frozenCredits: 0,
+          expiredCredits: 0,
+          totalRecharge: 0,
+          totalConsumed: 0,
+          lastSeen: "刚刚",
+          risk: "低",
+        },
+        {
+          id: "plan-user-business",
+          name: "business-user",
+          email: "business-user@example.com",
+          account: "business-user@example.com",
+          registeredAt: "2026-07-05 10:00",
+          loginMethod: "email",
+          role: "viewer",
+          status: "normal",
+          plan: "Business 团队版",
+          organization: "个人",
+          credits: 0,
+          frozenCredits: 0,
+          expiredCredits: 0,
+          totalRecharge: 0,
+          totalConsumed: 0,
+          lastSeen: "刚刚",
+          risk: "低",
+        },
       ],
       orders: [],
       credits: [],
@@ -531,7 +569,13 @@ describe("production readiness", () => {
       plan: "Pro 专业版",
     });
     expect(overviewBody.users.find((item) => item.id === "plan-user-starter")).toMatchObject({
-      plan: "Free",
+      plan: "Lite 入门版",
+    });
+    expect(overviewBody.users.find((item) => item.id === "plan-user-creator")).toMatchObject({
+      plan: "Lite 入门版",
+    });
+    expect(overviewBody.users.find((item) => item.id === "plan-user-business")).toMatchObject({
+      plan: "Studio 工作室版",
     });
 
     await expect(getBillingSnapshotForUser("plan-user-pro")).resolves.toMatchObject({
