@@ -283,6 +283,7 @@ type ProductionCheckItem = {
   status: ProductionCheckStatus;
   summary: string;
   metrics: Record<string, number>;
+  metricLabels: Record<string, string>;
   evidence: string[];
   actionTarget: "orders" | "credits" | "integrations" | "audit";
 };
@@ -701,6 +702,12 @@ function buildProductionChecks(data: AdminData): ProductionCheckItem[] {
         mismatchedOrders,
         paidWithoutCredits,
       },
+      metricLabels: {
+        totalOrders: "订单总数",
+        pendingReconciliation: "待对账订单",
+        mismatchedOrders: "异常订单",
+        paidWithoutCredits: "已支付未足额入账",
+      },
       evidence: [
         `订单总数 ${totalOrders}`,
         `待对账 ${pendingReconciliation}`,
@@ -722,6 +729,13 @@ function buildProductionChecks(data: AdminData): ProductionCheckItem[] {
         paidUnconsumedCredits,
         creditLedgerEntries,
       },
+      metricLabels: {
+        activeUserCredits: "用户可用积分",
+        frozenCredits: "冻结积分",
+        expiredCredits: "过期积分",
+        paidUnconsumedCredits: "已发放未消耗积分",
+        creditLedgerEntries: "积分流水记录",
+      },
       evidence: [
         `用户可用积分 ${activeUserCredits.toLocaleString("zh-CN")}`,
         `冻结积分 ${frozenCredits.toLocaleString("zh-CN")}`,
@@ -741,6 +755,12 @@ function buildProductionChecks(data: AdminData): ProductionCheckItem[] {
         partialGroups: partialSecretGroups,
         missingGroups: missingSecretGroups,
       },
+      metricLabels: {
+        requiredGroups: "需检查配置组",
+        configuredGroups: "已完整配置",
+        partialGroups: "部分配置",
+        missingGroups: "缺失配置",
+      },
       evidence: criticalSecretGroups.map((group) => {
         const configured = configuredKeys(group.keys).length;
         return `${group.label} ${configured}/${group.keys.length}`;
@@ -759,6 +779,14 @@ function buildProductionChecks(data: AdminData): ProductionCheckItem[] {
         privilegedUserCount,
         highRiskOpenEvents,
         recentPermissionAuditCount,
+      },
+      metricLabels: {
+        superAdminCount: "超级管理员",
+        adminCount: "管理员",
+        financeCount: "财务账号",
+        privilegedUserCount: "高权限账号",
+        highRiskOpenEvents: "未处理高危事件",
+        recentPermissionAuditCount: "权限审计记录",
       },
       evidence: [
         `超级管理员 ${superAdminCount}`,

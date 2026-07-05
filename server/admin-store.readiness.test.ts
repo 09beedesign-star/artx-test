@@ -331,6 +331,7 @@ describe("production readiness", () => {
         id: string;
         status: string;
         metrics: Record<string, number>;
+        metricLabels: Record<string, string>;
         actionTarget: string;
         evidence: string[];
       }>;
@@ -345,6 +346,12 @@ describe("production readiness", () => {
         mismatchedOrders: 1,
         paidWithoutCredits: 0,
       },
+      metricLabels: {
+        totalOrders: "订单总数",
+        pendingReconciliation: "待对账订单",
+        mismatchedOrders: "异常订单",
+        paidWithoutCredits: "已支付未足额入账",
+      },
     });
     expect(checksBody.productionChecks.find((item) => item.id === "credit_liability")).toMatchObject({
       status: "ready",
@@ -354,6 +361,12 @@ describe("production readiness", () => {
         frozenCredits: 100,
         expiredCredits: 30,
         paidUnconsumedCredits: 920,
+      },
+      metricLabels: {
+        activeUserCredits: "用户可用积分",
+        frozenCredits: "冻结积分",
+        expiredCredits: "过期积分",
+        paidUnconsumedCredits: "已发放未消耗积分",
       },
     });
     expect(checksBody.productionChecks.find((item) => item.id === "secret_governance")).toMatchObject({

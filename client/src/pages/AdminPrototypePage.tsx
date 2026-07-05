@@ -196,6 +196,7 @@ type ProductionCheck = {
   status: "ready" | "watch" | "partial" | "blocked";
   summary: string;
   metrics: Record<string, number>;
+  metricLabels?: Record<string, string>;
   evidence: string[];
   actionTarget: AdminSection;
 };
@@ -2084,7 +2085,7 @@ function RiskPanel({
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {Object.entries(check.metrics).slice(0, 4).map(([key, value]) => (
                   <div key={key} className="rounded-md border border-white/8 bg-white/[0.03] px-2 py-1.5">
-                    <div className="text-[10px] uppercase tracking-wide text-slate-500">{key}</div>
+                    <div className="text-[10px] text-slate-500">{check.metricLabels?.[key] || key}</div>
                     <div className="mt-0.5 text-xs font-medium text-slate-200">{formatCredits(value)}</div>
                   </div>
                 ))}
