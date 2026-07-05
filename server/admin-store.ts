@@ -275,6 +275,18 @@ type ProductionReadinessItem = {
   action: string;
 };
 
+type ProductionCheckStatus = "ready" | "watch" | "partial" | "blocked";
+
+type ProductionCheckItem = {
+  id: "payment_reconciliation" | "credit_liability" | "secret_governance" | "privileged_access";
+  title: string;
+  status: ProductionCheckStatus;
+  summary: string;
+  metrics: Record<string, number>;
+  evidence: string[];
+  actionTarget: "orders" | "credits" | "integrations" | "audit";
+};
+
 type AiCostSummary = {
   totalEstimatedCost: number;
   totalChargedCredits: number;
@@ -627,6 +639,139 @@ function buildProductionReadiness(): ProductionReadinessItem[] {
   ];
 }
 
+function productionCheckStatus(blockers: number, warnings = 0): ProductionCheckStatus {
+  if (blockers > 0) return "blocked";
+  if (warnings > 0) return "watch";
+  return "ready";
+}
+
+function buildProductionChecks(data: AdminData): ProductionCheckItem[] {
+  const totalOrders = data.orders.length;
+  const pendingReconciliation = data.orders.filter((order) => order.reconciliation === "pending").length;
+  const mismatchedOrders = data.orders.filter((order) => order.reconciliation === "mismatch" || order.status === "failed").length;
+  const paidWithoutCredits = data.orders.filter((order) => order.status === "paid" && order.issuedCredits < order.expectedCredits).length;
+  const wallytConfigured = envStatus(["WALLYT_MCH_ID", "WALLYT_SIGNATURE_KEY", "WALLYT_NOTIFY_URL"], "all") === "configured";
+
+  const activeUserCredits = data.users.reduce((sum, user) => sum + Math.max(0, user.credits), 0);
+  const frozenCredits = data.users.reduce((sum, user) => sum + Math.max(0, user.frozenCredits), 0);
+  const expiredCredits = data.users.reduce((sum, user) => sum + Math.max(0, user.expiredCredits), 0);
+  const paidIssuedCredits = data.orders
+    .filter((order) => order.status === "paid")
+    .reduce((sum, order) => sum + Math.max(0, order.issuedCredits), 0);
+  const totalConsumedCredits = data.users.reduce((sum, user) => sum + Math.max(0, user.totalConsumed), 0);
+  const paidUnconsumedCredits = Math.max(0, paidIssuedCredits - totalConsumedCredits);
+  const creditLedgerEntries = data.credits.length;
+
+  const criticalSecretGroups = [
+    { label: "支付", keys: ["WALLYT_MCH_ID", "WALLYT_SIGNATURE_KEY", "WALLYT_NOTIFY_URL"] },
+    { label: "后台会话", keys: ["ADMIN_SESSION_SECRET"] },
+    { label: "AI 文本/图像", keys: ["OPENAI_API_KEY", "AI_IMAGE_API_KEY", "AI_IMAGE_BASE_URL", "AI_IMAGE_MODEL"] },
+    { label: "PicWish 图像处理", keys: ["PICWISH_API_KEY"] },
+    { label: "备份", keys: ["BACKUP_LOCAL_DIR", "BACKUP_RETENTION_DAYS", "BACKUP_CRON_SECRET"] },
+    { label: "告警", keys: ["ALERT_WEBHOOK_URL"] },
+  ];
+  const configuredSecretGroups = criticalSecretGroups.filter((group) => configuredKeys(group.keys).length === group.keys.length).length;
+  const partialSecretGroups = criticalSecretGroups.filter((group) => {
+    const count = configuredKeys(group.keys).length;
+    return count > 0 && count < group.keys.length;
+  }).length;
+  const missingSecretGroups = criticalSecretGroups.length - configuredSecretGroups - partialSecretGroups;
+
+  const activeUsers = data.users.filter((user) => user.status !== "blocked");
+  const superAdminCount = activeUsers.filter((user) => user.role === "super_admin").length;
+  const adminCount = activeUsers.filter((user) => user.role === "admin" || user.role === "super_admin").length;
+  const financeCount = activeUsers.filter((user) => user.role === "finance").length;
+  const privilegedUserCount = activeUsers.filter((user) => ["support", "finance", "admin", "super_admin"].includes(user.role)).length;
+  const highRiskOpenEvents = data.riskEvents.filter((event) => event.severity === "high" && event.status !== "mitigated").length;
+  const recentPermissionAuditCount = data.auditLogs.filter((log) =>
+    /role|权限|管理员|admin\.user\.update/i.test(`${log.action} ${log.reason || ""}`)
+  ).length;
+
+  return [
+    {
+      id: "payment_reconciliation",
+      title: "支付对账",
+      status: productionCheckStatus(mismatchedOrders + paidWithoutCredits, pendingReconciliation + (wallytConfigured ? 0 : 1)),
+      summary: wallytConfigured
+        ? "已接入第三方支付状态、金额一致性、入账积分一致性检查。"
+        : "支付凭据未完整配置，无法满足正式对账要求。",
+      metrics: {
+        totalOrders,
+        pendingReconciliation,
+        mismatchedOrders,
+        paidWithoutCredits,
+      },
+      evidence: [
+        `订单总数 ${totalOrders}`,
+        `待对账 ${pendingReconciliation}`,
+        `异常订单 ${mismatchedOrders}`,
+        `已支付未足额入账 ${paidWithoutCredits}`,
+        `威富通配置 ${wallytConfigured ? "完整" : "缺失"}`,
+      ],
+      actionTarget: "orders",
+    },
+    {
+      id: "credit_liability",
+      title: "额度负债",
+      status: productionCheckStatus(0, activeUserCredits + frozenCredits > 0 && creditLedgerEntries === 0 ? 1 : 0),
+      summary: "已按真实用户余额、冻结额度、过期额度和充值消耗差额计算平台未消耗额度。",
+      metrics: {
+        activeUserCredits,
+        frozenCredits,
+        expiredCredits,
+        paidUnconsumedCredits,
+        creditLedgerEntries,
+      },
+      evidence: [
+        `用户可用积分 ${activeUserCredits.toLocaleString("zh-CN")}`,
+        `冻结积分 ${frozenCredits.toLocaleString("zh-CN")}`,
+        `过期积分 ${expiredCredits.toLocaleString("zh-CN")}`,
+        `充值未消耗额度 ${paidUnconsumedCredits.toLocaleString("zh-CN")}`,
+      ],
+      actionTarget: "credits",
+    },
+    {
+      id: "secret_governance",
+      title: "密钥治理",
+      status: missingSecretGroups > 0 ? "partial" as ProductionCheckStatus : partialSecretGroups > 0 ? "watch" : "ready",
+      summary: "后台只返回配置状态、配置位置和缺失项，不返回任何密钥明文。",
+      metrics: {
+        requiredGroups: criticalSecretGroups.length,
+        configuredGroups: configuredSecretGroups,
+        partialGroups: partialSecretGroups,
+        missingGroups: missingSecretGroups,
+      },
+      evidence: criticalSecretGroups.map((group) => {
+        const configured = configuredKeys(group.keys).length;
+        return `${group.label} ${configured}/${group.keys.length}`;
+      }),
+      actionTarget: "integrations",
+    },
+    {
+      id: "privileged_access",
+      title: "高危权限",
+      status: productionCheckStatus(superAdminCount === 0 || highRiskOpenEvents > 0 ? 1 : 0, superAdminCount > 2 ? 1 : 0),
+      summary: "已统计超级管理员、管理员、财务账号和开放高危事件，权限变更进入审计日志。",
+      metrics: {
+        superAdminCount,
+        adminCount,
+        financeCount,
+        privilegedUserCount,
+        highRiskOpenEvents,
+        recentPermissionAuditCount,
+      },
+      evidence: [
+        `超级管理员 ${superAdminCount}`,
+        `管理员 ${adminCount}`,
+        `财务 ${financeCount}`,
+        `未缓解高危事件 ${highRiskOpenEvents}`,
+        `权限审计记录 ${recentPermissionAuditCount}`,
+      ],
+      actionTarget: "audit",
+    },
+  ];
+}
+
 function buildProviderHealth(): ProviderHealth[] {
   const wallytStatus = envStatus(["WALLYT_MCH_ID", "WALLYT_SIGNATURE_KEY", "WALLYT_NOTIFY_URL"], "all");
   const wallytConfigured = wallytStatus === "configured";
@@ -707,7 +852,7 @@ function hasDemoData(data: Partial<AdminData>) {
 async function normalizeDataAsync(value: Partial<AdminData>): Promise<AdminData> {
   const seed = await seedAdminData();
   return removeDemoData({
-    users: Array.isArray(value.users) ? value.users : seed.users,
+    users: await buildUserAccounts(Array.isArray(value.users) ? value.users : seed.users),
     orders: Array.isArray(value.orders) ? value.orders : seed.orders,
     credits: Array.isArray(value.credits) ? value.credits : seed.credits,
     aiTasks: Array.isArray(value.aiTasks) ? value.aiTasks : seed.aiTasks,
@@ -819,6 +964,7 @@ function dashboard(data: AdminData) {
     aiCostBreakdownByProvider: summarizeAiCostBreakdown(data, "provider"),
     aiCostBreakdownByModel: summarizeAiCostBreakdown(data, "model"),
     productionReadiness: buildProductionReadiness(),
+    productionChecks: buildProductionChecks(data),
   };
 }
 
@@ -933,6 +1079,7 @@ function fullPayload(data: AdminData) {
     plans: data.plans,
     capabilityStatus: buildCapabilityStatus(),
     productionReadiness: buildProductionReadiness(),
+    productionChecks: buildProductionChecks(data),
   };
 }
 
@@ -1148,6 +1295,7 @@ export async function handleAdminApiRequest(
   if (method === "GET" && route === "ai-tasks") return { status: 200, body: { aiTasks: data.aiTasks, providers: data.providers } };
   if (method === "GET" && route === "providers") return { status: 200, body: { providers: data.providers } };
   if (method === "GET" && route === "production-readiness") return { status: 200, body: { productionReadiness: buildProductionReadiness() } };
+  if (method === "GET" && route === "production-checks") return { status: 200, body: { productionChecks: buildProductionChecks(data) } };
   if (method === "GET" && route === "feedback") return { status: 200, body: { feedback: data.feedback } };
   if (method === "GET" && route === "alerts") return { status: 200, body: { alerts: data.alerts } };
   if (method === "GET" && route === "audit-logs") return { status: 200, body: { auditLogs: data.auditLogs } };

@@ -190,6 +190,16 @@ type PricingPlan = {
   status: string;
 };
 
+type ProductionCheck = {
+  id: string;
+  title: string;
+  status: "ready" | "watch" | "partial" | "blocked";
+  summary: string;
+  metrics: Record<string, number>;
+  evidence: string[];
+  actionTarget: AdminSection;
+};
+
 type OverviewData = {
   metrics: {
     todayRevenue: number;
@@ -225,6 +235,7 @@ type OverviewData = {
   }>;
   capabilityStatus?: Array<{ id: string; domain: string; status: "ready" | "partial" | "missing"; summary: string; source: string }>;
   productionReadiness?: Array<{ id: string; domain: string; status: "ready" | "partial" | "missing"; summary: string; requiredKeys: string[]; configuredKeys: string[]; missingKeys: string[]; action: string }>;
+  productionChecks?: ProductionCheck[];
   aiCostBreakdownByProvider?: Array<{
     key: string;
     label: string;
@@ -258,6 +269,7 @@ type AdminPayload = {
   auditLogs?: Array<{ actorName?: string; action: string; target: string; createdAt: string; reason?: string }>;
   plans?: PricingPlan[];
   capabilityStatus?: Array<{ id: string; domain: string; status: "ready" | "partial" | "missing"; summary: string; source: string }>;
+  productionChecks?: ProductionCheck[];
 };
 
 const sections: Array<{
@@ -386,6 +398,7 @@ function normalizeAdminPayload(payload: AdminPayload) {
     riskEvents: payload.riskEvents || [],
     auditRows: normalizedAuditRows,
     plans: payload.plans || [],
+    productionChecks: payload.productionChecks || payload.overview?.productionChecks || [],
   };
 }
 
@@ -931,7 +944,7 @@ function AdminPrototypePage() {
                 ) : (
                   <EmptyPanel title="暂无真实用户" body="后台不会显示演示用户。注册或导入真实用户后，这里会自动出现账户详情。" />
                 )}
-                <RiskPanel riskEvents={adminData.riskEvents} plans={adminData.plans} />
+                <RiskPanel productionChecks={adminData.productionChecks} onJumpTo={setActiveSection} />
               </aside>
             </section>
           </div>
@@ -2044,10 +2057,13 @@ function UserDetailPanel({
   );
 }
 
-function RiskPanel({ riskEvents, plans }: { riskEvents: RiskEvent[]; plans: PricingPlan[] }) {
-  const highRiskCount = riskEvents.filter((event) => event.severity === "high" && event.status !== "mitigated").length;
-  const activePlans = plans.filter((plan) => plan.status === "active").length;
-
+function RiskPanel({
+  productionChecks,
+  onJumpTo,
+}: {
+  productionChecks: ProductionCheck[];
+  onJumpTo: (section: AdminSection) => void;
+}) {
   return (
     <div className="rounded-md border border-white/10 bg-white/[0.035] p-4">
       <div className="mb-4 flex items-center justify-between">
@@ -2055,17 +2071,41 @@ function RiskPanel({ riskEvents, plans }: { riskEvents: RiskEvent[]; plans: Pric
         <SlidersHorizontal className="size-4 text-slate-500" />
       </div>
       <div className="space-y-3">
-        {[
-          ["支付对账", "第三方支付金额、订单、入账积分必须每日核对"],
-          ["额度负债", `当前 ${activePlans} 个启用套餐，未消耗积分需要进入成本池`],
-          ["密钥治理", "后台只展示状态和位置，不展示密钥值"],
-          ["高危权限", `${highRiskCount} 个高风险事件需要二次确认或人工复核`],
-        ].map(([title, body]) => (
-          <div key={title} className="min-w-0 rounded-md border border-white/8 bg-slate-950/30 p-3">
-            <div className="text-sm font-medium">{title}</div>
-            <p className="mt-1 text-xs leading-5 text-slate-500">{body}</p>
+        {productionChecks.length ? (
+          productionChecks.map((check) => (
+            <div key={check.id} className="min-w-0 rounded-md border border-white/8 bg-slate-950/30 p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="text-sm font-medium">{check.title}</div>
+                <Badge className={statusClass(check.status === "ready" ? "normal" : check.status === "blocked" ? "blocked" : "watch")}>
+                  {check.status === "ready" ? "已补齐" : check.status === "blocked" ? "需处理" : "观察"}
+                </Badge>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-slate-500">{check.summary}</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {Object.entries(check.metrics).slice(0, 4).map(([key, value]) => (
+                  <div key={key} className="rounded-md border border-white/8 bg-white/[0.03] px-2 py-1.5">
+                    <div className="text-[10px] uppercase tracking-wide text-slate-500">{key}</div>
+                    <div className="mt-0.5 text-xs font-medium text-slate-200">{formatCredits(value)}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0 text-xs text-slate-500">{check.evidence.slice(0, 2).join(" · ")}</div>
+                <button
+                  type="button"
+                  className="w-fit rounded-md border border-white/10 px-2 py-1 text-xs text-slate-200 hover:bg-white/8"
+                  onClick={() => onJumpTo(check.actionTarget)}
+                >
+                  查看模块
+                </button>
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="rounded-md border border-white/8 bg-slate-950/30 p-3 text-xs text-slate-500">
+            正在等待生产检查接口返回真实数据。
           </div>
-        ))}
+        )}
       </div>
     </div>
   );

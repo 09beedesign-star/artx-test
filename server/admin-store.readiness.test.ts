@@ -214,6 +214,176 @@ describe("production readiness", () => {
     });
   });
 
+  it("returns data-driven launch readiness checks for reconciliation, credit liability, secrets, and privileged access", async () => {
+    process.env.WALLYT_MCH_ID = "190000000167";
+    process.env.WALLYT_SIGNATURE_KEY = "test-signature-key";
+    process.env.WALLYT_NOTIFY_URL = "https://admin.artxsd.com/api/billing/wallyt/callback";
+    process.env.OPENAI_API_KEY = "test-openai-key";
+    process.env.AI_IMAGE_API_KEY = "test-image-key";
+    process.env.PICWISH_API_KEY = "test-picwish-key";
+    await writeFile(path.join(dataDir, "admin-data.json"), `${JSON.stringify({
+      users: [
+        {
+          id: "user-liability-1",
+          name: "liability-user",
+          email: "liability@example.com",
+          account: "liability@example.com",
+          registeredAt: "2026-07-05 10:00",
+          loginMethod: "email",
+          role: "viewer",
+          status: "normal",
+          plan: "Pro",
+          organization: "个人",
+          credits: 1200,
+          frozenCredits: 100,
+          expiredCredits: 30,
+          totalRecharge: 500,
+          totalConsumed: 80,
+          lastSeen: "刚刚",
+          risk: "低",
+        },
+      ],
+      orders: [
+        {
+          id: "rch_ready_paid",
+          userId: "user-liability-1",
+          user: "liability-user",
+          packageName: "积分充值",
+          channel: "微信支付",
+          amount: 100,
+          expectedCredits: 1000,
+          issuedCredits: 1000,
+          status: "paid",
+          createdAt: "2026-07-05T02:00:00.000Z",
+          event: "支付成功并入账",
+          reconciliation: "matched",
+          providerTransactionId: "txn_ready_paid",
+        },
+        {
+          id: "rch_ready_pending",
+          userId: "user-liability-1",
+          user: "liability-user",
+          packageName: "积分充值",
+          channel: "支付宝",
+          amount: 50,
+          expectedCredits: 500,
+          issuedCredits: 0,
+          status: "pending",
+          createdAt: "2026-07-05T02:05:00.000Z",
+          event: "等待支付",
+          reconciliation: "pending",
+        },
+        {
+          id: "rch_ready_mismatch",
+          userId: "user-liability-1",
+          user: "liability-user",
+          packageName: "积分充值",
+          channel: "微信支付",
+          amount: 30,
+          expectedCredits: 300,
+          issuedCredits: 0,
+          status: "failed",
+          createdAt: "2026-07-05T02:10:00.000Z",
+          event: "支付金额与本地订单不一致",
+          reconciliation: "mismatch",
+        },
+      ],
+      credits: [
+        {
+          id: "cr_ready_paid",
+          userId: "user-liability-1",
+          user: "liability-user",
+          type: "购买入账",
+          delta: 1000,
+          reason: "订单支付成功",
+          source: "rch_ready_paid",
+          operator: "wallyt",
+          createdAt: "2026-07-05T02:01:00.000Z",
+        },
+      ],
+      aiTasks: [],
+      providers: [],
+      feedback: [],
+      alerts: [],
+      riskEvents: [
+        {
+          id: "risk_ready_high",
+          title: "高危权限复核",
+          detail: "测试高危权限事件",
+          status: "open",
+          severity: "high",
+          target: "admin@example.com",
+          createdAt: "2026-07-05T02:15:00.000Z",
+        },
+      ],
+      auditLogs: [],
+      plans: [],
+      capabilityStatus: [],
+    }, null, 2)}\n`);
+
+    const { handleAdminApiRequest } = await loadAdminStore();
+    const authorization = await getAdminAuthorization();
+
+    const checksResult = await handleAdminApiRequest("GET", "/production-checks", authorization);
+    expect(checksResult.status).toBe(200);
+    const checksBody = checksResult.body as {
+      productionChecks: Array<{
+        id: string;
+        status: string;
+        metrics: Record<string, number>;
+        actionTarget: string;
+        evidence: string[];
+      }>;
+    };
+
+    expect(checksBody.productionChecks.find((item) => item.id === "payment_reconciliation")).toMatchObject({
+      status: "blocked",
+      actionTarget: "orders",
+      metrics: {
+        totalOrders: 3,
+        pendingReconciliation: 1,
+        mismatchedOrders: 1,
+        paidWithoutCredits: 0,
+      },
+    });
+    expect(checksBody.productionChecks.find((item) => item.id === "credit_liability")).toMatchObject({
+      status: "ready",
+      actionTarget: "credits",
+      metrics: {
+        activeUserCredits: 1200,
+        frozenCredits: 100,
+        expiredCredits: 30,
+        paidUnconsumedCredits: 920,
+      },
+    });
+    expect(checksBody.productionChecks.find((item) => item.id === "secret_governance")).toMatchObject({
+      status: "partial",
+      actionTarget: "integrations",
+    });
+    expect(checksBody.productionChecks.find((item) => item.id === "privileged_access")).toMatchObject({
+      status: "blocked",
+      actionTarget: "audit",
+      metrics: {
+        superAdminCount: 1,
+        highRiskOpenEvents: 1,
+      },
+    });
+
+    const overviewResult = await handleAdminApiRequest("GET", "/overview", authorization);
+    expect(overviewResult.status).toBe(200);
+    const overviewBody = overviewResult.body as {
+      overview: {
+        productionChecks: Array<{ id: string }>;
+      };
+    };
+    expect(overviewBody.overview.productionChecks.map((item) => item.id)).toEqual([
+      "payment_reconciliation",
+      "credit_liability",
+      "secret_governance",
+      "privileged_access",
+    ]);
+  });
+
   it("lets a super admin assign and revoke support, finance, and admin roles without deleting the user", async () => {
     const { handleAdminApiRequest } = await loadAdminStore();
     const { handleAuthAction } = await import("./auth-store");
