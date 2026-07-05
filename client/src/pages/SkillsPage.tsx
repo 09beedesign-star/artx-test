@@ -82,8 +82,8 @@ export default function SkillsPage() {
   const panelStrong = isDark ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.95)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(20,20,36,0.10)";
   const text = isDark ? "rgba(255,255,255,0.88)" : "rgba(20,20,36,0.86)";
-  const sub = isDark ? "rgba(255,255,255,0.52)" : "rgba(20,20,36,0.56)";
-  const faint = isDark ? "rgba(255,255,255,0.34)" : "rgba(20,20,36,0.40)";
+  const sub = isDark ? "rgba(255,255,255,0.66)" : "rgba(20,20,36,0.56)";
+  const faint = isDark ? "rgba(255,255,255,0.54)" : "rgba(20,20,36,0.40)";
 
   const filteredItems = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();

@@ -134,7 +134,7 @@ export default function MainCanvas({ projectId = "p1" }: MainCanvasProps) {
         style={{ height: 48, borderBottom: "1px solid oklch(1 0 0 / 6%)" }}
       >
         <div className="flex items-center gap-1.5 text-[12px]">
-          <span style={{ color: "oklch(0.45 0.01 270)" }}>我的项目</span>
+          <span style={{ color: "oklch(0.62 0.010 270)" }}>我的项目</span>
           <ChevronRight size={11} style={{ color: "oklch(0.35 0.01 270)" }} />
           <span className="font-semibold" style={{ color: "oklch(0.85 0.01 270)" }}>{project.title}</span>
         </div>
@@ -146,15 +146,15 @@ export default function MainCanvas({ projectId = "p1" }: MainCanvasProps) {
           <span className="text-[10px] font-medium" style={{ color: "oklch(0.72 0.18 200)" }}>进行中</span>
         </div>
         <div className="flex-1" />
-        <div className="flex items-center gap-1 text-[11px]" style={{ color: "oklch(0.42 0.01 270)" }}>
+        <div className="flex items-center gap-1 text-[11px]" style={{ color: "oklch(0.59 0.010 270)" }}>
           <Clock size={11} />
           <span>{project.updatedAt}</span>
         </div>
         <button onClick={() => setStarred(!starred)} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/5 transition-colors">
-          <Star size={13} style={{ color: starred ? "oklch(0.78 0.18 60)" : "oklch(0.42 0.01 270)", fill: starred ? "oklch(0.78 0.18 60)" : "none" }} />
+          <Star size={13} style={{ color: starred ? "oklch(0.78 0.18 60)" : "oklch(0.59 0.010 270)", fill: starred ? "oklch(0.78 0.18 60)" : "none" }} />
         </button>
         <button onClick={() => toast("分享项目", { description: "功能即将上线" })} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/5 transition-colors">
-          <Share2 size={13} style={{ color: "oklch(0.42 0.01 270)" }} />
+          <Share2 size={13} style={{ color: "oklch(0.59 0.010 270)" }} />
         </button>
         <button
           onClick={() => toast("导出资产", { description: "功能即将上线" })}
@@ -178,7 +178,7 @@ export default function MainCanvas({ projectId = "p1" }: MainCanvasProps) {
               "px-4 py-1.5 rounded-lg text-[13px] font-medium transition-all duration-150",
               activeTab === tab ? "text-white" : "hover:text-white"
             )}
-            style={activeTab === tab ? { background: "oklch(1 0 0 / 8%)", color: "white" } : { color: "oklch(0.52 0.01 270)" }}
+            style={activeTab === tab ? { background: "oklch(1 0 0 / 8%)", color: "white" } : { color: "oklch(0.66 0.010 270)" }}
           >
             {tab === "chat" ? "对话生成" : "素材画廊"}
           </button>
@@ -187,7 +187,7 @@ export default function MainCanvas({ projectId = "p1" }: MainCanvasProps) {
         <button
           onClick={() => { setMessages([]); toast("已清空对话", { description: "开始新的创作" }); }}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] transition-colors hover:bg-white/5"
-          style={{ color: "oklch(0.52 0.01 270)" }}
+          style={{ color: "oklch(0.66 0.010 270)" }}
         >
           <RefreshCw size={12} />新对话
         </button>
@@ -251,7 +251,7 @@ function ChatView({
                   />
                 ))}
               </div>
-              <span className="text-[12px]" style={{ color: "oklch(0.55 0.01 270)" }}>AI 正在思考…</span>
+              <span className="text-[12px]" style={{ color: "oklch(0.69 0.010 270)" }}>AI 正在思考…</span>
             </div>
           </div>
         )}
@@ -269,7 +269,7 @@ function ChatView({
               style={{
                 background: "oklch(1 0 0 / 4%)",
                 border: "1px solid oklch(1 0 0 / 8%)",
-                color: "oklch(0.62 0.01 270)",
+                color: "oklch(0.73 0.010 270)",
               }}
             >
               {s}
@@ -298,13 +298,13 @@ function ChatView({
           />
           <div className="flex items-center gap-2 px-3 pb-3">
             <button onClick={() => toast("上传素材", { description: "功能即将上线" })} className="p-1.5 rounded-lg hover:bg-white/5 transition-colors">
-              <Paperclip size={14} style={{ color: "oklch(0.52 0.01 270)" }} />
+              <Paperclip size={14} style={{ color: "oklch(0.66 0.010 270)" }} />
             </button>
             <button onClick={() => toast("风格设置", { description: "功能即将上线" })} className="p-1.5 rounded-lg hover:bg-white/5 transition-colors">
-              <Wand2 size={14} style={{ color: "oklch(0.52 0.01 270)" }} />
+              <Wand2 size={14} style={{ color: "oklch(0.66 0.010 270)" }} />
             </button>
             <div className="flex-1" />
-            <span className="text-[11px]" style={{ color: "oklch(0.38 0.01 270)" }}>{input.length}/2000</span>
+            <span className="text-[11px]" style={{ color: "oklch(0.57 0.010 270)" }}>{input.length}/2000</span>
             <button
               onClick={onSend}
               disabled={!input.trim() || isGenerating}
@@ -343,7 +343,7 @@ function EmptyState({ onSuggest }: { onSuggest: (s: string) => void }) {
         <Sparkles size={24} style={{ color: "oklch(0.72 0.18 290)" }} />
       </div>
       <h3 className="text-lg font-bold mb-1" style={{ color: "oklch(0.90 0.008 270)" }}>开始你的创作</h3>
-      <p className="text-[13px] text-center mb-8" style={{ color: "oklch(0.52 0.01 270)" }}>
+      <p className="text-[13px] text-center mb-8" style={{ color: "oklch(0.66 0.010 270)" }}>
         描述你的设计需求，AI 将为你生成专业的视觉资产
       </p>
       <div className="grid grid-cols-2 gap-3 w-full max-w-lg">
@@ -356,7 +356,7 @@ function EmptyState({ onSuggest }: { onSuggest: (s: string) => void }) {
           >
             <span className="text-xl">{item.icon}</span>
             <span className="text-[13px] font-semibold" style={{ color: "oklch(0.85 0.008 270)" }}>{item.title}</span>
-            <span className="text-[11px]" style={{ color: "oklch(0.48 0.01 270)" }}>{item.desc}</span>
+            <span className="text-[11px]" style={{ color: "oklch(0.64 0.010 270)" }}>{item.desc}</span>
           </button>
         ))}
       </div>
@@ -452,7 +452,7 @@ function StepItem({ step }: { step: AgentStep }) {
             ? "oklch(0.72 0.18 200)"
             : step.status === "running"
             ? "oklch(0.85 0.008 270)"
-            : "oklch(0.42 0.01 270)",
+            : "oklch(0.59 0.010 270)",
         }}
       >
         {step.label}
@@ -536,7 +536,7 @@ function GalleryView({ assets }: { assets: GeneratedAsset[] }) {
             } : {
               background: "oklch(1 0 0 / 4%)",
               border: "1px solid oklch(1 0 0 / 8%)",
-              color: "oklch(0.52 0.01 270)",
+              color: "oklch(0.66 0.010 270)",
             }}
           >
             {{ all: "全部", image: "图片", video: "视频", brand: "品牌" }[f]}
@@ -544,14 +544,14 @@ function GalleryView({ assets }: { assets: GeneratedAsset[] }) {
         ))}
         <div className="flex-1" />
         <button onClick={() => toast("排序", { description: "功能即将上线" })} className="p-1.5 rounded-lg hover:bg-white/5 transition-colors">
-          <MoreHorizontal size={15} style={{ color: "oklch(0.50 0.01 270)" }} />
+          <MoreHorizontal size={15} style={{ color: "oklch(0.65 0.010 270)" }} />
         </button>
       </div>
 
       {filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16">
           <ImageIcon size={32} style={{ color: "oklch(0.32 0.01 270)" }} className="mb-3" />
-          <p className="text-[13px]" style={{ color: "oklch(0.45 0.01 270)" }}>暂无该类型素材</p>
+          <p className="text-[13px]" style={{ color: "oklch(0.62 0.010 270)" }}>暂无该类型素材</p>
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-3">

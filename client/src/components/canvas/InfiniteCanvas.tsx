@@ -477,7 +477,7 @@ function SkillPointSelector({
                 toast("已取消 Skill", { description: "输入框恢复为普通 AI 创作模式" });
               }}
               className="flex w-full items-center gap-2 rounded-[var(--radius-sm-design)] px-2.5 py-2 text-left type-caption"
-              style={{ color: isDark ? "rgba(255,255,255,0.58)" : "rgba(20,20,36,0.58)" }}
+              style={{ color: isDark ? "rgba(255,255,255,0.71)" : "rgba(20,20,36,0.58)" }}
               onMouseEnter={event => { event.currentTarget.style.background = hoverBg; }}
               onMouseLeave={event => { event.currentTarget.style.background = "transparent"; }}
             >
@@ -487,7 +487,7 @@ function SkillPointSelector({
           )}
           {groupedSkills.map(([group, skills]) => (
             <div key={group}>
-              <div className="px-2.5 pb-1 pt-2 text-[11px] font-semibold" style={{ color: isDark ? "rgba(255,255,255,0.42)" : "rgba(20,20,36,0.42)" }}>
+              <div className="px-2.5 pb-1 pt-2 text-[11px] font-semibold" style={{ color: isDark ? "rgba(255,255,255,0.59)" : "rgba(20,20,36,0.42)" }}>
                 {group}
               </div>
               {skills.map(skill => {
@@ -511,7 +511,7 @@ function SkillPointSelector({
                     <Icon size={15} style={{ marginTop: 1, flexShrink: 0 }} />
                     <span className="min-w-0">
                       <span className="block truncate text-xs font-semibold">{skill.name}</span>
-                      <span className="mt-0.5 block line-clamp-2 text-[11px]" style={{ color: isDark ? "rgba(255,255,255,0.46)" : "rgba(20,20,36,0.50)" }}>
+                      <span className="mt-0.5 block line-clamp-2 text-[11px]" style={{ color: isDark ? "rgba(255,255,255,0.62)" : "rgba(20,20,36,0.50)" }}>
                         {skill.summary}
                       </span>
                     </span>
@@ -532,7 +532,7 @@ function NodeToolbar({ model, onModelChange, onDelete, isDark }: {
   model: string; onModelChange: (m: string) => void; onDelete: () => void; isDark: boolean;
 }) {
   const border = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
-  const text = isDark ? "oklch(0.55 0.01 270)" : "oklch(0.55 0.01 270)";
+  const text = isDark ? "oklch(0.69 0.010 270)" : "oklch(0.69 0.010 270)";
   return (
     <div className="flex items-center justify-between px-2 py-1.5 nodrag nopan" style={{ borderTop: `1px solid ${border}` }}>
       <ModelSelector model={model} onChange={onModelChange} isDark={isDark} />
@@ -658,7 +658,7 @@ function ImagePreviewModal({ src, title, onClose, isDark }: {
           alt={title}
           style={{ maxWidth: "85vw", maxHeight: "80vh", borderRadius: "var(--radius-md-design)", boxShadow: "0 24px 80px rgba(0,0,0,0.7)", objectFit: "contain" }}
         />
-        <p className="text-white/30 type-caption mt-3">按 Esc 关闭 · 点击背景关闭</p>
+        <p className="text-white/51 type-caption mt-3">按 Esc 关闭 · 点击背景关闭</p>
       </div>
     </div>
   );
@@ -1271,7 +1271,7 @@ function TextFloatingToolbar({
           <div style={{
             width: 20, height: 20, borderRadius: "50%",
             background: isValidHexColor(strokeColor) ? strokeColor : "transparent",
-            border: `2px solid ${isValidHexColor(strokeColor) ? strokeColor : (isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.3)")}`,
+            border: `2px solid ${isValidHexColor(strokeColor) ? strokeColor : (isDark ? "rgba(255,255,255,0.69)" : "rgba(0,0,0,0.3)")}`,
             backgroundImage: isValidHexColor(strokeColor) ? "none" : "repeating-conic-gradient(#ccc 0% 25%, #fff 0% 50%)",
             backgroundSize: "8px 8px",
           }} />
@@ -1405,7 +1405,7 @@ function AssetFloatingToolbar({ isDark, position, mode = "asset", onAction }: {
   const tooltipBg = isDark ? "rgba(18,18,26,0.96)" : "rgba(30,30,40,0.92)";
   const moreBg = isDark ? "rgba(24,24,34,0.98)" : "rgba(255,255,255,0.98)";
   const moreText = isDark ? "rgba(255,255,255,0.88)" : "rgba(28,28,40,0.88)";
-  const moreSub = isDark ? "rgba(255,255,255,0.48)" : "rgba(28,28,40,0.45)";
+  const moreSub = isDark ? "rgba(255,255,255,0.64)" : "rgba(28,28,40,0.45)";
   const dividerColor = isDark ? "rgba(255,255,255,0.28)" : "rgba(28,28,40,0.22)";
   const assetTools: FloatingToolItem[] = [
     { icon: <Move size={15} />, label: "移动对象", action: "move-object" },
@@ -1784,7 +1784,7 @@ function SocialMediaSizePanel({
   const bg = isDark ? "rgba(24,24,34,0.98)" : "rgba(255,255,255,0.98)";
   const border = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)";
   const text = isDark ? "rgba(255,255,255,0.88)" : "rgba(28,28,40,0.88)";
-  const sub = isDark ? "rgba(255,255,255,0.50)" : "rgba(28,28,40,0.48)";
+  const sub = isDark ? "rgba(255,255,255,0.65)" : "rgba(28,28,40,0.48)";
   const field = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
   const selectedPresets = SOCIAL_MEDIA_SIZE_PRESETS.filter(item => selectedPresetIds.includes(item.id));
   const validCustom = customEnabled && customWidth >= 64 && customHeight >= 64;
@@ -2093,7 +2093,7 @@ function AssetMoreCommandPanel({ isDark, command, initialAdjustments, imageSrc, 
   const bg = isDark ? "rgba(24,24,34,0.98)" : "rgba(255,255,255,0.98)";
   const border = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)";
   const text = isDark ? "rgba(255,255,255,0.88)" : "rgba(28,28,40,0.88)";
-  const sub = isDark ? "rgba(255,255,255,0.50)" : "rgba(28,28,40,0.48)";
+  const sub = isDark ? "rgba(255,255,255,0.65)" : "rgba(28,28,40,0.48)";
   const field = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
   const hover = isDark ? "rgba(255,255,255,0.09)" : "rgba(0,0,0,0.06)";
   const config: Record<string, { title: string; description: string; actions: string[] }> = {
@@ -2334,7 +2334,7 @@ function AssetPromptPanel({ isDark, assetSrc, onExpand }: {
   const textColor = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.20 0.008 270)";
   const divider = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
   const chipBg = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)";
-  const chipText = isDark ? "oklch(0.65 0.01 270)" : "oklch(0.45 0.01 270)";
+  const chipText = isDark ? "oklch(0.65 0.01 270)" : "oklch(0.62 0.010 270)";
   return (
     <div className="absolute nodrag nopan"
       data-asset-src={assetSrc}
@@ -2460,8 +2460,8 @@ function AnnotationBubble({
   const bubbleBg = isDark ? "rgba(22,22,34,0.97)" : "rgba(255,255,255,0.98)";
   const bubbleBorder = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)";
   const textColor = isDark ? "rgba(255,255,255,0.88)" : "rgba(20,20,30,0.90)";
-  const subColor = isDark ? "rgba(255,255,255,0.40)" : "rgba(0,0,0,0.38)";
-  const iconBtnColor = isDark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.45)";
+  const subColor = isDark ? "rgba(255,255,255,0.71)" : "rgba(0,0,0,0.38)";
+  const iconBtnColor = isDark ? "rgba(255,255,255,0.69)" : "rgba(0,0,0,0.45)";
   const iconBtnHover = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.07)";
   const annotationColors = [
     "oklch(0.72 0.19 48)",
@@ -2800,7 +2800,7 @@ function AssetInlineNote({
   const bubbleBg = isDark ? "rgba(18,18,28,0.96)" : "rgba(255,255,255,0.98)";
   const bubbleBorder = isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.12)";
   const textColor = isDark ? "rgba(255,255,255,0.86)" : "rgba(24,24,36,0.86)";
-  const subColor = isDark ? "rgba(255,255,255,0.48)" : "rgba(24,24,36,0.48)";
+  const subColor = isDark ? "rgba(255,255,255,0.64)" : "rgba(24,24,36,0.48)";
   const iconBtnHover = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
   const accentColor = "oklch(0.62 0.22 290)";
 
@@ -4143,7 +4143,7 @@ function ChatNodeComponent({ data, selected }: { data: Record<string, unknown>; 
   const nodeId = (data as { id?: string }).id || "";
 
   const text = isDark ? "oklch(0.78 0.01 270)" : "oklch(0.25 0.01 270)";
-  const subtext = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.55 0.01 270)";
+  const subtext = isDark ? "oklch(0.65 0.010 270)" : "oklch(0.69 0.010 270)";
   const msgBg = isDark ? "oklch(0.18 0.02 270)" : "oklch(0.94 0.005 270)";
   const aiBg = isDark ? "oklch(0.58 0.22 290 / 0.15)" : "oklch(0.58 0.22 290 / 0.08)";
   const aiBorder = isDark ? "oklch(0.58 0.22 290 / 0.25)" : "oklch(0.58 0.22 290 / 0.2)";
@@ -4573,7 +4573,7 @@ function CanvasFrameNode({ id, data, selected }: { id: string; data: Record<stri
     : isDark ? "oklch(1 0 0 / 20%)" : "oklch(0 0 0 / 18%)";
   // 使用用户选择的背景色，默认深灰色
   const bg = withCanvasFrameAlpha(data.bgColor || (data.originalBgColor as string) || "#2a2a30");
-  const labelColor = isDark ? "oklch(0.55 0.01 270)" : "oklch(0.52 0.01 270)";
+  const labelColor = isDark ? "oklch(0.69 0.010 270)" : "oklch(0.66 0.010 270)";
   const handleColor = isDark ? "oklch(0.65 0.22 290 / 0.80)" : "oklch(0.50 0.20 290 / 0.80)";
   const handleNodeCtxMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -6359,7 +6359,7 @@ function BottomPromptBar({
   const chipBg = isDark ? "oklch(0.58 0.22 290 / 0.18)" : "oklch(0.58 0.22 290 / 0.12)";
   const chipBorder = isDark ? "oklch(0.62 0.22 290 / 0.35)" : "oklch(0.58 0.22 290 / 0.30)";
   const chipText = isDark ? "oklch(0.80 0.18 290)" : "oklch(0.42 0.18 290)";
-  const removeColor = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.58 0.01 270)";
+  const removeColor = isDark ? "oklch(0.65 0.010 270)" : "oklch(0.71 0.010 270)";
   const ratioOptions = ["1:1", "4:5", "5:4", "3:4", "4:3", "16:9", "9:16", "21:9"];
   const promptTextareaMinHeight = 26;
   const promptTextareaMaxHeight = 250;
@@ -6727,7 +6727,7 @@ function BottomPromptBar({
         <SkillPointSelector activeSkill={activeSkill} onChange={handleSkillChange} isDark={isDark} />
         <button
           className="flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-md-design)] type-caption hover:opacity-80"
-          style={{ color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.55 0.01 270)" }}
+          style={{ color: isDark ? "oklch(0.69 0.010 270)" : "oklch(0.69 0.010 270)" }}
           onClick={() => toast("参考图", { description: "功能即将上线" })}
         >
           <Paperclip size={12} /><span>参考图</span>
@@ -6801,7 +6801,7 @@ function NodeContextMenu({ menu, onClose, onAction, isDark }: {
   const text = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.18 0.008 270)";
   const hoverBg = isDark ? "oklch(1 0 0 / 7%)" : "oklch(0 0 0 / 5%)";
   const divider = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
-  const iconColor = isDark ? "oklch(0.55 0.01 270)" : "oklch(0.55 0.01 270)";
+  const iconColor = isDark ? "oklch(0.69 0.010 270)" : "oklch(0.69 0.010 270)";
   const dangerColor = "oklch(0.65 0.22 20)";
 
   const selectedCount = menu.selectedIds?.length || 1;
@@ -7225,7 +7225,7 @@ function AssetEditPromptBar({
   }, [onClose]);
 
   const text = isDark ? "rgba(255,255,255,0.85)" : "rgba(20,20,36,0.85)";
-  const subtext = isDark ? "rgba(255,255,255,0.40)" : "rgba(20,20,36,0.40)";
+  const subtext = isDark ? "rgba(255,255,255,0.71)" : "rgba(20,20,36,0.40)";
   const divider = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)";
 
   const handleSend = () => {
@@ -7385,7 +7385,7 @@ function AssetEditPromptBar({
           className="w-7 h-7 rounded-[var(--radius-md-design)] flex items-center justify-center hover:opacity-80 active:scale-90 transition-all"
           style={{ background: prompt.trim() || uploadedRefs.length > 0 ? "oklch(0.58 0.22 290)" : (isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)") }}
         >
-          <Send size={13} color={prompt.trim() || uploadedRefs.length > 0 ? "white" : (isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.30)")} />
+          <Send size={13} color={prompt.trim() || uploadedRefs.length > 0 ? "white" : (isDark ? "rgba(255,255,255,0.69)" : "rgba(0,0,0,0.30)")} />
         </button>
       </div>
     </div>
@@ -7616,7 +7616,7 @@ function TopLeftToolbar({ isDark, onAdd }: { isDark: boolean; onAdd: (type: stri
           onMouseDown={e => e.stopPropagation()}
         >
           <div className="px-3 py-2" style={{ borderBottom: `1px solid ${divider}` }}>
-            <span className="type-caption uppercase" style={{ color: isDark ? "oklch(0.42 0.01 270)" : "oklch(0.58 0.01 270)" }}>创建图片节点</span>
+            <span className="type-caption uppercase" style={{ color: isDark ? "oklch(0.59 0.010 270)" : "oklch(0.71 0.010 270)" }}>创建图片节点</span>
           </div>
           {nodeOptions.map((opt) => (
             <button
@@ -7656,7 +7656,7 @@ function ImageGeneratorPopover({ isDark, projectId, onClose }: { isDark: boolean
   const bg = isDark ? "rgba(18,18,28,0.98)" : "rgba(255,255,255,0.98)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const text = isDark ? "rgba(255,255,255,0.86)" : "rgba(22,22,34,0.86)";
-  const sub = isDark ? "rgba(255,255,255,0.46)" : "rgba(22,22,34,0.48)";
+  const sub = isDark ? "rgba(255,255,255,0.62)" : "rgba(22,22,34,0.48)";
   const fieldBg = isDark ? "rgba(255,255,255,0.055)" : "rgba(0,0,0,0.035)";
   const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
   const accent = "oklch(0.64 0.22 285)";
@@ -8074,7 +8074,7 @@ function FontDesignDialog({ isDark, projectId, onClose }: { isDark: boolean; pro
   const raisedBg = isDark ? "rgba(255,255,255,0.075)" : "rgba(255,255,255,0.78)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const text = isDark ? "rgba(255,255,255,0.90)" : "rgba(22,22,34,0.90)";
-  const sub = isDark ? "rgba(255,255,255,0.50)" : "rgba(22,22,34,0.52)";
+  const sub = isDark ? "rgba(255,255,255,0.65)" : "rgba(22,22,34,0.52)";
   const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
   const accent = "#C5ED47";
   const aiAccent = "oklch(0.64 0.22 285)";
@@ -8396,7 +8396,7 @@ function ProductBackgroundDialog({ isDark, canvasRightInset, onClose }: { isDark
   const bg = isDark ? "rgba(18,18,28,0.98)" : "rgba(255,255,255,0.98)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const text = isDark ? "rgba(255,255,255,0.88)" : "rgba(22,22,34,0.88)";
-  const sub = isDark ? "rgba(255,255,255,0.48)" : "rgba(22,22,34,0.50)";
+  const sub = isDark ? "rgba(255,255,255,0.64)" : "rgba(22,22,34,0.50)";
   const fieldBg = isDark ? "rgba(255,255,255,0.055)" : "rgba(0,0,0,0.035)";
   const activeBorder = "rgba(197,237,71,0.55)";
   const accent = "#C5ED47";
@@ -9072,7 +9072,7 @@ function CanvasTopToolPalette({
                 cursor: "text",
               }}
             />
-            <span style={{ fontSize: 12, color: isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.35)", userSelect: "none" }}>Px</span>
+            <span style={{ fontSize: 12, color: isDark ? "rgba(255,255,255,0.69)" : "rgba(0,0,0,0.35)", userSelect: "none" }}>Px</span>
           </div>
         </div>
       )}
@@ -9152,7 +9152,7 @@ function CanvasTopToolPalette({
                     zIndex: 20,
                   }}
                 >
-                  <p className="px-3 pb-1 pt-0.5" style={{ color: isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.35)", fontSize: 10, letterSpacing: "0.04em" }}>基础几何形</p>
+                  <p className="px-3 pb-1 pt-0.5" style={{ color: isDark ? "rgba(255,255,255,0.69)" : "rgba(0,0,0,0.35)", fontSize: 10, letterSpacing: "0.04em" }}>基础几何形</p>
                   {shapeItems.map(item => (
                     <button
                       key={item.label}
@@ -9191,7 +9191,7 @@ function SaveProjectConfirmDialog({ isDark, project, onCancel, onSave }: {
   const bg = isDark ? "oklch(0.15 0.018 270)" : "oklch(0.995 0.002 80)";
   const border = isDark ? "oklch(1 0 0 / 12%)" : "oklch(0.88 0.006 255)";
   const text = isDark ? "oklch(0.85 0.01 270)" : "oklch(0.22 0.018 255)";
-  const sub = isDark ? "oklch(0.58 0.01 270)" : "oklch(0.50 0.012 255)";
+  const sub = isDark ? "oklch(0.71 0.010 270)" : "oklch(0.65 0.010 255)";
 
   return (
     <div
@@ -9583,7 +9583,7 @@ function CanvasAssistantPanel({
   const bg = isDark ? "#222222" : "oklch(0.995 0.002 80 / 0.98)";
   const border = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 10%)";
   const text = isDark ? "oklch(0.84 0.008 270)" : "oklch(0.18 0.008 270)";
-  const sub = isDark ? "oklch(0.56 0.01 270)" : "oklch(0.48 0.012 255)";
+  const sub = isDark ? "oklch(0.69 0.010 270)" : "oklch(0.64 0.010 255)";
   const chipBg = isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 4%)";
   const elevatedBg = isDark ? "#222222" : "oklch(1 0 0 / 0.98)";
   const hoverBg = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 5%)";
@@ -11332,7 +11332,7 @@ function CanvasSearchBar({ isDark, currentProjectId, onProjectRequest, onAssetAd
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const divider = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
   const text = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.20 0.008 270)";
-  const sub = isDark ? "oklch(0.52 0.01 270)" : "oklch(0.50 0.012 255)";
+  const sub = isDark ? "oklch(0.66 0.010 270)" : "oklch(0.65 0.010 255)";
   const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
 
   // Always expanded — no collapse
@@ -16479,7 +16479,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               <button
                 onClick={() => setRenamingGroupId(null)}
                 className="px-3 py-1.5 rounded-[var(--radius-md-design)] type-caption"
-                style={{ color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.50 0.01 270)" }}
+                style={{ color: isDark ? "oklch(0.69 0.010 270)" : "oklch(0.65 0.010 270)" }}
               >取消</button>
               <button
                 onClick={() => {
@@ -16708,7 +16708,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               <button
                 onClick={() => setDownloadDialogOpen(false)}
                 className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-all hover:opacity-70"
-                style={{ color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.50 0.01 270)" }}
+                style={{ color: isDark ? "oklch(0.69 0.010 270)" : "oklch(0.65 0.010 270)" }}
               >
                 <X size={14} />
               </button>
@@ -16716,7 +16716,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
             {/* 格式选择 */}
             <div className="px-5 py-4">
-              <p className="type-caption mb-3" style={{ color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.50 0.01 270)" }}>选择下载格式</p>
+              <p className="type-caption mb-3" style={{ color: isDark ? "oklch(0.69 0.010 270)" : "oklch(0.65 0.010 270)" }}>选择下载格式</p>
               <div className="flex gap-2">
                 {(((window as unknown as Record<string, unknown>).__artx_frame_download__ ? ["png", "jpg", "psd"] : ["png", "jpg"]) as CanvasDownloadFormat[]).map(fmt => (
                   <button
@@ -16737,7 +16737,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                   </button>
                 ))}
               </div>
-              <p className="type-caption mt-2" style={{ color: isDark ? "oklch(0.42 0.01 270)" : "oklch(0.58 0.01 270)", fontSize: 11 }}>
+              <p className="type-caption mt-2" style={{ color: isDark ? "oklch(0.59 0.010 270)" : "oklch(0.71 0.010 270)", fontSize: 11 }}>
                 {downloadFormat === "psd"
                   ? "PSD 图层信息包，保留画板内图片位置与尺寸"
                   : downloadFormat === "jpg" ? "JPEG 有损压缩，文件较小" : "PNG 无损压缩，支持 Alpha 透明背景"}
@@ -16752,7 +16752,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 style={{
                   background: isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)",
                   border: `1px solid ${isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)"}`,
-                  color: isDark ? "oklch(0.60 0.01 270)" : "oklch(0.50 0.01 270)",
+                  color: isDark ? "oklch(0.60 0.01 270)" : "oklch(0.65 0.010 270)",
                 }}
               >
                 取消
@@ -16923,7 +16923,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const bg = isDark ? "rgba(22,22,30,0.96)" : "rgba(255,255,255,0.98)";
         const border = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)";
         const text = isDark ? "rgba(255,255,255,0.88)" : "rgba(28,28,40,0.88)";
-        const sub = isDark ? "rgba(255,255,255,0.42)" : "rgba(0,0,0,0.42)";
+        const sub = isDark ? "rgba(255,255,255,0.59)" : "rgba(0,0,0,0.42)";
         const inputBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
         const inputBorder = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)";
         return (

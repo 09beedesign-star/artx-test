@@ -12,7 +12,7 @@ export default function AssetsPage() {
   const isDark = resolvedTheme === "dark";
   const bg = isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)";
   const text = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.20 0.008 270)";
-  const sub = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.55 0.01 270)";
+  const sub = isDark ? "oklch(0.65 0.010 270)" : "oklch(0.69 0.010 270)";
 
   return (
     <div className="flex flex-col h-screen overflow-hidden" style={{ background: bg, position: "relative", transition: "background 0.25s ease" }}>

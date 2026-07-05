@@ -33,13 +33,13 @@ export default function ProjectHeader({ projectId }: ProjectHeaderProps) {
     >
       {/* Breadcrumb */}
       <div className="flex items-center gap-1.5 text-[12px]">
-        <span style={{ color: "oklch(0.45 0.01 270)" }}>我的项目</span>
+        <span style={{ color: "oklch(0.62 0.010 270)" }}>我的项目</span>
         <ChevronRight size={11} style={{ color: "oklch(0.35 0.01 270)" }} />
         <span className="font-semibold" style={{ color: "oklch(0.85 0.01 270)" }}>{project.title}</span>
         {project.subtitle && (
           <>
             <ChevronRight size={11} style={{ color: "oklch(0.35 0.01 270)" }} />
-            <span style={{ color: "oklch(0.52 0.01 270)" }}>{project.subtitle}</span>
+            <span style={{ color: "oklch(0.66 0.010 270)" }}>{project.subtitle}</span>
           </>
         )}
       </div>
@@ -56,7 +56,7 @@ export default function ProjectHeader({ projectId }: ProjectHeaderProps) {
       <div className="flex-1" />
 
       {/* Last updated */}
-      <div className="flex items-center gap-1 text-[11px]" style={{ color: "oklch(0.42 0.01 270)" }}>
+      <div className="flex items-center gap-1 text-[11px]" style={{ color: "oklch(0.59 0.010 270)" }}>
         <Clock size={11} />
         <span>更新于 {project.updatedAt}</span>
       </div>
@@ -70,7 +70,7 @@ export default function ProjectHeader({ projectId }: ProjectHeaderProps) {
           <Star
             size={14}
             style={{
-              color: starred ? "oklch(0.78 0.18 60)" : "oklch(0.45 0.01 270)",
+              color: starred ? "oklch(0.78 0.18 60)" : "oklch(0.62 0.010 270)",
               fill: starred ? "oklch(0.78 0.18 60)" : "none",
             }}
           />
@@ -79,7 +79,7 @@ export default function ProjectHeader({ projectId }: ProjectHeaderProps) {
           onClick={() => toast("分享项目", { description: "功能即将上线" })}
           className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/5 transition-colors"
         >
-          <Share2 size={14} style={{ color: "oklch(0.45 0.01 270)" }} />
+          <Share2 size={14} style={{ color: "oklch(0.62 0.010 270)" }} />
         </button>
         <button
           onClick={() => toast("导出资产", { description: "功能即将上线" })}
@@ -93,7 +93,7 @@ export default function ProjectHeader({ projectId }: ProjectHeaderProps) {
           onClick={() => toast("更多操作", { description: "功能即将上线" })}
           className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/5 transition-colors"
         >
-          <MoreHorizontal size={14} style={{ color: "oklch(0.45 0.01 270)" }} />
+          <MoreHorizontal size={14} style={{ color: "oklch(0.62 0.010 270)" }} />
         </button>
       </div>
     </div>

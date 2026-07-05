@@ -60,7 +60,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
     : (glass ? "rgba(247,247,245,0.72)" : "var(--design-surface-soft)");
   const border    = isDark ? "oklch(1 0 0 / 6%)"           : "var(--hairline)";
   const textPri   = isDark ? "oklch(0.85 0.01 270)"        : "oklch(0.22 0.018 255)";
-  const textSec   = isDark ? "oklch(0.50 0.01 270)"        : "oklch(0.50 0.012 255)";
+  const textSec   = isDark ? "oklch(0.65 0.010 270)"        : "oklch(0.65 0.010 255)";
   const hoverBg   = isDark ? "oklch(1 0 0 / 5%)"           : "oklch(0 0 0 / 0.04)";
 
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
@@ -71,7 +71,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
 
   const searchBg = isDark ? "oklch(0.16 0.016 270 / 0.90)" : "oklch(0.97 0.003 270 / 0.92)";
   const searchBorder = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
-  const searchSub = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.50 0.012 255)";
+  const searchSub = isDark ? "oklch(0.65 0.010 270)" : "oklch(0.65 0.010 255)";
   const displayName = user?.username || "用户名";
   const avatarLetter = displayName.trim().slice(0, 1).toUpperCase() || "U";
   const avatarColor = useMemo(() => {

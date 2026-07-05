@@ -194,7 +194,7 @@ function clearExpiredAuthSession() {
 
 function normalizePlanDisplayName(planName?: string | null) {
   const raw = String(planName || "").trim();
-  if (!raw) return "Free";
+  if (!raw) return "Lite 入门版";
   const normalized = raw.toLowerCase();
   if (
     normalized === "free"
@@ -203,21 +203,64 @@ function normalizePlanDisplayName(planName?: string | null) {
     || normalized.includes("积分充值")
     || normalized.includes("recharge")
   ) {
-    return "Free";
+    return "Lite 入门版";
   }
 
-  const matchedPlan = MEMBERSHIP_PLANS.find((plan) => {
-    const id = plan.id.toLowerCase();
-    const shortName = plan.shortName.toLowerCase();
-    const name = plan.name.toLowerCase();
-    return normalized === id
-      || normalized === shortName
-      || normalized === name
-      || normalized.includes(shortName)
-      || normalized.includes(name);
-  });
+  if (
+    normalized.includes("studio")
+    || normalized.includes("business")
+    || normalized.includes("工作室")
+    || normalized.includes("团队")
+  ) {
+    return "Studio 工作室版";
+  }
+  if (normalized.includes("pro") || normalized.includes("专业")) {
+    return "Pro 专业版";
+  }
+  if (
+    normalized.includes("lite")
+    || normalized.includes("creator")
+    || normalized.includes("入门")
+    || normalized.includes("创作者")
+    || normalized.includes("基础")
+  ) {
+    return "Lite 入门版";
+  }
 
-  return matchedPlan?.name || raw;
+  return "Lite 入门版";
+}
+
+function getPlanLevelFromRawName(planName?: string | null) {
+  const normalized = String(planName || "").trim().toLowerCase();
+  if (!normalized) return 0;
+  if (
+    normalized === "free"
+    || normalized === "starter"
+    || normalized === "demo"
+    || normalized.includes("积分充值")
+    || normalized.includes("recharge")
+  ) {
+    return 0;
+  }
+  if (
+    normalized.includes("studio")
+    || normalized.includes("business")
+    || normalized.includes("工作室")
+    || normalized.includes("团队")
+  ) {
+    return 3;
+  }
+  if (normalized.includes("pro") || normalized.includes("专业")) return 2;
+  if (
+    normalized.includes("lite")
+    || normalized.includes("creator")
+    || normalized.includes("入门")
+    || normalized.includes("创作者")
+    || normalized.includes("基础")
+  ) {
+    return 1;
+  }
+  return 0;
 }
 
 async function billingFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -259,7 +302,8 @@ export default function BillingPage() {
   const [hoveredPlanId, setHoveredPlanId] = useState<MembershipPlanId | null>(null);
   const [payingPlanId, setPayingPlanId] = useState<string | null>(null);
   const [balance, setBalance] = useState(75);
-  const [currentPlan, setCurrentPlan] = useState("Free");
+  const [currentPlan, setCurrentPlan] = useState("Lite 入门版");
+  const [currentPlanLevel, setCurrentPlanLevel] = useState(0);
   const [balanceFlash, setBalanceFlash] = useState(false);
   const [rechargeAmounts, setRechargeAmounts] = useState<Record<string, string>>({
     "pack-small": "50",
@@ -293,8 +337,8 @@ export default function BillingPage() {
   const panelStrong = isDark ? "#222222" : "oklch(1 0 0 / 0.94)";
   const border = isDark ? "oklch(1 0 0 / 9%)" : "oklch(0 0 0 / 10%)";
   const text = isDark ? "oklch(0.88 0.01 270)" : "oklch(0.22 0.018 255)";
-  const sub = isDark ? "oklch(0.58 0.01 270)" : "oklch(0.48 0.012 255)";
-  const faint = isDark ? "oklch(0.44 0.01 270)" : "oklch(0.58 0.012 255)";
+  const sub = isDark ? "oklch(0.71 0.010 270)" : "oklch(0.64 0.010 255)";
+  const faint = isDark ? "oklch(0.61 0.010 270)" : "oklch(0.71 0.010 255)";
   const green = "#C5ED47";
   const purple = "oklch(0.68 0.20 292)";
 
@@ -312,6 +356,7 @@ export default function BillingPage() {
     const result = await billingFetch<BillingSummaryResponse>("/api/billing/summary");
     if (typeof result.balance === "number") setBalance(result.balance);
     setCurrentPlan(normalizePlanDisplayName(result.plan));
+    setCurrentPlanLevel(getPlanLevelFromRawName(result.plan));
   };
 
   useEffect(() => {
@@ -339,6 +384,7 @@ export default function BillingPage() {
     if (summary && typeof summary.balance === "number") {
       setBalance(summary.balance);
       setCurrentPlan(normalizePlanDisplayName(summary.plan));
+      setCurrentPlanLevel(getPlanLevelFromRawName(summary.plan));
       setBalanceFlash(true);
       window.setTimeout(() => setBalanceFlash(false), 900);
     }
@@ -387,16 +433,6 @@ export default function BillingPage() {
     setActiveTab(tab);
     navigate(`/billing?tab=${tab}`, { replace: true });
   };
-
-  const getPlanLevel = (planName: string) => {
-    const normalized = normalizePlanDisplayName(planName).toLowerCase();
-    if (normalized.includes("studio") || normalized.includes("business")) return 3;
-    if (normalized.includes("pro")) return 2;
-    if (normalized.includes("lite") || normalized.includes("creator")) return 1;
-    return 0;
-  };
-
-  const currentPlanLevel = getPlanLevel(currentPlan);
 
   const handlePaymentError = (error: unknown) => {
     if (error instanceof BillingAuthExpiredError) {

@@ -21,7 +21,7 @@ const STYLE_PRESETS = [
   { id: "editorial", label: "编辑风", color: "oklch(0.72 0.18 200)" },
   { id: "minimal", label: "极简", color: "oklch(0.70 0.01 270)" },
   { id: "bold", label: "大胆", color: "oklch(0.75 0.18 60)" },
-  { id: "dark", label: "暗黑", color: "oklch(0.45 0.01 270)" },
+  { id: "dark", label: "暗黑", color: "oklch(0.62 0.010 270)" },
   { id: "pastel", label: "柔和", color: "oklch(0.80 0.12 330)" },
 ];
 
@@ -46,7 +46,7 @@ export default function RightPanel() {
   const panelBorder = isDark ? "oklch(1 0 0 / 6%)"          : "oklch(0 0 0 / 8%)";
   const tabActiveBg = isDark ? "oklch(1 0 0 / 8%)"          : "oklch(0 0 0 / 7%)";
   const tabActiveColor = isDark ? "oklch(0.92 0.008 270)"   : "oklch(0.18 0.01 270)";
-  const tabInactiveColor = isDark ? "oklch(0.48 0.01 270)"  : "oklch(0.52 0.01 270)";
+  const tabInactiveColor = isDark ? "oklch(0.64 0.010 270)"  : "oklch(0.66 0.010 270)";
 
   return (
     <aside
@@ -130,14 +130,14 @@ function LayersPanel({ layers, isDark }: { layers: Layer[]; isDark: boolean }) {
   const [visible, setVisible] = useState<Set<string>>(new Set(layers.flatMap(l => [l.id, ...(l.children?.map(c => c.id) || [])])));
   const [locked, setLocked] = useState<Set<string>>(new Set(["l1a"]));
 
-  const labelColor   = isDark ? "oklch(0.42 0.01 270)" : "oklch(0.45 0.01 270)";
+  const labelColor   = isDark ? "oklch(0.59 0.010 270)" : "oklch(0.62 0.010 270)";
   const nameColor    = isDark ? "oklch(0.78 0.008 270)" : "oklch(0.22 0.008 270)";
-  const iconColor    = isDark ? "oklch(0.55 0.01 270)"  : "oklch(0.45 0.01 270)";
-  const chevronColor = isDark ? "oklch(0.45 0.01 270)"  : "oklch(0.50 0.01 270)";
+  const iconColor    = isDark ? "oklch(0.69 0.010 270)"  : "oklch(0.62 0.010 270)";
+  const chevronColor = isDark ? "oklch(0.62 0.010 270)"  : "oklch(0.65 0.010 270)";
   const hoverBg      = isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)";
   const btnHoverBg   = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.07)";
   const childNameColor = isDark ? "oklch(0.65 0.008 270)" : "oklch(0.38 0.008 270)";
-  const childIconColor = isDark ? "oklch(0.48 0.01 270)"  : "oklch(0.50 0.01 270)";
+  const childIconColor = isDark ? "oklch(0.64 0.010 270)"  : "oklch(0.65 0.010 270)";
 
   const toggleExpand  = (id: string) => setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleVisible = (id: string) => setVisible(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -195,7 +195,7 @@ function LayersPanel({ layers, isDark }: { layers: Layer[]; isDark: boolean }) {
                 >
                   {isVisible
                     ? <Eye size={11} style={{ color: iconColor }} />
-                    : <EyeOff size={11} style={{ color: isDark ? "oklch(0.38 0.01 270)" : "oklch(0.65 0.01 270)" }} />}
+                    : <EyeOff size={11} style={{ color: isDark ? "oklch(0.57 0.010 270)" : "oklch(0.65 0.01 270)" }} />}
                 </button>
                 <button onClick={(e) => { e.stopPropagation(); toggleLock(layer.id); }}
                   className="p-0.5 rounded transition-colors"
@@ -271,11 +271,11 @@ function SettingsPanel({
 }) {
   const itemBg      = isDark ? "oklch(1 0 0 / 4%)"  : "oklch(0 0 0 / 4%)";
   const itemBorder  = isDark ? "oklch(1 0 0 / 8%)"  : "oklch(0 0 0 / 10%)";
-  const textMuted   = isDark ? "oklch(0.65 0.01 270)" : "oklch(0.45 0.01 270)";
-  const textDim     = isDark ? "oklch(0.55 0.01 270)" : "oklch(0.55 0.01 270)";
+  const textMuted   = isDark ? "oklch(0.65 0.01 270)" : "oklch(0.62 0.010 270)";
+  const textDim     = isDark ? "oklch(0.69 0.010 270)" : "oklch(0.69 0.010 270)";
   const hoverBg     = isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)";
   const countInactive = isDark
-    ? { background: "oklch(1 0 0 / 5%)", border: `1px solid oklch(1 0 0 / 10%)`, color: "oklch(0.55 0.01 270)" }
+    ? { background: "oklch(1 0 0 / 5%)", border: `1px solid oklch(1 0 0 / 10%)`, color: "oklch(0.69 0.010 270)" }
     : { background: "oklch(0 0 0 / 4%)", border: `1px solid oklch(0 0 0 / 10%)`, color: "oklch(0.40 0.01 270)" };
 
   return (
@@ -378,9 +378,9 @@ function SettingsPanel({
 // ── Reference Panel ───────────────────────────────────────────
 
 function ReferencePanel({ isDark }: { isDark: boolean }) {
-  const labelColor  = isDark ? "oklch(0.42 0.01 270)" : "oklch(0.45 0.01 270)";
-  const textMuted   = isDark ? "oklch(0.48 0.01 270)" : "oklch(0.45 0.01 270)";
-  const textDim     = isDark ? "oklch(0.38 0.01 270)" : "oklch(0.55 0.01 270)";
+  const labelColor  = isDark ? "oklch(0.59 0.010 270)" : "oklch(0.62 0.010 270)";
+  const textMuted   = isDark ? "oklch(0.64 0.010 270)" : "oklch(0.62 0.010 270)";
+  const textDim     = isDark ? "oklch(0.57 0.010 270)" : "oklch(0.69 0.010 270)";
   const uploadBg    = isDark ? "oklch(1 0 0 / 2%)"    : "oklch(0 0 0 / 2%)";
   const uploadBdr   = isDark ? "oklch(1 0 0 / 12%)"   : "oklch(0 0 0 / 14%)";
   const imgBorder   = isDark ? "oklch(1 0 0 / 8%)"    : "oklch(0 0 0 / 8%)";
@@ -458,7 +458,7 @@ function ReferencePanel({ isDark }: { isDark: boolean }) {
 // ── Section wrapper ───────────────────────────────────────────
 
 function Section({ title, children, isDark }: { title: string; children: React.ReactNode; isDark: boolean }) {
-  const labelColor = isDark ? "oklch(0.42 0.01 270)" : "oklch(0.45 0.01 270)";
+  const labelColor = isDark ? "oklch(0.59 0.010 270)" : "oklch(0.62 0.010 270)";
   return (
     <div className="space-y-2">
       <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: labelColor }}>

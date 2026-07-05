@@ -23,7 +23,7 @@ export default function HelpPage() {
 
   const bg = isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)";
   const text = isDark ? "oklch(0.88 0.008 270)" : "oklch(0.20 0.012 270)";
-  const sub = isDark ? "oklch(0.58 0.01 270)" : "oklch(0.48 0.012 270)";
+  const sub = isDark ? "oklch(0.71 0.010 270)" : "oklch(0.64 0.010 270)";
   const panel = isDark ? "oklch(0.12 0.016 270 / 0.86)" : "oklch(1 0 0 / 0.86)";
   const field = isDark ? "oklch(1 0 0 / 0.055)" : "oklch(0 0 0 / 0.035)";
   const border = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";

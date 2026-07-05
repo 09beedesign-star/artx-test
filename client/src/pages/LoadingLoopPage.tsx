@@ -154,7 +154,7 @@ function LoadingAnimationStyles() {
       }
 
       .artx-loading-logo {
-        filter: brightness(0) invert(1) drop-shadow(0 0 9px rgba(255,255,255,0.38));
+        filter: brightness(0) invert(1) drop-shadow(0 0 9px rgba(255,255,255,0.57));
         animation: artx-logo-breathe 2.4s ease-in-out infinite;
         transform-origin: center;
       }
@@ -212,7 +212,7 @@ function LoadingTip({
 }) {
   return (
     <p
-      className={`z-20 max-w-[min(720px,calc(100vw-40px))] text-center text-[10px] leading-[16px] text-white/42 ${className}`}
+      className={`z-20 max-w-[min(720px,calc(100vw-40px))] text-center text-[10px] leading-[16px] text-white/59 ${className}`}
       aria-live="polite"
     >
       {text}
@@ -256,7 +256,7 @@ function LoadingLogoBlock({ delay = 0, copy }: { delay?: number; copy: string })
           style={{ animationDelay: `${delay}s` }}
         />
       </div>
-      <p className="mt-3 max-w-[156px] text-center text-[8.4px] leading-[12.6px] text-white/56">
+      <p className="mt-3 max-w-[156px] text-center text-[8.4px] leading-[12.6px] text-white/69">
         {lines.map((line, index) => (
           <span key={line} className="block">
             {line}

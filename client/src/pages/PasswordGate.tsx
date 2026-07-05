@@ -53,7 +53,7 @@ export default function PasswordGate({ onGranted }: { onGranted: () => void }) {
   const cardBg = isDark ? "rgba(22,22,32,0.92)" : "rgba(255,255,255,0.92)";
   const border = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
   const text = isDark ? "rgba(255,255,255,0.88)" : "rgba(20,20,36,0.88)";
-  const subtext = isDark ? "rgba(255,255,255,0.38)" : "rgba(20,20,36,0.38)";
+  const subtext = isDark ? "rgba(255,255,255,0.57)" : "rgba(20,20,36,0.38)";
   const inputBg = isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)";
   const inputBorder = error
     ? "oklch(0.60 0.22 25)"

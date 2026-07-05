@@ -118,7 +118,7 @@ export default function InspirationPage() {
 
   const bg = isDark ? "#222222" : "var(--design-surface-soft)";
   const text = isDark ? "oklch(0.88 0.008 270)" : "oklch(0.20 0.008 270)";
-  const sub = isDark ? "oklch(0.62 0.01 270)" : "oklch(0.49 0.01 270)";
+  const sub = isDark ? "oklch(0.73 0.010 270)" : "oklch(0.49 0.01 270)";
   const cardBg = isDark ? "oklch(0.13 0.012 270)" : "oklch(1 0 0)";
   const panelBg = isDark ? "oklch(1 0 0 / 5%)" : "oklch(1 0 0 / 0.72)";
   const border = isDark ? "oklch(1 0 0 / 9%)" : "oklch(0 0 0 / 8%)";
@@ -331,7 +331,7 @@ export default function InspirationPage() {
                     className="mt-3 rounded-[var(--radius-md-design)] p-3 type-caption leading-5"
                     style={{
                       background: isDark ? "oklch(0 0 0 / 0.18)" : "oklch(0 0 0 / 0.035)",
-                      color: isDark ? "oklch(0.72 0.01 270)" : "oklch(0.38 0.01 270)",
+                      color: isDark ? "oklch(0.72 0.01 270)" : "oklch(0.57 0.010 270)",
                       display: "-webkit-box",
                       letterSpacing: 0,
                       overflow: "hidden",

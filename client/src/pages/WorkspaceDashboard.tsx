@@ -94,7 +94,7 @@ function CardMenu({
           background: open
             ? (isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)")
             : "transparent",
-          color: isDark ? "oklch(0.55 0.01 270)" : "oklch(0.50 0.012 255)",
+          color: isDark ? "oklch(0.69 0.010 270)" : "oklch(0.65 0.010 255)",
         }}
         onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
       >
@@ -158,7 +158,7 @@ function DeleteConfirmDialog({
   const bg = isDark ? "#222222" : "oklch(0.97 0.004 270)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const text = isDark ? "oklch(0.85 0.008 270)" : "oklch(0.18 0.008 270)";
-  const sub = isDark ? "oklch(0.55 0.01 270)" : "oklch(0.50 0.01 270)";
+  const sub = isDark ? "oklch(0.69 0.010 270)" : "oklch(0.65 0.010 270)";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.55)" }} onClick={onCancel}>
@@ -211,7 +211,7 @@ function ProjectCard({
   const cardBg = isDark ? "#222222" : "oklch(1 0 0)";
   const cardBorder = isDark ? "rgba(255,255,255,0.07)" : "oklch(0.88 0.006 255)";
   const text = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.22 0.018 255)";
-  const sub = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.50 0.012 255)";
+  const sub = isDark ? "oklch(0.65 0.010 270)" : "oklch(0.65 0.010 255)";
 
   return (
     <div
@@ -289,7 +289,7 @@ function ProjectCard({
 function CreateProjectCard({ isDark, onCreate }: { isDark: boolean; onCreate: () => void }) {
   const bg = isDark ? "#222222" : "oklch(0.97 0.004 270)";
   const border = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.08)";
-  const text = isDark ? "oklch(0.55 0.01 270)" : "oklch(0.50 0.01 270)";
+  const text = isDark ? "oklch(0.69 0.010 270)" : "oklch(0.65 0.010 270)";
   return (
     <button
       onClick={onCreate}
@@ -328,7 +328,7 @@ export default function WorkspaceDashboard() {
 
   const bg = isDark ? "#222222" : "oklch(0.975 0.004 80)";
   const text = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.22 0.018 255)";
-  const sub = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.50 0.012 255)";
+  const sub = isDark ? "oklch(0.65 0.010 270)" : "oklch(0.65 0.010 255)";
 
   useEffect(() => {
     const historyProjects = readWorkspaceProjectHistory().map(fromHistoryProject);

@@ -61,8 +61,8 @@ export default function ProfilePage() {
   }, [profile]);
 
   const textPrimary = isDark ? "rgba(255,255,255,0.88)" : "rgba(20,20,36,0.88)";
-  const textSecondary = isDark ? "rgba(255,255,255,0.56)" : "rgba(20,20,36,0.56)";
-  const textMuted = isDark ? "rgba(255,255,255,0.36)" : "rgba(20,20,36,0.36)";
+  const textSecondary = isDark ? "rgba(255,255,255,0.69)" : "rgba(20,20,36,0.56)";
+  const textMuted = isDark ? "rgba(255,255,255,0.69)" : "rgba(20,20,36,0.36)";
   const cardBg = isDark ? "#222222" : "rgba(255,255,255,0.76)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(20,20,36,0.10)";
   const panelBg = isDark ? "#222222" : "rgba(255,255,255,0.98)";
@@ -177,7 +177,7 @@ export default function ProfilePage() {
               <div className="mt-7 grid gap-4 md:grid-cols-[1.1fr_0.9fr]">
                 <div
                   className="rounded-[var(--radius-lg-design)] p-5"
-                  style={{ background: isDark ? "#222222" : "rgba(255,255,255,0.52)", border: `1px solid ${border}` }}
+                  style={{ background: isDark ? "#222222" : "rgba(255,255,255,0.66)", border: `1px solid ${border}` }}
                 >
                   <p className="type-body-sm mb-3" style={{ color: textPrimary, fontWeight: 560 }}>个人简介</p>
                   <p className="type-body-sm leading-7" style={{ color: textSecondary }}>
@@ -198,7 +198,7 @@ export default function ProfilePage() {
 
                 <div
                   className="rounded-[var(--radius-lg-design)] p-5"
-                  style={{ background: isDark ? "#222222" : "rgba(255,255,255,0.52)", border: `1px solid ${border}` }}
+                  style={{ background: isDark ? "#222222" : "rgba(255,255,255,0.66)", border: `1px solid ${border}` }}
                 >
                   <p className="type-body-sm mb-4" style={{ color: textPrimary, fontWeight: 560 }}>账号信息</p>
                   <div className="space-y-3 type-caption" style={{ color: textSecondary }}>
@@ -342,7 +342,7 @@ function ProfileInput({
 }) {
   return (
     <label className="grid gap-1.5">
-      <span className="type-caption" style={{ color: "rgba(255,255,255,0.48)" }}>{label}</span>
+      <span className="type-caption" style={{ color: "rgba(255,255,255,0.64)" }}>{label}</span>
       {multiline ? (
         <textarea
           value={value}

@@ -427,18 +427,18 @@ export default function HomePage() {
                       EW
                     </div>
                     <span className="min-w-0 flex-1 truncate text-sm font-medium text-white">{item.author || "ArtX"}</span>
-                    <span className="flex items-center gap-1 text-xs font-medium text-white/55">
+                    <span className="flex items-center gap-1 text-xs font-medium text-white/69">
                       <PlayCircle size={14} fill="currentColor" strokeWidth={0} />
                       {Math.max(1200, item.rank * 137)}
                     </span>
-                    <span className="flex items-center gap-1 text-xs font-medium text-white/55">
+                    <span className="flex items-center gap-1 text-xs font-medium text-white/69">
                       <Heart size={14} fill="currentColor" strokeWidth={0} />
                       {Math.max(88, item.rank * 9)}
                     </span>
                   </div>
                   <p className="truncate text-sm font-semibold text-white">{item.title}</p>
-                  <p className="mt-1 truncate text-xs text-white/42">{item.field}</p>
-                  <p className="mt-2 line-clamp-2 text-xs leading-5 text-white/45">{item.description}</p>
+                  <p className="mt-1 truncate text-xs text-white/59">{item.field}</p>
+                  <p className="mt-2 line-clamp-2 text-xs leading-5 text-white/73">{item.description}</p>
                 </div>
               </button>
             ))}
@@ -482,7 +482,7 @@ function LandingTopNav({
           className={`h-9 shrink-0 appearance-none rounded-md px-3 text-center text-xs font-medium transition-colors sm:min-w-[82px] sm:text-sm ${
             activeTab === item.key
               ? "bg-[#936CFF] text-white shadow-[0_8px_20px_rgba(147,108,255,0.28)]"
-              : "bg-transparent text-white/62 hover:bg-white/8 hover:text-white"
+              : "bg-transparent text-white/73 hover:bg-white/8 hover:text-white"
           }`}
         >
           {item.label}
@@ -520,7 +520,7 @@ function HeroStatement() {
           </h1>
         </div>
       </div>
-      <p className="absolute left-[208px] top-[782px] text-[24px] leading-7 text-white/16">
+      <p className="absolute left-[208px] top-[782px] text-[24px] leading-7 text-white/41">
         Artificial intelligence drives<br />limitless creativity
       </p>
     </div>
