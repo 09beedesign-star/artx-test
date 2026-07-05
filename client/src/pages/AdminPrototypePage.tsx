@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/table";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
+import { getDashboardRiskTarget } from "./admin-dashboard-risk";
 
 type AdminSection =
   | "overview"
@@ -561,6 +562,10 @@ function AdminPrototypePage() {
   const selectedUser = adminData.users.find((item) => item.id === selectedUserId) ?? adminData.users[0];
   const selectedOrder = adminData.orders.find((item) => item.id === selectedOrderId) ?? adminData.orders[0];
   const metrics = adminData.overview?.metrics;
+  const dashboardRiskTarget = getDashboardRiskTarget({
+    paymentExceptions: metrics?.paymentExceptions,
+    highRiskEvents: metrics?.highRiskEvents,
+  });
 
   useEffect(() => {
     if (activeSection !== "orders" || !selectedOrder) return;
@@ -958,6 +963,8 @@ function AdminPrototypePage() {
                 label="待处理风险"
                 value={formatCredits((metrics?.paymentExceptions ?? 0) + (metrics?.highRiskEvents ?? 0))}
                 detail="支付异常 + 高风险事件"
+                actionLabel="立即处理"
+                onAction={() => setActiveSection(dashboardRiskTarget)}
               />
             </section>
 
@@ -1488,11 +1495,15 @@ function MetricCard({
   label,
   value,
   detail,
+  actionLabel,
+  onAction,
 }: {
   icon: typeof BarChart3;
   label: string;
   value: string;
   detail: string;
+  actionLabel?: string;
+  onAction?: () => void;
 }) {
   return (
     <div className="rounded-md border border-white/10 bg-white/[0.035] p-4">
@@ -1502,7 +1513,18 @@ function MetricCard({
         </div>
         <span className="text-xs text-emerald-200">实时</span>
       </div>
-      <div className="text-sm text-slate-400">{label}</div>
+      <div className="flex min-h-8 items-center justify-between gap-3">
+        <div className="text-sm text-slate-400">{label}</div>
+        {actionLabel && onAction && (
+          <button
+            type="button"
+            className="shrink-0 rounded-md border border-cyan-300/25 bg-cyan-300/10 px-2.5 py-1 text-xs font-medium text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-300/18"
+            onClick={onAction}
+          >
+            {actionLabel}
+          </button>
+        )}
+      </div>
       <div className="mt-1 text-2xl font-semibold tracking-tight">{value}</div>
       <div className="mt-2 text-xs text-slate-500">{detail}</div>
     </div>
