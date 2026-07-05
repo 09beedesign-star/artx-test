@@ -91,16 +91,16 @@ type Order = {
   refundedCredits?: number;
 };
 
-type OrderDetail = {
-  order: Order;
-  user?: AdminUser;
+type AccountDetail = {
+  user: AdminUser;
+  orders: Order[];
   creditEntries: Array<{ id: string; user: string; type: string; delta: number; operator: string; source: string; reason: string; createdAt: string }>;
   auditEntries: Array<{ id: string; actorName: string; action: string; target: string; createdAt: string; reason?: string }>;
   feedbackEntries: Feedback[];
-  notes: Array<{ id: string; actorName: string; content: string; createdAt: string }>;
-  paymentEvents: Array<{ id: string; type: string; status: string; providerTransactionId?: string; amount?: number; signatureValid?: boolean; message: string; createdAt: string }>;
-  refundEvents: Array<{ id: string; amount: number; creditsDeducted: number; reason: string; actorName: string; createdAt: string }>;
-  timeline: Array<{ id: string; type: string; status: string; message: string; createdAt: string }>;
+  notes: Array<{ id: string; actorName: string; content: string; createdAt: string; orderId: string; orderLabel?: string }>;
+  paymentEvents: Array<{ id: string; orderId: string; orderLabel?: string; type: string; status: string; providerTransactionId?: string; amount?: number; signatureValid?: boolean; message: string; createdAt: string }>;
+  refundEvents: Array<{ id: string; orderId: string; orderLabel?: string; amount: number; creditsDeducted: number; reason: string; actorName: string; createdAt: string }>;
+  timeline: Array<{ id: string; type: string; status: string; message: string; createdAt: string; orderId?: string; orderLabel?: string }>;
 };
 
 type Feedback = {
@@ -419,7 +419,8 @@ function AdminPrototypePage() {
   const [policyDraft, setPolicyDraft] = useState<Array<{ capability: string; capabilityKey?: string; unit: string; baseCredits: number; estimatedCostPerUnit: number; provider: string }>>([]);
   const [discountDraft, setDiscountDraft] = useState<Array<{ planId: string; multiplier: number; label: string }>>([]);
   const [selectedOrderId, setSelectedOrderId] = useState("");
-  const [orderDetail, setOrderDetail] = useState<OrderDetail | null>(null);
+  const [accountDetail, setAccountDetail] = useState<AccountDetail | null>(null);
+  const [accountDrawerOpen, setAccountDrawerOpen] = useState(false);
   const [orderNote, setOrderNote] = useState("");
   const [passwordPanelOpen, setPasswordPanelOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
@@ -437,6 +438,14 @@ function AdminPrototypePage() {
     note: "接口方确认已收到用户付款",
     issueCredits: false,
   });
+
+  useEffect(() => {
+    const previousTitle = document.title;
+    document.title = "Artx-adminn";
+    return () => {
+      document.title = previousTitle;
+    };
+  }, []);
 
   const fetchAdminData = useCallback(async (message?: string) => {
     const token = readAdminToken();
@@ -468,18 +477,18 @@ function AdminPrototypePage() {
     }
   }, []);
 
-  const fetchOrderDetail = useCallback(async (orderId: string) => {
+  const fetchAccountDetail = useCallback(async (userId: string) => {
     const token = readAdminToken();
-    if (!token || !orderId) return;
+    if (!token || !userId) return;
     try {
-      const response = await fetch(`/api/admin/orders/${encodeURIComponent(orderId)}`, {
+      const response = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/detail`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || "订单详情加载失败");
-      setOrderDetail(payload as OrderDetail);
+      if (!response.ok) throw new Error(payload.error || "账户详情加载失败");
+      setAccountDetail(payload as AccountDetail);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "订单详情加载失败");
+      setNotice(error instanceof Error ? error.message : "账户详情加载失败");
     }
   }, []);
 
@@ -488,10 +497,10 @@ function AdminPrototypePage() {
   }, [fetchAdminData]);
 
   useEffect(() => {
-    if (selectedOrderId) {
-      fetchOrderDetail(selectedOrderId);
+    if (accountDrawerOpen && selectedUserId) {
+      fetchAccountDetail(selectedUserId);
     }
-  }, [fetchOrderDetail, selectedOrderId]);
+  }, [accountDrawerOpen, fetchAccountDetail, selectedUserId]);
 
   async function adminPost(path: string, payload: Record<string, unknown>, successMessage: string) {
     const token = readAdminToken();
@@ -511,6 +520,9 @@ function AdminPrototypePage() {
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "后台写操作失败");
       setAdminData(normalizeAdminPayload(result));
+      if (accountDrawerOpen && selectedUserId) {
+        await fetchAccountDetail(selectedUserId);
+      }
       setNotice(successMessage);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "后台写操作失败");
@@ -534,8 +546,10 @@ function AdminPrototypePage() {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "订单操作失败");
-      setOrderDetail(result as OrderDetail);
       await fetchAdminData(successMessage);
+      if (selectedUserId) {
+        await fetchAccountDetail(selectedUserId);
+      }
       setNotice(successMessage);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "订单操作失败");
@@ -673,8 +687,19 @@ function AdminPrototypePage() {
     setSelectedOrderId(orderId);
     if (orderUser) {
       setSelectedUserId(orderUser.id);
+      setAccountDrawerOpen(true);
     }
     setOrderNote("");
+  }
+
+  function handleSelectUser(userId: string) {
+    setSelectedUserId(userId);
+    const userOrder = adminData.orders.find((order) => order.userId === userId);
+    if (userOrder) {
+      setSelectedOrderId(userOrder.id);
+    }
+    setOrderNote("");
+    setAccountDrawerOpen(true);
   }
 
   function handleAddOrderNote() {
@@ -928,28 +953,31 @@ function AdminPrototypePage() {
               />
             </section>
 
-            <section className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_minmax(320px,360px)]">
+            <section className="min-w-0">
               <div className="min-w-0 rounded-md border border-white/10 bg-white/[0.035]">
                 <SectionTabs activeSection={activeSection} setActiveSection={setActiveSection} />
                 <div className="p-4 md:p-5">{renderSection()}</div>
               </div>
-
-              <aside className="min-w-0 space-y-5">
-                {selectedUser ? (
-                  <UserDetailPanel
-                    user={selectedUser}
-                    creditDelta={creditDelta}
-                    setCreditDelta={setCreditDelta}
-                    onAdjust={handleCreditAdjustment}
-                  />
-                ) : (
-                  <EmptyPanel title="暂无真实用户" body="后台不会显示演示用户。注册或导入真实用户后，这里会自动出现账户详情。" />
-                )}
-              </aside>
             </section>
           </div>
         </main>
       </div>
+      <AccountDetailDrawer
+        open={accountDrawerOpen}
+        detail={accountDetail}
+        fallbackUser={selectedUser}
+        selectedOrderId={selectedOrderId}
+        note={orderNote}
+        creditDelta={creditDelta}
+        setCreditDelta={setCreditDelta}
+        onClose={() => setAccountDrawerOpen(false)}
+        onSelectOrder={setSelectedOrderId}
+        onNoteChange={setOrderNote}
+        onAddNote={handleAddOrderNote}
+        onReissue={handleReissueOrder}
+        onRefund={handleRefundOrder}
+        onAdjust={handleCreditAdjustment}
+      />
     </div>
   );
 
@@ -1088,7 +1116,7 @@ function AdminPrototypePage() {
                       "border-white/8 hover:bg-white/[0.04]",
                       selectedUserId === user.id && "bg-cyan-300/8"
                     )}
-                    onClick={() => setSelectedUserId(user.id)}
+                    onClick={() => handleSelectUser(user.id)}
                   >
                     <TableCell>
                       <div className="font-medium">{user.name}</div>
@@ -1186,16 +1214,7 @@ function AdminPrototypePage() {
             />
           </div>
 
-          <div className="grid min-w-0 gap-5 2xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
-            <OrderDetailPanel
-              detail={orderDetail}
-              fallbackOrder={selectedOrder}
-              note={orderNote}
-              onNoteChange={setOrderNote}
-              onAddNote={handleAddOrderNote}
-              onReissue={handleReissueOrder}
-              onRefund={handleRefundOrder}
-            />
+          <div className="min-w-0">
             {selectedUser ? (
               <ExternalCollectionPanel
                 form={externalCollection}
@@ -1849,112 +1868,201 @@ function ExternalCollectionPanel({
   );
 }
 
-function OrderDetailPanel({
+function AccountDetailDrawer({
+  open,
   detail,
-  fallbackOrder,
+  fallbackUser,
+  selectedOrderId,
   note,
+  creditDelta,
+  setCreditDelta,
+  onClose,
+  onSelectOrder,
   onNoteChange,
   onAddNote,
   onReissue,
   onRefund,
+  onAdjust,
 }: {
-  detail: OrderDetail | null;
-  fallbackOrder?: Order;
+  open: boolean;
+  detail: AccountDetail | null;
+  fallbackUser?: AdminUser;
+  selectedOrderId: string;
   note: string;
+  creditDelta: number;
+  setCreditDelta: (value: number) => void;
+  onClose: () => void;
+  onSelectOrder: (orderId: string) => void;
   onNoteChange: (value: string) => void;
   onAddNote: () => void;
   onReissue: () => void;
   onRefund: () => void;
+  onAdjust: (direction: "plus" | "minus") => void;
 }) {
-  const order = detail?.order || fallbackOrder;
-  if (!order) {
-    return (
-      <div className="rounded-md border border-white/10 bg-white/[0.03] p-4 text-sm text-slate-400">
-        选择一笔订单查看对账详情。
-      </div>
-    );
-  }
+  const user = detail?.user || fallbackUser;
+  const selectedOrder = detail?.orders.find((order) => order.id === selectedOrderId) || detail?.orders[0];
+
+  if (!open) return null;
 
   return (
-    <div className="min-w-0 space-y-4 rounded-md border border-white/10 bg-white/[0.03] p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="font-mono text-xs text-slate-500">{order.id}</div>
-          <h3 className="mt-1 text-base font-semibold">{order.user} · {order.packageName || "订单详情"}</h3>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <Badge className={statusClass(order.status)}>{statusLabel(order.status)}</Badge>
-            <Badge className={statusClass(order.reconciliation || "matched")}>
-              {order.reconciliation === "mismatch" ? "对账异常" : order.reconciliation === "pending" ? "待对账" : "对账一致"}
-            </Badge>
+    <div className="fixed inset-0 z-40">
+      <button
+        type="button"
+        aria-label="关闭账户详情"
+        className="absolute inset-0 bg-slate-950/55 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      <aside className="absolute right-0 top-0 flex h-full w-full max-w-[760px] flex-col border-l border-white/10 bg-[#0b1020] shadow-2xl shadow-black/50">
+        <div className="flex items-start justify-between gap-3 border-b border-white/10 px-5 py-4">
+          <div className="min-w-0">
+            <div className="text-xs text-slate-500">账户详情</div>
+            <h2 className="mt-1 truncate text-lg font-semibold">{user?.name || "加载中"}</h2>
+            <p className="mt-1 break-all text-xs text-slate-500">{user?.email || "正在读取账户聚合数据..."}</p>
           </div>
+          <Button variant="outline" size="sm" className="border-white/12 bg-white/5 text-slate-100" onClick={onClose}>
+            <X className="size-4" />
+          </Button>
         </div>
-        <div className="shrink-0 text-left text-sm lg:text-right">
-          <div className="font-semibold">{formatCurrency(order.amount)}</div>
-          <div className="text-xs text-slate-400">{formatCredits(order.expectedCredits || order.credits)} 应发积分</div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+          {user ? (
+            <div className="space-y-5">
+              <div className="grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
+                <InfoCell label="套餐" value={user.plan} />
+                <InfoCell label="状态" value={statusLabel(user.status)} />
+                <InfoCell label="积分余额" value={formatCredits(user.credits)} />
+                <InfoCell label="累计付费" value={formatCurrency(user.spent)} />
+              </div>
+
+              <div className="rounded-md border border-white/10 bg-white/[0.035] p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold">人工额度调整</h3>
+                    <p className="mt-1 text-xs text-slate-500">调整会进入账户积分流水和审计日志。</p>
+                  </div>
+                  <Badge className={statusClass(user.risk)}>{user.risk}</Badge>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+                  <Input
+                    type="number"
+                    value={creditDelta}
+                    onChange={(event) => setCreditDelta(Number(event.target.value))}
+                    className="border-white/10 bg-slate-950/40 text-slate-100"
+                  />
+                  <Button className="bg-emerald-300 text-slate-950 hover:bg-emerald-200" onClick={() => onAdjust("plus")}>
+                    <Plus className="size-4" />
+                    增加
+                  </Button>
+                  <Button variant="outline" className="border-white/12 bg-white/5 text-slate-100" onClick={() => onAdjust("minus")}>
+                    <X className="size-4" />
+                    扣减
+                  </Button>
+                </div>
+              </div>
+
+              <MiniSection
+                title="账户订单"
+                rows={(detail?.orders || []).map((order) => ({
+                  title: `${order.packageName || "订单"} · ${statusLabel(order.status)}`,
+                  meta: `${order.id} · ${order.channel} · ${order.createdAt}`,
+                  value: formatCurrency(order.amount),
+                }))}
+                empty="该账户暂无订单"
+              />
+
+              {selectedOrder ? (
+                <div className="rounded-md border border-cyan-300/20 bg-cyan-300/[0.045] p-4">
+                  <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0">
+                      <div className="font-mono text-xs text-cyan-100/70">{selectedOrder.id}</div>
+                      <h3 className="mt-1 text-sm font-semibold text-cyan-50">当前处理订单 · {selectedOrder.packageName || "订单详情"}</h3>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <Badge className={statusClass(selectedOrder.status)}>{statusLabel(selectedOrder.status)}</Badge>
+                        <Badge className={statusClass(selectedOrder.reconciliation || "matched")}>
+                          {selectedOrder.reconciliation === "mismatch" ? "对账异常" : selectedOrder.reconciliation === "pending" ? "待对账" : "对账一致"}
+                        </Badge>
+                      </div>
+                    </div>
+                    <select
+                      value={selectedOrder.id}
+                      onChange={(event) => onSelectOrder(event.target.value)}
+                      className="h-9 rounded-md border border-white/12 bg-slate-950/70 px-2 text-xs text-slate-100 outline-none"
+                    >
+                      {(detail?.orders || []).map((order) => (
+                        <option key={order.id} value={order.id}>{order.id}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="grid gap-3 text-xs sm:grid-cols-2">
+                    <InfoLine label="支付渠道" value={selectedOrder.channel} />
+                    <InfoLine label="第三方交易号" value={selectedOrder.providerTransactionId || "待回调/待查询"} mono />
+                    <InfoLine label="实发积分" value={formatCredits(selectedOrder.issuedCredits || 0)} />
+                    <InfoLine label="退款/扣回" value={`${formatCurrency(selectedOrder.refundAmount || 0)} / ${formatCredits(selectedOrder.refundedCredits || 0)} 积分`} />
+                  </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                    <Button variant="outline" className="border-white/15 bg-white/5" onClick={onAddNote} disabled={!note.trim()}>
+                      保存备注
+                    </Button>
+                    <Button variant="outline" className="border-amber-300/30 bg-amber-300/10 text-amber-100" onClick={onReissue} disabled={selectedOrder.status === "paid"}>
+                      人工补单
+                    </Button>
+                    <Button variant="outline" className="border-rose-300/30 bg-rose-300/10 text-rose-100" onClick={onRefund} disabled={selectedOrder.status !== "paid"}>
+                      标记退款
+                    </Button>
+                  </div>
+                  <Input
+                    value={note}
+                    onChange={(event) => onNoteChange(event.target.value)}
+                    placeholder="记录处理备注"
+                    className="mt-3 border-white/12 bg-slate-950/40"
+                  />
+                </div>
+              ) : (
+                <EmptyPanel title="暂无可处理订单" body="该账户还没有支付订单，无法执行备注、补单或退款操作。" />
+              )}
+
+              <MiniSection
+                title="支付事件"
+                rows={(detail?.paymentEvents || []).map((item) => ({
+                  title: `${item.orderId} · ${item.type} · ${item.status}`,
+                  meta: `${item.message} · ${item.createdAt}`,
+                  value: item.providerTransactionId || "N/A",
+                }))}
+                empty="该账户暂无第三方支付事件"
+              />
+              <MiniSection
+                title="积分流水"
+                rows={(detail?.creditEntries || []).map((item) => ({
+                  title: `${item.type} · ${item.delta > 0 ? "+" : ""}${item.delta}`,
+                  meta: `${item.source} · ${item.reason} · ${item.createdAt}`,
+                  value: item.operator,
+                }))}
+                empty="该账户暂无积分流水"
+              />
+              <MiniSection
+                title="处理备注"
+                rows={(detail?.notes || []).map((item) => ({
+                  title: `${item.orderId} · ${item.actorName}`,
+                  meta: item.content,
+                  value: item.createdAt,
+                }))}
+                empty="该账户暂无处理备注"
+              />
+              <MiniSection
+                title="对账时间线"
+                rows={(detail?.timeline || []).slice(0, 16).map((item) => ({
+                  title: `${item.orderId || "账户"} · ${item.type}`,
+                  meta: item.message,
+                  value: item.createdAt,
+                }))}
+                empty="该账户暂无对账时间线"
+              />
+            </div>
+          ) : (
+            <EmptyPanel title="正在加载账户详情" body="账户聚合数据会从 /api/admin/users/:id/detail 读取。" />
+          )}
         </div>
-      </div>
-
-      <div className="grid min-w-0 gap-3 text-xs md:grid-cols-2 2xl:grid-cols-1 min-[1680px]:grid-cols-2">
-        <InfoLine label="支付渠道" value={order.channel} />
-        <InfoLine label="第三方交易号" value={order.providerTransactionId || "待回调/待查询"} mono />
-        <InfoLine label="实发积分" value={formatCredits(order.issuedCredits || 0)} />
-        <InfoLine label="退款/扣回" value={`${formatCurrency(order.refundAmount || 0)} / ${formatCredits(order.refundedCredits || 0)} 积分`} />
-      </div>
-
-      <div className="grid gap-2 md:grid-cols-3 2xl:grid-cols-1 min-[1680px]:grid-cols-3">
-        <Button variant="outline" className="border-white/15 bg-white/5" onClick={onAddNote} disabled={!note.trim()}>
-          保存备注
-        </Button>
-        <Button variant="outline" className="border-amber-300/30 bg-amber-300/10 text-amber-100" onClick={onReissue} disabled={order.status === "paid"}>
-          人工补单
-        </Button>
-        <Button variant="outline" className="border-rose-300/30 bg-rose-300/10 text-rose-100" onClick={onRefund} disabled={order.status !== "paid"}>
-          标记退款
-        </Button>
-      </div>
-      <Input
-        value={note}
-        onChange={(event) => onNoteChange(event.target.value)}
-        placeholder="记录处理备注"
-        className="border-white/12 bg-white/5"
-      />
-
-      <MiniSection
-        title="支付事件"
-        rows={(detail?.paymentEvents || []).map((item) => ({
-          title: `${item.type} · ${item.status}`,
-          meta: `${item.message} · ${item.createdAt}`,
-          value: item.providerTransactionId || "N/A",
-        }))}
-        empty="暂无第三方支付事件"
-      />
-      <MiniSection
-        title="积分流水"
-        rows={(detail?.creditEntries || []).map((item) => ({
-          title: `${item.type} · ${item.delta > 0 ? "+" : ""}${item.delta}`,
-          meta: `${item.reason} · ${item.createdAt}`,
-          value: item.operator,
-        }))}
-        empty="暂无积分流水"
-      />
-      <MiniSection
-        title="处理备注"
-        rows={(detail?.notes || []).map((item) => ({
-          title: item.actorName,
-          meta: item.content,
-          value: item.createdAt,
-        }))}
-        empty="暂无处理备注"
-      />
-      <MiniSection
-        title="对账时间线"
-        rows={(detail?.timeline || []).slice(0, 8).map((item) => ({
-          title: item.type,
-          meta: item.message,
-          value: item.createdAt,
-        }))}
-        empty="暂无时间线"
-      />
+      </aside>
     </div>
   );
 }
@@ -1995,78 +2103,6 @@ function MiniSection({
       ) : (
         <div className="text-xs text-slate-500">{empty}</div>
       )}
-    </div>
-  );
-}
-
-function UserDetailPanel({
-  user,
-  creditDelta,
-  setCreditDelta,
-  onAdjust,
-}: {
-  user: AdminUser;
-  creditDelta: number;
-  setCreditDelta: (value: number) => void;
-  onAdjust: (direction: "plus" | "minus") => void;
-}) {
-  return (
-    <div className="rounded-md border border-white/10 bg-white/[0.035] p-4">
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h2 className="text-base font-semibold">账户详情</h2>
-          <p className="text-sm text-slate-400">点击用户表格可切换对象。</p>
-        </div>
-        <Badge className={cn("w-fit shrink-0", statusClass(user.status))}>{statusLabel(user.status)}</Badge>
-      </div>
-
-      <div className="rounded-md border border-white/8 bg-slate-950/35 p-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-white/8 text-sm font-semibold">
-            {user.name.slice(0, 2)}
-          </div>
-          <div className="min-w-0">
-            <div className="break-words text-sm font-medium">{user.name}</div>
-            <div className="break-all text-xs leading-5 text-slate-500">{user.email}</div>
-          </div>
-        </div>
-        <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2 2xl:grid-cols-1 min-[1500px]:grid-cols-2">
-          <InfoCell label="套餐" value={user.plan} />
-          <InfoCell label="风险" value={user.risk} />
-          <InfoCell label="积分余额" value={formatCredits(user.credits)} />
-          <InfoCell label="累计付费" value={formatCurrency(user.spent)} />
-        </div>
-      </div>
-
-      <div className="mt-4 space-y-3">
-        <label className="text-sm font-medium">人工额度调整</label>
-        <Input
-          type="number"
-          value={creditDelta}
-          onChange={(event) => setCreditDelta(Number(event.target.value))}
-          className="border-white/10 bg-slate-950/40 text-slate-100"
-        />
-        <div className="grid gap-2 sm:grid-cols-2 2xl:grid-cols-1 min-[1500px]:grid-cols-2">
-          <Button
-            className="min-w-0 bg-emerald-300 text-slate-950 hover:bg-emerald-200"
-            onClick={() => onAdjust("plus")}
-          >
-            <Plus className="size-4" />
-            增加
-          </Button>
-          <Button
-            variant="outline"
-            className="min-w-0 border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
-            onClick={() => onAdjust("minus")}
-          >
-            <X className="size-4" />
-            扣减
-          </Button>
-        </div>
-        <p className="text-xs leading-5 text-slate-500">
-          真实后台必须填写原因，并写入不可删除的审计日志。
-        </p>
-      </div>
     </div>
   );
 }

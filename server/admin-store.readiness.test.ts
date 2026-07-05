@@ -583,6 +583,175 @@ describe("production readiness", () => {
     });
   });
 
+  it("returns account-level payment, credit, note, and reconciliation history for the selected user", async () => {
+    await writeFile(path.join(dataDir, "admin-data.json"), `${JSON.stringify({
+      users: [
+        {
+          id: "account-detail-user",
+          name: "account-user",
+          email: "account-user@example.com",
+          account: "account-user@example.com",
+          registeredAt: "2026-07-05 10:00",
+          loginMethod: "email",
+          role: "viewer",
+          status: "normal",
+          plan: "Pro",
+          organization: "个人",
+          credits: 1500,
+          frozenCredits: 0,
+          expiredCredits: 0,
+          totalRecharge: 300,
+          totalConsumed: 0,
+          lastSeen: "刚刚",
+          risk: "低",
+        },
+      ],
+      orders: [
+        {
+          id: "account_order_1",
+          userId: "account-detail-user",
+          user: "account-user",
+          packageName: "积分充值",
+          channel: "微信支付",
+          amount: 100,
+          expectedCredits: 1000,
+          issuedCredits: 1000,
+          status: "paid",
+          createdAt: "2026-07-05T02:00:00.000Z",
+          paidAt: "2026-07-05T02:01:00.000Z",
+          event: "支付成功并入账",
+          reconciliation: "matched",
+          providerTransactionId: "txn_account_1",
+          paymentEvents: [
+            {
+              id: "payevt_account_1",
+              type: "payment_success",
+              status: "success",
+              providerTransactionId: "txn_account_1",
+              amount: 100,
+              signatureValid: true,
+              message: "渠道确认支付成功",
+              createdAt: "2026-07-05T02:01:00.000Z",
+            },
+          ],
+          notes: [
+            {
+              id: "note_account_1",
+              actorId: "admin",
+              actorName: "admin@example.com",
+              content: "第一笔订单备注",
+              createdAt: "2026-07-05T02:02:00.000Z",
+            },
+          ],
+        },
+        {
+          id: "account_order_2",
+          userId: "account-detail-user",
+          user: "account-user",
+          packageName: "Lite",
+          channel: "支付宝",
+          amount: 200,
+          expectedCredits: 2000,
+          issuedCredits: 0,
+          status: "pending",
+          createdAt: "2026-07-05T03:00:00.000Z",
+          event: "等待支付",
+          reconciliation: "pending",
+          paymentEvents: [
+            {
+              id: "payevt_account_2",
+              type: "payment_created",
+              status: "pending",
+              providerTransactionId: "txn_account_2",
+              amount: 200,
+              signatureValid: true,
+              message: "支付码已创建",
+              createdAt: "2026-07-05T03:01:00.000Z",
+            },
+          ],
+          notes: [
+            {
+              id: "note_account_2",
+              actorId: "finance",
+              actorName: "finance@example.com",
+              content: "第二笔订单备注",
+              createdAt: "2026-07-05T03:02:00.000Z",
+            },
+          ],
+        },
+      ],
+      credits: [
+        {
+          id: "cr_account_1",
+          userId: "account-detail-user",
+          user: "account-user",
+          type: "购买入账",
+          delta: 1000,
+          reason: "订单支付成功",
+          source: "account_order_1",
+          operator: "wallyt",
+          createdAt: "2026-07-05T02:01:30.000Z",
+        },
+      ],
+      aiTasks: [],
+      providers: [],
+      feedback: [
+        {
+          id: "fb_account_1",
+          userId: "account-detail-user",
+          user: "account-user",
+          title: "订单支付疑问",
+          content: "为什么还没到账",
+          module: "支付",
+          status: "new",
+          priority: "P1",
+          linkedOrderId: "account_order_2",
+          createdAt: "2026-07-05T03:03:00.000Z",
+          updatedAt: "2026-07-05T03:03:00.000Z",
+        },
+      ],
+      alerts: [],
+      riskEvents: [],
+      auditLogs: [
+        {
+          id: "aud_account_1",
+          actorId: "admin",
+          actorName: "admin@example.com",
+          action: "新增订单处理备注",
+          target: "account_order_1",
+          reason: "第一笔订单备注",
+          createdAt: "2026-07-05T02:02:30.000Z",
+        },
+      ],
+      plans: [],
+      capabilityStatus: [],
+    }, null, 2)}\n`);
+
+    const { handleAdminApiRequest } = await loadAdminStore();
+    const authorization = await getAdminAuthorization();
+
+    const result = await handleAdminApiRequest("GET", "/users/account-detail-user/detail", authorization);
+    expect(result.status).toBe(200);
+    const body = result.body as {
+      user: { id: string; plan: string };
+      orders: Array<{ id: string }>;
+      paymentEvents: Array<{ id: string; orderId: string }>;
+      creditEntries: Array<{ id: string; source: string }>;
+      notes: Array<{ id: string; orderId: string }>;
+      feedbackEntries: Array<{ id: string; linkedOrderId: string }>;
+      timeline: Array<{ id: string; orderId?: string }>;
+    };
+
+    expect(body.user).toMatchObject({ id: "account-detail-user", plan: "Pro 专业版" });
+    expect(body.orders.map((order) => order.id).sort()).toEqual(["account_order_1", "account_order_2"]);
+    expect(body.paymentEvents.map((event) => event.orderId).sort()).toEqual(["account_order_1", "account_order_2"]);
+    expect(body.creditEntries).toEqual([expect.objectContaining({ id: "cr_account_1", source: "account_order_1" })]);
+    expect(body.notes.map((note) => note.orderId).sort()).toEqual(["account_order_1", "account_order_2"]);
+    expect(body.feedbackEntries).toEqual([expect.objectContaining({ id: "fb_account_1", linkedOrderId: "account_order_2" })]);
+    expect(body.timeline.some((item) => item.orderId === "account_order_1")).toBe(true);
+    expect(body.timeline.some((item) => item.orderId === "account_order_2")).toBe(true);
+  });
+
   it("links registered user identity to payment display name and auto-issues credits when payment is confirmed", async () => {
     const { createCreditRechargeOrder, getBillingOrderForPayment, getBillingSnapshotForUser, handleAdminApiRequest, markBillingOrderPaid, recordBillingPaymentCreated } = await loadAdminStore();
     const authorization = await getAdminAuthorization();

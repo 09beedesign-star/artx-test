@@ -1233,6 +1233,81 @@ function buildOrderDetail(data: AdminData, orderId: string) {
   };
 }
 
+function buildAccountDetail(data: AdminData, userId: string) {
+  const user = data.users.find((item) => item.id === userId);
+  if (!user) return null;
+
+  const orders = data.orders
+    .filter((order) => order.userId === user.id)
+    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+  const orderIds = new Set(orders.map((order) => order.id));
+  const creditEntries = data.credits
+    .filter((entry) => entry.userId === user.id || orderIds.has(entry.source))
+    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+  const auditEntries = data.auditLogs
+    .filter((entry) => entry.target === user.id || orderIds.has(entry.target))
+    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+  const feedbackEntries = data.feedback
+    .filter((entry) => entry.userId === user.id || (entry.linkedOrderId ? orderIds.has(entry.linkedOrderId) : false))
+    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+  const paymentEvents = orders.flatMap((order) => (order.paymentEvents || []).map((event) => ({
+    ...event,
+    orderId: order.id,
+    orderLabel: order.packageName,
+  }))).sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+  const refundEvents = orders.flatMap((order) => (order.refundEvents || []).map((event) => ({
+    ...event,
+    orderId: order.id,
+    orderLabel: order.packageName,
+  }))).sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+  const notes = orders.flatMap((order) => (order.notes || []).map((note) => ({
+    ...note,
+    orderId: order.id,
+    orderLabel: order.packageName,
+  }))).sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+  const timeline = [
+    ...orders.flatMap((order) => buildPaymentTimeline(
+      order,
+      creditEntries.filter((entry) => entry.source === order.id),
+      auditEntries.filter((entry) => entry.target === order.id),
+    ).map((item) => ({
+      ...item,
+      orderId: order.id,
+      orderLabel: order.packageName,
+    }))),
+    ...creditEntries
+      .filter((entry) => !orderIds.has(entry.source))
+      .map((entry) => ({
+        id: entry.id,
+        type: entry.type,
+        status: entry.delta >= 0 ? "success" : "pending",
+        message: `${entry.reason} · ${entry.delta > 0 ? "+" : ""}${entry.delta} 积分`,
+        createdAt: entry.createdAt,
+      })),
+    ...auditEntries
+      .filter((entry) => entry.target === user.id)
+      .map((entry) => ({
+        id: entry.id,
+        type: "审计",
+        status: "success",
+        message: `${entry.actorName} · ${entry.action}`,
+        createdAt: entry.createdAt,
+      })),
+  ].sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+
+  return {
+    user,
+    orders,
+    creditEntries,
+    auditEntries,
+    feedbackEntries,
+    paymentEvents,
+    refundEvents,
+    notes,
+    timeline,
+  };
+}
+
 export async function handleAdminApiRequest(
   method: string,
   pathname: string,
@@ -1254,6 +1329,12 @@ export async function handleAdminApiRequest(
     return { status: 200, body: fullPayload(data) };
   }
   if (method === "GET" && route === "users") return { status: 200, body: { users: data.users } };
+  const userDetailMatch = route.match(/^users\/([^/]+)\/detail$/);
+  if (method === "GET" && userDetailMatch) {
+    const detail = buildAccountDetail(data, userDetailMatch[1]);
+    if (!detail) return jsonError(404, "用户不存在");
+    return { status: 200, body: detail };
+  }
   if (method === "GET" && route === "orders") return { status: 200, body: { orders: data.orders } };
   if (method === "POST" && route === "orders/external-collection") {
     const amount = Number(body.amount);
