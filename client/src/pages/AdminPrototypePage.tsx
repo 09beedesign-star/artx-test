@@ -518,6 +518,16 @@ function AdminPrototypePage() {
   const selectedUser = adminData.users.find((item) => item.id === selectedUserId) ?? adminData.users[0];
   const selectedOrder = adminData.orders.find((item) => item.id === selectedOrderId) ?? adminData.orders[0];
   const metrics = adminData.overview?.metrics;
+
+  useEffect(() => {
+    if (activeSection !== "orders" || !selectedOrder) return;
+    const orderUser = (selectedOrder.userId ? adminData.users.find((userItem) => userItem.id === selectedOrder.userId) : undefined)
+      || adminData.users.find((userItem) => userItem.name === selectedOrder.user);
+    if (orderUser && orderUser.id !== selectedUserId) {
+      setSelectedUserId(orderUser.id);
+    }
+  }, [activeSection, adminData.users, selectedOrder, selectedUserId]);
+
   const paidRevenue = metrics?.todayRevenue ?? adminData.orders
     .filter((order) => order.status === "paid")
     .reduce((sum, order) => sum + order.amount, 0);
@@ -628,7 +638,15 @@ function AdminPrototypePage() {
   }
 
   function handleSelectOrder(orderId: string) {
+    const order = adminData.orders.find((item) => item.id === orderId);
+    const orderUser = order
+      ? (order.userId ? adminData.users.find((userItem) => userItem.id === order.userId) : undefined)
+        || adminData.users.find((userItem) => userItem.name === order.user)
+      : undefined;
     setSelectedOrderId(orderId);
+    if (orderUser) {
+      setSelectedUserId(orderUser.id);
+    }
     setOrderNote("");
   }
 
@@ -1110,8 +1128,26 @@ function AdminPrototypePage() {
 
     if (activeSection === "orders") {
       return (
-        <div className="grid min-w-0 gap-5 2xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
-          <div className="space-y-4">
+        <div className="min-w-0 space-y-5">
+          <div className="min-w-0 overflow-x-auto rounded-md border border-white/10 bg-white/[0.03]">
+            <OrdersTable
+              orders={adminData.orders}
+              users={adminData.users}
+              selectedOrderId={selectedOrder?.id || ""}
+              onSelect={handleSelectOrder}
+            />
+          </div>
+
+          <div className="grid min-w-0 gap-5 2xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+            <OrderDetailPanel
+              detail={orderDetail}
+              fallbackOrder={selectedOrder}
+              note={orderNote}
+              onNoteChange={setOrderNote}
+              onAddNote={handleAddOrderNote}
+              onReissue={handleReissueOrder}
+              onRefund={handleRefundOrder}
+            />
             {selectedUser ? (
               <ExternalCollectionPanel
                 form={externalCollection}
@@ -1122,24 +1158,7 @@ function AdminPrototypePage() {
             ) : (
               <EmptyPanel title="暂无可关联用户" body="需要先有真实用户账户，才能登记接口方代收记录。" />
             )}
-            <div className="min-w-0 overflow-x-auto rounded-md border border-white/10 bg-white/[0.03]">
-              <OrdersTable
-                orders={adminData.orders}
-                users={adminData.users}
-                selectedOrderId={selectedOrder?.id || ""}
-                onSelect={handleSelectOrder}
-              />
-            </div>
           </div>
-          <OrderDetailPanel
-            detail={orderDetail}
-            fallbackOrder={selectedOrder}
-            note={orderNote}
-            onNoteChange={setOrderNote}
-            onAddNote={handleAddOrderNote}
-            onReissue={handleReissueOrder}
-            onRefund={handleRefundOrder}
-          />
         </div>
       );
     }
