@@ -49,6 +49,7 @@ type AdminSection =
   | "audit";
 
 type Status = "normal" | "watch" | "blocked";
+type AdminRole = "viewer" | "support" | "finance" | "admin" | "super_admin";
 type OrderStatus = "paid" | "pending" | "failed" | "refunded";
 type FeedbackStatus = "new" | "processing" | "waiting_user" | "resolved" | "closed";
 type AlertSeverity = "critical" | "warning" | "info";
@@ -58,6 +59,7 @@ type AdminUser = {
   id: string;
   name: string;
   email: string;
+  role?: AdminRole;
   plan: string;
   credits: number;
   spent: number;
@@ -245,7 +247,7 @@ type OverviewData = {
 
 type AdminPayload = {
   overview?: OverviewData;
-  users?: Array<AdminUser & { totalRecharge?: number; frozenCredits?: number; organization?: string }>;
+  users?: Array<AdminUser & { role?: AdminRole; totalRecharge?: number; frozenCredits?: number; organization?: string }>;
   orders?: Array<Order & { issuedCredits?: number; expectedCredits?: number }>;
   credits?: Array<{ id: string; user: string; type: string; delta: number; operator: string; source: string; reason: string }>;
   aiTasks?: AiTask[];
@@ -291,6 +293,17 @@ function statusLabel(status: Status | OrderStatus | FeedbackStatus) {
   };
 
   return map[status] ?? status;
+}
+
+function roleLabel(role?: AdminRole) {
+  const labels: Record<AdminRole, string> = {
+    viewer: "普通用户",
+    support: "客服",
+    finance: "财务",
+    admin: "管理员",
+    super_admin: "超级管理员",
+  };
+  return labels[role || "viewer"];
 }
 
 function statusClass(status: Status | OrderStatus | FeedbackStatus | string) {
@@ -549,8 +562,8 @@ function AdminPrototypePage() {
     adminPost(`/api/admin/feedback/${id}/status`, { status: "resolved", reason: "后台标记解决" }, "反馈状态已写入后台，并生成操作审计。");
   }
 
-  function handleUserRole(id: string, role: "support" | "finance" | "admin") {
-    adminPost(`/api/admin/users/${id}/role`, { role }, `用户角色已更新为 ${role}。`);
+  function handleUserRole(id: string, role: Exclude<AdminRole, "super_admin">) {
+    adminPost(`/api/admin/users/${id}/role`, { role }, `用户角色已更新为 ${roleLabel(role)}。`);
   }
 
   function handleUserStatus(id: string, status: "normal" | "blocked") {
@@ -1046,6 +1059,7 @@ function AdminPrototypePage() {
               <TableRow className="border-white/10 hover:bg-transparent">
                 <TableHead>用户</TableHead>
                 <TableHead>套餐</TableHead>
+                <TableHead>后台角色</TableHead>
                 <TableHead>积分余额</TableHead>
                 <TableHead>累计付费</TableHead>
                 <TableHead>状态</TableHead>
@@ -1068,6 +1082,11 @@ function AdminPrototypePage() {
                       <div className="break-all text-xs text-slate-500">{user.email}</div>
                     </TableCell>
                     <TableCell>{user.plan}</TableCell>
+                    <TableCell>
+                      <Badge className={cn("w-fit shrink-0", user.role && user.role !== "viewer" ? statusClass("watch") : statusClass("normal"))}>
+                        {roleLabel(user.role)}
+                      </Badge>
+                    </TableCell>
                     <TableCell>{formatCredits(user.credits)}</TableCell>
                     <TableCell>{formatCurrency(user.spent)}</TableCell>
                     <TableCell>
@@ -1082,10 +1101,11 @@ function AdminPrototypePage() {
                           className="min-w-0 border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
                           onClick={(event) => {
                             event.stopPropagation();
-                            handleUserRole(user.id, "support");
+                            handleUserRole(user.id, user.role === "support" ? "viewer" : "support");
                           }}
+                          disabled={user.role === "super_admin"}
                         >
-                          设为客服
+                          {user.role === "support" ? "撤销客服" : "设为客服"}
                         </Button>
                         <Button
                           variant="outline"
@@ -1093,10 +1113,23 @@ function AdminPrototypePage() {
                           className="min-w-0 border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
                           onClick={(event) => {
                             event.stopPropagation();
-                            handleUserRole(user.id, "finance");
+                            handleUserRole(user.id, user.role === "finance" ? "viewer" : "finance");
                           }}
+                          disabled={user.role === "super_admin"}
                         >
-                          设为财务
+                          {user.role === "finance" ? "撤销财务" : "设为财务"}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="min-w-0 border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleUserRole(user.id, user.role === "admin" ? "viewer" : "admin");
+                          }}
+                          disabled={user.role === "super_admin"}
+                        >
+                          {user.role === "admin" ? "撤销管理员" : "设为管理员"}
                         </Button>
                         <Button
                           variant="outline"
@@ -1115,7 +1148,7 @@ function AdminPrototypePage() {
                 ))
               ) : (
                 <TableRow className="border-white/8 hover:bg-transparent">
-                  <TableCell colSpan={6} className="py-10 text-center text-sm text-slate-500">
+                  <TableCell colSpan={7} className="py-10 text-center text-sm text-slate-500">
                     暂无真实用户数据
                   </TableCell>
                 </TableRow>

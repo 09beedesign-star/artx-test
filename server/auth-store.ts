@@ -555,6 +555,9 @@ export async function updateAuthUserAdmin(input: {
   if (targetRole === "super_admin" && actorRole !== "super_admin") {
     return { status: 403 as const, body: { error: "只有 super_admin 可以修改超级管理员账号" } };
   }
+  if (input.role && actorRole !== "super_admin") {
+    return { status: 403 as const, body: { error: "只有 super_admin 可以分配或撤销管理员权限" } };
+  }
   if (input.role && targetRole === "super_admin" && normalizeRole(input.role) !== "super_admin" && activeSuperAdminCount <= 1) {
     return { status: 409 as const, body: { error: "不能降级最后一个 super_admin" } };
   }

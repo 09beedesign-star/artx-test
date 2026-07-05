@@ -214,6 +214,74 @@ describe("production readiness", () => {
     });
   });
 
+  it("lets a super admin assign and revoke support, finance, and admin roles without deleting the user", async () => {
+    const { handleAdminApiRequest } = await loadAdminStore();
+    const { handleAuthAction } = await import("./auth-store");
+    const authorization = await getAdminAuthorization();
+
+    const registered = await handleAuthAction("register", {
+      username: "role-target@example.com",
+      password: "role-target-password",
+    });
+    expect(registered.status).toBe(200);
+    const targetUser = (registered.body as { user: { id: string; role: string; isAdmin: boolean } }).user;
+    expect(targetUser).toMatchObject({ role: "viewer", isAdmin: false });
+
+    for (const role of ["support", "finance", "admin"] as const) {
+      const assigned = await handleAdminApiRequest("POST", `/users/${targetUser.id}/role`, authorization, { role });
+      expect(assigned.status).toBe(200);
+      const assignedBody = assigned.body as { users: Array<{ id: string; role: string }> };
+      expect(assignedBody.users.find((item) => item.id === targetUser.id)).toMatchObject({ role });
+
+      const revoked = await handleAdminApiRequest("POST", `/users/${targetUser.id}/role`, authorization, { role: "viewer" });
+      expect(revoked.status).toBe(200);
+      const revokedBody = revoked.body as { users: Array<{ id: string; role: string; email: string }> };
+      expect(revokedBody.users.find((item) => item.id === targetUser.id)).toMatchObject({
+        role: "viewer",
+        email: "role-target@example.com",
+      });
+    }
+  });
+
+  it("prevents non-super admins from granting or revoking administrator roles", async () => {
+    const { handleAdminApiRequest } = await loadAdminStore();
+    const { handleAuthAction } = await import("./auth-store");
+    const superAdminAuthorization = await getAdminAuthorization();
+
+    const financeRegistration = await handleAuthAction("register", {
+      username: "finance-operator@example.com",
+      password: "finance-operator-password",
+    });
+    const targetRegistration = await handleAuthAction("register", {
+      username: "admin-target@example.com",
+      password: "admin-target-password",
+    });
+    expect(financeRegistration.status).toBe(200);
+    expect(targetRegistration.status).toBe(200);
+    const financeUser = (financeRegistration.body as { user: { id: string } }).user;
+    const targetUser = (targetRegistration.body as { user: { id: string } }).user;
+
+    const promoteFinance = await handleAdminApiRequest("POST", `/users/${financeUser.id}/role`, superAdminAuthorization, { role: "finance" });
+    expect(promoteFinance.status).toBe(200);
+    const promoteTarget = await handleAdminApiRequest("POST", `/users/${targetUser.id}/role`, superAdminAuthorization, { role: "admin" });
+    expect(promoteTarget.status).toBe(200);
+
+    const financeLogin = await handleAuthAction("login", {
+      username: "finance-operator@example.com",
+      password: "finance-operator-password",
+    });
+    expect(financeLogin.status).toBe(200);
+    const financeAuthorization = `Bearer ${(financeLogin.body as { token: string }).token}`;
+
+    const grantAdmin = await handleAdminApiRequest("POST", `/users/${financeUser.id}/role`, financeAuthorization, { role: "admin" });
+    expect(grantAdmin.status).toBe(403);
+    expect(grantAdmin.body).toMatchObject({ error: "只有 super_admin 可以分配或撤销管理员权限" });
+
+    const revokeAdmin = await handleAdminApiRequest("POST", `/users/${targetUser.id}/role`, financeAuthorization, { role: "viewer" });
+    expect(revokeAdmin.status).toBe(403);
+    expect(revokeAdmin.body).toMatchObject({ error: "只有 super_admin 可以分配或撤销管理员权限" });
+  });
+
   it("links registered user identity to payment display name and auto-issues credits when payment is confirmed", async () => {
     const { createCreditRechargeOrder, getBillingOrderForPayment, getBillingSnapshotForUser, handleAdminApiRequest, markBillingOrderPaid, recordBillingPaymentCreated } = await loadAdminStore();
     const authorization = await getAdminAuthorization();
