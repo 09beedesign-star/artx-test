@@ -641,6 +641,10 @@ export async function expandImageWithMask({
   prompt,
   targetWidth,
   targetHeight,
+  top,
+  bottom,
+  left,
+  right,
 }: {
   imageSrc: string;
   maskSrc: string;
@@ -648,6 +652,10 @@ export async function expandImageWithMask({
   prompt?: string;
   targetWidth?: number;
   targetHeight?: number;
+  top?: number;
+  bottom?: number;
+  left?: number;
+  right?: number;
 }) {
   requireAiAuth();
   const result = await postImageExpand({
@@ -656,6 +664,10 @@ export async function expandImageWithMask({
     model,
     targetWidth,
     targetHeight,
+    top,
+    bottom,
+    left,
+    right,
     prompt: prompt || "Extend the image naturally only inside the masked blank area. Preserve all unmasked pixels exactly and never generate beyond the requested boundary.",
   }, "AI 扩展失败");
 

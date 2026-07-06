@@ -1209,9 +1209,14 @@ async function createPicWishImageExpansionTask(
   } else {
     throw new Error("Missing image source for PicWish image expansion");
   }
-  if (input.maskUrl) {
+  const hasExpansionMargins =
+    typeof input.top === "number" ||
+    typeof input.bottom === "number" ||
+    typeof input.left === "number" ||
+    typeof input.right === "number";
+  if (!hasExpansionMargins && input.maskUrl) {
     body.append("mask_url", input.maskUrl);
-  } else if (input.maskBuffer) {
+  } else if (!hasExpansionMargins && input.maskBuffer) {
     body.append("mask_file", bufferToImageFile(input.maskBuffer, input.maskMimeType || "image/png"));
   }
   if (input.prompt?.trim()) body.append("prompt", input.prompt.trim().slice(0, 500));

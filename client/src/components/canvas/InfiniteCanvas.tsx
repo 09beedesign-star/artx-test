@@ -6154,19 +6154,29 @@ function AssetNodeComponent({
     image.onload = () => {
       const dx = Math.round((-cropRect.x / 100) * dispW);
       const dy = Math.round((-cropRect.y / 100) * dispH);
+      const expandLeft = Math.max(0, dx);
+      const expandTop = Math.max(0, dy);
+      const expandRight = Math.max(0, nextW - dx - dispW);
+      const expandBottom = Math.max(0, nextH - dy - dispH);
       expandedCtx.clearRect(0, 0, nextW, nextH);
       expandedCtx.drawImage(image, dx, dy, dispW, dispH);
       maskCtx.clearRect(0, 0, nextW, nextH);
+      maskCtx.fillStyle = "white";
+      maskCtx.fillRect(0, 0, nextW, nextH);
       maskCtx.fillStyle = "black";
-      maskCtx.fillRect(dx, dy, dispW, dispH);
+      maskCtx.fillRect(expandLeft, expandTop, dispW, dispH);
       window.dispatchEvent(
         new CustomEvent("asset-expand-apply", {
           detail: {
             nodeId,
-            imageSrc: expandedCanvas.toDataURL("image/png"),
+            imageSrc,
             maskSrc: maskCanvas.toDataURL("image/png"),
             nextW,
             nextH,
+            top: expandTop,
+            bottom: expandBottom,
+            left: expandLeft,
+            right: expandRight,
           },
         })
       );
@@ -20755,6 +20765,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           maskSrc: string;
           nextW: number;
           nextH: number;
+          top?: number;
+          bottom?: number;
+          left?: number;
+          right?: number;
         }>
       ).detail;
       if (!detail?.nodeId || !detail.imageSrc || !detail.maskSrc) return;
@@ -20797,6 +20811,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             model: "gpt-image-2",
             targetWidth: detail.nextW,
             targetHeight: detail.nextH,
+            top: detail.top,
+            bottom: detail.bottom,
+            left: detail.left,
+            right: detail.right,
             prompt:
               "Outpaint only the blank transparent extension area outside the original image. Preserve the original unmasked image pixels exactly. Generate new surrounding scene content that naturally continues the background, floor, wall, light, shadows, colors, texture, perspective, and edge details. Do not enlarge, duplicate, mirror, repeat, or redraw the original subject/person/object. Do not paste a scaled copy of the original image into the extension. The extension must look like new matching environment around the original image, not a zoomed or repeated version of the original.",
           }),

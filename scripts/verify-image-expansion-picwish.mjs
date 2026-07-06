@@ -21,6 +21,8 @@ const erasureBranch = files.orchestrator.match(/if \(capability === "element_era
 
 assert(files.ai.includes("/api/images/expand"), "frontend still calls the image expansion endpoint");
 assert(files.canvas.includes('action: "expand"'), "vertical image toolbar still exposes the expand command");
+assert(files.canvas.includes("imageSrc,"), "frontend expansion must send the original image source, not the enlarged transparent canvas");
+assert(files.canvas.includes("top: expandTop") && files.canvas.includes("left: expandLeft"), "frontend expansion must send explicit edge margins");
 assert(files.server.includes("advanced-image-expand"), "server must call PicWish advanced-image-expand API");
 assert(files.server.includes("getPicWishImageExpansionEndpoint"), "server must define a dedicated PicWish expansion endpoint helper");
 assert(files.server.includes("createPicWishImageExpansionTask"), "server must create a dedicated PicWish expansion task");
@@ -28,6 +30,9 @@ assert(files.server.includes("pollPicWishImageExpansionTask"), "server must poll
 assert(files.server.includes("expandImageWithPicWish"), "server must expose a dedicated PicWish expansion function");
 assert(files.server.includes('body.append("mask_file"'), "PicWish expansion must support canvas-mode mask_file");
 assert(files.server.includes('body.append("mask_url"'), "PicWish expansion must support canvas-mode mask_url");
+assert(files.server.includes("const hasExpansionMargins"), "PicWish expansion must prefer explicit edge margins when provided");
+assert(files.server.includes("!hasExpansionMargins && input.maskUrl"), "PicWish expansion must not send mask_url together with explicit edge margins");
+assert(files.server.includes("!hasExpansionMargins && input.maskBuffer"), "PicWish expansion must not send mask_file together with explicit edge margins");
 assert(files.server.includes('body.append("return_type", "1")'), "PicWish expansion should request URL results");
 assert(files.server.includes('body.append("prompt"'), "PicWish expansion should forward prompt guidance");
 assert(files.server.includes("state === 1"), "PicWish expansion polling must require completed state");
