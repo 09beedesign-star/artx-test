@@ -2948,10 +2948,74 @@ function getLoadedImageVisualFingerprint(image: HTMLImageElement) {
         )
       );
     }
-    return `${width}x${height}:${grays.join(".")}`;
+    return grays.join(".");
   } catch {
     return "";
   }
+}
+
+function getImportedNodeSourcePixelArea(node: Node) {
+  const data = node.data as Record<string, unknown>;
+  const sourcePixelArea =
+    typeof data.sourcePixelArea === "number" ? data.sourcePixelArea : 0;
+  if (sourcePixelArea > 0) return sourcePixelArea;
+  const imgW = typeof data.imgW === "number" ? data.imgW : 0;
+  const imgH = typeof data.imgH === "number" ? data.imgH : 0;
+  return imgW * imgH;
+}
+
+function getImportedNodeDedupeKey(node: Node) {
+  const data = node.data as Record<string, unknown>;
+  const visualFingerprint =
+    typeof data.visualFingerprint === "string" ? data.visualFingerprint : "";
+  const localSrc = typeof data.localSrc === "string" ? data.localSrc : "";
+  const sourceUrl = typeof data.sourceUrl === "string" ? data.sourceUrl : "";
+  return visualFingerprint || localSrc || sourceUrl || node.id;
+}
+
+function dedupeImportedImageNodes(nodes: Node[]) {
+  const byKey = new Map<string, Node>();
+  nodes.forEach(node => {
+    const key = getImportedNodeDedupeKey(node);
+    const existing = byKey.get(key);
+    if (
+      !existing ||
+      getImportedNodeSourcePixelArea(node) >
+        getImportedNodeSourcePixelArea(existing)
+    ) {
+      byKey.set(key, node);
+    }
+  });
+  return Array.from(byKey.values());
+}
+
+function getBrowserFileDragNameKey(file: File) {
+  return (file.name || "").trim().toLowerCase();
+}
+
+function isLikelyBrowserDuplicateImageFileDrop(
+  files: File[],
+  dataTransfer: DataTransfer | null | undefined
+) {
+  if (files.length <= 1) return false;
+  if (dataTransferHasWebStringPayload(dataTransfer)) return true;
+
+  const names = files.map(getBrowserFileDragNameKey).filter(Boolean);
+  const uniqueNames = new Set(names);
+  const uniqueTypes = new Set(files.map(file => file.type || ""));
+  const sameNamedImageFiles =
+    names.length === files.length &&
+    uniqueNames.size === 1 &&
+    uniqueTypes.size <= 2;
+  const genericBrowserNames =
+    names.length === files.length &&
+    names.every(name =>
+      /^(image|download|preview|thumbnail|thumb|pin|photo|picture)(?:\s*\(\d+\))?(?:\.[a-z0-9]+)?$/i.test(
+        name
+      )
+    );
+
+  return sameNamedImageFiles || genericBrowserNames;
 }
 
 function readCanvasRgb(
@@ -10568,6 +10632,33 @@ function dataTransferMayContainExternalDrop(
     types.length > 0 ||
     (dataTransfer?.items?.length || 0) > 0 ||
     (dataTransfer?.files?.length || 0) > 0
+  );
+}
+
+function dataTransferHasWebStringPayload(
+  dataTransfer: DataTransfer | null | undefined
+) {
+  const types = Array.from(dataTransfer?.types || []);
+  if (
+    getDataTransferStringItems(dataTransfer).some(item =>
+      /html|url|uri|image|download|plain|text/i.test(item.type)
+    )
+  )
+    return true;
+  return types.some(
+    type =>
+      type === "text/html" ||
+      type === "text/uri-list" ||
+      type === "text/plain" ||
+      type === "DownloadURL" ||
+      type === "text/x-moz-url" ||
+      type === "text/x-moz-url-data" ||
+      type === "text/x-uri" ||
+      type === "text/x-url" ||
+      type === "application/json" ||
+      type === "public.url" ||
+      type === "public.file-url" ||
+      type === "application/x-moz-file-promise-url"
   );
 }
 
@@ -22979,6 +23070,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             img.naturalHeight || img.height
           );
         const visualFingerprint = getLoadedImageVisualFingerprint(img);
+        const sourcePixelArea =
+          Math.max(1, img.naturalWidth || img.width) *
+          Math.max(1, img.naturalHeight || img.height);
         resolve({
           id,
           type: "asset",
@@ -22994,6 +23088,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             localSrc,
             sourceUrl: src,
             visualFingerprint,
+            sourcePixelArea,
             title: `拖入图片 ${index + 1}`,
             assetType: "图片",
             tags: DEFAULT_ASSET_TAGS,
@@ -23003,6 +23098,60 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         });
       });
     },
+    []
+  );
+
+  const createDroppedImageFileNode = useCallback(
+    (file: File, index: number, origin: { x: number; y: number }) =>
+      new Promise<Node>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("图片文件读取失败"));
+        reader.onload = ev => {
+          const dataUrl = ev.target?.result as string;
+          if (!dataUrl) {
+            reject(new Error("图片文件为空"));
+            return;
+          }
+          const img = new window.Image();
+          img.onload = () => {
+            const id = `local-${Date.now()}-${index}`;
+            const { width: nodeWidth, height: nodeHeight } =
+              getImportedImageDisplaySize(
+                img.naturalWidth,
+                img.naturalHeight
+            );
+            const visualFingerprint = getLoadedImageVisualFingerprint(img);
+            const sourcePixelArea =
+              Math.max(1, img.naturalWidth || img.width) *
+              Math.max(1, img.naturalHeight || img.height);
+            resolve({
+              id,
+              type: "asset",
+              selected: true,
+              position: {
+                x: origin.x - nodeWidth / 2 + index * 32,
+                y: origin.y - nodeHeight / 2 + index * 32,
+              },
+              style: { width: nodeWidth, height: nodeHeight },
+              data: {
+                id,
+                assetId: "default",
+                localSrc: dataUrl,
+                visualFingerprint,
+                sourcePixelArea,
+                title: file.name.replace(/\.[^.]+$/, "") || `拖入图片 ${index + 1}`,
+                assetType: "图片",
+                tags: DEFAULT_ASSET_TAGS,
+                imgW: nodeWidth,
+                imgH: nodeHeight,
+              },
+            });
+          };
+          img.onerror = () => reject(new Error("图片文件加载失败"));
+          img.src = dataUrl;
+        };
+        reader.readAsDataURL(file);
+      }),
     []
   );
 
@@ -23020,21 +23169,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const droppedNodes = droppedResults
         .filter((result): result is PromiseFulfilledResult<Node> => result.status === "fulfilled")
         .map(result => result.value);
-      const seenImageSources = new Set<string>();
-      const dedupedDroppedNodes = droppedNodes.filter(node => {
-        const visualFingerprint =
-          typeof node.data?.visualFingerprint === "string"
-            ? node.data.visualFingerprint
-            : "";
-        const localSrc =
-          typeof node.data?.localSrc === "string" ? node.data.localSrc : "";
-        const sourceUrl =
-          typeof node.data?.sourceUrl === "string" ? node.data.sourceUrl : "";
-        const key = visualFingerprint || localSrc || sourceUrl || node.id;
-        if (seenImageSources.has(key)) return false;
-        seenImageSources.add(key);
-        return true;
-      });
+      const dedupedDroppedNodes = dedupeImportedImageNodes(droppedNodes);
       if (dedupedDroppedNodes.length > 0) {
         pushHistory();
         setNodes(nds => [
@@ -23130,6 +23265,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             ])
         ).values()
       );
+      const shouldKeepSingleBrowserImage =
+        isLikelyBrowserDuplicateImageFileDrop(files, e.dataTransfer);
       if (files.length === 0) {
         const dataTransferSnapshot = {
           typeEntries: getDataTransferTypeEntries(e.dataTransfer),
@@ -23165,59 +23302,54 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         })();
         return;
       }
-      pushHistory();
-      const pendingIds = files.map(
-        (_, index) => `local-${Date.now()}-${index}`
-      );
-      files.forEach((file, index) => {
-        const reader = new FileReader();
-        reader.onload = ev => {
-          const dataUrl = ev.target?.result as string;
-          if (!dataUrl) return;
-          const img = new window.Image();
-          img.onload = () => {
-            const dropPos = screenToFlowPosition({
-              x: (rect?.left || 0) + baseX + index * 32,
-              y: (rect?.top || 0) + baseY + index * 32,
-            });
-            const id = pendingIds[index];
-            const { width: nodeWidth, height: nodeHeight } =
-              getImportedImageDisplaySize(img.naturalWidth, img.naturalHeight);
-            const nextNode: Node = {
-              id,
-              type: "asset",
-              selected: true,
-              position: {
-                x: dropPos.x - nodeWidth / 2,
-                y: dropPos.y - nodeHeight / 2,
-              },
-              style: { width: nodeWidth, height: nodeHeight },
-              data: {
-                id,
-                assetId: "default",
-                localSrc: dataUrl,
-                title: file.name.replace(/\.[^.]+$/, ""),
-                assetType: "图片",
-                tags: DEFAULT_ASSET_TAGS,
-                imgW: nodeWidth,
-                imgH: nodeHeight,
-              },
-            };
-            setNodes(nds => [
-              ...nds.map(node => ({ ...node, selected: false })),
-              nextNode,
-            ]);
-          };
-          img.src = dataUrl;
-        };
-        reader.readAsDataURL(file);
-      });
-      setSelectedNodeIds(pendingIds);
-      toast(`已导入 ${files.length} 张图片`, {
-        description: "本地图片已成功添加到画布",
-      });
+      void (async () => {
+        const fileResults = await Promise.allSettled(
+          files.map((file, index) => createDroppedImageFileNode(file, index, origin))
+        );
+        const fileNodes = fileResults
+          .filter((result): result is PromiseFulfilledResult<Node> => result.status === "fulfilled")
+          .map(result => result.value);
+        const dedupedFileNodes = dedupeImportedImageNodes(fileNodes);
+        const finalFileNodes =
+          shouldKeepSingleBrowserImage && dedupedFileNodes.length > 1
+            ? dedupedFileNodes
+                .slice()
+                .sort(
+                  (a, b) =>
+                    getImportedNodeSourcePixelArea(b) -
+                    getImportedNodeSourcePixelArea(a)
+                )
+                .slice(0, 1)
+            : dedupedFileNodes;
+        if (finalFileNodes.length === 0) {
+          toast("拖入图片失败", { description: "图片文件读取失败，请重新拖入" });
+          return;
+        }
+        pushHistory();
+        setNodes(nds => [
+          ...nds.map(node => ({ ...node, selected: false })),
+          ...finalFileNodes,
+        ]);
+        setSelectedNodeIds(finalFileNodes.map(node => node.id));
+        const failedCount = fileResults.length - fileNodes.length;
+        const duplicateCount = fileNodes.length - finalFileNodes.length;
+        toast(`已导入 ${finalFileNodes.length} 张图片`, {
+          description:
+            failedCount > 0
+              ? `${failedCount} 个图片文件读取失败，已跳过`
+              : duplicateCount > 0
+                ? `${duplicateCount} 个重复图片已自动合并`
+                : "本地图片已成功添加到画布",
+        });
+      })();
     },
-    [addDroppedImageSources, pushHistory, screenToFlowPosition, setNodes]
+    [
+      addDroppedImageSources,
+      createDroppedImageFileNode,
+      pushHistory,
+      screenToFlowPosition,
+      setNodes,
+    ]
   );
 
   const createClipboardImageNode = useCallback(
