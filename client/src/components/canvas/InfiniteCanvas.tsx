@@ -16148,14 +16148,24 @@ function CanvasAssistantPanel({
         if (targetIndex < 0) return prev;
         const insertIndex =
           placement === "after" ? targetIndex + 1 : targetIndex;
-        return normalizeAssistantComposerSegments([
+        const nextSegments = normalizeAssistantComposerSegments([
           ...withoutSource.slice(0, insertIndex),
           source,
           ...withoutSource.slice(insertIndex),
         ]);
+        if (!activeSkill) return nextSegments;
+        const skillSegment = nextSegments.find(
+          segment =>
+            segment.type === "skill" && segment.skill.id === activeSkill.id
+        );
+        if (!skillSegment) return nextSegments;
+        return normalizeAssistantComposerSegments([
+          skillSegment,
+          ...nextSegments.filter(segment => segment.id !== skillSegment.id),
+        ]);
       });
     },
-    []
+    [activeSkill]
   );
 
   const handleComposerTokenDragStart = useCallback(
@@ -17912,6 +17922,7 @@ function CanvasAssistantPanel({
                   scrollbarWidth: "none",
                   scrollbarColor: "transparent transparent",
                   overscrollBehavior: "contain",
+                  paddingLeft: hasActiveSkill ? 0 : undefined,
                 }}
                 onMouseDown={event => {
                   handleComposerBoxSelectMouseDown(event);
@@ -18019,7 +18030,10 @@ function CanvasAssistantPanel({
                         data-composer-token="skill"
                         className="group relative inline-flex max-w-[136px] min-w-0 items-center gap-1 overflow-hidden rounded-[var(--radius-md-design)] px-1.5 py-0.5 align-middle"
                         style={{
-                          margin: "0 4px 2px 4px",
+                          margin:
+                            activeSkill?.id === segment.skill.id
+                              ? "0 4px 2px 0"
+                              : "0 4px 2px 4px",
                           background: isDark
                             ? "rgba(66,153,225,0.22)"
                             : "rgba(37,99,235,0.14)",
