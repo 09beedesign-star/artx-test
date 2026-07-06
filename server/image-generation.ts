@@ -175,8 +175,11 @@ type AsyncImageTaskResponse = {
 type PicWishSegmentationResponse = {
   status?: number;
   message?: string;
+  task_id?: string;
+  taskId?: string;
   data?: {
     task_id?: string;
+    taskId?: string;
     image?: string;
     image1?: string;
     image_1?: string;
@@ -772,7 +775,7 @@ function getPicWishResultImageUrl(data: PicWishSegmentationResponse, taskType?: 
 }
 
 function getPicWishTaskId(data: PicWishSegmentationResponse) {
-  return data.data?.task_id || "";
+  return data.data?.task_id || data.data?.taskId || data.task_id || data.taskId || "";
 }
 
 function getPicWishErrorMessage(data: PicWishSegmentationResponse | null, fallback: string) {

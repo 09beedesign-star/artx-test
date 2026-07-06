@@ -32,6 +32,7 @@ assert(files.server.includes('body.append("return_type", "1")'), "PicWish expans
 assert(files.server.includes('body.append("prompt"'), "PicWish expansion should forward prompt guidance");
 assert(files.server.includes("state === 1"), "PicWish expansion polling must require completed state");
 assert(files.server.includes("image1") && files.server.includes("image_1"), "PicWish expansion must read all documented result image fields");
+assert(files.server.includes("data.data?.task_id || data.data?.taskId || data.task_id || data.taskId"), "PicWish expansion must accept nested and top-level task id fields");
 
 assert(expandRoute.includes('provider: "PicWish/佐糖"'), "expand route must be tracked as PicWish/佐糖 provider");
 assert(expandRoute.includes('"picwish-advanced-image-expand"'), "expand route must use the PicWish expansion model label");
