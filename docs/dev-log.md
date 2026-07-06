@@ -45,6 +45,30 @@
 - 已知风险 / 待回归：
 ```
 
+## 2026-07-06 19:24
+
+- 任务：下载、拖拽、复制全部解决的最终版
+- 原因：为后续溯源创建最终版注释，明确画布图片下载、外部图片拖拽、内部/外部复制粘贴链路已经完成集中修复与本地回归。
+- 影响范围：选中图片下载、批量下载、画布导出下载、外部网页图片拖入解析与 Chrome 去重、画布内部创建副本/外部剪贴板粘贴优先级；本条为日志记录，不改变产品功能代码。
+- AI 联调：
+  - capability: N/A
+  - entry: N/A
+  - model/provider: N/A
+  - generationId: N/A
+  - backendTaskId: N/A
+  - providerTaskId: N/A
+  - request endpoint: N/A
+  - result: N/A
+  - error: N/A
+- 测试环境：
+  - frontend: <https://09beedesign-star.github.io/artx-test/>
+  - backend: <https://artx-test.onrender.com>
+  - branch: `test/feature/interaction-framework`
+  - commitSha: N/A
+  - deployment check: N/A
+- 验证：本地完整服务 `http://localhost:3000/` 已用于回归；`pnpm check`、`pnpm build` 均通过；本地 `/api/images/proxy` 已确认返回图片内容类型而非前端 HTML。
+- 已知风险 / 待回归：本条尚未发布测试环境；发布时仍需按 `AGENTS.md` 同步并推送 `test/feature/interaction-framework`，再校验线上 `deployment.json` 或 `window.__ARTX_BUILD__` 的 `commitSha`。
+
 ## 2026-07-06 15:17
 
 - 任务：复制粘贴拖入下载全跑通

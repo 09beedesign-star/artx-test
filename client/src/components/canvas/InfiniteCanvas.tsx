@@ -23413,7 +23413,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   );
 
   const addDroppedImageSources = useCallback(
-    async (sources: string[], origin: { x: number; y: number }) => {
+    async (
+      sources: string[],
+      origin: { x: number; y: number },
+      options: { keepSingleImage?: boolean } = {}
+    ) => {
       const uniqueSources = Array.from(
         new Set(sources.map(source => normalizeDroppedImageUrl(source)).filter(Boolean))
       );
@@ -23427,16 +23431,27 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         .filter((result): result is PromiseFulfilledResult<Node> => result.status === "fulfilled")
         .map(result => result.value);
       const dedupedDroppedNodes = dedupeImportedImageNodes(droppedNodes);
-      if (dedupedDroppedNodes.length > 0) {
+      const finalDroppedNodes =
+        options.keepSingleImage && dedupedDroppedNodes.length > 1
+          ? dedupedDroppedNodes
+              .slice()
+              .sort(
+                (a, b) =>
+                  getImportedNodeSourcePixelArea(b) -
+                  getImportedNodeSourcePixelArea(a)
+              )
+              .slice(0, 1)
+          : dedupedDroppedNodes;
+      if (finalDroppedNodes.length > 0) {
         pushHistory();
         setNodes(nds => [
           ...nds.map(node => ({ ...node, selected: false })),
-          ...dedupedDroppedNodes,
+          ...finalDroppedNodes,
         ]);
-        setSelectedNodeIds(dedupedDroppedNodes.map(node => node.id));
+        setSelectedNodeIds(finalDroppedNodes.map(node => node.id));
         const failedCount = droppedResults.length - droppedNodes.length;
-        const duplicateCount = droppedNodes.length - dedupedDroppedNodes.length;
-        toast(`已拖入 ${dedupedDroppedNodes.length} 张图片`, {
+        const duplicateCount = droppedNodes.length - finalDroppedNodes.length;
+        toast(`已拖入 ${finalDroppedNodes.length} 张图片`, {
           description:
             failedCount > 0
               ? `${failedCount} 个外部链接无法读取，已跳过`
@@ -23524,6 +23539,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       );
       const shouldKeepSingleBrowserImage =
         isLikelyBrowserDuplicateImageFileDrop(files, e.dataTransfer);
+      const hasWebStringPayload = dataTransferHasWebStringPayload(e.dataTransfer);
+      const webTypeEntries = hasWebStringPayload
+        ? getDataTransferTypeEntries(e.dataTransfer)
+        : [];
+      const webStringItems = hasWebStringPayload
+        ? getDataTransferStringItems(e.dataTransfer)
+        : [];
       if (files.length === 0) {
         const dataTransferSnapshot = {
           typeEntries: getDataTransferTypeEntries(e.dataTransfer),
@@ -23548,7 +23570,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             ...extraEntries,
           ]);
           if (sources.length > 0) {
-            await addDroppedImageSources(sources, origin);
+            await addDroppedImageSources(sources, origin, {
+              keepSingleImage: true,
+            });
             return;
           }
           console.info("[artx-external-drop-empty]", dataTransferSnapshot);
@@ -23560,15 +23584,41 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         return;
       }
       void (async () => {
-        const fileResults = await Promise.allSettled(
-          files.map((file, index) => createDroppedImageFileNode(file, index, origin))
-        );
+        const [fileResults, webStringEntries] = await Promise.all([
+          Promise.allSettled(
+            files.map((file, index) =>
+              createDroppedImageFileNode(file, index, origin)
+            )
+          ),
+          Promise.all(webStringItems.map(readDataTransferItemString)),
+        ]);
         const fileNodes = fileResults
           .filter((result): result is PromiseFulfilledResult<Node> => result.status === "fulfilled")
           .map(result => result.value);
-        const dedupedFileNodes = dedupeImportedImageNodes(fileNodes);
+        const webSources = hasWebStringPayload
+          ? extractImageSourcesFromDataTransfer(null, [
+              ...webTypeEntries,
+              ...webStringEntries,
+            ])
+          : [];
+        const sourceResults =
+          webSources.length > 0
+            ? await Promise.allSettled(
+                webSources.map((src, index) =>
+                  createDroppedImageSourceNode(src, index, origin)
+                )
+              )
+            : [];
+        const sourceNodes = sourceResults
+          .filter((result): result is PromiseFulfilledResult<Node> => result.status === "fulfilled")
+          .map(result => result.value);
+        const dedupedFileNodes = dedupeImportedImageNodes([
+          ...fileNodes,
+          ...sourceNodes,
+        ]);
         const finalFileNodes =
-          shouldKeepSingleBrowserImage && dedupedFileNodes.length > 1
+          (shouldKeepSingleBrowserImage || hasWebStringPayload) &&
+          dedupedFileNodes.length > 1
             ? dedupedFileNodes
                 .slice()
                 .sort(
@@ -23588,8 +23638,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           ...finalFileNodes,
         ]);
         setSelectedNodeIds(finalFileNodes.map(node => node.id));
-        const failedCount = fileResults.length - fileNodes.length;
-        const duplicateCount = fileNodes.length - finalFileNodes.length;
+        const failedCount =
+          fileResults.length -
+          fileNodes.length +
+          sourceResults.length -
+          sourceNodes.length;
+        const duplicateCount =
+          fileNodes.length + sourceNodes.length - finalFileNodes.length;
         toast(`已导入 ${finalFileNodes.length} 张图片`, {
           description:
             failedCount > 0
@@ -23602,6 +23657,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     },
     [
       addDroppedImageSources,
+      createDroppedImageSourceNode,
       createDroppedImageFileNode,
       pushHistory,
       screenToFlowPosition,
