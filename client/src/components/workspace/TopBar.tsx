@@ -3,7 +3,7 @@
  * Global top navigation: search, theme switcher (Radix DropdownMenu), credits, user info
  */
 import { useMemo, useState } from "react";
-import { ChevronDown, Sparkles, Check, UserRound, LogOut, Search, KeyRound, Copy, RefreshCw, Zap } from "lucide-react";
+import { ChevronDown, Sparkles, Check, UserRound, LogOut, Search, KeyRound, Copy, RefreshCw, Zap, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -116,6 +116,41 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
     }
   };
 
+  const getMcpApiBaseUrl = () => {
+    if (typeof window === "undefined") return "https://backstage.artxsd.com";
+    const configured = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
+    if (configured) return configured;
+    const hostname = window.location.hostname;
+    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") {
+      return "https://backstage.artxsd.com";
+    }
+    return window.location.origin.replace(/\/+$/, "");
+  };
+
+  const copyMcpConfig = async () => {
+    const baseUrl = getMcpApiBaseUrl();
+    const config = JSON.stringify(
+      {
+        mcpServers: {
+          "artx-image": {
+            url: `${baseUrl}/api/mcp`,
+            headers: {
+              Authorization: "Bearer YOUR_ARTX_API_KEY",
+            },
+          },
+        },
+      },
+      null,
+      2
+    );
+    try {
+      await navigator.clipboard.writeText(config);
+      toast.success("MCP 配置已复制");
+    } catch {
+      toast.error("复制失败，请手动复制");
+    }
+  };
+
   return (
     <>
     <header
@@ -201,6 +236,40 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
       )}
 
       {isAuthenticated && (<>
+
+      <div
+        className="group relative"
+        style={{ marginRight: 0 }}
+      >
+        <button
+          type="button"
+          onClick={copyMcpConfig}
+          className="flex h-8 items-center gap-1.5 rounded-[var(--radius-md-design)] px-2.5 type-caption transition-colors active:scale-95"
+          style={{
+            color: textPri,
+            background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)",
+            border: `1px solid ${isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 8%)"}`,
+          }}
+          onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+          onMouseLeave={e => (e.currentTarget.style.background = isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)")}
+          aria-label="复制 MCP 配置"
+        >
+          <Link2 size={13} style={{ color: "oklch(0.72 0.18 200)" }} />
+          <span style={{ fontWeight: 700, letterSpacing: 0 }}>MCP</span>
+        </button>
+        <div
+          className="pointer-events-none absolute left-1/2 top-[calc(100%+8px)] z-50 -translate-x-1/2 whitespace-nowrap rounded-[var(--radius-md-design)] px-3 py-2 opacity-0 shadow-[0_14px_36px_rgba(0,0,0,0.24)] transition-opacity group-hover:opacity-100"
+          style={{
+            background: isDark ? "rgba(22,22,30,0.96)" : "rgba(30,30,40,0.94)",
+            border: `1px solid ${isDark ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.16)"}`,
+            color: "white",
+            fontSize: 12,
+            lineHeight: "16px",
+          }}
+        >
+          复制 MCP 可以接入其他 Agent 里。
+        </div>
+      </div>
 
       {/* Credits + billing */}
       <div

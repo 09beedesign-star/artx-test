@@ -45,7 +45,7 @@ function env(name: string) {
 }
 
 export function getWallytConfig() {
-  const publicBaseUrl = env("OAUTH_PUBLIC_BASE_URL") || env("VITE_API_BASE_URL") || "https://artx-test.onrender.com";
+  const publicBaseUrl = env("OAUTH_PUBLIC_BASE_URL") || env("VITE_API_BASE_URL") || "https://backstage.artxsd.com";
   return {
     gatewayUrl: env("WALLYT_DOMAIN_URL") || DEFAULT_GATEWAY,
     mchId: env("WALLYT_MCH_ID"),

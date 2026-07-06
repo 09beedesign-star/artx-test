@@ -8,6 +8,6 @@
   "repository": "09beedesign-star/artx-test",
   "githubRunId": "manual-local",
   "frontendUrl": "https://09beedesign-star.github.io/artx-test/",
-  "backendUrl": "https://artx-test.onrender.com",
+  "backendUrl": "https://backstage.artxsd.com",
   "pagesBasePath": "/artx-test/"
 }

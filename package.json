@@ -11,6 +11,9 @@
     "check": "tsc --noEmit",
     "verify:admin": "tsx scripts/verify-admin-backend.mjs && tsx scripts/verify-admin-session-expiry.mjs && tsx scripts/verify-wallyt-payment.mjs",
     "check:skills": "node scripts/verify-skills.mjs",
+    "package:tencent-cloud": "scripts/package-tencent-cloud-release.sh",
+    "audit:tencent-cloud": "scripts/audit-tencent-cloud-backend.sh",
+    "verify:tencent-cloud": "node scripts/verify-tencent-cloud-gray.mjs",
     "format": "prettier --write .",
     "verify:test-deploy": "scripts/verify-test-deployment.sh"
   },
@@ -105,23 +108,5 @@
     "vite-plugin-manus-runtime": "^0.0.57",
     "vitest": "^2.1.4"
   },
-  "packageManager": "pnpm@10.4.1+sha512.c753b6c3ad7afa13af388fa6d808035a008e30ea9993f58c6663e2bc5ff21679aa834db094987129aa4d488b86df57f7b634981b2f827cdcacc698cc0cfb88af",
-  "pnpm": {
-    "patchedDependencies": {
-      "wouter@3.7.1": "patches/wouter@3.7.1.patch"
-    },
-    "overrides": {
-      "tailwindcss>nanoid": "3.3.7",
-      "tar": "7.5.19",
-      "qs": "6.15.3",
-      "path-to-regexp": "0.1.13",
-      "dompurify": "3.4.11",
-      "mermaid": "11.16.0",
-      "lodash-es": "4.18.1",
-      "lodash": "4.18.1",
-      "mdast-util-to-hast": "13.2.1",
-      "uuid": "14.0.1",
-      "@imgly/background-removal-node>zod": "3.25.76"
-    }
-  }
+  "packageManager": "pnpm@10.4.1+sha512.c753b6c3ad7afa13af388fa6d808035a008e30ea9993f58c6663e2bc5ff21679aa834db094987129aa4d488b86df57f7b634981b2f827cdcacc698cc0cfb88af"
 }
