@@ -16572,13 +16572,6 @@ function CanvasAssistantPanel({
     ? buildSkillPromptContext(activeSkill)
     : "";
 
-  const handleAssistantSkillChange = useCallback(
-    (skill: PendingSkillLoad | null) => {
-      onActiveSkillChange(skill);
-    },
-    [onActiveSkillChange]
-  );
-
   const handleReferenceSelectionToggle = useCallback((referenceId: string) => {
     setSelectedReferenceIds(prev =>
       prev.includes(referenceId)
@@ -16661,6 +16654,43 @@ function CanvasAssistantPanel({
     [focusComposerSegment]
   );
 
+  const syncComposerSkillToken = useCallback(
+    (skill: PendingSkillLoad | null) => {
+      if (!skill) {
+        setComposerSegments(prev =>
+          normalizeAssistantComposerSegments(
+            prev.filter(segment => segment.type !== "skill")
+          )
+        );
+        return;
+      }
+      let nextFocusSegmentId: string | null = null;
+      setComposerSegments(prev => {
+        const remainingSegments = normalizeAssistantComposerSegments(
+          prev.filter(segment => segment.type !== "skill")
+        );
+        const textSegment = remainingSegments.find(
+          segment => segment.type === "text"
+        );
+        const skillSegment = createAssistantSkillSegment(skill);
+        nextFocusSegmentId = textSegment?.id || null;
+        activeComposerSegmentIdRef.current = nextFocusSegmentId;
+        activeComposerCursorRef.current = 0;
+        return normalizeAssistantComposerSegments([skillSegment, ...remainingSegments]);
+      });
+      window.setTimeout(() => focusComposerSegment(nextFocusSegmentId), 0);
+    },
+    [focusComposerSegment]
+  );
+
+  const handleAssistantSkillChange = useCallback(
+    (skill: PendingSkillLoad | null) => {
+      onActiveSkillChange(skill);
+      syncComposerSkillToken(skill);
+    },
+    [onActiveSkillChange, syncComposerSkillToken]
+  );
+
   useEffect(() => {
     const skillSegments = composerSegments.filter(
       (segment): segment is Extract<AssistantComposerSegment, { type: "skill" }> =>
@@ -16675,26 +16705,30 @@ function CanvasAssistantPanel({
       );
       return;
     }
-    const activeSkillSegment = skillSegments.find(
-      segment => segment.skill.id === activeSkill.id
-    );
+    const firstSegment = composerSegments[0];
+    const activeSkillSegment =
+      firstSegment?.type === "skill" &&
+      firstSegment.skill.id === activeSkill.id
+        ? firstSegment
+        : null;
     if (activeSkillSegment && skillSegments.length === 1) return;
     if (skillSegments.length > 0) {
-      setComposerSegments(prev =>
-        normalizeAssistantComposerSegments((() => {
-          let didPlaceSkill = false;
-          return prev.flatMap(segment => {
-            if (segment.type !== "skill") return [segment];
-            if (didPlaceSkill) return [];
-            didPlaceSkill = true;
-            return [createAssistantSkillSegment(activeSkill)];
-          });
-        })())
-      );
+      setComposerSegments(prev => {
+        const remainingSegments = prev.filter(segment => segment.type !== "skill");
+        return normalizeAssistantComposerSegments([
+          createAssistantSkillSegment(activeSkill),
+          ...remainingSegments,
+        ]);
+      });
       return;
     }
-    insertComposerToken(() => createAssistantSkillSegment(activeSkill));
-  }, [activeSkill, composerSegments, insertComposerToken]);
+    setComposerSegments(prev =>
+      normalizeAssistantComposerSegments([
+        createAssistantSkillSegment(activeSkill),
+        ...prev,
+      ])
+    );
+  }, [activeSkill, composerSegments]);
 
   useEffect(() => {
     const newAssets = referencedAssets.filter(
@@ -18008,7 +18042,7 @@ function CanvasAssistantPanel({
                       >
                         <Sparkles
                           size={11}
-                          style={{ flexShrink: 0, color: "currentColor" }}
+                          style={{ flexShrink: 0, color: "#FACC15" }}
                         />
                         <span
                           className="type-caption truncate"
