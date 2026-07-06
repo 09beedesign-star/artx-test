@@ -302,6 +302,11 @@ function deriveSubscriptionDisplay(planName?: string | null) {
   };
 }
 
+function getSubscriptionPlanLevel(planId: MembershipPlanId | null) {
+  if (!planId) return 0;
+  return subscriptionPlans.find(plan => plan.id === planId)?.level || 0;
+}
+
 async function billingFetch<T>(
   path: string,
   options: RequestInit = {}
@@ -872,8 +877,19 @@ export default function BillingPage() {
                       const isSelected = selectedPlanId === plan.id;
                       const isCurrentSubscribedPlan =
                         subscribedPlanId === plan.id;
+                      const currentPlanLevel =
+                        getSubscriptionPlanLevel(subscribedPlanId);
+                      const isDowngradePlan =
+                        currentPlanLevel > 0 &&
+                        planConfig.level < currentPlanLevel;
+                      const isSubscriptionDisabled =
+                        isCurrentSubscribedPlan ||
+                        isDowngradePlan ||
+                        payingPlanId === plan.id;
                       const planBadge = isCurrentSubscribedPlan
                         ? "当前套餐"
+                        : isDowngradePlan
+                          ? "不可降级"
                         : isSelected
                           ? "已选择"
                           : planConfig.highlight
@@ -1027,34 +1043,33 @@ export default function BillingPage() {
                           <button
                             type="button"
                             onClick={() =>
-                              !isCurrentSubscribedPlan &&
+                              !isSubscriptionDisabled &&
                               startSubscriptionPayment(plan.id, plan.name)
                             }
-                            disabled={
-                              isCurrentSubscribedPlan ||
-                              payingPlanId === plan.id
-                            }
+                            disabled={isSubscriptionDisabled}
                             className="mt-5 h-10 rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-90"
                             style={{
-                              background: isCurrentSubscribedPlan
+                              background:
+                                isCurrentSubscribedPlan || isDowngradePlan
                                 ? "oklch(1 0 0 / 7%)"
                                 : isSelected
                                 ? green
                                 : "oklch(0.68 0.20 292 / 0.18)",
-                              color: isCurrentSubscribedPlan
+                              color:
+                                isCurrentSubscribedPlan || isDowngradePlan
                                 ? faint
                                 : isSelected
                                   ? "#10130A"
                                   : text,
                               border: `1px solid ${
-                                isCurrentSubscribedPlan
+                                isCurrentSubscribedPlan || isDowngradePlan
                                   ? border
                                   : isSelected
                                     ? "transparent"
                                     : "oklch(0.68 0.20 292 / 0.32)"
                               }`,
                               cursor:
-                                isCurrentSubscribedPlan
+                                isCurrentSubscribedPlan || isDowngradePlan
                                   ? "not-allowed"
                                   : payingPlanId === plan.id
                                     ? "wait"
@@ -1064,6 +1079,8 @@ export default function BillingPage() {
                           >
                             {isCurrentSubscribedPlan
                               ? "您已订阅该套餐。"
+                              : isDowngradePlan
+                                ? "当前套餐不支持降级"
                               : payingPlanId === plan.id
                               ? "创建支付中"
                               : "选择订阅"}
