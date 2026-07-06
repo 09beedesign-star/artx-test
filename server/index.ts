@@ -1259,7 +1259,7 @@ async function startServer() {
   });
 
   const port = Number(process.env.PORT || 3000);
-  const host = process.env.HOST || "127.0.0.1";
+  const host = process.env.HOST || (process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1");
 
   server.listen(port, host, () => {
     console.log(`Server running on http://${host}:${port}/`);
