@@ -29,7 +29,7 @@ export type BackgroundImageTask = {
 const AUTH_STORAGE_KEY = "artx-auth-session";
 const AI_REQUEST_TIMEOUT_MS = 300000;
 const AI_TIMEOUT_ERROR_MESSAGE = "对不起，网络开了个小差，请稍后重试";
-const ART_X_TEST_AI_API_BASE_URL = "https://artx-test.onrender.com";
+const ART_X_TEST_AI_API_BASE_URL = "https://backstage.artxsd.com";
 let aiApiBaseOverride: string | null = null;
 
 function normalizeAiErrorMessage(message: string, fallback: string) {

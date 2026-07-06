@@ -406,7 +406,7 @@ function getAuthApiBaseUrl() {
 
   if (configured) return configured;
   if (typeof window !== "undefined" && window.location.hostname.endsWith("github.io")) {
-    return "https://artx-test.onrender.com";
+    return "https://backstage.artxsd.com";
   }
 
   return "";

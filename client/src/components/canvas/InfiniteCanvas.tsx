@@ -60,7 +60,6 @@ import {
   Clipboard,
   Edit3,
   PlusSquare,
-  FileText,
   ZoomIn,
   Download,
   Crop,
@@ -3045,10 +3044,10 @@ async function fetchCanvasImageBlob(src: string) {
         baseUrl = window.location.origin;
       }
       if (isViteOnlyLocal && baseUrl === window.location.origin) {
-        baseUrl = "https://artx-test.onrender.com";
+        baseUrl = "https://backstage.artxsd.com";
       }
     }
-    if (!baseUrl) baseUrl = "https://artx-test.onrender.com";
+    if (!baseUrl) baseUrl = "https://backstage.artxsd.com";
     const proxyUrl = `${baseUrl}/api/images/proxy?url=${encodeURIComponent(src)}`;
     return fetch(proxyUrl, { mode: "cors", credentials: "omit" });
   };
@@ -3096,10 +3095,10 @@ function getImageProxyEndpointBase() {
       baseUrl = window.location.origin;
     }
     if (isViteOnlyLocal && baseUrl === window.location.origin) {
-      baseUrl = "https://artx-test.onrender.com";
+      baseUrl = "https://backstage.artxsd.com";
     }
   }
-  return baseUrl || "https://artx-test.onrender.com";
+  return baseUrl || "https://backstage.artxsd.com";
 }
 
 async function fetchImageProxyDataUrl(src: string) {
@@ -9165,6 +9164,27 @@ function getImageDisplaySizeForRatio(ratio: string): { w: number; h: number } {
   return ratioSize[ratio] || ratioSize["1:1"];
 }
 
+function fitGeneratedImageSizeToFrame(
+  image: { width?: number; height?: number },
+  frame: { w: number; h: number }
+) {
+  const imageW = Number(image.width);
+  const imageH = Number(image.height);
+  if (
+    !Number.isFinite(imageW) ||
+    !Number.isFinite(imageH) ||
+    imageW <= 0 ||
+    imageH <= 0
+  ) {
+    return frame;
+  }
+  const scale = Math.min(frame.w / imageW, frame.h / imageH);
+  return {
+    w: Math.max(1, Math.round(imageW * scale)),
+    h: Math.max(1, Math.round(imageH * scale)),
+  };
+}
+
 function buildSkillAppliedImagePrompt(input: {
   activeSkill: PendingSkillLoad | null;
   skillContext: string;
@@ -9527,6 +9547,21 @@ function getImageGenerationStartedAt(input: {
   );
 }
 
+function getValidGeneratedImages(
+  images: Array<{ src?: string; width: number; height: number }> | undefined,
+  requestedCount = 1
+) {
+  return (images || [])
+    .map(image => ({
+      ...image,
+      src: typeof image.src === "string" ? image.src.trim() : "",
+    }))
+    .filter((image): image is { src: string; width: number; height: number } =>
+      Boolean(image.src)
+    )
+    .slice(0, requestedCount);
+}
+
 function isImageGenerationTimedOut(
   input: {
     generationId?: string;
@@ -9878,10 +9913,21 @@ async function consumeCompletedImageGenerationTasks(projectId: string) {
     )
   );
   return Promise.all(
-    matching.map(async task => ({
-      ...task,
-      images: await hydrateImageGenerationTaskImages(projectId, task),
-    }))
+    matching.map(async task => {
+      const hydratedImages = await hydrateImageGenerationTaskImages(projectId, task);
+      const validImages = getValidGeneratedImages(
+        hydratedImages,
+        Math.max(1, hydratedImages.length)
+      );
+      return validImages.length > 0
+        ? { ...task, images: validImages }
+        : {
+            ...task,
+            status: "failed" as const,
+            images: [],
+            error: AI_GENERATION_NETWORK_ERROR_MESSAGE,
+          };
+    })
   );
 }
 
@@ -15278,7 +15324,7 @@ function getCanvasApiBaseUrl() {
     typeof window !== "undefined" &&
     window.location.hostname.endsWith("github.io")
   ) {
-    return "https://artx-test.onrender.com";
+    return "https://backstage.artxsd.com";
   }
   return typeof window !== "undefined" ? window.location.origin : "";
 }
@@ -15299,10 +15345,10 @@ function getCanvasRenderableImageSrc(src: string) {
       hostname === "127.0.0.1" ||
       hostname === "::1";
     if (isLocalFrontend && baseUrl === window.location.origin) {
-      baseUrl = "https://artx-test.onrender.com";
+      baseUrl = "https://backstage.artxsd.com";
     }
   }
-  return `${baseUrl || "https://artx-test.onrender.com"}${uploadPath}`;
+  return `${baseUrl || "https://backstage.artxsd.com"}${uploadPath}`;
 }
 
 type CanvasAssistantModelTab = "image" | "text";
@@ -15543,7 +15589,11 @@ function getAssistantComposerImages(segments: AssistantComposerSegment[]) {
       seen.add(segment.asset.id);
       return true;
     })
-    .map(segment => segment.asset);
+    .map(segment => ({
+      ...segment.asset,
+      src: segment.asset.src.trim(),
+    }))
+    .filter(asset => Boolean(asset.src));
 }
 
 function getAssistantComposerAnnotations(segments: AssistantComposerSegment[]) {
@@ -15573,16 +15623,19 @@ function getAssistantComposerVisualReferences(
     if (segment.type === "image") {
       if (seenImages.has(segment.asset.id)) return [];
       seenImages.add(segment.asset.id);
-      return [{ ...segment.asset }];
+      const src = segment.asset.src.trim();
+      return src ? [{ ...segment.asset, src }] : [];
     }
     if (segment.type === "annotation") {
       if (seenAnnotations.has(segment.annotation.id)) return [];
       seenAnnotations.add(segment.annotation.id);
+      const src = segment.annotation.src.trim();
+      if (!src) return [];
       annotationIndex += 1;
       return [
         {
           id: segment.annotation.id,
-          src: segment.annotation.src,
+          src,
           title: `注释 ${annotationIndex} · ${segment.annotation.title}`,
         },
       ];
@@ -15858,38 +15911,11 @@ function CanvasAssistantPanel({
     toast("已新建画布", { description: project.title });
     navigate(`/project/${project.id}`);
   };
-  const handleCopyMcpConfig = async () => {
-    const baseUrl = getCanvasApiBaseUrl();
-    const config = JSON.stringify(
-      {
-        mcpServers: {
-          "artx-image": {
-            url: `${baseUrl}/api/mcp`,
-            headers: {
-              Authorization: "Bearer YOUR_ARTX_API_KEY",
-            },
-          },
-        },
-      },
-      null,
-      2
-    );
-    await navigator.clipboard?.writeText(config);
-    toast("已复制 MCP 工具代码", {
-      description: "第三方 AI Agent 可通过该 MCP 配置调用 ArtX 图片生成工具。",
-    });
-  };
-
   const actionButtons = [
     {
       label: "新建画布",
       icon: <PlusSquare size={16} />,
       onClick: handleCreateCanvasProject,
-    },
-    {
-      label: "MCP 工具",
-      icon: <FileText size={16} />,
-      onClick: handleCopyMcpConfig,
     },
     {
       label: "分享对话",
@@ -17329,8 +17355,20 @@ function CanvasAssistantPanel({
                 targetHeight: targetReference.height,
               })
             : await generateAiImages(payload);
+        const validImages = getValidGeneratedImages(result.images, 1);
+        if (validImages.length === 0) {
+          dispatchImageGenerationTask(
+            {
+              ...payload,
+              status: "failed",
+              error: "AI 未返回可用图片，请稍后重试",
+            },
+            projectId
+          );
+          throw new Error("AI 未返回可用图片，请稍后重试");
+        }
         dispatchImageGenerationTask(
-          { ...payload, status: "completed", images: result.images },
+          { ...payload, status: "completed", images: validImages },
           projectId
         );
         setMessages(prev => [
@@ -17476,8 +17514,20 @@ function CanvasAssistantPanel({
                 targetHeight: targetReference.height,
               })
             : await generateAiImages(payload);
+        const validImages = getValidGeneratedImages(result.images, 1);
+        if (validImages.length === 0) {
+          dispatchImageGenerationTask(
+            {
+              ...payload,
+              status: "failed",
+              error: "AI 未返回可用图片，请稍后重试",
+            },
+            projectId
+          );
+          throw new Error("AI 未返回可用图片，请稍后重试");
+        }
         dispatchImageGenerationTask(
-          { ...payload, status: "completed", images: result.images },
+          { ...payload, status: "completed", images: validImages },
           projectId
         );
         setMessages(prev => [
@@ -17591,7 +17641,7 @@ function CanvasAssistantPanel({
           justifyContent: collapsed ? "flex-start" : "flex-end",
         }}
       >
-        {(collapsed ? actionButtons.slice(2) : actionButtons).map(item => (
+        {(collapsed ? actionButtons.slice(-2) : actionButtons).map(item => (
           <button
             key={item.label}
             className="h-8 flex items-center justify-center rounded-[var(--radius-md-design)] transition-colors hover:opacity-85"
@@ -22232,9 +22282,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         return;
       }
 
-      const images = (detail.images || [])
-        .filter(image => image?.src)
-        .slice(0, requestedCount);
+      const images = getValidGeneratedImages(detail.images, requestedCount);
       if (images.length === 0) {
         setNodes(nds =>
           nds.map(n => {
@@ -22264,19 +22312,24 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         toast("图像生成失败", { description: "AI 未返回可用图片，请稍后重试" });
         return;
       }
-      const backupItems = images.map((image, index) => ({
-        nodeId: `generated-${generationId}-${index}`,
-        generationId,
-        generationIndex: index,
-        src: image.src,
-        width: size.w,
-        height: size.h,
-        title: `生成图像 · ${detail.style}${images.length > 1 ? ` ${index + 1}` : ""}`,
-        prompt: detail.prompt,
-        model: detail.model,
-        ratio: detail.ratio,
-        style: detail.style,
-      }));
+      const backupItems = images.map((image, index) => {
+        const fittedSize = detail.skillId
+          ? fitGeneratedImageSizeToFrame(image, size)
+          : size;
+        return {
+          nodeId: `generated-${generationId}-${index}`,
+          generationId,
+          generationIndex: index,
+          src: image.src,
+          width: fittedSize.w,
+          height: fittedSize.h,
+          title: `生成图像 · ${detail.style}${images.length > 1 ? ` ${index + 1}` : ""}`,
+          prompt: detail.prompt,
+          model: detail.model,
+          ratio: detail.ratio,
+          style: detail.style,
+        };
+      });
       setNodes(nds => {
         const existingPlaceholders = nds.filter(
           n =>
@@ -22292,8 +22345,27 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 : 0;
             const image = images[index] || images[0];
             if (!image) return n;
+            const currentSize = getCanvasNodeSize(n);
+            const currentFrame = {
+              w: currentSize.width || size.w,
+              h: currentSize.height || size.h,
+            };
+            const fittedSize = detail.skillId
+              ? fitGeneratedImageSizeToFrame(image, currentFrame)
+              : currentFrame;
             return {
               ...n,
+              position: detail.skillId
+                ? {
+                    x: n.position.x + (currentFrame.w - fittedSize.w) / 2,
+                    y: n.position.y + (currentFrame.h - fittedSize.h) / 2,
+                  }
+                : n.position,
+              style: {
+                ...n.style,
+                width: fittedSize.w,
+                height: fittedSize.h,
+              },
               data: {
                 ...data,
                 localSrc: image.src,
@@ -22309,8 +22381,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                   `${images.length}张`,
                   detail.referencesEnabled ? "参考画布" : "无参考",
                 ],
-                imgW: size.w,
-                imgH: size.h,
+                imgW: fittedSize.w,
+                imgH: fittedSize.h,
                 sourceBackgroundSrc: undefined,
                 ...getImageGenerationNodeMetadata(detail),
               },
@@ -22321,19 +22393,23 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const placedNodes: Node[] = [];
         const generatedNodes = images.map((image, index) => {
           const id = `generated-${generationId}-${index}`;
+          const fittedSize = detail.skillId
+            ? fitGeneratedImageSizeToFrame(image, size)
+            : size;
           const desired = {
-            x: anchor.x + index * (size.w + 24),
-            y: anchor.y,
+            x: anchor.x + (size.w - fittedSize.w) / 2 + index * (fittedSize.w + 24),
+            y: anchor.y + (size.h - fittedSize.h) / 2,
           };
           const position = resolveNonOverlappingCanvasPosition(
             [...nds, ...placedNodes],
             desired,
-            { width: size.w, height: size.h }
+            { width: fittedSize.w, height: fittedSize.h }
           );
           const generatedNode = {
             id,
             type: "asset" as const,
             position,
+            style: { width: fittedSize.w, height: fittedSize.h },
             data: {
               id,
               assetId: "default",
@@ -22352,8 +22428,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 `${images.length}张`,
                 detail.referencesEnabled ? "参考画布" : "无参考",
               ],
-              imgW: size.w,
-              imgH: size.h,
+              imgW: fittedSize.w,
+              imgH: fittedSize.h,
               sourceBackgroundSrc: undefined,
               ...getImageGenerationNodeMetadata(detail),
             },
@@ -24595,10 +24671,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const title =
           ((node.data as Record<string, unknown>).title as string) || nodeId;
         const size = getCanvasNodeSize(node);
+        const src = (await getVisibleAssetImageSourceFromNode(node)).trim();
+        if (!src) return null;
         return {
           id: nodeId,
           title,
-          src: await getVisibleAssetImageSourceFromNode(node),
+          src,
           width: size.width,
           height: size.height,
         };

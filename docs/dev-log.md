@@ -13,8 +13,8 @@
 
 ## 固定环境
 
-- 测试前端：<https://09beedesign-star.github.io/artx-test/>
-- 测试后端：<https://artx-test.onrender.com>
+- 测试/灰度入口：<https://backstage.artxsd.com>
+- 测试/灰度后端：<https://backstage.artxsd.com>
 - 测试发布分支：`test/feature/interaction-framework`
 
 ## 条目模板
@@ -44,6 +44,30 @@
 - 验证：
 - 已知风险 / 待回归：
 ```
+
+## 2026-07-06 21:40
+
+- 任务：测试/灰度后端迁移到腾讯云入口
+- 原因：测试/灰度后端已从 Render 迁移到腾讯云，后续前端、AI、Auth、Billing、图片相关 API 不得再默认指向 `https://artx-test.onrender.com`，统一使用 `https://backstage.artxsd.com`。
+- 影响范围：`AGENTS.md`、`MEMORY.md`、前端 API 默认兜底、构建元数据、测试部署脚本、Wallyt 默认回调、腾讯云部署文档、测试发布文档；现有管理后台 `admin.artxsd.com`、`/opt/artx`、`artx-admin.service`、`127.0.0.1:3001`、`/var/lib/artx` 不动。
+- AI 联调：
+  - capability: all test/gray AI capabilities
+  - entry: frontend / AI / Auth / Billing / image APIs
+  - model/provider: N/A
+  - generationId: N/A
+  - backendTaskId: N/A
+  - providerTaskId: N/A
+  - request endpoint: `https://backstage.artxsd.com`
+  - result: 腾讯云灰度后端作为测试/灰度统一 API 入口；旧 Render 地址只保留在历史日志语境中。
+  - error: N/A
+- 测试环境：
+  - frontend: <https://backstage.artxsd.com>
+  - backend: <https://backstage.artxsd.com>
+  - branch: `test/feature/interaction-framework`
+  - commitSha: N/A
+  - deployment check: 用户已确认 `/api/health`、Skill 生图、Wallyt 支付回调、图片代理、生成图 `/uploads` 下载通过。
+- 验证：本次为配置/文档入口收口；后续发布或联调默认检查 `https://backstage.artxsd.com/api/health` 和 `artx-gray-backend.service`。
+- 已知风险 / 待回归：旧历史日志中仍会出现 Render 地址作为当时记录，不代表当前测试/灰度目标。
 
 ## 2026-07-06 19:24
 

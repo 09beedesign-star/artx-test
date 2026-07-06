@@ -185,7 +185,7 @@ function getBillingApiBaseUrl() {
   ).replace(/\/+$/, "");
 
   if (configured) return configured;
-  return "https://artx-test.onrender.com";
+  return "https://backstage.artxsd.com";
 }
 
 function isQrImagePayUrl(payUrl: string) {

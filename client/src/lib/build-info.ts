@@ -21,8 +21,8 @@ export const buildInfo: ArtxBuildInfo = {
   buildTime: import.meta.env.VITE_BUILD_TIME || new Date().toISOString(),
   repository: import.meta.env.VITE_DEPLOY_REPOSITORY || "",
   githubRunId: import.meta.env.VITE_GITHUB_RUN_ID || "",
-  frontendUrl: import.meta.env.VITE_TEST_FRONTEND_URL || "https://09beedesign-star.github.io/artx-test/",
-  backendUrl: import.meta.env.VITE_TEST_BACKEND_URL || import.meta.env.VITE_API_BASE_URL || "https://artx-test.onrender.com",
+  frontendUrl: import.meta.env.VITE_TEST_FRONTEND_URL || "https://backstage.artxsd.com",
+  backendUrl: import.meta.env.VITE_TEST_BACKEND_URL || import.meta.env.VITE_API_BASE_URL || "https://backstage.artxsd.com",
   pagesBasePath: import.meta.env.BASE_URL,
 };
 

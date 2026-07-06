@@ -30,9 +30,9 @@ services:
       - key: VITE_API_BASE_URL
         sync: false
       - key: OAUTH_PUBLIC_BASE_URL
-        value: https://artx-test.onrender.com
+        value: https://backstage.artxsd.com
       - key: OAUTH_FRONTEND_URL
-        value: https://09beedesign-star.github.io/artx-test/
+        value: https://backstage.artxsd.com
       - key: OAUTH_STATE_SECRET
         sync: false
       - key: GOOGLE_CLIENT_ID
@@ -58,6 +58,6 @@ services:
       - key: WALLYT_SIGNATURE_KEY
         sync: false
       - key: WALLYT_NOTIFY_URL
-        value: https://artx-test.onrender.com/api/billing/wallyt/callback
+        value: https://backstage.artxsd.com/api/billing/wallyt/callback
       - key: WALLYT_WX_APP_ID
         sync: false

@@ -3,8 +3,8 @@ set -euo pipefail
 
 TEST_REMOTE="${TEST_REMOTE:-test}"
 TEST_BRANCH="${TEST_BRANCH:-feature/interaction-framework}"
-TEST_FRONTEND_URL="${TEST_FRONTEND_URL:-https://09beedesign-star.github.io/artx-test/}"
-TEST_BACKEND_URL="${TEST_BACKEND_URL:-https://artx-test.onrender.com}"
+TEST_FRONTEND_URL="${TEST_FRONTEND_URL:-https://backstage.artxsd.com}"
+TEST_BACKEND_URL="${TEST_BACKEND_URL:-https://backstage.artxsd.com}"
 
 remote_ref="${TEST_REMOTE}/${TEST_BRANCH}"
 expected_sha="$(git rev-parse "${remote_ref}")"

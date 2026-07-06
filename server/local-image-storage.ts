@@ -102,6 +102,19 @@ async function imageSrcToBuffer(src: string): Promise<{ buffer: Buffer; mimeType
   return { buffer, mimeType: mimeType === "application/octet-stream" ? "image/png" : mimeType };
 }
 
+async function getImageBufferDimensions(buffer: Buffer, fallback: { width: number; height: number }) {
+  try {
+    const sharp = (await import("sharp")).default;
+    const metadata = await sharp(buffer, { limitInputPixels: false }).metadata();
+    return {
+      width: metadata.width || fallback.width,
+      height: metadata.height || fallback.height,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
 async function writeUniqueFile(directory: string, requestedFilename: string, buffer: Buffer) {
   const extension = path.extname(requestedFilename);
   const basename = extension ? requestedFilename.slice(0, -extension.length) : requestedFilename;
@@ -133,6 +146,10 @@ export async function storeGeneratedImagesForUser(
 
   return Promise.all(images.map(async (image, index) => {
     const { buffer, mimeType } = await imageSrcToBuffer(image.src);
+    const dimensions = await getImageBufferDimensions(buffer, {
+      width: image.width,
+      height: image.height,
+    });
     const fallbackFilename = `${taskId}-${index + 1}${extensionForMimeType(mimeType)}`;
     const providerFilename = filenameFromImageSrc(image.src, fallbackFilename);
     const safeFilename = sanitizePathSegment(providerFilename, fallbackFilename);
@@ -143,6 +160,8 @@ export async function storeGeneratedImagesForUser(
 
     return {
       ...image,
+      width: dimensions.width,
+      height: dimensions.height,
       src: `${PUBLIC_IMAGE_BASE_PATH}/${encodeURIComponent(userDirectoryName)}/${encodeURIComponent(storedFilename)}`,
     };
   }));

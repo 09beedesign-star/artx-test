@@ -11,6 +11,9 @@
     "check": "tsc --noEmit",
     "verify:admin": "tsx scripts/verify-admin-backend.mjs && tsx scripts/verify-admin-session-expiry.mjs && tsx scripts/verify-wallyt-payment.mjs",
     "check:skills": "node scripts/verify-skills.mjs",
+    "package:tencent-cloud": "scripts/package-tencent-cloud-release.sh",
+    "audit:tencent-cloud": "scripts/audit-tencent-cloud-backend.sh",
+    "verify:tencent-cloud": "node scripts/verify-tencent-cloud-gray.mjs",
     "format": "prettier --write .",
     "verify:test-deploy": "scripts/verify-test-deployment.sh"
   },

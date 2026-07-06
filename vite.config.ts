@@ -264,8 +264,8 @@ function getBuildMetadata() {
     process.env.GITHUB_REF_NAME ||
     gitValue("git branch --show-current", "local");
   const buildTime = process.env.VITE_BUILD_TIME || new Date().toISOString();
-  const testFrontendUrl = process.env.VITE_TEST_FRONTEND_URL || "https://09beedesign-star.github.io/artx-test/";
-  const testBackendUrl = process.env.VITE_TEST_BACKEND_URL || process.env.VITE_API_BASE_URL || "https://artx-test.onrender.com";
+  const testFrontendUrl = process.env.VITE_TEST_FRONTEND_URL || "https://backstage.artxsd.com";
+  const testBackendUrl = process.env.VITE_TEST_BACKEND_URL || process.env.VITE_API_BASE_URL || "https://backstage.artxsd.com";
 
   return {
     app: "artx",
@@ -334,7 +334,7 @@ function vitePluginJsonApi(name: string, route: string, handler: JsonApiHandler,
 }
 
 function vitePluginAiOrchestratorApi(): Plugin {
-  const backendUrl = (process.env.VITE_TEST_BACKEND_URL || process.env.VITE_API_BASE_URL || "https://artx-test.onrender.com").replace(/\/+$/, "");
+  const backendUrl = (process.env.VITE_TEST_BACKEND_URL || process.env.VITE_API_BASE_URL || "https://backstage.artxsd.com").replace(/\/+$/, "");
 
   async function proxyJson(req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse, targetPath: string) {
     try {

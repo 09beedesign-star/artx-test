@@ -3,7 +3,7 @@ type ApiErrorResponse = {
   message?: string;
 };
 
-const ART_X_TEST_API_BASE_URL = "https://artx-test.onrender.com";
+const ART_X_TEST_API_BASE_URL = "https://backstage.artxsd.com";
 let backendApiBaseOverride: string | null = null;
 
 export type AiCapability =
