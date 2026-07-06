@@ -24,10 +24,16 @@ assert(files.ai.includes("/api/images/remove-watermark"), "client points to remo
 assert(files.index.includes('app.post("/api/images/remove-watermark"'), "server exposes remove-watermark route");
 assert(files.index.includes("removeImageWatermark"), "server route imports removeImageWatermark");
 assert(files.server.includes("removeWatermarkWithPicWish"), "server has PicWish watermark wrapper");
-assert(files.server.includes('runPicWishImageTask("watermark"'), "watermark removal uses PicWish watermark task");
+assert(files.server.includes("getPicWishWatermarkRemovalEndpoint"), "watermark removal has dedicated PicWish endpoint helper");
+assert(files.server.includes("/api/tasks/visual/external/watermark-remove"), "watermark removal uses PicWish external watermark-remove API");
+assert(files.server.includes('body.append("file"'), "watermark removal sends the source image as file");
+assert(files.server.includes("pollPicWishWatermarkRemovalTask"), "watermark removal polls the external watermark-remove task");
 const eraseMatch = files.server.match(/async function eraseWithPicWish[\s\S]*?\n}/);
 assert(Boolean(eraseMatch), "server has eraseWithPicWish wrapper");
 assert(!eraseMatch?.[0].includes('runPicWishImageTask("watermark"'), "eraser must not call watermark task");
+const watermarkMatch = files.server.match(/async function removeWatermarkWithPicWish[\s\S]*?\n}/);
+assert(Boolean(watermarkMatch), "server has removeWatermarkWithPicWish wrapper");
+assert(!watermarkMatch?.[0].includes('runPicWishImageTask("watermark"'), "watermark removal must not use masked object-removal task");
 assert(files.docs.includes("去水印能力"), "test deployment docs mention watermark removal capability");
 
 if (process.exitCode) {

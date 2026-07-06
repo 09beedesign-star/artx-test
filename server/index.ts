@@ -58,6 +58,210 @@ type AiRouteTracking = {
 
 const backgroundImageTasks = new Map<string, BackgroundImageTask>();
 const BACKGROUND_IMAGE_TASK_TIMEOUT_MS = 5 * 60 * 1000;
+const IMAGE_PROXY_USER_AGENT =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36 ArtX/1.0";
+
+function isImageContentType(contentType: string) {
+  return contentType.startsWith("image/") || contentType === "application/octet-stream";
+}
+
+function decodeHtmlAttribute(value: string) {
+  const decoded = value
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\\u0026/g, "&")
+    .replace(/\\u003d/g, "=")
+    .replace(/\\u002f/gi, "/")
+    .replace(/\\\//g, "/");
+  try {
+    return decodeURIComponent(decoded);
+  } catch {
+    return decoded;
+  }
+}
+
+function normalizeExternalImageCandidate(value: string, baseUrl: string) {
+  const source = decodeHtmlAttribute(value)
+    .trim()
+    .replace(/^url\((['"]?)(.*?)\1\)$/i, "$2")
+    .replace(/[),.;\]}]+$/g, "");
+  if (!source || /^(javascript|mailto|tel):/i.test(source)) return "";
+  if (/^\/\//.test(source)) return `https:${source}`;
+  if (/^https?:\/\//i.test(source)) return source;
+  if (/^data:image\//i.test(source)) return source;
+  try {
+    return new URL(source, baseUrl).toString();
+  } catch {
+    return "";
+  }
+}
+
+function firstSrcsetCandidate(value: string) {
+  const candidates = value
+    .split(",")
+    .map(candidate => {
+      const [url = "", descriptor = ""] = candidate.trim().split(/\s+/);
+      const width = Number(descriptor.match(/^(\d+)w$/)?.[1] || 0);
+      const density = Number(descriptor.match(/^(\d+(?:\.\d+)?)x$/)?.[1] || 0);
+      return { url, score: width || density * 1000 || 1 };
+    })
+    .filter(candidate => candidate.url);
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0]?.url || "";
+}
+
+function looksLikeImageCandidate(value: string) {
+  return (
+    /\.(?:png|jpe?g|gif|webp|avif|svg)(?:[?#].*)?$/i.test(value) ||
+    /(?:image|img|pic|photo|thumb|cover|poster|media|original|large|mmbiz|qpic|hbimg|gtimg|qq\.com|shiply-cdn\.qq|alicdn|bdimg|sinaimg|byteimg|douyinpic|xiaohongshu|xhscdn|pinimg|twimg|fbcdn|cdninstagram|ggpht|googleusercontent|ytimg|wp\.com|cloudfront|akamaihd|unsplash|pexels|shopifycdn)/i.test(value)
+  );
+}
+
+function imageCandidateScore(value: string) {
+  let score = 0;
+  if (/\.(?:jpe?g|png|webp|avif)(?:[?#].*)?$/i.test(value)) score += 20;
+  if (/(?:original|orig|large|full|raw|master|media|image|photo|pic)/i.test(value)) score += 16;
+  if (/(?:thumb|thumbnail|avatar|logo|icon|sprite|favicon|placeholder|blank|loading)/i.test(value)) score -= 18;
+  const width = Number(value.match(/(?:^|[?&/_-])(?:w|width)[=/_-]?(\d{3,5})/i)?.[1] || 0);
+  const height = Number(value.match(/(?:^|[?&/_-])(?:h|height)[=/_-]?(\d{3,5})/i)?.[1] || 0);
+  score += Math.min(30, Math.round((width + height) / 120));
+  return score;
+}
+
+function extractImageCandidatesFromHtml(html: string, baseUrl: string) {
+  const candidates: Array<{ url: string; score: number }> = [];
+  const add = (value: string, priority = 0) => {
+    const normalized = normalizeExternalImageCandidate(value, baseUrl);
+    if (normalized) candidates.push({ url: normalized, score: priority + imageCandidateScore(normalized) });
+  };
+  const metaPatterns = [
+    /<meta[^>]+(?:property|name|itemprop)=["'](?:og:image|og:image:url|og:image:secure_url|twitter:image|twitter:image:src|image|thumbnail|thumbnailUrl)["'][^>]+content=["']([^"']+)["'][^>]*>/gi,
+    /<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name|itemprop)=["'](?:og:image|og:image:url|og:image:secure_url|twitter:image|twitter:image:src|image|thumbnail|thumbnailUrl)["'][^>]*>/gi,
+    /<link[^>]+rel=["'][^"']*(?:image_src|preload|apple-touch-icon)[^"']*["'][^>]+href=["']([^"']+)["'][^>]*>/gi,
+    /<link[^>]+href=["']([^"']+)["'][^>]+rel=["'][^"']*(?:image_src|preload|apple-touch-icon)[^"']*["'][^>]*>/gi,
+  ];
+  metaPatterns.forEach(pattern => {
+    Array.from(html.matchAll(pattern)).forEach(match => add(match[1] || "", 40));
+  });
+  Array.from(html.matchAll(/<(?:img|source|video|picture)[^>]+(?:src|srcset|data-src|data-srcset|data-url|data-thumb|data-thumb-url|data-original|data-original-src|data-image|data-image-url|data-full-src|data-large-src|data-lazy-src|data-actualsrc|data-zoom-src|data-backup|data-orig-file|data-media|data-pin-media|data-hi-res-src|poster|data-poster)=["']([^"']+)["'][^>]*>/gi)).forEach(match =>
+    add(match[1] || "", 18)
+  );
+  Array.from(html.matchAll(/<(?:img|source)[^>]+(?:srcset|data-srcset)=["']([^"']+)["'][^>]*>/gi)).forEach(match =>
+    add(firstSrcsetCandidate(match[1] || ""), 24)
+  );
+  Array.from(html.matchAll(/url\((['"]?)(.*?)\1\)/gi)).forEach(match =>
+    add(match[2] || "", 8)
+  );
+  Array.from(
+    html.matchAll(
+      /["'](?:url|src|image|images|imageUrl|image_url|imageURL|original|originalUrl|original_url|originalURL|originUrl|raw|rawUrl|large|largeUrl|media|mediaUrl|contentUrl|thumbnail|thumbnailUrl|thumbnail_url|cover|coverUrl|cover_url|poster|posterUrl|poster_url|pic|picUrl|pic_url|img|imgUrl|img_url|displayUrl|display_url|downloadUrl|download_url)["']\s*:\s*["']([^"']+)["']/gi
+    )
+  ).forEach(match => add(match[1] || "", 28));
+  Array.from(
+    html.matchAll(
+      /(?:url|src|image|imageUrl|originalUrl|mediaUrl|contentUrl|thumbnailUrl|coverUrl|posterUrl|picUrl|imgUrl|displayUrl|downloadUrl)\s*[:=]\s*["']([^"']+)["']/gi
+    )
+  ).forEach(match => add(match[1] || "", 22));
+  Array.from(
+    html.matchAll(
+      /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi
+    )
+  ).forEach(match => {
+    const jsonText = match[1] || "";
+    Array.from(jsonText.matchAll(/["'](?:url|contentUrl|image|thumbnailUrl)["']\s*:\s*["']([^"']+)["']/gi)).forEach(jsonMatch =>
+      add(jsonMatch[1] || "", 36)
+    );
+  });
+  Array.from(
+    html.matchAll(/(?:https?:)?\\?\/\\?\/[^"'<>\\\s]+/gi)
+  ).forEach(match => {
+    const value = match[0] || "";
+    if (looksLikeImageCandidate(value)) add(value, 6);
+  });
+  return Array.from(
+    new Map(
+      candidates
+        .filter(candidate => looksLikeImageCandidate(candidate.url))
+        .sort((a, b) => b.score - a.score)
+        .map(candidate => [candidate.url, candidate.url])
+    ).values()
+  );
+}
+
+async function resolveHuabanPinImageUrl(url: string) {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return "";
+  }
+  if (!/(^|\.)huaban\.com$/i.test(parsed.hostname)) return "";
+  const pinId = parsed.pathname.match(/\/pins\/(\d+)/)?.[1];
+  if (!pinId) return "";
+  const headers = {
+    "User-Agent": IMAGE_PROXY_USER_AGENT,
+    "Accept": "application/json,text/plain,*/*",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "Referer": url,
+    "Origin": "https://huaban.com",
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-site",
+  };
+  const endpoints = [
+    `https://api.huaban.com/pins/${pinId}/`,
+    `https://api.huaban.com/pins/${pinId}`,
+  ];
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint, {
+        redirect: "follow",
+        headers,
+      });
+      if (!response.ok) continue;
+      const payload = await response.json() as {
+        pin?: { file?: { url?: string; key?: string } };
+        file?: { url?: string; key?: string };
+      };
+      const file = payload.pin?.file || payload.file;
+      if (file?.url) return file.url;
+      if (file?.key) return `https://gd-hbimg-edge.huaban.com/${file.key}`;
+    } catch {
+      // Try the next Huaban endpoint shape.
+    }
+  }
+  return "";
+}
+
+function getImageProxyHeaders(targetUrl: string, referer?: string) {
+  const headers: Record<string, string> = {
+    "User-Agent": IMAGE_PROXY_USER_AGENT,
+    "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,text/html;q=0.6,*/*;q=0.5",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+  };
+  if (referer) headers.Referer = referer;
+  try {
+    const parsed = new URL(targetUrl);
+    headers.Origin = `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    // Ignore malformed origin candidates; URL validity is checked by callers.
+  }
+  return headers;
+}
+
+function getImageProxyDocumentHeaders(targetUrl: string, referer?: string) {
+  return {
+    ...getImageProxyHeaders(targetUrl, referer),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": referer ? "same-origin" : "none",
+    "Upgrade-Insecure-Requests": "1",
+  };
+}
 
 function pruneBackgroundImageTasks() {
   const now = Date.now();
@@ -438,26 +642,59 @@ async function startServer() {
         res.status(400).json({ error: "Invalid image url" });
         return;
       }
-      const response = await fetch(url, {
+
+      const resolvedHuabanUrl = await resolveHuabanPinImageUrl(url).catch(() => "");
+      const firstUrl = resolvedHuabanUrl || url;
+      let response = await fetch(firstUrl, {
         redirect: "follow",
-        headers: {
-          "User-Agent": "ArtX/1.0 image-download-proxy",
-          "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-        },
+        headers: getImageProxyHeaders(firstUrl, firstUrl === url ? undefined : url),
       });
+      if (!response.ok && firstUrl === url) {
+        response = await fetch(firstUrl, {
+          redirect: "follow",
+          headers: getImageProxyDocumentHeaders(firstUrl),
+        });
+      }
       if (!response.ok) {
         res.status(response.status).json({ error: `Image fetch failed: ${response.status}` });
         return;
       }
       const contentType = response.headers.get("content-type") || "application/octet-stream";
-      if (!contentType.startsWith("image/") && contentType !== "application/octet-stream") {
+      if (isImageContentType(contentType)) {
+        const arrayBuffer = await response.arrayBuffer();
+        res.setHeader("Content-Type", contentType);
+        res.setHeader("Cache-Control", "public, max-age=300");
+        res.send(Buffer.from(arrayBuffer));
+        return;
+      }
+
+      if (!contentType.includes("text/html")) {
         res.status(415).json({ error: "URL did not return an image" });
         return;
       }
-      const arrayBuffer = await response.arrayBuffer();
-      res.setHeader("Content-Type", contentType);
-      res.setHeader("Cache-Control", "public, max-age=300");
-      res.send(Buffer.from(arrayBuffer));
+
+      const html = await response.text();
+      const candidates = extractImageCandidatesFromHtml(html, response.url || url);
+      for (const candidate of candidates) {
+        try {
+          const imageResponse = await fetch(candidate, {
+            redirect: "follow",
+            headers: getImageProxyHeaders(candidate, url),
+          });
+          if (!imageResponse.ok) continue;
+          const imageContentType = imageResponse.headers.get("content-type") || "application/octet-stream";
+          if (!isImageContentType(imageContentType)) continue;
+          const arrayBuffer = await imageResponse.arrayBuffer();
+          res.setHeader("Content-Type", imageContentType);
+          res.setHeader("Cache-Control", "public, max-age=300");
+          res.send(Buffer.from(arrayBuffer));
+          return;
+        } catch {
+          // Try the next page image candidate.
+        }
+      }
+
+      res.status(415).json({ error: "URL did not return an image" });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Image proxy failed";
       res.status(500).json({ error: message });

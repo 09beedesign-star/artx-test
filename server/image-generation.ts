@@ -157,6 +157,7 @@ type PicWishSegmentationResponse = {
     task_id?: string;
     image?: string;
     image_obj?: string;
+    file?: string;
     mask?: string;
     mask_obj?: string;
     image_width?: number;
@@ -721,9 +722,16 @@ function getPicWishTaskEndpoint(baseUrl: string, taskType: PicWishVisualTaskType
   return `${baseUrl.replace(/\/+$/, "")}/api/tasks/visual/${taskType}`;
 }
 
+function getPicWishWatermarkRemovalEndpoint(baseUrl: string) {
+  return `${baseUrl.replace(/\/+$/, "")}/api/tasks/visual/external/watermark-remove`;
+}
+
 function getPicWishResultImageUrl(data: PicWishSegmentationResponse, taskType?: PicWishVisualTaskType) {
   if (taskType === "segmentation") {
     return data.data?.image_obj || data.data?.image || "";
+  }
+  if (taskType === "watermark") {
+    return data.data?.file || data.data?.image || data.data?.image_obj || "";
   }
   return data.data?.image || data.data?.image_obj || "";
 }
@@ -820,6 +828,58 @@ async function pollPicWishTask(taskType: PicWishVisualTaskType, taskId: string, 
   }
   logPicWishEvent("failure", { taskType, endpoint, taskId, durationMs: Date.now() - startedAt, error: `PicWish ${taskType} timed out` });
   throw new Error(`PicWish ${taskType} timed out`);
+}
+
+async function pollPicWishWatermarkRemovalTask(taskId: string, apiKey: string, baseUrl: string): Promise<PicWishSegmentationResponse> {
+  const endpoint = `${getPicWishWatermarkRemovalEndpoint(baseUrl)}/${encodeURIComponent(taskId)}`;
+  const startedAt = Date.now();
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    await delay(1000);
+    let data: PicWishSegmentationResponse;
+    try {
+      data = await readPicWishJson(await fetch(endpoint, {
+        method: "GET",
+        headers: {
+          "X-API-KEY": apiKey,
+        },
+      }), "PicWish watermark removal polling");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logPicWishEvent("failure", { taskType: "watermark", endpoint, taskId, attempt: attempt + 1, durationMs: Date.now() - startedAt, error: message });
+      throw error;
+    }
+    logPicWishEvent("poll", {
+      taskType: "watermark",
+      endpoint,
+      taskId,
+      status: data.status,
+      state: data.data?.state,
+      progress: data.data?.progress,
+      attempt: attempt + 1,
+      durationMs: Date.now() - startedAt,
+    });
+    if (getPicWishResultImageUrl(data, "watermark")) {
+      logPicWishEvent("success", {
+        taskType: "watermark",
+        endpoint,
+        taskId,
+        status: data.status,
+        state: data.data?.state,
+        progress: data.data?.progress,
+        durationMs: Date.now() - startedAt,
+        width: data.data?.image_width,
+        height: data.data?.image_height,
+      });
+      return data;
+    }
+    if (data.data?.state && data.data.state < 0) {
+      const message = getPicWishErrorMessage(data, "PicWish watermark removal task failed");
+      logPicWishEvent("failure", { taskType: "watermark", endpoint, taskId, status: data.status, state: data.data.state, progress: data.data.progress, durationMs: Date.now() - startedAt, error: message });
+      throw new Error(message);
+    }
+  }
+  logPicWishEvent("failure", { taskType: "watermark", endpoint, taskId, durationMs: Date.now() - startedAt, error: "PicWish watermark removal timed out" });
+  throw new Error("PicWish watermark removal timed out");
 }
 
 async function runPicWishImageTask(
@@ -1153,7 +1213,77 @@ async function enhanceImageWithPicWish(src: string): Promise<GeneratedImageResul
 
 async function removeWatermarkWithPicWish(src: string): Promise<GeneratedImageResult> {
   const { buffer, mimeType } = await imageSrcToBuffer(src);
-  return runPicWishImageTask("watermark", buffer, mimeType);
+  const { apiKey, baseUrl } = getPicWishConfig();
+  if (!apiKey) {
+    throw new Error("Missing PICWISH_API_KEY");
+  }
+
+  const body = new FormData();
+  body.append("sync", "0");
+  body.append("file", bufferToImageFile(buffer, mimeType));
+
+  const endpoint = getPicWishWatermarkRemovalEndpoint(baseUrl);
+  const startedAt = Date.now();
+  logPicWishEvent("request", { taskType: "watermark", endpoint, hasMask: false });
+
+  let created: PicWishSegmentationResponse;
+  try {
+    created = await readPicWishJson(await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "X-API-KEY": apiKey,
+      },
+      body,
+    }), "PicWish watermark removal");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logPicWishEvent("failure", { taskType: "watermark", endpoint, durationMs: Date.now() - startedAt, error: message, hasMask: false });
+    throw error;
+  }
+
+  const immediateResult = getPicWishResultImageUrl(created, "watermark");
+  const taskId = getPicWishTaskId(created);
+  logPicWishEvent("created", {
+    taskType: "watermark",
+    endpoint,
+    taskId,
+    status: created.status,
+    state: created.data?.state,
+    progress: created.data?.progress,
+    durationMs: Date.now() - startedAt,
+    hasMask: false,
+  });
+
+  const result = immediateResult
+    ? created
+    : taskId
+      ? await pollPicWishWatermarkRemovalTask(taskId, apiKey, baseUrl)
+      : null;
+  if (!result) {
+    logPicWishEvent("failure", { taskType: "watermark", endpoint, durationMs: Date.now() - startedAt, error: "PicWish watermark removal did not return a task id", hasMask: false });
+    throw new Error("PicWish watermark removal did not return a task id");
+  }
+
+  const imageUrl = getPicWishResultImageUrl(result, "watermark");
+  if (!imageUrl) {
+    logPicWishEvent("failure", { taskType: "watermark", endpoint, taskId, durationMs: Date.now() - startedAt, error: "PicWish watermark removal did not return a result image", hasMask: false });
+    throw new Error("PicWish watermark removal did not return a result image");
+  }
+
+  logPicWishEvent("download", {
+    taskType: "watermark",
+    endpoint: imageUrl,
+    taskId: getPicWishTaskId(result) || taskId,
+    durationMs: Date.now() - startedAt,
+    width: result.data?.image_width,
+    height: result.data?.image_height,
+  });
+  const resolvedTaskId = getPicWishTaskId(result) || taskId;
+  const downloaded = await downloadPicWishImageAsTransparentPng(imageUrl, {
+    width: result.data?.image_width,
+    height: result.data?.image_height,
+  });
+  return withProviderTaskIds(downloaded, resolvedTaskId ? [resolvedTaskId] : []);
 }
 
 function getBackgroundOutputSize(input: CreateBackgroundInput, fallbackWidth: number, fallbackHeight: number) {

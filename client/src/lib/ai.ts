@@ -57,9 +57,13 @@ function getAiAssetBaseUrl() {
 }
 
 function normalizeGeneratedImageSrc(src: string) {
-  if (!src || src.startsWith("data:") || /^https?:\/\//i.test(src)) return src;
-  if (src.startsWith("/uploads/")) return `${getAiAssetBaseUrl()}${src}`;
-  return src;
+  const trimmed = src.trim();
+  if (!trimmed || trimmed.startsWith("data:") || /^https?:\/\//i.test(trimmed)) return trimmed;
+  const uploadPath = trimmed
+    .replace(/^\/api(?=\/uploads\/)/, "")
+    .replace(/^uploads\//, "/uploads/");
+  if (uploadPath.startsWith("/uploads/")) return `${getAiAssetBaseUrl()}${uploadPath}`;
+  return trimmed;
 }
 
 function normalizeGeneratedImage(image: GeneratedImageResult): GeneratedImageResult {
@@ -655,5 +659,9 @@ export async function expandImageWithMask({
     prompt: prompt || "Extend the image naturally only inside the masked blank area. Preserve all unmasked pixels exactly and never generate beyond the requested boundary.",
   }, "AI 扩展失败");
 
-  return toGeneratedImagesResponse(result);
+  const normalized = toGeneratedImagesResponse(result);
+  if (!normalized.providerTaskId && !(normalized.providerTaskIds && normalized.providerTaskIds.length > 0)) {
+    throw new Error("AI 扩展失败: providerTaskId 缺失，结果已拒绝写入");
+  }
+  return normalized;
 }

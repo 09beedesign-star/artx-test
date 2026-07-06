@@ -45,6 +45,30 @@
 - 已知风险 / 待回归：
 ```
 
+## 2026-07-06 15:17
+
+- 任务：复制粘贴拖入下载全跑通
+- 原因：为后续溯源创建明确注释，标记画布图片复制、粘贴、外部拖入和下载链路已经完成一轮跑通修复与本地验证。
+- 影响范围：画布图片复制/粘贴优先级、外部网页图片拖入解析与去重、选中图片下载/批量下载/画布导出下载相关链路；本条仅为日志记录，不改变产品代码。
+- AI 联调：
+  - capability: N/A
+  - entry: N/A
+  - model/provider: N/A
+  - generationId: N/A
+  - backendTaskId: N/A
+  - providerTaskId: N/A
+  - request endpoint: N/A
+  - result: N/A
+  - error: N/A
+- 测试环境：
+  - frontend: <https://09beedesign-star.github.io/artx-test/>
+  - backend: <https://artx-test.onrender.com>
+  - branch: `test/feature/interaction-framework`
+  - commitSha: N/A
+  - deployment check: N/A
+- 验证：本地完整服务 `http://127.0.0.1:5018/` 已用于回归；`npm exec --yes pnpm@10.4.1 -- run check`、`npm exec --yes pnpm@10.4.1 -- run build` 均通过。
+- 已知风险 / 待回归：本条为溯源注释；如后续发布测试环境，需要按 `AGENTS.md` 规则确认线上 `commitSha`。
+
 ## 2026-06-24 11:16
 
 - 任务：统一 PicWish 能力 taskId 可追溯响应

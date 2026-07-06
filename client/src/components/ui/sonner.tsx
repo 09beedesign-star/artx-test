@@ -2,6 +2,9 @@ import { useEffect } from "react";
 import { useTheme } from "next-themes";
 import { Toaster as Sonner, type ToasterProps } from "sonner";
 
+const NEGATIVE_TOAST_PATTERN =
+  /失败|错误|异常|无法|不可用|失效|无效|超时|过期|未读取到|不能|连接中断|请稍后重试|failed|failure|error|unable|unavailable|invalid|expired|timeout|cannot|can't|disconnected/i;
+
 const Toaster = ({ ...props }: ToasterProps) => {
   const { theme = "system" } = useTheme();
 
@@ -13,26 +16,29 @@ const Toaster = ({ ...props }: ToasterProps) => {
         const content = toast.querySelector<HTMLElement>("[data-content]");
         if (!content) return;
 
-        const isOverflowing = content.scrollWidth > content.clientWidth + 1 || content.scrollHeight > content.clientHeight + 1;
+        const title = toast.querySelector<HTMLElement>("[data-title]");
+        const description = toast.querySelector<HTMLElement>("[data-description]");
+        const text = [title?.innerText, description?.innerText]
+          .filter(Boolean)
+          .join(" ");
+        const type = toast.getAttribute("data-type") || "";
+        const isNegative = type === "error" || NEGATIVE_TOAST_PATTERN.test(text);
+        const computed = window.getComputedStyle(content);
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d");
+        if (context) {
+          context.font = `${computed.fontStyle} ${computed.fontWeight} ${computed.fontSize} ${computed.fontFamily}`;
+        }
+        const textWidth = context?.measureText(text).width || content.scrollWidth;
+        const isOverflowing =
+          textWidth > content.clientWidth + 1 ||
+          content.scrollHeight > content.clientHeight + 1;
         toast.dataset.artxOverflow = isOverflowing ? "true" : "false";
-
-        if (!isOverflowing || toast.querySelector("[data-artx-toast-expand]")) return;
-
-        const button = document.createElement("button");
-        button.type = "button";
-        button.dataset.artxToastExpand = "true";
-        button.setAttribute("aria-label", "展开提示");
-        button.title = "展开提示";
-        button.textContent = "展开";
-        button.addEventListener("click", (event) => {
-          event.stopPropagation();
-          const expanded = toast.dataset.artxExpanded === "true";
-          toast.dataset.artxExpanded = expanded ? "false" : "true";
-          button.textContent = expanded ? "展开" : "收起";
-          button.setAttribute("aria-label", expanded ? "展开提示" : "收起提示");
-          button.title = expanded ? "展开提示" : "收起提示";
+        toast.dataset.artxExpanded = "false";
+        toast.dataset.artxNegative = isNegative ? "true" : "false";
+        toast.querySelectorAll("[data-artx-toast-expand]").forEach((button) => {
+          button.remove();
         });
-        toast.appendChild(button);
       });
     };
 
@@ -58,7 +64,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       className="toaster group"
       style={
         {
-          "--width": "200px",
+          "--width": "min(360px, calc(100vw - 32px))",
           "--normal-bg": "rgba(0,0,0,0.60)",
           "--normal-text": "rgba(255,255,255,0.92)",
           "--normal-border": "rgba(255,255,255,0.10)",
