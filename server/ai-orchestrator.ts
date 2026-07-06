@@ -1,5 +1,5 @@
 import { brandKitToPrompt, getBrandKit } from "./brand-kit";
-import { editImageWithPrompt, eraseImageObjects, generateImages, removeImageBackground } from "./image-generation";
+import { editImageWithPrompt, eraseImageObjects, expandImageWithPicWish, generateImages, removeImageBackground } from "./image-generation";
 import { generateText } from "./text-generation";
 import { getSkill, matchSkill } from "./skill-registry";
 import { resolveModelRoute, type AiCapability } from "./model-router";
@@ -120,19 +120,39 @@ export class AIOrchestrator {
       };
     }
 
-    if (capability === "element_erasure" || capability === "image_expansion") {
+    if (capability === "image_expansion") {
+      if (!imageSrc || !maskSrc) throw new Error("Missing image or mask");
+      const result = await expandImageWithPicWish({
+        imageSrc,
+        maskSrc,
+        model: route.model,
+        prompt: prompt || "Outpaint only the blank transparent extension area outside the original image. Preserve every unmasked pixel exactly. Analyze the original background, floor, wall, light, shadows, color, texture, perspective, and edge details, then generate new matching surrounding environment only in the editable area. Do not enlarge, duplicate, mirror, repeat, or redraw the original subject/person/object. Do not paste a scaled copy of the original image into the extension. Do not create a blurred border or vignette.",
+        targetWidth: input.targetWidth,
+        targetHeight: input.targetHeight,
+      });
+      return {
+        type: "image",
+        capability,
+        model: route.model,
+        images: result.images,
+        image_base64: firstImageBase64(result.images),
+        providerTaskId: result.providerTaskId,
+        providerTaskIds: result.providerTaskIds,
+        route: route.provider,
+        skill: skill?.id,
+      };
+    }
+
+    if (capability === "element_erasure") {
       if (!imageSrc || !maskSrc) throw new Error("Missing image or mask");
       const result = await eraseImageObjects({
         imageSrc,
         maskSrc,
         model: route.model,
-        prompt: prompt || (capability === "image_expansion"
-          ? "Outpaint only the blank transparent extension area outside the original image. Preserve every unmasked pixel exactly. Analyze the original background, floor, wall, light, shadows, color, texture, perspective, and edge details, then generate new matching surrounding environment only in the editable area. Do not enlarge, duplicate, mirror, repeat, or redraw the original subject/person/object. Do not paste a scaled copy of the original image into the extension. Do not create a blurred border or vignette."
-          : "Remove only the masked content and rebuild the area naturally. Preserve unmasked pixels."),
+        prompt: prompt || "Remove only the masked content and rebuild the area naturally. Preserve unmasked pixels.",
         targetWidth: input.targetWidth,
         targetHeight: input.targetHeight,
-        disableLocalFallback: capability === "image_expansion",
-        preserveUnmaskedPixels: capability !== "image_expansion",
+        preserveUnmaskedPixels: true,
       });
       return {
         type: "image",

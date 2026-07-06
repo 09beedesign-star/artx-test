@@ -6154,8 +6154,7 @@ function AssetNodeComponent({
     image.onload = () => {
       const dx = Math.round((-cropRect.x / 100) * dispW);
       const dy = Math.round((-cropRect.y / 100) * dispH);
-      expandedCtx.fillStyle = sampleImageEdgeColor(image);
-      expandedCtx.fillRect(0, 0, nextW, nextH);
+      expandedCtx.clearRect(0, 0, nextW, nextH);
       expandedCtx.drawImage(image, dx, dy, dispW, dispH);
       maskCtx.clearRect(0, 0, nextW, nextH);
       maskCtx.fillStyle = "black";
@@ -16376,12 +16375,84 @@ function CanvasAssistantPanel({
       }
       if (event.key !== "Backspace") return;
       const target = event.currentTarget;
-      if (
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement
-      ) {
-        if (target.selectionStart !== 0 || target.selectionEnd !== 0) return;
-      } else if (activeComposerCursorRef.current !== 0) {
+      const getEditableSelectionRange = () => {
+        if (
+          target instanceof HTMLInputElement ||
+          target instanceof HTMLTextAreaElement
+        ) {
+          return {
+            start: target.selectionStart ?? target.value.length,
+            end: target.selectionEnd ?? target.value.length,
+            value: target.value,
+          };
+        }
+        const value = target.textContent || "";
+        const selection = window.getSelection();
+        if (!selection || selection.rangeCount === 0) {
+          return {
+            start: activeComposerCursorRef.current,
+            end: activeComposerCursorRef.current,
+            value,
+          };
+        }
+        const range = selection.getRangeAt(0);
+        if (!target.contains(range.startContainer)) {
+          return {
+            start: activeComposerCursorRef.current,
+            end: activeComposerCursorRef.current,
+            value,
+          };
+        }
+        const startRange = range.cloneRange();
+        startRange.selectNodeContents(target);
+        startRange.setEnd(range.startContainer, range.startOffset);
+        const endRange = range.cloneRange();
+        endRange.selectNodeContents(target);
+        endRange.setEnd(range.endContainer, range.endOffset);
+        return {
+          start: startRange.toString().length,
+          end: endRange.toString().length,
+          value,
+        };
+      };
+      const restoreEmptyComposerField = () => {
+        setComposerTextSegment(segmentId, "");
+        activeComposerSegmentIdRef.current = segmentId;
+        activeComposerCursorRef.current = 0;
+        window.setTimeout(() => {
+          const input = composerInputRefs.current[segmentId];
+          input?.focus();
+          if (
+            input instanceof HTMLInputElement ||
+            input instanceof HTMLTextAreaElement
+          ) {
+            input.setSelectionRange(0, 0);
+            return;
+          }
+          if (!input) return;
+          const range = document.createRange();
+          const selection = window.getSelection();
+          range.setStart(input.firstChild || input, 0);
+          range.collapse(true);
+          selection?.removeAllRanges();
+          selection?.addRange(range);
+        }, 0);
+      };
+      const selectionRange = getEditableSelectionRange();
+      const selectedAllText =
+        selectionRange.value.length > 0 &&
+        selectionRange.start === 0 &&
+        selectionRange.end === selectionRange.value.length;
+      const deletingFinalCharacter =
+        selectionRange.value.length === 1 &&
+        selectionRange.start === selectionRange.end &&
+        selectionRange.start === 1;
+      if (selectedAllText || deletingFinalCharacter) {
+        event.preventDefault();
+        restoreEmptyComposerField();
+        return;
+      }
+      if (selectionRange.start !== 0 || selectionRange.end !== 0) {
         return;
       }
       const index = composerSegments.findIndex(
@@ -16391,8 +16462,13 @@ function CanvasAssistantPanel({
       if (
         !previous ||
         (previous.type !== "image" && previous.type !== "annotation")
-      )
+      ) {
+        if (selectionRange.value.length === 0) {
+          event.preventDefault();
+          restoreEmptyComposerField();
+        }
         return;
+      }
       event.preventDefault();
       if (previous.type === "image") {
         removeComposerImageSegment(previous.id, previous.asset.id);
@@ -16400,7 +16476,12 @@ function CanvasAssistantPanel({
         removeComposerAnnotationSegment(previous.id, previous.annotation.id);
       }
     },
-    [composerSegments, removeComposerAnnotationSegment, removeComposerImageSegment]
+    [
+      composerSegments,
+      removeComposerAnnotationSegment,
+      removeComposerImageSegment,
+      setComposerTextSegment,
+    ]
   );
 
   const composerText = getAssistantComposerText(composerSegments);

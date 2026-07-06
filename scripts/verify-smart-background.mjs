@@ -25,7 +25,7 @@ assert(files.ai.includes("/api/images/create-background"), "client API points to
 assert(files.index.includes('app.post("/api/images/create-background"'), "server exposes create-background route");
 assert(files.server.includes('"r-background"'), "PicWish r-background task type is registered");
 assert(files.server.includes('runPicWishImageTask("r-background"'), "smart background uses PicWish r-background task");
-assert(files.server.includes('eraseWithPicWish') && files.server.includes('runPicWishImageTask("inpaint"'), "eraser remains on PicWish inpaint");
+assert(files.server.includes("eraseWithPicWish") && files.server.includes("createPicWishInpaintTask"), "eraser remains on the dedicated PicWish inpaint path");
 
 if (process.exitCode) {
   process.exit(process.exitCode);

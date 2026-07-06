@@ -5,7 +5,7 @@ import { fileURLToPath } from "url";
 import "./env";
 import { AIOrchestrator } from "./ai-orchestrator";
 import { createBrandKit, deleteBrandKit, getBrandKit, listBrandKits, parseBrandKitFromImage } from "./brand-kit";
-import { createProductBackground, editImageWithPrompt, enhanceImage, eraseImageObjects, extractImageText, generateImages, removeImageBackground, removeImageWatermark } from "./image-generation";
+import { createProductBackground, editImageWithPrompt, enhanceImage, eraseImageObjects, expandImageWithPicWish, extractImageText, generateImages, removeImageBackground, removeImageWatermark } from "./image-generation";
 import { getUploadsRoot, storeGeneratedImagesForUser } from "./local-image-storage";
 import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
@@ -904,23 +904,22 @@ async function startServer() {
     await handleTrackedAiRequest(req, res, {
       capabilityKey: "image_expansion",
       capability: "扩图 / 外延生成",
-      provider: "AI_IMAGE",
-      model: getRouteModel(req.body, process.env.AI_IMAGE_MODEL || "gpt-image-2"),
+      provider: "PicWish/佐糖",
+      model: getRouteModel(req.body, "picwish-advanced-image-expand"),
       failureMessage: "Image expansion failed",
     }, async (user) => {
       const imageSrc = req.body?.imageSrc || req.body?.image_url || req.body?.image_base64;
       const maskSrc = req.body?.maskSrc || req.body?.mask_url || req.body?.mask_base64;
-      const result = await orchestrator.run({
+      const result = await expandImageWithPicWish({
         ...req.body,
-        capability: "image_expansion",
         imageSrc,
         maskSrc,
         prompt: req.body?.prompt || "Extend the image naturally only inside the masked blank area. Preserve all unmasked pixels exactly and never generate beyond the requested boundary.",
       });
       const stored = await storeImageResultForUser({
         images: result.images || [],
-        image_base64: result.image_base64,
-        model: result.model,
+        image_base64: result.images?.[0]?.src?.split(";base64,")[1],
+        model: "picwish-advanced-image-expand",
         providerTaskId: result.providerTaskId,
         providerTaskIds: result.providerTaskIds,
       }, user.username);

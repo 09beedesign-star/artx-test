@@ -61,6 +61,28 @@ type EraseImageInput = {
   preserveUnmaskedPixels?: boolean;
 };
 
+type ExpandImageInput = {
+  imageSrc?: string;
+  imageUrl?: string;
+  image_url?: string;
+  maskSrc?: string;
+  maskUrl?: string;
+  mask_url?: string;
+  sync?: 0 | 1 | boolean | string | number;
+  model?: string;
+  prompt?: string;
+  targetWidth?: number;
+  targetHeight?: number;
+  top?: number;
+  bottom?: number;
+  left?: number;
+  right?: number;
+  strength?: number;
+  scale?: number;
+  steps?: number;
+  seed?: number;
+};
+
 type ExtractImageTextInput = {
   imageSrc: string;
   model?: string;
@@ -156,6 +178,11 @@ type PicWishSegmentationResponse = {
   data?: {
     task_id?: string;
     image?: string;
+    image1?: string;
+    image_1?: string;
+    image_2?: string;
+    image_3?: string;
+    image_4?: string;
     image_obj?: string;
     file?: string;
     mask?: string;
@@ -164,6 +191,7 @@ type PicWishSegmentationResponse = {
     image_height?: number;
     progress?: number;
     state?: number;
+    state_detail?: string;
   };
 };
 
@@ -716,7 +744,7 @@ function bufferToImageFile(buffer: Buffer, mimeType: string) {
   return new File([buffer], getImageFileName(mimeType), { type: mimeType });
 }
 
-type PicWishVisualTaskType = "segmentation" | "scale" | "self-face-cutout" | "watermark" | "inpaint" | "r-background";
+type PicWishVisualTaskType = "segmentation" | "scale" | "self-face-cutout" | "watermark" | "inpaint" | "r-background" | "advanced-image-expand";
 
 function getPicWishTaskEndpoint(baseUrl: string, taskType: PicWishVisualTaskType) {
   return `${baseUrl.replace(/\/+$/, "")}/api/tasks/visual/${taskType}`;
@@ -726,12 +754,19 @@ function getPicWishWatermarkRemovalEndpoint(baseUrl: string) {
   return `${baseUrl.replace(/\/+$/, "")}/api/tasks/visual/external/watermark-remove`;
 }
 
+function getPicWishImageExpansionEndpoint(baseUrl: string) {
+  return `${baseUrl.replace(/\/+$/, "")}/api/tasks/visual/advanced-image-expand`;
+}
+
 function getPicWishResultImageUrl(data: PicWishSegmentationResponse, taskType?: PicWishVisualTaskType) {
   if (taskType === "segmentation") {
     return data.data?.image_obj || data.data?.image || "";
   }
   if (taskType === "watermark") {
     return data.data?.file || data.data?.image || data.data?.image_obj || "";
+  }
+  if (taskType === "advanced-image-expand") {
+    return data.data?.image || data.data?.image1 || data.data?.image_1 || data.data?.image_2 || data.data?.image_3 || data.data?.image_4 || "";
   }
   return data.data?.image || data.data?.image_obj || "";
 }
@@ -1130,6 +1165,208 @@ async function pollPicWishInpaintTask(taskId: string, apiKey: string, baseUrl: s
   throw new Error("PicWish inpaint timed out");
 }
 
+function appendOptionalPicWishNumber(body: FormData, key: string, value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return;
+  body.append(key, String(value));
+}
+
+async function createPicWishImageExpansionTask(
+  input: {
+    imageBuffer?: Buffer;
+    imageMimeType?: string;
+    imageUrl?: string;
+    maskBuffer?: Buffer;
+    maskMimeType?: string;
+    maskUrl?: string;
+    sync?: boolean;
+    prompt?: string;
+    top?: number;
+    bottom?: number;
+    left?: number;
+    right?: number;
+    strength?: number;
+    scale?: number;
+    steps?: number;
+    seed?: number;
+  },
+): Promise<{ taskId: string; apiKey: string; baseUrl: string; created: PicWishSegmentationResponse; imageUrl?: string }> {
+  const { apiKey, baseUrl } = getPicWishConfig();
+  if (!apiKey) {
+    throw new Error("Missing PICWISH_API_KEY");
+  }
+
+  const endpoint = getPicWishImageExpansionEndpoint(baseUrl);
+  const body = new FormData();
+  body.append("sync", input.sync ? "1" : "0");
+  body.append("return_type", "1");
+  if (input.imageUrl) {
+    body.append("image_url", input.imageUrl);
+  } else if (input.imageBuffer) {
+    body.append("image_file", bufferToImageFile(input.imageBuffer, input.imageMimeType || "image/png"));
+  } else {
+    throw new Error("Missing image source for PicWish image expansion");
+  }
+  if (input.maskUrl) {
+    body.append("mask_url", input.maskUrl);
+  } else if (input.maskBuffer) {
+    body.append("mask_file", bufferToImageFile(input.maskBuffer, input.maskMimeType || "image/png"));
+  }
+  if (input.prompt?.trim()) body.append("prompt", input.prompt.trim().slice(0, 500));
+  appendOptionalPicWishNumber(body, "top", input.top);
+  appendOptionalPicWishNumber(body, "bottom", input.bottom);
+  appendOptionalPicWishNumber(body, "left", input.left);
+  appendOptionalPicWishNumber(body, "right", input.right);
+  appendOptionalPicWishNumber(body, "strength", input.strength);
+  appendOptionalPicWishNumber(body, "scale", input.scale);
+  appendOptionalPicWishNumber(body, "steps", input.steps);
+  appendOptionalPicWishNumber(body, "seed", input.seed);
+
+  const startedAt = Date.now();
+  logPicWishEvent("request", { taskType: "advanced-image-expand", endpoint, hasMask: Boolean(input.maskBuffer || input.maskUrl) });
+  let created: PicWishSegmentationResponse;
+  try {
+    created = await readPicWishJson(await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "X-API-KEY": apiKey,
+      },
+      body,
+    }), "PicWish advanced-image-expand");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logPicWishEvent("failure", { taskType: "advanced-image-expand", endpoint, durationMs: Date.now() - startedAt, error: message, hasMask: Boolean(input.maskBuffer || input.maskUrl) });
+    throw error;
+  }
+
+  const taskId = getPicWishTaskId(created);
+  const imageUrl = getPicWishResultImageUrl(created, "advanced-image-expand");
+  logPicWishEvent("created", {
+    taskType: "advanced-image-expand",
+    endpoint,
+    taskId,
+    status: created.status,
+    state: created.data?.state,
+    progress: created.data?.progress,
+    durationMs: Date.now() - startedAt,
+    hasMask: Boolean(input.maskBuffer || input.maskUrl),
+  });
+  if (!taskId) {
+    logPicWishEvent("failure", {
+      taskType: "advanced-image-expand",
+      endpoint,
+      status: created.status,
+      durationMs: Date.now() - startedAt,
+      error: imageUrl
+        ? "PicWish advanced-image-expand returned an image but no task id"
+        : "PicWish advanced-image-expand did not return a task id",
+      hasMask: Boolean(input.maskBuffer || input.maskUrl),
+    });
+    throw new Error("PicWish advanced-image-expand did not return a task id");
+  }
+  return { taskId, apiKey, baseUrl, created, imageUrl };
+}
+
+async function pollPicWishImageExpansionTask(taskId: string, apiKey: string, baseUrl: string): Promise<{ images: GeneratedImage[] }> {
+  const endpoint = `${getPicWishImageExpansionEndpoint(baseUrl)}/${encodeURIComponent(taskId)}`;
+  const startedAt = Date.now();
+  for (let attempt = 0; attempt < 180; attempt += 1) {
+    if (attempt > 0) await delay(1000);
+    let data: PicWishSegmentationResponse;
+    try {
+      data = await readPicWishJson(await fetch(endpoint, {
+        method: "GET",
+        headers: {
+          "X-API-KEY": apiKey,
+        },
+      }), "PicWish advanced-image-expand polling");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logPicWishEvent("failure", { taskType: "advanced-image-expand", endpoint, taskId, attempt: attempt + 1, durationMs: Date.now() - startedAt, error: message });
+      throw error;
+    }
+    const state = Number(data.data?.state || 0);
+    logPicWishEvent("poll", {
+      taskType: "advanced-image-expand",
+      endpoint,
+      taskId,
+      status: data.status,
+      state,
+      progress: data.data?.progress,
+      attempt: attempt + 1,
+      durationMs: Date.now() - startedAt,
+    });
+    if (state === 1) {
+      const imageUrl = getPicWishResultImageUrl(data, "advanced-image-expand");
+      if (!imageUrl) {
+        logPicWishEvent("failure", { taskType: "advanced-image-expand", endpoint, taskId, status: data.status, state, progress: data.data?.progress, durationMs: Date.now() - startedAt, error: "PicWish advanced-image-expand did not return a result image" });
+        throw new Error("PicWish advanced-image-expand did not return a result image");
+      }
+      logPicWishEvent("success", {
+        taskType: "advanced-image-expand",
+        endpoint,
+        taskId,
+        status: data.status,
+        state,
+        progress: data.data?.progress,
+        durationMs: Date.now() - startedAt,
+        width: data.data?.image_width,
+        height: data.data?.image_height,
+      });
+      logPicWishEvent("download", {
+        taskType: "advanced-image-expand",
+        endpoint: imageUrl,
+        taskId,
+        durationMs: Date.now() - startedAt,
+        width: data.data?.image_width,
+        height: data.data?.image_height,
+      });
+      return downloadPicWishImageAsTransparentPng(imageUrl, {
+        width: data.data?.image_width,
+        height: data.data?.image_height,
+      });
+    }
+    if (state < 0) {
+      const message = getPicWishErrorMessage(data, "PicWish advanced-image-expand task failed");
+      logPicWishEvent("failure", { taskType: "advanced-image-expand", endpoint, taskId, status: data.status, state, progress: data.data?.progress, durationMs: Date.now() - startedAt, error: message });
+      throw new Error(message);
+    }
+  }
+  logPicWishEvent("failure", { taskType: "advanced-image-expand", endpoint, taskId, durationMs: Date.now() - startedAt, error: "PicWish advanced-image-expand timed out" });
+  throw new Error("PicWish advanced-image-expand timed out");
+}
+
+async function runPicWishImageExpansion(
+  input: {
+    imageBuffer?: Buffer;
+    imageMimeType?: string;
+    imageUrl?: string;
+    maskBuffer?: Buffer;
+    maskMimeType?: string;
+    maskUrl?: string;
+    sync?: boolean;
+    prompt?: string;
+    top?: number;
+    bottom?: number;
+    left?: number;
+    right?: number;
+    strength?: number;
+    scale?: number;
+    steps?: number;
+    seed?: number;
+  },
+): Promise<GeneratedImageResult> {
+  const { taskId, apiKey, baseUrl, created, imageUrl } = await createPicWishImageExpansionTask(input);
+  if (imageUrl) {
+    const result = await downloadPicWishImageAsTransparentPng(imageUrl, {
+      width: created.data?.image_width,
+      height: created.data?.image_height,
+    });
+    return withProviderTaskIds(result, [taskId]);
+  }
+  const result = await pollPicWishImageExpansionTask(taskId, apiKey, baseUrl);
+  return withProviderTaskIds(result, [taskId]);
+}
+
 async function eraseWithPicWish(
   input: {
     imageBuffer?: Buffer;
@@ -1348,6 +1585,12 @@ function coerceTargetDimension(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) && value > 0
     ? Math.round(value)
     : undefined;
+}
+
+function coerceOptionalNumber(value: unknown) {
+  if (value === undefined || value === null || value === "") return undefined;
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : undefined;
 }
 
 async function normalizeGeneratedImagesToTargetAspect(
@@ -2297,6 +2540,48 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<Generat
   const normalized = await normalizeGeneratedImagesToTargetAspect(picWishResult.images, targetWidth, targetHeight);
   if (normalized.length === 0) {
     throw new Error("AI 擦除未返回可用内容，请稍后重试");
+  }
+  return withProviderTaskIds({ images: normalized }, collectProviderTaskIds(picWishResult));
+}
+
+export async function expandImageWithPicWish(input: ExpandImageInput): Promise<GeneratedImageResult> {
+  const sourceImageSrc = input.imageSrc?.trim();
+  const sourceImageUrl = (input.imageUrl || input.image_url || "").trim();
+  const maskSrc = input.maskSrc?.trim();
+  const maskUrl = (input.maskUrl || input.mask_url || "").trim();
+  if (!sourceImageSrc && !sourceImageUrl) {
+    throw new Error("Missing imageSrc");
+  }
+
+  const sourceImageData = sourceImageSrc ? await imageSrcToBuffer(sourceImageSrc) : null;
+  const maskImageData = maskSrc ? await imageSrcToBuffer(maskSrc) : null;
+  const sourceImageDimensions = sourceImageData
+    ? await getImageBufferDimensions(sourceImageData.buffer)
+    : { width: coerceTargetDimension(input.targetWidth) || 1024, height: coerceTargetDimension(input.targetHeight) || 1024 };
+  const targetWidth = coerceTargetDimension(input.targetWidth) || sourceImageDimensions.width;
+  const targetHeight = coerceTargetDimension(input.targetHeight) || sourceImageDimensions.height;
+  const sync = input.sync === true || input.sync === 1 || input.sync === "1";
+  const picWishResult = await runPicWishImageExpansion({
+    imageBuffer: sourceImageData?.buffer,
+    imageMimeType: sourceImageData?.mimeType,
+    imageUrl: sourceImageUrl || undefined,
+    maskBuffer: maskImageData?.buffer,
+    maskMimeType: maskImageData?.mimeType,
+    maskUrl: maskUrl || undefined,
+    sync,
+    prompt: input.prompt,
+    top: coerceOptionalNumber(input.top),
+    bottom: coerceOptionalNumber(input.bottom),
+    left: coerceOptionalNumber(input.left),
+    right: coerceOptionalNumber(input.right),
+    strength: coerceOptionalNumber(input.strength) ?? 0.35,
+    scale: coerceOptionalNumber(input.scale) ?? 7,
+    steps: coerceOptionalNumber(input.steps) ?? 30,
+    seed: coerceOptionalNumber(input.seed),
+  });
+  const normalized = await normalizeGeneratedImagesToTargetAspect(picWishResult.images, targetWidth, targetHeight);
+  if (normalized.length === 0) {
+    throw new Error("AI 扩图未返回可用内容，请稍后重试");
   }
   return withProviderTaskIds({ images: normalized }, collectProviderTaskIds(picWishResult));
 }

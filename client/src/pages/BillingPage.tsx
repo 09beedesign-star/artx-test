@@ -254,6 +254,54 @@ function normalizePlanDisplayName(planName?: string | null) {
   return "Lite 入门版";
 }
 
+function getSubscribedPlanId(planName?: string | null): MembershipPlanId | null {
+  const raw = String(planName || "").trim();
+  if (!raw) return null;
+  const normalized = raw.toLowerCase();
+  if (
+    normalized === "free" ||
+    normalized === "starter" ||
+    normalized === "demo" ||
+    normalized.includes("积分充值") ||
+    normalized.includes("recharge")
+  ) {
+    return null;
+  }
+  if (
+    normalized.includes("studio") ||
+    normalized.includes("business") ||
+    normalized.includes("工作室") ||
+    normalized.includes("团队")
+  ) {
+    return "studio";
+  }
+  if (normalized.includes("pro") || normalized.includes("专业")) {
+    return "pro";
+  }
+  if (
+    normalized.includes("lite") ||
+    normalized.includes("creator") ||
+    normalized.includes("入门") ||
+    normalized.includes("创作者") ||
+    normalized.includes("基础")
+  ) {
+    return "lite";
+  }
+  return null;
+}
+
+function deriveSubscriptionDisplay(planName?: string | null) {
+  const subscribedPlanId = getSubscribedPlanId(planName);
+  const currentPlan = subscribedPlanId
+    ? normalizePlanDisplayName(planName)
+    : "未订阅";
+  return {
+    currentPlan,
+    subscribedPlanId,
+    subscriptionStatus: subscribedPlanId ? `已订阅 ${currentPlan}` : "未订阅",
+  };
+}
+
 async function billingFetch<T>(
   path: string,
   options: RequestInit = {}
@@ -303,8 +351,11 @@ export default function BillingPage() {
     null
   );
   const [payingPlanId, setPayingPlanId] = useState<string | null>(null);
-  const [balance, setBalance] = useState(75);
-  const [currentPlan, setCurrentPlan] = useState("Lite 入门版");
+  const [balance, setBalance] = useState(0);
+  const [currentPlan, setCurrentPlan] = useState("未订阅");
+  const [subscribedPlanId, setSubscribedPlanId] =
+    useState<MembershipPlanId | null>(null);
+  const [subscriptionStatus, setSubscriptionStatus] = useState("未订阅");
   const [balanceFlash, setBalanceFlash] = useState(false);
   const [rechargeAmounts, setRechargeAmounts] = useState<
     Record<string, string>
@@ -361,7 +412,10 @@ export default function BillingPage() {
       "/api/billing/summary"
     );
     if (typeof result.balance === "number") setBalance(result.balance);
-    setCurrentPlan(normalizePlanDisplayName(result.plan));
+    const display = deriveSubscriptionDisplay(result.plan);
+    setCurrentPlan(display.currentPlan);
+    setSubscribedPlanId(display.subscribedPlanId);
+    setSubscriptionStatus(display.subscriptionStatus);
   };
 
   useEffect(() => {
@@ -397,7 +451,10 @@ export default function BillingPage() {
     ).catch(() => null);
     if (summary && typeof summary.balance === "number") {
       setBalance(summary.balance);
-      setCurrentPlan(normalizePlanDisplayName(summary.plan));
+      const display = deriveSubscriptionDisplay(summary.plan);
+      setCurrentPlan(display.currentPlan);
+      setSubscribedPlanId(display.subscribedPlanId);
+      setSubscriptionStatus(display.subscriptionStatus);
       setBalanceFlash(true);
       window.setTimeout(() => setBalanceFlash(false), 900);
     }
@@ -668,7 +725,7 @@ export default function BillingPage() {
                     icon: WalletCards,
                     rolling: true,
                   },
-                  { label: "订阅状态", value: "待升级", icon: Rocket },
+                  { label: "订阅状态", value: subscriptionStatus, icon: Rocket },
                 ].map(item => {
                   const Icon = item.icon;
                   return (
@@ -813,11 +870,15 @@ export default function BillingPage() {
                       const activePlanId = hoveredPlanId || selectedPlanId;
                       const isFocused = activePlanId === plan.id;
                       const isSelected = selectedPlanId === plan.id;
-                      const planBadge = isSelected
-                        ? "已选择"
-                        : planConfig.highlight
-                          ? "推荐"
-                          : "";
+                      const isCurrentSubscribedPlan =
+                        subscribedPlanId === plan.id;
+                      const planBadge = isCurrentSubscribedPlan
+                        ? "当前套餐"
+                        : isSelected
+                          ? "已选择"
+                          : planConfig.highlight
+                            ? "推荐"
+                            : "";
                       const originalPrice =
                         Math.ceil((quote.price * 1.42) / 10) * 10 + 9;
                       return (
@@ -966,22 +1027,44 @@ export default function BillingPage() {
                           <button
                             type="button"
                             onClick={() =>
+                              !isCurrentSubscribedPlan &&
                               startSubscriptionPayment(plan.id, plan.name)
                             }
-                            disabled={payingPlanId === plan.id}
+                            disabled={
+                              isCurrentSubscribedPlan ||
+                              payingPlanId === plan.id
+                            }
                             className="mt-5 h-10 rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-90"
                             style={{
-                              background: isSelected
+                              background: isCurrentSubscribedPlan
+                                ? "oklch(1 0 0 / 7%)"
+                                : isSelected
                                 ? green
                                 : "oklch(0.68 0.20 292 / 0.18)",
-                              color: isSelected ? "#10130A" : text,
-                              border: `1px solid ${isSelected ? "transparent" : "oklch(0.68 0.20 292 / 0.32)"}`,
+                              color: isCurrentSubscribedPlan
+                                ? faint
+                                : isSelected
+                                  ? "#10130A"
+                                  : text,
+                              border: `1px solid ${
+                                isCurrentSubscribedPlan
+                                  ? border
+                                  : isSelected
+                                    ? "transparent"
+                                    : "oklch(0.68 0.20 292 / 0.32)"
+                              }`,
                               cursor:
-                                payingPlanId === plan.id ? "wait" : "pointer",
+                                isCurrentSubscribedPlan
+                                  ? "not-allowed"
+                                  : payingPlanId === plan.id
+                                    ? "wait"
+                                    : "pointer",
                               fontWeight: 700,
                             }}
                           >
-                            {payingPlanId === plan.id
+                            {isCurrentSubscribedPlan
+                              ? "您已订阅该套餐。"
+                              : payingPlanId === plan.id
                               ? "创建支付中"
                               : "选择订阅"}
                           </button>
