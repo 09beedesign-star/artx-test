@@ -743,16 +743,24 @@ async function startServer() {
     backgroundImageTasks.set(taskId, task);
     res.json(task);
 
-    void generateImages(req.body)
+    void orchestrator.run({
+      ...req.body,
+      capability: "text_to_image",
+      intent: "text_to_image",
+      operation: "generate",
+    })
       .then(async result => {
-        const images = await storeGeneratedImagesForUser(result.images, user.username);
+        const images = await storeGeneratedImagesForUser(result.images || [], user.username, {
+          providerTaskId: result.providerTaskId,
+          providerTaskIds: result.providerTaskIds,
+        });
         await recordAiRouteUsage({
           user,
           tracking: {
-            capabilityKey: "text_to_image",
-            capability: "图片生成",
-            provider: "AI_IMAGE",
-            model: getRouteModel(req.body, process.env.AI_IMAGE_MODEL || "gpt-image-2"),
+            capabilityKey: capabilityFromOrchestrator(result.capability),
+            capability: result.capability,
+            provider: result.route,
+            model: result.model,
             failureMessage: "Image generation failed",
           },
           startedAt: task.createdAt,

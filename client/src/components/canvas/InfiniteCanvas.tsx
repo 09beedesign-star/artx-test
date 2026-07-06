@@ -15298,6 +15298,7 @@ function getCanvasRenderableImageSrc(src: string) {
 type CanvasAssistantModelTab = "image" | "text";
 type AssistantComposerSegment =
   | { id: string; type: "text"; text: string }
+  | { id: string; type: "skill"; skill: PendingSkillLoad }
   | { id: string; type: "image"; asset: ImageGeneratorReferenceAsset }
   | { id: string; type: "annotation"; annotation: AnnotationReference };
 
@@ -15411,7 +15412,21 @@ function createAssistantTextSegment(text = ""): AssistantComposerSegment {
 }
 
 function isAssistantTokenSegment(segment: AssistantComposerSegment) {
-  return segment.type === "image" || segment.type === "annotation";
+  return (
+    segment.type === "skill" ||
+    segment.type === "image" ||
+    segment.type === "annotation"
+  );
+}
+
+function createAssistantSkillSegment(
+  skill: PendingSkillLoad
+): AssistantComposerSegment {
+  return {
+    id: `seg-skill-${skill.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    type: "skill",
+    skill,
+  };
 }
 
 function createAssistantImageSegment(
@@ -15478,6 +15493,7 @@ function getAssistantComposerText(segments: AssistantComposerSegment[]) {
   return segments
     .map(segment => {
       if (segment.type === "text") return segment.text;
+      if (segment.type === "skill") return "";
       if (segment.type === "image") return `引用图：${segment.asset.title}`;
       return `注释：${segment.annotation.text || segment.annotation.title}`;
     })
@@ -15491,6 +15507,7 @@ function getAssistantComposerPrompt(segments: AssistantComposerSegment[]) {
   return segments
     .map(segment => {
       if (segment.type === "text") return segment.text.trim();
+      if (segment.type === "skill") return "";
       if (segment.type === "image") {
         imageIndex += 1;
         return `引用图 ${imageIndex}：${segment.asset.title}`;
@@ -16041,6 +16058,8 @@ function CanvasAssistantPanel({
         } else if (segment.type === "annotation") {
           onRemoveAnnotationReference(segment.annotation.id);
           syncedAnnotationIdsRef.current.delete(segment.annotation.id);
+        } else if (segment.type === "skill") {
+          onActiveSkillChange(null);
         }
       });
       setComposerSegments(prev =>
@@ -16050,7 +16069,24 @@ function CanvasAssistantPanel({
       );
       setComposerBoxSelection(null);
     },
-    [composerSegments, onRemoveAnnotationReference, onRemoveReference]
+    [
+      composerSegments,
+      onActiveSkillChange,
+      onRemoveAnnotationReference,
+      onRemoveReference,
+    ]
+  );
+
+  const removeComposerSkillSegment = useCallback(
+    (segmentId: string) => {
+      setComposerSegments(prev =>
+        normalizeAssistantComposerSegments(
+          prev.filter(segment => segment.id !== segmentId)
+        )
+      );
+      onActiveSkillChange(null);
+    },
+    [onActiveSkillChange]
   );
 
   const removeComposerImageSegment = useCallback(
@@ -16092,7 +16128,7 @@ function CanvasAssistantPanel({
         if (
           !source ||
           !target ||
-          (source.type !== "image" && source.type !== "annotation")
+          !isAssistantTokenSegment(source)
         )
           return prev;
         const withoutSource = prev.filter(segment => segment.id !== sourceId);
@@ -16169,6 +16205,7 @@ function CanvasAssistantPanel({
         .filter(segment => selected.has(segment.id))
         .map(segment => {
           if (segment.type === "text") return segment.text;
+          if (segment.type === "skill") return `Skill：${segment.skill.name}`;
           if (segment.type === "image") return `引用图：${segment.asset.title}`;
           return `注释：${segment.annotation.text || segment.annotation.title}`;
         })
@@ -16461,7 +16498,7 @@ function CanvasAssistantPanel({
       const previous = index > 0 ? composerSegments[index - 1] : null;
       if (
         !previous ||
-        (previous.type !== "image" && previous.type !== "annotation")
+        !isAssistantTokenSegment(previous)
       ) {
         if (selectionRange.value.length === 0) {
           event.preventDefault();
@@ -16470,7 +16507,9 @@ function CanvasAssistantPanel({
         return;
       }
       event.preventDefault();
-      if (previous.type === "image") {
+      if (previous.type === "skill") {
+        removeComposerSkillSegment(previous.id);
+      } else if (previous.type === "image") {
         removeComposerImageSegment(previous.id, previous.asset.id);
       } else {
         removeComposerAnnotationSegment(previous.id, previous.annotation.id);
@@ -16480,6 +16519,7 @@ function CanvasAssistantPanel({
       composerSegments,
       removeComposerAnnotationSegment,
       removeComposerImageSegment,
+      removeComposerSkillSegment,
       setComposerTextSegment,
     ]
   );
@@ -16492,10 +16532,12 @@ function CanvasAssistantPanel({
   const hasAnnotationReferences = composerAnnotations.length > 0;
   const totalReferenceCount =
     composerImages.length + composerAnnotations.length;
-  const hasComposerInputContent = hasPrompt || totalReferenceCount > 0;
+  const hasActiveSkill = Boolean(activeSkill);
+  const hasComposerInputContent =
+    hasPrompt || totalReferenceCount > 0 || hasActiveSkill;
   const shouldShowComposerPlaceholder = !hasComposerInputContent;
   const hasContext = selectedCount > 0 || totalReferenceCount > 0;
-  const canSubmit = (hasPrompt || hasContext) && !isSubmitting;
+  const canSubmit = (hasPrompt || hasContext || hasActiveSkill) && !isSubmitting;
   const contextLabel =
     selectedCount > 1
       ? `已选中 ${selectedCount} 个对象`
@@ -16608,6 +16650,41 @@ function CanvasAssistantPanel({
     },
     [focusComposerSegment]
   );
+
+  useEffect(() => {
+    const skillSegments = composerSegments.filter(
+      (segment): segment is Extract<AssistantComposerSegment, { type: "skill" }> =>
+        segment.type === "skill"
+    );
+    if (!activeSkill) {
+      if (skillSegments.length === 0) return;
+      setComposerSegments(prev =>
+        normalizeAssistantComposerSegments(
+          prev.filter(segment => segment.type !== "skill")
+        )
+      );
+      return;
+    }
+    const activeSkillSegment = skillSegments.find(
+      segment => segment.skill.id === activeSkill.id
+    );
+    if (activeSkillSegment && skillSegments.length === 1) return;
+    if (skillSegments.length > 0) {
+      setComposerSegments(prev =>
+        normalizeAssistantComposerSegments((() => {
+          let didPlaceSkill = false;
+          return prev.flatMap(segment => {
+            if (segment.type !== "skill") return [segment];
+            if (didPlaceSkill) return [];
+            didPlaceSkill = true;
+            return [createAssistantSkillSegment(activeSkill)];
+          });
+        })())
+      );
+      return;
+    }
+    insertComposerToken(() => createAssistantSkillSegment(activeSkill));
+  }, [activeSkill, composerSegments, insertComposerToken]);
 
   useEffect(() => {
     const newAssets = referencedAssets.filter(
@@ -17082,7 +17159,7 @@ function CanvasAssistantPanel({
       toast("请先登录", { description: "登录后即可使用 AI 能力" });
       return;
     }
-    if (!hasPrompt && !hasContext) {
+    if (!hasPrompt && !hasContext && !hasActiveSkill) {
       toast("请输入画布想法或选择对象");
       return;
     }
@@ -17873,6 +17950,82 @@ function CanvasAssistantPanel({
                   const isBoxSelected =
                     composerBoxSelection?.selectedIds.includes(segment.id) ??
                     false;
+                  if (segment.type === "skill") {
+                    return (
+                      <span
+                        key={segment.id}
+                        ref={node => {
+                          composerSegmentRefs.current[segment.id] = node;
+                        }}
+                        draggable
+                        onDragStart={event =>
+                          handleComposerTokenDragStart(event, segment.id)
+                        }
+                        onDragOver={event =>
+                          handleComposerSegmentDragOver(event, segment.id)
+                        }
+                        onDrop={event =>
+                          handleComposerSegmentDrop(event, segment.id, "before")
+                        }
+                        onDragEnd={handleComposerDragEnd}
+                        onMouseDown={event => {
+                          event.stopPropagation();
+                          setComposerBoxSelection(null);
+                        }}
+                        data-composer-token="skill"
+                        className="group relative inline-flex max-w-[136px] min-w-0 items-center gap-1 overflow-hidden rounded-[var(--radius-md-design)] px-1.5 py-0.5 align-middle"
+                        style={{
+                          margin: "0 4px 2px 4px",
+                          background: isDark
+                            ? "rgba(66,153,225,0.22)"
+                            : "rgba(37,99,235,0.14)",
+                          border: `1px solid ${dragOverComposerSegmentId === segment.id ? "rgba(96,165,250,0.86)" : "rgba(96,165,250,0.48)"}`,
+                          color: isDark ? "#bfdbfe" : "#1d4ed8",
+                          cursor:
+                            draggingComposerSegmentId === segment.id
+                              ? "grabbing"
+                              : "grab",
+                          userSelect: "none",
+                          opacity:
+                            draggingComposerSegmentId === segment.id ? 0.42 : 1,
+                          boxShadow: isBoxSelected
+                            ? "0 0 0 2px rgba(96,165,250,0.58)"
+                            : dragOverComposerSegmentId === segment.id
+                              ? "0 0 0 2px rgba(96,165,250,0.18)"
+                              : "none",
+                        }}
+                        title={`当前调用 Skill：${segment.skill.name}`}
+                      >
+                        <Sparkles
+                          size={11}
+                          style={{ flexShrink: 0, color: "currentColor" }}
+                        />
+                        <span
+                          className="type-caption truncate"
+                          style={{ maxWidth: 92, fontSize: 11 }}
+                        >
+                          {segment.skill.name}
+                        </span>
+                        <button
+                          type="button"
+                          onMouseDown={event => event.stopPropagation()}
+                          onClick={() => removeComposerSkillSegment(segment.id)}
+                          className="flex items-center justify-center flex-shrink-0 rounded-full transition-opacity hover:opacity-70"
+                          style={{
+                            color: "currentColor",
+                            background: "transparent",
+                            border: "none",
+                            padding: 0,
+                            lineHeight: 1,
+                          }}
+                          title="移除 Skill"
+                          aria-label="移除 Skill"
+                        >
+                          <X size={9} />
+                        </button>
+                      </span>
+                    );
+                  }
                   if (segment.type === "image") {
                     return (
                       <span
@@ -18067,10 +18220,13 @@ function CanvasAssistantPanel({
                           <X size={9} />
                         </button>
                       </span>
-                    );
-                  }
-                  const isSingleEmptyTextSegment =
-                    composerSegments.length === 1 && segment.text.length === 0;
+	                    );
+	                  }
+	                  if (segment.type !== "text") return null;
+	                  const isSingleTextSegment =
+	                    composerSegments.length === 1;
+	                  const isSingleEmptyTextSegment =
+	                    isSingleTextSegment && segment.text.length === 0;
                   const textWidth =
                     composerTextWidths[segment.id] ??
                     (segment.text
@@ -18085,7 +18241,7 @@ function CanvasAssistantPanel({
                     isBoxSelected &&
                     (segment.text.length > 0 || isSingleEmptyTextSegment);
                   return (
-                    isSingleEmptyTextSegment ? (
+                    isSingleTextSegment ? (
                       <textarea
                         key={segment.id}
                         ref={node => {
@@ -18154,7 +18310,9 @@ function CanvasAssistantPanel({
                           opacity: 1,
                           fontSize: 12,
                           lineHeight: "20px",
+                          height: 104,
                           minHeight: 104,
+                          maxHeight: 104,
                           overflow: "hidden",
                           width: "100%",
                           minWidth: 0,

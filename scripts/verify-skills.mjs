@@ -8,6 +8,7 @@ const skillsDir = path.join(root, "server/skills");
 const distSkillsDir = path.join(root, "dist/skills");
 const canvasPath = path.join(root, "client/src/components/canvas/InfiniteCanvas.tsx");
 const aiClientPath = path.join(root, "client/src/lib/ai.ts");
+const serverIndexPath = path.join(root, "server/index.ts");
 const registryPath = path.join(root, "server/skill-registry.ts");
 const orchestratorPath = path.join(root, "server/ai-orchestrator.ts");
 const validationPath = path.join(root, "docs/skill-validation-cases.md");
@@ -155,14 +156,26 @@ const canvas = read(canvasPath);
 const requiredCanvasSnippets = [
   "PENDING_SKILL_LOAD_KEY",
   "buildSkillPromptContext(activeSkill)",
-  "activeSkill?.capability === \"image_edit\"",
-  "请先选择一张图片",
-  "skillId: activeSkill?.id",
+  "activeSkill.capability === \"image_edit\"",
+  "skillId: activeSkill.id",
   "editImageWithPrompt({",
   "setActiveSkill(payload)",
 ];
 for (const snippet of requiredCanvasSnippets) {
   if (!canvas.includes(snippet)) fail(`canvas is missing skill chain snippet: ${snippet}`);
+}
+
+const serverIndex = read(serverIndexPath);
+const requiredServerIndexSnippets = [
+  "void orchestrator.run({",
+  "capability: \"text_to_image\"",
+  "intent: \"text_to_image\"",
+  "operation: \"generate\"",
+  "providerTaskId: result.providerTaskId",
+  "capabilityKey: capabilityFromOrchestrator(result.capability)",
+];
+for (const snippet of requiredServerIndexSnippets) {
+  if (!serverIndex.includes(snippet)) fail(`background image task route is missing skill-aware orchestrator snippet: ${snippet}`);
 }
 
 const validation = read(validationPath);
