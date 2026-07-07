@@ -44,7 +44,6 @@ function isAdminHost() {
 function isDedicatedAdminHost() {
   if (typeof window === "undefined") return false;
   const host = window.location.hostname.toLowerCase();
-  if (testAdminHosts.has(host)) return true;
   if (configuredAdminHost && host === configuredAdminHost) return true;
   return host.startsWith("admin.");
 }
