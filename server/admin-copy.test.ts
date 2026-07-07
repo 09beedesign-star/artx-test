@@ -14,6 +14,12 @@ describe("admin copy", () => {
     for (const file of adminCopyFiles) {
       const content = await readFile(path.join(root, file), "utf-8");
       expect(content, file).not.toContain("额度");
+      expect(content, file).not.toContain("已确认收入");
+      expect(content, file).not.toContain("累计付费");
+      expect(content, file).not.toContain("兑换积分");
+      expect(content, file).not.toContain("钱和积分");
+      expect(content, file).not.toContain("价格配置");
+      expect(content, file).not.toContain("收入");
     }
   });
 });

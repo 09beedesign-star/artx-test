@@ -623,7 +623,7 @@ function buildCapabilityStatus(): CapabilityStatusItem[] {
   return [
     { id: "cap_admin_auth", domain: "管理员认证与权限", status: "ready", summary: "已具备管理员登录、session 校验、admin:access 权限拦截", source: "server/auth-store.ts + /api/auth/* + /api/admin/session" },
     { id: "cap_users", domain: "用户与账户", status: "ready", summary: "已接入现有 auth 用户库，并与后台账户视图合并展示", source: ".artx-data/auth-users.json + /api/admin/users" },
-    { id: "cap_plans", domain: "套餐与价格配置", status: "ready", summary: "已复用测试环境真实套餐/周期/积分配置作为后台展示来源", source: "shared/billing-config.ts + /api/admin/plans" },
+    { id: "cap_plans", domain: "套餐与金额配置", status: "ready", summary: "已复用测试环境真实套餐/周期/积分配置作为后台展示来源", source: "shared/billing-config.ts + /api/admin/plans" },
     { id: "cap_ai", domain: "AI 任务与供应商", status: "ready", summary: "已具备 generationId / backendTaskId / providerTaskId 追踪和供应商配置状态展示", source: "server/ai-orchestrator.ts + server/image-generation.ts + /api/admin/ai-tasks" },
     { id: "cap_alerts", domain: "告警与消息提醒", status: "ready", summary: "后台可读写敏捷处理消息，并支持已读与审计", source: "/api/admin/alerts*" },
     { id: "cap_feedback", domain: "反馈与工单", status: "ready", summary: "已支持反馈列表与状态流转，且能写审计日志", source: "/api/admin/feedback*" },
@@ -1401,7 +1401,7 @@ export async function handleAdminApiRequest(
           id: `cr_${Date.now().toString(36)}`,
           userId: user.id,
           user: user.name,
-          type: "代收入账",
+          type: "代收积分入账",
           delta: expectedCredits,
           reason: "接口方代收确认",
           source: order.id,

@@ -280,7 +280,7 @@ const sections: Array<{
   description: string;
   icon: typeof BarChart3;
 }> = [
-  { id: "overview", label: "总览", description: "收入、算力、风险", icon: BarChart3 },
+  { id: "overview", label: "总览", description: "金额、积分、风险", icon: BarChart3 },
   { id: "users", label: "账户管理", description: "用户、状态、权限", icon: Users },
   { id: "orders", label: "支付订单", description: "支付、退款、对账", icon: CreditCard },
   { id: "credits", label: "积分管理", description: "积分、流水、调整", icon: WalletCards },
@@ -834,7 +834,7 @@ function AdminPrototypePage() {
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
               <div>
                 <h1 className="text-xl font-semibold tracking-tight md:text-2xl">
-                  付费算力与积分运营后台
+                  金额与积分运营后台
                 </h1>
                 <p className="mt-1 text-sm text-slate-400">
                   管理用户、支付、积分、反馈、第三方接口和高风险操作。
@@ -948,15 +948,15 @@ function AdminPrototypePage() {
             <section className="grid gap-3 md:grid-cols-3">
               <MetricCard
                 icon={CircleDollarSign}
-                label="已确认收入"
+                label="已确认金额"
                 value={formatCurrency(paidRevenue)}
-                detail="仅统计已支付订单"
+                detail="仅统计已支付订单金额"
               />
               <MetricCard
                 icon={Gauge}
                 label="已发放积分"
                 value={formatCredits(issuedCredits)}
-                detail="购买入账 + 赠送积分"
+                detail="购买积分 + 赠送积分"
               />
               <MetricCard
                 icon={AlertTriangle}
@@ -1004,7 +1004,7 @@ function AdminPrototypePage() {
             <div className="mb-4 flex items-center justify-between">
               <div>
                 <h2 className="text-base font-semibold">今日运营队列</h2>
-                <p className="text-sm text-slate-400">先处理影响收入和积分可信度的问题。</p>
+                <p className="text-sm text-slate-400">先处理影响支付金额和积分可信度的问题。</p>
               </div>
               <Badge tone="amber">{adminData.overview?.operationsQueue.length || adminData.alerts.length} 项待办</Badge>
             </div>
@@ -1117,7 +1117,7 @@ function AdminPrototypePage() {
                 <TableHead>套餐</TableHead>
                 <TableHead>后台角色</TableHead>
                 <TableHead>积分余额</TableHead>
-                <TableHead>累计付费</TableHead>
+                <TableHead>累计支付金额</TableHead>
                 <TableHead>状态</TableHead>
                 <TableHead>最近活跃</TableHead>
               </TableRow>
@@ -1444,7 +1444,7 @@ function AdminPrototypePage() {
       return (
         <DataList
           title="风控规则"
-          description="先覆盖资金和积分异常，再扩展到设备、IP、频率限制。"
+          description="先覆盖支付金额和积分异常，再扩展到设备、IP、频率限制。"
           rows={[
             ...adminData.riskEvents.map((event) => ({
               title: event.title,
@@ -1467,7 +1467,7 @@ function AdminPrototypePage() {
         )}
         <DataList
           title="管理员操作审计"
-          description="钱和积分相关操作必须记录人、时间、目标和原因。"
+          description="金额和积分相关操作必须记录人、时间、目标和原因。"
           rows={adminData.auditRows.map((row) => ({
             title: row.action,
             meta: `${row.actor} · ${row.target}${row.reason ? ` · ${row.reason}` : ""}`,
@@ -1476,7 +1476,7 @@ function AdminPrototypePage() {
           }))}
         />
         <DataList
-          title="套餐/价格配置"
+          title="套餐/金额配置"
           description="第一版以国内支付优先，微信支付和支付宝先接入，Stripe/PayPal 后续扩展。"
           rows={adminData.plans.map((plan) => ({
             title: `${plan.name} · ${formatCurrency(plan.price)}`,
@@ -1788,7 +1788,7 @@ function OrdersTable({
           <TableHead>剩余积分</TableHead>
           <TableHead>渠道</TableHead>
           <TableHead>金额</TableHead>
-          <TableHead>兑换积分</TableHead>
+          <TableHead>购买积分</TableHead>
           <TableHead>状态</TableHead>
           <TableHead>对账</TableHead>
           <TableHead>时间</TableHead>
@@ -1955,7 +1955,7 @@ function AccountDetailDrawer({
                 <InfoCell label="套餐" value={user.plan} />
                 <InfoCell label="状态" value={statusLabel(user.status)} />
                 <InfoCell label="积分余额" value={formatCredits(user.credits)} />
-                <InfoCell label="累计付费" value={formatCurrency(user.spent)} />
+                <InfoCell label="累计支付金额" value={formatCurrency(user.spent)} />
               </div>
 
               <div className="rounded-md border border-white/10 bg-white/[0.035] p-4">
