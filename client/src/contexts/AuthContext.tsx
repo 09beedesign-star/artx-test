@@ -27,7 +27,7 @@ interface AuthContextValue {
   register: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   sendSmsCode: (phone: string) => Promise<{ ok: boolean; error?: string; retryAfterSeconds?: number }>;
   loginWithSmsCode: (phone: string, code: string) => Promise<{ ok: boolean; error?: string }>;
-  requestPasswordReset: (username: string) => Promise<{ ok: boolean; error?: string; resetToken?: string; expiresAt?: string }>;
+  requestPasswordReset: (username: string) => Promise<{ ok: boolean; error?: string; expiresAt?: string }>;
   resetPassword: (resetToken: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<{ ok: boolean; error?: string }>;
   socialAuth: (provider: "google" | "wechat" | "apple" | "github" | "meta") => Promise<{ ok: boolean; error?: string }>;
@@ -152,7 +152,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return {
           ok: result.ok,
           error: result.error,
-          resetToken: result.resetToken,
           expiresAt: result.expiresAt,
         };
       } catch {

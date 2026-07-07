@@ -295,10 +295,6 @@ async function requireSessionUser(req: express.Request, res: express.Response): 
   };
 }
 
-function getPublicAppUrl() {
-  return (process.env.PUBLIC_APP_URL || process.env.APP_PUBLIC_URL || process.env.SITE_URL || "https://admin.artxsd.com").replace(/\/+$/, "");
-}
-
 function getRouteModel(body: unknown, fallback: string) {
   const record = body && typeof body === "object" ? body as Record<string, unknown> : {};
   return typeof record.model === "string" && record.model.trim()
@@ -513,10 +509,10 @@ async function notifyAuthAction(action: AuthAction, body: Record<string, unknown
         text: [
           "你正在重置 ArtX 账号密码。",
           "",
-          `重置链接：${getPublicAppUrl()}/reset-password?token=${encodeURIComponent(resetToken)}`,
           `验证码：${resetToken}`,
           expiresAt ? `过期时间：${expiresAt}` : "",
           "",
+          "请回到 ArtX 站点，在忘记密码弹窗中输入验证码并继续修改密码。",
           "如果这不是你本人操作，请忽略此邮件并尽快联系管理员。",
         ].filter(Boolean).join("\n"),
       });
@@ -1092,6 +1088,11 @@ async function startServer() {
       const action = req.params.action as AuthAction;
       const result = await handleAuthAction(action, req.body);
       await notifyAuthAction(action, req.body && typeof req.body === "object" ? req.body as Record<string, unknown> : {}, result);
+      if (action === "forgot-password" && result.body && typeof result.body === "object") {
+        const { resetToken: _resetToken, ...publicBody } = result.body as Record<string, unknown>;
+        res.status(result.status).json(publicBody);
+        return;
+      }
       res.status(result.status).json(result.body);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Auth request failed";

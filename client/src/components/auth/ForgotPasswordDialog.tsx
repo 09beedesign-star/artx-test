@@ -20,7 +20,6 @@ export default function ForgotPasswordDialog({
   const [step, setStep] = useState<ResetStep>("email");
   const [email, setEmail] = useState(initialEmail);
   const [code, setCode] = useState("");
-  const [issuedCode, setIssuedCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
@@ -31,7 +30,6 @@ export default function ForgotPasswordDialog({
     setStep("email");
     setEmail(initialEmail);
     setCode("");
-    setIssuedCode("");
     setNewPassword("");
     setConfirmPassword("");
     setError("");
@@ -60,11 +58,10 @@ export default function ForgotPasswordDialog({
     setError("");
     const result = await requestPasswordReset(normalizedEmail);
     setBusy(false);
-    if (!result.ok || !result.resetToken) {
+    if (!result.ok) {
       setError(result.error || "验证码发送失败，请稍后重试");
       return;
     }
-    setIssuedCode(result.resetToken);
     setCode("");
     setStep("code");
     toast.success("验证码已发送", { description: "请到邮箱复制验证码后继续。" });
@@ -75,10 +72,6 @@ export default function ForgotPasswordDialog({
       setError("请输入邮箱里的验证码");
       return;
     }
-    if (code.trim() !== issuedCode) {
-      setError("验证码不正确或已过期");
-      return;
-    }
     setError("");
     setStep("ready");
   };
@@ -87,7 +80,7 @@ export default function ForgotPasswordDialog({
     if (!passwordReady) return;
     setBusy(true);
     setError("");
-    const result = await resetPassword(issuedCode, newPassword);
+    const result = await resetPassword(code.trim(), newPassword);
     setBusy(false);
     if (!result.ok) {
       setError(result.error || "密码修改失败");
@@ -120,9 +113,9 @@ export default function ForgotPasswordDialog({
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#936CFF]/18 text-[#A98AFF]">
               <CheckCircle2 size={24} />
             </div>
-            <h2 className="mt-4 text-[22px] font-bold">验证码已确认</h2>
+            <h2 className="mt-4 text-[22px] font-bold">找回密码成功</h2>
             <p className="mt-3 text-sm leading-6 text-white/66">
-              请尽快修改密码，修改完成后再使用新密码登录。
+              请继续修改密码，修改完成后再使用新密码登录。
             </p>
             <button
               type="button"

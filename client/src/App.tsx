@@ -27,6 +27,7 @@ import { useAuth } from "./contexts/AuthContext";
 const routerBase = import.meta.env.BASE_URL.replace(/\/$/, "");
 const configuredAdminHost = (import.meta.env.VITE_ADMIN_HOST || "").toLowerCase();
 const configuredAdminAccessToken = (import.meta.env.VITE_ADMIN_ACCESS_TOKEN || "").trim();
+const testAdminHosts = new Set(["backstage.artxsd.com"]);
 const routeLoadingDurationMs = 720;
 const publicGuestPaths = ["/", "/inspiration", "/skills"];
 const homeAuthPanelStorageKey = "artx:home-auth-panel";
@@ -35,6 +36,7 @@ function isAdminHost() {
   if (typeof window === "undefined") return false;
   const host = window.location.hostname.toLowerCase();
   if (host === "localhost" || host === "127.0.0.1") return true;
+  if (testAdminHosts.has(host)) return true;
   if (configuredAdminHost && host === configuredAdminHost) return true;
   return host.startsWith("admin.");
 }
@@ -42,6 +44,7 @@ function isAdminHost() {
 function isDedicatedAdminHost() {
   if (typeof window === "undefined") return false;
   const host = window.location.hostname.toLowerCase();
+  if (testAdminHosts.has(host)) return true;
   if (configuredAdminHost && host === configuredAdminHost) return true;
   return host.startsWith("admin.");
 }
@@ -256,7 +259,7 @@ function RequireLogin({ children }: { children: ReactNode }) {
 }
 
 function AdminHostRequired() {
-  const targetHost = configuredAdminHost || "admin.yourdomain.com";
+  const targetHost = configuredAdminHost || "backstage.artxsd.com";
   const allowTestToken = Boolean(configuredAdminAccessToken);
 
   return (
