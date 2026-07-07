@@ -830,7 +830,7 @@ describe("production readiness", () => {
       paymentEvents: Array<{ type: string; message: string }>;
     };
     expect(detailBody.order).toMatchObject({
-      user: "buyer-name",
+      user: username,
       userAccount: username,
       paymentDisplayName: "ArtX 积分充值 · buyer-name@example.com",
       issuedCredits: createdBody.order.credits,

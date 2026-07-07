@@ -585,6 +585,11 @@ function getPaymentDisplayName(order: PaymentOrder) {
   return order.paymentDisplayName || `${order.packageName} · ${order.userAccount || order.user}`;
 }
 
+function getRegisteredNameForOrder(order: PaymentOrder, users: AdminUserAccount[]) {
+  const linkedUser = users.find((user) => user.id === order.userId);
+  return linkedUser?.account || linkedUser?.email || order.userAccount || order.user;
+}
+
 async function buildUserAccounts(seedUsers: AdminUserAccount[] = []) {
   const authUsers = await listAuthUsers();
   const merged = new Map<string, AdminUserAccount>();
@@ -1153,6 +1158,8 @@ function ensureBillingConsistency(data: AdminData) {
   }));
   data.orders = data.orders.map((order) => ({
     ...order,
+    user: getRegisteredNameForOrder(order, data.users),
+    userAccount: order.userAccount || getRegisteredNameForOrder(order, data.users),
     createdAt: formatAbsoluteSecondTime(order.createdAt) || order.createdAt,
     paidAt: formatAbsoluteSecondTime(order.paidAt),
     notes: order.notes?.map((note) => ({
@@ -1900,7 +1907,7 @@ export async function createBillingOrder(params: {
   const order: PaymentOrder = {
     id: `ord_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
     userId: user.id,
-    user: user.name,
+    user: user.account || params.username,
     userAccount: user.account || params.username,
     userEmail: user.email,
     paymentDisplayName: `${plan.shortName} · ${user.account || params.username}`,
@@ -1960,7 +1967,7 @@ export async function createCreditRechargeOrder(params: {
   const order: PaymentOrder = {
     id: `rch_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
     userId: user.id,
-    user: user.name,
+    user: user.account || params.username,
     userAccount: user.account || params.username,
     userEmail: user.email,
     paymentDisplayName: `积分充值 · ${user.account || params.username}`,
