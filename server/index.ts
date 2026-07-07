@@ -10,7 +10,7 @@ import { getUploadsRoot, storeGeneratedImagesForUser } from "./local-image-stora
 import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
 import { getAdminSessionFromAuthorization, getSessionUserFromAuthorization, handleAuthAction } from "./auth-store";
-import { createBillingOrder, createCreditRechargeOrder, getBillingOrderForPayment, getBillingSnapshotForUser, handleAdminApiRequest, markBillingOrderPaid, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent } from "./admin-store";
+import { createBillingOrder, createCreditRechargeOrder, getBillingOrderForPayment, getBillingSnapshotForUser, handleAdminApiRequest, markBillingOrderPaid, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, submitUserFeedback } from "./admin-store";
 import { getAllowedCorsOrigin } from "./cors";
 import { sendOpsNotification } from "./notifications";
 import type { AiBillingCapability } from "../shared/ai-credit-policy";
@@ -1074,6 +1074,40 @@ async function startServer() {
       res.status(result.status).json(result.body);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Auth request failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.post("/api/feedback", async (req, res) => {
+    try {
+      const session = await getSessionUserFromAuthorization(req.headers.authorization);
+      if (session.status !== 200 || !("user" in session.body)) {
+        res.status(session.status).json(session.body);
+        return;
+      }
+      const body = req.body as {
+        content?: unknown;
+        module?: unknown;
+        attachments?: Array<{ name?: unknown; src?: unknown }>;
+      };
+      const attachments = Array.isArray(body.attachments)
+        ? body.attachments.map((item) => ({
+          name: typeof item.name === "string" ? item.name : "feedback-image.png",
+          src: typeof item.src === "string" ? item.src : "",
+        }))
+        : [];
+      const result = await submitUserFeedback({
+        user: {
+          id: session.body.user.id,
+          username: session.body.user.username,
+        },
+        content: typeof body.content === "string" ? body.content : "",
+        module: typeof body.module === "string" ? body.module : "帮助与反馈",
+        attachments,
+      });
+      res.status(result.status).json(result.body);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Feedback submit failed";
       res.status(500).json({ error: message });
     }
   });

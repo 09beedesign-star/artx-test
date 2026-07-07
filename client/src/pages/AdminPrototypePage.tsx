@@ -114,11 +114,13 @@ type Feedback = {
   id: string;
   user: string;
   title: string;
+  content?: string;
   module: string;
   status: FeedbackStatus;
   priority: "P0" | "P1" | "P2";
   createdAt: string;
   linkedOrderId?: string;
+  attachments?: Array<{ name: string; src: string; width?: number; height?: number; mimeType?: string; size?: number }>;
 };
 
 type OpsAlert = {
@@ -1310,6 +1312,31 @@ function AdminPrototypePage() {
                     <p className="mt-1 text-sm text-slate-400">
                       {item.user} · {item.createdAt}
                     </p>
+                    {item.content && (
+                      <p className="mt-3 max-w-3xl whitespace-pre-wrap break-words text-sm leading-6 text-slate-300">
+                        {item.content}
+                      </p>
+                    )}
+                    {item.attachments && item.attachments.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {item.attachments.map((attachment) => (
+                          <a
+                            key={attachment.src}
+                            href={attachment.src}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="group block overflow-hidden rounded-md border border-white/10 bg-white/5"
+                            title={attachment.name}
+                          >
+                            <img
+                              src={attachment.src}
+                              alt={attachment.name}
+                              className="h-20 w-20 object-cover transition group-hover:opacity-85"
+                            />
+                          </a>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <Button
                     variant="outline"

@@ -61,6 +61,7 @@ type NotificationFeedback = {
   priority: "P0" | "P1" | "P2";
   createdAt: string;
   linkedOrderId?: string;
+  attachments?: Array<{ src: string }>;
 };
 
 type NotificationRiskEvent = {
@@ -189,7 +190,7 @@ export function buildAdminNotifications(input: AdminNotificationInput): AdminNot
       tab: "voice",
       label: "用户之声",
       title: `${item.user} · ${item.title}`,
-      detail: `${item.module} · ${feedbackStatusLabels[item.status]} · ${item.priority}`,
+      detail: `${item.module} · ${feedbackStatusLabels[item.status]} · ${item.priority}${item.attachments?.length ? ` · ${item.attachments.length} 张图片` : ""}`,
       time: item.createdAt,
       severity: feedbackSeverity(item),
       unread: feedbackUnread(item),

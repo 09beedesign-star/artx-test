@@ -4,6 +4,7 @@ import path from "node:path";
 import { AI_CREDIT_POLICIES, AI_PLAN_DISCOUNTS, type AiBillingCapability, type AiBillingPolicy, type AiPlanDiscountPolicy } from "../shared/ai-credit-policy";
 import { BILLING_CYCLES, MEMBERSHIP_PLANS, getPlanQuote, quoteCreditRecharge } from "../shared/billing-config";
 import { getAdminSessionFromAuthorization, listAuthUsers, type PublicAuthUser, updateAuthUserAdmin } from "./auth-store";
+import { storeFeedbackImagesForUser, type FeedbackImageInput, type StoredFeedbackImage } from "./local-image-storage";
 import { PostgresJsonDocumentStore } from "./postgres-json-store";
 
 type AdminStatus = "normal" | "watch" | "blocked";
@@ -180,6 +181,7 @@ type FeedbackTicket = {
   module: string;
   status: FeedbackStatus;
   priority: "P0" | "P1" | "P2";
+  attachments?: StoredFeedbackImage[];
   linkedOrderId?: string;
   linkedTaskId?: string;
   createdAt: string;
@@ -992,6 +994,68 @@ async function loadAdminData(): Promise<AdminData> {
 async function saveAdminData(data: AdminData) {
   ensureBillingConsistency(data);
   await adminDataRepository.save(data);
+}
+
+function buildFeedbackTitle(content: string, attachmentCount: number) {
+  const firstLine = content.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
+  if (firstLine) return firstLine.length > 40 ? `${firstLine.slice(0, 40)}...` : firstLine;
+  return attachmentCount > 0 ? `用户上传了 ${attachmentCount} 张问题截图` : "用户反馈";
+}
+
+export async function submitUserFeedback(input: {
+  user: { id: string; username: string };
+  content?: string;
+  module?: string;
+  attachments?: FeedbackImageInput[];
+}) {
+  const content = typeof input.content === "string" ? input.content.trim() : "";
+  const rawAttachments = (input.attachments || []).filter((item) => item && typeof item.src === "string" && item.src.trim());
+  if (!content && rawAttachments.length === 0) {
+    return jsonError(400, "请先填写反馈内容或上传问题截图");
+  }
+  if (rawAttachments.length > 4) {
+    return jsonError(400, "最多只能上传 4 张反馈图片");
+  }
+
+  const data = await loadAdminData();
+  const user =
+    data.users.find((item) => item.id === input.user.id) ||
+    data.users.find((item) => item.account === input.user.username || item.email === input.user.username);
+  const username = user?.account || user?.email || input.user.username;
+  const feedbackId = `fb_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`;
+  let attachments: StoredFeedbackImage[] = [];
+  if (rawAttachments.length > 0) {
+    attachments = await storeFeedbackImagesForUser(rawAttachments, username, feedbackId);
+  }
+
+  const createdAt = nowIso();
+  const feedback: FeedbackTicket = {
+    id: feedbackId,
+    userId: user?.id || input.user.id,
+    user: username,
+    title: buildFeedbackTitle(content, attachments.length),
+    content,
+    module: typeof input.module === "string" && input.module.trim() ? input.module.trim() : "帮助与反馈",
+    status: "new",
+    priority: "P1",
+    attachments,
+    createdAt,
+    updatedAt: createdAt,
+  };
+
+  data.feedback = [feedback, ...data.feedback].slice(0, 500);
+  appendAuditLog(data, {
+    id: input.user.id,
+    username,
+    role: "viewer",
+  }, {
+    action: "提交用户反馈",
+    target: feedback.id,
+    reason: attachments.length > 0 ? `${content || "图片反馈"} · ${attachments.length} 张图片` : content,
+    after: { status: feedback.status, attachmentCount: attachments.length },
+  });
+  await saveAdminData(data);
+  return { status: 200 as const, body: { feedback } };
 }
 
 function appendAuditLog(

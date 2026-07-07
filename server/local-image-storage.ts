@@ -7,6 +7,20 @@ export type StoredImage = {
   height: number;
 };
 
+export type FeedbackImageInput = {
+  name: string;
+  src: string;
+};
+
+export type StoredFeedbackImage = {
+  name: string;
+  src: string;
+  width: number;
+  height: number;
+  mimeType: string;
+  size: number;
+};
+
 type StoreImagesOptions = {
   providerTaskId?: string;
   providerTaskIds?: string[];
@@ -14,6 +28,7 @@ type StoreImagesOptions = {
 
 const MAX_IMAGE_BYTES = Number(process.env.ARTX_LOCAL_IMAGE_MAX_BYTES || 50 * 1024 * 1024);
 const PUBLIC_IMAGE_BASE_PATH = "/uploads/images";
+const PUBLIC_FEEDBACK_BASE_PATH = "/uploads/feedback";
 
 export function getUploadsRoot() {
   return process.env.ARTX_UPLOADS_DIR || path.join(process.env.ARTX_DATA_DIR || "/var/lib/artx", "uploads");
@@ -163,6 +178,36 @@ export async function storeGeneratedImagesForUser(
       width: dimensions.width,
       height: dimensions.height,
       src: `${PUBLIC_IMAGE_BASE_PATH}/${encodeURIComponent(userDirectoryName)}/${encodeURIComponent(storedFilename)}`,
+    };
+  }));
+}
+
+export async function storeFeedbackImagesForUser(
+  images: FeedbackImageInput[],
+  username: string,
+  feedbackId: string,
+): Promise<StoredFeedbackImage[]> {
+  const userDirectoryName = sanitizePathSegment(username, "user");
+  const feedbackDirectoryName = sanitizePathSegment(feedbackId, `feedback-${Date.now()}`);
+  const imageDirectory = path.join(getUploadsRoot(), "feedback", userDirectoryName, feedbackDirectoryName);
+  await fs.mkdir(imageDirectory, { recursive: true, mode: 0o750 });
+
+  return Promise.all(images.map(async (image, index) => {
+    const { buffer, mimeType } = await imageSrcToBuffer(image.src);
+    if (!mimeType.startsWith("image/")) throw new Error("反馈附件必须是图片");
+    const dimensions = await getImageBufferDimensions(buffer, { width: 0, height: 0 });
+    const fallbackFilename = `feedback-${index + 1}${extensionForMimeType(mimeType)}`;
+    const safeName = sanitizePathSegment(image.name || fallbackFilename, fallbackFilename);
+    const filename = path.extname(safeName) ? safeName : `${safeName}${extensionForMimeType(mimeType)}`;
+    const storedFilename = await writeUniqueFile(imageDirectory, filename, buffer);
+
+    return {
+      name: image.name || storedFilename,
+      src: `${PUBLIC_FEEDBACK_BASE_PATH}/${encodeURIComponent(userDirectoryName)}/${encodeURIComponent(feedbackDirectoryName)}/${encodeURIComponent(storedFilename)}`,
+      width: dimensions.width,
+      height: dimensions.height,
+      mimeType,
+      size: buffer.byteLength,
     };
   }));
 }
