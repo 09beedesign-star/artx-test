@@ -378,8 +378,38 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+const adminTimeZone = "Asia/Shanghai";
+
+function parseAdminTimestamp(input: string) {
+  const absoluteMatch = input.match(/^(\d{4})\/(\d{2})\/(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (absoluteMatch) {
+    const [, year, month, day, hour, minute, second = "00"] = absoluteMatch;
+    return Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour) - 8, Number(minute), Number(second));
+  }
+  return Date.parse(input);
+}
+
+function formatAbsoluteSecondTime(input?: string) {
+  if (!input) return input;
+  const timestamp = parseAdminTimestamp(input);
+  if (!Number.isFinite(timestamp)) return input;
+
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+    timeZone: adminTimeZone,
+  }).formatToParts(new Date(timestamp));
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value || "00";
+  return `${value("year")}/${value("month")}/${value("day")} ${value("hour")}:${value("minute")}:${value("second")}`;
+}
+
 function formatRelativeTime(input: string) {
-  const timestamp = Date.parse(input);
+  const timestamp = parseAdminTimestamp(input);
   if (!Number.isFinite(timestamp)) return input;
 
   const diff = Date.now() - timestamp;
@@ -403,7 +433,7 @@ function formatDateTime(input: string) {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-    timeZone: "Asia/Shanghai",
+    timeZone: adminTimeZone,
   });
   return formatter.format(date).replace(/\//g, "-");
 }
@@ -1123,8 +1153,24 @@ function ensureBillingConsistency(data: AdminData) {
   }));
   data.orders = data.orders.map((order) => ({
     ...order,
-    createdAt: formatRelativeTime(order.createdAt),
-    paidAt: order.paidAt,
+    createdAt: formatAbsoluteSecondTime(order.createdAt) || order.createdAt,
+    paidAt: formatAbsoluteSecondTime(order.paidAt),
+    notes: order.notes?.map((note) => ({
+      ...note,
+      createdAt: formatAbsoluteSecondTime(note.createdAt) || note.createdAt,
+    })),
+    paymentEvents: order.paymentEvents?.map((event) => ({
+      ...event,
+      createdAt: formatAbsoluteSecondTime(event.createdAt) || event.createdAt,
+    })),
+    refundEvents: order.refundEvents?.map((event) => ({
+      ...event,
+      createdAt: formatAbsoluteSecondTime(event.createdAt) || event.createdAt,
+      flow: event.flow.map((node) => ({
+        ...node,
+        createdAt: formatAbsoluteSecondTime(node.createdAt),
+      })),
+    })),
   }));
   data.credits = data.credits.map((entry) => ({
     ...entry,
@@ -1209,7 +1255,7 @@ function buildPaymentTimeline(order: PaymentOrder, credits: CreditLedgerEntry[],
       message: `${log.actorName} · ${log.action}`,
       createdAt: log.createdAt,
     })),
-  ].sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+  ].sort((left, right) => parseAdminTimestamp(right.createdAt) - parseAdminTimestamp(left.createdAt));
 }
 
 function buildOrderDetail(data: AdminData, orderId: string) {
@@ -1239,32 +1285,32 @@ function buildAccountDetail(data: AdminData, userId: string) {
 
   const orders = data.orders
     .filter((order) => order.userId === user.id)
-    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+    .sort((left, right) => parseAdminTimestamp(right.createdAt) - parseAdminTimestamp(left.createdAt));
   const orderIds = new Set(orders.map((order) => order.id));
   const creditEntries = data.credits
     .filter((entry) => entry.userId === user.id || orderIds.has(entry.source))
-    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+    .sort((left, right) => parseAdminTimestamp(right.createdAt) - parseAdminTimestamp(left.createdAt));
   const auditEntries = data.auditLogs
     .filter((entry) => entry.target === user.id || orderIds.has(entry.target))
-    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+    .sort((left, right) => parseAdminTimestamp(right.createdAt) - parseAdminTimestamp(left.createdAt));
   const feedbackEntries = data.feedback
     .filter((entry) => entry.userId === user.id || (entry.linkedOrderId ? orderIds.has(entry.linkedOrderId) : false))
-    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+    .sort((left, right) => parseAdminTimestamp(right.createdAt) - parseAdminTimestamp(left.createdAt));
   const paymentEvents = orders.flatMap((order) => (order.paymentEvents || []).map((event) => ({
     ...event,
     orderId: order.id,
     orderLabel: order.packageName,
-  }))).sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+  }))).sort((left, right) => parseAdminTimestamp(right.createdAt) - parseAdminTimestamp(left.createdAt));
   const refundEvents = orders.flatMap((order) => (order.refundEvents || []).map((event) => ({
     ...event,
     orderId: order.id,
     orderLabel: order.packageName,
-  }))).sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+  }))).sort((left, right) => parseAdminTimestamp(right.createdAt) - parseAdminTimestamp(left.createdAt));
   const notes = orders.flatMap((order) => (order.notes || []).map((note) => ({
     ...note,
     orderId: order.id,
     orderLabel: order.packageName,
-  }))).sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+  }))).sort((left, right) => parseAdminTimestamp(right.createdAt) - parseAdminTimestamp(left.createdAt));
   const timeline = [
     ...orders.flatMap((order) => buildPaymentTimeline(
       order,
@@ -1293,7 +1339,7 @@ function buildAccountDetail(data: AdminData, userId: string) {
         message: `${entry.actorName} · ${entry.action}`,
         createdAt: entry.createdAt,
       })),
-  ].sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+  ].sort((left, right) => parseAdminTimestamp(right.createdAt) - parseAdminTimestamp(left.createdAt));
 
   return {
     user: {

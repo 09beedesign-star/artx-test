@@ -1791,7 +1791,7 @@ function OrdersTable({
           <TableHead>购买积分</TableHead>
           <TableHead>状态</TableHead>
           <TableHead>对账</TableHead>
-          <TableHead>时间</TableHead>
+          <TableHead>支付时间</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -1816,7 +1816,10 @@ function OrdersTable({
                   {order.reconciliation === "mismatch" ? "异常" : order.reconciliation === "pending" ? "待对账" : "一致"}
                 </Badge>
               </TableCell>
-              <TableCell className="text-slate-400">{order.createdAt}</TableCell>
+              <TableCell className="min-w-[170px] text-xs text-slate-400">
+                <div className="text-slate-200">{order.paidAt ? `支付：${order.paidAt}` : "支付：待支付"}</div>
+                <div className="mt-1">下单：{order.createdAt}</div>
+              </TableCell>
             </TableRow>
           ))
         ) : (
@@ -1988,7 +1991,7 @@ function AccountDetailDrawer({
                 title="账户订单"
                 rows={(detail?.orders || []).map((order) => ({
                   title: `${order.packageName || "订单"} · ${statusLabel(order.status)}`,
-                  meta: `${order.id} · ${order.channel} · ${order.createdAt}`,
+                  meta: `${order.id} · ${order.channel} · 下单：${order.createdAt} · 支付：${order.paidAt || "待支付"}`,
                   value: formatCurrency(order.amount),
                 }))}
                 empty="该账户暂无订单"
@@ -2019,6 +2022,8 @@ function AccountDetailDrawer({
                   </div>
                   <div className="grid gap-3 text-xs sm:grid-cols-2">
                     <InfoLine label="支付渠道" value={selectedOrder.channel} />
+                    <InfoLine label="下单时间" value={selectedOrder.createdAt} mono />
+                    <InfoLine label="支付时间" value={selectedOrder.paidAt || "待支付"} mono />
                     <InfoLine label="第三方交易号" value={selectedOrder.providerTransactionId || "待回调/待查询"} mono />
                     <InfoLine label="实发积分" value={formatCredits(selectedOrder.issuedCredits || 0)} />
                     <InfoLine label="退款/扣回" value={`${formatCurrency(selectedOrder.refundAmount || 0)} / ${formatCredits(selectedOrder.refundedCredits || 0)} 积分`} />

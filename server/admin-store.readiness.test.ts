@@ -730,11 +730,25 @@ describe("production readiness", () => {
     const { handleAdminApiRequest } = await loadAdminStore();
     const authorization = await getAdminAuthorization();
 
+    const ordersResult = await handleAdminApiRequest("GET", "/orders", authorization);
+    expect(ordersResult.status).toBe(200);
+    const ordersBody = ordersResult.body as {
+      orders: Array<{ id: string; createdAt: string; paidAt?: string }>;
+    };
+    expect(ordersBody.orders).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "account_order_1",
+        createdAt: "2026/07/05 10:00:00",
+        paidAt: "2026/07/05 10:01:00",
+      }),
+    ]));
+    expect(ordersBody.orders.map((order) => `${order.createdAt} ${order.paidAt || ""}`).join(" ")).not.toContain("刚刚");
+
     const result = await handleAdminApiRequest("GET", "/users/account-detail-user/detail", authorization);
     expect(result.status).toBe(200);
     const body = result.body as {
       user: { id: string; plan: string; spent: number };
-      orders: Array<{ id: string }>;
+      orders: Array<{ id: string; createdAt: string; paidAt?: string }>;
       paymentEvents: Array<{ id: string; orderId: string }>;
       creditEntries: Array<{ id: string; source: string }>;
       notes: Array<{ id: string; orderId: string }>;
@@ -744,6 +758,10 @@ describe("production readiness", () => {
 
     expect(body.user).toMatchObject({ id: "account-detail-user", plan: "Pro 专业版", spent: 100 });
     expect(body.orders.map((order) => order.id).sort()).toEqual(["account_order_1", "account_order_2"]);
+    expect(body.orders.find((order) => order.id === "account_order_1")).toMatchObject({
+      createdAt: "2026/07/05 10:00:00",
+      paidAt: "2026/07/05 10:01:00",
+    });
     expect(body.paymentEvents.map((event) => event.orderId).sort()).toEqual(["account_order_1", "account_order_2"]);
     expect(body.creditEntries).toEqual([expect.objectContaining({ id: "cr_account_1", source: "account_order_1" })]);
     expect(body.notes.map((note) => note.orderId).sort()).toEqual(["account_order_1", "account_order_2"]);
