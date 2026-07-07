@@ -5,17 +5,15 @@ import { useAuth } from "@/contexts/AuthContext";
 // Global Login / Register Dialog
 // 首页使用 HomePage 内部右侧面板；其它场景统一使用这个居中弹窗。
 export default function LoginRegisterDialog() {
-  const { loginModalOpen, closeLoginModal, login, register, forgotPassword } = useAuth();
+  const { loginModalOpen, closeLoginModal, login, register } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!loginModalOpen) return;
     setError("");
-    setNotice("");
     setSubmitting(false);
   }, [loginModalOpen]);
 
@@ -24,7 +22,6 @@ export default function LoginRegisterDialog() {
   const handleAuthAction = async (action: "register" | "login") => {
     const normalizedEmail = email.trim();
     setError("");
-    setNotice("");
 
     if (!normalizedEmail || !password.trim()) {
       setError("请输入邮箱和密码");
@@ -40,24 +37,6 @@ export default function LoginRegisterDialog() {
     if (!result.ok) {
       setError(result.error || (action === "register" ? "注册失败，请稍后重试" : "登录失败，请稍后重试"));
     }
-  };
-
-  const handleForgotPassword = async () => {
-    const normalizedEmail = email.trim();
-    setError("");
-    setNotice("");
-    if (!normalizedEmail) {
-      setError("请输入邮箱或 ID 后再点忘记密码");
-      return;
-    }
-    setSubmitting(true);
-    const result = await forgotPassword(normalizedEmail);
-    setSubmitting(false);
-    if (!result.ok) {
-      setError(result.error || "密码重置申请失败，请稍后重试");
-      return;
-    }
-    setNotice(result.message || "密码重置申请已记录，请查看邮箱或联系管理员处理。");
   };
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -105,15 +84,10 @@ export default function LoginRegisterDialog() {
             </div>
 
             <div className="mt-4 flex h-5 items-center justify-between gap-3">
-              <p className={`min-w-0 flex-1 truncate text-left text-[13px] font-medium ${error ? "text-red-300" : "text-amber-100"} ${error || notice ? "visible" : "invisible"}`}>
-                {error || notice || " "}
+              <p className={`min-w-0 flex-1 truncate text-left text-[13px] font-medium text-red-300 ${error ? "visible" : "invisible"}`}>
+                {error || " "}
               </p>
-              <button
-                type="button"
-                disabled={submitting}
-                onClick={() => void handleForgotPassword()}
-                className="shrink-0 appearance-none bg-transparent text-[13px] font-medium text-[#7d7d7d] transition-colors hover:text-white disabled:opacity-60"
-              >
+              <button type="button" className="shrink-0 appearance-none bg-transparent text-[13px] font-medium text-[#7d7d7d] transition-colors hover:text-white">
                 忘记密码？
               </button>
             </div>

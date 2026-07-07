@@ -114,7 +114,7 @@ const getStageScale = () => {
 
 export default function HomePage() {
   const [, navigate] = useLocation();
-  const { isAuthenticated, login, register, forgotPassword } = useAuth();
+  const { isAuthenticated, login, register } = useAuth();
   const [panelMode, setPanelMode] = useState<PanelMode>(isAuthenticated ? "prelogin" : "prelogin");
   const [prompt, setPrompt] = useState(HOME_PROMPT);
   const [promptTouched, setPromptTouched] = useState(false);
@@ -259,25 +259,6 @@ export default function HomePage() {
     await handleAuthAction("login");
   };
 
-  const handleForgotPassword = async () => {
-    const normalizedEmail = email.trim();
-    setAuthError("");
-    if (!normalizedEmail) {
-      setAuthError("请输入邮箱或 ID 后再点忘记密码");
-      return;
-    }
-    setAuthBusy(true);
-    const result = await forgotPassword(normalizedEmail);
-    setAuthBusy(false);
-    if (!result.ok) {
-      setAuthError(result.error || "密码重置申请失败，请稍后重试");
-      return;
-    }
-    toast("密码重置申请已提交", {
-      description: result.message || "请查看邮箱或联系管理员处理。",
-    });
-  };
-
 
   const scrollToInspiration = () => {
     setCurrentLandingTab("inspiration");
@@ -400,7 +381,6 @@ export default function HomePage() {
                 onPasswordChange={setPassword}
                 onSubmit={handleAuthSubmit}
                 onAuthAction={handleAuthAction}
-                onForgotPassword={handleForgotPassword}
                 onBackToPrompt={() => setPanelMode("prelogin")}
               />
             </div>
@@ -633,7 +613,6 @@ function LoginPanel({
   onPasswordChange,
   onSubmit,
   onAuthAction,
-  onForgotPassword,
   onBackToPrompt,
 }: {
   mode: "login" | "register";
@@ -645,7 +624,6 @@ function LoginPanel({
   onPasswordChange: (value: string) => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
   onAuthAction: (action: "login" | "register") => void | Promise<void>;
-  onForgotPassword: () => void | Promise<void>;
   onBackToPrompt: () => void;
 }) {
   const isRegister = mode === "register";
@@ -677,12 +655,7 @@ function LoginPanel({
           <p className={`min-w-0 flex-1 truncate text-left text-[13px] font-medium text-red-300 ${error ? "visible" : "invisible"}`}>
             {error || " "}
           </p>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void onForgotPassword()}
-            className="shrink-0 appearance-none bg-transparent text-[13px] font-medium text-[#7d7d7d] transition-colors hover:text-white disabled:opacity-60"
-          >
+          <button type="button" className="shrink-0 appearance-none bg-transparent text-[13px] font-medium text-[#7d7d7d] transition-colors hover:text-white">
             忘记密码？
           </button>
         </div>
