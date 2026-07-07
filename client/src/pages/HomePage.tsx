@@ -681,13 +681,6 @@ function LoginPanel({
         <p className="mt-5 text-center text-[13px] text-[#7d7d7d]">
           用户名或邮箱注册/登陆
         </p>
-        <button
-          type="button"
-          onClick={onBackToPrompt}
-          className="mt-4 h-10 rounded-[10px] border border-[#454545] bg-transparent text-sm font-medium text-[#b8b8b8] transition-colors hover:border-white/45 hover:text-white"
-        >
-          返回提示词输入
-        </button>
       </form>
     </GlassPanel>
   );
