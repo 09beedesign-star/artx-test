@@ -24,7 +24,7 @@ export default function LoginRegisterDialog() {
     setError("");
 
     if (!normalizedEmail || !password.trim()) {
-      setError("请输入邮箱和密码");
+      setError("请输入用户名或邮箱和密码");
       return;
     }
 
@@ -67,11 +67,11 @@ export default function LoginRegisterDialog() {
 
             <div className="mt-8 flex flex-col gap-5">
               <LabeledInput
-                label="邮箱或 ID"
+                label="用户名或邮箱"
                 value={email}
                 onChange={setEmail}
                 autoComplete="username"
-                placeholder="请输入邮箱或 ID"
+                placeholder="请输入用户名或邮箱"
               />
               <LabeledInput
                 label="密码"
@@ -110,7 +110,7 @@ export default function LoginRegisterDialog() {
               </button>
             </div>
 
-            <p className="mt-5 text-center text-[13px] text-[#7d7d7d]">注册或登录后即可继续使用 ArtX Studio</p>
+            <p className="mt-5 text-center text-[13px] text-[#7d7d7d]">用户名或邮箱注册/登陆</p>
           </form>
         </GlassPanel>
       </div>

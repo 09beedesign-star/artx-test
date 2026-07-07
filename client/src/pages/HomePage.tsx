@@ -235,7 +235,7 @@ export default function HomePage() {
 
   const handleAuthAction = async (action: "login" | "register") => {
     if (!email.trim() || !password.trim()) {
-      setAuthError("请输入邮箱或 ID 和密码");
+      setAuthError("请输入用户名或邮箱和密码");
       return;
     }
 
@@ -635,11 +635,11 @@ function LoginPanel({
 
         <div className="mt-8 flex flex-col gap-5">
           <LabeledInput
-            label="邮箱或 ID"
+            label="用户名或邮箱"
             value={email}
             onChange={onEmailChange}
             autoComplete="username"
-            placeholder="请输入邮箱或 ID"
+            placeholder="请输入用户名或邮箱"
           />
           <LabeledInput
             label="密码"
@@ -679,7 +679,7 @@ function LoginPanel({
         </div>
 
         <p className="mt-5 text-center text-[13px] text-[#7d7d7d]">
-          注册支持邮箱或 ID；已有密码账号可直接登录。
+          用户名或邮箱注册/登陆
         </p>
         <button
           type="button"
