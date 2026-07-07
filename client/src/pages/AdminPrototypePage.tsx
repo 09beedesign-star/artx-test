@@ -54,7 +54,7 @@ type AdminRole = "viewer" | "support" | "finance" | "admin" | "super_admin";
 type OrderStatus = "paid" | "pending" | "failed" | "refunded";
 type FeedbackStatus = "new" | "processing" | "waiting_user" | "resolved" | "closed";
 type AlertSeverity = "critical" | "warning" | "info";
-type AlertCategory = "支付" | "报错" | "接口" | "额度" | "风控";
+type AlertCategory = "支付" | "报错" | "接口" | "积分" | "风控";
 
 type AdminUser = {
   id: string;
@@ -283,7 +283,7 @@ const sections: Array<{
   { id: "overview", label: "总览", description: "收入、算力、风险", icon: BarChart3 },
   { id: "users", label: "账户管理", description: "用户、状态、权限", icon: Users },
   { id: "orders", label: "支付订单", description: "支付、退款、对账", icon: CreditCard },
-  { id: "credits", label: "额度管理", description: "积分、流水、调整", icon: WalletCards },
+  { id: "credits", label: "积分管理", description: "积分、流水、调整", icon: WalletCards },
   { id: "feedback", label: "用户反馈", description: "意见、工单、回复", icon: MessageSquareText },
   { id: "integrations", label: "第三方接口", description: "支付、模型、密钥", icon: KeyRound },
   { id: "risk", label: "风控安全", description: "异常、限流、黑名单", icon: ShieldCheck },
@@ -614,9 +614,9 @@ function AdminPrototypePage() {
     adminPost("/api/admin/credits/adjust", {
       userId: selectedUser.id,
       delta,
-      reason: "后台人工额度调整",
+      reason: "后台人工积分调整",
       confirmHighRisk: Math.abs(delta) >= 10000,
-    }, `${selectedUser.name} 的额度调整已提交：${creditAmount(delta)} 积分，审计日志已生成。`);
+    }, `${selectedUser.name} 的积分调整已提交：${creditAmount(delta)} 积分，审计日志已生成。`);
   }
 
   async function handleChangePassword() {
@@ -837,7 +837,7 @@ function AdminPrototypePage() {
                   付费算力与积分运营后台
                 </h1>
                 <p className="mt-1 text-sm text-slate-400">
-                  管理用户、支付、积分额度、反馈、第三方接口和高风险操作。
+                  管理用户、支付、积分、反馈、第三方接口和高风险操作。
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -956,7 +956,7 @@ function AdminPrototypePage() {
                 icon={Gauge}
                 label="已发放积分"
                 value={formatCredits(issuedCredits)}
-                detail="购买入账 + 赠送额度"
+                detail="购买入账 + 赠送积分"
               />
               <MetricCard
                 icon={AlertTriangle}
@@ -1004,7 +1004,7 @@ function AdminPrototypePage() {
             <div className="mb-4 flex items-center justify-between">
               <div>
                 <h2 className="text-base font-semibold">今日运营队列</h2>
-                <p className="text-sm text-slate-400">先处理影响收入和额度可信度的问题。</p>
+                <p className="text-sm text-slate-400">先处理影响收入和积分可信度的问题。</p>
               </div>
               <Badge tone="amber">{adminData.overview?.operationsQueue.length || adminData.alerts.length} 项待办</Badge>
             </div>
@@ -1249,9 +1249,9 @@ function AdminPrototypePage() {
       const creditCheck = productionCheckById(adminData.productionChecks, "credit_liability");
       return (
         <div className="min-w-0 space-y-5">
-          {creditCheck && <ProductionCheckPanel check={creditCheck} title="额度负债状态" />}
+          {creditCheck && <ProductionCheckPanel check={creditCheck} title="积分负债状态" />}
           <DataList
-            title="积分与额度流水"
+            title="积分流水"
             description="每一笔入账、消耗、冻结、人工调整都必须可追溯。"
             rows={adminData.credits.map((event) => ({
               title: `${event.user} · ${event.type}`,
@@ -1444,7 +1444,7 @@ function AdminPrototypePage() {
       return (
         <DataList
           title="风控规则"
-          description="先覆盖资金和额度异常，再扩展到设备、IP、频率限制。"
+          description="先覆盖资金和积分异常，再扩展到设备、IP、频率限制。"
           rows={[
             ...adminData.riskEvents.map((event) => ({
               title: event.title,
@@ -1467,7 +1467,7 @@ function AdminPrototypePage() {
         )}
         <DataList
           title="管理员操作审计"
-          description="钱和额度相关操作必须记录人、时间、目标和原因。"
+          description="钱和积分相关操作必须记录人、时间、目标和原因。"
           rows={adminData.auditRows.map((row) => ({
             title: row.action,
             meta: `${row.actor} · ${row.target}${row.reason ? ` · ${row.reason}` : ""}`,
@@ -1584,7 +1584,7 @@ function NotificationCenter({
               <div>
                 <div className="text-sm font-semibold">敏捷处理消息</div>
                 <p className="mt-1 break-words text-xs leading-5 text-slate-400">
-                  聚合支付异常、系统报错、接口延迟和额度风险。
+                  聚合支付异常、系统报错、接口延迟和积分风险。
                 </p>
               </div>
               <Badge className={urgentCount > 0 ? statusClass("P0") : statusClass("normal")}>
@@ -1681,7 +1681,7 @@ function alertSection(category: AlertCategory): AdminSection {
     支付: "orders",
     报错: "integrations",
     接口: "integrations",
-    额度: "risk",
+    积分: "risk",
     风控: "risk",
   };
 
@@ -1785,7 +1785,7 @@ function OrdersTable({
         <TableRow className="border-white/10 hover:bg-transparent">
           <TableHead>订单</TableHead>
           <TableHead>用户</TableHead>
-          <TableHead>剩余额度</TableHead>
+          <TableHead>剩余积分</TableHead>
           <TableHead>渠道</TableHead>
           <TableHead>金额</TableHead>
           <TableHead>兑换积分</TableHead>
@@ -1961,7 +1961,7 @@ function AccountDetailDrawer({
               <div className="rounded-md border border-white/10 bg-white/[0.035] p-4">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
-                    <h3 className="text-sm font-semibold">人工额度调整</h3>
+                    <h3 className="text-sm font-semibold">人工积分调整</h3>
                     <p className="mt-1 text-xs text-slate-500">调整会进入账户积分流水和审计日志。</p>
                   </div>
                   <Badge className={statusClass(user.risk)}>{user.risk}</Badge>

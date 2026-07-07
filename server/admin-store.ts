@@ -10,7 +10,7 @@ type AdminStatus = "normal" | "watch" | "blocked";
 type OrderStatus = "paid" | "pending" | "failed" | "refunded";
 type FeedbackStatus = "new" | "processing" | "waiting_user" | "resolved" | "closed";
 type AlertSeverity = "critical" | "warning" | "info";
-type AlertCategory = "支付" | "报错" | "接口" | "额度" | "风控";
+type AlertCategory = "支付" | "报错" | "接口" | "积分" | "风控";
 type AiTaskStatus = "queued" | "processing" | "success" | "failed" | "timeout" | "recoverable";
 type RiskStatus = "open" | "reviewing" | "mitigated";
 
@@ -629,7 +629,7 @@ function buildCapabilityStatus(): CapabilityStatusItem[] {
     { id: "cap_feedback", domain: "反馈与工单", status: "ready", summary: "已支持反馈列表与状态流转，且能写审计日志", source: "/api/admin/feedback*" },
     { id: "cap_audit", domain: "审计日志", status: "ready", summary: "后台写操作已统一写入 audit log", source: "/api/admin/audit-logs" },
     { id: "cap_orders", domain: "支付订单", status: "ready", summary: "已通过威富通接入微信/支付宝下单、回调验签、主动查询、异常告警和后台订单对账", source: "server/wallyt-payment.ts + /api/billing/* + /api/admin/orders" },
-    { id: "cap_credits", domain: "积分与额度", status: "ready", summary: "支付入账、退款扣回、人工调整、AI 成功消耗和失败不扣款已统一进入积分余额与流水账本", source: "/api/billing/* + /api/admin/credits + recordAiUsage" },
+    { id: "cap_credits", domain: "积分", status: "ready", summary: "支付入账、退款扣回、人工调整、AI 成功消耗和失败不扣款已统一进入积分余额与流水账本", source: "/api/billing/* + /api/admin/credits + recordAiUsage" },
     { id: "cap_risk", domain: "风控事件", status: "ready", summary: "已接入支付异常、AI 失败、登录/短信异常、大额积分调整等真实风控规则输入", source: "/api/admin/risk-events + server/admin-store.ts" },
   ];
 }
@@ -760,9 +760,9 @@ function buildProductionChecks(data: AdminData): ProductionCheckItem[] {
     },
     {
       id: "credit_liability",
-      title: "额度负债",
+      title: "积分负债",
       status: productionCheckStatus(0, activeUserCredits + frozenCredits > 0 && creditLedgerEntries === 0 ? 1 : 0),
-      summary: "已按真实用户余额、冻结额度、过期额度和充值消耗差额计算平台未消耗额度。",
+      summary: "已按真实用户余额、冻结积分、过期积分和充值消耗差额计算平台未消耗积分。",
       metrics: {
         activeUserCredits,
         frozenCredits,
@@ -781,7 +781,7 @@ function buildProductionChecks(data: AdminData): ProductionCheckItem[] {
         `用户可用积分 ${activeUserCredits.toLocaleString("zh-CN")}`,
         `冻结积分 ${frozenCredits.toLocaleString("zh-CN")}`,
         `过期积分 ${expiredCredits.toLocaleString("zh-CN")}`,
-        `充值未消耗额度 ${paidUnconsumedCredits.toLocaleString("zh-CN")}`,
+        `充值未消耗积分 ${paidUnconsumedCredits.toLocaleString("zh-CN")}`,
       ],
       actionTarget: "credits",
     },
@@ -1017,7 +1017,7 @@ function dashboard(data: AdminData) {
     maturity: [
       { label: "账户管理", value: 88 },
       { label: "支付订单", value: 76 },
-      { label: "额度流水", value: 92 },
+      { label: "积分流水", value: 92 },
       { label: "AI 任务追踪", value: 74 },
       { label: "风控审计", value: 66 },
     ],
@@ -1674,12 +1674,12 @@ export async function handleAdminApiRequest(
   if (method === "POST" && route === "credits/adjust") {
     const userId = typeof body.userId === "string" ? body.userId : "";
     const delta = Number(body.delta);
-    const reason = typeof body.reason === "string" && body.reason.trim() ? body.reason.trim() : "后台人工额度调整";
+    const reason = typeof body.reason === "string" && body.reason.trim() ? body.reason.trim() : "后台人工积分调整";
     const user = data.users.find((item) => item.id === userId);
     if (!user) return jsonError(404, "用户不存在");
-    if (!Number.isFinite(delta) || delta === 0) return jsonError(400, "调整额度必须是非零数字");
+    if (!Number.isFinite(delta) || delta === 0) return jsonError(400, "调整积分必须是非零数字");
     if (Math.abs(delta) >= 10000 && body.confirmHighRisk !== true) {
-      return jsonError(409, "大额额度调整需要二次确认");
+      return jsonError(409, "大额积分调整需要二次确认");
     }
 
     const before = { credits: user.credits };
@@ -1716,7 +1716,7 @@ export async function handleAdminApiRequest(
       data.riskEvents = [riskEvent, ...data.riskEvents].slice(0, 500);
       data.alerts = [{
         id: `al_${Date.now()}`,
-        category: "额度",
+        category: "积分",
         title: "管理员大额人工调整",
         detail: `${actor.username} 对 ${user.name} 调整 ${delta.toLocaleString("zh-CN")} 积分，需复核原因：${reason}`,
         severity: "warning",

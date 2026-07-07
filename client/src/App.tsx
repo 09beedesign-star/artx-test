@@ -360,7 +360,7 @@ function AdminAccessRequired({ onLogin }: { onLogin: () => void }) {
         </div>
         <h1 className="text-xl font-semibold">需要登录后访问管理后台</h1>
         <p className="mt-2 text-sm leading-6 text-slate-400">
-          管理后台包含支付、积分额度、用户反馈和风控信息，需要先确认当前账号身份。
+          管理后台包含支付、积分、用户反馈和风控信息，需要先确认当前账号身份。
         </p>
 
         <form className="mt-5 rounded-md border border-cyan-300/15 bg-cyan-300/[0.045] p-4 text-left" onSubmit={handleEmailLogin}>
