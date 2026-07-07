@@ -1,7 +1,7 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Route, Router as WouterRouter, Switch, useLocation } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
@@ -68,7 +68,7 @@ function useAdminHostRootRedirect() {
 }
 
 function AppRoutes() {
-  const { isAuthenticated, openLoginModal, user } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   useAdminHostRootRedirect();
 
   return (
@@ -168,7 +168,7 @@ function AppRoutes() {
         ) : isAuthenticated ? (
           <AdminForbidden username={user?.username || "当前账号"} />
         ) : (
-          <AdminAccessRequired onLogin={openLoginModal} />
+          <AdminAccessRequired />
         )}
       </Route>
 
@@ -298,7 +298,36 @@ function AdminForbidden({ username }: { username: string }) {
   );
 }
 
-function AdminAccessRequired({ onLogin }: { onLogin: () => void }) {
+function AdminAccessRequired() {
+  const { login } = useAuth();
+  const [accountId, setAccountId] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const canSubmit = accountId.trim().length > 0 && password.trim().length > 0 && !submitting;
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const normalizedAccountId = accountId.trim();
+    setError("");
+
+    if (!normalizedAccountId || !password.trim()) {
+      setError("请输入账号 ID 和密码");
+      return;
+    }
+    if (normalizedAccountId.includes("@")) {
+      setError("管理后台请使用账号 ID 登录，不支持邮件登录");
+      return;
+    }
+
+    setSubmitting(true);
+    const result = await login(normalizedAccountId, password, { adminLogin: true });
+    setSubmitting(false);
+    if (!result.ok) {
+      setError(result.error || "账号 ID 或密码错误");
+    }
+  };
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#222222] px-6 text-slate-100">
       <section className="w-full max-w-[460px] rounded-md border border-white/10 bg-white/[0.035] p-6 text-center shadow-2xl shadow-black/30">
@@ -307,15 +336,42 @@ function AdminAccessRequired({ onLogin }: { onLogin: () => void }) {
         </div>
         <h1 className="text-xl font-semibold">需要登录后访问管理后台</h1>
         <p className="mt-2 text-sm leading-6 text-slate-400">
-          管理后台包含支付、积分额度、用户反馈和风控信息，需要先确认当前账号身份。
+          使用后台账号 ID 和密码进入管理端。
         </p>
-        <button
-          type="button"
-          onClick={onLogin}
-          className="mt-5 h-10 rounded-md bg-cyan-300 px-5 text-sm font-semibold text-slate-950 transition-colors hover:bg-cyan-200"
-        >
-          登录并进入后台
-        </button>
+        <form className="mt-6 grid gap-3 text-left" onSubmit={handleSubmit}>
+          <label className="grid gap-1.5">
+            <span className="text-xs font-medium text-slate-300">ID 账号</span>
+            <input
+              type="text"
+              value={accountId}
+              onChange={(event) => setAccountId(event.target.value)}
+              autoComplete="username"
+              placeholder="请输入 ID 账号"
+              className="h-11 rounded-md border border-white/10 bg-slate-950/70 px-3 text-sm text-white outline-none transition-colors placeholder:text-slate-500 focus:border-cyan-300/70"
+            />
+          </label>
+          <label className="grid gap-1.5">
+            <span className="text-xs font-medium text-slate-300">密码</span>
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="current-password"
+              placeholder="请输入密码"
+              className="h-11 rounded-md border border-white/10 bg-slate-950/70 px-3 text-sm text-white outline-none transition-colors placeholder:text-slate-500 focus:border-cyan-300/70"
+            />
+          </label>
+          <p className={`min-h-5 text-xs font-medium text-red-300 ${error ? "visible" : "invisible"}`}>
+            {error || " "}
+          </p>
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            className="h-11 rounded-md bg-cyan-300 px-5 text-sm font-semibold text-slate-950 transition-colors hover:bg-cyan-200 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/35"
+          >
+            {submitting ? "登录中..." : "登录"}
+          </button>
+        </form>
       </section>
     </main>
   );
