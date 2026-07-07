@@ -122,11 +122,24 @@ type BillingStatusResponse = {
   error?: string;
 };
 
+const BILLING_BALANCE_STORAGE_KEY = "artx-billing-balance";
+const BILLING_BALANCE_EVENT = "artx:billing-balance-updated";
+
 class BillingAuthExpiredError extends Error {
   constructor(message = "登录已失效，请重新登录") {
     super(message);
     this.name = "BillingAuthExpiredError";
   }
+}
+
+function publishBillingBalance(balance: number) {
+  if (typeof window === "undefined" || !Number.isFinite(balance)) return;
+  try {
+    window.localStorage.setItem(BILLING_BALANCE_STORAGE_KEY, String(balance));
+  } catch {}
+  window.dispatchEvent(
+    new CustomEvent(BILLING_BALANCE_EVENT, { detail: { balance } })
+  );
 }
 
 const rechargePacks = [
@@ -416,7 +429,10 @@ export default function BillingPage() {
     const result = await billingFetch<BillingSummaryResponse>(
       "/api/billing/summary"
     );
-    if (typeof result.balance === "number") setBalance(result.balance);
+    if (typeof result.balance === "number") {
+      setBalance(result.balance);
+      publishBillingBalance(result.balance);
+    }
     const display = deriveSubscriptionDisplay(result.plan);
     setCurrentPlan(display.currentPlan);
     setSubscribedPlanId(display.subscribedPlanId);
@@ -456,6 +472,7 @@ export default function BillingPage() {
     ).catch(() => null);
     if (summary && typeof summary.balance === "number") {
       setBalance(summary.balance);
+      publishBillingBalance(summary.balance);
       const display = deriveSubscriptionDisplay(summary.plan);
       setCurrentPlan(display.currentPlan);
       setSubscribedPlanId(display.subscribedPlanId);

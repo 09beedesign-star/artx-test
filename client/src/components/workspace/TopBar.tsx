@@ -2,7 +2,7 @@
  * TopBar — Neo-Studio Dark Design System
  * Global top navigation: search, theme switcher (Radix DropdownMenu), credits, user info
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, Sparkles, Check, UserRound, LogOut, Search, KeyRound, Copy, RefreshCw, Zap, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -48,6 +48,53 @@ const AVATAR_COLORS = [
   "#6C7A89",
 ];
 
+const BILLING_BALANCE_STORAGE_KEY = "artx-billing-balance";
+const BILLING_BALANCE_EVENT = "artx:billing-balance-updated";
+
+function getBillingApiBaseUrl() {
+  const configured = (
+    import.meta.env.VITE_API_BASE_URL ||
+    import.meta.env.VITE_AUTH_API_BASE_URL ||
+    ""
+  ).replace(/\/+$/, "");
+  if (configured) return configured;
+  return "https://backstage.artxsd.com";
+}
+
+function getAuthToken() {
+  if (typeof window === "undefined") return "";
+  try {
+    const raw = window.localStorage.getItem("artx-auth-session");
+    const parsed = raw ? (JSON.parse(raw) as { token?: string }) : null;
+    return parsed?.token || "";
+  } catch {
+    return "";
+  }
+}
+
+function readCachedBillingBalance() {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(BILLING_BALANCE_STORAGE_KEY);
+    if (!raw) return null;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchBillingBalance() {
+  const token = getAuthToken();
+  if (!token) return null;
+  const response = await fetch(`${getBillingApiBaseUrl()}/api/billing/summary`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) return null;
+  const data = await response.json().catch(() => ({}));
+  return typeof data?.balance === "number" ? data.balance : null;
+}
+
 export default function TopBar({ credits = 0, projectTitle, projectTime, showSearch = false, glass = false }: TopBarProps) {
   const { resolvedTheme } = useTheme();
   const { isAuthenticated, user, openLoginModal, logout } = useAuth();
@@ -68,6 +115,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
   const [apiKey, setApiKey] = useState("");
   const [apiKeyCopied, setApiKeyCopied] = useState(false);
   const [apiKeyCreationConfirmed, setApiKeyCreationConfirmed] = useState(false);
+  const [displayCredits, setDisplayCredits] = useState(credits);
 
   const searchBg = isDark ? "oklch(0.16 0.016 270 / 0.90)" : "oklch(0.97 0.003 270 / 0.92)";
   const searchBorder = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
@@ -78,6 +126,55 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
     const seed = displayName.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
     return AVATAR_COLORS[seed % AVATAR_COLORS.length];
   }, [displayName]);
+
+  useEffect(() => {
+    setDisplayCredits(credits);
+  }, [credits]);
+
+  useEffect(() => {
+    if (
+      !isAuthenticated ||
+      typeof window === "undefined" ||
+      typeof document === "undefined"
+    )
+      return;
+
+    const applyBalance = (value: number | null) => {
+      if (typeof value !== "number" || !Number.isFinite(value)) return;
+      setDisplayCredits(value);
+      try {
+        window.localStorage.setItem(BILLING_BALANCE_STORAGE_KEY, String(value));
+      } catch {}
+    };
+
+    applyBalance(readCachedBillingBalance());
+    fetchBillingBalance().then(applyBalance).catch(() => {});
+
+    const handleBalanceEvent = (event: Event) => {
+      const nextBalance = (event as CustomEvent<{ balance?: number }>).detail?.balance;
+      applyBalance(typeof nextBalance === "number" ? nextBalance : readCachedBillingBalance());
+    };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== BILLING_BALANCE_STORAGE_KEY) return;
+      const nextBalance = Number(event.newValue);
+      applyBalance(Number.isFinite(nextBalance) ? nextBalance : null);
+    };
+    const refreshWhenVisible = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      fetchBillingBalance().then(applyBalance).catch(() => {});
+    };
+
+    window.addEventListener(BILLING_BALANCE_EVENT, handleBalanceEvent);
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.removeEventListener(BILLING_BALANCE_EVENT, handleBalanceEvent);
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [isAuthenticated]);
 
   const handleConfirmLogout = () => {
     logout();
@@ -292,7 +389,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
           title="查看积分与充值"
         >
           <Sparkles size={13} style={{ color: "oklch(0.78 0.18 290)" }} />
-          <span>{credits}</span>
+          <span>{displayCredits.toLocaleString("zh-HK")}</span>
           <span style={{ color: textSec }}>积分</span>
         </button>
         <button
