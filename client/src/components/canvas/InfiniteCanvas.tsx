@@ -455,16 +455,16 @@ function ModelSelector({
   models?: AiModelOption[];
 }) {
   const [open, setOpen] = useState(false);
-  const [buttonHover, setButtonHover] = useState(false);
   const modelRef = useRef<HTMLDivElement>(null);
   const current = models.find(m => m.id === model) || AUTO_AI_MODEL;
   const bg = isDark ? "oklch(0.22 0.015 270)" : "oklch(0.88 0.005 270)";
-  const hoverButtonBg = isDark
+  const selectedBg = isDark
     ? "oklch(0.13 0.015 270)"
     : "oklch(0.22 0.015 270)";
   const border = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
+  const selectedBorder = "oklch(0.62 0.22 290 / 45%)";
   const text = isDark ? "oklch(0.74 0.01 270)" : "oklch(0.58 0.008 270)";
-  const hoverButtonText = "white";
+  const selectedText = "white";
   const popBg = isDark ? "oklch(0.16 0.018 270)" : "oklch(0.99 0.004 270)";
   const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
   const rowHeight = 40;
@@ -497,14 +497,15 @@ function ModelSelector({
           e.stopPropagation();
           setOpen(o => !o);
         }}
-        className="flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-md-design)] type-caption transition-all"
+        className="flex h-8 items-center gap-1 rounded-[var(--radius-md-design)] px-2 transition-colors"
         style={{
-          background: open || buttonHover ? hoverButtonBg : bg,
-          border: `1px solid ${border}`,
-          color: open || buttonHover ? hoverButtonText : text,
+          background: open ? selectedBg : bg,
+          border: `1px solid ${open ? selectedBorder : border}`,
+          color: open ? selectedText : text,
+          fontSize: 11,
+          lineHeight: "14px",
+          letterSpacing: 0,
         }}
-        onMouseEnter={() => setButtonHover(true)}
-        onMouseLeave={() => setButtonHover(false)}
       >
         <span
           style={{
@@ -12506,9 +12507,7 @@ function BackButton({ isDark }: { isDark: boolean }) {
   const [, navigate] = useLocation();
   const [open, setOpen] = useState(false);
   const backButtonRef = useRef<HTMLDivElement>(null);
-  const bg = isDark
-    ? "oklch(0.13 0.015 270 / 0.95)"
-    : "oklch(0.98 0.004 270 / 0.95)";
+  const bg = isDark ? "oklch(0.22 0.015 270)" : "oklch(0.88 0.005 270)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const text = isDark ? "oklch(0.78 0.01 270)" : "oklch(0.25 0.01 270)";
   const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
@@ -14788,7 +14787,7 @@ function CanvasTopToolPalette({
     return () => window.removeEventListener("tool-mode-change", handler);
   }, []);
 
-  const bg = isDark ? "rgba(22,22,30,0.82)" : "rgba(255,255,255,0.88)";
+  const bg = isDark ? "oklch(0.22 0.015 270)" : "oklch(0.88 0.005 270)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const textColor = isDark ? "rgba(255,255,255,0.78)" : "rgba(28,28,40,0.82)";
   const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
