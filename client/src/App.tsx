@@ -75,6 +75,18 @@ function AppRoutes() {
 
   return (
     <Switch>
+      <Route path="/admin-prototype">
+        {!isAdminHost() && !hasAdminTestAccess() ? (
+          <AdminHostRequired />
+        ) : isAuthenticated && user?.isAdmin ? (
+          <AdminPrototypePage />
+        ) : isAuthenticated ? (
+          <AdminForbidden username={user?.username || "当前账号"} />
+        ) : (
+          <AdminAccessRequired />
+        )}
+      </Route>
+
       {/* 首页 */}
       <Route path="/">
         <HomePage />
@@ -160,18 +172,6 @@ function AppRoutes() {
 
       <Route path="/loading">
         <LoadingLoopPage />
-      </Route>
-
-      <Route path="/admin-prototype">
-        {!isAdminHost() && !hasAdminTestAccess() ? (
-          <AdminHostRequired />
-        ) : isAuthenticated && user?.isAdmin ? (
-          <AdminPrototypePage />
-        ) : isAuthenticated ? (
-          <AdminForbidden username={user?.username || "当前账号"} />
-        ) : (
-          <AdminAccessRequired />
-        )}
       </Route>
 
       {/* 项目画布（无 AppShell 侧边栏，画布自带返回按钮） */}
