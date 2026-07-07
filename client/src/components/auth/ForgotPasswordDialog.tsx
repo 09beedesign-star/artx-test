@@ -148,9 +148,11 @@ export default function ForgotPasswordDialog({
                 <PasswordInput
                   label="验证码"
                   value={code}
-                  onChange={setCode}
+                  onChange={value => setCode(value.replace(/\D/g, "").slice(0, 6))}
                   placeholder="请输入邮箱验证码"
                   autoComplete="one-time-code"
+                  inputMode="numeric"
+                  maxLength={6}
                 />
               )}
               {step === "password" && (
@@ -205,6 +207,8 @@ function PasswordInput({
   placeholder,
   type = "text",
   autoComplete,
+  inputMode,
+  maxLength,
 }: {
   label: string;
   value: string;
@@ -212,6 +216,8 @@ function PasswordInput({
   placeholder: string;
   type?: string;
   autoComplete?: string;
+  inputMode?: "none" | "text" | "tel" | "url" | "email" | "numeric" | "decimal" | "search";
+  maxLength?: number;
 }) {
   return (
     <label className="block">
@@ -222,6 +228,8 @@ function PasswordInput({
         onChange={event => onChange(event.target.value)}
         placeholder={placeholder}
         autoComplete={autoComplete}
+        inputMode={inputMode}
+        maxLength={maxLength}
         className="h-[46px] w-full rounded-[10px] border border-[#545454] bg-[#222] px-3.5 text-sm text-white outline-none transition-[border-color,box-shadow] placeholder:text-[#7d7d7d] focus:border-[#936CFF] focus:shadow-[0_0_0_3px_rgba(147,108,255,0.22)]"
       />
     </label>

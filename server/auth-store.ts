@@ -368,7 +368,7 @@ async function saveDatabase(db: AuthDatabase) {
 }
 
 function generateResetToken() {
-  return crypto.randomBytes(18).toString("hex");
+  return String(crypto.randomInt(100000, 1000000));
 }
 
 function generateSmsCode() {

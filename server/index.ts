@@ -503,6 +503,7 @@ async function notifyAuthAction(action: AuthAction, body: Record<string, unknown
     const resetToken = typeof responseBody.resetToken === "string" ? responseBody.resetToken : "";
     const expiresAt = typeof responseBody.expiresAt === "string" ? responseBody.expiresAt : "";
     if (username.includes("@") && resetToken) {
+      const resetCodeHtml = resetToken.replace(/\D/g, "").slice(0, 6);
       await sendUserEmailNotification({
         to: username,
         subject: "ArtX 密码重置",
@@ -515,6 +516,24 @@ async function notifyAuthAction(action: AuthAction, body: Record<string, unknown
           "请回到 ArtX 站点，在忘记密码弹窗中输入验证码并继续修改密码。",
           "如果这不是你本人操作，请忽略此邮件并尽快联系管理员。",
         ].filter(Boolean).join("\n"),
+        html: [
+          '<div style="margin:0;padding:32px;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif;color:#111827;">',
+          '<div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:18px;overflow:hidden;">',
+          '<div style="padding:28px 32px 18px;border-bottom:1px solid #eeeeee;">',
+          '<div style="font-size:13px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#6b7280;">ArtX Account Security</div>',
+          '<h1 style="margin:12px 0 0;font-size:24px;line-height:1.3;font-weight:800;color:#111827;">密码找回验证码</h1>',
+          "</div>",
+          '<div style="padding:28px 32px 32px;">',
+          '<p style="margin:0 0 18px;font-size:15px;line-height:1.8;color:#374151;">你正在重置 ArtX 账号密码。请在站点的忘记密码弹窗中输入下面的 6 位验证码。</p>',
+          '<div style="margin:24px 0;padding:22px 18px;border-radius:16px;background:#f3f4f6;border:1px solid #d1d5db;text-align:center;">',
+          `<div style="font-size:42px;line-height:1.1;font-weight:900;font-family:Arial,Helvetica,sans-serif;color:#000000;letter-spacing:0.18em;">${resetCodeHtml}</div>`,
+          "</div>",
+          expiresAt ? `<p style="margin:0 0 12px;font-size:13px;line-height:1.7;color:#6b7280;">过期时间：${expiresAt}</p>` : "",
+          '<p style="margin:0;font-size:13px;line-height:1.7;color:#6b7280;">如果这不是你本人操作，请忽略此邮件并尽快联系管理员。</p>',
+          "</div>",
+          "</div>",
+          "</div>",
+        ].filter(Boolean).join(""),
       });
     }
   }

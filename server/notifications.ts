@@ -15,6 +15,7 @@ export type UserEmailNotification = {
   to: string;
   subject: string;
   text: string;
+  html?: string;
 };
 
 type SmtpConfig = {
@@ -72,8 +73,32 @@ function sanitizeAddress(value: string) {
   return value.replace(/[\r\n<>]/g, "").trim();
 }
 
-function buildEmailMessage(input: { from: string; to: string; subject: string; text: string }) {
+function buildEmailMessage(input: { from: string; to: string; subject: string; text: string; html?: string }) {
   const body = input.text.replace(/\r?\n/g, "\r\n").replace(/^\./gm, "..");
+  const html = input.html?.replace(/\r?\n/g, "\r\n").replace(/^\./gm, "..");
+  if (html) {
+    const boundary = `artx-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    return [
+      `From: ${sanitizeAddress(input.from)}`,
+      `To: ${sanitizeAddress(input.to)}`,
+      `Subject: ${encodeHeader(input.subject)}`,
+      "MIME-Version: 1.0",
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      "",
+      `--${boundary}`,
+      "Content-Type: text/plain; charset=utf-8",
+      "Content-Transfer-Encoding: 8bit",
+      "",
+      body,
+      `--${boundary}`,
+      "Content-Type: text/html; charset=utf-8",
+      "Content-Transfer-Encoding: 8bit",
+      "",
+      html,
+      `--${boundary}--`,
+      "",
+    ].join("\r\n");
+  }
   return [
     `From: ${sanitizeAddress(input.from)}`,
     `To: ${sanitizeAddress(input.to)}`,
@@ -158,7 +183,7 @@ async function sendSmtpMail(input: UserEmailNotification) {
     await smtpCommand(socket, `MAIL FROM:<${sanitizeAddress(config.from)}>`, [250]);
     await smtpCommand(socket, `RCPT TO:<${sanitizeAddress(input.to)}>`, [250, 251]);
     await smtpCommand(socket, "DATA", [354]);
-    socket.write(`${buildEmailMessage({ from: config.from, to: input.to, subject: input.subject, text: input.text })}\r\n.\r\n`);
+    socket.write(`${buildEmailMessage({ from: config.from, to: input.to, subject: input.subject, text: input.text, html: input.html })}\r\n.\r\n`);
     const response = await readSmtpResponse(socket);
     if (response.code !== 250) throw new Error(`SMTP DATA failed with ${response.code}`);
     await smtpCommand(socket, "QUIT", [221]).catch(() => undefined);

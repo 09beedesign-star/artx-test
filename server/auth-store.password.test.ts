@@ -27,6 +27,35 @@ afterEach(async () => {
 });
 
 describe("password change", () => {
+  it("uses a 6 digit email reset code and accepts it as the reset credential", async () => {
+    const { handleAuthAction } = await loadAuthStore();
+
+    const registerResult = await handleAuthAction("register", {
+      username: "reset@example.com",
+      password: "old-password",
+    });
+    expect(registerResult.status).toBe(200);
+
+    const forgotResult = await handleAuthAction("forgot-password", {
+      username: "reset@example.com",
+    });
+    expect(forgotResult.status).toBe(200);
+    const resetToken = (forgotResult.body as { resetToken?: string }).resetToken;
+    expect(resetToken).toMatch(/^\d{6}$/);
+
+    const resetResult = await handleAuthAction("reset-password", {
+      resetToken,
+      password: "new-password",
+    });
+    expect(resetResult.status).toBe(200);
+
+    const loginResult = await handleAuthAction("login", {
+      username: "reset@example.com",
+      password: "new-password",
+    });
+    expect(loginResult.status).toBe(200);
+  });
+
   it("requires the current password and returns a fresh session token", async () => {
     const { handleAuthAction } = await loadAuthStore();
 
