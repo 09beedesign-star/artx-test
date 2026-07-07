@@ -37,6 +37,12 @@ import {
 } from "@/components/ui/table";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
+import {
+  buildAdminNotifications,
+  type AdminNotificationGroups,
+  type AdminNotificationItem,
+  type AdminNotificationTab,
+} from "./admin-notifications";
 import { getDashboardRiskTarget } from "./admin-dashboard-risk";
 
 type AdminSection =
@@ -112,6 +118,7 @@ type Feedback = {
   status: FeedbackStatus;
   priority: "P0" | "P1" | "P2";
   createdAt: string;
+  linkedOrderId?: string;
 };
 
 type OpsAlert = {
@@ -580,8 +587,15 @@ function AdminPrototypePage() {
     .filter((order) => order.status === "paid")
     .reduce((sum, order) => sum + order.amount, 0);
   const issuedCredits = metrics?.issuedCredits ?? adminData.orders.reduce((sum, order) => sum + order.credits, 0);
-  const unreadAlerts = adminData.alerts.filter((alert) => alert.unread).length;
-  const urgentAlerts = adminData.alerts.filter((alert) => alert.severity === "critical").length;
+  const notificationGroups = useMemo(() => buildAdminNotifications({
+    orders: adminData.orders,
+    alerts: adminData.alerts,
+    feedback: adminData.feedback,
+    riskEvents: adminData.riskEvents,
+  }), [adminData.alerts, adminData.feedback, adminData.orders, adminData.riskEvents]);
+  const notificationItems = Object.values(notificationGroups).flat();
+  const unreadAlerts = notificationItems.filter((item) => item.unread).length;
+  const urgentAlerts = notificationItems.filter((item) => item.severity === "critical").length;
 
   const filteredUsers = useMemo(() => {
     return adminData.users.filter((user) => {
@@ -654,6 +668,21 @@ function AdminPrototypePage() {
 
   function handleMarkAllAlertsRead() {
     adminPost("/api/admin/alerts/read-all", {}, "所有敏捷处理消息已标记为已读，操作已进入审计日志。");
+  }
+
+  function handleNotificationJump(item: AdminNotificationItem) {
+    setAlertsOpen(false);
+    if (item.targetSection === "orders" && item.targetId) {
+      handleSelectOrder(item.targetId);
+      setActiveSection("orders");
+      return;
+    }
+    setActiveSection(item.targetSection);
+  }
+
+  function handleMarkNotificationRead(item: AdminNotificationItem) {
+    if (!item.id.startsWith("alert:")) return;
+    handleMarkAlertRead(item.id.replace(/^alert:/, ""));
   }
 
   function handlePolicyDraftChange(index: number, key: "baseCredits" | "estimatedCostPerUnit", value: string) {
@@ -842,17 +871,14 @@ function AdminPrototypePage() {
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <NotificationCenter
-                  alerts={adminData.alerts}
+                  groups={notificationGroups}
                   open={alertsOpen}
                   unreadCount={unreadAlerts}
                   urgentCount={urgentAlerts}
                   onToggle={() => setAlertsOpen((value) => !value)}
-                  onMarkRead={handleMarkAlertRead}
+                  onMarkRead={handleMarkNotificationRead}
                   onMarkAllRead={handleMarkAllAlertsRead}
-                  onJumpTo={(section) => {
-                    setActiveSection(section);
-                    setAlertsOpen(false);
-                  }}
+                  onJumpTo={handleNotificationJump}
                 />
                 <Button
                   variant="outline"
@@ -1531,8 +1557,20 @@ function MetricCard({
   );
 }
 
+const notificationTabs: Array<{ id: AdminNotificationTab; label: string; empty: string; icon: typeof Bell }> = [
+  { id: "order", label: "订单类", empty: "暂无购买订单消息", icon: CreditCard },
+  { id: "security", label: "安全类", empty: "暂无安全告警消息", icon: ShieldCheck },
+  { id: "voice", label: "用户之声", empty: "暂无用户反馈消息", icon: MessageSquareText },
+];
+
+function notificationSeverityClass(severity: "critical" | "warning" | "info") {
+  if (severity === "critical") return statusClass("P0");
+  if (severity === "warning") return statusClass("watch");
+  return statusClass("normal");
+}
+
 function NotificationCenter({
-  alerts,
+  groups,
   open,
   unreadCount,
   urgentCount,
@@ -1541,15 +1579,19 @@ function NotificationCenter({
   onMarkAllRead,
   onJumpTo,
 }: {
-  alerts: OpsAlert[];
+  groups: AdminNotificationGroups;
   open: boolean;
   unreadCount: number;
   urgentCount: number;
   onToggle: () => void;
-  onMarkRead: (id: string) => void;
+  onMarkRead: (item: AdminNotificationItem) => void;
   onMarkAllRead: () => void;
-  onJumpTo: (section: AdminSection) => void;
+  onJumpTo: (item: AdminNotificationItem) => void;
 }) {
+  const [activeTab, setActiveTab] = useState<AdminNotificationTab>("order");
+  const activeItems = groups[activeTab] || [];
+  const totalCount = notificationTabs.reduce((sum, tab) => sum + (groups[tab.id]?.length || 0), 0);
+
   return (
     <div className="relative">
       <button
@@ -1578,13 +1620,13 @@ function NotificationCenter({
       </button>
 
       {open && (
-        <div className="absolute right-0 top-11 z-30 w-[calc(100vw-32px)] max-w-[430px] overflow-hidden rounded-md border border-white/10 bg-[#0f172a] shadow-2xl shadow-black/40">
+        <div className="absolute right-0 top-11 z-30 w-[calc(100vw-32px)] max-w-[520px] overflow-hidden rounded-md border border-white/10 bg-[#0f172a] shadow-2xl shadow-black/40">
           <div className="border-b border-white/10 p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold">敏捷处理消息</div>
+                <div className="text-sm font-semibold">后台消息中心</div>
                 <p className="mt-1 break-words text-xs leading-5 text-slate-400">
-                  聚合支付异常、系统报错、接口延迟和积分风险。
+                  聚合订单、网络安全告警和用户反馈，点击文字链进入对应详情。
                 </p>
               </div>
               <Badge className={urgentCount > 0 ? statusClass("P0") : statusClass("normal")}>
@@ -1592,100 +1634,108 @@ function NotificationCenter({
               </Badge>
             </div>
             <div className="mt-3 flex items-center justify-between">
-              <span className="text-xs text-slate-500">{unreadCount} 条未读</span>
+              <span className="text-xs text-slate-500">{totalCount} 条消息 · {unreadCount} 条待处理</span>
               <button
                 className="text-xs font-medium text-cyan-200 hover:text-cyan-100"
                 onClick={onMarkAllRead}
               >
-                全部已读
+                告警已读
               </button>
+            </div>
+            <div className="mt-4 grid grid-cols-3 gap-2">
+              {notificationTabs.map((tab) => {
+                const Icon = tab.icon;
+                const count = groups[tab.id]?.length || 0;
+                const isActive = tab.id === activeTab;
+                return (
+                  <button
+                    key={tab.id}
+                    className={cn(
+                      "flex min-w-0 items-center justify-center gap-1.5 rounded-md border px-2 py-2 text-xs font-medium transition",
+                      isActive
+                        ? "border-cyan-300 bg-cyan-300 text-slate-950"
+                        : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10"
+                    )}
+                    onClick={() => setActiveTab(tab.id)}
+                  >
+                    <Icon className="size-3.5 shrink-0" />
+                    <span className="truncate">{tab.label}</span>
+                    <span className={cn("rounded px-1", isActive ? "bg-slate-950/15" : "bg-white/8")}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
           <div className="max-h-[440px] overflow-y-auto">
-            {alerts.length ? (
-              alerts.map((alert) => (
+            {activeItems.length ? (
+              activeItems.map((item) => (
                 <div
-                  key={alert.id}
+                  key={item.id}
                   className={cn(
                     "border-b border-white/8 p-4 last:border-b-0",
-                    alert.unread ? "bg-cyan-300/[0.045]" : "bg-transparent"
+                    item.unread ? "bg-cyan-300/[0.045]" : "bg-transparent"
                   )}
                 >
                   <div className="flex items-start gap-3">
                     <div
                       className={cn(
                         "mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md border",
-                        alert.severity === "critical"
+                        item.severity === "critical"
                           ? "border-rose-400/30 bg-rose-400/10 text-rose-100"
-                          : "border-amber-400/30 bg-amber-400/10 text-amber-100"
+                          : item.severity === "warning"
+                            ? "border-amber-400/30 bg-amber-400/10 text-amber-100"
+                            : "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
                       )}
                     >
-                      {alert.category === "支付" ? (
+                      {item.tab === "order" ? (
                         <CreditCard className="size-4" />
-                      ) : alert.category === "报错" ? (
-                        <AlertTriangle className="size-4" />
-                      ) : alert.category === "接口" ? (
-                        <Activity className="size-4" />
+                      ) : item.tab === "security" ? (
+                        <ShieldCheck className="size-4" />
                       ) : (
-                        <WalletCards className="size-4" />
+                        <MessageSquareText className="size-4" />
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <Badge
-                          className={
-                            alert.severity === "critical"
-                              ? statusClass("P0")
-                              : statusClass("watch")
-                          }
-                        >
-                          {alert.category}
-                        </Badge>
-                        <span className="text-xs text-slate-500">{alert.time}</span>
-                        {alert.unread && <span className="size-2 rounded-full bg-cyan-300" />}
+                        <Badge className={notificationSeverityClass(item.severity)}>{item.label}</Badge>
+                        <span className="text-xs text-slate-500">{item.time}</span>
+                        {item.unread && <span className="size-2 rounded-full bg-cyan-300" />}
                       </div>
-                      <div className="mt-2 text-sm font-medium">{alert.title}</div>
-                      <p className="mt-1 break-words text-xs leading-5 text-slate-400">{alert.detail}</p>
+                      <div className="mt-2 text-sm font-medium">{item.title}</div>
+                      <p className="mt-1 break-words text-xs leading-5 text-slate-400">{item.detail}</p>
                       <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <span className="text-xs text-slate-500">负责人：{alert.owner}</span>
                         <button
-                          className="ml-auto rounded-md border border-white/10 px-2 py-1 text-xs text-slate-200 hover:bg-white/8"
-                          onClick={() => onJumpTo(alertSection(alert.category))}
+                          className="rounded-md border border-white/10 px-2 py-1 text-xs text-cyan-100 hover:bg-white/8"
+                          onClick={() => onJumpTo(item)}
                         >
-                          查看模块
+                          查看详情
                         </button>
-                        <button
-                          className="rounded-md bg-white px-2 py-1 text-xs font-medium text-slate-950 hover:bg-cyan-100"
-                          onClick={() => onMarkRead(alert.id)}
-                        >
-                          标记处理
-                        </button>
+                        {item.id.startsWith("alert:") && (
+                          <button
+                            className="rounded-md bg-white px-2 py-1 text-xs font-medium text-slate-950 hover:bg-cyan-100"
+                            onClick={() => onMarkRead(item)}
+                          >
+                            标记处理
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
                 </div>
               ))
             ) : (
-              <div className="p-4 text-sm text-slate-500">暂无真实告警消息</div>
+              <div className="p-4 text-sm text-slate-500">
+                {notificationTabs.find((tab) => tab.id === activeTab)?.empty || "暂无消息"}
+              </div>
             )}
           </div>
         </div>
       )}
     </div>
   );
-}
-
-function alertSection(category: AlertCategory): AdminSection {
-  const map: Record<AlertCategory, AdminSection> = {
-    支付: "orders",
-    报错: "integrations",
-    接口: "integrations",
-    积分: "risk",
-    风控: "risk",
-  };
-
-  return map[category];
 }
 
 function SectionTabs({
