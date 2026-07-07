@@ -27,6 +27,9 @@ interface AuthContextValue {
   register: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   sendSmsCode: (phone: string) => Promise<{ ok: boolean; error?: string; retryAfterSeconds?: number }>;
   loginWithSmsCode: (phone: string, code: string) => Promise<{ ok: boolean; error?: string }>;
+  sendEmailCode: (email: string) => Promise<{ ok: boolean; error?: string; retryAfterSeconds?: number }>;
+  loginWithEmailCode: (email: string, code: string) => Promise<{ ok: boolean; error?: string }>;
+  forgotPassword: (username: string) => Promise<{ ok: boolean; error?: string; message?: string }>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<{ ok: boolean; error?: string }>;
   socialAuth: (provider: "google" | "wechat" | "apple" | "github" | "meta") => Promise<{ ok: boolean; error?: string }>;
   logout: () => void;
@@ -115,6 +118,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const authenticateWithEmail = async (email: string, code: string) => {
+    try {
+      const result = await fetchAuth("email-login", { email, code });
+      if (!result.ok || !result.token || !result.user) {
+        return { ok: false, error: result.error || "邮箱验证码登录失败" };
+      }
+      const normalizedUser = normalizeAuthUser(result.user);
+      if (!persistSession({ token: result.token, user: normalizedUser })) {
+        return { ok: false, error: "浏览器本地存储空间不足，已尝试清理旧画布缓存，请重新登录" };
+      }
+      setIsAuthenticated(true);
+      setUser(normalizedUser);
+      setLoginModalOpen(false);
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "邮箱验证码服务暂时不可用，请稍后重试" };
+    }
+  };
+
   const applyStoredSession = () => {
     const stored = readStoredSession();
     if (!stored) return;
@@ -144,6 +166,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     },
     loginWithSmsCode: authenticateWithSms,
+    sendEmailCode: async (email: string) => {
+      try {
+        const result = await fetchAuth("email-send-code", { email });
+        return {
+          ok: result.ok,
+          error: result.error,
+          retryAfterSeconds: result.retryAfterSeconds,
+        };
+      } catch {
+        return { ok: false, error: "邮箱验证码服务暂时不可用，请稍后重试" };
+      }
+    },
+    loginWithEmailCode: authenticateWithEmail,
+    forgotPassword: async (username: string) => {
+      try {
+        const result = await fetchAuth("forgot-password", { username });
+        return {
+          ok: result.ok,
+          error: result.error,
+          message: result.message,
+        };
+      } catch {
+        return { ok: false, error: "密码重置服务暂时不可用，请稍后重试" };
+      }
+    },
     changePassword: async (currentPassword: string, newPassword: string) => {
       const stored = readStoredSession();
       if (!stored?.token) {
@@ -313,7 +360,7 @@ function clearLargeArtxLocalCache() {
   }
 }
 
-async function fetchAuth(action: "register" | "login" | "me" | "logout" | "social" | "sms-send-code" | "sms-login" | "change-password", payload: Record<string, unknown>) {
+async function fetchAuth(action: "register" | "login" | "me" | "logout" | "social" | "sms-send-code" | "sms-login" | "email-send-code" | "email-login" | "forgot-password" | "change-password", payload: Record<string, unknown>) {
   const apiBaseUrl = getAuthApiBaseUrl();
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 12_000);
@@ -336,7 +383,7 @@ async function fetchAuth(action: "register" | "login" | "me" | "logout" | "socia
   return {
     ...data,
     ok: response.ok,
-  } as { ok: boolean; error?: string; token?: string; user?: AuthUser; retryAfterSeconds?: number };
+  } as { ok: boolean; error?: string; token?: string; user?: AuthUser; retryAfterSeconds?: number; message?: string };
 }
 
 function authenticateLocally(action: "login" | "register" | "registerOrLogin", username: string, password: string) {

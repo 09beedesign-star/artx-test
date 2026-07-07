@@ -2,9 +2,10 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { PostgresJsonDocumentStore } from "./postgres-json-store";
+import { sendUserEmailNotification } from "./notifications";
 import { normalizeMainlandPhone, sendSmsVerificationCode } from "./sms-service";
 
-type AuthAction = "register" | "login" | "me" | "logout" | "social" | "forgot-password" | "reset-password" | "change-password" | "sms-send-code" | "sms-login";
+type AuthAction = "register" | "login" | "me" | "logout" | "social" | "forgot-password" | "reset-password" | "change-password" | "sms-send-code" | "sms-login" | "email-send-code" | "email-login";
 type AdminRole = "viewer" | "support" | "finance" | "admin" | "super_admin";
 
 const ROLE_PERMISSIONS: Record<AdminRole, string[]> = {
@@ -91,11 +92,23 @@ interface SmsChallenge {
   dailyCount: number;
 }
 
+interface EmailChallenge {
+  email: string;
+  codeHash: string;
+  sentAt: string;
+  expiresAt: string;
+  resendAfterAt: string;
+  attempts: number;
+  dailyKey: string;
+  dailyCount: number;
+}
+
 interface AuthDatabase {
   users: StoredUser[];
   sessions: StoredSession[];
   apiKeys?: StoredApiKey[];
   smsChallenges?: SmsChallenge[];
+  emailChallenges?: EmailChallenge[];
   auditLogs?: AdminAuditLog[];
 }
 
@@ -110,6 +123,10 @@ const SMS_CODE_TTL_MS = Number(process.env.SMS_CODE_TTL_MS || 5 * 60 * 1000);
 const SMS_CODE_RESEND_MS = Number(process.env.SMS_CODE_RESEND_MS || 60 * 1000);
 const SMS_CODE_DAILY_LIMIT = Number(process.env.SMS_CODE_DAILY_LIMIT || 10);
 const SMS_CODE_MAX_ATTEMPTS = Number(process.env.SMS_CODE_MAX_ATTEMPTS || 5);
+const EMAIL_CODE_TTL_MS = Number(process.env.EMAIL_CODE_TTL_MS || 10 * 60 * 1000);
+const EMAIL_CODE_RESEND_MS = Number(process.env.EMAIL_CODE_RESEND_MS || 60 * 1000);
+const EMAIL_CODE_DAILY_LIMIT = Number(process.env.EMAIL_CODE_DAILY_LIMIT || 10);
+const EMAIL_CODE_MAX_ATTEMPTS = Number(process.env.EMAIL_CODE_MAX_ATTEMPTS || 5);
 
 interface AdminAuditLog {
   id: string;
@@ -291,6 +308,13 @@ function normalizeDatabase(parsed: Partial<AuthDatabase>): AuthDatabase {
         Date.parse(challenge.expiresAt) > now
       )
       : [],
+    emailChallenges: Array.isArray(parsed.emailChallenges)
+      ? parsed.emailChallenges.filter((challenge) =>
+        challenge.email &&
+        challenge.expiresAt &&
+        Date.parse(challenge.expiresAt) > now
+      )
+      : [],
     auditLogs: Array.isArray(parsed.auditLogs) ? parsed.auditLogs : [],
   };
 }
@@ -379,6 +403,12 @@ function phoneUsername(phone: string) {
   return `+86${phone}`;
 }
 
+function normalizeEmail(value: unknown) {
+  const email = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "";
+  return email;
+}
+
 function currentDayKey() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -386,6 +416,14 @@ function currentDayKey() {
 function pruneSmsChallenges(db: AuthDatabase) {
   const now = Date.now();
   db.smsChallenges = (db.smsChallenges || []).filter((challenge) =>
+    challenge.expiresAt &&
+    Date.parse(challenge.expiresAt) > now
+  );
+}
+
+function pruneEmailChallenges(db: AuthDatabase) {
+  const now = Date.now();
+  db.emailChallenges = (db.emailChallenges || []).filter((challenge) =>
     challenge.expiresAt &&
     Date.parse(challenge.expiresAt) > now
   );
@@ -611,6 +649,131 @@ export async function handleAuthAction(action: AuthAction, payload: unknown) {
   const db = await loadDatabase();
   const body = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
 
+  if (action === "email-send-code") {
+    const email = normalizeEmail(body.email || body.username);
+    if (!email) {
+      return { status: 400, body: { error: "请输入有效的邮箱地址" } };
+    }
+
+    pruneEmailChallenges(db);
+    const now = Date.now();
+    const today = currentDayKey();
+    const existing = (db.emailChallenges || []).find((item) => item.email === email);
+    if (existing?.resendAfterAt && Date.parse(existing.resendAfterAt) > now) {
+      return {
+        status: 429,
+        body: {
+          error: "验证码发送太频繁，请稍后再试",
+          retryAfterSeconds: Math.ceil((Date.parse(existing.resendAfterAt) - now) / 1000),
+        },
+      };
+    }
+    const dailyCount = existing?.dailyKey === today ? Number(existing.dailyCount || 0) : 0;
+    if (dailyCount >= EMAIL_CODE_DAILY_LIMIT) {
+      return { status: 429, body: { error: "今日邮箱验证码发送次数已达上限" } };
+    }
+
+    const code = generateSmsCode();
+    const sent: { sent: boolean; reason?: string; provider?: string } = process.env.EMAIL_DRY_RUN === "true"
+      ? { sent: true, provider: "dry-run" }
+      : await sendUserEmailNotification({
+        to: email,
+        subject: "ArtX 后台登录验证码",
+        text: [
+          "你正在登录或注册 ArtX 后台账号。",
+          "",
+          `验证码：${code}`,
+          "验证码 10 分钟内有效。",
+          "",
+          "如果这不是你本人操作，请忽略此邮件。",
+        ].join("\n"),
+      });
+    if (!sent.sent) {
+      return { status: 503, body: { error: sent.reason || "邮箱服务暂未配置或发送失败" } };
+    }
+
+    const challenge: EmailChallenge = {
+      email,
+      codeHash: hashToken(`${email}:${code}`),
+      sentAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + EMAIL_CODE_TTL_MS).toISOString(),
+      resendAfterAt: new Date(now + EMAIL_CODE_RESEND_MS).toISOString(),
+      attempts: 0,
+      dailyKey: today,
+      dailyCount: dailyCount + 1,
+    };
+    db.emailChallenges = [
+      challenge,
+      ...(db.emailChallenges || []).filter((item) => item.email !== email),
+    ].slice(0, 1000);
+    appendAuditLog(db, {
+      actorId: "email",
+      action: "auth.email.send",
+      target: email,
+      meta: { provider: "smtp" },
+    });
+    await saveDatabase(db);
+
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        expiresAt: challenge.expiresAt,
+        retryAfterSeconds: Math.ceil(EMAIL_CODE_RESEND_MS / 1000),
+        ...(process.env.EMAIL_DRY_RUN === "true" ? { debugCode: code } : {}),
+      },
+    };
+  }
+
+  if (action === "email-login") {
+    const email = normalizeEmail(body.email || body.username);
+    const code = typeof body.code === "string" ? body.code.replace(/\D/g, "") : "";
+    if (!email) {
+      return { status: 400, body: { error: "请输入有效的邮箱地址" } };
+    }
+    if (!/^\d{6}$/.test(code)) {
+      return { status: 400, body: { error: "请输入 6 位邮箱验证码" } };
+    }
+
+    pruneEmailChallenges(db);
+    const challenge = (db.emailChallenges || []).find((item) => item.email === email);
+    if (!challenge) {
+      return { status: 400, body: { error: "验证码无效或已过期，请重新获取" } };
+    }
+    if (challenge.attempts >= EMAIL_CODE_MAX_ATTEMPTS) {
+      db.emailChallenges = (db.emailChallenges || []).filter((item) => item.email !== email);
+      await saveDatabase(db);
+      return { status: 429, body: { error: "验证码错误次数过多，请重新获取" } };
+    }
+    if (challenge.codeHash !== hashToken(`${email}:${code}`)) {
+      challenge.attempts = Number(challenge.attempts || 0) + 1;
+      await saveDatabase(db);
+      return { status: 401, body: { error: "验证码错误" } };
+    }
+
+    let user = db.users.find((item) => item.loginKey === loginKey(email));
+    if (!user) {
+      user = createUser(email, crypto.randomBytes(18).toString("hex"));
+      db.users.push(user);
+    }
+    if (user.status === "disabled") {
+      return { status: 403, body: { error: "当前账号已被停用，请联系管理员" } };
+    }
+    user.failedLoginCount = 0;
+    user.lockedUntil = undefined;
+    user.lastLoginAt = new Date().toISOString();
+    db.emailChallenges = (db.emailChallenges || []).filter((item) => item.email !== email);
+    appendAuditLog(db, {
+      actorId: user.id,
+      action: "auth.email.login",
+      target: user.id,
+      meta: { username: email },
+    });
+    const token = createSession(db, user.id);
+    await saveDatabase(db);
+    return { status: 200, body: { token, user: publicUser(user) } };
+  }
+
   if (action === "sms-send-code") {
     const phone = normalizeMainlandPhone(body.phone);
     if (!phone) {
@@ -818,19 +981,26 @@ export async function handleAuthAction(action: AuthAction, payload: unknown) {
       return { status: 400, body: { error: "请输入账号或邮箱" } };
     }
     const user = db.users.find((item) => item.loginKey === loginKey(username));
-    if (!user) {
-      return { status: 404, body: { error: "账号不存在" } };
+    if (user) {
+      const resetToken = generateResetToken();
+      user.resetTokenHash = hashToken(resetToken);
+      user.resetTokenExpiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
     }
-    const resetToken = generateResetToken();
-    user.resetTokenHash = hashToken(resetToken);
-    user.resetTokenExpiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+    appendAuditLog(db, {
+      actorId: user?.id || "system",
+      action: "auth.password.reset.requested",
+      target: user?.id || loginKey(username),
+      meta: {
+        username,
+        matched: Boolean(user),
+      },
+    });
     await saveDatabase(db);
     return {
       status: 200,
       body: {
         ok: true,
-        resetToken,
-        expiresAt: user.resetTokenExpiresAt,
+        message: "如果账号存在，密码重置申请已记录，请联系管理员处理。",
       },
     };
   }

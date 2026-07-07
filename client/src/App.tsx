@@ -1,7 +1,7 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Route, Router as WouterRouter, Switch, useLocation } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
@@ -299,9 +299,62 @@ function AdminForbidden({ username }: { username: string }) {
 }
 
 function AdminAccessRequired({ onLogin }: { onLogin: () => void }) {
+  const { forgotPassword, sendEmailCode, loginWithEmailCode } = useAuth();
+  const [email, setEmail] = useState("");
+  const [emailCode, setEmailCode] = useState("");
+  const [emailBusy, setEmailBusy] = useState(false);
+  const [emailMessage, setEmailMessage] = useState("");
+  const [resetUsername, setResetUsername] = useState("");
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetMessage, setResetMessage] = useState("");
+
+  const handleSendEmailCode = async () => {
+    const normalizedEmail = email.trim();
+    setEmailMessage("");
+    if (!normalizedEmail) {
+      setEmailMessage("请输入邮箱地址。");
+      return;
+    }
+    setEmailBusy(true);
+    const result = await sendEmailCode(normalizedEmail);
+    setEmailBusy(false);
+    setEmailMessage(result.ok ? "验证码已发送，请查看邮箱后输入验证码。" : result.error || "验证码发送失败。");
+  };
+
+  const handleEmailLogin = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const normalizedEmail = email.trim();
+    const code = emailCode.trim();
+    setEmailMessage("");
+    if (!normalizedEmail || !code) {
+      setEmailMessage("请输入邮箱和验证码。");
+      return;
+    }
+    setEmailBusy(true);
+    const result = await loginWithEmailCode(normalizedEmail, code);
+    setEmailBusy(false);
+    if (!result.ok) {
+      setEmailMessage(result.error || "邮箱验证失败。");
+    }
+  };
+
+  const handleForgotPassword = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const username = resetUsername.trim();
+    setResetMessage("");
+    if (!username) {
+      setResetMessage("请输入后台账号或邮箱。");
+      return;
+    }
+    setResetBusy(true);
+    const result = await forgotPassword(username);
+    setResetBusy(false);
+    setResetMessage(result.ok ? result.message || "密码重置申请已记录，请联系管理员处理。" : result.error || "密码重置申请失败。");
+  };
+
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#222222] px-6 text-slate-100">
-      <section className="w-full max-w-[460px] rounded-md border border-white/10 bg-white/[0.035] p-6 text-center shadow-2xl shadow-black/30">
+    <main className="flex min-h-screen items-center justify-center bg-[#222222] px-6 py-8 text-slate-100">
+      <section className="w-full max-w-[520px] rounded-md border border-white/10 bg-white/[0.035] p-6 text-center shadow-2xl shadow-black/30">
         <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-md bg-cyan-300 text-slate-950">
           <span className="text-lg font-semibold">A</span>
         </div>
@@ -309,13 +362,82 @@ function AdminAccessRequired({ onLogin }: { onLogin: () => void }) {
         <p className="mt-2 text-sm leading-6 text-slate-400">
           管理后台包含支付、积分额度、用户反馈和风控信息，需要先确认当前账号身份。
         </p>
+
+        <form className="mt-5 rounded-md border border-cyan-300/15 bg-cyan-300/[0.045] p-4 text-left" onSubmit={handleEmailLogin}>
+          <div className="text-sm font-semibold text-cyan-50">邮箱验证码注册 / 登录</div>
+          <p className="mt-1 text-xs leading-5 text-slate-400">支持自定义邮箱和 Gmail。首次验证成功会自动创建账号。</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+            <input
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              autoComplete="email"
+              inputMode="email"
+              className="h-10 rounded-md border border-white/12 bg-slate-950/50 px-3 text-sm text-slate-100 outline-none transition focus:border-cyan-300/50"
+              placeholder="name@gmail.com 或自定义邮箱"
+            />
+            <button
+              type="button"
+              onClick={() => void handleSendEmailCode()}
+              disabled={emailBusy}
+              className="h-10 rounded-md border border-cyan-300/25 bg-cyan-300/10 px-3 text-sm font-medium text-cyan-100 transition hover:bg-cyan-300/18 disabled:opacity-60"
+            >
+              {emailBusy ? "请稍候" : "获取验证码"}
+            </button>
+          </div>
+          <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+            <input
+              value={emailCode}
+              onChange={(event) => setEmailCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+              autoComplete="one-time-code"
+              inputMode="numeric"
+              className="h-10 rounded-md border border-white/12 bg-slate-950/50 px-3 text-sm text-slate-100 outline-none transition focus:border-cyan-300/50"
+              placeholder="6 位验证码"
+            />
+            <button
+              type="submit"
+              disabled={emailBusy}
+              className="h-10 rounded-md bg-cyan-300 px-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200 disabled:opacity-60"
+            >
+              验证并进入
+            </button>
+          </div>
+          {emailMessage && (
+            <p className="mt-2 text-xs leading-5 text-amber-100">{emailMessage}</p>
+          )}
+        </form>
+
         <button
           type="button"
           onClick={onLogin}
-          className="mt-5 h-10 rounded-md bg-cyan-300 px-5 text-sm font-semibold text-slate-950 transition-colors hover:bg-cyan-200"
+          className="mt-4 h-10 rounded-md border border-white/12 bg-white/5 px-5 text-sm font-semibold text-slate-100 transition-colors hover:bg-white/10"
         >
-          登录并进入后台
+          使用账号密码登录
         </button>
+        <form className="mt-5 border-t border-white/10 pt-5 text-left" onSubmit={handleForgotPassword}>
+          <label className="text-xs font-medium text-slate-400" htmlFor="admin-reset-username">
+            忘记密码
+          </label>
+          <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+            <input
+              id="admin-reset-username"
+              value={resetUsername}
+              onChange={(event) => setResetUsername(event.target.value)}
+              autoComplete="username"
+              className="h-10 rounded-md border border-white/12 bg-slate-950/50 px-3 text-sm text-slate-100 outline-none transition focus:border-cyan-300/50"
+              placeholder="输入后台账号或邮箱"
+            />
+            <button
+              type="submit"
+              disabled={resetBusy}
+              className="h-10 rounded-md border border-cyan-300/25 bg-cyan-300/10 px-3 text-sm font-medium text-cyan-100 transition hover:bg-cyan-300/18 disabled:opacity-60"
+            >
+              {resetBusy ? "提交中" : "提交申请"}
+            </button>
+          </div>
+          {resetMessage && (
+            <p className="mt-2 text-xs leading-5 text-amber-100">{resetMessage}</p>
+          )}
+        </form>
       </section>
     </main>
   );

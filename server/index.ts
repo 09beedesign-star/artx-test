@@ -12,7 +12,7 @@ import { generateText } from "./text-generation";
 import { getAdminSessionFromAuthorization, getSessionUserFromAuthorization, handleAuthAction } from "./auth-store";
 import { createBillingOrder, createCreditRechargeOrder, getBillingOrderForPayment, getBillingSnapshotForUser, handleAdminApiRequest, markBillingOrderPaid, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent } from "./admin-store";
 import { getAllowedCorsOrigin } from "./cors";
-import { sendOpsNotification, sendUserEmailNotification } from "./notifications";
+import { sendOpsNotification } from "./notifications";
 import type { AiBillingCapability } from "../shared/ai-credit-policy";
 import {
   createWallytPayment,
@@ -44,7 +44,7 @@ type SessionUser = {
   username: string;
 };
 
-type AuthAction = "register" | "login" | "me" | "logout" | "social" | "forgot-password" | "reset-password" | "change-password" | "sms-send-code" | "sms-login";
+type AuthAction = "register" | "login" | "me" | "logout" | "social" | "forgot-password" | "reset-password" | "change-password" | "sms-send-code" | "sms-login" | "email-send-code" | "email-login";
 
 type AiRouteTracking = {
   capabilityKey: AiBillingCapability;
@@ -500,27 +500,6 @@ async function notifyAuthAction(action: AuthAction, body: Record<string, unknown
       category: "auth",
       metadata: { userId: user.id, action },
     });
-  }
-
-  if (action === "forgot-password") {
-    const username = typeof body.username === "string" ? body.username.trim() : "";
-    const resetToken = typeof responseBody.resetToken === "string" ? responseBody.resetToken : "";
-    const expiresAt = typeof responseBody.expiresAt === "string" ? responseBody.expiresAt : "";
-    if (username.includes("@") && resetToken) {
-      await sendUserEmailNotification({
-        to: username,
-        subject: "ArtX 密码重置",
-        text: [
-          "你正在重置 ArtX 账号密码。",
-          "",
-          `重置链接：${getPublicAppUrl()}/reset-password?token=${encodeURIComponent(resetToken)}`,
-          `重置令牌：${resetToken}`,
-          expiresAt ? `过期时间：${expiresAt}` : "",
-          "",
-          "如果这不是你本人操作，请忽略此邮件并尽快联系管理员。",
-        ].filter(Boolean).join("\n"),
-      });
-    }
   }
 
   if (action === "reset-password") {
