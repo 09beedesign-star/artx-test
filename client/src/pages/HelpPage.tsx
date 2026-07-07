@@ -3,6 +3,7 @@ import { ImagePlus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import TopBar from "@/components/workspace/TopBar";
 import { useTheme } from "@/contexts/ThemeContext";
+import { fileToDataUrl, submitUserFeedback } from "@/lib/feedback-submit";
 import { BG_GLOW } from "@/lib/workspace-data";
 import generationMark from "@/assets/generation/ai-generation-mark.svg";
 
@@ -24,15 +25,6 @@ function readAuthToken() {
   } catch {
     return "";
   }
-}
-
-function fileToDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(new Error("图片读取失败"));
-    reader.readAsDataURL(file);
-  });
 }
 
 export default function HelpPage() {
@@ -119,20 +111,12 @@ export default function HelpPage() {
         name: image.name,
         src: await fileToDataUrl(image.file),
       })));
-      const response = await fetch("/api/feedback", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          content,
-          module: "帮助与反馈",
-          attachments,
-        }),
+      await submitUserFeedback({
+        token,
+        content,
+        module: "帮助与反馈",
+        attachments,
       });
-      const result = await response.json().catch(() => ({})) as { error?: string };
-      if (!response.ok) throw new Error(result.error || "反馈提交失败");
       clearForm();
       toast.success("反馈已提交", { description: "后台已收到你的反馈和截图。" });
     } catch (error) {

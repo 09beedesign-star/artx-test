@@ -7,6 +7,7 @@ import { useRef, useState, type ChangeEvent } from "react";
 import { useLocation } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { fileToDataUrl, submitUserFeedback } from "@/lib/feedback-submit";
 import { toast } from "sonner";
 import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
 import {
@@ -24,6 +25,7 @@ interface HelpScreenshot {
   id: string;
   name: string;
   url: string;
+  file: File;
 }
 
 interface ApiKeyRecord {
@@ -35,6 +37,7 @@ interface ApiKeyRecord {
 }
 
 const MAX_HELP_SCREENSHOTS = 4;
+const MAX_HELP_SCREENSHOT_BYTES = 4 * 1024 * 1024;
 const BRAND_LOGO_SIZE = "h-[20px] w-[109px]";
 
 function getAppApiBaseUrl() {
@@ -72,6 +75,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   const [apiKeys, setApiKeys] = useState<ApiKeyRecord[]>([]);
   const [helpPrompt, setHelpPrompt] = useState("");
   const [helpScreenshots, setHelpScreenshots] = useState<HelpScreenshot[]>([]);
+  const [helpSubmitting, setHelpSubmitting] = useState(false);
   const helpFileInputRef = useRef<HTMLInputElement>(null);
   const isDark = resolvedTheme === "dark";
   const shouldHideSidebar = hideSidebar;
@@ -99,17 +103,37 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
     if (helpFileInputRef.current) helpFileInputRef.current.value = "";
   };
 
-  const submitHelpPrompt = () => {
+  const submitHelpPrompt = async () => {
     if (!helpPrompt.trim() && helpScreenshots.length === 0) {
       toast.error("请先输入问题或上传截图");
       return;
     }
-    toast("问题已提交", {
-      description: helpScreenshots.length > 0
-        ? `已附带 ${helpScreenshots.length} 张截图`
-        : helpPrompt.trim().slice(0, 80),
-    });
-    closeHelpPrompt();
+    const token = getStoredAuthToken();
+    if (!token) {
+      toast.error("请先登录后再提交反馈");
+      openLoginModal();
+      return;
+    }
+
+    setHelpSubmitting(true);
+    try {
+      const attachments = await Promise.all(helpScreenshots.map(async image => ({
+        name: image.name,
+        src: await fileToDataUrl(image.file),
+      })));
+      await submitUserFeedback({
+        token,
+        content: helpPrompt,
+        module: "帮助弹窗",
+        attachments,
+      });
+      toast.success("反馈已提交", { description: "后台已收到你的反馈和截图。" });
+      closeHelpPrompt();
+    } catch (error) {
+      toast.error("反馈提交失败", { description: error instanceof Error ? error.message : "请稍后重试" });
+    } finally {
+      setHelpSubmitting(false);
+    }
   };
 
   const developerFetch = async <T,>(path: string, options: RequestInit = {}) => {
@@ -168,6 +192,12 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   const handleHelpScreenshotUpload = (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []).filter(file => file.type.startsWith("image/"));
     if (files.length === 0) return;
+    const oversized = files.find(file => file.size > MAX_HELP_SCREENSHOT_BYTES);
+    if (oversized) {
+      toast.error("图片过大", { description: "单张反馈图片不能超过 4MB。" });
+      event.target.value = "";
+      return;
+    }
 
     const available = MAX_HELP_SCREENSHOTS - helpScreenshots.length;
     if (available <= 0) {
@@ -184,6 +214,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
       id: `${file.name}-${file.lastModified}-${crypto.randomUUID?.() || Date.now()}`,
       name: file.name,
       url: URL.createObjectURL(file),
+      file,
     }));
 
     setHelpScreenshots(current => [...current, ...nextImages]);
@@ -270,6 +301,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
           <button
             type="button"
             onClick={closeHelpPrompt}
+            disabled={helpSubmitting}
             className="h-9 min-w-[88px] rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-80"
             style={{
               background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)",
@@ -282,6 +314,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
           <button
             type="button"
             onClick={submitHelpPrompt}
+            disabled={helpSubmitting}
             className="h-9 min-w-[96px] inline-flex items-center justify-center gap-1.5 rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-90"
             style={{
               background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
@@ -290,7 +323,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
             }}
           >
             <Send size={13} />
-            提交
+            {helpSubmitting ? "提交中" : "提交"}
           </button>
         </div>
       </div>
