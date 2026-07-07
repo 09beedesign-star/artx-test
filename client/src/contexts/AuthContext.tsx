@@ -30,6 +30,7 @@ interface AuthContextValue {
   sendEmailCode: (email: string) => Promise<{ ok: boolean; error?: string; retryAfterSeconds?: number }>;
   loginWithEmailCode: (email: string, code: string) => Promise<{ ok: boolean; error?: string }>;
   forgotPassword: (username: string) => Promise<{ ok: boolean; error?: string; message?: string }>;
+  resetPassword: (username: string, code: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<{ ok: boolean; error?: string }>;
   socialAuth: (provider: "google" | "wechat" | "apple" | "github" | "meta") => Promise<{ ok: boolean; error?: string }>;
   logout: () => void;
@@ -186,6 +187,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           ok: result.ok,
           error: result.error,
           message: result.message,
+        };
+      } catch {
+        return { ok: false, error: "密码重置服务暂时不可用，请稍后重试" };
+      }
+    },
+    resetPassword: async (username: string, code: string, password: string) => {
+      try {
+        const result = await fetchAuth("reset-password", { username, code, password });
+        return {
+          ok: result.ok,
+          error: result.error,
         };
       } catch {
         return { ok: false, error: "密码重置服务暂时不可用，请稍后重试" };
@@ -360,7 +372,7 @@ function clearLargeArtxLocalCache() {
   }
 }
 
-async function fetchAuth(action: "register" | "login" | "me" | "logout" | "social" | "sms-send-code" | "sms-login" | "email-send-code" | "email-login" | "forgot-password" | "change-password", payload: Record<string, unknown>) {
+async function fetchAuth(action: "register" | "login" | "me" | "logout" | "social" | "sms-send-code" | "sms-login" | "email-send-code" | "email-login" | "forgot-password" | "reset-password" | "change-password", payload: Record<string, unknown>) {
   const apiBaseUrl = getAuthApiBaseUrl();
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 12_000);

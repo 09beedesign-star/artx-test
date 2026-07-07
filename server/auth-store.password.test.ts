@@ -67,7 +67,8 @@ describe("password change", () => {
 });
 
 describe("forgot password", () => {
-  it("does not expose reset tokens or reveal whether an account exists", async () => {
+  it("sends an email reset code without exposing reset tokens or revealing whether an account exists", async () => {
+    process.env.EMAIL_DRY_RUN = "true";
     const { handleAuthAction } = await loadAuthStore();
 
     const registerResult = await handleAuthAction("register", {
@@ -82,15 +83,70 @@ describe("forgot password", () => {
     expect(existingResult.status).toBe(200);
     expect(existingResult.body).toMatchObject({
       ok: true,
-      message: "如果账号存在，密码重置申请已记录，请联系管理员处理。",
+      message: "如果账号存在，验证码已发送到对应邮箱，请在 10 分钟内完成密码重置。",
     });
     expect(existingResult.body).not.toHaveProperty("resetToken");
+    const debugCode = (existingResult.body as { debugCode?: string }).debugCode;
+    expect(debugCode).toMatch(/^\d{6}$/);
 
     const missingResult = await handleAuthAction("forgot-password", {
       username: "missing@example.com",
     });
     expect(missingResult.status).toBe(200);
-    expect(missingResult.body).toEqual(existingResult.body);
+    expect(missingResult.body).toMatchObject({
+      ok: true,
+      message: "如果账号存在，验证码已发送到对应邮箱，请在 10 分钟内完成密码重置。",
+    });
+    expect(missingResult.body).not.toHaveProperty("resetToken");
+  });
+
+  it("resets a password only after the email reset code is verified", async () => {
+    process.env.EMAIL_DRY_RUN = "true";
+    const { handleAuthAction } = await loadAuthStore();
+
+    const registerResult = await handleAuthAction("register", {
+      username: "admin@example.com",
+      password: "old-password",
+    });
+    expect(registerResult.status).toBe(200);
+    const originalToken = (registerResult.body as { token: string }).token;
+
+    const forgotResult = await handleAuthAction("forgot-password", {
+      username: "admin@example.com",
+    });
+    expect(forgotResult.status).toBe(200);
+    const debugCode = (forgotResult.body as { debugCode?: string }).debugCode;
+    expect(debugCode).toMatch(/^\d{6}$/);
+
+    const wrongCodeResult = await handleAuthAction("reset-password", {
+      username: "admin@example.com",
+      code: "000000",
+      password: "new-password",
+    });
+    expect(wrongCodeResult.status).toBe(401);
+
+    const resetResult = await handleAuthAction("reset-password", {
+      username: "admin@example.com",
+      code: debugCode,
+      password: "new-password",
+    });
+    expect(resetResult.status).toBe(200);
+    expect(resetResult.body).toMatchObject({ ok: true });
+
+    const oldTokenSession = await handleAuthAction("me", { token: originalToken });
+    expect(oldTokenSession.status).toBe(401);
+
+    const oldLogin = await handleAuthAction("login", {
+      username: "admin@example.com",
+      password: "old-password",
+    });
+    expect(oldLogin.status).toBe(401);
+
+    const newLogin = await handleAuthAction("login", {
+      username: "admin@example.com",
+      password: "new-password",
+    });
+    expect(newLogin.status).toBe(200);
   });
 });
 

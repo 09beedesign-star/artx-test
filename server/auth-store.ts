@@ -94,6 +94,7 @@ interface SmsChallenge {
 
 interface EmailChallenge {
   email: string;
+  purpose?: "login" | "password_reset";
   codeHash: string;
   sentAt: string;
   expiresAt: string;
@@ -429,6 +430,20 @@ function pruneEmailChallenges(db: AuthDatabase) {
   );
 }
 
+function emailChallengePurpose(challenge: EmailChallenge) {
+  return challenge.purpose || "login";
+}
+
+function findEmailChallenge(db: AuthDatabase, email: string, purpose: "login" | "password_reset") {
+  return (db.emailChallenges || []).find((item) => item.email === email && emailChallengePurpose(item) === purpose);
+}
+
+function removeEmailChallenge(db: AuthDatabase, email: string, purpose: "login" | "password_reset") {
+  db.emailChallenges = (db.emailChallenges || []).filter((item) =>
+    !(item.email === email && emailChallengePurpose(item) === purpose)
+  );
+}
+
 function createSession(db: AuthDatabase, userId: string) {
   const token = crypto.randomBytes(32).toString("hex");
   const createdAt = new Date();
@@ -658,7 +673,7 @@ export async function handleAuthAction(action: AuthAction, payload: unknown) {
     pruneEmailChallenges(db);
     const now = Date.now();
     const today = currentDayKey();
-    const existing = (db.emailChallenges || []).find((item) => item.email === email);
+    const existing = findEmailChallenge(db, email, "login");
     if (existing?.resendAfterAt && Date.parse(existing.resendAfterAt) > now) {
       return {
         status: 429,
@@ -694,6 +709,7 @@ export async function handleAuthAction(action: AuthAction, payload: unknown) {
 
     const challenge: EmailChallenge = {
       email,
+      purpose: "login",
       codeHash: hashToken(`${email}:${code}`),
       sentAt: new Date(now).toISOString(),
       expiresAt: new Date(now + EMAIL_CODE_TTL_MS).toISOString(),
@@ -704,7 +720,7 @@ export async function handleAuthAction(action: AuthAction, payload: unknown) {
     };
     db.emailChallenges = [
       challenge,
-      ...(db.emailChallenges || []).filter((item) => item.email !== email),
+      ...(db.emailChallenges || []).filter((item) => !(item.email === email && emailChallengePurpose(item) === "login")),
     ].slice(0, 1000);
     appendAuditLog(db, {
       actorId: "email",
@@ -736,12 +752,12 @@ export async function handleAuthAction(action: AuthAction, payload: unknown) {
     }
 
     pruneEmailChallenges(db);
-    const challenge = (db.emailChallenges || []).find((item) => item.email === email);
+    const challenge = findEmailChallenge(db, email, "login");
     if (!challenge) {
       return { status: 400, body: { error: "验证码无效或已过期，请重新获取" } };
     }
     if (challenge.attempts >= EMAIL_CODE_MAX_ATTEMPTS) {
-      db.emailChallenges = (db.emailChallenges || []).filter((item) => item.email !== email);
+      removeEmailChallenge(db, email, "login");
       await saveDatabase(db);
       return { status: 429, body: { error: "验证码错误次数过多，请重新获取" } };
     }
@@ -762,7 +778,7 @@ export async function handleAuthAction(action: AuthAction, payload: unknown) {
     user.failedLoginCount = 0;
     user.lockedUntil = undefined;
     user.lastLoginAt = new Date().toISOString();
-    db.emailChallenges = (db.emailChallenges || []).filter((item) => item.email !== email);
+    removeEmailChallenge(db, email, "login");
     appendAuditLog(db, {
       actorId: user.id,
       action: "auth.email.login",
@@ -976,23 +992,77 @@ export async function handleAuthAction(action: AuthAction, payload: unknown) {
   }
 
   if (action === "forgot-password") {
-    const username = normalizeUsername(body.username);
-    if (!username) {
-      return { status: 400, body: { error: "请输入账号或邮箱" } };
+    const email = normalizeEmail(body.email || body.username);
+    if (!email) {
+      return { status: 400, body: { error: "请输入有效的邮箱地址" } };
     }
-    const user = db.users.find((item) => item.loginKey === loginKey(username));
+    const user = db.users.find((item) => item.loginKey === loginKey(email));
+    const message = "如果账号存在，验证码已发送到对应邮箱，请在 10 分钟内完成密码重置。";
+    let debugCode: string | undefined;
+
     if (user) {
-      const resetToken = generateResetToken();
-      user.resetTokenHash = hashToken(resetToken);
-      user.resetTokenExpiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+      pruneEmailChallenges(db);
+      const now = Date.now();
+      const today = currentDayKey();
+      const existing = findEmailChallenge(db, email, "password_reset");
+      if (existing?.resendAfterAt && Date.parse(existing.resendAfterAt) > now) {
+        return {
+          status: 429,
+          body: {
+            error: "验证码发送太频繁，请稍后再试",
+            retryAfterSeconds: Math.ceil((Date.parse(existing.resendAfterAt) - now) / 1000),
+          },
+        };
+      }
+      const dailyCount = existing?.dailyKey === today ? Number(existing.dailyCount || 0) : 0;
+      if (dailyCount >= EMAIL_CODE_DAILY_LIMIT) {
+        return { status: 429, body: { error: "今日邮箱验证码发送次数已达上限" } };
+      }
+
+      const code = generateSmsCode();
+      const sent: { sent: boolean; reason?: string; provider?: string } = process.env.EMAIL_DRY_RUN === "true"
+        ? { sent: true, provider: "dry-run" }
+        : await sendUserEmailNotification({
+          to: email,
+          subject: "ArtX 密码重置验证码",
+          text: [
+            "你正在重置 ArtX 账号密码。",
+            "",
+            `验证码：${code}`,
+            "验证码 10 分钟内有效。",
+            "",
+            "如果这不是你本人操作，请忽略此邮件。",
+          ].join("\n"),
+        });
+      if (!sent.sent) {
+        return { status: 503, body: { error: sent.reason || "邮箱服务暂未配置或发送失败" } };
+      }
+
+      const challenge: EmailChallenge = {
+        email,
+        purpose: "password_reset",
+        codeHash: hashToken(`${email}:${code}`),
+        sentAt: new Date(now).toISOString(),
+        expiresAt: new Date(now + EMAIL_CODE_TTL_MS).toISOString(),
+        resendAfterAt: new Date(now + EMAIL_CODE_RESEND_MS).toISOString(),
+        attempts: 0,
+        dailyKey: today,
+        dailyCount: dailyCount + 1,
+      };
+      db.emailChallenges = [
+        challenge,
+        ...(db.emailChallenges || []).filter((item) => !(item.email === email && emailChallengePurpose(item) === "password_reset")),
+      ].slice(0, 1000);
+      debugCode = process.env.EMAIL_DRY_RUN === "true" ? code : undefined;
     }
     appendAuditLog(db, {
       actorId: user?.id || "system",
       action: "auth.password.reset.requested",
-      target: user?.id || loginKey(username),
+      target: user?.id || loginKey(email),
       meta: {
-        username,
+        username: email,
         matched: Boolean(user),
+        provider: "smtp",
       },
     });
     await saveDatabase(db);
@@ -1000,20 +1070,60 @@ export async function handleAuthAction(action: AuthAction, payload: unknown) {
       status: 200,
       body: {
         ok: true,
-        message: "如果账号存在，密码重置申请已记录，请联系管理员处理。",
+        message,
+        ...(debugCode ? { debugCode } : {}),
       },
     };
   }
 
   if (action === "reset-password") {
     const token = typeof body.resetToken === "string" ? body.resetToken.trim() : "";
+    const email = normalizeEmail(body.email || body.username);
+    const code = typeof body.code === "string" ? body.code.replace(/\D/g, "") : "";
     const password = typeof body.password === "string" ? body.password : "";
+    if (password.trim().length < 8) {
+      return { status: 400, body: { error: "新密码至少需要 8 位" } };
+    }
+    if (!token && (!email || !/^\d{6}$/.test(code))) {
+      return { status: 400, body: { error: "请输入邮箱和 6 位验证码" } };
+    }
+
     if (!token) {
-      return { status: 400, body: { error: "缺少重置令牌" } };
+      pruneEmailChallenges(db);
+      const challenge = findEmailChallenge(db, email, "password_reset");
+      const user = db.users.find((item) => item.loginKey === loginKey(email));
+      if (!challenge || !user) {
+        return { status: 400, body: { error: "验证码无效或已过期，请重新获取" } };
+      }
+      if (challenge.attempts >= EMAIL_CODE_MAX_ATTEMPTS) {
+        removeEmailChallenge(db, email, "password_reset");
+        await saveDatabase(db);
+        return { status: 429, body: { error: "验证码错误次数过多，请重新获取" } };
+      }
+      if (challenge.codeHash !== hashToken(`${email}:${code}`)) {
+        challenge.attempts = Number(challenge.attempts || 0) + 1;
+        await saveDatabase(db);
+        return { status: 401, body: { error: "验证码错误" } };
+      }
+      const salt = crypto.randomBytes(16).toString("hex");
+      user.salt = salt;
+      user.passwordHash = hashPassword(password, salt);
+      user.resetTokenHash = undefined;
+      user.resetTokenExpiresAt = undefined;
+      user.failedLoginCount = 0;
+      user.lockedUntil = undefined;
+      removeEmailChallenge(db, email, "password_reset");
+      db.sessions = db.sessions.filter((item) => item.userId !== user.id);
+      appendAuditLog(db, {
+        actorId: user.id,
+        action: "auth.password.reset.completed",
+        target: user.id,
+        meta: { provider: "smtp", username: email },
+      });
+      await saveDatabase(db);
+      return { status: 200, body: { ok: true } };
     }
-    if (password.trim().length < 4) {
-      return { status: 400, body: { error: "密码至少需要 4 位" } };
-    }
+
     const tokenHash = hashToken(token);
     const user = db.users.find((item) =>
       item.resetTokenHash === tokenHash &&

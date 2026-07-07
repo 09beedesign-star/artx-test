@@ -299,12 +299,15 @@ function AdminForbidden({ username }: { username: string }) {
 }
 
 function AdminAccessRequired({ onLogin }: { onLogin: () => void }) {
-  const { forgotPassword, sendEmailCode, loginWithEmailCode } = useAuth();
+  const { forgotPassword, resetPassword, sendEmailCode, loginWithEmailCode } = useAuth();
   const [email, setEmail] = useState("");
   const [emailCode, setEmailCode] = useState("");
   const [emailBusy, setEmailBusy] = useState(false);
   const [emailMessage, setEmailMessage] = useState("");
   const [resetUsername, setResetUsername] = useState("");
+  const [resetCode, setResetCode] = useState("");
+  const [resetNewPassword, setResetNewPassword] = useState("");
+  const [resetConfirmPassword, setResetConfirmPassword] = useState("");
   const [resetBusy, setResetBusy] = useState(false);
   const [resetMessage, setResetMessage] = useState("");
 
@@ -340,16 +343,49 @@ function AdminAccessRequired({ onLogin }: { onLogin: () => void }) {
 
   const handleForgotPassword = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    await handleResetPassword();
+  };
+
+  const handleSendResetCode = async () => {
     const username = resetUsername.trim();
     setResetMessage("");
     if (!username) {
-      setResetMessage("请输入后台账号或邮箱。");
+      setResetMessage("请输入用于注册的邮箱。");
       return;
     }
     setResetBusy(true);
     const result = await forgotPassword(username);
     setResetBusy(false);
-    setResetMessage(result.ok ? result.message || "密码重置申请已记录，请联系管理员处理。" : result.error || "密码重置申请失败。");
+    setResetMessage(result.ok ? result.message || "验证码已发送，请查看邮箱。" : result.error || "验证码发送失败。");
+  };
+
+  const handleResetPassword = async () => {
+    const username = resetUsername.trim();
+    const code = resetCode.trim();
+    setResetMessage("");
+    if (!username || !code || !resetNewPassword || !resetConfirmPassword) {
+      setResetMessage("请填写邮箱、验证码、新密码和确认密码。");
+      return;
+    }
+    if (resetNewPassword !== resetConfirmPassword) {
+      setResetMessage("两次输入的新密码不一致。");
+      return;
+    }
+    if (resetNewPassword.length < 8) {
+      setResetMessage("新密码至少需要 8 位。");
+      return;
+    }
+    setResetBusy(true);
+    const result = await resetPassword(username, code, resetNewPassword);
+    setResetBusy(false);
+    if (!result.ok) {
+      setResetMessage(result.error || "密码重置失败。");
+      return;
+    }
+    setResetCode("");
+    setResetNewPassword("");
+    setResetConfirmPassword("");
+    setResetMessage("密码已重置，请使用新密码登录。");
   };
 
   return (
@@ -415,23 +451,58 @@ function AdminAccessRequired({ onLogin }: { onLogin: () => void }) {
         </button>
         <form className="mt-5 border-t border-white/10 pt-5 text-left" onSubmit={handleForgotPassword}>
           <label className="text-xs font-medium text-slate-400" htmlFor="admin-reset-username">
-            忘记密码
+            邮箱验证找回密码
           </label>
           <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
             <input
               id="admin-reset-username"
               value={resetUsername}
               onChange={(event) => setResetUsername(event.target.value)}
-              autoComplete="username"
+              autoComplete="email"
+              inputMode="email"
               className="h-10 rounded-md border border-white/12 bg-slate-950/50 px-3 text-sm text-slate-100 outline-none transition focus:border-cyan-300/50"
-              placeholder="输入后台账号或邮箱"
+              placeholder="输入注册邮箱"
+            />
+            <button
+              type="button"
+              disabled={resetBusy}
+              onClick={() => void handleSendResetCode()}
+              className="h-10 rounded-md border border-cyan-300/25 bg-cyan-300/10 px-3 text-sm font-medium text-cyan-100 transition hover:bg-cyan-300/18 disabled:opacity-60"
+            >
+              {resetBusy ? "发送中" : "发送验证码"}
+            </button>
+          </div>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <input
+              value={resetCode}
+              onChange={(event) => setResetCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+              autoComplete="one-time-code"
+              inputMode="numeric"
+              className="h-10 rounded-md border border-white/12 bg-slate-950/50 px-3 text-sm text-slate-100 outline-none transition focus:border-cyan-300/50"
+              placeholder="6 位验证码"
+            />
+            <input
+              type="password"
+              value={resetNewPassword}
+              onChange={(event) => setResetNewPassword(event.target.value)}
+              autoComplete="new-password"
+              className="h-10 rounded-md border border-white/12 bg-slate-950/50 px-3 text-sm text-slate-100 outline-none transition focus:border-cyan-300/50"
+              placeholder="新密码，至少 8 位"
+            />
+            <input
+              type="password"
+              value={resetConfirmPassword}
+              onChange={(event) => setResetConfirmPassword(event.target.value)}
+              autoComplete="new-password"
+              className="h-10 rounded-md border border-white/12 bg-slate-950/50 px-3 text-sm text-slate-100 outline-none transition focus:border-cyan-300/50"
+              placeholder="再次输入新密码"
             />
             <button
               type="submit"
               disabled={resetBusy}
-              className="h-10 rounded-md border border-cyan-300/25 bg-cyan-300/10 px-3 text-sm font-medium text-cyan-100 transition hover:bg-cyan-300/18 disabled:opacity-60"
+              className="h-10 rounded-md bg-cyan-300 px-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200 disabled:opacity-60"
             >
-              {resetBusy ? "提交中" : "提交申请"}
+              {resetBusy ? "重置中" : "重置密码"}
             </button>
           </div>
           {resetMessage && (
