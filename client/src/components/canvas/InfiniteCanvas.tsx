@@ -455,11 +455,16 @@ function ModelSelector({
   models?: AiModelOption[];
 }) {
   const [open, setOpen] = useState(false);
+  const [buttonHover, setButtonHover] = useState(false);
   const modelRef = useRef<HTMLDivElement>(null);
   const current = models.find(m => m.id === model) || AUTO_AI_MODEL;
-  const bg = isDark ? "oklch(0.13 0.015 270)" : "oklch(0.96 0.004 270)";
+  const bg = isDark ? "oklch(0.22 0.015 270)" : "oklch(0.88 0.005 270)";
+  const hoverButtonBg = isDark
+    ? "oklch(0.13 0.015 270)"
+    : "oklch(0.22 0.015 270)";
   const border = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
-  const text = isDark ? "oklch(0.75 0.01 270)" : "oklch(0.35 0.01 270)";
+  const text = isDark ? "oklch(0.74 0.01 270)" : "oklch(0.58 0.008 270)";
+  const hoverButtonText = "white";
   const popBg = isDark ? "oklch(0.16 0.018 270)" : "oklch(0.99 0.004 270)";
   const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
   const rowHeight = 40;
@@ -493,7 +498,13 @@ function ModelSelector({
           setOpen(o => !o);
         }}
         className="flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-md-design)] type-caption transition-all"
-        style={{ background: bg, border: `1px solid ${border}`, color: text }}
+        style={{
+          background: open || buttonHover ? hoverButtonBg : bg,
+          border: `1px solid ${border}`,
+          color: open || buttonHover ? hoverButtonText : text,
+        }}
+        onMouseEnter={() => setButtonHover(true)}
+        onMouseLeave={() => setButtonHover(false)}
       >
         <span
           style={{
@@ -604,9 +615,13 @@ function SkillPointSelector({
     });
     return Array.from(groups.entries());
   }, []);
-  const bg = isDark ? "oklch(0.13 0.015 270)" : "oklch(0.96 0.004 270)";
+  const bg = isDark ? "oklch(0.22 0.015 270)" : "oklch(0.88 0.005 270)";
+  const hoverButtonBg = isDark
+    ? "oklch(0.13 0.015 270)"
+    : "oklch(0.22 0.015 270)";
   const border = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
-  const text = isDark ? "oklch(0.75 0.01 270)" : "oklch(0.35 0.01 270)";
+  const text = isDark ? "oklch(0.74 0.01 270)" : "oklch(0.58 0.008 270)";
+  const hoverButtonText = "white";
   const popBg = isDark ? "oklch(0.16 0.018 270)" : "oklch(0.99 0.004 270)";
   const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
   const activeBg = isDark
@@ -707,9 +722,13 @@ function SkillPointSelector({
         className="flex h-8 max-w-[74px] items-center gap-1 rounded-[var(--radius-md-design)] px-2 transition-colors"
         style={{
           background:
-            activeSkill || open ? activeBg : buttonHover ? hoverBg : bg,
+            activeSkill ? activeBg : open || buttonHover ? hoverButtonBg : bg,
           border: `1px solid ${activeSkill || open ? "oklch(0.62 0.22 290 / 45%)" : border}`,
-          color: activeSkill || open ? activeText : text,
+          color: activeSkill
+            ? activeText
+            : open || buttonHover
+              ? hoverButtonText
+              : text,
           fontSize: 11,
           lineHeight: "14px",
           letterSpacing: 0,
@@ -26578,10 +26597,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             right: "auto",
             opacity: 0.6,
             background: isDark
-              ? "oklch(0.11 0.015 270)"
-              : "oklch(0.95 0.004 270)",
-            border: `1px solid ${isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"}`,
+              ? "rgba(22,22,30,0.80)"
+              : "rgba(255,255,255,0.82)",
+            backdropFilter: "blur(12px)",
+            border: `1px solid ${isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)"}`,
             borderRadius: "var(--radius-md-design)",
+            boxShadow: isDark
+              ? "0 8px 32px rgba(0,0,0,0.45)"
+              : "0 4px 20px rgba(0,0,0,0.12)",
           }}
           maskColor={isDark ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.5)"}
           nodeColor={isDark ? "oklch(0.35 0.02 270)" : "oklch(0.75 0.005 270)"}
