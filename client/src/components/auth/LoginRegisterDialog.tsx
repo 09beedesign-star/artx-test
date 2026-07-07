@@ -7,6 +7,7 @@ import ForgotPasswordDialog from "@/components/auth/ForgotPasswordDialog";
 // 首页使用 HomePage 内部右侧面板；其它场景统一使用这个居中弹窗。
 export default function LoginRegisterDialog() {
   const { loginModalOpen, closeLoginModal, login, register } = useAuth();
+  const adminLogin = isAdminLoginContext();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -26,14 +27,18 @@ export default function LoginRegisterDialog() {
     setError("");
 
     if (!normalizedEmail || !password.trim()) {
-      setError("请输入邮箱和密码");
+      setError(adminLogin ? "请输入账号 ID 和密码" : "请输入邮箱或 ID 和密码");
+      return;
+    }
+    if (adminLogin && normalizedEmail.includes("@")) {
+      setError("管理后台请使用账号 ID 登录，不支持邮件登录");
       return;
     }
 
     setSubmitting(true);
     const result = action === "register"
       ? await register(normalizedEmail, password)
-      : await login(normalizedEmail, password);
+      : await login(normalizedEmail, password, { adminLogin });
     setSubmitting(false);
 
     if (!result.ok) {
@@ -69,11 +74,11 @@ export default function LoginRegisterDialog() {
 
             <div className="mt-8 flex flex-col gap-5">
               <LabeledInput
-                label="邮箱或 ID"
+                label={adminLogin ? "账号 ID" : "邮箱或 ID"}
                 value={email}
                 onChange={setEmail}
                 autoComplete="username"
-                placeholder="请输入邮箱或 ID"
+                placeholder={adminLogin ? "请输入账号 ID" : "请输入邮箱或 ID"}
               />
               <LabeledInput
                 label="密码"
@@ -98,15 +103,17 @@ export default function LoginRegisterDialog() {
               </button>
             </div>
 
-            <div className="mt-5 grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                disabled={submitting}
-                onClick={() => void handleAuthAction("register")}
-                className="h-12 rounded-[10px] bg-[#2F80ED] text-base font-semibold text-white shadow-[0_10px_28px_rgba(47,128,237,0.24)] transition-all hover:bg-[#4A96FF] disabled:opacity-60"
-              >
-                {submitting ? "请稍候..." : "注 册"}
-              </button>
+            <div className={`mt-5 grid gap-3 ${adminLogin ? "grid-cols-1" : "grid-cols-2"}`}>
+              {!adminLogin && (
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={() => void handleAuthAction("register")}
+                  className="h-12 rounded-[10px] bg-[#2F80ED] text-base font-semibold text-white shadow-[0_10px_28px_rgba(47,128,237,0.24)] transition-all hover:bg-[#4A96FF] disabled:opacity-60"
+                >
+                  {submitting ? "请稍候..." : "注 册"}
+                </button>
+              )}
               <button
                 type="submit"
                 disabled={submitting}
@@ -116,7 +123,9 @@ export default function LoginRegisterDialog() {
               </button>
             </div>
 
-            <p className="mt-5 text-center text-[13px] text-[#7d7d7d]">注册或登录后即可继续使用 ArtX Studio</p>
+            <p className="mt-5 text-center text-[13px] text-[#7d7d7d]">
+              {adminLogin ? "使用管理后台账号 ID 登录" : "注册或登录后即可继续使用 ArtX Studio"}
+            </p>
           </form>
         </GlassPanel>
       </div>
@@ -127,6 +136,13 @@ export default function LoginRegisterDialog() {
       />
     </div>
   );
+}
+
+function isAdminLoginContext() {
+  if (typeof window === "undefined") return false;
+  const host = window.location.hostname.toLowerCase();
+  const path = window.location.pathname;
+  return host.startsWith("admin.") || path.includes("/admin-prototype");
 }
 
 function GlassPanel({ children }: { children: React.ReactNode }) {

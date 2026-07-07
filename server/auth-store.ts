@@ -745,6 +745,9 @@ export async function handleAuthAction(action: AuthAction, payload: unknown) {
   if (action === "login") {
     const username = normalizeUsername(body.username);
     const password = typeof body.password === "string" ? body.password : "";
+    if (body.adminLogin === true && username.includes("@")) {
+      return { status: 400, body: { error: "管理后台请使用账号 ID 登录，不支持邮件登录" } };
+    }
     const user = db.users.find((item) => item.loginKey === loginKey(username));
 
     if (user?.lockedUntil && Date.parse(user.lockedUntil) > Date.now()) {

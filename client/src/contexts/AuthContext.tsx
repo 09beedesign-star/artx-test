@@ -23,7 +23,7 @@ interface AuthContextValue {
   loginModalOpen: boolean;
   openLoginModal: () => void;
   closeLoginModal: () => void;
-  login: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  login: (username: string, password: string, options?: { adminLogin?: boolean }) => Promise<{ ok: boolean; error?: string }>;
   register: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   sendSmsCode: (phone: string) => Promise<{ ok: boolean; error?: string; retryAfterSeconds?: number }>;
   loginWithSmsCode: (phone: string, code: string) => Promise<{ ok: boolean; error?: string }>;
@@ -69,9 +69,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("artx:login-required", handleLoginRequired);
   }, []);
 
-  const authenticate = async (action: "login" | "register", username: string, password: string) => {
+  const authenticate = async (action: "login" | "register", username: string, password: string, options?: { adminLogin?: boolean }) => {
     try {
-      const result = await fetchAuth(action, { username, password });
+      const result = await fetchAuth(action, { username, password, ...(options?.adminLogin ? { adminLogin: true } : {}) });
       if (!result.ok || !result.token || !result.user) {
         if (isGithubPagesTest()) {
           const localResult = authenticateLocally(action, username, password);
@@ -131,7 +131,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loginModalOpen,
     openLoginModal: () => setLoginModalOpen(true),
     closeLoginModal: () => setLoginModalOpen(false),
-    login: (username: string, password: string) => authenticate("login", username, password),
+    login: (username: string, password: string, options?: { adminLogin?: boolean }) => authenticate("login", username, password, options),
     register: (username: string, password: string) => authenticate("register", username, password),
     sendSmsCode: async (phone: string) => {
       try {
