@@ -27,6 +27,8 @@ interface AuthContextValue {
   register: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   sendSmsCode: (phone: string) => Promise<{ ok: boolean; error?: string; retryAfterSeconds?: number }>;
   loginWithSmsCode: (phone: string, code: string) => Promise<{ ok: boolean; error?: string }>;
+  requestPasswordReset: (username: string) => Promise<{ ok: boolean; error?: string; resetToken?: string; expiresAt?: string }>;
+  resetPassword: (resetToken: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<{ ok: boolean; error?: string }>;
   socialAuth: (provider: "google" | "wechat" | "apple" | "github" | "meta") => Promise<{ ok: boolean; error?: string }>;
   logout: () => void;
@@ -144,6 +146,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     },
     loginWithSmsCode: authenticateWithSms,
+    requestPasswordReset: async (username: string) => {
+      try {
+        const result = await fetchAuth("forgot-password", { username });
+        return {
+          ok: result.ok,
+          error: result.error,
+          resetToken: result.resetToken,
+          expiresAt: result.expiresAt,
+        };
+      } catch {
+        return { ok: false, error: "密码重置服务暂时不可用，请稍后重试" };
+      }
+    },
+    resetPassword: async (resetToken: string, password: string) => {
+      try {
+        const result = await fetchAuth("reset-password", { resetToken, password });
+        return {
+          ok: result.ok,
+          error: result.error,
+        };
+      } catch {
+        return { ok: false, error: "密码重置服务暂时不可用，请稍后重试" };
+      }
+    },
     changePassword: async (currentPassword: string, newPassword: string) => {
       const stored = readStoredSession();
       if (!stored?.token) {
@@ -313,7 +339,7 @@ function clearLargeArtxLocalCache() {
   }
 }
 
-async function fetchAuth(action: "register" | "login" | "me" | "logout" | "social" | "sms-send-code" | "sms-login" | "change-password", payload: Record<string, unknown>) {
+async function fetchAuth(action: "register" | "login" | "me" | "logout" | "social" | "sms-send-code" | "sms-login" | "forgot-password" | "reset-password" | "change-password", payload: Record<string, unknown>) {
   const apiBaseUrl = getAuthApiBaseUrl();
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 12_000);
@@ -336,7 +362,7 @@ async function fetchAuth(action: "register" | "login" | "me" | "logout" | "socia
   return {
     ...data,
     ok: response.ok,
-  } as { ok: boolean; error?: string; token?: string; user?: AuthUser; retryAfterSeconds?: number };
+  } as { ok: boolean; error?: string; token?: string; user?: AuthUser; retryAfterSeconds?: number; resetToken?: string; expiresAt?: string };
 }
 
 function authenticateLocally(action: "login" | "register" | "registerOrLogin", username: string, password: string) {

@@ -514,7 +514,7 @@ async function notifyAuthAction(action: AuthAction, body: Record<string, unknown
           "你正在重置 ArtX 账号密码。",
           "",
           `重置链接：${getPublicAppUrl()}/reset-password?token=${encodeURIComponent(resetToken)}`,
-          `重置令牌：${resetToken}`,
+          `验证码：${resetToken}`,
           expiresAt ? `过期时间：${expiresAt}` : "",
           "",
           "如果这不是你本人操作，请忽略此邮件并尽快联系管理员。",

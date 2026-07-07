@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import ForgotPasswordDialog from "@/components/auth/ForgotPasswordDialog";
 
 // Global Login / Register Dialog
 // 首页使用 HomePage 内部右侧面板；其它场景统一使用这个居中弹窗。
@@ -10,6 +11,7 @@ export default function LoginRegisterDialog() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [forgotOpen, setForgotOpen] = useState(false);
 
   useEffect(() => {
     if (!loginModalOpen) return;
@@ -87,7 +89,11 @@ export default function LoginRegisterDialog() {
               <p className={`min-w-0 flex-1 truncate text-left text-[13px] font-medium text-red-300 ${error ? "visible" : "invisible"}`}>
                 {error || " "}
               </p>
-              <button type="button" className="shrink-0 appearance-none bg-transparent text-[13px] font-medium text-[#7d7d7d] transition-colors hover:text-white">
+              <button
+                type="button"
+                onClick={() => setForgotOpen(true)}
+                className="shrink-0 appearance-none bg-transparent text-[13px] font-medium text-[#7d7d7d] transition-colors hover:text-white"
+              >
                 忘记密码？
               </button>
             </div>
@@ -114,6 +120,11 @@ export default function LoginRegisterDialog() {
           </form>
         </GlassPanel>
       </div>
+      <ForgotPasswordDialog
+        open={forgotOpen}
+        initialEmail={email}
+        onClose={() => setForgotOpen(false)}
+      />
     </div>
   );
 }

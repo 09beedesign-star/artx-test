@@ -3,7 +3,8 @@
  * Presents the current user's public profile overview while preserving the artx visual language.
  */
 import { useEffect, useRef, useState } from "react";
-import { Camera, Mail, MapPin, Pencil, Sparkles, Upload, UserRound, X } from "lucide-react";
+import { Camera, KeyRound, Mail, MapPin, Pencil, Sparkles, Upload, UserRound, X } from "lucide-react";
+import { useLocation } from "wouter";
 import TopBar from "@/components/workspace/TopBar";
 import { BG_GLOW } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -35,7 +36,8 @@ function readStoredProfile(): Partial<ProfileDraft> {
 
 export default function ProfilePage() {
   const { resolvedTheme } = useTheme();
-  const { user } = useAuth();
+  const { user, changePassword, logout } = useAuth();
+  const [, navigate] = useLocation();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editAvatarInputRef = useRef<HTMLInputElement>(null);
   const isDark = resolvedTheme === "dark";
@@ -54,7 +56,13 @@ export default function ProfilePage() {
     };
   });
   const [editOpen, setEditOpen] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const [draft, setDraft] = useState<ProfileDraft>(profile);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordBusy, setPasswordBusy] = useState(false);
 
   useEffect(() => {
     localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile));
@@ -101,6 +109,39 @@ export default function ProfilePage() {
     });
     setEditOpen(false);
     toast.success("个人资料已更新");
+  };
+
+  const openPasswordDialog = () => {
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setPasswordError("");
+    setPasswordBusy(false);
+    setPasswordOpen(true);
+  };
+
+  const passwordMismatch = Boolean(confirmPassword && newPassword !== confirmPassword);
+  const passwordReady =
+    currentPassword.trim().length > 0 &&
+    newPassword.trim().length >= 8 &&
+    confirmPassword.trim().length >= 8 &&
+    !passwordMismatch &&
+    !passwordBusy;
+
+  const submitPasswordChange = async () => {
+    if (!passwordReady) return;
+    setPasswordBusy(true);
+    setPasswordError("");
+    const result = await changePassword(currentPassword, newPassword);
+    setPasswordBusy(false);
+    if (!result.ok) {
+      setPasswordError(result.error || "密码修改失败");
+      return;
+    }
+    setPasswordOpen(false);
+    toast.success("密码修改成功", { description: "请使用新密码重新登录。" });
+    logout();
+    navigate("/");
   };
 
   return (
@@ -160,18 +201,32 @@ export default function ProfilePage() {
                     <p className="type-body-sm mt-1" style={{ color: textSecondary }}>{profile.description}</p>
                   </div>
                 </div>
-                <button
-                  onClick={openEdit}
-                  className="flex items-center gap-2 rounded-[var(--radius-lg-design)] px-4 py-2 type-caption transition-opacity hover:opacity-85"
-                  style={{
-                    background: isDark ? "#222222" : "rgba(20,20,36,0.06)",
-                    border: `1px solid ${border}`,
-                    color: textPrimary,
-                  }}
-                >
-                  <Pencil size={14} />
-                  编辑资料
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={openPasswordDialog}
+                    className="flex items-center gap-2 rounded-[var(--radius-lg-design)] px-4 py-2 type-caption transition-opacity hover:opacity-85"
+                    style={{
+                      background: isDark ? "#222222" : "rgba(20,20,36,0.06)",
+                      border: `1px solid ${border}`,
+                      color: textPrimary,
+                    }}
+                  >
+                    <KeyRound size={14} />
+                    修改密码
+                  </button>
+                  <button
+                    onClick={openEdit}
+                    className="flex items-center gap-2 rounded-[var(--radius-lg-design)] px-4 py-2 type-caption transition-opacity hover:opacity-85"
+                    style={{
+                      background: isDark ? "#222222" : "rgba(20,20,36,0.06)",
+                      border: `1px solid ${border}`,
+                      color: textPrimary,
+                    }}
+                  >
+                    <Pencil size={14} />
+                    编辑资料
+                  </button>
+                </div>
               </div>
 
               <div className="mt-7 grid gap-4 md:grid-cols-[1.1fr_0.9fr]">
@@ -319,7 +374,131 @@ export default function ProfilePage() {
           </div>
         </div>
       )}
+
+      {passwordOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#222222]/35 px-6"
+          onMouseDown={event => {
+            if (event.target === event.currentTarget) setPasswordOpen(false);
+          }}
+        >
+          <div
+            className="w-[min(460px,calc(100vw-32px))] rounded-[var(--radius-xl-design)] p-5 shadow-2xl"
+            style={{
+              background: panelBg,
+              border: `1px solid ${border}`,
+              color: textPrimary,
+              backdropFilter: "blur(18px)",
+            }}
+            onMouseDown={event => event.stopPropagation()}
+          >
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <p className="type-title-sm" style={{ fontSize: 18, fontWeight: 680 }}>修改密码</p>
+                <p className="type-caption mt-1" style={{ color: textSecondary }}>修改成功后需要重新登录。</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPasswordOpen(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-md-design)]"
+                style={{ background: inputBg, color: textSecondary }}
+                aria-label="关闭修改密码"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            <div className="grid gap-3">
+              <ProfilePasswordInput
+                label="当前密码"
+                value={currentPassword}
+                onChange={setCurrentPassword}
+                inputBg={inputBg}
+                border={border}
+                textPrimary={textPrimary}
+                autoComplete="current-password"
+              />
+              <ProfilePasswordInput
+                label="新密码"
+                value={newPassword}
+                onChange={setNewPassword}
+                inputBg={inputBg}
+                border={border}
+                textPrimary={textPrimary}
+                autoComplete="new-password"
+                placeholder="至少 8 位，支持中英文和大小写"
+              />
+              <ProfilePasswordInput
+                label="再次输入新密码"
+                value={confirmPassword}
+                onChange={setConfirmPassword}
+                inputBg={inputBg}
+                border={border}
+                textPrimary={textPrimary}
+                autoComplete="new-password"
+                placeholder="请再次输入新密码"
+              />
+            </div>
+
+            <div className="mt-3 min-h-5 type-caption text-red-300">
+              {passwordMismatch ? "两次密码不一致" : passwordError}
+            </div>
+
+            <button
+              type="button"
+              disabled={!passwordReady}
+              onClick={() => void submitPasswordChange()}
+              className="mt-3 h-10 w-full rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-90 disabled:opacity-45"
+              style={{
+                background: passwordReady
+                  ? "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))"
+                  : inputBg,
+                border: `1px solid ${passwordReady ? "transparent" : border}`,
+                color: passwordReady ? "white" : textSecondary,
+                boxShadow: passwordReady ? "0 8px 24px oklch(0.58 0.22 290 / 0.22)" : "none",
+              }}
+            >
+              {passwordBusy ? "修改中..." : "修改密码"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+function ProfilePasswordInput({
+  label,
+  value,
+  onChange,
+  inputBg,
+  border,
+  textPrimary,
+  autoComplete,
+  placeholder = "请输入密码",
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  inputBg: string;
+  border: string;
+  textPrimary: string;
+  autoComplete: string;
+  placeholder?: string;
+}) {
+  return (
+    <label className="grid gap-1.5">
+      <span className="type-caption" style={{ color: "rgba(255,255,255,0.64)" }}>{label}</span>
+      <input
+        type="password"
+        value={value}
+        onChange={event => onChange(event.target.value)}
+        autoComplete={autoComplete}
+        placeholder={placeholder}
+        className="h-10 rounded-[var(--radius-md-design)] px-3 outline-none placeholder:text-white/32"
+        style={{ background: inputBg, border: `1px solid ${border}`, color: textPrimary, fontSize: 13 }}
+      />
+    </label>
   );
 }
 

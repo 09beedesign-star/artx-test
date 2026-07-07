@@ -9,6 +9,7 @@ import {
   Send,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import ForgotPasswordDialog from "@/components/auth/ForgotPasswordDialog";
 import asteroidImage from "@/assets/ardot/3_3.png";
 import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
 import promptCsv from "@/data/ai_image_prompt_rank_50.csv?raw";
@@ -122,6 +123,7 @@ export default function HomePage() {
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
+  const [forgotOpen, setForgotOpen] = useState(false);
   const [stageScale, setStageScale] = useState(getStageScale);
   const [activeTab, setActiveTab] = useState<LandingTab>("home");
   const [loginBubble, setLoginBubble] = useState<LoginBubble>(null);
@@ -381,6 +383,7 @@ export default function HomePage() {
                 onPasswordChange={setPassword}
                 onSubmit={handleAuthSubmit}
                 onAuthAction={handleAuthAction}
+                onForgotPassword={() => setForgotOpen(true)}
                 onBackToPrompt={() => setPanelMode("prelogin")}
               />
             </div>
@@ -445,6 +448,12 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+      <ForgotPasswordDialog
+        open={forgotOpen}
+        initialEmail={email}
+        onClose={() => setForgotOpen(false)}
+        onBackToLogin={() => setPanelMode("login")}
+      />
     </main>
   );
 }
@@ -613,6 +622,7 @@ function LoginPanel({
   onPasswordChange,
   onSubmit,
   onAuthAction,
+  onForgotPassword,
   onBackToPrompt,
 }: {
   mode: "login" | "register";
@@ -624,6 +634,7 @@ function LoginPanel({
   onPasswordChange: (value: string) => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
   onAuthAction: (action: "login" | "register") => void | Promise<void>;
+  onForgotPassword: () => void;
   onBackToPrompt: () => void;
 }) {
   const isRegister = mode === "register";
@@ -655,7 +666,11 @@ function LoginPanel({
           <p className={`min-w-0 flex-1 truncate text-left text-[13px] font-medium text-red-300 ${error ? "visible" : "invisible"}`}>
             {error || " "}
           </p>
-          <button type="button" className="shrink-0 appearance-none bg-transparent text-[13px] font-medium text-[#7d7d7d] transition-colors hover:text-white">
+          <button
+            type="button"
+            onClick={onForgotPassword}
+            className="shrink-0 appearance-none bg-transparent text-[13px] font-medium text-[#7d7d7d] transition-colors hover:text-white"
+          >
             忘记密码？
           </button>
         </div>
