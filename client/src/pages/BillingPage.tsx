@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import TopBar from "@/components/workspace/TopBar";
+import WechatIcon from "@/components/auth/WechatIcon";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { BG_GLOW } from "@/lib/workspace-data";
@@ -1298,7 +1299,7 @@ export default function BillingPage() {
             <div className="mb-4 flex items-start justify-between gap-4">
               <div>
                 <h3 style={{ color: text, fontSize: 20, fontWeight: 720 }}>
-                  扫码完成支付
+                  微信扫码支付
                 </h3>
                 <p
                   className="mt-1 type-caption"
@@ -1401,6 +1402,35 @@ export default function BillingPage() {
 	              </div>
 	            </div>
 
+            <div
+              className="mb-3 flex items-center justify-center gap-2 rounded-[var(--radius-md-design)] border px-3 py-2"
+              style={{
+                borderColor: "oklch(0.74 0.18 150 / 0.34)",
+                background: "oklch(0.74 0.18 150 / 0.12)",
+                color: isDark ? "oklch(0.88 0.16 150)" : "oklch(0.42 0.16 150)",
+              }}
+            >
+              <span
+                className="flex h-7 w-7 items-center justify-center rounded-full"
+                style={{
+                  background: "#07C160",
+                  color: "white",
+                }}
+                aria-hidden="true"
+              >
+                <WechatIcon size={16} />
+              </span>
+              <span style={{ fontSize: 14, fontWeight: 760, letterSpacing: 0 }}>
+                微信支付
+              </span>
+              <span
+                className="type-caption"
+                style={{ color: sub, letterSpacing: 0, textTransform: "none" }}
+              >
+                请使用微信扫码支付
+              </span>
+            </div>
+
 	            <div
 	              className="rounded-[var(--radius-lg-design)] border p-3 text-center"
 	              style={{
@@ -1437,7 +1467,7 @@ export default function BillingPage() {
               className="mt-3 text-center type-caption"
               style={{ color: faint, letterSpacing: 0, textTransform: "none" }}
             >
-              支付完成后会自动刷新余额，也可以点击下方按钮确认状态
+              请使用微信扫描二维码。支付完成后会自动刷新余额，也可以点击下方按钮确认状态
             </p>
             <button
               type="button"
