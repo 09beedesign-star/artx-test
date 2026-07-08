@@ -16,7 +16,7 @@ export default function ForgotPasswordDialog({
   onClose: () => void;
   onBackToLogin?: () => void;
 }) {
-  const { requestPasswordReset, resetPassword } = useAuth();
+  const { forgotPassword, resetPassword } = useAuth();
   const [step, setStep] = useState<ResetStep>("email");
   const [email, setEmail] = useState(initialEmail);
   const [code, setCode] = useState("");
@@ -56,7 +56,7 @@ export default function ForgotPasswordDialog({
     }
     setBusy(true);
     setError("");
-    const result = await requestPasswordReset(normalizedEmail);
+    const result = await forgotPassword(normalizedEmail);
     setBusy(false);
     if (!result.ok) {
       setError(result.error || "验证码发送失败，请稍后重试");
@@ -80,7 +80,7 @@ export default function ForgotPasswordDialog({
     if (!passwordReady) return;
     setBusy(true);
     setError("");
-    const result = await resetPassword(code.trim(), newPassword);
+    const result = await resetPassword(email.trim(), code.trim(), newPassword);
     setBusy(false);
     if (!result.ok) {
       setError(result.error || "密码修改失败");

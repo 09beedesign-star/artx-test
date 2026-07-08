@@ -12,9 +12,9 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import TopBar from "@/components/workspace/TopBar";
-import WechatIcon from "@/components/auth/WechatIcon";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
+import { ART_X_TEST_API_BASE_URL, normalizeApiBaseUrl } from "@/lib/api-base-url";
 import { BG_GLOW } from "@/lib/workspace-data";
 import {
   BILLING_CYCLES,
@@ -27,6 +27,7 @@ import {
 } from "@shared/billing-config";
 
 type BillingTab = "subscription" | "recharge";
+type PaymentMethod = "wechat" | "alipay";
 
 const billingTabs: Array<{
   id: BillingTab;
@@ -36,6 +37,17 @@ const billingTabs: Array<{
   { id: "subscription", label: "订阅服务", description: "整体创作服务订阅" },
   { id: "recharge", label: "积分充值", description: "额外购买可用创作额度" },
 ];
+
+const paymentMethods: Array<{
+  id: PaymentMethod;
+  label: string;
+  hint: string;
+}> = [
+  { id: "wechat", label: "微信支付", hint: "使用微信扫码" },
+  { id: "alipay", label: "支付宝", hint: "使用支付宝扫码" },
+];
+const ALIPAY_LOGO_SOURCE_URL = "https://huaban.com/pins/5786389200";
+const WECHAT_PAY_LOGO_SOURCE_URL = "https://huaban.com/pins/3526742319";
 
 const subscriptionPlans = [
   {
@@ -123,24 +135,11 @@ type BillingStatusResponse = {
   error?: string;
 };
 
-const BILLING_BALANCE_STORAGE_KEY = "artx-billing-balance";
-const BILLING_BALANCE_EVENT = "artx:billing-balance-updated";
-
 class BillingAuthExpiredError extends Error {
   constructor(message = "登录已失效，请重新登录") {
     super(message);
     this.name = "BillingAuthExpiredError";
   }
-}
-
-function publishBillingBalance(balance: number) {
-  if (typeof window === "undefined" || !Number.isFinite(balance)) return;
-  try {
-    window.localStorage.setItem(BILLING_BALANCE_STORAGE_KEY, String(balance));
-  } catch {}
-  window.dispatchEvent(
-    new CustomEvent(BILLING_BALANCE_EVENT, { detail: { balance } })
-  );
 }
 
 const rechargePacks = [
@@ -192,14 +191,14 @@ function readInitialTab(): BillingTab {
 }
 
 function getBillingApiBaseUrl() {
-  const configured = (
+  const configured = normalizeApiBaseUrl(
     import.meta.env.VITE_API_BASE_URL ||
     import.meta.env.VITE_AUTH_API_BASE_URL ||
     ""
-  ).replace(/\/+$/, "");
+  );
 
   if (configured) return configured;
-  return "https://backstage.artxsd.com";
+  return ART_X_TEST_API_BASE_URL;
 }
 
 function isQrImagePayUrl(payUrl: string) {
@@ -218,6 +217,15 @@ function getAuthToken() {
   } catch {
     return "";
   }
+}
+
+function notifyCreditsUpdated(balance: number) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent("artx:credits-updated", {
+      detail: { balance },
+    })
+  );
 }
 
 function clearExpiredAuthSession() {
@@ -357,6 +365,52 @@ async function billingFetch<T>(
   return data as T;
 }
 
+function PaymentMethodLogo({
+  method,
+  compact = false,
+}: {
+  method: PaymentMethod;
+  compact?: boolean;
+}) {
+  const size = compact ? 18 : 34;
+  const proxiedLogoSrc = (sourceUrl: string) =>
+    `${getBillingApiBaseUrl()}/api/images/proxy?url=${encodeURIComponent(sourceUrl)}`;
+  if (method === "alipay") {
+    return (
+      <span
+        className="inline-flex shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-md-design)]"
+        style={{ width: size, height: size, background: "#1677FF" }}
+        aria-label="支付宝 logo"
+      >
+        <img
+          src={proxiedLogoSrc(ALIPAY_LOGO_SOURCE_URL)}
+          alt="支付宝 logo"
+          width={size}
+          height={size}
+          className="block h-full w-full object-cover"
+          loading="lazy"
+        />
+      </span>
+    );
+  }
+  return (
+    <span
+      className="inline-flex shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-md-design)]"
+      style={{ width: size, height: size, background: "#FFFFFF" }}
+      aria-label="微信支付 logo"
+    >
+      <img
+        src={proxiedLogoSrc(WECHAT_PAY_LOGO_SOURCE_URL)}
+        alt="微信支付 logo"
+        width={size}
+        height={size}
+        className="block h-full w-full object-cover"
+        loading="lazy"
+      />
+    </span>
+  );
+}
+
 export default function BillingPage() {
   const { resolvedTheme } = useTheme();
   const { isAuthenticated, openLoginModal } = useAuth();
@@ -365,6 +419,8 @@ export default function BillingPage() {
     readInitialTab()
   );
   const [activeCycle, setActiveCycle] = useState<BillingCycleId>("monthly");
+  const [selectedPaymentMethod, setSelectedPaymentMethod] =
+    useState<PaymentMethod>("wechat");
   const [selectedPlanId, setSelectedPlanId] = useState<MembershipPlanId>("pro");
   const [hoveredPlanId, setHoveredPlanId] = useState<MembershipPlanId | null>(
     null
@@ -392,6 +448,7 @@ export default function BillingPage() {
     title: string;
     amount: number;
     credits: number;
+    paymentMethod: PaymentMethod;
     cycleLabel?: string;
     status: "pending" | "success";
   } | null>(null);
@@ -414,6 +471,9 @@ export default function BillingPage() {
   const faint = isDark ? "oklch(0.61 0.010 270)" : "oklch(0.71 0.010 255)";
   const green = "#C5ED47";
   const purple = "oklch(0.68 0.20 292)";
+  const activePaymentMethod =
+    paymentMethods.find(item => item.id === selectedPaymentMethod) ||
+    paymentMethods[0];
 
   const cycleLabel = useMemo(
     () => BILLING_CYCLES.find(item => item.id === activeCycle)?.label || "月付",
@@ -430,10 +490,7 @@ export default function BillingPage() {
     const result = await billingFetch<BillingSummaryResponse>(
       "/api/billing/summary"
     );
-    if (typeof result.balance === "number") {
-      setBalance(result.balance);
-      publishBillingBalance(result.balance);
-    }
+    if (typeof result.balance === "number") setBalance(result.balance);
     const display = deriveSubscriptionDisplay(result.plan);
     setCurrentPlan(display.currentPlan);
     setSubscribedPlanId(display.subscribedPlanId);
@@ -473,7 +530,7 @@ export default function BillingPage() {
     ).catch(() => null);
     if (summary && typeof summary.balance === "number") {
       setBalance(summary.balance);
-      publishBillingBalance(summary.balance);
+      notifyCreditsUpdated(summary.balance);
       const display = deriveSubscriptionDisplay(summary.plan);
       setCurrentPlan(display.currentPlan);
       setSubscribedPlanId(display.subscribedPlanId);
@@ -558,7 +615,7 @@ export default function BillingPage() {
           body: JSON.stringify({
             planId,
             cycleId: activeCycle,
-            paymentMethod: "wechat",
+            paymentMethod: selectedPaymentMethod,
           }),
         }
       );
@@ -571,7 +628,7 @@ export default function BillingPage() {
         {
           method: "POST",
           body: JSON.stringify({
-            paymentMethod: "wechat",
+            paymentMethod: selectedPaymentMethod,
             mode: "native",
           }),
         }
@@ -589,6 +646,7 @@ export default function BillingPage() {
         title: selectedPlan?.name || orderResult.order.planName || label,
         amount: orderResult.order.amount,
         credits: orderResult.order.credits || 0,
+        paymentMethod: selectedPaymentMethod,
         cycleLabel: orderResult.order.cycleLabel || cycleLabel,
         status: "pending",
       });
@@ -633,7 +691,7 @@ export default function BillingPage() {
           body: JSON.stringify({
             type: "recharge",
             amount,
-            paymentMethod: "wechat",
+            paymentMethod: selectedPaymentMethod,
           }),
         }
       );
@@ -646,7 +704,7 @@ export default function BillingPage() {
         {
           method: "POST",
           body: JSON.stringify({
-            paymentMethod: "wechat",
+            paymentMethod: selectedPaymentMethod,
             mode: "native",
           }),
         }
@@ -663,6 +721,7 @@ export default function BillingPage() {
         title: packName,
         amount,
         credits: quote.credits,
+        paymentMethod: selectedPaymentMethod,
         status: "pending",
       });
     } catch (error) {
@@ -779,6 +838,67 @@ export default function BillingPage() {
                         {item.value}
                       </div>
                     </div>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+
+          <section
+            className="rounded-[var(--radius-xl-design)] border p-4 backdrop-blur-xl"
+            style={{ background: panel, borderColor: border }}
+          >
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2
+                  className="type-title-sm"
+                  style={{ color: text, fontSize: 16, fontWeight: 680 }}
+                >
+                  支付方式
+                </h2>
+                <p
+                  className="mt-1 type-caption"
+                  style={{ color: faint, letterSpacing: 0, textTransform: "none" }}
+                >
+                  请先选择支付工具，系统会生成对应通道的专用二维码。
+                </p>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {paymentMethods.map(method => {
+                  const active = selectedPaymentMethod === method.id;
+                  return (
+                    <button
+                      key={method.id}
+                      type="button"
+                      onClick={() => setSelectedPaymentMethod(method.id)}
+                      className="flex min-h-[64px] min-w-[188px] items-center gap-3 rounded-[var(--radius-lg-design)] border px-3 py-2 text-left transition-all"
+                      style={{
+                        background: active
+                          ? method.id === "wechat"
+                            ? "rgba(7, 193, 96, 0.14)"
+                            : "rgba(22, 119, 255, 0.14)"
+                          : panelStrong,
+                        borderColor: active
+                          ? method.id === "wechat"
+                            ? "rgba(7, 193, 96, 0.46)"
+                            : "rgba(22, 119, 255, 0.46)"
+                          : border,
+                        color: text,
+                      }}
+                    >
+                      <PaymentMethodLogo method={method.id} />
+                      <span className="min-w-0">
+                        <span className="block type-caption" style={{ color: text, fontWeight: 720 }}>
+                          {method.label}
+                        </span>
+                        <span
+                          className="mt-0.5 block type-caption"
+                          style={{ color: faint, letterSpacing: 0, textTransform: "none" }}
+                        >
+                          {method.hint}
+                        </span>
+                      </span>
+                    </button>
                   );
                 })}
               </div>
@@ -1095,13 +1215,20 @@ export default function BillingPage() {
                               fontWeight: 700,
                             }}
                           >
-                            {isCurrentSubscribedPlan
-                              ? "您已订阅该套餐。"
-                              : isDowngradePlan
-                                ? "当前套餐不支持降级"
-                              : payingPlanId === plan.id
-                              ? "创建支付中"
-                              : "选择订阅"}
+                            <span className="inline-flex items-center justify-center gap-2">
+                              {!isCurrentSubscribedPlan && !isDowngradePlan && (
+                                <PaymentMethodLogo method={selectedPaymentMethod} compact />
+                              )}
+                              <span>
+                                {isCurrentSubscribedPlan
+                                  ? "您已订阅该套餐。"
+                                  : isDowngradePlan
+                                    ? "当前套餐不支持降级"
+                                  : payingPlanId === plan.id
+                                  ? "创建支付中"
+                                  : `用${activePaymentMethod.label}订阅`}
+                              </span>
+                            </span>
                           </button>
                         </article>
                       );
@@ -1269,7 +1396,10 @@ export default function BillingPage() {
                             fontWeight: 720,
                           }}
                         >
-                          {payingRechargeId === pack.id ? "创建支付中" : "充值"}
+                          <span className="inline-flex items-center justify-center gap-2">
+                            <PaymentMethodLogo method={selectedPaymentMethod} compact />
+                            <span>{payingRechargeId === pack.id ? "创建支付中" : `用${activePaymentMethod.label}充值`}</span>
+                          </span>
                         </button>
                       </article>
                     ))}
@@ -1299,7 +1429,10 @@ export default function BillingPage() {
             <div className="mb-4 flex items-start justify-between gap-4">
               <div>
                 <h3 style={{ color: text, fontSize: 20, fontWeight: 720 }}>
-                  微信扫码支付
+                  <span className="inline-flex items-center gap-2">
+                    <PaymentMethodLogo method={paymentDialog.paymentMethod} />
+                    <span>{paymentDialog.paymentMethod === "wechat" ? "微信扫码支付" : "支付宝扫码支付"}</span>
+                  </span>
                 </h3>
                 <p
                   className="mt-1 type-caption"
@@ -1402,35 +1535,6 @@ export default function BillingPage() {
 	              </div>
 	            </div>
 
-            <div
-              className="mb-3 flex items-center justify-center gap-2 rounded-[var(--radius-md-design)] border px-3 py-2"
-              style={{
-                borderColor: "oklch(0.74 0.18 150 / 0.34)",
-                background: "oklch(0.74 0.18 150 / 0.12)",
-                color: isDark ? "oklch(0.88 0.16 150)" : "oklch(0.42 0.16 150)",
-              }}
-            >
-              <span
-                className="flex h-7 w-7 items-center justify-center rounded-full"
-                style={{
-                  background: "#07C160",
-                  color: "white",
-                }}
-                aria-hidden="true"
-              >
-                <WechatIcon size={16} />
-              </span>
-              <span style={{ fontSize: 14, fontWeight: 760, letterSpacing: 0 }}>
-                微信支付
-              </span>
-              <span
-                className="type-caption"
-                style={{ color: sub, letterSpacing: 0, textTransform: "none" }}
-              >
-                请使用微信扫码支付
-              </span>
-            </div>
-
 	            <div
 	              className="rounded-[var(--radius-lg-design)] border p-3 text-center"
 	              style={{
@@ -1441,7 +1545,7 @@ export default function BillingPage() {
               {isQrImagePayUrl(paymentDialog.payUrl) ? (
                 <img
                   src={paymentDialog.payUrl}
-                  alt="支付二维码"
+                  alt={`${paymentDialog.paymentMethod === "wechat" ? "微信支付" : "支付宝"}二维码`}
                   className="mx-auto h-[220px] w-[220px] rounded-[var(--radius-md-design)] object-contain"
                 />
               ) : (
@@ -1467,7 +1571,7 @@ export default function BillingPage() {
               className="mt-3 text-center type-caption"
               style={{ color: faint, letterSpacing: 0, textTransform: "none" }}
             >
-              请使用微信扫描二维码。支付完成后会自动刷新余额，也可以点击下方按钮确认状态
+              支付完成后会自动刷新余额，也可以点击下方按钮确认状态
             </p>
             <button
               type="button"

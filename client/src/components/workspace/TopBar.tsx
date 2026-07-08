@@ -2,13 +2,14 @@
  * TopBar — Neo-Studio Dark Design System
  * Global top navigation: search, theme switcher (Radix DropdownMenu), credits, user info
  */
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronDown, Sparkles, Check, UserRound, LogOut, Search, KeyRound, Copy, RefreshCw, Zap, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { type CreateProjectPayload } from "@/components/workspace/CreateProjectDialog";
+import { ART_X_TEST_API_BASE_URL, normalizeApiBaseUrl } from "@/lib/api-base-url";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -48,51 +49,26 @@ const AVATAR_COLORS = [
   "#6C7A89",
 ];
 
-const BILLING_BALANCE_STORAGE_KEY = "artx-billing-balance";
-const BILLING_BALANCE_EVENT = "artx:billing-balance-updated";
-
-function getBillingApiBaseUrl() {
-  const configured = (
-    import.meta.env.VITE_API_BASE_URL ||
-    import.meta.env.VITE_AUTH_API_BASE_URL ||
-    ""
-  ).replace(/\/+$/, "");
+function getTopBarApiBaseUrl() {
+  if (typeof window === "undefined") return ART_X_TEST_API_BASE_URL;
+  const configured = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL || "");
   if (configured) return configured;
-  return "https://backstage.artxsd.com";
+  const hostname = window.location.hostname;
+  if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname.endsWith("github.io")) {
+    return ART_X_TEST_API_BASE_URL;
+  }
+  return window.location.origin.replace(/\/+$/, "");
 }
 
-function getAuthToken() {
+function getTopBarAuthToken() {
   if (typeof window === "undefined") return "";
   try {
     const raw = window.localStorage.getItem("artx-auth-session");
-    const parsed = raw ? (JSON.parse(raw) as { token?: string }) : null;
+    const parsed = raw ? JSON.parse(raw) as { token?: string } : null;
     return parsed?.token || "";
   } catch {
     return "";
   }
-}
-
-function readCachedBillingBalance() {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(BILLING_BALANCE_STORAGE_KEY);
-    if (!raw) return null;
-    const value = Number(raw);
-    return Number.isFinite(value) ? value : null;
-  } catch {
-    return null;
-  }
-}
-
-async function fetchBillingBalance() {
-  const token = getAuthToken();
-  if (!token) return null;
-  const response = await fetch(`${getBillingApiBaseUrl()}/api/billing/summary`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!response.ok) return null;
-  const data = await response.json().catch(() => ({}));
-  return typeof data?.balance === "number" ? data.balance : null;
 }
 
 export default function TopBar({ credits = 0, projectTitle, projectTime, showSearch = false, glass = false }: TopBarProps) {
@@ -115,7 +91,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
   const [apiKey, setApiKey] = useState("");
   const [apiKeyCopied, setApiKeyCopied] = useState(false);
   const [apiKeyCreationConfirmed, setApiKeyCreationConfirmed] = useState(false);
-  const [displayCredits, setDisplayCredits] = useState(credits);
+  const [syncedCredits, setSyncedCredits] = useState<number | null>(null);
 
   const searchBg = isDark ? "oklch(0.16 0.016 270 / 0.90)" : "oklch(0.97 0.003 270 / 0.92)";
   const searchBorder = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
@@ -126,55 +102,59 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
     const seed = displayName.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
     return AVATAR_COLORS[seed % AVATAR_COLORS.length];
   }, [displayName]);
+  const displayCredits = syncedCredits ?? credits;
 
-  useEffect(() => {
-    setDisplayCredits(credits);
-  }, [credits]);
-
-  useEffect(() => {
-    if (
-      !isAuthenticated ||
-      typeof window === "undefined" ||
-      typeof document === "undefined"
-    )
+  const refreshCredits = useCallback(async () => {
+    if (!isAuthenticated) {
+      setSyncedCredits(null);
       return;
+    }
+    const token = getTopBarAuthToken();
+    if (!token) {
+      setSyncedCredits(null);
+      return;
+    }
+    try {
+      const response = await fetch(`${getTopBarApiBaseUrl()}/api/billing/summary`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || typeof payload.balance !== "number") return;
+      setSyncedCredits(payload.balance);
+    } catch {
+      // Keep the last visible balance when the network is temporarily unavailable.
+    }
+  }, [isAuthenticated]);
 
-    const applyBalance = (value: number | null) => {
-      if (typeof value !== "number" || !Number.isFinite(value)) return;
-      setDisplayCredits(value);
-      try {
-        window.localStorage.setItem(BILLING_BALANCE_STORAGE_KEY, String(value));
-      } catch {}
-    };
+  useEffect(() => {
+    void refreshCredits();
+  }, [refreshCredits, user?.id]);
 
-    applyBalance(readCachedBillingBalance());
-    fetchBillingBalance().then(applyBalance).catch(() => {});
+  useEffect(() => {
+    if (!isAuthenticated || typeof window === "undefined" || typeof document === "undefined") return;
 
-    const handleBalanceEvent = (event: Event) => {
-      const nextBalance = (event as CustomEvent<{ balance?: number }>).detail?.balance;
-      applyBalance(typeof nextBalance === "number" ? nextBalance : readCachedBillingBalance());
-    };
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key !== BILLING_BALANCE_STORAGE_KEY) return;
-      const nextBalance = Number(event.newValue);
-      applyBalance(Number.isFinite(nextBalance) ? nextBalance : null);
-    };
     const refreshWhenVisible = () => {
-      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
-      fetchBillingBalance().then(applyBalance).catch(() => {});
+      if (document.visibilityState === "visible") void refreshCredits();
     };
+    const handleCreditsUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ balance?: number }>).detail;
+      if (typeof detail?.balance === "number") {
+        setSyncedCredits(detail.balance);
+      }
+      void refreshCredits();
+    };
+    const interval = window.setInterval(() => void refreshCredits(), 15_000);
 
-    window.addEventListener(BILLING_BALANCE_EVENT, handleBalanceEvent);
-    window.addEventListener("storage", handleStorage);
-    window.addEventListener("focus", refreshWhenVisible);
+    window.addEventListener("focus", refreshCredits);
+    window.addEventListener("artx:credits-updated", handleCreditsUpdated);
     document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
-      window.removeEventListener(BILLING_BALANCE_EVENT, handleBalanceEvent);
-      window.removeEventListener("storage", handleStorage);
-      window.removeEventListener("focus", refreshWhenVisible);
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshCredits);
+      window.removeEventListener("artx:credits-updated", handleCreditsUpdated);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, refreshCredits]);
 
   const handleConfirmLogout = () => {
     logout();
@@ -214,12 +194,12 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
   };
 
   const getMcpApiBaseUrl = () => {
-    if (typeof window === "undefined") return "https://backstage.artxsd.com";
-    const configured = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
+    if (typeof window === "undefined") return ART_X_TEST_API_BASE_URL;
+    const configured = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL || "");
     if (configured) return configured;
     const hostname = window.location.hostname;
     if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") {
-      return "https://backstage.artxsd.com";
+      return ART_X_TEST_API_BASE_URL;
     }
     return window.location.origin.replace(/\/+$/, "");
   };

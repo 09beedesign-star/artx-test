@@ -1,3 +1,5 @@
+import { ART_X_TEST_API_BASE_URL, normalizeApiBaseUrl } from "./api-base-url";
+
 type LLMRole = "system" | "user" | "assistant";
 
 export type LLMMessage = {
@@ -29,7 +31,7 @@ export type BackgroundImageTask = {
 const AUTH_STORAGE_KEY = "artx-auth-session";
 const AI_REQUEST_TIMEOUT_MS = 300000;
 const AI_TIMEOUT_ERROR_MESSAGE = "对不起，网络开了个小差，请稍后重试";
-const ART_X_TEST_AI_API_BASE_URL = "https://backstage.artxsd.com";
+const ART_X_TEST_AI_API_BASE_URL = ART_X_TEST_API_BASE_URL;
 let aiApiBaseOverride: string | null = null;
 
 function normalizeAiErrorMessage(message: string, fallback: string) {
@@ -108,23 +110,24 @@ function getAiApiBaseUrl() {
     import.meta.env.VITE_AI_API_BASE_URL ||
     import.meta.env.VITE_API_BASE_URL ||
     ""
-  ).replace(/\/+$/, "");
+  );
+  const normalized = normalizeApiBaseUrl(configured);
   if (typeof window !== "undefined") {
     const hostname = window.location.hostname;
     const isGithubPages = hostname.endsWith("github.io");
-    const isRelativeConfigured = configured.startsWith("/") || configured.startsWith(".");
+    const isRelativeConfigured = normalized.startsWith("/") || normalized.startsWith(".");
     const configuredHost = (() => {
       try {
-        return configured ? new URL(configured, window.location.href).hostname : "";
+        return normalized ? new URL(normalized, window.location.href).hostname : "";
       } catch {
         return "";
       }
     })();
-    if (isGithubPages && (!configured || isRelativeConfigured || configuredHost.endsWith("github.io"))) {
+    if (isGithubPages && (!normalized || isRelativeConfigured || configuredHost.endsWith("github.io"))) {
       return ART_X_TEST_AI_API_BASE_URL;
     }
   }
-  if (configured) return configured;
+  if (normalized) return normalized;
   if (typeof window !== "undefined") {
     const hostname = window.location.hostname;
     if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") return "";

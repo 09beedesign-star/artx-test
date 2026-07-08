@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { defaultApiBaseUrlForCurrentHost, normalizeApiBaseUrl } from "@/lib/api-base-url";
 
 const AUTH_STORAGE_KEY = "artx-auth-session";
 const LOCAL_AUTH_USERS_KEY = "artx-local-auth-users";
@@ -23,12 +24,14 @@ interface AuthContextValue {
   loginModalOpen: boolean;
   openLoginModal: () => void;
   closeLoginModal: () => void;
-  login: (username: string, password: string, options?: { adminLogin?: boolean }) => Promise<{ ok: boolean; error?: string }>;
+  login: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   register: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   sendSmsCode: (phone: string) => Promise<{ ok: boolean; error?: string; retryAfterSeconds?: number }>;
   loginWithSmsCode: (phone: string, code: string) => Promise<{ ok: boolean; error?: string }>;
-  requestPasswordReset: (username: string) => Promise<{ ok: boolean; error?: string; expiresAt?: string }>;
-  resetPassword: (resetToken: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  sendEmailCode: (email: string) => Promise<{ ok: boolean; error?: string; retryAfterSeconds?: number }>;
+  loginWithEmailCode: (email: string, code: string) => Promise<{ ok: boolean; error?: string }>;
+  forgotPassword: (username: string) => Promise<{ ok: boolean; error?: string; message?: string }>;
+  resetPassword: (username: string, code: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<{ ok: boolean; error?: string }>;
   socialAuth: (provider: "google" | "wechat" | "apple" | "github" | "meta") => Promise<{ ok: boolean; error?: string }>;
   logout: () => void;
@@ -69,9 +72,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("artx:login-required", handleLoginRequired);
   }, []);
 
-  const authenticate = async (action: "login" | "register", username: string, password: string, options?: { adminLogin?: boolean }) => {
+  const authenticate = async (action: "login" | "register", username: string, password: string) => {
     try {
-      const result = await fetchAuth(action, { username, password, ...(options?.adminLogin ? { adminLogin: true } : {}) });
+      const result = await fetchAuth(action, { username, password });
       if (!result.ok || !result.token || !result.user) {
         if (isGithubPagesTest()) {
           const localResult = authenticateLocally(action, username, password);
@@ -117,6 +120,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const authenticateWithEmail = async (email: string, code: string) => {
+    try {
+      const result = await fetchAuth("email-login", { email, code });
+      if (!result.ok || !result.token || !result.user) {
+        return { ok: false, error: result.error || "邮箱验证码登录失败" };
+      }
+      const normalizedUser = normalizeAuthUser(result.user);
+      if (!persistSession({ token: result.token, user: normalizedUser })) {
+        return { ok: false, error: "浏览器本地存储空间不足，已尝试清理旧画布缓存，请重新登录" };
+      }
+      setIsAuthenticated(true);
+      setUser(normalizedUser);
+      setLoginModalOpen(false);
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "邮箱验证码服务暂时不可用，请稍后重试" };
+    }
+  };
+
   const applyStoredSession = () => {
     const stored = readStoredSession();
     if (!stored) return;
@@ -131,7 +153,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loginModalOpen,
     openLoginModal: () => setLoginModalOpen(true),
     closeLoginModal: () => setLoginModalOpen(false),
-    login: (username: string, password: string, options?: { adminLogin?: boolean }) => authenticate("login", username, password, options),
+    login: (username: string, password: string) => authenticate("login", username, password),
     register: (username: string, password: string) => authenticate("register", username, password),
     sendSmsCode: async (phone: string) => {
       try {
@@ -146,21 +168,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     },
     loginWithSmsCode: authenticateWithSms,
-    requestPasswordReset: async (username: string) => {
+    sendEmailCode: async (email: string) => {
+      try {
+        const result = await fetchAuth("email-send-code", { email });
+        return {
+          ok: result.ok,
+          error: result.error,
+          retryAfterSeconds: result.retryAfterSeconds,
+        };
+      } catch {
+        return { ok: false, error: "邮箱验证码服务暂时不可用，请稍后重试" };
+      }
+    },
+    loginWithEmailCode: authenticateWithEmail,
+    forgotPassword: async (username: string) => {
       try {
         const result = await fetchAuth("forgot-password", { username });
         return {
           ok: result.ok,
           error: result.error,
-          expiresAt: result.expiresAt,
+          message: result.message,
         };
       } catch {
         return { ok: false, error: "密码重置服务暂时不可用，请稍后重试" };
       }
     },
-    resetPassword: async (resetToken: string, password: string) => {
+    resetPassword: async (username: string, code: string, password: string) => {
       try {
-        const result = await fetchAuth("reset-password", { resetToken, password });
+        const result = await fetchAuth("reset-password", { username, code, password });
         return {
           ok: result.ok,
           error: result.error,
@@ -324,9 +359,12 @@ function clearLargeArtxLocalCache() {
   const removablePrefixes = [
     "artx:canvas-state:",
     "artx:canvas-assistant-messages:",
+    "artx:workspace-project-history:",
+    "artx:workspace-project-history:fallback:",
   ];
   const removableKeys = [
     "artx:workspace-project-history",
+    "artx:workspace-project-history:fallback",
   ];
 
   for (let index = localStorage.length - 1; index >= 0; index -= 1) {
@@ -338,7 +376,7 @@ function clearLargeArtxLocalCache() {
   }
 }
 
-async function fetchAuth(action: "register" | "login" | "me" | "logout" | "social" | "sms-send-code" | "sms-login" | "forgot-password" | "reset-password" | "change-password", payload: Record<string, unknown>) {
+async function fetchAuth(action: "register" | "login" | "me" | "logout" | "social" | "sms-send-code" | "sms-login" | "email-send-code" | "email-login" | "forgot-password" | "reset-password" | "change-password", payload: Record<string, unknown>) {
   const apiBaseUrl = getAuthApiBaseUrl();
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 12_000);
@@ -361,7 +399,7 @@ async function fetchAuth(action: "register" | "login" | "me" | "logout" | "socia
   return {
     ...data,
     ok: response.ok,
-  } as { ok: boolean; error?: string; token?: string; user?: AuthUser; retryAfterSeconds?: number; resetToken?: string; expiresAt?: string };
+  } as { ok: boolean; error?: string; token?: string; user?: AuthUser; retryAfterSeconds?: number; message?: string };
 }
 
 function authenticateLocally(action: "login" | "register" | "registerOrLogin", username: string, password: string) {
@@ -423,16 +461,12 @@ function isGithubPagesTest() {
 }
 
 function getAuthApiBaseUrl() {
-  const configured = (
+  const configured = normalizeApiBaseUrl(
     import.meta.env.VITE_AUTH_API_BASE_URL ||
     import.meta.env.VITE_API_BASE_URL ||
     ""
-  ).replace(/\/+$/, "");
+  );
 
   if (configured) return configured;
-  if (typeof window !== "undefined" && window.location.hostname.endsWith("github.io")) {
-    return "https://backstage.artxsd.com";
-  }
-
-  return "";
+  return defaultApiBaseUrlForCurrentHost("");
 }

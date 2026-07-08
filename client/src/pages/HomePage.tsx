@@ -9,7 +9,6 @@ import {
   Send,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import ForgotPasswordDialog from "@/components/auth/ForgotPasswordDialog";
 import asteroidImage from "@/assets/ardot/3_3.png";
 import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
 import promptCsv from "@/data/ai_image_prompt_rank_50.csv?raw";
@@ -100,7 +99,6 @@ const PROMPT_SUGGESTIONS = [
 
 const HOME_PROMPT = "hello，欢迎来到。ArtX,正式开启你的。灵感AI创意之旅吧！";
 const HOME_AUTH_PANEL_STORAGE_KEY = "artx:home-auth-panel";
-const HOME_REMEMBER_LOGIN_STORAGE_KEY = "artx:home-remember-login:v1";
 const PROMPT_TYPE_DURATION_MS = 5000;
 const PROMPT_PAUSE_DURATION_MS = 3000;
 const PROMPT_FRAME_MS = 80;
@@ -114,35 +112,6 @@ const getStageScale = () => {
   return Math.min(window.innerWidth / 1600, window.innerHeight / 900);
 };
 
-function readRememberedHomeLogin() {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(HOME_REMEMBER_LOGIN_STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) as { email?: unknown; password?: unknown } : null;
-    if (typeof parsed?.email !== "string" || typeof parsed.password !== "string") return null;
-    return { email: parsed.email, password: parsed.password };
-  } catch {
-    return null;
-  }
-}
-
-function writeRememberedHomeLogin(email: string, password: string) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(
-      HOME_REMEMBER_LOGIN_STORAGE_KEY,
-      JSON.stringify({ email, password }),
-    );
-  } catch {}
-}
-
-function clearRememberedHomeLogin() {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.removeItem(HOME_REMEMBER_LOGIN_STORAGE_KEY);
-  } catch {}
-}
-
 export default function HomePage() {
   const [, navigate] = useLocation();
   const { isAuthenticated, login, register } = useAuth();
@@ -151,10 +120,8 @@ export default function HomePage() {
   const [promptTouched, setPromptTouched] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [rememberLogin, setRememberLogin] = useState(false);
   const [authError, setAuthError] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
-  const [forgotOpen, setForgotOpen] = useState(false);
   const [stageScale, setStageScale] = useState(getStageScale);
   const [activeTab, setActiveTab] = useState<LandingTab>("home");
   const [loginBubble, setLoginBubble] = useState<LoginBubble>(null);
@@ -186,14 +153,6 @@ export default function HomePage() {
     setCurrentLandingTab("home");
     setPanelMode(requestedPanel);
     homeRef.current?.scrollIntoView({ behavior: "auto", block: "start" });
-  }, []);
-
-  useEffect(() => {
-    const remembered = readRememberedHomeLogin();
-    if (!remembered) return;
-    setEmail(remembered.email);
-    setPassword(remembered.password);
-    setRememberLogin(true);
   }, []);
 
   useEffect(() => {
@@ -276,31 +235,23 @@ export default function HomePage() {
 
   const handleAuthAction = async (action: "login" | "register") => {
     if (!email.trim() || !password.trim()) {
-      setAuthError("请输入邮箱或 ID 和密码");
+      setAuthError("请输入用户名或邮箱和密码");
       return;
     }
 
     setAuthBusy(true);
     setAuthError("");
-    const normalizedEmail = email.trim();
     const result = action === "register"
-      ? await register(normalizedEmail, password)
-      : await login(normalizedEmail, password);
+      ? await register(email.trim(), password)
+      : await login(email.trim(), password);
     setAuthBusy(false);
 
     if (!result.ok) {
       setAuthError(result.error || "登录失败，请稍后重试");
       return;
     }
-    if (action === "login") {
-      if (rememberLogin) {
-        writeRememberedHomeLogin(normalizedEmail, password);
-      } else {
-        clearRememberedHomeLogin();
-      }
-    }
     toast(action === "register" ? "注册成功" : "登录成功", { description: "欢迎回到 ArtX Studio" });
-    createProjectFromPrompt();
+    setPanelMode("prelogin");
   };
 
   const handleAuthSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -424,18 +375,12 @@ export default function HomePage() {
                 mode={displayedMode === "register" ? "register" : "login"}
                 email={email}
                 password={password}
-                rememberLogin={rememberLogin}
                 busy={authBusy}
                 error={authError}
                 onEmailChange={setEmail}
                 onPasswordChange={setPassword}
-                onRememberLoginChange={checked => {
-                  setRememberLogin(checked);
-                  if (!checked) clearRememberedHomeLogin();
-                }}
                 onSubmit={handleAuthSubmit}
                 onAuthAction={handleAuthAction}
-                onForgotPassword={() => setForgotOpen(true)}
                 onBackToPrompt={() => setPanelMode("prelogin")}
               />
             </div>
@@ -500,12 +445,6 @@ export default function HomePage() {
           </div>
         </div>
       </section>
-      <ForgotPasswordDialog
-        open={forgotOpen}
-        initialEmail={email}
-        onClose={() => setForgotOpen(false)}
-        onBackToLogin={() => setPanelMode("login")}
-      />
     </main>
   );
 }
@@ -668,32 +607,154 @@ function LoginPanel({
   mode,
   email,
   password,
-  rememberLogin,
   busy,
   error,
   onEmailChange,
   onPasswordChange,
-  onRememberLoginChange,
   onSubmit,
   onAuthAction,
-  onForgotPassword,
   onBackToPrompt,
 }: {
   mode: "login" | "register";
   email: string;
   password: string;
-  rememberLogin: boolean;
   busy: boolean;
   error: string;
   onEmailChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
-  onRememberLoginChange: (checked: boolean) => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
   onAuthAction: (action: "login" | "register") => void | Promise<void>;
-  onForgotPassword: () => void;
   onBackToPrompt: () => void;
 }) {
+  const { forgotPassword, resetPassword } = useAuth();
   const isRegister = mode === "register";
+  const [resetMode, setResetMode] = useState(false);
+  const [resetUsername, setResetUsername] = useState("");
+  const [resetCode, setResetCode] = useState("");
+  const [resetPasswordValue, setResetPasswordValue] = useState("");
+  const [resetConfirmPassword, setResetConfirmPassword] = useState("");
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetMessage, setResetMessage] = useState("");
+
+  const handleSendResetCode = async () => {
+    const username = resetUsername.trim() || email.trim();
+    setResetMessage("");
+    if (!username) {
+      setResetMessage("请输入注册邮箱或用户名");
+      return;
+    }
+    setResetUsername(username);
+    setResetBusy(true);
+    const result = await forgotPassword(username);
+    setResetBusy(false);
+    setResetMessage(result.ok ? result.message || "验证码已发送，请查看邮箱。" : result.error || "验证码发送失败，请稍后重试");
+  };
+
+  const handleResetSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const username = resetUsername.trim() || email.trim();
+    const code = resetCode.trim();
+    setResetMessage("");
+    if (!username || !code || !resetPasswordValue || !resetConfirmPassword) {
+      setResetMessage("请填写邮箱、验证码、新密码和确认密码");
+      return;
+    }
+    if (resetPasswordValue !== resetConfirmPassword) {
+      setResetMessage("两次输入的新密码不一致");
+      return;
+    }
+    if (resetPasswordValue.length < 8) {
+      setResetMessage("新密码至少需要 8 位");
+      return;
+    }
+    setResetBusy(true);
+    const result = await resetPassword(username, code, resetPasswordValue);
+    setResetBusy(false);
+    if (!result.ok) {
+      setResetMessage(result.error || "密码重置失败，请稍后重试");
+      return;
+    }
+    setResetCode("");
+    setResetPasswordValue("");
+    setResetConfirmPassword("");
+    setResetMode(false);
+    setResetMessage("");
+  };
+
+  if (resetMode) {
+    return (
+      <GlassPanel>
+        <form className="flex h-full flex-col" onSubmit={handleResetSubmit}>
+          <PanelHeader title="找回密码" />
+
+          <div className="mt-8 flex flex-col gap-4">
+            <LabeledInput
+              label="注册邮箱或用户名"
+              value={resetUsername}
+              onChange={setResetUsername}
+              autoComplete="username"
+              placeholder="请输入注册邮箱或用户名"
+            />
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3">
+              <LabeledInput
+                label="验证码"
+                value={resetCode}
+                onChange={value => setResetCode(value.replace(/\D/g, "").slice(0, 6))}
+                autoComplete="one-time-code"
+                placeholder="6 位验证码"
+              />
+              <button
+                type="button"
+                disabled={resetBusy}
+                onClick={() => void handleSendResetCode()}
+                className="mt-[25px] h-12 rounded-[10px] border border-white/15 bg-white/8 px-4 text-sm font-semibold text-white transition-all hover:bg-white/12 disabled:opacity-60"
+              >
+                {resetBusy ? "发送中" : "发送验证码"}
+              </button>
+            </div>
+            <LabeledInput
+              label="新密码"
+              type="password"
+              value={resetPasswordValue}
+              onChange={setResetPasswordValue}
+              autoComplete="new-password"
+              placeholder="至少 8 位"
+            />
+            <LabeledInput
+              label="确认新密码"
+              type="password"
+              value={resetConfirmPassword}
+              onChange={setResetConfirmPassword}
+              autoComplete="new-password"
+              placeholder="再次输入新密码"
+            />
+          </div>
+
+          <p className={`mt-4 min-h-5 text-left text-[13px] font-medium ${resetMessage ? "text-amber-100" : "text-transparent"}`}>
+            {resetMessage || " "}
+          </p>
+
+          <div className="mt-5 grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              disabled={resetBusy}
+              onClick={() => setResetMode(false)}
+              className="h-12 rounded-[10px] border border-white/15 bg-white/8 text-base font-semibold text-white transition-all hover:bg-white/12 disabled:opacity-60"
+            >
+              返回登录
+            </button>
+            <button
+              type="submit"
+              disabled={resetBusy}
+              className="h-12 rounded-[10px] bg-[#936CFF] text-base font-semibold text-white shadow-[0_10px_28px_rgba(147,108,255,0.25)] transition-all hover:bg-[#A384FF] disabled:opacity-60"
+            >
+              {resetBusy ? "重置中..." : "重置密码"}
+            </button>
+          </div>
+        </form>
+      </GlassPanel>
+    );
+  }
 
   return (
     <GlassPanel>
@@ -702,11 +763,11 @@ function LoginPanel({
 
         <div className="mt-8 flex flex-col gap-5">
           <LabeledInput
-            label="邮箱或 ID"
+            label="用户名或邮箱"
             value={email}
             onChange={onEmailChange}
             autoComplete="username"
-            placeholder="请输入邮箱或 ID"
+            placeholder="请输入用户名或邮箱"
           />
           <LabeledInput
             label="密码"
@@ -722,18 +783,13 @@ function LoginPanel({
           <p className={`min-w-0 flex-1 truncate text-left text-[13px] font-medium text-red-300 ${error ? "visible" : "invisible"}`}>
             {error || " "}
           </p>
-          <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[13px] font-medium text-[#7d7d7d] transition-colors hover:text-white">
-            <input
-              type="checkbox"
-              checked={rememberLogin}
-              onChange={event => onRememberLoginChange(event.target.checked)}
-              className="h-3.5 w-3.5 rounded border-[#545454] bg-[#222] accent-[#936CFF]"
-            />
-            <span>记住登录</span>
-          </label>
           <button
             type="button"
-            onClick={onForgotPassword}
+            onClick={() => {
+              setResetUsername(email.trim());
+              setResetMessage("");
+              setResetMode(true);
+            }}
             className="shrink-0 appearance-none bg-transparent text-[13px] font-medium text-[#7d7d7d] transition-colors hover:text-white"
           >
             忘记密码？
@@ -759,15 +815,8 @@ function LoginPanel({
         </div>
 
         <p className="mt-5 text-center text-[13px] text-[#7d7d7d]">
-          注册支持邮箱或 ID；已有密码账号可直接登录。
+          用户名或邮箱注册/登陆
         </p>
-        <button
-          type="button"
-          onClick={onBackToPrompt}
-          className="mt-4 h-10 rounded-[10px] border border-[#454545] bg-transparent text-sm font-medium text-[#b8b8b8] transition-colors hover:border-white/45 hover:text-white"
-        >
-          返回提示词输入
-        </button>
       </form>
     </GlassPanel>
   );

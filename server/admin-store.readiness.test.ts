@@ -180,6 +180,32 @@ describe("production readiness", () => {
     });
   });
 
+  it("recognizes Resend configuration for email verification and password reset", async () => {
+    process.env.RESEND_API_KEY = "re_test_key";
+    process.env.RESEND_FROM = "ArtX <noreply@artxsd.com>";
+    const { handleAdminApiRequest } = await loadAdminStore();
+    const authorization = await getAdminAuthorization();
+
+    const readinessResult = await handleAdminApiRequest("GET", "/production-readiness", authorization);
+    expect(readinessResult.status).toBe(200);
+    const readinessBody = readinessResult.body as {
+      productionReadiness: Array<{
+        id: string;
+        status: string;
+        requiredKeys: string[];
+        configuredKeys: string[];
+        missingKeys: string[];
+      }>;
+    };
+    const mailReadiness = readinessBody.productionReadiness.find((item) => item.id === "mail_sms");
+    expect(mailReadiness).toMatchObject({
+      status: "ready",
+      requiredKeys: ["RESEND_API_KEY", "RESEND_FROM"],
+      configuredKeys: ["RESEND_API_KEY", "RESEND_FROM"],
+      missingKeys: [],
+    });
+  });
+
   it("marks local backup and credit ledger capabilities as ready", async () => {
     const { handleAdminApiRequest } = await loadAdminStore();
     const authorization = await getAdminAuthorization();
@@ -212,6 +238,562 @@ describe("production readiness", () => {
     expect(overviewBody.capabilityStatus.find((item) => item.id === "cap_credits")).toMatchObject({
       status: "ready",
     });
+  });
+
+  it("returns data-driven launch readiness checks for reconciliation, credit liability, secrets, and privileged access", async () => {
+    process.env.WALLYT_MCH_ID = "190000000167";
+    process.env.WALLYT_SIGNATURE_KEY = "test-signature-key";
+    process.env.WALLYT_NOTIFY_URL = "https://admin.artxsd.com/api/billing/wallyt/callback";
+    process.env.OPENAI_API_KEY = "test-openai-key";
+    process.env.AI_IMAGE_API_KEY = "test-image-key";
+    process.env.PICWISH_API_KEY = "test-picwish-key";
+    await writeFile(path.join(dataDir, "admin-data.json"), `${JSON.stringify({
+      users: [
+        {
+          id: "user-liability-1",
+          name: "liability-user",
+          email: "liability@example.com",
+          account: "liability@example.com",
+          registeredAt: "2026-07-05 10:00",
+          loginMethod: "email",
+          role: "viewer",
+          status: "normal",
+          plan: "Pro",
+          organization: "个人",
+          credits: 1200,
+          frozenCredits: 100,
+          expiredCredits: 30,
+          totalRecharge: 500,
+          totalConsumed: 80,
+          lastSeen: "刚刚",
+          risk: "低",
+        },
+      ],
+      orders: [
+        {
+          id: "rch_ready_paid",
+          userId: "user-liability-1",
+          user: "liability-user",
+          packageName: "积分充值",
+          channel: "微信支付",
+          amount: 100,
+          expectedCredits: 1000,
+          issuedCredits: 1000,
+          status: "paid",
+          createdAt: "2026-07-05T02:00:00.000Z",
+          event: "支付成功并入账",
+          reconciliation: "matched",
+          providerTransactionId: "txn_ready_paid",
+        },
+        {
+          id: "rch_ready_pending",
+          userId: "user-liability-1",
+          user: "liability-user",
+          packageName: "积分充值",
+          channel: "支付宝",
+          amount: 50,
+          expectedCredits: 500,
+          issuedCredits: 0,
+          status: "pending",
+          createdAt: "2026-07-05T02:05:00.000Z",
+          event: "等待支付",
+          reconciliation: "pending",
+        },
+        {
+          id: "rch_ready_mismatch",
+          userId: "user-liability-1",
+          user: "liability-user",
+          packageName: "积分充值",
+          channel: "微信支付",
+          amount: 30,
+          expectedCredits: 300,
+          issuedCredits: 0,
+          status: "failed",
+          createdAt: "2026-07-05T02:10:00.000Z",
+          event: "支付金额与本地订单不一致",
+          reconciliation: "mismatch",
+        },
+      ],
+      credits: [
+        {
+          id: "cr_ready_paid",
+          userId: "user-liability-1",
+          user: "liability-user",
+          type: "购买入账",
+          delta: 1000,
+          reason: "订单支付成功",
+          source: "rch_ready_paid",
+          operator: "wallyt",
+          createdAt: "2026-07-05T02:01:00.000Z",
+        },
+      ],
+      aiTasks: [],
+      providers: [],
+      feedback: [],
+      alerts: [],
+      riskEvents: [
+        {
+          id: "risk_ready_high",
+          title: "高危权限复核",
+          detail: "测试高危权限事件",
+          status: "open",
+          severity: "high",
+          target: "admin@example.com",
+          createdAt: "2026-07-05T02:15:00.000Z",
+        },
+      ],
+      auditLogs: [],
+      plans: [],
+      capabilityStatus: [],
+    }, null, 2)}\n`);
+
+    const { handleAdminApiRequest } = await loadAdminStore();
+    const authorization = await getAdminAuthorization();
+
+    const checksResult = await handleAdminApiRequest("GET", "/production-checks", authorization);
+    expect(checksResult.status).toBe(200);
+    const checksBody = checksResult.body as {
+      productionChecks: Array<{
+        id: string;
+        status: string;
+        metrics: Record<string, number>;
+        metricLabels: Record<string, string>;
+        actionTarget: string;
+        evidence: string[];
+      }>;
+    };
+
+    expect(checksBody.productionChecks.find((item) => item.id === "payment_reconciliation")).toMatchObject({
+      status: "blocked",
+      actionTarget: "orders",
+      metrics: {
+        totalOrders: 3,
+        pendingReconciliation: 1,
+        mismatchedOrders: 1,
+        paidWithoutCredits: 0,
+      },
+      metricLabels: {
+        totalOrders: "订单总数",
+        pendingReconciliation: "待对账订单",
+        mismatchedOrders: "异常订单",
+        paidWithoutCredits: "已支付未足额入账",
+      },
+    });
+    expect(checksBody.productionChecks.find((item) => item.id === "credit_liability")).toMatchObject({
+      status: "ready",
+      actionTarget: "credits",
+      metrics: {
+        activeUserCredits: 1200,
+        frozenCredits: 100,
+        expiredCredits: 30,
+        paidUnconsumedCredits: 920,
+      },
+      metricLabels: {
+        activeUserCredits: "用户可用积分",
+        frozenCredits: "冻结积分",
+        expiredCredits: "过期积分",
+        paidUnconsumedCredits: "已发放未消耗积分",
+      },
+    });
+    expect(checksBody.productionChecks.find((item) => item.id === "secret_governance")).toMatchObject({
+      status: "partial",
+      actionTarget: "integrations",
+    });
+    expect(checksBody.productionChecks.find((item) => item.id === "privileged_access")).toMatchObject({
+      status: "blocked",
+      actionTarget: "audit",
+      metrics: {
+        superAdminCount: 1,
+        highRiskOpenEvents: 1,
+      },
+    });
+
+    const overviewResult = await handleAdminApiRequest("GET", "/overview", authorization);
+    expect(overviewResult.status).toBe(200);
+    const overviewBody = overviewResult.body as {
+      overview: {
+        productionChecks: Array<{ id: string }>;
+      };
+    };
+    expect(overviewBody.overview.productionChecks.map((item) => item.id)).toEqual([
+      "payment_reconciliation",
+      "credit_liability",
+      "secret_governance",
+      "privileged_access",
+    ]);
+  });
+
+  it("lets a super admin assign and revoke support, finance, and admin roles without deleting the user", async () => {
+    const { handleAdminApiRequest } = await loadAdminStore();
+    const { handleAuthAction } = await import("./auth-store");
+    const authorization = await getAdminAuthorization();
+
+    const registered = await handleAuthAction("register", {
+      username: "role-target@example.com",
+      password: "role-target-password",
+    });
+    expect(registered.status).toBe(200);
+    const targetUser = (registered.body as { user: { id: string; role: string; isAdmin: boolean } }).user;
+    expect(targetUser).toMatchObject({ role: "viewer", isAdmin: false });
+
+    for (const role of ["support", "finance", "admin"] as const) {
+      const assigned = await handleAdminApiRequest("POST", `/users/${targetUser.id}/role`, authorization, { role });
+      expect(assigned.status).toBe(200);
+      const assignedBody = assigned.body as { users: Array<{ id: string; role: string }> };
+      expect(assignedBody.users.find((item) => item.id === targetUser.id)).toMatchObject({ role });
+
+      const revoked = await handleAdminApiRequest("POST", `/users/${targetUser.id}/role`, authorization, { role: "viewer" });
+      expect(revoked.status).toBe(200);
+      const revokedBody = revoked.body as { users: Array<{ id: string; role: string; email: string }> };
+      expect(revokedBody.users.find((item) => item.id === targetUser.id)).toMatchObject({
+        role: "viewer",
+        email: "role-target@example.com",
+      });
+    }
+  });
+
+  it("prevents non-super admins from granting or revoking administrator roles", async () => {
+    const { handleAdminApiRequest } = await loadAdminStore();
+    const { handleAuthAction } = await import("./auth-store");
+    const superAdminAuthorization = await getAdminAuthorization();
+
+    const financeRegistration = await handleAuthAction("register", {
+      username: "finance-operator@example.com",
+      password: "finance-operator-password",
+    });
+    const targetRegistration = await handleAuthAction("register", {
+      username: "admin-target@example.com",
+      password: "admin-target-password",
+    });
+    expect(financeRegistration.status).toBe(200);
+    expect(targetRegistration.status).toBe(200);
+    const financeUser = (financeRegistration.body as { user: { id: string } }).user;
+    const targetUser = (targetRegistration.body as { user: { id: string } }).user;
+
+    const promoteFinance = await handleAdminApiRequest("POST", `/users/${financeUser.id}/role`, superAdminAuthorization, { role: "finance" });
+    expect(promoteFinance.status).toBe(200);
+    const promoteTarget = await handleAdminApiRequest("POST", `/users/${targetUser.id}/role`, superAdminAuthorization, { role: "admin" });
+    expect(promoteTarget.status).toBe(200);
+
+    const financeLogin = await handleAuthAction("login", {
+      username: "finance-operator@example.com",
+      password: "finance-operator-password",
+    });
+    expect(financeLogin.status).toBe(200);
+    const financeAuthorization = `Bearer ${(financeLogin.body as { token: string }).token}`;
+
+    const grantAdmin = await handleAdminApiRequest("POST", `/users/${financeUser.id}/role`, financeAuthorization, { role: "admin" });
+    expect(grantAdmin.status).toBe(403);
+    expect(grantAdmin.body).toMatchObject({ error: "只有 super_admin 可以分配或撤销管理员权限" });
+
+    const revokeAdmin = await handleAdminApiRequest("POST", `/users/${targetUser.id}/role`, financeAuthorization, { role: "viewer" });
+    expect(revokeAdmin.status).toBe(403);
+    expect(revokeAdmin.body).toMatchObject({ error: "只有 super_admin 可以分配或撤销管理员权限" });
+  });
+
+  it("shows admin user plan names with the three billing page plan labels", async () => {
+    await writeFile(path.join(dataDir, "admin-data.json"), `${JSON.stringify({
+      users: [
+        {
+          id: "plan-user-pro",
+          name: "pro-user",
+          email: "pro-user@example.com",
+          account: "pro-user@example.com",
+          registeredAt: "2026-07-05 10:00",
+          loginMethod: "email",
+          role: "viewer",
+          status: "normal",
+          plan: "Pro 20K",
+          organization: "个人",
+          credits: 100,
+          frozenCredits: 0,
+          expiredCredits: 0,
+          totalRecharge: 0,
+          totalConsumed: 0,
+          lastSeen: "刚刚",
+          risk: "低",
+        },
+        {
+          id: "plan-user-starter",
+          name: "starter-user",
+          email: "starter-user@example.com",
+          account: "starter-user@example.com",
+          registeredAt: "2026-07-05 10:00",
+          loginMethod: "email",
+          role: "viewer",
+          status: "normal",
+          plan: "Starter",
+          organization: "个人",
+          credits: 0,
+          frozenCredits: 0,
+          expiredCredits: 0,
+          totalRecharge: 0,
+          totalConsumed: 0,
+          lastSeen: "刚刚",
+          risk: "低",
+        },
+        {
+          id: "plan-user-creator",
+          name: "creator-user",
+          email: "creator-user@example.com",
+          account: "creator-user@example.com",
+          registeredAt: "2026-07-05 10:00",
+          loginMethod: "email",
+          role: "viewer",
+          status: "normal",
+          plan: "Creator 创作者版",
+          organization: "个人",
+          credits: 0,
+          frozenCredits: 0,
+          expiredCredits: 0,
+          totalRecharge: 0,
+          totalConsumed: 0,
+          lastSeen: "刚刚",
+          risk: "低",
+        },
+        {
+          id: "plan-user-business",
+          name: "business-user",
+          email: "business-user@example.com",
+          account: "business-user@example.com",
+          registeredAt: "2026-07-05 10:00",
+          loginMethod: "email",
+          role: "viewer",
+          status: "normal",
+          plan: "Business 团队版",
+          organization: "个人",
+          credits: 0,
+          frozenCredits: 0,
+          expiredCredits: 0,
+          totalRecharge: 0,
+          totalConsumed: 0,
+          lastSeen: "刚刚",
+          risk: "低",
+        },
+      ],
+      orders: [],
+      credits: [],
+      aiTasks: [],
+      providers: [],
+      feedback: [],
+      alerts: [],
+      riskEvents: [],
+      auditLogs: [],
+      plans: [],
+      capabilityStatus: [],
+    }, null, 2)}\n`);
+
+    const { getBillingSnapshotForUser, handleAdminApiRequest } = await loadAdminStore();
+    const authorization = await getAdminAuthorization();
+
+    const overviewResult = await handleAdminApiRequest("GET", "/overview", authorization);
+    expect(overviewResult.status).toBe(200);
+    const overviewBody = overviewResult.body as {
+      users: Array<{ id: string; plan: string }>;
+    };
+    expect(overviewBody.users.find((item) => item.id === "plan-user-pro")).toMatchObject({
+      plan: "Pro 专业版",
+    });
+    expect(overviewBody.users.find((item) => item.id === "plan-user-starter")).toMatchObject({
+      plan: "Lite 入门版",
+    });
+    expect(overviewBody.users.find((item) => item.id === "plan-user-creator")).toMatchObject({
+      plan: "Lite 入门版",
+    });
+    expect(overviewBody.users.find((item) => item.id === "plan-user-business")).toMatchObject({
+      plan: "Studio 工作室版",
+    });
+
+    await expect(getBillingSnapshotForUser("plan-user-pro")).resolves.toMatchObject({
+      plan: "Pro 专业版",
+    });
+  });
+
+  it("returns account-level payment, credit, note, and reconciliation history for the selected user", async () => {
+    await writeFile(path.join(dataDir, "admin-data.json"), `${JSON.stringify({
+      users: [
+        {
+          id: "account-detail-user",
+          name: "account-user",
+          email: "account-user@example.com",
+          account: "account-user@example.com",
+          registeredAt: "2026-07-05 10:00",
+          loginMethod: "email",
+          role: "viewer",
+          status: "normal",
+          plan: "Pro",
+          organization: "个人",
+          credits: 1500,
+          frozenCredits: 0,
+          expiredCredits: 0,
+          totalRecharge: 300,
+          totalConsumed: 0,
+          lastSeen: "刚刚",
+          risk: "低",
+        },
+      ],
+      orders: [
+        {
+          id: "account_order_1",
+          userId: "account-detail-user",
+          user: "account-user",
+          packageName: "积分充值",
+          channel: "微信支付",
+          amount: 100,
+          expectedCredits: 1000,
+          issuedCredits: 1000,
+          status: "paid",
+          createdAt: "2026-07-05T02:00:00.000Z",
+          paidAt: "2026-07-05T02:01:00.000Z",
+          event: "支付成功并入账",
+          reconciliation: "matched",
+          providerTransactionId: "txn_account_1",
+          paymentEvents: [
+            {
+              id: "payevt_account_1",
+              type: "payment_success",
+              status: "success",
+              providerTransactionId: "txn_account_1",
+              amount: 100,
+              signatureValid: true,
+              message: "渠道确认支付成功",
+              createdAt: "2026-07-05T02:01:00.000Z",
+            },
+          ],
+          notes: [
+            {
+              id: "note_account_1",
+              actorId: "admin",
+              actorName: "admin@example.com",
+              content: "第一笔订单备注",
+              createdAt: "2026-07-05T02:02:00.000Z",
+            },
+          ],
+        },
+        {
+          id: "account_order_2",
+          userId: "account-detail-user",
+          user: "account-user",
+          packageName: "Lite",
+          channel: "支付宝",
+          amount: 200,
+          expectedCredits: 2000,
+          issuedCredits: 0,
+          status: "pending",
+          createdAt: "2026-07-05T03:00:00.000Z",
+          event: "等待支付",
+          reconciliation: "pending",
+          paymentEvents: [
+            {
+              id: "payevt_account_2",
+              type: "payment_created",
+              status: "pending",
+              providerTransactionId: "txn_account_2",
+              amount: 200,
+              signatureValid: true,
+              message: "支付码已创建",
+              createdAt: "2026-07-05T03:01:00.000Z",
+            },
+          ],
+          notes: [
+            {
+              id: "note_account_2",
+              actorId: "finance",
+              actorName: "finance@example.com",
+              content: "第二笔订单备注",
+              createdAt: "2026-07-05T03:02:00.000Z",
+            },
+          ],
+        },
+      ],
+      credits: [
+        {
+          id: "cr_account_1",
+          userId: "account-detail-user",
+          user: "account-user",
+          type: "购买入账",
+          delta: 1000,
+          reason: "订单支付成功",
+          source: "account_order_1",
+          operator: "wallyt",
+          createdAt: "2026-07-05T02:01:30.000Z",
+        },
+      ],
+      aiTasks: [],
+      providers: [],
+      feedback: [
+        {
+          id: "fb_account_1",
+          userId: "account-detail-user",
+          user: "account-user",
+          title: "订单支付疑问",
+          content: "为什么还没到账",
+          module: "支付",
+          status: "new",
+          priority: "P1",
+          linkedOrderId: "account_order_2",
+          createdAt: "2026-07-05T03:03:00.000Z",
+          updatedAt: "2026-07-05T03:03:00.000Z",
+        },
+      ],
+      alerts: [],
+      riskEvents: [],
+      auditLogs: [
+        {
+          id: "aud_account_1",
+          actorId: "admin",
+          actorName: "admin@example.com",
+          action: "新增订单处理备注",
+          target: "account_order_1",
+          reason: "第一笔订单备注",
+          createdAt: "2026-07-05T02:02:30.000Z",
+        },
+      ],
+      plans: [],
+      capabilityStatus: [],
+    }, null, 2)}\n`);
+
+    const { handleAdminApiRequest } = await loadAdminStore();
+    const authorization = await getAdminAuthorization();
+
+    const ordersResult = await handleAdminApiRequest("GET", "/orders", authorization);
+    expect(ordersResult.status).toBe(200);
+    const ordersBody = ordersResult.body as {
+      orders: Array<{ id: string; createdAt: string; paidAt?: string }>;
+    };
+    expect(ordersBody.orders).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "account_order_1",
+        createdAt: "2026/07/05 10:00:00",
+        paidAt: "2026/07/05 10:01:00",
+      }),
+    ]));
+    expect(ordersBody.orders.map((order) => `${order.createdAt} ${order.paidAt || ""}`).join(" ")).not.toContain("刚刚");
+
+    const result = await handleAdminApiRequest("GET", "/users/account-detail-user/detail", authorization);
+    expect(result.status).toBe(200);
+    const body = result.body as {
+      user: { id: string; plan: string; spent: number };
+      orders: Array<{ id: string; createdAt: string; paidAt?: string }>;
+      paymentEvents: Array<{ id: string; orderId: string }>;
+      creditEntries: Array<{ id: string; source: string }>;
+      notes: Array<{ id: string; orderId: string }>;
+      feedbackEntries: Array<{ id: string; linkedOrderId: string }>;
+      timeline: Array<{ id: string; orderId?: string }>;
+    };
+
+    expect(body.user).toMatchObject({ id: "account-detail-user", plan: "Pro 专业版", spent: 100 });
+    expect(body.orders.map((order) => order.id).sort()).toEqual(["account_order_1", "account_order_2"]);
+    expect(body.orders.find((order) => order.id === "account_order_1")).toMatchObject({
+      createdAt: "2026/07/05 10:00:00",
+      paidAt: "2026/07/05 10:01:00",
+    });
+    expect(body.paymentEvents.map((event) => event.orderId).sort()).toEqual(["account_order_1", "account_order_2"]);
+    expect(body.creditEntries).toEqual([expect.objectContaining({ id: "cr_account_1", source: "account_order_1" })]);
+    expect(body.notes.map((note) => note.orderId).sort()).toEqual(["account_order_1", "account_order_2"]);
+    expect(body.feedbackEntries).toEqual([expect.objectContaining({ id: "fb_account_1", linkedOrderId: "account_order_2" })]);
+    expect(body.timeline.some((item) => item.orderId === "account_order_1")).toBe(true);
+    expect(body.timeline.some((item) => item.orderId === "account_order_2")).toBe(true);
   });
 
   it("links registered user identity to payment display name and auto-issues credits when payment is confirmed", async () => {
@@ -274,7 +856,7 @@ describe("production readiness", () => {
       paymentEvents: Array<{ type: string; message: string }>;
     };
     expect(detailBody.order).toMatchObject({
-      user: "buyer-name",
+      user: username,
       userAccount: username,
       paymentDisplayName: "ArtX 积分充值 · buyer-name@example.com",
       issuedCredits: createdBody.order.credits,

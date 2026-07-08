@@ -1,3 +1,5 @@
+import { normalizeApiBaseUrl } from "./api-base-url";
+
 export type ArtxBuildInfo = {
   app: string;
   environment: string;
@@ -22,7 +24,7 @@ export const buildInfo: ArtxBuildInfo = {
   repository: import.meta.env.VITE_DEPLOY_REPOSITORY || "",
   githubRunId: import.meta.env.VITE_GITHUB_RUN_ID || "",
   frontendUrl: import.meta.env.VITE_TEST_FRONTEND_URL || "https://backstage.artxsd.com",
-  backendUrl: import.meta.env.VITE_TEST_BACKEND_URL || import.meta.env.VITE_API_BASE_URL || "https://backstage.artxsd.com",
+  backendUrl: normalizeApiBaseUrl(import.meta.env.VITE_TEST_BACKEND_URL || import.meta.env.VITE_API_BASE_URL || "https://backstage.artxsd.com"),
   pagesBasePath: import.meta.env.BASE_URL,
 };
 

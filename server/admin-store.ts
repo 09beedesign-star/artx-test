@@ -4,13 +4,14 @@ import path from "node:path";
 import { AI_CREDIT_POLICIES, AI_PLAN_DISCOUNTS, type AiBillingCapability, type AiBillingPolicy, type AiPlanDiscountPolicy } from "../shared/ai-credit-policy";
 import { BILLING_CYCLES, MEMBERSHIP_PLANS, getPlanQuote, quoteCreditRecharge } from "../shared/billing-config";
 import { getAdminSessionFromAuthorization, listAuthUsers, type PublicAuthUser, updateAuthUserAdmin } from "./auth-store";
+import { storeFeedbackImagesForUser, type FeedbackImageInput, type StoredFeedbackImage } from "./local-image-storage";
 import { PostgresJsonDocumentStore } from "./postgres-json-store";
 
 type AdminStatus = "normal" | "watch" | "blocked";
 type OrderStatus = "paid" | "pending" | "failed" | "refunded";
 type FeedbackStatus = "new" | "processing" | "waiting_user" | "resolved" | "closed";
 type AlertSeverity = "critical" | "warning" | "info";
-type AlertCategory = "支付" | "报错" | "接口" | "额度" | "风控";
+type AlertCategory = "支付" | "报错" | "接口" | "积分" | "风控";
 type AiTaskStatus = "queued" | "processing" | "success" | "failed" | "timeout" | "recoverable";
 type RiskStatus = "open" | "reviewing" | "mitigated";
 
@@ -180,6 +181,7 @@ type FeedbackTicket = {
   module: string;
   status: FeedbackStatus;
   priority: "P0" | "P1" | "P2";
+  attachments?: StoredFeedbackImage[];
   linkedOrderId?: string;
   linkedTaskId?: string;
   createdAt: string;
@@ -275,6 +277,19 @@ type ProductionReadinessItem = {
   action: string;
 };
 
+type ProductionCheckStatus = "ready" | "watch" | "partial" | "blocked";
+
+type ProductionCheckItem = {
+  id: "payment_reconciliation" | "credit_liability" | "secret_governance" | "privileged_access";
+  title: string;
+  status: ProductionCheckStatus;
+  summary: string;
+  metrics: Record<string, number>;
+  metricLabels: Record<string, string>;
+  evidence: string[];
+  actionTarget: "orders" | "credits" | "integrations" | "audit";
+};
+
 type AiCostSummary = {
   totalEstimatedCost: number;
   totalChargedCredits: number;
@@ -365,8 +380,38 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+const adminTimeZone = "Asia/Shanghai";
+
+function parseAdminTimestamp(input: string) {
+  const absoluteMatch = input.match(/^(\d{4})\/(\d{2})\/(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (absoluteMatch) {
+    const [, year, month, day, hour, minute, second = "00"] = absoluteMatch;
+    return Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour) - 8, Number(minute), Number(second));
+  }
+  return Date.parse(input);
+}
+
+function formatAbsoluteSecondTime(input?: string) {
+  if (!input) return input;
+  const timestamp = parseAdminTimestamp(input);
+  if (!Number.isFinite(timestamp)) return input;
+
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+    timeZone: adminTimeZone,
+  }).formatToParts(new Date(timestamp));
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value || "00";
+  return `${value("year")}/${value("month")}/${value("day")} ${value("hour")}:${value("minute")}:${value("second")}`;
+}
+
 function formatRelativeTime(input: string) {
-  const timestamp = Date.parse(input);
+  const timestamp = parseAdminTimestamp(input);
   if (!Number.isFinite(timestamp)) return input;
 
   const diff = Date.now() - timestamp;
@@ -390,7 +435,7 @@ function formatDateTime(input: string) {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-    timeZone: "Asia/Shanghai",
+    timeZone: adminTimeZone,
   });
   return formatter.format(date).replace(/\//g, "-");
 }
@@ -401,13 +446,16 @@ function envStatus(keys: string[], mode: "any" | "all" = "any") {
 }
 
 function mapRoleToPlan(role?: string) {
-  if (role === "super_admin" || role === "admin") return "Business";
-  if (role === "finance" || role === "support") return "Creator";
-  return "Starter";
+  if (role === "super_admin" || role === "admin") return "Studio 工作室版";
+  if (role === "finance" || role === "support") return "Pro 专业版";
+  return "Lite 入门版";
 }
 
 function getPlanIdFromUserPlan(planName?: string) {
-  const normalized = String(planName || "").toLowerCase();
+  const normalized = String(planName || "").trim().toLowerCase();
+  if (!normalized || normalized === "free" || normalized === "starter" || normalized === "demo") {
+    return "lite";
+  }
   const matched = MEMBERSHIP_PLANS.find((plan) => (
     normalized.includes(plan.id.toLowerCase())
     || normalized.includes(plan.shortName.toLowerCase())
@@ -426,6 +474,44 @@ function getMembershipPlanFromName(planName?: string) {
     || normalized.includes(plan.shortName.toLowerCase())
     || normalized.includes(plan.name.toLowerCase())
   ));
+}
+
+function normalizePlanDisplayName(planName?: string | null) {
+  const raw = String(planName || "").trim();
+  if (!raw) return "Lite 入门版";
+  const normalized = raw.toLowerCase();
+  if (
+    normalized === "free"
+    || normalized === "starter"
+    || normalized === "demo"
+    || normalized.includes("creator")
+    || normalized.includes("创作者")
+    || normalized.includes("积分充值")
+    || normalized.includes("recharge")
+  ) {
+    return "Lite 入门版";
+  }
+
+  if (
+    normalized.includes("studio")
+    || normalized.includes("business")
+    || normalized.includes("enterprise")
+    || normalized.includes("工作室")
+    || normalized.includes("团队")
+    || normalized.includes("企业")
+  ) {
+    return "Studio 工作室版";
+  }
+
+  if (normalized.includes("pro") || normalized.includes("专业")) {
+    return "Pro 专业版";
+  }
+
+  if (normalized.includes("lite") || normalized.includes("入门")) {
+    return "Lite 入门版";
+  }
+
+  return "Lite 入门版";
 }
 
 function quoteAiUsageFromData(data: AdminData, input: {
@@ -501,6 +587,11 @@ function getPaymentDisplayName(order: PaymentOrder) {
   return order.paymentDisplayName || `${order.packageName} · ${order.userAccount || order.user}`;
 }
 
+function getRegisteredNameForOrder(order: PaymentOrder, users: AdminUserAccount[]) {
+  const linkedUser = users.find((user) => user.id === order.userId);
+  return linkedUser?.account || linkedUser?.email || order.userAccount || order.user;
+}
+
 async function buildUserAccounts(seedUsers: AdminUserAccount[] = []) {
   const authUsers = await listAuthUsers();
   const merged = new Map<string, AdminUserAccount>();
@@ -569,13 +660,13 @@ function buildCapabilityStatus(): CapabilityStatusItem[] {
   return [
     { id: "cap_admin_auth", domain: "管理员认证与权限", status: "ready", summary: "已具备管理员登录、session 校验、admin:access 权限拦截", source: "server/auth-store.ts + /api/auth/* + /api/admin/session" },
     { id: "cap_users", domain: "用户与账户", status: "ready", summary: "已接入现有 auth 用户库，并与后台账户视图合并展示", source: ".artx-data/auth-users.json + /api/admin/users" },
-    { id: "cap_plans", domain: "套餐与价格配置", status: "ready", summary: "已复用测试环境真实套餐/周期/积分配置作为后台展示来源", source: "shared/billing-config.ts + /api/admin/plans" },
+    { id: "cap_plans", domain: "套餐与金额配置", status: "ready", summary: "已复用测试环境真实套餐/周期/积分配置作为后台展示来源", source: "shared/billing-config.ts + /api/admin/plans" },
     { id: "cap_ai", domain: "AI 任务与供应商", status: "ready", summary: "已具备 generationId / backendTaskId / providerTaskId 追踪和供应商配置状态展示", source: "server/ai-orchestrator.ts + server/image-generation.ts + /api/admin/ai-tasks" },
     { id: "cap_alerts", domain: "告警与消息提醒", status: "ready", summary: "后台可读写敏捷处理消息，并支持已读与审计", source: "/api/admin/alerts*" },
     { id: "cap_feedback", domain: "反馈与工单", status: "ready", summary: "已支持反馈列表与状态流转，且能写审计日志", source: "/api/admin/feedback*" },
     { id: "cap_audit", domain: "审计日志", status: "ready", summary: "后台写操作已统一写入 audit log", source: "/api/admin/audit-logs" },
     { id: "cap_orders", domain: "支付订单", status: "ready", summary: "已通过威富通接入微信/支付宝下单、回调验签、主动查询、异常告警和后台订单对账", source: "server/wallyt-payment.ts + /api/billing/* + /api/admin/orders" },
-    { id: "cap_credits", domain: "积分与额度", status: "ready", summary: "支付入账、退款扣回、人工调整、AI 成功消耗和失败不扣款已统一进入积分余额与流水账本", source: "/api/billing/* + /api/admin/credits + recordAiUsage" },
+    { id: "cap_credits", domain: "积分", status: "ready", summary: "支付入账、退款扣回、人工调整、AI 成功消耗和失败不扣款已统一进入积分余额与流水账本", source: "/api/billing/* + /api/admin/credits + recordAiUsage" },
     { id: "cap_risk", domain: "风控事件", status: "ready", summary: "已接入支付异常、AI 失败、登录/短信异常、大额积分调整等真实风控规则输入", source: "/api/admin/risk-events + server/admin-store.ts" },
   ];
 }
@@ -611,6 +702,25 @@ function readinessItem(input: {
   };
 }
 
+function mailReadinessItem() {
+  const resendKeys = ["RESEND_API_KEY", "RESEND_FROM"];
+  const smtpKeys = ["SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"];
+  const resendConfigured = configuredKeys(resendKeys);
+  const smtpConfigured = configuredKeys(smtpKeys);
+  const requiredKeys = resendConfigured.length > 0 || smtpConfigured.length === 0 ? resendKeys : smtpKeys;
+  const configured = configuredKeys(requiredKeys);
+  return {
+    id: "mail_sms",
+    domain: "邮件/短信通知",
+    status: configured.length === requiredKeys.length ? "ready" : configured.length > 0 ? "partial" : "missing",
+    summary: "用于邮箱注册/登录验证、找回密码、支付异常、工单通知和管理员告警。",
+    requiredKeys,
+    configuredKeys: configured,
+    missingKeys: requiredKeys.filter((key) => !configured.includes(key)),
+    action: "已支持 Resend API 或 SMTP；生产环境优先使用 RESEND_API_KEY + RESEND_FROM。",
+  } satisfies ProductionReadinessItem;
+}
+
 function buildProductionReadiness(): ProductionReadinessItem[] {
   return [
     readinessItem({ id: "payment_wallyt", domain: "威富通支付", requiredKeys: ["WALLYT_DOMAIN_URL", "WALLYT_MCH_ID", "WALLYT_SIGNATURE_KEY", "WALLYT_NOTIFY_URL"], summary: "用于创建支付单、接收支付回调、主动查询订单状态，并把订单/积分/审计串起来。", action: "保持凭据只在服务器环境变量中；上线前用真实小额支付验证 paid + 积分入账。" }),
@@ -620,10 +730,170 @@ function buildProductionReadiness(): ProductionReadinessItem[] {
     readinessItem({ id: "ai_openai", domain: "OpenAI 能力", requiredKeys: ["OPENAI_API_KEY"], summary: "用于文本/图像模型能力和后台供应商健康判断。", action: "配置服务端 API Key，并跑一笔真实 AI 任务确认扣积分和成本记录。" }),
     readinessItem({ id: "ai_bkeel", domain: "BKEEL 图片生成", requiredKeys: ["AI_IMAGE_API_KEY", "AI_IMAGE_BASE_URL", "AI_IMAGE_MODEL"], summary: "用于第三方图片生成任务、providerTaskId 追踪和失败告警。", action: "配置 AI_IMAGE_* 接口凭据，验证异步 task_id 轮询、失败告警和成本入账。" }),
     readinessItem({ id: "ai_picwish", domain: "PicWish/佐糖图像处理", requiredKeys: ["PICWISH_API_KEY"], summary: "用于抠图、高清、去水印、橡皮擦等图像处理能力。", action: "配置接口凭据，验证 providerTaskId 进入后台 AI 任务明细。" }),
-    readinessItem({ id: "mail_sms", domain: "邮件/短信通知", requiredKeys: ["SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"], summary: "用于注册验证、登录安全、支付异常、工单通知和管理员告警。", action: "至少先接邮件；短信可在真实用户增长后补。" }),
+    mailReadinessItem(),
     readinessItem({ id: "sms_tencent", domain: "腾讯云短信验证码", requiredKeys: ["TENCENTCLOUD_SECRET_ID", "TENCENTCLOUD_SECRET_KEY", "TENCENT_SMS_SDK_APP_ID", "TENCENT_SMS_SIGN_NAME", "TENCENT_SMS_TEMPLATE_ID"], summary: "用于手机号验证码登录/注册，验证码只保存哈希并有过期、重发和次数限制。", action: "配置腾讯云短信应用、签名和模板；模板参数第 1 个必须是 6 位验证码。" }),
     readinessItem({ id: "ops_alerting", domain: "运行告警", requiredKeys: ["ALERT_WEBHOOK_URL"], summary: "用于把支付失败、AI 失败率升高、服务器异常等推送到飞书/钉钉/企业微信。", action: "配置告警 webhook，并把 P0/P1 告警接入右上角消息提醒。" }),
     readinessItem({ id: "backup", domain: "备份与恢复", requiredKeys: ["BACKUP_LOCAL_DIR", "BACKUP_RETENTION_DAYS", "BACKUP_CRON_SECRET"], summary: "用于数据库、订单流水、用户资产的定期备份和灾难恢复。", action: "当前启用服务器本地每日备份；接入对象存储后再补 BACKUP_REMOTE_BUCKET 做异地容灾。" }),
+  ];
+}
+
+function productionCheckStatus(blockers: number, warnings = 0): ProductionCheckStatus {
+  if (blockers > 0) return "blocked";
+  if (warnings > 0) return "watch";
+  return "ready";
+}
+
+function buildProductionChecks(data: AdminData): ProductionCheckItem[] {
+  const totalOrders = data.orders.length;
+  const pendingReconciliation = data.orders.filter((order) => order.reconciliation === "pending").length;
+  const mismatchedOrders = data.orders.filter((order) => order.reconciliation === "mismatch" || order.status === "failed").length;
+  const paidWithoutCredits = data.orders.filter((order) => order.status === "paid" && order.issuedCredits < order.expectedCredits).length;
+  const wallytConfigured = envStatus(["WALLYT_MCH_ID", "WALLYT_SIGNATURE_KEY", "WALLYT_NOTIFY_URL"], "all") === "configured";
+
+  const activeUserCredits = data.users.reduce((sum, user) => sum + Math.max(0, user.credits), 0);
+  const frozenCredits = data.users.reduce((sum, user) => sum + Math.max(0, user.frozenCredits), 0);
+  const expiredCredits = data.users.reduce((sum, user) => sum + Math.max(0, user.expiredCredits), 0);
+  const paidIssuedCredits = data.orders
+    .filter((order) => order.status === "paid")
+    .reduce((sum, order) => sum + Math.max(0, order.issuedCredits), 0);
+  const totalConsumedCredits = data.users.reduce((sum, user) => sum + Math.max(0, user.totalConsumed), 0);
+  const paidUnconsumedCredits = Math.max(0, paidIssuedCredits - totalConsumedCredits);
+  const creditLedgerEntries = data.credits.length;
+
+  const criticalSecretGroups = [
+    { label: "支付", keys: ["WALLYT_MCH_ID", "WALLYT_SIGNATURE_KEY", "WALLYT_NOTIFY_URL"] },
+    { label: "后台会话", keys: ["ADMIN_SESSION_SECRET"] },
+    { label: "AI 文本/图像", keys: ["OPENAI_API_KEY", "AI_IMAGE_API_KEY", "AI_IMAGE_BASE_URL", "AI_IMAGE_MODEL"] },
+    { label: "PicWish 图像处理", keys: ["PICWISH_API_KEY"] },
+    { label: "备份", keys: ["BACKUP_LOCAL_DIR", "BACKUP_RETENTION_DAYS", "BACKUP_CRON_SECRET"] },
+    { label: "告警", keys: ["ALERT_WEBHOOK_URL"] },
+  ];
+  const configuredSecretGroups = criticalSecretGroups.filter((group) => configuredKeys(group.keys).length === group.keys.length).length;
+  const partialSecretGroups = criticalSecretGroups.filter((group) => {
+    const count = configuredKeys(group.keys).length;
+    return count > 0 && count < group.keys.length;
+  }).length;
+  const missingSecretGroups = criticalSecretGroups.length - configuredSecretGroups - partialSecretGroups;
+
+  const activeUsers = data.users.filter((user) => user.status !== "blocked");
+  const superAdminCount = activeUsers.filter((user) => user.role === "super_admin").length;
+  const adminCount = activeUsers.filter((user) => user.role === "admin" || user.role === "super_admin").length;
+  const financeCount = activeUsers.filter((user) => user.role === "finance").length;
+  const privilegedUserCount = activeUsers.filter((user) => ["support", "finance", "admin", "super_admin"].includes(user.role)).length;
+  const highRiskOpenEvents = data.riskEvents.filter((event) => event.severity === "high" && event.status !== "mitigated").length;
+  const recentPermissionAuditCount = data.auditLogs.filter((log) =>
+    /role|权限|管理员|admin\.user\.update/i.test(`${log.action} ${log.reason || ""}`)
+  ).length;
+
+  return [
+    {
+      id: "payment_reconciliation",
+      title: "支付对账",
+      status: productionCheckStatus(mismatchedOrders + paidWithoutCredits, pendingReconciliation + (wallytConfigured ? 0 : 1)),
+      summary: wallytConfigured
+        ? "已接入第三方支付状态、金额一致性、入账积分一致性检查。"
+        : "支付凭据未完整配置，无法满足正式对账要求。",
+      metrics: {
+        totalOrders,
+        pendingReconciliation,
+        mismatchedOrders,
+        paidWithoutCredits,
+      },
+      metricLabels: {
+        totalOrders: "订单总数",
+        pendingReconciliation: "待对账订单",
+        mismatchedOrders: "异常订单",
+        paidWithoutCredits: "已支付未足额入账",
+      },
+      evidence: [
+        `订单总数 ${totalOrders}`,
+        `待对账 ${pendingReconciliation}`,
+        `异常订单 ${mismatchedOrders}`,
+        `已支付未足额入账 ${paidWithoutCredits}`,
+        `威富通配置 ${wallytConfigured ? "完整" : "缺失"}`,
+      ],
+      actionTarget: "orders",
+    },
+    {
+      id: "credit_liability",
+      title: "积分负债",
+      status: productionCheckStatus(0, activeUserCredits + frozenCredits > 0 && creditLedgerEntries === 0 ? 1 : 0),
+      summary: "已按真实用户余额、冻结积分、过期积分和充值消耗差额计算平台未消耗积分。",
+      metrics: {
+        activeUserCredits,
+        frozenCredits,
+        expiredCredits,
+        paidUnconsumedCredits,
+        creditLedgerEntries,
+      },
+      metricLabels: {
+        activeUserCredits: "用户可用积分",
+        frozenCredits: "冻结积分",
+        expiredCredits: "过期积分",
+        paidUnconsumedCredits: "已发放未消耗积分",
+        creditLedgerEntries: "积分流水记录",
+      },
+      evidence: [
+        `用户可用积分 ${activeUserCredits.toLocaleString("zh-CN")}`,
+        `冻结积分 ${frozenCredits.toLocaleString("zh-CN")}`,
+        `过期积分 ${expiredCredits.toLocaleString("zh-CN")}`,
+        `充值未消耗积分 ${paidUnconsumedCredits.toLocaleString("zh-CN")}`,
+      ],
+      actionTarget: "credits",
+    },
+    {
+      id: "secret_governance",
+      title: "密钥治理",
+      status: missingSecretGroups > 0 ? "partial" as ProductionCheckStatus : partialSecretGroups > 0 ? "watch" : "ready",
+      summary: "后台只返回配置状态、配置位置和缺失项，不返回任何密钥明文。",
+      metrics: {
+        requiredGroups: criticalSecretGroups.length,
+        configuredGroups: configuredSecretGroups,
+        partialGroups: partialSecretGroups,
+        missingGroups: missingSecretGroups,
+      },
+      metricLabels: {
+        requiredGroups: "需检查配置组",
+        configuredGroups: "已完整配置",
+        partialGroups: "部分配置",
+        missingGroups: "缺失配置",
+      },
+      evidence: criticalSecretGroups.map((group) => {
+        const configured = configuredKeys(group.keys).length;
+        return `${group.label} ${configured}/${group.keys.length}`;
+      }),
+      actionTarget: "integrations",
+    },
+    {
+      id: "privileged_access",
+      title: "高危权限",
+      status: productionCheckStatus(superAdminCount === 0 || highRiskOpenEvents > 0 ? 1 : 0, superAdminCount > 2 ? 1 : 0),
+      summary: "已统计超级管理员、管理员、财务账号和开放高危事件，权限变更进入审计日志。",
+      metrics: {
+        superAdminCount,
+        adminCount,
+        financeCount,
+        privilegedUserCount,
+        highRiskOpenEvents,
+        recentPermissionAuditCount,
+      },
+      metricLabels: {
+        superAdminCount: "超级管理员",
+        adminCount: "管理员",
+        financeCount: "财务账号",
+        privilegedUserCount: "高权限账号",
+        highRiskOpenEvents: "未处理高危事件",
+        recentPermissionAuditCount: "权限审计记录",
+      },
+      evidence: [
+        `超级管理员 ${superAdminCount}`,
+        `管理员 ${adminCount}`,
+        `财务 ${financeCount}`,
+        `未缓解高危事件 ${highRiskOpenEvents}`,
+        `权限审计记录 ${recentPermissionAuditCount}`,
+      ],
+      actionTarget: "audit",
+    },
   ];
 }
 
@@ -707,7 +977,7 @@ function hasDemoData(data: Partial<AdminData>) {
 async function normalizeDataAsync(value: Partial<AdminData>): Promise<AdminData> {
   const seed = await seedAdminData();
   return removeDemoData({
-    users: Array.isArray(value.users) ? value.users : seed.users,
+    users: await buildUserAccounts(Array.isArray(value.users) ? value.users : seed.users),
     orders: Array.isArray(value.orders) ? value.orders : seed.orders,
     credits: Array.isArray(value.credits) ? value.credits : seed.credits,
     aiTasks: Array.isArray(value.aiTasks) ? value.aiTasks : seed.aiTasks,
@@ -743,6 +1013,68 @@ async function loadAdminData(): Promise<AdminData> {
 async function saveAdminData(data: AdminData) {
   ensureBillingConsistency(data);
   await adminDataRepository.save(data);
+}
+
+function buildFeedbackTitle(content: string, attachmentCount: number) {
+  const firstLine = content.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
+  if (firstLine) return firstLine.length > 40 ? `${firstLine.slice(0, 40)}...` : firstLine;
+  return attachmentCount > 0 ? `用户上传了 ${attachmentCount} 张问题截图` : "用户反馈";
+}
+
+export async function submitUserFeedback(input: {
+  user: { id: string; username: string };
+  content?: string;
+  module?: string;
+  attachments?: FeedbackImageInput[];
+}) {
+  const content = typeof input.content === "string" ? input.content.trim() : "";
+  const rawAttachments = (input.attachments || []).filter((item) => item && typeof item.src === "string" && item.src.trim());
+  if (!content && rawAttachments.length === 0) {
+    return jsonError(400, "请先填写反馈内容或上传问题截图");
+  }
+  if (rawAttachments.length > 4) {
+    return jsonError(400, "最多只能上传 4 张反馈图片");
+  }
+
+  const data = await loadAdminData();
+  const user =
+    data.users.find((item) => item.id === input.user.id) ||
+    data.users.find((item) => item.account === input.user.username || item.email === input.user.username);
+  const username = user?.account || user?.email || input.user.username;
+  const feedbackId = `fb_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`;
+  let attachments: StoredFeedbackImage[] = [];
+  if (rawAttachments.length > 0) {
+    attachments = await storeFeedbackImagesForUser(rawAttachments, username, feedbackId);
+  }
+
+  const createdAt = nowIso();
+  const feedback: FeedbackTicket = {
+    id: feedbackId,
+    userId: user?.id || input.user.id,
+    user: username,
+    title: buildFeedbackTitle(content, attachments.length),
+    content,
+    module: typeof input.module === "string" && input.module.trim() ? input.module.trim() : "帮助与反馈",
+    status: "new",
+    priority: "P1",
+    attachments,
+    createdAt,
+    updatedAt: createdAt,
+  };
+
+  data.feedback = [feedback, ...data.feedback].slice(0, 500);
+  appendAuditLog(data, {
+    id: input.user.id,
+    username,
+    role: "viewer",
+  }, {
+    action: "提交用户反馈",
+    target: feedback.id,
+    reason: attachments.length > 0 ? `${content || "图片反馈"} · ${attachments.length} 张图片` : content,
+    after: { status: feedback.status, attachmentCount: attachments.length },
+  });
+  await saveAdminData(data);
+  return { status: 200 as const, body: { feedback } };
 }
 
 function appendAuditLog(
@@ -803,7 +1135,7 @@ function dashboard(data: AdminData) {
     maturity: [
       { label: "账户管理", value: 88 },
       { label: "支付订单", value: 76 },
-      { label: "额度流水", value: 92 },
+      { label: "积分流水", value: 92 },
       { label: "AI 任务追踪", value: 74 },
       { label: "风控审计", value: 66 },
     ],
@@ -819,6 +1151,7 @@ function dashboard(data: AdminData) {
     aiCostBreakdownByProvider: summarizeAiCostBreakdown(data, "provider"),
     aiCostBreakdownByModel: summarizeAiCostBreakdown(data, "model"),
     productionReadiness: buildProductionReadiness(),
+    productionChecks: buildProductionChecks(data),
   };
 }
 
@@ -902,10 +1235,32 @@ function recalculateUserBilling(data: AdminData) {
 }
 
 function ensureBillingConsistency(data: AdminData) {
+  data.users = data.users.map((user) => ({
+    ...user,
+    plan: normalizePlanDisplayName(user.plan),
+  }));
   data.orders = data.orders.map((order) => ({
     ...order,
-    createdAt: formatRelativeTime(order.createdAt),
-    paidAt: order.paidAt,
+    user: getRegisteredNameForOrder(order, data.users),
+    userAccount: order.userAccount || getRegisteredNameForOrder(order, data.users),
+    createdAt: formatAbsoluteSecondTime(order.createdAt) || order.createdAt,
+    paidAt: formatAbsoluteSecondTime(order.paidAt),
+    notes: order.notes?.map((note) => ({
+      ...note,
+      createdAt: formatAbsoluteSecondTime(note.createdAt) || note.createdAt,
+    })),
+    paymentEvents: order.paymentEvents?.map((event) => ({
+      ...event,
+      createdAt: formatAbsoluteSecondTime(event.createdAt) || event.createdAt,
+    })),
+    refundEvents: order.refundEvents?.map((event) => ({
+      ...event,
+      createdAt: formatAbsoluteSecondTime(event.createdAt) || event.createdAt,
+      flow: event.flow.map((node) => ({
+        ...node,
+        createdAt: formatAbsoluteSecondTime(node.createdAt),
+      })),
+    })),
   }));
   data.credits = data.credits.map((entry) => ({
     ...entry,
@@ -933,6 +1288,7 @@ function fullPayload(data: AdminData) {
     plans: data.plans,
     capabilityStatus: buildCapabilityStatus(),
     productionReadiness: buildProductionReadiness(),
+    productionChecks: buildProductionChecks(data),
   };
 }
 
@@ -989,7 +1345,7 @@ function buildPaymentTimeline(order: PaymentOrder, credits: CreditLedgerEntry[],
       message: `${log.actorName} · ${log.action}`,
       createdAt: log.createdAt,
     })),
-  ].sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+  ].sort((left, right) => parseAdminTimestamp(right.createdAt) - parseAdminTimestamp(left.createdAt));
 }
 
 function buildOrderDetail(data: AdminData, orderId: string) {
@@ -1010,6 +1366,84 @@ function buildOrderDetail(data: AdminData, orderId: string) {
     paymentEvents: order.paymentEvents || [],
     refundEvents: order.refundEvents || [],
     timeline: buildPaymentTimeline(order, creditEntries, auditEntries),
+  };
+}
+
+function buildAccountDetail(data: AdminData, userId: string) {
+  const user = data.users.find((item) => item.id === userId);
+  if (!user) return null;
+
+  const orders = data.orders
+    .filter((order) => order.userId === user.id)
+    .sort((left, right) => parseAdminTimestamp(right.createdAt) - parseAdminTimestamp(left.createdAt));
+  const orderIds = new Set(orders.map((order) => order.id));
+  const creditEntries = data.credits
+    .filter((entry) => entry.userId === user.id || orderIds.has(entry.source))
+    .sort((left, right) => parseAdminTimestamp(right.createdAt) - parseAdminTimestamp(left.createdAt));
+  const auditEntries = data.auditLogs
+    .filter((entry) => entry.target === user.id || orderIds.has(entry.target))
+    .sort((left, right) => parseAdminTimestamp(right.createdAt) - parseAdminTimestamp(left.createdAt));
+  const feedbackEntries = data.feedback
+    .filter((entry) => entry.userId === user.id || (entry.linkedOrderId ? orderIds.has(entry.linkedOrderId) : false))
+    .sort((left, right) => parseAdminTimestamp(right.createdAt) - parseAdminTimestamp(left.createdAt));
+  const paymentEvents = orders.flatMap((order) => (order.paymentEvents || []).map((event) => ({
+    ...event,
+    orderId: order.id,
+    orderLabel: order.packageName,
+  }))).sort((left, right) => parseAdminTimestamp(right.createdAt) - parseAdminTimestamp(left.createdAt));
+  const refundEvents = orders.flatMap((order) => (order.refundEvents || []).map((event) => ({
+    ...event,
+    orderId: order.id,
+    orderLabel: order.packageName,
+  }))).sort((left, right) => parseAdminTimestamp(right.createdAt) - parseAdminTimestamp(left.createdAt));
+  const notes = orders.flatMap((order) => (order.notes || []).map((note) => ({
+    ...note,
+    orderId: order.id,
+    orderLabel: order.packageName,
+  }))).sort((left, right) => parseAdminTimestamp(right.createdAt) - parseAdminTimestamp(left.createdAt));
+  const timeline = [
+    ...orders.flatMap((order) => buildPaymentTimeline(
+      order,
+      creditEntries.filter((entry) => entry.source === order.id),
+      auditEntries.filter((entry) => entry.target === order.id),
+    ).map((item) => ({
+      ...item,
+      orderId: order.id,
+      orderLabel: order.packageName,
+    }))),
+    ...creditEntries
+      .filter((entry) => !orderIds.has(entry.source))
+      .map((entry) => ({
+        id: entry.id,
+        type: entry.type,
+        status: entry.delta >= 0 ? "success" : "pending",
+        message: `${entry.reason} · ${entry.delta > 0 ? "+" : ""}${entry.delta} 积分`,
+        createdAt: entry.createdAt,
+      })),
+    ...auditEntries
+      .filter((entry) => entry.target === user.id)
+      .map((entry) => ({
+        id: entry.id,
+        type: "审计",
+        status: "success",
+        message: `${entry.actorName} · ${entry.action}`,
+        createdAt: entry.createdAt,
+      })),
+  ].sort((left, right) => parseAdminTimestamp(right.createdAt) - parseAdminTimestamp(left.createdAt));
+
+  return {
+    user: {
+      ...user,
+      spent: user.totalRecharge ?? 0,
+    },
+    orders,
+    creditEntries,
+    auditEntries,
+    feedbackEntries,
+    paymentEvents,
+    refundEvents,
+    notes,
+    timeline,
   };
 }
 
@@ -1034,6 +1468,12 @@ export async function handleAdminApiRequest(
     return { status: 200, body: fullPayload(data) };
   }
   if (method === "GET" && route === "users") return { status: 200, body: { users: data.users } };
+  const userDetailMatch = route.match(/^users\/([^/]+)\/detail$/);
+  if (method === "GET" && userDetailMatch) {
+    const detail = buildAccountDetail(data, userDetailMatch[1]);
+    if (!detail) return jsonError(404, "用户不存在");
+    return { status: 200, body: detail };
+  }
   if (method === "GET" && route === "orders") return { status: 200, body: { orders: data.orders } };
   if (method === "POST" && route === "orders/external-collection") {
     const amount = Number(body.amount);
@@ -1097,7 +1537,7 @@ export async function handleAdminApiRequest(
           id: `cr_${Date.now().toString(36)}`,
           userId: user.id,
           user: user.name,
-          type: "代收入账",
+          type: "代收积分入账",
           delta: expectedCredits,
           reason: "接口方代收确认",
           source: order.id,
@@ -1148,6 +1588,7 @@ export async function handleAdminApiRequest(
   if (method === "GET" && route === "ai-tasks") return { status: 200, body: { aiTasks: data.aiTasks, providers: data.providers } };
   if (method === "GET" && route === "providers") return { status: 200, body: { providers: data.providers } };
   if (method === "GET" && route === "production-readiness") return { status: 200, body: { productionReadiness: buildProductionReadiness() } };
+  if (method === "GET" && route === "production-checks") return { status: 200, body: { productionChecks: buildProductionChecks(data) } };
   if (method === "GET" && route === "feedback") return { status: 200, body: { feedback: data.feedback } };
   if (method === "GET" && route === "alerts") return { status: 200, body: { alerts: data.alerts } };
   if (method === "GET" && route === "audit-logs") return { status: 200, body: { auditLogs: data.auditLogs } };
@@ -1369,12 +1810,12 @@ export async function handleAdminApiRequest(
   if (method === "POST" && route === "credits/adjust") {
     const userId = typeof body.userId === "string" ? body.userId : "";
     const delta = Number(body.delta);
-    const reason = typeof body.reason === "string" && body.reason.trim() ? body.reason.trim() : "后台人工额度调整";
+    const reason = typeof body.reason === "string" && body.reason.trim() ? body.reason.trim() : "后台人工积分调整";
     const user = data.users.find((item) => item.id === userId);
     if (!user) return jsonError(404, "用户不存在");
-    if (!Number.isFinite(delta) || delta === 0) return jsonError(400, "调整额度必须是非零数字");
+    if (!Number.isFinite(delta) || delta === 0) return jsonError(400, "调整积分必须是非零数字");
     if (Math.abs(delta) >= 10000 && body.confirmHighRisk !== true) {
-      return jsonError(409, "大额额度调整需要二次确认");
+      return jsonError(409, "大额积分调整需要二次确认");
     }
 
     const before = { credits: user.credits };
@@ -1411,7 +1852,7 @@ export async function handleAdminApiRequest(
       data.riskEvents = [riskEvent, ...data.riskEvents].slice(0, 500);
       data.alerts = [{
         id: `al_${Date.now()}`,
-        category: "额度",
+        category: "积分",
         title: "管理员大额人工调整",
         detail: `${actor.username} 对 ${user.name} 调整 ${delta.toLocaleString("zh-CN")} 积分，需复核原因：${reason}`,
         severity: "warning",
@@ -1511,7 +1952,7 @@ export async function getBillingSnapshotForUser(userId: string) {
     balance: user.credits,
     frozenCredits: user.frozenCredits,
     expiredCredits: user.expiredCredits,
-    plan: user.plan,
+    plan: normalizePlanDisplayName(user.plan),
     orders: data.orders.filter((item) => item.userId === userId).slice(0, 20).map((order) => ({
       id: order.id,
       planName: order.packageName,
@@ -1549,7 +1990,7 @@ export async function createBillingOrder(params: {
   const order: PaymentOrder = {
     id: `ord_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
     userId: user.id,
-    user: user.name,
+    user: user.account || params.username,
     userAccount: user.account || params.username,
     userEmail: user.email,
     paymentDisplayName: `${plan.shortName} · ${user.account || params.username}`,
@@ -1609,7 +2050,7 @@ export async function createCreditRechargeOrder(params: {
   const order: PaymentOrder = {
     id: `rch_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
     userId: user.id,
-    user: user.name,
+    user: user.account || params.username,
     userAccount: user.account || params.username,
     userEmail: user.email,
     paymentDisplayName: `积分充值 · ${user.account || params.username}`,
@@ -1721,7 +2162,7 @@ export async function markBillingOrderPaid(params: {
     user.credits += order.expectedCredits;
     const paidMembershipPlan = getMembershipPlanFromName(order.packageName);
     if (paidMembershipPlan) {
-      user.plan = paidMembershipPlan.shortName;
+      user.plan = paidMembershipPlan.name;
     } else if (!user.plan || String(user.plan).trim() === "积分充值") {
       user.plan = "Free";
     }
@@ -1969,7 +2410,7 @@ export async function recordAiUsage(input: AiUsageRecordInput) {
       loginMethod: input.username.includes("@artx.social") ? "social" : "email",
       role: "viewer",
       status: "normal",
-      plan: "Starter",
+      plan: "Free",
       organization: "个人",
       credits: 0,
       frozenCredits: 0,

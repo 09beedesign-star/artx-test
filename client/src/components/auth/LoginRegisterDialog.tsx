@@ -1,22 +1,26 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import ForgotPasswordDialog from "@/components/auth/ForgotPasswordDialog";
 
 // Global Login / Register Dialog
 // 首页使用 HomePage 内部右侧面板；其它场景统一使用这个居中弹窗。
 export default function LoginRegisterDialog() {
-  const { loginModalOpen, closeLoginModal, login, register } = useAuth();
-  const adminLogin = isAdminLoginContext();
+  const { loginModalOpen, closeLoginModal, login, register, forgotPassword, resetPassword } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [forgotOpen, setForgotOpen] = useState(false);
+  const [mode, setMode] = useState<"auth" | "reset">("auth");
+  const [resetUsername, setResetUsername] = useState("");
+  const [resetCode, setResetCode] = useState("");
+  const [resetPasswordValue, setResetPasswordValue] = useState("");
+  const [resetConfirmPassword, setResetConfirmPassword] = useState("");
+  const [resetMessage, setResetMessage] = useState("");
 
   useEffect(() => {
     if (!loginModalOpen) return;
     setError("");
+    setResetMessage("");
     setSubmitting(false);
   }, [loginModalOpen]);
 
@@ -27,18 +31,14 @@ export default function LoginRegisterDialog() {
     setError("");
 
     if (!normalizedEmail || !password.trim()) {
-      setError(adminLogin ? "请输入账号 ID 和密码" : "请输入邮箱或 ID 和密码");
-      return;
-    }
-    if (adminLogin && normalizedEmail.includes("@")) {
-      setError("管理后台请使用账号 ID 登录，不支持邮件登录");
+      setError("请输入用户名或邮箱和密码");
       return;
     }
 
     setSubmitting(true);
     const result = action === "register"
       ? await register(normalizedEmail, password)
-      : await login(normalizedEmail, password, { adminLogin });
+      : await login(normalizedEmail, password);
     setSubmitting(false);
 
     if (!result.ok) {
@@ -49,6 +49,55 @@ export default function LoginRegisterDialog() {
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     void handleAuthAction("login");
+  };
+
+  const handleSendResetCode = async () => {
+    const username = resetUsername.trim() || email.trim();
+    setResetMessage("");
+    setError("");
+    if (!username) {
+      setResetMessage("请输入注册邮箱或用户名");
+      return;
+    }
+    setResetUsername(username);
+    setSubmitting(true);
+    const result = await forgotPassword(username);
+    setSubmitting(false);
+    setResetMessage(result.ok ? result.message || "验证码已发送，请查看邮箱。" : result.error || "验证码发送失败，请稍后重试");
+  };
+
+  const handleResetSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const username = resetUsername.trim() || email.trim();
+    const code = resetCode.trim();
+    setResetMessage("");
+    setError("");
+    if (!username || !code || !resetPasswordValue || !resetConfirmPassword) {
+      setResetMessage("请填写邮箱、验证码、新密码和确认密码");
+      return;
+    }
+    if (resetPasswordValue !== resetConfirmPassword) {
+      setResetMessage("两次输入的新密码不一致");
+      return;
+    }
+    if (resetPasswordValue.length < 8) {
+      setResetMessage("新密码至少需要 8 位");
+      return;
+    }
+
+    setSubmitting(true);
+    const result = await resetPassword(username, code, resetPasswordValue);
+    setSubmitting(false);
+    if (!result.ok) {
+      setResetMessage(result.error || "密码重置失败，请稍后重试");
+      return;
+    }
+    setPassword("");
+    setResetCode("");
+    setResetPasswordValue("");
+    setResetConfirmPassword("");
+    setMode("auth");
+    setError("密码已重置，请使用新密码登录");
   };
 
   return (
@@ -69,16 +118,86 @@ export default function LoginRegisterDialog() {
         </button>
 
         <GlassPanel>
+          {mode === "reset" ? (
+            <form className="flex h-full flex-col" onSubmit={handleResetSubmit}>
+              <PanelHeader title="找回密码" />
+
+              <div className="mt-8 flex flex-col gap-4">
+                <LabeledInput
+                  label="注册邮箱或用户名"
+                  value={resetUsername}
+                  onChange={setResetUsername}
+                  autoComplete="username"
+                  placeholder="请输入注册邮箱或用户名"
+                />
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3">
+                  <LabeledInput
+                    label="验证码"
+                    value={resetCode}
+                    onChange={value => setResetCode(value.replace(/\D/g, "").slice(0, 6))}
+                    autoComplete="one-time-code"
+                    placeholder="6 位验证码"
+                  />
+                  <button
+                    type="button"
+                    disabled={submitting}
+                    onClick={() => void handleSendResetCode()}
+                    className="mt-[25px] h-12 rounded-[10px] border border-white/15 bg-white/8 px-4 text-sm font-semibold text-white transition-all hover:bg-white/12 disabled:opacity-60"
+                  >
+                    {submitting ? "发送中" : "发送验证码"}
+                  </button>
+                </div>
+                <LabeledInput
+                  label="新密码"
+                  type="password"
+                  value={resetPasswordValue}
+                  onChange={setResetPasswordValue}
+                  autoComplete="new-password"
+                  placeholder="至少 8 位"
+                />
+                <LabeledInput
+                  label="确认新密码"
+                  type="password"
+                  value={resetConfirmPassword}
+                  onChange={setResetConfirmPassword}
+                  autoComplete="new-password"
+                  placeholder="再次输入新密码"
+                />
+              </div>
+
+              <p className={`mt-4 min-h-5 text-left text-[13px] font-medium ${resetMessage ? "text-amber-100" : "text-transparent"}`}>
+                {resetMessage || " "}
+              </p>
+
+              <div className="mt-5 grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={() => setMode("auth")}
+                  className="h-12 rounded-[10px] border border-white/15 bg-white/8 text-base font-semibold text-white transition-all hover:bg-white/12 disabled:opacity-60"
+                >
+                  返回登录
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="h-12 rounded-[10px] bg-[#936CFF] text-base font-semibold text-white shadow-[0_10px_28px_rgba(147,108,255,0.25)] transition-all hover:bg-[#A384FF] disabled:opacity-60"
+                >
+                  {submitting ? "重置中..." : "重置密码"}
+                </button>
+              </div>
+            </form>
+          ) : (
           <form className="flex h-full flex-col" onSubmit={handleSubmit}>
             <PanelHeader />
 
             <div className="mt-8 flex flex-col gap-5">
               <LabeledInput
-                label={adminLogin ? "账号 ID" : "邮箱或 ID"}
+                label="用户名或邮箱"
                 value={email}
                 onChange={setEmail}
                 autoComplete="username"
-                placeholder={adminLogin ? "请输入账号 ID" : "请输入邮箱或 ID"}
+                placeholder="请输入用户名或邮箱"
               />
               <LabeledInput
                 label="密码"
@@ -96,24 +215,26 @@ export default function LoginRegisterDialog() {
               </p>
               <button
                 type="button"
-                onClick={() => setForgotOpen(true)}
+                onClick={() => {
+                  setResetUsername(email.trim());
+                  setResetMessage("");
+                  setMode("reset");
+                }}
                 className="shrink-0 appearance-none bg-transparent text-[13px] font-medium text-[#7d7d7d] transition-colors hover:text-white"
               >
                 忘记密码？
               </button>
             </div>
 
-            <div className={`mt-5 grid gap-3 ${adminLogin ? "grid-cols-1" : "grid-cols-2"}`}>
-              {!adminLogin && (
-                <button
-                  type="button"
-                  disabled={submitting}
-                  onClick={() => void handleAuthAction("register")}
-                  className="h-12 rounded-[10px] bg-[#2F80ED] text-base font-semibold text-white shadow-[0_10px_28px_rgba(47,128,237,0.24)] transition-all hover:bg-[#4A96FF] disabled:opacity-60"
-                >
-                  {submitting ? "请稍候..." : "注 册"}
-                </button>
-              )}
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => void handleAuthAction("register")}
+                className="h-12 rounded-[10px] bg-[#2F80ED] text-base font-semibold text-white shadow-[0_10px_28px_rgba(47,128,237,0.24)] transition-all hover:bg-[#4A96FF] disabled:opacity-60"
+              >
+                {submitting ? "请稍候..." : "注 册"}
+              </button>
               <button
                 type="submit"
                 disabled={submitting}
@@ -123,26 +244,13 @@ export default function LoginRegisterDialog() {
               </button>
             </div>
 
-            <p className="mt-5 text-center text-[13px] text-[#7d7d7d]">
-              {adminLogin ? "使用管理后台账号 ID 登录" : "注册或登录后即可继续使用 ArtX Studio"}
-            </p>
+            <p className="mt-5 text-center text-[13px] text-[#7d7d7d]">用户名或邮箱注册/登陆</p>
           </form>
+          )}
         </GlassPanel>
       </div>
-      <ForgotPasswordDialog
-        open={forgotOpen}
-        initialEmail={email}
-        onClose={() => setForgotOpen(false)}
-      />
     </div>
   );
-}
-
-function isAdminLoginContext() {
-  if (typeof window === "undefined") return false;
-  const host = window.location.hostname.toLowerCase();
-  const path = window.location.pathname;
-  return host.startsWith("admin.") || path.includes("/admin-prototype");
 }
 
 function GlassPanel({ children }: { children: React.ReactNode }) {

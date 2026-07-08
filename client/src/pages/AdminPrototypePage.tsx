@@ -13,6 +13,7 @@ import {
   Gift,
   History,
   KeyRound,
+  LogOut,
   LockKeyhole,
   MessageSquareText,
   Plus,
@@ -37,6 +38,14 @@ import {
 } from "@/components/ui/table";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
+import {
+  buildAdminNotifications,
+  type AdminNotificationGroups,
+  type AdminNotificationItem,
+  type AdminNotificationTab,
+} from "./admin-notifications";
+import { getDashboardRiskTarget } from "./admin-dashboard-risk";
+import { resolveAdminUploadUrl } from "./admin-upload-url";
 
 type AdminSection =
   | "overview"
@@ -49,15 +58,17 @@ type AdminSection =
   | "audit";
 
 type Status = "normal" | "watch" | "blocked";
+type AdminRole = "viewer" | "support" | "finance" | "admin" | "super_admin";
 type OrderStatus = "paid" | "pending" | "failed" | "refunded";
 type FeedbackStatus = "new" | "processing" | "waiting_user" | "resolved" | "closed";
 type AlertSeverity = "critical" | "warning" | "info";
-type AlertCategory = "支付" | "报错" | "接口" | "额度" | "风控";
+type AlertCategory = "支付" | "报错" | "接口" | "积分" | "风控";
 
 type AdminUser = {
   id: string;
   name: string;
   email: string;
+  role?: AdminRole;
   plan: string;
   credits: number;
   spent: number;
@@ -89,26 +100,29 @@ type Order = {
   refundedCredits?: number;
 };
 
-type OrderDetail = {
-  order: Order;
-  user?: AdminUser;
+type AccountDetail = {
+  user: AdminUser;
+  orders: Order[];
   creditEntries: Array<{ id: string; user: string; type: string; delta: number; operator: string; source: string; reason: string; createdAt: string }>;
   auditEntries: Array<{ id: string; actorName: string; action: string; target: string; createdAt: string; reason?: string }>;
   feedbackEntries: Feedback[];
-  notes: Array<{ id: string; actorName: string; content: string; createdAt: string }>;
-  paymentEvents: Array<{ id: string; type: string; status: string; providerTransactionId?: string; amount?: number; signatureValid?: boolean; message: string; createdAt: string }>;
-  refundEvents: Array<{ id: string; amount: number; creditsDeducted: number; reason: string; actorName: string; createdAt: string }>;
-  timeline: Array<{ id: string; type: string; status: string; message: string; createdAt: string }>;
+  notes: Array<{ id: string; actorName: string; content: string; createdAt: string; orderId: string; orderLabel?: string }>;
+  paymentEvents: Array<{ id: string; orderId: string; orderLabel?: string; type: string; status: string; providerTransactionId?: string; amount?: number; signatureValid?: boolean; message: string; createdAt: string }>;
+  refundEvents: Array<{ id: string; orderId: string; orderLabel?: string; amount: number; creditsDeducted: number; reason: string; actorName: string; createdAt: string }>;
+  timeline: Array<{ id: string; type: string; status: string; message: string; createdAt: string; orderId?: string; orderLabel?: string }>;
 };
 
 type Feedback = {
   id: string;
   user: string;
   title: string;
+  content?: string;
   module: string;
   status: FeedbackStatus;
   priority: "P0" | "P1" | "P2";
   createdAt: string;
+  linkedOrderId?: string;
+  attachments?: Array<{ name: string; src: string; width?: number; height?: number; mimeType?: string; size?: number }>;
 };
 
 type OpsAlert = {
@@ -188,6 +202,17 @@ type PricingPlan = {
   status: string;
 };
 
+type ProductionCheck = {
+  id: string;
+  title: string;
+  status: "ready" | "watch" | "partial" | "blocked";
+  summary: string;
+  metrics: Record<string, number>;
+  metricLabels?: Record<string, string>;
+  evidence: string[];
+  actionTarget: AdminSection;
+};
+
 type OverviewData = {
   metrics: {
     todayRevenue: number;
@@ -223,6 +248,7 @@ type OverviewData = {
   }>;
   capabilityStatus?: Array<{ id: string; domain: string; status: "ready" | "partial" | "missing"; summary: string; source: string }>;
   productionReadiness?: Array<{ id: string; domain: string; status: "ready" | "partial" | "missing"; summary: string; requiredKeys: string[]; configuredKeys: string[]; missingKeys: string[]; action: string }>;
+  productionChecks?: ProductionCheck[];
   aiCostBreakdownByProvider?: Array<{
     key: string;
     label: string;
@@ -245,7 +271,7 @@ type OverviewData = {
 
 type AdminPayload = {
   overview?: OverviewData;
-  users?: Array<AdminUser & { totalRecharge?: number; frozenCredits?: number; organization?: string }>;
+  users?: Array<AdminUser & { role?: AdminRole; totalRecharge?: number; frozenCredits?: number; organization?: string }>;
   orders?: Array<Order & { issuedCredits?: number; expectedCredits?: number }>;
   credits?: Array<{ id: string; user: string; type: string; delta: number; operator: string; source: string; reason: string }>;
   aiTasks?: AiTask[];
@@ -256,6 +282,7 @@ type AdminPayload = {
   auditLogs?: Array<{ actorName?: string; action: string; target: string; createdAt: string; reason?: string }>;
   plans?: PricingPlan[];
   capabilityStatus?: Array<{ id: string; domain: string; status: "ready" | "partial" | "missing"; summary: string; source: string }>;
+  productionChecks?: ProductionCheck[];
 };
 
 const sections: Array<{
@@ -264,10 +291,10 @@ const sections: Array<{
   description: string;
   icon: typeof BarChart3;
 }> = [
-  { id: "overview", label: "总览", description: "收入、算力、风险", icon: BarChart3 },
+  { id: "overview", label: "总览", description: "金额、积分、风险", icon: BarChart3 },
   { id: "users", label: "账户管理", description: "用户、状态、权限", icon: Users },
   { id: "orders", label: "支付订单", description: "支付、退款、对账", icon: CreditCard },
-  { id: "credits", label: "额度管理", description: "积分、流水、调整", icon: WalletCards },
+  { id: "credits", label: "积分管理", description: "积分、流水、调整", icon: WalletCards },
   { id: "feedback", label: "用户反馈", description: "意见、工单、回复", icon: MessageSquareText },
   { id: "integrations", label: "第三方接口", description: "支付、模型、密钥", icon: KeyRound },
   { id: "risk", label: "风控安全", description: "异常、限流、黑名单", icon: ShieldCheck },
@@ -293,6 +320,17 @@ function statusLabel(status: Status | OrderStatus | FeedbackStatus) {
   return map[status] ?? status;
 }
 
+function roleLabel(role?: AdminRole) {
+  const labels: Record<AdminRole, string> = {
+    viewer: "普通用户",
+    support: "客服",
+    finance: "财务",
+    admin: "管理员",
+    super_admin: "超级管理员",
+  };
+  return labels[role || "viewer"];
+}
+
 function statusClass(status: Status | OrderStatus | FeedbackStatus | string) {
   if (["normal", "paid", "resolved", "closed", "在线", "启用", "success", "mitigated"].includes(status)) {
     return "border-emerald-400/30 bg-emerald-400/10 text-emerald-200";
@@ -309,12 +347,14 @@ function statusClass(status: Status | OrderStatus | FeedbackStatus | string) {
   return "border-white/10 bg-white/7 text-white/70";
 }
 
-function formatCurrency(value: number) {
-  return `¥${value.toLocaleString("zh-CN")}`;
+function formatCurrency(value?: number | null) {
+  const amount = Number.isFinite(value) ? value as number : 0;
+  return `¥${amount.toLocaleString("zh-CN")}`;
 }
 
-function formatCredits(value: number) {
-  return value.toLocaleString("zh-CN");
+function formatCredits(value?: number | null) {
+  const amount = Number.isFinite(value) ? value as number : 0;
+  return amount.toLocaleString("zh-CN");
 }
 
 function readAdminToken() {
@@ -373,13 +413,14 @@ function normalizeAdminPayload(payload: AdminPayload) {
     riskEvents: payload.riskEvents || [],
     auditRows: normalizedAuditRows,
     plans: payload.plans || [],
+    productionChecks: payload.productionChecks || payload.overview?.productionChecks || [],
   };
 }
 
 type AdminState = ReturnType<typeof normalizeAdminPayload>;
 
 function AdminPrototypePage() {
-  const { user, changePassword } = useAuth();
+  const { user, changePassword, logout } = useAuth();
   const [activeSection, setActiveSection] = useState<AdminSection>("overview");
   const [adminData, setAdminData] = useState<AdminState>(() => normalizeAdminPayload({}));
   const [selectedUserId, setSelectedUserId] = useState("");
@@ -392,7 +433,8 @@ function AdminPrototypePage() {
   const [policyDraft, setPolicyDraft] = useState<Array<{ capability: string; capabilityKey?: string; unit: string; baseCredits: number; estimatedCostPerUnit: number; provider: string }>>([]);
   const [discountDraft, setDiscountDraft] = useState<Array<{ planId: string; multiplier: number; label: string }>>([]);
   const [selectedOrderId, setSelectedOrderId] = useState("");
-  const [orderDetail, setOrderDetail] = useState<OrderDetail | null>(null);
+  const [accountDetail, setAccountDetail] = useState<AccountDetail | null>(null);
+  const [accountDrawerOpen, setAccountDrawerOpen] = useState(false);
   const [orderNote, setOrderNote] = useState("");
   const [passwordPanelOpen, setPasswordPanelOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
@@ -410,6 +452,14 @@ function AdminPrototypePage() {
     note: "接口方确认已收到用户付款",
     issueCredits: false,
   });
+
+  useEffect(() => {
+    const previousTitle = document.title;
+    document.title = "Artx-adminn";
+    return () => {
+      document.title = previousTitle;
+    };
+  }, []);
 
   const fetchAdminData = useCallback(async (message?: string) => {
     const token = readAdminToken();
@@ -441,18 +491,18 @@ function AdminPrototypePage() {
     }
   }, []);
 
-  const fetchOrderDetail = useCallback(async (orderId: string) => {
+  const fetchAccountDetail = useCallback(async (userId: string) => {
     const token = readAdminToken();
-    if (!token || !orderId) return;
+    if (!token || !userId) return;
     try {
-      const response = await fetch(`/api/admin/orders/${encodeURIComponent(orderId)}`, {
+      const response = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/detail`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || "订单详情加载失败");
-      setOrderDetail(payload as OrderDetail);
+      if (!response.ok) throw new Error(payload.error || "账户详情加载失败");
+      setAccountDetail(payload as AccountDetail);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "订单详情加载失败");
+      setNotice(error instanceof Error ? error.message : "账户详情加载失败");
     }
   }, []);
 
@@ -461,10 +511,10 @@ function AdminPrototypePage() {
   }, [fetchAdminData]);
 
   useEffect(() => {
-    if (selectedOrderId) {
-      fetchOrderDetail(selectedOrderId);
+    if (accountDrawerOpen && selectedUserId) {
+      fetchAccountDetail(selectedUserId);
     }
-  }, [fetchOrderDetail, selectedOrderId]);
+  }, [accountDrawerOpen, fetchAccountDetail, selectedUserId]);
 
   async function adminPost(path: string, payload: Record<string, unknown>, successMessage: string) {
     const token = readAdminToken();
@@ -484,6 +534,9 @@ function AdminPrototypePage() {
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "后台写操作失败");
       setAdminData(normalizeAdminPayload(result));
+      if (accountDrawerOpen && selectedUserId) {
+        await fetchAccountDetail(selectedUserId);
+      }
       setNotice(successMessage);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "后台写操作失败");
@@ -507,8 +560,10 @@ function AdminPrototypePage() {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "订单操作失败");
-      setOrderDetail(result as OrderDetail);
       await fetchAdminData(successMessage);
+      if (selectedUserId) {
+        await fetchAccountDetail(selectedUserId);
+      }
       setNotice(successMessage);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "订单操作失败");
@@ -518,6 +573,10 @@ function AdminPrototypePage() {
   const selectedUser = adminData.users.find((item) => item.id === selectedUserId) ?? adminData.users[0];
   const selectedOrder = adminData.orders.find((item) => item.id === selectedOrderId) ?? adminData.orders[0];
   const metrics = adminData.overview?.metrics;
+  const dashboardRiskTarget = getDashboardRiskTarget({
+    paymentExceptions: metrics?.paymentExceptions,
+    highRiskEvents: metrics?.highRiskEvents,
+  });
 
   useEffect(() => {
     if (activeSection !== "orders" || !selectedOrder) return;
@@ -532,8 +591,15 @@ function AdminPrototypePage() {
     .filter((order) => order.status === "paid")
     .reduce((sum, order) => sum + order.amount, 0);
   const issuedCredits = metrics?.issuedCredits ?? adminData.orders.reduce((sum, order) => sum + order.credits, 0);
-  const unreadAlerts = adminData.alerts.filter((alert) => alert.unread).length;
-  const urgentAlerts = adminData.alerts.filter((alert) => alert.severity === "critical").length;
+  const notificationGroups = useMemo(() => buildAdminNotifications({
+    orders: adminData.orders,
+    alerts: adminData.alerts,
+    feedback: adminData.feedback,
+    riskEvents: adminData.riskEvents,
+  }), [adminData.alerts, adminData.feedback, adminData.orders, adminData.riskEvents]);
+  const notificationItems = Object.values(notificationGroups).flat();
+  const unreadAlerts = notificationItems.filter((item) => item.unread).length;
+  const urgentAlerts = notificationItems.filter((item) => item.severity === "critical").length;
 
   const filteredUsers = useMemo(() => {
     return adminData.users.filter((user) => {
@@ -549,8 +615,8 @@ function AdminPrototypePage() {
     adminPost(`/api/admin/feedback/${id}/status`, { status: "resolved", reason: "后台标记解决" }, "反馈状态已写入后台，并生成操作审计。");
   }
 
-  function handleUserRole(id: string, role: "support" | "finance" | "admin") {
-    adminPost(`/api/admin/users/${id}/role`, { role }, `用户角色已更新为 ${role}。`);
+  function handleUserRole(id: string, role: Exclude<AdminRole, "super_admin">) {
+    adminPost(`/api/admin/users/${id}/role`, { role }, `用户角色已更新为 ${roleLabel(role)}。`);
   }
 
   function handleUserStatus(id: string, status: "normal" | "blocked") {
@@ -566,9 +632,9 @@ function AdminPrototypePage() {
     adminPost("/api/admin/credits/adjust", {
       userId: selectedUser.id,
       delta,
-      reason: "后台人工额度调整",
+      reason: "后台人工积分调整",
       confirmHighRisk: Math.abs(delta) >= 10000,
-    }, `${selectedUser.name} 的额度调整已提交：${creditAmount(delta)} 积分，审计日志已生成。`);
+    }, `${selectedUser.name} 的积分调整已提交：${creditAmount(delta)} 积分，审计日志已生成。`);
   }
 
   async function handleChangePassword() {
@@ -608,6 +674,21 @@ function AdminPrototypePage() {
     adminPost("/api/admin/alerts/read-all", {}, "所有敏捷处理消息已标记为已读，操作已进入审计日志。");
   }
 
+  function handleNotificationJump(item: AdminNotificationItem) {
+    setAlertsOpen(false);
+    if (item.targetSection === "orders" && item.targetId) {
+      handleSelectOrder(item.targetId);
+      setActiveSection("orders");
+      return;
+    }
+    setActiveSection(item.targetSection);
+  }
+
+  function handleMarkNotificationRead(item: AdminNotificationItem) {
+    if (!item.id.startsWith("alert:")) return;
+    handleMarkAlertRead(item.id.replace(/^alert:/, ""));
+  }
+
   function handlePolicyDraftChange(index: number, key: "baseCredits" | "estimatedCostPerUnit", value: string) {
     setPolicyDraft((current) => current.map((item, itemIndex) => itemIndex === index ? {
       ...item,
@@ -645,9 +726,26 @@ function AdminPrototypePage() {
       : undefined;
     setSelectedOrderId(orderId);
     if (orderUser) {
+      if (orderUser.id !== selectedUserId) {
+        setAccountDetail(null);
+      }
       setSelectedUserId(orderUser.id);
+      setAccountDrawerOpen(true);
     }
     setOrderNote("");
+  }
+
+  function handleSelectUser(userId: string) {
+    if (userId !== selectedUserId) {
+      setAccountDetail(null);
+    }
+    setSelectedUserId(userId);
+    const userOrder = adminData.orders.find((order) => order.userId === userId);
+    if (userOrder) {
+      setSelectedOrderId(userOrder.id);
+    }
+    setOrderNote("");
+    setAccountDrawerOpen(true);
   }
 
   function handleAddOrderNote() {
@@ -760,6 +858,14 @@ function AdminPrototypePage() {
                   1 笔支付回调延迟、1 个高风险账户、2 条待处理反馈需要跟进。
                 </p>
               </div>
+              <button
+                type="button"
+                onClick={logout}
+                className="mt-3 flex w-full items-center justify-center gap-2 rounded-md border border-white/12 bg-white/5 px-3 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/10 hover:text-white"
+              >
+                <LogOut className="size-4" />
+                退出登录
+              </button>
             </div>
           </div>
         </aside>
@@ -769,25 +875,22 @@ function AdminPrototypePage() {
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
               <div>
                 <h1 className="text-xl font-semibold tracking-tight md:text-2xl">
-                  付费算力与积分运营后台
+                  金额与积分运营后台
                 </h1>
                 <p className="mt-1 text-sm text-slate-400">
-                  管理用户、支付、积分额度、反馈、第三方接口和高风险操作。
+                  管理用户、支付、积分、反馈、第三方接口和高风险操作。
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <NotificationCenter
-                  alerts={adminData.alerts}
+                  groups={notificationGroups}
                   open={alertsOpen}
                   unreadCount={unreadAlerts}
                   urgentCount={urgentAlerts}
                   onToggle={() => setAlertsOpen((value) => !value)}
-                  onMarkRead={handleMarkAlertRead}
+                  onMarkRead={handleMarkNotificationRead}
                   onMarkAllRead={handleMarkAllAlertsRead}
-                  onJumpTo={(section) => {
-                    setActiveSection(section);
-                    setAlertsOpen(false);
-                  }}
+                  onJumpTo={handleNotificationJump}
                 />
                 <Button
                   variant="outline"
@@ -883,47 +986,51 @@ function AdminPrototypePage() {
             <section className="grid gap-3 md:grid-cols-3">
               <MetricCard
                 icon={CircleDollarSign}
-                label="已确认收入"
+                label="已确认金额"
                 value={formatCurrency(paidRevenue)}
-                detail="仅统计已支付订单"
+                detail="仅统计已支付订单金额"
               />
               <MetricCard
                 icon={Gauge}
                 label="已发放积分"
                 value={formatCredits(issuedCredits)}
-                detail="购买入账 + 赠送额度"
+                detail="购买积分 + 赠送积分"
               />
               <MetricCard
                 icon={AlertTriangle}
                 label="待处理风险"
                 value={formatCredits((metrics?.paymentExceptions ?? 0) + (metrics?.highRiskEvents ?? 0))}
                 detail="支付异常 + 高风险事件"
+                actionLabel="立即处理"
+                onAction={() => setActiveSection(dashboardRiskTarget)}
               />
             </section>
 
-            <section className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_minmax(320px,360px)]">
+            <section className="min-w-0">
               <div className="min-w-0 rounded-md border border-white/10 bg-white/[0.035]">
                 <SectionTabs activeSection={activeSection} setActiveSection={setActiveSection} />
                 <div className="p-4 md:p-5">{renderSection()}</div>
               </div>
-
-              <aside className="min-w-0 space-y-5">
-                {selectedUser ? (
-                  <UserDetailPanel
-                    user={selectedUser}
-                    creditDelta={creditDelta}
-                    setCreditDelta={setCreditDelta}
-                    onAdjust={handleCreditAdjustment}
-                  />
-                ) : (
-                  <EmptyPanel title="暂无真实用户" body="后台不会显示演示用户。注册或导入真实用户后，这里会自动出现账户详情。" />
-                )}
-                <RiskPanel riskEvents={adminData.riskEvents} plans={adminData.plans} />
-              </aside>
             </section>
           </div>
         </main>
       </div>
+      <AccountDetailDrawer
+        open={accountDrawerOpen}
+        detail={accountDetail}
+        fallbackUser={selectedUser}
+        selectedOrderId={selectedOrderId}
+        note={orderNote}
+        creditDelta={creditDelta}
+        setCreditDelta={setCreditDelta}
+        onClose={() => setAccountDrawerOpen(false)}
+        onSelectOrder={setSelectedOrderId}
+        onNoteChange={setOrderNote}
+        onAddNote={handleAddOrderNote}
+        onReissue={handleReissueOrder}
+        onRefund={handleRefundOrder}
+        onAdjust={handleCreditAdjustment}
+      />
     </div>
   );
 
@@ -935,7 +1042,7 @@ function AdminPrototypePage() {
             <div className="mb-4 flex items-center justify-between">
               <div>
                 <h2 className="text-base font-semibold">今日运营队列</h2>
-                <p className="text-sm text-slate-400">先处理影响收入和额度可信度的问题。</p>
+                <p className="text-sm text-slate-400">先处理影响支付金额和积分可信度的问题。</p>
               </div>
               <Badge tone="amber">{adminData.overview?.operationsQueue.length || adminData.alerts.length} 项待办</Badge>
             </div>
@@ -1046,8 +1153,9 @@ function AdminPrototypePage() {
               <TableRow className="border-white/10 hover:bg-transparent">
                 <TableHead>用户</TableHead>
                 <TableHead>套餐</TableHead>
+                <TableHead>后台角色</TableHead>
                 <TableHead>积分余额</TableHead>
-                <TableHead>累计付费</TableHead>
+                <TableHead>累计支付金额</TableHead>
                 <TableHead>状态</TableHead>
                 <TableHead>最近活跃</TableHead>
               </TableRow>
@@ -1061,13 +1169,18 @@ function AdminPrototypePage() {
                       "border-white/8 hover:bg-white/[0.04]",
                       selectedUserId === user.id && "bg-cyan-300/8"
                     )}
-                    onClick={() => setSelectedUserId(user.id)}
+                    onClick={() => handleSelectUser(user.id)}
                   >
                     <TableCell>
                       <div className="font-medium">{user.name}</div>
                       <div className="break-all text-xs text-slate-500">{user.email}</div>
                     </TableCell>
                     <TableCell>{user.plan}</TableCell>
+                    <TableCell>
+                      <Badge className={cn("w-fit shrink-0", user.role && user.role !== "viewer" ? statusClass("watch") : statusClass("normal"))}>
+                        {roleLabel(user.role)}
+                      </Badge>
+                    </TableCell>
                     <TableCell>{formatCredits(user.credits)}</TableCell>
                     <TableCell>{formatCurrency(user.spent)}</TableCell>
                     <TableCell>
@@ -1082,10 +1195,11 @@ function AdminPrototypePage() {
                           className="min-w-0 border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
                           onClick={(event) => {
                             event.stopPropagation();
-                            handleUserRole(user.id, "support");
+                            handleUserRole(user.id, user.role === "support" ? "viewer" : "support");
                           }}
+                          disabled={user.role === "super_admin"}
                         >
-                          设为客服
+                          {user.role === "support" ? "撤销客服" : "设为客服"}
                         </Button>
                         <Button
                           variant="outline"
@@ -1093,10 +1207,23 @@ function AdminPrototypePage() {
                           className="min-w-0 border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
                           onClick={(event) => {
                             event.stopPropagation();
-                            handleUserRole(user.id, "finance");
+                            handleUserRole(user.id, user.role === "finance" ? "viewer" : "finance");
                           }}
+                          disabled={user.role === "super_admin"}
                         >
-                          设为财务
+                          {user.role === "finance" ? "撤销财务" : "设为财务"}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="min-w-0 border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleUserRole(user.id, user.role === "admin" ? "viewer" : "admin");
+                          }}
+                          disabled={user.role === "super_admin"}
+                        >
+                          {user.role === "admin" ? "撤销管理员" : "设为管理员"}
                         </Button>
                         <Button
                           variant="outline"
@@ -1115,7 +1242,7 @@ function AdminPrototypePage() {
                 ))
               ) : (
                 <TableRow className="border-white/8 hover:bg-transparent">
-                  <TableCell colSpan={6} className="py-10 text-center text-sm text-slate-500">
+                  <TableCell colSpan={7} className="py-10 text-center text-sm text-slate-500">
                     暂无真实用户数据
                   </TableCell>
                 </TableRow>
@@ -1127,9 +1254,20 @@ function AdminPrototypePage() {
     }
 
     if (activeSection === "orders") {
+      const paymentCheck = productionCheckById(adminData.productionChecks, "payment_reconciliation");
       return (
-        <div className="grid min-w-0 gap-5 2xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
-          <div className="space-y-4">
+        <div className="min-w-0 space-y-5">
+          {paymentCheck && <ProductionCheckPanel check={paymentCheck} title="支付对账状态" />}
+          <div className="min-w-0 overflow-x-auto rounded-md border border-white/10 bg-white/[0.03]">
+            <OrdersTable
+              orders={adminData.orders}
+              users={adminData.users}
+              selectedOrderId={selectedOrder?.id || ""}
+              onSelect={handleSelectOrder}
+            />
+          </div>
+
+          <div className="min-w-0">
             {selectedUser ? (
               <ExternalCollectionPanel
                 form={externalCollection}
@@ -1140,40 +1278,27 @@ function AdminPrototypePage() {
             ) : (
               <EmptyPanel title="暂无可关联用户" body="需要先有真实用户账户，才能登记接口方代收记录。" />
             )}
-            <div className="min-w-0 overflow-x-auto rounded-md border border-white/10 bg-white/[0.03]">
-              <OrdersTable
-                orders={adminData.orders}
-                users={adminData.users}
-                selectedOrderId={selectedOrder?.id || ""}
-                onSelect={handleSelectOrder}
-              />
-            </div>
           </div>
-          <OrderDetailPanel
-            detail={orderDetail}
-            fallbackOrder={selectedOrder}
-            note={orderNote}
-            onNoteChange={setOrderNote}
-            onAddNote={handleAddOrderNote}
-            onReissue={handleReissueOrder}
-            onRefund={handleRefundOrder}
-          />
         </div>
       );
     }
 
     if (activeSection === "credits") {
+      const creditCheck = productionCheckById(adminData.productionChecks, "credit_liability");
       return (
-        <DataList
-          title="积分与额度流水"
-          description="每一笔入账、消耗、冻结、人工调整都必须可追溯。"
-          rows={adminData.credits.map((event) => ({
-            title: `${event.user} · ${event.type}`,
-            meta: `${event.actor} · ${event.note}`,
-            value: event.amount,
-            icon: event.amount.startsWith("+") ? Gift : LockKeyhole,
-          }))}
-        />
+        <div className="min-w-0 space-y-5">
+          {creditCheck && <ProductionCheckPanel check={creditCheck} title="积分负债状态" />}
+          <DataList
+            title="积分流水"
+            description="每一笔入账、消耗、冻结、人工调整都必须可追溯。"
+            rows={adminData.credits.map((event) => ({
+              title: `${event.user} · ${event.type}`,
+              meta: `${event.actor} · ${event.note}`,
+              value: event.amount,
+              icon: event.amount.startsWith("+") ? Gift : LockKeyhole,
+            }))}
+          />
+        </div>
       );
     }
 
@@ -1197,6 +1322,31 @@ function AdminPrototypePage() {
                     <p className="mt-1 text-sm text-slate-400">
                       {item.user} · {item.createdAt}
                     </p>
+                    {item.content && (
+                      <p className="mt-3 max-w-3xl whitespace-pre-wrap break-words text-sm leading-6 text-slate-300">
+                        {item.content}
+                      </p>
+                    )}
+                    {item.attachments && item.attachments.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {item.attachments.map((attachment) => (
+                          <a
+                            key={attachment.src}
+                            href={resolveAdminUploadUrl(attachment.src)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="group block overflow-hidden rounded-md border border-white/10 bg-white/5"
+                            title={attachment.name}
+                          >
+                            <img
+                              src={resolveAdminUploadUrl(attachment.src)}
+                              alt={attachment.name}
+                              className="h-20 w-20 object-cover transition group-hover:opacity-85"
+                            />
+                          </a>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <Button
                     variant="outline"
@@ -1218,8 +1368,10 @@ function AdminPrototypePage() {
     }
 
     if (activeSection === "integrations") {
+      const secretCheck = productionCheckById(adminData.productionChecks, "secret_governance");
       return (
         <div className="min-w-0 space-y-5">
+          {secretCheck && <ProductionCheckPanel check={secretCheck} title="密钥治理状态" />}
           <DataList
             title="第三方接口健康度"
             description="支付、模型、部署和网关都要有状态、延迟、负责人。"
@@ -1355,7 +1507,7 @@ function AdminPrototypePage() {
       return (
         <DataList
           title="风控规则"
-          description="先覆盖资金和额度异常，再扩展到设备、IP、频率限制。"
+          description="先覆盖支付金额和积分异常，再扩展到设备、IP、频率限制。"
           rows={[
             ...adminData.riskEvents.map((event) => ({
               title: event.title,
@@ -1370,9 +1522,15 @@ function AdminPrototypePage() {
 
     return (
       <div className="min-w-0 space-y-5">
+        {productionCheckById(adminData.productionChecks, "privileged_access") && (
+          <ProductionCheckPanel
+            check={productionCheckById(adminData.productionChecks, "privileged_access")!}
+            title="高危权限状态"
+          />
+        )}
         <DataList
           title="管理员操作审计"
-          description="钱和额度相关操作必须记录人、时间、目标和原因。"
+          description="金额和积分相关操作必须记录人、时间、目标和原因。"
           rows={adminData.auditRows.map((row) => ({
             title: row.action,
             meta: `${row.actor} · ${row.target}${row.reason ? ` · ${row.reason}` : ""}`,
@@ -1381,7 +1539,7 @@ function AdminPrototypePage() {
           }))}
         />
         <DataList
-          title="套餐/价格配置"
+          title="套餐/金额配置"
           description="第一版以国内支付优先，微信支付和支付宝先接入，Stripe/PayPal 后续扩展。"
           rows={adminData.plans.map((plan) => ({
             title: `${plan.name} · ${formatCurrency(plan.price)}`,
@@ -1400,11 +1558,15 @@ function MetricCard({
   label,
   value,
   detail,
+  actionLabel,
+  onAction,
 }: {
   icon: typeof BarChart3;
   label: string;
   value: string;
   detail: string;
+  actionLabel?: string;
+  onAction?: () => void;
 }) {
   return (
     <div className="rounded-md border border-white/10 bg-white/[0.035] p-4">
@@ -1414,15 +1576,38 @@ function MetricCard({
         </div>
         <span className="text-xs text-emerald-200">实时</span>
       </div>
-      <div className="text-sm text-slate-400">{label}</div>
+      <div className="flex min-h-8 items-center justify-between gap-3">
+        <div className="text-sm text-slate-400">{label}</div>
+        {actionLabel && onAction && (
+          <button
+            type="button"
+            className="shrink-0 rounded-md border border-cyan-300/25 bg-cyan-300/10 px-2.5 py-1 text-xs font-medium text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-300/18"
+            onClick={onAction}
+          >
+            {actionLabel}
+          </button>
+        )}
+      </div>
       <div className="mt-1 text-2xl font-semibold tracking-tight">{value}</div>
       <div className="mt-2 text-xs text-slate-500">{detail}</div>
     </div>
   );
 }
 
+const notificationTabs: Array<{ id: AdminNotificationTab; label: string; empty: string; icon: typeof Bell }> = [
+  { id: "order", label: "订单类", empty: "暂无购买订单消息", icon: CreditCard },
+  { id: "security", label: "安全类", empty: "暂无安全告警消息", icon: ShieldCheck },
+  { id: "voice", label: "用户之声", empty: "暂无用户反馈消息", icon: MessageSquareText },
+];
+
+function notificationSeverityClass(severity: "critical" | "warning" | "info") {
+  if (severity === "critical") return statusClass("P0");
+  if (severity === "warning") return statusClass("watch");
+  return statusClass("normal");
+}
+
 function NotificationCenter({
-  alerts,
+  groups,
   open,
   unreadCount,
   urgentCount,
@@ -1431,15 +1616,19 @@ function NotificationCenter({
   onMarkAllRead,
   onJumpTo,
 }: {
-  alerts: OpsAlert[];
+  groups: AdminNotificationGroups;
   open: boolean;
   unreadCount: number;
   urgentCount: number;
   onToggle: () => void;
-  onMarkRead: (id: string) => void;
+  onMarkRead: (item: AdminNotificationItem) => void;
   onMarkAllRead: () => void;
-  onJumpTo: (section: AdminSection) => void;
+  onJumpTo: (item: AdminNotificationItem) => void;
 }) {
+  const [activeTab, setActiveTab] = useState<AdminNotificationTab>("order");
+  const activeItems = groups[activeTab] || [];
+  const totalCount = notificationTabs.reduce((sum, tab) => sum + (groups[tab.id]?.length || 0), 0);
+
   return (
     <div className="relative">
       <button
@@ -1468,13 +1657,13 @@ function NotificationCenter({
       </button>
 
       {open && (
-        <div className="absolute right-0 top-11 z-30 w-[calc(100vw-32px)] max-w-[430px] overflow-hidden rounded-md border border-white/10 bg-[#0f172a] shadow-2xl shadow-black/40">
+        <div className="absolute right-0 top-11 z-30 w-[calc(100vw-32px)] max-w-[520px] overflow-hidden rounded-md border border-white/10 bg-[#0f172a] shadow-2xl shadow-black/40">
           <div className="border-b border-white/10 p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold">敏捷处理消息</div>
+                <div className="text-sm font-semibold">后台消息中心</div>
                 <p className="mt-1 break-words text-xs leading-5 text-slate-400">
-                  聚合支付异常、系统报错、接口延迟和额度风险。
+                  聚合订单、网络安全告警和用户反馈，点击文字链进入对应详情。
                 </p>
               </div>
               <Badge className={urgentCount > 0 ? statusClass("P0") : statusClass("normal")}>
@@ -1482,100 +1671,128 @@ function NotificationCenter({
               </Badge>
             </div>
             <div className="mt-3 flex items-center justify-between">
-              <span className="text-xs text-slate-500">{unreadCount} 条未读</span>
+              <span className="text-xs text-slate-500">{totalCount} 条消息 · {unreadCount} 条待处理</span>
               <button
                 className="text-xs font-medium text-cyan-200 hover:text-cyan-100"
                 onClick={onMarkAllRead}
               >
-                全部已读
+                告警已读
               </button>
+            </div>
+            <div className="mt-4 grid grid-cols-3 gap-2">
+              {notificationTabs.map((tab) => {
+                const Icon = tab.icon;
+                const count = groups[tab.id]?.length || 0;
+                const isActive = tab.id === activeTab;
+                return (
+                  <button
+                    key={tab.id}
+                    className={cn(
+                      "flex min-w-0 items-center justify-center gap-1.5 rounded-md border px-2 py-2 text-xs font-medium transition",
+                      isActive
+                        ? "border-cyan-300 bg-cyan-300 text-slate-950"
+                        : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10"
+                    )}
+                    onClick={() => setActiveTab(tab.id)}
+                  >
+                    <Icon className="size-3.5 shrink-0" />
+                    <span className="truncate">{tab.label}</span>
+                    <span className={cn("rounded px-1", isActive ? "bg-slate-950/15" : "bg-white/8")}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
           <div className="max-h-[440px] overflow-y-auto">
-            {alerts.length ? (
-              alerts.map((alert) => (
+            {activeItems.length ? (
+              activeItems.map((item) => (
                 <div
-                  key={alert.id}
+                  key={item.id}
                   className={cn(
                     "border-b border-white/8 p-4 last:border-b-0",
-                    alert.unread ? "bg-cyan-300/[0.045]" : "bg-transparent"
+                    item.unread ? "bg-cyan-300/[0.045]" : "bg-transparent"
                   )}
                 >
                   <div className="flex items-start gap-3">
                     <div
                       className={cn(
                         "mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md border",
-                        alert.severity === "critical"
+                        item.severity === "critical"
                           ? "border-rose-400/30 bg-rose-400/10 text-rose-100"
-                          : "border-amber-400/30 bg-amber-400/10 text-amber-100"
+                          : item.severity === "warning"
+                            ? "border-amber-400/30 bg-amber-400/10 text-amber-100"
+                            : "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
                       )}
                     >
-                      {alert.category === "支付" ? (
+                      {item.tab === "order" ? (
                         <CreditCard className="size-4" />
-                      ) : alert.category === "报错" ? (
-                        <AlertTriangle className="size-4" />
-                      ) : alert.category === "接口" ? (
-                        <Activity className="size-4" />
+                      ) : item.tab === "security" ? (
+                        <ShieldCheck className="size-4" />
                       ) : (
-                        <WalletCards className="size-4" />
+                        <MessageSquareText className="size-4" />
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <Badge
-                          className={
-                            alert.severity === "critical"
-                              ? statusClass("P0")
-                              : statusClass("watch")
-                          }
-                        >
-                          {alert.category}
-                        </Badge>
-                        <span className="text-xs text-slate-500">{alert.time}</span>
-                        {alert.unread && <span className="size-2 rounded-full bg-cyan-300" />}
+                        <Badge className={notificationSeverityClass(item.severity)}>{item.label}</Badge>
+                        <span className="text-xs text-slate-500">{item.time}</span>
+                        {item.unread && <span className="size-2 rounded-full bg-cyan-300" />}
                       </div>
-                      <div className="mt-2 text-sm font-medium">{alert.title}</div>
-                      <p className="mt-1 break-words text-xs leading-5 text-slate-400">{alert.detail}</p>
+                      <div className="mt-2 text-sm font-medium">{item.title}</div>
+                      <p className="mt-1 break-words text-xs leading-5 text-slate-400">{item.detail}</p>
+                      {item.attachments && item.attachments.length > 0 && (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {item.attachments.map((attachment) => (
+                            <a
+                              key={attachment.src}
+                              href={resolveAdminUploadUrl(attachment.src)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="group block overflow-hidden rounded-md border border-white/10 bg-white/5"
+                              title={attachment.name || "反馈截图"}
+                            >
+                              <img
+                                src={resolveAdminUploadUrl(attachment.src)}
+                                alt={attachment.name || "反馈截图"}
+                                className="h-16 w-16 object-cover transition group-hover:opacity-85"
+                              />
+                            </a>
+                          ))}
+                        </div>
+                      )}
                       <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <span className="text-xs text-slate-500">负责人：{alert.owner}</span>
                         <button
-                          className="ml-auto rounded-md border border-white/10 px-2 py-1 text-xs text-slate-200 hover:bg-white/8"
-                          onClick={() => onJumpTo(alertSection(alert.category))}
+                          className="rounded-md border border-white/10 px-2 py-1 text-xs text-cyan-100 hover:bg-white/8"
+                          onClick={() => onJumpTo(item)}
                         >
-                          查看模块
+                          查看详情
                         </button>
-                        <button
-                          className="rounded-md bg-white px-2 py-1 text-xs font-medium text-slate-950 hover:bg-cyan-100"
-                          onClick={() => onMarkRead(alert.id)}
-                        >
-                          标记处理
-                        </button>
+                        {item.id.startsWith("alert:") && (
+                          <button
+                            className="rounded-md bg-white px-2 py-1 text-xs font-medium text-slate-950 hover:bg-cyan-100"
+                            onClick={() => onMarkRead(item)}
+                          >
+                            标记处理
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
                 </div>
               ))
             ) : (
-              <div className="p-4 text-sm text-slate-500">暂无真实告警消息</div>
+              <div className="p-4 text-sm text-slate-500">
+                {notificationTabs.find((tab) => tab.id === activeTab)?.empty || "暂无消息"}
+              </div>
             )}
           </div>
         </div>
       )}
     </div>
   );
-}
-
-function alertSection(category: AlertCategory): AdminSection {
-  const map: Record<AlertCategory, AdminSection> = {
-    支付: "orders",
-    报错: "integrations",
-    接口: "integrations",
-    额度: "risk",
-    风控: "risk",
-  };
-
-  return map[category];
 }
 
 function SectionTabs({
@@ -1675,13 +1892,13 @@ function OrdersTable({
         <TableRow className="border-white/10 hover:bg-transparent">
           <TableHead>订单</TableHead>
           <TableHead>用户</TableHead>
-          <TableHead>剩余额度</TableHead>
+          <TableHead>剩余积分</TableHead>
           <TableHead>渠道</TableHead>
           <TableHead>金额</TableHead>
-          <TableHead>兑换积分</TableHead>
+          <TableHead>购买积分</TableHead>
           <TableHead>状态</TableHead>
           <TableHead>对账</TableHead>
-          <TableHead>时间</TableHead>
+          <TableHead>支付时间</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -1706,7 +1923,10 @@ function OrdersTable({
                   {order.reconciliation === "mismatch" ? "异常" : order.reconciliation === "pending" ? "待对账" : "一致"}
                 </Badge>
               </TableCell>
-              <TableCell className="text-slate-400">{order.createdAt}</TableCell>
+              <TableCell className="min-w-[170px] text-xs text-slate-400">
+                <div className="text-slate-200">{order.paidAt ? `支付：${order.paidAt}` : "支付：待支付"}</div>
+                <div className="mt-1">下单：{order.createdAt}</div>
+              </TableCell>
             </TableRow>
           ))
         ) : (
@@ -1788,112 +2008,197 @@ function ExternalCollectionPanel({
   );
 }
 
-function OrderDetailPanel({
+function AccountDetailDrawer({
+  open,
   detail,
-  fallbackOrder,
+  fallbackUser,
+  selectedOrderId,
   note,
+  creditDelta,
+  setCreditDelta,
+  onClose,
+  onSelectOrder,
   onNoteChange,
   onAddNote,
   onReissue,
   onRefund,
+  onAdjust,
 }: {
-  detail: OrderDetail | null;
-  fallbackOrder?: Order;
+  open: boolean;
+  detail: AccountDetail | null;
+  fallbackUser?: AdminUser;
+  selectedOrderId: string;
   note: string;
+  creditDelta: number;
+  setCreditDelta: (value: number) => void;
+  onClose: () => void;
+  onSelectOrder: (orderId: string) => void;
   onNoteChange: (value: string) => void;
   onAddNote: () => void;
   onReissue: () => void;
   onRefund: () => void;
+  onAdjust: (direction: "plus" | "minus") => void;
 }) {
-  const order = detail?.order || fallbackOrder;
-  if (!order) {
-    return (
-      <div className="rounded-md border border-white/10 bg-white/[0.03] p-4 text-sm text-slate-400">
-        选择一笔订单查看对账详情。
-      </div>
-    );
-  }
+  const user = detail?.user || fallbackUser;
+  const selectedOrder = detail?.orders.find((order) => order.id === selectedOrderId) || detail?.orders[0];
+
+  if (!open) return null;
 
   return (
-    <div className="min-w-0 space-y-4 rounded-md border border-white/10 bg-white/[0.03] p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="font-mono text-xs text-slate-500">{order.id}</div>
-          <h3 className="mt-1 text-base font-semibold">{order.user} · {order.packageName || "订单详情"}</h3>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <Badge className={statusClass(order.status)}>{statusLabel(order.status)}</Badge>
-            <Badge className={statusClass(order.reconciliation || "matched")}>
-              {order.reconciliation === "mismatch" ? "对账异常" : order.reconciliation === "pending" ? "待对账" : "对账一致"}
-            </Badge>
+    <div className="pointer-events-none fixed inset-y-0 right-0 z-40 w-full max-w-[380px]">
+      <aside className="pointer-events-auto flex h-full w-full flex-col border-l border-white/10 bg-[#0b1020] shadow-2xl shadow-black/50">
+        <div className="flex items-start justify-between gap-3 border-b border-white/10 px-5 py-4">
+          <div className="min-w-0">
+            <div className="text-xs text-slate-500">账户详情</div>
+            <h2 className="mt-1 truncate text-lg font-semibold">{user?.name || "加载中"}</h2>
+            <p className="mt-1 break-all text-xs text-slate-500">{user?.email || "正在读取账户聚合数据..."}</p>
           </div>
+          <Button variant="outline" size="sm" className="border-white/12 bg-white/5 text-slate-100" onClick={onClose}>
+            <X className="size-4" />
+          </Button>
         </div>
-        <div className="shrink-0 text-left text-sm lg:text-right">
-          <div className="font-semibold">{formatCurrency(order.amount)}</div>
-          <div className="text-xs text-slate-400">{formatCredits(order.expectedCredits || order.credits)} 应发积分</div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+          {user ? (
+            <div className="space-y-5">
+              <div className="grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
+                <InfoCell label="套餐" value={user.plan} />
+                <InfoCell label="状态" value={statusLabel(user.status)} />
+                <InfoCell label="积分余额" value={formatCredits(user.credits)} />
+                <InfoCell label="累计支付金额" value={formatCurrency(user.spent)} />
+              </div>
+
+              <div className="rounded-md border border-white/10 bg-white/[0.035] p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold">人工积分调整</h3>
+                    <p className="mt-1 text-xs text-slate-500">调整会进入账户积分流水和审计日志。</p>
+                  </div>
+                  <Badge className={statusClass(user.risk)}>{user.risk}</Badge>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+                  <Input
+                    type="number"
+                    value={creditDelta}
+                    onChange={(event) => setCreditDelta(Number(event.target.value))}
+                    className="border-white/10 bg-slate-950/40 text-slate-100"
+                  />
+                  <Button className="bg-emerald-300 text-slate-950 hover:bg-emerald-200" onClick={() => onAdjust("plus")}>
+                    <Plus className="size-4" />
+                    增加
+                  </Button>
+                  <Button variant="outline" className="border-white/12 bg-white/5 text-slate-100" onClick={() => onAdjust("minus")}>
+                    <X className="size-4" />
+                    扣减
+                  </Button>
+                </div>
+              </div>
+
+              <MiniSection
+                title="账户订单"
+                rows={(detail?.orders || []).map((order) => ({
+                  title: `${order.packageName || "订单"} · ${statusLabel(order.status)}`,
+                  meta: `${order.id} · ${order.channel} · 下单：${order.createdAt} · 支付：${order.paidAt || "待支付"}`,
+                  value: formatCurrency(order.amount),
+                }))}
+                empty="该账户暂无订单"
+              />
+
+              {selectedOrder ? (
+                <div className="rounded-md border border-cyan-300/20 bg-cyan-300/[0.045] p-4">
+                  <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0">
+                      <div className="font-mono text-xs text-cyan-100/70">{selectedOrder.id}</div>
+                      <h3 className="mt-1 text-sm font-semibold text-cyan-50">当前处理订单 · {selectedOrder.packageName || "订单详情"}</h3>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <Badge className={statusClass(selectedOrder.status)}>{statusLabel(selectedOrder.status)}</Badge>
+                        <Badge className={statusClass(selectedOrder.reconciliation || "matched")}>
+                          {selectedOrder.reconciliation === "mismatch" ? "对账异常" : selectedOrder.reconciliation === "pending" ? "待对账" : "对账一致"}
+                        </Badge>
+                      </div>
+                    </div>
+                    <select
+                      value={selectedOrder.id}
+                      onChange={(event) => onSelectOrder(event.target.value)}
+                      className="h-9 rounded-md border border-white/12 bg-slate-950/70 px-2 text-xs text-slate-100 outline-none"
+                    >
+                      {(detail?.orders || []).map((order) => (
+                        <option key={order.id} value={order.id}>{order.id}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="grid gap-3 text-xs sm:grid-cols-2">
+                    <InfoLine label="支付渠道" value={selectedOrder.channel} />
+                    <InfoLine label="下单时间" value={selectedOrder.createdAt} mono />
+                    <InfoLine label="支付时间" value={selectedOrder.paidAt || "待支付"} mono />
+                    <InfoLine label="第三方交易号" value={selectedOrder.providerTransactionId || "待回调/待查询"} mono />
+                    <InfoLine label="实发积分" value={formatCredits(selectedOrder.issuedCredits || 0)} />
+                    <InfoLine label="退款/扣回" value={`${formatCurrency(selectedOrder.refundAmount || 0)} / ${formatCredits(selectedOrder.refundedCredits || 0)} 积分`} />
+                  </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                    <Button variant="outline" className="border-white/15 bg-white/5" onClick={onAddNote} disabled={!note.trim()}>
+                      保存备注
+                    </Button>
+                    <Button variant="outline" className="border-amber-300/30 bg-amber-300/10 text-amber-100" onClick={onReissue} disabled={selectedOrder.status === "paid"}>
+                      人工补单
+                    </Button>
+                    <Button variant="outline" className="border-rose-300/30 bg-rose-300/10 text-rose-100" onClick={onRefund} disabled={selectedOrder.status !== "paid"}>
+                      标记退款
+                    </Button>
+                  </div>
+                  <Input
+                    value={note}
+                    onChange={(event) => onNoteChange(event.target.value)}
+                    placeholder="记录处理备注"
+                    className="mt-3 border-white/12 bg-slate-950/40"
+                  />
+                </div>
+              ) : (
+                <EmptyPanel title="暂无可处理订单" body="该账户还没有支付订单，无法执行备注、补单或退款操作。" />
+              )}
+
+              <MiniSection
+                title="支付事件"
+                rows={(detail?.paymentEvents || []).map((item) => ({
+                  title: `${item.orderId} · ${item.type} · ${item.status}`,
+                  meta: `${item.message} · ${item.createdAt}`,
+                  value: item.providerTransactionId || "N/A",
+                }))}
+                empty="该账户暂无第三方支付事件"
+              />
+              <MiniSection
+                title="积分流水"
+                rows={(detail?.creditEntries || []).map((item) => ({
+                  title: `${item.type} · ${item.delta > 0 ? "+" : ""}${item.delta}`,
+                  meta: `${item.source} · ${item.reason} · ${item.createdAt}`,
+                  value: item.operator,
+                }))}
+                empty="该账户暂无积分流水"
+              />
+              <MiniSection
+                title="处理备注"
+                rows={(detail?.notes || []).map((item) => ({
+                  title: `${item.orderId} · ${item.actorName}`,
+                  meta: item.content,
+                  value: item.createdAt,
+                }))}
+                empty="该账户暂无处理备注"
+              />
+              <MiniSection
+                title="对账时间线"
+                rows={(detail?.timeline || []).slice(0, 16).map((item) => ({
+                  title: `${item.orderId || "账户"} · ${item.type}`,
+                  meta: item.message,
+                  value: item.createdAt,
+                }))}
+                empty="该账户暂无对账时间线"
+              />
+            </div>
+          ) : (
+            <EmptyPanel title="正在加载账户详情" body="账户聚合数据会从 /api/admin/users/:id/detail 读取。" />
+          )}
         </div>
-      </div>
-
-      <div className="grid min-w-0 gap-3 text-xs md:grid-cols-2 2xl:grid-cols-1 min-[1680px]:grid-cols-2">
-        <InfoLine label="支付渠道" value={order.channel} />
-        <InfoLine label="第三方交易号" value={order.providerTransactionId || "待回调/待查询"} mono />
-        <InfoLine label="实发积分" value={formatCredits(order.issuedCredits || 0)} />
-        <InfoLine label="退款/扣回" value={`${formatCurrency(order.refundAmount || 0)} / ${formatCredits(order.refundedCredits || 0)} 积分`} />
-      </div>
-
-      <div className="grid gap-2 md:grid-cols-3 2xl:grid-cols-1 min-[1680px]:grid-cols-3">
-        <Button variant="outline" className="border-white/15 bg-white/5" onClick={onAddNote} disabled={!note.trim()}>
-          保存备注
-        </Button>
-        <Button variant="outline" className="border-amber-300/30 bg-amber-300/10 text-amber-100" onClick={onReissue} disabled={order.status === "paid"}>
-          人工补单
-        </Button>
-        <Button variant="outline" className="border-rose-300/30 bg-rose-300/10 text-rose-100" onClick={onRefund} disabled={order.status !== "paid"}>
-          标记退款
-        </Button>
-      </div>
-      <Input
-        value={note}
-        onChange={(event) => onNoteChange(event.target.value)}
-        placeholder="记录处理备注"
-        className="border-white/12 bg-white/5"
-      />
-
-      <MiniSection
-        title="支付事件"
-        rows={(detail?.paymentEvents || []).map((item) => ({
-          title: `${item.type} · ${item.status}`,
-          meta: `${item.message} · ${item.createdAt}`,
-          value: item.providerTransactionId || "N/A",
-        }))}
-        empty="暂无第三方支付事件"
-      />
-      <MiniSection
-        title="积分流水"
-        rows={(detail?.creditEntries || []).map((item) => ({
-          title: `${item.type} · ${item.delta > 0 ? "+" : ""}${item.delta}`,
-          meta: `${item.reason} · ${item.createdAt}`,
-          value: item.operator,
-        }))}
-        empty="暂无积分流水"
-      />
-      <MiniSection
-        title="处理备注"
-        rows={(detail?.notes || []).map((item) => ({
-          title: item.actorName,
-          meta: item.content,
-          value: item.createdAt,
-        }))}
-        empty="暂无处理备注"
-      />
-      <MiniSection
-        title="对账时间线"
-        rows={(detail?.timeline || []).slice(0, 8).map((item) => ({
-          title: item.type,
-          meta: item.message,
-          value: item.createdAt,
-        }))}
-        empty="暂无时间线"
-      />
+      </aside>
     </div>
   );
 }
@@ -1938,100 +2243,42 @@ function MiniSection({
   );
 }
 
-function UserDetailPanel({
-  user,
-  creditDelta,
-  setCreditDelta,
-  onAdjust,
+function productionCheckById(productionChecks: ProductionCheck[], id: string) {
+  return productionChecks.find((check) => check.id === id);
+}
+
+function ProductionCheckPanel({
+  check,
+  title,
 }: {
-  user: AdminUser;
-  creditDelta: number;
-  setCreditDelta: (value: number) => void;
-  onAdjust: (direction: "plus" | "minus") => void;
+  check: ProductionCheck;
+  title: string;
 }) {
   return (
     <div className="rounded-md border border-white/10 bg-white/[0.035] p-4">
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h2 className="text-base font-semibold">账户详情</h2>
-          <p className="text-sm text-slate-400">点击用户表格可切换对象。</p>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-base font-semibold">{title}</h2>
+          <p className="mt-1 text-xs leading-5 text-slate-500">{check.summary}</p>
         </div>
-        <Badge className={cn("w-fit shrink-0", statusClass(user.status))}>{statusLabel(user.status)}</Badge>
-      </div>
-
-      <div className="rounded-md border border-white/8 bg-slate-950/35 p-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-white/8 text-sm font-semibold">
-            {user.name.slice(0, 2)}
-          </div>
-          <div className="min-w-0">
-            <div className="break-words text-sm font-medium">{user.name}</div>
-            <div className="break-all text-xs leading-5 text-slate-500">{user.email}</div>
-          </div>
-        </div>
-        <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2 2xl:grid-cols-1 min-[1500px]:grid-cols-2">
-          <InfoCell label="套餐" value={user.plan} />
-          <InfoCell label="风险" value={user.risk} />
-          <InfoCell label="积分余额" value={formatCredits(user.credits)} />
-          <InfoCell label="累计付费" value={formatCurrency(user.spent)} />
-        </div>
-      </div>
-
-      <div className="mt-4 space-y-3">
-        <label className="text-sm font-medium">人工额度调整</label>
-        <Input
-          type="number"
-          value={creditDelta}
-          onChange={(event) => setCreditDelta(Number(event.target.value))}
-          className="border-white/10 bg-slate-950/40 text-slate-100"
-        />
-        <div className="grid gap-2 sm:grid-cols-2 2xl:grid-cols-1 min-[1500px]:grid-cols-2">
-          <Button
-            className="min-w-0 bg-emerald-300 text-slate-950 hover:bg-emerald-200"
-            onClick={() => onAdjust("plus")}
-          >
-            <Plus className="size-4" />
-            增加
-          </Button>
-          <Button
-            variant="outline"
-            className="min-w-0 border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
-            onClick={() => onAdjust("minus")}
-          >
-            <X className="size-4" />
-            扣减
-          </Button>
-        </div>
-        <p className="text-xs leading-5 text-slate-500">
-          真实后台必须填写原因，并写入不可删除的审计日志。
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function RiskPanel({ riskEvents, plans }: { riskEvents: RiskEvent[]; plans: PricingPlan[] }) {
-  const highRiskCount = riskEvents.filter((event) => event.severity === "high" && event.status !== "mitigated").length;
-  const activePlans = plans.filter((plan) => plan.status === "active").length;
-
-  return (
-    <div className="rounded-md border border-white/10 bg-white/[0.035] p-4">
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-base font-semibold">上线前必补能力</h2>
         <SlidersHorizontal className="size-4 text-slate-500" />
       </div>
-      <div className="space-y-3">
-        {[
-          ["支付对账", "第三方支付金额、订单、入账积分必须每日核对"],
-          ["额度负债", `当前 ${activePlans} 个启用套餐，未消耗积分需要进入成本池`],
-          ["密钥治理", "后台只展示状态和位置，不展示密钥值"],
-          ["高危权限", `${highRiskCount} 个高风险事件需要二次确认或人工复核`],
-        ].map(([title, body]) => (
-          <div key={title} className="min-w-0 rounded-md border border-white/8 bg-slate-950/30 p-3">
-            <div className="text-sm font-medium">{title}</div>
-            <p className="mt-1 text-xs leading-5 text-slate-500">{body}</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="text-sm font-medium">{check.title}</div>
+        <Badge className={statusClass(check.status === "ready" ? "normal" : check.status === "blocked" ? "blocked" : "watch")}>
+          {check.status === "ready" ? "正常" : check.status === "blocked" ? "需处理" : "观察"}
+        </Badge>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        {Object.entries(check.metrics).slice(0, 4).map(([key, value]) => (
+          <div key={key} className="rounded-md border border-white/8 bg-slate-950/30 px-2 py-1.5">
+            <div className="text-[10px] text-slate-500">{check.metricLabels?.[key] || key}</div>
+            <div className="mt-0.5 text-xs font-medium text-slate-200">{formatCredits(value)}</div>
           </div>
         ))}
+      </div>
+      <div className="mt-3 text-xs text-slate-500">
+        {check.evidence.slice(0, 3).join(" · ")}
       </div>
     </div>
   );

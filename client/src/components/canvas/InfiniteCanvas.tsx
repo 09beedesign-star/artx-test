@@ -355,6 +355,7 @@ import {
 } from "@/lib/social-media-presets";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { defaultApiBaseUrlForCurrentHost, normalizeApiBaseUrl } from "@/lib/api-base-url";
 import CropEditor from "@/components/canvas/CropEditor";
 import RotateEditor from "@/components/canvas/RotateEditor";
 import {
@@ -442,6 +443,14 @@ function withCanvasFrameAlpha(
     : value;
 }
 
+function getMinimapSurfaceBackground(isDark: boolean) {
+  return isDark ? "rgba(22,22,30,0.80)" : "rgba(255,255,255,0.82)";
+}
+
+function getMinimapSurfaceBorder(isDark: boolean) {
+  return isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
+}
+
 // ── Model Selector ─────────────────────────────────────────────
 function ModelSelector({
   model,
@@ -455,13 +464,14 @@ function ModelSelector({
   models?: AiModelOption[];
 }) {
   const [open, setOpen] = useState(false);
+  const [buttonHover, setButtonHover] = useState(false);
   const modelRef = useRef<HTMLDivElement>(null);
   const current = models.find(m => m.id === model) || AUTO_AI_MODEL;
-  const bg = isDark ? "oklch(0.22 0.015 270)" : "oklch(0.88 0.005 270)";
+  const bg = getMinimapSurfaceBackground(isDark);
   const selectedBg = isDark
     ? "oklch(0.13 0.015 270)"
     : "oklch(0.22 0.015 270)";
-  const border = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
+  const border = getMinimapSurfaceBorder(isDark);
   const selectedBorder = "oklch(0.62 0.22 290 / 45%)";
   const text = isDark ? "oklch(0.74 0.01 270)" : "oklch(0.58 0.008 270)";
   const selectedText = "white";
@@ -499,13 +509,15 @@ function ModelSelector({
         }}
         className="flex h-8 items-center gap-1 rounded-[var(--radius-md-design)] px-2 transition-colors"
         style={{
-          background: open ? selectedBg : bg,
+          background: open || buttonHover ? selectedBg : bg,
           border: `1px solid ${open ? selectedBorder : border}`,
-          color: open ? selectedText : text,
+          color: open || buttonHover ? selectedText : text,
           fontSize: 11,
           lineHeight: "14px",
           letterSpacing: 0,
         }}
+        onMouseEnter={() => setButtonHover(true)}
+        onMouseLeave={() => setButtonHover(false)}
       >
         <span
           style={{
@@ -616,11 +628,11 @@ function SkillPointSelector({
     });
     return Array.from(groups.entries());
   }, []);
-  const bg = isDark ? "oklch(0.22 0.015 270)" : "oklch(0.88 0.005 270)";
+  const bg = getMinimapSurfaceBackground(isDark);
   const hoverButtonBg = isDark
     ? "oklch(0.13 0.015 270)"
     : "oklch(0.22 0.015 270)";
-  const border = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
+  const border = getMinimapSurfaceBorder(isDark);
   const text = isDark ? "oklch(0.74 0.01 270)" : "oklch(0.58 0.008 270)";
   const hoverButtonText = "white";
   const popBg = isDark ? "oklch(0.16 0.018 270)" : "oklch(0.99 0.004 270)";
@@ -15332,19 +15344,13 @@ const CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION_KEY =
 const CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION = "2026-06-21-auto-default";
 
 function getCanvasApiBaseUrl() {
-  const configured = (
+  const configured = normalizeApiBaseUrl(
     import.meta.env.VITE_API_BASE_URL ||
     import.meta.env.VITE_AI_API_BASE_URL ||
     ""
-  ).replace(/\/+$/, "");
+  );
   if (configured) return configured;
-  if (
-    typeof window !== "undefined" &&
-    window.location.hostname.endsWith("github.io")
-  ) {
-    return "https://backstage.artxsd.com";
-  }
-  return typeof window !== "undefined" ? window.location.origin : "";
+  return defaultApiBaseUrlForCurrentHost(typeof window !== "undefined" ? window.location.origin : "");
 }
 
 function getCanvasRenderableImageSrc(src: string) {
@@ -26595,11 +26601,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             bottom: 8,
             right: "auto",
             opacity: 0.6,
-            background: isDark
-              ? "rgba(22,22,30,0.80)"
-              : "rgba(255,255,255,0.82)",
+            background: getMinimapSurfaceBackground(isDark),
             backdropFilter: "blur(12px)",
-            border: `1px solid ${isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)"}`,
+            border: `1px solid ${getMinimapSurfaceBorder(isDark)}`,
             borderRadius: "var(--radius-md-design)",
             boxShadow: isDark
               ? "0 8px 32px rgba(0,0,0,0.45)"

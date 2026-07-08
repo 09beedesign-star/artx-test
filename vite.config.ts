@@ -257,6 +257,18 @@ function gitValue(command: string, fallback = "") {
   }
 }
 
+function normalizeBackendUrl(value: string) {
+  const trimmed = value.trim().replace(/\/+$/, "");
+  if (!trimmed) return "https://backstage.artxsd.com";
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.hostname === "artx-test.onrender.com") return "https://backstage.artxsd.com";
+  } catch {
+    return trimmed;
+  }
+  return trimmed;
+}
+
 function getBuildMetadata() {
   const commitSha = process.env.VITE_COMMIT_SHA || process.env.GITHUB_SHA || gitValue("git rev-parse HEAD", "local");
   const branch =
@@ -265,7 +277,7 @@ function getBuildMetadata() {
     gitValue("git branch --show-current", "local");
   const buildTime = process.env.VITE_BUILD_TIME || new Date().toISOString();
   const testFrontendUrl = process.env.VITE_TEST_FRONTEND_URL || "https://backstage.artxsd.com";
-  const testBackendUrl = process.env.VITE_TEST_BACKEND_URL || process.env.VITE_API_BASE_URL || "https://backstage.artxsd.com";
+  const testBackendUrl = normalizeBackendUrl(process.env.VITE_TEST_BACKEND_URL || process.env.VITE_API_BASE_URL || "https://backstage.artxsd.com");
 
   return {
     app: "artx",

@@ -3,6 +3,7 @@ import { ImagePlus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import TopBar from "@/components/workspace/TopBar";
 import { useTheme } from "@/contexts/ThemeContext";
+import { fileToDataUrl, submitUserFeedback } from "@/lib/feedback-submit";
 import { BG_GLOW } from "@/lib/workspace-data";
 import generationMark from "@/assets/generation/ai-generation-mark.svg";
 
@@ -10,15 +11,28 @@ interface FeedbackImage {
   id: string;
   name: string;
   url: string;
+  file: File;
 }
 
 const MAX_IMAGES = 4;
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+
+function readAuthToken() {
+  try {
+    const raw = window.localStorage.getItem("artx-auth-session");
+    const parsed = raw ? JSON.parse(raw) as { token?: string } : null;
+    return parsed?.token || "";
+  } catch {
+    return "";
+  }
+}
 
 export default function HelpPage() {
   const { resolvedTheme } = useTheme();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [content, setContent] = useState("");
   const [images, setImages] = useState<FeedbackImage[]>([]);
+  const [submitting, setSubmitting] = useState(false);
   const isDark = resolvedTheme === "dark";
 
   const bg = isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)";
@@ -38,6 +52,12 @@ export default function HelpPage() {
   const handleFiles = (event: ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(event.target.files || []).filter(file => file.type.startsWith("image/"));
     if (selected.length === 0) return;
+    const oversized = selected.find(file => file.size > MAX_IMAGE_BYTES);
+    if (oversized) {
+      toast.error("图片过大", { description: "单张反馈图片不能超过 4MB。" });
+      event.target.value = "";
+      return;
+    }
 
     const available = MAX_IMAGES - images.length;
     if (available <= 0) {
@@ -54,6 +74,7 @@ export default function HelpPage() {
       id: `${file.name}-${file.lastModified}-${crypto.randomUUID?.() || Date.now()}`,
       name: file.name,
       url: URL.createObjectURL(file),
+      file,
     }));
 
     setImages(current => [...current, ...nextImages]);
@@ -73,13 +94,36 @@ export default function HelpPage() {
     toast("已取消反馈");
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!content.trim() && images.length === 0) {
       toast.error("请先填写反馈内容或上传问题截图");
       return;
     }
-    clearForm();
-    toast.success("反馈已提交", { description: "感谢你的反馈，我们会尽快查看。" });
+    const token = readAuthToken();
+    if (!token) {
+      toast.error("请先登录后再提交反馈");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const attachments = await Promise.all(images.map(async image => ({
+        name: image.name,
+        src: await fileToDataUrl(image.file),
+      })));
+      await submitUserFeedback({
+        token,
+        content,
+        module: "帮助与反馈",
+        attachments,
+      });
+      clearForm();
+      toast.success("反馈已提交", { description: "后台已收到你的反馈和截图。" });
+    } catch (error) {
+      toast.error("反馈提交失败", { description: error instanceof Error ? error.message : "请稍后重试。" });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -151,6 +195,7 @@ export default function HelpPage() {
               <button
                 type="button"
                 onClick={handleCancel}
+                disabled={submitting}
                 className="flex h-10 items-center gap-2 rounded-[var(--radius-md-design)] border px-5 type-body-sm transition-colors hover:bg-white/10"
                 style={{ borderColor: border, color: sub, background: "transparent" }}
               >
@@ -160,11 +205,12 @@ export default function HelpPage() {
               <button
                 type="button"
                 onClick={handleSubmit}
+                disabled={submitting}
                 className="flex h-10 items-center gap-2 rounded-[var(--radius-md-design)] px-5 type-body-sm font-medium transition-transform hover:opacity-90 active:scale-[0.98]"
                 style={{ background: "#C5ED47", color: "#000", boxShadow: "0 14px 30px rgba(197,237,71,0.24)" }}
               >
                 <img src={generationMark} alt="" aria-hidden="true" draggable={false} className="h-4 w-4 object-contain" style={{ filter: "brightness(0)" }} />
-                提交
+                {submitting ? "提交中" : "提交"}
               </button>
             </div>
           </div>
