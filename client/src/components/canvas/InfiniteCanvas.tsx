@@ -4782,7 +4782,22 @@ function AnnotationBubble({
     }
   }, [ann.editing]);
 
-  // 点击气泡外任意区域（左键或右键）自动折叠
+  const closeBubble = useCallback(() => {
+    const nextText = ann.editing ? draft.trim() : ann.text;
+    onUpdate(ann.id, {
+      text: nextText,
+      open: false,
+      editing: false,
+    });
+  }, [ann.editing, ann.id, ann.text, draft, onUpdate]);
+
+  const requestDeleteAnnotation = useCallback(() => {
+    if (window.confirm("确认删除该智能注释标签吗？")) {
+      onRemove(ann.id);
+    }
+  }, [ann.id, onRemove]);
+
+  // 点击气泡外任意区域自动折叠，保留标注点
   useEffect(() => {
     if (!ann.open) return;
     const handleOutsideClick = (e: MouseEvent) => {
@@ -4790,17 +4805,12 @@ function AnnotationBubble({
         bubbleRef.current &&
         !bubbleRef.current.contains(e.target as HTMLElement)
       ) {
-        if (ann.text.trim()) {
-          onUpdate(ann.id, { open: false, editing: false });
-        } else {
-          onRemove(ann.id);
-        }
+        closeBubble();
       }
     };
-    // 同时监听左键和右键
     document.addEventListener("mousedown", handleOutsideClick);
     return () => document.removeEventListener("mousedown", handleOutsideClick);
-  }, [ann.open, ann.id, ann.text, onUpdate, onRemove]);
+  }, [ann.open, closeBubble]);
 
   const bubbleBg = isDark ? "rgba(22,22,34,0.97)" : "rgba(255,255,255,0.98)";
   const bubbleBorder = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)";
@@ -4836,6 +4846,11 @@ function AnnotationBubble({
         onClick={e => {
           e.stopPropagation();
           onUpdate(ann.id, { open: true });
+        }}
+        onContextMenu={e => {
+          e.preventDefault();
+          e.stopPropagation();
+          requestDeleteAnnotation();
         }}
         title={ann.text || "注释"}
       >
@@ -4936,6 +4951,11 @@ function AnnotationBubble({
             padding: "6px 6px 6px 10px",
             borderBottom: `1px solid ${ann.done ? doneBorder : bubbleBorder}`,
           }}
+          onContextMenu={e => {
+            e.preventDefault();
+            e.stopPropagation();
+            requestDeleteAnnotation();
+          }}
         >
           <span
             style={{ fontSize: 10, color: subColor, letterSpacing: "0.03em" }}
@@ -4943,37 +4963,6 @@ function AnnotationBubble({
             {ann.done ? "✓ 已完成" : "注释"}
           </span>
           <div style={{ display: "flex", gap: 6 }}>
-            {/* 关闭按钮（折叠气泡，不删除） */}
-            <button
-              title={ann.text.trim() ? "折叠注释" : "撤销注释"}
-              style={{
-                width: 22,
-                height: 22,
-                borderRadius: 5,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color: iconBtnColor,
-                background: "transparent",
-                border: "none",
-                cursor: "pointer",
-              }}
-              onClick={() => {
-                if (ann.text.trim()) {
-                  onUpdate(ann.id, { open: false, editing: false });
-                } else {
-                  onRemove(ann.id);
-                }
-              }}
-              onMouseEnter={e =>
-                (e.currentTarget.style.background = iconBtnHover)
-              }
-              onMouseLeave={e =>
-                (e.currentTarget.style.background = "transparent")
-              }
-            >
-              <X size={12} />
-            </button>
             {/* 编辑按钮 */}
             {!ann.editing && (
               <button
@@ -5023,17 +5012,7 @@ function AnnotationBubble({
                 boxShadow: "0 8px 18px rgba(197,237,71,0.20)",
               }}
               onClick={() => {
-                const nextText = (ann.editing ? draft : ann.text).trim();
-                if (!nextText) {
-                  onRemove(ann.id);
-                  return;
-                }
-                onUpdate(ann.id, {
-                  text: nextText,
-                  done: true,
-                  open: false,
-                  editing: false,
-                });
+                closeBubble();
               }}
               onMouseEnter={e =>
                 (e.currentTarget.style.background = "#D8FF5C")
