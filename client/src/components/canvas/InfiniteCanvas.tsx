@@ -19334,6 +19334,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   >(async () => false);
   const preferCrossCanvasPasteRef = useRef(false);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
+  const isBoxSelectingRef = useRef(false);
   const [isAssistantCollapsed, setIsAssistantCollapsed] = useState(false);
   const [assistantPanelWidth, setAssistantPanelWidth] = useState(() => {
     if (typeof window === "undefined") return 372;
@@ -22762,10 +22763,36 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
   const handleSelectionChange = useCallback(
     ({ nodes: selectedNodes }: { nodes: Node[] }) => {
-      const nextSelectedIds = selectedNodes.map(n => n.id);
+      let nextSelectedIds = selectedNodes.map(n => n.id);
+      if (isBoxSelectingRef.current && selectedNodes.length > 0) {
+        const selectedGroupIds = new Set<string>();
+        selectedNodes.forEach(node => {
+          const groupId = (node.data as Record<string, unknown>).groupId;
+          if (typeof groupId === "string" && groupId !== enteringGroupId) {
+            selectedGroupIds.add(groupId);
+          }
+        });
+        if (selectedGroupIds.size > 0) {
+          const expandedIds = new Set(nextSelectedIds);
+          nodes.forEach(node => {
+            const groupId = (node.data as Record<string, unknown>).groupId;
+            if (typeof groupId === "string" && selectedGroupIds.has(groupId)) {
+              expandedIds.add(node.id);
+            }
+          });
+          nextSelectedIds = nodes
+            .filter(node => expandedIds.has(node.id))
+            .map(node => node.id);
+        }
+      }
       clearInactiveAssetCommands(nextSelectedIds);
+      const nextSelectedIdSet = new Set(nextSelectedIds);
       const selectedVisualIds = new Set(
-        selectedNodes.filter(shouldSelectToFront).map(node => node.id)
+        nodes
+          .filter(
+            node => nextSelectedIdSet.has(node.id) && shouldSelectToFront(node)
+          )
+          .map(node => node.id)
       );
       if (selectedVisualIds.size > 0) {
         setNodes(nds => {
@@ -22796,10 +22823,28 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           ];
         });
       }
+      if (nextSelectedIds.length !== selectedNodes.length) {
+        setNodes(nds =>
+          nds.map(node => ({
+            ...node,
+            selected: nextSelectedIdSet.has(node.id),
+          }))
+        );
+      }
       setSelectedNodeIds(nextSelectedIds);
     },
-    [clearInactiveAssetCommands, setNodes]
+    [clearInactiveAssetCommands, enteringGroupId, nodes, setNodes]
   );
+
+  const handleSelectionStart = useCallback(() => {
+    isBoxSelectingRef.current = true;
+  }, []);
+
+  const handleSelectionEnd = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      isBoxSelectingRef.current = false;
+    });
+  }, []);
 
   // ── Handle group container right-click ──
   const handleGroupContainerContextMenu = useCallback(
@@ -26798,6 +26843,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         }
         onConnect={ENABLE_NODE_CONNECTIONS ? onConnect : undefined}
         onSelectionChange={handleSelectionChange}
+        onSelectionStart={handleSelectionStart}
+        onSelectionEnd={handleSelectionEnd}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onPaneContextMenu={handlePaneContextMenu as any}
