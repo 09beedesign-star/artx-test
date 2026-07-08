@@ -231,6 +231,9 @@ function textToHtml(text: string) {
   return escapeHtml(text).replace(/\r?\n/g, "<br>");
 }
 
+const VERIFICATION_EMAIL_LOGO_URL =
+  "https://09beedesign-star.github.io/artx-test/assets/artxstudio-logo-DWGVxm5a.png";
+
 export function buildVerificationCodeEmailHtml(input: {
   title: string;
   intro: string;
@@ -244,7 +247,7 @@ export function buildVerificationCodeEmailHtml(input: {
   <body style="margin:0;padding:0;background:#f4f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,'PingFang SC','Microsoft YaHei',sans-serif;color:#18181b;">
     <div style="width:100%;padding:40px 16px;box-sizing:border-box;background:#f4f4f6;">
       <div style="max-width:520px;margin:0 auto;background:#18181b;border-radius:18px;padding:32px 28px;box-sizing:border-box;box-shadow:0 24px 80px rgba(24,24,27,0.18);">
-        <div style="font-size:13px;line-height:18px;font-weight:700;color:#a78bfa;letter-spacing:0.08em;text-transform:uppercase;">ArtX</div>
+        <img src="${VERIFICATION_EMAIL_LOGO_URL}" alt="ArtX Studio" width="132" style="display:block;width:132px;max-width:60%;height:auto;margin:0 0 18px;border:0;outline:none;text-decoration:none;">
         <h1 style="margin:14px 0 10px;font-size:24px;line-height:32px;font-weight:760;color:#ffffff;letter-spacing:0;">${title}</h1>
         <p style="margin:0;color:#d4d4d8;font-size:15px;line-height:24px;letter-spacing:0;">${intro}</p>
         <div style="margin:28px 0 22px;padding:18px;background:#ffffff;border-radius:14px;text-align:center;box-shadow:inset 0 0 0 1px rgba(24,24,27,0.06);">

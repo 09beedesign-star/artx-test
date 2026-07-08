@@ -9,6 +9,7 @@
 ## Working Notes
 
 - Follow `AGENTS.md` for ArtX test release workflow before any test environment publishing.
+- Single-branch change isolation rule: frontend and backend share `feature/interaction-framework`, so every task must be scoped to the user's explicit request. Check branch and `git status` before editing, preserve unrelated dirty files, never stage `.env`/backup/temp/build artifacts, avoid unrelated refactors or formatting, and commit only task-required files plus focused tests. Final status should state changed files, unrelated/sensitive areas left untouched, commit hash if any, and which online environments are updated.
 - Model selector product rule: user-facing model selectors should only expose the current product-level models `GPT 大语言模型`, `Image Two`, and `Nano Banana`; do not show unused variants such as `Nano Banana lite` or internal GPT version names in selectors.
 - Log lookup rule: when the user says "查看日志" in this workspace, read `docs/dev-log.md` by default.
 - Development log rule: when the user says "添加日志", "记一下日志", or asks to log a task, append the record to `docs/dev-log.md` using the established template; AI-related records must include `generationId`, `backendTaskId`, and `providerTaskId` or explicitly mark missing IDs as `N/A`.

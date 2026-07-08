@@ -46,6 +46,8 @@ const paymentMethods: Array<{
   { id: "wechat", label: "微信支付", hint: "使用微信扫码" },
   { id: "alipay", label: "支付宝", hint: "使用支付宝扫码" },
 ];
+const ALIPAY_LOGO_SOURCE_URL = "https://huaban.com/pins/5786389200";
+const WECHAT_PAY_LOGO_SOURCE_URL = "https://huaban.com/pins/3526742319";
 
 const subscriptionPlans = [
   {
@@ -371,6 +373,8 @@ function PaymentMethodLogo({
   compact?: boolean;
 }) {
   const size = compact ? 18 : 34;
+  const proxiedLogoSrc = (sourceUrl: string) =>
+    `${getBillingApiBaseUrl()}/api/images/proxy?url=${encodeURIComponent(sourceUrl)}`;
   if (method === "alipay") {
     return (
       <span
@@ -378,17 +382,14 @@ function PaymentMethodLogo({
         style={{ width: size, height: size, background: "#1677FF" }}
         aria-label="支付宝 logo"
       >
-        <svg viewBox="0 0 36 36" width={size} height={size} aria-hidden="true">
-          <rect width="36" height="36" rx="8" fill="#1677FF" />
-          <path
-            d="M9 12h18M18 7v18M12 17h12c-.9 5.2-4.4 8.9-10.6 10.8M11 25c5.5 3.1 10.4 4.4 16 4.9"
-            fill="none"
-            stroke="#fff"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="2.6"
-          />
-        </svg>
+        <img
+          src={proxiedLogoSrc(ALIPAY_LOGO_SOURCE_URL)}
+          alt="支付宝 logo"
+          width={size}
+          height={size}
+          className="block h-full w-full object-cover"
+          loading="lazy"
+        />
       </span>
     );
   }
@@ -398,20 +399,14 @@ function PaymentMethodLogo({
       style={{ width: size, height: size, background: "#07C160" }}
       aria-label="微信支付 logo"
     >
-      <svg viewBox="0 0 36 36" width={size} height={size} aria-hidden="true">
-        <rect width="36" height="36" rx="8" fill="#07C160" />
-        <path
-          d="M15.3 11.2c-5 0-9 3-9 6.8 0 2.2 1.4 4.2 3.6 5.5l-.8 2.4 2.9-1.4c1 .3 2.1.4 3.3.4 5 0 9-3 9-6.8s-4-6.9-9-6.9Z"
-          fill="#fff"
-        />
-        <path
-          d="M22 16.4c4.2.3 7.4 2.9 7.4 6.1 0 1.9-1.1 3.6-3 4.7l.7 2-2.5-1.2c-.9.2-1.8.3-2.8.3-3.9 0-7.1-2.2-7.6-5.1 5.3-.4 9.4-3.2 9.4-6.8h-1.6Z"
-          fill="#fff"
-          opacity=".82"
-        />
-        <circle cx="12.4" cy="17.3" r="1.1" fill="#07C160" />
-        <circle cx="18.1" cy="17.3" r="1.1" fill="#07C160" />
-      </svg>
+      <img
+        src={proxiedLogoSrc(WECHAT_PAY_LOGO_SOURCE_URL)}
+        alt="微信支付 logo"
+        width={size}
+        height={size}
+        className="block h-full w-full object-cover"
+        loading="lazy"
+      />
     </span>
   );
 }

@@ -99,4 +99,16 @@ describe("email notifications", () => {
     expect(html).toContain("font-weight:800");
     expect(html).toContain("123456");
   });
+
+  it("uses the public ArtX Studio logo image in verification email html", () => {
+    const html = buildVerificationCodeEmailHtml({
+      title: "ArtX 后台登录验证码",
+      intro: "你正在登录或注册 ArtX 后台账号。",
+      code: "123456",
+    });
+
+    expect(html).toContain("https://09beedesign-star.github.io/artx-test/assets/artxstudio-logo-DWGVxm5a.png");
+    expect(html).toContain('alt="ArtX Studio"');
+    expect(html).not.toContain('src="tps://');
+  });
 });
