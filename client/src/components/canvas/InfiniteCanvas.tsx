@@ -15434,6 +15434,81 @@ function SaveProjectConfirmDialog({
   );
 }
 
+function NewCanvasConfirmDialog({
+  isDark,
+  onCancel,
+  onConfirm,
+}: {
+  isDark: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const bg = isDark ? "oklch(0.15 0.018 270)" : "oklch(0.995 0.002 80)";
+  const border = isDark ? "oklch(1 0 0 / 12%)" : "oklch(0.88 0.006 255)";
+  const text = isDark ? "oklch(0.85 0.01 270)" : "oklch(0.22 0.018 255)";
+  const sub = isDark ? "oklch(0.71 0.010 270)" : "oklch(0.65 0.010 255)";
+
+  return (
+    <div
+      className="fixed inset-0 flex items-center justify-center"
+      style={{
+        background: "rgba(0,0,0,0.58)",
+        backdropFilter: "blur(8px)",
+        zIndex: 5200,
+      }}
+      onMouseDown={onCancel}
+    >
+      <div
+        className="w-[min(420px,calc(100vw-32px))] rounded-[var(--radius-lg-design)] p-6 shadow-2xl"
+        style={{
+          background: bg,
+          border: `1px solid ${border}`,
+          boxShadow: "0 24px 80px oklch(0 0 0 / 0.35)",
+        }}
+        onMouseDown={event => event.stopPropagation()}
+      >
+        <h3
+          className="type-title-sm text-center"
+          style={{ color: text, fontSize: 18, fontWeight: 650 }}
+        >
+          新建画布
+        </h3>
+        <p
+          className="type-body-sm mt-3 text-center leading-6"
+          style={{ color: sub }}
+        >
+          要创建新画布，则会从当前画布跳出，您是否要确认去到新画布？
+        </p>
+        <div className="mt-6 flex items-center justify-center gap-3">
+          <button
+            onClick={onCancel}
+            className="h-9 min-w-[96px] rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-85"
+            style={{
+              background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)",
+              border: `1px solid ${border}`,
+              color: text,
+            }}
+          >
+            取消
+          </button>
+          <button
+            onClick={onConfirm}
+            className="h-9 min-w-[112px] rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-90"
+            style={{
+              background: "#C5ED47",
+              color: "#111827",
+              boxShadow: "0 8px 24px rgba(197,237,71,0.22)",
+              fontWeight: 700,
+            }}
+          >
+            确认新建
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const CANVAS_ASSISTANT_IMAGE_MODEL_STORAGE_KEY =
   "artx:canvas-assistant-image-model";
 const CANVAS_ASSISTANT_TEXT_MODEL_STORAGE_KEY =
@@ -15898,6 +15973,7 @@ function CanvasAssistantPanel({
   const [regeneratingMessageId, setRegeneratingMessageId] = useState<
     string | null
   >(null);
+  const [newCanvasConfirmOpen, setNewCanvasConfirmOpen] = useState(false);
   const [selectedReferenceIds, setSelectedReferenceIds] = useState<string[]>(
     []
   );
@@ -16034,6 +16110,7 @@ function CanvasAssistantPanel({
     [collapsed, onPanelResize, panelWidth]
   );
   const handleCreateCanvasProject = () => {
+    setNewCanvasConfirmOpen(false);
     const project = createWorkspaceHistoryProject();
     toast("已新建画布", { description: project.title });
     navigate(`/project/${project.id}`);
@@ -16042,7 +16119,7 @@ function CanvasAssistantPanel({
     {
       label: "新建画布",
       icon: <PlusSquare size={16} />,
-      onClick: handleCreateCanvasProject,
+      onClick: () => setNewCanvasConfirmOpen(true),
     },
     {
       label: "分享对话",
@@ -17700,25 +17777,33 @@ function CanvasAssistantPanel({
   }
 
   return (
-    <aside
-      className="absolute inset-y-0 right-0 flex flex-col nodrag nopan transition-transform duration-200 ease-out"
-      style={{
-        width: panelWidth,
-        maxWidth: "calc(100vw - 48px)",
-        background: bg,
-        borderLeft: collapsed ? "none" : `1px solid ${border}`,
-        zIndex: 120,
-        backdropFilter: "blur(22px)",
-        transform: collapsed
-          ? `translateX(calc(100% - ${collapsedPeekWidth}px))`
-          : "translateX(0)",
-        boxShadow: collapsed
-          ? "none"
-          : isDark
-            ? "-12px 0 40px rgba(0,0,0,0.18)"
-            : "-12px 0 36px rgba(30,35,55,0.08)",
-      }}
-    >
+    <>
+      {newCanvasConfirmOpen && (
+        <NewCanvasConfirmDialog
+          isDark={isDark}
+          onCancel={() => setNewCanvasConfirmOpen(false)}
+          onConfirm={handleCreateCanvasProject}
+        />
+      )}
+      <aside
+        className="absolute inset-y-0 right-0 flex flex-col nodrag nopan transition-transform duration-200 ease-out"
+        style={{
+          width: panelWidth,
+          maxWidth: "calc(100vw - 48px)",
+          background: bg,
+          borderLeft: collapsed ? "none" : `1px solid ${border}`,
+          zIndex: 120,
+          backdropFilter: "blur(22px)",
+          transform: collapsed
+            ? `translateX(calc(100% - ${collapsedPeekWidth}px))`
+            : "translateX(0)",
+          boxShadow: collapsed
+            ? "none"
+            : isDark
+              ? "-12px 0 40px rgba(0,0,0,0.18)"
+              : "-12px 0 36px rgba(30,35,55,0.08)",
+        }}
+      >
       {!collapsed && (
         <button
           type="button"
@@ -18947,7 +19032,8 @@ function CanvasAssistantPanel({
           )}
         </>
       )}
-    </aside>
+      </aside>
+    </>
   );
 }
 
