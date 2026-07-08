@@ -16031,7 +16031,7 @@ function CanvasAssistantPanel({
     "0 0 0 3px rgba(197,237,71,0.14), 0 18px 44px rgba(0,0,0,0.24)";
   const inputShadow =
     "0 16px 42px rgba(210,214,224,0.10), 0 0 0 1px rgba(210,214,224,0.10)";
-  const collapsedPeekWidth = 112;
+  const collapsedPeekWidth = 72;
   const updateAgentMenuPosition = useCallback(() => {
     const trigger = assistantModelRef.current;
     if (!trigger) return;
@@ -17853,7 +17853,7 @@ function CanvasAssistantPanel({
           justifyContent: collapsed ? "flex-start" : "flex-end",
         }}
       >
-        {(collapsed ? actionButtons.slice(-2) : actionButtons).map(item => (
+        {(collapsed ? actionButtons.slice(-1) : actionButtons).map(item => (
           <button
             key={item.label}
             className="h-8 flex items-center justify-center rounded-[var(--radius-md-design)] transition-colors hover:opacity-85"
