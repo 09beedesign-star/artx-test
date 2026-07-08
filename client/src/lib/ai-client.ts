@@ -1,9 +1,10 @@
+import { ART_X_TEST_API_BASE_URL, normalizeApiBaseUrl } from "./api-base-url";
+
 type ApiErrorResponse = {
   error?: string;
   message?: string;
 };
 
-const ART_X_TEST_API_BASE_URL = "https://backstage.artxsd.com";
 let backendApiBaseOverride: string | null = null;
 
 export type AiCapability =
@@ -71,8 +72,9 @@ function getBackendApiBaseUrl() {
   const configured = (
     import.meta.env.VITE_API_BASE_URL ||
     ""
-  ).replace(/\/+$/, "");
-  if (configured) return configured;
+  );
+  const normalized = normalizeApiBaseUrl(configured);
+  if (normalized) return normalized;
   if (typeof window !== "undefined" && window.location.hostname.endsWith("github.io")) {
     return ART_X_TEST_API_BASE_URL;
   }

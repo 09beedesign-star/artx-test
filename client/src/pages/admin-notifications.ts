@@ -25,6 +25,14 @@ export type AdminNotificationItem = {
   unread: boolean;
   targetSection: AdminNotificationSection;
   targetId?: string;
+  attachments?: Array<{
+    name?: string;
+    src: string;
+    width?: number;
+    height?: number;
+    mimeType?: string;
+    size?: number;
+  }>;
 };
 
 type NotificationOrder = {
@@ -61,7 +69,14 @@ type NotificationFeedback = {
   priority: "P0" | "P1" | "P2";
   createdAt: string;
   linkedOrderId?: string;
-  attachments?: Array<{ src: string }>;
+  attachments?: Array<{
+    name?: string;
+    src: string;
+    width?: number;
+    height?: number;
+    mimeType?: string;
+    size?: number;
+  }>;
 };
 
 type NotificationRiskEvent = {
@@ -196,6 +211,7 @@ export function buildAdminNotifications(input: AdminNotificationInput): AdminNot
       unread: feedbackUnread(item),
       targetSection: item.linkedOrderId ? "orders" : "feedback",
       targetId: item.linkedOrderId || item.id,
+      attachments: item.attachments || [],
     }));
 
   return {

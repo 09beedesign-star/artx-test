@@ -68,7 +68,7 @@ function useAdminHostRootRedirect() {
 }
 
 function AppRoutes() {
-  const { isAuthenticated, openLoginModal, user } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   useAdminHostRootRedirect();
 
   return (
@@ -168,7 +168,7 @@ function AppRoutes() {
         ) : isAuthenticated ? (
           <AdminForbidden username={user?.username || "当前账号"} />
         ) : (
-          <AdminAccessRequired onLogin={openLoginModal} />
+          <AdminAccessRequired />
         )}
       </Route>
 
@@ -298,94 +298,27 @@ function AdminForbidden({ username }: { username: string }) {
   );
 }
 
-function AdminAccessRequired({ onLogin }: { onLogin: () => void }) {
-  const { forgotPassword, resetPassword, sendEmailCode, loginWithEmailCode } = useAuth();
-  const [email, setEmail] = useState("");
-  const [emailCode, setEmailCode] = useState("");
-  const [emailBusy, setEmailBusy] = useState(false);
-  const [emailMessage, setEmailMessage] = useState("");
-  const [resetUsername, setResetUsername] = useState("");
-  const [resetCode, setResetCode] = useState("");
-  const [resetNewPassword, setResetNewPassword] = useState("");
-  const [resetConfirmPassword, setResetConfirmPassword] = useState("");
-  const [resetBusy, setResetBusy] = useState(false);
-  const [resetMessage, setResetMessage] = useState("");
+function AdminAccessRequired() {
+  const { login } = useAuth();
+  const [adminId, setAdminId] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
 
-  const handleSendEmailCode = async () => {
-    const normalizedEmail = email.trim();
-    setEmailMessage("");
-    if (!normalizedEmail) {
-      setEmailMessage("请输入邮箱地址。");
-      return;
-    }
-    setEmailBusy(true);
-    const result = await sendEmailCode(normalizedEmail);
-    setEmailBusy(false);
-    setEmailMessage(result.ok ? "验证码已发送，请查看邮箱后输入验证码。" : result.error || "验证码发送失败。");
-  };
-
-  const handleEmailLogin = async (event: FormEvent<HTMLFormElement>) => {
+  const handleAdminLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const normalizedEmail = email.trim();
-    const code = emailCode.trim();
-    setEmailMessage("");
-    if (!normalizedEmail || !code) {
-      setEmailMessage("请输入邮箱和验证码。");
+    const username = adminId.trim();
+    setMessage("");
+    if (!username || !password.trim()) {
+      setMessage("请输入管理员 ID 和密码。");
       return;
     }
-    setEmailBusy(true);
-    const result = await loginWithEmailCode(normalizedEmail, code);
-    setEmailBusy(false);
+    setBusy(true);
+    const result = await login(username, password);
+    setBusy(false);
     if (!result.ok) {
-      setEmailMessage(result.error || "邮箱验证失败。");
+      setMessage(result.error || "登录失败，请重新输入。");
     }
-  };
-
-  const handleForgotPassword = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    await handleResetPassword();
-  };
-
-  const handleSendResetCode = async () => {
-    const username = resetUsername.trim();
-    setResetMessage("");
-    if (!username) {
-      setResetMessage("请输入用于注册的邮箱。");
-      return;
-    }
-    setResetBusy(true);
-    const result = await forgotPassword(username);
-    setResetBusy(false);
-    setResetMessage(result.ok ? result.message || "验证码已发送，请查看邮箱。" : result.error || "验证码发送失败。");
-  };
-
-  const handleResetPassword = async () => {
-    const username = resetUsername.trim();
-    const code = resetCode.trim();
-    setResetMessage("");
-    if (!username || !code || !resetNewPassword || !resetConfirmPassword) {
-      setResetMessage("请填写邮箱、验证码、新密码和确认密码。");
-      return;
-    }
-    if (resetNewPassword !== resetConfirmPassword) {
-      setResetMessage("两次输入的新密码不一致。");
-      return;
-    }
-    if (resetNewPassword.length < 8) {
-      setResetMessage("新密码至少需要 8 位。");
-      return;
-    }
-    setResetBusy(true);
-    const result = await resetPassword(username, code, resetNewPassword);
-    setResetBusy(false);
-    if (!result.ok) {
-      setResetMessage(result.error || "密码重置失败。");
-      return;
-    }
-    setResetCode("");
-    setResetNewPassword("");
-    setResetConfirmPassword("");
-    setResetMessage("密码已重置，请使用新密码登录。");
   };
 
   return (
@@ -399,115 +332,36 @@ function AdminAccessRequired({ onLogin }: { onLogin: () => void }) {
           管理后台包含支付、积分、用户反馈和风控信息，需要先确认当前账号身份。
         </p>
 
-        <form className="mt-5 rounded-md border border-cyan-300/15 bg-cyan-300/[0.045] p-4 text-left" onSubmit={handleEmailLogin}>
-          <div className="text-sm font-semibold text-cyan-50">邮箱验证码注册 / 登录</div>
-          <p className="mt-1 text-xs leading-5 text-slate-400">支持自定义邮箱和 Gmail。首次验证成功会自动创建账号。</p>
-          <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <form className="mt-5 rounded-md border border-cyan-300/15 bg-cyan-300/[0.045] p-4 text-left" onSubmit={handleAdminLogin}>
+          <div className="text-sm font-semibold text-cyan-50">管理员 ID + 密码登录</div>
+          <p className="mt-1 text-xs leading-5 text-slate-400">管理端只接受已授权管理员账号，不开放邮箱验证码注册或找回入口。</p>
+          <div className="mt-3 grid gap-3">
             <input
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              autoComplete="email"
-              inputMode="email"
+              value={adminId}
+              onChange={(event) => setAdminId(event.target.value)}
+              autoComplete="username"
               className="h-10 rounded-md border border-white/12 bg-slate-950/50 px-3 text-sm text-slate-100 outline-none transition focus:border-cyan-300/50"
-              placeholder="name@gmail.com 或自定义邮箱"
-            />
-            <button
-              type="button"
-              onClick={() => void handleSendEmailCode()}
-              disabled={emailBusy}
-              className="h-10 rounded-md border border-cyan-300/25 bg-cyan-300/10 px-3 text-sm font-medium text-cyan-100 transition hover:bg-cyan-300/18 disabled:opacity-60"
-            >
-              {emailBusy ? "请稍候" : "获取验证码"}
-            </button>
-          </div>
-          <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-            <input
-              value={emailCode}
-              onChange={(event) => setEmailCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
-              autoComplete="one-time-code"
-              inputMode="numeric"
-              className="h-10 rounded-md border border-white/12 bg-slate-950/50 px-3 text-sm text-slate-100 outline-none transition focus:border-cyan-300/50"
-              placeholder="6 位验证码"
-            />
-            <button
-              type="submit"
-              disabled={emailBusy}
-              className="h-10 rounded-md bg-cyan-300 px-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200 disabled:opacity-60"
-            >
-              验证并进入
-            </button>
-          </div>
-          {emailMessage && (
-            <p className="mt-2 text-xs leading-5 text-amber-100">{emailMessage}</p>
-          )}
-        </form>
-
-        <button
-          type="button"
-          onClick={onLogin}
-          className="mt-4 h-10 rounded-md border border-white/12 bg-white/5 px-5 text-sm font-semibold text-slate-100 transition-colors hover:bg-white/10"
-        >
-          使用账号密码登录
-        </button>
-        <form className="mt-5 border-t border-white/10 pt-5 text-left" onSubmit={handleForgotPassword}>
-          <label className="text-xs font-medium text-slate-400" htmlFor="admin-reset-username">
-            邮箱验证找回密码
-          </label>
-          <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-            <input
-              id="admin-reset-username"
-              value={resetUsername}
-              onChange={(event) => setResetUsername(event.target.value)}
-              autoComplete="email"
-              inputMode="email"
-              className="h-10 rounded-md border border-white/12 bg-slate-950/50 px-3 text-sm text-slate-100 outline-none transition focus:border-cyan-300/50"
-              placeholder="输入注册邮箱"
-            />
-            <button
-              type="button"
-              disabled={resetBusy}
-              onClick={() => void handleSendResetCode()}
-              className="h-10 rounded-md border border-cyan-300/25 bg-cyan-300/10 px-3 text-sm font-medium text-cyan-100 transition hover:bg-cyan-300/18 disabled:opacity-60"
-            >
-              {resetBusy ? "发送中" : "发送验证码"}
-            </button>
-          </div>
-          <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            <input
-              value={resetCode}
-              onChange={(event) => setResetCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
-              autoComplete="one-time-code"
-              inputMode="numeric"
-              className="h-10 rounded-md border border-white/12 bg-slate-950/50 px-3 text-sm text-slate-100 outline-none transition focus:border-cyan-300/50"
-              placeholder="6 位验证码"
+              placeholder="输入管理员 ID"
             />
             <input
               type="password"
-              value={resetNewPassword}
-              onChange={(event) => setResetNewPassword(event.target.value)}
-              autoComplete="new-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="current-password"
               className="h-10 rounded-md border border-white/12 bg-slate-950/50 px-3 text-sm text-slate-100 outline-none transition focus:border-cyan-300/50"
-              placeholder="新密码，至少 8 位"
+              placeholder="输入管理密码"
             />
-            <input
-              type="password"
-              value={resetConfirmPassword}
-              onChange={(event) => setResetConfirmPassword(event.target.value)}
-              autoComplete="new-password"
-              className="h-10 rounded-md border border-white/12 bg-slate-950/50 px-3 text-sm text-slate-100 outline-none transition focus:border-cyan-300/50"
-              placeholder="再次输入新密码"
-            />
-            <button
-              type="submit"
-              disabled={resetBusy}
-              className="h-10 rounded-md bg-cyan-300 px-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200 disabled:opacity-60"
-            >
-              {resetBusy ? "重置中" : "重置密码"}
-            </button>
           </div>
-          {resetMessage && (
-            <p className="mt-2 text-xs leading-5 text-amber-100">{resetMessage}</p>
+          {message && (
+            <p className="mt-3 text-xs leading-5 text-amber-100">{message}</p>
           )}
+          <button
+            type="submit"
+            disabled={busy}
+            className="mt-4 h-10 w-full rounded-md bg-cyan-300 px-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200 disabled:opacity-60"
+          >
+            {busy ? "登录中" : "进入管理后台"}
+          </button>
         </form>
       </section>
     </main>

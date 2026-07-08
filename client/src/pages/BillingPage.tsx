@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import TopBar from "@/components/workspace/TopBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
+import { ART_X_TEST_API_BASE_URL, normalizeApiBaseUrl } from "@/lib/api-base-url";
 import { BG_GLOW } from "@/lib/workspace-data";
 import {
   BILLING_CYCLES,
@@ -178,14 +179,14 @@ function readInitialTab(): BillingTab {
 }
 
 function getBillingApiBaseUrl() {
-  const configured = (
+  const configured = normalizeApiBaseUrl(
     import.meta.env.VITE_API_BASE_URL ||
     import.meta.env.VITE_AUTH_API_BASE_URL ||
     ""
-  ).replace(/\/+$/, "");
+  );
 
   if (configured) return configured;
-  return "https://backstage.artxsd.com";
+  return ART_X_TEST_API_BASE_URL;
 }
 
 function isQrImagePayUrl(payUrl: string) {

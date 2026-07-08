@@ -13,6 +13,7 @@ import {
   Gift,
   History,
   KeyRound,
+  LogOut,
   LockKeyhole,
   MessageSquareText,
   Plus,
@@ -418,7 +419,7 @@ function normalizeAdminPayload(payload: AdminPayload) {
 type AdminState = ReturnType<typeof normalizeAdminPayload>;
 
 function AdminPrototypePage() {
-  const { user, changePassword } = useAuth();
+  const { user, changePassword, logout } = useAuth();
   const [activeSection, setActiveSection] = useState<AdminSection>("overview");
   const [adminData, setAdminData] = useState<AdminState>(() => normalizeAdminPayload({}));
   const [selectedUserId, setSelectedUserId] = useState("");
@@ -856,6 +857,14 @@ function AdminPrototypePage() {
                   1 笔支付回调延迟、1 个高风险账户、2 条待处理反馈需要跟进。
                 </p>
               </div>
+              <button
+                type="button"
+                onClick={logout}
+                className="mt-3 flex w-full items-center justify-center gap-2 rounded-md border border-white/12 bg-white/5 px-3 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/10 hover:text-white"
+              >
+                <LogOut className="size-4" />
+                退出登录
+              </button>
             </div>
           </div>
         </aside>
@@ -1733,6 +1742,26 @@ function NotificationCenter({
                       </div>
                       <div className="mt-2 text-sm font-medium">{item.title}</div>
                       <p className="mt-1 break-words text-xs leading-5 text-slate-400">{item.detail}</p>
+                      {item.attachments && item.attachments.length > 0 && (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {item.attachments.map((attachment) => (
+                            <a
+                              key={attachment.src}
+                              href={attachment.src}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="group block overflow-hidden rounded-md border border-white/10 bg-white/5"
+                              title={attachment.name || "反馈截图"}
+                            >
+                              <img
+                                src={attachment.src}
+                                alt={attachment.name || "反馈截图"}
+                                className="h-16 w-16 object-cover transition group-hover:opacity-85"
+                              />
+                            </a>
+                          ))}
+                        </div>
+                      )}
                       <div className="mt-3 flex flex-wrap items-center gap-2">
                         <button
                           className="rounded-md border border-white/10 px-2 py-1 text-xs text-cyan-100 hover:bg-white/8"

@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { defaultApiBaseUrlForCurrentHost, normalizeApiBaseUrl } from "@/lib/api-base-url";
 
 const AUTH_STORAGE_KEY = "artx-auth-session";
 const LOCAL_AUTH_USERS_KEY = "artx-local-auth-users";
@@ -358,9 +359,12 @@ function clearLargeArtxLocalCache() {
   const removablePrefixes = [
     "artx:canvas-state:",
     "artx:canvas-assistant-messages:",
+    "artx:workspace-project-history:",
+    "artx:workspace-project-history:fallback:",
   ];
   const removableKeys = [
     "artx:workspace-project-history",
+    "artx:workspace-project-history:fallback",
   ];
 
   for (let index = localStorage.length - 1; index >= 0; index -= 1) {
@@ -457,16 +461,12 @@ function isGithubPagesTest() {
 }
 
 function getAuthApiBaseUrl() {
-  const configured = (
+  const configured = normalizeApiBaseUrl(
     import.meta.env.VITE_AUTH_API_BASE_URL ||
     import.meta.env.VITE_API_BASE_URL ||
     ""
-  ).replace(/\/+$/, "");
+  );
 
   if (configured) return configured;
-  if (typeof window !== "undefined" && window.location.hostname.endsWith("github.io")) {
-    return "https://backstage.artxsd.com";
-  }
-
-  return "";
+  return defaultApiBaseUrlForCurrentHost("");
 }

@@ -40,6 +40,16 @@ describe("buildAdminNotifications", () => {
           priority: "P1",
           createdAt: "2026/07/07 10:02:00",
           linkedOrderId: "ord_1001",
+          attachments: [
+            {
+              name: "payment-screen.png",
+              src: "/uploads/feedback/bob/fb_1001/payment-screen.png",
+              width: 628,
+              height: 544,
+              mimeType: "image/png",
+              size: 50875,
+            },
+          ],
         },
       ],
       riskEvents: [
@@ -72,6 +82,12 @@ describe("buildAdminNotifications", () => {
         targetSection: "orders",
         targetId: "ord_1001",
         unread: true,
+        attachments: [
+          expect.objectContaining({
+            name: "payment-screen.png",
+            src: "/uploads/feedback/bob/fb_1001/payment-screen.png",
+          }),
+        ],
       }),
     ]);
   });

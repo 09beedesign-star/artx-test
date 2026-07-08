@@ -9,6 +9,7 @@ import { useLocation } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { type CreateProjectPayload } from "@/components/workspace/CreateProjectDialog";
+import { ART_X_TEST_API_BASE_URL, normalizeApiBaseUrl } from "@/lib/api-base-url";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -117,12 +118,12 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
   };
 
   const getMcpApiBaseUrl = () => {
-    if (typeof window === "undefined") return "https://backstage.artxsd.com";
-    const configured = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
+    if (typeof window === "undefined") return ART_X_TEST_API_BASE_URL;
+    const configured = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL || "");
     if (configured) return configured;
     const hostname = window.location.hostname;
     if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") {
-      return "https://backstage.artxsd.com";
+      return ART_X_TEST_API_BASE_URL;
     }
     return window.location.origin.replace(/\/+$/, "");
   };

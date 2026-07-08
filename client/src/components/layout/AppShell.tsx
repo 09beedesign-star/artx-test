@@ -7,6 +7,7 @@ import { useRef, useState, type ChangeEvent } from "react";
 import { useLocation } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { defaultApiBaseUrlForCurrentHost, normalizeApiBaseUrl } from "@/lib/api-base-url";
 import { fileToDataUrl, submitUserFeedback } from "@/lib/feedback-submit";
 import { toast } from "sonner";
 import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
@@ -41,16 +42,13 @@ const MAX_HELP_SCREENSHOT_BYTES = 4 * 1024 * 1024;
 const BRAND_LOGO_SIZE = "h-[20px] w-[109px]";
 
 function getAppApiBaseUrl() {
-  const configured = (
+  const configured = normalizeApiBaseUrl(
     import.meta.env.VITE_API_BASE_URL ||
     import.meta.env.VITE_AUTH_API_BASE_URL ||
     ""
-  ).replace(/\/+$/, "");
+  );
   if (configured) return configured;
-  if (typeof window !== "undefined" && window.location.hostname.endsWith("github.io")) {
-    return "https://backstage.artxsd.com";
-  }
-  return typeof window !== "undefined" ? window.location.origin : "";
+  return defaultApiBaseUrlForCurrentHost(typeof window !== "undefined" ? window.location.origin : "");
 }
 
 function getStoredAuthToken() {

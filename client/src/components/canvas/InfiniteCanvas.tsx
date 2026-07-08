@@ -355,6 +355,7 @@ import {
 } from "@/lib/social-media-presets";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { defaultApiBaseUrlForCurrentHost, normalizeApiBaseUrl } from "@/lib/api-base-url";
 import CropEditor from "@/components/canvas/CropEditor";
 import RotateEditor from "@/components/canvas/RotateEditor";
 import {
@@ -15314,19 +15315,13 @@ const CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION_KEY =
 const CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION = "2026-06-21-auto-default";
 
 function getCanvasApiBaseUrl() {
-  const configured = (
+  const configured = normalizeApiBaseUrl(
     import.meta.env.VITE_API_BASE_URL ||
     import.meta.env.VITE_AI_API_BASE_URL ||
     ""
-  ).replace(/\/+$/, "");
+  );
   if (configured) return configured;
-  if (
-    typeof window !== "undefined" &&
-    window.location.hostname.endsWith("github.io")
-  ) {
-    return "https://backstage.artxsd.com";
-  }
-  return typeof window !== "undefined" ? window.location.origin : "";
+  return defaultApiBaseUrlForCurrentHost(typeof window !== "undefined" ? window.location.origin : "");
 }
 
 function getCanvasRenderableImageSrc(src: string) {
