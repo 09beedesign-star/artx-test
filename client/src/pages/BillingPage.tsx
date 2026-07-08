@@ -396,7 +396,7 @@ function PaymentMethodLogo({
   return (
     <span
       className="inline-flex shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-md-design)]"
-      style={{ width: size, height: size, background: "#07C160" }}
+      style={{ width: size, height: size, background: "#FFFFFF" }}
       aria-label="微信支付 logo"
     >
       <img

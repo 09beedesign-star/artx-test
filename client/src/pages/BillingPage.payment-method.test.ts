@@ -16,5 +16,6 @@ describe("BillingPage payment method selection", () => {
     expect(source).toContain("https://huaban.com/pins/5786389200");
     expect(source).toContain("https://huaban.com/pins/3526742319");
     expect(source).toContain("/api/images/proxy?url=");
+    expect(source).toContain('background: "#FFFFFF"');
   });
 });
