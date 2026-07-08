@@ -2,7 +2,7 @@
  * TopBar — Neo-Studio Dark Design System
  * Global top navigation: search, theme switcher (Radix DropdownMenu), credits, user info
  */
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronDown, Sparkles, Check, UserRound, LogOut, Search, KeyRound, Copy, RefreshCw, Zap, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -49,6 +49,28 @@ const AVATAR_COLORS = [
   "#6C7A89",
 ];
 
+function getTopBarApiBaseUrl() {
+  if (typeof window === "undefined") return ART_X_TEST_API_BASE_URL;
+  const configured = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL || "");
+  if (configured) return configured;
+  const hostname = window.location.hostname;
+  if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname.endsWith("github.io")) {
+    return ART_X_TEST_API_BASE_URL;
+  }
+  return window.location.origin.replace(/\/+$/, "");
+}
+
+function getTopBarAuthToken() {
+  if (typeof window === "undefined") return "";
+  try {
+    const raw = window.localStorage.getItem("artx-auth-session");
+    const parsed = raw ? JSON.parse(raw) as { token?: string } : null;
+    return parsed?.token || "";
+  } catch {
+    return "";
+  }
+}
+
 export default function TopBar({ credits = 0, projectTitle, projectTime, showSearch = false, glass = false }: TopBarProps) {
   const { resolvedTheme } = useTheme();
   const { isAuthenticated, user, openLoginModal, logout } = useAuth();
@@ -69,6 +91,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
   const [apiKey, setApiKey] = useState("");
   const [apiKeyCopied, setApiKeyCopied] = useState(false);
   const [apiKeyCreationConfirmed, setApiKeyCreationConfirmed] = useState(false);
+  const [syncedCredits, setSyncedCredits] = useState<number | null>(null);
 
   const searchBg = isDark ? "oklch(0.16 0.016 270 / 0.90)" : "oklch(0.97 0.003 270 / 0.92)";
   const searchBorder = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
@@ -79,6 +102,59 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
     const seed = displayName.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
     return AVATAR_COLORS[seed % AVATAR_COLORS.length];
   }, [displayName]);
+  const displayCredits = syncedCredits ?? credits;
+
+  const refreshCredits = useCallback(async () => {
+    if (!isAuthenticated) {
+      setSyncedCredits(null);
+      return;
+    }
+    const token = getTopBarAuthToken();
+    if (!token) {
+      setSyncedCredits(null);
+      return;
+    }
+    try {
+      const response = await fetch(`${getTopBarApiBaseUrl()}/api/billing/summary`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || typeof payload.balance !== "number") return;
+      setSyncedCredits(payload.balance);
+    } catch {
+      // Keep the last visible balance when the network is temporarily unavailable.
+    }
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    void refreshCredits();
+  }, [refreshCredits, user?.id]);
+
+  useEffect(() => {
+    if (!isAuthenticated || typeof window === "undefined" || typeof document === "undefined") return;
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refreshCredits();
+    };
+    const handleCreditsUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ balance?: number }>).detail;
+      if (typeof detail?.balance === "number") {
+        setSyncedCredits(detail.balance);
+      }
+      void refreshCredits();
+    };
+    const interval = window.setInterval(() => void refreshCredits(), 15_000);
+
+    window.addEventListener("focus", refreshCredits);
+    window.addEventListener("artx:credits-updated", handleCreditsUpdated);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshCredits);
+      window.removeEventListener("artx:credits-updated", handleCreditsUpdated);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [isAuthenticated, refreshCredits]);
 
   const handleConfirmLogout = () => {
     logout();
@@ -293,7 +369,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
           title="查看积分与充值"
         >
           <Sparkles size={13} style={{ color: "oklch(0.78 0.18 290)" }} />
-          <span>{credits}</span>
+          <span>{displayCredits.toLocaleString("zh-HK")}</span>
           <span style={{ color: textSec }}>积分</span>
         </button>
         <button

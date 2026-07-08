@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { PostgresJsonDocumentStore } from "./postgres-json-store";
-import { sendUserEmailNotification } from "./notifications";
+import { buildVerificationCodeEmailHtml, sendUserEmailNotification } from "./notifications";
 import { normalizeMainlandPhone, sendSmsVerificationCode } from "./sms-service";
 
 type AuthAction = "register" | "login" | "me" | "logout" | "social" | "forgot-password" | "reset-password" | "change-password" | "sms-send-code" | "sms-login" | "email-send-code" | "email-login";
@@ -702,6 +702,11 @@ export async function handleAuthAction(action: AuthAction, payload: unknown) {
           "",
           "如果这不是你本人操作，请忽略此邮件。",
         ].join("\n"),
+        html: buildVerificationCodeEmailHtml({
+          title: "ArtX 后台登录验证码",
+          intro: "你正在登录或注册 ArtX 后台账号。",
+          code,
+        }),
       });
     if (!sent.sent) {
       return { status: 503, body: { error: sent.reason || "邮箱服务暂未配置或发送失败" } };
@@ -1034,6 +1039,11 @@ export async function handleAuthAction(action: AuthAction, payload: unknown) {
             "",
             "如果这不是你本人操作，请忽略此邮件。",
           ].join("\n"),
+          html: buildVerificationCodeEmailHtml({
+            title: "ArtX 密码重置验证码",
+            intro: "你正在重置 ArtX 账号密码。",
+            code,
+          }),
         });
       if (!sent.sent) {
         return { status: 503, body: { error: sent.reason || "邮箱服务暂未配置或发送失败" } };

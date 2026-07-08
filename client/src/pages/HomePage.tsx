@@ -251,7 +251,7 @@ export default function HomePage() {
       return;
     }
     toast(action === "register" ? "注册成功" : "登录成功", { description: "欢迎回到 ArtX Studio" });
-    createProjectFromPrompt();
+    setPanelMode("prelogin");
   };
 
   const handleAuthSubmit = async (event: React.FormEvent<HTMLFormElement>) => {

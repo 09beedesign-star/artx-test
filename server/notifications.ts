@@ -15,6 +15,7 @@ export type UserEmailNotification = {
   to: string;
   subject: string;
   text: string;
+  html?: string;
 };
 
 type SmtpConfig = {
@@ -95,8 +96,43 @@ function sanitizeAddress(value: string) {
   return value.replace(/[\r\n<>]/g, "").trim();
 }
 
-function buildEmailMessage(input: { from: string; to: string; subject: string; text: string }) {
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function normalizeEmailBody(value: string) {
+  return value.replace(/\r?\n/g, "\r\n").replace(/^\./gm, "..");
+}
+
+function buildEmailMessage(input: { from: string; to: string; subject: string; text: string; html?: string }) {
   const body = input.text.replace(/\r?\n/g, "\r\n").replace(/^\./gm, "..");
+  if (input.html) {
+    const boundary = `artx-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    return [
+      `From: ${sanitizeAddress(input.from)}`,
+      `To: ${sanitizeAddress(input.to)}`,
+      `Subject: ${encodeHeader(input.subject)}`,
+      "MIME-Version: 1.0",
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      "",
+      `--${boundary}`,
+      "Content-Type: text/plain; charset=utf-8",
+      "Content-Transfer-Encoding: 8bit",
+      "",
+      normalizeEmailBody(input.text),
+      `--${boundary}`,
+      "Content-Type: text/html; charset=utf-8",
+      "Content-Transfer-Encoding: 8bit",
+      "",
+      normalizeEmailBody(input.html),
+      `--${boundary}--`,
+      "",
+    ].join("\r\n");
+  }
+
   return [
     `From: ${sanitizeAddress(input.from)}`,
     `To: ${sanitizeAddress(input.to)}`,
@@ -181,7 +217,7 @@ async function sendSmtpMail(input: UserEmailNotification): Promise<EmailSendResu
     await smtpCommand(socket, `MAIL FROM:<${sanitizeAddress(config.from)}>`, [250]);
     await smtpCommand(socket, `RCPT TO:<${sanitizeAddress(input.to)}>`, [250, 251]);
     await smtpCommand(socket, "DATA", [354]);
-    socket.write(`${buildEmailMessage({ from: config.from, to: input.to, subject: input.subject, text: input.text })}\r\n.\r\n`);
+    socket.write(`${buildEmailMessage({ from: config.from, to: input.to, subject: input.subject, text: input.text, html: input.html })}\r\n.\r\n`);
     const response = await readSmtpResponse(socket);
     if (response.code !== 250) throw new Error(`SMTP DATA failed with ${response.code}`);
     await smtpCommand(socket, "QUIT", [221]).catch(() => undefined);
@@ -192,11 +228,35 @@ async function sendSmtpMail(input: UserEmailNotification): Promise<EmailSendResu
 }
 
 function textToHtml(text: string) {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\r?\n/g, "<br>");
+  return escapeHtml(text).replace(/\r?\n/g, "<br>");
+}
+
+export function buildVerificationCodeEmailHtml(input: {
+  title: string;
+  intro: string;
+  code: string;
+}) {
+  const title = escapeHtml(input.title);
+  const intro = escapeHtml(input.intro);
+  const code = escapeHtml(input.code);
+  return `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#f4f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,'PingFang SC','Microsoft YaHei',sans-serif;color:#18181b;">
+    <div style="width:100%;padding:40px 16px;box-sizing:border-box;background:#f4f4f6;">
+      <div style="max-width:520px;margin:0 auto;background:#18181b;border-radius:18px;padding:32px 28px;box-sizing:border-box;box-shadow:0 24px 80px rgba(24,24,27,0.18);">
+        <div style="font-size:13px;line-height:18px;font-weight:700;color:#a78bfa;letter-spacing:0.08em;text-transform:uppercase;">ArtX</div>
+        <h1 style="margin:14px 0 10px;font-size:24px;line-height:32px;font-weight:760;color:#ffffff;letter-spacing:0;">${title}</h1>
+        <p style="margin:0;color:#d4d4d8;font-size:15px;line-height:24px;letter-spacing:0;">${intro}</p>
+        <div style="margin:28px 0 22px;padding:18px;background:#ffffff;border-radius:14px;text-align:center;box-shadow:inset 0 0 0 1px rgba(24,24,27,0.06);">
+          <div style="font-size:12px;line-height:16px;color:#71717a;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">验证码</div>
+          <div style="margin-top:8px;font-size:40px;line-height:48px;font-weight:800;color:#18181b;letter-spacing:0.18em;font-family:'SFMono-Regular','Roboto Mono','Menlo','Consolas',monospace;">${code}</div>
+        </div>
+        <p style="margin:0;color:#a1a1aa;font-size:13px;line-height:22px;letter-spacing:0;">验证码 10 分钟内有效。请勿将验证码转发给他人。</p>
+        <p style="margin:14px 0 0;color:#71717a;font-size:12px;line-height:20px;letter-spacing:0;">如果这不是你本人操作，请忽略此邮件。</p>
+      </div>
+    </div>
+  </body>
+</html>`;
 }
 
 async function sendResendMail(input: UserEmailNotification): Promise<EmailSendResult> {
@@ -213,7 +273,7 @@ async function sendResendMail(input: UserEmailNotification): Promise<EmailSendRe
       to: [input.to],
       subject: input.subject,
       text: input.text,
-      html: textToHtml(input.text),
+      html: input.html || textToHtml(input.text),
     }),
   });
   if (!response.ok) {
