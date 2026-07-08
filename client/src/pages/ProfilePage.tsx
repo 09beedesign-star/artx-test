@@ -718,6 +718,9 @@ function AvatarCropDialog({
                 top: previewSize / 2 - drawH / 2 + offset.y,
                 width: drawW,
                 height: drawH,
+                maxWidth: "none",
+                maxHeight: "none",
+                objectFit: "fill",
                 userSelect: "none",
                 pointerEvents: "none",
               }}

@@ -11774,9 +11774,6 @@ function GroupContainerOverlay({
     ? "oklch(0.58 0.22 290 / 0.85)"
     : "oklch(0.52 0.20 290 / 0.90)";
   const enteringBorder = "oklch(0.72 0.22 50 / 0.80)";
-  const enteringBg = isDark
-    ? "oklch(0.72 0.22 50 / 0.06)"
-    : "oklch(0.72 0.22 50 / 0.04)";
 
   return (
     <>
@@ -11802,7 +11799,6 @@ function GroupContainerOverlay({
             containerBorder={containerBorder}
             labelBg={labelBg}
             enteringBorder={enteringBorder}
-            enteringBg={enteringBg}
             onContextMenu={onContextMenu}
             onDoubleClick={onDoubleClick}
             onDragMove={onDragMove}
@@ -11829,7 +11825,6 @@ function GroupContainerCard({
   containerBorder,
   labelBg,
   enteringBorder,
-  enteringBg,
   onContextMenu,
   onDoubleClick,
   onDragMove,
@@ -11848,7 +11843,6 @@ function GroupContainerCard({
   containerBorder: string;
   labelBg: string;
   enteringBorder: string;
-  enteringBg: string;
   onContextMenu: (e: React.MouseEvent, groupId: string) => void;
   onDoubleClick: (groupId: string) => void;
   onDragMove: (groupId: string, dx: number, dy: number) => void;
@@ -11937,7 +11931,7 @@ function GroupContainerCard({
         top,
         width,
         height,
-        background: isEntering ? enteringBg : containerBg,
+        background: isEntering ? "transparent" : containerBg,
         border: `1.5px solid ${isEntering ? enteringBorder : containerBorder}`,
         borderRadius: "var(--radius-lg-design)",
         zIndex: dragging ? 20 : 5,
@@ -11979,11 +11973,18 @@ function GroupContainerCard({
           cursor: "pointer",
         }}
         onDoubleClick={e => {
+          e.preventDefault();
           e.stopPropagation();
           onLabelDoubleClick(groupId);
         }}
-        onMouseDown={e => e.stopPropagation()}
-        onClick={e => e.stopPropagation()}
+        onMouseDown={e => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onClick={e => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
         title="双击重命名"
       >
         <Box size={9} strokeWidth={2.2} />
@@ -19398,6 +19399,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [clipboard, setClipboard] = useState<Node[]>([]);
   const pasteEventSeenAtRef = useRef(0);
   const pendingCrossCanvasCopyRef = useRef<Promise<Node[]> | null>(null);
+  const crossCanvasPasteSequenceRef = useRef(0);
   const pasteClipboardFromNavigatorRef = useRef<
     (originOverride?: { x: number; y: number }) => Promise<boolean>
   >(async () => false);
@@ -19445,6 +19447,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const writeCrossCanvasClipboard = useCallback((nodesToCopy: Node[]) => {
     const copyable = nodesToCopy.filter(isCrossCanvasCopyNode);
     setClipboard(copyable);
+    crossCanvasPasteSequenceRef.current = 0;
     preferCrossCanvasPasteRef.current = copyable.length > 0;
     if (typeof window !== "undefined") {
       try {
@@ -20485,8 +20488,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         ])
       );
       const groupMap = new Map<string, string>();
-      const offsetX = origin ? origin.x - minX : 24;
-      const offsetY = origin ? origin.y - minY : 24;
+      const pasteOffset = origin
+        ? 0
+        : 24 * (crossCanvasPasteSequenceRef.current + 1);
+      if (!origin) {
+        crossCanvasPasteSequenceRef.current += 1;
+      }
+      const offsetX = origin ? origin.x - minX : pasteOffset;
+      const offsetY = origin ? origin.y - minY : pasteOffset;
       const pasted = source.map((node, index) => {
         const id = idMap.get(node.id) || `${node.type}-paste-${now}-${index}`;
         const data = { ...(node.data as Record<string, unknown>) };
@@ -21582,13 +21591,19 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       );
       if (!insideFlowRect || (!insideReactFlow && !insideGroupOverlay)) return;
 
-      if (event.altKey || event.metaKey) {
+      const isMacPlatform =
+        navigator.platform.toUpperCase().includes("MAC") ||
+        navigator.userAgent.includes("Mac");
+      const shouldZoomCanvas = isMacPlatform ? event.metaKey : event.ctrlKey;
+      const hasZoomModifier = event.ctrlKey || event.metaKey;
+
+      if (hasZoomModifier && !shouldZoomCanvas) {
         event.preventDefault();
         event.stopPropagation();
         return;
       }
 
-      if (!event.ctrlKey) return;
+      if (!shouldZoomCanvas) return;
 
       event.preventDefault();
       event.stopPropagation();
@@ -23071,7 +23086,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       // 创建画板模式：点击不触发 paneClick 的其他逻辑
       if (activeToolMode === "smart-canvas") return;
       if (activeToolMode === "annotate") {
-        toast("智能注释只能应用于图片上，请加载需要注释的图片才能使用这个命令。");
+        toast("该功能需加载图片之后使用");
         return;
       }
       // 点击画布空白处关闭智能优化输入框
@@ -26954,7 +26969,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           width: isAssistantCollapsed
             ? "calc(100% - 112px)"
             : `calc(100% - ${assistantPanelWidth}px)`,
-          transition: "width 160ms ease",
         }}
         proOptions={{ hideAttribution: true }}
         selectionOnDrag
@@ -27192,7 +27206,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       {/* Rename group dialog */}
       {renamingGroupId && (
         <div
-          className="fixed inset-x-0 flex justify-center"
+          className="fixed inset-0 flex items-center justify-center px-4"
           style={{
             background: "rgba(0,0,0,0.55)",
             backdropFilter: "blur(8px)",
