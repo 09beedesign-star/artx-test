@@ -464,7 +464,14 @@ const CANVAS_MAX_ZOOM = 4;
 const CANVAS_WHEEL_ZOOM_SPEED = 0.0015;
 const CANVAS_CROSS_PROJECT_CLIPBOARD_KEY =
   "artx:canvas-cross-project-clipboard";
-const CROSS_CANVAS_COPY_TYPES = ["asset", "canvasFrame"] as const;
+const CROSS_CANVAS_COPY_TYPES = [
+  "asset",
+  "canvasFrame",
+  "shape",
+  "freehand",
+  "pen",
+  "text",
+] as const;
 
 function clampCanvasZoom(value: number) {
   return Math.max(CANVAS_MIN_ZOOM, Math.min(CANVAS_MAX_ZOOM, value));
@@ -474,6 +481,39 @@ function isCrossCanvasCopyNode(node: Node) {
   return CROSS_CANVAS_COPY_TYPES.includes(
     node.type as (typeof CROSS_CANVAS_COPY_TYPES)[number]
   );
+}
+
+function getCanvasCopyTypeCounts(nodes: Node[]) {
+  const assetCount = nodes.filter(node => node.type === "asset").length;
+  const frameCount = nodes.filter(node => node.type === "canvasFrame").length;
+  const textCount = nodes.filter(node => node.type === "text").length;
+  const shapeCount = nodes.filter(node =>
+    ["shape", "freehand", "pen"].includes(node.type || "")
+  ).length;
+  return {
+    assetCount,
+    frameCount,
+    textCount,
+    shapeCount,
+    otherCount: Math.max(
+      0,
+      nodes.length - assetCount - frameCount - textCount - shapeCount
+    ),
+  };
+}
+
+function describeCanvasCopyTypes(nodes: Node[]) {
+  const { assetCount, frameCount, textCount, shapeCount, otherCount } =
+    getCanvasCopyTypeCounts(nodes);
+  return [
+    assetCount ? `图片 ${assetCount} 个` : "",
+    frameCount ? `画板 ${frameCount} 个` : "",
+    textCount ? `文字 ${textCount} 个` : "",
+    shapeCount ? `图形 ${shapeCount} 个` : "",
+    otherCount ? `其他 ${otherCount} 个` : "",
+  ]
+    .filter(Boolean)
+    .join("，");
 }
 
 function withCanvasFrameAlpha(
@@ -20342,7 +20382,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     (origin?: XYPosition) => {
       const source = getCrossCanvasClipboard();
       if (source.length === 0) {
-        toast("剪贴板为空", { description: "请先复制图片节点或画板" });
+        toast("剪贴板为空", { description: "请先复制画布对象" });
         return false;
       }
 
@@ -20389,12 +20429,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       });
       setNodes(nds => nds.map(n => ({ ...n, selected: false })).concat(pasted));
       setSelectedNodeIds(pasted.map(n => n.id));
-      const assetCount = pasted.filter(node => node.type === "asset").length;
-      const frameCount = pasted.filter(
-        node => node.type === "canvasFrame"
-      ).length;
       toast(`已粘贴 ${pasted.length} 个对象`, {
-        description: `图片 ${assetCount} 个，画板 ${frameCount} 个`,
+        description: describeCanvasCopyTypes(pasted),
       });
       return true;
     },
@@ -21582,7 +21618,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         ).filter(isCrossCanvasCopyNode);
         if (source.length === 0) {
           toast("没有可创建副本的对象", {
-            description: "当前仅支持图片节点和画板创建副本",
+            description: "当前选中内容暂不支持创建副本",
           });
           return;
         }
@@ -21621,14 +21657,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           nds.map(node => ({ ...node, selected: false })).concat(duplicated)
         );
         setSelectedNodeIds(duplicated.map(node => node.id));
-        const assetCount = duplicated.filter(
-          node => node.type === "asset"
-        ).length;
         toast(`已创建 ${duplicated.length} 个副本`, {
-          description:
-            assetCount > 0
-              ? `图片副本 ${assetCount} 个已添加到画布`
-              : "副本已添加到画布",
+          description: `${describeCanvasCopyTypes(duplicated)}已添加到画布`,
         });
       } else if (action === "copy") {
         const copied = writeCrossCanvasClipboard(
@@ -21637,18 +21667,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           )
         );
         if (copied.length > 0) {
-          const assetCount = copied.filter(
-            node => node.type === "asset"
-          ).length;
-          const frameCount = copied.filter(
-            node => node.type === "canvasFrame"
-          ).length;
           toast(`已复制 ${copied.length} 个对象`, {
-            description: `图片 ${assetCount} 个，画板 ${frameCount} 个，可切换画布后粘贴`,
+            description: `${describeCanvasCopyTypes(copied)}，可切换画布后粘贴`,
           });
         } else {
           toast("没有可复制的对象", {
-            description: "跨画布复制当前仅支持图片节点和画板",
+            description: "当前选中内容暂不支持跨画布复制",
           });
         }
       } else if (action === "paste") {
@@ -24503,13 +24527,29 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       isAltDragRef.current = true;
 
       // 确定需要复制的节点 id 列表
-      const dragIds = selectedNodeIds.includes(node.id)
+      const baseDragIds = selectedNodeIds.includes(node.id)
         ? selectedNodeIds.filter(id =>
-            nodes.some(n => n.id === id && n.type === "asset")
+            nodes.some(n => n.id === id && isCrossCanvasCopyNode(n))
           )
-        : node.type === "asset"
+        : isCrossCanvasCopyNode(node)
           ? [node.id]
           : [];
+      const dragIdSet = new Set(baseDragIds);
+      baseDragIds.forEach(id => {
+        const frameNode = nodes.find(n => n.id === id && n.type === "canvasFrame");
+        if (!frameNode) return;
+        nodes.forEach(candidate => {
+          if (
+            candidate.type === "asset" &&
+            (candidate.data as Record<string, unknown>).embeddedInFrame === id
+          ) {
+            dragIdSet.add(candidate.id);
+          }
+        });
+      });
+      const dragIds = Array.from(dragIdSet).filter(id =>
+        nodes.some(n => n.id === id && isCrossCanvasCopyNode(n))
+      );
 
       altDragOriginRef.current.clear();
       dragIds.forEach(id => {
@@ -24634,6 +24674,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           }
         });
 
+        const copyNow = Date.now();
+        const copyIdMap = new Map(
+          Array.from(origins.keys()).map(id => [
+            id,
+            `${id}-copy-${copyNow}-${Math.random().toString(36).slice(2, 6)}`,
+          ])
+        );
         const result: Node[] = [];
         normalNodes.forEach(n => {
           const origin = origins.get(n.id);
@@ -24667,13 +24714,23 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             });
           }
           // 被拖动的节点现在作为副本，放在落点位置
-          const copyId = `${n.id}-copy-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          const copyId =
+            copyIdMap.get(n.id) ||
+            `${n.id}-copy-${copyNow}-${Math.random().toString(36).slice(2, 6)}`;
+          const copyData = { ...(n.data as Record<string, unknown>) };
+          const embeddedFrameId =
+            typeof copyData.embeddedInFrame === "string"
+              ? copyData.embeddedInFrame
+              : "";
+          if (embeddedFrameId && copyIdMap.has(embeddedFrameId)) {
+            copyData.embeddedInFrame = copyIdMap.get(embeddedFrameId);
+          }
           result.push({
             ...n,
             id: copyId,
             selected: true,
             data: {
-              ...(n.data as Record<string, unknown>),
+              ...copyData,
               id: copyId,
               isEditing: false,
             },
@@ -24684,7 +24741,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       });
 
       const count = origins.size;
-      toast(`已复制 ${count} 个图片节点`, {
+      toast(`已复制 ${count} 个对象`, {
         description: "原图保持不动，新副本在拖拽落点",
       });
     },
@@ -25003,17 +25060,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         target?.tagName === "TEXTAREA" ||
         target?.isContentEditable;
       if (isTyping) return;
-      // 支持复制/删除/粘贴/全选的画布内容节点类型
-      const editableCanvasTypes = [
-        "asset",
-        "shape",
-        "freehand",
-        "pen",
-        "canvasFrame",
-        "text",
-      ];
       const selectedDeletableIds = selectedNodeIds.filter(id =>
-        nodes.some(n => editableCanvasTypes.includes(n.type ?? ""))
+        nodes.some(n => isCrossCanvasCopyNode(n))
       );
       if (
         (e.key === "Delete" || e.key === "Backspace") &&
@@ -25054,7 +25102,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       // 全选画布内所有内容：Ctrl+A (Windows) / Cmd+A (Mac)
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
         const selectableIds = nodes
-          .filter(n => editableCanvasTypes.includes(n.type ?? ""))
+          .filter(isCrossCanvasCopyNode)
           .map(n => n.id);
         if (selectableIds.length > 0) {
           e.preventDefault();
