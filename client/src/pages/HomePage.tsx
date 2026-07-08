@@ -626,7 +626,135 @@ function LoginPanel({
   onAuthAction: (action: "login" | "register") => void | Promise<void>;
   onBackToPrompt: () => void;
 }) {
+  const { forgotPassword, resetPassword } = useAuth();
   const isRegister = mode === "register";
+  const [resetMode, setResetMode] = useState(false);
+  const [resetUsername, setResetUsername] = useState("");
+  const [resetCode, setResetCode] = useState("");
+  const [resetPasswordValue, setResetPasswordValue] = useState("");
+  const [resetConfirmPassword, setResetConfirmPassword] = useState("");
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetMessage, setResetMessage] = useState("");
+
+  const handleSendResetCode = async () => {
+    const username = resetUsername.trim() || email.trim();
+    setResetMessage("");
+    if (!username) {
+      setResetMessage("请输入注册邮箱或用户名");
+      return;
+    }
+    setResetUsername(username);
+    setResetBusy(true);
+    const result = await forgotPassword(username);
+    setResetBusy(false);
+    setResetMessage(result.ok ? result.message || "验证码已发送，请查看邮箱。" : result.error || "验证码发送失败，请稍后重试");
+  };
+
+  const handleResetSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const username = resetUsername.trim() || email.trim();
+    const code = resetCode.trim();
+    setResetMessage("");
+    if (!username || !code || !resetPasswordValue || !resetConfirmPassword) {
+      setResetMessage("请填写邮箱、验证码、新密码和确认密码");
+      return;
+    }
+    if (resetPasswordValue !== resetConfirmPassword) {
+      setResetMessage("两次输入的新密码不一致");
+      return;
+    }
+    if (resetPasswordValue.length < 8) {
+      setResetMessage("新密码至少需要 8 位");
+      return;
+    }
+    setResetBusy(true);
+    const result = await resetPassword(username, code, resetPasswordValue);
+    setResetBusy(false);
+    if (!result.ok) {
+      setResetMessage(result.error || "密码重置失败，请稍后重试");
+      return;
+    }
+    setResetCode("");
+    setResetPasswordValue("");
+    setResetConfirmPassword("");
+    setResetMode(false);
+    setResetMessage("");
+  };
+
+  if (resetMode) {
+    return (
+      <GlassPanel>
+        <form className="flex h-full flex-col" onSubmit={handleResetSubmit}>
+          <PanelHeader title="找回密码" />
+
+          <div className="mt-8 flex flex-col gap-4">
+            <LabeledInput
+              label="注册邮箱或用户名"
+              value={resetUsername}
+              onChange={setResetUsername}
+              autoComplete="username"
+              placeholder="请输入注册邮箱或用户名"
+            />
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3">
+              <LabeledInput
+                label="验证码"
+                value={resetCode}
+                onChange={value => setResetCode(value.replace(/\D/g, "").slice(0, 6))}
+                autoComplete="one-time-code"
+                placeholder="6 位验证码"
+              />
+              <button
+                type="button"
+                disabled={resetBusy}
+                onClick={() => void handleSendResetCode()}
+                className="mt-[25px] h-12 rounded-[10px] border border-white/15 bg-white/8 px-4 text-sm font-semibold text-white transition-all hover:bg-white/12 disabled:opacity-60"
+              >
+                {resetBusy ? "发送中" : "发送验证码"}
+              </button>
+            </div>
+            <LabeledInput
+              label="新密码"
+              type="password"
+              value={resetPasswordValue}
+              onChange={setResetPasswordValue}
+              autoComplete="new-password"
+              placeholder="至少 8 位"
+            />
+            <LabeledInput
+              label="确认新密码"
+              type="password"
+              value={resetConfirmPassword}
+              onChange={setResetConfirmPassword}
+              autoComplete="new-password"
+              placeholder="再次输入新密码"
+            />
+          </div>
+
+          <p className={`mt-4 min-h-5 text-left text-[13px] font-medium ${resetMessage ? "text-amber-100" : "text-transparent"}`}>
+            {resetMessage || " "}
+          </p>
+
+          <div className="mt-5 grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              disabled={resetBusy}
+              onClick={() => setResetMode(false)}
+              className="h-12 rounded-[10px] border border-white/15 bg-white/8 text-base font-semibold text-white transition-all hover:bg-white/12 disabled:opacity-60"
+            >
+              返回登录
+            </button>
+            <button
+              type="submit"
+              disabled={resetBusy}
+              className="h-12 rounded-[10px] bg-[#936CFF] text-base font-semibold text-white shadow-[0_10px_28px_rgba(147,108,255,0.25)] transition-all hover:bg-[#A384FF] disabled:opacity-60"
+            >
+              {resetBusy ? "重置中..." : "重置密码"}
+            </button>
+          </div>
+        </form>
+      </GlassPanel>
+    );
+  }
 
   return (
     <GlassPanel>
@@ -655,7 +783,15 @@ function LoginPanel({
           <p className={`min-w-0 flex-1 truncate text-left text-[13px] font-medium text-red-300 ${error ? "visible" : "invisible"}`}>
             {error || " "}
           </p>
-          <button type="button" className="shrink-0 appearance-none bg-transparent text-[13px] font-medium text-[#7d7d7d] transition-colors hover:text-white">
+          <button
+            type="button"
+            onClick={() => {
+              setResetUsername(email.trim());
+              setResetMessage("");
+              setResetMode(true);
+            }}
+            className="shrink-0 appearance-none bg-transparent text-[13px] font-medium text-[#7d7d7d] transition-colors hover:text-white"
+          >
             忘记密码？
           </button>
         </div>
