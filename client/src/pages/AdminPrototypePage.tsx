@@ -45,6 +45,7 @@ import {
   type AdminNotificationTab,
 } from "./admin-notifications";
 import { getDashboardRiskTarget } from "./admin-dashboard-risk";
+import { resolveAdminUploadUrl } from "./admin-upload-url";
 
 type AdminSection =
   | "overview"
@@ -1331,14 +1332,14 @@ function AdminPrototypePage() {
                         {item.attachments.map((attachment) => (
                           <a
                             key={attachment.src}
-                            href={attachment.src}
+                            href={resolveAdminUploadUrl(attachment.src)}
                             target="_blank"
                             rel="noreferrer"
                             className="group block overflow-hidden rounded-md border border-white/10 bg-white/5"
                             title={attachment.name}
                           >
                             <img
-                              src={attachment.src}
+                              src={resolveAdminUploadUrl(attachment.src)}
                               alt={attachment.name}
                               className="h-20 w-20 object-cover transition group-hover:opacity-85"
                             />
@@ -1747,14 +1748,14 @@ function NotificationCenter({
                           {item.attachments.map((attachment) => (
                             <a
                               key={attachment.src}
-                              href={attachment.src}
+                              href={resolveAdminUploadUrl(attachment.src)}
                               target="_blank"
                               rel="noreferrer"
                               className="group block overflow-hidden rounded-md border border-white/10 bg-white/5"
                               title={attachment.name || "反馈截图"}
                             >
                               <img
-                                src={attachment.src}
+                                src={resolveAdminUploadUrl(attachment.src)}
                                 alt={attachment.name || "反馈截图"}
                                 className="h-16 w-16 object-cover transition group-hover:opacity-85"
                               />
