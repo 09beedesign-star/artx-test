@@ -180,6 +180,32 @@ describe("production readiness", () => {
     });
   });
 
+  it("recognizes Resend configuration for email verification and password reset", async () => {
+    process.env.RESEND_API_KEY = "re_test_key";
+    process.env.RESEND_FROM = "ArtX <noreply@artxsd.com>";
+    const { handleAdminApiRequest } = await loadAdminStore();
+    const authorization = await getAdminAuthorization();
+
+    const readinessResult = await handleAdminApiRequest("GET", "/production-readiness", authorization);
+    expect(readinessResult.status).toBe(200);
+    const readinessBody = readinessResult.body as {
+      productionReadiness: Array<{
+        id: string;
+        status: string;
+        requiredKeys: string[];
+        configuredKeys: string[];
+        missingKeys: string[];
+      }>;
+    };
+    const mailReadiness = readinessBody.productionReadiness.find((item) => item.id === "mail_sms");
+    expect(mailReadiness).toMatchObject({
+      status: "ready",
+      requiredKeys: ["RESEND_API_KEY", "RESEND_FROM"],
+      configuredKeys: ["RESEND_API_KEY", "RESEND_FROM"],
+      missingKeys: [],
+    });
+  });
+
   it("marks local backup and credit ledger capabilities as ready", async () => {
     const { handleAdminApiRequest } = await loadAdminStore();
     const authorization = await getAdminAuthorization();

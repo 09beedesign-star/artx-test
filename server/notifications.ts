@@ -26,8 +26,26 @@ type SmtpConfig = {
   secure: boolean;
 };
 
+type ResendConfig = {
+  apiKey: string;
+  from: string;
+};
+
+type EmailSendResult = {
+  sent: boolean;
+  reason?: string;
+  provider?: string;
+};
+
 function env(name: string) {
   return (process.env[name] || "").trim();
+}
+
+function getResendConfig(): ResendConfig | null {
+  const apiKey = env("RESEND_API_KEY");
+  const from = env("RESEND_FROM");
+  if (!apiKey || !from) return null;
+  return { apiKey, from };
 }
 
 function getSmtpConfig(): SmtpConfig | null {
@@ -55,9 +73,14 @@ function getOpsEmailRecipients() {
 }
 
 export function getNotificationStatus() {
+  const resendConfigured = Boolean(getResendConfig());
+  const smtpConfigured = Boolean(getSmtpConfig());
   return {
     webhookConfigured: Boolean(env("ALERT_WEBHOOK_URL")),
-    smtpConfigured: Boolean(getSmtpConfig()),
+    resendConfigured,
+    smtpConfigured,
+    emailConfigured: resendConfigured || smtpConfigured,
+    emailProvider: resendConfigured ? "resend" : smtpConfigured ? "smtp" : null,
     opsEmailConfigured: getOpsEmailRecipients().length > 0,
   };
 }
@@ -140,7 +163,7 @@ async function upgradeStartTls(socket: net.Socket, config: SmtpConfig) {
   });
 }
 
-async function sendSmtpMail(input: UserEmailNotification) {
+async function sendSmtpMail(input: UserEmailNotification): Promise<EmailSendResult> {
   const config = getSmtpConfig();
   if (!config) return { sent: false, reason: "smtp_not_configured" };
 
@@ -162,10 +185,41 @@ async function sendSmtpMail(input: UserEmailNotification) {
     const response = await readSmtpResponse(socket);
     if (response.code !== 250) throw new Error(`SMTP DATA failed with ${response.code}`);
     await smtpCommand(socket, "QUIT", [221]).catch(() => undefined);
-    return { sent: true };
+    return { sent: true, provider: "smtp" };
   } finally {
     socket.destroy();
   }
+}
+
+function textToHtml(text: string) {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\r?\n/g, "<br>");
+}
+
+async function sendResendMail(input: UserEmailNotification): Promise<EmailSendResult> {
+  const config = getResendConfig();
+  if (!config) return { sent: false, reason: "resend_not_configured" };
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: config.from,
+      to: [input.to],
+      subject: input.subject,
+      text: input.text,
+      html: textToHtml(input.text),
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`Resend returned ${response.status}`);
+  }
+  return { sent: true, provider: "resend" };
 }
 
 async function sendWebhookNotification(input: OpsNotification) {
@@ -189,13 +243,14 @@ async function sendWebhookNotification(input: OpsNotification) {
   return { sent: true };
 }
 
-export async function sendUserEmailNotification(input: UserEmailNotification) {
+export async function sendUserEmailNotification(input: UserEmailNotification): Promise<EmailSendResult> {
   if (!input.to || !input.to.includes("@")) return { sent: false, reason: "invalid_recipient" };
   try {
+    if (getResendConfig()) return await sendResendMail(input);
     return await sendSmtpMail(input);
   } catch (error) {
     console.warn("[notifications] user email failed", error instanceof Error ? error.message : "unknown error");
-    return { sent: false, reason: "smtp_failed" };
+    return { sent: false, reason: getResendConfig() ? "resend_failed" : "smtp_failed" };
   }
 }
 
@@ -222,7 +277,7 @@ export async function sendOpsNotification(input: OpsNotification) {
         input.metadata ? `Metadata: ${JSON.stringify(input.metadata)}` : "",
       ].filter(Boolean).join("\n"),
     });
-    results.push({ channel: "smtp", ...result });
+    results.push({ channel: result.provider || "email", ...result });
   }
 
   return results;

@@ -726,7 +726,7 @@ export async function handleAuthAction(action: AuthAction, payload: unknown) {
       actorId: "email",
       action: "auth.email.send",
       target: email,
-      meta: { provider: "smtp" },
+      meta: { provider: sent.provider || "email" },
     });
     await saveDatabase(db);
 
@@ -999,6 +999,7 @@ export async function handleAuthAction(action: AuthAction, payload: unknown) {
     const user = db.users.find((item) => item.loginKey === loginKey(email));
     const message = "如果账号存在，验证码已发送到对应邮箱，请在 10 分钟内完成密码重置。";
     let debugCode: string | undefined;
+    let emailProvider = "email";
 
     if (user) {
       pruneEmailChallenges(db);
@@ -1037,6 +1038,7 @@ export async function handleAuthAction(action: AuthAction, payload: unknown) {
       if (!sent.sent) {
         return { status: 503, body: { error: sent.reason || "邮箱服务暂未配置或发送失败" } };
       }
+      emailProvider = sent.provider || emailProvider;
 
       const challenge: EmailChallenge = {
         email,
@@ -1062,7 +1064,7 @@ export async function handleAuthAction(action: AuthAction, payload: unknown) {
       meta: {
         username: email,
         matched: Boolean(user),
-        provider: "smtp",
+        provider: emailProvider,
       },
     });
     await saveDatabase(db);

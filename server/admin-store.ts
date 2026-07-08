@@ -702,6 +702,25 @@ function readinessItem(input: {
   };
 }
 
+function mailReadinessItem() {
+  const resendKeys = ["RESEND_API_KEY", "RESEND_FROM"];
+  const smtpKeys = ["SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"];
+  const resendConfigured = configuredKeys(resendKeys);
+  const smtpConfigured = configuredKeys(smtpKeys);
+  const requiredKeys = resendConfigured.length > 0 || smtpConfigured.length === 0 ? resendKeys : smtpKeys;
+  const configured = configuredKeys(requiredKeys);
+  return {
+    id: "mail_sms",
+    domain: "邮件/短信通知",
+    status: configured.length === requiredKeys.length ? "ready" : configured.length > 0 ? "partial" : "missing",
+    summary: "用于邮箱注册/登录验证、找回密码、支付异常、工单通知和管理员告警。",
+    requiredKeys,
+    configuredKeys: configured,
+    missingKeys: requiredKeys.filter((key) => !configured.includes(key)),
+    action: "已支持 Resend API 或 SMTP；生产环境优先使用 RESEND_API_KEY + RESEND_FROM。",
+  } satisfies ProductionReadinessItem;
+}
+
 function buildProductionReadiness(): ProductionReadinessItem[] {
   return [
     readinessItem({ id: "payment_wallyt", domain: "威富通支付", requiredKeys: ["WALLYT_DOMAIN_URL", "WALLYT_MCH_ID", "WALLYT_SIGNATURE_KEY", "WALLYT_NOTIFY_URL"], summary: "用于创建支付单、接收支付回调、主动查询订单状态，并把订单/积分/审计串起来。", action: "保持凭据只在服务器环境变量中；上线前用真实小额支付验证 paid + 积分入账。" }),
@@ -711,7 +730,7 @@ function buildProductionReadiness(): ProductionReadinessItem[] {
     readinessItem({ id: "ai_openai", domain: "OpenAI 能力", requiredKeys: ["OPENAI_API_KEY"], summary: "用于文本/图像模型能力和后台供应商健康判断。", action: "配置服务端 API Key，并跑一笔真实 AI 任务确认扣积分和成本记录。" }),
     readinessItem({ id: "ai_bkeel", domain: "BKEEL 图片生成", requiredKeys: ["AI_IMAGE_API_KEY", "AI_IMAGE_BASE_URL", "AI_IMAGE_MODEL"], summary: "用于第三方图片生成任务、providerTaskId 追踪和失败告警。", action: "配置 AI_IMAGE_* 接口凭据，验证异步 task_id 轮询、失败告警和成本入账。" }),
     readinessItem({ id: "ai_picwish", domain: "PicWish/佐糖图像处理", requiredKeys: ["PICWISH_API_KEY"], summary: "用于抠图、高清、去水印、橡皮擦等图像处理能力。", action: "配置接口凭据，验证 providerTaskId 进入后台 AI 任务明细。" }),
-    readinessItem({ id: "mail_sms", domain: "邮件/短信通知", requiredKeys: ["SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"], summary: "用于注册验证、登录安全、支付异常、工单通知和管理员告警。", action: "至少先接邮件；短信可在真实用户增长后补。" }),
+    mailReadinessItem(),
     readinessItem({ id: "sms_tencent", domain: "腾讯云短信验证码", requiredKeys: ["TENCENTCLOUD_SECRET_ID", "TENCENTCLOUD_SECRET_KEY", "TENCENT_SMS_SDK_APP_ID", "TENCENT_SMS_SIGN_NAME", "TENCENT_SMS_TEMPLATE_ID"], summary: "用于手机号验证码登录/注册，验证码只保存哈希并有过期、重发和次数限制。", action: "配置腾讯云短信应用、签名和模板；模板参数第 1 个必须是 6 位验证码。" }),
     readinessItem({ id: "ops_alerting", domain: "运行告警", requiredKeys: ["ALERT_WEBHOOK_URL"], summary: "用于把支付失败、AI 失败率升高、服务器异常等推送到飞书/钉钉/企业微信。", action: "配置告警 webhook，并把 P0/P1 告警接入右上角消息提醒。" }),
     readinessItem({ id: "backup", domain: "备份与恢复", requiredKeys: ["BACKUP_LOCAL_DIR", "BACKUP_RETENTION_DAYS", "BACKUP_CRON_SECRET"], summary: "用于数据库、订单流水、用户资产的定期备份和灾难恢复。", action: "当前启用服务器本地每日备份；接入对象存储后再补 BACKUP_REMOTE_BUCKET 做异地容灾。" }),
