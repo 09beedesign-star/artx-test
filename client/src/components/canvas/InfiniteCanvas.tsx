@@ -458,9 +458,14 @@ function ModelSelector({
   const [open, setOpen] = useState(false);
   const modelRef = useRef<HTMLDivElement>(null);
   const current = models.find(m => m.id === model) || AUTO_AI_MODEL;
-  const bg = isDark ? "oklch(0.13 0.015 270)" : "oklch(0.96 0.004 270)";
+  const bg = isDark ? "oklch(0.22 0.015 270)" : "oklch(0.88 0.005 270)";
+  const selectedBg = isDark
+    ? "oklch(0.13 0.015 270)"
+    : "oklch(0.22 0.015 270)";
   const border = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
-  const text = isDark ? "oklch(0.75 0.01 270)" : "oklch(0.35 0.01 270)";
+  const selectedBorder = "oklch(0.62 0.22 290 / 45%)";
+  const text = isDark ? "oklch(0.74 0.01 270)" : "oklch(0.58 0.008 270)";
+  const selectedText = "white";
   const popBg = isDark ? "oklch(0.16 0.018 270)" : "oklch(0.99 0.004 270)";
   const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
   const rowHeight = 40;
@@ -493,8 +498,15 @@ function ModelSelector({
           e.stopPropagation();
           setOpen(o => !o);
         }}
-        className="flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-md-design)] type-caption transition-all"
-        style={{ background: bg, border: `1px solid ${border}`, color: text }}
+        className="flex h-8 items-center gap-1 rounded-[var(--radius-md-design)] px-2 transition-colors"
+        style={{
+          background: open ? selectedBg : bg,
+          border: `1px solid ${open ? selectedBorder : border}`,
+          color: open ? selectedText : text,
+          fontSize: 11,
+          lineHeight: "14px",
+          letterSpacing: 0,
+        }}
       >
         <span
           style={{
@@ -605,9 +617,13 @@ function SkillPointSelector({
     });
     return Array.from(groups.entries());
   }, []);
-  const bg = isDark ? "oklch(0.13 0.015 270)" : "oklch(0.96 0.004 270)";
+  const bg = isDark ? "oklch(0.22 0.015 270)" : "oklch(0.88 0.005 270)";
+  const hoverButtonBg = isDark
+    ? "oklch(0.13 0.015 270)"
+    : "oklch(0.22 0.015 270)";
   const border = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
-  const text = isDark ? "oklch(0.75 0.01 270)" : "oklch(0.35 0.01 270)";
+  const text = isDark ? "oklch(0.74 0.01 270)" : "oklch(0.58 0.008 270)";
+  const hoverButtonText = "white";
   const popBg = isDark ? "oklch(0.16 0.018 270)" : "oklch(0.99 0.004 270)";
   const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
   const activeBg = isDark
@@ -708,9 +724,13 @@ function SkillPointSelector({
         className="flex h-8 max-w-[74px] items-center gap-1 rounded-[var(--radius-md-design)] px-2 transition-colors"
         style={{
           background:
-            activeSkill || open ? activeBg : buttonHover ? hoverBg : bg,
+            activeSkill ? activeBg : open || buttonHover ? hoverButtonBg : bg,
           border: `1px solid ${activeSkill || open ? "oklch(0.62 0.22 290 / 45%)" : border}`,
-          color: activeSkill || open ? activeText : text,
+          color: activeSkill
+            ? activeText
+            : open || buttonHover
+              ? hoverButtonText
+              : text,
           fontSize: 11,
           lineHeight: "14px",
           letterSpacing: 0,
@@ -12488,9 +12508,7 @@ function BackButton({ isDark }: { isDark: boolean }) {
   const [, navigate] = useLocation();
   const [open, setOpen] = useState(false);
   const backButtonRef = useRef<HTMLDivElement>(null);
-  const bg = isDark
-    ? "oklch(0.13 0.015 270 / 0.95)"
-    : "oklch(0.98 0.004 270 / 0.95)";
+  const bg = isDark ? "oklch(0.22 0.015 270)" : "oklch(0.88 0.005 270)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const text = isDark ? "oklch(0.78 0.01 270)" : "oklch(0.25 0.01 270)";
   const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
@@ -14770,7 +14788,7 @@ function CanvasTopToolPalette({
     return () => window.removeEventListener("tool-mode-change", handler);
   }, []);
 
-  const bg = isDark ? "rgba(22,22,30,0.82)" : "rgba(255,255,255,0.88)";
+  const bg = isDark ? "oklch(0.22 0.015 270)" : "oklch(0.88 0.005 270)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const textColor = isDark ? "rgba(255,255,255,0.78)" : "rgba(28,28,40,0.82)";
   const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
@@ -26573,10 +26591,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             right: "auto",
             opacity: 0.6,
             background: isDark
-              ? "oklch(0.11 0.015 270)"
-              : "oklch(0.95 0.004 270)",
-            border: `1px solid ${isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"}`,
+              ? "rgba(22,22,30,0.80)"
+              : "rgba(255,255,255,0.82)",
+            backdropFilter: "blur(12px)",
+            border: `1px solid ${isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)"}`,
             borderRadius: "var(--radius-md-design)",
+            boxShadow: isDark
+              ? "0 8px 32px rgba(0,0,0,0.45)"
+              : "0 4px 20px rgba(0,0,0,0.12)",
           }}
           maskColor={isDark ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.5)"}
           nodeColor={isDark ? "oklch(0.35 0.02 270)" : "oklch(0.75 0.005 270)"}

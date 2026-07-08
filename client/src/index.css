@@ -665,10 +665,10 @@ html.light, .light {
 }
 
 /* ── MiniMap viewport highlight box ─────────────────────────── */
-/* 视口高亮方框：品牌紫色边框 + 半透明填充，pannable/zoomable 时显示 */
+/* 视口高亮方框：半透明白色边框，pannable/zoomable 时显示 */
 .react-flow__minimap-mask {
   fill: transparent !important;
-  stroke: oklch(0.62 0.22 290) !important;
+  stroke: rgba(255,255,255,0.5) !important;
   stroke-width: 3 !important;
   rx: 2;
 }
