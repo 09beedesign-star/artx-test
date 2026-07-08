@@ -10,6 +10,12 @@ import InfiniteCanvas from "@/components/canvas/InfiniteCanvas";
 import { BG_GLOW } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
 import { readWorkspaceProjectHistory, updateWorkspaceProjectHistory } from "@/lib/project-history";
+import { toast } from "sonner";
+
+function formatProjectTimestamp(date = new Date()) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 function ensureProjectMeta(projectId: string) {
   const historyProject = readWorkspaceProjectHistory().find(project => project.id === projectId);
@@ -39,8 +45,17 @@ export default function Workspace({ projectId = "__blank-workspace__" }: { proje
   const [activeProjectId] = useState(projectId);
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-  const currentProject = ensureProjectMeta(activeProjectId);
+  const [currentProject, setCurrentProject] = useState(() => ensureProjectMeta(activeProjectId));
   const projectCreatedAt = currentProject.createdAt || currentProject.updatedAt;
+
+  const handleProjectTitleChange = (title: string) => {
+    const nextTitle = title.trim();
+    if (!nextTitle || nextTitle === currentProject.title) return;
+    const updatedAt = formatProjectTimestamp();
+    updateWorkspaceProjectHistory(activeProjectId, { title: nextTitle, updatedAt });
+    setCurrentProject(project => ({ ...project, title: nextTitle, updatedAt }));
+    toast("画布名称已更新");
+  };
 
   return (
     <div
@@ -67,7 +82,13 @@ export default function Workspace({ projectId = "__blank-workspace__" }: { proje
 
       {/* Top bar */}
       <div style={{ position: "relative", zIndex: 1 }}>
-        <TopBar credits={0} projectTitle={currentProject.title} projectTime={projectCreatedAt} glass />
+        <TopBar
+          credits={0}
+          projectTitle={currentProject.title}
+          projectTime={projectCreatedAt}
+          onProjectTitleChange={handleProjectTitleChange}
+          glass
+        />
       </div>
 
       {/* Full-width canvas */}

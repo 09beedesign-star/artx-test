@@ -2,7 +2,7 @@
  * TopBar — Neo-Studio Dark Design System
  * Global top navigation: search, theme switcher (Radix DropdownMenu), credits, user info
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Sparkles, Check, UserRound, LogOut, Search, KeyRound, Copy, RefreshCw, Zap, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -34,6 +34,7 @@ interface TopBarProps {
   onCreateProject?: (payload: CreateProjectPayload) => void;
   projectTitle?: string;
   projectTime?: string;
+  onProjectTitleChange?: (title: string) => void;
   showSearch?: boolean;
   glass?: boolean;
 }
@@ -71,7 +72,7 @@ function getTopBarAuthToken() {
   }
 }
 
-export default function TopBar({ credits = 0, projectTitle, projectTime, showSearch = false, glass = false }: TopBarProps) {
+export default function TopBar({ credits = 0, projectTitle, projectTime, onProjectTitleChange, showSearch = false, glass = false }: TopBarProps) {
   const { resolvedTheme } = useTheme();
   const { isAuthenticated, user, openLoginModal, logout } = useAuth();
   const [, navigate] = useLocation();
@@ -92,6 +93,9 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
   const [apiKeyCopied, setApiKeyCopied] = useState(false);
   const [apiKeyCreationConfirmed, setApiKeyCreationConfirmed] = useState(false);
   const [syncedCredits, setSyncedCredits] = useState<number | null>(null);
+  const [isEditingProjectTitle, setIsEditingProjectTitle] = useState(false);
+  const [projectTitleDraft, setProjectTitleDraft] = useState(projectTitle || "");
+  const projectTitleInputRef = useRef<HTMLInputElement>(null);
 
   const searchBg = isDark ? "oklch(0.16 0.016 270 / 0.90)" : "oklch(0.97 0.003 270 / 0.92)";
   const searchBorder = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
@@ -103,6 +107,32 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
     return AVATAR_COLORS[seed % AVATAR_COLORS.length];
   }, [displayName]);
   const displayCredits = syncedCredits ?? credits;
+
+  useEffect(() => {
+    if (!isEditingProjectTitle) setProjectTitleDraft(projectTitle || "");
+  }, [isEditingProjectTitle, projectTitle]);
+
+  useEffect(() => {
+    if (!isEditingProjectTitle) return;
+    projectTitleInputRef.current?.focus();
+    projectTitleInputRef.current?.select();
+  }, [isEditingProjectTitle]);
+
+  const commitProjectTitleEdit = useCallback(() => {
+    if (!isEditingProjectTitle) return;
+    const nextTitle = projectTitleDraft.trim();
+    setIsEditingProjectTitle(false);
+    if (!nextTitle || nextTitle === projectTitle) {
+      setProjectTitleDraft(projectTitle || "");
+      return;
+    }
+    onProjectTitleChange?.(nextTitle);
+  }, [isEditingProjectTitle, onProjectTitleChange, projectTitle, projectTitleDraft]);
+
+  const cancelProjectTitleEdit = useCallback(() => {
+    setProjectTitleDraft(projectTitle || "");
+    setIsEditingProjectTitle(false);
+  }, [projectTitle]);
 
   const refreshCredits = useCallback(async () => {
     if (!isAuthenticated) {
@@ -245,7 +275,51 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, showSea
       <div className="flex items-baseline gap-2 min-w-0" style={{ flex: "0 0 auto", maxWidth: 280 }}>
         {projectTitle && (
           <>
-            <span className="font-semibold text-sm truncate" style={{ color: textPri }}>{projectTitle}</span>
+            {isEditingProjectTitle ? (
+              <input
+                ref={projectTitleInputRef}
+                value={projectTitleDraft}
+                onChange={event => setProjectTitleDraft(event.target.value)}
+                onBlur={commitProjectTitleEdit}
+                onKeyDown={event => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    event.currentTarget.blur();
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    cancelProjectTitleEdit();
+                  }
+                }}
+                className="font-semibold text-sm"
+                style={{
+                  width: 156,
+                  height: 26,
+                  color: textPri,
+                  background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)",
+                  border: `1px solid ${searchBorder}`,
+                  borderRadius: 6,
+                  outline: "none",
+                  padding: "0 8px",
+                }}
+              />
+            ) : (
+              <span
+                className="font-semibold text-sm truncate"
+                title="双击重命名画布"
+                onDoubleClick={() => {
+                  if (!onProjectTitleChange) return;
+                  setProjectTitleDraft(projectTitle);
+                  setIsEditingProjectTitle(true);
+                }}
+                style={{
+                  color: textPri,
+                  cursor: onProjectTitleChange ? "text" : "default",
+                }}
+              >
+                {projectTitle}
+              </span>
+            )}
             {projectTime && <span className="type-caption whitespace-nowrap" style={{ color: textSec }}>{projectTime}</span>}
           </>
         )}
