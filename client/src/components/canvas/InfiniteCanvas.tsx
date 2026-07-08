@@ -331,6 +331,66 @@ function FontDesignIcon({
     </AiDecoratedIcon>
   );
 }
+
+function ChatGptLineIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M8.2 4.3c1.3-2.2 4.5-2.3 5.9-.1.4.6.6 1.3.6 2 2.3-.4 4.4 1.5 4.3 3.8 0 .7-.2 1.4-.6 2 .9.7 1.4 1.8 1.2 3-.3 2.5-3 3.8-5.1 2.7-1 1.9-3.6 2.5-5.4 1.2-.6-.4-1-1-1.3-1.6-2.2.2-4.1-1.6-4-3.8 0-.8.3-1.6.8-2.2-.9-.8-1.2-2-.8-3.1.6-2.1 3-3.1 4.8-2.2 0-.6.2-1.2.5-1.7Z"
+        stroke="currentColor"
+        strokeWidth="1.55"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M14.7 6.2 8.6 9.7v6.8M4.7 11.3l6.1 3.5 5.9-3.4M8.7 5.9l6 3.5v6.9M19.2 12.1 13 8.6 7.1 12"
+        stroke="currentColor"
+        strokeWidth="1.35"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function BananaLineIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M6.3 5.2c2.4 5.8 6.7 9.9 12.5 11.2-2.2 3.1-6.9 3.7-10.3 1.2C5.5 15.4 4 11.2 4.9 6.8"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M5.1 6.8 4.4 4.2M6.3 5.2l2-1.5M18.8 16.4l1.8.5"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function AssistantModelIcon({ modelId }: { modelId: string }) {
+  if (/banana|gemini/i.test(modelId)) {
+    return (
+      <span style={{ color: "#FACC15", display: "inline-flex", flex: "0 0 auto" }}>
+        <BananaLineIcon size={14} />
+      </span>
+    );
+  }
+  if (/gpt|image-?2/i.test(modelId)) {
+    return (
+      <span style={{ color: "#FFFFFF", display: "inline-flex", flex: "0 0 auto" }}>
+        <ChatGptLineIcon size={14} />
+      </span>
+    );
+  }
+  return null;
+}
 import { useLocation } from "wouter";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
@@ -18563,7 +18623,7 @@ function CanvasAssistantPanel({
                   >
                     <button
                       type="button"
-                      className="flex h-8 max-w-[82px] items-center gap-1 rounded-[var(--radius-md-design)] px-2 transition-colors active:scale-95"
+                      className="flex h-8 max-w-[138px] items-center gap-1.5 rounded-[var(--radius-md-design)] px-2 transition-colors active:scale-95"
                       style={{
                         background: agentMenuOpen
                           ? compactSelectorActiveBg
@@ -18588,10 +18648,13 @@ function CanvasAssistantPanel({
                       title="选择模型"
                       aria-label="选择模型"
                     >
-                      <span className="min-w-0 max-w-[56px] truncate">
+                      {!assistantAutoMode && (
+                        <AssistantModelIcon modelId={assistantModel.id} />
+                      )}
+                      <span className="min-w-0 max-w-[108px] truncate">
                         {assistantAutoMode
                           ? "auto"
-                          : `${assistantModelTab === "image" ? "生图" : "对话"} · ${assistantModel.label}`}
+                          : assistantModel.label}
                       </span>
                       <ChevronDown
                         size={10}
@@ -18728,10 +18791,7 @@ function CanvasAssistantPanel({
                               }}
                             >
                               <div className="flex min-w-0 items-center gap-2.5">
-                                <div
-                                  className="h-3.5 w-3.5 shrink-0 rounded-[var(--radius-pill)]"
-                                  style={{ background: model.color }}
-                                />
+                                <AssistantModelIcon modelId={model.id} />
                                 <div className="min-w-0">
                                   <p
                                     className="truncate text-xs font-semibold"
