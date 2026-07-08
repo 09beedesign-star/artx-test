@@ -39,6 +39,14 @@ interface TopBarProps {
   glass?: boolean;
 }
 
+interface ApiKeyRecord {
+  id: string;
+  name: string;
+  prefix: string;
+  createdAt: string;
+  lastUsedAt?: string;
+}
+
 const AVATAR_COLORS = [
   "#4F8CFF",
   "#FF6B57",
@@ -90,6 +98,8 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false);
   const [apiKey, setApiKey] = useState("");
+  const [apiKeys, setApiKeys] = useState<ApiKeyRecord[]>([]);
+  const [apiKeyLoading, setApiKeyLoading] = useState(false);
   const [apiKeyCopied, setApiKeyCopied] = useState(false);
   const [apiKeyCreationConfirmed, setApiKeyCreationConfirmed] = useState(false);
   const [syncedCredits, setSyncedCredits] = useState<number | null>(null);
@@ -192,20 +202,59 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
     navigate("/");
   };
 
-  const generateApiKey = () => {
-    const bytes = new Uint8Array(24);
-    globalThis.crypto?.getRandomValues?.(bytes);
-    const token = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
-    const nextKey = `artx_sk_${token.slice(0, 12)}_${token.slice(12, 36)}`;
-    setApiKey(nextKey);
-    setApiKeyCopied(false);
-    setApiKeyCreationConfirmed(true);
-    return nextKey;
+  const developerFetch = async <T,>(path: string, options: RequestInit = {}) => {
+    const token = getTopBarAuthToken();
+    const response = await fetch(`${getTopBarApiBaseUrl()}${path}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options.headers || {}),
+      },
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(typeof data?.error === "string" ? data.error : "请求失败，请稍后重试");
+    }
+    return data as T;
+  };
+
+  const refreshApiKeys = async () => {
+    const result = await developerFetch<{ keys?: ApiKeyRecord[] }>("/api/developer/api-keys");
+    setApiKeys(result.keys || []);
+  };
+
+  const generateApiKey = async () => {
+    setApiKeyLoading(true);
+    try {
+      const result = await developerFetch<{ key?: ApiKeyRecord & { value?: string } }>("/api/developer/api-keys", {
+        method: "POST",
+        body: JSON.stringify({ name: "ArtX MCP Key" }),
+      });
+      if (!result.key?.value) throw new Error("API Key 生成失败");
+      setApiKey(result.key.value);
+      setApiKeys(current => [result.key as ApiKeyRecord, ...current.filter(item => item.id !== result.key?.id)]);
+      setApiKeyCopied(false);
+      setApiKeyCreationConfirmed(true);
+      toast.success("API Key 已生成", { description: "完整 Key 只在当前弹窗展示一次" });
+    } catch (error) {
+      toast.error("API Key 生成失败", { description: error instanceof Error ? error.message : "请稍后重试" });
+    } finally {
+      setApiKeyLoading(false);
+    }
   };
 
   const openApiKeyDialog = () => {
+    if (!isAuthenticated) {
+      openLoginModal();
+      return;
+    }
     setApiKeyCreationConfirmed(Boolean(apiKey));
     setApiKeyDialogOpen(true);
+    setApiKeyLoading(true);
+    refreshApiKeys()
+      .catch(error => toast.error("API Key 暂时不可用", { description: error instanceof Error ? error.message : "请稍后重试" }))
+      .finally(() => setApiKeyLoading(false));
   };
 
   const copyApiKey = async () => {
@@ -242,7 +291,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
           "artx-image": {
             url: `${baseUrl}/api/mcp`,
             headers: {
-              Authorization: "Bearer YOUR_ARTX_API_KEY",
+              Authorization: `Bearer ${apiKey || "YOUR_ARTX_API_KEY"}`,
             },
           },
         },
@@ -394,7 +443,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
       >
         <button
           type="button"
-          onClick={copyMcpConfig}
+          onClick={openApiKeyDialog}
           className="flex h-8 items-center gap-1.5 rounded-[var(--radius-md-design)] px-2.5 type-caption transition-colors active:scale-95"
           style={{
             color: textPri,
@@ -403,7 +452,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
           }}
           onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
           onMouseLeave={e => (e.currentTarget.style.background = isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)")}
-          aria-label="复制 MCP 配置"
+          aria-label="打开 MCP 配置"
         >
           <Link2 size={13} style={{ color: "oklch(0.72 0.18 200)" }} />
           <span style={{ fontWeight: 700, letterSpacing: 0 }}>MCP</span>
@@ -535,51 +584,97 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
               className="type-title-sm"
               style={{ color: textPri, fontSize: 18, fontWeight: 650 }}
             >
-              {apiKeyCreationConfirmed ? "生成 API Key" : "是否需要创建 API Key？"}
+              MCP 与 API Key
             </AlertDialogTitle>
             <AlertDialogDescription
               className="type-body-sm leading-6"
               style={{ color: textSec }}
             >
-              {apiKeyCreationConfirmed
-                ? "复制该 Key 后可交给第三方 Agent 复用当前项目能力。真实 AI 鉴权后续接入，这里先搭建界面和交互框架。"
-                : "创建后会生成一枚可复制的 API Key，用于后续接入第三方 Agent。"}
+              生成真实 API Key 后，可把下方 MCP 配置复制到其他 Agent 中调用 ArtX 工具。
             </AlertDialogDescription>
           </AlertDialogHeader>
 
-          {apiKeyCreationConfirmed && (
-            <div
-              className="mt-5 rounded-[var(--radius-md-design)] p-3"
+          <div
+            className="mt-5 rounded-[var(--radius-md-design)] p-3"
+            style={{
+              background: isDark ? "oklch(0.10 0.012 270)" : "oklch(0.97 0.003 270)",
+              border: `1px solid ${isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 8%)"}`,
+            }}
+          >
+            <div className="mb-1 type-caption" style={{ color: textSec }}>API Key</div>
+            <div className="flex items-center gap-2">
+              <code
+                className="flex-1 min-w-0 truncate"
+                style={{
+                  color: textPri,
+                  fontSize: 12,
+                  fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+                }}
+              >
+                {apiKey || (apiKeys[0] ? `${apiKeys[0].prefix}••••••••••••••••` : "尚未生成")}
+              </code>
+              <button
+                onClick={copyApiKey}
+                disabled={!apiKey}
+                className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-md-design)] transition-colors disabled:opacity-45"
+                style={{
+                  color: apiKeyCopied ? "oklch(0.68 0.18 145)" : textSec,
+                  background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)",
+                }}
+                title="复制 API Key"
+              >
+                {apiKeyCopied ? <Check size={14} /> : <Copy size={14} />}
+              </button>
+            </div>
+          </div>
+
+          <div
+            className="mt-3 rounded-[var(--radius-md-design)] p-3"
+            style={{
+              background: isDark ? "oklch(0.10 0.012 270)" : "oklch(0.97 0.003 270)",
+              border: `1px solid ${isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 8%)"}`,
+            }}
+          >
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <span className="type-caption" style={{ color: textSec }}>MCP 配置代码</span>
+              <button
+                type="button"
+                onClick={copyMcpConfig}
+                className="h-8 inline-flex items-center gap-1.5 rounded-[var(--radius-md-design)] px-2.5 type-caption"
+                style={{
+                  background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)",
+                  color: textPri,
+                }}
+              >
+                <Copy size={13} />
+                复制
+              </button>
+            </div>
+            <pre
+              className="max-h-[180px] overflow-auto whitespace-pre-wrap break-all rounded-[var(--radius-md-design)] p-3"
               style={{
-                background: isDark ? "oklch(0.10 0.012 270)" : "oklch(0.97 0.003 270)",
-                border: `1px solid ${isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 8%)"}`,
+                background: isDark ? "oklch(0.08 0.012 270)" : "white",
+                color: textPri,
+                fontSize: 11,
+                lineHeight: 1.6,
               }}
             >
-              <div className="flex items-center gap-2">
-                <code
-                  className="flex-1 min-w-0 truncate"
-                  style={{
-                    color: textPri,
-                    fontSize: 12,
-                    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-                  }}
-                >
-                  {apiKey}
-                </code>
-                <button
-                  onClick={copyApiKey}
-                  className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-md-design)] transition-colors"
-                  style={{
-                    color: apiKeyCopied ? "oklch(0.68 0.18 145)" : textSec,
-                    background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)",
-                  }}
-                  title="复制 API Key"
-                >
-                  {apiKeyCopied ? <Check size={14} /> : <Copy size={14} />}
-                </button>
-              </div>
-            </div>
-          )}
+              {JSON.stringify(
+                {
+                  mcpServers: {
+                    "artx-image": {
+                      url: `${getMcpApiBaseUrl()}/api/mcp`,
+                      headers: {
+                        Authorization: `Bearer ${apiKey || "YOUR_ARTX_API_KEY"}`,
+                      },
+                    },
+                  },
+                },
+                null,
+                2
+              )}
+            </pre>
+          </div>
 
           <AlertDialogFooter className="mt-6 flex-row justify-end gap-3 sm:justify-end">
             <AlertDialogCancel
@@ -593,18 +688,20 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
               关闭
             </AlertDialogCancel>
             <button
-              onClick={() => generateApiKey()}
+              onClick={() => void generateApiKey()}
+              disabled={apiKeyLoading}
               className="h-9 min-w-[104px] inline-flex items-center justify-center gap-1.5 rounded-[var(--radius-md-design)] type-caption"
               style={{
                 background: isDark ? "oklch(1 0 0 / 7%)" : "oklch(0 0 0 / 0.05)",
                 border: `1px solid ${isDark ? "oklch(1 0 0 / 10%)" : "oklch(0.88 0.006 255)"}`,
                 color: textPri,
+                opacity: apiKeyLoading ? 0.65 : 1,
               }}
             >
-              <RefreshCw size={13} />
-              {apiKeyCreationConfirmed ? "重新生成" : "确认创建"}
+              <RefreshCw size={13} className={apiKeyLoading ? "animate-spin" : ""} />
+              {apiKeyCreationConfirmed || apiKeys.length ? "重新生成" : "生成 Key"}
             </button>
-            {apiKeyCreationConfirmed && (
+            {apiKey && (
               <AlertDialogAction
                 onClick={copyApiKey}
                 className="h-9 min-w-[96px] rounded-[var(--radius-md-design)] type-caption"

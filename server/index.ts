@@ -9,7 +9,7 @@ import { createProductBackground, editImageWithPrompt, enhanceImage, eraseImageO
 import { getUploadsRoot, storeGeneratedImagesForUser } from "./local-image-storage";
 import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
-import { getAdminSessionFromAuthorization, getSessionUserFromAuthorization, handleAuthAction } from "./auth-store";
+import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization } from "./auth-store";
 import { createBillingOrder, createCreditRechargeOrder, getBillingOrderForPayment, getBillingSnapshotForUser, handleAdminApiRequest, markBillingOrderPaid, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, submitUserFeedback } from "./admin-store";
 import { getAllowedCorsOrigin } from "./cors";
 import { sendOpsNotification } from "./notifications";
@@ -54,6 +54,13 @@ type AiRouteTracking = {
   failureMessage: string;
   outputUnits?: (result: unknown) => number;
   providerTaskIds?: (result: unknown) => string[] | undefined;
+};
+
+type McpJsonRpcRequest = {
+  jsonrpc?: string;
+  id?: string | number | null;
+  method?: string;
+  params?: Record<string, unknown>;
 };
 
 const backgroundImageTasks = new Map<string, BackgroundImageTask>();
@@ -322,6 +329,44 @@ function getProviderTaskIds(result: unknown) {
     ids.unshift(record.providerTaskId.trim());
   }
   return ids.length ? Array.from(new Set(ids)) : undefined;
+}
+
+function mcpResult(id: McpJsonRpcRequest["id"], result: unknown) {
+  return { jsonrpc: "2.0", id: id ?? null, result };
+}
+
+function mcpError(id: McpJsonRpcRequest["id"], code: number, message: string) {
+  return { jsonrpc: "2.0", id: id ?? null, error: { code, message } };
+}
+
+function getMcpTools() {
+  return [
+    {
+      name: "artx_health",
+      description: "验证 ArtX API key 和 MCP 服务是否可用，不消耗积分。",
+      inputSchema: {
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "artx_generate_image",
+      description: "使用 ArtX 图片生成能力根据提示词生成图片。该工具会消耗账号积分。",
+      inputSchema: {
+        type: "object",
+        properties: {
+          prompt: { type: "string", description: "图片生成提示词" },
+          model: { type: "string", description: "可选模型，例如 Image Two 或 Nano Banana" },
+          ratio: { type: "string", description: "可选画幅比例，例如 1:1、4:5、16:9" },
+          count: { type: "number", description: "生成数量，默认 1，最多 4" },
+          skillId: { type: "string", description: "可选 ArtX Skill ID" },
+        },
+        required: ["prompt"],
+        additionalProperties: true,
+      },
+    },
+  ];
 }
 
 function capabilityFromOrchestrator(capability: string): AiBillingCapability {
@@ -1075,6 +1120,166 @@ async function startServer() {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Auth request failed";
       res.status(500).json({ error: message });
+    }
+  });
+
+  app.get("/api/developer/api-keys", async (req, res) => {
+    try {
+      const result = await listApiKeysForAuthorization(req.headers.authorization);
+      res.status(result.status).json(result.body);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "API key list failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.post("/api/developer/api-keys", async (req, res) => {
+    try {
+      const result = await createApiKeyForAuthorization(req.headers.authorization, req.body);
+      res.status(result.status).json(result.body);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "API key create failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.post("/api/mcp", async (req, res) => {
+    const request = req.body && typeof req.body === "object" ? req.body as McpJsonRpcRequest : {};
+    const id = request.id ?? null;
+    try {
+      const auth = await getApiKeyUserFromAuthorization(req.headers.authorization);
+      if (auth.status !== 200 || !("user" in auth.body)) {
+        res.status(auth.status).json(mcpError(id, -32001, typeof auth.body.error === "string" ? auth.body.error : "Unauthorized"));
+        return;
+      }
+
+      if (!request.method) {
+        res.status(400).json(mcpError(id, -32600, "Invalid MCP request"));
+        return;
+      }
+
+      if (request.method === "initialize") {
+        res.json(mcpResult(id, {
+          protocolVersion: "2025-03-26",
+          capabilities: { tools: {} },
+          serverInfo: { name: "artx-image", version: "1.0.0" },
+        }));
+        return;
+      }
+
+      if (request.method === "notifications/initialized") {
+        res.status(202).json({ ok: true });
+        return;
+      }
+
+      if (request.method === "tools/list") {
+        res.json(mcpResult(id, { tools: getMcpTools() }));
+        return;
+      }
+
+      if (request.method === "tools/call") {
+        const params = request.params || {};
+        const toolName = typeof params.name === "string" ? params.name : "";
+        const args = params.arguments && typeof params.arguments === "object"
+          ? params.arguments as Record<string, unknown>
+          : {};
+        const user = {
+          id: auth.body.user.id,
+          username: auth.body.user.username,
+        };
+
+        if (toolName === "artx_health") {
+          res.json(mcpResult(id, {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                ok: true,
+                user: user.username,
+                apiKey: auth.body.apiKey,
+                tools: getMcpTools().map(tool => tool.name),
+              }, null, 2),
+            }],
+          }));
+          return;
+        }
+
+        if (toolName === "artx_generate_image") {
+          const prompt = typeof args.prompt === "string" ? args.prompt.trim() : "";
+          if (!prompt) {
+            res.status(400).json(mcpError(id, -32602, "prompt is required"));
+            return;
+          }
+          const startedAt = Date.now();
+          try {
+            const result = await orchestrator.run({
+              capability: "text_to_image",
+              intent: "text_to_image",
+              operation: "generate",
+              prompt,
+              model: typeof args.model === "string" ? args.model : undefined,
+              ratio: typeof args.ratio === "string" ? args.ratio : undefined,
+              count: Math.max(1, Math.min(4, Number(args.count || 1))),
+              skillId: typeof args.skillId === "string" ? args.skillId : undefined,
+            });
+            const storedResult = await storeImageResultForUser(result, user.username);
+            await recordAiRouteUsage({
+              user,
+              tracking: {
+                capabilityKey: capabilityFromOrchestrator(storedResult.capability),
+                capability: storedResult.capability,
+                provider: storedResult.route,
+                model: storedResult.model,
+                failureMessage: "MCP image generation failed",
+              },
+              startedAt,
+              status: "success",
+              result: storedResult,
+            });
+            res.json(mcpResult(id, {
+              content: [{
+                type: "text",
+                text: JSON.stringify({
+                  type: storedResult.type,
+                  capability: storedResult.capability,
+                  model: storedResult.model,
+                  route: storedResult.route,
+                  images: storedResult.images || [],
+                  providerTaskId: storedResult.providerTaskId,
+                  providerTaskIds: storedResult.providerTaskIds,
+                }, null, 2),
+              }],
+            }));
+            return;
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "MCP image generation failed";
+            await recordAiRouteUsage({
+              user,
+              tracking: {
+                capabilityKey: "text_to_image",
+                capability: "MCP 图片生成",
+                provider: "AI_IMAGE",
+                model: typeof args.model === "string" ? args.model : "auto",
+                failureMessage: "MCP image generation failed",
+              },
+              startedAt,
+              status: "failed",
+              error: message,
+            }).catch(recordError => {
+              console.warn("[mcp] failed to record image generation failure", recordError instanceof Error ? recordError.message : recordError);
+            });
+            res.status(500).json(mcpError(id, -32000, message));
+            return;
+          }
+        }
+
+        res.status(404).json(mcpError(id, -32601, `Unknown tool: ${toolName || "unknown"}`));
+        return;
+      }
+
+      res.status(404).json(mcpError(id, -32601, `Unknown MCP method: ${request.method}`));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "MCP request failed";
+      res.status(500).json(mcpError(id, -32000, message));
     }
   });
 
