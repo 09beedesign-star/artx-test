@@ -63,6 +63,10 @@ export default function ProfilePage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [passwordBusy, setPasswordBusy] = useState(false);
+  const [avatarEditor, setAvatarEditor] = useState<{
+    src: string;
+    target: "profile" | "draft";
+  } | null>(null);
 
   useEffect(() => {
     localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile));
@@ -85,14 +89,22 @@ export default function ProfilePage() {
     }
     const reader = new FileReader();
     reader.onload = () => {
-      const avatar = String(reader.result || "");
-      if (target === "profile") {
-        setProfile(current => ({ ...current, avatar }));
-      } else {
-        setDraft(current => ({ ...current, avatar }));
-      }
+      const src = String(reader.result || "");
+      if (src) setAvatarEditor({ src, target });
     };
     reader.readAsDataURL(file);
+  };
+
+  const applyAvatarCrop = (avatar: string) => {
+    if (!avatarEditor) return;
+    if (avatarEditor.target === "profile") {
+      setProfile(current => ({ ...current, avatar }));
+      setDraft(current => ({ ...current, avatar }));
+    } else {
+      setDraft(current => ({ ...current, avatar }));
+    }
+    setAvatarEditor(null);
+    toast.success("头像已更新");
   };
 
   const openEdit = () => {
@@ -172,7 +184,7 @@ export default function ProfilePage() {
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="group relative flex h-24 w-24 items-center justify-center overflow-hidden rounded-[28px]"
+                    className="group relative flex h-24 w-24 items-center justify-center overflow-hidden rounded-full"
                     style={{
                       background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.62 0.20 210))",
                       border: `4px solid ${isDark ? "#222222" : "white"}`,
@@ -194,7 +206,10 @@ export default function ProfilePage() {
                     type="file"
                     accept="image/*"
                     className="hidden"
-                    onChange={event => handleAvatarFile(event.target.files?.[0], "profile")}
+                    onChange={event => {
+                      handleAvatarFile(event.target.files?.[0], "profile");
+                      event.currentTarget.value = "";
+                    }}
                   />
                   <div className="pb-2">
                     <h1 className="type-title-sm" style={{ color: textPrimary, fontSize: 26, fontWeight: 680 }}>{profile.displayName}</h1>
@@ -305,7 +320,7 @@ export default function ProfilePage() {
               <button
                 type="button"
                 onClick={() => editAvatarInputRef.current?.click()}
-                className="relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-[20px]"
+                className="relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-full"
                 style={{
                   background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.62 0.20 210))",
                   border: `1px solid ${border}`,
@@ -322,7 +337,10 @@ export default function ProfilePage() {
                 type="file"
                 accept="image/*"
                 className="hidden"
-                onChange={event => handleAvatarFile(event.target.files?.[0], "draft")}
+                onChange={event => {
+                  handleAvatarFile(event.target.files?.[0], "draft");
+                  event.currentTarget.value = "";
+                }}
               />
               <button
                 type="button"
@@ -463,6 +481,20 @@ export default function ProfilePage() {
           </div>
         </div>
       )}
+
+      {avatarEditor && (
+        <AvatarCropDialog
+          src={avatarEditor.src}
+          isDark={isDark}
+          panelBg={panelBg}
+          border={border}
+          inputBg={inputBg}
+          textPrimary={textPrimary}
+          textSecondary={textSecondary}
+          onCancel={() => setAvatarEditor(null)}
+          onConfirm={applyAvatarCrop}
+        />
+      )}
     </div>
   );
 }
@@ -499,6 +531,243 @@ function ProfilePasswordInput({
         style={{ background: inputBg, border: `1px solid ${border}`, color: textPrimary, fontSize: 13 }}
       />
     </label>
+  );
+}
+
+function AvatarCropDialog({
+  src,
+  isDark,
+  panelBg,
+  border,
+  inputBg,
+  textPrimary,
+  textSecondary,
+  onCancel,
+  onConfirm,
+}: {
+  src: string;
+  isDark: boolean;
+  panelBg: string;
+  border: string;
+  inputBg: string;
+  textPrimary: string;
+  textSecondary: string;
+  onCancel: () => void;
+  onConfirm: (avatar: string) => void;
+}) {
+  const previewSize = 260;
+  const outputSize = 512;
+  const imageRef = useRef<HTMLImageElement>(null);
+  const dragRef = useRef<{
+    startX: number;
+    startY: number;
+    offsetX: number;
+    offsetY: number;
+  } | null>(null);
+  const [imageSize, setImageSize] = useState({ width: 1, height: 1 });
+  const [scale, setScale] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const minScale = Math.max(
+    previewSize / Math.max(1, imageSize.width),
+    previewSize / Math.max(1, imageSize.height)
+  );
+  const maxScale = Math.max(minScale * 4, minScale + 0.1);
+
+  const clampOffset = (nextOffset: { x: number; y: number }, nextScale = scale) => {
+    const drawW = imageSize.width * nextScale;
+    const drawH = imageSize.height * nextScale;
+    const maxX = Math.max(0, (drawW - previewSize) / 2);
+    const maxY = Math.max(0, (drawH - previewSize) / 2);
+    return {
+      x: Math.max(-maxX, Math.min(maxX, nextOffset.x)),
+      y: Math.max(-maxY, Math.min(maxY, nextOffset.y)),
+    };
+  };
+
+  useEffect(() => {
+    const image = new Image();
+    image.onload = () => {
+      const width = image.naturalWidth || 1;
+      const height = image.naturalHeight || 1;
+      const nextMinScale = Math.max(previewSize / width, previewSize / height);
+      setImageSize({ width, height });
+      setScale(nextMinScale);
+      setOffset({ x: 0, y: 0 });
+    };
+    image.src = src;
+  }, [src]);
+
+  const handleScaleChange = (nextScale: number) => {
+    const boundedScale = Math.max(minScale, Math.min(maxScale, nextScale));
+    setScale(boundedScale);
+    setOffset(current => clampOffset(current, boundedScale));
+  };
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      offsetX: offset.x,
+      offsetY: offset.y,
+    };
+  };
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const nextOffset = {
+      x: drag.offsetX + event.clientX - drag.startX,
+      y: drag.offsetY + event.clientY - drag.startY,
+    };
+    setOffset(clampOffset(nextOffset));
+  };
+
+  const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    dragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const confirmCrop = () => {
+    const image = imageRef.current;
+    if (!image) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = outputSize;
+    canvas.height = outputSize;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const ratio = outputSize / previewSize;
+    const drawW = imageSize.width * scale * ratio;
+    const drawH = imageSize.height * scale * ratio;
+    const drawX = outputSize / 2 - drawW / 2 + offset.x * ratio;
+    const drawY = outputSize / 2 - drawH / 2 + offset.y * ratio;
+    ctx.clearRect(0, 0, outputSize, outputSize);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(outputSize / 2, outputSize / 2, outputSize / 2, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(image, drawX, drawY, drawW, drawH);
+    ctx.restore();
+    onConfirm(canvas.toDataURL("image/png"));
+  };
+
+  const drawW = imageSize.width * scale;
+  const drawH = imageSize.height * scale;
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-[#222222]/45 px-6"
+      onMouseDown={event => {
+        if (event.target === event.currentTarget) onCancel();
+      }}
+    >
+      <div
+        className="w-[min(480px,calc(100vw-32px))] rounded-[var(--radius-xl-design)] p-5 shadow-2xl"
+        style={{
+          background: panelBg,
+          border: `1px solid ${border}`,
+          color: textPrimary,
+          backdropFilter: "blur(18px)",
+        }}
+        onMouseDown={event => event.stopPropagation()}
+      >
+        <div className="mb-5 flex items-center justify-between">
+          <div>
+            <p className="type-title-sm" style={{ fontSize: 18, fontWeight: 680 }}>编辑头像</p>
+            <p className="type-caption mt-1" style={{ color: textSecondary }}>拖拽图片调整位置，使用滑杆放大或缩小。</p>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-md-design)]"
+            style={{ background: inputBg, color: textSecondary }}
+            aria-label="关闭头像编辑"
+          >
+            <X size={15} />
+          </button>
+        </div>
+
+        <div className="flex flex-col items-center gap-5">
+          <div
+            className="relative overflow-hidden rounded-full"
+            style={{
+              width: previewSize,
+              height: previewSize,
+              background: isDark ? "#191919" : "rgba(20,20,36,0.06)",
+              border: `1px solid ${border}`,
+              boxShadow: "0 18px 48px rgba(0,0,0,0.26)",
+              cursor: "grab",
+              touchAction: "none",
+            }}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+          >
+            <img
+              ref={imageRef}
+              src={src}
+              alt="头像裁剪预览"
+              draggable={false}
+              style={{
+                position: "absolute",
+                left: previewSize / 2 - drawW / 2 + offset.x,
+                top: previewSize / 2 - drawH / 2 + offset.y,
+                width: drawW,
+                height: drawH,
+                userSelect: "none",
+                pointerEvents: "none",
+              }}
+            />
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 rounded-full"
+              style={{ boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.34)" }}
+            />
+          </div>
+
+          <label className="grid w-full gap-2">
+            <span className="type-caption" style={{ color: textSecondary }}>缩放</span>
+            <input
+              type="range"
+              min={minScale}
+              max={maxScale}
+              step={(maxScale - minScale) / 100}
+              value={scale}
+              onChange={event => handleScaleChange(Number(event.target.value))}
+              className="w-full accent-[#C5ED47]"
+            />
+          </label>
+        </div>
+
+        <div className="mt-6 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="h-9 min-w-[88px] rounded-[var(--radius-md-design)] type-caption"
+            style={{ background: inputBg, border: `1px solid ${border}`, color: textPrimary }}
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={confirmCrop}
+            className="h-9 min-w-[96px] rounded-[var(--radius-md-design)] type-caption"
+            style={{
+              background: "#C5ED47",
+              color: "#111827",
+              boxShadow: "0 8px 24px rgba(197,237,71,0.22)",
+              fontWeight: 700,
+            }}
+          >
+            保存头像
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
