@@ -399,9 +399,16 @@ type CanvasDownloadFormat = "jpg" | "png" | "psd";
 type ImageDownloadFormat = Exclude<CanvasDownloadFormat, "psd">;
 
 const CANVAS_FRAME_BACKGROUND_ALPHA = 0.5;
+const CANVAS_MIN_ZOOM = 0.1;
+const CANVAS_MAX_ZOOM = 4;
+const CANVAS_WHEEL_ZOOM_SPEED = 0.0015;
 const CANVAS_CROSS_PROJECT_CLIPBOARD_KEY =
   "artx:canvas-cross-project-clipboard";
 const CROSS_CANVAS_COPY_TYPES = ["asset", "canvasFrame"] as const;
+
+function clampCanvasZoom(value: number) {
+  return Math.max(CANVAS_MIN_ZOOM, Math.min(CANVAS_MAX_ZOOM, value));
+}
 
 function isCrossCanvasCopyNode(node: Node) {
   return CROSS_CANVAS_COPY_TYPES.includes(
@@ -11827,6 +11834,7 @@ function GroupContainerCard({
   return (
     <div
       className="absolute"
+      data-canvas-group-overlay="true"
       style={{
         left,
         top,
@@ -21360,6 +21368,58 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     };
   }, [getViewport, isCanvasLocked, setViewport]);
 
+  const handleCanvasWheelCapture = useCallback(
+    (event: React.WheelEvent<HTMLDivElement>) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const root = containerRef.current;
+      if (!target || !root) return;
+      if (
+        target.closest(
+          "input, textarea, select, [contenteditable='true'], .nowheel, .react-flow__minimap, .react-flow__controls"
+        )
+      ) {
+        return;
+      }
+
+      const flowRoot = root.querySelector(".react-flow") as HTMLElement | null;
+      const flowRect = flowRoot?.getBoundingClientRect();
+      if (!flowRect) return;
+
+      const insideFlowRect =
+        event.clientX >= flowRect.left &&
+        event.clientX <= flowRect.right &&
+        event.clientY >= flowRect.top &&
+        event.clientY <= flowRect.bottom;
+      const insideReactFlow = Boolean(target.closest(".react-flow"));
+      const insideGroupOverlay = Boolean(
+        target.closest("[data-canvas-group-overlay='true']")
+      );
+      if (!insideFlowRect || (!insideReactFlow && !insideGroupOverlay)) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const currentViewport = getViewport();
+      const nextZoom = clampCanvasZoom(
+        currentViewport.zoom *
+          Math.exp(-event.deltaY * CANVAS_WHEEL_ZOOM_SPEED)
+      );
+      if (nextZoom === currentViewport.zoom) return;
+
+      const mouseX = event.clientX - flowRect.left;
+      const mouseY = event.clientY - flowRect.top;
+      const flowX = (mouseX - currentViewport.x) / currentViewport.zoom;
+      const flowY = (mouseY - currentViewport.y) / currentViewport.zoom;
+
+      setViewport({
+        x: mouseX - flowX * nextZoom,
+        y: mouseY - flowY * nextZoom,
+        zoom: nextZoom,
+      });
+    },
+    [getViewport, setViewport]
+  );
+
   const getActionNodeIds = useCallback(
     (nodeId: string) => {
       if (nodeId === "__selection__") return selectedNodeIds;
@@ -26390,6 +26450,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         handlePenMouseUp();
         handleCreateCanvasMouseUp(e);
       }}
+      onWheelCapture={handleCanvasWheelCapture}
     >
       {assetMorePanel &&
         (assetMorePanel.command === "mockup" ? (
@@ -26553,8 +26614,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         onClick={handlePaneClick}
         fitView
         fitViewOptions={{ padding: 0.15 }}
-        minZoom={0.1}
-        maxZoom={4}
+        minZoom={CANVAS_MIN_ZOOM}
+        maxZoom={CANVAS_MAX_ZOOM}
         defaultEdgeOptions={{ type: "tapnow" }}
         connectionLineStyle={{
           stroke: "rgba(255,255,255,0.5)",
