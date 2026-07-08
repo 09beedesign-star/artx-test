@@ -9167,6 +9167,10 @@ function shouldSelectToFront(node: Node | undefined) {
   return Boolean(node?.type && SELECT_TO_FRONT_NODE_TYPES.has(node.type));
 }
 
+function areStringArraysEqual(a: string[], b: string[]) {
+  return a.length === b.length && a.every((item, index) => item === b[index]);
+}
+
 function nextCanvasTopZ(nodes: Node[]) {
   return (
     Math.max(
@@ -19399,6 +19403,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   >(async () => false);
   const preferCrossCanvasPasteRef = useRef(false);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
+  const selectedNodeIdsRef = useRef<string[]>(selectedNodeIds);
+  useEffect(() => {
+    selectedNodeIdsRef.current = selectedNodeIds;
+  }, [selectedNodeIds]);
   const isBoxSelectingRef = useRef(false);
   const [isAssistantCollapsed, setIsAssistantCollapsed] = useState(false);
   const [assistantPanelWidth, setAssistantPanelWidth] = useState(() => {
@@ -22850,6 +22858,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             .map(node => node.id);
         }
       }
+      if (areStringArraysEqual(selectedNodeIdsRef.current, nextSelectedIds)) {
+        return;
+      }
+      selectedNodeIdsRef.current = nextSelectedIds;
+      if (isRestoringRef.current) {
+        setSelectedNodeIds(nextSelectedIds);
+        return;
+      }
       clearInactiveAssetCommands(nextSelectedIds);
       const nextSelectedIdSet = new Set(nextSelectedIds);
       const selectedVisualIds = new Set(
@@ -22904,10 +22920,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         });
       }
       setSelectedNodeIds(currentIds =>
-        currentIds.length === nextSelectedIds.length &&
-        currentIds.every((id, index) => id === nextSelectedIds[index])
-          ? currentIds
-          : nextSelectedIds
+        areStringArraysEqual(currentIds, nextSelectedIds) ? currentIds : nextSelectedIds
       );
     },
     [clearInactiveAssetCommands, enteringGroupId, nodes, setNodes]

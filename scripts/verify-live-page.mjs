@@ -2,6 +2,8 @@ import { chromium } from "playwright";
 
 const targetUrl = process.env.ARTX_VERIFY_URL || "https://backstage.artxsd.com/";
 const waitMs = Number.parseInt(process.env.ARTX_VERIFY_WAIT_MS || "3000", 10);
+const restoreSelectedCanvas = process.env.ARTX_VERIFY_RESTORE_SELECTED_CANVAS === "1";
+const useAuthSession = process.env.ARTX_VERIFY_AUTH_SESSION === "1";
 
 const fatalErrors = [];
 const consoleErrors = [];
@@ -18,6 +20,52 @@ try {
     browser = await chromium.launch({ channel: "chrome", headless: true });
   }
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  if (restoreSelectedCanvas || useAuthSession) {
+    await page.addInitScript(({ shouldUseAuthSession, shouldRestoreSelectedCanvas }) => {
+      if (shouldUseAuthSession) {
+        window.localStorage.setItem(
+          "artx-auth-session",
+          JSON.stringify({
+            token: "verify-local-session",
+            user: {
+              id: "verify-user",
+              username: "verify-user",
+              role: "viewer",
+              permissions: [],
+            },
+          })
+        );
+      }
+      if (!shouldRestoreSelectedCanvas) return;
+      const state = {
+        nodes: [
+          {
+            id: "verify-selected-asset",
+            type: "asset",
+            position: { x: 120, y: 120 },
+            selected: true,
+            zIndex: 1,
+            data: {
+              title: "验证选中态图片",
+              localSrc:
+                "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='220' viewBox='0 0 320 220'%3E%3Crect width='320' height='220' rx='18' fill='%237C3AED'/%3E%3Ctext x='160' y='116' fill='white' font-family='Arial' font-size='26' text-anchor='middle'%3EArtX%3C/text%3E%3C/svg%3E",
+              width: 320,
+              height: 220,
+            },
+          },
+        ],
+        edges: [],
+        viewport: { x: 0, y: 0, zoom: 1 },
+        updatedAt: new Date().toISOString(),
+      };
+      window.localStorage.setItem("artx:canvas-state:reset-test-canvases-20260620", "1");
+      window.localStorage.setItem("artx:canvas-state:p1", JSON.stringify(state));
+      window.sessionStorage.setItem("artx:canvas-state:fallback:p1", JSON.stringify(state));
+    }, {
+      shouldUseAuthSession: useAuthSession,
+      shouldRestoreSelectedCanvas: restoreSelectedCanvas,
+    });
+  }
 
   page.on("pageerror", error => {
     fatalErrors.push(`pageerror: ${error.message}`);
