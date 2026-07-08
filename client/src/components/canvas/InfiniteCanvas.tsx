@@ -21508,6 +21508,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       );
       if (!insideFlowRect || (!insideReactFlow && !insideGroupOverlay)) return;
 
+      if (event.altKey || event.metaKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
+      if (!event.ctrlKey) return;
+
       event.preventDefault();
       event.stopPropagation();
 
