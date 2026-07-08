@@ -11844,7 +11844,7 @@ function GroupContainerCard({
         border: `1.5px solid ${isEntering ? enteringBorder : containerBorder}`,
         borderRadius: "var(--radius-lg-design)",
         zIndex: dragging ? 20 : 5,
-        pointerEvents: "all",
+        pointerEvents: isEntering ? "none" : "all",
         transition: dragging
           ? "none"
           : "border-color 0.2s ease, background 0.2s ease",
@@ -11885,6 +11885,8 @@ function GroupContainerCard({
           e.stopPropagation();
           onLabelDoubleClick(groupId);
         }}
+        onMouseDown={e => e.stopPropagation()}
+        onClick={e => e.stopPropagation()}
         title="双击重命名"
       >
         <Box size={9} strokeWidth={2.2} />
@@ -22718,11 +22720,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     [nodes, enteringGroupId]
   );
 
-  // ── Double-click group container → enter group ──
-  // 双击进入打组已禁用，保留回调以兼容组件接口
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleGroupContainerDoubleClick = useCallback((_groupId: string) => {
-    // no-op: double-click to enter group is intentionally disabled
+  // ── Double-click group container → enter temporary group edit mode ──
+  const handleGroupContainerDoubleClick = useCallback((groupId: string) => {
+    setRenamingGroupId(null);
+    setNodeCtxMenu(null);
+    setEnteringGroupId(groupId);
+    toast("已进入打组", { description: "单击打组外空白区域可退出" });
   }, []);
 
   // ── Drag group container → move all nodes in group ──
@@ -22761,6 +22764,55 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     [pushHistory]
   );
 
+  const isScreenPointInsideGroup = useCallback(
+    (groupId: string, clientX: number, clientY: number) => {
+      const currentNodes = nodesRef.current;
+      const groupNodeIds = currentNodes
+        .filter(
+          node => (node.data as Record<string, unknown>).groupId === groupId
+        )
+        .map(node => node.id);
+      const bounds = getCanvasNodesBounds(currentNodes, groupNodeIds);
+      if (!bounds) return false;
+      const flowPos = screenToFlowPosition({ x: clientX, y: clientY });
+      return (
+        flowPos.x >= bounds.x &&
+        flowPos.x <= bounds.x + bounds.width &&
+        flowPos.y >= bounds.y &&
+        flowPos.y <= bounds.y + bounds.height
+      );
+    },
+    [screenToFlowPosition]
+  );
+
+  const exitEnteredGroup = useCallback(() => {
+    setEnteringGroupId(null);
+    setSelectedNodeIds([]);
+    toast("已退出打组");
+  }, []);
+
+  const handleCanvasClickCapture = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!enteringGroupId || renamingGroupId) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target) return;
+      if (
+        target.closest(
+          "button, input, textarea, select, [contenteditable='true'], .react-flow__minimap, .react-flow__controls"
+        )
+      ) {
+        return;
+      }
+      if (target.closest("[data-canvas-group-overlay='true']")) return;
+      if (isScreenPointInsideGroup(enteringGroupId, event.clientX, event.clientY)) {
+        return;
+      }
+      event.stopPropagation();
+      exitEnteredGroup();
+    },
+    [enteringGroupId, exitEnteredGroup, isScreenPointInsideGroup, renamingGroupId]
+  );
+
   // ── Click blank canvas → exit group if inside one, also close smart-optimize bar ──
   const handlePaneClick = useCallback(
     (e: React.MouseEvent) => {
@@ -22789,9 +22841,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         );
       }
       if (enteringGroupId) {
-        setEnteringGroupId(null);
-        setSelectedNodeIds([]);
-        toast("已退出打组");
+        if (isScreenPointInsideGroup(enteringGroupId, e.clientX, e.clientY)) {
+          return;
+        }
+        exitEnteredGroup();
       }
       // 文字工具：点击画布创建文字节点，创建后自动切换回移动工具
       if (activeToolMode === "text") {
@@ -22839,6 +22892,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       activeToolMode,
       editAsset,
       enteringGroupId,
+      exitEnteredGroup,
+      isScreenPointInsideGroup,
       setNodes,
       screenToFlowPosition,
       isDark,
@@ -26450,6 +26505,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         handlePenMouseUp();
         handleCreateCanvasMouseUp(e);
       }}
+      onClickCapture={handleCanvasClickCapture}
       onWheelCapture={handleCanvasWheelCapture}
     >
       {assetMorePanel &&
