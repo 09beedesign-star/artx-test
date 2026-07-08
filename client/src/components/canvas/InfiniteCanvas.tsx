@@ -22889,14 +22889,26 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         });
       }
       if (nextSelectedIds.length !== selectedNodes.length) {
-        setNodes(nds =>
-          nds.map(node => ({
-            ...node,
-            selected: nextSelectedIdSet.has(node.id),
-          }))
-        );
+        setNodes(nds => {
+          let changed = false;
+          const nextNodes = nds.map(node => {
+            const selected = nextSelectedIdSet.has(node.id);
+            if (node.selected === selected) return node;
+            changed = true;
+            return {
+              ...node,
+              selected,
+            };
+          });
+          return changed ? nextNodes : nds;
+        });
       }
-      setSelectedNodeIds(nextSelectedIds);
+      setSelectedNodeIds(currentIds =>
+        currentIds.length === nextSelectedIds.length &&
+        currentIds.every((id, index) => id === nextSelectedIds[index])
+          ? currentIds
+          : nextSelectedIds
+      );
     },
     [clearInactiveAssetCommands, enteringGroupId, nodes, setNodes]
   );
