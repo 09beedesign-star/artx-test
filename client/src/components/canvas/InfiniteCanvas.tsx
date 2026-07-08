@@ -4818,6 +4818,7 @@ function AnnotationBubble({
   const accentColor = ann.color || annotationColors[0];
   const doneBg = isDark ? "rgba(34,42,22,0.97)" : "rgba(240,255,235,0.98)";
   const doneBorder = isDark ? "rgba(100,200,80,0.25)" : "rgba(80,160,60,0.20)";
+  const confirmButtonBg = "#C5ED47";
 
   // 折叠状态：显示小圆点图标
   if (!ann.open) {
@@ -5003,32 +5004,45 @@ function AnnotationBubble({
                 <Edit3 size={12} />
               </button>
             )}
-            {/* Done 按钮 */}
+            {/* 确认按钮 */}
             <button
-              title="完成并删除注释"
+              title="确认注释"
               style={{
-                width: 22,
+                width: 42,
                 height: 22,
                 borderRadius: 5,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                color: iconBtnColor,
-                background: "transparent",
+                color: "#111827",
+                background: confirmButtonBg,
                 border: "none",
                 cursor: "pointer",
                 fontSize: 10,
-                fontWeight: 600,
+                fontWeight: 700,
+                boxShadow: "0 8px 18px rgba(197,237,71,0.20)",
               }}
-              onClick={() => onRemove(ann.id)}
+              onClick={() => {
+                const nextText = (ann.editing ? draft : ann.text).trim();
+                if (!nextText) {
+                  onRemove(ann.id);
+                  return;
+                }
+                onUpdate(ann.id, {
+                  text: nextText,
+                  done: true,
+                  open: false,
+                  editing: false,
+                });
+              }}
               onMouseEnter={e =>
-                (e.currentTarget.style.background = iconBtnHover)
+                (e.currentTarget.style.background = "#D8FF5C")
               }
               onMouseLeave={e =>
-                (e.currentTarget.style.background = "transparent")
+                (e.currentTarget.style.background = confirmButtonBg)
               }
             >
-              Done
+              确认
             </button>
           </div>
         </div>
@@ -22913,6 +22927,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       );
       // 创建画板模式：点击不触发 paneClick 的其他逻辑
       if (activeToolMode === "smart-canvas") return;
+      if (activeToolMode === "annotate") {
+        toast("智能注释只能应用于图片上，请加载需要注释的图片才能使用这个命令。");
+        return;
+      }
       // 点击画布空白处关闭智能优化输入框
       if (editAsset) {
         setEditAsset(null);
