@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { accessSync, constants } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { AI_CREDIT_POLICIES, AI_PLAN_DISCOUNTS, type AiBillingCapability, type AiBillingPolicy, type AiPlanDiscountPolicy } from "../shared/ai-credit-policy";
@@ -443,6 +444,57 @@ function formatDateTime(input: string) {
 function envStatus(keys: string[], mode: "any" | "all" = "any") {
   const check = (key: string) => Boolean(process.env[key]);
   return (mode === "all" ? keys.every(check) : keys.some(check)) ? "configured" : "missing";
+}
+
+function canWriteDirectory(directory: string) {
+  try {
+    accessSync(directory, constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function buildTencentCloudBackendHealth(): ProviderHealth {
+  const host = process.env.HOST || "127.0.0.1";
+  const port = process.env.PORT || "";
+  const dataDir = process.env.ARTX_DATA_DIR || "";
+  const uploadsDir = process.env.ARTX_UPLOADS_DIR || (dataDir ? path.join(dataDir, "uploads") : "");
+  const publicUrl =
+    process.env.PUBLIC_APP_URL ||
+    process.env.APP_PUBLIC_URL ||
+    process.env.SITE_URL ||
+    process.env.OAUTH_PUBLIC_BASE_URL ||
+    "";
+  const dataDirWritable = Boolean(dataDir) && canWriteDirectory(dataDir);
+  const uploadsDirWritable = Boolean(uploadsDir) && canWriteDirectory(uploadsDir);
+  const runtimeConfigured = Boolean(port && dataDir && uploadsDir);
+  const state: ProviderHealth["state"] = runtimeConfigured && dataDirWritable && uploadsDirWritable
+    ? "在线"
+    : runtimeConfigured
+      ? "观察"
+      : "未配置";
+  const runtimeBits = [
+    `HOST=${host}`,
+    `PORT=${port || "unset"}`,
+    `ARTX_DATA_DIR=${dataDir || "unset"}`,
+    `ARTX_UPLOADS_DIR=${uploadsDir || "unset"}`,
+    `PUBLIC_URL=${publicUrl || "unset"}`,
+    `dataWritable=${dataDirWritable ? "yes" : "no"}`,
+    `uploadsWritable=${uploadsDirWritable ? "yes" : "no"}`,
+  ];
+
+  return {
+    id: "infra_tencent_cloud",
+    name: "腾讯云后端",
+    category: "部署与日志",
+    state,
+    latencyMs: 1,
+    owner: "Infra",
+    configLocation: `current runtime: ${runtimeBits.join(", ")}`,
+    credentialStatus: "not_required",
+    lastCheckedAt: "当前进程",
+  };
 }
 
 function mapRoleToPlan(role?: string) {
@@ -913,7 +965,7 @@ function buildProviderHealth(): ProviderHealth[] {
     { id: "ai_openai", name: "OpenAI", category: "模型供应商", state: envStatus(["OPENAI_API_KEY"]) === "configured" ? "在线" : "未配置", latencyMs: 438, owner: "AI Ops", configLocation: "server env: OPENAI_*", credentialStatus: envStatus(["OPENAI_API_KEY"]), lastCheckedAt: "刚刚" },
     { id: "ai_bkeel", name: "BKEEL", category: "图片生成", state: envStatus(["AI_IMAGE_API_KEY", "AI_IMAGE_BASE_URL", "AI_IMAGE_MODEL"], "all") === "configured" ? "观察" : "未配置", latencyMs: 1240, owner: "AI Ops", configLocation: "server env: AI_IMAGE_*", credentialStatus: envStatus(["AI_IMAGE_API_KEY", "AI_IMAGE_BASE_URL", "AI_IMAGE_MODEL"], "all"), lastCheckedAt: "刚刚" },
     { id: "ai_picwish", name: "PicWish/佐糖", category: "图像处理", state: envStatus(["PICWISH_API_KEY"]) === "configured" ? "在线" : "未配置", latencyMs: 812, owner: "AI Ops", configLocation: "server env: PICWISH_*", credentialStatus: envStatus(["PICWISH_API_KEY"]), lastCheckedAt: "刚刚" },
-    { id: "infra_render", name: "Render API", category: "部署与日志", state: "观察", latencyMs: 812, owner: "Infra", configLocation: "server env: RENDER_*", credentialStatus: envStatus(["RENDER_API_KEY"]), lastCheckedAt: "刚刚" },
+    buildTencentCloudBackendHealth(),
   ];
 }
 

@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -56,6 +57,10 @@ afterEach(async () => {
   delete process.env.BACKUP_CRON_SECRET;
   delete process.env.BKEEL_API_KEY;
   delete process.env.BKEEL_TOKEN;
+  delete process.env.HOST;
+  delete process.env.PORT;
+  delete process.env.ARTX_UPLOADS_DIR;
+  delete process.env.PUBLIC_APP_URL;
 });
 
 describe("production readiness", () => {
@@ -929,5 +934,57 @@ describe("production readiness", () => {
     delete process.env.WALLYT_MCH_ID;
     delete process.env.WALLYT_SIGNATURE_KEY;
     delete process.env.WALLYT_NOTIFY_URL;
+  });
+
+  it("reports Tencent Cloud backend runtime health instead of legacy Render API status", async () => {
+    const uploadsDir = path.join(dataDir, "uploads");
+    mkdirSync(uploadsDir, { recursive: true });
+    process.env.HOST = "127.0.0.1";
+    process.env.PORT = "3002";
+    process.env.ARTX_UPLOADS_DIR = uploadsDir;
+    process.env.PUBLIC_APP_URL = "https://backstage.artxsd.com";
+    process.env.RENDER_API_KEY = "legacy-render-key";
+    await writeFile(path.join(dataDir, "admin-data.json"), `${JSON.stringify({
+      users: [],
+      orders: [],
+      credits: [],
+      aiTasks: [],
+      providers: [
+        { id: "infra_render", name: "Render API", category: "部署与日志", state: "观察", latencyMs: 812, owner: "Infra", configLocation: "server env: RENDER_*", credentialStatus: "configured", lastCheckedAt: "旧快照" },
+      ],
+      feedback: [],
+      alerts: [],
+      riskEvents: [],
+      auditLogs: [],
+      plans: [],
+      capabilityStatus: [],
+    }, null, 2)}\n`);
+
+    const { handleAdminApiRequest } = await loadAdminStore();
+    const authorization = await getAdminAuthorization();
+
+    const providersResult = await handleAdminApiRequest("GET", "/providers", authorization);
+    expect(providersResult.status).toBe(200);
+    const providersBody = providersResult.body as {
+      providers: Array<{
+        id: string;
+        name: string;
+        state: string;
+        credentialStatus: string;
+        configLocation: string;
+      }>;
+    };
+    expect(providersBody.providers.find((item) => item.id === "infra_render")).toBeUndefined();
+    expect(providersBody.providers.find((item) => item.name === "Render API")).toBeUndefined();
+    expect(providersBody.providers.find((item) => item.id === "infra_tencent_cloud")).toMatchObject({
+      name: "腾讯云后端",
+      state: "在线",
+      credentialStatus: "not_required",
+    });
+    expect(providersBody.providers.find((item) => item.id === "infra_tencent_cloud")?.configLocation).toContain("PORT=3002");
+    expect(providersBody.providers.find((item) => item.id === "infra_tencent_cloud")?.configLocation).toContain("ARTX_UPLOADS_DIR=");
+    expect(providersBody.providers.find((item) => item.id === "infra_tencent_cloud")?.configLocation).not.toContain("RENDER_");
+
+    delete process.env.RENDER_API_KEY;
   });
 });
