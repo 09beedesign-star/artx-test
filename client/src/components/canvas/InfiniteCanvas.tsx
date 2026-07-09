@@ -4773,8 +4773,10 @@ function AnnotationBubble({
   isReferenceActive?: boolean;
 }) {
   const [draft, setDraft] = useState(ann.text);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const bubbleRef = useRef<HTMLDivElement>(null);
+  const deleteConfirmRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (ann.editing && textareaRef.current) {
@@ -4792,10 +4794,17 @@ function AnnotationBubble({
   }, [ann.editing, ann.id, ann.text, draft, onUpdate]);
 
   const requestDeleteAnnotation = useCallback(() => {
-    if (window.confirm("确认删除该智能注释标签吗？")) {
-      onRemove(ann.id);
-    }
+    setDeleteConfirmOpen(true);
+  }, []);
+
+  const confirmDeleteAnnotation = useCallback(() => {
+    setDeleteConfirmOpen(false);
+    onRemove(ann.id);
   }, [ann.id, onRemove]);
+
+  const cancelDeleteAnnotation = useCallback(() => {
+    setDeleteConfirmOpen(false);
+  }, []);
 
   // 点击气泡外任意区域自动折叠，保留标注点
   useEffect(() => {
@@ -4811,6 +4820,20 @@ function AnnotationBubble({
     document.addEventListener("mousedown", handleOutsideClick);
     return () => document.removeEventListener("mousedown", handleOutsideClick);
   }, [ann.open, closeBubble]);
+
+  useEffect(() => {
+    if (!deleteConfirmOpen) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (
+        deleteConfirmRef.current &&
+        !deleteConfirmRef.current.contains(e.target as HTMLElement)
+      ) {
+        setDeleteConfirmOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [deleteConfirmOpen]);
 
   const bubbleBg = isDark ? "rgba(22,22,34,0.97)" : "rgba(255,255,255,0.98)";
   const bubbleBorder = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)";
@@ -4829,6 +4852,80 @@ function AnnotationBubble({
   const doneBg = isDark ? "rgba(34,42,22,0.97)" : "rgba(240,255,235,0.98)";
   const doneBorder = isDark ? "rgba(100,200,80,0.25)" : "rgba(80,160,60,0.20)";
   const confirmButtonBg = "#C5ED47";
+  const deleteConfirmBubble = deleteConfirmOpen ? (
+    <div
+      ref={deleteConfirmRef}
+      className="nodrag nopan"
+      style={{
+        position: "absolute",
+        left: "calc(100% + 8px)",
+        top: ann.open ? 10 : "50%",
+        transform: ann.open ? "none" : "translateY(-50%)",
+        width: 178,
+        padding: "10px",
+        borderRadius: 8,
+        background: isDark ? "rgba(18,18,24,0.96)" : "rgba(255,255,255,0.98)",
+        border: `1px solid ${isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.10)"}`,
+        boxShadow: "0 12px 32px rgba(0,0,0,0.24)",
+        backdropFilter: "blur(12px)",
+        zIndex: 220,
+      }}
+      onClick={e => e.stopPropagation()}
+      onMouseDown={e => e.stopPropagation()}
+      onContextMenu={e => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+    >
+      <div
+        style={{
+          color: textColor,
+          fontSize: 12,
+          lineHeight: "16px",
+          fontWeight: 700,
+          marginBottom: 8,
+        }}
+      >
+        删除该智能注释标签？
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 6 }}>
+        <button
+          type="button"
+          onClick={cancelDeleteAnnotation}
+          style={{
+            height: 26,
+            padding: "0 10px",
+            borderRadius: 6,
+            border: "none",
+            background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
+            color: subColor,
+            cursor: "pointer",
+            fontSize: 12,
+            fontWeight: 700,
+          }}
+        >
+          取消
+        </button>
+        <button
+          type="button"
+          onClick={confirmDeleteAnnotation}
+          style={{
+            height: 26,
+            padding: "0 10px",
+            borderRadius: 6,
+            border: "none",
+            background: "oklch(0.58 0.22 28)",
+            color: "white",
+            cursor: "pointer",
+            fontSize: 12,
+            fontWeight: 800,
+          }}
+        >
+          确定
+        </button>
+      </div>
+    </div>
+  ) : null;
 
   // 折叠状态：显示小圆点图标
   if (!ann.open) {
@@ -4854,6 +4951,7 @@ function AnnotationBubble({
         }}
         title={ann.text || "注释"}
       >
+        {deleteConfirmBubble}
         <div
           style={{
             width: 22,
@@ -4902,6 +5000,7 @@ function AnnotationBubble({
       onClick={e => e.stopPropagation()}
       onMouseDown={e => e.stopPropagation()}
     >
+      {deleteConfirmBubble}
       {/* 连接线 */}
       <div
         style={{
@@ -5740,7 +5839,7 @@ function AssetNodeComponent({
   // 选中边框样式
   const borderColor = selected ? "oklch(0.65 0.22 290)" : "transparent";
   const shadow = selected
-    ? "0 0 0 2px oklch(0.65 0.22 290 / 0.72), 0 0 0 6px oklch(0.65 0.22 290 / 0.18), 0 8px 24px rgba(0,0,0,0.3)"
+    ? "none"
     : "0 4px 16px rgba(0,0,0,0.22)";
   // 四角拖拽缩放：以对角锚点固定，拖动锚点作为伸缩方向
   const handleResizeMouseDown = useCallback(
@@ -6256,6 +6355,58 @@ function AssetNodeComponent({
     });
   }, [cropH, cropW, cropX, cropY, dispH, dispW, displaySrc]);
 
+  const getRenderedImagePayload = useCallback(async () => {
+    if (!displaySrc)
+      return { src: "", width: 0, height: 0 };
+    return new Promise<{ src: string; width: number; height: number }>(
+      resolve => {
+        const image = new Image();
+        image.crossOrigin = "anonymous";
+        image.onload = () => {
+          const sourceW = Math.max(1, image.naturalWidth || image.width || dispW);
+          const sourceH = Math.max(1, image.naturalHeight || image.height || dispH);
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.max(1, Math.round((cropW / 100) * sourceW));
+          canvas.height = Math.max(1, Math.round((cropH / 100) * sourceH));
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            resolve({ src: displaySrc, width: sourceW, height: sourceH });
+            return;
+          }
+          const sx = (cropX / 100) * sourceW;
+          const sy = (cropY / 100) * sourceH;
+          ctx.drawImage(
+            image,
+            sx,
+            sy,
+            canvas.width,
+            canvas.height,
+            0,
+            0,
+            canvas.width,
+            canvas.height
+          );
+          try {
+            resolve({
+              src: canvas.toDataURL("image/png"),
+              width: canvas.width,
+              height: canvas.height,
+            });
+          } catch {
+            resolve({ src: displaySrc, width: sourceW, height: sourceH });
+          }
+        };
+        image.onerror = () =>
+          resolve({
+            src: displaySrc,
+            width: Math.max(1, Math.round(dispW)),
+            height: Math.max(1, Math.round(dispH)),
+          });
+        image.src = displaySrc;
+      }
+    );
+  }, [cropH, cropW, cropX, cropY, dispH, dispW, displaySrc]);
+
   const confirmExpand = useCallback(async () => {
     const imageSrc = await getRenderedImageSource();
     if (!imageSrc) {
@@ -6386,8 +6537,8 @@ function AssetNodeComponent({
       toast("请先输入需要替换的文案");
       return;
     }
-    const imageSrc = await getRenderedImageSource();
-    if (!imageSrc) {
+    const imagePayload = await getRenderedImagePayload();
+    if (!imagePayload.src) {
       toast("文案应用失败", { description: "当前图片没有可处理的图像来源" });
       return;
     }
@@ -6410,7 +6561,9 @@ function AssetNodeComponent({
       new CustomEvent("asset-text-edit-apply", {
         detail: {
           nodeId,
-          imageSrc,
+          imageSrc: imagePayload.src,
+          imageWidth: imagePayload.width,
+          imageHeight: imagePayload.height,
           originalText: extractedText,
           editedText: nextText,
           panelScreenRect: extractedTextPanelRef.current
@@ -6430,7 +6583,7 @@ function AssetNodeComponent({
   }, [
     extractedText,
     extractedTextDraft,
-    getRenderedImageSource,
+    getRenderedImagePayload,
     nodeId,
     setFlowNodes,
   ]);
@@ -8021,7 +8174,7 @@ function CanvasFrameNode({
         width: w,
         height: h,
         background: bg,
-        border: `1.5px solid ${borderColor}`,
+        border: `${selected ? 2 : 1.5}px solid ${borderColor}`,
         borderRadius: 8,
         boxSizing: "border-box",
         position: "relative",
@@ -15988,6 +16141,7 @@ function CanvasAssistantPanel({
     x: number;
     y: number;
     visible: boolean;
+    trigger: "hover" | "click";
   } | null>(null);
   const [messages, setMessages] = useState<CanvasAssistantMessage[]>(() => {
     const stored =
@@ -16013,25 +16167,19 @@ function CanvasAssistantPanel({
   const chipBg = isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 4%)";
   const elevatedBg = isDark ? "#222222" : "oklch(1 0 0 / 0.98)";
   const hoverBg = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 5%)";
-  const compactSelectorBg = isDark
-    ? "oklch(0.13 0.015 270)"
-    : "oklch(0.96 0.004 270)";
+  const compactSelectorBg = getMinimapSurfaceBackground(isDark);
   const compactSelectorHoverBg = isDark
-    ? "oklch(1 0 0 / 8%)"
-    : "oklch(0 0 0 / 5%)";
+    ? "oklch(0.13 0.015 270)"
+    : "oklch(0.22 0.015 270)";
   const compactSelectorActiveBg = isDark
-    ? "oklch(0.58 0.22 290 / 0.18)"
-    : "oklch(0.58 0.22 290 / 0.12)";
-  const compactSelectorBorder = isDark
-    ? "oklch(1 0 0 / 10%)"
-    : "oklch(0 0 0 / 10%)";
+    ? "oklch(0.13 0.015 270)"
+    : "oklch(0.22 0.015 270)";
+  const compactSelectorBorder = getMinimapSurfaceBorder(isDark);
   const compactSelectorActiveBorder = "oklch(0.62 0.22 290 / 45%)";
   const compactSelectorText = isDark
     ? "oklch(0.75 0.01 270)"
-    : "oklch(0.35 0.01 270)";
-  const compactSelectorActiveText = isDark
-    ? "oklch(0.82 0.16 290)"
-    : "oklch(0.46 0.18 290)";
+    : "oklch(0.58 0.008 270)";
+  const compactSelectorActiveText = "white";
   const activeGlow =
     "0 0 0 3px rgba(197,237,71,0.14), 0 18px 44px rgba(0,0,0,0.24)";
   const inputShadow =
@@ -16155,7 +16303,7 @@ function CanvasAssistantPanel({
   };
 
   const focusComposerSegment = useCallback(
-    (segmentId?: string | null) => {
+    (segmentId?: string | null, cursorPosition?: number) => {
       window.setTimeout(() => {
         const id =
           segmentId ||
@@ -16169,7 +16317,10 @@ function CanvasAssistantPanel({
             input instanceof HTMLTextAreaElement
               ? input.value
               : input.textContent || "";
-          const nextPosition = textValue.length;
+          const nextPosition =
+            typeof cursorPosition === "number"
+              ? Math.max(0, Math.min(cursorPosition, textValue.length))
+              : textValue.length;
           if (
             input instanceof HTMLInputElement ||
             input instanceof HTMLTextAreaElement
@@ -16589,23 +16740,49 @@ function CanvasAssistantPanel({
   }, [composerBoxSelection, removeComposerSegmentsByIds]);
 
   const showComposerReferencePreview = useCallback(
-    (event: React.MouseEvent<HTMLElement>, src: string, title: string) => {
+    (
+      event: React.MouseEvent<HTMLElement>,
+      src: string,
+      title: string,
+      trigger: "hover" | "click" = "hover"
+    ) => {
       if (!src) return;
-      const rect = event.currentTarget.getBoundingClientRect();
+      const anchor =
+        event.currentTarget.matches("[data-composer-preview-thumbnail='true']")
+          ? event.currentTarget
+          : event.currentTarget.querySelector<HTMLElement>(
+              "[data-composer-preview-thumbnail='true']"
+            );
+      const rect = (anchor || event.currentTarget).getBoundingClientRect();
       setComposerPreview({
         src,
         title,
         x: rect.left + rect.width / 2,
         y: rect.top + rect.height / 2,
         visible: true,
+        trigger,
       });
     },
     []
   );
 
   const hideComposerReferencePreview = useCallback(() => {
-    setComposerPreview(prev => (prev ? { ...prev, visible: false } : prev));
+    setComposerPreview(prev =>
+      prev && prev.trigger === "hover" ? { ...prev, visible: false } : prev
+    );
   }, []);
+
+  useEffect(() => {
+    if (composerPreview?.trigger !== "click") return;
+    const handlePointerDown = () => {
+      setComposerPreview(prev =>
+        prev && prev.trigger === "click" ? { ...prev, visible: false } : prev
+      );
+    };
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    return () =>
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+  }, [composerPreview?.trigger]);
 
   const isComposerTokenDragEvent = useCallback(
     (event: React.DragEvent<HTMLElement>) =>
@@ -16751,11 +16928,19 @@ function CanvasAssistantPanel({
         segment => segment.id === segmentId
       );
       const previous = index > 0 ? composerSegments[index - 1] : null;
-      if (
-        !previous ||
-        !isAssistantTokenSegment(previous)
-      ) {
-        if (selectionRange.value.length === 0) {
+      if (previous?.type === "text" && selectionRange.value.length === 0) {
+        event.preventDefault();
+        setComposerSegments(prev =>
+          prev.filter(segment => segment.id !== segmentId)
+        );
+        focusComposerSegment(previous.id);
+        return;
+      }
+      if (!previous || !isAssistantTokenSegment(previous)) {
+        if (
+          selectionRange.value.length === 0 &&
+          composerSegments.length === 1
+        ) {
           event.preventDefault();
           restoreEmptyComposerField();
         }
@@ -16763,18 +16948,25 @@ function CanvasAssistantPanel({
       }
       event.preventDefault();
       if (previous.type === "skill") {
-        removeComposerSkillSegment(previous.id);
+        onActiveSkillChange(null);
       } else if (previous.type === "image") {
-        removeComposerImageSegment(previous.id, previous.asset.id);
+        onRemoveReference(previous.asset.id);
+        syncedReferenceIdsRef.current.delete(previous.asset.id);
       } else {
-        removeComposerAnnotationSegment(previous.id, previous.annotation.id);
+        onRemoveAnnotationReference(previous.annotation.id);
+        syncedAnnotationIdsRef.current.delete(previous.annotation.id);
       }
+      setComposerSegments(prev =>
+        prev.filter(segment => segment.id !== previous.id)
+      );
+      focusComposerSegment(segmentId, 0);
     },
     [
       composerSegments,
-      removeComposerAnnotationSegment,
-      removeComposerImageSegment,
-      removeComposerSkillSegment,
+      focusComposerSegment,
+      onActiveSkillChange,
+      onRemoveAnnotationReference,
+      onRemoveReference,
       setComposerTextSegment,
     ]
   );
@@ -18371,7 +18563,14 @@ function CanvasAssistantPanel({
                         onDragEnd={handleComposerDragEnd}
                         onMouseDown={event => {
                           event.stopPropagation();
-                          setComposerBoxSelection(null);
+                          setComposerBoxSelection({
+                            active: false,
+                            startX: event.clientX,
+                            startY: event.clientY,
+                            currentX: event.clientX,
+                            currentY: event.clientY,
+                            selectedIds: [segment.id],
+                          });
                         }}
                         onMouseEnter={event =>
                           showComposerReferencePreview(
@@ -18382,7 +18581,7 @@ function CanvasAssistantPanel({
                         }
                         onMouseLeave={hideComposerReferencePreview}
                         data-composer-token="image"
-                        className="group relative inline-flex max-w-[78px] min-w-0 items-center gap-1 overflow-hidden rounded-[var(--radius-md-design)] px-1.5 py-0 align-middle"
+                        className="group relative inline-flex max-w-[62px] min-w-0 items-center gap-0.5 overflow-hidden rounded-[var(--radius-md-design)] px-1 py-0 align-middle"
                         style={{
                           margin: "0 4px 2px 4px",
 	                          background: isDark
@@ -18410,17 +18609,30 @@ function CanvasAssistantPanel({
                         <img
                           src={segment.asset.src}
                           alt={segment.asset.title}
+                          data-composer-preview-thumbnail="true"
+                          draggable={false}
+                          onMouseDown={event => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            showComposerReferencePreview(
+                              event,
+                              segment.asset.src,
+                              segment.asset.title,
+                              "click"
+                            );
+                          }}
 	                          style={{
-	                            width: 14,
-	                            height: 14,
-                            borderRadius: 3,
+	                            width: 11,
+	                            height: 11,
+                            borderRadius: 2,
                             objectFit: "cover",
                             flexShrink: 0,
+                            cursor: "zoom-in",
                           }}
                         />
                         <span
                           className="type-caption truncate"
-                          style={{ maxWidth: 44, fontSize: 11 }}
+                          style={{ maxWidth: 35, fontSize: 10 }}
                         >
                           {segment.asset.title}
                         </span>
@@ -18446,7 +18658,7 @@ function CanvasAssistantPanel({
                           title="移除引用"
                           aria-label="移除引用"
                         >
-                          <X size={9} />
+                          <X size={7} />
                         </button>
                       </span>
                     );
@@ -18754,7 +18966,7 @@ function CanvasAssistantPanel({
                             ? compactSelectorHoverBg
                             : compactSelectorBg,
                         border: `1px solid ${agentMenuOpen ? compactSelectorActiveBorder : compactSelectorBorder}`,
-                        color: agentMenuOpen
+                        color: agentMenuOpen || agentButtonHover
                           ? compactSelectorActiveText
                           : compactSelectorText,
                         fontSize: 11,
@@ -21179,6 +21391,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         e as CustomEvent<{
           nodeId: string;
           imageSrc: string;
+          imageWidth?: number;
+          imageHeight?: number;
           originalText: string;
           editedText: string;
           panelScreenRect?: {
@@ -21196,6 +21410,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       );
       if (!sourceNode) return;
       const sourceSize = getCanvasNodeSize(sourceNode);
+      const targetWidth = Math.max(
+        sourceSize.width,
+        Math.round(Number(detail.imageWidth) || 0)
+      );
+      const targetHeight = Math.max(
+        sourceSize.height,
+        Math.round(Number(detail.imageHeight) || 0)
+      );
       const textPanelPlacement = detail.panelScreenRect
         ? screenToFlowPosition({
             x: detail.panelScreenRect.right + 12,
@@ -21208,9 +21430,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           sourceNode,
           prompt: fallbackPrompt,
           style: "文案编辑结果",
-          nextW: sourceSize.width,
-          nextH: sourceSize.height,
+          nextW: targetWidth,
+          nextH: targetHeight,
           placement: textPanelPlacement,
+          displayW: sourceSize.width,
+          displayH: sourceSize.height,
           run: async () => {
             const optimizedPrompt = await callLLM({
               module: "image-text-relayout",
@@ -21238,8 +21462,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               imageSrc: detail.imageSrc,
               prompt: finalPrompt,
               model: "gpt-image-2",
-              targetWidth: sourceSize.width,
-              targetHeight: sourceSize.height,
+              targetWidth,
+              targetHeight,
             });
           },
         });
