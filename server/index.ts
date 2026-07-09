@@ -6,7 +6,7 @@ import "./env";
 import { AIOrchestrator } from "./ai-orchestrator";
 import { createBrandKit, deleteBrandKit, getBrandKit, listBrandKits, parseBrandKitFromImage } from "./brand-kit";
 import { createProductBackground, editImageWithPrompt, enhanceImage, eraseImageObjects, expandImageWithPicWish, extractImageText, generateImages, removeImageBackground, removeImageWatermark } from "./image-generation";
-import { getUploadsRoot, storeGeneratedImagesForUser } from "./local-image-storage";
+import { cleanupExpiredUploads, getUploadRetentionDays, getUploadsRoot, storeGeneratedImagesForUser } from "./local-image-storage";
 import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
 import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization } from "./auth-store";
@@ -65,11 +65,33 @@ type McpJsonRpcRequest = {
 
 const backgroundImageTasks = new Map<string, BackgroundImageTask>();
 const BACKGROUND_IMAGE_TASK_TIMEOUT_MS = 5 * 60 * 1000;
+const UPLOAD_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const IMAGE_PROXY_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36 ArtX/1.0";
 
 function isImageContentType(contentType: string) {
   return contentType.startsWith("image/") || contentType === "application/octet-stream";
+}
+
+function scheduleUploadCleanup() {
+  const runCleanup = () => {
+    cleanupExpiredUploads()
+      .then(result => {
+        if (result.deletedFiles > 0 || result.removedDirectories > 0) {
+          console.log(
+            `[uploads] cleanup deleted ${result.deletedFiles} expired files and ${result.removedDirectories} empty directories; retention=${result.retentionDays}d root=${result.uploadsRoot}`
+          );
+        }
+      })
+      .catch(error => {
+        console.warn("[uploads] cleanup failed", error instanceof Error ? error.message : error);
+      });
+  };
+
+  console.log(`[uploads] temporary image retention is ${getUploadRetentionDays()} natural days`);
+  runCleanup();
+  const timer = setInterval(runCleanup, UPLOAD_CLEANUP_INTERVAL_MS);
+  timer.unref?.();
 }
 
 function decodeHtmlAttribute(value: string) {
@@ -1481,6 +1503,7 @@ async function startServer() {
 
   server.listen(port, host, () => {
     console.log(`Server running on http://${host}:${port}/`);
+    scheduleUploadCleanup();
   });
 }
 

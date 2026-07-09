@@ -29,9 +29,108 @@ type StoreImagesOptions = {
 const MAX_IMAGE_BYTES = Number(process.env.ARTX_LOCAL_IMAGE_MAX_BYTES || 50 * 1024 * 1024);
 const PUBLIC_IMAGE_BASE_PATH = "/uploads/images";
 const PUBLIC_FEEDBACK_BASE_PATH = "/uploads/feedback";
+const DEFAULT_UPLOAD_RETENTION_DAYS = 10;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export function getUploadsRoot() {
   return process.env.ARTX_UPLOADS_DIR || path.join(process.env.ARTX_DATA_DIR || "/var/lib/artx", "uploads");
+}
+
+export function getUploadRetentionDays() {
+  const value = Number(process.env.ARTX_UPLOAD_RETENTION_DAYS || DEFAULT_UPLOAD_RETENTION_DAYS);
+  if (!Number.isFinite(value) || value <= 0) return DEFAULT_UPLOAD_RETENTION_DAYS;
+  return Math.max(1, Math.floor(value));
+}
+
+async function pathExists(directory: string) {
+  try {
+    await fs.access(directory);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function cleanupEmptyDirectories(directory: string, stopAt: string) {
+  if (directory === stopAt || !directory.startsWith(stopAt)) return 0;
+  let removedDirectories = 0;
+  try {
+    const entries = await fs.readdir(directory);
+    if (entries.length === 0) {
+      await fs.rmdir(directory);
+      removedDirectories += 1;
+      removedDirectories += await cleanupEmptyDirectories(path.dirname(directory), stopAt);
+    }
+  } catch {
+    // Cleanup should never block the app from serving requests.
+  }
+  return removedDirectories;
+}
+
+async function cleanupExpiredFilesInDirectory(directory: string, cutoffMs: number, stopAt: string) {
+  let scannedFiles = 0;
+  let deletedFiles = 0;
+  let removedDirectories = 0;
+  if (!(await pathExists(directory))) {
+    return { scannedFiles, deletedFiles, removedDirectories };
+  }
+
+  const entries = await fs.readdir(directory, { withFileTypes: true });
+  for (const entry of entries) {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      const result = await cleanupExpiredFilesInDirectory(entryPath, cutoffMs, stopAt);
+      scannedFiles += result.scannedFiles;
+      deletedFiles += result.deletedFiles;
+      removedDirectories += result.removedDirectories;
+      removedDirectories += await cleanupEmptyDirectories(entryPath, stopAt);
+      continue;
+    }
+    if (!entry.isFile()) continue;
+
+    scannedFiles += 1;
+    try {
+      const fileStat = await fs.stat(entryPath);
+      if (fileStat.mtime.getTime() < cutoffMs) {
+        await fs.unlink(entryPath);
+        deletedFiles += 1;
+      }
+    } catch {
+      // Ignore files that disappear or become unreadable during cleanup.
+    }
+  }
+
+  return { scannedFiles, deletedFiles, removedDirectories };
+}
+
+export async function cleanupExpiredUploads(options: { now?: Date } = {}) {
+  const retentionDays = getUploadRetentionDays();
+  const now = options.now || new Date();
+  const cutoffMs = now.getTime() - retentionDays * DAY_MS;
+  const uploadsRoot = getUploadsRoot();
+  const cleanupRoots = [
+    path.join(uploadsRoot, "images"),
+    path.join(uploadsRoot, "feedback"),
+  ];
+  let scannedFiles = 0;
+  let deletedFiles = 0;
+  let removedDirectories = 0;
+
+  for (const cleanupRoot of cleanupRoots) {
+    const result = await cleanupExpiredFilesInDirectory(cleanupRoot, cutoffMs, cleanupRoot);
+    scannedFiles += result.scannedFiles;
+    deletedFiles += result.deletedFiles;
+    removedDirectories += result.removedDirectories;
+  }
+
+  return {
+    uploadsRoot,
+    retentionDays,
+    cutoff: new Date(cutoffMs).toISOString(),
+    scannedFiles,
+    deletedFiles,
+    removedDirectories,
+  };
 }
 
 function sanitizePathSegment(value: string, fallback: string) {
