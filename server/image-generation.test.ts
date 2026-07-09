@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import sharp from "sharp";
-import { __testNormalizeGeneratedImageSrc, __testNormalizeGeneratedImagesToTargetAspect } from "./image-generation";
+import { __testNormalizeGeneratedImageSrc, __testNormalizeGeneratedImagesToTargetAspect, __testResolveHighDefinitionTargetSize } from "./image-generation";
 
 const ONE_PIXEL_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
@@ -37,5 +37,15 @@ describe("generated image source normalization", () => {
     expect(metadata.height).toBe(1536);
     expect(image.width).toBe(864);
     expect(image.height).toBe(1536);
+  });
+
+  it("keeps AI output dimensions at least as large as the source bitmap", () => {
+    expect(__testResolveHighDefinitionTargetSize(420, 560, 1080, 1440))
+      .toEqual({ width: 1152, height: 1536 });
+  });
+
+  it("raises small AI output dimensions to a high-definition long side", () => {
+    expect(__testResolveHighDefinitionTargetSize(512, 512, 512, 512))
+      .toEqual({ width: 1536, height: 1536 });
   });
 });

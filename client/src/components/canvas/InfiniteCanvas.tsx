@@ -11057,7 +11057,6 @@ function BottomPromptBar({
   const skillContext = activeSkill ? buildSkillPromptContext(activeSkill) : "";
   const bg = isDark ? "rgba(22,22,30,0.80)" : "rgba(255,255,255,0.82)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
-  const activeBorder = "oklch(0.62 0.22 290 / 60%)";
   const text = isDark ? "oklch(0.80 0.008 270)" : "oklch(0.20 0.008 270)";
   const divider = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
   const chipBg = isDark
@@ -11411,7 +11410,7 @@ function BottomPromptBar({
         className="absolute bottom-4 rounded-[var(--radius-lg-design)] shadow-2xl overflow-hidden"
         style={{
           background: bg,
-          border: `1.5px solid ${border}`,
+          border: `1px solid ${border}`,
           backdropFilter: "blur(20px)",
           left: 24,
           right: promptRightOffset,

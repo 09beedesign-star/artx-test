@@ -100,6 +100,8 @@ type GeneratedImageResult = {
   providerTaskIds?: string[];
 };
 
+const MIN_AI_IMAGE_OUTPUT_LONG_SIDE = 1536;
+
 function collectProviderTaskIds(...results: Array<Pick<GeneratedImageResult, "providerTaskId" | "providerTaskIds"> | undefined>) {
   const taskIds: string[] = [];
   for (const result of results) {
@@ -1595,6 +1597,36 @@ function coerceTargetDimension(value: unknown) {
     : undefined;
 }
 
+export function __testResolveHighDefinitionTargetSize(
+  requestedWidth: unknown,
+  requestedHeight: unknown,
+  sourceWidth: number,
+  sourceHeight: number,
+) {
+  const sourceW = Math.max(1, Math.round(sourceWidth || 1));
+  const sourceH = Math.max(1, Math.round(sourceHeight || 1));
+  let width = coerceTargetDimension(requestedWidth) || sourceW;
+  let height = coerceTargetDimension(requestedHeight) || sourceH;
+
+  if (width < sourceW || height < sourceH) {
+    const sourceScale = Math.max(sourceW / width, sourceH / height);
+    width = Math.round(width * sourceScale);
+    height = Math.round(height * sourceScale);
+  }
+
+  const longSide = Math.max(width, height);
+  if (longSide < MIN_AI_IMAGE_OUTPUT_LONG_SIDE) {
+    const hdScale = MIN_AI_IMAGE_OUTPUT_LONG_SIDE / longSide;
+    width = Math.round(width * hdScale);
+    height = Math.round(height * hdScale);
+  }
+
+  return {
+    width: Math.max(1, width),
+    height: Math.max(1, height),
+  };
+}
+
 function coerceOptionalNumber(value: unknown) {
   if (value === undefined || value === null || value === "") return undefined;
   const numberValue = Number(value);
@@ -2287,10 +2319,9 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
     }
   }
 
-  const images = extractGeneratedImages(providerData, baseUrl, ratio.width, ratio.height).slice(0, count);
-  const normalizedImages = input.style === "图像生成器"
-    ? await __testNormalizeGeneratedImagesToTargetAspect(images, ratio.width, ratio.height)
-    : images;
+  const targetSize = __testResolveHighDefinitionTargetSize(ratio.width, ratio.height, ratio.width, ratio.height);
+  const images = extractGeneratedImages(providerData, baseUrl, targetSize.width, targetSize.height).slice(0, count);
+  const normalizedImages = await __testNormalizeGeneratedImagesToTargetAspect(images, targetSize.width, targetSize.height);
 
   if (normalizedImages.length === 0) {
     throw new Error("图片模型未返回可用图片，系统已自动使用当前可用生成链路处理，请稍后重试");
@@ -2435,8 +2466,14 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
 
   const sourceImageData = await imageSrcToBuffer(input.imageSrc);
   const sourceImageDimensions = await getImageBufferDimensions(sourceImageData.buffer);
-  const targetWidth = coerceTargetDimension(input.targetWidth) || sourceImageDimensions.width;
-  const targetHeight = coerceTargetDimension(input.targetHeight) || sourceImageDimensions.height;
+  const targetSize = __testResolveHighDefinitionTargetSize(
+    input.targetWidth,
+    input.targetHeight,
+    sourceImageDimensions.width,
+    sourceImageDimensions.height,
+  );
+  const targetWidth = targetSize.width;
+  const targetHeight = targetSize.height;
   const sourceImage = bufferToImageFile(sourceImageData.buffer, sourceImageData.mimeType);
   const selectedModel = input.model && supportedImageModels.has(input.model) ? input.model : model;
   const referenceImages = input.images?.filter(image => image.src?.trim()) || [];
@@ -2445,7 +2482,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
 
   if (isChatCompatibleImageModel(selectedModel)) {
     const sourceDataUrl = `data:${sourceImageData.mimeType};base64,${sourceImageData.buffer.toString("base64")}`;
-    return generateImages({
+    const result = await generateImages({
       prompt: [
         input.prompt,
         "Use reference image 1 as the target canvas. Preserve its subject identity, pose, composition, lighting, camera angle, and aspect ratio unless the user explicitly asks to change them.",
@@ -2461,6 +2498,13 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
         ...referenceImages,
       ],
     });
+    return {
+      images: await __testNormalizeGeneratedImagesToTargetAspect(
+        result.images,
+        targetWidth,
+        targetHeight,
+      ),
+    };
   }
 
   const createBody = async (withResponseFormat: boolean) => {
@@ -2532,8 +2576,14 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<Generat
   const sourceImageDimensions = sourceImageData
     ? await getImageBufferDimensions(sourceImageData.buffer)
     : { width: coerceTargetDimension(input.targetWidth) || 1024, height: coerceTargetDimension(input.targetHeight) || 1024 };
-  const targetWidth = coerceTargetDimension(input.targetWidth) || sourceImageDimensions.width;
-  const targetHeight = coerceTargetDimension(input.targetHeight) || sourceImageDimensions.height;
+  const targetSize = __testResolveHighDefinitionTargetSize(
+    input.targetWidth,
+    input.targetHeight,
+    sourceImageDimensions.width,
+    sourceImageDimensions.height,
+  );
+  const targetWidth = targetSize.width;
+  const targetHeight = targetSize.height;
   const providerMaskBuffer = maskImageData
     ? await createPicWishEraseMask(maskImageData.buffer, targetWidth, targetHeight)
     : undefined;
@@ -2569,8 +2619,22 @@ export async function expandImageWithPicWish(input: ExpandImageInput): Promise<G
   const sourceImageDimensions = sourceImageData
     ? await getImageBufferDimensions(sourceImageData.buffer)
     : { width: coerceTargetDimension(input.targetWidth) || 1024, height: coerceTargetDimension(input.targetHeight) || 1024 };
-  const targetWidth = coerceTargetDimension(input.targetWidth) || sourceImageDimensions.width;
-  const targetHeight = coerceTargetDimension(input.targetHeight) || sourceImageDimensions.height;
+  const requestedWidth = coerceTargetDimension(input.targetWidth) || sourceImageDimensions.width;
+  const requestedHeight = coerceTargetDimension(input.targetHeight) || sourceImageDimensions.height;
+  const targetSize = __testResolveHighDefinitionTargetSize(
+    requestedWidth,
+    requestedHeight,
+    sourceImageDimensions.width,
+    sourceImageDimensions.height,
+  );
+  const targetWidth = targetSize.width;
+  const targetHeight = targetSize.height;
+  const scaleX = targetWidth / Math.max(1, requestedWidth);
+  const scaleY = targetHeight / Math.max(1, requestedHeight);
+  const top = coerceOptionalNumber(input.top);
+  const bottom = coerceOptionalNumber(input.bottom);
+  const left = coerceOptionalNumber(input.left);
+  const right = coerceOptionalNumber(input.right);
   const sync = input.sync === true || input.sync === 1 || input.sync === "1";
   const picWishResult = await runPicWishImageExpansion({
     imageBuffer: sourceImageData?.buffer,
@@ -2581,10 +2645,10 @@ export async function expandImageWithPicWish(input: ExpandImageInput): Promise<G
     maskUrl: maskUrl || undefined,
     sync,
     prompt: input.prompt,
-    top: coerceOptionalNumber(input.top),
-    bottom: coerceOptionalNumber(input.bottom),
-    left: coerceOptionalNumber(input.left),
-    right: coerceOptionalNumber(input.right),
+    top: top === undefined ? undefined : Math.round(top * scaleY),
+    bottom: bottom === undefined ? undefined : Math.round(bottom * scaleY),
+    left: left === undefined ? undefined : Math.round(left * scaleX),
+    right: right === undefined ? undefined : Math.round(right * scaleX),
     strength: coerceOptionalNumber(input.strength) ?? 0.35,
     scale: coerceOptionalNumber(input.scale) ?? 7,
     steps: coerceOptionalNumber(input.steps) ?? 30,
