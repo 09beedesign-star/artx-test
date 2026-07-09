@@ -1601,7 +1601,7 @@ function coerceOptionalNumber(value: unknown) {
   return Number.isFinite(numberValue) ? numberValue : undefined;
 }
 
-async function normalizeGeneratedImagesToTargetAspect(
+export async function __testNormalizeGeneratedImagesToTargetAspect(
   images: GeneratedImage[],
   targetWidth: number,
   targetHeight: number,
@@ -2288,12 +2288,15 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
   }
 
   const images = extractGeneratedImages(providerData, baseUrl, ratio.width, ratio.height).slice(0, count);
+  const normalizedImages = input.style === "图像生成器"
+    ? await __testNormalizeGeneratedImagesToTargetAspect(images, ratio.width, ratio.height)
+    : images;
 
-  if (images.length === 0) {
+  if (normalizedImages.length === 0) {
     throw new Error("图片模型未返回可用图片，系统已自动使用当前可用生成链路处理，请稍后重试");
   }
 
-  return { images };
+  return { images: normalizedImages };
 }
 
 export async function removeImageBackground(input: RemoveBackgroundInput): Promise<GeneratedImageResult> {
@@ -2499,7 +2502,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
     providerData = await pollAsyncImageTask(asyncTaskId, apiKey, baseUrl);
   }
 
-  const images = await normalizeGeneratedImagesToTargetAspect(
+  const images = await __testNormalizeGeneratedImagesToTargetAspect(
     extractGeneratedImages(providerData, baseUrl, targetWidth, targetHeight),
     targetWidth,
     targetHeight,
@@ -2545,7 +2548,7 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<Generat
     rectangles: input.rectangles,
     sync,
   });
-  const normalized = await normalizeGeneratedImagesToTargetAspect(picWishResult.images, targetWidth, targetHeight);
+  const normalized = await __testNormalizeGeneratedImagesToTargetAspect(picWishResult.images, targetWidth, targetHeight);
   if (normalized.length === 0) {
     throw new Error("AI 擦除未返回可用内容，请稍后重试");
   }
@@ -2587,7 +2590,7 @@ export async function expandImageWithPicWish(input: ExpandImageInput): Promise<G
     steps: coerceOptionalNumber(input.steps) ?? 30,
     seed: coerceOptionalNumber(input.seed),
   });
-  const normalized = await normalizeGeneratedImagesToTargetAspect(picWishResult.images, targetWidth, targetHeight);
+  const normalized = await __testNormalizeGeneratedImagesToTargetAspect(picWishResult.images, targetWidth, targetHeight);
   if (normalized.length === 0) {
     throw new Error("AI 扩图未返回可用内容，请稍后重试");
   }

@@ -6434,27 +6434,39 @@ function AssetNodeComponent({
     const image = new Image();
     image.crossOrigin = "anonymous";
     image.onload = () => {
-      const dx = Math.round((-cropRect.x / 100) * dispW);
-      const dy = Math.round((-cropRect.y / 100) * dispH);
+      const sourceW = Math.max(1, image.naturalWidth || image.width || dispW);
+      const sourceH = Math.max(1, image.naturalHeight || image.height || dispH);
+      const pixelNextW = Math.max(1, Math.round(sourceW * (cropRect.w / 100)));
+      const pixelNextH = Math.max(1, Math.round(sourceH * (cropRect.h / 100)));
+      const displayNextW = Math.max(1, Math.round(dispW * (cropRect.w / 100)));
+      const displayNextH = Math.max(1, Math.round(dispH * (cropRect.h / 100)));
+      const dx = Math.round((-cropRect.x / 100) * sourceW);
+      const dy = Math.round((-cropRect.y / 100) * sourceH);
       const expandLeft = Math.max(0, dx);
       const expandTop = Math.max(0, dy);
-      const expandRight = Math.max(0, nextW - dx - dispW);
-      const expandBottom = Math.max(0, nextH - dy - dispH);
-      expandedCtx.clearRect(0, 0, nextW, nextH);
-      expandedCtx.drawImage(image, dx, dy, dispW, dispH);
-      maskCtx.clearRect(0, 0, nextW, nextH);
+      const expandRight = Math.max(0, pixelNextW - dx - sourceW);
+      const expandBottom = Math.max(0, pixelNextH - dy - sourceH);
+      expandedCanvas.width = pixelNextW;
+      expandedCanvas.height = pixelNextH;
+      maskCanvas.width = pixelNextW;
+      maskCanvas.height = pixelNextH;
+      expandedCtx.clearRect(0, 0, pixelNextW, pixelNextH);
+      expandedCtx.drawImage(image, dx, dy, sourceW, sourceH);
+      maskCtx.clearRect(0, 0, pixelNextW, pixelNextH);
       maskCtx.fillStyle = "white";
-      maskCtx.fillRect(0, 0, nextW, nextH);
+      maskCtx.fillRect(0, 0, pixelNextW, pixelNextH);
       maskCtx.fillStyle = "black";
-      maskCtx.fillRect(expandLeft, expandTop, dispW, dispH);
+      maskCtx.fillRect(expandLeft, expandTop, sourceW, sourceH);
       window.dispatchEvent(
         new CustomEvent("asset-expand-apply", {
           detail: {
             nodeId,
             imageSrc,
             maskSrc: maskCanvas.toDataURL("image/png"),
-            nextW,
-            nextH,
+            nextW: pixelNextW,
+            nextH: pixelNextH,
+            displayW: displayNextW,
+            displayH: displayNextH,
             top: expandTop,
             bottom: expandBottom,
             left: expandLeft,
@@ -13010,10 +13022,12 @@ function TopLeftToolbar({
 function ImageGeneratorPopover({
   isDark,
   projectId,
+  canvasRightInset,
   onClose,
 }: {
   isDark: boolean;
   projectId: string;
+  canvasRightInset: number;
   onClose: () => void;
 }) {
   const [prompt, setPrompt] = useState("");
@@ -13023,7 +13037,12 @@ function ImageGeneratorPopover({
   const [count, setCount] = useState(2);
   const [referencesEnabled, setReferencesEnabled] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [position, setPosition] = useState<{ x: number; y: number } | null>(
+    null
+  );
   const modelRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const dragOffsetRef = useRef({ x: 0, y: 0 });
 
   const bg = isDark ? "rgba(18,18,28,0.98)" : "rgba(255,255,255,0.98)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
@@ -13037,6 +13056,82 @@ function ImageGeneratorPopover({
   const ratios = ["1:1", "4:5", "5:4", "3:4", "4:3", "16:9", "9:16", "21:9"];
   const counts = [1, 2, 3, 4];
   const canGenerate = prompt.trim().length > 0 && !isGenerating;
+  const popoverWidth = 430;
+
+  const clampPopoverPosition = useCallback(
+    (nextX: number, nextY: number) => {
+      if (typeof window === "undefined") return { x: nextX, y: nextY };
+      const rect = popoverRef.current?.getBoundingClientRect();
+      const popoverHeight = rect?.height || 520;
+      const minX = 8;
+      const minY = 8;
+      const maxX = Math.max(
+        minX,
+        window.innerWidth - canvasRightInset - popoverWidth - 8
+      );
+      const maxY = Math.max(minY, window.innerHeight - popoverHeight - 8);
+      return {
+        x: Math.min(Math.max(nextX, minX), maxX),
+        y: Math.min(Math.max(nextY, minY), maxY),
+      };
+    },
+    [canvasRightInset]
+  );
+
+  useEffect(() => {
+    if (position) return;
+    const nextX =
+      typeof window === "undefined"
+        ? 0
+        : Math.max(
+            8,
+            Math.min(
+              window.innerWidth - canvasRightInset - popoverWidth - 8,
+              window.innerWidth / 2 - 84 - popoverWidth
+            )
+          );
+    setPosition(clampPopoverPosition(nextX, 80));
+  }, [canvasRightInset, clampPopoverPosition, position]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleResize = () => {
+      setPosition(prev =>
+        prev ? clampPopoverPosition(prev.x, prev.y) : prev
+      );
+    };
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [canvasRightInset, clampPopoverPosition]);
+
+  const handleDragStart = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const current = position || clampPopoverPosition(0, 80);
+      dragOffsetRef.current = {
+        x: event.clientX - current.x,
+        y: event.clientY - current.y,
+      };
+      const handleMove = (moveEvent: MouseEvent) => {
+        setPosition(
+          clampPopoverPosition(
+            moveEvent.clientX - dragOffsetRef.current.x,
+            moveEvent.clientY - dragOffsetRef.current.y
+          )
+        );
+      };
+      const handleEnd = () => {
+        document.removeEventListener("mousemove", handleMove);
+        document.removeEventListener("mouseup", handleEnd);
+      };
+      document.addEventListener("mousemove", handleMove);
+      document.addEventListener("mouseup", handleEnd);
+    },
+    [clampPopoverPosition, position]
+  );
 
   useEffect(() => {
     if (!modelOpen) return;
@@ -13146,11 +13241,42 @@ function ImageGeneratorPopover({
         );
         result = { images: images.filter(Boolean) };
       } else {
-        result = await generateAiImages(payload);
+        const images = await Promise.all(
+          Array.from({ length: count }, async (_, index) => {
+            const variantResult = await generateAiImages({
+              ...payload,
+              prompt: [
+                referenceSummary,
+                `生成第 ${index + 1} 张变体。`,
+                "保持同一主题、画幅比例和核心风格，但在构图、镜头、光影、细节或元素排列上做自然变化。不要复制上一张，也不要返回完全相同的图片。",
+              ].join("\n"),
+              count: 1,
+              generationId: `${generationId}-${index + 1}`,
+            });
+            return variantResult.images[0];
+          })
+        );
+        result = { images: images.filter(Boolean) };
       }
       dispatchImageGenerationTask(
         { ...payload, status: "completed", images: result.images },
         projectId
+      );
+      window.dispatchEvent(
+        new CustomEvent("canvas-assistant-external-message", {
+          detail: {
+            role: "user",
+            content: [
+              "智能生图提示词",
+              prompt.trim(),
+              `模型：${model}`,
+              `画幅：${ratio}，数量：${count}`,
+              canvasReferences.length > 0 ? "参考：当前画布图片" : "",
+            ]
+              .filter(Boolean)
+              .join("\n"),
+          },
+        })
       );
       setIsGenerating(false);
       setPrompt("");
@@ -13168,10 +13294,12 @@ function ImageGeneratorPopover({
 
   return (
     <div
-      className="absolute top-full mt-2 overflow-hidden rounded-[var(--radius-xl-design)] shadow-2xl"
+      ref={popoverRef}
+      className="fixed overflow-hidden rounded-[var(--radius-xl-design)] shadow-2xl"
       style={{
-        right: 0,
-        width: 430,
+        left: position?.x ?? 0,
+        top: position?.y ?? 80,
+        width: popoverWidth,
         background: bg,
         border: `1px solid ${border}`,
         backdropFilter: "blur(22px)",
@@ -13182,7 +13310,8 @@ function ImageGeneratorPopover({
     >
       <div
         className="flex items-center justify-between px-4 py-3"
-        style={{ borderBottom: `1px solid ${border}` }}
+        style={{ borderBottom: `1px solid ${border}`, cursor: "move" }}
+        onMouseDown={handleDragStart}
       >
         <div className="flex items-center gap-2">
           <span
@@ -15198,7 +15327,7 @@ function CanvasTopToolPalette({
         top: 68,
         left: "50%",
         transform: "translateX(calc(-50% - 84px))",
-        zIndex: 110,
+        zIndex: imageGeneratorOpen ? 12000 : 110,
         width: "max-content",
         maxWidth: "calc(100vw - 160px)",
       }}
@@ -15370,6 +15499,7 @@ function CanvasTopToolPalette({
         <ImageGeneratorPopover
           isDark={isDark}
           projectId={projectId}
+          canvasRightInset={canvasRightInset}
           onClose={() => setImageGeneratorOpen(false)}
         />
       )}
@@ -17420,16 +17550,20 @@ function CanvasAssistantPanel({
   }, [collapsed]);
 
   useEffect(() => {
-    if (collapsed) return;
     const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ content?: string }>).detail;
+      const detail = (
+        event as CustomEvent<{
+          content?: string;
+          role?: CanvasAssistantMessage["role"];
+        }>
+      ).detail;
       const content = detail?.content?.trim();
       if (!content) return;
       setMessages(prev => [
         ...prev,
         {
           id: `external-assistant-${Date.now()}`,
-          role: "assistant",
+          role: detail?.role === "user" ? "user" : "assistant",
           content,
           timestamp: new Date(),
         },
@@ -17438,7 +17572,7 @@ function CanvasAssistantPanel({
     window.addEventListener("canvas-assistant-external-message", handler);
     return () =>
       window.removeEventListener("canvas-assistant-external-message", handler);
-  }, [collapsed]);
+  }, []);
 
   const handleImageBackupDoubleClick = (
     backup: NonNullable<CanvasAssistantMessage["imageBackup"]>
@@ -20108,18 +20242,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const getDerivedImagePlacement = useCallback(
     (sourceNode: Node, displayW: number, displayH: number) => {
       const sourceSize = getCanvasNodeSize(sourceNode);
-      const desired = {
-        x: sourceNode.position.x + sourceSize.width + 36,
-        y:
-          sourceNode.position.y +
-          Math.max(0, (sourceSize.height - displayH) / 2),
+      return {
+        x: sourceNode.position.x + sourceSize.width + 20,
+        y: sourceNode.position.y,
       };
-      return resolveNonOverlappingCanvasPosition(
-        nodesRef.current,
-        desired,
-        { width: displayW, height: displayH },
-        [sourceNode.id]
-      );
     },
     []
   );
@@ -21302,6 +21428,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           maskSrc: string;
           nextW: number;
           nextH: number;
+          displayW?: number;
+          displayH?: number;
           top?: number;
           bottom?: number;
           left?: number;
@@ -21339,8 +21467,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         nextW: detail.nextW,
         nextH: detail.nextH,
         preserveSourceDisplaySize: false,
-        displayW: detail.nextW,
-        displayH: detail.nextH,
+        displayW: detail.displayW ?? detail.nextW,
+        displayH: detail.displayH ?? detail.nextH,
         run: async () =>
           expandImageWithMask({
             imageSrc: detail.imageSrc,
@@ -22566,15 +22694,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         ? getCanvasNodeSize(sourceNode)
         : { width: detail.displaySize.w, height: detail.displaySize.h };
       const desired = sourceNode
-        ? resolveNonOverlappingCanvasPosition(
-            nodesRef.current,
-            {
-              x: sourceNode.position.x + sourceSize.width + 36,
-              y: sourceNode.position.y,
-            },
-            { width: detail.displaySize.w, height: detail.displaySize.h },
-            [sourceNode.id]
-          )
+        ? {
+            x: sourceNode.position.x + sourceSize.width + 20,
+            y: sourceNode.position.y,
+          }
         : undefined;
       const generationId = `regenerate-${startedAt}-${Math.random().toString(36).slice(2, 7)}`;
       const payload: ImageGeneratorPayload = {
@@ -22664,6 +22787,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         1,
         Math.min(Number(detail.count) || 1, 4)
       );
+      const shouldUseFixedSinglePlacement =
+        requestedCount === 1 && Boolean(detail.placement);
       if (detail.status === "pending") {
         const generationStartedAt =
           detail.generationStartedAt ||
@@ -22705,6 +22830,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             });
           }
           pushHistory(nds, edgesRef.current);
+          const topZ = nextCanvasTopZ(nds);
           const placedNodes: Node[] = [];
           const placeholderNodes = Array.from(
             { length: requestedCount },
@@ -22714,15 +22840,19 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 x: anchor.x + index * (size.w + 24),
                 y: anchor.y,
               };
-              const position = resolveNonOverlappingCanvasPosition(
-                [...nds, ...placedNodes],
-                desired,
-                { width: size.w, height: size.h }
-              );
+              const position =
+                shouldUseFixedSinglePlacement && index === 0
+                  ? desired
+                  : resolveNonOverlappingCanvasPosition(
+                      [...nds, ...placedNodes],
+                      desired,
+                      { width: size.w, height: size.h }
+                    );
               const placeholderNode = {
                 id,
                 type: "asset" as const,
                 position,
+                zIndex: topZ + index,
                 style: { width: size.w, height: size.h },
                 data: {
                   id,
@@ -22841,6 +22971,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             (n.data as Record<string, unknown>)?.generationId === generationId
         );
         if (existingPlaceholders.length > 0) {
+          const topZ = nextCanvasTopZ(nds);
           return nds.map(n => {
             const data = n.data as Record<string, unknown>;
             if (data.generationId !== generationId) return n;
@@ -22860,6 +22991,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               : currentFrame;
             return {
               ...n,
+              zIndex:
+                topZ +
+                (typeof data.generationIndex === "number"
+                  ? data.generationIndex
+                  : 0),
               position: detail.skillId
                 ? {
                     x: n.position.x + (currentFrame.w - fittedSize.w) / 2,
@@ -22895,6 +23031,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           });
         }
         pushHistory(nds, edgesRef.current);
+        const topZ = nextCanvasTopZ(nds);
         const placedNodes: Node[] = [];
         const generatedNodes = images.map((image, index) => {
           const id = `generated-${generationId}-${index}`;
@@ -22905,15 +23042,19 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             x: anchor.x + (size.w - fittedSize.w) / 2 + index * (fittedSize.w + 24),
             y: anchor.y + (size.h - fittedSize.h) / 2,
           };
-          const position = resolveNonOverlappingCanvasPosition(
-            [...nds, ...placedNodes],
-            desired,
-            { width: fittedSize.w, height: fittedSize.h }
-          );
+          const position =
+            shouldUseFixedSinglePlacement && index === 0
+              ? desired
+              : resolveNonOverlappingCanvasPosition(
+                  [...nds, ...placedNodes],
+                  desired,
+                  { width: fittedSize.w, height: fittedSize.h }
+                );
           const generatedNode = {
             id,
             type: "asset" as const,
             position,
+            zIndex: topZ + index,
             style: { width: fittedSize.w, height: fittedSize.h },
             data: {
               id,
@@ -27528,7 +27669,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         <div
           className="absolute inset-0 nodrag nopan"
           style={{
-            zIndex: 105,
+            zIndex: 10990,
             background: "rgba(0,0,0,0.08)",
             cursor: "default",
           }}

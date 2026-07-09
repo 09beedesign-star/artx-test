@@ -417,6 +417,7 @@ export async function generateImages({
     model,
     ratio,
     count,
+    style,
     images: referencedAssets,
     skillId,
   }, "图像生成失败");
@@ -457,6 +458,7 @@ export async function startBackgroundImageGeneration({
     model,
     ratio,
     count,
+    style,
     images: referencedAssets,
     skillId,
   }, "后台图像生成启动失败", 20000);

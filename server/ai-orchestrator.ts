@@ -12,6 +12,7 @@ export type OrchestrateRequest = {
   model?: string;
   ratio?: string;
   count?: number;
+  style?: string;
   imageSrc?: string;
   image_url?: string;
   image_base64?: string;
@@ -193,6 +194,7 @@ export class AIOrchestrator {
       model: route.model,
       ratio: input.ratio,
       count: input.count,
+      style: input.style,
       images,
     });
 
