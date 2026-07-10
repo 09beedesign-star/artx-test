@@ -1584,6 +1584,19 @@ async function getImageBufferDimensions(buffer: Buffer): Promise<{ width: number
   };
 }
 
+export async function __testPreparePicWishEraseSourceImage(
+  buffer: Buffer,
+  width: number,
+  height: number,
+): Promise<Buffer> {
+  const sharp = (await import("sharp")).default;
+  return sharp(buffer, { limitInputPixels: false })
+    .rotate()
+    .resize(width, height, { fit: "fill" })
+    .png()
+    .toBuffer();
+}
+
 function getEditSizeForAspect(width: number, height: number) {
   const aspect = width / Math.max(1, height);
   if (aspect > 1.2) return "1536x1024";
@@ -2587,10 +2600,13 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<Generat
   const providerMaskBuffer = maskImageData
     ? await createPicWishEraseMask(maskImageData.buffer, targetWidth, targetHeight)
     : undefined;
+  const providerImageBuffer = sourceImageData
+    ? await __testPreparePicWishEraseSourceImage(sourceImageData.buffer, targetWidth, targetHeight)
+    : undefined;
   const sync = input.sync === true || input.sync === 1 || input.sync === "1";
   const picWishResult = await eraseWithPicWish({
-    imageBuffer: sourceImageData?.buffer,
-    imageMimeType: sourceImageData?.mimeType,
+    imageBuffer: providerImageBuffer,
+    imageMimeType: providerImageBuffer ? "image/png" : undefined,
     imageUrl: sourceImageUrl || undefined,
     maskBuffer: providerMaskBuffer,
     maskMimeType: providerMaskBuffer ? "image/png" : undefined,

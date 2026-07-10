@@ -4763,6 +4763,7 @@ function AnnotationBubble({
   onAiEdit,
   onAddReference,
   isReferenceActive,
+  onPositionPointerDown,
 }: {
   ann: Annotation;
   isDark: boolean;
@@ -4771,6 +4772,7 @@ function AnnotationBubble({
   onAiEdit: (id: string, text: string) => void;
   onAddReference: (id: string, text: string) => void;
   isReferenceActive?: boolean;
+  onPositionPointerDown?: (event: React.PointerEvent<HTMLDivElement>) => void;
 }) {
   const [draft, setDraft] = useState(ann.text);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -4938,8 +4940,11 @@ function AnnotationBubble({
           top: `${ann.y}%`,
           transform: "translate(-50%, -50%)",
           zIndex: 50,
-          cursor: "pointer",
+          cursor: "grab",
+          touchAction: "none",
+          pointerEvents: "auto",
         }}
+        onPointerDown={onPositionPointerDown}
         onClick={e => {
           e.stopPropagation();
           onUpdate(ann.id, { open: true });
@@ -4996,6 +5001,7 @@ function AnnotationBubble({
         transform: "translateX(-50%)",
         minWidth: 220,
         maxWidth: 280,
+        pointerEvents: "auto",
       }}
       onClick={e => e.stopPropagation()}
       onMouseDown={e => e.stopPropagation()}
@@ -5027,7 +5033,10 @@ function AnnotationBubble({
           background: ann.done ? "oklch(0.62 0.18 145)" : accentColor,
           border: "2px solid rgba(255,255,255,0.9)",
           boxShadow: "0 1px 4px rgba(0,0,0,0.25)",
+          cursor: "grab",
+          touchAction: "none",
         }}
+        onPointerDown={onPositionPointerDown}
       />
 
       {/* 气泡主体 */}
@@ -7291,9 +7300,11 @@ function AssetNodeComponent({
               left: dispW + 14 * stableUiScale,
               top: 0,
               width: 292,
+              minHeight: 260,
               maxHeight: 420,
               borderRadius: 8,
-              overflow: "hidden",
+              overflow: "auto",
+              resize: "vertical",
               background: isDark
                 ? "rgba(20,20,30,0.96)"
                 : "rgba(255,255,255,0.98)",
@@ -7355,7 +7366,7 @@ function AssetNodeComponent({
                 minHeight: 138,
                 maxHeight: 336,
                 padding: 12,
-                resize: "none",
+                resize: "vertical",
                 outline: "none",
                 border: "none",
                 background: "transparent",
@@ -13303,6 +13314,7 @@ function ImageGeneratorPopover({
         border: `1px solid ${border}`,
         backdropFilter: "blur(22px)",
         boxShadow: "0 24px 70px rgba(0,0,0,0.36)",
+        zIndex: 12000,
       }}
       onMouseDown={e => e.stopPropagation()}
       onClick={e => e.stopPropagation()}
@@ -18716,7 +18728,7 @@ function CanvasAssistantPanel({
                         data-composer-token="image"
                         className="group relative inline-flex max-w-[62px] min-w-0 items-center gap-0.5 overflow-hidden rounded-[var(--radius-md-design)] px-1 py-0 align-middle"
                         style={{
-                          margin: "0 4px 2px 4px",
+                          margin: "0 2px 2px 2px",
 	                          background: isDark
 	                            ? "rgba(144,88,252,0.18)"
 	                            : "rgba(144,88,252,0.12)",
@@ -18829,7 +18841,7 @@ function CanvasAssistantPanel({
                         data-composer-token="annotation"
                         className="group relative inline-flex max-w-[92px] min-w-0 items-center gap-1 overflow-hidden rounded-[var(--radius-md-design)] px-1.5 py-0.5 align-middle"
                         style={{
-                          margin: "0 4px 2px 4px",
+                          margin: "0 2px 2px 2px",
                           background: isDark
                             ? "oklch(0.62 0.20 145 / 0.16)"
                             : "oklch(0.62 0.17 145 / 0.10)",
@@ -19351,7 +19363,7 @@ function CanvasAssistantPanel({
           </div>
           {composerPreview && (
             <div
-              className="pointer-events-none fixed z-[260] origin-center overflow-hidden rounded-[var(--radius-md-design)] shadow-2xl transition-all duration-200 ease-out"
+              className="pointer-events-none fixed z-[13000] origin-center overflow-hidden rounded-[var(--radius-md-design)] shadow-2xl transition-all duration-200 ease-out"
               style={{
                 left: composerPreview.x,
                 top: composerPreview.y,
@@ -29692,42 +29704,100 @@ function GlobalAnnotationLayer({
   onAddReference: (id: string, text: string) => void;
   referencedAnnotationIds: Set<string>;
 }) {
-  // 将注释的节点内百分比坐标转换为屏幕坐标
-  // 公式: screenX = viewport.x + node.position.x * viewport.zoom + (xPct/100) * nodeWidth * viewport.zoom
-  const getScreenPos = (ann: Annotation & { nodeId: string }) => {
-    const node = nodes.find(n => n.id === ann.nodeId);
+  const getNodeScreenRect = (nodeId: string) => {
+    const node = nodes.find(n => n.id === nodeId);
     if (!node) return null;
-    const { width: nw, height: nh } = getCanvasNodeSize(node);
-    const sx =
-      viewport.x + (node.position.x + (ann.x / 100) * nw) * viewport.zoom;
-    const sy =
-      viewport.y + (node.position.y + (ann.y / 100) * nh) * viewport.zoom;
-    return { x: sx, y: sy };
+    const { width, height } = getCanvasNodeSize(node);
+    return {
+      left: viewport.x + node.position.x * viewport.zoom,
+      top: viewport.y + node.position.y * viewport.zoom,
+      width: width * viewport.zoom,
+      height: height * viewport.zoom,
+    };
   };
+
+  const beginAnnotationPositionDrag = (
+    ann: GlobalAnnotation,
+    rect: { left: number; top: number; width: number; height: number },
+    event: React.PointerEvent<HTMLDivElement>
+  ) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const updateFromPointer = (clientX: number, clientY: number) => {
+      const nextX =
+        ((Math.min(Math.max(clientX, rect.left), rect.left + rect.width) -
+          rect.left) /
+          Math.max(1, rect.width)) *
+        100;
+      const nextY =
+        ((Math.min(Math.max(clientY, rect.top), rect.top + rect.height) -
+          rect.top) /
+          Math.max(1, rect.height)) *
+        100;
+      onUpdate(ann.id, {
+        x: Number(nextX.toFixed(2)),
+        y: Number(nextY.toFixed(2)),
+      });
+    };
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      moveEvent.preventDefault();
+      updateFromPointer(moveEvent.clientX, moveEvent.clientY);
+    };
+    const handlePointerUp = () => {
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerup", handlePointerUp);
+      document.removeEventListener("pointercancel", handlePointerUp);
+    };
+
+    document.addEventListener("pointermove", handlePointerMove);
+    document.addEventListener("pointerup", handlePointerUp);
+    document.addEventListener("pointercancel", handlePointerUp);
+  };
+
+  const getClampedAnnotation = (ann: GlobalAnnotation) => ({
+    ...ann,
+    x: Math.min(100, Math.max(0, ann.x)),
+    y: Math.min(100, Math.max(0, ann.y)),
+  });
 
   return (
     <div
       className="absolute inset-0 pointer-events-none"
-      style={{ zIndex: 9999 }}
+      style={{ zIndex: 9000 }}
     >
-      {annotations.map(ann => {
-        const pos = getScreenPos(ann);
-        if (!pos) return null;
+      {annotations.map(annotation => {
+        const rect = getNodeScreenRect(annotation.nodeId);
+        if (!rect) return null;
+        const ann = getClampedAnnotation(annotation);
         return (
           <div
             key={ann.id}
-            className="absolute pointer-events-auto"
-            style={{ left: pos.x, top: pos.y, transform: "translateX(-50%)" }}
+            className="absolute pointer-events-none"
+            style={{
+              left: rect.left,
+              top: rect.top,
+              width: rect.width,
+              height: rect.height,
+              overflow: "hidden",
+            }}
           >
-            <AnnotationBubble
-              ann={ann}
-              isDark={isDark}
-              onUpdate={onUpdate}
-              onRemove={onRemove}
-              onAiEdit={onAiEdit}
-              onAddReference={onAddReference}
-              isReferenceActive={referencedAnnotationIds.has(ann.id)}
-            />
+            <div className="absolute inset-0 pointer-events-none">
+              <AnnotationBubble
+                ann={ann}
+                isDark={isDark}
+                onUpdate={onUpdate}
+                onRemove={onRemove}
+                onAiEdit={onAiEdit}
+                onAddReference={onAddReference}
+                isReferenceActive={referencedAnnotationIds.has(ann.id)}
+                onPositionPointerDown={event =>
+                  beginAnnotationPositionDrag(ann, rect, event)
+                }
+              />
+            </div>
           </div>
         );
       })}
