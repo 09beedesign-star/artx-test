@@ -2041,6 +2041,9 @@ function AccountDetailDrawer({
 }) {
   const user = detail?.user || fallbackUser;
   const selectedOrder = detail?.orders.find((order) => order.id === selectedOrderId) || detail?.orders[0];
+  const selectedOrderNotes = selectedOrder
+    ? (detail?.notes || []).filter((item) => item.orderId === selectedOrder.id).slice(0, 3)
+    : [];
 
   if (!open) return null;
 
@@ -2152,6 +2155,21 @@ function AccountDetailDrawer({
                     placeholder="记录处理备注"
                     className="mt-3 border-white/12 bg-slate-950/40"
                   />
+                  <div className="mt-3 border-t border-cyan-300/15 pt-3">
+                    <div className="text-xs font-medium text-cyan-100">本订单已保存备注</div>
+                    {selectedOrderNotes.length ? (
+                      <div className="mt-2 space-y-2">
+                        {selectedOrderNotes.map((item) => (
+                          <div key={item.id} className="rounded-md border border-white/8 bg-slate-950/30 px-3 py-2 text-xs">
+                            <div className="break-words text-slate-200">{item.content}</div>
+                            <div className="mt-1 text-slate-500">{item.actorName} · {item.createdAt}</div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="mt-2 text-xs text-slate-500">当前订单尚无已保存备注。</div>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <EmptyPanel title="暂无可处理订单" body="该账户还没有支付订单，无法执行备注、补单或退款操作。" />

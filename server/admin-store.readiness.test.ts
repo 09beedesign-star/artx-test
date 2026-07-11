@@ -775,6 +775,16 @@ describe("production readiness", () => {
     ]));
     expect(ordersBody.orders.map((order) => `${order.createdAt} ${order.paidAt || ""}`).join(" ")).not.toContain("刚刚");
 
+    const auditResult = await handleAdminApiRequest("GET", "/audit-logs", authorization);
+    expect(auditResult.status).toBe(200);
+    const auditBody = auditResult.body as {
+      auditLogs: Array<{ id: string; createdAt: string }>;
+    };
+    expect(auditBody.auditLogs).toContainEqual(expect.objectContaining({
+      id: "aud_account_1",
+      createdAt: "2026/07/05 10:02:30",
+    }));
+
     const result = await handleAdminApiRequest("GET", "/users/account-detail-user/detail", authorization);
     expect(result.status).toBe(200);
     const body = result.body as {

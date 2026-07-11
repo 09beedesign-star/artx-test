@@ -1320,7 +1320,7 @@ function ensureBillingConsistency(data: AdminData) {
   }));
   data.auditLogs = data.auditLogs.map((log) => ({
     ...log,
-    createdAt: formatRelativeTime(log.createdAt),
+    createdAt: formatAbsoluteSecondTime(log.createdAt) || log.createdAt,
   }));
   recalculateUserBilling(data);
 }
