@@ -577,10 +577,13 @@ function vitePluginMoveBuiltEntryScriptToBody(): Plugin {
     name: "artx-move-built-entry-script-to-body",
     enforce: "post",
     transformIndexHtml(html) {
-      const entryScriptPattern = /\n?\s*<script type="module" crossorigin src="\/assets\/index-[^"]+\.js"><\/script>/;
-      const entryScript = html.match(entryScriptPattern)?.[0]?.trim().replace('type="module"', 'type="module" async');
-      if (!entryScript || html.includes(`<body>\n    <div id="root"></div>\n    ${entryScript}`)) return html;
-      return html.replace(entryScriptPattern, "").replace("</body>", `    ${entryScript}\n  </body>`);
+      const entryScriptPattern = /\n?\s*<script type="module" crossorigin src="([^"]*\/assets\/index-[^"]+\.js)"><\/script>/;
+      const entrySrc = html.match(entryScriptPattern)?.[1];
+      if (!entrySrc) return html;
+      const loaderSrc = entrySrc.replace(/assets\/index-[^/]+\.js$/, "entry-loader.js");
+      const loaderScript = `<script src="${loaderSrc}" data-entry="${entrySrc}" defer></script>`;
+      if (html.includes(loaderScript)) return html;
+      return html.replace(entryScriptPattern, "").replace("</body>", `    ${loaderScript}\n  </body>`);
     },
   };
 }
