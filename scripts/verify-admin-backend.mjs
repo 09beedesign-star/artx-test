@@ -5,8 +5,13 @@ import os from "node:os";
 import path from "node:path";
 
 const dataDir = await mkdtemp(path.join(os.tmpdir(), "artx-admin-backend-"));
+const adminUsername = "admin@example.com";
+const adminPassword = "secure-admin-password";
 process.env.ARTX_DATA_DIR = dataDir;
 process.env.ARTX_ADMIN_DATA_BACKEND = "json";
+process.env.ARTX_AUTH_DATA_BACKEND = "json";
+process.env.ARTX_BOOTSTRAP_ADMIN_USERNAME = adminUsername;
+process.env.ARTX_BOOTSTRAP_ADMIN_PASSWORD = adminPassword;
 process.env.ARTX_LOGIN_LOCK_THRESHOLD = "3";
 process.env.ARTX_LOGIN_LOCK_MS = "60000";
 
@@ -28,7 +33,7 @@ async function admin(method, pathName, token, payload = {}) {
 }
 
 try {
-  const adminLogin = await auth("login", { username: "09bee", password: "1234" });
+  const adminLogin = await auth("login", { username: adminUsername, password: adminPassword });
   assert.equal(adminLogin.status, 200, "default super_admin should login");
   const adminToken = adminLogin.body.token;
   const adminUser = adminLogin.body.user;
@@ -60,7 +65,7 @@ try {
   const orderResult = await createBillingOrder({
     userId: ordinaryUser.id,
     username: ordinaryUser.username,
-    planId: "creator",
+    planId: "lite",
     cycleId: "monthly",
     paymentMethod: "wechat",
   });
@@ -142,8 +147,9 @@ try {
   assert.equal(overviewBeforePolicy.status, 200);
   const policies = overviewBeforePolicy.body.overview.aiBillingPolicies;
   const discounts = overviewBeforePolicy.body.overview.planDiscounts;
+  const editedTextBaseCredits = 9;
   const editedPolicies = policies.map((policy) => policy.capabilityKey === "text_generation"
-    ? { ...policy, baseCredits: 9 }
+    ? { ...policy, baseCredits: editedTextBaseCredits }
     : policy
   );
   const missingPolicyConfirmation = await admin("POST", "/api/admin/ai-billing-policies/save", adminToken, {
@@ -177,7 +183,9 @@ try {
     status: "success",
     outputUnits: 1,
   });
-  assert.equal(textTask.chargedCredits, 9, "edited creator text policy should change charged credits");
+  const liteMultiplier = discounts.find((item) => item.planId === "lite")?.multiplier || 1;
+  const expectedTextCredits = Math.max(1, Math.round(editedTextBaseCredits * liteMultiplier));
+  assert.equal(textTask.chargedCredits, expectedTextCredits, "edited text policy should include current plan multiplier");
 
   const selectedUserId = ordinaryUser.id;
   const unconfirmedLargeAdjustment = await admin("POST", "/api/admin/credits/adjust", adminToken, {

@@ -12,4 +12,15 @@ describe("HomePage auth flow", () => {
     expect(handleAuthAction).toBeTruthy();
     expect(handleAuthAction).not.toContain("createProjectFromPrompt()");
   });
+
+  it("implements remember password without storing the raw password in browser cookies", () => {
+    const source = readFileSync(resolve(__dirname, "HomePage.tsx"), "utf-8");
+
+    expect(source).toContain('const REMEMBERED_LOGIN_COOKIE = "artx_remembered_login"');
+    expect(source).toContain("saveRememberedLoginUsername(email.trim())");
+    expect(source).toContain("记住密码");
+    expect(source).toContain("autoComplete={isRegister ? \"new-password\" : \"current-password\"}");
+    expect(source).not.toContain("encodeURIComponent(password)");
+    expect(source).not.toContain("password}; Max-Age");
+  });
 });

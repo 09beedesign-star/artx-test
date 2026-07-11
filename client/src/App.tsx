@@ -23,6 +23,7 @@ import LoadingLoopPage, { CanvasPageLoading, GeneralPageLoading } from "./pages/
 import AdminPrototypePage from "./pages/AdminPrototypePage";
 import BillingPage from "./pages/BillingPage";
 import { useAuth } from "./contexts/AuthContext";
+import CreditGrantNotification from "./components/billing/CreditGrantNotification";
 
 const routerBase = import.meta.env.BASE_URL.replace(/\/$/, "");
 const configuredAdminHost = (import.meta.env.VITE_ADMIN_HOST || "").toLowerCase();
@@ -376,6 +377,7 @@ function App() {
           <TooltipProvider>
             <Toaster />
             <LoginRegisterDialog />
+            <CreditGrantNotification />
             <WouterRouter base={routerBase}>
               <RouteLoadingGate>
                 <AppRoutes />

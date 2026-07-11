@@ -775,8 +775,8 @@ export default function BillingPage() {
                     color: purple,
                   }}
                 >
-                  <Sparkles size={13} />
-                  ArtX 会员中心
+                  <Crown size={13} />
+                  ArtXstudio会员中心
                 </div>
                 <h1
                   className="type-title-sm"

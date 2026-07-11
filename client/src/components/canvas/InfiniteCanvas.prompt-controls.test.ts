@@ -11,4 +11,19 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain("hoverButtonBg");
     expect(source).toContain("buttonHover");
   });
+
+  it("keeps quick image edits on the source-image edit path instead of pure text-to-image generation", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const quickEditBlock = source.match(
+      /const handleAssetEditSubmit = useCallback[\s\S]*?const handleSingleImageToolbarAction/
+    )?.[0];
+
+    expect(quickEditBlock).toBeTruthy();
+    expect(quickEditBlock).toContain("editImageWithPrompt({");
+    expect(quickEditBlock).toContain("imageSrc: latestImageSrc");
+    expect(quickEditBlock).toContain("targetWidth: sourceSize.width");
+    expect(quickEditBlock).toContain("targetHeight: sourceSize.height");
+    expect(quickEditBlock).toContain("referencedAssets: payload.references");
+    expect(quickEditBlock).not.toContain("generateAiImages({");
+  });
 });

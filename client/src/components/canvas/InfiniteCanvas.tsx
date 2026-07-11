@@ -16239,6 +16239,7 @@ function CanvasAssistantPanel({
   } | null>(null);
   const activeComposerSegmentIdRef = useRef<string | null>(null);
   const activeComposerCursorRef = useRef(0);
+  const composerPreviewHoverTimeoutRef = useRef<number | null>(null);
   const syncedReferenceIdsRef = useRef<Set<string>>(new Set());
   const syncedAnnotationIdsRef = useRef<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -16937,29 +16938,55 @@ function CanvasAssistantPanel({
       trigger: "hover" | "click" = "hover"
     ) => {
       if (!src) return;
-      const anchor =
-        event.currentTarget.matches("[data-composer-preview-thumbnail='true']")
-          ? event.currentTarget
-          : event.currentTarget.querySelector<HTMLElement>(
-              "[data-composer-preview-thumbnail='true']"
-            );
-      const rect = (anchor || event.currentTarget).getBoundingClientRect();
-      setComposerPreview({
-        src,
-        title,
-        x: rect.left + rect.width / 2,
-        y: rect.top + rect.height / 2,
-        visible: true,
-        trigger,
-      });
+      const target = event.currentTarget.matches(
+        "[data-composer-preview-thumbnail='true']"
+      )
+        ? event.currentTarget.closest<HTMLElement>("[data-composer-token]") ||
+          event.currentTarget
+        : event.currentTarget;
+      const displayPreview = () => {
+        const rect = target.getBoundingClientRect();
+        setComposerPreview({
+          src,
+          title,
+          x: rect.left + rect.width / 2,
+          y: rect.top - 2,
+          visible: true,
+          trigger,
+        });
+      };
+      if (composerPreviewHoverTimeoutRef.current) {
+        window.clearTimeout(composerPreviewHoverTimeoutRef.current);
+        composerPreviewHoverTimeoutRef.current = null;
+      }
+      if (trigger === "hover") {
+        composerPreviewHoverTimeoutRef.current = window.setTimeout(() => {
+          composerPreviewHoverTimeoutRef.current = null;
+          displayPreview();
+        }, 1000);
+        return;
+      }
+      displayPreview();
     },
     []
   );
 
   const hideComposerReferencePreview = useCallback(() => {
+    if (composerPreviewHoverTimeoutRef.current) {
+      window.clearTimeout(composerPreviewHoverTimeoutRef.current);
+      composerPreviewHoverTimeoutRef.current = null;
+    }
     setComposerPreview(prev =>
       prev && prev.trigger === "hover" ? { ...prev, visible: false } : prev
     );
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (composerPreviewHoverTimeoutRef.current) {
+        window.clearTimeout(composerPreviewHoverTimeoutRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -18774,6 +18801,15 @@ function CanvasAssistantPanel({
                           )
                         }
                         onMouseLeave={hideComposerReferencePreview}
+                        onClick={event => {
+                          event.stopPropagation();
+                          showComposerReferencePreview(
+                            event,
+                            segment.asset.src,
+                            segment.asset.title,
+                            "click"
+                          );
+                        }}
                         data-composer-token="image"
                         className="group relative inline-flex max-w-[62px] min-w-0 items-center gap-0.5 overflow-hidden rounded-[var(--radius-md-design)] px-1 py-0 align-middle"
                         style={{
@@ -18808,12 +18844,6 @@ function CanvasAssistantPanel({
                           onMouseDown={event => {
                             event.preventDefault();
                             event.stopPropagation();
-                            showComposerReferencePreview(
-                              event,
-                              segment.asset.src,
-                              segment.asset.title,
-                              "click"
-                            );
                           }}
 	                          style={{
 	                            width: 11,
@@ -18833,12 +18863,13 @@ function CanvasAssistantPanel({
                         <button
                           type="button"
                           onMouseDown={event => event.stopPropagation()}
-                          onClick={() =>
+                          onClick={event => {
+                            event.stopPropagation();
                             removeComposerImageSegment(
                               segment.id,
                               segment.asset.id
-                            )
-                          }
+                            );
+                          }}
                           className="flex items-center justify-center flex-shrink-0 rounded-full transition-opacity hover:opacity-70"
                           style={{
                             color: isDark
@@ -19423,8 +19454,9 @@ function CanvasAssistantPanel({
                   left: composerPreview.x,
                   top: composerPreview.y,
                   maxWidth: 160,
-                  transform: `translate(-50%, -50%) scale(${composerPreview.visible ? 1 : 0.28})`,
-                  transformOrigin: "center center",
+                  zIndex: 2147483647,
+                  transform: `translate(-50%, -100%) scale(${composerPreview.visible ? 1 : 0.28})`,
+                  transformOrigin: "center bottom",
                   opacity: composerPreview.visible ? 1 : 0,
                   border: `1px solid ${isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.14)"}`,
                   background: isDark
@@ -26184,16 +26216,16 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           placement: placeholderPayload.placement,
           generationId,
           run: async () =>
-            generateAiImages({
+            editImageWithPrompt({
+              imageSrc: latestImageSrc,
               prompt:
                 optimizedPrompt.text.trim() ||
                 payload.prompt ||
                 `基于原图优化：${editAsset.title}`,
               model: "gpt-image-2",
-              ratio: inferImageRatio(sourceSize.width, sourceSize.height),
-              count: 1,
-              style: "快捷编辑",
-              referencesEnabled: payload.references.length > 0,
+              targetWidth: sourceSize.width,
+              targetHeight: sourceSize.height,
+              referencedAssets: payload.references,
             }),
         });
       } catch (error) {

@@ -11,7 +11,7 @@ import { cleanupExpiredUploads, getUploadRetentionDays, getUploadsRoot, storeGen
 import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
 import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization } from "./auth-store";
-import { createBillingOrder, createCreditRechargeOrder, getBillingOrderForPayment, getBillingSnapshotForUser, handleAdminApiRequest, markBillingOrderPaid, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, submitUserFeedback } from "./admin-store";
+import { acknowledgeCreditGiftNotification, createBillingOrder, createCreditRechargeOrder, getBillingOrderForPayment, getBillingSnapshotForUser, getCreditGiftNotificationsForUser, handleAdminApiRequest, markBillingOrderPaid, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, submitUserFeedback } from "./admin-store";
 import { getAllowedCorsOrigin } from "./cors";
 import { sendOpsNotification } from "./notifications";
 import type { AiBillingCapability } from "../shared/ai-credit-policy";
@@ -1361,6 +1361,29 @@ async function startServer() {
       res.json(snapshot || { balance: 0, frozenCredits: 0, expiredCredits: 0, orders: [], ledger: [] });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Billing summary failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.get("/api/billing/credit-notifications", async (req, res) => {
+    try {
+      const user = await requireSessionUser(req, res);
+      if (!user) return;
+      res.json(await getCreditGiftNotificationsForUser(user.id));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Credit notifications failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.post("/api/billing/credit-notifications/:notificationId/ack", async (req, res) => {
+    try {
+      const user = await requireSessionUser(req, res);
+      if (!user) return;
+      const result = await acknowledgeCreditGiftNotification(user.id, req.params.notificationId);
+      res.status(result.status).json(result.body);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Credit notification acknowledge failed";
       res.status(500).json({ error: message });
     }
   });

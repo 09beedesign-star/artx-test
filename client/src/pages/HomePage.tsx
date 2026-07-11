@@ -99,6 +99,8 @@ const PROMPT_SUGGESTIONS = [
 
 const HOME_PROMPT = "hello，欢迎来到。ArtX,正式开启你的。灵感AI创意之旅吧！";
 const HOME_AUTH_PANEL_STORAGE_KEY = "artx:home-auth-panel";
+const REMEMBERED_LOGIN_COOKIE = "artx_remembered_login";
+const REMEMBERED_LOGIN_MAX_AGE_SECONDS = 60 * 60 * 24 * 90;
 const PROMPT_TYPE_DURATION_MS = 5000;
 const PROMPT_PAUSE_DURATION_MS = 3000;
 const PROMPT_FRAME_MS = 80;
@@ -112,14 +114,54 @@ const getStageScale = () => {
   return Math.min(window.innerWidth / 1600, window.innerHeight / 900);
 };
 
+function getCookieValue(name: string) {
+  if (typeof document === "undefined") return "";
+  const prefix = `${name}=`;
+  return (
+    document.cookie
+      .split(";")
+      .map(item => item.trim())
+      .find(item => item.startsWith(prefix))
+      ?.slice(prefix.length) || ""
+  );
+}
+
+function getRememberedLoginUsername() {
+  const value = getCookieValue(REMEMBERED_LOGIN_COOKIE);
+  if (!value) return "";
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return "";
+  }
+}
+
+function getSecureCookieSuffix() {
+  if (typeof window === "undefined") return "";
+  return window.location.protocol === "https:" ? "; Secure" : "";
+}
+
+function saveRememberedLoginUsername(username: string) {
+  if (typeof document === "undefined") return;
+  document.cookie = `${REMEMBERED_LOGIN_COOKIE}=${encodeURIComponent(username)}; Max-Age=${REMEMBERED_LOGIN_MAX_AGE_SECONDS}; Path=/; SameSite=Lax${getSecureCookieSuffix()}`;
+}
+
+function clearRememberedLoginUsername() {
+  if (typeof document === "undefined") return;
+  document.cookie = `${REMEMBERED_LOGIN_COOKIE}=; Max-Age=0; Path=/; SameSite=Lax${getSecureCookieSuffix()}`;
+}
+
 export default function HomePage() {
   const [, navigate] = useLocation();
   const { isAuthenticated, login, register } = useAuth();
   const [panelMode, setPanelMode] = useState<PanelMode>(isAuthenticated ? "prelogin" : "prelogin");
   const [prompt, setPrompt] = useState(HOME_PROMPT);
   const [promptTouched, setPromptTouched] = useState(false);
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(getRememberedLoginUsername);
   const [password, setPassword] = useState("");
+  const [rememberPassword, setRememberPassword] = useState(
+    () => Boolean(getRememberedLoginUsername())
+  );
   const [authError, setAuthError] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
   const [stageScale, setStageScale] = useState(getStageScale);
@@ -250,6 +292,13 @@ export default function HomePage() {
       setAuthError(result.error || "登录失败，请稍后重试");
       return;
     }
+    if (action === "login") {
+      if (rememberPassword) {
+        saveRememberedLoginUsername(email.trim());
+      } else {
+        clearRememberedLoginUsername();
+      }
+    }
     toast(action === "register" ? "注册成功" : "登录成功", { description: "欢迎回到 ArtX Studio" });
     setPanelMode("prelogin");
   };
@@ -375,10 +424,12 @@ export default function HomePage() {
                 mode={displayedMode === "register" ? "register" : "login"}
                 email={email}
                 password={password}
+                rememberPassword={rememberPassword}
                 busy={authBusy}
                 error={authError}
                 onEmailChange={setEmail}
                 onPasswordChange={setPassword}
+                onRememberPasswordChange={setRememberPassword}
                 onSubmit={handleAuthSubmit}
                 onAuthAction={handleAuthAction}
                 onBackToPrompt={() => setPanelMode("prelogin")}
@@ -607,10 +658,12 @@ function LoginPanel({
   mode,
   email,
   password,
+  rememberPassword,
   busy,
   error,
   onEmailChange,
   onPasswordChange,
+  onRememberPasswordChange,
   onSubmit,
   onAuthAction,
   onBackToPrompt,
@@ -618,10 +671,12 @@ function LoginPanel({
   mode: "login" | "register";
   email: string;
   password: string;
+  rememberPassword: boolean;
   busy: boolean;
   error: string;
   onEmailChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
+  onRememberPasswordChange: (value: boolean) => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
   onAuthAction: (action: "login" | "register") => void | Promise<void>;
   onBackToPrompt: () => void;
@@ -692,6 +747,7 @@ function LoginPanel({
               label="注册邮箱或用户名"
               value={resetUsername}
               onChange={setResetUsername}
+              name="username"
               autoComplete="username"
               placeholder="请输入注册邮箱或用户名"
             />
@@ -717,6 +773,7 @@ function LoginPanel({
               type="password"
               value={resetPasswordValue}
               onChange={setResetPasswordValue}
+              name="new-password"
               autoComplete="new-password"
               placeholder="至少 8 位"
             />
@@ -725,6 +782,7 @@ function LoginPanel({
               type="password"
               value={resetConfirmPassword}
               onChange={setResetConfirmPassword}
+              name="confirm-new-password"
               autoComplete="new-password"
               placeholder="再次输入新密码"
             />
@@ -766,6 +824,7 @@ function LoginPanel({
             label="用户名或邮箱"
             value={email}
             onChange={onEmailChange}
+            name="username"
             autoComplete="username"
             placeholder="请输入用户名或邮箱"
           />
@@ -774,10 +833,30 @@ function LoginPanel({
             type="password"
             value={password}
             onChange={onPasswordChange}
+            name={isRegister ? "new-password" : "current-password"}
             autoComplete={isRegister ? "new-password" : "current-password"}
             placeholder="请输入密码"
           />
         </div>
+
+        {!isRegister && (
+          <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-left">
+            <input
+              type="checkbox"
+              checked={rememberPassword}
+              onChange={event => onRememberPasswordChange(event.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-white/20 bg-[#222] accent-[#936CFF]"
+            />
+            <span className="min-w-0">
+              <span className="block text-[13px] font-medium text-white">
+                记住密码
+              </span>
+              <span className="mt-0.5 block text-[11px] leading-4 text-[#7d7d7d]">
+                下次自动填入账号，并允许浏览器密码管理器保存密码。
+              </span>
+            </span>
+          </label>
+        )}
 
         <div className="mt-4 flex h-5 items-center justify-between gap-3">
           <p className={`min-w-0 flex-1 truncate text-left text-[13px] font-medium text-red-300 ${error ? "visible" : "invisible"}`}>
@@ -870,6 +949,7 @@ function LabeledInput({
   onChange,
   placeholder,
   type = "text",
+  name,
   autoComplete,
 }: {
   label: string;
@@ -877,6 +957,7 @@ function LabeledInput({
   onChange: (value: string) => void;
   placeholder: string;
   type?: string;
+  name?: string;
   autoComplete?: string;
 }) {
   return (
@@ -887,6 +968,7 @@ function LabeledInput({
         value={value}
         onChange={event => onChange(event.target.value)}
         placeholder={placeholder}
+        name={name}
         autoComplete={autoComplete}
         className="h-[46px] w-full rounded-[10px] border border-[#545454] bg-[#222] px-3.5 text-sm text-white outline-none transition-[border-color,box-shadow] placeholder:text-[#7d7d7d] focus:border-[#936CFF] focus:shadow-[0_0_0_3px_rgba(147,108,255,0.22)]"
       />

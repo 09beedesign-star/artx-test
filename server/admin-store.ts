@@ -121,6 +121,18 @@ type CreditLedgerEntry = {
   createdAt: string;
 };
 
+type CreditGiftNotification = {
+  id: string;
+  userId: string;
+  ledgerId: string;
+  amount: number;
+  balance: number;
+  message: string;
+  status: "unread" | "acknowledged";
+  createdAt: string;
+  acknowledgedAt?: string;
+};
+
 type AiTaskRecord = {
   id: string;
   generationId: string;
@@ -253,6 +265,7 @@ type AdminData = {
   users: AdminUserAccount[];
   orders: PaymentOrder[];
   credits: CreditLedgerEntry[];
+  creditNotifications: CreditGiftNotification[];
   aiTasks: AiTaskRecord[];
   providers: ProviderHealth[];
   feedback: FeedbackTicket[];
@@ -385,6 +398,36 @@ const adminDataRepository = createAdminDataRepository();
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function formatGiftCredits(amount: number) {
+  return amount.toLocaleString("zh-CN");
+}
+
+function buildCreditGiftMessage(amount: number) {
+  return `您好，您已收到系统为您赠送的 ${formatGiftCredits(amount)} 积分作为感谢。`;
+}
+
+function createCreditGiftNotification(
+  data: AdminData,
+  user: AdminUserAccount,
+  entry: CreditLedgerEntry,
+  amount: number
+) {
+  if (amount <= 0) return;
+  data.creditNotifications = [
+    {
+      id: `cgn_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
+      userId: user.id,
+      ledgerId: entry.id,
+      amount,
+      balance: user.credits,
+      message: buildCreditGiftMessage(amount),
+      status: "unread" as const,
+      createdAt: entry.createdAt,
+    },
+    ...data.creditNotifications,
+  ].slice(0, 500);
 }
 
 const adminTimeZone = "Asia/Shanghai";
@@ -992,6 +1035,7 @@ async function seedAdminData(): Promise<AdminData> {
     users: await buildUserAccounts([]),
     orders: [],
     credits: [],
+    creditNotifications: [],
     aiTasks: [],
     providers: buildProviderHealth(),
     feedback: [],
@@ -1023,6 +1067,7 @@ function removeDemoData(data: AdminData): AdminData {
   data.users = data.users.filter((item) => !isDemoRecord(item));
   data.orders = data.orders.filter((item) => !isDemoRecord(item));
   data.credits = data.credits.filter((item) => !isDemoRecord(item));
+  data.creditNotifications = data.creditNotifications.filter((item) => !isDemoRecord(item));
   data.aiTasks = data.aiTasks.filter((item) => !isDemoRecord(item));
   data.feedback = data.feedback.filter((item) => !isDemoRecord(item));
   data.alerts = data.alerts.filter((item) => !isDemoRecord(item));
@@ -1036,6 +1081,7 @@ function hasDemoData(data: Partial<AdminData>) {
     data.users,
     data.orders,
     data.credits,
+    data.creditNotifications,
     data.aiTasks,
     data.feedback,
     data.alerts,
@@ -1050,6 +1096,7 @@ async function normalizeDataAsync(value: Partial<AdminData>): Promise<AdminData>
     users: await buildUserAccounts(Array.isArray(value.users) ? value.users : seed.users),
     orders: Array.isArray(value.orders) ? value.orders : seed.orders,
     credits: Array.isArray(value.credits) ? value.credits : seed.credits,
+    creditNotifications: Array.isArray(value.creditNotifications) ? value.creditNotifications : seed.creditNotifications,
     aiTasks: Array.isArray(value.aiTasks) ? value.aiTasks : seed.aiTasks,
     providers: buildProviderHealth(),
     feedback: Array.isArray(value.feedback) ? value.feedback : seed.feedback,
@@ -1904,6 +1951,7 @@ export async function handleAdminApiRequest(
       createdAt: nowIso(),
     };
     data.credits = [entry, ...data.credits].slice(0, 500);
+    createCreditGiftNotification(data, user, entry, delta);
     appendAuditLog(data, actor, {
       action: delta > 0 ? "人工增加积分" : "人工扣减积分",
       target: user.id,
@@ -1961,6 +2009,17 @@ export async function handleAdminApiRequest(
     return { status: 200, body: fullPayload(data) };
   }
 
+  const alertMatch = route.match(/^alerts\/([^/]+)\/read$/);
+  if (method === "POST" && alertMatch) {
+    const id = alertMatch[1];
+    const item = data.alerts.find((alert) => alert.id === id);
+    if (!item) return jsonError(404, "消息不存在");
+    item.unread = false;
+    appendAuditLog(data, actor, { action: "标记告警已处理", target: id });
+    await saveAdminData(data);
+    return { status: 200, body: fullPayload(data) };
+  }
+
   const riskEventMatch = route.match(/^risk-events\/([^/]+)\/status$/);
   if (method === "POST" && riskEventMatch) {
     const item = data.riskEvents.find((riskEvent) => riskEvent.id === riskEventMatch[1]);
@@ -1986,17 +2045,6 @@ export async function handleAdminApiRequest(
       before,
       after: { status: item.status, handledBy: item.handledBy, handledAt: item.handledAt, resolution: item.resolution },
     });
-    await saveAdminData(data);
-    return { status: 200, body: fullPayload(data) };
-  }
-
-  const alertMatch = route.match(/^alerts\/([^/]+)\/read$/);
-  if (method === "POST" && alertMatch) {
-    const id = alertMatch[1];
-    const item = data.alerts.find((alert) => alert.id === id);
-    if (!item) return jsonError(404, "消息不存在");
-    item.unread = false;
-    appendAuditLog(data, actor, { action: "标记告警已处理", target: id });
     await saveAdminData(data);
     return { status: 200, body: fullPayload(data) };
   }
@@ -2071,6 +2119,51 @@ export async function getBillingSnapshotForUser(userId: string) {
       paidAt: order.paidAt,
     })),
     ledger: data.credits.filter((item) => item.userId === userId).slice(0, 50),
+  };
+}
+
+export async function getCreditGiftNotificationsForUser(userId: string) {
+  const data = await loadAdminData();
+  const user = data.users.find((item) => item.id === userId);
+
+  return {
+    balance: user?.credits ?? 0,
+    notifications: data.creditNotifications
+      .filter((item) => item.userId === userId && item.status === "unread")
+      .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
+      .map((item) => ({
+        id: item.id,
+        amount: item.amount,
+        balance: item.balance,
+        message: item.message,
+        createdAt: item.createdAt,
+      })),
+  };
+}
+
+export async function acknowledgeCreditGiftNotification(userId: string, notificationId: string) {
+  const data = await loadAdminData();
+  const notification = data.creditNotifications.find((item) => item.id === notificationId && item.userId === userId);
+  const user = data.users.find((item) => item.id === userId);
+  if (!notification) {
+    return {
+      status: 404,
+      body: {
+        error: "积分通知不存在或已处理",
+        balance: user?.credits ?? 0,
+      },
+    };
+  }
+
+  notification.status = "acknowledged";
+  notification.acknowledgedAt = nowIso();
+  await saveAdminData(data);
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      balance: user?.credits ?? notification.balance,
+    },
   };
 }
 

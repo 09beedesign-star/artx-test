@@ -996,7 +996,7 @@ export async function handleAuthAction(action: AuthAction, payload: unknown) {
     if (user.status === "disabled") {
       return { status: 403, body: { error: "当前账号已被停用，请联系管理员" } };
     }
-    return { status: 200, body: { user: publicUser(user) } };
+    return { status: 200, body: { ok: true, user: publicUser(user) } };
   }
 
   if (action === "forgot-password") {

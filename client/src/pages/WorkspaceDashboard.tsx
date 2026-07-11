@@ -294,7 +294,13 @@ function CreateProjectCard({ isDark, onCreate }: { isDark: boolean; onCreate: ()
     <button
       onClick={onCreate}
       className="rounded-[var(--radius-lg-design)] overflow-hidden transition-all group"
-      style={{ background: bg, border: `1.5px dashed ${border}` }}
+      style={{
+        aspectRatio: "1 / 1",
+        alignSelf: "start",
+        width: "100%",
+        background: bg,
+        border: `1.5px dashed ${border}`,
+      }}
       onMouseEnter={e => {
         (e.currentTarget as HTMLElement).style.borderColor = "oklch(0.62 0.22 290 / 0.5)";
         (e.currentTarget as HTMLElement).style.background = isDark ? "#222222" : "oklch(0.95 0.006 270)";
