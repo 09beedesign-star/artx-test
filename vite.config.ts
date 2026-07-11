@@ -578,7 +578,7 @@ function vitePluginMoveBuiltEntryScriptToBody(): Plugin {
     enforce: "post",
     transformIndexHtml(html) {
       const entryScriptPattern = /\n?\s*<script type="module" crossorigin src="\/assets\/index-[^"]+\.js"><\/script>/;
-      const entryScript = html.match(entryScriptPattern)?.[0]?.trim();
+      const entryScript = html.match(entryScriptPattern)?.[0]?.trim().replace('type="module"', 'type="module" async');
       if (!entryScript || html.includes(`<body>\n    <div id="root"></div>\n    ${entryScript}`)) return html;
       return html.replace(entryScriptPattern, "").replace("</body>", `    ${entryScript}\n  </body>`);
     },
