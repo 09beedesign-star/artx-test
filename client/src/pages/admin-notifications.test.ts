@@ -91,4 +91,53 @@ describe("buildAdminNotifications", () => {
       }),
     ]);
   });
+
+  it("does not count messages as unread after they are marked read in bulk", () => {
+    const messages = buildAdminNotifications({
+      orders: [{
+        id: "ord_read",
+        user: "alice@example.com",
+        channel: "微信支付",
+        amount: 90,
+        credits: 900,
+        status: "pending",
+        createdAt: "2026/07/07 10:00:00",
+        reconciliation: "pending",
+        notificationReadAt: "2026/07/07 10:05:00",
+      }],
+      alerts: [{
+        id: "al_read",
+        category: "风控",
+        title: "已读告警",
+        detail: "已处理",
+        severity: "warning",
+        time: "2026/07/07 10:00:00",
+        owner: "Security",
+        unread: false,
+        linkedSection: "risk",
+      }],
+      feedback: [{
+        id: "fb_read",
+        user: "bob@example.com",
+        title: "已读反馈",
+        module: "帮助与反馈",
+        status: "new",
+        priority: "P1",
+        createdAt: "2026/07/07 10:00:00",
+        notificationReadAt: "2026/07/07 10:05:00",
+      }],
+      riskEvents: [{
+        id: "risk_read",
+        title: "支付订单异常",
+        detail: "金额不一致",
+        status: "open",
+        severity: "high",
+        target: "ord_read",
+        createdAt: "2026/07/07 10:00:00",
+        notificationReadAt: "2026/07/07 10:05:00",
+      }],
+    });
+
+    expect(Object.values(messages).flat().every((item) => !item.unread)).toBe(true);
+  });
 });

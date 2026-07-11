@@ -46,6 +46,7 @@ type NotificationOrder = {
   paidAt?: string;
   event?: string;
   reconciliation?: "matched" | "pending" | "mismatch";
+  notificationReadAt?: string;
 };
 
 type NotificationAlert = {
@@ -77,6 +78,7 @@ type NotificationFeedback = {
     mimeType?: string;
     size?: number;
   }>;
+  notificationReadAt?: string;
 };
 
 type NotificationRiskEvent = {
@@ -87,6 +89,7 @@ type NotificationRiskEvent = {
   severity: "high" | "medium" | "low";
   target: string;
   createdAt: string;
+  notificationReadAt?: string;
 };
 
 export type AdminNotificationInput = {
@@ -124,7 +127,7 @@ function sortByTimeDesc(items: AdminNotificationItem[]) {
 }
 
 function orderUnread(order: NotificationOrder) {
-  return order.status !== "paid" || order.reconciliation === "pending" || order.reconciliation === "mismatch";
+  return !order.notificationReadAt && (order.status !== "paid" || order.reconciliation === "pending" || order.reconciliation === "mismatch");
 }
 
 function orderSeverity(order: NotificationOrder): AlertSeverity {
@@ -134,7 +137,7 @@ function orderSeverity(order: NotificationOrder): AlertSeverity {
 }
 
 function feedbackUnread(feedback: NotificationFeedback) {
-  return feedback.status === "new" || feedback.status === "processing" || feedback.status === "waiting_user";
+  return !feedback.notificationReadAt && (feedback.status === "new" || feedback.status === "processing" || feedback.status === "waiting_user");
 }
 
 function feedbackSeverity(feedback: NotificationFeedback): AlertSeverity {
@@ -192,7 +195,7 @@ export function buildAdminNotifications(input: AdminNotificationInput): AdminNot
         detail: item.detail,
         time: item.createdAt,
         severity: riskSeverity(item.severity),
-        unread: item.status === "open" || item.severity === "high",
+        unread: item.status !== "mitigated" && !item.notificationReadAt,
         targetSection: "risk",
         targetId: item.id,
       })),

@@ -45,6 +45,7 @@ import {
   type AdminNotificationTab,
 } from "./admin-notifications";
 import { getDashboardRiskTarget } from "./admin-dashboard-risk";
+import { classifyHighRiskType } from "./admin-risk";
 import { resolveAdminUploadUrl } from "./admin-upload-url";
 
 type AdminSection =
@@ -98,6 +99,7 @@ type Order = {
   providerTransactionId?: string;
   refundAmount?: number;
   refundedCredits?: number;
+  notificationReadAt?: string;
 };
 
 type AccountDetail = {
@@ -123,6 +125,7 @@ type Feedback = {
   createdAt: string;
   linkedOrderId?: string;
   attachments?: Array<{ name: string; src: string; width?: number; height?: number; mimeType?: string; size?: number }>;
+  notificationReadAt?: string;
 };
 
 type OpsAlert = {
@@ -191,6 +194,10 @@ type RiskEvent = {
   severity: "high" | "medium" | "low";
   target: string;
   createdAt: string;
+  notificationReadAt?: string;
+  handledBy?: string;
+  handledAt?: string;
+  resolution?: string;
 };
 
 type PricingPlan = {
@@ -671,7 +678,14 @@ function AdminPrototypePage() {
   }
 
   function handleMarkAllAlertsRead() {
-    adminPost("/api/admin/alerts/read-all", {}, "所有敏捷处理消息已标记为已读，操作已进入审计日志。");
+    adminPost("/api/admin/alerts/read-all", {}, "所有消息已标记为已读，未读气泡已清除。");
+  }
+
+  function handleRiskStatus(id: string, status: "reviewing" | "mitigated", reason: string) {
+    adminPost(`/api/admin/risk-events/${encodeURIComponent(id)}/status`, {
+      status,
+      reason,
+    }, status === "reviewing" ? "风险事件已进入处理中。" : "风险事件已关闭并写入审计日志。");
   }
 
   function handleNotificationJump(item: AdminNotificationItem) {
@@ -1505,17 +1519,9 @@ function AdminPrototypePage() {
 
     if (activeSection === "risk") {
       return (
-        <DataList
-          title="风控规则"
-          description="先覆盖支付金额和积分异常，再扩展到设备、IP、频率限制。"
-          rows={[
-            ...adminData.riskEvents.map((event) => ({
-              title: event.title,
-              meta: `${event.detail} · ${event.target}`,
-              value: event.status,
-              icon: event.severity === "high" ? AlertTriangle : ShieldCheck,
-            })),
-          ]}
+        <RiskEventList
+          events={adminData.riskEvents}
+          onUpdateStatus={handleRiskStatus}
         />
       );
     }
@@ -1676,7 +1682,7 @@ function NotificationCenter({
                 className="text-xs font-medium text-cyan-200 hover:text-cyan-100"
                 onClick={onMarkAllRead}
               >
-                告警已读
+                全部已读
               </button>
             </div>
             <div className="mt-4 grid grid-cols-3 gap-2">
@@ -2337,6 +2343,79 @@ function DataList({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function RiskEventList({
+  events,
+  onUpdateStatus,
+}: {
+  events: RiskEvent[];
+  onUpdateStatus: (id: string, status: "reviewing" | "mitigated", reason: string) => void;
+}) {
+  if (!events.length) {
+    return <EmptyPanel title="暂无高风险安全事件" body="支付、退款、系统安全和攻击类风险会在这里集中展示。" />;
+  }
+
+  return (
+    <div className="min-w-0 space-y-3">
+      <div>
+        <h2 className="text-base font-semibold">高风险安全事件</h2>
+        <p className="mt-1 text-sm text-slate-400">优先处理支付异常、退款异常、攻击告警和系统安全事件；普通记录不显示待处置标签。</p>
+      </div>
+      {events.map((event) => {
+        const isHighRisk = event.severity === "high";
+        const type = classifyHighRiskType(event);
+        const stateLabel = event.status === "reviewing" ? "处理中" : event.status === "mitigated" ? "已缓解" : "待处置";
+        return (
+          <article
+            key={event.id}
+            className={cn(
+              "min-w-0 rounded-md border p-4",
+              isHighRisk ? "border-rose-400/30 bg-rose-400/[0.055]" : "border-white/10 bg-white/[0.035]"
+            )}
+          >
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                {isHighRisk && (
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <Badge className="border-rose-300/35 bg-rose-300/12 text-rose-100">{type}</Badge>
+                    <Badge className={event.status === "mitigated" ? statusClass("mitigated") : event.status === "reviewing" ? statusClass("reviewing") : statusClass("P0")}>
+                      {stateLabel}
+                    </Badge>
+                  </div>
+                )}
+                <h3 className="break-words text-sm font-semibold text-slate-100">{event.title}</h3>
+                <p className="mt-2 break-words text-sm leading-6 text-slate-400">{event.detail}</p>
+                <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                  <span className="font-mono break-all">目标：{event.target}</span>
+                  <span>{event.createdAt}</span>
+                  {event.handledBy && <span>处理人：{event.handledBy}</span>}
+                </div>
+                {event.status === "mitigated" && event.resolution && (
+                  <div className="mt-3 text-xs text-emerald-200">处理结果：{event.resolution}{event.handledAt ? ` · ${event.handledAt}` : ""}</div>
+                )}
+              </div>
+              {isHighRisk && event.status !== "mitigated" && (
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  {event.status === "open" && (
+                    <Button variant="outline" size="sm" className="border-amber-300/30 bg-amber-300/10 text-amber-100" onClick={() => onUpdateStatus(event.id, "reviewing", "正在处理")}>
+                      开始处理
+                    </Button>
+                  )}
+                  <Button variant="outline" size="sm" className="border-emerald-300/30 bg-emerald-300/10 text-emerald-100" onClick={() => onUpdateStatus(event.id, "mitigated", "已处理并缓解")}>
+                    标记已缓解
+                  </Button>
+                  <Button variant="outline" size="sm" className="border-white/12 bg-white/5 text-slate-200" onClick={() => onUpdateStatus(event.id, "mitigated", "误报关闭")}>
+                    误报关闭
+                  </Button>
+                </div>
+              )}
+            </div>
+          </article>
+        );
+      })}
     </div>
   );
 }

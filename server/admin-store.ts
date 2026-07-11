@@ -65,6 +65,7 @@ type PaymentOrder = {
   notes?: OrderNote[];
   paymentEvents?: PaymentEvent[];
   refundEvents?: RefundEvent[];
+  notificationReadAt?: string;
 };
 
 type PaymentEvent = {
@@ -187,6 +188,7 @@ type FeedbackTicket = {
   linkedTaskId?: string;
   createdAt: string;
   updatedAt: string;
+  notificationReadAt?: string;
 };
 
 type OpsAlert = {
@@ -209,6 +211,10 @@ type RiskEvent = {
   severity: "high" | "medium" | "low";
   target: string;
   createdAt: string;
+  notificationReadAt?: string;
+  handledBy?: string;
+  handledAt?: string;
+  resolution?: string;
 };
 
 type RiskEventInput = {
@@ -1941,6 +1947,35 @@ export async function handleAdminApiRequest(
     return { status: 200, body: fullPayload(data) };
   }
 
+  const riskEventMatch = route.match(/^risk-events\/([^/]+)\/status$/);
+  if (method === "POST" && riskEventMatch) {
+    const item = data.riskEvents.find((riskEvent) => riskEvent.id === riskEventMatch[1]);
+    if (!item) return jsonError(404, "风险事件不存在");
+    const nextStatus = typeof body.status === "string" ? body.status : "";
+    if (nextStatus !== "reviewing" && nextStatus !== "mitigated") {
+      return jsonError(400, "风险状态仅支持处理中或已缓解");
+    }
+    const handledAt = nowIso();
+    const reason = typeof body.reason === "string" && body.reason.trim()
+      ? body.reason.trim()
+      : nextStatus === "mitigated" ? "已缓解" : "正在处理";
+    const before = { status: item.status, resolution: item.resolution };
+    item.status = nextStatus;
+    item.handledBy = actor.username;
+    item.handledAt = handledAt;
+    item.notificationReadAt = handledAt;
+    item.resolution = reason;
+    appendAuditLog(data, actor, {
+      action: nextStatus === "reviewing" ? "开始处理风控事件" : "关闭风控事件",
+      target: item.id,
+      reason,
+      before,
+      after: { status: item.status, handledBy: item.handledBy, handledAt: item.handledAt, resolution: item.resolution },
+    });
+    await saveAdminData(data);
+    return { status: 200, body: fullPayload(data) };
+  }
+
   const alertMatch = route.match(/^alerts\/([^/]+)\/read$/);
   if (method === "POST" && alertMatch) {
     const id = alertMatch[1];
@@ -1953,8 +1988,12 @@ export async function handleAdminApiRequest(
   }
 
   if (method === "POST" && route === "alerts/read-all") {
+    const readAt = nowIso();
     data.alerts = data.alerts.map((alert) => ({ ...alert, unread: false }));
-    appendAuditLog(data, actor, { action: "批量标记告警已读", target: "alerts" });
+    data.orders = data.orders.map((order) => ({ ...order, notificationReadAt: readAt }));
+    data.feedback = data.feedback.map((feedback) => ({ ...feedback, notificationReadAt: readAt }));
+    data.riskEvents = data.riskEvents.map((riskEvent) => ({ ...riskEvent, notificationReadAt: readAt }));
+    appendAuditLog(data, actor, { action: "全部标记消息已读", target: "notifications" });
     await saveAdminData(data);
     return { status: 200, body: fullPayload(data) };
   }
@@ -2387,6 +2426,7 @@ export async function recordBillingPaymentFailure(params: {
     order.reconciliation = "mismatch";
     order.event = params.message;
     order.providerTransactionId = params.providerTransactionId || order.providerTransactionId;
+    order.notificationReadAt = undefined;
     order.paymentEvents = [
       paymentEvent,
       ...(order.paymentEvents || []),

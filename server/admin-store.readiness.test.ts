@@ -997,4 +997,58 @@ describe("production readiness", () => {
 
     delete process.env.RENDER_API_KEY;
   });
+
+  it("closes the risk handling loop and marks all notification sources as read", async () => {
+    const { createCreditRechargeOrder, handleAdminApiRequest, recordRiskEvent, submitUserFeedback } = await loadAdminStore();
+    const authorization = await getAdminAuthorization();
+    const register = await (await import("./auth-store")).handleAuthAction("register", {
+      username: "risk-user@example.com",
+      password: "risk-user-password",
+    });
+    const user = (register.body as { user: { id: string; username: string } }).user;
+    const orderResult = await createCreditRechargeOrder({
+      userId: user.id,
+      username: user.username,
+      amount: 20,
+      paymentMethod: "wechat",
+    });
+    const orderId = (orderResult.body as { order: { id: string } }).order.id;
+    const risk = await recordRiskEvent({
+      title: "支付订单异常",
+      detail: "支付金额不一致",
+      target: orderId,
+      severity: "high",
+    });
+    await submitUserFeedback({ user, content: "请协助查看支付订单" });
+
+    const reviewingResult = await handleAdminApiRequest("POST", `/risk-events/${risk.id}/status`, authorization, {
+      status: "reviewing",
+      reason: "正在核查支付渠道",
+    });
+    expect(reviewingResult.status).toBe(200);
+    const mitigatedResult = await handleAdminApiRequest("POST", `/risk-events/${risk.id}/status`, authorization, {
+      status: "mitigated",
+      reason: "误报关闭",
+    });
+    expect(mitigatedResult.status).toBe(200);
+
+    const readAllResult = await handleAdminApiRequest("POST", "/alerts/read-all", authorization);
+    expect(readAllResult.status).toBe(200);
+    const body = readAllResult.body as {
+      orders: Array<{ id: string; notificationReadAt?: string }>;
+      feedback: Array<{ notificationReadAt?: string }>;
+      riskEvents: Array<{ id: string; status: string; notificationReadAt?: string; handledBy?: string; handledAt?: string; resolution?: string }>;
+      alerts: Array<{ unread: boolean }>;
+    };
+    expect(body.orders.find((order) => order.id === orderId)?.notificationReadAt).toBeTruthy();
+    expect(body.feedback[0]?.notificationReadAt).toBeTruthy();
+    expect(body.riskEvents.find((item) => item.id === risk.id)).toMatchObject({
+      status: "mitigated",
+      handledBy: "admin@example.com",
+      resolution: "误报关闭",
+    });
+    expect(body.riskEvents.find((item) => item.id === risk.id)?.handledAt).toBeTruthy();
+    expect(body.riskEvents.find((item) => item.id === risk.id)?.notificationReadAt).toBeTruthy();
+    expect(body.alerts.every((alert) => !alert.unread)).toBe(true);
+  });
 });
