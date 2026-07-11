@@ -15879,6 +15879,49 @@ function getCanvasRenderableImageSrc(src: string) {
   return `${baseUrl || "https://backstage.artxsd.com"}${uploadPath}`;
 }
 
+function withCanvasImageCacheKey(src: string, key: string) {
+  const trimmed = src.trim();
+  if (!trimmed || trimmed.startsWith("data:") || trimmed.startsWith("blob:"))
+    return trimmed;
+  const normalized = getCanvasRenderableImageSrc(trimmed);
+  if (!key.trim()) return normalized;
+  try {
+    const url = new URL(
+      normalized,
+      typeof window !== "undefined"
+        ? window.location.origin
+        : "https://backstage.artxsd.com"
+    );
+    url.searchParams.set("artxv", key);
+    if (/^https?:\/\//i.test(normalized)) return url.toString();
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    const separator = normalized.includes("?") ? "&" : "?";
+    return `${normalized}${separator}artxv=${encodeURIComponent(key)}`;
+  }
+}
+
+function stripCanvasImageCacheKey(src: string) {
+  const normalized = getCanvasRenderableImageSrc(src);
+  if (!normalized || normalized.startsWith("data:") || normalized.startsWith("blob:"))
+    return normalized;
+  try {
+    const url = new URL(
+      normalized,
+      typeof window !== "undefined"
+        ? window.location.origin
+        : "https://backstage.artxsd.com"
+    );
+    url.searchParams.delete("artxv");
+    if (/^https?:\/\//i.test(normalized)) return url.toString();
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return normalized.replace(/([?&])artxv=[^&#]*(&?)/, (_, prefix, suffix) =>
+      prefix === "?" && suffix ? "?" : suffix ? prefix : ""
+    );
+  }
+}
+
 type CanvasAssistantModelTab = "image" | "text";
 type AssistantComposerSegment =
   | { id: string; type: "text"; text: string }
@@ -17385,15 +17428,59 @@ function CanvasAssistantPanel({
   }, [activeSkill, composerSegments]);
 
   useEffect(() => {
-    const newAssets = referencedAssets.filter(
-      asset => !syncedReferenceIdsRef.current.has(asset.id)
+    const latestAssets = new Map(
+      referencedAssets.map(asset => [asset.id, asset])
     );
-    if (newAssets.length === 0) return;
-    newAssets.forEach(asset => {
-      syncedReferenceIdsRef.current.add(asset.id);
-      insertComposerToken(() => createAssistantImageSegment(asset));
+    setComposerSegments(prev => {
+      const keptAssetIds = new Set<string>();
+      const nextSegments: AssistantComposerSegment[] = [];
+      let changed = false;
+
+      prev.forEach(segment => {
+        if (segment.type !== "image") {
+          nextSegments.push(segment);
+          return;
+        }
+        const latestAsset = latestAssets.get(segment.asset.id);
+        if (!latestAsset) {
+          changed = true;
+          return;
+        }
+        keptAssetIds.add(latestAsset.id);
+        if (
+          latestAsset.src !== segment.asset.src ||
+          latestAsset.title !== segment.asset.title ||
+          latestAsset.width !== segment.asset.width ||
+          latestAsset.height !== segment.asset.height
+        ) {
+          changed = true;
+          nextSegments.push({ ...segment, asset: latestAsset });
+          return;
+        }
+        nextSegments.push(segment);
+      });
+
+      const missingAssets = referencedAssets.filter(
+        asset => !keptAssetIds.has(asset.id)
+      );
+      if (missingAssets.length > 0) changed = true;
+      const withMissingAssets = [...nextSegments];
+      missingAssets.forEach(asset => {
+        const insertIndex = Math.max(0, withMissingAssets.length - 1);
+        withMissingAssets.splice(
+          insertIndex,
+          0,
+          createAssistantImageSegment(asset)
+        );
+      });
+      return changed
+        ? normalizeAssistantComposerSegments(withMissingAssets)
+        : prev;
     });
-  }, [insertComposerToken, referencedAssets]);
+    syncedReferenceIdsRef.current = new Set(
+      referencedAssets.map(asset => asset.id)
+    );
+  }, [referencedAssets]);
 
   useEffect(() => {
     const newAnnotations = annotationReferences.filter(
@@ -17610,15 +17697,35 @@ function CanvasAssistantPanel({
       if (!detail?.src || !detail.nodeId) return;
       const normalizedDetail = {
         ...detail,
-        src: getCanvasRenderableImageSrc(detail.src),
+        src: withCanvasImageCacheKey(
+          detail.src,
+          `${detail.generationId || detail.nodeId}-${detail.generationIndex ?? 0}`
+        ),
       };
       setMessages(prev => {
-        if (
-          prev.some(
-            message => message.imageBackup?.nodeId === normalizedDetail.nodeId
+        const existingIndex = prev.findIndex(
+          message => message.imageBackup?.nodeId === normalizedDetail.nodeId
+        );
+        if (existingIndex >= 0) {
+          const existingBackup = prev[existingIndex].imageBackup;
+          if (
+            existingBackup?.src === normalizedDetail.src &&
+            existingBackup?.generationId === normalizedDetail.generationId &&
+            existingBackup?.generationIndex === normalizedDetail.generationIndex
           )
-        )
-          return prev;
+            return prev;
+          return prev.map((message, index) =>
+            index === existingIndex
+              ? {
+                  ...message,
+                  id: `image-backup-${normalizedDetail.nodeId}`,
+                  content: `已生成图片备份：${normalizedDetail.title}`,
+                  timestamp: new Date(),
+                  imageBackup: normalizedDetail,
+                }
+              : message
+          );
+        }
         return [
           ...prev,
           {
@@ -20977,11 +21084,44 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         event as CustomEvent<NonNullable<CanvasAssistantMessage["imageBackup"]>>
       ).detail;
       if (!backup?.nodeId || !backup.src) return;
+      const backupSrc = withCanvasImageCacheKey(
+        backup.src,
+        `${backup.generationId || backup.nodeId}-${backup.generationIndex ?? 0}`
+      );
+      const backupComparableSrc = stripCanvasImageCacheKey(backupSrc);
       const existing = nodesRef.current.find(n => n.id === backup.nodeId);
       if (existing) {
-        focusGeneratedImageNode(backup.nodeId);
-        toast("已定位到画布中的图片", { description: backup.title });
-        return;
+        const existingSrc = getAssetNodeImageSource(existing);
+        if (stripCanvasImageCacheKey(existingSrc) === backupComparableSrc) {
+          setNodes(nds =>
+            nds.map(node => {
+              if (node.id !== backup.nodeId || node.type !== "asset") return node;
+              return {
+                ...node,
+                data: {
+                  ...(node.data as Record<string, unknown>),
+                  localSrc: backupSrc,
+                  imgW: backup.width,
+                  imgH: backup.height,
+                },
+              };
+            })
+          );
+          focusGeneratedImageNode(backup.nodeId);
+          toast("已定位到画布中的图片", { description: backup.title });
+          return;
+        }
+        const matchingNode = nodesRef.current.find(
+          node =>
+            node.type === "asset" &&
+            stripCanvasImageCacheKey(getAssetNodeImageSource(node)) ===
+              backupComparableSrc
+        );
+        if (matchingNode) {
+          focusGeneratedImageNode(matchingNode.id);
+          toast("已定位到画布中的图片", { description: backup.title });
+          return;
+        }
       }
       const container = containerRef.current;
       const rect = container?.getBoundingClientRect();
@@ -20996,15 +21136,23 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         { x: center.x - backup.width / 2, y: center.y - backup.height / 2 },
         { width: backup.width, height: backup.height }
       );
+      const restoredNodeId = nodesRef.current.some(n => n.id === backup.nodeId)
+        ? `${backup.nodeId}-restored-${Date.now().toString(36)}`
+        : backup.nodeId;
+      const restoredBackup = {
+        ...backup,
+        nodeId: restoredNodeId,
+        src: backupSrc,
+      };
       pushHistory(nodesRef.current, edgesRef.current);
       setNodes(nds => [
         ...nds.map(n => ({ ...n, selected: false })),
-        { ...createGeneratedImageNode(backup, position), selected: true },
+        { ...createGeneratedImageNode(restoredBackup, position), selected: true },
       ]);
-      setSelectedNodeIds([backup.nodeId]);
+      setSelectedNodeIds([restoredNodeId]);
       requestAnimationFrame(() => {
         fitView({
-          nodes: [{ id: backup.nodeId }],
+          nodes: [{ id: restoredNodeId }],
           duration: 600,
           padding: 0.28,
         });
@@ -23056,11 +23204,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const fittedSize = detail.skillId
           ? fitGeneratedImageSizeToFrame(image, size)
           : size;
+        const versionedSrc = withCanvasImageCacheKey(
+          image.src,
+          `${generationId}-${index}`
+        );
         return {
           nodeId: `generated-${generationId}-${index}`,
           generationId,
           generationIndex: index,
-          src: image.src,
+          src: versionedSrc,
           width: fittedSize.w,
           height: fittedSize.h,
           title: `生成图像 · ${detail.style}${images.length > 1 ? ` ${index + 1}` : ""}`,
@@ -23094,6 +23246,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             const fittedSize = detail.skillId
               ? fitGeneratedImageSizeToFrame(image, currentFrame)
               : currentFrame;
+            const versionedSrc = withCanvasImageCacheKey(
+              image.src,
+              `${generationId}-${index}`
+            );
             return {
               ...n,
               zIndex:
@@ -23114,7 +23270,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               },
               data: {
                 ...data,
-                localSrc: image.src,
+                localSrc: versionedSrc,
                 isGeneratingImage: false,
                 isGenerationFailed: false,
                 title: detail.titleBase
@@ -23143,6 +23299,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           const fittedSize = detail.skillId
             ? fitGeneratedImageSizeToFrame(image, size)
             : size;
+          const versionedSrc = withCanvasImageCacheKey(
+            image.src,
+            `${generationId}-${index}`
+          );
           const desired = {
             x:
               anchor.x +
@@ -23169,7 +23329,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               assetId: "default",
               generationId,
               generationIndex: index,
-              localSrc: image.src,
+              localSrc: versionedSrc,
               isGeneratingImage: false,
               isGenerationFailed: false,
               title: detail.titleBase
