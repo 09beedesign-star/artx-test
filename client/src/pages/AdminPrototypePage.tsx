@@ -812,7 +812,7 @@ function AdminPrototypePage() {
   }
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-[#0b1020] text-slate-100 lg:h-screen lg:overflow-hidden">
+    <div className="admin-readable-copy min-h-screen overflow-x-hidden bg-[#0b1020] text-slate-100 lg:h-screen lg:overflow-hidden">
       <div className="grid min-h-screen grid-cols-1 lg:h-screen lg:grid-cols-[280px_1fr]">
         <aside className="border-b border-white/10 bg-[#0f172a] lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
           <div className="flex h-full flex-col">

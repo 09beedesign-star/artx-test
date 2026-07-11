@@ -809,3 +809,16 @@ html.light, .light {
   width: 0;
   height: 0;
 }
+
+/* Keep helper copy readable in the dark admin interface without changing the user site. */
+.admin-readable-copy .text-slate-300:not(svg),
+.admin-readable-copy .text-slate-400:not(svg),
+.admin-readable-copy .text-slate-500:not(svg) {
+  color: rgba(255, 255, 255, 0.94);
+  font-weight: 600;
+}
+
+.admin-readable-copy .placeholder\:text-slate-500::placeholder {
+  color: rgba(255, 255, 255, 0.78);
+  font-weight: 600;
+}
