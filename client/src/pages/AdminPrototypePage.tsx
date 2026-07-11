@@ -1,4 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import {
   Activity,
   AlertTriangle,
@@ -45,6 +46,7 @@ import {
   type AdminNotificationTab,
 } from "./admin-notifications";
 import { getDashboardRiskTarget } from "./admin-dashboard-risk";
+import { formatExactOrderTime } from "./admin-order-time";
 import { classifyHighRiskType } from "./admin-risk";
 import { resolveAdminUploadUrl } from "./admin-upload-url";
 
@@ -379,6 +381,11 @@ function creditAmount(delta: number) {
   return `${prefix}${formatCredits(delta)}`;
 }
 
+function formatCreditAdjustmentSuccess(userName: string, delta: number) {
+  const action = delta > 0 ? "增加" : "扣减";
+  return `已成功给 ${userName} 账户${action} ${formatCredits(Math.abs(delta))} 积分。`;
+}
+
 function normalizeAdminPayload(payload: AdminPayload) {
   const normalizedUsers = (payload.users || []).map((item) => ({
     ...item,
@@ -523,10 +530,18 @@ function AdminPrototypePage() {
     }
   }, [accountDrawerOpen, fetchAccountDetail, selectedUserId]);
 
-  async function adminPost(path: string, payload: Record<string, unknown>, successMessage: string) {
+  async function adminPost(
+    path: string,
+    payload: Record<string, unknown>,
+    successMessage: string,
+    onSuccess?: () => void,
+    onFailure?: (message: string) => void,
+  ) {
     const token = readAdminToken();
     if (!token) {
-      setNotice("未找到后台登录令牌，请重新登录后再操作。");
+      const message = "未找到后台登录令牌，请重新登录后再操作。";
+      setNotice(message);
+      onFailure?.(message);
       return;
     }
     try {
@@ -545,8 +560,11 @@ function AdminPrototypePage() {
         await fetchAccountDetail(selectedUserId);
       }
       setNotice(successMessage);
+      onSuccess?.();
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "后台写操作失败");
+      const message = error instanceof Error ? error.message : "后台写操作失败";
+      setNotice(message);
+      onFailure?.(message);
     }
   }
 
@@ -636,12 +654,17 @@ function AdminPrototypePage() {
       return;
     }
     const delta = Math.abs(creditDelta) * (direction === "plus" ? 1 : -1);
+    const successMessage = formatCreditAdjustmentSuccess(selectedUser.name, delta);
     adminPost("/api/admin/credits/adjust", {
       userId: selectedUser.id,
       delta,
       reason: "后台人工积分调整",
       confirmHighRisk: Math.abs(delta) >= 10000,
-    }, `${selectedUser.name} 的积分调整已提交：${creditAmount(delta)} 积分，审计日志已生成。`);
+    }, successMessage, () => {
+      toast.success(successMessage);
+    }, (message) => {
+      toast.error("积分调整失败", { description: message });
+    });
   }
 
   async function handleChangePassword() {
@@ -1930,8 +1953,8 @@ function OrdersTable({
                 </Badge>
               </TableCell>
               <TableCell className="min-w-[170px] text-xs text-slate-400">
-                <div className="text-slate-200">{order.paidAt ? `支付：${order.paidAt}` : "支付：待支付"}</div>
-                <div className="mt-1">下单：{order.createdAt}</div>
+                <div className="text-slate-200">支付：{formatExactOrderTime(order.paidAt)}</div>
+                <div className="mt-1">下单：{formatExactOrderTime(order.createdAt, "未提供精确时间")}</div>
               </TableCell>
             </TableRow>
           ))
@@ -2107,7 +2130,7 @@ function AccountDetailDrawer({
                 title="账户订单"
                 rows={(detail?.orders || []).map((order) => ({
                   title: `${order.packageName || "订单"} · ${statusLabel(order.status)}`,
-                  meta: `${order.id} · ${order.channel} · 下单：${order.createdAt} · 支付：${order.paidAt || "待支付"}`,
+                  meta: `${order.id} · ${order.channel} · 下单：${formatExactOrderTime(order.createdAt, "未提供精确时间")} · 支付：${formatExactOrderTime(order.paidAt)}`,
                   value: formatCurrency(order.amount),
                 }))}
                 empty="该账户暂无订单"
@@ -2138,8 +2161,8 @@ function AccountDetailDrawer({
                   </div>
                   <div className="grid gap-3 text-xs sm:grid-cols-2">
                     <InfoLine label="支付渠道" value={selectedOrder.channel} />
-                    <InfoLine label="下单时间" value={selectedOrder.createdAt} mono />
-                    <InfoLine label="支付时间" value={selectedOrder.paidAt || "待支付"} mono />
+                    <InfoLine label="下单时间" value={formatExactOrderTime(selectedOrder.createdAt, "未提供精确时间")} mono />
+                    <InfoLine label="支付时间" value={formatExactOrderTime(selectedOrder.paidAt)} mono />
                     <InfoLine label="第三方交易号" value={selectedOrder.providerTransactionId || "待回调/待查询"} mono />
                     <InfoLine label="实发积分" value={formatCredits(selectedOrder.issuedCredits || 0)} />
                     <InfoLine label="退款/扣回" value={`${formatCurrency(selectedOrder.refundAmount || 0)} / ${formatCredits(selectedOrder.refundedCredits || 0)} 积分`} />
