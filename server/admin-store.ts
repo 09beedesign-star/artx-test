@@ -417,6 +417,18 @@ function formatAbsoluteSecondTime(input?: string) {
   return `${value("year")}/${value("month")}/${value("day")} ${value("hour")}:${value("minute")}:${value("second")}`;
 }
 
+function resolveOrderCreatedAt(order: PaymentOrder) {
+  if (Number.isFinite(parseAdminTimestamp(order.createdAt))) return order.createdAt;
+
+  const qrCreatedAt = (order.paymentEvents || [])
+    .filter((event) => event.type === "wallyt_payment_created")
+    .map((event) => event.createdAt)
+    .filter((createdAt) => Number.isFinite(parseAdminTimestamp(createdAt)))
+    .sort((left, right) => parseAdminTimestamp(left) - parseAdminTimestamp(right))[0];
+
+  return qrCreatedAt || order.createdAt;
+}
+
 function formatRelativeTime(input: string) {
   const timestamp = parseAdminTimestamp(input);
   if (!Number.isFinite(timestamp)) return input;
@@ -1056,8 +1068,10 @@ async function loadAdminData(): Promise<AdminData> {
   if (stored) {
     const shouldPersistCleanup = hasDemoData(stored);
     const data = await normalizeDataAsync(stored);
+    const orderCreatedAtBeforeNormalization = new Map(data.orders.map((order) => [order.id, order.createdAt]));
     ensureBillingConsistency(data);
-    if (shouldPersistCleanup) {
+    const shouldPersistOrderTimestampRepair = data.orders.some((order) => orderCreatedAtBeforeNormalization.get(order.id) !== order.createdAt);
+    if (shouldPersistCleanup || shouldPersistOrderTimestampRepair) {
       await saveAdminData(data);
     }
     return data;
@@ -1301,7 +1315,7 @@ function ensureBillingConsistency(data: AdminData) {
     ...order,
     user: getRegisteredNameForOrder(order, data.users),
     userAccount: order.userAccount || getRegisteredNameForOrder(order, data.users),
-    createdAt: formatAbsoluteSecondTime(order.createdAt) || order.createdAt,
+    createdAt: formatAbsoluteSecondTime(resolveOrderCreatedAt(order)) || order.createdAt,
     paidAt: formatAbsoluteSecondTime(order.paidAt),
     notes: order.notes?.map((note) => ({
       ...note,

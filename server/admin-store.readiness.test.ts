@@ -64,6 +64,62 @@ afterEach(async () => {
 });
 
 describe("production readiness", () => {
+  it("recovers an exact order time from the recorded payment QR creation event", async () => {
+    await writeFile(path.join(dataDir, "admin-data.json"), `${JSON.stringify({
+      users: [],
+      orders: [
+        {
+          id: "order_qr_timestamp_1",
+          userId: "timestamp-user",
+          user: "timestamp-user@example.com",
+          packageName: "积分充值",
+          channel: "支付宝",
+          amount: 20,
+          expectedCredits: 2000,
+          issuedCredits: 0,
+          status: "pending",
+          createdAt: "刚刚",
+          event: "已创建威富通支付链接，等待用户支付",
+          reconciliation: "pending",
+          paymentEvents: [
+            {
+              id: "payevt_qr_timestamp_1",
+              type: "wallyt_payment_created",
+              status: "pending",
+              message: "已创建支付宝支付链接（扫码）",
+              createdAt: "2026-07-11T15:31:42.000Z",
+            },
+          ],
+        },
+      ],
+      credits: [],
+      aiTasks: [],
+      providers: [],
+      feedback: [],
+      alerts: [],
+      riskEvents: [],
+      auditLogs: [],
+      plans: [],
+      capabilityStatus: [],
+    }, null, 2)}\n`);
+
+    const { handleAdminApiRequest } = await loadAdminStore();
+    const authorization = await getAdminAuthorization();
+    const result = await handleAdminApiRequest("GET", "/orders", authorization);
+    const body = result.body as { orders: Array<{ id: string; createdAt: string }> };
+
+    expect(body.orders).toContainEqual(expect.objectContaining({
+      id: "order_qr_timestamp_1",
+      createdAt: "2026/07/11 23:31:42",
+    }));
+
+    const persistedData = JSON.parse(await readFile(path.join(dataDir, "admin-data.json"), "utf-8"));
+    expect(persistedData.orders).toContainEqual(expect.objectContaining({
+      id: "order_qr_timestamp_1",
+      createdAt: "2026/07/11 23:31:42",
+    }));
+  });
+
   it("removes legacy demo records from responses and persisted admin data", async () => {
     const legacyDemoData = {
       users: [
