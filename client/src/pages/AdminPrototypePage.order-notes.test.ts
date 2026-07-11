@@ -14,7 +14,12 @@ describe("AdminPrototypePage order notes placement", () => {
     expect(reissueIndex).toBeGreaterThan(notesIndex);
     expect(ordersIndex).toBeGreaterThan(reissueIndex);
     expect(page).toContain("当前订单已保存备注");
+    expect(page).toContain("覆盖保存备注");
+    expect(page).toContain("删除备注");
+    expect(page).toContain("双击查看完整备注");
     expect(page).toContain("收起订单");
     expect(page).toContain("收起支付流");
+    expect(page).toContain("账户订单时间");
+    expect(page).toContain("支付流时间");
   });
 });

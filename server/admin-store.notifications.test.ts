@@ -73,7 +73,15 @@ describe("admin notification actions", () => {
         unread: true,
         linkedSection: "risk",
       }],
-      riskEvents: [],
+      riskEvents: [{
+        id: "risk_notification_1",
+        title: "支付回调签名异常",
+        detail: "第三方回调签名校验失败",
+        status: "open",
+        severity: "high",
+        target: "ord_notification_1",
+        createdAt: "2026/07/12 10:02:00",
+      }],
       auditLogs: [],
       plans: [],
       capabilityStatus: [],
@@ -84,11 +92,16 @@ describe("admin notification actions", () => {
 
     expect((await handleAdminApiRequest("POST", "/notifications/order/ord_notification_1/read", authorization)).status).toBe(200);
     expect((await handleAdminApiRequest("POST", "/notifications/alert/al_notification_1/dismiss", authorization)).status).toBe(200);
+    expect((await handleAdminApiRequest("POST", "/notifications/risk/risk_notification_1/dismiss", authorization)).status).toBe(200);
 
     const data = JSON.parse(await readFile(path.join(dataDir, "admin-data.json"), "utf-8"));
     expect(data.orders[0].notificationReadAt).toEqual(expect.any(String));
     expect(data.alerts[0]).toMatchObject({
       unread: false,
+      notificationDismissedAt: expect.any(String),
+    });
+    expect(data.riskEvents[0]).toMatchObject({
+      status: "open",
       notificationDismissedAt: expect.any(String),
     });
   });

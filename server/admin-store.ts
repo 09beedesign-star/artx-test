@@ -1779,18 +1779,40 @@ export async function handleAdminApiRequest(
     if (!order) return jsonError(404, "订单不存在");
     const content = typeof body.content === "string" ? body.content.trim() : "";
     if (!content) return jsonError(400, "处理备注不能为空");
-    const note: OrderNote = {
-      id: `note_${Date.now().toString(36)}`,
-      actorId: actor.id,
-      actorName: actor.username,
-      content,
-      createdAt: nowIso(),
-    };
-    order.notes = [note, ...(order.notes || [])].slice(0, 50);
+    const existingNote = order.notes?.[0];
+    const note: OrderNote = existingNote
+      ? {
+        ...existingNote,
+        actorId: actor.id,
+        actorName: actor.username,
+        content,
+        createdAt: nowIso(),
+      }
+      : {
+        id: `note_${Date.now().toString(36)}`,
+        actorId: actor.id,
+        actorName: actor.username,
+        content,
+        createdAt: nowIso(),
+      };
+    order.notes = [note];
     appendAuditLog(data, actor, {
-      action: "新增订单处理备注",
+      action: existingNote ? "覆盖订单处理备注" : "新增订单处理备注",
       target: order.id,
       reason: content,
+    });
+    await saveAdminData(data);
+    return { status: 200, body: buildOrderDetail(data, order.id) };
+  }
+
+  if (method === "DELETE" && orderNoteMatch) {
+    const order = data.orders.find((item) => item.id === orderNoteMatch[1]);
+    if (!order) return jsonError(404, "订单不存在");
+    if (!order.notes?.length) return jsonError(404, "订单备注不存在");
+    order.notes = [];
+    appendAuditLog(data, actor, {
+      action: "删除订单处理备注",
+      target: order.id,
     });
     await saveAdminData(data);
     return { status: 200, body: buildOrderDetail(data, order.id) };

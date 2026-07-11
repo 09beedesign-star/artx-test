@@ -139,5 +139,9 @@ describe("buildAdminNotifications", () => {
     });
 
     expect(Object.values(messages).flat().every((item) => !item.unread)).toBe(true);
+    expect(messages.voice).toContainEqual(expect.objectContaining({
+      id: "feedback:fb_read",
+      unread: false,
+    }));
   });
 });

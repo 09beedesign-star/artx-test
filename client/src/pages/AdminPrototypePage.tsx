@@ -1,5 +1,4 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import { toast } from "sonner";
 import {
   Activity,
   AlertTriangle,
@@ -438,6 +437,34 @@ function normalizeAdminPayload(payload: AdminPayload) {
 type AdminState = ReturnType<typeof normalizeAdminPayload>;
 type CreditAdjustmentFeedback = { tone: "success" | "error"; message: string };
 
+const PAGE_SIZE = 20;
+
+function notificationTimestamp(value: string) {
+  if (value === "刚刚") return Date.now();
+  const minutesAgo = value.match(/^(\d+)\s*分钟前$/);
+  if (minutesAgo) return Date.now() - Number(minutesAgo[1]) * 60 * 1000;
+  const hoursAgo = value.match(/^(\d+)\s*小时前$/);
+  if (hoursAgo) return Date.now() - Number(hoursAgo[1]) * 60 * 60 * 1000;
+  const timestamp = Date.parse(value.replace(/\//g, "-").replace(" ", "T"));
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function isUrgentRiskNotification(item: AdminNotificationItem) {
+  return item.tab === "security" && item.severity === "critical";
+}
+
+function pageItems<T>(items: T[], page: number) {
+  return items.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+}
+
+function matchesDrawerTimeFilter(value: string, range: string) {
+  if (range === "all") return true;
+  const timestamp = notificationTimestamp(value);
+  if (!timestamp) return true;
+  const hours = range === "24h" ? 24 : range === "7d" ? 24 * 7 : 24 * 30;
+  return timestamp >= Date.now() - hours * 60 * 60 * 1000;
+}
+
 function AdminPrototypePage() {
   const { user, changePassword, logout } = useAuth();
   const [activeSection, setActiveSection] = useState<AdminSection>("overview");
@@ -445,7 +472,11 @@ function AdminPrototypePage() {
   const [selectedUserId, setSelectedUserId] = useState("");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | Status>("all");
+  const [userPage, setUserPage] = useState(1);
+  const [orderPage, setOrderPage] = useState(1);
   const [alertsOpen, setAlertsOpen] = useState(false);
+  const [urgentRiskAttentionAcknowledged, setUrgentRiskAttentionAcknowledged] = useState(false);
+  const [riskView, setRiskView] = useState<"all" | "urgent">("all");
   const [creditDelta, setCreditDelta] = useState(500);
   const [creditAdjustmentFeedback, setCreditAdjustmentFeedback] = useState<CreditAdjustmentFeedback | null>(null);
   const [loading, setLoading] = useState(true);
@@ -480,6 +511,19 @@ function AdminPrototypePage() {
       document.title = previousTitle;
     };
   }, []);
+
+  useEffect(() => {
+    setUserPage(1);
+  }, [query, statusFilter]);
+
+  useEffect(() => {
+    setOrderPage((current) => Math.min(current, Math.max(1, Math.ceil(adminData.orders.length / PAGE_SIZE))));
+  }, [adminData.orders.length]);
+
+  useEffect(() => {
+    const savedNote = accountDetail?.notes.find((item) => item.orderId === selectedOrderId);
+    setOrderNote(savedNote?.content || "");
+  }, [accountDetail, selectedOrderId]);
 
   const fetchAdminData = useCallback(async (message?: string) => {
     const token = readAdminToken();
@@ -574,7 +618,7 @@ function AdminPrototypePage() {
     }
   }
 
-  async function adminPostOrder(path: string, payload: Record<string, unknown>, successMessage: string) {
+  async function adminPostOrder(path: string, payload: Record<string, unknown>, successMessage: string, method: "POST" | "DELETE" = "POST") {
     const token = readAdminToken();
     if (!token) {
       setNotice("未找到后台登录令牌，请重新登录后再操作。");
@@ -582,7 +626,7 @@ function AdminPrototypePage() {
     }
     try {
       const response = await fetch(path, {
-        method: "POST",
+        method,
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
@@ -630,7 +674,12 @@ function AdminPrototypePage() {
   }), [adminData.alerts, adminData.feedback, adminData.orders, adminData.riskEvents]);
   const notificationItems = Object.values(notificationGroups).flat();
   const unreadAlerts = notificationItems.filter((item) => item.unread).length;
-  const urgentAlerts = notificationItems.filter((item) => item.severity === "critical" && item.unread).length;
+  const urgentRiskNotifications = notificationItems.filter(isUrgentRiskNotification);
+  const urgentAlerts = urgentRiskNotifications.filter((item) => item.unread).length;
+
+  useEffect(() => {
+    setUrgentRiskAttentionAcknowledged(false);
+  }, [urgentRiskNotifications.length]);
 
   const filteredUsers = useMemo(() => {
     return adminData.users.filter((user) => {
@@ -641,6 +690,8 @@ function AdminPrototypePage() {
       return matchesQuery && matchesStatus;
     });
   }, [adminData.users, query, statusFilter]);
+  const visibleUsers = pageItems(filteredUsers, userPage);
+  const visibleOrders = pageItems(adminData.orders, orderPage);
 
   function handleResolveFeedback(id: string) {
     adminPost(`/api/admin/feedback/${id}/status`, { status: "resolved", reason: "后台标记解决" }, "反馈状态已写入后台，并生成操作审计。");
@@ -667,10 +718,8 @@ function AdminPrototypePage() {
       reason: "后台人工积分调整",
       confirmHighRisk: Math.abs(delta) >= 10000,
     }, successMessage, () => {
-      toast.success(successMessage);
       setCreditAdjustmentFeedback({ tone: "success", message: successMessage });
     }, (message) => {
-      toast.error("积分调整失败", { description: message });
       setCreditAdjustmentFeedback({ tone: "error", message: `积分调整失败：${message}` });
     });
   }
@@ -734,9 +783,17 @@ function AdminPrototypePage() {
   }
 
   function handleDismissNotification(item: AdminNotificationItem) {
+    if (!isUrgentRiskNotification(item)) return;
     const [kind, id] = item.id.split(":", 2);
     if (!id || !["order", "alert", "feedback", "risk"].includes(kind)) return;
     adminPost(`/api/admin/notifications/${kind}/${encodeURIComponent(id)}/dismiss`, {}, "紧急消息警报已解除，原始业务记录仍保留在后台。 ");
+  }
+
+  function handleOpenUrgentRisk() {
+    setUrgentRiskAttentionAcknowledged(true);
+    setAlertsOpen(false);
+    setRiskView("urgent");
+    setActiveSection("risk");
   }
 
   function handlePolicyDraftChange(index: number, key: "baseCredits" | "estimatedCostPerUnit", value: string) {
@@ -803,6 +860,12 @@ function AdminPrototypePage() {
     adminPostOrder(`/api/admin/orders/${encodeURIComponent(selectedOrderId)}/notes`, {
       content: orderNote,
     }, "订单处理备注已保存，并写入审计日志。");
+    setOrderNote("");
+  }
+
+  function handleDeleteOrderNote() {
+    if (!selectedOrderId) return;
+    adminPostOrder(`/api/admin/orders/${encodeURIComponent(selectedOrderId)}/notes`, {}, "订单处理备注已删除，并写入审计日志。", "DELETE");
     setOrderNote("");
   }
 
@@ -937,11 +1000,13 @@ function AdminPrototypePage() {
                   open={alertsOpen}
                   unreadCount={unreadAlerts}
                   urgentCount={urgentAlerts}
+                  urgentTagVisible={urgentRiskNotifications.length > 0 && !urgentRiskAttentionAcknowledged}
                   onToggle={() => setAlertsOpen((value) => !value)}
                   onMarkRead={handleMarkNotificationRead}
                   onMarkAllRead={handleMarkAllAlertsRead}
                   onJumpTo={handleNotificationJump}
                   onDismissNotification={handleDismissNotification}
+                  onOpenUrgentRisk={handleOpenUrgentRisk}
                 />
                 <Button
                   variant="outline"
@@ -1066,36 +1131,6 @@ function AdminPrototypePage() {
           </div>
         </main>
       </div>
-      {creditAdjustmentFeedback && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/55 p-4" role="dialog" aria-modal="true" aria-labelledby="credit-adjustment-feedback-title">
-          <div className={cn(
-            "w-full max-w-md rounded-md border p-5 shadow-2xl shadow-black/50",
-            creditAdjustmentFeedback.tone === "success"
-              ? "border-emerald-300/45 bg-emerald-950 text-emerald-50"
-              : "border-rose-300/45 bg-rose-950 text-rose-50",
-          )}>
-            <div className="flex items-start gap-3">
-              {creditAdjustmentFeedback.tone === "success" ? <Check className="mt-0.5 size-5 shrink-0" /> : <AlertTriangle className="mt-0.5 size-5 shrink-0" />}
-              <div className="min-w-0 flex-1">
-                <div id="credit-adjustment-feedback-title" className="text-base font-semibold">积分调整完成</div>
-                <div className="mt-2 break-words text-sm leading-6">{creditAdjustmentFeedback.message}</div>
-              </div>
-            </div>
-            <Button
-              type="button"
-              className={cn(
-                "mt-5 w-full",
-                creditAdjustmentFeedback.tone === "success"
-                  ? "bg-emerald-200 text-emerald-950 hover:bg-emerald-100"
-                  : "bg-rose-200 text-rose-950 hover:bg-rose-100",
-              )}
-              onClick={() => setCreditAdjustmentFeedback(null)}
-            >
-              确定
-            </Button>
-          </div>
-        </div>
-      )}
       <AccountDetailDrawer
         open={accountDrawerOpen}
         detail={accountDetail}
@@ -1105,12 +1140,15 @@ function AdminPrototypePage() {
         creditDelta={creditDelta}
         setCreditDelta={setCreditDelta}
         onClose={() => setAccountDrawerOpen(false)}
-        onSelectOrder={setSelectedOrderId}
+        onSelectOrder={handleSelectOrder}
         onNoteChange={setOrderNote}
         onAddNote={handleAddOrderNote}
+        onDeleteNote={handleDeleteOrderNote}
         onReissue={handleReissueOrder}
         onRefund={handleRefundOrder}
         onAdjust={handleCreditAdjustment}
+        creditAdjustmentFeedback={creditAdjustmentFeedback}
+        onDismissCreditAdjustmentFeedback={() => setCreditAdjustmentFeedback(null)}
       />
     </div>
   );
@@ -1242,8 +1280,8 @@ function AdminPrototypePage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredUsers.length ? (
-                filteredUsers.map((user) => (
+              {visibleUsers.length ? (
+                visibleUsers.map((user) => (
                   <TableRow
                     key={user.id}
                     className={cn(
@@ -1330,6 +1368,7 @@ function AdminPrototypePage() {
               )}
             </TableBody>
           </Table>
+          <PagePaginator items={filteredUsers} page={userPage} onPageChange={setUserPage} />
         </div>
       );
     }
@@ -1341,12 +1380,13 @@ function AdminPrototypePage() {
           {paymentCheck && <ProductionCheckPanel check={paymentCheck} title="支付对账状态" />}
           <div className="min-w-0 overflow-x-auto rounded-md border border-white/10 bg-white/[0.03]">
             <OrdersTable
-              orders={adminData.orders}
+              orders={visibleOrders}
               users={adminData.users}
               selectedOrderId={selectedOrder?.id || ""}
               onSelect={handleSelectOrder}
             />
           </div>
+          <PagePaginator items={adminData.orders} page={orderPage} onPageChange={setOrderPage} />
 
           <div className="min-w-0">
             {selectedUser ? (
@@ -1587,8 +1627,9 @@ function AdminPrototypePage() {
     if (activeSection === "risk") {
       return (
         <RiskEventList
-          events={adminData.riskEvents}
+          events={riskView === "urgent" ? adminData.riskEvents.filter((event) => event.severity === "high" && event.status !== "mitigated") : adminData.riskEvents}
           onUpdateStatus={handleRiskStatus}
+          urgentView={riskView === "urgent"}
         />
       );
     }
@@ -1684,29 +1725,30 @@ function NotificationCenter({
   open,
   unreadCount,
   urgentCount,
+  urgentTagVisible,
   onToggle,
   onMarkRead,
   onMarkAllRead,
   onJumpTo,
   onDismissNotification,
+  onOpenUrgentRisk,
 }: {
   groups: AdminNotificationGroups;
   open: boolean;
   unreadCount: number;
   urgentCount: number;
+  urgentTagVisible: boolean;
   onToggle: () => void;
   onMarkRead: (item: AdminNotificationItem) => void;
   onMarkAllRead: () => void;
   onJumpTo: (item: AdminNotificationItem) => void;
   onDismissNotification: (item: AdminNotificationItem) => void;
+  onOpenUrgentRisk: () => void;
 }) {
-  const [activeView, setActiveView] = useState<AdminNotificationTab | "all" | "urgent">("all");
+  const [activeView, setActiveView] = useState<AdminNotificationTab | "all">("all");
   const allItems = Object.values(groups).flat()
-    .sort((left, right) => right.time.localeCompare(left.time));
-  const urgentItems = allItems
-    .filter((item) => item.severity === "critical" && item.unread)
-    .sort((left, right) => right.time.localeCompare(left.time));
-  const activeItems = activeView === "all" ? allItems : activeView === "urgent" ? urgentItems : groups[activeView] || [];
+    .sort((left, right) => notificationTimestamp(right.time) - notificationTimestamp(left.time));
+  const activeItems = activeView === "all" ? allItems : groups[activeView] || [];
   const totalCount = notificationTabs.reduce((sum, tab) => sum + (groups[tab.id]?.length || 0), 0);
 
   return (
@@ -1746,13 +1788,15 @@ function NotificationCenter({
                   聚合订单、网络安全告警和用户反馈，点击文字链进入对应详情。
                 </p>
               </div>
-              <button
-                type="button"
-                className={cn("rounded-md border px-2 py-1 text-xs font-medium", urgentCount > 0 ? statusClass("P0") : statusClass("normal"))}
-                onClick={() => setActiveView("urgent")}
-              >
-                紧急类 {urgentCount}
-              </button>
+              {urgentTagVisible && (
+                <button
+                  type="button"
+                  className={cn("rounded-md border px-2 py-1 text-xs font-medium", statusClass("P0"))}
+                  onClick={onOpenUrgentRisk}
+                >
+                  紧急类 {urgentCount}
+                </button>
+              )}
             </div>
             <div className="mt-3 flex items-center justify-between">
               <span className="text-xs text-slate-500">{totalCount} 条消息 · {unreadCount} 条待处理</span>
@@ -1874,7 +1918,7 @@ function NotificationCenter({
                             标记处理
                           </button>
                         )}
-                        {item.severity === "critical" && (
+                        {isUrgentRiskNotification(item) && (
                           <button
                             className="rounded-md border border-rose-300/35 bg-rose-300/10 px-2 py-1 text-xs font-medium text-rose-100 hover:bg-rose-300/20"
                             onClick={() => onDismissNotification(item)}
@@ -1889,7 +1933,7 @@ function NotificationCenter({
               ))
             ) : (
               <div className="p-4 text-sm text-slate-500">
-                {activeView === "urgent" ? "暂无紧急消息" : activeView === "all" ? "暂无消息" : notificationTabs.find((tab) => tab.id === activeView)?.empty || "暂无消息"}
+                {activeView === "all" ? "暂无消息" : notificationTabs.find((tab) => tab.id === activeView)?.empty || "暂无消息"}
               </div>
             )}
           </div>
@@ -1968,6 +2012,41 @@ function Toolbar({
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+function PagePaginator<T>({
+  items,
+  page,
+  onPageChange,
+}: {
+  items: T[];
+  page: number;
+  onPageChange: (page: number) => void;
+}) {
+  const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  if (items.length <= PAGE_SIZE) return null;
+
+  return (
+    <div className="flex justify-end gap-2 pt-3">
+      <button
+        type="button"
+        className="rounded-md border border-white/12 px-2 py-1 text-xs text-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
+        disabled={page === 1}
+        onClick={() => onPageChange(page - 1)}
+      >
+        上一页
+      </button>
+      <span className="flex items-center px-1 text-xs text-slate-500">{page} / {totalPages}</span>
+      <button
+        type="button"
+        className="rounded-md border border-white/12 px-2 py-1 text-xs text-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
+        disabled={page === totalPages}
+        onClick={() => onPageChange(page + 1)}
+      >
+        下一页
+      </button>
     </div>
   );
 }
@@ -2124,9 +2203,12 @@ function AccountDetailDrawer({
   onSelectOrder,
   onNoteChange,
   onAddNote,
+  onDeleteNote,
   onReissue,
   onRefund,
   onAdjust,
+  creditAdjustmentFeedback,
+  onDismissCreditAdjustmentFeedback,
 }: {
   open: boolean;
   detail: AccountDetail | null;
@@ -2139,17 +2221,33 @@ function AccountDetailDrawer({
   onSelectOrder: (orderId: string) => void;
   onNoteChange: (value: string) => void;
   onAddNote: () => void;
+  onDeleteNote: () => void;
   onReissue: () => void;
   onRefund: () => void;
   onAdjust: (direction: "plus" | "minus") => void;
+  creditAdjustmentFeedback: CreditAdjustmentFeedback | null;
+  onDismissCreditAdjustmentFeedback: () => void;
 }) {
   const user = detail?.user || fallbackUser;
   const selectedOrder = detail?.orders.find((order) => order.id === selectedOrderId) || detail?.orders[0];
   const [ordersExpanded, setOrdersExpanded] = useState(true);
   const [paymentEventsExpanded, setPaymentEventsExpanded] = useState(true);
+  const [orderTimeFilter, setOrderTimeFilter] = useState("all");
+  const [orderUserIdFilter, setOrderUserIdFilter] = useState("");
+  const [paymentTimeFilter, setPaymentTimeFilter] = useState("all");
+  const [paymentUserIdFilter, setPaymentUserIdFilter] = useState("");
+  const [noteDetail, setNoteDetail] = useState<string | null>(null);
   const selectedOrderNotes = selectedOrder
-    ? (detail?.notes || []).filter((item) => item.orderId === selectedOrder.id).slice(0, 3)
+    ? (detail?.notes || []).filter((item) => item.orderId === selectedOrder.id).slice(0, 1)
     : [];
+  const filteredAccountOrders = (detail?.orders || []).filter((order) => (
+    matchesDrawerTimeFilter(order.createdAt, orderTimeFilter)
+    && (!orderUserIdFilter || (order.userId || "").includes(orderUserIdFilter))
+  ));
+  const filteredPaymentEvents = (detail?.paymentEvents || []).filter((event) => (
+    matchesDrawerTimeFilter(event.createdAt, paymentTimeFilter)
+    && (!paymentUserIdFilter || (user?.id || "").includes(paymentUserIdFilter))
+  ));
 
   if (!open) return null;
 
@@ -2201,6 +2299,22 @@ function AccountDetailDrawer({
                     扣减
                   </Button>
                 </div>
+                {creditAdjustmentFeedback && (
+                  <div className={cn(
+                    "mt-1.5 flex items-start justify-between gap-3 border px-3 py-2 text-xs",
+                    creditAdjustmentFeedback.tone === "success"
+                      ? "border-emerald-300/35 bg-emerald-300/10 text-emerald-100"
+                      : "border-rose-300/35 bg-rose-300/10 text-rose-100",
+                  )} role="status">
+                    <div className="min-w-0">
+                      <div className="font-medium">积分调整完成</div>
+                      <div className="mt-1 break-words leading-5">{creditAdjustmentFeedback.message}</div>
+                    </div>
+                    <Button type="button" size="sm" variant="outline" className="shrink-0 border-current/40 bg-transparent" onClick={onDismissCreditAdjustmentFeedback}>
+                      确定
+                    </Button>
+                  </div>
+                )}
               </div>
 
               {selectedOrder && (
@@ -2210,9 +2324,16 @@ function AccountDetailDrawer({
                       <h3 className="text-sm font-semibold text-cyan-50">订单备注</h3>
                       <p className="mt-1 font-mono text-xs text-cyan-100/70">当前订单：{selectedOrder.id}</p>
                     </div>
-                    <Button variant="outline" className="border-cyan-300/30 bg-cyan-300/10 text-cyan-50 hover:bg-cyan-300/20" onClick={onAddNote} disabled={!note.trim()}>
-                      保存备注
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="outline" className="border-cyan-300/30 bg-cyan-300/10 text-cyan-50 hover:bg-cyan-300/20" onClick={onAddNote} disabled={!note.trim()}>
+                        {selectedOrderNotes.length ? "覆盖保存备注" : "保存备注"}
+                      </Button>
+                      {selectedOrderNotes.length > 0 && (
+                        <Button variant="outline" className="border-rose-300/30 bg-rose-300/10 text-rose-100 hover:bg-rose-300/20" onClick={onDeleteNote}>
+                          删除备注
+                        </Button>
+                      )}
+                    </div>
                   </div>
                   <Input
                     value={note}
@@ -2225,10 +2346,10 @@ function AccountDetailDrawer({
                     {selectedOrderNotes.length ? (
                       <div className="mt-2 space-y-2">
                         {selectedOrderNotes.map((item) => (
-                          <div key={item.id} className="rounded-md border border-white/8 bg-slate-950/30 px-3 py-2 text-xs">
-                            <div className="break-words text-slate-200">{item.content}</div>
+                          <button key={item.id} type="button" className="w-full rounded-md border border-white/8 bg-slate-950/30 px-3 py-2 text-left text-xs" onDoubleClick={() => setNoteDetail(item.content)} title="双击查看完整备注">
+                            <div className="max-h-10 overflow-hidden break-words text-slate-200">{item.content}</div>
                             <div className="mt-1 text-slate-500">{item.actorName} · {item.createdAt}</div>
-                          </div>
+                          </button>
                         ))}
                       </div>
                     ) : (
@@ -2284,7 +2405,7 @@ function AccountDetailDrawer({
 
               <MiniSection
                 title="账户订单"
-                rows={(detail?.orders || []).map((order) => ({
+                rows={filteredAccountOrders.map((order) => ({
                   title: `${order.packageName || "订单"} · ${statusLabel(order.status)}`,
                   meta: `${order.id} · ${order.channel} · 下单：${formatExactOrderTime(order.createdAt, "未提供精确时间")} · 支付：${formatExactOrderTime(order.paidAt)}`,
                   value: formatCurrency(order.amount),
@@ -2294,11 +2415,12 @@ function AccountDetailDrawer({
                 onToggle={() => setOrdersExpanded((current) => !current)}
                 collapseLabel="收起订单"
                 expandLabel="展开订单"
+                controls={<DrawerHistoryFilters label="账户订单时间" timeFilter={orderTimeFilter} onTimeFilterChange={setOrderTimeFilter} userIdFilter={orderUserIdFilter} onUserIdFilterChange={setOrderUserIdFilter} />}
               />
 
               <MiniSection
                 title="支付事件"
-                rows={(detail?.paymentEvents || []).map((item) => ({
+                rows={filteredPaymentEvents.map((item) => ({
                   title: `${item.orderId} · ${item.type} · ${item.status}`,
                   meta: `${item.message} · ${item.createdAt}`,
                   value: item.providerTransactionId || "N/A",
@@ -2308,6 +2430,7 @@ function AccountDetailDrawer({
                 onToggle={() => setPaymentEventsExpanded((current) => !current)}
                 collapseLabel="收起支付流"
                 expandLabel="展开支付流"
+                controls={<DrawerHistoryFilters label="支付流时间" timeFilter={paymentTimeFilter} onTimeFilterChange={setPaymentTimeFilter} userIdFilter={paymentUserIdFilter} onUserIdFilterChange={setPaymentUserIdFilter} />}
               />
               <MiniSection
                 title="积分流水"
@@ -2341,6 +2464,19 @@ function AccountDetailDrawer({
             <EmptyPanel title="正在加载账户详情" body="账户聚合数据会从 /api/admin/users/:id/detail 读取。" />
           )}
         </div>
+        {noteDetail && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/75 p-4" role="dialog" aria-modal="true" aria-label="完整订单备注">
+            <div className="w-full max-w-sm rounded-md border border-cyan-300/25 bg-[#111a2e] p-4 shadow-xl">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm font-medium text-cyan-100">完整订单备注</div>
+                <Button type="button" size="sm" variant="outline" className="border-white/12 bg-white/5" onClick={() => setNoteDetail(null)}>
+                  确定
+                </Button>
+              </div>
+              <div className="mt-3 max-h-64 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-6 text-slate-200">{noteDetail}</div>
+            </div>
+          </div>
+        )}
       </aside>
     </div>
   );
@@ -2359,6 +2495,7 @@ function MiniSection({
   title,
   rows,
   empty,
+  controls,
   expanded = true,
   onToggle,
   collapseLabel,
@@ -2367,6 +2504,7 @@ function MiniSection({
   title: string;
   rows: Array<{ title: string; meta: string; value: string }>;
   empty: string;
+  controls?: ReactNode;
   expanded?: boolean;
   onToggle?: () => void;
   collapseLabel?: string;
@@ -2374,17 +2512,20 @@ function MiniSection({
 }) {
   return (
     <div className="min-w-0 rounded-md border border-white/8 bg-slate-950/25 p-3">
-      <div className="mb-2 flex items-center justify-between gap-3">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
         <div className="text-sm font-medium">{title}</div>
-        {onToggle && collapseLabel && expandLabel && (
-          <button
-            type="button"
-            className="text-xs text-cyan-200 hover:text-cyan-100"
-            onClick={onToggle}
-          >
-            {expanded ? collapseLabel : expandLabel}
-          </button>
-        )}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {controls}
+          {onToggle && collapseLabel && expandLabel && (
+            <button
+              type="button"
+              className="text-xs text-cyan-200 hover:text-cyan-100"
+              onClick={onToggle}
+            >
+              {expanded ? collapseLabel : expandLabel}
+            </button>
+          )}
+        </div>
       </div>
       {expanded && (rows.length ? (
         <div className="space-y-2">
@@ -2401,6 +2542,35 @@ function MiniSection({
       ) : (
         <div className="text-xs text-slate-500">{empty}</div>
       ))}
+    </div>
+  );
+}
+
+function DrawerHistoryFilters({
+  label,
+  timeFilter,
+  onTimeFilterChange,
+  userIdFilter,
+  onUserIdFilterChange,
+}: {
+  label: string;
+  timeFilter: string;
+  onTimeFilterChange: (value: string) => void;
+  userIdFilter: string;
+  onUserIdFilterChange: (value: string) => void;
+}) {
+  return (
+    <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+      <label className="flex items-center gap-1 text-[11px] text-slate-500">
+        {label}
+        <select value={timeFilter} onChange={(event) => onTimeFilterChange(event.target.value)} className="h-7 rounded-md border border-white/12 bg-slate-950/70 px-1 text-[11px] text-slate-200">
+          <option value="all">全部</option>
+          <option value="24h">24 小时</option>
+          <option value="7d">7 天</option>
+          <option value="30d">30 天</option>
+        </select>
+      </label>
+      <Input value={userIdFilter} onChange={(event) => onUserIdFilterChange(event.target.value)} placeholder="用户 ID" className="h-7 w-24 border-white/12 bg-slate-950/70 px-2 text-[11px]" />
     </div>
   );
 }
@@ -2488,9 +2658,11 @@ function DataList({
 function RiskEventList({
   events,
   onUpdateStatus,
+  urgentView = false,
 }: {
   events: RiskEvent[];
   onUpdateStatus: (id: string, status: "reviewing" | "mitigated", reason: string) => void;
+  urgentView?: boolean;
 }) {
   if (!events.length) {
     return <EmptyPanel title="暂无高风险安全事件" body="支付、退款、系统安全和攻击类风险会在这里集中展示。" />;
@@ -2499,7 +2671,7 @@ function RiskEventList({
   return (
     <div className="min-w-0 space-y-3">
       <div>
-        <h2 className="text-base font-semibold">高风险安全事件</h2>
+        <h2 className="text-base font-semibold">{urgentView ? "紧急风险消息" : "高风险安全事件"}</h2>
         <p className="mt-1 text-sm text-slate-400">优先处理支付异常、退款异常、攻击告警和系统安全事件；普通记录不显示待处置标签。</p>
       </div>
       {events.map((event) => {

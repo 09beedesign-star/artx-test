@@ -209,7 +209,7 @@ export function buildAdminNotifications(input: AdminNotificationInput): AdminNot
   ];
 
   const voice = input.feedback
-    .filter((item) => feedbackUnread(item) && !item.notificationDismissedAt)
+    .filter((item) => !item.notificationDismissedAt)
     .map((item): AdminNotificationItem => ({
       id: `feedback:${item.id}`,
       tab: "voice",
