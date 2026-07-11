@@ -4,13 +4,11 @@
   if (!entrySrc) return;
 
   function loadEntry() {
-    if (document.querySelector('script[type="module"][src="' + entrySrc + '"]')) return;
-    var script = document.createElement("script");
-    script.type = "module";
-    script.async = true;
-    script.crossOrigin = "anonymous";
-    script.src = entrySrc;
-    document.head.appendChild(script);
+    if (window.__ARTX_ENTRY_IMPORT_STARTED__) return;
+    window.__ARTX_ENTRY_IMPORT_STARTED__ = true;
+    import(entrySrc).catch(function (error) {
+      console.error("[ArtX] Failed to load entry module", error);
+    });
   }
 
   var stylesheets = Array.prototype.slice.call(document.querySelectorAll('link[rel="stylesheet"]'));
