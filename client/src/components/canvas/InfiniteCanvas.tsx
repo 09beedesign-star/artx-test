@@ -58,7 +58,6 @@ import {
   X,
   Copy,
   Clipboard,
-  Edit3,
   PlusSquare,
   ZoomIn,
   Download,
@@ -5071,10 +5070,8 @@ function AnnotationBubble({
             {ann.done ? "✓ 已完成" : "注释"}
           </span>
           <div style={{ display: "flex", gap: 6 }}>
-            {/* 编辑按钮 */}
-            {!ann.editing && (
-              <button
-                title="编辑注释"
+            <button
+              title="取消注释"
                 style={{
                   width: 22,
                   height: 22,
@@ -5088,8 +5085,7 @@ function AnnotationBubble({
                   cursor: "pointer",
                 }}
                 onClick={() => {
-                  setDraft(ann.text);
-                  onUpdate(ann.id, { editing: true });
+                  onRemove(ann.id);
                 }}
                 onMouseEnter={e =>
                   (e.currentTarget.style.background = iconBtnHover)
@@ -5098,9 +5094,8 @@ function AnnotationBubble({
                   (e.currentTarget.style.background = "transparent")
                 }
               >
-                <Edit3 size={12} />
+              <X size={12} />
               </button>
-            )}
             {/* 确认按钮 */}
             <button
               title="确认注释"
@@ -6494,18 +6489,45 @@ function AssetNodeComponent({
       toast("请先涂抹需要去除的区域");
       return;
     }
-    const imageSrc = await getRenderedImageSource();
-    if (!imageSrc) {
+    const imagePayload = await getRenderedImagePayload();
+    if (!imagePayload.src) {
       toast("AI 擦除失败", { description: "当前图片没有可处理的图像来源" });
       return;
     }
-    const maskSrc = eraseMaskCanvasRef.current.toDataURL("image/png");
+    const maskCanvas = eraseMaskCanvasRef.current;
+    const highResolutionMask = document.createElement("canvas");
+    highResolutionMask.width = Math.max(1, Math.round(imagePayload.width));
+    highResolutionMask.height = Math.max(1, Math.round(imagePayload.height));
+    const highResolutionMaskCtx = highResolutionMask.getContext("2d");
+    if (!highResolutionMaskCtx) {
+      toast("AI 擦除失败", { description: "无法创建高清擦除蒙版" });
+      return;
+    }
+    highResolutionMaskCtx.imageSmoothingEnabled = false;
+    highResolutionMaskCtx.drawImage(
+      maskCanvas,
+      0,
+      0,
+      maskCanvas.width,
+      maskCanvas.height,
+      0,
+      0,
+      highResolutionMask.width,
+      highResolutionMask.height
+    );
+    const maskSrc = highResolutionMask.toDataURL("image/png");
     window.dispatchEvent(
       new CustomEvent("asset-erase-apply", {
-        detail: { nodeId, imageSrc, maskSrc },
+        detail: {
+          nodeId,
+          imageSrc: imagePayload.src,
+          maskSrc,
+          targetWidth: imagePayload.width,
+          targetHeight: imagePayload.height,
+        },
       })
     );
-  }, [getRenderedImageSource, nodeId]);
+  }, [getRenderedImagePayload, nodeId]);
 
   const cancelErase = useCallback(() => {
     window.dispatchEvent(
@@ -7303,8 +7325,7 @@ function AssetNodeComponent({
               minHeight: 260,
               maxHeight: 420,
               borderRadius: 8,
-              overflow: "auto",
-              resize: "vertical",
+              overflow: "hidden",
               background: isDark
                 ? "rgba(20,20,30,0.96)"
                 : "rgba(255,255,255,0.98)",
@@ -7315,6 +7336,8 @@ function AssetNodeComponent({
               pointerEvents: "all",
               transform: `scale(${stableUiScale})`,
               transformOrigin: "top left",
+              display: "flex",
+              flexDirection: "column",
             }}
             onMouseDown={event => event.stopPropagation()}
             onClick={event => event.stopPropagation()}
@@ -7365,6 +7388,7 @@ function AssetNodeComponent({
               style={{
                 minHeight: 138,
                 maxHeight: 336,
+                flex: "0 0 auto",
                 padding: 12,
                 resize: "vertical",
                 outline: "none",
@@ -13302,7 +13326,7 @@ function ImageGeneratorPopover({
     }
   };
 
-  return (
+  const popover = (
     <div
       ref={popoverRef}
       className="fixed overflow-hidden rounded-[var(--radius-xl-design)] shadow-2xl"
@@ -13624,6 +13648,9 @@ function ImageGeneratorPopover({
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") return popover;
+  return createPortal(popover, document.body);
 }
 
 type FontDesignPurpose =
@@ -16511,6 +16538,19 @@ function CanvasAssistantPanel({
     }, 60);
   }, [composerSegments, focusComposerSegment]);
 
+  const focusTrailingComposerSegment = useCallback(() => {
+    const lastTextSegment = [...composerSegments]
+      .reverse()
+      .find(segment => segment.type === "text");
+    if (!lastTextSegment) {
+      focusComposerSegment();
+      return;
+    }
+    activeComposerSegmentIdRef.current = lastTextSegment.id;
+    activeComposerCursorRef.current = lastTextSegment.text.length;
+    focusComposerSegment(lastTextSegment.id, lastTextSegment.text.length);
+  }, [composerSegments, focusComposerSegment]);
+
   const setComposerTextSegment = useCallback(
     (segmentId: string, value: string) => {
       const singleLineValue = value.replace(/\s*\n+\s*/g, " ");
@@ -16815,8 +16855,12 @@ function CanvasAssistantPanel({
       event.stopPropagation();
       const startX = event.clientX;
       const startY = event.clientY;
-      updateComposerBoxSelection(startX, startY, startX, startY, true);
+      let didDragSelection = false;
       const handleMove = (moveEvent: MouseEvent) => {
+        const dx = Math.abs(moveEvent.clientX - startX);
+        const dy = Math.abs(moveEvent.clientY - startY);
+        if (!didDragSelection && Math.max(dx, dy) < 4) return;
+        didDragSelection = true;
         updateComposerBoxSelection(
           startX,
           startY,
@@ -16826,20 +16870,25 @@ function CanvasAssistantPanel({
         );
       };
       const handleUp = (upEvent: MouseEvent) => {
-        updateComposerBoxSelection(
-          startX,
-          startY,
-          upEvent.clientX,
-          upEvent.clientY,
-          false
-        );
+        if (didDragSelection) {
+          updateComposerBoxSelection(
+            startX,
+            startY,
+            upEvent.clientX,
+            upEvent.clientY,
+            false
+          );
+        } else {
+          setComposerBoxSelection(null);
+          focusTrailingComposerSegment();
+        }
         window.removeEventListener("mousemove", handleMove);
         window.removeEventListener("mouseup", handleUp);
       };
       window.addEventListener("mousemove", handleMove);
       window.addEventListener("mouseup", handleUp, { once: true });
     },
-    [updateComposerBoxSelection]
+    [focusTrailingComposerSegment, updateComposerBoxSelection]
   );
 
   useEffect(() => {
@@ -18939,12 +18988,13 @@ function CanvasAssistantPanel({
                           );
                           setComposerTextSegment(segment.id, event.target.value);
                         }}
-                        onClick={event =>
+                        onClick={event => {
+                          setComposerBoxSelection(null);
                           rememberComposerCursor(
                             segment.id,
                             event.currentTarget
-                          )
-                        }
+                          );
+                        }}
                         onKeyUp={event =>
                           rememberComposerCursor(
                             segment.id,
@@ -18967,6 +19017,7 @@ function CanvasAssistantPanel({
                           });
                         }}
                         onFocus={() => {
+                          setComposerBoxSelection(null);
                           activeComposerSegmentIdRef.current = segment.id;
                           const input = composerInputRefs.current[segment.id];
                           activeComposerCursorRef.current =
@@ -19027,9 +19078,10 @@ function CanvasAssistantPanel({
                             event.currentTarget.textContent || ""
                           );
                         }}
-                        onClick={event =>
-                          rememberComposerCursor(segment.id, event.currentTarget)
-                        }
+                        onClick={event => {
+                          setComposerBoxSelection(null);
+                          rememberComposerCursor(segment.id, event.currentTarget);
+                        }}
                         onDragOver={event =>
                           handleComposerSegmentDragOver(event, segment.id)
                         }
@@ -19062,6 +19114,7 @@ function CanvasAssistantPanel({
                           });
                         }}
                         onFocus={() => {
+                          setComposerBoxSelection(null);
                           activeComposerSegmentIdRef.current = segment.id;
                           activeComposerCursorRef.current =
                             (window.getSelection()?.focusOffset ??
@@ -19361,37 +19414,40 @@ function CanvasAssistantPanel({
               )}
             </div>
           </div>
-          {composerPreview && (
-            <div
-              className="pointer-events-none fixed z-[13000] origin-center overflow-hidden rounded-[var(--radius-md-design)] shadow-2xl transition-all duration-200 ease-out"
-              style={{
-                left: composerPreview.x,
-                top: composerPreview.y,
-                maxWidth: 160,
-                transform: `translate(-50%, -50%) scale(${composerPreview.visible ? 1 : 0.28})`,
-                transformOrigin: "center center",
-                opacity: composerPreview.visible ? 1 : 0,
-                border: `1px solid ${isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.14)"}`,
-                background: isDark
-                  ? "rgba(13,14,18,0.96)"
-                  : "rgba(255,255,255,0.96)",
-                willChange: "transform, opacity",
-              }}
-              onTransitionEnd={() => {
-                setComposerPreview(prev =>
-                  prev && !prev.visible ? null : prev
-                );
-              }}
-            >
-              <img
-                src={composerPreview.src}
-                alt={composerPreview.title}
-                draggable={false}
-                className="block h-auto w-full object-contain"
-                style={{ maxWidth: 160, width: "auto", height: "auto" }}
-              />
-            </div>
-          )}
+          {composerPreview &&
+            typeof document !== "undefined" &&
+            createPortal(
+              <div
+                className="pointer-events-none fixed z-[13000] origin-center overflow-hidden rounded-[var(--radius-md-design)] shadow-2xl transition-all duration-200 ease-out"
+                style={{
+                  left: composerPreview.x,
+                  top: composerPreview.y,
+                  maxWidth: 160,
+                  transform: `translate(-50%, -50%) scale(${composerPreview.visible ? 1 : 0.28})`,
+                  transformOrigin: "center center",
+                  opacity: composerPreview.visible ? 1 : 0,
+                  border: `1px solid ${isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.14)"}`,
+                  background: isDark
+                    ? "rgba(13,14,18,0.96)"
+                    : "rgba(255,255,255,0.96)",
+                  willChange: "transform, opacity",
+                }}
+                onTransitionEnd={() => {
+                  setComposerPreview(prev =>
+                    prev && !prev.visible ? null : prev
+                  );
+                }}
+              >
+                <img
+                  src={composerPreview.src}
+                  alt={composerPreview.title}
+                  draggable={false}
+                  className="block h-auto w-full object-contain"
+                  style={{ maxWidth: 160, width: "auto", height: "auto" }}
+                />
+              </div>,
+              document.body
+            )}
         </>
       )}
       </aside>
@@ -21357,7 +21413,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const applyHandler = async (e: Event) => {
       if (isRestoringRef.current) return;
       const detail = (
-        e as CustomEvent<{ nodeId: string; imageSrc: string; maskSrc: string }>
+        e as CustomEvent<{
+          nodeId: string;
+          imageSrc: string;
+          maskSrc: string;
+          targetWidth?: number;
+          targetHeight?: number;
+        }>
       ).detail;
       if (!detail?.nodeId || !detail.imageSrc || !detail.maskSrc) return;
       const sourceNode = nodesRef.current.find(
@@ -21395,8 +21457,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             imageSrc: detail.imageSrc,
             maskSrc: detail.maskSrc,
             model: "gpt-image-2",
-            targetWidth: sourceSize.width,
-            targetHeight: sourceSize.height,
+            targetWidth: detail.targetWidth ?? sourceSize.width,
+            targetHeight: detail.targetHeight ?? sourceSize.height,
             prompt:
               "Remove only the objects or scene elements covered by the mask. Reconstruct the background naturally, keep lighting, texture, perspective, and surrounding details consistent, and preserve all unmasked areas.",
           }),
@@ -22798,8 +22860,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         1,
         Math.min(Number(detail.count) || 1, 4)
       );
-      const shouldUseFixedSinglePlacement =
-        requestedCount === 1 && Boolean(detail.placement);
+      const imageGenerationGap = 20;
+      const shouldUseFixedGeneratedPlacement = Boolean(detail.placement);
       if (detail.status === "pending") {
         const generationStartedAt =
           detail.generationStartedAt ||
@@ -22848,11 +22910,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             (_, index) => {
               const id = `generated-${generationId}-${index}`;
               const desired = {
-                x: anchor.x + index * (size.w + 24),
+                x: anchor.x + index * (size.w + imageGenerationGap),
                 y: anchor.y,
               };
               const position =
-                shouldUseFixedSinglePlacement && index === 0
+                shouldUseFixedGeneratedPlacement
                   ? desired
                   : resolveNonOverlappingCanvasPosition(
                       [...nds, ...placedNodes],
@@ -23050,11 +23112,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             ? fitGeneratedImageSizeToFrame(image, size)
             : size;
           const desired = {
-            x: anchor.x + (size.w - fittedSize.w) / 2 + index * (fittedSize.w + 24),
+            x:
+              anchor.x +
+              (size.w - fittedSize.w) / 2 +
+              index * (fittedSize.w + imageGenerationGap),
             y: anchor.y + (size.h - fittedSize.h) / 2,
           };
           const position =
-            shouldUseFixedSinglePlacement && index === 0
+            shouldUseFixedGeneratedPlacement
               ? desired
               : resolveNonOverlappingCanvasPosition(
                   [...nds, ...placedNodes],
@@ -29725,14 +29790,23 @@ function GlobalAnnotationLayer({
     event.preventDefault();
     event.stopPropagation();
 
+    const startCenterX = rect.left + (ann.x / 100) * rect.width;
+    const startCenterY = rect.top + (ann.y / 100) * rect.height;
+    const pointerOffset = {
+      x: event.clientX - startCenterX,
+      y: event.clientY - startCenterY,
+    };
+
     const updateFromPointer = (clientX: number, clientY: number) => {
+      const centerX = clientX - pointerOffset.x;
+      const centerY = clientY - pointerOffset.y;
       const nextX =
-        ((Math.min(Math.max(clientX, rect.left), rect.left + rect.width) -
+        ((Math.min(Math.max(centerX, rect.left), rect.left + rect.width) -
           rect.left) /
           Math.max(1, rect.width)) *
         100;
       const nextY =
-        ((Math.min(Math.max(clientY, rect.top), rect.top + rect.height) -
+        ((Math.min(Math.max(centerY, rect.top), rect.top + rect.height) -
           rect.top) /
           Math.max(1, rect.height)) *
         100;
@@ -29777,27 +29851,22 @@ function GlobalAnnotationLayer({
             key={ann.id}
             className="absolute pointer-events-none"
             style={{
-              left: rect.left,
-              top: rect.top,
-              width: rect.width,
-              height: rect.height,
-              overflow: "hidden",
+              left: rect.left + (ann.x / 100) * rect.width,
+              top: rect.top + (ann.y / 100) * rect.height,
             }}
           >
-            <div className="absolute inset-0 pointer-events-none">
-              <AnnotationBubble
-                ann={ann}
-                isDark={isDark}
-                onUpdate={onUpdate}
-                onRemove={onRemove}
-                onAiEdit={onAiEdit}
-                onAddReference={onAddReference}
-                isReferenceActive={referencedAnnotationIds.has(ann.id)}
-                onPositionPointerDown={event =>
-                  beginAnnotationPositionDrag(ann, rect, event)
-                }
-              />
-            </div>
+            <AnnotationBubble
+              ann={{ ...ann, x: 0, y: 0 }}
+              isDark={isDark}
+              onUpdate={onUpdate}
+              onRemove={onRemove}
+              onAiEdit={onAiEdit}
+              onAddReference={onAddReference}
+              isReferenceActive={referencedAnnotationIds.has(ann.id)}
+              onPositionPointerDown={event =>
+                beginAnnotationPositionDrag(ann, rect, event)
+              }
+            />
           </div>
         );
       })}
