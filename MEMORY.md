@@ -14,6 +14,7 @@
 - Log lookup rule: when the user says "查看日志" in this workspace, read `docs/dev-log.md` by default.
 - Development log rule: when the user says "添加日志", "记一下日志", or asks to log a task, append the record to `docs/dev-log.md` using the established template; AI-related records must include `generationId`, `backendTaskId`, and `providerTaskId` or explicitly mark missing IDs as `N/A`.
 - Credential values are not stored here; only credential locations may be recorded if needed.
+- Global capability rule: when work affects shared UI, cross-page visual states, shortcuts, clipboard actions, delete, undo/redo, auth, requests, cache, logging, internationalization, or other common behavior, use `$global-capabilities` for an evidence-based audit first. Read `docs/global-capabilities.md` when present; unregistered components stay local by default, and repeated implementations require impact reporting and user confirmation before global refactoring.
 - Product model: users pay for compute, compute is converted into platform credits/points, and admin tooling should track feedback, payments, accounts, and quota/credit operations.
 - Admin prototype should include a top-right notification center for urgent operations such as payment exceptions, runtime errors, integration latency, and credit/risk events.
 - Admin backend is connected at `/admin-prototype`, but it must not be exposed in the main website navigation; production access should use an independent admin subdomain such as `admin.*` or `VITE_ADMIN_HOST`.

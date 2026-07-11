@@ -16,3 +16,14 @@
 - Do not use the old Render test backend `https://artx-test.onrender.com` as the default test/gray API backend.
 - After publishing, verify `https://09beedesign-star.github.io/artx-test/deployment.json` and `https://backstage.artxsd.com/deployment.json`; both `shortCommit` values must match the pushed commit. Also verify `https://backstage.artxsd.com/api/health` and any backend/API path touched by the task.
 - If any step fails, do not say the test environment has been submitted; state exactly which step is incomplete.
+
+# Shared Components and Global Capabilities
+
+- When a task involves shared UI components, visual states used across pages, shortcuts, copy, paste, delete, undo/redo, authentication, requests, caching, logging, internationalization, or other cross-page behavior, use `$global-capabilities` to inspect the existing implementation before proposing a global change.
+- If `docs/global-capabilities.md` exists, read it before changing any shared component or common operation. Treat its registered owners, consumers, exclusions, and verification rules as the project source of truth.
+- Classify affected UI as a global shared component, business-shared component, page-local component, or repeated-but-unconfirmed candidate before editing. Unregistered components default to page-local scope.
+- Prefer registered shared components and common commands. Do not introduce broad global CSS selectors, duplicate command logic, or expand a local change across unrelated pages without evidence and user confirmation.
+- When repeated implementations are found, report their locations, behavior differences, affected consumers, and migration risk before performing a global refactor.
+- Buttons, menus, context menus, and keyboard shortcuts that represent the same user intent must call one shared command. Preserve native copy, paste, delete, and text-editing behavior inside `input`, `textarea`, `select`, and `contenteditable` unless the product explicitly owns that editing context.
+- A shared-component or common-operation change must identify all known consumers and run focused regression checks. Use component or visual checks for isolated UI states and real browser checks for complete user workflows.
+- Ordinary local UI edits do not require `$global-capabilities` when they do not affect registered shared components or cross-page behavior.

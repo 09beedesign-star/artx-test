@@ -9,9 +9,12 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { Copy, ImageIcon, Layers, Sparkles, Tags, X } from "lucide-react";
 import { toast } from "sonner";
 import { BG_GLOW } from "@/lib/workspace-data";
+import { defaultApiBaseUrlForCurrentHost, normalizeApiBaseUrl } from "@/lib/api-base-url";
 
 type PromptItem = {
   rank: number;
+  group: string;
+  subcategory: string;
   field: string;
   model: string;
   title: string;
@@ -19,10 +22,50 @@ type PromptItem = {
   prompt: string;
   imageUrl: string;
   author: string;
+  sourceSite?: string;
+  sourceUrl?: string;
+  licenseNote?: string;
+  isExternal?: boolean;
 };
 
-const ALL_FIELDS = "全部分类";
+type InspirationReference = {
+  id: string;
+  group: string;
+  subcategory: string;
+  sourceSite: string;
+  sourceUrl: string;
+  imageUrl: string;
+  proxyImageUrl: string;
+  title: string;
+  prompt: string;
+  stylePromptEn: string;
+  licenseNote: string;
+};
+
+const ALL_GROUPS = "全部大类";
+const ALL_SUBCATEGORIES = "全部子类";
 const ALL_MODELS = "全部模型";
+const INSPIRATION_PAGE_SIZE = 50;
+
+const INSPIRATION_TAXONOMY: Record<string, string[]> = {
+  行业品类: ["服装", "化妆品", "游戏", "母婴亲子", "美食饮品", "AI智能", "教育", "汽车相关", "3C数码", "医美纤体", "宠物广告", "家居美学", "运动户外"],
+  品牌商业: ["商务视觉", "VI套件", "营销活动", "B端视觉设计", "UI设计", "陈列展示", "机制图设计"],
+  风格美术: ["生活美学", "酸性视觉", "复古未来主义", "Vintage复古", "赛博美术", "美式嘻哈", "和风", "中国现代", "怪诞美学", "二次元"],
+  人物角色: ["肖像特写", "AI角色设", "古装宫廷"],
+  空间对象: ["工业概念", "概念设计", "建筑效果", "游戏道具"],
+  图形技法: ["字体排版", "铅笔线描"],
+  影像叙事: ["分镜脚本", "镜头提示词"],
+  节庆文化: ["传统节庆", "国际节庆"],
+  其他分类: ["其他"],
+};
+
+function classifyLegacyField(field: string): { group: string; subcategory: string } {
+  if (/logo/i.test(field)) return { group: "品牌商业", subcategory: "VI套件" };
+  if (/广告|电商|海报|电影/.test(field)) return { group: "品牌商业", subcategory: "营销活动" };
+  if (/IP/.test(field)) return { group: "人物角色", subcategory: "AI角色设" };
+  if (/视觉|创意/.test(field)) return { group: "品牌商业", subcategory: "商务视觉" };
+  return { group: "其他分类", subcategory: "其他" };
+}
 
 function parseCsv(csv: string) {
   const rows: string[][] = [];
@@ -77,16 +120,22 @@ function loadPromptItems(csv: string): PromptItem[] {
   return rows
     .slice(1)
     .filter((record) => record.length > 1)
-    .map((record) => ({
-      rank: Number(get(record, "rank")) || 0,
-      field: get(record, "field"),
-      model: get(record, "model"),
-      title: get(record, "title"),
-      description: get(record, "description"),
-      prompt: get(record, "prompt"),
-      imageUrl: get(record, "image_url"),
-      author: get(record, "author"),
-    }))
+    .map((record) => {
+      const field = get(record, "field");
+      const category = classifyLegacyField(field);
+      return {
+        rank: Number(get(record, "rank")) || 0,
+        group: category.group,
+        subcategory: category.subcategory,
+        field,
+        model: get(record, "model"),
+        title: get(record, "title"),
+        description: get(record, "description"),
+        prompt: get(record, "prompt"),
+        imageUrl: get(record, "image_url"),
+        author: get(record, "author"),
+      };
+    })
     .filter((item) => item.title && item.imageUrl);
 }
 
@@ -97,21 +146,52 @@ function getParam(name: string, fallback: string) {
 
 const PROMPT_ITEMS = loadPromptItems(promptCsv);
 
+function getInspirationApiBaseUrl() {
+  const env = import.meta.env as Record<string, string | undefined>;
+  return normalizeApiBaseUrl(
+    env.VITE_API_BASE_URL ||
+    env.VITE_TEST_BACKEND_URL ||
+    defaultApiBaseUrlForCurrentHost("")
+  );
+}
+
+function toPromptItem(reference: InspirationReference, index: number, apiBase: string): PromptItem {
+  const imageUrl =
+    reference.proxyImageUrl.startsWith("/") && apiBase
+      ? `${apiBase}${reference.proxyImageUrl}`
+      : reference.proxyImageUrl;
+  return {
+    rank: 1000 + index,
+    group: reference.group || "其他分类",
+    subcategory: reference.subcategory || "其他",
+    field: reference.subcategory || reference.group || "外部灵感",
+    model: reference.sourceSite,
+    title: reference.title,
+    description: `${reference.sourceSite} 公开链接参考 · ${reference.group} / ${reference.subcategory}`,
+    prompt: reference.prompt || reference.stylePromptEn || reference.title,
+    imageUrl,
+    author: reference.sourceSite,
+    sourceSite: reference.sourceSite,
+    sourceUrl: reference.sourceUrl,
+    licenseNote: reference.licenseNote,
+    isExternal: true,
+  };
+}
+
 export default function InspirationPage() {
   const [location, navigate] = useLocation();
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-  const fields = useMemo(() => [ALL_FIELDS, ...Array.from(new Set(PROMPT_ITEMS.map((item) => item.field)))], []);
   const models = useMemo(() => [ALL_MODELS, ...Array.from(new Set(PROMPT_ITEMS.map((item) => item.model)))], []);
-  const [activeField, setActiveField] = useState(() => {
-    const field = getParam("field", ALL_FIELDS);
-    return fields.includes(field) ? field : ALL_FIELDS;
-  });
+  const [activeGroup, setActiveGroup] = useState(() => getParam("group", ALL_GROUPS));
+  const [activeSubcategory, setActiveSubcategory] = useState(() => getParam("subcategory", ALL_SUBCATEGORIES));
   const [activeModel, setActiveModel] = useState(() => {
     const model = getParam("model", ALL_MODELS);
     return models.includes(model) ? model : ALL_MODELS;
   });
   const [selectedItem, setSelectedItem] = useState<PromptItem | null>(null);
+  const [externalItems, setExternalItems] = useState<PromptItem[]>([]);
+  const [visibleCount, setVisibleCount] = useState(INSPIRATION_PAGE_SIZE);
   const selectedImageRef = useRef<HTMLImageElement | null>(null);
   const promptScrollRef = useRef<HTMLDivElement | null>(null);
   const [detailImageHeight, setDetailImageHeight] = useState<number | null>(null);
@@ -125,13 +205,61 @@ export default function InspirationPage() {
   const activeBg = isDark ? "oklch(0.62 0.22 290 / 0.20)" : "oklch(0.62 0.18 290 / 0.10)";
   const shadow = isDark ? "0 18px 46px oklch(0 0 0 / 0.24)" : "0 14px 34px oklch(0 0 0 / 0.08)";
 
+  const allPromptItems = useMemo(() => [...PROMPT_ITEMS, ...externalItems], [externalItems]);
+  const allGroups = useMemo(() => [ALL_GROUPS, ...Object.keys(INSPIRATION_TAXONOMY)], []);
+  const availableSubcategories = useMemo(() => {
+    if (activeGroup !== ALL_GROUPS) return [ALL_SUBCATEGORIES, ...(INSPIRATION_TAXONOMY[activeGroup] || [])];
+    return [
+      ALL_SUBCATEGORIES,
+      ...Object.values(INSPIRATION_TAXONOMY).flat(),
+    ];
+  }, [activeGroup]);
+  const allModels = useMemo(() => [ALL_MODELS, ...Array.from(new Set(allPromptItems.map((item) => item.model)))], [allPromptItems]);
+  const categoryCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of allPromptItems) {
+      counts.set(item.group, (counts.get(item.group) || 0) + 1);
+      counts.set(item.subcategory, (counts.get(item.subcategory) || 0) + 1);
+    }
+    return counts;
+  }, [allPromptItems]);
+
   const filteredItems = useMemo(() => {
-    return PROMPT_ITEMS.filter((item) => {
-      const matchesField = activeField === ALL_FIELDS || item.field === activeField;
+    return allPromptItems.filter((item) => {
+      const matchesGroup = activeGroup === ALL_GROUPS || item.group === activeGroup;
+      const matchesSubcategory = activeSubcategory === ALL_SUBCATEGORIES || item.subcategory === activeSubcategory;
       const matchesModel = activeModel === ALL_MODELS || item.model === activeModel;
-      return matchesField && matchesModel;
+      return matchesGroup && matchesSubcategory && matchesModel;
     });
-  }, [activeField, activeModel]);
+  }, [activeGroup, activeModel, activeSubcategory, allPromptItems]);
+  const visibleItems = useMemo(() => filteredItems.slice(0, visibleCount), [filteredItems, visibleCount]);
+  const canLoadMore = visibleCount < filteredItems.length;
+
+  useEffect(() => {
+    setVisibleCount(INSPIRATION_PAGE_SIZE);
+  }, [activeGroup, activeModel, activeSubcategory]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const apiBase = getInspirationApiBaseUrl();
+    const endpoint = `${apiBase}/api/inspiration/references?limit=900`;
+
+    fetch(endpoint, { signal: controller.signal })
+      .then(response => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json() as Promise<{ references?: InspirationReference[]; total?: number; hasMore?: boolean }>;
+      })
+      .then(payload => {
+        const references = Array.isArray(payload.references) ? payload.references : [];
+        setExternalItems(references.map((reference, index) => toPromptItem(reference, index, apiBase)));
+      })
+      .catch(error => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        console.warn("[inspiration] external references failed", error);
+      });
+
+    return () => controller.abort();
+  }, []);
 
   const measureSelectedImage = () => {
     const height = selectedImageRef.current?.getBoundingClientRect().height || 0;
@@ -162,11 +290,23 @@ export default function InspirationPage() {
     promptPanel.scrollTop += event.deltaY;
   };
 
-  const updateFilters = (nextField: string, nextModel = activeModel) => {
-    setActiveField(nextField);
+  const updateFilters = (nextGroup: string, nextSubcategory = ALL_SUBCATEGORIES, nextModel = activeModel) => {
+    setActiveGroup(nextGroup);
+    setActiveSubcategory(nextSubcategory);
     const params = new URLSearchParams();
-    if (nextField !== ALL_FIELDS) params.set("field", nextField);
+    if (nextGroup !== ALL_GROUPS) params.set("group", nextGroup);
+    if (nextSubcategory !== ALL_SUBCATEGORIES) params.set("subcategory", nextSubcategory);
     if (nextModel !== ALL_MODELS) params.set("model", nextModel);
+    const suffix = params.toString();
+    navigate(`/inspiration${suffix ? `?${suffix}` : ""}`);
+  };
+
+  const updateSubcategory = (nextSubcategory: string) => {
+    setActiveSubcategory(nextSubcategory);
+    const params = new URLSearchParams();
+    if (activeGroup !== ALL_GROUPS) params.set("group", activeGroup);
+    if (nextSubcategory !== ALL_SUBCATEGORIES) params.set("subcategory", nextSubcategory);
+    if (activeModel !== ALL_MODELS) params.set("model", activeModel);
     const suffix = params.toString();
     navigate(`/inspiration${suffix ? `?${suffix}` : ""}`);
   };
@@ -174,7 +314,8 @@ export default function InspirationPage() {
   const updateModel = (nextModel: string) => {
     setActiveModel(nextModel);
     const params = new URLSearchParams();
-    if (activeField !== ALL_FIELDS) params.set("field", activeField);
+    if (activeGroup !== ALL_GROUPS) params.set("group", activeGroup);
+    if (activeSubcategory !== ALL_SUBCATEGORIES) params.set("subcategory", activeSubcategory);
     if (nextModel !== ALL_MODELS) params.set("model", nextModel);
     const suffix = params.toString();
     navigate(`/inspiration${suffix ? `?${suffix}` : ""}`);
@@ -214,9 +355,9 @@ export default function InspirationPage() {
 
             <div className="grid grid-cols-3 gap-2">
               {[
-                { icon: ImageIcon, label: "图片案例", value: PROMPT_ITEMS.length },
-                { icon: Tags, label: "分类", value: fields.length - 1 },
-                { icon: Layers, label: "模型", value: models.length - 1 },
+                { icon: ImageIcon, label: "图片案例", value: allPromptItems.length },
+                { icon: Tags, label: "分类", value: Object.values(INSPIRATION_TAXONOMY).flat().length },
+                { icon: Layers, label: "来源", value: allModels.length - 1 },
               ].map((stat) => {
                 const Icon = stat.icon;
                 return (
@@ -233,12 +374,13 @@ export default function InspirationPage() {
           <section className="mb-6 rounded-[var(--radius-lg-design)] p-3.5" style={{ background: panelBg, border: `1px solid ${border}`, backdropFilter: "blur(18px)" }}>
             <div className="flex flex-col gap-3">
               <div className="flex flex-wrap items-center gap-2">
-                {fields.map((field) => {
-                  const active = field === activeField;
+                {allGroups.map((group) => {
+                  const active = group === activeGroup;
+                  const count = group === ALL_GROUPS ? allPromptItems.length : categoryCounts.get(group) || 0;
                   return (
                     <button
-                      key={field}
-                      onClick={() => updateFilters(field)}
+                      key={group}
+                      onClick={() => updateFilters(group)}
                       className="max-w-[168px] shrink-0 truncate whitespace-nowrap rounded-[var(--radius-pill)] px-3.5 py-2 type-caption transition-all active:scale-95"
                       style={{
                         background: active ? activeBg : "transparent",
@@ -246,7 +388,32 @@ export default function InspirationPage() {
                         color: active ? "oklch(0.80 0.17 290)" : sub,
                       }}
                     >
-                      {field}
+                      {group}
+                      <span style={{ opacity: 0.62 }}> {count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {availableSubcategories.map((subcategory) => {
+                  const active = subcategory === activeSubcategory;
+                  const count = subcategory === ALL_SUBCATEGORIES
+                    ? allPromptItems.filter(item => activeGroup === ALL_GROUPS || item.group === activeGroup).length
+                    : categoryCounts.get(subcategory) || 0;
+                  return (
+                    <button
+                      key={subcategory}
+                      onClick={() => updateSubcategory(subcategory)}
+                      className="max-w-[168px] shrink-0 truncate whitespace-nowrap rounded-[var(--radius-pill)] px-3 py-2 type-caption transition-all active:scale-95"
+                      style={{
+                        background: active ? "oklch(0.72 0.18 200 / 0.16)" : "transparent",
+                        border: `1px solid ${active ? "oklch(0.72 0.18 200 / 0.38)" : border}`,
+                        color: active ? "oklch(0.80 0.13 200)" : sub,
+                      }}
+                    >
+                      {subcategory}
+                      <span style={{ opacity: 0.62 }}> {count}</span>
                     </button>
                   );
                 })}
@@ -254,7 +421,7 @@ export default function InspirationPage() {
 
               <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex flex-wrap items-center gap-2">
-                  {models.map((model) => {
+                  {allModels.map((model) => {
                     const active = model === activeModel;
                     return (
                     <button
@@ -279,16 +446,23 @@ export default function InspirationPage() {
 
           <div className="mb-4 flex items-center justify-between gap-4">
             <p className="type-caption" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>
-              当前显示 {filteredItems.length} / {PROMPT_ITEMS.length} 组
+              当前显示 {visibleItems.length} / {filteredItems.length} 组
             </p>
           </div>
 
           <section className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}>
-            {filteredItems.map((item) => (
-              <button
+            {visibleItems.map((item) => (
+              <article
                 key={`${item.rank}-${item.title}`}
                 onClick={() => setSelectedItem(item)}
-                className="group overflow-hidden rounded-[var(--radius-lg-design)] text-left transition-all"
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  setSelectedItem(item);
+                }}
+                role="button"
+                tabIndex={0}
+                className="group cursor-pointer overflow-hidden rounded-[var(--radius-lg-design)] text-left transition-all"
                 style={{ background: cardBg, border: `1px solid ${border}`, boxShadow: shadow }}
               >
                 <div className="relative overflow-hidden bg-[#222222]" style={{ aspectRatio: "16 / 10" }}>
@@ -308,7 +482,7 @@ export default function InspirationPage() {
                   </div>
                   <div className="absolute inset-x-0 top-0 flex min-w-0 items-center justify-between gap-2 p-3" style={{ zIndex: 2 }}>
                     <span className="shrink-0 rounded-[var(--radius-pill)] px-2.5 py-1 type-caption whitespace-nowrap" style={{ background: "oklch(0 0 0 / 0.48)", color: "white", backdropFilter: "blur(10px)", letterSpacing: 0, textTransform: "none" }}>
-                      #{item.rank}
+                      {item.isExternal ? item.sourceSite : `#${item.rank}`}
                     </span>
                   </div>
                 </div>
@@ -342,15 +516,58 @@ export default function InspirationPage() {
                   >
                     {item.prompt}
                   </p>
-                  <div className="mt-auto pt-4">
+                  <div className="mt-auto flex items-center justify-between gap-3 pt-4">
                     <span className="type-caption" style={{ color: isDark ? "oklch(0.78 0.14 290)" : "oklch(0.52 0.17 290)", letterSpacing: 0, textTransform: "none" }}>
                       点击查看完整提示词
                     </span>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        copyPrompt(item.prompt);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        copyPrompt(item.prompt);
+                      }}
+                      className="shrink-0 rounded-[var(--radius-pill)] px-2.5 py-1 type-caption transition-all hover:scale-105 active:scale-95"
+                      style={{ background: isDark ? "oklch(1 0 0 / 0.08)" : "oklch(0 0 0 / 0.05)", border: `1px solid ${border}`, color: text, letterSpacing: 0, textTransform: "none" }}
+                    >
+                      复制提示词
+                    </button>
                   </div>
                 </div>
-              </button>
+              </article>
             ))}
           </section>
+          {filteredItems.length === 0 && (
+            <section className="rounded-[var(--radius-lg-design)] p-8 text-center" style={{ background: panelBg, border: `1px solid ${border}` }}>
+              <p className="type-body-sm" style={{ color: text, fontWeight: 720 }}>当前分类暂无图片和提示词</p>
+              <p className="type-caption mt-2" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>
+                后续导入该分类的公开链接数据后，这里会自动显示对应图片、提示词和来源。
+              </p>
+            </section>
+          )}
+          {canLoadMore && (
+            <div className="flex justify-center pt-6">
+              <button
+                type="button"
+                onClick={() => setVisibleCount(count => Math.min(count + INSPIRATION_PAGE_SIZE, filteredItems.length))}
+                className="rounded-[var(--radius-pill)] px-5 py-2.5 type-caption transition-all hover:scale-[1.02] active:scale-95"
+                style={{
+                  background: activeBg,
+                  border: "1px solid oklch(0.62 0.22 290 / 0.42)",
+                  color: "oklch(0.84 0.14 290)",
+                  letterSpacing: 0,
+                  textTransform: "none",
+                }}
+              >
+                加载更多
+              </button>
+            </div>
+          )}
         </main>
       </div>
 
@@ -387,6 +604,11 @@ export default function InspirationPage() {
                   <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: activeBg, color: "oklch(0.80 0.17 290)", letterSpacing: 0, textTransform: "none" }}>
                     {selectedItem.field}
                   </span>
+                  {selectedItem.sourceSite && (
+                    <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: isDark ? "oklch(1 0 0 / 0.08)" : "oklch(0 0 0 / 0.05)", color: sub, letterSpacing: 0, textTransform: "none" }}>
+                      {selectedItem.sourceSite}
+                    </span>
+                  )}
                 </div>
                 <h2 className="type-body-sm leading-6" style={{ color: text, fontWeight: 760 }}>{selectedItem.title}</h2>
               </div>
@@ -426,11 +648,27 @@ export default function InspirationPage() {
                 }}
               >
                 <p className="type-caption leading-5" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>{selectedItem.description}</p>
+                {selectedItem.sourceUrl && (
+                  <a
+                    href={selectedItem.sourceUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-3 inline-flex type-caption"
+                    style={{ color: "oklch(0.78 0.14 290)", letterSpacing: 0, textTransform: "none" }}
+                  >
+                    查看来源
+                  </a>
+                )}
                 <div className="mt-4 rounded-[var(--radius-md-design)] p-4" style={{ background: isDark ? "#222222" : "oklch(0 0 0 / 0.035)", border: `1px solid ${border}` }}>
                   <p className="whitespace-pre-wrap type-caption leading-6" style={{ color: text, letterSpacing: 0, textTransform: "none" }}>
                     {selectedItem.prompt}
                   </p>
                 </div>
+                {selectedItem.licenseNote && (
+                  <p className="mt-3 type-caption leading-5" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>
+                    {selectedItem.licenseNote}
+                  </p>
+                )}
               </div>
             </div>
           </section>

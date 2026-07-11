@@ -6,6 +6,7 @@ import "./env";
 import { AIOrchestrator } from "./ai-orchestrator";
 import { createBrandKit, deleteBrandKit, getBrandKit, listBrandKits, parseBrandKitFromImage } from "./brand-kit";
 import { createProductBackground, editImageWithPrompt, enhanceImage, eraseImageObjects, expandImageWithPicWish, extractImageText, generateImages, removeImageBackground, removeImageWatermark } from "./image-generation";
+import { getInspirationReferences } from "./inspiration-references";
 import { cleanupExpiredUploads, getUploadRetentionDays, getUploadsRoot, storeGeneratedImagesForUser } from "./local-image-storage";
 import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
@@ -1005,6 +1006,15 @@ async function startServer() {
       const message = error instanceof Error ? error.message : "Reference search failed";
       res.status(500).json({ error: message });
     }
+  });
+
+  app.get("/api/inspiration/references", (req, res) => {
+    const group = typeof req.query.group === "string" ? req.query.group : undefined;
+    const subcategory = typeof req.query.subcategory === "string" ? req.query.subcategory : undefined;
+    const sourceSite = typeof req.query.sourceSite === "string" ? req.query.sourceSite : undefined;
+    const limit = typeof req.query.limit === "string" ? Number(req.query.limit) : undefined;
+    const offset = typeof req.query.offset === "string" ? Number(req.query.offset) : undefined;
+    res.json(getInspirationReferences({ group, subcategory, sourceSite, limit, offset }));
   });
 
   app.post("/api/ai/orchestrate", async (req, res) => {
