@@ -572,6 +572,19 @@ function vitePluginDeveloperApi(): Plugin {
   };
 }
 
+function vitePluginMoveBuiltEntryScriptToBody(): Plugin {
+  return {
+    name: "artx-move-built-entry-script-to-body",
+    enforce: "post",
+    transformIndexHtml(html) {
+      const entryScriptPattern = /\n?\s*<script type="module" crossorigin src="\/assets\/index-[^"]+\.js"><\/script>/;
+      const entryScript = html.match(entryScriptPattern)?.[0]?.trim();
+      if (!entryScript || html.includes(`<body>\n    <div id="root"></div>\n    ${entryScript}`)) return html;
+      return html.replace(entryScriptPattern, "").replace("</body>", `    ${entryScript}\n  </body>`);
+    },
+  };
+}
+
 const enableManusRuntime = process.env.NODE_ENV !== "production" && process.env.DISABLE_MANUS_RUNTIME !== "1";
 
 const plugins = [
@@ -579,6 +592,7 @@ const plugins = [
   tailwindcss(),
   jsxLocPlugin(),
   enableManusRuntime ? vitePluginManusRuntime() : null,
+  vitePluginMoveBuiltEntryScriptToBody(),
   vitePluginManusDebugCollector(),
   vitePluginStorageProxy(),
   vitePluginAuthApi(),
