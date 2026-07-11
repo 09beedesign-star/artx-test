@@ -572,11 +572,13 @@ function vitePluginDeveloperApi(): Plugin {
   };
 }
 
+const enableManusRuntime = process.env.NODE_ENV !== "production" && process.env.DISABLE_MANUS_RUNTIME !== "1";
+
 const plugins = [
   react(),
   tailwindcss(),
   jsxLocPlugin(),
-  vitePluginManusRuntime(),
+  enableManusRuntime ? vitePluginManusRuntime() : null,
   vitePluginManusDebugCollector(),
   vitePluginStorageProxy(),
   vitePluginAuthApi(),
