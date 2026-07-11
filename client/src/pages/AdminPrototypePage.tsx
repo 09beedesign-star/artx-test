@@ -432,6 +432,7 @@ function normalizeAdminPayload(payload: AdminPayload) {
 }
 
 type AdminState = ReturnType<typeof normalizeAdminPayload>;
+type CreditAdjustmentFeedback = { tone: "success" | "error"; message: string };
 
 function AdminPrototypePage() {
   const { user, changePassword, logout } = useAuth();
@@ -442,6 +443,7 @@ function AdminPrototypePage() {
   const [statusFilter, setStatusFilter] = useState<"all" | Status>("all");
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [creditDelta, setCreditDelta] = useState(500);
+  const [creditAdjustmentFeedback, setCreditAdjustmentFeedback] = useState<CreditAdjustmentFeedback | null>(null);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("正在连接后台数据接口：/api/admin/overview。");
   const [policyDraft, setPolicyDraft] = useState<Array<{ capability: string; capabilityKey?: string; unit: string; baseCredits: number; estimatedCostPerUnit: number; provider: string }>>([]);
@@ -529,6 +531,12 @@ function AdminPrototypePage() {
       fetchAccountDetail(selectedUserId);
     }
   }, [accountDrawerOpen, fetchAccountDetail, selectedUserId]);
+
+  useEffect(() => {
+    if (!creditAdjustmentFeedback) return;
+    const timeout = window.setTimeout(() => setCreditAdjustmentFeedback(null), 7000);
+    return () => window.clearTimeout(timeout);
+  }, [creditAdjustmentFeedback]);
 
   async function adminPost(
     path: string,
@@ -662,8 +670,10 @@ function AdminPrototypePage() {
       confirmHighRisk: Math.abs(delta) >= 10000,
     }, successMessage, () => {
       toast.success(successMessage);
+      setCreditAdjustmentFeedback({ tone: "success", message: successMessage });
     }, (message) => {
       toast.error("积分调整失败", { description: message });
+      setCreditAdjustmentFeedback({ tone: "error", message: `积分调整失败：${message}` });
     });
   }
 
@@ -1052,6 +1062,30 @@ function AdminPrototypePage() {
           </div>
         </main>
       </div>
+      {creditAdjustmentFeedback && (
+        <div className="fixed inset-x-4 top-4 z-[70] flex justify-center" role="status" aria-live="polite">
+          <div className={cn(
+            "flex w-full max-w-xl items-start gap-3 rounded-md border px-4 py-3 shadow-2xl shadow-black/50",
+            creditAdjustmentFeedback.tone === "success"
+              ? "border-emerald-300/45 bg-emerald-950 text-emerald-50"
+              : "border-rose-300/45 bg-rose-950 text-rose-50",
+          )}>
+            {creditAdjustmentFeedback.tone === "success" ? <Check className="mt-0.5 size-5 shrink-0" /> : <AlertTriangle className="mt-0.5 size-5 shrink-0" />}
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold">积分调整结果</div>
+              <div className="mt-1 break-words text-sm">{creditAdjustmentFeedback.message}</div>
+            </div>
+            <button
+              type="button"
+              className="shrink-0 rounded p-1 hover:bg-white/10"
+              onClick={() => setCreditAdjustmentFeedback(null)}
+              aria-label="关闭积分调整结果提示"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+        </div>
+      )}
       <AccountDetailDrawer
         open={accountDrawerOpen}
         detail={accountDetail}
@@ -2136,6 +2170,41 @@ function AccountDetailDrawer({
                 empty="该账户暂无订单"
               />
 
+              {selectedOrder && (
+                <section className="rounded-md border border-cyan-300/20 bg-cyan-300/[0.045] p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-cyan-50">订单备注</h3>
+                      <p className="mt-1 font-mono text-xs text-cyan-100/70">当前订单：{selectedOrder.id}</p>
+                    </div>
+                    <Button variant="outline" className="border-cyan-300/30 bg-cyan-300/10 text-cyan-50 hover:bg-cyan-300/20" onClick={onAddNote} disabled={!note.trim()}>
+                      保存备注
+                    </Button>
+                  </div>
+                  <Input
+                    value={note}
+                    onChange={(event) => onNoteChange(event.target.value)}
+                    placeholder="为当前订单添加备注"
+                    className="mt-3 border-white/12 bg-slate-950/40"
+                  />
+                  <div className="mt-3 border-t border-cyan-300/15 pt-3">
+                    <div className="text-xs font-medium text-cyan-100">当前订单已保存备注</div>
+                    {selectedOrderNotes.length ? (
+                      <div className="mt-2 space-y-2">
+                        {selectedOrderNotes.map((item) => (
+                          <div key={item.id} className="rounded-md border border-white/8 bg-slate-950/30 px-3 py-2 text-xs">
+                            <div className="break-words text-slate-200">{item.content}</div>
+                            <div className="mt-1 text-slate-500">{item.actorName} · {item.createdAt}</div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="mt-2 text-xs text-slate-500">当前订单尚无已保存备注。</div>
+                    )}
+                  </div>
+                </section>
+              )}
+
               {selectedOrder ? (
                 <div className="rounded-md border border-cyan-300/20 bg-cyan-300/[0.045] p-4">
                   <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -2167,37 +2236,13 @@ function AccountDetailDrawer({
                     <InfoLine label="实发积分" value={formatCredits(selectedOrder.issuedCredits || 0)} />
                     <InfoLine label="退款/扣回" value={`${formatCurrency(selectedOrder.refundAmount || 0)} / ${formatCredits(selectedOrder.refundedCredits || 0)} 积分`} />
                   </div>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                    <Button variant="outline" className="border-white/15 bg-white/5" onClick={onAddNote} disabled={!note.trim()}>
-                      保存备注
-                    </Button>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
                     <Button variant="outline" className="border-amber-300/30 bg-amber-300/10 text-amber-100" onClick={onReissue} disabled={selectedOrder.status === "paid"}>
                       人工补单
                     </Button>
                     <Button variant="outline" className="border-rose-300/30 bg-rose-300/10 text-rose-100" onClick={onRefund} disabled={selectedOrder.status !== "paid"}>
                       标记退款
                     </Button>
-                  </div>
-                  <Input
-                    value={note}
-                    onChange={(event) => onNoteChange(event.target.value)}
-                    placeholder="记录处理备注"
-                    className="mt-3 border-white/12 bg-slate-950/40"
-                  />
-                  <div className="mt-3 border-t border-cyan-300/15 pt-3">
-                    <div className="text-xs font-medium text-cyan-100">本订单已保存备注</div>
-                    {selectedOrderNotes.length ? (
-                      <div className="mt-2 space-y-2">
-                        {selectedOrderNotes.map((item) => (
-                          <div key={item.id} className="rounded-md border border-white/8 bg-slate-950/30 px-3 py-2 text-xs">
-                            <div className="break-words text-slate-200">{item.content}</div>
-                            <div className="mt-1 text-slate-500">{item.actorName} · {item.createdAt}</div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="mt-2 text-xs text-slate-500">当前订单尚无已保存备注。</div>
-                    )}
                   </div>
                 </div>
               ) : (
