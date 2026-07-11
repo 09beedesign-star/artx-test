@@ -47,6 +47,7 @@ type NotificationOrder = {
   event?: string;
   reconciliation?: "matched" | "pending" | "mismatch";
   notificationReadAt?: string;
+  notificationDismissedAt?: string;
 };
 
 type NotificationAlert = {
@@ -59,6 +60,7 @@ type NotificationAlert = {
   owner: string;
   unread: boolean;
   linkedSection?: AdminNotificationSection;
+  notificationDismissedAt?: string;
 };
 
 type NotificationFeedback = {
@@ -79,6 +81,7 @@ type NotificationFeedback = {
     size?: number;
   }>;
   notificationReadAt?: string;
+  notificationDismissedAt?: string;
 };
 
 type NotificationRiskEvent = {
@@ -90,6 +93,7 @@ type NotificationRiskEvent = {
   target: string;
   createdAt: string;
   notificationReadAt?: string;
+  notificationDismissedAt?: string;
 };
 
 export type AdminNotificationInput = {
@@ -152,6 +156,7 @@ function riskSeverity(severity: NotificationRiskEvent["severity"]): AlertSeverit
 
 export function buildAdminNotifications(input: AdminNotificationInput): AdminNotificationGroups {
   const order = input.orders
+    .filter((item) => !item.notificationDismissedAt)
     .map((item): AdminNotificationItem => ({
       id: `order:${item.id}`,
       tab: "order",
@@ -165,7 +170,9 @@ export function buildAdminNotifications(input: AdminNotificationInput): AdminNot
       targetId: item.id,
     }));
 
-  const alertMessages = input.alerts.map((item): AdminNotificationItem => ({
+  const alertMessages = input.alerts
+    .filter((item) => !item.notificationDismissedAt)
+    .map((item): AdminNotificationItem => ({
     id: `alert:${item.id}`,
     tab: "security",
     label: item.category === "支付" ? "订单类" : "安全类",
@@ -175,7 +182,7 @@ export function buildAdminNotifications(input: AdminNotificationInput): AdminNot
     severity: item.severity,
     unread: item.unread,
     targetSection: item.linkedSection || (item.category === "支付" ? "orders" : "risk"),
-  }));
+    }));
 
   for (const alert of alertMessages) {
     if (alert.label === "订单类") {
@@ -186,7 +193,7 @@ export function buildAdminNotifications(input: AdminNotificationInput): AdminNot
   const security = [
     ...alertMessages.filter((item) => item.label !== "订单类").map((item) => ({ ...item, label: "安全类" })),
     ...input.riskEvents
-      .filter((item) => item.status !== "mitigated")
+      .filter((item) => item.status !== "mitigated" && !item.notificationDismissedAt)
       .map((item): AdminNotificationItem => ({
         id: `risk:${item.id}`,
         tab: "security",
@@ -202,7 +209,7 @@ export function buildAdminNotifications(input: AdminNotificationInput): AdminNot
   ];
 
   const voice = input.feedback
-    .filter((item) => feedbackUnread(item))
+    .filter((item) => feedbackUnread(item) && !item.notificationDismissedAt)
     .map((item): AdminNotificationItem => ({
       id: `feedback:${item.id}`,
       tab: "voice",

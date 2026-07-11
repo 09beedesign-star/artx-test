@@ -102,6 +102,7 @@ type Order = {
   refundAmount?: number;
   refundedCredits?: number;
   notificationReadAt?: string;
+  notificationDismissedAt?: string;
 };
 
 type AccountDetail = {
@@ -128,6 +129,7 @@ type Feedback = {
   linkedOrderId?: string;
   attachments?: Array<{ name: string; src: string; width?: number; height?: number; mimeType?: string; size?: number }>;
   notificationReadAt?: string;
+  notificationDismissedAt?: string;
 };
 
 type OpsAlert = {
@@ -140,6 +142,7 @@ type OpsAlert = {
   owner: string;
   unread: boolean;
   linkedSection?: AdminSection;
+  notificationDismissedAt?: string;
 };
 
 type CreditEvent = {
@@ -197,6 +200,7 @@ type RiskEvent = {
   target: string;
   createdAt: string;
   notificationReadAt?: string;
+  notificationDismissedAt?: string;
   handledBy?: string;
   handledAt?: string;
   resolution?: string;
@@ -532,12 +536,6 @@ function AdminPrototypePage() {
     }
   }, [accountDrawerOpen, fetchAccountDetail, selectedUserId]);
 
-  useEffect(() => {
-    if (!creditAdjustmentFeedback) return;
-    const timeout = window.setTimeout(() => setCreditAdjustmentFeedback(null), 7000);
-    return () => window.clearTimeout(timeout);
-  }, [creditAdjustmentFeedback]);
-
   async function adminPost(
     path: string,
     payload: Record<string, unknown>,
@@ -632,7 +630,7 @@ function AdminPrototypePage() {
   }), [adminData.alerts, adminData.feedback, adminData.orders, adminData.riskEvents]);
   const notificationItems = Object.values(notificationGroups).flat();
   const unreadAlerts = notificationItems.filter((item) => item.unread).length;
-  const urgentAlerts = notificationItems.filter((item) => item.severity === "critical").length;
+  const urgentAlerts = notificationItems.filter((item) => item.severity === "critical" && item.unread).length;
 
   const filteredUsers = useMemo(() => {
     return adminData.users.filter((user) => {
@@ -706,10 +704,6 @@ function AdminPrototypePage() {
     setNotice("密码已更新，当前登录会话已自动换发。");
   }
 
-  function handleMarkAlertRead(id: string) {
-    adminPost(`/api/admin/alerts/${id}/read`, {}, "消息已标记处理，并保留在通知中心供追踪。");
-  }
-
   function handleMarkAllAlertsRead() {
     adminPost("/api/admin/alerts/read-all", {}, "所有消息已标记为已读，未读气泡已清除。");
   }
@@ -722,6 +716,7 @@ function AdminPrototypePage() {
   }
 
   function handleNotificationJump(item: AdminNotificationItem) {
+    handleMarkNotificationRead(item);
     setAlertsOpen(false);
     if (item.targetSection === "orders" && item.targetId) {
       handleSelectOrder(item.targetId);
@@ -732,8 +727,16 @@ function AdminPrototypePage() {
   }
 
   function handleMarkNotificationRead(item: AdminNotificationItem) {
-    if (!item.id.startsWith("alert:")) return;
-    handleMarkAlertRead(item.id.replace(/^alert:/, ""));
+    if (!item.unread) return;
+    const [kind, id] = item.id.split(":", 2);
+    if (!id || !["order", "alert", "feedback", "risk"].includes(kind)) return;
+    adminPost(`/api/admin/notifications/${kind}/${encodeURIComponent(id)}/read`, {}, "消息已标记为已读。");
+  }
+
+  function handleDismissNotification(item: AdminNotificationItem) {
+    const [kind, id] = item.id.split(":", 2);
+    if (!id || !["order", "alert", "feedback", "risk"].includes(kind)) return;
+    adminPost(`/api/admin/notifications/${kind}/${encodeURIComponent(id)}/dismiss`, {}, "紧急消息警报已解除，原始业务记录仍保留在后台。 ");
   }
 
   function handlePolicyDraftChange(index: number, key: "baseCredits" | "estimatedCostPerUnit", value: string) {
@@ -938,6 +941,7 @@ function AdminPrototypePage() {
                   onMarkRead={handleMarkNotificationRead}
                   onMarkAllRead={handleMarkAllAlertsRead}
                   onJumpTo={handleNotificationJump}
+                  onDismissNotification={handleDismissNotification}
                 />
                 <Button
                   variant="outline"
@@ -1063,26 +1067,32 @@ function AdminPrototypePage() {
         </main>
       </div>
       {creditAdjustmentFeedback && (
-        <div className="fixed inset-x-4 top-4 z-[70] flex justify-center" role="status" aria-live="polite">
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/55 p-4" role="dialog" aria-modal="true" aria-labelledby="credit-adjustment-feedback-title">
           <div className={cn(
-            "flex w-full max-w-xl items-start gap-3 rounded-md border px-4 py-3 shadow-2xl shadow-black/50",
+            "w-full max-w-md rounded-md border p-5 shadow-2xl shadow-black/50",
             creditAdjustmentFeedback.tone === "success"
               ? "border-emerald-300/45 bg-emerald-950 text-emerald-50"
               : "border-rose-300/45 bg-rose-950 text-rose-50",
           )}>
-            {creditAdjustmentFeedback.tone === "success" ? <Check className="mt-0.5 size-5 shrink-0" /> : <AlertTriangle className="mt-0.5 size-5 shrink-0" />}
-            <div className="min-w-0 flex-1">
-              <div className="text-sm font-semibold">积分调整结果</div>
-              <div className="mt-1 break-words text-sm">{creditAdjustmentFeedback.message}</div>
+            <div className="flex items-start gap-3">
+              {creditAdjustmentFeedback.tone === "success" ? <Check className="mt-0.5 size-5 shrink-0" /> : <AlertTriangle className="mt-0.5 size-5 shrink-0" />}
+              <div className="min-w-0 flex-1">
+                <div id="credit-adjustment-feedback-title" className="text-base font-semibold">积分调整完成</div>
+                <div className="mt-2 break-words text-sm leading-6">{creditAdjustmentFeedback.message}</div>
+              </div>
             </div>
-            <button
+            <Button
               type="button"
-              className="shrink-0 rounded p-1 hover:bg-white/10"
+              className={cn(
+                "mt-5 w-full",
+                creditAdjustmentFeedback.tone === "success"
+                  ? "bg-emerald-200 text-emerald-950 hover:bg-emerald-100"
+                  : "bg-rose-200 text-rose-950 hover:bg-rose-100",
+              )}
               onClick={() => setCreditAdjustmentFeedback(null)}
-              aria-label="关闭积分调整结果提示"
             >
-              <X className="size-4" />
-            </button>
+              确定
+            </Button>
           </div>
         </div>
       )}
@@ -1678,6 +1688,7 @@ function NotificationCenter({
   onMarkRead,
   onMarkAllRead,
   onJumpTo,
+  onDismissNotification,
 }: {
   groups: AdminNotificationGroups;
   open: boolean;
@@ -1687,9 +1698,15 @@ function NotificationCenter({
   onMarkRead: (item: AdminNotificationItem) => void;
   onMarkAllRead: () => void;
   onJumpTo: (item: AdminNotificationItem) => void;
+  onDismissNotification: (item: AdminNotificationItem) => void;
 }) {
-  const [activeTab, setActiveTab] = useState<AdminNotificationTab>("order");
-  const activeItems = groups[activeTab] || [];
+  const [activeView, setActiveView] = useState<AdminNotificationTab | "all" | "urgent">("all");
+  const allItems = Object.values(groups).flat()
+    .sort((left, right) => right.time.localeCompare(left.time));
+  const urgentItems = allItems
+    .filter((item) => item.severity === "critical" && item.unread)
+    .sort((left, right) => right.time.localeCompare(left.time));
+  const activeItems = activeView === "all" ? allItems : activeView === "urgent" ? urgentItems : groups[activeView] || [];
   const totalCount = notificationTabs.reduce((sum, tab) => sum + (groups[tab.id]?.length || 0), 0);
 
   return (
@@ -1729,9 +1746,13 @@ function NotificationCenter({
                   聚合订单、网络安全告警和用户反馈，点击文字链进入对应详情。
                 </p>
               </div>
-              <Badge className={urgentCount > 0 ? statusClass("P0") : statusClass("normal")}>
-                {urgentCount} 个紧急
-              </Badge>
+              <button
+                type="button"
+                className={cn("rounded-md border px-2 py-1 text-xs font-medium", urgentCount > 0 ? statusClass("P0") : statusClass("normal"))}
+                onClick={() => setActiveView("urgent")}
+              >
+                紧急类 {urgentCount}
+              </button>
             </div>
             <div className="mt-3 flex items-center justify-between">
               <span className="text-xs text-slate-500">{totalCount} 条消息 · {unreadCount} 条待处理</span>
@@ -1742,11 +1763,23 @@ function NotificationCenter({
                 全部已读
               </button>
             </div>
-            <div className="mt-4 grid grid-cols-3 gap-2">
+            <div className="mt-4 grid grid-cols-4 gap-2">
+              <button
+                className={cn(
+                  "flex min-w-0 items-center justify-center gap-1.5 rounded-md border px-2 py-2 text-xs font-medium transition",
+                  activeView === "all"
+                    ? "border-cyan-300 bg-cyan-300 text-slate-950"
+                    : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10"
+                )}
+                onClick={() => setActiveView("all")}
+              >
+                全部
+                <span className={cn("rounded px-1", activeView === "all" ? "bg-slate-950/15" : "bg-white/8")}>{totalCount}</span>
+              </button>
               {notificationTabs.map((tab) => {
                 const Icon = tab.icon;
                 const count = groups[tab.id]?.length || 0;
-                const isActive = tab.id === activeTab;
+                const isActive = activeView === tab.id;
                 return (
                   <button
                     key={tab.id}
@@ -1756,7 +1789,7 @@ function NotificationCenter({
                         ? "border-cyan-300 bg-cyan-300 text-slate-950"
                         : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10"
                     )}
-                    onClick={() => setActiveTab(tab.id)}
+                    onClick={() => setActiveView(tab.id)}
                   >
                     <Icon className="size-3.5 shrink-0" />
                     <span className="truncate">{tab.label}</span>
@@ -1841,6 +1874,14 @@ function NotificationCenter({
                             标记处理
                           </button>
                         )}
+                        {item.severity === "critical" && (
+                          <button
+                            className="rounded-md border border-rose-300/35 bg-rose-300/10 px-2 py-1 text-xs font-medium text-rose-100 hover:bg-rose-300/20"
+                            onClick={() => onDismissNotification(item)}
+                          >
+                            解除警报
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1848,7 +1889,7 @@ function NotificationCenter({
               ))
             ) : (
               <div className="p-4 text-sm text-slate-500">
-                {notificationTabs.find((tab) => tab.id === activeTab)?.empty || "暂无消息"}
+                {activeView === "urgent" ? "暂无紧急消息" : activeView === "all" ? "暂无消息" : notificationTabs.find((tab) => tab.id === activeView)?.empty || "暂无消息"}
               </div>
             )}
           </div>
@@ -2104,6 +2145,8 @@ function AccountDetailDrawer({
 }) {
   const user = detail?.user || fallbackUser;
   const selectedOrder = detail?.orders.find((order) => order.id === selectedOrderId) || detail?.orders[0];
+  const [ordersExpanded, setOrdersExpanded] = useState(true);
+  const [paymentEventsExpanded, setPaymentEventsExpanded] = useState(true);
   const selectedOrderNotes = selectedOrder
     ? (detail?.notes || []).filter((item) => item.orderId === selectedOrder.id).slice(0, 3)
     : [];
@@ -2159,16 +2202,6 @@ function AccountDetailDrawer({
                   </Button>
                 </div>
               </div>
-
-              <MiniSection
-                title="账户订单"
-                rows={(detail?.orders || []).map((order) => ({
-                  title: `${order.packageName || "订单"} · ${statusLabel(order.status)}`,
-                  meta: `${order.id} · ${order.channel} · 下单：${formatExactOrderTime(order.createdAt, "未提供精确时间")} · 支付：${formatExactOrderTime(order.paidAt)}`,
-                  value: formatCurrency(order.amount),
-                }))}
-                empty="该账户暂无订单"
-              />
 
               {selectedOrder && (
                 <section className="rounded-md border border-cyan-300/20 bg-cyan-300/[0.045] p-4">
@@ -2250,6 +2283,20 @@ function AccountDetailDrawer({
               )}
 
               <MiniSection
+                title="账户订单"
+                rows={(detail?.orders || []).map((order) => ({
+                  title: `${order.packageName || "订单"} · ${statusLabel(order.status)}`,
+                  meta: `${order.id} · ${order.channel} · 下单：${formatExactOrderTime(order.createdAt, "未提供精确时间")} · 支付：${formatExactOrderTime(order.paidAt)}`,
+                  value: formatCurrency(order.amount),
+                }))}
+                empty="该账户暂无订单"
+                expanded={ordersExpanded}
+                onToggle={() => setOrdersExpanded((current) => !current)}
+                collapseLabel="收起订单"
+                expandLabel="展开订单"
+              />
+
+              <MiniSection
                 title="支付事件"
                 rows={(detail?.paymentEvents || []).map((item) => ({
                   title: `${item.orderId} · ${item.type} · ${item.status}`,
@@ -2257,6 +2304,10 @@ function AccountDetailDrawer({
                   value: item.providerTransactionId || "N/A",
                 }))}
                 empty="该账户暂无第三方支付事件"
+                expanded={paymentEventsExpanded}
+                onToggle={() => setPaymentEventsExpanded((current) => !current)}
+                collapseLabel="收起支付流"
+                expandLabel="展开支付流"
               />
               <MiniSection
                 title="积分流水"
@@ -2308,15 +2359,34 @@ function MiniSection({
   title,
   rows,
   empty,
+  expanded = true,
+  onToggle,
+  collapseLabel,
+  expandLabel,
 }: {
   title: string;
   rows: Array<{ title: string; meta: string; value: string }>;
   empty: string;
+  expanded?: boolean;
+  onToggle?: () => void;
+  collapseLabel?: string;
+  expandLabel?: string;
 }) {
   return (
     <div className="min-w-0 rounded-md border border-white/8 bg-slate-950/25 p-3">
-      <div className="mb-2 text-sm font-medium">{title}</div>
-      {rows.length ? (
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="text-sm font-medium">{title}</div>
+        {onToggle && collapseLabel && expandLabel && (
+          <button
+            type="button"
+            className="text-xs text-cyan-200 hover:text-cyan-100"
+            onClick={onToggle}
+          >
+            {expanded ? collapseLabel : expandLabel}
+          </button>
+        )}
+      </div>
+      {expanded && (rows.length ? (
         <div className="space-y-2">
           {rows.map((row, index) => (
             <div key={`${row.title}-${index}`} className="grid min-w-0 gap-2 rounded-md bg-white/[0.03] p-2 text-xs lg:grid-cols-[minmax(0,1fr)_auto] 2xl:grid-cols-1 min-[1680px]:grid-cols-[minmax(0,1fr)_auto]">
@@ -2330,7 +2400,7 @@ function MiniSection({
         </div>
       ) : (
         <div className="text-xs text-slate-500">{empty}</div>
-      )}
+      ))}
     </div>
   );
 }
@@ -2433,27 +2503,33 @@ function RiskEventList({
         <p className="mt-1 text-sm text-slate-400">优先处理支付异常、退款异常、攻击告警和系统安全事件；普通记录不显示待处置标签。</p>
       </div>
       {events.map((event) => {
-        const isHighRisk = event.severity === "high";
         const type = classifyHighRiskType(event);
-        const stateLabel = event.status === "reviewing" ? "处理中" : event.status === "mitigated" ? "已缓解" : "待处置";
+        const typeClass = type === "金额异常"
+          ? "border-amber-300/35 bg-amber-300/12 text-amber-100"
+          : type === "攻击告警"
+            ? "border-rose-300/35 bg-rose-300/12 text-rose-100"
+            : type === "支付异常"
+              ? "border-cyan-300/35 bg-cyan-300/12 text-cyan-100"
+              : type === "退款异常"
+                ? "border-pink-300/35 bg-pink-300/12 text-pink-100"
+                : "border-slate-300/35 bg-slate-300/12 text-slate-100";
+        const stateLabel = event.status === "reviewing" ? "处理中" : event.status === "mitigated" ? event.resolution === "已忽略" ? "已忽略" : "已处理" : "待处置";
         return (
           <article
             key={event.id}
             className={cn(
               "min-w-0 rounded-md border p-4",
-              isHighRisk ? "border-rose-400/30 bg-rose-400/[0.055]" : "border-white/10 bg-white/[0.035]"
+              event.severity === "high" ? "border-rose-400/30 bg-rose-400/[0.055]" : "border-white/10 bg-white/[0.035]"
             )}
           >
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
-                {isHighRisk && (
-                  <div className="mb-2 flex flex-wrap items-center gap-2">
-                    <Badge className="border-rose-300/35 bg-rose-300/12 text-rose-100">{type}</Badge>
-                    <Badge className={event.status === "mitigated" ? statusClass("mitigated") : event.status === "reviewing" ? statusClass("reviewing") : statusClass("P0")}>
-                      {stateLabel}
-                    </Badge>
-                  </div>
-                )}
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <Badge className={typeClass}>{type}</Badge>
+                  <Badge className={event.status === "mitigated" ? statusClass("mitigated") : event.status === "reviewing" ? statusClass("reviewing") : statusClass("P0")}>
+                    {stateLabel}
+                  </Badge>
+                </div>
                 <h3 className="break-words text-sm font-semibold text-slate-100">{event.title}</h3>
                 <p className="mt-2 break-words text-sm leading-6 text-slate-400">{event.detail}</p>
                 <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
@@ -2465,19 +2541,14 @@ function RiskEventList({
                   <div className="mt-3 text-xs text-emerald-200">处理结果：{event.resolution}{event.handledAt ? ` · ${event.handledAt}` : ""}</div>
                 )}
               </div>
-              {isHighRisk && event.status !== "mitigated" && (
-                <div className="flex shrink-0 flex-wrap gap-2">
-                  {event.status === "open" && (
-                    <Button variant="outline" size="sm" className="border-amber-300/30 bg-amber-300/10 text-amber-100" onClick={() => onUpdateStatus(event.id, "reviewing", "正在处理")}>
-                      开始处理
-                    </Button>
-                  )}
-                  <Button variant="outline" size="sm" className="border-emerald-300/30 bg-emerald-300/10 text-emerald-100" onClick={() => onUpdateStatus(event.id, "mitigated", "已处理并缓解")}>
-                    标记已缓解
-                  </Button>
-                  <Button variant="outline" size="sm" className="border-white/12 bg-white/5 text-slate-200" onClick={() => onUpdateStatus(event.id, "mitigated", "误报关闭")}>
-                    误报关闭
-                  </Button>
+               {event.status !== "mitigated" && (
+                 <div className="flex shrink-0 flex-wrap gap-2">
+                   <Button variant="outline" size="sm" className="border-emerald-300/30 bg-emerald-300/10 text-emerald-100" onClick={() => onUpdateStatus(event.id, "mitigated", "已处理")}>
+                     已处理
+                   </Button>
+                   <Button variant="outline" size="sm" className="border-white/12 bg-white/5 text-slate-200" onClick={() => onUpdateStatus(event.id, "mitigated", "已忽略")}>
+                     忽略
+                   </Button>
                 </div>
               )}
             </div>

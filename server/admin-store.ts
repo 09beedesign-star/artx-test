@@ -66,6 +66,7 @@ type PaymentOrder = {
   paymentEvents?: PaymentEvent[];
   refundEvents?: RefundEvent[];
   notificationReadAt?: string;
+  notificationDismissedAt?: string;
 };
 
 type PaymentEvent = {
@@ -201,6 +202,7 @@ type FeedbackTicket = {
   createdAt: string;
   updatedAt: string;
   notificationReadAt?: string;
+  notificationDismissedAt?: string;
 };
 
 type OpsAlert = {
@@ -213,6 +215,7 @@ type OpsAlert = {
   owner: string;
   unread: boolean;
   linkedSection: "orders" | "credits" | "integrations" | "risk" | "feedback" | "audit";
+  notificationDismissedAt?: string;
 };
 
 type RiskEvent = {
@@ -224,6 +227,7 @@ type RiskEvent = {
   target: string;
   createdAt: string;
   notificationReadAt?: string;
+  notificationDismissedAt?: string;
   handledBy?: string;
   handledAt?: string;
   resolution?: string;
@@ -2049,6 +2053,47 @@ export async function handleAdminApiRequest(
     return { status: 200, body: fullPayload(data) };
   }
 
+  const notificationReadMatch = route.match(/^notifications\/(order|alert|feedback|risk)\/([^/]+)\/read$/);
+  if (method === "POST" && notificationReadMatch) {
+    const [, source, id] = notificationReadMatch;
+    const readAt = nowIso();
+    const item = source === "order"
+      ? data.orders.find((order) => order.id === id)
+      : source === "alert"
+        ? data.alerts.find((alert) => alert.id === id)
+        : source === "feedback"
+          ? data.feedback.find((feedback) => feedback.id === id)
+          : data.riskEvents.find((riskEvent) => riskEvent.id === id);
+    if (!item) return jsonError(404, "消息不存在");
+    if ("unread" in item) item.unread = false;
+    if (source !== "alert") {
+      (item as PaymentOrder | FeedbackTicket | RiskEvent).notificationReadAt = readAt;
+    }
+    await saveAdminData(data);
+    return { status: 200, body: fullPayload(data) };
+  }
+
+  const notificationDismissMatch = route.match(/^notifications\/(order|alert|feedback|risk)\/([^/]+)\/dismiss$/);
+  if (method === "POST" && notificationDismissMatch) {
+    const [, source, id] = notificationDismissMatch;
+    const dismissedAt = nowIso();
+    const item = source === "order"
+      ? data.orders.find((order) => order.id === id)
+      : source === "alert"
+        ? data.alerts.find((alert) => alert.id === id)
+        : source === "feedback"
+          ? data.feedback.find((feedback) => feedback.id === id)
+          : data.riskEvents.find((riskEvent) => riskEvent.id === id);
+    if (!item) return jsonError(404, "消息不存在");
+    item.notificationDismissedAt = dismissedAt;
+    if ("unread" in item) item.unread = false;
+    if (source !== "alert") {
+      (item as PaymentOrder | FeedbackTicket | RiskEvent).notificationReadAt = dismissedAt;
+    }
+    appendAuditLog(data, actor, { action: "解除紧急消息警报", target: `${source}:${id}` });
+    await saveAdminData(data);
+    return { status: 200, body: fullPayload(data) };
+  }
   if (method === "POST" && route === "alerts/read-all") {
     const readAt = nowIso();
     data.alerts = data.alerts.map((alert) => ({ ...alert, unread: false }));

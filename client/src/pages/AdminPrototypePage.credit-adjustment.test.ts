@@ -10,6 +10,8 @@ describe("AdminPrototypePage credit adjustment feedback", () => {
     expect(page).toContain("formatCreditAdjustmentSuccess(selectedUser.name, delta)");
     expect(page).toContain("toast.success(successMessage)");
     expect(page).toContain("creditAdjustmentFeedback");
-    expect(page).toContain("积分调整结果");
+    expect(page).toContain("积分调整完成");
+    expect(page).toContain("确定");
+    expect(page).not.toContain("setTimeout(() => setCreditAdjustmentFeedback(null)");
   });
 });
