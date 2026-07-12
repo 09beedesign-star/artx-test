@@ -15,6 +15,7 @@ import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiK
 import { acknowledgeCreditGiftNotification, createBillingOrder, createCreditRechargeOrder, getBillingOrderForPayment, getBillingSnapshotForUser, getCreditGiftNotificationsForUser, handleAdminApiRequest, markBillingOrderPaid, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, submitUserFeedback } from "./admin-store";
 import { getAllowedCorsOrigin } from "./cors";
 import { sendOpsNotification } from "./notifications";
+import { classifyApplicationSecuritySignal, createSecurityEventDetector, validateSecurityEventIngest } from "./security-events";
 import type { AiBillingCapability } from "../shared/ai-credit-policy";
 import {
   CROSS_BORDER_CATEGORIES,
@@ -104,6 +105,22 @@ function scheduleUploadCleanup() {
   runCleanup();
   const timer = setInterval(runCleanup, UPLOAD_CLEANUP_INTERVAL_MS);
   timer.unref?.();
+}
+
+function isLoopbackAddress(value?: string) {
+  const address = value?.trim().toLowerCase() || "";
+  return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
+}
+
+function getSecurityEventSource(req: express.Request) {
+  const directPeer = req.socket.remoteAddress || "";
+  if (!isLoopbackAddress(directPeer)) return directPeer;
+  const forwarded = req.headers["x-forwarded-for"];
+  const chain = (Array.isArray(forwarded) ? forwarded.join(",") : forwarded || "")
+    .split(",")
+    .map(item => item.trim())
+    .filter(Boolean);
+  return chain[chain.length - 1] || directPeer;
 }
 
 function decodeHtmlAttribute(value: string) {
@@ -608,6 +625,28 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
   const orchestrator = new AIOrchestrator();
+  const securityEventDetector = createSecurityEventDetector({
+    secret: process.env.ADMIN_SESSION_SECRET || "",
+    record: async (event) => {
+      await recordRiskEvent({
+        title: event.title,
+        detail: event.detail,
+        target: event.target,
+        severity: event.severity,
+        actorName: "security-detector",
+        linkedSection: "risk",
+      });
+      if (event.severity === "high") {
+        void sendOpsNotification({
+          title: event.title,
+          message: event.detail,
+          severity: "critical",
+          category: "security",
+          metadata: { rule: event.rule, count: event.count, target: event.target },
+        });
+      }
+    },
+  });
 
   app.use((req, res, next) => {
     const allowedOrigin = getAllowedCorsOrigin(req.headers.origin);
@@ -688,6 +727,33 @@ async function startServer() {
   });
 
   app.use(express.json({ limit: "25mb" }));
+
+  app.post("/internal/security-events", (req, res) => {
+    const result = validateSecurityEventIngest({
+      peerAddress: req.socket.remoteAddress,
+      providedSecret: typeof req.headers["x-artx-security-ingest"] === "string"
+        ? req.headers["x-artx-security-ingest"]
+        : "",
+      expectedSecret: process.env.SECURITY_EVENT_INGEST_SECRET,
+      payload: req.body,
+    });
+    if (!result.accepted) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    void securityEventDetector.observe(result.signal);
+    res.status(202).json({ accepted: true });
+  });
+
+  app.use((req, res, next) => {
+    res.once("finish", () => {
+      const rule = classifyApplicationSecuritySignal({ path: req.path, status: res.statusCode });
+      const source = getSecurityEventSource(req);
+      if (!rule || !source) return;
+      void securityEventDetector.observe({ rule, source });
+    });
+    next();
+  });
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true });
