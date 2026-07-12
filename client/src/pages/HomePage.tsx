@@ -151,11 +151,6 @@ function clearRememberedLoginUsername() {
   document.cookie = `${REMEMBERED_LOGIN_COOKIE}=; Max-Age=0; Path=/; SameSite=Lax${getSecureCookieSuffix()}`;
 }
 
-type PasswordCredentialLike = Credential & {
-  id?: string;
-  password?: string;
-};
-
 function getPasswordCredentialConstructor() {
   if (typeof window === "undefined") return null;
   return (
@@ -179,19 +174,6 @@ async function storeBrowserPasswordCredential(username: string, password: string
     );
   } catch {
     // Browser password manager prompts are best-effort and may be disabled by user settings.
-  }
-}
-
-async function readBrowserPasswordCredential() {
-  if (typeof navigator === "undefined" || !navigator.credentials) return null;
-  try {
-    const credential = await navigator.credentials.get({
-      password: true,
-      mediation: "optional",
-    } as CredentialRequestOptions);
-    return credential as PasswordCredentialLike | null;
-  } catch {
-    return null;
   }
 }
 
@@ -223,21 +205,11 @@ export default function HomePage() {
   };
 
   useEffect(() => {
-    if (isAuthenticated) setPanelMode("prelogin");
+    if (!isAuthenticated) return;
+    setPanelMode("prelogin");
+    setAuthError("");
+    setLoginBubble(null);
   }, [isAuthenticated]);
-
-  useEffect(() => {
-    if (!rememberPassword || password || !email.trim()) return;
-    let cancelled = false;
-    void readBrowserPasswordCredential().then(credential => {
-      if (cancelled || !credential?.password) return;
-      if (credential.id && credential.id !== email.trim()) return;
-      setPassword(credential.password);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [email, password, rememberPassword]);
 
   useEffect(() => {
     if (!loginBubble) return;
@@ -249,10 +221,11 @@ export default function HomePage() {
     const requestedPanel = sessionStorage.getItem(HOME_AUTH_PANEL_STORAGE_KEY);
     if (requestedPanel !== "login" && requestedPanel !== "register") return;
     sessionStorage.removeItem(HOME_AUTH_PANEL_STORAGE_KEY);
+    if (isAuthenticated) return;
     setCurrentLandingTab("home");
     setPanelMode(requestedPanel);
     homeRef.current?.scrollIntoView({ behavior: "auto", block: "start" });
-  }, []);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     const updateStageScale = () => {
@@ -291,6 +264,7 @@ export default function HomePage() {
     return () => observer.disconnect();
   }, [isAuthenticated]);
 
+  const shouldRenderAuthPanel = !isAuthenticated;
   const displayedMode = isAuthenticated ? "prelogin" : panelMode;
 
   const handleMainScroll = () => {
@@ -477,22 +451,24 @@ export default function HomePage() {
                 onSend={handlePreloginSend}
               />
             </div>
-            <div className={`absolute inset-0 transition-all duration-500 ease-out ${displayedMode === "prelogin" ? "pointer-events-none opacity-0 -translate-y-3" : "pointer-events-auto opacity-100 translate-y-0"}`}>
-              <LoginPanel
-                mode={displayedMode === "register" ? "register" : "login"}
-                email={email}
-                password={password}
-                rememberPassword={rememberPassword}
-                busy={authBusy}
-                error={authError}
-                onEmailChange={setEmail}
-                onPasswordChange={setPassword}
-                onRememberPasswordChange={setRememberPassword}
-                onSubmit={handleAuthSubmit}
-                onAuthAction={handleAuthAction}
-                onBackToPrompt={() => setPanelMode("prelogin")}
-              />
-            </div>
+            {shouldRenderAuthPanel && (
+              <div className={`absolute inset-0 transition-all duration-500 ease-out ${displayedMode === "prelogin" ? "pointer-events-none opacity-0 -translate-y-3" : "pointer-events-auto opacity-100 translate-y-0"}`}>
+                <LoginPanel
+                  mode={displayedMode === "register" ? "register" : "login"}
+                  email={email}
+                  password={password}
+                  rememberPassword={rememberPassword}
+                  busy={authBusy}
+                  error={authError}
+                  onEmailChange={setEmail}
+                  onPasswordChange={setPassword}
+                  onRememberPasswordChange={setRememberPassword}
+                  onSubmit={handleAuthSubmit}
+                  onAuthAction={handleAuthAction}
+                  onBackToPrompt={() => setPanelMode("prelogin")}
+                />
+              </div>
+            )}
           </div>
         </div>
 
@@ -797,7 +773,7 @@ function LoginPanel({
   if (resetMode) {
     return (
       <GlassPanel>
-        <form className="flex h-full flex-col" onSubmit={handleResetSubmit}>
+        <form className="flex h-full flex-col" autoComplete="on" onSubmit={handleResetSubmit}>
           <PanelHeader title="找回密码" />
 
           <div className="mt-8 flex flex-col gap-4">

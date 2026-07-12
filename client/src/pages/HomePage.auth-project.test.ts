@@ -19,14 +19,25 @@ describe("HomePage auth flow", () => {
     expect(source).toContain('const REMEMBERED_LOGIN_COOKIE = "artx_remembered_login"');
     expect(source).toContain("saveRememberedLoginUsername(email.trim())");
     expect(source).toContain("storeBrowserPasswordCredential(email.trim(), password)");
-    expect(source).toContain("readBrowserPasswordCredential()");
     expect(source).toContain("记住密码");
     expect(source).toContain("忘记密码？");
     expect(source).toContain("className=\"mt-3 flex h-5 items-center justify-between gap-3\"");
     expect(source).toContain('name={isRegister ? "new-password" : "password"}');
     expect(source).toContain("autoComplete={isRegister ? \"new-password\" : \"current-password\"}");
+    expect(source).not.toContain("navigator.credentials.get");
+    expect(source).not.toContain("readBrowserPasswordCredential");
     expect(source).not.toContain("encodeURIComponent(password)");
     expect(source).not.toContain("password}; Max-Age");
     expect(source).not.toContain("localStorage.setItem(\"password\"");
+  });
+
+  it("does not keep the login password form mounted after the user is authenticated", () => {
+    const source = readFileSync(resolve(__dirname, "HomePage.tsx"), "utf-8");
+
+    expect(source).toContain("const shouldRenderAuthPanel = !isAuthenticated");
+    expect(source).toContain("{shouldRenderAuthPanel && (");
+    expect(source).toContain('autoComplete="on"');
+    expect(source).toContain('autoComplete="username"');
+    expect(source).toContain('autoComplete={isRegister ? "new-password" : "current-password"}');
   });
 });
