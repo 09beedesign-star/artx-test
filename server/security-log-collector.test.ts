@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summarizeNginxSecurityLog } from "../scripts/security-log-collector.mjs";
+import { getSecurityLogTargets, summarizeNginxSecurityLog } from "../scripts/security-log-collector.mjs";
 
 describe("nginx security log collector", () => {
   it("classifies probes and response classes without returning raw IPs or paths", () => {
@@ -19,5 +19,11 @@ describe("nginx security log collector", () => {
     ]));
     expect(JSON.stringify(events)).not.toContain("203.0.113.10");
     expect(JSON.stringify(events)).not.toContain("/.env");
+  });
+
+  it("allows deployment to limit collection to the endpoints that support ingestion", () => {
+    expect(getSecurityLogTargets("/var/log/nginx/artx-admin.access.log|http://127.0.0.1:3001/internal/security-events")).toEqual([
+      { logPath: "/var/log/nginx/artx-admin.access.log", endpoint: "http://127.0.0.1:3001/internal/security-events" },
+    ]);
   });
 });

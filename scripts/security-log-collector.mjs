@@ -8,6 +8,15 @@ const DEFAULT_TARGETS = [
   { logPath: "/var/log/nginx/artx-gray.access.log", endpoint: "http://127.0.0.1:3002/internal/security-events" },
 ];
 
+export function getSecurityLogTargets(value = process.env.ARTX_SECURITY_LOG_TARGETS || "") {
+  if (!value.trim()) return DEFAULT_TARGETS;
+  const targets = value.split(";").map((item) => {
+    const [logPath, endpoint] = item.split("|").map(part => part.trim());
+    return { logPath, endpoint };
+  }).filter((target) => target.logPath.startsWith("/") && /^http:\/\/127\.0\.0\.1:\d+\/internal\/security-events$/.test(target.endpoint));
+  return targets.length ? targets : DEFAULT_TARGETS;
+}
+
 function classifyLogRequest(requestPath, status) {
   const pathname = requestPath.toLowerCase();
   if (pathname === "/api/health") return undefined;
@@ -104,7 +113,7 @@ async function main() {
   const secret = (process.env.SECURITY_EVENT_INGEST_SECRET || "").trim();
   if (!secret) throw new Error("SECURITY_EVENT_INGEST_SECRET is required");
   const stateDir = process.env.ARTX_SECURITY_COLLECTOR_STATE_DIR || "/var/lib/artx/security-collector";
-  for (const target of DEFAULT_TARGETS) {
+  for (const target of getSecurityLogTargets()) {
     try {
       await collectTarget(target, secret, stateDir);
     } catch (error) {
