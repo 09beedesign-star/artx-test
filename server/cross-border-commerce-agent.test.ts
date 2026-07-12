@@ -115,6 +115,7 @@ describe("cross-border commerce visual agent", () => {
     expect(CROSS_BORDER_TEMPLATES).toHaveLength(7);
     for (const template of CROSS_BORDER_TEMPLATES) {
       expect(template.allowedPlacements.some(id => placementIds.has(id))).toBe(true);
+      expect(template.keywords.length).toBeGreaterThan(0);
     }
   });
 

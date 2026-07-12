@@ -106,6 +106,7 @@ export type CrossBorderTemplate = {
   id: CrossBorderTemplateId;
   label: string;
   summary: string;
+  keywords: string[];
   preferredSkillId: "commerce-poster-social" | "product-photography";
   platformIds: CrossBorderPlatformId[];
   allowedPlacements: CrossBorderPlacementId[];
@@ -379,6 +380,7 @@ function template(
     id,
     label,
     summary,
+    keywords: promptRules.slice(0, 3),
     preferredSkillId,
     platformIds,
     allowedPlacements,

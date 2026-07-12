@@ -16,6 +16,7 @@ describe("SmartCommerceProductDialog", () => {
       "商品品类",
       "图片用途",
       "爆款风格模板",
+      "风格关键词",
       "风险检查",
       "输出规格",
       "生成智能电商产品图",
@@ -24,6 +25,8 @@ describe("SmartCommerceProductDialog", () => {
     }
     expect(source).toContain("lg:grid-cols-[220px_minmax(360px,1fr)_280px]");
     expect(source).toContain("overflow-x-hidden");
+    expect(source).toContain("item.keywords?.length");
+    expect(source).toContain("item.promptRules.slice(0, 3)");
   });
 
   it("checks risk and composes before dispatching to the canvas", () => {

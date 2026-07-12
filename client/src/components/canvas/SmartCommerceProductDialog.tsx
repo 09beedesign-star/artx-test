@@ -900,7 +900,7 @@ export function SmartCommerceProductDialog({
                       <button
                         key={item.id}
                         type="button"
-                        className="relative min-h-[72px] rounded-md px-3 py-2.5 text-left transition-colors"
+                        className="relative min-h-[116px] rounded-md px-3 py-2.5 text-left transition-colors"
                         style={{
                           background: active ? "rgba(197,237,71,0.11)" : colors.surface,
                           border: `1px solid ${active ? "rgba(197,237,71,0.55)" : colors.border}`,
@@ -909,10 +909,34 @@ export function SmartCommerceProductDialog({
                         onClick={() => updateSelection({ templateId: item.id })}
                       >
                         <span className="flex items-start justify-between gap-2">
-                          <span className="text-[10px] font-semibold leading-4">{item.label}</span>
+                          <span className="flex min-w-0 items-center gap-1.5">
+                            <span className="shrink-0">
+                              <SocialPlatformIcon
+                                platform={PLATFORM_ICON_NAMES[selectedPlatform?.id || ""] || selectedPlatform?.label || "电商"}
+                                size={18}
+                              />
+                            </span>
+                            <span className="truncate text-[10px] font-semibold leading-4">{item.label}</span>
+                          </span>
                           {active ? <Check size={13} style={{ color: colors.accent }} /> : null}
                         </span>
                         <span className="mt-1 block text-[9px] leading-4" style={{ color: colors.muted }}>{item.summary}</span>
+                        <span className="mt-1.5 flex flex-wrap gap-1 text-[8px] leading-4" style={{ color: colors.muted }}>
+                          <span>{selectedPlatform?.label}</span>
+                          <span>·</span>
+                          <span>{selectedMarket?.label}</span>
+                          <span>·</span>
+                          <span>{selectedPlacement?.label}</span>
+                          <span>·</span>
+                          <span>{selectedPlacement?.size.width}×{selectedPlacement?.size.height}</span>
+                        </span>
+                        <span className="mt-1 block truncate text-[8px] leading-4" style={{ color: colors.muted }}>
+                          风格关键词：{(
+                            item.keywords?.length
+                              ? item.keywords
+                              : item.promptRules.slice(0, 3)
+                          ).join(" · ")}
+                        </span>
                         <span className="mt-1 block text-[8px] font-medium" style={{ color: item.trendEvidence.label === "运营复核" ? "#C38924" : "#7CAA20" }}>{item.trendEvidence.label}</span>
                       </button>
                     );
