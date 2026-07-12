@@ -144,7 +144,7 @@ Expected: FAIL because the collector module is absent.
 
 - [ ] **Step 3: Implement the collector and service units**
 
-Parse only new lines from `/var/log/nginx/artx-admin.access.log` and `/var/log/nginx/artx-gray.access.log`, reset safely on rotation, classify known probes plus `429` and `5xx`, aggregate counts by a one-way source fingerprint input, then post aggregate records to `http://127.0.0.1:3001/internal/security-events`. Read the ingest secret from root-only `/etc/artx/security-events.env`; do not log it. The systemd oneshot service runs as root every minute, uses `NoNewPrivileges=true` and a restrictive systemd sandbox, and persists parser offsets under `/var/lib/artx/security-collector`.
+Parse only new lines from `/var/log/nginx/artx-admin.access.log` and `/var/log/nginx/artx-gray.access.log`, reset safely on rotation, and classify known probes plus `429` and `5xx`. Post aggregate records from the admin log only to `http://127.0.0.1:3001/internal/security-events` and records from the gray log only to `http://127.0.0.1:3002/internal/security-events`. The loopback recipient performs the keyed fingerprinting; raw sources remain only in the collector process memory and are never written to state or logs. Read the ingest secret from root-only `/etc/artx/security-events.env`; do not log it. The systemd oneshot service runs as root every minute, uses `NoNewPrivileges=true` and a restrictive systemd sandbox, and persists parser offsets under `/var/lib/artx/security-collector`.
 
 - [ ] **Step 4: Run the focused test and verify it passes**
 
@@ -162,6 +162,7 @@ git commit -m "feat: collect nginx security signals"
 ### Task 4: Production-Free Configuration and Verification
 
 **Files:**
+- Create: `/etc/nginx/conf.d/artx-security-limits.conf` on the Tencent Cloud host
 - Modify: Nginx server configuration on the Tencent Cloud host
 - Create: `/etc/artx/security-events.env` on the Tencent Cloud host (root-only, untracked)
 - Install: `artx-security-collector.service` and `artx-security-collector.timer` on the Tencent Cloud host
@@ -172,9 +173,9 @@ Run: `nginx -t`
 
 Expected: configuration is valid.
 
-- [ ] **Step 2: Install only the collector secret and service units**
+- [ ] **Step 2: Install only the Nginx limits, collector secret, and service units**
 
-Generate the ingest secret locally on the server, set mode `0600`, install unit files, create the state directory, run `systemctl daemon-reload`, and enable the timer. Do not print the secret or copy it into the repository.
+Create the HTTP-level `artx_security_api` zone at `120r/m` and the `artx_security_auth` zone at `10r/m`, both keyed by `$binary_remote_addr`, and return `429` on rejections. Add a dedicated exact or regex auth location before the general proxy location in both virtual hosts with `artx_security_auth` and `burst=10`; add `artx_security_api` with `burst=60` only to the existing gray `/api/` proxy location and an equivalent admin `/api/` proxy location. Keep `/api/health`, static assets, uploads, and the loopback-only collector endpoint outside these limits. Generate the ingest secret locally on the server, set mode `0600`, install unit files, create the state directory, run `nginx -t`, `systemctl daemon-reload`, and enable the timer. Do not print the secret or copy it into the repository.
 
 - [ ] **Step 3: Validate the collector without synthetic public traffic**
 
@@ -194,4 +195,4 @@ git commit -m "feat: add free attack detection"
 git push origin feature/interaction-framework
 ```
 
-Deploy the pushed commit to `admin.artxsd.com` and the Tencent Cloud test service, then verify both deployment manifests and `/api/health` according to `AGENTS.md`.
+Deploy the pushed commit independently to the admin service at `/opt/artx` and the gray service at `/opt/artx-gray-backend/current`, restart each only after its build succeeds, then verify both deployment manifests and `/api/health` according to `AGENTS.md`.
