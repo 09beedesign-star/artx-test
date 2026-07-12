@@ -21,6 +21,7 @@ import {
   ShieldCheck,
   Sparkles,
   ClipboardCopy,
+  Trash2,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -377,7 +378,7 @@ export function SmartCommerceProductDialog({
   };
 
   const handleDrop = async (
-    event: React.DragEvent<HTMLButtonElement>,
+    event: React.DragEvent<HTMLDivElement>,
     slot: "product" | "background"
   ) => {
     event.preventDefault();
@@ -404,6 +405,16 @@ export function SmartCommerceProductDialog({
     } else {
       setBackgroundReferenceSrc(src);
       setBackgroundReferenceName("网页背景参考图");
+    }
+  };
+
+  const clearUpload = (slot: "product" | "background") => {
+    if (slot === "product") {
+      setImageSrc("");
+      setFileName("");
+    } else {
+      setBackgroundReferenceSrc("");
+      setBackgroundReferenceName("");
     }
   };
 
@@ -486,8 +497,9 @@ export function SmartCommerceProductDialog({
     inputRef: React.RefObject<HTMLInputElement | null>,
     icon: ReactNode
   ) => (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       className="relative flex min-h-[154px] w-full flex-col items-center justify-center overflow-hidden rounded-md px-3 text-center transition-colors"
       style={{
         color: colors.text,
@@ -495,6 +507,12 @@ export function SmartCommerceProductDialog({
         border: `1px dashed ${src ? "rgba(197,237,71,0.62)" : colors.border}`,
       }}
       onClick={() => inputRef.current?.click()}
+      onKeyDown={event => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        inputRef.current?.click();
+      }}
       onDragOver={event => {
         event.preventDefault();
         event.stopPropagation();
@@ -510,6 +528,46 @@ export function SmartCommerceProductDialog({
             className="absolute inset-2 h-[calc(100%-16px)] w-[calc(100%-16px)] object-contain"
             draggable={false}
           />
+          <span className="absolute right-2 top-2 flex gap-1">
+            <button
+              type="button"
+              className="flex h-7 items-center gap-1 rounded px-2 text-[10px] font-semibold"
+              style={{
+                color: colors.text,
+                background: isDark ? "rgba(0,0,0,0.72)" : "rgba(255,255,255,0.92)",
+                border: `1px solid ${colors.border}`,
+              }}
+              onClick={event => {
+                event.preventDefault();
+                event.stopPropagation();
+                inputRef.current?.click();
+              }}
+              aria-label={`替换${title}`}
+              title={`替换${title}`}
+            >
+              <RefreshCw size={11} />
+              替换
+            </button>
+            <button
+              type="button"
+              className="flex h-7 items-center gap-1 rounded px-2 text-[10px] font-semibold"
+              style={{
+                color: "#F87171",
+                background: isDark ? "rgba(0,0,0,0.72)" : "rgba(255,255,255,0.92)",
+                border: `1px solid ${colors.border}`,
+              }}
+              onClick={event => {
+                event.preventDefault();
+                event.stopPropagation();
+                clearUpload(slot);
+              }}
+              aria-label={`删除${title}`}
+              title={`删除${title}`}
+            >
+              <Trash2 size={11} />
+              删除
+            </button>
+          </span>
           <span
             className="absolute bottom-2 left-2 right-2 truncate rounded px-2 py-1.5 text-left text-[10px] font-medium"
             style={{
@@ -546,7 +604,7 @@ export function SmartCommerceProductDialog({
           event.currentTarget.value = "";
         }}
       />
-    </button>
+    </div>
   );
 
   const riskTone = RISK_TONES[risk?.action || "pass"];

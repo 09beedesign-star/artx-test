@@ -6,7 +6,7 @@ import { useLocation } from "wouter";
 import TopBar from "@/components/workspace/TopBar";
 import promptCsv from "@/data/ai_image_prompt_rank_50.csv?raw";
 import { useTheme } from "@/contexts/ThemeContext";
-import { Copy, ImageIcon, Sparkles, Tags, X } from "lucide-react";
+import { Copy, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import { BG_GLOW } from "@/lib/workspace-data";
 import { defaultApiBaseUrlForCurrentHost, normalizeApiBaseUrl } from "@/lib/api-base-url";
@@ -358,7 +358,7 @@ export default function InspirationPage() {
 
       <div className="flex-1 overflow-y-auto" style={{ position: "relative", zIndex: 1, background: "#222222" }}>
         <main className="mx-auto px-5 py-8 sm:px-8 sm:py-10" style={{ maxWidth: 1320 }}>
-          <section className="mb-6 grid gap-5 lg:grid-cols-[1fr_360px] lg:items-end">
+          <section className="mb-6">
             <div>
               <div className="mb-3 flex items-center gap-2">
                 <Sparkles size={15} style={{ color: "oklch(0.72 0.22 290)" }} />
@@ -368,22 +368,6 @@ export default function InspirationPage() {
               <p className="type-body-sm mt-3 max-w-3xl leading-6" style={{ color: sub }}>
                 汇总热门 AI 图片案例，按分类浏览图片与提示词。
               </p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { icon: ImageIcon, label: "图片案例", value: allPromptItems.length },
-                { icon: Tags, label: "分类", value: Object.values(INSPIRATION_TAXONOMY).flat().length },
-              ].map((stat) => {
-                const Icon = stat.icon;
-                return (
-                  <div key={stat.label} className="rounded-[var(--radius-lg-design)] p-3" style={{ background: panelBg, border: `1px solid ${border}` }}>
-                    <Icon size={15} style={{ color: "oklch(0.72 0.22 290)" }} />
-                    <div className="type-body-sm mt-2" style={{ color: text, fontWeight: 750 }}>{stat.value}</div>
-                    <div className="type-caption mt-0.5" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>{stat.label}</div>
-                  </div>
-                );
-              })}
             </div>
           </section>
 

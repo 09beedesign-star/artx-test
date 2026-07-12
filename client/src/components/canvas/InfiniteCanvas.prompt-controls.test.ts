@@ -43,4 +43,39 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain("commerceContext: {");
     expect(source).toContain("commerceContext: detail.commerceContext");
   });
+
+  it("shows multi-platform cover directly above download in the selected-image toolbar", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const assetTools = source.match(
+      /const assetTools: FloatingToolItem\[\] = \[[\s\S]*?const frameTools/
+    )?.[0];
+    const moreItems = source.match(/const moreItems = \[[\s\S]*?\n  \];/)?.[0];
+    const assetToolbar = source.match(
+      /function AssetFloatingToolbar[\s\S]*?\/\/ ── Multi Image Selection Floating Toolbar/
+    )?.[0];
+
+    expect(assetTools).toBeTruthy();
+    expect(moreItems).toBeTruthy();
+    expect(assetToolbar).toBeTruthy();
+    expect(assetTools).toContain('label: "多平台封面", action: "mockup"');
+    expect(assetTools!.indexOf('label: "多平台封面"')).toBeLessThan(
+      assetTools!.indexOf('label: "下载"')
+    );
+    expect(moreItems).not.toContain('label: "多平台封面"');
+    expect(assetToolbar).toContain("zIndex: 110");
+  });
+
+  it("keeps explicit replace and delete controls in the product background upload slots", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const dialogBlock = source.match(
+      /function ProductBackgroundDialog[\s\S]*?\/\/ ── Canvas Top Tool Palette/
+    )?.[0];
+
+    expect(dialogBlock).toBeTruthy();
+    expect(dialogBlock).toContain("const clearUploadSlot = useCallback");
+    expect(dialogBlock).toContain("setImageSrc(\"\")");
+    expect(dialogBlock).toContain("setBackgroundReferenceSrc(\"\")");
+    expect(dialogBlock).toContain("替换");
+    expect(dialogBlock).toContain("删除");
+  });
 });

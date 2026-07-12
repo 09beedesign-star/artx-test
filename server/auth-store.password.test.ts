@@ -29,6 +29,7 @@ afterEach(async () => {
 
 describe("password change", () => {
   it("uses a 6 digit email reset code and accepts it as the reset credential", async () => {
+    process.env.EMAIL_DRY_RUN = "true";
     const { handleAuthAction } = await loadAuthStore();
 
     const registerResult = await handleAuthAction("register", {
@@ -41,11 +42,12 @@ describe("password change", () => {
       username: "reset@example.com",
     });
     expect(forgotResult.status).toBe(200);
-    const resetToken = (forgotResult.body as { resetToken?: string }).resetToken;
+    const resetToken = (forgotResult.body as { debugCode?: string }).debugCode;
     expect(resetToken).toMatch(/^\d{6}$/);
 
     const resetResult = await handleAuthAction("reset-password", {
-      resetToken,
+      username: "reset@example.com",
+      code: resetToken,
       password: "new-password",
     });
     expect(resetResult.status).toBe(200);

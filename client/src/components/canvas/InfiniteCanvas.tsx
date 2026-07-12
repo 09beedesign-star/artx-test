@@ -2739,6 +2739,7 @@ function AssetFloatingToolbar({
     { icon: <Expand size={15} />, label: "扩展", action: "expand" },
     { type: "divider" as const, key: "after-expand" },
     { icon: <MoreHorizontal size={15} />, label: "更多", action: "more" },
+    { icon: <Shirt size={15} />, label: "多平台封面", action: "mockup" },
     { icon: <Download size={15} />, label: "下载", action: "download" },
   ];
   const frameTools: FloatingToolItem[] = [
@@ -2746,7 +2747,6 @@ function AssetFloatingToolbar({
   ];
   const tools = mode === "canvasFrame" ? frameTools : assetTools;
   const moreItems = [
-    { icon: <Shirt size={18} />, label: "多平台封面", action: "mockup" },
     { icon: <ImageIcon size={18} />, label: "调整", action: "adjust" },
     { icon: <Frame size={18} />, label: "矢量", action: "vector", cost: 9 },
   ];
@@ -2850,7 +2850,7 @@ function AssetFloatingToolbar({
         left: position.left,
         top: position.top,
         transform: "translate(-100%, -50%)",
-        zIndex: 90,
+        zIndex: 110,
       }}
       onMouseDown={e => e.stopPropagation()}
       onClick={e => e.stopPropagation()}
@@ -14679,6 +14679,16 @@ function ProductBackgroundDialog({
     event.dataTransfer.dropEffect = "copy";
   };
 
+  const clearUploadSlot = useCallback((slot: "product" | "background") => {
+    if (slot === "product") {
+      setImageSrc("");
+      setFileName("");
+    } else {
+      setBackgroundReferenceSrc("");
+      setBackgroundReferenceName("");
+    }
+  }, []);
+
   const handleCreate = () => {
     if (!imageSrc) {
       toast("请先添加产品图");
@@ -14728,8 +14738,9 @@ function ProductBackgroundDialog({
       icon: ReactNode;
     }
   ) => (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       data-no-panel-drag="true"
       className="relative flex min-h-[116px] min-w-0 flex-1 flex-col items-center justify-center overflow-hidden rounded-[var(--radius-lg-design)] px-3 text-center transition-transform hover:scale-[1.01]"
       style={{
@@ -14738,6 +14749,12 @@ function ProductBackgroundDialog({
         color: text,
       }}
       onClick={() => config.inputRef.current?.click()}
+      onKeyDown={event => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        config.inputRef.current?.click();
+      }}
       onDragEnter={stopFileDragEvent}
       onDragOver={stopFileDragEvent}
       onDrop={event => {
@@ -14754,6 +14771,57 @@ function ProductBackgroundDialog({
             className="absolute inset-0 h-full w-full object-contain p-3"
             draggable={false}
           />
+          <span
+            className="absolute right-2 top-2 flex gap-1"
+            data-no-panel-drag="true"
+          >
+            <button
+              type="button"
+              className="flex h-7 items-center gap-1 rounded-[var(--radius-md-design)] px-2 type-caption"
+              style={{
+                color: text,
+                background: isDark
+                  ? "rgba(0,0,0,0.62)"
+                  : "rgba(255,255,255,0.90)",
+                border: `1px solid ${border}`,
+                fontSize: 10,
+                fontWeight: 720,
+              }}
+              onClick={event => {
+                event.preventDefault();
+                event.stopPropagation();
+                config.inputRef.current?.click();
+              }}
+              aria-label={`替换${config.title}`}
+              title={`替换${config.title}`}
+            >
+              <RefreshCw size={11} />
+              替换
+            </button>
+            <button
+              type="button"
+              className="flex h-7 items-center gap-1 rounded-[var(--radius-md-design)] px-2 type-caption"
+              style={{
+                color: "#F87171",
+                background: isDark
+                  ? "rgba(0,0,0,0.62)"
+                  : "rgba(255,255,255,0.90)",
+                border: `1px solid ${border}`,
+                fontSize: 10,
+                fontWeight: 720,
+              }}
+              onClick={event => {
+                event.preventDefault();
+                event.stopPropagation();
+                clearUploadSlot(slot);
+              }}
+              aria-label={`删除${config.title}`}
+              title={`删除${config.title}`}
+            >
+              <Trash2 size={11} />
+              删除
+            </button>
+          </span>
           <span
             className="absolute bottom-2 left-2 right-2 rounded-[var(--radius-md-design)] px-2.5 py-1.5 text-left"
             style={{
@@ -14807,7 +14875,7 @@ function ProductBackgroundDialog({
           event.currentTarget.value = "";
         }}
       />
-    </button>
+    </div>
   );
 
   const dialog = (
@@ -21263,6 +21331,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       await runDerivedImageGeneration({
         sourceNode,
         prompt: [
+          "强约束：必须以左侧上传的产品图作为唯一商品主体，保留原产品的品类、外形、颜色、材质、比例和可见细节；模板只改变背景、光影、版式和电商氛围，不能替换成其他商品。",
           detail.style ? `背景风格：${detail.style}` : "",
           detail.prompt || "生成符合平台规范的高清电商产品图",
           detail.backgroundReferenceSrc

@@ -151,6 +151,50 @@ function clearRememberedLoginUsername() {
   document.cookie = `${REMEMBERED_LOGIN_COOKIE}=; Max-Age=0; Path=/; SameSite=Lax${getSecureCookieSuffix()}`;
 }
 
+type PasswordCredentialLike = Credential & {
+  id?: string;
+  password?: string;
+};
+
+function getPasswordCredentialConstructor() {
+  if (typeof window === "undefined") return null;
+  return (
+    window as typeof window & {
+      PasswordCredential?: new (data: {
+        id: string;
+        name?: string;
+        password: string;
+      }) => Credential;
+    }
+  ).PasswordCredential || null;
+}
+
+async function storeBrowserPasswordCredential(username: string, password: string) {
+  if (typeof navigator === "undefined" || !navigator.credentials) return;
+  const PasswordCredential = getPasswordCredentialConstructor();
+  if (!PasswordCredential) return;
+  try {
+    await navigator.credentials.store(
+      new PasswordCredential({ id: username, name: username, password })
+    );
+  } catch {
+    // Browser password manager prompts are best-effort and may be disabled by user settings.
+  }
+}
+
+async function readBrowserPasswordCredential() {
+  if (typeof navigator === "undefined" || !navigator.credentials) return null;
+  try {
+    const credential = await navigator.credentials.get({
+      password: true,
+      mediation: "optional",
+    } as CredentialRequestOptions);
+    return credential as PasswordCredentialLike | null;
+  } catch {
+    return null;
+  }
+}
+
 export default function HomePage() {
   const [, navigate] = useLocation();
   const { isAuthenticated, login, register } = useAuth();
@@ -181,6 +225,19 @@ export default function HomePage() {
   useEffect(() => {
     if (isAuthenticated) setPanelMode("prelogin");
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!rememberPassword || password || !email.trim()) return;
+    let cancelled = false;
+    void readBrowserPasswordCredential().then(credential => {
+      if (cancelled || !credential?.password) return;
+      if (credential.id && credential.id !== email.trim()) return;
+      setPassword(credential.password);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [email, password, rememberPassword]);
 
   useEffect(() => {
     if (!loginBubble) return;
@@ -295,6 +352,7 @@ export default function HomePage() {
     if (action === "login") {
       if (rememberPassword) {
         saveRememberedLoginUsername(email.trim());
+        await storeBrowserPasswordCredential(email.trim(), password);
       } else {
         clearRememberedLoginUsername();
       }
@@ -816,7 +874,7 @@ function LoginPanel({
 
   return (
     <GlassPanel>
-      <form className="flex h-full flex-col" onSubmit={onSubmit}>
+      <form className="flex h-full flex-col" onSubmit={onSubmit} autoComplete="on">
         <PanelHeader title={isRegister ? "创建 ArtX Studio 账号" : "欢迎使用 ArtX Studio"} />
 
         <div className="mt-8 flex flex-col gap-5">
@@ -825,6 +883,7 @@ function LoginPanel({
             value={email}
             onChange={onEmailChange}
             name="username"
+            id="artx-login-username"
             autoComplete="username"
             placeholder="请输入用户名或邮箱"
           />
@@ -833,47 +892,43 @@ function LoginPanel({
             type="password"
             value={password}
             onChange={onPasswordChange}
-            name={isRegister ? "new-password" : "current-password"}
+            name={isRegister ? "new-password" : "password"}
+            id={isRegister ? "artx-register-password" : "artx-login-password"}
             autoComplete={isRegister ? "new-password" : "current-password"}
             placeholder="请输入密码"
           />
         </div>
 
         {!isRegister && (
-          <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-left">
-            <input
-              type="checkbox"
-              checked={rememberPassword}
-              onChange={event => onRememberPasswordChange(event.target.checked)}
-              className="mt-0.5 h-4 w-4 rounded border-white/20 bg-[#222] accent-[#936CFF]"
-            />
-            <span className="min-w-0">
-              <span className="block text-[13px] font-medium text-white">
+          <div className="mt-3 flex h-5 items-center justify-between gap-3">
+            <label className="flex min-w-0 cursor-pointer items-center gap-2 text-left">
+              <input
+                type="checkbox"
+                checked={rememberPassword}
+                onChange={event => onRememberPasswordChange(event.target.checked)}
+                className="h-4 w-4 rounded border-white/20 bg-[#222] accent-[#936CFF]"
+              />
+              <span className="truncate text-[13px] font-medium text-white">
                 记住密码
               </span>
-              <span className="mt-0.5 block text-[11px] leading-4 text-[#7d7d7d]">
-                下次自动填入账号，并允许浏览器密码管理器保存密码。
-              </span>
-            </span>
-          </label>
+            </label>
+            <button
+              type="button"
+              onClick={() => {
+                setResetUsername(email.trim());
+                setResetMessage("");
+                setResetMode(true);
+              }}
+              className="shrink-0 appearance-none bg-transparent text-[13px] font-medium text-[#7d7d7d] transition-colors hover:text-white"
+            >
+              忘记密码？
+            </button>
+          </div>
         )}
 
-        <div className="mt-4 flex h-5 items-center justify-between gap-3">
-          <p className={`min-w-0 flex-1 truncate text-left text-[13px] font-medium text-red-300 ${error ? "visible" : "invisible"}`}>
-            {error || " "}
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              setResetUsername(email.trim());
-              setResetMessage("");
-              setResetMode(true);
-            }}
-            className="shrink-0 appearance-none bg-transparent text-[13px] font-medium text-[#7d7d7d] transition-colors hover:text-white"
-          >
-            忘记密码？
-          </button>
-        </div>
+        <p className={`mt-4 h-5 min-w-0 truncate text-left text-[13px] font-medium text-red-300 ${error ? "visible" : "invisible"}`}>
+          {error || " "}
+        </p>
 
         <div className="mt-5 grid grid-cols-2 gap-3">
           <button
@@ -950,6 +1005,7 @@ function LabeledInput({
   placeholder,
   type = "text",
   name,
+  id,
   autoComplete,
 }: {
   label: string;
@@ -958,12 +1014,14 @@ function LabeledInput({
   placeholder: string;
   type?: string;
   name?: string;
+  id?: string;
   autoComplete?: string;
 }) {
   return (
-    <label className="block">
+    <label className="block" htmlFor={id}>
       <span className="mb-1.5 block text-[13px] font-medium text-white">{label}</span>
       <input
+        id={id}
         type={type}
         value={value}
         onChange={event => onChange(event.target.value)}

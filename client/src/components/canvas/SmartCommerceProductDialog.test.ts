@@ -47,6 +47,15 @@ describe("SmartCommerceProductDialog", () => {
     expect(source).toContain("risk.action === \"rewrite\"");
   });
 
+  it("lets users replace or delete submitted product and background images", () => {
+    expect(source).toContain("const clearUpload = (slot: \"product\" | \"background\")");
+    expect(source).toContain("setImageSrc(\"\")");
+    expect(source).toContain("setBackgroundReferenceSrc(\"\")");
+    expect(source).toContain("替换");
+    expect(source).toContain("删除");
+    expect(source).toContain("<Trash2 size={11} />");
+  });
+
   it("keeps the mobile header and footer on one stable row", () => {
     expect(source).toContain('className="mt-0.5 hidden text-[10px] leading-4 sm:block"');
     expect(source).toContain('className="mt-2 grid grid-cols-5 gap-1"');

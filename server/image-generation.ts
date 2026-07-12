@@ -38,6 +38,15 @@ type CreateBackgroundInput = {
   skillId?: string;
 };
 
+const SMART_PRODUCT_SUBJECT_LOCK_PROMPT = [
+  "Critical product lock: reference image 1 is the only product subject for this generation.",
+  "The output must visibly feature the same product category, silhouette, geometry, color, material, logo/text if any, and distinctive details from reference image 1.",
+  "Do not replace the uploaded product with skincare bottles, cosmetics, electronics, appliances, food, people, or any other product implied by the template, platform, skill, or prompt.",
+  "Use templates, platform rules, and background references only for scene layout, lighting, background, callout composition, and ecommerce styling around the uploaded product.",
+  "If a template conflicts with reference image 1, ignore the conflicting product type and keep the uploaded product unchanged.",
+  "Any labels or callouts must describe the uploaded product generically and must not invent unrelated product names or features.",
+].join("\n");
+
 type EditImageInput = {
   imageSrc: string;
   model?: string;
@@ -2429,6 +2438,29 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
   const sourceDimensions = await getImageBufferDimensions(sourceImageData.buffer);
   const output = getBackgroundOutputSize(input, sourceDimensions.width, sourceDimensions.height);
 
+  if (input.skillId && !hasBackgroundReference) {
+    try {
+      const generatedImages: GeneratedImage[] = [];
+      const providerTaskIds: string[] = [];
+      for (let index = 0; index < count; index += 1) {
+        const result = await createBackgroundWithPicWish(input);
+        generatedImages.push(...result.images);
+        if (Array.isArray(result.providerTaskIds)) {
+          providerTaskIds.push(...result.providerTaskIds);
+        } else if (result.providerTaskId) {
+          providerTaskIds.push(result.providerTaskId);
+        }
+      }
+      return {
+        images: generatedImages.slice(0, count),
+        providerTaskId: providerTaskIds[0],
+        providerTaskIds,
+      };
+    } catch (picWishError) {
+      console.warn("PicWish smart commerce background failed; using reference generation fallback", picWishError);
+    }
+  }
+
   if (hasBackgroundReference || count > 1 || input.skillId) {
     const skill = input.skillId ? await getSkill(input.skillId) : undefined;
     const references = [
@@ -2438,14 +2470,16 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
         : []),
     ];
     const prompt = [
+      SMART_PRODUCT_SUBJECT_LOCK_PROMPT,
       skill?.prompt ? `能力说明：\n${skill.prompt}` : "",
       input.style ? `背景风格：${input.style}` : "",
       input.prompt || "创建商业化产品背景",
-      "Use reference image 1 as the exact product subject. Preserve the product shape, material, colors, logo, text, proportions, and foreground identity.",
+      "Use reference image 1 as the exact product subject. Preserve the product shape, material, colors, logo, text, proportions, category, silhouette, and foreground identity.",
       hasBackgroundReference
         ? "Use reference image 2 only as the background style reference. Match its color mood, lighting, perspective, material texture, spatial depth, and commercial photography feel without copying protected or distinctive elements exactly."
         : "Create a realistic commercial background behind and around the product. Match lighting, shadows, perspective, and contact shadow naturally.",
-      "Return complete product commercial images. Do not crop or distort the product.",
+      "Return complete product commercial images. Do not crop, distort, redraw, replace, or reinterpret the product.",
+      SMART_PRODUCT_SUBJECT_LOCK_PROMPT,
     ]
       .filter(Boolean)
       .join("\n");
