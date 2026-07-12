@@ -144,4 +144,31 @@ describe("buildAdminNotifications", () => {
       unread: false,
     }));
   });
+
+  it("only counts newly received feedback and open risk events as unprocessed", () => {
+    const messages = buildAdminNotifications({
+      orders: [],
+      alerts: [],
+      feedback: [{
+        id: "fb_processing",
+        user: "bob@example.com",
+        title: "正在处理的反馈",
+        module: "帮助与反馈",
+        status: "processing",
+        priority: "P1",
+        createdAt: "2026/07/07 10:00:00",
+      }],
+      riskEvents: [{
+        id: "risk_reviewing",
+        title: "正在处理的风险事件",
+        detail: "已由管理员接手",
+        status: "reviewing",
+        severity: "high",
+        target: "ord_1001",
+        createdAt: "2026/07/07 10:00:00",
+      }],
+    });
+
+    expect(Object.values(messages).flat().every((item) => !item.unread)).toBe(true);
+  });
 });
