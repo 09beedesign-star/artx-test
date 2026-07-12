@@ -85,11 +85,16 @@ describe("user feedback submission", () => {
     expect(overview.status).toBe(200);
     const body = overview.body as {
       feedback: Array<{ id: string; status: string; attachments?: Array<{ src: string }> }>;
+      users: Array<{ email: string; registeredAt: string }>;
     };
     expect(body.feedback).toContainEqual(expect.objectContaining({
       id: expect.stringMatching(/^fb_/),
       status: "new",
       attachments: [expect.objectContaining({ src: feedback.attachments[0].src })],
+    }));
+    expect(body.users).toContainEqual(expect.objectContaining({
+      email: "feedback-user@example.com",
+      registeredAt: expect.stringMatching(/^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}$/),
     }));
   });
 });

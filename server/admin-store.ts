@@ -676,7 +676,7 @@ function ensureBillingUser(data: AdminData, params: {
       name: displayNameFromUsername(params.username),
       email: userEmailFromUsername(params.username),
       account: params.username,
-      registeredAt: formatDateTime(nowIso()),
+      registeredAt: formatAbsoluteSecondTime(nowIso()) || nowIso(),
       loginMethod: params.username.includes("@artx.social") ? "social" : "email",
       role: "viewer",
       status: "normal",
@@ -737,7 +737,7 @@ async function buildUserAccounts(seedUsers: AdminUserAccount[] = []) {
       name: authUser.username.split("@")[0],
       email: authUser.username,
       account: authUser.username,
-      registeredAt: authUser.createdAt ? authUser.createdAt.slice(0, 16).replace("T", " ") : nowIso().slice(0, 16).replace("T", " "),
+      registeredAt: formatAbsoluteSecondTime(authUser.createdAt) || formatAbsoluteSecondTime(nowIso()) || nowIso(),
       loginMethod: authUser.username.includes("@artx.social") ? "social" : "email",
       role: authUser.role || "viewer",
       status: authUser.isAdmin ? "watch" : "normal",
@@ -1361,6 +1361,11 @@ function ensureBillingConsistency(data: AdminData) {
   data.users = data.users.map((user) => ({
     ...user,
     plan: normalizePlanDisplayName(user.plan),
+    registeredAt: formatAbsoluteSecondTime(user.registeredAt) || user.registeredAt,
+  }));
+  data.alerts = data.alerts.map((alert) => ({
+    ...alert,
+    time: formatAbsoluteSecondTime(alert.time) || alert.time,
   }));
   data.orders = data.orders.map((order) => ({
     ...order,
@@ -1676,7 +1681,7 @@ export async function handleAdminApiRequest(
       title: "接口方代收记录已登记",
       detail: `${order.id} · ${collector} 确认收款 ${amount}，${issueCredits ? "已发积分" : "待发积分/对账"}`,
       severity: providerTransactionId || merchantOrderId ? "info" : "warning",
-      time: formatRelativeTime(recordedAt),
+      time: formatAbsoluteSecondTime(recordedAt) || recordedAt,
       owner: "Finance",
       unread: true,
       linkedSection: "orders",
@@ -1964,6 +1969,7 @@ export async function handleAdminApiRequest(
     }
 
     const before = { credits: user.credits };
+    const adjustedAt = nowIso();
     user.credits = Math.max(0, user.credits + delta);
     const entry: CreditLedgerEntry = {
       id: `cr_${Date.now()}`,
@@ -1974,7 +1980,7 @@ export async function handleAdminApiRequest(
       reason,
       source: "admin/manual-adjustment",
       operator: actor.username,
-      createdAt: nowIso(),
+      createdAt: adjustedAt,
     };
     data.credits = [entry, ...data.credits].slice(0, 500);
     createCreditGiftNotification(data, user, entry, delta);
@@ -1993,7 +1999,7 @@ export async function handleAdminApiRequest(
         status: "open",
         severity: Math.abs(delta) >= 50000 ? "high" : "medium",
         target: user.id,
-        createdAt: nowIso(),
+        createdAt: adjustedAt,
       };
       data.riskEvents = [riskEvent, ...data.riskEvents].slice(0, 500);
       data.alerts = [{
@@ -2002,7 +2008,7 @@ export async function handleAdminApiRequest(
         title: "管理员大额人工调整",
         detail: `${actor.username} 对 ${user.name} 调整 ${delta.toLocaleString("zh-CN")} 积分，需复核原因：${reason}`,
         severity: "warning",
-        time: "刚刚",
+        time: formatAbsoluteSecondTime(adjustedAt) || adjustedAt,
         owner: "Risk",
         unread: true,
         linkedSection: "audit",
@@ -2548,7 +2554,7 @@ export async function recordRiskEvent(input: RiskEventInput) {
       title: input.title,
       detail: input.detail,
       severity: input.severity === "high" ? "critical" : "warning",
-      time: formatRelativeTime(createdAt),
+      time: formatAbsoluteSecondTime(createdAt) || createdAt,
       owner: "Risk",
       unread: true,
       linkedSection: input.linkedSection || "risk",
@@ -2613,7 +2619,7 @@ export async function recordBillingPaymentFailure(params: {
     title: order ? "威富通支付异常" : "威富通未知支付回调",
     detail: order ? `${order.id}：${params.message}` : params.message,
     severity: "critical",
-    time: formatRelativeTime(occurredAt),
+    time: formatAbsoluteSecondTime(occurredAt) || occurredAt,
     owner: "Finance",
     unread: true,
     linkedSection: "orders",

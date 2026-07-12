@@ -46,6 +46,7 @@ describe("risk event recording", () => {
       category: "风控",
       severity: "critical",
       linkedSection: "risk",
+      time: expect.stringMatching(/^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}$/),
     });
   });
 });

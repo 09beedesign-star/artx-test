@@ -78,6 +78,7 @@ type AdminUser = {
   frozenCredits?: number;
   organization?: string;
   status: Status;
+  registeredAt?: string;
   lastSeen: string;
   risk: string;
 };
@@ -447,6 +448,14 @@ function notificationTimestamp(value: string) {
   if (hoursAgo) return Date.now() - Number(hoursAgo[1]) * 60 * 60 * 1000;
   const timestamp = Date.parse(value.replace(/\//g, "-").replace(" ", "T"));
   return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function formatNotificationTime(value: string) {
+  const formatted = formatExactOrderTime(value, "");
+  if (formatted !== "未提供精确时间") return formatted;
+
+  const timestamp = notificationTimestamp(value);
+  return timestamp ? formatExactOrderTime(new Date(timestamp).toISOString(), "未提供精确时间") : formatted;
 }
 
 function isUrgentRiskNotification(item: AdminNotificationItem) {
@@ -1267,7 +1276,7 @@ function AdminPrototypePage() {
             statusFilter={statusFilter}
             setStatusFilter={setStatusFilter}
           />
-          <Table className="min-w-[780px]">
+          <Table className="min-w-[920px]">
             <TableHeader>
               <TableRow className="border-white/10 hover:bg-transparent">
                 <TableHead>用户</TableHead>
@@ -1276,6 +1285,7 @@ function AdminPrototypePage() {
                 <TableHead>积分余额</TableHead>
                 <TableHead>累计支付金额</TableHead>
                 <TableHead>状态</TableHead>
+                <TableHead>注册时间</TableHead>
                 <TableHead>最近活跃</TableHead>
               </TableRow>
             </TableHeader>
@@ -1304,6 +1314,9 @@ function AdminPrototypePage() {
                     <TableCell>{formatCurrency(user.spent)}</TableCell>
                     <TableCell>
                       <Badge className={cn("w-fit shrink-0", statusClass(user.status))}>{statusLabel(user.status)}</Badge>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap font-mono text-xs text-slate-400">
+                      {formatExactOrderTime(user.registeredAt, "未提供精确时间")}
                     </TableCell>
                     <TableCell className="text-slate-400">
                       <div>{user.lastSeen}</div>
@@ -1361,7 +1374,7 @@ function AdminPrototypePage() {
                 ))
               ) : (
                 <TableRow className="border-white/8 hover:bg-transparent">
-                  <TableCell colSpan={7} className="py-10 text-center text-sm text-slate-500">
+                  <TableCell colSpan={8} className="py-10 text-center text-sm text-slate-500">
                     暂无真实用户数据
                   </TableCell>
                 </TableRow>
@@ -1878,7 +1891,7 @@ function NotificationCenter({
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge className={notificationSeverityClass(item.severity)}>{item.label}</Badge>
-                        <span className="text-xs text-slate-500">{item.time}</span>
+                        <span className="text-xs text-slate-500">{formatNotificationTime(item.time)}</span>
                         {item.unread && <span className="size-2 rounded-full bg-cyan-300" />}
                       </div>
                       <div className="mt-2 text-sm font-medium">{item.title}</div>
