@@ -1,7 +1,7 @@
 /**
  * AppShell — Global Layout with Left Sidebar
  * Design: Neo-Studio — wide sidebar with nav groups
- * Sections: 首页 / 灵感选题 / 技能商店 / 工作台
+ * Sections: 首页 / 灵感推荐 / 技能商店 / 工作台
  */
 import { useRef, useState, type ChangeEvent } from "react";
 import { useLocation } from "wouter";
@@ -525,7 +525,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
           {/* Top nav */}
           <div className="flex flex-col gap-0.5 mb-2">
             <NavItem icon={Home}    label="首页"     path="/" />
-            <NavItem icon={Sparkles} label="灵感选题" path="/inspiration" iconSize={15} />
+            <NavItem icon={Sparkles} label="灵感推荐" path="/inspiration" iconSize={15} />
             <NavItem icon={Library}  label="技能商店" path="/skills"      iconSize={15} />
             <NavItem icon={FolderOpen} label="工作台" path="/workspace" iconSize={15} />
             <NavItem icon={CreditCard} label="充值与订阅" path="/billing" iconSize={15} />

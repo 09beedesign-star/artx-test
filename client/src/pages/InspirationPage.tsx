@@ -231,7 +231,7 @@ export default function InspirationPage() {
   const activeBg = isDark ? "oklch(0.62 0.22 290 / 0.20)" : "oklch(0.62 0.18 290 / 0.10)";
   const shadow = isDark ? "0 18px 46px oklch(0 0 0 / 0.24)" : "0 14px 34px oklch(0 0 0 / 0.08)";
 
-  const allPromptItems = useMemo(() => [...PROMPT_ITEMS, ...externalItems], [externalItems]);
+  const allPromptItems = useMemo(() => externalItems, [externalItems]);
   const categoryCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const item of allPromptItems) {

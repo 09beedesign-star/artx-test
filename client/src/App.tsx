@@ -117,7 +117,7 @@ function AppRoutes() {
 
       {/* ── 补充缺失路由（原侧边栏点击无效的导航项）── */}
 
-      {/* 灵感选题 */}
+      {/* 灵感推荐 */}
       <Route path="/inspiration">
         <AppShell>
           <InspirationPage />

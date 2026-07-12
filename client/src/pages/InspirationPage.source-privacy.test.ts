@@ -6,6 +6,9 @@ describe("InspirationPage source privacy", () => {
   it("does not expose source navigation or legacy inspiration wording in the UI source", () => {
     const pageSource = readFileSync(resolve(__dirname, "InspirationPage.tsx"), "utf-8");
     const homeSource = readFileSync(resolve(__dirname, "HomePage.tsx"), "utf-8");
+    const appSource = readFileSync(resolve(__dirname, "../App.tsx"), "utf-8");
+    const shellSource = readFileSync(resolve(__dirname, "../components/layout/AppShell.tsx"), "utf-8");
+    const loadingSource = readFileSync(resolve(__dirname, "LoadingLoopPage.tsx"), "utf-8");
 
     expect(pageSource).not.toContain("查看来源");
     expect(pageSource).not.toContain("灵感选题");
@@ -16,6 +19,10 @@ describe("InspirationPage source privacy", () => {
     expect(pageSource).toContain("主分类筛选");
     expect(pageSource).toContain("细分类筛选");
     expect(homeSource).not.toContain("灵感选题");
+    expect(appSource).not.toContain("灵感选题");
+    expect(shellSource).not.toContain("灵感选题");
+    expect(loadingSource).not.toContain("灵感选题");
     expect(pageSource).toContain("verifiedPromptOnly=1");
+    expect(pageSource).toContain("const allPromptItems = useMemo(() => externalItems, [externalItems]);");
   });
 });
