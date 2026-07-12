@@ -49,4 +49,20 @@ describe("SmartCommerceProductDialog", () => {
     expect(source).toContain('className="mt-2 grid grid-cols-5 gap-1"');
     expect(source).toContain('className="hidden min-w-0 text-[9px] leading-4 sm:block"');
   });
+
+  it("shows the composed generation receipt before returning to the canvas", () => {
+    for (const label of [
+      "生成任务已发送到画布",
+      "审计记录",
+      "可编辑文案建议",
+      "相关导出尺寸",
+      "继续调整",
+      "查看画布",
+    ]) {
+      expect(source).toContain(label);
+    }
+    expect(source).toContain("setComposeReceipt({ context, auditRecordId })");
+    expect(source).toContain("exportSizes: context.exportSizes");
+    expect(source).toContain("marketPackageVersion: context.marketPackageVersion");
+  });
 });

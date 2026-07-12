@@ -37,5 +37,10 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain("Math.min(Number(detail.count) || 1, 9)");
     expect(source).toContain('tags: ["智能电商产品", detail.style]');
     expect(source).toContain('style: "智能电商产品结果"');
+    expect(source).toContain("maxResultCount = 4");
+    expect(source).toContain("Math.min(Number(resultCount) || 1, maxResultCount)");
+    expect(source).toContain("maxResultCount: 9");
+    expect(source).toContain("commerceContext: {");
+    expect(source).toContain("commerceContext: detail.commerceContext");
   });
 });

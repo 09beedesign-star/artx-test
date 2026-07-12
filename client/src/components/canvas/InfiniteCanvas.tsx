@@ -9413,6 +9413,27 @@ type ImageGeneratorPayload = {
     height?: number;
   }>;
   skillId?: string;
+  commerceContext?: {
+    platformId: string;
+    platformLabel: string;
+    marketId: string;
+    marketLabel: string;
+    categoryId: string;
+    categoryLabel: string;
+    placementId: string;
+    placementLabel: string;
+    templateId: string;
+    templateLabel: string;
+    auditRecordId: string;
+    editableCopySuggestions: string[];
+    exportSizes: SmartCommerceProductCreateDetail["exportSizes"];
+    marketPackageVersion: string;
+    platformSpecVersion: string;
+    templateVersion: string;
+    outputWidth: number;
+    outputHeight: number;
+    riskAction: SmartCommerceProductCreateDetail["riskAction"];
+  };
 };
 
 type ImageRegenerateRequestDetail = {
@@ -10208,6 +10229,7 @@ function getImageGenerationNodeMetadata(detail: ImageGeneratorPayload) {
     generationSourceImageSrc:
       detail.sourceImageSrc || detail.sourceBackgroundSrc,
     generationEditMode: detail.editMode === true,
+    commerceContext: detail.commerceContext,
   };
 }
 
@@ -20473,6 +20495,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       placement,
       generationId: providedGenerationId,
       resultCount = 1,
+      maxResultCount = 4,
+      commerceContext,
       run,
     }: {
       sourceNode: Node;
@@ -20486,6 +20510,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       placement?: { x: number; y: number };
       generationId?: string;
       resultCount?: number;
+      maxResultCount?: number;
+      commerceContext?: ImageGeneratorPayload["commerceContext"];
       run: () => Promise<GeneratedImagesResponse>;
     }) => {
       const latestSourceNode =
@@ -20530,7 +20556,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         prompt,
         model: "gpt-image-2",
         ratio: inferImageRatio(resolvedDisplayW, resolvedDisplayH),
-        count: Math.max(1, Math.min(Number(resultCount) || 1, 4)),
+        count: Math.max(
+          1,
+          Math.min(Number(resultCount) || 1, maxResultCount)
+        ),
         style,
         referencesEnabled: false,
         generationId,
@@ -20549,6 +20578,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             ? visibleSourceImageSrc
             : undefined,
         editMode: true,
+        commerceContext,
       };
       dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
       try {
@@ -21249,6 +21279,28 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         displayW,
         displayH,
         resultCount: detail.count,
+        maxResultCount: 9,
+        commerceContext: {
+          platformId: detail.platformId,
+          platformLabel: detail.platformLabel,
+          marketId: detail.marketId,
+          marketLabel: detail.marketLabel,
+          categoryId: detail.categoryId,
+          categoryLabel: detail.categoryLabel,
+          placementId: detail.placementId,
+          placementLabel: detail.placementLabel,
+          templateId: detail.templateId,
+          templateLabel: detail.templateLabel,
+          auditRecordId: detail.auditRecordId,
+          editableCopySuggestions: detail.editableCopySuggestions,
+          exportSizes: detail.exportSizes,
+          marketPackageVersion: detail.marketPackageVersion,
+          platformSpecVersion: detail.platformSpecVersion,
+          templateVersion: detail.templateVersion,
+          outputWidth: detail.customWidth,
+          outputHeight: detail.customHeight,
+          riskAction: detail.riskAction,
+        },
         run: async () =>
           createProductBackground({
             imageSrc: detail.imageSrc,

@@ -20,6 +20,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Sparkles,
+  ClipboardCopy,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -38,6 +39,7 @@ import {
   riskActionLabel,
   scaleCommerceOutputSize,
   type CommerceMarketsResponse,
+  type CommerceComposeResponse,
   type CommerceSelection,
   type CrossBorderComposeInput,
   type CrossBorderRiskResult,
@@ -66,6 +68,18 @@ export type SmartCommerceProductCreateDetail = {
   skillId: "commerce-poster-social" | "product-photography";
   auditRecordId: string;
   editableCopySuggestions: string[];
+  exportSizes: Array<{
+    label: string;
+    width: number;
+    height: number;
+    platform: string;
+  }>;
+  marketPackageVersion: string;
+  platformSpecVersion: string;
+  templateVersion: string;
+  categoryLabel: string;
+  templateLabel: string;
+  riskAction: "pass" | "advise" | "rewrite" | "block";
 };
 
 type Props = {
@@ -169,6 +183,8 @@ export function SmartCommerceProductDialog({
     "idle" | "checking" | "ready" | "error"
   >("idle");
   const [isComposing, setIsComposing] = useState(false);
+  const [composeReceipt, setComposeReceipt] =
+    useState<CommerceComposeResponse | null>(null);
   const [panelPosition, setPanelPosition] = useState<{ left: number; top: number } | null>(null);
 
   const colors = {
@@ -435,14 +451,23 @@ export function SmartCommerceProductDialog({
         skillId: context.skillId,
         auditRecordId,
         editableCopySuggestions: context.editableCopySuggestions,
+        exportSizes: context.exportSizes,
+        marketPackageVersion: context.marketPackageVersion,
+        platformSpecVersion: context.placement.size.source.verifiedAt,
+        templateVersion: context.template.trendEvidence.validUntil,
+        categoryLabel:
+          data?.categories.find(item => item.id === context.category)?.label ||
+          context.category,
+        templateLabel: context.template.label,
+        riskAction: context.risk.action,
       };
+      setComposeReceipt({ context, auditRecordId });
       window.dispatchEvent(
         new CustomEvent<SmartCommerceProductCreateDetail>(
           "smart-commerce-product-create",
           { detail }
         )
       );
-      onClose();
     } catch (error) {
       toast("智能电商产品配置失败", {
         description: error instanceof Error ? error.message : undefined,
@@ -637,7 +662,129 @@ export function SmartCommerceProductDialog({
           </div>
         </header>
 
-        {loadState === "loading" ? (
+        {composeReceipt ? (
+          <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-5 py-5">
+            <div className="flex items-start gap-3">
+              <span
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md"
+                style={{ color: "#172000", background: colors.accent }}
+              >
+                <Check size={18} />
+              </span>
+              <div className="min-w-0">
+                <h3 className="text-[13px] font-semibold leading-5">
+                  生成任务已发送到画布
+                </h3>
+                <p className="mt-0.5 text-[10px] leading-4" style={{ color: colors.muted }}>
+                  图片会按当前平台规格生成到产品图右侧，完成后可在画布中继续编辑和导出。
+                </p>
+              </div>
+            </div>
+
+            <div
+              className="mt-5 grid gap-5 border-y py-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.72fr)]"
+              style={{ borderColor: colors.border }}
+            >
+              <section className="min-w-0">
+                <SectionTitle>本次生成配置</SectionTitle>
+                <div className="grid grid-cols-2 gap-x-5 gap-y-2 text-[10px] sm:grid-cols-3">
+                  {[
+                    ["平台", composeReceipt.context.platform.label],
+                    ["市场", composeReceipt.context.market.label],
+                    [
+                      "品类",
+                      data?.categories.find(
+                        item => item.id === composeReceipt.context.category
+                      )?.label || composeReceipt.context.category,
+                    ],
+                    ["图片用途", composeReceipt.context.placement.label],
+                    ["爆款模板", composeReceipt.context.template.label],
+                    [
+                      "高清尺寸",
+                      `${selectedOutputSize?.width || composeReceipt.context.placement.size.width}×${selectedOutputSize?.height || composeReceipt.context.placement.size.height}`,
+                    ],
+                    ["生成数量", `${count} 张`],
+                    ["风险结论", riskActionLabel(composeReceipt.context.risk.action)],
+                    ["规则版本", composeReceipt.context.marketPackageVersion],
+                  ].map(([label, value]) => (
+                    <div key={label} className="min-w-0">
+                      <p className="text-[9px] leading-4" style={{ color: colors.muted }}>
+                        {label}
+                      </p>
+                      <p className="truncate font-medium leading-4">{value}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section className="min-w-0 lg:border-l lg:pl-5" style={{ borderColor: colors.border }}>
+                <SectionTitle>审计记录</SectionTitle>
+                <div className="flex min-w-0 items-center gap-2">
+                  <code
+                    className="min-w-0 flex-1 truncate rounded px-2 py-2 text-[9px]"
+                    style={{ color: colors.muted, background: colors.surface }}
+                  >
+                    {composeReceipt.auditRecordId}
+                  </code>
+                  <button
+                    type="button"
+                    aria-label="复制审计记录 ID"
+                    title="复制审计记录 ID"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md"
+                    style={{ color: colors.text, background: colors.surface }}
+                    onClick={() => {
+                      void navigator.clipboard?.writeText(
+                        composeReceipt.auditRecordId
+                      );
+                      toast("审计记录 ID 已复制");
+                    }}
+                  >
+                    <ClipboardCopy size={13} />
+                  </button>
+                </div>
+                <p className="mt-2 text-[9px] leading-4" style={{ color: colors.muted }}>
+                  已记录平台规格、模板版本、风险结论和最终生成上下文。
+                </p>
+              </section>
+            </div>
+
+            <div className="grid gap-5 pt-4 lg:grid-cols-2">
+              <section className="min-w-0">
+                <SectionTitle>可编辑文案建议</SectionTitle>
+                <div className="space-y-1.5">
+                  {composeReceipt.context.editableCopySuggestions.map(item => (
+                    <div key={item} className="flex items-start gap-2 text-[10px] leading-4">
+                      <CheckCircle2
+                        size={12}
+                        className="mt-0.5 shrink-0"
+                        style={{ color: "#7CAA20" }}
+                      />
+                      <span>{item}</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section className="min-w-0">
+                <SectionTitle aside="生成后可在画布导出">相关导出尺寸</SectionTitle>
+                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                  {composeReceipt.context.exportSizes.map(item => (
+                    <div
+                      key={`${item.label}-${item.width}-${item.height}`}
+                      className="min-w-0 rounded-md px-2.5 py-2"
+                      style={{ background: colors.surface, border: `1px solid ${colors.border}` }}
+                    >
+                      <p className="truncate text-[9px] font-medium leading-4">{item.label}</p>
+                      <p className="text-[9px] leading-4" style={{ color: colors.muted }}>
+                        {item.width}×{item.height}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </div>
+          </div>
+        ) : loadState === "loading" ? (
           <div className="flex min-h-[420px] items-center justify-center gap-2 text-[11px]" style={{ color: colors.muted }}>
             <LoaderCircle size={16} className="animate-spin" />
             正在加载电商平台规则
@@ -881,30 +1028,58 @@ export function SmartCommerceProductDialog({
         ) : null}
 
         <footer className="flex shrink-0 items-center justify-between gap-3 px-5 py-3" style={{ borderTop: `1px solid ${colors.border}` }}>
-          <div className="hidden min-w-0 text-[9px] leading-4 sm:block" style={{ color: colors.muted }}>
-            {selection && selectedPlatform && selectedPlacement && selectedTemplate
-              ? `${selectedPlatform.label} · ${selectedMarket?.label} · ${selectedPlacement.label} · ${selectedTemplate.label}`
-              : "请完成电商配置"}
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <button type="button" className="h-9 rounded-md px-4 text-[10px] font-semibold" style={{ color: colors.text, background: colors.surface, border: `1px solid ${colors.border}` }} onClick={onClose}>
-              取消
-            </button>
-            <button
-              type="button"
-              disabled={!canGenerate}
-              className="flex h-9 min-w-[176px] items-center justify-center gap-2 rounded-md px-4 text-[10px] font-semibold disabled:cursor-not-allowed"
-              style={{
-                color: canGenerate ? "#172000" : colors.muted,
-                background: canGenerate ? colors.accent : colors.surfaceStrong,
-                opacity: canGenerate ? 1 : 0.62,
-              }}
-              onClick={() => void handleCreate()}
-            >
-              {isComposing ? <LoaderCircle size={14} className="animate-spin" /> : <Sparkles size={14} />}
-              {isComposing ? "正在组合电商规则" : `生成智能电商产品图 ${count} 张`}
-            </button>
-          </div>
+          {composeReceipt ? (
+            <>
+              <div className="hidden min-w-0 text-[9px] leading-4 sm:block" style={{ color: colors.muted }}>
+                {composeReceipt.context.platform.label} · {composeReceipt.context.market.label} · {composeReceipt.context.placement.label}
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  className="h-9 rounded-md px-4 text-[10px] font-semibold"
+                  style={{ color: colors.text, background: colors.surface, border: `1px solid ${colors.border}` }}
+                  onClick={() => setComposeReceipt(null)}
+                >
+                  继续调整
+                </button>
+                <button
+                  type="button"
+                  className="flex h-9 min-w-[132px] items-center justify-center gap-2 rounded-md px-4 text-[10px] font-semibold"
+                  style={{ color: "#172000", background: colors.accent }}
+                  onClick={onClose}
+                >
+                  查看画布
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="hidden min-w-0 text-[9px] leading-4 sm:block" style={{ color: colors.muted }}>
+                {selection && selectedPlatform && selectedPlacement && selectedTemplate
+                  ? `${selectedPlatform.label} · ${selectedMarket?.label} · ${selectedPlacement.label} · ${selectedTemplate.label}`
+                  : "请完成电商配置"}
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <button type="button" className="h-9 rounded-md px-4 text-[10px] font-semibold" style={{ color: colors.text, background: colors.surface, border: `1px solid ${colors.border}` }} onClick={onClose}>
+                  取消
+                </button>
+                <button
+                  type="button"
+                  disabled={!canGenerate}
+                  className="flex h-9 min-w-[176px] items-center justify-center gap-2 rounded-md px-4 text-[10px] font-semibold disabled:cursor-not-allowed"
+                  style={{
+                    color: canGenerate ? "#172000" : colors.muted,
+                    background: canGenerate ? colors.accent : colors.surfaceStrong,
+                    opacity: canGenerate ? 1 : 0.62,
+                  }}
+                  onClick={() => void handleCreate()}
+                >
+                  {isComposing ? <LoaderCircle size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                  {isComposing ? "正在组合电商规则" : `生成智能电商产品图 ${count} 张`}
+                </button>
+              </div>
+            </>
+          )}
         </footer>
       </div>
     </div>
