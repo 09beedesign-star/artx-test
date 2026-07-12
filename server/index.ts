@@ -1014,7 +1014,8 @@ async function startServer() {
     const sourceSite = typeof req.query.sourceSite === "string" ? req.query.sourceSite : undefined;
     const limit = typeof req.query.limit === "string" ? Number(req.query.limit) : undefined;
     const offset = typeof req.query.offset === "string" ? Number(req.query.offset) : undefined;
-    res.json(getInspirationReferences({ group, subcategory, sourceSite, limit, offset }));
+    const verifiedPromptOnly = req.query.verifiedPromptOnly === "1" || req.query.verifiedPromptOnly === "true";
+    res.json(getInspirationReferences({ group, subcategory, sourceSite, limit, offset, verifiedPromptOnly }));
   });
 
   app.post("/api/ai/orchestrate", async (req, res) => {

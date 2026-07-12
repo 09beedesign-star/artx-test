@@ -103,6 +103,16 @@ def extract_prompt(item: dict[str, Any]) -> str:
     return ""
 
 
+def is_prompt_matched_image(item: dict[str, Any]) -> bool:
+    if item.get("type") != "image":
+        return False
+    if item.get("nsfw") is not False or item.get("nsfwLevel") != "None":
+        return False
+    if not item.get("url"):
+        return False
+    return len(extract_prompt(item)) >= 24
+
+
 def collect(args: argparse.Namespace) -> int:
     base = Path(args.base)
     taxonomy = json.loads((base / "taxonomy.json").read_text(encoding="utf-8"))
@@ -121,82 +131,73 @@ def collect(args: argparse.Namespace) -> int:
             collected = 0
             processed_subcategories += 1
             for query in queries:
-                if collected >= max_per_subcategory:
+                if collected >= max_per_subcategory or len(rows) >= args.target_total:
                     break
                 encoded_query = urllib.parse.quote(query)
                 api_url = (
                     "https://civitai.com/api/v1/images"
                     f"?limit={min(100, max_per_subcategory)}"
-                    "&sort=Most%20Reactions&period=AllTime&nsfw=false"
+                    "&sort=Newest&period=AllTime&nsfw=None"
                     f"&query={encoded_query}"
                 )
-                try:
-                    payload = request_json(api_url, args.timeout)
-                except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-                    rows.append(
-                        {
-                            "group": group,
-                            "subcategory": subcategory,
-                            "source_site": "Civitai",
-                            "source_url": api_url,
-                            "image_url": "",
-                            "local_image_path": "",
-                            "title": "",
-                            "public_prompt_or_description": "",
-                            "style_prompt_cn": "",
-                            "style_prompt_en": query,
-                            "likes": "",
-                            "views": "",
-                            "heat_score": "",
-                            "license_note": "public metadata only; verify author/model license before commercial use",
-                            "download_status": "metadata_failed",
-                            "notes": f"{type(exc).__name__}: {exc}",
-                        }
-                    )
-                    continue
-
-                for item in payload.get("items", []):
-                    if collected >= max_per_subcategory:
+                page_url = api_url
+                for _page in range(args.pages_per_query):
+                    if collected >= max_per_subcategory or len(rows) >= args.target_total or not page_url:
                         break
-                    stats = item.get("stats") or {}
-                    image_url = item.get("url") or ""
-                    source_url = f"https://civitai.com/images/{item.get('id')}" if item.get("id") else api_url
-                    local_path = ""
-                    status = "not_downloaded"
-                    if image_url and args.download:
-                        out = images_dir / slugify(group) / slugify(subcategory) / f"{collected + 1:02d}-{item.get('id', 'image')}"
-                        out.parent.mkdir(parents=True, exist_ok=True)
-                        try:
-                            local_path = download_image(image_url, out, args.timeout)
-                            status = "downloaded"
-                        except (urllib.error.URLError, TimeoutError, OSError) as exc:
-                            status = "download_failed"
-                            local_path = ""
-                            item["download_error"] = f"{type(exc).__name__}: {exc}"
+                    try:
+                        payload = request_json(page_url, args.timeout)
+                    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+                        print(f"metadata failed: {subcategory} / {query}: {type(exc).__name__}: {exc}")
+                        break
 
-                    rows.append(
-                        {
-                            "group": group,
-                            "subcategory": subcategory,
-                            "source_site": "Civitai",
-                            "source_url": source_url,
-                            "image_url": image_url,
-                            "local_image_path": local_path,
-                            "title": "",
-                            "public_prompt_or_description": extract_prompt(item),
-                            "style_prompt_cn": "",
-                            "style_prompt_en": query,
-                            "likes": stats.get("likeCount", ""),
-                            "views": stats.get("viewCount", ""),
-                            "heat_score": stats.get("heartCount", "") or stats.get("likeCount", ""),
-                            "license_note": "public Civitai image; verify author/model license before commercial use",
-                            "download_status": status,
-                            "notes": item.get("download_error", ""),
-                        }
-                    )
-                    collected += 1
-                    time.sleep(args.delay)
+                    for item in payload.get("items", []):
+                        if collected >= max_per_subcategory or len(rows) >= args.target_total:
+                            break
+                        if not is_prompt_matched_image(item):
+                            continue
+                        stats = item.get("stats") or {}
+                        image_url = item.get("url") or ""
+                        source_url = f"https://civitai.com/images/{item.get('id')}" if item.get("id") else page_url
+                        local_path = ""
+                        status = "not_downloaded"
+                        if image_url and args.download:
+                            out = images_dir / slugify(group) / slugify(subcategory) / f"{collected + 1:02d}-{item.get('id', 'image')}"
+                            out.parent.mkdir(parents=True, exist_ok=True)
+                            try:
+                                local_path = download_image(image_url, out, args.timeout)
+                                status = "downloaded"
+                            except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                                status = "download_failed"
+                                local_path = ""
+                                item["download_error"] = f"{type(exc).__name__}: {exc}"
+
+                        prompt = extract_prompt(item)
+                        rows.append(
+                            {
+                                "group": group,
+                                "subcategory": subcategory,
+                                "source_site": "Civitai",
+                                "source_url": source_url,
+                                "image_url": image_url,
+                                "local_image_path": local_path,
+                                "title": f"Civitai image {item.get('id')}",
+                                "public_prompt_or_description": prompt,
+                                "style_prompt_cn": "",
+                                "style_prompt_en": prompt,
+                                "likes": stats.get("likeCount", ""),
+                                "views": stats.get("viewCount", ""),
+                                "heat_score": stats.get("heartCount", "") or stats.get("likeCount", ""),
+                                "license_note": "public Civitai image with generation prompt metadata; verify author/model license before commercial use",
+                                "download_status": status,
+                                "notes": item.get("download_error", ""),
+                            }
+                        )
+                        collected += 1
+                        time.sleep(args.delay)
+                    page_url = (payload.get("metadata") or {}).get("nextPage")
         if args.max_subcategories and processed_subcategories >= args.max_subcategories:
+            break
+        if len(rows) >= args.target_total:
             break
 
     with (base / "dataset.csv").open("w", encoding="utf-8", newline="") as csv_file:
@@ -210,6 +211,8 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", default="research/ai-visual-category-dataset-20260710")
     parser.add_argument("--limit", type=int, default=20)
+    parser.add_argument("--target-total", type=int, default=900)
+    parser.add_argument("--pages-per-query", type=int, default=10)
     parser.add_argument("--timeout", type=int, default=30)
     parser.add_argument("--delay", type=float, default=0.4)
     parser.add_argument("--only-subcategory", default="")
