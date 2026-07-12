@@ -1749,7 +1749,7 @@ function NotificationCenter({
   const allItems = Object.values(groups).flat()
     .sort((left, right) => notificationTimestamp(right.time) - notificationTimestamp(left.time));
   const activeItems = activeView === "all" ? allItems : groups[activeView] || [];
-  const totalCount = notificationTabs.reduce((sum, tab) => sum + (groups[tab.id]?.length || 0), 0);
+  const totalCount = unreadCount;
 
   return (
     <div className="relative">
@@ -1822,7 +1822,7 @@ function NotificationCenter({
               </button>
               {notificationTabs.map((tab) => {
                 const Icon = tab.icon;
-                const count = groups[tab.id]?.length || 0;
+                const count = groups[tab.id]?.filter((item) => item.unread).length || 0;
                 const isActive = activeView === tab.id;
                 return (
                   <button

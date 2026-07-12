@@ -108,10 +108,7 @@ export async function cleanupExpiredUploads(options: { now?: Date } = {}) {
   const now = options.now || new Date();
   const cutoffMs = now.getTime() - retentionDays * DAY_MS;
   const uploadsRoot = getUploadsRoot();
-  const cleanupRoots = [
-    path.join(uploadsRoot, "images"),
-    path.join(uploadsRoot, "feedback"),
-  ];
+  const cleanupRoots = [path.join(uploadsRoot, "images")];
   let scannedFiles = 0;
   let deletedFiles = 0;
   let removedDirectories = 0;

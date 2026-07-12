@@ -36,7 +36,7 @@ describe("storeGeneratedImagesForUser", () => {
 });
 
 describe("cleanupExpiredUploads", () => {
-  it("deletes generated and feedback images older than the 10 day retention window", async () => {
+  it("deletes expired generated images but preserves feedback attachments", async () => {
     uploadsDir = await mkdtemp(path.join(os.tmpdir(), "artx-upload-cleanup-test-"));
     process.env.ARTX_UPLOADS_DIR = uploadsDir;
 
@@ -64,9 +64,9 @@ describe("cleanupExpiredUploads", () => {
     const result = await cleanupExpiredUploads({ now });
 
     expect(result.retentionDays).toBe(10);
-    expect(result.deletedFiles).toBe(2);
+    expect(result.deletedFiles).toBe(1);
     await expect(stat(oldGenerated)).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(stat(oldFeedback)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(stat(oldFeedback)).resolves.toMatchObject({ size: 12 });
     await expect(stat(freshGenerated)).resolves.toMatchObject({ size: 5 });
     await expect(stat(freshFeedback)).resolves.toMatchObject({ size: 14 });
   });

@@ -16,5 +16,7 @@ describe("AdminPrototypePage urgent notifications", () => {
     expect(page).toContain("item.tab === \"security\" && item.severity === \"critical\"");
     expect(page).toContain("filter((item) => item.unread).length");
     expect(page).toContain("urgentRiskNotifications.length > 0");
+    expect(page).toContain("const totalCount = unreadCount");
+    expect(page).toContain("groups[tab.id]?.filter((item) => item.unread).length || 0");
   });
 });
