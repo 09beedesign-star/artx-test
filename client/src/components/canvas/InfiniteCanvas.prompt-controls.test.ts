@@ -26,4 +26,16 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(quickEditBlock).toContain("referencedAssets: payload.references");
     expect(quickEditBlock).not.toContain("generateAiImages({");
   });
+
+  it("mounts the smart commerce workflow without replacing the existing canvas generation owner", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+
+    expect(source).toContain("SmartCommerceProductDialog");
+    expect(source).toContain('label: "智能电商产品"');
+    expect(source).toContain('"smart-commerce-product-create"');
+    expect(source).toContain("CustomEvent<SmartCommerceProductCreateDetail>");
+    expect(source).toContain("Math.min(Number(detail.count) || 1, 9)");
+    expect(source).toContain('tags: ["智能电商产品", detail.style]');
+    expect(source).toContain('style: "智能电商产品结果"');
+  });
 });

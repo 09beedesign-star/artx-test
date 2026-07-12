@@ -1,3 +1,5 @@
+import { getSkill } from "./skill-registry";
+
 type ImageGenerateInput = {
   prompt: string;
   model?: string;
@@ -33,6 +35,7 @@ type CreateBackgroundInput = {
   count?: number;
   customWidth?: number;
   customHeight?: number;
+  skillId?: string;
 };
 
 type EditImageInput = {
@@ -101,6 +104,8 @@ type GeneratedImageResult = {
 };
 
 const MIN_AI_IMAGE_OUTPUT_LONG_SIDE = 1536;
+const MAX_SMART_COMMERCE_IMAGE_COUNT = 9;
+const PROVIDER_IMAGE_BATCH_SIZE = 4;
 
 function collectProviderTaskIds(...results: Array<Pick<GeneratedImageResult, "providerTaskId" | "providerTaskIds"> | undefined>) {
   const taskIds: string[] = [];
@@ -2415,34 +2420,56 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
   if (!input.imageSrc?.trim()) {
     throw new Error("Missing imageSrc");
   }
-  const count = Math.max(1, Math.min(Number(input.count) || 1, 4));
+  const count = Math.max(
+    1,
+    Math.min(Number(input.count) || 1, MAX_SMART_COMMERCE_IMAGE_COUNT)
+  );
   const hasBackgroundReference = Boolean(input.backgroundReferenceSrc?.trim());
   const sourceImageData = await imageSrcToBuffer(input.imageSrc);
   const sourceDimensions = await getImageBufferDimensions(sourceImageData.buffer);
   const output = getBackgroundOutputSize(input, sourceDimensions.width, sourceDimensions.height);
 
-  if (hasBackgroundReference || count > 1) {
+  if (hasBackgroundReference || count > 1 || input.skillId) {
+    const skill = input.skillId ? await getSkill(input.skillId) : undefined;
     const references = [
       { src: input.imageSrc, title: "产品图" },
       ...(hasBackgroundReference
         ? [{ src: input.backgroundReferenceSrc!, title: input.backgroundReferenceName || "背景参考图" }]
         : []),
     ];
-    return generateImages({
-      prompt: [
-        input.style ? `背景风格：${input.style}` : "",
-        input.prompt || "创建商业化产品背景",
-        "Use reference image 1 as the exact product subject. Preserve the product shape, material, colors, logo, text, proportions, and foreground identity.",
-        hasBackgroundReference
-          ? "Use reference image 2 only as the background style reference. Match its color mood, lighting, perspective, material texture, spatial depth, and commercial photography feel without copying protected or distinctive elements exactly."
-          : "Create a realistic commercial background behind and around the product. Match lighting, shadows, perspective, and contact shadow naturally.",
-        "Return complete product commercial images. Do not crop or distort the product.",
-      ].filter(Boolean).join("\n"),
-      ratio: input.ratio || "1:1",
-      count,
-      style: input.style,
-      images: references,
-    });
+    const prompt = [
+      skill?.prompt ? `能力说明：\n${skill.prompt}` : "",
+      input.style ? `背景风格：${input.style}` : "",
+      input.prompt || "创建商业化产品背景",
+      "Use reference image 1 as the exact product subject. Preserve the product shape, material, colors, logo, text, proportions, and foreground identity.",
+      hasBackgroundReference
+        ? "Use reference image 2 only as the background style reference. Match its color mood, lighting, perspective, material texture, spatial depth, and commercial photography feel without copying protected or distinctive elements exactly."
+        : "Create a realistic commercial background behind and around the product. Match lighting, shadows, perspective, and contact shadow naturally.",
+      "Return complete product commercial images. Do not crop or distort the product.",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    const generatedImages: GeneratedImage[] = [];
+    for (
+      let remaining = count;
+      remaining > 0;
+      remaining -= PROVIDER_IMAGE_BATCH_SIZE
+    ) {
+      const batch = await generateImages({
+        prompt,
+        ratio: input.ratio || "1:1",
+        count: Math.min(PROVIDER_IMAGE_BATCH_SIZE, remaining),
+        style: input.style,
+        images: references,
+      });
+      generatedImages.push(...batch.images);
+    }
+    const normalizedImages = await __testNormalizeGeneratedImagesToTargetAspect(
+      generatedImages.slice(0, count),
+      output.width,
+      output.height
+    );
+    return { images: normalizedImages };
   }
 
   try {

@@ -531,6 +531,7 @@ export async function createProductBackground({
   count = 1,
   customWidth,
   customHeight,
+  skillId,
 }: {
   imageSrc: string;
   backgroundReferenceSrc?: string;
@@ -542,6 +543,7 @@ export async function createProductBackground({
   count?: number;
   customWidth?: number;
   customHeight?: number;
+  skillId?: string;
 }) {
   requireAiAuth();
   const result = await postProductBackground({
@@ -555,7 +557,8 @@ export async function createProductBackground({
     count,
     customWidth,
     customHeight,
-  }, "智能创建背景失败");
+    skillId,
+  }, "智能电商产品生成失败");
 
   return toGeneratedImagesResponse(result);
 }

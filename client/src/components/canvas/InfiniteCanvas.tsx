@@ -418,6 +418,10 @@ import { defaultApiBaseUrlForCurrentHost, normalizeApiBaseUrl } from "@/lib/api-
 import CropEditor from "@/components/canvas/CropEditor";
 import RotateEditor from "@/components/canvas/RotateEditor";
 import {
+  SmartCommerceProductDialog,
+  type SmartCommerceProductCreateDetail,
+} from "@/components/canvas/SmartCommerceProductDialog";
+import {
   callLLM,
   createProductBackground,
   editImageWithPrompt,
@@ -15249,8 +15253,8 @@ function CanvasTopToolPalette({
     },
     {
       id: "product-bg",
-      label: "智能创建背景",
-      icon: <GalleryVerticalEnd size={17} />,
+      label: "智能电商产品",
+      icon: <Boxes size={17} />,
     },
     { id: "move", label: "移动", icon: <MousePointer2 size={17} /> },
     { id: "upload", label: "上传图片", icon: <ImagePlus size={17} /> },
@@ -15543,7 +15547,7 @@ function CanvasTopToolPalette({
       )}
 
       {productBackgroundOpen && (
-        <ProductBackgroundDialog
+        <SmartCommerceProductDialog
           isDark={isDark}
           canvasRightInset={canvasRightInset}
           onClose={() => setProductBackgroundOpen(false)}
@@ -21173,7 +21177,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
   useEffect(() => {
     const handler = async (event: Event) => {
-      const detail = (event as CustomEvent<ProductBackgroundDialogDetail>)
+      const detail = (event as CustomEvent<SmartCommerceProductCreateDetail>)
         .detail;
       if (!detail?.imageSrc) return;
       if (!requireAiAccess()) return;
@@ -21212,7 +21216,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           localSrc: detail.imageSrc,
           title: detail.fileName || "产品图",
           assetType: "产品图",
-          tags: ["智能创建背景", detail.style],
+          tags: ["智能电商产品", detail.style],
           imgW: displayW,
           imgH: displayH,
         },
@@ -21223,14 +21227,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         sourceNode,
       ]);
       setSelectedNodeIds([sourceId]);
-      toast("智能创建背景中", {
-        description: "已创建产品图节点，结果会在旁边生成",
+      toast("智能电商产品生成中", {
+        description: `${detail.platformLabel} · ${detail.marketLabel} · ${detail.placementLabel}，结果会在旁边生成`,
       });
       await runDerivedImageGeneration({
         sourceNode,
         prompt: [
           detail.style ? `背景风格：${detail.style}` : "",
-          detail.prompt || "智能创建商业化产品背景",
+          detail.prompt || "生成符合平台规范的高清电商产品图",
           detail.backgroundReferenceSrc
             ? `背景参考图：${detail.backgroundReferenceName || "已上传参考图"}，生成与参考图相似的背景风格`
             : "",
@@ -21238,7 +21242,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         ]
           .filter(Boolean)
           .join("\n"),
-        style: "智能背景结果",
+        style: "智能电商产品结果",
         nextW: detail.customWidth || ratioSize.w,
         nextH: detail.customHeight || ratioSize.h,
         preserveSourceDisplaySize: false,
@@ -21257,12 +21261,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             count: detail.count,
             customWidth: detail.customWidth,
             customHeight: detail.customHeight,
+            skillId: detail.skillId,
           }),
       });
     };
-    window.addEventListener("product-background-create", handler);
+    window.addEventListener("smart-commerce-product-create", handler);
     return () =>
-      window.removeEventListener("product-background-create", handler);
+      window.removeEventListener("smart-commerce-product-create", handler);
   }, [
     edgesRef,
     pushHistory,
@@ -23038,7 +23043,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       };
       const requestedCount = Math.max(
         1,
-        Math.min(Number(detail.count) || 1, 4)
+        Math.min(Number(detail.count) || 1, 9)
       );
       const imageGenerationGap = 20;
       const shouldUseFixedGeneratedPlacement = Boolean(detail.placement);

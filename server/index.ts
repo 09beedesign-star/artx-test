@@ -10,11 +10,22 @@ import { getInspirationReferences } from "./inspiration-references";
 import { cleanupExpiredUploads, getUploadRetentionDays, getUploadsRoot, storeGeneratedImagesForUser } from "./local-image-storage";
 import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
+import { recordCrossBorderCommerceGeneration } from "./cross-border-commerce-records";
 import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization } from "./auth-store";
 import { acknowledgeCreditGiftNotification, createBillingOrder, createCreditRechargeOrder, getBillingOrderForPayment, getBillingSnapshotForUser, getCreditGiftNotificationsForUser, handleAdminApiRequest, markBillingOrderPaid, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, submitUserFeedback } from "./admin-store";
 import { getAllowedCorsOrigin } from "./cors";
 import { sendOpsNotification } from "./notifications";
 import type { AiBillingCapability } from "../shared/ai-credit-policy";
+import {
+  CROSS_BORDER_CATEGORIES,
+  CROSS_BORDER_COMMERCE_VERSION,
+  CROSS_BORDER_MARKETS,
+  CROSS_BORDER_TEMPLATES,
+  composeCrossBorderCommerceContext,
+  evaluateCrossBorderCommerceRisk,
+  getAvailableCrossBorderPlatforms,
+  type CrossBorderComposeInput,
+} from "../shared/cross-border-commerce-agent";
 import {
   createWallytPayment,
   getClientIp,
@@ -1016,6 +1027,65 @@ async function startServer() {
     const offset = typeof req.query.offset === "string" ? Number(req.query.offset) : undefined;
     const verifiedPromptOnly = req.query.verifiedPromptOnly === "1" || req.query.verifiedPromptOnly === "true";
     res.json(getInspirationReferences({ group, subcategory, sourceSite, limit, offset, verifiedPromptOnly }));
+  });
+
+  app.get("/api/cross-border-commerce/markets", (req, res) => {
+    const includeReview = req.query.includeReview === "true";
+    res.json({
+      version: CROSS_BORDER_COMMERCE_VERSION,
+      markets: CROSS_BORDER_MARKETS.map(market => ({
+        ...market,
+        platforms: getAvailableCrossBorderPlatforms(market.id, includeReview),
+      })),
+      categories: CROSS_BORDER_CATEGORIES,
+      templates: CROSS_BORDER_TEMPLATES,
+      governance: {
+        reviewCadence: "平台规格与政策每月复核；紧急变更立即标记运营复核。",
+        disclaimer:
+          "ArtX 仅提供创意风险提示，不构成法律、税务、商标或平台审核意见。",
+      },
+    });
+  });
+
+  app.post("/api/cross-border-commerce/risk-check", (req, res) => {
+    try {
+      res.json(
+        evaluateCrossBorderCommerceRisk(req.body as CrossBorderComposeInput)
+      );
+    } catch (error) {
+      res.status(400).json({
+        error:
+          error instanceof Error ? error.message : "电商创意风险检查失败",
+      });
+    }
+  });
+
+  app.post("/api/cross-border-commerce/compose", async (req, res) => {
+    try {
+      const request = req.body as CrossBorderComposeInput;
+      const context = composeCrossBorderCommerceContext(request);
+      const session = await getSessionUserFromAuthorization(
+        req.headers.authorization
+      );
+      const sessionUser =
+        session.status === 200 && session.body && "user" in session.body
+          ? (session.body.user as { id?: string; username?: string })
+          : null;
+      const record = await recordCrossBorderCommerceGeneration({
+        request,
+        context,
+        user:
+          sessionUser?.id && sessionUser.username
+            ? { id: sessionUser.id, username: sessionUser.username }
+            : undefined,
+      });
+      res.json({ context, auditRecordId: record.id });
+    } catch (error) {
+      res.status(400).json({
+        error:
+          error instanceof Error ? error.message : "电商生成上下文组合失败",
+      });
+    }
   });
 
   app.post("/api/ai/orchestrate", async (req, res) => {
