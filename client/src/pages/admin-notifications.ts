@@ -141,7 +141,7 @@ function orderSeverity(order: NotificationOrder): AlertSeverity {
 }
 
 function feedbackUnread(feedback: NotificationFeedback) {
-  return !feedback.notificationReadAt && feedback.status === "new";
+  return !feedback.notificationReadAt && (feedback.status === "new" || feedback.status === "processing" || feedback.status === "waiting_user");
 }
 
 function feedbackSeverity(feedback: NotificationFeedback): AlertSeverity {
@@ -202,7 +202,7 @@ export function buildAdminNotifications(input: AdminNotificationInput): AdminNot
         detail: item.detail,
         time: item.createdAt,
         severity: riskSeverity(item.severity),
-        unread: item.status === "open" && !item.notificationReadAt,
+        unread: item.status !== "mitigated" && !item.notificationReadAt,
         targetSection: "risk",
         targetId: item.id,
       })),

@@ -145,10 +145,20 @@ describe("buildAdminNotifications", () => {
     }));
   });
 
-  it("only counts newly received feedback and open risk events as unprocessed", () => {
+  it("keeps every unacknowledged message unread when a different alert is handled", () => {
     const messages = buildAdminNotifications({
       orders: [],
-      alerts: [],
+      alerts: [{
+        id: "al_handled",
+        category: "风控",
+        title: "已标记处理的告警",
+        detail: "此条不应再计入未读",
+        severity: "warning",
+        time: "2026/07/07 10:00:00",
+        owner: "Security",
+        unread: false,
+        linkedSection: "risk",
+      }],
       feedback: [{
         id: "fb_processing",
         user: "bob@example.com",
@@ -169,6 +179,10 @@ describe("buildAdminNotifications", () => {
       }],
     });
 
-    expect(Object.values(messages).flat().every((item) => !item.unread)).toBe(true);
+    const unreadItems = Object.values(messages).flat().filter((item) => item.unread);
+    expect(unreadItems.map((item) => item.id).sort()).toEqual([
+      "feedback:fb_processing",
+      "risk:risk_reviewing",
+    ]);
   });
 });
