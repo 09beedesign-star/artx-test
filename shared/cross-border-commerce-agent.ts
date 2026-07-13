@@ -39,7 +39,8 @@ export type CrossBorderTemplateId =
   | "lifestyle_seed"
   | "promotion_event"
   | "tech_parameter"
-  | "checklist_compare";
+  | "checklist_compare"
+  | "lifestyle_showcase";
 
 export type CrossBorderCategoryId =
   | "beauty_personal_care"
@@ -99,6 +100,7 @@ export type CrossBorderMarket = {
   languages: string[];
   currency: string;
   culturalNotes: string[];
+  visualDirection: string[];
   platforms: CrossBorderPlatform[];
 };
 
@@ -109,6 +111,8 @@ export type CrossBorderTemplate = {
   keywords: string[];
   preferredSkillId: "commerce-poster-social" | "product-photography";
   platformIds: CrossBorderPlatformId[];
+  marketIds?: CrossBorderMarketId[];
+  categoryIds?: CrossBorderCategoryId[];
   allowedPlacements: CrossBorderPlacementId[];
   promptRules: string[];
   categoryLens: Record<CrossBorderCategoryId, string>;
@@ -166,7 +170,7 @@ export type CrossBorderGenerationContext = {
   risk: CrossBorderRiskResult;
 };
 
-export const CROSS_BORDER_COMMERCE_VERSION = "2026.07.12";
+export const CROSS_BORDER_COMMERCE_VERSION = "2026.07.13";
 
 const sources = {
   amazon: {
@@ -316,6 +320,7 @@ const market = (
   languages: string[],
   currency: string,
   culturalNotes: string[],
+  visualDirection: string[],
   availablePlatforms: CrossBorderPlatform[]
 ): CrossBorderMarket => ({
   id,
@@ -324,24 +329,25 @@ const market = (
   languages,
   currency,
   culturalNotes,
+  visualDirection,
   platforms: availablePlatforms,
 });
 
 export const CROSS_BORDER_MARKETS: CrossBorderMarket[] = [
-  market("us", "美国", "north_america", ["English"], "USD", ["避免政治人物、虚假评价、未授权品牌和未经证实的功效或价格承诺。"], [platforms.amazon, platforms.tiktokShop]),
-  market("br", "巴西", "latin_america", ["Portuguese"], "BRL", ["使用巴西葡语编辑层，避免虚假折扣与官方背书。"], [platforms.shopee, platforms.tiktokShop]),
-  market("mx", "墨西哥", "latin_america", ["Spanish"], "MXN", ["使用本地西语编辑层，规避名人肖像、政治符号和误导价格。"], [platforms.shopee, platforms.tiktokShop]),
-  market("id", "印尼", "southeast_asia", ["Bahasa Indonesia"], "IDR", ["尊重穆斯林文化；清真暗示需要商品证明并保持可编辑。"], [platforms.shopee, platforms.lazada, platforms.tiktokShop]),
-  market("th", "泰国", "southeast_asia", ["Thai"], "THB", ["避免王室、宗教形象误用和文化服饰刻板印象。"], [platforms.shopee, platforms.lazada, platforms.tiktokShop]),
-  market("vn", "越南", "southeast_asia", ["Vietnamese"], "VND", ["本地文案简洁，认证、折扣和产地信息保持可编辑。"], [platforms.shopee, platforms.lazada, platforms.tiktokShop]),
-  market("sg", "新加坡", "southeast_asia", ["English", "Chinese"], "SGD", ["多文化人物和场景避免族群、宗教与国籍刻板印象。"], [platforms.shopee, platforms.lazada, platforms.amazon, platforms.tiktokShop]),
-  market("ph", "菲律宾", "southeast_asia", ["English", "Filipino"], "PHP", ["宗教节庆和健康功效表达需要谨慎。"], [platforms.shopee, platforms.lazada, platforms.tiktokShop]),
-  market("jp", "日本", "east_asia", ["Japanese"], "JPY", ["避免名人肖像、动漫 IP 模仿和未经证实的排名第一。"], [platforms.amazon, platforms.tiktokShop]),
-  market("ae", "阿联酋（含迪拜）", "gulf", ["Arabic", "English"], "AED", ["规避酒类、猪制品、赌博、暴露人物、宗教符号娱乐化和敏感政治。"], [platforms.amazon]),
-  market("sa", "沙特", "gulf", ["Arabic", "English"], "SAR", ["使用保守人物造型与阿拉伯语/英语编辑层。"], [platforms.amazon]),
-  market("qa", "卡塔尔", "gulf", ["Arabic", "English"], "QAR", ["市场风险包已注册，平台开放前需要运营复核。"], []),
-  market("kw", "科威特", "gulf", ["Arabic", "English"], "KWD", ["市场风险包已注册，平台开放前需要运营复核。"], []),
-  market("cn", "中国大陆", "china", ["简体中文"], "CNY", ["规避极限词、虚假功效、医疗减肥母婴宣称、诱导点击和盗用 IP。"], [platforms.douyin, platforms.xiaohongshu, platforms.taobaoTmall, platforms.jd]),
+  market("us", "美国", "north_america", ["English"], "USD", ["避免政治人物、虚假评价、未授权品牌和未经证实的功效或价格承诺。"], ["商品优先、画面干净、卖点与价格保留为后续编辑层。"], [platforms.amazon, platforms.tiktokShop]),
+  market("br", "巴西", "latin_america", ["Portuguese"], "BRL", ["使用巴西葡语编辑层，避免虚假折扣与官方背书。"], ["使用明亮、亲和的真实生活场景，保留葡语标题区。"], [platforms.shopee, platforms.tiktokShop]),
+  market("mx", "墨西哥", "latin_america", ["Spanish"], "MXN", ["使用本地西语编辑层，规避名人肖像、政治符号和误导价格。"], ["优先清晰商品与西语编辑区，避免使用未验证的节庆或国家符号。"], [platforms.shopee, platforms.tiktokShop]),
+  market("id", "印尼", "southeast_asia", ["Bahasa Indonesia"], "IDR", ["尊重穆斯林文化；清真暗示需要商品证明并保持可编辑。"], ["使用本地日常场景与保守人物表达，商品主体保持可检查。"], [platforms.shopee, platforms.lazada, platforms.tiktokShop]),
+  market("th", "泰国", "southeast_asia", ["Thai"], "THB", ["避免王室、宗教形象误用和文化服饰刻板印象。"], ["采用轻量生活方式布景，泰语文案与促销信息保持可编辑。"], [platforms.shopee, platforms.lazada, platforms.tiktokShop]),
+  market("vn", "越南", "southeast_asia", ["Vietnamese"], "VND", ["本地文案简洁，认证、折扣和产地信息保持可编辑。"], ["突出商品细节和真实使用场景，为简洁越南语标题预留空间。"], [platforms.shopee, platforms.lazada, platforms.tiktokShop]),
+  market("sg", "新加坡", "southeast_asia", ["English", "Chinese"], "SGD", ["多文化人物和场景避免族群、宗教与国籍刻板印象。"], ["采用整洁、可信的多语言商业视觉，避免用人物标签化表达。"], [platforms.shopee, platforms.lazada, platforms.amazon, platforms.tiktokShop]),
+  market("ph", "菲律宾", "southeast_asia", ["English", "Filipino"], "PHP", ["宗教节庆和健康功效表达需要谨慎。"], ["使用明亮、易读的移动端商品构图，保留本地语言编辑区。"], [platforms.shopee, platforms.lazada, platforms.tiktokShop]),
+  market("jp", "日本", "east_asia", ["Japanese"], "JPY", ["避免名人肖像、动漫 IP 模仿和未经证实的排名第一。"], ["画面克制、信息层级清晰，预留日语文案与商品细节展示区。"], [platforms.amazon, platforms.tiktokShop]),
+  market("ae", "阿联酋（含迪拜）", "gulf", ["Arabic", "English"], "AED", ["规避酒类、猪制品、赌博、暴露人物、宗教符号娱乐化和敏感政治。"], ["使用克制的商业和家庭场景，为阿拉伯语与英语编辑层保留安全区。"], [platforms.amazon]),
+  market("sa", "沙特", "gulf", ["Arabic", "English"], "SAR", ["使用保守人物造型与阿拉伯语/英语编辑层。"], ["采用保守、商品优先的构图，保留阿拉伯语与英语编辑区。"], [platforms.amazon]),
+  market("qa", "卡塔尔", "gulf", ["Arabic", "English"], "QAR", ["市场风险包已注册，平台开放前需要运营复核。"], ["平台与模板审核完成前不向用户开放生成。"], []),
+  market("kw", "科威特", "gulf", ["Arabic", "English"], "KWD", ["市场风险包已注册，平台开放前需要运营复核。"], ["平台与模板审核完成前不向用户开放生成。"], []),
+  market("cn", "中国大陆", "china", ["简体中文"], "CNY", ["规避极限词、虚假功效、医疗减肥母婴宣称、诱导点击和盗用 IP。"], ["商品信息分层清楚，所有价格、功效和服务承诺保持为可编辑文字。"], [platforms.douyin, platforms.xiaohongshu, platforms.taobaoTmall, platforms.jd]),
 ];
 
 export const CROSS_BORDER_CATEGORIES: Array<{
@@ -374,7 +380,8 @@ function template(
   allowedPlacements: CrossBorderPlacementId[],
   promptRules: string[],
   disabledElements: string[],
-  evidenceLabel: CrossBorderTemplate["trendEvidence"]["label"]
+  evidenceLabel: CrossBorderTemplate["trendEvidence"]["label"],
+  availability: Pick<CrossBorderTemplate, "marketIds" | "categoryIds"> = {}
 ): CrossBorderTemplate {
   return {
     id,
@@ -383,6 +390,7 @@ function template(
     keywords: promptRules.slice(0, 3),
     preferredSkillId,
     platformIds,
+    ...availability,
     allowedPlacements,
     promptRules,
     categoryLens,
@@ -395,13 +403,14 @@ function template(
 }
 
 export const CROSS_BORDER_TEMPLATES: CrossBorderTemplate[] = [
-  template("white_main", "白底高信任主图", "商品主体清晰、干净、适合搜索货架", "product-photography", ["amazon", "shopee", "lazada", "taobao_tmall", "jd"], ["product_main"], ["纯白或浅色背景", "商品占画面 75%-85%", "边缘锐利、轻阴影"], ["价格徽章", "折扣贴纸", "评价星级", "未授权 Logo"], "官方规格"),
+  template("white_main", "白底高信任主图", "商品主体清晰、干净、适合搜索货架", "product-photography", ["amazon", "shopee", "tiktok_shop", "lazada", "douyin", "taobao_tmall", "jd"], ["product_main"], ["纯白或浅色背景", "商品占画面 75%-85%", "边缘锐利、轻阴影"], ["价格徽章", "折扣贴纸", "评价星级", "未授权 Logo"], "官方规格"),
   template("feature_callout", "功能卖点信息卡", "产品细节与 1-3 个可编辑事实卖点", "product-photography", ["amazon", "shopee", "lazada", "taobao_tmall", "jd"], ["feature_benefit", "detail_module"], ["保留卖点和图标区域", "产品材质与功能部位清晰"], ["医疗功效", "虚假认证", "保证排名"], "公开趋势"),
   template("ugc_review", "UGC 手持测评风", "像真实用户演示或短视频第一帧", "commerce-poster-social", ["tiktok_shop", "douyin", "xiaohongshu"], ["short_video_cover", "lifestyle_scene"], ["真实手持或使用瞬间", "商品仍可识别", "标题区域简洁"], ["伪造平台 UI", "名人肖像", "虚假用户评价"], "公开趋势"),
   template("lifestyle_seed", "真实生活种草风", "低广告感的生活方式场景与真实光线", "product-photography", ["tiktok_shop", "douyin", "xiaohongshu"], ["short_video_cover", "lifestyle_scene"], ["自然光和真实生活场景", "轻商业表达", "保留可编辑标题区"], ["夸大前后对比", "文化刻板印象", "硬烘焙价格"], "公开趋势"),
   template("promotion_event", "大促强转化活动图", "商品主视觉与活动层级并重，促销文字可编辑", "commerce-poster-social", ["shopee", "lazada", "taobao_tmall", "jd", "douyin", "tiktok_shop"], ["campaign_banner"], ["商品主视觉突出", "保留标题、价格、折扣和 CTA 区域", "移动端高对比"], ["硬烘焙价格", "虚假稀缺", "未经授权节庆符号"], "运营复核"),
   template("tech_parameter", "参数科技质感图", "参数可信、产品清晰、适合 3C 与家电", "product-photography", ["amazon", "taobao_tmall", "jd"], ["feature_benefit", "detail_module"], ["参数网格和局部特写", "克制科技光效", "产品边缘清晰"], ["伪造参数", "受保护应用 Logo", "虚假认证"], "公开趋势"),
   template("checklist_compare", "清单测评对比图", "信息清单或结构化测评，文案独立可编辑", "commerce-poster-social", ["xiaohongshu", "taobao_tmall"], ["detail_module", "short_video_cover"], ["清单式层级", "真实测评口吻", "商品与信息分区"], ["伪造评价", "绝对化推荐", "夸张前后对比"], "公开趋势"),
+  template("lifestyle_showcase", "商品生活方式展示图", "真实使用情境下保持商品主体完整可辨识", "product-photography", ["amazon", "lazada"], ["lifestyle_scene"], ["真实使用场景", "商品主体和包装清晰", "自然光线与接触阴影"], ["未验证功效", "误导性前后对比", "硬烘焙促销文案"], "公开趋势", { marketIds: ["us", "id", "th", "vn", "sg", "ph", "jp", "ae", "sa"] }),
 ];
 
 type RiskRule = {
@@ -511,10 +520,78 @@ function combinedText(input: CrossBorderComposeInput) {
     .join("\n");
 }
 
+export function isCrossBorderTemplateCompatible(
+  template: Pick<CrossBorderTemplate, "platformIds" | "marketIds" | "categoryIds" | "allowedPlacements">,
+  input: Pick<CrossBorderComposeInput, "marketId" | "platformId" | "placementId" | "categoryId">
+) {
+  return (
+    template.platformIds.includes(input.platformId) &&
+    template.allowedPlacements.includes(input.placementId) &&
+    (!template.marketIds || template.marketIds.includes(input.marketId)) &&
+    (!template.categoryIds || template.categoryIds.includes(input.categoryId))
+  );
+}
+
+export function getCompatibleCrossBorderTemplates(
+  input: Pick<CrossBorderComposeInput, "marketId" | "platformId" | "placementId" | "categoryId">
+) {
+  return CROSS_BORDER_TEMPLATES.filter(template =>
+    isCrossBorderTemplateCompatible(template, input)
+  );
+}
+
+function resolveCrossBorderCommerceSelection(input: CrossBorderComposeInput) {
+  const selectedMarket = findMarket(input.marketId);
+  if (!selectedMarket) throw new Error(`Unknown market: ${input.marketId}`);
+  const selectedPlatform = selectedMarket.platforms.find(
+    item => item.id === input.platformId && item.status === "active"
+  );
+  if (!selectedPlatform)
+    throw new Error(
+      `Platform ${input.platformId} is not active for ${selectedMarket.label}`
+    );
+  const selectedPlacement = selectedPlatform.placements.find(
+    item => item.id === input.placementId
+  );
+  if (!selectedPlacement)
+    throw new Error(
+      `Placement ${input.placementId} is not available for ${selectedPlatform.label}`
+    );
+  const category = CROSS_BORDER_CATEGORIES.find(item => item.id === input.categoryId);
+  if (!category) throw new Error(`Unknown category: ${input.categoryId}`);
+  const selectedTemplate = getCompatibleCrossBorderTemplates(input).find(
+    item => item.id === input.templateId
+  );
+  if (!selectedTemplate)
+    throw new Error(
+      `Template ${input.templateId} is not available for ${selectedMarket.label} ${selectedPlatform.label} ${selectedPlacement.label}`
+    );
+
+  return { selectedMarket, selectedPlatform, selectedPlacement, category, selectedTemplate };
+}
+
 export function evaluateCrossBorderCommerceRisk(
   input: CrossBorderComposeInput
 ): CrossBorderRiskResult {
-  const selectedMarket = findMarket(input.marketId);
+  let selectedMarket: CrossBorderMarket;
+  try {
+    ({ selectedMarket } = resolveCrossBorderCommerceSelection(input));
+  } catch (error) {
+    return {
+      action: "block",
+      hits: [{
+        id: "configuration-unavailable",
+        action: "block",
+        label: "电商配置不可用",
+        reason: error instanceof Error ? error.message : "当前市场、平台、用途或模板不可用。",
+        matched: "configuration",
+        safeAlternative: "请选择已开放且已配置模板的市场、平台、图片用途和商品品类。",
+      }],
+      canGenerate: false,
+      disclaimer:
+        "ArtX 仅提供可追溯的创意风险提示，不构成法律、税务、商标或平台审核意见。",
+    };
+  }
   const text = combinedText(input);
   const hits: CrossBorderRiskHit[] = [];
 
@@ -558,41 +635,17 @@ export function evaluateCrossBorderCommerceRisk(
 export function composeCrossBorderCommerceContext(
   input: CrossBorderComposeInput
 ): CrossBorderGenerationContext {
-  const selectedMarket = findMarket(input.marketId);
-  if (!selectedMarket) throw new Error(`Unknown market: ${input.marketId}`);
-  const selectedPlatform = selectedMarket.platforms.find(
-    item => item.id === input.platformId && item.status === "active"
-  );
-  if (!selectedPlatform)
-    throw new Error(
-      `Platform ${input.platformId} is not active for ${selectedMarket.label}`
-    );
-  const selectedPlacement = selectedPlatform.placements.find(
-    item => item.id === input.placementId
-  );
-  if (!selectedPlacement)
-    throw new Error(
-      `Placement ${input.placementId} is not available for ${selectedPlatform.label}`
-    );
-  const selectedTemplate = CROSS_BORDER_TEMPLATES.find(
-    item => item.id === input.templateId
-  );
-  if (!selectedTemplate)
-    throw new Error(`Unknown template: ${input.templateId}`);
-  if (
-    !selectedTemplate.platformIds.includes(selectedPlatform.id) ||
-    !selectedTemplate.allowedPlacements.includes(selectedPlacement.id)
-  )
-    throw new Error(
-      `Template ${selectedTemplate.label} cannot be used for ${selectedPlatform.label} ${selectedPlacement.label}`
-    );
+  const {
+    selectedMarket,
+    selectedPlatform,
+    selectedPlacement,
+    category,
+    selectedTemplate,
+  } = resolveCrossBorderCommerceSelection(input);
 
   const risk = evaluateCrossBorderCommerceRisk(input);
   if (risk.action === "block")
     throw new Error(`Generation blocked: ${risk.hits.map(hit => hit.label).join("、")}`);
-  const category = CROSS_BORDER_CATEGORIES.find(
-    item => item.id === input.categoryId
-  );
   const productFacts =
     input.productFacts?.trim() ||
     "Only use seller-provided product facts; do not invent certification, rating, discount, legal, or performance claims.";
@@ -600,11 +653,12 @@ export function composeCrossBorderCommerceContext(
   const prompt = [
     `ArtX intelligent ecommerce visual package ${CROSS_BORDER_COMMERCE_VERSION}.`,
     `Market: ${selectedMarket.label}; platform: ${selectedPlatform.label}; placement: ${selectedPlacement.label}; output: ${selectedPlacement.size.width}x${selectedPlacement.size.height}.`,
-    `Product category: ${category?.label || input.categoryId}; product: ${input.productName || "seller product"}.`,
+    `Product category: ${category.label}; product: ${input.productName || "seller product"}.`,
     `Verified product facts: ${productFacts}`,
     `Visual template: ${selectedTemplate.label}. ${selectedTemplate.promptRules.join("; ")}.`,
     `Category direction: ${selectedTemplate.categoryLens[input.categoryId]}`,
     `Market guardrails: ${selectedMarket.culturalNotes.join(" ")}`,
+    `Market visual direction: ${selectedMarket.visualDirection.join(" ")}`,
     `Editable copy language: ${editableLanguage}.`,
     `Text policy: ${selectedPlacement.textPolicy} Keep title, price, CTA, discount, legal and certification copy as editable safe-area overlays, not baked into pixels.`,
     `Disabled elements: ${selectedTemplate.disabledElements.join(", ")}.`,

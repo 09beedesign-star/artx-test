@@ -8,6 +8,7 @@ import {
   composeCrossBorderCommerceContext,
   evaluateCrossBorderCommerceRisk,
   getAvailableCrossBorderPlatforms,
+  getCompatibleCrossBorderTemplates,
 } from "../shared/cross-border-commerce-agent";
 
 describe("cross-border commerce visual agent", () => {
@@ -105,6 +106,24 @@ describe("cross-border commerce visual agent", () => {
     );
   });
 
+  it("blocks unavailable templates during risk checks before compose runs", () => {
+    const input = {
+      marketId: "us" as const,
+      platformId: "tiktok_shop" as const,
+      placementId: "short_video_cover" as const,
+      categoryId: "beauty_personal_care" as const,
+      templateId: "lifestyle_showcase" as const,
+    };
+
+    const risk = evaluateCrossBorderCommerceRisk(input);
+    expect(risk.action).toBe("block");
+    expect(risk.canGenerate).toBe(false);
+    expect(risk.hits.map(hit => hit.id)).toContain("configuration-unavailable");
+    expect(() => composeCrossBorderCommerceContext(input)).toThrow(
+      "Template lifestyle_showcase is not available"
+    );
+  });
+
   it("keeps every template compatible with at least one placement", () => {
     const placementIds = new Set(
       CROSS_BORDER_MARKETS.flatMap(market =>
@@ -112,11 +131,33 @@ describe("cross-border commerce visual agent", () => {
       )
     );
 
-    expect(CROSS_BORDER_TEMPLATES).toHaveLength(7);
+    expect(CROSS_BORDER_TEMPLATES).toHaveLength(8);
     for (const template of CROSS_BORDER_TEMPLATES) {
       expect(template.allowedPlacements.some(id => placementIds.has(id))).toBe(true);
       expect(template.keywords.length).toBeGreaterThan(0);
     }
+  });
+
+  it("keeps every active market platform placement and category covered by a template", () => {
+    for (const market of CROSS_BORDER_MARKETS) {
+      for (const platform of getAvailableCrossBorderPlatforms(market.id)) {
+        for (const placement of platform.placements) {
+          for (const category of CROSS_BORDER_CATEGORIES) {
+            expect(
+              getCompatibleCrossBorderTemplates({
+                marketId: market.id,
+                platformId: platform.id,
+                placementId: placement.id,
+                categoryId: category.id,
+              }),
+              `${market.label} / ${platform.label} / ${placement.label} / ${category.label}`
+            ).not.toEqual([]);
+          }
+        }
+      }
+    }
+    expect(getAvailableCrossBorderPlatforms("qa")).toEqual([]);
+    expect(getAvailableCrossBorderPlatforms("kw")).toEqual([]);
   });
 
   it("keeps smart commerce output at nine while batching through the existing provider limit", () => {

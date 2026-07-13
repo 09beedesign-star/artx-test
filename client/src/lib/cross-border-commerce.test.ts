@@ -78,15 +78,30 @@ describe("cross-border commerce client selection", () => {
 
   it("filters templates by both platform and placement", () => {
     expect(
-      getCompatibleCommerceTemplates(data, "shopee", "campaign_banner").map(
+      getCompatibleCommerceTemplates(data, "id", "shopee", "campaign_banner", "beauty_personal_care").map(
         item => item.id
       )
     ).toEqual(["promotion_event"]);
     expect(
-      getCompatibleCommerceTemplates(data, "xiaohongshu", "short_video_cover").map(
+      getCompatibleCommerceTemplates(data, "cn", "xiaohongshu", "short_video_cover", "beauty_personal_care").map(
         item => item.id
       )
     ).toEqual(["ugc_review", "lifestyle_seed", "checklist_compare"]);
+  });
+
+  it("keeps every active platform placement available for all supported categories", () => {
+    for (const market of data.markets) {
+      for (const platform of market.platforms.filter(item => item.status === "active")) {
+        for (const placement of platform.placements) {
+          for (const category of data.categories) {
+            expect(
+              getCompatibleCommerceTemplates(data, market.id, platform.id, placement.id, category.id),
+              `${market.label} / ${platform.label} / ${placement.label} / ${category.label}`
+            ).not.toEqual([]);
+          }
+        }
+      }
+    }
   });
 
   it("derives stable ratios and user-facing risk labels", () => {

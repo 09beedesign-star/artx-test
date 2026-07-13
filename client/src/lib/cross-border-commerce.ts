@@ -12,6 +12,7 @@ import type {
   CrossBorderTemplate,
   CrossBorderTemplateId,
 } from "../../../shared/cross-border-commerce-agent";
+import { isCrossBorderTemplateCompatible } from "../../../shared/cross-border-commerce-agent";
 import {
   ART_X_TEST_API_BASE_URL,
   defaultApiBaseUrlForCurrentHost,
@@ -128,7 +129,21 @@ export function getCommercePlatformOptions(data: CommerceMarketsResponse) {
   const byId = new Map<CrossBorderPlatformId, CrossBorderPlatform>();
   for (const selectedMarket of data.markets) {
     for (const platform of selectedMarket.platforms) {
-      if (platform.status === "active" && !byId.has(platform.id))
+      if (
+        platform.status === "active" &&
+        platform.placements.some(placement =>
+          data.categories.some(category =>
+            getCompatibleCommerceTemplates(
+              data,
+              selectedMarket.id,
+              platform.id,
+              placement.id,
+              category.id
+            ).length > 0
+          )
+        ) &&
+        !byId.has(platform.id)
+      )
         byId.set(platform.id, platform);
     }
   }
@@ -143,8 +158,20 @@ export function getMarketsForCommercePlatform(
   platformId: CrossBorderPlatformId
 ) {
   return data.markets.filter(selectedMarket =>
-    selectedMarket.platforms.some(
-      platform => platform.id === platformId && platform.status === "active"
+    selectedMarket.platforms.some(platform =>
+      platform.id === platformId &&
+      platform.status === "active" &&
+      platform.placements.some(placement =>
+        data.categories.some(category =>
+          getCompatibleCommerceTemplates(
+            data,
+            selectedMarket.id,
+            platform.id,
+            placement.id,
+            category.id
+          ).length > 0
+        )
+      )
     )
   );
 }
@@ -163,13 +190,19 @@ export function getCommercePlatformForSelection(
 
 export function getCompatibleCommerceTemplates(
   data: CommerceMarketsResponse,
+  marketId: CrossBorderMarketId,
   platformId: CrossBorderPlatformId,
-  placementId: CrossBorderPlacementId
+  placementId: CrossBorderPlacementId,
+  categoryId: CrossBorderCategoryId
 ) {
   return data.templates.filter(
     template =>
-      template.platformIds.includes(platformId) &&
-      template.allowedPlacements.includes(placementId)
+      isCrossBorderTemplateCompatible(template, {
+        marketId,
+        platformId,
+        placementId,
+        categoryId,
+      })
   );
 }
 
@@ -193,20 +226,30 @@ export function repairCommerceSelection(
     selectedPlatform.id
   );
   if (!marketPlatform) throw new Error("平台与市场配置不匹配");
-  const selectedPlacement =
-    marketPlatform.placements.find(item => item.id === selection.placementId) ||
-    marketPlatform.placements[0];
-  if (!selectedPlacement) throw new Error("当前平台没有可用图片用途");
-
   const category =
     data.categories.find(item => item.id === selection.categoryId) ||
     data.categories[0];
   if (!category) throw new Error("当前没有可用商品品类");
 
+  const placements = marketPlatform.placements.filter(item =>
+    getCompatibleCommerceTemplates(
+      data,
+      selectedMarket.id,
+      selectedPlatform.id,
+      item.id,
+      category.id
+    ).length > 0
+  );
+  const selectedPlacement =
+    placements.find(item => item.id === selection.placementId) || placements[0];
+  if (!selectedPlacement) throw new Error("当前平台没有可用图片用途");
+
   const templates = getCompatibleCommerceTemplates(
     data,
+    selectedMarket.id,
     selectedPlatform.id,
-    selectedPlacement.id
+    selectedPlacement.id,
+    category.id
   );
   const selectedTemplate =
     templates.find(item => item.id === selection.templateId) || templates[0];

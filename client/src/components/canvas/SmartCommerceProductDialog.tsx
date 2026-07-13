@@ -285,8 +285,10 @@ export function SmartCommerceProductDialog({
       data && selection
         ? getCompatibleCommerceTemplates(
             data,
+            selection.marketId,
             selection.platformId,
-            selection.placementId
+            selection.placementId,
+            selection.categoryId
           )
         : [],
     [data, selection]
@@ -350,7 +352,7 @@ export function SmartCommerceProductDialog({
     try {
       setSelection(repairCommerceSelection(data, { ...selection, ...patch }));
     } catch (error) {
-      toast("当前组合不可用", {
+      toast.error("电商配置加载失败", {
         description: error instanceof Error ? error.message : undefined,
       });
     }
@@ -929,11 +931,20 @@ export function SmartCommerceProductDialog({
                 <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
                   {selectedPlatform?.placements.map(item => {
                     const active = selection.placementId === item.id;
+                    const isAvailable = getCompatibleCommerceTemplates(
+                      data,
+                      selection.marketId,
+                      selection.platformId,
+                      item.id,
+                      selection.categoryId
+                    ).length > 0;
                     return (
                       <button
                         key={item.id}
                         type="button"
-                        className="min-h-12 rounded-md px-2.5 py-2 text-left transition-colors"
+                        disabled={!isAvailable}
+                        title={isAvailable ? undefined : "该用途暂未配置可用模板"}
+                        className="min-h-12 rounded-md px-2.5 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45"
                         style={{
                           background: active ? "rgba(197,237,71,0.12)" : colors.surface,
                           border: `1px solid ${active ? "rgba(197,237,71,0.55)" : colors.border}`,
