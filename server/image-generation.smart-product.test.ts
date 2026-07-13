@@ -13,12 +13,11 @@ describe("smart product generation prompt", () => {
     expect(source).toContain("Return complete product commercial images. Do not crop, distort, redraw, replace, or reinterpret the product.");
   });
 
-  it("uses the product-preserving PicWish path for smart commerce when no background reference is supplied", () => {
-    expect(source).toContain("if (input.skillId && !hasBackgroundReference)");
-    expect(source).toContain("const result = await createBackgroundWithPicWish(input)");
-    expect(source).toContain("PicWish smart commerce background failed; using reference generation fallback");
-    expect(source.indexOf("if (input.skillId && !hasBackgroundReference)")).toBeLessThan(
-      source.indexOf("if (hasBackgroundReference || count > 1 || input.skillId)")
+  it("uses the reference-image generation path for smart commerce even without a background reference", () => {
+    expect(source).not.toContain("if (input.skillId && !hasBackgroundReference)");
+    expect(source).toContain("if (hasBackgroundReference || count > 1 || input.skillId)");
+    expect(source.indexOf("if (hasBackgroundReference || count > 1 || input.skillId)")).toBeLessThan(
+      source.indexOf("return await createBackgroundWithPicWish(input)")
     );
   });
 });

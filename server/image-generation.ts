@@ -2438,29 +2438,6 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
   const sourceDimensions = await getImageBufferDimensions(sourceImageData.buffer);
   const output = getBackgroundOutputSize(input, sourceDimensions.width, sourceDimensions.height);
 
-  if (input.skillId && !hasBackgroundReference) {
-    try {
-      const generatedImages: GeneratedImage[] = [];
-      const providerTaskIds: string[] = [];
-      for (let index = 0; index < count; index += 1) {
-        const result = await createBackgroundWithPicWish(input);
-        generatedImages.push(...result.images);
-        if (Array.isArray(result.providerTaskIds)) {
-          providerTaskIds.push(...result.providerTaskIds);
-        } else if (result.providerTaskId) {
-          providerTaskIds.push(result.providerTaskId);
-        }
-      }
-      return {
-        images: generatedImages.slice(0, count),
-        providerTaskId: providerTaskIds[0],
-        providerTaskIds,
-      };
-    } catch (picWishError) {
-      console.warn("PicWish smart commerce background failed; using reference generation fallback", picWishError);
-    }
-  }
-
   if (hasBackgroundReference || count > 1 || input.skillId) {
     const skill = input.skillId ? await getSkill(input.skillId) : undefined;
     const references = [
