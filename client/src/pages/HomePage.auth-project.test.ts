@@ -40,4 +40,14 @@ describe("HomePage auth flow", () => {
     expect(source).toContain('autoComplete="username"');
     expect(source).toContain('autoComplete={isRegister ? "new-password" : "current-password"}');
   });
+
+  it("does not keep the login password form mounted after the user is authenticated", () => {
+    const source = readFileSync(resolve(__dirname, "HomePage.tsx"), "utf-8");
+
+    expect(source).toContain("const shouldRenderAuthPanel = !isAuthenticated");
+    expect(source).toContain("{shouldRenderAuthPanel && (");
+    expect(source).toContain('autoComplete="on"');
+    expect(source).toContain('autoComplete="username"');
+    expect(source).toContain('autoComplete={isRegister ? "new-password" : "current-password"}');
+  });
 });

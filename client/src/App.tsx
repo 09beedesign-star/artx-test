@@ -17,6 +17,7 @@ import LoginRegisterDialog from "./components/auth/LoginRegisterDialog";
 // ── 新增路由页面（补充缺失交互，不替换已有路由）──
 import InspirationPage from "./pages/InspirationPage";
 import SkillsPage from "./pages/SkillsPage";
+import CrossBorderCommercePage from "./pages/CrossBorderCommercePage";
 import AssetsPage from "./pages/AssetsPage";
 import HelpPage from "./pages/HelpPage";
 import LoadingLoopPage, { CanvasPageLoading, GeneralPageLoading } from "./pages/LoadingLoopPage";
@@ -29,7 +30,7 @@ const routerBase = import.meta.env.BASE_URL.replace(/\/$/, "");
 const configuredAdminHost = (import.meta.env.VITE_ADMIN_HOST || "").toLowerCase();
 const configuredAdminAccessToken = (import.meta.env.VITE_ADMIN_ACCESS_TOKEN || "").trim();
 const routeLoadingDurationMs = 720;
-const publicGuestPaths = ["/", "/inspiration", "/skills"];
+const publicGuestPaths = ["/", "/inspiration", "/skills", "/cross-border-commerce"];
 const homeAuthPanelStorageKey = "artx:home-auth-panel";
 
 function isAdminHost() {
@@ -128,6 +129,12 @@ function AppRoutes() {
       <Route path="/skills">
         <AppShell>
           <SkillsPage />
+        </AppShell>
+      </Route>
+
+      <Route path="/cross-border-commerce">
+        <AppShell>
+          <CrossBorderCommercePage />
         </AppShell>
       </Route>
 

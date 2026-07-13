@@ -2281,7 +2281,7 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
   }
 
   const ratio = ratioToSize[input.ratio || "1:1"] || ratioToSize["1:1"];
-  const count = Math.max(1, Math.min(Number(input.count) || 1, 4));
+  const count = Math.max(1, Math.min(Number(input.count) || 1, 9));
   const referenceImages = input.images?.filter(image => image.src?.trim()) || [];
   const requestedModel = input.model && supportedImageModels.has(input.model) ? input.model : model;
   const providerModel = resolveProviderImageModel(requestedModel);

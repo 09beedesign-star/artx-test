@@ -511,7 +511,7 @@ export default function HomePage() {
                     <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#f7d795] to-[#d98261] text-xs font-bold text-[#28160c]">
                       EW
                     </div>
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-white">{item.author || "ArtX"}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-white">ArtX 灵感</span>
                     <span className="flex items-center gap-1 text-xs font-medium text-white/69">
                       <PlayCircle size={14} fill="currentColor" strokeWidth={0} />
                       {Math.max(1200, item.rank * 137)}

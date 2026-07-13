@@ -1,6 +1,6 @@
 # Skill Validation Cases
 
-This document defines the minimum-cost validation prompts for the 8 ArtX skill MD files.
+This document defines the minimum-cost validation prompts for the 9 ArtX skill MD files.
 The validation branch should use these cases to confirm every skill can produce a corresponding visual result on canvas.
 
 | Skill ID | Minimum Prompt | Expected Visual Result | Pass Criteria |
@@ -9,6 +9,7 @@ The validation branch should use these cases to confirm every skill can produce 
 | `logo-identity-lab` | 为一家名叫 Ember Cafe 的精品咖啡品牌探索 Logo，关键词是温暖、手作、城市通勤。 | A logo exploration sheet with multiple logo directions such as symbol, wordmark, badge, and recommended option. | At least 4 distinct logo concepts are visible and inspectable; marks are simple and not copied from famous brands. |
 | `landing-page-visual` | 为一款 AI 图片协作工具生成产品官网首屏，突出多人协作、画布生成和快速出图。 | A website hero or landing page visual with product signal, CTA, feature modules, and responsive UI feel. | The output reads as a real web/product page, with clear hierarchy and UI layout rather than a generic poster. |
 | `commerce-poster-social` | 为夏季运动水杯做一张电商活动海报，主打冰感、防漏、限时 8 折，适合社媒投放。 | A commercial poster/social visual with product hero, headline zone, offer, CTA, and brand placement. | Product is prominent, campaign hierarchy is clear, and text zones are readable. |
+| `cross-border-commerce-agent` | 为阿联酋 Noon 平台生成一张高端香氛身体乳商品图，模板用生活场景图，保留阿拉伯语/英语标题、卖点、价格和 CTA 安全区，不直接写价格。 | A Gulf-market ecommerce product visual with modest lifestyle context, product clarity, locked safe areas, and Arabic/English editable copy zones. | The output avoids alcohol, exposed models, religious-symbol decoration, and baked-in price/claims; it reads as a cross-border marketplace visual. |
 | `product-photography` | 生成一张高端无线耳机的商品摄影图，哑光黑材质，暗色背景，边缘冷光，适合新品发布。 | A polished product photography or commercial render with clear product subject, material, light, surface, and shadow. | The product remains inspectable, centered or intentionally composed, with realistic lighting and material cues. |
 | `video-storyboard` | 为一款智能台灯做 15 秒短视频分镜，开头强调深夜工作，结尾展示自动调光。 | A storyboard board with multiple sequential frames, hook, product reveal, benefit moment, and ending CTA. | Several frames appear in sequence with captions or shot notes; the result is not a single unrelated image. |
 | `image-local-edit` | 把这张图片里的背景换成干净的白色电商背景，并保持主体不变。 | An image edit result that preserves the subject while changing or cleaning the background. | Subject identity, proportions, and important details are preserved; background is cleaner and commercially usable. |
@@ -25,5 +26,5 @@ The validation branch should use these cases to confirm every skill can produce 
 ## Notes
 
 - The `image-local-edit` case requires one low-cost reference image because it uses `image_edit`.
-- The other 7 cases can be tested with text-to-image only.
+- The other 8 cases can be tested with text-to-image only.
 - Do not judge artistic taste too strictly in minimum validation; the key question is whether the skill changes the output type and structure in the intended direction.

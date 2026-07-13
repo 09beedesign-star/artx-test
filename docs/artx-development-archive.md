@@ -160,7 +160,7 @@ curl -fsSL "https://09beedesign-star.github.io/artx-test/deployment.json"
 | `client/src/pages/BillingPage.tsx` | 订阅、充值、升级、支付弹窗 |
 | `client/src/pages/HomePage.tsx` | 首页、登录态入口、灵感推荐入口 |
 | `client/src/pages/SkillsPage.tsx` | 技能商店 |
-| `client/src/pages/InspirationPage.tsx` | 灵感选题 / 灵感推荐 |
+| `client/src/pages/InspirationPage.tsx` | 灵感推荐 |
 | `server/index.ts` | Express 路由、AI、支付、admin、auth、uploads |
 | `server/image-generation.ts` | 图片 AI / PicWish / BKEEL 能力 |
 | `server/admin-store.ts` | 管理后台数据、订单、积分、AI 账单记录 |
@@ -216,7 +216,7 @@ curl -fsSL "https://09beedesign-star.github.io/artx-test/deployment.json"
 ### 技能商店与灵感推荐
 
 - 技能商店分类、快速加载到画布、Skill 选择器接入画布生成
-- 灵感推荐 / 灵感选题瀑布流
+- 灵感推荐瀑布流
 - 灵感详情浮窗、提示词滚动和复制
 - 未登录状态下技能商店可浏览，真正加载进画布前应触发登录
 

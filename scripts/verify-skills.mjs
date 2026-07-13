@@ -19,6 +19,7 @@ const expectedIds = [
   "logo-identity-lab",
   "landing-page-visual",
   "commerce-poster-social",
+  "cross-border-commerce-agent",
   "product-photography",
   "video-storyboard",
   "image-local-edit",

@@ -409,6 +409,8 @@ import {
 import {
   SOCIAL_MEDIA_SIZE_PRESETS,
   SocialPlatformIcon,
+  getSocialMediaPresetCategory,
+  groupSocialMediaSizePresets,
   type SocialMediaExportPayload,
   type SocialMediaSizePreset,
 } from "@/lib/social-media-presets";
@@ -434,8 +436,10 @@ import {
   removeImageBackground,
   removeImageWatermark,
   requestAiAuth,
+  runImageGenerationTask,
   searchReferenceImages,
   startBackgroundImageGeneration,
+  type ImageGenerationTaskInput,
   type GeneratedImagesResponse,
   type ReferenceImageResult,
 } from "@/lib/ai";
@@ -3984,116 +3988,148 @@ function SocialMediaSizePanel({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          {SOCIAL_MEDIA_SIZE_PRESETS.map(preset => {
-            const active = selectedPresetIds.includes(preset.id);
-            return (
-              <button
-                key={preset.id}
-                className="flex items-center gap-2 rounded-[var(--radius-md-design)] p-2 text-left transition-all active:scale-[0.98]"
-                style={{
-                  background: active ? "oklch(0.58 0.22 290 / 0.18)" : field,
-                  border: `1px solid ${active ? "oklch(0.62 0.22 290 / 0.56)" : border}`,
-                  color: text,
-                }}
-                onClick={() => togglePreset(preset.id)}
+        <div className="space-y-3">
+          {groupSocialMediaSizePresets().map(section => (
+            <div key={section.category} className="space-y-2">
+              <p
+                className="type-caption"
+                style={{ color: text, fontSize: 12, fontWeight: 750 }}
               >
-                <div
-                  className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-[var(--radius-md-design)]"
-                  style={{ background: preset.tone }}
-                >
-                  <SocialPlatformIcon platform={preset.platform} />
-                  <div
-                    className="absolute bottom-1 right-1"
-                    style={{
-                      width:
-                        preset.width >= preset.height
-                          ? 14
-                          : Math.max(
-                              7,
-                              Math.round((14 * preset.width) / preset.height)
-                            ),
-                      height:
-                        preset.height >= preset.width
-                          ? 14
-                          : Math.max(
-                              7,
-                              Math.round((14 * preset.height) / preset.width)
-                            ),
-                      borderRadius: 2,
-                      border: "1.5px solid rgba(255,255,255,0.9)",
-                      background: "rgba(255,255,255,0.16)",
-                    }}
-                  />
-                </div>
-                <div className="min-w-0">
+                {section.category}
+              </p>
+              {section.groups.map(group => (
+                <div key={`${section.category}-${group.name}`}>
                   <p
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 650,
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
+                    className="mb-1 type-caption"
+                    style={{ color: sub, fontSize: 10, fontWeight: 650 }}
                   >
-                    {preset.platform}
+                    {group.name}
                   </p>
-                  <p style={{ color: sub, fontSize: 10, marginTop: 2 }}>
-                    {preset.width} × {preset.height}
-                  </p>
-                  <p style={{ color: sub, fontSize: 10, marginTop: 1 }}>
-                    {preset.title}
-                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {group.items.map(preset => {
+                      const active = selectedPresetIds.includes(preset.id);
+                      return (
+                        <button
+                          key={preset.id}
+                          className="flex items-center gap-2 rounded-[var(--radius-md-design)] p-2 text-left transition-all active:scale-[0.98]"
+                          style={{
+                            background: active
+                              ? "oklch(0.58 0.22 290 / 0.18)"
+                              : field,
+                            border: `1px solid ${active ? "oklch(0.62 0.22 290 / 0.56)" : border}`,
+                            color: text,
+                          }}
+                          onClick={() => togglePreset(preset.id)}
+                        >
+                          <div
+                            className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-[var(--radius-md-design)]"
+                            style={{ background: preset.tone }}
+                          >
+                            <SocialPlatformIcon platform={preset.platform} />
+                            <div
+                              className="absolute bottom-1 right-1"
+                              style={{
+                                width:
+                                  preset.width >= preset.height
+                                    ? 14
+                                    : Math.max(
+                                        7,
+                                        Math.round(
+                                          (14 * preset.width) / preset.height
+                                        )
+                                      ),
+                                height:
+                                  preset.height >= preset.width
+                                    ? 14
+                                    : Math.max(
+                                        7,
+                                        Math.round(
+                                          (14 * preset.height) / preset.width
+                                        )
+                                      ),
+                                borderRadius: 2,
+                                border: "1.5px solid rgba(255,255,255,0.9)",
+                                background: "rgba(255,255,255,0.16)",
+                              }}
+                            />
+                          </div>
+                          <div className="min-w-0">
+                            <p
+                              style={{
+                                fontSize: 12,
+                                fontWeight: 650,
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                              }}
+                            >
+                              {preset.platform}
+                            </p>
+                            <p style={{ color: sub, fontSize: 10, marginTop: 2 }}>
+                              {preset.width} × {preset.height}
+                            </p>
+                            <p style={{ color: sub, fontSize: 10, marginTop: 1 }}>
+                              {preset.title}
+                            </p>
+                          </div>
+                          <div className="ml-auto flex shrink-0 items-center gap-1">
+                            {active && (
+                              <span
+                                role="button"
+                                tabIndex={0}
+                                title={
+                                  activeCropPresetId === preset.id
+                                    ? "关闭此平台封面裁切"
+                                    : "裁切此平台封面"
+                                }
+                                aria-label={`裁切${preset.platform}${preset.title}`}
+                                aria-pressed={activeCropPresetId === preset.id}
+                                className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-md-design)]"
+                                style={{
+                                  background:
+                                    activeCropPresetId === preset.id
+                                      ? "#C5ED47"
+                                      : "rgba(255,255,255,0.10)",
+                                  color:
+                                    activeCropPresetId === preset.id
+                                      ? "#10130A"
+                                      : "oklch(0.78 0.18 290)",
+                                  border: `1px solid ${activeCropPresetId === preset.id ? "transparent" : "rgba(255,255,255,0.12)"}`,
+                                }}
+                                onClick={event => {
+                                  event.stopPropagation();
+                                  toggleCropPreset(preset.id);
+                                }}
+                                onKeyDown={event => {
+                                  if (
+                                    event.key !== "Enter" &&
+                                    event.key !== " "
+                                  )
+                                    return;
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  toggleCropPreset(preset.id);
+                                }}
+                              >
+                                <Crop size={14} />
+                              </span>
+                            )}
+                            {active && (
+                              <Check
+                                size={14}
+                                className="shrink-0"
+                                style={{ color: "oklch(0.72 0.20 290)" }}
+                              />
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-                <div className="ml-auto flex shrink-0 items-center gap-1">
-                  {active && (
-                    <span
-                      role="button"
-                      tabIndex={0}
-                      title={
-                        activeCropPresetId === preset.id
-                          ? "关闭此平台封面裁切"
-                          : "裁切此平台封面"
-                      }
-                      aria-label={`裁切${preset.platform}${preset.title}`}
-                      aria-pressed={activeCropPresetId === preset.id}
-                      className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-md-design)]"
-                      style={{
-                        background:
-                          activeCropPresetId === preset.id
-                            ? "#C5ED47"
-                            : "rgba(255,255,255,0.10)",
-                        color:
-                          activeCropPresetId === preset.id
-                            ? "#10130A"
-                            : "oklch(0.78 0.18 290)",
-                        border: `1px solid ${activeCropPresetId === preset.id ? "transparent" : "rgba(255,255,255,0.12)"}`,
-                      }}
-                      onClick={event => {
-                        event.stopPropagation();
-                        toggleCropPreset(preset.id);
-                      }}
-                      onKeyDown={event => {
-                        if (event.key !== "Enter" && event.key !== " ") return;
-                        event.preventDefault();
-                        event.stopPropagation();
-                        toggleCropPreset(preset.id);
-                      }}
-                    >
-                      <Crop size={14} />
-                    </span>
-                  )}
-                  {active && (
-                    <Check
-                      size={14}
-                      className="shrink-0"
-                      style={{ color: "oklch(0.72 0.20 290)" }}
-                    />
-                  )}
-                </div>
-              </button>
-            );
-          })}
+              ))}
+            </div>
+          ))}
         </div>
 
         <div
@@ -6025,16 +6061,19 @@ function AssetNodeComponent({
             .map(n => ({ ...n, zIndex: topZ })),
         ];
       });
-      window.dispatchEvent(
-        new CustomEvent("asset-reference", {
-          detail: {
-            id: nodeId,
-            title: displayTitle,
-            src: displaySrc,
-            ctrlKey: additive,
-          },
-        })
-      );
+      if (additive) {
+        window.dispatchEvent(
+          new CustomEvent("asset-reference", {
+            detail: {
+              nodeId,
+              id: nodeId,
+              title: displayTitle,
+              src: displaySrc,
+              ctrlKey: additive,
+            },
+          })
+        );
+      }
     },
     [
       displaySrc,
@@ -9406,6 +9445,7 @@ type ImageGeneratorPayload = {
   sourceBackgroundSrc?: string;
   sourceImageSrc?: string;
   editMode?: boolean;
+  backgroundTaskInput?: ImageGenerationTaskInput;
   referencedAssets?: Array<{
     src: string;
     title?: string;
@@ -11234,6 +11274,25 @@ function BottomPromptBar({
               targetDisplaySize || getImageDisplaySizeForRatio(skillRatio),
             sourceBackgroundSrc: targetReference?.src,
             skillId: activeSkill.id,
+            backgroundTaskInput:
+              shouldEditTargetReference && targetReference
+                ? {
+                    taskId: generationId,
+                    capability: "image_edit",
+                    operation: "edit",
+                    imageSrc: targetReference.src,
+                    model: "gpt-image-2",
+                    prompt: finalImagePrompt,
+                    images: submittedRefs.slice(0, -1),
+                    skillId: activeSkill.id,
+                    targetWidth:
+                      targetReference.width ||
+                      getImageDisplaySizeForRatio(skillRatio).w,
+                    targetHeight:
+                      targetReference.height ||
+                      getImageDisplaySizeForRatio(skillRatio).h,
+                  }
+                : undefined,
           };
           dispatchImageGenerationTask(
             { ...payload, status: "pending" },
@@ -11255,6 +11314,7 @@ function BottomPromptBar({
                     targetHeight:
                       targetReference.height ||
                       getImageDisplaySizeForRatio(skillRatio).h,
+                    generationId,
                   })
                 : await generateAiImages(payload);
             dispatchImageGenerationTask(
@@ -13114,7 +13174,7 @@ function ImageGeneratorPopover({
   const selectedModel =
     IMAGE_AI_MODEL_OPTIONS.find(item => item.id === model) || AUTO_AI_MODEL;
   const ratios = ["1:1", "4:5", "5:4", "3:4", "4:3", "16:9", "9:16", "21:9"];
-  const counts = [1, 2, 3, 4];
+  const counts = [1, 2, 3, 4, 5, 6, 7, 8, 9];
   const canGenerate = prompt.trim().length > 0 && !isGenerating;
   const popoverWidth = 430;
 
@@ -14424,6 +14484,8 @@ type ProductBackgroundDialogDetail = {
   count: number;
   customWidth?: number;
   customHeight?: number;
+  platformPresetId?: string;
+  platformPresetLabel?: string;
 };
 
 function ProductBackgroundDialog({
@@ -14448,10 +14510,13 @@ function ProductBackgroundDialog({
   const [backgroundReferenceSrc, setBackgroundReferenceSrc] = useState("");
   const [backgroundReferenceName, setBackgroundReferenceName] = useState("");
   const [prompt, setPrompt] = useState("");
-  const [selectedStyle, setSelectedStyle] = useState("商务科技感");
+  const [selectedStyle, setSelectedStyle] = useState("亚马逊");
   const [ratio, setRatio] = useState("1:1");
   const [resolution, setResolution] = useState<"2k" | "4k">("2k");
   const [count, setCount] = useState(1);
+  const [selectedCoverPresetId, setSelectedCoverPresetId] = useState(
+    "facebook-shopping-product-square"
+  );
   const [customWidth, setCustomWidth] = useState("");
   const [customHeight, setCustomHeight] = useState("");
   const [panelPosition, setPanelPosition] = useState<{
@@ -14466,60 +14531,59 @@ function ProductBackgroundDialog({
   const activeBorder = "rgba(197,237,71,0.55)";
   const accent = "#C5ED47";
   const ratios = ["1:1", "4:5", "5:4", "3:4", "4:3", "16:9", "9:16", "21:9"];
-  const styles = [
+  const counts = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+  const coverPresetSections = groupSocialMediaSizePresets();
+  const selectedCoverPreset = SOCIAL_MEDIA_SIZE_PRESETS.find(
+    preset => preset.id === selectedCoverPresetId
+  );
+  const ecommercePlatforms = [
     {
-      name: "商务科技感",
-      image: new URL(
-        "../../assets/smart-background/business-tech.jpg",
-        import.meta.url
-      ).href,
+      name: "亚马逊",
+      platform: "亚马逊",
       prompt:
-        "clean premium technology showroom, cool lighting, glass and metal platform",
+        "主流电商平台产品图方向：亚马逊。保持商品主体清晰突出，画面适合电商转化。",
     },
     {
-      name: "中国风",
-      image: new URL(
-        "../../assets/smart-background/chinese-style.jpg",
-        import.meta.url
-      ).href,
+      name: "Shopee",
+      platform: "Shopee",
       prompt:
-        "modern Chinese style, warm red and gold, subtle silk texture, elegant product stage",
+        "主流电商平台产品图方向：Shopee。保持商品主体清晰突出，画面适合电商转化。",
     },
     {
-      name: "欧美潮流",
-      image: new URL(
-        "../../assets/smart-background/western-fashion.jpg",
-        import.meta.url
-      ).href,
+      name: "TikTok",
+      platform: "TikTok",
       prompt:
-        "bold western fashion campaign, urban studio lighting, editorial composition",
+        "主流电商平台产品图方向：TikTok。保持商品主体清晰突出，画面适合电商转化。",
     },
     {
-      name: "日韩风",
-      image: new URL(
-        "../../assets/smart-background/jk-pastel.jpg",
-        import.meta.url
-      ).href,
+      name: "Lazada",
+      platform: "Lazada",
       prompt:
-        "soft Japanese Korean commercial background, clean pastel studio, fresh lifestyle mood",
+        "主流电商平台产品图方向：Lazada。保持商品主体清晰突出，画面适合电商转化。",
     },
     {
-      name: "赛博朋克",
-      image: new URL(
-        "../../assets/smart-background/cyberpunk.jpg",
-        import.meta.url
-      ).href,
+      name: "抖音",
+      platform: "抖音",
       prompt:
-        "cyberpunk neon commercial set, futuristic light strips, glossy reflective floor",
+        "主流电商平台产品图方向：抖音。保持商品主体清晰突出，画面适合电商转化。",
     },
     {
-      name: "可爱呆萌系",
-      image: new URL(
-        "../../assets/smart-background/cute-toy.jpg",
-        import.meta.url
-      ).href,
+      name: "小红书",
+      platform: "小红书",
       prompt:
-        "cute playful commercial scene, rounded props, soft colorful lighting",
+        "主流电商平台产品图方向：小红书。保持商品主体清晰突出，画面适合电商转化。",
+    },
+    {
+      name: "淘宝",
+      platform: "淘宝",
+      prompt:
+        "主流电商平台产品图方向：淘宝。保持商品主体清晰突出，画面适合电商转化。",
+    },
+    {
+      name: "京东",
+      platform: "京东",
+      prompt:
+        "主流电商平台产品图方向：京东。保持商品主体清晰突出，画面适合电商转化。",
     },
   ];
 
@@ -14694,21 +14758,33 @@ function ProductBackgroundDialog({
       toast("请先添加产品图");
       return;
     }
-    const width = Number(customWidth);
-    const height = Number(customHeight);
+    const width = Number(customWidth || selectedCoverPreset?.width || 0);
+    const height = Number(customHeight || selectedCoverPreset?.height || 0);
     const hasOnlyOneCustomSide = Boolean(customWidth) !== Boolean(customHeight);
     if (hasOnlyOneCustomSide) {
       toast("请同时填写自定义宽高");
       return;
     }
+    const coverLabel = selectedCoverPreset
+      ? `${selectedCoverPreset.platform} ${selectedCoverPreset.title} ${selectedCoverPreset.width}×${selectedCoverPreset.height}`
+      : "";
     const stylePrompt =
-      styles.find(item => item.name === selectedStyle)?.prompt || "";
+      ecommercePlatforms.find(item => item.name === selectedStyle)?.prompt ||
+      "";
     const detail: ProductBackgroundDialogDetail = {
       imageSrc,
       fileName,
       backgroundReferenceSrc,
       backgroundReferenceName,
-      prompt: [stylePrompt, prompt.trim()].filter(Boolean).join("\n"),
+      prompt: [
+        stylePrompt,
+        coverLabel
+          ? `平台封面尺寸：${coverLabel}。请按该平台封面规格生成清晰、完整、高清且适合投放的产品图。`
+          : "",
+        prompt.trim(),
+      ]
+        .filter(Boolean)
+        .join("\n"),
       style: selectedStyle,
       ratio,
       resolution,
@@ -14717,6 +14793,8 @@ function ProductBackgroundDialog({
         Number.isFinite(width) && width > 0 ? Math.round(width) : undefined,
       customHeight:
         Number.isFinite(height) && height > 0 ? Math.round(height) : undefined,
+      platformPresetId: selectedCoverPreset?.id,
+      platformPresetLabel: coverLabel,
     };
     window.dispatchEvent(
       new CustomEvent<ProductBackgroundDialogDetail>(
@@ -14919,18 +14997,18 @@ function ProductBackgroundDialog({
               style={{ color: accent, background: "transparent" }}
             >
               <AiDecoratedIcon size={17} cutoutBg={bg}>
-                <GalleryVerticalEnd size={17} />
+                <Boxes size={17} />
               </AiDecoratedIcon>
             </span>
             <div>
               <p
                 className="type-caption"
-                style={{ color: text, fontSize: 14, fontWeight: 700 }}
-              >
-                智能创建背景
+              style={{ color: text, fontSize: 14, fontWeight: 700 }}
+            >
+                智能产品图
               </p>
               <p className="mt-1 type-caption leading-5" style={{ color: sub }}>
-                上传产品图，输入或选择商业背景风格，生成新的产品商业化背景图。
+                选择平台封面尺寸和生成张数，AI 会按对应规格批量生成高清产品图。
               </p>
             </div>
           </div>
@@ -14939,7 +15017,7 @@ function ProductBackgroundDialog({
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-md-design)] hover:opacity-75"
             style={{ color: sub }}
             onClick={onClose}
-            aria-label="关闭智能创建背景"
+            aria-label="关闭智能产品图"
           >
             <X size={15} />
           </button>
@@ -14972,17 +15050,17 @@ function ProductBackgroundDialog({
                   className="type-caption"
                   style={{ color: text, fontWeight: 750 }}
                 >
-                  商业背景风格
+                  主流电商平台
                 </span>
                 <span className="type-caption" style={{ color: sub }}>
-                  选择一个方向，也可以继续补充关键词
+                  选择目标平台，后续会按平台规范生成产品图
                 </span>
               </div>
               <div
-                className="grid min-h-0 flex-1 grid-cols-[repeat(auto-fit,minmax(136px,1fr))] content-start gap-2 overflow-y-auto overflow-x-hidden pr-1"
+                className="grid min-h-0 flex-1 grid-cols-[repeat(auto-fit,minmax(128px,1fr))] content-start gap-2 overflow-y-auto overflow-x-hidden pr-1"
                 style={{ scrollbarGutter: "stable" }}
               >
-                {styles.map(item => {
+                {ecommercePlatforms.map(item => {
                   const active = selectedStyle === item.name;
                   return (
                     <button
@@ -14990,7 +15068,7 @@ function ProductBackgroundDialog({
                       type="button"
                       className="group min-w-0 overflow-hidden rounded-[var(--radius-lg-design)] text-left transition-colors duration-150 active:opacity-90"
                       style={{
-                        height: 54,
+                        height: 68,
                         background: active ? "rgba(197,237,71,0.14)" : fieldBg,
                         border: `1px solid ${active ? activeBorder : border}`,
                         color: text,
@@ -14999,63 +15077,55 @@ function ProductBackgroundDialog({
                       onClick={() => setSelectedStyle(item.name)}
                     >
                       <span
-                        className="relative block h-full overflow-hidden"
+                        className="flex h-full min-w-0 items-center gap-2.5 px-2.5"
                         style={{ background: fieldBg }}
                       >
-                        <img
-                          src={item.image}
-                          alt={`${item.name} 背景风格预览`}
-                          className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]"
-                          style={{
-                            objectPosition: "center center",
-                            transformOrigin: "center center",
-                            backfaceVisibility: "hidden",
-                          }}
-                          draggable={false}
-                        />
                         <span
-                          className="absolute inset-[-1px]"
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md-design)] transition-transform duration-200 group-hover:scale-[1.04]"
                           style={{
-                            background:
-                              "linear-gradient(180deg, rgba(0,0,0,0.10), rgba(0,0,0,0.76))",
+                            background: active
+                              ? "rgba(197,237,71,0.16)"
+                              : isDark
+                                ? "rgba(255,255,255,0.08)"
+                                : "rgba(255,255,255,0.72)",
+                            border: `1px solid ${active ? activeBorder : border}`,
                           }}
-                        />
-                        <span className="absolute inset-x-2 bottom-1.5 flex items-end justify-between gap-2">
-                          <span className="min-w-0">
-                            <span
-                              className="block truncate type-caption"
-                              style={{
-                                color: "white",
-                                fontWeight: 850,
-                                fontSize: 11,
-                                lineHeight: 1.1,
-                              }}
-                            >
-                              {item.name}
-                            </span>
-                            <span
-                              className="mt-0.5 block truncate type-caption"
-                              style={{
-                                color: "rgba(255,255,255,0.72)",
-                                fontSize: 9,
-                                lineHeight: 1.1,
-                              }}
-                            >
-                              {item.prompt.split(",")[0]}
-                            </span>
-                          </span>
-                          {active && (
-                            <Check
-                              size={14}
-                              style={{
-                                color: accent,
-                                flexShrink: 0,
-                                filter:
-                                  "drop-shadow(0 0 8px rgba(197,237,71,0.45))",
-                              }}
-                            />
-                          )}
+                        >
+                          <SocialPlatformIcon
+                            platform={item.platform}
+                            size={24}
+                          />
                         </span>
+                        <span className="min-w-0 flex-1">
+                          <span
+                            className="block truncate type-caption"
+                            style={{
+                              color: text,
+                              fontWeight: 850,
+                              fontSize: 12,
+                              lineHeight: 1.2,
+                            }}
+                          >
+                            {item.name}
+                          </span>
+                          <span
+                            className="mt-1 block truncate type-caption"
+                            style={{ color: sub, fontSize: 10, lineHeight: 1.2 }}
+                          >
+                            平台风格待导入
+                          </span>
+                        </span>
+                        {active && (
+                          <Check
+                            size={14}
+                            style={{
+                              color: accent,
+                              flexShrink: 0,
+                              filter:
+                                "drop-shadow(0 0 8px rgba(197,237,71,0.45))",
+                            }}
+                          />
+                        )}
                       </span>
                     </button>
                   );
@@ -15068,12 +15138,12 @@ function ProductBackgroundDialog({
                 className="mb-2 block type-caption"
                 style={{ color: text, fontWeight: 750 }}
               >
-                背景关键词
+                产品图关键词
               </label>
               <textarea
                 value={prompt}
                 onChange={event => setPrompt(event.target.value)}
-                placeholder="例如：高端护肤品展台、冷白光、玻璃质感、商业广告海报背景"
+                placeholder="例如：高端护肤品展台、冷白光、玻璃质感、商业广告海报背景，适合跨境电商商品图"
                 rows={5}
                 className="min-h-0 flex-1 w-full resize-none rounded-[var(--radius-lg-design)] p-3 outline-none"
                 style={{
@@ -15088,6 +15158,105 @@ function ProductBackgroundDialog({
           </div>
 
           <div className="min-w-0 space-y-2.5">
+            <div
+              className="rounded-[var(--radius-lg-design)] p-2.5"
+              style={{ background: fieldBg, border: `1px solid ${border}` }}
+            >
+              <label
+                className="mb-1.5 block type-caption"
+                style={{ color: text, fontWeight: 750 }}
+              >
+                平台封面尺寸
+              </label>
+              <p className="mb-2 type-caption leading-4" style={{ color: sub, fontSize: 10 }}>
+                选择平台规格后，确认生成会按该尺寸输出对应数量的高清产品图。
+              </p>
+              <div
+                className="max-h-[188px] space-y-2 overflow-y-auto pr-1"
+                style={{ scrollbarWidth: "thin" }}
+              >
+                {coverPresetSections.map(section => (
+                  <div key={section.category}>
+                    <p
+                      className="mb-1 type-caption"
+                      style={{ color: text, fontSize: 11, fontWeight: 750 }}
+                    >
+                      {section.category}
+                    </p>
+                    {section.groups.map(group => (
+                      <div key={`${section.category}-${group.name}`} className="mb-1.5">
+                        <p
+                          className="mb-1 type-caption"
+                          style={{ color: sub, fontSize: 10, fontWeight: 650 }}
+                        >
+                          {group.name}
+                        </p>
+                        <div className="space-y-1">
+                          {group.items.map(preset => {
+                            const active = preset.id === selectedCoverPresetId;
+                            return (
+                              <button
+                                key={preset.id}
+                                type="button"
+                                className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-[var(--radius-md-design)] px-2 py-1.5 text-left transition-opacity hover:opacity-90"
+                                style={{
+                                  background: active
+                                    ? "rgba(197,237,71,0.14)"
+                                    : isDark
+                                      ? "rgba(0,0,0,0.18)"
+                                      : "rgba(255,255,255,0.72)",
+                                  border: `1px solid ${active ? activeBorder : border}`,
+                                  color: text,
+                                }}
+                                onClick={() => {
+                                  setSelectedCoverPresetId(preset.id);
+                                  setCustomWidth("");
+                                  setCustomHeight("");
+                                  setRatio(
+                                    inferImageRatio(preset.width, preset.height)
+                                  );
+                                }}
+                              >
+                                <SocialPlatformIcon
+                                  platform={preset.platform}
+                                  size={18}
+                                />
+                                <span className="min-w-0">
+                                  <span
+                                    className="block truncate type-caption"
+                                    style={{ fontSize: 11, fontWeight: 700 }}
+                                  >
+                                    {preset.platform} · {preset.title}
+                                  </span>
+                                  <span
+                                    className="block type-caption"
+                                    style={{ color: sub, fontSize: 10 }}
+                                  >
+                                    {getSocialMediaPresetCategory(preset)}
+                                  </span>
+                                </span>
+                                <span
+                                  className="type-caption"
+                                  style={{
+                                    color: active ? accent : sub,
+                                    fontSize: 10,
+                                    fontWeight: 750,
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {preset.width}×{preset.height}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div
               className="rounded-[var(--radius-lg-design)] p-2.5"
               style={{ background: fieldBg, border: `1px solid ${border}` }}
@@ -15166,8 +15335,8 @@ function ProductBackgroundDialog({
               >
                 生成数量
               </label>
-              <div className="grid grid-cols-4 gap-1.5">
-                {[1, 2, 3, 4].map(item => (
+              <div className="grid grid-cols-3 gap-1.5">
+                {counts.map(item => (
                   <button
                     key={item}
                     type="button"
@@ -15203,9 +15372,10 @@ function ProductBackgroundDialog({
               <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-1.5">
                 <input
                   value={customWidth}
-                  onChange={event =>
-                    setCustomWidth(event.target.value.replace(/[^\d]/g, ""))
-                  }
+                  onChange={event => {
+                    setCustomWidth(event.target.value.replace(/[^\d]/g, ""));
+                    setSelectedCoverPresetId("");
+                  }}
                   placeholder="宽，例如 2048"
                   className="h-8 min-w-0 rounded-[var(--radius-md-design)] px-2.5 outline-none"
                   style={{
@@ -15220,9 +15390,10 @@ function ProductBackgroundDialog({
                 </span>
                 <input
                   value={customHeight}
-                  onChange={event =>
-                    setCustomHeight(event.target.value.replace(/[^\d]/g, ""))
-                  }
+                  onChange={event => {
+                    setCustomHeight(event.target.value.replace(/[^\d]/g, ""));
+                    setSelectedCoverPresetId("");
+                  }}
                   placeholder="高，例如 3072"
                   className="h-8 min-w-0 rounded-[var(--radius-md-design)] px-2.5 outline-none"
                   style={{
@@ -15262,9 +15433,9 @@ function ProductBackgroundDialog({
             onClick={handleCreate}
           >
             <WandSparkles size={15} />
-            {backgroundReferenceSrc
-              ? `参考背景生成 ${count} 张`
-              : `创建背景 ${count} 张`}
+            {selectedCoverPreset
+              ? `生成 ${count} 张 ${selectedCoverPreset.platform} 产品图`
+              : `生成智能产品图 ${count} 张`}
           </button>
         </div>
       </div>
@@ -18161,6 +18332,27 @@ function CanvasAssistantPanel({
             targetDisplaySize || getImageDisplaySizeForRatio(skillRatio),
           sourceBackgroundSrc: targetReference?.src || assistantImages[0]?.src,
           skillId: activeSkill.id,
+          backgroundTaskInput:
+            shouldEditTargetReference && targetReference
+              ? {
+                  taskId: generationId,
+                  capability: "image_edit",
+                  operation: "edit",
+                  imageSrc: targetReference.src,
+                  model: "gpt-image-2",
+                  prompt:
+                    [
+                      finalImagePrompt,
+                      "Use the last referenced image as the target canvas. Preserve the target person's identity, pose, composition, background, lighting, camera angle, and aspect ratio.",
+                      "Use the earlier referenced images only as visual references for the requested object, accessory, texture, pattern, color, or detail.",
+                      "Do not generate a new unrelated person or scene.",
+                    ].join("\n"),
+                  images: sourceReferences,
+                  skillId: activeSkill.id,
+                  targetWidth: targetReference.width,
+                  targetHeight: targetReference.height,
+                }
+              : undefined,
         };
         dispatchImageGenerationTask(
           { ...payload, status: "pending" },
@@ -18176,6 +18368,7 @@ function CanvasAssistantPanel({
                 skillId: activeSkill.id,
                 targetWidth: targetReference.width,
                 targetHeight: targetReference.height,
+                generationId,
               })
             : await generateAiImages(payload);
         const validImages = getValidGeneratedImages(result.images, 1);
@@ -18321,6 +18514,25 @@ function CanvasAssistantPanel({
           generationId,
           displaySize: targetDisplaySize,
           sourceBackgroundSrc: targetReference?.src || assistantImages[0]?.src,
+          backgroundTaskInput:
+            shouldEditTargetReference && targetReference
+              ? {
+                  taskId: generationId,
+                  capability: "image_edit",
+                  operation: "edit",
+                  imageSrc: targetReference.src,
+                  model: "gpt-image-2",
+                  prompt: [
+                    finalImagePrompt,
+                    "Use the last referenced image as the target canvas. Preserve the target person's identity, pose, composition, background, lighting, camera angle, and aspect ratio.",
+                    "Use the earlier referenced images only as visual references for the requested object, accessory, texture, pattern, color, or detail.",
+                    "Do not generate a new unrelated person or scene.",
+                  ].join("\n"),
+                  images: sourceReferences,
+                  targetWidth: targetReference.width,
+                  targetHeight: targetReference.height,
+                }
+              : undefined,
         };
         dispatchImageGenerationTask(
           { ...payload, status: "pending" },
@@ -18335,6 +18547,7 @@ function CanvasAssistantPanel({
                 referencedAssets: sourceReferences,
                 targetWidth: targetReference.width,
                 targetHeight: targetReference.height,
+                generationId,
               })
             : await generateAiImages(payload);
         const validImages = getValidGeneratedImages(result.images, 1);
@@ -19185,11 +19398,15 @@ function CanvasAssistantPanel({
                       </span>
 	                    );
 	                  }
-	                  if (segment.type !== "text") return null;
-	                  const isSingleTextSegment =
-	                    composerSegments.length === 1;
-	                  const isSingleEmptyTextSegment =
-	                    isSingleTextSegment && segment.text.length === 0;
+                  if (segment.type !== "text") return null;
+                  const isSingleTextSegment =
+                    composerSegments.length === 1;
+                  const isSingleEmptyTextSegment =
+                    isSingleTextSegment && segment.text.length === 0;
+                  const isLeadingTextSegment =
+                    composerSegments.findIndex(
+                      item => item.type === "text"
+                    ) === composerSegments.findIndex(item => item.id === segment.id);
                   const textWidth =
                     composerTextWidths[segment.id] ??
                     (segment.text
@@ -19287,6 +19504,7 @@ function CanvasAssistantPanel({
                           wordBreak: "break-word",
                           overflowWrap: "anywhere",
                           margin: 0,
+                          textAlign: isLeadingTextSegment ? "left" : "inherit",
                         }}
                       />
                     ) : (
@@ -19368,8 +19586,9 @@ function CanvasAssistantPanel({
                           overflowWrap: "anywhere",
                           wordBreak: "break-word",
                           margin: "0 1px",
-                          minWidth: segment.text ? 0 : 2,
+                          minWidth: segment.text ? 14 : 2,
                           verticalAlign: "middle",
+                          cursor: "text",
                         }}
                       />
                     )
@@ -20188,6 +20407,43 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     },
     [getLatestAssetNode]
   );
+  const addReferencedAsset = useCallback(
+    async (detail: {
+      nodeId?: string;
+      id?: string;
+      title?: string;
+      src?: string;
+      ctrlKey?: boolean;
+    }) => {
+      if (!detail.ctrlKey) return;
+      const assetId = detail.nodeId || detail.id;
+      if (!assetId) return;
+      const latestNode = getLatestAssetNode(assetId);
+      if (!latestNode) return;
+      const title =
+        detail.title ||
+        ((latestNode.data as Record<string, unknown>).title as string) ||
+        assetId;
+      const src = (detail.src || (await getVisibleAssetImageSource(assetId))).trim();
+      if (!src) return;
+      const size = getCanvasNodeSize(latestNode);
+      setReferencedAssets(prev =>
+        prev.some(asset => asset.id === assetId)
+          ? prev
+          : [
+              ...prev,
+              {
+                id: assetId,
+                title,
+                src,
+                width: size.width,
+                height: size.height,
+              },
+            ]
+      );
+    },
+    [getLatestAssetNode, getVisibleAssetImageSource]
+  );
   const bakeVisibleAssetNodeForCopy = useCallback(
     async (node: Node) => {
       if (node.type !== "asset") return node;
@@ -20260,17 +20516,28 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               taskProjectId,
               generationId
             );
-            await startBackgroundImageGeneration({
-              taskId: generationId,
-              prompt: task.prompt,
-              model: task.model,
-              ratio: task.ratio,
-              count: task.count,
-              style: task.style,
-              referencesEnabled: task.referencesEnabled,
-              referencedAssets: task.referencedAssets,
-              skillId: task.skillId,
-            });
+            if (task.backgroundTaskInput) {
+              await runImageGenerationTask({
+                ...task.backgroundTaskInput,
+                taskId: generationId,
+              });
+            } else if (task.editMode || task.sourceImageSrc) {
+              throw new Error(
+                "AI 任务缺少后台恢复信息，请重新生成，避免把原图编辑误当成文生图。"
+              );
+            } else {
+              await startBackgroundImageGeneration({
+                taskId: generationId,
+                prompt: task.prompt,
+                model: task.model,
+                ratio: task.ratio,
+                count: task.count,
+                style: task.style,
+                referencesEnabled: task.referencesEnabled,
+                referencedAssets: task.referencedAssets,
+                skillId: task.skillId,
+              });
+            }
           }
         } catch {
           /* The foreground request may still finish; polling below handles eventual state. */
@@ -20493,6 +20760,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     );
   }, [assetMorePanel?.nodeId, setNodes]);
   const containerRef = useRef<HTMLDivElement>(null);
+  const pinchScaleRef = useRef(1);
   const middlePanRef = useRef<{
     clientX: number;
     clientY: number;
@@ -20565,6 +20833,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       resultCount = 1,
       maxResultCount = 4,
       commerceContext,
+      backgroundTaskInput,
       run,
     }: {
       sourceNode: Node;
@@ -20580,6 +20849,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       resultCount?: number;
       maxResultCount?: number;
       commerceContext?: ImageGeneratorPayload["commerceContext"];
+      backgroundTaskInput?: Omit<ImageGenerationTaskInput, "taskId">;
       run: () => Promise<GeneratedImagesResponse>;
     }) => {
       const latestSourceNode =
@@ -20647,10 +20917,21 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             : undefined,
         editMode: true,
         commerceContext,
+        backgroundTaskInput: backgroundTaskInput
+          ? {
+              ...backgroundTaskInput,
+              taskId: generationId,
+            }
+          : undefined,
       };
       dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
       try {
-        const result = await run();
+        const result = backgroundTaskInput
+          ? await runImageGenerationTask({
+              ...backgroundTaskInput,
+              taskId: generationId,
+            })
+          : await run();
         const providerTaskIds = result.providerTaskIds?.length
           ? result.providerTaskIds
           : result.providerTaskId
@@ -20988,6 +21269,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         style: "注释修改结果",
         nextW: sourceSize.width,
         nextH: sourceSize.height,
+        backgroundTaskInput: {
+          capability: "image_edit",
+          operation: "edit",
+          imageSrc: latestImageSrc,
+          model: "gpt-image-2",
+          prompt,
+          targetWidth: sourceSize.width,
+          targetHeight: sourceSize.height,
+        },
         run: async () =>
           editImageWithPrompt({
             imageSrc: latestImageSrc,
@@ -21369,6 +21659,20 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           outputWidth: detail.customWidth,
           outputHeight: detail.customHeight,
           riskAction: detail.riskAction,
+        },
+        backgroundTaskInput: {
+          capability: "smart_background",
+          operation: "create-background",
+          imageSrc: detail.imageSrc,
+          backgroundReferenceSrc: detail.backgroundReferenceSrc,
+          backgroundReferenceName: detail.backgroundReferenceName,
+          prompt: detail.prompt,
+          style: detail.style,
+          ratio: detail.ratio,
+          resolution: detail.resolution,
+          count: detail.count,
+          customWidth: detail.customWidth,
+          customHeight: detail.customHeight,
         },
         run: async () =>
           createProductBackground({
@@ -21758,6 +22062,17 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         style: "橡皮工具结果",
         nextW: sourceSize.width,
         nextH: sourceSize.height,
+        backgroundTaskInput: {
+          capability: "image_erase",
+          operation: "erase",
+          imageSrc: detail.imageSrc,
+          maskSrc: detail.maskSrc,
+          model: "gpt-image-2",
+          targetWidth: detail.targetWidth ?? sourceSize.width,
+          targetHeight: detail.targetHeight ?? sourceSize.height,
+          prompt:
+            "Remove only the objects or scene elements covered by the mask. Reconstruct the background naturally, keep lighting, texture, perspective, and surrounding details consistent, and preserve all unmasked areas.",
+        },
         run: async () =>
           eraseImageObjects({
             imageSrc: detail.imageSrc,
@@ -21848,6 +22163,21 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         preserveSourceDisplaySize: false,
         displayW: detail.displayW ?? detail.nextW,
         displayH: detail.displayH ?? detail.nextH,
+        backgroundTaskInput: {
+          capability: "image_expansion",
+          operation: "expand",
+          imageSrc: detail.imageSrc,
+          maskSrc: detail.maskSrc,
+          model: "gpt-image-2",
+          targetWidth: detail.nextW,
+          targetHeight: detail.nextH,
+          top: detail.top,
+          bottom: detail.bottom,
+          left: detail.left,
+          right: detail.right,
+          prompt:
+            "Outpaint only the blank transparent extension area outside the original image. Preserve the original unmasked image pixels exactly. Generate new surrounding scene content that naturally continues the background, floor, wall, light, shadows, colors, texture, perspective, and edge details. Do not enlarge, duplicate, mirror, repeat, or redraw the original subject/person/object. Do not paste a scaled copy of the original image into the extension. The extension must look like new matching environment around the original image, not a zoomed or repeated version of the original.",
+        },
         run: async () =>
           expandImageWithMask({
             imageSrc: detail.imageSrc,
@@ -21933,46 +22263,54 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         : undefined;
       try {
         const fallbackPrompt = `将图片中的文案替换为：${detail.editedText}`;
+        const optimizedPrompt = await callLLM({
+          module: "image-text-relayout",
+          model: "gpt-4o",
+          images: [{ src: detail.imageSrc, title: "原始图片" }],
+          prompt: [
+            "请根据原始图片，生成一段给图片模型使用的中文编辑提示词。",
+            "目标：把图片中原有的文案替换成用户编辑后的文案，并同步微调排版。",
+            "流程背景：原始文案已通过 OCR/多模态识别提取，用户已在编辑窗口中完成修改。",
+            "要求：输出必须是一张新的结果图，不能影响原图。",
+            "要求：新图画布比例必须与原图完全一致，不允许变成方图、不允许拉伸或改变构图比例。",
+            "要求：尽量保留原始画面主体、风格、色彩、背景、构图和品牌识别特征。",
+            "要求：优先定位并清除原文案所在区域，只修改文字区域和为了新文案适配所必须发生的细微版式调整。",
+            "要求：不要改动人物、产品、背景、Logo、非文字装饰元素和整体构图。",
+            "要求：新文案必须准确可读，不允许乱码，不允许替换成无关文字。",
+            "要求：如果新文案更长或更短，自动优化字号、行距、字重、留白、对齐和文字区块位置，让画面自然、专业、无明显修补痕迹。",
+            "要求：保持商业设计输出品质，文字层级、视觉重心、品牌感和排版节奏都要像真实设计稿。",
+            "只输出可直接给图片模型使用的提示词，不要解释。",
+            `原图文案：${detail.originalText || "未识别到可读文案"}`,
+            `替换后的新文案：${detail.editedText}`,
+          ].join("\n"),
+        });
+        const finalPrompt = optimizedPrompt.text.trim() || fallbackPrompt;
         await runDerivedImageGeneration({
           sourceNode,
-          prompt: fallbackPrompt,
+          prompt: finalPrompt,
           style: "文案编辑结果",
           nextW: targetWidth,
           nextH: targetHeight,
           placement: textPanelPlacement,
           displayW: sourceSize.width,
           displayH: sourceSize.height,
-          run: async () => {
-            const optimizedPrompt = await callLLM({
-              module: "image-text-relayout",
-              model: "gpt-4o",
-              images: [{ src: detail.imageSrc, title: "原始图片" }],
-              prompt: [
-                "请根据原始图片，生成一段给图片模型使用的中文编辑提示词。",
-                "目标：把图片中原有的文案替换成用户编辑后的文案，并同步微调排版。",
-                "流程背景：原始文案已通过 OCR/多模态识别提取，用户已在编辑窗口中完成修改。",
-                "要求：输出必须是一张新的结果图，不能影响原图。",
-                "要求：新图画布比例必须与原图完全一致，不允许变成方图、不允许拉伸或改变构图比例。",
-                "要求：尽量保留原始画面主体、风格、色彩、背景、构图和品牌识别特征。",
-                "要求：优先定位并清除原文案所在区域，只修改文字区域和为了新文案适配所必须发生的细微版式调整。",
-                "要求：不要改动人物、产品、背景、Logo、非文字装饰元素和整体构图。",
-                "要求：新文案必须准确可读，不允许乱码，不允许替换成无关文字。",
-                "要求：如果新文案更长或更短，自动优化字号、行距、字重、留白、对齐和文字区块位置，让画面自然、专业、无明显修补痕迹。",
-                "要求：保持商业设计输出品质，文字层级、视觉重心、品牌感和排版节奏都要像真实设计稿。",
-                "只输出可直接给图片模型使用的提示词，不要解释。",
-                `原图文案：${detail.originalText || "未识别到可读文案"}`,
-                `替换后的新文案：${detail.editedText}`,
-              ].join("\n"),
-            });
-            const finalPrompt = optimizedPrompt.text.trim() || fallbackPrompt;
-            return editImageWithPrompt({
+          backgroundTaskInput: {
+            capability: "image_edit",
+            operation: "edit",
+            imageSrc: detail.imageSrc,
+            prompt: finalPrompt,
+            model: "gpt-image-2",
+            targetWidth,
+            targetHeight,
+          },
+          run: async () =>
+            editImageWithPrompt({
               imageSrc: detail.imageSrc,
               prompt: finalPrompt,
               model: "gpt-image-2",
               targetWidth,
               targetHeight,
-            });
-          },
+            }),
         });
         setNodes(nds =>
           nds.map(n =>
@@ -22294,63 +22632,22 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     };
   }, [getViewport, isCanvasLocked, setViewport]);
 
-  const handleCanvasWheelCapture = useCallback(
-    (event: React.WheelEvent<HTMLDivElement>) => {
-      const target = event.target instanceof Element ? event.target : null;
+  const zoomCanvasAtClientPoint = useCallback(
+    (clientX: number, clientY: number, zoomMultiplier: number) => {
       const root = containerRef.current;
-      if (!target || !root) return;
-      if (
-        target.closest(
-          "input, textarea, select, [contenteditable='true'], .nowheel, .react-flow__minimap, .react-flow__controls"
-        )
-      ) {
-        return;
-      }
-
-      const flowRoot = root.querySelector(".react-flow") as HTMLElement | null;
+      const flowRoot = root?.querySelector(".react-flow") as HTMLElement | null;
       const flowRect = flowRoot?.getBoundingClientRect();
-      if (!flowRect) return;
-
-      const insideFlowRect =
-        event.clientX >= flowRect.left &&
-        event.clientX <= flowRect.right &&
-        event.clientY >= flowRect.top &&
-        event.clientY <= flowRect.bottom;
-      const insideReactFlow = Boolean(target.closest(".react-flow"));
-      const insideGroupOverlay = Boolean(
-        target.closest("[data-canvas-group-overlay='true']")
-      );
-      if (!insideFlowRect || (!insideReactFlow && !insideGroupOverlay)) return;
-
-      const isMacPlatform =
-        navigator.platform.toUpperCase().includes("MAC") ||
-        navigator.userAgent.includes("Mac");
-      const shouldZoomCanvas = isMacPlatform ? event.metaKey : event.ctrlKey;
-      const hasZoomModifier = event.ctrlKey || event.metaKey;
-
-      if (hasZoomModifier && !shouldZoomCanvas) {
-        event.preventDefault();
-        event.stopPropagation();
+      if (!flowRect || !Number.isFinite(zoomMultiplier) || zoomMultiplier <= 0)
         return;
-      }
 
-      if (!shouldZoomCanvas) return;
-
-      event.preventDefault();
-      event.stopPropagation();
-
+      const mouseX = clientX - flowRect.left;
+      const mouseY = clientY - flowRect.top;
       const currentViewport = getViewport();
-      const nextZoom = clampCanvasZoom(
-        currentViewport.zoom *
-          Math.exp(-event.deltaY * CANVAS_WHEEL_ZOOM_SPEED)
-      );
+      const nextZoom = clampCanvasZoom(currentViewport.zoom * zoomMultiplier);
       if (nextZoom === currentViewport.zoom) return;
 
-      const mouseX = event.clientX - flowRect.left;
-      const mouseY = event.clientY - flowRect.top;
       const flowX = (mouseX - currentViewport.x) / currentViewport.zoom;
       const flowY = (mouseY - currentViewport.y) / currentViewport.zoom;
-
       setViewport({
         x: mouseX - flowX * nextZoom,
         y: mouseY - flowY * nextZoom,
@@ -22359,6 +22656,81 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     },
     [getViewport, setViewport]
   );
+
+  useEffect(() => {
+    const root = containerRef.current;
+    if (!root) return;
+    const isCanvasControl = (target: EventTarget | null) =>
+      target instanceof Element &&
+      Boolean(
+        target.closest(
+          "input, textarea, select, [contenteditable='true'], .nowheel, .react-flow__minimap, .react-flow__controls"
+        )
+      );
+    const isInsideCanvasSurface = (event: { clientX: number; clientY: number }) => {
+      const flowRect = root.querySelector(".react-flow")?.getBoundingClientRect();
+      return Boolean(
+        flowRect &&
+          event.clientX >= flowRect.left &&
+          event.clientX <= flowRect.right &&
+          event.clientY >= flowRect.top &&
+          event.clientY <= flowRect.bottom
+      );
+    };
+    const handleCanvasWheel = (event: WheelEvent) => {
+      const isMacPlatform =
+        navigator.platform.toUpperCase().includes("MAC") ||
+        navigator.userAgent.includes("Mac");
+      const shouldZoomCanvas = event.ctrlKey || (isMacPlatform && event.metaKey);
+      if (!shouldZoomCanvas) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      if (isCanvasControl(event.target) || !isInsideCanvasSurface(event)) return;
+      zoomCanvasAtClientPoint(
+        event.clientX,
+        event.clientY,
+        Math.exp(-event.deltaY * CANVAS_WHEEL_ZOOM_SPEED)
+      );
+    };
+    type SafariGestureEvent = Event & {
+      clientX: number;
+      clientY: number;
+      scale: number;
+    };
+    const handleGestureStart = (event: Event) => {
+      const gesture = event as SafariGestureEvent;
+      event.preventDefault();
+      event.stopPropagation();
+      pinchScaleRef.current = gesture.scale || 1;
+    };
+    const handleGestureChange = (event: Event) => {
+      const gesture = event as SafariGestureEvent;
+      event.preventDefault();
+      event.stopPropagation();
+      const nextScale = gesture.scale || 1;
+      const zoomMultiplier = nextScale / pinchScaleRef.current;
+      pinchScaleRef.current = nextScale;
+      if (isCanvasControl(event.target) || !isInsideCanvasSurface(gesture)) return;
+      zoomCanvasAtClientPoint(gesture.clientX, gesture.clientY, zoomMultiplier);
+    };
+    const handleGestureEnd = (event: Event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      pinchScaleRef.current = 1;
+    };
+
+    root.addEventListener("wheel", handleCanvasWheel, { capture: true, passive: false });
+    root.addEventListener("gesturestart", handleGestureStart, { capture: true, passive: false });
+    root.addEventListener("gesturechange", handleGestureChange, { capture: true, passive: false });
+    root.addEventListener("gestureend", handleGestureEnd, { capture: true, passive: false });
+    return () => {
+      root.removeEventListener("wheel", handleCanvasWheel, true);
+      root.removeEventListener("gesturestart", handleGestureStart, true);
+      root.removeEventListener("gesturechange", handleGestureChange, true);
+      root.removeEventListener("gestureend", handleGestureEnd, true);
+    };
+  }, [zoomCanvasAtClientPoint]);
 
   const getActionNodeIds = useCallback(
     (nodeId: string) => {
@@ -25841,49 +26213,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     [groupNames, pushHistory, setNodes]
   );
 
-  // ── Sync selected image nodes → referencedAssets chips in BottomPromptBar ──
-  useEffect(() => {
-    let cancelled = false;
-    const imageNodeIds = selectedNodeIds.filter(id =>
-      nodes.some(n => n.id === id && n.type === "asset")
-    );
-    if (imageNodeIds.length === 0) {
-      setReferencedAssets([]);
-      return () => {
-        cancelled = true;
-      };
-    }
-    void (async () => {
-      const refs = (
-        await Promise.all(
-          imageNodeIds.map(async nodeId => {
-            const node = nodes.find(n => n.id === nodeId);
-            if (!node) return null;
-        const title =
-          ((node.data as Record<string, unknown>).title as string) || nodeId;
-        const size = getCanvasNodeSize(node);
-        const src = (await getVisibleAssetImageSourceFromNode(node)).trim();
-        if (!src) return null;
-        return {
-          id: nodeId,
-          title,
-          src,
-          width: size.width,
-          height: size.height,
-        };
-          })
-        )
-      ).filter(
-        (reference): reference is NonNullable<typeof reference> =>
-          Boolean(reference?.src)
-      );
-      if (!cancelled) setReferencedAssets(refs);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedNodeIds, nodes]);
-
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { selectedIds?: string[] };
@@ -25895,6 +26224,23 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     window.addEventListener("asset-click-selection", handler);
     return () => window.removeEventListener("asset-click-selection", handler);
   }, [clearInactiveAssetCommands]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          nodeId?: string;
+          id?: string;
+          title?: string;
+          src?: string;
+          ctrlKey?: boolean;
+        }>
+      ).detail;
+      void addReferencedAsset(detail);
+    };
+    window.addEventListener("asset-reference", handler);
+    return () => window.removeEventListener("asset-reference", handler);
+  }, [addReferencedAsset]);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -26501,6 +26847,20 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           nextH: sourceSize.height,
           placement: placeholderPayload.placement,
           generationId,
+          backgroundTaskInput: {
+            capability: "image_edit",
+            operation: "edit",
+            imageSrc: latestImageSrc,
+            prompt:
+              optimizedPrompt.text.trim() ||
+              payload.prompt ||
+              `基于原图优化：${editAsset.title}`,
+            model: "gpt-image-2",
+            targetWidth: sourceSize.width,
+            targetHeight: sourceSize.height,
+            images: payload.references,
+            skillId: undefined,
+          },
           run: async () =>
             editImageWithPrompt({
               imageSrc: latestImageSrc,
@@ -26615,6 +26975,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           style: "HD 高清结果",
           nextW: sourceSize.width,
           nextH: sourceSize.height,
+          backgroundTaskInput: {
+            capability: "image_enhance",
+            operation: "enhance",
+            imageSrc,
+            level: "4k",
+          },
           run: async () => {
             try {
               return await enhanceImageToHd({
@@ -26660,6 +27026,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           style: "去背景结果",
           nextW: Number(data.imgW || getCanvasNodeSize(targetNode).width),
           nextH: Number(data.imgH || getCanvasNodeSize(targetNode).height),
+          backgroundTaskInput: {
+            capability: "background_removal",
+            operation: "remove-background",
+            imageSrc,
+            model: "gpt-image-2",
+            prompt:
+              "Remove the background from this image. Keep the foreground subject sharp and return a PNG with the background fully transparent and alpha set to 0.",
+          },
           run: async () =>
             removeImageBackground({
               imageSrc,
@@ -26687,6 +27061,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           style: "去水印结果",
           nextW: sourceSize.width,
           nextH: sourceSize.height,
+          backgroundTaskInput: {
+            capability: "watermark_removal",
+            operation: "remove-watermark",
+            imageSrc,
+          },
           run: async () => removeImageWatermark({ imageSrc }),
         });
         return;
@@ -26963,6 +27342,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             nextW: Number(data.imgW || sourceSize.width),
             nextH: Number(data.imgH || sourceSize.height),
             placement: splittingPosition,
+            backgroundTaskInput: {
+              capability: "background_removal",
+              operation: "remove-background",
+              imageSrc,
+              model: "gpt-image-2",
+              prompt: `${resolvedPlan.foregroundPrompt}\n\nLayer alpha requirement: keep the complete subject group as one intact foreground layer. Do not remove any interior subject pixels. All non-subject background pixels must be fully transparent alpha=0. Preserve the original full canvas size.`,
+            },
             run: async () =>
               removeImageBackground({
                 imageSrc,
@@ -26986,6 +27372,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               { width: sourceSize.width, height: sourceSize.height },
               [assetNode.id]
             ),
+            backgroundTaskInput: {
+              capability: "image_edit",
+              operation: "edit",
+              imageSrc,
+              model: "gpt-image-2",
+              prompt: `${resolvedPlan.backgroundPrompt}\n\nCritical layer instruction: this output is the bottom background plate only. It must contain no visible person, chair, clothes, shoes, hands, face, skin, beard, glasses, or subject fragments. It should look like the original blue background and W logo existed behind the removed subject.`,
+              targetWidth: sourceSize.width,
+              targetHeight: sourceSize.height,
+            },
             run: async () =>
               editImageWithPrompt({
                 imageSrc,
@@ -27232,6 +27627,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           style: "矢量化结果",
           nextW: sourceSize.width,
           nextH: sourceSize.height,
+          backgroundTaskInput: {
+            capability: "image_edit",
+            operation: "edit",
+            imageSrc,
+            model: "gpt-image-2",
+            prompt: vectorPromptMap[label] || vectorPromptMap["高清矢量"],
+            targetWidth: sourceSize.width,
+            targetHeight: sourceSize.height,
+          },
           run: async () =>
             editImageWithPrompt({
               imageSrc,
@@ -27549,7 +27953,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         handleCreateCanvasMouseUp(e);
       }}
       onClickCapture={handleCanvasClickCapture}
-      onWheelCapture={handleCanvasWheelCapture}
     >
       {assetMorePanel &&
         (assetMorePanel.command === "mockup" ? (

@@ -410,7 +410,7 @@ function getMcpTools() {
           prompt: { type: "string", description: "图片生成提示词" },
           model: { type: "string", description: "可选模型，例如 Image Two 或 Nano Banana" },
           ratio: { type: "string", description: "可选画幅比例，例如 1:1、4:5、16:9" },
-          count: { type: "number", description: "生成数量，默认 1，最多 4" },
+          count: { type: "number", description: "生成数量，默认 1，最多 9" },
           skillId: { type: "string", description: "可选 ArtX Skill ID" },
         },
         required: ["prompt"],
@@ -648,6 +648,176 @@ async function startServer() {
     },
   });
 
+  async function runBackgroundImageTask(input: Record<string, unknown>, user: SessionUser) {
+    const capability = typeof input.capability === "string" && input.capability.trim()
+      ? input.capability.trim()
+      : "text_to_image";
+    const operation = typeof input.operation === "string" && input.operation.trim()
+      ? input.operation.trim()
+      : capability;
+    switch (capability) {
+      case "smart_background":
+      case "create-background": {
+        const result = await createProductBackground(input as Parameters<typeof createProductBackground>[0]);
+        const stored = await storeImageResultForUser(result, user.username);
+        return {
+          result: stored,
+          tracking: {
+            capabilityKey: "smart_background" as const,
+            capability: "智能产品图 / 海报一键生成",
+            provider: "PicWish/佐糖",
+            model: getRouteModel(input, process.env.AI_IMAGE_MODEL || "picwish-r-background"),
+            failureMessage: "Create background failed",
+          },
+        };
+      }
+      case "image_edit":
+      case "edit": {
+        const result = await editImageWithPrompt(input as Parameters<typeof editImageWithPrompt>[0]);
+        const stored = await storeImageResultForUser(result, user.username);
+        return {
+          result: stored,
+          tracking: {
+            capabilityKey: "image_edit" as const,
+            capability: "图片编辑",
+            provider: "AI_IMAGE",
+            model: getRouteModel(input, process.env.AI_IMAGE_MODEL || "gpt-image-2"),
+            failureMessage: "Image edit failed",
+          },
+        };
+      }
+      case "background_removal":
+      case "remove-background": {
+        const result = await removeImageBackground(input as Parameters<typeof removeImageBackground>[0]);
+        const stored = await storeImageResultForUser(result, user.username);
+        return {
+          result: stored,
+          tracking: {
+            capabilityKey: "background_removal" as const,
+            capability: "抠图 / 去背景",
+            provider: "PicWish/佐糖",
+            model: getRouteModel(input, "picwish-segmentation"),
+            failureMessage: "Background removal failed",
+          },
+        };
+      }
+      case "image_enhance":
+      case "enhance": {
+        const result = await enhanceImage(input as Parameters<typeof enhanceImage>[0]);
+        const stored = await storeImageResultForUser(result, user.username);
+        return {
+          result: stored,
+          tracking: {
+            capabilityKey: "image_enhance" as const,
+            capability: "高清图片生成",
+            provider: "PicWish/佐糖",
+            model: getRouteModel(input, "picwish-scale"),
+            failureMessage: "Image enhancement failed",
+          },
+        };
+      }
+      case "watermark_removal":
+      case "remove-watermark": {
+        const result = await removeImageWatermark(input as Parameters<typeof removeImageWatermark>[0]);
+        const stored = await storeImageResultForUser(result, user.username);
+        return {
+          result: stored,
+          tracking: {
+            capabilityKey: "watermark_removal" as const,
+            capability: "去水印",
+            provider: "PicWish/佐糖",
+            model: getRouteModel(input, "picwish-watermark"),
+            failureMessage: "Image watermark removal failed",
+          },
+        };
+      }
+      case "image_erase":
+      case "erase": {
+        const result = await eraseImageObjects(input as Parameters<typeof eraseImageObjects>[0]);
+        const stored = await storeImageResultForUser(result, user.username);
+        return {
+          result: stored,
+          tracking: {
+            capabilityKey: "image_erase" as const,
+            capability: "图片擦除",
+            provider: "PicWish/佐糖",
+            model: getRouteModel(input, "picwish-inpaint"),
+            failureMessage: "Image erase failed",
+          },
+        };
+      }
+      case "image_expansion":
+      case "expand": {
+        const imageSrc = typeof input.imageSrc === "string"
+          ? input.imageSrc
+          : typeof input.image_url === "string"
+            ? input.image_url
+            : typeof input.image_base64 === "string"
+              ? input.image_base64
+              : undefined;
+        const maskSrc = typeof input.maskSrc === "string"
+          ? input.maskSrc
+          : typeof input.mask_url === "string"
+            ? input.mask_url
+            : typeof input.mask_base64 === "string"
+              ? input.mask_base64
+              : undefined;
+        const result = await expandImageWithPicWish({
+          ...input,
+          imageSrc,
+          maskSrc,
+          prompt: typeof input.prompt === "string" && input.prompt.trim()
+            ? input.prompt
+            : "Extend the image naturally only inside the masked blank area. Preserve all unmasked pixels exactly and never generate beyond the requested boundary.",
+        });
+        const stored = await storeImageResultForUser({
+          images: result.images || [],
+          image_base64: result.images?.[0]?.src?.split(";base64,")[1],
+          model: "picwish-advanced-image-expand",
+          providerTaskId: result.providerTaskId,
+          providerTaskIds: result.providerTaskIds,
+        }, user.username);
+        return {
+          result: stored,
+          tracking: {
+            capabilityKey: "image_expansion" as const,
+            capability: "扩图 / 外延生成",
+            provider: "PicWish/佐糖",
+            model: getRouteModel(input, "picwish-advanced-image-expand"),
+            failureMessage: "Image expansion failed",
+          },
+        };
+      }
+      case "text_to_image":
+      default: {
+        if (operation !== "generate" && capability !== "text_to_image") {
+          throw new Error(`Unsupported background image task capability: ${capability}`);
+        }
+        const result = await orchestrator.run({
+          ...input,
+          capability: "text_to_image",
+          intent: "text_to_image",
+          operation: "generate",
+        });
+        const images = await storeGeneratedImagesForUser(result.images || [], user.username, {
+          providerTaskId: result.providerTaskId,
+          providerTaskIds: result.providerTaskIds,
+        });
+        const stored = { ...result, images };
+        return {
+          result: stored,
+          tracking: {
+            capabilityKey: capabilityFromOrchestrator(result.capability),
+            capability: result.capability,
+            provider: result.route,
+            model: result.model,
+            failureMessage: "Image generation failed",
+          },
+        };
+      }
+    }
+  }
+
   app.use((req, res, next) => {
     const allowedOrigin = getAllowedCorsOrigin(req.headers.origin);
     if (allowedOrigin) {
@@ -867,34 +1037,19 @@ async function startServer() {
     backgroundImageTasks.set(taskId, task);
     res.json(task);
 
-    void orchestrator.run({
-      ...req.body,
-      capability: "text_to_image",
-      intent: "text_to_image",
-      operation: "generate",
-    })
-      .then(async result => {
-        const images = await storeGeneratedImagesForUser(result.images || [], user.username, {
-          providerTaskId: result.providerTaskId,
-          providerTaskIds: result.providerTaskIds,
-        });
+    void runBackgroundImageTask(req.body, user)
+      .then(async ({ result, tracking }) => {
         await recordAiRouteUsage({
           user,
-          tracking: {
-            capabilityKey: capabilityFromOrchestrator(result.capability),
-            capability: result.capability,
-            provider: result.route,
-            model: result.model,
-            failureMessage: "Image generation failed",
-          },
+          tracking,
           startedAt: task.createdAt,
           status: "success",
-          result: { ...result, images },
+          result,
         });
         backgroundImageTasks.set(taskId, {
           ...task,
           status: "completed",
-          images,
+          images: result.images || [],
           updatedAt: Date.now(),
         });
       })
@@ -982,7 +1137,7 @@ async function startServer() {
   app.post("/api/images/create-background", async (req, res) => {
     await handleTrackedAiRequest(req, res, {
       capabilityKey: "smart_background",
-      capability: "商品图 / 海报一键生成",
+      capability: "智能产品图 / 海报一键生成",
       provider: "PicWish/佐糖",
       model: getRouteModel(req.body, process.env.AI_IMAGE_MODEL || "picwish-r-background"),
       failureMessage: "Create background failed",
@@ -1387,7 +1542,7 @@ async function startServer() {
               prompt,
               model: typeof args.model === "string" ? args.model : undefined,
               ratio: typeof args.ratio === "string" ? args.ratio : undefined,
-              count: Math.max(1, Math.min(4, Number(args.count || 1))),
+              count: Math.max(1, Math.min(9, Number(args.count || 1))),
               skillId: typeof args.skillId === "string" ? args.skillId : undefined,
             });
             const storedResult = await storeImageResultForUser(result, user.username);

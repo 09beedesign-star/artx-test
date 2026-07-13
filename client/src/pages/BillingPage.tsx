@@ -58,7 +58,7 @@ const subscriptionPlans = [
     features: [
       { label: "AI 对话与提示词共创", included: true },
       { label: "基础图片生成与智能编辑", included: true },
-      { label: "智能背景基础队列", included: true },
+      { label: "智能产品图基础队列", included: true },
       { label: "4K 高清优先导出", included: false },
       { label: "批量商业图高速队列", included: false },
     ],
@@ -164,7 +164,7 @@ const rechargePacks = [
     usage: "适合连续作业",
     perks: [
       { label: "高清图片生成额度", included: true },
-      { label: "智能背景与去背景抵扣", included: true },
+      { label: "智能产品图与去背景抵扣", included: true },
       { label: "高峰期优先排队", included: true },
       { label: "团队级并发加速", included: false },
     ],
@@ -177,7 +177,7 @@ const rechargePacks = [
     usage: "适合批量生成与团队项目",
     perks: [
       { label: "批量商业图生成额度", included: true },
-      { label: "智能背景高频消耗抵扣", included: true },
+      { label: "智能产品图高频消耗抵扣", included: true },
       { label: "高峰期优先排队", included: true },
       { label: "大批量任务专属通道", included: true },
     ],

@@ -9,6 +9,17 @@ export type SocialMediaSizePreset = {
   tone: string;
 };
 
+export type SocialMediaSizeCategory =
+  | "电商类"
+  | "社媒平台类"
+  | "内容/视频平台类";
+
+export const SOCIAL_MEDIA_SIZE_CATEGORIES: SocialMediaSizeCategory[] = [
+  "电商类",
+  "社媒平台类",
+  "内容/视频平台类",
+];
+
 export type SocialMediaExportPayload = {
   presets: SocialMediaSizePreset[];
   customSize?: { width: number; height: number };
@@ -22,6 +33,38 @@ export type SocialMediaExportPayload = {
 };
 
 export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
+  {
+    id: "tiktok-shop-product-square",
+    platform: "TikTok Shop",
+    title: "跨境电商商品主图",
+    width: 1080,
+    height: 1080,
+    tone: "oklch(0.68 0.20 185)",
+  },
+  {
+    id: "tiktok-shop-product-portrait",
+    platform: "TikTok Shop",
+    title: "跨境电商竖版商品图",
+    width: 1080,
+    height: 1350,
+    tone: "oklch(0.64 0.19 190)",
+  },
+  {
+    id: "facebook-shopping-product-square",
+    platform: "Facebook Shopping",
+    title: "跨境电商商品图",
+    width: 1200,
+    height: 1200,
+    tone: "oklch(0.60 0.18 250)",
+  },
+  {
+    id: "facebook-shopping-collection",
+    platform: "Facebook Shopping",
+    title: "跨境电商合集封面",
+    width: 1200,
+    height: 628,
+    tone: "oklch(0.58 0.17 255)",
+  },
   {
     id: "red-note-vertical",
     platform: "小红书",
@@ -400,6 +443,61 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
   },
 ];
 
+export function getSocialMediaPresetCategory(
+  preset: SocialMediaSizePreset
+): SocialMediaSizeCategory {
+  if (
+    [
+      "TikTok Shop",
+      "Facebook Shopping",
+      "亚马逊",
+      "虾皮",
+      "淘宝 / 天猫",
+      "京东",
+      "拼多多",
+    ].includes(preset.platform)
+  ) {
+    return "电商类";
+  }
+  if (
+    ["YouTube", "B站", "视频号", "抖音", "快手", "TikTok"].includes(
+      preset.platform
+    )
+  ) {
+    return "内容/视频平台类";
+  }
+  return "社媒平台类";
+}
+
+export function getSocialMediaPresetSubcategory(
+  preset: SocialMediaSizePreset
+) {
+  if (getSocialMediaPresetCategory(preset) !== "电商类") return preset.platform;
+  if (["TikTok Shop", "Facebook Shopping", "亚马逊", "虾皮"].includes(preset.platform))
+    return "跨境电商";
+  return "国内电商";
+}
+
+export function groupSocialMediaSizePresets(
+  presets: SocialMediaSizePreset[] = SOCIAL_MEDIA_SIZE_PRESETS
+) {
+  return SOCIAL_MEDIA_SIZE_CATEGORIES.map(category => ({
+    category,
+    groups: Array.from(
+      presets
+        .filter(preset => getSocialMediaPresetCategory(preset) === category)
+        .reduce((map, preset) => {
+          const groupName = getSocialMediaPresetSubcategory(preset);
+          const group = map.get(groupName) || [];
+          group.push(preset);
+          map.set(groupName, group);
+          return map;
+        }, new Map<string, SocialMediaSizePreset[]>())
+        .entries()
+    ).map(([name, items]) => ({ name, items })),
+  })).filter(category => category.groups.length > 0);
+}
+
 export function SocialPlatformIcon({
   platform,
   size = 22,
@@ -423,7 +521,10 @@ export function SocialPlatformIcon({
     YouTube: "#FF0000",
     Pinterest: "#E60023",
     亚马逊: "#FF9900",
+    Shopee: "#EE4D2D",
     虾皮: "#EE4D2D",
+    Lazada: "#1A4CFF",
+    淘宝: "#FF5000",
     "淘宝 / 天猫": "#FF5000",
     京东: "#E1251B",
     拼多多: "#E02E24",
@@ -598,7 +699,7 @@ export function SocialPlatformIcon({
         <path d="M8.6 14.2c2.1 1.5 4.9 1.5 6.9 0" {...strokeProps} />
       </>
     );
-  if (platform === "虾皮")
+  if (platform === "Shopee" || platform === "虾皮")
     return wrap(
       <>
         <path d="M6.4 8.2h11.2l-.9 9.8H7.3l-.9-9.8z" {...strokeProps} />
@@ -609,7 +710,21 @@ export function SocialPlatformIcon({
         />
       </>
     );
+  if (platform === "Lazada")
+    return wrap(
+      <>
+        <path
+          d="M12 6.1 18.3 9.7v6.7L12 20l-6.3-3.6V9.7L12 6.1z"
+          {...strokeProps}
+        />
+        <path
+          d="M8.7 10.7c1.1-1.1 2.2-1.1 3.3 0 1.1-1.1 2.2-1.1 3.3 0 1 1 .9 2.5-.1 3.5L12 17.1l-3.2-2.9c-1-1-.9-2.5-.1-3.5z"
+          fill={icon}
+        />
+      </>
+    );
   if (
+    platform === "淘宝" ||
     platform === "淘宝 / 天猫" ||
     platform === "京东" ||
     platform === "拼多多"

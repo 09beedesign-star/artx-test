@@ -78,4 +78,44 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(dialogBlock).toContain("替换");
     expect(dialogBlock).toContain("删除");
   });
+
+  it("routes Mac touchpad pinch gestures to canvas zoom instead of browser zoom", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+
+    expect(source).toContain(
+      "const shouldZoomCanvas = event.ctrlKey || (isMacPlatform && event.metaKey);"
+    );
+    expect(source).toContain(
+      'root.addEventListener("wheel", handleCanvasWheel, { capture: true, passive: false });'
+    );
+    expect(source).toContain(
+      'root.addEventListener("gesturechange", handleGestureChange, { capture: true, passive: false });'
+    );
+    expect(source).toContain("zoomCanvasAtClientPoint");
+  });
+
+  it("keeps canvas image references explicit so normal clicks do not auto-fill prompt chips", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+
+    expect(source).toContain('if (additive) {');
+    expect(source).toContain('new CustomEvent("asset-reference"');
+    expect(source).toContain('window.addEventListener("asset-reference", handler)');
+    expect(source).not.toContain("Sync selected image nodes → referencedAssets chips");
+  });
+
+  it("persists derived canvas AI tasks with backend task input so reloads do not restart them as text-to-image", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+
+    expect(source).toContain("backgroundTaskInput?: ImageGenerationTaskInput");
+    expect(source).toContain("runImageGenerationTask({");
+    expect(source).toContain('capability: "smart_background"');
+    expect(source).toContain('operation: "create-background"');
+    expect(source).toContain('capability: "image_erase"');
+    expect(source).toContain('capability: "image_expansion"');
+    expect(source).toContain('capability: "image_edit"');
+    expect(source).toContain('capability: "background_removal"');
+    expect(source).toContain('capability: "image_enhance"');
+    expect(source).toContain('capability: "watermark_removal"');
+    expect(source).toContain("task.editMode || task.sourceImageSrc");
+  });
 });
