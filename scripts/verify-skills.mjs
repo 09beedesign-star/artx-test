@@ -168,7 +168,9 @@ for (const snippet of requiredCanvasSnippets) {
 
 const serverIndex = read(serverIndexPath);
 const requiredServerIndexSnippets = [
-  "void orchestrator.run({",
+  "async function runBackgroundImageTask",
+  "void runBackgroundImageTask(req.body, user)",
+  "orchestrator.run({",
   "capability: \"text_to_image\"",
   "intent: \"text_to_image\"",
   "operation: \"generate\"",
@@ -176,7 +178,7 @@ const requiredServerIndexSnippets = [
   "capabilityKey: capabilityFromOrchestrator(result.capability)",
 ];
 for (const snippet of requiredServerIndexSnippets) {
-  if (!serverIndex.includes(snippet)) fail(`background image task route is missing skill-aware orchestrator snippet: ${snippet}`);
+  if (!serverIndex.includes(snippet)) fail(`background image task route is missing required task routing snippet: ${snippet}`);
 }
 
 const validation = read(validationPath);
