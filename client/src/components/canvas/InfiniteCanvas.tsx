@@ -21629,6 +21629,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       ]
         .filter(Boolean)
         .join("\n");
+      const smartProductOutputSpec = detail.customWidth && detail.customHeight
+        ? `${detail.customWidth}x${detail.customHeight}`
+        : `${detail.ratio} ${detail.resolution.toUpperCase()}`;
       window.dispatchEvent(
         new CustomEvent("canvas-assistant-external-message", {
           detail: {
@@ -21636,8 +21639,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             content: [
               "智能电商产品生成提示词",
               `平台配置：${detail.platformLabel} · ${detail.marketLabel} · ${detail.placementLabel}`,
-              `用户输入：${detail.prompt || "未填写，已使用平台默认提示"}`,
-              `实际生成提示词：\n${smartProductPrompt}`,
+              `User creative addition: ${detail.prompt || "未填写"}`,
+              `输出规格：${smartProductOutputSpec}`,
             ].join("\n\n"),
           },
         })
