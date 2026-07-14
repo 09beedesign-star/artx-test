@@ -42,6 +42,9 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain("maxResultCount: 9");
     expect(source).toContain("commerceContext: {");
     expect(source).toContain("commerceContext: detail.commerceContext");
+    expect(source).toContain('new CustomEvent("canvas-assistant-external-message"');
+    expect(source).toContain("智能电商产品生成提示词");
+    expect(source).toContain("实际生成提示词：");
   });
 
   it("shows multi-platform cover directly above download in the selected-image toolbar", () => {

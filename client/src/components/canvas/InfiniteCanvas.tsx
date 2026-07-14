@@ -21618,19 +21618,33 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       toast("智能电商产品生成中", {
         description: `${detail.platformLabel} · ${detail.marketLabel} · ${detail.placementLabel}，结果会在旁边生成`,
       });
+      const smartProductPrompt = [
+        "强约束：必须以左侧上传的产品图作为唯一商品主体，保留原产品的品类、外形、颜色、材质、比例和可见细节；模板只改变背景、光影、版式和电商氛围，不能替换成其他商品。",
+        detail.style ? `背景风格：${detail.style}` : "",
+        detail.prompt || "生成符合平台规范的高清电商产品图",
+        detail.backgroundReferenceSrc
+          ? `背景参考图：${detail.backgroundReferenceName || "已上传参考图"}，生成与参考图相似的背景风格`
+          : "",
+        `输出规格：${detail.customWidth && detail.customHeight ? `${detail.customWidth}x${detail.customHeight}` : `${detail.ratio} ${detail.resolution.toUpperCase()}`}`,
+      ]
+        .filter(Boolean)
+        .join("\n");
+      window.dispatchEvent(
+        new CustomEvent("canvas-assistant-external-message", {
+          detail: {
+            role: "user",
+            content: [
+              "智能电商产品生成提示词",
+              `平台配置：${detail.platformLabel} · ${detail.marketLabel} · ${detail.placementLabel}`,
+              `用户输入：${detail.prompt || "未填写，已使用平台默认提示"}`,
+              `实际生成提示词：\n${smartProductPrompt}`,
+            ].join("\n\n"),
+          },
+        })
+      );
       await runDerivedImageGeneration({
         sourceNode,
-        prompt: [
-          "强约束：必须以左侧上传的产品图作为唯一商品主体，保留原产品的品类、外形、颜色、材质、比例和可见细节；模板只改变背景、光影、版式和电商氛围，不能替换成其他商品。",
-          detail.style ? `背景风格：${detail.style}` : "",
-          detail.prompt || "生成符合平台规范的高清电商产品图",
-          detail.backgroundReferenceSrc
-            ? `背景参考图：${detail.backgroundReferenceName || "已上传参考图"}，生成与参考图相似的背景风格`
-            : "",
-          `输出规格：${detail.customWidth && detail.customHeight ? `${detail.customWidth}x${detail.customHeight}` : `${detail.ratio} ${detail.resolution.toUpperCase()}`}`,
-        ]
-          .filter(Boolean)
-          .join("\n"),
+        prompt: smartProductPrompt,
         style: "智能电商产品结果",
         nextW: detail.customWidth || ratioSize.w,
         nextH: detail.customHeight || ratioSize.h,
