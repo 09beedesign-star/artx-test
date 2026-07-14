@@ -623,6 +623,13 @@ function shouldUseReferenceImageChatPath(model?: string, images?: Array<{ src?: 
   return isChatCompatibleImageModel(model) || Boolean(images?.length);
 }
 
+export function __testResolveReferenceImageModel(model: string, hasReferenceImages: boolean) {
+  if (hasReferenceImages && !isChatCompatibleImageModel(model)) {
+    return "gemini-3.1-flash-image";
+  }
+  return model;
+}
+
 function isMissingReferenceImagesError(message: string) {
   return /no reference images found|reference images?.*not found|missing reference images/i.test(message);
 }
@@ -2286,7 +2293,7 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
   const requestedModel = input.model && supportedImageModels.has(input.model) ? input.model : model;
   const providerModel = resolveProviderImageModel(requestedModel);
   const routedModel = shouldUseReferenceImageChatPath(providerModel, referenceImages)
-    ? (isChatCompatibleImageModel(providerModel) ? providerModel : "gpt-image-2")
+    ? __testResolveReferenceImageModel(providerModel, referenceImages.length > 0)
     : providerModel;
   const requestBody = {
     model: routedModel,
