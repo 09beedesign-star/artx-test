@@ -580,10 +580,8 @@ function vitePluginMoveBuiltEntryScriptToBody(): Plugin {
       const entryScriptPattern = /\n?\s*<script type="module" crossorigin src="([^"]*\/assets\/index-[^"]+\.js)"><\/script>/;
       const entrySrc = html.match(entryScriptPattern)?.[1];
       if (!entrySrc) return html;
-      const loaderSrc = entrySrc.replace(/assets\/index-[^/]+\.js$/, "entry-loader.js");
-      const loaderScript = `<script src="${loaderSrc}" data-entry="${entrySrc}" defer></script>`;
-      if (html.includes(loaderScript)) return html;
-      return html.replace(entryScriptPattern, "").replace("</body>", `    ${loaderScript}\n  </body>`);
+      const moduleScript = `<script type="module" crossorigin src="${entrySrc}"></script>`;
+      return html.replace(entryScriptPattern, "").replace("</body>", `    ${moduleScript}\n  </body>`);
     },
   };
 }
