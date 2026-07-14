@@ -7,6 +7,7 @@ type ImageGenerateInput = {
   count?: number;
   style?: string;
   images?: Array<{ src: string; title?: string }>;
+  preferImageApiForReferences?: boolean;
 };
 
 type RemoveBackgroundInput = {
@@ -623,11 +624,21 @@ function shouldUseReferenceImageChatPath(model?: string, images?: Array<{ src?: 
   return isChatCompatibleImageModel(model) || Boolean(images?.length);
 }
 
-export function __testResolveReferenceImageModel(model: string, hasReferenceImages: boolean) {
-  if (hasReferenceImages && !isChatCompatibleImageModel(model)) {
-    return "gemini-3.1-flash-image";
-  }
-  return model;
+export function __testResolveReferenceImageRoute(
+  model: string,
+  hasReferenceImages: boolean,
+  preferImageApiForReferences: boolean,
+) {
+  const usesChatPath = isChatCompatibleImageModel(model) || (
+    hasReferenceImages && !preferImageApiForReferences
+  );
+  return {
+    usesChatPath,
+    fallbackModel:
+      hasReferenceImages && preferImageApiForReferences && !isChatCompatibleImageModel(model)
+        ? "gemini-3.1-flash-image"
+        : model,
+  };
 }
 
 function isMissingReferenceImagesError(message: string) {
@@ -2292,11 +2303,13 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
   const referenceImages = input.images?.filter(image => image.src?.trim()) || [];
   const requestedModel = input.model && supportedImageModels.has(input.model) ? input.model : model;
   const providerModel = resolveProviderImageModel(requestedModel);
-  const routedModel = shouldUseReferenceImageChatPath(providerModel, referenceImages)
-    ? __testResolveReferenceImageModel(providerModel, referenceImages.length > 0)
-    : providerModel;
+  const referenceRoute = __testResolveReferenceImageRoute(
+    providerModel,
+    referenceImages.length > 0,
+    Boolean(input.preferImageApiForReferences),
+  );
   const requestBody = {
-    model: routedModel,
+    model: providerModel,
     prompt: buildPrompt(input),
     n: count,
     size: ratio.size,
@@ -2306,12 +2319,17 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
 
   let providerData: ImageGenerationResponse;
   try {
-    providerData = shouldUseReferenceImageChatPath(requestBody.model, referenceImages)
+    providerData = referenceRoute.usesChatPath
       ? await callImageChatProvider(requestBody, apiKey, baseUrl)
       : await callImageProvider(requestBody, apiKey, baseUrl);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (isUnsupportedImagesApiError(message)) {
+    if (referenceRoute.fallbackModel !== requestBody.model) {
+      providerData = await callImageChatProvider({
+        ...requestBody,
+        model: referenceRoute.fallbackModel,
+      }, apiKey, baseUrl);
+    } else if (isUnsupportedImagesApiError(message)) {
       providerData = await callImageChatProvider({
         ...requestBody,
       }, apiKey, baseUrl);
@@ -2323,12 +2341,12 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
         ...requestBody,
         model: "gemini-3.1-flash-image",
       }, apiKey, baseUrl);
-    } else if (isMissingReferenceImagesError(message) && !shouldUseReferenceImageChatPath(requestBody.model, referenceImages)) {
+    } else if (isMissingReferenceImagesError(message) && !referenceRoute.usesChatPath) {
       providerData = await callImageProvider({
         ...requestBody,
         prompt: stripReferenceContextFromPrompt(String(requestBody.prompt || "")),
       }, apiKey, baseUrl);
-    } else if (message.toLowerCase().includes("response_format") && !shouldUseReferenceImageChatPath(requestBody.model, referenceImages)) {
+    } else if (message.toLowerCase().includes("response_format") && !referenceRoute.usesChatPath) {
       const { response_format: _responseFormat, ...fallbackBody } = requestBody;
       providerData = await callImageProvider(fallbackBody, apiKey, baseUrl);
     } else {
@@ -2342,7 +2360,7 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
       providerData = await pollAsyncImageTask(asyncTaskId, apiKey, baseUrl);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (!/timed out/i.test(message) || shouldUseReferenceImageChatPath(requestBody.model, referenceImages)) {
+      if (!/timed out/i.test(message) || referenceRoute.usesChatPath) {
         throw error;
       }
       providerData = await callImageProvider(requestBody, apiKey, baseUrl);
@@ -2475,10 +2493,12 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
     ) {
       const batch = await generateImages({
         prompt,
+        model: "gpt-image-2",
         ratio: input.ratio || "1:1",
         count: Math.min(PROVIDER_IMAGE_BATCH_SIZE, remaining),
         style: input.style,
         images: references,
+        preferImageApiForReferences: true,
       });
       generatedImages.push(...batch.images);
     }

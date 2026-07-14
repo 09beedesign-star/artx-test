@@ -1,17 +1,23 @@
 import { describe, expect, it } from "vitest";
 import sharp from "sharp";
-import { __testNormalizeGeneratedImageSrc, __testNormalizeGeneratedImagesToTargetAspect, __testPreparePicWishEraseSourceImage, __testResolveHighDefinitionTargetSize, __testResolveReferenceImageModel } from "./image-generation";
+import { __testNormalizeGeneratedImageSrc, __testNormalizeGeneratedImagesToTargetAspect, __testPreparePicWishEraseSourceImage, __testResolveHighDefinitionTargetSize, __testResolveReferenceImageRoute } from "./image-generation";
 
 const ONE_PIXEL_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
 describe("generated image source normalization", () => {
-  it("routes reference-image generation to a chat-compatible image model", () => {
-    expect(__testResolveReferenceImageModel("gpt-image-2", true))
-      .toBe("gemini-3.1-flash-image");
-    expect(__testResolveReferenceImageModel("gemini-3.1-flash-image", true))
-      .toBe("gemini-3.1-flash-image");
-    expect(__testResolveReferenceImageModel("gpt-image-2", false))
-      .toBe("gpt-image-2");
+  it("prefers the GPT image endpoint for smart product references before Gemini fallback", () => {
+    expect(__testResolveReferenceImageRoute("gpt-image-2", true, true)).toEqual({
+      usesChatPath: false,
+      fallbackModel: "gemini-3.1-flash-image",
+    });
+    expect(__testResolveReferenceImageRoute("gemini-3.1-flash-image", true, true)).toEqual({
+      usesChatPath: true,
+      fallbackModel: "gemini-3.1-flash-image",
+    });
+    expect(__testResolveReferenceImageRoute("gpt-image-2", true, false)).toEqual({
+      usesChatPath: true,
+      fallbackModel: "gpt-image-2",
+    });
   });
 
   it("converts provider bare base64 payloads into data URLs", () => {
