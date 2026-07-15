@@ -665,8 +665,8 @@ async function startServer() {
           tracking: {
             capabilityKey: "smart_background" as const,
             capability: "智能产品图 / 海报一键生成",
-            provider: "PicWish/佐糖",
-            model: getRouteModel(input, process.env.AI_IMAGE_MODEL || "picwish-r-background"),
+            provider: "PicWish 主体保护 + Image2/Gemini 背景",
+            model: "gpt-image-2 -> gemini-3.1-flash-image",
             failureMessage: "Create background failed",
           },
         };
@@ -1138,8 +1138,8 @@ async function startServer() {
     await handleTrackedAiRequest(req, res, {
       capabilityKey: "smart_background",
       capability: "智能产品图 / 海报一键生成",
-      provider: "PicWish/佐糖",
-      model: getRouteModel(req.body, process.env.AI_IMAGE_MODEL || "picwish-r-background"),
+      provider: "PicWish 主体保护 + Image2/Gemini 背景",
+      model: "gpt-image-2 -> gemini-3.1-flash-image",
       failureMessage: "Create background failed",
     }, async (user) => {
       const result = await createProductBackground(req.body);

@@ -21629,19 +21629,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       ]
         .filter(Boolean)
         .join("\n");
-      const smartProductOutputSpec = detail.customWidth && detail.customHeight
-        ? `${detail.customWidth}x${detail.customHeight}`
-        : `${detail.ratio} ${detail.resolution.toUpperCase()}`;
       window.dispatchEvent(
         new CustomEvent("canvas-assistant-external-message", {
           detail: {
             role: "user",
-            content: [
-              "智能电商产品生成提示词",
-              `平台配置：${detail.platformLabel} · ${detail.marketLabel} · ${detail.placementLabel}`,
-              `User creative addition: ${detail.prompt || "未填写"}`,
-              `输出规格：${smartProductOutputSpec}`,
-            ].join("\n\n"),
+            content: detail.userPrompt || "未填写",
           },
         })
       );

@@ -1,5 +1,3 @@
-import { getSkill } from "./skill-registry";
-
 type ImageGenerateInput = {
   prompt: string;
   model?: string;
@@ -38,15 +36,6 @@ type CreateBackgroundInput = {
   customHeight?: number;
   skillId?: string;
 };
-
-const SMART_PRODUCT_SUBJECT_LOCK_PROMPT = [
-  "Critical product lock: reference image 1 is the only product subject for this generation.",
-  "The output must visibly feature the same product category, silhouette, geometry, color, material, logo/text if any, and distinctive details from reference image 1.",
-  "Do not replace the uploaded product with skincare bottles, cosmetics, electronics, appliances, food, people, or any other product implied by the template, platform, skill, or prompt.",
-  "Use templates, platform rules, and background references only for scene layout, lighting, background, callout composition, and ecommerce styling around the uploaded product.",
-  "If a template conflicts with reference image 1, ignore the conflicting product type and keep the uploaded product unchanged.",
-  "Any labels or callouts must describe the uploaded product generically and must not invent unrelated product names or features.",
-].join("\n");
 
 type EditImageInput = {
   imageSrc: string;
@@ -2450,6 +2439,127 @@ export async function extractImageText(input: ExtractImageTextInput): Promise<{ 
   };
 }
 
+async function generateSmartProductBackgroundPlates(
+  input: CreateBackgroundInput,
+  prompt: string,
+  count: number,
+): Promise<GeneratedImage[]> {
+  const images = input.backgroundReferenceSrc?.trim()
+    ? [{ src: input.backgroundReferenceSrc, title: input.backgroundReferenceName || "background reference" }]
+    : [];
+  const requestBackground = (model: "gpt-image-2" | "gemini-3.1-flash-image") =>
+    generateImages({
+      prompt,
+      model,
+      ratio: input.ratio || "1:1",
+      count,
+      style: input.style,
+      images,
+      preferImageApiForReferences: model === "gpt-image-2",
+    });
+
+  try {
+    const image2 = await requestBackground("gpt-image-2");
+    if (image2.images.length === 0) {
+      throw new Error("Image2 returned no background plates");
+    }
+    return image2.images;
+  } catch (image2Error) {
+    console.warn("Image2 background plate failed; retrying with Gemini", image2Error);
+    const gemini = await requestBackground("gemini-3.1-flash-image");
+    if (gemini.images.length === 0) {
+      throw new Error("Gemini returned no background plates");
+    }
+    return gemini.images;
+  }
+}
+
+async function createProductContactShadow(
+  width: number,
+  height: number,
+  left: number,
+  top: number,
+  productWidth: number,
+  productHeight: number,
+): Promise<Buffer> {
+  const sharp = (await import("sharp")).default;
+  const pixels = Buffer.alloc(width * height * 4);
+  const centerX = left + productWidth / 2;
+  const centerY = Math.min(height - 4, top + productHeight - 4);
+  const radiusX = Math.max(12, productWidth * 0.34);
+  const radiusY = Math.max(5, productHeight * 0.035);
+  const minX = Math.max(0, Math.floor(centerX - radiusX));
+  const maxX = Math.min(width - 1, Math.ceil(centerX + radiusX));
+  const minY = Math.max(0, Math.floor(centerY - radiusY));
+  const maxY = Math.min(height - 1, Math.ceil(centerY + radiusY));
+
+  for (let y = minY; y <= maxY; y += 1) {
+    for (let x = minX; x <= maxX; x += 1) {
+      const distance = ((x - centerX) / radiusX) ** 2 + ((y - centerY) / radiusY) ** 2;
+      if (distance <= 1) {
+        pixels[(y * width + x) * 4 + 3] = Math.round(72 * (1 - distance));
+      }
+    }
+  }
+
+  return sharp(pixels, { raw: { width, height, channels: 4 } })
+    .blur(8)
+    .png()
+    .toBuffer();
+}
+
+async function compositeProtectedProductOnBackground(
+  background: GeneratedImage,
+  product: GeneratedImage,
+  width: number,
+  height: number,
+): Promise<GeneratedImage> {
+  const sharp = (await import("sharp")).default;
+  const backgroundBuffer = (await imageSrcToBuffer(background.src)).buffer;
+  const productBuffer = (await imageSrcToBuffer(product.src)).buffer;
+  const productPng = await sharp(productBuffer, { limitInputPixels: false })
+    .rotate()
+    .trim({ background: { r: 0, g: 0, b: 0, alpha: 0 } })
+    .resize({
+      width: Math.round(width * 0.72),
+      height: Math.round(height * 0.7),
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .png()
+    .toBuffer();
+  const productMetadata = await sharp(productPng, { limitInputPixels: false }).metadata();
+  const productWidth = productMetadata.width || 1;
+  const productHeight = productMetadata.height || 1;
+  const left = Math.round((width - productWidth) / 2);
+  const top = height - productHeight;
+  const shadow = await createProductContactShadow(
+    width,
+    height,
+    left,
+    top,
+    productWidth,
+    productHeight
+  );
+  const png = await sharp(backgroundBuffer, { limitInputPixels: false })
+    .rotate()
+    .resize(width, height, { fit: "cover", position: "centre" })
+    .composite([
+      { input: shadow, left: 0, top: 0 },
+      { input: productPng, left, top },
+    ])
+    .png()
+    .toBuffer();
+
+  return {
+    src: `data:image/png;base64,${png.toString("base64")}`,
+    width,
+    height,
+  };
+}
+
+export const __testCompositeProtectedProductOnBackground = compositeProtectedProductOnBackground;
+
 export async function createProductBackground(input: CreateBackgroundInput): Promise<GeneratedImageResult> {
   if (!input.imageSrc?.trim()) {
     throw new Error("Missing imageSrc");
@@ -2458,75 +2568,67 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
     1,
     Math.min(Number(input.count) || 1, MAX_SMART_COMMERCE_IMAGE_COUNT)
   );
-  const hasBackgroundReference = Boolean(input.backgroundReferenceSrc?.trim());
   const sourceImageData = await imageSrcToBuffer(input.imageSrc);
   const sourceDimensions = await getImageBufferDimensions(sourceImageData.buffer);
   const output = getBackgroundOutputSize(input, sourceDimensions.width, sourceDimensions.height);
 
-  if (hasBackgroundReference || count > 1 || input.skillId) {
-    const skill = input.skillId ? await getSkill(input.skillId) : undefined;
-    const references = [
-      { src: input.imageSrc, title: "产品图" },
-      ...(hasBackgroundReference
-        ? [{ src: input.backgroundReferenceSrc!, title: input.backgroundReferenceName || "背景参考图" }]
-        : []),
-    ];
-    const prompt = [
-      SMART_PRODUCT_SUBJECT_LOCK_PROMPT,
-      skill?.prompt ? `能力说明：\n${skill.prompt}` : "",
+  try {
+    const cutout = await removeBackgroundPreservingForegroundPixels(input.imageSrc);
+    const protectedProduct = cutout.images[0];
+    if (!protectedProduct) {
+      throw new Error("PicWish did not return a product cutout");
+    }
+
+    const backgroundPrompt = [
+      "Generate the empty ecommerce background plate only. Do not include any product, person, packaging, logo, or foreground object.",
+      "Reserve a grounded central placement area with matching floor perspective, natural contact-shadow space, and camera angle suitable for the product foreground that will be composited later.",
       input.style ? `背景风格：${input.style}` : "",
       input.prompt || "创建商业化产品背景",
-      "Use reference image 1 as the exact product subject. Preserve the product shape, material, colors, logo, text, proportions, category, silhouette, and foreground identity.",
-      hasBackgroundReference
-        ? "Use reference image 2 only as the background style reference. Match its color mood, lighting, perspective, material texture, spatial depth, and commercial photography feel without copying protected or distinctive elements exactly."
-        : "Create a realistic commercial background behind and around the product. Match lighting, shadows, perspective, and contact shadow naturally.",
-      "Return complete product commercial images. Do not crop, distort, redraw, replace, or reinterpret the product.",
-      SMART_PRODUCT_SUBJECT_LOCK_PROMPT,
+      "Return the complete background plate only. Keep the reserved product placement area empty.",
     ]
       .filter(Boolean)
       .join("\n");
-    const generatedImages: GeneratedImage[] = [];
+    const composites: GeneratedImage[] = [];
     for (
       let remaining = count;
       remaining > 0;
       remaining -= PROVIDER_IMAGE_BATCH_SIZE
     ) {
-      const batch = await generateImages({
-        prompt,
-        model: "gpt-image-2",
-        ratio: input.ratio || "1:1",
-        count: Math.min(PROVIDER_IMAGE_BATCH_SIZE, remaining),
-        style: input.style,
-        images: references,
-        preferImageApiForReferences: true,
-      });
-      generatedImages.push(...batch.images);
+      const batchCount = Math.min(PROVIDER_IMAGE_BATCH_SIZE, remaining);
+      const backgrounds = await generateSmartProductBackgroundPlates(
+        input,
+        backgroundPrompt,
+        batchCount
+      );
+      const batchComposites = await Promise.all(
+        backgrounds.map(background =>
+          compositeProtectedProductOnBackground(
+            background,
+            protectedProduct,
+            output.width,
+            output.height
+          )
+        )
+      );
+      composites.push(...batchComposites);
     }
     const normalizedImages = await __testNormalizeGeneratedImagesToTargetAspect(
-      generatedImages.slice(0, count),
+      composites.slice(0, count),
       output.width,
       output.height
     );
-    return { images: normalizedImages };
+    return withProviderTaskIds(
+      { images: normalizedImages },
+      collectProviderTaskIds(cutout)
+    );
+  } catch (backgroundError) {
+    console.warn(
+      "Image2 and Gemini background plates failed; using PicWish smart product background fallback",
+      backgroundError
+    );
   }
 
-  try {
-    return await createBackgroundWithPicWish(input);
-  } catch (picWishError) {
-    console.warn("PicWish create background failed; using image edit provider fallback", picWishError);
-    const fallbackResult = await editImageWithPrompt({
-      imageSrc: input.imageSrc,
-      targetWidth: output.width,
-      targetHeight: output.height,
-      prompt: [
-        input.style ? `背景风格：${input.style}` : "",
-        input.prompt || "创建商业化产品背景",
-        "Use the uploaded product image as the exact foreground product. Preserve the product shape, material, colors, logo, text, and proportions.",
-        "Only create a new realistic commercial background behind and around the product. Match lighting, shadows, perspective, and contact shadow naturally.",
-      ].filter(Boolean).join("\n"),
-    });
-    return fallbackResult;
-  }
+  return createBackgroundWithPicWish(input);
 }
 
 export async function editImageWithPrompt(input: EditImageInput): Promise<{ images: GeneratedImage[] }> {

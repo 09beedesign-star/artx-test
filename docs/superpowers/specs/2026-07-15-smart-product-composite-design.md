@@ -13,14 +13,14 @@ Generate ecommerce product images that preserve the uploaded product pixels whil
 ## Pipeline
 
 1. Use PicWish segmentation to create one transparent product cutout and alpha mask.
-2. Generate background-only plates with Gemini from the background reference image, commerce context, user prompt, and selected output size. The prompt reserves the product placement area and forbids products in the plate.
+2. Generate background-only plates with Image2 from the background reference image, commerce context, user prompt, and selected output size. If Image2 fails or returns no image, retry the same background-only request with Gemini. The prompt reserves the product placement area and forbids products in the plate.
 3. Composite the unchanged PicWish cutout onto every background plate at a stable bottom anchor.
 4. Use Sharp to add a soft floor-contact shadow beneath the cutout. The product alpha region and RGB pixels remain unchanged.
 5. Normalize each output to the requested dimensions. Reject and retry only the background/fusion stage when no product is visible, the output is invalid, or the protected subject pixels cannot be retained.
 
 ## Fallbacks
 
-- If background-reference generation fails, use PicWish `r-background` directly from the uploaded product and the composed commerce prompt.
+- If both Image2 and Gemini background generation fail, use PicWish `r-background` directly from the uploaded product and the composed commerce prompt.
 - If compositing cannot produce a valid image, return the PicWish `r-background` result rather than a result that has redrawn the product.
 
 ## Verification

@@ -35,6 +35,7 @@ describe("SmartCommerceProductDialog", () => {
     expect(source).toContain("await composeCommerceContext(input)");
     expect(source).toContain('new CustomEvent<SmartCommerceProductCreateDetail>');
     expect(source).toContain('"smart-commerce-product-create"');
+    expect(source).toContain("userPrompt: userPrompt.trim()");
     expect(source.indexOf("await composeCommerceContext(input)")).toBeLessThan(
       source.indexOf('"smart-commerce-product-create"')
     );

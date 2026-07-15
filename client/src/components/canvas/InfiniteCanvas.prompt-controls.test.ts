@@ -43,9 +43,10 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain("commerceContext: {");
     expect(source).toContain("commerceContext: detail.commerceContext");
     expect(source).toContain('new CustomEvent("canvas-assistant-external-message"');
-    expect(source).toContain("智能电商产品生成提示词");
-    expect(source).toContain("User creative addition:");
-    expect(source).toContain("输出规格：");
+    expect(source).toContain('content: detail.userPrompt || "未填写"');
+    expect(source).not.toContain("智能电商产品生成提示词");
+    expect(source).not.toContain("User creative addition:");
+    expect(source).not.toContain("输出规格：${smartProductOutputSpec}");
   });
 
   it("shows multi-platform cover directly above download in the selected-image toolbar", () => {

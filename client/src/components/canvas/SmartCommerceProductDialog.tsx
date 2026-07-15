@@ -51,6 +51,7 @@ export type SmartCommerceProductCreateDetail = {
   fileName?: string;
   backgroundReferenceSrc?: string;
   backgroundReferenceName?: string;
+  userPrompt: string;
   prompt: string;
   style: string;
   ratio: string;
@@ -443,6 +444,7 @@ export function SmartCommerceProductDialog({
         fileName,
         backgroundReferenceSrc,
         backgroundReferenceName,
+        userPrompt: userPrompt.trim(),
         prompt: context.prompt,
         style: context.template.label,
         ratio: ratioFromCommerceSize(
