@@ -2,7 +2,12 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import sharp from "sharp";
-import { __testCompositeProtectedProductOnBackground } from "./image-generation";
+import {
+  __testBuildSmartProductBackgroundPrompt,
+  __testCompositeProtectedProductOnBackground,
+  __testGetSmartProductBackgroundReferences,
+  __testResolveSmartProductPlacement,
+} from "./image-generation";
 
 describe("smart product generation prompt", () => {
   const source = readFileSync(resolve(__dirname, "image-generation.ts"), "utf-8");
@@ -24,6 +29,45 @@ describe("smart product generation prompt", () => {
     expect(source).toContain("createProductContactShadow");
     expect(source).toContain("Image2 and Gemini background plates failed; using PicWish smart product background fallback");
     expect(source).toContain("export const __testCompositeProtectedProductOnBackground");
+  });
+
+  it("gives the background model the product camera reference without allowing it to redraw the product", () => {
+    const references = __testGetSmartProductBackgroundReferences({
+      imageSrc: "data:image/png;base64,product",
+      backgroundReferenceSrc: "data:image/png;base64,background",
+      backgroundReferenceName: "living room reference",
+    });
+    const prompt = __testBuildSmartProductBackgroundPrompt({
+      imageSrc: "data:image/png;base64,product",
+      backgroundReferenceSrc: "data:image/png;base64,background",
+      backgroundReferenceName: "living room reference",
+      prompt: "warm modern living room",
+    });
+
+    expect(references).toEqual([
+      { src: "data:image/png;base64,product", title: "product camera reference" },
+      { src: "data:image/png;base64,background", title: "living room reference" },
+    ]);
+    expect(prompt).toContain("Reference image 1 is the product camera, perspective, scale, and lighting reference only.");
+    expect(prompt).toContain("Reference image 2 is the background style reference only.");
+    expect(prompt).toContain("Do not render the product, its silhouette, packaging, logo, text, or a duplicate shadow.");
+  });
+
+  it("anchors product placement to the generated background floor instead of the canvas edge", () => {
+    expect(__testResolveSmartProductPlacement(1200, 800, 1000, 300)).toEqual({
+      width: 816,
+      height: 245,
+      left: 192,
+      top: 459,
+      baseline: 704,
+    });
+    expect(__testResolveSmartProductPlacement(1200, 800, 200, 800)).toEqual({
+      width: 130,
+      height: 520,
+      left: 535,
+      top: 184,
+      baseline: 704,
+    });
   });
 
   it("keeps protected product pixels in the composited image", async () => {

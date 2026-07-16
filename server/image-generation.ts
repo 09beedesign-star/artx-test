@@ -2439,14 +2439,69 @@ export async function extractImageText(input: ExtractImageTextInput): Promise<{ 
   };
 }
 
+function getSmartProductBackgroundReferences(input: CreateBackgroundInput) {
+  return [
+    { src: input.imageSrc, title: "product camera reference" },
+    ...(input.backgroundReferenceSrc?.trim()
+      ? [{ src: input.backgroundReferenceSrc, title: input.backgroundReferenceName || "background reference" }]
+      : []),
+  ];
+}
+
+function buildSmartProductBackgroundPrompt(input: CreateBackgroundInput) {
+  return [
+    "Generate the empty ecommerce background plate only. Do not include any product, person, packaging, logo, or foreground object.",
+    "Reference image 1 is the product camera, perspective, scale, and lighting reference only. Infer its camera height, viewing direction, floor plane, and contact point, then create a compatible empty scene.",
+    input.backgroundReferenceSrc?.trim()
+      ? "Reference image 2 is the background style reference only. Match its material, color mood, spatial depth, and lighting without copying its subject or camera perspective when it conflicts with reference image 1."
+      : "Create a realistic commercial background whose camera height, floor plane, and light direction match reference image 1.",
+    "Reserve an empty, centered floor area for the product, with its contact line at approximately 88% of the final canvas height. Do not render the product, its silhouette, packaging, logo, text, or a duplicate shadow.",
+    input.style ? `背景风格：${input.style}` : "",
+    input.prompt || "创建商业化产品背景",
+    "Return the complete background plate only. Keep the reserved product placement area empty.",
+  ].filter(Boolean).join("\n");
+}
+
+type SmartProductPlacement = {
+  width: number;
+  height: number;
+  left: number;
+  top: number;
+  baseline: number;
+};
+
+function resolveSmartProductPlacement(
+  canvasWidth: number,
+  canvasHeight: number,
+  productWidth: number,
+  productHeight: number,
+): SmartProductPlacement {
+  const maxWidth = Math.max(1, Math.round(canvasWidth * 0.68));
+  const maxHeight = Math.max(1, Math.round(canvasHeight * 0.65));
+  const scale = Math.min(maxWidth / Math.max(1, productWidth), maxHeight / Math.max(1, productHeight));
+  const width = Math.max(1, Math.round(productWidth * scale));
+  const height = Math.max(1, Math.round(productHeight * scale));
+  const baseline = Math.round(canvasHeight * 0.88);
+
+  return {
+    width,
+    height,
+    left: Math.round((canvasWidth - width) / 2),
+    top: Math.max(Math.round(canvasHeight * 0.08), baseline - height),
+    baseline,
+  };
+}
+
+export const __testGetSmartProductBackgroundReferences = getSmartProductBackgroundReferences;
+export const __testBuildSmartProductBackgroundPrompt = buildSmartProductBackgroundPrompt;
+export const __testResolveSmartProductPlacement = resolveSmartProductPlacement;
+
 async function generateSmartProductBackgroundPlates(
   input: CreateBackgroundInput,
   prompt: string,
   count: number,
 ): Promise<GeneratedImage[]> {
-  const images = input.backgroundReferenceSrc?.trim()
-    ? [{ src: input.backgroundReferenceSrc, title: input.backgroundReferenceName || "background reference" }]
-    : [];
+  const images = getSmartProductBackgroundReferences(input);
   const requestBackground = (model: "gpt-image-2" | "gemini-3.1-flash-image") =>
     generateImages({
       prompt,
@@ -2480,14 +2535,14 @@ async function createProductContactShadow(
   left: number,
   top: number,
   productWidth: number,
-  productHeight: number,
+  baseline: number,
 ): Promise<Buffer> {
   const sharp = (await import("sharp")).default;
   const pixels = Buffer.alloc(width * height * 4);
   const centerX = left + productWidth / 2;
-  const centerY = Math.min(height - 4, top + productHeight - 4);
+  const centerY = Math.min(height - 4, baseline - 4);
   const radiusX = Math.max(12, productWidth * 0.34);
-  const radiusY = Math.max(5, productHeight * 0.035);
+  const radiusY = Math.max(5, (baseline - top) * 0.035);
   const minX = Math.max(0, Math.floor(centerX - radiusX));
   const maxX = Math.min(width - 1, Math.ceil(centerX + radiusX));
   const minY = Math.max(0, Math.floor(centerY - radiusY));
@@ -2520,33 +2575,33 @@ async function compositeProtectedProductOnBackground(
   const productPng = await sharp(productBuffer, { limitInputPixels: false })
     .rotate()
     .trim({ background: { r: 0, g: 0, b: 0, alpha: 0 } })
-    .resize({
-      width: Math.round(width * 0.72),
-      height: Math.round(height * 0.7),
-      fit: "inside",
-      withoutEnlargement: true,
-    })
     .png()
     .toBuffer();
   const productMetadata = await sharp(productPng, { limitInputPixels: false }).metadata();
-  const productWidth = productMetadata.width || 1;
-  const productHeight = productMetadata.height || 1;
-  const left = Math.round((width - productWidth) / 2);
-  const top = height - productHeight;
+  const placement = resolveSmartProductPlacement(
+    width,
+    height,
+    productMetadata.width || 1,
+    productMetadata.height || 1,
+  );
+  const placedProductPng = await sharp(productPng, { limitInputPixels: false })
+    .resize(placement.width, placement.height, { fit: "fill", kernel: "lanczos3" })
+    .png()
+    .toBuffer();
   const shadow = await createProductContactShadow(
     width,
     height,
-    left,
-    top,
-    productWidth,
-    productHeight
+    placement.left,
+    placement.top,
+    placement.width,
+    placement.baseline,
   );
   const png = await sharp(backgroundBuffer, { limitInputPixels: false })
     .rotate()
     .resize(width, height, { fit: "cover", position: "centre" })
     .composite([
       { input: shadow, left: 0, top: 0 },
-      { input: productPng, left, top },
+      { input: placedProductPng, left: placement.left, top: placement.top },
     ])
     .png()
     .toBuffer();
@@ -2579,15 +2634,7 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
       throw new Error("PicWish did not return a product cutout");
     }
 
-    const backgroundPrompt = [
-      "Generate the empty ecommerce background plate only. Do not include any product, person, packaging, logo, or foreground object.",
-      "Reserve a grounded central placement area with matching floor perspective, natural contact-shadow space, and camera angle suitable for the product foreground that will be composited later.",
-      input.style ? `背景风格：${input.style}` : "",
-      input.prompt || "创建商业化产品背景",
-      "Return the complete background plate only. Keep the reserved product placement area empty.",
-    ]
-      .filter(Boolean)
-      .join("\n");
+    const backgroundPrompt = buildSmartProductBackgroundPrompt(input);
     const composites: GeneratedImage[] = [];
     for (
       let remaining = count;
