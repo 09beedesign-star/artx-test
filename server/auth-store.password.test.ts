@@ -28,6 +28,34 @@ afterEach(async () => {
 });
 
 describe("password change", () => {
+  it("creates a viewer account with a one-time temporary password for test-account issuance", async () => {
+    const { createAuthUserForAdmin, handleAuthAction, listAuthUsers } = await loadAuthStore();
+
+    const created = await createAuthUserForAdmin({
+      actorId: "super-admin",
+      actorName: "admin@example.com",
+      username: "qa-demo@example.com",
+    });
+
+    expect(created.status).toBe(201);
+    expect(created.body.user).toMatchObject({
+      username: "qa-demo@example.com",
+      role: "viewer",
+      status: "active",
+      isAdmin: false,
+    });
+    expect(created.body.temporaryPassword).toMatch(/^ArtX-/);
+
+    const login = await handleAuthAction("login", {
+      username: "qa-demo@example.com",
+      password: created.body.temporaryPassword,
+    });
+    expect(login.status).toBe(200);
+    expect(await listAuthUsers()).toEqual([
+      expect.not.objectContaining({ temporaryPassword: expect.any(String) }),
+    ]);
+  });
+
   it("uses a 6 digit email reset code and accepts it as the reset credential", async () => {
     process.env.EMAIL_DRY_RUN = "true";
     const { handleAuthAction } = await loadAuthStore();

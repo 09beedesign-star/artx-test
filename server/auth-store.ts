@@ -585,6 +585,38 @@ export async function listAuthUsers() {
   return db.users.map((user) => publicUser(user));
 }
 
+export async function createAuthUserForAdmin(input: {
+  actorId: string;
+  actorName: string;
+  username: string;
+}) {
+  const username = normalizeUsername(input.username);
+  if (!/^\S+@\S+\.\S+$/.test(username)) {
+    return { status: 400 as const, body: { error: "请输入有效的测试账号邮箱" } };
+  }
+
+  const db = await loadDatabase();
+  if (db.users.some((user) => user.loginKey === loginKey(username))) {
+    return { status: 409 as const, body: { error: "该账号已存在" } };
+  }
+
+  const temporaryPassword = `ArtX-${crypto.randomBytes(18).toString("base64url")}`;
+  const user = createUser(username, temporaryPassword, "viewer");
+  db.users.push(user);
+  appendAuditLog(db, {
+    actorId: input.actorId,
+    action: "admin.test_account.create",
+    target: user.id,
+    meta: { actorName: input.actorName, username: user.username },
+  });
+  await saveDatabase(db);
+
+  return {
+    status: 201 as const,
+    body: { user: publicUser(user), temporaryPassword },
+  };
+}
+
 export async function updateAuthUserAdmin(input: {
   actorId: string;
   actorName: string;
