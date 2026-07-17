@@ -4,11 +4,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { AI_CREDIT_POLICIES, AI_PLAN_DISCOUNTS, type AiBillingCapability, type AiBillingPolicy, type AiPlanDiscountPolicy } from "../shared/ai-credit-policy";
 import { BILLING_CYCLES, MEMBERSHIP_PLANS, getPlanQuote, quoteCreditRecharge } from "../shared/billing-config";
-import { getAdminSessionFromAuthorization, listAuthUsers, type PublicAuthUser, updateAuthUserAdmin } from "./auth-store";
+import { createAuthUserForAdmin, getAdminSessionFromAuthorization, listAuthUsers, type PublicAuthUser, updateAuthUserAdmin } from "./auth-store";
 import { storeFeedbackImagesForUser, type FeedbackImageInput, type StoredFeedbackImage } from "./local-image-storage";
 import { PostgresJsonDocumentStore } from "./postgres-json-store";
 
-type AdminStatus = "normal" | "watch" | "blocked";
+type AdminStatus = "normal" | "watch" | "blocked" | "cancelled";
 type OrderStatus = "paid" | "pending" | "failed" | "refunded";
 type FeedbackStatus = "new" | "processing" | "waiting_user" | "resolved" | "closed";
 type AlertSeverity = "critical" | "warning" | "info";
@@ -20,6 +20,17 @@ export type AdminActor = {
   id: string;
   username: string;
   role?: string;
+};
+
+type TestAccountProfile = {
+  issuedAt: string;
+  expiresAt: string;
+  initialCredits: number;
+  dailyCreditLimit: number;
+  usageDate: string;
+  reservedCredits: number;
+  cancelledAt?: string;
+  cancelledBy?: string;
 };
 
 type AdminUserAccount = {
@@ -40,6 +51,8 @@ type AdminUserAccount = {
   totalConsumed: number;
   lastSeen: string;
   risk: string;
+  accountType?: "regular" | "test";
+  testProfile?: TestAccountProfile;
 };
 
 type PaymentOrder = {
@@ -1226,6 +1239,10 @@ function toActor(sessionBody: unknown): AdminActor {
   };
 }
 
+function requireSuperAdmin(actor: AdminActor): AdminApiResult | null {
+  return actor.role === "super_admin" ? null : jsonError(403, "只有 super_admin 可以管理测试账号");
+}
+
 function dashboard(data: AdminData) {
   const paidOrders = data.orders.filter((order) => order.status === "paid");
   const paymentExceptions = data.orders.filter((order) => order.status === "failed" || order.reconciliation !== "matched").length;
@@ -1730,6 +1747,133 @@ export async function handleAdminApiRequest(
         planDiscounts: data.aiPlanDiscounts || AI_PLAN_DISCOUNTS,
       },
     };
+  }
+
+  if (method === "POST" && route === "test-accounts") {
+    const denied = requireSuperAdmin(actor);
+    if (denied) return denied;
+    const email = typeof body.email === "string" ? body.email.trim() : "";
+    const initialCredits = Math.max(0, Math.round(Number(body.initialCredits)));
+    const dailyCreditLimit = Math.max(1, Math.round(Number(body.dailyCreditLimit)));
+    const expiresAt = typeof body.expiresAt === "string" ? body.expiresAt : "";
+    if (!email || !Number.isFinite(initialCredits) || !Number.isFinite(dailyCreditLimit) || !Number.isFinite(Date.parse(expiresAt))) {
+      return jsonError(400, "测试账号邮箱、额度、日限额和到期时间无效");
+    }
+    if (Date.parse(expiresAt) <= Date.now()) return jsonError(400, "测试账号到期时间必须晚于当前时间");
+
+    const created = await createAuthUserForAdmin({
+      actorId: actor.id,
+      actorName: actor.username,
+      username: email,
+    });
+    if (created.status !== 201) return created;
+    const authUser = created.body.user;
+    const issuedAt = nowIso();
+    const testProfile: TestAccountProfile = {
+      issuedAt,
+      expiresAt: new Date(expiresAt).toISOString(),
+      initialCredits,
+      dailyCreditLimit,
+      usageDate: "",
+      reservedCredits: 0,
+    };
+    const user: AdminUserAccount = {
+      id: authUser.id,
+      name: email.split("@")[0] || email,
+      email,
+      account: email,
+      registeredAt: formatDateTime(issuedAt),
+      loginMethod: "email",
+      role: "viewer",
+      status: "normal",
+      plan: "Free",
+      organization: "测试账号",
+      credits: initialCredits,
+      frozenCredits: 0,
+      expiredCredits: 0,
+      totalRecharge: 0,
+      totalConsumed: 0,
+      lastSeen: "未登录",
+      risk: "低",
+      accountType: "test",
+      testProfile,
+    };
+    data.users = [user, ...data.users];
+    if (initialCredits > 0) {
+      data.credits = [{
+        id: `cr_${Date.now().toString(36)}`,
+        userId: user.id,
+        user: user.name,
+        type: "测试账号额度发放",
+        delta: initialCredits,
+        reason: "后台发放测试账号",
+        source: "admin/test-account-issue",
+        operator: actor.username,
+        createdAt: issuedAt,
+      }, ...data.credits].slice(0, 500);
+    }
+    appendAuditLog(data, actor, {
+      action: "发放测试账号",
+      target: user.id,
+      after: { initialCredits, dailyCreditLimit, expiresAt: testProfile.expiresAt },
+    });
+    await saveAdminData(data);
+    return { status: 201, body: { user, temporaryPassword: created.body.temporaryPassword } };
+  }
+
+  const testProfileMatch = route.match(/^users\/([^/]+)\/test-profile$/);
+  if (method === "POST" && testProfileMatch) {
+    const denied = requireSuperAdmin(actor);
+    if (denied) return denied;
+    const user = data.users.find((item) => item.id === testProfileMatch[1]);
+    if (!user?.testProfile || user.status === "cancelled") return jsonError(404, "测试账号不存在或已注销");
+    const creditDelta = Number(body.creditDelta || 0);
+    const dailyCreditLimit = Math.round(Number(body.dailyCreditLimit));
+    const expiresAt = typeof body.expiresAt === "string" ? body.expiresAt : "";
+    if (!Number.isFinite(creditDelta) || !Number.isFinite(dailyCreditLimit) || dailyCreditLimit < 1 || !Number.isFinite(Date.parse(expiresAt))) {
+      return jsonError(400, "测试账号调整参数无效");
+    }
+    user.credits = Math.max(0, user.credits + creditDelta);
+    user.testProfile.dailyCreditLimit = dailyCreditLimit;
+    user.testProfile.expiresAt = new Date(expiresAt).toISOString();
+    const adjustedAt = nowIso();
+    if (creditDelta !== 0) data.credits = [{
+      id: `cr_${Date.now().toString(36)}`,
+      userId: user.id,
+      user: user.name,
+      type: creditDelta > 0 ? "测试账号额度调整" : "测试账号额度扣减",
+      delta: creditDelta,
+      reason: "后台调整测试账号额度",
+      source: "admin/test-account-adjustment",
+      operator: actor.username,
+      createdAt: adjustedAt,
+    }, ...data.credits].slice(0, 500);
+    appendAuditLog(data, actor, { action: "调整测试账号", target: user.id, after: { creditDelta, dailyCreditLimit, expiresAt: user.testProfile.expiresAt } });
+    await saveAdminData(data);
+    return { status: 200, body: { user } };
+  }
+
+  const cancelTestAccountMatch = route.match(/^users\/([^/]+)\/test-account\/cancel$/);
+  if (method === "POST" && cancelTestAccountMatch) {
+    const denied = requireSuperAdmin(actor);
+    if (denied) return denied;
+    if (body.confirm !== true) return jsonError(409, "注销测试账号需要二次确认");
+    const user = data.users.find((item) => item.id === cancelTestAccountMatch[1]);
+    if (!user?.testProfile) return jsonError(404, "测试账号不存在");
+    const disabled = await updateAuthUserAdmin({ actorId: actor.id, actorName: actor.username, userId: user.id, status: "disabled" });
+    if (disabled.status !== 200) return disabled;
+    const cancelledAt = nowIso();
+    user.credits = 0;
+    user.status = "cancelled";
+    user.name = "已注销测试账号";
+    user.email = `cancelled-${user.id}@invalid.local`;
+    user.account = user.email;
+    user.testProfile.reservedCredits = 0;
+    user.testProfile.cancelledAt = cancelledAt;
+    user.testProfile.cancelledBy = actor.id;
+    appendAuditLog(data, actor, { action: "注销测试账号", target: user.id, after: { status: user.status, cancelledAt } });
+    await saveAdminData(data);
+    return { status: 200, body: { user } };
   }
 
   const userRoleMatch = route.match(/^users\/([^/]+)\/role$/);
