@@ -16,6 +16,7 @@ type TextGenerateInput = {
 type ChatCompletionResponse = {
   choices?: Array<{ message?: { content?: string } }>;
   output_text?: string;
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
   error?: { message?: string };
 };
 
@@ -27,7 +28,13 @@ type ResponsesApiResponse = {
       text?: string;
     }>;
   }>;
+  usage?: { input_tokens?: number; output_tokens?: number };
   error?: { message?: string; code?: string };
+};
+
+type ProviderTokenUsage = {
+  promptTokens?: number;
+  completionTokens?: number;
 };
 
 function safeParseJson<T>(raw: string): T | null {
@@ -97,12 +104,22 @@ function extractResponsesText(data: ResponsesApiResponse) {
     .trim();
 }
 
+function tokenUsage(input?: { prompt_tokens?: number; completion_tokens?: number; input_tokens?: number; output_tokens?: number }): ProviderTokenUsage | undefined {
+  const promptTokens = input?.prompt_tokens ?? input?.input_tokens;
+  const completionTokens = input?.completion_tokens ?? input?.output_tokens;
+  if (!Number.isFinite(promptTokens) && !Number.isFinite(completionTokens)) return undefined;
+  return {
+    ...(Number.isFinite(promptTokens) ? { promptTokens: Math.max(0, Math.round(promptTokens!)) } : {}),
+    ...(Number.isFinite(completionTokens) ? { completionTokens: Math.max(0, Math.round(completionTokens!)) } : {}),
+  };
+}
+
 async function callResponsesApi(
   baseUrl: string,
   apiKey: string,
   model: string,
   messages: TextMessage[],
-): Promise<string> {
+): Promise<{ text: string; usage?: ProviderTokenUsage }> {
   const input = messages.map((message) => ({
     role: message.role,
     content: flattenMessageContent(message.content),
@@ -127,7 +144,7 @@ async function callResponsesApi(
     throw new Error(data.error?.message || `Responses provider returned ${response.status}`);
   }
 
-  return extractResponsesText(data);
+  return { text: extractResponsesText(data), usage: tokenUsage(data.usage) };
 }
 
 function buildMessages(input: TextGenerateInput): TextMessage[] {
@@ -174,7 +191,7 @@ function buildMessages(input: TextGenerateInput): TextMessage[] {
   ];
 }
 
-export async function generateText(input: TextGenerateInput): Promise<{ text: string; model: string }> {
+export async function generateText(input: TextGenerateInput): Promise<{ text: string; model: string; usage?: ProviderTokenUsage }> {
   const messages = buildMessages(input);
   const hasContent = messages.some((message) => {
     if (typeof message.content === "string") return message.content.trim();
@@ -220,12 +237,12 @@ export async function generateText(input: TextGenerateInput): Promise<{ text: st
 
       const output = data?.choices?.[0]?.message?.content || data?.output_text || "";
       if (output.trim()) {
-        return { text: output, model: candidateModel };
+        return { text: output, model: candidateModel, usage: tokenUsage(data?.usage) };
       }
 
-      const responsesText = await callResponsesApi(baseUrl, apiKey, candidateModel, messages);
-      if (responsesText) {
-        return { text: responsesText, model: candidateModel };
+      const responsesResult = await callResponsesApi(baseUrl, apiKey, candidateModel, messages);
+      if (responsesResult.text) {
+        return { text: responsesResult.text, model: candidateModel, usage: responsesResult.usage };
       }
 
       throw new Error("Text provider returned no content");

@@ -12,7 +12,7 @@ import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
 import { recordCrossBorderCommerceGeneration } from "./cross-border-commerce-records";
 import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization } from "./auth-store";
-import { acknowledgeCreditGiftNotification, createBillingOrder, createCreditRechargeOrder, getBillingOrderForPayment, getBillingSnapshotForUser, getCreditGiftNotificationsForUser, handleAdminApiRequest, markBillingOrderPaid, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, submitUserFeedback } from "./admin-store";
+import { acknowledgeCreditGiftNotification, createBillingOrder, createCreditRechargeOrder, getBillingOrderForPayment, getBillingSnapshotForUser, getCreditGiftNotificationsForUser, handleAdminApiRequest, markBillingOrderPaid, quoteAdminAiUsage, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, releaseTestAccountAiUsage, reserveTestAccountAiUsage, submitUserFeedback } from "./admin-store";
 import { getAllowedCorsOrigin } from "./cors";
 import { sendOpsNotification } from "./notifications";
 import { classifyApplicationSecuritySignal, createSecurityEventDetector, validateSecurityEventIngest } from "./security-events";
@@ -67,6 +67,11 @@ type AiRouteTracking = {
   failureMessage: string;
   outputUnits?: (result: unknown) => number;
   providerTaskIds?: (result: unknown) => string[] | undefined;
+};
+
+type AiUsageReservation = {
+  taskId: string;
+  active: boolean;
 };
 
 type McpJsonRpcRequest = {
@@ -424,10 +429,79 @@ function capabilityFromOrchestrator(capability: string): AiBillingCapability {
   if (capability === "chat" || capability === "brand_kit_parse") return "text_generation";
   if (capability === "element_erasure") return "image_erase";
   if (capability === "text_to_image") return "text_to_image";
-  if (capability === "background_removal") return "background_removal";
-  if (capability === "image_expansion") return "image_expansion";
-  if (capability === "image_edit") return "image_edit";
+  if (capability === "background_removal" || capability === "remove-background") return "background_removal";
+  if (capability === "image_enhance" || capability === "enhance") return "image_enhance";
+  if (capability === "watermark_removal" || capability === "remove-watermark") return "watermark_removal";
+  if (capability === "smart_background" || capability === "create-background") return "smart_background";
+  if (capability === "image_expansion" || capability === "expand") return "image_expansion";
+  if (capability === "image_edit" || capability === "edit") return "image_edit";
+  if (capability === "image_erase" || capability === "erase") return "image_erase";
+  if (capability === "image_ocr") return "image_ocr";
   return "text_generation";
+}
+
+function requestedAiOutputCount(input: unknown) {
+  if (!input || typeof input !== "object") return 1;
+  const body = input as Record<string, unknown>;
+  const raw = body.count ?? body.imageCount ?? body.outputCount;
+  const count = typeof raw === "number" ? raw : Number(raw);
+  return Number.isFinite(count) ? Math.max(1, Math.min(9, Math.round(count))) : 1;
+}
+
+function requestedOrchestratorCapability(input: unknown) {
+  if (!input || typeof input !== "object") return "text_generation" as const;
+  const body = input as Record<string, unknown>;
+  const capability = typeof body.capability === "string"
+    ? body.capability
+    : typeof body.intent === "string"
+      ? body.intent
+      : body.operation === "generate"
+        ? "text_to_image"
+        : "text_generation";
+  return capabilityFromOrchestrator(capability);
+}
+
+function createAiReservationId(prefix: string) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+async function reserveAiRouteUsage(input: {
+  user: SessionUser;
+  tracking: AiRouteTracking;
+  request: unknown;
+  taskId?: string;
+}): Promise<AiUsageReservation> {
+  const quote = await quoteAdminAiUsage({
+    capability: input.tracking.capabilityKey,
+    outputCount: requestedAiOutputCount(input.request),
+  });
+  const taskId = input.taskId || createAiReservationId("ai-request");
+  const reservation = await reserveTestAccountAiUsage({
+    userId: input.user.id,
+    taskId,
+    estimatedCredits: quote.chargedCredits,
+  });
+  return { taskId, active: reservation.status === "reserved" };
+}
+
+async function releaseAiRouteUsage(user: SessionUser, reservation?: AiUsageReservation) {
+  if (!reservation?.active) return;
+  await releaseTestAccountAiUsage({ userId: user.id, taskId: reservation.taskId });
+}
+
+function providerTokenUsage(result: unknown) {
+  const usage = result && typeof result === "object"
+    ? (result as { usage?: { promptTokens?: unknown; completionTokens?: unknown } }).usage
+    : undefined;
+  const promptTokens = typeof usage?.promptTokens === "number" ? usage.promptTokens : undefined;
+  const completionTokens = typeof usage?.completionTokens === "number" ? usage.completionTokens : undefined;
+  return { promptTokens, completionTokens };
+}
+
+function aiRequestErrorStatus(message: string) {
+  if (message.includes("今日 AI 限额")) return 429;
+  if (message.includes("测试账号")) return 403;
+  return 500;
 }
 
 async function recordAiRouteUsage(input: {
@@ -442,6 +516,7 @@ async function recordAiRouteUsage(input: {
     ? input.tracking.outputUnits?.(input.result) || getImageOutputUnits(input.result)
     : 0;
   const providerTaskIds = input.tracking.providerTaskIds?.(input.result) || getProviderTaskIds(input.result);
+  const tokenUsage = providerTokenUsage(input.result);
   const record = await recordAiUsage({
     userId: input.user.id,
     username: input.user.username,
@@ -455,6 +530,8 @@ async function recordAiRouteUsage(input: {
     outputUnits,
     providerTaskId: providerTaskIds?.[0],
     providerTaskIds,
+    inputTokens: tokenUsage.promptTokens,
+    outputTokens: tokenUsage.completionTokens,
   });
 
   if (input.status !== "success") {
@@ -483,18 +560,24 @@ async function handleTrackedAiRequest<T>(
 ) {
   const startedAt = Date.now();
   let user: SessionUser | null = null;
+  let reservation: AiUsageReservation | undefined;
+  let successRecorded = false;
   try {
     user = await requireSessionUser(req, res);
     if (!user) return;
+    reservation = await reserveAiRouteUsage({ user, tracking, request: req.body });
     const result = await handler(user);
     await recordAiRouteUsage({ user, tracking, startedAt, status: "success", result });
+    successRecorded = true;
     res.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : tracking.failureMessage;
-    if (user) {
+    if (user && !successRecorded) {
       await recordAiRouteUsage({ user, tracking, startedAt, status: "failed", error: message });
     }
-    res.status(500).json({ error: message });
+    if (!res.headersSent) res.status(aiRequestErrorStatus(message)).json({ error: message });
+  } finally {
+    if (user) await releaseAiRouteUsage(user, reservation);
   }
 }
 
@@ -1026,6 +1109,22 @@ async function startServer() {
       return;
     }
 
+    const preflightTracking: AiRouteTracking = {
+      capabilityKey: capabilityFromOrchestrator(typeof req.body?.capability === "string" ? req.body.capability : "text_to_image"),
+      capability: typeof req.body?.capability === "string" ? req.body.capability : "图片生成",
+      provider: "AI_IMAGE",
+      model: getRouteModel(req.body, process.env.AI_IMAGE_MODEL || "gpt-image-2"),
+      failureMessage: "Image generation failed",
+    };
+    let reservation: AiUsageReservation;
+    try {
+      reservation = await reserveAiRouteUsage({ user, tracking: preflightTracking, request: req.body, taskId });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Image generation failed";
+      res.status(aiRequestErrorStatus(message)).json({ error: message, taskId, status: "failed" });
+      return;
+    }
+
     const task: BackgroundImageTask = {
       taskId,
       status: "pending",
@@ -1037,8 +1136,9 @@ async function startServer() {
     backgroundImageTasks.set(taskId, task);
     res.json(task);
 
-    void runBackgroundImageTask(req.body, user)
-      .then(async ({ result, tracking }) => {
+    void (async () => {
+      try {
+        const { result, tracking } = await runBackgroundImageTask(req.body, user);
         await recordAiRouteUsage({
           user,
           tracking,
@@ -1052,31 +1152,29 @@ async function startServer() {
           images: result.images || [],
           updatedAt: Date.now(),
         });
-      })
-      .catch(error => {
+      } catch (error) {
         const message = error instanceof Error ? error.message : "Image generation failed";
-        void recordAiRouteUsage({
+        try {
+          await recordAiRouteUsage({
           user,
-          tracking: {
-            capabilityKey: "text_to_image",
-            capability: "图片生成",
-            provider: "AI_IMAGE",
-            model: getRouteModel(req.body, process.env.AI_IMAGE_MODEL || "gpt-image-2"),
-            failureMessage: "Image generation failed",
-          },
+          tracking: preflightTracking,
           startedAt: task.createdAt,
           status: "failed",
           error: message,
-        }).catch(recordError => {
+          });
+        } catch (recordError) {
           console.warn("[ai-usage] failed to record background task", recordError instanceof Error ? recordError.message : "unknown error");
-        });
+        }
         backgroundImageTasks.set(taskId, {
           ...task,
           status: "failed",
           error: message,
           updatedAt: Date.now(),
         });
-      });
+      } finally {
+        await releaseAiRouteUsage(user, reservation);
+      }
+    })();
   });
 
   app.get("/api/images/tasks/:taskId", async (req, res) => {
@@ -1312,9 +1410,19 @@ async function startServer() {
   app.post("/api/ai/orchestrate", async (req, res) => {
     const startedAt = Date.now();
     let user: SessionUser | null = null;
+    let reservation: AiUsageReservation | undefined;
+    let successRecorded = false;
     try {
       user = await requireSessionUser(req, res);
       if (!user) return;
+      const preflightTracking: AiRouteTracking = {
+        capabilityKey: requestedOrchestratorCapability(req.body),
+        capability: typeof req.body?.capability === "string" ? req.body.capability : "AI 编排",
+        provider: "AI",
+        model: getRouteModel(req.body, "auto"),
+        failureMessage: "AI orchestration failed",
+      };
+      reservation = await reserveAiRouteUsage({ user, tracking: preflightTracking, request: req.body });
       const result = await orchestrator.run(req.body);
       if (result.images?.length) {
         const images = await storeGeneratedImagesForUser(result.images, user.username, {
@@ -1335,6 +1443,7 @@ async function startServer() {
           status: "success",
           result: storedResult,
         });
+        successRecorded = true;
         res.json(storedResult);
         return;
       }
@@ -1352,10 +1461,11 @@ async function startServer() {
         status: "success",
         result,
       });
+      successRecorded = true;
       res.json(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : "AI orchestration failed";
-      if (user) {
+      if (user && !successRecorded) {
         await recordAiRouteUsage({
           user,
           tracking: {
@@ -1370,7 +1480,9 @@ async function startServer() {
           error: message,
         });
       }
-      res.status(500).json({ error: message });
+      if (!res.headersSent) res.status(aiRequestErrorStatus(message)).json({ error: message });
+    } finally {
+      if (user) await releaseAiRouteUsage(user, reservation);
     }
   });
 
@@ -1534,7 +1646,21 @@ async function startServer() {
             return;
           }
           const startedAt = Date.now();
+          let reservation: AiUsageReservation | undefined;
+          let successRecorded = false;
           try {
+            const tracking: AiRouteTracking = {
+              capabilityKey: "text_to_image",
+              capability: "MCP 图片生成",
+              provider: "AI_IMAGE",
+              model: typeof args.model === "string" ? args.model : "auto",
+              failureMessage: "MCP image generation failed",
+            };
+            reservation = await reserveAiRouteUsage({
+              user,
+              tracking,
+              request: { count: Math.max(1, Math.min(9, Number(args.count || 1))) },
+            });
             const result = await orchestrator.run({
               capability: "text_to_image",
               intent: "text_to_image",
@@ -1559,6 +1685,7 @@ async function startServer() {
               status: "success",
               result: storedResult,
             });
+            successRecorded = true;
             res.json(mcpResult(id, {
               content: [{
                 type: "text",
@@ -1576,23 +1703,27 @@ async function startServer() {
             return;
           } catch (error) {
             const message = error instanceof Error ? error.message : "MCP image generation failed";
-            await recordAiRouteUsage({
-              user,
-              tracking: {
-                capabilityKey: "text_to_image",
-                capability: "MCP 图片生成",
-                provider: "AI_IMAGE",
-                model: typeof args.model === "string" ? args.model : "auto",
-                failureMessage: "MCP image generation failed",
-              },
-              startedAt,
-              status: "failed",
-              error: message,
-            }).catch(recordError => {
-              console.warn("[mcp] failed to record image generation failure", recordError instanceof Error ? recordError.message : recordError);
-            });
-            res.status(500).json(mcpError(id, -32000, message));
+            if (!successRecorded) {
+              await recordAiRouteUsage({
+                user,
+                tracking: {
+                  capabilityKey: "text_to_image",
+                  capability: "MCP 图片生成",
+                  provider: "AI_IMAGE",
+                  model: typeof args.model === "string" ? args.model : "auto",
+                  failureMessage: "MCP image generation failed",
+                },
+                startedAt,
+                status: "failed",
+                error: message,
+              }).catch(recordError => {
+                console.warn("[mcp] failed to record image generation failure", recordError instanceof Error ? recordError.message : recordError);
+              });
+            }
+            res.status(aiRequestErrorStatus(message)).json(mcpError(id, -32000, message));
             return;
+          } finally {
+            await releaseAiRouteUsage(user, reservation);
           }
         }
 

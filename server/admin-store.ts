@@ -29,6 +29,7 @@ type TestAccountProfile = {
   dailyCreditLimit: number;
   usageDate: string;
   reservedCredits: number;
+  reservations?: Record<string, number>;
   cancelledAt?: string;
   cancelledBy?: string;
 };
@@ -165,7 +166,15 @@ type AiTaskRecord = {
   estimatedCost: number;
   chargedCredits: number;
   grossMargin: number;
+  usage?: AiTaskUsage;
   createdAt: string;
+};
+
+type AiTaskUsage = {
+  usageKind: "tokens" | "images" | "credits";
+  promptTokens?: number;
+  completionTokens?: number;
+  imageCount?: number;
 };
 
 type AiUsageRecordInput = {
@@ -184,6 +193,8 @@ type AiUsageRecordInput = {
   failureReason?: string;
   inputUnits?: number;
   outputUnits?: number;
+  inputTokens?: number;
+  outputTokens?: number;
   estimatedCost?: number;
   chargedCredits?: number;
 };
@@ -1531,6 +1542,9 @@ function buildAccountDetail(data: AdminData, userId: string) {
   const feedbackEntries = data.feedback
     .filter((entry) => entry.userId === user.id || (entry.linkedOrderId ? orderIds.has(entry.linkedOrderId) : false))
     .sort((left, right) => parseAdminTimestamp(right.createdAt) - parseAdminTimestamp(left.createdAt));
+  const aiTasks = data.aiTasks
+    .filter((task) => task.userId === user.id)
+    .sort((left, right) => parseAdminTimestamp(right.createdAt) - parseAdminTimestamp(left.createdAt));
   const paymentEvents = orders.flatMap((order) => (order.paymentEvents || []).map((event) => ({
     ...event,
     orderId: order.id,
@@ -1583,6 +1597,7 @@ function buildAccountDetail(data: AdminData, userId: string) {
     },
     orders,
     creditEntries,
+    aiTasks,
     auditEntries,
     feedbackEntries,
     paymentEvents,
@@ -1774,8 +1789,9 @@ export async function handleAdminApiRequest(
       expiresAt: new Date(expiresAt).toISOString(),
       initialCredits,
       dailyCreditLimit,
-      usageDate: "",
-      reservedCredits: 0,
+        usageDate: "",
+        reservedCredits: 0,
+        reservations: {},
     };
     const user: AdminUserAccount = {
       id: authUser.id,
@@ -1818,7 +1834,10 @@ export async function handleAdminApiRequest(
       after: { initialCredits, dailyCreditLimit, expiresAt: testProfile.expiresAt },
     });
     await saveAdminData(data);
-    return { status: 201, body: { user, temporaryPassword: created.body.temporaryPassword } };
+    return {
+      status: 201,
+      body: { ...fullPayload(data), user, temporaryPassword: created.body.temporaryPassword },
+    };
   }
 
   const testProfileMatch = route.match(/^users\/([^/]+)\/test-profile$/);
@@ -1850,7 +1869,7 @@ export async function handleAdminApiRequest(
     }, ...data.credits].slice(0, 500);
     appendAuditLog(data, actor, { action: "调整测试账号", target: user.id, after: { creditDelta, dailyCreditLimit, expiresAt: user.testProfile.expiresAt } });
     await saveAdminData(data);
-    return { status: 200, body: { user } };
+    return { status: 200, body: { ...fullPayload(data), user } };
   }
 
   const cancelTestAccountMatch = route.match(/^users\/([^/]+)\/test-account\/cancel$/);
@@ -1873,7 +1892,7 @@ export async function handleAdminApiRequest(
     user.testProfile.cancelledBy = actor.id;
     appendAuditLog(data, actor, { action: "注销测试账号", target: user.id, after: { status: user.status, cancelledAt } });
     await saveAdminData(data);
-    return { status: 200, body: { user } };
+    return { status: 200, body: { ...fullPayload(data), user } };
   }
 
   const userRoleMatch = route.match(/^users\/([^/]+)\/role$/);
@@ -2813,6 +2832,70 @@ export async function quoteAdminAiUsage(input: {
   return quoteAiUsageFromData(data, input);
 }
 
+function shanghaiDay(iso = nowIso()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(iso));
+  const value = (type: string) => parts.find((part) => part.type === type)?.value || "00";
+  return `${value("year")}-${value("month")}-${value("day")}`;
+}
+
+export async function reserveTestAccountAiUsage(input: {
+  userId: string;
+  taskId: string;
+  estimatedCredits: number;
+}): Promise<{ status: "not_test" | "reserved" }> {
+  const data = await loadAdminData();
+  const user = data.users.find((item) => item.id === input.userId);
+  if (!user?.testProfile || user.accountType !== "test") return { status: "not_test" };
+  const profile = user.testProfile;
+  if (user.status === "cancelled" || profile.cancelledAt) throw new Error("测试账号已注销");
+  if (Date.parse(profile.expiresAt) <= Date.now()) throw new Error("测试账号已过期");
+  const estimatedCredits = Math.max(1, Math.round(input.estimatedCredits));
+  if (user.credits < estimatedCredits) throw new Error("测试账号额度不足");
+  const day = shanghaiDay();
+  if (profile.usageDate !== day) {
+    profile.usageDate = day;
+    profile.reservedCredits = 0;
+    profile.reservations = {};
+  }
+  const consumed = data.aiTasks
+    .filter((task) => task.userId === user.id && task.status === "success" && shanghaiDay(task.createdAt) === day)
+    .reduce((sum, task) => sum + task.chargedCredits, 0);
+  profile.reservations ||= {};
+  const currentReservation = profile.reservations[input.taskId] || 0;
+  if (consumed + profile.reservedCredits - currentReservation + estimatedCredits > profile.dailyCreditLimit) {
+    throw new Error("测试账号今日 AI 限额已用尽");
+  }
+  profile.reservations[input.taskId] = estimatedCredits;
+  profile.reservedCredits = Object.values(profile.reservations).reduce((sum, value) => sum + value, 0);
+  await saveAdminData(data);
+  return { status: "reserved" };
+}
+
+export async function releaseTestAccountAiUsage(input: { userId: string; taskId: string }) {
+  const data = await loadAdminData();
+  const profile = data.users.find((item) => item.id === input.userId)?.testProfile;
+  if (!profile?.reservations?.[input.taskId]) return;
+  delete profile.reservations[input.taskId];
+  profile.reservedCredits = Object.values(profile.reservations).reduce((sum, value) => sum + value, 0);
+  await saveAdminData(data);
+}
+
+function isImageOutputCapability(capability?: AiBillingCapability) {
+  return capability === "text_to_image"
+    || capability === "background_removal"
+    || capability === "image_enhance"
+    || capability === "watermark_removal"
+    || capability === "smart_background"
+    || capability === "image_edit"
+    || capability === "image_erase"
+    || capability === "image_expansion";
+}
+
 export async function recordAiUsage(input: AiUsageRecordInput) {
   const data = await loadAdminData();
   let user = data.users.find((item) => item.id === input.userId);
@@ -2851,6 +2934,18 @@ export async function recordAiUsage(input: AiUsageRecordInput) {
     ? quote?.chargedCredits || Math.max(1, Math.round(input.chargedCredits || 0))
     : 0;
   const estimatedCost = quote?.estimatedCost ?? input.estimatedCost ?? 0;
+  const hasProviderTokenUsage = Number.isFinite(input.inputTokens) || Number.isFinite(input.outputTokens);
+  const usage: AiTaskUsage | undefined = hasProviderTokenUsage
+    ? {
+      usageKind: "tokens",
+      ...(Number.isFinite(input.inputTokens) ? { promptTokens: Math.max(0, Math.round(input.inputTokens!)) } : {}),
+      ...(Number.isFinite(input.outputTokens) ? { completionTokens: Math.max(0, Math.round(input.outputTokens!)) } : {}),
+    }
+    : input.status === "success" && isImageOutputCapability(input.capabilityKey)
+      ? { usageKind: "images", imageCount: Math.max(0, Math.round(input.outputUnits || 0)) }
+      : input.status === "success"
+        ? { usageKind: "credits" }
+        : undefined;
   const record: AiTaskRecord = {
     id: `task_${Date.now().toString(36)}`,
     generationId: input.generationId || `gen_${Date.now().toString(36)}`,
@@ -2864,13 +2959,14 @@ export async function recordAiUsage(input: AiUsageRecordInput) {
     status: input.status,
     latencyMs: input.latencyMs || 0,
     failureReason: input.failureReason || "",
-    inputUnits: input.inputUnits || 0,
+    inputUnits: input.inputUnits ?? input.inputTokens ?? 0,
     outputUnits: input.outputUnits || 0,
     estimatedCost,
     chargedCredits,
     grossMargin: input.status === "success" && chargedCredits
       ? Number(((chargedCredits - (estimatedCost * 100)) / Math.max(chargedCredits, 1)).toFixed(2))
       : 0,
+    usage,
     createdAt,
   };
 

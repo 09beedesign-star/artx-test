@@ -7,6 +7,8 @@ describe("background image task routing", () => {
     const source = readFileSync(resolve(__dirname, "index.ts"), "utf-8");
 
     expect(source).toContain("async function runBackgroundImageTask");
+    expect(source).toContain("reserveTestAccountAiUsage");
+    expect(source).toContain("releaseTestAccountAiUsage");
     expect(source).toContain('case "smart_background":');
     expect(source).toMatch(/createProductBackground\([^)]*input/);
     expect(source).toContain('provider: "PicWish 主体保护 + Image2/Gemini 背景"');
