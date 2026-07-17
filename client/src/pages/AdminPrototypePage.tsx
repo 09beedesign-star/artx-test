@@ -46,6 +46,7 @@ import {
 } from "./admin-notifications";
 import { getDashboardRiskTarget } from "./admin-dashboard-risk";
 import { formatExactOrderTime } from "./admin-order-time";
+import { filterAdminOrders, filterAdminUsers } from "./admin-list-filters";
 import { classifyHighRiskType } from "./admin-risk";
 import { resolveAdminUploadUrl } from "./admin-upload-url";
 
@@ -493,9 +494,16 @@ function AdminPrototypePage() {
   const [selectedUserId, setSelectedUserId] = useState("");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | Status>("all");
-  const [accountTypeFilter, setAccountTypeFilter] = useState<"all" | "test">("all");
+  const [accountTypeFilter, setAccountTypeFilter] = useState<"all" | "regular" | "test">("all");
+  const [registeredFrom, setRegisteredFrom] = useState("");
+  const [registeredTo, setRegisteredTo] = useState("");
   const [userPage, setUserPage] = useState(1);
   const [orderPage, setOrderPage] = useState(1);
+  const [orderQuery, setOrderQuery] = useState("");
+  const [paidFrom, setPaidFrom] = useState("");
+  const [paidTo, setPaidTo] = useState("");
+  const [amountMin, setAmountMin] = useState("");
+  const [amountMax, setAmountMax] = useState("");
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [urgentRiskAttentionAcknowledged, setUrgentRiskAttentionAcknowledged] = useState(false);
   const [riskView, setRiskView] = useState<"all" | "urgent">("all");
@@ -544,7 +552,11 @@ function AdminPrototypePage() {
 
   useEffect(() => {
     setUserPage(1);
-  }, [query, statusFilter, accountTypeFilter]);
+  }, [query, statusFilter, accountTypeFilter, registeredFrom, registeredTo]);
+
+  useEffect(() => {
+    setOrderPage(1);
+  }, [orderQuery, paidFrom, paidTo, amountMin, amountMax]);
 
   useEffect(() => {
     setOrderPage((current) => Math.min(current, Math.max(1, Math.ceil(adminData.orders.length / PAGE_SIZE))));
@@ -712,17 +724,25 @@ function AdminPrototypePage() {
   }, [urgentRiskNotifications.length]);
 
   const filteredUsers = useMemo(() => {
-    return adminData.users.filter((user) => {
-      const matchesQuery = `${user.name} ${user.email} ${user.plan}`
-        .toLowerCase()
-        .includes(query.toLowerCase());
+    return filterAdminUsers(adminData.users, {
+      query,
+      accountType: accountTypeFilter,
+      registeredFrom,
+      registeredTo,
+    }).filter((user) => {
       const matchesStatus = statusFilter === "all" || user.status === statusFilter;
-      const matchesAccountType = accountTypeFilter === "all" || user.accountType === "test";
-      return matchesQuery && matchesStatus && matchesAccountType;
+      return matchesStatus;
     });
-  }, [accountTypeFilter, adminData.users, query, statusFilter]);
+  }, [accountTypeFilter, adminData.users, query, registeredFrom, registeredTo, statusFilter]);
+  const filteredOrders = useMemo(() => filterAdminOrders(adminData.orders, {
+    query: orderQuery,
+    paidFrom,
+    paidTo,
+    amountMin,
+    amountMax,
+  }), [adminData.orders, amountMax, amountMin, orderQuery, paidFrom, paidTo]);
   const visibleUsers = pageItems(filteredUsers, userPage);
-  const visibleOrders = pageItems(adminData.orders, orderPage);
+  const visibleOrders = pageItems(filteredOrders, orderPage);
 
   function handleResolveFeedback(id: string) {
     adminPost(`/api/admin/feedback/${id}/status`, { status: "resolved", reason: "后台标记解决" }, "反馈状态已写入后台，并生成操作审计。");
@@ -1340,6 +1360,10 @@ function AdminPrototypePage() {
             setStatusFilter={setStatusFilter}
             accountTypeFilter={accountTypeFilter}
             setAccountTypeFilter={setAccountTypeFilter}
+            registeredFrom={registeredFrom}
+            setRegisteredFrom={setRegisteredFrom}
+            registeredTo={registeredTo}
+            setRegisteredTo={setRegisteredTo}
           />
           {canManageTestAccounts && (
             <div className="flex justify-end">
@@ -1494,6 +1518,18 @@ function AdminPrototypePage() {
       return (
         <div className="min-w-0 space-y-5">
           {paymentCheck && <ProductionCheckPanel check={paymentCheck} title="支付对账状态" />}
+          <OrderFilters
+            query={orderQuery}
+            setQuery={setOrderQuery}
+            paidFrom={paidFrom}
+            setPaidFrom={setPaidFrom}
+            paidTo={paidTo}
+            setPaidTo={setPaidTo}
+            amountMin={amountMin}
+            setAmountMin={setAmountMin}
+            amountMax={amountMax}
+            setAmountMax={setAmountMax}
+          />
           <div className="min-w-0 overflow-x-auto rounded-md border border-white/10 bg-white/[0.03]">
             <OrdersTable
               orders={visibleOrders}
@@ -1502,7 +1538,7 @@ function AdminPrototypePage() {
               onSelect={handleSelectOrder}
             />
           </div>
-          <PagePaginator items={adminData.orders} page={orderPage} onPageChange={setOrderPage} />
+          <PagePaginator items={filteredOrders} page={orderPage} onPageChange={setOrderPage} />
 
           <div className="min-w-0">
             {selectedUser ? (
@@ -2092,24 +2128,36 @@ function Toolbar({
   setStatusFilter,
   accountTypeFilter,
   setAccountTypeFilter,
+  registeredFrom,
+  setRegisteredFrom,
+  registeredTo,
+  setRegisteredTo,
 }: {
   query: string;
   setQuery: (query: string) => void;
   statusFilter: "all" | Status;
   setStatusFilter: (status: "all" | Status) => void;
-  accountTypeFilter: "all" | "test";
-  setAccountTypeFilter: (value: "all" | "test") => void;
+  accountTypeFilter: "all" | "regular" | "test";
+  setAccountTypeFilter: (value: "all" | "regular" | "test") => void;
+  registeredFrom: string;
+  setRegisteredFrom: (value: string) => void;
+  registeredTo: string;
+  setRegisteredTo: (value: string) => void;
 }) {
   return (
-    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-      <div className="relative md:w-80">
+    <div className="flex flex-col gap-3">
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center">
+      <div className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-500" />
         <Input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="搜索用户、邮箱、套餐"
+          placeholder="搜索账号名称或邮箱"
           className="border-white/10 bg-slate-950/40 pl-9 text-slate-100 placeholder:text-slate-500"
         />
+      </div>
+      <label className="grid gap-1 text-xs text-slate-400"><span>注册开始</span><Input type="date" value={registeredFrom} onChange={(event) => setRegisteredFrom(event.target.value)} aria-label="注册开始日期" className="border-white/10 bg-slate-950/40" /></label>
+      <label className="grid gap-1 text-xs text-slate-400"><span>注册结束</span><Input type="date" value={registeredTo} onChange={(event) => setRegisteredTo(event.target.value)} aria-label="注册结束日期" className="border-white/10 bg-slate-950/40" /></label>
       </div>
       <div className="flex flex-wrap gap-2">
         {[
@@ -2131,18 +2179,64 @@ function Toolbar({
             {label}
           </button>
         ))}
-        <button
-          type="button"
-          className={cn(
-            "rounded-md border px-3 py-2 text-sm transition",
-            accountTypeFilter === "test"
-              ? "border-cyan-300 bg-cyan-300 text-slate-950"
-              : "border-white/10 bg-white/[0.03] text-slate-300 hover:bg-white/8"
-          )}
-          onClick={() => setAccountTypeFilter(accountTypeFilter === "test" ? "all" : "test")}
-        >
-          测试账号
-        </button>
+        {[
+          ["all", "全部类型"],
+          ["test", "测试账号"],
+          ["regular", "普通账号"],
+        ].map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            className={cn(
+              "rounded-md border px-3 py-2 text-sm transition",
+              accountTypeFilter === value
+                ? "border-cyan-300 bg-cyan-300 text-slate-950"
+                : "border-white/10 bg-white/[0.03] text-slate-300 hover:bg-white/8"
+            )}
+            onClick={() => setAccountTypeFilter(value as "all" | "regular" | "test")}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function OrderFilters({
+  query,
+  setQuery,
+  paidFrom,
+  setPaidFrom,
+  paidTo,
+  setPaidTo,
+  amountMin,
+  setAmountMin,
+  amountMax,
+  setAmountMax,
+}: {
+  query: string;
+  setQuery: (value: string) => void;
+  paidFrom: string;
+  setPaidFrom: (value: string) => void;
+  paidTo: string;
+  setPaidTo: (value: string) => void;
+  amountMin: string;
+  setAmountMin: (value: string) => void;
+  amountMax: string;
+  setAmountMax: (value: string) => void;
+}) {
+  return (
+    <div className="grid gap-3 rounded-md border border-white/10 bg-white/[0.035] p-3 md:grid-cols-2 xl:grid-cols-5">
+      <div className="relative xl:col-span-2">
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-500" />
+        <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索订单号或账号名称" className="border-white/10 bg-slate-950/40 pl-9" />
+      </div>
+      <label className="grid gap-1 text-xs text-slate-400"><span>支付开始</span><Input type="date" value={paidFrom} onChange={(event) => setPaidFrom(event.target.value)} aria-label="支付开始日期" className="border-white/10 bg-slate-950/40" /></label>
+      <label className="grid gap-1 text-xs text-slate-400"><span>支付结束</span><Input type="date" value={paidTo} onChange={(event) => setPaidTo(event.target.value)} aria-label="支付结束日期" className="border-white/10 bg-slate-950/40" /></label>
+      <div className="grid grid-cols-2 gap-2">
+        <Input type="number" min="0" value={amountMin} onChange={(event) => setAmountMin(event.target.value)} placeholder="最低金额" className="border-white/10 bg-slate-950/40" />
+        <Input type="number" min="0" value={amountMax} onChange={(event) => setAmountMax(event.target.value)} placeholder="最高金额" className="border-white/10 bg-slate-950/40" />
       </div>
     </div>
   );

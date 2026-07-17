@@ -11,6 +11,6 @@ describe("AdminPrototypePage data pagination", () => {
     expect(page).toContain("const [orderPage, setOrderPage]");
     expect(page).toContain("<PagePaginator");
     expect(page).toContain("items={filteredUsers}");
-    expect(page).toContain("items={adminData.orders}");
+    expect(page).toContain("items={filteredOrders}");
   });
 });
