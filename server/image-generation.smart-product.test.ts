@@ -26,7 +26,9 @@ describe("smart product generation prompt", () => {
     expect(source).toContain("Image2 background plate failed; retrying with Gemini");
     expect(source).toContain('model: "gemini-3.1-flash-image"');
     expect(source).toContain("compositeProtectedProductOnBackground");
-    expect(source).toContain("createProductContactShadow");
+    expect(source).toContain("createProductGroundedShadow");
+    expect(source).toContain("matchProductLightingToBackground");
+    expect(source).not.toContain("createProductContactShadow(");
     expect(source).toContain("Image2 and Gemini background plates failed; using PicWish smart product background fallback");
     expect(source).toContain("export const __testCompositeProtectedProductOnBackground");
   });

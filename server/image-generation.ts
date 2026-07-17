@@ -2529,36 +2529,87 @@ async function generateSmartProductBackgroundPlates(
   }
 }
 
-async function createProductContactShadow(
-  width: number,
-  height: number,
-  left: number,
-  top: number,
-  productWidth: number,
-  baseline: number,
-): Promise<Buffer> {
+async function createProductGroundedShadow(
+  productPng: Buffer,
+  placement: SmartProductPlacement,
+): Promise<{ input: Buffer; left: number; top: number }> {
   const sharp = (await import("sharp")).default;
-  const pixels = Buffer.alloc(width * height * 4);
-  const centerX = left + productWidth / 2;
-  const centerY = Math.min(height - 4, baseline - 4);
-  const radiusX = Math.max(12, productWidth * 0.34);
-  const radiusY = Math.max(5, (baseline - top) * 0.035);
-  const minX = Math.max(0, Math.floor(centerX - radiusX));
-  const maxX = Math.min(width - 1, Math.ceil(centerX + radiusX));
-  const minY = Math.max(0, Math.floor(centerY - radiusY));
-  const maxY = Math.min(height - 1, Math.ceil(centerY + radiusY));
+  const shadowHeight = Math.max(6, Math.round(placement.height * 0.12));
+  const contactBandHeight = Math.max(1, Math.round(placement.height * 0.22));
+  const { data, info } = await sharp(productPng, { limitInputPixels: false })
+    .ensureAlpha()
+    .extract({
+      left: 0,
+      top: Math.max(0, placement.height - contactBandHeight),
+      width: placement.width,
+      height: contactBandHeight,
+    })
+    .resize(placement.width, shadowHeight, { fit: "fill", kernel: "lanczos3" })
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const shadowPixels = Buffer.alloc(info.width * info.height * 4);
 
-  for (let y = minY; y <= maxY; y += 1) {
-    for (let x = minX; x <= maxX; x += 1) {
-      const distance = ((x - centerX) / radiusX) ** 2 + ((y - centerY) / radiusY) ** 2;
-      if (distance <= 1) {
-        pixels[(y * width + x) * 4 + 3] = Math.round(72 * (1 - distance));
-      }
-    }
+  for (let index = 0; index < info.width * info.height; index += 1) {
+    shadowPixels[index * 4 + 3] = Math.round(data[index * info.channels + 3] * 0.34);
   }
 
-  return sharp(pixels, { raw: { width, height, channels: 4 } })
-    .blur(8)
+  const input = await sharp(shadowPixels, {
+    raw: { width: info.width, height: info.height, channels: 4 },
+  })
+    .blur(Math.max(3, Math.round(placement.width * 0.014)))
+    .png()
+    .toBuffer();
+  return {
+    input,
+    left: placement.left,
+    top: Math.round(placement.baseline - shadowHeight * 0.55),
+  };
+}
+
+function averageLuminance(data: Buffer, channels: number, alphaThreshold = 0) {
+  let total = 0;
+  let count = 0;
+  for (let index = 0; index < data.length; index += channels) {
+    if (channels > 3 && data[index + 3] <= alphaThreshold) continue;
+    total += data[index] * 0.2126 + data[index + 1] * 0.7152 + data[index + 2] * 0.0722;
+    count += 1;
+  }
+  return count > 0 ? total / count : 128;
+}
+
+async function matchProductLightingToBackground(
+  productPng: Buffer,
+  backgroundPng: Buffer,
+  placement: SmartProductPlacement,
+  backgroundWidth: number,
+  backgroundHeight: number,
+): Promise<Buffer> {
+  const sharp = (await import("sharp")).default;
+  const product = await sharp(productPng, { limitInputPixels: false })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const sampleTop = Math.min(
+    Math.max(0, placement.baseline - 18),
+    Math.max(0, backgroundHeight - 1),
+  );
+  const sampleHeight = Math.max(1, Math.min(36, backgroundHeight - sampleTop));
+  const background = await sharp(backgroundPng, { limitInputPixels: false })
+    .extract({
+      left: Math.min(Math.max(0, placement.left), Math.max(0, backgroundWidth - 1)),
+      top: sampleTop,
+      width: Math.max(1, Math.min(placement.width, backgroundWidth)),
+      height: sampleHeight,
+    })
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const productLuminance = averageLuminance(product.data, product.info.channels, 12);
+  const backgroundLuminance = averageLuminance(background.data, background.info.channels);
+  const brightness = Math.max(0.86, Math.min(1.12, (backgroundLuminance + 56) / (productLuminance + 56)));
+
+  return sharp(productPng, { limitInputPixels: false })
+    .modulate({ brightness })
     .png()
     .toBuffer();
 }
@@ -2588,20 +2639,23 @@ async function compositeProtectedProductOnBackground(
     .resize(placement.width, placement.height, { fit: "fill", kernel: "lanczos3" })
     .png()
     .toBuffer();
-  const shadow = await createProductContactShadow(
-    width,
-    height,
-    placement.left,
-    placement.top,
-    placement.width,
-    placement.baseline,
-  );
-  const png = await sharp(backgroundBuffer, { limitInputPixels: false })
+  const backgroundPng = await sharp(backgroundBuffer, { limitInputPixels: false })
     .rotate()
     .resize(width, height, { fit: "cover", position: "centre" })
+    .png()
+    .toBuffer();
+  const litProductPng = await matchProductLightingToBackground(
+    placedProductPng,
+    backgroundPng,
+    placement,
+    width,
+    height,
+  );
+  const groundedShadow = await createProductGroundedShadow(litProductPng, placement);
+  const png = await sharp(backgroundPng, { limitInputPixels: false })
     .composite([
-      { input: shadow, left: 0, top: 0 },
-      { input: placedProductPng, left: placement.left, top: placement.top },
+      { input: groundedShadow.input, left: groundedShadow.left, top: groundedShadow.top },
+      { input: litProductPng, left: placement.left, top: placement.top },
     ])
     .png()
     .toBuffer();
