@@ -169,7 +169,7 @@ for (const snippet of requiredCanvasSnippets) {
 const serverIndex = read(serverIndexPath);
 const requiredServerIndexSnippets = [
   "async function runBackgroundImageTask",
-  "void runBackgroundImageTask(req.body, user)",
+  "const { result, tracking } = await runBackgroundImageTask(req.body, user)",
   "orchestrator.run({",
   "capability: \"text_to_image\"",
   "intent: \"text_to_image\"",
