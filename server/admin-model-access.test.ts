@@ -55,14 +55,14 @@ describe("admin model access", () => {
       "POST",
       `/users/${created.body.user.id}/model-access`,
       authorization,
-      { allowedAiModels: ["gpt-image-2", "gpt-5.4-mini"] },
+      { allowedAiModels: ["og-image2-medium", "gpt-5.4-mini"] },
     );
 
     expect(updated.status).toBe(200);
     expect(updated.body).toMatchObject({
       user: {
         id: created.body.user.id,
-        allowedAiModels: ["gpt-image-2", "gpt-5.4-mini"],
+        allowedAiModels: ["og-image2-medium", "gpt-5.4-mini"],
       },
     });
   });

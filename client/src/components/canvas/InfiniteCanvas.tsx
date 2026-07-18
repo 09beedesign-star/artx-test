@@ -13249,7 +13249,7 @@ function ImageGeneratorPopover({
     [allImageModelOptions, allowedAiModels]
   );
   const imageModelOptions = useMemo(() => {
-    const canUseAuto = allowedAiModels === undefined || allowedAiModels.includes("gpt-image-2");
+    const canUseAuto = allowedAiModels === undefined || allowedAiModels.includes("og-image2-medium");
     return canUseAuto ? [AUTO_AI_MODEL, ...availableImageModels] : availableImageModels;
   }, [allowedAiModels, availableImageModels]);
   useEffect(() => {

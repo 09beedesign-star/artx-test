@@ -41,19 +41,26 @@ describe("auth user model access", () => {
 
     expect(created.status).toBe(201);
     if (created.status !== 201) throw new Error("Expected test user to be created");
-    expect(created.body.user.allowedAiModels).toEqual(expect.arrayContaining([
-      "gpt-image-2",
+    expect(created.body.user.allowedAiModels).toEqual([
+      "og-image2-medium",
+      "gemini-3.5-flash-preview",
+      "jimeng-4.0",
+      "mj-v7",
+      "mj-v8.1",
+      "keling",
+      "og-image2-high",
+      "og-image2-low",
       "gpt-5.4-mini",
-    ]));
+    ]);
 
     const updated = await store.updateAuthUserAdmin({
       actorId: "admin",
       actorName: "admin@example.com",
       userId: created.body.user.id,
-      allowedAiModels: ["IMAGE2", "gpt-5.4-mini", "picwish-scale"],
+      allowedAiModels: ["og-image2-medium", "mj-v7", "gpt-5.4-mini", "picwish-scale"],
     });
 
     expect(updated.status).toBe(200);
-    expect(updated.body.user.allowedAiModels).toEqual(["gpt-image-2", "gpt-5.4-mini"]);
+    expect(updated.body.user.allowedAiModels).toEqual(["og-image2-medium", "mj-v7", "gpt-5.4-mini"]);
   });
 });

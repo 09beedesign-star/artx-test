@@ -25,12 +25,13 @@ describe("selectable model catalog", () => {
       text: expect.arrayContaining(["gpt-5.4-mini", "gpt-5.5"]),
     });
     expect(normalizeAllowedModels([
-      "IMAGE2",
+      "og-image2-medium",
+      "mj-v7",
       "gpt-5.4-mini",
       "picwish-scale",
       "not-a-model",
       "gpt-5.4-mini",
-    ])).toEqual(["og-image2-medium", "gpt-5.4-mini"]);
+    ])).toEqual(["og-image2-medium", "mj-v7", "gpt-5.4-mini"]);
   });
 
   it("excludes fixed backend function models from user model access", () => {
@@ -38,6 +39,8 @@ describe("selectable model catalog", () => {
     expect(isSelectableModel("gpt-image-2")).toBe(false);
     expect(isSelectableModel("gpt-4o")).toBe(false);
     expect(isSelectableModel("picwish-scale")).toBe(false);
+    expect(listSelectableModelIds()).toEqual([...expectedPriority, "gpt-5.4-mini"]);
+    expect(listSelectableModelIds()).not.toContain("gpt-image-2");
     expect(listSelectableModelIds()).not.toContain("gpt-4o");
     expect(listSelectableModelIds()).not.toContain("picwish-scale");
   });

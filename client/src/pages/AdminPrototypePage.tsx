@@ -6,6 +6,7 @@ import {
   BarChart3,
   Bell,
   Check,
+  ChevronDown,
   ChevronRight,
   CircleDollarSign,
   CreditCard,
@@ -2507,8 +2508,19 @@ function AccountDetailDrawer({
 }) {
   const user = detail?.user || fallbackUser;
   const selectedOrder = detail?.orders.find((order) => order.id === selectedOrderId) || detail?.orders[0];
-  const [ordersExpanded, setOrdersExpanded] = useState(true);
-  const [paymentEventsExpanded, setPaymentEventsExpanded] = useState(true);
+  const [ordersExpanded, setOrdersExpanded] = useState(false);
+  const [paymentEventsExpanded, setPaymentEventsExpanded] = useState(false);
+  const [drawerSectionExpanded, setDrawerSectionExpanded] = useState({
+    testProfile: false,
+    modelAccess: false,
+    aiUsage: false,
+    creditAdjustment: true,
+    orderNotes: true,
+    currentOrder: true,
+    creditLedger: false,
+    processingNotes: false,
+    timeline: false,
+  });
   const [orderTimeFilter, setOrderTimeFilter] = useState("all");
   const [orderUserIdFilter, setOrderUserIdFilter] = useState("");
   const [paymentTimeFilter, setPaymentTimeFilter] = useState("all");
@@ -2559,8 +2571,8 @@ function AccountDetailDrawer({
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
           {user ? (
-            <div className="space-y-5">
-              <div className="grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
+            <div className="flex flex-col gap-5">
+              <div className="order-0 grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
                 <InfoCell label="套餐" value={user.plan} />
                 <InfoCell label="状态" value={statusLabel(user.status)} />
                 <InfoCell label="积分余额" value={formatCredits(user.credits)} />
@@ -2568,21 +2580,21 @@ function AccountDetailDrawer({
               </div>
 
               {user.accountType === "test" && user.testProfile && (
-                <section className="rounded-md border border-amber-300/25 bg-amber-300/[0.045] p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <h3 className="text-sm font-semibold text-amber-100">测试账号档案</h3>
-                      <p className="mt-1 text-xs text-slate-400">今日已预约 {formatCredits(user.testProfile.reservedCredits)} / 日限额 {formatCredits(user.testProfile.dailyCreditLimit)}；到期后服务端将阻止所有 AI 请求。</p>
-                    </div>
-                    <Badge className={statusClass(user.status)}>{user.status === "cancelled" ? "已注销" : "测试中"}</Badge>
-                  </div>
-                  <div className="mt-3 grid gap-3 md:grid-cols-3">
+                <CollapsibleDrawerSection
+                  title="测试账号档案"
+                  description={`今日已预约 ${formatCredits(user.testProfile.reservedCredits)} / 日限额 ${formatCredits(user.testProfile.dailyCreditLimit)}；到期后服务端将阻止所有 AI 请求。`}
+                  expanded={drawerSectionExpanded.testProfile}
+                  onToggle={() => setDrawerSectionExpanded(current => ({ ...current, testProfile: !current.testProfile }))}
+                  className="order-40 border-amber-300/25 bg-amber-300/[0.045]"
+                  trailing={<Badge className={statusClass(user.status)}>{user.status === "cancelled" ? "已注销" : "测试中"}</Badge>}
+                >
+                  <div className="grid gap-3 md:grid-cols-3">
                     <Input type="number" value={testCreditDelta} onChange={(event) => setTestCreditDelta(event.target.value)} disabled={!canManageTestAccounts} placeholder="积分增减" className="border-white/12 bg-slate-950/40" />
                     <Input type="number" min="1" value={testDailyLimit || String(user.testProfile.dailyCreditLimit)} onChange={(event) => setTestDailyLimit(event.target.value)} disabled={!canManageTestAccounts} placeholder="每日 AI 积分上限" className="border-white/12 bg-slate-950/40" />
                     <Input type="datetime-local" value={testExpiresAt || user.testProfile.expiresAt.slice(0, 16)} onChange={(event) => setTestExpiresAt(event.target.value)} disabled={!canManageTestAccounts} className="border-white/12 bg-slate-950/40" />
                   </div>
                   {canManageTestAccounts && (
-                    <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
                       <Button type="button" className="bg-amber-300 text-slate-950 hover:bg-amber-200" onClick={() => onUpdateTestProfile(user.id, {
                         creditDelta: Number(testCreditDelta || 0),
                         dailyCreditLimit: Number(testDailyLimit || user.testProfile!.dailyCreditLimit),
@@ -2592,17 +2604,17 @@ function AccountDetailDrawer({
                       <Button type="button" variant="outline" disabled={!cancelConfirmed} className="border-rose-300/35 bg-rose-300/10 text-rose-100 hover:bg-rose-300/20" onClick={() => onCancelTestAccount(user.id)}>注销测试账号</Button>
                     </div>
                   )}
-                </section>
+                </CollapsibleDrawerSection>
               )}
 
-              <section className="rounded-md border border-violet-300/20 bg-violet-300/[0.045] p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <h3 className="text-sm font-semibold text-violet-50">模型权限</h3>
-                    <p className="mt-1 text-xs text-slate-400">仅控制前端模型选择器中的模型，不影响 PicWish、BKEEL 等固定功能服务。</p>
-                  </div>
-                  <Badge className="border-violet-300/30 bg-violet-300/10 text-violet-100">{allowedAiModels.length} / {visibleAiModels.length} 已启用</Badge>
-                </div>
+              <CollapsibleDrawerSection
+                title="模型权限"
+                description="仅控制前端模型选择器中的模型，不影响 PicWish、BKEEL 等固定功能服务。"
+                expanded={drawerSectionExpanded.modelAccess}
+                onToggle={() => setDrawerSectionExpanded(current => ({ ...current, modelAccess: !current.modelAccess }))}
+                className="order-50 border-violet-300/20 bg-violet-300/[0.045]"
+                trailing={<Badge className="border-violet-300/30 bg-violet-300/10 text-violet-100">{allowedAiModels.length} / {visibleAiModels.length} 已启用</Badge>}
+              >
                 {(["图像模型", "对话模型"] as const).map((title, index) => {
                   const models = index === 0 ? IMAGE_AI_MODELS : TEXT_AI_MODELS;
                   return (
@@ -2637,7 +2649,7 @@ function AccountDetailDrawer({
                     <Button type="button" className="bg-violet-200 text-slate-950 hover:bg-violet-100" onClick={() => onUpdateModelAccess(user.id, allowedAiModels)}>保存模型权限</Button>
                   </div>
                 )}
-              </section>
+              </CollapsibleDrawerSection>
 
               {(detail?.aiTasks || []).length > 0 && (
                 <MiniSection
@@ -2651,18 +2663,21 @@ function AccountDetailDrawer({
                         : "上游未提供 Token"}`,
                     value: `${formatCredits(task.chargedCredits)} 积分 · ${task.providerTaskId || task.backendTaskId}`,
                   }))}
-                  empty="该账户暂无 AI 使用记录"
-                />
+                empty="该账户暂无 AI 使用记录"
+                expanded={drawerSectionExpanded.aiUsage}
+                onToggle={() => setDrawerSectionExpanded(current => ({ ...current, aiUsage: !current.aiUsage }))}
+                className="order-60"
+              />
               )}
 
-              <div className="rounded-md border border-white/10 bg-white/[0.035] p-4">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div>
-                    <h3 className="text-sm font-semibold">人工积分调整</h3>
-                    <p className="mt-1 text-xs text-slate-500">调整会进入账户积分流水和审计日志。</p>
-                  </div>
-                  <Badge className={statusClass(user.risk)}>{user.risk}</Badge>
-                </div>
+              <CollapsibleDrawerSection
+                title="人工积分调整"
+                description="调整会进入账户积分流水和审计日志。"
+                expanded={drawerSectionExpanded.creditAdjustment}
+                onToggle={() => setDrawerSectionExpanded(current => ({ ...current, creditAdjustment: !current.creditAdjustment }))}
+                className="order-10 border-white/10 bg-white/[0.035]"
+                trailing={<Badge className={statusClass(user.risk)}>{user.risk}</Badge>}
+              >
                 <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
                   <Input
                     type="number"
@@ -2695,16 +2710,16 @@ function AccountDetailDrawer({
                     </Button>
                   </div>
                 )}
-              </div>
+              </CollapsibleDrawerSection>
 
               {selectedOrder && (
-                <section className="rounded-md border border-cyan-300/20 bg-cyan-300/[0.045] p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <h3 className="text-sm font-semibold text-cyan-50">订单备注</h3>
-                      <p className="mt-1 font-mono text-xs text-cyan-100/70">当前订单：{selectedOrder.id}</p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
+                <CollapsibleDrawerSection
+                  title="订单备注"
+                  description={`当前订单：${selectedOrder.id}`}
+                  expanded={drawerSectionExpanded.orderNotes}
+                  onToggle={() => setDrawerSectionExpanded(current => ({ ...current, orderNotes: !current.orderNotes }))}
+                  className="order-20 border-cyan-300/20 bg-cyan-300/[0.045]"
+                  trailing={<div className="flex flex-wrap gap-2">
                       <Button variant="outline" className="border-cyan-300/30 bg-cyan-300/10 text-cyan-50 hover:bg-cyan-300/20" onClick={onAddNote} disabled={!note.trim()}>
                         {selectedOrderNotes.length ? "覆盖保存备注" : "保存备注"}
                       </Button>
@@ -2713,8 +2728,8 @@ function AccountDetailDrawer({
                           删除备注
                         </Button>
                       )}
-                    </div>
-                  </div>
+                    </div>}
+                >
                   <Input
                     value={note}
                     onChange={(event) => onNoteChange(event.target.value)}
@@ -2736,15 +2751,28 @@ function AccountDetailDrawer({
                       <div className="mt-2 text-xs text-slate-500">当前订单尚无已保存备注。</div>
                     )}
                   </div>
-                </section>
+                </CollapsibleDrawerSection>
               )}
 
               {selectedOrder ? (
-                <div className="rounded-md border border-cyan-300/20 bg-cyan-300/[0.045] p-4">
-                  <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <CollapsibleDrawerSection
+                  title={`当前处理订单 · ${selectedOrder.packageName || "订单详情"}`}
+                  description={selectedOrder.id}
+                  expanded={drawerSectionExpanded.currentOrder}
+                  onToggle={() => setDrawerSectionExpanded(current => ({ ...current, currentOrder: !current.currentOrder }))}
+                  className="order-30 border-cyan-300/20 bg-cyan-300/[0.045]"
+                  trailing={<select
+                    value={selectedOrder.id}
+                    onChange={(event) => onSelectOrder(event.target.value)}
+                    className="h-9 rounded-md border border-white/12 bg-slate-950/70 px-2 text-xs text-slate-100 outline-none"
+                  >
+                    {(detail?.orders || []).map((order) => (
+                      <option key={order.id} value={order.id}>{order.id}</option>
+                    ))}
+                  </select>}
+                >
+                  <div>
                     <div className="min-w-0">
-                      <div className="font-mono text-xs text-cyan-100/70">{selectedOrder.id}</div>
-                      <h3 className="mt-1 text-sm font-semibold text-cyan-50">当前处理订单 · {selectedOrder.packageName || "订单详情"}</h3>
                       <div className="mt-2 flex flex-wrap gap-2">
                         <Badge className={statusClass(selectedOrder.status)}>{statusLabel(selectedOrder.status)}</Badge>
                         <Badge className={statusClass(selectedOrder.reconciliation || "matched")}>
@@ -2752,15 +2780,6 @@ function AccountDetailDrawer({
                         </Badge>
                       </div>
                     </div>
-                    <select
-                      value={selectedOrder.id}
-                      onChange={(event) => onSelectOrder(event.target.value)}
-                      className="h-9 rounded-md border border-white/12 bg-slate-950/70 px-2 text-xs text-slate-100 outline-none"
-                    >
-                      {(detail?.orders || []).map((order) => (
-                        <option key={order.id} value={order.id}>{order.id}</option>
-                      ))}
-                    </select>
                   </div>
                   <div className="grid gap-3 text-xs sm:grid-cols-2">
                     <InfoLine label="支付渠道" value={selectedOrder.channel} />
@@ -2778,9 +2797,9 @@ function AccountDetailDrawer({
                       标记退款
                     </Button>
                   </div>
-                </div>
+                </CollapsibleDrawerSection>
               ) : (
-                <EmptyPanel title="暂无可处理订单" body="该账户还没有支付订单，无法执行备注、补单或退款操作。" />
+                <div className="order-30"><EmptyPanel title="暂无可处理订单" body="该账户还没有支付订单，无法执行备注、补单或退款操作。" /></div>
               )}
 
               <MiniSection
@@ -2796,6 +2815,7 @@ function AccountDetailDrawer({
                 collapseLabel="收起订单"
                 expandLabel="展开订单"
                 controls={<DrawerHistoryFilters label="账户订单时间" timeFilter={orderTimeFilter} onTimeFilterChange={setOrderTimeFilter} userIdFilter={orderUserIdFilter} onUserIdFilterChange={setOrderUserIdFilter} />}
+                className="order-70"
               />
 
               <MiniSection
@@ -2811,6 +2831,7 @@ function AccountDetailDrawer({
                 collapseLabel="收起支付流"
                 expandLabel="展开支付流"
                 controls={<DrawerHistoryFilters label="支付流时间" timeFilter={paymentTimeFilter} onTimeFilterChange={setPaymentTimeFilter} userIdFilter={paymentUserIdFilter} onUserIdFilterChange={setPaymentUserIdFilter} />}
+                className="order-80"
               />
               <MiniSection
                 title="积分流水"
@@ -2820,6 +2841,9 @@ function AccountDetailDrawer({
                   value: item.operator,
                 }))}
                 empty="该账户暂无积分流水"
+                expanded={drawerSectionExpanded.creditLedger}
+                onToggle={() => setDrawerSectionExpanded(current => ({ ...current, creditLedger: !current.creditLedger }))}
+                className="order-90"
               />
               <MiniSection
                 title="处理备注"
@@ -2829,6 +2853,9 @@ function AccountDetailDrawer({
                   value: item.createdAt,
                 }))}
                 empty="该账户暂无处理备注"
+                expanded={drawerSectionExpanded.processingNotes}
+                onToggle={() => setDrawerSectionExpanded(current => ({ ...current, processingNotes: !current.processingNotes }))}
+                className="order-100"
               />
               <MiniSection
                 title="对账时间线"
@@ -2838,6 +2865,9 @@ function AccountDetailDrawer({
                   value: item.createdAt,
                 }))}
                 empty="该账户暂无对账时间线"
+                expanded={drawerSectionExpanded.timeline}
+                onToggle={() => setDrawerSectionExpanded(current => ({ ...current, timeline: !current.timeline }))}
+                className="order-110"
               />
             </div>
           ) : (
@@ -2871,6 +2901,48 @@ function InfoLine({ label, value, mono = false }: { label: string; value: string
   );
 }
 
+function CollapsibleDrawerSection({
+  title,
+  description,
+  expanded,
+  onToggle,
+  children,
+  trailing,
+  className,
+}: {
+  title: string;
+  description?: string;
+  expanded: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+  trailing?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={cn("rounded-md border p-4", className)}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-slate-100">{title}</h3>
+          {description && <p className="mt-1 break-words text-xs text-slate-400">{description}</p>}
+        </div>
+        <div className="flex items-center gap-2">
+          {trailing}
+          <button
+            type="button"
+            className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-white/12 bg-white/5 text-slate-200 hover:bg-white/10"
+            onClick={onToggle}
+            aria-label={expanded ? `收起${title}` : `展开${title}`}
+            title={expanded ? "收起" : "展开"}
+          >
+            <ChevronDown className={cn("size-4 transition-transform", expanded && "rotate-180")} />
+          </button>
+        </div>
+      </div>
+      {expanded && <div className="mt-3">{children}</div>}
+    </section>
+  );
+}
+
 function MiniSection({
   title,
   rows,
@@ -2880,6 +2952,7 @@ function MiniSection({
   onToggle,
   collapseLabel,
   expandLabel,
+  className,
 }: {
   title: string;
   rows: Array<{ title: string; meta: string; value: string }>;
@@ -2889,20 +2962,23 @@ function MiniSection({
   onToggle?: () => void;
   collapseLabel?: string;
   expandLabel?: string;
+  className?: string;
 }) {
   return (
-    <div className="min-w-0 rounded-md border border-white/8 bg-slate-950/25 p-3">
+    <div className={cn("min-w-0 rounded-md border border-white/8 bg-slate-950/25 p-3", className)}>
       <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
         <div className="text-sm font-medium">{title}</div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           {controls}
-          {onToggle && collapseLabel && expandLabel && (
+          {onToggle && (
             <button
               type="button"
-              className="text-xs text-cyan-200 hover:text-cyan-100"
+              className="inline-flex size-7 items-center justify-center rounded-md border border-white/12 bg-white/5 text-cyan-100 hover:bg-white/10"
               onClick={onToggle}
+              aria-label={expanded ? (collapseLabel || `收起${title}`) : (expandLabel || `展开${title}`)}
+              title={expanded ? (collapseLabel || "收起") : (expandLabel || "展开")}
             >
-              {expanded ? collapseLabel : expandLabel}
+              <ChevronDown className={cn("size-4 transition-transform", expanded && "rotate-180")} />
             </button>
           )}
         </div>

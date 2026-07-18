@@ -12,5 +12,6 @@ describe("canvas model access", () => {
     expect(source).toContain("filterAllowedAiModelOptions");
     expect(source).toContain("allowedAiModels");
     expect(source).toContain("resolveAllowedAiModelId");
+    expect(source).toContain('allowedAiModels.includes("og-image2-medium")');
   });
 });

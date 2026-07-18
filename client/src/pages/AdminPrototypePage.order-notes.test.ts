@@ -22,4 +22,20 @@ describe("AdminPrototypePage order notes placement", () => {
     expect(page).toContain("账户订单时间");
     expect(page).toContain("支付流时间");
   });
+
+  it("puts high-frequency order actions first and makes drawer sections collapsible", () => {
+    const page = readFileSync(resolve(__dirname, "AdminPrototypePage.tsx"), "utf-8");
+    const creditAdjustmentIndex = page.indexOf("人工积分调整");
+    const notesIndex = page.indexOf("订单备注");
+    const currentOrderIndex = page.indexOf("当前处理订单");
+
+    expect(creditAdjustmentIndex).toBeGreaterThan(-1);
+    expect(notesIndex).toBeGreaterThan(creditAdjustmentIndex);
+    expect(currentOrderIndex).toBeGreaterThan(notesIndex);
+    expect(page).toContain('className="order-10');
+    expect(page).toContain('className="order-20');
+    expect(page).toContain('className="order-30');
+    expect(page).toContain("CollapsibleDrawerSection");
+    expect(page).toContain("drawerSectionExpanded");
+  });
 });
