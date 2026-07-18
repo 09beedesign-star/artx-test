@@ -944,6 +944,40 @@ describe("production readiness", () => {
     ]));
   });
 
+  it("returns a reusable recent payment link for pending orders", async () => {
+    const { createCreditRechargeOrder, getBillingOrderForPayment, recordBillingPaymentCreated } = await loadAdminStore();
+
+    const created = await createCreditRechargeOrder({
+      userId: "user-payment-reuse-1",
+      username: "reuse-pay@example.com",
+      amount: 50,
+      paymentMethod: "wechat",
+    });
+    expect(created.status).toBe(200);
+    const createdBody = created.body as { order: { id: string } };
+
+    await recordBillingPaymentCreated({
+      orderId: createdBody.order.id,
+      actorName: "wallyt",
+      providerTransactionId: "txn_reuse_001",
+      paymentMethod: "wechat",
+      payUrlType: "qr",
+      payUrl: "https://pay.example.com/reuse-qr.png",
+      service: "pay.weixin.native.intl",
+      paymentDisplayName: "ArtX 积分充值 · reuse-pay@example.com",
+    });
+
+    const pendingOrder = await getBillingOrderForPayment(createdBody.order.id);
+    expect(pendingOrder?.latestPayment).toMatchObject({
+      provider: "wallyt",
+      payUrl: "https://pay.example.com/reuse-qr.png",
+      payUrlType: "qr",
+      channelType: "WALLYT_WX_PAY",
+      service: "pay.weixin.native.intl",
+      transactionId: "txn_reuse_001",
+    });
+  });
+
   it("derives payment provider status from current Wallyt env instead of stale stored snapshots", async () => {
     process.env.WALLYT_DOMAIN_URL = "https://paycert.wepayez.com/pay/gateway";
     process.env.WALLYT_MCH_ID = "190000000167";

@@ -91,6 +91,10 @@ type PaymentEvent = {
   providerTransactionId?: string;
   amount?: number;
   signatureValid?: boolean;
+  payUrl?: string;
+  payUrlType?: "qr" | "redirect";
+  service?: string;
+  channelType?: "WALLYT_WX_PAY" | "WALLYT_ALI_PAY" | "WX_WAP_PAY" | "ALI_WAP_PAY";
   message: string;
   createdAt: string;
 };
@@ -2664,6 +2668,15 @@ export async function getBillingOrderForPayment(orderId: string) {
   const data = await loadAdminData();
   const order = data.orders.find((item) => item.id === orderId);
   if (!order) return null;
+  const latestPaymentEvent = (order.paymentEvents || [])
+    .filter((event) =>
+      event.type === "wallyt_payment_created" &&
+      event.status === "pending" &&
+      typeof event.payUrl === "string" &&
+      event.payUrl.trim() &&
+      Date.now() - Date.parse(event.createdAt) < 15 * 60 * 1000
+    )
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
 
   return {
     id: order.id,
@@ -2680,6 +2693,16 @@ export async function getBillingOrderForPayment(orderId: string) {
     status: order.status,
     createdAt: order.createdAt,
     paidAt: order.paidAt,
+    latestPayment: latestPaymentEvent
+      ? {
+          provider: "wallyt" as const,
+          payUrl: latestPaymentEvent.payUrl,
+          payUrlType: latestPaymentEvent.payUrlType || "qr",
+          channelType: latestPaymentEvent.channelType || (order.channel === "支付宝" ? "WALLYT_ALI_PAY" : "WALLYT_WX_PAY"),
+          service: latestPaymentEvent.service || (order.channel === "支付宝" ? "pay.alipay.native.intl" : "pay.weixin.native.intl"),
+          transactionId: latestPaymentEvent.providerTransactionId,
+        }
+      : undefined,
   };
 }
 
@@ -2789,6 +2812,7 @@ export async function recordBillingPaymentCreated(params: {
   providerTransactionId?: string;
   paymentMethod: "wechat" | "alipay";
   payUrlType: "qr" | "redirect";
+  payUrl?: string;
   service: string;
   paymentDisplayName?: string;
 }) {
@@ -2806,6 +2830,12 @@ export async function recordBillingPaymentCreated(params: {
     status: "pending",
     providerTransactionId: params.providerTransactionId,
     amount: order.amount,
+    payUrl: params.payUrl,
+    payUrlType: params.payUrlType,
+    service: params.service,
+    channelType: params.paymentMethod === "wechat"
+      ? params.payUrlType === "redirect" ? "WX_WAP_PAY" : "WALLYT_WX_PAY"
+      : params.payUrlType === "redirect" ? "ALI_WAP_PAY" : "WALLYT_ALI_PAY",
     message: `${params.actorName} 已创建${params.paymentMethod === "wechat" ? "微信" : "支付宝"}支付链接（${params.payUrlType === "qr" ? "扫码" : "跳转"}）：${paymentDisplayName}`,
     createdAt: occurredAt,
   };

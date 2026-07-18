@@ -2039,6 +2039,10 @@ async function startServer() {
         res.json({ order, paid: true });
         return;
       }
+      if (order.latestPayment?.payUrl) {
+        res.json({ order, payment: order.latestPayment, reused: true });
+        return;
+      }
 
       const paymentMethod = req.body?.paymentMethod === "alipay" || order.channel === "支付宝" ? "alipay" : "wechat";
       const mode = req.body?.mode === "wap" ? "wap" : "native";
@@ -2058,6 +2062,7 @@ async function startServer() {
         providerTransactionId: payment.transactionId,
         paymentMethod,
         payUrlType: payment.payUrlType,
+        payUrl: payment.payUrl,
         service: payment.service,
         paymentDisplayName: order.paymentDisplayName || `${order.packageName} · ${order.userAccount || order.user}`,
       });
