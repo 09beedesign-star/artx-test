@@ -1,8 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
-import { __testNormalizeGeneratedImageSrc, __testNormalizeGeneratedImagesToTargetAspect, __testPreparePicWishEraseSourceImage, __testResolveHighDefinitionTargetSize, __testResolveReferenceImageRoute, __testShouldSendPicWishExpansionMargins } from "./image-generation";
+import { __testNormalizeGeneratedImageSrc, __testNormalizeGeneratedImagesToTargetAspect, __testPreparePicWishEraseSourceImage, __testResolveHighDefinitionTargetSize, __testResolveReferenceImageRoute, __testShouldSendPicWishExpansionMargins, editImageWithPrompt, extractImageText } from "./image-generation";
 
 const ONE_PIXEL_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
 
 describe("generated image source normalization", () => {
   it("prefers image2 medium for smart product references before Gemini fallback", () => {
@@ -86,5 +91,99 @@ describe("generated image source normalization", () => {
     expect(__testShouldSendPicWishExpansionMargins({ maskBuffer: Buffer.from("mask") })).toBe(false);
     expect(__testShouldSendPicWishExpansionMargins({ maskUrl: "https://example.com/mask.png" })).toBe(false);
     expect(__testShouldSendPicWishExpansionMargins({})).toBe(true);
+  });
+
+  it("falls back to reference-image generation when the image edit endpoint is unavailable", async () => {
+    vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
+    vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
+    vi.stubEnv("AI_IMAGE_MODEL", "og-image2-medium");
+
+    const source = await sharp({
+      create: {
+        width: 96,
+        height: 64,
+        channels: 3,
+        background: "#ffffff",
+      },
+    }).png().toBuffer();
+    const edited = await sharp({
+      create: {
+        width: 96,
+        height: 64,
+        channels: 3,
+        background: "#00ff00",
+      },
+    }).png().toBuffer();
+
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const endpoint = String(url);
+      if (endpoint.endsWith("/images/edits")) {
+        return new Response(JSON.stringify({ error: { message: "Not Found" } }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (endpoint.endsWith("/chat/completions")) {
+        return Response.json({
+          choices: [{
+            message: {
+              images: [{ url: `data:image/png;base64,${edited.toString("base64")}` }],
+            },
+          }],
+        });
+      }
+      throw new Error(`Unexpected fetch ${endpoint}`);
+    });
+
+    const result = await editImageWithPrompt({
+      imageSrc: `data:image/png;base64,${source.toString("base64")}`,
+      prompt: "Add a green marker",
+      targetWidth: 96,
+      targetHeight: 64,
+    });
+
+    expect(result.images).toHaveLength(1);
+    expect(result.images[0].width).toBe(1536);
+    expect(result.images[0].height).toBe(1024);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/edits"))).toBe(true);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(true);
+  });
+
+  it("falls back to multimodal text extraction when image OCR returns empty text", async () => {
+    vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
+    vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
+    vi.stubEnv("AI_IMAGE_MODEL", "og-image2-medium");
+    vi.stubEnv("AI_TEXT_API_KEY", "test-text-key");
+    vi.stubEnv("AI_TEXT_BASE_URL", "https://text.example/v1");
+    vi.stubEnv("AI_TEXT_MODEL", "gpt-5.4-mini");
+
+    const source = await sharp({
+      create: {
+        width: 160,
+        height: 90,
+        channels: 3,
+        background: "#ffffff",
+      },
+    }).png().toBuffer();
+
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const endpoint = String(url);
+      if (endpoint.startsWith("https://image.example")) {
+        return Response.json({ choices: [{ message: { content: "" } }] });
+      }
+      if (endpoint.startsWith("https://text.example")) {
+        return Response.json({ choices: [{ message: { content: "SALE 2026\nARTX TEST" } }] });
+      }
+      throw new Error(`Unexpected fetch ${endpoint}`);
+    });
+
+    const result = await extractImageText({
+      imageSrc: `data:image/png;base64,${source.toString("base64")}`,
+    });
+
+    expect(result.text).toBe("SALE 2026\nARTX TEST");
+    expect(result.provider).toBe("vision-chat-ocr+text-fallback");
+    expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("https://image.example"))).toBe(true);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("https://text.example"))).toBe(true);
   });
 });

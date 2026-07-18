@@ -6,6 +6,7 @@ import {
   isSupportedImageModelId,
   sortImageModelIdsByPriority,
 } from "../shared/image-models";
+import { generateText } from "./text-generation";
 
 type ImageGenerateInput = {
   prompt: string;
@@ -762,6 +763,13 @@ async function withImageProviderRetry<T>(operation: () => Promise<T>) {
 
 function isUnsupportedImagesApiError(message: string) {
   return /images api is not supported|not supported for this platform|unsupported.*images/i.test(message);
+}
+
+function isImageEditEndpointUnavailable(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  const status = error instanceof ImageProviderRequestError ? error.status : undefined;
+  return status === 404 ||
+    /not found|no available channel|not supported model for image generation|images\/edits/i.test(message);
 }
 
 function isChatCompatibleImageModel(model?: string) {
@@ -2602,9 +2610,29 @@ export async function extractImageText(input: ExtractImageTextInput): Promise<{ 
     throw new Error(message || `Image OCR provider returned ${response.status}`);
   }
 
+  const text = (data.choices?.[0]?.message?.content || data.output_text || "").trim();
+  if (text) {
+    return {
+      text,
+      provider: "vision-chat-ocr",
+    };
+  }
+
+  const fallback = await generateText({
+    module: "multimodal-text-extraction",
+    model: "gpt-5.4-mini",
+    images: [{ src: input.imageSrc, title: "OCR target image" }],
+    prompt: [
+      "请提取图片画面中所有可见文字文案。",
+      "只输出提取到的文字内容，保持原有语言、大小写、标点和换行顺序。",
+      "不要添加解释、标题、项目符号或额外说明。",
+      "如果画面中没有可读文字，只输出：未识别到可读文案",
+    ].join("\n"),
+  });
+
   return {
-    text: (data.choices?.[0]?.message?.content || data.output_text || "").trim(),
-    provider: "vision-chat-ocr",
+    text: fallback.text.trim(),
+    provider: "vision-chat-ocr+text-fallback",
   };
 }
 
@@ -2934,19 +2962,20 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   const referenceImages = input.images?.filter(image => image.src?.trim()) || [];
   const editSize = getEditSizeForAspect(targetWidth, targetHeight);
   const aspectInstruction = `Keep the final image canvas aspect ratio exactly ${targetWidth}:${targetHeight}. Do not return a square image unless the source is square.`;
-
-  if (isChatCompatibleImageModel(selectedModel)) {
+  const editViaReferenceGeneration = async () => {
     const sourceDataUrl = `data:${sourceImageData.mimeType};base64,${sourceImageData.buffer.toString("base64")}`;
+    const aspect = targetWidth / Math.max(1, targetHeight);
+    const ratio = aspect > 1.2 ? "16:9" : aspect < 0.85 ? "9:16" : "1:1";
     const result = await generateImages({
       prompt: [
         input.prompt,
-        "Use reference image 1 as the target canvas. Preserve its subject identity, pose, composition, lighting, camera angle, and aspect ratio unless the user explicitly asks to change them.",
+        "Use reference image 1 as the target canvas. Preserve its subject identity, composition, camera angle, lighting, proportions, and aspect ratio unless the user explicitly asks to change them.",
         "Use any later reference images only for the requested object, accessory, style, texture, or detail.",
         "Return one complete edited image, not a text explanation.",
         aspectInstruction,
       ].join("\n\n"),
       model: selectedModel,
-      ratio: "1:1",
+      ratio,
       count: 1,
       images: [
         { src: sourceDataUrl, title: "target image" },
@@ -2960,6 +2989,10 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
         targetHeight,
       ),
     };
+  };
+
+  if (isChatCompatibleImageModel(selectedModel)) {
+    return editViaReferenceGeneration();
   }
 
   const createBody = async (withResponseFormat: boolean) => {
@@ -2992,8 +3025,18 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
     providerData = await callImageEditProvider(await createBody(true), apiKey, baseUrl);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    if (isImageEditEndpointUnavailable(error)) {
+      return editViaReferenceGeneration();
+    }
     if (!message.toLowerCase().includes("response_format")) throw error;
-    providerData = await callImageEditProvider(await createBody(false), apiKey, baseUrl);
+    try {
+      providerData = await callImageEditProvider(await createBody(false), apiKey, baseUrl);
+    } catch (fallbackError) {
+      if (isImageEditEndpointUnavailable(fallbackError)) {
+        return editViaReferenceGeneration();
+      }
+      throw fallbackError;
+    }
   }
 
   const asyncTaskId = providerData.task_id || providerData.taskId;
@@ -3008,7 +3051,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   );
 
   if (images.length === 0) {
-    throw new Error("Image edit provider returned no images");
+    return editViaReferenceGeneration();
   }
 
   return { images };
