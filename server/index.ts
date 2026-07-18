@@ -15,7 +15,7 @@ import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
 import { recordCrossBorderCommerceGeneration } from "./cross-border-commerce-records";
 import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization } from "./auth-store";
-import { acknowledgeCreditGiftNotification, createBillingOrder, createCreditRechargeOrder, getBillingOrderForPayment, getBillingSnapshotForUser, getCreditGiftNotificationsForUser, handleAdminApiRequest, markBillingOrderPaid, quoteAdminAiUsage, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, releaseTestAccountAiUsage, reserveTestAccountAiUsage, submitUserFeedback } from "./admin-store";
+import { acknowledgeCreditGiftNotification, createBillingOrder, createCreditRechargeOrder, getBillingOrderForPayment, getBillingSnapshotForUser, getCreditGiftNotificationsForUser, handleAdminApiRequest, markBillingOrderPaid, quoteAdminAiUsage, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordExternalAgentUsage, recordRiskEvent, releaseTestAccountAiUsage, reserveTestAccountAiUsage, submitUserFeedback } from "./admin-store";
 import { getAllowedCorsOrigin } from "./cors";
 import { sendOpsNotification } from "./notifications";
 import { classifyApplicationSecuritySignal, createSecurityEventDetector, validateSecurityEventIngest } from "./security-events";
@@ -409,6 +409,13 @@ function mcpResult(id: McpJsonRpcRequest["id"], result: unknown) {
 
 function mcpError(id: McpJsonRpcRequest["id"], code: number, message: string) {
   return { jsonrpc: "2.0", id: id ?? null, error: { code, message } };
+}
+
+function mcpAgentSource(params: Record<string, unknown>) {
+  const meta = params.meta && typeof params.meta === "object" ? params.meta as Record<string, unknown> : {};
+  return typeof meta.agentSource === "string" && meta.agentSource.trim()
+    ? meta.agentSource.trim().slice(0, 80)
+    : "未标识 Agent";
 }
 
 function getMcpTools() {
@@ -1659,6 +1666,7 @@ async function startServer() {
       if (request.method === "tools/call") {
         const params = request.params || {};
         const toolName = typeof params.name === "string" ? params.name : "";
+        const agentSource = mcpAgentSource(params);
         const args = params.arguments && typeof params.arguments === "object"
           ? params.arguments as Record<string, unknown>
           : {};
@@ -1717,7 +1725,7 @@ async function startServer() {
               skillId: typeof args.skillId === "string" ? args.skillId : undefined,
             });
             const storedResult = await storeImageResultForUser(result, user.username);
-            await recordAiRouteUsage({
+            const usageRecord = await recordAiRouteUsage({
               user,
               tracking: {
                 capabilityKey: capabilityFromOrchestrator(storedResult.capability),
@@ -1730,6 +1738,21 @@ async function startServer() {
               status: "success",
               result: storedResult,
             });
+            await recordExternalAgentUsage({
+              apiKeyId: auth.body.apiKey.id,
+              apiKeyPrefix: auth.body.apiKey.prefix,
+              agentSource,
+              toolName,
+              capability: usageRecord.capability,
+              model: usageRecord.model,
+              status: "success",
+              latencyMs: usageRecord.latencyMs,
+              outputUnits: usageRecord.outputUnits,
+              inputTokens: usageRecord.usage?.promptTokens,
+              outputTokens: usageRecord.usage?.completionTokens,
+              chargedCredits: usageRecord.chargedCredits,
+              estimatedCostUsd: usageRecord.estimatedCost,
+            }).catch(recordError => console.warn("[mcp] failed to record external usage", recordError));
             successRecorded = true;
             res.json(mcpResult(id, {
               content: [{
@@ -1749,7 +1772,7 @@ async function startServer() {
           } catch (error) {
             const message = error instanceof Error ? error.message : "MCP image generation failed";
             if (!successRecorded) {
-              await recordAiRouteUsage({
+              const usageRecord = await recordAiRouteUsage({
                 user,
                 tracking: {
                   capabilityKey: "text_to_image",
@@ -1761,9 +1784,21 @@ async function startServer() {
                 startedAt,
                 status: "failed",
                 error: message,
-              }).catch(recordError => {
-                console.warn("[mcp] failed to record image generation failure", recordError instanceof Error ? recordError.message : recordError);
               });
+              await recordExternalAgentUsage({
+                apiKeyId: auth.body.apiKey.id,
+                apiKeyPrefix: auth.body.apiKey.prefix,
+                agentSource,
+                toolName,
+                capability: usageRecord.capability,
+                model: usageRecord.model,
+                status: "failed",
+                latencyMs: usageRecord.latencyMs,
+                outputUnits: 0,
+                chargedCredits: 0,
+                estimatedCostUsd: 0,
+                failureCategory: message.slice(0, 120),
+              }).catch(recordError => console.warn("[mcp] failed to record external usage", recordError));
             }
             res.status(aiRequestErrorStatus(message)).json(mcpError(id, -32000, message));
             return;
