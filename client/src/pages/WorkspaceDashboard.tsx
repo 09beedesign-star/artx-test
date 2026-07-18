@@ -295,7 +295,6 @@ function CreateProjectCard({ isDark, onCreate }: { isDark: boolean; onCreate: ()
       onClick={onCreate}
       className="rounded-[var(--radius-lg-design)] overflow-hidden transition-all group"
       style={{
-        aspectRatio: "1 / 1",
         alignSelf: "start",
         width: "100%",
         background: bg,
@@ -310,11 +309,13 @@ function CreateProjectCard({ isDark, onCreate }: { isDark: boolean; onCreate: ()
         (e.currentTarget as HTMLElement).style.background = bg;
       }}
     >
-      <div className="flex flex-col items-center justify-center gap-2 py-10 px-4">
+      <div className="flex items-center justify-center" style={{ aspectRatio: "4/3" }}>
         <div className="w-10 h-10 rounded-[var(--radius-lg-design)] flex items-center justify-center transition-all group-hover:scale-110"
           style={{ background: "oklch(0.62 0.22 290 / 0.12)", color: "oklch(0.62 0.22 290)" }}>
           <Plus size={20} />
         </div>
+      </div>
+      <div className="px-3 py-2.5" style={{ minHeight: 42 }}>
         <span className="type-caption" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>新建画板</span>
       </div>
     </button>
