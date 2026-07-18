@@ -46,8 +46,6 @@ const paymentMethods: Array<{
   { id: "wechat", label: "微信支付", hint: "使用微信扫码" },
   { id: "alipay", label: "支付宝", hint: "使用支付宝扫码" },
 ];
-const ALIPAY_LOGO_SOURCE_URL = "https://huaban.com/pins/5786389200";
-const WECHAT_PAY_LOGO_SOURCE_URL = "https://huaban.com/pins/3526742319";
 
 const subscriptionPlans = [
   {
@@ -373,8 +371,6 @@ function PaymentMethodLogo({
   compact?: boolean;
 }) {
   const size = compact ? 18 : 34;
-  const proxiedLogoSrc = (sourceUrl: string) =>
-    `${getBillingApiBaseUrl()}/api/images/proxy?url=${encodeURIComponent(sourceUrl)}`;
   if (method === "alipay") {
     return (
       <span
@@ -382,14 +378,23 @@ function PaymentMethodLogo({
         style={{ width: size, height: size, background: "#1677FF" }}
         aria-label="支付宝 logo"
       >
-        <img
-          src={proxiedLogoSrc(ALIPAY_LOGO_SOURCE_URL)}
-          alt="支付宝 logo"
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 32 32"
           width={size}
           height={size}
-          className="block h-full w-full object-cover"
-          loading="lazy"
-        />
+          className="block"
+        >
+          <rect width="32" height="32" rx="7" fill="#1677FF" />
+          <path
+            d="M8 10.4h16M16 6.4v8.3M10 16.1c4.9 5.2 10.2 7.7 15.8 7.5M21.8 13.9c-1.1 4.6-4.9 8.9-12.6 12"
+            fill="none"
+            stroke="#FFFFFF"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
       </span>
     );
   }
@@ -399,14 +404,28 @@ function PaymentMethodLogo({
       style={{ width: size, height: size, background: "#FFFFFF" }}
       aria-label="微信支付 logo"
     >
-      <img
-        src={proxiedLogoSrc(WECHAT_PAY_LOGO_SOURCE_URL)}
-        alt="微信支付 logo"
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 32 32"
         width={size}
         height={size}
-        className="block h-full w-full object-cover"
-        loading="lazy"
-      />
+        className="block"
+      >
+        <rect width="32" height="32" rx="7" fill="#FFFFFF" />
+        <path
+          d="M13.6 20.7c-5.2-.3-9.2-3.6-9.2-7.6 0-4.2 4.5-7.6 10-7.6 4.8 0 8.8 2.5 9.8 6"
+          fill="#1AAD19"
+          opacity="0.95"
+        />
+        <path
+          d="M27.7 16.4c0 3.5-3.5 6.4-7.8 6.4-.8 0-1.6-.1-2.4-.3l-3.5 2.1.9-3.1c-1.8-1.2-2.9-3-2.9-5.1 0-3.5 3.5-6.4 7.8-6.4s7.9 2.9 7.9 6.4Z"
+          fill="#1AAD19"
+        />
+        <circle cx="11.4" cy="12.5" r="1.2" fill="#FFFFFF" />
+        <circle cx="16.5" cy="12.5" r="1.2" fill="#FFFFFF" />
+        <circle cx="18.2" cy="16.2" r="1" fill="#FFFFFF" />
+        <circle cx="22.1" cy="16.2" r="1" fill="#FFFFFF" />
+      </svg>
     </span>
   );
 }
