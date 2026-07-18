@@ -198,6 +198,11 @@ function isTransientBackgroundTaskPollingError(error: unknown) {
   return /429|Too Many Requests|AI 后端地址未正确连接|网页内容|non-JSON response|Failed to fetch|NetworkError|后台图像生成查询失败/i.test(message);
 }
 
+function isTransientBackgroundTaskStartError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /429|Too Many Requests|AI 后端地址未正确连接|网页内容|non-JSON response|Failed to fetch|NetworkError|后台图像生成启动失败/i.test(message);
+}
+
 export function hasActiveAuthSession() {
   if (typeof window === "undefined") return false;
   try {
@@ -482,13 +487,24 @@ export async function startImageGenerationTask(
   input: ImageGenerationTaskInput,
 ) {
   requireAiAuth();
-  const result = await fetchAiJson<BackgroundImageTask>(
-    `${getAiApiBaseUrl()}/api/images/tasks`,
-    input,
-    "后台图像生成启动失败",
-    20000
-  );
-  return normalizeBackgroundImageTask(result);
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      const result = await fetchAiJson<BackgroundImageTask>(
+        `${getAiApiBaseUrl()}/api/images/tasks`,
+        input,
+        "后台图像生成启动失败",
+        20000
+      );
+      return normalizeBackgroundImageTask(result);
+    } catch (error) {
+      if (!isTransientBackgroundTaskStartError(error)) throw error;
+      lastError = error;
+      console.warn("Background image generation start temporarily failed", error);
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("后台图像生成启动失败");
 }
 
 export async function waitForImageGenerationTask(taskId: string): Promise<GeneratedImagesResponse> {
