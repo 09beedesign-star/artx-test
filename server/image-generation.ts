@@ -1821,6 +1821,55 @@ export async function __testPreparePicWishEraseSourceImage(
     .toBuffer();
 }
 
+const PICWISH_MAX_INPUT_BYTES = 4.8 * 1024 * 1024;
+const PICWISH_MAX_INPUT_SIDE = 4096;
+
+export async function __testPreparePicWishExpansionSourceImage(
+  buffer: Buffer,
+  mimeType = "image/png",
+): Promise<{ buffer: Buffer; mimeType: string; width: number; height: number }> {
+  const sharp = (await import("sharp")).default;
+  const metadata = await sharp(buffer, { limitInputPixels: false }).metadata();
+  const sourceWidth = Math.max(1, metadata.width || 1);
+  const sourceHeight = Math.max(1, metadata.height || 1);
+  const scale = Math.min(1, PICWISH_MAX_INPUT_SIDE / Math.max(sourceWidth, sourceHeight));
+  const width = Math.max(1, Math.round(sourceWidth * scale));
+  const height = Math.max(1, Math.round(sourceHeight * scale));
+  const shouldResize = width !== sourceWidth || height !== sourceHeight;
+  const normalizedMimeType = mimeType.toLowerCase();
+
+  if (!shouldResize && buffer.length <= PICWISH_MAX_INPUT_BYTES && /png|jpe?g/.test(normalizedMimeType)) {
+    return { buffer, mimeType, width, height };
+  }
+
+  for (const quality of [94, 90, 86, 82, 78, 72]) {
+    const output = await sharp(buffer, { limitInputPixels: false })
+      .rotate()
+      .resize(width, height, { fit: "inside", withoutEnlargement: true })
+      .flatten({ background: { r: 255, g: 255, b: 255 } })
+      .jpeg({ quality, mozjpeg: true })
+      .toBuffer();
+    if (output.length <= PICWISH_MAX_INPUT_BYTES || quality === 72) {
+      return { buffer: output, mimeType: "image/jpeg", width, height };
+    }
+  }
+
+  throw new Error("PicWish image expansion source preparation failed");
+}
+
+async function preparePicWishExpansionMask(
+  buffer: Buffer,
+  width: number,
+  height: number,
+): Promise<Buffer> {
+  const sharp = (await import("sharp")).default;
+  return sharp(buffer, { limitInputPixels: false })
+    .rotate()
+    .resize(width, height, { fit: "fill" })
+    .png()
+    .toBuffer();
+}
+
 function getEditSizeForAspect(width: number, height: number) {
   const aspect = width / Math.max(1, height);
   if (aspect > 1.2) return "1536x1024";
@@ -3179,6 +3228,12 @@ export async function expandImageWithPicWish(input: ExpandImageInput): Promise<G
   const sourceImageDimensions = sourceImageData
     ? await getImageBufferDimensions(sourceImageData.buffer)
     : { width: coerceTargetDimension(input.targetWidth) || 1024, height: coerceTargetDimension(input.targetHeight) || 1024 };
+  const providerImageData = sourceImageData
+    ? await __testPreparePicWishExpansionSourceImage(sourceImageData.buffer, sourceImageData.mimeType)
+    : null;
+  const providerMaskBuffer = maskImageData && providerImageData
+    ? await preparePicWishExpansionMask(maskImageData.buffer, providerImageData.width, providerImageData.height)
+    : maskImageData?.buffer;
   const requestedWidth = coerceTargetDimension(input.targetWidth) || sourceImageDimensions.width;
   const requestedHeight = coerceTargetDimension(input.targetHeight) || sourceImageDimensions.height;
   const targetSize = __testResolveHighDefinitionTargetSize(
@@ -3195,11 +3250,11 @@ export async function expandImageWithPicWish(input: ExpandImageInput): Promise<G
   const right = coerceOptionalNumber(input.right);
   const sync = input.sync === true || input.sync === 1 || input.sync === "1";
   const picWishResult = await runPicWishImageExpansion({
-    imageBuffer: sourceImageData?.buffer,
-    imageMimeType: sourceImageData?.mimeType,
+    imageBuffer: providerImageData?.buffer,
+    imageMimeType: providerImageData?.mimeType,
     imageUrl: sourceImageUrl || undefined,
-    maskBuffer: maskImageData?.buffer,
-    maskMimeType: maskImageData?.mimeType,
+    maskBuffer: providerMaskBuffer,
+    maskMimeType: providerMaskBuffer ? "image/png" : maskImageData?.mimeType,
     maskUrl: maskUrl || undefined,
     sync,
     prompt: input.prompt,

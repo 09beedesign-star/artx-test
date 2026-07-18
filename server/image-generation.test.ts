@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
-import { __testHasPicWishExpansionMargins, __testNormalizeGeneratedImageSrc, __testNormalizeGeneratedImagesToTargetAspect, __testNormalizePicWishExpansionRatio, __testPreparePicWishEraseSourceImage, __testResolveHighDefinitionTargetSize, __testResolveReferenceImageRoute, editImageWithPrompt, extractImageText } from "./image-generation";
+import { __testHasPicWishExpansionMargins, __testNormalizeGeneratedImageSrc, __testNormalizeGeneratedImagesToTargetAspect, __testNormalizePicWishExpansionRatio, __testPreparePicWishEraseSourceImage, __testPreparePicWishExpansionSourceImage, __testResolveHighDefinitionTargetSize, __testResolveReferenceImageRoute, editImageWithPrompt, extractImageText } from "./image-generation";
 
 const ONE_PIXEL_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
@@ -85,6 +85,39 @@ describe("generated image source normalization", () => {
     expect(metadata.width).toBe(1536);
     expect(metadata.height).toBe(1152);
     expect(metadata.format).toBe("png");
+  });
+
+  it("keeps PicWish expansion source images within provider dimension limits", async () => {
+    const input = await sharp({
+      create: {
+        width: 4600,
+        height: 2800,
+        channels: 3,
+        background: "#88aadd",
+      },
+    }).png().toBuffer();
+
+    const output = await __testPreparePicWishExpansionSourceImage(input, "image/png");
+    const metadata = await sharp(output.buffer).metadata();
+
+    expect(Math.max(metadata.width || 0, metadata.height || 0)).toBeLessThanOrEqual(4096);
+    expect(output.mimeType).toMatch(/^image\//);
+  });
+
+  it("keeps PicWish expansion uploads below the provider file size limit", async () => {
+    const width = 2400;
+    const height = 2400;
+    const raw = Buffer.alloc(width * height * 3);
+    for (let index = 0; index < raw.length; index += 1) {
+      raw[index] = (index * 37 + 19) % 256;
+    }
+    const input = await sharp(raw, {
+      raw: { width, height, channels: 3 },
+    }).png().toBuffer();
+
+    const output = await __testPreparePicWishExpansionSourceImage(input, "image/png");
+
+    expect(output.buffer.length).toBeLessThanOrEqual(4.8 * 1024 * 1024);
   });
 
   it("uses explicit PicWish expansion margins when any side extends", () => {

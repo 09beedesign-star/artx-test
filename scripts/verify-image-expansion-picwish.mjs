@@ -33,6 +33,8 @@ assert(files.server.includes("getPicWishImageExpansionEndpoint"), "server must d
 assert(files.server.includes("createPicWishImageExpansionTask"), "server must create a dedicated PicWish expansion task");
 assert(files.server.includes("pollPicWishImageExpansionTask"), "server must poll the dedicated PicWish expansion task");
 assert(files.server.includes("expandImageWithPicWish"), "server must expose a dedicated PicWish expansion function");
+assert(files.server.includes("PICWISH_MAX_INPUT_BYTES") && files.server.includes("PICWISH_MAX_INPUT_SIDE"), "PicWish expansion inputs must be constrained to provider upload limits");
+assert(files.server.includes("__testPreparePicWishExpansionSourceImage"), "server must prepare expansion uploads before calling PicWish");
 assert(files.server.includes('body.append("mask_file"'), "PicWish expansion must support canvas-mode mask_file");
 assert(files.server.includes('body.append("mask_url"'), "PicWish expansion must support canvas-mode mask_url");
 assert(files.server.includes("const hasExpansionMargins"), "PicWish expansion must prefer explicit edge margins when provided");
