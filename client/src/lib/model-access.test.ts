@@ -17,4 +17,13 @@ describe("frontend AI model access", () => {
     expect(allowed).toEqual([imageModels[1]]);
     expect(resolveAllowedAiModelId("gpt-image-2", allowed)).toBe("gemini-3.1-flash-image");
   });
+
+  it("falls back from a selectable model whose monthly entitlement is exhausted", () => {
+    const allowed = [
+      { ...imageModels[0], disabled: true },
+      imageModels[1],
+    ];
+
+    expect(resolveAllowedAiModelId("gpt-image-2", allowed)).toBe("gemini-3.1-flash-image");
+  });
 });

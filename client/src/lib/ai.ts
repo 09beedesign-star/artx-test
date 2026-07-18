@@ -125,6 +125,23 @@ export type AiModelCatalogResponse = ApiErrorResponse & {
   source?: "provider" | "fallback";
 };
 
+export type AiModelEntitlement = {
+  model: string;
+  status: "standard" | "available" | "unavailable" | "exhausted";
+  label: string;
+  used: number;
+  limit: number | null;
+  remaining: number | null;
+  creditsPerImage?: number;
+  message?: string;
+};
+
+export type AiModelEntitlementsResponse = ApiErrorResponse & {
+  planId: string;
+  planName: string;
+  imageModels: AiModelEntitlement[];
+};
+
 function getAiApiBaseUrl() {
   if (aiApiBaseOverride) return aiApiBaseOverride;
   const configured = (
@@ -295,6 +312,11 @@ async function fetchAiJsonGet<T extends ApiErrorResponse>(
 export async function listAiModelCatalog() {
   const endpoint = `${getAiApiBaseUrl()}/api/ai/models`;
   return fetchAiJsonGet<AiModelCatalogResponse>(endpoint, "AI 模型列表加载失败");
+}
+
+export async function getAiModelEntitlements() {
+  const endpoint = `${getAiApiBaseUrl()}/api/ai/model-entitlements`;
+  return fetchAiJsonGet<AiModelEntitlementsResponse>(endpoint, "AI 模型权益加载失败");
 }
 
 async function postAiOrchestrate(body: Record<string, unknown>, fallbackError: string) {

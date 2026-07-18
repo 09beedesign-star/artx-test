@@ -75,7 +75,7 @@ export const MEMBERSHIP_PLANS: MembershipPlan[] = [
     monthlyCredits: 18000,
     audience: "高频创作、电商内容、商单交付",
     tagline: "主推专业档，用更低成本覆盖商品图、海报、社媒视觉和日常商单产出。",
-    features: ["每月 18,000 创作积分", "完整标准图片模型", "高质量模型 6 张/月", "优先队列与商业创作工具"],
+    features: ["每月 18,000 创作积分", "完整标准图片模型", "高质量模型关键交付权益", "优先队列与商业创作工具"],
     recommended: true,
   },
   {
@@ -88,7 +88,7 @@ export const MEMBERSHIP_PLANS: MembershipPlan[] = [
     monthlyCredits: 42000,
     audience: "小团队、工作室、批量商业生产",
     tagline: "为连续交付准备的高额度套餐，让团队稳定生产商品图、广告图和多平台素材。",
-    features: ["每月 42,000 创作积分", "Pro 全部专业能力", "高质量模型 15 张/月", "更高优先级与批量生产能力"],
+    features: ["每月 42,000 创作积分", "Pro 全部专业能力", "高质量模型重点项目权益", "更高优先级与批量生产能力"],
   },
   {
     id: "business",

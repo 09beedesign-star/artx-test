@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { accessSync, constants } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { AI_CREDIT_POLICIES, AI_PLAN_DISCOUNTS, getAiImageModelCreditPolicy, isHighQualityImageModel, type AiBillingCapability, type AiBillingPolicy, type AiPlanDiscountPolicy } from "../shared/ai-credit-policy";
+import { AI_CREDIT_POLICIES, AI_IMAGE_MODEL_CREDIT_POLICIES, AI_PLAN_DISCOUNTS, getAiImageModelCreditPolicy, isHighQualityImageModel, type AiBillingCapability, type AiBillingPolicy, type AiPlanDiscountPolicy } from "../shared/ai-credit-policy";
 import { BILLING_CYCLES, MEMBERSHIP_PLANS, getPlanQuote, quoteCreditRecharge } from "../shared/billing-config";
 import { createAuthUserForAdmin, getAdminSessionFromAuthorization, listAuthUsers, type PublicAuthUser, updateAuthUserAdmin } from "./auth-store";
 import { storeFeedbackImagesForUser, type FeedbackImageInput, type StoredFeedbackImage } from "./local-image-storage";
@@ -652,8 +652,61 @@ export async function assertCanUseAiImageModel(input: {
   const used = countHighQualityImageUsageThisMonth(data, input.userId);
   const requested = Math.max(1, Math.round(input.outputCount || 1));
   if (used + requested > limit) {
-    throw new Error(`本月高质量图片模型额度已达上限：${used}/${limit} 张`);
+    throw new Error("本月高质量图片模型权益已使用完，请切换标准模型继续创作或升级套餐。");
   }
+}
+
+export async function getAiModelEntitlementsForUser(userId: string) {
+  const data = await loadAdminData();
+  const user = data.users.find((item) => item.id === userId);
+  const planId = getPlanIdFromUserPlan(user?.plan);
+  const plan = MEMBERSHIP_PLANS.find((item) => item.id === planId);
+  const highLimit = getHighQualityImageMonthlyLimit(planId);
+  const highUsed = countHighQualityImageUsageThisMonth(data, userId);
+
+  return {
+    planId,
+    planName: plan?.name || user?.plan || "Free",
+    imageModels: AI_IMAGE_MODEL_CREDIT_POLICIES.map((policy) => {
+      if (!isHighQualityImageModel(policy.model)) {
+        return {
+          model: policy.model,
+          status: "standard" as const,
+          label: "标准模型",
+          used: 0,
+          limit: null,
+          remaining: null,
+          creditsPerImage: policy.creditsPerImage,
+          message: `${policy.creditsPerImage} 积分/张`,
+        };
+      }
+      if (highLimit <= 0) {
+        return {
+          model: policy.model,
+          status: "unavailable" as const,
+          label: "Pro / Studio 专属",
+          used: highUsed,
+          limit: highLimit,
+          remaining: 0,
+          creditsPerImage: policy.creditsPerImage,
+          message: "升级 Pro 或 Studio 后可用于关键交付。",
+        };
+      }
+      const remaining = Math.max(0, highLimit - highUsed);
+      return {
+        model: policy.model,
+        status: remaining > 0 ? "available" as const : "exhausted" as const,
+        label: remaining > 0 ? "关键交付权益可用" : "权益已用完",
+        used: highUsed,
+        limit: highLimit,
+        remaining,
+        creditsPerImage: policy.creditsPerImage,
+        message: remaining > 0
+          ? "适合最终稿、商单交付和重点项目。"
+          : "可切换标准模型继续创作，或升级套餐。",
+      };
+    }),
+  };
 }
 
 function getMembershipPlanFromName(planName?: string) {

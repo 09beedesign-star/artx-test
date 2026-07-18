@@ -14,6 +14,7 @@
     "package:tencent-cloud": "scripts/package-tencent-cloud-release.sh",
     "audit:tencent-cloud": "scripts/audit-tencent-cloud-backend.sh",
     "verify:tencent-cloud": "node scripts/verify-tencent-cloud-gray.mjs",
+    "verify:mcp": "node scripts/verify-mcp-api-key.mjs",
     "verify:live-page": "node scripts/verify-live-page.mjs",
     "format": "prettier --write .",
     "verify:test-deploy": "scripts/verify-test-deployment.sh"

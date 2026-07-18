@@ -13,6 +13,8 @@ export type AiModelOption = {
   color: string;
   description?: string;
   icon?: string;
+  disabled?: boolean;
+  unavailableReason?: string;
 };
 
 export const AUTO_AI_MODEL: AiModelOption = {

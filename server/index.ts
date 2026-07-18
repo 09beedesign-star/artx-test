@@ -15,7 +15,7 @@ import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
 import { recordCrossBorderCommerceGeneration } from "./cross-border-commerce-records";
 import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization } from "./auth-store";
-import { acknowledgeCreditGiftNotification, assertCanUseAiImageModel, createBillingOrder, createCreditRechargeOrder, getBillingOrderForPayment, getBillingSnapshotForUser, getCreditGiftNotificationsForUser, handleAdminApiRequest, markBillingOrderPaid, quoteAdminAiUsage, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, releaseTestAccountAiUsage, reserveTestAccountAiUsage, submitUserFeedback } from "./admin-store";
+import { acknowledgeCreditGiftNotification, assertCanUseAiImageModel, createBillingOrder, createCreditRechargeOrder, getAiModelEntitlementsForUser, getBillingOrderForPayment, getBillingSnapshotForUser, getCreditGiftNotificationsForUser, handleAdminApiRequest, markBillingOrderPaid, quoteAdminAiUsage, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, releaseTestAccountAiUsage, reserveTestAccountAiUsage, submitUserFeedback } from "./admin-store";
 import { getAllowedCorsOrigin } from "./cors";
 import { sendOpsNotification } from "./notifications";
 import { classifyApplicationSecuritySignal, createSecurityEventDetector, validateSecurityEventIngest } from "./security-events";
@@ -372,6 +372,26 @@ async function requireSessionUser(req: express.Request, res: express.Response): 
 
 function getPublicAppUrl() {
   return (process.env.PUBLIC_APP_URL || process.env.APP_PUBLIC_URL || process.env.SITE_URL || "https://admin.artxsd.com").replace(/\/+$/, "");
+}
+
+function getMcpPublicBaseUrl() {
+  return (
+    process.env.ARTX_MCP_PUBLIC_BASE_URL ||
+    process.env.VITE_API_BASE_URL ||
+    process.env.PUBLIC_API_BASE_URL ||
+    process.env.PUBLIC_APP_URL ||
+    process.env.APP_PUBLIC_URL ||
+    process.env.SITE_URL ||
+    "https://backstage.artxsd.com"
+  ).replace(/\/+$/, "");
+}
+
+function toPublicMcpImageUrl(src: string) {
+  const trimmed = String(src || "").trim();
+  if (!trimmed) return "";
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  const path = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  return `${getMcpPublicBaseUrl()}${path}`;
 }
 
 function getRouteModel(body: unknown, fallback: string) {
@@ -1136,6 +1156,17 @@ async function startServer() {
     }
   });
 
+  app.get("/api/ai/model-entitlements", async (req, res) => {
+    try {
+      const user = await requireSessionUser(req, res);
+      if (!user) return;
+      res.json(await getAiModelEntitlementsForUser(user.id));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "AI model entitlements failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
   app.get("/api/images/proxy", async (req, res) => {
     try {
       const url = typeof req.query.url === "string" ? req.query.url.trim() : "";
@@ -1760,7 +1791,7 @@ async function startServer() {
               text: JSON.stringify({
                 ok: true,
                 user: user.username,
-                apiKey: auth.body.apiKey,
+                apiKeyPrefix: auth.body.apiKey.prefix,
                 tools: getMcpTools().map(tool => tool.name),
               }, null, 2),
             }],
@@ -1816,19 +1847,43 @@ async function startServer() {
               result: storedResult,
             });
             successRecorded = true;
+            const publicImages = (storedResult.images || []).map((image, index) => ({
+              ...image,
+              index,
+              url: toPublicMcpImageUrl(image.src),
+            }));
             res.json(mcpResult(id, {
-              content: [{
-                type: "text",
-                text: JSON.stringify({
-                  type: storedResult.type,
-                  capability: storedResult.capability,
-                  model: storedResult.model,
-                  route: storedResult.route,
-                  images: storedResult.images || [],
-                  providerTaskId: storedResult.providerTaskId,
-                  providerTaskIds: storedResult.providerTaskIds,
-                }, null, 2),
-              }],
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    ok: true,
+                    type: storedResult.type,
+                    capability: storedResult.capability,
+                    model: storedResult.model,
+                    route: storedResult.route,
+                    images: publicImages,
+                    providerTaskId: storedResult.providerTaskId,
+                    providerTaskIds: storedResult.providerTaskIds,
+                  }, null, 2),
+                },
+                ...publicImages.map(image => ({
+                  type: "image_url",
+                  image_url: {
+                    url: image.url,
+                  },
+                })),
+              ],
+              structuredContent: {
+                ok: true,
+                type: storedResult.type,
+                capability: storedResult.capability,
+                model: storedResult.model,
+                route: storedResult.route,
+                images: publicImages,
+                providerTaskId: storedResult.providerTaskId,
+                providerTaskIds: storedResult.providerTaskIds,
+              },
             }));
             return;
           } catch (error) {

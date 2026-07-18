@@ -408,6 +408,7 @@ import {
   expandImageWithMask,
   extractImageText,
   generateImages as generateAiImages,
+  getAiModelEntitlements,
   getBackgroundImageGenerationTask,
   listAiModelCatalog,
   removeImageBackground,
@@ -669,11 +670,23 @@ function ModelSelector({
               <button
                 key={m.id}
                 onClick={() => {
+                  if (m.disabled) {
+                    toast("当前模型暂不可用", {
+                      description: m.unavailableReason || "请切换其他模型继续创作。",
+                    });
+                    return;
+                  }
                   onChange(m.id);
                   setOpen(false);
                 }}
+                disabled={m.disabled}
                 className="flex items-start gap-2 w-full px-3 text-left type-caption transition-colors"
-                style={{ height: rowHeight, color: text }}
+                style={{
+                  height: rowHeight,
+                  color: text,
+                  opacity: m.disabled ? 0.46 : 1,
+                  cursor: m.disabled ? "not-allowed" : "pointer",
+                }}
                 onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
                 onMouseLeave={e =>
                   (e.currentTarget.style.background = "transparent")
@@ -692,7 +705,7 @@ function ModelSelector({
                       className="truncate"
                       style={{ fontSize: 10, marginTop: 2, opacity: 0.58, letterSpacing: 0 }}
                     >
-                      {m.description}
+                      {m.unavailableReason || m.description}
                     </span>
                   ) : null}
                 </span>
@@ -710,10 +723,28 @@ function useImageModelOptions() {
 
   useEffect(() => {
     let cancelled = false;
-    listAiModelCatalog()
-      .then(catalog => {
+    Promise.allSettled([listAiModelCatalog(), getAiModelEntitlements()])
+      .then(results => {
         if (!cancelled) {
-          setImageModelOptions(mergeImageAiModelOptions(catalog.image || []));
+          const catalog = results[0].status === "fulfilled" ? results[0].value : null;
+          const entitlements = results[1].status === "fulfilled" ? results[1].value.imageModels : [];
+          const entitlementByModel = new Map(entitlements.map(item => [item.model, item]));
+          setImageModelOptions(
+            mergeImageAiModelOptions(catalog?.image || []).map(option => {
+              const entitlement = entitlementByModel.get(option.id);
+              if (!entitlement || option.id === AUTO_AI_MODEL.id) return option;
+              const description = [
+                option.description,
+                entitlement.label,
+              ].filter(Boolean).join(" · ");
+              return {
+                ...option,
+                description,
+                disabled: entitlement.status === "unavailable" || entitlement.status === "exhausted",
+                unavailableReason: entitlement.message,
+              };
+            })
+          );
         }
       })
       .catch(() => {
@@ -13303,7 +13334,7 @@ function ImageGeneratorPopover({
     { ...AUTO_AI_MODEL, label: "无可用模型" };
   const ratios = ["1:1", "4:5", "5:4", "3:4", "4:3", "16:9", "9:16", "21:9"];
   const counts = [1, 2, 3, 4, 5, 6, 7, 8, 9];
-  const canGenerate = prompt.trim().length > 0 && availableImageModels.length > 0 && !isGenerating;
+  const canGenerate = prompt.trim().length > 0 && availableImageModels.length > 0 && !selectedModel.disabled && !isGenerating;
   const popoverWidth = 430;
 
   const clampPopoverPosition = useCallback(
@@ -13436,6 +13467,12 @@ function ImageGeneratorPopover({
       return;
     }
     if (!canGenerate) {
+      if (selectedModel.disabled) {
+        toast("当前模型暂不可用", {
+          description: selectedModel.unavailableReason || "请切换其他模型继续创作。",
+        });
+        return;
+      }
       toast("请输入图像生成提示词");
       return;
     }
@@ -13686,9 +13723,12 @@ function ImageGeneratorPopover({
                         <button
                           key={item.id}
                           type="button"
+                          disabled={item.disabled}
                           className="flex h-9 w-full items-center justify-between px-3 text-left type-caption transition-colors"
                           style={{
                             color: text,
+                            opacity: item.disabled ? 0.46 : 1,
+                            cursor: item.disabled ? "not-allowed" : "pointer",
                             background: active
                               ? "oklch(0.64 0.22 285 / 0.12)"
                               : "transparent",
@@ -13704,6 +13744,12 @@ function ImageGeneratorPopover({
                               : "transparent")
                           }
                           onClick={() => {
+                            if (item.disabled) {
+                              toast("当前模型暂不可用", {
+                                description: item.unavailableReason || "请切换其他模型继续创作。",
+                              });
+                              return;
+                            }
                             setModel(item.id);
                             setModelOpen(false);
                           }}
@@ -13731,7 +13777,7 @@ function ImageGeneratorPopover({
                                     marginTop: 2,
                                   }}
                                 >
-                                  {item.description}
+                                  {item.unavailableReason || item.description}
                                 </span>
                               ) : null}
                             </span>
@@ -19918,9 +19964,12 @@ function CanvasAssistantPanel({
                             <button
                               key={model.id}
                               type="button"
+                              disabled={model.disabled}
                               className="flex w-full items-center justify-between rounded-[var(--radius-sm-design)] px-2.5 py-2 text-left transition-colors"
                               style={{
                                 color: text,
+                                opacity: model.disabled ? 0.46 : 1,
+                                cursor: model.disabled ? "not-allowed" : "pointer",
                                 background:
                                   assistantModel.id === model.id
                                     ? "rgba(197,237,71,0.12)"
@@ -19936,6 +19985,12 @@ function CanvasAssistantPanel({
                                     : "transparent")
                               }
                               onClick={() => {
+                                if (model.disabled) {
+                                  toast("当前模型暂不可用", {
+                                    description: model.unavailableReason || "请切换其他模型继续创作。",
+                                  });
+                                  return;
+                                }
                                 if (assistantModelTab === "image") {
                                   setAssistantImageModelId(model.id);
                                 } else {
@@ -19970,7 +20025,7 @@ function CanvasAssistantPanel({
                                         maxWidth: 150,
                                       }}
                                     >
-                                      {model.description}
+                                      {model.unavailableReason || model.description}
                                     </p>
                                   ) : null}
                                 </div>

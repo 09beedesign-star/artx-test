@@ -71,7 +71,7 @@ const subscriptionPlans = [
     features: [
       { label: "每月 18,000 创作积分，覆盖稳定产出", included: true },
       { label: "完整标准图片模型与商业图片工具", included: true },
-      { label: "高质量模型 6 张/月，适合关键交付", included: true },
+      { label: "高质量模型关键交付权益", included: true },
       { label: "优先队列、智能产品图、HD 与局部编辑", included: true },
       { label: "团队级并发额度池", included: false },
     ],
@@ -84,7 +84,7 @@ const subscriptionPlans = [
     features: [
       { label: "每月 42,000 创作积分，支持连续生产", included: true },
       { label: "Pro 全部专业能力与商业工作流", included: true },
-      { label: "高质量模型 15 张/月，覆盖重点项目", included: true },
+      { label: "高质量模型重点项目权益", included: true },
       { label: "更高优先级、批量生成与团队协作预留", included: true },
       { label: "用量报表与高峰期任务通道预留", included: true },
     ],

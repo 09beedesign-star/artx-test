@@ -13,7 +13,7 @@ export function resolveAllowedAiModelId<T extends AiModelOption>(
   selectedId: string,
   allowedModels: T[],
 ) {
-  return allowedModels.some(model => model.id === selectedId)
+  return allowedModels.some(model => model.id === selectedId && !model.disabled)
     ? selectedId
-    : allowedModels[0]?.id;
+    : allowedModels.find(model => !model.disabled)?.id;
 }
