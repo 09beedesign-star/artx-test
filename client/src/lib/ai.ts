@@ -655,6 +655,7 @@ export async function editImageWithPrompt({
   imageSrc,
   model = DEFAULT_IMAGE_MODEL_ID,
   prompt,
+  maskSrc,
   targetWidth,
   targetHeight,
   referencedAssets = [],
@@ -664,6 +665,7 @@ export async function editImageWithPrompt({
   imageSrc: string;
   model?: string;
   prompt: string;
+  maskSrc?: string;
   targetWidth?: number;
   targetHeight?: number;
   referencedAssets?: Array<{ src: string; title?: string }>;
@@ -678,6 +680,7 @@ export async function editImageWithPrompt({
       intent: "image_edit",
       operation: "edit",
       imageSrc,
+      maskSrc,
       model,
       prompt,
       targetWidth,
@@ -691,6 +694,7 @@ export async function editImageWithPrompt({
     intent: "image_edit",
     operation: "edit",
     imageSrc,
+    maskSrc,
     model,
     prompt,
     targetWidth,

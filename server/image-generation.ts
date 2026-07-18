@@ -50,6 +50,9 @@ type CreateBackgroundInput = {
 
 type EditImageInput = {
   imageSrc: string;
+  maskSrc?: string;
+  maskUrl?: string;
+  mask_url?: string;
   model?: string;
   prompt: string;
   targetWidth?: number;
@@ -2948,6 +2951,9 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   }
 
   const sourceImageData = await imageSrcToBuffer(input.imageSrc);
+  const maskSrc = input.maskSrc?.trim();
+  const maskUrl = (input.maskUrl || input.mask_url || "").trim();
+  const maskImageData = maskSrc ? await imageSrcToBuffer(maskSrc) : null;
   const sourceImageDimensions = await getImageBufferDimensions(sourceImageData.buffer);
   const targetSize = __testResolveHighDefinitionTargetSize(
     input.targetWidth,
@@ -2964,12 +2970,18 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   const aspectInstruction = `Keep the final image canvas aspect ratio exactly ${targetWidth}:${targetHeight}. Do not return a square image unless the source is square.`;
   const editViaReferenceGeneration = async () => {
     const sourceDataUrl = `data:${sourceImageData.mimeType};base64,${sourceImageData.buffer.toString("base64")}`;
+    const maskDataUrl = maskImageData
+      ? `data:${maskImageData.mimeType};base64,${maskImageData.buffer.toString("base64")}`
+      : maskUrl;
     const aspect = targetWidth / Math.max(1, targetHeight);
     const ratio = aspect > 1.2 ? "16:9" : aspect < 0.85 ? "9:16" : "1:1";
     const result = await generateImages({
       prompt: [
         input.prompt,
         "Use reference image 1 as the target canvas. Preserve its subject identity, composition, camera angle, lighting, proportions, and aspect ratio unless the user explicitly asks to change them.",
+        maskDataUrl
+          ? "Reference image 2 is the local edit mask: only the transparent/bright marked area should change; every other area must remain visually identical to reference image 1."
+          : "",
         "Use any later reference images only for the requested object, accessory, style, texture, or detail.",
         "Return one complete edited image, not a text explanation.",
         aspectInstruction,
@@ -2979,6 +2991,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
       count: 1,
       images: [
         { src: sourceDataUrl, title: "target image" },
+        ...(maskDataUrl ? [{ src: maskDataUrl, title: "local edit mask" }] : []),
         ...referenceImages,
       ],
     });
@@ -2999,6 +3012,11 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
     const body = new FormData();
     body.append("model", selectedModel);
     body.append("image", sourceImage);
+    if (maskImageData) {
+      body.append("mask", bufferToImageFile(maskImageData.buffer, maskImageData.mimeType));
+    } else if (maskUrl) {
+      body.append("mask_url", maskUrl);
+    }
     for (const image of referenceImages.slice(0, 6)) {
       body.append("image", await imageSrcToFile(image.src));
     }
@@ -3011,6 +3029,9 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
             "Do not create a new unrelated person, scene, or background.",
             ...referenceImages.map((image, index) => `Reference image ${index + 1}: ${image.title || "untitled"}`),
           ].join("\n")
+        : "",
+      maskImageData || maskUrl
+        ? "A local edit mask is provided. Edit only the transparent/bright marked area from the mask and preserve all unmasked pixels from the source image."
         : "",
       aspectInstruction,
     ].filter(Boolean).join("\n\n"));

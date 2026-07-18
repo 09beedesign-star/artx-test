@@ -10441,6 +10441,58 @@ async function createEraseMaskFromTransparentLayer(
   });
 }
 
+async function createAnnotationEditMask(
+  imageSrc: string,
+  xPercent: number,
+  yPercent: number
+) {
+  return new Promise<{ maskSrc: string; width: number; height: number }>(
+    (resolve, reject) => {
+      const image = new Image();
+      image.crossOrigin = "anonymous";
+      image.onload = () => {
+        const width = Math.max(1, image.naturalWidth || image.width || 1024);
+        const height = Math.max(1, image.naturalHeight || image.height || 1024);
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("无法创建注释局部蒙版"));
+          return;
+        }
+
+        ctx.clearRect(0, 0, width, height);
+        ctx.fillStyle = "rgba(0,0,0,1)";
+        ctx.fillRect(0, 0, width, height);
+
+        const centerX = (Math.min(100, Math.max(0, xPercent)) / 100) * width;
+        const centerY = (Math.min(100, Math.max(0, yPercent)) / 100) * height;
+        const radius = Math.max(96, Math.min(width, height) * 0.18);
+        const gradient = ctx.createRadialGradient(
+          centerX,
+          centerY,
+          radius * 0.36,
+          centerX,
+          centerY,
+          radius
+        );
+        gradient.addColorStop(0, "rgba(0,0,0,0)");
+        gradient.addColorStop(0.68, "rgba(0,0,0,0)");
+        gradient.addColorStop(1, "rgba(0,0,0,1)");
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        resolve({ maskSrc: canvas.toDataURL("image/png"), width, height });
+      };
+      image.onerror = () => reject(new Error("无法读取注释图片"));
+      image.src = getCanvasRenderableImageSrc(imageSrc);
+    }
+  );
+}
+
 function getRegenerableImageNodeDetail(
   nodeId: string,
   data: Record<string, unknown>,
@@ -21593,11 +21645,17 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const latestImageSrc =
         (await getVisibleAssetImageSource(reference.nodeId)) || reference.src;
       const sourceSize = getCanvasNodeSize(sourceNode);
+      const annotationMask = await createAnnotationEditMask(
+        latestImageSrc,
+        reference.x,
+        reference.y
+      );
       const prompt = [
         "你正在执行图片局部编辑，不是重新生成一张新图。",
-        "必须把原图作为唯一基础画布，只在用户标注区域附近做最小必要修改。",
+        "必须把原图作为唯一基础画布，只在随请求提供的局部蒙版透明区域内做最小必要修改。",
         `只重点修改注释点附近区域：x=${reference.x.toFixed(1)}%、y=${reference.y.toFixed(1)}%。`,
-        "原图中的所有人物、角色、文字、海报构图、背景、镜头、比例、光影、颜色、风格和未提及内容必须保持不变。",
+        "蒙版外的所有人物、角色、文字、海报构图、背景、镜头、比例、光影、颜色、风格和未提及内容必须保持不变，不能重绘整张图。",
+        "如果用户要求添加物体或配饰，只在蒙版区域内把它自然叠加到原主体上，并匹配原图材质、透视、光影和风格。",
         "禁止把画面改成新的场景、替换主体、重画成另一张不相关图片。",
         "输出完整新图，但视觉上应像原图只发生了这一次局部修改。",
         `用户修改建议：${reference.text}`,
@@ -21613,6 +21671,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           capability: "image_edit",
           operation: "edit",
           imageSrc: latestImageSrc,
+          maskSrc: annotationMask.maskSrc,
           model: DEFAULT_IMAGE_AI_MODEL_ID,
           prompt,
           targetWidth: sourceSize.width,
@@ -21621,6 +21680,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         run: async () =>
           editImageWithPrompt({
             imageSrc: latestImageSrc,
+            maskSrc: annotationMask.maskSrc,
             model: DEFAULT_IMAGE_AI_MODEL_ID,
             prompt,
             targetWidth: sourceSize.width,

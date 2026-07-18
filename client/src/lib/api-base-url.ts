@@ -7,6 +7,7 @@ const LEGACY_RENDER_API_HOSTS = new Set([
 export function normalizeApiBaseUrl(value: string) {
   const trimmed = value.trim().replace(/\/+$/, "");
   if (!trimmed) return "";
+  if (trimmed.startsWith("/") || trimmed.startsWith(".")) return "";
 
   try {
     const parsed = new URL(trimmed);
