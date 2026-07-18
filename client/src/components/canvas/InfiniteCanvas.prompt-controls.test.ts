@@ -135,6 +135,15 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain("task.editMode || task.sourceImageSrc");
   });
 
+  it("sends PicWish expansion ratios from the original image instead of an enlarged source canvas", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+
+    expect(source).toContain('model: "picwish-advanced-image-expand"');
+    expect(source).toContain("toExpansionRatio(expandTop, sourceH)");
+    expect(source).toContain("toExpansionRatio(expandLeft, sourceW)");
+    expect(source).not.toContain("imageSrc: expandedCanvas.toDataURL");
+  });
+
   it("shows a generated-image cloud retention reminder under the image once per day", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
 

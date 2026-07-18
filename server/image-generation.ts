@@ -1383,6 +1383,12 @@ function appendOptionalPicWishNumber(body: FormData, key: string, value: unknown
   body.append(key, String(value));
 }
 
+export function __testNormalizePicWishExpansionRatio(value: unknown): number | undefined {
+  const numberValue = coerceOptionalNumber(value);
+  if (numberValue === undefined || numberValue <= 0) return undefined;
+  return Math.min(1, Math.max(0, numberValue));
+}
+
 function hasPicWishExpansionMargins(input: { top?: number; bottom?: number; left?: number; right?: number }) {
   return [input.top, input.bottom, input.left, input.right].some(
     value => typeof value === "number" && Number.isFinite(value) && value > 0
@@ -1427,7 +1433,11 @@ async function createPicWishImageExpansionTask(
   } else {
     throw new Error("Missing image source for PicWish image expansion");
   }
-  const hasExpansionMargins = hasPicWishExpansionMargins(input);
+  const top = __testNormalizePicWishExpansionRatio(input.top);
+  const bottom = __testNormalizePicWishExpansionRatio(input.bottom);
+  const left = __testNormalizePicWishExpansionRatio(input.left);
+  const right = __testNormalizePicWishExpansionRatio(input.right);
+  const hasExpansionMargins = hasPicWishExpansionMargins({ top, bottom, left, right });
   if (!hasExpansionMargins && input.maskUrl) {
     body.append("mask_url", input.maskUrl);
   } else if (!hasExpansionMargins && input.maskBuffer) {
@@ -1435,10 +1445,10 @@ async function createPicWishImageExpansionTask(
   }
   if (input.prompt?.trim()) body.append("prompt", input.prompt.trim().slice(0, 500));
   if (hasExpansionMargins) {
-    appendOptionalPicWishNumber(body, "top", input.top);
-    appendOptionalPicWishNumber(body, "bottom", input.bottom);
-    appendOptionalPicWishNumber(body, "left", input.left);
-    appendOptionalPicWishNumber(body, "right", input.right);
+    appendOptionalPicWishNumber(body, "top", top);
+    appendOptionalPicWishNumber(body, "bottom", bottom);
+    appendOptionalPicWishNumber(body, "left", left);
+    appendOptionalPicWishNumber(body, "right", right);
   }
   appendOptionalPicWishNumber(body, "strength", input.strength);
   appendOptionalPicWishNumber(body, "scale", input.scale);
@@ -3179,8 +3189,6 @@ export async function expandImageWithPicWish(input: ExpandImageInput): Promise<G
   );
   const targetWidth = targetSize.width;
   const targetHeight = targetSize.height;
-  const scaleX = targetWidth / Math.max(1, requestedWidth);
-  const scaleY = targetHeight / Math.max(1, requestedHeight);
   const top = coerceOptionalNumber(input.top);
   const bottom = coerceOptionalNumber(input.bottom);
   const left = coerceOptionalNumber(input.left);
@@ -3195,13 +3203,13 @@ export async function expandImageWithPicWish(input: ExpandImageInput): Promise<G
     maskUrl: maskUrl || undefined,
     sync,
     prompt: input.prompt,
-    top: top === undefined ? undefined : Math.round(top * scaleY),
-    bottom: bottom === undefined ? undefined : Math.round(bottom * scaleY),
-    left: left === undefined ? undefined : Math.round(left * scaleX),
-    right: right === undefined ? undefined : Math.round(right * scaleX),
-    strength: coerceOptionalNumber(input.strength) ?? 0.35,
-    scale: coerceOptionalNumber(input.scale) ?? 7,
-    steps: coerceOptionalNumber(input.steps) ?? 30,
+    top,
+    bottom,
+    left,
+    right,
+    strength: coerceOptionalNumber(input.strength),
+    scale: coerceOptionalNumber(input.scale),
+    steps: coerceOptionalNumber(input.steps),
     seed: coerceOptionalNumber(input.seed),
   });
   const normalized = await __testNormalizeGeneratedImagesToTargetAspect(picWishResult.images, targetWidth, targetHeight);

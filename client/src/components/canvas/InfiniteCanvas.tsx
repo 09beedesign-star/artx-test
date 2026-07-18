@@ -6566,24 +6566,6 @@ function AssetNodeComponent({
       toast("AI 扩展失败", { description: "当前图片没有可处理的图像来源" });
       return;
     }
-    const expandedCanvas = document.createElement("canvas");
-    const nextW = Math.max(1, Math.round(dispW * (cropRect.w / 100)));
-    const nextH = Math.max(1, Math.round(dispH * (cropRect.h / 100)));
-    expandedCanvas.width = nextW;
-    expandedCanvas.height = nextH;
-    const expandedCtx = expandedCanvas.getContext("2d");
-    if (!expandedCtx) {
-      toast("AI 扩展失败", { description: "无法创建扩展画布" });
-      return;
-    }
-    const maskCanvas = document.createElement("canvas");
-    maskCanvas.width = nextW;
-    maskCanvas.height = nextH;
-    const maskCtx = maskCanvas.getContext("2d");
-    if (!maskCtx) {
-      toast("AI 扩展失败", { description: "无法创建扩展蒙版" });
-      return;
-    }
     const image = new Image();
     image.crossOrigin = "anonymous";
     image.onload = () => {
@@ -6599,37 +6581,27 @@ function AssetNodeComponent({
       const expandTop = Math.max(0, dy);
       const expandRight = Math.max(0, pixelNextW - dx - sourceW);
       const expandBottom = Math.max(0, pixelNextH - dy - sourceH);
-      expandedCanvas.width = pixelNextW;
-      expandedCanvas.height = pixelNextH;
-      maskCanvas.width = pixelNextW;
-      maskCanvas.height = pixelNextH;
-      expandedCtx.clearRect(0, 0, pixelNextW, pixelNextH);
-      expandedCtx.drawImage(image, dx, dy, sourceW, sourceH);
-      maskCtx.clearRect(0, 0, pixelNextW, pixelNextH);
-      maskCtx.fillStyle = "white";
-      maskCtx.fillRect(0, 0, pixelNextW, pixelNextH);
-      maskCtx.fillStyle = "black";
-      maskCtx.fillRect(expandLeft, expandTop, sourceW, sourceH);
+      const toExpansionRatio = (pixels: number, base: number) =>
+        pixels > 0 ? Math.min(1, Math.max(0, pixels / Math.max(1, base))) : undefined;
       try {
         window.dispatchEvent(
           new CustomEvent("asset-expand-apply", {
             detail: {
               nodeId,
-              imageSrc: expandedCanvas.toDataURL("image/png"),
-              maskSrc: maskCanvas.toDataURL("image/png"),
+              imageSrc,
               nextW: pixelNextW,
               nextH: pixelNextH,
               displayW: displayNextW,
               displayH: displayNextH,
-              top: expandTop,
-              bottom: expandBottom,
-              left: expandLeft,
-              right: expandRight,
+              top: toExpansionRatio(expandTop, sourceH),
+              bottom: toExpansionRatio(expandBottom, sourceH),
+              left: toExpansionRatio(expandLeft, sourceW),
+              right: toExpansionRatio(expandRight, sourceW),
             },
           })
         );
       } catch {
-        toast("AI 扩展失败", { description: "无法生成扩展画布" });
+        toast("AI 扩展失败", { description: "无法提交扩展参数" });
       }
     };
     image.onerror = () =>
@@ -22534,7 +22506,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         e as CustomEvent<{
           nodeId: string;
           imageSrc: string;
-          maskSrc: string;
+          maskSrc?: string;
           nextW: number;
           nextH: number;
           displayW?: number;
@@ -22545,7 +22517,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           right?: number;
         }>
       ).detail;
-      if (!detail?.nodeId || !detail.imageSrc || !detail.maskSrc) return;
+      if (!detail?.nodeId || !detail.imageSrc) return;
       const sourceNode = nodesRef.current.find(
         n => n.id === detail.nodeId && n.type === "asset"
       );
@@ -22583,7 +22555,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           operation: "expand",
           imageSrc: detail.imageSrc,
           maskSrc: detail.maskSrc,
-          model: DEFAULT_IMAGE_AI_MODEL_ID,
+          model: "picwish-advanced-image-expand",
           targetWidth: detail.nextW,
           targetHeight: detail.nextH,
           top: detail.top,
@@ -22597,7 +22569,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           expandImageWithMask({
             imageSrc: detail.imageSrc,
             maskSrc: detail.maskSrc,
-            model: DEFAULT_IMAGE_AI_MODEL_ID,
+            model: "picwish-advanced-image-expand",
             targetWidth: detail.nextW,
             targetHeight: detail.nextH,
             top: detail.top,

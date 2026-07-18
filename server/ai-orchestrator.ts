@@ -22,6 +22,10 @@ export type OrchestrateRequest = {
   mask_base64?: string;
   targetWidth?: number;
   targetHeight?: number;
+  top?: number;
+  bottom?: number;
+  left?: number;
+  right?: number;
   brandKitId?: string;
   skillId?: string;
   messages?: Array<{ role: "system" | "user" | "assistant"; content: string }>;
@@ -135,7 +139,7 @@ export class AIOrchestrator {
     }
 
     if (capability === "image_expansion") {
-      if (!imageSrc || !maskSrc) throw new Error("Missing image or mask");
+      if (!imageSrc) throw new Error("Missing image");
       const result = await expandImageWithPicWish({
         imageSrc,
         maskSrc,
@@ -143,6 +147,10 @@ export class AIOrchestrator {
         prompt: prompt || "Outpaint only the blank transparent extension area outside the original image. Preserve every unmasked pixel exactly. Analyze the original background, floor, wall, light, shadows, color, texture, perspective, and edge details, then generate new matching surrounding environment only in the editable area. Do not enlarge, duplicate, mirror, repeat, or redraw the original subject/person/object. Do not paste a scaled copy of the original image into the extension. Do not create a blurred border or vignette.",
         targetWidth: input.targetWidth,
         targetHeight: input.targetHeight,
+        top: input.top,
+        bottom: input.bottom,
+        left: input.left,
+        right: input.right,
       });
       return {
         type: "image",

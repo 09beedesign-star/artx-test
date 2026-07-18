@@ -744,7 +744,7 @@ export async function eraseImageObjects({
 export async function expandImageWithMask({
   imageSrc,
   maskSrc,
-  model = DEFAULT_IMAGE_MODEL_ID,
+  model = "picwish-advanced-image-expand",
   prompt,
   targetWidth,
   targetHeight,
@@ -754,7 +754,7 @@ export async function expandImageWithMask({
   right,
 }: {
   imageSrc: string;
-  maskSrc: string;
+  maskSrc?: string;
   model?: string;
   prompt?: string;
   targetWidth?: number;

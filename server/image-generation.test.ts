@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
-import { __testHasPicWishExpansionMargins, __testNormalizeGeneratedImageSrc, __testNormalizeGeneratedImagesToTargetAspect, __testPreparePicWishEraseSourceImage, __testResolveHighDefinitionTargetSize, __testResolveReferenceImageRoute, editImageWithPrompt, extractImageText } from "./image-generation";
+import { __testHasPicWishExpansionMargins, __testNormalizeGeneratedImageSrc, __testNormalizeGeneratedImagesToTargetAspect, __testNormalizePicWishExpansionRatio, __testPreparePicWishEraseSourceImage, __testResolveHighDefinitionTargetSize, __testResolveReferenceImageRoute, editImageWithPrompt, extractImageText } from "./image-generation";
 
 const ONE_PIXEL_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
@@ -91,6 +91,13 @@ describe("generated image source normalization", () => {
     expect(__testHasPicWishExpansionMargins({ top: 24, bottom: 0, left: 0, right: 0 })).toBe(true);
     expect(__testHasPicWishExpansionMargins({ top: 0, bottom: 0, left: 0, right: 0 })).toBe(false);
     expect(__testHasPicWishExpansionMargins({})).toBe(false);
+  });
+
+  it("normalizes PicWish image expansion margins as provider ratios", () => {
+    expect(__testNormalizePicWishExpansionRatio(0.25)).toBe(0.25);
+    expect(__testNormalizePicWishExpansionRatio(3)).toBe(1);
+    expect(__testNormalizePicWishExpansionRatio(0)).toBeUndefined();
+    expect(__testNormalizePicWishExpansionRatio("bad")).toBeUndefined();
   });
 
   it("falls back to reference-image generation when the image edit endpoint is unavailable", async () => {
