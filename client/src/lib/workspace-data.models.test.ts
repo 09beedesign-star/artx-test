@@ -14,13 +14,24 @@ describe("workspace image model options", () => {
     expect(options.map(option => option.id)).toEqual([
       "auto",
       "gpt-image-2",
-      "gemini-3.1-flash-image",
       "gpt-image-2-4k",
+      "gemini-3.1-flash-image",
     ]);
     expect(options.find(option => option.id === "gpt-image-2-4k")).toMatchObject({
       label: "gpt-image-2-4k",
     });
     expect(options.some(option => option.id === "gpt-5.4-mini")).toBe(false);
     expect(IMAGE_AI_MODEL_OPTIONS.some(option => option.id === "gpt-image-2")).toBe(true);
+  });
+
+  it("uses discovered image models as the selector source when the provider returns a catalog", () => {
+    const options = mergeImageAiModelOptions([
+      { id: "gemini-3.5-flash-preview", label: "gemini-3.5-flash-preview", color: "server-color" },
+    ]);
+
+    expect(options.map(option => option.id)).toEqual([
+      "auto",
+      "gemini-3.5-flash-preview",
+    ]);
   });
 });

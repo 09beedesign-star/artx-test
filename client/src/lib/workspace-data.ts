@@ -34,6 +34,14 @@ export const ALL_AI_MODEL_OPTIONS: AiModelOption[] = [
 
 function isImageModelOption(option: AiModelOption) {
   const id = option.id.toLowerCase();
+  const supportedImageModelIds = new Set([
+    "gpt-image-2",
+    "gpt-image-2-4k",
+    "gemini-3.1-flash-image",
+    "gemini-3.1-flash-image-preview",
+    "gemini-3.5-flash-preview",
+  ]);
+  if (supportedImageModelIds.has(id)) return true;
   return /^(gpt-image|dall[-_]?e|imagen|flux|stable-diffusion|sdxl|midjourney|kolors|recraft)/i.test(option.id)
     || /(?:^|[-_.])(image|images|img|vision-generate|image-generation)(?:$|[-_.])/i.test(id)
     || /gemini.*image/i.test(id);
@@ -41,7 +49,11 @@ function isImageModelOption(option: AiModelOption) {
 
 export function mergeImageAiModelOptions(discoveredModels: AiModelOption[] = []) {
   const merged = new Map<string, AiModelOption>();
-  for (const option of [...IMAGE_AI_MODELS, ...discoveredModels]) {
+  const validDiscoveredModels = discoveredModels.filter(isImageModelOption);
+  const sourceModels = validDiscoveredModels.length > 0
+    ? validDiscoveredModels
+    : IMAGE_AI_MODELS;
+  for (const option of sourceModels) {
     if (!option.id || option.id === AUTO_AI_MODEL.id || !isImageModelOption(option)) continue;
     merged.set(option.id, {
       ...option,
