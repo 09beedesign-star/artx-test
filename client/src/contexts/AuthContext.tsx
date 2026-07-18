@@ -11,6 +11,7 @@ interface AuthUser {
   role?: "viewer" | "support" | "finance" | "admin" | "super_admin";
   permissions?: string[];
   isAdmin?: boolean;
+  allowedAiModels?: string[];
 }
 
 interface AuthSession {
@@ -333,6 +334,9 @@ function normalizeAuthUser(user: AuthUser): AuthUser {
 
   return {
     ...user,
+    allowedAiModels: Array.isArray(user.allowedAiModels)
+      ? Array.from(new Set(user.allowedAiModels.filter((model): model is string => typeof model === "string")))
+      : undefined,
     role,
     permissions,
     isAdmin: permissions.includes("admin:access"),

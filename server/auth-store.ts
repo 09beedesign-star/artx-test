@@ -4,6 +4,7 @@ import path from "node:path";
 import { PostgresJsonDocumentStore } from "./postgres-json-store";
 import { buildVerificationCodeEmailHtml, sendUserEmailNotification } from "./notifications";
 import { normalizeMainlandPhone, sendSmsVerificationCode } from "./sms-service";
+import { listSelectableModelIds, normalizeAllowedModels } from "./model-router";
 
 type AuthAction = "register" | "login" | "me" | "logout" | "social" | "forgot-password" | "reset-password" | "change-password" | "sms-send-code" | "sms-login" | "email-send-code" | "email-login";
 type AdminRole = "viewer" | "support" | "finance" | "admin" | "super_admin";
@@ -53,6 +54,7 @@ interface StoredUser {
   createdAt: string;
   role?: AdminRole;
   permissions?: string[];
+  allowedAiModels?: string[];
   status?: "active" | "disabled";
   resetTokenHash?: string;
   resetTokenExpiresAt?: string;
@@ -159,8 +161,15 @@ function publicUser(user: StoredUser) {
     role,
     status: user.status === "disabled" ? "disabled" : "active",
     permissions: getUserPermissions({ ...user, role }),
+    allowedAiModels: effectiveAllowedAiModels(user),
     isAdmin: canAccessAdmin({ ...user, role }),
   };
+}
+
+function effectiveAllowedAiModels(user: StoredUser) {
+  return user.allowedAiModels === undefined
+    ? listSelectableModelIds()
+    : normalizeAllowedModels(user.allowedAiModels);
 }
 
 function normalizeRole(role: unknown): AdminRole {
@@ -287,6 +296,9 @@ function normalizeDatabase(parsed: Partial<AuthDatabase>): AuthDatabase {
         ...user,
         role: normalizeRole(user.role),
         permissions: Array.isArray(user.permissions) ? user.permissions : [],
+        allowedAiModels: Array.isArray(user.allowedAiModels)
+          ? normalizeAllowedModels(user.allowedAiModels)
+          : undefined,
         status: user.status === "disabled" ? "disabled" : "active",
         failedLoginCount: Number(user.failedLoginCount || 0),
       }))
@@ -623,6 +635,7 @@ export async function updateAuthUserAdmin(input: {
   userId: string;
   role?: AdminRole;
   status?: "active" | "disabled";
+  allowedAiModels?: string[];
 }) {
   const db = await loadDatabase();
   const actor = db.users.find((item) => item.id === input.actorId);
@@ -662,6 +675,9 @@ export async function updateAuthUserAdmin(input: {
       db.sessions = db.sessions.filter((item) => item.userId !== user.id);
     }
   }
+  if (input.allowedAiModels !== undefined) {
+    user.allowedAiModels = normalizeAllowedModels(input.allowedAiModels);
+  }
 
   appendAuditLog(db, {
     actorId: input.actorId,
@@ -670,6 +686,7 @@ export async function updateAuthUserAdmin(input: {
     meta: {
       role: user.role,
       status: user.status,
+      allowedAiModels: effectiveAllowedAiModels(user),
       actorName: input.actorName,
     },
   });

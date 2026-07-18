@@ -54,6 +54,7 @@ type AdminUserAccount = {
   risk: string;
   accountType?: "regular" | "test";
   testProfile?: TestAccountProfile;
+  allowedAiModels?: string[];
 };
 
 type PaymentOrder = {
@@ -753,6 +754,7 @@ async function buildUserAccounts(seedUsers: AdminUserAccount[] = []) {
       existing.role = authUser.role || existing.role;
       existing.account = authUser.username;
       existing.email = existing.email || authUser.username;
+      existing.allowedAiModels = authUser.allowedAiModels;
       continue;
     }
 
@@ -774,6 +776,7 @@ async function buildUserAccounts(seedUsers: AdminUserAccount[] = []) {
       totalConsumed: 0,
       lastSeen: "刚刚",
       risk: authUser.isAdmin ? "低" : "低",
+      allowedAiModels: authUser.allowedAiModels,
     };
     merged.set(syntheticUser.id, syntheticUser);
   }
@@ -1939,6 +1942,34 @@ export async function handleAdminApiRequest(
     });
     await saveAdminData(data);
     return { status: 200, body: fullPayload(data) };
+  }
+
+  const userModelAccessMatch = route.match(/^users\/([^/]+)\/model-access$/);
+  if (method === "POST" && userModelAccessMatch) {
+    const denied = requireSuperAdmin(actor);
+    if (denied) return denied;
+    if (!Array.isArray(body.allowedAiModels) || !body.allowedAiModels.every((model) => typeof model === "string")) {
+      return jsonError(400, "模型权限必须是模型标识数组");
+    }
+    const result = await updateAuthUserAdmin({
+      actorId: actor.id,
+      actorName: actor.username,
+      userId: userModelAccessMatch[1],
+      allowedAiModels: body.allowedAiModels,
+    });
+    if (result.status !== 200) return result;
+    const localUser = data.users.find((user) => user.id === userModelAccessMatch[1]);
+    if (localUser) localUser.allowedAiModels = result.body.user.allowedAiModels;
+    appendAuditLog(data, actor, {
+      action: "更新用户模型权限",
+      target: userModelAccessMatch[1],
+      after: { allowedAiModels: result.body.user.allowedAiModels },
+    });
+    await saveAdminData(data);
+    return {
+      status: 200,
+      body: { user: { ...(localUser || {}), ...result.body.user } },
+    };
   }
 
   const orderNoteMatch = route.match(/^orders\/([^/]+)\/notes$/);

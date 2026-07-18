@@ -144,8 +144,9 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(assistantBlock).toBeTruthy();
     expect(assistantBlock).toContain("const imageModelOptions = useImageModelOptions()");
     expect(assistantBlock).toContain("const assistantImageModelOptions = useMemo");
-    expect(assistantBlock).toContain("assistantImageModelOptions.find(model => model.id === assistantImageModelId)");
-    expect(assistantBlock).toContain('assistantModelTab === "image" ? assistantImageModelOptions : TEXT_AI_MODELS');
+    expect(assistantBlock).toContain("filterAllowedAiModelOptions(assistantImageModelOptions, allowedAiModels)");
+    expect(assistantBlock).toContain("availableAssistantImageModels.find(model => model.id === assistantImageModelId)");
+    expect(assistantBlock).toContain('assistantModelTab === "image" ? availableAssistantImageModels : availableAssistantTextModels');
     expect(assistantBlock).not.toContain("IMAGE_AI_MODELS.find(model => model.id === assistantImageModelId)");
     expect(assistantBlock).not.toContain('assistantModelTab === "image" ? IMAGE_AI_MODELS : TEXT_AI_MODELS');
   });

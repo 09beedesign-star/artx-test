@@ -4,7 +4,8 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import "./env";
-import { AIOrchestrator } from "./ai-orchestrator";
+import { AIOrchestrator, inferAiCapability } from "./ai-orchestrator";
+import { resolveBackgroundImageTaskCapability } from "./background-image-capability";
 import { createBrandKit, deleteBrandKit, getBrandKit, listBrandKits, parseBrandKitFromImage } from "./brand-kit";
 import { createProductBackground, editImageWithPrompt, enhanceImage, eraseImageObjects, expandImageWithPicWish, extractImageText, generateImages, listImageModelCatalog, removeImageBackground, removeImageWatermark } from "./image-generation";
 import { getInspirationReferences } from "./inspiration-references";
@@ -17,6 +18,7 @@ import { acknowledgeCreditGiftNotification, createBillingOrder, createCreditRech
 import { getAllowedCorsOrigin } from "./cors";
 import { sendOpsNotification } from "./notifications";
 import { classifyApplicationSecuritySignal, createSecurityEventDetector, validateSecurityEventIngest } from "./security-events";
+import { assertUserCanUseSelectableModel } from "./user-model-access";
 import type { AiBillingCapability } from "../shared/ai-credit-policy";
 import {
   CROSS_BORDER_CATEGORIES,
@@ -56,6 +58,7 @@ type BackgroundImageTask = {
 type SessionUser = {
   id: string;
   username: string;
+  allowedAiModels: string[];
 };
 
 type AuthAction = "register" | "login" | "me" | "logout" | "social" | "forgot-password" | "reset-password" | "change-password" | "sms-send-code" | "sms-login" | "email-send-code" | "email-login";
@@ -362,6 +365,7 @@ async function requireSessionUser(req: express.Request, res: express.Response): 
   return {
     id: result.body.user.id,
     username: result.body.user.username,
+    allowedAiModels: result.body.user.allowedAiModels,
   };
 }
 
@@ -456,16 +460,8 @@ function requestedAiOutputCount(input: unknown) {
 }
 
 function requestedOrchestratorCapability(input: unknown) {
-  if (!input || typeof input !== "object") return "text_generation" as const;
-  const body = input as Record<string, unknown>;
-  const capability = typeof body.capability === "string"
-    ? body.capability
-    : typeof body.intent === "string"
-      ? body.intent
-      : body.operation === "generate"
-        ? "text_to_image"
-        : "text_generation";
-  return capabilityFromOrchestrator(capability);
+  const body = input && typeof input === "object" ? input : {};
+  return capabilityFromOrchestrator(inferAiCapability(body));
 }
 
 function createAiReservationId(prefix: string) {
@@ -506,6 +502,7 @@ function providerTokenUsage(result: unknown) {
 }
 
 function aiRequestErrorStatus(message: string) {
+  if (message.includes("无权使用该模型")) return 403;
   if (message.includes("今日 AI 限额")) return 429;
   if (message.includes("测试账号")) return 403;
   return 500;
@@ -572,6 +569,7 @@ async function handleTrackedAiRequest<T>(
   try {
     user = await requireSessionUser(req, res);
     if (!user) return;
+    assertUserCanUseSelectableModel(user, tracking.model, tracking.capabilityKey);
     reservation = await reserveAiRouteUsage({ user, tracking, request: req.body });
     const result = await handler(user);
     await recordAiRouteUsage({ user, tracking, startedAt, status: "success", result });
@@ -739,9 +737,7 @@ async function startServer() {
   });
 
   async function runBackgroundImageTask(input: Record<string, unknown>, user: SessionUser) {
-    const capability = typeof input.capability === "string" && input.capability.trim()
-      ? input.capability.trim()
-      : "text_to_image";
+    const capability = resolveBackgroundImageTaskCapability(input);
     const operation = typeof input.operation === "string" && input.operation.trim()
       ? input.operation.trim()
       : capability;
@@ -1141,15 +1137,24 @@ async function startServer() {
       return;
     }
 
+    let taskCapability;
+    try {
+      taskCapability = resolveBackgroundImageTaskCapability(req.body || {});
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Image generation failed";
+      res.status(400).json({ error: message, taskId, status: "failed" });
+      return;
+    }
     const preflightTracking: AiRouteTracking = {
-      capabilityKey: capabilityFromOrchestrator(typeof req.body?.capability === "string" ? req.body.capability : "text_to_image"),
-      capability: typeof req.body?.capability === "string" ? req.body.capability : "图片生成",
+      capabilityKey: capabilityFromOrchestrator(taskCapability),
+      capability: taskCapability,
       provider: "AI_IMAGE",
       model: getRouteModel(req.body, process.env.AI_IMAGE_MODEL || "gpt-image-2"),
       failureMessage: "Image generation failed",
     };
     let reservation: AiUsageReservation;
     try {
+      assertUserCanUseSelectableModel(user, preflightTracking.model, preflightTracking.capabilityKey);
       reservation = await reserveAiRouteUsage({ user, tracking: preflightTracking, request: req.body, taskId });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Image generation failed";
@@ -1454,6 +1459,7 @@ async function startServer() {
         model: getRouteModel(req.body, "auto"),
         failureMessage: "AI orchestration failed",
       };
+      assertUserCanUseSelectableModel(user, preflightTracking.model, preflightTracking.capabilityKey);
       reservation = await reserveAiRouteUsage({ user, tracking: preflightTracking, request: req.body });
       const result = await orchestrator.run(req.body);
       if (result.images?.length) {
@@ -1654,6 +1660,7 @@ async function startServer() {
         const user = {
           id: auth.body.user.id,
           username: auth.body.user.username,
+          allowedAiModels: auth.body.user.allowedAiModels,
         };
 
         if (toolName === "artx_health") {
@@ -1688,6 +1695,7 @@ async function startServer() {
               model: typeof args.model === "string" ? args.model : "auto",
               failureMessage: "MCP image generation failed",
             };
+            assertUserCanUseSelectableModel(user, tracking.model, tracking.capabilityKey);
             reservation = await reserveAiRouteUsage({
               user,
               tracking,

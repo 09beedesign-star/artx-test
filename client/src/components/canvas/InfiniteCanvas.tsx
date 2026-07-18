@@ -380,6 +380,7 @@ import {
   type GeneratedAsset,
   type Project,
 } from "@/lib/workspace-data";
+import { filterAllowedAiModelOptions, resolveAllowedAiModelId } from "@/lib/model-access";
 import {
   SOCIAL_MEDIA_SIZE_PRESETS,
   SocialPlatformIcon,
@@ -13208,11 +13209,13 @@ function ImageGeneratorPopover({
   isDark,
   projectId,
   canvasRightInset,
+  allowedAiModels,
   onClose,
 }: {
   isDark: boolean;
   projectId: string;
   canvasRightInset: number;
+  allowedAiModels?: string[];
   onClose: () => void;
 }) {
   const [prompt, setPrompt] = useState("");
@@ -13236,12 +13239,31 @@ function ImageGeneratorPopover({
   const fieldBg = isDark ? "rgba(255,255,255,0.055)" : "rgba(0,0,0,0.035)";
   const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
   const accent = "oklch(0.64 0.22 285)";
-  const imageModelOptions = useImageModelOptions();
+  const allImageModelOptions = useImageModelOptions();
+  const availableImageModels = useMemo(
+    () => filterAllowedAiModelOptions(
+      allImageModelOptions.filter(item => item.id !== AUTO_AI_MODEL.id),
+      allowedAiModels,
+    ),
+    [allImageModelOptions, allowedAiModels]
+  );
+  const imageModelOptions = useMemo(() => {
+    const canUseAuto = allowedAiModels === undefined || allowedAiModels.includes("gpt-image-2");
+    return canUseAuto ? [AUTO_AI_MODEL, ...availableImageModels] : availableImageModels;
+  }, [allowedAiModels, availableImageModels]);
+  useEffect(() => {
+    setModel(current => {
+      if (current === "auto" && imageModelOptions.some(item => item.id === "auto")) return current;
+      return resolveAllowedAiModelId(current, availableImageModels) || "";
+    });
+  }, [availableImageModels, imageModelOptions]);
   const selectedModel =
-    imageModelOptions.find(item => item.id === model) || AUTO_AI_MODEL;
+    imageModelOptions.find(item => item.id === model) ||
+    availableImageModels[0] ||
+    { ...AUTO_AI_MODEL, label: "无可用模型" };
   const ratios = ["1:1", "4:5", "5:4", "3:4", "4:3", "16:9", "9:16", "21:9"];
   const counts = [1, 2, 3, 4, 5, 6, 7, 8, 9];
-  const canGenerate = prompt.trim().length > 0 && !isGenerating;
+  const canGenerate = prompt.trim().length > 0 && availableImageModels.length > 0 && !isGenerating;
   const popoverWidth = 430;
 
   const clampPopoverPosition = useCallback(
@@ -13369,6 +13391,10 @@ function ImageGeneratorPopover({
   );
 
   const handleGenerate = async () => {
+    if (availableImageModels.length === 0) {
+      toast("当前账号没有可用的生图模型");
+      return;
+    }
     if (!canGenerate) {
       toast("请输入图像生成提示词");
       return;
@@ -15512,11 +15538,13 @@ function CanvasTopToolPalette({
   isDark,
   projectId,
   canvasRightInset,
+  allowedAiModels,
   onImageGeneratorOpenChange,
 }: {
   isDark: boolean;
   projectId: string;
   canvasRightInset: number;
+  allowedAiModels?: string[];
   onImageGeneratorOpenChange?: (open: boolean) => void;
 }) {
   const [active, setActive] = useState("move");
@@ -15864,6 +15892,7 @@ function CanvasTopToolPalette({
           isDark={isDark}
           projectId={projectId}
           canvasRightInset={canvasRightInset}
+          allowedAiModels={allowedAiModels}
           onClose={() => setImageGeneratorOpen(false)}
         />
       )}
@@ -16550,6 +16579,7 @@ function CanvasAssistantPanel({
   activeSkill,
   onActiveSkillChange,
   isAuthenticated,
+  allowedAiModels,
   onToggleCollapsed,
   onLoginRequest,
   referencedAssets,
@@ -16568,6 +16598,7 @@ function CanvasAssistantPanel({
   activeSkill: PendingSkillLoad | null;
   onActiveSkillChange: (skill: PendingSkillLoad | null) => void;
   isAuthenticated: boolean;
+  allowedAiModels?: string[];
   onToggleCollapsed: () => void;
   onLoginRequest: () => void;
   referencedAssets: ImageGeneratorReferenceAsset[];
@@ -16666,12 +16697,38 @@ function CanvasAssistantPanel({
       ? stored!
       : "gpt-5.4-mini";
   });
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const imageModelOptions = useImageModelOptions();
   const assistantImageModelOptions = useMemo(
     () => imageModelOptions.filter(model => model.id !== AUTO_AI_MODEL.id),
     [imageModelOptions]
   );
+  const availableAssistantImageModels = useMemo(
+    () => filterAllowedAiModelOptions(assistantImageModelOptions, allowedAiModels),
+    [allowedAiModels, assistantImageModelOptions]
+  );
+  const availableAssistantTextModels = useMemo(
+    () => filterAllowedAiModelOptions(TEXT_AI_MODELS, allowedAiModels),
+    [allowedAiModels]
+  );
+  useEffect(() => {
+    const next = resolveAllowedAiModelId(assistantImageModelId, availableAssistantImageModels);
+    if (next && next !== assistantImageModelId) setAssistantImageModelId(next);
+  }, [assistantImageModelId, availableAssistantImageModels]);
+  useEffect(() => {
+    const next = resolveAllowedAiModelId(assistantTextModelId, availableAssistantTextModels);
+    if (next && next !== assistantTextModelId) setAssistantTextModelId(next);
+  }, [assistantTextModelId, availableAssistantTextModels]);
+  useEffect(() => {
+    if (assistantModelTab === "image" && availableAssistantImageModels.length === 0 && availableAssistantTextModels.length > 0) {
+      setAssistantModelTab("text");
+    } else if (assistantModelTab === "text" && availableAssistantTextModels.length === 0 && availableAssistantImageModels.length > 0) {
+      setAssistantModelTab("image");
+    }
+  }, [assistantModelTab, availableAssistantImageModels.length, availableAssistantTextModels.length]);
+  useEffect(() => {
+    if (availableAssistantImageModels.length === 0) setAssistantAutoMode(false);
+  }, [availableAssistantImageModels.length]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [regeneratingMessageId, setRegeneratingMessageId] = useState<
     string | null
   >(null);
@@ -16738,8 +16795,8 @@ function CanvasAssistantPanel({
     const width = Math.min(288, Math.max(220, window.innerWidth - margin * 2));
     const modelOptionCount =
       assistantModelTab === "image"
-        ? assistantImageModelOptions.length
-        : TEXT_AI_MODELS.length;
+        ? availableAssistantImageModels.length
+        : availableAssistantTextModels.length;
     const measuredHeight = assistantModelPopoverRef.current?.offsetHeight || 0;
     const estimatedHeight = Math.min(
       248,
@@ -17588,14 +17645,15 @@ function CanvasAssistantPanel({
             ? `引用素材 ${composerImages.length} 个`
             : "";
   const assistantImageModel =
-    assistantImageModelOptions.find(model => model.id === assistantImageModelId) ||
-    assistantImageModelOptions[0] ||
+    availableAssistantImageModels.find(model => model.id === assistantImageModelId) ||
+    availableAssistantImageModels[0] ||
     IMAGE_AI_MODELS[0];
   const assistantTextModel =
-    TEXT_AI_MODELS.find(model => model.id === assistantTextModelId) ||
+    availableAssistantTextModels.find(model => model.id === assistantTextModelId) ||
+    availableAssistantTextModels[0] ||
     TEXT_AI_MODELS[0];
   const assistantModelOptions =
-    assistantModelTab === "image" ? assistantImageModelOptions : TEXT_AI_MODELS;
+    assistantModelTab === "image" ? availableAssistantImageModels : availableAssistantTextModels;
   const assistantModel =
     assistantModelTab === "image" ? assistantImageModel : assistantTextModel;
   const activeSkillContext = activeSkill
@@ -18305,6 +18363,10 @@ function CanvasAssistantPanel({
       toast("请输入画布想法或选择对象");
       return;
     }
+    if (assistantModelOptions.length === 0) {
+      toast("当前账号没有可用的 AI 模型");
+      return;
+    }
     const rawSubmittedComposerPrompt =
       composerPrompt || `请基于${contextLabel || "当前画布"}继续处理。`;
     const submittedComposerPrompt = activeSkill
@@ -18468,7 +18530,7 @@ function CanvasAssistantPanel({
       }
 
       const shouldRouteIntent =
-        assistantAutoMode || assistantModelTab === "image";
+        (assistantAutoMode && availableAssistantImageModels.length > 0) || assistantModelTab === "image";
       const decision = shouldRouteIntent
         ? await routeCreativeIntent({
             module: "right-ai-assistant",
@@ -19751,6 +19813,7 @@ function CanvasAssistantPanel({
                               type="button"
                               role="switch"
                               aria-checked={assistantAutoMode}
+                              disabled={availableAssistantImageModels.length === 0}
                               className="relative shrink-0 rounded-[var(--radius-pill)] transition-all"
                               style={{
                                 width: 34,
@@ -19762,9 +19825,7 @@ function CanvasAssistantPanel({
                                     : "oklch(0 0 0 / 12%)",
                                 border: `1px solid ${assistantAutoMode ? "rgba(197,237,71,0.60)" : border}`,
                               }}
-                              onClick={() =>
-                                setAssistantAutoMode(value => !value)
-                              }
+                              onClick={() => setAssistantAutoMode(value => !value)}
                             >
                               <span
                                 aria-hidden="true"
@@ -19791,7 +19852,9 @@ function CanvasAssistantPanel({
                             {[
                               { id: "image" as const, label: "生图" },
                               { id: "text" as const, label: "对话" },
-                            ].map(tab => (
+                            ].filter(tab => tab.id === "image"
+                              ? availableAssistantImageModels.length > 0
+                              : availableAssistantTextModels.length > 0).map(tab => (
                               <button
                                 key={tab.id}
                                 type="button"
@@ -20246,7 +20309,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const [, navigate] = useLocation();
-  const { isAuthenticated, openLoginModal } = useAuth();
+  const { isAuthenticated, openLoginModal, user } = useAuth();
   const {
     screenToFlowPosition,
     getEdges,
@@ -28388,6 +28451,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         activeSkill={activeSkill}
         onActiveSkillChange={setActiveSkill}
         isAuthenticated={isAuthenticated}
+        allowedAiModels={user?.allowedAiModels}
         onLoginRequest={openLoginModal}
         onToggleCollapsed={() => setIsAssistantCollapsed(value => !value)}
         referencedAssets={referencedAssets}
@@ -28572,6 +28636,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         isDark={isDark}
         projectId={projectId}
         canvasRightInset={isAssistantCollapsed ? 112 : assistantPanelWidth}
+        allowedAiModels={user?.allowedAiModels}
         onImageGeneratorOpenChange={setImageGeneratorModalOpen}
       />
 

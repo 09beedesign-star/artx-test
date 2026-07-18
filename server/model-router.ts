@@ -27,6 +27,15 @@ const TEXT_MODELS = new Set([
   "gpt-5.5",
 ]);
 
+const SELECTABLE_IMAGE_MODELS = new Set([
+  "gpt-image-2",
+  "gemini-3.1-flash-image",
+]);
+
+const SELECTABLE_TEXT_MODELS = new Set([
+  "gpt-5.4-mini",
+]);
+
 function normalizeModelName(model?: string) {
   const value = (model || "").trim();
   if (!value) return "";
@@ -35,6 +44,26 @@ function normalizeModelName(model?: string) {
   if (value === "nano-banana") return "gemini-3.1-flash-image";
   if (value === "nano-banana-lite") return "gemini-3.1-flash-image-preview";
   return value;
+}
+
+export function isSelectableModel(model?: string) {
+  const normalized = normalizeModelName(model);
+  return SELECTABLE_IMAGE_MODELS.has(normalized) || SELECTABLE_TEXT_MODELS.has(normalized);
+}
+
+export function listSelectableModelIds() {
+  return [...Array.from(SELECTABLE_IMAGE_MODELS), ...Array.from(SELECTABLE_TEXT_MODELS)];
+}
+
+export function normalizeAllowedModels(models: unknown) {
+  if (!Array.isArray(models)) return [];
+  const selected = new Set(
+    models
+      .filter((model): model is string => typeof model === "string")
+      .map(normalizeModelName)
+      .filter(isSelectableModel),
+  );
+  return listSelectableModelIds().filter(model => selected.has(model));
 }
 
 export function isImageModel(model?: string) {

@@ -28,6 +28,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -37,6 +38,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useAuth } from "@/contexts/AuthContext";
+import { IMAGE_AI_MODELS, TEXT_AI_MODELS } from "@/lib/workspace-data";
 import { cn } from "@/lib/utils";
 import {
   buildAdminNotifications,
@@ -92,6 +94,7 @@ type AdminUser = {
     reservedCredits: number;
     cancelledAt?: string;
   };
+  allowedAiModels?: string[];
 };
 
 type Order = {
@@ -842,6 +845,14 @@ function AdminPrototypePage() {
     });
   }
 
+  function handleModelAccessUpdate(userId: string, allowedAiModels: string[]) {
+    adminPost(
+      `/api/admin/users/${encodeURIComponent(userId)}/model-access`,
+      { allowedAiModels },
+      "用户模型权限已保存。",
+    );
+  }
+
   async function handleChangePassword() {
     if (!currentPassword || !newPassword || !confirmPassword) {
       setPasswordMessage("请填写当前密码、新密码和确认密码。");
@@ -1270,6 +1281,7 @@ function AdminPrototypePage() {
         canManageTestAccounts={canManageTestAccounts}
         onUpdateTestProfile={handleTestProfileUpdate}
         onCancelTestAccount={handleTestAccountCancel}
+        onUpdateModelAccess={handleModelAccessUpdate}
       />
     </div>
   );
@@ -1417,8 +1429,8 @@ function AdminPrototypePage() {
               </div>
               <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <label className="space-y-1 text-xs text-slate-400">测试账号邮箱<Input value={testAccountForm.email} onChange={(event) => setTestAccountForm((current) => ({ ...current, email: event.target.value }))} placeholder="name@example.com" className="border-white/12 bg-slate-950/40" /></label>
-                <label className="space-y-1 text-xs text-slate-400">测试积分<Input type="number" min="1" value={testAccountForm.initialCredits} onChange={(event) => setTestAccountForm((current) => ({ ...current, initialCredits: event.target.value }))} className="border-white/12 bg-slate-950/40" /></label>
-                <label className="space-y-1 text-xs text-slate-400">每日 AI 积分上限<Input type="number" min="1" value={testAccountForm.dailyCreditLimit} onChange={(event) => setTestAccountForm((current) => ({ ...current, dailyCreditLimit: event.target.value }))} className="border-white/12 bg-slate-950/40" /></label>
+                <label className="space-y-1 text-xs text-slate-400">初始额度<Input type="number" min="1" value={testAccountForm.initialCredits} onChange={(event) => setTestAccountForm((current) => ({ ...current, initialCredits: event.target.value }))} className="border-white/12 bg-slate-950/40" /></label>
+                <label className="space-y-1 text-xs text-slate-400">每日 AI 限额<Input type="number" min="1" value={testAccountForm.dailyCreditLimit} onChange={(event) => setTestAccountForm((current) => ({ ...current, dailyCreditLimit: event.target.value }))} className="border-white/12 bg-slate-950/40" /></label>
                 <label className="space-y-1 text-xs text-slate-400">有效期<Input type="datetime-local" value={testAccountForm.expiresAt} onChange={(event) => setTestAccountForm((current) => ({ ...current, expiresAt: event.target.value }))} className="border-white/12 bg-slate-950/40" /></label>
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -2469,6 +2481,7 @@ function AccountDetailDrawer({
   canManageTestAccounts,
   onUpdateTestProfile,
   onCancelTestAccount,
+  onUpdateModelAccess,
 }: {
   open: boolean;
   detail: AccountDetail | null;
@@ -2490,6 +2503,7 @@ function AccountDetailDrawer({
   canManageTestAccounts: boolean;
   onUpdateTestProfile: (userId: string, payload: Record<string, unknown>) => void;
   onCancelTestAccount: (userId: string) => void;
+  onUpdateModelAccess: (userId: string, allowedAiModels: string[]) => void;
 }) {
   const user = detail?.user || fallbackUser;
   const selectedOrder = detail?.orders.find((order) => order.id === selectedOrderId) || detail?.orders[0];
@@ -2504,6 +2518,17 @@ function AccountDetailDrawer({
   const [testDailyLimit, setTestDailyLimit] = useState("");
   const [testExpiresAt, setTestExpiresAt] = useState("");
   const [cancelConfirmed, setCancelConfirmed] = useState(false);
+  const [allowedAiModels, setAllowedAiModels] = useState<string[]>([]);
+  const visibleAiModels = useMemo(() => [...IMAGE_AI_MODELS, ...TEXT_AI_MODELS], []);
+  const allowedAiModelsKey = user?.allowedAiModels?.join("|");
+  useEffect(() => {
+    const allowed = user?.allowedAiModels;
+    setAllowedAiModels(
+      allowed === undefined
+        ? visibleAiModels.map(model => model.id)
+        : visibleAiModels.filter(model => allowed.includes(model.id)).map(model => model.id),
+    );
+  }, [allowedAiModelsKey, user?.id, visibleAiModels]);
   const selectedOrderNotes = selectedOrder
     ? (detail?.notes || []).filter((item) => item.orderId === selectedOrder.id).slice(0, 1)
     : [];
@@ -2569,6 +2594,50 @@ function AccountDetailDrawer({
                   )}
                 </section>
               )}
+
+              <section className="rounded-md border border-violet-300/20 bg-violet-300/[0.045] p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-violet-50">模型权限</h3>
+                    <p className="mt-1 text-xs text-slate-400">仅控制前端模型选择器中的模型，不影响 PicWish、BKEEL 等固定功能服务。</p>
+                  </div>
+                  <Badge className="border-violet-300/30 bg-violet-300/10 text-violet-100">{allowedAiModels.length} / {visibleAiModels.length} 已启用</Badge>
+                </div>
+                {(["图像模型", "对话模型"] as const).map((title, index) => {
+                  const models = index === 0 ? IMAGE_AI_MODELS : TEXT_AI_MODELS;
+                  return (
+                    <div key={title} className="mt-3">
+                      <div className="mb-2 text-xs font-medium text-slate-300">{title}</div>
+                      <div className="space-y-2">
+                        {models.map(model => {
+                          const enabled = allowedAiModels.includes(model.id);
+                          return (
+                            <label key={model.id} className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-slate-950/30 px-3 py-2">
+                              <span className="min-w-0">
+                                <span className="block text-sm text-slate-100">{model.label}</span>
+                                <span className="block font-mono text-xs text-slate-500">{model.id}</span>
+                              </span>
+                              <Switch
+                                checked={enabled}
+                                disabled={!canManageTestAccounts}
+                                onCheckedChange={(checked) => setAllowedAiModels(current => checked
+                                  ? Array.from(new Set([...current, model.id]))
+                                  : current.filter(id => id !== model.id))}
+                                aria-label={`${model.label} 模型权限`}
+                              />
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+                {canManageTestAccounts && (
+                  <div className="mt-3 flex justify-end">
+                    <Button type="button" className="bg-violet-200 text-slate-950 hover:bg-violet-100" onClick={() => onUpdateModelAccess(user.id, allowedAiModels)}>保存模型权限</Button>
+                  </div>
+                )}
+              </section>
 
               {(detail?.aiTasks || []).length > 0 && (
                 <MiniSection

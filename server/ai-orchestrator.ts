@@ -40,8 +40,21 @@ export type OrchestrateResponse = {
   skill?: string;
 };
 
-function inferCapability(input: OrchestrateRequest): AiCapability {
-  if (input.capability) return input.capability;
+const AI_CAPABILITIES = new Set<AiCapability>([
+  "chat",
+  "text_to_image",
+  "image_edit",
+  "image_expansion",
+  "background_removal",
+  "element_erasure",
+  "brand_kit_parse",
+]);
+
+export function inferAiCapability(input: OrchestrateRequest): AiCapability {
+  if (input.capability) {
+    if (!AI_CAPABILITIES.has(input.capability)) throw new Error("Unsupported AI capability");
+    return input.capability;
+  }
   const token = `${input.intent || ""} ${input.operation || ""}`.toLowerCase();
   if (/remove.*background|background.*removal|去背|去除背景|抠图/.test(token)) return "background_removal";
   if (/erase|eraser|element.*erasure|擦除|橡皮/.test(token)) return "element_erasure";
@@ -74,7 +87,7 @@ function buildPrompt(input: OrchestrateRequest, brandPrompt: string, skillPrompt
 
 export class AIOrchestrator {
   async run(input: OrchestrateRequest): Promise<OrchestrateResponse> {
-    const capability = inferCapability(input);
+    const capability = inferAiCapability(input);
     const route = resolveModelRoute(capability, input.model);
     const imageSrc = input.imageSrc || input.image_url || asDataUrl(input.image_base64);
     const images = input.images?.length ? input.images : imageSrc ? [{ src: imageSrc }] : undefined;
