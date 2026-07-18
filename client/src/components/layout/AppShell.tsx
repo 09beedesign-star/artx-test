@@ -11,9 +11,10 @@ import { defaultApiBaseUrlForCurrentHost, normalizeApiBaseUrl } from "@/lib/api-
 import { fileToDataUrl, submitUserFeedback } from "@/lib/feedback-submit";
 import { toast } from "sonner";
 import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
+import defaultWechatGroupQr from "@/assets/community/wechat-group-qr.jpg";
 import {
   Home, Sparkles, Library, FolderOpen,
-  CreditCard, HelpCircle, ImagePlus, Send, X, KeyRound, Copy, Loader2, Globe2,
+  CreditCard, HelpCircle, ImagePlus, Send, X, KeyRound, Copy, Loader2, Globe2, QrCode,
 } from "lucide-react";
 
 
@@ -67,6 +68,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   const { resolvedTheme } = useTheme();
   const { isAuthenticated, openLoginModal } = useAuth();
   const [helpOpen, setHelpOpen] = useState(false);
+  const [communityOpen, setCommunityOpen] = useState(false);
   const [apiKeyOpen, setApiKeyOpen] = useState(false);
   const [apiKeyLoading, setApiKeyLoading] = useState(false);
   const [apiKeyValue, setApiKeyValue] = useState("");
@@ -86,6 +88,8 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   const hoverBg      = isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)";
   const activeBg     = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
   const activeColor  = isDark ? "rgba(255,255,255,0.90)" : "rgba(20,20,36,0.90)";
+  const wechatGroupQrUrl = import.meta.env.VITE_WECHAT_GROUP_QR_URL || "/api/community/wechat-group-qr/image";
+  const [communityQrSrc, setCommunityQrSrc] = useState(wechatGroupQrUrl);
   const isActive = (path: string) =>
     path === "/" ? location === "/" : location.startsWith(path);
 
@@ -99,6 +103,15 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
     setHelpPrompt("");
     setHelpScreenshots([]);
     if (helpFileInputRef.current) helpFileInputRef.current.value = "";
+  };
+
+  const openCommunityDialog = () => {
+    setCommunityQrSrc(wechatGroupQrUrl);
+    setCommunityOpen(true);
+  };
+
+  const closeCommunityDialog = () => {
+    setCommunityOpen(false);
   };
 
   const submitHelpPrompt = async () => {
@@ -226,6 +239,78 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
       return current.filter(image => image.id !== id);
     });
   };
+
+  const communityDialog = communityOpen ? (
+    <div
+      className="fixed inset-0 flex items-center justify-center px-6"
+      style={{ zIndex: 10000, background: "rgba(0,0,0,0.20)" }}
+      onMouseDown={e => {
+        if (e.target === e.currentTarget) closeCommunityDialog();
+      }}
+    >
+      <div
+        className="w-[min(380px,calc(100vw-32px))] rounded-[var(--radius-xl-design)] p-5 text-center shadow-2xl"
+        style={{
+          background: isDark ? "rgba(22,22,30,0.98)" : "rgba(255,255,255,0.98)",
+          border: `1px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)"}`,
+          backdropFilter: "blur(18px)",
+        }}
+        onMouseDown={e => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="community-dialog-title"
+      >
+        <div className="mb-4 flex items-center justify-between gap-3 text-left">
+          <div>
+            <p id="community-dialog-title" className="text-[18px] font-semibold" style={{ color: textPrimary }}>
+              加入社群
+            </p>
+            <p className="mt-1 text-[13px]" style={{ color: textSecondary }}>
+              用户可扫码加入微信群
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={closeCommunityDialog}
+            className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-md-design)] transition-opacity hover:opacity-80"
+            style={{
+              background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)",
+              color: textPrimary,
+            }}
+            aria-label="关闭加入社群弹窗"
+          >
+            <X size={15} />
+          </button>
+        </div>
+
+        <div
+          className="mx-auto flex h-[220px] w-[220px] items-center justify-center overflow-hidden rounded-[var(--radius-lg-design)] border p-3"
+          style={{
+            borderColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)",
+            background: "white",
+          }}
+        >
+          {wechatGroupQrUrl ? (
+            <img
+              src={communityQrSrc}
+              alt="微信群二维码"
+              className="h-full w-full object-contain"
+              onError={() => {
+                if (communityQrSrc !== defaultWechatGroupQr) {
+                  setCommunityQrSrc(defaultWechatGroupQr);
+                }
+              }}
+            />
+          ) : (
+            <div className="flex h-full w-full flex-col items-center justify-center gap-3 rounded-[var(--radius-md-design)] border border-dashed border-black/18 text-[#222222]">
+              <QrCode size={56} strokeWidth={1.5} />
+              <span className="text-xs font-medium">请配置微信群二维码</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  ) : null;
 
   const helpDialog = helpOpen ? (
     <div
@@ -539,6 +624,16 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
           className="px-2 pb-4 pt-2 flex flex-col gap-0.5"
         >
           <button
+            onClick={openCommunityDialog}
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-[var(--radius-md-design)] type-caption transition-all text-left"
+            style={{ background: "transparent", color: textSecondary }}
+            onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = hoverBg)}
+            onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
+          >
+            <QrCode size={15} strokeWidth={1.6} style={{ flexShrink: 0, opacity: 0.7 }} />
+            <span className="truncate">加入社群</span>
+          </button>
+          <button
             onClick={activateHelpPrompt}
             className="w-full flex items-center gap-3 px-3 py-2 rounded-[var(--radius-md-design)] type-caption transition-all text-left"
             style={{ background: "transparent", color: textSecondary }}
@@ -546,7 +641,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
             onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
           >
             <HelpCircle size={15} strokeWidth={1.6} style={{ flexShrink: 0, opacity: 0.7 }} />
-            <span className="truncate">帮助</span>
+            <span className="truncate">帮助与反馈</span>
           </button>
           <button
             onClick={openApiKeyDialog}
@@ -565,6 +660,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
       <main className="flex-1 overflow-hidden" style={{ background: "#222222" }}>
         {children}
       </main>
+      {communityDialog}
       {helpDialog}
       {apiKeyDialog}
     </div>

@@ -1,5 +1,6 @@
 import express from "express";
 import { createServer } from "http";
+import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import "./env";
@@ -89,6 +90,12 @@ const IMAGE_PROXY_USER_AGENT =
 
 function isImageContentType(contentType: string) {
   return contentType.startsWith("image/") || contentType === "application/octet-stream";
+}
+
+function getWechatGroupQrPath() {
+  const configuredPath = process.env.WECHAT_GROUP_QR_PATH || "";
+  if (configuredPath.trim()) return path.resolve(configuredPath);
+  return path.join(process.env.ARTX_DATA_DIR || path.join(process.cwd(), ".artx-data"), "community", "wechat-group-qr.jpg");
 }
 
 function scheduleUploadCleanup() {
@@ -1010,6 +1017,22 @@ async function startServer() {
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true });
+  });
+
+  app.get("/api/community/wechat-group-qr/image", (_req, res) => {
+    const externalUrl = (process.env.WECHAT_GROUP_QR_URL || process.env.COMMUNITY_WECHAT_GROUP_QR_URL || "").trim();
+    res.setHeader("Cache-Control", "no-store, max-age=0");
+    if (/^https?:\/\//i.test(externalUrl)) {
+      res.redirect(302, externalUrl);
+      return;
+    }
+
+    const qrPath = getWechatGroupQrPath();
+    if (!fs.existsSync(qrPath)) {
+      res.status(404).json({ error: "Wechat group QR is not configured" });
+      return;
+    }
+    res.sendFile(qrPath);
   });
 
   app.get("/api/ai/models", async (_req, res) => {
