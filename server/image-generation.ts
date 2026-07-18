@@ -646,6 +646,7 @@ class ImageProviderRequestError extends Error {
 }
 
 const imageProviderRetryDelayMs = 1800;
+const REMOVE_BACKGROUND_PICWISH_TIMEOUT_MS = 120_000;
 
 function getProviderHost(baseUrl: string) {
   try {
@@ -657,6 +658,19 @@ function getProviderHost(baseUrl: string) {
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+    timeoutId.unref?.();
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
 }
 
 function isHtmlResponse(raw: string) {
@@ -2343,7 +2357,11 @@ async function removeBackgroundPreservingForegroundPixels(src: string): Promise<
   const { buffer, mimeType } = await imageSrcToBuffer(src);
 
   try {
-    return await removeBackgroundWithQualityCutout(buffer, mimeType);
+    return await withTimeout(
+      removeBackgroundWithQualityCutout(buffer, mimeType),
+      REMOVE_BACKGROUND_PICWISH_TIMEOUT_MS,
+      "PicWish quality background removal timed out",
+    );
   } catch (picWishError) {
     console.warn("PicWish quality background removal failed, using edge-color fallback", picWishError);
     try {
