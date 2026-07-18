@@ -178,6 +178,25 @@ type AiTaskUsage = {
   imageCount?: number;
 };
 
+type ExternalAgentUsageEvent = {
+  id: string;
+  apiKeyId: string;
+  apiKeyPrefix: string;
+  agentSource: string;
+  toolName: string;
+  capability: string;
+  model: string;
+  status: "success" | "failed";
+  latencyMs: number;
+  outputUnits: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  chargedCredits: number;
+  estimatedCostUsd: number;
+  failureCategory?: string;
+  createdAt: string;
+};
+
 type AiUsageRecordInput = {
   userId: string;
   username: string;
@@ -296,6 +315,7 @@ type AdminData = {
   credits: CreditLedgerEntry[];
   creditNotifications: CreditGiftNotification[];
   aiTasks: AiTaskRecord[];
+  externalAgentUsage: ExternalAgentUsageEvent[];
   providers: ProviderHealth[];
   feedback: FeedbackTicket[];
   alerts: OpsAlert[];
@@ -305,6 +325,7 @@ type AdminData = {
   capabilityStatus: CapabilityStatusItem[];
   aiBillingPolicies?: AiBillingPolicy[];
   aiPlanDiscounts?: AiPlanDiscountPolicy[];
+  usdToHkdRate?: number;
 };
 
 type CapabilityStatusItem = {
@@ -369,6 +390,7 @@ const DEMO_RECORD_PREFIXES = ["ord_90", "cr_7", "task_8", "fb_2", "al_8", "al_9"
 const DATA_DIR = process.env.ARTX_DATA_DIR || path.join(process.cwd(), ".artx-data");
 const DATA_FILE = path.join(DATA_DIR, "admin-data.json");
 const ADMIN_DATA_BACKEND = process.env.ARTX_ADMIN_DATA_BACKEND || "json";
+const DEFAULT_USD_TO_HKD_RATE = 7.8;
 
 type AdminDataRepository = {
   load(): Promise<Partial<AdminData> | null>;
@@ -1068,6 +1090,7 @@ async function seedAdminData(): Promise<AdminData> {
     credits: [],
     creditNotifications: [],
     aiTasks: [],
+    externalAgentUsage: [],
     providers: buildProviderHealth(),
     feedback: [],
     alerts: [],
@@ -1129,6 +1152,7 @@ async function normalizeDataAsync(value: Partial<AdminData>): Promise<AdminData>
     credits: Array.isArray(value.credits) ? value.credits : seed.credits,
     creditNotifications: Array.isArray(value.creditNotifications) ? value.creditNotifications : seed.creditNotifications,
     aiTasks: Array.isArray(value.aiTasks) ? value.aiTasks : seed.aiTasks,
+    externalAgentUsage: Array.isArray(value.externalAgentUsage) ? value.externalAgentUsage : [],
     providers: buildProviderHealth(),
     feedback: Array.isArray(value.feedback) ? value.feedback : seed.feedback,
     alerts: Array.isArray(value.alerts) ? value.alerts : seed.alerts,
@@ -1138,6 +1162,9 @@ async function normalizeDataAsync(value: Partial<AdminData>): Promise<AdminData>
     capabilityStatus: Array.isArray(value.capabilityStatus) ? value.capabilityStatus : seed.capabilityStatus,
     aiBillingPolicies: Array.isArray(value.aiBillingPolicies) ? value.aiBillingPolicies : AI_CREDIT_POLICIES,
     aiPlanDiscounts: Array.isArray(value.aiPlanDiscounts) ? value.aiPlanDiscounts : AI_PLAN_DISCOUNTS,
+    usdToHkdRate: Number.isFinite(value.usdToHkdRate) && Number(value.usdToHkdRate) > 0
+      ? Number(value.usdToHkdRate)
+      : DEFAULT_USD_TO_HKD_RATE,
   });
 }
 
@@ -3051,4 +3078,69 @@ export async function recordAiUsage(input: AiUsageRecordInput) {
 
   await saveAdminData(data);
   return record;
+}
+
+export async function recordExternalAgentUsage(input: Omit<ExternalAgentUsageEvent, "id" | "createdAt">) {
+  const data = await loadAdminData();
+  const event: ExternalAgentUsageEvent = {
+    ...input,
+    id: `mcp_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
+    apiKeyPrefix: input.apiKeyPrefix.slice(0, 48),
+    agentSource: input.agentSource.trim().slice(0, 80) || "未标识 Agent",
+    toolName: input.toolName.trim().slice(0, 80),
+    model: input.model.trim().slice(0, 80),
+    createdAt: nowIso(),
+  };
+  data.externalAgentUsage = [event, ...(Array.isArray(data.externalAgentUsage) ? data.externalAgentUsage : [])].slice(0, 500);
+  await saveAdminData(data);
+  return event;
+}
+
+export async function getExternalAgentUsage(filter: {
+  range?: string;
+  apiKeyId?: string;
+  agentSource?: string;
+  model?: string;
+  status?: string;
+} = {}) {
+  const data = await loadAdminData();
+  const hours = filter.range === "24h" ? 24 : filter.range === "7d" ? 24 * 7 : filter.range === "30d" ? 24 * 30 : 0;
+  const cutoff = hours ? Date.now() - hours * 60 * 60 * 1000 : 0;
+  const events = (Array.isArray(data.externalAgentUsage) ? data.externalAgentUsage : []).filter((event) => (
+    (!cutoff || Date.parse(event.createdAt) >= cutoff)
+    && (!filter.apiKeyId || event.apiKeyId === filter.apiKeyId)
+    && (!filter.agentSource || event.agentSource === filter.agentSource)
+    && (!filter.model || event.model === filter.model)
+    && (!filter.status || filter.status === "all" || event.status === filter.status)
+  ));
+  const rate = data.usdToHkdRate || DEFAULT_USD_TO_HKD_RATE;
+  const summary = events.reduce((total, event) => ({
+    calls: total.calls + 1,
+    successfulCalls: total.successfulCalls + (event.status === "success" ? 1 : 0),
+    failedCalls: total.failedCalls + (event.status === "failed" ? 1 : 0),
+    chargedCredits: total.chargedCredits + event.chargedCredits,
+    inputTokens: total.inputTokens + (event.inputTokens || 0),
+    outputTokens: total.outputTokens + (event.outputTokens || 0),
+    estimatedCostUsd: total.estimatedCostUsd + event.estimatedCostUsd,
+  }), { calls: 0, successfulCalls: 0, failedCalls: 0, chargedCredits: 0, inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0 });
+  const grouped = new Map<string, typeof summary & Pick<ExternalAgentUsageEvent, "apiKeyId" | "apiKeyPrefix" | "agentSource" | "model">>();
+  for (const event of events) {
+    const key = `${event.apiKeyId}:${event.agentSource}:${event.model}`;
+    const current = grouped.get(key) || { apiKeyId: event.apiKeyId, apiKeyPrefix: event.apiKeyPrefix, agentSource: event.agentSource, model: event.model, ...summary, calls: 0, successfulCalls: 0, failedCalls: 0, chargedCredits: 0, inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0 };
+    current.calls += 1;
+    current.successfulCalls += event.status === "success" ? 1 : 0;
+    current.failedCalls += event.status === "failed" ? 1 : 0;
+    current.chargedCredits += event.chargedCredits;
+    current.inputTokens += event.inputTokens || 0;
+    current.outputTokens += event.outputTokens || 0;
+    current.estimatedCostUsd += event.estimatedCostUsd;
+    grouped.set(key, current);
+  }
+  const toMoney = (value: number) => Number(value.toFixed(2));
+  return {
+    usdToHkdRate: rate,
+    summary: { ...summary, estimatedCostUsd: toMoney(summary.estimatedCostUsd), estimatedCostHkd: toMoney(summary.estimatedCostUsd * rate) },
+    byKey: Array.from(grouped.values()).map((row) => ({ ...row, apiKey: `${row.apiKeyPrefix}...`, estimatedCostUsd: toMoney(row.estimatedCostUsd), estimatedCostHkd: toMoney(row.estimatedCostUsd * rate) })),
+    events: events.slice(0, 100).map((event) => ({ ...event, apiKey: `${event.apiKeyPrefix}...`, estimatedCostHkd: toMoney(event.estimatedCostUsd * rate) })),
+  };
 }
