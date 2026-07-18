@@ -29,6 +29,7 @@ import CreditGrantNotification from "./components/billing/CreditGrantNotificatio
 const routerBase = import.meta.env.BASE_URL.replace(/\/$/, "");
 const configuredAdminHost = (import.meta.env.VITE_ADMIN_HOST || "").toLowerCase();
 const configuredAdminAccessToken = (import.meta.env.VITE_ADMIN_ACCESS_TOKEN || "").trim();
+const grayAdminRouteHosts = new Set(["backstage.artxsd.com"]);
 const routeLoadingDurationMs = 720;
 const publicGuestPaths = ["/", "/inspiration", "/skills", "/cross-border-commerce"];
 const homeAuthPanelStorageKey = "artx:home-auth-panel";
@@ -37,6 +38,7 @@ function isAdminHost() {
   if (typeof window === "undefined") return false;
   const host = window.location.hostname.toLowerCase();
   if (host === "localhost" || host === "127.0.0.1") return true;
+  if (grayAdminRouteHosts.has(host)) return true;
   if (configuredAdminHost && host === configuredAdminHost) return true;
   return host.startsWith("admin.");
 }
