@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import sharp from "sharp";
-import { __testNormalizeGeneratedImageSrc, __testNormalizeGeneratedImagesToTargetAspect, __testPreparePicWishEraseSourceImage, __testResolveHighDefinitionTargetSize, __testResolveReferenceImageRoute } from "./image-generation";
+import { __testNormalizeGeneratedImageSrc, __testNormalizeGeneratedImagesToTargetAspect, __testPreparePicWishEraseSourceImage, __testResolveHighDefinitionTargetSize, __testResolveReferenceImageRoute, __testShouldSendPicWishExpansionMargins } from "./image-generation";
 
 const ONE_PIXEL_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
@@ -80,5 +80,11 @@ describe("generated image source normalization", () => {
     expect(metadata.width).toBe(1536);
     expect(metadata.height).toBe(1152);
     expect(metadata.format).toBe("png");
+  });
+
+  it("uses the PicWish expansion mask contract instead of side margins when a mask exists", () => {
+    expect(__testShouldSendPicWishExpansionMargins({ maskBuffer: Buffer.from("mask") })).toBe(false);
+    expect(__testShouldSendPicWishExpansionMargins({ maskUrl: "https://example.com/mask.png" })).toBe(false);
+    expect(__testShouldSendPicWishExpansionMargins({})).toBe(true);
   });
 });

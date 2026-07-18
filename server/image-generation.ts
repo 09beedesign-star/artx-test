@@ -1355,6 +1355,12 @@ function appendOptionalPicWishNumber(body: FormData, key: string, value: unknown
   body.append(key, String(value));
 }
 
+function shouldSendPicWishExpansionMargins(input: { maskBuffer?: Buffer; maskUrl?: string }) {
+  return !input.maskBuffer && !input.maskUrl;
+}
+
+export const __testShouldSendPicWishExpansionMargins = shouldSendPicWishExpansionMargins;
+
 async function createPicWishImageExpansionTask(
   input: {
     imageBuffer?: Buffer;
@@ -1391,21 +1397,19 @@ async function createPicWishImageExpansionTask(
   } else {
     throw new Error("Missing image source for PicWish image expansion");
   }
-  const hasExpansionMargins =
-    typeof input.top === "number" ||
-    typeof input.bottom === "number" ||
-    typeof input.left === "number" ||
-    typeof input.right === "number";
-  if (!hasExpansionMargins && input.maskUrl) {
+  const sendExpansionMargins = shouldSendPicWishExpansionMargins(input);
+  if (input.maskUrl) {
     body.append("mask_url", input.maskUrl);
-  } else if (!hasExpansionMargins && input.maskBuffer) {
+  } else if (input.maskBuffer) {
     body.append("mask_file", bufferToImageFile(input.maskBuffer, input.maskMimeType || "image/png"));
   }
   if (input.prompt?.trim()) body.append("prompt", input.prompt.trim().slice(0, 500));
-  appendOptionalPicWishNumber(body, "top", input.top);
-  appendOptionalPicWishNumber(body, "bottom", input.bottom);
-  appendOptionalPicWishNumber(body, "left", input.left);
-  appendOptionalPicWishNumber(body, "right", input.right);
+  if (sendExpansionMargins) {
+    appendOptionalPicWishNumber(body, "top", input.top);
+    appendOptionalPicWishNumber(body, "bottom", input.bottom);
+    appendOptionalPicWishNumber(body, "left", input.left);
+    appendOptionalPicWishNumber(body, "right", input.right);
+  }
   appendOptionalPicWishNumber(body, "strength", input.strength);
   appendOptionalPicWishNumber(body, "scale", input.scale);
   appendOptionalPicWishNumber(body, "steps", input.steps);
