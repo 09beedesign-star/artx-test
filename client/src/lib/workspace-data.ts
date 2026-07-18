@@ -6,6 +6,7 @@ export type AiModelOption = {
   label: string;
   color: string;
   description?: string;
+  icon?: string;
 };
 
 export const AUTO_AI_MODEL: AiModelOption = {
@@ -40,8 +41,15 @@ function isImageModelOption(option: AiModelOption) {
     "gemini-3.1-flash-image",
     "gemini-3.1-flash-image-preview",
     "gemini-3.5-flash-preview",
+    "jimeng-4.0",
+    "mj-v7",
+    "mj-v8.1",
+    "og-image2-low",
+    "og-image2-medium",
+    "og-image2-high",
   ]);
   if (supportedImageModelIds.has(id)) return true;
+  if (/^(jimeng|mj)-/i.test(option.id) || /^og-image2-/i.test(option.id)) return true;
   return /^(gpt-image|dall[-_]?e|imagen|flux|stable-diffusion|sdxl|midjourney|kolors|recraft)/i.test(option.id)
     || /(?:^|[-_.])(image|images|img|vision-generate|image-generation)(?:$|[-_.])/i.test(id)
     || /gemini.*image/i.test(id);

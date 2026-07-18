@@ -116,6 +116,7 @@ export type AiModelCatalogOption = {
   label: string;
   color: string;
   description?: string;
+  icon?: string;
 };
 
 export type AiModelCatalogResponse = ApiErrorResponse & {

@@ -394,11 +394,13 @@ function getPicWishConfig() {
 }
 
 const supportedImageModels = new Set([
-  "gpt-image-2",
-  "gpt-image-2-4k",
-  "gemini-3.1-flash-image",
-  "gemini-3.1-flash-image-preview",
   "gemini-3.5-flash-preview",
+  "jimeng-4.0",
+  "mj-v7",
+  "mj-v8.1",
+  "og-image2-low",
+  "og-image2-medium",
+  "og-image2-high",
 ]);
 
 const chatCompatibleImageModels = new Set<string>([
@@ -412,6 +414,7 @@ type ImageModelCatalogOption = {
   label: string;
   color: string;
   description?: string;
+  icon?: string;
 };
 
 type ImageModelCatalog = {
@@ -434,10 +437,41 @@ const imageModelColors = [
   "oklch(0.70 0.16 150)",
 ];
 
+const imageModelDescriptions: Record<string, string> = {
+  "gpt-image-2": "中价高质通用",
+  "gpt-image-2-4k": "高价高清细节",
+  "gemini-3.1-flash-image": "低价高速均衡",
+  "gemini-3.1-flash-image-preview": "低价高速预览",
+  "gemini-3.5-flash-preview": "低价高速强效",
+  "jimeng-4.0": "中价中文强",
+  "mj-v7": "高价质感强",
+  "mj-v8.1": "高价细节强",
+  "og-image2-low": "低价快速稿",
+  "og-image2-medium": "中价均衡稳",
+  "og-image2-high": "高价高清强",
+};
+
+const imageModelLabels: Record<string, string> = {
+  "og-image2-low": "image2 low",
+  "og-image2-medium": "image2 medium",
+  "og-image2-high": "image2 high",
+};
+
+const imageModelIcons: Record<string, string> = {
+  "gemini-3.5-flash-preview": "gemini",
+  "jimeng-4.0": "jimeng",
+  "mj-v7": "mj",
+  "mj-v8.1": "mj",
+  "og-image2-low": "image2",
+  "og-image2-medium": "image2",
+  "og-image2-high": "image2",
+};
+
 function isImageGenerationModelId(id: string) {
   const normalized = id.trim().toLowerCase();
   if (!normalized) return false;
   if (supportedImageModels.has(id)) return true;
+  if (/^(jimeng|mj)-/i.test(id) || /^og-image2-/i.test(id)) return true;
   if (/^(gpt-image|dall[-_]?e|imagen|flux|stable-diffusion|sdxl|midjourney|kolors|recraft)/i.test(id)) {
     return true;
   }
@@ -447,8 +481,10 @@ function isImageGenerationModelId(id: string) {
 function createImageModelOption(id: string, index: number): ImageModelCatalogOption {
   return {
     id,
-    label: id,
+    label: imageModelLabels[id] || id,
     color: imageModelColors[index % imageModelColors.length],
+    description: imageModelDescriptions[id],
+    icon: imageModelIcons[id] || "image",
   };
 }
 

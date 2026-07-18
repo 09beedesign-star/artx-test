@@ -21,6 +21,27 @@ type AiModelOption = typeof TEXT_AI_MODEL_OPTIONS[number] | typeof IMAGE_AI_MODE
 
 // ── Model Switcher (shared bottom toolbar) ────────────────────
 
+function ModelLineIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="4" y="5" width="16" height="14" rx="3" stroke="currentColor" strokeWidth="1.7" />
+      <path d="M7.5 15.5 10.2 12l2.2 2.4 1.6-1.8 2.8 2.9" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="15.8" cy="8.8" r="1.2" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function ModelIconMark({ model }: { model: AiModelOption }) {
+  if (!model.icon) {
+    return <Cpu size={10} style={{ color: model.color }} />;
+  }
+  return (
+    <span style={{ color: "#FFFFFF", display: "inline-flex", flex: "0 0 auto" }}>
+      <ModelLineIcon size={14} />
+    </span>
+  );
+}
+
 function ModelSwitcher({
   modelId,
   onChange,
@@ -54,7 +75,7 @@ function ModelSwitcher({
           color: open ? "oklch(0.78 0.18 290)" : textPri,
         }}
       >
-        <Cpu size={10} style={{ color: current.color }} />
+        <ModelIconMark model={current} />
         <span>{current.label}</span>
         <ChevronDown size={9} style={{ color: textSec }} />
       </button>
@@ -89,11 +110,11 @@ function ModelSwitcher({
                   onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 4%)"; }}
                   onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "transparent"; }}
                 >
-                  <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: m.color }} />
+                  <ModelIconMark model={m} />
                   <div className="flex flex-col leading-tight">
                     <span className="font-medium">{m.label}</span>
                     {"description" in m && m.description ? (
-                      <span className="truncate" style={{ color: textSec, fontSize: 10, maxWidth: 148 }}>{m.description}</span>
+                      <span className="truncate" style={{ color: textSec, fontSize: 10, marginTop: 2, maxWidth: 148 }}>{m.description}</span>
                     ) : null}
                   </div>
                   {isActive && <div className="ml-auto w-1.5 h-1.5 rounded-full" style={{ background: "oklch(0.72 0.18 200)" }} />}

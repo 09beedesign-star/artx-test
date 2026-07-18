@@ -373,11 +373,27 @@ function BananaLineIcon({ size = 14 }: { size?: number }) {
   );
 }
 
-function AssistantModelIcon({ modelId }: { modelId: string }) {
-  if (/banana|gemini/i.test(modelId)) {
+function ImageModelLineIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="4" y="5" width="16" height="14" rx="3" stroke="currentColor" strokeWidth="1.7" />
+      <path d="M7.5 15.5 10.2 12l2.2 2.4 1.6-1.8 2.8 2.9" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="15.8" cy="8.8" r="1.2" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function AssistantModelIcon({
+  modelId,
+  icon,
+}: {
+  modelId: string;
+  icon?: string;
+}) {
+  if (icon || /banana|gemini|jimeng|mj-|image-?2|og-image2/i.test(modelId)) {
     return (
-      <span style={{ color: "#FACC15", display: "inline-flex", flex: "0 0 auto" }}>
-        <BananaLineIcon size={14} />
+      <span style={{ color: "#FFFFFF", display: "inline-flex", flex: "0 0 auto" }}>
+        <ImageModelLineIcon size={14} />
       </span>
     );
   }
@@ -663,16 +679,7 @@ function ModelSelector({
         onMouseEnter={() => setButtonHover(true)}
         onMouseLeave={() => setButtonHover(false)}
       >
-        <span
-          style={{
-            width: 6,
-            height: 6,
-            borderRadius: "50%",
-            background: current.color,
-            flexShrink: 0,
-            display: "inline-block",
-          }}
-        />
+        <AssistantModelIcon modelId={current.id} icon={current.icon} />
         {current.label}
         <ChevronDown size={10} style={{ opacity: 0.6 }} />
       </button>
@@ -713,16 +720,7 @@ function ModelSelector({
                   (e.currentTarget.style.background = "transparent")
                 }
               >
-                <span
-                  style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: "50%",
-                    background: m.color,
-                    flexShrink: 0,
-                    display: "inline-block",
-                  }}
-                />
+                <AssistantModelIcon modelId={m.id} icon={m.icon} />
                 <span className="flex min-w-0 flex-col leading-tight">
                   <span
                     className="type-caption"
@@ -733,7 +731,7 @@ function ModelSelector({
                   {"description" in m && m.description ? (
                     <span
                       className="truncate"
-                      style={{ fontSize: 10, opacity: 0.58, letterSpacing: 0 }}
+                      style={{ fontSize: 10, marginTop: 2, opacity: 0.58, letterSpacing: 0 }}
                     >
                       {m.description}
                     </span>
@@ -13691,10 +13689,7 @@ function ImageGeneratorPopover({
                           }}
                         >
                           <span className="flex min-w-0 items-center gap-2.5">
-                            <span
-                              className="h-4 w-4 rounded-[var(--radius-pill)] shrink-0"
-                              style={{ background: item.color }}
-                            />
+                            <AssistantModelIcon modelId={item.id} icon={item.icon} />
                             <span className="flex min-w-0 flex-col leading-tight">
                               <span
                                 className="truncate type-caption"
@@ -13713,6 +13708,7 @@ function ImageGeneratorPopover({
                                     color: sub,
                                     fontSize: 10,
                                     letterSpacing: 0,
+                                    marginTop: 2,
                                   }}
                                 >
                                   {item.description}
@@ -19886,7 +19882,7 @@ function CanvasAssistantPanel({
                               }}
                             >
                               <div className="flex min-w-0 items-center gap-2.5">
-                                <AssistantModelIcon modelId={model.id} />
+                                <AssistantModelIcon modelId={model.id} icon={model.icon} />
                                 <div className="min-w-0">
                                   <p
                                     className="truncate text-xs font-semibold"
@@ -19906,6 +19902,7 @@ function CanvasAssistantPanel({
                                         color: sub,
                                         fontSize: 10,
                                         letterSpacing: 0,
+                                        marginTop: 2,
                                         maxWidth: 150,
                                       }}
                                     >

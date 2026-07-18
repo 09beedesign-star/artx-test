@@ -27,11 +27,22 @@ describe("workspace image model options", () => {
   it("uses discovered image models as the selector source when the provider returns a catalog", () => {
     const options = mergeImageAiModelOptions([
       { id: "gemini-3.5-flash-preview", label: "gemini-3.5-flash-preview", color: "server-color" },
+      { id: "og-image2-low", label: "image2 low", color: "server-color", description: "低价快速稿", icon: "image2" },
+      { id: "og-image2-medium", label: "image2 medium", color: "server-color", description: "中价均衡稳", icon: "image2" },
+      { id: "og-image2-high", label: "image2 high", color: "server-color", description: "高价高清强", icon: "image2" },
     ]);
 
     expect(options.map(option => option.id)).toEqual([
       "auto",
       "gemini-3.5-flash-preview",
+      "og-image2-low",
+      "og-image2-medium",
+      "og-image2-high",
     ]);
+    expect(options.find(option => option.id === "og-image2-low")).toMatchObject({
+      label: "image2 low",
+      description: "低价快速稿",
+      icon: "image2",
+    });
   });
 });
