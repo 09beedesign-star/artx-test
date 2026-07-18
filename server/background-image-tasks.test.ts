@@ -27,4 +27,26 @@ describe("background image task routing", () => {
     expect(source).toContain("expandImageWithPicWish");
     expect(source).not.toContain('process.env.AI_IMAGE_MODEL || "gpt-image-2"');
   });
+
+  it("keeps PicWish task preflight independent from selectable image models", () => {
+    const source = readFileSync(resolve(__dirname, "index.ts"), "utf-8");
+
+    expect(source).toContain("function getBackgroundImageTaskPreflightTracking");
+    expect(source).toContain("const preflightTracking = getBackgroundImageTaskPreflightTracking(req.body || {}, taskCapability);");
+
+    expect(source).toContain('capabilityKey: "background_removal"');
+    expect(source).toContain('model: getRouteModel(input, "picwish-segmentation")');
+    expect(source).toContain('capabilityKey: "image_enhance"');
+    expect(source).toContain('model: getRouteModel(input, "picwish-scale")');
+    expect(source).toContain('capabilityKey: "watermark_removal"');
+    expect(source).toContain('model: getRouteModel(input, "picwish-watermark")');
+    expect(source).toContain('capabilityKey: "image_erase"');
+    expect(source).toContain('model: getRouteModel(input, "picwish-inpaint")');
+    expect(source).toContain('capabilityKey: "image_expansion"');
+    expect(source).toContain('model: getRouteModel(input, "picwish-advanced-image-expand")');
+
+    expect(source).toContain('capabilityKey: "image_edit"');
+    expect(source).toContain('provider: "AI_IMAGE"');
+    expect(source).toContain("model: getDefaultRouteImageModel(input)");
+  });
 });

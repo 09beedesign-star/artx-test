@@ -456,6 +456,90 @@ function capabilityFromOrchestrator(capability: string): AiBillingCapability {
   return "text_generation";
 }
 
+function getBackgroundImageTaskPreflightTracking(input: Record<string, unknown>, capability: string): AiRouteTracking {
+  switch (capability) {
+    case "smart_background":
+    case "create-background":
+      return {
+        capabilityKey: "smart_background",
+        capability: "智能产品图 / 海报一键生成",
+        provider: "PicWish 主体保护 + Image2/Gemini 背景",
+        model: getDefaultImageModelPriorityLabel(),
+        failureMessage: "Create background failed",
+      };
+    case "background_removal":
+    case "remove-background":
+      return {
+        capabilityKey: "background_removal",
+        capability: "抠图 / 去背景",
+        provider: "PicWish/佐糖",
+        model: getRouteModel(input, "picwish-segmentation"),
+        failureMessage: "Background removal failed",
+      };
+    case "image_enhance":
+    case "enhance":
+      return {
+        capabilityKey: "image_enhance",
+        capability: "高清图片生成",
+        provider: "PicWish/佐糖",
+        model: getRouteModel(input, "picwish-scale"),
+        failureMessage: "Image enhancement failed",
+      };
+    case "watermark_removal":
+    case "remove-watermark":
+      return {
+        capabilityKey: "watermark_removal",
+        capability: "去水印",
+        provider: "PicWish/佐糖",
+        model: getRouteModel(input, "picwish-watermark"),
+        failureMessage: "Image watermark removal failed",
+      };
+    case "image_erase":
+    case "erase":
+      return {
+        capabilityKey: "image_erase",
+        capability: "图片擦除",
+        provider: "PicWish/佐糖",
+        model: getRouteModel(input, "picwish-inpaint"),
+        failureMessage: "Image erase failed",
+      };
+    case "image_expansion":
+    case "expand":
+      return {
+        capabilityKey: "image_expansion",
+        capability: "扩图 / 外延生成",
+        provider: "PicWish/佐糖",
+        model: getRouteModel(input, "picwish-advanced-image-expand"),
+        failureMessage: "Image expansion failed",
+      };
+    case "image_edit":
+    case "edit":
+      return {
+        capabilityKey: "image_edit",
+        capability: "图片编辑",
+        provider: "AI_IMAGE",
+        model: getDefaultRouteImageModel(input),
+        failureMessage: "Image edit failed",
+      };
+    case "text_to_image":
+      return {
+        capabilityKey: "text_to_image",
+        capability: "text_to_image",
+        provider: "AI_IMAGE",
+        model: getDefaultRouteImageModel(input),
+        failureMessage: "Image generation failed",
+      };
+    default:
+      return {
+        capabilityKey: capabilityFromOrchestrator(capability),
+        capability,
+        provider: "AI_IMAGE",
+        model: getDefaultRouteImageModel(input),
+        failureMessage: "Image generation failed",
+      };
+  }
+}
+
 function requestedAiOutputCount(input: unknown) {
   if (!input || typeof input !== "object") return 1;
   const body = input as Record<string, unknown>;
@@ -1150,13 +1234,7 @@ async function startServer() {
       res.status(400).json({ error: message, taskId, status: "failed" });
       return;
     }
-    const preflightTracking: AiRouteTracking = {
-      capabilityKey: capabilityFromOrchestrator(taskCapability),
-      capability: taskCapability,
-      provider: "AI_IMAGE",
-      model: getDefaultRouteImageModel(req.body),
-      failureMessage: "Image generation failed",
-    };
+    const preflightTracking = getBackgroundImageTaskPreflightTracking(req.body || {}, taskCapability);
     let reservation: AiUsageReservation;
     try {
       assertUserCanUseSelectableModel(user, preflightTracking.model, preflightTracking.capabilityKey);
