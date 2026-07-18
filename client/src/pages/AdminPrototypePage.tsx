@@ -1387,8 +1387,14 @@ function AdminPrototypePage() {
               </div>
               <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <Input value={testAccountForm.email} onChange={(event) => setTestAccountForm((current) => ({ ...current, email: event.target.value }))} placeholder="测试账号邮箱" className="border-white/12 bg-slate-950/40" />
-                <Input type="number" min="1" value={testAccountForm.initialCredits} onChange={(event) => setTestAccountForm((current) => ({ ...current, initialCredits: event.target.value }))} placeholder="测试积分" className="border-white/12 bg-slate-950/40" />
-                <Input type="number" min="1" value={testAccountForm.dailyCreditLimit} onChange={(event) => setTestAccountForm((current) => ({ ...current, dailyCreditLimit: event.target.value }))} placeholder="每日 AI 积分上限" className="border-white/12 bg-slate-950/40" />
+                <label className="grid gap-1 text-xs text-slate-300">
+                  <span>初始额度</span>
+                  <Input type="number" min="1" value={testAccountForm.initialCredits} onChange={(event) => setTestAccountForm((current) => ({ ...current, initialCredits: event.target.value }))} placeholder="测试积分" className="border-white/12 bg-slate-950/40" />
+                </label>
+                <label className="grid gap-1 text-xs text-slate-300">
+                  <span>每日 AI 限额</span>
+                  <Input type="number" min="1" value={testAccountForm.dailyCreditLimit} onChange={(event) => setTestAccountForm((current) => ({ ...current, dailyCreditLimit: event.target.value }))} placeholder="每日 AI 积分上限" className="border-white/12 bg-slate-950/40" />
+                </label>
                 <Input type="datetime-local" value={testAccountForm.expiresAt} onChange={(event) => setTestAccountForm((current) => ({ ...current, expiresAt: event.target.value }))} className="border-white/12 bg-slate-950/40" />
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-3">

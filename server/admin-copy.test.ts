@@ -9,11 +9,10 @@ const adminCopyFiles = [
 ];
 
 describe("admin copy", () => {
-  it("uses 积分 instead of 额度 in backstage/admin wording", async () => {
+  it("avoids unsupported finance wording in backstage/admin copy", async () => {
     const root = path.resolve(import.meta.dirname, "..");
     for (const file of adminCopyFiles) {
       const content = await readFile(path.join(root, file), "utf-8");
-      expect(content, file).not.toContain("额度");
       expect(content, file).not.toContain("已确认收入");
       expect(content, file).not.toContain("累计付费");
       expect(content, file).not.toContain("兑换积分");

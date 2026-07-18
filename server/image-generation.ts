@@ -1,3 +1,5 @@
+import { getSkill } from "./skill-registry";
+
 type ImageGenerateInput = {
   prompt: string;
   model?: string;
@@ -2680,6 +2682,7 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
   const sourceImageData = await imageSrcToBuffer(input.imageSrc);
   const sourceDimensions = await getImageBufferDimensions(sourceImageData.buffer);
   const output = getBackgroundOutputSize(input, sourceDimensions.width, sourceDimensions.height);
+  const skill = input.skillId ? await getSkill(input.skillId) : undefined;
 
   try {
     const cutout = await removeBackgroundPreservingForegroundPixels(input.imageSrc);
@@ -2688,7 +2691,10 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
       throw new Error("PicWish did not return a product cutout");
     }
 
-    const backgroundPrompt = buildSmartProductBackgroundPrompt(input);
+    const backgroundPrompt = [
+      buildSmartProductBackgroundPrompt(input),
+      skill?.prompt,
+    ].filter(Boolean).join("\n\n");
     const composites: GeneratedImage[] = [];
     for (
       let remaining = count;

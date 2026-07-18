@@ -7,6 +7,8 @@ describe("AdminPrototypePage test account operations", () => {
     const page = readFileSync(resolve(__dirname, "AdminPrototypePage.tsx"), "utf-8");
 
     expect(page).toContain("测试账号");
+    expect(page).toContain("初始额度");
+    expect(page).toContain("每日 AI 限额");
     expect(page).toContain('"/api/admin/test-accounts"');
     expect(page).toContain("/test-profile");
     expect(page).toContain("/test-account/cancel");
