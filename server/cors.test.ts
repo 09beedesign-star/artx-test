@@ -5,6 +5,9 @@ describe("CORS origin allowlist", () => {
   it("allows GitHub Pages and production admin origins by default", () => {
     expect(getAllowedCorsOrigin("https://09beedesign-star.github.io")).toBe("https://09beedesign-star.github.io");
     expect(getAllowedCorsOrigin("https://admin.artxsd.com")).toBe("https://admin.artxsd.com");
+    expect(getAllowedCorsOrigin("https://www.artxsd.com")).toBe("https://www.artxsd.com");
+    expect(getAllowedCorsOrigin("https://artxsd.com")).toBe("https://artxsd.com");
+    expect(getAllowedCorsOrigin("https://backstage.artxsd.com")).toBe("https://backstage.artxsd.com");
   });
 
   it("allows additional configured frontend origins", () => {

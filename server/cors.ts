@@ -1,6 +1,10 @@
 const DEFAULT_ALLOWED_ORIGINS = [
   "https://09beedesign-star.github.io",
   "https://admin.artxsd.com",
+  "https://artxsd.com",
+  "https://www.artxsd.com",
+  "https://backstage.artxsd.com",
+  "https://gray.artxsd.com",
 ];
 
 function normalizeOrigin(value: string) {

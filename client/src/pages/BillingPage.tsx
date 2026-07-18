@@ -345,6 +345,9 @@ async function billingFetch<T>(
   } catch {
     throw new Error("测试后端支付接口暂时不可访问，请稍后重试");
   }
+  if (response.status === 429) {
+    throw new Error("支付请求过于频繁，请稍等 1 分钟后再试。");
+  }
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) {
     throw new Error("测试后端支付接口还未部署完成，请稍后再试");
