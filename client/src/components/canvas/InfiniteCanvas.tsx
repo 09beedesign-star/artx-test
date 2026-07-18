@@ -5860,6 +5860,17 @@ function AssetNodeComponent({
 
   const dispW = imgW || initW;
   const dispH = imgH || initH;
+  const processingBlockSize = Math.max(
+    30,
+    Math.min(140, Math.min(dispW, dispH) * 0.2)
+  );
+  const processingIconSize = Math.max(16, processingBlockSize * 0.58);
+  const processingTextSize = Math.max(6, processingBlockSize * 0.13);
+  const processingLineHeight = `${Math.max(8, processingTextSize * 1.22)}px`;
+  const processingTextWidth = Math.max(
+    44,
+    Math.min(dispW * 0.72, processingBlockSize * 4.8)
+  );
   const regenerateDetail = getRegenerableImageNodeDetail(nodeId, data, {
     w: dispW,
     h: dispH,
@@ -6830,20 +6841,29 @@ function AssetNodeComponent({
                     isGenerationFailed
                       ? "artx-ai-generation-mark-shell artx-ai-generation-mark-shell-failed"
                       : "artx-ai-generation-mark-shell"
-                  }
-                  aria-hidden="true"
-                >
-                  <img
-                    src={generationMark}
+	                  }
+	                  aria-hidden="true"
+	                  style={{
+	                    width: processingIconSize,
+	                    height: processingIconSize,
+	                  }}
+	                >
+	                  <img
+	                    src={generationMark}
                     alt=""
                     className={
                       isGenerationFailed
                         ? "artx-ai-generation-mark artx-ai-generation-mark-failed"
                         : "artx-ai-generation-mark"
-                    }
-                    draggable={false}
-                  />
-                </div>
+	                    }
+	                    style={{
+	                      width: processingIconSize,
+	                      height: processingIconSize,
+	                      objectFit: "contain",
+	                    }}
+	                    draggable={false}
+	                  />
+	                </div>
               ) : (
                 <div
                   className="animate-spin"
@@ -6857,21 +6877,28 @@ function AssetNodeComponent({
                 />
               )}
               <div
-                className="flex flex-col items-center px-5 text-center"
-                style={{ gap: 2 }}
-              >
-                {processingLines.slice(0, 2).map((line, index) => (
-                  <span
-                    key={`${line}-${index}`}
-                    style={{
-                      maxWidth: 280,
-                      color: "rgba(255,255,255,0.30)",
-                      fontSize: 16,
-                      fontWeight: 500,
-                      lineHeight: "22px",
-                      letterSpacing: 0,
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
+	                className="flex flex-col items-center text-center"
+	                style={{
+	                  gap: Math.max(1, processingBlockSize * 0.025),
+	                  maxHeight: Math.max(
+	                    8,
+	                    processingBlockSize - processingIconSize
+	                  ),
+	                  width: processingTextWidth,
+	                }}
+	              >
+	                {processingLines.slice(0, 2).map((line, index) => (
+	                  <span
+	                    key={`${line}-${index}`}
+	                    style={{
+	                      maxWidth: "100%",
+	                      color: "rgba(255,255,255,0.30)",
+	                      fontSize: processingTextSize,
+	                      fontWeight: 500,
+	                      lineHeight: processingLineHeight,
+	                      letterSpacing: 0,
+	                      whiteSpace: "nowrap",
+	                      overflow: "hidden",
                       textOverflow: "ellipsis",
                     }}
                   >
@@ -7429,16 +7456,20 @@ function AssetNodeComponent({
             ref={extractedTextPanelRef}
             className="absolute nodrag nopan shadow-2xl"
             style={{
-              left: dispW + 14 * stableUiScale,
-              top: 0,
-              width: 292,
-              minHeight: 260,
-              maxHeight: 420,
-              borderRadius: 8,
-              overflow: "hidden",
-              background: isDark
-                ? "rgba(20,20,30,0.96)"
-                : "rgba(255,255,255,0.98)",
+	              left: dispW + 14 * stableUiScale,
+	              top: 0,
+	              width: 292,
+	              height: 360,
+	              minWidth: 260,
+	              minHeight: 260,
+	              maxWidth: 520,
+	              maxHeight: 420,
+	              borderRadius: 8,
+	              overflow: "hidden",
+	              resize: "both",
+	              background: isDark
+	                ? "rgba(20,20,30,0.96)"
+	                : "rgba(255,255,255,0.98)",
               border: `1px solid ${isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.12)"}`,
               color: isDark ? "rgba(255,255,255,0.88)" : "rgba(28,28,40,0.88)",
               backdropFilter: "blur(16px)",
@@ -7496,13 +7527,12 @@ function AssetNodeComponent({
               aria-label="提取出的画面文案"
               className="w-full nodrag nopan"
               style={{
-                minHeight: 138,
-                maxHeight: 336,
-                flex: "0 0 auto",
-                padding: 12,
-                resize: "vertical",
-                outline: "none",
-                border: "none",
+	                minHeight: 138,
+	                flex: "1 1 auto",
+	                padding: 12,
+	                resize: "none",
+	                outline: "none",
+	                border: "none",
                 background: "transparent",
                 color: "inherit",
                 fontSize: 13,
@@ -7520,18 +7550,25 @@ function AssetNodeComponent({
               onKeyDown={event => event.stopPropagation()}
             />
             <div
-              className="flex items-center justify-between gap-2 px-3 py-2"
-              style={{
-                borderTop: `1px solid ${isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)"}`,
-              }}
-            >
+	              className="flex items-center justify-between gap-2 px-3 py-2"
+	              style={{
+	                borderTop: `1px solid ${isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)"}`,
+	                display: "grid",
+	                gridTemplateColumns: "1fr 1fr",
+	                gap: 8,
+	                marginTop: "auto",
+	                flex: "0 0 auto",
+	              }}
+	            >
               <button
                 type="button"
-                className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5 transition-opacity hover:opacity-80"
-                style={{
-                  color: isDark
-                    ? "rgba(255,255,255,0.84)"
-                    : "rgba(28,28,40,0.82)",
+	                className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5 transition-opacity hover:opacity-80"
+	                style={{
+	                  width: "100%",
+	                  height: 42,
+	                  color: isDark
+	                    ? "rgba(255,255,255,0.84)"
+	                    : "rgba(28,28,40,0.82)",
                   background: isDark
                     ? "rgba(255,255,255,0.08)"
                     : "rgba(0,0,0,0.05)",
@@ -7546,9 +7583,11 @@ function AssetNodeComponent({
               </button>
               <button
                 type="button"
-                className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5 transition-opacity hover:opacity-80"
-                style={{
-                  color: "white",
+	                className="type-caption rounded-[var(--radius-md-design)] px-3 py-1.5 transition-opacity hover:opacity-80"
+	                style={{
+	                  width: "100%",
+	                  height: 42,
+	                  color: "white",
                   background:
                     "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.72 0.18 205))",
                   opacity:

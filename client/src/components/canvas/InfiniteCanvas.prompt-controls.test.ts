@@ -161,4 +161,23 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain("marginTop: 2");
     expect(source).toContain('className="flex min-w-0 items-start gap-2.5"');
   });
+
+  it("keeps generated image processing overlays and extracted-text actions responsive", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+
+    expect(source).toContain("const processingBlockSize = Math.max");
+    expect(source).toContain("Math.min(dispW, dispH) * 0.2");
+    expect(source).toContain("const processingIconSize = Math.max");
+    expect(source).toContain("const processingTextSize = Math.max");
+    expect(source).toContain("width: processingIconSize");
+    expect(source).toContain("height: processingIconSize");
+    expect(source).toContain("fontSize: processingTextSize");
+    expect(source).toContain("lineHeight: processingLineHeight");
+
+    expect(source).toContain('resize: "both"');
+    expect(source).toContain('resize: "none"');
+    expect(source).toContain('gridTemplateColumns: "1fr 1fr"');
+    expect(source).toContain('marginTop: "auto"');
+    expect(source).toContain("height: 42");
+  });
 });
