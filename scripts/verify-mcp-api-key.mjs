@@ -6,8 +6,11 @@ const runImage = process.env.RUN_IMAGE === "1";
 const prompt = process.env.MCP_IMAGE_PROMPT || "A small white rabbit sticker, clean background, commercial product icon style.";
 const model = process.env.MCP_IMAGE_MODEL || "og-image2-low";
 const ratio = process.env.MCP_IMAGE_RATIO || "1:1";
+const mcpRequestDelayMs = Number(process.env.MCP_REQUEST_DELAY_MS || 3500);
+const mcpMaxAttempts = Number(process.env.MCP_MAX_ATTEMPTS || 4);
 
 const results = [];
+let lastMcpRequestAt = 0;
 
 function record(name, status, details = "") {
   results.push({ name, status, details });
@@ -19,33 +22,73 @@ function requireOk(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function mcpRequest(method, params = undefined) {
   requireOk(apiKey, "set ARTX_MCP_API_KEY to test MCP endpoints");
-  const response = await fetch(`${backendUrl}/api/mcp`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: `${method}-${Date.now()}`,
-      method,
-      ...(params ? { params } : {}),
-    }),
-  });
-  const text = await response.text();
-  const body = JSON.parse(text || "{}");
-  requireOk(response.ok, `${method} failed: ${response.status} ${text}`);
-  requireOk(!body.error, `${method} returned MCP error: ${JSON.stringify(body.error)}`);
-  return body.result;
+  let lastError = "";
+
+  for (let attempt = 1; attempt <= mcpMaxAttempts; attempt += 1) {
+    const elapsed = Date.now() - lastMcpRequestAt;
+    if (elapsed < mcpRequestDelayMs) await sleep(mcpRequestDelayMs - elapsed);
+    lastMcpRequestAt = Date.now();
+
+    const response = await fetch(`${backendUrl}/api/mcp`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: `${method}-${Date.now()}`,
+        method,
+        ...(params ? { params } : {}),
+      }),
+    });
+    const text = await response.text();
+    const contentType = response.headers.get("content-type") || "";
+    const isJson = contentType.includes("application/json") || /^[\s\n\r]*[{[]/.test(text);
+
+    if (!response.ok || !isJson) {
+      lastError = `${method} failed: ${response.status} ${text.slice(0, 180)}`;
+      if ((response.status === 429 || !isJson) && attempt < mcpMaxAttempts) {
+        await sleep(Math.min(15000, mcpRequestDelayMs * attempt));
+        continue;
+      }
+      throw new Error(lastError);
+    }
+
+    const body = JSON.parse(text || "{}");
+    requireOk(!body.error, `${method} returned MCP error: ${JSON.stringify(body.error)}`);
+    return body.result;
+  }
+
+  throw new Error(lastError || `${method} failed`);
 }
 
 async function verifyPublicHealth() {
-  const response = await fetch(`${backendUrl}/api/health`);
-  const body = await response.json().catch(() => null);
-  requireOk(response.ok && body?.ok === true, `backend health failed: ${response.status}`);
-  record("backend /api/health", "ok");
+  let lastStatus = "";
+  for (let attempt = 1; attempt <= mcpMaxAttempts; attempt += 1) {
+    const response = await fetch(`${backendUrl}/api/health`);
+    const text = await response.text();
+    const contentType = response.headers.get("content-type") || "";
+    const isJson = contentType.includes("application/json") || /^[\s\n\r]*[{[]/.test(text);
+    const body = isJson ? JSON.parse(text || "{}") : null;
+    if (response.ok && body?.ok === true) {
+      record("backend /api/health", "ok");
+      return;
+    }
+    lastStatus = `${response.status} ${text.slice(0, 180)}`;
+    if (response.status === 429 && attempt < mcpMaxAttempts) {
+      await sleep(Math.min(15000, mcpRequestDelayMs * attempt));
+      continue;
+    }
+    break;
+  }
+  throw new Error(`backend health failed: ${lastStatus}`);
 }
 
 async function verifyMcpHealth() {
