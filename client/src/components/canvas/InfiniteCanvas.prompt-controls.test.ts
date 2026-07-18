@@ -153,11 +153,9 @@ describe("InfiniteCanvas prompt controls", () => {
   it("renders model brand icons aligned to the title row", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
 
-    expect(source).toContain("function GeminiBrandIcon");
-    expect(source).toContain("function JimengBrandIcon");
-    expect(source).toContain("function MidjourneyBrandIcon");
-    expect(source).toContain("function OpenAiBrandIcon");
+    expect(source).toContain('from "./model-brand-icons"');
     expect(source).toContain("const iconKind = getModelBrandIconKind(modelId, icon)");
+    expect(source).toContain("<ModelBrandIconMask kind={iconKind} size={14} />");
     expect(source).toContain('data-model-brand-icon={iconKind}');
     expect(source).toContain("marginTop: 2");
     expect(source).toContain('className="flex min-w-0 items-start gap-2.5"');
