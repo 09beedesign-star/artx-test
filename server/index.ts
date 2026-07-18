@@ -20,6 +20,7 @@ import { getAllowedCorsOrigin } from "./cors";
 import { sendOpsNotification } from "./notifications";
 import { classifyApplicationSecuritySignal, createSecurityEventDetector, validateSecurityEventIngest } from "./security-events";
 import { assertUserCanUseSelectableModel } from "./user-model-access";
+import { listSelectableModelIds } from "./model-router";
 import type { AiBillingCapability } from "../shared/ai-credit-policy";
 import {
   CROSS_BORDER_CATEGORIES,
@@ -1626,6 +1627,57 @@ async function startServer() {
     } catch (error) {
       const message = error instanceof Error ? error.message : "API key create failed";
       res.status(500).json({ error: message });
+    }
+  });
+
+  app.get("/v1/models", async (req, res) => {
+    const auth = await getApiKeyUserFromAuthorization(req.headers.authorization);
+    if (auth.status !== 200 || !("user" in auth.body)) {
+      res.status(auth.status).json({ error: { message: "Invalid ArtX API key", type: "authentication_error" } });
+      return;
+    }
+    res.json({ object: "list", data: listSelectableModelIds().map(id => ({ id, object: "model", owned_by: "artx" })) });
+  });
+
+  app.post("/v1/chat/completions", async (req, res) => {
+    const auth = await getApiKeyUserFromAuthorization(req.headers.authorization);
+    if (auth.status !== 200 || !("user" in auth.body)) {
+      res.status(auth.status).json({ error: { message: "Invalid ArtX API key", type: "authentication_error" } });
+      return;
+    }
+    const body = req.body && typeof req.body === "object" ? req.body as Record<string, unknown> : {};
+    if (body.stream === true) {
+      res.status(400).json({ error: { message: "streaming is not supported", type: "invalid_request_error" } });
+      return;
+    }
+    const model = typeof body.model === "string" ? body.model.trim() : "og-image2-medium";
+    if (!listSelectableModelIds().includes(model)) {
+      res.status(400).json({ error: { message: "Unsupported ArtX model", type: "invalid_request_error" } });
+      return;
+    }
+    const messages = Array.isArray(body.messages) ? body.messages as Array<{ role?: unknown; content?: unknown }> : [];
+    const prompt = messages.map(message => typeof message.content === "string" ? message.content : "").filter(Boolean).join("\n").trim();
+    if (!prompt) {
+      res.status(400).json({ error: { message: "messages must include text content", type: "invalid_request_error" } });
+      return;
+    }
+    const capabilityKey: AiBillingCapability = model === "gpt-5.4-mini" ? "text_generation" : "text_to_image";
+    const user = { id: auth.body.user.id, username: auth.body.user.username, allowedAiModels: auth.body.user.allowedAiModels };
+    const startedAt = Date.now();
+    let reservation: AiUsageReservation | undefined;
+    try {
+      assertUserCanUseSelectableModel(user, model, capabilityKey);
+      reservation = await reserveAiRouteUsage({ user, tracking: { capabilityKey, capability: "OpenAI 兼容调用", provider: "OPENAI_COMPAT", model, failureMessage: "OpenAI-compatible request failed" }, request: { count: body.n } });
+      const result = await orchestrator.run({ capability: capabilityKey === "text_generation" ? "chat" : "text_to_image", prompt, model, count: Number(body.n || 1) });
+      const usage = await recordAiRouteUsage({ user, tracking: { capabilityKey, capability: "OpenAI 兼容调用", provider: result.route, model: result.model, failureMessage: "OpenAI-compatible request failed" }, startedAt, status: "success", result });
+      await recordExternalAgentUsage({ apiKeyId: auth.body.apiKey.id, apiKeyPrefix: auth.body.apiKey.prefix, agentSource: "OpenAI Compatible", toolName: "chat.completions", capability: usage.capability, model: usage.model, status: "success", latencyMs: usage.latencyMs, outputUnits: usage.outputUnits, inputTokens: usage.usage?.promptTokens, outputTokens: usage.usage?.completionTokens, chargedCredits: usage.chargedCredits, estimatedCostUsd: usage.estimatedCost }).catch(() => undefined);
+      const content = result.type === "image" ? (result.images || []).map(image => `![image](${image.src})`).join("\n") : result.text || "";
+      res.json({ id: `chatcmpl_${Date.now().toString(36)}`, object: "chat.completion", created: Math.floor(Date.now() / 1000), model: result.model, choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }] });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "OpenAI-compatible request failed";
+      res.status(aiRequestErrorStatus(message)).json({ error: { message, type: "api_error" } });
+    } finally {
+      await releaseAiRouteUsage(user, reservation);
     }
   });
 
