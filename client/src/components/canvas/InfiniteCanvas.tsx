@@ -2793,7 +2793,7 @@ function AssetFloatingToolbar({
   const tools = mode === "canvasFrame" ? frameTools : assetTools;
   const moreItems = [
     { icon: <ImageIcon size={18} />, label: "调整", action: "adjust" },
-    { icon: <Frame size={18} />, label: "矢量", action: "vector", cost: 9 },
+    { icon: <Frame size={18} />, label: "矢量", action: "vector" },
   ];
   useEffect(() => {
     if (!moreOpen) return;
@@ -2948,15 +2948,6 @@ function AssetFloatingToolbar({
                 {item.icon}
               </span>
               <span style={{ flex: 1 }}>{item.label}</span>
-              {item.cost && (
-                <span
-                  className="flex items-center gap-1"
-                  style={{ color: moreSub, fontSize: 13 }}
-                >
-                  <Sparkles size={12} fill="currentColor" />
-                  {item.cost}
-                </span>
-              )}
             </button>
           ))}
         </div>
@@ -6386,6 +6377,17 @@ function AssetNodeComponent({
     );
   }, [nodeId]);
 
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ nodeId?: string }>).detail;
+      if (detail?.nodeId === nodeId) {
+        setCropRect({ x: 0, y: 0, w: 100, h: 100 });
+      }
+    };
+    window.addEventListener("asset-expand-reset", handler);
+    return () => window.removeEventListener("asset-expand-reset", handler);
+  }, [nodeId]);
+
   const getErasePoint = useCallback(
     (event: React.PointerEvent<HTMLCanvasElement>) => {
       const canvas = eraseCanvasRef.current;
@@ -6608,23 +6610,23 @@ function AssetNodeComponent({
       maskCtx.fillRect(0, 0, pixelNextW, pixelNextH);
       maskCtx.fillStyle = "black";
       maskCtx.fillRect(expandLeft, expandTop, sourceW, sourceH);
-      window.dispatchEvent(
-        new CustomEvent("asset-expand-apply", {
-          detail: {
-            nodeId,
-            imageSrc,
-            maskSrc: maskCanvas.toDataURL("image/png"),
-            nextW: pixelNextW,
-            nextH: pixelNextH,
-            displayW: displayNextW,
-            displayH: displayNextH,
-            top: expandTop,
-            bottom: expandBottom,
-            left: expandLeft,
-            right: expandRight,
-          },
-        })
-      );
+      try {
+        window.dispatchEvent(
+          new CustomEvent("asset-expand-apply", {
+            detail: {
+              nodeId,
+              imageSrc: expandedCanvas.toDataURL("image/png"),
+              maskSrc: maskCanvas.toDataURL("image/png"),
+              nextW: pixelNextW,
+              nextH: pixelNextH,
+              displayW: displayNextW,
+              displayH: displayNextH,
+            },
+          })
+        );
+      } catch {
+        toast("AI 扩展失败", { description: "无法生成扩展画布" });
+      }
     };
     image.onerror = () =>
       toast("AI 扩展失败", { description: "无法读取当前图片" });
@@ -9708,6 +9710,7 @@ type ImageRegenerateRequestDetail = {
   sourceBackgroundSrc?: string;
   imageSrc?: string;
   editMode?: boolean;
+  backgroundTaskInput?: ImageGenerationTaskInput;
 };
 
 type ImageGeneratorReferenceAsset = {
@@ -9716,13 +9719,6 @@ type ImageGeneratorReferenceAsset = {
   src: string;
   width?: number;
   height?: number;
-};
-
-type ElementLayerPlan = {
-  foregroundPrompt: string;
-  backgroundPrompt: string;
-  extractedText: string;
-  textStyleHint?: string;
 };
 
 // ── Initial data ───────────────────────────────────────────────
@@ -10409,6 +10405,42 @@ function dispatchImageGenerationTask(
   );
 }
 
+async function createEraseMaskFromTransparentLayer(
+  layerSrc: string,
+  width: number,
+  height: number
+) {
+  return new Promise<string>((resolve, reject) => {
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(width));
+      canvas.height = Math.max(1, Math.round(height));
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        reject(new Error("无法创建图层蒙版"));
+        return;
+      }
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+      for (let index = 0; index < data.length; index += 4) {
+        const isForeground = data[index + 3] > 24;
+        data[index] = 0;
+        data[index + 1] = 0;
+        data[index + 2] = 0;
+        data[index + 3] = isForeground ? 0 : 255;
+      }
+      ctx.putImageData(imageData, 0, 0);
+      resolve(canvas.toDataURL("image/png"));
+    };
+    image.onerror = () => reject(new Error("无法读取主体层结果"));
+    image.src = getCanvasRenderableImageSrc(layerSrc);
+  });
+}
+
 function getRegenerableImageNodeDetail(
   nodeId: string,
   data: Record<string, unknown>,
@@ -10464,6 +10496,11 @@ function getRegenerableImageNodeDetail(
           ? data.localSrc
           : undefined,
     editMode: data.generationEditMode === true,
+    backgroundTaskInput:
+      data.generationBackgroundTaskInput &&
+      typeof data.generationBackgroundTaskInput === "object"
+        ? (data.generationBackgroundTaskInput as ImageGenerationTaskInput)
+        : undefined,
   };
 }
 
@@ -10480,6 +10517,7 @@ function getImageGenerationNodeMetadata(detail: ImageGeneratorPayload) {
     generationSourceImageSrc:
       detail.sourceImageSrc || detail.sourceBackgroundSrc,
     generationEditMode: detail.editMode === true,
+    generationBackgroundTaskInput: detail.backgroundTaskInput,
     commerceContext: detail.commerceContext,
   };
 }
@@ -23661,6 +23699,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const startedAt = Date.now();
       if (detail.status === "failed") {
         const generationId = `image-regenerate-${startedAt}-${Math.random().toString(36).slice(2, 7)}`;
+        const backgroundTaskInput = detail.backgroundTaskInput
+          ? { ...detail.backgroundTaskInput, taskId: generationId }
+          : undefined;
         const payload: ImageGeneratorPayload = {
           projectId,
           prompt: detail.prompt,
@@ -23677,6 +23718,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           sourceBackgroundSrc: detail.sourceBackgroundSrc,
           sourceImageSrc: detail.imageSrc,
           editMode: detail.editMode,
+          backgroundTaskInput,
         };
         setNodes(nds =>
           nds.map(node => {
@@ -23714,14 +23756,17 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             { ...payload, status: "pending" },
             projectId
           );
-          void editImageWithPrompt({
-            imageSrc: detail.imageSrc,
-            model: detail.model,
-            prompt: detail.prompt,
-            referencedAssets: detail.referencedAssets,
-            targetWidth: detail.displaySize.w,
-            targetHeight: detail.displaySize.h,
-          })
+          void (backgroundTaskInput
+            ? runImageGenerationTask(backgroundTaskInput)
+            : editImageWithPrompt({
+                imageSrc: detail.imageSrc,
+                model: detail.model,
+                prompt: detail.prompt,
+                referencedAssets: detail.referencedAssets,
+                targetWidth: detail.displaySize.w,
+                targetHeight: detail.displaySize.h,
+                generationId,
+              }))
             .then(result =>
               dispatchImageGenerationTask(
                 {
@@ -23763,6 +23808,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           }
         : undefined;
       const generationId = `regenerate-${startedAt}-${Math.random().toString(36).slice(2, 7)}`;
+      const backgroundTaskInput = detail.backgroundTaskInput
+        ? { ...detail.backgroundTaskInput, taskId: generationId }
+        : undefined;
       const payload: ImageGeneratorPayload = {
         projectId,
         prompt: detail.prompt,
@@ -23780,17 +23828,21 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         sourceBackgroundSrc: detail.sourceBackgroundSrc,
         sourceImageSrc: detail.imageSrc,
         editMode: detail.editMode,
+        backgroundTaskInput,
       };
       dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
       if (detail.editMode && detail.imageSrc) {
-        void editImageWithPrompt({
-          imageSrc: detail.imageSrc,
-          model: detail.model,
-          prompt: detail.prompt,
-          referencedAssets: detail.referencedAssets,
-          targetWidth: detail.displaySize.w,
-          targetHeight: detail.displaySize.h,
-        })
+        void (backgroundTaskInput
+          ? runImageGenerationTask(backgroundTaskInput)
+          : editImageWithPrompt({
+              imageSrc: detail.imageSrc,
+              model: detail.model,
+              prompt: detail.prompt,
+              referencedAssets: detail.referencedAssets,
+              targetWidth: detail.displaySize.w,
+              targetHeight: detail.displaySize.h,
+              generationId,
+            }))
           .then(result =>
             dispatchImageGenerationTask(
               {
@@ -27597,140 +27649,126 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           description: "正在拆分主体层、背景层和占位层",
         });
         try {
-          const planner = await callLLM({
-            module: "image-edit-elements-plan",
-            model: "gpt-4o",
-            images: [
-              {
-                src: imageSrc,
-                title: typeof data.title === "string" ? data.title : "选中图片",
-              },
-            ],
-            prompt: [
-              "你正在为设计画布生成图片分层计划。",
-              "请把图像拆成接近专业设计软件的图层：主体整体层、背景场景层、可编辑文案信息。",
-              "主体整体层必须包含最前景完整主体以及与主体绑定的座椅/道具/服装/鞋子/手部，不要把人体和座椅拆碎。",
-              "背景场景层必须移除主体整体层，保留并补全后方背景、地面、墙面、品牌符号、阴影和被主体遮挡的区域。",
-              "不要生成碎片化的中景残渣层，不要输出人物、裤子、椅子或鞋子的残片。",
-              "返回严格 JSON，不要使用代码块，不要附加解释。",
-              "JSON 结构：",
-              '{"foregroundPrompt":"...","backgroundPrompt":"...","extractedText":"...","textStyleHint":"..."}',
-              "foregroundPrompt：用于生成主体整体层，只保留完整人物/产品/座椅/手脚/服装等绑定主体，其它区域完全透明 alpha=0。",
-              "backgroundPrompt：用于生成背景场景层，完整保留后方 W 标志、蓝色背景、地面透视和光影；移除主体整体层并自然补齐被遮挡区域，输出不透明背景图。",
-              "extractedText：把画面中的全部可读文案按原顺序输出；若没有则输出空字符串。",
-              "textStyleHint：简要描述文案层适合的排版气质，比如 headline、small、bold。",
-            ].join("\n"),
-          });
-
-          let parsedPlan: ElementLayerPlan | null = null;
-          try {
-            parsedPlan = JSON.parse(planner.text) as ElementLayerPlan;
-          } catch {
-            parsedPlan = null;
-          }
-
-          const fallbackPlan: ElementLayerPlan = {
-            foregroundPrompt:
-              "Create a transparent PNG subject layer from this image. Keep the complete main subject group as one intact layer, including the person, chair/seat, hands, shoes, clothes, beard, glasses, and all objects physically attached to the subject. Do not cut holes in the body, pants, chair, hands, shoes, or clothing. Remove only the background, wall, floor, and rear logo. Every non-subject pixel must be fully transparent alpha=0. Preserve full original canvas size.",
-            backgroundPrompt:
-              "Create the opaque background plate from this image. Remove the complete main subject group including person, chair, hands, shoes, clothes, and foreground shadows. Preserve the rear blue wall, large W logo, floor, perspective, lighting, gradient, texture, and shadow logic. Reconstruct the areas hidden behind the subject naturally, with no subject fragments, no black holes, no transparent pixels, and no retouch artifacts. Output the full original canvas size.",
-            extractedText: "",
-            textStyleHint: "headline",
-          };
-          const resolvedPlan: ElementLayerPlan = {
-            ...fallbackPlan,
-            ...(parsedPlan || {}),
-            foregroundPrompt:
-              parsedPlan?.foregroundPrompt?.trim() ||
-              fallbackPlan.foregroundPrompt,
-            backgroundPrompt:
-              parsedPlan?.backgroundPrompt?.trim() ||
-              fallbackPlan.backgroundPrompt,
-            extractedText: parsedPlan?.extractedText?.trim() || "",
-            textStyleHint:
-              parsedPlan?.textStyleHint?.trim() || fallbackPlan.textStyleHint,
-          };
-
-          await runDerivedImageGeneration({
-            sourceNode: assetNode,
-            prompt: resolvedPlan.foregroundPrompt,
+          const layerW = Math.max(1, Math.round(Number(data.imgW || sourceSize.width)));
+          const layerH = Math.max(1, Math.round(Number(data.imgH || sourceSize.height)));
+          const foregroundPrompt = [
+            "Create a transparent PNG foreground layer from this exact image.",
+            "Keep the complete visible foreground subject group intact, including people, products, clothes, hands, hair, accessories, furniture, props, and attached objects.",
+            "Do not invent a new scene, do not alter identity, pose, silhouette, proportions, colors, or visible details.",
+            "Remove only the background pixels. Every removed background pixel must be alpha=0. Preserve the original full canvas size.",
+          ].join(" ");
+          const foregroundGenerationId = `element-foreground-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+          const foregroundPayload: ImageGeneratorPayload = {
+            projectId,
+            prompt: foregroundPrompt,
+            model: "picwish-segmentation",
+            ratio: inferImageRatio(layerW, layerH),
+            count: 1,
             style: "主体层",
-            nextW: Number(data.imgW || sourceSize.width),
-            nextH: Number(data.imgH || sourceSize.height),
+            referencesEnabled: false,
+            generationId: foregroundGenerationId,
             placement: splittingPosition,
+            displaySize: { w: layerW, h: layerH },
+            titleBase: "主体层",
+            sourceImageSrc: imageSrc,
+            editMode: true,
             backgroundTaskInput: {
+              taskId: foregroundGenerationId,
               capability: "background_removal",
               operation: "remove-background",
               imageSrc,
-              model: DEFAULT_IMAGE_AI_MODEL_ID,
-              prompt: `${resolvedPlan.foregroundPrompt}\n\nLayer alpha requirement: keep the complete subject group as one intact foreground layer. Do not remove any interior subject pixels. All non-subject background pixels must be fully transparent alpha=0. Preserve the original full canvas size.`,
+              model: "picwish-segmentation",
+              prompt: foregroundPrompt,
             },
-            run: async () =>
-              removeImageBackground({
-                imageSrc,
-                model: DEFAULT_IMAGE_AI_MODEL_ID,
-                prompt: `${resolvedPlan.foregroundPrompt}\n\nLayer alpha requirement: keep the complete subject group as one intact foreground layer. Do not remove any interior subject pixels. All non-subject background pixels must be fully transparent alpha=0. Preserve the original full canvas size.`,
-              }),
-          });
-
-          await runDerivedImageGeneration({
-            sourceNode: assetNode,
-            prompt: resolvedPlan.backgroundPrompt,
-            style: "背景层",
-            nextW: Number(data.imgW || sourceSize.width),
-            nextH: Number(data.imgH || sourceSize.height),
-            placement: resolveNonOverlappingCanvasPosition(
-              nodesRef.current,
-              {
-                x: splittingPosition.x,
-                y: splittingPosition.y + sourceSize.height + 28,
-              },
-              { width: sourceSize.width, height: sourceSize.height },
-              [assetNode.id]
-            ),
-            backgroundTaskInput: {
-              capability: "image_edit",
-              operation: "edit",
-              imageSrc,
-              model: DEFAULT_IMAGE_AI_MODEL_ID,
-              prompt: `${resolvedPlan.backgroundPrompt}\n\nCritical layer instruction: this output is the bottom background plate only. It must contain no visible person, chair, clothes, shoes, hands, face, skin, beard, glasses, or subject fragments. It should look like the original blue background and W logo existed behind the removed subject.`,
-              targetWidth: sourceSize.width,
-              targetHeight: sourceSize.height,
-            },
-            run: async () =>
-              editImageWithPrompt({
-                imageSrc,
-                model: DEFAULT_IMAGE_AI_MODEL_ID,
-                prompt: `${resolvedPlan.backgroundPrompt}\n\nCritical layer instruction: this output is the bottom background plate only. It must contain no visible person, chair, clothes, shoes, hands, face, skin, beard, glasses, or subject fragments. It should look like the original blue background and W logo existed behind the removed subject.`,
-                targetWidth: sourceSize.width,
-                targetHeight: sourceSize.height,
-              }),
-          });
-
-          if (resolvedPlan.extractedText) {
-            setNodes(nds =>
-              nds.map(n =>
-                n.id === assetNode.id && n.type === "asset"
-                  ? {
-                      ...n,
-                      selected: true,
-                      data: {
-                        ...(n.data as Record<string, unknown>),
-                        extractedTextPanelOpen: true,
-                        isExtractingText: false,
-                        extractedText: resolvedPlan.extractedText,
-                      },
-                    }
-                  : { ...n, selected: false }
-              )
-            );
-            setSelectedNodeIds([assetNode.id]);
+          };
+          dispatchImageGenerationTask(
+            { ...foregroundPayload, status: "pending" },
+            projectId
+          );
+          const foregroundResult = await runImageGenerationTask(
+            foregroundPayload.backgroundTaskInput!
+          );
+          const foregroundImage = foregroundResult.images[0];
+          if (!foregroundImage?.src) {
+            throw new Error("主体层未返回可用图片");
           }
+          dispatchImageGenerationTask(
+            {
+              ...foregroundPayload,
+              status: "completed",
+              images: foregroundResult.images.slice(0, 1),
+            },
+            projectId
+          );
+
+          const maskSrc = await createEraseMaskFromTransparentLayer(
+            foregroundImage.src,
+            layerW,
+            layerH
+          );
+          const backgroundPrompt = [
+            "Create the clean opaque background layer for this exact image by removing only the foreground subject group marked by the mask.",
+            "Naturally reconstruct the hidden background behind the removed subject using the surrounding scene, perspective, lighting, texture, shadows, and color logic.",
+            "Do not leave subject fragments, halos, holes, black patches, or transparent pixels. Do not change unmasked background areas.",
+          ].join(" ");
+          const backgroundGenerationId = `element-background-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+          const backgroundPosition = resolveNonOverlappingCanvasPosition(
+            nodesRef.current,
+            {
+              x: splittingPosition.x,
+              y: splittingPosition.y + sourceSize.height + 28,
+            },
+            { width: sourceSize.width, height: sourceSize.height },
+            [assetNode.id]
+          );
+          const backgroundPayload: ImageGeneratorPayload = {
+            projectId,
+            prompt: backgroundPrompt,
+            model: "picwish-inpaint",
+            ratio: inferImageRatio(layerW, layerH),
+            count: 1,
+            style: "背景层",
+            referencesEnabled: false,
+            generationId: backgroundGenerationId,
+            placement: backgroundPosition,
+            displaySize: { w: layerW, h: layerH },
+            titleBase: "背景层",
+            sourceBackgroundSrc: imageSrc,
+            sourceImageSrc: imageSrc,
+            editMode: true,
+            backgroundTaskInput: {
+              taskId: backgroundGenerationId,
+              capability: "image_erase",
+              operation: "erase",
+              imageSrc,
+              maskSrc,
+              model: "picwish-inpaint",
+              prompt: backgroundPrompt,
+              targetWidth: layerW,
+              targetHeight: layerH,
+            },
+          };
+          dispatchImageGenerationTask(
+            { ...backgroundPayload, status: "pending" },
+            projectId
+          );
+          const backgroundResult = await runImageGenerationTask(
+            backgroundPayload.backgroundTaskInput!
+          );
+          if (!backgroundResult.images[0]?.src) {
+            throw new Error("背景层未返回可用图片");
+          }
+          dispatchImageGenerationTask(
+            {
+              ...backgroundPayload,
+              status: "completed",
+              images: backgroundResult.images.slice(0, 1),
+            },
+            projectId
+          );
 
           toast("编辑元素完成", {
-            description: resolvedPlan.extractedText
-              ? "已生成主体层和背景层，文案已显示在右侧浮窗"
-              : "已生成主体层和背景层，原图保持不变",
+            description: "已生成主体层和背景层，原图保持不变",
           });
         } catch (error) {
           const message = error instanceof Error ? error.message : "请稍后重试";
@@ -27752,6 +27790,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         return;
       }
       if (action === "expand") {
+        window.dispatchEvent(
+          new CustomEvent("asset-expand-reset", { detail: { nodeId } })
+        );
         setNodes(nds =>
           nds.map(n =>
             n.id === nodeId && n.type === "asset"
