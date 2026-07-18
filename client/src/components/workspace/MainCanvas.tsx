@@ -317,7 +317,7 @@ function ChatView({
           </div>
         </div>
         <p className="text-center text-[10px] mt-2" style={{ color: "oklch(0.35 0.01 270)" }}>
-          按 Enter 发送 · Shift+Enter 换行 · 每次生成消耗约 5 积分
+          按 Enter 发送 · Shift+Enter 换行 · 标准生图约 300 积分/张
         </p>
       </div>
     </>

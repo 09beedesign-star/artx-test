@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { accessSync, constants } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { AI_CREDIT_POLICIES, AI_PLAN_DISCOUNTS, type AiBillingCapability, type AiBillingPolicy, type AiPlanDiscountPolicy } from "../shared/ai-credit-policy";
+import { AI_CREDIT_POLICIES, AI_PLAN_DISCOUNTS, getAiImageModelCreditPolicy, isHighQualityImageModel, type AiBillingCapability, type AiBillingPolicy, type AiPlanDiscountPolicy } from "../shared/ai-credit-policy";
 import { BILLING_CYCLES, MEMBERSHIP_PLANS, getPlanQuote, quoteCreditRecharge } from "../shared/billing-config";
 import { createAuthUserForAdmin, getAdminSessionFromAuthorization, listAuthUsers, type PublicAuthUser, updateAuthUserAdmin } from "./auth-store";
 import { storeFeedbackImagesForUser, type FeedbackImageInput, type StoredFeedbackImage } from "./local-image-storage";
@@ -606,6 +606,56 @@ function getPlanIdFromUserPlan(planName?: string) {
   return matched?.id || "creator";
 }
 
+function getHighQualityImageMonthlyLimit(planId?: string) {
+  if (planId === "pro") return 6;
+  if (planId === "studio") return 15;
+  if (planId === "business") return 60;
+  return 0;
+}
+
+function isInCurrentMonth(isoDate: string) {
+  const value = Date.parse(isoDate);
+  if (!Number.isFinite(value)) return false;
+  const date = new Date(value);
+  const now = new Date();
+  return date.getUTCFullYear() === now.getUTCFullYear()
+    && date.getUTCMonth() === now.getUTCMonth();
+}
+
+function countHighQualityImageUsageThisMonth(data: AdminData, userId: string) {
+  return data.aiTasks.reduce((sum, task) => {
+    if (
+      task.userId === userId
+      && task.status === "success"
+      && isHighQualityImageModel(task.model)
+      && isInCurrentMonth(task.createdAt)
+    ) {
+      return sum + Math.max(1, Math.round(task.outputUnits || 1));
+    }
+    return sum;
+  }, 0);
+}
+
+export async function assertCanUseAiImageModel(input: {
+  userId: string;
+  model?: string;
+  outputCount?: number;
+}) {
+  if (!isHighQualityImageModel(input.model)) return;
+  const data = await loadAdminData();
+  const user = data.users.find((item) => item.id === input.userId);
+  const planId = getPlanIdFromUserPlan(user?.plan);
+  const limit = getHighQualityImageMonthlyLimit(planId);
+  if (limit <= 0) {
+    throw new Error("高质量图片模型仅限 Pro 和 Studio 会员使用");
+  }
+  const used = countHighQualityImageUsageThisMonth(data, input.userId);
+  const requested = Math.max(1, Math.round(input.outputCount || 1));
+  if (used + requested > limit) {
+    throw new Error(`本月高质量图片模型额度已达上限：${used}/${limit} 张`);
+  }
+}
+
 function getMembershipPlanFromName(planName?: string) {
   const normalized = String(planName || "").trim().toLowerCase();
   if (!normalized) return undefined;
@@ -660,6 +710,7 @@ function quoteAiUsageFromData(data: AdminData, input: {
   capability: AiBillingCapability;
   outputCount?: number;
   planId?: string;
+  model?: string;
 }) {
   const policies = data.aiBillingPolicies?.length ? data.aiBillingPolicies : AI_CREDIT_POLICIES;
   const discounts = data.aiPlanDiscounts?.length ? data.aiPlanDiscounts : AI_PLAN_DISCOUNTS;
@@ -670,15 +721,21 @@ function quoteAiUsageFromData(data: AdminData, input: {
     || AI_PLAN_DISCOUNTS.find((item) => item.planId === input.planId)
     || AI_PLAN_DISCOUNTS[1];
   const outputCount = Math.max(1, Math.round(input.outputCount || 1));
-  const rawCredits = policy.billingUnit === "per_image"
-    ? policy.baseCredits * outputCount + (policy.perOutputCredits || 0) * Math.max(0, outputCount - 1)
-    : policy.baseCredits;
+  const modelPolicy = input.capability === "text_to_image"
+    ? getAiImageModelCreditPolicy(input.model)
+    : null;
+  const rawCredits = modelPolicy
+    ? modelPolicy.creditsPerImage * outputCount
+    : policy.billingUnit === "per_image"
+      ? policy.baseCredits * outputCount + (policy.perOutputCredits || 0) * Math.max(0, outputCount - 1)
+      : policy.baseCredits;
+  const discountMultiplier = modelPolicy?.applyPlanDiscount === false ? 1 : discount.multiplier;
 
   return {
     policy,
     discount,
-    chargedCredits: Math.max(1, Math.round(rawCredits * discount.multiplier)),
-    estimatedCost: Number((policy.estimatedCostPerUnit * (policy.billingUnit === "per_image" ? outputCount : 1)).toFixed(2)),
+    chargedCredits: Math.max(1, Math.round(rawCredits * discountMultiplier)),
+    estimatedCost: Number(((modelPolicy?.estimatedCostPerImage || policy.estimatedCostPerUnit) * (policy.billingUnit === "per_image" ? outputCount : 1)).toFixed(2)),
   };
 }
 
@@ -2858,6 +2915,7 @@ export async function quoteAdminAiUsage(input: {
   capability: AiBillingCapability;
   outputCount?: number;
   planId?: string;
+  model?: string;
 }) {
   const data = await loadAdminData();
   return quoteAiUsageFromData(data, input);
@@ -2959,6 +3017,7 @@ export async function recordAiUsage(input: AiUsageRecordInput) {
       capability: input.capabilityKey,
       outputCount: input.outputUnits || 1,
       planId: getPlanIdFromUserPlan(user.plan),
+      model: input.model,
     })
     : null;
   const chargedCredits = input.status === "success"

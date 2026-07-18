@@ -174,7 +174,7 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-[12px] font-medium text-white truncate">{displayName}</div>
-            <div className="text-[11px]" style={{ color: "oklch(0.65 0.010 270)" }}>免费版 · 75 积分</div>
+            <div className="text-[11px]" style={{ color: "oklch(0.65 0.010 270)" }}>免费版 · 0 积分</div>
           </div>
           <ChevronRight size={12} style={{ color: "oklch(0.62 0.010 270)" }} />
         </div>

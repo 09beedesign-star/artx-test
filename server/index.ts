@@ -15,7 +15,7 @@ import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
 import { recordCrossBorderCommerceGeneration } from "./cross-border-commerce-records";
 import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization } from "./auth-store";
-import { acknowledgeCreditGiftNotification, createBillingOrder, createCreditRechargeOrder, getBillingOrderForPayment, getBillingSnapshotForUser, getCreditGiftNotificationsForUser, handleAdminApiRequest, markBillingOrderPaid, quoteAdminAiUsage, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, releaseTestAccountAiUsage, reserveTestAccountAiUsage, submitUserFeedback } from "./admin-store";
+import { acknowledgeCreditGiftNotification, assertCanUseAiImageModel, createBillingOrder, createCreditRechargeOrder, getBillingOrderForPayment, getBillingSnapshotForUser, getCreditGiftNotificationsForUser, handleAdminApiRequest, markBillingOrderPaid, quoteAdminAiUsage, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, releaseTestAccountAiUsage, reserveTestAccountAiUsage, submitUserFeedback } from "./admin-store";
 import { getAllowedCorsOrigin } from "./cors";
 import { sendOpsNotification } from "./notifications";
 import { classifyApplicationSecuritySignal, createSecurityEventDetector, validateSecurityEventIngest } from "./security-events";
@@ -563,9 +563,16 @@ async function reserveAiRouteUsage(input: {
   request: unknown;
   taskId?: string;
 }): Promise<AiUsageReservation> {
+  const outputCount = requestedAiOutputCount(input.request);
+  await assertCanUseAiImageModel({
+    userId: input.user.id,
+    model: input.tracking.model,
+    outputCount,
+  });
   const quote = await quoteAdminAiUsage({
     capability: input.tracking.capabilityKey,
-    outputCount: requestedAiOutputCount(input.request),
+    outputCount,
+    model: input.tracking.model,
   });
   const taskId = input.taskId || createAiReservationId("ai-request");
   const reservation = await reserveTestAccountAiUsage({
