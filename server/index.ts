@@ -5,7 +5,7 @@ import { fileURLToPath } from "url";
 import "./env";
 import { AIOrchestrator } from "./ai-orchestrator";
 import { createBrandKit, deleteBrandKit, getBrandKit, listBrandKits, parseBrandKitFromImage } from "./brand-kit";
-import { createProductBackground, editImageWithPrompt, enhanceImage, eraseImageObjects, expandImageWithPicWish, extractImageText, generateImages, removeImageBackground, removeImageWatermark } from "./image-generation";
+import { createProductBackground, editImageWithPrompt, enhanceImage, eraseImageObjects, expandImageWithPicWish, extractImageText, generateImages, listImageModelCatalog, removeImageBackground, removeImageWatermark } from "./image-generation";
 import { getInspirationReferences } from "./inspiration-references";
 import { cleanupExpiredUploads, getUploadRetentionDays, getUploadsRoot, storeGeneratedImagesForUser } from "./local-image-storage";
 import { searchReferenceImages } from "./reference-search";
@@ -1010,6 +1010,15 @@ async function startServer() {
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true });
+  });
+
+  app.get("/api/ai/models", async (_req, res) => {
+    try {
+      res.json(await listImageModelCatalog());
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Model catalog failed";
+      res.status(500).json({ error: message });
+    }
   });
 
   app.get("/api/images/proxy", async (req, res) => {

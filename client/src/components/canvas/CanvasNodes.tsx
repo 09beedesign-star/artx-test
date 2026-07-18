@@ -3,7 +3,7 @@
  * Node components for the infinite canvas.
  * Each node has a bottom model-switcher toolbar (tapnow-style).
  */
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
@@ -14,8 +14,8 @@ import {
 import type { CanvasNode } from "@/hooks/useCanvas";
 import { GENERATED_ASSETS } from "@/lib/workspace-data";
 import type { ChatMessage, AgentStep } from "@/lib/workspace-data";
-import { AUTO_AI_MODEL, IMAGE_AI_MODEL_OPTIONS, TEXT_AI_MODEL_OPTIONS } from "@/lib/workspace-data";
-import { callLLM, requestAiAuth } from "@/lib/ai";
+import { AUTO_AI_MODEL, IMAGE_AI_MODEL_OPTIONS, TEXT_AI_MODEL_OPTIONS, mergeImageAiModelOptions } from "@/lib/workspace-data";
+import { callLLM, listAiModelCatalog, requestAiAuth } from "@/lib/ai";
 
 type AiModelOption = typeof TEXT_AI_MODEL_OPTIONS[number] | typeof IMAGE_AI_MODEL_OPTIONS[number];
 
@@ -154,6 +154,21 @@ export function NodeWrapper({
 export function AssetNode({ node, isSelected, onDragStart, onSelect, onRemove }: Omit<NodeWrapperProps, "children" | "className" | "fullDrag">) {
   const asset = GENERATED_ASSETS.find((a) => a.id === (node.data.assetId as string)) || GENERATED_ASSETS[0];
   const [modelId, setModelId] = useState("auto");
+  const [imageModelOptions, setImageModelOptions] = useState(IMAGE_AI_MODEL_OPTIONS);
+
+  useEffect(() => {
+    let cancelled = false;
+    listAiModelCatalog()
+      .then(catalog => {
+        if (!cancelled) setImageModelOptions(mergeImageAiModelOptions(catalog.image || []));
+      })
+      .catch(() => {
+        if (!cancelled) setImageModelOptions(IMAGE_AI_MODEL_OPTIONS);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const typeColor: Record<string, string> = { image: "oklch(0.78 0.18 290)", video: "oklch(0.72 0.18 200)", brand: "oklch(0.78 0.18 60)", poster: "oklch(0.80 0.18 330)" };
   const typeLabel: Record<string, string> = { image: "图片", video: "视频", brand: "品牌", poster: "海报" };
@@ -204,7 +219,7 @@ export function AssetNode({ node, isSelected, onDragStart, onSelect, onRemove }:
         {/* ── Model switcher bottom bar ── */}
         <div className="flex items-center gap-2 px-3 pb-2.5 pt-1" style={{ borderTop: "1px solid oklch(1 0 0 / 6%)" }}
           onMouseDown={(e) => e.stopPropagation()}>
-          <ModelSwitcher modelId={modelId} onChange={setModelId} models={IMAGE_AI_MODEL_OPTIONS} isDark={true} />
+          <ModelSwitcher modelId={modelId} onChange={setModelId} models={imageModelOptions} isDark={true} />
           <div className="flex-1" />
           <button onClick={(e) => { e.stopPropagation(); toast("重新生成", { description: "功能即将上线" }); }}
             className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] transition-all"

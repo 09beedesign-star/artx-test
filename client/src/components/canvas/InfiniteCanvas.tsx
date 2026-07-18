@@ -400,6 +400,7 @@ import {
   GENERATED_ASSETS,
   IMAGE_AI_MODELS,
   IMAGE_AI_MODEL_OPTIONS,
+  mergeImageAiModelOptions,
   PROJECTS,
   TEXT_AI_MODELS,
   type AiModelOption,
@@ -433,6 +434,7 @@ import {
   extractImageText,
   generateImages as generateAiImages,
   getBackgroundImageGenerationTask,
+  listAiModelCatalog,
   removeImageBackground,
   removeImageWatermark,
   requestAiAuth,
@@ -471,6 +473,9 @@ const CANVAS_MAX_ZOOM = 4;
 const CANVAS_WHEEL_ZOOM_SPEED = 0.0015;
 const CANVAS_CROSS_PROJECT_CLIPBOARD_KEY =
   "artx:canvas-cross-project-clipboard";
+const CLOUD_RETENTION_TOAST_STORAGE_KEY = "artx:cloud-retention-toast-date";
+const CLOUD_RETENTION_TOAST_COPY =
+  "图片会在云服务器当中存储一周时间，请尽快下载到本地，以免图片丢失哟。";
 const CROSS_CANVAS_COPY_TYPES = [
   "asset",
   "canvasFrame",
@@ -563,6 +568,31 @@ function getMinimapSurfaceBackground(isDark: boolean) {
 
 function getMinimapSurfaceBorder(isDark: boolean) {
   return isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
+}
+
+function getLocalDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function shouldShowCloudRetentionToast() {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(CLOUD_RETENTION_TOAST_STORAGE_KEY) !== getLocalDateKey();
+  } catch {
+    return false;
+  }
+}
+
+function markCloudRetentionToastShown() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(CLOUD_RETENTION_TOAST_STORAGE_KEY, getLocalDateKey());
+  } catch {
+    // Ignore storage failures; the reminder is helpful but not critical.
+  }
 }
 
 // ── Model Selector ─────────────────────────────────────────────
@@ -716,6 +746,28 @@ function ModelSelector({
       )}
     </div>
   );
+}
+
+function useImageModelOptions() {
+  const [imageModelOptions, setImageModelOptions] = useState(IMAGE_AI_MODEL_OPTIONS);
+
+  useEffect(() => {
+    let cancelled = false;
+    listAiModelCatalog()
+      .then(catalog => {
+        if (!cancelled) {
+          setImageModelOptions(mergeImageAiModelOptions(catalog.image || []));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setImageModelOptions(IMAGE_AI_MODEL_OPTIONS);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return imageModelOptions;
 }
 
 function SkillPointSelector({
@@ -1004,6 +1056,7 @@ function NodeToolbar({
   onDelete: () => void;
   isDark: boolean;
 }) {
+  const imageModelOptions = useImageModelOptions();
   const border = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
   const text = isDark ? "oklch(0.69 0.010 270)" : "oklch(0.69 0.010 270)";
   return (
@@ -1011,7 +1064,7 @@ function NodeToolbar({
       className="flex items-center justify-between px-2 py-1.5 nodrag nopan"
       style={{ borderTop: `1px solid ${border}` }}
     >
-      <ModelSelector model={model} onChange={onModelChange} isDark={isDark} />
+      <ModelSelector model={model} onChange={onModelChange} isDark={isDark} models={imageModelOptions} />
       <button
         onClick={e => {
           e.stopPropagation();
@@ -5743,6 +5796,12 @@ function AssetNodeComponent({
   const rotation = (data.rotation as number) || 0;
   const flipX = Boolean(data.flipX);
   const stableUiScale = 1 / Math.max(0.2, viewport.zoom || 1);
+  const shouldShowCloudRetentionToastOverlay = Boolean(
+    (data as { showCloudRetentionToast?: boolean }).showCloudRetentionToast
+  );
+  const [cloudRetentionToastVisible, setCloudRetentionToastVisible] = useState(
+    shouldShowCloudRetentionToastOverlay
+  );
   const assetAdjustments = normalizeAssetAdjustments(
     (data.assetAdjustmentPreview as AssetAdjustmentValues | undefined) ||
       data.assetAdjustments
@@ -5879,6 +5938,31 @@ function AssetNodeComponent({
   useEffect(() => {
     if (extractedTextPanelOpen) setExtractedTextDraft(extractedText);
   }, [extractedText, extractedTextPanelOpen]);
+
+  useEffect(() => {
+    if (!shouldShowCloudRetentionToastOverlay) {
+      setCloudRetentionToastVisible(false);
+      return;
+    }
+    setCloudRetentionToastVisible(true);
+    const timer = window.setTimeout(() => {
+      setCloudRetentionToastVisible(false);
+      setFlowNodes(nds =>
+        nds.map(n =>
+          n.id === nodeId
+            ? {
+                ...n,
+                data: {
+                  ...(n.data as Record<string, unknown>),
+                  showCloudRetentionToast: false,
+                },
+              }
+            : n
+        )
+      );
+    }, 6200);
+    return () => window.clearTimeout(timer);
+  }, [nodeId, setFlowNodes, shouldShowCloudRetentionToastOverlay]);
 
   // 选中边框样式
   const borderColor = selected ? "oklch(0.65 0.22 290)" : "transparent";
@@ -7357,6 +7441,32 @@ function AssetNodeComponent({
               </button>
             )}
         </div>
+        {cloudRetentionToastVisible && !isAiProcessingImage && (
+          <div
+            className="absolute left-1/2 nodrag nopan rounded-[var(--radius-md-design)] px-3 py-1.5 text-center shadow-xl"
+            style={{
+              top: `calc(100% + ${4 * stableUiScale}px)`,
+              transform: `translateX(-50%) scale(${stableUiScale})`,
+              transformOrigin: "top center",
+              zIndex: 126,
+              maxWidth: 280,
+              minWidth: 218,
+              background: isDark
+                ? "rgba(20,20,28,0.94)"
+                : "rgba(255,255,255,0.96)",
+              border: `1px solid ${isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.10)"}`,
+              color: isDark ? "rgba(255,255,255,0.84)" : "rgba(24,24,32,0.78)",
+              backdropFilter: "blur(14px)",
+              fontSize: 11,
+              lineHeight: "16px",
+              letterSpacing: 0,
+              pointerEvents: "none",
+              whiteSpace: "normal",
+            }}
+          >
+            {CLOUD_RETENTION_TOAST_COPY}
+          </div>
+        )}
         {extractedTextPanelOpen && (
           <div
             ref={extractedTextPanelRef}
@@ -13171,8 +13281,9 @@ function ImageGeneratorPopover({
   const fieldBg = isDark ? "rgba(255,255,255,0.055)" : "rgba(0,0,0,0.035)";
   const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
   const accent = "oklch(0.64 0.22 285)";
+  const imageModelOptions = useImageModelOptions();
   const selectedModel =
-    IMAGE_AI_MODEL_OPTIONS.find(item => item.id === model) || AUTO_AI_MODEL;
+    imageModelOptions.find(item => item.id === model) || AUTO_AI_MODEL;
   const ratios = ["1:1", "4:5", "5:4", "3:4", "4:3", "16:9", "9:16", "21:9"];
   const counts = [1, 2, 3, 4, 5, 6, 7, 8, 9];
   const canGenerate = prompt.trim().length > 0 && !isGenerating;
@@ -13551,7 +13662,7 @@ function ImageGeneratorPopover({
                     }}
                     onWheel={e => e.stopPropagation()}
                   >
-                    {IMAGE_AI_MODEL_OPTIONS.map(item => {
+                    {imageModelOptions.map(item => {
                       const active = selectedModel.id === item.id;
                       return (
                         <button
@@ -23707,6 +23818,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         toast("图像生成失败", { description: "AI 未返回可用图片，请稍后重试" });
         return;
       }
+      const showCloudRetentionToast = shouldShowCloudRetentionToast();
+      if (showCloudRetentionToast) markCloudRetentionToastShown();
       const backupItems = images.map((image, index) => {
         const fittedSize = detail.skillId
           ? fitGeneratedImageSizeToFrame(image, size)
@@ -23792,6 +23905,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 ],
                 imgW: fittedSize.w,
                 imgH: fittedSize.h,
+                showCloudRetentionToast: showCloudRetentionToast && index === 0,
                 sourceBackgroundSrc: undefined,
                 ...getImageGenerationNodeMetadata(detail),
               },
@@ -23851,6 +23965,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               ],
               imgW: fittedSize.w,
               imgH: fittedSize.h,
+              showCloudRetentionToast: showCloudRetentionToast && index === 0,
               sourceBackgroundSrc: undefined,
               ...getImageGenerationNodeMetadata(detail),
             },

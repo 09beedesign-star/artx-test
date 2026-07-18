@@ -16,8 +16,8 @@ export const AUTO_AI_MODEL: AiModelOption = {
 };
 
 export const IMAGE_AI_MODELS: AiModelOption[] = [
-  { id: "gpt-image-2", label: "GPT image2", color: "oklch(0.72 0.18 200)" },
-  { id: "gemini-3.1-flash-image", label: "Nano banana PRO 3.5", color: "oklch(0.82 0.18 95)" },
+  { id: "gpt-image-2", label: "gpt-image-2", color: "oklch(0.72 0.18 200)" },
+  { id: "gemini-3.1-flash-image", label: "gemini-3.1-flash-image", color: "oklch(0.82 0.18 95)" },
 ];
 
 export const TEXT_AI_MODELS: AiModelOption[] = [
@@ -31,6 +31,25 @@ export const ALL_AI_MODEL_OPTIONS: AiModelOption[] = [
   ...IMAGE_AI_MODELS,
   ...TEXT_AI_MODELS,
 ];
+
+function isImageModelOption(option: AiModelOption) {
+  const id = option.id.toLowerCase();
+  return /^(gpt-image|dall[-_]?e|imagen|flux|stable-diffusion|sdxl|midjourney|kolors|recraft)/i.test(option.id)
+    || /(?:^|[-_.])(image|images|img|vision-generate|image-generation)(?:$|[-_.])/i.test(id)
+    || /gemini.*image/i.test(id);
+}
+
+export function mergeImageAiModelOptions(discoveredModels: AiModelOption[] = []) {
+  const merged = new Map<string, AiModelOption>();
+  for (const option of [...IMAGE_AI_MODELS, ...discoveredModels]) {
+    if (!option.id || option.id === AUTO_AI_MODEL.id || !isImageModelOption(option)) continue;
+    merged.set(option.id, {
+      ...option,
+      label: option.label || option.id,
+    });
+  }
+  return [AUTO_AI_MODEL, ...Array.from(merged.values())];
+}
 
 export type AssetType = "image" | "video" | "brand" | "poster";
 

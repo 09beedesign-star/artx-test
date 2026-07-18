@@ -123,4 +123,15 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain('capability: "watermark_removal"');
     expect(source).toContain("task.editMode || task.sourceImageSrc");
   });
+
+  it("shows a generated-image cloud retention reminder under the image once per day", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+
+    expect(source).toContain('const CLOUD_RETENTION_TOAST_STORAGE_KEY = "artx:cloud-retention-toast-date"');
+    expect(source).toContain("const showCloudRetentionToast = shouldShowCloudRetentionToast()");
+    expect(source).toContain("markCloudRetentionToastShown()");
+    expect(source).toContain("showCloudRetentionToast: showCloudRetentionToast && index === 0");
+    expect(source).toContain("图片会在云服务器当中存储一周时间，请尽快下载到本地，以免图片丢失哟。");
+    expect(source).toContain("top: `calc(100% + ${4 * stableUiScale}px)`");
+  });
 });

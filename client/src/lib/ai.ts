@@ -111,6 +111,18 @@ export type ReferenceImageResult = {
   source: string;
 };
 
+export type AiModelCatalogOption = {
+  id: string;
+  label: string;
+  color: string;
+  description?: string;
+};
+
+export type AiModelCatalogResponse = ApiErrorResponse & {
+  image?: AiModelCatalogOption[];
+  source?: "provider" | "fallback";
+};
+
 function getAiApiBaseUrl() {
   if (aiApiBaseOverride) return aiApiBaseOverride;
   const configured = (
@@ -276,6 +288,11 @@ async function fetchAiJsonGet<T extends ApiErrorResponse>(
     }
     throw error;
   }
+}
+
+export async function listAiModelCatalog() {
+  const endpoint = `${getAiApiBaseUrl()}/api/ai/models`;
+  return fetchAiJsonGet<AiModelCatalogResponse>(endpoint, "AI 模型列表加载失败");
 }
 
 async function postAiOrchestrate(body: Record<string, unknown>, fallbackError: string) {

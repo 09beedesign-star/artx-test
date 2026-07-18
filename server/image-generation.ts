@@ -368,6 +368,11 @@ function getImageEditsEndpoint(baseUrl: string) {
   return `${normalized}${normalized.endsWith("/v1") ? "" : "/v1"}/images/edits`;
 }
 
+function getModelsEndpoint(baseUrl: string) {
+  const normalized = baseUrl.replace(/\/+$/, "");
+  return `${normalized}${normalized.endsWith("/v1") ? "" : "/v1"}/models`;
+}
+
 function getChatEndpoint(baseUrl: string) {
   const normalized = baseUrl.replace(/\/+$/, "");
   return `${normalized}${normalized.endsWith("/v1") ? "" : "/v1"}/chat/completions`;
@@ -401,6 +406,112 @@ const chatCompatibleImageModels = new Set<string>([
   "gemini-3.1-flash-image-preview",
   "gemini-3.5-flash-preview",
 ]);
+
+type ImageModelCatalogOption = {
+  id: string;
+  label: string;
+  color: string;
+  description?: string;
+};
+
+type ImageModelCatalog = {
+  image: ImageModelCatalogOption[];
+  source: "provider" | "fallback";
+  error?: string;
+};
+
+type ImageModelCatalogInput = {
+  apiKey?: string;
+  baseUrl?: string;
+  fetchImpl?: typeof fetch;
+};
+
+const imageModelColors = [
+  "oklch(0.72 0.18 200)",
+  "oklch(0.82 0.18 95)",
+  "oklch(0.74 0.16 285)",
+  "oklch(0.78 0.15 40)",
+  "oklch(0.70 0.16 150)",
+];
+
+function isImageGenerationModelId(id: string) {
+  const normalized = id.trim().toLowerCase();
+  if (!normalized) return false;
+  if (supportedImageModels.has(id)) return true;
+  if (/^(gpt-image|dall[-_]?e|imagen|flux|stable-diffusion|sdxl|midjourney|kolors|recraft)/i.test(id)) {
+    return true;
+  }
+  return /(?:^|[-_.])(image|images|img|vision-generate|image-generation)(?:$|[-_.])/i.test(normalized);
+}
+
+function createImageModelOption(id: string, index: number): ImageModelCatalogOption {
+  return {
+    id,
+    label: id,
+    color: imageModelColors[index % imageModelColors.length],
+  };
+}
+
+function parseProviderModelIds(data: unknown) {
+  const records = Array.isArray(data)
+    ? data
+    : data && typeof data === "object" && Array.isArray((data as { data?: unknown[] }).data)
+      ? (data as { data: unknown[] }).data
+      : [];
+  return records
+    .map(item => {
+      if (typeof item === "string") return item.trim();
+      if (!item || typeof item !== "object") return "";
+      const record = item as { id?: unknown; name?: unknown; model?: unknown };
+      return String(record.id || record.name || record.model || "").trim();
+    })
+    .filter(Boolean);
+}
+
+export async function listImageModelCatalog(input: ImageModelCatalogInput = {}): Promise<ImageModelCatalog> {
+  const config = getProviderConfig();
+  const apiKey = input.apiKey || config.apiKey;
+  const baseUrl = input.baseUrl || config.baseUrl;
+  const fetchImpl = input.fetchImpl || fetch;
+
+  if (!apiKey) {
+    return {
+      image: Array.from(supportedImageModels).map(createImageModelOption),
+      source: "fallback",
+      error: "Missing AI_IMAGE_API_KEY",
+    };
+  }
+
+  try {
+    const response = await fetchImpl(getModelsEndpoint(baseUrl), {
+      method: "GET",
+      headers: getImageProviderHeaders(apiKey),
+    });
+    const raw = await response.text();
+    const data = safeParseJson<unknown>(raw);
+    if (!response.ok) {
+      throw new Error(getProviderErrorMessage(null, raw || `Model catalog returned ${response.status}`, {
+        status: response.status,
+        baseUrl,
+        raw,
+      }));
+    }
+    const modelIds = Array.from(new Set(parseProviderModelIds(data).filter(isImageGenerationModelId)));
+    return {
+      image: modelIds.map(createImageModelOption),
+      source: "provider",
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error || "Model catalog failed");
+    return {
+      image: Array.from(supportedImageModels).map(createImageModelOption),
+      source: "fallback",
+      error: message,
+    };
+  }
+}
+
+export const __testBuildImageModelCatalog = listImageModelCatalog;
 
 function buildPrompt(input: ImageGenerateInput) {
   const stylePrefix = input.style ? `风格：${input.style}\n` : "";
