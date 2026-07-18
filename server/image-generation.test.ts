@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
-import { __testNormalizeGeneratedImageSrc, __testNormalizeGeneratedImagesToTargetAspect, __testPreparePicWishEraseSourceImage, __testResolveHighDefinitionTargetSize, __testResolveReferenceImageRoute, __testShouldSendPicWishExpansionMargins, editImageWithPrompt, extractImageText } from "./image-generation";
+import { __testHasPicWishExpansionMargins, __testNormalizeGeneratedImageSrc, __testNormalizeGeneratedImagesToTargetAspect, __testPreparePicWishEraseSourceImage, __testResolveHighDefinitionTargetSize, __testResolveReferenceImageRoute, editImageWithPrompt, extractImageText } from "./image-generation";
 
 const ONE_PIXEL_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
@@ -87,10 +87,10 @@ describe("generated image source normalization", () => {
     expect(metadata.format).toBe("png");
   });
 
-  it("uses the PicWish expansion mask contract instead of side margins when a mask exists", () => {
-    expect(__testShouldSendPicWishExpansionMargins({ maskBuffer: Buffer.from("mask") })).toBe(false);
-    expect(__testShouldSendPicWishExpansionMargins({ maskUrl: "https://example.com/mask.png" })).toBe(false);
-    expect(__testShouldSendPicWishExpansionMargins({})).toBe(true);
+  it("uses explicit PicWish expansion margins when any side extends", () => {
+    expect(__testHasPicWishExpansionMargins({ top: 24, bottom: 0, left: 0, right: 0 })).toBe(true);
+    expect(__testHasPicWishExpansionMargins({ top: 0, bottom: 0, left: 0, right: 0 })).toBe(false);
+    expect(__testHasPicWishExpansionMargins({})).toBe(false);
   });
 
   it("falls back to reference-image generation when the image edit endpoint is unavailable", async () => {

@@ -1366,11 +1366,13 @@ function appendOptionalPicWishNumber(body: FormData, key: string, value: unknown
   body.append(key, String(value));
 }
 
-function shouldSendPicWishExpansionMargins(input: { maskBuffer?: Buffer; maskUrl?: string }) {
-  return !input.maskBuffer && !input.maskUrl;
+function hasPicWishExpansionMargins(input: { top?: number; bottom?: number; left?: number; right?: number }) {
+  return [input.top, input.bottom, input.left, input.right].some(
+    value => typeof value === "number" && Number.isFinite(value) && value > 0
+  );
 }
 
-export const __testShouldSendPicWishExpansionMargins = shouldSendPicWishExpansionMargins;
+export const __testHasPicWishExpansionMargins = hasPicWishExpansionMargins;
 
 async function createPicWishImageExpansionTask(
   input: {
@@ -1408,14 +1410,14 @@ async function createPicWishImageExpansionTask(
   } else {
     throw new Error("Missing image source for PicWish image expansion");
   }
-  const sendExpansionMargins = shouldSendPicWishExpansionMargins(input);
-  if (input.maskUrl) {
+  const hasExpansionMargins = hasPicWishExpansionMargins(input);
+  if (!hasExpansionMargins && input.maskUrl) {
     body.append("mask_url", input.maskUrl);
-  } else if (input.maskBuffer) {
+  } else if (!hasExpansionMargins && input.maskBuffer) {
     body.append("mask_file", bufferToImageFile(input.maskBuffer, input.maskMimeType || "image/png"));
   }
   if (input.prompt?.trim()) body.append("prompt", input.prompt.trim().slice(0, 500));
-  if (sendExpansionMargins) {
+  if (hasExpansionMargins) {
     appendOptionalPicWishNumber(body, "top", input.top);
     appendOptionalPicWishNumber(body, "bottom", input.bottom);
     appendOptionalPicWishNumber(body, "left", input.left);

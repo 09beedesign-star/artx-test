@@ -6621,6 +6621,10 @@ function AssetNodeComponent({
               nextH: pixelNextH,
               displayW: displayNextW,
               displayH: displayNextH,
+              top: expandTop,
+              bottom: expandBottom,
+              left: expandLeft,
+              right: expandRight,
             },
           })
         );
