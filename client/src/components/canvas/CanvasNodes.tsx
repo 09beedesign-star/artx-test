@@ -31,13 +31,80 @@ function ModelLineIcon({ size = 14 }: { size?: number }) {
   );
 }
 
+function OpenAiModelIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M8.2 4.3c1.3-2.2 4.5-2.3 5.9-.1.4.6.6 1.3.6 2 2.3-.4 4.4 1.5 4.3 3.8 0 .7-.2 1.4-.6 2 .9.7 1.4 1.8 1.2 3-.3 2.5-3 3.8-5.1 2.7-1 1.9-3.6 2.5-5.4 1.2-.6-.4-1-1-1.3-1.6-2.2.2-4.1-1.6-4-3.8 0-.8.3-1.6.8-2.2-.9-.8-1.2-2-.8-3.1.6-2.1 3-3.1 4.8-2.2 0-.6.2-1.2.5-1.7Z"
+        stroke="currentColor"
+        strokeWidth="1.55"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M14.7 6.2 8.6 9.7v6.8M4.7 11.3l6.1 3.5 5.9-3.4M8.7 5.9l6 3.5v6.9M19.2 12.1 13 8.6 7.1 12"
+        stroke="currentColor"
+        strokeWidth="1.35"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function GeminiModelIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 3.8c.9 4.2 3.2 6.9 7.2 8.2-4 1.3-6.3 4-7.2 8.2-.9-4.2-3.2-6.9-7.2-8.2 4-1.3 6.3-4 7.2-8.2Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+      <path d="M19.5 4.8c.3 1.1.9 1.8 1.9 2.2-1 .4-1.6 1.1-1.9 2.2-.3-1.1-.9-1.8-1.9-2.2 1-.4 1.6-1.1 1.9-2.2ZM4.4 15.7c.3.9.8 1.5 1.6 1.8-.8.3-1.3.9-1.6 1.8-.3-.9-.8-1.5-1.6-1.8.8-.3 1.3-.9 1.6-1.8Z" stroke="currentColor" strokeWidth="1.45" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function JimengModelIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M6 7.2c1.9-2.1 4.3-3.1 7.1-2.8 3.8.4 6.6 3.4 6.9 7.1.3 4.8-4.1 8.8-8.8 7.7-3-.7-5.4-3.1-6.1-6.1" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      <path d="M4.1 5.7h5.1M6.7 5.7v8.1c0 1.8 1.1 2.9 2.9 2.9 1.6 0 2.7-.8 3.3-2.3M12.2 9.2h5M12.2 12.6h4.1" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function MidjourneyModelIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 4.2v10.9M12 4.2c2.9 2.1 4.9 5.2 5.9 9.4-2.3-.7-4.2-.3-5.9 1.5M12 4.2C9.1 6.3 7.1 9.4 6.1 13.6c2.3-.7 4.2-.3 5.9 1.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M4.7 17.1c2 .9 4.4 1.4 7.3 1.4s5.3-.5 7.3-1.4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function getModelIconKind(model: AiModelOption) {
+  const value = `${model.icon || ""} ${model.id}`.toLowerCase();
+  if (/gemini/.test(value)) return "gemini";
+  if (/jimeng|即梦/.test(value)) return "jimeng";
+  if (/midjourney|mj-/.test(value)) return "midjourney";
+  if (/openai|image2|og-image2|gpt/.test(value)) return "openai";
+  return model.icon ? "image" : "none";
+}
+
 function ModelIconMark({ model }: { model: AiModelOption }) {
-  if (!model.icon) {
+  const iconKind = getModelIconKind(model);
+  if (iconKind === "none") {
     return <Cpu size={10} style={{ color: model.color }} />;
   }
+  const iconNode =
+    iconKind === "gemini" ? <GeminiModelIcon size={14} /> :
+    iconKind === "jimeng" ? <JimengModelIcon size={14} /> :
+    iconKind === "midjourney" ? <MidjourneyModelIcon size={14} /> :
+    iconKind === "openai" ? <OpenAiModelIcon size={14} /> :
+    <ModelLineIcon size={14} />;
   return (
-    <span style={{ color: "#FFFFFF", display: "inline-flex", flex: "0 0 auto" }}>
-      <ModelLineIcon size={14} />
+    <span
+      data-model-brand-icon={iconKind}
+      style={{ color: "#FFFFFF", display: "inline-flex", flex: "0 0 auto", marginTop: 2 }}
+    >
+      {iconNode}
     </span>
   );
 }
@@ -102,7 +169,7 @@ function ModelSwitcher({
                 <button
                   key={m.id}
                   onClick={(e) => { e.stopPropagation(); onChange(m.id); setOpen(false); }}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] transition-colors text-left"
+                  className="w-full flex items-start gap-2 px-3 py-1.5 text-[12px] transition-colors text-left"
                   style={{
                     background: isActive ? "oklch(0.58 0.22 290 / 0.12)" : "transparent",
                     color: isActive ? "oklch(0.78 0.18 290)" : textPri,

@@ -17,13 +17,13 @@ export const AUTO_AI_MODEL: AiModelOption = {
 };
 
 export const IMAGE_AI_MODELS: AiModelOption[] = [
-  { id: "gemini-3.5-flash-preview", label: "gemini-3.5-flash-preview", color: "oklch(0.72 0.18 200)", description: "低价高速强效", icon: "image" },
-  { id: "jimeng-4.0", label: "jimeng-4.0", color: "oklch(0.82 0.18 95)", description: "中价中文强", icon: "image" },
-  { id: "mj-v7", label: "mj-v7", color: "oklch(0.74 0.16 285)", description: "高价质感强", icon: "image" },
-  { id: "mj-v8.1", label: "mj-v8.1", color: "oklch(0.78 0.15 40)", description: "高价细节强", icon: "image" },
-  { id: "og-image2-low", label: "image2 low", color: "oklch(0.70 0.16 150)", description: "低价快速稿", icon: "image" },
-  { id: "og-image2-medium", label: "image2 medium", color: "oklch(0.72 0.18 200)", description: "中价均衡稳", icon: "image" },
-  { id: "og-image2-high", label: "image2 high", color: "oklch(0.82 0.18 95)", description: "高价高清强", icon: "image" },
+  { id: "gemini-3.5-flash-preview", label: "gemini-3.5-flash-preview", color: "oklch(0.72 0.18 200)", description: "低价高速强效", icon: "gemini" },
+  { id: "jimeng-4.0", label: "jimeng-4.0", color: "oklch(0.82 0.18 95)", description: "中价中文强", icon: "jimeng" },
+  { id: "mj-v7", label: "mj-v7", color: "oklch(0.74 0.16 285)", description: "高价质感强", icon: "midjourney" },
+  { id: "mj-v8.1", label: "mj-v8.1", color: "oklch(0.78 0.15 40)", description: "高价细节强", icon: "midjourney" },
+  { id: "og-image2-low", label: "image2 low", color: "oklch(0.70 0.16 150)", description: "低价快速稿", icon: "openai" },
+  { id: "og-image2-medium", label: "image2 medium", color: "oklch(0.72 0.18 200)", description: "中价均衡稳", icon: "openai" },
+  { id: "og-image2-high", label: "image2 high", color: "oklch(0.82 0.18 95)", description: "高价高清强", icon: "openai" },
 ];
 
 export const TEXT_AI_MODELS: AiModelOption[] = [

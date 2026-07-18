@@ -55,7 +55,16 @@ describe("image model catalog", () => {
     expect(catalog.image.find(model => model.id === "gemini-3.5-flash-preview")?.description).toBe("低价高速强效");
     expect(catalog.image.find(model => model.id === "og-image2-high")).toMatchObject({
       description: "高价高清强",
-      icon: "image2",
+      icon: "openai",
+    });
+    expect(catalog.image.find(model => model.id === "gemini-3.5-flash-preview")).toMatchObject({
+      icon: "gemini",
+    });
+    expect(catalog.image.find(model => model.id === "jimeng-4.0")).toMatchObject({
+      icon: "jimeng",
+    });
+    expect(catalog.image.find(model => model.id === "mj-v7")).toMatchObject({
+      icon: "midjourney",
     });
     expect(JSON.stringify(catalog)).not.toContain("secret-image-key");
     expect(JSON.stringify(catalog)).not.toContain("gpt-image-2");

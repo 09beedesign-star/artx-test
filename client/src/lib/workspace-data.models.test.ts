@@ -16,7 +16,16 @@ describe("workspace image model options", () => {
     expect(IMAGE_AI_MODEL_OPTIONS.find(option => option.id === "og-image2-low")).toMatchObject({
       label: "image2 low",
       description: "低价快速稿",
-      icon: "image",
+      icon: "openai",
+    });
+    expect(IMAGE_AI_MODEL_OPTIONS.find(option => option.id === "gemini-3.5-flash-preview")).toMatchObject({
+      icon: "gemini",
+    });
+    expect(IMAGE_AI_MODEL_OPTIONS.find(option => option.id === "jimeng-4.0")).toMatchObject({
+      icon: "jimeng",
+    });
+    expect(IMAGE_AI_MODEL_OPTIONS.find(option => option.id === "mj-v7")).toMatchObject({
+      icon: "midjourney",
     });
   });
 
@@ -25,7 +34,7 @@ describe("workspace image model options", () => {
       { id: "gpt-image-2", label: "gpt-image-2", color: "server-color" },
       { id: "gpt-image-2-4k", label: "gpt-image-2-4k", color: "server-color" },
       { id: "gemini-3.1-flash-image", label: "gemini-3.1-flash-image", color: "server-color" },
-      { id: "jimeng-4.0", label: "jimeng-4.0", color: "server-color", description: "中价中文强", icon: "image" },
+      { id: "jimeng-4.0", label: "jimeng-4.0", color: "server-color", description: "中价中文强", icon: "jimeng" },
       { id: "gpt-5.4-mini", label: "GPT text", color: "server-color" },
     ]);
 
@@ -37,7 +46,7 @@ describe("workspace image model options", () => {
     expect(options.find(option => option.id === "jimeng-4.0")).toMatchObject({
       label: "jimeng-4.0",
       description: "中价中文强",
-      icon: "image",
+      icon: "jimeng",
     });
     expect(options.some(option => option.id === "gpt-image-2")).toBe(false);
     expect(options.some(option => option.id === "gpt-image-2-4k")).toBe(false);
@@ -49,9 +58,9 @@ describe("workspace image model options", () => {
   it("uses discovered image models as the selector source when the provider returns a catalog", () => {
     const options = mergeImageAiModelOptions([
       { id: "gemini-3.5-flash-preview", label: "gemini-3.5-flash-preview", color: "server-color" },
-      { id: "og-image2-low", label: "image2 low", color: "server-color", description: "低价快速稿", icon: "image2" },
-      { id: "og-image2-medium", label: "image2 medium", color: "server-color", description: "中价均衡稳", icon: "image2" },
-      { id: "og-image2-high", label: "image2 high", color: "server-color", description: "高价高清强", icon: "image2" },
+      { id: "og-image2-low", label: "image2 low", color: "server-color", description: "低价快速稿", icon: "openai" },
+      { id: "og-image2-medium", label: "image2 medium", color: "server-color", description: "中价均衡稳", icon: "openai" },
+      { id: "og-image2-high", label: "image2 high", color: "server-color", description: "高价高清强", icon: "openai" },
     ]);
 
     expect(options.map(option => option.id)).toEqual([
@@ -64,7 +73,7 @@ describe("workspace image model options", () => {
     expect(options.find(option => option.id === "og-image2-low")).toMatchObject({
       label: "image2 low",
       description: "低价快速稿",
-      icon: "image2",
+      icon: "openai",
     });
   });
 });

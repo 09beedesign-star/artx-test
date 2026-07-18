@@ -460,11 +460,11 @@ const imageModelLabels: Record<string, string> = {
 const imageModelIcons: Record<string, string> = {
   "gemini-3.5-flash-preview": "gemini",
   "jimeng-4.0": "jimeng",
-  "mj-v7": "mj",
-  "mj-v8.1": "mj",
-  "og-image2-low": "image2",
-  "og-image2-medium": "image2",
-  "og-image2-high": "image2",
+  "mj-v7": "midjourney",
+  "mj-v8.1": "midjourney",
+  "og-image2-low": "openai",
+  "og-image2-medium": "openai",
+  "og-image2-high": "openai",
 };
 
 function isImageGenerationModelId(id: string) {

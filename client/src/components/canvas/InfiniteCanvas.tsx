@@ -383,6 +383,80 @@ function ImageModelLineIcon({ size = 14 }: { size?: number }) {
   );
 }
 
+function GeminiBrandIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M12 3.8c.9 4.2 3.2 6.9 7.2 8.2-4 1.3-6.3 4-7.2 8.2-.9-4.2-3.2-6.9-7.2-8.2 4-1.3 6.3-4 7.2-8.2Z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M19.5 4.8c.3 1.1.9 1.8 1.9 2.2-1 .4-1.6 1.1-1.9 2.2-.3-1.1-.9-1.8-1.9-2.2 1-.4 1.6-1.1 1.9-2.2ZM4.4 15.7c.3.9.8 1.5 1.6 1.8-.8.3-1.3.9-1.6 1.8-.3-.9-.8-1.5-1.6-1.8.8-.3 1.3-.9 1.6-1.8Z"
+        stroke="currentColor"
+        strokeWidth="1.45"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function JimengBrandIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M6 7.2c1.9-2.1 4.3-3.1 7.1-2.8 3.8.4 6.6 3.4 6.9 7.1.3 4.8-4.1 8.8-8.8 7.7-3-.7-5.4-3.1-6.1-6.1"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+      />
+      <path
+        d="M4.1 5.7h5.1M6.7 5.7v8.1c0 1.8 1.1 2.9 2.9 2.9 1.6 0 2.7-.8 3.3-2.3M12.2 9.2h5M12.2 12.6h4.1"
+        stroke="currentColor"
+        strokeWidth="1.65"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function MidjourneyBrandIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M12 4.2v10.9M12 4.2c2.9 2.1 4.9 5.2 5.9 9.4-2.3-.7-4.2-.3-5.9 1.5M12 4.2C9.1 6.3 7.1 9.4 6.1 13.6c2.3-.7 4.2-.3 5.9 1.5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M4.7 17.1c2 .9 4.4 1.4 7.3 1.4s5.3-.5 7.3-1.4"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function OpenAiBrandIcon({ size = 14 }: { size?: number }) {
+  return <ChatGptLineIcon size={size} />;
+}
+
+function getModelBrandIconKind(modelId: string, icon?: string) {
+  const value = `${icon || ""} ${modelId}`.toLowerCase();
+  if (/gemini/.test(value)) return "gemini";
+  if (/jimeng|即梦/.test(value)) return "jimeng";
+  if (/midjourney|mj-/.test(value)) return "midjourney";
+  if (/openai|image2|og-image2/.test(value)) return "openai";
+  if (/banana/.test(value)) return "banana";
+  if (/gpt/.test(value)) return "openai";
+  return icon ? "image" : "none";
+}
+
 function AssistantModelIcon({
   modelId,
   icon,
@@ -390,21 +464,23 @@ function AssistantModelIcon({
   modelId: string;
   icon?: string;
 }) {
-  if (icon || /banana|gemini|jimeng|mj-|image-?2|og-image2/i.test(modelId)) {
-    return (
-      <span style={{ color: "#FFFFFF", display: "inline-flex", flex: "0 0 auto" }}>
-        <ImageModelLineIcon size={14} />
-      </span>
-    );
-  }
-  if (/gpt|image-?2/i.test(modelId)) {
-    return (
-      <span style={{ color: "#FFFFFF", display: "inline-flex", flex: "0 0 auto" }}>
-        <ChatGptLineIcon size={14} />
-      </span>
-    );
-  }
-  return null;
+  const iconKind = getModelBrandIconKind(modelId, icon);
+  if (iconKind === "none") return null;
+  const iconNode =
+    iconKind === "gemini" ? <GeminiBrandIcon size={14} /> :
+    iconKind === "jimeng" ? <JimengBrandIcon size={14} /> :
+    iconKind === "midjourney" ? <MidjourneyBrandIcon size={14} /> :
+    iconKind === "openai" ? <OpenAiBrandIcon size={14} /> :
+    iconKind === "banana" ? <BananaLineIcon size={14} /> :
+    <ImageModelLineIcon size={14} />;
+  return (
+    <span
+      data-model-brand-icon={iconKind}
+      style={{ color: "#FFFFFF", display: "inline-flex", flex: "0 0 auto", marginTop: 2 }}
+    >
+      {iconNode}
+    </span>
+  );
 }
 import { useLocation } from "wouter";
 import JSZip from "jszip";
@@ -713,7 +789,7 @@ function ModelSelector({
                   onChange(m.id);
                   setOpen(false);
                 }}
-                className="flex items-center gap-2 w-full px-3 text-left type-caption transition-colors"
+                className="flex items-start gap-2 w-full px-3 text-left type-caption transition-colors"
                 style={{ height: rowHeight, color: text }}
                 onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
                 onMouseLeave={e =>
@@ -19888,7 +19964,7 @@ function CanvasAssistantPanel({
                                 setAgentMenuOpen(false);
                               }}
                             >
-                              <div className="flex min-w-0 items-center gap-2.5">
+                              <div className="flex min-w-0 items-start gap-2.5">
                                 <AssistantModelIcon modelId={model.id} icon={model.icon} />
                                 <div className="min-w-0">
                                   <p
