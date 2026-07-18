@@ -19098,8 +19098,9 @@ function CanvasAssistantPanel({
                               src={getCanvasRenderableImageSrc(backup.src)}
                               alt={backup.title}
                               draggable={false}
-                              className="w-full rounded-[var(--radius-md-design)]"
+                              className="rounded-[var(--radius-md-design)]"
                               style={{
+                                width: "25%",
                                 aspectRatio: `${Math.max(1, backup.width)} / ${Math.max(1, backup.height)}`,
                                 objectFit: "cover",
                                 border: `1px solid ${border}`,

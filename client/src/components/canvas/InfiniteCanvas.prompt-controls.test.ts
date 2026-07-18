@@ -108,6 +108,17 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).not.toContain("Sync selected image nodes → referencedAssets chips");
   });
 
+  it("keeps recovered assistant message images compact inside the right conversation panel", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const backupImageBlock = source.match(
+      /src=\{getCanvasRenderableImageSrc\(backup\.src\)\}[\s\S]*?cursor: "zoom-in"/
+    )?.[0];
+
+    expect(backupImageBlock).toBeTruthy();
+    expect(backupImageBlock).toContain('width: "25%"');
+    expect(backupImageBlock).not.toContain('className="w-full');
+  });
+
   it("persists derived canvas AI tasks with backend task input so reloads do not restart them as text-to-image", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
 
