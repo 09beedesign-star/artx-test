@@ -6478,36 +6478,6 @@ function AssetNodeComponent({
     []
   );
 
-  const getRenderedImageSource = useCallback(async () => {
-    if (!displaySrc) return "";
-    return new Promise<string>(resolve => {
-      const image = new Image();
-      image.crossOrigin = "anonymous";
-      image.onload = () => {
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.max(1, Math.round(dispW));
-        canvas.height = Math.max(1, Math.round(dispH));
-        const ctx = canvas.getContext("2d");
-        if (!ctx) {
-          resolve(displaySrc);
-          return;
-        }
-        const sx = (cropX / 100) * image.naturalWidth;
-        const sy = (cropY / 100) * image.naturalHeight;
-        const sw = (cropW / 100) * image.naturalWidth;
-        const sh = (cropH / 100) * image.naturalHeight;
-        ctx.drawImage(image, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-        try {
-          resolve(canvas.toDataURL("image/png"));
-        } catch {
-          resolve(displaySrc);
-        }
-      };
-      image.onerror = () => resolve(displaySrc);
-      image.src = displaySrc;
-    });
-  }, [cropH, cropW, cropX, cropY, dispH, dispW, displaySrc]);
-
   const getRenderedImagePayload = useCallback(async () => {
     if (!displaySrc)
       return { src: "", width: 0, height: 0 };
@@ -6561,53 +6531,46 @@ function AssetNodeComponent({
   }, [cropH, cropW, cropX, cropY, dispH, dispW, displaySrc]);
 
   const confirmExpand = useCallback(async () => {
-    const imageSrc = await getRenderedImageSource();
-    if (!imageSrc) {
+    const imagePayload = await getRenderedImagePayload();
+    if (!imagePayload.src) {
       toast("AI 扩展失败", { description: "当前图片没有可处理的图像来源" });
       return;
     }
-    const image = new Image();
-    image.crossOrigin = "anonymous";
-    image.onload = () => {
-      const sourceW = Math.max(1, image.naturalWidth || image.width || dispW);
-      const sourceH = Math.max(1, image.naturalHeight || image.height || dispH);
-      const pixelNextW = Math.max(1, Math.round(sourceW * (cropRect.w / 100)));
-      const pixelNextH = Math.max(1, Math.round(sourceH * (cropRect.h / 100)));
-      const displayNextW = Math.max(1, Math.round(dispW * (cropRect.w / 100)));
-      const displayNextH = Math.max(1, Math.round(dispH * (cropRect.h / 100)));
-      const dx = Math.round((-cropRect.x / 100) * sourceW);
-      const dy = Math.round((-cropRect.y / 100) * sourceH);
-      const expandLeft = Math.max(0, dx);
-      const expandTop = Math.max(0, dy);
-      const expandRight = Math.max(0, pixelNextW - dx - sourceW);
-      const expandBottom = Math.max(0, pixelNextH - dy - sourceH);
-      const toExpansionRatio = (pixels: number, base: number) =>
-        pixels > 0 ? Math.min(1, Math.max(0, pixels / Math.max(1, base))) : undefined;
-      try {
-        window.dispatchEvent(
-          new CustomEvent("asset-expand-apply", {
-            detail: {
-              nodeId,
-              imageSrc,
-              nextW: pixelNextW,
-              nextH: pixelNextH,
-              displayW: displayNextW,
-              displayH: displayNextH,
-              top: toExpansionRatio(expandTop, sourceH),
-              bottom: toExpansionRatio(expandBottom, sourceH),
-              left: toExpansionRatio(expandLeft, sourceW),
-              right: toExpansionRatio(expandRight, sourceW),
-            },
-          })
-        );
-      } catch {
-        toast("AI 扩展失败", { description: "无法提交扩展参数" });
-      }
-    };
-    image.onerror = () =>
-      toast("AI 扩展失败", { description: "无法读取当前图片" });
-    image.src = imageSrc;
-  }, [cropRect, dispH, dispW, getRenderedImageSource, nodeId]);
+    const sourceW = Math.max(1, Math.round(imagePayload.width || dispW));
+    const sourceH = Math.max(1, Math.round(imagePayload.height || dispH));
+    const pixelNextW = Math.max(1, Math.round(sourceW * (cropRect.w / 100)));
+    const pixelNextH = Math.max(1, Math.round(sourceH * (cropRect.h / 100)));
+    const displayNextW = Math.max(1, Math.round(dispW * (cropRect.w / 100)));
+    const displayNextH = Math.max(1, Math.round(dispH * (cropRect.h / 100)));
+    const dx = Math.round((-cropRect.x / 100) * sourceW);
+    const dy = Math.round((-cropRect.y / 100) * sourceH);
+    const expandLeft = Math.max(0, dx);
+    const expandTop = Math.max(0, dy);
+    const expandRight = Math.max(0, pixelNextW - dx - sourceW);
+    const expandBottom = Math.max(0, pixelNextH - dy - sourceH);
+    const toExpansionRatio = (pixels: number, base: number) =>
+      pixels > 0 ? Math.min(1, Math.max(0, pixels / Math.max(1, base))) : undefined;
+    try {
+      window.dispatchEvent(
+        new CustomEvent("asset-expand-apply", {
+          detail: {
+            nodeId,
+            imageSrc: imagePayload.src,
+            nextW: pixelNextW,
+            nextH: pixelNextH,
+            displayW: displayNextW,
+            displayH: displayNextH,
+            top: toExpansionRatio(expandTop, sourceH),
+            bottom: toExpansionRatio(expandBottom, sourceH),
+            left: toExpansionRatio(expandLeft, sourceW),
+            right: toExpansionRatio(expandRight, sourceW),
+          },
+        })
+      );
+    } catch {
+      toast("AI 扩展失败", { description: "无法提交扩展参数" });
+    }
+  }, [cropRect, dispH, dispW, getRenderedImagePayload, nodeId]);
 
   const applyErase = useCallback(async () => {
     if (!eraseHasPaintRef.current || !eraseMaskCanvasRef.current) {

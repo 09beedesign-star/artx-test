@@ -23,6 +23,9 @@ assert(files.ai.includes("/api/images/expand"), "frontend still calls the image 
 assert(files.canvas.includes('action: "expand"'), "vertical image toolbar still exposes the expand command");
 assert(files.canvas.includes("imageSrc,"), "frontend expansion must send the original image source, not the enlarged transparent canvas");
 assert(!files.canvas.includes("imageSrc: expandedCanvas.toDataURL"), "frontend expansion must not send the enlarged transparent canvas as the source image");
+assert(!files.canvas.includes("getRenderedImageSource"), "frontend expansion must not downsample the source image to canvas display size");
+assert(files.canvas.includes("const imagePayload = await getRenderedImagePayload();"), "frontend expansion must use the high-resolution rendered image payload");
+assert(files.canvas.includes("imageSrc: imagePayload.src"), "frontend expansion must submit the high-resolution payload source");
 assert(files.canvas.includes("toExpansionRatio(expandTop, sourceH)") && files.canvas.includes("toExpansionRatio(expandLeft, sourceW)"), "frontend expansion must convert edge pixels to PicWish ratio values");
 assert(files.canvas.includes('model: "picwish-advanced-image-expand"'), "frontend expansion metadata must use the PicWish expansion model label");
 assert(files.server.includes("advanced-image-expand"), "server must call PicWish advanced-image-expand API");
