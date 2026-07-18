@@ -380,22 +380,18 @@ function PaymentMethodLogo({
         className="inline-flex shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-md-design)]"
         style={{ width: size, height: size, background: "#1677FF" }}
         aria-label="支付宝 logo"
+        data-payment-brand-icon="alipay"
       >
         <svg
           aria-hidden="true"
-          viewBox="0 0 32 32"
+          viewBox="0 0 24 24"
           width={size}
           height={size}
           className="block"
         >
-          <rect width="32" height="32" rx="7" fill="#1677FF" />
           <path
-            d="M8 10.4h16M16 6.4v8.3M10 16.1c4.9 5.2 10.2 7.7 15.8 7.5M21.8 13.9c-1.1 4.6-4.9 8.9-12.6 12"
-            fill="none"
-            stroke="#FFFFFF"
-            strokeWidth="2.2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+            d="M19.695 15.07c3.426 1.158 4.203 1.22 4.203 1.22V3.846c0-2.124-1.705-3.845-3.81-3.845H3.914C1.808.001.102 1.722.102 3.846v16.31c0 2.123 1.706 3.845 3.813 3.845h16.173c2.105 0 3.81-1.722 3.81-3.845v-.157s-6.19-2.602-9.315-4.119c-2.096 2.602-4.8 4.181-7.607 4.181c-4.75 0-6.361-4.19-4.112-6.949c.49-.602 1.324-1.175 2.617-1.497c2.025-.502 5.247.313 8.266 1.317a16.8 16.8 0 0 0 1.341-3.302H5.781v-.952h4.799V6.975H4.77v-.953h5.81V3.591s0-.409.411-.409h2.347v2.84h5.744v.951h-5.744v1.704h4.69a19.5 19.5 0 0 1-1.986 5.06c1.424.52 2.702 1.011 3.654 1.333m-13.81-2.032c-.596.06-1.71.325-2.321.869c-1.83 1.608-.735 4.55 2.968 4.55c2.151 0 4.301-1.388 5.99-3.61c-2.403-1.182-4.438-2.028-6.637-1.809"
+            fill="#FFFFFF"
           />
         </svg>
       </span>
@@ -404,30 +400,36 @@ function PaymentMethodLogo({
   return (
     <span
       className="inline-flex shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-md-design)]"
-      style={{ width: size, height: size, background: "#FFFFFF" }}
+      style={{ width: size, height: size, background: "#07C160" }}
       aria-label="微信支付 logo"
+      data-payment-brand-icon="wechat-pay"
     >
       <svg
         aria-hidden="true"
-        viewBox="0 0 32 32"
+        viewBox="0 0 64 64"
         width={size}
         height={size}
         className="block"
       >
-        <rect width="32" height="32" rx="7" fill="#FFFFFF" />
+        <rect width="64" height="64" rx="14" fill="#07C160" />
         <path
-          d="M13.6 20.7c-5.2-.3-9.2-3.6-9.2-7.6 0-4.2 4.5-7.6 10-7.6 4.8 0 8.8 2.5 9.8 6"
-          fill="#1AAD19"
-          opacity="0.95"
+          d="M18.8 18.7C12.8 19.4 8 23.4 8 28.4c0 3 1.8 5.8 4.7 7.6l-1.2 5.1 5.5-3c1.2.3 2.4.4 3.8.4h1.1c-.8-1.9-1-4.1-.4-6.1 1.3-4.7 6.4-8.2 12.4-8.2.7 0 1.3 0 1.9.1-1.4-3.8-6.3-6.4-12.1-5.7h-4.9Z"
+          fill="#FFFFFF"
+          opacity="0.92"
         />
         <path
-          d="M27.7 16.4c0 3.5-3.5 6.4-7.8 6.4-.8 0-1.6-.1-2.4-.3l-3.5 2.1.9-3.1c-1.8-1.2-2.9-3-2.9-5.1 0-3.5 3.5-6.4 7.8-6.4s7.9 2.9 7.9 6.4Z"
-          fill="#1AAD19"
+          d="M34.6 25.9c-6.5 0-11.8 4.1-11.8 9.2 0 5.1 5.3 9.2 11.8 9.2 1.4 0 2.7-.2 3.9-.6l6.1 3.1-1.4-5.2c2-1.7 3.2-4 3.2-6.5 0-5.1-5.3-9.2-11.8-9.2Z"
+          fill="#FFFFFF"
+          opacity="0.98"
         />
-        <circle cx="11.4" cy="12.5" r="1.2" fill="#FFFFFF" />
-        <circle cx="16.5" cy="12.5" r="1.2" fill="#FFFFFF" />
-        <circle cx="18.2" cy="16.2" r="1" fill="#FFFFFF" />
-        <circle cx="22.1" cy="16.2" r="1" fill="#FFFFFF" />
+        <path
+          d="M29 35.1 33 39l8-8.5"
+          fill="none"
+          stroke="#07C160"
+          strokeWidth="3.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       </svg>
     </span>
   );

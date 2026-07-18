@@ -13,8 +13,12 @@ describe("BillingPage payment method selection", () => {
     expect(source).toContain("支付宝");
     expect(source).toContain('aria-label="支付宝 logo"');
     expect(source).toContain('aria-label="微信支付 logo"');
+    expect(source).toContain('data-payment-brand-icon="alipay"');
+    expect(source).toContain('data-payment-brand-icon="wechat-pay"');
     expect(source).not.toContain("huaban.com/pins");
     expect(source).not.toContain("/api/images/proxy?url=");
-    expect(source).toContain('background: "#FFFFFF"');
+    expect(source).not.toContain('circle cx="11.4"');
+    expect(source).toContain('background: "#07C160"');
+    expect(source).toContain('stroke="#07C160"');
   });
 });
