@@ -337,6 +337,12 @@ async function postImageEnhance(body: Record<string, unknown>, fallbackError: st
   return fetchAiJson<ApiErrorResponse & Partial<GeneratedImagesResponse>>(endpoint, body, fallbackError);
 }
 
+async function postImageBackgroundRemoval(body: Record<string, unknown>, fallbackError: string) {
+  const baseUrl = getAiApiBaseUrl();
+  const endpoint = `${baseUrl}/api/images/remove-background`;
+  return fetchAiJson<ApiErrorResponse & Partial<GeneratedImagesResponse>>(endpoint, body, fallbackError);
+}
+
 async function postImageWatermarkRemoval(body: Record<string, unknown>, fallbackError: string) {
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/images/remove-watermark`;
@@ -554,16 +560,13 @@ export async function removeImageBackground({
   prompt?: string;
 }) {
   requireAiAuth();
-  const result = await postAiOrchestrate({
-    capability: "background_removal",
-    intent: "background_removal",
-    operation: "remove-background",
+  const result = await postImageBackgroundRemoval({
     imageSrc,
     model,
     prompt,
   }, "去背景失败");
 
-  return { images: result.images || [] };
+  return toGeneratedImagesResponse(result);
 }
 
 export async function enhanceImageToHd({

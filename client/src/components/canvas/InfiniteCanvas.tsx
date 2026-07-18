@@ -22482,7 +22482,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           operation: "erase",
           imageSrc: detail.imageSrc,
           maskSrc: detail.maskSrc,
-          model: DEFAULT_IMAGE_AI_MODEL_ID,
+          model: "picwish-remove-unwanted-object",
           targetWidth: detail.targetWidth ?? sourceSize.width,
           targetHeight: detail.targetHeight ?? sourceSize.height,
           prompt:
@@ -22492,7 +22492,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           eraseImageObjects({
             imageSrc: detail.imageSrc,
             maskSrc: detail.maskSrc,
-            model: DEFAULT_IMAGE_AI_MODEL_ID,
+            model: "picwish-remove-unwanted-object",
             targetWidth: detail.targetWidth ?? sourceSize.width,
             targetHeight: detail.targetHeight ?? sourceSize.height,
             prompt:

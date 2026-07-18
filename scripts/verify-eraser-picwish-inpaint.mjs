@@ -29,11 +29,15 @@ const pollTaskSource = pollTaskMatch[0];
 const maskSource = maskMatch[0];
 const eraseImageObjectsSource = eraseImageObjectsMatch[0];
 
-if (!/\/api\/tasks\/visual\/inpaint/.test(createTaskSource)) {
+if (!/\/api\/tasks\/visual\/inpaint/.test(source) || !/getPicWishObjectsRemovalEndpoint/.test(createTaskSource)) {
   throw new Error("橡皮擦必须直连 PicWish inpaint 创建任务接口");
 }
 
-if (!/\/api\/tasks\/visual\/inpaint\/\$/.test(pollTaskSource)) {
+if (!/getPicWishObjectsRemovalConfig/.test(createTaskSource) || !/https:\/\/techhk\.aoscdn\.com/.test(source)) {
+  throw new Error("橡皮擦必须使用 PicWish remove-unwanted-object 对应的 techhk Objects Removal 配置");
+}
+
+if (!/getPicWishObjectsRemovalEndpoint\(baseUrl\).*encodeURIComponent\(taskId\)/s.test(pollTaskSource)) {
   throw new Error("橡皮擦必须直连 PicWish inpaint 轮询接口");
 }
 
@@ -43,6 +47,10 @@ if (!/X-API-KEY/.test(createTaskSource) || !/X-API-KEY/.test(pollTaskSource)) {
 
 if (!/body\.append\("sync", input\.sync \? "1" : "0"\)/.test(createTaskSource)) {
   throw new Error("橡皮擦必须支持 PicWish sync=0 和 sync=1");
+}
+
+if (!/body\.append\("return_type", "1"\)/.test(createTaskSource)) {
+  throw new Error("橡皮擦必须请求 PicWish URL 结果 return_type=1");
 }
 
 if (!/image_url/.test(createTaskSource) || !/image_file/.test(createTaskSource)) {
@@ -89,4 +97,4 @@ if (/createLocalEraseFallback|compositeEraseResultInsidePicWishMask|didEraseChan
   throw new Error("eraseImageObjects 不能再走旧橡皮擦链路");
 }
 
-console.log("PicWish eraser route matches the documented inpaint API, including sync modes, URL/file inputs, rectangles, 180s polling, and white-remove masks.");
+console.log("PicWish eraser route matches the remove-unwanted-object Objects Removal API, including techhk routing, sync modes, URL/file inputs, rectangles, 180s polling, URL results, and white-remove masks.");

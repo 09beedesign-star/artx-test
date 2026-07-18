@@ -407,6 +407,16 @@ function getPicWishConfig() {
   };
 }
 
+function getPicWishObjectsRemovalConfig() {
+  const apiKey = process.env.PICWISH_API_KEY || process.env.AOS_API_KEY || "";
+  const baseUrl = (
+    process.env.PICWISH_OBJECTS_REMOVAL_BASE_URL ||
+    process.env.PICWISH_INPAINT_BASE_URL ||
+    "https://techhk.aoscdn.com"
+  ).replace(/\/+$/, "");
+  return { apiKey, baseUrl };
+}
+
 const supportedImageModels = new Set<string>(IMAGE_MODEL_PRIORITY_IDS);
 
 const chatCompatibleImageModels = new Set<string>([
@@ -954,9 +964,13 @@ function getPicWishImageExpansionEndpoint(baseUrl: string) {
   return `${baseUrl.replace(/\/+$/, "")}/api/tasks/visual/advanced-image-expand`;
 }
 
+function getPicWishObjectsRemovalEndpoint(baseUrl: string) {
+  return `${baseUrl.replace(/\/+$/, "")}/api/tasks/visual/inpaint`;
+}
+
 function getPicWishResultImageUrl(data: PicWishSegmentationResponse, taskType?: PicWishVisualTaskType) {
   if (taskType === "segmentation") {
-    return data.data?.image_obj || data.data?.image || "";
+    return data.data?.image || "";
   }
   if (taskType === "watermark") {
     return data.data?.file || data.data?.image || data.data?.image_obj || "";
@@ -1127,11 +1141,6 @@ async function runPicWishImageTask(
   const body = new FormData();
   body.append("sync", "0");
   body.append("image_file", bufferToImageFile(buffer, mimeType));
-  if (taskType === "segmentation") {
-    // PicWish segmentation supports object-oriented output fields. Requesting
-    // them helps keep the whole foreground group, not only a detected person.
-    body.append("output_type", "1");
-  }
   if (options?.maskBuffer) {
     body.append("mask_file", bufferToImageFile(options.maskBuffer, options.maskMimeType || "image/png"));
   }
@@ -1202,7 +1211,14 @@ async function runPicWishImageTask(
 }
 
 async function removeBackgroundWithPicWish(buffer: Buffer, mimeType: string): Promise<GeneratedImageResult> {
-  return runPicWishImageTask("segmentation", buffer, mimeType);
+  return runPicWishImageTask("segmentation", buffer, mimeType, {
+    fields: {
+      return_type: 1,
+      output_type: 2,
+      crop: 0,
+      format: "png",
+    },
+  });
 }
 
 async function removeFaceWithPicWish(buffer: Buffer, mimeType: string): Promise<GeneratedImageResult> {
@@ -1221,14 +1237,15 @@ async function createPicWishInpaintTask(
     sync?: boolean;
   },
 ): Promise<{ taskId: string; apiKey: string; baseUrl: string; created: PicWishSegmentationResponse; imageUrl?: string }> {
-  const { apiKey, baseUrl } = getPicWishConfig();
+  const { apiKey, baseUrl } = getPicWishObjectsRemovalConfig();
   if (!apiKey) {
     throw new Error("Missing PICWISH_API_KEY");
   }
 
-  const endpoint = `${baseUrl.replace(/\/+$/, "")}/api/tasks/visual/inpaint`;
+  const endpoint = getPicWishObjectsRemovalEndpoint(baseUrl);
   const body = new FormData();
   body.append("sync", input.sync ? "1" : "0");
+  body.append("return_type", "1");
   if (input.imageUrl) {
     body.append("image_url", input.imageUrl);
   } else if (input.imageBuffer) {
@@ -1292,7 +1309,7 @@ async function createPicWishInpaintTask(
 }
 
 async function pollPicWishInpaintTask(taskId: string, apiKey: string, baseUrl: string): Promise<{ images: GeneratedImage[] }> {
-  const endpoint = `${baseUrl.replace(/\/+$/, "")}/api/tasks/visual/inpaint/${encodeURIComponent(taskId)}`;
+  const endpoint = `${getPicWishObjectsRemovalEndpoint(baseUrl)}/${encodeURIComponent(taskId)}`;
   const startedAt = Date.now();
   for (let attempt = 0; attempt < 180; attempt += 1) {
     if (attempt > 0) await delay(1000);
@@ -2390,6 +2407,15 @@ async function removeBackgroundPreservingForegroundPixels(src: string): Promise<
   }
 }
 
+async function removeBackgroundWithPurePicWish(src: string): Promise<GeneratedImageResult> {
+  const { buffer, mimeType } = await imageSrcToBuffer(src);
+  return withTimeout(
+    removeBackgroundWithPicWish(buffer, mimeType),
+    REMOVE_BACKGROUND_PICWISH_TIMEOUT_MS,
+    "PicWish background removal timed out",
+  );
+}
+
 async function imageSrcToFile(src: string): Promise<File> {
   const { buffer, mimeType } = await imageSrcToBuffer(src);
   return bufferToImageFile(buffer, mimeType);
@@ -2558,7 +2584,7 @@ export async function removeImageBackground(input: RemoveBackgroundInput): Promi
     throw new Error("Missing imageSrc");
   }
 
-  return removeBackgroundPreservingForegroundPixels(input.imageSrc);
+  return removeBackgroundWithPurePicWish(input.imageSrc);
 }
 
 export async function enhanceImage(input: EnhanceImageInput): Promise<GeneratedImageResult> {

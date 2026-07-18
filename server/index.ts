@@ -520,7 +520,7 @@ function getBackgroundImageTaskPreflightTracking(input: Record<string, unknown>,
         capabilityKey: "image_erase",
         capability: "图片擦除",
         provider: "PicWish/佐糖",
-        model: getRouteModel(input, "picwish-inpaint"),
+        model: getRouteModel(input, "picwish-remove-unwanted-object"),
         failureMessage: "Image erase failed",
       };
     case "image_expansion":
@@ -1435,7 +1435,7 @@ async function startServer() {
       capabilityKey: "image_erase",
       capability: "图片擦除",
       provider: "PicWish/佐糖",
-      model: getRouteModel(req.body, "picwish-inpaint"),
+      model: getRouteModel(req.body, "picwish-remove-unwanted-object"),
       failureMessage: "Image erase failed",
     }, async (user) => {
       const result = await eraseImageObjects(req.body);

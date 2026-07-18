@@ -41,12 +41,31 @@ describe("background image task routing", () => {
     expect(source).toContain('capabilityKey: "watermark_removal"');
     expect(source).toContain('model: getRouteModel(input, "picwish-watermark")');
     expect(source).toContain('capabilityKey: "image_erase"');
-    expect(source).toContain('model: getRouteModel(input, "picwish-inpaint")');
+    expect(source).toContain('model: getRouteModel(input, "picwish-remove-unwanted-object")');
     expect(source).toContain('capabilityKey: "image_expansion"');
     expect(source).toContain('model: getRouteModel(input, "picwish-advanced-image-expand")');
 
     expect(source).toContain('capabilityKey: "image_edit"');
     expect(source).toContain('provider: "AI_IMAGE"');
     expect(source).toContain("model: getDefaultRouteImageModel(input)");
+  });
+
+  it("keeps the public background-removal command on pure PicWish segmentation", () => {
+    const source = readFileSync(resolve(__dirname, "image-generation.ts"), "utf-8");
+    const removeImageBackgroundSource =
+      source.match(/export async function removeImageBackground[\s\S]*?\n}/)?.[0] || "";
+    const purePicWishSource =
+      source.match(/async function removeBackgroundWithPurePicWish[\s\S]*?\n}/)?.[0] || "";
+
+    expect(removeImageBackgroundSource).toContain("removeBackgroundWithPurePicWish(input.imageSrc)");
+    expect(removeImageBackgroundSource).not.toContain("removeBackgroundPreservingForegroundPixels");
+    expect(purePicWishSource).toContain("removeBackgroundWithPicWish(buffer, mimeType)");
+    expect(purePicWishSource).not.toContain("removeFaceWithPicWish");
+    expect(purePicWishSource).not.toContain("removeBackgroundByConservativeEdgeColor");
+    expect(source).toContain('return_type: 1');
+    expect(source).toContain('output_type: 2');
+    expect(source).toContain('crop: 0');
+    expect(source).toContain('format: "png"');
+    expect(source).toContain('return data.data?.image || ""');
   });
 });
