@@ -13575,10 +13575,7 @@ function ImageGeneratorPopover({
                 onClick={() => setModelOpen(open => !open)}
               >
                 <span className="flex min-w-0 items-center gap-2">
-                  <span
-                    className="h-4 w-4 rounded-[var(--radius-pill)] shrink-0"
-                    style={{ background: selectedModel.color }}
-                  />
+                  <AssistantModelIcon modelId={selectedModel.id} icon={selectedModel.icon} />
                   <span className="truncate">{selectedModel.label}</span>
                 </span>
                 <ChevronDown

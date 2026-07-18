@@ -50,4 +50,37 @@ describe("HomePage auth flow", () => {
     expect(source).toContain('autoComplete="username"');
     expect(source).toContain('autoComplete={isRegister ? "new-password" : "current-password"}');
   });
+
+  it("keeps homepage inspiration cards focused on content without source or rank chrome", () => {
+    const source = readFileSync(resolve(__dirname, "HomePage.tsx"), "utf-8");
+
+    expect(source).not.toContain(">EW<");
+    expect(source).not.toContain("ArtX 灵感");
+    expect(source).not.toContain("#{item.rank}");
+    expect(source).toContain('className="flex items-start justify-between gap-3"');
+    expect(source).toContain('className="min-w-0 flex-1"');
+  });
+
+  it("opens the home inspiration detail modal instead of routing away", () => {
+    const source = readFileSync(resolve(__dirname, "HomePage.tsx"), "utf-8");
+
+    expect(source).toContain("selectedHomeInspiration");
+    expect(source).toContain("setSelectedHomeInspiration(item)");
+    expect(source).not.toContain('onClick={() => navigate("/inspiration")}');
+    expect(source).toContain("copyHomeInspirationPrompt(selectedHomeInspiration.prompt)");
+    expect(source).toContain('aria-label="关闭弹层"');
+    expect(source).toContain('style={{ maxWidth: 980, background: "#222222", border: `1px solid ${homeInspirationBorder}` }}');
+  });
+
+  it("randomizes home inspiration order and metrics for each login session", () => {
+    const source = readFileSync(resolve(__dirname, "HomePage.tsx"), "utf-8");
+
+    expect(source).toContain("const HOME_INSPIRATION_MIN_METRIC = 1000");
+    expect(source).toContain("const HOME_INSPIRATION_MAX_METRIC = 10000");
+    expect(source).toContain("function randomInspirationMetric()");
+    expect(source).toContain("function shuffleInspirationRecommendations");
+    expect(source).toContain("viewCount: randomInspirationMetric()");
+    expect(source).toContain("likeCount: randomInspirationMetric()");
+    expect(source).toContain("setHomeInspirationItems(createHomeInspirationFeed())");
+  });
 });

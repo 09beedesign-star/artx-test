@@ -34,6 +34,38 @@ function readStoredProfile(): Partial<ProfileDraft> {
   }
 }
 
+function isQuotaExceededError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const storageError = error as { name?: string; code?: number };
+  return (
+    storageError.name === "QuotaExceededError" ||
+    storageError.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+    storageError.code === 22 ||
+    storageError.code === 1014
+  );
+}
+
+function writeStoredProfile(profile: ProfileDraft) {
+  try {
+    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile));
+    return { ok: true, avatarDropped: false };
+  } catch (error) {
+    if (!isQuotaExceededError(error)) return { ok: false, avatarDropped: false };
+    try {
+      localStorage.setItem(
+        PROFILE_STORAGE_KEY,
+        JSON.stringify({
+          ...profile,
+          avatar: "",
+        })
+      );
+      return { ok: true, avatarDropped: true };
+    } catch {
+      return { ok: false, avatarDropped: true };
+    }
+  }
+}
+
 export default function ProfilePage() {
   const { resolvedTheme } = useTheme();
   const { user, changePassword, logout } = useAuth();
@@ -69,7 +101,16 @@ export default function ProfilePage() {
   } | null>(null);
 
   useEffect(() => {
-    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile));
+    const result = writeStoredProfile(profile);
+    if (result.avatarDropped) {
+      toast.warning("头像图片过大", {
+        description: "文字资料已保存；头像仅在当前页面显示，请换用更小的图片。",
+      });
+      return;
+    }
+    if (!result.ok) {
+      toast.error("个人资料保存失败，请稍后重试");
+    }
   }, [profile]);
 
   const textPrimary = isDark ? "rgba(255,255,255,0.88)" : "rgba(20,20,36,0.88)";
@@ -651,7 +692,7 @@ function AvatarCropDialog({
     ctx.clip();
     ctx.drawImage(image, drawX, drawY, drawW, drawH);
     ctx.restore();
-    onConfirm(canvas.toDataURL("image/png"));
+    onConfirm(canvas.toDataURL("image/jpeg", 0.86));
   };
 
   const drawW = imageSize.width * scale;

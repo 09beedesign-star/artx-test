@@ -14,7 +14,7 @@ import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
 import defaultWechatGroupQr from "@/assets/community/wechat-group-qr.jpg";
 import {
   Home, Sparkles, Library, FolderOpen,
-  CreditCard, HelpCircle, ImagePlus, Send, X, KeyRound, Copy, Loader2, Globe2, QrCode,
+  CreditCard, HelpCircle, ImagePlus, Send, X, KeyRound, Copy, Loader2, QrCode,
 } from "lucide-react";
 
 
@@ -612,7 +612,6 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
             <NavItem icon={Home}    label="首页"     path="/" />
             <NavItem icon={Sparkles} label="灵感推荐" path="/inspiration" iconSize={15} />
             <NavItem icon={Library}  label="技能商店" path="/skills"      iconSize={15} />
-            <NavItem icon={Globe2} label="跨境电商" path="/cross-border-commerce" iconSize={15} />
             <NavItem icon={FolderOpen} label="工作台" path="/workspace" iconSize={15} />
             <NavItem icon={CreditCard} label="充值与订阅" path="/billing" iconSize={15} />
           </div>

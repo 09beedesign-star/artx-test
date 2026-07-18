@@ -3,10 +3,12 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 import {
   ChevronDown,
+  Copy,
   Heart,
   ImagePlus,
   PlayCircle,
   Send,
+  X,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import asteroidImage from "@/assets/ardot/3_3.png";
@@ -20,8 +22,14 @@ type InspirationRecommendation = {
   field: string;
   title: string;
   description: string;
+  prompt: string;
   imageUrl: string;
   author: string;
+};
+
+type HomeInspirationItem = InspirationRecommendation & {
+  viewCount: number;
+  likeCount: number;
 };
 
 function parseCsv(csv: string) {
@@ -82,6 +90,7 @@ function loadInspirationRecommendations(csv: string): InspirationRecommendation[
       field: get(record, "field"),
       title: get(record, "title"),
       description: get(record, "description"),
+      prompt: get(record, "prompt"),
       imageUrl: get(record, "image_url"),
       author: get(record, "author"),
     }))
@@ -90,6 +99,8 @@ function loadInspirationRecommendations(csv: string): InspirationRecommendation[
 
 const INSPIRATION_RECOMMENDATIONS = loadInspirationRecommendations(promptCsv);
 const BRAND_LOGO_SIZE = "h-[20px] w-[109px]";
+const HOME_INSPIRATION_MIN_METRIC = 1000;
+const HOME_INSPIRATION_MAX_METRIC = 10000;
 
 const PROMPT_SUGGESTIONS = [
   "帮我生成一张赛博朋克风格插画",
@@ -108,6 +119,28 @@ const PROMPT_FRAME_MS = 80;
 type PanelMode = "prelogin" | "login" | "register";
 type LandingTab = "home" | "inspiration" | "skills" | "workspace" | "help";
 type LoginBubble = { left: number; top: number; id: number } | null;
+
+function randomInspirationMetric() {
+  return Math.floor(
+    HOME_INSPIRATION_MIN_METRIC +
+      Math.random() * (HOME_INSPIRATION_MAX_METRIC - HOME_INSPIRATION_MIN_METRIC + 1)
+  );
+}
+
+function shuffleInspirationRecommendations(items: InspirationRecommendation[]) {
+  return [...items]
+    .map(item => ({ item, sort: Math.random() }))
+    .sort((a, b) => a.sort - b.sort)
+    .map(({ item }) => item);
+}
+
+function createHomeInspirationFeed(): HomeInspirationItem[] {
+  return shuffleInspirationRecommendations(INSPIRATION_RECOMMENDATIONS).map(item => ({
+    ...item,
+    viewCount: randomInspirationMetric(),
+    likeCount: randomInspirationMetric(),
+  }));
+}
 
 const getStageScale = () => {
   if (typeof window === "undefined") return 1;
@@ -193,11 +226,17 @@ export default function HomePage() {
   const [stageScale, setStageScale] = useState(getStageScale);
   const [activeTab, setActiveTab] = useState<LandingTab>("home");
   const [loginBubble, setLoginBubble] = useState<LoginBubble>(null);
+  const [homeInspirationItems, setHomeInspirationItems] = useState(createHomeInspirationFeed);
+  const [selectedHomeInspiration, setSelectedHomeInspiration] = useState<HomeInspirationItem | null>(null);
+  const [homeInspirationImageHeight, setHomeInspirationImageHeight] = useState<number | null>(null);
   const activeTabRef = useRef<LandingTab>("home");
   const hasReachedInspirationRef = useRef(false);
   const mainRef = useRef<HTMLElement>(null);
   const homeRef = useRef<HTMLElement>(null);
   const inspirationRef = useRef<HTMLElement>(null);
+  const homeInspirationImageRef = useRef<HTMLImageElement | null>(null);
+  const homeInspirationPromptRef = useRef<HTMLDivElement | null>(null);
+  const homeInspirationBorder = "rgba(255,255,255,0.10)";
 
   const setCurrentLandingTab = (tab: LandingTab) => {
     activeTabRef.current = tab;
@@ -209,7 +248,27 @@ export default function HomePage() {
     setPanelMode("prelogin");
     setAuthError("");
     setLoginBubble(null);
+    setHomeInspirationItems(createHomeInspirationFeed());
   }, [isAuthenticated]);
+
+  const measureHomeInspirationImage = () => {
+    const height = homeInspirationImageRef.current?.getBoundingClientRect().height || 0;
+    if (height > 0) setHomeInspirationImageHeight(Math.round(height));
+  };
+
+  useEffect(() => {
+    if (!selectedHomeInspiration) {
+      setHomeInspirationImageHeight(null);
+      return;
+    }
+
+    const animationFrame = window.requestAnimationFrame(measureHomeInspirationImage);
+    window.addEventListener("resize", measureHomeInspirationImage);
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      window.removeEventListener("resize", measureHomeInspirationImage);
+    };
+  }, [selectedHomeInspiration]);
 
   useEffect(() => {
     if (!loginBubble) return;
@@ -338,6 +397,25 @@ export default function HomePage() {
   const handleAuthSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     await handleAuthAction("login");
+  };
+
+  const copyHomeInspirationPrompt = async (promptText: string) => {
+    try {
+      await navigator.clipboard.writeText(promptText);
+      toast("提示词已复制");
+    } catch {
+      toast("复制失败", { description: "请手动复制提示词内容" });
+    }
+  };
+
+  const scrollHomeInspirationPrompt = (event: React.WheelEvent<HTMLDivElement>) => {
+    const promptPanel = homeInspirationPromptRef.current;
+    if (!promptPanel) return;
+    const target = event.target as Node;
+    if (promptPanel.contains(target)) return;
+
+    event.preventDefault();
+    promptPanel.scrollTop += event.deltaY;
   };
 
 
@@ -492,44 +570,124 @@ export default function HomePage() {
           </div>
 
           <div className="columns-1 gap-4 md:columns-2 xl:columns-4">
-            {INSPIRATION_RECOMMENDATIONS.map(item => (
+            {homeInspirationItems.map(item => (
               <button
                 key={`${item.rank}-${item.title}`}
                 type="button"
-                onClick={() => navigate("/inspiration")}
+                onClick={() => setSelectedHomeInspiration(item)}
                 className="group mb-4 w-full break-inside-avoid overflow-hidden rounded-md border border-white/10 bg-[#222222] text-left shadow-[0_18px_50px_rgba(0,0,0,0.28)] transition-transform hover:-translate-y-1"
               >
                 <div className="relative overflow-hidden">
                   <img src={item.imageUrl} alt={item.title} className="h-auto w-full object-cover transition-transform duration-500 group-hover:scale-105" loading="lazy" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/0 to-black/0" />
-                  <span className="absolute left-3 top-3 rounded-full bg-[#222222]/48 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-md">
-                    #{item.rank}
-                  </span>
                 </div>
                 <div className="p-4">
-                  <div className="mb-3 flex items-center gap-2">
-                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#f7d795] to-[#d98261] text-xs font-bold text-[#28160c]">
-                      EW
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-white">{item.title}</p>
+                      <p className="mt-1 truncate text-xs text-white/59">{item.field}</p>
+                      <p className="mt-2 line-clamp-2 text-xs leading-5 text-white/73">{item.description}</p>
                     </div>
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-white">ArtX 灵感</span>
-                    <span className="flex items-center gap-1 text-xs font-medium text-white/69">
-                      <PlayCircle size={14} fill="currentColor" strokeWidth={0} />
-                      {Math.max(1200, item.rank * 137)}
-                    </span>
-                    <span className="flex items-center gap-1 text-xs font-medium text-white/69">
-                      <Heart size={14} fill="currentColor" strokeWidth={0} />
-                      {Math.max(88, item.rank * 9)}
-                    </span>
+                    <div className="flex shrink-0 items-center gap-2 pt-0.5">
+                      <span className="flex items-center gap-1 text-xs font-medium text-white/69">
+                        <PlayCircle size={14} fill="currentColor" strokeWidth={0} />
+                        {item.viewCount}
+                      </span>
+                      <span className="flex items-center gap-1 text-xs font-medium text-white/69">
+                        <Heart size={14} fill="currentColor" strokeWidth={0} />
+                        {item.likeCount}
+                      </span>
+                    </div>
                   </div>
-                  <p className="truncate text-sm font-semibold text-white">{item.title}</p>
-                  <p className="mt-1 truncate text-xs text-white/59">{item.field}</p>
-                  <p className="mt-2 line-clamp-2 text-xs leading-5 text-white/73">{item.description}</p>
                 </div>
               </button>
             ))}
           </div>
         </div>
       </section>
+
+      {selectedHomeInspiration && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6" style={{ background: "rgba(34,34,34,0.72)", backdropFilter: "blur(10px)" }} onClick={() => setSelectedHomeInspiration(null)}>
+          <section
+            className="relative max-h-full w-full overflow-hidden rounded-[var(--radius-lg-design)]"
+            style={{ maxWidth: 980, background: "#222222", border: `1px solid ${homeInspirationBorder}` }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="absolute right-3 top-3 z-10 flex items-center" style={{ gap: 16 }}>
+              <button
+                onClick={() => copyHomeInspirationPrompt(selectedHomeInspiration.prompt)}
+                className="shrink-0 rounded-[var(--radius-pill)] p-2 transition-all hover:scale-105 active:scale-95"
+                style={{ background: "rgba(34,34,34,0.88)", border: `1px solid ${homeInspirationBorder}`, color: "oklch(0.88 0.008 270)", backdropFilter: "blur(12px)" }}
+                aria-label="复制提示词"
+                title="复制提示词"
+              >
+                <Copy size={16} />
+              </button>
+              <button
+                onClick={() => setSelectedHomeInspiration(null)}
+                className="shrink-0 rounded-[var(--radius-pill)] p-2 transition-all hover:scale-105 active:scale-95"
+                style={{ background: "rgba(34,34,34,0.88)", border: `1px solid ${homeInspirationBorder}`, color: "oklch(0.88 0.008 270)", backdropFilter: "blur(12px)" }}
+                aria-label="关闭弹层"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-4 pr-14" style={{ borderBottom: `1px solid ${homeInspirationBorder}` }}>
+              <div className="min-w-0">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: "oklch(0.62 0.22 290 / 0.20)", color: "oklch(0.80 0.17 290)", letterSpacing: 0, textTransform: "none" }}>
+                    {selectedHomeInspiration.field}
+                  </span>
+                </div>
+                <h2 className="type-body-sm leading-6" style={{ color: "oklch(0.88 0.008 270)", fontWeight: 760 }}>{selectedHomeInspiration.title}</h2>
+              </div>
+            </div>
+
+            <div
+              className="grid items-start overflow-hidden lg:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)]"
+              style={{ maxHeight: "calc(100vh - 160px)", overscrollBehavior: "contain" }}
+              onWheel={scrollHomeInspirationPrompt}
+            >
+              <div className="bg-[#222222]">
+                <div className="relative">
+                  <img
+                    ref={homeInspirationImageRef}
+                    src={selectedHomeInspiration.imageUrl}
+                    alt={selectedHomeInspiration.title}
+                    className="relative z-10 block h-auto max-h-[calc(100vh-160px)] w-full object-contain"
+                    onLoad={measureHomeInspirationImage}
+                    onError={(event) => {
+                      event.currentTarget.style.display = "none";
+                    }}
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center px-8 text-center" style={{ background: "linear-gradient(135deg, oklch(0.20 0.05 290), oklch(0.18 0.04 205))" }}>
+                    <span className="type-body-sm" style={{ color: "oklch(0.88 0.02 270)", fontWeight: 650 }}>
+                      本地图片待同步
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div
+                ref={homeInspirationPromptRef}
+                className="overflow-y-auto p-4"
+                style={{
+                  height: homeInspirationImageHeight ? `${homeInspirationImageHeight}px` : "auto",
+                  maxHeight: homeInspirationImageHeight ? `${homeInspirationImageHeight}px` : "calc(100vh - 160px)",
+                  overscrollBehavior: "contain",
+                }}
+              >
+                <p className="type-caption leading-5" style={{ color: "oklch(0.73 0.010 270)", letterSpacing: 0, textTransform: "none" }}>{selectedHomeInspiration.description}</p>
+                <div className="mt-4 rounded-[var(--radius-md-design)] p-4" style={{ background: "#222222", border: `1px solid ${homeInspirationBorder}` }}>
+                  <p className="whitespace-pre-wrap type-caption leading-6" style={{ color: "oklch(0.88 0.008 270)", letterSpacing: 0, textTransform: "none" }}>
+                    {selectedHomeInspiration.prompt}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   );
 }
