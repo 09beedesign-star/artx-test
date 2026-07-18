@@ -438,17 +438,17 @@ const imageModelColors = [
 ];
 
 const imageModelDescriptions: Record<string, string> = {
-  "gpt-image-2": "中价高质通用",
-  "gpt-image-2-4k": "高价高清细节",
-  "gemini-3.1-flash-image": "低价高速均衡",
-  "gemini-3.1-flash-image-preview": "低价高速预览",
-  "gemini-3.5-flash-preview": "低价高速强效",
-  "jimeng-4.0": "中价中文强",
-  "mj-v7": "高价质感强",
-  "mj-v8.1": "高价细节强",
-  "og-image2-low": "低价快速稿",
-  "og-image2-medium": "中价均衡稳",
-  "og-image2-high": "高价高清强",
+  "gpt-image-2": "高品质通用场景",
+  "gpt-image-2-4k": "极致4K细节",
+  "gemini-3.1-flash-image": "高性价比场景快",
+  "gemini-3.1-flash-image-preview": "高性价比预览快",
+  "gemini-3.5-flash-preview": "高性价比场景快",
+  "jimeng-4.0": "高性价比中文强",
+  "mj-v7": "高品质电影质感",
+  "mj-v8.1": "极致肖像细节",
+  "og-image2-low": "高性价比快速稿",
+  "og-image2-medium": "高品质场景稳定",
+  "og-image2-high": "极致高清电影感",
 };
 
 const imageModelLabels: Record<string, string> = {
