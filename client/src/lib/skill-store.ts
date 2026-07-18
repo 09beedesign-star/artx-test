@@ -56,12 +56,12 @@ export const skillCategoryMeta: Record<SkillStoreCategory, {
     accent: "oklch(0.70 0.19 300)",
   },
   landing_page: {
-    label: "产品页/落地页",
+    label: "产品页 / 落地页",
     description: "首页首屏、产品页、营销页和响应式网页视觉。",
     accent: "oklch(0.70 0.16 155)",
   },
   commerce_poster: {
-    label: "电商海报/社媒",
+    label: "电商海报 / 社媒",
     description: "活动海报、商品主图、社媒封面和营销 Banner。",
     accent: "oklch(0.73 0.18 55)",
   },
@@ -71,17 +71,17 @@ export const skillCategoryMeta: Record<SkillStoreCategory, {
     accent: "oklch(0.66 0.17 25)",
   },
   video_storyboard: {
-    label: "视频活动/分镜",
+    label: "视频活动 / 分镜",
     description: "短视频脚本、镜头节奏、分镜卡和活动视频封面。",
     accent: "oklch(0.67 0.19 330)",
   },
   image_editing: {
-    label: "局部编辑/改图",
+    label: "局部编辑 / 改图",
     description: "去背景、擦除、扩图、换风格、修复和局部重绘。",
     accent: "oklch(0.72 0.16 185)",
   },
   visual_audit: {
-    label: "视觉分析/质检",
+    label: "视觉分析 / 质检",
     description: "参考图分析、竞品拆解、提示词审阅和设计质量检查。",
     accent: "oklch(0.74 0.16 82)",
   },
