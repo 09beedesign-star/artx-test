@@ -18,7 +18,10 @@ describe("BillingPage payment method selection", () => {
     expect(source).not.toContain("huaban.com/pins");
     expect(source).not.toContain("/api/images/proxy?url=");
     expect(source).not.toContain('circle cx="11.4"');
-    expect(source).toContain('background: "#07C160"');
-    expect(source).toContain('stroke="#07C160"');
+    expect(source).not.toContain('rect width="64" height="64"');
+    expect(source).toContain("M12 2c3.713 0 6.993 1.534");
+    expect(source).toContain("M10.5 2h2v2.788h7.002");
+    expect(source).toContain('fill="#07C160"');
+    expect(source).toContain('fill="#1677FF"');
   });
 });

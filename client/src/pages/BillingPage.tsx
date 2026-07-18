@@ -374,24 +374,25 @@ function PaymentMethodLogo({
   compact?: boolean;
 }) {
   const size = compact ? 18 : 34;
+  const iconSize = compact ? 15 : 27;
   if (method === "alipay") {
     return (
       <span
-        className="inline-flex shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-md-design)]"
-        style={{ width: size, height: size, background: "#1677FF" }}
+        className="inline-flex shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-md-design)] bg-white"
+        style={{ width: size, height: size }}
         aria-label="支付宝 logo"
         data-payment-brand-icon="alipay"
       >
         <svg
           aria-hidden="true"
           viewBox="0 0 24 24"
-          width={size}
-          height={size}
+          width={iconSize}
+          height={iconSize}
           className="block"
         >
           <path
-            d="M19.695 15.07c3.426 1.158 4.203 1.22 4.203 1.22V3.846c0-2.124-1.705-3.845-3.81-3.845H3.914C1.808.001.102 1.722.102 3.846v16.31c0 2.123 1.706 3.845 3.813 3.845h16.173c2.105 0 3.81-1.722 3.81-3.845v-.157s-6.19-2.602-9.315-4.119c-2.096 2.602-4.8 4.181-7.607 4.181c-4.75 0-6.361-4.19-4.112-6.949c.49-.602 1.324-1.175 2.617-1.497c2.025-.502 5.247.313 8.266 1.317a16.8 16.8 0 0 0 1.341-3.302H5.781v-.952h4.799V6.975H4.77v-.953h5.81V3.591s0-.409.411-.409h2.347v2.84h5.744v.951h-5.744v1.704h4.69a19.5 19.5 0 0 1-1.986 5.06c1.424.52 2.702 1.011 3.654 1.333m-13.81-2.032c-.596.06-1.71.325-2.321.869c-1.83 1.608-.735 4.55 2.968 4.55c2.151 0 4.301-1.388 5.99-3.61c-2.403-1.182-4.438-2.028-6.637-1.809"
-            fill="#FFFFFF"
+            d="M10.5 2h2v2.788h7.002v2H12.5v1.857h5.264l-.198 1.168c-.261 1.536-.978 3.154-1.949 4.656c1.295.447 2.573.92 3.793 1.372l.233.086c1.576.583 3.044 1.122 4.357 1.534v3.828l-.436-.22l-.06-.029a65 65 0 0 0-.84-.415a167 167 0 0 0-2.368-1.132a138 138 0 0 0-6.367-2.805c-1.026 1.156-2.2 2.191-3.428 2.974c-1.321.842-2.768 1.432-4.198 1.506q-.15.008-.303.008c-1.828 0-3.268-.485-4.25-1.342C.758 18.967.315 17.786.4 16.61c.168-2.367 2.373-4.396 5.63-4.304c2.248.063 4.704.624 7.128 1.36c.6-.998 1.073-2.033 1.377-3.022H5.5v-2h5V6.788h-7v-2h7zM5.972 14.306c-2.387-.067-3.5 1.339-3.578 2.447c-.04.561.16 1.128.672 1.574c.522.455 1.445.849 2.934.849c1.73 0 3.733-1.226 5.477-3.206l.153-.178c-2.223-.822-4.174-1.397-5.386-1.476z"
+            fill="#1677FF"
           />
         </svg>
       </span>
@@ -399,36 +400,21 @@ function PaymentMethodLogo({
   }
   return (
     <span
-      className="inline-flex shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-md-design)]"
-      style={{ width: size, height: size, background: "#07C160" }}
+      className="inline-flex shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-md-design)] bg-white"
+      style={{ width: size, height: size }}
       aria-label="微信支付 logo"
       data-payment-brand-icon="wechat-pay"
     >
       <svg
         aria-hidden="true"
-        viewBox="0 0 64 64"
-        width={size}
-        height={size}
+        viewBox="0 0 24 24"
+        width={iconSize}
+        height={iconSize}
         className="block"
       >
-        <rect width="64" height="64" rx="14" fill="#07C160" />
         <path
-          d="M18.8 18.7C12.8 19.4 8 23.4 8 28.4c0 3 1.8 5.8 4.7 7.6l-1.2 5.1 5.5-3c1.2.3 2.4.4 3.8.4h1.1c-.8-1.9-1-4.1-.4-6.1 1.3-4.7 6.4-8.2 12.4-8.2.7 0 1.3 0 1.9.1-1.4-3.8-6.3-6.4-12.1-5.7h-4.9Z"
-          fill="#FFFFFF"
-          opacity="0.92"
-        />
-        <path
-          d="M34.6 25.9c-6.5 0-11.8 4.1-11.8 9.2 0 5.1 5.3 9.2 11.8 9.2 1.4 0 2.7-.2 3.9-.6l6.1 3.1-1.4-5.2c2-1.7 3.2-4 3.2-6.5 0-5.1-5.3-9.2-11.8-9.2Z"
-          fill="#FFFFFF"
-          opacity="0.98"
-        />
-        <path
-          d="M29 35.1 33 39l8-8.5"
-          fill="none"
-          stroke="#07C160"
-          strokeWidth="3.4"
-          strokeLinecap="round"
-          strokeLinejoin="round"
+          d="M12 2c3.713 0 6.993 1.534 8.985 3.882l.762 1.037C22.546 8.19 23 9.633 23 11.167c0 5.063-4.925 9.167-11 9.167a13 13 0 0 1-3.59-.503a1.1 1.1 0 0 0-.324-.048a1.14 1.14 0 0 0-.584.17l-2.408 1.39a.4.4 0 0 1-.212.068a.367.367 0 0 1-.367-.367c0-.068.02-.136.04-.203l.02-.065l.495-1.85a.73.73 0 0 0-.27-.83c-2.318-1.68-3.8-4.167-3.8-6.93C1 6.105 5.925 2 12 2m8.005 5.926L9.08 14.233l-.08.046a.73.73 0 0 1-.97-.296l-2.05-4.5a.367.367 0 0 1 .551-.448l2.363 1.682a1.1 1.1 0 0 0 .976.112l9.188-4.09C17.445 5.114 14.924 4 12 4c-5.328 0-9 3.534-9 7.167c0 2.006 1.073 3.93 2.97 5.306c.5.36.877.888 1.044 1.505a3.05 3.05 0 0 1 1.96-.065c.943.27 1.965.421 3.026.421c5.327 0 9-3.534 9-7.167c0-1.106-.319-2.164-.91-3.126z"
+          fill="#07C160"
         />
       </svg>
     </span>
