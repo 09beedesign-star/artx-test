@@ -181,15 +181,22 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain("height: 42");
   });
 
-  it("renders copy extraction as structured editable sub fields instead of a notebook textarea", () => {
+  it("renders smart copy editing as scrollable structured non-empty sub fields", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
 
-    expect(source).toContain('label: "文案提取"');
-    expect(source).toContain('"edit-text": "文案提取"');
+    expect(source).toContain('label: "智能文案编辑"');
+    expect(source).toContain('"edit-text": "智能文案编辑"');
     expect(source).toContain("const extractedTextFields = useMemo");
+    expect(source).toContain(".map(item => item.trim())");
+    expect(source).toContain(".filter(Boolean)");
+    expect(source).toContain('return fields.length ? fields : ["未识别到可编辑文案"];');
     expect(source).toContain("updateExtractedTextField");
     expect(source).toContain("文案段落");
     expect(source).toContain('aria-label={`编辑提取文案 ${index + 1}`}');
+    expect(source).toContain('minHeight: 0');
+    expect(source).toContain('paddingBottom: 12');
+    expect(source).toContain('overflowY: "auto"');
     expect(source).not.toContain('label: "智能文案"');
+    expect(source).not.toContain('label: "文案提取"');
   });
 });

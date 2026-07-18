@@ -2768,7 +2768,7 @@ function AssetFloatingToolbar({
           <Type size={15} />
         </AiDecoratedIcon>
       ),
-      label: "文案提取",
+      label: "智能文案编辑",
       action: "edit-text",
     },
     { icon: <HdIcon size={15} />, label: "HD 4K", action: "upscale" },
@@ -5780,13 +5780,19 @@ function AssetNodeComponent({
   const eraseHasPaintRef = useRef(false);
   const [extractedTextDraft, setExtractedTextDraft] = useState(extractedText);
   const extractedTextFields = useMemo(() => {
-    const fields = extractedTextDraft.split("\n");
-    return fields.length ? fields : [""];
+    const fields = extractedTextDraft
+      .split("\n")
+      .map(item => item.trim())
+      .filter(Boolean);
+    return fields.length ? fields : ["未识别到可编辑文案"];
   }, [extractedTextDraft]);
   const updateExtractedTextField = useCallback(
     (index: number, value: string) => {
       setExtractedTextDraft(current => {
-        const fields = current.split("\n");
+        const fields = current
+          .split("\n")
+          .map(item => item.trim())
+          .filter(Boolean);
         const nextFields = fields.length ? [...fields] : [""];
         nextFields[index] = value;
         return nextFields.join("\n");
@@ -7543,7 +7549,7 @@ function AssetNodeComponent({
                   <Type size={13} />
                 )}
                 <span className="type-caption" style={{ fontWeight: 700 }}>
-                  文案提取
+                  智能文案编辑
                 </span>
               </div>
               <button
@@ -7566,9 +7572,10 @@ function AssetNodeComponent({
             <div
               className="nodrag nopan"
               style={{
-                minHeight: 138,
+                minHeight: 0,
                 flex: "1 1 auto",
                 padding: 12,
+                paddingBottom: 12,
                 overflowY: "auto",
                 overscrollBehavior: "contain",
                 userSelect: "text",
@@ -7620,7 +7627,8 @@ function AssetNodeComponent({
                         rows={Math.max(1, Math.min(4, field.length > 28 ? 2 : 1))}
                         style={{
                           width: "100%",
-                          resize: "none",
+                          maxHeight: 96,
+                          resize: "vertical",
                           outline: "none",
                           border: "none",
                           background: "transparent",
@@ -7629,7 +7637,8 @@ function AssetNodeComponent({
                           lineHeight: 1.5,
                           userSelect: "text",
                           cursor: "text",
-                          overflowY: "hidden",
+                          overflowY: "auto",
+                          overscrollBehavior: "contain",
                         }}
                         readOnly={isApplyingExtractedText}
                         onChange={event =>
@@ -27412,7 +27421,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const data = targetNode.data as Record<string, unknown>;
         const imageSrc = await getVisibleAssetImageSource(nodeId);
         if (!imageSrc) {
-          toast("文案提取失败", {
+          toast("智能文案编辑失败", {
             description: "当前图片没有可识别的图像来源",
           });
           return;
@@ -27508,7 +27517,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 : n
             )
           );
-          toast("文案提取完成", { description: text.slice(0, 80) });
+          toast("智能文案编辑完成", { description: text.slice(0, 80) });
         } catch (error) {
           const message = error instanceof Error ? error.message : "请稍后重试";
           setNodes(nds =>
@@ -27526,7 +27535,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 : n
             )
           );
-          toast("文案提取失败", { description: message });
+          toast("智能文案编辑失败", { description: message });
         }
         return;
       }
@@ -27800,7 +27809,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         upscale: "HD 4K",
         erase: "橡皮工具",
         "edit-elements": "编辑元素",
-        "edit-text": "文案提取",
+        "edit-text": "智能文案编辑",
         mockup: "多平台封面",
         expand: "扩展",
         adjust: "调整",
