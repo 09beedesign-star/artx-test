@@ -60,6 +60,7 @@ type AdminSection =
   | "credits"
   | "feedback"
   | "integrations"
+  | "external_agents"
   | "risk"
   | "audit";
 
@@ -327,6 +328,7 @@ const sections: Array<{
   { id: "credits", label: "积分管理", description: "积分、流水、调整", icon: WalletCards },
   { id: "feedback", label: "用户反馈", description: "意见、工单、回复", icon: MessageSquareText },
   { id: "integrations", label: "第三方接口", description: "支付、模型、密钥", icon: KeyRound },
+  { id: "external_agents", label: "第三方调用", description: "Agent、Key、成本", icon: Activity },
   { id: "risk", label: "风控安全", description: "异常、限流、黑名单", icon: ShieldCheck },
   { id: "audit", label: "操作审计", description: "管理员动作追踪", icon: History },
 ];
@@ -554,6 +556,7 @@ function AdminPrototypePage() {
   const [temporaryPassword, setTemporaryPassword] = useState("");
   const [isIssuingTestAccount, setIsIssuingTestAccount] = useState(false);
   const [testAccountFeedback, setTestAccountFeedback] = useState<{ tone: "success" | "error"; message: string } | null>(null);
+  const [externalUsage, setExternalUsage] = useState<any>(null);
 
   useEffect(() => {
     const previousTitle = document.title;
@@ -634,6 +637,16 @@ function AdminPrototypePage() {
       fetchAccountDetail(selectedUserId);
     }
   }, [accountDrawerOpen, fetchAccountDetail, selectedUserId]);
+
+  useEffect(() => {
+    if (activeSection !== "external_agents") return;
+    const token = readAdminToken();
+    if (!token) return;
+    fetch("/api/admin/external-agent-usage", { headers: { Authorization: `Bearer ${token}` } })
+      .then(response => response.json())
+      .then(setExternalUsage)
+      .catch(() => setExternalUsage(null));
+  }, [activeSection]);
 
   async function adminPost(
     path: string,
@@ -1816,6 +1829,22 @@ function AdminPrototypePage() {
               }))}
             />
           </div>
+        </div>
+      );
+    }
+
+    if (activeSection === "external_agents") {
+      const summary = externalUsage?.summary;
+      return (
+        <div className="space-y-4">
+          <div><h2 className="text-lg font-semibold">第三方 Agent 调用监控</h2><p className="mt-1 text-sm text-slate-400">仅显示脱敏 API Key；港币金额为预估上游成本，不是供应商账单。</p></div>
+          <div className="grid gap-3 md:grid-cols-4">
+            <MetricCard icon={Activity} label="调用次数" value={String(summary?.calls ?? 0)} detail={`成功 ${summary?.successfulCalls ?? 0} / 失败 ${summary?.failedCalls ?? 0}`} />
+            <MetricCard icon={WalletCards} label="消耗积分" value={formatCredits(summary?.chargedCredits ?? 0)} detail="按外部 MCP 调用归集" />
+            <MetricCard icon={BarChart3} label="输入 / 输出 Token" value={`${summary?.inputTokens ?? 0} / ${summary?.outputTokens ?? 0}`} detail="上游返回时记录" />
+            <MetricCard icon={CircleDollarSign} label="预估 HK$ 成本" value={`HK$ ${(summary?.estimatedCostHkd ?? 0).toFixed(2)}`} detail={`1 USD = ${externalUsage?.usdToHkdRate ?? 7.8} HKD`} />
+          </div>
+          <Table><TableHeader><TableRow><TableHead>API Key / Agent</TableHead><TableHead>模型</TableHead><TableHead>调用</TableHead><TableHead>积分</TableHead><TableHead>预估 HK$</TableHead></TableRow></TableHeader><TableBody>{(externalUsage?.byKey || []).map((row: any) => <TableRow key={`${row.apiKeyId}-${row.model}`}><TableCell>{row.apiKey} · {row.agentSource}</TableCell><TableCell>{row.model}</TableCell><TableCell>{row.calls}</TableCell><TableCell>{row.chargedCredits}</TableCell><TableCell>HK$ {row.estimatedCostHkd.toFixed(2)}</TableCell></TableRow>)}</TableBody></Table>
         </div>
       );
     }

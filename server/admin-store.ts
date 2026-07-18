@@ -1776,6 +1776,15 @@ export async function handleAdminApiRequest(
   }
   if (method === "GET" && route === "credits") return { status: 200, body: { credits: data.credits, users: data.users } };
   if (method === "GET" && route === "ai-tasks") return { status: 200, body: { aiTasks: data.aiTasks, providers: data.providers } };
+  if (method === "GET" && route === "external-agent-usage") {
+    return { status: 200, body: await getExternalAgentUsage({
+      range: typeof body.range === "string" ? body.range : "all",
+      apiKeyId: typeof body.apiKeyId === "string" ? body.apiKeyId : "",
+      agentSource: typeof body.agentSource === "string" ? body.agentSource : "",
+      model: typeof body.model === "string" ? body.model : "",
+      status: typeof body.status === "string" ? body.status : "all",
+    }) };
+  }
   if (method === "GET" && route === "providers") return { status: 200, body: { providers: data.providers } };
   if (method === "GET" && route === "production-readiness") return { status: 200, body: { productionReadiness: buildProductionReadiness() } };
   if (method === "GET" && route === "production-checks") return { status: 200, body: { productionChecks: buildProductionChecks(data) } };

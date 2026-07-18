@@ -5,6 +5,7 @@ export type AdminNotificationSection =
   | "credits"
   | "feedback"
   | "integrations"
+  | "external_agents"
   | "risk"
   | "audit";
 export type AdminNotificationTab = "order" | "security" | "voice";
