@@ -469,13 +469,7 @@ const imageModelIcons: Record<string, string> = {
 
 function isImageGenerationModelId(id: string) {
   const normalized = id.trim().toLowerCase();
-  if (!normalized) return false;
-  if (supportedImageModels.has(id)) return true;
-  if (/^(jimeng|mj)-/i.test(id) || /^og-image2-/i.test(id)) return true;
-  if (/^(gpt-image|dall[-_]?e|imagen|flux|stable-diffusion|sdxl|midjourney|kolors|recraft)/i.test(id)) {
-    return true;
-  }
-  return /(?:^|[-_.])(image|images|img|vision-generate|image-generation)(?:$|[-_.])/i.test(normalized);
+  return supportedImageModels.has(normalized);
 }
 
 function createImageModelOption(id: string, index: number): ImageModelCatalogOption {

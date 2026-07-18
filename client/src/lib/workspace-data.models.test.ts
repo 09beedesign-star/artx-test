@@ -2,26 +2,48 @@ import { describe, expect, it } from "vitest";
 import { IMAGE_AI_MODEL_OPTIONS, mergeImageAiModelOptions } from "./workspace-data";
 
 describe("workspace image model options", () => {
+  it("keeps the fallback selector list aligned with the full image model catalog", () => {
+    expect(IMAGE_AI_MODEL_OPTIONS.map(option => option.id)).toEqual([
+      "auto",
+      "gemini-3.5-flash-preview",
+      "jimeng-4.0",
+      "mj-v7",
+      "mj-v8.1",
+      "og-image2-low",
+      "og-image2-medium",
+      "og-image2-high",
+    ]);
+    expect(IMAGE_AI_MODEL_OPTIONS.find(option => option.id === "og-image2-low")).toMatchObject({
+      label: "image2 low",
+      description: "低价快速稿",
+      icon: "image",
+    });
+  });
+
   it("merges discovered image models into the shared selector options", () => {
     const options = mergeImageAiModelOptions([
       { id: "gpt-image-2", label: "gpt-image-2", color: "server-color" },
       { id: "gpt-image-2-4k", label: "gpt-image-2-4k", color: "server-color" },
       { id: "gemini-3.1-flash-image", label: "gemini-3.1-flash-image", color: "server-color" },
+      { id: "jimeng-4.0", label: "jimeng-4.0", color: "server-color", description: "中价中文强", icon: "image" },
       { id: "gpt-5.4-mini", label: "GPT text", color: "server-color" },
     ]);
 
     expect(options[0]).toMatchObject({ id: "auto" });
     expect(options.map(option => option.id)).toEqual([
       "auto",
-      "gpt-image-2",
-      "gpt-image-2-4k",
-      "gemini-3.1-flash-image",
+      "jimeng-4.0",
     ]);
-    expect(options.find(option => option.id === "gpt-image-2-4k")).toMatchObject({
-      label: "gpt-image-2-4k",
+    expect(options.find(option => option.id === "jimeng-4.0")).toMatchObject({
+      label: "jimeng-4.0",
+      description: "中价中文强",
+      icon: "image",
     });
+    expect(options.some(option => option.id === "gpt-image-2")).toBe(false);
+    expect(options.some(option => option.id === "gpt-image-2-4k")).toBe(false);
+    expect(options.some(option => option.id === "gemini-3.1-flash-image")).toBe(false);
     expect(options.some(option => option.id === "gpt-5.4-mini")).toBe(false);
-    expect(IMAGE_AI_MODEL_OPTIONS.some(option => option.id === "gpt-image-2")).toBe(true);
+    expect(IMAGE_AI_MODEL_OPTIONS.some(option => option.id === "gpt-image-2")).toBe(false);
   });
 
   it("uses discovered image models as the selector source when the provider returns a catalog", () => {

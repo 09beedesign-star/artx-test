@@ -35,9 +35,6 @@ describe("image model catalog", () => {
       })
     );
     expect(catalog.image.map(model => model.id)).toEqual([
-      "gpt-image-2",
-      "gpt-image-2-4k",
-      "gemini-3.1-flash-image",
       "gemini-3.5-flash-preview",
       "jimeng-4.0",
       "mj-v7",
@@ -47,9 +44,6 @@ describe("image model catalog", () => {
       "og-image2-high",
     ]);
     expect(catalog.image.map(model => model.label)).toEqual([
-      "gpt-image-2",
-      "gpt-image-2-4k",
-      "gemini-3.1-flash-image",
       "gemini-3.5-flash-preview",
       "jimeng-4.0",
       "mj-v7",
@@ -64,6 +58,8 @@ describe("image model catalog", () => {
       icon: "image2",
     });
     expect(JSON.stringify(catalog)).not.toContain("secret-image-key");
+    expect(JSON.stringify(catalog)).not.toContain("gpt-image-2");
+    expect(JSON.stringify(catalog)).not.toContain("gemini-3.1-flash-image");
     expect(JSON.stringify(catalog)).not.toContain("gpt-5.4-mini");
     expect(JSON.stringify(catalog)).not.toContain("kling-2.1");
   });

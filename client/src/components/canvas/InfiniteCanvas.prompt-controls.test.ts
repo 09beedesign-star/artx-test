@@ -134,4 +134,19 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain("图片会在云服务器当中存储一周时间，请尽快下载到本地，以免图片丢失哟。");
     expect(source).toContain("top: `calc(100% + ${4 * stableUiScale}px)`");
   });
+
+  it("uses the dynamic image model catalog in the bottom assistant selector", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const assistantBlock = source.match(
+      /function CanvasAssistantPanel[\s\S]*?const activeSkillContext/
+    )?.[0];
+
+    expect(assistantBlock).toBeTruthy();
+    expect(assistantBlock).toContain("const imageModelOptions = useImageModelOptions()");
+    expect(assistantBlock).toContain("const assistantImageModelOptions = useMemo");
+    expect(assistantBlock).toContain("assistantImageModelOptions.find(model => model.id === assistantImageModelId)");
+    expect(assistantBlock).toContain('assistantModelTab === "image" ? assistantImageModelOptions : TEXT_AI_MODELS');
+    expect(assistantBlock).not.toContain("IMAGE_AI_MODELS.find(model => model.id === assistantImageModelId)");
+    expect(assistantBlock).not.toContain('assistantModelTab === "image" ? IMAGE_AI_MODELS : TEXT_AI_MODELS');
+  });
 });

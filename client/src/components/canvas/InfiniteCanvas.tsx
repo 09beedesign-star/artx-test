@@ -16694,13 +16694,14 @@ function CanvasAssistantPanel({
       return stored === "text" ? "text" : "image";
     });
   const [assistantImageModelId, setAssistantImageModelId] = useState(() => {
-    if (typeof window === "undefined") return "gpt-image-2";
+    const fallbackImageModelId = IMAGE_AI_MODELS[0]?.id || "gemini-3.5-flash-preview";
+    if (typeof window === "undefined") return fallbackImageModelId;
     const stored =
       window.localStorage.getItem(CANVAS_ASSISTANT_IMAGE_MODEL_STORAGE_KEY) ||
       window.localStorage.getItem("artx:canvas-assistant-model");
     return IMAGE_AI_MODELS.some(model => model.id === stored)
       ? stored!
-      : "gpt-image-2";
+      : fallbackImageModelId;
   });
   const [assistantTextModelId, setAssistantTextModelId] = useState(() => {
     if (typeof window === "undefined") return "gpt-5.4-mini";
@@ -16712,6 +16713,11 @@ function CanvasAssistantPanel({
       : "gpt-5.4-mini";
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const imageModelOptions = useImageModelOptions();
+  const assistantImageModelOptions = useMemo(
+    () => imageModelOptions.filter(model => model.id !== AUTO_AI_MODEL.id),
+    [imageModelOptions]
+  );
   const [regeneratingMessageId, setRegeneratingMessageId] = useState<
     string | null
   >(null);
@@ -16778,7 +16784,7 @@ function CanvasAssistantPanel({
     const width = Math.min(288, Math.max(220, window.innerWidth - margin * 2));
     const modelOptionCount =
       assistantModelTab === "image"
-        ? IMAGE_AI_MODELS.length
+        ? assistantImageModelOptions.length
         : TEXT_AI_MODELS.length;
     const measuredHeight = assistantModelPopoverRef.current?.offsetHeight || 0;
     const estimatedHeight = Math.min(
@@ -16809,7 +16815,7 @@ function CanvasAssistantPanel({
       width,
       maxHeight,
     });
-  }, [assistantModelTab]);
+  }, [assistantImageModelOptions.length, assistantModelTab]);
   const [splitterActive, setSplitterActive] = useState(false);
   const [splitterHover, setSplitterHover] = useState(false);
   const handleSplitterPointerDown = useCallback(
@@ -17628,13 +17634,14 @@ function CanvasAssistantPanel({
             ? `引用素材 ${composerImages.length} 个`
             : "";
   const assistantImageModel =
-    IMAGE_AI_MODELS.find(model => model.id === assistantImageModelId) ||
+    assistantImageModelOptions.find(model => model.id === assistantImageModelId) ||
+    assistantImageModelOptions[0] ||
     IMAGE_AI_MODELS[0];
   const assistantTextModel =
     TEXT_AI_MODELS.find(model => model.id === assistantTextModelId) ||
     TEXT_AI_MODELS[0];
   const assistantModelOptions =
-    assistantModelTab === "image" ? IMAGE_AI_MODELS : TEXT_AI_MODELS;
+    assistantModelTab === "image" ? assistantImageModelOptions : TEXT_AI_MODELS;
   const assistantModel =
     assistantModelTab === "image" ? assistantImageModel : assistantTextModel;
   const activeSkillContext = activeSkill
