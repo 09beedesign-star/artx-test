@@ -11,6 +11,10 @@ describe("AdminPrototypePage test account operations", () => {
     expect(page).toContain("/test-profile");
     expect(page).toContain("/test-account/cancel");
     expect(page).toContain("temporaryPassword");
+    expect(page).toContain("defaultTestAccountExpiry");
+    expect(page).toContain("isIssuingTestAccount");
+    expect(page).toContain("测试账号发放失败：");
+    expect(page).toContain("正在发放...");
     expect(page).toContain("aiTasks");
     expect(page).toContain("formatExactOrderTime(task.createdAt");
     expect(page).toContain('user?.role === "super_admin"');

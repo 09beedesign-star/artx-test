@@ -383,6 +383,13 @@ function formatCredits(value?: number | null) {
   return amount.toLocaleString("zh-CN");
 }
 
+function defaultTestAccountExpiry() {
+  const date = new Date();
+  date.setDate(date.getDate() + 30);
+  const timezoneOffsetMs = date.getTimezoneOffset() * 60 * 1000;
+  return new Date(date.getTime() - timezoneOffsetMs).toISOString().slice(0, 16);
+}
+
 function readAdminToken() {
   try {
     const raw = localStorage.getItem("artx-auth-session");
@@ -533,14 +540,16 @@ function AdminPrototypePage() {
     note: "接口方确认已收到用户付款",
     issueCredits: false,
   });
-  const [testAccountForm, setTestAccountForm] = useState({
+  const [testAccountForm, setTestAccountForm] = useState(() => ({
     email: "",
     initialCredits: "200",
     dailyCreditLimit: "50",
-    expiresAt: "",
-  });
+    expiresAt: defaultTestAccountExpiry(),
+  }));
   const [testAccountPanelOpen, setTestAccountPanelOpen] = useState(false);
   const [temporaryPassword, setTemporaryPassword] = useState("");
+  const [isIssuingTestAccount, setIsIssuingTestAccount] = useState(false);
+  const [testAccountFeedback, setTestAccountFeedback] = useState<{ tone: "success" | "error"; message: string } | null>(null);
 
   useEffect(() => {
     const previousTitle = document.title;
@@ -778,29 +787,49 @@ function AdminPrototypePage() {
   const canManageTestAccounts = user?.role === "super_admin";
 
   async function handleCreateTestAccount() {
+    if (isIssuingTestAccount) return;
     const token = readAdminToken();
     if (!token) {
-      setNotice("未找到后台登录令牌，请重新登录后再操作。");
+      const message = "未找到后台登录令牌，请重新登录后再操作。";
+      setNotice(message);
+      setTestAccountFeedback({ tone: "error", message: `测试账号发放失败：${message}` });
       return;
     }
-    const response = await fetch("/api/admin/test-accounts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({
-        email: testAccountForm.email,
-        initialCredits: Number(testAccountForm.initialCredits),
-        dailyCreditLimit: Number(testAccountForm.dailyCreditLimit),
-        expiresAt: testAccountForm.expiresAt,
-      }),
-    });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      setNotice(result.error || "测试账号发放失败");
+    if (!testAccountForm.email.trim() || !testAccountForm.expiresAt) {
+      const message = "请填写测试账号邮箱和有效期。";
+      setNotice(message);
+      setTestAccountFeedback({ tone: "error", message: `测试账号发放失败：${message}` });
       return;
     }
-    setTemporaryPassword(typeof result.temporaryPassword === "string" ? result.temporaryPassword : "");
-    setNotice("测试账号已创建，临时密码仅在当前窗口显示一次。");
-    await fetchAdminData();
+    setIsIssuingTestAccount(true);
+    setTemporaryPassword("");
+    setTestAccountFeedback(null);
+    try {
+      const response = await fetch("/api/admin/test-accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          email: testAccountForm.email.trim(),
+          initialCredits: Number(testAccountForm.initialCredits),
+          dailyCreditLimit: Number(testAccountForm.dailyCreditLimit),
+          expiresAt: testAccountForm.expiresAt,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "测试账号发放失败");
+
+      setTemporaryPassword(typeof result.temporaryPassword === "string" ? result.temporaryPassword : "");
+      const message = "测试账号已创建，临时密码仅在当前窗口显示一次。";
+      setNotice(message);
+      setTestAccountFeedback({ tone: "success", message });
+      await fetchAdminData();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "测试账号发放失败";
+      setNotice(message);
+      setTestAccountFeedback({ tone: "error", message: `测试账号发放失败：${message}` });
+    } finally {
+      setIsIssuingTestAccount(false);
+    }
   }
 
   function handleTestProfileUpdate(userId: string, payload: Record<string, unknown>) {
@@ -1370,6 +1399,7 @@ function AdminPrototypePage() {
               <Button type="button" className="bg-cyan-300 text-slate-950 hover:bg-cyan-200" onClick={() => {
                 setTestAccountPanelOpen((current) => !current);
                 setTemporaryPassword("");
+                setTestAccountFeedback(null);
               }}>
                 <Plus className="size-4" />
                 发放测试账号
@@ -1386,15 +1416,16 @@ function AdminPrototypePage() {
                 <Button type="button" variant="outline" size="sm" className="border-white/12 bg-white/5" onClick={() => setTestAccountPanelOpen(false)}>关闭</Button>
               </div>
               <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                <Input value={testAccountForm.email} onChange={(event) => setTestAccountForm((current) => ({ ...current, email: event.target.value }))} placeholder="测试账号邮箱" className="border-white/12 bg-slate-950/40" />
-                <Input type="number" min="1" value={testAccountForm.initialCredits} onChange={(event) => setTestAccountForm((current) => ({ ...current, initialCredits: event.target.value }))} placeholder="测试积分" className="border-white/12 bg-slate-950/40" />
-                <Input type="number" min="1" value={testAccountForm.dailyCreditLimit} onChange={(event) => setTestAccountForm((current) => ({ ...current, dailyCreditLimit: event.target.value }))} placeholder="每日 AI 积分上限" className="border-white/12 bg-slate-950/40" />
-                <Input type="datetime-local" value={testAccountForm.expiresAt} onChange={(event) => setTestAccountForm((current) => ({ ...current, expiresAt: event.target.value }))} className="border-white/12 bg-slate-950/40" />
+                <label className="space-y-1 text-xs text-slate-400">测试账号邮箱<Input value={testAccountForm.email} onChange={(event) => setTestAccountForm((current) => ({ ...current, email: event.target.value }))} placeholder="name@example.com" className="border-white/12 bg-slate-950/40" /></label>
+                <label className="space-y-1 text-xs text-slate-400">测试积分<Input type="number" min="1" value={testAccountForm.initialCredits} onChange={(event) => setTestAccountForm((current) => ({ ...current, initialCredits: event.target.value }))} className="border-white/12 bg-slate-950/40" /></label>
+                <label className="space-y-1 text-xs text-slate-400">每日 AI 积分上限<Input type="number" min="1" value={testAccountForm.dailyCreditLimit} onChange={(event) => setTestAccountForm((current) => ({ ...current, dailyCreditLimit: event.target.value }))} className="border-white/12 bg-slate-950/40" /></label>
+                <label className="space-y-1 text-xs text-slate-400">有效期<Input type="datetime-local" value={testAccountForm.expiresAt} onChange={(event) => setTestAccountForm((current) => ({ ...current, expiresAt: event.target.value }))} className="border-white/12 bg-slate-950/40" /></label>
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-3">
-                <Button type="button" onClick={handleCreateTestAccount} disabled={!testAccountForm.email || !testAccountForm.expiresAt} className="bg-emerald-300 text-slate-950 hover:bg-emerald-200">确认发放</Button>
+                <Button type="button" onClick={handleCreateTestAccount} disabled={isIssuingTestAccount || !testAccountForm.email || !testAccountForm.expiresAt} className="bg-emerald-300 text-slate-950 hover:bg-emerald-200">{isIssuingTestAccount ? "正在发放..." : "确认发放"}</Button>
                 {temporaryPassword && <code className="break-all border border-amber-300/35 bg-amber-300/10 px-3 py-2 text-sm text-amber-100">临时密码：{temporaryPassword}</code>}
               </div>
+              {testAccountFeedback && <p role="status" className={cn("mt-3 text-xs", testAccountFeedback.tone === "error" ? "text-rose-200" : "text-emerald-200")}>{testAccountFeedback.message}</p>}
             </section>
           )}
           <Table className="min-w-[920px]">
