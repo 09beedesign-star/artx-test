@@ -57,6 +57,10 @@ const AVATAR_COLORS = [
   "#E84D89",
   "#6C7A89",
 ];
+const EXTERNAL_AGENT_BASE_URL = "https://admin.artxsd.com";
+const OPENAI_COMPATIBLE_BASE_URL = `${EXTERNAL_AGENT_BASE_URL}/v1`;
+const RECOMMENDED_IMAGE_MODEL = "og-image2-medium";
+const OPENAI_COMPATIBLE_VERSION = "506a8b9";
 
 function getTopBarApiBaseUrl() {
   if (typeof window === "undefined") return ART_X_TEST_API_BASE_URL;
@@ -272,36 +276,55 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
     }
   };
 
-  const getMcpApiBaseUrl = () => {
-    if (typeof window === "undefined") return ART_X_TEST_API_BASE_URL;
-    const configured = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL || "");
-    if (configured) return configured;
-    const hostname = window.location.hostname;
-    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") {
-      return ART_X_TEST_API_BASE_URL;
-    }
-    return window.location.origin.replace(/\/+$/, "");
-  };
-
-  const copyMcpConfig = async () => {
-    const baseUrl = getMcpApiBaseUrl();
-    const config = JSON.stringify(
-      {
-        mcpServers: {
-          "artx-image": {
-            url: `${baseUrl}/api/mcp`,
-            headers: {
-              Authorization: `Bearer ${apiKey || "YOUR_ARTX_API_KEY"}`,
-            },
+  const apiKeyForSnippet = apiKey || "YOUR_ARTX_API_KEY";
+  const authorizationHeader = `Authorization: Bearer ${apiKeyForSnippet}`;
+  const thirdPartyAgentConfigText = JSON.stringify({
+    baseURL: OPENAI_COMPATIBLE_BASE_URL,
+    apiKey: apiKeyForSnippet,
+    model: RECOMMENDED_IMAGE_MODEL,
+    stream: false,
+  }, null, 2);
+  const modelsCurlText = `curl ${OPENAI_COMPATIBLE_BASE_URL}/models \\
+  -H "${authorizationHeader}"`;
+  const chatCompletionCurlText = `curl ${OPENAI_COMPATIBLE_BASE_URL}/chat/completions \\
+  -H "Content-Type: application/json" \\
+  -H "${authorizationHeader}" \\
+  -d '${JSON.stringify({
+    model: RECOMMENDED_IMAGE_MODEL,
+    stream: false,
+    messages: [
+      { role: "user", content: "生成一张干净背景的小白兔产品图" },
+    ],
+  }, null, 2)}'`;
+  const mcpConfigText = JSON.stringify(
+    {
+      mcpServers: {
+        "artx-image": {
+          url: `${EXTERNAL_AGENT_BASE_URL}/api/mcp`,
+          headers: {
+            Authorization: `Bearer ${apiKeyForSnippet}`,
           },
         },
       },
-      null,
-      2
-    );
+    },
+    null,
+    2
+  );
+
+  const copyMcpConfig = async () => {
+    const config = mcpConfigText;
     try {
       await navigator.clipboard.writeText(config);
       toast.success("MCP 配置已复制");
+    } catch {
+      toast.error("复制失败，请手动复制");
+    }
+  };
+
+  const copyText = async (text: string, label = "内容") => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(`${label}已复制`);
     } catch {
       toast.error("复制失败，请手动复制");
     }
@@ -563,7 +586,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
 
     <AlertDialog open={apiKeyDialogOpen} onOpenChange={setApiKeyDialogOpen}>
       <AlertDialogContent
-        className="w-[min(460px,calc(100vw-32px))] rounded-[var(--radius-lg-design)] border p-0 overflow-hidden"
+        className="max-h-[calc(100vh-48px)] w-[min(760px,calc(100vw-32px))] overflow-y-auto rounded-[var(--radius-lg-design)] border p-0"
         style={{
           background: isDark ? "oklch(0.15 0.018 270)" : "oklch(0.995 0.002 80)",
           borderColor: isDark ? "oklch(1 0 0 / 12%)" : "oklch(0.88 0.006 255)",
@@ -590,7 +613,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
               className="type-body-sm leading-6"
               style={{ color: textSec }}
             >
-              生成真实 API Key 后，可把下方 MCP 配置复制到其他 Agent 中调用 ArtX 工具。
+              生成真实 API Key 后，可把 OpenAI 兼容接口或 MCP 配置复制到其他 Agent 中调用 ArtX 图片生成能力。
             </AlertDialogDescription>
           </AlertDialogHeader>
 
@@ -635,6 +658,104 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
               border: `1px solid ${isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 8%)"}`,
             }}
           >
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <div className="type-caption" style={{ color: textPri, fontWeight: 680 }}>OpenAI 兼容接口</div>
+                <div className="mt-1 leading-5" style={{ color: textSec, fontSize: 12 }}>
+                  版本 {OPENAI_COMPATIBLE_VERSION}。第三方 Agent 关闭 stream，图片模型推荐 {RECOMMENDED_IMAGE_MODEL}。
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => copyText(thirdPartyAgentConfigText, "Agent 配置")}
+                className="h-8 shrink-0 inline-flex items-center gap-1.5 rounded-[var(--radius-md-design)] px-2.5 type-caption"
+                style={{
+                  background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)",
+                  color: textPri,
+                }}
+              >
+                <Copy size={13} />
+                复制配置
+              </button>
+            </div>
+            <div className="grid gap-2 md:grid-cols-2">
+              {[
+                ["Base URL", OPENAI_COMPATIBLE_BASE_URL],
+                ["Model", RECOMMENDED_IMAGE_MODEL],
+                ["Auth Header", authorizationHeader],
+                ["Stream", "false"],
+              ].map(([label, value]) => (
+                <div
+                  key={label}
+                  className="min-w-0 rounded-[var(--radius-md-design)] border p-2.5"
+                  style={{
+                    background: isDark ? "oklch(0.08 0.012 270)" : "white",
+                    borderColor: isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)",
+                  }}
+                >
+                  <div className="mb-1 type-caption" style={{ color: textSec }}>{label}</div>
+                  <div className="flex items-center gap-2">
+                    <code
+                      className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap"
+                      style={{
+                        color: textPri,
+                        fontSize: 11,
+                        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+                        scrollbarWidth: "thin",
+                      }}
+                    >
+                      {value}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={() => copyText(value, label)}
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-md-design)]"
+                      style={{
+                        color: textPri,
+                        background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)",
+                      }}
+                    >
+                      <Copy size={12} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => copyText(modelsCurlText, "models curl")}
+                className="h-8 inline-flex items-center gap-1.5 rounded-[var(--radius-md-design)] px-2.5 type-caption"
+                style={{
+                  background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)",
+                  color: textPri,
+                }}
+              >
+                <Copy size={13} />
+                复制 /models
+              </button>
+              <button
+                type="button"
+                onClick={() => copyText(chatCompletionCurlText, "生图 curl")}
+                className="h-8 inline-flex items-center gap-1.5 rounded-[var(--radius-md-design)] px-2.5 type-caption"
+                style={{
+                  background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)",
+                  color: textPri,
+                }}
+              >
+                <Copy size={13} />
+                复制生图请求
+              </button>
+            </div>
+          </div>
+
+          <div
+            className="mt-3 rounded-[var(--radius-md-design)] p-3"
+            style={{
+              background: isDark ? "oklch(0.10 0.012 270)" : "oklch(0.97 0.003 270)",
+              border: `1px solid ${isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 8%)"}`,
+            }}
+          >
             <div className="mb-2 flex items-center justify-between gap-3">
               <span className="type-caption" style={{ color: textSec }}>MCP 配置代码</span>
               <button
@@ -651,7 +772,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
               </button>
             </div>
             <pre
-              className="max-h-[180px] overflow-auto whitespace-pre-wrap break-all rounded-[var(--radius-md-design)] p-3"
+              className="max-h-[220px] overflow-auto whitespace-pre-wrap break-all rounded-[var(--radius-md-design)] p-3"
               style={{
                 background: isDark ? "oklch(0.08 0.012 270)" : "white",
                 color: textPri,
@@ -659,20 +780,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
                 lineHeight: 1.6,
               }}
             >
-              {JSON.stringify(
-                {
-                  mcpServers: {
-                    "artx-image": {
-                      url: `${getMcpApiBaseUrl()}/api/mcp`,
-                      headers: {
-                        Authorization: `Bearer ${apiKey || "YOUR_ARTX_API_KEY"}`,
-                      },
-                    },
-                  },
-                },
-                null,
-                2
-              )}
+              {mcpConfigText}
             </pre>
           </div>
 

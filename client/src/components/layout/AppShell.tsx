@@ -41,6 +41,10 @@ interface ApiKeyRecord {
 const MAX_HELP_SCREENSHOTS = 4;
 const MAX_HELP_SCREENSHOT_BYTES = 4 * 1024 * 1024;
 const BRAND_LOGO_SIZE = "h-[20px] w-[109px]";
+const EXTERNAL_AGENT_BASE_URL = "https://admin.artxsd.com";
+const OPENAI_COMPATIBLE_BASE_URL = `${EXTERNAL_AGENT_BASE_URL}/v1`;
+const RECOMMENDED_IMAGE_MODEL = "og-image2-medium";
+const OPENAI_COMPATIBLE_VERSION = "506a8b9";
 
 function getAppApiBaseUrl() {
   const configured = normalizeApiBaseUrl(
@@ -414,12 +418,32 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   ) : null;
 
   const apiBaseUrl = getAppApiBaseUrl();
+  const apiKeyForSnippet = apiKeyValue || "YOUR_ARTX_API_KEY";
+  const authorizationHeader = `Authorization: Bearer ${apiKeyForSnippet}`;
+  const thirdPartyAgentConfigText = JSON.stringify({
+    baseURL: OPENAI_COMPATIBLE_BASE_URL,
+    apiKey: apiKeyForSnippet,
+    model: RECOMMENDED_IMAGE_MODEL,
+    stream: false,
+  }, null, 2);
+  const modelsCurlText = `curl ${OPENAI_COMPATIBLE_BASE_URL}/models \\
+  -H "${authorizationHeader}"`;
+  const chatCompletionCurlText = `curl ${OPENAI_COMPATIBLE_BASE_URL}/chat/completions \\
+  -H "Content-Type: application/json" \\
+  -H "${authorizationHeader}" \\
+  -d '${JSON.stringify({
+    model: RECOMMENDED_IMAGE_MODEL,
+    stream: false,
+    messages: [
+      { role: "user", content: "生成一张干净背景的小白兔产品图" },
+    ],
+  }, null, 2)}'`;
   const mcpConfigText = JSON.stringify({
     mcpServers: {
       "artx-image": {
-        url: `${apiBaseUrl}/api/mcp`,
+        url: `${EXTERNAL_AGENT_BASE_URL}/api/mcp`,
         headers: {
-          Authorization: `Bearer ${apiKeyValue || "YOUR_ARTX_API_KEY"}`,
+          Authorization: `Bearer ${apiKeyForSnippet}`,
         },
       },
     },
@@ -448,7 +472,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
             </div>
             <h2 style={{ color: textPrimary, fontSize: 24, fontWeight: 720 }}>API key</h2>
             <p className="mt-2 max-w-[560px] leading-6" style={{ color: textSecondary, fontSize: 13 }}>
-              生成后可用于第三方 AI Agent 通过 ArtX MCP 工具调用图片生成能力。
+              生成后可用于第三方 Agent 通过 OpenAI 兼容接口或 MCP 调用 ArtX 图片生成能力。
             </p>
           </div>
           <button
@@ -493,20 +517,65 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
                 </button>
               </div>
             </div>
-            <div className="mt-3 rounded-[var(--radius-md-design)] border p-3" style={{ borderColor: sidebarBorder, background: isDark ? "rgba(0,0,0,0.18)" : "white" }}>
-              <div className="mb-1 type-caption" style={{ color: textSecondary }}>Base URL</div>
-              <div className="flex items-center gap-2">
-                <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap" style={{ color: textPrimary, fontSize: 12, scrollbarWidth: "thin" }}>{apiBaseUrl}</code>
-                <button type="button" onClick={() => copyText(apiBaseUrl, "Base URL")} className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-md-design)]" style={{ color: textPrimary, background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)" }}>
+          </div>
+          <div className="min-w-0 rounded-[var(--radius-lg-design)] border p-4" style={{ borderColor: sidebarBorder, background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.035)" }}>
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <div className="type-caption" style={{ color: textPrimary, fontWeight: 680 }}>OpenAI 兼容接口</div>
+                <div className="mt-1 leading-5" style={{ color: textSecondary, fontSize: 12 }}>
+                  版本 {OPENAI_COMPATIBLE_VERSION}。第三方 Agent 关闭 stream，图片模型推荐 {RECOMMENDED_IMAGE_MODEL}。
+                </div>
+              </div>
+              <button type="button" onClick={() => copyText(thirdPartyAgentConfigText, "Agent 配置")} className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-md-design)] px-3 type-caption" style={{ background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)", color: textPrimary }}>
+                <Copy size={13} />
+                复制配置
+              </button>
+            </div>
+            <div className="grid gap-2 md:grid-cols-2">
+              {[
+                ["Base URL", OPENAI_COMPATIBLE_BASE_URL],
+                ["Model", RECOMMENDED_IMAGE_MODEL],
+                ["Auth Header", authorizationHeader],
+                ["Stream", "false"],
+              ].map(([label, value]) => (
+                <div key={label} className="min-w-0 rounded-[var(--radius-md-design)] border p-2.5" style={{ borderColor: sidebarBorder, background: isDark ? "rgba(0,0,0,0.18)" : "white" }}>
+                  <div className="mb-1 type-caption" style={{ color: textSecondary }}>{label}</div>
+                  <div className="flex items-center gap-2">
+                    <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap" style={{ color: textPrimary, fontSize: 11, scrollbarWidth: "thin" }}>{value}</code>
+                    <button type="button" onClick={() => copyText(value, label)} className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-md-design)]" style={{ color: textPrimary, background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)" }}>
+                      <Copy size={12} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button type="button" onClick={() => copyText(modelsCurlText, "models curl")} className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-md-design)] px-3 type-caption" style={{ background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)", color: textPrimary }}>
+                <Copy size={13} />
+                复制 /models
+              </button>
+              <button type="button" onClick={() => copyText(chatCompletionCurlText, "生图 curl")} className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-md-design)] px-3 type-caption" style={{ background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)", color: textPrimary }}>
+                <Copy size={13} />
+                复制生图请求
+              </button>
+            </div>
+          </div>
+          <div className="mt-3 rounded-[var(--radius-md-design)] border p-3" style={{ borderColor: sidebarBorder, background: isDark ? "rgba(0,0,0,0.18)" : "white" }}>
+            <div className="mb-1 type-caption" style={{ color: textSecondary }}>站内 API Base URL（用于生成 Key）</div>
+            <div className="flex items-center gap-2">
+              <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap" style={{ color: textPrimary, fontSize: 12, scrollbarWidth: "thin" }}>{apiBaseUrl}</code>
+                <button type="button" onClick={() => copyText(apiBaseUrl, "站内 API Base URL")} className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-md-design)]" style={{ color: textPrimary, background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)" }}>
                   <Copy size={13} />
                 </button>
-              </div>
             </div>
           </div>
 
           <div className="min-w-0 rounded-[var(--radius-lg-design)] border p-4" style={{ borderColor: sidebarBorder, background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.035)" }}>
             <div className="mb-3 flex items-center justify-between gap-3">
-              <span className="type-caption" style={{ color: textPrimary, fontWeight: 680 }}>MCP 配置代码</span>
+              <div>
+                <div className="type-caption" style={{ color: textPrimary, fontWeight: 680 }}>MCP 配置代码</div>
+                <div className="mt-1 leading-5" style={{ color: textSecondary, fontSize: 12 }}>使用同一把 API Key，让支持 MCP 的 Agent 直接调用 ArtX 生图工具。</div>
+              </div>
               <button type="button" onClick={() => copyText(mcpConfigText, "MCP 配置")} className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-md-design)] px-3 type-caption" style={{ background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)", color: textPrimary }}>
                 <Copy size={13} />
                 复制
