@@ -5,18 +5,18 @@ import { __testNormalizeGeneratedImageSrc, __testNormalizeGeneratedImagesToTarge
 const ONE_PIXEL_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
 describe("generated image source normalization", () => {
-  it("prefers the GPT image endpoint for smart product references before Gemini fallback", () => {
-    expect(__testResolveReferenceImageRoute("gpt-image-2", true, true)).toEqual({
+  it("prefers image2 medium for smart product references before Gemini fallback", () => {
+    expect(__testResolveReferenceImageRoute("og-image2-medium", true, true)).toEqual({
       usesChatPath: false,
-      fallbackModel: "gemini-3.1-flash-image",
+      fallbackModel: "gemini-3.5-flash-preview",
     });
-    expect(__testResolveReferenceImageRoute("gemini-3.1-flash-image", true, true)).toEqual({
+    expect(__testResolveReferenceImageRoute("gemini-3.5-flash-preview", true, true)).toEqual({
       usesChatPath: true,
-      fallbackModel: "gemini-3.1-flash-image",
+      fallbackModel: "gemini-3.5-flash-preview",
     });
-    expect(__testResolveReferenceImageRoute("gpt-image-2", true, false)).toEqual({
+    expect(__testResolveReferenceImageRoute("og-image2-medium", true, false)).toEqual({
       usesChatPath: true,
-      fallbackModel: "gpt-image-2",
+      fallbackModel: "og-image2-medium",
     });
   });
 

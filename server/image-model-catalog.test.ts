@@ -31,7 +31,7 @@ describe("image model catalog", () => {
         { id: "og-image2-low" },
         { id: "og-image2-medium" },
         { id: "og-image2-high" },
-        { id: "kling-2.1" },
+        { id: "keling" },
         { id: "gpt-5.4-mini" },
       ],
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
@@ -51,22 +51,24 @@ describe("image model catalog", () => {
       })
     );
     expect(catalog.image.map(model => model.id)).toEqual([
+      "og-image2-medium",
       "gemini-3.5-flash-preview",
       "jimeng-4.0",
       "mj-v7",
       "mj-v8.1",
-      "og-image2-low",
-      "og-image2-medium",
+      "keling",
       "og-image2-high",
+      "og-image2-low",
     ]);
     expect(catalog.image.map(model => model.label)).toEqual([
+      "image2 medium",
       "gemini-3.5-flash-preview",
       "jimeng-4.0",
       "mj-v7",
       "mj-v8.1",
-      "image2 low",
-      "image2 medium",
+      "keling",
       "image2 high",
+      "image2 low",
     ]);
     for (const [id, description] of Object.entries(expectedImageModelDescriptions)) {
       const model = catalog.image.find(model => model.id === id);
@@ -90,6 +92,5 @@ describe("image model catalog", () => {
     expect(JSON.stringify(catalog)).not.toContain("gpt-image-2");
     expect(JSON.stringify(catalog)).not.toContain("gemini-3.1-flash-image");
     expect(JSON.stringify(catalog)).not.toContain("gpt-5.4-mini");
-    expect(JSON.stringify(catalog)).not.toContain("kling-2.1");
   });
 });

@@ -1,3 +1,9 @@
+import {
+  DEFAULT_IMAGE_MODEL_ID,
+  IMAGE_MODEL_PRIORITY_IDS,
+  normalizeImageModelId,
+} from "../shared/image-models";
+
 export type AiCapability =
   | "chat"
   | "text_to_image"
@@ -13,12 +19,7 @@ export type ModelRoute = {
   provider: "image" | "text";
 };
 
-const IMAGE_MODELS = new Set([
-  "gpt-image-2",
-  "gpt-image-2-4k",
-  "gemini-3.1-flash-image",
-  "gemini-3.1-flash-image-preview",
-]);
+const IMAGE_MODELS = new Set<string>(IMAGE_MODEL_PRIORITY_IDS);
 
 const TEXT_MODELS = new Set([
   "gpt-4o",
@@ -27,10 +28,7 @@ const TEXT_MODELS = new Set([
   "gpt-5.5",
 ]);
 
-const SELECTABLE_IMAGE_MODELS = new Set([
-  "gpt-image-2",
-  "gemini-3.1-flash-image",
-]);
+const SELECTABLE_IMAGE_MODELS = new Set<string>(IMAGE_MODEL_PRIORITY_IDS);
 
 const SELECTABLE_TEXT_MODELS = new Set([
   "gpt-5.4-mini",
@@ -40,9 +38,8 @@ function normalizeModelName(model?: string) {
   const value = (model || "").trim();
   if (!value) return "";
   if (value.toLowerCase() === "auto") return "";
-  if (value === "IMAGE2" || value === "image2") return "gpt-image-2";
-  if (value === "nano-banana") return "gemini-3.1-flash-image";
-  if (value === "nano-banana-lite") return "gemini-3.1-flash-image-preview";
+  const imageModel = normalizeImageModelId(value);
+  if (imageModel) return imageModel;
   return value;
 }
 
@@ -52,7 +49,7 @@ export function isSelectableModel(model?: string) {
 }
 
 export function listSelectableModelIds() {
-  return [...Array.from(SELECTABLE_IMAGE_MODELS), ...Array.from(SELECTABLE_TEXT_MODELS)];
+  return [...IMAGE_MODEL_PRIORITY_IDS, ...Array.from(SELECTABLE_TEXT_MODELS)];
 }
 
 export function normalizeAllowedModels(models: unknown) {
@@ -81,7 +78,7 @@ export function resolveModelRoute(capability: AiCapability, requestedModel?: str
   if (needsImageModel) {
     return {
       capability,
-      model: model && isImageModel(model) ? model : "gpt-image-2",
+      model: model && isImageModel(model) ? model : DEFAULT_IMAGE_MODEL_ID,
       provider: "image",
     };
   }
@@ -95,7 +92,7 @@ export function resolveModelRoute(capability: AiCapability, requestedModel?: str
 
 export function listAvailableModels() {
   return {
-    image: [...Array.from(IMAGE_MODELS)],
+    image: [...IMAGE_MODEL_PRIORITY_IDS],
     text: [...Array.from(TEXT_MODELS)],
   };
 }

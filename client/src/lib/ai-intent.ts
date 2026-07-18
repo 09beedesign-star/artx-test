@@ -1,4 +1,5 @@
 import { callLLM, generateImages, type GeneratedImageResult } from "@/lib/ai";
+import { DEFAULT_IMAGE_MODEL_ID } from "../../../shared/image-models";
 
 export type CreativeIntentMode = "text" | "image" | "reference_search";
 
@@ -193,7 +194,7 @@ export async function routeCreativeIntent({
 
 export async function generateIntentImages({
   prompt,
-  model = "gpt-image-2",
+  model = DEFAULT_IMAGE_MODEL_ID,
   ratio = "1:1",
   count = 1,
   style = "智能路由",

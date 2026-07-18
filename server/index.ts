@@ -8,6 +8,7 @@ import { AIOrchestrator, inferAiCapability } from "./ai-orchestrator";
 import { resolveBackgroundImageTaskCapability } from "./background-image-capability";
 import { createBrandKit, deleteBrandKit, getBrandKit, listBrandKits, parseBrandKitFromImage } from "./brand-kit";
 import { createProductBackground, editImageWithPrompt, enhanceImage, eraseImageObjects, expandImageWithPicWish, extractImageText, generateImages, listImageModelCatalog, removeImageBackground, removeImageWatermark } from "./image-generation";
+import { DEFAULT_IMAGE_MODEL_ID, getDefaultImageModelPriorityLabel } from "../shared/image-models";
 import { getInspirationReferences } from "./inspiration-references";
 import { cleanupExpiredUploads, getUploadRetentionDays, getUploadsRoot, storeGeneratedImagesForUser } from "./local-image-storage";
 import { searchReferenceImages } from "./reference-search";
@@ -378,6 +379,10 @@ function getRouteModel(body: unknown, fallback: string) {
   return typeof record.model === "string" && record.model.trim()
     ? record.model.trim()
     : fallback;
+}
+
+function getDefaultRouteImageModel(body: unknown) {
+  return getRouteModel(body, process.env.AI_IMAGE_MODEL || DEFAULT_IMAGE_MODEL_ID);
 }
 
 function getImageOutputUnits(result: unknown) {
@@ -752,7 +757,7 @@ async function startServer() {
             capabilityKey: "smart_background" as const,
             capability: "智能产品图 / 海报一键生成",
             provider: "PicWish 主体保护 + Image2/Gemini 背景",
-            model: "gpt-image-2 -> gemini-3.1-flash-image",
+            model: getDefaultImageModelPriorityLabel(),
             failureMessage: "Create background failed",
           },
         };
@@ -767,7 +772,7 @@ async function startServer() {
             capabilityKey: "image_edit" as const,
             capability: "图片编辑",
             provider: "AI_IMAGE",
-            model: getRouteModel(input, process.env.AI_IMAGE_MODEL || "gpt-image-2"),
+            model: getDefaultRouteImageModel(input),
             failureMessage: "Image edit failed",
           },
         };
@@ -1111,7 +1116,7 @@ async function startServer() {
       capabilityKey: "text_to_image",
       capability: "图片生成",
       provider: "AI_IMAGE",
-      model: getRouteModel(req.body, process.env.AI_IMAGE_MODEL || "gpt-image-2"),
+      model: getDefaultRouteImageModel(req.body),
       failureMessage: "Image generation failed",
     }, async (user) => {
       const result = await generateImages(req.body);
@@ -1149,7 +1154,7 @@ async function startServer() {
       capabilityKey: capabilityFromOrchestrator(taskCapability),
       capability: taskCapability,
       provider: "AI_IMAGE",
-      model: getRouteModel(req.body, process.env.AI_IMAGE_MODEL || "gpt-image-2"),
+      model: getDefaultRouteImageModel(req.body),
       failureMessage: "Image generation failed",
     };
     let reservation: AiUsageReservation;
@@ -1274,7 +1279,7 @@ async function startServer() {
       capabilityKey: "smart_background",
       capability: "智能产品图 / 海报一键生成",
       provider: "PicWish 主体保护 + Image2/Gemini 背景",
-      model: "gpt-image-2 -> gemini-3.1-flash-image",
+      model: getDefaultImageModelPriorityLabel(),
       failureMessage: "Create background failed",
     }, async (user) => {
       const result = await createProductBackground(req.body);
@@ -1301,7 +1306,7 @@ async function startServer() {
       capabilityKey: "image_edit",
       capability: "图片编辑",
       provider: "AI_IMAGE",
-      model: getRouteModel(req.body, process.env.AI_IMAGE_MODEL || "gpt-image-2"),
+      model: getDefaultRouteImageModel(req.body),
       failureMessage: "Image edit failed",
     }, async (user) => {
       const result = await editImageWithPrompt(req.body);

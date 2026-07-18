@@ -1,4 +1,11 @@
 import { getSkill } from "./skill-registry";
+import {
+  DEFAULT_IMAGE_MODEL_ID,
+  IMAGE_MODEL_PRIORITY_IDS,
+  getImageModelFallbackAttempts,
+  isSupportedImageModelId,
+  sortImageModelIdsByPriority,
+} from "../shared/image-models";
 
 type ImageGenerateInput = {
   prompt: string;
@@ -37,6 +44,7 @@ type CreateBackgroundInput = {
   customWidth?: number;
   customHeight?: number;
   skillId?: string;
+  model?: string;
 };
 
 type EditImageInput = {
@@ -383,7 +391,7 @@ function getChatEndpoint(baseUrl: string) {
 function getProviderConfig() {
   const apiKey = process.env.AI_IMAGE_API_KEY_OVERRIDE || process.env.AI_IMAGE_API_KEY || process.env.OPENAI_API_KEY;
   const baseUrl = process.env.AI_IMAGE_BASE_URL || process.env.OPENAI_BASE_URL || "https://api.openai.com";
-  const model = process.env.AI_IMAGE_MODEL || "gpt-image-2";
+  const model = process.env.AI_IMAGE_MODEL || DEFAULT_IMAGE_MODEL_ID;
 
   return { apiKey, baseUrl, model };
 }
@@ -395,15 +403,7 @@ function getPicWishConfig() {
   };
 }
 
-const supportedImageModels = new Set([
-  "gemini-3.5-flash-preview",
-  "jimeng-4.0",
-  "mj-v7",
-  "mj-v8.1",
-  "og-image2-low",
-  "og-image2-medium",
-  "og-image2-high",
-]);
+const supportedImageModels = new Set<string>(IMAGE_MODEL_PRIORITY_IDS);
 
 const chatCompatibleImageModels = new Set<string>([
   "gemini-3.1-flash-image",
@@ -448,6 +448,7 @@ const imageModelDescriptions: Record<string, string> = {
   "jimeng-4.0": "高性价比中文强",
   "mj-v7": "高品质电影质感",
   "mj-v8.1": "极致肖像细节",
+  "keling": "高品质国风电商",
   "og-image2-low": "高性价比快速稿",
   "og-image2-medium": "高品质场景稳定",
   "og-image2-high": "极致高清电影感",
@@ -457,6 +458,7 @@ const imageModelLabels: Record<string, string> = {
   "og-image2-low": "image2 low",
   "og-image2-medium": "image2 medium",
   "og-image2-high": "image2 high",
+  "keling": "keling",
 };
 
 const imageModelIcons: Record<string, string> = {
@@ -464,14 +466,14 @@ const imageModelIcons: Record<string, string> = {
   "jimeng-4.0": "jimeng",
   "mj-v7": "midjourney",
   "mj-v8.1": "midjourney",
+  "keling": "keling",
   "og-image2-low": "openai",
   "og-image2-medium": "openai",
   "og-image2-high": "openai",
 };
 
 function isImageGenerationModelId(id: string) {
-  const normalized = id.trim().toLowerCase();
-  return supportedImageModels.has(normalized);
+  return isSupportedImageModelId(id);
 }
 
 function createImageModelOption(id: string, index: number): ImageModelCatalogOption {
@@ -508,7 +510,7 @@ export async function listImageModelCatalog(input: ImageModelCatalogInput = {}):
 
   if (!apiKey) {
     return {
-      image: Array.from(supportedImageModels).map(createImageModelOption),
+      image: sortImageModelIdsByPriority(Array.from(supportedImageModels)).map(createImageModelOption),
       source: "fallback",
       error: "Missing AI_IMAGE_API_KEY",
     };
@@ -528,7 +530,7 @@ export async function listImageModelCatalog(input: ImageModelCatalogInput = {}):
         raw,
       }));
     }
-    const modelIds = Array.from(new Set(parseProviderModelIds(data).filter(isImageGenerationModelId)));
+    const modelIds = sortImageModelIdsByPriority(parseProviderModelIds(data).filter(isImageGenerationModelId));
     return {
       image: modelIds.map(createImageModelOption),
       source: "provider",
@@ -536,7 +538,7 @@ export async function listImageModelCatalog(input: ImageModelCatalogInput = {}):
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error || "Model catalog failed");
     return {
-      image: Array.from(supportedImageModels).map(createImageModelOption),
+      image: sortImageModelIdsByPriority(Array.from(supportedImageModels)).map(createImageModelOption),
       source: "fallback",
       error: message,
     };
@@ -768,7 +770,7 @@ export function __testResolveReferenceImageRoute(
     usesChatPath,
     fallbackModel:
       hasReferenceImages && preferImageApiForReferences && !isChatCompatibleImageModel(model)
-        ? "gemini-3.1-flash-image"
+        ? "gemini-3.5-flash-preview"
         : model,
   };
 }
@@ -782,7 +784,7 @@ function isImageGroupPermissionError(message: string) {
 }
 
 function isProviderCapacityError(message: string) {
-  return /no available compatible accounts|system cpu overloaded|overloaded|capacity|账号池|兼容账号/i.test(message);
+  return /no available channel|no available compatible accounts|system cpu overloaded|overloaded|capacity|账号池|兼容账号/i.test(message);
 }
 
 function resolveProviderImageModel(model: string) {
@@ -2433,85 +2435,87 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
   const ratio = ratioToSize[input.ratio || "1:1"] || ratioToSize["1:1"];
   const count = Math.max(1, Math.min(Number(input.count) || 1, 9));
   const referenceImages = input.images?.filter(image => image.src?.trim()) || [];
-  const requestedModel = input.model && supportedImageModels.has(input.model) ? input.model : model;
-  const providerModel = resolveProviderImageModel(requestedModel);
-  const referenceRoute = __testResolveReferenceImageRoute(
-    providerModel,
-    referenceImages.length > 0,
-    Boolean(input.preferImageApiForReferences),
-  );
-  const requestBody = {
-    model: providerModel,
-    prompt: buildPrompt(input),
-    n: count,
-    size: ratio.size,
-    response_format: "b64_json",
-    images: referenceImages,
-  };
-
-  let providerData: ImageGenerationResponse;
-  try {
-    providerData = referenceRoute.usesChatPath
-      ? await callImageChatProvider(requestBody, apiKey, baseUrl)
-      : await callImageProvider(requestBody, apiKey, baseUrl);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (referenceRoute.fallbackModel !== requestBody.model) {
-      providerData = await callImageChatProvider({
-        ...requestBody,
-        model: referenceRoute.fallbackModel,
-      }, apiKey, baseUrl);
-    } else if (isUnsupportedImagesApiError(message)) {
-      providerData = await callImageChatProvider({
-        ...requestBody,
-      }, apiKey, baseUrl);
-    } else if (
-      requestBody.model !== "gemini-3.1-flash-image" &&
-      (isProviderCapacityError(message) || (requestBody.model === "gpt-image-2-4k" && isImageGroupPermissionError(message)))
-    ) {
-      providerData = await callImageChatProvider({
-        ...requestBody,
-        model: "gemini-3.1-flash-image",
-      }, apiKey, baseUrl);
-    } else if (isMissingReferenceImagesError(message) && !referenceRoute.usesChatPath) {
-      providerData = await callImageProvider({
-        ...requestBody,
-        prompt: stripReferenceContextFromPrompt(String(requestBody.prompt || "")),
-      }, apiKey, baseUrl);
-    } else if (message.toLowerCase().includes("response_format") && !referenceRoute.usesChatPath) {
-      const { response_format: _responseFormat, ...fallbackBody } = requestBody;
-      providerData = await callImageProvider(fallbackBody, apiKey, baseUrl);
-    } else {
-      throw new Error(`图片生成接口暂不可用：${message}`);
-    }
-  }
-
-  let asyncTaskId = providerData.task_id || providerData.taskId;
-  if (asyncTaskId) {
-    try {
-      providerData = await pollAsyncImageTask(asyncTaskId, apiKey, baseUrl);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (!/timed out/i.test(message) || referenceRoute.usesChatPath) {
-        throw error;
-      }
-      providerData = await callImageProvider(requestBody, apiKey, baseUrl);
-      asyncTaskId = providerData.task_id || providerData.taskId;
-      if (asyncTaskId) {
-        providerData = await pollAsyncImageTask(asyncTaskId, apiKey, baseUrl);
-      }
-    }
-  }
-
   const targetSize = __testResolveHighDefinitionTargetSize(ratio.width, ratio.height, ratio.width, ratio.height);
-  const images = extractGeneratedImages(providerData, baseUrl, targetSize.width, targetSize.height).slice(0, count);
-  const normalizedImages = await __testNormalizeGeneratedImagesToTargetAspect(images, targetSize.width, targetSize.height);
+  let lastError = "";
+  for (const attemptModel of getImageModelFallbackAttempts(input.model || model)) {
+    const providerModel = resolveProviderImageModel(attemptModel);
+    const referenceRoute = __testResolveReferenceImageRoute(
+      providerModel,
+      referenceImages.length > 0,
+      Boolean(input.preferImageApiForReferences),
+    );
+    const requestBody = {
+      model: providerModel,
+      prompt: buildPrompt(input),
+      n: count,
+      size: ratio.size,
+      response_format: "b64_json",
+      images: referenceImages,
+    };
 
-  if (normalizedImages.length === 0) {
-    throw new Error("图片模型未返回可用图片，系统已自动使用当前可用生成链路处理，请稍后重试");
+    try {
+      let providerData: ImageGenerationResponse;
+      try {
+        providerData = referenceRoute.usesChatPath
+          ? await callImageChatProvider(requestBody, apiKey, baseUrl)
+          : await callImageProvider(requestBody, apiKey, baseUrl);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (referenceRoute.fallbackModel !== requestBody.model) {
+          providerData = await callImageChatProvider({
+            ...requestBody,
+            model: referenceRoute.fallbackModel,
+          }, apiKey, baseUrl);
+        } else if (isUnsupportedImagesApiError(message)) {
+          providerData = await callImageChatProvider({
+            ...requestBody,
+          }, apiKey, baseUrl);
+        } else if (isMissingReferenceImagesError(message) && !referenceRoute.usesChatPath) {
+          providerData = await callImageProvider({
+            ...requestBody,
+            prompt: stripReferenceContextFromPrompt(String(requestBody.prompt || "")),
+          }, apiKey, baseUrl);
+        } else if (message.toLowerCase().includes("response_format") && !referenceRoute.usesChatPath) {
+          const { response_format: _responseFormat, ...fallbackBody } = requestBody;
+          providerData = await callImageProvider(fallbackBody, apiKey, baseUrl);
+        } else {
+          throw error;
+        }
+      }
+
+      let asyncTaskId = providerData.task_id || providerData.taskId;
+      if (asyncTaskId) {
+        try {
+          providerData = await pollAsyncImageTask(asyncTaskId, apiKey, baseUrl);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (!/timed out/i.test(message) || referenceRoute.usesChatPath) {
+            throw error;
+          }
+          providerData = await callImageProvider(requestBody, apiKey, baseUrl);
+          asyncTaskId = providerData.task_id || providerData.taskId;
+          if (asyncTaskId) {
+            providerData = await pollAsyncImageTask(asyncTaskId, apiKey, baseUrl);
+          }
+        }
+      }
+
+      const images = extractGeneratedImages(providerData, baseUrl, targetSize.width, targetSize.height).slice(0, count);
+      const normalizedImages = await __testNormalizeGeneratedImagesToTargetAspect(images, targetSize.width, targetSize.height);
+      if (normalizedImages.length > 0) {
+        return { images: normalizedImages };
+      }
+      lastError = `${providerModel} returned no usable images`;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+      if (!isProviderCapacityError(lastError) && !isUnsupportedImagesApiError(lastError) && !isImageGroupPermissionError(lastError)) {
+        throw new Error(`图片生成接口暂不可用：${lastError}`);
+      }
+      console.warn(`Image generation with ${providerModel} failed; retrying next priority model`, error);
+    }
   }
 
-  return { images: normalizedImages };
+  throw new Error(`图片模型未返回可用图片，系统已按默认优先级重试：${lastError || "unknown error"}`);
 }
 
 export async function removeImageBackground(input: RemoveBackgroundInput): Promise<GeneratedImageResult> {
@@ -2645,7 +2649,7 @@ async function generateSmartProductBackgroundPlates(
   count: number,
 ): Promise<GeneratedImage[]> {
   const images = getSmartProductBackgroundReferences(input);
-  const requestBackground = (model: "gpt-image-2" | "gemini-3.1-flash-image") =>
+  const requestBackground = (model: string) =>
     generateImages({
       prompt,
       model,
@@ -2653,23 +2657,24 @@ async function generateSmartProductBackgroundPlates(
       count,
       style: input.style,
       images,
-      preferImageApiForReferences: model === "gpt-image-2",
+      preferImageApiForReferences: model === DEFAULT_IMAGE_MODEL_ID,
     });
 
-  try {
-    const image2 = await requestBackground("gpt-image-2");
-    if (image2.images.length === 0) {
-      throw new Error("Image2 returned no background plates");
+  let lastError = "";
+  for (const model of getImageModelFallbackAttempts(input.model)) {
+    try {
+      const result = await requestBackground(model);
+      if (result.images.length === 0) {
+        throw new Error(`${model} returned no background plates`);
+      }
+      return result.images;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+      console.warn("Smart product background plate failed; retrying next model", { model, error: lastError });
     }
-    return image2.images;
-  } catch (image2Error) {
-    console.warn("Image2 background plate failed; retrying with Gemini", image2Error);
-    const gemini = await requestBackground("gemini-3.1-flash-image");
-    if (gemini.images.length === 0) {
-      throw new Error("Gemini returned no background plates");
-    }
-    return gemini.images;
   }
+
+  throw new Error(`All priority background plate models failed: ${lastError || "unknown error"}`);
 }
 
 async function createProductGroundedShadow(
@@ -2903,7 +2908,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   const targetWidth = targetSize.width;
   const targetHeight = targetSize.height;
   const sourceImage = bufferToImageFile(sourceImageData.buffer, sourceImageData.mimeType);
-  const selectedModel = input.model && supportedImageModels.has(input.model) ? input.model : model;
+  const selectedModel = getImageModelFallbackAttempts(input.model || model)[0] || DEFAULT_IMAGE_MODEL_ID;
   const referenceImages = input.images?.filter(image => image.src?.trim()) || [];
   const editSize = getEditSizeForAspect(targetWidth, targetHeight);
   const aspectInstruction = `Keep the final image canvas aspect ratio exactly ${targetWidth}:${targetHeight}. Do not return a square image unless the source is square.`;

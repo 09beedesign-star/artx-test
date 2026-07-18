@@ -26,7 +26,7 @@ export function getModelBrandIconKind(modelId: string, icon?: string): ModelBran
   const value = `${icon || ""} ${modelId}`.toLowerCase();
   if (/banana|gemini|nano/.test(value)) return "banana";
   if (/jimeng|即梦/.test(value)) return "jimeng";
-  if (/kling|可灵/.test(value)) return "kling";
+  if (/keling|kling|可灵/.test(value)) return "kling";
   if (/midjourney|mj-/.test(value)) return "midjourney";
   if (/openai|chatgpt|image2|og-image2|gpt/.test(value)) return "openai";
   return icon ? "image" : "none";

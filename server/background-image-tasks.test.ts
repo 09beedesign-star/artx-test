@@ -12,7 +12,7 @@ describe("background image task routing", () => {
     expect(source).toContain('case "smart_background":');
     expect(source).toMatch(/createProductBackground\([^)]*input/);
     expect(source).toContain('provider: "PicWish 主体保护 + Image2/Gemini 背景"');
-    expect(source).toContain('model: "gpt-image-2 -> gemini-3.1-flash-image"');
+    expect(source).toContain("getDefaultImageModelPriorityLabel()");
     expect(source).toContain('case "image_edit":');
     expect(source).toMatch(/editImageWithPrompt\([^)]*input/);
     expect(source).toContain('case "background_removal":');
@@ -25,5 +25,6 @@ describe("background image task routing", () => {
     expect(source).toMatch(/eraseImageObjects\([^)]*input/);
     expect(source).toContain('case "image_expansion":');
     expect(source).toContain("expandImageWithPicWish");
+    expect(source).not.toContain('process.env.AI_IMAGE_MODEL || "gpt-image-2"');
   });
 });

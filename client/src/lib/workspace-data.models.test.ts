@@ -6,6 +6,7 @@ const expectedImageModelDescriptions = {
   "jimeng-4.0": "高性价比中文强",
   "mj-v7": "高品质电影质感",
   "mj-v8.1": "极致肖像细节",
+  "keling": "高品质国风电商",
   "og-image2-low": "高性价比快速稿",
   "og-image2-medium": "高品质场景稳定",
   "og-image2-high": "极致高清电影感",
@@ -21,13 +22,14 @@ describe("workspace image model options", () => {
   it("keeps the fallback selector list aligned with the full image model catalog", () => {
     expect(IMAGE_AI_MODEL_OPTIONS.map(option => option.id)).toEqual([
       "auto",
+      "og-image2-medium",
       "gemini-3.5-flash-preview",
       "jimeng-4.0",
       "mj-v7",
       "mj-v8.1",
-      "og-image2-low",
-      "og-image2-medium",
+      "keling",
       "og-image2-high",
+      "og-image2-low",
     ]);
     expect(IMAGE_AI_MODEL_OPTIONS.find(option => option.id === "og-image2-low")).toMatchObject({
       label: "image2 low",
@@ -47,6 +49,9 @@ describe("workspace image model options", () => {
     });
     expect(IMAGE_AI_MODEL_OPTIONS.find(option => option.id === "mj-v7")).toMatchObject({
       icon: "midjourney",
+    });
+    expect(IMAGE_AI_MODEL_OPTIONS.find(option => option.id === "keling")).toMatchObject({
+      icon: "keling",
     });
   });
 
@@ -83,14 +88,16 @@ describe("workspace image model options", () => {
       { id: "og-image2-low", label: "image2 low", color: "server-color", description: "高性价比快速稿", icon: "openai" },
       { id: "og-image2-medium", label: "image2 medium", color: "server-color", description: "高品质场景稳定", icon: "openai" },
       { id: "og-image2-high", label: "image2 high", color: "server-color", description: "极致高清电影感", icon: "openai" },
+      { id: "keling", label: "keling", color: "server-color", description: "高品质国风电商", icon: "keling" },
     ]);
 
     expect(options.map(option => option.id)).toEqual([
       "auto",
-      "gemini-3.5-flash-preview",
-      "og-image2-low",
       "og-image2-medium",
+      "gemini-3.5-flash-preview",
+      "keling",
       "og-image2-high",
+      "og-image2-low",
     ]);
     expect(options.find(option => option.id === "og-image2-low")).toMatchObject({
       label: "image2 low",

@@ -18,13 +18,13 @@ describe("smart product generation prompt", () => {
     expect(source).toContain("Do not include any product, person, packaging, logo, or foreground object.");
   });
 
-  it("protects the PicWish cutout while routing background plates through Image2 then Gemini", () => {
+  it("protects the PicWish cutout while routing background plates through the shared image model priority", () => {
     expect(source).toContain("const cutout = await removeBackgroundPreservingForegroundPixels(input.imageSrc)");
     expect(source).toContain("const protectedProduct = cutout.images[0]");
     expect(source).toContain("Generate the empty ecommerce background plate only");
-    expect(source).toContain('model: "gpt-image-2"');
-    expect(source).toContain("Image2 background plate failed; retrying with Gemini");
-    expect(source).toContain('model: "gemini-3.1-flash-image"');
+    expect(source).toContain("getImageModelFallbackAttempts(input.model)");
+    expect(source).toContain("Smart product background plate failed; retrying next model");
+    expect(source).toContain("All priority background plate models failed");
     expect(source).toContain("compositeProtectedProductOnBackground");
     expect(source).toContain("createProductGroundedShadow");
     expect(source).toContain("matchProductLightingToBackground");

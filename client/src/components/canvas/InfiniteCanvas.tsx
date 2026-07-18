@@ -370,6 +370,7 @@ import { writePsd, type Layer, type Psd } from "ag-psd/dist-es";
 import {
   ALL_AI_MODEL_OPTIONS,
   AUTO_AI_MODEL,
+  DEFAULT_IMAGE_AI_MODEL_ID,
   GENERATED_ASSETS,
   IMAGE_AI_MODELS,
   IMAGE_AI_MODEL_OPTIONS,
@@ -11328,7 +11329,7 @@ function BottomPromptBar({
             projectId,
             prompt: finalImagePrompt,
             model: shouldEditTargetReference
-              ? "gpt-image-2"
+              ? DEFAULT_IMAGE_AI_MODEL_ID
               : selectedGenerationModel,
             ratio: skillRatio,
             count: 1,
@@ -11347,7 +11348,7 @@ function BottomPromptBar({
                     capability: "image_edit",
                     operation: "edit",
                     imageSrc: targetReference.src,
-                    model: "gpt-image-2",
+                    model: DEFAULT_IMAGE_AI_MODEL_ID,
                     prompt: finalImagePrompt,
                     images: submittedRefs.slice(0, -1),
                     skillId: activeSkill.id,
@@ -11370,7 +11371,7 @@ function BottomPromptBar({
               shouldEditTargetReference && targetReference
                 ? await editImageWithPrompt({
                     imageSrc: targetReference.src,
-                    model: "gpt-image-2",
+                    model: DEFAULT_IMAGE_AI_MODEL_ID,
                     prompt: payload.prompt,
                     referencedAssets: submittedRefs.slice(0, -1),
                     skillId: activeSkill.id,
@@ -14071,7 +14072,7 @@ function FontDesignDialog({
     const payload: ImageGeneratorPayload = {
       projectId,
       prompt,
-      model: "gpt-image-2",
+      model: DEFAULT_IMAGE_AI_MODEL_ID,
       ratio,
       count,
       style: `字体设计 · ${stylePreset}`,
@@ -16679,7 +16680,7 @@ function CanvasAssistantPanel({
       return stored === "text" ? "text" : "image";
     });
   const [assistantImageModelId, setAssistantImageModelId] = useState(() => {
-    const fallbackImageModelId = IMAGE_AI_MODELS[0]?.id || "gemini-3.5-flash-preview";
+    const fallbackImageModelId = DEFAULT_IMAGE_AI_MODEL_ID;
     if (typeof window === "undefined") return fallbackImageModelId;
     const stored =
       window.localStorage.getItem(CANVAS_ASSISTANT_IMAGE_MODEL_STORAGE_KEY) ||
@@ -18187,7 +18188,7 @@ function CanvasAssistantPanel({
     const imagePayload: ImageGeneratorPayload = {
       projectId,
       prompt: promptText,
-      model: message.imageBackup?.model || "gpt-image-2",
+      model: message.imageBackup?.model || DEFAULT_IMAGE_AI_MODEL_ID,
       ratio: message.imageBackup?.ratio || "1:1",
       count: 1,
       style: message.imageBackup?.style || "聊天气泡",
@@ -18448,7 +18449,7 @@ function CanvasAssistantPanel({
                 ].join("\n")
               : finalImagePrompt,
           model: shouldEditTargetReference
-            ? "gpt-image-2"
+            ? DEFAULT_IMAGE_AI_MODEL_ID
             : assistantAutoMode
               ? "auto"
               : assistantImageModel.id,
@@ -18469,7 +18470,7 @@ function CanvasAssistantPanel({
                   capability: "image_edit",
                   operation: "edit",
                   imageSrc: targetReference.src,
-                  model: "gpt-image-2",
+                  model: DEFAULT_IMAGE_AI_MODEL_ID,
                   prompt:
                     [
                       finalImagePrompt,
@@ -18492,7 +18493,7 @@ function CanvasAssistantPanel({
           shouldEditTargetReference && targetReference
             ? await editImageWithPrompt({
                 imageSrc: targetReference.src,
-                model: "gpt-image-2",
+                model: DEFAULT_IMAGE_AI_MODEL_ID,
                 prompt: payload.prompt,
                 referencedAssets: sourceReferences,
                 skillId: activeSkill.id,
@@ -18632,7 +18633,7 @@ function CanvasAssistantPanel({
               ].join("\n")
             : finalImagePrompt,
           model: shouldEditTargetReference
-            ? "gpt-image-2"
+            ? DEFAULT_IMAGE_AI_MODEL_ID
             : assistantAutoMode
               ? "auto"
               : assistantImageModel.id,
@@ -18651,7 +18652,7 @@ function CanvasAssistantPanel({
                   capability: "image_edit",
                   operation: "edit",
                   imageSrc: targetReference.src,
-                  model: "gpt-image-2",
+                  model: DEFAULT_IMAGE_AI_MODEL_ID,
                   prompt: [
                     finalImagePrompt,
                     "Use the last referenced image as the target canvas. Preserve the target person's identity, pose, composition, background, lighting, camera angle, and aspect ratio.",
@@ -18672,7 +18673,7 @@ function CanvasAssistantPanel({
           shouldEditTargetReference && targetReference
             ? await editImageWithPrompt({
                 imageSrc: targetReference.src,
-                model: "gpt-image-2",
+                model: DEFAULT_IMAGE_AI_MODEL_ID,
                 prompt: payload.prompt,
                 referencedAssets: sourceReferences,
                 targetWidth: targetReference.width,
@@ -21024,7 +21025,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const payload: ImageGeneratorPayload = {
         projectId,
         prompt,
-        model: "gpt-image-2",
+        model: DEFAULT_IMAGE_AI_MODEL_ID,
         ratio: inferImageRatio(resolvedDisplayW, resolvedDisplayH),
         count: Math.max(
           1,
@@ -21405,7 +21406,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           capability: "image_edit",
           operation: "edit",
           imageSrc: latestImageSrc,
-          model: "gpt-image-2",
+          model: DEFAULT_IMAGE_AI_MODEL_ID,
           prompt,
           targetWidth: sourceSize.width,
           targetHeight: sourceSize.height,
@@ -21413,7 +21414,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         run: async () =>
           editImageWithPrompt({
             imageSrc: latestImageSrc,
-            model: "gpt-image-2",
+            model: DEFAULT_IMAGE_AI_MODEL_ID,
             prompt,
             targetWidth: sourceSize.width,
             targetHeight: sourceSize.height,
@@ -21814,6 +21815,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           count: detail.count,
           customWidth: detail.customWidth,
           customHeight: detail.customHeight,
+          model: DEFAULT_IMAGE_AI_MODEL_ID,
         },
         run: async () =>
           createProductBackground({
@@ -21828,6 +21830,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             customWidth: detail.customWidth,
             customHeight: detail.customHeight,
             skillId: detail.skillId,
+            model: DEFAULT_IMAGE_AI_MODEL_ID,
           }),
       });
     };
@@ -22208,7 +22211,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           operation: "erase",
           imageSrc: detail.imageSrc,
           maskSrc: detail.maskSrc,
-          model: "gpt-image-2",
+          model: DEFAULT_IMAGE_AI_MODEL_ID,
           targetWidth: detail.targetWidth ?? sourceSize.width,
           targetHeight: detail.targetHeight ?? sourceSize.height,
           prompt:
@@ -22218,7 +22221,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           eraseImageObjects({
             imageSrc: detail.imageSrc,
             maskSrc: detail.maskSrc,
-            model: "gpt-image-2",
+            model: DEFAULT_IMAGE_AI_MODEL_ID,
             targetWidth: detail.targetWidth ?? sourceSize.width,
             targetHeight: detail.targetHeight ?? sourceSize.height,
             prompt:
@@ -22309,7 +22312,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           operation: "expand",
           imageSrc: detail.imageSrc,
           maskSrc: detail.maskSrc,
-          model: "gpt-image-2",
+          model: DEFAULT_IMAGE_AI_MODEL_ID,
           targetWidth: detail.nextW,
           targetHeight: detail.nextH,
           top: detail.top,
@@ -22323,7 +22326,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           expandImageWithMask({
             imageSrc: detail.imageSrc,
             maskSrc: detail.maskSrc,
-            model: "gpt-image-2",
+            model: DEFAULT_IMAGE_AI_MODEL_ID,
             targetWidth: detail.nextW,
             targetHeight: detail.nextH,
             top: detail.top,
@@ -22440,7 +22443,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             operation: "edit",
             imageSrc: detail.imageSrc,
             prompt: finalPrompt,
-            model: "gpt-image-2",
+            model: DEFAULT_IMAGE_AI_MODEL_ID,
             targetWidth,
             targetHeight,
           },
@@ -22448,7 +22451,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             editImageWithPrompt({
               imageSrc: detail.imageSrc,
               prompt: finalPrompt,
-              model: "gpt-image-2",
+              model: DEFAULT_IMAGE_AI_MODEL_ID,
               targetWidth,
               targetHeight,
             }),
@@ -26946,7 +26949,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const placeholderPayload: ImageGeneratorPayload = {
         projectId,
         prompt: placeholderPrompt,
-        model: payload.model || "gpt-image-2",
+        model: payload.model || DEFAULT_IMAGE_AI_MODEL_ID,
         ratio: inferImageRatio(sourceSize.width, sourceSize.height),
         count: 1,
         style: "快捷编辑结果",
@@ -27000,7 +27003,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               optimizedPrompt.text.trim() ||
               payload.prompt ||
               `基于原图优化：${editAsset.title}`,
-            model: "gpt-image-2",
+            model: DEFAULT_IMAGE_AI_MODEL_ID,
             targetWidth: sourceSize.width,
             targetHeight: sourceSize.height,
             images: payload.references,
@@ -27013,7 +27016,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 optimizedPrompt.text.trim() ||
                 payload.prompt ||
                 `基于原图优化：${editAsset.title}`,
-              model: "gpt-image-2",
+              model: DEFAULT_IMAGE_AI_MODEL_ID,
               targetWidth: sourceSize.width,
               targetHeight: sourceSize.height,
               referencedAssets: payload.references,
@@ -27142,7 +27145,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               if (!shouldFallbackToImageEdit) throw error;
               return editImageWithPrompt({
                 imageSrc,
-                model: "gpt-image-2",
+                model: DEFAULT_IMAGE_AI_MODEL_ID,
                 prompt: [
                   "Enhance this image to a crisp 4K-quality result.",
                   "Preserve the original composition, aspect ratio, subject identity, colors, layout, and all visible content.",
@@ -27175,14 +27178,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             capability: "background_removal",
             operation: "remove-background",
             imageSrc,
-            model: "gpt-image-2",
+            model: DEFAULT_IMAGE_AI_MODEL_ID,
             prompt:
               "Remove the background from this image. Keep the foreground subject sharp and return a PNG with the background fully transparent and alpha set to 0.",
           },
           run: async () =>
             removeImageBackground({
               imageSrc,
-              model: "gpt-image-2",
+              model: DEFAULT_IMAGE_AI_MODEL_ID,
               prompt:
                 "Remove the background from this image. Keep the foreground subject sharp and return a PNG with the background fully transparent and alpha set to 0.",
             }),
@@ -27491,13 +27494,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               capability: "background_removal",
               operation: "remove-background",
               imageSrc,
-              model: "gpt-image-2",
+              model: DEFAULT_IMAGE_AI_MODEL_ID,
               prompt: `${resolvedPlan.foregroundPrompt}\n\nLayer alpha requirement: keep the complete subject group as one intact foreground layer. Do not remove any interior subject pixels. All non-subject background pixels must be fully transparent alpha=0. Preserve the original full canvas size.`,
             },
             run: async () =>
               removeImageBackground({
                 imageSrc,
-                model: "gpt-image-2",
+                model: DEFAULT_IMAGE_AI_MODEL_ID,
                 prompt: `${resolvedPlan.foregroundPrompt}\n\nLayer alpha requirement: keep the complete subject group as one intact foreground layer. Do not remove any interior subject pixels. All non-subject background pixels must be fully transparent alpha=0. Preserve the original full canvas size.`,
               }),
           });
@@ -27521,7 +27524,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               capability: "image_edit",
               operation: "edit",
               imageSrc,
-              model: "gpt-image-2",
+              model: DEFAULT_IMAGE_AI_MODEL_ID,
               prompt: `${resolvedPlan.backgroundPrompt}\n\nCritical layer instruction: this output is the bottom background plate only. It must contain no visible person, chair, clothes, shoes, hands, face, skin, beard, glasses, or subject fragments. It should look like the original blue background and W logo existed behind the removed subject.`,
               targetWidth: sourceSize.width,
               targetHeight: sourceSize.height,
@@ -27529,7 +27532,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             run: async () =>
               editImageWithPrompt({
                 imageSrc,
-                model: "gpt-image-2",
+                model: DEFAULT_IMAGE_AI_MODEL_ID,
                 prompt: `${resolvedPlan.backgroundPrompt}\n\nCritical layer instruction: this output is the bottom background plate only. It must contain no visible person, chair, clothes, shoes, hands, face, skin, beard, glasses, or subject fragments. It should look like the original blue background and W logo existed behind the removed subject.`,
                 targetWidth: sourceSize.width,
                 targetHeight: sourceSize.height,
@@ -27776,7 +27779,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             capability: "image_edit",
             operation: "edit",
             imageSrc,
-            model: "gpt-image-2",
+            model: DEFAULT_IMAGE_AI_MODEL_ID,
             prompt: vectorPromptMap[label] || vectorPromptMap["高清矢量"],
             targetWidth: sourceSize.width,
             targetHeight: sourceSize.height,
@@ -27784,7 +27787,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           run: async () =>
             editImageWithPrompt({
               imageSrc,
-              model: "gpt-image-2",
+              model: DEFAULT_IMAGE_AI_MODEL_ID,
               prompt: vectorPromptMap[label] || vectorPromptMap["高清矢量"],
               targetWidth: sourceSize.width,
               targetHeight: sourceSize.height,

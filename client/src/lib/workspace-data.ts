@@ -1,4 +1,10 @@
 // Neo-Studio Dark Workspace — Data & Types
+import {
+  DEFAULT_IMAGE_MODEL_ID,
+  IMAGE_MODEL_PRIORITY_IDS,
+  SUPPORTED_IMAGE_MODEL_IDS,
+  sortImageModelIdsByPriority,
+} from "../../../shared/image-models";
 
 // ── AI Models ────────────────────────────────────────────────
 export type AiModelOption = {
@@ -16,14 +22,17 @@ export const AUTO_AI_MODEL: AiModelOption = {
   description: "根据提示词自动选择对话或生图模型",
 };
 
+export const DEFAULT_IMAGE_AI_MODEL_ID = DEFAULT_IMAGE_MODEL_ID;
+
 export const IMAGE_AI_MODELS: AiModelOption[] = [
+  { id: "og-image2-medium", label: "image2 medium", color: "oklch(0.72 0.18 200)", description: "高品质场景稳定", icon: "openai" },
   { id: "gemini-3.5-flash-preview", label: "gemini-3.5-flash-preview", color: "oklch(0.72 0.18 200)", description: "高性价比场景快", icon: "gemini" },
   { id: "jimeng-4.0", label: "jimeng-4.0", color: "oklch(0.82 0.18 95)", description: "高性价比中文强", icon: "jimeng" },
   { id: "mj-v7", label: "mj-v7", color: "oklch(0.74 0.16 285)", description: "高品质电影质感", icon: "midjourney" },
   { id: "mj-v8.1", label: "mj-v8.1", color: "oklch(0.78 0.15 40)", description: "极致肖像细节", icon: "midjourney" },
-  { id: "og-image2-low", label: "image2 low", color: "oklch(0.70 0.16 150)", description: "高性价比快速稿", icon: "openai" },
-  { id: "og-image2-medium", label: "image2 medium", color: "oklch(0.72 0.18 200)", description: "高品质场景稳定", icon: "openai" },
+  { id: "keling", label: "keling", color: "oklch(0.76 0.16 130)", description: "高品质国风电商", icon: "keling" },
   { id: "og-image2-high", label: "image2 high", color: "oklch(0.82 0.18 95)", description: "极致高清电影感", icon: "openai" },
+  { id: "og-image2-low", label: "image2 low", color: "oklch(0.70 0.16 150)", description: "高性价比快速稿", icon: "openai" },
 ];
 
 export const TEXT_AI_MODELS: AiModelOption[] = [
@@ -40,16 +49,7 @@ export const ALL_AI_MODEL_OPTIONS: AiModelOption[] = [
 
 function isImageModelOption(option: AiModelOption) {
   const id = option.id.toLowerCase();
-  const supportedImageModelIds = new Set([
-    "gemini-3.5-flash-preview",
-    "jimeng-4.0",
-    "mj-v7",
-    "mj-v8.1",
-    "og-image2-low",
-    "og-image2-medium",
-    "og-image2-high",
-  ]);
-  return supportedImageModelIds.has(id);
+  return SUPPORTED_IMAGE_MODEL_IDS.has(id);
 }
 
 export function mergeImageAiModelOptions(discoveredModels: AiModelOption[] = []) {
@@ -58,7 +58,11 @@ export function mergeImageAiModelOptions(discoveredModels: AiModelOption[] = [])
   const sourceModels = validDiscoveredModels.length > 0
     ? validDiscoveredModels
     : IMAGE_AI_MODELS;
-  for (const option of sourceModels) {
+  const optionById = new Map(sourceModels.map(option => [option.id, option]));
+  const orderedModelIds = sortImageModelIdsByPriority(sourceModels.map(option => option.id));
+  for (const id of orderedModelIds.length > 0 ? orderedModelIds : IMAGE_MODEL_PRIORITY_IDS) {
+    const option = optionById.get(id) || IMAGE_AI_MODELS.find(model => model.id === id);
+    if (!option) continue;
     if (!option.id || option.id === AUTO_AI_MODEL.id || !isImageModelOption(option)) continue;
     merged.set(option.id, {
       ...option,

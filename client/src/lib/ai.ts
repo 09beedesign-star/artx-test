@@ -1,4 +1,5 @@
 import { ART_X_TEST_API_BASE_URL, normalizeApiBaseUrl } from "./api-base-url";
+import { DEFAULT_IMAGE_MODEL_ID } from "../../../shared/image-models";
 
 type LLMRole = "system" | "user" | "assistant";
 
@@ -385,7 +386,7 @@ export async function searchReferenceImages({
 
 export async function generateImages({
   prompt,
-  model = "gpt-image-2",
+  model = DEFAULT_IMAGE_MODEL_ID,
   ratio = "1:1",
   count = 1,
   style,
@@ -475,7 +476,7 @@ export async function runImageGenerationTask(input: ImageGenerationTaskInput): P
 export async function startBackgroundImageGeneration({
   taskId,
   prompt,
-  model = "gpt-image-2",
+  model = DEFAULT_IMAGE_MODEL_ID,
   ratio = "1:1",
   count = 1,
   style,
@@ -523,7 +524,7 @@ export async function getBackgroundImageGenerationTask(taskId: string) {
 
 export async function removeImageBackground({
   imageSrc,
-  model = "gpt-image-2",
+  model = DEFAULT_IMAGE_MODEL_ID,
   prompt,
 }: {
   imageSrc: string;
@@ -581,6 +582,7 @@ export async function createProductBackground({
   customWidth,
   customHeight,
   skillId,
+  model = DEFAULT_IMAGE_MODEL_ID,
 }: {
   imageSrc: string;
   backgroundReferenceSrc?: string;
@@ -593,6 +595,7 @@ export async function createProductBackground({
   customWidth?: number;
   customHeight?: number;
   skillId?: string;
+  model?: string;
 }) {
   requireAiAuth();
   const result = await postProductBackground({
@@ -607,6 +610,7 @@ export async function createProductBackground({
     customWidth,
     customHeight,
     skillId,
+    model,
   }, "智能电商产品生成失败");
 
   return toGeneratedImagesResponse(result);
@@ -627,7 +631,7 @@ export async function extractImageText({
 
 export async function editImageWithPrompt({
   imageSrc,
-  model = "gpt-image-2",
+  model = DEFAULT_IMAGE_MODEL_ID,
   prompt,
   targetWidth,
   targetHeight,
@@ -679,7 +683,7 @@ export async function editImageWithPrompt({
 export async function eraseImageObjects({
   imageSrc,
   maskSrc,
-  model = "gpt-image-2",
+  model = DEFAULT_IMAGE_MODEL_ID,
   prompt,
   targetWidth,
   targetHeight,
@@ -711,7 +715,7 @@ export async function eraseImageObjects({
 export async function expandImageWithMask({
   imageSrc,
   maskSrc,
-  model = "gpt-image-2",
+  model = DEFAULT_IMAGE_MODEL_ID,
   prompt,
   targetWidth,
   targetHeight,
