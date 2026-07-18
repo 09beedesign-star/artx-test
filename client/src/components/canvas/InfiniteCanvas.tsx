@@ -2768,7 +2768,7 @@ function AssetFloatingToolbar({
           <Type size={15} />
         </AiDecoratedIcon>
       ),
-      label: "智能文案",
+      label: "文案提取",
       action: "edit-text",
     },
     { icon: <HdIcon size={15} />, label: "HD 4K", action: "upscale" },
@@ -5779,6 +5779,21 @@ function AssetNodeComponent({
   const eraseLastPointRef = useRef<{ x: number; y: number } | null>(null);
   const eraseHasPaintRef = useRef(false);
   const [extractedTextDraft, setExtractedTextDraft] = useState(extractedText);
+  const extractedTextFields = useMemo(() => {
+    const fields = extractedTextDraft.split("\n");
+    return fields.length ? fields : [""];
+  }, [extractedTextDraft]);
+  const updateExtractedTextField = useCallback(
+    (index: number, value: string) => {
+      setExtractedTextDraft(current => {
+        const fields = current.split("\n");
+        const nextFields = fields.length ? [...fields] : [""];
+        nextFields[index] = value;
+        return nextFields.join("\n");
+      });
+    },
+    []
+  );
   const extractedTextPanelRef = useRef<HTMLDivElement | null>(null);
   const displayTitle = (data.title as string) || asset?.title || "素材节点";
   const rotation = (data.rotation as number) || 0;
@@ -7528,7 +7543,7 @@ function AssetNodeComponent({
                   <Type size={13} />
                 )}
                 <span className="type-caption" style={{ fontWeight: 700 }}>
-                  画面文案
+                  文案提取
                 </span>
               </div>
               <button
@@ -7548,38 +7563,88 @@ function AssetNodeComponent({
                 <X size={14} />
               </button>
             </div>
-            <textarea
-              readOnly={isExtractingText || isApplyingExtractedText}
-              value={
-                isExtractingText
-                  ? EXTRACT_TEXT_LOADING_MESSAGE
-                  : extractedTextDraft
-              }
-              aria-label="提取出的画面文案"
-              className="w-full nodrag nopan"
+            <div
+              className="nodrag nopan"
               style={{
-	                minHeight: 138,
-	                flex: "1 1 auto",
-	                padding: 12,
-	                resize: "none",
-	                outline: "none",
-	                border: "none",
-                background: "transparent",
-                color: "inherit",
-                fontSize: 13,
-                lineHeight: 1.55,
-                whiteSpace: "pre-wrap",
-                userSelect: "text",
-                cursor: "text",
+                minHeight: 138,
+                flex: "1 1 auto",
+                padding: 12,
                 overflowY: "auto",
                 overscrollBehavior: "contain",
+                userSelect: "text",
               }}
-              onChange={event => setExtractedTextDraft(event.target.value)}
               onMouseDown={event => event.stopPropagation()}
               onClick={event => event.stopPropagation()}
               onWheel={event => event.stopPropagation()}
               onKeyDown={event => event.stopPropagation()}
-            />
+            >
+              {isExtractingText ? (
+                <div
+                  className="type-caption flex h-full min-h-[138px] items-center justify-center text-center"
+                  style={{
+                    color: isDark
+                      ? "rgba(255,255,255,0.66)"
+                      : "rgba(28,28,40,0.58)",
+                  }}
+                >
+                  {EXTRACT_TEXT_LOADING_MESSAGE}
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {extractedTextFields.map((field, index) => (
+                    <label
+                      key={index}
+                      className="flex flex-col gap-1.5 rounded-[var(--radius-md-design)] px-2.5 py-2"
+                      style={{
+                        background: isDark
+                          ? "rgba(255,255,255,0.06)"
+                          : "rgba(0,0,0,0.035)",
+                        border: `1px solid ${isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)"}`,
+                      }}
+                    >
+                      <span
+                        className="type-caption"
+                        style={{
+                          color: isDark
+                            ? "rgba(255,255,255,0.56)"
+                            : "rgba(28,28,40,0.50)",
+                          fontSize: 11,
+                        }}
+                      >
+                        文案段落 {index + 1}
+                      </span>
+                      <textarea
+                        value={field}
+                        aria-label={`编辑提取文案 ${index + 1}`}
+                        className="nodrag nopan"
+                        rows={Math.max(1, Math.min(4, field.length > 28 ? 2 : 1))}
+                        style={{
+                          width: "100%",
+                          resize: "none",
+                          outline: "none",
+                          border: "none",
+                          background: "transparent",
+                          color: "inherit",
+                          fontSize: 13,
+                          lineHeight: 1.5,
+                          userSelect: "text",
+                          cursor: "text",
+                          overflowY: "hidden",
+                        }}
+                        readOnly={isApplyingExtractedText}
+                        onChange={event =>
+                          updateExtractedTextField(index, event.target.value)
+                        }
+                        onMouseDown={event => event.stopPropagation()}
+                        onClick={event => event.stopPropagation()}
+                        onWheel={event => event.stopPropagation()}
+                        onKeyDown={event => event.stopPropagation()}
+                      />
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
             <div
 	              className="flex items-center justify-between gap-2 px-3 py-2"
 	              style={{
@@ -27735,7 +27800,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         upscale: "HD 4K",
         erase: "橡皮工具",
         "edit-elements": "编辑元素",
-        "edit-text": "智能文案",
+        "edit-text": "文案提取",
         mockup: "多平台封面",
         expand: "扩展",
         adjust: "调整",

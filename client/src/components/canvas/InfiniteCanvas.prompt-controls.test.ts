@@ -180,4 +180,16 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain('marginTop: "auto"');
     expect(source).toContain("height: 42");
   });
+
+  it("renders copy extraction as structured editable sub fields instead of a notebook textarea", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+
+    expect(source).toContain('label: "文案提取"');
+    expect(source).toContain('"edit-text": "文案提取"');
+    expect(source).toContain("const extractedTextFields = useMemo");
+    expect(source).toContain("updateExtractedTextField");
+    expect(source).toContain("文案段落");
+    expect(source).toContain('aria-label={`编辑提取文案 ${index + 1}`}');
+    expect(source).not.toContain('label: "智能文案"');
+  });
 });
