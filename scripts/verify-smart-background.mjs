@@ -30,8 +30,12 @@ assert(files.server.includes('"r-background"'), "PicWish r-background task type 
 assert(files.server.includes('runPicWishImageTask("r-background"'), "smart background uses PicWish r-background task");
 assert(files.server.includes("const productCutout = await removeBackgroundWithPicWish(buffer, mimeType)"), "smart product removes the uploaded background before r-background");
 assert(files.server.includes("prepareProductCutoutForBackgroundGenerator"), "smart product places the cutout on a selected-ratio transparent canvas before r-background");
+assert(files.server.includes("userPrompt || fallbackPrompt"), "smart product keeps the user's scene prompt at highest priority");
 assert(files.server.includes("prompt: buildSmartProductVariationPrompt(prompt, index, count)"), "smart product adds per-image variation prompts");
 assert(files.server.includes("count: 1"), "smart product requests one PicWish image per variation");
+assert(!files.server.includes("width: output.width"), "smart product does not send unsupported r-background width field");
+assert(!files.server.includes("height: output.height"), "smart product does not send unsupported r-background height field");
+assert(files.server.includes("negative_prompt"), "smart product sends a negative prompt to protect product identity");
 assert(!/runPicWishImageTask\("r-background"[\s\S]{0,260}scene_type/.test(files.server), "smart product must not mix fixed scene_type with user prompt");
 assert(!files.server.includes("generateSmartProductBackgroundPlates"), "smart product no longer uses image-model background plates");
 assert(!files.server.includes("Image2 and Gemini background plates failed"), "smart product has no Image2/Gemini fallback copy");

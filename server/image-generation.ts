@@ -1884,20 +1884,18 @@ function buildSmartProductVariationPrompt(prompt: string, index: number, total: 
 
 async function createBackgroundWithPicWish(input: CreateBackgroundInput): Promise<GeneratedImageResult> {
   const { buffer, mimeType } = await imageSrcToBuffer(input.imageSrc);
-  const sourceDimensions = await getImageBufferDimensions(buffer);
-  const output = getBackgroundOutputSize(input, sourceDimensions.width, sourceDimensions.height);
-  const batchSize = Math.max(1, Math.min(Number(input.count) || 1, 4));
+  const batchSize = Math.max(1, Math.min(Number(input.count) || 1, 2));
   const prompt = [
-    input.style ? `商业背景风格：${input.style}` : "",
     input.prompt || "为产品图生成干净、真实、商业化的背景，保持产品主体完整清晰。",
-    "Keep the original product intact. Generate a new commercial background that matches lighting, perspective, shadows, and product scale.",
+    "Generate only the background scene around the transparent product PNG.",
+    "Keep the original product intact and unchanged. Match lighting, perspective, scale, and contact shadows naturally.",
   ].filter(Boolean).join("\n");
 
   return runPicWishImageTask("r-background", buffer, mimeType, {
     fields: {
       prompt,
-      width: output.width,
-      height: output.height,
+      negative_prompt:
+        "changed product, distorted product, altered logo, altered text, cropped product, extra product, duplicate product, blurry product, low quality background",
       batch_size: batchSize,
     },
   });
@@ -2849,14 +2847,17 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
     output.height,
   );
   const hasBackgroundReference = Boolean(input.backgroundReferenceSrc?.trim());
+  const userPrompt = input.prompt?.trim();
+  const fallbackPrompt = input.style?.trim()
+    ? `Create a clean commercial product background with ${input.style.trim()} marketplace visual polish.`
+    : "Create a realistic clean commercial product background.";
   const prompt = [
-    input.style ? `背景风格：${input.style}` : "",
-    input.prompt || "创建商业化产品背景",
-    "Use reference image 1 as the exact product subject. Preserve the product shape, material, colors, logo, text, proportions, and foreground identity.",
+    userPrompt || fallbackPrompt,
     hasBackgroundReference
-      ? "A background reference image was provided by the user. Use the user's written description and style direction to match the requested background mood, lighting, perspective, material texture, spatial depth, and commercial photography feel."
+      ? "A background reference image was provided by the user, but the written prompt is the main requirement. Follow the requested scene, mood, lighting, perspective, material texture, spatial depth, and commercial photography feel."
       : "Create a realistic commercial background behind and around the product. Match lighting, shadows, perspective, and contact shadow naturally.",
-    "Return complete product commercial images. Do not crop or distort the product.",
+    "The transparent product PNG is the protected foreground subject. Do not change the product pixels, logo, text, shape, material, color, or proportions.",
+    "Return one complete product commercial image with the requested scene clearly visible.",
   ].filter(Boolean).join("\n");
 
   const outputs: GeneratedImage[] = [];
@@ -2865,7 +2866,6 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
     const result = await createBackgroundWithPicWish({
       imageSrc: preparedProductImage.imageSrc,
       prompt: buildSmartProductVariationPrompt(prompt, index, count),
-      style: input.style,
       ratio: input.ratio,
       resolution: input.resolution,
       count: 1,
