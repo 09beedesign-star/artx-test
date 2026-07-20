@@ -26498,7 +26498,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         }
 
         const sourceSize = getCanvasNodeSize(assetNode);
-        const baseX = assetNode.position.x + sourceSize.width + 36;
+        const layerGap = 10;
+        const baseX = assetNode.position.x + sourceSize.width + layerGap;
         const baseY = assetNode.position.y;
         const splittingNodeId = `element-split-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         const splittingDisplayW = Math.max(220, Math.round(sourceSize.width));
@@ -26543,6 +26544,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         try {
           const layerW = Math.max(1, Math.round(Number(data.imgW || sourceSize.width)));
           const layerH = Math.max(1, Math.round(Number(data.imgH || sourceSize.height)));
+          const foregroundPosition = splittingPosition;
+          const backgroundPosition = {
+            x: foregroundPosition.x + layerW + layerGap,
+            y: foregroundPosition.y,
+          };
           const foregroundPrompt = [
             "Create a transparent PNG foreground layer from this exact image.",
             "Keep the complete visible foreground subject group intact, including people, products, clothes, hands, hair, accessories, furniture, props, and attached objects.",
@@ -26559,7 +26565,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             style: "主体层",
             referencesEnabled: false,
             generationId: foregroundGenerationId,
-            placement: splittingPosition,
+            placement: foregroundPosition,
             displaySize: { w: layerW, h: layerH },
             titleBase: "主体层",
             sourceImageSrc: imageSrc,
@@ -26599,15 +26605,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             "Do not leave subject fragments, halos, holes, black patches, or transparent pixels. Do not change unmasked background areas.",
           ].join(" ");
           const backgroundGenerationId = `element-background-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-          const backgroundPosition = resolveNonOverlappingCanvasPosition(
-            nodesRef.current,
-            {
-              x: splittingPosition.x,
-              y: splittingPosition.y + sourceSize.height + 28,
-            },
-            { width: sourceSize.width, height: sourceSize.height },
-            [assetNode.id]
-          );
           const backgroundPayload: ImageGeneratorPayload = {
             projectId,
             prompt: backgroundPrompt,

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
-import { __testHasPicWishExpansionMargins, __testNormalizeGeneratedImageSrc, __testNormalizeGeneratedImagesToTargetAspect, __testNormalizePicWishExpansionRatio, __testPreparePicWishEraseSourceImage, __testPreparePicWishExpansionSourceImage, __testResolveHighDefinitionTargetSize, __testResolveReferenceImageRoute, editImageWithPrompt, extractImageText } from "./image-generation";
+import { __testCreatePicWishForegroundRemovalMask, __testHasPicWishExpansionMargins, __testNormalizeGeneratedImageSrc, __testNormalizeGeneratedImagesToTargetAspect, __testNormalizePicWishExpansionRatio, __testPreparePicWishEraseSourceImage, __testPreparePicWishExpansionSourceImage, __testResolveHighDefinitionTargetSize, __testResolveReferenceImageRoute, editImageWithPrompt, extractImageText } from "./image-generation";
 
 const ONE_PIXEL_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
@@ -85,6 +85,43 @@ describe("generated image source normalization", () => {
     expect(metadata.width).toBe(1536);
     expect(metadata.height).toBe(1152);
     expect(metadata.format).toBe("png");
+  });
+
+  it("builds element background masks from opaque foreground pixels", async () => {
+    const foreground = await sharp({
+      create: {
+        width: 4,
+        height: 4,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      },
+    })
+      .composite([{
+        input: await sharp({
+          create: {
+            width: 2,
+            height: 2,
+            channels: 4,
+            background: { r: 20, g: 120, b: 80, alpha: 1 },
+          },
+        }).png().toBuffer(),
+        left: 1,
+        top: 1,
+      }])
+      .png()
+      .toBuffer();
+
+    const mask = await __testCreatePicWishForegroundRemovalMask(foreground, 4, 4);
+    const { data } = await sharp(mask).raw().toBuffer({ resolveWithObject: true });
+    const topLeft = 0;
+    const center = ((1 * 4) + 1) * 4;
+
+    expect(data[topLeft]).toBe(0);
+    expect(data[topLeft + 1]).toBe(0);
+    expect(data[topLeft + 2]).toBe(0);
+    expect(data[center]).toBe(255);
+    expect(data[center + 1]).toBe(255);
+    expect(data[center + 2]).toBe(255);
   });
 
   it("keeps PicWish expansion source images within provider dimension limits", async () => {

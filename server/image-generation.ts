@@ -1702,6 +1702,60 @@ async function createPicWishEraseMask(maskBuffer: Buffer, width: number, height:
   return providerMaskBuffer;
 }
 
+async function createPicWishForegroundRemovalMask(
+  foregroundBuffer: Buffer,
+  width: number,
+  height: number,
+): Promise<Buffer> {
+  const sharp = (await import("sharp")).default;
+  const { data } = await sharp(foregroundBuffer, { limitInputPixels: false })
+    .rotate()
+    .resize(width, height, { fit: "fill" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const removePixels = new Uint8Array(width * height);
+  for (let index = 0; index < data.length; index += 4) {
+    if (data[index + 3] > 8) removePixels[index / 4] = 1;
+  }
+
+  const expandedRemovePixels = new Uint8Array(removePixels);
+  const expansionRadius = Math.max(1, Math.min(6, Math.round(Math.max(width, height) * 0.003)));
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const pixel = y * width + x;
+      if (!removePixels[pixel]) continue;
+      for (let dy = -expansionRadius; dy <= expansionRadius; dy += 1) {
+        for (let dx = -expansionRadius; dx <= expansionRadius; dx += 1) {
+          if ((dx * dx) + (dy * dy) > expansionRadius * expansionRadius) continue;
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+          expandedRemovePixels[ny * width + nx] = 1;
+        }
+      }
+    }
+  }
+
+  const providerMask = Buffer.alloc(width * height * 4);
+  for (let pixel = 0; pixel < expandedRemovePixels.length; pixel += 1) {
+    const index = pixel * 4;
+    const shouldRemove = expandedRemovePixels[pixel] === 1;
+    providerMask[index] = shouldRemove ? 255 : 0;
+    providerMask[index + 1] = shouldRemove ? 255 : 0;
+    providerMask[index + 2] = shouldRemove ? 255 : 0;
+    providerMask[index + 3] = 255;
+  }
+
+  return sharp(providerMask, {
+    raw: { width, height, channels: 4 },
+    limitInputPixels: false,
+  }).png().toBuffer();
+}
+
+export const __testCreatePicWishForegroundRemovalMask = createPicWishForegroundRemovalMask;
+
 async function enhanceImageWithPicWish(src: string): Promise<GeneratedImageResult> {
   const { buffer, mimeType } = await imageSrcToBuffer(src);
   return runPicWishImageTask("scale", buffer, mimeType);
@@ -3103,7 +3157,7 @@ export async function createElementBackgroundLayer(input: ElementBackgroundInput
   );
   const targetWidth = targetSize.width;
   const targetHeight = targetSize.height;
-  const providerMaskBuffer = await createPicWishEraseMask(
+  const providerMaskBuffer = await createPicWishForegroundRemovalMask(
     foregroundLayerData.buffer,
     targetWidth,
     targetHeight,
