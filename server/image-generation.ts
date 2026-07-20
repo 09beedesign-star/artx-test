@@ -1804,6 +1804,84 @@ function getBackgroundOutputSize(input: CreateBackgroundInput, fallbackWidth: nu
   return { width: Math.max(1, Math.round(baseLongSide * aspect)), height: baseLongSide };
 }
 
+async function prepareProductCutoutForBackgroundGenerator(
+  cutoutSrc: string,
+  outputWidth: number,
+  outputHeight: number,
+): Promise<{ imageSrc: string; width: number; height: number }> {
+  const sharp = (await import("sharp")).default;
+  const { buffer } = await imageSrcToBuffer(cutoutSrc);
+  const normalizedCutout = await sharp(buffer, { limitInputPixels: false })
+    .rotate()
+    .ensureAlpha()
+    .png()
+    .toBuffer();
+
+  let productBuffer = normalizedCutout;
+  try {
+    const trimmed = await sharp(normalizedCutout, { limitInputPixels: false })
+      .trim({ background: { r: 0, g: 0, b: 0, alpha: 0 }, threshold: 8 })
+      .png()
+      .toBuffer();
+    const trimmedMetadata = await sharp(trimmed, { limitInputPixels: false }).metadata();
+    if ((trimmedMetadata.width || 0) > 0 && (trimmedMetadata.height || 0) > 0) {
+      productBuffer = trimmed;
+    }
+  } catch {
+    productBuffer = normalizedCutout;
+  }
+
+  const maxProductWidth = Math.max(1, Math.round(outputWidth * 0.86));
+  const maxProductHeight = Math.max(1, Math.round(outputHeight * 0.84));
+  const resized = await sharp(productBuffer, { limitInputPixels: false })
+    .resize(maxProductWidth, maxProductHeight, {
+      fit: "inside",
+      withoutEnlargement: false,
+    })
+    .png()
+    .toBuffer({ resolveWithObject: true });
+
+  const left = Math.max(0, Math.round((outputWidth - resized.info.width) / 2));
+  const top = Math.max(0, Math.round((outputHeight - resized.info.height) * 0.56));
+  const canvas = await sharp({
+    create: {
+      width: outputWidth,
+      height: outputHeight,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    },
+  })
+    .composite([{ input: resized.data, left, top }])
+    .png()
+    .toBuffer();
+
+  return {
+    imageSrc: `data:image/png;base64,${canvas.toString("base64")}`,
+    width: outputWidth,
+    height: outputHeight,
+  };
+}
+
+function buildSmartProductVariationPrompt(prompt: string, index: number, total: number) {
+  if (total <= 1) return prompt;
+  const directions = [
+    "Use a clean hero composition with a distinct background structure, balanced props, and soft directional lighting.",
+    "Use a premium editorial composition with different depth, surface material, camera angle, and background color rhythm.",
+    "Use a lifestyle commercial composition with a different spatial layout, supporting props, light direction, and atmosphere.",
+    "Use a minimalist studio composition with a different floor-wall relationship, shadow shape, and product staging.",
+    "Use a bold campaign composition with a different backdrop geometry, accent color, and foreground-background contrast.",
+    "Use a natural retail composition with a different scene depth, environmental texture, and photographic lighting setup.",
+    "Use a refined catalog composition with a different prop arrangement, horizon height, and contact shadow direction.",
+    "Use an immersive product-scene composition with a different perspective, background layering, and material palette.",
+    "Use a polished ecommerce composition with a different scene arrangement, lighting mood, and visual hierarchy.",
+  ];
+  return [
+    prompt,
+    `Variation ${index + 1}/${total}: ${directions[index % directions.length]}`,
+    "This variation must be visibly different from the other requested outputs while following the same user prompt. Keep the exact product unchanged.",
+  ].join("\n");
+}
+
 async function createBackgroundWithPicWish(input: CreateBackgroundInput): Promise<GeneratedImageResult> {
   const { buffer, mimeType } = await imageSrcToBuffer(input.imageSrc);
   const sourceDimensions = await getImageBufferDimensions(buffer);
@@ -2758,11 +2836,18 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
   }
   const count = Math.max(1, Math.min(Number(input.count) || 1, 9));
   const { buffer, mimeType } = await imageSrcToBuffer(input.imageSrc);
+  const sourceDimensions = await getImageBufferDimensions(buffer);
+  const output = getBackgroundOutputSize(input, sourceDimensions.width, sourceDimensions.height);
   const productCutout = await removeBackgroundWithPicWish(buffer, mimeType);
   const productImageSrc = productCutout.images[0]?.src;
   if (!productImageSrc) {
     throw new Error("PicWish background removal did not return a product cutout");
   }
+  const preparedProductImage = await prepareProductCutoutForBackgroundGenerator(
+    productImageSrc,
+    output.width,
+    output.height,
+  );
   const hasBackgroundReference = Boolean(input.backgroundReferenceSrc?.trim());
   const prompt = [
     input.style ? `背景风格：${input.style}` : "",
@@ -2777,18 +2862,17 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
   const outputs: GeneratedImage[] = [];
   const taskIds: string[] = collectProviderTaskIds(productCutout);
   for (let index = 0; index < count && outputs.length < count; index += 1) {
-    const batchSize = Math.min(4, count - outputs.length);
     const result = await createBackgroundWithPicWish({
-      imageSrc: productImageSrc,
-      prompt,
+      imageSrc: preparedProductImage.imageSrc,
+      prompt: buildSmartProductVariationPrompt(prompt, index, count),
       style: input.style,
       ratio: input.ratio,
       resolution: input.resolution,
-      count: batchSize,
-      customWidth: input.customWidth,
-      customHeight: input.customHeight,
+      count: 1,
+      customWidth: output.width,
+      customHeight: output.height,
     });
-    outputs.push(...result.images);
+    outputs.push(...result.images.slice(0, 1));
     taskIds.push(...collectProviderTaskIds(result));
   }
 

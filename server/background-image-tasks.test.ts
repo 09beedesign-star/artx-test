@@ -89,7 +89,13 @@ describe("background image task routing", () => {
     expect(createBackgroundSource).toContain("width: output.width");
     expect(createBackgroundSource).toContain("height: output.height");
     expect(createProductBackgroundSource).toContain("const productCutout = await removeBackgroundWithPicWish(buffer, mimeType)");
-    expect(createProductBackgroundSource).toContain("imageSrc: productImageSrc");
+    expect(source).toContain("async function prepareProductCutoutForBackgroundGenerator");
+    expect(createProductBackgroundSource).toContain("const preparedProductImage = await prepareProductCutoutForBackgroundGenerator");
+    expect(createProductBackgroundSource).toContain("imageSrc: preparedProductImage.imageSrc");
+    expect(createProductBackgroundSource).toContain("prompt: buildSmartProductVariationPrompt(prompt, index, count)");
+    expect(createProductBackgroundSource).toContain("count: 1");
+    expect(createProductBackgroundSource).toContain("customWidth: output.width");
+    expect(createProductBackgroundSource).toContain("customHeight: output.height");
     expect(createProductBackgroundSource).toContain("createBackgroundWithPicWish({");
     expect(createProductBackgroundSource).not.toContain("generateImages(");
     expect(createProductBackgroundSource).not.toContain("generateSmartProductBackgroundPlates(");
