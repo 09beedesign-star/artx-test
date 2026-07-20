@@ -50,6 +50,44 @@ const RESOLUTION_PRESETS = [
   { label: "3:2", ratio: "3:2", width: 2400, height: 1600 },
 ] as const;
 
+const PRODUCT_BACKGROUND_STYLES = [
+  {
+    name: "商务科技感",
+    image: new URL("../../assets/smart-background/business-tech.jpg", import.meta.url).href,
+    prompt: "clean premium technology showroom, cool lighting, glass and metal platform",
+  },
+  {
+    name: "中国风",
+    image: new URL("../../assets/smart-background/chinese-style.jpg", import.meta.url).href,
+    prompt: "modern Chinese style, warm red and gold, subtle silk texture, elegant product stage",
+  },
+  {
+    name: "欧美潮流",
+    image: new URL("../../assets/smart-background/western-fashion.jpg", import.meta.url).href,
+    prompt: "bold western fashion campaign, urban studio lighting, editorial composition",
+  },
+  {
+    name: "日韩风",
+    image: new URL("../../assets/smart-background/jk-pastel.jpg", import.meta.url).href,
+    prompt: "soft Japanese Korean commercial background, clean pastel studio, fresh lifestyle mood",
+  },
+  {
+    name: "赛博风",
+    image: new URL("../../assets/smart-background/cyberpunk.jpg", import.meta.url).href,
+    prompt: "cyber neon commercial set, futuristic light strips, glossy reflective floor",
+  },
+  {
+    name: "可爱呆萌系",
+    image: new URL("../../assets/smart-background/cute-toy.jpg", import.meta.url).href,
+    prompt: "cute playful commercial scene, rounded props, soft colorful lighting",
+  },
+  {
+    name: "二次元系",
+    image: new URL("../../assets/smart-background/anime-style.jpg", import.meta.url).href,
+    prompt: "photorealistic commercial product photography with anime-inspired colors, graphic props and dynamic lighting",
+  },
+] as const;
+
 type ResolutionPreset = (typeof RESOLUTION_PRESETS)[number];
 
 function readImageFile(file: File) {
@@ -102,6 +140,9 @@ export function SmartCommerceProductDialog({
   const [imageSrc, setImageSrc] = useState("");
   const [fileName, setFileName] = useState("");
   const [userPrompt, setUserPrompt] = useState("");
+  const [selectedStyle, setSelectedStyle] = useState<(typeof PRODUCT_BACKGROUND_STYLES)[number]>(
+    PRODUCT_BACKGROUND_STYLES[0]
+  );
   const [resolution, setResolution] = useState<"2k" | "4k">("2k");
   const [count, setCount] = useState(1);
   const [selectedPreset, setSelectedPreset] =
@@ -200,22 +241,23 @@ export function SmartCommerceProductDialog({
       return;
     }
     const trimmedPrompt = userPrompt.trim();
-    if (!trimmedPrompt) {
-      toast("请先输入背景提示词");
-      return;
-    }
     setIsCreating(true);
     const prompt = [
-      trimmedPrompt,
+      trimmedPrompt
+        ? `用户明确要求：${trimmedPrompt}`
+        : "用户未输入额外要求：创建真实、干净、有商业质感的产品背景。",
+      `补充风格方向：${selectedStyle.prompt}`,
       "保持上传产品图的商品主体完整清晰，不改变产品颜色、材质、文字、标识、比例和外形。",
-      "只生成与提示词匹配的商业化背景、光影、空间和氛围。",
+      "风格只能影响背景、道具和环境氛围，不能卡通化、重绘或重新解释产品主体。",
+      "用户明确要求与风格方向冲突时，以用户明确要求为准。",
+      "只生成与用户提示词匹配的商业化背景、真实光影、空间和氛围。",
     ].join("\n");
     const detail: SmartCommerceProductCreateDetail = {
       imageSrc,
       fileName,
-      userPrompt: trimmedPrompt,
+      userPrompt: trimmedPrompt || selectedStyle.name,
       prompt,
-      style: "产品背景",
+      style: selectedStyle.name,
       ratio: selectedPreset.ratio,
       resolution,
       count,
@@ -344,7 +386,7 @@ export function SmartCommerceProductDialog({
     </div>
   );
 
-  const canGenerate = Boolean(imageSrc && userPrompt.trim() && !isCreating);
+  const canGenerate = Boolean(imageSrc && !isCreating);
 
   const dialog = (
     <div className="fixed inset-0 z-[3500] pointer-events-none">
@@ -446,6 +488,40 @@ export function SmartCommerceProductDialog({
                 onChange={event => setUserPrompt(event.target.value)}
                 placeholder="例如：干净的高级灰摄影棚背景，柔和侧光，产品底部有自然接触阴影。"
               />
+
+              <div className="mt-4">
+                <SectionTitle aside="用户要求优先">背景风格</SectionTitle>
+                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                  {PRODUCT_BACKGROUND_STYLES.map(style => {
+                    const active = selectedStyle.name === style.name;
+                    return (
+                      <button
+                        key={style.name}
+                        type="button"
+                        className="relative h-14 overflow-hidden rounded-md text-left"
+                        style={{
+                          border: `1px solid ${active ? "rgba(197,237,71,0.68)" : colors.border}`,
+                        }}
+                        onClick={() => setSelectedStyle(style)}
+                      >
+                        <img
+                          src={style.image}
+                          alt={`${style.name}背景风格`}
+                          className="absolute inset-0 h-full w-full object-cover"
+                          draggable={false}
+                        />
+                        <span className="absolute inset-0 bg-black/45" />
+                        <span className="absolute inset-x-2 bottom-1.5 truncate text-[10px] font-semibold text-white">
+                          {style.name}
+                        </span>
+                        {active ? (
+                          <Check className="absolute right-1.5 top-1.5" size={12} style={{ color: colors.accent }} />
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
 
               <div className="mt-4">
                 <SectionTitle aside={`${outputSize.width}×${outputSize.height}`}>常用画幅</SectionTitle>

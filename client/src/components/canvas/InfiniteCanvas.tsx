@@ -418,6 +418,7 @@ import {
   startBackgroundImageGeneration,
   type ImageGenerationTaskInput,
   type GeneratedImagesResponse,
+  type ImageTextRegion,
   type ReferenceImageResult,
 } from "@/lib/ai";
 import { routeCreativeIntent } from "@/lib/ai-intent";
@@ -3064,6 +3065,37 @@ function loadImageForCanvas(src: string) {
     image.onerror = () => reject(new Error("图片加载失败"));
     image.src = src;
   });
+}
+
+function createSmartCopyEditMask(
+  width: number,
+  height: number,
+  regions: ImageTextRegion[],
+) {
+  if (regions.length === 0) return undefined;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(width));
+  canvas.height = Math.max(1, Math.round(height));
+  const context = canvas.getContext("2d");
+  if (!context) return undefined;
+  context.fillStyle = "rgba(255,255,255,1)";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  for (const region of regions) {
+    const paddingX = Math.max(4, canvas.width * 0.012);
+    const paddingY = Math.max(4, canvas.height * 0.012);
+    const x = Math.max(0, region.x * canvas.width - paddingX);
+    const y = Math.max(0, region.y * canvas.height - paddingY);
+    const regionWidth = Math.min(
+      canvas.width - x,
+      region.width * canvas.width + paddingX * 2,
+    );
+    const regionHeight = Math.min(
+      canvas.height - y,
+      region.height * canvas.height + paddingY * 2,
+    );
+    context.clearRect(x, y, regionWidth, regionHeight);
+  }
+  return canvas.toDataURL("image/png");
 }
 
 function sampleImageEdgeColor(image: HTMLImageElement) {
@@ -5751,6 +5783,8 @@ function AssetNodeComponent({
   const isExpanding = !!(data as { isExpanding?: boolean }).isExpanding;
   const extractedText = ((data as { extractedText?: string }).extractedText ||
     "") as string;
+  const extractedTextRegions = ((data as { extractedTextRegions?: ImageTextRegion[] })
+    .extractedTextRegions || []) as ImageTextRegion[];
   const extractedTextPanelOpen = Boolean(
     (data as { extractedTextPanelOpen?: boolean }).extractedTextPanelOpen
   );
@@ -6691,6 +6725,7 @@ function AssetNodeComponent({
           imageHeight: imagePayload.height,
           originalText: extractedText,
           editedText: nextText,
+          textRegions: extractedTextRegions,
           panelScreenRect: extractedTextPanelRef.current
             ? {
                 left: extractedTextPanelRef.current.getBoundingClientRect()
@@ -6708,6 +6743,7 @@ function AssetNodeComponent({
   }, [
     extractedText,
     extractedTextDraft,
+    extractedTextRegions,
     getRenderedImagePayload,
     nodeId,
     setFlowNodes,
@@ -21483,6 +21519,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           imageHeight?: number;
           originalText: string;
           editedText: string;
+          textRegions?: ImageTextRegion[];
           panelScreenRect?: {
             left: number;
             top: number;
@@ -21513,14 +21550,20 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           })
         : undefined;
       try {
+        const maskSrc = createSmartCopyEditMask(
+          Math.round(Number(detail.imageWidth) || targetWidth),
+          Math.round(Number(detail.imageHeight) || targetHeight),
+          detail.textRegions || [],
+        );
+        if (!maskSrc) {
+          throw new Error("未能定位原图文字区域，请关闭窗口后重新提取文案再试");
+        }
         const finalPrompt = [
-          "执行图片文字局部编辑，不是重新生成一张新图片。",
-          "必须把原图作为唯一基础画布，保持原图全部非文字区域视觉一致。",
-          "只定位并替换原图中已识别出的可读文字区域；背景、主体、产品、人物、Logo、装饰、色彩、光影、构图、镜头和画面比例都不能改变。",
-          "清除旧文字时要自然修复原文字底下的局部背景，再把新文案排回相同视觉区域。",
-          "新文字必须清晰可读，字体风格、字号层级、字重、行距、对齐、留白和商业海报质感要匹配原图设计。",
-          "禁止把图片改成化妆品、人物、产品摄影或任何与原图无关的新主题。",
-          "输出完整结果图，但视觉上应像原图只发生了文字修改。",
+          "这是对所提供原图进行的保真文字编辑，不是重新生成图片。",
+          "只定位并替换原图中的文字区域；原图中所有非文字像素必须原封不动保留。",
+          "禁止重绘或改变人物、产品、背景、Logo、装饰元素、构图、比例、颜色、光影、材质和画面风格。",
+          "清除旧文字后，在相同文字区域写入新文案，并保持原有字体风格、字号层级、排版、对齐、颜色和视觉节奏。",
+          "新文案必须准确、完整、清晰可读，不得出现乱码或无关文字。",
           `原图识别文案：${detail.originalText || "未识别到可读文案"}`,
           `替换后的新文案：${detail.editedText}`,
         ].join("\n");
@@ -21537,8 +21580,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             capability: "image_edit",
             operation: "text_edit",
             imageSrc: detail.imageSrc,
+            maskSrc,
             prompt: finalPrompt,
             model: DEFAULT_IMAGE_AI_MODEL_ID,
+            preserveSource: true,
             targetWidth,
             targetHeight,
             originalText: detail.originalText,
@@ -21547,9 +21592,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           run: async () =>
             editImageWithPrompt({
               imageSrc: detail.imageSrc,
+              maskSrc,
               prompt: finalPrompt,
               model: DEFAULT_IMAGE_AI_MODEL_ID,
               operation: "text_edit",
+              preserveSource: true,
               targetWidth,
               targetHeight,
             }),
@@ -26385,6 +26432,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                     isErasing: false,
                     isEditing: false,
                     extractedText: EXTRACT_TEXT_LOADING_MESSAGE,
+                    extractedTextRegions: [],
                   },
                 }
               : n
@@ -26398,9 +26446,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         });
         try {
           let ocrText = "";
+          let ocrRegions: ImageTextRegion[] = [];
           try {
             const ocrResult = await extractImageText({ imageSrc });
             ocrText = ocrResult.text.trim();
+            ocrRegions = ocrResult.regions || [];
           } catch (ocrError) {
             console.warn(
               "PicWish OCR failed; falling back to multimodal text extraction",
@@ -26456,6 +26506,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                       extractedTextPanelOpen: true,
                       isExtractingText: false,
                       extractedText: text,
+                      extractedTextRegions: ocrRegions,
                     },
                   }
                 : n
@@ -26474,6 +26525,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                       extractedTextPanelOpen: true,
                       isExtractingText: false,
                       extractedText: `提取失败：${message}`,
+                      extractedTextRegions: [],
                     },
                   }
                 : n

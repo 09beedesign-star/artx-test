@@ -72,6 +72,24 @@ describe("SmartCommerceProductDialog", () => {
     }
   });
 
+  it("restores the seven pre-commerce background styles with user prompt priority", () => {
+    for (const label of [
+      "商务科技感",
+      "中国风",
+      "欧美潮流",
+      "日韩风",
+      "赛博风",
+      "可爱呆萌系",
+      "二次元系",
+    ]) {
+      expect(source).toContain(`name: "${label}"`);
+    }
+    expect(source).toContain("anime-style.jpg");
+    expect(source).toContain("用户明确要求：${trimmedPrompt}");
+    expect(source).toContain("补充风格方向：${selectedStyle.prompt}");
+    expect(source).toContain("风格只能影响背景");
+  });
+
   it("lets users replace or delete submitted product images", () => {
     expect(source).toContain("setImageSrc(\"\")");
     expect(source).toContain("setFileName(\"\")");

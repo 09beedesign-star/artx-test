@@ -56,6 +56,7 @@ type EditImageInput = {
   model?: string;
   prompt: string;
   operation?: string;
+  preserveSource?: boolean;
   targetWidth?: number;
   targetHeight?: number;
   images?: Array<{ src: string; title?: string }>;
@@ -113,6 +114,14 @@ type ExpandImageInput = {
 type ExtractImageTextInput = {
   imageSrc: string;
   model?: string;
+};
+
+type ImageTextRegion = {
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 };
 
 type GeneratedImage = {
@@ -330,6 +339,54 @@ function isLikelyBase64ImagePayload(value: string) {
 }
 
 export const __testNormalizeGeneratedImageSrc = resolveGeneratedImageSrc;
+
+export function __testParseStructuredImageText(rawContent: string): {
+  text: string;
+  regions: ImageTextRegion[];
+} {
+  const trimmed = rawContent.trim();
+  const unfenced = trimmed
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+  const objectStart = unfenced.indexOf("{");
+  const objectEnd = unfenced.lastIndexOf("}");
+  const json = objectStart >= 0 && objectEnd > objectStart
+    ? unfenced.slice(objectStart, objectEnd + 1)
+    : unfenced;
+
+  try {
+    const parsed = JSON.parse(json) as { text?: unknown; regions?: unknown };
+    const regions = Array.isArray(parsed.regions)
+      ? parsed.regions.flatMap((region): ImageTextRegion[] => {
+          if (!region || typeof region !== "object") return [];
+          const value = region as Record<string, unknown>;
+          const x = Number(value.x);
+          const y = Number(value.y);
+          const width = Number(value.width);
+          const height = Number(value.height);
+          if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) {
+            return [];
+          }
+          const boundedX = Math.max(0, Math.min(1, x));
+          const boundedY = Math.max(0, Math.min(1, y));
+          return [{
+            text: typeof value.text === "string" ? value.text.trim() : "",
+            x: boundedX,
+            y: boundedY,
+            width: Math.max(0, Math.min(1 - boundedX, width)),
+            height: Math.max(0, Math.min(1 - boundedY, height)),
+          }];
+        })
+      : [];
+    return {
+      text: typeof parsed.text === "string" ? parsed.text.trim() : "",
+      regions,
+    };
+  } catch {
+    return { text: trimmed, regions: [] };
+  }
+}
 
 function extractGeneratedImages(providerData: ImageGenerationResponse, baseUrl: string, width: number, height: number) {
   const choiceImageItems = providerData.choices?.flatMap(choice => choice.message?.images || []) || [];
@@ -1936,6 +1993,25 @@ function buildSmartProductVariationPrompt(prompt: string, index: number, total: 
   ].join("\n");
 }
 
+export function __testBuildSmartProductPrompt(input: CreateBackgroundInput) {
+  const userPrompt = input.prompt?.trim();
+  const fallbackPrompt = input.style?.trim()
+    ? `Create a clean commercial product background with ${input.style.trim()} marketplace visual polish.`
+    : "Create a realistic clean commercial product background.";
+  const hasBackgroundReference = Boolean(input.backgroundReferenceSrc?.trim());
+  return [
+    userPrompt || fallbackPrompt,
+    userPrompt && input.style
+      ? `补充风格标签：${input.style}。风格只能影响背景、道具和环境氛围；如与用户明确要求冲突，以用户明确要求为准。`
+      : "",
+    hasBackgroundReference
+      ? "A background reference image was provided by the user, but the written prompt is the main requirement. Follow the requested scene, mood, lighting, perspective, material texture, spatial depth, and commercial photography feel."
+      : "Create a realistic commercial background around the product. Match the requested scene, lighting, shadows, perspective, depth, and contact shadow naturally.",
+    "The transparent product PNG is the protected foreground subject. Do not change the product pixels, logo, text, shape, material, color, or proportions.",
+    "Return one complete product commercial image with the requested scene clearly visible. Do not crop, distort, redraw, recolor, or reinterpret the product.",
+  ].filter(Boolean).join("\n");
+}
+
 async function createBackgroundWithPicWish(input: CreateBackgroundInput): Promise<GeneratedImageResult> {
   const { buffer, mimeType } = await imageSrcToBuffer(input.imageSrc);
   const batchSize = Math.max(1, Math.min(Number(input.count) || 1, 2));
@@ -1975,6 +2051,60 @@ export async function __testPreparePicWishEraseSourceImage(
     .resize(width, height, { fit: "fill" })
     .png()
     .toBuffer();
+}
+
+export async function __testCompositeSourcePreservingImageEdit(
+  sourceBuffer: Buffer,
+  editedBuffer: Buffer,
+  maskBuffer: Buffer,
+  width: number,
+  height: number,
+): Promise<Buffer> {
+  const sharp = (await import("sharp")).default;
+  const [sourcePixels, editedPixels, maskPixels] = await Promise.all([
+    sharp(sourceBuffer, { limitInputPixels: false })
+      .rotate()
+      .resize(width, height, { fit: "fill" })
+      .ensureAlpha()
+      .raw()
+      .toBuffer(),
+    sharp(editedBuffer, { limitInputPixels: false })
+      .rotate()
+      .resize(width, height, { fit: "fill" })
+      .ensureAlpha()
+      .raw()
+      .toBuffer(),
+    sharp(maskBuffer, { limitInputPixels: false })
+      .rotate()
+      .resize(width, height, { fit: "fill", kernel: "nearest" })
+      .ensureAlpha()
+      .raw()
+      .toBuffer(),
+  ]);
+  const output = Buffer.alloc(width * height * 4);
+  for (let index = 0; index < output.length; index += 4) {
+    const preserveWeight = maskPixels[index + 3] / 255;
+    const editWeight = 1 - preserveWeight;
+    for (let channel = 0; channel < 4; channel += 1) {
+      output[index + channel] = Math.round(
+        sourcePixels[index + channel] * preserveWeight +
+        editedPixels[index + channel] * editWeight
+      );
+    }
+  }
+  return sharp(output, {
+    raw: { width, height, channels: 4 },
+    limitInputPixels: false,
+  }).png().toBuffer();
+}
+
+export function __testAssertSourcePreservingMask(
+  operation: string | undefined,
+  maskSrc: string | undefined,
+) {
+  if (operation === "text_edit" && !maskSrc?.trim()) {
+    throw new Error("未能定位原图文字区域，请关闭窗口后重新提取文案再试");
+  }
 }
 
 const PICWISH_MAX_INPUT_BYTES = 4.8 * 1024 * 1024;
@@ -2818,7 +2948,11 @@ export async function removeImageWatermark(input: RemoveWatermarkInput): Promise
   return removeWatermarkWithPicWish(input.imageSrc);
 }
 
-export async function extractImageText(input: ExtractImageTextInput): Promise<{ text: string; provider: string }> {
+export async function extractImageText(input: ExtractImageTextInput): Promise<{
+  text: string;
+  regions: ImageTextRegion[];
+  provider: string;
+}> {
   if (!input.imageSrc?.trim()) {
     throw new Error("Missing imageSrc");
   }
@@ -2841,7 +2975,12 @@ export async function extractImageText(input: ExtractImageTextInput): Promise<{ 
         content: [
           {
             type: "text",
-            text: "请识别图片中所有可见文字，按阅读顺序输出原文。不要解释，不要翻译。如果没有可读文字，返回空字符串。",
+            text: [
+              "请识别图片中所有可见文字，并返回严格 JSON，不要输出解释或 Markdown。",
+              "格式：{\"text\":\"按阅读顺序排列的全部原文\",\"regions\":[{\"text\":\"该区域原文\",\"x\":0.1,\"y\":0.2,\"width\":0.3,\"height\":0.1}]}。",
+              "x、y、width、height 必须是相对整张图片的 0 到 1 小数坐标，区域应完整覆盖对应文字。",
+              "保持原有语言、大小写、标点和换行，不要翻译。没有可读文字时返回 {\"text\":\"\",\"regions\":[]}。",
+            ].join("\n"),
           },
           { type: "image_url", image_url: { url: input.imageSrc } },
         ],
@@ -2856,10 +2995,12 @@ export async function extractImageText(input: ExtractImageTextInput): Promise<{ 
     throw new Error(message || `Image OCR provider returned ${response.status}`);
   }
 
-  const text = (data.choices?.[0]?.message?.content || data.output_text || "").trim();
-  if (text) {
+  const parsed = __testParseStructuredImageText(
+    data.choices?.[0]?.message?.content || data.output_text || ""
+  );
+  if (parsed.text && parsed.regions.length > 0) {
     return {
-      text,
+      ...parsed,
       provider: "vision-chat-ocr",
     };
   }
@@ -2869,15 +3010,17 @@ export async function extractImageText(input: ExtractImageTextInput): Promise<{ 
     model: "gpt-5.4-mini",
     images: [{ src: input.imageSrc, title: "OCR target image" }],
     prompt: [
-      "请提取图片画面中所有可见文字文案。",
-      "只输出提取到的文字内容，保持原有语言、大小写、标点和换行顺序。",
-      "不要添加解释、标题、项目符号或额外说明。",
-      "如果画面中没有可读文字，只输出：未识别到可读文案",
+      "请识别图片中所有可见文字，并返回严格 JSON，不要输出解释或 Markdown。",
+      "格式：{\"text\":\"按阅读顺序排列的全部原文\",\"regions\":[{\"text\":\"该区域原文\",\"x\":0.1,\"y\":0.2,\"width\":0.3,\"height\":0.1}]}。",
+      "坐标使用相对整张图片的 0 到 1 小数，区域完整覆盖对应文字。",
+      "保持原有语言、大小写、标点和换行；没有可读文字时返回空 text 和空 regions。",
     ].join("\n"),
   });
+  const fallbackParsed = __testParseStructuredImageText(fallback.text);
 
   return {
-    text: fallback.text.trim(),
+    text: fallbackParsed.text || parsed.text,
+    regions: fallbackParsed.regions.length > 0 ? fallbackParsed.regions : parsed.regions,
     provider: "vision-chat-ocr+text-fallback",
   };
 }
@@ -2900,19 +3043,7 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
     output.width,
     output.height,
   );
-  const hasBackgroundReference = Boolean(input.backgroundReferenceSrc?.trim());
-  const userPrompt = input.prompt?.trim();
-  const fallbackPrompt = input.style?.trim()
-    ? `Create a clean commercial product background with ${input.style.trim()} marketplace visual polish.`
-    : "Create a realistic clean commercial product background.";
-  const prompt = [
-    userPrompt || fallbackPrompt,
-    hasBackgroundReference
-      ? "A background reference image was provided by the user, but the written prompt is the main requirement. Follow the requested scene, mood, lighting, perspective, material texture, spatial depth, and commercial photography feel."
-      : "Create a realistic commercial background behind and around the product. Match lighting, shadows, perspective, and contact shadow naturally.",
-    "The transparent product PNG is the protected foreground subject. Do not change the product pixels, logo, text, shape, material, color, or proportions.",
-    "Return one complete product commercial image with the requested scene clearly visible.",
-  ].filter(Boolean).join("\n");
+  const prompt = __testBuildSmartProductPrompt(input);
 
   const outputs: GeneratedImage[] = [];
   const taskIds: string[] = collectProviderTaskIds(productCutout);
@@ -2944,6 +3075,8 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   if (!input.prompt?.trim()) {
     throw new Error("Missing prompt");
   }
+  const maskSource = input.maskSrc?.trim() || (input.maskUrl || input.mask_url || "").trim();
+  __testAssertSourcePreservingMask(input.operation, maskSource);
 
   const { apiKey, baseUrl, model } = getProviderConfig();
   if (!apiKey) {
@@ -2953,14 +3086,17 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   const sourceImageData = await imageSrcToBuffer(input.imageSrc);
   const maskSrc = input.maskSrc?.trim();
   const maskUrl = (input.maskUrl || input.mask_url || "").trim();
-  const maskImageData = maskSrc ? await imageSrcToBuffer(maskSrc) : null;
+  const maskImageData = maskSource ? await imageSrcToBuffer(maskSource) : null;
   const sourceImageDimensions = await getImageBufferDimensions(sourceImageData.buffer);
-  const targetSize = __testResolveHighDefinitionTargetSize(
-    input.targetWidth,
-    input.targetHeight,
-    sourceImageDimensions.width,
-    sourceImageDimensions.height,
-  );
+  const isTextEditOperation = input.operation === "text_edit";
+  const targetSize = isTextEditOperation
+    ? sourceImageDimensions
+    : __testResolveHighDefinitionTargetSize(
+        input.targetWidth,
+        input.targetHeight,
+        sourceImageDimensions.width,
+        sourceImageDimensions.height,
+      );
   const targetWidth = targetSize.width;
   const targetHeight = targetSize.height;
   const sourceImage = bufferToImageFile(sourceImageData.buffer, sourceImageData.mimeType);
@@ -2968,7 +3104,6 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   const referenceImages = input.images?.filter(image => image.src?.trim()) || [];
   const editSize = getEditSizeForAspect(targetWidth, targetHeight);
   const aspectInstruction = `Keep the final image canvas aspect ratio exactly ${targetWidth}:${targetHeight}. Do not return a square image unless the source is square.`;
-  const isTextEditOperation = input.operation === "text_edit";
   const textEditInstruction = isTextEditOperation
     ? [
         "This is a local text replacement edit, not a new image generation request.",
@@ -2977,6 +3112,29 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
         "Do not change the image category, scene, product type, or overall visual identity.",
       ].join("\n")
     : "";
+  const finalizeImages = async (images: GeneratedImage[]) => {
+    const normalizedImages = await __testNormalizeGeneratedImagesToTargetAspect(
+      images,
+      targetWidth,
+      targetHeight,
+    );
+    if (!isTextEditOperation || !maskImageData) return normalizedImages;
+    return Promise.all(normalizedImages.map(async image => {
+      const editedImageData = await imageSrcToBuffer(image.src);
+      const composited = await __testCompositeSourcePreservingImageEdit(
+        sourceImageData.buffer,
+        editedImageData.buffer,
+        maskImageData.buffer,
+        targetWidth,
+        targetHeight,
+      );
+      return {
+        src: `data:image/png;base64,${composited.toString("base64")}`,
+        width: targetWidth,
+        height: targetHeight,
+      };
+    }));
+  };
   const editViaReferenceGeneration = async () => {
     const sourceDataUrl = `data:${sourceImageData.mimeType};base64,${sourceImageData.buffer.toString("base64")}`;
     const maskDataUrl = maskImageData
@@ -3006,11 +3164,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
       ],
     });
     return {
-      images: await __testNormalizeGeneratedImagesToTargetAspect(
-        result.images,
-        targetWidth,
-        targetHeight,
-      ),
+      images: await finalizeImages(result.images),
     };
   };
 
@@ -3076,10 +3230,8 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
     providerData = await pollAsyncImageTask(asyncTaskId, apiKey, baseUrl);
   }
 
-  const images = await __testNormalizeGeneratedImagesToTargetAspect(
-    extractGeneratedImages(providerData, baseUrl, targetWidth, targetHeight),
-    targetWidth,
-    targetHeight,
+  const images = await finalizeImages(
+    extractGeneratedImages(providerData, baseUrl, targetWidth, targetHeight)
   );
 
   if (images.length === 0) {

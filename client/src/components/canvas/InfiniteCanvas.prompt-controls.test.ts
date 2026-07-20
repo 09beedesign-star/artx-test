@@ -31,12 +31,12 @@ describe("InfiniteCanvas prompt controls", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
 
     expect(source).toContain("SmartCommerceProductDialog");
-    expect(source).toContain('label: "智能电商产品"');
+    expect(source).toContain('label: "智能产品图"');
     expect(source).toContain('"smart-commerce-product-create"');
     expect(source).toContain("CustomEvent<SmartCommerceProductCreateDetail>");
     expect(source).toContain("Math.min(Number(detail.count) || 1, 9)");
-    expect(source).toContain('tags: ["智能电商产品", detail.style]');
-    expect(source).toContain('style: "智能电商产品结果"');
+    expect(source).toContain('tags: ["智能产品图", detail.style]');
+    expect(source).toContain('style: "智能产品图结果"');
     expect(source).toContain("maxResultCount = 4");
     expect(source).toContain("Math.min(Number(resultCount) || 1, maxResultCount)");
     expect(source).toContain("maxResultCount: 9");
@@ -245,13 +245,16 @@ describe("InfiniteCanvas prompt controls", () => {
 
     expect(applyTextEditBlock).toBeTruthy();
     expect(applyTextEditBlock).toContain('operation: "text_edit"');
-    expect(applyTextEditBlock).toContain("必须把原图作为唯一基础画布");
-    expect(applyTextEditBlock).toContain("禁止把图片改成化妆品");
+    expect(applyTextEditBlock).toContain("createSmartCopyEditMask");
+    expect(applyTextEditBlock).toContain("maskSrc");
+    expect(applyTextEditBlock).toContain("原图中所有非文字像素必须原封不动保留");
+    expect(applyTextEditBlock).toContain("禁止重绘或改变人物、产品、背景");
     expect(applyTextEditBlock).not.toContain("image-text-relayout");
     expect(applyTextEditBlock).not.toContain("callLLM({");
     expect(serverSource).toContain('const isTextEditOperation = input.operation === "text_edit";');
     expect(serverSource).toContain("This is a local text replacement edit");
     expect(serverSource).toContain("Use the source image as the only target canvas");
+    expect(serverSource).toContain("__testCompositeSourcePreservingImageEdit");
   });
 
   it("keeps assistant composer text fields alive when backspacing around chips", () => {

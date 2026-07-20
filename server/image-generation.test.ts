@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
-import { __testCreatePicWishForegroundRemovalMask, __testHasPicWishExpansionMargins, __testNormalizeGeneratedImageSrc, __testNormalizeGeneratedImagesToTargetAspect, __testNormalizePicWishExpansionRatio, __testPreparePicWishEraseSourceImage, __testPreparePicWishExpansionSourceImage, __testResolveHighDefinitionTargetSize, __testResolveReferenceImageRoute, editImageWithPrompt, extractImageText } from "./image-generation";
+import { __testAssertSourcePreservingMask, __testBuildSmartProductPrompt, __testCompositeSourcePreservingImageEdit, __testCreatePicWishForegroundRemovalMask, __testHasPicWishExpansionMargins, __testNormalizeGeneratedImageSrc, __testNormalizeGeneratedImagesToTargetAspect, __testNormalizePicWishExpansionRatio, __testParseStructuredImageText, __testPreparePicWishEraseSourceImage, __testPreparePicWishExpansionSourceImage, __testResolveHighDefinitionTargetSize, __testResolveReferenceImageRoute, editImageWithPrompt, extractImageText } from "./image-generation";
 
 const ONE_PIXEL_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
@@ -67,6 +67,53 @@ describe("generated image source normalization", () => {
   it("raises small AI output dimensions to a high-definition long side", () => {
     expect(__testResolveHighDefinitionTargetSize(512, 512, 512, 512))
       .toEqual({ width: 1536, height: 1536 });
+  });
+
+  it("keeps explicit smart product requirements ahead of the selected style", () => {
+    const prompt = __testBuildSmartProductPrompt({
+      imageSrc: "data:image/png;base64,test",
+      prompt: "用户明确要求：白天自然光客厅，不要霓虹灯",
+      style: "赛博风",
+    });
+
+    expect(prompt).toContain("风格只能影响背景");
+    expect(prompt.indexOf("白天自然光客厅"))
+      .toBeLessThan(prompt.indexOf("补充风格标签：赛博风"));
+  });
+
+  it("parses OCR text regions used by smart copy masks", () => {
+    expect(__testParseStructuredImageText(`\`\`\`json
+{"text":"中秋快乐","regions":[{"text":"中秋快乐","x":0.1,"y":0.2,"width":0.6,"height":0.15}]}
+\`\`\``)).toEqual({
+      text: "中秋快乐",
+      regions: [{ text: "中秋快乐", x: 0.1, y: 0.2, width: 0.6, height: 0.15 }],
+    });
+  });
+
+  it("restores every source pixel outside the smart copy edit mask", async () => {
+    const source = await sharp({
+      create: { width: 2, height: 1, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 1 } },
+    }).png().toBuffer();
+    const edited = await sharp({
+      create: { width: 2, height: 1, channels: 4, background: { r: 0, g: 0, b: 255, alpha: 1 } },
+    }).png().toBuffer();
+    const mask = await sharp(Buffer.from([
+      255, 255, 255, 0,
+      255, 255, 255, 255,
+    ]), { raw: { width: 2, height: 1, channels: 4 } }).png().toBuffer();
+
+    const output = await __testCompositeSourcePreservingImageEdit(source, edited, mask, 2, 1);
+    const pixels = await sharp(output).ensureAlpha().raw().toBuffer();
+
+    expect(Array.from(pixels.subarray(0, 4))).toEqual([0, 0, 255, 255]);
+    expect(Array.from(pixels.subarray(4, 8))).toEqual([255, 0, 0, 255]);
+  });
+
+  it("blocks smart copy edits when OCR has no text regions", () => {
+    expect(() => __testAssertSourcePreservingMask("text_edit", undefined))
+      .toThrow("重新提取文案");
+    expect(() => __testAssertSourcePreservingMask("edit", undefined))
+      .not.toThrow();
   });
 
   it("prepares PicWish eraser source images at the high-definition target size", async () => {
@@ -191,6 +238,14 @@ describe("generated image source normalization", () => {
         background: "#00ff00",
       },
     }).png().toBuffer();
+    const mask = await sharp({
+      create: {
+        width: 96,
+        height: 64,
+        channels: 4,
+        background: { r: 255, g: 255, b: 255, alpha: 0 },
+      },
+    }).png().toBuffer();
 
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
       const endpoint = String(url);
@@ -247,6 +302,14 @@ describe("generated image source normalization", () => {
         background: "#2244ff",
       },
     }).png().toBuffer();
+    const mask = await sharp({
+      create: {
+        width: 96,
+        height: 64,
+        channels: 4,
+        background: { r: 255, g: 255, b: 255, alpha: 0 },
+      },
+    }).png().toBuffer();
 
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
       const endpoint = String(url);
@@ -273,6 +336,7 @@ describe("generated image source normalization", () => {
 
     const result = await editImageWithPrompt({
       imageSrc: `data:image/png;base64,${source.toString("base64")}`,
+      maskSrc: `data:image/png;base64,${mask.toString("base64")}`,
       prompt: "把原图中的 SALE 替换成 NEW ARRIVAL",
       operation: "text_edit",
       targetWidth: 96,
@@ -280,8 +344,8 @@ describe("generated image source normalization", () => {
     });
 
     expect(result.images).toHaveLength(1);
-    expect(result.images[0].width).toBe(1536);
-    expect(result.images[0].height).toBe(1024);
+    expect(result.images[0].width).toBe(96);
+    expect(result.images[0].height).toBe(64);
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/edits"))).toBe(true);
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(true);
   });

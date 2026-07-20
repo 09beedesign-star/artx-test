@@ -20,6 +20,7 @@ export type OrchestrateRequest = {
   maskSrc?: string;
   mask_url?: string;
   mask_base64?: string;
+  preserveSource?: boolean;
   targetWidth?: number;
   targetHeight?: number;
   top?: number;
@@ -88,6 +89,15 @@ function buildPrompt(input: OrchestrateRequest, brandPrompt: string, skillPrompt
     input.prompt || "",
   ].filter(Boolean).join("\n\n").trim();
 }
+
+function resolveImageEditReferences(
+  input: Pick<OrchestrateRequest, "images" | "operation">,
+  fallbackImages: Array<{ src: string; title?: string }> | undefined,
+) {
+  return input.operation === "text_edit" ? (input.images || []) : fallbackImages;
+}
+
+export const __testResolveImageEditReferences = resolveImageEditReferences;
 
 export class AIOrchestrator {
   async run(input: OrchestrateRequest): Promise<OrchestrateResponse> {
@@ -193,11 +203,14 @@ export class AIOrchestrator {
       if (!imageSrc) throw new Error("Missing image for edit");
       const result = await editImageWithPrompt({
         imageSrc,
+        maskSrc,
         model: route.model,
         prompt: prompt || "Edit the image according to the user instruction. Preserve composition and aspect ratio.",
+        operation: input.operation,
         targetWidth: input.targetWidth,
         targetHeight: input.targetHeight,
-        images,
+        images: resolveImageEditReferences(input, images),
+        preserveSource: input.preserveSource,
       });
       return {
         type: "image",

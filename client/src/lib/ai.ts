@@ -61,6 +61,14 @@ export type GeneratedImagesResponse = {
   providerTaskIds?: string[];
 };
 
+export type ImageTextRegion = {
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
 function getAiAssetBaseUrl() {
   const apiBaseUrl = getAiApiBaseUrl();
   return apiBaseUrl || ART_X_TEST_AI_API_BASE_URL;
@@ -374,7 +382,7 @@ async function postImageErase(body: Record<string, unknown>, fallbackError: stri
 async function postImageOcr(body: Record<string, unknown>, fallbackError: string) {
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/images/ocr`;
-  return fetchAiJson<ApiErrorResponse & { text?: string; provider?: string }>(endpoint, body, fallbackError);
+  return fetchAiJson<ApiErrorResponse & { text?: string; regions?: ImageTextRegion[]; provider?: string }>(endpoint, body, fallbackError);
 }
 
 export async function callLLM({
@@ -676,6 +684,7 @@ export async function extractImageText({
   const result = await postImageOcr({ imageSrc }, "智能文案 OCR 失败");
   return {
     text: result.text || "",
+    regions: result.regions || [],
     provider: result.provider || "picwish-smart-ocr",
   };
 }
@@ -686,6 +695,7 @@ export async function editImageWithPrompt({
   prompt,
   maskSrc,
   operation,
+  preserveSource,
   targetWidth,
   targetHeight,
   referencedAssets = [],
@@ -697,6 +707,7 @@ export async function editImageWithPrompt({
   prompt: string;
   maskSrc?: string;
   operation?: string;
+  preserveSource?: boolean;
   targetWidth?: number;
   targetHeight?: number;
   referencedAssets?: Array<{ src: string; title?: string }>;
@@ -710,6 +721,7 @@ export async function editImageWithPrompt({
       capability: "image_edit",
       intent: "image_edit",
       operation: operation || "edit",
+      preserveSource,
       imageSrc,
       maskSrc,
       model,
@@ -724,6 +736,7 @@ export async function editImageWithPrompt({
     capability: "image_edit",
     intent: "image_edit",
     operation: operation || "edit",
+    preserveSource,
     imageSrc,
     maskSrc,
     model,
