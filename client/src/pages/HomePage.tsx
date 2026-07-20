@@ -485,7 +485,7 @@ export default function HomePage() {
         />
       )}
       <main ref={mainRef} onScroll={handleMainScroll} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-[#222222] text-white scroll-smooth">
-      <header className={`fixed left-0 right-0 ${isFirstTopUpBannerDismissed ? "top-0" : "top-[90px]"} z-50 flex h-[64px] items-center gap-3 bg-[#222222]/20 px-4 backdrop-blur-[18px] sm:gap-4`}>
+      <header className={`fixed left-0 right-0 ${isFirstTopUpBannerDismissed ? "top-0" : "top-[80px]"} z-50 flex h-[64px] items-center gap-3 bg-[#222222]/20 px-4 backdrop-blur-[18px] sm:gap-4`}>
         {loginBubble && (
           <div
             key={loginBubble.id}

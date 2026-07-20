@@ -38,7 +38,7 @@ type HomeFirstTopUpBannerProps = {
 
 export default function HomeFirstTopUpBanner({ onDismiss, onOpenBilling }: HomeFirstTopUpBannerProps) {
   return (
-    <section className="relative h-[90px] shrink-0 bg-[#00FFE5] text-[#222222]">
+    <section className="relative h-[80px] shrink-0 bg-[#00FFE5] text-[#222222]">
       <button
         type="button"
         onClick={onOpenBilling}
