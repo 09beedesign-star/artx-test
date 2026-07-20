@@ -612,7 +612,7 @@ function getPlanIdFromUserPlan(planName?: string) {
 
 function getHighQualityImageMonthlyLimit(planId?: string) {
   if (planId === "pro") return 6;
-  if (planId === "studio") return 15;
+  if (planId === "studio") return 12;
   if (planId === "business") return 60;
   return 0;
 }
