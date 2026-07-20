@@ -13,6 +13,10 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import asteroidImage from "@/assets/ardot/3_3.png";
 import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
+import HomeFirstTopUpBanner, {
+  dismissFirstTopUpBannerForToday,
+  isFirstTopUpBannerDismissedToday,
+} from "@/components/home/HomeFirstTopUpBanner";
 import promptCsv from "@/data/ai_image_prompt_rank_50.csv?raw";
 import { createWorkspaceHistoryProject } from "@/lib/project-history";
 import { requestAiAuth } from "@/lib/ai";
@@ -110,6 +114,7 @@ const PROMPT_SUGGESTIONS = [
 
 const HOME_PROMPT = "hello，欢迎来到。ArtX,正式开启你的。灵感AI创意之旅吧！";
 const HOME_AUTH_PANEL_STORAGE_KEY = "artx:home-auth-panel";
+const HOME_POST_LOGIN_REDIRECT_STORAGE_KEY = "artx:home-post-login-redirect";
 const REMEMBERED_LOGIN_COOKIE = "artx_remembered_login";
 const REMEMBERED_LOGIN_MAX_AGE_SECONDS = 60 * 60 * 24 * 90;
 const PROMPT_TYPE_DURATION_MS = 5000;
@@ -229,6 +234,9 @@ export default function HomePage() {
   const [homeInspirationItems, setHomeInspirationItems] = useState(createHomeInspirationFeed);
   const [selectedHomeInspiration, setSelectedHomeInspiration] = useState<HomeInspirationItem | null>(null);
   const [homeInspirationImageHeight, setHomeInspirationImageHeight] = useState<number | null>(null);
+  const [isFirstTopUpBannerDismissed, setIsFirstTopUpBannerDismissed] = useState(
+    isFirstTopUpBannerDismissedToday,
+  );
   const activeTabRef = useRef<LandingTab>("home");
   const hasReachedInspirationRef = useRef(false);
   const mainRef = useRef<HTMLElement>(null);
@@ -269,6 +277,14 @@ export default function HomePage() {
       window.removeEventListener("resize", measureHomeInspirationImage);
     };
   }, [selectedHomeInspiration]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const redirectPath = sessionStorage.getItem(HOME_POST_LOGIN_REDIRECT_STORAGE_KEY);
+    if (redirectPath !== "/billing?tab=recharge") return;
+    sessionStorage.removeItem(HOME_POST_LOGIN_REDIRECT_STORAGE_KEY);
+    navigate(redirectPath);
+  }, [isAuthenticated, navigate]);
 
   useEffect(() => {
     if (!loginBubble) return;
@@ -438,6 +454,16 @@ export default function HomePage() {
     setPanelMode("login");
   };
 
+  const openFirstTopUpBilling = () => {
+    if (isAuthenticated) {
+      navigate("/billing?tab=recharge");
+      return;
+    }
+
+    sessionStorage.setItem(HOME_POST_LOGIN_REDIRECT_STORAGE_KEY, "/billing?tab=recharge");
+    setPanelMode("login");
+  };
+
   const showLoginRequiredBubble = (event: React.MouseEvent<HTMLButtonElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     setLoginBubble({
@@ -448,8 +474,18 @@ export default function HomePage() {
   };
 
   return (
-    <main ref={mainRef} onScroll={handleMainScroll} className="h-screen overflow-x-hidden overflow-y-auto bg-[#222222] text-white scroll-smooth">
-      <header className="fixed left-0 right-0 top-0 z-50 flex h-[64px] items-center gap-3 bg-[#222222]/20 px-4 backdrop-blur-[18px] sm:gap-4">
+    <div className="flex h-screen flex-col overflow-hidden bg-[#222222]">
+      {!isFirstTopUpBannerDismissed && (
+        <HomeFirstTopUpBanner
+          onDismiss={() => {
+            dismissFirstTopUpBannerForToday();
+            setIsFirstTopUpBannerDismissed(true);
+          }}
+          onOpenBilling={openFirstTopUpBilling}
+        />
+      )}
+      <main ref={mainRef} onScroll={handleMainScroll} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-[#222222] text-white scroll-smooth">
+      <header className={`fixed left-0 right-0 ${isFirstTopUpBannerDismissed ? "top-0" : "top-[90px]"} z-50 flex h-[64px] items-center gap-3 bg-[#222222]/20 px-4 backdrop-blur-[18px] sm:gap-4`}>
         {loginBubble && (
           <div
             key={loginBubble.id}
@@ -605,7 +641,6 @@ export default function HomePage() {
           </div>
         </div>
       </section>
-
       {selectedHomeInspiration && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6" style={{ background: "rgba(34,34,34,0.72)", backdropFilter: "blur(10px)" }} onClick={() => setSelectedHomeInspiration(null)}>
           <section
@@ -688,7 +723,8 @@ export default function HomePage() {
           </section>
         </div>
       )}
-    </main>
+      </main>
+    </div>
   );
 }
 
