@@ -1331,6 +1331,7 @@ function dashboard(data: AdminData) {
     planDiscounts: data.aiPlanDiscounts || AI_PLAN_DISCOUNTS,
     aiCostBreakdownByProvider: summarizeAiCostBreakdown(data, "provider"),
     aiCostBreakdownByModel: summarizeAiCostBreakdown(data, "model"),
+    aiCostBreakdownByCapability: summarizeAiCostBreakdown(data, "capability"),
     productionReadiness: buildProductionReadiness(),
     productionChecks: buildProductionChecks(data),
   };
@@ -1353,10 +1354,10 @@ function summarizeAiCost(data: AdminData): AiCostSummary {
   };
 }
 
-function summarizeAiCostBreakdown(data: AdminData, groupBy: "provider" | "model"): AiCostBreakdownRow[] {
+function summarizeAiCostBreakdown(data: AdminData, groupBy: "provider" | "model" | "capability"): AiCostBreakdownRow[] {
   const grouped = new Map<string, AiTaskRecord[]>();
   for (const task of data.aiTasks) {
-    const key = groupBy === "provider" ? task.provider : task.model;
+    const key = groupBy === "provider" ? task.provider : groupBy === "model" ? task.model : task.capability;
     grouped.set(key, [...(grouped.get(key) || []), task]);
   }
 

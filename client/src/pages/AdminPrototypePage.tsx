@@ -298,6 +298,10 @@ type OverviewData = {
     failedCount: number;
     avgGrossMargin: number;
   }>;
+  aiCostBreakdownByCapability?: Array<{
+    key: string; label: string; estimatedCost: number; chargedCredits: number;
+    successCount: number; failedCount: number; avgGrossMargin: number;
+  }>;
 };
 
 type AdminPayload = {
@@ -1808,6 +1812,16 @@ function AdminPrototypePage() {
             ]}
           />
           <div className="grid gap-4 xl:grid-cols-2">
+            <DataList
+              title="按能力统计毛利"
+              description="按用户最终消耗积分的能力统计，用于调整积分定价。"
+              rows={(adminData.overview?.aiCostBreakdownByCapability || []).map((item) => ({
+                title: item.label,
+                meta: `成功 ${item.successCount} / 失败 ${item.failedCount} · 预估成本 ${formatCurrency(item.estimatedCost)}`,
+                value: `${formatCredits(item.chargedCredits)} 积分 · 毛利 ${Math.round(item.avgGrossMargin * 100)}%`,
+                icon: Gauge,
+              }))}
+            />
             <DataList
               title="按供应商毛利明细"
               description="看哪家供应商最耗钱、最影响毛利。"
