@@ -249,6 +249,20 @@ function AiAnnotationIcon({
   );
 }
 
+function AiProductIcon({
+  size = 17,
+  cutoutBg = "rgba(22,22,30,0.96)",
+}: {
+  size?: number;
+  cutoutBg?: string;
+}) {
+  return (
+    <AiDecoratedIcon size={size} cutoutBg={cutoutBg}>
+      <Box size={size} />
+    </AiDecoratedIcon>
+  );
+}
+
 function AiDecoratedIcon({
   children,
   size = 15,
@@ -3071,8 +3085,33 @@ function createSmartCopyEditMask(
   width: number,
   height: number,
   regions: ImageTextRegion[],
+  originalText: string,
+  editedText: string,
 ) {
-  if (regions.length === 0) return undefined;
+  const normalizeText = (value: string) =>
+    value
+      .toLocaleLowerCase()
+      .replace(/[\s.,!?;:，。！？；：、'"“”‘’（）()[\]{}<>《》…—\-_/\\]/g, "");
+  const originalFields = originalText.split("\n").map(field => field.trim());
+  const editedFields = editedText.split("\n").map(field => field.trim());
+  const changedOriginalFields = originalFields.filter(
+    (field, index) => normalizeText(field) !== normalizeText(editedFields[index] || "")
+  );
+  if (regions.length === 0 || changedOriginalFields.length === 0) return undefined;
+
+  const editedRegions = regions.filter(region => {
+    const regionText = normalizeText(region.text || "");
+    return regionText && changedOriginalFields.some(field => {
+      const originalField = normalizeText(field);
+      return (
+        originalField === regionText ||
+        originalField.includes(regionText) ||
+        regionText.includes(originalField)
+      );
+    });
+  });
+  if (editedRegions.length === 0) return undefined;
+
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(width));
   canvas.height = Math.max(1, Math.round(height));
@@ -3080,7 +3119,7 @@ function createSmartCopyEditMask(
   if (!context) return undefined;
   context.fillStyle = "rgba(255,255,255,1)";
   context.fillRect(0, 0, canvas.width, canvas.height);
-  for (const region of regions) {
+  for (const region of editedRegions) {
     const paddingX = Math.max(4, canvas.width * 0.012);
     const paddingY = Math.max(4, canvas.height * 0.012);
     const x = Math.max(0, region.x * canvas.width - paddingX);
@@ -6709,7 +6748,7 @@ function AssetNodeComponent({
               data: {
                 ...(n.data as Record<string, unknown>),
                 extractedText: nextText,
-                extractedTextPanelOpen: true,
+                extractedTextPanelOpen: false,
                 isApplyingExtractedText: true,
               },
             }
@@ -7506,6 +7545,10 @@ function AssetNodeComponent({
             onMouseDown={event => event.stopPropagation()}
             onClick={event => event.stopPropagation()}
             onWheel={event => event.stopPropagation()}
+            onContextMenu={event => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
           >
             <div
               className="flex items-center justify-between gap-2 px-3 py-2"
@@ -7547,7 +7590,8 @@ function AssetNodeComponent({
                 flex: "1 1 auto",
                 padding: 12,
                 paddingBottom: 12,
-                overflowY: "auto",
+                overflowY: "scroll",
+                scrollbarGutter: "stable",
                 scrollbarWidth: "thin",
                 scrollbarColor: `${isDark ? "rgba(255,255,255,0.24)" : "rgba(0,0,0,0.20)"} transparent`,
                 overscrollBehavior: "contain",
@@ -14795,7 +14839,7 @@ function CanvasTopToolPalette({
     {
       id: "product-bg",
       label: "智能产品图",
-      icon: <Boxes size={17} />,
+      icon: <AiProductIcon size={17} cutoutBg={bg} />,
     },
     { id: "move", label: "移动", icon: <MousePointer2 size={17} /> },
     { id: "upload", label: "上传图片", icon: <ImagePlus size={17} /> },
@@ -21554,9 +21598,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           Math.round(Number(detail.imageWidth) || targetWidth),
           Math.round(Number(detail.imageHeight) || targetHeight),
           detail.textRegions || [],
+          detail.originalText,
+          detail.editedText,
         );
         if (!maskSrc) {
-          throw new Error("未能定位原图文字区域，请关闭窗口后重新提取文案再试");
+          throw new Error("未能定位被修改的原图文字区域，请关闭窗口后重新提取文案再试");
         }
         const finalPrompt = [
           "这是对所提供原图进行的保真文字编辑，不是重新生成图片。",
@@ -21608,7 +21654,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                   ...n,
                   data: {
                     ...(n.data as Record<string, unknown>),
-                    extractedTextPanelOpen: true,
+                    extractedTextPanelOpen: false,
                     isApplyingExtractedText: false,
                     extractedText: detail.editedText,
                   },
@@ -21628,7 +21674,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                   ...n,
                   data: {
                     ...(n.data as Record<string, unknown>),
-                    extractedTextPanelOpen: true,
+                    extractedTextPanelOpen: false,
                     isApplyingExtractedText: false,
                   },
                 }

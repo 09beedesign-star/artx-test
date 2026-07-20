@@ -469,10 +469,60 @@ export function SmartCommerceProductDialog({
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-5 py-4">
-          <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
+          <div className="grid gap-4 lg:grid-cols-[minmax(280px,0.72fr)_minmax(0,1.28fr)]">
             <section className="min-w-0">
               <SectionTitle aside="必选">产品图片</SectionTitle>
               {uploadSlot}
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_104px]">
+                <div>
+                  <SectionTitle aside={`${outputSize.width}×${outputSize.height}`}>常用画幅</SectionTitle>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {RESOLUTION_PRESETS.map(preset => {
+                      const active = selectedPreset.ratio === preset.ratio;
+                      return (
+                        <button
+                          key={preset.ratio}
+                          type="button"
+                          className="h-10 rounded-md px-2 text-left text-[10px] font-semibold transition-colors"
+                          style={{
+                            color: colors.text,
+                            background: active ? "rgba(197,237,71,0.13)" : colors.surface,
+                            border: `1px solid ${active ? "rgba(197,237,71,0.58)" : colors.border}`,
+                          }}
+                          onClick={() => setSelectedPreset(preset)}
+                        >
+                          <span className="block leading-4">{preset.label}</span>
+                          <span className="block text-[9px] leading-3" style={{ color: colors.muted }}>
+                            {preset.width}×{preset.height}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <SectionTitle>分辨率</SectionTitle>
+                  <div className="grid grid-rows-2 gap-1.5">
+                    {(["2k", "4k"] as const).map(item => (
+                      <button
+                        key={item}
+                        type="button"
+                        className="h-10 rounded-md text-[10px] font-semibold uppercase transition-colors"
+                        style={{
+                          color: colors.text,
+                          background: resolution === item ? "rgba(197,237,71,0.13)" : colors.surface,
+                          border: `1px solid ${resolution === item ? "rgba(197,237,71,0.58)" : colors.border}`,
+                        }}
+                        onClick={() => setResolution(item)}
+                      >
+                        {item}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </section>
 
             <section className="min-w-0">
@@ -524,72 +574,23 @@ export function SmartCommerceProductDialog({
               </div>
 
               <div className="mt-4">
-                <SectionTitle aside={`${outputSize.width}×${outputSize.height}`}>常用画幅</SectionTitle>
-                <div className="grid grid-cols-3 gap-1.5">
-                  {RESOLUTION_PRESETS.map(preset => {
-                    const active = selectedPreset.ratio === preset.ratio;
-                    return (
-                      <button
-                        key={preset.ratio}
-                        type="button"
-                        className="h-10 rounded-md px-2 text-left text-[10px] font-semibold transition-colors"
-                        style={{
-                          color: colors.text,
-                          background: active ? "rgba(197,237,71,0.13)" : colors.surface,
-                          border: `1px solid ${active ? "rgba(197,237,71,0.58)" : colors.border}`,
-                        }}
-                        onClick={() => setSelectedPreset(preset)}
-                      >
-                        <span className="block leading-4">{preset.label}</span>
-                        <span className="block text-[9px] leading-3" style={{ color: colors.muted }}>
-                          {preset.width}×{preset.height}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div>
-                  <SectionTitle>分辨率</SectionTitle>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {(["2k", "4k"] as const).map(item => (
-                      <button
-                        key={item}
-                        type="button"
-                        className="h-9 rounded-md text-[10px] font-semibold uppercase transition-colors"
-                        style={{
-                          color: colors.text,
-                          background: resolution === item ? "rgba(197,237,71,0.13)" : colors.surface,
-                          border: `1px solid ${resolution === item ? "rgba(197,237,71,0.58)" : colors.border}`,
-                        }}
-                        onClick={() => setResolution(item)}
-                      >
-                        {item}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <SectionTitle>生成数量</SectionTitle>
-                  <div className="grid grid-cols-9 gap-1">
-                    {IMAGE_COUNTS.map(item => (
-                      <button
-                        key={item}
-                        type="button"
-                        className="h-9 rounded-md text-[10px] font-semibold transition-colors"
-                        style={{
-                          color: count === item ? "#172000" : colors.text,
-                          background: count === item ? colors.accent : colors.surface,
-                          border: `1px solid ${count === item ? "rgba(197,237,71,0.75)" : colors.border}`,
-                        }}
-                        onClick={() => setCount(item)}
-                      >
-                        {item}
-                      </button>
-                    ))}
-                  </div>
+                <SectionTitle>生成数量</SectionTitle>
+                <div className="grid grid-cols-9 gap-1">
+                  {IMAGE_COUNTS.map(item => (
+                    <button
+                      key={item}
+                      type="button"
+                      className="h-9 rounded-md text-[10px] font-semibold transition-colors"
+                      style={{
+                        color: count === item ? "#172000" : colors.text,
+                        background: count === item ? colors.accent : colors.surface,
+                        border: `1px solid ${count === item ? "rgba(197,237,71,0.75)" : colors.border}`,
+                      }}
+                      onClick={() => setCount(item)}
+                    >
+                      {item}
+                    </button>
+                  ))}
                 </div>
               </div>
 

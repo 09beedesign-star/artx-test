@@ -32,6 +32,7 @@ describe("InfiniteCanvas prompt controls", () => {
 
     expect(source).toContain("SmartCommerceProductDialog");
     expect(source).toContain('label: "智能产品图"');
+    expect(source).toContain('<AiProductIcon size={17} cutoutBg={bg} />');
     expect(source).toContain('"smart-commerce-product-create"');
     expect(source).toContain("CustomEvent<SmartCommerceProductCreateDetail>");
     expect(source).toContain("Math.min(Number(detail.count) || 1, 9)");
@@ -227,7 +228,8 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(extractedTextPanelBlock).toContain('aria-label={`编辑提取文案 ${index + 1}`}');
     expect(extractedTextPanelBlock).toContain('minHeight: 0');
     expect(extractedTextPanelBlock).toContain('paddingBottom: 12');
-    expect(extractedTextPanelBlock).toContain('overflowY: "auto"');
+    expect(extractedTextPanelBlock).toContain('overflowY: "scroll"');
+    expect(extractedTextPanelBlock).toContain('scrollbarGutter: "stable"');
     expect(extractedTextPanelBlock).toContain('scrollbarWidth: "thin"');
     expect(source).not.toContain('label: "智能文案"');
     expect(source).not.toContain('label: "文案提取"');
@@ -246,6 +248,8 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(applyTextEditBlock).toBeTruthy();
     expect(applyTextEditBlock).toContain('operation: "text_edit"');
     expect(applyTextEditBlock).toContain("createSmartCopyEditMask");
+    expect(applyTextEditBlock).toContain("detail.originalText,");
+    expect(applyTextEditBlock).toContain("detail.editedText,");
     expect(applyTextEditBlock).toContain("maskSrc");
     expect(applyTextEditBlock).toContain("原图中所有非文字像素必须原封不动保留");
     expect(applyTextEditBlock).toContain("禁止重绘或改变人物、产品、背景");
@@ -255,6 +259,44 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(serverSource).toContain("This is a local text replacement edit");
     expect(serverSource).toContain("Use the source image as the only target canvas");
     expect(serverSource).toContain("__testCompositeSourcePreservingImageEdit");
+  });
+
+  it("masks only the smart-copy fields that the user actually changed", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const maskBuilder = source.match(
+      /function createSmartCopyEditMask[\s\S]*?return canvas\.toDataURL\("image\/png"\);/
+    )?.[0];
+
+    expect(maskBuilder).toBeTruthy();
+    expect(maskBuilder).toContain("changedOriginalFields");
+    expect(maskBuilder).toContain("const editedRegions = regions.filter");
+    expect(maskBuilder).toContain("for (const region of editedRegions)");
+    expect(maskBuilder).not.toContain("for (const region of regions)");
+  });
+
+  it("closes smart copy editing after applying a new image without changing copy behavior", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const applyBlock = source.match(
+      /const applyExtractedTextToNewImage = useCallback[\s\S]*?new CustomEvent\("asset-text-edit-apply"/
+    )?.[0];
+    const copyBlock = source.match(/navigator\.clipboard\?\.writeText\(extractedTextDraft\)[\s\S]*?复制文案/)?.[0];
+
+    expect(applyBlock).toBeTruthy();
+    expect(applyBlock).toContain("extractedTextPanelOpen: false");
+    expect(copyBlock).toBeTruthy();
+    expect(copyBlock).not.toContain("extractedTextPanelOpen: false");
+  });
+
+  it("keeps the smart copy editor separate from the image node context menu", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const panelBlock = source.match(
+      /\{extractedTextPanelOpen && \([\s\S]*?<AssetInlineNote/
+    )?.[0];
+
+    expect(panelBlock).toBeTruthy();
+    expect(panelBlock).toContain("onContextMenu={event => {");
+    expect(panelBlock).toContain("event.preventDefault();");
+    expect(panelBlock).toContain("event.stopPropagation();");
   });
 
   it("keeps assistant composer text fields alive when backspacing around chips", () => {

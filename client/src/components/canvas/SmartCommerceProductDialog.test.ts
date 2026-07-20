@@ -72,6 +72,13 @@ describe("SmartCommerceProductDialog", () => {
     }
   });
 
+  it("places aspect ratio and resolution controls beneath the product upload column", () => {
+    expect(source).toContain('lg:grid-cols-[minmax(280px,0.72fr)_minmax(0,1.28fr)]');
+    expect(source).toContain('sm:grid-cols-[minmax(0,1fr)_104px]');
+    expect(source).toContain('className="grid grid-cols-3 gap-1.5"');
+    expect(source).toContain('className="grid grid-rows-2 gap-1.5"');
+  });
+
   it("restores the seven pre-commerce background styles with user prompt priority", () => {
     for (const label of [
       "商务科技感",
