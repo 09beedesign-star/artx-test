@@ -2758,7 +2758,7 @@ function AssetFloatingToolbar({
           <PanelTopOpen size={15} />
         </AiDecoratedIcon>
       ),
-      label: "编辑元素",
+      label: "图层分离",
       action: "edit-elements",
     },
     {
@@ -14758,7 +14758,7 @@ function CanvasTopToolPalette({
     },
     {
       id: "product-bg",
-      label: "智能电商产品",
+      label: "智能产品图",
       icon: <Boxes size={17} />,
     },
     { id: "move", label: "移动", icon: <MousePointer2 size={17} /> },
@@ -20873,7 +20873,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           localSrc: detail.imageSrc,
           title: detail.fileName || "产品图",
           assetType: "产品图",
-          tags: ["智能电商产品", detail.style],
+          tags: ["智能产品图", detail.style],
           imgW: displayW,
           imgH: displayH,
         },
@@ -20884,7 +20884,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         sourceNode,
       ]);
       setSelectedNodeIds([sourceId]);
-      toast("智能电商产品生成中", {
+      toast("智能产品图生成中", {
         description: `${detail.ratio} · ${detail.resolution.toUpperCase()} · ${detail.count} 张，结果会在旁边生成`,
       });
       const smartProductPrompt = [
@@ -20906,7 +20906,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       await runDerivedImageGeneration({
         sourceNode,
         prompt: smartProductPrompt,
-        style: "智能电商产品结果",
+        style: "智能产品图结果",
         nextW: detail.customWidth || ratioSize.w,
         nextH: detail.customHeight || ratioSize.h,
         preserveSourceDisplaySize: false,
@@ -26491,7 +26491,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const data = assetNode.data as Record<string, unknown>;
         const imageSrc = await getVisibleAssetImageSource(nodeId);
         if (!imageSrc) {
-          toast("编辑元素失败", {
+          toast("图层分离失败", {
             description: "当前图片没有可处理的图像来源",
           });
           return;
@@ -26521,13 +26521,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             data: {
               id: splittingNodeId,
               assetId: "default",
-              title: "图层拆分中",
+              title: "图层分离中",
               assetType: "AI 生成",
-              tags: ["编辑元素", "图层拆分", "生成中"],
+              tags: ["图层分离", "生成中"],
               imgW: splittingDisplayW,
               imgH: splittingDisplayH,
               isGeneratingImage: true,
-              processingTitle: "正在进行图层拆分请稍候...",
+              processingTitle: "正在进行图层分离请稍候...",
               processingSubtitle:
                 "(tips：视图片大小，计算时间可能会稍微延长，谢谢)",
               sourceBackgroundSrc: imageSrc,
@@ -26537,7 +26537,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         ]);
         setSelectedNodeIds([splittingNodeId]);
 
-        toast("AI 编辑元素中", {
+        toast("AI 图层分离中", {
           description: "正在拆分主体层、背景层和占位层",
         });
         try {
@@ -26671,12 +26671,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             projectId
           );
 
-          toast("编辑元素完成", {
+          toast("图层分离完成", {
             description: "已生成主体层和背景层，原图保持不变",
           });
         } catch (error) {
           const message = error instanceof Error ? error.message : "请稍后重试";
-          toast("编辑元素失败", { description: message });
+          toast("图层分离失败", { description: message });
         } finally {
           setNodes(nds => nds.filter(n => n.id !== splittingNodeId));
         }
@@ -26753,7 +26753,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         "remove-watermark": "去水印",
         upscale: "HD 4K",
         erase: "橡皮工具",
-        "edit-elements": "编辑元素",
+        "edit-elements": "图层分离",
         "edit-text": "智能文案编辑",
         mockup: "多平台封面",
         expand: "扩展",

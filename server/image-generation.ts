@@ -991,14 +991,12 @@ function getPicWishResultImageUrls(data: PicWishSegmentationResponse, taskType?:
     return [data.data?.file || data.data?.image || data.data?.image_obj || ""].filter(Boolean);
   }
   if (taskType === "advanced-image-expand" || taskType === "r-background") {
-    return [
-      data.data?.image,
-      data.data?.image1,
-      data.data?.image_1,
-      data.data?.image_2,
-      data.data?.image_3,
-      data.data?.image_4,
-    ].filter(Boolean);
+    const record = (data.data || {}) as Record<string, unknown>;
+    const urls = [record.image, record.image1];
+    for (let index = 1; index <= 9; index += 1) {
+      urls.push(record[`image_${index}`], record[`image${index}`]);
+    }
+    return Array.from(new Set(urls.filter((url): url is string => typeof url === "string" && url.trim().length > 0)));
   }
   return [data.data?.image || data.data?.image_obj || ""].filter(Boolean);
 }
@@ -1211,25 +1209,29 @@ async function runPicWishImageTask(
     logPicWishEvent("failure", { taskType, endpoint, durationMs: Date.now() - startedAt, error: "PicWish did not return a task id", hasMask: Boolean(options?.maskBuffer) });
     throw new Error("PicWish did not return a task id");
   }
-  const imageUrl = getPicWishResultImageUrl(result, taskType);
-  if (!imageUrl) {
+  const imageUrls = getPicWishResultImageUrls(result, taskType);
+  if (imageUrls.length === 0) {
     logPicWishEvent("failure", { taskType, endpoint, taskId, durationMs: Date.now() - startedAt, error: "PicWish did not return a result image", hasMask: Boolean(options?.maskBuffer) });
     throw new Error("PicWish did not return a result image");
   }
   logPicWishEvent("download", {
     taskType,
-    endpoint: imageUrl,
+    endpoint: imageUrls[0],
     taskId: getPicWishTaskId(result) || taskId,
     durationMs: Date.now() - startedAt,
     width: result.data?.image_width,
     height: result.data?.image_height,
   });
   const resolvedTaskId = getPicWishTaskId(result) || taskId;
-  const downloaded = await downloadPicWishImageAsTransparentPng(imageUrl, {
-    width: result.data?.image_width,
-    height: result.data?.image_height,
-  });
-  return withProviderTaskIds(downloaded, resolvedTaskId ? [resolvedTaskId] : []);
+  const downloadedImages: GeneratedImage[] = [];
+  for (const imageUrl of taskType === "r-background" ? imageUrls : imageUrls.slice(0, 1)) {
+    const downloaded = await downloadPicWishImageAsTransparentPng(imageUrl, {
+      width: result.data?.image_width,
+      height: result.data?.image_height,
+    });
+    downloadedImages.push(...downloaded.images);
+  }
+  return withProviderTaskIds({ images: downloadedImages }, resolvedTaskId ? [resolvedTaskId] : []);
 }
 
 async function removeBackgroundWithPicWish(buffer: Buffer, mimeType: string): Promise<GeneratedImageResult> {
@@ -1258,7 +1260,7 @@ async function createPicWishInpaintTask(
     rectangles?: Array<{ x: number; y: number; width: number; height: number }> | string;
     sync?: boolean;
   },
-): Promise<{ taskId: string; apiKey: string; baseUrl: string; created: PicWishSegmentationResponse; imageUrl?: string }> {
+): Promise<{ taskId?: string; apiKey: string; baseUrl: string; created: PicWishSegmentationResponse; imageUrl?: string }> {
   const { apiKey, baseUrl } = getPicWishObjectsRemovalConfig();
   if (!apiKey) {
     throw new Error("Missing PICWISH_API_KEY");
@@ -1314,15 +1316,13 @@ async function createPicWishInpaintTask(
     durationMs: Date.now() - startedAt,
     hasMask: Boolean(input.maskBuffer || input.maskUrl),
   });
-  if (!taskId) {
+  if (!taskId && !imageUrl) {
     logPicWishEvent("failure", {
       taskType: "inpaint",
       endpoint,
       status: created.status,
       durationMs: Date.now() - startedAt,
-      error: imageUrl
-        ? "PicWish inpaint returned an image but no task id"
-        : "PicWish inpaint did not return a task id",
+      error: "PicWish inpaint did not return a task id",
       hasMask: Boolean(input.maskBuffer || input.maskUrl),
     });
     throw new Error("PicWish inpaint did not return a task id");
@@ -1641,7 +1641,10 @@ async function eraseWithPicWish(
       width: created.data?.image_width,
       height: created.data?.image_height,
     });
-    return withProviderTaskIds(result, [taskId]);
+    return withProviderTaskIds(result, taskId ? [taskId] : []);
+  }
+  if (!taskId) {
+    throw new Error("PicWish inpaint did not return a task id");
   }
   const result = await pollPicWishInpaintTask(taskId, apiKey, baseUrl);
   return withProviderTaskIds(result, [taskId]);
@@ -1805,6 +1808,7 @@ async function createBackgroundWithPicWish(input: CreateBackgroundInput): Promis
   const { buffer, mimeType } = await imageSrcToBuffer(input.imageSrc);
   const sourceDimensions = await getImageBufferDimensions(buffer);
   const output = getBackgroundOutputSize(input, sourceDimensions.width, sourceDimensions.height);
+  const batchSize = Math.max(1, Math.min(Number(input.count) || 1, 4));
   const prompt = [
     input.style ? `商业背景风格：${input.style}` : "",
     input.prompt || "为产品图生成干净、真实、商业化的背景，保持产品主体完整清晰。",
@@ -1814,9 +1818,9 @@ async function createBackgroundWithPicWish(input: CreateBackgroundInput): Promis
   return runPicWishImageTask("r-background", buffer, mimeType, {
     fields: {
       prompt,
-      scene_type: 105,
       width: output.width,
       height: output.height,
+      batch_size: batchSize,
     },
   });
 }
@@ -2753,6 +2757,12 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
     throw new Error("Missing imageSrc");
   }
   const count = Math.max(1, Math.min(Number(input.count) || 1, 9));
+  const { buffer, mimeType } = await imageSrcToBuffer(input.imageSrc);
+  const productCutout = await removeBackgroundWithPicWish(buffer, mimeType);
+  const productImageSrc = productCutout.images[0]?.src;
+  if (!productImageSrc) {
+    throw new Error("PicWish background removal did not return a product cutout");
+  }
   const hasBackgroundReference = Boolean(input.backgroundReferenceSrc?.trim());
   const prompt = [
     input.style ? `背景风格：${input.style}` : "",
@@ -2765,14 +2775,16 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
   ].filter(Boolean).join("\n");
 
   const outputs: GeneratedImage[] = [];
-  const taskIds: string[] = [];
+  const taskIds: string[] = collectProviderTaskIds(productCutout);
   for (let index = 0; index < count && outputs.length < count; index += 1) {
+    const batchSize = Math.min(4, count - outputs.length);
     const result = await createBackgroundWithPicWish({
-      imageSrc: input.imageSrc,
+      imageSrc: productImageSrc,
       prompt,
       style: input.style,
       ratio: input.ratio,
       resolution: input.resolution,
+      count: batchSize,
       customWidth: input.customWidth,
       customHeight: input.customHeight,
     });
