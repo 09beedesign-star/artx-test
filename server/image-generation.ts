@@ -969,16 +969,27 @@ function getPicWishObjectsRemovalEndpoint(baseUrl: string) {
 }
 
 function getPicWishResultImageUrl(data: PicWishSegmentationResponse, taskType?: PicWishVisualTaskType) {
+  return getPicWishResultImageUrls(data, taskType)[0] || "";
+}
+
+function getPicWishResultImageUrls(data: PicWishSegmentationResponse, taskType?: PicWishVisualTaskType) {
   if (taskType === "segmentation") {
-    return data.data?.image || "";
+    return [data.data?.image_obj || data.data?.image || ""].filter(Boolean);
   }
   if (taskType === "watermark") {
-    return data.data?.file || data.data?.image || data.data?.image_obj || "";
+    return [data.data?.file || data.data?.image || data.data?.image_obj || ""].filter(Boolean);
   }
-  if (taskType === "advanced-image-expand") {
-    return data.data?.image || data.data?.image1 || data.data?.image_1 || data.data?.image_2 || data.data?.image_3 || data.data?.image_4 || "";
+  if (taskType === "advanced-image-expand" || taskType === "r-background") {
+    return [
+      data.data?.image,
+      data.data?.image1,
+      data.data?.image_1,
+      data.data?.image_2,
+      data.data?.image_3,
+      data.data?.image_4,
+    ].filter(Boolean);
   }
-  return data.data?.image || data.data?.image_obj || "";
+  return [data.data?.image || data.data?.image_obj || ""].filter(Boolean);
 }
 
 function getPicWishTaskId(data: PicWishSegmentationResponse) {
@@ -2961,67 +2972,39 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
   if (!input.imageSrc?.trim()) {
     throw new Error("Missing imageSrc");
   }
-  const count = Math.max(
-    1,
-    Math.min(Number(input.count) || 1, MAX_SMART_COMMERCE_IMAGE_COUNT)
-  );
-  const sourceImageData = await imageSrcToBuffer(input.imageSrc);
-  const sourceDimensions = await getImageBufferDimensions(sourceImageData.buffer);
-  const output = getBackgroundOutputSize(input, sourceDimensions.width, sourceDimensions.height);
-  const skill = input.skillId ? await getSkill(input.skillId) : undefined;
+  const count = Math.max(1, Math.min(Number(input.count) || 1, 9));
+  const hasBackgroundReference = Boolean(input.backgroundReferenceSrc?.trim());
+  const prompt = [
+    input.style ? `背景风格：${input.style}` : "",
+    input.prompt || "创建商业化产品背景",
+    "Use reference image 1 as the exact product subject. Preserve the product shape, material, colors, logo, text, proportions, and foreground identity.",
+    hasBackgroundReference
+      ? "A background reference image was provided by the user. Use the user's written description and style direction to match the requested background mood, lighting, perspective, material texture, spatial depth, and commercial photography feel."
+      : "Create a realistic commercial background behind and around the product. Match lighting, shadows, perspective, and contact shadow naturally.",
+    "Return complete product commercial images. Do not crop or distort the product.",
+  ].filter(Boolean).join("\n");
 
-  try {
-    const cutout = await removeBackgroundPreservingForegroundPixels(input.imageSrc);
-    const protectedProduct = cutout.images[0];
-    if (!protectedProduct) {
-      throw new Error("PicWish did not return a product cutout");
-    }
-
-    const backgroundPrompt = [
-      buildSmartProductBackgroundPrompt(input),
-      skill?.prompt,
-    ].filter(Boolean).join("\n\n");
-    const composites: GeneratedImage[] = [];
-    for (
-      let remaining = count;
-      remaining > 0;
-      remaining -= PROVIDER_IMAGE_BATCH_SIZE
-    ) {
-      const batchCount = Math.min(PROVIDER_IMAGE_BATCH_SIZE, remaining);
-      const backgrounds = await generateSmartProductBackgroundPlates(
-        input,
-        backgroundPrompt,
-        batchCount
-      );
-      const batchComposites = await Promise.all(
-        backgrounds.map(background =>
-          compositeProtectedProductOnBackground(
-            background,
-            protectedProduct,
-            output.width,
-            output.height
-          )
-        )
-      );
-      composites.push(...batchComposites);
-    }
-    const normalizedImages = await __testNormalizeGeneratedImagesToTargetAspect(
-      composites.slice(0, count),
-      output.width,
-      output.height
-    );
-    return withProviderTaskIds(
-      { images: normalizedImages },
-      collectProviderTaskIds(cutout)
-    );
-  } catch (backgroundError) {
-    console.warn(
-      "Image2 and Gemini background plates failed; using PicWish smart product background fallback",
-      backgroundError
-    );
+  const outputs: GeneratedImage[] = [];
+  const taskIds: string[] = [];
+  for (let index = 0; index < count && outputs.length < count; index += 1) {
+    const result = await createBackgroundWithPicWish({
+      imageSrc: input.imageSrc,
+      prompt,
+      style: input.style,
+      ratio: input.ratio,
+      resolution: input.resolution,
+      customWidth: input.customWidth,
+      customHeight: input.customHeight,
+    });
+    outputs.push(...result.images);
+    taskIds.push(...collectProviderTaskIds(result));
   }
 
-  return createBackgroundWithPicWish(input);
+  const images = outputs.slice(0, count);
+  if (images.length === 0) {
+    throw new Error("PicWish background generator did not return any images");
+  }
+  return withProviderTaskIds({ images }, taskIds);
 }
 
 export async function editImageWithPrompt(input: EditImageInput): Promise<{ images: GeneratedImage[] }> {
