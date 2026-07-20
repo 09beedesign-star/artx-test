@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -615,6 +615,7 @@ function AdminPrototypePage() {
   const [capabilityMarginData, setCapabilityMarginData] = useState<CapabilityMarginData | null>(null);
   const [capabilityMarginLoading, setCapabilityMarginLoading] = useState(false);
   const [capabilityMarginError, setCapabilityMarginError] = useState("");
+  const capabilityMarginRequestId = useRef(0);
 
   useEffect(() => {
     const previousTitle = document.title;
@@ -707,10 +708,12 @@ function AdminPrototypePage() {
   }, [activeSection]);
 
   useEffect(() => {
+    const requestId = ++capabilityMarginRequestId.current;
     if (activeSection !== "integrations") return;
 
     const token = readAdminToken();
     if (!token) {
+      setCapabilityMarginLoading(false);
       setCapabilityMarginData(null);
       setCapabilityMarginError("未找到后台登录令牌，请重新登录后查看毛利分析。");
       return;
@@ -721,6 +724,7 @@ function AdminPrototypePage() {
       if (key !== "time" && value) query.set(key, value);
     }
     const controller = new AbortController();
+    const isLatestRequest = () => capabilityMarginRequestId.current === requestId && !controller.signal.aborted;
     const capabilityMarginPath = "/api/admin/capability-margin";
     setCapabilityMarginLoading(true);
     setCapabilityMarginError("");
@@ -735,15 +739,16 @@ function AdminPrototypePage() {
         return payload as CapabilityMarginData;
       })
       .then((payload) => {
+        if (!isLatestRequest()) return;
         setCapabilityMarginData(payload);
       })
       .catch((error) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
+        if (error?.name === "AbortError" || !isLatestRequest()) return;
         setCapabilityMarginData(null);
         setCapabilityMarginError(error instanceof Error ? error.message : "毛利分析加载失败");
       })
       .finally(() => {
-        if (!controller.signal.aborted) setCapabilityMarginLoading(false);
+        if (isLatestRequest()) setCapabilityMarginLoading(false);
       });
 
     return () => controller.abort();

@@ -19,6 +19,12 @@ describe("AdminPrototypePage capability margin filters", () => {
     expect(page).toContain('aria-label="最高积分"');
     expect(page).toContain('"/api/admin/capability-margin"');
     expect(page).toContain('activeSection !== "integrations"');
+    expect(page).toContain("const capabilityMarginRequestId = useRef(0)");
+    expect(page).toContain("const requestId = ++capabilityMarginRequestId.current");
+    expect(page).toContain("const isLatestRequest = () => capabilityMarginRequestId.current === requestId && !controller.signal.aborted");
+    expect(page).toContain("if (!isLatestRequest()) return;");
+    expect(page).toContain('if (error?.name === "AbortError" || !isLatestRequest()) return;');
+    expect(page).toContain("if (!token) {\n      setCapabilityMarginLoading(false);");
     expect(page).toContain("预估成本");
     expect(page).not.toContain("· 成本 ${formatCurrency(item.estimatedCost)}");
     expect(page).toContain("能力汇总");
