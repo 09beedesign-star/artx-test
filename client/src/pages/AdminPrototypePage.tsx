@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -52,6 +52,7 @@ import { formatExactOrderTime } from "./admin-order-time";
 import { filterAdminOrders, filterAdminUsers } from "./admin-list-filters";
 import { classifyHighRiskType } from "./admin-risk";
 import { resolveAdminUploadUrl } from "./admin-upload-url";
+import { createCapabilityMarginRequestGuard } from "./capability-margin-request-guard";
 
 type AdminSection =
   | "overview"
@@ -615,7 +616,7 @@ function AdminPrototypePage() {
   const [capabilityMarginData, setCapabilityMarginData] = useState<CapabilityMarginData | null>(null);
   const [capabilityMarginLoading, setCapabilityMarginLoading] = useState(false);
   const [capabilityMarginError, setCapabilityMarginError] = useState("");
-  const capabilityMarginRequestId = useRef(0);
+  const capabilityMarginRequestGuard = useMemo(() => createCapabilityMarginRequestGuard(), []);
 
   useEffect(() => {
     const previousTitle = document.title;
@@ -708,7 +709,7 @@ function AdminPrototypePage() {
   }, [activeSection]);
 
   useEffect(() => {
-    const requestId = ++capabilityMarginRequestId.current;
+    const requestId = capabilityMarginRequestGuard.begin();
     if (activeSection !== "integrations") return;
 
     const token = readAdminToken();
@@ -724,7 +725,7 @@ function AdminPrototypePage() {
       if (key !== "time" && value) query.set(key, value);
     }
     const controller = new AbortController();
-    const isLatestRequest = () => capabilityMarginRequestId.current === requestId && !controller.signal.aborted;
+    const isLatestRequest = () => capabilityMarginRequestGuard.isLatest(requestId, controller.signal.aborted);
     const capabilityMarginPath = "/api/admin/capability-margin";
     setCapabilityMarginLoading(true);
     setCapabilityMarginError("");
@@ -752,7 +753,7 @@ function AdminPrototypePage() {
       });
 
     return () => controller.abort();
-  }, [activeSection, capabilityMarginFilters]);
+  }, [activeSection, capabilityMarginFilters, capabilityMarginRequestGuard]);
 
   async function adminPost(
     path: string,
