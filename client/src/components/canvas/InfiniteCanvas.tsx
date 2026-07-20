@@ -87,6 +87,7 @@ import {
   Square,
   PenLine,
   ImagePlus,
+  Images,
   Video,
   Captions,
   Repeat2,
@@ -110,6 +111,7 @@ import {
   Shirt,
   Expand,
   Frame,
+  GripVertical,
   RotateCw,
   MapPin,
   PlusCircle,
@@ -1039,6 +1041,290 @@ function SkillPointSelector({
                 })}
               </div>
             ))}
+          </div>,
+          document.body
+        )}
+    </div>
+  );
+}
+
+function ImageCountSelector({
+  value,
+  onChange,
+  isDark,
+}: {
+  value: number;
+  onChange: (count: number) => void;
+  isDark: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const selectorRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [popoverStyle, setPopoverStyle] = useState<React.CSSProperties | null>(
+    null
+  );
+  const bg = getMinimapSurfaceBackground(isDark);
+  const hoverBg = isDark
+    ? "oklch(0.13 0.015 270)"
+    : "oklch(0.22 0.015 270)";
+  const border = getMinimapSurfaceBorder(isDark);
+  const text = isDark ? "oklch(0.74 0.01 270)" : "oklch(0.58 0.008 270)";
+  const popBg = isDark ? "oklch(0.16 0.018 270)" : "oklch(0.99 0.004 270)";
+
+  const updatePopoverPosition = useCallback(() => {
+    const trigger = selectorRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const width = 146;
+    const height = 46;
+    const margin = 12;
+    const gap = 8;
+    setPopoverStyle({
+      position: "fixed",
+      left: Math.min(
+        Math.max(margin, rect.left),
+        window.innerWidth - width - margin
+      ),
+      top: Math.max(margin, rect.top - gap - height),
+      width,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeWhenOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!selectorRef.current?.contains(target) && !popoverRef.current?.contains(target)) {
+        setOpen(false);
+      }
+    };
+    updatePopoverPosition();
+    window.addEventListener("mousedown", closeWhenOutside);
+    window.addEventListener("resize", updatePopoverPosition);
+    window.addEventListener("scroll", updatePopoverPosition, true);
+    return () => {
+      window.removeEventListener("mousedown", closeWhenOutside);
+      window.removeEventListener("resize", updatePopoverPosition);
+      window.removeEventListener("scroll", updatePopoverPosition, true);
+    };
+  }, [open, updatePopoverPosition]);
+
+  return (
+    <div ref={selectorRef} className="relative nodrag nopan" style={{ zIndex: open ? 1200 : 100 }}>
+      <button
+        type="button"
+        title="选择生成数量"
+        aria-label="选择生成数量"
+        className="flex h-8 w-[74px] items-center justify-center gap-1 rounded-[var(--radius-md-design)] px-2 transition-colors"
+        style={{
+          background: open || hovered ? hoverBg : bg,
+          border: `1px solid ${open ? "oklch(0.62 0.22 290 / 45%)" : border}`,
+          color: open || hovered ? "white" : text,
+          fontSize: 11,
+          lineHeight: "14px",
+          letterSpacing: 0,
+        }}
+        onClick={() => {
+          setOpen(current => !current);
+          requestAnimationFrame(updatePopoverPosition);
+        }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
+        <Images size={12} style={{ flex: "0 0 auto" }} />
+        <span>{value}张</span>
+        <ChevronDown
+          size={10}
+          style={{
+            opacity: 0.65,
+            transform: open ? "rotate(180deg)" : "none",
+            transition: "transform 0.16s ease",
+          }}
+        />
+      </button>
+      {open &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            className="grid grid-cols-4 gap-1 rounded-[var(--radius-md-design)] p-1 shadow-2xl"
+            style={{
+              ...(popoverStyle || {}),
+              background: popBg,
+              border: `1px solid ${border}`,
+              zIndex: 9999,
+            }}
+          >
+            {[1, 2, 3, 4].map(count => {
+              const active = value === count;
+              return (
+                <button
+                  key={count}
+                  type="button"
+                  className="h-8 rounded-[var(--radius-sm-design)] type-caption transition-colors"
+                  style={{
+                    color: active ? "#172000" : text,
+                    background: active ? "#C5ED47" : "transparent",
+                  }}
+                  onClick={() => {
+                    onChange(count);
+                    setOpen(false);
+                  }}
+                >
+                  {count}
+                </button>
+              );
+            })}
+          </div>,
+          document.body
+        )}
+    </div>
+  );
+}
+
+const CANVAS_ASSISTANT_IMAGE_RATIOS = [
+  "auto",
+  "1:1",
+  "4:5",
+  "3:4",
+  "16:9",
+  "9:16",
+  "3:2",
+] as const;
+
+type CanvasAssistantImageRatio =
+  (typeof CANVAS_ASSISTANT_IMAGE_RATIOS)[number];
+
+function ImageRatioSelector({
+  value,
+  onChange,
+  isDark,
+}: {
+  value: CanvasAssistantImageRatio;
+  onChange: (ratio: CanvasAssistantImageRatio) => void;
+  isDark: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const selectorRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [popoverStyle, setPopoverStyle] = useState<React.CSSProperties | null>(
+    null
+  );
+  const bg = getMinimapSurfaceBackground(isDark);
+  const hoverBg = isDark
+    ? "oklch(0.13 0.015 270)"
+    : "oklch(0.22 0.015 270)";
+  const border = getMinimapSurfaceBorder(isDark);
+  const text = isDark ? "oklch(0.74 0.01 270)" : "oklch(0.58 0.008 270)";
+  const popBg = isDark ? "oklch(0.16 0.018 270)" : "oklch(0.99 0.004 270)";
+  const triggerLabel = value === "auto" ? "自动" : value;
+
+  const updatePopoverPosition = useCallback(() => {
+    const trigger = selectorRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const width = 174;
+    const height = 84;
+    const margin = 12;
+    const gap = 8;
+    setPopoverStyle({
+      position: "fixed",
+      left: Math.min(
+        Math.max(margin, rect.left),
+        window.innerWidth - width - margin
+      ),
+      top: Math.max(margin, rect.top - gap - height),
+      width,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeWhenOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!selectorRef.current?.contains(target) && !popoverRef.current?.contains(target)) {
+        setOpen(false);
+      }
+    };
+    updatePopoverPosition();
+    window.addEventListener("mousedown", closeWhenOutside);
+    window.addEventListener("resize", updatePopoverPosition);
+    window.addEventListener("scroll", updatePopoverPosition, true);
+    return () => {
+      window.removeEventListener("mousedown", closeWhenOutside);
+      window.removeEventListener("resize", updatePopoverPosition);
+      window.removeEventListener("scroll", updatePopoverPosition, true);
+    };
+  }, [open, updatePopoverPosition]);
+
+  return (
+    <div ref={selectorRef} className="relative nodrag nopan" style={{ zIndex: open ? 1200 : 100 }}>
+      <button
+        type="button"
+        title="选择图片画幅"
+        aria-label="选择图片画幅"
+        className="flex h-8 w-[74px] items-center justify-center gap-1 rounded-[var(--radius-md-design)] px-2 transition-colors"
+        style={{
+          background: open || hovered ? hoverBg : bg,
+          border: "1px solid " + (open ? "oklch(0.62 0.22 290 / 45%)" : border),
+          color: open || hovered ? "white" : text,
+          fontSize: 11,
+          lineHeight: "14px",
+          letterSpacing: 0,
+        }}
+        onClick={() => {
+          setOpen(current => !current);
+          requestAnimationFrame(updatePopoverPosition);
+        }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
+        <Frame size={12} style={{ flex: "0 0 auto" }} />
+        <span>{triggerLabel}</span>
+        <ChevronDown
+          size={10}
+          style={{
+            opacity: 0.65,
+            transform: open ? "rotate(180deg)" : "none",
+            transition: "transform 0.16s ease",
+          }}
+        />
+      </button>
+      {open &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            className="grid grid-cols-3 gap-1 rounded-[var(--radius-md-design)] p-1 shadow-2xl"
+            style={{
+              ...(popoverStyle || {}),
+              background: popBg,
+              border: "1px solid " + border,
+              zIndex: 9999,
+            }}
+          >
+            {CANVAS_ASSISTANT_IMAGE_RATIOS.map(ratio => {
+              const active = value === ratio;
+              return (
+                <button
+                  key={ratio}
+                  type="button"
+                  className="h-8 rounded-[var(--radius-sm-design)] type-caption transition-colors"
+                  style={{
+                    color: active ? "#172000" : text,
+                    background: active ? "#C5ED47" : "transparent",
+                  }}
+                  onClick={() => {
+                    onChange(ratio);
+                    setOpen(false);
+                  }}
+                >
+                  {ratio === "auto" ? "自动" : ratio}
+                </button>
+              );
+            })}
           </div>,
           document.body
         )}
@@ -5859,6 +6145,13 @@ function AssetNodeComponent({
     []
   );
   const extractedTextPanelRef = useRef<HTMLDivElement | null>(null);
+  const extractedTextScrollRef = useRef<HTMLDivElement | null>(null);
+  const extractedTextScrollTrackRef = useRef<HTMLDivElement | null>(null);
+  const [extractedTextScrollThumb, setExtractedTextScrollThumb] = useState({
+    top: 0,
+    height: 26,
+    maxScroll: 0,
+  });
   const displayTitle = (data.title as string) || asset?.title || "素材节点";
   const rotation = (data.rotation as number) || 0;
   const flipX = Boolean(data.flipX);
@@ -6016,6 +6309,66 @@ function AssetNodeComponent({
   useEffect(() => {
     if (extractedTextPanelOpen) setExtractedTextDraft(extractedText);
   }, [extractedText, extractedTextPanelOpen]);
+
+  const syncExtractedTextScrollThumb = useCallback(() => {
+    const container = extractedTextScrollRef.current;
+    if (!container) return;
+    const trackHeight = Math.max(1, container.clientHeight - 16);
+    const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+    const height = maxScroll
+      ? Math.max(26, Math.round((container.clientHeight / container.scrollHeight) * trackHeight))
+      : 26;
+    const maxTop = Math.max(0, trackHeight - height);
+    const top = maxScroll ? Math.round((container.scrollTop / maxScroll) * maxTop) : 0;
+    setExtractedTextScrollThumb(previous =>
+      previous.top === top && previous.height === height && previous.maxScroll === maxScroll
+        ? previous
+        : { top, height, maxScroll }
+    );
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!extractedTextPanelOpen) return;
+    const container = extractedTextScrollRef.current;
+    if (!container) return;
+    const frame = window.requestAnimationFrame(syncExtractedTextScrollThumb);
+    const observer = new ResizeObserver(syncExtractedTextScrollThumb);
+    observer.observe(container);
+    container.addEventListener("scroll", syncExtractedTextScrollThumb, { passive: true });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+      container.removeEventListener("scroll", syncExtractedTextScrollThumb);
+    };
+  }, [extractedTextFields, extractedTextPanelOpen, syncExtractedTextScrollThumb]);
+
+  const handleExtractedTextScrollThumbPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      const container = extractedTextScrollRef.current;
+      const track = extractedTextScrollTrackRef.current;
+      if (!container || !track || extractedTextScrollThumb.maxScroll <= 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const trackRect = track.getBoundingClientRect();
+      const grabOffset = event.clientY - trackRect.top - extractedTextScrollThumb.top;
+      const move = (pointerEvent: PointerEvent) => {
+        const trackHeight = Math.max(1, track.clientHeight);
+        const maxTop = Math.max(1, trackHeight - extractedTextScrollThumb.height);
+        const nextTop = Math.max(
+          0,
+          Math.min(maxTop, pointerEvent.clientY - trackRect.top - grabOffset)
+        );
+        container.scrollTop = (nextTop / maxTop) * extractedTextScrollThumb.maxScroll;
+      };
+      const release = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", release);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", release, { once: true });
+    },
+    [extractedTextScrollThumb]
+  );
 
   useEffect(() => {
     if (!shouldShowCloudRetentionToastOverlay) {
@@ -7583,19 +7936,21 @@ function AssetNodeComponent({
                 <X size={14} />
               </button>
             </div>
-            <div
-              className="nodrag nopan"
+            <div className="relative min-h-0 flex-1">
+              <div
+              ref={extractedTextScrollRef}
+              className="smart-copy-editor-scroll nodrag nopan"
               style={{
                 minHeight: 0,
                 flex: "1 1 auto",
                 padding: 12,
+                paddingRight: 22,
                 paddingBottom: 12,
-                overflowY: "scroll",
-                scrollbarGutter: "stable",
-                scrollbarWidth: "thin",
-                scrollbarColor: `${isDark ? "rgba(255,255,255,0.24)" : "rgba(0,0,0,0.20)"} transparent`,
+                overflowY: "auto",
+                scrollbarWidth: "none",
                 overscrollBehavior: "contain",
                 userSelect: "text",
+                height: "100%",
               }}
               onMouseDown={event => event.stopPropagation()}
               onClick={event => event.stopPropagation()}
@@ -7672,6 +8027,33 @@ function AssetNodeComponent({
                   ))}
                 </div>
               )}
+              </div>
+              <div
+                ref={extractedTextScrollTrackRef}
+                className="absolute bottom-2 right-1.5 top-2 w-3"
+                style={{
+                  borderRadius: 999,
+                  background: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)",
+                }}
+              >
+                <button
+                  type="button"
+                  aria-label="拖动查看全部文案段落"
+                  title="拖动查看全部文案段落"
+                  className="absolute left-0 flex w-3 items-center justify-center rounded-full transition-colors"
+                  style={{
+                    top: extractedTextScrollThumb.top,
+                    height: extractedTextScrollThumb.height,
+                    color: isDark ? "rgba(255,255,255,0.62)" : "rgba(28,28,40,0.56)",
+                    background: isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.16)",
+                    cursor: extractedTextScrollThumb.maxScroll > 0 ? "grab" : "default",
+                    opacity: extractedTextScrollThumb.maxScroll > 0 ? 1 : 0.42,
+                  }}
+                  onPointerDown={handleExtractedTextScrollThumbPointerDown}
+                >
+                  <GripVertical size={9} strokeWidth={2.2} />
+                </button>
+              </div>
             </div>
             <div
 	              className="flex items-center justify-between gap-2 px-3 py-2"
@@ -15932,6 +16314,9 @@ function CanvasAssistantPanel({
       ? stored!
       : "gpt-5.4-mini";
   });
+  const [assistantImageCount, setAssistantImageCount] = useState(1);
+  const [assistantImageRatio, setAssistantImageRatio] =
+    useState<CanvasAssistantImageRatio>("auto");
   const imageModelOptions = useImageModelOptions();
   const assistantImageModelOptions = useMemo(
     () => imageModelOptions.filter(model => model.id !== AUTO_AI_MODEL.id),
@@ -17625,7 +18010,10 @@ function CanvasAssistantPanel({
           userPrompt: rawSubmittedComposerPrompt,
           imagePrompt: routedPrompt,
         });
-        const skillRatio = getSkillPreferredRatio(activeSkill, "1:1");
+        const skillRatio =
+          assistantImageRatio === "auto"
+            ? getSkillPreferredRatio(activeSkill, "1:1")
+            : assistantImageRatio;
         const generationId = `right-skill-${activeSkill.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         const shouldEditTargetReference =
           activeSkill.capability === "image_edit" &&
@@ -17640,6 +18028,9 @@ function CanvasAssistantPanel({
           targetReference?.width && targetReference?.height
             ? { w: targetReference.width, h: targetReference.height }
             : undefined;
+        const requestedImageCount = shouldEditTargetReference
+          ? 1
+          : assistantImageCount;
         const payload: ImageGeneratorPayload = {
           projectId,
           prompt:
@@ -17657,7 +18048,7 @@ function CanvasAssistantPanel({
               ? "auto"
               : assistantImageModel.id,
           ratio: skillRatio,
-          count: 1,
+          count: requestedImageCount,
           style: activeSkill.name,
           referencesEnabled: assistantImages.length > 0,
           referencedAssets: assistantImages,
@@ -17705,7 +18096,10 @@ function CanvasAssistantPanel({
                 generationId,
               })
             : await generateAiImages(payload);
-        const validImages = getValidGeneratedImages(result.images, 1);
+        const validImages = getValidGeneratedImages(
+          result.images,
+          requestedImageCount
+        );
         if (validImages.length === 0) {
           dispatchImageGenerationTask(
             {
@@ -17825,6 +18219,9 @@ function CanvasAssistantPanel({
           targetReference?.width && targetReference?.height
             ? { w: targetReference.width, h: targetReference.height }
             : undefined;
+        const requestedImageCount = shouldEditTargetReference
+          ? 1
+          : assistantImageCount;
         const payload: ImageGeneratorPayload = {
           projectId,
           prompt: shouldEditTargetReference
@@ -17840,8 +18237,11 @@ function CanvasAssistantPanel({
             : assistantAutoMode
               ? "auto"
               : assistantImageModel.id,
-          ratio: "1:1",
-          count: 1,
+          ratio:
+            shouldEditTargetReference || assistantImageRatio === "auto"
+              ? "1:1"
+              : assistantImageRatio,
+          count: requestedImageCount,
           style: shouldEditTargetReference ? "引用编辑结果" : "右侧 AI 助手",
           referencesEnabled: assistantImages.length > 0,
           referencedAssets: assistantImages,
@@ -17884,7 +18284,10 @@ function CanvasAssistantPanel({
                 generationId,
               })
             : await generateAiImages(payload);
-        const validImages = getValidGeneratedImages(result.images, 1);
+        const validImages = getValidGeneratedImages(
+          result.images,
+          requestedImageCount
+        );
         if (validImages.length === 0) {
           dispatchImageGenerationTask(
             {
@@ -19159,6 +19562,16 @@ function CanvasAssistantPanel({
                   <SkillPointSelector
                     activeSkill={activeSkill}
                     onChange={handleAssistantSkillChange}
+                    isDark={isDark}
+                  />
+                  <ImageCountSelector
+                    value={assistantImageCount}
+                    onChange={setAssistantImageCount}
+                    isDark={isDark}
+                  />
+                  <ImageRatioSelector
+                    value={assistantImageRatio}
+                    onChange={setAssistantImageRatio}
                     isDark={isDark}
                   />
                 </div>

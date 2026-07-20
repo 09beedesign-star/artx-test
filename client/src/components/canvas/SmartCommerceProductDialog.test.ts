@@ -77,6 +77,10 @@ describe("SmartCommerceProductDialog", () => {
     expect(source).toContain('sm:grid-cols-[minmax(0,1fr)_104px]');
     expect(source).toContain('className="grid grid-cols-3 gap-1.5"');
     expect(source).toContain('className="grid grid-rows-2 gap-1.5"');
+    expect(source).toContain('<SectionTitle>常用画幅</SectionTitle>');
+    expect(source).toContain('overflow-hidden rounded-md px-1.5');
+    expect(source).toContain('truncate whitespace-nowrap text-[8px]');
+    expect(source).not.toContain('SectionTitle aside={`${outputSize.width}×${outputSize.height}`}>常用画幅');
   });
 
   it("restores the seven pre-commerce background styles with user prompt priority", () => {

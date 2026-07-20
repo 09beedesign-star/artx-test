@@ -53,6 +53,32 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).not.toContain("输出规格：${smartProductOutputSpec}");
   });
 
+  it("places count and common ratio selectors beside Skill and keeps each result as a canvas node", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    expect(source).toContain("function ImageCountSelector");
+    expect(source).toContain("[1, 2, 3, 4].map(count =>");
+    expect(source).toContain("const [assistantImageCount, setAssistantImageCount] = useState(1);");
+    expect(source).toContain("<ImageCountSelector");
+    expect(source).toContain("onChange={setAssistantImageCount}");
+    expect(source).toContain("function ImageRatioSelector");
+    expect(source).toContain("const CANVAS_ASSISTANT_IMAGE_RATIOS = [");
+    expect(source).toContain('"16:9"');
+    expect(source).toContain('"9:16"');
+    expect(source).toContain('useState<CanvasAssistantImageRatio>("auto")');
+    expect(source).toContain("<ImageRatioSelector");
+    expect(source).toContain("onChange={setAssistantImageRatio}");
+    expect(source).toContain('assistantImageRatio === "auto"');
+    expect(source).toContain("ratio: skillRatio");
+    expect(source.match(/count: requestedImageCount/g)).toHaveLength(2);
+    expect(
+      source.match(
+        /getValidGeneratedImages\(\s*result\.images,\s*requestedImageCount/g
+      )
+    ).toHaveLength(2);
+    expect(source).toContain("{ length: requestedCount }");
+    expect(source).toContain("generationIndex: index");
+  });
+
   it("shows multi-platform cover directly above download in the selected-image toolbar", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
     const assetTools = source.match(
@@ -228,9 +254,10 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(extractedTextPanelBlock).toContain('aria-label={`编辑提取文案 ${index + 1}`}');
     expect(extractedTextPanelBlock).toContain('minHeight: 0');
     expect(extractedTextPanelBlock).toContain('paddingBottom: 12');
-    expect(extractedTextPanelBlock).toContain('overflowY: "scroll"');
-    expect(extractedTextPanelBlock).toContain('scrollbarGutter: "stable"');
-    expect(extractedTextPanelBlock).toContain('scrollbarWidth: "thin"');
+    expect(extractedTextPanelBlock).toContain('className="smart-copy-editor-scroll nodrag nopan"');
+    expect(extractedTextPanelBlock).toContain('scrollbarWidth: "none"');
+    expect(source).toContain('aria-label="拖动查看全部文案段落"');
+    expect(source).toContain('onPointerDown={handleExtractedTextScrollThumbPointerDown}');
     expect(source).not.toContain('label: "智能文案"');
     expect(source).not.toContain('label: "文案提取"');
   });

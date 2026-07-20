@@ -476,7 +476,7 @@ export function SmartCommerceProductDialog({
 
               <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_104px]">
                 <div>
-                  <SectionTitle aside={`${outputSize.width}×${outputSize.height}`}>常用画幅</SectionTitle>
+                  <SectionTitle>常用画幅</SectionTitle>
                   <div className="grid grid-cols-3 gap-1.5">
                     {RESOLUTION_PRESETS.map(preset => {
                       const active = selectedPreset.ratio === preset.ratio;
@@ -484,7 +484,7 @@ export function SmartCommerceProductDialog({
                         <button
                           key={preset.ratio}
                           type="button"
-                          className="h-10 rounded-md px-2 text-left text-[10px] font-semibold transition-colors"
+                          className="h-10 min-w-0 overflow-hidden rounded-md px-1.5 text-left text-[10px] font-semibold transition-colors"
                           style={{
                             color: colors.text,
                             background: active ? "rgba(197,237,71,0.13)" : colors.surface,
@@ -493,7 +493,10 @@ export function SmartCommerceProductDialog({
                           onClick={() => setSelectedPreset(preset)}
                         >
                           <span className="block leading-4">{preset.label}</span>
-                          <span className="block text-[9px] leading-3" style={{ color: colors.muted }}>
+                          <span
+                            className="block truncate whitespace-nowrap text-[8px] leading-3 tabular-nums"
+                            style={{ color: colors.muted }}
+                          >
                             {preset.width}×{preset.height}
                           </span>
                         </button>

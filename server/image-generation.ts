@@ -3169,6 +3169,9 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   };
 
   if (isChatCompatibleImageModel(selectedModel)) {
+    if (isTextEditOperation) {
+      throw new Error("当前图片模型不支持保真文字编辑，已停止生成以保护原图，请稍后重试");
+    }
     return editViaReferenceGeneration();
   }
 
@@ -3212,6 +3215,9 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (isImageEditEndpointUnavailable(error)) {
+      if (isTextEditOperation) {
+        throw new Error("当前图片模型不支持保真文字编辑，已停止生成以保护原图，请稍后重试");
+      }
       return editViaReferenceGeneration();
     }
     if (!message.toLowerCase().includes("response_format")) throw error;
@@ -3219,6 +3225,9 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
       providerData = await callImageEditProvider(await createBody(false), apiKey, baseUrl);
     } catch (fallbackError) {
       if (isImageEditEndpointUnavailable(fallbackError)) {
+        if (isTextEditOperation) {
+          throw new Error("当前图片模型不支持保真文字编辑，已停止生成以保护原图，请稍后重试");
+        }
         return editViaReferenceGeneration();
       }
       throw fallbackError;
@@ -3235,6 +3244,9 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   );
 
   if (images.length === 0) {
+    if (isTextEditOperation) {
+      throw new Error("图片模型未返回保真文字编辑结果，已停止生成以保护原图，请稍后重试");
+    }
     return editViaReferenceGeneration();
   }
 

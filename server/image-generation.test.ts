@@ -281,7 +281,7 @@ describe("generated image source normalization", () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(true);
   });
 
-  it("keeps smart copy text edits from failing when the image edit endpoint is unavailable", async () => {
+  it("blocks unsafe reference-image fallback when smart copy editing is unavailable", async () => {
     vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
     vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
     vi.stubEnv("AI_IMAGE_MODEL", "og-image2-medium");
@@ -292,14 +292,6 @@ describe("generated image source normalization", () => {
         height: 64,
         channels: 3,
         background: "#ffffff",
-      },
-    }).png().toBuffer();
-    const edited = await sharp({
-      create: {
-        width: 96,
-        height: 64,
-        channels: 3,
-        background: "#2244ff",
       },
     }).png().toBuffer();
     const mask = await sharp({
@@ -319,35 +311,20 @@ describe("generated image source normalization", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (endpoint.endsWith("/chat/completions")) {
-        const body = JSON.parse(String(init?.body || "{}")) as { messages?: Array<{ content?: unknown }> };
-        expect(JSON.stringify(body.messages)).toContain("This is a local text replacement edit");
-        expect(JSON.stringify(body.messages)).toContain("Use the source image as the only target canvas");
-        return Response.json({
-          choices: [{
-            message: {
-              images: [{ url: `data:image/png;base64,${edited.toString("base64")}` }],
-            },
-          }],
-        });
-      }
       throw new Error(`Unexpected fetch ${endpoint}`);
     });
 
-    const result = await editImageWithPrompt({
+    await expect(editImageWithPrompt({
       imageSrc: `data:image/png;base64,${source.toString("base64")}`,
       maskSrc: `data:image/png;base64,${mask.toString("base64")}`,
       prompt: "把原图中的 SALE 替换成 NEW ARRIVAL",
       operation: "text_edit",
       targetWidth: 96,
       targetHeight: 64,
-    });
+    })).rejects.toThrow("已停止生成以保护原图");
 
-    expect(result.images).toHaveLength(1);
-    expect(result.images[0].width).toBe(96);
-    expect(result.images[0].height).toBe(64);
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/edits"))).toBe(true);
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(true);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(false);
   });
 
   it("falls back to multimodal text extraction when image OCR returns empty text", async () => {
