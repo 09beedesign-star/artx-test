@@ -20,6 +20,7 @@ describe("AdminPrototypePage capability margin filters", () => {
     expect(page).toContain('"/api/admin/capability-margin"');
     expect(page).toContain('activeSection !== "integrations"');
     expect(page).toContain("预估成本");
+    expect(page).not.toContain("· 成本 ${formatCurrency(item.estimatedCost)}");
     expect(page).toContain("能力汇总");
     expect(page).toContain("模型汇总");
     expect(page).toContain("筛选后的任务明细");

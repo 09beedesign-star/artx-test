@@ -1925,7 +1925,7 @@ function AdminPrototypePage() {
               description="看哪家供应商最耗钱、最影响毛利。"
               rows={(adminData.overview?.aiCostBreakdownByProvider || []).map((item) => ({
                 title: item.label,
-                meta: `成功 ${item.successCount} / 失败 ${item.failedCount} · 成本 ${formatCurrency(item.estimatedCost)}`,
+                meta: `成功 ${item.successCount} / 失败 ${item.failedCount} · 预估成本 ${formatCurrency(item.estimatedCost)}`,
                 value: `${formatCredits(item.chargedCredits)} 积分 · ${Math.round(item.avgGrossMargin * 100)}%`,
                 icon: Gauge,
               }))}
