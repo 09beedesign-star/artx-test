@@ -250,7 +250,8 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(applyTextEditBlock).not.toContain("image-text-relayout");
     expect(applyTextEditBlock).not.toContain("callLLM({");
     expect(serverSource).toContain('const isTextEditOperation = input.operation === "text_edit";');
-    expect(serverSource).toContain("已阻止退回参考生图");
+    expect(serverSource).toContain("This is a local text replacement edit");
+    expect(serverSource).toContain("Use the source image as the only target canvas");
   });
 
   it("keeps assistant composer text fields alive when backspacing around chips", () => {

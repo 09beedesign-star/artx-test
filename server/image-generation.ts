@@ -2865,9 +2865,6 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   };
 
   if (isChatCompatibleImageModel(selectedModel)) {
-    if (isTextEditOperation) {
-      throw new Error("智能文案编辑需要支持局部图片编辑的模型接口，已阻止退回参考生图以避免生成无关图片。");
-    }
     return editViaReferenceGeneration();
   }
 
@@ -2911,9 +2908,6 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (isImageEditEndpointUnavailable(error)) {
-      if (isTextEditOperation) {
-        throw new Error(`智能文案编辑接口暂不可用，已阻止退回参考生图：${message}`);
-      }
       return editViaReferenceGeneration();
     }
     if (!message.toLowerCase().includes("response_format")) throw error;
@@ -2921,10 +2915,6 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
       providerData = await callImageEditProvider(await createBody(false), apiKey, baseUrl);
     } catch (fallbackError) {
       if (isImageEditEndpointUnavailable(fallbackError)) {
-        if (isTextEditOperation) {
-          const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
-          throw new Error(`智能文案编辑接口暂不可用，已阻止退回参考生图：${fallbackMessage}`);
-        }
         return editViaReferenceGeneration();
       }
       throw fallbackError;
@@ -2943,9 +2933,6 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   );
 
   if (images.length === 0) {
-    if (isTextEditOperation) {
-      throw new Error("智能文案编辑接口没有返回可用图片，已阻止退回参考生图。");
-    }
     return editViaReferenceGeneration();
   }
 
