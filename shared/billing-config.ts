@@ -179,12 +179,32 @@ export function formatCredits(value: number) {
   return value.toLocaleString("zh-CN");
 }
 
-export const CREDIT_RECHARGE_RATE = 100;
+export interface CreditRechargeTier {
+  minAmount: number;
+  creditsPerHkd: number;
+  label: string;
+}
+
+export const CREDIT_RECHARGE_TIERS: CreditRechargeTier[] = [
+  { minAmount: 500, creditsPerHkd: 170, label: "大额补充" },
+  { minAmount: 150, creditsPerHkd: 150, label: "增长补充" },
+  { minAmount: 10, creditsPerHkd: 130, label: "轻量补充" },
+];
+
+export const CREDIT_RECHARGE_RATE = 130;
+
+export function getCreditRechargeTier(amount: number) {
+  const normalizedAmount = Math.max(0, Math.round(amount));
+  return CREDIT_RECHARGE_TIERS.find((tier) => normalizedAmount >= tier.minAmount) || CREDIT_RECHARGE_TIERS[CREDIT_RECHARGE_TIERS.length - 1];
+}
 
 export function quoteCreditRecharge(amount: number) {
   const normalizedAmount = Math.max(0, Math.round(amount));
+  const tier = getCreditRechargeTier(normalizedAmount);
   return {
     amount: normalizedAmount,
-    credits: normalizedAmount * CREDIT_RECHARGE_RATE,
+    credits: normalizedAmount * tier.creditsPerHkd,
+    creditsPerHkd: tier.creditsPerHkd,
+    tier,
   };
 }

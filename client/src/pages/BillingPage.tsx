@@ -144,7 +144,7 @@ const rechargePacks = [
   {
     id: "pack-small",
     name: "轻量补充",
-    credits: "小额积分包",
+    credits: "HKD 10 起 · 130 积分/HKD",
     placeholder: "例如 50",
     usage: "临时补充生成额度",
     perks: [
@@ -157,7 +157,7 @@ const rechargePacks = [
   {
     id: "pack-growth",
     name: "增长补充",
-    credits: "中额积分包",
+    credits: "HKD 150 起 · 150 积分/HKD",
     placeholder: "例如 150",
     usage: "适合连续作业",
     perks: [
@@ -170,7 +170,7 @@ const rechargePacks = [
   {
     id: "pack-scale",
     name: "规模补充",
-    credits: "大额积分包",
+    credits: "HKD 500 起 · 170 积分/HKD",
     placeholder: "例如 500",
     usage: "适合批量生成与团队项目",
     perks: [
@@ -224,6 +224,13 @@ function notifyCreditsUpdated(balance: number) {
       detail: { balance },
     })
   );
+}
+
+function formatRechargePreview(amount: number) {
+  const quote = quoteCreditRecharge(amount);
+  const credits = quote.credits.toLocaleString("zh-HK");
+  if (quote.amount <= 0) return `${credits} 积分`;
+  return `${credits} 积分 · ${quote.creditsPerHkd} 积分/HKD`;
 }
 
 function clearExpiredAuthSession() {
@@ -1272,7 +1279,7 @@ export default function BillingPage() {
                           textTransform: "none",
                         }}
                       >
-                        积分只代表可用创作额度，不绑定某一个模型。
+                        积分只代表可用创作额度，不绑定某一个模型；充值按金额阶梯到账。
                       </p>
                     </div>
                     <WalletCards size={20} style={{ color: green }} />
@@ -1344,10 +1351,7 @@ export default function BillingPage() {
                           }}
                         >
                           可兑换{" "}
-                          {quoteCreditRecharge(
-                            Number(rechargeAmounts[pack.id] || 0)
-                          ).credits.toLocaleString("zh-HK")}{" "}
-                          积分
+                          {formatRechargePreview(Number(rechargeAmounts[pack.id] || 0))}
                         </div>
                         <p
                           className="mt-4 type-caption leading-5"
