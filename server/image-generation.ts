@@ -408,13 +408,13 @@ function getPicWishConfig() {
 }
 
 function getPicWishObjectsRemovalConfig() {
-  const apiKey = process.env.PICWISH_API_KEY || process.env.AOS_API_KEY || "";
+  const sharedConfig = getPicWishConfig();
   const baseUrl = (
     process.env.PICWISH_OBJECTS_REMOVAL_BASE_URL ||
     process.env.PICWISH_INPAINT_BASE_URL ||
-    "https://techhk.aoscdn.com"
+    sharedConfig.baseUrl
   ).replace(/\/+$/, "");
-  return { apiKey, baseUrl };
+  return { apiKey: sharedConfig.apiKey, baseUrl };
 }
 
 const supportedImageModels = new Set<string>(IMAGE_MODEL_PRIORITY_IDS);
@@ -1349,7 +1349,7 @@ async function pollPicWishInpaintTask(taskId: string, apiKey: string, baseUrl: s
       durationMs: Date.now() - startedAt,
     });
     if (state > 0) {
-      const imageUrl = data.data?.image || "";
+      const imageUrl = getPicWishResultImageUrl(data, "inpaint");
       if (state !== 1 && !imageUrl) continue;
       if (!imageUrl) {
         logPicWishEvent("failure", { taskType: "inpaint", endpoint, taskId, status: data.status, state, progress: data.data?.progress, durationMs: Date.now() - startedAt, error: "PicWish inpaint did not return a result image" });

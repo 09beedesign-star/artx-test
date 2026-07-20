@@ -5771,20 +5771,15 @@ function AssetNodeComponent({
   const eraseHasPaintRef = useRef(false);
   const [extractedTextDraft, setExtractedTextDraft] = useState(extractedText);
   const extractedTextFields = useMemo(() => {
-    const fields = extractedTextDraft
-      .split("\n")
-      .map(item => item.trim())
-      .filter(Boolean);
+    const fields = extractedTextDraft.split("\n").map(item => item.trim());
     return fields.length ? fields : ["未识别到可编辑文案"];
   }, [extractedTextDraft]);
   const updateExtractedTextField = useCallback(
     (index: number, value: string) => {
       setExtractedTextDraft(current => {
-        const fields = current
-          .split("\n")
-          .map(item => item.trim())
-          .filter(Boolean);
+        const fields = current.split("\n").map(item => item.trim());
         const nextFields = fields.length ? [...fields] : [""];
+        while (nextFields.length <= index) nextFields.push("");
         nextFields[index] = value;
         return nextFields.join("\n");
       });
@@ -7518,6 +7513,8 @@ function AssetNodeComponent({
                 padding: 12,
                 paddingBottom: 12,
                 overflowY: "auto",
+                scrollbarWidth: "thin",
+                scrollbarColor: `${isDark ? "rgba(255,255,255,0.24)" : "rgba(0,0,0,0.20)"} transparent`,
                 overscrollBehavior: "contain",
                 userSelect: "text",
               }}
@@ -7579,6 +7576,8 @@ function AssetNodeComponent({
                           userSelect: "text",
                           cursor: "text",
                           overflowY: "auto",
+                          scrollbarWidth: "thin",
+                          scrollbarColor: `${isDark ? "rgba(255,255,255,0.24)" : "rgba(0,0,0,0.20)"} transparent`,
                           overscrollBehavior: "contain",
                         }}
                         readOnly={isApplyingExtractedText}
@@ -17680,7 +17679,12 @@ function CanvasAssistantPanel({
         void handleSubmit();
         return;
       }
+      if (event.key === "Delete") {
+        event.stopPropagation();
+        return;
+      }
       if (event.key !== "Backspace") return;
+      event.stopPropagation();
       const target = event.currentTarget;
       const getEditableSelectionRange = () => {
         if (
@@ -17762,49 +17766,13 @@ function CanvasAssistantPanel({
       if (selectionRange.start !== 0 || selectionRange.end !== 0) {
         return;
       }
-      const index = composerSegments.findIndex(
-        segment => segment.id === segmentId
-      );
-      const previous = index > 0 ? composerSegments[index - 1] : null;
-      if (previous?.type === "text" && selectionRange.value.length === 0) {
+      if (selectionRange.value.length === 0) {
         event.preventDefault();
-        setComposerSegments(prev =>
-          prev.filter(segment => segment.id !== segmentId)
-        );
-        focusComposerSegment(previous.id);
+        restoreEmptyComposerField();
         return;
       }
-      if (!previous || !isAssistantTokenSegment(previous)) {
-        if (
-          selectionRange.value.length === 0 &&
-          composerSegments.length === 1
-        ) {
-          event.preventDefault();
-          restoreEmptyComposerField();
-        }
-        return;
-      }
-      event.preventDefault();
-      if (previous.type === "skill") {
-        onActiveSkillChange(null);
-      } else if (previous.type === "image") {
-        onRemoveReference(previous.asset.id);
-        syncedReferenceIdsRef.current.delete(previous.asset.id);
-      } else {
-        onRemoveAnnotationReference(previous.annotation.id);
-        syncedAnnotationIdsRef.current.delete(previous.annotation.id);
-      }
-      setComposerSegments(prev =>
-        prev.filter(segment => segment.id !== previous.id)
-      );
-      focusComposerSegment(segmentId, 0);
     },
     [
-      composerSegments,
-      focusComposerSegment,
-      onActiveSkillChange,
-      onRemoveAnnotationReference,
-      onRemoveReference,
       setComposerTextSegment,
     ]
   );
@@ -19326,15 +19294,16 @@ function CanvasAssistantPanel({
               )}
               <div
                 ref={composerShellRef}
-                className="composer-scrollbar-hidden mb-2 min-h-[82px] overflow-y-auto rounded-[var(--radius-md-design)] px-1 py-1"
+                className="mb-2 min-h-[82px] overflow-y-auto rounded-[var(--radius-md-design)] px-1 py-1"
                 style={{
                   position: "relative",
                   color: text,
                   lineHeight: "22px",
                   maxHeight: "min(48vh, 360px)",
                   overflowX: "hidden",
-                  scrollbarWidth: "none",
-                  scrollbarColor: "transparent transparent",
+                  scrollbarWidth: "thin",
+                  scrollbarColor: `${isDark ? "rgba(255,255,255,0.24)" : "rgba(0,0,0,0.20)"} transparent`,
+                  scrollbarGutter: "stable",
                   overscrollBehavior: "contain",
                   paddingLeft: hasActiveSkill ? 0 : undefined,
                 }}
@@ -19770,12 +19739,9 @@ function CanvasAssistantPanel({
                             event.currentTarget
                           )
                         }
-                        onKeyDown={event => {
-                          if (event.key === "Enter" && !event.shiftKey) {
-                            event.preventDefault();
-                            void handleSubmit();
-                          }
-                        }}
+                        onKeyDown={event =>
+                          handleComposerTextKeyDown(event, segment.id)
+                        }
                         onPaste={event => {
                           if (!clipboardPayloadHasImageContent(event.clipboardData))
                             return;

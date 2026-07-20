@@ -203,20 +203,44 @@ describe("InfiniteCanvas prompt controls", () => {
 
   it("renders smart copy editing as scrollable structured non-empty sub fields", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const extractedTextStateBlock = source.match(
+      /const extractedTextFields = useMemo[\s\S]*?const extractedTextPanelRef/
+    )?.[0];
+    const extractedTextPanelBlock = source.match(
+      /<span className="type-caption" style=\{\{ fontWeight: 700 \}\}>[\s\S]*?<div\s+className="flex flex-col gap-2">[\s\S]*?<\/label>\s*\)\)\}/
+    )?.[0];
 
     expect(source).toContain('label: "智能文案编辑"');
     expect(source).toContain('"edit-text": "智能文案编辑"');
-    expect(source).toContain("const extractedTextFields = useMemo");
-    expect(source).toContain(".map(item => item.trim())");
-    expect(source).toContain(".filter(Boolean)");
-    expect(source).toContain('return fields.length ? fields : ["未识别到可编辑文案"];');
-    expect(source).toContain("updateExtractedTextField");
-    expect(source).toContain("文案段落");
-    expect(source).toContain('aria-label={`编辑提取文案 ${index + 1}`}');
-    expect(source).toContain('minHeight: 0');
-    expect(source).toContain('paddingBottom: 12');
-    expect(source).toContain('overflowY: "auto"');
+    expect(extractedTextStateBlock).toBeTruthy();
+    expect(extractedTextStateBlock).toContain(".map(item => item.trim())");
+    expect(extractedTextStateBlock).toContain('return fields.length ? fields : ["未识别到可编辑文案"];');
+    expect(extractedTextStateBlock).toContain("updateExtractedTextField");
+    expect(extractedTextStateBlock).toContain('while (nextFields.length <= index) nextFields.push("");');
+    expect(extractedTextStateBlock).not.toContain(".filter(Boolean)");
+    expect(extractedTextPanelBlock).toBeTruthy();
+    expect(extractedTextPanelBlock).toContain("文案段落");
+    expect(extractedTextPanelBlock).toContain('aria-label={`编辑提取文案 ${index + 1}`}');
+    expect(extractedTextPanelBlock).toContain('minHeight: 0');
+    expect(extractedTextPanelBlock).toContain('paddingBottom: 12');
+    expect(extractedTextPanelBlock).toContain('overflowY: "auto"');
+    expect(extractedTextPanelBlock).toContain('scrollbarWidth: "thin"');
     expect(source).not.toContain('label: "智能文案"');
     expect(source).not.toContain('label: "文案提取"');
+  });
+
+  it("keeps assistant composer text fields alive when backspacing around chips", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const handlerBlock = source.match(
+      /const handleComposerTextKeyDown = useCallback[\s\S]*?const composerText = getAssistantComposerText/
+    )?.[0];
+
+    expect(handlerBlock).toBeTruthy();
+    expect(handlerBlock).toContain('if (event.key === "Delete")');
+    expect(handlerBlock).toContain("event.stopPropagation();");
+    expect(handlerBlock).toContain("restoreEmptyComposerField();");
+    expect(handlerBlock).not.toContain("previous?.type");
+    expect(handlerBlock).not.toContain("prev.filter(segment => segment.id !== previous.id)");
+    expect(handlerBlock).not.toContain("prev.filter(segment => segment.id !== segmentId)");
   });
 });

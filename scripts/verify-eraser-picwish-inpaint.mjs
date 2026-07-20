@@ -33,8 +33,8 @@ if (!/\/api\/tasks\/visual\/inpaint/.test(source) || !/getPicWishObjectsRemovalE
   throw new Error("橡皮擦必须直连 PicWish inpaint 创建任务接口");
 }
 
-if (!/getPicWishObjectsRemovalConfig/.test(createTaskSource) || !/https:\/\/techhk\.aoscdn\.com/.test(source)) {
-  throw new Error("橡皮擦必须使用 PicWish remove-unwanted-object 对应的 techhk Objects Removal 配置");
+if (!/getPicWishObjectsRemovalConfig/.test(createTaskSource) || !/sharedConfig\.baseUrl/.test(source)) {
+  throw new Error("橡皮擦必须默认跟随全站 PICWISH_BASE_URL，只有专用配置存在时才覆盖");
 }
 
 if (!/getPicWishObjectsRemovalEndpoint\(baseUrl\).*encodeURIComponent\(taskId\)/s.test(pollTaskSource)) {
@@ -65,7 +65,7 @@ if (!/attempt < 180/.test(pollTaskSource)) {
   throw new Error("橡皮擦异步轮询最长必须支持 180 秒");
 }
 
-if (!/state > 0/.test(pollTaskSource) || !/state < 0/.test(pollTaskSource) || !/imageUrl/.test(pollTaskSource)) {
+if (!/state > 0/.test(pollTaskSource) || !/state < 0/.test(pollTaskSource) || !/getPicWishResultImageUrl\(data, "inpaint"\)/.test(pollTaskSource)) {
   throw new Error("橡皮擦轮询必须结合 data.state 和 data.image 判断成功/失败");
 }
 
@@ -97,4 +97,4 @@ if (/createLocalEraseFallback|compositeEraseResultInsidePicWishMask|didEraseChan
   throw new Error("eraseImageObjects 不能再走旧橡皮擦链路");
 }
 
-console.log("PicWish eraser route matches the remove-unwanted-object Objects Removal API, including techhk routing, sync modes, URL/file inputs, rectangles, 180s polling, URL results, and white-remove masks.");
+console.log("PicWish eraser route matches the remove-unwanted-object Objects Removal API, including shared PICWISH_BASE_URL routing, sync modes, URL/file inputs, rectangles, 180s polling, URL results, and white-remove masks.");
