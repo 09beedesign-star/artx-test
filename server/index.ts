@@ -2058,7 +2058,7 @@ async function startServer() {
 
   app.all("/api/admin/*", async (req, res) => {
     try {
-      const result = await handleAdminApiRequest(req.method, req.path.replace(/^\/api\/admin\/?/, ""), req.headers.authorization, req.body);
+      const result = await handleAdminApiRequest(req.method, req.originalUrl.replace(/^\/api\/admin\/?/, ""), req.headers.authorization, req.body);
       res.status(result.status).json(result.body);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Admin API request failed";

@@ -378,6 +378,36 @@ type AiCostBreakdownRow = {
   avgGrossMargin: number;
 };
 
+export type CapabilityMarginFilters = {
+  time?: "1d" | "3d" | "7d" | "15d" | "30d" | "90d" | "180d";
+  model?: string;
+  account?: string;
+  minChargedCredits?: number;
+  maxChargedCredits?: number;
+  grossMarginBand?: "negative" | "0-30" | "30-60" | ">=60";
+  minGrossMargin?: number;
+  maxGrossMargin?: number;
+};
+
+type CapabilityMarginAggregate = {
+  key: string;
+  label: string;
+  taskCount: number;
+  successCount: number;
+  failedCount: number;
+  chargedCredits: number;
+  estimatedCost: number;
+  grossProfitCredits: number;
+  avgGrossMargin: number;
+};
+
+type CapabilityMarginAnalysis = {
+  tasks: Array<Pick<AiTaskRecord, "id" | "userId" | "user" | "capability" | "model" | "status" | "chargedCredits" | "estimatedCost" | "grossMargin" | "createdAt"> & { userAccount: string }>;
+  kpis: Omit<CapabilityMarginAggregate, "key" | "label">;
+  capabilities: CapabilityMarginAggregate[];
+  models: CapabilityMarginAggregate[];
+};
+
 export type AdminApiResult = {
   status: number;
   body: unknown;
@@ -1381,6 +1411,133 @@ function summarizeAiCostBreakdown(data: AdminData, groupBy: "provider" | "model"
   }).sort((left, right) => right.chargedCredits - left.chargedCredits);
 }
 
+const CAPABILITY_MARGIN_RANGES = {
+  "1d": 1,
+  "3d": 3,
+  "7d": 7,
+  "15d": 15,
+  "30d": 30,
+  "90d": 90,
+  "180d": 180,
+} as const;
+
+function normalizeMarginThreshold(value: number) {
+  return Math.abs(value) > 1 ? value / 100 : value;
+}
+
+function isGrossMarginInBand(grossMargin: number, band?: CapabilityMarginFilters["grossMarginBand"]) {
+  if (!band) return true;
+  if (band === "negative") return grossMargin < 0;
+  if (band === "0-30") return grossMargin >= 0 && grossMargin < 0.3;
+  if (band === "30-60") return grossMargin >= 0.3 && grossMargin < 0.6;
+  return grossMargin >= 0.6;
+}
+
+export function filterAiMarginTasks(
+  data: Pick<AdminData, "aiTasks" | "users">,
+  filters: CapabilityMarginFilters = {},
+) {
+  const accountSearch = filters.account?.trim().toLocaleLowerCase();
+  const minChargedCredits = filters.minChargedCredits;
+  const maxChargedCredits = filters.maxChargedCredits;
+  const minGrossMargin = Number.isFinite(filters.minGrossMargin)
+    ? normalizeMarginThreshold(filters.minGrossMargin!)
+    : undefined;
+  const maxGrossMargin = Number.isFinite(filters.maxGrossMargin)
+    ? normalizeMarginThreshold(filters.maxGrossMargin!)
+    : undefined;
+  const rangeDays = filters.time ? CAPABILITY_MARGIN_RANGES[filters.time] : undefined;
+  const cutoff = rangeDays === undefined ? undefined : Date.now() - rangeDays * 24 * 60 * 60 * 1000;
+  const usersById = new Map(data.users.map((user) => [user.id, user]));
+
+  return data.aiTasks.filter((task) => {
+    const user = usersById.get(task.userId);
+    const userAccount = user?.account || user?.email || task.user;
+    const accountValues = [task.user, user?.name, userAccount, user?.email]
+      .filter((value): value is string => Boolean(value))
+      .map((value) => value.toLocaleLowerCase());
+    const taskTimestamp = parseAdminTimestamp(task.createdAt);
+
+    return (!cutoff || (Number.isFinite(taskTimestamp) && taskTimestamp >= cutoff))
+      && (!filters.model || task.model === filters.model)
+      && (!accountSearch || accountValues.some((value) => value.includes(accountSearch)))
+      && (minChargedCredits === undefined || task.chargedCredits >= minChargedCredits)
+      && (maxChargedCredits === undefined || task.chargedCredits <= maxChargedCredits)
+      && isGrossMarginInBand(task.grossMargin, filters.grossMarginBand)
+      && (minGrossMargin === undefined || task.grossMargin >= minGrossMargin)
+      && (maxGrossMargin === undefined || task.grossMargin <= maxGrossMargin);
+  });
+}
+
+function summarizeCapabilityMarginTasks(tasks: AiTaskRecord[], key: string, label: string): CapabilityMarginAggregate {
+  const successTasks = tasks.filter((task) => task.status === "success");
+  const failedCount = tasks.length - successTasks.length;
+  const chargedCredits = successTasks.reduce((sum, task) => sum + task.chargedCredits, 0);
+  const estimatedCost = Number(successTasks.reduce((sum, task) => sum + task.estimatedCost, 0).toFixed(2));
+  const grossProfitCredits = Number((chargedCredits - estimatedCost * 100).toFixed(2));
+  const avgGrossMargin = successTasks.length
+    ? Number((successTasks.reduce((sum, task) => sum + task.grossMargin, 0) / successTasks.length).toFixed(2))
+    : 0;
+  return {
+    key,
+    label,
+    taskCount: tasks.length,
+    successCount: successTasks.length,
+    failedCount,
+    chargedCredits,
+    estimatedCost,
+    grossProfitCredits,
+    avgGrossMargin,
+  };
+}
+
+function aggregateCapabilityMarginTasks(tasks: AiTaskRecord[], groupBy: "capability" | "model") {
+  const grouped = new Map<string, AiTaskRecord[]>();
+  for (const task of tasks) {
+    const key = groupBy === "capability" ? task.capability : task.model;
+    grouped.set(key, [...(grouped.get(key) || []), task]);
+  }
+  return Array.from(grouped.entries())
+    .map(([key, records]) => summarizeCapabilityMarginTasks(records, key, key))
+    .sort((left, right) => right.chargedCredits - left.chargedCredits || left.label.localeCompare(right.label));
+}
+
+export async function getCapabilityMarginAnalysis(filters: CapabilityMarginFilters = {}): Promise<CapabilityMarginAnalysis> {
+  const data = await loadAdminData();
+  const tasks = filterAiMarginTasks(data, filters);
+  const usersById = new Map(data.users.map((user) => [user.id, user]));
+  const totals = summarizeCapabilityMarginTasks(tasks, "all", "all");
+
+  return {
+    tasks: tasks
+      .map((task) => ({
+        id: task.id,
+        userId: task.userId,
+        user: task.user,
+        userAccount: usersById.get(task.userId)?.account || usersById.get(task.userId)?.email || task.user,
+        capability: task.capability,
+        model: task.model,
+        status: task.status,
+        chargedCredits: task.chargedCredits,
+        estimatedCost: task.estimatedCost,
+        grossMargin: task.grossMargin,
+        createdAt: task.createdAt,
+      }))
+      .sort((left, right) => parseAdminTimestamp(right.createdAt) - parseAdminTimestamp(left.createdAt)),
+    kpis: {
+      taskCount: totals.taskCount,
+      successCount: totals.successCount,
+      failedCount: totals.failedCount,
+      chargedCredits: totals.chargedCredits,
+      estimatedCost: totals.estimatedCost,
+      grossProfitCredits: totals.grossProfitCredits,
+      avgGrossMargin: totals.avgGrossMargin,
+    },
+    capabilities: aggregateCapabilityMarginTasks(tasks, "capability"),
+    models: aggregateCapabilityMarginTasks(tasks, "model"),
+  };
+}
+
 function recalculateUserBilling(data: AdminData) {
   const totalRechargeMap = new Map<string, number>();
   const totalConsumedMap = new Map<string, number>();
@@ -1481,6 +1638,37 @@ function fullPayload(data: AdminData) {
 
 function parsePath(pathname: string) {
   return pathname.replace(/^\/api\/admin\/?/, "").replace(/^\/+/, "").split("?")[0] || "overview";
+}
+
+function getQueryParameters(pathname: string) {
+  const query = pathname.split("?", 2)[1];
+  return query ? Object.fromEntries(new URLSearchParams(query)) : {};
+}
+
+function readCapabilityMarginFilters(input: Record<string, unknown>): CapabilityMarginFilters {
+  const numberValue = (value: unknown) => {
+    const parsed = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
+    return Number.isFinite(parsed) ? parsed : undefined;
+  };
+  const time = typeof input.time === "string" && input.time in CAPABILITY_MARGIN_RANGES
+    ? input.time as CapabilityMarginFilters["time"]
+    : undefined;
+  const grossMarginBand = input.grossMarginBand === "negative" || input.grossMarginBand === "0-30"
+    || input.grossMarginBand === "30-60" || input.grossMarginBand === ">=60"
+    ? input.grossMarginBand
+    : input.marginBand === "negative" || input.marginBand === "0-30" || input.marginBand === "30-60" || input.marginBand === ">=60"
+      ? input.marginBand
+      : undefined;
+  return {
+    time,
+    model: typeof input.model === "string" && input.model.trim() ? input.model.trim() : undefined,
+    account: typeof input.account === "string" && input.account.trim() ? input.account.trim() : undefined,
+    minChargedCredits: numberValue(input.minChargedCredits ?? input.minCredits),
+    maxChargedCredits: numberValue(input.maxChargedCredits ?? input.maxCredits),
+    grossMarginBand,
+    minGrossMargin: numberValue(input.minGrossMargin ?? input.minMargin),
+    maxGrossMargin: numberValue(input.maxGrossMargin ?? input.maxMargin),
+  };
 }
 
 function jsonError(status: number, error: string): AdminApiResult {
@@ -1657,6 +1845,9 @@ export async function handleAdminApiRequest(
   }
   if (method === "GET" && (route === "overview" || route === "dashboard")) {
     return { status: 200, body: fullPayload(data) };
+  }
+  if (method === "GET" && route === "capability-margin") {
+    return { status: 200, body: await getCapabilityMarginAnalysis(readCapabilityMarginFilters({ ...getQueryParameters(pathname), ...body })) };
   }
   if (method === "GET" && route === "users") return { status: 200, body: { users: data.users } };
   const userDetailMatch = route.match(/^users\/([^/]+)\/detail$/);
