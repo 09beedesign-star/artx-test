@@ -320,6 +320,47 @@ type AdminPayload = {
   productionChecks?: ProductionCheck[];
 };
 
+type CapabilityMarginAggregate = {
+  key: string;
+  label: string;
+  taskCount: number;
+  successCount: number;
+  failedCount: number;
+  chargedCredits: number;
+  estimatedCost: number;
+  grossProfitCredits: number;
+  avgGrossMargin: number;
+};
+
+type CapabilityMarginData = {
+  tasks: Array<{
+    id: string;
+    user: string;
+    userAccount: string;
+    capability: string;
+    model: string;
+    status: string;
+    chargedCredits: number;
+    estimatedCost: number;
+    grossMargin: number;
+    createdAt: string;
+  }>;
+  kpis: Omit<CapabilityMarginAggregate, "key" | "label">;
+  capabilities: CapabilityMarginAggregate[];
+  models: CapabilityMarginAggregate[];
+};
+
+type CapabilityMarginFilters = {
+  time: "1d" | "3d" | "7d" | "15d" | "30d" | "90d" | "180d";
+  grossMarginBand: "" | "negative" | "0-30" | "30-60" | ">=60";
+  minGrossMargin: string;
+  maxGrossMargin: string;
+  model: string;
+  account: string;
+  minChargedCredits: string;
+  maxChargedCredits: string;
+};
+
 const sections: Array<{
   id: AdminSection;
   label: string;
@@ -561,6 +602,19 @@ function AdminPrototypePage() {
   const [isIssuingTestAccount, setIsIssuingTestAccount] = useState(false);
   const [testAccountFeedback, setTestAccountFeedback] = useState<{ tone: "success" | "error"; message: string } | null>(null);
   const [externalUsage, setExternalUsage] = useState<any>(null);
+  const [capabilityMarginFilters, setCapabilityMarginFilters] = useState<CapabilityMarginFilters>({
+    time: "30d",
+    grossMarginBand: "",
+    minGrossMargin: "",
+    maxGrossMargin: "",
+    model: "",
+    account: "",
+    minChargedCredits: "",
+    maxChargedCredits: "",
+  });
+  const [capabilityMarginData, setCapabilityMarginData] = useState<CapabilityMarginData | null>(null);
+  const [capabilityMarginLoading, setCapabilityMarginLoading] = useState(false);
+  const [capabilityMarginError, setCapabilityMarginError] = useState("");
 
   useEffect(() => {
     const previousTitle = document.title;
@@ -651,6 +705,49 @@ function AdminPrototypePage() {
       .then(setExternalUsage)
       .catch(() => setExternalUsage(null));
   }, [activeSection]);
+
+  useEffect(() => {
+    if (activeSection !== "integrations") return;
+
+    const token = readAdminToken();
+    if (!token) {
+      setCapabilityMarginData(null);
+      setCapabilityMarginError("未找到后台登录令牌，请重新登录后查看毛利分析。");
+      return;
+    }
+
+    const query = new URLSearchParams({ time: capabilityMarginFilters.time });
+    for (const [key, value] of Object.entries(capabilityMarginFilters)) {
+      if (key !== "time" && value) query.set(key, value);
+    }
+    const controller = new AbortController();
+    const capabilityMarginPath = "/api/admin/capability-margin";
+    setCapabilityMarginLoading(true);
+    setCapabilityMarginError("");
+
+    fetch(`${capabilityMarginPath}?${query.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error || "毛利分析加载失败");
+        return payload as CapabilityMarginData;
+      })
+      .then((payload) => {
+        setCapabilityMarginData(payload);
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setCapabilityMarginData(null);
+        setCapabilityMarginError(error instanceof Error ? error.message : "毛利分析加载失败");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setCapabilityMarginLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [activeSection, capabilityMarginFilters]);
 
   async function adminPost(
     path: string,
@@ -1811,17 +1908,18 @@ function AdminPrototypePage() {
               },
             ]}
           />
-          <div className="grid gap-4 xl:grid-cols-2">
-            <DataList
-              title="按能力统计毛利"
-              description="按用户最终消耗积分的能力统计，用于调整积分定价。"
-              rows={(adminData.overview?.aiCostBreakdownByCapability || []).map((item) => ({
-                title: item.label,
-                meta: `成功 ${item.successCount} / 失败 ${item.failedCount} · 预估成本 ${formatCurrency(item.estimatedCost)}`,
-                value: `${formatCredits(item.chargedCredits)} 积分 · 毛利 ${Math.round(item.avgGrossMargin * 100)}%`,
-                icon: Gauge,
-              }))}
-            />
+          <CapabilityMarginAnalysis
+            filters={capabilityMarginFilters}
+            onFiltersChange={setCapabilityMarginFilters}
+            data={capabilityMarginData}
+            loading={capabilityMarginLoading}
+            error={capabilityMarginError}
+            modelOptions={Array.from(new Set([
+              ...(adminData.overview?.aiCostBreakdownByModel || []).map((item) => item.key),
+              ...(capabilityMarginData?.models || []).map((item) => item.key),
+            ])).sort()}
+          />
+          <div className="grid gap-4 xl:grid-cols-1">
             <DataList
               title="按供应商毛利明细"
               description="看哪家供应商最耗钱、最影响毛利。"
@@ -1830,16 +1928,6 @@ function AdminPrototypePage() {
                 meta: `成功 ${item.successCount} / 失败 ${item.failedCount} · 成本 ${formatCurrency(item.estimatedCost)}`,
                 value: `${formatCredits(item.chargedCredits)} 积分 · ${Math.round(item.avgGrossMargin * 100)}%`,
                 icon: Gauge,
-              }))}
-            />
-            <DataList
-              title="按模型毛利明细"
-              description="看不同模型的积分回收与成本表现。"
-              rows={(adminData.overview?.aiCostBreakdownByModel || []).map((item) => ({
-                title: item.label,
-                meta: `成功 ${item.successCount} / 失败 ${item.failedCount} · 成本 ${formatCurrency(item.estimatedCost)}`,
-                value: `${formatCredits(item.chargedCredits)} 积分 · ${Math.round(item.avgGrossMargin * 100)}%`,
-                icon: Activity,
               }))}
             />
           </div>
@@ -3112,6 +3200,222 @@ function ProductionCheckPanel({
         {check.evidence.slice(0, 3).join(" · ")}
       </div>
     </div>
+  );
+}
+
+function CapabilityMarginAnalysis({
+  filters,
+  onFiltersChange,
+  data,
+  loading,
+  error,
+  modelOptions,
+}: {
+  filters: CapabilityMarginFilters;
+  onFiltersChange: (filters: CapabilityMarginFilters) => void;
+  data: CapabilityMarginData | null;
+  loading: boolean;
+  error: string;
+  modelOptions: string[];
+}) {
+  const updateFilter = <Key extends keyof CapabilityMarginFilters>(key: Key, value: CapabilityMarginFilters[Key]) => {
+    onFiltersChange({ ...filters, [key]: value });
+  };
+
+  return (
+    <section className="min-w-0 space-y-4">
+      <div>
+        <h2 className="text-base font-semibold">按能力统计毛利</h2>
+        <p className="mt-1 text-sm text-slate-400">筛选条件直接在服务端计算任务明细、能力汇总、模型汇总和指标。</p>
+      </div>
+      <div className="grid gap-3 border-y border-white/10 py-3 md:grid-cols-2 xl:grid-cols-4">
+        <label className="grid gap-1 text-xs text-slate-400">
+          <span>时间范围</span>
+          <select
+            aria-label="时间范围"
+            value={filters.time}
+            onChange={(event) => updateFilter("time", event.target.value as CapabilityMarginFilters["time"])}
+            className="h-9 rounded-md border border-white/10 bg-slate-950/40 px-2 text-sm text-slate-100 outline-none"
+          >
+            <option value="1d">最近一天</option>
+            <option value="3d">近3天</option>
+            <option value="7d">近7天</option>
+            <option value="15d">近半个月</option>
+            <option value="30d">近一个月</option>
+            <option value="90d">近三个月</option>
+            <option value="180d">近半年</option>
+          </select>
+        </label>
+        <label className="grid gap-1 text-xs text-slate-400">
+          <span>毛利区间</span>
+          <select
+            aria-label="毛利区间"
+            value={filters.grossMarginBand}
+            onChange={(event) => updateFilter("grossMarginBand", event.target.value as CapabilityMarginFilters["grossMarginBand"])}
+            className="h-9 rounded-md border border-white/10 bg-slate-950/40 px-2 text-sm text-slate-100 outline-none"
+          >
+            <option value="">全部毛利</option>
+            <option value="negative">负毛利</option>
+            <option value="0-30">0% - 30%</option>
+            <option value="30-60">30% - 60%</option>
+            <option value=">=60">60% 及以上</option>
+          </select>
+        </label>
+        <label className="grid gap-1 text-xs text-slate-400">
+          <span>模型</span>
+          <select
+            aria-label="模型"
+            value={filters.model}
+            onChange={(event) => updateFilter("model", event.target.value)}
+            className="h-9 rounded-md border border-white/10 bg-slate-950/40 px-2 text-sm text-slate-100 outline-none"
+          >
+            <option value="">全部模型</option>
+            {modelOptions.map((model) => <option key={model} value={model}>{model}</option>)}
+          </select>
+        </label>
+        <label className="grid gap-1 text-xs text-slate-400">
+          <span>账号</span>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-500" />
+            <Input
+              aria-label="搜索账号"
+              value={filters.account}
+              onChange={(event) => updateFilter("account", event.target.value)}
+              placeholder="邮箱或用户名"
+              className="border-white/10 bg-slate-950/40 pl-9"
+            />
+          </div>
+        </label>
+        <label className="grid gap-1 text-xs text-slate-400">
+          <span>最低毛利 (%)</span>
+          <Input
+            aria-label="最低毛利"
+            type="number"
+            value={filters.minGrossMargin}
+            onChange={(event) => updateFilter("minGrossMargin", event.target.value)}
+            placeholder="不限"
+            className="border-white/10 bg-slate-950/40"
+          />
+        </label>
+        <label className="grid gap-1 text-xs text-slate-400">
+          <span>最高毛利 (%)</span>
+          <Input
+            aria-label="最高毛利"
+            type="number"
+            value={filters.maxGrossMargin}
+            onChange={(event) => updateFilter("maxGrossMargin", event.target.value)}
+            placeholder="不限"
+            className="border-white/10 bg-slate-950/40"
+          />
+        </label>
+        <label className="grid gap-1 text-xs text-slate-400">
+          <span>最低积分</span>
+          <Input
+            aria-label="最低积分"
+            type="number"
+            min="0"
+            value={filters.minChargedCredits}
+            onChange={(event) => updateFilter("minChargedCredits", event.target.value)}
+            placeholder="不限"
+            className="border-white/10 bg-slate-950/40"
+          />
+        </label>
+        <label className="grid gap-1 text-xs text-slate-400">
+          <span>最高积分</span>
+          <Input
+            aria-label="最高积分"
+            type="number"
+            min="0"
+            value={filters.maxChargedCredits}
+            onChange={(event) => updateFilter("maxChargedCredits", event.target.value)}
+            placeholder="不限"
+            className="border-white/10 bg-slate-950/40"
+          />
+        </label>
+      </div>
+
+      {loading ? (
+        <div role="status" className="py-8 text-center text-sm text-slate-400">正在加载筛选后的毛利数据...</div>
+      ) : error ? (
+        <div role="alert" className="border-y border-rose-400/30 py-4 text-sm text-rose-200">毛利分析加载失败：{error}</div>
+      ) : !data ? (
+        <EmptyPanel title="暂无毛利分析数据" body="筛选结果加载后会在这里展示服务端汇总和任务明细。" />
+      ) : !data.tasks.length ? (
+        <EmptyPanel title="没有匹配的任务" body="请放宽时间、毛利、模型、账号或积分条件后重试。" />
+      ) : (
+        <>
+          <div className="grid gap-3 border-y border-white/10 py-3 sm:grid-cols-2 xl:grid-cols-4">
+            <InfoCell label="任务数" value={`${data.kpis.taskCount}（成功 ${data.kpis.successCount} / 失败 ${data.kpis.failedCount}）`} />
+            <InfoCell label="预估成本" value={formatCurrency(data.kpis.estimatedCost)} />
+            <InfoCell label="实收积分" value={`${formatCredits(data.kpis.chargedCredits)} 积分`} />
+            <InfoCell label="平均毛利" value={`${Math.round(data.kpis.avgGrossMargin * 100)}%`} />
+          </div>
+          <div className="grid gap-4 xl:grid-cols-2">
+            <DataList
+              title="能力汇总"
+              description="同一筛选条件下按能力聚合。"
+              rows={data.capabilities.map((item) => ({
+                title: item.label,
+                meta: `任务 ${item.taskCount} · 成功 ${item.successCount} / 失败 ${item.failedCount} · 预估成本 ${formatCurrency(item.estimatedCost)}`,
+                value: `${formatCredits(item.chargedCredits)} 积分 · 毛利 ${Math.round(item.avgGrossMargin * 100)}%`,
+                icon: Gauge,
+              }))}
+            />
+            <DataList
+              title="模型汇总"
+              description="同一筛选条件下按模型聚合。"
+              rows={data.models.map((item) => ({
+                title: item.label,
+                meta: `任务 ${item.taskCount} · 成功 ${item.successCount} / 失败 ${item.failedCount} · 预估成本 ${formatCurrency(item.estimatedCost)}`,
+                value: `${formatCredits(item.chargedCredits)} 积分 · 毛利 ${Math.round(item.avgGrossMargin * 100)}%`,
+                icon: Activity,
+              }))}
+            />
+          </div>
+          <div className="min-w-0">
+            <div className="mb-3">
+              <h3 className="text-sm font-semibold">筛选后的任务明细</h3>
+              <p className="mt-1 text-xs text-slate-500">时间保留任务创建时的精确时间。</p>
+            </div>
+            <div className="overflow-x-auto border-y border-white/10">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-white/8 hover:bg-transparent">
+                    <TableHead>账号</TableHead>
+                    <TableHead>能力 / 模型</TableHead>
+                    <TableHead>状态</TableHead>
+                    <TableHead className="text-right">实收积分</TableHead>
+                    <TableHead className="text-right">预估成本</TableHead>
+                    <TableHead className="text-right">毛利</TableHead>
+                    <TableHead>创建时间</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.tasks.map((task) => (
+                    <TableRow key={task.id} className="border-white/8 hover:bg-white/[0.025]">
+                      <TableCell className="min-w-[180px]">
+                        <div className="text-sm text-slate-100">{task.userAccount || task.user}</div>
+                        <div className="mt-1 text-xs text-slate-500">{task.user}</div>
+                        <div className="mt-1 break-all font-mono text-xs text-slate-500">任务 ID：{task.id}</div>
+                      </TableCell>
+                      <TableCell className="min-w-[180px]">
+                        <div className="text-sm text-slate-100">{task.capability}</div>
+                        <div className="mt-1 break-all font-mono text-xs text-slate-500">{task.model}</div>
+                      </TableCell>
+                      <TableCell><Badge className={statusClass(task.status)}>{task.status === "success" ? "成功" : "失败"}</Badge></TableCell>
+                      <TableCell className="text-right font-mono text-slate-200">{formatCredits(task.chargedCredits)}</TableCell>
+                      <TableCell className="text-right font-mono text-slate-200">{formatCurrency(task.estimatedCost)}</TableCell>
+                      <TableCell className="text-right font-mono text-slate-200">{Math.round(task.grossMargin * 100)}%</TableCell>
+                      <TableCell className="min-w-[180px] font-mono text-xs text-slate-400">{formatExactOrderTime(task.createdAt, "未提供精确时间")}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </>
+      )}
+    </section>
   );
 }
 
