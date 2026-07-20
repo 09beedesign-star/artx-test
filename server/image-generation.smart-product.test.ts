@@ -1,101 +1,33 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import sharp from "sharp";
-import {
-  __testBuildSmartProductBackgroundPrompt,
-  __testCompositeProtectedProductOnBackground,
-  __testGetSmartProductBackgroundReferences,
-  __testResolveSmartProductPlacement,
-} from "./image-generation";
 
-describe("smart product generation prompt", () => {
+describe("smart product PicWish r-background route", () => {
   const source = readFileSync(resolve(__dirname, "image-generation.ts"), "utf-8");
 
-  it("keeps the uploaded product outside every background model request", () => {
-    expect(source).toContain("removeBackgroundPreservingForegroundPixels(input.imageSrc)");
-    expect(source).toContain("Generate the empty ecommerce background plate only");
-    expect(source).toContain("Do not include any product, person, packaging, logo, or foreground object.");
+  it("uses PicWish r-background directly without Image2 or Gemini background fallback", () => {
+    const createBackgroundSource =
+      source.match(/async function createBackgroundWithPicWish[\s\S]*?\n}/)?.[0] || "";
+    const createProductBackgroundSource =
+      source.match(/export async function createProductBackground[\s\S]*?return withProviderTaskIds/)?.[0] || "";
+
+    expect(createBackgroundSource).toContain('runPicWishImageTask("r-background"');
+    expect(createBackgroundSource).toContain("scene_type: 105");
+    expect(createBackgroundSource).toContain("width: output.width");
+    expect(createBackgroundSource).toContain("height: output.height");
+    expect(createProductBackgroundSource).toContain("createBackgroundWithPicWish({");
+    expect(createProductBackgroundSource).not.toContain("generateImages(");
+    expect(createProductBackgroundSource).not.toContain("getImageModelFallbackAttempts(");
+    expect(createProductBackgroundSource).not.toContain("Image2");
+    expect(createProductBackgroundSource).not.toContain("Gemini");
   });
 
-  it("protects the PicWish cutout while routing background plates through the shared image model priority", () => {
-    expect(source).toContain("const cutout = await removeBackgroundPreservingForegroundPixels(input.imageSrc)");
-    expect(source).toContain("const protectedProduct = cutout.images[0]");
-    expect(source).toContain("Generate the empty ecommerce background plate only");
-    expect(source).toContain("getImageModelFallbackAttempts(input.model)");
-    expect(source).toContain("Smart product background plate failed; retrying next model");
-    expect(source).toContain("All priority background plate models failed");
-    expect(source).toContain("compositeProtectedProductOnBackground");
-    expect(source).toContain("createProductGroundedShadow");
-    expect(source).toContain("matchProductLightingToBackground");
-    expect(source).not.toContain("createProductContactShadow(");
-    expect(source).toContain("Image2 and Gemini background plates failed; using PicWish smart product background fallback");
-    expect(source).toContain("export const __testCompositeProtectedProductOnBackground");
-  });
-
-  it("gives the background model the product camera reference without allowing it to redraw the product", () => {
-    const references = __testGetSmartProductBackgroundReferences({
-      imageSrc: "data:image/png;base64,product",
-      backgroundReferenceSrc: "data:image/png;base64,background",
-      backgroundReferenceName: "living room reference",
-    });
-    const prompt = __testBuildSmartProductBackgroundPrompt({
-      imageSrc: "data:image/png;base64,product",
-      backgroundReferenceSrc: "data:image/png;base64,background",
-      backgroundReferenceName: "living room reference",
-      prompt: "warm modern living room",
-    });
-
-    expect(references).toEqual([
-      { src: "data:image/png;base64,product", title: "product camera reference" },
-      { src: "data:image/png;base64,background", title: "living room reference" },
-    ]);
-    expect(prompt).toContain("Reference image 1 is the product camera, perspective, scale, and lighting reference only.");
-    expect(prompt).toContain("Reference image 2 is the background style reference only.");
-    expect(prompt).toContain("Do not render the product, its silhouette, packaging, logo, text, or a duplicate shadow.");
-  });
-
-  it("anchors product placement to the generated background floor instead of the canvas edge", () => {
-    expect(__testResolveSmartProductPlacement(1200, 800, 1000, 300)).toEqual({
-      width: 816,
-      height: 245,
-      left: 192,
-      top: 459,
-      baseline: 704,
-    });
-    expect(__testResolveSmartProductPlacement(1200, 800, 200, 800)).toEqual({
-      width: 130,
-      height: 520,
-      left: 535,
-      top: 184,
-      baseline: 704,
-    });
-  });
-
-  it("keeps protected product pixels in the composited image", async () => {
-    const background = await sharp({
-      create: { width: 120, height: 90, channels: 4, background: { r: 30, g: 90, b: 180, alpha: 1 } },
-    }).png().toBuffer();
-    const product = await sharp({
-      create: { width: 40, height: 60, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
-    }).composite([{
-      input: { create: { width: 28, height: 44, channels: 4, background: { r: 230, g: 20, b: 20, alpha: 1 } } },
-      left: 6,
-      top: 8,
-    }]).png().toBuffer();
-    const result = await __testCompositeProtectedProductOnBackground(
-      { src: `data:image/png;base64,${background.toString("base64")}`, width: 120, height: 90 },
-      { src: `data:image/png;base64,${product.toString("base64")}`, width: 40, height: 60 },
-      120,
-      90,
-    );
-    const output = Buffer.from(result.src.split(",")[1] || "", "base64");
-    const { data, info } = await sharp(output).raw().toBuffer({ resolveWithObject: true });
-    const pixel = (60 * info.width + 60) * info.channels;
-
-    expect(info).toMatchObject({ width: 120, height: 90 });
-    expect(data[pixel]).toBeGreaterThan(180);
-    expect(data[pixel + 1]).toBeLessThan(60);
-    expect(data[pixel + 2]).toBeLessThan(60);
+  it("removes the old model-generated plate and local composite implementation", () => {
+    expect(source).not.toContain("generateSmartProductBackgroundPlates");
+    expect(source).not.toContain("Generate the empty ecommerce background plate only");
+    expect(source).not.toContain("Smart product background plate failed; retrying next model");
+    expect(source).not.toContain("Image2 and Gemini background plates failed");
+    expect(source).not.toContain("compositeProtectedProductOnBackground");
+    expect(source).not.toContain("createProductGroundedShadow");
   });
 });

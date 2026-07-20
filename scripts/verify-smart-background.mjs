@@ -14,17 +14,21 @@ function assert(condition, message) {
   }
 }
 
-assert(files.canvas.includes('label: "智能创建背景"'), "top toolbar includes smart background command");
-assert(files.canvas.indexOf('label: "智能注释"') < files.canvas.indexOf('label: "智能创建背景"'), "smart background is placed after annotation");
-assert(files.canvas.indexOf('label: "智能创建背景"') < files.canvas.indexOf('label: "移动"'), "AI commands remain on the left side of the divider");
-assert(files.canvas.includes("ProductBackgroundDialogDetail"), "smart background dialog emits structured details");
-assert(files.canvas.includes('window.addEventListener("product-background-create"'), "canvas handles smart background generation event");
+assert(files.canvas.includes('label: "智能电商产品"'), "toolbar includes smart product command");
+assert(files.canvas.indexOf('label: "智能注释"') < files.canvas.indexOf('label: "智能电商产品"'), "smart product is placed after annotation");
+assert(files.canvas.indexOf('label: "智能电商产品"') < files.canvas.indexOf('label: "移动"'), "AI commands remain on the left side of the divider");
+assert(files.canvas.includes("SmartCommerceProductDialog"), "canvas mounts the smart product dialog");
+assert(files.canvas.includes('window.addEventListener("smart-commerce-product-create"'), "canvas handles smart product generation event");
 assert(files.canvas.includes("createProductBackground({"), "canvas calls createProductBackground client API");
 assert(files.ai.includes("postProductBackground"), "client API has create-background POST wrapper");
 assert(files.ai.includes("/api/images/create-background"), "client API points to create-background endpoint");
 assert(files.index.includes('app.post("/api/images/create-background"'), "server exposes create-background route");
+assert(files.index.includes('provider: "PicWish/佐糖 r-background"'), "server tracking reports pure PicWish r-background");
+assert(files.index.includes('model: getRouteModel(req.body, "picwish-r-background")'), "server route tracks PicWish r-background model");
 assert(files.server.includes('"r-background"'), "PicWish r-background task type is registered");
 assert(files.server.includes('runPicWishImageTask("r-background"'), "smart background uses PicWish r-background task");
+assert(!files.server.includes("generateSmartProductBackgroundPlates"), "smart product no longer uses image-model background plates");
+assert(!files.server.includes("Image2 and Gemini background plates failed"), "smart product has no Image2/Gemini fallback copy");
 assert(files.server.includes("eraseWithPicWish") && files.server.includes("createPicWishInpaintTask"), "eraser remains on the dedicated PicWish inpaint path");
 
 if (process.exitCode) {

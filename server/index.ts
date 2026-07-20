@@ -7,8 +7,8 @@ import "./env";
 import { AIOrchestrator, inferAiCapability } from "./ai-orchestrator";
 import { resolveBackgroundImageTaskCapability } from "./background-image-capability";
 import { createBrandKit, deleteBrandKit, getBrandKit, listBrandKits, parseBrandKitFromImage } from "./brand-kit";
-import { createProductBackground, editImageWithPrompt, enhanceImage, eraseImageObjects, expandImageWithPicWish, extractImageText, generateImages, listImageModelCatalog, removeImageBackground, removeImageWatermark } from "./image-generation";
-import { DEFAULT_IMAGE_MODEL_ID, getDefaultImageModelPriorityLabel } from "../shared/image-models";
+import { createElementBackgroundLayer, createProductBackground, editImageWithPrompt, enhanceImage, eraseImageObjects, expandImageWithPicWish, extractImageText, generateImages, listImageModelCatalog, removeImageBackground, removeImageWatermark } from "./image-generation";
+import { DEFAULT_IMAGE_MODEL_ID } from "../shared/image-models";
 import { getInspirationReferences } from "./inspiration-references";
 import { cleanupExpiredUploads, getUploadRetentionDays, getUploadsRoot, storeGeneratedImagesForUser } from "./local-image-storage";
 import { searchReferenceImages } from "./reference-search";
@@ -483,8 +483,8 @@ function getBackgroundImageTaskPreflightTracking(input: Record<string, unknown>,
       return {
         capabilityKey: "smart_background",
         capability: "智能产品图 / 海报一键生成",
-        provider: "PicWish 主体保护 + Image2/Gemini 背景",
-        model: getDefaultImageModelPriorityLabel(),
+        provider: "PicWish/佐糖 r-background",
+        model: getRouteModel(input, "picwish-r-background"),
         failureMessage: "Create background failed",
       };
     case "background_removal":
@@ -522,6 +522,15 @@ function getBackgroundImageTaskPreflightTracking(input: Record<string, unknown>,
         provider: "PicWish/佐糖",
         model: getRouteModel(input, "picwish-remove-unwanted-object"),
         failureMessage: "Image erase failed",
+      };
+    case "element_background":
+    case "element-background":
+      return {
+        capabilityKey: "image_erase",
+        capability: "编辑元素背景层",
+        provider: "PicWish/佐糖",
+        model: getRouteModel(input, "picwish-inpaint"),
+        failureMessage: "Element background layer failed",
       };
     case "image_expansion":
     case "expand":
@@ -867,8 +876,8 @@ async function startServer() {
           tracking: {
             capabilityKey: "smart_background" as const,
             capability: "智能产品图 / 海报一键生成",
-            provider: "PicWish 主体保护 + Image2/Gemini 背景",
-            model: getDefaultImageModelPriorityLabel(),
+            provider: "PicWish/佐糖 r-background",
+            model: getRouteModel(input, "picwish-r-background"),
             failureMessage: "Create background failed",
           },
         };
@@ -945,6 +954,21 @@ async function startServer() {
             provider: "PicWish/佐糖",
             model: getRouteModel(input, "picwish-inpaint"),
             failureMessage: "Image erase failed",
+          },
+        };
+      }
+      case "element_background":
+      case "element-background": {
+        const result = await createElementBackgroundLayer(input as Parameters<typeof createElementBackgroundLayer>[0]);
+        const stored = await storeImageResultForUser(result, user.username);
+        return {
+          result: stored,
+          tracking: {
+            capabilityKey: "image_erase" as const,
+            capability: "编辑元素背景层",
+            provider: "PicWish/佐糖",
+            model: getRouteModel(input, "picwish-inpaint"),
+            failureMessage: "Element background layer failed",
           },
         };
       }
@@ -1394,8 +1418,8 @@ async function startServer() {
     await handleTrackedAiRequest(req, res, {
       capabilityKey: "smart_background",
       capability: "智能产品图 / 海报一键生成",
-      provider: "PicWish 主体保护 + Image2/Gemini 背景",
-      model: getDefaultImageModelPriorityLabel(),
+      provider: "PicWish/佐糖 r-background",
+      model: getRouteModel(req.body, "picwish-r-background"),
       failureMessage: "Create background failed",
     }, async (user) => {
       const result = await createProductBackground(req.body);

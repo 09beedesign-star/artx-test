@@ -11,6 +11,8 @@ export type BackgroundImageTaskCapability =
   | "remove-watermark"
   | "image_erase"
   | "erase"
+  | "element_background"
+  | "element-background"
   | "image_expansion"
   | "expand"
   | "text_to_image";
@@ -28,6 +30,8 @@ const BACKGROUND_IMAGE_TASK_CAPABILITIES = new Set<BackgroundImageTaskCapability
   "remove-watermark",
   "image_erase",
   "erase",
+  "element_background",
+  "element-background",
   "image_expansion",
   "expand",
   "text_to_image",

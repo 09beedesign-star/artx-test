@@ -40,10 +40,13 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain("maxResultCount = 4");
     expect(source).toContain("Math.min(Number(resultCount) || 1, maxResultCount)");
     expect(source).toContain("maxResultCount: 9");
-    expect(source).toContain("commerceContext: {");
-    expect(source).toContain("commerceContext: detail.commerceContext");
     expect(source).toContain('new CustomEvent("canvas-assistant-external-message"');
     expect(source).toContain('content: detail.userPrompt || "未填写"');
+    expect(source).not.toContain("commerceContext: {");
+    expect(source).not.toContain("commerceContext: detail.commerceContext");
+    expect(source).not.toContain("detail.platformLabel");
+    expect(source).not.toContain("detail.marketLabel");
+    expect(source).not.toContain("detail.placementLabel");
     expect(source).not.toContain("智能电商产品生成提示词");
     expect(source).not.toContain("User creative addition:");
     expect(source).not.toContain("输出规格：${smartProductOutputSpec}");
@@ -70,18 +73,16 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(assetToolbar).toContain("zIndex: 110");
   });
 
-  it("keeps explicit replace and delete controls in the product background upload slots", () => {
-    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
-    const dialogBlock = source.match(
-      /function ProductBackgroundDialog[\s\S]*?\/\/ ── Canvas Top Tool Palette/
-    )?.[0];
+  it("keeps explicit replace and delete controls in the smart commerce product upload slot", () => {
+    const dialogSource = readFileSync(
+      resolve(__dirname, "SmartCommerceProductDialog.tsx"),
+      "utf-8"
+    );
 
-    expect(dialogBlock).toBeTruthy();
-    expect(dialogBlock).toContain("const clearUploadSlot = useCallback");
-    expect(dialogBlock).toContain("setImageSrc(\"\")");
-    expect(dialogBlock).toContain("setBackgroundReferenceSrc(\"\")");
-    expect(dialogBlock).toContain("替换");
-    expect(dialogBlock).toContain("删除");
+    expect(dialogSource).toContain("setImageSrc(\"\")");
+    expect(dialogSource).toContain("setFileName(\"\")");
+    expect(dialogSource).toContain("替换");
+    expect(dialogSource).toContain("删除");
   });
 
   it("routes Mac touchpad pinch gestures to canvas zoom instead of browser zoom", () => {
@@ -127,6 +128,9 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain('capability: "smart_background"');
     expect(source).toContain('operation: "create-background"');
     expect(source).toContain('capability: "image_erase"');
+    expect(source).toContain('capability: "element_background"');
+    expect(source).toContain('foregroundLayerSrc: foregroundImage.src');
+    expect(source).not.toContain("createEraseMaskFromTransparentLayer");
     expect(source).toContain('capability: "image_expansion"');
     expect(source).toContain('capability: "image_edit"');
     expect(source).toContain('capability: "background_removal"');
@@ -227,6 +231,26 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(extractedTextPanelBlock).toContain('scrollbarWidth: "thin"');
     expect(source).not.toContain('label: "智能文案"');
     expect(source).not.toContain('label: "文案提取"');
+  });
+
+  it("keeps smart copy text edits on strict source-image editing instead of free prompt regeneration", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const serverSource = readFileSync(
+      resolve(__dirname, "../../../../server/image-generation.ts"),
+      "utf-8"
+    );
+    const applyTextEditBlock = source.match(
+      /const applyHandler = async \(e: Event\) => \{[\s\S]*?window\.addEventListener\("asset-text-edit-apply"/
+    )?.[0];
+
+    expect(applyTextEditBlock).toBeTruthy();
+    expect(applyTextEditBlock).toContain('operation: "text_edit"');
+    expect(applyTextEditBlock).toContain("必须把原图作为唯一基础画布");
+    expect(applyTextEditBlock).toContain("禁止把图片改成化妆品");
+    expect(applyTextEditBlock).not.toContain("image-text-relayout");
+    expect(applyTextEditBlock).not.toContain("callLLM({");
+    expect(serverSource).toContain('const isTextEditOperation = input.operation === "text_edit";');
+    expect(serverSource).toContain("已阻止退回参考生图");
   });
 
   it("keeps assistant composer text fields alive when backspacing around chips", () => {

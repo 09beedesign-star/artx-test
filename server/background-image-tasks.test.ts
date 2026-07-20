@@ -11,8 +11,8 @@ describe("background image task routing", () => {
     expect(source).toContain("releaseTestAccountAiUsage");
     expect(source).toContain('case "smart_background":');
     expect(source).toMatch(/createProductBackground\([^)]*input/);
-    expect(source).toContain('provider: "PicWish 主体保护 + Image2/Gemini 背景"');
-    expect(source).toContain("getDefaultImageModelPriorityLabel()");
+    expect(source).toContain('provider: "PicWish/佐糖 r-background"');
+    expect(source).toContain('model: getRouteModel(input, "picwish-r-background")');
     expect(source).toContain('case "image_edit":');
     expect(source).toMatch(/editImageWithPrompt\([^)]*input/);
     expect(source).toContain('case "background_removal":');
@@ -23,6 +23,8 @@ describe("background image task routing", () => {
     expect(source).toMatch(/removeImageWatermark\([^)]*input/);
     expect(source).toContain('case "image_erase":');
     expect(source).toMatch(/eraseImageObjects\([^)]*input/);
+    expect(source).toContain('case "element_background":');
+    expect(source).toMatch(/createElementBackgroundLayer\([^)]*input/);
     expect(source).toContain('case "image_expansion":');
     expect(source).toContain("expandImageWithPicWish");
     expect(source).not.toContain('process.env.AI_IMAGE_MODEL || "gpt-image-2"');
@@ -34,6 +36,8 @@ describe("background image task routing", () => {
     expect(source).toContain("function getBackgroundImageTaskPreflightTracking");
     expect(source).toContain("const preflightTracking = getBackgroundImageTaskPreflightTracking(req.body || {}, taskCapability);");
 
+    expect(source).toContain('capabilityKey: "smart_background"');
+    expect(source).toContain('model: getRouteModel(input, "picwish-r-background")');
     expect(source).toContain('capabilityKey: "background_removal"');
     expect(source).toContain('model: getRouteModel(input, "picwish-segmentation")');
     expect(source).toContain('capabilityKey: "image_enhance"');
@@ -42,6 +46,8 @@ describe("background image task routing", () => {
     expect(source).toContain('model: getRouteModel(input, "picwish-watermark")');
     expect(source).toContain('capabilityKey: "image_erase"');
     expect(source).toContain('model: getRouteModel(input, "picwish-remove-unwanted-object")');
+    expect(source).toContain('capability: "编辑元素背景层"');
+    expect(source).toContain('model: getRouteModel(input, "picwish-inpaint")');
     expect(source).toContain('capabilityKey: "image_expansion"');
     expect(source).toContain('model: getRouteModel(input, "picwish-advanced-image-expand")');
 
@@ -66,6 +72,23 @@ describe("background image task routing", () => {
     expect(source).toContain('output_type: 2');
     expect(source).toContain('crop: 0');
     expect(source).toContain('format: "png"');
-    expect(source).toContain('return data.data?.image || ""');
+    expect(source).toContain('if (taskType === "segmentation")');
+    expect(source).toContain("data.data?.image_obj || data.data?.image");
+  });
+
+  it("keeps smart product images on the PicWish r-background endpoint", () => {
+    const source = readFileSync(resolve(__dirname, "image-generation.ts"), "utf-8");
+    const createBackgroundSource =
+      source.match(/async function createBackgroundWithPicWish[\s\S]*?\n}/)?.[0] || "";
+    const createProductBackgroundSource =
+      source.match(/export async function createProductBackground[\s\S]*?return withProviderTaskIds/)?.[0] || "";
+
+    expect(createBackgroundSource).toContain('runPicWishImageTask("r-background"');
+    expect(createBackgroundSource).toContain("scene_type: 105");
+    expect(createBackgroundSource).toContain("width: output.width");
+    expect(createBackgroundSource).toContain("height: output.height");
+    expect(createProductBackgroundSource).toContain("createBackgroundWithPicWish({");
+    expect(createProductBackgroundSource).not.toContain("generateImages(");
+    expect(createProductBackgroundSource).not.toContain("generateSmartProductBackgroundPlates(");
   });
 });

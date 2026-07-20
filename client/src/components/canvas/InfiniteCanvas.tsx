@@ -113,7 +113,6 @@ import {
   RotateCw,
   MapPin,
   PlusCircle,
-  GalleryVerticalEnd,
   Droplets,
 } from "lucide-react";
 import { getModelBrandIconKind, ModelBrandIconMask } from "./model-brand-icons";
@@ -9604,27 +9603,6 @@ type ImageGeneratorPayload = {
     height?: number;
   }>;
   skillId?: string;
-  commerceContext?: {
-    platformId: string;
-    platformLabel: string;
-    marketId: string;
-    marketLabel: string;
-    categoryId: string;
-    categoryLabel: string;
-    placementId: string;
-    placementLabel: string;
-    templateId: string;
-    templateLabel: string;
-    auditRecordId: string;
-    editableCopySuggestions: string[];
-    exportSizes: SmartCommerceProductCreateDetail["exportSizes"];
-    marketPackageVersion: string;
-    platformSpecVersion: string;
-    templateVersion: string;
-    outputWidth: number;
-    outputHeight: number;
-    riskAction: SmartCommerceProductCreateDetail["riskAction"];
-  };
 };
 
 type ImageRegenerateRequestDetail = {
@@ -10343,42 +10321,6 @@ function dispatchImageGenerationTask(
   );
 }
 
-async function createEraseMaskFromTransparentLayer(
-  layerSrc: string,
-  width: number,
-  height: number
-) {
-  return new Promise<string>((resolve, reject) => {
-    const image = new Image();
-    image.crossOrigin = "anonymous";
-    image.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(width));
-      canvas.height = Math.max(1, Math.round(height));
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        reject(new Error("无法创建图层蒙版"));
-        return;
-      }
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const data = imageData.data;
-      for (let index = 0; index < data.length; index += 4) {
-        const isForeground = data[index + 3] > 24;
-        data[index] = 0;
-        data[index + 1] = 0;
-        data[index + 2] = 0;
-        data[index + 3] = isForeground ? 0 : 255;
-      }
-      ctx.putImageData(imageData, 0, 0);
-      resolve(canvas.toDataURL("image/png"));
-    };
-    image.onerror = () => reject(new Error("无法读取主体层结果"));
-    image.src = getCanvasRenderableImageSrc(layerSrc);
-  });
-}
-
 async function createAnnotationEditMask(
   imageSrc: string,
   xPercent: number,
@@ -10508,7 +10450,6 @@ function getImageGenerationNodeMetadata(detail: ImageGeneratorPayload) {
       detail.sourceImageSrc || detail.sourceBackgroundSrc,
     generationEditMode: detail.editMode === true,
     generationBackgroundTaskInput: detail.backgroundTaskInput,
-    commerceContext: detail.commerceContext,
   };
 }
 
@@ -14745,980 +14686,6 @@ function FontDesignDialog({
       </div>
     </div>
   );
-}
-
-type ProductBackgroundDialogDetail = {
-  imageSrc: string;
-  fileName?: string;
-  backgroundReferenceSrc?: string;
-  backgroundReferenceName?: string;
-  prompt: string;
-  style: string;
-  ratio: string;
-  resolution: "2k" | "4k";
-  count: number;
-  customWidth?: number;
-  customHeight?: number;
-  platformPresetId?: string;
-  platformPresetLabel?: string;
-};
-
-function ProductBackgroundDialog({
-  isDark,
-  canvasRightInset,
-  onClose,
-}: {
-  isDark: boolean;
-  canvasRightInset: number;
-  onClose: () => void;
-}) {
-  const productFileInputRef = useRef<HTMLInputElement | null>(null);
-  const backgroundFileInputRef = useRef<HTMLInputElement | null>(null);
-  const panelRef = useRef<HTMLDivElement | null>(null);
-  const dragRef = useRef<{
-    pointerId: number;
-    offsetX: number;
-    offsetY: number;
-  } | null>(null);
-  const [imageSrc, setImageSrc] = useState("");
-  const [fileName, setFileName] = useState("");
-  const [backgroundReferenceSrc, setBackgroundReferenceSrc] = useState("");
-  const [backgroundReferenceName, setBackgroundReferenceName] = useState("");
-  const [prompt, setPrompt] = useState("");
-  const [selectedStyle, setSelectedStyle] = useState("亚马逊");
-  const [ratio, setRatio] = useState("1:1");
-  const [resolution, setResolution] = useState<"2k" | "4k">("2k");
-  const [count, setCount] = useState(1);
-  const [selectedCoverPresetId, setSelectedCoverPresetId] = useState(
-    "facebook-shopping-product-square"
-  );
-  const [customWidth, setCustomWidth] = useState("");
-  const [customHeight, setCustomHeight] = useState("");
-  const [panelPosition, setPanelPosition] = useState<{
-    left: number;
-    top: number;
-  } | null>(null);
-  const bg = isDark ? "rgba(18,18,28,0.98)" : "rgba(255,255,255,0.98)";
-  const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
-  const text = isDark ? "rgba(255,255,255,0.88)" : "rgba(22,22,34,0.88)";
-  const sub = isDark ? "rgba(255,255,255,0.64)" : "rgba(22,22,34,0.50)";
-  const fieldBg = isDark ? "rgba(255,255,255,0.055)" : "rgba(0,0,0,0.035)";
-  const activeBorder = "rgba(197,237,71,0.55)";
-  const accent = "#C5ED47";
-  const ratios = ["1:1", "4:5", "5:4", "3:4", "4:3", "16:9", "9:16", "21:9"];
-  const counts = [1, 2, 3, 4, 5, 6, 7, 8, 9];
-  const coverPresetSections = groupSocialMediaSizePresets();
-  const selectedCoverPreset = SOCIAL_MEDIA_SIZE_PRESETS.find(
-    preset => preset.id === selectedCoverPresetId
-  );
-  const ecommercePlatforms = [
-    {
-      name: "亚马逊",
-      platform: "亚马逊",
-      prompt:
-        "主流电商平台产品图方向：亚马逊。保持商品主体清晰突出，画面适合电商转化。",
-    },
-    {
-      name: "Shopee",
-      platform: "Shopee",
-      prompt:
-        "主流电商平台产品图方向：Shopee。保持商品主体清晰突出，画面适合电商转化。",
-    },
-    {
-      name: "TikTok",
-      platform: "TikTok",
-      prompt:
-        "主流电商平台产品图方向：TikTok。保持商品主体清晰突出，画面适合电商转化。",
-    },
-    {
-      name: "Lazada",
-      platform: "Lazada",
-      prompt:
-        "主流电商平台产品图方向：Lazada。保持商品主体清晰突出，画面适合电商转化。",
-    },
-    {
-      name: "抖音",
-      platform: "抖音",
-      prompt:
-        "主流电商平台产品图方向：抖音。保持商品主体清晰突出，画面适合电商转化。",
-    },
-    {
-      name: "小红书",
-      platform: "小红书",
-      prompt:
-        "主流电商平台产品图方向：小红书。保持商品主体清晰突出，画面适合电商转化。",
-    },
-    {
-      name: "淘宝",
-      platform: "淘宝",
-      prompt:
-        "主流电商平台产品图方向：淘宝。保持商品主体清晰突出，画面适合电商转化。",
-    },
-    {
-      name: "京东",
-      platform: "京东",
-      prompt:
-        "主流电商平台产品图方向：京东。保持商品主体清晰突出，画面适合电商转化。",
-    },
-  ];
-
-  const clampPanelPosition = useCallback((left: number, top: number) => {
-    if (typeof window === "undefined") return { left, top };
-    const panel = panelRef.current;
-    const panelWidth =
-      panel?.offsetWidth || Math.min(820, window.innerWidth - 56);
-    const panelHeight =
-      panel?.offsetHeight || Math.min(620, window.innerHeight - 112);
-    const minLeft = 16;
-    const maxLeft = Math.max(minLeft, window.innerWidth - panelWidth - 16);
-    const minTop = 16;
-    const maxTop = Math.max(minTop, window.innerHeight - panelHeight - 16);
-    return {
-      left: Math.min(Math.max(left, minLeft), maxLeft),
-      top: Math.min(Math.max(top, minTop), maxTop),
-    };
-  }, []);
-
-  const getDefaultPanelPosition = useCallback(() => {
-    if (typeof window === "undefined") return { left: 28, top: 88 };
-    const panel = panelRef.current;
-    const panelWidth =
-      panel?.offsetWidth || Math.min(820, window.innerWidth - 56);
-    const panelHeight =
-      panel?.offsetHeight || Math.min(620, window.innerHeight - 112);
-    const canvasWidth = Math.max(320, window.innerWidth - canvasRightInset);
-    return clampPanelPosition(
-      Math.round((canvasWidth - panelWidth) / 2),
-      Math.round((window.innerHeight - panelHeight) / 2)
-    );
-  }, [canvasRightInset, clampPanelPosition]);
-
-  useEffect(() => {
-    const nextFrame = window.requestAnimationFrame(() =>
-      setPanelPosition(getDefaultPanelPosition())
-    );
-    return () => window.cancelAnimationFrame(nextFrame);
-  }, [getDefaultPanelPosition]);
-
-  useEffect(() => {
-    const handleResize = () => {
-      setPanelPosition(current => {
-        if (!current) return getDefaultPanelPosition();
-        return clampPanelPosition(current.left, current.top);
-      });
-    };
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, [clampPanelPosition, getDefaultPanelPosition]);
-
-  const handleDragStart = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    const target = event.target as HTMLElement | null;
-    if (target?.closest("button,input,textarea,[data-no-panel-drag='true']"))
-      return;
-    const rect = panelRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    dragRef.current = {
-      pointerId: event.pointerId,
-      offsetX: event.clientX - rect.left,
-      offsetY: event.clientY - rect.top,
-    };
-    event.currentTarget.setPointerCapture(event.pointerId);
-    event.preventDefault();
-    event.stopPropagation();
-  };
-
-  const handleDragMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    setPanelPosition(
-      clampPanelPosition(
-        event.clientX - drag.offsetX,
-        event.clientY - drag.offsetY
-      )
-    );
-    event.preventDefault();
-    event.stopPropagation();
-  };
-
-  const handleDragEnd = (event: React.PointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    dragRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId))
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    event.preventDefault();
-    event.stopPropagation();
-  };
-
-  const readFileToSlot = useCallback(
-    (file: File, slot: "product" | "background") => {
-      if (!file.type.startsWith("image/")) {
-        toast("请选择图片文件");
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = event => {
-        const nextSrc = event.target?.result;
-        if (typeof nextSrc !== "string") return;
-        if (slot === "product") {
-          setImageSrc(nextSrc);
-          setFileName(file.name);
-        } else {
-          setBackgroundReferenceSrc(nextSrc);
-          setBackgroundReferenceName(file.name);
-        }
-      };
-      reader.readAsDataURL(file);
-    },
-    []
-  );
-
-  const readDragImageToSlot = useCallback(
-    (dataTransfer: DataTransfer, slot: "product" | "background") => {
-      const file = Array.from(dataTransfer.files || []).find(item =>
-        item.type.startsWith("image/")
-      );
-      if (file) {
-        readFileToSlot(file, slot);
-        return true;
-      }
-
-      const uriList = dataTransfer
-        .getData("text/uri-list")
-        .split("\n")
-        .map(item => item.trim())
-        .find(item => item && !item.startsWith("#"));
-      const html = dataTransfer.getData("text/html");
-      const plain = dataTransfer.getData("text/plain").trim();
-      const htmlImageSrc = html.match(/<img[^>]+src=["']([^"']+)["']/i)?.[1];
-      const nextSrc =
-        htmlImageSrc || uriList || (/^https?:\/\//i.test(plain) ? plain : "");
-      if (!nextSrc) {
-        toast("没有读取到图片", {
-          description: "请拖拽图片本身，或拖拽可访问的图片地址",
-        });
-        return false;
-      }
-      if (slot === "product") {
-        setImageSrc(nextSrc);
-        setFileName("网页图片");
-      } else {
-        setBackgroundReferenceSrc(nextSrc);
-        setBackgroundReferenceName("网页背景参考图");
-      }
-      return true;
-    },
-    [readFileToSlot]
-  );
-
-  const stopFileDragEvent = (event: React.DragEvent<HTMLElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    event.dataTransfer.dropEffect = "copy";
-  };
-
-  const clearUploadSlot = useCallback((slot: "product" | "background") => {
-    if (slot === "product") {
-      setImageSrc("");
-      setFileName("");
-    } else {
-      setBackgroundReferenceSrc("");
-      setBackgroundReferenceName("");
-    }
-  }, []);
-
-  const handleCreate = () => {
-    if (!imageSrc) {
-      toast("请先添加产品图");
-      return;
-    }
-    const width = Number(customWidth || selectedCoverPreset?.width || 0);
-    const height = Number(customHeight || selectedCoverPreset?.height || 0);
-    const hasOnlyOneCustomSide = Boolean(customWidth) !== Boolean(customHeight);
-    if (hasOnlyOneCustomSide) {
-      toast("请同时填写自定义宽高");
-      return;
-    }
-    const coverLabel = selectedCoverPreset
-      ? `${selectedCoverPreset.platform} ${selectedCoverPreset.title} ${selectedCoverPreset.width}×${selectedCoverPreset.height}`
-      : "";
-    const stylePrompt =
-      ecommercePlatforms.find(item => item.name === selectedStyle)?.prompt ||
-      "";
-    const detail: ProductBackgroundDialogDetail = {
-      imageSrc,
-      fileName,
-      backgroundReferenceSrc,
-      backgroundReferenceName,
-      prompt: [
-        stylePrompt,
-        coverLabel
-          ? `平台封面尺寸：${coverLabel}。请按该平台封面规格生成清晰、完整、高清且适合投放的产品图。`
-          : "",
-        prompt.trim(),
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      style: selectedStyle,
-      ratio,
-      resolution,
-      count,
-      customWidth:
-        Number.isFinite(width) && width > 0 ? Math.round(width) : undefined,
-      customHeight:
-        Number.isFinite(height) && height > 0 ? Math.round(height) : undefined,
-      platformPresetId: selectedCoverPreset?.id,
-      platformPresetLabel: coverLabel,
-    };
-    window.dispatchEvent(
-      new CustomEvent<ProductBackgroundDialogDetail>(
-        "product-background-create",
-        { detail }
-      )
-    );
-    onClose();
-  };
-
-  const renderUploadSlot = (
-    slot: "product" | "background",
-    config: {
-      title: string;
-      hint: string;
-      src: string;
-      name: string;
-      inputRef: React.RefObject<HTMLInputElement | null>;
-      icon: ReactNode;
-    }
-  ) => (
-    <div
-      role="button"
-      tabIndex={0}
-      data-no-panel-drag="true"
-      className="relative flex min-h-[116px] min-w-0 flex-1 flex-col items-center justify-center overflow-hidden rounded-[var(--radius-lg-design)] px-3 text-center transition-transform hover:scale-[1.01]"
-      style={{
-        background: fieldBg,
-        border: `1.5px dashed ${config.src ? activeBorder : border}`,
-        color: text,
-      }}
-      onClick={() => config.inputRef.current?.click()}
-      onKeyDown={event => {
-        if (event.target !== event.currentTarget) return;
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        config.inputRef.current?.click();
-      }}
-      onDragEnter={stopFileDragEvent}
-      onDragOver={stopFileDragEvent}
-      onDrop={event => {
-        event.preventDefault();
-        event.stopPropagation();
-        readDragImageToSlot(event.dataTransfer, slot);
-      }}
-    >
-      {config.src ? (
-        <>
-          <img
-            src={config.src}
-            alt={config.name || config.title}
-            className="absolute inset-0 h-full w-full object-contain p-3"
-            draggable={false}
-          />
-          <span
-            className="absolute right-2 top-2 flex gap-1"
-            data-no-panel-drag="true"
-          >
-            <button
-              type="button"
-              className="flex h-7 items-center gap-1 rounded-[var(--radius-md-design)] px-2 type-caption"
-              style={{
-                color: text,
-                background: isDark
-                  ? "rgba(0,0,0,0.62)"
-                  : "rgba(255,255,255,0.90)",
-                border: `1px solid ${border}`,
-                fontSize: 10,
-                fontWeight: 720,
-              }}
-              onClick={event => {
-                event.preventDefault();
-                event.stopPropagation();
-                config.inputRef.current?.click();
-              }}
-              aria-label={`替换${config.title}`}
-              title={`替换${config.title}`}
-            >
-              <RefreshCw size={11} />
-              替换
-            </button>
-            <button
-              type="button"
-              className="flex h-7 items-center gap-1 rounded-[var(--radius-md-design)] px-2 type-caption"
-              style={{
-                color: "#F87171",
-                background: isDark
-                  ? "rgba(0,0,0,0.62)"
-                  : "rgba(255,255,255,0.90)",
-                border: `1px solid ${border}`,
-                fontSize: 10,
-                fontWeight: 720,
-              }}
-              onClick={event => {
-                event.preventDefault();
-                event.stopPropagation();
-                clearUploadSlot(slot);
-              }}
-              aria-label={`删除${config.title}`}
-              title={`删除${config.title}`}
-            >
-              <Trash2 size={11} />
-              删除
-            </button>
-          </span>
-          <span
-            className="absolute bottom-2 left-2 right-2 rounded-[var(--radius-md-design)] px-2.5 py-1.5 text-left"
-            style={{
-              background: isDark
-                ? "rgba(0,0,0,0.62)"
-                : "rgba(255,255,255,0.84)",
-              border: `1px solid ${border}`,
-            }}
-          >
-            <span
-              className="block truncate type-caption"
-              style={{ color: text, fontWeight: 700 }}
-            >
-              {config.name || config.title}
-            </span>
-            <span
-              className="block type-caption"
-              style={{ color: sub, fontSize: 10 }}
-            >
-              点击更换或拖入新图片
-            </span>
-          </span>
-        </>
-      ) : (
-        <>
-          <span
-            className="mb-2 flex h-10 w-10 items-center justify-center rounded-[var(--radius-lg-design)]"
-            style={{ background: "rgba(197,237,71,0.14)", color: accent }}
-          >
-            {config.icon}
-          </span>
-          <span className="type-caption" style={{ fontWeight: 750 }}>
-            {config.title}
-          </span>
-          <span
-            className="mt-1 max-w-[160px] type-caption leading-4"
-            style={{ color: sub, fontSize: 10 }}
-          >
-            {config.hint}
-          </span>
-        </>
-      )}
-      <input
-        ref={config.inputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={event => {
-          const file = event.currentTarget.files?.[0];
-          if (file) readFileToSlot(file, slot);
-          event.currentTarget.value = "";
-        }}
-      />
-    </div>
-  );
-
-  const dialog = (
-    <div
-      className="fixed inset-0"
-      style={{ zIndex: 3500, pointerEvents: "none" }}
-    >
-      <div
-        ref={panelRef}
-        className="fixed flex max-h-[calc(100dvh-32px)] w-[min(820px,calc(100vw-56px))] flex-col overflow-hidden rounded-[var(--radius-xl-design)] shadow-2xl"
-        style={{
-          pointerEvents: "auto",
-          left: panelPosition?.left ?? 28,
-          top: panelPosition?.top ?? 88,
-          background: bg,
-          border: `1px solid ${border}`,
-          backdropFilter: "blur(24px)",
-          boxShadow: "0 30px 100px rgba(0,0,0,0.44)",
-        }}
-        onMouseDown={event => event.stopPropagation()}
-        onClick={event => event.stopPropagation()}
-        onDragEnter={stopFileDragEvent}
-        onDragOver={stopFileDragEvent}
-        onDragLeave={event => event.stopPropagation()}
-        onDrop={event => {
-          event.preventDefault();
-          event.stopPropagation();
-        }}
-      >
-        <div
-          className="flex cursor-grab touch-none items-start justify-between gap-4 px-5 py-4 active:cursor-grabbing"
-          style={{ borderBottom: `1px solid ${border}` }}
-          onPointerDown={handleDragStart}
-          onPointerMove={handleDragMove}
-          onPointerUp={handleDragEnd}
-          onPointerCancel={handleDragEnd}
-        >
-          <div className="flex items-center gap-3">
-            <span
-              className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-lg-design)]"
-              style={{ color: accent, background: "transparent" }}
-            >
-              <AiDecoratedIcon size={17} cutoutBg={bg}>
-                <Boxes size={17} />
-              </AiDecoratedIcon>
-            </span>
-            <div>
-              <p
-                className="type-caption"
-              style={{ color: text, fontSize: 14, fontWeight: 700 }}
-            >
-                智能产品图
-              </p>
-              <p className="mt-1 type-caption leading-5" style={{ color: sub }}>
-                选择平台封面尺寸和生成张数，AI 会按对应规格批量生成高清产品图。
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-md-design)] hover:opacity-75"
-            style={{ color: sub }}
-            onClick={onClose}
-            aria-label="关闭智能产品图"
-          >
-            <X size={15} />
-          </button>
-        </div>
-
-        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto overflow-x-hidden px-4 pb-2.5 pt-4 lg:grid-cols-[200px_minmax(0,1fr)_236px]">
-          <div className="flex min-h-[244px] min-w-0 flex-col gap-2.5">
-            {renderUploadSlot("product", {
-              title: "产品图上传区",
-              hint: "拖入网页图片或本地图片，作为需要换背景的产品主体。",
-              src: imageSrc,
-              name: fileName,
-              inputRef: productFileInputRef,
-              icon: <ImagePlus size={22} />,
-            })}
-            {renderUploadSlot("background", {
-              title: "背景参考图上传区",
-              hint: "导入参考图后，AI 会生成相似风格的商业背景。",
-              src: backgroundReferenceSrc,
-              name: backgroundReferenceName,
-              inputRef: backgroundFileInputRef,
-              icon: <GalleryVerticalEnd size={21} />,
-            })}
-          </div>
-
-          <div className="flex min-h-0 min-w-0 flex-col gap-3">
-            <div className="flex min-h-0 flex-1 flex-col">
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <span
-                  className="type-caption"
-                  style={{ color: text, fontWeight: 750 }}
-                >
-                  主流电商平台
-                </span>
-                <span className="type-caption" style={{ color: sub }}>
-                  选择目标平台，后续会按平台规范生成产品图
-                </span>
-              </div>
-              <div
-                className="grid min-h-0 flex-1 grid-cols-[repeat(auto-fit,minmax(128px,1fr))] content-start gap-2 overflow-y-auto overflow-x-hidden pr-1"
-                style={{ scrollbarGutter: "stable" }}
-              >
-                {ecommercePlatforms.map(item => {
-                  const active = selectedStyle === item.name;
-                  return (
-                    <button
-                      key={item.name}
-                      type="button"
-                      className="group min-w-0 overflow-hidden rounded-[var(--radius-lg-design)] text-left transition-colors duration-150 active:opacity-90"
-                      style={{
-                        height: 68,
-                        background: active ? "rgba(197,237,71,0.14)" : fieldBg,
-                        border: `1px solid ${active ? activeBorder : border}`,
-                        color: text,
-                        contain: "layout paint",
-                      }}
-                      onClick={() => setSelectedStyle(item.name)}
-                    >
-                      <span
-                        className="flex h-full min-w-0 items-center gap-2.5 px-2.5"
-                        style={{ background: fieldBg }}
-                      >
-                        <span
-                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md-design)] transition-transform duration-200 group-hover:scale-[1.04]"
-                          style={{
-                            background: active
-                              ? "rgba(197,237,71,0.16)"
-                              : isDark
-                                ? "rgba(255,255,255,0.08)"
-                                : "rgba(255,255,255,0.72)",
-                            border: `1px solid ${active ? activeBorder : border}`,
-                          }}
-                        >
-                          <SocialPlatformIcon
-                            platform={item.platform}
-                            size={24}
-                          />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span
-                            className="block truncate type-caption"
-                            style={{
-                              color: text,
-                              fontWeight: 850,
-                              fontSize: 12,
-                              lineHeight: 1.2,
-                            }}
-                          >
-                            {item.name}
-                          </span>
-                          <span
-                            className="mt-1 block truncate type-caption"
-                            style={{ color: sub, fontSize: 10, lineHeight: 1.2 }}
-                          >
-                            平台风格待导入
-                          </span>
-                        </span>
-                        {active && (
-                          <Check
-                            size={14}
-                            style={{
-                              color: accent,
-                              flexShrink: 0,
-                              filter:
-                                "drop-shadow(0 0 8px rgba(197,237,71,0.45))",
-                            }}
-                          />
-                        )}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="flex min-h-[156px] flex-col">
-              <label
-                className="mb-2 block type-caption"
-                style={{ color: text, fontWeight: 750 }}
-              >
-                产品图关键词
-              </label>
-              <textarea
-                value={prompt}
-                onChange={event => setPrompt(event.target.value)}
-                placeholder="例如：高端护肤品展台、冷白光、玻璃质感、商业广告海报背景，适合跨境电商商品图"
-                rows={5}
-                className="min-h-0 flex-1 w-full resize-none rounded-[var(--radius-lg-design)] p-3 outline-none"
-                style={{
-                  background: fieldBg,
-                  border: `1px solid ${border}`,
-                  color: text,
-                  fontSize: 13,
-                  lineHeight: 1.55,
-                }}
-              />
-            </div>
-          </div>
-
-          <div className="min-w-0 space-y-2.5">
-            <div
-              className="rounded-[var(--radius-lg-design)] p-2.5"
-              style={{ background: fieldBg, border: `1px solid ${border}` }}
-            >
-              <label
-                className="mb-1.5 block type-caption"
-                style={{ color: text, fontWeight: 750 }}
-              >
-                平台封面尺寸
-              </label>
-              <p className="mb-2 type-caption leading-4" style={{ color: sub, fontSize: 10 }}>
-                选择平台规格后，确认生成会按该尺寸输出对应数量的高清产品图。
-              </p>
-              <div
-                className="max-h-[188px] space-y-2 overflow-y-auto pr-1"
-                style={{ scrollbarWidth: "thin" }}
-              >
-                {coverPresetSections.map(section => (
-                  <div key={section.category}>
-                    <p
-                      className="mb-1 type-caption"
-                      style={{ color: text, fontSize: 11, fontWeight: 750 }}
-                    >
-                      {section.category}
-                    </p>
-                    {section.groups.map(group => (
-                      <div key={`${section.category}-${group.name}`} className="mb-1.5">
-                        <p
-                          className="mb-1 type-caption"
-                          style={{ color: sub, fontSize: 10, fontWeight: 650 }}
-                        >
-                          {group.name}
-                        </p>
-                        <div className="space-y-1">
-                          {group.items.map(preset => {
-                            const active = preset.id === selectedCoverPresetId;
-                            return (
-                              <button
-                                key={preset.id}
-                                type="button"
-                                className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-[var(--radius-md-design)] px-2 py-1.5 text-left transition-opacity hover:opacity-90"
-                                style={{
-                                  background: active
-                                    ? "rgba(197,237,71,0.14)"
-                                    : isDark
-                                      ? "rgba(0,0,0,0.18)"
-                                      : "rgba(255,255,255,0.72)",
-                                  border: `1px solid ${active ? activeBorder : border}`,
-                                  color: text,
-                                }}
-                                onClick={() => {
-                                  setSelectedCoverPresetId(preset.id);
-                                  setCustomWidth("");
-                                  setCustomHeight("");
-                                  setRatio(
-                                    inferImageRatio(preset.width, preset.height)
-                                  );
-                                }}
-                              >
-                                <SocialPlatformIcon
-                                  platform={preset.platform}
-                                  size={18}
-                                />
-                                <span className="min-w-0">
-                                  <span
-                                    className="block truncate type-caption"
-                                    style={{ fontSize: 11, fontWeight: 700 }}
-                                  >
-                                    {preset.platform} · {preset.title}
-                                  </span>
-                                  <span
-                                    className="block type-caption"
-                                    style={{ color: sub, fontSize: 10 }}
-                                  >
-                                    {getSocialMediaPresetCategory(preset)}
-                                  </span>
-                                </span>
-                                <span
-                                  className="type-caption"
-                                  style={{
-                                    color: active ? accent : sub,
-                                    fontSize: 10,
-                                    fontWeight: 750,
-                                    whiteSpace: "nowrap",
-                                  }}
-                                >
-                                  {preset.width}×{preset.height}
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div
-              className="rounded-[var(--radius-lg-design)] p-2.5"
-              style={{ background: fieldBg, border: `1px solid ${border}` }}
-            >
-              <label
-                className="mb-1.5 block type-caption"
-                style={{ color: text, fontWeight: 750 }}
-              >
-                常用画幅
-              </label>
-              <div className="grid grid-cols-2 gap-1.5">
-                {ratios.map(item => (
-                  <button
-                    key={item}
-                    type="button"
-                    className="h-8 rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-85"
-                    style={{
-                      background:
-                        ratio === item
-                          ? "rgba(197,237,71,0.14)"
-                          : isDark
-                            ? "rgba(0,0,0,0.18)"
-                            : "rgba(255,255,255,0.72)",
-                      border: `1px solid ${ratio === item ? activeBorder : border}`,
-                      color: text,
-                    }}
-                    onClick={() => setRatio(item)}
-                  >
-                    {item}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div
-              className="rounded-[var(--radius-lg-design)] p-2.5"
-              style={{ background: fieldBg, border: `1px solid ${border}` }}
-            >
-              <label
-                className="mb-1.5 block type-caption"
-                style={{ color: text, fontWeight: 750 }}
-              >
-                分辨率
-              </label>
-              <div className="grid grid-cols-2 gap-1.5">
-                {(["2k", "4k"] as const).map(item => (
-                  <button
-                    key={item}
-                    type="button"
-                    className="h-8 rounded-[var(--radius-md-design)] type-caption uppercase transition-opacity hover:opacity-85"
-                    style={{
-                      background:
-                        resolution === item
-                          ? "rgba(197,237,71,0.14)"
-                          : isDark
-                            ? "rgba(0,0,0,0.18)"
-                            : "rgba(255,255,255,0.72)",
-                      border: `1px solid ${resolution === item ? activeBorder : border}`,
-                      color: text,
-                    }}
-                    onClick={() => setResolution(item)}
-                  >
-                    {item}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div
-              className="rounded-[var(--radius-lg-design)] p-2.5"
-              style={{ background: fieldBg, border: `1px solid ${border}` }}
-            >
-              <label
-                className="mb-1.5 block type-caption"
-                style={{ color: text, fontWeight: 750 }}
-              >
-                生成数量
-              </label>
-              <div className="grid grid-cols-3 gap-1.5">
-                {counts.map(item => (
-                  <button
-                    key={item}
-                    type="button"
-                    className="h-8 rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-85"
-                    style={{
-                      background:
-                        count === item
-                          ? "rgba(197,237,71,0.14)"
-                          : isDark
-                            ? "rgba(0,0,0,0.18)"
-                            : "rgba(255,255,255,0.72)",
-                      border: `1px solid ${count === item ? activeBorder : border}`,
-                      color: text,
-                    }}
-                    onClick={() => setCount(item)}
-                  >
-                    {item}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div
-              className="rounded-[var(--radius-lg-design)] p-2.5"
-              style={{ background: fieldBg, border: `1px solid ${border}` }}
-            >
-              <label
-                className="mb-1.5 block type-caption"
-                style={{ color: text, fontWeight: 750 }}
-              >
-                自定义比例/尺寸
-              </label>
-              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-1.5">
-                <input
-                  value={customWidth}
-                  onChange={event => {
-                    setCustomWidth(event.target.value.replace(/[^\d]/g, ""));
-                    setSelectedCoverPresetId("");
-                  }}
-                  placeholder="宽，例如 2048"
-                  className="h-8 min-w-0 rounded-[var(--radius-md-design)] px-2.5 outline-none"
-                  style={{
-                    background: fieldBg,
-                    border: `1px solid ${border}`,
-                    color: text,
-                    fontSize: 12,
-                  }}
-                />
-                <span className="type-caption" style={{ color: sub }}>
-                  ×
-                </span>
-                <input
-                  value={customHeight}
-                  onChange={event => {
-                    setCustomHeight(event.target.value.replace(/[^\d]/g, ""));
-                    setSelectedCoverPresetId("");
-                  }}
-                  placeholder="高，例如 3072"
-                  className="h-8 min-w-0 rounded-[var(--radius-md-design)] px-2.5 outline-none"
-                  style={{
-                    background: fieldBg,
-                    border: `1px solid ${border}`,
-                    color: text,
-                    fontSize: 12,
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex shrink-0 items-center justify-center gap-3 px-5 pb-4 pt-0.5">
-          <button
-            type="button"
-            className="h-10 rounded-[var(--radius-md-design)] px-5 type-caption transition-opacity hover:opacity-85"
-            style={{
-              background: fieldBg,
-              border: `1px solid ${border}`,
-              color: text,
-            }}
-            onClick={onClose}
-          >
-            取消
-          </button>
-          <button
-            type="button"
-            className="flex h-10 items-center gap-2 rounded-[var(--radius-md-design)] px-6 type-caption transition-transform hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-            style={{
-              background: "#C5ED47",
-              color: "#050607",
-              boxShadow: "0 14px 34px rgba(197,237,71,0.34)",
-            }}
-            disabled={!imageSrc}
-            onClick={handleCreate}
-          >
-            <WandSparkles size={15} />
-            {selectedCoverPreset
-              ? `生成 ${count} 张 ${selectedCoverPreset.platform} 产品图`
-              : `生成智能产品图 ${count} 张`}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
-  if (typeof document === "undefined") return dialog;
-  return createPortal(dialog, document.body);
 }
 
 // ── Canvas Top Tool Palette ─────────────────────────────────────
@@ -21129,7 +20096,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       generationId: providedGenerationId,
       resultCount = 1,
       maxResultCount = 4,
-      commerceContext,
       backgroundTaskInput,
       run,
     }: {
@@ -21145,7 +20111,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       generationId?: string;
       resultCount?: number;
       maxResultCount?: number;
-      commerceContext?: ImageGeneratorPayload["commerceContext"];
       backgroundTaskInput?: Omit<ImageGenerationTaskInput, "taskId">;
       run: () => Promise<GeneratedImagesResponse>;
     }) => {
@@ -21213,7 +20178,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             ? visibleSourceImageSrc
             : undefined,
         editMode: true,
-        commerceContext,
         backgroundTaskInput: backgroundTaskInput
           ? {
               ...backgroundTaskInput,
@@ -21921,15 +20885,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       ]);
       setSelectedNodeIds([sourceId]);
       toast("智能电商产品生成中", {
-        description: `${detail.platformLabel} · ${detail.marketLabel} · ${detail.placementLabel}，结果会在旁边生成`,
+        description: `${detail.ratio} · ${detail.resolution.toUpperCase()} · ${detail.count} 张，结果会在旁边生成`,
       });
       const smartProductPrompt = [
-        "强约束：必须以左侧上传的产品图作为唯一商品主体，保留原产品的品类、外形、颜色、材质、比例和可见细节；模板只改变背景、光影、版式和电商氛围，不能替换成其他商品。",
+        "强约束：必须以左侧上传的产品图作为唯一商品主体，保留原产品的品类、外形、颜色、材质、比例和可见细节；只改变背景、光影、空间和商业拍摄氛围，不能替换成其他商品。",
         detail.style ? `背景风格：${detail.style}` : "",
-        detail.prompt || "生成符合平台规范的高清电商产品图",
-        detail.backgroundReferenceSrc
-          ? `背景参考图：${detail.backgroundReferenceName || "已上传参考图"}，生成与参考图相似的背景风格`
-          : "",
+        detail.prompt || "生成高清商业产品图",
         `输出规格：${detail.customWidth && detail.customHeight ? `${detail.customWidth}x${detail.customHeight}` : `${detail.ratio} ${detail.resolution.toUpperCase()}`}`,
       ]
         .filter(Boolean)
@@ -21953,33 +20914,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         displayH,
         resultCount: detail.count,
         maxResultCount: 9,
-        commerceContext: {
-          platformId: detail.platformId,
-          platformLabel: detail.platformLabel,
-          marketId: detail.marketId,
-          marketLabel: detail.marketLabel,
-          categoryId: detail.categoryId,
-          categoryLabel: detail.categoryLabel,
-          placementId: detail.placementId,
-          placementLabel: detail.placementLabel,
-          templateId: detail.templateId,
-          templateLabel: detail.templateLabel,
-          auditRecordId: detail.auditRecordId,
-          editableCopySuggestions: detail.editableCopySuggestions,
-          exportSizes: detail.exportSizes,
-          marketPackageVersion: detail.marketPackageVersion,
-          platformSpecVersion: detail.platformSpecVersion,
-          templateVersion: detail.templateVersion,
-          outputWidth: detail.customWidth,
-          outputHeight: detail.customHeight,
-          riskAction: detail.riskAction,
-        },
         backgroundTaskInput: {
           capability: "smart_background",
           operation: "create-background",
           imageSrc: detail.imageSrc,
-          backgroundReferenceSrc: detail.backgroundReferenceSrc,
-          backgroundReferenceName: detail.backgroundReferenceName,
           prompt: detail.prompt,
           style: detail.style,
           ratio: detail.ratio,
@@ -21992,8 +20930,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         run: async () =>
           createProductBackground({
             imageSrc: detail.imageSrc,
-            backgroundReferenceSrc: detail.backgroundReferenceSrc,
-            backgroundReferenceName: detail.backgroundReferenceName,
             prompt: detail.prompt,
             style: detail.style,
             ratio: detail.ratio,
@@ -22001,7 +20937,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             count: detail.count,
             customWidth: detail.customWidth,
             customHeight: detail.customHeight,
-            skillId: detail.skillId,
             model: DEFAULT_IMAGE_AI_MODEL_ID,
           }),
       });
@@ -22578,29 +21513,17 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           })
         : undefined;
       try {
-        const fallbackPrompt = `将图片中的文案替换为：${detail.editedText}`;
-        const optimizedPrompt = await callLLM({
-          module: "image-text-relayout",
-          model: "gpt-4o",
-          images: [{ src: detail.imageSrc, title: "原始图片" }],
-          prompt: [
-            "请根据原始图片，生成一段给图片模型使用的中文编辑提示词。",
-            "目标：把图片中原有的文案替换成用户编辑后的文案，并同步微调排版。",
-            "流程背景：原始文案已通过 OCR/多模态识别提取，用户已在编辑窗口中完成修改。",
-            "要求：输出必须是一张新的结果图，不能影响原图。",
-            "要求：新图画布比例必须与原图完全一致，不允许变成方图、不允许拉伸或改变构图比例。",
-            "要求：尽量保留原始画面主体、风格、色彩、背景、构图和品牌识别特征。",
-            "要求：优先定位并清除原文案所在区域，只修改文字区域和为了新文案适配所必须发生的细微版式调整。",
-            "要求：不要改动人物、产品、背景、Logo、非文字装饰元素和整体构图。",
-            "要求：新文案必须准确可读，不允许乱码，不允许替换成无关文字。",
-            "要求：如果新文案更长或更短，自动优化字号、行距、字重、留白、对齐和文字区块位置，让画面自然、专业、无明显修补痕迹。",
-            "要求：保持商业设计输出品质，文字层级、视觉重心、品牌感和排版节奏都要像真实设计稿。",
-            "只输出可直接给图片模型使用的提示词，不要解释。",
-            `原图文案：${detail.originalText || "未识别到可读文案"}`,
-            `替换后的新文案：${detail.editedText}`,
-          ].join("\n"),
-        });
-        const finalPrompt = optimizedPrompt.text.trim() || fallbackPrompt;
+        const finalPrompt = [
+          "执行图片文字局部编辑，不是重新生成一张新图片。",
+          "必须把原图作为唯一基础画布，保持原图全部非文字区域视觉一致。",
+          "只定位并替换原图中已识别出的可读文字区域；背景、主体、产品、人物、Logo、装饰、色彩、光影、构图、镜头和画面比例都不能改变。",
+          "清除旧文字时要自然修复原文字底下的局部背景，再把新文案排回相同视觉区域。",
+          "新文字必须清晰可读，字体风格、字号层级、字重、行距、对齐、留白和商业海报质感要匹配原图设计。",
+          "禁止把图片改成化妆品、人物、产品摄影或任何与原图无关的新主题。",
+          "输出完整结果图，但视觉上应像原图只发生了文字修改。",
+          `原图识别文案：${detail.originalText || "未识别到可读文案"}`,
+          `替换后的新文案：${detail.editedText}`,
+        ].join("\n");
         await runDerivedImageGeneration({
           sourceNode,
           prompt: finalPrompt,
@@ -22612,18 +21535,21 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           displayH: sourceSize.height,
           backgroundTaskInput: {
             capability: "image_edit",
-            operation: "edit",
+            operation: "text_edit",
             imageSrc: detail.imageSrc,
             prompt: finalPrompt,
             model: DEFAULT_IMAGE_AI_MODEL_ID,
             targetWidth,
             targetHeight,
+            originalText: detail.originalText,
+            editedText: detail.editedText,
           },
           run: async () =>
             editImageWithPrompt({
               imageSrc: detail.imageSrc,
               prompt: finalPrompt,
               model: DEFAULT_IMAGE_AI_MODEL_ID,
+              operation: "text_edit",
               targetWidth,
               targetHeight,
             }),
@@ -27667,11 +26593,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             projectId
           );
 
-          const maskSrc = await createEraseMaskFromTransparentLayer(
-            foregroundImage.src,
-            layerW,
-            layerH
-          );
           const backgroundPrompt = [
             "Create the clean opaque background layer for this exact image by removing only the foreground subject group marked by the mask.",
             "Naturally reconstruct the hidden background behind the removed subject using the surrounding scene, perspective, lighting, texture, shadows, and color logic.",
@@ -27704,10 +26625,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             editMode: true,
             backgroundTaskInput: {
               taskId: backgroundGenerationId,
-              capability: "image_erase",
-              operation: "erase",
+              capability: "element_background",
+              operation: "create-background-layer",
               imageSrc,
-              maskSrc,
+              foregroundLayerSrc: foregroundImage.src,
               model: "picwish-inpaint",
               prompt: backgroundPrompt,
               targetWidth: layerW,
@@ -27718,9 +26639,26 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             { ...backgroundPayload, status: "pending" },
             projectId
           );
-          const backgroundResult = await runImageGenerationTask(
-            backgroundPayload.backgroundTaskInput!
-          );
+          let backgroundResult: GeneratedImagesResponse;
+          try {
+            backgroundResult = await runImageGenerationTask(
+              backgroundPayload.backgroundTaskInput!
+            );
+          } catch (backgroundError) {
+            const backgroundMessage =
+              backgroundError instanceof Error
+                ? backgroundError.message
+                : "请稍后重试";
+            dispatchImageGenerationTask(
+              {
+                ...backgroundPayload,
+                status: "failed",
+                error: backgroundMessage,
+              },
+              projectId
+            );
+            throw backgroundError;
+          }
           if (!backgroundResult.images[0]?.src) {
             throw new Error("背景层未返回可用图片");
           }

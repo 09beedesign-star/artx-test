@@ -55,9 +55,20 @@ type EditImageInput = {
   mask_url?: string;
   model?: string;
   prompt: string;
+  operation?: string;
   targetWidth?: number;
   targetHeight?: number;
   images?: Array<{ src: string; title?: string }>;
+};
+
+type ElementBackgroundInput = {
+  imageSrc: string;
+  foregroundLayerSrc: string;
+  model?: string;
+  prompt?: string;
+  targetWidth?: number;
+  targetHeight?: number;
+  sync?: 0 | 1 | boolean | string | number;
 };
 
 type EraseImageInput = {
@@ -2737,237 +2748,6 @@ export async function extractImageText(input: ExtractImageTextInput): Promise<{ 
   };
 }
 
-function getSmartProductBackgroundReferences(input: CreateBackgroundInput) {
-  return [
-    { src: input.imageSrc, title: "product camera reference" },
-    ...(input.backgroundReferenceSrc?.trim()
-      ? [{ src: input.backgroundReferenceSrc, title: input.backgroundReferenceName || "background reference" }]
-      : []),
-  ];
-}
-
-function buildSmartProductBackgroundPrompt(input: CreateBackgroundInput) {
-  return [
-    "Generate the empty ecommerce background plate only. Do not include any product, person, packaging, logo, or foreground object.",
-    "Reference image 1 is the product camera, perspective, scale, and lighting reference only. Infer its camera height, viewing direction, floor plane, and contact point, then create a compatible empty scene.",
-    input.backgroundReferenceSrc?.trim()
-      ? "Reference image 2 is the background style reference only. Match its material, color mood, spatial depth, and lighting without copying its subject or camera perspective when it conflicts with reference image 1."
-      : "Create a realistic commercial background whose camera height, floor plane, and light direction match reference image 1.",
-    "Reserve an empty, centered floor area for the product, with its contact line at approximately 88% of the final canvas height. Do not render the product, its silhouette, packaging, logo, text, or a duplicate shadow.",
-    input.style ? `背景风格：${input.style}` : "",
-    input.prompt || "创建商业化产品背景",
-    "Return the complete background plate only. Keep the reserved product placement area empty.",
-  ].filter(Boolean).join("\n");
-}
-
-type SmartProductPlacement = {
-  width: number;
-  height: number;
-  left: number;
-  top: number;
-  baseline: number;
-};
-
-function resolveSmartProductPlacement(
-  canvasWidth: number,
-  canvasHeight: number,
-  productWidth: number,
-  productHeight: number,
-): SmartProductPlacement {
-  const maxWidth = Math.max(1, Math.round(canvasWidth * 0.68));
-  const maxHeight = Math.max(1, Math.round(canvasHeight * 0.65));
-  const scale = Math.min(maxWidth / Math.max(1, productWidth), maxHeight / Math.max(1, productHeight));
-  const width = Math.max(1, Math.round(productWidth * scale));
-  const height = Math.max(1, Math.round(productHeight * scale));
-  const baseline = Math.round(canvasHeight * 0.88);
-
-  return {
-    width,
-    height,
-    left: Math.round((canvasWidth - width) / 2),
-    top: Math.max(Math.round(canvasHeight * 0.08), baseline - height),
-    baseline,
-  };
-}
-
-export const __testGetSmartProductBackgroundReferences = getSmartProductBackgroundReferences;
-export const __testBuildSmartProductBackgroundPrompt = buildSmartProductBackgroundPrompt;
-export const __testResolveSmartProductPlacement = resolveSmartProductPlacement;
-
-async function generateSmartProductBackgroundPlates(
-  input: CreateBackgroundInput,
-  prompt: string,
-  count: number,
-): Promise<GeneratedImage[]> {
-  const images = getSmartProductBackgroundReferences(input);
-  const requestBackground = (model: string) =>
-    generateImages({
-      prompt,
-      model,
-      ratio: input.ratio || "1:1",
-      count,
-      style: input.style,
-      images,
-      preferImageApiForReferences: model === DEFAULT_IMAGE_MODEL_ID,
-    });
-
-  let lastError = "";
-  for (const model of getImageModelFallbackAttempts(input.model)) {
-    try {
-      const result = await requestBackground(model);
-      if (result.images.length === 0) {
-        throw new Error(`${model} returned no background plates`);
-      }
-      return result.images;
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
-      console.warn("Smart product background plate failed; retrying next model", { model, error: lastError });
-    }
-  }
-
-  throw new Error(`All priority background plate models failed: ${lastError || "unknown error"}`);
-}
-
-async function createProductGroundedShadow(
-  productPng: Buffer,
-  placement: SmartProductPlacement,
-): Promise<{ input: Buffer; left: number; top: number }> {
-  const sharp = (await import("sharp")).default;
-  const shadowHeight = Math.max(6, Math.round(placement.height * 0.12));
-  const contactBandHeight = Math.max(1, Math.round(placement.height * 0.22));
-  const { data, info } = await sharp(productPng, { limitInputPixels: false })
-    .ensureAlpha()
-    .extract({
-      left: 0,
-      top: Math.max(0, placement.height - contactBandHeight),
-      width: placement.width,
-      height: contactBandHeight,
-    })
-    .resize(placement.width, shadowHeight, { fit: "fill", kernel: "lanczos3" })
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const shadowPixels = Buffer.alloc(info.width * info.height * 4);
-
-  for (let index = 0; index < info.width * info.height; index += 1) {
-    shadowPixels[index * 4 + 3] = Math.round(data[index * info.channels + 3] * 0.34);
-  }
-
-  const input = await sharp(shadowPixels, {
-    raw: { width: info.width, height: info.height, channels: 4 },
-  })
-    .blur(Math.max(3, Math.round(placement.width * 0.014)))
-    .png()
-    .toBuffer();
-  return {
-    input,
-    left: placement.left,
-    top: Math.round(placement.baseline - shadowHeight * 0.55),
-  };
-}
-
-function averageLuminance(data: Buffer, channels: number, alphaThreshold = 0) {
-  let total = 0;
-  let count = 0;
-  for (let index = 0; index < data.length; index += channels) {
-    if (channels > 3 && data[index + 3] <= alphaThreshold) continue;
-    total += data[index] * 0.2126 + data[index + 1] * 0.7152 + data[index + 2] * 0.0722;
-    count += 1;
-  }
-  return count > 0 ? total / count : 128;
-}
-
-async function matchProductLightingToBackground(
-  productPng: Buffer,
-  backgroundPng: Buffer,
-  placement: SmartProductPlacement,
-  backgroundWidth: number,
-  backgroundHeight: number,
-): Promise<Buffer> {
-  const sharp = (await import("sharp")).default;
-  const product = await sharp(productPng, { limitInputPixels: false })
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const sampleTop = Math.min(
-    Math.max(0, placement.baseline - 18),
-    Math.max(0, backgroundHeight - 1),
-  );
-  const sampleHeight = Math.max(1, Math.min(36, backgroundHeight - sampleTop));
-  const background = await sharp(backgroundPng, { limitInputPixels: false })
-    .extract({
-      left: Math.min(Math.max(0, placement.left), Math.max(0, backgroundWidth - 1)),
-      top: sampleTop,
-      width: Math.max(1, Math.min(placement.width, backgroundWidth)),
-      height: sampleHeight,
-    })
-    .removeAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const productLuminance = averageLuminance(product.data, product.info.channels, 12);
-  const backgroundLuminance = averageLuminance(background.data, background.info.channels);
-  const brightness = Math.max(0.86, Math.min(1.12, (backgroundLuminance + 56) / (productLuminance + 56)));
-
-  return sharp(productPng, { limitInputPixels: false })
-    .modulate({ brightness })
-    .png()
-    .toBuffer();
-}
-
-async function compositeProtectedProductOnBackground(
-  background: GeneratedImage,
-  product: GeneratedImage,
-  width: number,
-  height: number,
-): Promise<GeneratedImage> {
-  const sharp = (await import("sharp")).default;
-  const backgroundBuffer = (await imageSrcToBuffer(background.src)).buffer;
-  const productBuffer = (await imageSrcToBuffer(product.src)).buffer;
-  const productPng = await sharp(productBuffer, { limitInputPixels: false })
-    .rotate()
-    .trim({ background: { r: 0, g: 0, b: 0, alpha: 0 } })
-    .png()
-    .toBuffer();
-  const productMetadata = await sharp(productPng, { limitInputPixels: false }).metadata();
-  const placement = resolveSmartProductPlacement(
-    width,
-    height,
-    productMetadata.width || 1,
-    productMetadata.height || 1,
-  );
-  const placedProductPng = await sharp(productPng, { limitInputPixels: false })
-    .resize(placement.width, placement.height, { fit: "fill", kernel: "lanczos3" })
-    .png()
-    .toBuffer();
-  const backgroundPng = await sharp(backgroundBuffer, { limitInputPixels: false })
-    .rotate()
-    .resize(width, height, { fit: "cover", position: "centre" })
-    .png()
-    .toBuffer();
-  const litProductPng = await matchProductLightingToBackground(
-    placedProductPng,
-    backgroundPng,
-    placement,
-    width,
-    height,
-  );
-  const groundedShadow = await createProductGroundedShadow(litProductPng, placement);
-  const png = await sharp(backgroundPng, { limitInputPixels: false })
-    .composite([
-      { input: groundedShadow.input, left: groundedShadow.left, top: groundedShadow.top },
-      { input: litProductPng, left: placement.left, top: placement.top },
-    ])
-    .png()
-    .toBuffer();
-
-  return {
-    src: `data:image/png;base64,${png.toString("base64")}`,
-    width,
-    height,
-  };
-}
-
-export const __testCompositeProtectedProductOnBackground = compositeProtectedProductOnBackground;
-
 export async function createProductBackground(input: CreateBackgroundInput): Promise<GeneratedImageResult> {
   if (!input.imageSrc?.trim()) {
     throw new Error("Missing imageSrc");
@@ -3038,6 +2818,15 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   const referenceImages = input.images?.filter(image => image.src?.trim()) || [];
   const editSize = getEditSizeForAspect(targetWidth, targetHeight);
   const aspectInstruction = `Keep the final image canvas aspect ratio exactly ${targetWidth}:${targetHeight}. Do not return a square image unless the source is square.`;
+  const isTextEditOperation = input.operation === "text_edit";
+  const textEditInstruction = isTextEditOperation
+    ? [
+        "This is a local text replacement edit, not a new image generation request.",
+        "Use the source image as the only target canvas. Preserve every non-text region, including background, subject, product, logo, decorative elements, colors, lighting, composition, camera angle, and aspect ratio.",
+        "Only remove the original readable text and place the requested replacement text back into the same visual text areas with matching typography, hierarchy, spacing, alignment, and poster design quality.",
+        "Do not change the image category, scene, product type, or overall visual identity.",
+      ].join("\n")
+    : "";
   const editViaReferenceGeneration = async () => {
     const sourceDataUrl = `data:${sourceImageData.mimeType};base64,${sourceImageData.buffer.toString("base64")}`;
     const maskDataUrl = maskImageData
@@ -3048,6 +2837,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
     const result = await generateImages({
       prompt: [
         input.prompt,
+        textEditInstruction,
         "Use reference image 1 as the target canvas. Preserve its subject identity, composition, camera angle, lighting, proportions, and aspect ratio unless the user explicitly asks to change them.",
         maskDataUrl
           ? "Reference image 2 is the local edit mask: only the transparent/bright marked area should change; every other area must remain visually identical to reference image 1."
@@ -3075,6 +2865,9 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   };
 
   if (isChatCompatibleImageModel(selectedModel)) {
+    if (isTextEditOperation) {
+      throw new Error("智能文案编辑需要支持局部图片编辑的模型接口，已阻止退回参考生图以避免生成无关图片。");
+    }
     return editViaReferenceGeneration();
   }
 
@@ -3092,6 +2885,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
     }
     body.append("prompt", [
       input.prompt,
+      textEditInstruction,
       referenceImages.length
         ? [
             "Use the source image as the target canvas and preserve its subject identity, pose, composition, background, lighting, and aspect ratio.",
@@ -3117,6 +2911,9 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (isImageEditEndpointUnavailable(error)) {
+      if (isTextEditOperation) {
+        throw new Error(`智能文案编辑接口暂不可用，已阻止退回参考生图：${message}`);
+      }
       return editViaReferenceGeneration();
     }
     if (!message.toLowerCase().includes("response_format")) throw error;
@@ -3124,6 +2921,10 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
       providerData = await callImageEditProvider(await createBody(false), apiKey, baseUrl);
     } catch (fallbackError) {
       if (isImageEditEndpointUnavailable(fallbackError)) {
+        if (isTextEditOperation) {
+          const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+          throw new Error(`智能文案编辑接口暂不可用，已阻止退回参考生图：${fallbackMessage}`);
+        }
         return editViaReferenceGeneration();
       }
       throw fallbackError;
@@ -3142,6 +2943,9 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   );
 
   if (images.length === 0) {
+    if (isTextEditOperation) {
+      throw new Error("智能文案编辑接口没有返回可用图片，已阻止退回参考生图。");
+    }
     return editViaReferenceGeneration();
   }
 
@@ -3193,6 +2997,54 @@ export async function eraseImageObjects(input: EraseImageInput): Promise<Generat
   const normalized = await __testNormalizeGeneratedImagesToTargetAspect(picWishResult.images, targetWidth, targetHeight);
   if (normalized.length === 0) {
     throw new Error("AI 擦除未返回可用内容，请稍后重试");
+  }
+  return withProviderTaskIds({ images: normalized }, collectProviderTaskIds(picWishResult));
+}
+
+export async function createElementBackgroundLayer(input: ElementBackgroundInput): Promise<GeneratedImageResult> {
+  if (!input.imageSrc?.trim()) {
+    throw new Error("Missing imageSrc");
+  }
+  if (!input.foregroundLayerSrc?.trim()) {
+    throw new Error("Missing foregroundLayerSrc");
+  }
+
+  const sourceImageData = await imageSrcToBuffer(input.imageSrc);
+  const foregroundLayerData = await imageSrcToBuffer(input.foregroundLayerSrc);
+  const sourceImageDimensions = await getImageBufferDimensions(sourceImageData.buffer);
+  const targetSize = __testResolveHighDefinitionTargetSize(
+    input.targetWidth,
+    input.targetHeight,
+    sourceImageDimensions.width,
+    sourceImageDimensions.height,
+  );
+  const targetWidth = targetSize.width;
+  const targetHeight = targetSize.height;
+  const providerMaskBuffer = await createPicWishEraseMask(
+    foregroundLayerData.buffer,
+    targetWidth,
+    targetHeight,
+  );
+  const providerImageBuffer = await __testPreparePicWishEraseSourceImage(
+    sourceImageData.buffer,
+    targetWidth,
+    targetHeight,
+  );
+  const sync = input.sync === true || input.sync === 1 || input.sync === "1";
+  const picWishResult = await eraseWithPicWish({
+    imageBuffer: providerImageBuffer,
+    imageMimeType: "image/png",
+    maskBuffer: providerMaskBuffer,
+    maskMimeType: "image/png",
+    sync,
+  });
+  const normalized = await __testNormalizeGeneratedImagesToTargetAspect(
+    picWishResult.images,
+    targetWidth,
+    targetHeight,
+  );
+  if (normalized.length === 0) {
+    throw new Error("背景层未返回可用图片");
   }
   return withProviderTaskIds({ images: normalized }, collectProviderTaskIds(picWishResult));
 }

@@ -685,6 +685,7 @@ export async function editImageWithPrompt({
   model = DEFAULT_IMAGE_MODEL_ID,
   prompt,
   maskSrc,
+  operation,
   targetWidth,
   targetHeight,
   referencedAssets = [],
@@ -695,6 +696,7 @@ export async function editImageWithPrompt({
   model?: string;
   prompt: string;
   maskSrc?: string;
+  operation?: string;
   targetWidth?: number;
   targetHeight?: number;
   referencedAssets?: Array<{ src: string; title?: string }>;
@@ -707,7 +709,7 @@ export async function editImageWithPrompt({
       taskId: generationId,
       capability: "image_edit",
       intent: "image_edit",
-      operation: "edit",
+      operation: operation || "edit",
       imageSrc,
       maskSrc,
       model,
@@ -721,7 +723,7 @@ export async function editImageWithPrompt({
   const result = await postAiOrchestrate({
     capability: "image_edit",
     intent: "image_edit",
-    operation: "edit",
+    operation: operation || "edit",
     imageSrc,
     maskSrc,
     model,
