@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   dismissFirstTopUpBannerForToday,
   FIRST_TOP_UP_BANNER_DISMISSAL_STORAGE_KEY,
-  getLocalCalendarDay,
   isFirstTopUpBannerDismissedToday,
 } from "./HomeFirstTopUpBanner";
 
@@ -19,20 +18,17 @@ function createMemoryStorage() {
   };
 }
 
-describe("HomeFirstTopUpBanner daily dismissal", () => {
-  it("uses the local calendar day instead of a UTC timestamp", () => {
-    expect(getLocalCalendarDay(new Date(2026, 6, 20, 0, 5))).toBe("2026-07-20");
-  });
-
-  it("keeps the banner closed today and restores it on the next day", () => {
+describe("HomeFirstTopUpBanner 3-hour dismissal", () => {
+  it("keeps the banner closed within 3 hours and restores it after that window", () => {
     const storage = createMemoryStorage();
-    const today = new Date(2026, 6, 20, 14, 30);
-    const tomorrow = new Date(2026, 6, 21, 8, 0);
+    const dismissedAt = new Date(2026, 6, 20, 14, 30);
+    const withinWindow = new Date(2026, 6, 20, 17, 29, 59);
+    const outsideWindow = new Date(2026, 6, 20, 17, 30, 0);
 
-    dismissFirstTopUpBannerForToday(storage, today);
+    dismissFirstTopUpBannerForToday(storage, dismissedAt);
 
-    expect(storage.getItem(FIRST_TOP_UP_BANNER_DISMISSAL_STORAGE_KEY)).toBe("2026-07-20");
-    expect(isFirstTopUpBannerDismissedToday(storage, today)).toBe(true);
-    expect(isFirstTopUpBannerDismissedToday(storage, tomorrow)).toBe(false);
+    expect(storage.getItem(FIRST_TOP_UP_BANNER_DISMISSAL_STORAGE_KEY)).toBe(String(dismissedAt.getTime()));
+    expect(isFirstTopUpBannerDismissedToday(storage, withinWindow)).toBe(true);
+    expect(isFirstTopUpBannerDismissedToday(storage, outsideWindow)).toBe(false);
   });
 });
