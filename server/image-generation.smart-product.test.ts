@@ -29,6 +29,21 @@ describe("smart product PicWish r-background route", () => {
     expect(createProductBackgroundSource).not.toContain("Gemini");
   });
 
+  it("keeps every smart product ratio on the selected-ratio transparent canvas path", () => {
+    const ratioBlock = source.match(/const ratioToSize[\s\S]*?\n};/)?.[0] || "";
+    const createProductBackgroundSource =
+      source.match(/export async function createProductBackground[\s\S]*?return withProviderTaskIds/)?.[0] || "";
+
+    ["1:1", "4:5", "5:4", "3:4", "4:3", "16:9", "9:16", "21:9"].forEach((ratio) => {
+      expect(ratioBlock).toContain(`"${ratio}"`);
+    });
+    expect(createProductBackgroundSource).toContain("const output = getBackgroundOutputSize(input, sourceDimensions.width, sourceDimensions.height)");
+    expect(createProductBackgroundSource).toContain("prepareProductCutoutForBackgroundGenerator(");
+    expect(createProductBackgroundSource).toContain("output.width");
+    expect(createProductBackgroundSource).toContain("output.height");
+    expect(createProductBackgroundSource).not.toContain('if (input.ratio === "16:9")');
+  });
+
   it("removes the old model-generated plate and local composite implementation", () => {
     expect(source).not.toContain("generateSmartProductBackgroundPlates");
     expect(source).not.toContain("Generate the empty ecommerce background plate only");
