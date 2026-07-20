@@ -57,6 +57,25 @@ type AdminUserAccount = {
   allowedAiModels?: string[];
 };
 
+type CreditBatchKind = "membership" | "recharge" | "gift" | "manual" | "test";
+type CreditBatchStatus = "active" | "depleted" | "expired" | "refunded";
+
+type CreditBatch = {
+  id: string;
+  userId: string;
+  user: string;
+  kind: CreditBatchKind;
+  source: string;
+  initialCredits: number;
+  remainingCredits: number;
+  status: CreditBatchStatus;
+  reason: string;
+  operator: string;
+  createdAt: string;
+  expiresAt?: string;
+  updatedAt?: string;
+};
+
 type PaymentOrder = {
   id: string;
   userId: string;
@@ -65,6 +84,9 @@ type PaymentOrder = {
   userEmail?: string;
   paymentDisplayName?: string;
   packageName: string;
+  planId?: string;
+  cycleId?: string;
+  creditKind?: CreditBatchKind;
   channel: "微信支付" | "支付宝" | "Stripe" | "PayPal" | "第三方代收";
   amount: number;
   expectedCredits: number;
@@ -298,6 +320,7 @@ type AdminData = {
   users: AdminUserAccount[];
   orders: PaymentOrder[];
   credits: CreditLedgerEntry[];
+  creditBatches: CreditBatch[];
   creditNotifications: CreditGiftNotification[];
   aiTasks: AiTaskRecord[];
   providers: ProviderHealth[];
@@ -369,6 +392,9 @@ export type AdminApiResult = {
 const DEMO_USER_IDS = new Set(["usr_1028", "usr_1071", "usr_1189", "usr_1220"]);
 const DEMO_USER_NAMES = new Set(["林澈", "Mira Studio", "陈一鸣", "北辰增长"]);
 const DEMO_RECORD_PREFIXES = ["ord_90", "cr_7", "task_8", "fb_2", "al_8", "al_9", "risk_0", "aud_00"];
+const FIRST_RECHARGE_BONUS_MIN_AMOUNT = 150;
+const FIRST_RECHARGE_BONUS_CREDITS = 2500;
+const FIRST_RECHARGE_BONUS_VALID_DAYS = 30;
 
 const DATA_DIR = process.env.ARTX_DATA_DIR || path.join(process.cwd(), ".artx-data");
 const DATA_FILE = path.join(DATA_DIR, "admin-data.json");
@@ -431,6 +457,212 @@ const adminDataRepository = createAdminDataRepository();
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function addDaysIso(input: string, days: number) {
+  const date = new Date(input);
+  if (Number.isNaN(date.getTime())) return undefined;
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString();
+}
+
+function addMonthsIso(input: string, months: number) {
+  const date = new Date(input);
+  if (Number.isNaN(date.getTime())) return undefined;
+  date.setUTCMonth(date.getUTCMonth() + months);
+  return date.toISOString();
+}
+
+function getBillingCycleMonths(cycleId?: string) {
+  return BILLING_CYCLES.find((cycle) => cycle.id === cycleId)?.months || 1;
+}
+
+function createCreditBatch(data: AdminData, input: {
+  user: AdminUserAccount;
+  kind: CreditBatchKind;
+  amount: number;
+  source: string;
+  reason: string;
+  operator: string;
+  createdAt: string;
+  expiresAt?: string;
+}) {
+  const amount = Math.max(0, Math.round(input.amount));
+  if (amount <= 0) return null;
+  const batch: CreditBatch = {
+    id: `cb_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
+    userId: input.user.id,
+    user: input.user.name,
+    kind: input.kind,
+    source: input.source,
+    initialCredits: amount,
+    remainingCredits: amount,
+    status: "active",
+    reason: input.reason,
+    operator: input.operator,
+    createdAt: input.createdAt,
+    expiresAt: input.expiresAt,
+  };
+  data.creditBatches = [batch, ...(data.creditBatches || [])].slice(0, 1000);
+  return batch;
+}
+
+function createCreditBatchForPaidOrder(
+  data: AdminData,
+  user: AdminUserAccount,
+  order: PaymentOrder,
+  paidAt: string,
+  operator: string
+) {
+  const paidMembershipPlan = getMembershipPlanFromName(order.packageName);
+  if (paidMembershipPlan) {
+    return createCreditBatch(data, {
+      user,
+      kind: "membership",
+      amount: order.expectedCredits,
+      source: order.id,
+      reason: "会员套餐积分入账",
+      operator,
+      createdAt: paidAt,
+      expiresAt: addMonthsIso(paidAt, getBillingCycleMonths(order.cycleId)),
+    });
+  }
+  if (order.creditKind === "recharge" || order.packageName === "积分充值" || order.id.startsWith("rch_")) {
+    return createCreditBatch(data, {
+      user,
+      kind: "recharge",
+      amount: order.expectedCredits,
+      source: order.id,
+      reason: "充值积分入账",
+      operator,
+      createdAt: paidAt,
+      expiresAt: addDaysIso(paidAt, 365),
+    });
+  }
+  return createCreditBatch(data, {
+    user,
+    kind: order.creditKind || "manual",
+    amount: order.expectedCredits,
+    source: order.id,
+    reason: "订单积分入账",
+    operator,
+    createdAt: paidAt,
+  });
+}
+
+function isRechargeOrder(order: Pick<PaymentOrder, "creditKind" | "packageName" | "id">) {
+  return order.creditKind === "recharge" || order.packageName === "积分充值" || order.id.startsWith("rch_");
+}
+
+function firstRechargeBonusSource(orderId: string) {
+  return `${orderId}:first-recharge-bonus`;
+}
+
+function qualifiesForFirstRechargeBonus(data: AdminData, order: PaymentOrder) {
+  if (!isRechargeOrder(order) || order.amount < FIRST_RECHARGE_BONUS_MIN_AMOUNT) return false;
+  const paidRechargeOrders = data.orders.filter((item) => item.userId === order.userId && item.id !== order.id && item.status === "paid" && isRechargeOrder(item));
+  const existingBonus = (data.creditBatches || []).some((batch) => batch.userId === order.userId && batch.source.endsWith(":first-recharge-bonus"));
+  return paidRechargeOrders.length === 0 && !existingBonus;
+}
+
+function getUserCreditBatchBalance(data: AdminData, userId: string, options?: { excludeKinds?: CreditBatchKind[] }) {
+  const excludeKinds = new Set(options?.excludeKinds || []);
+  const batches = (data.creditBatches || []).filter((batch) => batch.userId === userId && batch.status === "active" && batch.remainingCredits > 0);
+  const user = data.users.find((item) => item.id === userId);
+  const userBalance = Math.max(0, Math.round(user?.credits || 0));
+  if (!batches.length) return userBalance;
+  const totalBatchBalance = batches.reduce((sum, batch) => sum + batch.remainingCredits, 0);
+  const legacyBalance = Math.max(0, userBalance - totalBatchBalance);
+  return legacyBalance + batches.reduce((sum, batch) => sum + (excludeKinds.has(batch.kind) ? 0 : batch.remainingCredits), 0);
+}
+
+function sortCreditBatchesForDeduction(left: CreditBatch, right: CreditBatch) {
+  const leftExpiry = left.expiresAt ? Date.parse(left.expiresAt) : Number.POSITIVE_INFINITY;
+  const rightExpiry = right.expiresAt ? Date.parse(right.expiresAt) : Number.POSITIVE_INFINITY;
+  if (leftExpiry !== rightExpiry) return leftExpiry - rightExpiry;
+  return Date.parse(left.createdAt) - Date.parse(right.createdAt);
+}
+
+function deductCreditBatchesBySource(data: AdminData, source: string, amount: number, updatedAt: string) {
+  let remaining = Math.max(0, Math.round(amount));
+  if (remaining <= 0) return;
+  const nextBatches = [...(data.creditBatches || [])];
+  for (const batch of nextBatches.filter((item) => item.source === source && item.remainingCredits > 0).sort(sortCreditBatchesForDeduction)) {
+    if (remaining <= 0) break;
+    const deducted = Math.min(batch.remainingCredits, remaining);
+    remaining -= deducted;
+    batch.remainingCredits -= deducted;
+    batch.status = batch.remainingCredits <= 0 ? "refunded" : batch.status;
+    batch.updatedAt = updatedAt;
+  }
+  data.creditBatches = nextBatches;
+}
+
+function getRemainingCreditBatchBalanceBySource(data: AdminData, source: string) {
+  return (data.creditBatches || [])
+    .filter((batch) => batch.source === source && batch.remainingCredits > 0)
+    .reduce((sum, batch) => sum + batch.remainingCredits, 0);
+}
+
+function deductCreditBatchesForUsage(
+  data: AdminData,
+  userId: string,
+  amount: number,
+  updatedAt: string,
+  options?: { excludeKinds?: CreditBatchKind[] }
+) {
+  let remaining = Math.max(0, Math.round(amount));
+  if (remaining <= 0) return 0;
+  const excludeKinds = new Set(options?.excludeKinds || []);
+  const nextBatches = [...(data.creditBatches || [])];
+  for (const batch of nextBatches
+    .filter((item) => item.userId === userId && item.status === "active" && item.remainingCredits > 0 && !excludeKinds.has(item.kind))
+    .sort(sortCreditBatchesForDeduction)) {
+    if (remaining <= 0) break;
+    const deducted = Math.min(batch.remainingCredits, remaining);
+    remaining -= deducted;
+    batch.remainingCredits -= deducted;
+    batch.status = batch.remainingCredits <= 0 ? "depleted" : batch.status;
+    batch.updatedAt = updatedAt;
+  }
+  data.creditBatches = nextBatches;
+  return remaining;
+}
+
+function expireCreditBatches(data: AdminData, expiredAt: string) {
+  const cutoff = Date.parse(expiredAt);
+  if (!Number.isFinite(cutoff)) return false;
+  const nextBatches = [...(data.creditBatches || [])];
+  const expiredEntries: CreditLedgerEntry[] = [];
+  let changed = false;
+  for (const batch of nextBatches) {
+    if (batch.status !== "active" || batch.remainingCredits <= 0 || !batch.expiresAt || Date.parse(batch.expiresAt) > cutoff) continue;
+    const user = data.users.find((item) => item.id === batch.userId);
+    const expiredCredits = Math.min(Math.max(0, Math.round(batch.remainingCredits)), Math.max(0, Math.round(user?.credits || 0)));
+    if (user && expiredCredits > 0) {
+      user.credits = Math.max(0, user.credits - expiredCredits);
+      expiredEntries.push({
+        id: `cr_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
+        userId: user.id,
+        user: user.name,
+        type: "积分过期",
+        delta: -expiredCredits,
+        reason: batch.reason,
+        source: batch.id,
+        operator: "系统",
+        createdAt: expiredAt,
+      });
+    }
+    batch.remainingCredits = 0;
+    batch.status = "expired";
+    batch.updatedAt = expiredAt;
+    changed = true;
+  }
+  if (expiredEntries.length) {
+    data.credits = [...expiredEntries, ...data.credits].slice(0, 500);
+  }
+  data.creditBatches = nextBatches;
+  return changed || expiredEntries.length > 0;
 }
 
 function formatGiftCredits(amount: number) {
@@ -652,6 +884,16 @@ export async function assertCanUseAiImageModel(input: {
   const limit = getHighQualityImageMonthlyLimit(planId);
   if (limit <= 0) {
     throw new Error("高质量图片模型仅限 Pro 和 Studio 会员使用");
+  }
+  const chargedCredits = quoteAiUsageFromData(data, {
+    capability: "text_to_image",
+    outputCount: input.outputCount || 1,
+    planId,
+    model: input.model,
+  }).chargedCredits;
+  const eligibleBalance = getUserCreditBatchBalance(data, input.userId, { excludeKinds: ["gift"] });
+  if (eligibleBalance < chargedCredits) {
+    throw new Error("高质量图片模型可用积分不足，请先充值");
   }
   const used = countHighQualityImageUsageThisMonth(data, input.userId);
   const requested = Math.max(1, Math.round(input.outputCount || 1));
@@ -1180,6 +1422,7 @@ async function seedAdminData(): Promise<AdminData> {
     users: await buildUserAccounts([]),
     orders: [],
     credits: [],
+    creditBatches: [],
     creditNotifications: [],
     aiTasks: [],
     providers: buildProviderHealth(),
@@ -1212,6 +1455,7 @@ function removeDemoData(data: AdminData): AdminData {
   data.users = data.users.filter((item) => !isDemoRecord(item));
   data.orders = data.orders.filter((item) => !isDemoRecord(item));
   data.credits = data.credits.filter((item) => !isDemoRecord(item));
+  data.creditBatches = data.creditBatches.filter((item) => !isDemoRecord(item));
   data.creditNotifications = data.creditNotifications.filter((item) => !isDemoRecord(item));
   data.aiTasks = data.aiTasks.filter((item) => !isDemoRecord(item));
   data.feedback = data.feedback.filter((item) => !isDemoRecord(item));
@@ -1226,6 +1470,7 @@ function hasDemoData(data: Partial<AdminData>) {
     data.users,
     data.orders,
     data.credits,
+    data.creditBatches,
     data.creditNotifications,
     data.aiTasks,
     data.feedback,
@@ -1241,6 +1486,7 @@ async function normalizeDataAsync(value: Partial<AdminData>): Promise<AdminData>
     users: await buildUserAccounts(Array.isArray(value.users) ? value.users : seed.users),
     orders: Array.isArray(value.orders) ? value.orders : seed.orders,
     credits: Array.isArray(value.credits) ? value.credits : seed.credits,
+    creditBatches: Array.isArray(value.creditBatches) ? value.creditBatches : seed.creditBatches,
     creditNotifications: Array.isArray(value.creditNotifications) ? value.creditNotifications : seed.creditNotifications,
     aiTasks: Array.isArray(value.aiTasks) ? value.aiTasks : seed.aiTasks,
     providers: buildProviderHealth(),
@@ -1261,14 +1507,16 @@ async function loadAdminData(): Promise<AdminData> {
     const shouldPersistCleanup = hasDemoData(stored);
     const data = await normalizeDataAsync(stored);
     const orderCreatedAtBeforeNormalization = new Map(data.orders.map((order) => [order.id, order.createdAt]));
+    const shouldPersistCreditExpiry = expireCreditBatches(data, nowIso());
     ensureBillingConsistency(data);
     const shouldPersistOrderTimestampRepair = data.orders.some((order) => orderCreatedAtBeforeNormalization.get(order.id) !== order.createdAt);
-    if (shouldPersistCleanup || shouldPersistOrderTimestampRepair) {
+    if (shouldPersistCleanup || shouldPersistOrderTimestampRepair || shouldPersistCreditExpiry) {
       await saveAdminData(data);
     }
     return data;
   }
   const seeded = await seedAdminData();
+  expireCreditBatches(seeded, nowIso());
   ensureBillingConsistency(seeded);
   await saveAdminData(seeded);
   return seeded;
@@ -1552,6 +1800,7 @@ function fullPayload(data: AdminData) {
     users: data.users,
     orders: data.orders,
     credits: data.credits,
+    creditBatches: data.creditBatches,
     aiTasks: data.aiTasks,
     providers: data.providers,
     feedback: data.feedback,
@@ -1771,6 +2020,7 @@ export async function handleAdminApiRequest(
       userId: user.id,
       user: user.name,
       packageName,
+      creditKind: "manual",
       channel: "第三方代收",
       amount,
       expectedCredits,
@@ -1823,6 +2073,15 @@ export async function handleAdminApiRequest(
         },
         ...data.credits,
       ].slice(0, 500);
+      createCreditBatch(data, {
+        user,
+        kind: "manual",
+        amount: expectedCredits,
+        source: order.id,
+        reason: "接口方代收确认",
+        operator: actor.username,
+        createdAt: recordedAt,
+      });
     }
     const alert: OpsAlert = {
       id: `al_${crypto.randomUUID().slice(0, 8)}`,
@@ -1861,7 +2120,7 @@ export async function handleAdminApiRequest(
     if (!detail) return jsonError(404, "订单不存在");
     return { status: 200, body: detail };
   }
-  if (method === "GET" && route === "credits") return { status: 200, body: { credits: data.credits, users: data.users } };
+  if (method === "GET" && route === "credits") return { status: 200, body: { credits: data.credits, creditBatches: data.creditBatches, users: data.users } };
   if (method === "GET" && route === "ai-tasks") return { status: 200, body: { aiTasks: data.aiTasks, providers: data.providers } };
   if (method === "GET" && route === "providers") return { status: 200, body: { providers: data.providers } };
   if (method === "GET" && route === "production-readiness") return { status: 200, body: { productionReadiness: buildProductionReadiness() } };
@@ -1944,6 +2203,16 @@ export async function handleAdminApiRequest(
         operator: actor.username,
         createdAt: issuedAt,
       }, ...data.credits].slice(0, 500);
+      createCreditBatch(data, {
+        user,
+        kind: "test",
+        amount: initialCredits,
+        source: "admin/test-account-issue",
+        reason: "后台发放测试账号",
+        operator: actor.username,
+        createdAt: issuedAt,
+        expiresAt: testProfile.expiresAt,
+      });
     }
     appendAuditLog(data, actor, {
       action: "发放测试账号",
@@ -1984,6 +2253,18 @@ export async function handleAdminApiRequest(
       operator: actor.username,
       createdAt: adjustedAt,
     }, ...data.credits].slice(0, 500);
+    if (creditDelta > 0) {
+      createCreditBatch(data, {
+        user,
+        kind: "test",
+        amount: creditDelta,
+        source: "admin/test-account-adjustment",
+        reason: "后台调整测试账号额度",
+        operator: actor.username,
+        createdAt: adjustedAt,
+        expiresAt: user.testProfile.expiresAt,
+      });
+    }
     appendAuditLog(data, actor, { action: "调整测试账号", target: user.id, after: { creditDelta, dailyCreditLimit, expiresAt: user.testProfile.expiresAt } });
     await saveAdminData(data);
     return { status: 200, body: { ...fullPayload(data), user } };
@@ -2179,7 +2460,12 @@ export async function handleAdminApiRequest(
     const user = data.users.find((item) => item.id === order.userId);
     if (!user) return jsonError(404, "订单关联用户不存在");
     const before = { status: order.status, credits: user.credits, issuedCredits: order.issuedCredits };
-    const creditsToDeduct = Math.min(user.credits, order.issuedCredits);
+    const bonusSource = firstRechargeBonusSource(order.id);
+    const bonusCreditsRemaining = getRemainingCreditBatchBalanceBySource(data, bonusSource);
+    const orderCreditsToDeduct = Math.min(user.credits, order.issuedCredits);
+    const bonusCreditsToDeduct = Math.min(Math.max(0, user.credits - orderCreditsToDeduct), bonusCreditsRemaining);
+    const creditsToDeduct = orderCreditsToDeduct + bonusCreditsToDeduct;
+    const clawbackShortfall = Math.max(0, order.issuedCredits + bonusCreditsRemaining - creditsToDeduct);
     const refundedAt = nowIso();
     order.status = "refunded";
     order.reconciliation = "matched";
@@ -2197,8 +2483,10 @@ export async function handleAdminApiRequest(
       {
         id: "credit_clawback",
         label: "平台积分扣回",
-        status: "done",
-        detail: creditsToDeduct > 0 ? `已从用户余额扣回 ${creditsToDeduct} 积分` : "用户可用余额不足，未扣回积分，需人工复核",
+        status: clawbackShortfall > 0 ? "failed" : "done",
+        detail: creditsToDeduct > 0
+          ? `已从用户余额扣回 ${creditsToDeduct} 积分（含首充赠送扣回 ${bonusCreditsToDeduct} 积分）`
+          : "用户可用余额不足，未扣回积分，需人工复核",
         createdAt: refundedAt,
       },
       {
@@ -2239,19 +2527,50 @@ export async function handleAdminApiRequest(
     ].slice(0, 50);
     if (creditsToDeduct > 0) {
       user.credits = Math.max(0, user.credits - creditsToDeduct);
-      data.credits = [
-        {
+      deductCreditBatchesBySource(data, order.id, orderCreditsToDeduct, refundedAt);
+      deductCreditBatchesBySource(data, bonusSource, bonusCreditsToDeduct, refundedAt);
+      const refundEntries: CreditLedgerEntry[] = [];
+      if (orderCreditsToDeduct > 0) {
+        refundEntries.push({
           id: `cr_${Date.now().toString(36)}`,
           userId: user.id,
           user: user.name,
           type: "退款扣回",
-          delta: -creditsToDeduct,
+          delta: -orderCreditsToDeduct,
           reason,
           source: order.id,
           operator: actor.username,
           createdAt: refundedAt,
-        },
-        ...data.credits,
+        });
+      }
+      if (bonusCreditsToDeduct > 0) {
+        refundEntries.push({
+          id: `cr_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
+          userId: user.id,
+          user: user.name,
+          type: "首充赠送扣回",
+          delta: -bonusCreditsToDeduct,
+          reason,
+          source: bonusSource,
+          operator: actor.username,
+          createdAt: refundedAt,
+        });
+      }
+      data.credits = [...refundEntries, ...data.credits].slice(0, 500);
+    }
+    if (clawbackShortfall > 0) {
+      const refundShortfallRiskEvent: RiskEvent = {
+        id: `risk_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
+        title: "退款积分扣回短缺",
+        detail: `${order.id} 退款应扣回 ${order.issuedCredits + bonusCreditsRemaining} 积分，实际扣回 ${creditsToDeduct} 积分，短缺 ${clawbackShortfall} 积分。`,
+        status: "open",
+        severity: "medium",
+        target: order.id,
+        createdAt: refundedAt,
+      };
+      data.riskEvents = [
+        refundShortfallRiskEvent,
+        ...data.riskEvents,
       ].slice(0, 500);
     }
     appendAuditLog(data, actor, {
@@ -2291,6 +2610,18 @@ export async function handleAdminApiRequest(
       createdAt: adjustedAt,
     };
     data.credits = [entry, ...data.credits].slice(0, 500);
+    if (delta > 0) {
+      createCreditBatch(data, {
+        user,
+        kind: "gift",
+        amount: delta,
+        source: "admin/manual-adjustment",
+        reason,
+        operator: actor.username,
+        createdAt: adjustedAt,
+        expiresAt: addDaysIso(adjustedAt, 30),
+      });
+    }
     createCreditGiftNotification(data, user, entry, delta);
     appendAuditLog(data, actor, {
       action: delta > 0 ? "人工增加积分" : "人工扣减积分",
@@ -2487,6 +2818,7 @@ export async function getBillingSnapshotForUser(userId: string) {
     frozenCredits: user.frozenCredits,
     expiredCredits: user.expiredCredits,
     plan: normalizePlanDisplayName(user.plan),
+    creditBatches: data.creditBatches.filter((item) => item.userId === userId).slice(0, 50),
     orders: data.orders.filter((item) => item.userId === userId).slice(0, 20).map((order) => ({
       id: order.id,
       planName: order.packageName,
@@ -2494,7 +2826,7 @@ export async function getBillingSnapshotForUser(userId: string) {
       paymentMethod: order.channel === "微信支付" ? "wechat" : "alipay",
       amount: order.amount,
       credits: order.expectedCredits,
-      bonusCredits: 0,
+      bonusCredits: getRemainingCreditBatchBalanceBySource(data, firstRechargeBonusSource(order.id)),
       status: order.status === "paid" ? "paid" : "pending",
       createdAt: order.createdAt,
       paidAt: order.paidAt,
@@ -2574,6 +2906,9 @@ export async function createBillingOrder(params: {
     userEmail: user.email,
     paymentDisplayName: `${plan.shortName} · ${user.account || params.username}`,
     packageName: plan.shortName,
+    planId: plan.id,
+    cycleId: cycle.id,
+    creditKind: "membership",
     channel: params.paymentMethod === "wechat" ? "微信支付" : "支付宝",
     amount: quote.price,
     expectedCredits: quote.totalCredits,
@@ -2634,6 +2969,7 @@ export async function createCreditRechargeOrder(params: {
     userEmail: user.email,
     paymentDisplayName: `积分充值 · ${user.account || params.username}`,
     packageName: "积分充值",
+    creditKind: "recharge",
     channel: params.paymentMethod === "wechat" ? "微信支付" : "支付宝",
     amount: quote.amount,
     expectedCredits: quote.credits,
@@ -2780,6 +3116,35 @@ export async function markBillingOrderPaid(params: {
       },
       ...data.credits,
     ].slice(0, 500);
+    createCreditBatchForPaidOrder(data, user, order, paidAt, params.actorName);
+    let firstRechargeBonusCredits = 0;
+    if (qualifiesForFirstRechargeBonus(data, order)) {
+      firstRechargeBonusCredits = FIRST_RECHARGE_BONUS_CREDITS;
+      user.credits += firstRechargeBonusCredits;
+      const bonusEntry: CreditLedgerEntry = {
+        id: `cr_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
+        userId: user.id,
+        user: user.name,
+        type: "首充赠送",
+        delta: firstRechargeBonusCredits,
+        reason: `首充满 HKD ${FIRST_RECHARGE_BONUS_MIN_AMOUNT} 赠送`,
+        source: order.id,
+        operator: params.actorName,
+        createdAt: paidAt,
+      };
+      data.credits = [bonusEntry, ...data.credits].slice(0, 500);
+      createCreditBatch(data, {
+        user,
+        kind: "gift",
+        amount: firstRechargeBonusCredits,
+        source: firstRechargeBonusSource(order.id),
+        reason: bonusEntry.reason,
+        operator: params.actorName,
+        createdAt: paidAt,
+        expiresAt: addDaysIso(paidAt, FIRST_RECHARGE_BONUS_VALID_DAYS),
+      });
+      createCreditGiftNotification(data, user, bonusEntry, firstRechargeBonusCredits);
+    }
 
     appendAuditLog(data, {
       id: "billing",
@@ -2789,6 +3154,7 @@ export async function markBillingOrderPaid(params: {
       target: order.id,
       after: {
         issuedCredits: order.issuedCredits,
+        firstRechargeBonusCredits,
         balance: user.credits,
       },
     });
@@ -3146,21 +3512,43 @@ export async function recordAiUsage(input: AiUsageRecordInput) {
   data.aiTasks = [record, ...data.aiTasks].slice(0, 500);
 
   if (record.status === "success" && record.chargedCredits > 0) {
-    user.credits = Math.max(0, user.credits - record.chargedCredits);
-    data.credits = [
-      {
-        id: `cr_${Date.now().toString(36)}`,
-        userId: user.id,
-        user: user.name,
-        type: "AI 消耗",
-        delta: -record.chargedCredits,
-        reason: `${record.capability} 成功执行`,
-        source: record.generationId,
-        operator: "系统",
+    const excludeKinds: CreditBatchKind[] = isHighQualityImageModel(record.model) ? ["gift"] : [];
+    const eligibleBalance = getUserCreditBatchBalance(data, user.id, { excludeKinds });
+    const creditsToDeduct = excludeKinds.length ? Math.min(record.chargedCredits, eligibleBalance) : record.chargedCredits;
+    const deductionShortfall = Math.max(0, record.chargedCredits - creditsToDeduct);
+    deductCreditBatchesForUsage(data, user.id, creditsToDeduct, createdAt, { excludeKinds });
+    user.credits = Math.max(0, user.credits - creditsToDeduct);
+    if (creditsToDeduct > 0) {
+      data.credits = [
+        {
+          id: `cr_${Date.now().toString(36)}`,
+          userId: user.id,
+          user: user.name,
+          type: "AI 消耗",
+          delta: -creditsToDeduct,
+          reason: `${record.capability} 成功执行`,
+          source: record.generationId,
+          operator: "系统",
+          createdAt,
+        },
+        ...data.credits,
+      ].slice(0, 500);
+    }
+    if (deductionShortfall > 0) {
+      const aiDeductionShortfallRiskEvent: RiskEvent = {
+        id: `risk_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
+        title: "AI 扣费短缺",
+        detail: `${record.user} 的 ${record.model} 任务应扣 ${record.chargedCredits} 积分，实际扣回 ${creditsToDeduct} 积分，需复核首充赠送/旧余额风控。`,
+        status: "open",
+        severity: "medium",
+        target: record.id,
         createdAt,
-      },
-      ...data.credits,
-    ].slice(0, 500);
+      };
+      data.riskEvents = [
+        aiDeductionShortfallRiskEvent,
+        ...data.riskEvents,
+      ].slice(0, 500);
+    }
   } else if (record.status !== "success") {
     const failureAlert: OpsAlert = {
         id: `al_${Date.now().toString(36)}`,

@@ -913,6 +913,34 @@ describe("production readiness", () => {
     expect(snapshot).toMatchObject({
       balance: createdBody.order.credits,
     });
+    const snapshotBody = snapshot as {
+      creditBatches: Array<{
+        kind: string;
+        source: string;
+        initialCredits: number;
+        remainingCredits: number;
+        status: string;
+        expiresAt?: string;
+      }>;
+    };
+    expect(snapshotBody.creditBatches).toEqual([
+      expect.objectContaining({
+        kind: "recharge",
+        source: createdBody.order.id,
+        initialCredits: createdBody.order.credits,
+        remainingCredits: createdBody.order.credits,
+        status: "active",
+      }),
+    ]);
+    const rechargeBatch = snapshotBody.creditBatches[0];
+    expect(Date.parse(rechargeBatch.expiresAt || "")).toBeGreaterThan(Date.now() + 364 * 24 * 60 * 60 * 1000);
+
+    const creditsResult = await handleAdminApiRequest("GET", "/credits", authorization);
+    expect(creditsResult.status).toBe(200);
+    const creditsBody = creditsResult.body as { creditBatches: Array<{ source: string; kind: string }> };
+    expect(creditsBody.creditBatches).toEqual([
+      expect.objectContaining({ source: createdBody.order.id, kind: "recharge" }),
+    ]);
 
     const detail = await handleAdminApiRequest("GET", `/orders/${createdBody.order.id}`, authorization);
     expect(detail.status).toBe(200);
@@ -942,6 +970,282 @@ describe("production readiness", () => {
         type: "wallyt_auto_query",
       }),
     ]));
+  });
+
+  it("issues first recharge bonus once and keeps high-quality image usage away from gift credits", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-20T08:00:00.000Z"));
+    const { createCreditRechargeOrder, getBillingOrderForPayment, getBillingSnapshotForUser, markBillingOrderPaid, recordAiUsage } = await loadAdminStore();
+    const userId = "user-first-recharge-1";
+    const username = "first-recharge@example.com";
+
+    const first = await createCreditRechargeOrder({
+      userId,
+      username,
+      amount: 150,
+      paymentMethod: "wechat",
+    });
+    expect(first.status).toBe(200);
+    const firstBody = first.body as { order: { id: string; credits: number } };
+    const firstPendingOrder = await getBillingOrderForPayment(firstBody.order.id);
+    await markBillingOrderPaid({
+      orderId: firstBody.order.id,
+      actorName: "wallyt-auto-query",
+      expectedAmountCents: firstPendingOrder?.amountCents,
+    });
+
+    let snapshot = await getBillingSnapshotForUser(userId) as {
+      balance: number;
+      creditBatches: Array<{ kind: string; source: string; initialCredits: number; remainingCredits: number; status: string; expiresAt?: string }>;
+    };
+    expect(snapshot.balance).toBe(firstBody.order.credits + 2500);
+    expect(snapshot.creditBatches).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "recharge",
+        source: firstBody.order.id,
+        initialCredits: firstBody.order.credits,
+        remainingCredits: firstBody.order.credits,
+        status: "active",
+      }),
+      expect.objectContaining({
+        kind: "gift",
+        source: `${firstBody.order.id}:first-recharge-bonus`,
+        initialCredits: 2500,
+        remainingCredits: 2500,
+        status: "active",
+      }),
+    ]));
+    const giftBatch = snapshot.creditBatches.find((batch) => batch.kind === "gift");
+    expect(Date.parse(giftBatch?.expiresAt || "")).toBeGreaterThan(Date.now() + 29 * 24 * 60 * 60 * 1000);
+
+    await recordAiUsage({
+      userId,
+      username,
+      capability: "普通图片生成",
+      capabilityKey: "text_to_image",
+      provider: "OpenAI",
+      model: "og-image2-medium",
+      status: "success",
+      outputUnits: 1,
+    });
+    snapshot = await getBillingSnapshotForUser(userId) as typeof snapshot;
+    expect(snapshot.creditBatches).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "gift",
+        source: `${firstBody.order.id}:first-recharge-bonus`,
+        remainingCredits: 2176,
+      }),
+    ]));
+
+    const second = await createCreditRechargeOrder({
+      userId,
+      username,
+      amount: 150,
+      paymentMethod: "wechat",
+    });
+    expect(second.status).toBe(200);
+    const secondBody = second.body as { order: { id: string } };
+    const secondPendingOrder = await getBillingOrderForPayment(secondBody.order.id);
+    await markBillingOrderPaid({
+      orderId: secondBody.order.id,
+      actorName: "wallyt-auto-query",
+      expectedAmountCents: secondPendingOrder?.amountCents,
+    });
+    snapshot = await getBillingSnapshotForUser(userId) as typeof snapshot;
+    expect(snapshot.creditBatches.filter((batch) => batch.kind === "gift")).toHaveLength(1);
+    vi.useRealTimers();
+  });
+
+  it("expires credit batches without rollover and does not duplicate expiry ledger entries", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-20T08:00:00.000Z"));
+    await writeFile(path.join(dataDir, "admin-data.json"), `${JSON.stringify({
+      users: [
+        {
+          id: "expiry-user-1",
+          name: "Expiry User",
+          email: "expiry@example.com",
+          account: "expiry@example.com",
+          registeredAt: "2026-07-01T00:00:00.000Z",
+          loginMethod: "email",
+          role: "viewer",
+          status: "normal",
+          plan: "Free",
+          organization: "个人",
+          credits: 100,
+          frozenCredits: 0,
+          expiredCredits: 0,
+          totalRecharge: 0,
+          totalConsumed: 0,
+          lastSeen: "刚刚",
+          risk: "低",
+        },
+      ],
+      orders: [],
+      credits: [],
+      creditBatches: [
+        {
+          id: "cb_expired_1",
+          userId: "expiry-user-1",
+          user: "Expiry User",
+          kind: "membership",
+          source: "ord_expired_1",
+          initialCredits: 80,
+          remainingCredits: 80,
+          status: "active",
+          reason: "会员套餐积分入账",
+          operator: "系统",
+          createdAt: "2026-06-20T00:00:00.000Z",
+          expiresAt: "2026-07-19T00:00:00.000Z",
+        },
+        {
+          id: "cb_future_1",
+          userId: "expiry-user-1",
+          user: "Expiry User",
+          kind: "recharge",
+          source: "rch_future_1",
+          initialCredits: 20,
+          remainingCredits: 20,
+          status: "active",
+          reason: "充值积分入账",
+          operator: "系统",
+          createdAt: "2026-07-01T00:00:00.000Z",
+          expiresAt: "2027-07-01T00:00:00.000Z",
+        },
+      ],
+      creditNotifications: [],
+      aiTasks: [],
+      providers: [],
+      feedback: [],
+      alerts: [],
+      riskEvents: [],
+      auditLogs: [],
+      plans: [],
+      capabilityStatus: [],
+    }, null, 2)}\n`);
+
+    const { getBillingSnapshotForUser } = await loadAdminStore();
+    const firstSnapshot = await getBillingSnapshotForUser("expiry-user-1") as {
+      balance: number;
+      expiredCredits: number;
+      creditBatches: Array<{ id: string; remainingCredits: number; status: string }>;
+      ledger: Array<{ type: string; delta: number; source: string }>;
+    };
+    expect(firstSnapshot.balance).toBe(20);
+    expect(firstSnapshot.expiredCredits).toBe(80);
+    expect(firstSnapshot.creditBatches).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "cb_expired_1", remainingCredits: 0, status: "expired" }),
+      expect.objectContaining({ id: "cb_future_1", remainingCredits: 20, status: "active" }),
+    ]));
+    expect(firstSnapshot.ledger.filter((entry) => entry.type === "积分过期")).toHaveLength(1);
+
+    const secondSnapshot = await getBillingSnapshotForUser("expiry-user-1") as typeof firstSnapshot;
+    expect(secondSnapshot.ledger.filter((entry) => entry.type === "积分过期")).toHaveLength(1);
+    vi.useRealTimers();
+  });
+
+  it("blocks high-quality image generation when only gift credits remain", async () => {
+    await writeFile(path.join(dataDir, "admin-data.json"), `${JSON.stringify({
+      users: [
+        {
+          id: "gift-only-pro-1",
+          name: "Gift Pro",
+          email: "gift-pro@example.com",
+          account: "gift-pro@example.com",
+          registeredAt: "2026-07-01T00:00:00.000Z",
+          loginMethod: "email",
+          role: "viewer",
+          status: "normal",
+          plan: "Pro 专业版",
+          organization: "个人",
+          credits: 2500,
+          frozenCredits: 0,
+          expiredCredits: 0,
+          totalRecharge: 150,
+          totalConsumed: 0,
+          lastSeen: "刚刚",
+          risk: "低",
+        },
+      ],
+      orders: [],
+      credits: [],
+      creditBatches: [
+        {
+          id: "cb_gift_only_1",
+          userId: "gift-only-pro-1",
+          user: "Gift Pro",
+          kind: "gift",
+          source: "manual:first-recharge-bonus",
+          initialCredits: 2500,
+          remainingCredits: 2500,
+          status: "active",
+          reason: "首充满 HKD 150 赠送",
+          operator: "系统",
+          createdAt: "2026-07-20T00:00:00.000Z",
+          expiresAt: "2026-08-19T00:00:00.000Z",
+        },
+      ],
+      creditNotifications: [],
+      aiTasks: [],
+      providers: [],
+      feedback: [],
+      alerts: [],
+      riskEvents: [],
+      auditLogs: [],
+      plans: [],
+      capabilityStatus: [],
+    }, null, 2)}\n`);
+
+    const { assertCanUseAiImageModel } = await loadAdminStore();
+    await expect(assertCanUseAiImageModel({
+      userId: "gift-only-pro-1",
+      model: "og-image2-high",
+      outputCount: 1,
+    })).rejects.toThrow("高质量图片模型可用积分不足，请先充值");
+  });
+
+  it("claws back first recharge bonus when a paid recharge order is refunded", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-20T08:00:00.000Z"));
+    const { createCreditRechargeOrder, getBillingOrderForPayment, getBillingSnapshotForUser, handleAdminApiRequest, markBillingOrderPaid } = await loadAdminStore();
+    const authorization = await getAdminAuthorization();
+    const userId = "user-first-recharge-refund-1";
+    const username = "refund-first-recharge@example.com";
+    const created = await createCreditRechargeOrder({
+      userId,
+      username,
+      amount: 150,
+      paymentMethod: "wechat",
+    });
+    expect(created.status).toBe(200);
+    const createdBody = created.body as { order: { id: string; credits: number } };
+    const pendingOrder = await getBillingOrderForPayment(createdBody.order.id);
+    await markBillingOrderPaid({
+      orderId: createdBody.order.id,
+      actorName: "wallyt-auto-query",
+      expectedAmountCents: pendingOrder?.amountCents,
+    });
+
+    const refund = await handleAdminApiRequest("POST", `/orders/${createdBody.order.id}/refund`, authorization, {
+      confirmation: "CONFIRM_REFUND_ORDER",
+      reason: "测试退款扣回首充赠送",
+    });
+    expect(refund.status).toBe(200);
+    const snapshot = await getBillingSnapshotForUser(userId) as {
+      balance: number;
+      creditBatches: Array<{ source: string; remainingCredits: number; status: string }>;
+      ledger: Array<{ type: string; delta: number; source: string }>;
+    };
+    expect(snapshot.balance).toBe(0);
+    expect(snapshot.creditBatches).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: createdBody.order.id, remainingCredits: 0, status: "refunded" }),
+      expect.objectContaining({ source: `${createdBody.order.id}:first-recharge-bonus`, remainingCredits: 0, status: "refunded" }),
+    ]));
+    expect(snapshot.ledger).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "退款扣回", delta: -createdBody.order.credits, source: createdBody.order.id }),
+      expect.objectContaining({ type: "首充赠送扣回", delta: -2500, source: `${createdBody.order.id}:first-recharge-bonus` }),
+    ]));
+    vi.useRealTimers();
   });
 
   it("returns a reusable recent payment link for pending orders", async () => {
