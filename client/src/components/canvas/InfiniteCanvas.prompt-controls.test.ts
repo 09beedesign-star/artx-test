@@ -79,6 +79,20 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain("generationIndex: index");
   });
 
+  it("passes the bottom prompt count and selected ratio to image generation", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const bottomPromptBlock = source.match(
+      /function BottomPromptBar\([\s\S]*?function AssetEditPromptBar\(/
+    )?.[0];
+
+    expect(bottomPromptBlock).toBeTruthy();
+    expect(bottomPromptBlock).toContain("const [count, setCount] = useState(1);");
+    expect(bottomPromptBlock).toContain("<ImageCountSelector");
+    expect(bottomPromptBlock).toContain("onChange={setCount}");
+    expect(bottomPromptBlock).toContain("ratio,");
+    expect(bottomPromptBlock).toContain("count,");
+  });
+
   it("shows multi-platform cover directly above download in the selected-image toolbar", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
     const assetTools = source.match(
@@ -230,6 +244,20 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain('gridTemplateColumns: "1fr 1fr"');
     expect(source).toContain('marginTop: "auto"');
     expect(source).toContain("height: 42");
+  });
+
+  it("routes bottom auto prompts to reference search and inserts the returned images on the canvas", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const intentSource = readFileSync(resolve(__dirname, "../../lib/ai-intent.ts"), "utf-8");
+
+    expect(source).toContain('const isAutoMode = selectedGenerationModel === "auto";');
+    expect(source).toContain("allowReferenceSearch: true");
+    expect(source).toContain('decision.mode === "reference_search"');
+    expect(source).toContain('new CustomEvent("canvas-reference-search-results"');
+    expect(source).toContain('window.addEventListener("canvas-reference-search-results", handler)');
+    expect(source).toContain("void addDroppedImageSources(sources, origin);");
+    expect(intentSource).toContain("EXPLICIT_REFERENCE_SEARCH_PATTERN.test(trimmedPrompt)");
+    expect(intentSource).toContain('mode: "reference_search"');
   });
 
   it("renders smart copy editing as scrollable structured non-empty sub fields", () => {

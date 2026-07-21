@@ -2909,6 +2909,24 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
       const images = extractGeneratedImages(providerData, baseUrl, targetSize.width, targetSize.height).slice(0, count);
       const normalizedImages = await __testNormalizeGeneratedImagesToTargetAspect(images, targetSize.width, targetSize.height);
       if (normalizedImages.length > 0) {
+        if (normalizedImages.length < count) {
+          const remainingCount = count - normalizedImages.length;
+          const remaining = await Promise.all(
+            Array.from({ length: remainingCount }, (_, index) =>
+              generateImages({
+                ...input,
+                count: 1,
+                prompt: [
+                  input.prompt,
+                  `生成第 ${normalizedImages.length + index + 1} 张差异化结果，保持同一需求但不要重复已有构图。`,
+                ].join("\n"),
+              }),
+            ),
+          );
+          return {
+            images: [...normalizedImages, ...remaining.flatMap(result => result.images)].slice(0, count),
+          };
+        }
         return { images: normalizedImages };
       }
       lastError = `${providerModel} returned no usable images`;

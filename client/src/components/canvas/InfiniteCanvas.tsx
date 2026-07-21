@@ -11784,6 +11784,7 @@ function BottomPromptBar({
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState("auto");
   const [ratio, setRatio] = useState("1:1");
+  const [count, setCount] = useState(1);
   const [rows, setRows] = useState(1);
   const [isSending, setIsSending] = useState(false);
   const [referencePreview, setReferencePreview] = useState<{
@@ -11907,7 +11908,7 @@ function BottomPromptBar({
               ? DEFAULT_IMAGE_AI_MODEL_ID
               : selectedGenerationModel,
             ratio: skillRatio,
-            count: 1,
+            count: shouldEditTargetReference ? 1 : count,
             style: activeSkill.name,
             referencesEnabled: submittedRefs.length > 0,
             referencedAssets: submittedRefs,
@@ -11975,13 +11976,30 @@ function BottomPromptBar({
           return;
         }
 
-        const decision = await routeCreativeIntent({
-          module: "bottom-global-prompt-router",
-          model: "gpt-4o",
-          prompt: submittedPrompt || "请基于引用素材继续创作。",
-          referencedAssets: submittedRefs,
-          preferImageWhenReferences: true,
-        });
+        const isAutoMode = selectedGenerationModel === "auto";
+        const decision = isAutoMode
+          ? await routeCreativeIntent({
+              module: "bottom-global-prompt-router",
+              model: "gpt-4o",
+              prompt: submittedPrompt || "请基于引用素材继续创作。",
+              referencedAssets: submittedRefs,
+              preferImageWhenReferences: true,
+              allowReferenceSearch: true,
+            })
+          : { mode: "image" as const, imagePrompt: submittedPrompt };
+        if (decision.mode === "reference_search") {
+          const searchQuery = decision.searchQuery?.trim() || visiblePrompt;
+          const result = await searchReferenceImages({ query: searchQuery, limit: 10 });
+          window.dispatchEvent(
+            new CustomEvent("canvas-reference-search-results", {
+              detail: { query: searchQuery, images: result.images },
+            })
+          );
+          toast("AI 已找到参考图", {
+            description: `已为「${searchQuery}」找到 ${result.images.length} 张可用素材`,
+          });
+          return;
+        }
         if (decision.mode === "image") {
           const imagePrompt =
             decision.imagePrompt?.trim() ||
@@ -12004,7 +12022,7 @@ function BottomPromptBar({
             prompt: finalImagePrompt,
             model: selectedGenerationModel,
             ratio,
-            count: 1,
+            count,
             style: "智能判断",
             referencesEnabled: submittedRefs.length > 0,
             generationId,
@@ -12305,6 +12323,11 @@ function BottomPromptBar({
           style={{ paddingTop: 8 }}
         >
           <ModelSelector model={model} onChange={setModel} isDark={isDark} />
+          <ImageCountSelector
+            value={count}
+            onChange={setCount}
+            isDark={isDark}
+          />
           <div
             className="flex h-8 items-center gap-1 rounded-[var(--radius-md-design)] px-2"
             style={{
@@ -24892,6 +24915,24 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     },
     [createDroppedImageSourceNode, pushHistory, setNodes]
   );
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        images?: ReferenceImageResult[];
+      }>).detail;
+      const sources = (detail?.images || []).map(image => image.src).filter(Boolean);
+      if (sources.length === 0) return;
+      const rect = containerRef.current?.getBoundingClientRect();
+      const origin = screenToFlowPosition({
+        x: rect ? rect.left + rect.width / 2 : window.innerWidth / 2,
+        y: rect ? rect.top + rect.height / 2 : window.innerHeight / 2,
+      });
+      void addDroppedImageSources(sources, origin);
+    };
+    window.addEventListener("canvas-reference-search-results", handler);
+    return () => window.removeEventListener("canvas-reference-search-results", handler);
+  }, [addDroppedImageSources, screenToFlowPosition]);
 
   // ── Local/external image drag-drop handlers ──
   const handleCanvasDragEnter = useCallback((e: React.DragEvent) => {

@@ -11,7 +11,10 @@ export function normalizeApiBaseUrl(value: string) {
 
   try {
     const parsed = new URL(trimmed);
-    if (LEGACY_RENDER_API_HOSTS.has(parsed.hostname)) {
+    if (
+      LEGACY_RENDER_API_HOSTS.has(parsed.hostname) ||
+      parsed.hostname.endsWith("github.io")
+    ) {
       return ART_X_TEST_API_BASE_URL;
     }
   } catch {
