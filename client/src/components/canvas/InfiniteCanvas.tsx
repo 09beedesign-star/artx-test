@@ -15842,6 +15842,19 @@ const CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION_KEY =
   "artx:canvas-assistant-auto-default-version";
 const CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION = "2026-06-21-auto-default";
 
+function getStoredCanvasAssistantImageEditModel() {
+  if (typeof window === "undefined") return "gpt-image-2";
+  const autoMode =
+    window.localStorage.getItem(CANVAS_ASSISTANT_AUTO_MODE_STORAGE_KEY) !== "0";
+  if (autoMode) return "gpt-image-2";
+  const storedModel = window.localStorage.getItem(
+    CANVAS_ASSISTANT_IMAGE_MODEL_STORAGE_KEY
+  );
+  return IMAGE_AI_MODELS.some(model => model.id === storedModel)
+    ? storedModel!
+    : DEFAULT_IMAGE_AI_MODEL_ID;
+}
+
 function getCanvasApiBaseUrl() {
   const configured = normalizeApiBaseUrl(
     import.meta.env.VITE_API_BASE_URL ||
@@ -20612,6 +20625,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       generationId: providedGenerationId,
       resultCount = 1,
       maxResultCount = 4,
+      model = DEFAULT_IMAGE_AI_MODEL_ID,
       backgroundTaskInput,
       run,
     }: {
@@ -20627,6 +20641,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       generationId?: string;
       resultCount?: number;
       maxResultCount?: number;
+      model?: string;
       backgroundTaskInput?: Omit<ImageGenerationTaskInput, "taskId">;
       run: () => Promise<GeneratedImagesResponse>;
     }) => {
@@ -20670,7 +20685,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const payload: ImageGeneratorPayload = {
         projectId,
         prompt,
-        model: DEFAULT_IMAGE_AI_MODEL_ID,
+        model,
         ratio: inferImageRatio(resolvedDisplayW, resolvedDisplayH),
         count: Math.max(
           1,
@@ -21030,6 +21045,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const latestImageSrc =
         (await getVisibleAssetImageSource(reference.nodeId)) || reference.src;
       const sourceSize = getCanvasNodeSize(sourceNode);
+      const selectedImageEditModel = getStoredCanvasAssistantImageEditModel();
       const annotationMask = await createAnnotationEditMask(
         latestImageSrc,
         reference.x,
@@ -21052,12 +21068,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         style: "注释修改结果",
         nextW: sourceSize.width,
         nextH: sourceSize.height,
+        model: selectedImageEditModel,
         backgroundTaskInput: {
           capability: "image_edit",
           operation: "edit",
           imageSrc: latestImageSrc,
           maskSrc: annotationMask.maskSrc,
-          model: DEFAULT_IMAGE_AI_MODEL_ID,
+          model: selectedImageEditModel,
           prompt,
           targetWidth: sourceSize.width,
           targetHeight: sourceSize.height,
@@ -21066,7 +21083,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           editImageWithPrompt({
             imageSrc: latestImageSrc,
             maskSrc: annotationMask.maskSrc,
-            model: DEFAULT_IMAGE_AI_MODEL_ID,
+            model: selectedImageEditModel,
             prompt,
             targetWidth: sourceSize.width,
             targetHeight: sourceSize.height,

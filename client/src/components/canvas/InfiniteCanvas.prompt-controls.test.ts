@@ -27,6 +27,22 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(quickEditBlock).not.toContain("generateAiImages({");
   });
 
+  it("uses the selected canvas image model for annotation edits while auto keeps the local-edit default", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const annotationEditBlock = source.match(
+      /const handleAnnotationAiEdit = useCallback[\s\S]*?const cloneNodesForHistory/
+    )?.[0];
+
+    expect(annotationEditBlock).toBeTruthy();
+    expect(source).toContain("function getStoredCanvasAssistantImageEditModel()");
+    expect(source).toContain('if (autoMode) return "gpt-image-2"');
+    expect(annotationEditBlock).toContain(
+      "const selectedImageEditModel = getStoredCanvasAssistantImageEditModel();"
+    );
+    expect(annotationEditBlock).toContain("maskSrc: annotationMask.maskSrc");
+    expect(annotationEditBlock).toContain("model: selectedImageEditModel");
+  });
+
   it("mounts the smart commerce workflow without replacing the existing canvas generation owner", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
 
