@@ -38,6 +38,20 @@ const EXPLICIT_REFERENCE_SEARCH_PATTERN =
 const MODEL_SWITCH_REPLY_PATTERN =
   /切换.*模型|模型.*切换|选择.*模型|请选择.*模型|换.*模型|自主切换|手动.*切换|切到.*(生图|对话|图片)|改用.*模型/i;
 
+function buildReferenceSearchQuery(prompt: string) {
+  const cleaned = prompt
+    .replace(/^(?:请|麻烦)?(?:帮我|给我|为我)?(?:找|搜|搜索|抓|抓取|收集)(?:一些|几张|一组|一下)?/i, "")
+    .replace(/^(?:参考图|参考图片|素材|灵感|案例|样例|范例)\s*(?:关于|有关|围绕|针对)?\s*/i, "")
+    .replace(/^(?:关于|有关|围绕|针对|参考)\s*/i, "")
+    .replace(/[，,。.!！?？]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return prompt.trim();
+  return /(参考图|参考图片|素材|灵感|案例|样例|范例)/i.test(cleaned)
+    ? cleaned
+    : `${cleaned} 参考图`;
+}
+
 function extractJsonObject(raw: string) {
   const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
   const start = cleaned.indexOf("{");
@@ -117,10 +131,11 @@ export async function routeCreativeIntent({
     EXPLICIT_REFERENCE_SEARCH_PATTERN.test(trimmedPrompt);
 
   if (wantsReferenceSearch) {
+    const searchQuery = buildReferenceSearchQuery(trimmedPrompt);
     return {
       mode: "reference_search",
-      searchQuery: trimmedPrompt,
-      followUp: `我先帮你抓取一组「${trimmedPrompt}」参考图，你先选几张最接近你想法的方向，我再继续追问或直接帮你生成。`,
+      searchQuery,
+      followUp: `我先帮你从网上抓取一组「${searchQuery}」参考图，你先选几张最接近你想法的方向，我再继续追问或直接帮你生成。`,
       reason: "命中明确参考图搜索表达",
       confidence: "high",
     };
@@ -175,7 +190,7 @@ export async function routeCreativeIntent({
       "JSON 格式：{\"mode\":\"text|image\",\"reply\":\"文字回复内容\",\"imagePrompt\":\"适合图片模型的提示词\",\"reason\":\"一句话原因\",\"confidence\":\"high|medium|low\"}",
       "禁止回复让用户切换模型、选择模型、改用图片模型或改用对话模型。当前处于 Auto 时，你必须自己判断并返回 text 或 image。",
       allowReferenceSearch
-        ? "只有当用户明确要求找参考图、素材、灵感、案例或样例时，才返回 reference_search，并提供 searchQuery 与 followUp。不要把普通生图提示词误判为 reference_search。"
+        ? "只有当用户明确要求找参考图、素材、灵感、案例或样例时，才返回 reference_search，并提供 searchQuery 与 followUp。reference_search 会联网搜索公开图片素材，不使用站内本地灵感库；不要把普通生图提示词误判为 reference_search。"
         : "",
       allowReferenceSearch
         ? "reference_search JSON 格式补充：{\"mode\":\"reference_search\",\"searchQuery\":\"用于抓参考图的关键词\",\"followUp\":\"让用户先选参考图再继续描述的引导语\"}"

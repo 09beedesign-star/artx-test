@@ -1,51 +1,101 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { searchReferenceImages } from "./reference-search";
 
-afterEach(() => {
-  vi.restoreAllMocks();
-  delete process.env.PUBLIC_APP_URL;
-});
+function jsonResponse(body: unknown) {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
 
-describe("reference image search", () => {
-  it("falls back to the curated catalog when the upstream returns an HTML page", async () => {
-    process.env.PUBLIC_APP_URL = "https://backstage.artxsd.com";
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response("<!DOCTYPE html><html><body>Unavailable</body></html>", {
-        status: 200,
-        headers: { "Content-Type": "text/html" },
-      }),
-    );
+function htmlResponse(body: string, status = 200) {
+  return new Response(body, {
+    status,
+    headers: { "content-type": "text/html" },
+  });
+}
 
-    const result = await searchReferenceImages("给我找一些参考图，关于科幻题材", 8);
-
-    expect(result.images).toHaveLength(8);
-    expect(result.images.every(image => image.source === "ArtX 灵感库")).toBe(true);
-    expect(result.images.every(image => image.src.startsWith("https://backstage.artxsd.com/api/images/proxy?url="))).toBe(true);
+describe("reference image web search", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
-  it("keeps valid Wikimedia image results when the upstream returns JSON", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({
-        query: {
-          pages: {
-            "1": {
-              title: "File:Future city.jpg",
-              imageinfo: [{ thumburl: "https://example.com/future.jpg", width: 1600, height: 900 }],
+  it("searches the open web for reference images before public fallback sources", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.startsWith("https://duckduckgo.com/?")) {
+        return htmlResponse('<script>var vqd="web-token";</script>');
+      }
+      if (url.startsWith("https://duckduckgo.com/i.js")) {
+        return jsonResponse({
+          results: [
+            {
+              image: "https://cdn.example.com/sci-fi-city.jpg",
+              title: "Sci-fi city reference",
+              width: 1600,
+              height: 900,
+              source: "Example Images",
             },
-          },
-        },
-      }), { status: 200, headers: { "Content-Type": "application/json" } }),
-    );
+          ],
+        });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
-    await expect(searchReferenceImages("future city", 8)).resolves.toEqual({
-      images: [{
-        id: "wikimedia-File%3AFuture%20city.jpg",
-        title: "Future city.jpg",
-        src: "https://example.com/future.jpg",
+    const result = await searchReferenceImages("科幻题材 参考图", 10);
+
+    expect(result.images).toEqual([
+      {
+        id: expect.stringMatching(/^web-/),
+        title: "Sci-fi city reference",
+        src: "https://cdn.example.com/sci-fi-city.jpg",
         width: 1600,
         height: 900,
-        source: "Wikimedia Commons",
-      }],
+        source: "Example Images",
+      },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("duckduckgo.com");
+    expect(String(fetchMock.mock.calls[1][0])).toContain("duckduckgo.com/i.js");
+  });
+
+  it("falls back only to another public web source when web image search returns HTML", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.startsWith("https://duckduckgo.com/?")) {
+        return htmlResponse('<script>var vqd="web-token";</script>');
+      }
+      if (url.startsWith("https://duckduckgo.com/i.js")) {
+        return htmlResponse("<html>blocked</html>");
+      }
+      if (url.startsWith("https://commons.wikimedia.org/w/api.php")) {
+        return jsonResponse({
+          query: {
+            pages: {
+              "1": {
+                title: "File:Moon base.jpg",
+                imageinfo: [
+                  {
+                    thumburl: "https://upload.wikimedia.org/moon-base.jpg",
+                    width: 1200,
+                    height: 800,
+                  },
+                ],
+              },
+            },
+          },
+        });
+      }
+      throw new Error(`Unexpected request: ${url}`);
     });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await searchReferenceImages("moon base references", 10);
+
+    expect(result.images[0]).toMatchObject({
+      title: "Moon base.jpg",
+      src: "https://upload.wikimedia.org/moon-base.jpg",
+      source: "Wikimedia Commons",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });

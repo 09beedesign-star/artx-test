@@ -19,76 +19,186 @@ export type ReferenceImageResult = {
   source: string;
 };
 
+type DuckDuckGoImageResult = {
+  image?: string;
+  thumbnail?: string;
+  title?: string;
+  width?: number;
+  height?: number;
+  source?: string;
+  url?: string;
+};
+
 function normalizeQuery(query: string) {
   return query.trim().replace(/\s+/g, " ");
 }
 
-const QUERY_EXPANSIONS: Array<{ pattern: RegExp; terms: string[] }> = [
-  { pattern: /科幻|sci[ -]?fi|science fiction/i, terms: ["科幻", "未来", "赛博", "科技", "宇宙", "太空", "机器人", "霓虹"] },
-  { pattern: /科技|未来|tech|future/i, terms: ["科技", "未来", "赛博", "AI", "虚拟", "机器人"] },
-  { pattern: /时尚|服装|fashion/i, terms: ["时尚", "服装", "穿搭", "造型"] },
-  { pattern: /产品|商品|product/i, terms: ["产品", "电商", "广告", "商业"] },
-];
-
-function getReferenceProxyBaseUrl() {
-  return (process.env.PUBLIC_APP_URL || process.env.APP_PUBLIC_URL || "https://backstage.artxsd.com").replace(/\/+$/, "");
+function clampLimit(limit: number) {
+  return Math.max(8, Math.min(limit, 10));
 }
 
-function getFallbackSearchTerms(query: string) {
-  const terms = [query.toLowerCase()];
-  for (const expansion of QUERY_EXPANSIONS) {
-    if (expansion.pattern.test(query)) terms.push(...expansion.terms.map(term => term.toLowerCase()));
-  }
-  return terms.filter(Boolean);
-}
-
-function searchCuratedFallback(query: string, limit: number): ReferenceImageResult[] {
-  const terms = getFallbackSearchTerms(query);
-  const references = getInspirationReferences({ limit: 900, verifiedPromptOnly: true }).references;
-  const ranked = references
-    .map((reference, index) => {
-      const searchable = [reference.title, reference.prompt, reference.group, reference.subcategory, reference.stylePromptEn]
-        .join(" ")
-        .toLowerCase();
-      const score = terms.reduce((total, term) => total + (searchable.includes(term) ? 1 : 0), 0);
-      return { reference, index, score };
-    })
-    .sort((left, right) => right.score - left.score || left.index - right.index)
-    .slice(0, limit);
-
-  return ranked.map(({ reference }) => ({
-    id: `curated-${reference.id}`,
-    title: reference.title,
-    src: `${getReferenceProxyBaseUrl()}${reference.proxyImageUrl}`,
-    width: 1200,
-    height: 1200,
-    source: "ArtX 灵感库",
-  }));
-}
-
-function parseWikimediaImages(body: string, limit: number): ReferenceImageResult[] {
-  if (!body.trim().startsWith("{")) return [];
+function getHostname(value: string) {
   try {
-    const data = JSON.parse(body) as { query?: { pages?: Record<string, WikimediaImageInfo> } };
-    return Object.values(data.query?.pages || {})
-      .map((page) => {
-        const info = page.imageinfo?.[0];
-        const src = info?.thumburl || info?.url;
-        if (!src) return null;
-        return {
-          id: `wikimedia-${encodeURIComponent(page.title)}`,
-          title: page.title.replace(/^File:/i, ""),
-          src,
-          width: info?.width || 1200,
-          height: info?.height || 1200,
-          source: "Wikimedia Commons",
-        } satisfies ReferenceImageResult;
-      })
-      .filter((item): item is ReferenceImageResult => Boolean(item))
-      .slice(0, limit);
+    return new URL(value).hostname.replace(/^www\./i, "");
   } catch {
-    return [];
+    return "";
   }
+}
+
+function getDuckDuckGoVqd(html: string) {
+  return html.match(/vqd=["']?([^"'&]+)["']?/i)?.[1] || "";
+}
+
+function normalizeReferenceImageResult(
+  input: {
+    id: string;
+    title?: string;
+    src?: string;
+    width?: number;
+    height?: number;
+    source?: string;
+  }
+) {
+  const src = input.src?.trim();
+  if (!src || !/^https?:\/\//i.test(src)) return null;
+  return {
+    id: input.id,
+    title: input.title?.trim() || "参考图",
+    src,
+    width: input.width || 1200,
+    height: input.height || 1200,
+    source: input.source?.trim() || getHostname(src) || "Web",
+  } satisfies ReferenceImageResult;
+}
+
+function dedupeReferenceImages(images: ReferenceImageResult[], limit: number) {
+  const seen = new Set<string>();
+  const deduped: ReferenceImageResult[] = [];
+  for (const image of images) {
+    const key = image.src.replace(/([?&])(width|height|w|h|size|format|quality)=[^&]+/gi, "$1").toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(image);
+    if (deduped.length >= limit) break;
+  }
+  return deduped;
+}
+
+async function searchDuckDuckGoImages(query: string, limit: number) {
+  const homeUrl = new URL("https://duckduckgo.com/");
+  homeUrl.searchParams.set("q", query);
+  homeUrl.searchParams.set("iax", "images");
+  homeUrl.searchParams.set("ia", "images");
+
+  const commonHeaders = {
+    "User-Agent": "Mozilla/5.0 ArtXReferenceSearch/1.0",
+    "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+  };
+
+  const homeResponse = await fetch(homeUrl.toString(), { headers: commonHeaders });
+  const homeText = await homeResponse.text();
+  if (!homeResponse.ok) {
+    throw new Error(`DuckDuckGo image search page failed with ${homeResponse.status}`);
+  }
+  const vqd = getDuckDuckGoVqd(homeText);
+  if (!vqd) {
+    throw new Error("DuckDuckGo image search token missing");
+  }
+
+  const apiUrl = new URL("https://duckduckgo.com/i.js");
+  apiUrl.searchParams.set("l", "wt-wt");
+  apiUrl.searchParams.set("o", "json");
+  apiUrl.searchParams.set("q", query);
+  apiUrl.searchParams.set("vqd", vqd);
+  apiUrl.searchParams.set("f", ",,,");
+  apiUrl.searchParams.set("p", "1");
+
+  const apiResponse = await fetch(apiUrl.toString(), {
+    headers: {
+      ...commonHeaders,
+      "Accept": "application/json,*/*;q=0.8",
+      "Referer": homeUrl.toString(),
+    },
+  });
+  const apiText = await apiResponse.text();
+  if (!apiResponse.ok) {
+    throw new Error(`DuckDuckGo image search failed with ${apiResponse.status}`);
+  }
+  const contentType = apiResponse.headers.get("content-type") || "";
+  if (!contentType.includes("json") && apiText.trim().startsWith("<")) {
+    throw new Error("DuckDuckGo image search returned HTML");
+  }
+  const data = JSON.parse(apiText) as { results?: DuckDuckGoImageResult[] };
+  const images = (data.results || [])
+    .map((item, index) =>
+      normalizeReferenceImageResult({
+        id: `web-${index}-${encodeURIComponent(item.image || item.thumbnail || item.title || query)}`,
+        title: item.title,
+        src: item.image || item.thumbnail,
+        width: item.width,
+        height: item.height,
+        source: item.source || getHostname(item.url || item.image || ""),
+      })
+    )
+    .filter((item): item is ReferenceImageResult => Boolean(item));
+
+  const deduped = dedupeReferenceImages(images, limit);
+  if (deduped.length === 0) {
+    throw new Error("No web reference images found");
+  }
+  return deduped;
+}
+
+async function searchWikimediaImages(query: string, limit: number) {
+  const clampedLimit = clampLimit(limit);
+  const searchUrl = new URL("https://commons.wikimedia.org/w/api.php");
+  searchUrl.searchParams.set("action", "query");
+  searchUrl.searchParams.set("generator", "search");
+  searchUrl.searchParams.set("gsrsearch", query);
+  searchUrl.searchParams.set("gsrnamespace", "6");
+  searchUrl.searchParams.set("gsrlimit", String(clampedLimit * 2));
+  searchUrl.searchParams.set("prop", "imageinfo");
+  searchUrl.searchParams.set("iiprop", "url|size");
+  searchUrl.searchParams.set("iiurlwidth", "1200");
+  searchUrl.searchParams.set("format", "json");
+  searchUrl.searchParams.set("origin", "*");
+
+  const response = await fetch(searchUrl.toString(), {
+    headers: {
+      "User-Agent": "artx-reference-search/1.0",
+      "Accept": "application/json,*/*;q=0.8",
+    },
+  });
+
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`Wikimedia reference search failed with ${response.status}`);
+  }
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("json") && text.trim().startsWith("<")) {
+    throw new Error("Wikimedia reference search returned HTML");
+  }
+  const data = text ? JSON.parse(text) as { query?: { pages?: Record<string, WikimediaImageInfo> } } : {};
+  const pages = Object.values(data.query?.pages || {});
+  const images = pages
+    .map((page) => {
+      const info = page.imageinfo?.[0];
+      return normalizeReferenceImageResult({
+        id: `wikimedia-${encodeURIComponent(page.title)}`,
+        title: page.title.replace(/^File:/i, ""),
+        src: info?.thumburl || info?.url,
+        width: info?.width,
+        height: info?.height,
+        source: "Wikimedia Commons",
+      });
+    })
+    .filter((item): item is ReferenceImageResult => Boolean(item));
+
+  const deduped = dedupeReferenceImages(images, clampedLimit);
+  if (deduped.length === 0) {
+    throw new Error("No Wikimedia reference images found");
+  }
+  return deduped;
 }
 
 export async function searchReferenceImages(query: string, limit = 10): Promise<{ images: ReferenceImageResult[] }> {
@@ -96,31 +206,17 @@ export async function searchReferenceImages(query: string, limit = 10): Promise<
   if (!normalizedQuery) {
     throw new Error("Missing query");
   }
-  const normalizedLimit = Math.max(8, Math.min(limit, 10));
 
-  const searchUrl = new URL("https://commons.wikimedia.org/w/api.php");
-  searchUrl.searchParams.set("action", "query");
-  searchUrl.searchParams.set("generator", "search");
-  searchUrl.searchParams.set("gsrsearch", normalizedQuery);
-  searchUrl.searchParams.set("gsrnamespace", "6");
-  searchUrl.searchParams.set("gsrlimit", String(normalizedLimit * 2));
-  searchUrl.searchParams.set("prop", "imageinfo");
-  searchUrl.searchParams.set("iiprop", "url|size");
-  searchUrl.searchParams.set("iiurlwidth", "1200");
-  searchUrl.searchParams.set("format", "json");
-  searchUrl.searchParams.set("origin", "*");
-
+  const clampedLimit = clampLimit(limit);
   try {
-    const response = await fetch(searchUrl.toString(), {
-      headers: {
-        "User-Agent": "artx-reference-search/1.0",
-      },
-    });
-    const images = response.ok ? parseWikimediaImages(await response.text(), normalizedLimit) : [];
-    if (images.length > 0) return { images };
-  } catch {
-    // The external search source is optional. A curated fallback keeps Auto usable.
+    return { images: await searchDuckDuckGoImages(normalizedQuery, clampedLimit) };
+  } catch (webError) {
+    try {
+      return { images: await searchWikimediaImages(normalizedQuery, clampedLimit) };
+    } catch (fallbackError) {
+      const webMessage = webError instanceof Error ? webError.message : "web search failed";
+      const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : "Wikimedia search failed";
+      throw new Error(`Reference web search failed: ${webMessage}; fallback failed: ${fallbackMessage}`);
+    }
   }
-
-  return { images: searchCuratedFallback(normalizedQuery, normalizedLimit) };
 }
