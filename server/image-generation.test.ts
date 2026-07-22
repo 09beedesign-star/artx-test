@@ -65,6 +65,27 @@ describe("generated image source normalization", () => {
     expect(requestedModels).not.toHaveLength(0);
     expect(new Set(requestedModels)).toEqual(new Set(["jimeng-4.0"]));
   });
+
+  it("turns a stalled image-provider request into a model failure instead of leaving it pending", async () => {
+    vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
+    vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
+    const signals: AbortSignal[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      signals.push(init?.signal as AbortSignal);
+      const error = new Error("request aborted");
+      error.name = "AbortError";
+      throw error;
+    });
+
+    await expect(generateImages({
+      prompt: "一只小白兔",
+      model: "og-image2-medium",
+      ratio: "1:1",
+    })).rejects.toThrow("图片模型未返回可用图片");
+
+    expect(signals).toHaveLength(1);
+    expect(signals[0]).toBeInstanceOf(AbortSignal);
+  });
   it("prefers image2 medium for smart product references before Gemini fallback", () => {
     expect(__testResolveReferenceImageRoute("og-image2-medium", true, true)).toEqual({
       usesChatPath: false,

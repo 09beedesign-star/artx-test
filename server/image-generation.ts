@@ -728,6 +728,10 @@ class ImageProviderRequestError extends Error {
 }
 
 const imageProviderRetryDelayMs = 1800;
+const imageProviderRequestTimeoutMs = Math.max(
+  5_000,
+  Math.min(Number(process.env.AI_IMAGE_REQUEST_TIMEOUT_MS) || 35_000, 120_000),
+);
 const REMOVE_BACKGROUND_PICWISH_TIMEOUT_MS = 120_000;
 
 function getProviderHost(baseUrl: string) {
@@ -842,6 +846,29 @@ async function withImageProviderRetry<T>(operation: () => Promise<T>) {
   }
 }
 
+async function fetchImageProvider(
+  endpoint: string,
+  init: RequestInit,
+  context: string,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), imageProviderRequestTimeoutMs);
+  try {
+    return await fetch(endpoint, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new ImageProviderRequestError(
+        `${context} timed out after ${Math.round(imageProviderRequestTimeoutMs / 1000)} seconds`,
+        504,
+        false,
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function isUnsupportedImagesApiError(message: string) {
   return /images api is not supported|not supported for this platform|unsupported.*images/i.test(message);
 }
@@ -891,7 +918,7 @@ function isProviderCapacityError(message: string) {
 }
 
 function isProviderGatewayError(message: string) {
-  return /openai_error|bad_response_status_code|bad response status|图片生成服务暂时没有返回可用结果/i.test(message);
+  return /openai_error|bad_response_status_code|bad response status|图片生成服务暂时没有返回可用结果|image (chat )?provider model .* timed out/i.test(message);
 }
 
 function resolveProviderImageModel(model: string) {
@@ -926,11 +953,11 @@ function getImageProviderHeaders(apiKey: string) {
 
 async function callImageProvider(body: Record<string, unknown>, apiKey: string, baseUrl: string) {
   return withImageProviderRetry(async () => {
-    const response = await fetch(getImagesEndpoint(baseUrl), {
+    const response = await fetchImageProvider(getImagesEndpoint(baseUrl), {
       method: "POST",
       headers: getImageProviderJsonHeaders(apiKey),
       body: JSON.stringify(body),
-    });
+    }, `Image provider model ${String(body.model || "unknown")}`);
 
     return readImageProviderResponse(response, baseUrl, "Image provider");
   });
@@ -964,14 +991,14 @@ async function callImageChatProvider(body: Record<string, unknown>, apiKey: stri
   });
 
   return withImageProviderRetry(async () => {
-    const response = await fetch(getChatEndpoint(baseUrl), {
+    const response = await fetchImageProvider(getChatEndpoint(baseUrl), {
       method: "POST",
       headers: getImageProviderJsonHeaders(apiKey),
       body: JSON.stringify({
         model: body.model,
         messages: [{ role: "user", content }],
       }),
-    });
+    }, `Image chat provider model ${String(body.model || "unknown")}`);
 
     return readImageProviderResponse(response, baseUrl, "Image chat provider");
   });
@@ -983,11 +1010,11 @@ async function callImageEditProvider(
   baseUrl: string,
 ): Promise<ImageGenerationResponse> {
   return withImageProviderRetry(async () => {
-    const response = await fetch(getImageEditsEndpoint(baseUrl), {
+    const response = await fetchImageProvider(getImageEditsEndpoint(baseUrl), {
       method: "POST",
       headers: getImageProviderHeaders(apiKey),
       body,
-    });
+    }, "Image edit provider");
 
     return readImageProviderResponse(response, baseUrl, "Image edit provider");
   });
@@ -2940,6 +2967,18 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
       lastError = `${providerModel} returned no usable images`;
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
+      const status = error instanceof ImageProviderRequestError ? error.status : undefined;
+      console.warn("[image-provider]", {
+        event: "generation-attempt-failed",
+        model: providerModel,
+        host: getProviderHost(baseUrl),
+        status,
+        kind: /timed out/i.test(lastError)
+          ? "timeout"
+          : isProviderGatewayError(lastError)
+            ? "gateway"
+            : "provider-error",
+      });
       if (!isProviderCapacityError(lastError) && !isUnsupportedImagesApiError(lastError) && !isImageGroupPermissionError(lastError) && !isProviderGatewayError(lastError)) {
         throw new Error(`图片生成接口暂不可用：${lastError}`);
       }
