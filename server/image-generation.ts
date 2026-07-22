@@ -202,6 +202,7 @@ type AsyncImageTaskResponse = {
     image_url?: string | { url?: string };
     imageBase64?: string;
     imageUrl?: string;
+    data?: ImageGenerationResponse["data"];
     output?: unknown;
     upstreamStatus?: number;
     requestPath?: string;
@@ -305,16 +306,18 @@ function normalizeAsyncTaskResult(data: AsyncImageTaskResponse): {
         imageUrl: task?.imageUrl,
         image_url: task?.image_url,
         images: task?.images,
+        data: task?.data,
         output: task?.output,
       }
     : undefined;
-  const directTaskResult = task && (task.images || task.image || task.image_url || task.imageBase64 || task.imageUrl || task.output)
+  const directTaskResult = task && (task.images || task.image || task.image_url || task.imageBase64 || task.imageUrl || task.data || task.output)
     ? {
         images: task.images,
         image: task.imageBase64 || task.image,
         imageBase64: task.imageBase64,
         imageUrl: task.imageUrl,
         image_url: task.image_url,
+        data: task.data,
         output: task.output,
       }
     : undefined;

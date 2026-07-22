@@ -318,6 +318,9 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(extractedTextPanelBlock).toContain('minHeight: 0');
     expect(extractedTextPanelBlock).toContain('paddingBottom: 12');
     expect(extractedTextPanelBlock).toContain('className="smart-copy-editor-scroll nodrag nopan"');
+    expect(source).toContain("handleExtractedTextPanelDragStart");
+    expect(source).toContain("handleExtractedTextPanelDragMove");
+    expect(source).toContain("handleExtractedTextPanelDragEnd");
     expect(extractedTextPanelBlock).toContain('scrollbarWidth: "none"');
     expect(source).toContain('aria-label="拖动查看全部文案段落"');
     expect(source).toContain('onPointerDown={handleExtractedTextScrollThumbPointerDown}');
@@ -342,6 +345,7 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(applyTextEditBlock).toContain("detail.editedText,");
     expect(applyTextEditBlock).toContain("maskSrc");
     expect(applyTextEditBlock).toContain('model: "auto"');
+    expect(applyTextEditBlock).toContain('toast("正在应用文案"');
     expect(applyTextEditBlock).toContain("原图中所有非文字像素必须原封不动保留");
     expect(applyTextEditBlock).toContain("禁止重绘或改变人物、产品、背景");
     expect(applyTextEditBlock).not.toContain("image-text-relayout");

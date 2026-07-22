@@ -6163,6 +6163,17 @@ function AssetNodeComponent({
     []
   );
   const extractedTextPanelRef = useRef<HTMLDivElement | null>(null);
+  const extractedTextPanelDragRef = useRef<{
+    pointerId: number;
+    startClientX: number;
+    startClientY: number;
+    startLeft: number;
+    startTop: number;
+  } | null>(null);
+  const [extractedTextPanelPosition, setExtractedTextPanelPosition] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
   const extractedTextScrollRef = useRef<HTMLDivElement | null>(null);
   const extractedTextScrollTrackRef = useRef<HTMLDivElement | null>(null);
   const [extractedTextScrollThumb, setExtractedTextScrollThumb] = useState({
@@ -6327,6 +6338,54 @@ function AssetNodeComponent({
   useEffect(() => {
     if (extractedTextPanelOpen) setExtractedTextDraft(extractedText);
   }, [extractedText, extractedTextPanelOpen]);
+
+  useEffect(() => {
+    if (!extractedTextPanelOpen) setExtractedTextPanelPosition(null);
+  }, [extractedTextPanelOpen]);
+
+  const handleExtractedTextPanelDragStart = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0 || (event.target as HTMLElement).closest("button,input,textarea")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const defaultLeft = dispW + 14 * stableUiScale;
+      extractedTextPanelDragRef.current = {
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startLeft: extractedTextPanelPosition?.left ?? defaultLeft,
+        startTop: extractedTextPanelPosition?.top ?? 0,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+    },
+    [dispW, extractedTextPanelPosition, stableUiScale]
+  );
+
+  const handleExtractedTextPanelDragMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const drag = extractedTextPanelDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const zoom = Math.max(0.2, viewport.zoom || 1);
+      setExtractedTextPanelPosition({
+        left: drag.startLeft + (event.clientX - drag.startClientX) / zoom,
+        top: drag.startTop + (event.clientY - drag.startClientY) / zoom,
+      });
+    },
+    [viewport.zoom]
+  );
+
+  const handleExtractedTextPanelDragEnd = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (extractedTextPanelDragRef.current?.pointerId !== event.pointerId) return;
+      extractedTextPanelDragRef.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    },
+    []
+  );
 
   const syncExtractedTextScrollThumb = useCallback(() => {
     const container = extractedTextScrollRef.current;
@@ -7889,8 +7948,8 @@ function AssetNodeComponent({
             ref={extractedTextPanelRef}
             className="absolute nodrag nopan shadow-2xl"
             style={{
-	              left: dispW + 14 * stableUiScale,
-	              top: 0,
+	              left: extractedTextPanelPosition?.left ?? dispW + 14 * stableUiScale,
+	              top: extractedTextPanelPosition?.top ?? 0,
 	              width: 292,
 	              height: 360,
 	              minWidth: 260,
@@ -7922,10 +7981,14 @@ function AssetNodeComponent({
             }}
           >
             <div
-              className="flex items-center justify-between gap-2 px-3 py-2"
+              className="nodrag nopan flex cursor-grab touch-none items-center justify-between gap-2 px-3 py-2 active:cursor-grabbing"
               style={{
                 borderBottom: `1px solid ${isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)"}`,
               }}
+              onPointerDown={handleExtractedTextPanelDragStart}
+              onPointerMove={handleExtractedTextPanelDragMove}
+              onPointerUp={handleExtractedTextPanelDragEnd}
+              onPointerCancel={handleExtractedTextPanelDragEnd}
             >
               <div className="flex items-center gap-2">
                 {isExtractingText || isApplyingExtractedText ? (
@@ -22114,6 +22177,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           `原图识别文案：${detail.originalText || "未识别到可读文案"}`,
           `替换后的新文案：${detail.editedText}`,
         ].join("\n");
+        toast("正在应用文案", {
+          description: "正在原图旁生成新的文字排版结果",
+        });
         await runDerivedImageGeneration({
           sourceNode,
           prompt: finalPrompt,
