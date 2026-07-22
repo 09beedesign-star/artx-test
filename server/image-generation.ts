@@ -206,7 +206,7 @@ type AsyncImageTaskResponse = {
     resolvedRequestPath?: string;
     prompt?: string;
     model?: string;
-  };
+  } | ImageGenerationResponse["data"];
   result?: ImageGenerationResponse;
   rawResult?: ImageGenerationResponse;
   status?: string;
@@ -286,7 +286,10 @@ function normalizeAsyncTaskResult(data: AsyncImageTaskResponse): {
   error?: string;
   result?: ImageGenerationResponse;
 } {
-  const task = data.data;
+  const task = Array.isArray(data.data) ? undefined : data.data;
+  const directDataResult = Array.isArray(data.data)
+    ? { data: data.data }
+    : undefined;
   const error =
     typeof data.error === "string"
       ? data.error
@@ -321,7 +324,7 @@ function normalizeAsyncTaskResult(data: AsyncImageTaskResponse): {
   return {
     status: task?.status || data.status,
     error,
-    result: taskResult || directTaskResult || directResult || topLevelResult,
+    result: taskResult || directTaskResult || directDataResult || directResult || topLevelResult,
   };
 }
 

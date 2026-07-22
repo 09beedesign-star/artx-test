@@ -184,6 +184,33 @@ describe("generated image source normalization", () => {
     expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toMatchObject({ n: 1, size: "1536x1024" });
   });
 
+  it("returns a completed async task image when the provider uses a top-level data array", async () => {
+    vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
+    vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      const endpoint = String(url);
+      if (init?.method === "POST" && endpoint.endsWith("/images/generations")) {
+        return Response.json({ task_id: "completed-task-123" });
+      }
+      if (init?.method === "GET" && endpoint.endsWith("/async-images/completed-task-123")) {
+        return Response.json({
+          status: "succeeded",
+          data: [{ b64_json: ONE_PIXEL_PNG_BASE64 }],
+        });
+      }
+      throw new Error(`Unexpected fetch ${endpoint}`);
+    });
+
+    const result = await generateImages({
+      prompt: "一只小白兔",
+      model: "og-image2-medium",
+      ratio: "1:1",
+    });
+
+    expect(result.images).toHaveLength(1);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/async-images/completed-task-123"))).toBe(true);
+  });
+
   it("keeps relative provider paths as absolute URLs", () => {
     expect(__testNormalizeGeneratedImageSrc("/files/generated.png", "https://token.bkeel.com/v1"))
       .toBe("https://token.bkeel.com/v1/files/generated.png");
