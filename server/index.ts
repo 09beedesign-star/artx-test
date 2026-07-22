@@ -20,6 +20,7 @@ import { getAllowedCorsOrigin } from "./cors";
 import { sendOpsNotification } from "./notifications";
 import { classifyApplicationSecuritySignal, createSecurityEventDetector, validateSecurityEventIngest } from "./security-events";
 import { assertUserCanUseSelectableModel } from "./user-model-access";
+import { exportImageProviderFailureLog } from "./image-provider-failure-log";
 import type { AiBillingCapability } from "../shared/ai-credit-policy";
 import {
   CROSS_BORDER_CATEGORIES,
@@ -2134,6 +2135,23 @@ async function startServer() {
       res.status(result.status).json(result.body);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Admin session check failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.get("/api/admin/image-provider-failures/download", async (req, res) => {
+    try {
+      const session = await getAdminSessionFromAuthorization(req.headers.authorization);
+      if (session.status !== 200) {
+        res.status(session.status).json(session.body);
+        return;
+      }
+      const date = new Date().toISOString().slice(0, 10);
+      res.type("application/x-ndjson");
+      res.attachment(`artx-image-provider-failures-${date}.jsonl`);
+      res.send(await exportImageProviderFailureLog());
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Image provider failure log export failed";
       res.status(500).json({ error: message });
     }
   });

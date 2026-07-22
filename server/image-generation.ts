@@ -7,6 +7,7 @@ import {
   sortImageModelIdsByPriority,
 } from "../shared/image-models";
 import { generateText } from "./text-generation";
+import { recordImageProviderFailure } from "./image-provider-failure-log";
 
 type ImageGenerateInput = {
   prompt: string;
@@ -721,11 +722,17 @@ class ImageProviderRequestError extends Error {
     message: string,
     readonly status?: number,
     readonly retryable = false,
+    readonly requestId?: string,
   ) {
     super(message);
     this.name = "ImageProviderRequestError";
   }
 }
+
+type ImageProviderFetchResult = {
+  response: Response;
+  requestId: string;
+};
 
 const imageProviderRetryDelayMs = 1800;
 const imageProviderRequestTimeoutMs = Math.max(
@@ -739,6 +746,18 @@ function getProviderHost(baseUrl: string) {
     return new URL(baseUrl).host;
   } catch {
     return baseUrl.replace(/^https?:\/\//, "").split("/")[0] || "上游服务";
+  }
+}
+
+function createImageProviderRequestId() {
+  return `img_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getProviderEndpointPath(endpoint: string) {
+  try {
+    return new URL(endpoint).pathname;
+  } catch {
+    return endpoint.replace(/^https?:\/\/[^/]+/, "") || "/";
   }
 }
 
@@ -850,23 +869,73 @@ async function fetchImageProvider(
   endpoint: string,
   init: RequestInit,
   context: string,
-): Promise<Response> {
+  details: { model?: string; operation: "generate" | "chat" | "edit" },
+): Promise<ImageProviderFetchResult> {
+  const requestId = createImageProviderRequestId();
+  const startedAt = Date.now();
+  const logBase = {
+    requestId,
+    operation: details.operation,
+    model: details.model || "unknown",
+    host: getProviderHost(endpoint),
+    path: getProviderEndpointPath(endpoint),
+  };
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), imageProviderRequestTimeoutMs);
+  console.info("[image-provider]", {
+    event: "request-start",
+    ...logBase,
+    timeoutMs: imageProviderRequestTimeoutMs,
+  });
   try {
-    return await fetch(endpoint, { ...init, signal: controller.signal });
+    const response = await fetch(endpoint, { ...init, signal: controller.signal });
+    console.info("[image-provider]", {
+      event: "response",
+      ...logBase,
+      status: response.status,
+      durationMs: Date.now() - startedAt,
+    });
+    return { response, requestId };
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
+      console.warn("[image-provider]", {
+        event: "timeout",
+        ...logBase,
+        durationMs: Date.now() - startedAt,
+      });
+      await recordImageProviderFailure({
+        ...logBase,
+        kind: "timeout",
+        durationMs: Date.now() - startedAt,
+        error: `${context} timed out`,
+      }).catch(logError => console.warn("[image-provider] failed to persist timeout", logError));
       throw new ImageProviderRequestError(
         `${context} timed out after ${Math.round(imageProviderRequestTimeoutMs / 1000)} seconds`,
         504,
         false,
+        requestId,
       );
     }
+    console.warn("[image-provider]", {
+      event: "network-error",
+      ...logBase,
+      errorName: error instanceof Error ? error.name : "unknown",
+      durationMs: Date.now() - startedAt,
+    });
+    await recordImageProviderFailure({
+      ...logBase,
+      kind: "network-error",
+      durationMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.name : "unknown network error",
+    }).catch(logError => console.warn("[image-provider] failed to persist network error", logError));
     throw error;
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function summarizeImageProviderError(message: string) {
+  return message.replace(/\s+/g, " ").trim().slice(0, 220);
 }
 
 function isUnsupportedImagesApiError(message: string) {
@@ -953,13 +1022,33 @@ function getImageProviderHeaders(apiKey: string) {
 
 async function callImageProvider(body: Record<string, unknown>, apiKey: string, baseUrl: string) {
   return withImageProviderRetry(async () => {
-    const response = await fetchImageProvider(getImagesEndpoint(baseUrl), {
+    const { response, requestId } = await fetchImageProvider(getImagesEndpoint(baseUrl), {
       method: "POST",
       headers: getImageProviderJsonHeaders(apiKey),
       body: JSON.stringify(body),
-    }, `Image provider model ${String(body.model || "unknown")}`);
+    }, `Image provider model ${String(body.model || "unknown")}`, {
+      model: String(body.model || "unknown"),
+      operation: "generate",
+    });
 
-    return readImageProviderResponse(response, baseUrl, "Image provider");
+    try {
+      return await readImageProviderResponse(response, baseUrl, "Image provider");
+    } catch (error) {
+      if (error instanceof ImageProviderRequestError) {
+        await recordImageProviderFailure({
+          requestId,
+          operation: "generate",
+          model: String(body.model || "unknown"),
+          host: getProviderHost(baseUrl),
+          path: getProviderEndpointPath(getImagesEndpoint(baseUrl)),
+          status: error.status,
+          kind: "http-error",
+          error: summarizeImageProviderError(error.message),
+        }).catch(logError => console.warn("[image-provider] failed to persist HTTP error", logError));
+        throw new ImageProviderRequestError(error.message, error.status, error.retryable, requestId);
+      }
+      throw error;
+    }
   });
 }
 
@@ -991,16 +1080,36 @@ async function callImageChatProvider(body: Record<string, unknown>, apiKey: stri
   });
 
   return withImageProviderRetry(async () => {
-    const response = await fetchImageProvider(getChatEndpoint(baseUrl), {
+    const { response, requestId } = await fetchImageProvider(getChatEndpoint(baseUrl), {
       method: "POST",
       headers: getImageProviderJsonHeaders(apiKey),
       body: JSON.stringify({
         model: body.model,
         messages: [{ role: "user", content }],
       }),
-    }, `Image chat provider model ${String(body.model || "unknown")}`);
+    }, `Image chat provider model ${String(body.model || "unknown")}`, {
+      model: String(body.model || "unknown"),
+      operation: "chat",
+    });
 
-    return readImageProviderResponse(response, baseUrl, "Image chat provider");
+    try {
+      return await readImageProviderResponse(response, baseUrl, "Image chat provider");
+    } catch (error) {
+      if (error instanceof ImageProviderRequestError) {
+        await recordImageProviderFailure({
+          requestId,
+          operation: "chat",
+          model: String(body.model || "unknown"),
+          host: getProviderHost(baseUrl),
+          path: getProviderEndpointPath(getChatEndpoint(baseUrl)),
+          status: error.status,
+          kind: "http-error",
+          error: summarizeImageProviderError(error.message),
+        }).catch(logError => console.warn("[image-provider] failed to persist HTTP error", logError));
+        throw new ImageProviderRequestError(error.message, error.status, error.retryable, requestId);
+      }
+      throw error;
+    }
   });
 }
 
@@ -1010,13 +1119,30 @@ async function callImageEditProvider(
   baseUrl: string,
 ): Promise<ImageGenerationResponse> {
   return withImageProviderRetry(async () => {
-    const response = await fetchImageProvider(getImageEditsEndpoint(baseUrl), {
+    const { response, requestId } = await fetchImageProvider(getImageEditsEndpoint(baseUrl), {
       method: "POST",
       headers: getImageProviderHeaders(apiKey),
       body,
-    }, "Image edit provider");
+    }, "Image edit provider", { operation: "edit" });
 
-    return readImageProviderResponse(response, baseUrl, "Image edit provider");
+    try {
+      return await readImageProviderResponse(response, baseUrl, "Image edit provider");
+    } catch (error) {
+      if (error instanceof ImageProviderRequestError) {
+        await recordImageProviderFailure({
+          requestId,
+          operation: "edit",
+          model: "unknown",
+          host: getProviderHost(baseUrl),
+          path: getProviderEndpointPath(getImageEditsEndpoint(baseUrl)),
+          status: error.status,
+          kind: "http-error",
+          error: summarizeImageProviderError(error.message),
+        }).catch(logError => console.warn("[image-provider] failed to persist HTTP error", logError));
+        throw new ImageProviderRequestError(error.message, error.status, error.retryable, requestId);
+      }
+      throw error;
+    }
   });
 }
 
@@ -2973,6 +3099,8 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
         model: providerModel,
         host: getProviderHost(baseUrl),
         status,
+        requestId: error instanceof ImageProviderRequestError ? error.requestId : undefined,
+        error: summarizeImageProviderError(lastError),
         kind: /timed out/i.test(lastError)
           ? "timeout"
           : isProviderGatewayError(lastError)

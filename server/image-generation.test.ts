@@ -86,6 +86,60 @@ describe("generated image source normalization", () => {
     expect(signals).toHaveLength(1);
     expect(signals[0]).toBeInstanceOf(AbortSignal);
   });
+
+  it("records request lifecycle metadata without including the prompt when the provider has no response", async () => {
+    vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
+    vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      const error = new Error("request aborted");
+      error.name = "AbortError";
+      throw error;
+    });
+
+    await expect(generateImages({
+      prompt: "不应写进日志的用户提示词",
+      model: "og-image2-medium",
+      ratio: "1:1",
+    })).rejects.toThrow("图片模型未返回可用图片");
+
+    const start = info.mock.calls.find(([label, value]) =>
+      label === "[image-provider]" && value?.event === "request-start"
+    )?.[1];
+    const timeout = warn.mock.calls.find(([label, value]) =>
+      label === "[image-provider]" && value?.event === "timeout"
+    )?.[1];
+    expect(start).toMatchObject({ operation: "generate", model: "og-image2-medium", host: "image.example" });
+    expect(timeout).toMatchObject({ requestId: start?.requestId, operation: "generate" });
+    expect(JSON.stringify([...info.mock.calls, ...warn.mock.calls])).not.toContain("不应写进日志的用户提示词");
+  });
+
+  it("keeps the request ID on an upstream HTTP failure", async () => {
+    vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
+    vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json(
+      { error: { message: "openai_error: bad_response_status_code" } },
+      { status: 502 },
+    ));
+
+    await expect(generateImages({
+      prompt: "一只小白兔",
+      model: "og-image2-medium",
+      ratio: "1:1",
+    })).rejects.toThrow("图片模型未返回可用图片");
+
+    const start = info.mock.calls
+      .filter(([label, value]) => label === "[image-provider]" && value?.event === "request-start")
+      .at(-1)?.[1];
+    const failed = warn.mock.calls
+      .filter(([label, value]) => label === "[image-provider]" && value?.event === "generation-attempt-failed")
+      .at(-1)?.[1];
+    expect(failed).toMatchObject({ requestId: start?.requestId, status: 502, kind: "gateway" });
+    expect(failed?.error).toContain("图片生成服务暂时没有返回可用结果");
+  });
   it("prefers image2 medium for smart product references before Gemini fallback", () => {
     expect(__testResolveReferenceImageRoute("og-image2-medium", true, true)).toEqual({
       usesChatPath: false,
