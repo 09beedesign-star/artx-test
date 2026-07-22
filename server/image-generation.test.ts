@@ -506,7 +506,7 @@ describe("generated image source normalization", () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(true);
   });
 
-  it("blocks unsafe reference-image fallback when smart copy editing is unavailable", async () => {
+  it("preserves the source outside the OCR mask when smart copy falls back to reference-image generation", async () => {
     vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
     vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
     vi.stubEnv("AI_IMAGE_MODEL", "og-image2-medium");
@@ -516,19 +516,28 @@ describe("generated image source normalization", () => {
         width: 96,
         height: 64,
         channels: 3,
-        background: "#ffffff",
+        background: "#ff0000",
       },
     }).png().toBuffer();
-    const mask = await sharp({
+    const edited = await sharp({
       create: {
         width: 96,
         height: 64,
-        channels: 4,
-        background: { r: 255, g: 255, b: 255, alpha: 0 },
+        channels: 3,
+        background: "#00ff00",
       },
     }).png().toBuffer();
+    const maskPixels = Buffer.alloc(96 * 64 * 4, 255);
+    for (let y = 0; y < 64; y += 1) {
+      for (let x = 0; x < 48; x += 1) {
+        maskPixels[(y * 96 + x) * 4 + 3] = 0;
+      }
+    }
+    const mask = await sharp(maskPixels, {
+      raw: { width: 96, height: 64, channels: 4 },
+    }).png().toBuffer();
 
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
       const endpoint = String(url);
       if (endpoint.endsWith("/images/edits")) {
         return new Response(JSON.stringify({ error: { message: "images/edits not supported" } }), {
@@ -536,20 +545,34 @@ describe("generated image source normalization", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
+      if (endpoint.endsWith("/chat/completions")) {
+        return Response.json({
+          choices: [{
+            message: {
+              images: [{ url: `data:image/png;base64,${edited.toString("base64")}` }],
+            },
+          }],
+        });
+      }
       throw new Error(`Unexpected fetch ${endpoint}`);
     });
 
-    await expect(editImageWithPrompt({
+    const result = await editImageWithPrompt({
       imageSrc: `data:image/png;base64,${source.toString("base64")}`,
       maskSrc: `data:image/png;base64,${mask.toString("base64")}`,
       prompt: "把原图中的 SALE 替换成 NEW ARRIVAL",
       operation: "text_edit",
       targetWidth: 96,
       targetHeight: 64,
-    })).rejects.toThrow("已停止生成以保护原图");
+    });
 
+    expect(result.images).toHaveLength(1);
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/edits"))).toBe(true);
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(false);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(true);
+    const resultBuffer = Buffer.from(result.images[0].src.split(",")[1], "base64");
+    const resultPixels = await sharp(resultBuffer).ensureAlpha().raw().toBuffer();
+    expect(Array.from(resultPixels.subarray(0, 4))).toEqual([0, 255, 0, 255]);
+    expect(Array.from(resultPixels.subarray((95 * 4), (96 * 4)))).toEqual([255, 0, 0, 255]);
   });
 
   it("retries smart copy edits with the next source-preserving edit model after a gateway failure", async () => {
