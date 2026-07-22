@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
+import { getImageModelFallbackAttempts } from "../shared/image-models";
 import { __testAssertSourcePreservingMask, __testBuildSmartProductPrompt, __testCompositeSourcePreservingImageEdit, __testCreatePicWishForegroundRemovalMask, __testHasPicWishExpansionMargins, __testNormalizeGeneratedImageSrc, __testNormalizeGeneratedImagesToTargetAspect, __testNormalizePicWishExpansionRatio, __testParseStructuredImageText, __testPreparePicWishEraseSourceImage, __testPreparePicWishExpansionSourceImage, __testResolveHighDefinitionTargetSize, __testResolveReferenceImageRoute, editImageWithPrompt, extractImageText, generateImages } from "./image-generation";
 
 const ONE_PIXEL_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
@@ -10,6 +11,60 @@ afterEach(() => {
 });
 
 describe("generated image source normalization", () => {
+  it("keeps alternate image models available for provider gateway retries", () => {
+    expect(getImageModelFallbackAttempts("auto").length).toBeGreaterThan(1);
+  });
+
+  it("retries a provider gateway failure with the next compatible image model", async () => {
+    vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
+    vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
+    vi.stubEnv("AI_IMAGE_MODEL", "og-image2-medium");
+    const requestedModels: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      const body = JSON.parse(String(init?.body || "{}"));
+      requestedModels.push(body.model);
+      if (body.model === "og-image2-medium") {
+        return Response.json(
+          { error: { message: "openai_error: bad_response_status_code" } },
+          { status: 502 },
+        );
+      }
+      return Response.json({ data: [{ b64_json: ONE_PIXEL_PNG_BASE64 }] });
+    });
+
+    const result = await generateImages({
+      prompt: "一只小白兔",
+      model: "auto",
+      ratio: "1:1",
+    });
+
+    expect(result.images).toHaveLength(1);
+    expect(requestedModels[0]).toBe("og-image2-medium");
+    expect(requestedModels.length).toBeGreaterThan(1);
+  });
+
+  it("does not replace a user-selected image model after a gateway failure", async () => {
+    vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
+    vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
+    const requestedModels: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      const body = JSON.parse(String(init?.body || "{}"));
+      requestedModels.push(body.model);
+      return Response.json(
+        { error: { message: "openai_error: bad_response_status_code" } },
+        { status: 502 },
+      );
+    });
+
+    await expect(generateImages({
+      prompt: "一只小白兔",
+      model: "jimeng-4.0",
+      ratio: "1:1",
+    })).rejects.toThrow("图片模型未返回可用图片");
+
+    expect(requestedModels).not.toHaveLength(0);
+    expect(new Set(requestedModels)).toEqual(new Set(["jimeng-4.0"]));
+  });
   it("prefers image2 medium for smart product references before Gemini fallback", () => {
     expect(__testResolveReferenceImageRoute("og-image2-medium", true, true)).toEqual({
       usesChatPath: false,

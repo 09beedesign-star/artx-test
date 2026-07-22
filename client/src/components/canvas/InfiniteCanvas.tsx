@@ -778,10 +778,12 @@ function SkillPointSelector({
   activeSkill,
   onChange,
   isDark,
+  compact = false,
 }: {
   activeSkill: PendingSkillLoad | null;
   onChange: (skill: PendingSkillLoad | null) => void;
   isDark: boolean;
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [buttonHover, setButtonHover] = useState(false);
@@ -902,8 +904,10 @@ function SkillPointSelector({
           setOpen(value => !value);
           requestAnimationFrame(updatePopoverPosition);
         }}
-        className="flex h-8 max-w-[74px] items-center gap-1 rounded-[var(--radius-md-design)] px-2 transition-colors"
+        className="flex h-8 shrink-0 items-center justify-center gap-1 rounded-[var(--radius-md-design)] px-2 transition-colors"
         style={{
+          width: compact ? 32 : undefined,
+          maxWidth: compact ? 32 : 74,
           background:
             activeSkill ? activeBg : open || buttonHover ? hoverButtonBg : bg,
           border: `1px solid ${activeSkill || open ? "oklch(0.62 0.22 290 / 45%)" : border}`,
@@ -920,10 +924,14 @@ function SkillPointSelector({
         onMouseLeave={() => setButtonHover(false)}
       >
         <CircleDot size={12} style={{ flex: "0 0 auto" }} />
-        <span className="min-w-0 max-w-[38px] truncate">
-          {activeSkill ? activeSkill.name : "Skill"}
-        </span>
-        <ChevronDown size={10} style={{ opacity: 0.65 }} />
+        {!compact && (
+          <>
+            <span className="min-w-0 max-w-[38px] truncate">
+              {activeSkill ? activeSkill.name : "Skill"}
+            </span>
+            <ChevronDown size={10} style={{ opacity: 0.65 }} />
+          </>
+        )}
       </button>
       {open &&
         typeof document !== "undefined" &&
@@ -1052,10 +1060,12 @@ function ImageCountSelector({
   value,
   onChange,
   isDark,
+  compact = false,
 }: {
   value: number;
   onChange: (count: number) => void;
   isDark: boolean;
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -1116,8 +1126,9 @@ function ImageCountSelector({
         type="button"
         title="选择生成数量"
         aria-label="选择生成数量"
-        className="flex h-8 w-[74px] items-center justify-center gap-1 rounded-[var(--radius-md-design)] px-2 transition-colors"
+        className="flex h-8 shrink-0 items-center justify-center gap-1 rounded-[var(--radius-md-design)] px-2 transition-colors"
         style={{
+          width: compact ? 32 : 74,
           background: open || hovered ? hoverBg : bg,
           border: `1px solid ${open ? "oklch(0.62 0.22 290 / 45%)" : border}`,
           color: open || hovered ? "white" : text,
@@ -1133,15 +1144,17 @@ function ImageCountSelector({
         onMouseLeave={() => setHovered(false)}
       >
         <Images size={12} style={{ flex: "0 0 auto" }} />
-        <span>{value}张</span>
-        <ChevronDown
-          size={10}
-          style={{
-            opacity: 0.65,
-            transform: open ? "rotate(180deg)" : "none",
-            transition: "transform 0.16s ease",
-          }}
-        />
+        {!compact && <span>{value}张</span>}
+        {!compact && (
+          <ChevronDown
+            size={10}
+            style={{
+              opacity: 0.65,
+              transform: open ? "rotate(180deg)" : "none",
+              transition: "transform 0.16s ease",
+            }}
+          />
+        )}
       </button>
       {open &&
         typeof document !== "undefined" &&
@@ -1200,10 +1213,12 @@ function ImageRatioSelector({
   value,
   onChange,
   isDark,
+  compact = false,
 }: {
   value: CanvasAssistantImageRatio;
   onChange: (ratio: CanvasAssistantImageRatio) => void;
   isDark: boolean;
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -1265,8 +1280,9 @@ function ImageRatioSelector({
         type="button"
         title="选择图片画幅"
         aria-label="选择图片画幅"
-        className="flex h-8 w-[74px] items-center justify-center gap-1 rounded-[var(--radius-md-design)] px-2 transition-colors"
+        className="flex h-8 shrink-0 items-center justify-center gap-1 rounded-[var(--radius-md-design)] px-2 transition-colors"
         style={{
+          width: compact ? 32 : 74,
           background: open || hovered ? hoverBg : bg,
           border: "1px solid " + (open ? "oklch(0.62 0.22 290 / 45%)" : border),
           color: open || hovered ? "white" : text,
@@ -1282,15 +1298,17 @@ function ImageRatioSelector({
         onMouseLeave={() => setHovered(false)}
       >
         <Frame size={12} style={{ flex: "0 0 auto" }} />
-        <span>{triggerLabel}</span>
-        <ChevronDown
-          size={10}
-          style={{
-            opacity: 0.65,
-            transform: open ? "rotate(180deg)" : "none",
-            transition: "transform 0.16s ease",
-          }}
-        />
+        {!compact && <span>{triggerLabel}</span>}
+        {!compact && (
+          <ChevronDown
+            size={10}
+            style={{
+              opacity: 0.65,
+              transform: open ? "rotate(180deg)" : "none",
+              transition: "transform 0.16s ease",
+            }}
+          />
+        )}
       </button>
       {open &&
         typeof document !== "undefined" &&
@@ -16353,6 +16371,9 @@ function CanvasAssistantPanel({
   const [assistantImageCount, setAssistantImageCount] = useState(1);
   const [assistantImageRatio, setAssistantImageRatio] =
     useState<CanvasAssistantImageRatio>("auto");
+  const [compactAssistantControls, setCompactAssistantControls] = useState(
+    () => typeof window !== "undefined" && window.innerWidth < 430
+  );
   const imageModelOptions = useImageModelOptions();
   const assistantImageModelOptions = useMemo(
     () => imageModelOptions.filter(model => model.id !== AUTO_AI_MODEL.id),
@@ -16370,6 +16391,16 @@ function CanvasAssistantPanel({
     const next = resolveAllowedAiModelId(assistantImageModelId, availableAssistantImageModels);
     if (next && next !== assistantImageModelId) setAssistantImageModelId(next);
   }, [assistantImageModelId, availableAssistantImageModels]);
+  useEffect(() => {
+    const updateCompactControls = () => {
+      setCompactAssistantControls(
+        window.innerWidth < 560 || panelWidth < 520
+      );
+    };
+    updateCompactControls();
+    window.addEventListener("resize", updateCompactControls);
+    return () => window.removeEventListener("resize", updateCompactControls);
+  }, [panelWidth]);
   useEffect(() => {
     const next = resolveAllowedAiModelId(assistantTextModelId, availableAssistantTextModels);
     if (next && next !== assistantTextModelId) setAssistantTextModelId(next);
@@ -19371,7 +19402,10 @@ function CanvasAssistantPanel({
                 className="flex min-w-0 items-center justify-between pt-2"
                 style={{ gap: 6 }}
               >
-                <div className="flex min-w-0 items-center" style={{ gap: 6 }}>
+                <div
+                  className="flex min-w-0 flex-1 items-center"
+                  style={{ gap: compactAssistantControls ? 4 : 6 }}
+                >
                   <div
                     ref={assistantModelRef}
                     className="relative flex min-w-0 items-center"
@@ -19379,8 +19413,10 @@ function CanvasAssistantPanel({
                   >
                     <button
                       type="button"
-                      className="flex h-8 max-w-[138px] items-center gap-1.5 rounded-[var(--radius-md-design)] px-2 transition-colors active:scale-95"
+                      className="flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[var(--radius-md-design)] px-2 transition-colors active:scale-95"
                       style={{
+                        width: compactAssistantControls ? 32 : undefined,
+                        maxWidth: compactAssistantControls ? 32 : 138,
                         background: agentMenuOpen
                           ? compactSelectorActiveBg
                           : agentButtonHover
@@ -19407,20 +19443,25 @@ function CanvasAssistantPanel({
                       {!assistantAutoMode && (
                         <AssistantModelIcon modelId={assistantModel.id} />
                       )}
-                      <span className="min-w-0 max-w-[108px] truncate">
-                        {assistantAutoMode
-                          ? "auto"
-                          : assistantModel.label}
-                      </span>
-                      <ChevronDown
-                        size={10}
-                        style={{
-                          flex: "0 0 auto",
-                          opacity: 0.6,
-                          transform: agentMenuOpen ? "rotate(180deg)" : "none",
-                          transition: "transform 0.16s ease",
-                        }}
-                      />
+                      {!compactAssistantControls && (
+                        <>
+                          <span className="min-w-0 max-w-[108px] truncate">
+                            {assistantAutoMode ? "auto" : assistantModel.label}
+                          </span>
+                          <ChevronDown
+                            size={10}
+                            style={{
+                              flex: "0 0 auto",
+                              opacity: 0.6,
+                              transform: agentMenuOpen ? "rotate(180deg)" : "none",
+                              transition: "transform 0.16s ease",
+                            }}
+                          />
+                        </>
+                      )}
+                      {compactAssistantControls && assistantAutoMode && (
+                        <WandSparkles size={13} />
+                      )}
                     </button>
                     {agentMenuOpen &&
                       typeof document !== "undefined" &&
@@ -19599,16 +19640,19 @@ function CanvasAssistantPanel({
                     activeSkill={activeSkill}
                     onChange={handleAssistantSkillChange}
                     isDark={isDark}
+                    compact={compactAssistantControls}
                   />
                   <ImageCountSelector
                     value={assistantImageCount}
                     onChange={setAssistantImageCount}
                     isDark={isDark}
+                    compact={compactAssistantControls}
                   />
                   <ImageRatioSelector
                     value={assistantImageRatio}
                     onChange={setAssistantImageRatio}
                     isDark={isDark}
+                    compact={compactAssistantControls}
                   />
                 </div>
                 <div className="flex shrink-0 items-center" style={{ gap: 6 }}>
@@ -23341,7 +23385,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         Math.min(Number(detail.count) || 1, 9)
       );
       const imageGenerationGap = 20;
-      const shouldUseFixedGeneratedPlacement = Boolean(detail.placement);
+      const shouldUseFixedGeneratedPlacement =
+        Boolean(detail.placement) || requestedCount > 1;
       if (detail.status === "pending") {
         const generationStartedAt =
           detail.generationStartedAt ||

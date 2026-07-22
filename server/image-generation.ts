@@ -890,6 +890,10 @@ function isProviderCapacityError(message: string) {
   return /no available channel|no available compatible accounts|system cpu overloaded|overloaded|capacity|账号池|兼容账号/i.test(message);
 }
 
+function isProviderGatewayError(message: string) {
+  return /openai_error|bad_response_status_code|bad response status|图片生成服务暂时没有返回可用结果/i.test(message);
+}
+
 function resolveProviderImageModel(model: string) {
   if (model === "gemini-3.1-flash-image-preview") return "gemini-3.1-flash-image";
   if (model === "gpt-image-2-4k") return "gemini-3.1-flash-image";
@@ -2842,8 +2846,12 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
   const count = Math.max(1, Math.min(Number(input.count) || 1, 9));
   const referenceImages = input.images?.filter(image => image.src?.trim()) || [];
   const targetSize = __testResolveHighDefinitionTargetSize(ratio.width, ratio.height, ratio.width, ratio.height);
+  const requestedModel = (input.model || model).trim();
+  const attemptModels = requestedModel.toLowerCase() === "auto"
+    ? getImageModelFallbackAttempts(requestedModel)
+    : [requestedModel];
   let lastError = "";
-  for (const attemptModel of getImageModelFallbackAttempts(input.model || model)) {
+  for (const attemptModel of attemptModels) {
     const providerModel = resolveProviderImageModel(attemptModel);
     const referenceRoute = __testResolveReferenceImageRoute(
       providerModel,
@@ -2932,7 +2940,7 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
       lastError = `${providerModel} returned no usable images`;
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
-      if (!isProviderCapacityError(lastError) && !isUnsupportedImagesApiError(lastError) && !isImageGroupPermissionError(lastError)) {
+      if (!isProviderCapacityError(lastError) && !isUnsupportedImagesApiError(lastError) && !isImageGroupPermissionError(lastError) && !isProviderGatewayError(lastError)) {
         throw new Error(`图片生成接口暂不可用：${lastError}`);
       }
       console.warn(`Image generation with ${providerModel} failed; retrying next priority model`, error);
@@ -3118,7 +3126,11 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   const targetWidth = targetSize.width;
   const targetHeight = targetSize.height;
   const sourceImage = bufferToImageFile(sourceImageData.buffer, sourceImageData.mimeType);
-  const selectedModel = getImageModelFallbackAttempts(input.model || model)[0] || DEFAULT_IMAGE_MODEL_ID;
+  const requestedModel = (input.model || model).trim();
+  const selectedModels = requestedModel.toLowerCase() === "auto"
+    ? getImageModelFallbackAttempts(requestedModel)
+    : [requestedModel];
+  const selectedModel = selectedModels[0] || DEFAULT_IMAGE_MODEL_ID;
   const referenceImages = input.images?.filter(image => image.src?.trim()) || [];
   const editSize = getEditSizeForAspect(targetWidth, targetHeight);
   const aspectInstruction = `Keep the final image canvas aspect ratio exactly ${targetWidth}:${targetHeight}. Do not return a square image unless the source is square.`;
@@ -3193,9 +3205,12 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
     return editViaReferenceGeneration();
   }
 
-  const createBody = async (withResponseFormat: boolean) => {
+  const createBody = async (
+    withResponseFormat: boolean,
+    providerModel = selectedModel,
+  ) => {
     const body = new FormData();
-    body.append("model", selectedModel);
+    body.append("model", providerModel);
     body.append("image", sourceImage);
     if (maskImageData) {
       body.append("mask", bufferToImageFile(maskImageData.buffer, maskImageData.mimeType));
@@ -3227,11 +3242,33 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
     return body;
   };
 
-  let providerData: ImageGenerationResponse;
+  let providerData: ImageGenerationResponse | undefined;
   try {
     providerData = await callImageEditProvider(await createBody(true), apiKey, baseUrl);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    if (isTextEditOperation && isProviderGatewayError(message)) {
+      let fallbackError: unknown = error;
+      for (const fallbackModel of selectedModels.slice(1)) {
+        if (isChatCompatibleImageModel(fallbackModel)) continue;
+        try {
+          providerData = await callImageEditProvider(
+            await createBody(true, fallbackModel),
+            apiKey,
+            baseUrl,
+          );
+          fallbackError = null;
+          break;
+        } catch (candidateError) {
+          fallbackError = candidateError;
+        }
+      }
+      if (!fallbackError) {
+        // A compatible image-edit provider succeeded and stays on the source-preserving path.
+      } else {
+        throw fallbackError;
+      }
+    } else {
     if (isImageEditEndpointUnavailable(error)) {
       if (isTextEditOperation) {
         throw new Error("当前图片模型不支持保真文字编辑，已停止生成以保护原图，请稍后重试");
@@ -3250,6 +3287,11 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
       }
       throw fallbackError;
     }
+    }
+  }
+
+  if (!providerData) {
+    throw new Error("图片模型未返回可用编辑结果，请稍后重试");
   }
 
   const asyncTaskId = providerData.task_id || providerData.taskId;

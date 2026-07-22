@@ -43,6 +43,25 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(annotationEditBlock).toContain("model: selectedImageEditModel");
   });
 
+  it("keeps all assistant controls and the send button visible when the panel is narrow", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+
+    expect(source).toContain("const [compactAssistantControls, setCompactAssistantControls]");
+    expect(source).toContain("window.innerWidth < 560 || panelWidth < 520");
+    expect(source).toContain("compact={compactAssistantControls}");
+    expect(source).toContain("width: compact ? 32 : 74");
+    expect(source).toContain('className="flex min-w-0 flex-1 items-center"');
+    expect(source).toContain('className="flex shrink-0 items-center"');
+  });
+
+  it("keeps each image in a multi-image generation batch exactly 20px apart", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+
+    expect(source).toContain("const imageGenerationGap = 20;");
+    expect(source).toContain("Boolean(detail.placement) || requestedCount > 1");
+    expect(source).toContain("index * (size.w + imageGenerationGap)");
+  });
+
   it("mounts the smart commerce workflow without replacing the existing canvas generation owner", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
 
