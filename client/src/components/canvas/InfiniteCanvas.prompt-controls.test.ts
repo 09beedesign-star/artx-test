@@ -341,6 +341,7 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(applyTextEditBlock).toContain("detail.originalText,");
     expect(applyTextEditBlock).toContain("detail.editedText,");
     expect(applyTextEditBlock).toContain("maskSrc");
+    expect(applyTextEditBlock).toContain('model: "auto"');
     expect(applyTextEditBlock).toContain("原图中所有非文字像素必须原封不动保留");
     expect(applyTextEditBlock).toContain("禁止重绘或改变人物、产品、背景");
     expect(applyTextEditBlock).not.toContain("image-text-relayout");

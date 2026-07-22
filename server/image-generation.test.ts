@@ -481,6 +481,60 @@ describe("generated image source normalization", () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(false);
   });
 
+  it("retries smart copy edits with the next source-preserving edit model after a gateway failure", async () => {
+    vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
+    vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
+    vi.stubEnv("AI_IMAGE_MODEL", "og-image2-medium");
+
+    const source = await sharp({
+      create: {
+        width: 96,
+        height: 64,
+        channels: 3,
+        background: "#ffffff",
+      },
+    }).png().toBuffer();
+    const mask = await sharp({
+      create: {
+        width: 96,
+        height: 64,
+        channels: 4,
+        background: { r: 255, g: 255, b: 255, alpha: 0 },
+      },
+    }).png().toBuffer();
+    const attemptedModels: string[] = [];
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      const form = init?.body as FormData;
+      const providerModel = String(form.get("model"));
+      attemptedModels.push(providerModel);
+      if (providerModel === "og-image2-medium") {
+        return new Response(JSON.stringify({ error: { message: "openai_error / bad_response_status_code" } }), {
+          status: 502,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (providerModel === "jimeng-4.0") {
+        return Response.json({ data: [{ b64_json: source.toString("base64") }] });
+      }
+      throw new Error(`Unexpected edit model ${providerModel}`);
+    });
+
+    const result = await editImageWithPrompt({
+      imageSrc: `data:image/png;base64,${source.toString("base64")}`,
+      maskSrc: `data:image/png;base64,${mask.toString("base64")}`,
+      prompt: "把原图中的 SALE 替换成 NEW ARRIVAL",
+      model: "auto",
+      operation: "text_edit",
+      targetWidth: 96,
+      targetHeight: 64,
+    });
+
+    expect(result.images).toHaveLength(1);
+    expect(attemptedModels).toContain("og-image2-medium");
+    expect(attemptedModels).toContain("jimeng-4.0");
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(false);
+  });
+
   it("falls back to multimodal text extraction when image OCR returns empty text", async () => {
     vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
     vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
