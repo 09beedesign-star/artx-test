@@ -59,7 +59,7 @@ const PRODUCT_BACKGROUND_STYLES = [
   {
     name: "中国风",
     image: new URL("../../assets/smart-background/chinese-style.jpg", import.meta.url).href,
-    prompt: "modern Chinese style, warm red and gold, subtle silk texture, elegant product stage",
+    prompt: "Chinese New Oriental commercial scene, refined Guochao aesthetic, vermilion lacquered wood, Chinese lattice or moon-gate structure, rice-paper or ink-wash texture, subtle celadon porcelain or jade details, restrained vermilion, ink black and warm gold palette, elegant Chinese spatial depth and directional lighting. Do not use a generic white-gray western minimalist living room, Scandinavian interior, or plain neutral studio.",
   },
   {
     name: "欧美潮流",

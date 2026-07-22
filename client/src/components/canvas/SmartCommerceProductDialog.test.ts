@@ -96,6 +96,9 @@ describe("SmartCommerceProductDialog", () => {
       expect(source).toContain(`name: "${label}"`);
     }
     expect(source).toContain("anime-style.jpg");
+    expect(source).toContain("Chinese New Oriental commercial scene");
+    expect(source).toContain("Chinese lattice or moon-gate structure");
+    expect(source).toContain("Do not use a generic white-gray western minimalist living room");
     expect(source).toContain("用户明确要求：${trimmedPrompt}");
     expect(source).toContain("补充风格方向：${selectedStyle.prompt}");
     expect(source).toContain("风格只能影响背景");
