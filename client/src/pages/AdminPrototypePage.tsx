@@ -10,6 +10,7 @@ import {
   ChevronRight,
   CircleDollarSign,
   CreditCard,
+  Download,
   Gauge,
   Gift,
   History,
@@ -700,6 +701,33 @@ function AdminPrototypePage() {
     }
   }
 
+  async function handleDownloadImageProviderFailures() {
+    const token = readAdminToken();
+    if (!token) {
+      setNotice("未找到后台登录令牌，请重新登录后再下载日志。");
+      return;
+    }
+    try {
+      const response = await fetch("/api/admin/image-provider-failures/download", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || "图片模型失败日志下载失败");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `artx-image-provider-failures-${new Date().toISOString().slice(0, 10)}.jsonl`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setNotice("图片模型失败日志已下载。");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "图片模型失败日志下载失败");
+    }
+  }
+
   const selectedUser = adminData.users.find((item) => item.id === selectedUserId) ?? adminData.users[0];
   const selectedOrder = adminData.orders.find((item) => item.id === selectedOrderId) ?? adminData.orders[0];
   const metrics = adminData.overview?.metrics;
@@ -1145,6 +1173,16 @@ function AdminPrototypePage() {
                 >
                   <Activity className="size-4" />
                   刷新接口状态
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="min-w-0 border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
+                  onClick={handleDownloadImageProviderFailures}
+                  title="下载图片模型失败日志"
+                >
+                  <Download className="size-4" />
+                  下载失败日志
                 </Button>
                 <Button
                   className="w-full bg-cyan-300 text-slate-950 hover:bg-cyan-200 sm:w-auto"
