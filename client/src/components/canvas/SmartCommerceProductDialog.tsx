@@ -7,13 +7,21 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
+  ArrowDownToLine,
   Boxes,
   Check,
   FileImage,
   GripHorizontal,
   ImagePlus,
   LoaderCircle,
+  Maximize2,
+  Minimize2,
+  MoveDiagonal2,
   RefreshCw,
+  Scan,
   Sparkles,
   Trash2,
   X,
@@ -26,6 +34,8 @@ export type SmartCommerceProductCreateDetail = {
   userPrompt: string;
   prompt: string;
   style: string;
+  composition: string;
+  productScale: string;
   ratio: string;
   resolution: "2k" | "4k";
   count: number;
@@ -54,7 +64,7 @@ const PRODUCT_BACKGROUND_STYLES = [
   {
     name: "商务科技感",
     image: new URL("../../assets/smart-background/business-tech.jpg", import.meta.url).href,
-    prompt: "clean premium technology showroom, cool lighting, glass and metal platform",
+    prompt: "premium business technology showroom, cool white and blue directional lighting, transparent glass, brushed metal, structured display platform, restrained digital light accents and precise commercial reflections. Do not use a domestic living room, rustic materials, or playful cartoon props.",
   },
   {
     name: "中国风",
@@ -64,28 +74,42 @@ const PRODUCT_BACKGROUND_STYLES = [
   {
     name: "欧美潮流",
     image: new URL("../../assets/smart-background/western-fashion.jpg", import.meta.url).href,
-    prompt: "bold western fashion campaign, urban studio lighting, editorial composition",
+    prompt: "bold western contemporary fashion campaign, editorial urban studio, saturated color-block architecture, sculptural props, confident magazine composition and directional spotlight. Do not use Chinese traditional elements, restrained neutral home interiors, or generic catalog staging.",
   },
   {
     name: "日韩风",
     image: new URL("../../assets/smart-background/jk-pastel.jpg", import.meta.url).href,
-    prompt: "soft Japanese Korean commercial background, clean pastel studio, fresh lifestyle mood",
+    prompt: "Japanese and Korean lifestyle commercial scene, low-saturation pastel palette, light wood, translucent acrylic, linen texture, tidy small-space styling, fresh daylight and soft natural shadows. Do not use neon cyberpunk, heavy luxury ornament, or dark industrial scenery.",
   },
   {
     name: "赛博风",
     image: new URL("../../assets/smart-background/cyberpunk.jpg", import.meta.url).href,
-    prompt: "cyber neon commercial set, futuristic light strips, glossy reflective floor",
+    prompt: "futuristic cyberpunk commercial set, midnight blue and electric magenta light strips, glossy reflective metal floor, layered digital architecture, atmospheric haze and crisp rim light. Do not use a living room, daylight studio, or soft Scandinavian styling.",
   },
   {
     name: "可爱呆萌系",
     image: new URL("../../assets/smart-background/cute-toy.jpg", import.meta.url).href,
-    prompt: "cute playful commercial scene, rounded props, soft colorful lighting",
+    prompt: "cute playful commercial scene, pastel candy palette, rounded oversized props, plush toy texture, soft colorful lighting and cheerful 3D display design. Do not use dark mature interiors, industrial materials, or minimal monochrome staging.",
   },
   {
     name: "二次元系",
     image: new URL("../../assets/smart-background/anime-style.jpg", import.meta.url).href,
-    prompt: "photorealistic commercial product photography with anime-inspired colors, graphic props and dynamic lighting",
+    prompt: "polished anime-style commercial background, illustrated architecture, cel-shaded props, graphic perspective lines, vibrant anime palette and dynamic light. Keep the uploaded product photorealistic and unchanged; do not redraw it as an illustration.",
   },
+] as const;
+
+const PRODUCT_COMPOSITIONS = [
+  { id: "center", label: "居中主视觉", icon: AlignCenter, prompt: "Place the product in the visual center with balanced surrounding space and a clear hero presentation." },
+  { id: "left", label: "左侧留白", icon: AlignLeft, prompt: "Place the product on the left third of the frame and reserve clean visual space on the right for the background scene." },
+  { id: "right", label: "右侧留白", icon: AlignRight, prompt: "Place the product on the right third of the frame and reserve clean visual space on the left for the background scene." },
+  { id: "bottom", label: "底部陈列", icon: ArrowDownToLine, prompt: "Place the product low in the frame on a grounded display surface, leaving a richer upper background with spatial depth." },
+  { id: "diagonal", label: "斜向布局", icon: MoveDiagonal2, prompt: "Use an asymmetrical diagonal composition with the product offset to create movement while keeping the product fully visible." },
+] as const;
+
+const PRODUCT_SCALES = [
+  { id: "small", label: "留白展示", icon: Minimize2, prompt: "Keep the product at about 25% to 35% of the frame so the commercial background and spatial story remain clearly visible." },
+  { id: "medium", label: "均衡陈列", icon: Scan, prompt: "Keep the product at about 40% to 55% of the frame for a balanced product-and-scene composition." },
+  { id: "large", label: "产品聚焦", icon: Maximize2, prompt: "Keep the product at about 60% to 72% of the frame for a bold hero-product composition without cropping it." },
 ] as const;
 
 type ResolutionPreset = (typeof RESOLUTION_PRESETS)[number];
@@ -142,6 +166,12 @@ export function SmartCommerceProductDialog({
   const [userPrompt, setUserPrompt] = useState("");
   const [selectedStyle, setSelectedStyle] = useState<(typeof PRODUCT_BACKGROUND_STYLES)[number]>(
     PRODUCT_BACKGROUND_STYLES[0]
+  );
+  const [selectedComposition, setSelectedComposition] = useState<(typeof PRODUCT_COMPOSITIONS)[number]>(
+    PRODUCT_COMPOSITIONS[0]
+  );
+  const [selectedProductScale, setSelectedProductScale] = useState<(typeof PRODUCT_SCALES)[number]>(
+    PRODUCT_SCALES[1]
   );
   const [resolution, setResolution] = useState<"2k" | "4k">("2k");
   const [count, setCount] = useState(1);
@@ -247,6 +277,8 @@ export function SmartCommerceProductDialog({
         ? `用户明确要求：${trimmedPrompt}`
         : "用户未输入额外要求：创建真实、干净、有商业质感的产品背景。",
       `补充风格方向：${selectedStyle.prompt}`,
+      `产品构图要求：${selectedComposition.prompt}`,
+      `产品占画面比例要求：${selectedProductScale.prompt}`,
       "保持上传产品图的商品主体完整清晰，不改变产品颜色、材质、文字、标识、比例和外形。",
       "风格只能影响背景、道具和环境氛围，不能卡通化、重绘或重新解释产品主体。",
       "用户明确要求与风格方向冲突时，以用户明确要求为准。",
@@ -258,6 +290,8 @@ export function SmartCommerceProductDialog({
       userPrompt: trimmedPrompt || selectedStyle.name,
       prompt,
       style: selectedStyle.name,
+      composition: selectedComposition.id,
+      productScale: selectedProductScale.id,
       ratio: selectedPreset.ratio,
       resolution,
       count,
@@ -570,6 +604,60 @@ export function SmartCommerceProductDialog({
                         {active ? (
                           <Check className="absolute right-1.5 top-1.5" size={12} style={{ color: colors.accent }} />
                         ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <SectionTitle>产品构图</SectionTitle>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {PRODUCT_COMPOSITIONS.map(composition => {
+                    const active = selectedComposition.id === composition.id;
+                    const Icon = composition.icon;
+                    return (
+                      <button
+                        key={composition.id}
+                        type="button"
+                        className="flex h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-md px-1 text-[9px] font-semibold transition-colors"
+                        style={{
+                          color: active ? colors.text : colors.muted,
+                          background: active ? "rgba(197,237,71,0.13)" : colors.surface,
+                          border: `1px solid ${active ? "rgba(197,237,71,0.58)" : colors.border}`,
+                        }}
+                        onClick={() => setSelectedComposition(composition)}
+                        title={composition.label}
+                      >
+                        <Icon size={14} />
+                        <span className="max-w-full truncate whitespace-nowrap">{composition.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <SectionTitle>产品占画面比例</SectionTitle>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {PRODUCT_SCALES.map(scale => {
+                    const active = selectedProductScale.id === scale.id;
+                    const Icon = scale.icon;
+                    return (
+                      <button
+                        key={scale.id}
+                        type="button"
+                        className="flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-[10px] font-semibold transition-colors"
+                        style={{
+                          color: active ? colors.text : colors.muted,
+                          background: active ? "rgba(197,237,71,0.13)" : colors.surface,
+                          border: `1px solid ${active ? "rgba(197,237,71,0.58)" : colors.border}`,
+                        }}
+                        onClick={() => setSelectedProductScale(scale)}
+                        title={scale.label}
+                      >
+                        <Icon size={13} />
+                        <span className="truncate whitespace-nowrap">{scale.label}</span>
                       </button>
                     );
                   })}

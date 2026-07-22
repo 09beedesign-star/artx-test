@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
 import { getImageModelFallbackAttempts } from "../shared/image-models";
-import { __testAssertSourcePreservingMask, __testBuildSmartProductPrompt, __testCompositeSourcePreservingImageEdit, __testCreatePicWishForegroundRemovalMask, __testHasPicWishExpansionMargins, __testNormalizeGeneratedImageSrc, __testNormalizeGeneratedImagesToTargetAspect, __testNormalizePicWishExpansionRatio, __testParseStructuredImageText, __testPreparePicWishEraseSourceImage, __testPreparePicWishExpansionSourceImage, __testResolveHighDefinitionTargetSize, __testResolveReferenceImageRoute, editImageWithPrompt, extractImageText, generateImages } from "./image-generation";
+import { __testAssertSourcePreservingMask, __testBuildSmartProductPrompt, __testCompositeSourcePreservingImageEdit, __testCreatePicWishForegroundRemovalMask, __testHasPicWishExpansionMargins, __testNormalizeGeneratedImageSrc, __testNormalizeGeneratedImagesToTargetAspect, __testNormalizePicWishExpansionRatio, __testParseStructuredImageText, __testPreparePicWishEraseSourceImage, __testPreparePicWishExpansionSourceImage, __testResolveHighDefinitionTargetSize, __testResolveReferenceImageRoute, __testResolveSmartProductLayout, editImageWithPrompt, extractImageText, generateImages } from "./image-generation";
 
 const ONE_PIXEL_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
@@ -260,6 +260,21 @@ describe("generated image source normalization", () => {
     expect(prompt).toContain("风格只能影响背景");
     expect(prompt.indexOf("白天自然光客厅"))
       .toBeLessThan(prompt.indexOf("补充风格标签：赛博风"));
+  });
+
+  it("uses the selected smart-product composition and scale for the prepared product canvas", () => {
+    expect(__testResolveSmartProductLayout("left", "small")).toMatchObject({
+      composition: "left",
+      productScale: "small",
+      x: 0.12,
+      width: 0.46,
+    });
+    expect(__testResolveSmartProductLayout("bottom", "large")).toMatchObject({
+      composition: "bottom",
+      productScale: "large",
+      y: 0.84,
+      width: 0.82,
+    });
   });
 
   it("parses OCR text regions used by smart copy masks", () => {

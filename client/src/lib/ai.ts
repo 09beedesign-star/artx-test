@@ -641,6 +641,8 @@ export async function createProductBackground({
   backgroundReferenceName,
   prompt,
   style,
+  composition,
+  productScale,
   ratio = "1:1",
   resolution = "2k",
   count = 1,
@@ -654,6 +656,8 @@ export async function createProductBackground({
   backgroundReferenceName?: string;
   prompt?: string;
   style?: string;
+  composition?: string;
+  productScale?: string;
   ratio?: string;
   resolution?: "2k" | "4k";
   count?: number;
@@ -669,6 +673,8 @@ export async function createProductBackground({
     backgroundReferenceName,
     prompt,
     style,
+    composition,
+    productScale,
     ratio,
     resolution,
     count,

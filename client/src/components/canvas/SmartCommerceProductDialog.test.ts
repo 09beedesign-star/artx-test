@@ -83,7 +83,7 @@ describe("SmartCommerceProductDialog", () => {
     expect(source).not.toContain('SectionTitle aside={`${outputSize.width}×${outputSize.height}`}>常用画幅');
   });
 
-  it("restores the seven pre-commerce background styles with user prompt priority", () => {
+  it("keeps all seven background styles as distinct commercial scene constraints", () => {
     for (const label of [
       "商务科技感",
       "中国风",
@@ -96,12 +96,33 @@ describe("SmartCommerceProductDialog", () => {
       expect(source).toContain(`name: "${label}"`);
     }
     expect(source).toContain("anime-style.jpg");
+    for (const promptCue of [
+      "premium business technology showroom",
+      "Chinese New Oriental commercial scene",
+      "bold western contemporary fashion campaign",
+      "Japanese and Korean lifestyle commercial scene",
+      "futuristic cyberpunk commercial set",
+      "cute playful commercial scene",
+      "polished anime-style commercial background",
+    ]) {
+      expect(source).toContain(promptCue);
+    }
     expect(source).toContain("Chinese New Oriental commercial scene");
     expect(source).toContain("Chinese lattice or moon-gate structure");
     expect(source).toContain("Do not use a generic white-gray western minimalist living room");
     expect(source).toContain("用户明确要求：${trimmedPrompt}");
     expect(source).toContain("补充风格方向：${selectedStyle.prompt}");
     expect(source).toContain("风格只能影响背景");
+  });
+
+  it("sends product composition and frame occupancy controls with the generated background request", () => {
+    for (const label of ["居中主视觉", "左侧留白", "右侧留白", "底部陈列", "斜向布局", "留白展示", "均衡陈列", "产品聚焦"]) {
+      expect(source).toContain(`label: "${label}"`);
+    }
+    expect(source).toContain("产品构图要求：${selectedComposition.prompt}");
+    expect(source).toContain("产品占画面比例要求：${selectedProductScale.prompt}");
+    expect(source).toContain("composition: selectedComposition.id");
+    expect(source).toContain("productScale: selectedProductScale.id");
   });
 
   it("lets users replace or delete submitted product images", () => {

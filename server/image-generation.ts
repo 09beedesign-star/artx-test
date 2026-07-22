@@ -40,6 +40,8 @@ type CreateBackgroundInput = {
   backgroundReferenceName?: string;
   prompt?: string;
   style?: string;
+  composition?: string;
+  productScale?: string;
   ratio?: string;
   resolution?: "2k" | "4k";
   count?: number;
@@ -2075,10 +2077,32 @@ function getBackgroundOutputSize(input: CreateBackgroundInput, fallbackWidth: nu
   return { width: Math.max(1, Math.round(baseLongSide * aspect)), height: baseLongSide };
 }
 
+export function __testResolveSmartProductLayout(composition?: string, productScale?: string) {
+  const scale = productScale === "small" || productScale === "large" ? productScale : "medium";
+  const placement = composition === "left" || composition === "right" || composition === "bottom" || composition === "diagonal"
+    ? composition
+    : "center";
+  const scaleLimits = {
+    small: { width: 0.46, height: 0.54 },
+    medium: { width: 0.66, height: 0.72 },
+    large: { width: 0.82, height: 0.84 },
+  } as const;
+  const anchors = {
+    center: { x: 0.5, y: 0.56 },
+    left: { x: 0.12, y: 0.56 },
+    right: { x: 0.88, y: 0.56 },
+    bottom: { x: 0.5, y: 0.84 },
+    diagonal: { x: 0.76, y: 0.24 },
+  } as const;
+  return { ...scaleLimits[scale], ...anchors[placement], composition: placement, productScale: scale };
+}
+
 async function prepareProductCutoutForBackgroundGenerator(
   cutoutSrc: string,
   outputWidth: number,
   outputHeight: number,
+  composition?: string,
+  productScale?: string,
 ): Promise<{ imageSrc: string; width: number; height: number }> {
   const sharp = (await import("sharp")).default;
   const { buffer } = await imageSrcToBuffer(cutoutSrc);
@@ -2102,8 +2126,9 @@ async function prepareProductCutoutForBackgroundGenerator(
     productBuffer = normalizedCutout;
   }
 
-  const maxProductWidth = Math.max(1, Math.round(outputWidth * 0.86));
-  const maxProductHeight = Math.max(1, Math.round(outputHeight * 0.84));
+  const layout = __testResolveSmartProductLayout(composition, productScale);
+  const maxProductWidth = Math.max(1, Math.round(outputWidth * layout.width));
+  const maxProductHeight = Math.max(1, Math.round(outputHeight * layout.height));
   const resized = await sharp(productBuffer, { limitInputPixels: false })
     .resize(maxProductWidth, maxProductHeight, {
       fit: "inside",
@@ -2112,8 +2137,8 @@ async function prepareProductCutoutForBackgroundGenerator(
     .png()
     .toBuffer({ resolveWithObject: true });
 
-  const left = Math.max(0, Math.round((outputWidth - resized.info.width) / 2));
-  const top = Math.max(0, Math.round((outputHeight - resized.info.height) * 0.56));
+  const left = Math.max(0, Math.min(outputWidth - resized.info.width, Math.round((outputWidth - resized.info.width) * layout.x)));
+  const top = Math.max(0, Math.min(outputHeight - resized.info.height, Math.round((outputHeight - resized.info.height) * layout.y)));
   const canvas = await sharp({
     create: {
       width: outputWidth,
@@ -2163,6 +2188,12 @@ export function __testBuildSmartProductPrompt(input: CreateBackgroundInput) {
     userPrompt || fallbackPrompt,
     userPrompt && input.style
       ? `补充风格标签：${input.style}。风格只能影响背景、道具和环境氛围；如与用户明确要求冲突，以用户明确要求为准。`
+      : "",
+    input.composition
+      ? `用户选择的产品构图：${input.composition}。遵守该构图位置、留白和视觉重心；如与用户明确文字要求冲突，以用户明确要求为准。`
+      : "",
+    input.productScale
+      ? `用户选择的产品占画面比例：${input.productScale}。保持产品完整可见，不得裁切或遮挡。`
       : "",
     hasBackgroundReference
       ? "A background reference image was provided by the user, but the written prompt is the main requirement. Follow the requested scene, mood, lighting, perspective, material texture, spatial depth, and commercial photography feel."
@@ -3238,6 +3269,8 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
     productImageSrc,
     output.width,
     output.height,
+    input.composition,
+    input.productScale,
   );
   const prompt = __testBuildSmartProductPrompt(input);
 
