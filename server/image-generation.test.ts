@@ -506,7 +506,7 @@ describe("generated image source normalization", () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(true);
   });
 
-  it("preserves the source outside the OCR mask when smart copy falls back to reference-image generation", async () => {
+  it("preserves the source outside an annotation mask when local editing falls back to reference-image generation", async () => {
     vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
     vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
     vi.stubEnv("AI_IMAGE_MODEL", "og-image2-medium");
@@ -560,13 +560,15 @@ describe("generated image source normalization", () => {
     const result = await editImageWithPrompt({
       imageSrc: `data:image/png;base64,${source.toString("base64")}`,
       maskSrc: `data:image/png;base64,${mask.toString("base64")}`,
-      prompt: "把原图中的 SALE 替换成 NEW ARRIVAL",
-      operation: "text_edit",
+      prompt: "给人物戴上一副眼镜",
+      operation: "annotation_edit",
+      preserveSource: true,
       targetWidth: 96,
       targetHeight: 64,
     });
 
     expect(result.images).toHaveLength(1);
+    expect(result.images[0]).toMatchObject({ width: 96, height: 64 });
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/edits"))).toBe(true);
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(true);
     const resultBuffer = Buffer.from(result.images[0].src.split(",")[1], "base64");

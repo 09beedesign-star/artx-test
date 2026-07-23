@@ -356,6 +356,19 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(serverSource).toContain("__testCompositeSourcePreservingImageEdit");
   });
 
+  it("keeps smart annotation edits on the source image outside the marked area", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const annotationEditBlock = source.match(
+      /const handleAnnotationAiEdit = useCallback\([\s\S]*?\n  const cloneNodesForHistory/
+    )?.[0];
+
+    expect(annotationEditBlock).toBeTruthy();
+    expect(annotationEditBlock).toContain("createAnnotationEditMask");
+    expect(annotationEditBlock).toContain('operation: "annotation_edit"');
+    expect(annotationEditBlock).toContain("preserveSource: true");
+    expect(annotationEditBlock).toContain("只在随请求提供的局部蒙版透明区域内做最小必要修改");
+  });
+
   it("masks only the smart-copy fields that the user actually changed", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
     const maskBuilder = source.match(

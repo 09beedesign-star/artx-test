@@ -3321,7 +3321,8 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   const maskImageData = maskSource ? await imageSrcToBuffer(maskSource) : null;
   const sourceImageDimensions = await getImageBufferDimensions(sourceImageData.buffer);
   const isTextEditOperation = input.operation === "text_edit";
-  const targetSize = isTextEditOperation
+  const isSourcePreservingEdit = isTextEditOperation || input.preserveSource === true;
+  const targetSize = isSourcePreservingEdit
     ? sourceImageDimensions
     : __testResolveHighDefinitionTargetSize(
         input.targetWidth,
@@ -3354,7 +3355,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
       targetWidth,
       targetHeight,
     );
-    if (!isTextEditOperation || !maskImageData) return normalizedImages;
+    if (!isSourcePreservingEdit || !maskImageData) return normalizedImages;
     return Promise.all(normalizedImages.map(async image => {
       const editedImageData = await imageSrcToBuffer(image.src);
       const composited = await __testCompositeSourcePreservingImageEdit(
