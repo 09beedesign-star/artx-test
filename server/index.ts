@@ -8,6 +8,7 @@ import { AIOrchestrator, inferAiCapability } from "./ai-orchestrator";
 import { resolveBackgroundImageTaskCapability } from "./background-image-capability";
 import { createBrandKit, deleteBrandKit, getBrandKit, listBrandKits, parseBrandKitFromImage } from "./brand-kit";
 import { createElementBackgroundLayer, createProductBackground, editImageWithPrompt, enhanceImage, eraseImageObjects, expandImageWithPicWish, extractImageText, generateImages, listImageModelCatalog, removeImageBackground, removeImageWatermark } from "./image-generation";
+import { replaceImageText } from "./text-replace";
 import { DEFAULT_IMAGE_MODEL_ID } from "../shared/image-models";
 import { getInspirationReferences } from "./inspiration-references";
 import { cleanupExpiredUploads, getUploadRetentionDays, getUploadsRoot, storeGeneratedImagesForUser } from "./local-image-storage";
@@ -1451,6 +1452,31 @@ async function startServer() {
       failureMessage: "Image edit failed",
     }, async (user) => {
       const result = await editImageWithPrompt(req.body);
+      return storeImageResultForUser(result, user.username);
+    });
+  });
+
+  app.post("/api/images/text-replace", async (req, res) => {
+    await handleTrackedAiRequest(req, res, {
+      capabilityKey: "image_edit",
+      capability: "图片文字替换",
+      provider: "AI_IMAGE",
+      model: getDefaultRouteImageModel(req.body),
+      failureMessage: "Text replacement failed",
+    }, async (user) => {
+      // First extract text from image
+      const ocrResult = await extractImageText({
+        imageSrc: req.body.imageSrc,
+        model: req.body.ocrModel,
+      });
+      
+      // Then replace the specified text regions
+      const result = await replaceImageText(
+        req.body,
+        ocrResult,
+        editImageWithPrompt
+      );
+      
       return storeImageResultForUser(result, user.username);
     });
   });
