@@ -611,21 +611,12 @@ describe("generated image source normalization", () => {
 
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
       const endpoint = String(url);
-      if (endpoint.endsWith("/chat/completions")) {
+      if (endpoint.endsWith("/images/generations")) {
         const body = JSON.parse(String(init?.body || "{}"));
         attemptedModels.push(body.model);
-        const imageUrls = body.messages?.[0]?.content
-          ?.filter((item: { type?: string }) => item.type === "image_url")
-          .map((item: { image_url?: { url?: string } }) => item.image_url?.url || "") || [];
-        guideImageSrc = imageUrls[1] || "";
-        if (body.model === "gemini-3.5-flash-preview") {
-          return Response.json({
-            choices: [{
-              message: {
-                images: [{ url: `data:image/png;base64,${edited.toString("base64")}` }],
-              },
-            }],
-          });
+        guideImageSrc = body.images?.[1]?.src || "";
+        if (body.model === "og-image2-medium") {
+          return Response.json({ data: [{ b64_json: edited.toString("base64") }] });
         }
       }
       throw new Error(`Unexpected fetch ${endpoint}`);
@@ -643,8 +634,8 @@ describe("generated image source normalization", () => {
     });
 
     expect(result.images).toHaveLength(1);
-    expect(attemptedModels).toContain("gemini-3.5-flash-preview");
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/edits"))).toBe(false);
+    expect(attemptedModels).toContain("og-image2-medium");
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/generations"))).toBe(true);
     expect(guideImageSrc).toMatch(/^data:image\/png;base64,/);
     const guideBuffer = Buffer.from(guideImageSrc.split(",")[1], "base64");
     const guidePixels = await sharp(guideBuffer).ensureAlpha().raw().toBuffer();
@@ -682,27 +673,20 @@ describe("generated image source normalization", () => {
     }).png().toBuffer();
     const attemptedModels: string[] = [];
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
-      if (!String(url).endsWith("/chat/completions")) {
-        throw new Error(`Unexpected endpoint ${String(url)}`);
-      }
       const body = JSON.parse(String(init?.body || "{}"));
       const providerModel = String(body.model);
       attemptedModels.push(providerModel);
-      if (providerModel === "gemini-3.5-flash-preview") {
-        return Response.json({
-          choices: [{
-            message: { images: [{ url: `data:image/png;base64,${source.toString("base64")}` }] },
-          }],
-        });
+      if (String(url).endsWith("/images/generations") && providerModel === "og-image2-medium") {
+        return Response.json({ data: [{ b64_json: source.toString("base64") }] });
       }
-      if (providerModel === "og-image2-medium") {
+      if (String(url).endsWith("/chat/completions") && providerModel === "gemini-3.5-flash-preview") {
         return Response.json({
           choices: [{
             message: { images: [{ url: `data:image/png;base64,${edited.toString("base64")}` }] },
           }],
         });
       }
-      throw new Error(`Unexpected guided edit model ${providerModel}`);
+      throw new Error(`Unexpected guided edit request ${String(url)} / ${providerModel}`);
     });
 
     const result = await editImageWithPrompt({
@@ -716,8 +700,8 @@ describe("generated image source normalization", () => {
     });
 
     expect(result.images).toHaveLength(1);
-    expect(attemptedModels).toContain("gemini-3.5-flash-preview");
     expect(attemptedModels).toContain("og-image2-medium");
+    expect(attemptedModels).toContain("gemini-3.5-flash-preview");
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(true);
     const resultBuffer = Buffer.from(result.images[0].src.split(",")[1], "base64");
     const resultPixels = await sharp(resultBuffer).ensureAlpha().raw().toBuffer();

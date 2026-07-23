@@ -3450,8 +3450,39 @@ function createSmartCopyEditMask(
       .replace(/[\s.,!?;:，。！？；：、'"“”‘’（）()[\]{}<>《》…—\-_/\\]/g, "");
   const originalFields = originalText.split("\n").map(field => field.trim());
   const editedFields = editedText.split("\n").map(field => field.trim());
+  const originalValues = originalFields.map(normalizeText);
+  const editedValues = editedFields.map(normalizeText);
+  const matchedLengths = Array.from(
+    { length: originalValues.length + 1 },
+    () => Array<number>(editedValues.length + 1).fill(0),
+  );
+  for (let originalIndex = originalValues.length - 1; originalIndex >= 0; originalIndex -= 1) {
+    for (let editedIndex = editedValues.length - 1; editedIndex >= 0; editedIndex -= 1) {
+      matchedLengths[originalIndex][editedIndex] =
+        originalValues[originalIndex] && originalValues[originalIndex] === editedValues[editedIndex]
+          ? matchedLengths[originalIndex + 1][editedIndex + 1] + 1
+          : Math.max(
+              matchedLengths[originalIndex + 1][editedIndex],
+              matchedLengths[originalIndex][editedIndex + 1],
+            );
+    }
+  }
+  const unchangedOriginalIndexes = new Set<number>();
+  let originalIndex = 0;
+  let editedIndex = 0;
+  while (originalIndex < originalValues.length && editedIndex < editedValues.length) {
+    if (originalValues[originalIndex] && originalValues[originalIndex] === editedValues[editedIndex]) {
+      unchangedOriginalIndexes.add(originalIndex);
+      originalIndex += 1;
+      editedIndex += 1;
+    } else if (matchedLengths[originalIndex + 1][editedIndex] >= matchedLengths[originalIndex][editedIndex + 1]) {
+      originalIndex += 1;
+    } else {
+      editedIndex += 1;
+    }
+  }
   const changedOriginalFields = originalFields.filter(
-    (field, index) => normalizeText(field) !== normalizeText(editedFields[index] || "")
+    (field, index) => field && !unchangedOriginalIndexes.has(index),
   );
   if (regions.length === 0 || changedOriginalFields.length === 0) return undefined;
 

@@ -3472,8 +3472,8 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
     const ratio = aspect > 1.2 ? "16:9" : aspect < 0.85 ? "9:16" : "1:1";
     const referenceModels = usesAutoModel && requiresVisibleLocalChange
       ? [
-          "gemini-3.5-flash-preview",
-          ...selectedModels.filter(modelId => modelId !== "gemini-3.5-flash-preview"),
+          "og-image2-medium",
+          ...selectedModels.filter(modelId => modelId !== "og-image2-medium"),
         ]
       : [requestedModel];
     let lastError: unknown;
@@ -3495,6 +3495,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
           model: referenceModel,
           ratio,
           count: 1,
+          preferImageApiForReferences: requiresVisibleLocalChange,
           images: [
             { src: sourceDataUrl, title: "target image" },
             ...(editGuideDataUrl ? [{ src: editGuideDataUrl, title: "local edit guide" }] : []),

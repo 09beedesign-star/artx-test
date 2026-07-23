@@ -394,6 +394,8 @@ describe("InfiniteCanvas prompt controls", () => {
     )?.[0];
 
     expect(maskBuilder).toBeTruthy();
+    expect(maskBuilder).toContain("const matchedLengths");
+    expect(maskBuilder).toContain("const unchangedOriginalIndexes");
     expect(maskBuilder).toContain("changedOriginalFields");
     expect(maskBuilder).toContain("const editedRegions = regions.filter");
     expect(maskBuilder).toContain("for (const region of editedRegions)");
