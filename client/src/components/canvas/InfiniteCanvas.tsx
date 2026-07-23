@@ -251,6 +251,53 @@ function AiAnnotationIcon({
   );
 }
 
+function IntroduceToChatIcon({
+  size = 15,
+  cutoutBg = "rgba(22,22,30,0.96)",
+}: {
+  size?: number;
+  cutoutBg?: string;
+}) {
+  return (
+    <span
+      style={{
+        position: "relative",
+        display: "inline-flex",
+        width: size,
+        height: size,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <MessageCircle size={size} />
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          right: -3,
+          top: -3,
+          width: 9,
+          height: 9,
+          borderRadius: "50%",
+          background: cutoutBg,
+          boxShadow: `0 0 0 1px ${cutoutBg}`,
+          pointerEvents: "none",
+        }}
+      />
+      <Plus
+        size={8}
+        strokeWidth={2.5}
+        style={{
+          position: "absolute",
+          right: -2.5,
+          top: -2.5,
+          pointerEvents: "none",
+        }}
+      />
+    </span>
+  );
+}
+
 function AiProductIcon({
   size = 17,
   cutoutBg = "rgba(22,22,30,0.96)",
@@ -3052,6 +3099,11 @@ function AssetFloatingToolbar({
       action: "flip-rotate",
     },
     { icon: <Crop size={15} />, label: "裁切", action: "crop" },
+    {
+      icon: <IntroduceToChatIcon cutoutBg={toolBg} />,
+      label: "引入对话",
+      action: "introduce-to-chat",
+    },
     { type: "divider" as const, key: "after-transform" },
     {
       icon: (
@@ -26866,6 +26918,26 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         n => n.id === nodeId && (n.type === "asset" || n.type === "canvasFrame")
       );
       const isCanvasFrame = targetNode?.type === "canvasFrame";
+      if (action === "introduce-to-chat") {
+        if (!targetNode || targetNode.type !== "asset") return;
+        const imageSrc = await getVisibleAssetImageSource(nodeId);
+        if (!imageSrc) {
+          toast("引入对话失败", { description: "当前图片没有可引用的图像来源" });
+          return;
+        }
+        const title =
+          ((targetNode.data as Record<string, unknown>).title as string | undefined) ||
+          "选中图片";
+        await addReferencedAsset({
+          nodeId,
+          title,
+          src: imageSrc,
+          ctrlKey: true,
+        });
+        setIsAssistantCollapsed(false);
+        toast("已引入对话", { description: "图片已添加到右下角对话框" });
+        return;
+      }
       if (isCanvasFrame) {
         if (
           [
@@ -27452,6 +27524,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       });
     },
     [
+      addReferencedAsset,
       clearAssetCommandState,
       clearInactiveAssetCommands,
       getVisibleAssetImageSource,

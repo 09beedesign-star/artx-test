@@ -149,6 +149,23 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(assetToolbar).toContain("zIndex: 110");
   });
 
+  it("adds a selected image to the conversation from the right-side toolbar", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const assetTools = source.match(
+      /const assetTools: FloatingToolItem\[\] = \[[\s\S]*?const frameTools/
+    )?.[0];
+    const actionHandler = source.match(
+      /const handleSingleImageToolbarAction = useCallback\([\s\S]*?const handleSocialMediaSizeGenerate/
+    )?.[0];
+
+    expect(assetTools).toContain('label: "引入对话"');
+    expect(assetTools).toContain('action: "introduce-to-chat"');
+    expect(assetTools).toContain("IntroduceToChatIcon");
+    expect(actionHandler).toContain('if (action === "introduce-to-chat")');
+    expect(actionHandler).toContain("await addReferencedAsset({");
+    expect(actionHandler).toContain("setIsAssistantCollapsed(false)");
+  });
+
   it("keeps explicit replace and delete controls in the smart commerce product upload slot", () => {
     const dialogSource = readFileSync(
       resolve(__dirname, "SmartCommerceProductDialog.tsx"),
