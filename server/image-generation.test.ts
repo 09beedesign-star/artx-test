@@ -577,6 +577,83 @@ describe("generated image source normalization", () => {
     expect(Array.from(resultPixels.subarray((95 * 4), (96 * 4)))).toEqual([255, 0, 0, 255]);
   });
 
+  it("keeps auto model retries when smart copy falls back to reference-image generation", async () => {
+    vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
+    vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
+    vi.stubEnv("AI_IMAGE_MODEL", "og-image2-medium");
+
+    const source = await sharp({
+      create: {
+        width: 96,
+        height: 64,
+        channels: 3,
+        background: "#ff0000",
+      },
+    }).png().toBuffer();
+    const edited = await sharp({
+      create: {
+        width: 96,
+        height: 64,
+        channels: 3,
+        background: "#00ff00",
+      },
+    }).png().toBuffer();
+    const mask = await sharp({
+      create: {
+        width: 96,
+        height: 64,
+        channels: 4,
+        background: { r: 255, g: 255, b: 255, alpha: 0 },
+      },
+    }).png().toBuffer();
+    const attemptedModels: string[] = [];
+
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      const endpoint = String(url);
+      if (endpoint.endsWith("/images/edits")) {
+        return new Response(JSON.stringify({ error: { message: "images/edits not supported" } }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (endpoint.endsWith("/chat/completions")) {
+        const body = JSON.parse(String(init?.body || "{}"));
+        attemptedModels.push(body.model);
+        if (body.model === "og-image2-medium") {
+          return new Response(JSON.stringify({ error: { message: "No available channel" } }), {
+            status: 502,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (body.model === "gemini-3.5-flash-preview") {
+          return Response.json({
+            choices: [{
+              message: {
+                images: [{ url: `data:image/png;base64,${edited.toString("base64")}` }],
+              },
+            }],
+          });
+        }
+      }
+      throw new Error(`Unexpected fetch ${endpoint}`);
+    });
+
+    const result = await editImageWithPrompt({
+      imageSrc: `data:image/png;base64,${source.toString("base64")}`,
+      maskSrc: `data:image/png;base64,${mask.toString("base64")}`,
+      prompt: "把海报标题替换为新的活动文案",
+      model: "auto",
+      operation: "text_edit",
+      preserveSource: true,
+      targetWidth: 96,
+      targetHeight: 64,
+    });
+
+    expect(result.images).toHaveLength(1);
+    expect(attemptedModels).toContain("og-image2-medium");
+    expect(attemptedModels).toContain("gemini-3.5-flash-preview");
+  });
+
   it("retries smart copy edits with the next source-preserving edit model after a gateway failure", async () => {
     vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
     vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");

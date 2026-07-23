@@ -3391,7 +3391,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
         "Return one complete edited image, not a text explanation.",
         aspectInstruction,
       ].join("\n\n"),
-      model: selectedModel,
+      model: requestedModel,
       ratio,
       count: 1,
       images: [
