@@ -743,6 +743,7 @@ type ImageProviderFetchResult = {
 };
 
 const imageProviderRetryDelayMs = 1800;
+const autoAnnotationEditAsyncTaskMaxAttempts = 45;
 const imageProviderRequestTimeoutMs = Math.max(
   5_000,
   Math.min(Number(process.env.AI_IMAGE_REQUEST_TIMEOUT_MS) || 35_000, 120_000),
@@ -3042,7 +3043,12 @@ async function imageSrcToFile(src: string): Promise<File> {
   return bufferToImageFile(buffer, mimeType);
 }
 
-async function pollAsyncImageTask(taskId: string, apiKey: string, baseUrl: string): Promise<ImageGenerationResponse> {
+async function pollAsyncImageTask(
+  taskId: string,
+  apiKey: string,
+  baseUrl: string,
+  maxAttempts = 150,
+): Promise<ImageGenerationResponse> {
   const normalized = baseUrl.replace(/\/+$/, "");
   const apiRoot = `${normalized}${normalized.endsWith("/v1") ? "" : "/v1"}`;
   const endpoints = [
@@ -3051,7 +3057,7 @@ async function pollAsyncImageTask(taskId: string, apiKey: string, baseUrl: strin
     `${apiRoot}/async/images/generations/${encodeURIComponent(taskId)}`,
   ];
 
-  for (let attempt = 0; attempt < 150; attempt += 1) {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
     let lastError = "";
@@ -3419,6 +3425,8 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   const sourceImage = bufferToImageFile(sourceImageData.buffer, sourceImageData.mimeType);
   const requestedModel = (input.model || model).trim();
   const usesAutoModel = requestedModel.toLowerCase() === "auto";
+  const isAutoAnnotationEdit =
+    input.operation === "annotation_edit" && usesAutoModel;
   const selectedModels = usesAutoModel
     ? [
         ...(requiresVisibleLocalChange ? ["gpt-image-2"] : []),
@@ -3614,7 +3622,20 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
 
   const asyncTaskId = providerData.task_id || providerData.taskId;
   if (asyncTaskId) {
-    providerData = await pollAsyncImageTask(asyncTaskId, apiKey, baseUrl);
+    try {
+      providerData = await pollAsyncImageTask(
+        asyncTaskId,
+        apiKey,
+        baseUrl,
+        isAutoAnnotationEdit ? autoAnnotationEditAsyncTaskMaxAttempts : undefined,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (isAutoAnnotationEdit && /timed out|image generation timed out/i.test(message)) {
+        return editViaReferenceGeneration();
+      }
+      throw error;
+    }
   }
 
   const images = await finalizeImages(

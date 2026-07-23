@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import sharp from "sharp";
 import { getImageModelFallbackAttempts } from "../shared/image-models";
 import { __testAssertSourcePreservingMask, __testBuildSmartProductPrompt, __testCompositeSourcePreservingImageEdit, __testCreatePicWishForegroundRemovalMask, __testHasPicWishExpansionMargins, __testNormalizeGeneratedImageSrc, __testNormalizeGeneratedImagesToTargetAspect, __testNormalizePicWishExpansionRatio, __testParseStructuredImageText, __testPreparePicWishEraseSourceImage, __testPreparePicWishExpansionSourceImage, __testResolveHighDefinitionTargetSize, __testResolveReferenceImageRoute, __testResolveSmartProductLayout, editImageWithPrompt, extractImageText, generateImages } from "./image-generation";
@@ -11,6 +13,17 @@ afterEach(() => {
 });
 
 describe("generated image source normalization", () => {
+  it("limits only automatic annotation edit polling before using the source-preserving fallback", async () => {
+    const source = await readFile(resolve(__dirname, "image-generation.ts"), "utf8");
+
+    expect(source).toContain("const autoAnnotationEditAsyncTaskMaxAttempts = 45;");
+    expect(source).toContain("maxAttempts = 150");
+    expect(source).toContain('input.operation === "annotation_edit"');
+    expect(source).toContain("isAutoAnnotationEdit ? autoAnnotationEditAsyncTaskMaxAttempts : undefined");
+    expect(source).toContain("if (isAutoAnnotationEdit && /timed out|image generation timed out/i.test(message))");
+    expect(source).toContain("return editViaReferenceGeneration();");
+  });
+
   it("keeps alternate image models available for provider gateway retries", () => {
     expect(getImageModelFallbackAttempts("auto").length).toBeGreaterThan(1);
   });
