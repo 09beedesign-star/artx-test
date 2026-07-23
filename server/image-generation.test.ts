@@ -577,7 +577,7 @@ describe("generated image source normalization", () => {
     expect(Array.from(resultPixels.subarray((95 * 4), (96 * 4)))).toEqual([255, 0, 0, 255]);
   });
 
-  it("uses the guided reference-image path for automatic smart copy edits", async () => {
+  it("uses gpt-image-2 native editing for automatic smart copy edits", async () => {
     vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
     vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
     vi.stubEnv("AI_IMAGE_MODEL", "og-image2-medium");
@@ -607,15 +607,14 @@ describe("generated image source normalization", () => {
       },
     }).png().toBuffer();
     const attemptedModels: string[] = [];
-    let guideImageSrc = "";
 
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
       const endpoint = String(url);
-      if (endpoint.endsWith("/images/generations")) {
-        const body = JSON.parse(String(init?.body || "{}"));
-        attemptedModels.push(body.model);
-        guideImageSrc = body.images?.[1]?.src || "";
-        if (body.model === "og-image2-medium") {
+      if (endpoint.endsWith("/images/edits")) {
+        const form = init?.body as FormData;
+        const providerModel = String(form.get("model"));
+        attemptedModels.push(providerModel);
+        if (providerModel === "gpt-image-2") {
           return Response.json({ data: [{ b64_json: edited.toString("base64") }] });
         }
       }
@@ -634,12 +633,8 @@ describe("generated image source normalization", () => {
     });
 
     expect(result.images).toHaveLength(1);
-    expect(attemptedModels).toContain("og-image2-medium");
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/generations"))).toBe(true);
-    expect(guideImageSrc).toMatch(/^data:image\/png;base64,/);
-    const guideBuffer = Buffer.from(guideImageSrc.split(",")[1], "base64");
-    const guidePixels = await sharp(guideBuffer).ensureAlpha().raw().toBuffer();
-    expect(Array.from(guidePixels.subarray(0, 4))).not.toEqual([255, 0, 0, 255]);
+    expect(attemptedModels).toContain("gpt-image-2");
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/edits"))).toBe(true);
   });
 
   it("retries automatic smart copy edits when the first model returns the unchanged source", async () => {
@@ -673,18 +668,23 @@ describe("generated image source normalization", () => {
     }).png().toBuffer();
     const attemptedModels: string[] = [];
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      if (String(url).endsWith("/images/edits")) {
+        const form = init?.body as FormData;
+        const providerModel = String(form.get("model"));
+        attemptedModels.push(providerModel);
+        if (providerModel !== "gpt-image-2") throw new Error(`Unexpected native edit model ${providerModel}`);
+        return Response.json({ data: [{ b64_json: source.toString("base64") }] });
+      }
       const body = JSON.parse(String(init?.body || "{}"));
       const providerModel = String(body.model);
       attemptedModels.push(providerModel);
-      if (String(url).endsWith("/images/generations") && providerModel === "og-image2-medium") {
-        return Response.json({ data: [{ b64_json: source.toString("base64") }] });
-      }
-      if (String(url).endsWith("/chat/completions") && providerModel === "gemini-3.5-flash-preview") {
+      if (String(url).endsWith("/images/generations") && providerModel === "gpt-image-2") {
         return Response.json({
-          choices: [{
-            message: { images: [{ url: `data:image/png;base64,${edited.toString("base64")}` }] },
-          }],
+          data: [{ b64_json: source.toString("base64") }],
         });
+      }
+      if (String(url).endsWith("/images/generations") && providerModel === "og-image2-medium") {
+        return Response.json({ data: [{ b64_json: edited.toString("base64") }] });
       }
       throw new Error(`Unexpected guided edit request ${String(url)} / ${providerModel}`);
     });
@@ -700,9 +700,9 @@ describe("generated image source normalization", () => {
     });
 
     expect(result.images).toHaveLength(1);
+    expect(attemptedModels).toContain("gpt-image-2");
     expect(attemptedModels).toContain("og-image2-medium");
-    expect(attemptedModels).toContain("gemini-3.5-flash-preview");
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(true);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/edits"))).toBe(true);
     const resultBuffer = Buffer.from(result.images[0].src.split(",")[1], "base64");
     const resultPixels = await sharp(resultBuffer).ensureAlpha().raw().toBuffer();
     expect(Array.from(resultPixels.subarray(0, 4))).toEqual([0, 255, 0, 255]);

@@ -3403,6 +3403,8 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   const maskImageData = maskSource ? await imageSrcToBuffer(maskSource) : null;
   const sourceImageDimensions = await getImageBufferDimensions(sourceImageData.buffer);
   const isTextEditOperation = input.operation === "text_edit";
+  const requiresVisibleLocalChange =
+    isTextEditOperation || input.operation === "annotation_edit";
   const isSourcePreservingEdit = isTextEditOperation || input.preserveSource === true;
   const targetSize = isSourcePreservingEdit
     ? sourceImageDimensions
@@ -3417,8 +3419,11 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   const sourceImage = bufferToImageFile(sourceImageData.buffer, sourceImageData.mimeType);
   const requestedModel = (input.model || model).trim();
   const usesAutoModel = requestedModel.toLowerCase() === "auto";
-  const selectedModels = requestedModel.toLowerCase() === "auto"
-    ? getImageModelFallbackAttempts(requestedModel)
+  const selectedModels = usesAutoModel
+    ? [
+        ...(requiresVisibleLocalChange ? ["gpt-image-2"] : []),
+        ...getImageModelFallbackAttempts(requestedModel),
+      ].filter((modelId, index, values) => values.indexOf(modelId) === index)
     : [requestedModel];
   const selectedModel = selectedModels[0] || DEFAULT_IMAGE_MODEL_ID;
   const referenceImages = input.images?.filter(image => image.src?.trim()) || [];
@@ -3432,8 +3437,6 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
         "Do not change the image category, scene, product type, or overall visual identity.",
       ].join("\n")
     : "";
-  const requiresVisibleLocalChange =
-    isTextEditOperation || input.operation === "annotation_edit";
   const finalizeImages = async (images: GeneratedImage[]) => {
     const normalizedImages = await __testNormalizeGeneratedImagesToTargetAspect(
       images,
@@ -3471,10 +3474,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
     const aspect = targetWidth / Math.max(1, targetHeight);
     const ratio = aspect > 1.2 ? "16:9" : aspect < 0.85 ? "9:16" : "1:1";
     const referenceModels = usesAutoModel && requiresVisibleLocalChange
-      ? [
-          "og-image2-medium",
-          ...selectedModels.filter(modelId => modelId !== "og-image2-medium"),
-        ]
+      ? selectedModels
       : [requestedModel];
     let lastError: unknown;
 
@@ -3525,10 +3525,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
     throw lastError || new Error("图片模型未返回可用局部编辑结果");
   };
 
-  if (
-    isChatCompatibleImageModel(selectedModel) ||
-    (usesAutoModel && requiresVisibleLocalChange)
-  ) {
+  if (isChatCompatibleImageModel(selectedModel)) {
     return editViaReferenceGeneration();
   }
 
@@ -3629,6 +3626,21 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
       throw new Error("图片模型未返回保真文字编辑结果，已停止生成以保护原图，请稍后重试");
     }
     return editViaReferenceGeneration();
+  }
+
+  if (requiresVisibleLocalChange && maskImageData && images[0]) {
+    const editedImageData = await imageSrcToBuffer(images[0].src);
+    const hasVisibleChange = await hasVisibleLocalEdit(
+      sourceImageData.buffer,
+      editedImageData.buffer,
+      maskImageData.buffer,
+      targetWidth,
+      targetHeight,
+    );
+    if (!hasVisibleChange) {
+      if (usesAutoModel) return editViaReferenceGeneration();
+      throw new Error("图片模型没有在指定区域做出可见修改");
+    }
   }
 
   return { images };
