@@ -248,7 +248,7 @@ function ProjectCard({
       </div>
 
       {/* Info */}
-      <div className="px-3 py-2.5">
+      <div className="px-3 py-2.5" style={{ minHeight: 52 }}>
         {renaming ? (
           <input
             ref={inputRef}
@@ -315,7 +315,7 @@ function CreateProjectCard({ isDark, onCreate }: { isDark: boolean; onCreate: ()
           <Plus size={20} />
         </div>
       </div>
-      <div className="px-3 py-2.5" style={{ minHeight: 42 }}>
+      <div className="px-3 py-2.5" style={{ minHeight: 52 }}>
         <span className="type-caption" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>新建画板</span>
       </div>
     </button>
