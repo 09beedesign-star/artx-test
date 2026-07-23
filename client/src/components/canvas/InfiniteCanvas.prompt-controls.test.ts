@@ -232,6 +232,15 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain("task.editMode || task.sourceImageSrc");
   });
 
+  it("does not duplicate live background-task polling while the foreground request owns the task", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+
+    expect(source).toContain("const activeForegroundImageTaskIdsRef = useRef<Set<string>>(new Set());");
+    expect(source).toContain("if (activeForegroundImageTaskIdsRef.current.has(generationId)) return;");
+    expect(source).toContain("activeForegroundImageTaskIdsRef.current.add(generationId);");
+    expect(source).toContain("activeForegroundImageTaskIdsRef.current.delete(generationId);");
+  });
+
   it("sends PicWish expansion ratios from the original image instead of an enlarged source canvas", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
 

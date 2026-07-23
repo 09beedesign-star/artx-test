@@ -20198,6 +20198,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   // 始终跟踪最新的 nodes/edges，供 pushHistory 读取（避免闭包捕获旧值）
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
+  const activeForegroundImageTaskIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     nodesRef.current = nodes;
   }, [nodes]);
@@ -20468,6 +20469,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const generationId = task.generationId;
       const taskProjectId = task.projectId || projectId;
       if (!generationId || !task.prompt?.trim()) return;
+      if (activeForegroundImageTaskIdsRef.current.has(generationId)) return;
       if (
         (task as PersistedImageGenerationTask).status &&
         (task as PersistedImageGenerationTask).status !== "pending"
@@ -20906,6 +20908,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             }
           : undefined,
       };
+      activeForegroundImageTaskIdsRef.current.add(generationId);
       dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
       try {
         const result = backgroundTaskInput
@@ -20947,6 +20950,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         );
         toast(`${style}失败`, { description: message });
         return false;
+      } finally {
+        activeForegroundImageTaskIdsRef.current.delete(generationId);
       }
     },
     [
