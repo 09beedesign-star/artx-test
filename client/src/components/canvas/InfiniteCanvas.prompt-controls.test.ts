@@ -27,7 +27,7 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(quickEditBlock).not.toContain("generateAiImages({");
   });
 
-  it("uses the selected canvas image model for annotation edits while auto keeps the local-edit default", () => {
+  it("uses the selected canvas image model for annotation edits while auto resolves through the available model route", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
     const annotationEditBlock = source.match(
       /const handleAnnotationAiEdit = useCallback[\s\S]*?const cloneNodesForHistory/
@@ -35,7 +35,7 @@ describe("InfiniteCanvas prompt controls", () => {
 
     expect(annotationEditBlock).toBeTruthy();
     expect(source).toContain("function getStoredCanvasAssistantImageEditModel()");
-    expect(source).toContain('if (autoMode) return "gpt-image-2"');
+    expect(source).toContain('if (autoMode) return "auto";');
     expect(annotationEditBlock).toContain(
       "const selectedImageEditModel = getStoredCanvasAssistantImageEditModel();"
     );
@@ -367,6 +367,7 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(annotationEditBlock).toContain('operation: "annotation_edit"');
     expect(annotationEditBlock).toContain("preserveSource: true");
     expect(annotationEditBlock).toContain("只在随请求提供的局部蒙版透明区域内做最小必要修改");
+    expect(source).toContain('if (autoMode) return "auto";');
   });
 
   it("masks only the smart-copy fields that the user actually changed", () => {

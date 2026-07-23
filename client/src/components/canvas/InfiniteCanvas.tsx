@@ -15927,7 +15927,7 @@ function getStoredCanvasAssistantImageEditModel() {
   if (typeof window === "undefined") return "gpt-image-2";
   const autoMode =
     window.localStorage.getItem(CANVAS_ASSISTANT_AUTO_MODE_STORAGE_KEY) !== "0";
-  if (autoMode) return "gpt-image-2";
+  if (autoMode) return "auto";
   const storedModel = window.localStorage.getItem(
     CANVAS_ASSISTANT_IMAGE_MODEL_STORAGE_KEY
   );
