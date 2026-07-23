@@ -2292,6 +2292,88 @@ export async function __testCompositeSourcePreservingImageEdit(
   }).png().toBuffer();
 }
 
+async function createLocalEditGuideImage(
+  sourceBuffer: Buffer,
+  maskBuffer: Buffer,
+  width: number,
+  height: number,
+): Promise<Buffer> {
+  const sharp = (await import("sharp")).default;
+  const [sourcePixels, maskPixels] = await Promise.all([
+    sharp(sourceBuffer, { limitInputPixels: false })
+      .rotate()
+      .resize(width, height, { fit: "fill" })
+      .ensureAlpha()
+      .raw()
+      .toBuffer(),
+    sharp(maskBuffer, { limitInputPixels: false })
+      .rotate()
+      .resize(width, height, { fit: "fill", kernel: "nearest" })
+      .ensureAlpha()
+      .raw()
+      .toBuffer(),
+  ]);
+  const output = Buffer.from(sourcePixels);
+
+  for (let index = 0; index < output.length; index += 4) {
+    const editableWeight = 1 - maskPixels[index + 3] / 255;
+    if (editableWeight <= 0.02) continue;
+    const overlayWeight = Math.min(0.62, 0.38 + editableWeight * 0.24);
+    output[index] = Math.round(sourcePixels[index] * (1 - overlayWeight) + 255 * overlayWeight);
+    output[index + 1] = Math.round(sourcePixels[index + 1] * (1 - overlayWeight) + 91 * overlayWeight);
+    output[index + 2] = Math.round(sourcePixels[index + 2] * (1 - overlayWeight) + 46 * overlayWeight);
+  }
+
+  return sharp(output, {
+    raw: { width, height, channels: 4 },
+    limitInputPixels: false,
+  }).png().toBuffer();
+}
+
+async function hasVisibleLocalEdit(
+  sourceBuffer: Buffer,
+  editedBuffer: Buffer,
+  maskBuffer: Buffer,
+  width: number,
+  height: number,
+): Promise<boolean> {
+  const sharp = (await import("sharp")).default;
+  const [sourcePixels, editedPixels, maskPixels] = await Promise.all([
+    sharp(sourceBuffer, { limitInputPixels: false })
+      .rotate()
+      .resize(width, height, { fit: "fill" })
+      .ensureAlpha()
+      .raw()
+      .toBuffer(),
+    sharp(editedBuffer, { limitInputPixels: false })
+      .rotate()
+      .resize(width, height, { fit: "fill" })
+      .ensureAlpha()
+      .raw()
+      .toBuffer(),
+    sharp(maskBuffer, { limitInputPixels: false })
+      .rotate()
+      .resize(width, height, { fit: "fill", kernel: "nearest" })
+      .ensureAlpha()
+      .raw()
+      .toBuffer(),
+  ]);
+  let editablePixels = 0;
+  let visiblyChangedPixels = 0;
+
+  for (let index = 0; index < sourcePixels.length; index += 4) {
+    if (maskPixels[index + 3] > 127) continue;
+    editablePixels += 1;
+    const difference =
+      Math.abs(sourcePixels[index] - editedPixels[index]) +
+      Math.abs(sourcePixels[index + 1] - editedPixels[index + 1]) +
+      Math.abs(sourcePixels[index + 2] - editedPixels[index + 2]);
+    if (difference >= 24) visiblyChangedPixels += 1;
+  }
+
+  return visiblyChangedPixels >= Math.max(24, Math.ceil(editablePixels * 0.001));
+}
+
 export function __testAssertSourcePreservingMask(
   operation: string | undefined,
   maskSrc: string | undefined,
@@ -3334,6 +3416,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   const targetHeight = targetSize.height;
   const sourceImage = bufferToImageFile(sourceImageData.buffer, sourceImageData.mimeType);
   const requestedModel = (input.model || model).trim();
+  const usesAutoModel = requestedModel.toLowerCase() === "auto";
   const selectedModels = requestedModel.toLowerCase() === "auto"
     ? getImageModelFallbackAttempts(requestedModel)
     : [requestedModel];
@@ -3349,6 +3432,8 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
         "Do not change the image category, scene, product type, or overall visual identity.",
       ].join("\n")
     : "";
+  const requiresVisibleLocalChange =
+    isTextEditOperation || input.operation === "annotation_edit";
   const finalizeImages = async (images: GeneratedImage[]) => {
     const normalizedImages = await __testNormalizeGeneratedImagesToTargetAspect(
       images,
@@ -3374,38 +3459,75 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   };
   const editViaReferenceGeneration = async () => {
     const sourceDataUrl = `data:${sourceImageData.mimeType};base64,${sourceImageData.buffer.toString("base64")}`;
-    const maskDataUrl = maskImageData
-      ? `data:${maskImageData.mimeType};base64,${maskImageData.buffer.toString("base64")}`
-      : maskUrl;
+    const usesLocalEditGuide = requiresVisibleLocalChange && Boolean(maskImageData);
+    const editGuideDataUrl = usesLocalEditGuide && maskImageData
+      ? `data:image/png;base64,${(await createLocalEditGuideImage(
+          sourceImageData.buffer,
+          maskImageData.buffer,
+          targetWidth,
+          targetHeight,
+        )).toString("base64")}`
+      : "";
     const aspect = targetWidth / Math.max(1, targetHeight);
     const ratio = aspect > 1.2 ? "16:9" : aspect < 0.85 ? "9:16" : "1:1";
-    const result = await generateImages({
-      prompt: [
-        input.prompt,
-        textEditInstruction,
-        "Use reference image 1 as the target canvas. Preserve its subject identity, composition, camera angle, lighting, proportions, and aspect ratio unless the user explicitly asks to change them.",
-        maskDataUrl
-          ? "Reference image 2 is the local edit mask: only the transparent/bright marked area should change; every other area must remain visually identical to reference image 1."
-          : "",
-        "Use any later reference images only for the requested object, accessory, style, texture, or detail.",
-        "Return one complete edited image, not a text explanation.",
-        aspectInstruction,
-      ].join("\n\n"),
-      model: requestedModel,
-      ratio,
-      count: 1,
-      images: [
-        { src: sourceDataUrl, title: "target image" },
-        ...(maskDataUrl ? [{ src: maskDataUrl, title: "local edit mask" }] : []),
-        ...referenceImages,
-      ],
-    });
-    return {
-      images: await finalizeImages(result.images),
-    };
+    const referenceModels = usesAutoModel && requiresVisibleLocalChange
+      ? [
+          "gemini-3.5-flash-preview",
+          ...selectedModels.filter(modelId => modelId !== "gemini-3.5-flash-preview"),
+        ]
+      : [requestedModel];
+    let lastError: unknown;
+
+    for (const referenceModel of referenceModels) {
+      try {
+        const result = await generateImages({
+          prompt: [
+            input.prompt,
+            textEditInstruction,
+            "Use reference image 1 as the target canvas. Preserve its subject identity, composition, camera angle, lighting, proportions, and aspect ratio unless the user explicitly asks to change them.",
+            editGuideDataUrl
+              ? "Reference image 2 is a visual edit guide derived from reference image 1. Its translucent orange overlay marks the only area allowed to change; the overlay itself is not content and must not appear in the result. Every unmarked area must remain visually identical to reference image 1."
+              : "",
+            "Use any later reference images only for the requested object, accessory, style, texture, or detail.",
+            "Return one complete edited image, not a text explanation.",
+            aspectInstruction,
+          ].join("\n\n"),
+          model: referenceModel,
+          ratio,
+          count: 1,
+          images: [
+            { src: sourceDataUrl, title: "target image" },
+            ...(editGuideDataUrl ? [{ src: editGuideDataUrl, title: "local edit guide" }] : []),
+            ...referenceImages,
+          ],
+        });
+        const images = await finalizeImages(result.images);
+        if (requiresVisibleLocalChange && maskImageData && images[0]) {
+          const editedImageData = await imageSrcToBuffer(images[0].src);
+          if (!await hasVisibleLocalEdit(
+            sourceImageData.buffer,
+            editedImageData.buffer,
+            maskImageData.buffer,
+            targetWidth,
+            targetHeight,
+          )) {
+            throw new Error("图片模型没有在指定区域做出可见修改");
+          }
+        }
+        return { images };
+      } catch (error) {
+        lastError = error;
+        if (!usesAutoModel || !requiresVisibleLocalChange) throw error;
+      }
+    }
+
+    throw lastError || new Error("图片模型未返回可用局部编辑结果");
   };
 
-  if (isChatCompatibleImageModel(selectedModel)) {
+  if (
+    isChatCompatibleImageModel(selectedModel) ||
+    (usesAutoModel && requiresVisibleLocalChange)
+  ) {
     return editViaReferenceGeneration();
   }
 

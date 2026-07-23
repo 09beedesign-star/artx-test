@@ -577,7 +577,7 @@ describe("generated image source normalization", () => {
     expect(Array.from(resultPixels.subarray((95 * 4), (96 * 4)))).toEqual([255, 0, 0, 255]);
   });
 
-  it("keeps auto model retries when smart copy falls back to reference-image generation", async () => {
+  it("uses the guided reference-image path for automatic smart copy edits", async () => {
     vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
     vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
     vi.stubEnv("AI_IMAGE_MODEL", "og-image2-medium");
@@ -607,24 +607,17 @@ describe("generated image source normalization", () => {
       },
     }).png().toBuffer();
     const attemptedModels: string[] = [];
+    let guideImageSrc = "";
 
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
       const endpoint = String(url);
-      if (endpoint.endsWith("/images/edits")) {
-        return new Response(JSON.stringify({ error: { message: "images/edits not supported" } }), {
-          status: 404,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
       if (endpoint.endsWith("/chat/completions")) {
         const body = JSON.parse(String(init?.body || "{}"));
         attemptedModels.push(body.model);
-        if (body.model === "og-image2-medium") {
-          return new Response(JSON.stringify({ error: { message: "No available channel" } }), {
-            status: 502,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
+        const imageUrls = body.messages?.[0]?.content
+          ?.filter((item: { type?: string }) => item.type === "image_url")
+          .map((item: { image_url?: { url?: string } }) => item.image_url?.url || "") || [];
+        guideImageSrc = imageUrls[1] || "";
         if (body.model === "gemini-3.5-flash-preview") {
           return Response.json({
             choices: [{
@@ -650,11 +643,15 @@ describe("generated image source normalization", () => {
     });
 
     expect(result.images).toHaveLength(1);
-    expect(attemptedModels).toContain("og-image2-medium");
     expect(attemptedModels).toContain("gemini-3.5-flash-preview");
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/edits"))).toBe(false);
+    expect(guideImageSrc).toMatch(/^data:image\/png;base64,/);
+    const guideBuffer = Buffer.from(guideImageSrc.split(",")[1], "base64");
+    const guidePixels = await sharp(guideBuffer).ensureAlpha().raw().toBuffer();
+    expect(Array.from(guidePixels.subarray(0, 4))).not.toEqual([255, 0, 0, 255]);
   });
 
-  it("retries smart copy edits with the next source-preserving edit model after a gateway failure", async () => {
+  it("retries automatic smart copy edits when the first model returns the unchanged source", async () => {
     vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
     vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
     vi.stubEnv("AI_IMAGE_MODEL", "og-image2-medium");
@@ -667,6 +664,14 @@ describe("generated image source normalization", () => {
         background: "#ffffff",
       },
     }).png().toBuffer();
+    const edited = await sharp({
+      create: {
+        width: 96,
+        height: 64,
+        channels: 3,
+        background: "#00ff00",
+      },
+    }).png().toBuffer();
     const mask = await sharp({
       create: {
         width: 96,
@@ -676,20 +681,28 @@ describe("generated image source normalization", () => {
       },
     }).png().toBuffer();
     const attemptedModels: string[] = [];
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
-      const form = init?.body as FormData;
-      const providerModel = String(form.get("model"));
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      if (!String(url).endsWith("/chat/completions")) {
+        throw new Error(`Unexpected endpoint ${String(url)}`);
+      }
+      const body = JSON.parse(String(init?.body || "{}"));
+      const providerModel = String(body.model);
       attemptedModels.push(providerModel);
-      if (providerModel === "og-image2-medium") {
-        return new Response(JSON.stringify({ error: { message: "openai_error / bad_response_status_code" } }), {
-          status: 502,
-          headers: { "Content-Type": "application/json" },
+      if (providerModel === "gemini-3.5-flash-preview") {
+        return Response.json({
+          choices: [{
+            message: { images: [{ url: `data:image/png;base64,${source.toString("base64")}` }] },
+          }],
         });
       }
-      if (providerModel === "jimeng-4.0") {
-        return Response.json({ data: [{ b64_json: source.toString("base64") }] });
+      if (providerModel === "og-image2-medium") {
+        return Response.json({
+          choices: [{
+            message: { images: [{ url: `data:image/png;base64,${edited.toString("base64")}` }] },
+          }],
+        });
       }
-      throw new Error(`Unexpected edit model ${providerModel}`);
+      throw new Error(`Unexpected guided edit model ${providerModel}`);
     });
 
     const result = await editImageWithPrompt({
@@ -703,9 +716,12 @@ describe("generated image source normalization", () => {
     });
 
     expect(result.images).toHaveLength(1);
+    expect(attemptedModels).toContain("gemini-3.5-flash-preview");
     expect(attemptedModels).toContain("og-image2-medium");
-    expect(attemptedModels).toContain("jimeng-4.0");
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(false);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(true);
+    const resultBuffer = Buffer.from(result.images[0].src.split(",")[1], "base64");
+    const resultPixels = await sharp(resultBuffer).ensureAlpha().raw().toBuffer();
+    expect(Array.from(resultPixels.subarray(0, 4))).toEqual([0, 255, 0, 255]);
   });
 
   it("falls back to multimodal text extraction when image OCR returns empty text", async () => {
