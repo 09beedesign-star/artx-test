@@ -392,7 +392,7 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(annotationEditBlock).toContain("createAnnotationEditMask");
     expect(annotationEditBlock).toContain('operation: "annotation_edit"');
     expect(annotationEditBlock).toContain("preserveSource: true");
-    expect(annotationEditBlock).toContain("只在随请求提供的局部蒙版透明区域内做最小必要修改");
+    expect(annotationEditBlock).toContain("用户修改建议");
     expect(source).toContain('if (autoMode) return "auto";');
   });
 

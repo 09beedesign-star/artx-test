@@ -13,15 +13,16 @@ afterEach(() => {
 });
 
 describe("generated image source normalization", () => {
-  it("limits only automatic annotation edit polling before using the source-preserving fallback", async () => {
+  it("routes smart annotation edits through a dedicated local-edit path without reference-generation fallback", async () => {
     const source = await readFile(resolve(__dirname, "image-generation.ts"), "utf8");
 
-    expect(source).toContain("const autoAnnotationEditAsyncTaskMaxAttempts = 45;");
     expect(source).toContain("maxAttempts = 150");
-    expect(source).toContain('input.operation === "annotation_edit"');
-    expect(source).toContain("isAutoAnnotationEdit ? autoAnnotationEditAsyncTaskMaxAttempts : undefined");
-    expect(source).toContain("if (isAutoAnnotationEdit && /timed out|image generation timed out/i.test(message))");
-    expect(source).toContain("return editViaReferenceGeneration();");
+    expect(source).toContain("return editSmartAnnotationImage(input);");
+    expect(source).toContain("function resolveSmartAnnotationEditModel");
+    expect(source).toContain('if (!requested || requested.toLowerCase() === "auto") return "gpt-image-2";');
+    expect(source).toContain("当前图片模型不支持智能注释局部编辑");
+    expect(source).not.toContain("autoAnnotationEditAsyncTaskMaxAttempts");
+    expect(source).not.toContain("isAutoAnnotationEdit");
   });
 
   it("keeps alternate image models available for provider gateway retries", () => {
@@ -519,7 +520,7 @@ describe("generated image source normalization", () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(true);
   });
 
-  it("preserves the source outside an annotation mask when local editing falls back to reference-image generation", async () => {
+  it("preserves the source outside an annotation mask through the dedicated edit endpoint", async () => {
     vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
     vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
     vi.stubEnv("AI_IMAGE_MODEL", "og-image2-medium");
@@ -553,19 +554,12 @@ describe("generated image source normalization", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
       const endpoint = String(url);
       if (endpoint.endsWith("/images/edits")) {
-        return new Response(JSON.stringify({ error: { message: "images/edits not supported" } }), {
-          status: 404,
-          headers: { "Content-Type": "application/json" },
+        return Response.json({
+          data: [{ b64_json: edited.toString("base64") }],
         });
       }
       if (endpoint.endsWith("/chat/completions")) {
-        return Response.json({
-          choices: [{
-            message: {
-              images: [{ url: `data:image/png;base64,${edited.toString("base64")}` }],
-            },
-          }],
-        });
+        throw new Error("Smart annotation must not fall back to reference generation");
       }
       throw new Error(`Unexpected fetch ${endpoint}`);
     });
@@ -583,7 +577,7 @@ describe("generated image source normalization", () => {
     expect(result.images).toHaveLength(1);
     expect(result.images[0]).toMatchObject({ width: 96, height: 64 });
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/edits"))).toBe(true);
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(true);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(false);
     const resultBuffer = Buffer.from(result.images[0].src.split(",")[1], "base64");
     const resultPixels = await sharp(resultBuffer).ensureAlpha().raw().toBuffer();
     expect(Array.from(resultPixels.subarray(0, 4))).toEqual([0, 255, 0, 255]);

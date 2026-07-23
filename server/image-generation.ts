@@ -743,7 +743,6 @@ type ImageProviderFetchResult = {
 };
 
 const imageProviderRetryDelayMs = 1800;
-const autoAnnotationEditAsyncTaskMaxAttempts = 45;
 const imageProviderRequestTimeoutMs = Math.max(
   5_000,
   Math.min(Number(process.env.AI_IMAGE_REQUEST_TIMEOUT_MS) || 35_000, 120_000),
@@ -2382,6 +2381,9 @@ export function __testAssertSourcePreservingMask(
   if (operation === "text_edit" && !maskSrc?.trim()) {
     throw new Error("未能定位原图文字区域，请关闭窗口后重新提取文案再试");
   }
+  if (operation === "annotation_edit" && !maskSrc?.trim()) {
+    throw new Error("未能定位智能注释区域，请重新添加注释后再试");
+  }
 }
 
 const PICWISH_MAX_INPUT_BYTES = 4.8 * 1024 * 1024;
@@ -3110,6 +3112,111 @@ async function pollAsyncImageTask(
   throw new Error("Image generation timed out");
 }
 
+function resolveSmartAnnotationEditModel(requestedModel: string | undefined, configuredModel: string) {
+  const requested = (requestedModel || "").trim();
+  if (!requested || requested.toLowerCase() === "auto") return "gpt-image-2";
+  return requested || configuredModel || "gpt-image-2";
+}
+
+async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images: GeneratedImage[] }> {
+  const maskSource = input.maskSrc?.trim() || (input.maskUrl || input.mask_url || "").trim();
+  __testAssertSourcePreservingMask(input.operation, maskSource);
+
+  const { apiKey, baseUrl, model } = getProviderConfig();
+  if (!apiKey) {
+    throw new Error("Missing AI_IMAGE_API_KEY");
+  }
+
+  const sourceImageData = await imageSrcToBuffer(input.imageSrc);
+  const maskImageData = await imageSrcToBuffer(maskSource);
+  const sourceImageDimensions = await getImageBufferDimensions(sourceImageData.buffer);
+  const targetWidth = sourceImageDimensions.width;
+  const targetHeight = sourceImageDimensions.height;
+  const selectedModel = resolveSmartAnnotationEditModel(input.model, model);
+  const editSize = getEditSizeForAspect(targetWidth, targetHeight);
+  const annotationPrompt = [
+    "This is a strict local image edit for ArtX smart annotation.",
+    "Use the uploaded source image as the only canvas. Do not create a new person, new scene, new pose, new camera angle, or new composition.",
+    "Edit only the transparent area of the uploaded mask. The mask marks the annotation area that may change.",
+    "The user request must be applied naturally inside that masked area, matching the original identity, facial features, body, clothing, lighting, perspective, material, color, and image style.",
+    "Every pixel outside the mask will be restored from the original source image, so the edit must be visually useful inside the mask.",
+    "Return exactly one complete edited image.",
+    `User request: ${input.prompt.trim()}`,
+  ].join("\n");
+
+  const createBody = (withResponseFormat: boolean) => {
+    const body = new FormData();
+    body.append("model", selectedModel);
+    body.append("image", bufferToImageFile(sourceImageData.buffer, sourceImageData.mimeType));
+    body.append("mask", bufferToImageFile(maskImageData.buffer, maskImageData.mimeType));
+    body.append("prompt", annotationPrompt);
+    body.append("n", "1");
+    body.append("size", editSize);
+    if (withResponseFormat) body.append("response_format", "b64_json");
+    return body;
+  };
+
+  let providerData: ImageGenerationResponse | undefined;
+  try {
+    providerData = await callImageEditProvider(createBody(true), apiKey, baseUrl);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (isImageEditEndpointUnavailable(error)) {
+      throw new Error(`当前图片模型不支持智能注释局部编辑，请切换到 auto 或 gpt-image-2 后重试。上游返回：${message}`);
+    }
+    if (!message.toLowerCase().includes("response_format")) throw error;
+    providerData = await callImageEditProvider(createBody(false), apiKey, baseUrl);
+  }
+
+  const asyncTaskId = providerData?.task_id || providerData?.taskId;
+  if (asyncTaskId) {
+    providerData = await pollAsyncImageTask(asyncTaskId, apiKey, baseUrl);
+  }
+
+  const rawImages = extractGeneratedImages(providerData || {}, baseUrl, targetWidth, targetHeight);
+  if (rawImages.length === 0) {
+    throw new Error("智能注释没有返回可用图片，请稍后重试");
+  }
+
+  const normalizedImages = await __testNormalizeGeneratedImagesToTargetAspect(
+    rawImages.slice(0, 1),
+    targetWidth,
+    targetHeight,
+  );
+  const images = await Promise.all(normalizedImages.map(async image => {
+    const editedImageData = await imageSrcToBuffer(image.src);
+    const composited = await __testCompositeSourcePreservingImageEdit(
+      sourceImageData.buffer,
+      editedImageData.buffer,
+      maskImageData.buffer,
+      targetWidth,
+      targetHeight,
+    );
+    return {
+      src: `data:image/png;base64,${composited.toString("base64")}`,
+      width: targetWidth,
+      height: targetHeight,
+    };
+  }));
+
+  const firstImage = images[0];
+  if (firstImage) {
+    const editedImageData = await imageSrcToBuffer(firstImage.src);
+    const hasVisibleChange = await hasVisibleLocalEdit(
+      sourceImageData.buffer,
+      editedImageData.buffer,
+      maskImageData.buffer,
+      targetWidth,
+      targetHeight,
+    );
+    if (!hasVisibleChange) {
+      throw new Error("智能注释模型没有在标记区域做出可见修改，请扩大注释区域或换一种更明确的描述");
+    }
+  }
+
+  return { images };
+}
+
 export async function generateImages(input: ImageGenerateInput): Promise<{ images: GeneratedImage[] }> {
   if (!input.prompt?.trim()) {
     throw new Error("Missing prompt");
@@ -3395,6 +3502,10 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   if (!input.prompt?.trim()) {
     throw new Error("Missing prompt");
   }
+  if (input.operation === "annotation_edit") {
+    return editSmartAnnotationImage(input);
+  }
+
   const maskSource = input.maskSrc?.trim() || (input.maskUrl || input.mask_url || "").trim();
   __testAssertSourcePreservingMask(input.operation, maskSource);
 
@@ -3409,8 +3520,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   const maskImageData = maskSource ? await imageSrcToBuffer(maskSource) : null;
   const sourceImageDimensions = await getImageBufferDimensions(sourceImageData.buffer);
   const isTextEditOperation = input.operation === "text_edit";
-  const requiresVisibleLocalChange =
-    isTextEditOperation || input.operation === "annotation_edit";
+  const requiresVisibleLocalChange = isTextEditOperation;
   const isSourcePreservingEdit = isTextEditOperation || input.preserveSource === true;
   const targetSize = isSourcePreservingEdit
     ? sourceImageDimensions
@@ -3425,8 +3535,6 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   const sourceImage = bufferToImageFile(sourceImageData.buffer, sourceImageData.mimeType);
   const requestedModel = (input.model || model).trim();
   const usesAutoModel = requestedModel.toLowerCase() === "auto";
-  const isAutoAnnotationEdit =
-    input.operation === "annotation_edit" && usesAutoModel;
   const selectedModels = usesAutoModel
     ? [
         ...(requiresVisibleLocalChange ? ["gpt-image-2"] : []),
@@ -3622,20 +3730,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
 
   const asyncTaskId = providerData.task_id || providerData.taskId;
   if (asyncTaskId) {
-    try {
-      providerData = await pollAsyncImageTask(
-        asyncTaskId,
-        apiKey,
-        baseUrl,
-        isAutoAnnotationEdit ? autoAnnotationEditAsyncTaskMaxAttempts : undefined,
-      );
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (isAutoAnnotationEdit && /timed out|image generation timed out/i.test(message)) {
-        return editViaReferenceGeneration();
-      }
-      throw error;
-    }
+    providerData = await pollAsyncImageTask(asyncTaskId, apiKey, baseUrl);
   }
 
   const images = await finalizeImages(
