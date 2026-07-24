@@ -177,6 +177,7 @@ export function SmartCommerceProductDialog({
   const [count, setCount] = useState(1);
   const [selectedPreset, setSelectedPreset] =
     useState<ResolutionPreset>(RESOLUTION_PRESETS[0]);
+  const [showPicwishSelector, setShowPicwishSelector] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [hasDispatched, setHasDispatched] = useState(false);
   const [panelPosition, setPanelPosition] = useState<{ left: number; top: number } | null>(null);
