@@ -36,7 +36,7 @@ function collectTemplates(value: unknown, category = "全部", results: PicWishB
   const id = readTemplateId(record);
   if (id) {
     const name = readText(record.name ?? record.title ?? record.scene_name ?? record.sceneName) || `模板 ${id}`;
-    const previewUrl = readText(record.image_url ?? record.imageUrl ?? record.preview_url ?? record.previewUrl ?? record.cover_url ?? record.coverUrl);
+    const previewUrl = readText(record.template_url ?? record.templateUrl ?? record.image_url ?? record.imageUrl ?? record.preview_url ?? record.previewUrl ?? record.cover_url ?? record.coverUrl);
     if (!results.some(template => template.id === id)) results.push({ id, name, category, previewUrl: previewUrl || undefined });
     return results;
   }
@@ -46,13 +46,13 @@ function collectTemplates(value: unknown, category = "全部", results: PicWishB
   return results;
 }
 
-export async function getPicWishBackgroundTemplates(language = "zh") {
+export async function getPicWishBackgroundTemplates() {
   if (cachedTemplates && cachedTemplates.expiresAt > Date.now()) return cachedTemplates.templates;
   const apiKey = process.env.PICWISH_API_KEY || process.env.AOS_API_KEY || "";
   if (!apiKey) throw new Error("Missing PICWISH_API_KEY");
-  const baseUrl = (process.env.PICWISH_BASE_URL || "https://techsz.aoscdn.com").replace(/\/+$/, "");
+  const baseUrl = (process.env.PICWISH_TEMPLATE_BASE_URL || "https://aw.aoscdn.com").replace(/\/+$/, "");
   const url = new URL(`${baseUrl}/app/picwish/third-party/background-template`);
-  url.searchParams.set("language", ["zh", "en", "tw"].includes(language) ? language : "zh");
+  url.searchParams.set("language", "en");
   const response = await fetch(url, { headers: { "X-API-KEY": apiKey } });
   const payload = await response.json().catch(() => null) as TemplatePayload | null;
   if (!response.ok) throw new Error(readText(payload?.message) || `PicWish background templates returned ${response.status}`);

@@ -1432,8 +1432,7 @@ async function startServer() {
 
   app.get("/api/images/background-templates", async (req, res) => {
     try {
-      const language = typeof req.query.language === "string" ? req.query.language : "zh";
-      const templates = await getPicWishBackgroundTemplates(language);
+      const templates = await getPicWishBackgroundTemplates();
       res.json({ templates });
     } catch (error) {
       res.status(502).json({ error: error instanceof Error ? error.message : "PicWish background templates unavailable" });

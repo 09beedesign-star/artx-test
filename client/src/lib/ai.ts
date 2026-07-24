@@ -387,7 +387,7 @@ export type PicWishBackgroundTemplate = {
 };
 
 export async function listPicWishBackgroundTemplates() {
-  const endpoint = `${getAiApiBaseUrl()}/api/images/background-templates?language=zh`;
+  const endpoint = `${getAiApiBaseUrl()}/api/images/background-templates?language=en`;
   const result = await fetchAiJsonGet<{ templates?: PicWishBackgroundTemplate[]; error?: string }>(endpoint, "PicWish 背景模板加载失败");
   return result.templates || [];
 }
