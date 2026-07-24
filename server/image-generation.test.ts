@@ -13,6 +13,13 @@ afterEach(() => {
 });
 
 describe("generated image source normalization", () => {
+  it("allows the image provider 90 seconds to return an asynchronous task ID by default", async () => {
+    const source = await readFile(resolve(__dirname, "image-generation.ts"), "utf8");
+
+    expect(source).toContain("Number(process.env.AI_IMAGE_REQUEST_TIMEOUT_MS) || 90_000");
+    expect(source).toContain("120_000");
+  });
+
   it("routes smart annotation edits through a dedicated local-edit path without reference-generation fallback", async () => {
     const source = await readFile(resolve(__dirname, "image-generation.ts"), "utf8");
 

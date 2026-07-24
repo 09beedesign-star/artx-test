@@ -746,7 +746,7 @@ type ImageProviderFetchResult = {
 const imageProviderRetryDelayMs = 1800;
 const imageProviderRequestTimeoutMs = Math.max(
   5_000,
-  Math.min(Number(process.env.AI_IMAGE_REQUEST_TIMEOUT_MS) || 35_000, 120_000),
+  Math.min(Number(process.env.AI_IMAGE_REQUEST_TIMEOUT_MS) || 90_000, 120_000),
 );
 const REMOVE_BACKGROUND_PICWISH_TIMEOUT_MS = 120_000;
 
