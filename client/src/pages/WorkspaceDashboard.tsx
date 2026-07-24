@@ -43,6 +43,9 @@ interface WsProject {
   canvasHeight?: number;
 }
 
+const WORKSPACE_CARD_COVER_ASPECT_RATIO = "4/3";
+const WORKSPACE_CARD_INFO_HEIGHT = 96;
+
 function fromHistoryProject(project: WorkspaceHistoryProject): WsProject {
   return {
     id: project.id,
@@ -217,7 +220,6 @@ function ProjectCard({
     <div
       className="group relative rounded-[var(--radius-lg-design)] overflow-hidden cursor-pointer transition-all"
       style={{
-        height: "100%",
         background: cardBg,
         border: `1.5px solid ${cardBorder}`,
         boxShadow: "0 2px 12px rgba(0,0,0,0.15)",
@@ -226,7 +228,7 @@ function ProjectCard({
       onClick={onOpen}
     >
       {/* Cover */}
-      <div className="relative overflow-hidden" style={{ aspectRatio: "4/3" }}>
+      <div className="relative overflow-hidden" style={{ aspectRatio: WORKSPACE_CARD_COVER_ASPECT_RATIO }}>
         {project.cover ? (
           <img
             src={project.cover}
@@ -249,7 +251,7 @@ function ProjectCard({
       </div>
 
       {/* Info */}
-      <div className="px-3 py-2.5" style={{ minHeight: 52 }}>
+      <div className="px-3 py-2.5" style={{ height: WORKSPACE_CARD_INFO_HEIGHT }}>
         {renaming ? (
           <input
             ref={inputRef}
@@ -296,7 +298,7 @@ function CreateProjectCard({ isDark, onCreate }: { isDark: boolean; onCreate: ()
       onClick={onCreate}
       className="rounded-[var(--radius-lg-design)] overflow-hidden transition-all group"
       style={{
-        height: "100%",
+        alignSelf: "start",
         width: "100%",
         background: bg,
         border: `1.5px dashed ${border}`,
@@ -310,13 +312,13 @@ function CreateProjectCard({ isDark, onCreate }: { isDark: boolean; onCreate: ()
         (e.currentTarget as HTMLElement).style.background = bg;
       }}
     >
-      <div className="flex items-center justify-center" style={{ aspectRatio: "4/3" }}>
+      <div className="flex items-center justify-center" style={{ aspectRatio: WORKSPACE_CARD_COVER_ASPECT_RATIO }}>
         <div className="w-10 h-10 rounded-[var(--radius-lg-design)] flex items-center justify-center transition-all group-hover:scale-110"
           style={{ background: "oklch(0.62 0.22 290 / 0.12)", color: "oklch(0.62 0.22 290)" }}>
           <Plus size={20} />
         </div>
       </div>
-      <div className="px-3 py-2.5" style={{ minHeight: 52 }}>
+      <div className="px-3 py-2.5" style={{ height: WORKSPACE_CARD_INFO_HEIGHT }}>
         <span className="type-caption" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>新建画板</span>
       </div>
     </button>
@@ -435,7 +437,7 @@ export default function WorkspaceDashboard() {
         <div className="grid gap-7" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
           <CreateProjectCard isDark={isDark} onCreate={() => setShowCreate(true)} />
           {projects.map(project => (
-            <div key={project.id} data-project-id={project.id} className="project-card h-full">
+            <div key={project.id} data-project-id={project.id} className="project-card">
               <ProjectCard
                 project={project}
                 renaming={renamingId === project.id}
