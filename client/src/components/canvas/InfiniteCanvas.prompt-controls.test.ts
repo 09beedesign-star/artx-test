@@ -434,9 +434,14 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(annotationEditBlock).toContain("输出完整新图，但视觉上应像原图只发生了这一次局部修改。");
     expect(annotationEditBlock).toContain("用户修改建议");
     expect(annotationEditBlock).toContain("createAnnotationEditMask");
+    expect(annotationEditBlock).toContain("reference.text");
     expect(annotationEditBlock).toContain("preserveSource: true");
+    expect(source).toContain("function isSmartAnnotationHeadAccessoryPrompt");
+    expect(source).toContain("帽子|帽\\b|头盔|皇冠");
+    expect(annotationEditBlock).toContain("头顶或头发上方");
     expect(source).toContain('ctx.globalCompositeOperation = "destination-out";');
     expect(source).toContain('ctx.globalCompositeOperation = "source-over";');
+    expect(source).toContain("ctx.ellipse(centerX, accessoryCenterY");
   });
 
   it("masks only the smart-copy fields that the user actually changed", () => {
