@@ -957,6 +957,18 @@ function isImageEditEndpointUnavailable(error: unknown) {
     /not found|no available channel|not supported model for image generation|images\/edits/i.test(message);
 }
 
+function shouldFallbackSmartAnnotationEdit(error: unknown) {
+  if (isImageEditEndpointUnavailable(error)) return true;
+  if (error instanceof TypeError) return true;
+  const message = error instanceof Error ? error.message : String(error || "");
+  const status = error instanceof ImageProviderRequestError ? error.status : undefined;
+  return Boolean(status && (status === 408 || status === 429 || status >= 500)) ||
+    isProviderGatewayError(message) ||
+    isProviderCapacityError(message) ||
+    isUnsupportedImagesApiError(message) ||
+    /not supported|unsupported|no available channel/i.test(message);
+}
+
 function isChatCompatibleImageModel(model?: string) {
   return Boolean(model && chatCompatibleImageModels.has(model));
 }
@@ -3155,66 +3167,122 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
     if (withResponseFormat) body.append("response_format", "b64_json");
     return body;
   };
+  const finalizeAnnotationImages = async (candidateImages: GeneratedImage[]) => {
+    const normalizedImages = await __testNormalizeGeneratedImagesToTargetAspect(
+      candidateImages.slice(0, 1),
+      targetWidth,
+      targetHeight,
+    );
+    const images = await Promise.all(normalizedImages.map(async image => {
+      const editedImageData = await imageSrcToBuffer(image.src);
+      const composited = await __testCompositeSourcePreservingImageEdit(
+        sourceImageData.buffer,
+        editedImageData.buffer,
+        maskImageData.buffer,
+        targetWidth,
+        targetHeight,
+      );
+      return {
+        src: `data:image/png;base64,${composited.toString("base64")}`,
+        width: targetWidth,
+        height: targetHeight,
+      };
+    }));
+
+    const firstImage = images[0];
+    if (firstImage) {
+      const editedImageData = await imageSrcToBuffer(firstImage.src);
+      const hasVisibleChange = await hasVisibleLocalEdit(
+        sourceImageData.buffer,
+        editedImageData.buffer,
+        maskImageData.buffer,
+        targetWidth,
+        targetHeight,
+      );
+      if (!hasVisibleChange) {
+        throw new Error("智能注释模型没有在标记区域做出可见修改，请扩大注释区域或换一种更明确的描述");
+      }
+    }
+
+    return { images };
+  };
+  const editAnnotationViaReferenceGeneration = async () => {
+    const sourceDataUrl = `data:${sourceImageData.mimeType};base64,${sourceImageData.buffer.toString("base64")}`;
+    const editGuideDataUrl = `data:image/png;base64,${(await createLocalEditGuideImage(
+      sourceImageData.buffer,
+      maskImageData.buffer,
+      targetWidth,
+      targetHeight,
+    )).toString("base64")}`;
+    const aspect = targetWidth / Math.max(1, targetHeight);
+    const ratio = aspect > 1.2 ? "16:9" : aspect < 0.85 ? "9:16" : "1:1";
+    const fallbackModels = selectedModel === "gpt-image-2"
+      ? ["gpt-image-2", ...getImageModelFallbackAttempts("auto")]
+      : [selectedModel];
+    let lastError: unknown;
+    for (const fallbackModel of Array.from(new Set(fallbackModels))) {
+      try {
+        const result = await generateImages({
+          prompt: [
+            annotationPrompt,
+            "Reference image 1 is the exact source image and must be treated as the target canvas.",
+            "Reference image 2 is only an orange visual guide for the editable annotation area. The orange guide must not appear in the result.",
+            "Make the requested change only in the guided area. Preserve identity, pose, scene, lens, lighting, style, and all unmentioned details.",
+          ].join("\n\n"),
+          model: fallbackModel,
+          ratio,
+          count: 1,
+          preferImageApiForReferences: true,
+          images: [
+            { src: sourceDataUrl, title: "target source image" },
+            { src: editGuideDataUrl, title: "annotation editable area guide" },
+          ],
+        });
+        return finalizeAnnotationImages(result.images);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError || new Error("智能注释参考图编辑失败");
+  };
 
   let providerData: ImageGenerationResponse | undefined;
   try {
     providerData = await callImageEditProvider(createBody(true), apiKey, baseUrl);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (isImageEditEndpointUnavailable(error)) {
-      throw new Error(`当前图片模型不支持智能注释局部编辑，请切换到 auto 或 gpt-image-2 后重试。上游返回：${message}`);
+    if (shouldFallbackSmartAnnotationEdit(error)) {
+      return editAnnotationViaReferenceGeneration();
     }
     if (!message.toLowerCase().includes("response_format")) throw error;
-    providerData = await callImageEditProvider(createBody(false), apiKey, baseUrl);
+    try {
+      providerData = await callImageEditProvider(createBody(false), apiKey, baseUrl);
+    } catch (fallbackError) {
+      if (shouldFallbackSmartAnnotationEdit(fallbackError)) {
+        return editAnnotationViaReferenceGeneration();
+      }
+      throw fallbackError;
+    }
   }
 
   const asyncTaskId = providerData?.task_id || providerData?.taskId;
   if (asyncTaskId) {
-    providerData = await pollAsyncImageTask(asyncTaskId, apiKey, baseUrl);
+    try {
+      providerData = await pollAsyncImageTask(asyncTaskId, apiKey, baseUrl);
+    } catch (error) {
+      if (shouldFallbackSmartAnnotationEdit(error)) {
+        return editAnnotationViaReferenceGeneration();
+      }
+      throw error;
+    }
   }
 
   const rawImages = extractGeneratedImages(providerData || {}, baseUrl, targetWidth, targetHeight);
   if (rawImages.length === 0) {
-    throw new Error("智能注释没有返回可用图片，请稍后重试");
+    return editAnnotationViaReferenceGeneration();
   }
 
-  const normalizedImages = await __testNormalizeGeneratedImagesToTargetAspect(
-    rawImages.slice(0, 1),
-    targetWidth,
-    targetHeight,
-  );
-  const images = await Promise.all(normalizedImages.map(async image => {
-    const editedImageData = await imageSrcToBuffer(image.src);
-    const composited = await __testCompositeSourcePreservingImageEdit(
-      sourceImageData.buffer,
-      editedImageData.buffer,
-      maskImageData.buffer,
-      targetWidth,
-      targetHeight,
-    );
-    return {
-      src: `data:image/png;base64,${composited.toString("base64")}`,
-      width: targetWidth,
-      height: targetHeight,
-    };
-  }));
-
-  const firstImage = images[0];
-  if (firstImage) {
-    const editedImageData = await imageSrcToBuffer(firstImage.src);
-    const hasVisibleChange = await hasVisibleLocalEdit(
-      sourceImageData.buffer,
-      editedImageData.buffer,
-      maskImageData.buffer,
-      targetWidth,
-      targetHeight,
-    );
-    if (!hasVisibleChange) {
-      throw new Error("智能注释模型没有在标记区域做出可见修改，请扩大注释区域或换一种更明确的描述");
-    }
-  }
-
-  return { images };
+  return finalizeAnnotationImages(rawImages);
 }
 
 export async function generateImages(input: ImageGenerateInput): Promise<{ images: GeneratedImage[] }> {
