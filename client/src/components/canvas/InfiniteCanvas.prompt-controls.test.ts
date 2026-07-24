@@ -27,20 +27,19 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(quickEditBlock).not.toContain("generateAiImages({");
   });
 
-  it("uses the selected canvas image model for annotation edits while auto resolves through the available model route", () => {
+  it("keeps smart annotation edits on the restored source-image edit route", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
     const annotationEditBlock = source.match(
       /const handleAnnotationAiEdit = useCallback[\s\S]*?const cloneNodesForHistory/
     )?.[0];
 
     expect(annotationEditBlock).toBeTruthy();
-    expect(source).toContain("function getStoredCanvasAssistantImageEditModel()");
-    expect(source).toContain('if (autoMode) return "auto";');
-    expect(annotationEditBlock).toContain(
-      "const selectedImageEditModel = getStoredCanvasAssistantImageEditModel();"
-    );
-    expect(annotationEditBlock).toContain("maskSrc: annotationMask.maskSrc");
-    expect(annotationEditBlock).toContain("model: selectedImageEditModel");
+    expect(annotationEditBlock).toContain("editImageWithPrompt({");
+    expect(annotationEditBlock).toContain('model: "gpt-image-2"');
+    expect(annotationEditBlock).toContain("你正在执行图片局部编辑，不是重新生成一张新图。");
+    expect(annotationEditBlock).toContain("原图中的所有人物、角色、文字、海报构图、背景、镜头、比例、光影、颜色、风格和未提及内容必须保持不变。");
+    expect(annotationEditBlock).not.toContain("maskSrc");
+    expect(annotationEditBlock).not.toContain('operation: "annotation_edit"');
   });
 
   it("keeps all assistant controls and the send button visible when the panel is narrow", () => {
@@ -418,18 +417,19 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(serverSource).toContain("__testCompositeSourcePreservingImageEdit");
   });
 
-  it("keeps smart annotation edits on the source image outside the marked area", () => {
+  it("keeps smart annotation prompts constrained to a local source-image change", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
     const annotationEditBlock = source.match(
       /const handleAnnotationAiEdit = useCallback\([\s\S]*?\n  const cloneNodesForHistory/
     )?.[0];
 
     expect(annotationEditBlock).toBeTruthy();
-    expect(annotationEditBlock).toContain("createAnnotationEditMask");
-    expect(annotationEditBlock).toContain('operation: "annotation_edit"');
-    expect(annotationEditBlock).toContain("preserveSource: true");
+    expect(annotationEditBlock).toContain("必须把原图作为唯一基础画布，只在用户标注区域附近做最小必要修改。");
+    expect(annotationEditBlock).toContain("禁止把画面改成新的场景、替换主体、重画成另一张不相关图片。");
+    expect(annotationEditBlock).toContain("输出完整新图，但视觉上应像原图只发生了这一次局部修改。");
     expect(annotationEditBlock).toContain("用户修改建议");
-    expect(source).toContain('if (autoMode) return "auto";');
+    expect(annotationEditBlock).not.toContain("createAnnotationEditMask");
+    expect(annotationEditBlock).not.toContain("preserveSource: true");
   });
 
   it("masks only the smart-copy fields that the user actually changed", () => {

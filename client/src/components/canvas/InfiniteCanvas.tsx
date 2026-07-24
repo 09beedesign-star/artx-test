@@ -21463,14 +21463,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const latestImageSrc =
         (await getVisibleAssetImageSource(reference.nodeId)) || reference.src;
       const sourceSize = getCanvasNodeSize(sourceNode);
-      const selectedImageEditModel = getStoredCanvasAssistantImageEditModel();
-      const annotationMask = await createAnnotationEditMask(
-        latestImageSrc,
-        reference.x,
-        reference.y
-      );
       const prompt = [
-        `注释位置：x=${reference.x.toFixed(1)}%，y=${reference.y.toFixed(1)}%。`,
+        "你正在执行图片局部编辑，不是重新生成一张新图。",
+        "必须把原图作为唯一基础画布，只在用户标注区域附近做最小必要修改。",
+        `只重点修改注释点附近区域：x=${reference.x.toFixed(1)}%、y=${reference.y.toFixed(1)}%。`,
+        "原图中的所有人物、角色、文字、海报构图、背景、镜头、比例、光影、颜色、风格和未提及内容必须保持不变。",
+        "禁止把画面改成新的场景、替换主体、重画成另一张不相关图片。",
+        "输出完整新图，但视觉上应像原图只发生了这一次局部修改。",
         `用户修改建议：${reference.text}`,
       ].join("\n");
       toast("注释 AI 修改中", { description: "将在原图旁生成新的修改结果" });
@@ -21480,26 +21479,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         style: "注释修改结果",
         nextW: sourceSize.width,
         nextH: sourceSize.height,
-        model: selectedImageEditModel,
-        backgroundTaskInput: {
-          capability: "image_edit",
-          operation: "annotation_edit",
-          imageSrc: latestImageSrc,
-          maskSrc: annotationMask.maskSrc,
-          model: selectedImageEditModel,
-          prompt,
-          preserveSource: true,
-          targetWidth: sourceSize.width,
-          targetHeight: sourceSize.height,
-        },
         run: async () =>
           editImageWithPrompt({
             imageSrc: latestImageSrc,
-            maskSrc: annotationMask.maskSrc,
-            model: selectedImageEditModel,
+            model: "gpt-image-2",
             prompt,
-            operation: "annotation_edit",
-            preserveSource: true,
             targetWidth: sourceSize.width,
             targetHeight: sourceSize.height,
           }),
