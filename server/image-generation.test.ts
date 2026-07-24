@@ -654,6 +654,72 @@ describe("generated image source normalization", () => {
     expect(Array.from(resultPixels.subarray((95 * 4), (96 * 4)))).toEqual([255, 0, 0, 255]);
   });
 
+  it("falls back when smart annotation native editing returns an unchanged image", async () => {
+    vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
+    vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
+    vi.stubEnv("AI_IMAGE_MODEL", "og-image2-medium");
+
+    const source = await sharp({
+      create: {
+        width: 96,
+        height: 64,
+        channels: 3,
+        background: "#ff0000",
+      },
+    }).png().toBuffer();
+    const edited = await sharp({
+      create: {
+        width: 96,
+        height: 64,
+        channels: 3,
+        background: "#00ff00",
+      },
+    }).png().toBuffer();
+    const maskPixels = Buffer.alloc(96 * 64 * 4, 255);
+    for (let y = 0; y < 64; y += 1) {
+      for (let x = 0; x < 48; x += 1) {
+        maskPixels[(y * 96 + x) * 4 + 3] = 0;
+      }
+    }
+    const mask = await sharp(maskPixels, {
+      raw: { width: 96, height: 64, channels: 4 },
+    }).png().toBuffer();
+
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const endpoint = String(url);
+      if (endpoint.endsWith("/images/edits")) {
+        return Response.json({
+          data: [{ b64_json: source.toString("base64") }],
+        });
+      }
+      if (endpoint.endsWith("/images/generations")) {
+        return Response.json({
+          data: [{ b64_json: edited.toString("base64") }],
+        });
+      }
+      throw new Error(`Unexpected fetch ${endpoint}`);
+    });
+
+    const result = await editImageWithPrompt({
+      imageSrc: `data:image/png;base64,${source.toString("base64")}`,
+      maskSrc: `data:image/png;base64,${mask.toString("base64")}`,
+      prompt: "给人物戴上一副眼镜",
+      operation: "annotation_edit",
+      preserveSource: true,
+      targetWidth: 96,
+      targetHeight: 64,
+      model: "auto",
+    });
+
+    expect(result.images).toHaveLength(1);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/edits"))).toBe(true);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/generations"))).toBe(true);
+    const resultBuffer = Buffer.from(result.images[0].src.split(",")[1], "base64");
+    const resultPixels = await sharp(resultBuffer).ensureAlpha().raw().toBuffer();
+    expect(Array.from(resultPixels.subarray(0, 4))).toEqual([0, 255, 0, 255]);
+    expect(Array.from(resultPixels.subarray((95 * 4), (96 * 4)))).toEqual([255, 0, 0, 255]);
+  });
+
   it("uses gpt-image-2 native editing for automatic smart copy edits", async () => {
     vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
     vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");

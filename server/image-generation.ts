@@ -970,6 +970,11 @@ function shouldFallbackSmartAnnotationEdit(error: unknown) {
     /not supported|unsupported|no available channel/i.test(message);
 }
 
+function isSmartAnnotationNoVisibleChangeError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /智能注释模型没有在标记区域做出可见修改|没有在指定区域做出可见修改|no visible/i.test(message);
+}
+
 function isChatCompatibleImageModel(model?: string) {
   return Boolean(model && chatCompatibleImageModels.has(model));
 }
@@ -3285,7 +3290,14 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
     return editAnnotationViaReferenceGeneration();
   }
 
-  return finalizeAnnotationImages(rawImages);
+  try {
+    return await finalizeAnnotationImages(rawImages);
+  } catch (error) {
+    if (isSmartAnnotationNoVisibleChangeError(error)) {
+      return editAnnotationViaReferenceGeneration();
+    }
+    throw error;
+  }
 }
 
 export async function generateImages(input: ImageGenerateInput): Promise<{ images: GeneratedImage[] }> {
