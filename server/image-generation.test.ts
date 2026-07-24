@@ -632,7 +632,7 @@ describe("generated image source normalization", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (endpoint.endsWith("/images/generations")) {
+      if (endpoint.endsWith("/chat/completions")) {
         return Response.json({
           data: [{ b64_json: edited.toString("base64") }],
         });
@@ -653,8 +653,8 @@ describe("generated image source normalization", () => {
 
     expect(result.images).toHaveLength(1);
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/edits"))).toBe(true);
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/generations"))).toBe(true);
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(false);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/generations"))).toBe(false);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(true);
     const resultBuffer = Buffer.from(result.images[0].src.split(",")[1], "base64");
     const resultPixels = await sharp(resultBuffer).ensureAlpha().raw().toBuffer();
     expect(Array.from(resultPixels.subarray(0, 4))).toEqual([0, 255, 0, 255]);
@@ -699,7 +699,7 @@ describe("generated image source normalization", () => {
           data: [{ b64_json: source.toString("base64") }],
         });
       }
-      if (endpoint.endsWith("/images/generations")) {
+      if (endpoint.endsWith("/chat/completions")) {
         return Response.json({
           data: [{ b64_json: edited.toString("base64") }],
         });
@@ -720,7 +720,8 @@ describe("generated image source normalization", () => {
 
     expect(result.images).toHaveLength(1);
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/edits"))).toBe(true);
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/generations"))).toBe(true);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/generations"))).toBe(false);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(true);
     const resultBuffer = Buffer.from(result.images[0].src.split(",")[1], "base64");
     const resultPixels = await sharp(resultBuffer).ensureAlpha().raw().toBuffer();
     expect(Array.from(resultPixels.subarray(0, 4))).toEqual([0, 255, 0, 255]);
@@ -766,7 +767,7 @@ describe("generated image source normalization", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (endpoint.endsWith("/images/generations")) {
+      if (endpoint.endsWith("/chat/completions")) {
         return Response.json({
           data: [{ b64_json: edited.toString("base64") }],
         });
@@ -787,7 +788,8 @@ describe("generated image source normalization", () => {
 
     expect(result.images).toHaveLength(1);
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/edits"))).toBe(true);
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/generations"))).toBe(true);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/generations"))).toBe(false);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(true);
     const resultBuffer = Buffer.from(result.images[0].src.split(",")[1], "base64");
     const resultPixels = await sharp(resultBuffer).ensureAlpha().raw().toBuffer();
     expect(Array.from(resultPixels.subarray(0, 4))).toEqual([0, 255, 0, 255]);

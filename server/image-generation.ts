@@ -3143,6 +3143,20 @@ function resolveSmartAnnotationEditModel(requestedModel: string | undefined, con
   return requested || configuredModel || "gpt-image-2";
 }
 
+function getSmartAnnotationReferenceEditModels(selectedModel: string) {
+  const referenceCapableModels = getImageModelFallbackAttempts("auto")
+    .filter(isChatCompatibleImageModel);
+  if (selectedModel === "gpt-image-2") {
+    return referenceCapableModels.length > 0
+      ? referenceCapableModels
+      : getImageModelFallbackAttempts("auto");
+  }
+  return Array.from(new Set([
+    selectedModel,
+    ...referenceCapableModels,
+  ]));
+}
+
 async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images: GeneratedImage[] }> {
   const maskSource = input.maskSrc?.trim() || (input.maskUrl || input.mask_url || "").trim();
   __testAssertSourcePreservingMask(input.operation, maskSource);
@@ -3229,9 +3243,7 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
     )).toString("base64")}`;
     const aspect = targetWidth / Math.max(1, targetHeight);
     const ratio = aspect > 1.2 ? "16:9" : aspect < 0.85 ? "9:16" : "1:1";
-    const fallbackModels = selectedModel === "gpt-image-2"
-      ? ["gpt-image-2", ...getImageModelFallbackAttempts("auto")]
-      : [selectedModel];
+    const fallbackModels = getSmartAnnotationReferenceEditModels(selectedModel);
     let lastError: unknown;
     for (const fallbackModel of Array.from(new Set(fallbackModels))) {
       try {
@@ -3241,6 +3253,7 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
             "Reference image 1 is the exact source image and must be treated as the target canvas.",
             "Reference image 2 is only an orange visual guide for the editable annotation area. The orange guide must not appear in the result.",
             "Make the requested change only in the guided area. Preserve identity, pose, scene, lens, lighting, style, and all unmentioned details.",
+            "Do not leave the guided area unchanged. If the user asks for an accessory such as glasses or sunglasses, add it clearly on the same subject inside the guided area.",
           ].join("\n\n"),
           model: fallbackModel,
           ratio,
