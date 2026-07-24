@@ -966,6 +966,7 @@ function shouldFallbackSmartAnnotationEdit(error: unknown) {
   return Boolean(status && (status === 408 || status === 429 || status >= 500)) ||
     isProviderGatewayError(message) ||
     isProviderCapacityError(message) ||
+    isProviderModelCompatibilityError(message) ||
     isUnsupportedImagesApiError(message) ||
     /not supported|unsupported|no available channel/i.test(message);
 }
@@ -1014,6 +1015,10 @@ function isProviderCapacityError(message: string) {
 
 function isProviderGatewayError(message: string) {
   return /openai_error|bad_response_status_code|bad response status|图片生成服务暂时没有返回可用结果|image (chat )?provider model .* timed out/i.test(message);
+}
+
+function isProviderModelCompatibilityError(message: string) {
+  return /model .*not (found|exist|available)|model_not_found|invalid.*model|unsupported.*model|not supported model|does not support|unsupported parameter|invalid.*parameter|response_format/i.test(message);
 }
 
 function resolveProviderImageModel(model: string) {
