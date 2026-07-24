@@ -85,9 +85,9 @@ describe("background image task routing", () => {
 
     expect(createBackgroundSource).toContain('runPicWishImageTask("r-background"');
     expect(createBackgroundSource).toContain("batch_size: batchSize");
-    expect(createBackgroundSource).not.toContain("scene_type");
-    expect(createBackgroundSource).toContain("width: output.width");
-    expect(createBackgroundSource).toContain("height: output.height");
+    expect(createBackgroundSource).toContain("scene_type");
+    expect(createBackgroundSource).toContain("width: input.customWidth");
+    expect(createBackgroundSource).toContain("height: input.customHeight");
     expect(createProductBackgroundSource).toContain("const productCutout = await removeBackgroundWithPicWish(buffer, mimeType)");
     expect(source).toContain("async function prepareProductCutoutForBackgroundGenerator");
     expect(createProductBackgroundSource).toContain("const preparedProductImage = await prepareProductCutoutForBackgroundGenerator");

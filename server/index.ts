@@ -9,6 +9,7 @@ import { resolveBackgroundImageTaskCapability } from "./background-image-capabil
 import { createBrandKit, deleteBrandKit, getBrandKit, listBrandKits, parseBrandKitFromImage } from "./brand-kit";
 import { createElementBackgroundLayer, createProductBackground, editImageWithPrompt, enhanceImage, eraseImageObjects, expandImageWithPicWish, extractImageText, generateImages, listImageModelCatalog, removeImageBackground, removeImageWatermark } from "./image-generation";
 import { replaceImageText } from "./text-replace";
+import { getPicWishBackgroundTemplates } from "./picwish-background-templates";
 import { DEFAULT_IMAGE_MODEL_ID } from "../shared/image-models";
 import { getInspirationReferences } from "./inspiration-references";
 import { cleanupExpiredUploads, getUploadRetentionDays, getUploadsRoot, storeGeneratedImagesForUser } from "./local-image-storage";
@@ -1427,6 +1428,16 @@ async function startServer() {
       const result = await createProductBackground(req.body);
       return storeImageResultForUser(result, user.username);
     });
+  });
+
+  app.get("/api/images/background-templates", async (req, res) => {
+    try {
+      const language = typeof req.query.language === "string" ? req.query.language : "zh";
+      const templates = await getPicWishBackgroundTemplates(language);
+      res.json({ templates });
+    } catch (error) {
+      res.status(502).json({ error: error instanceof Error ? error.message : "PicWish background templates unavailable" });
+    }
   });
 
   app.post("/api/images/ocr", async (req, res) => {

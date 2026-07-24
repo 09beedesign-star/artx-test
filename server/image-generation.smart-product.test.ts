@@ -12,7 +12,7 @@ describe("smart product PicWish r-background route", () => {
       source.match(/export async function createProductBackground[\s\S]*?return withProviderTaskIds/)?.[0] || "";
 
     expect(createBackgroundSource).toContain('runPicWishImageTask("r-background"');
-    expect(createBackgroundSource).not.toContain("scene_type");
+    expect(createBackgroundSource).toContain("scene_type");
     expect(createBackgroundSource).toContain("negative_prompt");
     expect(createBackgroundSource).not.toContain("width: output.width");
     expect(createBackgroundSource).not.toContain("height: output.height");
@@ -20,6 +20,7 @@ describe("smart product PicWish r-background route", () => {
     expect(createProductBackgroundSource).toContain("const preparedProductImage = await prepareProductCutoutForBackgroundGenerator");
     expect(createProductBackgroundSource).toContain("imageSrc: preparedProductImage.imageSrc");
     expect(createProductBackgroundSource).toContain("prompt: buildSmartProductVariationPrompt(prompt, index, count)");
+    expect(createProductBackgroundSource).toContain("sceneType: input.sceneType");
     expect(createProductBackgroundSource).toContain("count: 1");
     expect(createProductBackgroundSource).toContain("customWidth: output.width");
     expect(createProductBackgroundSource).toContain("customHeight: output.height");

@@ -27,6 +27,8 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { PicwishBackgroundSelector } from "@/components/canvas/PicwishBackgroundSelector";
+import type { PicWishBackgroundTemplate } from "@/lib/ai";
 
 export type SmartCommerceProductCreateDetail = {
   imageSrc: string;
@@ -36,6 +38,7 @@ export type SmartCommerceProductCreateDetail = {
   style: string;
   composition: string;
   productScale: string;
+  sceneType?: number;
   ratio: string;
   resolution: "2k" | "4k";
   count: number;
@@ -173,11 +176,12 @@ export function SmartCommerceProductDialog({
   const [selectedProductScale, setSelectedProductScale] = useState<(typeof PRODUCT_SCALES)[number]>(
     PRODUCT_SCALES[1]
   );
+  const [showPicwishSelector, setShowPicwishSelector] = useState(false);
+  const [selectedPicwishTemplate, setSelectedPicwishTemplate] = useState<PicWishBackgroundTemplate>();
   const [resolution, setResolution] = useState<"2k" | "4k">("2k");
   const [count, setCount] = useState(1);
   const [selectedPreset, setSelectedPreset] =
     useState<ResolutionPreset>(RESOLUTION_PRESETS[0]);
-  const [showPicwishSelector, setShowPicwishSelector] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [hasDispatched, setHasDispatched] = useState(false);
   const [panelPosition, setPanelPosition] = useState<{ left: number; top: number } | null>(null);
@@ -277,7 +281,7 @@ export function SmartCommerceProductDialog({
       trimmedPrompt
         ? `用户明确要求：${trimmedPrompt}`
         : "用户未输入额外要求：创建真实、干净、有商业质感的产品背景。",
-      `补充风格方向：${selectedStyle.prompt}`,
+      selectedPicwishTemplate ? `PicWish 背景模板：${selectedPicwishTemplate.name}` : `补充风格方向：${selectedStyle.prompt}`,
       `产品构图要求：${selectedComposition.prompt}`,
       `产品占画面比例要求：${selectedProductScale.prompt}`,
       "保持上传产品图的商品主体完整清晰，不改变产品颜色、材质、文字、标识、比例和外形。",
@@ -288,11 +292,12 @@ export function SmartCommerceProductDialog({
     const detail: SmartCommerceProductCreateDetail = {
       imageSrc,
       fileName,
-      userPrompt: trimmedPrompt || selectedStyle.name,
+      userPrompt: trimmedPrompt || selectedPicwishTemplate?.name || selectedStyle.name,
       prompt,
       style: selectedStyle.name,
       composition: selectedComposition.id,
       productScale: selectedProductScale.id,
+      sceneType: selectedPicwishTemplate?.id,
       ratio: selectedPreset.ratio,
       resolution,
       count,
@@ -596,7 +601,7 @@ export function SmartCommerceProductDialog({
                     </div>
                   </button>
                   {PRODUCT_BACKGROUND_STYLES.map(style => {
-                    const active = selectedStyle.name === style.name;
+                    const active = !selectedPicwishTemplate && selectedStyle.name === style.name;
                     return (
                       <button
                         key={style.name}
@@ -605,7 +610,7 @@ export function SmartCommerceProductDialog({
                         style={{
                           border: `1px solid ${active ? "rgba(197,237,71,0.68)" : colors.border}`,
                         }}
-                        onClick={() => setSelectedStyle(style)}
+                        onClick={() => { setSelectedStyle(style); setSelectedPicwishTemplate(undefined); }}
                       >
                         <img
                           src={style.image}
@@ -718,6 +723,7 @@ export function SmartCommerceProductDialog({
           </div>
         </div>
 
+        {showPicwishSelector ? <PicwishBackgroundSelector isDark={isDark} selectedTemplate={selectedPicwishTemplate} onSelect={setSelectedPicwishTemplate} onClose={() => setShowPicwishSelector(false)} /> : null}
         <footer
           className="flex items-center justify-between gap-3 px-5 py-3"
           style={{ borderTop: `1px solid ${colors.border}` }}

@@ -379,6 +379,19 @@ async function postProductBackground(body: Record<string, unknown>, fallbackErro
   return fetchAiJson<ApiErrorResponse & Partial<GeneratedImagesResponse>>(endpoint, body, fallbackError);
 }
 
+export type PicWishBackgroundTemplate = {
+  id: number;
+  name: string;
+  category: string;
+  previewUrl?: string;
+};
+
+export async function listPicWishBackgroundTemplates() {
+  const endpoint = `${getAiApiBaseUrl()}/api/images/background-templates?language=zh`;
+  const result = await fetchAiJsonGet<{ templates?: PicWishBackgroundTemplate[]; error?: string }>(endpoint, "PicWish 背景模板加载失败");
+  return result.templates || [];
+}
+
 async function postImageErase(body: Record<string, unknown>, fallbackError: string) {
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/images/erase`;
@@ -643,6 +656,7 @@ export async function createProductBackground({
   style,
   composition,
   productScale,
+  sceneType,
   ratio = "1:1",
   resolution = "2k",
   count = 1,
@@ -658,6 +672,7 @@ export async function createProductBackground({
   style?: string;
   composition?: string;
   productScale?: string;
+  sceneType?: number;
   ratio?: string;
   resolution?: "2k" | "4k";
   count?: number;
@@ -675,6 +690,7 @@ export async function createProductBackground({
     style,
     composition,
     productScale,
+    sceneType,
     ratio,
     resolution,
     count,

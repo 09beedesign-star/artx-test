@@ -42,6 +42,7 @@ type CreateBackgroundInput = {
   style?: string;
   composition?: string;
   productScale?: string;
+  sceneType?: number;
   ratio?: string;
   resolution?: "2k" | "4k";
   count?: number;
@@ -2229,10 +2230,12 @@ async function createBackgroundWithPicWish(input: CreateBackgroundInput): Promis
 
   return runPicWishImageTask("r-background", buffer, mimeType, {
     fields: {
-      prompt,
+      ...(input.sceneType ? { scene_type: input.sceneType } : { prompt }),
       negative_prompt:
         "changed product, distorted product, altered logo, altered text, cropped product, extra product, duplicate product, blurry product, low quality background",
       batch_size: batchSize,
+      width: input.customWidth,
+      height: input.customHeight,
     },
   });
 }
@@ -3546,6 +3549,7 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
     const result = await createBackgroundWithPicWish({
       imageSrc: preparedProductImage.imageSrc,
       prompt: buildSmartProductVariationPrompt(prompt, index, count),
+      sceneType: input.sceneType,
       ratio: input.ratio,
       resolution: input.resolution,
       count: 1,
