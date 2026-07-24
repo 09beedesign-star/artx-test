@@ -45,6 +45,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { toast } from "sonner";
+import { DEFAULT_IMAGE_MODEL_ID } from "../../../../shared/image-models";
 import {
   Image as ImageIcon,
   MessageSquare,
@@ -21463,6 +21464,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const latestImageSrc =
         (await getVisibleAssetImageSource(reference.nodeId)) || reference.src;
       const sourceSize = getCanvasNodeSize(sourceNode);
+      const selectedImageEditModel = getStoredCanvasAssistantImageEditModel();
+      const annotationImageEditModel =
+        selectedImageEditModel === "auto" || selectedImageEditModel === "gpt-image-2"
+          ? DEFAULT_IMAGE_MODEL_ID
+          : selectedImageEditModel;
       const prompt = [
         "你正在执行图片局部编辑，不是重新生成一张新图。",
         "必须把原图作为唯一基础画布，只在用户标注区域附近做最小必要修改。",
@@ -21482,7 +21488,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         run: async () =>
           editImageWithPrompt({
             imageSrc: latestImageSrc,
-            model: "gpt-image-2",
+            model: annotationImageEditModel,
             prompt,
             targetWidth: sourceSize.width,
             targetHeight: sourceSize.height,

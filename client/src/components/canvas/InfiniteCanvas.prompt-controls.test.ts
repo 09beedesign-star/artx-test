@@ -35,7 +35,10 @@ describe("InfiniteCanvas prompt controls", () => {
 
     expect(annotationEditBlock).toBeTruthy();
     expect(annotationEditBlock).toContain("editImageWithPrompt({");
-    expect(annotationEditBlock).toContain('model: "gpt-image-2"');
+    expect(source).toContain('import { DEFAULT_IMAGE_MODEL_ID } from "../../../../shared/image-models";');
+    expect(annotationEditBlock).toContain("const selectedImageEditModel = getStoredCanvasAssistantImageEditModel();");
+    expect(annotationEditBlock).toContain("selectedImageEditModel === \"auto\" || selectedImageEditModel === \"gpt-image-2\"");
+    expect(annotationEditBlock).toContain("model: annotationImageEditModel");
     expect(annotationEditBlock).toContain("你正在执行图片局部编辑，不是重新生成一张新图。");
     expect(annotationEditBlock).toContain("原图中的所有人物、角色、文字、海报构图、背景、镜头、比例、光影、颜色、风格和未提及内容必须保持不变。");
     expect(annotationEditBlock).not.toContain("maskSrc");
