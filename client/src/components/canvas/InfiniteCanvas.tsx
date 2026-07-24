@@ -11139,7 +11139,7 @@ async function createAnnotationEditMask(
 
         const centerX = (Math.min(100, Math.max(0, xPercent)) / 100) * width;
         const centerY = (Math.min(100, Math.max(0, yPercent)) / 100) * height;
-        const radius = Math.max(96, Math.min(width, height) * 0.18);
+        const radius = Math.max(128, Math.min(width, height) * 0.26);
         const gradient = ctx.createRadialGradient(
           centerX,
           centerY,
@@ -11149,7 +11149,7 @@ async function createAnnotationEditMask(
           radius
         );
         gradient.addColorStop(0, "rgba(0,0,0,0)");
-        gradient.addColorStop(0.68, "rgba(0,0,0,0)");
+        gradient.addColorStop(0.74, "rgba(0,0,0,0)");
         gradient.addColorStop(1, "rgba(0,0,0,1)");
         ctx.fillStyle = gradient;
         ctx.beginPath();
@@ -21491,17 +21491,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         nextW: sourceSize.width,
         nextH: sourceSize.height,
         model: annotationImageEditModel,
-        backgroundTaskInput: {
-          capability: "image_edit",
-          operation: "annotation_edit",
-          imageSrc: latestImageSrc,
-          maskSrc: annotationMask.maskSrc,
-          model: annotationImageEditModel,
-          prompt,
-          preserveSource: true,
-          targetWidth: sourceSize.width,
-          targetHeight: sourceSize.height,
-        },
         run: async () =>
           editImageWithPrompt({
             imageSrc: latestImageSrc,
