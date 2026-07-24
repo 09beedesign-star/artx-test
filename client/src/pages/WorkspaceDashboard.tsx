@@ -45,7 +45,7 @@ interface WsProject {
 
 const WORKSPACE_CARD_COVER_ASPECT_RATIO = "4/3";
 const WORKSPACE_CARD_INFO_HEIGHT = 96;
-const WORKSPACE_PROJECT_GRID_COLUMNS = "repeat(auto-fit, minmax(320px, 1fr))";
+const WORKSPACE_PROJECT_GRID_COLUMNS = "repeat(4, minmax(0, 1fr))";
 
 function fromHistoryProject(project: WorkspaceHistoryProject): WsProject {
   return {

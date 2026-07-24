@@ -12,7 +12,7 @@ describe("WorkspaceDashboard card sizing", () => {
     expect(createCardBlock).toBeTruthy();
     expect(source).toContain('const WORKSPACE_CARD_COVER_ASPECT_RATIO = "4/3";');
     expect(source).toContain('const WORKSPACE_CARD_INFO_HEIGHT = 96;');
-    expect(source).toContain('const WORKSPACE_PROJECT_GRID_COLUMNS = "repeat(auto-fit, minmax(320px, 1fr))";');
+    expect(source).toContain('const WORKSPACE_PROJECT_GRID_COLUMNS = "repeat(4, minmax(0, 1fr))";');
     expect(projectCardBlock).toContain("aspectRatio: WORKSPACE_CARD_COVER_ASPECT_RATIO");
     expect(projectCardBlock).toContain("height: WORKSPACE_CARD_INFO_HEIGHT");
     expect(projectCardBlock).toContain('width: "100%"');
