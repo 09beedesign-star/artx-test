@@ -50,7 +50,9 @@ export async function getPicWishBackgroundTemplates(language = "zh") {
   if (cachedTemplates && cachedTemplates.expiresAt > Date.now()) return cachedTemplates.templates;
   const apiKey = process.env.PICWISH_API_KEY || process.env.AOS_API_KEY || "";
   if (!apiKey) throw new Error("Missing PICWISH_API_KEY");
-  const baseUrl = (process.env.PICWISH_BASE_URL || "https://techsz.aoscdn.com").replace(/\/+$/, "");
+  // PicWish serves the template catalog from its separate scene-template host.
+  // Keep this isolated from the existing domestic task host used by image tools.
+  const baseUrl = (process.env.PICWISH_TEMPLATE_BASE_URL || "https://techhk.aoscdn.com").replace(/\/+$/, "");
   const url = new URL(`${baseUrl}/app/picwish/third-party/background-template`);
   url.searchParams.set("language", ["zh", "en", "tw"].includes(language) ? language : "zh");
   const response = await fetch(url, { headers: { "X-API-KEY": apiKey } });
