@@ -63,44 +63,6 @@ const RESOLUTION_PRESETS = [
   { label: "3:2", ratio: "3:2", width: 2400, height: 1600 },
 ] as const;
 
-const PRODUCT_BACKGROUND_STYLES = [
-  {
-    name: "商务科技感",
-    image: new URL("../../assets/smart-background/business-tech.jpg", import.meta.url).href,
-    prompt: "premium business technology showroom, cool white and blue directional lighting, transparent glass, brushed metal, structured display platform, restrained digital light accents and precise commercial reflections. Do not use a domestic living room, rustic materials, or playful cartoon props.",
-  },
-  {
-    name: "中国风",
-    image: new URL("../../assets/smart-background/chinese-style.jpg", import.meta.url).href,
-    prompt: "Chinese New Oriental commercial scene, refined Guochao aesthetic, vermilion lacquered wood, Chinese lattice or moon-gate structure, rice-paper or ink-wash texture, subtle celadon porcelain or jade details, restrained vermilion, ink black and warm gold palette, elegant Chinese spatial depth and directional lighting. Do not use a generic white-gray western minimalist living room, Scandinavian interior, or plain neutral studio.",
-  },
-  {
-    name: "欧美潮流",
-    image: new URL("../../assets/smart-background/western-fashion.jpg", import.meta.url).href,
-    prompt: "bold western contemporary fashion campaign, editorial urban studio, saturated color-block architecture, sculptural props, confident magazine composition and directional spotlight. Do not use Chinese traditional elements, restrained neutral home interiors, or generic catalog staging.",
-  },
-  {
-    name: "日韩风",
-    image: new URL("../../assets/smart-background/jk-pastel.jpg", import.meta.url).href,
-    prompt: "Japanese and Korean lifestyle commercial scene, low-saturation pastel palette, light wood, translucent acrylic, linen texture, tidy small-space styling, fresh daylight and soft natural shadows. Do not use neon cyberpunk, heavy luxury ornament, or dark industrial scenery.",
-  },
-  {
-    name: "赛博风",
-    image: new URL("../../assets/smart-background/cyberpunk.jpg", import.meta.url).href,
-    prompt: "futuristic cyberpunk commercial set, midnight blue and electric magenta light strips, glossy reflective metal floor, layered digital architecture, atmospheric haze and crisp rim light. Do not use a living room, daylight studio, or soft Scandinavian styling.",
-  },
-  {
-    name: "可爱呆萌系",
-    image: new URL("../../assets/smart-background/cute-toy.jpg", import.meta.url).href,
-    prompt: "cute playful commercial scene, pastel candy palette, rounded oversized props, plush toy texture, soft colorful lighting and cheerful 3D display design. Do not use dark mature interiors, industrial materials, or minimal monochrome staging.",
-  },
-  {
-    name: "二次元系",
-    image: new URL("../../assets/smart-background/anime-style.jpg", import.meta.url).href,
-    prompt: "polished anime-style commercial background, illustrated architecture, cel-shaded props, graphic perspective lines, vibrant anime palette and dynamic light. Keep the uploaded product photorealistic and unchanged; do not redraw it as an illustration.",
-  },
-] as const;
-
 const PRODUCT_COMPOSITIONS = [
   { id: "center", label: "居中主视觉", icon: AlignCenter, prompt: "Place the product in the visual center with balanced surrounding space and a clear hero presentation." },
   { id: "left", label: "左侧留白", icon: AlignLeft, prompt: "Place the product on the left third of the frame and reserve clean visual space on the right for the background scene." },
@@ -166,9 +128,6 @@ export function SmartCommerceProductDialog({
   } | null>(null);
   const [imageSrc, setImageSrc] = useState("");
   const [fileName, setFileName] = useState("");
-  const [selectedStyle, setSelectedStyle] = useState<(typeof PRODUCT_BACKGROUND_STYLES)[number]>(
-    PRODUCT_BACKGROUND_STYLES[0]
-  );
   const [selectedComposition, setSelectedComposition] = useState<(typeof PRODUCT_COMPOSITIONS)[number]>(
     PRODUCT_COMPOSITIONS[0]
   );
@@ -277,7 +236,9 @@ export function SmartCommerceProductDialog({
     setIsCreating(true);
     const prompt = [
       "创建真实、干净、有商业质感的产品背景。",
-      selectedPicwishTemplate ? `PicWish 背景模板：${selectedPicwishTemplate.name}` : `补充风格方向：${selectedStyle.prompt}`,
+      selectedPicwishTemplate
+        ? `电商背景模板：${selectedPicwishTemplate.name}`
+        : "使用 PicWish 默认随机电商背景模板。",
       `产品构图要求：${selectedComposition.prompt}`,
       `产品占画面比例要求：${selectedProductScale.prompt}`,
       "保持上传产品图的商品主体完整清晰，不改变产品颜色、材质、文字、标识、比例和外形。",
@@ -287,9 +248,9 @@ export function SmartCommerceProductDialog({
     const detail: SmartCommerceProductCreateDetail = {
       imageSrc,
       fileName,
-      userPrompt: selectedPicwishTemplate?.name || selectedStyle.name,
+      userPrompt: selectedPicwishTemplate?.name || "默认电商背景模板",
       prompt,
-      style: selectedStyle.name,
+      style: selectedPicwishTemplate?.name || "默认电商背景模板",
       composition: selectedComposition.id,
       productScale: selectedProductScale.id,
       sceneType: selectedPicwishTemplate?.id,
@@ -485,7 +446,7 @@ export function SmartCommerceProductDialog({
                 <Sparkles size={13} style={{ color: colors.accent }} />
               </div>
               <p className="mt-0.5 hidden text-[10px] leading-4 sm:block" style={{ color: colors.muted }}>
-                上传产品图片，选择背景风格、数量和输出分辨率。
+                上传产品图片，选择电商背景模板、数量和输出分辨率。
               </p>
             </div>
           </div>
@@ -562,8 +523,11 @@ export function SmartCommerceProductDialog({
                 </div>
               </div>
 
-              <div className="mt-4">
-                <SectionTitle>PicWish 背景模板</SectionTitle>
+            </section>
+
+            <section className="min-w-0">
+              <div>
+                <SectionTitle>电商背景模板选择</SectionTitle>
                 <button
                   type="button"
                   className="flex h-20 w-full items-center justify-center gap-3 rounded-md px-4 text-left transition-colors"
@@ -573,54 +537,18 @@ export function SmartCommerceProductDialog({
                     background: showPicwishSelector ? "rgba(197,237,71,0.1)" : colors.surface,
                   }}
                   onClick={() => setShowPicwishSelector(true)}
-                  title="PicWish 背景模板库"
+                  title="电商背景模板选择"
                 >
                   <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md" style={{ color: colors.accent, background: "rgba(197,237,71,0.12)" }}>
                     <Sparkles size={17} />
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-[11px] font-semibold">{selectedPicwishTemplate?.name || "选择 PicWish 模板"}</span>
+                    <span className="block text-[11px] font-semibold">{selectedPicwishTemplate?.name || "选择电商背景模板"}</span>
                     <span className="mt-0.5 block truncate text-[10px]" style={{ color: colors.muted }}>
-                      {selectedPicwishTemplate ? selectedPicwishTemplate.category : "从 PicWish 模板库选择背景风格"}
+                      {selectedPicwishTemplate ? selectedPicwishTemplate.category : "从 PicWish 模板库选择商品背景"}
                     </span>
                   </span>
                 </button>
-              </div>
-            </section>
-
-            <section className="min-w-0">
-              <div>
-                <SectionTitle>背景风格</SectionTitle>
-                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-                  {PRODUCT_BACKGROUND_STYLES.map(style => {
-                    const active = !selectedPicwishTemplate && selectedStyle.name === style.name;
-                    return (
-                      <button
-                        key={style.name}
-                        type="button"
-                        className="relative h-14 overflow-hidden rounded-md text-left"
-                        style={{
-                          border: `1px solid ${active ? "rgba(197,237,71,0.68)" : colors.border}`,
-                        }}
-                        onClick={() => { setSelectedStyle(style); setSelectedPicwishTemplate(undefined); }}
-                      >
-                        <img
-                          src={style.image}
-                          alt={`${style.name}背景风格`}
-                          className="absolute inset-0 h-full w-full object-cover"
-                          draggable={false}
-                        />
-                        <span className="absolute inset-0 bg-black/45" />
-                        <span className="absolute inset-x-2 bottom-1.5 truncate text-[10px] font-semibold text-white">
-                          {style.name}
-                        </span>
-                        {active ? (
-                          <Check className="absolute right-1.5 top-1.5" size={12} style={{ color: colors.accent }} />
-                        ) : null}
-                      </button>
-                    );
-                  })}
-                </div>
               </div>
 
               <div className="mt-4">

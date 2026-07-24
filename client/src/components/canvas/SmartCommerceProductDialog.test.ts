@@ -8,11 +8,11 @@ describe("SmartCommerceProductDialog", () => {
     "utf8"
   );
 
-  it("keeps only the basic product upload, style, count, and resolution workflow", () => {
+  it("keeps only the basic product upload, template, count, and resolution workflow", () => {
     for (const label of [
       "产品图片",
       "上传产品图片",
-      "背景风格",
+      "电商背景模板选择",
       "常用画幅",
       "分辨率",
       "生成数量",
@@ -85,45 +85,21 @@ describe("SmartCommerceProductDialog", () => {
     expect(source).not.toContain('SectionTitle aside={`${outputSize.width}×${outputSize.height}`}>常用画幅');
   });
 
-  it("keeps the PicWish template entry below the output controls instead of among background styles", () => {
-    const templatePosition = source.indexOf("<SectionTitle>PicWish 背景模板</SectionTitle>");
-    const rightColumnPosition = source.indexOf('<section className="min-w-0">', templatePosition);
-    const stylePosition = source.indexOf("<SectionTitle>背景风格</SectionTitle>");
-    expect(templatePosition).toBeGreaterThan(source.indexOf("常用画幅"));
-    expect(templatePosition).toBeLessThan(rightColumnPosition);
-    expect(stylePosition).toBeGreaterThan(rightColumnPosition);
+  it("uses the right-column top area for the ecommerce background template selector", () => {
+    const rightColumnPosition = source.indexOf('<section className="min-w-0">', source.indexOf("常用画幅"));
+    const templatePosition = source.indexOf("<SectionTitle>电商背景模板选择</SectionTitle>");
+    expect(templatePosition).toBeGreaterThan(rightColumnPosition);
+    expect(source).not.toContain("<SectionTitle>背景风格</SectionTitle>");
+    expect(source).not.toContain("<SectionTitle>PicWish 背景模板</SectionTitle>");
   });
 
-  it("keeps all seven background styles as distinct commercial scene constraints", () => {
-    for (const label of [
-      "商务科技感",
-      "中国风",
-      "欧美潮流",
-      "日韩风",
-      "赛博风",
-      "可爱呆萌系",
-      "二次元系",
-    ]) {
-      expect(source).toContain(`name: "${label}"`);
-    }
-    expect(source).toContain("anime-style.jpg");
-    for (const promptCue of [
-      "premium business technology showroom",
-      "Chinese New Oriental commercial scene",
-      "bold western contemporary fashion campaign",
-      "Japanese and Korean lifestyle commercial scene",
-      "futuristic cyberpunk commercial set",
-      "cute playful commercial scene",
-      "polished anime-style commercial background",
-    ]) {
-      expect(source).toContain(promptCue);
-    }
-    expect(source).toContain("Chinese New Oriental commercial scene");
-    expect(source).toContain("Chinese lattice or moon-gate structure");
-    expect(source).toContain("Do not use a generic white-gray western minimalist living room");
+  it("uses the selected template or PicWish random background without local background style cards", () => {
     expect(source).toContain("创建真实、干净、有商业质感的产品背景。");
-    expect(source).toContain("补充风格方向：${selectedStyle.prompt}");
+    expect(source).toContain("使用 PicWish 默认随机电商背景模板。");
+    expect(source).toContain("电商背景模板：${selectedPicwishTemplate.name}");
     expect(source).toContain("风格只能影响背景");
+    expect(source).not.toContain("PRODUCT_BACKGROUND_STYLES");
+    expect(source).not.toContain("selectedStyle");
   });
 
   it("sends product composition and frame occupancy controls with the generated background request", () => {
