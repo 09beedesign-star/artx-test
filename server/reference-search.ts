@@ -108,7 +108,7 @@ function normalizeReferenceImageResult(
     height?: number;
     source?: string;
   }
-) {
+): ReferenceImageResult | null {
   const src = input.src?.trim();
   if (!src || !/^https?:\/\//i.test(src)) return null;
   return {
