@@ -121,6 +121,7 @@ export type ReferenceImageResult = {
   id: string;
   title: string;
   src: string;
+  originalSrc?: string;
   width: number;
   height: number;
   source: string;
@@ -446,7 +447,12 @@ export async function searchReferenceImages({
   const endpoint = `${baseUrl}/api/references/search`;
   const result = await fetchAiJson<ApiErrorResponse & { images?: ReferenceImageResult[] }>(endpoint, { query, limit }, "参考图抓取失败");
 
-  return { images: result.images || [] };
+  return {
+    images: (result.images || []).map(image => ({
+      ...image,
+      src: image.src.startsWith("/") ? new URL(image.src, baseUrl).toString() : image.src,
+    })),
+  };
 }
 
 export async function generateImages({

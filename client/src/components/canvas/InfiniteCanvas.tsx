@@ -17634,6 +17634,20 @@ function CanvasAssistantPanel({
     );
   }, []);
 
+  const handleReferenceOptionImageError = useCallback((messageId: string, referenceId: string) => {
+    setSelectedReferenceIds(prev => prev.filter(id => id !== referenceId));
+    setMessages(prev =>
+      prev.map(message =>
+        message.id === messageId
+          ? {
+              ...message,
+              referenceOptions: message.referenceOptions?.filter(item => item.id !== referenceId),
+            }
+          : message
+      )
+    );
+  }, []);
+
   const handleReferenceSelectionApply = useCallback(
     (message: CanvasAssistantMessage) => {
       const selected = (message.referenceOptions || []).filter(item =>
@@ -18955,6 +18969,12 @@ function CanvasAssistantPanel({
                                             alt={item.title}
                                             draggable={false}
                                             className="w-full"
+                                            onError={() =>
+                                              handleReferenceOptionImageError(
+                                                message.id,
+                                                item.id
+                                              )
+                                            }
                                             style={{
                                               aspectRatio: "1 / 1",
                                               objectFit: "cover",

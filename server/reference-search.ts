@@ -14,6 +14,7 @@ export type ReferenceImageResult = {
   id: string;
   title: string;
   src: string;
+  originalSrc?: string;
   width: number;
   height: number;
   source: string;
@@ -49,6 +50,55 @@ function getDuckDuckGoVqd(html: string) {
   return html.match(/vqd=["']?([^"'&]+)["']?/i)?.[1] || "";
 }
 
+function getReferenceImageFetchHeaders(src: string) {
+  const headers: Record<string, string> = {
+    "User-Agent": "Mozilla/5.0 ArtXReferenceSearch/1.0",
+    "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.6",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+  };
+  try {
+    const parsed = new URL(src);
+    headers.Referer = `${parsed.protocol}//${parsed.host}/`;
+  } catch {
+    // URL validity is checked before this helper is used.
+  }
+  return headers;
+}
+
+async function isLoadableReferenceImage(image: ReferenceImageResult) {
+  const src = image.originalSrc || image.src;
+  if (!/^https?:\/\//i.test(src)) return false;
+  try {
+    const response = await fetch(src, {
+      method: "GET",
+      redirect: "follow",
+      headers: getReferenceImageFetchHeaders(src),
+      signal: AbortSignal.timeout(5000),
+    });
+    response.body?.cancel().catch(() => undefined);
+    if (!response.ok) return false;
+    const contentType = response.headers.get("content-type") || "";
+    return /^image\//i.test(contentType);
+  } catch {
+    return false;
+  }
+}
+
+async function filterLoadableReferenceImages(images: ReferenceImageResult[], limit: number) {
+  const loadable: ReferenceImageResult[] = [];
+  for (const image of images) {
+    if (await isLoadableReferenceImage(image)) {
+      loadable.push(image);
+      if (loadable.length >= limit) break;
+    }
+  }
+  return loadable;
+}
+
+function buildReferenceImageProxyUrl(src: string) {
+  return `/api/images/proxy?url=${encodeURIComponent(src)}`;
+}
+
 function normalizeReferenceImageResult(
   input: {
     id: string;
@@ -64,7 +114,8 @@ function normalizeReferenceImageResult(
   return {
     id: input.id,
     title: input.title?.trim() || "参考图",
-    src,
+    src: buildReferenceImageProxyUrl(src),
+    originalSrc: src,
     width: input.width || 1200,
     height: input.height || 1200,
     source: input.source?.trim() || getHostname(src) || "Web",
@@ -75,7 +126,7 @@ function dedupeReferenceImages(images: ReferenceImageResult[], limit: number) {
   const seen = new Set<string>();
   const deduped: ReferenceImageResult[] = [];
   for (const image of images) {
-    const key = image.src.replace(/([?&])(width|height|w|h|size|format|quality)=[^&]+/gi, "$1").toLowerCase();
+    const key = (image.originalSrc || image.src).replace(/([?&])(width|height|w|h|size|format|quality)=[^&]+/gi, "$1").toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
     deduped.push(image);
@@ -142,7 +193,7 @@ async function searchDuckDuckGoImages(query: string, limit: number) {
     )
     .filter((item): item is ReferenceImageResult => Boolean(item));
 
-  const deduped = dedupeReferenceImages(images, limit);
+  const deduped = await filterLoadableReferenceImages(dedupeReferenceImages(images, limit * 2), limit);
   if (deduped.length === 0) {
     throw new Error("No web reference images found");
   }
@@ -194,7 +245,7 @@ async function searchWikimediaImages(query: string, limit: number) {
     })
     .filter((item): item is ReferenceImageResult => Boolean(item));
 
-  const deduped = dedupeReferenceImages(images, clampedLimit);
+  const deduped = await filterLoadableReferenceImages(dedupeReferenceImages(images, clampedLimit * 2), clampedLimit);
   if (deduped.length === 0) {
     throw new Error("No Wikimedia reference images found");
   }
