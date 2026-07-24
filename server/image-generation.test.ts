@@ -66,6 +66,31 @@ describe("generated image source normalization", () => {
     expect(requestedModels.length).toBeGreaterThan(1);
   });
 
+  it("treats provider fetch failures as retryable image gateway failures", async () => {
+    vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
+    vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
+    vi.stubEnv("AI_IMAGE_MODEL", "og-image2-medium");
+    const requestedModels: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      const body = JSON.parse(String(init?.body || "{}"));
+      requestedModels.push(body.model);
+      if (body.model === "og-image2-medium") {
+        throw new TypeError("fetch failed");
+      }
+      return Response.json({ data: [{ b64_json: ONE_PIXEL_PNG_BASE64 }] });
+    });
+
+    const result = await generateImages({
+      prompt: "一只小白兔",
+      model: "auto",
+      ratio: "1:1",
+    });
+
+    expect(result.images).toHaveLength(1);
+    expect(requestedModels.filter(model => model === "og-image2-medium")).toHaveLength(2);
+    expect(requestedModels.some(model => model !== "og-image2-medium")).toBe(true);
+  });
+
   it("does not replace a user-selected image model after a gateway failure", async () => {
     vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
     vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
@@ -655,6 +680,81 @@ describe("generated image source normalization", () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/edits"))).toBe(true);
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/generations"))).toBe(false);
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(true);
+    const resultBuffer = Buffer.from(result.images[0].src.split(",")[1], "base64");
+    const resultPixels = await sharp(resultBuffer).ensureAlpha().raw().toBuffer();
+    expect(Array.from(resultPixels.subarray(0, 4))).toEqual([0, 255, 0, 255]);
+    expect(Array.from(resultPixels.subarray((95 * 4), (96 * 4)))).toEqual([255, 0, 0, 255]);
+  });
+
+  it("continues smart annotation reference fallback after a chat fetch failure", async () => {
+    vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
+    vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
+    vi.stubEnv("AI_IMAGE_MODEL", "og-image2-medium");
+
+    const source = await sharp({
+      create: {
+        width: 96,
+        height: 64,
+        channels: 3,
+        background: "#ff0000",
+      },
+    }).png().toBuffer();
+    const edited = await sharp({
+      create: {
+        width: 96,
+        height: 64,
+        channels: 3,
+        background: "#00ff00",
+      },
+    }).png().toBuffer();
+    const maskPixels = Buffer.alloc(96 * 64 * 4, 255);
+    for (let y = 0; y < 64; y += 1) {
+      for (let x = 0; x < 48; x += 1) {
+        maskPixels[(y * 96 + x) * 4 + 3] = 0;
+      }
+    }
+    const mask = await sharp(maskPixels, {
+      raw: { width: 96, height: 64, channels: 4 },
+    }).png().toBuffer();
+
+    const requestedModels: string[] = [];
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      const endpoint = String(url);
+      if (endpoint.endsWith("/images/edits")) {
+        return new Response(JSON.stringify({ error: { message: "openai_error / bad_response_status_code" } }), {
+          status: 502,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      const body = JSON.parse(String(init?.body || "{}"));
+      requestedModels.push(body.model);
+      if (endpoint.endsWith("/chat/completions")) {
+        throw new TypeError("fetch failed");
+      }
+      if (endpoint.endsWith("/images/generations")) {
+        return Response.json({
+          data: [{ b64_json: edited.toString("base64") }],
+        });
+      }
+      throw new Error(`Unexpected fetch ${endpoint}`);
+    });
+
+    const result = await editImageWithPrompt({
+      imageSrc: `data:image/png;base64,${source.toString("base64")}`,
+      maskSrc: `data:image/png;base64,${mask.toString("base64")}`,
+      prompt: "给人物戴上一副眼镜",
+      operation: "annotation_edit",
+      preserveSource: true,
+      targetWidth: 96,
+      targetHeight: 64,
+      model: "auto",
+    });
+
+    expect(result.images).toHaveLength(1);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(true);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/generations"))).toBe(true);
+    expect(requestedModels).toContain("gemini-3.5-flash-preview");
+    expect(requestedModels).toContain("og-image2-medium");
     const resultBuffer = Buffer.from(result.images[0].src.split(",")[1], "base64");
     const resultPixels = await sharp(resultBuffer).ensureAlpha().raw().toBuffer();
     expect(Array.from(resultPixels.subarray(0, 4))).toEqual([0, 255, 0, 255]);

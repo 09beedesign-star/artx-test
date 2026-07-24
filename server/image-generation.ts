@@ -1014,7 +1014,12 @@ function isProviderCapacityError(message: string) {
 }
 
 function isProviderGatewayError(message: string) {
-  return /openai_error|bad_response_status_code|bad response status|图片生成服务暂时没有返回可用结果|image (chat )?provider model .* timed out/i.test(message);
+  return isProviderNetworkError(message) ||
+    /openai_error|bad_response_status_code|bad response status|图片生成服务暂时没有返回可用结果|image (chat )?provider model .* timed out/i.test(message);
+}
+
+function isProviderNetworkError(message: string) {
+  return /fetch failed|network-error|network error|socket hang up|connection (reset|closed|refused)|econnreset|etimedout/i.test(message);
 }
 
 function isProviderModelCompatibilityError(message: string) {
@@ -2413,6 +2418,44 @@ export function __testAssertSourcePreservingMask(
 
 const PICWISH_MAX_INPUT_BYTES = 4.8 * 1024 * 1024;
 const PICWISH_MAX_INPUT_SIDE = 4096;
+const IMAGE_PROVIDER_REFERENCE_MAX_SIDE = 1536;
+const IMAGE_PROVIDER_REFERENCE_MAX_BYTES = 1.8 * 1024 * 1024;
+
+async function prepareImageProviderReferenceDataUrl(
+  buffer: Buffer,
+  mimeType = "image/png",
+): Promise<string> {
+  const sharp = (await import("sharp")).default;
+  const metadata = await sharp(buffer, { limitInputPixels: false }).metadata();
+  const sourceWidth = Math.max(1, metadata.width || 1);
+  const sourceHeight = Math.max(1, metadata.height || 1);
+  const scale = Math.min(1, IMAGE_PROVIDER_REFERENCE_MAX_SIDE / Math.max(sourceWidth, sourceHeight));
+  const width = Math.max(1, Math.round(sourceWidth * scale));
+  const height = Math.max(1, Math.round(sourceHeight * scale));
+  const normalizedMimeType = mimeType.toLowerCase();
+
+  if (
+    scale === 1 &&
+    buffer.length <= IMAGE_PROVIDER_REFERENCE_MAX_BYTES &&
+    /png|jpe?g|webp/.test(normalizedMimeType)
+  ) {
+    return `data:${mimeType};base64,${buffer.toString("base64")}`;
+  }
+
+  for (const quality of [88, 82, 76, 70]) {
+    const output = await sharp(buffer, { limitInputPixels: false })
+      .rotate()
+      .resize(width, height, { fit: "inside", withoutEnlargement: true })
+      .flatten({ background: { r: 255, g: 255, b: 255 } })
+      .jpeg({ quality, mozjpeg: true })
+      .toBuffer();
+    if (output.length <= IMAGE_PROVIDER_REFERENCE_MAX_BYTES || quality === 70) {
+      return `data:image/jpeg;base64,${output.toString("base64")}`;
+    }
+  }
+
+  return `data:${mimeType};base64,${buffer.toString("base64")}`;
+}
 
 export async function __testPreparePicWishExpansionSourceImage(
   buffer: Buffer,
@@ -3144,16 +3187,19 @@ function resolveSmartAnnotationEditModel(requestedModel: string | undefined, con
 }
 
 function getSmartAnnotationReferenceEditModels(selectedModel: string) {
+  const fallbackAttempts = getImageModelFallbackAttempts("auto");
   const referenceCapableModels = getImageModelFallbackAttempts("auto")
     .filter(isChatCompatibleImageModel);
   if (selectedModel === "gpt-image-2") {
-    return referenceCapableModels.length > 0
-      ? referenceCapableModels
-      : getImageModelFallbackAttempts("auto");
+    return Array.from(new Set([
+      ...referenceCapableModels,
+      ...fallbackAttempts,
+    ]));
   }
   return Array.from(new Set([
     selectedModel,
     ...referenceCapableModels,
+    ...fallbackAttempts,
   ]));
 }
 
@@ -3234,13 +3280,16 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
     return { images };
   };
   const editAnnotationViaReferenceGeneration = async () => {
-    const sourceDataUrl = `data:${sourceImageData.mimeType};base64,${sourceImageData.buffer.toString("base64")}`;
-    const editGuideDataUrl = `data:image/png;base64,${(await createLocalEditGuideImage(
+    const sourceDataUrl = await prepareImageProviderReferenceDataUrl(
+      sourceImageData.buffer,
+      sourceImageData.mimeType,
+    );
+    const editGuideDataUrl = await prepareImageProviderReferenceDataUrl(await createLocalEditGuideImage(
       sourceImageData.buffer,
       maskImageData.buffer,
       targetWidth,
       targetHeight,
-    )).toString("base64")}`;
+    ), "image/png");
     const aspect = targetWidth / Math.max(1, targetHeight);
     const ratio = aspect > 1.2 ? "16:9" : aspect < 0.85 ? "9:16" : "1:1";
     const fallbackModels = getSmartAnnotationReferenceEditModels(selectedModel);
