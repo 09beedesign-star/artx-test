@@ -166,7 +166,6 @@ export function SmartCommerceProductDialog({
   } | null>(null);
   const [imageSrc, setImageSrc] = useState("");
   const [fileName, setFileName] = useState("");
-  const [userPrompt, setUserPrompt] = useState("");
   const [selectedStyle, setSelectedStyle] = useState<(typeof PRODUCT_BACKGROUND_STYLES)[number]>(
     PRODUCT_BACKGROUND_STYLES[0]
   );
@@ -275,24 +274,20 @@ export function SmartCommerceProductDialog({
       toast("请先上传产品图片");
       return;
     }
-    const trimmedPrompt = userPrompt.trim();
     setIsCreating(true);
     const prompt = [
-      trimmedPrompt
-        ? `用户明确要求：${trimmedPrompt}`
-        : "用户未输入额外要求：创建真实、干净、有商业质感的产品背景。",
+      "创建真实、干净、有商业质感的产品背景。",
       selectedPicwishTemplate ? `PicWish 背景模板：${selectedPicwishTemplate.name}` : `补充风格方向：${selectedStyle.prompt}`,
       `产品构图要求：${selectedComposition.prompt}`,
       `产品占画面比例要求：${selectedProductScale.prompt}`,
       "保持上传产品图的商品主体完整清晰，不改变产品颜色、材质、文字、标识、比例和外形。",
       "风格只能影响背景、道具和环境氛围，不能卡通化、重绘或重新解释产品主体。",
-      "用户明确要求与风格方向冲突时，以用户明确要求为准。",
-      "只生成与用户提示词匹配的商业化背景、真实光影、空间和氛围。",
+      "只生成与选定风格匹配的商业化背景、真实光影、空间和氛围。",
     ].join("\n");
     const detail: SmartCommerceProductCreateDetail = {
       imageSrc,
       fileName,
-      userPrompt: trimmedPrompt || selectedPicwishTemplate?.name || selectedStyle.name,
+      userPrompt: selectedPicwishTemplate?.name || selectedStyle.name,
       prompt,
       style: selectedStyle.name,
       composition: selectedComposition.id,
@@ -490,7 +485,7 @@ export function SmartCommerceProductDialog({
                 <Sparkles size={13} style={{ color: colors.accent }} />
               </div>
               <p className="mt-0.5 hidden text-[10px] leading-4 sm:block" style={{ color: colors.muted }}>
-                上传产品图片，输入背景要求，选择数量和输出分辨率。
+                上传产品图片，选择背景风格、数量和输出分辨率。
               </p>
             </div>
           </div>
@@ -566,40 +561,37 @@ export function SmartCommerceProductDialog({
                   </div>
                 </div>
               </div>
+
+              <div className="mt-4">
+                <SectionTitle>PicWish 背景模板</SectionTitle>
+                <button
+                  type="button"
+                  className="flex h-20 w-full items-center justify-center gap-3 rounded-md px-4 text-left transition-colors"
+                  style={{
+                    color: colors.text,
+                    border: `1px solid ${showPicwishSelector ? "rgba(197,237,71,0.68)" : colors.border}`,
+                    background: showPicwishSelector ? "rgba(197,237,71,0.1)" : colors.surface,
+                  }}
+                  onClick={() => setShowPicwishSelector(true)}
+                  title="PicWish 背景模板库"
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md" style={{ color: colors.accent, background: "rgba(197,237,71,0.12)" }}>
+                    <Sparkles size={17} />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-[11px] font-semibold">{selectedPicwishTemplate?.name || "选择 PicWish 模板"}</span>
+                    <span className="mt-0.5 block truncate text-[10px]" style={{ color: colors.muted }}>
+                      {selectedPicwishTemplate ? selectedPicwishTemplate.category : "从 PicWish 模板库选择背景风格"}
+                    </span>
+                  </span>
+                </button>
+              </div>
             </section>
 
             <section className="min-w-0">
-              <SectionTitle aside="用于生成背景">提示词</SectionTitle>
-              <textarea
-                className="min-h-[112px] w-full resize-none rounded-md px-3 py-2 text-[11px] leading-5 outline-none"
-                style={{
-                  color: colors.text,
-                  background: colors.surface,
-                  border: `1px solid ${colors.border}`,
-                }}
-                value={userPrompt}
-                onChange={event => setUserPrompt(event.target.value)}
-                placeholder="例如：干净的高级灰摄影棚背景，柔和侧光，产品底部有自然接触阴影。"
-              />
-
-              <div className="mt-4">
-                <SectionTitle aside="用户要求优先">背景风格</SectionTitle>
+              <div>
+                <SectionTitle>背景风格</SectionTitle>
                 <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-                  <button
-                    type="button"
-                    className="relative h-14 overflow-hidden rounded-md text-left flex items-center justify-center"
-                    style={{
-                      border: `1px solid ${showPicwishSelector ? "rgba(197,237,71,0.68)" : colors.border}`,
-                      background: colors.surface,
-                    }}
-                    onClick={() => setShowPicwishSelector(true)}
-                    title="PicWish 背景模板库"
-                  >
-                    <div className="flex flex-col items-center gap-1">
-                      <Sparkles size={14} style={{ color: colors.accent }} />
-                      <span className="text-[9px] font-semibold text-center px-1">PicWish 模板</span>
-                    </div>
-                  </button>
                   {PRODUCT_BACKGROUND_STYLES.map(style => {
                     const active = !selectedPicwishTemplate && selectedStyle.name === style.name;
                     return (

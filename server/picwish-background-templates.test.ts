@@ -8,8 +8,8 @@ describe("PicWish background template integration", () => {
     expect(source).toContain('process.env.PICWISH_API_KEY');
     expect(source).toContain('/app/picwish/third-party/background-template');
     expect(source).toContain('"X-API-KEY": apiKey');
-    expect(source).toContain('process.env.PICWISH_TEMPLATE_BASE_URL');
-    expect(source).toContain('"https://techhk.aoscdn.com"');
+    expect(source).toContain('process.env.PICWISH_BASE_URL');
+    expect(source).toContain('"https://techsz.aoscdn.com"');
   });
 
   it("exposes a template route and passes the chosen scene type to r-background", () => {

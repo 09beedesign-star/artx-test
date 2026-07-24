@@ -8,11 +8,11 @@ describe("SmartCommerceProductDialog", () => {
     "utf8"
   );
 
-  it("keeps only the basic product upload, prompt, count, and resolution workflow", () => {
+  it("keeps only the basic product upload, style, count, and resolution workflow", () => {
     for (const label of [
       "产品图片",
       "上传产品图片",
-      "提示词",
+      "背景风格",
       "常用画幅",
       "分辨率",
       "生成数量",
@@ -20,6 +20,8 @@ describe("SmartCommerceProductDialog", () => {
     ]) {
       expect(source).toContain(label);
     }
+    expect(source).not.toContain('SectionTitle aside="用于生成背景">提示词</SectionTitle>');
+    expect(source).not.toContain('placeholder="例如：干净的高级灰摄影棚背景');
 
     for (const removedCommerceLabel of [
       "选择平台",
@@ -83,6 +85,15 @@ describe("SmartCommerceProductDialog", () => {
     expect(source).not.toContain('SectionTitle aside={`${outputSize.width}×${outputSize.height}`}>常用画幅');
   });
 
+  it("keeps the PicWish template entry below the output controls instead of among background styles", () => {
+    const templatePosition = source.indexOf("<SectionTitle>PicWish 背景模板</SectionTitle>");
+    const rightColumnPosition = source.indexOf('<section className="min-w-0">', templatePosition);
+    const stylePosition = source.indexOf("<SectionTitle>背景风格</SectionTitle>");
+    expect(templatePosition).toBeGreaterThan(source.indexOf("常用画幅"));
+    expect(templatePosition).toBeLessThan(rightColumnPosition);
+    expect(stylePosition).toBeGreaterThan(rightColumnPosition);
+  });
+
   it("keeps all seven background styles as distinct commercial scene constraints", () => {
     for (const label of [
       "商务科技感",
@@ -110,7 +121,7 @@ describe("SmartCommerceProductDialog", () => {
     expect(source).toContain("Chinese New Oriental commercial scene");
     expect(source).toContain("Chinese lattice or moon-gate structure");
     expect(source).toContain("Do not use a generic white-gray western minimalist living room");
-    expect(source).toContain("用户明确要求：${trimmedPrompt}");
+    expect(source).toContain("创建真实、干净、有商业质感的产品背景。");
     expect(source).toContain("补充风格方向：${selectedStyle.prompt}");
     expect(source).toContain("风格只能影响背景");
   });
