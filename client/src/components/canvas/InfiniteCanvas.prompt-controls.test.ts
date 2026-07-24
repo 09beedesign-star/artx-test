@@ -340,6 +340,10 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain('new CustomEvent("canvas-reference-search-results"');
     expect(source).toContain('window.addEventListener("canvas-reference-search-results", handler)');
     expect(source).toContain("void addDroppedImageSources(sources, origin);");
+    expect(source).toContain("handleReferenceOptionDragStart");
+    expect(source).toContain('event.dataTransfer.setData("text/uri-list", item.src);');
+    expect(source).toContain("handleReferenceOptionDoubleClick");
+    expect(source).toContain("detail: { images: [item] }");
     expect(intentSource).toContain("EXPLICIT_REFERENCE_SEARCH_PATTERN.test(trimmedPrompt)");
     expect(intentSource).toContain('mode: "reference_search"');
   });

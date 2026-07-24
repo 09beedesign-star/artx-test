@@ -17648,6 +17648,32 @@ function CanvasAssistantPanel({
     );
   }, []);
 
+  const handleReferenceOptionDragStart = useCallback((
+    event: React.DragEvent<HTMLButtonElement>,
+    item: ReferenceImageResult
+  ) => {
+    event.dataTransfer.effectAllowed = "copy";
+    event.dataTransfer.setData("text/uri-list", item.src);
+    event.dataTransfer.setData("text/plain", item.src);
+    event.dataTransfer.setData(
+      "text/html",
+      `<img src="${item.src.replace(/"/g, "&quot;")}" alt="${item.title.replace(/"/g, "&quot;")}" />`
+    );
+  }, []);
+
+  const handleReferenceOptionDoubleClick = useCallback((
+    event: React.MouseEvent<HTMLButtonElement>,
+    item: ReferenceImageResult
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    window.dispatchEvent(
+      new CustomEvent("canvas-reference-search-results", {
+        detail: { images: [item] },
+      })
+    );
+  }, []);
+
   const handleReferenceSelectionApply = useCallback(
     (message: CanvasAssistantMessage) => {
       const selected = (message.referenceOptions || []).filter(item =>
@@ -18948,6 +18974,7 @@ function CanvasAssistantPanel({
                                         <button
                                           key={item.id}
                                           type="button"
+                                          draggable
                                           className="overflow-hidden rounded-[var(--radius-md-design)] text-left transition-all"
                                           style={{
                                             border: `1px solid ${active ? "rgba(197,237,71,0.58)" : border}`,
@@ -18961,6 +18988,18 @@ function CanvasAssistantPanel({
                                           onClick={() =>
                                             handleReferenceSelectionToggle(
                                               item.id
+                                            )
+                                          }
+                                          onDoubleClick={event =>
+                                            handleReferenceOptionDoubleClick(
+                                              event,
+                                              item
+                                            )
+                                          }
+                                          onDragStart={event =>
+                                            handleReferenceOptionDragStart(
+                                              event,
+                                              item
                                             )
                                           }
                                         >
