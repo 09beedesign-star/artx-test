@@ -435,6 +435,8 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(annotationEditBlock).toContain("用户修改建议");
     expect(annotationEditBlock).toContain("createAnnotationEditMask");
     expect(annotationEditBlock).toContain("preserveSource: true");
+    expect(source).toContain('ctx.globalCompositeOperation = "destination-out";');
+    expect(source).toContain('ctx.globalCompositeOperation = "source-over";');
   });
 
   it("masks only the smart-copy fields that the user actually changed", () => {

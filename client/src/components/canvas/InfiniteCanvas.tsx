@@ -11148,13 +11148,15 @@ async function createAnnotationEditMask(
           centerY,
           radius
         );
-        gradient.addColorStop(0, "rgba(0,0,0,0)");
-        gradient.addColorStop(0.74, "rgba(0,0,0,0)");
-        gradient.addColorStop(1, "rgba(0,0,0,1)");
+        gradient.addColorStop(0, "rgba(0,0,0,1)");
+        gradient.addColorStop(0.74, "rgba(0,0,0,1)");
+        gradient.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.globalCompositeOperation = "destination-out";
         ctx.fillStyle = gradient;
         ctx.beginPath();
         ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
         ctx.fill();
+        ctx.globalCompositeOperation = "source-over";
 
         resolve({ maskSrc: canvas.toDataURL("image/png"), width, height });
       };
