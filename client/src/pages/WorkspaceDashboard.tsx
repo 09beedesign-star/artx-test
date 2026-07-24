@@ -45,6 +45,7 @@ interface WsProject {
 
 const WORKSPACE_CARD_COVER_ASPECT_RATIO = "4/3";
 const WORKSPACE_CARD_INFO_HEIGHT = 96;
+const WORKSPACE_PROJECT_GRID_COLUMNS = "repeat(auto-fit, minmax(320px, 1fr))";
 
 function fromHistoryProject(project: WorkspaceHistoryProject): WsProject {
   return {
@@ -220,6 +221,7 @@ function ProjectCard({
     <div
       className="group relative rounded-[var(--radius-lg-design)] overflow-hidden cursor-pointer transition-all"
       style={{
+        width: "100%",
         background: cardBg,
         border: `1.5px solid ${cardBorder}`,
         boxShadow: "0 2px 12px rgba(0,0,0,0.15)",
@@ -298,7 +300,6 @@ function CreateProjectCard({ isDark, onCreate }: { isDark: boolean; onCreate: ()
       onClick={onCreate}
       className="rounded-[var(--radius-lg-design)] overflow-hidden transition-all group"
       style={{
-        alignSelf: "start",
         width: "100%",
         background: bg,
         border: `1.5px dashed ${border}`,
@@ -434,8 +435,10 @@ export default function WorkspaceDashboard() {
         </div>
 
         {/* Project Grid */}
-        <div className="grid gap-7" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
-          <CreateProjectCard isDark={isDark} onCreate={() => setShowCreate(true)} />
+        <div className="grid gap-7" style={{ gridTemplateColumns: WORKSPACE_PROJECT_GRID_COLUMNS }}>
+          <div className="project-card">
+            <CreateProjectCard isDark={isDark} onCreate={() => setShowCreate(true)} />
+          </div>
           {projects.map(project => (
             <div key={project.id} data-project-id={project.id} className="project-card">
               <ProjectCard

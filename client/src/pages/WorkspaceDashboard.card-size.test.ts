@@ -12,11 +12,16 @@ describe("WorkspaceDashboard card sizing", () => {
     expect(createCardBlock).toBeTruthy();
     expect(source).toContain('const WORKSPACE_CARD_COVER_ASPECT_RATIO = "4/3";');
     expect(source).toContain('const WORKSPACE_CARD_INFO_HEIGHT = 96;');
+    expect(source).toContain('const WORKSPACE_PROJECT_GRID_COLUMNS = "repeat(auto-fit, minmax(320px, 1fr))";');
     expect(projectCardBlock).toContain("aspectRatio: WORKSPACE_CARD_COVER_ASPECT_RATIO");
     expect(projectCardBlock).toContain("height: WORKSPACE_CARD_INFO_HEIGHT");
+    expect(projectCardBlock).toContain('width: "100%"');
     expect(createCardBlock).toContain("aspectRatio: WORKSPACE_CARD_COVER_ASPECT_RATIO");
     expect(createCardBlock).toContain("height: WORKSPACE_CARD_INFO_HEIGHT");
-    expect(createCardBlock).toContain('alignSelf: "start"');
+    expect(createCardBlock).toContain('width: "100%"');
+    expect(createCardBlock).not.toContain('alignSelf: "start"');
+    expect(source).toContain("gridTemplateColumns: WORKSPACE_PROJECT_GRID_COLUMNS");
+    expect(source).toContain('<div className="project-card">\n            <CreateProjectCard');
     expect(source).toContain('className="project-card"');
     expect(source).not.toContain('className="project-card h-full"');
   });
