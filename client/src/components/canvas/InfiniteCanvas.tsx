@@ -21469,6 +21469,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         selectedImageEditModel === "auto" || selectedImageEditModel === "gpt-image-2"
           ? DEFAULT_IMAGE_MODEL_ID
           : selectedImageEditModel;
+      const annotationMask = await createAnnotationEditMask(
+        latestImageSrc,
+        reference.x,
+        reference.y
+      );
       const prompt = [
         "你正在执行图片局部编辑，不是重新生成一张新图。",
         "必须把原图作为唯一基础画布，只在用户标注区域附近做最小必要修改。",
@@ -21485,11 +21490,26 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         style: "注释修改结果",
         nextW: sourceSize.width,
         nextH: sourceSize.height,
+        model: annotationImageEditModel,
+        backgroundTaskInput: {
+          capability: "image_edit",
+          operation: "annotation_edit",
+          imageSrc: latestImageSrc,
+          maskSrc: annotationMask.maskSrc,
+          model: annotationImageEditModel,
+          prompt,
+          preserveSource: true,
+          targetWidth: sourceSize.width,
+          targetHeight: sourceSize.height,
+        },
         run: async () =>
           editImageWithPrompt({
             imageSrc: latestImageSrc,
+            maskSrc: annotationMask.maskSrc,
             model: annotationImageEditModel,
             prompt,
+            operation: "annotation_edit",
+            preserveSource: true,
             targetWidth: sourceSize.width,
             targetHeight: sourceSize.height,
           }),

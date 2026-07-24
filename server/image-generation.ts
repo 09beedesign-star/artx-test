@@ -3182,15 +3182,17 @@ async function pollAsyncImageTask(
 
 function resolveSmartAnnotationEditModel(requestedModel: string | undefined, configuredModel: string) {
   const requested = (requestedModel || "").trim();
-  if (!requested || requested.toLowerCase() === "auto") return "gpt-image-2";
-  return requested || configuredModel || "gpt-image-2";
+  if (!requested || requested.toLowerCase() === "auto" || requested === "gpt-image-2") {
+    return DEFAULT_IMAGE_MODEL_ID;
+  }
+  return requested || configuredModel || DEFAULT_IMAGE_MODEL_ID;
 }
 
 function getSmartAnnotationReferenceEditModels(selectedModel: string) {
   const fallbackAttempts = getImageModelFallbackAttempts("auto");
   const referenceCapableModels = getImageModelFallbackAttempts("auto")
     .filter(isChatCompatibleImageModel);
-  if (selectedModel === "gpt-image-2") {
+  if (selectedModel === DEFAULT_IMAGE_MODEL_ID) {
     return Array.from(new Set([
       ...referenceCapableModels,
       ...fallbackAttempts,

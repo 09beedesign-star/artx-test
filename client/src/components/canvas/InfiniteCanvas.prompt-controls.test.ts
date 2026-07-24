@@ -39,10 +39,12 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(annotationEditBlock).toContain("const selectedImageEditModel = getStoredCanvasAssistantImageEditModel();");
     expect(annotationEditBlock).toContain("selectedImageEditModel === \"auto\" || selectedImageEditModel === \"gpt-image-2\"");
     expect(annotationEditBlock).toContain("model: annotationImageEditModel");
+    expect(annotationEditBlock).toContain("createAnnotationEditMask");
+    expect(annotationEditBlock).toContain("maskSrc: annotationMask.maskSrc");
+    expect(annotationEditBlock).toContain('operation: "annotation_edit"');
+    expect(annotationEditBlock).toContain("preserveSource: true");
     expect(annotationEditBlock).toContain("你正在执行图片局部编辑，不是重新生成一张新图。");
     expect(annotationEditBlock).toContain("原图中的所有人物、角色、文字、海报构图、背景、镜头、比例、光影、颜色、风格和未提及内容必须保持不变。");
-    expect(annotationEditBlock).not.toContain("maskSrc");
-    expect(annotationEditBlock).not.toContain('operation: "annotation_edit"');
   });
 
   it("keeps all assistant controls and the send button visible when the panel is narrow", () => {
@@ -431,8 +433,8 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(annotationEditBlock).toContain("禁止把画面改成新的场景、替换主体、重画成另一张不相关图片。");
     expect(annotationEditBlock).toContain("输出完整新图，但视觉上应像原图只发生了这一次局部修改。");
     expect(annotationEditBlock).toContain("用户修改建议");
-    expect(annotationEditBlock).not.toContain("createAnnotationEditMask");
-    expect(annotationEditBlock).not.toContain("preserveSource: true");
+    expect(annotationEditBlock).toContain("createAnnotationEditMask");
+    expect(annotationEditBlock).toContain("preserveSource: true");
   });
 
   it("masks only the smart-copy fields that the user actually changed", () => {

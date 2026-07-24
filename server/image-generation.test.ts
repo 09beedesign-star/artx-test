@@ -26,7 +26,8 @@ describe("generated image source normalization", () => {
     expect(source).toContain("maxAttempts = 150");
     expect(source).toContain("return editSmartAnnotationImage(input);");
     expect(source).toContain("function resolveSmartAnnotationEditModel");
-    expect(source).toContain('if (!requested || requested.toLowerCase() === "auto") return "gpt-image-2";');
+    expect(source).toContain('requested.toLowerCase() === "auto" || requested === "gpt-image-2"');
+    expect(source).toContain("return DEFAULT_IMAGE_MODEL_ID;");
     expect(source).toContain("editAnnotationViaReferenceGeneration");
     expect(source).toContain("shouldFallbackSmartAnnotationEdit");
     expect(source).not.toContain("当前图片模型不支持智能注释局部编辑");
