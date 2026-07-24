@@ -579,6 +579,21 @@ export function SmartCommerceProductDialog({
               <div className="mt-4">
                 <SectionTitle aside="用户要求优先">背景风格</SectionTitle>
                 <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                  <button
+                    type="button"
+                    className="relative h-14 overflow-hidden rounded-md text-left flex items-center justify-center"
+                    style={{
+                      border: `1px solid ${showPicwishSelector ? "rgba(197,237,71,0.68)" : colors.border}`,
+                      background: colors.surface,
+                    }}
+                    onClick={() => setShowPicwishSelector(true)}
+                    title="PicWish 背景模板库"
+                  >
+                    <div className="flex flex-col items-center gap-1">
+                      <Sparkles size={14} style={{ color: colors.accent }} />
+                      <span className="text-[9px] font-semibold text-center px-1">PicWish 模板</span>
+                    </div>
+                  </button>
                   {PRODUCT_BACKGROUND_STYLES.map(style => {
                     const active = selectedStyle.name === style.name;
                     return (
