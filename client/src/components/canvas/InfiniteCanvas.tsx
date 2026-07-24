@@ -3141,6 +3141,15 @@ function AssetFloatingToolbar({
       label: "智能文案编辑",
       action: "edit-text",
     },
+    {
+      icon: (
+        <AiDecoratedIcon cutoutBg={toolBg}>
+          <ScanSearch size={15} />
+        </AiDecoratedIcon>
+      ),
+      label: "提示词反推",
+      action: "reverse-prompt",
+    },
     { icon: <HdIcon size={15} />, label: "HD 4K", action: "upscale" },
     {
       icon: (
@@ -6217,6 +6226,15 @@ function AssetNodeComponent({
   const isApplyingExtractedText = Boolean(
     (data as { isApplyingExtractedText?: boolean }).isApplyingExtractedText
   );
+  const reversePrompt = ((data as { reversePrompt?: string }).reversePrompt || "") as string;
+  const reversePromptError = ((data as { reversePromptError?: string })
+    .reversePromptError || "") as string;
+  const reversePromptPanelOpen = Boolean(
+    (data as { reversePromptPanelOpen?: boolean }).reversePromptPanelOpen
+  );
+  const isReversePrompting = Boolean(
+    (data as { isReversePrompting?: boolean }).isReversePrompting
+  );
   const noteText = ((data as { note?: string }).note || "") as string;
   const noteOpen = Boolean((data as { noteOpen?: boolean }).noteOpen);
   const noteEditing = Boolean((data as { noteEditing?: boolean }).noteEditing);
@@ -7217,6 +7235,28 @@ function AssetNodeComponent({
                   extractedTextPanelOpen: false,
                   isExtractingText: false,
                   isApplyingExtractedText: false,
+                },
+              }
+            : n
+        )
+      );
+    },
+    [nodeId, setFlowNodes]
+  );
+
+  const closeReversePromptPanel = useCallback(
+    (event: React.MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setFlowNodes(nds =>
+        nds.map(n =>
+          n.id === nodeId && n.type === "asset"
+            ? {
+                ...n,
+                data: {
+                  ...(n.data as Record<string, unknown>),
+                  reversePromptPanelOpen: false,
+                  isReversePrompting: false,
                 },
               }
             : n
@@ -8269,6 +8309,129 @@ function AssetNodeComponent({
                 disabled={isExtractingText || isApplyingExtractedText}
               >
                 {isApplyingExtractedText ? "正在生成新图..." : "应用到新图"}
+              </button>
+            </div>
+          </div>
+        )}
+        {reversePromptPanelOpen && (
+          <div
+            className="absolute nodrag nopan shadow-2xl"
+            style={{
+              left: dispW + 14 * stableUiScale,
+              top: 0,
+              width: 320,
+              minHeight: 218,
+              maxHeight: 380,
+              borderRadius: 8,
+              overflow: "hidden",
+              background: isDark
+                ? "rgba(20,20,30,0.96)"
+                : "rgba(255,255,255,0.98)",
+              border: `1px solid ${isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.12)"}`,
+              color: isDark ? "rgba(255,255,255,0.88)" : "rgba(28,28,40,0.88)",
+              backdropFilter: "blur(16px)",
+              zIndex: 110,
+              pointerEvents: "all",
+              transform: `scale(${stableUiScale})`,
+              transformOrigin: "top left",
+              display: "flex",
+              flexDirection: "column",
+            }}
+            onMouseDown={event => event.stopPropagation()}
+            onClick={event => event.stopPropagation()}
+            onWheel={event => event.stopPropagation()}
+            onContextMenu={event => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+          >
+            <div
+              className="flex items-center justify-between gap-2 px-3 py-2"
+              style={{
+                borderBottom: `1px solid ${isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)"}`,
+              }}
+            >
+              <div className="flex items-center gap-2">
+                {isReversePrompting ? (
+                  <RefreshCw size={13} className="animate-spin" />
+                ) : (
+                  <ScanSearch size={13} />
+                )}
+                <span className="type-caption" style={{ fontWeight: 700 }}>
+                  提示词反推
+                </span>
+              </div>
+              <button
+                type="button"
+                aria-label="关闭提示词反推窗口"
+                title="关闭"
+                className="flex items-center justify-center rounded-[var(--radius-md-design)] transition-colors"
+                style={{
+                  width: 24,
+                  height: 24,
+                  color: isDark
+                    ? "rgba(255,255,255,0.68)"
+                    : "rgba(28,28,40,0.62)",
+                  background: "transparent",
+                }}
+                onClick={closeReversePromptPanel}
+              >
+                <X size={14} />
+              </button>
+            </div>
+            <div
+              className="nodrag nopan flex-1 px-3 py-3"
+              style={{
+                minHeight: 142,
+                overflowY: "auto",
+                userSelect: "text",
+                whiteSpace: "pre-wrap",
+                overflowWrap: "anywhere",
+                fontSize: 13,
+                lineHeight: 1.6,
+                color: reversePromptError
+                  ? isDark
+                    ? "rgba(255,185,185,0.92)"
+                    : "rgba(165,35,35,0.90)"
+                  : isDark
+                    ? "rgba(255,255,255,0.84)"
+                    : "rgba(28,28,40,0.84)",
+              }}
+              onMouseDown={event => event.stopPropagation()}
+            >
+              {isReversePrompting
+                ? REVERSE_PROMPT_LOADING_MESSAGE
+                : reversePromptError
+                  ? `反推失败：${reversePromptError}`
+                  : reversePrompt || "未返回可用提示词"}
+            </div>
+            <div
+              className="flex items-center justify-end px-2.5 py-2"
+              style={{
+                borderTop: `1px solid ${isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)"}`,
+              }}
+            >
+              <button
+                type="button"
+                aria-label="复制反推提示词"
+                title="复制提示词"
+                className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-md-design)] transition-opacity hover:opacity-75"
+                style={{
+                  color: isDark
+                    ? "rgba(255,255,255,0.84)"
+                    : "rgba(28,28,40,0.82)",
+                  background: isDark
+                    ? "rgba(255,255,255,0.08)"
+                    : "rgba(0,0,0,0.05)",
+                  opacity: isReversePrompting || !reversePrompt ? 0.45 : 1,
+                }}
+                disabled={isReversePrompting || !reversePrompt}
+                onClick={() => {
+                  navigator.clipboard?.writeText(reversePrompt);
+                  toast("已复制反推提示词");
+                }}
+              >
+                <Copy size={13} />
               </button>
             </div>
           </div>
@@ -10631,6 +10794,7 @@ const CANVAS_IMAGE_GENERATION_TASKS_STORAGE_KEY =
 const CANVAS_IMAGE_DB_NAME = "artx-canvas-images";
 const CANVAS_IMAGE_STORE_NAME = "images";
 const EXTRACT_TEXT_LOADING_MESSAGE = "正在提取文案中...";
+const REVERSE_PROMPT_LOADING_MESSAGE = "正在分析图片并反推可用提示词...";
 const AI_GENERATION_NETWORK_ERROR_MESSAGE =
   "对不起，网络开了个小差，请稍后重试";
 const AI_GENERATION_TIMEOUT_MS = 300_000;
@@ -26930,6 +27094,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         "remove-watermark",
         "erase",
         "edit-text",
+        "reverse-prompt",
         "edit-elements",
         "expand",
         "vector",
@@ -27002,6 +27167,89 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       }
       if (action === "quick-edit") {
         handleNodeAction("edit-asset", nodeId);
+        return;
+      }
+      if (action === "reverse-prompt") {
+        if (!targetNode || targetNode.type !== "asset") return;
+        const imageSrc = await getVisibleAssetImageSource(nodeId);
+        if (!imageSrc) {
+          toast("提示词反推失败", { description: "当前图片没有可分析的图像来源" });
+          return;
+        }
+        const title =
+          typeof (targetNode.data as Record<string, unknown>).title === "string"
+            ? ((targetNode.data as Record<string, unknown>).title as string)
+            : "选中图片";
+        setNodes(nds =>
+          nds.map(n =>
+            n.id === nodeId && n.type === "asset"
+              ? {
+                  ...n,
+                  selected: true,
+                  data: {
+                    ...(n.data as Record<string, unknown>),
+                    extractedTextPanelOpen: false,
+                    isExtractingText: false,
+                    reversePromptPanelOpen: true,
+                    isReversePrompting: true,
+                    reversePrompt: "",
+                    reversePromptError: "",
+                  },
+                }
+              : n
+          )
+        );
+        try {
+          const result = await callLLM({
+            module: "image-prompt-reverse-engineering",
+            model: "auto",
+            images: [{ src: imageSrc, title }],
+            prompt: [
+              "你是专业的视觉提示词反推助手。请仅根据唯一引用图，反推出一段可直接用于图片生成模型的中文提示词。",
+              "必须覆盖：主体与关键元素、场景与空间关系、构图与视角、视觉风格、光线、色彩、材质与细节、画幅倾向。",
+              "只输出一段完整的中文生图提示词；不要解释、不要标题、不要项目符号、不要模型名称、不要负面提示词。",
+              "不得臆造图片中没有出现的品牌、文字、人物身份或具体物品。",
+            ].join("\n"),
+          });
+          const prompt = result.text.trim();
+          if (!prompt) throw new Error("文本模型未返回可用提示词");
+          setNodes(nds =>
+            nds.map(n =>
+              n.id === nodeId && n.type === "asset"
+                ? {
+                    ...n,
+                    data: {
+                      ...(n.data as Record<string, unknown>),
+                      reversePromptPanelOpen: true,
+                      isReversePrompting: false,
+                      reversePrompt: prompt,
+                      reversePromptError: "",
+                    },
+                  }
+                : n
+            )
+          );
+          toast("提示词反推完成", { description: "已生成可直接用于生图的中文提示词" });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "请稍后重试";
+          setNodes(nds =>
+            nds.map(n =>
+              n.id === nodeId && n.type === "asset"
+                ? {
+                    ...n,
+                    data: {
+                      ...(n.data as Record<string, unknown>),
+                      reversePromptPanelOpen: true,
+                      isReversePrompting: false,
+                      reversePrompt: "",
+                      reversePromptError: message,
+                    },
+                  }
+                : n
+            )
+          );
+          toast("提示词反推失败", { description: message });
+        }
         return;
       }
       if (action === "upscale") {
@@ -27876,7 +28124,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     },
     [areNodesGrouped, selectedImageNode, selectedNodeIds]
   );
-  const imageToolbarScreenHeight = 436;
+  const imageToolbarScreenHeight = 468;
   const imageToolbarGap = 14;
   const imageToolbarBottomPanelReserve = selectedImageHasBottomPanel ? 96 : 0;
   const attachedImageToolbarPosition = selectedImageBounds

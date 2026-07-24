@@ -166,6 +166,29 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(actionHandler).toContain("setIsAssistantCollapsed(false)");
   });
 
+  it("reverse engineers a selected image into a copyable prompt without using image generation", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const assetTools = source.match(
+      /const assetTools: FloatingToolItem\[\] = \[[\s\S]*?const frameTools/
+    )?.[0];
+    const actionHandler = source.match(
+      /const handleSingleImageToolbarAction = useCallback\([\s\S]*?const handleSocialMediaSizeGenerate/
+    )?.[0];
+    const frameTools = source.match(/const frameTools: FloatingToolItem\[\] = \[[\s\S]*?\n  \];/)?.[0];
+
+    expect(assetTools).toContain('label: "提示词反推"');
+    expect(assetTools).toContain('action: "reverse-prompt"');
+    expect(assetTools).toContain("ScanSearch");
+    expect(frameTools).not.toContain("提示词反推");
+    expect(actionHandler).toContain('if (action === "reverse-prompt")');
+    expect(actionHandler).toContain('module: "image-prompt-reverse-engineering"');
+    expect(actionHandler).toContain("images: [{ src: imageSrc, title }]");
+    expect(actionHandler).toContain("只输出一段完整的中文生图提示词");
+    expect(actionHandler).not.toContain('generateAiImages({');
+    expect(source).toContain("reversePromptPanelOpen");
+    expect(source).toContain("复制反推提示词");
+  });
+
   it("keeps explicit replace and delete controls in the smart commerce product upload slot", () => {
     const dialogSource = readFileSync(
       resolve(__dirname, "SmartCommerceProductDialog.tsx"),
