@@ -542,11 +542,8 @@ export function SmartCommerceProductDialog({
                   <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md" style={{ color: colors.accent, background: "rgba(197,237,71,0.12)" }}>
                     <Sparkles size={17} />
                   </span>
-                  <span className="min-w-0">
-                    <span className="block text-[11px] font-semibold">{selectedPicwishTemplate?.name || "选择电商背景模板"}</span>
-                    <span className="mt-0.5 block truncate text-[10px]" style={{ color: colors.muted }}>
-                      {selectedPicwishTemplate ? selectedPicwishTemplate.category : "从 PicWish 模板库选择商品背景"}
-                    </span>
+                  <span className="min-w-0 text-[11px] font-semibold">
+                    {selectedPicwishTemplate?.name || "电商背景模板库"}
                   </span>
                 </button>
               </div>
