@@ -10,8 +10,12 @@ describe("WorkspaceDashboard card sizing", () => {
 
     expect(projectCardBlock).toBeTruthy();
     expect(createCardBlock).toBeTruthy();
+    expect(projectCardBlock).toContain('height: "100%"');
     expect(projectCardBlock).toContain('style={{ minHeight: 52 }}');
+    expect(createCardBlock).toContain('height: "100%"');
+    expect(createCardBlock).not.toContain('alignSelf: "start"');
     expect(createCardBlock).toContain('style={{ aspectRatio: "4/3" }}');
     expect(createCardBlock).toContain('style={{ minHeight: 52 }}');
+    expect(source).toContain('className="project-card h-full"');
   });
 });

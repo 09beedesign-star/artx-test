@@ -348,6 +348,15 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(intentSource).toContain('mode: "reference_search"');
   });
 
+  it("keeps annotation bubbles below the right assistant panel", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+
+    expect(source).toContain("const GLOBAL_ANNOTATION_LAYER_Z_INDEX = 118;");
+    expect(source).toContain("zIndex: GLOBAL_ANNOTATION_LAYER_Z_INDEX");
+    expect(source).toContain("右侧对话区下方");
+    expect(source).toContain("zIndex: 120");
+  });
+
   it("renders smart copy editing as scrollable structured non-empty sub fields", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
     const extractedTextStateBlock = source.match(

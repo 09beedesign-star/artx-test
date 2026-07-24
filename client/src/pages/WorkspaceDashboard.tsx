@@ -217,6 +217,7 @@ function ProjectCard({
     <div
       className="group relative rounded-[var(--radius-lg-design)] overflow-hidden cursor-pointer transition-all"
       style={{
+        height: "100%",
         background: cardBg,
         border: `1.5px solid ${cardBorder}`,
         boxShadow: "0 2px 12px rgba(0,0,0,0.15)",
@@ -295,7 +296,7 @@ function CreateProjectCard({ isDark, onCreate }: { isDark: boolean; onCreate: ()
       onClick={onCreate}
       className="rounded-[var(--radius-lg-design)] overflow-hidden transition-all group"
       style={{
-        alignSelf: "start",
+        height: "100%",
         width: "100%",
         background: bg,
         border: `1.5px dashed ${border}`,
@@ -434,7 +435,7 @@ export default function WorkspaceDashboard() {
         <div className="grid gap-7" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
           <CreateProjectCard isDark={isDark} onCreate={() => setShowCreate(true)} />
           {projects.map(project => (
-            <div key={project.id} data-project-id={project.id} className="project-card">
+            <div key={project.id} data-project-id={project.id} className="project-card h-full">
               <ProjectCard
                 project={project}
                 renaming={renamingId === project.id}

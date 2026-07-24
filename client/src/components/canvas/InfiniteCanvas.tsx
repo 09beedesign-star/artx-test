@@ -30807,7 +30807,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         onChange={e => handleUploadFiles(e.target.files)}
       />
 
-      {/* 全局注释气泡层 — fixed 定位，渲染在最顶层 */}
+      {/* 全局注释气泡层 — 位于画布内容上方、右侧对话区下方 */}
       {globalAnnotations.length > 0 && (
         <GlobalAnnotationLayer
           annotations={globalAnnotations}
@@ -30828,6 +30828,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 }
 
 // ── 全局注释层组件 ──
+const GLOBAL_ANNOTATION_LAYER_Z_INDEX = 118;
+
 function GlobalAnnotationLayer({
   annotations,
   nodes,
@@ -30920,7 +30922,7 @@ function GlobalAnnotationLayer({
   return (
     <div
       className="absolute inset-0 pointer-events-none"
-      style={{ zIndex: 9000 }}
+      style={{ zIndex: GLOBAL_ANNOTATION_LAYER_Z_INDEX }}
     >
       {annotations.map(annotation => {
         const rect = getNodeScreenRect(annotation.nodeId);
