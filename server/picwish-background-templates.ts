@@ -35,7 +35,7 @@ function collectTemplates(value: unknown, category = "全部", results: PicWishB
   const nextCategory = readText(record.category_name ?? record.categoryName ?? record.category ?? record.name ?? record.title) || category;
   const id = readTemplateId(record);
   if (id) {
-    const name = readText(record.name ?? record.title ?? record.scene_name ?? record.sceneName) || `模板 ${id}`;
+    const name = readText(record.template_name ?? record.templateName ?? record.name ?? record.title ?? record.scene_name ?? record.sceneName) || `模板 ${id}`;
     const previewUrl = readText(record.template_url ?? record.templateUrl ?? record.image_url ?? record.imageUrl ?? record.preview_url ?? record.previewUrl ?? record.cover_url ?? record.coverUrl);
     if (!results.some(template => template.id === id)) results.push({ id, name, category, previewUrl: previewUrl || undefined });
     return results;

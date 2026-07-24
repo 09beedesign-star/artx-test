@@ -10,6 +10,7 @@ describe("PicWish background template integration", () => {
     expect(source).toContain('"X-API-KEY": apiKey');
     expect(source).toContain('process.env.PICWISH_TEMPLATE_BASE_URL');
     expect(source).toContain('"https://aw.aoscdn.com"');
+    expect(source).toContain("template_name");
     expect(source).toContain("template_url");
     expect(source).toContain('url.searchParams.set("language", "en")');
   });
