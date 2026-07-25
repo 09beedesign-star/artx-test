@@ -11186,31 +11186,28 @@ async function createAnnotationEditMask(
           ctx.fill();
         } else if (isFaceAccessory) {
           const radiusX = Math.max(
-            options.expanded ? 164 : 124,
-            Math.min(width, height) * (options.expanded ? 0.3 : 0.23)
+            options.expanded ? 146 : 108,
+            Math.min(width, height) * (options.expanded ? 0.25 : 0.2)
           );
           const radiusY = Math.max(
-            options.expanded ? 116 : 86,
-            Math.min(width, height) * (options.expanded ? 0.22 : 0.16)
+            options.expanded ? 84 : 64,
+            Math.min(width, height) * (options.expanded ? 0.14 : 0.11)
           );
-          // Annotation pins are often placed on the forehead. Shift the edit
-          // area slightly downward so face accessories still cover the eyes.
+          // Pins placed on the forehead need a small eye-line offset. Keep the
+          // mask tight so the model cannot invent unrelated head accessories.
+          const useForeheadPinOffset = centerY < height * 0.32;
           const faceAccessoryCenterY = Math.min(
             height - radiusY,
             Math.max(
               radiusY,
-              centerY + Math.min(radiusY * 0.7, Math.min(width, height) * 0.12)
+              centerY + (useForeheadPinOffset
+                ? Math.min(width, height) * (options.expanded ? 0.18 : 0.16)
+                : 0)
             )
           );
-          [1, 0.96, 0.92, 0.88, 0.84, 0.8, 0.76].forEach(scale => {
-            ctx.fillStyle = "rgba(0,0,0,0.13)";
-            ctx.beginPath();
-            ctx.ellipse(centerX, faceAccessoryCenterY, radiusX * scale, radiusY * scale, 0, 0, Math.PI * 2);
-            ctx.fill();
-          });
           ctx.fillStyle = "rgba(0,0,0,1)";
           ctx.beginPath();
-          ctx.ellipse(centerX, faceAccessoryCenterY, radiusX * 0.78, radiusY * 0.78, 0, 0, Math.PI * 2);
+          ctx.ellipse(centerX, faceAccessoryCenterY, radiusX, radiusY, 0, 0, Math.PI * 2);
           ctx.fill();
         } else {
           const gradient = ctx.createRadialGradient(

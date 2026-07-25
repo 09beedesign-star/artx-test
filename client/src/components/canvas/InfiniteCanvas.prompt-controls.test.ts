@@ -447,6 +447,7 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(annotationEditBlock).toContain("头顶或头发上方");
     expect(annotationEditBlock).toContain("眼部位置");
     expect(source).toContain("const faceAccessoryCenterY");
+    expect(source).toContain("const useForeheadPinOffset");
     expect(source).toContain('ctx.globalCompositeOperation = "destination-out";');
     expect(source).toContain('ctx.globalCompositeOperation = "source-over";');
     expect(source).toContain("ctx.ellipse(centerX, accessoryCenterY");
