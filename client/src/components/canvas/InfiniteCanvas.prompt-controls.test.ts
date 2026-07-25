@@ -51,7 +51,9 @@ describe("InfiniteCanvas prompt controls", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
 
     expect(source).toContain("const [compactAssistantControls, setCompactAssistantControls]");
-    expect(source).toContain("window.innerWidth < 560 || panelWidth < 520");
+    expect(source).toContain("const assistantControlsTextModeMinPanelWidth = 438;");
+    expect(source).toContain("window.innerWidth < 430 ||");
+    expect(source).toContain("panelWidth < assistantControlsTextModeMinPanelWidth");
     expect(source).toContain("compact={compactAssistantControls}");
     expect(source).toContain("width: compact ? 32 : 74");
     expect(source).toContain('className="flex min-w-0 flex-1 items-center"');
@@ -491,6 +493,10 @@ describe("InfiniteCanvas prompt controls", () => {
     )?.[0];
 
     expect(handlerBlock).toBeTruthy();
+    expect(handlerBlock).toContain("if (event.nativeEvent.isComposing) return;");
+    expect(handlerBlock).toContain('if (event.key === "Enter" && !event.shiftKey)');
+    expect(handlerBlock).toContain("void handleSubmit();");
+    expect(handlerBlock).toContain("handleSubmit,");
     expect(handlerBlock).toContain('if (event.key === "Delete")');
     expect(handlerBlock).toContain("event.stopPropagation();");
     expect(handlerBlock).toContain("restoreEmptyComposerField();");
