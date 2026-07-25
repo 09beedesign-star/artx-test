@@ -11193,15 +11193,24 @@ async function createAnnotationEditMask(
             options.expanded ? 116 : 86,
             Math.min(width, height) * (options.expanded ? 0.22 : 0.16)
           );
+          // Annotation pins are often placed on the forehead. Shift the edit
+          // area slightly downward so face accessories still cover the eyes.
+          const faceAccessoryCenterY = Math.min(
+            height - radiusY,
+            Math.max(
+              radiusY,
+              centerY + Math.min(radiusY * 0.7, Math.min(width, height) * 0.12)
+            )
+          );
           [1, 0.96, 0.92, 0.88, 0.84, 0.8, 0.76].forEach(scale => {
             ctx.fillStyle = "rgba(0,0,0,0.13)";
             ctx.beginPath();
-            ctx.ellipse(centerX, centerY, radiusX * scale, radiusY * scale, 0, 0, Math.PI * 2);
+            ctx.ellipse(centerX, faceAccessoryCenterY, radiusX * scale, radiusY * scale, 0, 0, Math.PI * 2);
             ctx.fill();
           });
           ctx.fillStyle = "rgba(0,0,0,1)";
           ctx.beginPath();
-          ctx.ellipse(centerX, centerY, radiusX * 0.78, radiusY * 0.78, 0, 0, Math.PI * 2);
+          ctx.ellipse(centerX, faceAccessoryCenterY, radiusX * 0.78, radiusY * 0.78, 0, 0, Math.PI * 2);
           ctx.fill();
         } else {
           const gradient = ctx.createRadialGradient(

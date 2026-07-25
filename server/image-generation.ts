@@ -1285,6 +1285,15 @@ function getMeituImageDataUrl(
   return `data:${mimeType};base64,${mediaData}`;
 }
 
+function getMeituAnnotationPrompt(prompt: string) {
+  const requestedChange = prompt.match(/(?:用户修改建议|User request)[:：]\s*(.+)$/im)?.[1]?.trim()
+    || prompt.trim();
+  return [
+    requestedChange,
+    "只在涂抹区域内完成这项修改，保持原人物、构图、背景和光影不变。",
+  ].join("\n");
+}
+
 async function editSmartAnnotationWithMeitu(
   input: EditImageInput,
   sourceBuffer: Buffer,
@@ -1309,7 +1318,7 @@ async function editSmartAnnotationWithMeitu(
         rsp_media_type: "jpg",
         return_format_type: "jpg",
         num_samples: 1,
-        prompt_pos: input.prompt.trim(),
+        prompt_pos: getMeituAnnotationPrompt(input.prompt),
       },
       media_info_list: [
         {
@@ -2504,6 +2513,11 @@ async function hasVisibleLocalEdit(
   maskBuffer: Buffer,
   width: number,
   height: number,
+  options: {
+    minimumDifference?: number;
+    minimumChangedPixelCount?: number;
+    minimumChangedPixelRatio?: number;
+  } = {},
 ): Promise<boolean> {
   const sharp = (await import("sharp")).default;
   const [sourcePixels, editedPixels, maskPixels] = await Promise.all([
@@ -2528,6 +2542,7 @@ async function hasVisibleLocalEdit(
   ]);
   let editablePixels = 0;
   let visiblyChangedPixels = 0;
+  const minimumDifference = options.minimumDifference ?? 24;
 
   for (let index = 0; index < sourcePixels.length; index += 4) {
     if (maskPixels[index + 3] > 127) continue;
@@ -2536,10 +2551,13 @@ async function hasVisibleLocalEdit(
       Math.abs(sourcePixels[index] - editedPixels[index]) +
       Math.abs(sourcePixels[index + 1] - editedPixels[index + 1]) +
       Math.abs(sourcePixels[index + 2] - editedPixels[index + 2]);
-    if (difference >= 24) visiblyChangedPixels += 1;
+    if (difference >= minimumDifference) visiblyChangedPixels += 1;
   }
 
-  return visiblyChangedPixels >= Math.max(24, Math.ceil(editablePixels * 0.001));
+  return visiblyChangedPixels >= Math.max(
+    options.minimumChangedPixelCount ?? 24,
+    Math.ceil(editablePixels * (options.minimumChangedPixelRatio ?? 0.001)),
+  );
 }
 
 export function __testAssertSourcePreservingMask(
@@ -3405,6 +3423,15 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
         maskImageData.buffer,
         targetWidth,
         targetHeight,
+        meituConfig
+          ? {
+              // A JPEG round trip can alter a few source pixels without adding
+              // the requested object. Require a substantial local change.
+              minimumDifference: 56,
+              minimumChangedPixelCount: 320,
+              minimumChangedPixelRatio: 0.012,
+            }
+          : undefined,
       );
       if (!hasVisibleChange) {
         throw new Error("智能注释模型没有在标记区域做出可见修改，请扩大注释区域或换一种更明确的描述");

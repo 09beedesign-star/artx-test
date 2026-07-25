@@ -678,11 +678,12 @@ describe("generated image source normalization", () => {
     expect(requests).toHaveLength(1);
     expect(requests[0]).toMatchObject({
       parameter: {
-        prompt_pos: "给人物戴上一副眼镜",
         num_samples: 1,
         rsp_media_type: "jpg",
       },
     });
+    expect((requests[0].parameter as { prompt_pos?: string }).prompt_pos).toContain("给人物戴上一副眼镜");
+    expect((requests[0].parameter as { prompt_pos?: string }).prompt_pos).toContain("只在涂抹区域内完成这项修改");
     expect((requests[0].media_info_list as unknown[])).toHaveLength(2);
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/images/edits"))).toBe(false);
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/chat/completions"))).toBe(false);
