@@ -40,9 +40,11 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(annotationEditBlock).toContain("selectedImageEditModel === \"auto\" || selectedImageEditModel === \"gpt-image-2\"");
     expect(annotationEditBlock).toContain("model: annotationImageEditModel");
     expect(annotationEditBlock).toContain("createAnnotationEditMask");
-    expect(annotationEditBlock).toContain("maskSrc: annotationMask.maskSrc");
+    expect(annotationEditBlock).toContain("runAnnotationEdit(annotationMask.maskSrc");
     expect(annotationEditBlock).toContain('operation: "annotation_edit"');
     expect(annotationEditBlock).toContain("preserveSource: true");
+    expect(annotationEditBlock).toContain("isSmartAnnotationNoVisibleChangeError");
+    expect(annotationEditBlock).toContain("{ expanded: true }");
     expect(annotationEditBlock).toContain("你正在执行图片局部编辑，不是重新生成一张新图。");
     expect(annotationEditBlock).toContain("原图中的所有人物、角色、文字、海报构图、背景、镜头、比例、光影、颜色、风格和未提及内容必须保持不变。");
   });
@@ -440,10 +442,14 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(annotationEditBlock).toContain("preserveSource: true");
     expect(source).toContain("function isSmartAnnotationHeadAccessoryPrompt");
     expect(source).toContain("帽子|帽\\b|头盔|皇冠");
+    expect(source).toContain("function isSmartAnnotationFaceAccessoryPrompt");
+    expect(source).toContain("眼镜|墨镜|太阳镜");
     expect(annotationEditBlock).toContain("头顶或头发上方");
+    expect(annotationEditBlock).toContain("眼部位置");
     expect(source).toContain('ctx.globalCompositeOperation = "destination-out";');
     expect(source).toContain('ctx.globalCompositeOperation = "source-over";');
     expect(source).toContain("ctx.ellipse(centerX, accessoryCenterY");
+    expect(annotationEditBlock).toContain("第二次局部编辑尝试");
   });
 
   it("masks only the smart-copy fields that the user actually changed", () => {

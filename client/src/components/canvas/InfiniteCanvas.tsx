@@ -11116,11 +11116,21 @@ function isSmartAnnotationHeadAccessoryPrompt(text: string) {
   return /帽子|帽\b|头盔|皇冠|头巾|发饰|hat|cap|beanie|helmet|crown/i.test(text);
 }
 
+function isSmartAnnotationFaceAccessoryPrompt(text: string) {
+  return /眼镜|墨镜|太阳镜|glasses|sunglasses|spectacles/i.test(text);
+}
+
+function isSmartAnnotationNoVisibleChangeError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /智能注释模型没有在标记区域做出可见修改|没有在指定区域做出可见修改|no visible/i.test(message);
+}
+
 async function createAnnotationEditMask(
   imageSrc: string,
   xPercent: number,
   yPercent: number,
-  promptText = ""
+  promptText = "",
+  options: { expanded?: boolean } = {}
 ) {
   return new Promise<{ maskSrc: string; width: number; height: number }>(
     (resolve, reject) => {
@@ -11145,12 +11155,25 @@ async function createAnnotationEditMask(
         const centerX = (Math.min(100, Math.max(0, xPercent)) / 100) * width;
         const centerY = (Math.min(100, Math.max(0, yPercent)) / 100) * height;
         const isHeadAccessory = isSmartAnnotationHeadAccessoryPrompt(promptText);
-        const radius = Math.max(128, Math.min(width, height) * 0.26);
+        const isFaceAccessory = isSmartAnnotationFaceAccessoryPrompt(promptText);
+        const radius = Math.max(
+          options.expanded ? 168 : 128,
+          Math.min(width, height) * (options.expanded ? 0.34 : 0.26)
+        );
         ctx.globalCompositeOperation = "destination-out";
         if (isHeadAccessory) {
-          const radiusX = Math.max(132, Math.min(width, height) * 0.24);
-          const radiusY = Math.max(112, Math.min(width, height) * 0.18);
-          const accessoryCenterY = Math.max(radiusY * 0.62, centerY - radiusY * 0.72);
+          const radiusX = Math.max(
+            options.expanded ? 176 : 132,
+            Math.min(width, height) * (options.expanded ? 0.34 : 0.24)
+          );
+          const radiusY = Math.max(
+            options.expanded ? 148 : 112,
+            Math.min(width, height) * (options.expanded ? 0.28 : 0.18)
+          );
+          const accessoryCenterY = Math.max(
+            radiusY * 0.58,
+            centerY - radiusY * (options.expanded ? 0.42 : 0.72)
+          );
           [1, 0.96, 0.92, 0.88, 0.84, 0.8, 0.76].forEach(scale => {
             ctx.fillStyle = "rgba(0,0,0,0.13)";
             ctx.beginPath();
@@ -11159,7 +11182,26 @@ async function createAnnotationEditMask(
           });
           ctx.fillStyle = "rgba(0,0,0,1)";
           ctx.beginPath();
-          ctx.ellipse(centerX, accessoryCenterY, radiusX * 0.74, radiusY * 0.74, 0, 0, Math.PI * 2);
+          ctx.ellipse(centerX, accessoryCenterY, radiusX * 0.78, radiusY * 0.78, 0, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (isFaceAccessory) {
+          const radiusX = Math.max(
+            options.expanded ? 164 : 124,
+            Math.min(width, height) * (options.expanded ? 0.3 : 0.23)
+          );
+          const radiusY = Math.max(
+            options.expanded ? 116 : 86,
+            Math.min(width, height) * (options.expanded ? 0.22 : 0.16)
+          );
+          [1, 0.96, 0.92, 0.88, 0.84, 0.8, 0.76].forEach(scale => {
+            ctx.fillStyle = "rgba(0,0,0,0.13)";
+            ctx.beginPath();
+            ctx.ellipse(centerX, centerY, radiusX * scale, radiusY * scale, 0, 0, Math.PI * 2);
+            ctx.fill();
+          });
+          ctx.fillStyle = "rgba(0,0,0,1)";
+          ctx.beginPath();
+          ctx.ellipse(centerX, centerY, radiusX * 0.78, radiusY * 0.78, 0, 0, Math.PI * 2);
           ctx.fill();
         } else {
           const gradient = ctx.createRadialGradient(
@@ -21505,16 +21547,34 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const headAccessoryInstruction = isSmartAnnotationHeadAccessoryPrompt(reference.text)
         ? "如果用户要求帽子、头盔、皇冠或其他头部配饰，必须添加在原图同一人物的头顶或头发上方，贴合原图角度与光影，不要替换脸、身体、衣服、背景或整个人物。"
         : "";
+      const faceAccessoryInstruction = isSmartAnnotationFaceAccessoryPrompt(reference.text)
+        ? "如果用户要求眼镜、墨镜或太阳镜，必须添加在原图同一人物的眼部位置，贴合原图脸部角度、表情、光影和遮挡关系，不要替换人物或改变五官。"
+        : "";
       const prompt = [
         "你正在执行图片局部编辑，不是重新生成一张新图。",
         "必须把原图作为唯一基础画布，只在用户标注区域附近做最小必要修改。",
         `只重点修改注释点附近区域：x=${reference.x.toFixed(1)}%、y=${reference.y.toFixed(1)}%。`,
         headAccessoryInstruction,
+        faceAccessoryInstruction,
         "原图中的所有人物、角色、文字、海报构图、背景、镜头、比例、光影、颜色、风格和未提及内容必须保持不变。",
         "禁止把画面改成新的场景、替换主体、重画成另一张不相关图片。",
         "输出完整新图，但视觉上应像原图只发生了这一次局部修改。",
         `用户修改建议：${reference.text}`,
       ].filter(Boolean).join("\n");
+      const runAnnotationEdit = async (
+        maskSrc: string,
+        editPrompt: string
+      ) =>
+        editImageWithPrompt({
+          imageSrc: latestImageSrc,
+          maskSrc,
+          model: annotationImageEditModel,
+          prompt: editPrompt,
+          operation: "annotation_edit",
+          preserveSource: true,
+          targetWidth: sourceSize.width,
+          targetHeight: sourceSize.height,
+        });
       toast("注释 AI 修改中", { description: "将在原图旁生成新的修改结果" });
       await runDerivedImageGeneration({
         sourceNode,
@@ -21523,17 +21583,29 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         nextW: sourceSize.width,
         nextH: sourceSize.height,
         model: annotationImageEditModel,
-        run: async () =>
-          editImageWithPrompt({
-            imageSrc: latestImageSrc,
-            maskSrc: annotationMask.maskSrc,
-            model: annotationImageEditModel,
-            prompt,
-            operation: "annotation_edit",
-            preserveSource: true,
-            targetWidth: sourceSize.width,
-            targetHeight: sourceSize.height,
-          }),
+        run: async () => {
+          try {
+            return await runAnnotationEdit(annotationMask.maskSrc, prompt);
+          } catch (error) {
+            if (!isSmartAnnotationNoVisibleChangeError(error)) throw error;
+            const retryMask = await createAnnotationEditMask(
+              latestImageSrc,
+              reference.x,
+              reference.y,
+              reference.text,
+              { expanded: true }
+            );
+            return runAnnotationEdit(
+              retryMask.maskSrc,
+              [
+                prompt,
+                "第二次局部编辑尝试：编辑区域已扩大。",
+                "必须在扩大后的透明蒙版区域内清晰完成用户要求，尤其是帽子、眼镜、墨镜等需要贴合原人物头部或面部的内容。",
+                "仍然禁止替换人物、重画整张图或改变未提及内容。",
+              ].join("\n")
+            );
+          }
+        },
       });
     },
     [
