@@ -16757,7 +16757,7 @@ function CanvasAssistantPanel({
   const [assistantImageCount, setAssistantImageCount] = useState(1);
   const [assistantImageRatio, setAssistantImageRatio] =
     useState<CanvasAssistantImageRatio>("auto");
-  const assistantControlsTextModeMinPanelWidth = 438;
+  const assistantControlsTextModeMinPanelWidth = 400;
   const [compactAssistantControls, setCompactAssistantControls] = useState(
     () => typeof window !== "undefined" && window.innerWidth < 430
   );

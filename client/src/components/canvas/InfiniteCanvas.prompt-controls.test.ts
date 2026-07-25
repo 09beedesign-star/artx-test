@@ -53,7 +53,7 @@ describe("InfiniteCanvas prompt controls", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
 
     expect(source).toContain("const [compactAssistantControls, setCompactAssistantControls]");
-    expect(source).toContain("const assistantControlsTextModeMinPanelWidth = 438;");
+    expect(source).toContain("const assistantControlsTextModeMinPanelWidth = 400;");
     expect(source).toContain("window.innerWidth < 430 ||");
     expect(source).toContain("panelWidth < assistantControlsTextModeMinPanelWidth");
     expect(source).toContain("compact={compactAssistantControls}");
