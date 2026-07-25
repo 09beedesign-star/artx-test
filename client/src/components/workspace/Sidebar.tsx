@@ -42,10 +42,10 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
   return (
     <aside
       className="flex flex-col h-full w-[220px] shrink-0"
-      style={{ background: "oklch(0.12 0.016 270)", borderRight: "1px solid oklch(1 0 0 / 6%)" }}
+      style={{ background: "#222222", borderRight: "1px solid oklch(1 0 0 / 6%)" }}
     >
       {/* Logo */}
-      <div className="flex items-center gap-2.5 px-4 py-4 shrink-0">
+      <div className="flex origin-left scale-[0.7] items-center gap-2.5 px-4 py-4 shrink-0">
         <div
           className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
           style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))" }}
@@ -61,11 +61,11 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
           className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm"
           style={{ background: "oklch(1 0 0 / 5%)", border: "1px solid oklch(1 0 0 / 8%)" }}
         >
-          <Search size={13} className="shrink-0" style={{ color: "oklch(0.55 0.01 270)" }} />
-          <span style={{ color: "oklch(0.50 0.01 270)", fontSize: 13 }}>搜索项目…</span>
+          <Search size={13} className="shrink-0" style={{ color: "oklch(0.69 0.010 270)" }} />
+          <span style={{ color: "oklch(0.65 0.010 270)", fontSize: 13 }}>搜索项目…</span>
           <span
             className="ml-auto text-[10px] px-1.5 py-0.5 rounded"
-            style={{ background: "oklch(1 0 0 / 8%)", color: "oklch(0.50 0.01 270)", fontFamily: "monospace" }}
+            style={{ background: "oklch(1 0 0 / 8%)", color: "oklch(0.65 0.010 270)", fontFamily: "monospace" }}
           >⌘K</span>
         </div>
       </div>
@@ -121,11 +121,11 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
             size={13}
             className="transition-transform duration-200"
             style={{
-              color: "oklch(0.50 0.01 270)",
+              color: "oklch(0.65 0.010 270)",
               transform: projectsExpanded ? "rotate(0deg)" : "rotate(-90deg)",
             }}
           />
-          <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: "oklch(0.45 0.01 270)" }}>
+          <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: "oklch(0.62 0.010 270)" }}>
             最近项目
           </span>
           <div
@@ -133,7 +133,7 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
             onClick={(e) => { e.stopPropagation(); toast("新建项目", { description: "功能即将上线" }); }}
             className="ml-auto p-0.5 rounded hover:bg-white/10 transition-colors cursor-pointer"
           >
-            <Plus size={12} style={{ color: "oklch(0.50 0.01 270)" }} />
+            <Plus size={12} style={{ color: "oklch(0.65 0.010 270)" }} />
           </div>
         </div>
 
@@ -174,9 +174,9 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-[12px] font-medium text-white truncate">{displayName}</div>
-            <div className="text-[11px]" style={{ color: "oklch(0.50 0.01 270)" }}>免费版 · 75 积分</div>
+            <div className="text-[11px]" style={{ color: "oklch(0.65 0.010 270)" }}>免费版 · 0 积分</div>
           </div>
-          <ChevronRight size={12} style={{ color: "oklch(0.45 0.01 270)" }} />
+          <ChevronRight size={12} style={{ color: "oklch(0.62 0.010 270)" }} />
         </div>
       </div>
     </aside>
@@ -208,7 +208,7 @@ function ProjectItem({ project, isActive, onSelect, delay }: {
       />
       <div className="flex-1 min-w-0">
         <div className="text-[12px] font-medium truncate">{project.title}</div>
-        <div className="text-[10px] truncate" style={{ color: "oklch(0.42 0.01 270)" }}>{project.updatedAt}</div>
+        <div className="text-[10px] truncate" style={{ color: "oklch(0.59 0.010 270)" }}>{project.updatedAt}</div>
       </div>
     </button>
   );

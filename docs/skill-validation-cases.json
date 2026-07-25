@@ -1,0 +1,74 @@
+[
+  {
+    "skillId": "brand-system-kit",
+    "capability": "text_to_image",
+    "requiresReferenceImage": false,
+    "minimumPrompt": "为一家面向年轻设计师的 AI 灵感工具生成品牌系统，风格清爽、专业、有一点未来感。",
+    "expectedVisualResult": "A brand system board with palette, typography mood, logo zone, graphic language, and multiple application examples.",
+    "passCriteria": "The output is visibly a brand kit, not a single poster; it contains several organized brand-system areas."
+  },
+  {
+    "skillId": "logo-identity-lab",
+    "capability": "text_to_image",
+    "requiresReferenceImage": false,
+    "minimumPrompt": "为一家名叫 Ember Cafe 的精品咖啡品牌探索 Logo，关键词是温暖、手作、城市通勤。",
+    "expectedVisualResult": "A logo exploration sheet with multiple logo directions such as symbol, wordmark, badge, and recommended option.",
+    "passCriteria": "At least 4 distinct logo concepts are visible and inspectable; marks are simple and not copied from famous brands."
+  },
+  {
+    "skillId": "landing-page-visual",
+    "capability": "text_to_image",
+    "requiresReferenceImage": false,
+    "minimumPrompt": "为一款 AI 图片协作工具生成产品官网首屏，突出多人协作、画布生成和快速出图。",
+    "expectedVisualResult": "A website hero or landing page visual with product signal, CTA, feature modules, and responsive UI feel.",
+    "passCriteria": "The output reads as a real web/product page, with clear hierarchy and UI layout rather than a generic poster."
+  },
+  {
+    "skillId": "commerce-poster-social",
+    "capability": "text_to_image",
+    "requiresReferenceImage": false,
+    "minimumPrompt": "为夏季运动水杯做一张电商活动海报，主打冰感、防漏、限时 8 折，适合社媒投放。",
+    "expectedVisualResult": "A commercial poster/social visual with product hero, headline zone, offer, CTA, and brand placement.",
+    "passCriteria": "Product is prominent, campaign hierarchy is clear, and text zones are readable."
+  },
+  {
+    "skillId": "cross-border-commerce-agent",
+    "capability": "text_to_image",
+    "requiresReferenceImage": false,
+    "minimumPrompt": "为阿联酋 Noon 平台生成一张高端香氛身体乳商品图，模板用生活场景图，保留阿拉伯语/英语标题、卖点、价格和 CTA 安全区，不直接写价格。",
+    "expectedVisualResult": "A Gulf-market ecommerce product visual with modest lifestyle context, product clarity, locked safe areas, and Arabic/English editable copy zones.",
+    "passCriteria": "The output avoids alcohol, exposed models, religious-symbol decoration, and baked-in price/claims; it reads as a cross-border marketplace visual."
+  },
+  {
+    "skillId": "product-photography",
+    "capability": "text_to_image",
+    "requiresReferenceImage": false,
+    "minimumPrompt": "生成一张高端无线耳机的商品摄影图，哑光黑材质，暗色背景，边缘冷光，适合新品发布。",
+    "expectedVisualResult": "A polished product photography or commercial render with clear product subject, material, light, surface, and shadow.",
+    "passCriteria": "The product remains inspectable, centered or intentionally composed, with realistic lighting and material cues."
+  },
+  {
+    "skillId": "video-storyboard",
+    "capability": "text_to_image",
+    "requiresReferenceImage": false,
+    "minimumPrompt": "为一款智能台灯做 15 秒短视频分镜，开头强调深夜工作，结尾展示自动调光。",
+    "expectedVisualResult": "A storyboard board with multiple sequential frames, hook, product reveal, benefit moment, and ending CTA.",
+    "passCriteria": "Several frames appear in sequence with captions or shot notes; the result is not a single unrelated image."
+  },
+  {
+    "skillId": "image-local-edit",
+    "capability": "image_edit",
+    "requiresReferenceImage": true,
+    "minimumPrompt": "把这张图片里的背景换成干净的白色电商背景，并保持主体不变。",
+    "expectedVisualResult": "An image edit result that preserves the subject while changing or cleaning the background.",
+    "passCriteria": "Subject identity, proportions, and important details are preserved; background is cleaner and commercially usable."
+  },
+  {
+    "skillId": "visual-reference-audit",
+    "capability": "text_to_image",
+    "requiresReferenceImage": false,
+    "minimumPrompt": "分析这个参考方向并生成一个更高级、更干净的版本，要求层级清楚、留白更好、视觉更统一。",
+    "expectedVisualResult": "An improved visual direction that reflects analysis: better hierarchy, alignment, contrast, spacing, and style consistency.",
+    "passCriteria": "The output visibly improves organization and quality rather than only producing a text report."
+  }
+]

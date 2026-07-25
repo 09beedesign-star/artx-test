@@ -3,6 +3,7 @@
  */
 import { useMemo, useState } from "react";
 import TopBar from "@/components/workspace/TopBar";
+import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { BG_GLOW } from "@/lib/workspace-data";
 import {
@@ -15,10 +16,8 @@ import {
 import {
   Boxes,
   CheckCircle2,
-  Download,
   Filter,
   GitFork,
-  Loader2,
   Search,
   Sparkles,
   Star,
@@ -26,10 +25,31 @@ import {
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
-const categoryOrder: SkillStoreCategory[] = ["creative", "editing", "analysis", "export"];
+const categoryOrder: SkillStoreCategory[] = [
+  "brand_system",
+  "logo_identity",
+  "landing_page",
+  "commerce_poster",
+  "product_visual",
+  "video_storyboard",
+  "image_editing",
+  "visual_audit",
+];
 const skillButtonPurple = "#9058fc";
 const skillButtonPurpleBorder = "rgba(144, 88, 252, 0.56)";
 const skillButtonPurpleShadow = "0 10px 26px rgba(144, 88, 252, 0.25)";
+const categoryAccentPalette = [
+  "oklch(0.72 0.18 210)",
+  "oklch(0.70 0.20 288)",
+  "oklch(0.70 0.17 150)",
+  "oklch(0.74 0.18 55)",
+  "oklch(0.68 0.19 25)",
+  "oklch(0.70 0.20 330)",
+  "oklch(0.73 0.16 185)",
+  "oklch(0.75 0.17 82)",
+  "oklch(0.72 0.18 250)",
+  "oklch(0.72 0.16 120)",
+];
 
 const statusTone: Record<string, string> = {
   "已同步": "oklch(0.72 0.16 150)",
@@ -43,21 +63,27 @@ function formatScore(score: number) {
   return score.toLocaleString();
 }
 
+function getCategoryAccent(category: SkillStoreCategory, index: number) {
+  const hash = category.split("").reduce((sum, char) => sum + char.charCodeAt(0), index);
+  return categoryAccentPalette[Math.abs(hash) % categoryAccentPalette.length];
+}
+
 export default function SkillsPage() {
   const [, navigate] = useLocation();
+  const { isAuthenticated, openLoginModal } = useAuth();
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const [activeCategory, setActiveCategory] = useState<SkillStoreCategory | "all">("all");
   const [query, setQuery] = useState("");
   const [sortMode, setSortMode] = useState<"popular" | "synced">("popular");
 
-  const bg = isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)";
+  const bg = isDark ? "#222222" : "var(--design-surface-soft)";
   const panel = isDark ? "rgba(255,255,255,0.055)" : "rgba(255,255,255,0.78)";
   const panelStrong = isDark ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.95)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(20,20,36,0.10)";
   const text = isDark ? "rgba(255,255,255,0.88)" : "rgba(20,20,36,0.86)";
-  const sub = isDark ? "rgba(255,255,255,0.52)" : "rgba(20,20,36,0.56)";
-  const faint = isDark ? "rgba(255,255,255,0.34)" : "rgba(20,20,36,0.40)";
+  const sub = isDark ? "rgba(255,255,255,0.66)" : "rgba(20,20,36,0.56)";
+  const faint = isDark ? "rgba(255,255,255,0.54)" : "rgba(20,20,36,0.40)";
 
   const filteredItems = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -83,18 +109,35 @@ export default function SkillsPage() {
     });
   }, [activeCategory, query, sortMode]);
 
+  const visibleCategories = useMemo(() => {
+    const merged = new Set<SkillStoreCategory>(categoryOrder);
+    skillStoreItems.forEach((skill) => merged.add(skill.category));
+    return Array.from(merged);
+  }, []);
+
   const categoryCounts = useMemo(() => {
-    return categoryOrder.reduce((acc, category) => {
+    return visibleCategories.reduce((acc, category) => {
       acc[category] = skillStoreItems.filter((skill) => skill.category === category).length;
       return acc;
     }, {} as Record<SkillStoreCategory, number>);
-  }, []);
+  }, [visibleCategories]);
+
+  const heroStats = [
+    { label: "总技能", value: skillStoreStats.total, icon: Sparkles, accent: skillButtonPurple },
+    { label: "已同步", value: skillStoreStats.synced, icon: CheckCircle2, accent: "#42d392" },
+    { label: "分类", value: visibleCategories.length, icon: Boxes, accent: "#00d0ff" },
+  ];
 
   const handleQuickLoad = (skill: (typeof skillStoreItems)[number]) => {
+    if (!isAuthenticated) {
+      openLoginModal();
+      return;
+    }
+
     if (typeof window !== "undefined") {
       window.sessionStorage.setItem("artx:pending-skill-load", JSON.stringify(createPendingSkillLoad(skill)));
     }
-  toast("Skill 已快速加载", { description: `正在进入画布：${skill.name}` });
+    toast("Skill 已快速加载", { description: `正在进入画布：${skill.name}` });
     navigate("/project/__blank-workspace__");
   };
 
@@ -126,108 +169,133 @@ export default function SkillsPage() {
       {isDark && (
         <div
           className="pointer-events-none absolute inset-0"
-          style={{ backgroundImage: `url(${BG_GLOW})`, backgroundSize: "cover", opacity: 0.08, zIndex: 0 }}
+          style={{ backgroundImage: `url(${BG_GLOW})`, backgroundSize: "cover", opacity: 0, zIndex: 0 }}
         />
       )}
 
       <div style={{ position: "relative", zIndex: 1 }}>
-        <TopBar credits={0} />
+        <TopBar credits={0} glass />
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto" style={{ position: "relative", zIndex: 1 }}>
         <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-5 px-6 pb-10 pt-5">
-          <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <section className="grid gap-3">
             <div
-              className="rounded-[var(--radius-lg-design)] border p-5"
-              style={{ background: panel, borderColor: border, backdropFilter: "blur(18px)" }}
+              className="relative overflow-hidden rounded-[var(--radius-lg-design)] border p-5"
+              style={{
+                background: isDark
+                  ? "linear-gradient(135deg, rgba(144,88,252,0.16), rgba(255,255,255,0.055) 42%, rgba(0,208,255,0.09))"
+                  : "linear-gradient(135deg, rgba(144,88,252,0.12), rgba(255,255,255,0.86) 42%, rgba(0,208,255,0.10))",
+                borderColor: isDark ? "rgba(255,255,255,0.14)" : "rgba(20,20,36,0.10)",
+                backdropFilter: "blur(18px)",
+              }}
             >
-              <div className="mb-5 flex flex-wrap items-center gap-2">
-                <span
-                  className="inline-flex h-8 items-center gap-2 rounded-[var(--radius-md-design)] border px-2.5 type-caption"
-                  style={{
-                    color: isDark ? "rgba(255,255,255,0.72)" : "rgba(20,20,36,0.72)",
-                    borderColor: border,
-                    background: isDark ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.70)",
-                  }}
-                >
-                  <Sparkles size={13} />
-                  Skill Store
-                </span>
-                <span className="type-caption" style={{ color: faint }}>
-                  GitHub 热度快照，按 stars / adoption 汇总
-                </span>
-              </div>
+              <div
+                className="pointer-events-none absolute right-6 top-2 h-24 w-24 rounded-full"
+                style={{ background: "rgba(144,88,252,0.16)", filter: "blur(30px)" }}
+              />
+              <div
+                className="pointer-events-none absolute bottom-0 right-28 h-16 w-36 rounded-full"
+                style={{ background: "rgba(0,208,255,0.10)", filter: "blur(26px)" }}
+              />
 
-              <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-                <div>
-                  <h1 className="text-[32px] font-semibold leading-tight" style={{ color: text, letterSpacing: 0 }}>
-                    设计图片类 Skills
-                  </h1>
-                  <p className="mt-2 max-w-[720px] text-sm leading-6" style={{ color: sub }}>
-                    已整理 30 个可放入平台商店的技能入口，覆盖创作、编辑、分析和导出。每个卡片都保留来源仓库，后续可以接 GitHub token 或你们自己的下载榜自动刷新。
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2 md:w-[330px]">
-                  <div className="rounded-[var(--radius-md-design)] border p-3" style={{ borderColor: border, background: panelStrong }}>
-                    <p className="text-[22px] font-semibold" style={{ color: text }}>{skillStoreStats.total}</p>
-                    <p className="mt-1 text-xs" style={{ color: faint }}>总技能</p>
-                  </div>
-                  <div className="rounded-[var(--radius-md-design)] border p-3" style={{ borderColor: border, background: panelStrong }}>
-                    <p className="text-[22px] font-semibold" style={{ color: text }}>{skillStoreStats.synced}</p>
-                    <p className="mt-1 text-xs" style={{ color: faint }}>已同步</p>
-                  </div>
-                  <div className="rounded-[var(--radius-md-design)] border p-3" style={{ borderColor: border, background: panelStrong }}>
-                    <p className="text-[22px] font-semibold" style={{ color: text }}>4</p>
-                    <p className="mt-1 text-xs" style={{ color: faint }}>分类</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div
-              className="rounded-[var(--radius-lg-design)] border p-4"
-              style={{ background: panel, borderColor: border, backdropFilter: "blur(18px)" }}
-            >
-              <div className="mb-3 flex items-center justify-between">
-                <div className="flex items-center gap-2" style={{ color: text }}>
-                  <Boxes size={16} />
-                  <span className="text-sm font-medium">分类覆盖</span>
-                </div>
-                <span className="text-xs" style={{ color: faint }}>按平台商店结构</span>
-              </div>
-              <div className="grid gap-2">
-                {categoryOrder.map((category) => {
-                  const meta = skillCategoryMeta[category];
-                  return (
-                    <button
-                      key={category}
-                      type="button"
-                      onClick={() => setActiveCategory(category)}
-                      className="flex items-center justify-between rounded-[var(--radius-md-design)] border px-3 py-2 text-left transition-opacity hover:opacity-85"
-                      style={{
-                        borderColor: activeCategory === category ? skillButtonPurpleBorder : border,
-                        background: activeCategory === category ? skillButtonPurple : panelStrong,
-                        boxShadow: activeCategory === category ? skillButtonPurpleShadow : "none",
-                      }}
-                    >
-                      <span>
-                        <span className="block text-sm font-medium" style={{ color: activeCategory === category ? "white" : text }}>{meta.label}</span>
-                        <span className="block max-w-[250px] truncate text-xs" style={{ color: activeCategory === category ? "rgba(255,255,255,0.76)" : sub }}>{meta.description}</span>
+              <div className="relative grid gap-4 xl:grid-cols-[minmax(0,0.72fr)_minmax(520px,1fr)] xl:items-start">
+                <div className="flex min-h-[214px] flex-col justify-between gap-4">
+                  <div>
+                    <div className="mb-3 flex flex-wrap items-center gap-2">
+                      <span
+                        className="inline-flex h-7 items-center gap-2 rounded-[var(--radius-md-design)] border px-2.5 type-caption"
+                        style={{
+                          color: isDark ? "rgba(255,255,255,0.82)" : "rgba(20,20,36,0.76)",
+                          borderColor: isDark ? "rgba(255,255,255,0.16)" : "rgba(20,20,36,0.10)",
+                          background: isDark ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.72)",
+                        }}
+                      >
+                        <Sparkles size={13} style={{ color: "#c5ed47" }} />
+                        Skill Store
                       </span>
-                      <span className="text-sm font-semibold" style={{ color: activeCategory === category ? "white" : skillButtonPurple }}>{categoryCounts[category]}</span>
-                    </button>
-                  );
-                })}
+                      <span className="type-caption" style={{ color: faint }}>
+                        GitHub 热度快照 · stars / adoption 汇总
+                      </span>
+                    </div>
+
+                    <h1 className="max-w-[720px] text-[38px] font-semibold leading-[1.04]" style={{ color: text, letterSpacing: 0 }}>
+                      设计图片类 Skills
+                    </h1>
+                    <p className="mt-2 max-w-[580px] text-sm leading-6" style={{ color: sub }}>
+                      使用技能，让你的创意效率即刻提速翻倍。
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-3">
+                    {heroStats.map((item) => {
+                      const Icon = item.icon;
+                      return (
+                        <div
+                          key={item.label}
+                          className="flex min-h-[86px] flex-col items-center justify-center gap-1 text-center"
+                        >
+                          <Icon size={20} style={{ color: item.accent }} />
+                          <p className="text-[30px] font-semibold leading-none" style={{ color: text }}>{item.value}</p>
+                          <p className="text-xs" style={{ color: faint }}>{item.label}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                  <div className="rounded-[var(--radius-md-design)] border p-3" style={{ borderColor: border, background: isDark ? "#222222" : "rgba(255,255,255,0.62)" }}>
+                    <div className="mb-2 flex items-center justify-between">
+                      <div className="flex items-center gap-2" style={{ color: text }}>
+                        <Boxes size={15} />
+                        <span className="text-sm font-medium">分类覆盖</span>
+                      </div>
+                      <span className="text-xs" style={{ color: faint }}>商店结构</span>
+                    </div>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {visibleCategories.map((category, index) => {
+                        const meta = skillCategoryMeta[category];
+                        const accent = getCategoryAccent(category, index);
+                        return (
+                          <button
+                            key={category}
+                            type="button"
+                            onClick={() => setActiveCategory(category)}
+                            className="group flex w-full items-center gap-2.5 rounded-[var(--radius-md-design)] px-2 py-1 text-left transition-opacity hover:opacity-85"
+                            style={{
+                              background: activeCategory === category ? "rgba(144,88,252,0.16)" : "transparent",
+                            }}
+                          >
+                            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: accent }} />
+                            <span className="min-w-0 flex-1">
+                              <span className="flex items-center justify-between gap-2">
+                                <span className="text-sm font-medium" style={{ color: text }}>{meta.label}</span>
+                                <span className="text-xs font-semibold" style={{ color: activeCategory === category ? skillButtonPurple : faint }}>{categoryCounts[category]}</span>
+                              </span>
+                              <span className="mt-0.5 block h-1.5 overflow-hidden rounded-full" style={{ background: isDark ? "rgba(255,255,255,0.08)" : "rgba(20,20,36,0.08)" }}>
+                                <span
+                                  className="block h-full rounded-full"
+                                  style={{
+                                    width: `${Math.max(14, (categoryCounts[category] / skillStoreStats.total) * 100)}%`,
+                                    background: accent,
+                                  }}
+                                />
+                              </span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
               </div>
             </div>
           </section>
 
           <section
-            className="flex flex-col gap-3 rounded-[var(--radius-lg-design)] border p-3 md:flex-row md:items-center md:justify-between"
+            className="flex flex-col gap-3 rounded-[var(--radius-lg-design)] border p-3 md:flex-row md:items-start md:justify-between"
             style={{ background: panel, borderColor: border, backdropFilter: "blur(18px)" }}
           >
-            <div className="flex flex-wrap gap-2">
+            <div className="flex min-w-0 flex-1 flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => setActiveCategory("all")}
@@ -242,7 +310,7 @@ export default function SkillsPage() {
                 <Filter size={14} />
                 全部
               </button>
-              {categoryOrder.map((category) => (
+              {visibleCategories.map((category) => (
                 <button
                   key={category}
                   type="button"
@@ -260,26 +328,26 @@ export default function SkillsPage() {
               ))}
             </div>
 
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="flex w-full max-w-[420px] shrink-0 items-center gap-2 md:mt-[44px] md:w-[420px]">
               <div
-                className="flex h-9 items-center gap-2 rounded-[var(--radius-md-design)] border px-3"
+                className="flex h-9 w-[300px] shrink-0 items-center gap-2 overflow-hidden rounded-[var(--radius-md-design)] border px-3"
                 style={{ borderColor: border, background: panelStrong }}
               >
-                <Search size={14} style={{ color: faint }} />
+                <Search size={14} style={{ color: faint, flexShrink: 0 }} />
                 <input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="搜索技能、尺寸、来源"
-                  className="w-[220px] bg-transparent text-sm outline-none"
+                  className="min-w-0 flex-1 truncate bg-transparent text-sm outline-none"
                   style={{ color: text }}
                 />
               </div>
 
-              <div className="grid grid-cols-2 rounded-[var(--radius-md-design)] border p-1" style={{ borderColor: border, background: panelStrong }}>
+              <div className="grid h-9 w-[112px] shrink-0 grid-cols-2 rounded-[var(--radius-md-design)] border p-1" style={{ borderColor: border, background: panelStrong }}>
                 <button
                   type="button"
                   onClick={() => setSortMode("popular")}
-                  className="h-7 rounded-[var(--radius-sm-design)] px-2 text-xs"
+                  className="h-7 truncate whitespace-nowrap rounded-[var(--radius-sm-design)] px-2 text-xs"
                   style={{ color: sortMode === "popular" ? "white" : faint, background: sortMode === "popular" ? skillButtonPurple : "transparent" }}
                 >
                   热度
@@ -287,7 +355,7 @@ export default function SkillsPage() {
                 <button
                   type="button"
                   onClick={() => setSortMode("synced")}
-                  className="h-7 rounded-[var(--radius-sm-design)] px-2 text-xs"
+                  className="h-7 truncate whitespace-nowrap rounded-[var(--radius-sm-design)] px-2 text-xs"
                   style={{ color: sortMode === "synced" ? "white" : faint, background: sortMode === "synced" ? skillButtonPurple : "transparent" }}
                 >
                   状态
@@ -348,21 +416,6 @@ export default function SkillsPage() {
                     ))}
                   </div>
 
-                  {skill.canvasSizes && (
-                    <div className="mt-3 flex flex-wrap gap-1.5">
-                      {skill.canvasSizes.slice(0, 5).map((size) => (
-                        <span
-                          key={size}
-                          className="inline-flex items-center gap-1 rounded-[var(--radius-sm-design)] px-2 py-1 text-xs"
-                          style={{ color: "white", background: skillButtonPurple }}
-                        >
-                          <Download size={11} />
-                          {size}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-
                   <div className="mt-auto pt-3">
                     <div className="mb-3 flex items-center justify-between gap-2">
                       <div className="min-w-0">
@@ -384,7 +437,6 @@ export default function SkillsPage() {
                           boxShadow: skillButtonPurpleShadow,
                         }}
                       >
-                        <Loader2 size={13} />
                         快速加载
                       </button>
                       <span className="hidden text-xs md:inline" style={{ color: faint }}>

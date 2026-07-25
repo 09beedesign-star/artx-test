@@ -1,3 +1,6 @@
+import { ART_X_TEST_API_BASE_URL, normalizeApiBaseUrl } from "./api-base-url";
+import { DEFAULT_IMAGE_MODEL_ID } from "../../../shared/image-models";
+
 type LLMRole = "system" | "user" | "assistant";
 
 export type LLMMessage = {
@@ -15,13 +18,39 @@ type OrchestrateResponse = ApiErrorResponse & {
   model?: string;
   images?: GeneratedImageResult[];
   image_base64?: string;
+  providerTaskId?: string;
+  providerTaskIds?: string[];
+};
+
+export type BackgroundImageTask = {
+  taskId: string;
+  status: "pending" | "completed" | "failed";
+  images?: GeneratedImageResult[];
+  error?: string;
+};
+
+export type ImageGenerationTaskInput = Record<string, unknown> & {
+  taskId: string;
+  capability?: string;
+  intent?: string;
+  operation?: string;
 };
 
 const AUTH_STORAGE_KEY = "artx-auth-session";
+const AI_REQUEST_TIMEOUT_MS = 300000;
+const AI_TIMEOUT_ERROR_MESSAGE = "对不起，网络开了个小差，请稍后重试";
+const ART_X_TEST_AI_API_BASE_URL = ART_X_TEST_API_BASE_URL;
+let aiApiBaseOverride: string | null = null;
 
 function normalizeAiErrorMessage(message: string, fallback: string) {
   if (/images api is not supported|not supported for this platform|unsupported.*images/i.test(message)) {
-    return "当前图片模型不支持 Images API，系统已切换兼容生成链路；如果仍失败，请稍后重试或切换 Nano Banana 图片模型";
+    return "当前图片模型不支持 Images API，系统已自动切换兼容生成链路；如果仍失败，请稍后重试";
+  }
+  if (/openai_error|bad_response_status_code|bad response status/i.test(message)) {
+    return "图片模型暂不可用，请稍后重试";
+  }
+  if (/^\s*\{[\s\S]*"error"[\s\S]*\}\s*$/.test(message)) {
+    return "图片模型暂不可用，请稍后重试";
   }
   return message || fallback;
 }
@@ -32,26 +61,161 @@ export type GeneratedImageResult = {
   height: number;
 };
 
+export type GeneratedImagesResponse = {
+  images: GeneratedImageResult[];
+  providerTaskId?: string;
+  providerTaskIds?: string[];
+};
+
+export type ImageTextRegion = {
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+function getAiAssetBaseUrl() {
+  const apiBaseUrl = getAiApiBaseUrl();
+  return apiBaseUrl || ART_X_TEST_AI_API_BASE_URL;
+}
+
+function normalizeGeneratedImageSrc(src: string) {
+  const trimmed = src.trim();
+  if (!trimmed || trimmed.startsWith("data:") || /^https?:\/\//i.test(trimmed)) return trimmed;
+  const uploadPath = trimmed
+    .replace(/^\/api(?=\/uploads\/)/, "")
+    .replace(/^uploads\//, "/uploads/");
+  if (uploadPath.startsWith("/uploads/")) return `${getAiAssetBaseUrl()}${uploadPath}`;
+  return trimmed;
+}
+
+function normalizeGeneratedImage(image: GeneratedImageResult): GeneratedImageResult {
+  return {
+    ...image,
+    src: normalizeGeneratedImageSrc(image.src),
+  };
+}
+
+function toGeneratedImagesResponse(result: Partial<GeneratedImagesResponse>): GeneratedImagesResponse {
+  const providerTaskIds = result.providerTaskIds?.length
+    ? result.providerTaskIds
+    : result.providerTaskId
+      ? [result.providerTaskId]
+      : undefined;
+  return {
+    images: (result.images || []).map(normalizeGeneratedImage),
+    providerTaskId: result.providerTaskId || providerTaskIds?.[0],
+    providerTaskIds,
+  };
+}
+
+function normalizeBackgroundImageTask(task: BackgroundImageTask): BackgroundImageTask {
+  return {
+    ...task,
+    images: task.images?.map(normalizeGeneratedImage),
+  };
+}
+
 export type ReferenceImageResult = {
   id: string;
   title: string;
   src: string;
+  originalSrc?: string;
   width: number;
   height: number;
   source: string;
 };
 
+export type AiModelCatalogOption = {
+  id: string;
+  label: string;
+  color: string;
+  description?: string;
+  icon?: string;
+};
+
+export type AiModelCatalogResponse = ApiErrorResponse & {
+  image?: AiModelCatalogOption[];
+  source?: "provider" | "fallback";
+};
+
+export type AiModelEntitlement = {
+  model: string;
+  status: "standard" | "available" | "unavailable" | "exhausted";
+  label: string;
+  used: number;
+  limit: number | null;
+  remaining: number | null;
+  creditsPerImage?: number;
+  message?: string;
+};
+
+export type AiModelEntitlementsResponse = ApiErrorResponse & {
+  planId: string;
+  planName: string;
+  imageModels: AiModelEntitlement[];
+};
+
 function getAiApiBaseUrl() {
+  if (aiApiBaseOverride) return aiApiBaseOverride;
   const configured = (
     import.meta.env.VITE_AI_API_BASE_URL ||
     import.meta.env.VITE_API_BASE_URL ||
     ""
-  ).replace(/\/+$/, "");
-  if (configured) return configured;
-  if (typeof window !== "undefined" && window.location.hostname.endsWith("github.io")) {
-    return "https://artx-test.onrender.com";
+  );
+  const normalized = normalizeApiBaseUrl(configured);
+  if (typeof window !== "undefined") {
+    const hostname = window.location.hostname;
+    const isGithubPages = hostname.endsWith("github.io");
+    const isRelativeConfigured = normalized.startsWith("/") || normalized.startsWith(".");
+    const configuredHost = (() => {
+      try {
+        return normalized ? new URL(normalized, window.location.href).hostname : "";
+      } catch {
+        return "";
+      }
+    })();
+    if (isGithubPages && (!normalized || isRelativeConfigured || configuredHost.endsWith("github.io"))) {
+      return ART_X_TEST_AI_API_BASE_URL;
+    }
   }
-  return "";
+  if (normalized) return normalized;
+  if (typeof window !== "undefined") {
+    const hostname = window.location.hostname;
+    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") return "";
+  }
+  return ART_X_TEST_AI_API_BASE_URL;
+}
+
+function getLocalAiFallbackEndpoint(endpoint: string) {
+  if (typeof window === "undefined") return "";
+  try {
+    const current = new URL(endpoint, window.location.href);
+    const isLoopback = current.hostname === "localhost"
+      || current.hostname === "127.0.0.1"
+      || current.hostname === "::1";
+    if (!isLoopback) return "";
+    const fallback = new URL(current.pathname + current.search, ART_X_TEST_AI_API_BASE_URL);
+    return fallback.toString();
+  } catch {
+    return "";
+  }
+}
+
+function isAiBackendConnectionError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /AI 后端地址未正确连接|网页内容|non-JSON response|Failed to fetch|NetworkError|后台图像生成启动失败|后台图像生成查询失败/i.test(message);
+}
+
+function isTransientBackgroundTaskPollingError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /429|Too Many Requests|AI 后端地址未正确连接|网页内容|non-JSON response|Failed to fetch|NetworkError|后台图像生成查询失败/i.test(message);
+}
+
+function isTransientBackgroundTaskStartError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /429|Too Many Requests|AI 后端地址未正确连接|网页内容|non-JSON response|Failed to fetch|NetworkError|后台图像生成启动失败/i.test(message);
 }
 
 export function hasActiveAuthSession() {
@@ -64,6 +228,22 @@ export function hasActiveAuthSession() {
   } catch {
     return false;
   }
+}
+
+function getAiAuthToken() {
+  if (typeof window === "undefined") return "";
+  try {
+    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) as { token?: string } : null;
+    return parsed?.token || "";
+  } catch {
+    return "";
+  }
+}
+
+function getAiAuthHeaders(): Record<string, string> {
+  const token = getAiAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 export function requestAiAuth() {
@@ -95,38 +275,134 @@ async function readJsonResponse<T extends ApiErrorResponse>(response: Response, 
   return JSON.parse(text) as T;
 }
 
+async function fetchAiJson<T extends ApiErrorResponse>(
+  endpoint: string,
+  body: Record<string, unknown>,
+  fallbackError: string,
+  timeoutMs = AI_REQUEST_TIMEOUT_MS,
+  allowLocalFallback = true,
+): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...getAiAuthHeaders() },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    const result = await readJsonResponse<T>(response, fallbackError);
+    if (!response.ok) {
+      throw new Error(normalizeAiErrorMessage(result.error || result.message || fallbackError, fallbackError));
+    }
+    return result;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(AI_TIMEOUT_ERROR_MESSAGE);
+    }
+    const fallbackEndpoint = allowLocalFallback ? getLocalAiFallbackEndpoint(endpoint) : "";
+    if (fallbackEndpoint && fallbackEndpoint !== endpoint && isAiBackendConnectionError(error)) {
+      aiApiBaseOverride = ART_X_TEST_AI_API_BASE_URL;
+      return fetchAiJson<T>(fallbackEndpoint, body, fallbackError, timeoutMs, false);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function fetchAiJsonGet<T extends ApiErrorResponse>(
+  endpoint: string,
+  fallbackError: string,
+  allowLocalFallback = true,
+): Promise<T> {
+  try {
+    const response = await fetch(endpoint, { method: "GET", headers: getAiAuthHeaders() });
+    const result = await readJsonResponse<T>(response, fallbackError);
+    if (!response.ok) {
+      throw new Error(result.error || result.message || fallbackError);
+    }
+    return result;
+  } catch (error) {
+    const fallbackEndpoint = allowLocalFallback ? getLocalAiFallbackEndpoint(endpoint) : "";
+    if (fallbackEndpoint && fallbackEndpoint !== endpoint && isAiBackendConnectionError(error)) {
+      aiApiBaseOverride = ART_X_TEST_AI_API_BASE_URL;
+      return fetchAiJsonGet<T>(fallbackEndpoint, fallbackError, false);
+    }
+    throw error;
+  }
+}
+
+export async function listAiModelCatalog() {
+  const endpoint = `${getAiApiBaseUrl()}/api/ai/models`;
+  return fetchAiJsonGet<AiModelCatalogResponse>(endpoint, "AI 模型列表加载失败");
+}
+
+export async function getAiModelEntitlements() {
+  const endpoint = `${getAiApiBaseUrl()}/api/ai/model-entitlements`;
+  return fetchAiJsonGet<AiModelEntitlementsResponse>(endpoint, "AI 模型权益加载失败");
+}
+
 async function postAiOrchestrate(body: Record<string, unknown>, fallbackError: string) {
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/ai/orchestrate`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-
-  const result = await readJsonResponse<OrchestrateResponse>(response, fallbackError);
-  if (!response.ok) {
-    throw new Error(result.error || result.message || fallbackError);
-  }
-
-  return result;
+  return fetchAiJson<OrchestrateResponse>(endpoint, body, fallbackError);
 }
 
 async function postImageExpand(body: Record<string, unknown>, fallbackError: string) {
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/images/expand`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  return fetchAiJson<ApiErrorResponse & Partial<GeneratedImagesResponse>>(endpoint, body, fallbackError);
+}
 
-  const result = await readJsonResponse<ApiErrorResponse & { images?: GeneratedImageResult[] }>(response, fallbackError);
-  if (!response.ok) {
-    throw new Error(result.error || result.message || fallbackError);
-  }
+async function postImageEnhance(body: Record<string, unknown>, fallbackError: string) {
+  const baseUrl = getAiApiBaseUrl();
+  const endpoint = `${baseUrl}/api/images/enhance`;
+  return fetchAiJson<ApiErrorResponse & Partial<GeneratedImagesResponse>>(endpoint, body, fallbackError);
+}
 
-  return result;
+async function postImageBackgroundRemoval(body: Record<string, unknown>, fallbackError: string) {
+  const baseUrl = getAiApiBaseUrl();
+  const endpoint = `${baseUrl}/api/images/remove-background`;
+  return fetchAiJson<ApiErrorResponse & Partial<GeneratedImagesResponse>>(endpoint, body, fallbackError);
+}
+
+async function postImageWatermarkRemoval(body: Record<string, unknown>, fallbackError: string) {
+  const baseUrl = getAiApiBaseUrl();
+  const endpoint = `${baseUrl}/api/images/remove-watermark`;
+  return fetchAiJson<ApiErrorResponse & Partial<GeneratedImagesResponse>>(endpoint, body, fallbackError);
+}
+
+async function postProductBackground(body: Record<string, unknown>, fallbackError: string) {
+  const baseUrl = getAiApiBaseUrl();
+  const endpoint = `${baseUrl}/api/images/create-background`;
+  return fetchAiJson<ApiErrorResponse & Partial<GeneratedImagesResponse>>(endpoint, body, fallbackError);
+}
+
+export type PicWishBackgroundTemplate = {
+  id: number;
+  name: string;
+  category: string;
+  previewUrl?: string;
+};
+
+export async function listPicWishBackgroundTemplates() {
+  const endpoint = `${getAiApiBaseUrl()}/api/images/background-templates?language=en`;
+  const result = await fetchAiJsonGet<{ templates?: PicWishBackgroundTemplate[]; error?: string }>(endpoint, "PicWish 背景模板加载失败");
+  return result.templates || [];
+}
+
+async function postImageErase(body: Record<string, unknown>, fallbackError: string) {
+  const baseUrl = getAiApiBaseUrl();
+  const endpoint = `${baseUrl}/api/images/erase`;
+  return fetchAiJson<ApiErrorResponse & Partial<GeneratedImagesResponse>>(endpoint, body, fallbackError);
+}
+
+async function postImageOcr(body: Record<string, unknown>, fallbackError: string) {
+  const baseUrl = getAiApiBaseUrl();
+  const endpoint = `${baseUrl}/api/images/ocr`;
+  return fetchAiJson<ApiErrorResponse & { text?: string; regions?: ImageTextRegion[]; provider?: string }>(endpoint, body, fallbackError);
 }
 
 export async function callLLM({
@@ -155,7 +431,7 @@ export async function callLLM({
 
   return {
     text: result.text || "",
-    model: result.model || model || "gpt-5.4-mini",
+    model: result.model || model || "auto",
   };
 }
 
@@ -169,28 +445,26 @@ export async function searchReferenceImages({
   requireAiAuth();
   const baseUrl = getAiApiBaseUrl();
   const endpoint = `${baseUrl}/api/references/search`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query, limit }),
-  });
+  const result = await fetchAiJson<ApiErrorResponse & { images?: ReferenceImageResult[] }>(endpoint, { query, limit }, "参考图抓取失败");
 
-  const result = await readJsonResponse<ApiErrorResponse & { images?: ReferenceImageResult[] }>(response, "参考图抓取失败");
-  if (!response.ok) {
-    throw new Error(result.error || result.message || "参考图抓取失败");
-  }
-
-  return { images: result.images || [] };
+  return {
+    images: (result.images || []).map(image => ({
+      ...image,
+      src: image.src.startsWith("/") ? new URL(image.src, baseUrl).toString() : image.src,
+    })),
+  };
 }
 
 export async function generateImages({
   prompt,
-  model = "gpt-image-2",
+  model = DEFAULT_IMAGE_MODEL_ID,
   ratio = "1:1",
   count = 1,
   style,
   referencesEnabled = false,
   referencedAssets = [],
+  skillId,
+  generationId,
 }: {
   prompt: string;
   model?: string;
@@ -199,6 +473,8 @@ export async function generateImages({
   style?: string;
   referencesEnabled?: boolean;
   referencedAssets?: Array<{ src: string; title?: string }>;
+  skillId?: string;
+  generationId?: string;
 }) {
   requireAiAuth();
   const promptWithContext = [
@@ -206,6 +482,24 @@ export async function generateImages({
     referencesEnabled ? "参考当前画布和已引用素材进行生成。" : "",
     prompt,
   ].filter(Boolean).join("\n");
+  if (generationId) {
+    try {
+      await startBackgroundImageGeneration({
+        taskId: generationId,
+        prompt,
+        model,
+        ratio,
+        count,
+        style,
+        referencesEnabled,
+        referencedAssets,
+        skillId,
+      });
+      return await waitForImageGenerationTask(generationId);
+    } catch (error) {
+      if (!isAiBackendConnectionError(error)) throw error;
+    }
+  }
   const result = await postAiOrchestrate({
     capability: "text_to_image",
     intent: "text_to_image",
@@ -214,15 +508,110 @@ export async function generateImages({
     model,
     ratio,
     count,
+    style,
     images: referencedAssets,
+    skillId,
   }, "图像生成失败");
 
-  return { images: result.images || [] };
+  return toGeneratedImagesResponse(result);
+}
+
+export async function startImageGenerationTask(
+  input: ImageGenerationTaskInput,
+) {
+  requireAiAuth();
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      const result = await fetchAiJson<BackgroundImageTask>(
+        `${getAiApiBaseUrl()}/api/images/tasks`,
+        input,
+        "后台图像生成启动失败",
+        20000
+      );
+      return normalizeBackgroundImageTask(result);
+    } catch (error) {
+      if (!isTransientBackgroundTaskStartError(error)) throw error;
+      lastError = error;
+      console.warn("Background image generation start temporarily failed", error);
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("后台图像生成启动失败");
+}
+
+export async function waitForImageGenerationTask(taskId: string): Promise<GeneratedImagesResponse> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      const task = await getBackgroundImageGenerationTask(taskId);
+      if (task.status === "completed") return { images: task.images || [] };
+      if (task.status === "failed") throw new Error(task.error || "图像生成失败");
+    } catch (error) {
+      if (!isTransientBackgroundTaskPollingError(error)) throw error;
+      console.warn("Background image generation polling temporarily failed", error);
+    }
+    await new Promise(resolve => setTimeout(resolve, 3000));
+  }
+  throw new Error(AI_TIMEOUT_ERROR_MESSAGE);
+}
+
+export async function runImageGenerationTask(input: ImageGenerationTaskInput): Promise<GeneratedImagesResponse> {
+  await startImageGenerationTask(input);
+  return waitForImageGenerationTask(input.taskId);
+}
+
+export async function startBackgroundImageGeneration({
+  taskId,
+  prompt,
+  model = DEFAULT_IMAGE_MODEL_ID,
+  ratio = "1:1",
+  count = 1,
+  style,
+  referencesEnabled = false,
+  referencedAssets = [],
+  skillId,
+}: {
+  taskId: string;
+  prompt: string;
+  model?: string;
+  ratio?: string;
+  count?: number;
+  style?: string;
+  referencesEnabled?: boolean;
+  referencedAssets?: Array<{ src: string; title?: string }>;
+  skillId?: string;
+}) {
+  requireAiAuth();
+  const promptWithContext = [
+    style ? `风格：${style}` : "",
+    referencesEnabled ? "参考当前画布和已引用素材进行生成。" : "",
+    prompt,
+  ].filter(Boolean).join("\n");
+  return startImageGenerationTask({
+    taskId,
+    capability: "text_to_image",
+    intent: "text_to_image",
+    operation: "generate",
+    prompt: promptWithContext,
+    model,
+    ratio,
+    count,
+    style,
+    images: referencedAssets,
+    skillId,
+  });
+}
+
+export async function getBackgroundImageGenerationTask(taskId: string) {
+  requireAiAuth();
+  const endpoint = `${getAiApiBaseUrl()}/api/images/tasks/${encodeURIComponent(taskId)}`;
+  const task = await fetchAiJsonGet<BackgroundImageTask>(endpoint, "后台图像生成查询失败");
+  return normalizeBackgroundImageTask(task);
 }
 
 export async function removeImageBackground({
   imageSrc,
-  model = "gpt-image-2",
+  model = DEFAULT_IMAGE_MODEL_ID,
   prompt,
 }: {
   imageSrc: string;
@@ -230,44 +619,175 @@ export async function removeImageBackground({
   prompt?: string;
 }) {
   requireAiAuth();
-  const result = await postAiOrchestrate({
-    capability: "background_removal",
-    intent: "background_removal",
-    operation: "remove-background",
+  const result = await postImageBackgroundRemoval({
     imageSrc,
     model,
     prompt,
   }, "去背景失败");
 
+  return toGeneratedImagesResponse(result);
+}
+
+export async function enhanceImageToHd({
+  imageSrc,
+  level = "4k",
+}: {
+  imageSrc: string;
+  level?: "4k";
+}) {
+  requireAiAuth();
+  const result = await postImageEnhance({
+    imageSrc,
+    level,
+  }, "图片高清化失败");
+
   return { images: result.images || [] };
+}
+
+export async function removeImageWatermark({
+  imageSrc,
+}: {
+  imageSrc: string;
+}) {
+  requireAiAuth();
+  const result = await postImageWatermarkRemoval({ imageSrc }, "去水印失败");
+  return toGeneratedImagesResponse(result);
+}
+
+export async function createProductBackground({
+  imageSrc,
+  backgroundReferenceSrc,
+  backgroundReferenceName,
+  prompt,
+  style,
+  composition,
+  productScale,
+  sceneType,
+  ratio = "1:1",
+  resolution = "2k",
+  count = 1,
+  customWidth,
+  customHeight,
+  skillId,
+  model = DEFAULT_IMAGE_MODEL_ID,
+}: {
+  imageSrc: string;
+  backgroundReferenceSrc?: string;
+  backgroundReferenceName?: string;
+  prompt?: string;
+  style?: string;
+  composition?: string;
+  productScale?: string;
+  sceneType?: number;
+  ratio?: string;
+  resolution?: "2k" | "4k";
+  count?: number;
+  customWidth?: number;
+  customHeight?: number;
+  skillId?: string;
+  model?: string;
+}) {
+  requireAiAuth();
+  const result = await postProductBackground({
+    imageSrc,
+    backgroundReferenceSrc,
+    backgroundReferenceName,
+    prompt,
+    style,
+    composition,
+    productScale,
+    sceneType,
+    ratio,
+    resolution,
+    count,
+    customWidth,
+    customHeight,
+    skillId,
+    model,
+  }, "智能电商产品生成失败");
+
+  return toGeneratedImagesResponse(result);
+}
+
+export async function extractImageText({
+  imageSrc,
+}: {
+  imageSrc: string;
+}) {
+  requireAiAuth();
+  const result = await postImageOcr({ imageSrc }, "智能文案 OCR 失败");
+  return {
+    text: result.text || "",
+    regions: result.regions || [],
+    provider: result.provider || "picwish-smart-ocr",
+  };
 }
 
 export async function editImageWithPrompt({
   imageSrc,
-  model = "gpt-image-2",
+  model = DEFAULT_IMAGE_MODEL_ID,
   prompt,
+  maskSrc,
+  operation,
+  preserveSource,
   targetWidth,
   targetHeight,
   referencedAssets = [],
+  cameraView,
+  skillId,
+  generationId,
 }: {
   imageSrc: string;
   model?: string;
   prompt: string;
+  maskSrc?: string;
+  operation?: string;
+  preserveSource?: boolean;
   targetWidth?: number;
   targetHeight?: number;
   referencedAssets?: Array<{ src: string; title?: string }>;
+  cameraView?: {
+    x?: number;
+    y?: number;
+    z?: number;
+    prompt?: string;
+  };
+  skillId?: string;
+  generationId?: string;
 }) {
   requireAiAuth();
+  if (generationId) {
+    return runImageGenerationTask({
+      taskId: generationId,
+      capability: "image_edit",
+      intent: "image_edit",
+      operation: operation || "edit",
+      preserveSource,
+      imageSrc,
+      maskSrc,
+      model,
+      prompt,
+      targetWidth,
+      targetHeight,
+      images: referencedAssets,
+      cameraView,
+      skillId,
+    });
+  }
   const result = await postAiOrchestrate({
     capability: "image_edit",
     intent: "image_edit",
-    operation: "edit",
+    operation: operation || "edit",
+    preserveSource,
     imageSrc,
+    maskSrc,
     model,
     prompt,
     targetWidth,
     targetHeight,
     images: referencedAssets,
+    cameraView,
+    skillId,
   }, "AI 图片编辑失败");
 
   return { images: result.images || [] };
@@ -276,7 +796,7 @@ export async function editImageWithPrompt({
 export async function eraseImageObjects({
   imageSrc,
   maskSrc,
-  model = "gpt-image-2",
+  model = DEFAULT_IMAGE_MODEL_ID,
   prompt,
   targetWidth,
   targetHeight,
@@ -289,10 +809,7 @@ export async function eraseImageObjects({
   targetHeight?: number;
 }) {
   requireAiAuth();
-  const result = await postAiOrchestrate({
-    capability: "element_erasure",
-    intent: "element_erasure",
-    operation: "erase",
+  const result = await postImageErase({
     imageSrc,
     maskSrc,
     model,
@@ -301,23 +818,35 @@ export async function eraseImageObjects({
     targetHeight,
   }, "AI 擦除失败");
 
-  return { images: result.images || [] };
+  const normalized = toGeneratedImagesResponse(result);
+  if (!normalized.providerTaskId && !(normalized.providerTaskIds && normalized.providerTaskIds.length > 0)) {
+    throw new Error("AI 擦除失败: PicWish taskId 缺失，结果已拒绝写入");
+  }
+  return normalized;
 }
 
 export async function expandImageWithMask({
   imageSrc,
   maskSrc,
-  model = "gpt-image-2",
+  model = "picwish-advanced-image-expand",
   prompt,
   targetWidth,
   targetHeight,
+  top,
+  bottom,
+  left,
+  right,
 }: {
   imageSrc: string;
-  maskSrc: string;
+  maskSrc?: string;
   model?: string;
   prompt?: string;
   targetWidth?: number;
   targetHeight?: number;
+  top?: number;
+  bottom?: number;
+  left?: number;
+  right?: number;
 }) {
   requireAiAuth();
   const result = await postImageExpand({
@@ -326,8 +855,16 @@ export async function expandImageWithMask({
     model,
     targetWidth,
     targetHeight,
+    top,
+    bottom,
+    left,
+    right,
     prompt: prompt || "Extend the image naturally only inside the masked blank area. Preserve all unmasked pixels exactly and never generate beyond the requested boundary.",
   }, "AI 扩展失败");
 
-  return { images: result.images || [] };
+  const normalized = toGeneratedImagesResponse(result);
+  if (!normalized.providerTaskId && !(normalized.providerTaskIds && normalized.providerTaskIds.length > 0)) {
+    throw new Error("AI 扩展失败: providerTaskId 缺失，结果已拒绝写入");
+  }
+  return normalized;
 }

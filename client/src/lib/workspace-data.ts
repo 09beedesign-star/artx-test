@@ -1,18 +1,78 @@
 // Neo-Studio Dark Workspace — Data & Types
+import {
+  DEFAULT_IMAGE_MODEL_ID,
+  IMAGE_MODEL_PRIORITY_IDS,
+  SUPPORTED_IMAGE_MODEL_IDS,
+  sortImageModelIdsByPriority,
+} from "../../../shared/image-models";
 
 // ── AI Models ────────────────────────────────────────────────
-export const IMAGE_AI_MODELS = [
-  { id: "gpt-image-2", label: "GPT Image 2", color: "oklch(0.72 0.18 200)" },
-  { id: "gemini-3.1-flash-image", label: "🍌Nano Banana 3.1", color: "oklch(0.82 0.18 92)" },
-  { id: "gemini-3.1-flash-image-preview", label: "🍌Nano Banana 3.1 lite", color: "oklch(0.72 0.16 108)" },
+export type AiModelOption = {
+  id: string;
+  label: string;
+  color: string;
+  description?: string;
+  icon?: string;
+  disabled?: boolean;
+  unavailableReason?: string;
+};
+
+export const AUTO_AI_MODEL: AiModelOption = {
+  id: "auto",
+  label: "auto",
+  color: "oklch(0.78 0.18 120)",
+  description: "根据提示词自动选择对话或生图模型",
+};
+
+export const DEFAULT_IMAGE_AI_MODEL_ID = DEFAULT_IMAGE_MODEL_ID;
+
+export const IMAGE_AI_MODELS: AiModelOption[] = [
+  { id: "og-image2-medium", label: "image2 medium", color: "oklch(0.72 0.18 200)", description: "高品质场景稳定", icon: "openai" },
+  { id: "gemini-3.5-flash-preview", label: "gemini-3.5-flash-preview", color: "oklch(0.72 0.18 200)", description: "高性价比场景快", icon: "gemini" },
+  { id: "jimeng-4.0", label: "jimeng-4.0", color: "oklch(0.82 0.18 95)", description: "高性价比中文强", icon: "jimeng" },
+  { id: "mj-v7", label: "mj-v7", color: "oklch(0.74 0.16 285)", description: "高品质电影质感", icon: "midjourney" },
+  { id: "mj-v8.1", label: "mj-v8.1", color: "oklch(0.78 0.15 40)", description: "极致肖像细节", icon: "midjourney" },
+  { id: "keling", label: "keling", color: "oklch(0.76 0.16 130)", description: "高品质国风电商", icon: "keling" },
+  { id: "og-image2-high", label: "image2 high", color: "oklch(0.82 0.18 95)", description: "极致高清电影感", icon: "openai" },
+  { id: "og-image2-low", label: "image2 low", color: "oklch(0.70 0.16 150)", description: "高性价比快速稿", icon: "openai" },
 ];
 
-export const TEXT_AI_MODELS = [
-  { id: "gpt-4o", label: "GPT-4o", color: "oklch(0.72 0.18 160)" },
-  { id: "gpt-5.4", label: "GPT-5.4", color: "oklch(0.70 0.16 255)" },
-  { id: "gpt-5.4-mini", label: "GPT-5.4 mini", color: "oklch(0.74 0.14 230)" },
-  { id: "gpt-5.5", label: "GPT-5.5", color: "oklch(0.66 0.18 280)" },
+export const TEXT_AI_MODELS: AiModelOption[] = [
+  { id: "gpt-5.4-mini", label: "GPT 5.4 - high", color: "oklch(0.74 0.14 230)" },
 ];
+
+export const IMAGE_AI_MODEL_OPTIONS: AiModelOption[] = [AUTO_AI_MODEL, ...IMAGE_AI_MODELS];
+export const TEXT_AI_MODEL_OPTIONS: AiModelOption[] = [AUTO_AI_MODEL, ...TEXT_AI_MODELS];
+export const ALL_AI_MODEL_OPTIONS: AiModelOption[] = [
+  AUTO_AI_MODEL,
+  ...IMAGE_AI_MODELS,
+  ...TEXT_AI_MODELS,
+];
+
+function isImageModelOption(option: AiModelOption) {
+  const id = option.id.toLowerCase();
+  return SUPPORTED_IMAGE_MODEL_IDS.has(id);
+}
+
+export function mergeImageAiModelOptions(discoveredModels: AiModelOption[] = []) {
+  const merged = new Map<string, AiModelOption>();
+  const validDiscoveredModels = discoveredModels.filter(isImageModelOption);
+  const sourceModels = validDiscoveredModels.length > 0
+    ? validDiscoveredModels
+    : IMAGE_AI_MODELS;
+  const optionById = new Map(sourceModels.map(option => [option.id, option]));
+  const orderedModelIds = sortImageModelIdsByPriority(sourceModels.map(option => option.id));
+  for (const id of orderedModelIds.length > 0 ? orderedModelIds : IMAGE_MODEL_PRIORITY_IDS) {
+    const option = optionById.get(id) || IMAGE_AI_MODELS.find(model => model.id === id);
+    if (!option) continue;
+    if (!option.id || option.id === AUTO_AI_MODEL.id || !isImageModelOption(option)) continue;
+    merged.set(option.id, {
+      ...option,
+      label: option.label || option.id,
+    });
+  }
+  return [AUTO_AI_MODEL, ...Array.from(merged.values())];
+}
 
 export type AssetType = "image" | "video" | "brand" | "poster";
 
@@ -119,7 +179,7 @@ export const LAYERS: Layer[] = [
   { id: "l3", name: "装饰形状", type: "shape", visible: true, locked: false },
 ];
 
-export const NAV_ITEMS = [
+export const NAV_ITEMS: Array<{ id: string; label: string; icon: string; badge?: string | number }> = [
   { id: "home", label: "首页", icon: "Home" },
   { id: "projects", label: "工作台", icon: "FolderOpen", badge: 5 },
   { id: "assets", label: "素材库", icon: "Image" },

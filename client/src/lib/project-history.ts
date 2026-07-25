@@ -6,25 +6,17 @@ export interface WorkspaceHistoryProject {
   nodeCount: number;
   createdAt: string;
   initialPrompt?: string;
+  socialPresetId?: string;
+  canvasWidth?: number;
+  canvasHeight?: number;
 }
 
 const STORAGE_KEY = "artx:workspace-project-history";
 const SESSION_FALLBACK_KEY = "artx:workspace-project-history:fallback";
-const REAL_WORKSPACE_RESET_KEY = "artx:workspace-project-history:reset-real-start-20260606";
+const AUTH_STORAGE_KEY = "artx-auth-session";
+const SYSTEM_BLANK_WORKSPACE_ID = "__blank-workspace__";
 const MAX_HISTORY_PROJECTS = 40;
 const MAX_COVER_LENGTH = 180_000;
-
-function isRealWorkspaceProjectId(id: string) {
-  return id.startsWith("canvas-");
-}
-
-function ensureRealWorkspaceHistoryReset() {
-  if (typeof window === "undefined") return;
-  if (window.localStorage.getItem(REAL_WORKSPACE_RESET_KEY) === "1") return;
-  window.localStorage.removeItem(STORAGE_KEY);
-  window.sessionStorage.removeItem(SESSION_FALLBACK_KEY);
-  window.localStorage.setItem(REAL_WORKSPACE_RESET_KEY, "1");
-}
 
 function formatTimestamp(date = new Date()) {
   const pad = (value: number) => String(value).padStart(2, "0");
@@ -46,16 +38,42 @@ function sortWorkspaceProjectHistory(projects: WorkspaceHistoryProject[]) {
   });
 }
 
+function shouldPersistWorkspaceProject(id: string) {
+  return id !== SYSTEM_BLANK_WORKSPACE_ID;
+}
+
+function getCurrentWorkspaceOwnerId() {
+  if (typeof window === "undefined") return "";
+  try {
+    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) as { user?: { id?: unknown } } : null;
+    return typeof parsed?.user?.id === "string" && parsed.user.id.trim()
+      ? parsed.user.id.trim()
+      : "";
+  } catch {
+    return "";
+  }
+}
+
+function storageKeyForCurrentUser(baseKey: string) {
+  const ownerId = getCurrentWorkspaceOwnerId();
+  return ownerId ? `${baseKey}:${ownerId}` : baseKey;
+}
+
 export function readWorkspaceProjectHistory(): WorkspaceHistoryProject[] {
   if (typeof window === "undefined") return [];
-  ensureRealWorkspaceHistoryReset();
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY) || window.sessionStorage.getItem(SESSION_FALLBACK_KEY);
+    const raw = window.localStorage.getItem(storageKeyForCurrentUser(STORAGE_KEY)) || window.sessionStorage.getItem(storageKeyForCurrentUser(SESSION_FALLBACK_KEY));
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     const projects = parsed.filter((item): item is WorkspaceHistoryProject => {
-      return Boolean(item && typeof item.id === "string" && typeof item.title === "string" && isRealWorkspaceProjectId(item.id));
+      return Boolean(
+        item &&
+        typeof item.id === "string" &&
+        shouldPersistWorkspaceProject(item.id) &&
+        typeof item.title === "string"
+      );
     }).map(normalizeWorkspaceHistoryProject);
     return sortWorkspaceProjectHistory(projects);
   } catch {
@@ -84,6 +102,8 @@ function compactWorkspaceProjectHistory(projects: WorkspaceHistoryProject[], kee
 
 function writeWorkspaceProjectHistory(projects: WorkspaceHistoryProject[]) {
   if (typeof window === "undefined") return;
+  const storageKey = storageKeyForCurrentUser(STORAGE_KEY);
+  const sessionFallbackKey = storageKeyForCurrentUser(SESSION_FALLBACK_KEY);
   const sortedProjects = sortWorkspaceProjectHistory(projects);
   const attempts = [
     compactWorkspaceProjectHistory(sortedProjects, true),
@@ -94,12 +114,12 @@ function writeWorkspaceProjectHistory(projects: WorkspaceHistoryProject[]) {
   for (const attempt of attempts) {
     const serialized = JSON.stringify(attempt);
     try {
-      window.localStorage.setItem(STORAGE_KEY, serialized);
-      window.sessionStorage.removeItem(SESSION_FALLBACK_KEY);
+      window.localStorage.setItem(storageKey, serialized);
+      window.sessionStorage.removeItem(sessionFallbackKey);
       return;
     } catch {
       try {
-        window.sessionStorage.setItem(SESSION_FALLBACK_KEY, serialized);
+        window.sessionStorage.setItem(sessionFallbackKey, serialized);
       } catch {
         /* try a smaller history payload */
       }
@@ -108,13 +128,13 @@ function writeWorkspaceProjectHistory(projects: WorkspaceHistoryProject[]) {
 }
 
 export function upsertWorkspaceProjectHistory(project: WorkspaceHistoryProject) {
-  if (!isRealWorkspaceProjectId(project.id)) return;
+  if (!shouldPersistWorkspaceProject(project.id)) return;
   const projects = readWorkspaceProjectHistory().filter(item => item.id !== project.id);
   writeWorkspaceProjectHistory([normalizeWorkspaceHistoryProject(project), ...projects]);
 }
 
 export function updateWorkspaceProjectHistory(id: string, patch: Partial<WorkspaceHistoryProject>) {
-  if (!isRealWorkspaceProjectId(id)) return;
+  if (!shouldPersistWorkspaceProject(id)) return;
   const projects = readWorkspaceProjectHistory();
   const existingIndex = projects.findIndex(item => item.id === id);
   if (existingIndex >= 0) {
@@ -132,12 +152,14 @@ export function updateWorkspaceProjectHistory(id: string, patch: Partial<Workspa
     nodeCount: patch.nodeCount ?? 0,
     createdAt,
     initialPrompt: patch.initialPrompt,
+    socialPresetId: patch.socialPresetId,
+    canvasWidth: patch.canvasWidth,
+    canvasHeight: patch.canvasHeight,
   };
   writeWorkspaceProjectHistory([project, ...projects]);
 }
 
 export function touchWorkspaceProjectHistory(id: string) {
-  if (!isRealWorkspaceProjectId(id)) return;
   updateWorkspaceProjectHistory(id, { updatedAt: formatTimestamp() });
 }
 

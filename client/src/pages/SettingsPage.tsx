@@ -12,7 +12,7 @@ export default function SettingsPage() {
   const isDark = resolvedTheme === "dark";
 
   const textPrimary = isDark ? "rgba(255,255,255,0.88)" : "rgba(20,20,36,0.88)";
-  const textSecondary = isDark ? "rgba(255,255,255,0.48)" : "rgba(20,20,36,0.52)";
+  const textSecondary = isDark ? "rgba(255,255,255,0.64)" : "rgba(20,20,36,0.52)";
   const cardBg = isDark ? "oklch(0.11 0.015 270 / 0.78)" : "oklch(1 0 0 / 0.78)";
   const cardBorder = isDark ? "oklch(1 0 0 / 8%)" : "var(--hairline)";
 

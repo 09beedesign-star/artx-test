@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { defaultApiBaseUrlForCurrentHost, normalizeApiBaseUrl } from "@/lib/api-base-url";
 
 const AUTH_STORAGE_KEY = "artx-auth-session";
 const LOCAL_AUTH_USERS_KEY = "artx-local-auth-users";
@@ -7,6 +8,10 @@ interface AuthUser {
   id: string;
   username: string;
   createdAt?: string;
+  role?: "viewer" | "support" | "finance" | "admin" | "super_admin";
+  permissions?: string[];
+  isAdmin?: boolean;
+  allowedAiModels?: string[];
 }
 
 interface AuthSession {
@@ -22,7 +27,14 @@ interface AuthContextValue {
   closeLoginModal: () => void;
   login: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   register: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
-  socialAuth: (provider: "google" | "wechat" | "apple") => Promise<{ ok: boolean; error?: string }>;
+  sendSmsCode: (phone: string) => Promise<{ ok: boolean; error?: string; retryAfterSeconds?: number }>;
+  loginWithSmsCode: (phone: string, code: string) => Promise<{ ok: boolean; error?: string }>;
+  sendEmailCode: (email: string) => Promise<{ ok: boolean; error?: string; retryAfterSeconds?: number }>;
+  loginWithEmailCode: (email: string, code: string) => Promise<{ ok: boolean; error?: string }>;
+  forgotPassword: (username: string) => Promise<{ ok: boolean; error?: string; message?: string }>;
+  resetPassword: (username: string, code: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<{ ok: boolean; error?: string }>;
+  socialAuth: (provider: "google" | "wechat" | "apple" | "github" | "meta") => Promise<{ ok: boolean; error?: string }>;
   logout: () => void;
 }
 
@@ -42,8 +54,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     fetchAuth("me", { token: stored.token }).then((result) => {
       if (result.ok && result.user) {
-        persistSession({ token: stored.token, user: result.user });
-        setUser(result.user);
+        const normalizedUser = normalizeAuthUser(result.user);
+        persistSession({ token: stored.token, user: normalizedUser });
+        setUser(normalizedUser);
         return;
       }
       localStorage.removeItem(AUTH_STORAGE_KEY);
@@ -71,11 +84,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         return { ok: false, error: result.error || "登录失败，请稍后重试" };
       }
-      if (!persistSession({ token: result.token, user: result.user })) {
+      const normalizedUser = normalizeAuthUser(result.user);
+      if (!persistSession({ token: result.token, user: normalizedUser })) {
         return { ok: false, error: "浏览器本地存储空间不足，已尝试清理旧画布缓存，请重新登录" };
       }
       setIsAuthenticated(true);
-      setUser(result.user);
+      setUser(normalizedUser);
       setLoginModalOpen(false);
       return { ok: true };
     } catch {
@@ -85,6 +99,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return localResult;
       }
       return { ok: false, error: "测试服务暂时不可用，请稍后重试" };
+    }
+  };
+
+  const authenticateWithSms = async (phone: string, code: string) => {
+    try {
+      const result = await fetchAuth("sms-login", { phone, code });
+      if (!result.ok || !result.token || !result.user) {
+        return { ok: false, error: result.error || "短信验证码登录失败" };
+      }
+      const normalizedUser = normalizeAuthUser(result.user);
+      if (!persistSession({ token: result.token, user: normalizedUser })) {
+        return { ok: false, error: "浏览器本地存储空间不足，已尝试清理旧画布缓存，请重新登录" };
+      }
+      setIsAuthenticated(true);
+      setUser(normalizedUser);
+      setLoginModalOpen(false);
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "短信验证码服务暂时不可用，请稍后重试" };
+    }
+  };
+
+  const authenticateWithEmail = async (email: string, code: string) => {
+    try {
+      const result = await fetchAuth("email-login", { email, code });
+      if (!result.ok || !result.token || !result.user) {
+        return { ok: false, error: result.error || "邮箱验证码登录失败" };
+      }
+      const normalizedUser = normalizeAuthUser(result.user);
+      if (!persistSession({ token: result.token, user: normalizedUser })) {
+        return { ok: false, error: "浏览器本地存储空间不足，已尝试清理旧画布缓存，请重新登录" };
+      }
+      setIsAuthenticated(true);
+      setUser(normalizedUser);
+      setLoginModalOpen(false);
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "邮箱验证码服务暂时不可用，请稍后重试" };
     }
   };
 
@@ -104,6 +156,80 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     closeLoginModal: () => setLoginModalOpen(false),
     login: (username: string, password: string) => authenticate("login", username, password),
     register: (username: string, password: string) => authenticate("register", username, password),
+    sendSmsCode: async (phone: string) => {
+      try {
+        const result = await fetchAuth("sms-send-code", { phone });
+        return {
+          ok: result.ok,
+          error: result.error,
+          retryAfterSeconds: result.retryAfterSeconds,
+        };
+      } catch {
+        return { ok: false, error: "短信验证码服务暂时不可用，请稍后重试" };
+      }
+    },
+    loginWithSmsCode: authenticateWithSms,
+    sendEmailCode: async (email: string) => {
+      try {
+        const result = await fetchAuth("email-send-code", { email });
+        return {
+          ok: result.ok,
+          error: result.error,
+          retryAfterSeconds: result.retryAfterSeconds,
+        };
+      } catch {
+        return { ok: false, error: "邮箱验证码服务暂时不可用，请稍后重试" };
+      }
+    },
+    loginWithEmailCode: authenticateWithEmail,
+    forgotPassword: async (username: string) => {
+      try {
+        const result = await fetchAuth("forgot-password", { username });
+        return {
+          ok: result.ok,
+          error: result.error,
+          message: result.message,
+        };
+      } catch {
+        return { ok: false, error: "密码重置服务暂时不可用，请稍后重试" };
+      }
+    },
+    resetPassword: async (username: string, code: string, password: string) => {
+      try {
+        const result = await fetchAuth("reset-password", { username, code, password });
+        return {
+          ok: result.ok,
+          error: result.error,
+        };
+      } catch {
+        return { ok: false, error: "密码重置服务暂时不可用，请稍后重试" };
+      }
+    },
+    changePassword: async (currentPassword: string, newPassword: string) => {
+      const stored = readStoredSession();
+      if (!stored?.token) {
+        return { ok: false, error: "登录已失效，请重新登录" };
+      }
+      try {
+        const result = await fetchAuth("change-password", {
+          token: stored.token,
+          currentPassword,
+          newPassword,
+        });
+        if (!result.ok || !result.token || !result.user) {
+          return { ok: false, error: result.error || "密码修改失败" };
+        }
+        const normalizedUser = normalizeAuthUser(result.user);
+        if (!persistSession({ token: result.token, user: normalizedUser })) {
+          return { ok: false, error: "浏览器本地存储空间不足，请重新登录后再试" };
+        }
+        setIsAuthenticated(true);
+        setUser(normalizedUser);
+        return { ok: true };
+      } catch {
+        return { ok: false, error: "密码修改服务暂时不可用，请稍后重试" };
+      }
+    },
     socialAuth: async (provider) => {
       try {
         const result = await fetchAuth("social", { provider });
@@ -115,11 +241,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
           return { ok: false, error: result.error || "第三方登录暂时不可用" };
         }
-        if (!persistSession({ token: result.token, user: result.user })) {
+        const normalizedUser = normalizeAuthUser(result.user);
+        if (!persistSession({ token: result.token, user: normalizedUser })) {
           return { ok: false, error: "浏览器本地存储空间不足，已尝试清理旧画布缓存，请重新登录" };
         }
         setIsAuthenticated(true);
-        setUser(result.user);
+        setUser(normalizedUser);
         setLoginModalOpen(false);
         return { ok: true };
       } catch {
@@ -157,10 +284,63 @@ function readStoredSession(): AuthSession | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<AuthSession>;
     if (!parsed.token || !parsed.user?.id || !parsed.user.username) return null;
-    return { token: parsed.token, user: parsed.user };
+    return { token: parsed.token, user: normalizeAuthUser(parsed.user) };
   } catch {
     return null;
   }
+}
+
+function normalizeAuthUser(user: AuthUser): AuthUser {
+  const role = user.role || (user.username === "09bee" ? "super_admin" : "viewer");
+  const rolePermissions: Record<NonNullable<AuthUser["role"]>, string[]> = {
+    viewer: [],
+    support: ["admin:access", "feedback:read", "feedback:write", "users:read"],
+    finance: ["admin:access", "orders:read", "orders:refund", "credits:read", "credits:write"],
+    admin: [
+      "admin:access",
+      "users:read",
+      "users:write",
+      "orders:read",
+      "credits:read",
+      "credits:write",
+      "feedback:read",
+      "feedback:write",
+      "integrations:read",
+      "risk:read",
+      "audit:read",
+    ],
+    super_admin: [
+      "admin:access",
+      "users:read",
+      "users:write",
+      "orders:read",
+      "orders:refund",
+      "credits:read",
+      "credits:write",
+      "feedback:read",
+      "feedback:write",
+      "integrations:read",
+      "integrations:write",
+      "risk:read",
+      "risk:write",
+      "audit:read",
+      "admins:manage",
+    ],
+  };
+  const permissions = Array.from(new Set([
+    ...rolePermissions[role],
+    ...(Array.isArray(user.permissions) ? user.permissions : []),
+  ]));
+
+  return {
+    ...user,
+    allowedAiModels: Array.isArray(user.allowedAiModels)
+      ? Array.from(new Set(user.allowedAiModels.filter((model): model is string => typeof model === "string")))
+      : undefined,
+    role,
+    permissions,
+    isAdmin: permissions.includes("admin:access"),
+  };
 }
 
 function persistSession(session: AuthSession) {
@@ -183,9 +363,12 @@ function clearLargeArtxLocalCache() {
   const removablePrefixes = [
     "artx:canvas-state:",
     "artx:canvas-assistant-messages:",
+    "artx:workspace-project-history:",
+    "artx:workspace-project-history:fallback:",
   ];
   const removableKeys = [
     "artx:workspace-project-history",
+    "artx:workspace-project-history:fallback",
   ];
 
   for (let index = localStorage.length - 1; index >= 0; index -= 1) {
@@ -197,7 +380,7 @@ function clearLargeArtxLocalCache() {
   }
 }
 
-async function fetchAuth(action: "register" | "login" | "me" | "logout" | "social", payload: Record<string, unknown>) {
+async function fetchAuth(action: "register" | "login" | "me" | "logout" | "social" | "sms-send-code" | "sms-login" | "email-send-code" | "email-login" | "forgot-password" | "reset-password" | "change-password", payload: Record<string, unknown>) {
   const apiBaseUrl = getAuthApiBaseUrl();
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 12_000);
@@ -220,7 +403,7 @@ async function fetchAuth(action: "register" | "login" | "me" | "logout" | "socia
   return {
     ...data,
     ok: response.ok,
-  } as { ok: boolean; error?: string; token?: string; user?: AuthUser };
+  } as { ok: boolean; error?: string; token?: string; user?: AuthUser; retryAfterSeconds?: number; message?: string };
 }
 
 function authenticateLocally(action: "login" | "register" | "registerOrLogin", username: string, password: string) {
@@ -248,7 +431,7 @@ function authenticateLocally(action: "login" | "register" | "registerOrLogin", u
   }
   const session = {
     token: `local-test:${user.id}:${Date.now()}`,
-    user: { id: user.id, username: user.username, createdAt: user.createdAt },
+    user: normalizeAuthUser({ id: user.id, username: user.username, createdAt: user.createdAt }),
   };
   if (!persistSession(session)) {
     return { ok: false, error: "浏览器本地存储空间不足，已尝试清理旧画布缓存，请重新登录" };
@@ -282,16 +465,12 @@ function isGithubPagesTest() {
 }
 
 function getAuthApiBaseUrl() {
-  const configured = (
+  const configured = normalizeApiBaseUrl(
     import.meta.env.VITE_AUTH_API_BASE_URL ||
     import.meta.env.VITE_API_BASE_URL ||
     ""
-  ).replace(/\/+$/, "");
+  );
 
   if (configured) return configured;
-  if (typeof window !== "undefined" && window.location.hostname.endsWith("github.io")) {
-    return "https://artx-test.onrender.com";
-  }
-
-  return "";
+  return defaultApiBaseUrlForCurrentHost("");
 }

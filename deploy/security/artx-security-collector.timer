@@ -1,0 +1,11 @@
+[Unit]
+Description=Run ArtX Nginx security event collector every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+Persistent=true
+Unit=artx-security-collector.service
+
+[Install]
+WantedBy=timers.target

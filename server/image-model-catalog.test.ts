@@ -1,0 +1,96 @@
+import { describe, expect, it, vi } from "vitest";
+import { __testBuildImageModelCatalog } from "./image-generation";
+
+const expectedImageModelDescriptions = {
+  "gemini-3.5-flash-preview": "高性价比场景快",
+  "jimeng-4.0": "高性价比中文强",
+  "mj-v7": "高品质电影质感",
+  "mj-v8.1": "极致肖像细节",
+  "og-image2-low": "高性价比快速稿",
+  "og-image2-medium": "高品质场景稳定",
+  "og-image2-high": "极致高清电影感",
+};
+
+function expectUserFacingImageModelDescription(description: string | undefined) {
+  expect(description).toBeTruthy();
+  expect(description).not.toMatch(/[高中低]价/);
+  expect(description!.length).toBeLessThanOrEqual(15);
+}
+
+describe("image model catalog", () => {
+  it("discovers image-generation models without exposing credentials", async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
+      data: [
+        { id: "gpt-image-2" },
+        { id: "gpt-image-2-4k" },
+        { id: "gemini-3.1-flash-image" },
+        { id: "gemini-3.5-flash-preview" },
+        { id: "jimeng-4.0" },
+        { id: "mj-v7" },
+        { id: "mj-v8.1" },
+        { id: "og-image2-low" },
+        { id: "og-image2-medium" },
+        { id: "og-image2-high" },
+        { id: "keling" },
+        { id: "gpt-5.4-mini" },
+      ],
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    const catalog = await __testBuildImageModelCatalog({
+      apiKey: "secret-image-key",
+      baseUrl: "https://token.example.test/v1",
+      fetchImpl,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://token.example.test/v1/models",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer secret-image-key",
+        }),
+      })
+    );
+    expect(catalog.image.map(model => model.id)).toEqual([
+      "og-image2-medium",
+      "gemini-3.5-flash-preview",
+      "jimeng-4.0",
+      "mj-v7",
+      "mj-v8.1",
+      "keling",
+      "og-image2-high",
+      "og-image2-low",
+    ]);
+    expect(catalog.image.map(model => model.label)).toEqual([
+      "image2 medium",
+      "gemini-3.5-flash-preview",
+      "jimeng-4.0",
+      "mj-v7",
+      "mj-v8.1",
+      "keling",
+      "image2 high",
+      "image2 low",
+    ]);
+    for (const [id, description] of Object.entries(expectedImageModelDescriptions)) {
+      const model = catalog.image.find(model => model.id === id);
+      expect(model?.description).toBe(description);
+      expectUserFacingImageModelDescription(model?.description);
+    }
+    expect(catalog.image.find(model => model.id === "og-image2-high")).toMatchObject({
+      description: "极致高清电影感",
+      icon: "openai",
+    });
+    expect(catalog.image.find(model => model.id === "gemini-3.5-flash-preview")).toMatchObject({
+      icon: "gemini",
+    });
+    expect(catalog.image.find(model => model.id === "jimeng-4.0")).toMatchObject({
+      icon: "jimeng",
+    });
+    expect(catalog.image.find(model => model.id === "mj-v7")).toMatchObject({
+      icon: "midjourney",
+    });
+    expect(JSON.stringify(catalog)).not.toContain("secret-image-key");
+    expect(JSON.stringify(catalog)).not.toContain("gpt-image-2");
+    expect(JSON.stringify(catalog)).not.toContain("gemini-3.1-flash-image");
+    expect(JSON.stringify(catalog)).not.toContain("gpt-5.4-mini");
+  });
+});

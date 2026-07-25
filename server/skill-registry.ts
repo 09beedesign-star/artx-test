@@ -64,11 +64,9 @@ export async function getSkill(id: string) {
 
 export async function matchSkill(capability: AiCapability, prompt = "") {
   const skills = await loadSkills();
-  const direct = skills.find((skill) => skill.capability === capability);
-  if (direct) return direct;
-
   const normalizedPrompt = prompt.toLowerCase();
-  return skills.find((skill) => {
+  const matched = skills.find((skill) => {
     return normalizedPrompt.includes(skill.id.toLowerCase()) || normalizedPrompt.includes(skill.title.toLowerCase());
   });
+  return matched && matched.capability === capability ? matched : undefined;
 }

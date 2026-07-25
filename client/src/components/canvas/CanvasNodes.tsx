@@ -3,7 +3,7 @@
  * Node components for the infinite canvas.
  * Each node has a bottom model-switcher toolbar (tapnow-style).
  */
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
@@ -14,17 +14,46 @@ import {
 import type { CanvasNode } from "@/hooks/useCanvas";
 import { GENERATED_ASSETS } from "@/lib/workspace-data";
 import type { ChatMessage, AgentStep } from "@/lib/workspace-data";
-import { IMAGE_AI_MODELS, TEXT_AI_MODELS } from "@/lib/workspace-data";
-import { callLLM, requestAiAuth } from "@/lib/ai";
+import { AUTO_AI_MODEL, IMAGE_AI_MODEL_OPTIONS, TEXT_AI_MODEL_OPTIONS, mergeImageAiModelOptions } from "@/lib/workspace-data";
+import { callLLM, listAiModelCatalog, requestAiAuth } from "@/lib/ai";
+import { getModelBrandIconKind, ModelBrandIconMask } from "./model-brand-icons";
 
-type AiModelOption = typeof TEXT_AI_MODELS[number] | typeof IMAGE_AI_MODELS[number];
+type AiModelOption = typeof TEXT_AI_MODEL_OPTIONS[number] | typeof IMAGE_AI_MODEL_OPTIONS[number];
 
 // ── Model Switcher (shared bottom toolbar) ────────────────────
+
+function ModelLineIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="4" y="5" width="16" height="14" rx="3" stroke="currentColor" strokeWidth="1.7" />
+      <path d="M7.5 15.5 10.2 12l2.2 2.4 1.6-1.8 2.8 2.9" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="15.8" cy="8.8" r="1.2" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function ModelIconMark({ model }: { model: AiModelOption }) {
+  const iconKind = getModelBrandIconKind(model.id, model.icon);
+  if (iconKind === "none") {
+    return <Cpu size={10} style={{ color: model.color }} />;
+  }
+  const iconNode = iconKind === "image"
+    ? <ModelLineIcon size={14} />
+    : <ModelBrandIconMask kind={iconKind} size={14} />;
+  return (
+    <span
+      data-model-brand-icon={iconKind}
+      style={{ color: "#FFFFFF", display: "inline-flex", flex: "0 0 auto", marginTop: 2 }}
+    >
+      {iconNode}
+    </span>
+  );
+}
 
 function ModelSwitcher({
   modelId,
   onChange,
-  models = TEXT_AI_MODELS,
+  models = TEXT_AI_MODEL_OPTIONS,
   isDark = true,
 }: {
   modelId: string;
@@ -33,7 +62,7 @@ function ModelSwitcher({
   isDark?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const current = models.find((m) => m.id === modelId) ?? models[0];
+  const current = models.find((m) => m.id === modelId) ?? AUTO_AI_MODEL;
 
   const chipBg  = isDark ? "oklch(1 0 0 / 5%)"          : "oklch(0 0 0 / 5%)";
   const chipBdr = isDark ? "oklch(1 0 0 / 10%)"          : "oklch(0 0 0 / 10%)";
@@ -54,7 +83,7 @@ function ModelSwitcher({
           color: open ? "oklch(0.78 0.18 290)" : textPri,
         }}
       >
-        <Cpu size={10} style={{ color: current.color }} />
+        <ModelIconMark model={current} />
         <span>{current.label}</span>
         <ChevronDown size={9} style={{ color: textSec }} />
       </button>
@@ -81,7 +110,7 @@ function ModelSwitcher({
                 <button
                   key={m.id}
                   onClick={(e) => { e.stopPropagation(); onChange(m.id); setOpen(false); }}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] transition-colors text-left"
+                  className="w-full flex items-start gap-2 px-3 py-1.5 text-[12px] transition-colors text-left"
                   style={{
                     background: isActive ? "oklch(0.58 0.22 290 / 0.12)" : "transparent",
                     color: isActive ? "oklch(0.78 0.18 290)" : textPri,
@@ -89,9 +118,12 @@ function ModelSwitcher({
                   onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 4%)"; }}
                   onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "transparent"; }}
                 >
-                  <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: m.color }} />
+                  <ModelIconMark model={m} />
                   <div className="flex flex-col leading-tight">
                     <span className="font-medium">{m.label}</span>
+                    {"description" in m && m.description ? (
+                      <span className="truncate" style={{ color: textSec, fontSize: 10, marginTop: 2, maxWidth: 148 }}>{m.description}</span>
+                    ) : null}
                   </div>
                   {isActive && <div className="ml-auto w-1.5 h-1.5 rounded-full" style={{ background: "oklch(0.72 0.18 200)" }} />}
                 </button>
@@ -150,7 +182,22 @@ export function NodeWrapper({
 
 export function AssetNode({ node, isSelected, onDragStart, onSelect, onRemove }: Omit<NodeWrapperProps, "children" | "className" | "fullDrag">) {
   const asset = GENERATED_ASSETS.find((a) => a.id === (node.data.assetId as string)) || GENERATED_ASSETS[0];
-  const [modelId, setModelId] = useState("gpt-image-2");
+  const [modelId, setModelId] = useState("auto");
+  const [imageModelOptions, setImageModelOptions] = useState(IMAGE_AI_MODEL_OPTIONS);
+
+  useEffect(() => {
+    let cancelled = false;
+    listAiModelCatalog()
+      .then(catalog => {
+        if (!cancelled) setImageModelOptions(mergeImageAiModelOptions(catalog.image || []));
+      })
+      .catch(() => {
+        if (!cancelled) setImageModelOptions(IMAGE_AI_MODEL_OPTIONS);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const typeColor: Record<string, string> = { image: "oklch(0.78 0.18 290)", video: "oklch(0.72 0.18 200)", brand: "oklch(0.78 0.18 60)", poster: "oklch(0.80 0.18 330)" };
   const typeLabel: Record<string, string> = { image: "图片", video: "视频", brand: "品牌", poster: "海报" };
@@ -168,7 +215,7 @@ export function AssetNode({ node, isSelected, onDragStart, onSelect, onRemove }:
         {/* Image */}
         <div className="relative overflow-hidden group/img" style={{ aspectRatio: `${asset.width}/${asset.height}` }}>
           <img src={asset.src} alt={asset.title} className="w-full h-full object-cover pointer-events-none" draggable={false} />
-          <div className="absolute inset-0 bg-black/0 group-hover/img:bg-black/35 transition-all duration-200 flex items-center justify-center gap-2 opacity-0 group-hover/img:opacity-100">
+          <div className="absolute inset-0 bg-[#222222]/0 group-hover/img:bg-[#222222]/35 transition-all duration-200 flex items-center justify-center gap-2 opacity-0 group-hover/img:opacity-100">
             <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); toast("下载", { description: "功能即将上线" }); }}
               className="w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-sm" style={{ background: "oklch(1 0 0 / 20%)" }}>
               <Download size={13} className="text-white" />
@@ -201,7 +248,7 @@ export function AssetNode({ node, isSelected, onDragStart, onSelect, onRemove }:
         {/* ── Model switcher bottom bar ── */}
         <div className="flex items-center gap-2 px-3 pb-2.5 pt-1" style={{ borderTop: "1px solid oklch(1 0 0 / 6%)" }}
           onMouseDown={(e) => e.stopPropagation()}>
-          <ModelSwitcher modelId={modelId} onChange={setModelId} models={IMAGE_AI_MODELS} isDark={true} />
+          <ModelSwitcher modelId={modelId} onChange={setModelId} models={imageModelOptions} isDark={true} />
           <div className="flex-1" />
           <button onClick={(e) => { e.stopPropagation(); toast("重新生成", { description: "功能即将上线" }); }}
             className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] transition-all"
@@ -234,7 +281,7 @@ export function ChatNode({ node, isSelected, onDragStart, onSelect, onRemove }: 
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_CHAT);
   const [input, setInput] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
-  const [modelId, setModelId] = useState("gpt-4o");
+  const [modelId, setModelId] = useState("auto");
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const handleSend = async () => {
@@ -388,7 +435,7 @@ export function PromptNode({
   node, isSelected, onDragStart, onSelect, onRemove, onGenerate,
 }: Omit<NodeWrapperProps, "children" | "className" | "fullDrag"> & { onGenerate?: (prompt: string) => void }) {
   const [prompt, setPrompt] = useState((node.data.prompt as string) || "");
-  const [modelId, setModelId] = useState("gpt-4o");
+  const [modelId, setModelId] = useState("auto");
   const [isGenerating, setIsGenerating] = useState(false);
 
   return (
@@ -483,7 +530,7 @@ const NOTE_COLORS = [
 export function TextNode({ node, isSelected, onDragStart, onSelect, onRemove }: Omit<NodeWrapperProps, "children" | "className" | "fullDrag">) {
   const [text, setText] = useState((node.data.text as string) || "在此输入备注…");
   const [colorIdx] = useState((node.data.colorIdx as number) || 0);
-  const [modelId, setModelId] = useState("gpt-4o");
+  const [modelId, setModelId] = useState("auto");
   const color = NOTE_COLORS[colorIdx % NOTE_COLORS.length];
 
   return (

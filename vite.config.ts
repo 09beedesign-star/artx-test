@@ -1,11 +1,12 @@
 import { jsxLocPlugin } from "@builder.io/vite-plugin-jsx-loc";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
-import { handleAuthAction } from "./server/auth-store";
+import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization } from "./server/auth-store";
 import { editImageWithPrompt, eraseImageObjects, generateImages, removeImageBackground } from "./server/image-generation";
 import { searchReferenceImages } from "./server/reference-search";
 import { generateText } from "./server/text-generation";
@@ -248,6 +249,69 @@ function vitePluginGithubPagesSpaFallback(): Plugin {
   };
 }
 
+function gitValue(command: string, fallback = "") {
+  try {
+    return execSync(command, { cwd: PROJECT_ROOT, encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    return fallback;
+  }
+}
+
+function normalizeBackendUrl(value: string) {
+  const trimmed = value.trim().replace(/\/+$/, "");
+  if (!trimmed) return "https://backstage.artxsd.com";
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.hostname === "artx-test.onrender.com") return "https://backstage.artxsd.com";
+  } catch {
+    return trimmed;
+  }
+  return trimmed;
+}
+
+function getBuildMetadata() {
+  const commitSha = process.env.VITE_COMMIT_SHA || process.env.GITHUB_SHA || gitValue("git rev-parse HEAD", "local");
+  const branch =
+    process.env.VITE_DEPLOY_BRANCH ||
+    process.env.GITHUB_REF_NAME ||
+    gitValue("git branch --show-current", "local");
+  const buildTime = process.env.VITE_BUILD_TIME || new Date().toISOString();
+  const testFrontendUrl = process.env.VITE_TEST_FRONTEND_URL || "https://backstage.artxsd.com";
+  const testBackendUrl = normalizeBackendUrl(process.env.VITE_TEST_BACKEND_URL || process.env.VITE_API_BASE_URL || "https://backstage.artxsd.com");
+
+  return {
+    app: "artx",
+    environment: process.env.GITHUB_PAGES === "true" ? "github-pages-test" : "local",
+    commitSha,
+    shortCommit: commitSha.slice(0, 7),
+    branch,
+    buildTime,
+    repository: process.env.GITHUB_REPOSITORY || gitValue("git config --get remote.test.url", ""),
+    githubRunId: process.env.GITHUB_RUN_ID || "",
+    frontendUrl: testFrontendUrl,
+    backendUrl: testBackendUrl,
+    pagesBasePath:
+      process.env.GITHUB_PAGES === "true"
+        ? `/${process.env.GITHUB_PAGES_REPO || "artx"}/`
+        : "/",
+  };
+}
+
+function vitePluginDeploymentMetadata(): Plugin {
+  return {
+    name: "artx-deployment-metadata",
+    closeBundle() {
+      const outDir = path.resolve(import.meta.dirname, "dist/public");
+      if (!fs.existsSync(outDir)) {
+        return;
+      }
+
+      const metadata = getBuildMetadata();
+      fs.writeFileSync(path.join(outDir, "deployment.json"), `${JSON.stringify(metadata, null, 2)}\n`, "utf-8");
+    },
+  };
+}
+
 type JsonApiHandler = (payload: unknown) => Promise<unknown>;
 
 function vitePluginJsonApi(name: string, route: string, handler: JsonApiHandler, fallbackError: string): Plugin {
@@ -276,6 +340,57 @@ function vitePluginJsonApi(name: string, route: string, handler: JsonApiHandler,
             res.end(JSON.stringify({ error: message }));
           }
         });
+      });
+    },
+  };
+}
+
+function vitePluginAiOrchestratorApi(): Plugin {
+  const backendUrl = (process.env.VITE_TEST_BACKEND_URL || process.env.VITE_API_BASE_URL || "https://backstage.artxsd.com").replace(/\/+$/, "");
+
+  async function proxyJson(req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse, targetPath: string) {
+    try {
+      const body = req.method === "GET" ? undefined : await readRequestJson(req);
+      const response = await fetch(`${backendUrl}${targetPath}`, {
+        method: req.method,
+        headers: {
+          "Content-Type": "application/json",
+          ...(typeof req.headers.authorization === "string" ? { Authorization: req.headers.authorization } : {}),
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const contentType = response.headers.get("content-type") || "application/json";
+      const text = await response.text();
+      res.writeHead(response.status, { "Content-Type": contentType });
+      res.end(text);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "AI proxy failed";
+      sendJson(res, 502, { error: message });
+    }
+  }
+
+  return {
+    name: "artx-ai-test-backend-proxy",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/ai/orchestrate", async (req, res, next) => {
+        if (req.method !== "POST") {
+          return next();
+        }
+        await proxyJson(req, res, "/api/ai/orchestrate");
+      });
+
+      server.middlewares.use("/api/images/tasks", async (req, res, next) => {
+        if (req.method !== "POST") {
+          return next();
+        }
+        await proxyJson(req, res, "/api/images/tasks");
+      });
+
+      server.middlewares.use("/api/images/tasks/", (req, res, next) => {
+        if (req.method !== "GET") {
+          return next();
+        }
+        void proxyJson(req, res, `/api/images/tasks${req.url || ""}`);
       });
     },
   };
@@ -319,14 +434,172 @@ function vitePluginAuthApi(): Plugin {
   };
 }
 
+function vitePluginAdminApi(): Plugin {
+  return {
+    name: "artx-admin-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/admin/session", (req, res, next) => {
+        if (req.method !== "GET") {
+          return next();
+        }
+
+        getAdminSessionFromAuthorization(req.headers.authorization).then((result) => {
+          res.writeHead(result.status, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(result.body));
+        }).catch((error) => {
+          const message = error instanceof Error ? error.message : "Admin session check failed";
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: message }));
+        });
+      });
+    },
+  };
+}
+
+function readRequestJson(req: import("node:http").IncomingMessage) {
+  return new Promise<Record<string, unknown>>((resolve, reject) => {
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk.toString();
+    });
+    req.on("error", reject);
+    req.on("end", () => {
+      try {
+        resolve(body ? JSON.parse(body) as Record<string, unknown> : {});
+      } catch (error) {
+        reject(error);
+      }
+    });
+  });
+}
+
+function sendJson(res: import("node:http").ServerResponse, status: number, payload: unknown) {
+  res.writeHead(status, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(payload));
+}
+
+function vitePluginDeveloperApi(): Plugin {
+  const tools = [
+    {
+      name: "artx_generate_image",
+      description: "Use ArtX image generation to create images from a text prompt.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          prompt: { type: "string" },
+          ratio: { type: "string" },
+          count: { type: "number" },
+        },
+        required: ["prompt"],
+      },
+    },
+  ];
+
+  return {
+    name: "artx-developer-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/developer/api-keys", async (req, res, next) => {
+        try {
+          if (req.method === "GET") {
+            const result = await listApiKeysForAuthorization(req.headers.authorization);
+            sendJson(res, result.status, result.body);
+            return;
+          }
+          if (req.method === "POST") {
+            const payload = await readRequestJson(req);
+            const result = await createApiKeyForAuthorization(req.headers.authorization, payload);
+            sendJson(res, result.status, result.body);
+            return;
+          }
+          next();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Developer API failed";
+          sendJson(res, 500, { error: message });
+        }
+      });
+
+      server.middlewares.use("/api/mcp/manifest", (req, res, next) => {
+        if (req.method !== "GET") {
+          next();
+          return;
+        }
+        sendJson(res, 200, {
+          name: "ArtX Image MCP",
+          version: "0.1.0",
+          transport: "streamable-http",
+          endpoint: "/api/mcp",
+          tools,
+        });
+      });
+
+      server.middlewares.use("/api/mcp", async (req, res, next) => {
+        if (req.method !== "POST") {
+          next();
+          return;
+        }
+        try {
+          const payload = await readRequestJson(req);
+          const id = payload.id ?? null;
+          const method = typeof payload.method === "string" ? payload.method : "";
+          if (method === "initialize") {
+            sendJson(res, 200, {
+              jsonrpc: "2.0",
+              id,
+              result: {
+                protocolVersion: "2024-11-05",
+                capabilities: { tools: {} },
+                serverInfo: { name: "ArtX Image MCP", version: "0.1.0" },
+              },
+            });
+            return;
+          }
+          const auth = await getApiKeyUserFromAuthorization(req.headers.authorization);
+          if (auth.status !== 200) {
+            sendJson(res, auth.status, auth.body);
+            return;
+          }
+          if (method === "tools/list") {
+            sendJson(res, 200, { jsonrpc: "2.0", id, result: { tools } });
+            return;
+          }
+          sendJson(res, 404, { jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "MCP request failed";
+          sendJson(res, 500, { error: message });
+        }
+      });
+    },
+  };
+}
+
+function vitePluginMoveBuiltEntryScriptToBody(): Plugin {
+  return {
+    name: "artx-move-built-entry-script-to-body",
+    enforce: "post",
+    transformIndexHtml(html) {
+      const entryScriptPattern = /\n?\s*<script type="module" crossorigin src="([^"]*\/assets\/index-[^"]+\.js)"><\/script>/;
+      const entrySrc = html.match(entryScriptPattern)?.[1];
+      if (!entrySrc) return html;
+      const moduleScript = `<script type="module" crossorigin src="${entrySrc}"></script>`;
+      return html.replace(entryScriptPattern, "").replace("</body>", `    ${moduleScript}\n  </body>`);
+    },
+  };
+}
+
+const enableManusRuntime = process.env.NODE_ENV !== "production" && process.env.DISABLE_MANUS_RUNTIME !== "1";
+
 const plugins = [
   react(),
   tailwindcss(),
   jsxLocPlugin(),
-  vitePluginManusRuntime(),
+  enableManusRuntime ? vitePluginManusRuntime() : null,
+  vitePluginMoveBuiltEntryScriptToBody(),
   vitePluginManusDebugCollector(),
   vitePluginStorageProxy(),
   vitePluginAuthApi(),
+  vitePluginAdminApi(),
+  vitePluginDeveloperApi(),
+  vitePluginAiOrchestratorApi(),
   vitePluginJsonApi("artx-ai-image-api", "/api/images/generate", generateImages, "Image generation failed"),
   vitePluginJsonApi("artx-ai-remove-background-api", "/api/images/remove-background", removeImageBackground, "Background removal failed"),
   vitePluginJsonApi("artx-ai-edit-image-api", "/api/images/edit", editImageWithPrompt, "Image edit failed"),
@@ -338,6 +611,7 @@ const plugins = [
     return searchReferenceImages(query, limit);
   }, "Reference search failed"),
   vitePluginGithubPagesSpaFallback(),
+  vitePluginDeploymentMetadata(),
 ];
 
 export default defineConfig({

@@ -1,5 +1,5 @@
 import { brandKitToPrompt, getBrandKit } from "./brand-kit";
-import { editImageWithPrompt, eraseImageObjects, generateImages, removeImageBackground } from "./image-generation";
+import { editImageWithPrompt, eraseImageObjects, expandImageWithPicWish, generateImages, removeImageBackground } from "./image-generation";
 import { generateText } from "./text-generation";
 import { getSkill, matchSkill } from "./skill-registry";
 import { resolveModelRoute, type AiCapability } from "./model-router";
@@ -12,6 +12,7 @@ export type OrchestrateRequest = {
   model?: string;
   ratio?: string;
   count?: number;
+  style?: string;
   imageSrc?: string;
   image_url?: string;
   image_base64?: string;
@@ -19,8 +20,13 @@ export type OrchestrateRequest = {
   maskSrc?: string;
   mask_url?: string;
   mask_base64?: string;
+  preserveSource?: boolean;
   targetWidth?: number;
   targetHeight?: number;
+  top?: number;
+  bottom?: number;
+  left?: number;
+  right?: number;
   brandKitId?: string;
   skillId?: string;
   messages?: Array<{ role: "system" | "user" | "assistant"; content: string }>;
@@ -33,12 +39,27 @@ export type OrchestrateResponse = {
   text?: string;
   images?: Array<{ src: string; width: number; height: number }>;
   image_base64?: string;
+  providerTaskId?: string;
+  providerTaskIds?: string[];
   route: string;
   skill?: string;
 };
 
-function inferCapability(input: OrchestrateRequest): AiCapability {
-  if (input.capability) return input.capability;
+const AI_CAPABILITIES = new Set<AiCapability>([
+  "chat",
+  "text_to_image",
+  "image_edit",
+  "image_expansion",
+  "background_removal",
+  "element_erasure",
+  "brand_kit_parse",
+]);
+
+export function inferAiCapability(input: OrchestrateRequest): AiCapability {
+  if (input.capability) {
+    if (!AI_CAPABILITIES.has(input.capability)) throw new Error("Unsupported AI capability");
+    return input.capability;
+  }
   const token = `${input.intent || ""} ${input.operation || ""}`.toLowerCase();
   if (/remove.*background|background.*removal|去背|去除背景|抠图/.test(token)) return "background_removal";
   if (/erase|eraser|element.*erasure|擦除|橡皮/.test(token)) return "element_erasure";
@@ -69,9 +90,18 @@ function buildPrompt(input: OrchestrateRequest, brandPrompt: string, skillPrompt
   ].filter(Boolean).join("\n\n").trim();
 }
 
+function resolveImageEditReferences(
+  input: Pick<OrchestrateRequest, "images" | "operation">,
+  fallbackImages: Array<{ src: string; title?: string }> | undefined,
+) {
+  return input.operation === "text_edit" ? (input.images || []) : fallbackImages;
+}
+
+export const __testResolveImageEditReferences = resolveImageEditReferences;
+
 export class AIOrchestrator {
   async run(input: OrchestrateRequest): Promise<OrchestrateResponse> {
-    const capability = inferCapability(input);
+    const capability = inferAiCapability(input);
     const route = resolveModelRoute(capability, input.model);
     const imageSrc = input.imageSrc || input.image_url || asDataUrl(input.image_base64);
     const images = input.images?.length ? input.images : imageSrc ? [{ src: imageSrc }] : undefined;
@@ -111,24 +141,26 @@ export class AIOrchestrator {
         model: route.model,
         images: result.images,
         image_base64: firstImageBase64(result.images),
+        providerTaskId: result.providerTaskId,
+        providerTaskIds: result.providerTaskIds,
         route: route.provider,
         skill: skill?.id,
       };
     }
 
-    if (capability === "element_erasure" || capability === "image_expansion") {
-      if (!imageSrc || !maskSrc) throw new Error("Missing image or mask");
-      const result = await eraseImageObjects({
+    if (capability === "image_expansion") {
+      if (!imageSrc) throw new Error("Missing image");
+      const result = await expandImageWithPicWish({
         imageSrc,
         maskSrc,
         model: route.model,
-        prompt: prompt || (capability === "image_expansion"
-          ? "Outpaint only the blank transparent extension area outside the original image. Preserve every unmasked pixel exactly. Analyze the original background, floor, wall, light, shadows, color, texture, perspective, and edge details, then generate new matching surrounding environment only in the editable area. Do not enlarge, duplicate, mirror, repeat, or redraw the original subject/person/object. Do not paste a scaled copy of the original image into the extension. Do not create a blurred border or vignette."
-          : "Remove only the masked content and rebuild the area naturally. Preserve unmasked pixels."),
+        prompt: prompt || "Outpaint only the blank transparent extension area outside the original image. Preserve every unmasked pixel exactly. Analyze the original background, floor, wall, light, shadows, color, texture, perspective, and edge details, then generate new matching surrounding environment only in the editable area. Do not enlarge, duplicate, mirror, repeat, or redraw the original subject/person/object. Do not paste a scaled copy of the original image into the extension. Do not create a blurred border or vignette.",
         targetWidth: input.targetWidth,
         targetHeight: input.targetHeight,
-        disableLocalFallback: capability === "image_expansion",
-        preserveUnmaskedPixels: capability !== "image_expansion",
+        top: input.top,
+        bottom: input.bottom,
+        left: input.left,
+        right: input.right,
       });
       return {
         type: "image",
@@ -136,6 +168,32 @@ export class AIOrchestrator {
         model: route.model,
         images: result.images,
         image_base64: firstImageBase64(result.images),
+        providerTaskId: result.providerTaskId,
+        providerTaskIds: result.providerTaskIds,
+        route: route.provider,
+        skill: skill?.id,
+      };
+    }
+
+    if (capability === "element_erasure") {
+      if (!imageSrc || !maskSrc) throw new Error("Missing image or mask");
+      const result = await eraseImageObjects({
+        imageSrc,
+        maskSrc,
+        model: route.model,
+        prompt: prompt || "Remove only the masked content and rebuild the area naturally. Preserve unmasked pixels.",
+        targetWidth: input.targetWidth,
+        targetHeight: input.targetHeight,
+        preserveUnmaskedPixels: true,
+      });
+      return {
+        type: "image",
+        capability,
+        model: route.model,
+        images: result.images,
+        image_base64: firstImageBase64(result.images),
+        providerTaskId: result.providerTaskId,
+        providerTaskIds: result.providerTaskIds,
         route: route.provider,
         skill: skill?.id,
       };
@@ -145,11 +203,14 @@ export class AIOrchestrator {
       if (!imageSrc) throw new Error("Missing image for edit");
       const result = await editImageWithPrompt({
         imageSrc,
+        maskSrc,
         model: route.model,
         prompt: prompt || "Edit the image according to the user instruction. Preserve composition and aspect ratio.",
+        operation: input.operation,
         targetWidth: input.targetWidth,
         targetHeight: input.targetHeight,
-        images,
+        images: resolveImageEditReferences(input, images),
+        preserveSource: input.preserveSource,
       });
       return {
         type: "image",
@@ -167,6 +228,7 @@ export class AIOrchestrator {
       model: route.model,
       ratio: input.ratio,
       count: input.count,
+      style: input.style,
       images,
     });
 

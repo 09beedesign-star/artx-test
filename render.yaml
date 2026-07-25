@@ -27,7 +27,37 @@ services:
         value: https://api.openai.com
       - key: AI_TEXT_MODEL
         value: gpt-4o
-      - key: VITE_AI_API_BASE_URL
-        sync: false
       - key: VITE_API_BASE_URL
+        sync: false
+      - key: OAUTH_PUBLIC_BASE_URL
+        value: https://backstage.artxsd.com
+      - key: OAUTH_FRONTEND_URL
+        value: https://backstage.artxsd.com
+      - key: OAUTH_STATE_SECRET
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: META_CLIENT_ID
+        sync: false
+      - key: META_CLIENT_SECRET
+        sync: false
+      - key: WECHAT_CLIENT_ID
+        sync: false
+      - key: WECHAT_CLIENT_SECRET
+        sync: false
+      - key: WALLYT_DOMAIN_URL
+        value: https://paycert.wepayez.com/pay/gateway
+      - key: WALLYT_MCH_ID
+        sync: false
+      - key: WALLYT_SIGNATURE_KEY
+        sync: false
+      - key: WALLYT_NOTIFY_URL
+        value: https://backstage.artxsd.com/api/billing/wallyt/callback
+      - key: WALLYT_WX_APP_ID
         sync: false

@@ -1,7 +1,11 @@
+import { ART_X_TEST_API_BASE_URL, normalizeApiBaseUrl } from "./api-base-url";
+
 type ApiErrorResponse = {
   error?: string;
   message?: string;
 };
+
+let backendApiBaseOverride: string | null = null;
 
 export type AiCapability =
   | "chat"
@@ -63,17 +67,53 @@ export type OrchestrateResponse = {
   skill?: string;
 };
 
-function getAiApiBaseUrl() {
+function getBackendApiBaseUrl() {
+  if (backendApiBaseOverride) return backendApiBaseOverride;
   const configured = (
-    import.meta.env.VITE_AI_API_BASE_URL ||
     import.meta.env.VITE_API_BASE_URL ||
     ""
-  ).replace(/\/+$/, "");
-  if (configured) return configured;
+  );
+  const normalized = normalizeApiBaseUrl(configured);
+  if (normalized) return normalized;
   if (typeof window !== "undefined" && window.location.hostname.endsWith("github.io")) {
-    return "https://artx-test.onrender.com";
+    return ART_X_TEST_API_BASE_URL;
   }
   return "";
+}
+
+function getLocalApiFallbackEndpoint(endpoint: string) {
+  if (typeof window === "undefined") return "";
+  try {
+    const current = new URL(endpoint, window.location.href);
+    const isLoopback = current.hostname === "localhost"
+      || current.hostname === "127.0.0.1"
+      || current.hostname === "::1";
+    if (!isLoopback) return "";
+    return new URL(current.pathname + current.search, ART_X_TEST_API_BASE_URL).toString();
+  } catch {
+    return "";
+  }
+}
+
+function isBackendConnectionError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /non-JSON response|Failed to fetch|NetworkError|网页内容|后端地址未正确连接/i.test(message);
+}
+
+function getAuthToken() {
+  if (typeof window === "undefined") return "";
+  try {
+    const raw = window.localStorage.getItem("artx-auth-session");
+    const parsed = raw ? JSON.parse(raw) as { token?: string } : null;
+    return parsed?.token || "";
+  } catch {
+    return "";
+  }
+}
+
+function getAuthHeaders(): Record<string, string> {
+  const token = getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 async function readJsonResponse<T extends ApiErrorResponse>(response: Response, fallbackError: string): Promise<T> {
@@ -87,18 +127,44 @@ async function readJsonResponse<T extends ApiErrorResponse>(response: Response, 
   return JSON.parse(text) as T;
 }
 
-async function postJson<T extends ApiErrorResponse>(path: string, body: unknown, fallbackError: string): Promise<T> {
-  const endpoint = `${getAiApiBaseUrl()}${path}`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const result = await readJsonResponse<T>(response, fallbackError);
-  if (!response.ok) {
-    throw new Error(result.error || result.message || fallbackError);
+async function postJson<T extends ApiErrorResponse>(path: string, body: unknown, fallbackError: string, allowLocalFallback = true): Promise<T> {
+  const endpoint = `${getBackendApiBaseUrl()}${path}`;
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+      body: JSON.stringify(body),
+    });
+    const result = await readJsonResponse<T>(response, fallbackError);
+    if (!response.ok) {
+      throw new Error(result.error || result.message || fallbackError);
+    }
+    return result;
+  } catch (error) {
+    const fallbackEndpoint = allowLocalFallback ? getLocalApiFallbackEndpoint(endpoint) : "";
+    if (fallbackEndpoint && fallbackEndpoint !== endpoint && isBackendConnectionError(error)) {
+      backendApiBaseOverride = ART_X_TEST_API_BASE_URL;
+      return postJson<T>(path, body, fallbackError, false);
+    }
+    throw error;
   }
-  return result;
+}
+
+async function getJson<T extends ApiErrorResponse>(path: string, fallbackError: string, allowLocalFallback = true): Promise<T> {
+  const endpoint = `${getBackendApiBaseUrl()}${path}`;
+  try {
+    const response = await fetch(endpoint, { headers: getAuthHeaders() });
+    const result = await readJsonResponse<T>(response, fallbackError);
+    if (!response.ok) throw new Error(result.error || result.message || fallbackError);
+    return result;
+  } catch (error) {
+    const fallbackEndpoint = allowLocalFallback ? getLocalApiFallbackEndpoint(endpoint) : "";
+    if (fallbackEndpoint && fallbackEndpoint !== endpoint && isBackendConnectionError(error)) {
+      backendApiBaseOverride = ART_X_TEST_API_BASE_URL;
+      return getJson<T>(path, fallbackError, false);
+    }
+    throw error;
+  }
 }
 
 export async function orchestrateAi(input: OrchestrateRequest) {
@@ -114,9 +180,7 @@ export async function expandImage(input: OrchestrateRequest) {
 }
 
 export async function listBrandKits() {
-  const response = await fetch(`${getAiApiBaseUrl()}/api/brand-kits`);
-  const result = await readJsonResponse<{ kits?: BrandKit[] } & ApiErrorResponse>(response, "品牌包读取失败");
-  if (!response.ok) throw new Error(result.error || result.message || "品牌包读取失败");
+  const result = await getJson<{ kits?: BrandKit[] } & ApiErrorResponse>("/api/brand-kits", "品牌包读取失败");
   return { kits: result.kits || [] };
 }
 

@@ -1,80 +1,221 @@
-/**
- * HelpPage — 帮助中心
- * Design: Neo-Studio Dark
- */
-import { useTheme } from "@/contexts/ThemeContext";
+import { useRef, useState, type ChangeEvent } from "react";
+import { ImagePlus, Trash2, X } from "lucide-react";
+import { toast } from "sonner";
 import TopBar from "@/components/workspace/TopBar";
-import { HelpCircle, ExternalLink, Sparkles } from "lucide-react";
+import { useTheme } from "@/contexts/ThemeContext";
+import { fileToDataUrl, submitUserFeedback } from "@/lib/feedback-submit";
 import { BG_GLOW } from "@/lib/workspace-data";
+import generationMark from "@/assets/generation/ai-generation-mark.svg";
 
-const HELP_LINKS = [
-  { label: "快速入门指南", desc: "了解 artx 的核心功能和基本操作", href: "#" },
-  { label: "画布操作手册", desc: "节点、编组、自动布局等高级功能说明", href: "#" },
-  { label: "AI 模型说明", desc: "各模型的能力范围与使用建议", href: "#" },
-  { label: "常见问题", desc: "登录、积分、导出等常见问题解答", href: "#" },
-  { label: "联系支持", desc: "遇到问题？联系我们的技术支持团队", href: "#" },
-];
+interface FeedbackImage {
+  id: string;
+  name: string;
+  url: string;
+  file: File;
+}
+
+const MAX_IMAGES = 4;
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+
+function readAuthToken() {
+  try {
+    const raw = window.localStorage.getItem("artx-auth-session");
+    const parsed = raw ? JSON.parse(raw) as { token?: string } : null;
+    return parsed?.token || "";
+  } catch {
+    return "";
+  }
+}
 
 export default function HelpPage() {
   const { resolvedTheme } = useTheme();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [content, setContent] = useState("");
+  const [images, setImages] = useState<FeedbackImage[]>([]);
+  const [submitting, setSubmitting] = useState(false);
   const isDark = resolvedTheme === "dark";
+
   const bg = isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)";
-  const text = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.20 0.008 270)";
-  const sub = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.55 0.01 270)";
-  const cardBg = isDark ? "oklch(0.13 0.012 270)" : "oklch(1 0 0)";
-  const cardBorder = isDark ? "rgba(255,255,255,0.07)" : "oklch(0.88 0.006 255)";
-  const hoverBg = isDark ? "oklch(0.16 0.012 270)" : "oklch(0.97 0.004 270)";
+  const text = isDark ? "oklch(0.88 0.008 270)" : "oklch(0.20 0.012 270)";
+  const sub = isDark ? "oklch(0.71 0.010 270)" : "oklch(0.64 0.010 270)";
+  const panel = isDark ? "oklch(0.12 0.016 270 / 0.86)" : "oklch(1 0 0 / 0.86)";
+  const field = isDark ? "oklch(1 0 0 / 0.055)" : "oklch(0 0 0 / 0.035)";
+  const border = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
+
+  const clearForm = () => {
+    images.forEach(image => URL.revokeObjectURL(image.url));
+    setContent("");
+    setImages([]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleFiles = (event: ChangeEvent<HTMLInputElement>) => {
+    const selected = Array.from(event.target.files || []).filter(file => file.type.startsWith("image/"));
+    if (selected.length === 0) return;
+    const oversized = selected.find(file => file.size > MAX_IMAGE_BYTES);
+    if (oversized) {
+      toast.error("图片过大", { description: "单张反馈图片不能超过 4MB。" });
+      event.target.value = "";
+      return;
+    }
+
+    const available = MAX_IMAGES - images.length;
+    if (available <= 0) {
+      toast.error("最多只能上传 4 张图片");
+      event.target.value = "";
+      return;
+    }
+
+    if (selected.length > available) {
+      toast("已达到上传上限", { description: `本次只添加前 ${available} 张图片` });
+    }
+
+    const nextImages = selected.slice(0, available).map(file => ({
+      id: `${file.name}-${file.lastModified}-${crypto.randomUUID?.() || Date.now()}`,
+      name: file.name,
+      url: URL.createObjectURL(file),
+      file,
+    }));
+
+    setImages(current => [...current, ...nextImages]);
+    event.target.value = "";
+  };
+
+  const removeImage = (id: string) => {
+    setImages(current => {
+      const target = current.find(image => image.id === id);
+      if (target) URL.revokeObjectURL(target.url);
+      return current.filter(image => image.id !== id);
+    });
+  };
+
+  const handleCancel = () => {
+    clearForm();
+    toast("已取消反馈");
+  };
+
+  const handleSubmit = async () => {
+    if (!content.trim() && images.length === 0) {
+      toast.error("请先填写反馈内容或上传问题截图");
+      return;
+    }
+    const token = readAuthToken();
+    if (!token) {
+      toast.error("请先登录后再提交反馈");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const attachments = await Promise.all(images.map(async image => ({
+        name: image.name,
+        src: await fileToDataUrl(image.file),
+      })));
+      await submitUserFeedback({
+        token,
+        content,
+        module: "帮助与反馈",
+        attachments,
+      });
+      clearForm();
+      toast.success("反馈已提交", { description: "后台已收到你的反馈和截图。" });
+    } catch (error) {
+      toast.error("反馈提交失败", { description: error instanceof Error ? error.message : "请稍后重试。" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden" style={{ background: bg, position: "relative", transition: "background 0.25s ease" }}>
+    <div className="flex h-screen flex-col overflow-hidden" style={{ background: bg, position: "relative" }}>
       {isDark && (
-        <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: `url(${BG_GLOW})`, backgroundSize: "cover", opacity: 0.10, zIndex: 0 }} />
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{ backgroundImage: `url(${BG_GLOW})`, backgroundSize: "cover", backgroundPosition: "center", opacity: 0.12, zIndex: 0 }}
+        />
       )}
+
       <div style={{ position: "relative", zIndex: 1 }}>
         <TopBar credits={0} />
       </div>
-      <div className="flex-1 overflow-y-auto" style={{ position: "relative", zIndex: 1 }}>
-        <div className="max-w-xl mx-auto px-6 py-12">
-          {/* Header */}
-          <div className="flex flex-col items-center mb-10">
-            <div className="w-14 h-14 rounded-[var(--radius-lg-design)] flex items-center justify-center mb-4" style={{ background: "oklch(0.62 0.22 290 / 0.12)" }}>
-              <HelpCircle size={26} style={{ color: "oklch(0.62 0.22 290)" }} />
-            </div>
-            <h1 className="type-headline mb-2" style={{ color: text }}>帮助中心</h1>
-            <p className="type-caption text-center" style={{ color: sub }}>查找文档、教程和常见问题解答</p>
+
+      <main className="flex-1 overflow-auto px-6 py-10" style={{ position: "relative", zIndex: 1 }}>
+        <section className="mx-auto w-full max-w-3xl">
+          <div className="mb-6">
+            <h1 className="type-title-sm" style={{ color: text, fontSize: 24, fontWeight: 680 }}>
+              帮助与反馈
+            </h1>
+            <p className="mt-2 type-body-sm" style={{ color: sub }}>
+              描述你遇到的问题，也可以上传截图辅助说明。
+            </p>
           </div>
 
-          {/* Help links */}
-          <div className="flex flex-col gap-2">
-            {HELP_LINKS.map((item) => (
-              <a
-                key={item.label}
-                href={item.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-between px-4 py-3.5 rounded-[var(--radius-lg-design)] transition-all group"
-                style={{ background: cardBg, border: `1px solid ${cardBorder}`, textDecoration: "none" }}
-                onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
-                onMouseLeave={e => (e.currentTarget.style.background = cardBg)}
-              >
-                <div>
-                  <p className="type-caption mb-0.5" style={{ color: text, textTransform: "none", letterSpacing: "0.02em", fontWeight: 500 }}>{item.label}</p>
-                  <p className="type-caption" style={{ color: sub, fontSize: 11 }}>{item.desc}</p>
+          <div
+            className="rounded-[var(--radius-xl-design)] border p-5 shadow-[0_24px_72px_rgba(0,0,0,0.18)] backdrop-blur-xl"
+            style={{ background: panel, borderColor: border }}
+          >
+            <textarea
+              value={content}
+              onChange={event => setContent(event.target.value)}
+              placeholder="请描述你碰到的问题或想反馈的内容..."
+              className="min-h-[220px] w-full resize-none rounded-[var(--radius-lg-design)] border p-4 outline-none transition-colors"
+              style={{ background: field, borderColor: border, color: text, fontSize: 14, lineHeight: 1.7 }}
+            />
+
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              {images.map(image => (
+                <div key={image.id} className="group relative h-20 w-20 overflow-hidden rounded-[var(--radius-md-design)] border" style={{ borderColor: border }}>
+                  <img src={image.url} alt={image.name} className="h-full w-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => removeImage(image.id)}
+                    className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm-design)] bg-[#222222]/65 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                    aria-label="移除图片"
+                  >
+                    <X size={13} />
+                  </button>
                 </div>
-                <ExternalLink size={14} style={{ color: sub, flexShrink: 0, marginLeft: 12 }} />
-              </a>
-            ))}
-          </div>
+              ))}
 
-          {/* Footer badge */}
-          <div className="flex justify-center mt-8">
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-pill)] type-caption" style={{ background: "oklch(0.62 0.22 290 / 0.10)", color: "oklch(0.62 0.22 290)" }}>
-              <Sparkles size={11} />
-              更多文档即将完善
+              {images.length < MAX_IMAGES && (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-[var(--radius-md-design)] border border-dashed transition-colors hover:bg-white/10"
+                  style={{ borderColor: border, color: sub, background: field }}
+                >
+                  <ImagePlus size={18} />
+                  <span className="type-caption">{images.length}/{MAX_IMAGES}</span>
+                </button>
+              )}
+              <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFiles} />
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={handleCancel}
+                disabled={submitting}
+                className="flex h-10 items-center gap-2 rounded-[var(--radius-md-design)] border px-5 type-body-sm transition-colors hover:bg-white/10"
+                style={{ borderColor: border, color: sub, background: "transparent" }}
+              >
+                <Trash2 size={15} />
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={submitting}
+                className="flex h-10 items-center gap-2 rounded-[var(--radius-md-design)] px-5 type-body-sm font-medium transition-transform hover:opacity-90 active:scale-[0.98]"
+                style={{ background: "#C5ED47", color: "#000", boxShadow: "0 14px 30px rgba(197,237,71,0.24)" }}
+              >
+                <img src={generationMark} alt="" aria-hidden="true" draggable={false} className="h-4 w-4 object-contain" style={{ filter: "brightness(0)" }} />
+                {submitting ? "提交中" : "提交"}
+              </button>
             </div>
           </div>
-        </div>
-      </div>
+        </section>
+      </main>
     </div>
   );
 }

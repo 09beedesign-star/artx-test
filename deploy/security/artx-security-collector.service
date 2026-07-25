@@ -1,0 +1,20 @@
+[Unit]
+Description=ArtX Nginx security event collector
+After=network-online.target artx-admin.service artx-gray-backend.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile=/etc/artx/security-events.env
+Environment=ARTX_SECURITY_COLLECTOR_STATE_DIR=/var/lib/artx/security-collector
+Environment=ARTX_SECURITY_LOG_TARGETS=/var/log/nginx/artx-admin.access.log|http://127.0.0.1:3001/internal/security-events
+ExecStart=/usr/bin/node /opt/artx/scripts/security-log-collector.mjs
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/var/log/nginx
+ReadWritePaths=/var/lib/artx/security-collector
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

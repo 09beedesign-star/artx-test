@@ -12,7 +12,7 @@ export default function NotFound() {
   const panelBg = isDark ? "oklch(0.13 0.012 270 / 0.92)" : "oklch(1 0 0 / 0.86)";
   const border = isDark ? "rgba(255,255,255,0.08)" : "var(--hairline)";
   const text = isDark ? "oklch(0.88 0.008 270)" : "oklch(0.22 0.018 255)";
-  const sub = isDark ? "oklch(0.56 0.01 270)" : "oklch(0.50 0.012 255)";
+  const sub = isDark ? "oklch(0.69 0.010 270)" : "oklch(0.65 0.010 255)";
 
   return (
     <div

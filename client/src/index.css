@@ -1,4 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 
@@ -121,7 +120,7 @@
   --hairline-soft: #f1f1f1;
 
   /* ── Dark mode (default) — Deep blue-purple ── */
-  --background: oklch(0.10 0.015 270);
+  --background: #222222;
   --foreground: oklch(0.93 0.008 270);
   --card: oklch(0.14 0.018 270);
   --card-foreground: oklch(0.93 0.008 270);
@@ -130,9 +129,9 @@
   --primary: oklch(0.58 0.22 290);
   --primary-foreground: oklch(0.98 0.005 270);
   --secondary: oklch(0.18 0.02 270);
-  --secondary-foreground: oklch(0.75 0.01 270);
+  --secondary-foreground: oklch(0.83 0.008 270);
   --muted: oklch(0.17 0.018 270);
-  --muted-foreground: oklch(0.58 0.012 270);
+  --muted-foreground: oklch(0.71 0.010 270);
   --accent: oklch(0.20 0.022 270);
   --accent-foreground: oklch(0.93 0.008 270);
   --destructive: oklch(0.62 0.22 25);
@@ -247,6 +246,11 @@ html.light, .light {
 
   .model-selector-scroll::-webkit-scrollbar-thumb {
     background: oklch(1 0 0 / 18%);
+  }
+
+  .smart-copy-editor-scroll::-webkit-scrollbar {
+    width: 0;
+    height: 0;
   }
 
   .light .model-selector-scroll::-webkit-scrollbar-thumb {
@@ -483,17 +487,17 @@ html.light, .light {
       linear-gradient(180deg, rgba(255,255,255,0.95), rgba(255,255,255,0.08) 28%, rgba(255,255,255,0.08) 72%, rgba(255,255,255,0.95)) right / 1px 100% no-repeat;
     box-shadow:
       inset 0 0 28px rgba(255,255,255,0.14),
-      0 0 34px rgba(164,114,255,0.36),
-      0 0 58px rgba(255,123,154,0.20);
+      0 0 34px rgba(255,255,255,0.14),
+      0 0 58px rgba(0,0,0,0.24);
     animation: artx-generation-border-breathe 2.4s ease-in-out infinite;
     pointer-events: none;
   }
 
   .artx-ai-generation-mark-shell {
     position: relative;
-    width: min(44%, 164px);
-    min-width: 92px;
-    max-width: 168px;
+    width: min(28%, 112px);
+    min-width: 64px;
+    max-width: 118px;
     display: grid;
     place-items: center;
     filter:
@@ -509,6 +513,16 @@ html.light, .light {
     height: auto;
     user-select: none;
     pointer-events: none;
+  }
+
+  .artx-ai-generation-mark-shell-failed {
+    filter: none;
+    animation: none;
+  }
+
+  .artx-ai-generation-mark-failed {
+    opacity: 0.2;
+    filter: brightness(0) invert(1);
   }
 
   @keyframes artx-generation-node-sweep {
@@ -534,15 +548,15 @@ html.light, .light {
       opacity: 0.62;
       box-shadow:
         inset 0 0 22px rgba(255,255,255,0.10),
-        0 0 24px rgba(164,114,255,0.28),
-        0 0 44px rgba(255,123,154,0.16);
+        0 0 24px rgba(255,255,255,0.10),
+        0 0 44px rgba(0,0,0,0.20);
     }
     50% {
       opacity: 1;
       box-shadow:
         inset 0 0 34px rgba(255,255,255,0.18),
-        0 0 42px rgba(164,114,255,0.48),
-        0 0 74px rgba(255,123,154,0.26);
+        0 0 42px rgba(255,255,255,0.16),
+        0 0 74px rgba(0,0,0,0.28);
     }
   }
 
@@ -552,16 +566,35 @@ html.light, .light {
       transform: scale(0.965);
       filter:
         drop-shadow(0 0 8px rgba(255,255,255,0.68))
-        drop-shadow(0 0 18px rgba(183,116,255,0.50))
-        drop-shadow(0 0 34px rgba(255,132,168,0.32));
+        drop-shadow(0 0 18px rgba(255,255,255,0.22))
+        drop-shadow(0 0 34px rgba(0,0,0,0.24));
     }
     50% {
       opacity: 1;
       transform: scale(1.025);
       filter:
         drop-shadow(0 0 15px rgba(255,255,255,0.96))
-        drop-shadow(0 0 32px rgba(183,116,255,0.82))
-        drop-shadow(0 0 56px rgba(255,132,168,0.48));
+        drop-shadow(0 0 32px rgba(255,255,255,0.36))
+        drop-shadow(0 0 56px rgba(0,0,0,0.30));
+    }
+  }
+
+  @keyframes artxArtboardEmbedFlash {
+    0% {
+      opacity: 0;
+      transform: scaleX(0.22);
+    }
+    18% {
+      opacity: 1;
+      transform: scaleX(1);
+    }
+    62% {
+      opacity: 0.9;
+      transform: scaleX(1);
+    }
+    100% {
+      opacity: 0;
+      transform: scaleX(1);
     }
   }
 
@@ -636,10 +669,10 @@ html.light, .light {
 }
 
 /* ── MiniMap viewport highlight box ─────────────────────────── */
-/* 视口高亮方框：品牌紫色边框 + 半透明填充，pannable/zoomable 时显示 */
+/* 视口高亮方框：半透明白色边框，pannable/zoomable 时显示 */
 .react-flow__minimap-mask {
   fill: transparent !important;
-  stroke: oklch(0.62 0.22 290) !important;
+  stroke: rgba(255,255,255,0.5) !important;
   stroke-width: 3 !important;
   rx: 2;
 }
@@ -649,4 +682,148 @@ html.light, .light {
 }
 .react-flow__minimap svg {
   border-radius: 6px;
+}
+
+/* ── ArtX bottom-centered status toast ──────────────────────── */
+[data-sonner-toaster].toaster {
+  left: 50% !important;
+  right: auto !important;
+  top: auto !important;
+  bottom: 32px !important;
+  width: min(360px, calc(100vw - 32px)) !important;
+  transform: translateX(-50%) !important;
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+[data-sonner-toaster].toaster [data-sonner-toast][data-styled="true"] {
+  align-items: center !important;
+  left: 50% !important;
+  right: auto !important;
+  width: min(360px, calc(100vw - 32px)) !important;
+  min-height: 60px !important;
+  height: 60px !important;
+  max-height: 60px !important;
+  transform: translateX(-50%) !important;
+  padding: 14px !important;
+  overflow: hidden !important;
+  border-radius: var(--radius-lg-design) !important;
+  background: rgba(0, 0, 0, 0.60) !important;
+  border: 1px solid rgba(255, 255, 255, 0.10) !important;
+  color: rgba(255, 255, 255, 0.92) !important;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.32) !important;
+  backdrop-filter: blur(14px);
+}
+
+[data-sonner-toaster].toaster [data-sonner-toast][data-artx-negative="true"][data-styled="true"] {
+  position: relative !important;
+  min-height: 82px !important;
+  height: 82px !important;
+  max-height: 82px !important;
+  background: rgba(86, 0, 0, 0.30) !important;
+  border-color: rgba(255, 78, 78, 0.36) !important;
+  color: #ffffff !important;
+}
+
+[data-sonner-toaster].toaster [data-sonner-toast][data-styled="true"] [data-content] {
+  min-width: 0 !important;
+  width: 100% !important;
+  display: -webkit-box !important;
+  -webkit-box-orient: vertical !important;
+  -webkit-line-clamp: 2 !important;
+  overflow: hidden !important;
+  white-space: normal !important;
+  line-height: 16px !important;
+  text-align: center !important;
+}
+
+[data-sonner-toaster].toaster [data-sonner-toast][data-artx-negative="true"][data-styled="true"] [data-content]::before {
+  content: "!";
+  position: absolute;
+  left: 50%;
+  top: 12px;
+  display: flex;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+  transform: translateX(-50%);
+  border: 1.4px solid #ffffff;
+  border-radius: 999px;
+  color: #ffffff;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+[data-sonner-toaster].toaster [data-sonner-toast][data-styled="true"] [data-title],
+[data-sonner-toaster].toaster [data-sonner-toast][data-styled="true"] [data-description] {
+  display: inline !important;
+  max-width: 100% !important;
+  overflow: visible !important;
+  color: rgba(255, 255, 255, 0.92) !important;
+  font-size: 11px !important;
+  line-height: 16px !important;
+  letter-spacing: 0 !important;
+  text-overflow: clip !important;
+  white-space: normal !important;
+}
+
+[data-sonner-toaster].toaster [data-sonner-toast][data-artx-negative="true"][data-styled="true"] [data-title],
+[data-sonner-toaster].toaster [data-sonner-toast][data-artx-negative="true"][data-styled="true"] [data-description] {
+  color: #ffffff !important;
+}
+
+[data-sonner-toaster].toaster [data-sonner-toast][data-artx-overflow="true"][data-styled="true"] [data-content] {
+  text-align: left !important;
+}
+
+[data-sonner-toaster].toaster [data-sonner-toast][data-artx-negative="true"][data-styled="true"] [data-content] {
+  padding-left: 0 !important;
+  padding-top: 22px !important;
+  text-align: center !important;
+}
+
+[data-sonner-toaster].toaster [data-sonner-toast][data-styled="true"] [data-description]::before {
+  content: " ";
+}
+
+[data-sonner-toaster].toaster [data-sonner-toast][data-styled="true"] [data-icon] {
+  display: none !important;
+}
+
+@media (max-width: 600px) {
+  [data-sonner-toaster].toaster {
+    left: 50% !important;
+    right: auto !important;
+    top: auto !important;
+    bottom: 32px !important;
+    width: min(360px, calc(100vw - 32px)) !important;
+    transform: translateX(-50%) !important;
+  }
+
+  [data-sonner-toaster].toaster [data-sonner-toast] {
+    left: 50% !important;
+    right: auto !important;
+    width: min(360px, calc(100vw - 32px)) !important;
+    transform: translateX(-50%) !important;
+  }
+}
+
+.composer-scrollbar-hidden::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* Keep helper copy readable in the dark admin interface without changing the user site. */
+.admin-readable-copy .text-slate-300:not(svg),
+.admin-readable-copy .text-slate-400:not(svg),
+.admin-readable-copy .text-slate-500:not(svg) {
+  color: rgba(255, 255, 255, 0.94);
+  font-weight: 600;
+}
+
+.admin-readable-copy .placeholder\:text-slate-500::placeholder {
+  color: rgba(255, 255, 255, 0.78);
+  font-weight: 600;
 }
