@@ -313,6 +313,53 @@ function AiProductIcon({
   );
 }
 
+function CameraViewCubeAiIcon({
+  size = 17,
+  cutoutBg = "rgba(22,22,30,0.96)",
+}: {
+  size?: number;
+  cutoutBg?: string;
+}) {
+  return (
+    <AiDecoratedIcon size={size} cutoutBg={cutoutBg}>
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        fill="none"
+        aria-hidden="true"
+      >
+        <path
+          d="M7 7.8 12 5l5 2.8v5.6l-5 2.9-5-2.9V7.8Z"
+          stroke="currentColor"
+          strokeWidth="1.55"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M7.2 8 12 10.7 16.8 8M12 10.7v5.5"
+          stroke="currentColor"
+          strokeWidth="1.35"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M5.6 15.7c1.5 2 3.7 3.1 6.4 3.1 2.1 0 3.9-.65 5.3-1.86"
+          stroke="currentColor"
+          strokeWidth="1.45"
+          strokeLinecap="round"
+        />
+        <path
+          d="m17 14.6.55 2.4-2.45.14"
+          stroke="currentColor"
+          strokeWidth="1.45"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </AiDecoratedIcon>
+  );
+}
+
 function AiDecoratedIcon({
   children,
   size = 15,
@@ -3151,6 +3198,11 @@ function AssetFloatingToolbar({
       label: "提示词反推",
       action: "reverse-prompt",
     },
+    {
+      icon: <CameraViewCubeAiIcon size={15} cutoutBg={toolBg} />,
+      label: "视角",
+      action: "camera-view",
+    },
     { icon: <HdIcon size={15} />, label: "HD 4K", action: "upscale" },
     {
       icon: (
@@ -3363,6 +3415,13 @@ type AssetAdjustmentValues = {
   sharpness: number;
 };
 
+type AssetCameraViewValues = {
+  x: number;
+  y: number;
+  z: number;
+  prompt: string;
+};
+
 const DEFAULT_ASSET_ADJUSTMENTS: AssetAdjustmentValues = {
   color: 0,
   brightness: 0,
@@ -3370,6 +3429,45 @@ const DEFAULT_ASSET_ADJUSTMENTS: AssetAdjustmentValues = {
   saturation: 0,
   sharpness: 0,
 };
+
+const DEFAULT_ASSET_CAMERA_VIEW: AssetCameraViewValues = {
+  x: 0,
+  y: 0,
+  z: 0,
+  prompt: "",
+};
+
+function buildCameraViewPrompt(cameraView: AssetCameraViewValues) {
+  const prompt = cameraView.prompt.trim();
+  return [
+    "基于参考图生成同一主体的新摄像机视角，不是局部修图。",
+    `目标相机参数：X 水平绕拍 ${cameraView.x}°，Y 垂直俯仰 ${cameraView.y}°，Z 镜头距离 ${cameraView.z}%。`,
+    "最大程度保持目标视角变化，画面内容必须尽可能锁定：同一主体、同一场景、同一背景物体、同一道具、同一光线、同一材质、同一色彩和同一画面氛围。",
+    "只允许改变摄像机位置、镜头方向、透视关系、遮挡关系、可见面、接触阴影和背景空间深度；不要替换场景、增删道具、改变服装/商品/背景内容或重新设计环境。",
+    "根据目标 X/Y/Z 视角重建主体与原场景的空间关系，让结果像同一场景中换了机位重新拍摄。",
+    "不要生成多个人或多个商品，不要做镜像拼贴，不要生成新场景，不要保留原来的正面角度。",
+    prompt ? `用户补充描述：${prompt}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+function clampCameraAxis(value: unknown, min: number, max: number) {
+  const numberValue = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numberValue)) return 0;
+  return Math.max(min, Math.min(max, Math.round(numberValue)));
+}
+
+function normalizeAssetCameraView(value: unknown): AssetCameraViewValues {
+  const source =
+    typeof value === "object" && value !== null
+      ? (value as Record<string, unknown>)
+      : {};
+  return {
+    x: clampCameraAxis(source.x, -180, 180),
+    y: clampCameraAxis(source.y, -75, 75),
+    z: clampCameraAxis(source.z, -60, 60),
+    prompt: typeof source.prompt === "string" ? source.prompt : "",
+  };
+}
 
 function normalizeAssetAdjustments(value: unknown): AssetAdjustmentValues {
   const source =
@@ -4827,7 +4925,6 @@ function AssetMoreCommandPanel({
     { key: "saturation", label: "饱和度" },
     { key: "sharpness", label: "锐利度" },
   ];
-
   useEffect(() => {
     onPreviewChangeRef.current = onPreviewChange;
   }, [onPreviewChange]);
@@ -6217,6 +6314,16 @@ function AssetNodeComponent({
   const isCropping = !!(data as { isCropping?: boolean }).isCropping;
   const isErasing = !!(data as { isErasing?: boolean }).isErasing;
   const isExpanding = !!(data as { isExpanding?: boolean }).isExpanding;
+  const isCameraViewAdjusting = !!(data as { isCameraViewAdjusting?: boolean })
+    .isCameraViewAdjusting;
+  const assetCameraView = normalizeAssetCameraView(data.assetCameraView);
+  const cameraViewDragRef = useRef<{
+    pointerId: number;
+    startClientX: number;
+    startClientY: number;
+    startX: number;
+    startY: number;
+  } | null>(null);
   const extractedText = ((data as { extractedText?: string }).extractedText ||
     "") as string;
   const extractedTextRegions = ((data as { extractedTextRegions?: ImageTextRegion[] })
@@ -7342,6 +7449,133 @@ function AssetNodeComponent({
     setFlowNodes,
   ]);
 
+  const updateCameraViewNode = useCallback(
+    (nextView: AssetCameraViewValues, commit = false) => {
+      setFlowNodes(nodes =>
+        nodes.map(node => {
+          if (node.id !== nodeId || node.type !== "asset") return node;
+          return {
+            ...node,
+            data: {
+              ...(node.data as Record<string, unknown>),
+              assetCameraView: nextView,
+            },
+          };
+        })
+      );
+      if (commit) {
+        window.dispatchEvent(
+          new CustomEvent("asset-camera-view-apply", {
+            detail: { nodeId, cameraView: nextView },
+          })
+        );
+      }
+    },
+    [nodeId, setFlowNodes]
+  );
+  const handleCameraCubePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!isCameraViewAdjusting) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      cameraViewDragRef.current = {
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startX: assetCameraView.x,
+        startY: assetCameraView.y,
+      };
+    },
+    [assetCameraView.x, assetCameraView.y, isCameraViewAdjusting]
+  );
+  const handleCameraCubePointerMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const drag = cameraViewDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      updateCameraViewNode({
+        ...assetCameraView,
+        x: clampCameraAxis(
+          drag.startX + (event.clientX - drag.startClientX) * 0.55,
+          -180,
+          180
+        ),
+        y: clampCameraAxis(
+          drag.startY - (event.clientY - drag.startClientY) * 0.55,
+          -75,
+          75
+        ),
+      });
+    },
+    [assetCameraView, updateCameraViewNode]
+  );
+  const handleCameraCubePointerEnd = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const drag = cameraViewDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      cameraViewDragRef.current = null;
+      const nextView = {
+        ...assetCameraView,
+        x: clampCameraAxis(
+          drag.startX + (event.clientX - drag.startClientX) * 0.55,
+          -180,
+          180
+        ),
+        y: clampCameraAxis(
+          drag.startY - (event.clientY - drag.startClientY) * 0.55,
+          -75,
+          75
+        ),
+      };
+      if (
+        nextView.x !== drag.startX ||
+        nextView.y !== drag.startY ||
+        nextView.z !== assetCameraView.z ||
+        nextView.prompt.trim()
+      ) {
+        updateCameraViewNode(nextView, true);
+      }
+    },
+    [assetCameraView, updateCameraViewNode]
+  );
+  const handleCameraViewZChange = useCallback(
+    (value: number, commit = false) => {
+      updateCameraViewNode(
+        {
+          ...assetCameraView,
+          z: clampCameraAxis(value, -60, 60),
+        },
+        commit
+      );
+    },
+    [assetCameraView, updateCameraViewNode]
+  );
+  const closeCameraViewAdjuster = useCallback(() => {
+    setFlowNodes(nodes =>
+      nodes.map(node =>
+        node.id === nodeId && node.type === "asset"
+          ? {
+              ...node,
+              data: {
+                ...(node.data as Record<string, unknown>),
+                isCameraViewAdjusting: false,
+              },
+            }
+          : node
+      )
+    );
+  }, [nodeId, setFlowNodes]);
+  const cameraCubeSize = Math.max(72, Math.min(150, Math.min(dispW, dispH) * 0.42));
+  const cameraCubeDepth = cameraCubeSize * 0.5;
+  const cameraCubeScale = Math.max(
+    0.72,
+    Math.min(1.28, 1 - assetCameraView.z / 180)
+  );
+
   return (
     <>
       <div
@@ -7555,6 +7789,214 @@ function AssetNodeComponent({
               }}
             >
               图片未保存，请重新上传
+            </div>
+          )}
+          {isCameraViewAdjusting && !isAiProcessingImage && (
+            <div
+              className="absolute inset-0 nodrag nopan"
+              style={{
+                zIndex: 94,
+                overflow: "visible",
+                background:
+                  "radial-gradient(circle at center, rgba(0,0,0,0.18), rgba(0,0,0,0.04) 58%, transparent)",
+              }}
+              onMouseDown={event => event.stopPropagation()}
+              onClick={event => event.stopPropagation()}
+            >
+              <div
+                className="absolute left-1/2 top-1/2 flex items-center justify-center"
+                style={{
+                  width: cameraCubeSize * 1.9,
+                  height: cameraCubeSize * 1.9,
+                  transform: `translate(-50%, -50%) scale(${stableUiScale})`,
+                  transformOrigin: "center",
+                  perspective: cameraCubeSize * 5,
+                  pointerEvents: "auto",
+                  cursor: "grab",
+                  touchAction: "none",
+                }}
+                title="拖动立方体调整 X/Y 摄像机视角"
+                onPointerDown={handleCameraCubePointerDown}
+                onPointerMove={handleCameraCubePointerMove}
+                onPointerUp={handleCameraCubePointerEnd}
+                onPointerCancel={handleCameraCubePointerEnd}
+              >
+                <div
+                  aria-hidden="true"
+                  style={{
+                    position: "relative",
+                    width: cameraCubeSize,
+                    height: cameraCubeSize,
+                    transformStyle: "preserve-3d",
+                    transform: `rotateX(${-assetCameraView.y}deg) rotateY(${assetCameraView.x}deg) scale(${cameraCubeScale})`,
+                    transition: cameraViewDragRef.current
+                      ? "none"
+                      : "transform 0.12s ease-out",
+                    filter:
+                      "drop-shadow(0 18px 32px rgba(0,0,0,0.42)) drop-shadow(0 0 18px rgba(197,237,71,0.25))",
+                  }}
+                >
+                  {[
+                    `translateZ(${cameraCubeDepth}px)`,
+                    `rotateY(180deg) translateZ(${cameraCubeDepth}px)`,
+                    `rotateY(90deg) translateZ(${cameraCubeDepth}px)`,
+                    `rotateY(-90deg) translateZ(${cameraCubeDepth}px)`,
+                    `rotateX(90deg) translateZ(${cameraCubeDepth}px)`,
+                    `rotateX(-90deg) translateZ(${cameraCubeDepth}px)`,
+                  ].map(faceTransform => (
+                    <span
+                      key={faceTransform}
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        border: "1.4px solid rgba(197,237,71,0.92)",
+                        borderRadius: 8,
+                        background: "rgba(197,237,71,0.035)",
+                        boxShadow:
+                          "inset 0 0 18px rgba(197,237,71,0.10), 0 0 14px rgba(197,237,71,0.18)",
+                        transform: faceTransform,
+                      }}
+                    />
+                  ))}
+                  <span
+                    style={{
+                      position: "absolute",
+                      left: "50%",
+                      top: "50%",
+                      width: cameraCubeSize * 1.35,
+                      height: 2,
+                      background: "rgba(255,91,91,0.9)",
+                      transform: "translate(-50%, -50%) translateZ(1px)",
+                      boxShadow: "0 0 8px rgba(255,91,91,0.55)",
+                    }}
+                  />
+                  <span
+                    style={{
+                      position: "absolute",
+                      left: "50%",
+                      top: "50%",
+                      width: 2,
+                      height: cameraCubeSize * 1.35,
+                      background: "rgba(92,199,255,0.9)",
+                      transform: "translate(-50%, -50%) translateZ(2px)",
+                      boxShadow: "0 0 8px rgba(92,199,255,0.55)",
+                    }}
+                  />
+                  <span
+                    style={{
+                      position: "absolute",
+                      left: "50%",
+                      top: "50%",
+                      width: cameraCubeSize * 1.08,
+                      height: 2,
+                      background: "rgba(197,237,71,0.92)",
+                      transform:
+                        "translate(-50%, -50%) rotate(45deg) translateZ(3px)",
+                      boxShadow: "0 0 8px rgba(197,237,71,0.55)",
+                    }}
+                  />
+                </div>
+              </div>
+              {[
+                {
+                  label: `X ${assetCameraView.x}°`,
+                  color: "rgba(255,91,91,0.95)",
+                  left: "calc(50% + 82px)",
+                  top: "calc(50% - 8px)",
+                },
+                {
+                  label: `Y ${assetCameraView.y}°`,
+                  color: "rgba(92,199,255,0.95)",
+                  left: "calc(50% - 8px)",
+                  top: "calc(50% - 92px)",
+                },
+                {
+                  label: `Z ${assetCameraView.z}%`,
+                  color: "rgba(197,237,71,0.95)",
+                  left: "calc(50% + 58px)",
+                  top: "calc(50% + 58px)",
+                },
+              ].map(axis => (
+                <span
+                  key={axis.label}
+                  className="absolute rounded-full px-2 py-0.5"
+                  style={{
+                    left: axis.left,
+                    top: axis.top,
+                    transform: `translate(-50%, -50%) scale(${stableUiScale})`,
+                    transformOrigin: "center",
+                    color: axis.color,
+                    background: "rgba(5,5,8,0.62)",
+                    border: `1px solid ${axis.color}`,
+                    fontSize: 10,
+                    fontWeight: 750,
+                    lineHeight: 1.2,
+                    pointerEvents: "none",
+                    boxShadow: "0 8px 18px rgba(0,0,0,0.28)",
+                  }}
+                >
+                  {axis.label}
+                </span>
+              ))}
+              <div
+                className="absolute left-1/2 flex items-center gap-2 rounded-[var(--radius-lg-design)] px-2.5 py-2 shadow-xl"
+                style={{
+                  top: `calc(100% + ${12 * stableUiScale}px)`,
+                  transform: `translateX(-50%) scale(${stableUiScale})`,
+                  transformOrigin: "top center",
+                  width: 292,
+                  maxWidth: "calc(100vw - 32px)",
+                  background: "rgba(18,18,28,0.94)",
+                  border: "1px solid rgba(255,255,255,0.16)",
+                  color: "white",
+                  backdropFilter: "blur(14px)",
+                }}
+                onPointerDown={event => event.stopPropagation()}
+                onClick={event => event.stopPropagation()}
+              >
+                <CameraViewCubeAiIcon size={15} cutoutBg="rgba(18,18,28,0.94)" />
+                <span
+                  className="type-caption"
+                  style={{ fontSize: 12, fontWeight: 750, whiteSpace: "nowrap" }}
+                >
+                  视角
+                </span>
+                <input
+                  type="range"
+                  min={-60}
+                  max={60}
+                  step={1}
+                  value={assetCameraView.z}
+                  aria-label="Z 镜头距离"
+                  onChange={event =>
+                    handleCameraViewZChange(Number(event.target.value))
+                  }
+                  onPointerUp={event =>
+                    handleCameraViewZChange(
+                      Number(event.currentTarget.value),
+                      true
+                    )
+                  }
+                  style={{
+                    flex: 1,
+                    minWidth: 92,
+                    accentColor: "#C5ED47",
+                  }}
+                />
+                <button
+                  type="button"
+                  className="type-caption rounded-[var(--radius-md-design)] px-2.5 py-1.5"
+                  style={{
+                    color: "rgba(255,255,255,0.78)",
+                    background: "rgba(255,255,255,0.08)",
+                    whiteSpace: "nowrap",
+                    fontSize: 12,
+                  }}
+                  onClick={closeCameraViewAdjuster}
+                >
+                  关闭
+                </button>
+              </div>
             </div>
           )}
           {isCropping && (
@@ -21261,6 +21703,88 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     ]
   );
 
+  const runCameraViewGeneration = useCallback(
+    async (nodeId: string, cameraView: AssetCameraViewValues) => {
+      if (!requireAiAccess()) return;
+      const sourceNode = nodesRef.current.find(
+        node => node.id === nodeId && node.type === "asset"
+      );
+      if (!sourceNode) return;
+      const imageSrc = await getVisibleAssetImageSource(nodeId);
+      if (!imageSrc) {
+        toast("视角生成失败", { description: "当前图片没有可处理的图像来源" });
+        return;
+      }
+      const sourceSize = getCanvasNodeSize(sourceNode);
+      const prompt = buildCameraViewPrompt(cameraView);
+      setNodes(nodes =>
+        nodes.map(node =>
+          node.id === nodeId && node.type === "asset"
+            ? {
+                ...node,
+                data: {
+                  ...(node.data as Record<string, unknown>),
+                  isCameraViewAdjusting: false,
+                },
+              }
+            : node
+        )
+      );
+      await runDerivedImageGeneration({
+        sourceNode,
+        prompt,
+        style: "视角调整结果",
+        nextW: sourceSize.width,
+        nextH: sourceSize.height,
+        backgroundTaskInput: {
+          capability: "image_edit",
+          operation: "camera_view",
+          imageSrc,
+          model: DEFAULT_IMAGE_AI_MODEL_ID,
+          prompt,
+          targetWidth: sourceSize.width,
+          targetHeight: sourceSize.height,
+          cameraView,
+        },
+          run: async () =>
+            editImageWithPrompt({
+              imageSrc,
+              model: DEFAULT_IMAGE_AI_MODEL_ID,
+              prompt,
+              operation: "camera_view",
+              targetWidth: sourceSize.width,
+              targetHeight: sourceSize.height,
+              cameraView,
+            }),
+      });
+    },
+    [
+      getVisibleAssetImageSource,
+      nodesRef,
+      requireAiAccess,
+      runDerivedImageGeneration,
+      setNodes,
+    ]
+  );
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          nodeId?: string;
+          cameraView?: Partial<AssetCameraViewValues>;
+        }>
+      ).detail;
+      if (!detail?.nodeId) return;
+      void runCameraViewGeneration(
+        detail.nodeId,
+        normalizeAssetCameraView(detail.cameraView)
+      );
+    };
+    window.addEventListener("asset-camera-view-apply", handler);
+    return () => window.removeEventListener("asset-camera-view-apply", handler);
+  }, [runCameraViewGeneration]);
+
   const createGeneratedImageNode = useCallback(
     (
       backup: NonNullable<CanvasAssistantMessage["imageBackup"]>,
@@ -21657,6 +22181,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       isErasing: false,
       isExpanding: false,
       isEditing: false,
+      isCameraViewAdjusting: false,
       isExtractingText: false,
       isApplyingExtractedText: false,
     }),
@@ -21675,6 +22200,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             !data.isErasing &&
             !data.isExpanding &&
             !data.isEditing &&
+            !data.isCameraViewAdjusting &&
             !data.isExtractingText &&
             !data.isApplyingExtractedText
           )
@@ -27266,6 +27792,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         "edit-elements",
         "expand",
         "vector",
+        "camera-view",
       ]);
       if (aiToolbarActions.has(action) && !requireAiAccess()) return;
       setNodes(nds =>
@@ -27335,6 +27862,36 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       }
       if (action === "quick-edit") {
         handleNodeAction("edit-asset", nodeId);
+        return;
+      }
+      if (action === "camera-view") {
+        if (!targetNode || targetNode.type !== "asset") return;
+        const imageSrc = await getVisibleAssetImageSource(nodeId);
+        if (!imageSrc) {
+          toast("视角调整失败", { description: "当前图片没有可处理的图像来源" });
+          return;
+        }
+        setNodes(nds =>
+          nds.map(n =>
+            n.id === nodeId && n.type === "asset"
+              ? {
+                  ...n,
+                  selected: true,
+                  data: {
+                    ...(n.data as Record<string, unknown>),
+                    ...clearAssetCommandState(n.data as Record<string, unknown>),
+                    isCameraViewAdjusting: true,
+                    assetCameraView: normalizeAssetCameraView(
+                      (n.data as Record<string, unknown>).assetCameraView
+                    ),
+                  },
+                }
+              : n
+          )
+        );
+        toast("三轴视角", {
+          description: "拖动图片中的线框立方体调整 X/Y，松手后自动生成新视角",
+        });
         return;
       }
       if (action === "reverse-prompt") {
@@ -27964,6 +28521,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         adjust: "调整",
         crop: "裁剪",
         vector: "矢量",
+        "camera-view": "视角",
         "flip-rotate": "旋转与反转",
         more: "更多",
       };

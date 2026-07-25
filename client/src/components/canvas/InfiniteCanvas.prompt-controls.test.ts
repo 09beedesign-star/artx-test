@@ -263,6 +263,42 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain("task.editMode || task.sourceImageSrc");
   });
 
+  it("activates camera-view from the image toolbar with a draggable 3D cube controller", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const toolbarBlock = source.match(
+      /const assetTools: FloatingToolItem\[\] = \[[\s\S]*?const frameTools/
+    )?.[0];
+    const nodeBlock = source.match(
+      /function AssetNodeComponent[\s\S]*?function FreehandNodeComponent/
+    )?.[0];
+    const generationBlock = source.match(
+      /const runCameraViewGeneration = useCallback[\s\S]*?const createGeneratedImageNode/
+    )?.[0];
+
+    expect(toolbarBlock).toBeTruthy();
+    expect(toolbarBlock).toContain("CameraViewCubeAiIcon");
+    expect(toolbarBlock).toContain('label: "视角"');
+    expect(toolbarBlock).toContain('action: "camera-view"');
+    expect(source).not.toContain('["mockup", "adjust", "vector", "camera-view"]');
+    expect(nodeBlock).toBeTruthy();
+    expect(nodeBlock).toContain("isCameraViewAdjusting");
+    expect(nodeBlock).toContain("assetCameraView");
+    expect(nodeBlock).toContain("handleCameraCubePointerDown");
+    expect(nodeBlock).toContain("handleCameraCubePointerMove");
+    expect(nodeBlock).toContain("handleCameraViewZChange");
+    expect(nodeBlock).toContain("asset-camera-view-apply");
+    expect(nodeBlock).toContain("rotateX(${-assetCameraView.y}deg) rotateY(${assetCameraView.x}deg)");
+    expect(nodeBlock).toContain('aria-label="Z 镜头距离"');
+    expect(generationBlock).toBeTruthy();
+    expect(generationBlock).toContain('operation: "camera_view"');
+    expect(generationBlock).toContain('capability: "image_edit"');
+    expect(generationBlock).toContain("buildCameraViewPrompt(cameraView)");
+    expect(source).toContain("画面内容必须尽可能锁定");
+    expect(source).toContain("不要替换场景、增删道具");
+    expect(generationBlock).toContain("cameraView,");
+    expect(generationBlock).not.toContain('operation: "annotation_edit"');
+  });
+
   it("does not duplicate live background-task polling while the foreground request owns the task", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
 

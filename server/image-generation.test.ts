@@ -35,6 +35,25 @@ describe("generated image source normalization", () => {
     expect(source).not.toContain("isAutoAnnotationEdit");
   });
 
+  it("keeps camera-view edits on a generative viewpoint path instead of source-preserving local edit rules", async () => {
+    const source = await readFile(resolve(__dirname, "image-generation.ts"), "utf8");
+    const editSource = source.match(
+      /export async function editImageWithPrompt[\s\S]*?export async function eraseImageObjects/
+    )?.[0] || "";
+
+    expect(source).toContain("function buildCameraViewEditInstruction");
+    expect(source).toContain("Target camera controls: X horizontal orbit");
+    expect(source).toContain("Maximize the requested camera viewpoint change while locking the visual content as much as possible");
+    expect(source).toContain("Do not replace the scene, remove or add props, change the background content");
+    expect(editSource).toContain('const isCameraViewOperation = input.operation === "camera_view";');
+    expect(editSource).toContain("cameraViewInstruction");
+    expect(editSource).toContain("generate a complete new camera viewpoint image");
+    expect(editSource).toContain("do not treat it as a masked local edit");
+    expect(source).toContain('operation === "text_edit"');
+    expect(source).toContain('operation === "annotation_edit"');
+    expect(source).not.toContain('operation === "camera_view" && !maskSrc');
+  });
+
   it("keeps alternate image models available for provider gateway retries", () => {
     expect(getImageModelFallbackAttempts("auto").length).toBeGreaterThan(1);
   });

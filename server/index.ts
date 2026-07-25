@@ -408,6 +408,10 @@ function getDefaultRouteImageModel(body: unknown) {
   return getRouteModel(body, process.env.AI_IMAGE_MODEL || DEFAULT_IMAGE_MODEL_ID);
 }
 
+function getImageEditCapabilityLabel(input: Record<string, unknown>) {
+  return input.operation === "camera_view" ? "视角调整" : "图片编辑";
+}
+
 function getImageOutputUnits(result: unknown) {
   const record = result && typeof result === "object" ? result as { images?: unknown[] } : {};
   return Math.max(1, Array.isArray(record.images) ? record.images.length : 1);
@@ -548,7 +552,7 @@ function getBackgroundImageTaskPreflightTracking(input: Record<string, unknown>,
     case "edit":
       return {
         capabilityKey: "image_edit",
-        capability: "图片编辑",
+        capability: getImageEditCapabilityLabel(input),
         provider: "AI_IMAGE",
         model: getDefaultRouteImageModel(input),
         failureMessage: "Image edit failed",
@@ -893,7 +897,7 @@ async function startServer() {
           result: stored,
           tracking: {
             capabilityKey: "image_edit" as const,
-            capability: "图片编辑",
+            capability: getImageEditCapabilityLabel(input),
             provider: "AI_IMAGE",
             model: getDefaultRouteImageModel(input),
             failureMessage: "Image edit failed",
@@ -1456,7 +1460,7 @@ async function startServer() {
   app.post("/api/images/edit", async (req, res) => {
     await handleTrackedAiRequest(req, res, {
       capabilityKey: "image_edit",
-      capability: "图片编辑",
+      capability: getImageEditCapabilityLabel(req.body || {}),
       provider: "AI_IMAGE",
       model: getDefaultRouteImageModel(req.body),
       failureMessage: "Image edit failed",

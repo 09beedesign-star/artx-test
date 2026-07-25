@@ -64,6 +64,12 @@ type EditImageInput = {
   targetWidth?: number;
   targetHeight?: number;
   images?: Array<{ src: string; title?: string }>;
+  cameraView?: {
+    x?: number;
+    y?: number;
+    z?: number;
+    prompt?: string;
+  };
 };
 
 type ElementBackgroundInput = {
@@ -2416,6 +2422,31 @@ export function __testAssertSourcePreservingMask(
   }
 }
 
+function coerceCameraAxis(value: unknown, min: number, max: number) {
+  const numberValue = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numberValue)) return 0;
+  return Math.max(min, Math.min(max, Math.round(numberValue)));
+}
+
+function buildCameraViewEditInstruction(input: EditImageInput) {
+  const view = input.cameraView || {};
+  const x = coerceCameraAxis(view.x, -180, 180);
+  const y = coerceCameraAxis(view.y, -75, 75);
+  const z = coerceCameraAxis(view.z, -60, 60);
+  const note = typeof view.prompt === "string" ? view.prompt.trim() : "";
+  return [
+    "This is a generative camera-view reconstruction, not a local image edit.",
+    "Maximize the requested camera viewpoint change while locking the visual content as much as possible.",
+    "Use the source image as the fixed identity, fixed subject/product, fixed scene, fixed background objects, fixed props, fixed lighting, fixed clothing/packaging, fixed colors, fixed materials, and fixed mood reference.",
+    `Target camera controls: X horizontal orbit ${x} degrees, Y vertical pitch ${y} degrees, Z camera distance ${z} percent.`,
+    "Only change the camera position, lens direction, perspective, occlusion, visible sides, contact shadows, and spatial depth according to the target X/Y/Z controls.",
+    "Do not replace the scene, remove or add props, change the background content, redesign the environment, change clothing/product/package details, or invent a new location.",
+    "Reconstruct newly visible sides, back-facing surfaces, occlusion, perspective, contact shadows, and background depth so the result looks like the same scene photographed from a different camera position.",
+    "Keep one single consistent subject and one single consistent scene. Do not create duplicates, mirrored collages, unrelated people/products, a pasted cutout look, or a newly imagined scene.",
+    note ? `User additional direction: ${note}` : "",
+  ].filter(Boolean).join("\n");
+}
+
 const PICWISH_MAX_INPUT_BYTES = 4.8 * 1024 * 1024;
 const PICWISH_MAX_INPUT_SIDE = 4096;
 const IMAGE_PROVIDER_REFERENCE_MAX_SIDE = 1536;
@@ -3673,6 +3704,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   const maskImageData = maskSource ? await imageSrcToBuffer(maskSource) : null;
   const sourceImageDimensions = await getImageBufferDimensions(sourceImageData.buffer);
   const isTextEditOperation = input.operation === "text_edit";
+  const isCameraViewOperation = input.operation === "camera_view";
   const requiresVisibleLocalChange = isTextEditOperation;
   const isSourcePreservingEdit = isTextEditOperation || input.preserveSource === true;
   const targetSize = isSourcePreservingEdit
@@ -3705,6 +3737,9 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
         "Only remove the original readable text and place the requested replacement text back into the same visual text areas with matching typography, hierarchy, spacing, alignment, and poster design quality.",
         "Do not change the image category, scene, product type, or overall visual identity.",
       ].join("\n")
+    : "";
+  const cameraViewInstruction = isCameraViewOperation
+    ? buildCameraViewEditInstruction(input)
     : "";
   const finalizeImages = async (images: GeneratedImage[]) => {
     const normalizedImages = await __testNormalizeGeneratedImagesToTargetAspect(
@@ -3753,7 +3788,10 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
           prompt: [
             input.prompt,
             textEditInstruction,
-            "Use reference image 1 as the target canvas. Preserve its subject identity, composition, camera angle, lighting, proportions, and aspect ratio unless the user explicitly asks to change them.",
+            cameraViewInstruction,
+            isCameraViewOperation
+              ? "Use reference image 1 as the locked scene and source identity reference, then generate a complete new camera viewpoint image without changing the scene content except what the new perspective physically reveals or hides."
+              : "Use reference image 1 as the target canvas. Preserve its subject identity, composition, camera angle, lighting, proportions, and aspect ratio unless the user explicitly asks to change them.",
             editGuideDataUrl
               ? "Reference image 2 is a visual edit guide derived from reference image 1. Its translucent orange overlay marks the only area allowed to change; the overlay itself is not content and must not appear in the result. Every unmarked area must remain visually identical to reference image 1."
               : "",
@@ -3816,6 +3854,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
     body.append("prompt", [
       input.prompt,
       textEditInstruction,
+      cameraViewInstruction,
       referenceImages.length
         ? [
             "Use the source image as the target canvas and preserve its subject identity, pose, composition, background, lighting, and aspect ratio.",
@@ -3826,6 +3865,9 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
         : "",
       maskImageData || maskUrl
         ? "A local edit mask is provided. Edit only the transparent/bright marked area from the mask and preserve all unmasked pixels from the source image."
+        : "",
+      isCameraViewOperation
+        ? "For this camera-view operation, the source image is the locked visual content reference. Generate a new coherent camera viewpoint while keeping scene content stable; do not treat it as a masked local edit."
         : "",
       aspectInstruction,
     ].filter(Boolean).join("\n\n"));

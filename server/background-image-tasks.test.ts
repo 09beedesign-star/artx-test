@@ -54,6 +54,8 @@ describe("background image task routing", () => {
     expect(source).toContain('capabilityKey: "image_edit"');
     expect(source).toContain('provider: "AI_IMAGE"');
     expect(source).toContain("model: getDefaultRouteImageModel(input)");
+    expect(source).toContain("function getImageEditCapabilityLabel");
+    expect(source).toContain('input.operation === "camera_view" ? "视角调整" : "图片编辑"');
   });
 
   it("keeps the public background-removal command on pure PicWish segmentation", () => {

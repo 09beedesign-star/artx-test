@@ -733,6 +733,7 @@ export async function editImageWithPrompt({
   targetWidth,
   targetHeight,
   referencedAssets = [],
+  cameraView,
   skillId,
   generationId,
 }: {
@@ -745,6 +746,12 @@ export async function editImageWithPrompt({
   targetWidth?: number;
   targetHeight?: number;
   referencedAssets?: Array<{ src: string; title?: string }>;
+  cameraView?: {
+    x?: number;
+    y?: number;
+    z?: number;
+    prompt?: string;
+  };
   skillId?: string;
   generationId?: string;
 }) {
@@ -763,6 +770,7 @@ export async function editImageWithPrompt({
       targetWidth,
       targetHeight,
       images: referencedAssets,
+      cameraView,
       skillId,
     });
   }
@@ -778,6 +786,7 @@ export async function editImageWithPrompt({
     targetWidth,
     targetHeight,
     images: referencedAssets,
+    cameraView,
     skillId,
   }, "AI 图片编辑失败");
 
