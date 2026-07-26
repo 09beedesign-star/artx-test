@@ -1,0 +1,66 @@
+name: Sync Main to Test Framework
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      run_full_smoke:
+        description: "Run Skill image and Wallyt callback smoke after deployment"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+permissions:
+  actions: write
+  contents: write
+
+concurrency:
+  group: sync-main-to-test-framework
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == '09beedesign-star/artx-test'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Fast-forward the test branch
+        id: sync
+        run: |
+          set -euo pipefail
+          test_branch="feature/interaction-framework"
+          git fetch origin "refs/heads/${test_branch}:refs/remotes/origin/${test_branch}"
+
+          main_sha="$(git rev-parse HEAD)"
+          test_sha="$(git rev-parse "origin/${test_branch}")"
+          if ! git merge-base --is-ancestor "${test_sha}" "${main_sha}"; then
+            echo "${test_branch} contains commits that are not in main; merge them into main before syncing." >&2
+            exit 1
+          fi
+
+          git push origin "${main_sha}:refs/heads/${test_branch}"
+          echo "commit_sha=${main_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger test deployment
+        uses: actions/github-script@v7
+        env:
+          RUN_FULL_SMOKE: ${{ inputs.run_full_smoke || 'false' }}
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: "deploy-tencent-cloud.yml",
+              ref: "feature/interaction-framework",
+              inputs: { run_full_smoke: process.env.RUN_FULL_SMOKE },
+            });
