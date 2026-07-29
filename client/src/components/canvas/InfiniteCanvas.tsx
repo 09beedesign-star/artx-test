@@ -19290,7 +19290,7 @@ function CanvasAssistantPanel({
         />
       )}
       <aside
-        className="absolute inset-y-0 right-0 flex flex-col nodrag nopan transition-transform duration-200 ease-out"
+        className="absolute right-3 top-3 bottom-3 flex flex-col nodrag nopan overflow-hidden rounded-[16px] transition-transform duration-200 ease-out"
         style={{
           width: panelWidth,
           maxWidth: "calc(100vw - 48px)",
