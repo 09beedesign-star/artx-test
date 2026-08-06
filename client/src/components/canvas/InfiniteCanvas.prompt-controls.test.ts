@@ -501,7 +501,8 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(maskBuilder).toContain("const unchangedOriginalIndexes");
     expect(maskBuilder).toContain("changedOriginalFields");
     expect(maskBuilder).toContain("const editedRegions = regions.filter");
-    expect(maskBuilder).toContain("for (const region of editedRegions)");
+    expect(maskBuilder).toContain("regionsToMask");
+    expect(maskBuilder).toContain("for (const region of regionsToMask)");
     expect(maskBuilder).not.toContain("for (const region of regions)");
   });
 
@@ -547,5 +548,20 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(handlerBlock).not.toContain("previous?.type");
     expect(handlerBlock).not.toContain("prev.filter(segment => segment.id !== previous.id)");
     expect(handlerBlock).not.toContain("prev.filter(segment => segment.id !== segmentId)");
+  });
+
+  it("does not abort mask generation when user only adds new lines without modifying existing text", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const maskBuilder = source.match(
+      /function createSmartCopyEditMask[\s\S]*?return canvas\.toDataURL\("image\/png"\);/
+    )?.[0];
+
+    expect(maskBuilder).toBeTruthy();
+    // The early-return must only check regions.length === 0, not changedOriginalFields.length === 0
+    // because adding new lines (without editing existing ones) is a valid use case.
+    expect(maskBuilder).not.toMatch(/if\s*\(\s*regions\.length\s*===\s*0\s*\|\|\s*changedOriginalFields\.length\s*===\s*0\s*\)\s*return\s+undefined/);
+    expect(maskBuilder).toMatch(/if\s*\(\s*regions\.length\s*===\s*0\s*\)\s*return\s+undefined/);
+    // Fallback to all regions when no specific region matches changed fields
+    expect(maskBuilder).toContain("const regionsToMask = editedRegions.length > 0 ? editedRegions : regions;");
   });
 });

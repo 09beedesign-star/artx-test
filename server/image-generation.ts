@@ -2372,6 +2372,11 @@ async function hasVisibleLocalEdit(
   maskBuffer: Buffer,
   width: number,
   height: number,
+  options?: {
+    pixelDifferenceThreshold?: number;
+    minChangedPixels?: number;
+    minChangedRatio?: number;
+  },
 ): Promise<boolean> {
   const sharp = (await import("sharp")).default;
   const [sourcePixels, editedPixels, maskPixels] = await Promise.all([
@@ -2397,6 +2402,10 @@ async function hasVisibleLocalEdit(
   let editablePixels = 0;
   let visiblyChangedPixels = 0;
 
+  const pixelDiffThreshold = options?.pixelDifferenceThreshold ?? 24;
+  const minChanged = options?.minChangedPixels ?? 24;
+  const minRatio = options?.minChangedRatio ?? 0.001;
+
   for (let index = 0; index < sourcePixels.length; index += 4) {
     if (maskPixels[index + 3] > 127) continue;
     editablePixels += 1;
@@ -2404,10 +2413,10 @@ async function hasVisibleLocalEdit(
       Math.abs(sourcePixels[index] - editedPixels[index]) +
       Math.abs(sourcePixels[index + 1] - editedPixels[index + 1]) +
       Math.abs(sourcePixels[index + 2] - editedPixels[index + 2]);
-    if (difference >= 24) visiblyChangedPixels += 1;
+    if (difference >= pixelDiffThreshold) visiblyChangedPixels += 1;
   }
 
-  return visiblyChangedPixels >= Math.max(24, Math.ceil(editablePixels * 0.001));
+  return visiblyChangedPixels >= Math.max(minChanged, Math.ceil(editablePixels * minRatio));
 }
 
 export function __testAssertSourcePreservingMask(
@@ -3818,6 +3827,9 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
             maskImageData.buffer,
             targetWidth,
             targetHeight,
+            isTextEditOperation
+              ? { pixelDifferenceThreshold: 12, minChangedPixels: 8, minChangedRatio: 0.0005 }
+              : undefined,
           )) {
             throw new Error("图片模型没有在指定区域做出可见修改");
           }
@@ -3947,6 +3959,9 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
       maskImageData.buffer,
       targetWidth,
       targetHeight,
+      isTextEditOperation
+        ? { pixelDifferenceThreshold: 12, minChangedPixels: 8, minChangedRatio: 0.0005 }
+        : undefined,
     );
     if (!hasVisibleChange) {
       if (usesAutoModel) return editViaReferenceGeneration();
