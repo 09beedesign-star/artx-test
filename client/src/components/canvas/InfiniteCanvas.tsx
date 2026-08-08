@@ -3558,8 +3558,10 @@ function createSmartCopyEditMask(
       .replace(/[\s.,!?;:，。！？；：、'"“”‘’（）()[\]{}<>《》…—\-_/\\]/g, "");
   const originalFields = originalText.split("\n").map(field => field.trim());
   const editedFields = editedText.split("\n").map(field => field.trim());
-  const originalValues = originalFields.map(normalizeText);
-  const editedValues = editedFields.map(normalizeText);
+  // 使用原始文案（而非归一化后）做行级 diff，确保仅改大小写、标点或空格时也能被识别为
+  // “发生了修改”，避免被误判为没有改动而无法定位文字区域。
+  const originalValues = originalFields;
+  const editedValues = editedFields;
   const matchedLengths = Array.from(
     { length: originalValues.length + 1 },
     () => Array<number>(editedValues.length + 1).fill(0),
@@ -3592,7 +3594,7 @@ function createSmartCopyEditMask(
   const changedOriginalFields = originalFields.filter(
     (field, index) => field && !unchangedOriginalIndexes.has(index),
   );
-  if (regions.length === 0 || changedOriginalFields.length === 0) return undefined;
+  if (regions.length === 0) return undefined;
 
   const editedRegions = regions.filter(region => {
     const regionText = normalizeText(region.text || "");
@@ -3605,7 +3607,10 @@ function createSmartCopyEditMask(
       );
     });
   });
-  if (editedRegions.length === 0) return undefined;
+  // 兜底：当 OCR 区域文本与文案结构存在差异（识别误差 / LLM 重组）导致无法精确匹配到
+  // 被修改的文字区域时，退化为覆盖全部 OCR 文字区域，由提示词约束模型只改写被修改的文案，
+  // 避免“能识别出文字但匹配不上”时功能直接失败。
+  const regionsToMask = editedRegions.length > 0 ? editedRegions : regions;
 
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(width));
@@ -3614,7 +3619,7 @@ function createSmartCopyEditMask(
   if (!context) return undefined;
   context.fillStyle = "rgba(255,255,255,1)";
   context.fillRect(0, 0, canvas.width, canvas.height);
-  for (const region of editedRegions) {
+  for (const region of regionsToMask) {
     const paddingX = Math.max(4, canvas.width * 0.012);
     const paddingY = Math.max(4, canvas.height * 0.012);
     const x = Math.max(0, region.x * canvas.width - paddingX);
@@ -16948,7 +16953,7 @@ function normalizeAssistantComposerSegments(
       return;
     }
     const previous = normalized[normalized.length - 1];
-    if (previous && isAssistantTokenSegment(previous)) {
+    if (!previous || isAssistantTokenSegment(previous)) {
       normalized.push(createAssistantTextSegment(""));
     }
     normalized.push(segment);
@@ -18009,6 +18014,132 @@ function CanvasAssistantPanel({
         event.stopPropagation();
         return;
       }
+      // ── Cross-segment arrow key navigation ──
+      if (
+        event.key === "ArrowLeft" ||
+        event.key === "Left" ||
+        event.key === "ArrowRight" ||
+        event.key === "Right"
+      ) {
+        const target = event.currentTarget;
+        const isArrowLeft =
+          event.key === "ArrowLeft" || event.key === "Left";
+        let isAtBoundary = false;
+        if (
+          target instanceof HTMLInputElement ||
+          target instanceof HTMLTextAreaElement
+        ) {
+          const start = target.selectionStart ?? 0;
+          const end = target.selectionEnd ?? 0;
+          const len = target.value.length;
+          if (isArrowLeft) {
+            isAtBoundary = start === 0 && end === 0;
+          } else {
+            isAtBoundary = start === len && end === len;
+          }
+        } else {
+          const selection = window.getSelection();
+          if (!selection || selection.rangeCount === 0) {
+            isAtBoundary = true;
+          } else {
+            const range = selection.getRangeAt(0);
+            // If the browser has already moved the selection outside
+            // the current editable span (common at segment boundaries),
+            // treat it as a boundary so we can jump to the neighbour.
+            if (!target.contains(range.startContainer)) {
+              isAtBoundary = true;
+            } else {
+              const value = target.textContent || "";
+              const startRange = range.cloneRange();
+              startRange.selectNodeContents(target);
+              startRange.setEnd(range.startContainer, range.startOffset);
+              const endRange = range.cloneRange();
+              endRange.selectNodeContents(target);
+              endRange.setEnd(range.endContainer, range.endOffset);
+              const startOffset = startRange.toString().length;
+              const endOffset = endRange.toString().length;
+              if (isArrowLeft) {
+                isAtBoundary = startOffset === 0 && endOffset === 0;
+              } else {
+                isAtBoundary =
+                  startOffset === value.length && endOffset === value.length;
+              }
+            }
+          }
+        }
+        if (isAtBoundary) {
+          const currentIndex = composerSegments.findIndex(
+            s => s.id === segmentId
+          );
+          if (currentIndex >= 0) {
+            const dir = isArrowLeft ? -1 : 1;
+            let nextIndex = -1;
+            for (
+              let i = currentIndex + dir;
+              i >= 0 && i < composerSegments.length;
+              i += dir
+            ) {
+              if (composerSegments[i].type === "text") {
+                nextIndex = i;
+                break;
+              }
+            }
+            if (nextIndex >= 0) {
+              event.preventDefault();
+              event.stopPropagation();
+              const nextSegment = composerSegments[nextIndex] as Extract<
+                AssistantComposerSegment,
+                { type: "text" }
+              >;
+              const cursorPos = isArrowLeft ? nextSegment.text.length : 0;
+              const nextInput = composerInputRefs.current[nextSegment.id];
+              if (nextInput) {
+                nextInput.focus();
+                const textValue =
+                  nextInput instanceof HTMLInputElement ||
+                  nextInput instanceof HTMLTextAreaElement
+                    ? nextInput.value
+                    : nextInput.textContent || "";
+                const nextPos = Math.max(
+                  0,
+                  Math.min(cursorPos, textValue.length)
+                );
+                if (
+                  nextInput instanceof HTMLInputElement ||
+                  nextInput instanceof HTMLTextAreaElement
+                ) {
+                  nextInput.setSelectionRange(nextPos, nextPos);
+                } else {
+                  const range = document.createRange();
+                  const sel = window.getSelection();
+                  const textNode = nextInput.firstChild;
+                  range.setStart(
+                    textNode || nextInput,
+                    textNode ? nextPos : 0
+                  );
+                  range.collapse(true);
+                  sel?.removeAllRanges();
+                  sel?.addRange(range);
+                }
+                activeComposerSegmentIdRef.current = nextSegment.id;
+                activeComposerCursorRef.current = nextPos;
+              } else {
+                focusComposerSegment(nextSegment.id, cursorPos);
+              }
+            } else {
+              // No neighbour text segment found — we are at the absolute
+              // edge of the composer. Prevent the browser from moving the
+              // selection outside the editable area so the caret stays
+              // visible.
+              event.preventDefault();
+            }
+          } else {
+            // segmentId not found in composerSegments — stale event.
+            event.preventDefault();
+          }
+        }
+        return;
+      }
       if (event.key !== "Backspace") return;
       event.stopPropagation();
       const target = event.currentTarget;
@@ -18101,8 +18232,93 @@ function CanvasAssistantPanel({
     [
       handleSubmit,
       setComposerTextSegment,
+      composerSegments,
+      focusComposerSegment,
     ]
   );
+
+  // ── Fallback selection guard ──
+  // When the browser moves the selection outside a text segment (e.g.
+  // because event.preventDefault() in onKeyDown was not honoured),
+  // automatically nudge it into the nearest editable text segment.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const handleSelectionChange = () => {
+      const shell = composerShellRef.current;
+      if (!shell) return;
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) return;
+      const anchor = sel.anchorNode;
+      if (!anchor) return;
+      // Only care when the caret is inside the composer shell
+      if (!shell.contains(anchor)) return;
+      // Check if the caret landed inside a token span
+      const tokenEl =
+        anchor instanceof Element
+          ? anchor.closest("[data-composer-token]")
+          : anchor.parentElement?.closest("[data-composer-token]");
+      if (!tokenEl) return;
+      const tokenId =
+        composerSegments.find(
+          s =>
+            s.type !== "text" &&
+            composerSegmentRefs.current[s.id] === tokenEl
+        )?.id ||
+        (tokenEl as HTMLElement).dataset["composerToken"];
+      if (!tokenId) return;
+      const tokenIndex = composerSegments.findIndex(s => s.id === tokenId);
+      if (tokenIndex < 0) return;
+      // Decide direction based on where the caret is relative to the token
+      const tokenRect = tokenEl.getBoundingClientRect();
+      const caretRect = sel.getRangeAt(0).getBoundingClientRect();
+      const isLeftOfToken = caretRect.left < tokenRect.left + tokenRect.width / 2;
+      const dir = isLeftOfToken ? -1 : 1;
+      let nextIndex = -1;
+      for (
+        let i = tokenIndex + dir;
+        i >= 0 && i < composerSegments.length;
+        i += dir
+      ) {
+        if (composerSegments[i].type === "text") {
+          nextIndex = i;
+          break;
+        }
+      }
+      if (nextIndex < 0) return;
+      const nextSegment = composerSegments[nextIndex] as Extract<
+        AssistantComposerSegment,
+        { type: "text" }
+      >;
+      const nextInput = composerInputRefs.current[nextSegment.id];
+      if (!nextInput) return;
+      const cursorPos = isLeftOfToken ? nextSegment.text.length : 0;
+      const textValue =
+        nextInput instanceof HTMLInputElement ||
+        nextInput instanceof HTMLTextAreaElement
+          ? nextInput.value
+          : nextInput.textContent || "";
+      const nextPos = Math.max(0, Math.min(cursorPos, textValue.length));
+      nextInput.focus();
+      if (
+        nextInput instanceof HTMLInputElement ||
+        nextInput instanceof HTMLTextAreaElement
+      ) {
+        nextInput.setSelectionRange(nextPos, nextPos);
+      } else {
+        const range = document.createRange();
+        const textNode = nextInput.firstChild;
+        range.setStart(textNode || nextInput, textNode ? nextPos : 0);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+      activeComposerSegmentIdRef.current = nextSegment.id;
+      activeComposerCursorRef.current = nextPos;
+    };
+    document.addEventListener("selectionchange", handleSelectionChange);
+    return () =>
+      document.removeEventListener("selectionchange", handleSelectionChange);
+  }, [composerSegments]);
 
   const composerText = getAssistantComposerText(composerSegments);
   const composerPrompt = getAssistantComposerPrompt(composerSegments);
@@ -19788,7 +20004,52 @@ function CanvasAssistantPanel({
                       />
                     );
                   })()}
-                {composerSegments.map(segment => {
+                {/* Click gaps around tokens to move caret into adjacent text segment */}
+                {(() => {
+                  const tryFocusGapTextSegment = (
+                    event: React.MouseEvent<HTMLElement>,
+                    segmentId: string
+                  ) => {
+                    const target = event.currentTarget;
+                    const rect = target.getBoundingClientRect();
+                    const isLeftGap = event.clientX < rect.left + 8;
+                    const isRightGap = event.clientX > rect.right - 8;
+                    if (!isLeftGap && !isRightGap) return false;
+                    const index = composerSegments.findIndex(
+                      s => s.id === segmentId
+                    );
+                    if (index < 0) return false;
+                    if (isLeftGap) {
+                      for (let i = index - 1; i >= 0; i--) {
+                        const seg = composerSegments[i];
+                        if (seg.type === "text") {
+                          focusComposerSegment(
+                            seg.id,
+                            (seg as Extract<AssistantComposerSegment, { type: "text" }>).text.length
+                          );
+                          return true;
+                        }
+                      }
+                    } else {
+                      for (
+                        let i = index + 1;
+                        i < composerSegments.length;
+                        i++
+                      ) {
+                        if (composerSegments[i].type === "text") {
+                          focusComposerSegment(
+                            composerSegments[i].id,
+                            0
+                          );
+                          return true;
+                        }
+                      }
+                    }
+                    return false;
+                  };
+                  return (
+                    <>
+                      {composerSegments.map(segment => {
                   const isBoxSelected =
                     composerBoxSelection?.selectedIds.includes(segment.id) ??
                     false;
@@ -19812,6 +20073,7 @@ function CanvasAssistantPanel({
                         onDragEnd={handleComposerDragEnd}
                         onMouseDown={event => {
                           event.stopPropagation();
+                          if (tryFocusGapTextSegment(event, segment.id)) return;
                           setComposerBoxSelection(null);
                         }}
                         data-composer-token="skill"
@@ -19891,6 +20153,7 @@ function CanvasAssistantPanel({
                         onDragEnd={handleComposerDragEnd}
                         onMouseDown={event => {
                           event.stopPropagation();
+                          if (tryFocusGapTextSegment(event, segment.id)) return;
                           setComposerBoxSelection({
                             active: false,
                             startX: event.clientX,
@@ -20015,6 +20278,7 @@ function CanvasAssistantPanel({
                         onDragEnd={handleComposerDragEnd}
                         onMouseDown={event => {
                           event.stopPropagation();
+                          if (tryFocusGapTextSegment(event, segment.id)) return;
                           setComposerBoxSelection(null);
                         }}
                         onMouseEnter={event =>
@@ -20109,7 +20373,7 @@ function CanvasAssistantPanel({
                         )
                       : isSingleEmptyTextSegment
                         ? 320
-                        : 2);
+                        : 14);
                   const shouldHighlightTextSegment =
                     isBoxSelected &&
                     (segment.text.length > 0 || isSingleEmptyTextSegment);
@@ -20283,7 +20547,10 @@ function CanvasAssistantPanel({
                       />
                     )
                   );
-                })}
+                      })}
+                    </>
+                  );
+                })()}
               </div>
               <div
                 className="flex min-w-0 items-center justify-between pt-2"
@@ -23111,7 +23378,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           detail.editedText,
         );
         if (!maskSrc) {
-          throw new Error("未能定位被修改的原图文字区域，请关闭窗口后重新提取文案再试");
+          throw new Error(
+            detail.textRegions?.length
+              ? "未能定位被修改的原图文字区域，请关闭窗口后重新提取文案再试"
+              : "未从图片中识别出文字区域，请更换图片或重新提取后再试",
+          );
         }
         const finalPrompt = [
           "这是对所提供原图进行的保真文字编辑，不是重新生成图片。",
