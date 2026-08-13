@@ -501,6 +501,23 @@ function getPicWishObjectsRemovalConfig() {
   return { apiKey: sharedConfig.apiKey, baseUrl };
 }
 
+function getMeituSmartAnnotationConfig() {
+  const appKey = (process.env.MEITU_ANNOTATION_APP_KEY || "").trim();
+  const secretId = (process.env.MEITU_ANNOTATION_SECRET_ID || "").trim();
+  if (!appKey && !secretId) return null;
+  if (!appKey || !secretId) {
+    throw new Error("Missing MEITU_ANNOTATION_APP_KEY or MEITU_ANNOTATION_SECRET_ID");
+  }
+  return {
+    appKey,
+    secretId,
+    baseUrl: (
+      process.env.MEITU_ANNOTATION_BASE_URL ||
+      "https://openapi.mtlab.meitu.com"
+    ).replace(/\/+$/, ""),
+  };
+}
+
 const supportedImageModels = new Set<string>(IMAGE_MODEL_PRIORITY_IDS);
 
 const chatCompatibleImageModels = new Set<string>([
@@ -1215,6 +1232,160 @@ async function imageSrcToBuffer(src: string): Promise<{ buffer: Buffer; mimeType
 
 function bufferToImageFile(buffer: Buffer, mimeType: string) {
   return new File([buffer], getImageFileName(mimeType), { type: mimeType });
+}
+
+async function prepareMeituAnnotationSourceImage(buffer: Buffer): Promise<Buffer> {
+  const sharp = (await import("sharp")).default;
+  return sharp(buffer, { limitInputPixels: false })
+    .rotate()
+    .flatten({ background: { r: 255, g: 255, b: 255 } })
+    .jpeg({ quality: 92, mozjpeg: true })
+    .toBuffer();
+}
+
+async function prepareMeituAnnotationMask(
+  maskBuffer: Buffer,
+  width: number,
+  height: number,
+): Promise<Buffer> {
+  const sharp = (await import("sharp")).default;
+  const alpha = await sharp(maskBuffer, { limitInputPixels: false })
+    .rotate()
+    .resize(width, height, { fit: "fill", kernel: "nearest" })
+    .ensureAlpha()
+    .extractChannel("alpha")
+    .raw()
+    .toBuffer();
+  const brush = Buffer.alloc(alpha.length);
+  for (let index = 0; index < alpha.length; index += 1) {
+    brush[index] = 255 - alpha[index];
+  }
+  return sharp(brush, {
+    raw: { width, height, channels: 1 },
+    limitInputPixels: false,
+  }).jpeg({ quality: 100, mozjpeg: true }).toBuffer();
+}
+
+type MeituLocalRepaintResponse = {
+  ErrorCode?: number;
+  ErrorMsg?: string;
+  media_info_list?: Array<{
+    media_data?: string;
+    media_profiles?: { media_data_type?: string };
+  }>;
+};
+
+function getMeituImageDataUrl(
+  mediaData: string,
+  mediaType: string | undefined,
+) {
+  if (/^https?:\/\//i.test(mediaData)) return mediaData;
+  if (mediaData.startsWith("data:")) return mediaData;
+  const normalizedType = (mediaType || "jpg").toLowerCase();
+  const mimeType = normalizedType === "png"
+    ? "image/png"
+    : normalizedType === "webp"
+      ? "image/webp"
+      : "image/jpeg";
+  return `data:${mimeType};base64,${mediaData}`;
+}
+
+async function editSmartAnnotationWithMeitu(
+  input: EditImageInput,
+  sourceBuffer: Buffer,
+  maskBuffer: Buffer,
+  width: number,
+  height: number,
+  config: NonNullable<ReturnType<typeof getMeituSmartAnnotationConfig>>,
+): Promise<{ images: GeneratedImage[] }> {
+  const [sourceJpeg, maskJpeg] = await Promise.all([
+    prepareMeituAnnotationSourceImage(sourceBuffer),
+    prepareMeituAnnotationMask(maskBuffer, width, height),
+  ]);
+  const endpoint = new URL("/v3/image_manipulation", config.baseUrl);
+  endpoint.searchParams.set("api_key", config.appKey);
+  endpoint.searchParams.set("api_secret", config.secretId);
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      parameter: {
+        rsp_media_type: "jpg",
+        return_format_type: "jpg",
+        num_samples: 1,
+        prompt_pos: input.prompt.trim(),
+      },
+      media_info_list: [
+        {
+          media_data: sourceJpeg.toString("base64"),
+          media_extra: {},
+          media_profiles: { media_data_type: "jpg" },
+        },
+        {
+          media_data: maskJpeg.toString("base64"),
+          media_extra: {},
+          media_profiles: { media_data_type: "jpg" },
+        },
+      ],
+    }),
+  });
+  const data = await response.json().catch(() => ({})) as MeituLocalRepaintResponse;
+  const errorCode = Number(data.ErrorCode || 0);
+  if (!response.ok || errorCode) {
+    const detail = (data.ErrorMsg || `HTTP ${response.status}`).trim();
+    throw new Error(`美图智能注释失败：${detail}`);
+  }
+  const images = (data.media_info_list || [])
+    .map(item => item.media_data?.trim()
+      ? {
+          src: getMeituImageDataUrl(
+            item.media_data,
+            item.media_profiles?.media_data_type,
+          ),
+          width,
+          height,
+        }
+      : null)
+    .filter((item): item is GeneratedImage => Boolean(item));
+  if (images.length === 0) {
+    throw new Error("美图智能注释未返回图片");
+  }
+  const normalizedImages = await __testNormalizeGeneratedImagesToTargetAspect(
+    images.slice(0, 1),
+    width,
+    height,
+  );
+  const compositedImages = await Promise.all(normalizedImages.map(async image => {
+    const editedImageData = await imageSrcToBuffer(image.src);
+    const composited = await __testCompositeSourcePreservingImageEdit(
+      sourceBuffer,
+      editedImageData.buffer,
+      maskBuffer,
+      width,
+      height,
+    );
+    return {
+      src: `data:image/png;base64,${composited.toString("base64")}`,
+      width,
+      height,
+    };
+  }));
+  const firstImage = compositedImages[0];
+  if (firstImage) {
+    const editedImageData = await imageSrcToBuffer(firstImage.src);
+    const hasVisibleChange = await hasVisibleLocalEdit(
+      sourceBuffer,
+      editedImageData.buffer,
+      maskBuffer,
+      width,
+      height,
+    );
+    if (!hasVisibleChange) {
+      throw new Error("智能注释模型没有在标记区域做出可见修改，请扩大注释区域或换一种更明确的描述");
+    }
+  }
+  return { images: compositedImages };
 }
 
 type PicWishVisualTaskType = "segmentation" | "scale" | "self-face-cutout" | "watermark" | "inpaint" | "r-background" | "advanced-image-expand";
@@ -3696,6 +3867,21 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
     throw new Error("Missing prompt");
   }
   if (input.operation === "annotation_edit") {
+    const meituConfig = getMeituSmartAnnotationConfig();
+    if (meituConfig) {
+      const sourceImageData = await imageSrcToBuffer(input.imageSrc);
+      const maskSource = input.maskSrc?.trim() || (input.maskUrl || input.mask_url || "").trim();
+      const maskImageData = await imageSrcToBuffer(maskSource);
+      const sourceImageDimensions = await getImageBufferDimensions(sourceImageData.buffer);
+      return editSmartAnnotationWithMeitu(
+        input,
+        sourceImageData.buffer,
+        maskImageData.buffer,
+        sourceImageDimensions.width,
+        sourceImageDimensions.height,
+        meituConfig,
+      );
+    }
     return editSmartAnnotationImage(input);
   }
 
