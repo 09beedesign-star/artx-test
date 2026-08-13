@@ -736,6 +736,8 @@ export async function editImageWithPrompt({
   cameraView,
   skillId,
   generationId,
+  provider,
+  promptPos,
 }: {
   imageSrc: string;
   model?: string;
@@ -754,6 +756,10 @@ export async function editImageWithPrompt({
   };
   skillId?: string;
   generationId?: string;
+  /** "meitu" 时智能注释编辑走美图局部重绘；缺省/其他值走现有 AI 图片编辑链路 */
+  provider?: "auto" | "meitu" | "default";
+  /** 美图局部重绘的正向提示词（用户注释文本），仅 provider="meitu" 时使用 */
+  promptPos?: string;
 }) {
   requireAiAuth();
   if (generationId) {
@@ -772,6 +778,8 @@ export async function editImageWithPrompt({
       images: referencedAssets,
       cameraView,
       skillId,
+      provider,
+      promptPos,
     });
   }
   const result = await postAiOrchestrate({
@@ -788,6 +796,8 @@ export async function editImageWithPrompt({
     images: referencedAssets,
     cameraView,
     skillId,
+    provider,
+    promptPos,
   }, "AI 图片编辑失败");
 
   return { images: result.images || [] };

@@ -8,6 +8,7 @@ import {
 } from "../shared/image-models";
 import { generateText } from "./text-generation";
 import { recordImageProviderFailure } from "./image-provider-failure-log";
+import { buildMeituMask, inpaintWithMeitu } from "./meitu-client";
 
 type ImageGenerateInput = {
   prompt: string;
@@ -70,6 +71,10 @@ type EditImageInput = {
     z?: number;
     prompt?: string;
   };
+  /** "meitu" 时智能注释编辑走美图局部重绘；缺省/其他值走现有 AI 图片编辑链路 */
+  provider?: "auto" | "meitu" | "default";
+  /** 美图局部重绘的正向提示词（用户注释文本），仅 provider="meitu" 时使用 */
+  promptPos?: string;
 };
 
 type ElementBackgroundInput = {
@@ -3255,11 +3260,14 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
   const targetWidth = sourceImageDimensions.width;
   const targetHeight = sourceImageDimensions.height;
   const annotationPrompt = [
-    "This is a strict local image edit for ArtX smart annotation.",
-    "Use the uploaded source image as the only canvas. Do not create a new person, new scene, new pose, new camera angle, or new composition.",
-    "Edit only the transparent area of the uploaded mask. The mask marks the annotation area that may change.",
-    "The user request must be applied naturally inside that masked area, matching the original identity, facial features, body, clothing, lighting, perspective, material, color, and image style.",
-    "Every pixel outside the mask will be restored from the original source image, so the edit must be visually useful inside the mask.",
+    "This is a STRICT local image edit for ArtX smart annotation.",
+    "Use the uploaded source image as the ONLY canvas.",
+    "The mask marks a small annotation area. Edit ONLY inside the transparent area of the uploaded mask.",
+    "ABSOLUTE RULE 1: You must NOT redraw, regenerate, replace, or modify ANY existing person, face, body, clothing, background, or object inside the mask. The existing content inside the mask must remain 100% identical.",
+    "ABSOLUTE RULE 2: Your ONLY job is to ADD the user-requested item ON TOP OF the existing content. Place it naturally on the existing content without altering anything underneath.",
+    "EXAMPLES: If the user asks for a hat, put the hat ON the existing person's head. Do NOT redraw the person. If the user asks for glasses, put the glasses ON the existing person's face. Do NOT redraw the face. If the user asks for a prop, add it beside or on the existing subject without changing the subject.",
+    "The existing person inside the mask must keep the EXACT same face, body, clothing, pose, lighting, and all details. Only the requested new item may appear.",
+    "Every pixel outside the mask will be restored from the original source image.",
     "Return exactly one complete edited image.",
     `User request: ${input.prompt.trim()}`,
   ].join("\n");
@@ -3275,7 +3283,8 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
     if (withResponseFormat) body.append("response_format", "b64_json");
     return body;
   };
-  const finalizeAnnotationImages = async (candidateImages: GeneratedImage[]) => {
+  const finalizeAnnotationImages = async (candidateImages: GeneratedImage[], compositeMaskBuffer?: Buffer) => {
+    const effectiveMaskBuffer = compositeMaskBuffer || maskImageData.buffer;
     const normalizedImages = await __testNormalizeGeneratedImagesToTargetAspect(
       candidateImages.slice(0, 1),
       targetWidth,
@@ -3286,7 +3295,7 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
       const composited = await __testCompositeSourcePreservingImageEdit(
         sourceImageData.buffer,
         editedImageData.buffer,
-        maskImageData.buffer,
+        effectiveMaskBuffer,
         targetWidth,
         targetHeight,
       );
@@ -3303,7 +3312,7 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
       const hasVisibleChange = await hasVisibleLocalEdit(
         sourceImageData.buffer,
         editedImageData.buffer,
-        maskImageData.buffer,
+        effectiveMaskBuffer,
         targetWidth,
         targetHeight,
       );
@@ -3314,6 +3323,64 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
 
     return { images };
   };
+
+  // 美图局部重绘通道：注释蒙版（透明=编辑区）经 buildMeituMask 转为白=重绘区/黑=保留区。
+  if (input.provider === "meitu") {
+    console.log(
+      `[智能注释] 进入「美图局部重绘」分支 | provider=${input.provider}, ` +
+      `targetWidth=${targetWidth}, targetHeight=${targetHeight}, ` +
+      `promptPos="${input.promptPos?.trim() || input.prompt.trim()}", ` +
+      `源图=${sourceImageData.buffer.length}B, 原始注释蒙版=${maskImageData.buffer.length}B`,
+    );
+    const meituMaskBuffer = await buildMeituMask(maskImageData.buffer, targetWidth, targetHeight, "hat");
+    console.log(`[智能注释] buildMeituMask 完成 | 输出=${meituMaskBuffer.length}B`);
+    const meituResult = await inpaintWithMeitu({
+      imageBuffer: sourceImageData.buffer,
+      maskBuffer: meituMaskBuffer,
+      width: targetWidth,
+      height: targetHeight,
+      // promptPos 仅传用户原始请求，基础约束由 meitu-client.ts 统一拼接
+      promptPos: input.promptPos?.trim() || input.prompt.trim(),
+      numSamples: 1,
+    });
+    console.log(
+      `[智能注释] inpaintWithMeitu 返回 | ${meituResult.images.length} 张: ` +
+      `${meituResult.images.map((i) => `${i.src}(${i.width}x${i.height})`).join(", ")}`,
+    );
+    const rawImages = meituResult.images.map((image) => ({
+      src: image.src,
+      width: targetWidth,
+      height: targetHeight,
+    }));
+    if (rawImages.length === 0) {
+      throw new Error("美图局部重绘未返回结果图");
+    }
+
+    // 把美图白/黑 mask 转成 alpha mask（白=重绘→alpha=0(编辑区)，黑=保留→alpha=255(保留区)），
+    // 让合成阶段只替换美图实际重绘的头顶小区域，面部、身体、背景等全部保留原图。
+    const sharp = (await import("sharp")).default;
+    const { data: meituMaskRaw } = await sharp(meituMaskBuffer, { limitInputPixels: false })
+      .resize(targetWidth, targetHeight, { fit: "fill" })
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const alphaMask = Buffer.alloc(targetWidth * targetHeight * 4);
+    for (let i = 0; i < targetWidth * targetHeight; i++) {
+      const r = meituMaskRaw[i * 3];
+      const g = meituMaskRaw[i * 3 + 1];
+      const b = meituMaskRaw[i * 3 + 2];
+      const luminance = Math.round((r + g + b) / 3);
+      const alpha = 255 - luminance; // 白色(255)→alpha=0(编辑区), 黑色(0)→alpha=255(保留区)
+      alphaMask[i * 4] = 0;
+      alphaMask[i * 4 + 1] = 0;
+      alphaMask[i * 4 + 2] = 0;
+      alphaMask[i * 4 + 3] = alpha;
+    }
+    const alphaMaskBuffer = await sharp(alphaMask, { raw: { width: targetWidth, height: targetHeight, channels: 4 } })
+      .png()
+      .toBuffer();
+
+    return finalizeAnnotationImages(rawImages, alphaMaskBuffer);
+  }
 
   const { apiKey, baseUrl, model } = getProviderConfig();
   if (!apiKey) {
