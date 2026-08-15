@@ -30,6 +30,10 @@ export type OrchestrateRequest = {
   brandKitId?: string;
   skillId?: string;
   messages?: Array<{ role: "system" | "user" | "assistant"; content: string }>;
+  /** "meitu" 时智能注释编辑走美图局部重绘；缺省/其他值走现有 AI 图片编辑链路 */
+  provider?: "auto" | "meitu" | "default";
+  /** 美图局部重绘的正向提示词（用户注释文本），仅 provider="meitu" 时使用 */
+  promptPos?: string;
 };
 
 export type OrchestrateResponse = {
@@ -211,6 +215,10 @@ export class AIOrchestrator {
         targetHeight: input.targetHeight,
         images: resolveImageEditReferences(input, images),
         preserveSource: input.preserveSource,
+        // 智能注释「AI 修改」固定使用美图局部重绘：透传 provider/promptPos，
+        // 否则 editSmartAnnotationImage 的 provider==="meitu" 分支永远不命中。
+        provider: input.provider,
+        promptPos: input.promptPos,
       });
       return {
         type: "image",

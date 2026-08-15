@@ -119,6 +119,7 @@ import {
   Droplets,
 } from "lucide-react";
 import { getModelBrandIconKind, ModelBrandIconMask } from "./model-brand-icons";
+import { AnnotationMaskPreviewDialog } from "./AnnotationMaskPreviewDialog";
 
 // 「井号 + 方框」图标 — 创建画板专用
 function CreateCanvasIcon({ size = 17 }: { size?: number }) {
@@ -11577,7 +11578,7 @@ async function createAnnotationEditMask(
   xPercent: number,
   yPercent: number,
   promptText = "",
-  options: { expanded?: boolean } = {}
+  options: { expanded?: boolean; scale?: number } = {}
 ) {
   return new Promise<{ maskSrc: string; width: number; height: number }>(
     (resolve, reject) => {
@@ -11601,30 +11602,32 @@ async function createAnnotationEditMask(
 
         const centerX = (Math.min(100, Math.max(0, xPercent)) / 100) * width;
         const centerY = (Math.min(100, Math.max(0, yPercent)) / 100) * height;
+        // 重绘区域缩放（预览滑块：0.6–1.6，默认 1）
+        const scale = Math.max(0.3, Math.min(2.5, options.scale ?? 1));
         const isHeadAccessory = isSmartAnnotationHeadAccessoryPrompt(promptText);
         const isFaceAccessory = isSmartAnnotationFaceAccessoryPrompt(promptText);
         const radius = Math.max(
           options.expanded ? 168 : 128,
           Math.min(width, height) * (options.expanded ? 0.34 : 0.26)
-        );
+        ) * scale;
         ctx.globalCompositeOperation = "destination-out";
         if (isHeadAccessory) {
           const radiusX = Math.max(
             options.expanded ? 176 : 132,
             Math.min(width, height) * (options.expanded ? 0.34 : 0.24)
-          );
+          ) * scale;
           const radiusY = Math.max(
             options.expanded ? 148 : 112,
             Math.min(width, height) * (options.expanded ? 0.28 : 0.18)
-          );
+          ) * scale;
           const accessoryCenterY = Math.max(
             radiusY * 0.58,
             centerY - radiusY * (options.expanded ? 0.42 : 0.72)
           );
-          [1, 0.96, 0.92, 0.88, 0.84, 0.8, 0.76].forEach(scale => {
+          [1, 0.96, 0.92, 0.88, 0.84, 0.8, 0.76].forEach(scaleStep => {
             ctx.fillStyle = "rgba(0,0,0,0.13)";
             ctx.beginPath();
-            ctx.ellipse(centerX, accessoryCenterY, radiusX * scale, radiusY * scale, 0, 0, Math.PI * 2);
+            ctx.ellipse(centerX, accessoryCenterY, radiusX * scaleStep, radiusY * scaleStep, 0, 0, Math.PI * 2);
             ctx.fill();
           });
           ctx.fillStyle = "rgba(0,0,0,1)";
@@ -11635,11 +11638,11 @@ async function createAnnotationEditMask(
           const radiusX = Math.max(
             options.expanded ? 146 : 108,
             Math.min(width, height) * (options.expanded ? 0.25 : 0.2)
-          );
+          ) * scale;
           const radiusY = Math.max(
             options.expanded ? 84 : 64,
             Math.min(width, height) * (options.expanded ? 0.14 : 0.11)
-          );
+          ) * scale;
           // Pins placed on the forehead need a small eye-line offset. Keep the
           // mask tight so the model cannot invent unrelated head accessories.
           const useForeheadPinOffset = centerY < height * 0.32;
@@ -21365,6 +21368,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   } | null>(null);
   const [isZoomingToEdit, setIsZoomingToEdit] = useState(false);
   const [pendingProject, setPendingProject] = useState<Project | null>(null);
+  const [annotationMaskPreview, setAnnotationMaskPreview] = useState<{
+    imageSrc: string;
+    buildMask: (scale: number) => Promise<{ maskSrc: string; width: number; height: number }>;
+    onConfirm: (maskSrc: string) => void;
+  } | null>(null);
   // ── Referenced assets: auto-populated from selected image nodes ──
   const [referencedAssets, setReferencedAssets] = useState<
     ImageGeneratorReferenceAsset[]
@@ -22335,12 +22343,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         selectedImageEditModel === "auto" || selectedImageEditModel === "gpt-image-2"
           ? DEFAULT_IMAGE_MODEL_ID
           : selectedImageEditModel;
-      const annotationMask = await createAnnotationEditMask(
-        latestImageSrc,
-        reference.x,
-        reference.y,
-        reference.text
-      );
       const headAccessoryInstruction = isSmartAnnotationHeadAccessoryPrompt(reference.text)
         ? "如果用户要求帽子、头盔、皇冠或其他头部配饰，必须添加在原图同一人物的头顶或头发上方，贴合原图角度与光影，不要替换脸、身体、衣服、背景或整个人物。"
         : "";
@@ -22361,8 +22363,20 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const runAnnotationEdit = async (
         maskSrc: string,
         editPrompt: string
-      ) =>
-        editImageWithPrompt({
+      ) => {
+        console.log(
+          "[智能注释] 发起 AI 修改请求（前端）",
+          JSON.stringify({
+            provider: "meitu",
+            operation: "annotation_edit",
+            promptPos: reference.text,
+            maskSrc,
+            targetWidth: sourceSize.width,
+            targetHeight: sourceSize.height,
+            annotationPoint: { x: reference.x, y: reference.y },
+          })
+        );
+        return editImageWithPrompt({
           imageSrc: latestImageSrc,
           maskSrc,
           model: annotationImageEditModel,
@@ -22371,37 +22385,57 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           preserveSource: true,
           targetWidth: sourceSize.width,
           targetHeight: sourceSize.height,
+          // 智能注释「AI 修改」固定使用美图局部重绘引擎
+          provider: "meitu",
+          promptPos: reference.text,
         });
-      toast("注释 AI 修改中", { description: "将在原图旁生成新的修改结果" });
-      await runDerivedImageGeneration({
-        sourceNode,
-        prompt,
-        style: "注释修改结果",
-        nextW: sourceSize.width,
-        nextH: sourceSize.height,
-        model: annotationImageEditModel,
-        run: async () => {
-          try {
-            return await runAnnotationEdit(annotationMask.maskSrc, prompt);
-          } catch (error) {
-            if (!isSmartAnnotationNoVisibleChangeError(error)) throw error;
-            const retryMask = await createAnnotationEditMask(
-              latestImageSrc,
-              reference.x,
-              reference.y,
-              reference.text,
-              { expanded: true }
-            );
-            return runAnnotationEdit(
-              retryMask.maskSrc,
-              [
-                prompt,
-                "第二次局部编辑尝试：编辑区域已扩大。",
-                "必须在扩大后的透明蒙版区域内清晰完成用户要求，尤其是帽子、眼镜、墨镜等需要贴合原人物头部或面部的内容。",
-                "仍然禁止替换人物、重画整张图或改变未提及内容。",
-              ].join("\n")
-            );
-          }
+      };
+      // 用户确认预览后，用最终 mask 发起美图局部重绘（含无可见修改时的扩大重试）
+      const runAnnotationEditFlow = async (maskSrc: string) => {
+        toast("注释 AI 修改中", { description: "将在原图旁生成新的修改结果" });
+        await runDerivedImageGeneration({
+          sourceNode,
+          prompt,
+          style: "注释修改结果",
+          nextW: sourceSize.width,
+          nextH: sourceSize.height,
+          model: annotationImageEditModel,
+          run: async () => {
+            try {
+              return await runAnnotationEdit(maskSrc, prompt);
+            } catch (error) {
+              if (!isSmartAnnotationNoVisibleChangeError(error)) throw error;
+              const retryMask = await createAnnotationEditMask(
+                latestImageSrc,
+                reference.x,
+                reference.y,
+                reference.text,
+                { expanded: true }
+              );
+              return runAnnotationEdit(
+                retryMask.maskSrc,
+                [
+                  prompt,
+                  "第二次局部编辑尝试：编辑区域已扩大。",
+                  "必须在扩大后的透明蒙版区域内清晰完成用户要求，尤其是帽子、眼镜、墨镜等需要贴合原人物头部或面部的内容。",
+                  "仍然禁止替换人物、重画整张图或改变未提及内容。",
+                ].join("\n")
+              );
+            }
+          },
+        });
+      };
+
+      // 打开「重绘区域预览」弹窗：用户拖动滑块确认重绘范围后再发起请求
+      setAnnotationMaskPreview({
+        imageSrc: latestImageSrc,
+        buildMask: (scale: number) =>
+          createAnnotationEditMask(latestImageSrc, reference.x, reference.y, reference.text, {
+            scale,
+          }),
+        onConfirm: (maskSrc: string) => {
+          setAnnotationMaskPreview(null);
+          void runAnnotationEditFlow(maskSrc);
         },
       });
     },
@@ -30100,6 +30134,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           project={pendingProject}
           onCancel={() => setPendingProject(null)}
           onSave={handleProjectSaveAndNavigate}
+        />
+      )}
+
+      {annotationMaskPreview && (
+        <AnnotationMaskPreviewDialog
+          imageSrc={annotationMaskPreview.imageSrc}
+          buildMask={annotationMaskPreview.buildMask}
+          onCancel={() => setAnnotationMaskPreview(null)}
+          onConfirm={annotationMaskPreview.onConfirm}
         />
       )}
 
