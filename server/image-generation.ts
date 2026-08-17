@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { extname, isAbsolute, relative, resolve } from "node:path";
 import { getSkill } from "./skill-registry";
 import {
   DEFAULT_IMAGE_MODEL_ID,
@@ -9,6 +11,7 @@ import {
 import { generateText } from "./text-generation";
 import { recordImageProviderFailure } from "./image-provider-failure-log";
 import { buildMeituMask, inpaintWithMeitu } from "./meitu-client";
+import { getUploadsRoot } from "./local-image-storage";
 
 type ImageGenerateInput = {
   prompt: string;
@@ -1200,7 +1203,83 @@ function getImageFileName(mimeType: string) {
   return "source.png";
 }
 
+function getPersistedUploadPath(src: string) {
+  let pathname = "";
+  let hostname = "";
+  try {
+    if (/^https?:\/\//i.test(src)) {
+      const url = new URL(src);
+      pathname = url.pathname;
+      hostname = url.hostname.toLowerCase();
+    } else {
+      pathname = src.split(/[?#]/, 1)[0];
+    }
+  } catch {
+    return null;
+  }
+
+  if (
+    hostname &&
+    !hostname.endsWith(".artxsd.com") &&
+    !hostname.endsWith(".github.io") &&
+    hostname !== "localhost" &&
+    hostname !== "127.0.0.1" &&
+    hostname !== "::1"
+  ) {
+    return null;
+  }
+  const uploadsIndex = pathname.indexOf("/uploads/");
+  if (uploadsIndex < 0) return null;
+  const uploadPath = pathname.slice(uploadsIndex);
+  const relativeUploadPath = decodeURIComponent(uploadPath.slice("/uploads/".length));
+  if (!relativeUploadPath || relativeUploadPath.includes("\0")) return null;
+
+  const uploadsRoot = resolve(getUploadsRoot());
+  const candidate = resolve(uploadsRoot, relativeUploadPath);
+  const candidateRelativePath = relative(uploadsRoot, candidate);
+  if (
+    !candidateRelativePath ||
+    candidateRelativePath.startsWith("..") ||
+    isAbsolute(candidateRelativePath)
+  ) {
+    return null;
+  }
+  return candidate;
+}
+
+function getImageMimeTypeFromPath(filePath: string) {
+  switch (extname(filePath).toLowerCase()) {
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".webp":
+      return "image/webp";
+    case ".gif":
+      return "image/gif";
+    case ".svg":
+      return "image/svg+xml";
+    default:
+      return "image/png";
+  }
+}
+
 async function imageSrcToBuffer(src: string): Promise<{ buffer: Buffer; mimeType: string }> {
+  const persistedUploadPath = getPersistedUploadPath(src);
+  if (persistedUploadPath) {
+    try {
+      return {
+        buffer: await readFile(persistedUploadPath),
+        mimeType: getImageMimeTypeFromPath(persistedUploadPath),
+      };
+    } catch {
+      // If a persisted upload no longer exists, keep the original remote fetch
+      // behavior for absolute URLs so external image sources still work.
+      if (!/^https?:\/\//i.test(src)) {
+        throw new Error("Failed to fetch source image: 404");
+      }
+    }
+  }
+
   if (src.startsWith("data:")) {
     const match = src.match(/^data:([^;,]+)(;base64)?,(.*)$/);
     if (!match) throw new Error("Invalid image data URL");
@@ -1217,6 +1296,8 @@ async function imageSrcToBuffer(src: string): Promise<{ buffer: Buffer; mimeType
   const buffer = Buffer.from(await response.arrayBuffer());
   return { buffer, mimeType };
 }
+
+export const __testImageSrcToBuffer = imageSrcToBuffer;
 
 function bufferToImageFile(buffer: Buffer, mimeType: string) {
   return new File([buffer], getImageFileName(mimeType), { type: mimeType });

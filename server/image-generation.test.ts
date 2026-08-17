@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import sharp from "sharp";
 import { getImageModelFallbackAttempts } from "../shared/image-models";
-import { __testAssertSourcePreservingMask, __testBuildSmartProductPrompt, __testCompositeSourcePreservingImageEdit, __testCreatePicWishForegroundRemovalMask, __testHasPicWishExpansionMargins, __testNormalizeGeneratedImageSrc, __testNormalizeGeneratedImagesToTargetAspect, __testNormalizePicWishExpansionRatio, __testParseStructuredImageText, __testPreparePicWishEraseSourceImage, __testPreparePicWishExpansionSourceImage, __testResolveHighDefinitionTargetSize, __testResolveReferenceImageRoute, __testResolveSmartProductLayout, editImageWithPrompt, extractImageText, generateImages } from "./image-generation";
+import { __testAssertSourcePreservingMask, __testBuildSmartProductPrompt, __testCompositeSourcePreservingImageEdit, __testCreatePicWishForegroundRemovalMask, __testHasPicWishExpansionMargins, __testImageSrcToBuffer, __testNormalizeGeneratedImageSrc, __testNormalizeGeneratedImagesToTargetAspect, __testNormalizePicWishExpansionRatio, __testParseStructuredImageText, __testPreparePicWishEraseSourceImage, __testPreparePicWishExpansionSourceImage, __testResolveHighDefinitionTargetSize, __testResolveReferenceImageRoute, __testResolveSmartProductLayout, editImageWithPrompt, extractImageText, generateImages } from "./image-generation";
 
 const ONE_PIXEL_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
@@ -13,6 +14,37 @@ afterEach(() => {
 });
 
 describe("generated image source normalization", () => {
+  it("reads persisted upload images from local storage when the public source host is stale", async () => {
+    const uploadsDir = await mkdtemp(resolve(tmpdir(), "artx-image-generation-"));
+    const imagePath = resolve(uploadsDir, "images", "test@example.com", "source.png");
+    const source = await sharp({
+      create: {
+        width: 2,
+        height: 2,
+        channels: 3,
+        background: "#ff0000",
+      },
+    }).png().toBuffer();
+    await mkdir(resolve(uploadsDir, "images", "test@example.com"), { recursive: true });
+    await writeFile(imagePath, source);
+    vi.stubEnv("ARTX_UPLOADS_DIR", uploadsDir);
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("not found", { status: 404 })
+    );
+
+    try {
+      const result = await __testImageSrcToBuffer(
+        "https://09beedesign-star.github.io/artx-test/uploads/images/test%40example.com/source.png"
+      );
+
+      expect(result.buffer.equals(source)).toBe(true);
+      expect(result.mimeType).toBe("image/png");
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      await rm(uploadsDir, { recursive: true, force: true });
+    }
+  });
+
   it("allows the image provider 90 seconds to return an asynchronous task ID by default", async () => {
     const source = await readFile(resolve(__dirname, "image-generation.ts"), "utf8");
 
