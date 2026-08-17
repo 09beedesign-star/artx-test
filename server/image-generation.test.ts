@@ -67,6 +67,165 @@ describe("generated image source normalization", () => {
     expect(source).not.toContain("isAutoAnnotationEdit");
   });
 
+  it("routes smart annotation edits through Meitu when Meitu annotation env is configured", async () => {
+    vi.stubEnv("MEITU_ANNOTATION_APP_KEY", "test-meitu-app-key");
+    vi.stubEnv("MEITU_ANNOTATION_SECRET_ID", "test-meitu-secret-id");
+    vi.stubEnv("MEITU_ANNOTATION_BASE_URL", "https://openapi.mtlab.meitu.com");
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const source = await sharp({
+      create: {
+        width: 96,
+        height: 64,
+        channels: 3,
+        background: "#ff0000",
+      },
+    }).png().toBuffer();
+    const edited = await sharp({
+      create: {
+        width: 96,
+        height: 64,
+        channels: 3,
+        background: "#00ff00",
+      },
+    }).png().toBuffer();
+    const mask = await sharp({
+      create: {
+        width: 96,
+        height: 64,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 255 },
+      },
+    }).png().toBuffer();
+    const maskPixels = await sharp(mask).ensureAlpha().raw().toBuffer();
+    for (let y = 0; y < 64; y += 1) {
+      for (let x = 0; x < 48; x += 1) {
+        maskPixels[(y * 96 + x) * 4 + 3] = 0;
+      }
+    }
+    const editableMask = await sharp(maskPixels, {
+      raw: { width: 96, height: 64, channels: 4 },
+    }).png().toBuffer();
+
+    const requests: Array<Record<string, unknown>> = [];
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      const endpoint = String(url);
+      if (endpoint.startsWith("https://openapi.mtlab.meitu.com/v3/image_manipulation?")) {
+        requests.push(JSON.parse(String(init?.body || "{}")));
+        return Response.json({
+          parameter: { rsp_media_type: "jpg" },
+          media_info_list: [{
+            media_data: edited.toString("base64"),
+            media_profiles: { media_data_type: "jpg" },
+          }],
+        });
+      }
+      throw new Error(`Unexpected fetch ${endpoint}`);
+    });
+
+    const result = await editImageWithPrompt({
+      imageSrc: `data:image/png;base64,${source.toString("base64")}`,
+      maskSrc: `data:image/png;base64,${editableMask.toString("base64")}`,
+      prompt: "给人物戴上一副眼镜",
+      operation: "annotation_edit",
+      preserveSource: true,
+      targetWidth: 96,
+      targetHeight: 64,
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      parameter: {
+        prompt_pos: "给人物戴上一副眼镜",
+        num_samples: 1,
+        rsp_media_type: "jpg",
+      },
+    });
+    expect((requests[0].media_info_list as unknown[])).toHaveLength(2);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/images/edits"))).toBe(false);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/chat/completions"))).toBe(false);
+    expect(infoSpy.mock.calls.some(([message]) => String(message).includes("[meitu-smart-annotation]"))).toBe(true);
+    expect(warnSpy.mock.calls.some(([message]) => String(message).includes("[meitu-smart-annotation]"))).toBe(false);
+
+    const resultBuffer = Buffer.from(result.images[0].src.split(",")[1], "base64");
+    const resultPixels = await sharp(resultBuffer).ensureAlpha().raw().toBuffer();
+    expect(Array.from(resultPixels.subarray(0, 4))).toEqual([0, 255, 0, 255]);
+    expect(Array.from(resultPixels.subarray((95 * 4), (96 * 4)))).toEqual([255, 0, 0, 255]);
+  });
+
+  it("logs a smart annotation fallback when Meitu env is missing", async () => {
+    vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
+    vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
+    const edited = await sharp({
+      create: {
+        width: 64,
+        height: 64,
+        channels: 3,
+        background: "#00ff00",
+      },
+    }).png().toBuffer();
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const source = await sharp({
+      create: {
+        width: 64,
+        height: 64,
+        channels: 3,
+        background: "#ff0000",
+      },
+    }).png().toBuffer();
+    const mask = await sharp({
+      create: {
+        width: 64,
+        height: 64,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 255 },
+      },
+    }).png().toBuffer();
+    const maskPixels = await sharp(mask).ensureAlpha().raw().toBuffer();
+    for (let y = 0; y < 64; y += 1) {
+      for (let x = 0; x < 32; x += 1) {
+        maskPixels[(y * 64 + x) * 4 + 3] = 0;
+      }
+    }
+    const editableMask = await sharp(maskPixels, {
+      raw: { width: 64, height: 64, channels: 4 },
+    }).png().toBuffer();
+
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      const endpoint = String(url);
+      if (endpoint.endsWith("/images/edits")) {
+        return Response.json({
+          data: [{
+            b64_json: edited.toString("base64"),
+          }],
+        });
+      }
+      if (endpoint.endsWith("/chat/completions")) {
+        return Response.json({
+          data: [{ b64_json: edited.toString("base64") }],
+        });
+      }
+      throw new Error(`Unexpected fetch ${endpoint}`);
+    });
+
+    const result = await editImageWithPrompt({
+      imageSrc: `data:image/png;base64,${source.toString("base64")}`,
+      maskSrc: `data:image/png;base64,${editableMask.toString("base64")}`,
+      prompt: "给人物戴上一副眼镜",
+      operation: "annotation_edit",
+      preserveSource: true,
+      targetWidth: 64,
+      targetHeight: 64,
+    });
+
+    expect(result.images).toHaveLength(1);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/edits"))).toBe(true);
+    expect(infoSpy.mock.calls.some(([message]) => String(message).includes("[meitu-smart-annotation]"))).toBe(false);
+    expect(warnSpy.mock.calls.some(([message]) => String(message).includes("[meitu-smart-annotation]"))).toBe(true);
+  });
+
   it("keeps camera-view edits on a generative viewpoint path instead of source-preserving local edit rules", async () => {
     const source = await readFile(resolve(__dirname, "image-generation.ts"), "utf8");
     const editSource = source.match(
