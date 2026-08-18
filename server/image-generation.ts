@@ -5,10 +5,16 @@ import {
   getImageModelFallbackAttempts,
   isSupportedImageModelId,
   sortImageModelIdsByPriority,
+  isVodModelId,
 } from "../shared/image-models";
 import { generateText } from "./text-generation";
 import { recordImageProviderFailure } from "./image-provider-failure-log";
 import { buildMeituMask, inpaintWithMeitu } from "./meitu-client";
+import {
+  generateImageWithVod,
+  isVodAigcConfigured,
+  type VodImageGenerationInput,
+} from "./tencent-vod-aigc";
 
 type ImageGenerateInput = {
   prompt: string;
@@ -3482,15 +3488,49 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
   }
 
   const { apiKey, baseUrl, model } = getProviderConfig();
-  if (!apiKey) {
-    throw new Error("Missing AI_IMAGE_API_KEY");
-  }
 
   const ratio = ratioToSize[input.ratio || "1:1"] || ratioToSize["1:1"];
   const count = Math.max(1, Math.min(Number(input.count) || 1, 9));
   const referenceImages = input.images?.filter(image => image.src?.trim()) || [];
   const targetSize = __testResolveHighDefinitionTargetSize(ratio.width, ratio.height, ratio.width, ratio.height);
   const requestedModel = (input.model || model).trim();
+
+  if (isVodModelId(requestedModel) && isVodAigcConfigured()) {
+    try {
+      const vodInput: VodImageGenerationInput = {
+        prompt: buildPrompt(input),
+        model: requestedModel,
+        aspectRatio: input.ratio || "1:1",
+        count,
+        imageUrl: referenceImages.length > 0 ? referenceImages[0].src : undefined,
+        enhancePrompt: true,
+      };
+
+      const result = await generateImageWithVod(vodInput);
+
+      const images = result.images.map(img => ({
+        src: img.src,
+        width: img.width,
+        height: img.height,
+      }));
+
+      return { images: images.slice(0, count) };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn("[image-provider]", {
+        event: "generation-attempt-failed",
+        model: requestedModel,
+        provider: "vod-aigc",
+        error: summarizeImageProviderError(message),
+      });
+      throw new Error(`VOD AIGC image generation failed: ${message}`);
+    }
+  }
+
+  if (!apiKey) {
+    throw new Error("Missing AI_IMAGE_API_KEY");
+  }
+
   const attemptModels = requestedModel.toLowerCase() === "auto"
     ? getImageModelFallbackAttempts(requestedModel)
     : [requestedModel];
