@@ -552,6 +552,12 @@ import generationMark from "@/assets/generation/ai-generation-mark.svg";
 
 const ENABLE_NODE_CONNECTIONS = false;
 
+/**
+ * 视角调整专用模型标识：后端会优先使用 NanoBanana (gemini-3.5-flash-preview)
+ * 进行 3D 空间推理，失败时自动兜底 OpenAI Image2 (og-image2-medium)。
+ */
+const CAMERA_VIEW_MODEL_ID = "camera-view-auto";
+
 type CanvasDownloadFormat = "jpg" | "png" | "psd";
 type ImageDownloadFormat = Exclude<CanvasDownloadFormat, "psd">;
 
@@ -22015,7 +22021,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           capability: "image_edit",
           operation: "camera_view",
           imageSrc,
-          model: DEFAULT_IMAGE_AI_MODEL_ID,
+          model: CAMERA_VIEW_MODEL_ID,
           prompt,
           targetWidth: sourceSize.width,
           targetHeight: sourceSize.height,
@@ -22024,7 +22030,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           run: async () =>
             editImageWithPrompt({
               imageSrc,
-              model: DEFAULT_IMAGE_AI_MODEL_ID,
+              model: CAMERA_VIEW_MODEL_ID,
               prompt,
               operation: "camera_view",
               targetWidth: sourceSize.width,

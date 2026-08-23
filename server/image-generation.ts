@@ -3835,10 +3835,12 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   const targetHeight = targetSize.height;
   const sourceImage = bufferToImageFile(sourceImageData.buffer, sourceImageData.mimeType);
   const requestedModel = (input.model || model).trim();
-  const usesAutoModel = requestedModel.toLowerCase() === "auto";
+  const usesCameraViewAutoModel = isCameraViewOperation && requestedModel === "camera-view-auto";
+  const usesAutoModel = requestedModel.toLowerCase() === "auto" || usesCameraViewAutoModel;
   const selectedModels = usesAutoModel
     ? [
         ...(requiresVisibleLocalChange ? ["gpt-image-2"] : []),
+        ...(isCameraViewOperation ? ["vod-gem", "vod-og"] : []),
         ...getImageModelFallbackAttempts(requestedModel),
       ].filter((modelId, index, values) => values.indexOf(modelId) === index)
     : [requestedModel];
@@ -3893,7 +3895,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
       : "";
     const aspect = targetWidth / Math.max(1, targetHeight);
     const ratio = aspect > 1.2 ? "16:9" : aspect < 0.85 ? "9:16" : "1:1";
-    const referenceModels = usesAutoModel && requiresVisibleLocalChange
+    const referenceModels = usesAutoModel && (requiresVisibleLocalChange || usesCameraViewAutoModel)
       ? selectedModels
       : [requestedModel];
     let lastError: unknown;
@@ -3944,7 +3946,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
         return { images };
       } catch (error) {
         lastError = error;
-        if (!usesAutoModel || !requiresVisibleLocalChange) throw error;
+        if (!usesAutoModel || !(requiresVisibleLocalChange || usesCameraViewAutoModel)) throw error;
       }
     }
 

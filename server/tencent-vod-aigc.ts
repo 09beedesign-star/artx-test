@@ -259,10 +259,19 @@ export async function createVodImageTask(input: VodImageGenerationInput): Promis
   const config = getConfig();
   const { modelName, modelVersion } = resolveModelAndVersion(input.model, input.modelVersion);
 
+  const toFileInfo = (url: string, usage?: "Reference"): FileInfo => {
+    if (url.startsWith("data:")) {
+      const commaIndex = url.indexOf(",");
+      const base64 = commaIndex >= 0 ? url.slice(commaIndex + 1) : url;
+      return { Type: "Base64", Base64: base64, ...(usage ? { Usage: usage } : {}) };
+    }
+    return { Type: "Url", Url: url, ...(usage ? { Usage: usage } : {}) };
+  };
+
   const fileInfos: FileInfo[] | undefined = input.imageUrl
-    ? [{ Type: "Url", Url: input.imageUrl }]
+    ? [toFileInfo(input.imageUrl)]
     : input.imageUrls?.length
-      ? input.imageUrls.map((url) => ({ Type: "Url" as const, Url: url, Usage: "Reference" as const }))
+      ? input.imageUrls.map((url) => toFileInfo(url, "Reference"))
       : undefined;
 
   const payload: CreateImageTaskRequest = {
@@ -338,13 +347,6 @@ export async function pollVodTask(taskId: string, maxAttempts = 120, intervalMs 
         const imageTask = task.AigcImageTask;
         return { status: "failed", error: imageTask?.Message || "Task failed" };
       }
-
-      const progress = task.AigcImageTask?.Progress || 0;
-      if (progress > 0 && progress < 100) {
-        return { status: "processing", progress };
-      }
-
-      return { status: "pending", progress: 0 };
     } catch (error) {
       console.warn("[tencent-vod-aigc] Poll error:", error);
       if (attempt === maxAttempts - 1) {
