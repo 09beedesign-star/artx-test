@@ -61,7 +61,7 @@ export default function Workspace({ projectId = "__blank-workspace__" }: { proje
     <div
       className="flex flex-col h-screen overflow-hidden"
       style={{
-        background: "#222222",
+        background: "#0a0a0b",
         position: "relative",
         transition: "background 0.25s ease",
       }}
@@ -92,7 +92,7 @@ export default function Workspace({ projectId = "__blank-workspace__" }: { proje
       </div>
 
       {/* Full-width canvas */}
-      <div className="flex flex-1 overflow-hidden" style={{ position: "relative", zIndex: 1, background: "#222222" }}>
+      <div className="flex flex-1 overflow-hidden" style={{ position: "relative", zIndex: 1, background: "#0a0a0b" }}>
         <InfiniteCanvas projectId={activeProjectId} />
       </div>
     </div>

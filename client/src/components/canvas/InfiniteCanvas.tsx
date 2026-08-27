@@ -16078,12 +16078,12 @@ function CanvasTopToolPalette({
     return () => window.removeEventListener("tool-mode-change", handler);
   }, []);
 
-  const bg = isDark ? "oklch(0.22 0.015 270)" : "oklch(0.88 0.005 270)";
-  const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
-  const textColor = isDark ? "rgba(255,255,255,0.78)" : "rgba(28,28,40,0.82)";
-  const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
-  const activeBg = isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.12)";
-  const activeColor = "oklch(0.65 0.22 290)";
+  const bg = isDark ? "#232326" : "oklch(0.88 0.005 270)";
+  const border = isDark ? "rgba(42,42,45,0.92)" : "rgba(0,0,0,0.10)";
+  const textColor = isDark ? "#b4b4b8" : "rgba(28,28,40,0.82)";
+  const hoverBg = isDark ? "#353535" : "rgba(0,0,0,0.06)";
+  const activeBg = isDark ? "#3f6261" : "rgba(0,0,0,0.12)";
+  const activeColor = "#ffffff";
   const popBg = isDark ? "rgba(24,24,34,0.96)" : "rgba(255,255,255,0.96)";
   const tooltipBg = isDark ? "rgba(18,18,26,0.96)" : "rgba(30,30,40,0.92)";
   const toolbarDividerColor = isDark
@@ -17289,19 +17289,19 @@ function CanvasAssistantPanel({
     return stored.length > 0 ? stored : [createCanvasAssistantSeedMessage()];
   });
   const pendingHomePromptHandledRef = useRef(false);
-  const bg = isDark ? "#222222" : "oklch(0.995 0.002 80 / 0.98)";
-  const border = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 10%)";
-  const text = isDark ? "oklch(0.84 0.008 270)" : "oklch(0.18 0.008 270)";
-  const sub = isDark ? "oklch(0.69 0.010 270)" : "oklch(0.64 0.010 255)";
-  const chipBg = isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 4%)";
-  const elevatedBg = isDark ? "#222222" : "oklch(1 0 0 / 0.98)";
+  const bg = isDark ? "#171718" : "oklch(0.995 0.002 80 / 0.98)";
+  const border = isDark ? "rgba(42,42,45,0.72)" : "oklch(0 0 0 / 10%)";
+  const text = isDark ? "#b4b4b8" : "oklch(0.18 0.008 270)";
+  const sub = isDark ? "#99999e" : "oklch(0.64 0.010 255)";
+  const chipBg = isDark ? "#232326" : "oklch(0 0 0 / 4%)";
+  const elevatedBg = isDark ? "#353535" : "oklch(1 0 0 / 0.98)";
   const hoverBg = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 5%)";
-  const compactSelectorBg = getMinimapSurfaceBackground(isDark);
+  const compactSelectorBg = isDark ? "#525252" : getMinimapSurfaceBackground(isDark);
   const compactSelectorHoverBg = isDark
-    ? "oklch(0.13 0.015 270)"
+    ? "#626262"
     : "oklch(0.22 0.015 270)";
   const compactSelectorActiveBg = isDark
-    ? "oklch(0.13 0.015 270)"
+    ? "#626262"
     : "oklch(0.22 0.015 270)";
   const compactSelectorBorder = getMinimapSurfaceBorder(isDark);
   const compactSelectorActiveBorder = "oklch(0.62 0.22 290 / 45%)";
@@ -19515,12 +19515,12 @@ function CanvasAssistantPanel({
         />
       )}
       <aside
-        className="absolute right-3 top-3 bottom-3 flex flex-col nodrag nopan overflow-hidden rounded-[16px] transition-transform duration-200 ease-out"
+        className="absolute right-3 top-3 bottom-3 flex flex-col nodrag nopan overflow-hidden rounded-[var(--radius-md-design)] transition-transform duration-200 ease-out"
         style={{
           width: panelWidth,
           maxWidth: "calc(100vw - 48px)",
           background: bg,
-          borderLeft: collapsed ? "none" : `1px solid ${border}`,
+          border: collapsed ? "none" : `1px solid ${border}`,
           zIndex: 120,
           backdropFilter: "blur(22px)",
           transform: collapsed
@@ -19529,7 +19529,7 @@ function CanvasAssistantPanel({
           boxShadow: collapsed
             ? "none"
             : isDark
-              ? "-12px 0 40px rgba(0,0,0,0.18)"
+              ? "-12px 0 32px rgba(0,0,0,0.24)"
               : "-12px 0 36px rgba(30,35,55,0.08)",
         }}
       >
@@ -19576,7 +19576,7 @@ function CanvasAssistantPanel({
         </button>
       )}
       <div
-        className="h-14 flex items-center px-4"
+        className="h-[52px] flex items-center px-3"
         style={{
           gap: 12,
           justifyContent: collapsed ? "flex-start" : "flex-end",
@@ -19610,7 +19610,7 @@ function CanvasAssistantPanel({
           <div
             className="flex-1 min-h-0 px-5 py-6 overflow-y-auto"
             style={{
-              background: "#222222",
+              background: bg,
               scrollbarWidth: "thin",
               scrollbarColor: `${isDark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.18)"} transparent`,
             }}
@@ -19642,11 +19642,11 @@ function CanvasAssistantPanel({
                       <div
                         className="rounded-[var(--radius-lg-design)]"
                         style={{
-                          background: isUser ? "#C5ED47" : chipBg,
-                          border: `1px solid ${isUser ? "rgba(197,237,71,0.48)" : border}`,
-                          color: isUser ? "#000" : text,
+                          background: isUser ? "#4f5a55" : chipBg,
+                          border: `1px solid ${isUser ? "rgba(99,116,108,0.74)" : border}`,
+                          color: isUser ? "#fff" : text,
                           boxShadow: isUser
-                            ? "0 10px 24px rgba(197,237,71,0.16)"
+                            ? "0 8px 18px rgba(0,0,0,0.18)"
                             : "none",
                           padding: "8px",
                         }}
@@ -19698,7 +19698,7 @@ function CanvasAssistantPanel({
                             <p
                               className="type-caption whitespace-pre-wrap"
                               style={{
-                                color: isUser ? "#000" : text,
+                                color: isUser ? "#fff" : text,
                                 fontSize: 12,
                                 lineHeight: "16px",
                                 letterSpacing: "0.6px",
@@ -19889,7 +19889,7 @@ function CanvasAssistantPanel({
             <div
               className="relative rounded-[var(--radius-xl-design)] px-3 py-3 transition-all duration-200"
               style={{
-                background: isDark ? "#222222" : chipBg,
+                background: elevatedBg,
                 border: `1px solid ${inputFocused ? "rgba(197,237,71,0.42)" : border}`,
                 boxShadow: inputFocused ? activeGlow : inputShadow,
                 minWidth: 0,
@@ -27791,8 +27791,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     [screenToFlowPosition, getNodes, getEdges, pushHistory, setEdges]
   );
 
-  const canvasBg = isDark ? "#222222" : "var(--design-surface-soft)";
-  const dotColor = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.32)";
+  const canvasBg = isDark ? "#0a0a0b" : "var(--design-surface-soft)";
+  const dotColor = isDark ? "rgba(180,180,184,0.14)" : "rgba(0,0,0,0.32)";
 
   // ── Compute group containers for overlay rendering ──
   const groupOverlayData: GroupInfo[] = useMemo(() => {
