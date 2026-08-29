@@ -186,6 +186,7 @@ export type VodImageGenerationInput = {
   count?: number;
   imageUrl?: string;
   imageUrls?: string[];
+  maskDataUrl?: string;
   enhancePrompt?: boolean;
   negativePrompt?: string;
   storageMode?: "Temporary" | "Permanent";
@@ -268,11 +269,19 @@ export async function createVodImageTask(input: VodImageGenerationInput): Promis
     return { Type: "Url", Url: url, ...(usage ? { Usage: usage } : {}) };
   };
 
-  const fileInfos: FileInfo[] | undefined = input.imageUrl
-    ? [toFileInfo(input.imageUrl)]
-    : input.imageUrls?.length
-      ? input.imageUrls.map((url) => toFileInfo(url, "Reference"))
-      : undefined;
+  const fileInfos: FileInfo[] | undefined = (() => {
+    if (!input.imageUrl && !input.imageUrls?.length) return undefined;
+    const list: FileInfo[] = input.imageUrl
+      ? [toFileInfo(input.imageUrl)]
+      : (input.imageUrls || []).map((url) => toFileInfo(url));
+    // OG（GPT-Image2）系列支持蒙版编辑：白色区域=待替换/编辑区域。
+    // 参考 https://cloud.tencent.com/document/product/266/126240
+    // 注意：mask 参考图不能带 Usage 字段，只需 ReferenceType:"mask"。
+    if (input.maskDataUrl) {
+      list.push({ ...toFileInfo(input.maskDataUrl), ReferenceType: "mask" });
+    }
+    return list;
+  })();
 
   const payload: CreateImageTaskRequest = {
     SubAppId: config.subAppId,

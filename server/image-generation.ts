@@ -1,3 +1,4 @@
+import fs from "fs";
 import { getSkill } from "./skill-registry";
 import {
   DEFAULT_IMAGE_MODEL_ID,
@@ -10,6 +11,7 @@ import {
 import { generateText } from "./text-generation";
 import { recordImageProviderFailure } from "./image-provider-failure-log";
 import { buildMeituMask, inpaintWithMeitu } from "./meitu-client";
+import { drawTextReplacement, createModifiedRegionsMask, dilateMaskTransparent } from "./text-replace-precise";
 import {
   generateImageWithVod,
   isVodAigcConfigured,
@@ -24,6 +26,8 @@ type ImageGenerateInput = {
   style?: string;
   images?: Array<{ src: string; title?: string }>;
   preferImageApiForReferences?: boolean;
+  enhancePrompt?: boolean;
+  negativePrompt?: string;
 };
 
 type RemoveBackgroundInput = {
@@ -79,8 +83,30 @@ type EditImageInput = {
   };
   /** "meitu" 时智能注释编辑走美图局部重绘；缺省/其他值走现有 AI 图片编辑链路 */
   provider?: "auto" | "meitu" | "default";
+  /**
+   * 基础约束语义（智能注释）：
+   * - "add"（默认）：mask 内保留原内容，只在上方添加请求物体（帽子/眼镜等）
+   * - "edit"：mask 内修改用户指定的属性（换色/换材质/换纹理等），保持形状结构与其余区域不变
+   */
+  promptKind?: "add" | "edit";
   /** 美图局部重绘的正向提示词（用户注释文本），仅 provider="meitu" 时使用 */
   promptPos?: string;
+  /** 智能文案编辑：原图 OCR 识别的文字区域（x/y/width/height/text/rotate/fontColor/fontFamily），用于确定性文字绘制 */
+  textRegions?: Array<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    text?: string;
+    /** 文字倾斜角度（度，正值顺时针），回填时以区域中心旋转 */
+    rotate?: number;
+    /** 字体颜色（十六进制 #rrggbb） */
+    fontColor?: string;
+    /** 字体（中文名或 CSS 字体名） */
+    fontFamily?: string;
+  }>;
+  /** 智能文案编辑：修改后的完整文案（多行用 \n 分隔），用于确定性文字绘制 */
+  editedText?: string;
 };
 
 type ElementBackgroundInput = {
@@ -143,6 +169,10 @@ type ImageTextRegion = {
   y: number;
   width: number;
   height: number;
+  /** 文字倾斜角度（度，正值顺时针），回填时以区域中心旋转 */
+  rotate?: number;
+  /** 文字主色（十六进制 #rrggbb），回填时作为默认字体颜色 */
+  fontColor?: string;
 };
 
 type GeneratedImage = {
@@ -397,12 +427,20 @@ export function __testParseStructuredImageText(rawContent: string): {
           }
           const boundedX = Math.max(0, Math.min(1, x));
           const boundedY = Math.max(0, Math.min(1, y));
+          const rawRotate = Number(value.rotate);
+          const rawFontColor = typeof value.fontColor === "string" ? value.fontColor.trim() : "";
           return [{
             text: typeof value.text === "string" ? value.text.trim() : "",
             x: boundedX,
             y: boundedY,
             width: Math.max(0, Math.min(1 - boundedX, width)),
             height: Math.max(0, Math.min(1 - boundedY, height)),
+            rotate: Number.isFinite(rawRotate)
+              ? Math.max(-90, Math.min(90, Math.round(rawRotate)))
+              : 0,
+            fontColor: /^#[0-9a-fA-F]{6}$/.test(rawFontColor)
+              ? rawFontColor.toLowerCase()
+              : undefined,
           }];
         })
       : [];
@@ -2377,6 +2415,170 @@ async function createLocalEditGuideImage(
   }).png().toBuffer();
 }
 
+// VOD 参考图生成中支持 mask 蒙版编辑的模型（白=编辑区）。
+// VOD AIGC 的 CreateImageTask 接口本身支持 ReferenceType: "mask"，理论上所有 VOD 模型
+// 都能传入蒙版参考图做局部编辑；各模型对蒙版的理解能力不同，这里统一放开，
+// 由 fallback 机制自动挑选效果最好的模型。
+function isVodMaskEditModel(modelId: string): boolean {
+  return modelId.startsWith("vod-");
+}
+
+// 二维 box-max（形态学膨胀）：白色(255) 像素会把周边 radius 像素内的邻居"染白"。
+// 用于把蒙版白色（编辑）区域向外扩展，避免紧贴物体轮廓导致补丁感/错位。
+function boxDilateBinary(
+  singleChannel: Uint8Array,
+  width: number,
+  height: number,
+  radius: number,
+): Uint8Array {
+  if (radius <= 0) return singleChannel;
+  const horizontal = new Uint8Array(singleChannel.length);
+  for (let y = 0; y < height; y++) {
+    const base = y * width;
+    const deque: number[] = [];
+    for (let right = 0; right < width; right++) {
+      const value = singleChannel[base + right];
+      while (deque.length > 0 && singleChannel[base + deque[deque.length - 1]] <= value) deque.pop();
+      deque.push(right);
+      while (deque.length > 0 && deque[0] < right - 2 * radius) deque.shift();
+      const outX = right - radius;
+      if (outX >= 0) horizontal[base + outX] = singleChannel[base + deque[0]];
+    }
+  }
+  const output = new Uint8Array(singleChannel.length);
+  for (let x = 0; x < width; x++) {
+    const deque: number[] = [];
+    for (let bottom = 0; bottom < height; bottom++) {
+      const value = horizontal[bottom * width + x];
+      while (deque.length > 0 && horizontal[deque[deque.length - 1] * width + x] <= value) deque.pop();
+      deque.push(bottom);
+      while (deque.length > 0 && deque[0] < bottom - 2 * radius) deque.shift();
+      const outY = bottom - radius;
+      if (outY >= 0) output[outY * width + x] = horizontal[deque[0] * width + x];
+    }
+  }
+  return output;
+}
+
+// 生成给 VOD OG 蒙版编辑用的 mask（白色=编辑区、黑色=保留区）。
+// 前端注释 mask 语义为「透明=编辑区、不透明=保留区」，此处做反相并输出 PNG。
+// mode="add"（加物体）：编辑区向上扩展约 45% 高度作为新物体（帽子/头饰）的生成空间，
+// 并整体膨胀+羽化，让 OG 生成的新物体有足够区域并自然融合（否则只涂头顶会生硬塞入）。
+// mode="edit"（换色/换材质）：只做轻度膨胀+羽化，避免编辑溢出到目标区域之外。
+async function createOgdEditMaskDataUrl(
+  maskBuffer: Buffer,
+  width: number,
+  height: number,
+  mode: "add" | "edit" = "edit",
+  editPrompt: string = "",
+): Promise<{ dataUrl: string; compositeMaskBuffer: Buffer }> {
+  const sharp = (await import("sharp")).default;
+  const maskPixels = await sharp(maskBuffer, { limitInputPixels: false })
+    .rotate()
+    .resize(width, height, { fit: "fill", kernel: "nearest" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer();
+  const editBinary = new Uint8Array(width * height); // 1 = 可编辑
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const index = (y * width + x) * 4;
+      if (maskPixels[index + 3] < 250) { // 透明 = 编辑区
+        editBinary[y * width + x] = 1;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  // 按请求类型动态选择 mask 扩展策略：帽子需要较大空间，眼镜/小配饰必须保守避免覆盖脸部。
+  const promptLower = editPrompt.toLowerCase();
+  const isHatRequest = /(帽|hat\b|cap\b|bonnet|visor|headwear|头饰|贝雷帽|鸭舌帽|针织帽|棒球帽|毛线帽)/i.test(editPrompt);
+  const isGlassesRequest = /(眼镜|glasses|sunglasses|墨镜|goggles|镜框|镜片|一副眼镜|一副墨镜)/i.test(editPrompt);
+  let finalBinary: Uint8Array = editBinary;
+  if (maxX >= 0 && maxY >= 0) {
+    if (mode === "add") {
+      let extendRatioX = 0.12;
+      let extendRatioY = 0.12;
+      if (isHatRequest) {
+        // 帽子：上下左右各扩展 20%，向下贴发际线、向上给帽顶、左右防截断
+        extendRatioX = 0.20;
+        extendRatioY = 0.20;
+      } else if (isGlassesRequest) {
+        // 眼镜：只轻微扩展 8%，避免覆盖眼睛/鼻梁/脸颊导致脸部变形
+        extendRatioX = 0.08;
+        extendRatioY = 0.08;
+      }
+      const extendY = Math.max(6, Math.ceil((maxY - minY) * extendRatioY));
+      const extendX = Math.max(6, Math.ceil((maxX - minX) * extendRatioX));
+      const newMinY = Math.max(0, minY - extendY);
+      const newMaxY = Math.min(height - 1, maxY + extendY);
+      const newMinX = Math.max(0, minX - extendX);
+      const newMaxX = Math.min(width - 1, maxX + extendX);
+      for (let y = newMinY; y <= newMaxY; y++) {
+        for (let x = newMinX; x <= newMaxX; x++) {
+          editBinary[y * width + x] = 1;
+        }
+      }
+    }
+    // 膨胀：编辑区向外扩展，避免紧贴轮廓导致补丁感
+    const expandRadius = mode === "add"
+      ? (isHatRequest ? 18 : isGlassesRequest ? 5 : 10)
+      : 10;
+    finalBinary = boxDilateBinary(editBinary, width, height, expandRadius);
+  }
+
+  const output = Buffer.alloc(width * height * 4);
+  for (let index = 0; index < output.length; index += 4) {
+    const value = finalBinary[index / 4] * 255;
+    output[index] = value;
+    output[index + 1] = value;
+    output[index + 2] = value;
+    output[index + 3] = 255;
+  }
+  // 羽化：Gaussian blur 让硬边界变软，避免生成后一圈接缝
+  const feather = mode === "add"
+    ? (isHatRequest ? 8 : isGlassesRequest ? 4 : 5)
+    : 5;
+  const png = await sharp(output, {
+    raw: { width, height, channels: 4 },
+    limitInputPixels: false,
+  })
+    .blur(feather)
+    .png()
+    .toBuffer();
+
+  // 供后端合成用的 alpha 语义蒙版：编辑区 = 透明(alpha 0)，保留区 = 不透明(alpha 255)。
+  // VOD 是在「扩展后的编辑区」内绘制新物体的，合成时必须使用这份扩展蒙版，
+  // 否则用用户原始涂抹的小块蒙版会把生成出来的新物体（帽子/眼镜）擦掉、贴回原图。
+  const compositeRaw = Buffer.alloc(width * height * 4);
+  for (let index = 0; index < compositeRaw.length; index += 4) {
+    const isEdit = finalBinary[index / 4] === 1;
+    compositeRaw[index] = 0;
+    compositeRaw[index + 1] = 0;
+    compositeRaw[index + 2] = 0;
+    compositeRaw[index + 3] = isEdit ? 0 : 255;
+  }
+  const compositeMaskBuffer = await sharp(compositeRaw, {
+    raw: { width, height, channels: 4 },
+    limitInputPixels: false,
+  })
+    .blur(feather)
+    .png()
+    .toBuffer();
+
+  return {
+    dataUrl: `data:image/png;base64,${png.toString("base64")}`,
+    compositeMaskBuffer,
+  };
+}
+
 async function hasVisibleLocalEdit(
   sourceBuffer: Buffer,
   editedBuffer: Buffer,
@@ -3233,24 +3435,35 @@ async function pollAsyncImageTask(
 
 function resolveSmartAnnotationEditModel(requestedModel: string | undefined, configuredModel: string) {
   const requested = (requestedModel || "").trim();
-  if (!requested || requested.toLowerCase() === "auto" || requested === "gpt-image-2") {
+  // 前端可能把画布模型选择器里的 chat 类模型（如 gemini-3.5-flash-preview）传给智能注释，
+  // 但 chat 模型不能做「参考图编辑」，直接视为未指定，回落到默认参考图模型。
+  if (!requested || requested.toLowerCase() === "auto" || requested === "gpt-image-2" || isChatCompatibleImageModel(requested)) {
     return DEFAULT_IMAGE_MODEL_ID;
   }
   return requested || configuredModel || DEFAULT_IMAGE_MODEL_ID;
 }
 
 function getSmartAnnotationReferenceEditModels(selectedModel: string) {
+  // 智能注释局部编辑首选 VOD 参考图生成：OG（GPT-Image2）支持 mask 蒙版编辑
+  // （白=编辑区，适合「加物体/加帽子」类精确局部编辑），因此排第一；
+  // GEM 3.1 无 mask 但参考图保持度好，作为兜底；BKEEL 的 og-image2 异步任务耗时长、
+  // gemini chat 不能编辑图像，排在最后。
+  // VOD mask 编辑候选模型顺序：先试 OG（GPT-Image2），再试 GEM、MJ、Hunyuan、Kling 等，
+  // 让系统自动挑选对当前场景（帽子/眼镜等）理解最好的模型。
+  const vodReferenceModels = ["vod-og", "vod-gem", "vod-mj", "vod-hunyuan", "vod-kling", "vod-si", "vod-qwen", "vod-jimeng", "vod-gem-lite"];
   const fallbackAttempts = getImageModelFallbackAttempts("auto");
   const referenceCapableModels = getImageModelFallbackAttempts("auto")
     .filter(isChatCompatibleImageModel);
   if (selectedModel === DEFAULT_IMAGE_MODEL_ID) {
     return Array.from(new Set([
+      ...vodReferenceModels,
       ...referenceCapableModels,
       ...fallbackAttempts,
     ]));
   }
   return Array.from(new Set([
     selectedModel,
+    ...vodReferenceModels,
     ...referenceCapableModels,
     ...fallbackAttempts,
   ]));
@@ -3259,20 +3472,41 @@ function getSmartAnnotationReferenceEditModels(selectedModel: string) {
 async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images: GeneratedImage[] }> {
   const maskSource = input.maskSrc?.trim() || (input.maskUrl || input.mask_url || "").trim();
   __testAssertSourcePreservingMask(input.operation, maskSource);
+  console.log("[智能注释] enter", JSON.stringify({
+    provider: input.provider,
+    promptKind: input.promptKind,
+    operation: input.operation,
+    model: input.model,
+    prompt: (input.prompt || "").slice(0, 80),
+    maskSrcLen: maskSource.length,
+  }));
 
   const sourceImageData = await imageSrcToBuffer(input.imageSrc);
   const maskImageData = await imageSrcToBuffer(maskSource);
   const sourceImageDimensions = await getImageBufferDimensions(sourceImageData.buffer);
   const targetWidth = sourceImageDimensions.width;
   const targetHeight = sourceImageDimensions.height;
+  const annotationBasePrompt = input.promptKind === "edit"
+    ? [
+        "This is a STRICT local image edit for ArtX smart annotation.",
+        "Use the uploaded source image as the ONLY canvas.",
+        "The mask marks a small annotation area. Edit ONLY inside the transparent area of the uploaded mask.",
+        "ABSOLUTE RULE 1: Inside the mask, change ONLY the attribute the user asks for (such as color, material, texture, style). Apply the requested change to the existing content directly.",
+        "ABSOLUTE RULE 2: Do NOT alter the shape, silhouette, position, structure, or identity of the object inside the mask. Keep its outline, proportions, pose, and facial features exactly the same. Only recolor or re-texture it.",
+        "ABSOLUTE RULE 3: Do NOT add, remove, or replace any objects, clothing, hairstyle, or body parts inside the mask. Do not create new shapes or items.",
+        "The result inside the mask must look like the SAME object from the original image, just with the user-requested color/material change applied.",
+      ]
+    : [
+        "This is a STRICT local image edit for ArtX smart annotation.",
+        "Use the uploaded source image as the ONLY canvas.",
+        "The mask marks a small annotation area. Edit ONLY inside the transparent area of the uploaded mask.",
+        "ABSOLUTE RULE 1: You must NOT redraw, regenerate, replace, or modify ANY existing person, face, body, clothing, background, or object inside the mask. The existing content inside the mask must remain 100% identical.",
+        "ABSOLUTE RULE 2: Your ONLY job is to ADD the user-requested item ON TOP OF the existing content. Place it naturally on the existing content without altering anything underneath.",
+        "EXAMPLES: If the user asks for a hat, put the hat ON the existing person's head. Do NOT redraw the person. If the user asks for glasses, put the glasses ON the existing person's face. Do NOT redraw the face. If the user asks for a prop, add it beside or on the existing subject without changing the subject.",
+        "The existing person inside the mask must keep the EXACT same face, body, clothing, pose, lighting, and all details. Only the requested new item may appear.",
+      ];
   const annotationPrompt = [
-    "This is a STRICT local image edit for ArtX smart annotation.",
-    "Use the uploaded source image as the ONLY canvas.",
-    "The mask marks a small annotation area. Edit ONLY inside the transparent area of the uploaded mask.",
-    "ABSOLUTE RULE 1: You must NOT redraw, regenerate, replace, or modify ANY existing person, face, body, clothing, background, or object inside the mask. The existing content inside the mask must remain 100% identical.",
-    "ABSOLUTE RULE 2: Your ONLY job is to ADD the user-requested item ON TOP OF the existing content. Place it naturally on the existing content without altering anything underneath.",
-    "EXAMPLES: If the user asks for a hat, put the hat ON the existing person's head. Do NOT redraw the person. If the user asks for glasses, put the glasses ON the existing person's face. Do NOT redraw the face. If the user asks for a prop, add it beside or on the existing subject without changing the subject.",
-    "The existing person inside the mask must keep the EXACT same face, body, clothing, pose, lighting, and all details. Only the requested new item may appear.",
+    ...annotationBasePrompt,
     "Every pixel outside the mask will be restored from the original source image.",
     "Return exactly one complete edited image.",
     `User request: ${input.prompt.trim()}`,
@@ -3331,7 +3565,10 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
   };
 
   // 美图局部重绘通道：注释蒙版（透明=编辑区）经 buildMeituMask 转为白=重绘区/黑=保留区。
-  if (input.provider === "meitu") {
+  // 美图 InPainting 只适合「局部重绘/换属性」类编辑（edit）；
+  // 加物体（add）语义是「在保留内容上叠加新物体」，美图无法可靠执行（实测加帽子等会返回无变化图），
+  // 因此 add 类直接走参考图生成链路（降级列表已把 VOD GEM 排到最前）。
+  if (input.provider === "meitu" && input.promptKind === "edit") {
     console.log(
       `[智能注释] 进入「美图局部重绘」分支 | provider=${input.provider}, ` +
       `targetWidth=${targetWidth}, targetHeight=${targetHeight}, ` +
@@ -3345,7 +3582,9 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
       maskBuffer: meituMaskBuffer,
       width: targetWidth,
       height: targetHeight,
-      // promptPos 仅传用户原始请求，基础约束由 meitu-client.ts 统一拼接
+      // promptPos 仅传用户原始请求，基础约束由 meitu-client.ts 统一拼接。
+      // 智能注释是"局部修改属性"（换色/换材质等），用 edit 约束而非默认 add（add 禁止改动 mask 内内容，会导致换色失败）
+      promptKind: "edit",
       promptPos: input.promptPos?.trim() || input.prompt.trim(),
       numSamples: 1,
     });
@@ -3385,7 +3624,24 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
       .png()
       .toBuffer();
 
-    return finalizeAnnotationImages(rawImages, alphaMaskBuffer);
+    console.log(
+      `[智能注释] 开始合成 | alphaMask=${alphaMaskBuffer.length}B, 源图=${sourceImageData.buffer.length}B, 美图结果=${rawImages[0]?.src.slice(0, 80)}`,
+    );
+    try {
+      const finalized = await finalizeAnnotationImages(rawImages, alphaMaskBuffer);
+      console.log(
+        `[智能注释] 合成完成 | ${finalized.images.length} 张, src前缀=${finalized.images[0]?.src.slice(0, 50)}, src长度=${(finalized.images[0]?.src || "").length}`,
+      );
+      return finalized;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.log(`[智能注释] 合成失败 | ${message}`);
+      if (isSmartAnnotationNoVisibleChangeError(error)) {
+        console.log(`[智能注释] 降级到参考图生成（需要 AI_IMAGE_API_KEY）`);
+        return editAnnotationViaReferenceGeneration();
+      }
+      throw error;
+    }
   }
 
   const { apiKey, baseUrl, model } = getProviderConfig();
@@ -3394,7 +3650,8 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
   }
   const selectedModel = resolveSmartAnnotationEditModel(input.model, model);
   const editSize = getEditSizeForAspect(targetWidth, targetHeight);
-  const editAnnotationViaReferenceGeneration = async () => {
+  // 用函数声明而非 const 箭头函数，避免 catch 块提前引用导致的 "used before declaration" 检查报错。
+  async function editAnnotationViaReferenceGeneration() {
     const sourceDataUrl = await prepareImageProviderReferenceDataUrl(
       sourceImageData.buffer,
       sourceImageData.mimeType,
@@ -3406,31 +3663,118 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
       targetHeight,
     ), "image/png");
     const aspect = targetWidth / Math.max(1, targetHeight);
-    const ratio = aspect > 1.2 ? "16:9" : aspect < 0.85 ? "9:16" : "1:1";
+    // 原图比例 2:3 (~0.67) 与 9:16 (~0.56) 相差较远，与源图相近的比例能减少 VOD 参考图生成时的构图漂移。
+    const ratio = aspect > 1.2
+      ? "16:9"
+      : aspect < 0.85
+        ? (aspect < 0.65 ? "9:16" : "2:3")
+        : "1:1";
     const fallbackModels = getSmartAnnotationReferenceEditModels(selectedModel);
+    // OG（GPT-Image2）支持 mask 蒙版编辑（白=编辑区），生成反相后的蒙版供其使用。
+    // 「加物体」类请求（加/添加/戴/放等动词）把编辑区向上扩展给新物体留空间；
+    // 换色/换材质等「改属性」请求只做轻度膨胀，避免改色溢出。
+    const isAddObjectRequest = /(加|添加|戴上|戴上|戴一顶|戴一个|放一顶|放一个|put a|add a|增加)/i.test(input.prompt || "");
+    const ogMask = await createOgdEditMaskDataUrl(
+      maskImageData.buffer,
+      targetWidth,
+      targetHeight,
+      isAddObjectRequest ? "add" : "edit",
+      input.prompt || "",
+    );
+    const ogMaskDataUrl = ogMask.dataUrl;
+    const ogCompositeMaskBuffer = ogMask.compositeMaskBuffer;
+    console.log("[智能注释] reference edit", JSON.stringify({
+      selectedModel,
+      defaultModel: DEFAULT_IMAGE_MODEL_ID,
+      fallbackModels: Array.from(new Set(fallbackModels)),
+      vodAigc: isVodAigcConfigured(),
+      maskDataUrlPrefix: ogMaskDataUrl.slice(0, 30),
+    }));
     let lastError: unknown;
     for (const fallbackModel of Array.from(new Set(fallbackModels))) {
+      const isVodModel = isVodModelId(fallbackModel);
+      const isVodMaskModel = isVodModel && isVodMaskEditModel(fallbackModel);
+      console.log("[智能注释] try model:", fallbackModel, "| isVod:", isVodModel, "| mask:", isVodMaskModel, "| vodAigc:", isVodAigcConfigured());
+      // 支持 mask 的 VOD 模型（OG）：传 source + mask（ReferenceType:"mask"），
+      // 并在白色蒙版区域内做精确「加物体」编辑，蒙版外保持原图。
+      const userPrompt = input.prompt.trim();
+      const isHatRequest = /(帽|hat\b|cap\b|bonnet|visor|headwear|头饰|贝雷帽|鸭舌帽|针织帽|棒球帽|毛线帽)/i.test(userPrompt);
+      const isGlassesRequest = /(眼镜|glasses|sunglasses|墨镜|goggles|镜框|镜片|一副眼镜|一副墨镜)/i.test(userPrompt);
+      const baseVodMaskLines = [
+        userPrompt,
+        "参考图 1 是原图，必须作为目标画布。参考图 2 是编辑意图标注图（红橙色半透明覆盖区域表示用户指定的编辑位置）。参考图 3 是精确蒙版：白色区域为可编辑/可添加物体的区域，黑色区域必须保持原样。",
+        "只允许在白色蒙版区域内完成用户请求（例如给人物添加帽子、眼镜等新物体），新物体的颜色、款式、材质必须严格遵循用户请求。",
+        "新物体必须与人物自然融合：底部要紧贴发际线/头皮/对应部位轮廓，不能悬浮在头部上方，注意透视、遮挡、比例和光影一致，边缘过渡自然。",
+        "蒙版之外的内容、人物身份、姿势、场景、光线与整体风格必须保持完全不变。",
+      ];
+      if (isHatRequest) {
+        baseVodMaskLines.push("如果请求是帽子，必须严格按用户描述的款式生成：棒球帽（baseball cap）必须有硬帽檐（visor）并遮住前额、紧贴发际线；不能是针织帽/毛线帽/贝雷帽/无檐帽。");
+      }
+      if (isGlassesRequest) {
+        baseVodMaskLines.push("如果请求是眼镜/墨镜，必须严格按用户描述的款式生成：镜框左右对称、镜腿自然架在耳朵上，镜片按描述透明或着色，不得遮挡、扭曲或重绘眼睛、眉毛、鼻子和脸颊轮廓。");
+      }
+      const vodMaskAnnotationPrompt = baseVodMaskLines.join("\n");
+      // 不支持 mask 的 VOD 模型（GEM 等）：只接受单张参考图，不要复用含 mask 指令的提示词，
+      // 否则会因看不到 mask 而过度保守。直接用用户请求 + 保持原图约束即可。
+      const vodAnnotationPrompt = [
+        input.prompt.trim(),
+        "保持原图的人物、姿势、服装、背景、光线和整体构图完全不变，只按上述请求进行修改。",
+      ].join("\n");
       try {
         const result = await generateImages({
-          prompt: [
-            annotationPrompt,
-            "Reference image 1 is the exact source image and must be treated as the target canvas.",
-            "Reference image 2 is only an orange visual guide for the editable annotation area. The orange guide must not appear in the result.",
-            "Make the requested change only in the guided area. Preserve identity, pose, scene, lens, lighting, style, and all unmentioned details.",
-            "Do not leave the guided area unchanged. If the user asks for an accessory such as glasses or sunglasses, add it clearly on the same subject inside the guided area.",
-          ].join("\n\n"),
+          prompt: isVodMaskModel
+            ? vodMaskAnnotationPrompt
+            : isVodModel
+              ? vodAnnotationPrompt
+              : [
+                  annotationPrompt,
+                  "Reference image 1 is the exact source image and must be treated as the target canvas.",
+                  "Reference image 2 is only an orange visual guide for the editable annotation area. The orange guide must not appear in the result.",
+                  "Make the requested change only in the guided area. Preserve identity, pose, scene, lens, lighting, style, and all unmentioned details.",
+                  "Do not leave the guided area unchanged. If the user asks for an accessory such as glasses or sunglasses, add it clearly on the same subject inside the guided area.",
+                ].join("\n\n"),
           model: fallbackModel,
           ratio,
           count: 1,
           preferImageApiForReferences: true,
-          images: [
-            { src: sourceDataUrl, title: "target source image" },
-            { src: editGuideDataUrl, title: "annotation editable area guide" },
-          ],
+          enhancePrompt: false,
+          // VOD OG mask 编辑用 negativePrompt 排除易混淆款式和面部伪影
+          negativePrompt: isVodMaskModel
+            ? [
+                "distorted face, deformed facial features, extra face, face artifacts, blurry face, watermark, text, logo, signature, low quality",
+                isHatRequest ? "beanie, knit cap, toque, winter hat, skull cap, woolen cap, beret, bucket hat, flat cap" : "",
+                isGlassesRequest ? "distorted glasses, asymmetrical glasses, melted glasses, broken glasses, one lens, missing temple arms" : "",
+              ].filter(Boolean).join(", ")
+            : undefined,
+          images: isVodMaskModel
+            ? [
+                { src: sourceDataUrl, title: "target source image" },
+                { src: editGuideDataUrl, title: "annotation editable area guide" },
+                { src: ogMaskDataUrl, title: "annotation mask" },
+              ]
+            : isVodModel
+              ? [
+                  { src: sourceDataUrl, title: "target source image" },
+                  { src: editGuideDataUrl, title: "annotation editable area guide" },
+                ]
+              : [
+                  { src: sourceDataUrl, title: "target source image" },
+                  { src: editGuideDataUrl, title: "annotation editable area guide" },
+                ],
         });
-        return finalizeAnnotationImages(result.images);
+        // VOD mask 模型（vod-og 等）本身通过 ReferenceType: "mask" 做了局部编辑，
+        // VOD 服务端已经保证蒙版外保持原图；后端再做一次 source-preserving 合成
+        // 反而会擦掉超出原始涂鸦点的生成内容（如眼镜跨双眼时只保留了一半）。
+        // 因此直接返回 VOD 结果并归一化尺寸即可。
+        if (isVodMaskModel) {
+          const normalized = await __testNormalizeGeneratedImagesToTargetAspect(result.images.slice(0, 1), targetWidth, targetHeight);
+          return { images: normalized };
+        }
+        // 非 mask 模型（chat/GEM 等）需要自己用扩展蒙版做 source-preserving 合成。
+        return finalizeAnnotationImages(result.images, ogCompositeMaskBuffer);
       } catch (error) {
         lastError = error;
+        console.log("[智能注释] model FAIL:", fallbackModel, "->", error instanceof Error ? error.message : String(error));
       }
     }
     throw lastError || new Error("智能注释参考图编辑失败");
@@ -3494,16 +3838,26 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
   const referenceImages = input.images?.filter(image => image.src?.trim()) || [];
   const targetSize = __testResolveHighDefinitionTargetSize(ratio.width, ratio.height, ratio.width, ratio.height);
   const requestedModel = (input.model || model).trim();
+  console.log("[generate] requestedModel:", requestedModel, "| isVodModelId:", isVodModelId(requestedModel), "| isVodAigcConfigured:", isVodAigcConfigured());
 
   if (isVodModelId(requestedModel) && isVodAigcConfigured()) {
     try {
+      const maskImage = referenceImages.find(image => image.title === "annotation mask");
+      const nonMaskImages = referenceImages.filter(image => image.title !== "annotation mask");
+      console.log("[generate] VOD branch entered, model:", requestedModel, "| maskPresent:", !!maskImage, "| refImages:", nonMaskImages.length);
       const vodInput: VodImageGenerationInput = {
         prompt: buildPrompt(input),
         model: requestedModel,
         aspectRatio: input.ratio || "1:1",
         count,
-        imageUrl: referenceImages.length > 0 ? referenceImages[0].src : undefined,
-        enhancePrompt: true,
+        // 智能注释等场景会传入 source + edit guide 多张参考图；用 imageUrls 全部传给 VOD OG。
+        imageUrls: nonMaskImages.length > 0 ? nonMaskImages.map(image => image.src) : undefined,
+        // 智能注释等场景会把「白=编辑区」的蒙版传入，由 VOD OG 系列做精确局部编辑。
+        maskDataUrl: isVodMaskEditModel(requestedModel) ? maskImage?.src : undefined,
+        // 参考图编辑等对指令精确性要求高的场景（如智能注释），VOD 服务端 prompt 增强会改写用户请求，
+        // 导致「加帽子」等具体指令被稀释；由调用方通过 enhancePrompt=false 显式关闭。
+        enhancePrompt: input.enhancePrompt ?? true,
+        negativePrompt: input.negativePrompt,
       };
 
       const result = await generateImageWithVod(vodInput);
@@ -3513,6 +3867,7 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
         width: img.width,
         height: img.height,
       }));
+      console.log("[generate] VOD success:", requestedModel, "| count:", images.length, "| src:", (images[0]?.src || "").slice(0, 100));
 
       return { images: images.slice(0, count) };
     } catch (error) {
@@ -3701,8 +4056,10 @@ export async function extractImageText(input: ExtractImageTextInput): Promise<{
             type: "text",
             text: [
               "请识别图片中所有可见文字，并返回严格 JSON，不要输出解释或 Markdown。",
-              "格式：{\"text\":\"按阅读顺序排列的全部原文\",\"regions\":[{\"text\":\"该区域原文\",\"x\":0.1,\"y\":0.2,\"width\":0.3,\"height\":0.1}]}。",
+              "格式：{\"text\":\"按阅读顺序排列的全部原文\",\"regions\":[{\"text\":\"该区域原文\",\"x\":0.1,\"y\":0.2,\"width\":0.3,\"height\":0.1,\"rotate\":0,\"fontColor\":\"#ffffff\"}]}。",
               "x、y、width、height 必须是相对整张图片的 0 到 1 小数坐标，区域应完整覆盖对应文字。",
+              "rotate 是文字相对水平方向的倾斜角度（度，正值顺时针，多数场景为 0）；",
+              "fontColor 是该区域文字的主色十六进制值（如 #ffffff）；两者都尽量准确填写。",
               "保持原有语言、大小写、标点和换行，不要翻译。没有可读文字时返回 {\"text\":\"\",\"regions\":[]}。",
             ].join("\n"),
           },
@@ -3735,8 +4092,9 @@ export async function extractImageText(input: ExtractImageTextInput): Promise<{
     images: [{ src: input.imageSrc, title: "OCR target image" }],
     prompt: [
       "请识别图片中所有可见文字，并返回严格 JSON，不要输出解释或 Markdown。",
-      "格式：{\"text\":\"按阅读顺序排列的全部原文\",\"regions\":[{\"text\":\"该区域原文\",\"x\":0.1,\"y\":0.2,\"width\":0.3,\"height\":0.1}]}。",
+      "格式：{\"text\":\"按阅读顺序排列的全部原文\",\"regions\":[{\"text\":\"该区域原文\",\"x\":0.1,\"y\":0.2,\"width\":0.3,\"height\":0.1,\"rotate\":0,\"fontColor\":\"#ffffff\"}]}。",
       "坐标使用相对整张图片的 0 到 1 小数，区域完整覆盖对应文字。",
+      "rotate 是文字倾斜角度（度，正值顺时针，多数为 0），fontColor 是文字主色十六进制值，尽量准确填写。",
       "保持原有语言、大小写、标点和换行；没有可读文字时返回空 text 和空 regions。",
     ].join("\n"),
   });
@@ -3814,7 +4172,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
     throw new Error("Missing AI_IMAGE_API_KEY");
   }
 
-  const sourceImageData = await imageSrcToBuffer(input.imageSrc);
+  let sourceImageData = await imageSrcToBuffer(input.imageSrc);
   const maskSrc = input.maskSrc?.trim();
   const maskUrl = (input.maskUrl || input.mask_url || "").trim();
   const maskImageData = maskSource ? await imageSrcToBuffer(maskSource) : null;
@@ -3833,13 +4191,12 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
       );
   const targetWidth = targetSize.width;
   const targetHeight = targetSize.height;
-  const sourceImage = bufferToImageFile(sourceImageData.buffer, sourceImageData.mimeType);
+  let sourceImage = bufferToImageFile(sourceImageData.buffer, sourceImageData.mimeType);
   const requestedModel = (input.model || model).trim();
   const usesCameraViewAutoModel = isCameraViewOperation && requestedModel === "camera-view-auto";
   const usesAutoModel = requestedModel.toLowerCase() === "auto" || usesCameraViewAutoModel;
   const selectedModels = usesAutoModel
     ? [
-        ...(requiresVisibleLocalChange ? ["gpt-image-2"] : []),
         ...(isCameraViewOperation ? ["vod-gem", "vod-og"] : []),
         ...getImageModelFallbackAttempts(requestedModel),
       ].filter((modelId, index, values) => values.indexOf(modelId) === index)
@@ -3848,7 +4205,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   const referenceImages = input.images?.filter(image => image.src?.trim()) || [];
   const editSize = getEditSizeForAspect(targetWidth, targetHeight);
   const aspectInstruction = `Keep the final image canvas aspect ratio exactly ${targetWidth}:${targetHeight}. Do not return a square image unless the source is square.`;
-  const textEditInstruction = isTextEditOperation
+  let textEditInstruction = isTextEditOperation
     ? [
         "This is a local text replacement edit, not a new image generation request.",
         "Use the source image as the only target canvas. Preserve every non-text region, including background, subject, product, logo, decorative elements, colors, lighting, composition, camera angle, and aspect ratio.",
@@ -3856,6 +4213,137 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
         "Do not change the image category, scene, product type, or overall visual identity.",
       ].join("\n")
     : "";
+  // 负面约束：OpenAI 系接口无 negative_prompt 字段，以 "Avoid" 形式并入正向提示词，
+  // 降低 AI 在文字重绘时误改画面其他内容的风险。
+  const textEditNegativeInstruction = isTextEditOperation
+    ? "Avoid in the final result: 画面变形、背景改动、图案偏移、多余元素、画面裁切、文字错位、修改蒙版外内容、模糊、噪点、水印、扭曲。Keep every pixel outside the marked text areas unchanged."
+    : "";
+
+  // 记录擦字前的原始图：叠字结果 composite 时用它还原 mask 外像素，
+  // 避免美图对 mask 外像素的微小改动（JPEG 压缩等）被带入最终结果
+  const originalSourceImageData = sourceImageData;
+
+  // ── 阶段 A：美图擦字（text_edit 专用）────────────────────────────
+  // 先用美图局部重绘把文字区域擦成干净背景，再让主模型只负责"叠字"，
+  // 避免主模型在 mask 内重新生成背景导致"重绘文字区域背景不正常"。
+  if (isTextEditOperation && maskImageData) {
+    try {
+      // 膨胀 mask 透明区域，让美图把文字边缘也擦进去，减少原文字残留。
+      // shiftY=30 修正 mask 整体偏下；extraX=13 让左右各多擦 13px；shrinkY=20 减少 OCR bbox 多余的上下 padding。
+      const dilatedMaskBuffer = await dilateMaskTransparent(
+        maskImageData.buffer,
+        targetWidth,
+        targetHeight,
+        8,
+        30,
+        13,
+        20,
+      );
+      const meituMaskBuffer = await buildMeituMask(dilatedMaskBuffer, targetWidth, targetHeight, "full");
+      const meituResult = await inpaintWithMeitu({
+        imageBuffer: sourceImageData.buffer,
+        maskBuffer: meituMaskBuffer,
+        width: targetWidth,
+        height: targetHeight,
+        promptKind: "erase",
+        promptPos: "Remove the text characters inside the mask and restore the clean original background.",
+        numSamples: 1,
+      });
+      const cleanedSrc = meituResult.images[0]?.src;
+      if (cleanedSrc) {
+        const cleanedData = await imageSrcToBuffer(cleanedSrc);
+        // 校验美图确实改变了 mask 区域（文字被擦掉），否则视为失败降级
+        const erased = await hasVisibleLocalEdit(
+          sourceImageData.buffer,
+          cleanedData.buffer,
+          maskImageData.buffer,
+          targetWidth,
+          targetHeight,
+          { pixelDifferenceThreshold: 10, minChangedPixels: 30, minChangedRatio: 0.001 },
+        );
+        if (erased) {
+          sourceImageData = cleanedData;
+          sourceImage = bufferToImageFile(cleanedData.buffer, cleanedData.mimeType);
+          textEditInstruction +=
+            "\nThe masked text areas have already been cleared to clean original background. " +
+            "Keep that cleaned background unchanged and only paint the replacement text inside the mask.";
+          console.log(`[text_edit] 美图擦字成功，进入叠字阶段`);
+        } else {
+          console.log(`[text_edit] 美图擦字完成但 mask 区域无明显变化，降级为直接编辑`);
+        }
+      } else {
+        console.log(`[text_edit] 美图擦字未返回有效图片，降级为直接编辑`);
+      }
+    } catch (error) {
+      console.log(
+        `[text_edit] 美图擦字失败，降级为直接编辑: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  // ── 阶段 B：确定性文字绘制（text_edit + 携带 OCR 区域 + 擦字成功）──────
+  // 美图擦字成功（sourceImageData 已被替换为擦字图）时，直接按 OCR 区域把新文字
+  // 绘制到擦字图上，跳过 AI 叠字，彻底避免模型在 mask 内重造背景导致"背景不正常"。
+  if (
+    isTextEditOperation &&
+    maskImageData &&
+    input.textRegions?.length &&
+    input.editedText?.trim() &&
+    sourceImageData !== originalSourceImageData
+  ) {
+    try {
+      console.log(
+        `[text_edit debug] editedText="${input.editedText}", regions=${JSON.stringify(input.textRegions)}, target=${targetWidth}x${targetHeight}`,
+      );
+      const drawn = await drawTextReplacement({
+        imageBuffer: sourceImageData.buffer,
+        originalBuffer: originalSourceImageData.buffer,
+        textRegions: input.textRegions,
+        editedText: input.editedText,
+        targetWidth,
+        targetHeight,
+      });
+      await fs.promises.writeFile("D:\\project\\artx-test\\debug-cleaned.png", sourceImageData.buffer);
+      await fs.promises.writeFile("D:\\project\\artx-test\\debug-drawn.png", drawn);
+      // 用"仅覆盖被修改文字区域"的精确 mask 做合成：
+      // 被修改 region 内使用擦字图+新文字；其余区域（含未修改文字、多余背景）全部用原图恢复，
+      // 彻底解决"只改一行却擦了两行"导致的背景色块问题。
+      const modifiedMask = await createModifiedRegionsMask(
+        input.textRegions!,
+        input.editedText!,
+        targetWidth,
+        targetHeight,
+      );
+      const composited = await __testCompositeSourcePreservingImageEdit(
+        originalSourceImageData.buffer,
+        drawn,
+        modifiedMask,
+        targetWidth,
+        targetHeight,
+      );
+      await fs.promises.writeFile("D:\\project\\artx-test\\debug-mask.png", modifiedMask);
+      await fs.promises.writeFile("D:\\project\\artx-test\\debug-composited.png", composited);
+      console.log(
+        `[text_edit] 确定性文字绘制完成（${input.textRegions.length} 个区域，走方案 B）`,
+      );
+      return {
+        images: [
+          {
+            src: `data:image/png;base64,${composited.toString("base64")}`,
+            width: targetWidth,
+            height: targetHeight,
+          },
+        ],
+      };
+    } catch (error) {
+      console.log(
+        `[text_edit] 确定性文字绘制失败，降级为 AI 叠字: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
   const cameraViewInstruction = isCameraViewOperation
     ? buildCameraViewEditInstruction(input)
     : "";
@@ -3869,7 +4357,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
     return Promise.all(normalizedImages.map(async image => {
       const editedImageData = await imageSrcToBuffer(image.src);
       const composited = await __testCompositeSourcePreservingImageEdit(
-        sourceImageData.buffer,
+        originalSourceImageData.buffer,
         editedImageData.buffer,
         maskImageData.buffer,
         targetWidth,
@@ -3894,10 +4382,18 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
         )).toString("base64")}`
       : "";
     const aspect = targetWidth / Math.max(1, targetHeight);
-    const ratio = aspect > 1.2 ? "16:9" : aspect < 0.85 ? "9:16" : "1:1";
-    const referenceModels = usesAutoModel && (requiresVisibleLocalChange || usesCameraViewAutoModel)
-      ? selectedModels
-      : [requestedModel];
+    // 优先使用与源图比例接近的 2:3，避免 VOD 参考图生成被错误地裁剪到 9:16。
+    const ratio = aspect > 1.2
+      ? "16:9"
+      : aspect < 0.85
+        ? (aspect < 0.65 ? "9:16" : "2:3")
+        : "1:1";
+    const referenceModels =
+      usesAutoModel && (requiresVisibleLocalChange || usesCameraViewAutoModel)
+        ? selectedModels
+        : requiresVisibleLocalChange
+          ? Array.from(new Set([requestedModel, ...getImageModelFallbackAttempts("auto")]))
+          : [requestedModel];
     let lastError: unknown;
 
     for (const referenceModel of referenceModels) {
@@ -3916,6 +4412,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
             "Use any later reference images only for the requested object, accessory, style, texture, or detail.",
             "Return one complete edited image, not a text explanation.",
             aspectInstruction,
+            textEditNegativeInstruction,
           ].join("\n\n"),
           model: referenceModel,
           ratio,
@@ -3991,6 +4488,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
         ? "For this camera-view operation, the source image is the locked visual content reference. Generate a new coherent camera viewpoint while keeping scene content stable; do not treat it as a masked local edit."
         : "",
       aspectInstruction,
+      textEditNegativeInstruction,
     ].filter(Boolean).join("\n\n"));
     body.append("n", "1");
     body.append("size", editSize);

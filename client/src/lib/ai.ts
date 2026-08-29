@@ -73,6 +73,12 @@ export type ImageTextRegion = {
   y: number;
   width: number;
   height: number;
+  /** 文字倾斜角度（度，正值顺时针），回填时以区域中心旋转 */
+  rotate?: number;
+  /** 文字主色（十六进制 #rrggbb），回填时作为默认字体颜色 */
+  fontColor?: string;
+  /** 回填字体（中文名或 CSS 字体名） */
+  fontFamily?: string;
 };
 
 function getAiAssetBaseUrl() {
@@ -738,6 +744,8 @@ export async function editImageWithPrompt({
   generationId,
   provider,
   promptPos,
+  textRegions,
+  editedText,
 }: {
   imageSrc: string;
   model?: string;
@@ -760,6 +768,10 @@ export async function editImageWithPrompt({
   provider?: "auto" | "meitu" | "default";
   /** 美图局部重绘的正向提示词（用户注释文本），仅 provider="meitu" 时使用 */
   promptPos?: string;
+  /** 智能文案编辑：原图 OCR 识别的文字区域（x/y/width/height/text），用于确定性文字绘制 */
+  textRegions?: ImageTextRegion[];
+  /** 智能文案编辑：修改后的完整文案（多行用 \n 分隔），用于确定性文字绘制 */
+  editedText?: string;
 }) {
   requireAiAuth();
   if (generationId) {
@@ -780,6 +792,8 @@ export async function editImageWithPrompt({
       skillId,
       provider,
       promptPos,
+      textRegions,
+      editedText,
     });
   }
   const result = await postAiOrchestrate({
@@ -798,6 +812,8 @@ export async function editImageWithPrompt({
     skillId,
     provider,
     promptPos,
+    textRegions,
+    editedText,
   }, "AI 图片编辑失败");
 
   return { images: result.images || [] };

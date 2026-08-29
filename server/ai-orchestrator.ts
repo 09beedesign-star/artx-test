@@ -34,6 +34,10 @@ export type OrchestrateRequest = {
   provider?: "auto" | "meitu" | "default";
   /** 美图局部重绘的正向提示词（用户注释文本），仅 provider="meitu" 时使用 */
   promptPos?: string;
+  /** 智能文案编辑：原图 OCR 识别的文字区域（x/y/width/height/text），用于确定性文字绘制 */
+  textRegions?: Array<{ x: number; y: number; width: number; height: number; text?: string }>;
+  /** 智能文案编辑：修改后的完整文案（多行用 \n 分隔），用于确定性文字绘制 */
+  editedText?: string;
 };
 
 export type OrchestrateResponse = {
@@ -219,6 +223,8 @@ export class AIOrchestrator {
         // 否则 editSmartAnnotationImage 的 provider==="meitu" 分支永远不命中。
         provider: input.provider,
         promptPos: input.promptPos,
+        textRegions: input.textRegions,
+        editedText: input.editedText,
       });
       return {
         type: "image",

@@ -26,6 +26,13 @@ export type MeituInpaintOptions = {
   seed?: number;
   numSamples?: number;
   timeoutMs?: number;
+  /**
+   * 基础约束语义：
+   * - "add"（默认）：mask 内保留原内容，只在上方添加请求物体（智能注释/帽子等场景）
+   * - "edit"：mask 内修改用户指定的属性（颜色/纹理/材质等），保持形状结构与其余区域不变（智能注释换色/换材质等场景）
+   * - "erase"：mask 内清空文字/物体并用周围背景填充（智能文案编辑的"擦字"阶段）
+   */
+  promptKind?: "add" | "edit" | "erase";
 };
 
 export type MeituInpaintResult = {
@@ -112,6 +119,13 @@ export async function buildMeituMask(
   /** "hat" 模式：仅保留 mask 上方约 30% 区域作为重绘区，其余设为保留区（防止扩散模型重写面部） */
   mode?: "full" | "hat",
 ): Promise<Buffer> {
+  // DEBUG: 保存前端传入的原始 mask 和 buildMeituMask 目标尺寸
+  try {
+    const fs = await import("fs");
+    const path = await import("path");
+    const ts = Date.now();
+    fs.writeFileSync(path.join(process.cwd(), `debug-mask-raw-${ts}-${width}x${height}.png`), maskBuffer);
+  } catch (e) { /* ignore */ }
   const sharp = (await import("sharp")).default;
   const { data } = await sharp(maskBuffer, { limitInputPixels: false })
     .rotate()
@@ -185,6 +199,13 @@ export async function buildMeituMask(
 
   // 边缘羽化：Gaussian blur 让硬边界变软（避免生成后一圈接缝），再编码 JPEG
   const featherPx = maskConfig.maskFeatherPx;
+  try {
+    const fs = await import("fs");
+    const path = await import("path");
+    const ts = Date.now();
+    const debugBuf = await sharp(maskRgba, { raw: { width, height, channels: 4 } }).png().toBuffer();
+    fs.writeFileSync(path.join(process.cwd(), `debug-mask-final-${ts}-${width}x${height}.png`), debugBuf);
+  } catch (e) { /* ignore */ }
   return sharp(maskRgba, {
     raw: { width, height, channels: 4 },
     limitInputPixels: false,
@@ -437,10 +458,37 @@ const MEITU_BASE_PROMPT_POS = [
   "User request:",
 ].join(" ");
 
+/** 擦字基础约束：mask 内清空文字/字符，用周围背景无缝填充（智能文案编辑"擦字"阶段） */
+const MEITU_ERASE_PROMPT_POS = [
+  "STRICT local edit: use the uploaded source image as the ONLY canvas. Edit ONLY inside the mask.",
+  "ABSOLUTE RULE 1: Remove every letter, digit, character, word, symbol, and text element inside the mask completely.",
+  "ABSOLUTE RULE 2: Do NOT add, write, or place any new text, symbol, logo, shape, watermark, or object in or outside the mask.",
+  "Fill the removed text area with the exact same background color, gradient, lighting, and texture as the surrounding pixels, blending seamlessly so no trace of the original text remains.",
+  "Preserve ALL content outside the mask 100% identical to the source image.",
+  "User request:",
+].join(" ");
+
+/** 局部修改基础约束：mask 内只改用户指定的属性（颜色/材质/纹理），禁止改变形状/身份/结构（智能注释换色/换材质等场景） */
+const MEITU_EDIT_PROMPT_POS = [
+  "STRICT local edit: use the uploaded source image as the ONLY canvas. Edit ONLY inside the mask.",
+  "ABSOLUTE RULE 1: Inside the mask, change ONLY the attribute the user asks for (such as color, material, texture, style). Apply the requested change to the existing content directly.",
+  "ABSOLUTE RULE 2: Do NOT alter the shape, silhouette, position, structure, or identity of the object inside the mask. Keep its outline, proportions, pose, and facial features exactly the same. Only recolor or re-texture it.",
+  "ABSOLUTE RULE 3: Do NOT add, remove, or replace any objects, clothing, hairstyle, or body parts inside the mask. Do not create new shapes or items.",
+  "The result inside the mask must look like the SAME object from the original image, just with the user-requested color/material change applied.",
+  "Preserve ALL content outside the mask 100% identical to the source image.",
+  "User request:",
+].join(" ");
+
+function getMeituBasePrompt(promptKind: "add" | "edit" | "erase" | undefined): string {
+  if (promptKind === "erase") return MEITU_ERASE_PROMPT_POS;
+  if (promptKind === "edit") return MEITU_EDIT_PROMPT_POS;
+  return MEITU_BASE_PROMPT_POS;
+}
+
 function buildFormulaInpaintBody(
   imageBase64: string,
   maskBase64: string,
-  options: Pick<MeituInpaintOptions, "promptPos" | "seed">,
+  options: Pick<MeituInpaintOptions, "promptPos" | "seed" | "promptKind">,
   task: string,
 ) {
   const parameter: Record<string, unknown> = {
@@ -450,7 +498,7 @@ function buildFormulaInpaintBody(
   const userPrompt = options.promptPos?.trim();
   if (userPrompt) {
     // 基础约束在前，用户请求在后，确保模型优先读取负面约束
-    parameter.prompt_pos = `${MEITU_BASE_PROMPT_POS} ${userPrompt}`;
+    parameter.prompt_pos = `${getMeituBasePrompt(options.promptKind)} ${userPrompt}`;
   }
   if (options.seed !== undefined && Number.isFinite(options.seed)) parameter.seed = Math.trunc(options.seed);
 
