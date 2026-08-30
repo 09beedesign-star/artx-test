@@ -186,6 +186,7 @@ export type VodImageGenerationInput = {
   count?: number;
   imageUrl?: string;
   imageUrls?: string[];
+  maskDataUrl?: string;
   enhancePrompt?: boolean;
   negativePrompt?: string;
   storageMode?: "Temporary" | "Permanent";
@@ -200,6 +201,7 @@ export type VodImageGenerationResult = {
 
 const MODEL_VERSION_MAP: Record<string, string> = {
   gem: "3.1",
+  "gem-lite": "3.1-lite",
   "gem-3.1-lite": "3.1-lite",
   og: "image2_medium",
   "og-image2-low": "image2_low",
@@ -218,7 +220,10 @@ const MODEL_VERSION_MAP: Record<string, string> = {
 };
 
 function resolveModelAndVersion(model?: string, version?: string): { modelName: string; modelVersion: string } {
-  const modelKey = (model || "gem").toLowerCase();
+  // 项目内部模型 id 带 "vod-" 前缀（如 vod-og / vod-gem），而 VOD 接口只认去掉前缀后的
+  // 模型族名（og / gem / mj ...）。前缀不剥离会导致所有 vod-* 都匹配不上、
+  // 全部落到 resolveModelName 的默认分支返回 GEM，模型选择形同虚设。
+  const modelKey = (model || "gem").toLowerCase().replace(/^vod-/, "");
 
   if (version) {
     return { modelName: resolveModelName(modelKey), modelVersion: version };
@@ -258,6 +263,14 @@ function resolveAspectRatio(ratio?: string): string {
 export async function createVodImageTask(input: VodImageGenerationInput): Promise<{ taskId: string }> {
   const config = getConfig();
   const { modelName, modelVersion } = resolveModelAndVersion(input.model, input.modelVersion);
+  console.log("[vod-aigc] create task", JSON.stringify({
+    requestedModel: input.model,
+    modelName,
+    modelVersion,
+    referenceCount: input.imageUrls?.length ?? (input.imageUrl ? 1 : 0),
+    hasMask: Boolean(input.maskDataUrl),
+    enhancePrompt: input.enhancePrompt ? "Enabled" : "Disabled",
+  }));
 
   const toFileInfo = (url: string, usage?: "Reference"): FileInfo => {
     if (url.startsWith("data:")) {
@@ -268,11 +281,19 @@ export async function createVodImageTask(input: VodImageGenerationInput): Promis
     return { Type: "Url", Url: url, ...(usage ? { Usage: usage } : {}) };
   };
 
-  const fileInfos: FileInfo[] | undefined = input.imageUrl
-    ? [toFileInfo(input.imageUrl)]
-    : input.imageUrls?.length
-      ? input.imageUrls.map((url) => toFileInfo(url, "Reference"))
-      : undefined;
+  const fileInfos: FileInfo[] | undefined = (() => {
+    if (!input.imageUrl && !input.imageUrls?.length) return undefined;
+    const list: FileInfo[] = input.imageUrl
+      ? [toFileInfo(input.imageUrl)]
+      : (input.imageUrls || []).map((url) => toFileInfo(url));
+    // OG（GPT-Image2）系列支持蒙版编辑：白色区域=待替换/编辑区域。
+    // 参考 https://cloud.tencent.com/document/product/266/126240
+    // 注意：mask 参考图不能带 Usage 字段，只需 ReferenceType:"mask"。
+    if (input.maskDataUrl) {
+      list.push({ ...toFileInfo(input.maskDataUrl), ReferenceType: "mask" });
+    }
+    return list;
+  })();
 
   const payload: CreateImageTaskRequest = {
     SubAppId: config.subAppId,

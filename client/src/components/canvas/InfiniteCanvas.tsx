@@ -6524,6 +6524,10 @@ function AssetNodeComponent({
     const fields = extractedTextDraft.split("\n").map(item => item.trim());
     return fields.length ? fields : ["未识别到可编辑文案"];
   }, [extractedTextDraft]);
+  /** 每个文案段落的回填样式（颜色/字体/角度），index 与文案段落一一对应 */
+  const [extractedTextStyles, setExtractedTextStyles] = useState<
+    Array<{ color: string; fontFamily: string; rotate: number }>
+  >([]);
   const updateExtractedTextField = useCallback(
     (index: number, value: string) => {
       setExtractedTextDraft(current => {
@@ -6536,6 +6540,29 @@ function AssetNodeComponent({
     },
     []
   );
+  const updateExtractedTextStyle = useCallback(
+    (index: number, partial: Partial<{ color: string; fontFamily: string; rotate: number }>) => {
+      setExtractedTextStyles(current => {
+        const next = current.length ? [...current] : [];
+        while (next.length <= index) {
+          next.push({ color: "#ffffff", fontFamily: "微软雅黑", rotate: 0 });
+        }
+        next[index] = { ...next[index], ...partial };
+        return next;
+      });
+    },
+    []
+  );
+  /** 用户手动移除的 OCR 区域索引：该区域只擦除、不回填任何文字 */
+  const [deletedTextIndexes, setDeletedTextIndexes] = useState<Set<number>>(new Set());
+  const toggleDeleteExtractedText = useCallback((index: number) => {
+    setDeletedTextIndexes(current => {
+      const next = new Set(current);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }, []);
   const extractedTextPanelRef = useRef<HTMLDivElement | null>(null);
   const extractedTextPanelDragRef = useRef<{
     pointerId: number;
@@ -6710,8 +6737,21 @@ function AssetNodeComponent({
     if (isExpanding) setCropRect({ x: -18, y: -18, w: 136, h: 136 });
   }, [isExpanding]);
   useEffect(() => {
-    if (extractedTextPanelOpen) setExtractedTextDraft(extractedText);
-  }, [extractedText, extractedTextPanelOpen]);
+    if (extractedTextPanelOpen) {
+      setExtractedTextDraft(extractedText);
+      setDeletedTextIndexes(new Set());
+      // 从 OCR 区域带出默认回填样式（颜色/角度），字体默认微软雅黑
+      setExtractedTextStyles(
+        extractedTextRegions.map(region => ({
+          color: /^#[0-9a-fA-F]{6}$/.test(region.fontColor || "")
+            ? (region.fontColor as string)
+            : "#ffffff",
+          fontFamily: region.fontFamily || "微软雅黑",
+          rotate: Number.isFinite(region.rotate) ? (region.rotate as number) : 0,
+        }))
+      );
+    }
+  }, [extractedText, extractedTextPanelOpen, extractedTextRegions]);
 
   useEffect(() => {
     if (!extractedTextPanelOpen) setExtractedTextPanelPosition(null);
@@ -7573,7 +7613,17 @@ function AssetNodeComponent({
           imageHeight: imagePayload.height,
           originalText: extractedText,
           editedText: nextText,
-          textRegions: extractedTextRegions,
+          textRegions: extractedTextRegions.map((region, index) => {
+            const style = extractedTextStyles[index];
+            return {
+              ...region,
+              // 用户手动移除的区域：回填空文本（只擦除旧文字，不绘制新文字）
+              targetText: deletedTextIndexes.has(index) ? "" : undefined,
+              fontColor: style?.color,
+              fontFamily: style?.fontFamily,
+              rotate: style?.rotate,
+            };
+          }),
           panelScreenRect: extractedTextPanelRef.current
             ? {
                 left: extractedTextPanelRef.current.getBoundingClientRect()
@@ -7589,9 +7639,11 @@ function AssetNodeComponent({
       })
     );
   }, [
+    deletedTextIndexes,
     extractedText,
     extractedTextDraft,
     extractedTextRegions,
+    extractedTextStyles,
     getRenderedImagePayload,
     nodeId,
     setFlowNodes,
@@ -8999,19 +9051,33 @@ function AssetNodeComponent({
                 </div>
               ) : (
                 <div className="flex flex-col gap-2">
-                  {extractedTextFields.map((field, index) => (
+                  {extractedTextFields.map((field, index) => {
+                    const isDeleted = deletedTextIndexes.has(index);
+                    return (
                     <label
                       key={index}
                       className="flex flex-col gap-1.5 rounded-[var(--radius-md-design)] px-2.5 py-2"
                       style={{
-                        background: isDark
-                          ? "rgba(255,255,255,0.06)"
-                          : "rgba(0,0,0,0.035)",
-                        border: `1px solid ${isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)"}`,
+                        background: isDeleted
+                          ? isDark
+                            ? "rgba(255,80,80,0.08)"
+                            : "rgba(255,80,80,0.06)"
+                          : isDark
+                            ? "rgba(255,255,255,0.06)"
+                            : "rgba(0,0,0,0.035)",
+                        border: `1px solid ${
+                          isDeleted
+                            ? isDark
+                              ? "rgba(255,80,80,0.35)"
+                              : "rgba(255,80,80,0.30)"
+                            : isDark
+                              ? "rgba(255,255,255,0.10)"
+                              : "rgba(0,0,0,0.08)"
+                        }`,
                       }}
                     >
                       <span
-                        className="type-caption"
+                        className="type-caption flex items-center justify-between"
                         style={{
                           color: isDark
                             ? "rgba(255,255,255,0.56)"
@@ -9019,7 +9085,45 @@ function AssetNodeComponent({
                           fontSize: 11,
                         }}
                       >
-                        文案段落 {index + 1}
+                        <span>
+                          文案段落 {index + 1}
+                          {isDeleted ? "（已移除）" : ""}
+                        </span>
+                        <button
+                          type="button"
+                          aria-label={
+                            isDeleted
+                              ? `恢复段落 ${index + 1}`
+                              : `移除段落 ${index + 1}`
+                          }
+                          title={
+                            isDeleted
+                              ? "恢复该区域"
+                              : "移除该区域（只擦除旧文字，不绘制新文字）"
+                          }
+                          onClick={() => toggleDeleteExtractedText(index)}
+                          className="nodrag nopan cursor-pointer rounded px-1.5 py-0.5 text-[11px] transition-colors"
+                          style={{
+                            color: isDeleted
+                              ? isDark
+                                ? "rgba(255,255,255,0.9)"
+                                : "rgba(180,60,60,1)"
+                              : isDark
+                                ? "rgba(255,255,255,0.5)"
+                                : "rgba(28,28,40,0.5)",
+                            background: isDeleted
+                              ? isDark
+                                ? "rgba(255,80,80,0.25)"
+                                : "rgba(255,80,80,0.15)"
+                              : "transparent",
+                            border: "none",
+                            outline: "none",
+                          }}
+                          onMouseDown={event => event.stopPropagation()}
+                          onKeyDown={event => event.stopPropagation()}
+                        >
+                          {isDeleted ? "恢复" : "✕ 移除"}
+                        </button>
                       </span>
                       <textarea
                         value={field}
@@ -9033,17 +9137,22 @@ function AssetNodeComponent({
                           outline: "none",
                           border: "none",
                           background: "transparent",
-                          color: "inherit",
+                          color: isDeleted
+                            ? isDark
+                              ? "rgba(255,255,255,0.35)"
+                              : "rgba(28,28,40,0.35)"
+                            : "inherit",
                           fontSize: 13,
                           lineHeight: 1.5,
                           userSelect: "text",
-                          cursor: "text",
+                          cursor: isDeleted ? "default" : "text",
                           overflowY: "auto",
                           scrollbarWidth: "thin",
                           scrollbarColor: `${isDark ? "rgba(255,255,255,0.24)" : "rgba(0,0,0,0.20)"} transparent`,
                           overscrollBehavior: "contain",
+                          textDecoration: isDeleted ? "line-through" : "none",
                         }}
-                        readOnly={isApplyingExtractedText}
+                        readOnly={isApplyingExtractedText || isDeleted}
                         onChange={event =>
                           updateExtractedTextField(index, event.target.value)
                         }
@@ -9052,8 +9161,83 @@ function AssetNodeComponent({
                         onWheel={event => event.stopPropagation()}
                         onKeyDown={event => event.stopPropagation()}
                       />
+                      {!isDeleted && (
+                      <div className="mt-1 flex items-center gap-1.5">
+                        <input
+                          type="color"
+                          aria-label={`文案段落 ${index + 1} 颜色`}
+                          title="文字颜色"
+                          value={extractedTextStyles[index]?.color ?? "#ffffff"}
+                          className="nodrag nopan h-5 w-7 cursor-pointer rounded border-none bg-transparent p-0"
+                          style={{ appearance: "none", outline: "none" }}
+                          onChange={event =>
+                            updateExtractedTextStyle(index, {
+                              color: event.target.value,
+                            })
+                          }
+                          onMouseDown={event => event.stopPropagation()}
+                          onKeyDown={event => event.stopPropagation()}
+                        />
+                        <select
+                          aria-label={`文案段落 ${index + 1} 字体`}
+                          title="回填字体"
+                          value={
+                            extractedTextStyles[index]?.fontFamily ?? "微软雅黑"
+                          }
+                          className="nodrag nopan min-w-0 flex-1 rounded border-none bg-transparent px-1 py-0.5 text-[11px]"
+                          style={{
+                            color: "inherit",
+                            outline: "none",
+                            cursor: "pointer",
+                          }}
+                          onChange={event =>
+                            updateExtractedTextStyle(index, {
+                              fontFamily: event.target.value,
+                            })
+                          }
+                          onMouseDown={event => event.stopPropagation()}
+                          onKeyDown={event => event.stopPropagation()}
+                        >
+                          <option value="微软雅黑">微软雅黑</option>
+                          <option value="黑体">黑体</option>
+                          <option value="宋体">宋体</option>
+                          <option value="楷体">楷体</option>
+                          <option value="仿宋">仿宋</option>
+                          <option value="等线">等线</option>
+                        </select>
+                        <input
+                          type="number"
+                          aria-label={`文案段落 ${index + 1} 倾斜角度`}
+                          title="倾斜角度（度，以文字中心旋转）"
+                          value={extractedTextStyles[index]?.rotate ?? 0}
+                          className="nodrag nopan w-11 rounded border-none bg-transparent px-1 py-0.5 text-[11px]"
+                          style={{ color: "inherit", outline: "none" }}
+                          step={1}
+                          min={-90}
+                          max={90}
+                          onChange={event =>
+                            updateExtractedTextStyle(index, {
+                              rotate: Number(event.target.value) || 0,
+                            })
+                          }
+                          onMouseDown={event => event.stopPropagation()}
+                          onKeyDown={event => event.stopPropagation()}
+                        />
+                        <span
+                          className="text-[10px]"
+                          style={{
+                            color: isDark
+                              ? "rgba(255,255,255,0.4)"
+                              : "rgba(28,28,40,0.4)",
+                          }}
+                        >
+                          °
+                        </span>
+                      </div>
+                      )}
                     </label>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
               </div>
@@ -22016,7 +22200,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [pendingProject, setPendingProject] = useState<Project | null>(null);
   const [annotationMaskPreview, setAnnotationMaskPreview] = useState<{
     imageSrc: string;
-    buildMask: (scale: number) => Promise<{ maskSrc: string; width: number; height: number }>;
     onConfirm: (maskSrc: string) => void;
   } | null>(null);
   // ── Referenced assets: auto-populated from selected image nodes ──
@@ -23137,13 +23320,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         });
       };
 
-      // 打开「重绘区域预览」弹窗：用户拖动滑块确认重绘范围后再发起请求
+      // 打开「涂抹重绘区域」弹窗：用户在图上笔刷涂抹确认重绘范围后再发起请求
       setAnnotationMaskPreview({
         imageSrc: latestImageSrc,
-        buildMask: (scale: number) =>
-          createAnnotationEditMask(latestImageSrc, reference.x, reference.y, reference.text, {
-            scale,
-          }),
         onConfirm: (maskSrc: string) => {
           setAnnotationMaskPreview(null);
           void runAnnotationEditFlow(maskSrc);
@@ -24185,6 +24364,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             targetHeight,
             originalText: detail.originalText,
             editedText: detail.editedText,
+            textRegions: detail.textRegions || [],
           },
           run: async () =>
             editImageWithPrompt({
@@ -24196,6 +24376,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               preserveSource: true,
               targetWidth,
               targetHeight,
+              textRegions: detail.textRegions || [],
+              editedText: detail.editedText,
             }),
         });
         setNodes(nds =>
@@ -31019,7 +31201,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       {annotationMaskPreview && (
         <AnnotationMaskPreviewDialog
           imageSrc={annotationMaskPreview.imageSrc}
-          buildMask={annotationMaskPreview.buildMask}
           onCancel={() => setAnnotationMaskPreview(null)}
           onConfirm={annotationMaskPreview.onConfirm}
         />
