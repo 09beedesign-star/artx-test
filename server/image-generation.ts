@@ -3443,30 +3443,48 @@ function resolveSmartAnnotationEditModel(requestedModel: string | undefined, con
   return requested || configuredModel || DEFAULT_IMAGE_MODEL_ID;
 }
 
-function getSmartAnnotationReferenceEditModels(selectedModel: string) {
-  // 智能注释局部编辑首选 VOD 参考图生成：OG（GPT-Image2）支持 mask 蒙版编辑
-  // （白=编辑区，适合「加物体/加帽子」类精确局部编辑），因此排第一；
-  // GEM 3.1 无 mask 但参考图保持度好，作为兜底；BKEEL 的 og-image2 异步任务耗时长、
-  // gemini chat 不能编辑图像，排在最后。
-  // VOD mask 编辑候选模型顺序：先试 OG（GPT-Image2），再试 GEM、MJ、Hunyuan、Kling 等，
-  // 让系统自动挑选对当前场景（帽子/眼镜等）理解最好的模型。
-  const vodReferenceModels = ["vod-og", "vod-gem", "vod-mj", "vod-hunyuan", "vod-kling", "vod-si", "vod-qwen", "vod-jimeng", "vod-gem-lite"];
-  const fallbackAttempts = getImageModelFallbackAttempts("auto");
-  const referenceCapableModels = getImageModelFallbackAttempts("auto")
-    .filter(isChatCompatibleImageModel);
-  if (selectedModel === DEFAULT_IMAGE_MODEL_ID) {
-    return Array.from(new Set([
-      ...vodReferenceModels,
-      ...referenceCapableModels,
-      ...fallbackAttempts,
-    ]));
+/**
+ * 判断智能注释请求类型。模型选择与蒙版扩展策略共用同一份判断，
+ * 避免两处正则各写一套导致结果打架（例如换色时模型走 GEM 但蒙版却按新增物件大幅扩展）。
+ * - add-object：凭空新增物件（帽子/眼镜/道具），OG 更擅长；蒙版要大扩展给新物体留空间
+ * - edit-property：改已有内容（换色/换材质/修瑕疵），GEM 更擅长；蒙版只轻度膨胀避免溢出
+ * - unknown：判断不出，按新增物件处理
+ */
+function classifyAnnotationPrompt(prompt: string): "add-object" | "edit-property" | "unknown" {
+  const text = prompt || "";
+  const isAddObjectRequest = /(加|添加|戴上|戴|放|道具|帽子|眼镜|墨镜|增加|新增|add\s+(a|the)|put\s+(a|the)|wear|with\s+(a|the))/i.test(text);
+  const isEditPropertyRequest = /(换色|换颜色|改色|改颜色|换材质|改材质|修|修复|瑕疵|去掉|消除|移除|换风格|换款式|改变颜色|改变材质|remove|fix|repair|erase|change\s+(color|material|texture))/i.test(text);
+
+  if (isEditPropertyRequest && !isAddObjectRequest) return "edit-property";
+  if (isAddObjectRequest && !isEditPropertyRequest) return "add-object";
+  // 两者都命中（如「把帽子换成红色」）时按动词判断：换/改/修/去 表示对已有内容下手
+  if (isEditPropertyRequest && isAddObjectRequest) {
+    return /(换|改|修|去|remove|fix|repair|erase|change)/i.test(text) ? "edit-property" : "add-object";
   }
-  return Array.from(new Set([
-    selectedModel,
-    ...vodReferenceModels,
-    ...referenceCapableModels,
-    ...fallbackAttempts,
-  ]));
+  return "unknown";
+}
+
+function getSmartAnnotationReferenceEditModels(selectedModel: string, prompt: string = "") {
+  // 智能注释局部编辑按请求类型自动挑选 VOD 参考图模型：
+  // - 新增物件（帽子/眼镜/道具等）：首选 OG（GPT-Image2），它原生支持 mask 编辑、
+  //   对"红色棒球帽"这类具体颜色/款式遵循强、凭空加东西效果好。
+  // - 改已有属性（换色/换材质/修瑕疵）：首选 GEM（Gemini 3.1），它对人脸/身份保持度更好、
+  //   融合更柔和，适合修改已有内容而不引入新物体。
+  const promptType = classifyAnnotationPrompt(prompt);
+
+  // 智能注释固定只用这两个模型：OG（GPT-Image2）和 GEM（Gemini 3.1），两者互为兜底。
+  // 不再回落到 MJ / Kling / Hunyuan / chat 等其他模型——实测它们在这类局部编辑上
+  // 要么保持度差、要么直接忽略指令，与其出一张不对的图，不如失败后由用户重试。
+  const addObjectVodModels = ["vod-og", "vod-gem"];
+  const editPropertyVodModels = ["vod-gem", "vod-og"];
+  const vodReferenceModels = promptType === "edit-property"
+    ? editPropertyVodModels
+    : addObjectVodModels;
+
+  if (selectedModel === DEFAULT_IMAGE_MODEL_ID) {
+    return Array.from(new Set(vodReferenceModels));
+  }
+  return Array.from(new Set([selectedModel, ...vodReferenceModels]));
 }
 
 async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images: GeneratedImage[] }> {
@@ -3669,16 +3687,16 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
       : aspect < 0.85
         ? (aspect < 0.65 ? "9:16" : "2:3")
         : "1:1";
-    const fallbackModels = getSmartAnnotationReferenceEditModels(selectedModel);
+    const promptType = classifyAnnotationPrompt(input.prompt || "");
+    const fallbackModels = getSmartAnnotationReferenceEditModels(selectedModel, input.prompt || "");
     // OG（GPT-Image2）支持 mask 蒙版编辑（白=编辑区），生成反相后的蒙版供其使用。
-    // 「加物体」类请求（加/添加/戴/放等动词）把编辑区向上扩展给新物体留空间；
-    // 换色/换材质等「改属性」请求只做轻度膨胀，避免改色溢出。
-    const isAddObjectRequest = /(加|添加|戴上|戴上|戴一顶|戴一个|放一顶|放一个|put a|add a|增加)/i.test(input.prompt || "");
+    // 明确是「新增物件」时才大幅扩展蒙版给新物体留空间；
+    // 改属性（换色/换材质/修瑕疵）以及判断不出时都只做轻度膨胀，避免改色溢出。
     const ogMask = await createOgdEditMaskDataUrl(
       maskImageData.buffer,
       targetWidth,
       targetHeight,
-      isAddObjectRequest ? "add" : "edit",
+      promptType === "add-object" ? "add" : "edit",
       input.prompt || "",
     );
     const ogMaskDataUrl = ogMask.dataUrl;
@@ -3686,6 +3704,8 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
     console.log("[智能注释] reference edit", JSON.stringify({
       selectedModel,
       defaultModel: DEFAULT_IMAGE_MODEL_ID,
+      promptType,
+      firstVodModel: fallbackModels.find(isVodModelId),
       fallbackModels: Array.from(new Set(fallbackModels)),
       vodAigc: isVodAigcConfigured(),
       maskDataUrlPrefix: ogMaskDataUrl.slice(0, 30),
