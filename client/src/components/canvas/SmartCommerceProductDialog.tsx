@@ -145,7 +145,7 @@ export function SmartCommerceProductDialog({
   const [panelPosition, setPanelPosition] = useState<{ left: number; top: number } | null>(null);
 
   const colors = {
-    panel: isDark ? "rgba(18,18,25,0.985)" : "rgba(255,255,255,0.99)",
+    panel: isDark ? "#171717" : "rgba(255,255,255,0.99)",
     surface: isDark ? "rgba(255,255,255,0.055)" : "rgba(22,22,34,0.035)",
     surfaceStrong: isDark ? "rgba(255,255,255,0.085)" : "rgba(22,22,34,0.055)",
     border: isDark ? "rgba(255,255,255,0.11)" : "rgba(22,22,34,0.11)",
@@ -388,6 +388,7 @@ export function SmartCommerceProductDialog({
     <div className="fixed inset-0 z-[3500] pointer-events-none">
       <div
         ref={panelRef}
+        data-artx-dialog-surface
         className="fixed flex max-h-[calc(100dvh-32px)] w-[min(720px,calc(100vw-32px))] flex-col overflow-hidden rounded-lg"
         style={{
           pointerEvents: "auto",

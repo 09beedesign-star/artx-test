@@ -440,6 +440,8 @@ export default function HomePage() {
     inspirationRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  const openInspirationPage = () => navigate("/inspiration");
+
   const scrollToHome = () => {
     setCurrentLandingTab("home");
     if (!isAuthenticated) setPanelMode("prelogin");
@@ -639,11 +641,22 @@ export default function HomePage() {
               </button>
             ))}
           </div>
+
+          <div className="mt-10 flex justify-center pb-2">
+            <button
+              type="button"
+              onClick={openInspirationPage}
+              className="text-sm font-semibold text-[#C5ED47] underline decoration-[#C5ED47]/60 underline-offset-4 transition-colors hover:text-[#D7F877]"
+            >
+              查看全部灵感推荐
+            </button>
+          </div>
         </div>
       </section>
       {selectedHomeInspiration && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6" style={{ background: "rgba(34,34,34,0.72)", backdropFilter: "blur(10px)" }} onClick={() => setSelectedHomeInspiration(null)}>
           <section
+            data-artx-dialog-surface
             className="relative max-h-full w-full overflow-hidden rounded-[var(--radius-lg-design)]"
             style={{ maxWidth: 980, background: "#222222", border: `1px solid ${homeInspirationBorder}` }}
             onClick={(event) => event.stopPropagation()}

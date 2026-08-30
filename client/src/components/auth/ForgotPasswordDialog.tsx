@@ -98,7 +98,7 @@ export default function ForgotPasswordDialog({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="relative w-full max-w-[430px] rounded-[18px] border border-white/12 bg-[#222222]/95 p-6 text-white shadow-[0_28px_80px_rgba(0,0,0,0.48)] backdrop-blur-[22px]">
+      <div data-artx-dialog-surface className="relative w-full max-w-[430px] rounded-[18px] border border-white/12 bg-[#222222]/95 p-6 text-white shadow-[0_28px_80px_rgba(0,0,0,0.48)] backdrop-blur-[22px]">
         <button
           type="button"
           onClick={onClose}

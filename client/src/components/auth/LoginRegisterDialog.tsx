@@ -255,7 +255,7 @@ export default function LoginRegisterDialog() {
 
 function GlassPanel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="h-full w-full overflow-hidden rounded-[20px] border border-[#454545] bg-[#222222]/70 p-10 shadow-[0_30px_80px_rgba(0,0,0,0.52)] backdrop-blur-[22px]">
+    <div data-artx-dialog-surface className="h-full w-full overflow-hidden rounded-[20px] border border-[#454545] bg-[#222222]/70 p-10 shadow-[0_30px_80px_rgba(0,0,0,0.52)] backdrop-blur-[22px]">
       {children}
     </div>
   );

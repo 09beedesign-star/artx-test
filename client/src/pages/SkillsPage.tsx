@@ -17,10 +17,8 @@ import {
   Boxes,
   CheckCircle2,
   Filter,
-  GitFork,
   Search,
   Sparkles,
-  Star,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
@@ -51,18 +49,6 @@ const categoryAccentPalette = [
   "oklch(0.72 0.16 120)",
 ];
 
-const statusTone: Record<string, string> = {
-  "已同步": "oklch(0.72 0.16 150)",
-  "待适配": "oklch(0.74 0.16 82)",
-  "内测": "oklch(0.68 0.18 210)",
-};
-
-function formatScore(score: number) {
-  if (score >= 100000) return `${Math.round(score / 1000)}k`;
-  if (score >= 10000) return `${(score / 1000).toFixed(1)}k`;
-  return score.toLocaleString();
-}
-
 function getCategoryAccent(category: SkillStoreCategory, index: number) {
   const hash = category.split("").reduce((sum, char) => sum + char.charCodeAt(0), index);
   return categoryAccentPalette[Math.abs(hash) % categoryAccentPalette.length];
@@ -75,9 +61,8 @@ export default function SkillsPage() {
   const isDark = resolvedTheme === "dark";
   const [activeCategory, setActiveCategory] = useState<SkillStoreCategory | "all">("all");
   const [query, setQuery] = useState("");
-  const [sortMode, setSortMode] = useState<"popular" | "synced">("popular");
 
-  const bg = isDark ? "#222222" : "var(--design-surface-soft)";
+  const bg = isDark ? "#171717" : "var(--design-surface-soft)";
   const panel = isDark ? "rgba(255,255,255,0.055)" : "rgba(255,255,255,0.78)";
   const panelStrong = isDark ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.95)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(20,20,36,0.10)";
@@ -100,14 +85,8 @@ export default function SkillsPage() {
       return matchesCategory && (!normalizedQuery || searchable.includes(normalizedQuery));
     });
 
-    return [...items].sort((a, b) => {
-      if (sortMode === "synced") {
-        const statusRank = { "已同步": 0, "内测": 1, "待适配": 2 };
-        return statusRank[a.status] - statusRank[b.status] || b.sourceScore - a.sourceScore;
-      }
-      return b.sourceScore - a.sourceScore;
-    });
-  }, [activeCategory, query, sortMode]);
+    return [...items].sort((a, b) => b.sourceScore - a.sourceScore);
+  }, [activeCategory, query]);
 
   const visibleCategories = useMemo(() => {
     const merged = new Set<SkillStoreCategory>(categoryOrder);
@@ -214,9 +193,6 @@ export default function SkillsPage() {
                         <Sparkles size={13} style={{ color: "#c5ed47" }} />
                         Skill Store
                       </span>
-                      <span className="type-caption" style={{ color: faint }}>
-                        GitHub 热度快照 · stars / adoption 汇总
-                      </span>
                     </div>
 
                     <h1 className="max-w-[720px] text-[38px] font-semibold leading-[1.04]" style={{ color: text, letterSpacing: 0 }}>
@@ -292,7 +268,7 @@ export default function SkillsPage() {
           </section>
 
           <section
-            className="flex flex-col gap-3 rounded-[var(--radius-lg-design)] border p-3 md:flex-row md:items-start md:justify-between"
+            className="flex flex-col gap-3 rounded-[var(--radius-lg-design)] border p-3 md:flex-row md:items-center md:justify-between"
             style={{ background: panel, borderColor: border, backdropFilter: "blur(18px)" }}
           >
             <div className="flex min-w-0 flex-1 flex-wrap gap-2">
@@ -328,38 +304,19 @@ export default function SkillsPage() {
               ))}
             </div>
 
-            <div className="flex w-full max-w-[420px] shrink-0 items-center gap-2 md:mt-[44px] md:w-[420px]">
+            <div className="flex w-full shrink-0 justify-end md:ml-auto md:w-[360px]">
               <div
-                className="flex h-9 w-[300px] shrink-0 items-center gap-2 overflow-hidden rounded-[var(--radius-md-design)] border px-3"
+                className="flex h-9 w-full items-center gap-2 overflow-hidden rounded-[var(--radius-md-design)] border px-3"
                 style={{ borderColor: border, background: panelStrong }}
               >
                 <Search size={14} style={{ color: faint, flexShrink: 0 }} />
                 <input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  placeholder="搜索技能、尺寸、来源"
+                  placeholder="搜索技能、尺寸"
                   className="min-w-0 flex-1 truncate bg-transparent text-sm outline-none"
                   style={{ color: text }}
                 />
-              </div>
-
-              <div className="grid h-9 w-[112px] shrink-0 grid-cols-2 rounded-[var(--radius-md-design)] border p-1" style={{ borderColor: border, background: panelStrong }}>
-                <button
-                  type="button"
-                  onClick={() => setSortMode("popular")}
-                  className="h-7 truncate whitespace-nowrap rounded-[var(--radius-sm-design)] px-2 text-xs"
-                  style={{ color: sortMode === "popular" ? "white" : faint, background: sortMode === "popular" ? skillButtonPurple : "transparent" }}
-                >
-                  热度
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSortMode("synced")}
-                  className="h-7 truncate whitespace-nowrap rounded-[var(--radius-sm-design)] px-2 text-xs"
-                  style={{ color: sortMode === "synced" ? "white" : faint, background: sortMode === "synced" ? skillButtonPurple : "transparent" }}
-                >
-                  状态
-                </button>
               </div>
             </div>
           </section>
@@ -371,33 +328,20 @@ export default function SkillsPage() {
               return (
                 <article
                   key={skill.id}
-                  className="flex min-h-[248px] flex-col rounded-[var(--radius-lg-design)] border p-4 transition-transform hover:-translate-y-0.5"
+                  className="flex h-full min-h-[220px] flex-col rounded-[var(--radius-lg-design)] border p-4 transition-transform hover:-translate-y-0.5"
                   style={{ background: panel, borderColor: border, backdropFilter: "blur(18px)" }}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-start gap-3">
-                      <div
-                        className="flex h-10 w-10 shrink-0 items-center justify-center"
-                        style={{ color: skillIconColor(skill.id) }}
-                      >
-                        <Icon size={22} strokeWidth={2.2} />
-                      </div>
-                      <div>
-                        <h2 className="text-base font-semibold leading-6" style={{ color: text }}>{skill.name}</h2>
-                        <p className="mt-0.5 text-xs" style={{ color: faint }}>{meta.label} / {skill.subcategory}</p>
-                      </div>
-                    </div>
-                    <span
-                      className="inline-flex h-7 shrink-0 items-center gap-1 rounded-[var(--radius-md-design)] border px-2 text-xs"
-                      style={{
-                        color: statusTone[skill.status],
-                        borderColor: `${statusTone[skill.status]}66`,
-                        background: `${statusTone[skill.status]}18`,
-                      }}
+                  <div className="flex items-start gap-3">
+                    <div
+                      className="flex h-10 w-10 shrink-0 items-center justify-center"
+                      style={{ color: skillIconColor(skill.id) }}
                     >
-                      <CheckCircle2 size={12} />
-                      {skill.status}
-                    </span>
+                      <Icon size={22} strokeWidth={2.2} />
+                    </div>
+                    <div>
+                      <h2 className="text-base font-semibold leading-6" style={{ color: text }}>{skill.name}</h2>
+                      <p className="mt-0.5 text-xs" style={{ color: faint }}>{meta.label} / {skill.subcategory}</p>
+                    </div>
                   </div>
 
                   <p className="mt-4 min-h-[48px] text-sm leading-6" style={{ color: sub }}>
@@ -417,32 +361,18 @@ export default function SkillsPage() {
                   </div>
 
                   <div className="mt-auto pt-3">
-                    <div className="mb-3 flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="truncate text-xs" style={{ color: faint }}>来源：{skill.sourceRepo}</p>
-                        <p className="mt-1 flex items-center gap-1 text-xs" style={{ color: sub }}>
-                          {skill.signal === "Stars" ? <Star size={12} /> : <GitFork size={12} />}
-                          {formatScore(skill.sourceScore)} {skill.signal}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleQuickLoad(skill)}
-                        className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-[var(--radius-md-design)] text-xs font-semibold transition-opacity hover:opacity-90 active:scale-[0.99]"
-                        style={{
-                          background: skillButtonPurple,
-                          color: "white",
-                          boxShadow: skillButtonPurpleShadow,
-                        }}
-                      >
-                        快速加载
-                      </button>
-                      <span className="hidden text-xs md:inline" style={{ color: faint }}>
-                        进入画布并连接生成
-                      </span>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleQuickLoad(skill)}
+                      className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-[var(--radius-md-design)] text-xs font-semibold transition-opacity hover:opacity-90 active:scale-[0.99]"
+                      style={{
+                        background: skillButtonPurple,
+                        color: "white",
+                        boxShadow: skillButtonPurpleShadow,
+                      }}
+                    >
+                      快速加载
+                    </button>
                   </div>
                 </article>
               );

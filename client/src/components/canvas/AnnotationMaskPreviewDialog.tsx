@@ -101,6 +101,7 @@ export function AnnotationMaskPreviewDialog({
       onMouseDown={onCancel}
     >
       <div
+        data-artx-dialog-surface
         className="w-[min(680px,calc(100vw-32px))] rounded-[var(--radius-lg-design)] p-5 shadow-2xl"
         style={{
           background: bg,

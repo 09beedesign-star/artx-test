@@ -218,11 +218,36 @@ export default function InspirationPage() {
   const [selectedItem, setSelectedItem] = useState<PromptItem | null>(null);
   const [externalItems, setExternalItems] = useState<PromptItem[]>([]);
   const [visibleCount, setVisibleCount] = useState(INSPIRATION_PAGE_SIZE);
+  const [hoveredItemKey, setHoveredItemKey] = useState<string | null>(null);
   const selectedImageRef = useRef<HTMLImageElement | null>(null);
   const promptScrollRef = useRef<HTMLDivElement | null>(null);
+  const hoverTimerRef = useRef<number | null>(null);
   const [detailImageHeight, setDetailImageHeight] = useState<number | null>(null);
 
-  const bg = isDark ? "#222222" : "var(--design-surface-soft)";
+  useEffect(() => {
+    return () => {
+      if (hoverTimerRef.current !== null) window.clearTimeout(hoverTimerRef.current);
+    };
+  }, []);
+
+  const handleInspirationCardMouseEnter = (itemKey: string) => {
+    if (hoveredItemKey === itemKey) return;
+    if (hoverTimerRef.current !== null) window.clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = window.setTimeout(() => {
+      setHoveredItemKey(itemKey);
+      hoverTimerRef.current = null;
+    }, 500);
+  };
+
+  const handleInspirationCardMouseLeave = () => {
+    if (hoverTimerRef.current !== null) {
+      window.clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    setHoveredItemKey(null);
+  };
+
+  const bg = isDark ? "#171717" : "var(--design-surface-soft)";
   const text = isDark ? "oklch(0.88 0.008 270)" : "oklch(0.20 0.008 270)";
   const sub = isDark ? "oklch(0.73 0.010 270)" : "oklch(0.49 0.01 270)";
   const cardBg = isDark ? "oklch(0.13 0.012 270)" : "oklch(1 0 0)";
@@ -356,7 +381,7 @@ export default function InspirationPage() {
         <TopBar credits={0} glass />
       </div>
 
-      <div className="flex-1 overflow-y-auto" style={{ position: "relative", zIndex: 1, background: "#222222" }}>
+      <div className="flex-1 overflow-y-auto" style={{ position: "relative", zIndex: 1, background: isDark ? "#171717" : "var(--design-surface-soft)" }}>
         <main className="mx-auto px-5 py-8 sm:px-8 sm:py-10" style={{ maxWidth: 1320 }}>
           <section className="mb-6">
             <div>
@@ -458,14 +483,17 @@ export default function InspirationPage() {
                 }}
                 role="button"
                 tabIndex={0}
-                className="group cursor-pointer overflow-hidden rounded-[var(--radius-lg-design)] text-left transition-all"
+                className="cursor-pointer overflow-hidden rounded-[var(--radius-lg-design)] text-left transition-all"
                 style={{ background: cardBg, border: `1px solid ${border}`, boxShadow: shadow }}
+                onMouseEnter={() => handleInspirationCardMouseEnter(`${item.rank}-${item.title}`)}
+                onMouseLeave={handleInspirationCardMouseLeave}
               >
                 <div className="relative overflow-hidden bg-[#222222]" style={{ aspectRatio: "16 / 10" }}>
                   <img
                     src={item.imageUrl}
                     alt={item.title}
-                    className="relative z-10 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    className="relative z-10 h-full w-full object-cover transition-transform duration-300 ease-out"
+                    style={{ transform: hoveredItemKey === `${item.rank}-${item.title}` ? "scale(1.08)" : "scale(1)" }}
                     loading="lazy"
                     onError={(event) => {
                       event.currentTarget.style.display = "none";
@@ -560,6 +588,7 @@ export default function InspirationPage() {
       {selectedItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6" style={{ background: "rgba(34,34,34,0.72)", backdropFilter: "blur(10px)" }} onClick={() => setSelectedItem(null)}>
           <section
+            data-artx-dialog-surface
             className="relative max-h-full w-full overflow-hidden rounded-[var(--radius-lg-design)]"
             style={{ maxWidth: 980, background: isDark ? "#222222" : cardBg, border: `1px solid ${border}` }}
             onClick={(event) => event.stopPropagation()}

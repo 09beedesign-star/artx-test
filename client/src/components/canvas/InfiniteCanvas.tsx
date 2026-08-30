@@ -114,12 +114,15 @@ import {
   Frame,
   GripVertical,
   RotateCw,
+  RotateCcw,
   MapPin,
   PlusCircle,
   Droplets,
 } from "lucide-react";
 import { getModelBrandIconKind, ModelBrandIconMask } from "./model-brand-icons";
+import { getTextNodeExportLayout } from "./text-node-export";
 import { AnnotationMaskPreviewDialog } from "./AnnotationMaskPreviewDialog";
+import { Switch } from "@/components/ui/switch";
 
 // 「井号 + 方框」图标 — 创建画板专用
 function CreateCanvasIcon({ size = 17 }: { size?: number }) {
@@ -511,6 +514,10 @@ import {
   type SmartCommerceProductCreateDetail,
 } from "@/components/canvas/SmartCommerceProductDialog";
 import {
+  InspirationPromptDialog,
+  type InspirationPromptItem,
+} from "@/components/inspiration/InspirationPromptDialog";
+import {
   callLLM,
   createProductBackground,
   editImageWithPrompt,
@@ -570,6 +577,7 @@ const CANVAS_CROSS_PROJECT_CLIPBOARD_KEY =
 const CLOUD_RETENTION_TOAST_STORAGE_KEY = "artx:cloud-retention-toast-date";
 const CLOUD_RETENTION_TOAST_COPY =
   "图片会在云服务器当中存储一周时间，请尽快下载到本地，以免图片丢失哟。";
+const GROUP_MERGE_HOVER_MS = 500;
 const CROSS_CANVAS_COPY_TYPES = [
   "asset",
   "canvasFrame",
@@ -906,6 +914,8 @@ function SkillPointSelector({
   const hoverButtonBg = isDark
     ? "oklch(0.13 0.015 270)"
     : "oklch(0.22 0.015 270)";
+  const compactDefaultBg = isDark ? "#525252" : bg;
+  const compactSelectedBg = isDark ? "#2b2b2b" : hoverButtonBg;
   const border = getMinimapSurfaceBorder(isDark);
   const text = isDark ? "oklch(0.74 0.01 270)" : "oklch(0.58 0.008 270)";
   const hoverButtonText = "white";
@@ -1011,13 +1021,27 @@ function SkillPointSelector({
           width: compact ? 32 : undefined,
           maxWidth: compact ? 32 : 74,
           background:
-            activeSkill ? activeBg : open || buttonHover ? hoverButtonBg : bg,
-          border: `1px solid ${activeSkill || open ? "oklch(0.62 0.22 290 / 45%)" : border}`,
-          color: activeSkill
-            ? activeText
-            : open || buttonHover
+            compact
+              ? activeSkill || open || buttonHover
+                ? compactSelectedBg
+                : compactDefaultBg
+              : activeSkill
+                ? activeBg
+                : open || buttonHover
+                  ? hoverButtonBg
+                  : bg,
+          border: compact
+            ? "none"
+            : `1px solid ${activeSkill || open ? "oklch(0.62 0.22 290 / 45%)" : border}`,
+          color: compact
+            ? activeSkill || open || buttonHover
               ? hoverButtonText
-              : text,
+              : text
+            : activeSkill
+              ? activeText
+              : open || buttonHover
+                ? hoverButtonText
+                : text,
           fontSize: 11,
           lineHeight: "14px",
           letterSpacing: 0,
@@ -1180,6 +1204,8 @@ function ImageCountSelector({
   const hoverBg = isDark
     ? "oklch(0.13 0.015 270)"
     : "oklch(0.22 0.015 270)";
+  const compactDefaultBg = isDark ? "#525252" : bg;
+  const compactSelectedBg = isDark ? "#2b2b2b" : hoverBg;
   const border = getMinimapSurfaceBorder(isDark);
   const text = isDark ? "oklch(0.74 0.01 270)" : "oklch(0.58 0.008 270)";
   const popBg = isDark ? "oklch(0.16 0.018 270)" : "oklch(0.99 0.004 270)";
@@ -1231,8 +1257,16 @@ function ImageCountSelector({
         className="flex h-8 shrink-0 items-center justify-center gap-1 rounded-[var(--radius-md-design)] px-2 transition-colors"
         style={{
           width: compact ? 32 : 74,
-          background: open || hovered ? hoverBg : bg,
-          border: `1px solid ${open ? "oklch(0.62 0.22 290 / 45%)" : border}`,
+          background: compact
+            ? open || hovered
+              ? compactSelectedBg
+              : compactDefaultBg
+            : open || hovered
+              ? hoverBg
+              : bg,
+          border: compact
+            ? "none"
+            : `1px solid ${open ? "oklch(0.62 0.22 290 / 45%)" : border}`,
           color: open || hovered ? "white" : text,
           fontSize: 11,
           lineHeight: "14px",
@@ -1333,6 +1367,8 @@ function ImageRatioSelector({
   const hoverBg = isDark
     ? "oklch(0.13 0.015 270)"
     : "oklch(0.22 0.015 270)";
+  const compactDefaultBg = isDark ? "#525252" : bg;
+  const compactSelectedBg = isDark ? "#2b2b2b" : hoverBg;
   const border = getMinimapSurfaceBorder(isDark);
   const text = isDark ? "oklch(0.74 0.01 270)" : "oklch(0.58 0.008 270)";
   const popBg = isDark ? "oklch(0.16 0.018 270)" : "oklch(0.99 0.004 270)";
@@ -1385,8 +1421,16 @@ function ImageRatioSelector({
         className="flex h-8 shrink-0 items-center justify-center gap-1 rounded-[var(--radius-md-design)] px-2 transition-colors"
         style={{
           width: compact ? 32 : 74,
-          background: open || hovered ? hoverBg : bg,
-          border: "1px solid " + (open ? "oklch(0.62 0.22 290 / 45%)" : border),
+          background: compact
+            ? open || hovered
+              ? compactSelectedBg
+              : compactDefaultBg
+            : open || hovered
+              ? hoverBg
+              : bg,
+          border: compact
+            ? "none"
+            : "1px solid " + (open ? "oklch(0.62 0.22 290 / 45%)" : border),
           color: open || hovered ? "white" : text,
           fontSize: 11,
           lineHeight: "14px",
@@ -3438,7 +3482,7 @@ const DEFAULT_ASSET_ADJUSTMENTS: AssetAdjustmentValues = {
 };
 
 const DEFAULT_ASSET_CAMERA_VIEW: AssetCameraViewValues = {
-  x: 0,
+  x: -45,
   y: 0,
   z: 0,
   prompt: "",
@@ -3457,10 +3501,94 @@ function buildCameraViewPrompt(cameraView: AssetCameraViewValues) {
   ].filter(Boolean).join("\n");
 }
 
-function clampCameraAxis(value: unknown, min: number, max: number) {
+function clampCameraAxis(
+  value: unknown,
+  min: number,
+  max: number,
+  round = true
+) {
   const numberValue = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(numberValue)) return 0;
-  return Math.max(min, Math.min(max, Math.round(numberValue)));
+  const bounded = Math.max(min, Math.min(max, numberValue));
+  return round ? Math.round(bounded) : bounded;
+}
+
+type CameraCubeProjectedPoint = { x: number; y: number; depth: number };
+
+const CAMERA_CUBE_UNIT_VERTICES = [
+  [-1, -1, -1],
+  [1, -1, -1],
+  [1, 1, -1],
+  [-1, 1, -1],
+  [-1, -1, 1],
+  [1, -1, 1],
+  [1, 1, 1],
+  [-1, 1, 1],
+] as const;
+
+const CAMERA_CUBE_FACES = [
+  { name: "back", indices: [1, 0, 3, 2] },
+  { name: "left", indices: [0, 4, 7, 3] },
+  { name: "right", indices: [1, 2, 6, 5] },
+  { name: "front", indices: [4, 5, 6, 7] },
+  { name: "bottom", indices: [0, 1, 5, 4] },
+  { name: "top", indices: [3, 7, 6, 2] },
+] as const;
+
+function projectCameraCube(
+  xRotation: number,
+  yRotation: number,
+  scale: number
+) {
+  const yaw = (xRotation * Math.PI) / 180;
+  const pitch = ((25 + yRotation * 0.35) * Math.PI) / 180;
+  const cosYaw = Math.cos(yaw);
+  const sinYaw = Math.sin(yaw);
+  const cosPitch = Math.cos(pitch);
+  const sinPitch = Math.sin(pitch);
+  const projected = CAMERA_CUBE_UNIT_VERTICES.map(([x, y, z]) => {
+    const yawX = x * cosYaw + z * sinYaw;
+    const yawZ = -x * sinYaw + z * cosYaw;
+    const pitchY = y * cosPitch - yawZ * sinPitch;
+    const depth = y * sinPitch + yawZ * cosPitch;
+    return {
+      x: 110 + yawX * scale,
+      y: 110 - pitchY * scale,
+      depth,
+    } satisfies CameraCubeProjectedPoint;
+  });
+  const faces = CAMERA_CUBE_FACES
+    .map(face => ({
+      ...face,
+      points: face.indices.map(index => projected[index]),
+      depth: face.indices.reduce<number>((sum, index) => sum + projected[index].depth, 0) / face.indices.length,
+    }))
+    .sort((left, right) => left.depth - right.depth)
+    .slice(-3);
+  return { faces };
+}
+
+function insetCameraCubeFace(
+  points: CameraCubeProjectedPoint[],
+  insetRatio: number
+) {
+  const ratio = Math.max(0.02, Math.min(0.2, insetRatio));
+  const [topLeft, topRight, bottomRight, bottomLeft] = points;
+  const insetCorner = (
+    point: CameraCubeProjectedPoint,
+    horizontal: CameraCubeProjectedPoint,
+    vertical: CameraCubeProjectedPoint
+  ) => ({
+    x: point.x + (horizontal.x - point.x) * ratio + (vertical.x - point.x) * ratio,
+    y: point.y + (horizontal.y - point.y) * ratio + (vertical.y - point.y) * ratio,
+    depth: point.depth + (horizontal.depth - point.depth) * ratio + (vertical.depth - point.depth) * ratio,
+  });
+  return [
+    insetCorner(topLeft, topRight, bottomLeft),
+    insetCorner(topRight, topLeft, bottomRight),
+    insetCorner(bottomRight, bottomLeft, topRight),
+    insetCorner(bottomLeft, bottomRight, topLeft),
+  ];
 }
 
 function normalizeAssetCameraView(value: unknown): AssetCameraViewValues {
@@ -3469,9 +3597,18 @@ function normalizeAssetCameraView(value: unknown): AssetCameraViewValues {
       ? (value as Record<string, unknown>)
       : {};
   return {
-    x: clampCameraAxis(source.x, -180, 180),
-    y: clampCameraAxis(source.y, -75, 75),
-    z: clampCameraAxis(source.z, -60, 60),
+    x:
+      source.x === undefined
+        ? DEFAULT_ASSET_CAMERA_VIEW.x
+        : clampCameraAxis(source.x, -180, 180),
+    y:
+      source.y === undefined
+        ? DEFAULT_ASSET_CAMERA_VIEW.y
+        : clampCameraAxis(source.y, -75, 75),
+    z:
+      source.z === undefined
+        ? DEFAULT_ASSET_CAMERA_VIEW.z
+        : clampCameraAxis(source.z, -60, 60),
     prompt: typeof source.prompt === "string" ? source.prompt : "",
   };
 }
@@ -4985,7 +5122,7 @@ function AssetMoreCommandPanel({
       onClick={e => e.stopPropagation()}
     >
       <div
-        className="flex items-center justify-between px-4 py-3"
+        className="flex items-start justify-between gap-4 px-5 py-4"
         style={{ borderBottom: `1px solid ${border}` }}
       >
         <div>
@@ -6336,6 +6473,22 @@ function AssetNodeComponent({
     startX: number;
     startY: number;
   } | null>(null);
+  const cameraViewLiveRef = useRef<AssetCameraViewValues>(assetCameraView);
+  const cameraViewFrameRef = useRef<number | null>(null);
+  const cameraViewPendingRef = useRef<AssetCameraViewValues | null>(null);
+  const cameraViewPanelDragRef = useRef<{
+    pointerId: number;
+    startClientX: number;
+    startClientY: number;
+    startOffsetX: number;
+    startOffsetY: number;
+  } | null>(null);
+  const cameraViewPreviousOpenRef = useRef(false);
+  const cameraViewInitialRef = useRef<AssetCameraViewValues>(assetCameraView);
+  const [cameraViewPanelOffset, setCameraViewPanelOffset] = useState({
+    x: 0,
+    y: 0,
+  });
   const extractedText = ((data as { extractedText?: string }).extractedText ||
     "") as string;
   const extractedTextRegions = ((data as { extractedTextRegions?: ImageTextRegion[] })
@@ -6855,24 +7008,7 @@ function AssetNodeComponent({
             detail: { selectedIds: nextSelectedIds },
           })
         );
-        const selectedVisualIds = new Set(
-          nextSelectedIds.filter(id => {
-            const node = nextNodes.find(item => item.id === id);
-            return node?.type === "asset" || node?.type === "canvasFrame";
-          })
-        );
-        if (selectedVisualIds.size === 0) return nextNodes;
-        const topZ =
-          Math.max(
-            0,
-            ...nextNodes.map(n => (typeof n.zIndex === "number" ? n.zIndex : 0))
-          ) + 1;
-        return [
-          ...nextNodes.filter(n => !selectedVisualIds.has(n.id)),
-          ...nextNodes
-            .filter(n => selectedVisualIds.has(n.id))
-            .map(n => ({ ...n, zIndex: topZ })),
-        ];
+        return nextNodes;
       });
       if (additive) {
         window.dispatchEvent(
@@ -7463,6 +7599,7 @@ function AssetNodeComponent({
 
   const updateCameraViewNode = useCallback(
     (nextView: AssetCameraViewValues, commit = false) => {
+      cameraViewLiveRef.current = nextView;
       setFlowNodes(nodes =>
         nodes.map(node => {
           if (node.id !== nodeId || node.type !== "asset") return node;
@@ -7483,7 +7620,20 @@ function AssetNodeComponent({
         );
       }
     },
-    [nodeId, setFlowNodes]
+    [cameraViewLiveRef, nodeId, setFlowNodes]
+  );
+  const queueCameraViewUpdate = useCallback(
+    (nextView: AssetCameraViewValues) => {
+      cameraViewPendingRef.current = nextView;
+      if (cameraViewFrameRef.current !== null) return;
+      cameraViewFrameRef.current = window.requestAnimationFrame(() => {
+        cameraViewFrameRef.current = null;
+        const pendingView = cameraViewPendingRef.current;
+        cameraViewPendingRef.current = null;
+        if (pendingView) updateCameraViewNode(pendingView);
+      });
+    },
+    [updateCameraViewNode]
   );
   const handleCameraCubePointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -7495,11 +7645,11 @@ function AssetNodeComponent({
         pointerId: event.pointerId,
         startClientX: event.clientX,
         startClientY: event.clientY,
-        startX: assetCameraView.x,
-        startY: assetCameraView.y,
+        startX: cameraViewLiveRef.current.x,
+        startY: cameraViewLiveRef.current.y,
       };
     },
-    [assetCameraView.x, assetCameraView.y, isCameraViewAdjusting]
+    [cameraViewLiveRef, isCameraViewAdjusting]
   );
   const handleCameraCubePointerMove = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -7507,21 +7657,24 @@ function AssetNodeComponent({
       if (!drag || drag.pointerId !== event.pointerId) return;
       event.preventDefault();
       event.stopPropagation();
-      updateCameraViewNode({
-        ...assetCameraView,
+      const currentView = cameraViewLiveRef.current;
+      queueCameraViewUpdate({
+        ...currentView,
         x: clampCameraAxis(
           drag.startX + (event.clientX - drag.startClientX) * 0.55,
           -180,
-          180
+          180,
+          false
         ),
         y: clampCameraAxis(
-          drag.startY - (event.clientY - drag.startClientY) * 0.55,
+          drag.startY + (event.clientY - drag.startClientY) * 0.55,
           -75,
-          75
+          75,
+          false
         ),
       });
     },
-    [assetCameraView, updateCameraViewNode]
+    [cameraViewLiveRef, queueCameraViewUpdate]
   );
   const handleCameraCubePointerEnd = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -7530,41 +7683,84 @@ function AssetNodeComponent({
       event.preventDefault();
       event.stopPropagation();
       cameraViewDragRef.current = null;
+      if (cameraViewFrameRef.current !== null) {
+        window.cancelAnimationFrame(cameraViewFrameRef.current);
+        cameraViewFrameRef.current = null;
+      }
+      cameraViewPendingRef.current = null;
       const nextView = {
-        ...assetCameraView,
+        ...cameraViewLiveRef.current,
         x: clampCameraAxis(
           drag.startX + (event.clientX - drag.startClientX) * 0.55,
           -180,
-          180
+          180,
+          false
         ),
         y: clampCameraAxis(
-          drag.startY - (event.clientY - drag.startClientY) * 0.55,
+          drag.startY + (event.clientY - drag.startClientY) * 0.55,
           -75,
-          75
+          75,
+          false
         ),
       };
-      if (
-        nextView.x !== drag.startX ||
-        nextView.y !== drag.startY ||
-        nextView.z !== assetCameraView.z ||
-        nextView.prompt.trim()
-      ) {
-        updateCameraViewNode(nextView, true);
-      }
+      updateCameraViewNode(nextView);
+    },
+    [cameraViewFrameRef, cameraViewLiveRef, cameraViewPendingRef, updateCameraViewNode]
+  );
+  const handleCameraViewZChange = useCallback(
+    (value: number) => {
+      updateCameraViewNode({
+        ...assetCameraView,
+        z: clampCameraAxis(value, -60, 60),
+      });
     },
     [assetCameraView, updateCameraViewNode]
   );
-  const handleCameraViewZChange = useCallback(
-    (value: number, commit = false) => {
-      updateCameraViewNode(
-        {
-          ...assetCameraView,
-          z: clampCameraAxis(value, -60, 60),
-        },
-        commit
-      );
+  useEffect(() => {
+    if (isCameraViewAdjusting && !cameraViewPreviousOpenRef.current) {
+      cameraViewInitialRef.current = assetCameraView;
+      setCameraViewPanelOffset({ x: 0, y: 0 });
+    }
+    cameraViewPreviousOpenRef.current = isCameraViewAdjusting;
+  }, [assetCameraView, isCameraViewAdjusting]);
+  const handleCameraViewPanelPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if ((event.target as HTMLElement).closest("button, input, select, textarea, a")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      cameraViewPanelDragRef.current = {
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startOffsetX: cameraViewPanelOffset.x,
+        startOffsetY: cameraViewPanelOffset.y,
+      };
     },
-    [assetCameraView, updateCameraViewNode]
+    [cameraViewPanelOffset.x, cameraViewPanelOffset.y]
+  );
+  const handleCameraViewPanelPointerMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const drag = cameraViewPanelDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setCameraViewPanelOffset({
+        x: drag.startOffsetX + event.clientX - drag.startClientX,
+        y: drag.startOffsetY + event.clientY - drag.startClientY,
+      });
+    },
+    []
+  );
+  const handleCameraViewPanelPointerEnd = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const drag = cameraViewPanelDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      cameraViewPanelDragRef.current = null;
+    },
+    []
   );
   const closeCameraViewAdjuster = useCallback(() => {
     setFlowNodes(nodes =>
@@ -7581,11 +7777,23 @@ function AssetNodeComponent({
       )
     );
   }, [nodeId, setFlowNodes]);
+  const cancelCameraViewAdjuster = useCallback(() => {
+    updateCameraViewNode(cameraViewInitialRef.current);
+    closeCameraViewAdjuster();
+  }, [closeCameraViewAdjuster, updateCameraViewNode]);
+  const resetCameraView = useCallback(() => {
+    updateCameraViewNode({ ...DEFAULT_ASSET_CAMERA_VIEW });
+  }, [updateCameraViewNode]);
   const cameraCubeSize = Math.max(72, Math.min(150, Math.min(dispW, dispH) * 0.42));
   const cameraCubeDepth = cameraCubeSize * 0.5;
   const cameraCubeScale = Math.max(
     0.72,
     Math.min(1.28, 1 - assetCameraView.z / 180)
+  );
+  const cameraCubeProjection = projectCameraCube(
+    assetCameraView.x,
+    assetCameraView.y,
+    46
   );
 
   return (
@@ -7623,7 +7831,9 @@ function AssetNodeComponent({
             borderRadius: 4,
             boxShadow: shadow,
             overflow:
-              isCropping || isExpanding || isErasing ? "visible" : "hidden",
+              isCropping || isExpanding || isErasing || isCameraViewAdjusting
+                ? "visible"
+                : "hidden",
             transition: "border-color 0.15s, box-shadow 0.15s",
           }}
         >
@@ -7807,6 +8017,169 @@ function AssetNodeComponent({
             <div
               className="absolute inset-0 nodrag nopan"
               style={{
+                zIndex: 95,
+                overflow: "visible",
+                background: "rgba(0,0,0,0.56)",
+                backdropFilter: "blur(4px)",
+              }}
+              onPointerDown={event => event.stopPropagation()}
+              onClick={event => event.stopPropagation()}
+            >
+              <div
+                data-artx-dialog-surface
+                className="absolute left-1/2 top-1/2 overflow-hidden rounded-[20px]"
+                style={{
+                  width: 420,
+                  maxWidth: "calc(100vw - 24px)",
+                  padding: 14,
+                  transform: `translate(calc(-50% + ${cameraViewPanelOffset.x}px), calc(-50% + ${cameraViewPanelOffset.y}px)) scale(${stableUiScale})`,
+                  transformOrigin: "center",
+                  background: "#111214",
+                  border: "1px solid rgba(255,255,255,0.16)",
+                  boxShadow: "0 24px 70px rgba(0,0,0,0.58)",
+                  color: "white",
+                }}
+              >
+                <div
+                  className="flex cursor-grab items-center justify-between px-1 pb-3"
+                  style={{ touchAction: "none" }}
+                  onPointerDown={handleCameraViewPanelPointerDown}
+                  onPointerMove={handleCameraViewPanelPointerMove}
+                  onPointerUp={handleCameraViewPanelPointerEnd}
+                  onPointerCancel={handleCameraViewPanelPointerEnd}
+                >
+                  <div className="flex items-center gap-2">
+                    <CameraViewCubeAiIcon size={17} cutoutBg="#111214" />
+                    <span style={{ fontSize: 15, fontWeight: 700 }}>调整视角</span>
+                  </div>
+                  <button
+                    type="button"
+                    title="恢复默认视角"
+                    aria-label="恢复默认视角"
+                    className="flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:bg-white/10"
+                    style={{ color: "#C5ED47" }}
+                    onClick={resetCameraView}
+                  >
+                    <RotateCcw size={16} strokeWidth={2.2} />
+                  </button>
+                </div>
+                <div
+                  className="relative flex items-center justify-center overflow-hidden rounded-[14px]"
+                  style={{
+                    height: 220,
+                    background: "#090a0c",
+                    border: "1px solid rgba(255,255,255,0.18)",
+                    perspective: 760,
+                  }}
+                >
+                  <div
+                    className="relative flex items-center justify-center"
+                    style={{
+                      width: cameraCubeSize * 1.9,
+                      height: cameraCubeSize * 1.9,
+                      transform: `scale(${cameraCubeScale})`,
+                      transformStyle: "preserve-3d",
+                      perspective: 760,
+                      touchAction: "none",
+                      cursor: "grab",
+                    }}
+                    title="拖动立方体调整旋转与倾斜"
+                    onPointerDown={handleCameraCubePointerDown}
+                    onPointerMove={handleCameraCubePointerMove}
+                    onPointerUp={handleCameraCubePointerEnd}
+                    onPointerCancel={handleCameraCubePointerEnd}
+                  >
+                    <svg
+                      aria-label="可互动的视角立方体"
+                      role="img"
+                      viewBox="0 0 220 220"
+                      style={{
+                        width: cameraCubeSize * 1.55,
+                        height: cameraCubeSize * 1.55,
+                        transform: `scale(${cameraCubeScale})`,
+                        transition: cameraViewDragRef.current
+                          ? "none"
+                          : "transform 0.12s ease-out",
+                        filter: "drop-shadow(0 14px 24px rgba(255,255,255,0.24))",
+                        overflow: "visible",
+                        pointerEvents: "none",
+                      }}
+                    >
+                      <title>拖动立方体调整 X / Y</title>
+                      {cameraCubeProjection.faces.map(face => {
+                        const innerPoints =
+                          face.name === "right"
+                            ? insetCameraCubeFace(face.points, 10 / 92)
+                            : null;
+                        return (
+                          <g key={face.name}>
+                            <polygon
+                              points={face.points
+                                .map(point => `${point.x},${point.y}`)
+                                .join(" ")}
+                              fill="none"
+                              stroke="rgba(255,255,255,0.96)"
+                              strokeWidth="4"
+                              strokeLinejoin="round"
+                            />
+                            {innerPoints && (
+                              <polygon
+                                aria-label="当前原始视角"
+                                points={innerPoints
+                                  .map(point => `${point.x},${point.y}`)
+                                  .join(" ")}
+                                fill="#C5ED47"
+                                stroke="#C5ED47"
+                                strokeWidth="1"
+                                strokeLinejoin="round"
+                              />
+                            )}
+                          </g>
+                        );
+                      })}
+                    </svg>
+                  </div>
+                  <span
+                    className="absolute left-3 top-3 rounded-full px-2 py-1"
+                    style={{
+                      fontSize: 10,
+                      color: "rgba(255,255,255,0.62)",
+                      background: "rgba(255,255,255,0.08)",
+                    }}
+                  >
+                    拖动立方体调整 X / Y
+                  </span>
+                </div>
+                <div className="mt-3 flex flex-col gap-2">
+                  <label className="flex items-center gap-3 rounded-[12px] border px-3 py-2" style={{ borderColor: "rgba(255,255,255,0.14)", background: "#191a1d" }}>
+                    <span className="w-12 shrink-0 text-sm">旋转</span>
+                    <input className="min-w-0 flex-1" type="range" min={-180} max={180} step={1} value={assetCameraView.x} aria-label="旋转" onChange={event => updateCameraViewNode({ ...assetCameraView, x: clampCameraAxis(event.target.value, -180, 180) })} style={{ accentColor: "#C5ED47" }} />
+                    <span className="w-12 text-right text-sm" style={{ color: "rgba(255,255,255,0.82)" }}>{assetCameraView.x}°</span>
+                  </label>
+                  <label className="flex items-center gap-3 rounded-[12px] border px-3 py-2" style={{ borderColor: "rgba(255,255,255,0.14)", background: "#191a1d" }}>
+                    <span className="w-12 shrink-0 text-sm">倾斜</span>
+                    <input className="min-w-0 flex-1" type="range" min={-75} max={75} step={1} value={assetCameraView.y} aria-label="倾斜" onChange={event => updateCameraViewNode({ ...assetCameraView, y: clampCameraAxis(event.target.value, -75, 75) })} style={{ accentColor: "#C5ED47" }} />
+                    <span className="w-12 text-right text-sm" style={{ color: "rgba(255,255,255,0.82)" }}>{assetCameraView.y}</span>
+                  </label>
+                  <label className="flex items-center gap-3 rounded-[12px] border px-3 py-2" style={{ borderColor: "rgba(255,255,255,0.14)", background: "#191a1d" }}>
+                    <span className="w-12 shrink-0 text-sm">缩放</span>
+                    <input className="min-w-0 flex-1" type="range" min={-60} max={60} step={1} value={assetCameraView.z} aria-label="缩放" onChange={event => updateCameraViewNode({ ...assetCameraView, z: clampCameraAxis(event.target.value, -60, 60) })} style={{ accentColor: "#C5ED47" }} />
+                    <span className="w-12 text-right text-sm" style={{ color: "rgba(255,255,255,0.82)" }}>{assetCameraView.z}</span>
+                  </label>
+                </div>
+                <div className="mt-4 flex justify-end gap-2">
+                  <button type="button" className="rounded-[10px] border px-4 py-2 text-sm" style={{ borderColor: "rgba(255,255,255,0.18)", color: "rgba(255,255,255,0.78)", background: "transparent" }} onClick={cancelCameraViewAdjuster}>取消</button>
+                  <button type="button" className="rounded-[10px] border px-4 py-2 text-sm" style={{ borderColor: "rgba(255,255,255,0.18)", color: "white", background: "rgba(255,255,255,0.10)" }} onClick={() => window.dispatchEvent(new CustomEvent("asset-camera-view-four-apply", { detail: { nodeId, cameraView: assetCameraView } }))}>四视图</button>
+                  <button type="button" className="rounded-[10px] px-4 py-2 text-sm font-semibold" style={{ color: "#0b0c0d", background: "#C5ED47" }} onClick={() => updateCameraViewNode(assetCameraView, true)}>应用</button>
+                </div>
+              </div>
+            </div>
+          )}
+          {isCameraViewAdjusting && !isAiProcessingImage && (
+            <div
+              className="absolute inset-0 nodrag nopan"
+              style={{
+                display: "none",
                 zIndex: 94,
                 overflow: "visible",
                 background:
@@ -7984,10 +8357,7 @@ function AssetNodeComponent({
                     handleCameraViewZChange(Number(event.target.value))
                   }
                   onPointerUp={event =>
-                    handleCameraViewZChange(
-                      Number(event.currentTarget.value),
-                      true
-                    )
+                    handleCameraViewZChange(Number(event.currentTarget.value))
                   }
                   style={{
                     flex: 1,
@@ -9200,6 +9570,193 @@ function PromptNodeComponent({
   );
 }
 
+type VisualResizeDirection = "nw" | "ne" | "se" | "sw";
+
+type VisualResizeData = {
+  width: number;
+  height: number;
+  position: { x: number; y: number };
+};
+
+function VisualNodeResizeHandles({
+  nodeId,
+  width,
+  height,
+  selected,
+  minWidth = 40,
+  minHeight = 32,
+  resizeData,
+}: {
+  nodeId: string;
+  width: number;
+  height: number;
+  selected: boolean;
+  minWidth?: number;
+  minHeight?: number;
+  resizeData?: (
+    data: Record<string, unknown>,
+    start: VisualResizeData,
+    next: VisualResizeData
+  ) => Record<string, unknown>;
+}) {
+  const { getNode, setNodes } = useReactFlow();
+  const { zoom } = useViewport();
+  const dragRef = useRef<{
+    direction: VisualResizeDirection;
+    startClientX: number;
+    startClientY: number;
+    start: VisualResizeData;
+    startData: Record<string, unknown>;
+  } | null>(null);
+
+  const calculateResize = useCallback(
+    (clientX: number, clientY: number) => {
+      const drag = dragRef.current;
+      if (!drag) return null;
+      const scale = Math.max(0.2, zoom || 1);
+      const dx = (clientX - drag.startClientX) / scale;
+      const dy = (clientY - drag.startClientY) / scale;
+      const horizontal = drag.direction.includes("w") ? -dx : dx;
+      const vertical = drag.direction.includes("n") ? -dy : dy;
+      const nextWidth = Math.max(minWidth, Math.round(drag.start.width + horizontal));
+      const nextHeight = Math.max(minHeight, Math.round(drag.start.height + vertical));
+      return {
+        width: nextWidth,
+        height: nextHeight,
+        position: {
+          x: drag.direction.includes("w")
+            ? drag.start.position.x + drag.start.width - nextWidth
+            : drag.start.position.x,
+          y: drag.direction.includes("n")
+            ? drag.start.position.y + drag.start.height - nextHeight
+            : drag.start.position.y,
+        },
+      } satisfies VisualResizeData;
+    },
+    [minHeight, minWidth, zoom]
+  );
+
+  const applyResize = useCallback(
+    (next: VisualResizeData) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      setNodes(nodes =>
+        nodes.map(node => {
+          if (node.id !== nodeId) return node;
+          const data = node.data as Record<string, unknown>;
+          return {
+            ...node,
+            position: next.position,
+            style: { ...node.style, width: next.width, height: next.height },
+            data: {
+              ...data,
+              width: next.width,
+              height: next.height,
+              sizeCustomized: true,
+              ...(resizeData ? resizeData(drag.startData, drag.start, next) : {}),
+            },
+          };
+        })
+      );
+    },
+    [nodeId, resizeData, setNodes]
+  );
+
+  const handleMouseDown = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>, direction: VisualResizeDirection) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const node = getNode(nodeId);
+      if (!node) return;
+      const start: VisualResizeData = {
+        width,
+        height,
+        position: { ...node.position },
+      };
+      dragRef.current = {
+        direction,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        start,
+        startData: { ...(node.data as Record<string, unknown>) },
+      };
+      window.dispatchEvent(new CustomEvent("visual-node-resize-start", { detail: { nodeId } }));
+
+      const move = (moveEvent: MouseEvent) => {
+        const next = calculateResize(moveEvent.clientX, moveEvent.clientY);
+        if (next) applyResize(next);
+      };
+      const up = (upEvent: MouseEvent) => {
+        const drag = dragRef.current;
+        const next = calculateResize(upEvent.clientX, upEvent.clientY);
+        if (drag && next) {
+          applyResize(next);
+          window.dispatchEvent(
+            new CustomEvent("visual-node-resize-end", {
+              detail: { nodeId, start: drag.start, next },
+            })
+          );
+        }
+        dragRef.current = null;
+        window.removeEventListener("mousemove", move);
+        window.removeEventListener("mouseup", up);
+      };
+      window.addEventListener("mousemove", move);
+      window.addEventListener("mouseup", up);
+    },
+    [applyResize, calculateResize, getNode, height, nodeId, width]
+  );
+
+  if (!selected) return null;
+  const handleStyles: Record<VisualResizeDirection, React.CSSProperties> = {
+    nw: { left: -5, top: -5, cursor: "nwse-resize" },
+    ne: { right: -5, top: -5, cursor: "nesw-resize" },
+    se: { right: -5, bottom: -5, cursor: "nwse-resize" },
+    sw: { left: -5, bottom: -5, cursor: "nesw-resize" },
+  };
+  return (
+    <>
+      {(["nw", "ne", "se", "sw"] as VisualResizeDirection[]).map(direction => (
+        <div
+          key={direction}
+          className="nodrag nopan"
+          style={{
+            position: "absolute",
+            width: 10,
+            height: 10,
+            borderRadius: "50%",
+            background: "white",
+            border: "1.5px solid rgba(105,82,255,0.95)",
+            boxShadow: "0 1px 5px rgba(0,0,0,0.45)",
+            zIndex: 30,
+            ...handleStyles[direction],
+          }}
+          onMouseDown={event => handleMouseDown(event, direction)}
+          aria-label={`调整节点大小 ${direction}`}
+        />
+      ))}
+    </>
+  );
+}
+
+function getTextNodeIntrinsicSize(
+  text: string,
+  fontSize: number,
+  lineHeight: number,
+  letterSpacing: number
+) {
+  const lines = text.split("\n");
+  const maxLine = Math.max(1, ...lines.map(line => line.length));
+  // CJK glyphs occupy a full em. Using a narrower Latin-only estimate here
+  // makes the purple node frame smaller than the rendered text and clips it.
+  const averageCharWidth = fontSize + Math.max(0, letterSpacing) * fontSize;
+  return {
+    width: Math.max(80, Math.ceil(maxLine * averageCharWidth + 20)),
+    height: Math.max(48, Math.ceil(lines.length * fontSize * lineHeight + 16)),
+  };
+}
+
 // ── Text Node ──────────────────────────────────────────────────
 // 富文本排版节点，支持字体、颜色、字重、字号、对齐等属性
 function TextNodeComponent({
@@ -9227,22 +9784,30 @@ function TextNodeComponent({
   const letterSpacing = (data.letterSpacing as number) || 0;
   const textDecoration = (data.textDecoration as string) || "none";
   const textTransform = (data.textTransform as string) || "none";
-  const nodeWidth = (data.width as number) || 320;
-  const nodeHeight = (data.height as number) || 120;
+  const nodeData = data;
+  const autoSizeText = !Boolean(nodeData.sizeCustomized);
+  const sizeCustomized = !autoSizeText;
+  const textContentLength = textContent.length;
+  const intrinsicSize = getTextNodeIntrinsicSize(textContent, fontSize, lineHeight, letterSpacing);
+  const nodeWidth = sizeCustomized
+    ? (data.width as number) || intrinsicSize.width
+    : textContentLength > 0
+      ? intrinsicSize.width
+      : (data.width as number) || 320;
+  const nodeHeight = sizeCustomized
+    ? (data.height as number) || intrinsicSize.height
+    : textContentLength > 0
+      ? intrinsicSize.height
+      : (data.height as number) || 80;
   const isEditing = (data.isEditing as boolean) || false;
   const strokeColorVal = (data.strokeColor as string) || "";
   const strokeWidthVal = (data.strokeWidth as number) || 0;
   const [isHovered, setIsHovered] = useState(false);
 
-  // 描边效果：用 text-shadow 模拟文字描边
-  const textStrokeShadow =
+  // 使用原生文字描边，避免多重 text-shadow 产生错位的重复字形。
+  const textStroke =
     strokeWidthVal > 0 && isValidHexColor(strokeColorVal)
-      ? Array.from({ length: 8 }, (_, i) => {
-          const angle = (i / 8) * Math.PI * 2;
-          const dx = Math.round(Math.cos(angle) * strokeWidthVal * 10) / 10;
-          const dy = Math.round(Math.sin(angle) * strokeWidthVal * 10) / 10;
-          return `${dx}px ${dy}px 0 ${strokeColorVal}`;
-        }).join(", ")
+      ? `${strokeWidthVal}px ${strokeColorVal}`
       : undefined;
 
   const selBorder = selected ? "oklch(0.65 0.22 290)" : "transparent";
@@ -9256,10 +9821,24 @@ function TextNodeComponent({
     !selected && isHovered ? "0 0 0 1.5px rgba(160,160,180,0.45)" : "none";
 
   const handleNodeCtxMenu = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest("textarea, input, [contenteditable='true']")) return;
     e.preventDefault();
     e.stopPropagation();
-    window.dispatchEvent(new CustomEvent("text-contextmenu-suppressed"));
-  }, []);
+    const rect = (e.currentTarget as HTMLElement)
+      .closest(".react-flow")
+      ?.getBoundingClientRect();
+    window.dispatchEvent(
+      new CustomEvent("node-contextmenu", {
+        detail: {
+          x: e.clientX - (rect?.left || 0),
+          y: e.clientY - (rect?.top || 0),
+          nodeId,
+          nodeType: "text",
+        },
+      })
+    );
+  }, [nodeId]);
 
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -9275,15 +9854,32 @@ function TextNodeComponent({
 
   const handleTextChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      const nextText = e.target.value;
       setNodes(nds =>
         nds.map(n =>
           n.id === nodeId
-            ? { ...n, data: { ...n.data, text: e.target.value } }
+            ? {
+                ...n,
+                style: sizeCustomized
+                  ? n.style
+                  : {
+                      ...n.style,
+                      width: getTextNodeIntrinsicSize(nextText, fontSize, lineHeight, letterSpacing).width,
+                      height: getTextNodeIntrinsicSize(nextText, fontSize, lineHeight, letterSpacing).height,
+                    },
+                data: {
+                  ...n.data,
+                  text: nextText,
+                  ...(sizeCustomized
+                    ? {}
+                    : getTextNodeIntrinsicSize(nextText, fontSize, lineHeight, letterSpacing)),
+                },
+              }
             : n
         )
       );
     },
-    [nodeId, setNodes]
+    [fontSize, letterSpacing, lineHeight, nodeId, setNodes, sizeCustomized]
   );
 
   const handleBlur = useCallback(() => {
@@ -9299,7 +9895,7 @@ function TextNodeComponent({
       data-text-node-id={nodeId}
       style={{
         width: nodeWidth,
-        minHeight: nodeHeight,
+        height: nodeHeight,
         position: "relative",
         border: `2px solid ${selected ? selBorder : hoverBorder}`,
         boxShadow: selected ? selShadow : hoverShadow,
@@ -9339,7 +9935,7 @@ function TextNodeComponent({
             textDecoration,
             textTransform:
               textTransform as React.CSSProperties["textTransform"],
-            textShadow: textStrokeShadow,
+            WebkitTextStroke: textStroke,
             padding: "4px 6px",
             boxSizing: "border-box",
             overflow: "hidden",
@@ -9361,7 +9957,7 @@ function TextNodeComponent({
             textDecoration,
             textTransform:
               textTransform as React.CSSProperties["textTransform"],
-            textShadow: textStrokeShadow,
+            WebkitTextStroke: textStroke,
             padding: "4px 6px",
             boxSizing: "border-box",
             whiteSpace: "pre-wrap",
@@ -9374,6 +9970,12 @@ function TextNodeComponent({
           )}
         </div>
       )}
+      <VisualNodeResizeHandles
+        nodeId={nodeId}
+        width={nodeWidth}
+        height={nodeHeight}
+        selected={selected}
+      />
       <Handle
         type="target"
         position={Position.Top}
@@ -9633,15 +10235,9 @@ function CanvasFrameNode({
   const handleCanvasFrameClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      const additive = e.ctrlKey || e.metaKey;
       window.dispatchEvent(
         new CustomEvent("asset-click-selection", {
           detail: { selectedIds: [id] },
-        })
-      );
-      window.dispatchEvent(
-        new CustomEvent("visual-node-select-to-front", {
-          detail: { nodeId: id, additive },
         })
       );
     },
@@ -9885,6 +10481,10 @@ function ShapeNodeComponent({
       { x: 0, y: h },
     ];
   });
+
+  useEffect(() => {
+    if (Array.isArray(data.anchors)) setAnchors(data.anchors as { x: number; y: number }[]);
+  }, [data.anchors]);
 
   // 右键菜单状态
   // 参数菜单已移至 InnerCanvas 层统一管理，此处无需本地状态
@@ -10144,6 +10744,18 @@ function ShapeNodeComponent({
         </div>
       )}
       {/* 右键参数菜单已移至 InnerCanvas 层统一渲染，此处无需渲染 */}
+      <VisualNodeResizeHandles
+        nodeId={id}
+        width={w}
+        height={h}
+        selected={selected}
+        resizeData={(_, start, next) => ({
+          anchors: anchors.map(anchor => ({
+            x: (anchor.x / Math.max(1, start.width)) * next.width,
+            y: (anchor.y / Math.max(1, start.height)) * next.height,
+          })),
+        })}
+      />
       <Handle
         type="target"
         position={Position.Top}
@@ -10202,6 +10814,10 @@ function PenNodeComponent({
     if (data.anchors) return data.anchors as PenAnchor[];
     return [];
   });
+
+  useEffect(() => {
+    if (Array.isArray(data.anchors)) setAnchors(data.anchors as PenAnchor[]);
+  }, [data.anchors]);
 
   // 当前选中的锚点索引
   const [selectedAnchorIdx, setSelectedAnchorIdx] = useState<number | null>(
@@ -10692,6 +11308,27 @@ function PenNodeComponent({
           钢笔编辑 · 单击添加锚点 · 双击锚点切换类型 · Enter 完成
         </div>
       )}
+      <VisualNodeResizeHandles
+        nodeId={id}
+        width={w}
+        height={h}
+        selected={selected}
+        resizeData={(_, start, next) => {
+          const scaleX = next.width / Math.max(1, start.width);
+          const scaleY = next.height / Math.max(1, start.height);
+          return {
+            anchors: anchors.map(anchor => ({
+              ...anchor,
+              x: anchor.x * scaleX,
+              y: anchor.y * scaleY,
+              inDx: anchor.inDx * scaleX,
+              inDy: anchor.inDy * scaleY,
+              outDx: anchor.outDx * scaleX,
+              outDy: anchor.outDy * scaleY,
+            })),
+          };
+        }}
+      />
       <Handle
         type="target"
         position={Position.Top}
@@ -10711,9 +11348,11 @@ function PenNodeComponent({
 // ── Freehand Node Component ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 // 铅笔自由路径节点：存储一组屏幕坐标点并用 SVG polyline 渲染
 function FreehandNodeComponent({
+  id,
   data,
   selected,
 }: {
+  id: string;
   data: Record<string, unknown>;
   selected: boolean;
 }) {
@@ -10766,6 +11405,22 @@ function FreehandNodeComponent({
           strokeLinejoin="round"
         />
       </svg>
+      <VisualNodeResizeHandles
+        nodeId={id || (data as { id?: string }).id || ""}
+        width={w}
+        height={h}
+        selected={selected}
+        resizeData={(_, start, next) => {
+          const scaleX = next.width / Math.max(1, start.width);
+          const scaleY = next.height / Math.max(1, start.height);
+          return {
+            points: points.map(point => ({
+              x: point.x * scaleX,
+              y: point.y * scaleY,
+            })),
+          };
+        }}
+      />
       <Handle
         type="target"
         position={Position.Top}
@@ -10792,18 +11447,6 @@ const nodeTypes: NodeTypes = {
   text: TextNodeComponent as unknown as NodeTypes["text"],
 };
 
-const SELECT_TO_FRONT_NODE_TYPES = new Set([
-  "asset",
-  "shape",
-  "freehand",
-  "pen",
-  "text",
-]);
-
-function shouldSelectToFront(node: Node | undefined) {
-  return Boolean(node?.type && SELECT_TO_FRONT_NODE_TYPES.has(node.type));
-}
-
 function areStringArraysEqual(a: string[], b: string[]) {
   return a.length === b.length && a.every((item, index) => item === b[index]);
 }
@@ -10816,6 +11459,70 @@ function nextCanvasTopZ(nodes: Node[]) {
     ) + 1
   );
 }
+
+type CanvasLayerAction =
+  | "bring-forward"
+  | "send-backward"
+  | "bring-to-front"
+  | "send-to-back";
+
+const CANVAS_LAYER_ACTIONS = new Set<CanvasLayerAction>([
+  "bring-forward",
+  "send-backward",
+  "bring-to-front",
+  "send-to-back",
+]);
+
+function applyCanvasLayerAction(
+  nodes: Node[],
+  selectedIds: string[],
+  action: CanvasLayerAction
+) {
+  const selected = new Set(selectedIds);
+  if (selected.size === 0) return { nodes, changed: false };
+
+  // ReactFlow 同时使用节点数组顺序和 zIndex 参与绘制；先按当前 zIndex
+  // 建立稳定顺序，再以选中节点为一个整体移动，最后归一化 zIndex。
+  const ordered = nodes
+    .map((node, index) => ({
+      node,
+      index,
+      z: typeof node.zIndex === "number" ? node.zIndex : index,
+    }))
+    .sort((left, right) => left.z - right.z || left.index - right.index);
+  const beforeIds = ordered.map(item => item.node.id);
+
+  if (action === "bring-to-front") {
+    const rest = ordered.filter(item => !selected.has(item.node.id));
+    ordered.splice(0, ordered.length, ...rest, ...ordered.filter(item => selected.has(item.node.id)));
+  } else if (action === "send-to-back") {
+    const rest = ordered.filter(item => !selected.has(item.node.id));
+    ordered.splice(0, ordered.length, ...ordered.filter(item => selected.has(item.node.id)), ...rest);
+  } else if (action === "bring-forward") {
+    for (let index = ordered.length - 2; index >= 0; index -= 1) {
+      if (selected.has(ordered[index].node.id) && !selected.has(ordered[index + 1].node.id)) {
+        [ordered[index], ordered[index + 1]] = [ordered[index + 1], ordered[index]];
+      }
+    }
+  } else {
+    for (let index = 1; index < ordered.length; index += 1) {
+      if (selected.has(ordered[index].node.id) && !selected.has(ordered[index - 1].node.id)) {
+        [ordered[index - 1], ordered[index]] = [ordered[index], ordered[index - 1]];
+      }
+    }
+  }
+
+  const changed = ordered.some((item, index) => item.node.id !== beforeIds[index]);
+  if (!changed) return { nodes, changed: false };
+  return {
+    changed: true,
+    nodes: ordered.map((item, index) => ({
+      ...item.node,
+      zIndex: index,
+    })),
+  };
+}
+
 const edgeTypes: EdgeTypes = {
   tapnow: TapnowEdge as unknown as EdgeTypes["tapnow"],
 };
@@ -13345,8 +14052,43 @@ function NodeContextMenu({
   const isGroupContainerMenu =
     menu.nodeType === "group-container" ||
     menu.nodeType === "group-container-inside";
-  const isVisualNodeMenu =
-    menu.nodeType === "asset" || menu.nodeType === "canvasFrame";
+  const layerItems = [
+    {
+      icon: <ArrowUp size={13} />,
+      label: "上一层",
+      action: "bring-forward",
+      color: iconColor,
+    },
+    {
+      icon: <ArrowDown size={13} />,
+      label: "下一层",
+      action: "send-backward",
+      color: iconColor,
+    },
+    {
+      icon: <PanelTopOpen size={13} />,
+      label: "置于顶层",
+      action: "bring-to-front",
+      color: iconColor,
+    },
+    {
+      icon: <FolderDown size={13} />,
+      label: "置于底层",
+      action: "send-to-back",
+      color: iconColor,
+    },
+  ];
+  const textDownloadItems =
+    menu.nodeType === "text" && selectedCount === 1
+      ? [
+          {
+            icon: <Download size={13} />,
+            label: "下载",
+            action: "download",
+            color: iconColor,
+          },
+        ]
+      : [];
 
   // Group container right-click menu: 解散打组 / 进入打组 / 重命名
   const isInsideGroup = menu.nodeType === "group-container-inside";
@@ -13430,6 +14172,7 @@ function NodeContextMenu({
       action: "add-note",
       color: iconColor,
     },
+    ...layerItems,
     {
       icon: <Trash2 size={13} />,
       label: "删除节点",
@@ -13446,12 +14189,14 @@ function NodeContextMenu({
       action: "duplicate",
       color: iconColor,
     },
+    ...textDownloadItems,
     {
       icon: <Type size={13} />,
       label: "添加文本备注",
       action: "add-note",
       color: iconColor,
     },
+    ...layerItems,
     {
       icon: <Trash2 size={13} />,
       label: "删除节点",
@@ -13554,6 +14299,7 @@ function GroupContainerOverlay({
   viewport,
   isDark,
   enteringGroupId,
+  groupMergeFlashId,
   onContextMenu,
   onDoubleClick,
   onDragMove,
@@ -13564,6 +14310,7 @@ function GroupContainerOverlay({
   viewport: { x: number; y: number; zoom: number };
   isDark: boolean;
   enteringGroupId: string | null;
+  groupMergeFlashId: string | null;
   onContextMenu: (e: React.MouseEvent, groupId: string) => void;
   onDoubleClick: (groupId: string) => void;
   onDragMove: (groupId: string, dx: number, dy: number) => void;
@@ -13601,6 +14348,7 @@ function GroupContainerOverlay({
             width={width}
             height={height}
             isEntering={isEntering}
+            isFlashing={groupMergeFlashId === g.groupId}
             isDark={isDark}
             containerBg={containerBg}
             containerBorder={containerBorder}
@@ -13627,6 +14375,7 @@ function GroupContainerCard({
   width,
   height,
   isEntering,
+  isFlashing,
   isDark,
   containerBg,
   containerBorder,
@@ -13645,6 +14394,7 @@ function GroupContainerCard({
   width: number;
   height: number;
   isEntering: boolean;
+  isFlashing: boolean;
   isDark: boolean;
   containerBg: string;
   containerBorder: string;
@@ -13751,6 +14501,9 @@ function GroupContainerCard({
           : isEntering
             ? `0 0 0 3px oklch(0.72 0.22 50 / 0.15), 0 8px 32px rgba(0,0,0,0.18)`
             : `0 4px 24px rgba(0,0,0,0.10)`,
+        animation: isFlashing
+          ? "artx-group-merge-flash 0.8s ease-in-out 2"
+          : undefined,
         cursor: dragging ? "grabbing" : "grab",
         userSelect: "none",
       }}
@@ -14688,11 +15441,11 @@ function ImageGeneratorPopover({
   const popoverRef = useRef<HTMLDivElement>(null);
   const dragOffsetRef = useRef({ x: 0, y: 0 });
 
-  const bg = isDark ? "rgba(18,18,28,0.98)" : "rgba(255,255,255,0.98)";
-  const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
+  const bg = isDark ? "#1e1e20" : "rgba(255,255,255,0.98)";
+  const border = isDark ? "#2e2e33" : "rgba(0,0,0,0.10)";
   const text = isDark ? "rgba(255,255,255,0.86)" : "rgba(22,22,34,0.86)";
   const sub = isDark ? "rgba(255,255,255,0.62)" : "rgba(22,22,34,0.48)";
-  const fieldBg = isDark ? "rgba(255,255,255,0.055)" : "rgba(0,0,0,0.035)";
+  const fieldBg = isDark ? "#242424" : "rgba(0,0,0,0.035)";
   const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
   const accent = "oklch(0.64 0.22 285)";
   const allImageModelOptions = useImageModelOptions();
@@ -14720,18 +15473,19 @@ function ImageGeneratorPopover({
   const ratios = ["1:1", "4:5", "5:4", "3:4", "4:3", "16:9", "9:16", "21:9"];
   const counts = [1, 2, 3, 4, 5, 6, 7, 8, 9];
   const canGenerate = prompt.trim().length > 0 && availableImageModels.length > 0 && !selectedModel.disabled && !isGenerating;
-  const popoverWidth = 430;
+  const popoverWidth = 680;
 
   const clampPopoverPosition = useCallback(
     (nextX: number, nextY: number) => {
       if (typeof window === "undefined") return { x: nextX, y: nextY };
       const rect = popoverRef.current?.getBoundingClientRect();
-      const popoverHeight = rect?.height || 520;
+      const popoverWidthPx = rect?.width || popoverWidth;
+      const popoverHeight = rect?.height || 439;
       const minX = 8;
       const minY = 8;
       const maxX = Math.max(
         minX,
-        window.innerWidth - canvasRightInset - popoverWidth - 8
+        window.innerWidth - canvasRightInset - popoverWidthPx - 8
       );
       const maxY = Math.max(minY, window.innerHeight - popoverHeight - 8);
       return {
@@ -14819,7 +15573,7 @@ function ImageGeneratorPopover({
 
   const controlButtonStyle = (active: boolean): React.CSSProperties => ({
     height: 30,
-    minWidth: 52,
+    minWidth: 0,
     padding: "0 10px",
     borderRadius: "var(--radius-md-design)",
     border: `1px solid ${active ? "oklch(0.64 0.22 285 / 0.52)" : border}`,
@@ -14969,11 +15723,13 @@ function ImageGeneratorPopover({
   const popover = (
     <div
       ref={popoverRef}
-      className="fixed overflow-hidden rounded-[var(--radius-xl-design)] shadow-2xl"
+      className="fixed flex flex-col overflow-hidden rounded-[var(--radius-xl-design)] shadow-2xl"
       style={{
         left: position?.x ?? 0,
         top: position?.y ?? 80,
-        width: popoverWidth,
+        width: "min(680px, calc(100vw - 24px))",
+        height: "min(439px, calc(100dvh - 24px))",
+        borderRadius: 16,
         background: bg,
         border: `1px solid ${border}`,
         backdropFilter: "blur(22px)",
@@ -14984,22 +15740,22 @@ function ImageGeneratorPopover({
       onClick={e => e.stopPropagation()}
     >
       <div
-        className="flex items-center justify-between px-4 py-3"
+        className="flex items-center justify-between px-6 py-4"
         style={{ borderBottom: `1px solid ${border}`, cursor: "move" }}
         onMouseDown={handleDragStart}
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <span
-            className="flex h-8 w-8 items-center justify-center"
-            style={{ color: "oklch(0.72 0.18 205)" }}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md"
+            style={{ color: "#C5ED47", background: "rgba(197,237,71,0.12)" }}
           >
-            <WandSparkles size={25} strokeWidth={1.85} />
+            <WandSparkles size={22} strokeWidth={1.85} />
           </span>
           <div>
-            <p className="type-caption" style={{ color: text }}>
+            <p className="type-caption" style={{ color: text, fontSize: 14, fontWeight: 750 }}>
               图像生成器
             </p>
-            <p className="type-caption" style={{ color: sub, fontSize: 11 }}>
+            <p className="mt-1 type-caption" style={{ color: sub, fontSize: 11 }}>
               基于当前画布生成新图像节点
             </p>
           </div>
@@ -15015,9 +15771,17 @@ function ImageGeneratorPopover({
         </button>
       </div>
 
-      <div className="p-4">
+      <div
+        className="grid min-h-0 flex-1 gap-5 overflow-hidden p-6 lg:grid-cols-[272px_minmax(0,1fr)]"
+        style={{
+          gridTemplateColumns: "272px minmax(0, 1fr)",
+          gap: 20,
+          padding: 24,
+        }}
+      >
+        <div className="min-w-0 lg:row-span-3">
         <div
-          className="rounded-[var(--radius-lg-design)] p-3"
+          className="flex h-full flex-col rounded-[var(--radius-lg-design)] p-3"
           style={{ background: fieldBg, border: `1px solid ${border}` }}
         >
           <textarea
@@ -15030,7 +15794,7 @@ function ImageGeneratorPopover({
               }
             }}
             rows={4}
-            className="w-full resize-none bg-transparent outline-none"
+            className="min-h-0 w-full flex-1 resize-none bg-transparent outline-none"
             style={{ color: text, fontSize: 14, lineHeight: 1.65 }}
             placeholder="描述要生成的图像，例如：未来感跑鞋产品海报，紫蓝霓虹光，干净电商主视觉..."
             autoFocus
@@ -15040,12 +15804,13 @@ function ImageGeneratorPopover({
             style={{ color: sub }}
           >
             <span className="type-caption">Enter 生成 · Shift+Enter 换行</span>
-            <span className="type-caption">{prompt.trim().length}/500</span>
           </div>
         </div>
+        </div>
 
-        <div className="mt-3 grid grid-cols-[1fr_1.45fr] gap-3">
-          <div>
+        <div className="flex min-h-0 min-w-0 flex-col">
+        <div className="grid min-w-0 grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-3">
+          <div className="min-w-0">
             <p className="mb-1.5 type-caption" style={{ color: sub }}>
               模型
             </p>
@@ -15181,7 +15946,7 @@ function ImageGeneratorPopover({
               )}
             </div>
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="mb-1.5 type-caption" style={{ color: sub }}>
               画幅
             </p>
@@ -15201,93 +15966,85 @@ function ImageGeneratorPopover({
           </div>
         </div>
 
-        <div
-          className="mt-3 flex items-center justify-between rounded-[var(--radius-lg-design)] px-3 py-2"
-          style={{ background: fieldBg, border: `1px solid ${border}` }}
-        >
-          <div className="flex items-center gap-2" style={{ color: text }}>
-            <ImageIcon size={14} />
-            <div>
-              <p className="type-caption">参考当前画布</p>
-              <p className="type-caption" style={{ color: sub, fontSize: 11 }}>
-                把选中对象和画布语境加入生成
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            className="relative h-6 w-11 rounded-[var(--radius-pill)] transition-colors"
-            style={{ background: referencesEnabled ? accent : hoverBg }}
-            onClick={() => setReferencesEnabled(v => !v)}
-            aria-label="参考当前画布"
+        <div className="mt-auto pt-3">
+          <div
+            className="flex items-center justify-between rounded-[var(--radius-lg-design)] px-3 py-2"
+            style={{ background: fieldBg, border: `1px solid ${border}` }}
           >
-            <span
-              style={{
-                position: "absolute",
-                top: 3,
-                left: referencesEnabled ? 23 : 3,
-                width: 18,
-                height: 18,
-                borderRadius: "var(--radius-md-design)",
+            <div className="flex items-center gap-2" style={{ color: text }}>
+              <ImageIcon size={14} />
+              <div>
+                <p className="type-caption">参考当前画布</p>
+                <p className="type-caption" style={{ color: sub, fontSize: 11 }}>
+                  把选中对象和画布语境加入生成
+                </p>
+              </div>
+            </div>
+            <Switch
+              checked={referencesEnabled}
+              onCheckedChange={setReferencesEnabled}
+              aria-label="参考当前画布"
+              style={{ background: referencesEnabled ? accent : hoverBg }}
+              thumbStyle={{
                 background: "white",
-                transition: "left 0.16s ease",
                 boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
               }}
             />
-          </button>
-        </div>
-
-        <div className="mt-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="type-caption" style={{ color: sub }}>
-              数量
-            </span>
-            <div
-              className="flex items-center gap-1 rounded-[var(--radius-md-design)] p-1"
-              style={{ background: fieldBg, border: `1px solid ${border}` }}
-            >
-              {counts.map(item => (
-                <button
-                  key={item}
-                  type="button"
-                  style={controlButtonStyle(count === item)}
-                  className="h-7 min-w-8 active:scale-95"
-                  onClick={() => setCount(item)}
-                >
-                  {item}
-                </button>
-              ))}
-            </div>
           </div>
-          <button
-            type="button"
-            disabled={!canGenerate}
-            className="flex h-10 items-center gap-2 rounded-[var(--radius-lg-design)] px-4 transition-all hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed"
-            style={{
-              background: canGenerate ? "#C5ED47" : hoverBg,
-              color: canGenerate ? "#000" : sub,
-              boxShadow: canGenerate
-                ? "0 12px 30px rgba(197,237,71,0.24)"
-                : "none",
-            }}
-            onClick={handleGenerate}
-          >
-            {isGenerating ? (
-              <RefreshCw size={15} className="animate-spin" />
-            ) : (
-              <img
-                src={generationMark}
-                alt=""
-                aria-hidden="true"
-                draggable={false}
-                className="h-4 w-4 object-contain"
-                style={{ filter: "brightness(0)" }}
-              />
-            )}
-            <span className="type-caption">
-              {isGenerating ? "生成中" : "生成图像"}
-            </span>
-          </button>
+
+          <div className="mt-3 grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+            <div className="min-w-0">
+              <span className="type-caption" style={{ color: sub }}>
+                数量
+              </span>
+              <div
+                className="mt-1 grid grid-cols-5 gap-1.5 w-full rounded-[var(--radius-md-design)] p-1"
+                style={{ background: fieldBg, border: `1px solid ${border}` }}
+              >
+                {counts.map(item => (
+                  <button
+                    key={item}
+                    type="button"
+                    style={controlButtonStyle(count === item)}
+                    className="h-7 min-w-0 w-full active:scale-95"
+                    onClick={() => setCount(item)}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button
+              type="button"
+              disabled={!canGenerate}
+              className="flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-[var(--radius-lg-design)] px-4 transition-all hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed"
+              style={{
+                background: canGenerate ? "#C5ED47" : hoverBg,
+                color: canGenerate ? "#000" : sub,
+                boxShadow: canGenerate
+                  ? "0 12px 30px rgba(197,237,71,0.24)"
+                  : "none",
+              }}
+              onClick={handleGenerate}
+            >
+              {isGenerating ? (
+                <RefreshCw size={15} className="animate-spin" />
+              ) : (
+                <img
+                  src={generationMark}
+                  alt=""
+                  aria-hidden="true"
+                  draggable={false}
+                  className="h-4 w-4 object-contain"
+                  style={{ filter: "brightness(0)" }}
+                />
+              )}
+              <span className="type-caption">
+                {isGenerating ? "生成中" : "生成图像"}
+              </span>
+            </button>
+          </div>
+        </div>
         </div>
       </div>
     </div>
@@ -15952,27 +16709,16 @@ function FontDesignDialog({
                   适合叠加到海报、产品图和品牌视觉中
                 </p>
               </div>
-              <button
-                type="button"
-                className="relative h-6 w-11 rounded-[var(--radius-pill)] transition-colors"
-                style={{ background: transparentBackground ? accent : hoverBg }}
-                onClick={() => setTransparentBackground(value => !value)}
+              <Switch
+                checked={transparentBackground}
+                onCheckedChange={setTransparentBackground}
                 aria-label="透明底"
-              >
-                <span
-                  style={{
-                    position: "absolute",
-                    top: 3,
-                    left: transparentBackground ? 23 : 3,
-                    width: 18,
-                    height: 18,
-                    borderRadius: "var(--radius-md-design)",
-                    background: "white",
-                    transition: "left 0.16s ease",
-                    boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
-                  }}
-                />
-              </button>
+                style={{ background: transparentBackground ? accent : hoverBg }}
+                thumbStyle={{
+                  background: "white",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
+                }}
+              />
             </div>
           </div>
         </div>
@@ -16078,12 +16824,12 @@ function CanvasTopToolPalette({
     return () => window.removeEventListener("tool-mode-change", handler);
   }, []);
 
-  const bg = isDark ? "#232326" : "oklch(0.88 0.005 270)";
+  const bg = isDark ? "rgba(22,22,30,0.88)" : "rgba(255,255,255,0.86)";
   const border = isDark ? "rgba(42,42,45,0.92)" : "rgba(0,0,0,0.10)";
   const textColor = isDark ? "#b4b4b8" : "rgba(28,28,40,0.82)";
-  const hoverBg = isDark ? "#353535" : "rgba(0,0,0,0.06)";
-  const activeBg = isDark ? "#3f6261" : "rgba(0,0,0,0.12)";
-  const activeColor = "#ffffff";
+  const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+  const activeBg = hoverBg;
+  const activeColor = textColor;
   const popBg = isDark ? "rgba(24,24,34,0.96)" : "rgba(255,255,255,0.96)";
   const tooltipBg = isDark ? "rgba(18,18,26,0.96)" : "rgba(30,30,40,0.92)";
   const toolbarDividerColor = isDark
@@ -16464,8 +17210,8 @@ function CanvasTopToolPalette({
                 aria-label={tool.label}
                 className="relative flex h-9 w-9 items-center justify-center rounded-[var(--radius-md-design)] transition-all active:scale-95"
                 style={{
-                  color: active === tool.id ? activeColor : textColor,
-                  background: active === tool.id ? activeBg : "transparent",
+                  color: active === tool.id || hoveredId === tool.id ? activeColor : textColor,
+                  background: active === tool.id || hoveredId === tool.id ? activeBg : "transparent",
                 }}
                 onClick={() => handleToolClick(tool.id)}
                 onMouseEnter={() => setHoveredId(tool.id)}
@@ -16562,6 +17308,7 @@ function SaveProjectConfirmDialog({
       onMouseDown={onCancel}
     >
       <div
+        data-artx-dialog-surface
         className="w-[min(420px,calc(100vw-32px))] rounded-[var(--radius-lg-design)] p-6 shadow-2xl"
         style={{
           background: bg,
@@ -17261,6 +18008,7 @@ function CanvasAssistantPanel({
     string | null
   >(null);
   const [newCanvasConfirmOpen, setNewCanvasConfirmOpen] = useState(false);
+  const [inspirationDialogOpen, setInspirationDialogOpen] = useState(false);
   const [selectedReferenceIds, setSelectedReferenceIds] = useState<string[]>(
     []
   );
@@ -17298,10 +18046,10 @@ function CanvasAssistantPanel({
   const hoverBg = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 5%)";
   const compactSelectorBg = isDark ? "#525252" : getMinimapSurfaceBackground(isDark);
   const compactSelectorHoverBg = isDark
-    ? "#626262"
+    ? "#2b2b2b"
     : "oklch(0.22 0.015 270)";
   const compactSelectorActiveBg = isDark
-    ? "#626262"
+    ? "#2b2b2b"
     : "oklch(0.22 0.015 270)";
   const compactSelectorBorder = getMinimapSurfaceBorder(isDark);
   const compactSelectorActiveBorder = "oklch(0.62 0.22 290 / 45%)";
@@ -17399,9 +18147,9 @@ function CanvasAssistantPanel({
   };
   const actionButtons = [
     {
-      label: "新建画布",
-      icon: <PlusSquare size={16} />,
-      onClick: () => setNewCanvasConfirmOpen(true),
+      label: "灵感推荐",
+      icon: <Sparkles size={16} />,
+      onClick: () => setInspirationDialogOpen(true),
     },
     {
       label: "分享对话",
@@ -17511,6 +18259,22 @@ function CanvasAssistantPanel({
     activeComposerCursorRef.current = lastTextSegment.text.length;
     focusComposerSegment(lastTextSegment.id, lastTextSegment.text.length);
   }, [composerSegments, focusComposerSegment]);
+
+  const handleInspirationCopy = useCallback(async (item: InspirationPromptItem) => {
+    try {
+      await navigator.clipboard?.writeText(item.prompt);
+    } catch {
+      // The prompt is still injected into the in-product composer when clipboard access is unavailable.
+    }
+    setComposerSegments([createAssistantTextSegment(item.prompt)]);
+    setInspirationDialogOpen(false);
+    window.dispatchEvent(
+      new CustomEvent("canvas-assistant-external-message", {
+        detail: { role: "user", content: `用户已引用「${item.title}」灵感` },
+      })
+    );
+    toast("已引用灵感", { description: item.title });
+  }, []);
 
   const setComposerTextSegment = useCallback(
     (segmentId: string, value: string) => {
@@ -17761,95 +18525,6 @@ function CanvasAssistantPanel({
         .trim();
     },
     [composerSegments]
-  );
-
-  const updateComposerBoxSelection = useCallback(
-    (
-      startX: number,
-      startY: number,
-      currentX: number,
-      currentY: number,
-      active: boolean
-    ) => {
-      const selectionRect = {
-        left: Math.min(startX, currentX),
-        right: Math.max(startX, currentX),
-        top: Math.min(startY, currentY),
-        bottom: Math.max(startY, currentY),
-      };
-      const selectedIds = composerSegments
-        .filter(segment => {
-          const element = composerSegmentRefs.current[segment.id];
-          if (!element) return false;
-          const rect = element.getBoundingClientRect();
-          return (
-            rect.right >= selectionRect.left &&
-            rect.left <= selectionRect.right &&
-            rect.bottom >= selectionRect.top &&
-            rect.top <= selectionRect.bottom
-          );
-        })
-        .map(segment => segment.id);
-      setComposerBoxSelection({
-        active,
-        startX,
-        startY,
-        currentX,
-        currentY,
-        selectedIds,
-      });
-    },
-    [composerSegments]
-  );
-
-  const handleComposerBoxSelectMouseDown = useCallback(
-    (event: React.MouseEvent<HTMLDivElement>) => {
-      if (event.button !== 0) return;
-      const target = event.target as HTMLElement;
-      if (
-        target.closest(
-          "button, input, textarea, [contenteditable='true'], [data-composer-token]"
-        )
-      )
-        return;
-      event.preventDefault();
-      event.stopPropagation();
-      const startX = event.clientX;
-      const startY = event.clientY;
-      let didDragSelection = false;
-      const handleMove = (moveEvent: MouseEvent) => {
-        const dx = Math.abs(moveEvent.clientX - startX);
-        const dy = Math.abs(moveEvent.clientY - startY);
-        if (!didDragSelection && Math.max(dx, dy) < 4) return;
-        didDragSelection = true;
-        updateComposerBoxSelection(
-          startX,
-          startY,
-          moveEvent.clientX,
-          moveEvent.clientY,
-          true
-        );
-      };
-      const handleUp = (upEvent: MouseEvent) => {
-        if (didDragSelection) {
-          updateComposerBoxSelection(
-            startX,
-            startY,
-            upEvent.clientX,
-            upEvent.clientY,
-            false
-          );
-        } else {
-          setComposerBoxSelection(null);
-          focusTrailingComposerSegment();
-        }
-        window.removeEventListener("mousemove", handleMove);
-        window.removeEventListener("mouseup", handleUp);
-      };
-      window.addEventListener("mousemove", handleMove);
-      window.addEventListener("mouseup", handleUp, { once: true });
-    },
-    [focusTrailingComposerSegment, updateComposerBoxSelection]
   );
 
   useEffect(() => {
@@ -19514,6 +20189,12 @@ function CanvasAssistantPanel({
           onConfirm={handleCreateCanvasProject}
         />
       )}
+      <InspirationPromptDialog
+        isOpen={inspirationDialogOpen}
+        isDark={isDark}
+        onClose={() => setInspirationDialogOpen(false)}
+        onCopy={handleInspirationCopy}
+      />
       <aside
         className="absolute right-3 top-3 bottom-3 flex flex-col nodrag nopan overflow-hidden rounded-[var(--radius-md-design)] transition-transform duration-200 ease-out"
         style={{
@@ -19908,22 +20589,13 @@ function CanvasAssistantPanel({
                       color: text,
                     }}
                   >
-                    <span
-                      style={{
-                        width: 14,
-                        height: 14,
-                        borderRadius: 4,
-                        background: "#C5ED47",
-                        display: "inline-block",
-                      }}
-                    />
                     <span className="truncate">{contextLabel}</span>
                   </span>
                 </div>
               )}
               <div
                 ref={composerShellRef}
-                className="mb-2 min-h-[82px] overflow-y-auto rounded-[var(--radius-md-design)] px-1 py-1"
+                className="mb-2 min-h-[117px] overflow-y-auto rounded-[var(--radius-md-design)] px-1 py-1"
                 style={{
                   position: "relative",
                   color: text,
@@ -19937,8 +20609,6 @@ function CanvasAssistantPanel({
                   paddingLeft: hasActiveSkill ? 0 : undefined,
                 }}
                 onMouseDown={event => {
-                  handleComposerBoxSelectMouseDown(event);
-                  if (event.defaultPrevented) return;
                   const target = event.target as HTMLElement;
                   if (
                     target.closest(
@@ -19946,6 +20616,13 @@ function CanvasAssistantPanel({
                     )
                   )
                     return;
+                  // Keep drags on the prompt shell from starting either the
+                  // canvas selection box or the composer's token-selection box.
+                  // Native text selection inside the editable fields remains
+                  // available because those targets return above.
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setComposerBoxSelection(null);
                   const rect = event.currentTarget.getBoundingClientRect();
                   if (event.clientX - rect.left <= 44) {
                     focusLeadingComposerSegment();
@@ -19968,51 +20645,6 @@ function CanvasAssistantPanel({
                     letterSpacing: 0,
                   }}
                 />
-                {composerBoxSelection &&
-                  composerShellRef.current &&
-                  (() => {
-                    const rect =
-                      composerShellRef.current.getBoundingClientRect();
-                    const left =
-                      Math.min(
-                        composerBoxSelection.startX,
-                        composerBoxSelection.currentX
-                      ) -
-                      rect.left +
-                      composerShellRef.current.scrollLeft;
-                    const top =
-                      Math.min(
-                        composerBoxSelection.startY,
-                        composerBoxSelection.currentY
-                      ) -
-                      rect.top +
-                      composerShellRef.current.scrollTop;
-                    const width = Math.abs(
-                      composerBoxSelection.currentX -
-                        composerBoxSelection.startX
-                    );
-                    const height = Math.abs(
-                      composerBoxSelection.currentY -
-                        composerBoxSelection.startY
-                    );
-                    if (!composerBoxSelection.active || width < 3 || height < 3)
-                      return null;
-                    return (
-                      <div
-                        aria-hidden="true"
-                        className="pointer-events-none absolute rounded-[var(--radius-sm-design)]"
-                        style={{
-                          left,
-                          top,
-                          width,
-                          height,
-                          background: "rgba(197,237,71,0.10)",
-                          border: "1px solid rgba(197,237,71,0.55)",
-                          zIndex: 4,
-                        }}
-                      />
-                    );
-                  })()}
                 {/* Click gaps around tokens to move caret into adjacent text segment */}
                 {(() => {
                   const tryFocusGapTextSegment = (
@@ -20143,6 +20775,12 @@ function CanvasAssistantPanel({
                     );
                   }
                   if (segment.type === "image") {
+                    const isCanvasContextReference =
+                      selectedCount === 1 &&
+                      referencedAssets.length === 1 &&
+                      referencedAssets[0]?.id === segment.asset.id;
+                    const isSelectedImageToken =
+                      isBoxSelected || isCanvasContextReference;
                     return (
                       <span
                         key={segment.id}
@@ -20190,16 +20828,28 @@ function CanvasAssistantPanel({
                           );
                         }}
                         data-composer-token="image"
-                        className="group relative inline-flex max-w-[62px] min-w-0 items-center gap-0.5 overflow-hidden rounded-[var(--radius-md-design)] px-1 py-0 align-middle"
+                        className="group relative inline-flex min-w-0 items-center overflow-hidden rounded-[var(--radius-md-design)] align-middle"
                         style={{
                           margin: "0 2px 2px 2px",
-	                          background: isDark
-	                            ? "rgba(144,88,252,0.18)"
-	                            : "rgba(144,88,252,0.12)",
-	                          border: `1px solid ${dragOverComposerSegmentId === segment.id ? "oklch(0.68 0.20 292 / 0.86)" : "oklch(0.68 0.20 292 / 0.38)"}`,
-                          color: isDark
-                            ? "oklch(0.82 0.012 270)"
-                            : "oklch(0.28 0.012 270)",
+                          maxWidth: isSelectedImageToken ? 82 : 62,
+                          height: isSelectedImageToken ? 26 : undefined,
+                          gap: isSelectedImageToken ? 6 : 2,
+                          padding: isSelectedImageToken ? "4px 8px 4px 4px" : "0 4px",
+                          background: isSelectedImageToken
+                            ? isDark
+                              ? "#121110"
+                              : "rgba(18,17,16,0.12)"
+                            : isDark
+                              ? "rgba(144,88,252,0.18)"
+                              : "rgba(144,88,252,0.12)",
+                          border: `1px solid ${isSelectedImageToken ? "rgba(42,42,45,0.13)" : dragOverComposerSegmentId === segment.id ? "oklch(0.68 0.20 292 / 0.86)" : "oklch(0.68 0.20 292 / 0.38)"}`,
+                          color: isSelectedImageToken
+                            ? isDark
+                              ? "#c7c7c7"
+                              : "rgba(28,28,40,0.72)"
+                            : isDark
+                              ? "oklch(0.82 0.012 270)"
+                              : "oklch(0.28 0.012 270)",
                           cursor:
                             draggingComposerSegmentId === segment.id
                               ? "grabbing"
@@ -20207,11 +20857,11 @@ function CanvasAssistantPanel({
                           userSelect: "none",
                           opacity:
                             draggingComposerSegmentId === segment.id ? 0.42 : 1,
-	                          boxShadow: isBoxSelected
-	                            ? "0 0 0 2px oklch(0.68 0.20 292 / 0.62)"
-	                            : dragOverComposerSegmentId === segment.id
-	                              ? "0 0 0 2px oklch(0.68 0.20 292 / 0.18)"
-	                              : "none",
+                          boxShadow: isSelectedImageToken
+                            ? "none"
+                            : dragOverComposerSegmentId === segment.id
+                              ? "0 0 0 2px oklch(0.68 0.20 292 / 0.18)"
+                              : "none",
                         }}
                         title="拖拽调整引用顺序"
                       >
@@ -20225,8 +20875,8 @@ function CanvasAssistantPanel({
                             event.stopPropagation();
                           }}
 	                          style={{
-	                            width: 11,
-	                            height: 11,
+                              width: isSelectedImageToken ? 18 : 11,
+                              height: isSelectedImageToken ? 18 : 11,
                             borderRadius: 2,
                             objectFit: "cover",
                             flexShrink: 0,
@@ -20235,7 +20885,11 @@ function CanvasAssistantPanel({
                         />
                         <span
                           className="type-caption truncate"
-                          style={{ maxWidth: 35, fontSize: 10 }}
+                          style={{
+                            maxWidth: isSelectedImageToken ? 51 : 35,
+                            fontSize: isSelectedImageToken ? 12 : 10,
+                            color: isSelectedImageToken ? "#c7c7c7" : undefined,
+                          }}
                         >
                           {segment.asset.title}
                         </span>
@@ -20585,7 +21239,9 @@ function CanvasAssistantPanel({
                           : agentButtonHover
                             ? compactSelectorHoverBg
                             : compactSelectorBg,
-                        border: `1px solid ${agentMenuOpen ? compactSelectorActiveBorder : compactSelectorBorder}`,
+                        border: compactAssistantControls
+                          ? "none"
+                          : `1px solid ${agentMenuOpen ? compactSelectorActiveBorder : compactSelectorBorder}`,
                         color: agentMenuOpen || agentButtonHover
                           ? compactSelectorActiveText
                           : compactSelectorText,
@@ -20655,15 +21311,12 @@ function CanvasAssistantPanel({
                             >
                               auto
                             </span>
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={assistantAutoMode}
+                            <Switch
+                              checked={assistantAutoMode}
+                              onCheckedChange={setAssistantAutoMode}
                               disabled={availableAssistantImageModels.length === 0}
-                              className="relative shrink-0 rounded-[var(--radius-pill)] transition-all"
+                              aria-label="自动模式"
                               style={{
-                                width: 34,
-                                height: 20,
                                 background: assistantAutoMode
                                   ? "#C5ED47"
                                   : isDark
@@ -20671,28 +21324,15 @@ function CanvasAssistantPanel({
                                     : "oklch(0 0 0 / 12%)",
                                 border: `1px solid ${assistantAutoMode ? "rgba(197,237,71,0.60)" : border}`,
                               }}
-                              onClick={() => setAssistantAutoMode(value => !value)}
-                            >
-                              <span
-                                aria-hidden="true"
-                                style={{
-                                  position: "absolute",
-                                  top: 3,
-                                  left: assistantAutoMode ? 17 : 3,
-                                  width: 14,
-                                  height: 14,
-                                  borderRadius: 999,
-                                  background: assistantAutoMode
-                                    ? "#111827"
-                                    : isDark
-                                      ? "oklch(0.68 0.01 270)"
-                                      : "#fff",
-                                  boxShadow: "0 1px 4px rgba(0,0,0,0.22)",
-                                  transition:
-                                    "left 0.16s ease, background 0.16s ease",
-                                }}
-                              />
-                            </button>
+                              thumbStyle={{
+                                background: assistantAutoMode
+                                  ? "#111827"
+                                  : isDark
+                                    ? "oklch(0.68 0.01 270)"
+                                    : "#fff",
+                                boxShadow: "0 1px 4px rgba(0,0,0,0.22)",
+                              }}
+                            />
                           </div>
                           <div className="grid grid-cols-2 gap-1 px-1 pb-1">
                             {[
@@ -21741,6 +22381,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [groupNames, setGroupNames] = useState<Record<string, string>>({});
   const [groupCounter, setGroupCounter] = useState(1);
   const [enteringGroupId, setEnteringGroupId] = useState<string | null>(null);
+  const [groupMergeFlashId, setGroupMergeFlashId] = useState<string | null>(null);
+  const groupMergeHoverTimerRef = useRef<number | null>(null);
+  const groupMergeHoverRef = useRef<{
+    nodeId: string;
+    groupId: string;
+  } | null>(null);
+  const groupMergeFlashTimerRef = useRef<number | null>(null);
   const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   // ── Download dialog state ──
@@ -21985,7 +22632,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   );
 
   const runCameraViewGeneration = useCallback(
-    async (nodeId: string, cameraView: AssetCameraViewValues) => {
+    async (
+      nodeId: string,
+      cameraView: AssetCameraViewValues,
+      placement?: { x: number; y: number }
+    ) => {
       if (!requireAiAccess()) return;
       const sourceNode = nodesRef.current.find(
         node => node.id === nodeId && node.type === "asset"
@@ -22017,6 +22668,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         style: "视角调整结果",
         nextW: sourceSize.width,
         nextH: sourceSize.height,
+        placement,
         backgroundTaskInput: {
           capability: "image_edit",
           operation: "camera_view",
@@ -22048,6 +22700,41 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     ]
   );
 
+  const runCameraViewFourGeneration = useCallback(
+    async (nodeId: string, cameraView: AssetCameraViewValues) => {
+      const sourceNode = nodesRef.current.find(
+        node => node.id === nodeId && node.type === "asset"
+      );
+      if (!sourceNode) return;
+      const sourceSize = getCanvasNodeSize(sourceNode);
+      const views = [
+        { x: 0, y: 0 },
+        { x: 90, y: 0 },
+        { x: -90, y: 0 },
+        { x: 180, y: 0 },
+      ];
+      await Promise.all(
+        views.map((view, index) =>
+          runCameraViewGeneration(
+            nodeId,
+            { ...cameraView, ...view },
+            {
+              x:
+                sourceNode.position.x +
+                sourceSize.width +
+                20 +
+                (index % 2) * (sourceSize.width + 20),
+              y:
+                sourceNode.position.y +
+                Math.floor(index / 2) * (sourceSize.height + 20),
+            }
+          )
+        )
+      );
+    },
+    [nodesRef, runCameraViewGeneration]
+  );
+
   useEffect(() => {
     const handler = (event: Event) => {
       const detail = (
@@ -22065,6 +22752,24 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     window.addEventListener("asset-camera-view-apply", handler);
     return () => window.removeEventListener("asset-camera-view-apply", handler);
   }, [runCameraViewGeneration]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          nodeId?: string;
+          cameraView?: Partial<AssetCameraViewValues>;
+        }>
+      ).detail;
+      if (!detail?.nodeId) return;
+      void runCameraViewFourGeneration(
+        detail.nodeId,
+        normalizeAssetCameraView(detail.cameraView)
+      );
+    };
+    window.addEventListener("asset-camera-view-four-apply", handler);
+    return () => window.removeEventListener("asset-camera-view-four-apply", handler);
+  }, [runCameraViewFourGeneration]);
 
   const createGeneratedImageNode = useCallback(
     (
@@ -22890,6 +23595,29 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     window.addEventListener("asset-resize-active", handler);
     return () => window.removeEventListener("asset-resize-active", handler);
   }, []);
+
+  // ── 监听文字/图形/钢笔/自由曲线节点的四角缩放 ──
+  // 这些节点由 VisualNodeResizeHandles 直接通过 setNodes 实时更新；
+  // 这里只负责把一次完整拖拽纳入 undo 历史，并在拖拽期间屏蔽
+  // ReactFlow dimensions 变更产生的重复历史快照。
+  useEffect(() => {
+    const startHandler = () => {
+      if (isRestoringRef.current) return;
+      if (!isAssetResizingRef.current) {
+        pushHistory(nodesRef.current, edgesRef.current);
+      }
+      isAssetResizingRef.current = true;
+    };
+    const endHandler = () => {
+      isAssetResizingRef.current = false;
+    };
+    window.addEventListener("visual-node-resize-start", startHandler);
+    window.addEventListener("visual-node-resize-end", endHandler);
+    return () => {
+      window.removeEventListener("visual-node-resize-start", startHandler);
+      window.removeEventListener("visual-node-resize-end", endHandler);
+    };
+  }, [pushHistory]);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -23892,10 +24620,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
   const getActionNodeIds = useCallback(
     (nodeId: string) => {
-      if (nodeId === "__selection__") return selectedNodeIds;
-      return selectedNodeIds.includes(nodeId) ? selectedNodeIds : [nodeId];
+      const currentSelectedNodeIds = selectedNodeIdsRef.current;
+      if (nodeId === "__selection__") return currentSelectedNodeIds;
+      return currentSelectedNodeIds.includes(nodeId)
+        ? currentSelectedNodeIds
+        : [nodeId];
     },
-    [selectedNodeIds]
+    []
   );
 
   const areNodesGrouped = useCallback(
@@ -23972,8 +24703,38 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   // ── Node context menu actions ──
   const handleNodeAction = useCallback(
     async (action: string, nodeId: string) => {
-      const actionIds = getActionNodeIds(nodeId);
-      if (action === "delete") {
+      const actionIds =
+        nodeId === "__selection__"
+          ? nodeCtxMenu?.selectedIds || selectedNodeIdsRef.current
+          : getActionNodeIds(nodeId);
+      if (CANVAS_LAYER_ACTIONS.has(action as CanvasLayerAction)) {
+        const layerAction = action as CanvasLayerAction;
+        const currentNodes = getNodes();
+        const result = applyCanvasLayerAction(
+          currentNodes,
+          actionIds,
+          layerAction
+        );
+        if (!result.changed) {
+          toast(
+            layerAction === "bring-forward" || layerAction === "bring-to-front"
+              ? "已在最上层"
+              : "已在最底层"
+          );
+          return;
+        }
+        pushHistory(currentNodes, edgesRef.current);
+        setNodes(result.nodes);
+        setSelectedNodeIds(actionIds);
+        toast(
+          {
+            "bring-forward": "已上移一层",
+            "send-backward": "已下移一层",
+            "bring-to-front": "已置于顶层",
+            "send-to-back": "已置于底层",
+          }[layerAction]
+        );
+      } else if (action === "delete") {
         pushHistory();
         setNodes(nds => nds.filter(n => !actionIds.includes(n.id)));
         setEdges(eds =>
@@ -24296,6 +25057,17 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           description: `${selectedAssetIds.length} 个图片节点已从上到下排列，水平居中对齐，总高 ${Math.round(totalHeight)}px`,
         });
       } else if (action === "download") {
+        const textNode = nodes.find(
+          node => node.id === nodeId && node.type === "text"
+        );
+        if (textNode && actionIds.length === 1) {
+          window.dispatchEvent(
+            new CustomEvent("text-node-download-request", {
+              detail: { nodeId: textNode.id },
+            })
+          );
+          return;
+        }
         const selectedAssetNodes = nodes.filter(
           n => actionIds.includes(n.id) && n.type === "asset"
         );
@@ -24437,6 +25209,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       nodes,
       clipboard,
       getActionNodeIds,
+      getNodes,
       getVisibleAssetImageSource,
       getLatestAssetNode,
       nodeCtxMenu,
@@ -24444,6 +25217,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       pushHistory,
       prepareCrossCanvasCopyNodes,
       screenToFlowPosition,
+      edgesRef,
       setNodes,
       setEdges,
     ]
@@ -25191,42 +25965,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       }
       clearInactiveAssetCommands(nextSelectedIds);
       const nextSelectedIdSet = new Set(nextSelectedIds);
-      const selectedVisualIds = new Set(
-        nodes
-          .filter(
-            node => nextSelectedIdSet.has(node.id) && shouldSelectToFront(node)
-          )
-          .map(node => node.id)
-      );
-      if (selectedVisualIds.size > 0) {
-        setNodes(nds => {
-          const selectedVisualNodes = nds.filter(node =>
-            selectedVisualIds.has(node.id)
-          );
-          if (selectedVisualNodes.length === 0) return nds;
-          const topZ = nextCanvasTopZ(nds);
-          const raisedVisualNodes = selectedVisualNodes.map(node => ({
-            ...node,
-            zIndex: topZ,
-          }));
-          const selectedVisualOrder = selectedVisualNodes
-            .map(node => node.id)
-            .join(",");
-          const currentTopOrder = nds
-            .slice(-selectedVisualNodes.length)
-            .map(node => node.id)
-            .join(",");
-          if (
-            selectedVisualOrder === currentTopOrder &&
-            selectedVisualNodes.every(node => (node.zIndex || 0) >= topZ - 1)
-          )
-            return nds;
-          return [
-            ...nds.filter(node => !selectedVisualIds.has(node.id)),
-            ...raisedVisualNodes,
-          ];
-        });
-      }
       if (nextSelectedIds.length !== selectedNodes.length) {
         setNodes(nds => {
           let changed = false;
@@ -25426,7 +26164,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             id,
             text: "",
             fontFamily: "Inter",
-            fontSize: 32,
+            fontSize: 16,
             fontWeight: 400,
             color: isDark ? "#ffffff" : "#1a1a2e",
             textAlign: "left",
@@ -25438,6 +26176,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             strokeWidth: 0,
             width: 320,
             height: 80,
+            sizeCustomized: false,
             isEditing: true,
           },
         };
@@ -27250,10 +27989,153 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     [setNodes]
   );
 
+  const clearGroupMergeHover = useCallback(() => {
+    if (groupMergeHoverTimerRef.current !== null) {
+      window.clearTimeout(groupMergeHoverTimerRef.current);
+      groupMergeHoverTimerRef.current = null;
+    }
+    groupMergeHoverRef.current = null;
+  }, []);
+
+  const mergeNodeIntoGroup = useCallback(
+    (nodeId: string, targetGroupId: string) => {
+      const currentNodes = nodesRef.current;
+      const draggedNode = currentNodes.find(node => node.id === nodeId);
+      if (!draggedNode || draggedNode.type === "canvasFrame") return;
+      const draggedData = draggedNode.data as Record<string, unknown>;
+      if (draggedData.groupId === targetGroupId) return;
+      const groupNodeIds = currentNodes
+        .filter(
+          node =>
+            node.id !== nodeId &&
+            (node.data as Record<string, unknown>).groupId === targetGroupId
+        )
+        .map(node => node.id);
+      const groupBounds = getCanvasNodesBounds(currentNodes, groupNodeIds);
+      if (!groupBounds) return;
+      const draggedSize = getCanvasNodeSize(draggedNode);
+      const centerX = draggedNode.position.x + draggedSize.width / 2;
+      const centerY = draggedNode.position.y + draggedSize.height / 2;
+      if (
+        centerX < groupBounds.x ||
+        centerX > groupBounds.x + groupBounds.width ||
+        centerY < groupBounds.y ||
+        centerY > groupBounds.y + groupBounds.height
+      ) {
+        return;
+      }
+      pushHistory(currentNodes, edgesRef.current);
+      setNodes(nds =>
+        nds.map(node =>
+          node.id === nodeId
+            ? {
+                ...node,
+                data: {
+                  ...(node.data as Record<string, unknown>),
+                  groupId: targetGroupId,
+                },
+              }
+            : node
+        )
+      );
+      clearGroupMergeHover();
+      setGroupMergeFlashId(targetGroupId);
+      if (groupMergeFlashTimerRef.current !== null) {
+        window.clearTimeout(groupMergeFlashTimerRef.current);
+      }
+      groupMergeFlashTimerRef.current = window.setTimeout(() => {
+        groupMergeFlashTimerRef.current = null;
+        setGroupMergeFlashId(null);
+      }, 1600);
+      toast("已并入打组", { description: "节点已加入目标打组" });
+    },
+    [clearGroupMergeHover, edgesRef, nodesRef, pushHistory, setNodes]
+  );
+
+  const handleGroupMergeDrag = useCallback(
+    (_event: MouseEvent, node: Node) => {
+      if (
+        isAltDragRef.current ||
+        node.type === "canvasFrame" ||
+        !["asset", "shape", "pen", "freehand", "text"].includes(node.type || "")
+      ) {
+        clearGroupMergeHover();
+        return;
+      }
+      const currentNodes = nodesRef.current;
+      const draggedNode =
+        currentNodes.find(item => item.id === node.id) || node;
+      const draggedData = draggedNode.data as Record<string, unknown>;
+      const currentGroupId =
+        typeof draggedData.groupId === "string" ? draggedData.groupId : undefined;
+      const draggedSize = getCanvasNodeSize(draggedNode);
+      const centerX = node.position.x + draggedSize.width / 2;
+      const centerY = node.position.y + draggedSize.height / 2;
+      const targetGroup = Array.from(
+        new Set(
+          currentNodes
+            .map(item => (item.data as Record<string, unknown>).groupId)
+            .filter((groupId): groupId is string => Boolean(groupId))
+        )
+      )
+        .filter(groupId => groupId !== currentGroupId)
+        .map(groupId => {
+          const groupNodeIds = currentNodes
+            .filter(
+              item =>
+                item.id !== node.id &&
+                (item.data as Record<string, unknown>).groupId === groupId
+            )
+            .map(item => item.id);
+          return { groupId, bounds: getCanvasNodesBounds(currentNodes, groupNodeIds) };
+        })
+        .find(({ bounds }) => {
+          if (!bounds) return false;
+          return (
+            centerX >= bounds.x &&
+            centerX <= bounds.x + bounds.width &&
+            centerY >= bounds.y &&
+            centerY <= bounds.y + bounds.height
+          );
+        });
+      if (!targetGroup) {
+        clearGroupMergeHover();
+        return;
+      }
+      const currentHover = groupMergeHoverRef.current;
+      if (
+        currentHover?.nodeId === node.id &&
+        currentHover.groupId === targetGroup.groupId
+      ) {
+        return;
+      }
+      clearGroupMergeHover();
+      groupMergeHoverRef.current = {
+        nodeId: node.id,
+        groupId: targetGroup.groupId,
+      };
+      groupMergeHoverTimerRef.current = window.setTimeout(() => {
+        const hover = groupMergeHoverRef.current;
+        if (!hover) return;
+        mergeNodeIntoGroup(hover.nodeId, hover.groupId);
+      }, GROUP_MERGE_HOVER_MS);
+    },
+    [clearGroupMergeHover, mergeNodeIntoGroup, nodesRef]
+  );
+
+  const handleNodeLiveDrag = useCallback(
+    (event: MouseEvent, node: Node) => {
+      handleFrameLiveDrag(event, node);
+      handleGroupMergeDrag(event, node);
+    },
+    [handleFrameLiveDrag, handleGroupMergeDrag]
+  );
+
   // ── 普通拖拽结束：检测图片是否进入画布帧并嵌入/脱离 ──
   const handleNormalDragStop = useCallback(
     (_event: MouseEvent, node: Node) => {
       isDraggingRef.current = false;
+      clearGroupMergeHover();
       // 从最新的 nodesRef 中读取当前所有节点
       const allNodes = nodesRef.current;
       const draggedNode = allNodes.find(n => n.id === node.id);
@@ -27341,7 +28223,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         toast("图片已脱离画板", { description: "图片恢复为自由节点" });
       }
     },
-    [checkAndEmbedIntoFrame, nodesRef, setNodes]
+    [checkAndEmbedIntoFrame, clearGroupMergeHover, nodesRef, setNodes]
   );
 
   // ── Handle group actions from context menu ──
@@ -27436,48 +28318,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     window.addEventListener("asset-reference", handler);
     return () => window.removeEventListener("asset-reference", handler);
   }, [addReferencedAsset]);
-
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const detail = (
-        event as CustomEvent<{ nodeId?: string; additive?: boolean }>
-      ).detail;
-      if (!detail?.nodeId) return;
-      const additive = Boolean(detail.additive);
-      setNodes(nds => {
-        const target = nds.find(
-          node =>
-            node.id === detail.nodeId &&
-            (shouldSelectToFront(node) || node.type === "canvasFrame")
-        );
-        if (!target) return nds;
-        const selectedIds = new Set(
-          additive ? nds.filter(node => node.selected).map(node => node.id) : []
-        );
-        selectedIds.add(target.id);
-        const shouldRaise = shouldSelectToFront(target);
-        const topZ = shouldRaise ? nextCanvasTopZ(nds) : undefined;
-        setSelectedNodeIds(Array.from(selectedIds));
-        const nextNodes = nds.map(node => {
-          const selected = selectedIds.has(node.id);
-          if (node.id !== target.id) return { ...node, selected };
-          return {
-            ...target,
-            selected: true,
-            ...(shouldRaise ? { zIndex: topZ } : {}),
-          };
-        });
-        if (!shouldRaise) return nextNodes;
-        return [
-          ...nextNodes.filter(node => node.id !== target.id),
-          nextNodes.find(node => node.id === target.id)!,
-        ];
-      });
-    };
-    window.addEventListener("visual-node-select-to-front", handler);
-    return () =>
-      window.removeEventListener("visual-node-select-to-front", handler);
-  }, [setNodes]);
 
   useEffect(() => {
     const handlePaste = (event: ClipboardEvent) => {
@@ -27860,9 +28700,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     },
     [selectedTextNode, setNodes]
   );
-  const handleTextNodeDownload = useCallback(() => {
-    if (!selectedTextNode) return;
-    const nodeData = selectedTextNode.data as Record<string, unknown>;
+  const handleTextNodeDownload = useCallback((nodeOverride?: Node) => {
+    const textNode = nodeOverride || selectedTextNode;
+    if (!textNode || textNode.type !== "text") return;
+    const nodeData = textNode.data as Record<string, unknown>;
     const text = (nodeData.text as string) || "";
     const fontFamily = (nodeData.fontFamily as string) || "Inter";
     const fontSize = (nodeData.fontSize as number) || 32;
@@ -27876,28 +28717,43 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const nodeWidth = (nodeData.width as number) || 320;
     const nodeHeight = (nodeData.height as number) || 80;
     const padding = 12;
-    const canvasW = nodeWidth + padding * 2;
-    const canvasH = nodeHeight + padding * 2;
     // 创建离屏 Canvas 用于 PNG 导出
+    const measureCanvas = document.createElement("canvas");
+    const measureCtx = measureCanvas.getContext("2d");
+    if (!measureCtx) {
+      toast("导出失败");
+      return;
+    }
+    measureCtx.font = `${fontWeight} ${fontSize}px ${fontFamily}, sans-serif`;
+    const exportLayout = getTextNodeExportLayout({
+      text,
+      nodeWidth,
+      nodeHeight,
+      fontSize,
+      lineHeight,
+      letterSpacing,
+      padding,
+      measureText: value => measureCtx.measureText(value).width,
+    });
+    const { lines, canvasW: exportCanvasW, canvasH: exportCanvasH } = exportLayout;
     const offscreen = document.createElement("canvas");
-    offscreen.width = canvasW * 2;
-    offscreen.height = canvasH * 2;
+    offscreen.width = exportCanvasW * 2;
+    offscreen.height = exportCanvasH * 2;
     const ctx2d = offscreen.getContext("2d");
     if (!ctx2d) {
       toast("导出失败");
       return;
     }
     ctx2d.scale(2, 2);
-    ctx2d.clearRect(0, 0, canvasW, canvasH);
-    ctx2d.font = `${fontWeight} ${fontSize}px ${fontFamily}, sans-serif`;
+    ctx2d.clearRect(0, 0, exportCanvasW, exportCanvasH);
+    ctx2d.font = measureCtx.font;
     ctx2d.fillStyle = color;
     ctx2d.textBaseline = "top";
-    const lines = text.split("\n");
     const lh = fontSize * lineHeight;
     lines.forEach((line, i) => {
       let x = padding;
-      if (textAlign === "center") x = canvasW / 2;
-      else if (textAlign === "right") x = canvasW - padding;
+      if (textAlign === "center") x = exportCanvasW / 2;
+      else if (textAlign === "right") x = exportCanvasW - padding;
       ctx2d.textAlign = textAlign as CanvasTextAlign;
       if (letterSpacing !== 0) {
         let cx = x;
@@ -27939,9 +28795,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const y = padding + i * (fontSize * lineHeight) + fontSize;
         const x =
           textAlign === "center"
-            ? canvasW / 2
+            ? exportCanvasW / 2
             : textAlign === "right"
-              ? canvasW - padding
+              ? exportCanvasW - padding
               : padding;
         const anchor =
           textAlign === "center"
@@ -27964,7 +28820,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         return `<text x="${x}" y="${y}" font-family="${fontFamily}, sans-serif" font-size="${fontSize}" font-weight="${fontWeight}" fill="${color}" text-anchor="${anchor}" letter-spacing="${letterSpacing * fontSize}"${dec}>${transform2.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</text>`;
       })
       .join("\n");
-    const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" width="${canvasW}" height="${canvasH}" viewBox="0 0 ${canvasW} ${canvasH}">${svgLines}</svg>`;
+    const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" width="${exportCanvasW}" height="${exportCanvasH}" viewBox="0 0 ${exportCanvasW} ${exportCanvasH}">${svgLines}</svg>`;
     const svgBlob = new Blob([svgStr], { type: "image/svg+xml" });
     const svgUrl = URL.createObjectURL(svgBlob);
     const b = document.createElement("a");
@@ -27974,6 +28830,20 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     URL.revokeObjectURL(svgUrl);
     toast("已下载 PNG 和 SVG", { description: "文字已导出为两种格式" });
   }, [selectedTextNode]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const nodeId = (event as CustomEvent<{ nodeId?: string }>).detail?.nodeId;
+      if (!nodeId) return;
+      const textNode = nodesRef.current.find(
+        node => node.id === nodeId && node.type === "text"
+      );
+      if (textNode) handleTextNodeDownload(textNode);
+    };
+    window.addEventListener("text-node-download-request", handler);
+    return () =>
+      window.removeEventListener("text-node-download-request", handler);
+  }, [handleTextNodeDownload, nodesRef]);
   const handleAssetEditSubmit = useCallback(
     async (payload: {
       prompt: string;
@@ -28201,7 +29071,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           )
         );
         toast("三轴视角", {
-          description: "拖动图片中的线框立方体调整 X/Y，松手后自动生成新视角",
+          description: "拖动立方体或调整滑杆，点击应用生成新视角",
         });
         return;
       }
@@ -29451,6 +30321,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         edgeTypes={edgeTypes}
         onPaneContextMenu={handlePaneContextMenu as any}
         onClick={handlePaneClick}
+        elevateNodesOnSelect={false}
         fitView
         fitViewOptions={{ padding: 0.15 }}
         minZoom={CANVAS_MIN_ZOOM}
@@ -29480,7 +30351,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         zoomOnScroll={false}
         panOnScroll={!isCanvasLocked}
         onNodeDragStart={handleAltDragStart as any}
-        onNodeDrag={handleFrameLiveDrag as any}
+        onNodeDrag={handleNodeLiveDrag as any}
         onNodeDragStop={(event, node, nodes) => {
           handleAltDragStop(event as unknown as MouseEvent, node);
           handleNormalDragStop(event as unknown as MouseEvent, node);
@@ -29694,6 +30565,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         viewport={viewport}
         isDark={isDark}
         enteringGroupId={enteringGroupId}
+        groupMergeFlashId={groupMergeFlashId}
         onContextMenu={handleGroupContainerContextMenu}
         onDoubleClick={handleGroupContainerDoubleClick}
         onDragMove={handleGroupContainerDragMove}
@@ -29713,6 +30585,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           onMouseDown={() => setRenamingGroupId(null)}
         >
           <div
+            data-artx-dialog-surface
             className="w-[min(360px,calc(100vw-32px))] rounded-[var(--radius-lg-design)] p-5 shadow-2xl"
             style={{
               background: isDark
@@ -30164,6 +31037,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           onMouseDown={() => setDownloadDialogOpen(false)}
         >
           <div
+            data-artx-dialog-surface
             className="w-[min(380px,calc(100vw-32px))] rounded-[var(--radius-lg-design)] overflow-hidden shadow-2xl"
             style={{
               background: isDark

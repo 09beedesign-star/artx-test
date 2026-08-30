@@ -479,7 +479,7 @@ export default function BillingPage() {
   } | null>(null);
 
   const isDark = resolvedTheme === "dark";
-  const bg = isDark ? "#222222" : "var(--design-surface-soft)";
+  const bg = isDark ? "#171717" : "var(--design-surface-soft)";
   const panel = isDark ? "#222222" : "oklch(1 0 0 / 0.82)";
   const panelStrong = isDark ? "#222222" : "oklch(1 0 0 / 0.94)";
   const border = isDark ? "oklch(1 0 0 / 9%)" : "oklch(0 0 0 / 10%)";
@@ -772,7 +772,7 @@ export default function BillingPage() {
 
       <main
         className="flex-1 overflow-auto"
-        style={{ position: "relative", zIndex: 1, background: "#222222" }}
+        style={{ position: "relative", zIndex: 1, background: isDark ? "#171717" : "var(--design-surface-soft)" }}
       >
         <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5 px-5 py-5 lg:px-8">
           <section
@@ -810,8 +810,7 @@ export default function BillingPage() {
                   className="mt-2 max-w-[760px] type-body-sm leading-6"
                   style={{ color: sub }}
                 >
-                  GPT 大语言模型、Image Two 与 Nano Banana
-                  作为统一创作能力池提供服务。
+                  订阅或充值，享受更多高阶模型，尊享全部的优质创作AI服务。
                 </p>
               </div>
 
@@ -1433,6 +1432,7 @@ export default function BillingPage() {
           }}
         >
           <div
+            data-artx-dialog-surface
             className="w-full max-w-[420px] rounded-[var(--radius-xl-design)] border p-5"
             style={{
               background: panelStrong,
@@ -1607,6 +1607,7 @@ export default function BillingPage() {
           }}
         >
           <div
+            data-artx-dialog-surface
             className="w-full max-w-[430px] overflow-hidden rounded-[var(--radius-xl-design)] border"
             style={{
               background: panelStrong,

@@ -166,7 +166,7 @@ function DeleteConfirmDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.55)" }} onClick={onCancel}>
-      <div className="rounded-[var(--radius-lg-design)] p-6 w-80" style={{ background: bg, border: `1px solid ${border}`, boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
+      <div data-artx-dialog-surface className="rounded-[var(--radius-lg-design)] p-6 w-80" style={{ background: bg, border: `1px solid ${border}`, boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
         <div className="flex items-center gap-3 mb-3">
           <div className="w-9 h-9 rounded-[var(--radius-lg-design)] flex items-center justify-center" style={{ background: "oklch(0.65 0.22 25 / 0.15)" }}>
             <Trash2 size={17} color="oklch(0.65 0.22 25)" />
@@ -212,19 +212,20 @@ function ProjectCard({
     if (renaming) { setEditVal(project.title); setTimeout(() => inputRef.current?.select(), 50); }
   }, [renaming, project.title]);
 
-  const cardBg = isDark ? "#222222" : "oklch(1 0 0)";
-  const cardBorder = isDark ? "rgba(255,255,255,0.07)" : "oklch(0.88 0.006 255)";
-  const text = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.22 0.018 255)";
-  const sub = isDark ? "oklch(0.65 0.010 270)" : "oklch(0.65 0.010 255)";
+  const cardBg = isDark ? "#232326" : "oklch(1 0 0)";
+  const cardBorder = isDark ? "#36363b" : "oklch(0.88 0.006 255)";
+  const text = isDark ? "#f0f0f1" : "oklch(0.22 0.018 255)";
+  const sub = isDark ? "#99999e" : "oklch(0.65 0.010 255)";
 
   return (
     <div
-      className="group relative rounded-[var(--radius-lg-design)] overflow-hidden cursor-pointer transition-all"
+      className="group relative overflow-hidden cursor-pointer transition-all"
       style={{
         width: "100%",
         background: cardBg,
-        border: `1.5px solid ${cardBorder}`,
-        boxShadow: "0 2px 12px rgba(0,0,0,0.15)",
+        border: `1px solid ${cardBorder}`,
+        borderRadius: 6,
+        boxShadow: "none",
         transition: "all 0.18s ease",
       }}
       onClick={onOpen}
@@ -235,10 +236,10 @@ function ProjectCard({
           <img
             src={project.cover}
             alt={project.title}
-            className="w-full h-auto origin-top object-contain object-top transition-transform duration-300 group-hover:scale-105"
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center" style={{ background: isDark ? "#222222" : "oklch(0.92 0.005 270)" }}>
+          <div className="w-full h-full flex items-center justify-center" style={{ background: isDark ? "#19191b" : "oklch(0.92 0.005 270)" }}>
             <FolderOpen size={32} style={{ color: sub }} />
           </div>
         )}
@@ -253,7 +254,7 @@ function ProjectCard({
       </div>
 
       {/* Info */}
-      <div className="px-3 py-2.5" style={{ height: WORKSPACE_CARD_INFO_HEIGHT }}>
+      <div className="px-3 py-3" style={{ height: WORKSPACE_CARD_INFO_HEIGHT }}>
         {renaming ? (
           <input
             ref={inputRef}
@@ -269,10 +270,10 @@ function ProjectCard({
             style={{ color: text, borderColor: "oklch(0.62 0.22 290)" }}
           />
         ) : (
-          <p className="type-caption truncate" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>{project.title}</p>
+          <p className="type-caption truncate" style={{ color: text, fontSize: 13, fontWeight: 600, textTransform: "none", letterSpacing: 0 }}>{project.title}</p>
         )}
         {/* Time row + ... menu aligned */}
-        <div className="flex items-center gap-1.5 mt-1">
+        <div className="flex items-center gap-1.5 mt-1.5">
           <Clock size={10} style={{ color: sub }} />
           <span className="type-caption" style={{ color: sub, fontSize: 11 }}>{project.updatedAt}</span>
           <span className="type-caption" style={{ color: sub, fontSize: 11 }}>· {project.nodeCount} 个节点</span>
@@ -292,21 +293,22 @@ function ProjectCard({
 
 // ── Create Project Card ────────────────────────────────────────
 function CreateProjectCard({ isDark, onCreate }: { isDark: boolean; onCreate: () => void }) {
-  const bg = isDark ? "#222222" : "oklch(0.97 0.004 270)";
-  const border = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.08)";
-  const text = isDark ? "oklch(0.69 0.010 270)" : "oklch(0.65 0.010 270)";
+  const bg = isDark ? "#171717" : "oklch(0.97 0.004 270)";
+  const border = isDark ? "#3a3a3e" : "rgba(0,0,0,0.08)";
+  const text = isDark ? "#99999e" : "oklch(0.65 0.010 270)";
   return (
     <button
       onClick={onCreate}
-      className="rounded-[var(--radius-lg-design)] overflow-hidden transition-all group"
+      className="overflow-hidden transition-all group"
       style={{
         width: "100%",
         background: bg,
-        border: `1.5px dashed ${border}`,
+        border: `1px dashed ${border}`,
+        borderRadius: 6,
       }}
       onMouseEnter={e => {
-        (e.currentTarget as HTMLElement).style.borderColor = "oklch(0.62 0.22 290 / 0.5)";
-        (e.currentTarget as HTMLElement).style.background = isDark ? "#222222" : "oklch(0.95 0.006 270)";
+        (e.currentTarget as HTMLElement).style.borderColor = isDark ? "#77777d" : "oklch(0.62 0.22 290 / 0.5)";
+        (e.currentTarget as HTMLElement).style.background = isDark ? "#1d1d1f" : "oklch(0.95 0.006 270)";
       }}
       onMouseLeave={e => {
         (e.currentTarget as HTMLElement).style.borderColor = border;
@@ -314,13 +316,13 @@ function CreateProjectCard({ isDark, onCreate }: { isDark: boolean; onCreate: ()
       }}
     >
       <div className="flex items-center justify-center" style={{ aspectRatio: WORKSPACE_CARD_COVER_ASPECT_RATIO }}>
-        <div className="w-10 h-10 rounded-[var(--radius-lg-design)] flex items-center justify-center transition-all group-hover:scale-110"
-          style={{ background: "oklch(0.62 0.22 290 / 0.12)", color: "oklch(0.62 0.22 290)" }}>
-          <Plus size={20} />
+        <div className="flex items-center justify-center transition-transform group-hover:scale-110"
+          style={{ color: isDark ? "#d8d8dc" : "oklch(0.62 0.22 290)" }}>
+          <Plus size={24} strokeWidth={1.5} />
         </div>
       </div>
-      <div className="px-3 py-2.5" style={{ height: WORKSPACE_CARD_INFO_HEIGHT }}>
-        <span className="type-caption" style={{ color: text, textTransform: "none", letterSpacing: "0.02em" }}>新建画板</span>
+      <div className="px-3 py-3" style={{ height: WORKSPACE_CARD_INFO_HEIGHT }}>
+        <span className="type-caption" style={{ color: text, fontSize: 13, fontWeight: 600, textTransform: "none", letterSpacing: 0 }}>新建画板</span>
       </div>
     </button>
   );
@@ -337,9 +339,9 @@ export default function WorkspaceDashboard() {
   const [showCreate, setShowCreate] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string[] | null>(null);
 
-  const bg = isDark ? "#222222" : "oklch(0.975 0.004 80)";
-  const text = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.22 0.018 255)";
-  const sub = isDark ? "oklch(0.65 0.010 270)" : "oklch(0.65 0.010 255)";
+  const bg = isDark ? "#0a0a0b" : "oklch(0.975 0.004 80)";
+  const text = isDark ? "#f4f4f5" : "oklch(0.22 0.018 255)";
+  const sub = isDark ? "#99999e" : "oklch(0.65 0.010 255)";
 
   useEffect(() => {
     const historyProjects = readWorkspaceProjectHistory().map(fromHistoryProject);
@@ -424,18 +426,18 @@ export default function WorkspaceDashboard() {
     <div className="flex flex-col h-screen overflow-hidden" style={{ background: bg, transition: "background 0.25s ease" }}>
       <TopBar credits={0} onNewProjectClick={() => setShowCreate(true)} onCreateProject={handleCreate} glass />
 
-      <div className="flex-1 overflow-y-auto px-8 py-6 select-none" style={{ position: "relative" }}>
+      <div className="flex-1 overflow-y-auto px-6 py-8 select-none" style={{ position: "relative" }}>
 
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="type-headline" style={{ color: text }}>工作台</h1>
-            <p className="type-caption mt-0.5" style={{ color: sub }}>{projects.length} 个项目</p>
+            <h1 className="type-headline" style={{ color: text, fontSize: 26, fontWeight: 650, letterSpacing: 0 }}>工作台</h1>
+            <p className="type-caption mt-1" style={{ color: sub, fontSize: 12, letterSpacing: 0 }}>{projects.length} 个项目</p>
           </div>
         </div>
 
         {/* Project Grid */}
-        <div className="grid gap-7" style={{ gridTemplateColumns: WORKSPACE_PROJECT_GRID_COLUMNS }}>
+        <div className="grid gap-6" style={{ gridTemplateColumns: WORKSPACE_PROJECT_GRID_COLUMNS }}>
           <div className="project-card">
             <CreateProjectCard isDark={isDark} onCreate={() => setShowCreate(true)} />
           </div>

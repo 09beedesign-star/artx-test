@@ -85,20 +85,29 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   const shouldHideSidebar = hideSidebar;
 
   // ── Theme tokens ──────────────────────────────────────────────
-  const sidebarBg    = isDark ? "#222222" : "var(--design-surface-soft)";
-  const sidebarBorder= isDark ? "oklch(1 0 0 / 7%)" : "var(--hairline)";
-  const textPrimary  = isDark ? "rgba(255,255,255,0.82)" : "rgba(20,20,36,0.82)";
-  const textSecondary= isDark ? "rgba(255,255,255,0.57)" : "rgba(20,20,36,0.38)";
-  const hoverBg      = isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)";
-  const activeBg     = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
-  const activeColor  = isDark ? "rgba(255,255,255,0.90)" : "rgba(20,20,36,0.90)";
+  const sidebarBg    = isDark ? "#171717" : "var(--design-surface-soft)";
+  const sidebarBorder= isDark ? "transparent" : "var(--hairline)";
+  const textPrimary  = isDark ? "#f1f1f3" : "rgba(20,20,36,0.82)";
+  const textSecondary= isDark ? "#99999e" : "rgba(20,20,36,0.38)";
+  const hoverBg      = isDark ? "#292929" : "rgba(0,0,0,0.04)";
+  const activeBg     = isDark ? "#303030" : "rgba(0,0,0,0.06)";
+  const activeColor  = isDark ? "#f4f4f5" : "rgba(20,20,36,0.90)";
   const wechatGroupQrUrl = import.meta.env.VITE_WECHAT_GROUP_QR_URL || "/api/community/wechat-group-qr/image";
   const [communityQrSrc, setCommunityQrSrc] = useState(wechatGroupQrUrl);
   const isActive = (path: string) =>
     path === "/" ? location === "/" : location.startsWith(path);
+  const helpActive = isActive("/help");
 
   const activateHelpPrompt = () => {
     setHelpOpen(true);
+  };
+
+  const handleHelpClick = () => {
+    if (helpActive) {
+      toast("您当前已在帮助与反馈页面中，请提交你的建议吧。");
+      return;
+    }
+    activateHelpPrompt();
   };
 
   const closeHelpPrompt = () => {
@@ -253,6 +262,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
       }}
     >
       <div
+        data-artx-dialog-surface
         className="w-[min(380px,calc(100vw-32px))] rounded-[var(--radius-xl-design)] p-5 text-center shadow-2xl"
         style={{
           background: isDark ? "rgba(22,22,30,0.98)" : "rgba(255,255,255,0.98)",
@@ -325,6 +335,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
       }}
     >
       <div
+        data-artx-dialog-surface
         className="w-[min(560px,calc(100vw-32px))] rounded-[var(--radius-xl-design)] p-4 shadow-2xl"
         style={{
           background: isDark ? "rgba(22,22,30,0.98)" : "rgba(255,255,255,0.98)",
@@ -458,6 +469,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
       }}
     >
       <div
+        data-artx-dialog-surface
         className="max-h-[calc(100vh-48px)] w-[min(760px,calc(100vw-32px))] overflow-y-auto rounded-[var(--radius-xl-design)] p-5 shadow-2xl"
         style={{
           background: isDark ? "#222222" : "rgba(255,255,255,0.98)",
@@ -630,29 +642,31 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
     return (
       <button
         onClick={handleClick}
-        className="w-full flex items-center gap-3 px-3 py-2 rounded-[var(--radius-md-design)] type-caption transition-all text-left"
+        className="w-full flex h-[31px] items-center gap-2.5 px-2.5 type-caption transition-all text-left"
         style={{
           background: active ? activeBg : "transparent",
           color: active ? activeColor : textSecondary,
+          borderRadius: 6,
         }}
         onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.background = hoverBg; }}
         onMouseLeave={e => { if (!active) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
       >
-        <Icon size={iconSize} strokeWidth={active ? 2.0 : 1.6} style={{ flexShrink: 0, opacity: active ? 1 : 0.7 }} />
-        <span className="truncate">{label}</span>
+        <Icon size={iconSize} strokeWidth={active ? 1.8 : 1.45} style={{ color: "currentColor", flexShrink: 0, opacity: active ? 1 : 0.7 }} />
+        <span className="truncate" style={{ fontSize: 12, fontWeight: active ? 560 : 450, letterSpacing: 0 }}>{label}</span>
       </button>
     );
   };
 
   return (
-    <div className="flex h-screen overflow-hidden" style={{ background: "#222222" }}>
+    <div className="flex h-screen gap-3 overflow-hidden p-3" style={{ background: "#090909" }}>
       {/* ── Left Sidebar ── */}
       <aside
         className="flex flex-col flex-shrink-0 overflow-hidden"
         style={{
-          width: 200,
+          width: 180,
           background: sidebarBg,
-          borderRight: `1px solid ${sidebarBorder}`,
+          border: `1px solid ${sidebarBorder}`,
+          borderRadius: 16,
           zIndex: 10,
           transition: "background 0.25s ease",
         }}
@@ -674,10 +688,10 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
         </div>
 
         {/* ── Scrollable nav body ── */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden px-2" style={{ scrollbarWidth: "none" }}>
+        <div className="flex-1 overflow-y-auto overflow-x-hidden px-2.5" style={{ scrollbarWidth: "none" }}>
 
           {/* Top nav */}
-          <div className="flex flex-col gap-0.5 mb-2">
+          <div className="flex flex-col gap-0.5">
             <NavItem icon={Home}    label="首页"     path="/" />
             <NavItem icon={Sparkles} label="灵感推荐" path="/inspiration" iconSize={15} />
             <NavItem icon={Library}  label="技能商店" path="/skills"      iconSize={15} />
@@ -689,43 +703,52 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
 
         {/* ── Bottom: Help ── */}
         <div
-          className="px-2 pb-4 pt-2 flex flex-col gap-0.5"
+          className="px-2.5 pb-4 pt-3 flex flex-col gap-0.5"
         >
           <button
             onClick={openCommunityDialog}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-[var(--radius-md-design)] type-caption transition-all text-left"
-            style={{ background: "transparent", color: textSecondary }}
+            className="w-full flex h-[31px] items-center gap-2.5 px-2.5 type-caption transition-all text-left"
+            style={{ background: "transparent", borderRadius: 6, color: textSecondary }}
             onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = hoverBg)}
             onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
           >
-            <QrCode size={15} strokeWidth={1.6} style={{ flexShrink: 0, opacity: 0.7 }} />
-            <span className="truncate">加入社群</span>
+            <QrCode size={14} strokeWidth={1.45} style={{ flexShrink: 0, opacity: 0.7 }} />
+            <span className="truncate" style={{ fontSize: 12, letterSpacing: 0 }}>加入社群</span>
           </button>
           <button
-            onClick={activateHelpPrompt}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-[var(--radius-md-design)] type-caption transition-all text-left"
-            style={{ background: "transparent", color: textSecondary }}
-            onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = hoverBg)}
-            onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
+            onClick={handleHelpClick}
+            aria-current={helpActive ? "page" : undefined}
+            className="w-full flex h-[31px] items-center gap-2.5 px-2.5 type-caption transition-all text-left"
+            style={{
+              background: helpActive ? activeBg : "transparent",
+              borderRadius: 6,
+              color: helpActive ? activeColor : textSecondary,
+            }}
+            onMouseEnter={e => {
+              if (!helpActive) (e.currentTarget as HTMLElement).style.background = hoverBg;
+            }}
+            onMouseLeave={e => {
+              if (!helpActive) (e.currentTarget as HTMLElement).style.background = "transparent";
+            }}
           >
-            <HelpCircle size={15} strokeWidth={1.6} style={{ flexShrink: 0, opacity: 0.7 }} />
-            <span className="truncate">帮助与反馈</span>
+            <HelpCircle size={14} strokeWidth={helpActive ? 1.8 : 1.45} style={{ flexShrink: 0, opacity: helpActive ? 1 : 0.7 }} />
+            <span className="truncate" style={{ fontSize: 12, fontWeight: helpActive ? 560 : 450, letterSpacing: 0 }}>帮助与反馈</span>
           </button>
           <button
             onClick={openApiKeyDialog}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-[var(--radius-md-design)] type-caption transition-all text-left"
-            style={{ background: "transparent", color: textSecondary }}
+            className="w-full flex h-[31px] items-center gap-2.5 px-2.5 type-caption transition-all text-left"
+            style={{ background: "transparent", borderRadius: 6, color: textSecondary }}
             onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = hoverBg)}
             onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
           >
-            <KeyRound size={15} strokeWidth={1.6} style={{ flexShrink: 0, opacity: 0.7 }} />
-            <span className="truncate">API key</span>
+            <KeyRound size={14} strokeWidth={1.45} style={{ flexShrink: 0, opacity: 0.7 }} />
+            <span className="truncate" style={{ fontSize: 12, letterSpacing: 0 }}>API key</span>
           </button>
         </div>
       </aside>
 
       {/* ── Page Content ── */}
-      <main className="flex-1 overflow-hidden" style={{ background: "#222222" }}>
+      <main className="min-w-0 flex-1 overflow-hidden" style={{ background: "#0a0a0b" }}>
         {children}
       </main>
       {communityDialog}

@@ -62,6 +62,18 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain('className="flex shrink-0 items-center"');
   });
 
+  it("uses Figma default and pressed colors for compact assistant controls and selected image chips", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+
+    expect(source).toContain('const compactDefaultBg = isDark ? "#525252" : bg;');
+    expect(source).toContain('const compactSelectedBg = isDark ? "#2b2b2b"');
+    expect(source).toContain('background: isSelectedImageToken');
+    expect(source).toContain('const isCanvasContextReference =');
+    expect(source).toContain('const isSelectedImageToken =');
+    expect(source).toContain('"#121110"');
+    expect(source).toContain('className="mb-2 min-h-[117px]');
+  });
+
   it("keeps each image in a multi-image generation batch exactly 20px apart", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
 
@@ -233,6 +245,79 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).not.toContain("Sync selected image nodes → referencedAssets chips");
   });
 
+  it("opens the verified inspiration picker from the assistant action and injects copied prompts into chat", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+
+    expect(source).toContain('label: "灵感推荐"');
+    expect(source).toContain("InspirationPromptDialog");
+    expect(source).toContain('setInspirationDialogOpen(true)');
+    expect(source).toContain('用户已引用「${item.title}」');
+    expect(source).toContain("setComposerSegments([createAssistantTextSegment(item.prompt)])");
+  });
+
+  it("keeps the image generator on the Figma panel surface and smart commerce on #171717", () => {
+    const canvasSource = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const commerceSource = readFileSync(resolve(__dirname, "SmartCommerceProductDialog.tsx"), "utf-8");
+    const imageGeneratorBlock = canvasSource.match(
+      /function ImageGeneratorPopover\([\s\S]*?type FontDesignPurpose/
+    )?.[0];
+
+    expect(imageGeneratorBlock).toBeTruthy();
+    expect(imageGeneratorBlock).toContain('const bg = isDark ? "#1e1e20"');
+    expect(imageGeneratorBlock).toContain('const popoverWidth = 680');
+    expect(imageGeneratorBlock).toContain('lg:grid-cols-[272px_minmax(0,1fr)]');
+    expect(imageGeneratorBlock).toContain('width: "min(680px, calc(100vw - 24px))"');
+    expect(imageGeneratorBlock).toContain("overflow-hidden");
+    expect(imageGeneratorBlock).toContain("grid grid-cols-5 gap-1.5 w-full");
+    expect(commerceSource).toContain('panel: isDark ? "#171717"');
+  });
+
+  it("uses the Figma image-generator panel geometry without changing generation controls", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const imageGeneratorBlock = source.match(
+      /function ImageGeneratorPopover\([\s\S]*?type FontDesignPurpose/
+    )?.[0];
+
+    expect(imageGeneratorBlock).toBeTruthy();
+    expect(imageGeneratorBlock).toContain('const popoverWidth = 680');
+    expect(imageGeneratorBlock).toContain('height: "min(439px, calc(100dvh - 24px))"');
+    expect(imageGeneratorBlock).toContain('const bg = isDark ? "#1e1e20"');
+    expect(imageGeneratorBlock).toContain('const border = isDark ? "#2e2e33"');
+    expect(imageGeneratorBlock).toContain('borderRadius: 16');
+    expect(imageGeneratorBlock).toContain('padding: 24');
+    expect(imageGeneratorBlock).toContain('gridTemplateColumns: "272px minmax(0, 1fr)"');
+  });
+
+  it("keeps Toggle Switch geometry shared while allowing each caller to provide its existing colors", () => {
+    const switchSource = readFileSync(resolve(__dirname, "../ui/switch.tsx"), "utf-8");
+    const canvasSource = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+
+    expect(switchSource).toContain("h-[18px] w-[34px]");
+    expect(switchSource).toContain("p-[2px]");
+    expect(switchSource).toContain("size-[14px]");
+    expect(switchSource).toContain("data-[state=checked]:translate-x-4");
+    expect(switchSource).toContain("thumbStyle");
+    expect(canvasSource).toContain('import { Switch } from "@/components/ui/switch";');
+    expect(canvasSource).toContain('aria-label="参考当前画布"');
+    expect(canvasSource).toContain('aria-label="透明底"');
+    expect(canvasSource).toContain("<Switch");
+  });
+
+  it("matches the selected-image vertical toolbar colors in the top canvas palette", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const palette = source.match(
+      /function CanvasTopToolPalette\([\s\S]*?function SaveProjectConfirmDialog/
+    )?.[0];
+
+    expect(palette).toBeTruthy();
+    expect(palette).toContain('const bg = isDark ? "rgba(22,22,30,0.88)"');
+    expect(palette).toContain('const hoverBg = isDark ? "rgba(255,255,255,0.08)"');
+    expect(palette).toContain('const activeBg = hoverBg;');
+    expect(palette).toContain('const activeColor = textColor;');
+    expect(palette).toContain("hoveredId === tool.id");
+    expect(palette).toContain("active === tool.id || hoveredId === tool.id");
+  });
+
   it("keeps recovered assistant message images compact inside the right conversation panel", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
     const backupImageBlock = source.match(
@@ -285,6 +370,22 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(nodeBlock).toContain("assetCameraView");
     expect(nodeBlock).toContain("handleCameraCubePointerDown");
     expect(nodeBlock).toContain("handleCameraCubePointerMove");
+    expect(nodeBlock).toContain("handleCameraViewPanelPointerDown");
+    expect(nodeBlock).toContain('event.target as HTMLElement).closest("button, input, select, textarea, a")');
+    expect(nodeBlock).toContain("cameraViewPanelOffset");
+    expect(nodeBlock).toContain('background: "#111214"');
+    expect(nodeBlock).toContain('stroke="rgba(255,255,255,0.96)"');
+    expect(nodeBlock).toContain('transformStyle: "preserve-3d"');
+    expect(nodeBlock).toContain('aria-label="可互动的视角立方体"');
+    expect(nodeBlock).toContain('aria-label="当前原始视角"');
+    expect(nodeBlock).toContain('aria-label="恢复默认视角"');
+    expect(nodeBlock).toContain("requestAnimationFrame");
+    expect(nodeBlock).not.toContain("skewY(");
+    expect(nodeBlock).not.toContain("拖动此处移动");
+    expect(nodeBlock).toContain('调整视角');
+    expect(source).toContain('x: -45');
+    expect(nodeBlock).toContain('四视图');
+    expect(nodeBlock).toContain('onClick={cancelCameraViewAdjuster}');
     expect(nodeBlock).toContain("handleCameraViewZChange");
     expect(nodeBlock).toContain("asset-camera-view-apply");
     expect(nodeBlock).toContain("rotateX(${-assetCameraView.y}deg) rotateY(${assetCameraView.x}deg)");
@@ -296,6 +397,26 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain("画面内容必须尽可能锁定");
     expect(source).toContain("不要替换场景、增删道具");
     expect(generationBlock).toContain("cameraView,");
+    expect(source).toContain('asset-camera-view-four-apply');
+    expect(source).toContain("runCameraViewFourGeneration");
+    expect(source).toContain("const views = [");
+    const cubePointerEndBlock = nodeBlock.match(
+      /const handleCameraCubePointerEnd = useCallback[\s\S]*?const handleCameraViewZChange/
+    )?.[0];
+    const cameraZChangeBlock = nodeBlock.match(
+      /const handleCameraViewZChange = useCallback[\s\S]*?useEffect\(\(\) =>/
+    )?.[0];
+    expect(cubePointerEndBlock).toBeTruthy();
+    expect(cubePointerEndBlock).not.toContain("updateCameraViewNode(nextView, true)");
+    expect(cameraZChangeBlock).toBeTruthy();
+    expect(cameraZChangeBlock).not.toContain("commit = false");
+    expect(nodeBlock).toContain('onClick={() => updateCameraViewNode(assetCameraView, true)}');
+    expect(nodeBlock).toContain('onClick={() => window.dispatchEvent(new CustomEvent("asset-camera-view-four-apply"');
+    expect(generationBlock).toContain("{ x: 0, y: 0 }");
+    expect(generationBlock).toContain("{ x: 90, y: 0 }");
+    expect(generationBlock).toContain("{ x: -90, y: 0 }");
+    expect(generationBlock).toContain("{ x: 180, y: 0 }");
+    expect(generationBlock).toContain("await Promise.all(");
     expect(generationBlock).not.toContain('operation: "annotation_edit"');
   });
 
@@ -548,6 +669,38 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(handlerBlock).not.toContain("previous?.type");
     expect(handlerBlock).not.toContain("prev.filter(segment => segment.id !== previous.id)");
     expect(handlerBlock).not.toContain("prev.filter(segment => segment.id !== segmentId)");
+  });
+
+  it("does not start a mouse box selection from the assistant prompt input shell", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const composerShellBlock = source.match(
+      /ref={composerShellRef}[\s\S]*?onDragOver={handleComposerShellDragOver}/
+    )?.[0];
+
+    expect(composerShellBlock).toBeTruthy();
+    expect(composerShellBlock).toContain("event.preventDefault();");
+    expect(composerShellBlock).toContain("event.stopPropagation();");
+    expect(composerShellBlock).toContain("setComposerBoxSelection(null);");
+    expect(source).not.toContain('border: "1px solid rgba(197,237,71,0.55)"');
+  });
+
+  it("maps vertical camera-cube dragging in the same direction as the pointer", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const cameraDragBlock = source.match(
+      /const handleCameraCubePointerMove = useCallback[\s\S]*?const handleCameraCubePointerEnd/
+    )?.[0];
+    const cameraDragEndBlock = source.match(
+      /const handleCameraCubePointerEnd = useCallback[\s\S]*?const handleCameraViewZChange/
+    )?.[0];
+
+    expect(cameraDragBlock).toBeTruthy();
+    expect(cameraDragEndBlock).toBeTruthy();
+    expect(cameraDragBlock).toContain(
+      "drag.startY + (event.clientY - drag.startClientY) * 0.55"
+    );
+    expect(cameraDragEndBlock).toContain(
+      "drag.startY + (event.clientY - drag.startClientY) * 0.55"
+    );
   });
 
   it("does not abort mask generation when user only adds new lines without modifying existing text", () => {

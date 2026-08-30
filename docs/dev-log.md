@@ -17,6 +17,102 @@
 - 测试/灰度后端：<https://backstage.artxsd.com>
 - 测试发布分支：`test/feature/interaction-framework`
 
+## 2026-08-30 21:54
+
+- 任务：修复文字节点描边严重错位
+- 原因：文字描边使用 8 个 `text-shadow` 偏移副本模拟，描边较宽时会呈现明显的重复字形和错位阴影。
+- 影响范围：`client/src/components/canvas/InfiniteCanvas.tsx` 文字节点编辑态与展示态描边渲染；更新 `client/src/components/canvas/InfiniteCanvas.node-resize.test.ts` 回归断言。
+- AI 联调：
+  - capability: N/A
+  - entry: N/A
+  - model/provider: N/A
+  - generationId: N/A
+  - backendTaskId: N/A
+  - providerTaskId: N/A
+  - request endpoint: N/A
+  - result: N/A
+  - error: N/A
+- 测试环境：
+  - frontend: N/A（本次仅更新本地源码）
+  - backend: N/A
+  - branch: `codex/new-ui-figma`
+  - commitSha: N/A（当前工作区包含其他协作中的未提交改动）
+  - deployment check: N/A
+- 验证：文字节点专项测试 4 项、层级/文字导出专项共 11 项通过；`pnpm check`、`pnpm build`、`git diff --check` 均通过。
+- 已知风险 / 待回归：尚未提交或发布测试环境；建议浏览器中设置 6px 描边，确认文字轮廓连续且不再出现偏移的重复字形。
+
+## 2026-08-30 21:48
+
+- 任务：将新建文字节点的默认字号调整为 16px
+- 原因：当前文字工具新建节点默认字号 32px，初始文字在画布中显示过大。
+- 影响范围：`client/src/components/canvas/InfiniteCanvas.tsx` 新建文字节点默认 `fontSize`；更新 `client/src/components/canvas/InfiniteCanvas.node-resize.test.ts`。
+- AI 联调：
+  - capability: N/A
+  - entry: N/A
+  - model/provider: N/A
+  - generationId: N/A
+  - backendTaskId: N/A
+  - providerTaskId: N/A
+  - request endpoint: N/A
+  - result: N/A
+  - error: N/A
+- 测试环境：
+  - frontend: N/A（本次仅更新本地源码）
+  - backend: N/A
+  - branch: `codex/new-ui-figma`
+  - commitSha: N/A（当前工作区包含其他协作中的未提交改动）
+  - deployment check: N/A
+- 验证：文字节点专项测试 3 项、`pnpm check`、`pnpm build`、`git diff --check` 均通过。
+- 已知风险 / 待回归：尚未提交或发布测试环境；建议浏览器点击文字工具新建节点，确认默认字号为 16px，已有文字字号不受影响。
+
+## 2026-08-30 21:44
+
+- 任务：修正画布图片选中与右键层级操作的交互
+- 原因：普通左键选中会被应用代码和 React Flow 默认行为提升到最顶层；右键层级命令需要只在执行命令时改变层级，并立即反映结果。
+- 影响范围：`client/src/components/canvas/InfiniteCanvas.tsx` 移除选择时的 z-order 提升逻辑，关闭 React Flow `elevateNodesOnSelect`，保留右键四项层级命令及其实时状态更新；更新 `client/src/components/canvas/InfiniteCanvas.layer-order.test.ts`。
+- AI 联调：
+  - capability: N/A
+  - entry: N/A
+  - model/provider: N/A
+  - generationId: N/A
+  - backendTaskId: N/A
+  - providerTaskId: N/A
+  - request endpoint: N/A
+  - result: N/A
+  - error: N/A
+- 测试环境：
+  - frontend: N/A（本次仅更新本地源码）
+  - backend: N/A
+  - branch: `codex/new-ui-figma`
+  - commitSha: N/A（当前工作区包含其他协作中的未提交改动）
+  - deployment check: N/A
+- 验证：层级专项测试 4 项、`pnpm check`、`pnpm build`、`git diff --check` 均通过。
+- 已知风险 / 待回归：尚未提交或发布测试环境；建议浏览器中重叠放置两张图片，确认左键/框选只改变选中框不改变遮挡顺序，再分别执行四个右键层级命令观察即时变化。
+
+## 2026-08-30 21:27
+
+- 任务：修复画布文字节点显示与导出被截断
+- 原因：自动文字节点使用偏窄的字符宽度估算，紫色选框可能小于实际中文文字；PNG/SVG 导出固定沿用节点宽度，长文本超出画布后被裁剪。
+- 影响范围：`client/src/components/canvas/InfiniteCanvas.tsx` 文字节点自动尺寸与 PNG/SVG 导出布局；更新 `client/src/components/canvas/InfiniteCanvas.text-download.test.ts` 回归断言。
+- AI 联调：
+  - capability: N/A
+  - entry: N/A
+  - model/provider: N/A
+  - generationId: N/A
+  - backendTaskId: N/A
+  - providerTaskId: N/A
+  - request endpoint: N/A
+  - result: N/A
+  - error: N/A
+- 测试环境：
+  - frontend: N/A（本次仅更新本地源码）
+  - backend: N/A
+  - branch: `codex/new-ui-figma`
+  - commitSha: N/A（当前工作区包含其他协作中的未提交改动）
+  - deployment check: N/A
+- 验证：文字导出专项测试 3 项、`pnpm check`、`pnpm build`、`git diff --check` 均通过。
+- 已知风险 / 待回归：尚未提交或发布测试环境；建议在浏览器中创建中文长文本，确认选框完整包住文字，并分别打开 PNG/SVG 检查右侧字符不再缺失。
+
 ## 条目模板
 
 ```md
@@ -44,6 +140,248 @@
 - 验证：
 - 已知风险 / 待回归：
 ```
+
+## 2026-08-30 21:16
+
+- 任务：修复画布节点层级命令的实时刷新
+- 原因：右键执行上一层、下一层、置于顶层或置于底层时，需要立即看到节点遮挡关系变化，不能依赖后续操作触发刷新。
+- 影响范围：`client/src/components/canvas/InfiniteCanvas.tsx` 右键层级命令读取最新节点快照与选中状态；更新层级专项测试。
+- AI 联调：
+  - capability: N/A
+  - entry: N/A
+  - model/provider: N/A
+  - generationId: N/A
+  - backendTaskId: N/A
+  - providerTaskId: N/A
+  - request endpoint: N/A
+  - result: N/A
+  - error: N/A
+- 测试环境：
+  - frontend: N/A（本次仅更新本地源码）
+  - backend: N/A
+  - branch: `codex/new-ui-figma`
+  - commitSha: N/A（当前工作区包含其他协作中的未提交改动）
+  - deployment check: N/A
+- 验证：层级命令专项测试 3 项、`pnpm check`、`pnpm build`、`git diff --check` 均通过。
+- 已知风险 / 待回归：尚未提交或发布测试环境；建议浏览器中重叠放置两张图片，分别验证四个命令点击后立即改变遮挡顺序，并验证撤销/重做。
+
+## 2026-08-30 21:08
+
+- 任务：统一技能商店卡片高度并对齐快速加载按钮
+- 原因：技能卡片内容长度不同导致卡片底部和按钮位置不一致，需要保留中间留白并将操作区固定在卡片底部。
+- 影响范围：`client/src/pages/SkillsPage.tsx` 技能卡片网格与底部操作区；新增 `client/src/pages/SkillsPage.card-alignment.test.ts`。
+- AI 联调：
+  - capability: N/A
+  - entry: N/A
+  - model/provider: N/A
+  - generationId: N/A
+  - backendTaskId: N/A
+  - providerTaskId: N/A
+  - request endpoint: N/A
+  - result: N/A
+  - error: N/A
+- 测试环境：
+  - frontend: N/A（本次仅更新本地源码）
+  - backend: N/A
+  - branch: `codex/new-ui-figma`
+  - commitSha: N/A（当前工作区包含其他协作中的未提交改动）
+  - deployment check: N/A
+- 验证：技能卡片对齐、技能筛选、技能展示与技能数据专项测试，`pnpm check`、`pnpm build`、`git diff --check` 均通过。
+- 已知风险 / 待回归：尚未提交或发布测试环境。
+
+## 2026-08-30 20:53
+
+- 任务：调整技能商店筛选区布局
+- 原因：移除“热度”和“状态”标签，将搜索框移动到右侧并与筛选容器边缘对齐。
+- 影响范围：`client/src/pages/SkillsPage.tsx` 筛选区及排序状态；新增 `client/src/pages/SkillsPage.filters.test.ts`。
+- AI 联调：
+  - capability: N/A
+  - entry: N/A
+  - model/provider: N/A
+  - generationId: N/A
+  - backendTaskId: N/A
+  - providerTaskId: N/A
+  - request endpoint: N/A
+  - result: N/A
+  - error: N/A
+- 测试环境：
+  - frontend: N/A（本次仅更新本地源码）
+  - backend: N/A
+  - branch: `codex/new-ui-figma`
+  - commitSha: N/A（当前工作区包含其他协作中的未提交改动）
+  - deployment check: N/A
+- 验证：技能筛选、技能展示与技能数据专项测试，`pnpm check`、`pnpm build`、`git diff --check` 均通过。
+- 已知风险 / 待回归：尚未提交或发布测试环境。
+
+## 2026-08-30 20:51
+
+- 任务：隐藏技能商店技能来源信息并调整技能卡片排版
+- 原因：用户不希望在技能商店看到技能来源或右上角绿色同步状态，并要求保留单一加载按钮、上移操作区。
+- 影响范围：`client/src/pages/SkillsPage.tsx` 技能卡片与筛选区域展示；新增 `client/src/pages/SkillsPage.presentation.test.ts`。
+- AI 联调：
+  - capability: N/A
+  - entry: N/A
+  - model/provider: N/A
+  - generationId: N/A
+  - backendTaskId: N/A
+  - providerTaskId: N/A
+  - request endpoint: N/A
+  - result: N/A
+  - error: N/A
+- 测试环境：
+  - frontend: N/A（本次仅更新本地源码）
+  - backend: N/A
+  - branch: `codex/new-ui-figma`
+  - commitSha: N/A（当前工作区包含其他协作中的未提交改动）
+  - deployment check: N/A
+- 验证：`SkillsPage.presentation.test.ts`、`pnpm check`、`pnpm build`、`git diff --check` 均通过。
+- 已知风险 / 待回归：尚未提交或发布测试环境。
+
+## 2026-08-30 20:47
+
+- 任务：为首页灵感推荐区域增加“查看全部灵感推荐”入口
+- 原因：首页灵感推荐内容滚动到底部时，需要提供明确的入口进入完整灵感推荐页面。
+- 影响范围：`client/src/pages/HomePage.tsx` 首页灵感推荐区域底部文字入口；新增 `client/src/pages/HomePage.inspiration-link.test.ts`。
+- AI 联调：
+  - capability: N/A
+  - entry: N/A
+  - model/provider: N/A
+  - generationId: N/A
+  - backendTaskId: N/A
+  - providerTaskId: N/A
+  - request endpoint: N/A
+  - result: N/A
+  - error: N/A
+- 测试环境：
+  - frontend: N/A（本次仅更新本地源码）
+  - backend: N/A
+  - branch: `codex/new-ui-figma`
+  - commitSha: N/A（当前工作区包含其他协作中的未提交改动）
+  - deployment check: N/A
+- 验证：`HomePage.inspiration-link.test.ts`、`pnpm check`、`pnpm build`、`git diff --check` 均通过。
+- 已知风险 / 待回归：尚未提交或发布测试环境。
+
+## 2026-08-30 20:44
+
+- 任务：更新会员中心价值主张文案
+- 原因：按产品要求替换截图中的旧模型说明文案。
+- 影响范围：`client/src/pages/BillingPage.tsx` 会员中心顶部说明文案；新增 `client/src/pages/BillingPage.copy.test.ts` 文案回归测试。
+- AI 联调：
+  - capability: N/A
+  - entry: N/A
+  - model/provider: N/A
+  - generationId: N/A
+  - backendTaskId: N/A
+  - providerTaskId: N/A
+  - request endpoint: N/A
+  - result: N/A
+  - error: N/A
+- 测试环境：
+  - frontend: N/A（本次仅更新本地源码）
+  - backend: N/A
+  - branch: `codex/new-ui-figma`
+  - commitSha: N/A（当前工作区包含其他协作中的未提交改动）
+  - deployment check: N/A
+- 验证：`BillingPage.copy.test.ts`、`pnpm check`、`pnpm build`、`git diff --check` 均通过。
+- 已知风险 / 待回归：尚未提交或发布测试环境。
+
+## 2026-08-30 20:39
+
+- 任务：支持节点拖入已有打组并自动并入
+- 原因：图片、几何图形等节点拖入打组区域后，需要通过短暂停留确认归组，减少误操作，并提供明确的视觉反馈。
+- 影响范围：`client/src/components/canvas/InfiniteCanvas.tsx` 节点拖拽与打组状态、`client/src/index.css` 打组边框双闪动画；新增打组拖入专项测试。
+- AI 联调：
+  - capability: N/A
+  - entry: N/A
+  - model/provider: N/A
+  - generationId: N/A
+  - backendTaskId: N/A
+  - providerTaskId: N/A
+  - request endpoint: N/A
+  - result: N/A
+  - error: N/A
+- 测试环境：
+  - frontend: N/A（本次仅更新本地源码）
+  - backend: N/A
+  - branch: `codex/new-ui-figma`
+  - commitSha: N/A（当前工作区包含其他协作中的未提交改动）
+  - deployment check: N/A
+- 验证：悬停 500ms 归组、离开取消计时、紫色边框双闪专项测试通过；`pnpm check`、`pnpm build`、`git diff --check` 通过。
+- 已知风险 / 待回归：尚未发布测试环境；需要在浏览器中用图片和图形分别拖入已有打组，验证停留超过 0.5 秒才归组，且拖离后不会归组。
+
+## 2026-08-30 20:32
+
+- 任务：支持文字节点右键单独下载
+- 原因：画布中新创建的文字需要和其他公共导出能力一样，可直接从右键菜单导出，避免只能使用底部文字工具栏。
+- 影响范围：`client/src/components/canvas/InfiniteCanvas.tsx` 文字节点右键菜单、文本节点右键事件、现有 PNG/SVG 导出链路；新增文本下载专项测试。
+- AI 联调：
+  - capability: N/A
+  - entry: N/A
+  - model/provider: N/A
+  - generationId: N/A
+  - backendTaskId: N/A
+  - providerTaskId: N/A
+  - request endpoint: N/A
+  - result: N/A
+  - error: N/A
+- 测试环境：
+  - frontend: N/A（本次仅更新本地源码）
+  - backend: N/A
+  - branch: `codex/new-ui-figma`
+  - commitSha: N/A（当前工作区包含其他协作中的未提交改动）
+  - deployment check: N/A
+- 验证：文字右键下载专项测试、画布层级专项测试共 3 项通过；`pnpm check`、`pnpm build`、`git diff --check` 通过。
+- 已知风险 / 待回归：尚未发布测试环境；需要在浏览器中创建文字后右键下载，确认 PNG 文件内容、透明背景和 SVG 导出均正常。
+
+## 2026-08-30 20:16
+
+- 任务：增加画布元素右键层级调整功能
+- 原因：图片、文字、几何图形、钢笔路径、自由曲线等元素可能因层级顺序错误发生遮挡，需要在右键菜单中直接调整前后关系。
+- 影响范围：`client/src/components/canvas/InfiniteCanvas.tsx` 画布节点右键菜单与层级命令；新增层级顺序回归测试。
+- AI 联调：
+  - capability: N/A
+  - entry: N/A
+  - model/provider: N/A
+  - generationId: N/A
+  - backendTaskId: N/A
+  - providerTaskId: N/A
+  - request endpoint: N/A
+  - result: N/A
+  - error: N/A
+- 测试环境：
+  - frontend: N/A（本次仅更新本地源码包）
+  - backend: N/A
+  - branch: `codex/new-ui-figma`
+  - commitSha: N/A（当前工作区包含其他协作中的未提交改动）
+  - deployment check: N/A
+- 验证：右键菜单新增“上一层、下一层、置于顶层、置于底层”；单选与多选共用层级命令，操作写入画布历史并同步节点数组顺序与 `zIndex`。已修正“上一层”的交换方向，专项测试先失败后通过；`pnpm check`、层级专项测试和 `pnpm build` 通过。
+- 交付包：`/Users/ericbi/Desktop/artx-test-main-codex-handoff-20260830-layer-order.zip`（包含本次层级功能及此前源码改动，不含凭据、依赖缓存、构建产物、运行时数据、日志和 Git 内部对象）。
+- 已知风险 / 待回归：尚未发布测试环境；需要在浏览器中用相互重叠的图片、文字和图形分别验证四个层级操作及撤销。
+
+## 2026-08-30 20:07
+
+- 任务：调整图像智能生成面板布局，并确认多平台封面图片位移能力
+- 原因：图像生成面板右侧底部操作区需要与左侧提示词输入框底部对齐；同时多平台封面需要支持图片上下左右移动，且每个平台的调整不能相互覆盖。
+- 影响范围：`client/src/components/canvas/InfiniteCanvas.tsx` 图像生成器弹窗布局、提示词输入辅助文案、多平台封面预览位移交互；新增对应布局与节点缩放回归测试。
+- AI 联调：
+  - capability: N/A
+  - entry: N/A
+  - model/provider: N/A
+  - generationId: N/A
+  - backendTaskId: N/A
+  - providerTaskId: N/A
+  - request endpoint: N/A
+  - result: N/A
+  - error: N/A
+- 测试环境：
+  - frontend: N/A（仅生成本地交付源码包）
+  - backend: N/A
+  - branch: `codex/new-ui-figma`
+  - commitSha: N/A（当前工作区包含其他协作中的未提交改动）
+  - deployment check: N/A
+- 验证：`pnpm check`、`pnpm build`、图像生成面板布局专项测试、视觉节点缩放专项测试通过；多平台封面代码已确认支持拖拽及上/下/左/右位移，并按平台保存 `transforms`。
+- 交付包：`/Users/ericbi/Desktop/artx-test-main-codex-handoff-20260830.zip`（源码包，不含 `.env`、依赖缓存、构建产物、运行时数据、日志和 Git 内部对象）。
+- 已知风险 / 待回归：尚未发布测试环境；交付包不包含 `.env`、依赖缓存、构建产物和运行时数据，前端工程师需在目标项目安装依赖后进行浏览器回归。
 
 ## 2026-07-06 21:40
 

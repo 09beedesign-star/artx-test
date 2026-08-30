@@ -20,4 +20,12 @@ describe("AppShell community entry", () => {
     expect(appShellSource).toContain("/api/community/wechat-group-qr/image");
     expect(appShellSource).toContain("defaultWechatGroupQr");
   });
+
+  it("highlights help while on the help page and gives an in-page submission toast", () => {
+    const source = appShellSource;
+
+    expect(source).toContain('const helpActive = isActive("/help");');
+    expect(source).toContain("您当前已在帮助与反馈页面中，请提交你的建议吧。");
+    expect(source).toContain('background: helpActive ? activeBg : "transparent"');
+  });
 });

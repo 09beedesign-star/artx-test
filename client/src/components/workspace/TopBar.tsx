@@ -92,12 +92,16 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
   const isDark = resolvedTheme === "dark";
 
   const surface   = isDark
-    ? (glass ? "rgba(34,34,34,0.20)" : "oklch(0.11 0.015 270)")
+    ? "#0a0a0b"
     : (glass ? "rgba(247,247,245,0.72)" : "var(--design-surface-soft)");
-  const border    = isDark ? "oklch(1 0 0 / 6%)"           : "var(--hairline)";
-  const textPri   = isDark ? "oklch(0.85 0.01 270)"        : "oklch(0.22 0.018 255)";
-  const textSec   = isDark ? "oklch(0.65 0.010 270)"        : "oklch(0.65 0.010 255)";
-  const hoverBg   = isDark ? "oklch(1 0 0 / 5%)"           : "oklch(0 0 0 / 0.04)";
+  const border    = isDark ? "#242429"                     : "var(--hairline)";
+  const textPri   = isDark ? "#f1f1f3"                     : "oklch(0.22 0.018 255)";
+  const textSec   = isDark ? "#99999e"                     : "oklch(0.65 0.010 255)";
+  const hoverBg   = isDark ? "#232326"                     : "oklch(0 0 0 / 0.04)";
+  const controlBg = isDark ? "#171719"                     : "oklch(0 0 0 / 0.04)";
+  const controlBorder = isDark ? "#36363b"                 : "oklch(0 0 0 / 0.08)";
+  const dialogBg = isDark ? "#171719"                      : "oklch(0.995 0.002 80)";
+  const dialogInset = isDark ? "#101011"                   : "oklch(0.97 0.003 270)";
 
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false);
@@ -111,9 +115,9 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
   const [projectTitleDraft, setProjectTitleDraft] = useState(projectTitle || "");
   const projectTitleInputRef = useRef<HTMLInputElement>(null);
 
-  const searchBg = isDark ? "oklch(0.16 0.016 270 / 0.90)" : "oklch(0.97 0.003 270 / 0.92)";
-  const searchBorder = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
-  const searchSub = isDark ? "oklch(0.65 0.010 270)" : "oklch(0.65 0.010 255)";
+  const searchBg = isDark ? "#171719" : "oklch(0.97 0.003 270 / 0.92)";
+  const searchBorder = isDark ? "#36363b" : "oklch(0 0 0 / 10%)";
+  const searchSub = isDark ? "#99999e" : "oklch(0.65 0.010 255)";
   const displayName = user?.username || "用户名";
   const avatarLetter = displayName.trim().slice(0, 1).toUpperCase() || "U";
   const avatarColor = useMemo(() => {
@@ -333,9 +337,9 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
   return (
     <>
     <header
-      className="flex items-center gap-3 px-4 shrink-0"
+      className="flex items-center gap-3 px-5 shrink-0"
       style={{
-        height: 52,
+        height: 56,
         background: surface,
         borderBottom: `1px solid ${border}`,
         backdropFilter: glass ? "blur(18px)" : undefined,
@@ -366,9 +370,9 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
                 className="font-semibold text-sm"
                 style={{
                   width: 156,
-                  height: 26,
+                  height: 30,
                   color: textPri,
-                  background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)",
+                  background: controlBg,
                   border: `1px solid ${searchBorder}`,
                   borderRadius: 6,
                   outline: "none",
@@ -387,6 +391,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
                 style={{
                   color: textPri,
                   cursor: onProjectTitleChange ? "text" : "default",
+                  letterSpacing: 0,
                 }}
               >
                 {projectTitle}
@@ -403,20 +408,21 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
         <div className="flex-1 flex justify-center" style={{ minWidth: 0 }}>
           <div style={{ width: "min(320px, 100%)", position: "relative" }}>
             <div
-              className="flex items-center gap-2 px-3 rounded-[var(--radius-lg-design)]"
+              className="flex items-center gap-2 px-3"
               style={{
-                height: 34,
+                height: 36,
                 background: searchBg,
                 border: `1px solid ${searchBorder}`,
+                borderRadius: 6,
                 backdropFilter: "blur(14px)",
                 cursor: "default",
-                opacity: 0.82,
+                opacity: 1,
               }}
             >
-              <Search size={13} style={{ color: searchSub, flexShrink: 0 }} />
+              <Search size={14} style={{ color: searchSub, flexShrink: 0 }} />
               <span
                 className="flex-1 truncate select-none"
-                style={{ fontSize: 12, color: searchSub, lineHeight: 1.4 }}
+                style={{ fontSize: 12, color: searchSub, lineHeight: 1.4, letterSpacing: 0 }}
               >
                 搜索项目或素材...
               </span>
@@ -431,17 +437,18 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
       {showSearch && (
         <button
           onClick={openApiKeyDialog}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-md-design)] type-caption transition-all duration-150 active:scale-95"
+          className="flex items-center gap-1.5 px-3 py-1.5 type-caption transition-all duration-150 active:scale-95"
           style={{
-            height: 32,
+            height: 36,
             color: textPri,
-            background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)",
-            border: `1px solid ${isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 8%)"}`,
+            background: controlBg,
+            border: `1px solid ${controlBorder}`,
+            borderRadius: 6,
           }}
           onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
-          onMouseLeave={e => (e.currentTarget.style.background = isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)")}
+          onMouseLeave={e => (e.currentTarget.style.background = controlBg)}
         >
-          <KeyRound size={13} style={{ color: "oklch(0.72 0.18 200)" }} />
+          <KeyRound size={14} style={{ color: "#C5ED47" }} />
           <span>API Key</span>
         </button>
       )}
@@ -449,7 +456,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
       {!isAuthenticated && (
         <button
           onClick={openLoginModal}
-          className="h-10 shrink-0 whitespace-nowrap rounded-md bg-[#936CFF] px-4 text-sm font-medium text-white shadow-[0_10px_28px_rgba(147,108,255,0.30)] transition-colors hover:bg-[#8257ff]"
+          className="h-8 shrink-0 whitespace-nowrap rounded-[6px] bg-[#C5ED47] px-3 text-sm font-medium text-[#1a2209] transition-colors hover:bg-[#d1f65f]"
           style={{
             border: "0",
           }}
@@ -467,24 +474,26 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
         <button
           type="button"
           onClick={openApiKeyDialog}
-          className="flex h-8 items-center gap-1.5 rounded-[var(--radius-md-design)] px-2.5 type-caption transition-colors active:scale-95"
+          className="flex h-9 items-center gap-1.5 px-3 type-caption transition-colors active:scale-95"
           style={{
             color: textPri,
-            background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)",
-            border: `1px solid ${isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 8%)"}`,
+            background: controlBg,
+            border: `1px solid ${controlBorder}`,
+            borderRadius: 6,
           }}
           onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
-          onMouseLeave={e => (e.currentTarget.style.background = isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)")}
+          onMouseLeave={e => (e.currentTarget.style.background = controlBg)}
           aria-label="打开 MCP 配置"
         >
-          <Link2 size={13} style={{ color: "oklch(0.72 0.18 200)" }} />
+          <Link2 size={14} style={{ color: "#C5ED47" }} />
           <span style={{ fontWeight: 700, letterSpacing: 0 }}>MCP</span>
         </button>
         <div
-          className="pointer-events-none absolute left-1/2 top-[calc(100%+8px)] z-50 -translate-x-1/2 whitespace-nowrap rounded-[var(--radius-md-design)] px-3 py-2 opacity-0 shadow-[0_14px_36px_rgba(0,0,0,0.24)] transition-opacity group-hover:opacity-100"
+          className="pointer-events-none absolute left-1/2 top-[calc(100%+8px)] z-50 -translate-x-1/2 whitespace-nowrap px-3 py-2 opacity-0 shadow-[0_14px_36px_rgba(0,0,0,0.24)] transition-opacity group-hover:opacity-100"
           style={{
-            background: isDark ? "rgba(22,22,30,0.96)" : "rgba(30,30,40,0.94)",
-            border: `1px solid ${isDark ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.16)"}`,
+            background: dialogBg,
+            border: `1px solid ${controlBorder}`,
+            borderRadius: 6,
             color: "white",
             fontSize: 12,
             lineHeight: "16px",
@@ -496,36 +505,38 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
 
       {/* Credits + billing */}
       <div
-        className="flex items-center rounded-[var(--radius-lg-design)] p-1 transition-colors"
+        className="flex items-center p-1 transition-colors"
         style={{
-          height: 40,
-          gap: 6,
-          background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 4%)",
-          border: `1px solid ${isDark ? "oklch(1 0 0 / 12%)" : "oklch(0 0 0 / 10%)"}`,
-          boxShadow: isDark ? "inset 0 1px 0 oklch(1 0 0 / 6%)" : "inset 0 1px 0 oklch(1 0 0 / 70%)",
+          height: 36,
+          gap: 4,
+          background: controlBg,
+          border: `1px solid ${controlBorder}`,
+          borderRadius: 6,
+          boxShadow: "none",
         }}
       >
         <button
           type="button"
-          className="flex h-8 items-center gap-1.5 rounded-[var(--radius-md-design)] px-2.5 type-caption transition-colors"
+          className="flex h-7 items-center gap-1.5 px-2 type-caption transition-colors"
           style={{ color: textPri, background: "transparent" }}
           onClick={() => navigate("/billing?tab=recharge")}
           onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
           onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
           title="查看积分与充值"
         >
-          <Sparkles size={13} style={{ color: "oklch(0.78 0.18 290)" }} />
-          <span>{displayCredits.toLocaleString("zh-HK")}</span>
+          <Sparkles size={14} style={{ color: "#C5ED47" }} />
+          <span style={{ fontWeight: 650, letterSpacing: 0 }}>{displayCredits.toLocaleString("zh-HK")}</span>
           <span style={{ color: textSec }}>积分</span>
         </button>
         <button
           type="button"
           onClick={() => navigate("/billing?tab=subscription")}
-          className="flex h-8 items-center gap-1.5 rounded-[var(--radius-md-design)] px-2.5 type-caption transition-all duration-150 active:scale-95"
+          className="flex h-7 items-center gap-1.5 px-2.5 type-caption transition-all duration-150 active:scale-95"
           style={{
             background: "#C5ED47",
             color: "oklch(0.12 0.02 160)",
-            boxShadow: "0 8px 22px oklch(0.72 0.18 130 / 0.16)",
+            borderRadius: 4,
+            boxShadow: "none",
             fontWeight: 650,
           }}
           title="进入订阅、充值与升级"
@@ -539,12 +550,12 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
-            className="flex items-center gap-2 px-2 py-1 rounded-[var(--radius-md-design)] transition-colors outline-none"
-            style={{ color: textPri }}
+            className="flex h-9 items-center gap-2 px-2 transition-colors outline-none"
+            style={{ color: textPri, borderRadius: 6 }}
           >
             <div
-              className="w-7 h-7 rounded-[var(--radius-pill)] flex items-center justify-center type-caption"
-              style={{ background: avatarColor, color: "white" }}
+              className="w-7 h-7 rounded-full flex items-center justify-center type-caption"
+              style={{ background: avatarColor, border: `1px solid ${isDark ? "rgba(255,255,255,0.24)" : "rgba(0,0,0,0.08)"}`, color: "white" }}
             >
               {avatarLetter}
             </div>
@@ -555,10 +566,11 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
         <DropdownMenuContent
           align="end"
           sideOffset={8}
-          className="min-w-[150px]"
+          className="min-w-[164px]"
           style={{
-            background: isDark ? "oklch(0.15 0.018 270)" : "oklch(0.995 0.002 80)",
-            border: `1px solid ${isDark ? "oklch(1 0 0 / 12%)" : "oklch(0.88 0.006 255)"}`,
+            background: dialogBg,
+            border: `1px solid ${controlBorder}`,
+            borderRadius: 6,
             boxShadow: "0 8px 32px oklch(0 0 0 / 0.25)",
           }}
         >
@@ -588,8 +600,8 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
       <AlertDialogContent
         className="max-h-[calc(100vh-48px)] w-[min(760px,calc(100vw-32px))] overflow-y-auto rounded-[var(--radius-lg-design)] border p-0"
         style={{
-          background: isDark ? "oklch(0.15 0.018 270)" : "oklch(0.995 0.002 80)",
-          borderColor: isDark ? "oklch(1 0 0 / 12%)" : "oklch(0.88 0.006 255)",
+          background: dialogBg,
+          borderColor: controlBorder,
           boxShadow: "0 24px 80px oklch(0 0 0 / 0.35)",
         }}
       >
@@ -620,8 +632,8 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
           <div
             className="mt-5 rounded-[var(--radius-md-design)] p-3"
             style={{
-              background: isDark ? "oklch(0.10 0.012 270)" : "oklch(0.97 0.003 270)",
-              border: `1px solid ${isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 8%)"}`,
+              background: dialogInset,
+              border: `1px solid ${controlBorder}`,
             }}
           >
             <div className="mb-1 type-caption" style={{ color: textSec }}>API Key</div>
@@ -642,7 +654,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
                 className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-md-design)] transition-colors disabled:opacity-45"
                 style={{
                   color: apiKeyCopied ? "oklch(0.68 0.18 145)" : textSec,
-                  background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)",
+                  background: controlBg,
                 }}
                 title="复制 API Key"
               >
@@ -654,8 +666,8 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
           <div
             className="mt-3 rounded-[var(--radius-md-design)] p-3"
             style={{
-              background: isDark ? "oklch(0.10 0.012 270)" : "oklch(0.97 0.003 270)",
-              border: `1px solid ${isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 8%)"}`,
+              background: dialogInset,
+              border: `1px solid ${controlBorder}`,
             }}
           >
             <div className="mb-3 flex items-start justify-between gap-3">
@@ -670,7 +682,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
                 onClick={() => copyText(thirdPartyAgentConfigText, "Agent 配置")}
                 className="h-8 shrink-0 inline-flex items-center gap-1.5 rounded-[var(--radius-md-design)] px-2.5 type-caption"
                 style={{
-                  background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)",
+                  background: controlBg,
                   color: textPri,
                 }}
               >
@@ -689,8 +701,8 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
                   key={label}
                   className="min-w-0 rounded-[var(--radius-md-design)] border p-2.5"
                   style={{
-                    background: isDark ? "oklch(0.08 0.012 270)" : "white",
-                    borderColor: isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)",
+                    background: dialogInset,
+                    borderColor: controlBorder,
                   }}
                 >
                   <div className="mb-1 type-caption" style={{ color: textSec }}>{label}</div>
@@ -712,7 +724,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
                       className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-md-design)]"
                       style={{
                         color: textPri,
-                        background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)",
+                        background: controlBg,
                       }}
                     >
                       <Copy size={12} />
@@ -727,7 +739,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
                 onClick={() => copyText(modelsCurlText, "models curl")}
                 className="h-8 inline-flex items-center gap-1.5 rounded-[var(--radius-md-design)] px-2.5 type-caption"
                 style={{
-                  background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)",
+                  background: controlBg,
                   color: textPri,
                 }}
               >
@@ -739,7 +751,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
                 onClick={() => copyText(chatCompletionCurlText, "生图 curl")}
                 className="h-8 inline-flex items-center gap-1.5 rounded-[var(--radius-md-design)] px-2.5 type-caption"
                 style={{
-                  background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)",
+                  background: controlBg,
                   color: textPri,
                 }}
               >
@@ -752,8 +764,8 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
           <div
             className="mt-3 rounded-[var(--radius-md-design)] p-3"
             style={{
-              background: isDark ? "oklch(0.10 0.012 270)" : "oklch(0.97 0.003 270)",
-              border: `1px solid ${isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 8%)"}`,
+              background: dialogInset,
+              border: `1px solid ${controlBorder}`,
             }}
           >
             <div className="mb-2 flex items-center justify-between gap-3">
@@ -763,7 +775,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
                 onClick={copyMcpConfig}
                 className="h-8 inline-flex items-center gap-1.5 rounded-[var(--radius-md-design)] px-2.5 type-caption"
                 style={{
-                  background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)",
+                  background: controlBg,
                   color: textPri,
                 }}
               >
@@ -774,7 +786,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
             <pre
               className="max-h-[220px] overflow-auto whitespace-pre-wrap break-all rounded-[var(--radius-md-design)] p-3"
               style={{
-                background: isDark ? "oklch(0.08 0.012 270)" : "white",
+                background: dialogInset,
                 color: textPri,
                 fontSize: 11,
                 lineHeight: 1.6,
@@ -788,8 +800,8 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
             <AlertDialogCancel
               className="h-9 min-w-[88px] rounded-[var(--radius-md-design)] type-caption"
               style={{
-                background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)",
-                borderColor: isDark ? "oklch(1 0 0 / 10%)" : "oklch(0.88 0.006 255)",
+                background: controlBg,
+                borderColor: controlBorder,
                 color: textPri,
               }}
             >
@@ -800,8 +812,8 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
               disabled={apiKeyLoading}
               className="h-9 min-w-[104px] inline-flex items-center justify-center gap-1.5 rounded-[var(--radius-md-design)] type-caption"
               style={{
-                background: isDark ? "oklch(1 0 0 / 7%)" : "oklch(0 0 0 / 0.05)",
-                border: `1px solid ${isDark ? "oklch(1 0 0 / 10%)" : "oklch(0.88 0.006 255)"}`,
+                background: controlBg,
+                border: `1px solid ${controlBorder}`,
                 color: textPri,
                 opacity: apiKeyLoading ? 0.65 : 1,
               }}
@@ -814,9 +826,9 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
                 onClick={copyApiKey}
                 className="h-9 min-w-[96px] rounded-[var(--radius-md-design)] type-caption"
                 style={{
-                  background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
-                  color: "white",
-                  boxShadow: "0 8px 24px oklch(0.58 0.22 290 / 0.22)",
+                  background: "#C5ED47",
+                  color: "#1a2209",
+                  boxShadow: "none",
                 }}
               >
                 复制
@@ -831,8 +843,8 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
       <AlertDialogContent
         className="w-[min(420px,calc(100vw-32px))] rounded-[var(--radius-lg-design)] border p-0 overflow-hidden"
         style={{
-          background: isDark ? "oklch(0.15 0.018 270)" : "oklch(0.995 0.002 80)",
-          borderColor: isDark ? "oklch(1 0 0 / 12%)" : "oklch(0.88 0.006 255)",
+          background: dialogBg,
+          borderColor: controlBorder,
           boxShadow: "0 24px 80px oklch(0 0 0 / 0.35)",
         }}
       >
@@ -856,8 +868,8 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
             <AlertDialogCancel
               className="h-9 min-w-[96px] rounded-[var(--radius-md-design)] type-caption"
               style={{
-                background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)",
-                borderColor: isDark ? "oklch(1 0 0 / 10%)" : "oklch(0.88 0.006 255)",
+                background: controlBg,
+                borderColor: controlBorder,
                 color: textPri,
               }}
             >
@@ -867,9 +879,9 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
               onClick={handleConfirmLogout}
               className="h-9 min-w-[112px] rounded-[var(--radius-md-design)] type-caption"
               style={{
-                background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
+                background: "#b43131",
                 color: "white",
-                boxShadow: "0 8px 24px oklch(0.58 0.22 290 / 0.22)",
+                boxShadow: "none",
               }}
             >
               确认退出

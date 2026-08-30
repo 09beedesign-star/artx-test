@@ -332,6 +332,7 @@ export default function ProfilePage() {
           }}
         >
           <div
+            data-artx-dialog-surface
             className="w-[min(620px,calc(100vw-32px))] rounded-[var(--radius-xl-design)] p-5 shadow-2xl"
             style={{
               background: panelBg,
@@ -442,6 +443,7 @@ export default function ProfilePage() {
           }}
         >
           <div
+            data-artx-dialog-surface
             className="w-[min(460px,calc(100vw-32px))] rounded-[var(--radius-xl-design)] p-5 shadow-2xl"
             style={{
               background: panelBg,
@@ -706,6 +708,7 @@ function AvatarCropDialog({
       }}
     >
       <div
+        data-artx-dialog-surface
         className="w-[min(480px,calc(100vw-32px))] rounded-[var(--radius-xl-design)] p-5 shadow-2xl"
         style={{
           background: panelBg,
