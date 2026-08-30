@@ -3450,16 +3450,49 @@ function resolveSmartAnnotationEditModel(requestedModel: string | undefined, con
  * - edit-property：改已有内容（换色/换材质/修瑕疵），GEM 更擅长；蒙版只轻度膨胀避免溢出
  * - unknown：判断不出，按新增物件处理
  */
+/**
+ * 从带系统前缀的 prompt 中剥离出用户真实请求。
+ * prompt 实际形如「大段系统约束……\n用户修改建议：给她戴个皇冠」，
+ * 系统前缀里充满「禁止把画面改成新的场景」「最小必要修改」「颜色、风格保持不变」这类措辞，
+ * 直接拿整段做意图判断一定会被带偏，所以必须先切出用户那句。
+ */
+function extractUserRequest(prompt: string): string {
+  const markers = ["用户修改建议：", "用户修改建议:", "User request:", "用户请求：", "用户请求:"];
+  for (const marker of markers) {
+    const index = (prompt || "").lastIndexOf(marker);
+    if (index >= 0) {
+      const tail = prompt.slice(index + marker.length).trim();
+      if (tail) return tail;
+    }
+  }
+  return (prompt || "").trim();
+}
+
 function classifyAnnotationPrompt(prompt: string): "add-object" | "edit-property" | "unknown" {
-  const text = prompt || "";
+  const text = extractUserRequest(prompt);
   const isAddObjectRequest = /(加|添加|戴上|戴|放|道具|帽子|眼镜|墨镜|增加|新增|add\s+(a|the)|put\s+(a|the)|wear|with\s+(a|the))/i.test(text);
-  const isEditPropertyRequest = /(换色|换颜色|改色|改颜色|换材质|改材质|修|修复|瑕疵|去掉|消除|移除|换风格|换款式|改变颜色|改变材质|remove|fix|repair|erase|change\s+(color|material|texture))/i.test(text);
+  // text 已由 extractUserRequest 剥离系统前缀，这里只需覆盖用户会怎么说话：
+  // 用「修复/修掉/修补」等完整词避免口语里的「修一下」被误判，
+  // 并补上「改成蓝色」「换成红色」这类「动词+成+值」的表达（用户很少会照着「换色」这种书面词说）。
+  const isEditPropertyRequest = new RegExp(
+    [
+      "换色", "换颜色", "改色", "改颜色", "换材质", "改材质", "改变颜色", "改变材质",
+      "换风格", "换款式", "修复", "修掉", "修补", "修瑕疵", "修图", "瑕疵",
+      "去掉", "消除", "移除",
+      "(改|换|变|调|染|涂)\\s*成\\s*\\S+",
+      "remove", "fix", "repair", "erase", "retouch",
+      "change\\s+(color|material|texture)",
+    ].join("|"),
+    "i",
+  ).test(text);
 
   if (isEditPropertyRequest && !isAddObjectRequest) return "edit-property";
   if (isAddObjectRequest && !isEditPropertyRequest) return "add-object";
-  // 两者都命中（如「把帽子换成红色」）时按动词判断：换/改/修/去 表示对已有内容下手
+  // 两者都命中（如「把帽子换成红色」）时按具体动词判断：同样不能用单字，理由同上。
   if (isEditPropertyRequest && isAddObjectRequest) {
-    return /(换|改|修|去|remove|fix|repair|erase|change)/i.test(text) ? "edit-property" : "add-object";
+    return /(改成|换成|变成|调成|染成|涂成|换色|改色|换材质|改材质|换风格|换款式|修复|修掉|修补|去掉|消除|移除|remove|fix|repair|erase|change)/i.test(text)
+      ? "edit-property"
+      : "add-object";
   }
   return "unknown";
 }
@@ -3709,6 +3742,8 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
       fallbackModels: Array.from(new Set(fallbackModels)),
       vodAigc: isVodAigcConfigured(),
       maskDataUrlPrefix: ogMaskDataUrl.slice(0, 30),
+      // 打印剥离系统前缀后的用户真实请求，这是路由判断的唯一依据
+      userRequest: extractUserRequest(input.prompt || ""),
     }));
     let lastError: unknown;
     for (const fallbackModel of Array.from(new Set(fallbackModels))) {
