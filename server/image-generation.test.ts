@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import sharp from "sharp";
 import { getImageModelFallbackAttempts } from "../shared/image-models";
-import { __testAssertSourcePreservingMask, __testBuildSmartProductPrompt, __testCompositeSourcePreservingImageEdit, __testCreatePicWishForegroundRemovalMask, __testHasPicWishExpansionMargins, __testNormalizeGeneratedImageSrc, __testNormalizeGeneratedImagesToTargetAspect, __testNormalizePicWishExpansionRatio, __testParseStructuredImageText, __testPreparePicWishEraseSourceImage, __testPreparePicWishExpansionSourceImage, __testResolveHighDefinitionTargetSize, __testResolveReferenceImageRoute, __testResolveSmartProductLayout, editImageWithPrompt, extractImageText, generateImages } from "./image-generation";
+import { __testAssertSourcePreservingMask, __testBuildSmartProductPrompt, __testCompositeSourcePreservingImageEdit, __testCreatePicWishForegroundRemovalMask, __testHasPicWishExpansionMargins, __testMergeImageTextRegions, __testNormalizeGeneratedImageSrc, __testNormalizeGeneratedImagesToTargetAspect, __testNormalizePicWishExpansionRatio, __testParseStructuredImageText, __testPreparePicWishEraseSourceImage, __testPreparePicWishExpansionSourceImage, __testResolveHighDefinitionTargetSize, __testResolveReferenceImageRoute, __testResolveSmartProductLayout, editImageWithPrompt, extractImageText, generateImages } from "./image-generation";
 
 const ONE_PIXEL_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
@@ -13,6 +13,26 @@ afterEach(() => {
 });
 
 describe("generated image source normalization", () => {
+  it("filters non-editable and low-confidence decorative candidates", () => {
+    const regions = __testMergeImageTextRegions([
+      { text: "It reasons", x: 0.18, y: 0.45, width: 0.64, height: 0.08, editable: true, confidence: 0.95 },
+      { text: "decorative", x: 0.05, y: 0.2, width: 0.1, height: 0.02, editable: false, confidence: 0.99 },
+      { text: "noise", x: 0.8, y: 0.3, width: 0.08, height: 0.02, editable: true, confidence: 0.2 },
+    ]);
+
+    expect(regions.map(region => region.text)).toEqual(["It reasons"]);
+  });
+
+  it("merges vertically stacked lines from one visual text block", () => {
+    const regions = __testMergeImageTextRegions([
+      { text: "It reasons,", x: 0.18, y: 0.45, width: 0.64, height: 0.08, editable: true, editableRole: "headline", fontColor: "#ffffff" },
+      { text: "then renders.", x: 0.12, y: 0.54, width: 0.74, height: 0.08, editable: true, editableRole: "headline", fontColor: "#ffffff" },
+    ]);
+
+    expect(regions).toHaveLength(1);
+    expect(regions[0].text).toBe("It reasons,\nthen renders.");
+  });
+
   it("allows the image provider 90 seconds to return an asynchronous task ID by default", async () => {
     const source = await readFile(resolve(__dirname, "image-generation.ts"), "utf8");
 
@@ -371,6 +391,21 @@ describe("generated image source normalization", () => {
       productScale: "large",
       y: 0.84,
       width: 0.82,
+    });
+  });
+
+  it("filters whitespace and symbol-only OCR regions", () => {
+    expect(__testParseStructuredImageText(JSON.stringify({
+      text: "真实文案",
+      regions: [
+        { text: "\n\t", x: 0.1, y: 0.1, width: 0.2, height: 0.05 },
+        { text: "•••", x: 0.1, y: 0.2, width: 0.2, height: 0.05 },
+        { text: "\\u200b\\ufeff", x: 0.1, y: 0.3, width: 0.2, height: 0.05 },
+        { text: "真实文案", x: 0.1, y: 0.4, width: 0.3, height: 0.05 },
+      ],
+    }))).toEqual({
+      text: "真实文案",
+      regions: [{ text: "真实文案", x: 0.1, y: 0.4, width: 0.3, height: 0.05 }],
     });
   });
 

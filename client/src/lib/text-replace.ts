@@ -16,6 +16,13 @@ export interface ImageTextRegion {
   height: number;
   confidence?: number;
   direction?: "horizontal" | "vertical";
+  rotate?: number;
+  fontColor?: string;
+  fontFamily?: string;
+  editable?: boolean;
+  editableRole?: string;
+  sourceRegionIds?: string[];
+  needsReview?: boolean;
 }
 
 export interface ExtractedText {
@@ -105,9 +112,11 @@ The image should look natural and professional, as if the new text was original.
 /**
  * Extract text from image using OCR
  */
-export async function extractTextFromImage(imageSrc: string): Promise<ExtractedText> {
+const DEFAULT_TEXT_OCR_MODEL = "og-image2-high";
+
+export async function extractTextFromImage(imageSrc: string, model = DEFAULT_TEXT_OCR_MODEL): Promise<ExtractedText> {
   try {
-    const result = await extractImageText({ imageSrc });
+    const result = await extractImageText({ imageSrc, model });
 
     // Validate and filter regions
     const regions = (result.regions || []).filter((region: any) => {
@@ -190,12 +199,20 @@ export async function prepareTextReplacementUI(imageSrc: string) {
       };
     }
 
+    const editableRegions = extracted.regions.filter(region => region.editable !== false);
+    if (editableRegions.length === 0) {
+      return {
+        success: false,
+        error: "No editable text found in image. Please try another image.",
+      };
+    }
+
     return {
       success: true,
-      text: extracted.text,
-      regions: extracted.regions,
+      text: editableRegions.map(region => region.text).join("\n"),
+      regions: editableRegions,
       provider: extracted.provider,
-      editableItems: extracted.regions.map((region, index) => ({
+      editableItems: editableRegions.map((region, index) => ({
         id: `text-${index}`,
         originalText: region.text,
         newText: region.text,
@@ -206,6 +223,12 @@ export async function prepareTextReplacementUI(imageSrc: string) {
         height: region.height,
         confidence: region.confidence,
         direction: region.direction,
+        rotate: region.rotate,
+        fontColor: region.fontColor,
+        editable: region.editable,
+        editableRole: region.editableRole,
+        sourceRegionIds: region.sourceRegionIds,
+        needsReview: region.needsReview,
       })),
     };
   } catch (error) {

@@ -79,6 +79,10 @@ export type ImageTextRegion = {
   fontColor?: string;
   /** 回填字体（中文名或 CSS 字体名） */
   fontFamily?: string;
+  editable?: boolean;
+  editableRole?: string;
+  sourceRegionIds?: string[];
+  needsReview?: boolean;
 };
 
 function getAiAssetBaseUrl() {
@@ -189,24 +193,15 @@ function getAiApiBaseUrl() {
   if (normalized) return normalized;
   if (typeof window !== "undefined") {
     const hostname = window.location.hostname;
-    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") return "";
+    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") {
+      return "http://localhost:3001";
+    }
   }
   return ART_X_TEST_AI_API_BASE_URL;
 }
 
-function getLocalAiFallbackEndpoint(endpoint: string) {
-  if (typeof window === "undefined") return "";
-  try {
-    const current = new URL(endpoint, window.location.href);
-    const isLoopback = current.hostname === "localhost"
-      || current.hostname === "127.0.0.1"
-      || current.hostname === "::1";
-    if (!isLoopback) return "";
-    const fallback = new URL(current.pathname + current.search, ART_X_TEST_AI_API_BASE_URL);
-    return fallback.toString();
-  } catch {
-    return "";
-  }
+function getLocalAiFallbackEndpoint(_endpoint: string) {
+  return "";
 }
 
 function isAiBackendConnectionError(error: unknown) {
@@ -717,11 +712,13 @@ export async function createProductBackground({
 
 export async function extractImageText({
   imageSrc,
+  model,
 }: {
   imageSrc: string;
+  model?: string;
 }) {
   requireAiAuth();
-  const result = await postImageOcr({ imageSrc }, "智能文案 OCR 失败");
+  const result = await postImageOcr({ imageSrc, model }, "智能文案 OCR 失败");
   return {
     text: result.text || "",
     regions: result.regions || [],

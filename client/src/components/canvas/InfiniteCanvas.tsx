@@ -6521,9 +6521,23 @@ function AssetNodeComponent({
   const eraseHasPaintRef = useRef(false);
   const [extractedTextDraft, setExtractedTextDraft] = useState(extractedText);
   const extractedTextFields = useMemo(() => {
-    const fields = extractedTextDraft.split("\n").map(item => item.trim());
+    const normalizeField = (value: string) =>
+      value
+        .normalize("NFKC")
+        .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060\ufeff]/g, "")
+        .trim();
+    // OCR 区域是可编辑位置的唯一来源，不能使用 LLM 重排后的换行重新创建区域。
+    if (extractedTextRegions.length > 0) {
+      return extractedTextRegions
+        .map(region => normalizeField(region.text || ""))
+        .filter(field => /[A-Za-z0-9\u00C0-\u02AF\u0370-\u052F\u1E00-\u1FFF\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF]/.test(field));
+    }
+    const fields = extractedTextDraft
+      .split("\n")
+      .map(normalizeField)
+      .filter(field => /[A-Za-z0-9\u00C0-\uFFFF]/.test(field));
     return fields.length ? fields : ["未识别到可编辑文案"];
-  }, [extractedTextDraft]);
+  }, [extractedTextDraft, extractedTextRegions]);
   /** 每个文案段落的回填样式（颜色/字体/角度），index 与文案段落一一对应 */
   const [extractedTextStyles, setExtractedTextStyles] = useState<
     Array<{ color: string; fontFamily: string; rotate: number }>
@@ -6738,7 +6752,11 @@ function AssetNodeComponent({
   }, [isExpanding]);
   useEffect(() => {
     if (extractedTextPanelOpen) {
-      setExtractedTextDraft(extractedText);
+      setExtractedTextDraft(
+        extractedTextRegions.length > 0
+          ? extractedTextRegions.map(region => region.text || "").join("\n")
+          : extractedText
+      );
       setDeletedTextIndexes(new Set());
       // 从 OCR 区域带出默认回填样式（颜色/角度），字体默认微软雅黑
       setExtractedTextStyles(
@@ -29525,15 +29543,24 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           try {
             const ocrResult = await extractImageText({ imageSrc });
             ocrText = ocrResult.text.trim();
-            ocrRegions = ocrResult.regions || [];
+            ocrRegions = (ocrResult.regions || []).filter(region => {
+              if (region.editable === false) return false;
+              const text = String(region.text || "")
+                .normalize("NFKC")
+                .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060\ufeff]/g, "")
+                .trim();
+              return /[A-Za-z0-9\u00C0-\uFFFF]/.test(text);
+            });
           } catch (ocrError) {
             console.warn(
               "PicWish OCR failed; falling back to multimodal text extraction",
               ocrError
             );
           }
-          const result = ocrText
-            ? await callLLM({
+          let result: { text: string };
+          if (ocrText) {
+            try {
+              result = await callLLM({
                 module: "commercial-ocr-copy-structure",
                 model: "gpt-4o",
                 images: [
@@ -29552,24 +29579,30 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                   "如果 OCR 有明显重复或无意义碎片，请轻度去重和清理，但不要改写用户原文。",
                   `OCR 识别结果：\n${ocrText}`,
                 ].join("\n"),
-              })
-            : await callLLM({
-                module: "multimodal-text-extraction",
-                model: "gpt-4o",
-                images: [
-                  {
-                    src: imageSrc,
-                    title:
-                      typeof data.title === "string" ? data.title : "选中图片",
-                  },
-                ],
-                prompt: [
-                  "请提取图片画面中所有可见文字文案。",
-                  "只输出提取到的文字内容，保持原有语言、大小写、标点和换行顺序。",
-                  "不要添加解释、标题、项目符号或额外说明。",
-                  "如果画面中没有可读文字，只输出：未识别到可读文案",
-                ].join("\n"),
               });
+            } catch (formatError) {
+              console.warn("OCR text formatting failed; using raw OCR text", formatError);
+              result = { text: ocrText };
+            }
+          } else {
+            result = await callLLM({
+              module: "multimodal-text-extraction",
+              model: "gpt-4o",
+              images: [
+                {
+                  src: imageSrc,
+                  title:
+                    typeof data.title === "string" ? data.title : "选中图片",
+                },
+              ],
+              prompt: [
+                "请提取图片画面中所有可见文字文案。",
+                "只输出提取到的文字内容，保持原有语言、大小写、标点和换行顺序。",
+                "不要添加解释、标题、项目符号或额外说明。",
+                "如果画面中没有可读文字，只输出：未识别到可读文案",
+              ].join("\n"),
+            });
+          }
           const text = result.text.trim() || ocrText || "未识别到可读文案";
           setNodes(nds =>
             nds.map(n =>

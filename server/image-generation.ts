@@ -169,10 +169,19 @@ type ImageTextRegion = {
   y: number;
   width: number;
   height: number;
+  confidence?: number;
   /** 文字倾斜角度（度，正值顺时针），回填时以区域中心旋转 */
   rotate?: number;
   /** 文字主色（十六进制 #rrggbb），回填时作为默认字体颜色 */
   fontColor?: string;
+  /** 是否建议在智能文案编辑面板中展示 */
+  editable?: boolean;
+  /** 文案块的业务角色 */
+  editableRole?: string;
+  /** 合并前的候选区域索引 */
+  sourceRegionIds?: string[];
+  /** 是否需要用户复核 */
+  needsReview?: boolean;
 };
 
 type GeneratedImage = {
@@ -397,6 +406,127 @@ function isLikelyBase64ImagePayload(value: string) {
 
 export const __testNormalizeGeneratedImageSrc = resolveGeneratedImageSrc;
 
+function regionOverlapRatio(a: ImageTextRegion, b: ImageTextRegion) {
+  const overlapX = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x));
+  const overlapY = Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
+  const intersection = overlapX * overlapY;
+  return intersection / Math.max(0.000001, Math.min(a.width * a.height, b.width * b.height));
+}
+
+function hasMeaningfulImageText(text: string) {
+  const normalized = text
+    .normalize("NFKC")
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060\ufeff]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return false;
+  if (/^(未识别到|无法识别|无文字|没有文字|no text|no readable text|none)$/i.test(normalized)) {
+    return false;
+  }
+  // 仅有换行、标点、货币符号或装饰字符的 OCR 候选不是可编辑文案。
+  return /[A-Za-z0-9\u00C0-\u02AF\u0370-\u052F\u1E00-\u1FFF\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF]/.test(normalized);
+}
+
+function mergeImageTextRegions(regions: ImageTextRegion[]) {
+  const candidates = regions
+    .filter(region => region.editable !== false)
+    .filter(region => region.confidence === undefined || region.confidence >= 0.55)
+    .filter(region => hasMeaningfulImageText(region.text))
+    .filter(region => region.text.trim().length > 0 && region.width >= 0.015 && region.height >= 0.008)
+    .sort((a, b) => a.y - b.y || a.x - b.x);
+  const merged: ImageTextRegion[] = [];
+
+  for (const candidate of candidates) {
+    const duplicateIndex = merged.findIndex(existing => {
+      const overlap = regionOverlapRatio(existing, candidate);
+      const sameText = existing.text.trim() === candidate.text.trim();
+      const containedText = candidate.text.includes(existing.text) || existing.text.includes(candidate.text);
+      return overlap >= 0.55 || (sameText && overlap >= 0.2) || (containedText && overlap >= 0.35);
+    });
+    if (duplicateIndex >= 0) {
+      const previous = merged[duplicateIndex];
+      const preferred = candidate.text.length >= previous.text.length ? candidate : previous;
+      merged[duplicateIndex] = {
+        ...preferred,
+        sourceRegionIds: Array.from(new Set([...(previous.sourceRegionIds || []), ...(candidate.sourceRegionIds || [])])),
+        needsReview: previous.needsReview || candidate.needsReview || undefined,
+      };
+      continue;
+    }
+
+    const previous = merged[merged.length - 1];
+    if (!previous) {
+      merged.push(candidate);
+      continue;
+    }
+    const sameLine = Math.min(previous.y + previous.height, candidate.y + candidate.height)
+      - Math.max(previous.y, candidate.y) >= Math.min(previous.height, candidate.height) * 0.45;
+    const gap = candidate.x - (previous.x + previous.width);
+    const closeEnough = gap >= 0 && gap <= Math.max(previous.height, candidate.height) * 1.6;
+    const sameRole = !previous.editableRole || !candidate.editableRole || previous.editableRole === candidate.editableRole;
+    const sameColor = !previous.fontColor || !candidate.fontColor || previous.fontColor === candidate.fontColor;
+    const previousFontHeight = previous.height;
+    const candidateFontHeight = candidate.height;
+    const similarFontSize = Math.max(previousFontHeight, candidateFontHeight)
+      / Math.max(0.000001, Math.min(previousFontHeight, candidateFontHeight)) <= 1.8;
+    const verticalGap = candidate.y - (previous.y + previous.height);
+    const alignedLeft = Math.abs(candidate.x - previous.x) <= Math.max(previous.height, candidate.height) * 1.5;
+    const alignedCenter = Math.abs(
+      candidate.x + candidate.width / 2 - (previous.x + previous.width / 2),
+    ) <= Math.max(previous.height, candidate.height) * 2;
+    const sameTextBlock = sameRole && sameColor && similarFontSize && verticalGap >= 0
+      && verticalGap <= Math.max(previous.height, candidate.height) * 1.4
+      && (alignedLeft || alignedCenter);
+
+    if (sameTextBlock) {
+      const left = Math.min(previous.x, candidate.x);
+      const right = Math.max(previous.x + previous.width, candidate.x + candidate.width);
+      const top = Math.min(previous.y, candidate.y);
+      const bottom = Math.max(previous.y + previous.height, candidate.y + candidate.height);
+      merged[merged.length - 1] = {
+        ...previous,
+        text: `${previous.text}\n${candidate.text}`.trim(),
+        x: left,
+        y: top,
+        width: right - left,
+        height: bottom - top,
+        confidence: previous.confidence === undefined || candidate.confidence === undefined
+          ? previous.confidence ?? candidate.confidence
+          : Math.min(previous.confidence, candidate.confidence),
+        sourceRegionIds: Array.from(new Set([...(previous.sourceRegionIds || []), ...(candidate.sourceRegionIds || [])])),
+        needsReview: previous.needsReview || candidate.needsReview || undefined,
+      };
+      continue;
+    }
+
+    if (sameLine && closeEnough && sameRole && sameColor) {
+      const left = Math.min(previous.x, candidate.x);
+      const right = Math.max(previous.x + previous.width, candidate.x + candidate.width);
+      const top = Math.min(previous.y, candidate.y);
+      const bottom = Math.max(previous.y + previous.height, candidate.y + candidate.height);
+      merged[merged.length - 1] = {
+        ...previous,
+        text: `${previous.text}${gap > Math.max(previous.height, candidate.height) * 0.55 ? " " : ""}${candidate.text}`.trim(),
+        x: left,
+        y: top,
+        width: right - left,
+        height: bottom - top,
+        confidence: previous.confidence === undefined || candidate.confidence === undefined
+          ? previous.confidence ?? candidate.confidence
+          : Math.min(previous.confidence, candidate.confidence),
+        sourceRegionIds: Array.from(new Set([...(previous.sourceRegionIds || []), ...(candidate.sourceRegionIds || [])])),
+        needsReview: previous.needsReview || candidate.needsReview || undefined,
+      };
+      continue;
+    }
+    merged.push(candidate);
+  }
+
+  return merged;
+}
+
+export const __testMergeImageTextRegions = mergeImageTextRegions;
+
 export function __testParseStructuredImageText(rawContent: string): {
   text: string;
   regions: ImageTextRegion[];
@@ -429,6 +559,12 @@ export function __testParseStructuredImageText(rawContent: string): {
           const boundedY = Math.max(0, Math.min(1, y));
           const rawRotate = Number(value.rotate);
           const rawFontColor = typeof value.fontColor === "string" ? value.fontColor.trim() : "";
+          const rawConfidence = Number(value.confidence);
+          const rawSourceRegionIds = Array.isArray(value.sourceRegionIds)
+            ? value.sourceRegionIds.filter((id): id is string => typeof id === "string")
+            : [];
+          const rawEditable = value.editable;
+          const rawRole = typeof value.editableRole === "string" ? value.editableRole.trim() : "";
           return [{
             text: typeof value.text === "string" ? value.text.trim() : "",
             x: boundedX,
@@ -441,12 +577,19 @@ export function __testParseStructuredImageText(rawContent: string): {
             fontColor: /^#[0-9a-fA-F]{6}$/.test(rawFontColor)
               ? rawFontColor.toLowerCase()
               : undefined,
+            confidence: Number.isFinite(rawConfidence)
+              ? Math.max(0, Math.min(1, rawConfidence))
+              : undefined,
+            editable: typeof rawEditable === "boolean" ? rawEditable : undefined,
+            editableRole: rawRole || undefined,
+            sourceRegionIds: rawSourceRegionIds.length > 0 ? rawSourceRegionIds : undefined,
+            needsReview: value.needsReview === true ? true : undefined,
           }];
         })
       : [];
     return {
       text: typeof parsed.text === "string" ? parsed.text.trim() : "",
-      regions,
+      regions: mergeImageTextRegions(regions),
     };
   } catch {
     return { text: trimmed, regions: [] };
@@ -1263,7 +1406,9 @@ async function imageSrcToBuffer(src: string): Promise<{ buffer: Buffer; mimeType
 }
 
 function bufferToImageFile(buffer: Buffer, mimeType: string) {
-  return new File([buffer], getImageFileName(mimeType), { type: mimeType });
+  const arrayBuffer = new ArrayBuffer(buffer.byteLength);
+  new Uint8Array(arrayBuffer).set(buffer);
+  return new File([arrayBuffer], getImageFileName(mimeType), { type: mimeType });
 }
 
 type PicWishVisualTaskType = "segmentation" | "scale" | "self-face-cutout" | "watermark" | "inpaint" | "r-background" | "advanced-image-expand";
@@ -4110,12 +4255,15 @@ export async function extractImageText(input: ExtractImageTextInput): Promise<{
           {
             type: "text",
             text: [
-              "请识别图片中所有可见文字，并返回严格 JSON，不要输出解释或 Markdown。",
-              "格式：{\"text\":\"按阅读顺序排列的全部原文\",\"regions\":[{\"text\":\"该区域原文\",\"x\":0.1,\"y\":0.2,\"width\":0.3,\"height\":0.1,\"rotate\":0,\"fontColor\":\"#ffffff\"}]}。",
-              "x、y、width、height 必须是相对整张图片的 0 到 1 小数坐标，区域应完整覆盖对应文字。",
-              "rotate 是文字相对水平方向的倾斜角度（度，正值顺时针，多数场景为 0）；",
-              "fontColor 是该区域文字的主色十六进制值（如 #ffffff）；两者都尽量准确填写。",
-              "保持原有语言、大小写、标点和换行，不要翻译。没有可读文字时返回 {\"text\":\"\",\"regions\":[]}。",
+              "你是智能文案编辑的视觉分析模型，不是逐字符 OCR。请识别图片中适合用户整体修改的文案块，并返回严格 JSON，不要输出解释或 Markdown。",
+              "只返回最终可编辑文案区域：同一行、同一视觉层级、同一语义短句中的字符、数字、货币符号、单位、标点必须合并；除非字体、颜色、对齐、位置或语义明显不同，否则不要拆分。默认输出最少的合理区域，不要把一个词或一句话拆成多个字符区域。",
+              "排除 Logo、品牌名、商标、产品包装文字、水印、背景环境文字和纯装饰文字；如果无法确认是否可编辑，保留为一个区域并设置 needsReview=true。",
+              "格式：{\"text\":\"按阅读顺序排列的可编辑文案\",\"regions\":[{\"text\":\"完整文案块\",\"x\":0.1,\"y\":0.2,\"width\":0.3,\"height\":0.1,\"rotate\":0,\"fontColor\":\"#ffffff\",\"confidence\":0.95,\"editable\":true,\"editableRole\":\"headline\",\"sourceRegionIds\":[\"candidate-1\"],\"needsReview\":false}]}。",
+              "x、y、width、height 必须是相对整张图片的 0 到 1 小数坐标，区域必须完整覆盖文案块但不要覆盖相邻文案；同一文字的阴影、描边、发光属于同一个区域。",
+              "editableRole 只能使用 headline、subtitle、promotion、price、cta、description、label；editable 必须为 true。不要返回 editable=false 的区域。",
+              "rotate 是文字相对水平方向的倾斜角度（度，正值顺时针，多数场景为 0）；fontColor 是该区域文字的主色十六进制值；confidence 是对文字和区域的综合置信度。",
+              "保持原有语言、大小写、标点和换行，不要翻译。没有适合编辑的可读文案时返回 {\"text\":\"\",\"regions\":[]}。",
+              "输出前自检：合并同一文本块的碎片；去除重复、重叠和仅由阴影/描边产生的区域；确认最终区域数量符合视觉上的文案块数量。",
             ].join("\n"),
           },
           { type: "image_url", image_url: { url: input.imageSrc } },
@@ -4146,11 +4294,11 @@ export async function extractImageText(input: ExtractImageTextInput): Promise<{
     model: "gpt-5.4-mini",
     images: [{ src: input.imageSrc, title: "OCR target image" }],
     prompt: [
-      "请识别图片中所有可见文字，并返回严格 JSON，不要输出解释或 Markdown。",
-      "格式：{\"text\":\"按阅读顺序排列的全部原文\",\"regions\":[{\"text\":\"该区域原文\",\"x\":0.1,\"y\":0.2,\"width\":0.3,\"height\":0.1,\"rotate\":0,\"fontColor\":\"#ffffff\"}]}。",
-      "坐标使用相对整张图片的 0 到 1 小数，区域完整覆盖对应文字。",
-      "rotate 是文字倾斜角度（度，正值顺时针，多数为 0），fontColor 是文字主色十六进制值，尽量准确填写。",
-      "保持原有语言、大小写、标点和换行；没有可读文字时返回空 text 和空 regions。",
+      "你是智能文案编辑的视觉分析模型，不是逐字符 OCR。请只识别适合用户整体修改的文案块，并返回严格 JSON，不要输出解释或 Markdown。",
+      "同一行、同一视觉层级、同一语义短句必须合并为一个区域；默认输出最少的合理区域，禁止按字符拆分。排除 Logo、品牌名、商标、包装文字、水印、背景文字和纯装饰文字。",
+      "格式：{\"text\":\"按阅读顺序排列的可编辑文案\",\"regions\":[{\"text\":\"完整文案块\",\"x\":0.1,\"y\":0.2,\"width\":0.3,\"height\":0.1,\"rotate\":0,\"fontColor\":\"#ffffff\",\"confidence\":0.95,\"editable\":true,\"editableRole\":\"headline\",\"needsReview\":false}]}。",
+      "坐标使用相对整张图片的 0 到 1 小数，区域完整覆盖文案块但不要覆盖相邻文案；保持原有语言、大小写、标点和换行；没有可编辑文案时返回空 text 和空 regions。",
+      "editableRole 只能使用 headline、subtitle、promotion、price、cta、description、label；只返回 editable=true 的区域。输出前合并重复和重叠区域。",
     ].join("\n"),
   });
   const fallbackParsed = __testParseStructuredImageText(fallback.text);

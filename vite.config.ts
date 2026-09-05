@@ -346,7 +346,7 @@ function vitePluginJsonApi(name: string, route: string, handler: JsonApiHandler,
 }
 
 function vitePluginAiOrchestratorApi(): Plugin {
-  const backendUrl = (process.env.VITE_TEST_BACKEND_URL || process.env.VITE_API_BASE_URL || "https://backstage.artxsd.com").replace(/\/+$/, "");
+  const backendUrl = (process.env.VITE_TEST_BACKEND_URL || process.env.VITE_API_BASE_URL || "http://localhost:3001").replace(/\/+$/, "");
 
   async function proxyJson(req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse, targetPath: string) {
     try {

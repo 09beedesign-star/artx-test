@@ -25,6 +25,7 @@ export interface TextReplaceItem {
   height: number;
   confidence?: number;
   direction?: "horizontal" | "vertical";
+  needsReview?: boolean;
 }
 
 interface TextReplacePanelProps {
@@ -154,9 +155,14 @@ export function TextReplacePanel({
                 <div key={item.id} className="border rounded p-3 hover:bg-gray-50">
                   <div className="text-sm text-gray-600 mb-2">
                     原文: <span className="font-mono">{item.originalText}</span>
-                    {item.confidence && (
+                    {item.confidence !== undefined && (
                       <span className="ml-2 text-xs text-gray-500">
                         置信度: {(item.confidence * 100).toFixed(0)}%
+                      </span>
+                    )}
+                    {item.needsReview && (
+                      <span className="ml-2 text-xs text-amber-600">
+                        建议复核
                       </span>
                     )}
                   </div>
