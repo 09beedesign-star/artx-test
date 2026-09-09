@@ -19144,12 +19144,55 @@ function CanvasAssistantPanel({
           composerBoxSelection?.selectedIds.includes(previousSegment.id) ??
           false;
         if (alreadySelected) {
-          // 第二次：真正删除，并把光标交还当前文本段，避免焦点丢失。
+          // 第二次：真正删除。
+          //
+          // 焦点不能交还给 segmentId——标签删除后 normalizeAssistantComposerSegments
+          // 会把标签两侧的文本段合并（:17880），且**保留前一段的 id、丢弃本段的 id**。
+          // 交还 segmentId 等于交给一个已经不存在的 segment，ref 取到 undefined，
+          // ?.focus() 静默失败，表现为「删掉标签后必须用鼠标点一下才能继续 Backspace」。
+          //
+          // 正确做法是就地算出合并后的幸存 id 与光标偏移：
+          // 幸存 id = 标签前那个文本段的 id；光标 = 该段文字长度（即原标签所在处），
+          // 这样光标精确落在被删标签的位置，Backspace 可以连贯继续。
+          const segmentBeforeToken =
+            currentIndex >= 2 ? composerSegments[currentIndex - 2] : null;
+          const mergesIntoPrevious = segmentBeforeToken?.type === "text";
+          const survivingId = mergesIntoPrevious
+            ? segmentBeforeToken.id
+            : segmentId;
+          const survivingCursor = mergesIntoPrevious
+            ? segmentBeforeToken.text.length
+            : 0;
+
           removeComposerSegmentsByIds([previousSegment.id]);
-          activeComposerSegmentIdRef.current = segmentId;
-          activeComposerCursorRef.current = 0;
+          activeComposerSegmentIdRef.current = survivingId;
+          activeComposerCursorRef.current = survivingCursor;
           window.setTimeout(() => {
-            composerInputRefs.current[segmentId]?.focus();
+            const input = composerInputRefs.current[survivingId];
+            if (!input) return;
+            input.focus();
+            // 仅恢复焦点还不够：不显式设置光标位置，浏览器会把它放到末尾，
+            // 于是继续 Backspace 删的是尾部文字而非标签位置处的字符。
+            if (
+              input instanceof HTMLInputElement ||
+              input instanceof HTMLTextAreaElement
+            ) {
+              input.setSelectionRange(survivingCursor, survivingCursor);
+              return;
+            }
+            // contenteditable 分支：按字符偏移在文本节点里定位。
+            const textNode = input.firstChild;
+            if (!textNode) return;
+            const range = document.createRange();
+            const selection = window.getSelection();
+            const offset = Math.min(
+              survivingCursor,
+              textNode.textContent?.length ?? 0
+            );
+            range.setStart(textNode, offset);
+            range.collapse(true);
+            selection?.removeAllRanges();
+            selection?.addRange(range);
           }, 0);
           return;
         }

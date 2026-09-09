@@ -93,21 +93,59 @@ describe("composer token two-step backspace delete", () => {
     expect(selectionBlock).toContain("active: false");
   });
 
-  it("returns focus to the text segment after deleting", () => {
+  it("returns focus to the segment that survives the merge, not the stale one", () => {
     const branch = getBackspaceBranchSource();
     expect(branch).toBeTruthy();
 
-    // 删除后若不显式聚焦，光标会丢失 —— 与之前修好的「删空即失焦」同源
+    // 删除后若不显式聚焦，光标会丢失 —— 与之前修好的「删空即失焦」同源。
+    //
+    // 但仅仅 focus(segmentId) 是不够的，而且是错的：
+    // normalizeAssistantComposerSegments 会把标签两侧的文本段合并（:17880），
+    // 保留**前一段**的 id 并丢弃本段的 id。交还 segmentId 等于交给一个
+    // 已不存在的 segment，ref 取到 undefined，?.focus() 静默失败 ——
+    // 表现为「删掉标签后必须用鼠标点一下才能继续 Backspace」。
     const deleteBlock = branch?.slice(
       branch.indexOf("if (alreadySelected)"),
       branch.indexOf("setComposerBoxSelection({")
     );
+
+    // 必须先算出合并后的幸存 id（标签**前面**那个文本段，即 currentIndex - 2）
+    expect(deleteBlock).toContain("composerSegments[currentIndex - 2]");
+    expect(deleteBlock).toContain("const survivingId");
     expect(deleteBlock).toContain(
-      "activeComposerSegmentIdRef.current = segmentId"
+      "activeComposerSegmentIdRef.current = survivingId"
     );
+    expect(deleteBlock).toContain("composerInputRefs.current[survivingId]");
+
+    // 反向断言：不得回退成直接用 segmentId（那正是本次修掉的缺陷）
+    const stripComments = (text: string) =>
+      text
+        .split("\n")
+        .filter(line => !line.trimStart().startsWith("//"))
+        .join("\n");
+    const code = stripComments(deleteBlock ?? "");
+    expect(code).not.toContain("activeComposerSegmentIdRef.current = segmentId");
+    expect(code).not.toContain("composerInputRefs.current[segmentId]?.focus()");
+  });
+
+  it("restores the caret to where the token was, not the end of the text", () => {
+    const branch = getBackspaceBranchSource();
+    expect(branch).toBeTruthy();
+
+    const deleteBlock = branch?.slice(
+      branch.indexOf("if (alreadySelected)"),
+      branch.indexOf("setComposerBoxSelection({")
+    );
+
+    // 合并后光标应落在「前一段文字的末尾」= 原标签所在处，
+    // 否则浏览器默认把光标放到整段末尾，继续 Backspace 删的是尾部文字。
+    expect(deleteBlock).toContain("segmentBeforeToken.text.length");
+    expect(deleteBlock).toContain("const survivingCursor");
     expect(deleteBlock).toContain(
-      "composerInputRefs.current[segmentId]?.focus()"
+      "input.setSelectionRange(survivingCursor, survivingCursor)"
     );
+    // contenteditable 也要处理，否则富文本分支光标依然跑到末尾
+    expect(deleteBlock).toContain("range.setStart(textNode, offset)");
   });
 
   it("declares the new dependencies so the callback is not stale", () => {
