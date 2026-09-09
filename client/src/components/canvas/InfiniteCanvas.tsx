@@ -19539,15 +19539,55 @@ function CanvasAssistantPanel({
         asset => !keptAssetIds.has(asset.id)
       );
       if (missingAssets.length > 0) changed = true;
-      const withMissingAssets = [...nextSegments];
-      missingAssets.forEach(asset => {
-        const insertIndex = Math.max(0, withMissingAssets.length - 1);
-        withMissingAssets.splice(
-          insertIndex,
-          0,
-          createAssistantImageSegment(asset)
+
+      // 新引用的图片要插在**光标闪烁的位置**，而不是固定追加到末尾。
+      //
+      // 这里原先写的是 insertIndex = withMissingAssets.length - 1，
+      // 即永远插到倒数第二个位置，完全无视光标。用户先打字、把光标停在
+      // 文案末尾再引用图片时，标签会跑到文字前面去，与预期相反。
+      //
+      // 注释标签走的是 insertComposerToken（:19385），本来就是光标感知的；
+      // 图片这条路径没复用它，才产生了两种不一致的行为。这里对齐同一套语义：
+      // 按光标把当前文本段切成 before / after，标签插在中间，光标落到 after。
+      let withMissingAssets = [...nextSegments];
+      if (missingAssets.length > 0) {
+        const activeId = activeComposerSegmentIdRef.current;
+        const activeIndex = withMissingAssets.findIndex(
+          segment => segment.id === activeId && segment.type === "text"
         );
-      });
+        const activeSegment =
+          activeIndex >= 0 ? withMissingAssets[activeIndex] : null;
+        if (activeSegment && activeSegment.type === "text") {
+          const activeText = activeSegment.text;
+          const cursor = Math.max(
+            0,
+            Math.min(activeComposerCursorRef.current, activeText.length)
+          );
+          const before = activeText.slice(0, cursor);
+          const after = activeText.slice(cursor);
+          const afterSegment = createAssistantTextSegment(after);
+          // 光标跟随到标签之后，用户可以接着往下打字。
+          activeComposerSegmentIdRef.current = afterSegment.id;
+          activeComposerCursorRef.current = 0;
+          withMissingAssets = [
+            ...withMissingAssets.slice(0, activeIndex),
+            { ...activeSegment, text: before },
+            ...missingAssets.map(asset => createAssistantImageSegment(asset)),
+            afterSegment,
+            ...withMissingAssets.slice(activeIndex + 1),
+          ];
+        } else {
+          // 没有活动文本段（例如输入框从未获得过焦点）时，退回追加到末尾。
+          missingAssets.forEach(asset => {
+            const insertIndex = Math.max(0, withMissingAssets.length - 1);
+            withMissingAssets.splice(
+              insertIndex,
+              0,
+              createAssistantImageSegment(asset)
+            );
+          });
+        }
+      }
       return changed
         ? normalizeAssistantComposerSegments(withMissingAssets)
         : prev;

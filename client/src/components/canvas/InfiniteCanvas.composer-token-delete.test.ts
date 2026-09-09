@@ -151,3 +151,104 @@ describe("selected token gives visible feedback", () => {
     expect(calls?.length).toBe(2);
   });
 });
+
+// 回归测试：图片引用标签必须插在光标闪烁的位置
+//
+// 缺陷：图片同步 effect 里写死 insertIndex = withMissingAssets.length - 1，
+// 即永远插到倒数第二个位置，完全无视光标。用户先打字、把光标停在文案末尾
+// 再引用图片，标签会跑到文字**前面**，与预期相反。
+//
+// 根因是两套插入路径长期分叉：注释标签走 insertComposerToken（光标感知），
+// 图片这条路径没复用它。本组断言锁住「图片路径也按光标切分」这一语义。
+
+function getImageSyncEffectSource() {
+  // 定位图片同步 effect：以 missingAssets 的计算为锚点，
+  // 切到该 effect 的依赖数组 [referencedAssets] 为止。
+  const anchor = source.indexOf("const missingAssets = referencedAssets.filter");
+  if (anchor < 0) return undefined;
+  const end = source.indexOf("}, [referencedAssets]);", anchor);
+  if (end < 0) return undefined;
+  return source.slice(anchor, end);
+}
+
+describe("image reference token is inserted at the caret", () => {
+  it("resolves the active text segment instead of a hardcoded slot", () => {
+    const effect = getImageSyncEffectSource();
+    expect(effect).toBeTruthy();
+
+    // 必须以「当前活动文本段」为插入锚点
+    expect(effect).toContain("activeComposerSegmentIdRef.current");
+    expect(effect).toContain('segment.id === activeId && segment.type === "text"');
+  });
+
+  it("splits the active text at the caret offset", () => {
+    const effect = getImageSyncEffectSource();
+    expect(effect).toBeTruthy();
+
+    // 读取光标偏移，并夹在 [0, text.length] 内防越界
+    expect(effect).toContain("activeComposerCursorRef.current");
+    expect(effect).toContain("activeText.slice(0, cursor)");
+    expect(effect).toContain("activeText.slice(cursor)");
+  });
+
+  it("places the tokens between the before/after halves", () => {
+    const effect = getImageSyncEffectSource();
+    expect(effect).toBeTruthy();
+
+    // 顺序必须是 before → 图片标签 → after，写反就等于没修
+    const beforeIdx = effect!.indexOf("{ ...activeSegment, text: before }");
+    const tokenIdx = effect!.indexOf(
+      "...missingAssets.map(asset => createAssistantImageSegment(asset))"
+    );
+    const afterIdx = effect!.indexOf("afterSegment,");
+    expect(beforeIdx).toBeGreaterThan(-1);
+    expect(tokenIdx).toBeGreaterThan(beforeIdx);
+    expect(afterIdx).toBeGreaterThan(tokenIdx);
+  });
+
+  it("moves the caret to the segment after the token", () => {
+    const effect = getImageSyncEffectSource();
+    expect(effect).toBeTruthy();
+
+    // 插入后光标应落在标签之后，用户可以接着往下打字
+    expect(effect).toContain(
+      "activeComposerSegmentIdRef.current = afterSegment.id"
+    );
+    expect(effect).toContain("activeComposerCursorRef.current = 0");
+  });
+
+  it("keeps an append fallback when no text segment is active", () => {
+    const effect = getImageSyncEffectSource();
+    expect(effect).toBeTruthy();
+
+    // 输入框从未获得过焦点时没有光标可用，仍需退回追加，不能直接丢掉引用
+    const fallback = effect!.slice(effect!.indexOf("} else {"));
+    expect(fallback).toContain("createAssistantImageSegment(asset)");
+  });
+
+  it("no longer uses the caret-blind hardcoded index on the main path", () => {
+    const effect = getImageSyncEffectSource();
+    expect(effect).toBeTruthy();
+
+    // 必须先剥掉 // 注释再断言：这段代码的注释里原样引用了被废弃的旧写法
+    // （用于说明修复动机），不去掉的话断言会命中注释而非真实代码，
+    // 变成一个永远失败的假警报。
+    const stripComments = (text: string) =>
+      text
+        .split("\n")
+        .filter(line => !line.trimStart().startsWith("//"))
+        .join("\n");
+
+    // 写死的倒数第二槽位只允许出现在 fallback 里；
+    // 若它回到主路径（else 之前），说明修复被回退了。
+    const elseIdx = effect!.indexOf("} else {");
+    const mainPath = stripComments(
+      elseIdx > -1 ? effect!.slice(0, elseIdx) : effect!
+    );
+    expect(mainPath).not.toContain("withMissingAssets.length - 1");
+
+    // 反向确认 fallback 里确实还留着它，否则这条断言等于没测东西
+    const fallback = stripComments(effect!.slice(elseIdx));
+    expect(fallback).toContain("withMissingAssets.length - 1");
+  });
+});
