@@ -1,8 +1,11 @@
 // 验证 server/text-engine-client.ts 与真实引擎服务的端到端连通性。
 //
 // 用法：
-//   TEXT_ENGINE_BASE_URL=http://127.0.0.1:8077 \
-//   node scripts/verify-text-engine.mjs <图片路径>
+//   npx tsx scripts/verify-text-engine.mjs <图片路径>
+//
+// 环境变量按与服务端一致的顺序解析：先看进程环境，再读 .env.local、.env。
+// 早期版本只认进程环境，导致配置写进 .env.local 后本脚本仍报「引擎不可用」，
+// 与实际服务行为不符，误导排查方向，故改为复用 server/env.ts 的加载逻辑。
 //
 // 校验点：
 //   1. 健康检查能识别引擎可用
@@ -12,6 +15,9 @@
 
 import fs from "node:fs";
 import path from "node:path";
+
+// 与服务端同源的 env 加载，保证脚本判定与真实运行时一致。
+await import("../server/env.ts");
 
 const src = process.argv[2];
 if (!src || !fs.existsSync(src)) {
