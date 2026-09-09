@@ -541,6 +541,7 @@ import {
   type ReferenceImageResult,
 } from "@/lib/ai";
 import { routeCreativeIntent } from "@/lib/ai-intent";
+import { selectEditedTextRegions } from "@/lib/text-replace";
 import {
   createWorkspaceHistoryProject,
   readWorkspaceProjectHistory,
@@ -3696,65 +3697,16 @@ function createSmartCopyEditMask(
   originalText: string,
   editedText: string,
 ) {
-  const normalizeText = (value: string) =>
-    value
-      .toLocaleLowerCase()
-      .replace(/[\s.,!?;:，。！？；：、'"“”‘’（）()[\]{}<>《》…—\-_/\\]/g, "");
-  const originalFields = originalText.split("\n").map(field => field.trim());
-  const editedFields = editedText.split("\n").map(field => field.trim());
-  // 使用原始文案（而非归一化后）做行级 diff，确保仅改大小写、标点或空格时也能被识别为
-  // “发生了修改”，避免被误判为没有改动而无法定位文字区域。
-  const originalValues = originalFields;
-  const editedValues = editedFields;
-  const matchedLengths = Array.from(
-    { length: originalValues.length + 1 },
-    () => Array<number>(editedValues.length + 1).fill(0),
-  );
-  for (let originalIndex = originalValues.length - 1; originalIndex >= 0; originalIndex -= 1) {
-    for (let editedIndex = editedValues.length - 1; editedIndex >= 0; editedIndex -= 1) {
-      matchedLengths[originalIndex][editedIndex] =
-        originalValues[originalIndex] && originalValues[originalIndex] === editedValues[editedIndex]
-          ? matchedLengths[originalIndex + 1][editedIndex + 1] + 1
-          : Math.max(
-              matchedLengths[originalIndex + 1][editedIndex],
-              matchedLengths[originalIndex][editedIndex + 1],
-            );
-    }
-  }
-  const unchangedOriginalIndexes = new Set<number>();
-  let originalIndex = 0;
-  let editedIndex = 0;
-  while (originalIndex < originalValues.length && editedIndex < editedValues.length) {
-    if (originalValues[originalIndex] && originalValues[originalIndex] === editedValues[editedIndex]) {
-      unchangedOriginalIndexes.add(originalIndex);
-      originalIndex += 1;
-      editedIndex += 1;
-    } else if (matchedLengths[originalIndex + 1][editedIndex] >= matchedLengths[originalIndex][editedIndex + 1]) {
-      originalIndex += 1;
-    } else {
-      editedIndex += 1;
-    }
-  }
-  const changedOriginalFields = originalFields.filter(
-    (field, index) => field && !unchangedOriginalIndexes.has(index),
-  );
   if (regions.length === 0) return undefined;
 
-  const editedRegions = regions.filter(region => {
-    const regionText = normalizeText(region.text || "");
-    return regionText && changedOriginalFields.some(field => {
-      const originalField = normalizeText(field);
-      return (
-        originalField === regionText ||
-        originalField.includes(regionText) ||
-        regionText.includes(originalField)
-      );
-    });
-  });
-  // 兜底：当 OCR 区域文本与文案结构存在差异（识别误差 / LLM 重组）导致无法精确匹配到
-  // 被修改的文字区域时，退化为覆盖全部 OCR 文字区域，由提示词约束模型只改写被修改的文案，
-  // 避免“能识别出文字但匹配不上”时功能直接失败。
-  const regionsToMask = editedRegions.length > 0 ? editedRegions : regions;
+  // 区域匹配走 lib/text-replace 的纯函数：exact → fuzzy → positional → all 四级降级。
+  // 之前只有 exact 一级，匹配不上就直接覆盖全部 OCR 区域，会出现「只改一行却擦整页」。
+  const selection = selectEditedTextRegions(regions, originalText, editedText);
+  if (selection.regions.length === 0) return undefined;
+  if (selection.strategy !== "exact") {
+    console.log(`[text_edit] 文字区域匹配降级策略：${selection.strategy}`);
+  }
+  const regionsToMask = selection.regions;
 
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(width));
@@ -17908,7 +17860,23 @@ function normalizeAssistantComposerSegments(
   const hasText = normalized.some(
     segment => segment.type === "text" && segment.text.trim().length > 0
   );
-  if (!hasToken && !hasText) return [createAssistantTextSegment("")];
+  if (!hasToken && !hasText) {
+    // 内容被删空时，必须复用已有 segment 的 id，不能新建。
+    //
+    // createAssistantTextSegment 的 id 含 Date.now()+Math.random()，每次都不同；
+    // 而渲染处用 key={segment.id}（:21182），id 一变 React 就会卸载旧 <textarea>
+    // 再挂载新的，焦点随之丢失——表现为「一直按 Backspace 删到空，光标就跳出输入框，
+    // 必须用鼠标重新点一下才能继续打字」。
+    //
+    // 注意 :19006 的 restoreEmptyComposerField 补丁救不了这个场景：
+    // 它在 setTimeout 里按**旧 segmentId** 取 ref，而 id 此时已被换掉，只会拿到 undefined。
+    // 所以要在源头保持 id 稳定。
+    const reusable = normalized.find(segment => segment.type === "text");
+    if (reusable) {
+      return [{ ...reusable, text: "" }];
+    }
+    return [createAssistantTextSegment("")];
+  }
   return normalized;
 }
 
