@@ -67,9 +67,13 @@ describe("InfiniteCanvas prompt controls", () => {
 
     expect(source).toContain('const compactDefaultBg = isDark ? "#525252" : bg;');
     expect(source).toContain('const compactSelectedBg = isDark ? "#2b2b2b"');
-    expect(source).toContain('background: isSelectedImageToken');
-    expect(source).toContain('const isCanvasContextReference =');
-    expect(source).toContain('const isSelectedImageToken =');
+    // 引用标签配色曾挂在选中态上（isSelectedImageToken → 画布点选时紫/黑跳变），
+    // 现已按需求固化为单一黑色，统一由 getComposerRefTokenColors 提供，
+    // isSelectedImageToken / isCanvasContextReference 随之成为死代码并删除。
+    // 这里改为反向断言，防止选中态配色被重新引入；
+    // 「两类标签同色同尺寸」的正向断言在 InfiniteCanvas.composer-token-style.test.ts。
+    expect(source).not.toContain("background: isSelectedImageToken");
+    expect(source).not.toContain("const isSelectedImageToken =");
     expect(source).toContain('"#121110"');
     expect(source).toContain('className="mb-2 min-h-[117px]');
   });

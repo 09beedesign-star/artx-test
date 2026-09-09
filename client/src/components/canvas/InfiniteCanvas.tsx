@@ -17794,6 +17794,34 @@ function isAssistantTokenSegment(segment: AssistantComposerSegment) {
   );
 }
 
+// 引用类标签（image / annotation）的统一尺寸。
+//
+// 这两类标签此前各写各的：image 用 inline style，且尺寸挂在 isSelectedImageToken 上
+// 在两组值之间跳（maxWidth 82/62、height 26/undefined、gap 6/2）；
+// annotation 则写在 className 里（max-w-[92px] gap-1 px-1.5 py-0.5）。
+// 结果同一行里「注释引用」比「图片引用」明显更大，且图片标签自己还会随画布选中态变大变小。
+//
+// 统一到这一组常量后，标签尺寸不再受触发方式（普通引用 / 智能注释）和选中态影响。
+const COMPOSER_REF_TOKEN_SIZE = {
+  maxWidth: 82,
+  height: 26,
+  gap: 6,
+  padding: "4px 8px 4px 4px",
+  iconSize: 18,
+  labelMaxWidth: 51,
+  labelFontSize: 12,
+} as const;
+
+// 引用类标签的统一配色（黑色）。image 与 annotation 共用，避免再次跑偏。
+function getComposerRefTokenColors(isDark: boolean, isDragOver: boolean) {
+  return {
+    background: isDark ? "#121110" : "rgba(18,17,16,0.12)",
+    border: `1px solid ${isDragOver ? "rgba(42,42,45,0.55)" : "rgba(42,42,45,0.13)"}`,
+    color: isDark ? "#c7c7c7" : "rgba(28,28,40,0.72)",
+    boxShadow: isDragOver ? "0 0 0 2px rgba(42,42,45,0.18)" : "none",
+  };
+}
+
 function createAssistantSkillSegment(
   skill: PendingSkillLoad
 ): AssistantComposerSegment {
@@ -20927,12 +20955,9 @@ function CanvasAssistantPanel({
                     );
                   }
                   if (segment.type === "image") {
-                    const isCanvasContextReference =
-                      selectedCount === 1 &&
-                      referencedAssets.length === 1 &&
-                      referencedAssets[0]?.id === segment.asset.id;
-                    const isSelectedImageToken =
-                      isBoxSelected || isCanvasContextReference;
+                    // 原先这里算 isSelectedImageToken（= isBoxSelected || 画布恰好选中本图），
+                    // 用来同时驱动配色和尺寸，正是「一下黑一下紫、标签忽大忽小」的根源。
+                    // 两者都已改为共享常量，该变量不再有任何消费方，故一并移除避免死代码。
                     return (
                       <span
                         key={segment.id}
@@ -20983,27 +21008,20 @@ function CanvasAssistantPanel({
                         className="group relative inline-flex min-w-0 items-center overflow-hidden rounded-[var(--radius-md-design)] align-middle"
                         style={{
                           margin: "0 2px 2px 2px",
-                          maxWidth: isSelectedImageToken ? 82 : 62,
-                          height: isSelectedImageToken ? 26 : undefined,
-                          gap: isSelectedImageToken ? 6 : 2,
-                          padding: isSelectedImageToken ? "4px 8px 4px 4px" : "0 4px",
-                          // 配色恒定为黑，不随选中态变化。
+                          // 尺寸与配色都取自共享常量，不再随 isSelectedImageToken 变化。
                           //
-                          // 此前 background / border / color 都挂在 isSelectedImageToken 上，
-                          // 而该值（:20934）= isBoxSelected || isCanvasContextReference，
-                          // 后者要求「画布恰好选中 1 个节点且正是这张引用图」。
-                          // 于是用户在画布上点选/取消节点时，输入框里的同一个 chip
-                          // 就会在紫（默认态）和黑（选中态）之间来回跳——即「一下黑一下紫」。
-                          //
-                          // 注意 isSelectedImageToken 仍然保留：它还控制 maxWidth/height/
-                          // gap/padding（:20986-20989）等尺寸逻辑，不能连带删除。
-                          background: isDark ? "#121110" : "rgba(18,17,16,0.12)",
-                          border: `1px solid ${
+                          // 改动前有两个问题叠在一起：
+                          //   1. 配色挂在选中态上 → 画布点选节点时标签在紫/黑之间跳
+                          //   2. 尺寸也挂在选中态上（82/62、26/undefined、6/2）→ 同一枚标签忽大忽小
+                          // 且 annotation 标签另写了一套尺寸，导致两类引用标签大小对不齐。
+                          maxWidth: COMPOSER_REF_TOKEN_SIZE.maxWidth,
+                          height: COMPOSER_REF_TOKEN_SIZE.height,
+                          gap: COMPOSER_REF_TOKEN_SIZE.gap,
+                          padding: COMPOSER_REF_TOKEN_SIZE.padding,
+                          ...getComposerRefTokenColors(
+                            isDark,
                             dragOverComposerSegmentId === segment.id
-                              ? "rgba(42,42,45,0.55)"
-                              : "rgba(42,42,45,0.13)"
-                          }`,
-                          color: isDark ? "#c7c7c7" : "rgba(28,28,40,0.72)",
+                          ),
                           cursor:
                             draggingComposerSegmentId === segment.id
                               ? "grabbing"
@@ -21011,11 +21029,6 @@ function CanvasAssistantPanel({
                           userSelect: "none",
                           opacity:
                             draggingComposerSegmentId === segment.id ? 0.42 : 1,
-                          // 拖拽落点提示同样去紫，改用中性深色，保持整枚标签黑色调。
-                          boxShadow:
-                            dragOverComposerSegmentId === segment.id
-                              ? "0 0 0 2px rgba(42,42,45,0.18)"
-                              : "none",
                         }}
                         title="拖拽调整引用顺序"
                       >
@@ -21029,8 +21042,8 @@ function CanvasAssistantPanel({
                             event.stopPropagation();
                           }}
 	                          style={{
-                              width: isSelectedImageToken ? 18 : 11,
-                              height: isSelectedImageToken ? 18 : 11,
+                            width: COMPOSER_REF_TOKEN_SIZE.iconSize,
+                            height: COMPOSER_REF_TOKEN_SIZE.iconSize,
                             borderRadius: 2,
                             objectFit: "cover",
                             flexShrink: 0,
@@ -21040,10 +21053,9 @@ function CanvasAssistantPanel({
                         <span
                           className="type-caption truncate"
                           style={{
-                            maxWidth: isSelectedImageToken ? 51 : 35,
-                            fontSize: isSelectedImageToken ? 12 : 10,
-                            // 不再按选中态覆写颜色：父级 color 已恒定为黑色调，
-                            // 直接继承即可，避免这里再引入一次明暗跳变。
+                            maxWidth: COMPOSER_REF_TOKEN_SIZE.labelMaxWidth,
+                            fontSize: COMPOSER_REF_TOKEN_SIZE.labelFontSize,
+                            // 颜色继承父级恒定黑，尺寸取共享常量，两者都不再随选中态变化。
                           }}
                         >
                           {segment.asset.title}
@@ -21108,16 +21120,23 @@ function CanvasAssistantPanel({
                         }
                         onMouseLeave={hideComposerReferencePreview}
                         data-composer-token="annotation"
-                        className="group relative inline-flex max-w-[92px] min-w-0 items-center gap-1 overflow-hidden rounded-[var(--radius-md-design)] px-1.5 py-0.5 align-middle"
+                        // 尺寸类（max-w / gap / px / py）已从 className 移到 inline style，
+                        // 与 image 标签共用 COMPOSER_REF_TOKEN_SIZE；
+                        // 留在 className 里会和 inline style 打架，也无法与另一类标签对齐。
+                        className="group relative inline-flex min-w-0 items-center overflow-hidden rounded-[var(--radius-md-design)] align-middle"
                         style={{
                           margin: "0 2px 2px 2px",
-                          background: isDark
-                            ? "oklch(0.62 0.20 145 / 0.16)"
-                            : "oklch(0.62 0.17 145 / 0.10)",
-                          border: `1px solid ${dragOverComposerSegmentId === segment.id ? "oklch(0.72 0.16 145 / 0.78)" : isDark ? "oklch(0.72 0.16 145 / 0.32)" : "oklch(0.48 0.15 145 / 0.26)"}`,
-                          color: isDark
-                            ? "oklch(0.82 0.012 270)"
-                            : "oklch(0.25 0.012 270)",
+                          // 与 image 标签完全一致：绿色改黑色，尺寸取同一组常量。
+                          // 这样「智能注释」和「普通图片引用」两种触发方式产出的标签
+                          // 外观与大小都相同。
+                          maxWidth: COMPOSER_REF_TOKEN_SIZE.maxWidth,
+                          height: COMPOSER_REF_TOKEN_SIZE.height,
+                          gap: COMPOSER_REF_TOKEN_SIZE.gap,
+                          padding: COMPOSER_REF_TOKEN_SIZE.padding,
+                          ...getComposerRefTokenColors(
+                            isDark,
+                            dragOverComposerSegmentId === segment.id
+                          ),
                           cursor:
                             draggingComposerSegmentId === segment.id
                               ? "grabbing"
@@ -21125,24 +21144,23 @@ function CanvasAssistantPanel({
                           userSelect: "none",
                           opacity:
                             draggingComposerSegmentId === segment.id ? 0.42 : 1,
-                          boxShadow: isBoxSelected
-                            ? "0 0 0 2px rgba(197,237,71,0.62)"
-                            : dragOverComposerSegmentId === segment.id
-                              ? "0 0 0 2px rgba(52,211,153,0.16)"
-                              : "none",
                         }}
                         title={`注释：${segment.annotation.text || segment.annotation.title}`}
                       >
                         <MapPin
-                          size={12}
+                          size={COMPOSER_REF_TOKEN_SIZE.iconSize}
                           style={{
-                            color: "oklch(0.62 0.18 145)",
+                            // 图标不再用绿色，跟随父级恒定黑色调。
+                            color: "currentColor",
                             flexShrink: 0,
                           }}
                         />
                         <span
                           className="type-caption truncate"
-                          style={{ maxWidth: 56, fontSize: 11 }}
+                          style={{
+                            maxWidth: COMPOSER_REF_TOKEN_SIZE.labelMaxWidth,
+                            fontSize: COMPOSER_REF_TOKEN_SIZE.labelFontSize,
+                          }}
                         >
                           {segment.annotation.text || segment.annotation.title}
                         </span>
