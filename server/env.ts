@@ -17,8 +17,7 @@ function parseEnvLine(line: string) {
   return key ? { key, value } : null;
 }
 
-export function loadServerEnv(projectRoot = process.cwd()) {
-  const envPath = path.join(projectRoot, ".env");
+function loadEnvFile(envPath: string) {
   if (!fs.existsSync(envPath)) return;
 
   const lines = fs.readFileSync(envPath, "utf-8").split(/\r?\n/);
@@ -28,6 +27,13 @@ export function loadServerEnv(projectRoot = process.cwd()) {
       process.env[item.key] = item.value;
     }
   }
+}
+
+export function loadServerEnv(projectRoot = process.cwd()) {
+  // .env.local 优先于 .env（先读取者胜出，因为已存在的 key 不会被覆盖）。
+  // .env.local 用于本地开发覆盖，已被 .gitignore 忽略。
+  loadEnvFile(path.join(projectRoot, ".env.local"));
+  loadEnvFile(path.join(projectRoot, ".env"));
 }
 
 loadServerEnv();

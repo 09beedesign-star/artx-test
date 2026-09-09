@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { selectEditedTextRegions } from "../../lib/text-replace";
 
 describe("InfiniteCanvas prompt controls", () => {
   it("uses the minimap surface color for prompt model and Skill button defaults while keeping hover styling", () => {
@@ -622,10 +623,9 @@ describe("InfiniteCanvas prompt controls", () => {
     )?.[0];
 
     expect(maskBuilder).toBeTruthy();
-    expect(maskBuilder).toContain("const matchedLengths");
-    expect(maskBuilder).toContain("const unchangedOriginalIndexes");
-    expect(maskBuilder).toContain("changedOriginalFields");
-    expect(maskBuilder).toContain("const editedRegions = regions.filter");
+    // 匹配逻辑已抽到 lib/text-replace 的纯函数 selectEditedTextRegions，
+    // 行为由 text-replace.region-selection.test.ts 覆盖；这里只守护蒙版只画选中区域。
+    expect(maskBuilder).toContain("selectEditedTextRegions(regions, originalText, editedText)");
     expect(maskBuilder).toContain("regionsToMask");
     expect(maskBuilder).toContain("for (const region of regionsToMask)");
     expect(maskBuilder).not.toContain("for (const region of regions)");
@@ -714,11 +714,16 @@ describe("InfiniteCanvas prompt controls", () => {
     )?.[0];
 
     expect(maskBuilder).toBeTruthy();
-    // The early-return must only check regions.length === 0, not changedOriginalFields.length === 0
-    // because adding new lines (without editing existing ones) is a valid use case.
-    expect(maskBuilder).not.toMatch(/if\s*\(\s*regions\.length\s*===\s*0\s*\|\|\s*changedOriginalFields\.length\s*===\s*0\s*\)\s*return\s+undefined/);
+    // 只有「没有 OCR 区域」才允许提前返回；纯新增行属于合法用法，不能被判为无改动而中断。
     expect(maskBuilder).toMatch(/if\s*\(\s*regions\.length\s*===\s*0\s*\)\s*return\s+undefined/);
-    // Fallback to all regions when no specific region matches changed fields
-    expect(maskBuilder).toContain("const regionsToMask = editedRegions.length > 0 ? editedRegions : regions;");
+
+    // 行为断言：只新增行、原有行一字未改时，仍必须选出可用区域。
+    const regions = [{ text: "原有标题" }, { text: "原有副标题" }];
+    const selection = selectEditedTextRegions(
+      regions,
+      "原有标题\n原有副标题",
+      "原有标题\n原有副标题\n全新加的一行",
+    );
+    expect(selection.regions.length).toBeGreaterThan(0);
   });
 });

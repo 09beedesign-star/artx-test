@@ -18532,6 +18532,16 @@ function CanvasAssistantPanel({
     (ids: string[]) => {
       if (ids.length === 0) return;
       const selected = new Set(ids);
+      // 批量删除前检查预览是否在被删集合里，避免悬浮图残留。
+      setComposerPreview(prev => {
+        if (!prev) return prev;
+        const beingDeleted = composerSegments.find(
+          s => selected.has(s.id) &&
+            ((s.type === "image" && s.asset.src === prev.src) ||
+             (s.type === "annotation" && s.annotation.src === prev.src))
+        );
+        return beingDeleted ? null : prev;
+      });
       composerSegments.forEach(segment => {
         if (!selected.has(segment.id)) return;
         if (segment.type === "image") {
@@ -18573,6 +18583,15 @@ function CanvasAssistantPanel({
 
   const removeComposerImageSegment = useCallback(
     (segmentId: string, assetId: string) => {
+      // 删除前检查这个标签是否正被预览；如果是，清除预览避免悬浮图残留。
+      setComposerPreview(prev => {
+        if (!prev) return prev;
+        const target = composerSegments.find(s => s.id === segmentId);
+        if (target?.type === "image" && target.asset.src === prev.src) {
+          return null;
+        }
+        return prev;
+      });
       setComposerSegments(prev =>
         normalizeAssistantComposerSegments(
           prev.filter(segment => segment.id !== segmentId)
@@ -18581,11 +18600,20 @@ function CanvasAssistantPanel({
       onRemoveReference(assetId);
       syncedReferenceIdsRef.current.delete(assetId);
     },
-    [onRemoveReference]
+    [onRemoveReference, composerSegments]
   );
 
   const removeComposerAnnotationSegment = useCallback(
     (segmentId: string, annotationId: string) => {
+      // 删除前检查是否正被预览，避免悬浮图残留。
+      setComposerPreview(prev => {
+        if (!prev) return prev;
+        const target = composerSegments.find(s => s.id === segmentId);
+        if (target?.type === "annotation" && target.annotation.src === prev.src) {
+          return null;
+        }
+        return prev;
+      });
       setComposerSegments(prev =>
         normalizeAssistantComposerSegments(
           prev.filter(segment => segment.id !== segmentId)

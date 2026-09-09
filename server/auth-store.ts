@@ -131,6 +131,25 @@ const EMAIL_CODE_RESEND_MS = Number(process.env.EMAIL_CODE_RESEND_MS || 60 * 100
 const EMAIL_CODE_DAILY_LIMIT = Number(process.env.EMAIL_CODE_DAILY_LIMIT || 10);
 const EMAIL_CODE_MAX_ATTEMPTS = Number(process.env.EMAIL_CODE_MAX_ATTEMPTS || 5);
 
+/**
+ * 本地测试免登录开关。
+ *
+ * 仅在显式设置 ARTX_DEV_AUTO_LOGIN=true 且 NODE_ENV !== "production" 时生效。
+ * 生产构建即使误设该变量也会被 NODE_ENV 兜底关闭，登录流程保持完整。
+ */
+const DEV_AUTO_LOGIN_TOKEN = "artx-dev-auto-login-token";
+const DEV_AUTO_LOGIN_USERNAME = process.env.ARTX_DEV_AUTO_LOGIN_USERNAME || "dev-tester";
+const DEV_AUTO_LOGIN_ROLE: AdminRole = "super_admin";
+
+function isDevAutoLoginEnabled() {
+  if (process.env.NODE_ENV === "production") return false;
+  return String(process.env.ARTX_DEV_AUTO_LOGIN || "").trim().toLowerCase() === "true";
+}
+
+export function getDevAutoLoginToken() {
+  return isDevAutoLoginEnabled() ? DEV_AUTO_LOGIN_TOKEN : "";
+}
+
 interface AdminAuditLog {
   id: string;
   actorId: string;
@@ -285,7 +304,61 @@ async function loadDatabase(): Promise<AuthDatabase> {
     await saveDatabase(db);
   }
 
+  if (isDevAutoLoginEnabled()) {
+    await ensureDevAutoLoginSession(db);
+  }
+
   return db;
+}
+
+/**
+ * 为本地测试播种一个固定的测试账号与长期会话。
+ * 走的是真实的 users / sessions 结构，因此所有后端鉴权逻辑保持原样不变。
+ */
+async function ensureDevAutoLoginSession(db: AuthDatabase) {
+  let changed = false;
+
+  let user = db.users.find((item) => item.loginKey === loginKey(DEV_AUTO_LOGIN_USERNAME));
+  if (!user) {
+    user = createUser(DEV_AUTO_LOGIN_USERNAME, crypto.randomBytes(24).toString("hex"), DEV_AUTO_LOGIN_ROLE);
+    db.users.push(user);
+    changed = true;
+  }
+  if (user.role !== DEV_AUTO_LOGIN_ROLE || user.status !== "active") {
+    user.role = DEV_AUTO_LOGIN_ROLE;
+    user.status = "active";
+    user.failedLoginCount = 0;
+    user.lockedUntil = undefined;
+    changed = true;
+  }
+
+  const tokenHash = hashToken(DEV_AUTO_LOGIN_TOKEN);
+  const existingSession = db.sessions.find((item) => item.tokenHash === tokenHash);
+  const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
+
+  if (!existingSession) {
+    db.sessions.push({
+      tokenHash,
+      userId: user.id,
+      createdAt: new Date().toISOString(),
+      expiresAt,
+    });
+    changed = true;
+  } else {
+    // 会话即将过期时自动续期，避免本地测试期间被踢出登录。
+    if (existingSession.userId !== user.id) {
+      existingSession.userId = user.id;
+      changed = true;
+    }
+    if (Date.parse(existingSession.expiresAt) - Date.now() < SESSION_TTL_MS / 2) {
+      existingSession.expiresAt = expiresAt;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    await saveDatabase(db);
+  }
 }
 
 function normalizeDatabase(parsed: Partial<AuthDatabase>): AuthDatabase {
@@ -707,6 +780,27 @@ export async function getAdminSessionFromAuthorization(authorization: unknown) {
   }
 
   return { status: 200, body: { user: publicUser(user) } };
+}
+
+/**
+ * 返回本地测试用的免登录会话。开关关闭时返回 404，等同于该接口不存在。
+ */
+export async function getDevAutoLoginSession() {
+  if (!isDevAutoLoginEnabled()) {
+    return { status: 404 as const, body: { error: "Not found" } };
+  }
+
+  // loadDatabase 内部会确保测试账号与会话已存在。
+  const db = await loadDatabase();
+  const user = db.users.find((item) => item.loginKey === loginKey(DEV_AUTO_LOGIN_USERNAME));
+  if (!user) {
+    return { status: 500 as const, body: { error: "测试账号初始化失败" } };
+  }
+
+  return {
+    status: 200 as const,
+    body: { ok: true, token: DEV_AUTO_LOGIN_TOKEN, user: publicUser(user) },
+  };
 }
 
 export async function handleAuthAction(action: AuthAction, payload: unknown) {

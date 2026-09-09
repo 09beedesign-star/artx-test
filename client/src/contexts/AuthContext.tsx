@@ -46,25 +46,55 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loginModalOpen, setLoginModalOpen] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+
+    const applySession = (session: AuthSession) => {
+      if (cancelled) return;
+      persistSession(session);
+      setIsAuthenticated(true);
+      setUser(session.user);
+    };
+
     const stored = readStoredSession();
-    if (!stored) return;
+
+    if (!stored) {
+      // 本地测试免登录：没有本地会话时，向后端换取测试会话。
+      // 开关关闭时 fetchDevSession() 直接返回 null，行为与改动前完全一致。
+      if (isDevSkipAuthEnabled()) {
+        fetchDevSession().then((session) => {
+          if (session) applySession(session);
+        });
+      }
+      return () => { cancelled = true; };
+    }
 
     setIsAuthenticated(true);
     setUser(stored.user);
 
     fetchAuth("me", { token: stored.token }).then((result) => {
+      if (cancelled) return;
       if (result.ok && result.user) {
         const normalizedUser = normalizeAuthUser(result.user);
         persistSession({ token: stored.token, user: normalizedUser });
         setUser(normalizedUser);
         return;
       }
+
       localStorage.removeItem(AUTH_STORAGE_KEY);
       setIsAuthenticated(false);
       setUser(null);
+
+      // 本地测试免登录：已存会话失效时，自动换一个新的测试会话。
+      if (isDevSkipAuthEnabled()) {
+        fetchDevSession().then((session) => {
+          if (session) applySession(session);
+        });
+      }
     }).catch(() => {
       // Keep the local session when the test server is temporarily unreachable.
     });
+
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -462,6 +492,40 @@ function writeLocalUsers(users: Array<AuthUser & { password: string }>) {
 
 function isGithubPagesTest() {
   return typeof window !== "undefined" && window.location.hostname.endsWith("github.io");
+}
+
+/**
+ * 本地测试免登录开关。
+ *
+ * 仅当构建时注入 VITE_DEV_SKIP_AUTH=true 时为真。
+ * 生产构建不设置该变量，Vite 会把整个分支静态判定为 false 并 tree-shake 掉，
+ * 因此发布环境的登录流程完全不受影响。
+ */
+function isDevSkipAuthEnabled() {
+  return import.meta.env.VITE_DEV_SKIP_AUTH === "true";
+}
+
+/**
+ * 向后端换取本地测试会话。失败时返回 null，调用方回退到正常登录流程。
+ */
+async function fetchDevSession(): Promise<AuthSession | null> {
+  if (!isDevSkipAuthEnabled()) return null;
+
+  try {
+    const apiBaseUrl = getAuthApiBaseUrl();
+    const response = await fetch(`${apiBaseUrl}/api/auth/dev-session`, { method: "GET" });
+    if (!response.ok) return null;
+
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) return null;
+
+    const data = await response.json() as { token?: string; user?: AuthUser };
+    if (!data.token || !data.user?.id || !data.user.username) return null;
+
+    return { token: data.token, user: normalizeAuthUser(data.user) };
+  } catch {
+    return null;
+  }
 }
 
 function getAuthApiBaseUrl() {

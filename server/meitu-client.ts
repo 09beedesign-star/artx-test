@@ -62,6 +62,36 @@ export function getMeituConfig() {
   };
 }
 
+/** 是否开启美图蒙版调试落盘（默认关闭，避免污染工作目录） */
+export function isMeituDebugEnabled(): boolean {
+  const flag = process.env.MEITU_DEBUG_MASK_DIR?.trim();
+  return Boolean(flag);
+}
+
+/**
+ * 调试蒙版落盘。历史实现无条件往 process.cwd() 写 PNG，
+ * 导致仓库根目录堆积大量 debug-mask-*.png。现在改为按需开启。
+ */
+async function writeMeituDebugMask(label: string, buffer: Buffer): Promise<void> {
+  const dir = process.env.MEITU_DEBUG_MASK_DIR?.trim();
+  if (!dir) return;
+  try {
+    const fs = await import("fs");
+    const path = await import("path");
+    const os = await import("os");
+    const target = dir === "1" || dir === "true"
+      ? path.join(os.tmpdir(), "artx-meitu-mask-debug")
+      : dir;
+    await fs.promises.mkdir(target, { recursive: true });
+    await fs.promises.writeFile(
+      path.join(target, `debug-mask-${label}-${Date.now()}.png`),
+      buffer,
+    );
+  } catch {
+    /* 调试写盘失败不影响主流程 */
+  }
+}
+
 /**
  * 二维 box-max（形态学膨胀）—— 两个一维滑动窗口最大值 pass（水平 + 垂直），O(width*height)。
  * 输入为单通道行优先数组，输出为每个像素在 radius 方形邻域内的最大值：
@@ -119,13 +149,7 @@ export async function buildMeituMask(
   /** "hat" 模式：仅保留 mask 上方约 30% 区域作为重绘区，其余设为保留区（防止扩散模型重写面部） */
   mode?: "full" | "hat",
 ): Promise<Buffer> {
-  // DEBUG: 保存前端传入的原始 mask 和 buildMeituMask 目标尺寸
-  try {
-    const fs = await import("fs");
-    const path = await import("path");
-    const ts = Date.now();
-    fs.writeFileSync(path.join(process.cwd(), `debug-mask-raw-${ts}-${width}x${height}.png`), maskBuffer);
-  } catch (e) { /* ignore */ }
+  await writeMeituDebugMask(`raw-${width}x${height}`, maskBuffer);
   const sharp = (await import("sharp")).default;
   const { data } = await sharp(maskBuffer, { limitInputPixels: false })
     .rotate()
@@ -199,13 +223,10 @@ export async function buildMeituMask(
 
   // 边缘羽化：Gaussian blur 让硬边界变软（避免生成后一圈接缝），再编码 JPEG
   const featherPx = maskConfig.maskFeatherPx;
-  try {
-    const fs = await import("fs");
-    const path = await import("path");
-    const ts = Date.now();
+  if (isMeituDebugEnabled()) {
     const debugBuf = await sharp(maskRgba, { raw: { width, height, channels: 4 } }).png().toBuffer();
-    fs.writeFileSync(path.join(process.cwd(), `debug-mask-final-${ts}-${width}x${height}.png`), debugBuf);
-  } catch (e) { /* ignore */ }
+    await writeMeituDebugMask(`final-${width}x${height}`, debugBuf);
+  }
   return sharp(maskRgba, {
     raw: { width, height, channels: 4 },
     limitInputPixels: false,

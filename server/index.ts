@@ -16,7 +16,7 @@ import { cleanupExpiredUploads, getUploadRetentionDays, getUploadsRoot, storeGen
 import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
 import { recordCrossBorderCommerceGeneration } from "./cross-border-commerce-records";
-import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization } from "./auth-store";
+import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getDevAutoLoginSession, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization } from "./auth-store";
 import { acknowledgeCreditGiftNotification, assertCanUseAiImageModel, createBillingOrder, createCreditRechargeOrder, getAiModelEntitlementsForUser, getBillingOrderForPayment, getBillingSnapshotForUser, getCreditGiftNotificationsForUser, handleAdminApiRequest, markBillingOrderPaid, quoteAdminAiUsage, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, releaseTestAccountAiUsage, reserveTestAccountAiUsage, submitUserFeedback } from "./admin-store";
 import { getAllowedCorsOrigin } from "./cors";
 import { sendOpsNotification } from "./notifications";
@@ -1768,6 +1768,18 @@ async function startServer() {
       res.json({ kit });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Brand kit parse failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // 本地测试免登录入口：仅在 ARTX_DEV_AUTO_LOGIN=true 且非生产环境下可用，
+  // 否则返回 404，生产部署等同于该路由不存在。
+  app.get("/api/auth/dev-session", async (_req, res) => {
+    try {
+      const result = await getDevAutoLoginSession();
+      res.status(result.status).json(result.body);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Dev session failed";
       res.status(500).json({ error: message });
     }
   });
