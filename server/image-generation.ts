@@ -4226,7 +4226,12 @@ async function extractImageTextRaw(input: ExtractImageTextInput): Promise<{
 
   const fallback = await generateText({
     module: "multimodal-text-extraction",
-    model: "gpt-5.4-mini",
+    // 不要写死模型名：网关会下线型号（gpt-5.4-mini、gpt-5.4 现均已下线）。
+    // 写死会让这条兜底每次都先打死模型，再靠 text-generation.ts:210 的降级链
+    // 逐个重试才落到存活型号——实测整条链路 ~134s，而智能文案编辑正走这里，
+    // 用户侧表现为「点了很久没反应」。改读环境变量后由 .env 统一收口；
+    // 留空则交给 getProviderConfig() 决定，行为与原先一致。
+    model: process.env.AI_TEXT_MODEL || undefined,
     images: [{ src: input.imageSrc, title: "OCR target image" }],
     prompt: [
       "请识别图片中所有可见文字，并返回严格 JSON，不要输出解释或 Markdown。",
