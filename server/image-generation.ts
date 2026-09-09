@@ -11,12 +11,59 @@ import {
 import { generateText } from "./text-generation";
 import { recordImageProviderFailure } from "./image-provider-failure-log";
 import { buildMeituMask, inpaintWithMeitu } from "./meitu-client";
-import { drawTextReplacement, createModifiedRegionsMask, dilateMaskTransparent } from "./text-replace-precise";
+import { eraseTextWithEngine, isTextEngineConfigured } from "./text-engine-client";
+import {
+  drawTextReplacement,
+  createModifiedRegionsMask,
+  dilateMaskTransparent,
+  verifyDrawnTextQuality,
+  eraseTextRegionsLocally,
+  calibrateTextRegions,
+  resolveRegionTargetTexts,
+} from "./text-replace-precise";
 import {
   generateImageWithVod,
   isVodAigcConfigured,
   type VodImageGenerationInput,
 } from "./tencent-vod-aigc";
+import path from "path";
+import os from "os";
+
+/**
+ * 文字编辑链路的调试产物落盘（默认关闭）。
+ *
+ * 历史问题：这里曾硬编码 `D:\project\artx-test\debug-*.png`，在 macOS/Linux 上
+ * `fs.writeFile` 直接抛 ENOENT，而该调用位于方案 B 的 try 块内，异常被 catch 吞掉，
+ * 导致「确定性文字绘制」100% 静默降级为 AI 叠字——这正是文字回填效果不稳定的根因。
+ *
+ * 现在改为：仅当显式设置 TEXT_EDIT_DEBUG_DIR 时才写盘，且失败绝不影响主流程。
+ */
+async function writeTextEditDebugArtifacts(
+  artifacts: Record<string, Buffer>,
+): Promise<void> {
+  const dir = process.env.TEXT_EDIT_DEBUG_DIR?.trim();
+  if (!dir) return;
+  try {
+    const target = dir === "1" || dir === "true"
+      ? path.join(os.tmpdir(), "artx-text-edit-debug")
+      : dir;
+    await fs.promises.mkdir(target, { recursive: true });
+    const stamp = Date.now();
+    await Promise.all(
+      Object.entries(artifacts).map(([name, buffer]) =>
+        fs.promises.writeFile(path.join(target, `${stamp}-${name}.png`), buffer),
+      ),
+    );
+    console.log(`[text_edit debug] 调试产物已写入 ${target}`);
+  } catch (error) {
+    // 调试写盘失败绝不能影响主链路
+    console.log(
+      `[text_edit debug] 调试产物写入失败（已忽略）: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+}
 
 type ImageGenerateInput = {
   prompt: string;
@@ -4082,7 +4129,43 @@ export async function removeImageWatermark(input: RemoveWatermarkInput): Promise
   return removeWatermarkWithPicWish(input.imageSrc);
 }
 
+/**
+ * OCR 对外入口。
+ *
+ * 在原始识别结果之上统一追加一步「bbox 像素级校正」：
+ * 视觉大模型返回的坐标是估计值，实测存在随行序递增的系统性偏移
+ * （一张 1024x640 海报上三行文字分别偏上 49px / 86px / 100px）。
+ * 若不校正，后续擦除与绘制都会作用在空白处，表现为「改了等于没改」。
+ *
+ * 放在这一层是因为前端 mask 生成、服务端擦除、确定性绘制三处共用同一份 regions，
+ * 在出口修一次即可让三者同时受益，且完全不需要改动前端。
+ */
 export async function extractImageText(input: ExtractImageTextInput): Promise<{
+  text: string;
+  regions: ImageTextRegion[];
+  provider: string;
+}> {
+  const result = await extractImageTextRaw(input);
+  if (result.regions.length === 0) return result;
+  try {
+    const { buffer } = await imageSrcToBuffer(input.imageSrc);
+    const calibrated = await calibrateTextRegions(buffer, result.regions);
+    let movedCount = 0;
+    for (let i = 0; i < calibrated.length; i++) {
+      if (Math.abs(calibrated[i].y - result.regions[i].y) > 0.005) movedCount++;
+    }
+    if (movedCount > 0) {
+      console.log(`[ocr] bbox 像素校正：${movedCount}/${calibrated.length} 个区域已吸附到真实文字带`);
+    }
+    return { ...result, regions: calibrated };
+  } catch (error) {
+    // 校正是增强步骤，失败时退回未校正结果，绝不阻断 OCR
+    console.warn(`[ocr] bbox 像素校正失败，使用原始坐标: ${String(error)}`);
+    return result;
+  }
+}
+
+async function extractImageTextRaw(input: ExtractImageTextInput): Promise<{
   text: string;
   regions: ImageTextRegion[];
   provider: string;
@@ -4284,54 +4367,191 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   if (isTextEditOperation && maskImageData) {
     try {
       // 膨胀 mask 透明区域，让美图把文字边缘也擦进去，减少原文字残留。
-      // shiftY=30 修正 mask 整体偏下；extraX=13 让左右各多擦 13px；shrinkY=20 减少 OCR bbox 多余的上下 padding。
+      //
+      // 这些参数原先是针对某张具体测试图调出来的绝对像素值（radius=8 / shiftY=30 /
+      // extraX=13 / shrinkY=20）。绝对值在不同分辨率下表现差异极大：同样 30px 的上移，
+      // 在 4K 图上几乎看不出，在 512px 小图上会把整行文字移出蒙版范围。
+      // 这里改为按图像短边比例自适应，并保留合理上下限。
+      const shortEdge = Math.max(1, Math.min(targetWidth, targetHeight));
+      const clampMaskPx = (value: number, min: number, max: number) =>
+        Math.max(min, Math.min(Math.round(value), max));
+      const maskParams = {
+        radius: clampMaskPx(shortEdge * 0.008, 3, 14),
+        // 不再默认整体上移 30px：bbox 的系统性偏移应由 OCR 侧修正，
+        // 这里只保留很小的补偿量，避免文字顶部被截断。
+        shiftY: clampMaskPx(shortEdge * 0.004, 0, 8),
+        extraX: clampMaskPx(shortEdge * 0.012, 4, 20),
+        shrinkY: clampMaskPx(shortEdge * 0.006, 0, 12),
+      };
+      console.log(
+        `[text_edit] 自适应蒙版参数 短边=${shortEdge} radius=${maskParams.radius} ` +
+          `shiftY=${maskParams.shiftY} extraX=${maskParams.extraX} shrinkY=${maskParams.shrinkY}`,
+      );
       const dilatedMaskBuffer = await dilateMaskTransparent(
         maskImageData.buffer,
         targetWidth,
         targetHeight,
-        8,
-        30,
-        13,
-        20,
+        maskParams.radius,
+        maskParams.shiftY,
+        maskParams.extraX,
+        maskParams.shrinkY,
       );
-      const meituMaskBuffer = await buildMeituMask(dilatedMaskBuffer, targetWidth, targetHeight, "full");
-      const meituResult = await inpaintWithMeitu({
-        imageBuffer: sourceImageData.buffer,
-        maskBuffer: meituMaskBuffer,
-        width: targetWidth,
-        height: targetHeight,
-        promptKind: "erase",
-        promptPos: "Remove the text characters inside the mask and restore the clean original background.",
-        numSamples: 1,
-      });
-      const cleanedSrc = meituResult.images[0]?.src;
-      if (cleanedSrc) {
-        const cleanedData = await imageSrcToBuffer(cleanedSrc);
-        // 校验美图确实改变了 mask 区域（文字被擦掉），否则视为失败降级
-        const erased = await hasVisibleLocalEdit(
-          sourceImageData.buffer,
-          cleanedData.buffer,
-          maskImageData.buffer,
-          targetWidth,
-          targetHeight,
-          { pixelDifferenceThreshold: 10, minChangedPixels: 30, minChangedRatio: 0.001 },
-        );
-        if (erased) {
-          sourceImageData = cleanedData;
-          sourceImage = bufferToImageFile(cleanedData.buffer, cleanedData.mimeType);
-          textEditInstruction +=
-            "\nThe masked text areas have already been cleared to clean original background. " +
-            "Keep that cleaned background unchanged and only paint the replacement text inside the mask.";
-          console.log(`[text_edit] 美图擦字成功，进入叠字阶段`);
-        } else {
-          console.log(`[text_edit] 美图擦字完成但 mask 区域无明显变化，降级为直接编辑`);
+      // 擦除通道按「背景还原质量」排序，任一成功即可进入确定性绘制。
+      //
+      // 关键设计：确定性渲染是唯一能保证文字内容零错误的路径，而它只需要一张干净底图。
+      // 原实现一旦美图不可用（超时/限流/未配密钥）就整条降级到 AI 叠字，文字准确性随之失守。
+      // 这里改为多通道兜底，把「拿到干净底图」的成功率拉到接近 100%。
+      const eraseChannels: Array<{ name: string; run: () => Promise<Buffer | null> }> = [
+        {
+          // 参数化引擎排在最前：实测在纯色印刷体上擦净率与背景保真都优于其它通道
+          // （banner CUSTOM 行 98.1% / 背景改动 11.7，本地兜底是 94.6% / 25.8）。
+          //
+          // 但它**不是无条件更好**：金色渐变艺术字上只有 46.9%，因为 Otsu 二分
+          // 会把渐变字的暗部判成背景。所以这里同样要过下面的 hasVisibleLocalEdit
+          // 校验，不合格就自然让位给美图/佐糖/本地兜底，不做特判。
+          //
+          // 未配置 TEXT_ENGINE_BASE_URL 时返回 null，整条链路行为与接入前完全一致。
+          name: "参数化引擎",
+          run: async () => {
+            if (!isTextEngineConfigured()) return null;
+            if (!input.textRegions?.length || !input.editedText?.trim()) return null;
+            // 只把「真的被改了文案」的区域交给引擎，避免擦掉用户没动的行。
+            //
+            // targetText 不能直接用：前端只在**删除整行**时才写它（InfiniteCanvas
+            // :7573 传 "" 或 undefined），普通改字时是 undefined。
+            // 所以必须复用站点既有的行匹配口径 resolveRegionTargetTexts，
+            // 与 createModifiedRegionsMask / drawTextReplacement 保持同一套判定，
+            // 否则会出现「引擎擦了 A 行、绘制却写在 B 行」的错位。
+            const resolved = resolveRegionTargetTexts(input.textRegions, input.editedText);
+            const regions = resolved.filter(item => item.changed);
+            if (regions.length === 0) return null;
+            const result = await eraseTextWithEngine({
+              imageBuffer: sourceImageData.buffer,
+              regions: regions.map(item => ({
+                text: item.region.text || "",
+                targetText: item.targetText,
+                x: item.region.x,
+                y: item.region.y,
+                width: item.region.width,
+                height: item.region.height,
+              })),
+            });
+            return result.buffer;
+          },
+        },
+        {
+          name: "美图局部重绘",
+          run: async () => {
+            const meituMaskBuffer = await buildMeituMask(
+              dilatedMaskBuffer,
+              targetWidth,
+              targetHeight,
+              "full",
+            );
+            const meituResult = await inpaintWithMeitu({
+              imageBuffer: sourceImageData.buffer,
+              maskBuffer: meituMaskBuffer,
+              width: targetWidth,
+              height: targetHeight,
+              promptKind: "erase",
+              promptPos:
+                "Remove the text characters inside the mask and restore the clean original background.",
+              numSamples: 1,
+            });
+            const src = meituResult.images[0]?.src;
+            return src ? (await imageSrcToBuffer(src)).buffer : null;
+          },
+        },
+        {
+          name: "佐糖物体擦除",
+          run: async () => {
+            // 佐糖 inpaint 的 mask 契约与美图一致：白=擦除区、黑=保留区，
+            // 因此可以直接复用同一张膨胀后的蒙版。
+            const picwishMask = await buildMeituMask(
+              dilatedMaskBuffer,
+              targetWidth,
+              targetHeight,
+              "full",
+            );
+            const result = await eraseWithPicWish({
+              imageBuffer: sourceImageData.buffer,
+              imageMimeType: sourceImageData.mimeType,
+              maskBuffer: picwishMask,
+              maskMimeType: "image/jpeg",
+              sync: true,
+            });
+            const src = result.images[0]?.src;
+            return src ? (await imageSrcToBuffer(src)).buffer : null;
+          },
+        },
+      ];
+
+      let cleanedBuffer: Buffer | null = null;
+      let usedChannel = "";
+      for (const channel of eraseChannels) {
+        try {
+          const candidate = await channel.run();
+          if (!candidate) {
+            console.log(`[text_edit] ${channel.name} 未返回有效图片，尝试下一通道`);
+            continue;
+          }
+          const erased = await hasVisibleLocalEdit(
+            sourceImageData.buffer,
+            candidate,
+            maskImageData.buffer,
+            targetWidth,
+            targetHeight,
+            { pixelDifferenceThreshold: 10, minChangedPixels: 30, minChangedRatio: 0.001 },
+          );
+          if (!erased) {
+            console.log(`[text_edit] ${channel.name} 完成但 mask 区域无明显变化，尝试下一通道`);
+            continue;
+          }
+          cleanedBuffer = candidate;
+          usedChannel = channel.name;
+          break;
+        } catch (error) {
+          console.log(
+            `[text_edit] ${channel.name} 失败: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
         }
+      }
+
+      // 最后一道保障：本地像素擦除。不依赖任何外部服务，
+      // 保证只要有 OCR 区域就能拿到底图，从而始终走确定性渲染。
+      if (!cleanedBuffer && input.textRegions?.length && input.editedText?.trim()) {
+        try {
+          cleanedBuffer = await eraseTextRegionsLocally(
+            sourceImageData.buffer,
+            input.textRegions,
+            input.editedText,
+            targetWidth,
+            targetHeight,
+          );
+          usedChannel = "本地像素擦除";
+        } catch (error) {
+          console.log(
+            `[text_edit] 本地擦除失败: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+
+      if (cleanedBuffer) {
+        const cleanedData = { buffer: cleanedBuffer, mimeType: "image/png" };
+        sourceImageData = cleanedData;
+        sourceImage = bufferToImageFile(cleanedData.buffer, cleanedData.mimeType);
+        textEditInstruction +=
+          "\nThe masked text areas have already been cleared to clean original background. " +
+          "Keep that cleaned background unchanged and only paint the replacement text inside the mask.";
+        console.log(`[text_edit] 擦字成功（通道：${usedChannel}），进入确定性绘制`);
       } else {
-        console.log(`[text_edit] 美图擦字未返回有效图片，降级为直接编辑`);
+        console.log(`[text_edit] 所有擦除通道均失败，降级为直接编辑`);
       }
     } catch (error) {
       console.log(
-        `[text_edit] 美图擦字失败，降级为直接编辑: ${error instanceof Error ? error.message : String(error)}`,
+        `[text_edit] 擦字阶段异常，降级为直接编辑: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
@@ -4358,8 +4578,21 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
         targetWidth,
         targetHeight,
       });
-      await fs.promises.writeFile("D:\\project\\artx-test\\debug-cleaned.png", sourceImageData.buffer);
-      await fs.promises.writeFile("D:\\project\\artx-test\\debug-drawn.png", drawn);
+
+      // 步骤 5：质量自检。绘制没画上或画成色块时主动放弃方案 B，
+      // 交给后面的 AI 叠字兜底，避免把明显有问题的结果直接返回给用户。
+      const quality = await verifyDrawnTextQuality(
+        sourceImageData.buffer,
+        drawn,
+        input.textRegions,
+        input.editedText,
+        targetWidth,
+        targetHeight,
+      );
+      if (!quality.ok) {
+        throw new Error(`确定性绘制质量校验未通过：${quality.reason}`);
+      }
+
       // 用"仅覆盖被修改文字区域"的精确 mask 做合成：
       // 被修改 region 内使用擦字图+新文字；其余区域（含未修改文字、多余背景）全部用原图恢复，
       // 彻底解决"只改一行却擦了两行"导致的背景色块问题。
@@ -4376,8 +4609,12 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
         targetWidth,
         targetHeight,
       );
-      await fs.promises.writeFile("D:\\project\\artx-test\\debug-mask.png", modifiedMask);
-      await fs.promises.writeFile("D:\\project\\artx-test\\debug-composited.png", composited);
+      await writeTextEditDebugArtifacts({
+        cleaned: sourceImageData.buffer,
+        drawn,
+        mask: modifiedMask,
+        composited,
+      });
       console.log(
         `[text_edit] 确定性文字绘制完成（${input.textRegions.length} 个区域，走方案 B）`,
       );

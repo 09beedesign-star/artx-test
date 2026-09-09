@@ -7,12 +7,22 @@ dist/
 build/
 *.dist
 
+# 文字编辑链路的调试产物与本地预览输出
+# （调试落盘默认关闭，需显式设置 TEXT_EDIT_DEBUG_DIR / MEITU_DEBUG_MASK_DIR 才会生成）
+debug-mask-*.png
+debug-cleaned.png
+debug-drawn.png
+debug-composited.png
+outputs/text-edit-preview/
+
 # Environment variables
 .env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
+# 忽略所有 .env 副本与变体（如 (1).env、backup.env），避免误提交泄露密钥
+*.env
 
 # IDE and editor files
 .vscode/
