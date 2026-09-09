@@ -20987,21 +20987,23 @@ function CanvasAssistantPanel({
                           height: isSelectedImageToken ? 26 : undefined,
                           gap: isSelectedImageToken ? 6 : 2,
                           padding: isSelectedImageToken ? "4px 8px 4px 4px" : "0 4px",
-                          background: isSelectedImageToken
-                            ? isDark
-                              ? "#121110"
-                              : "rgba(18,17,16,0.12)"
-                            : isDark
-                              ? "rgba(144,88,252,0.18)"
-                              : "rgba(144,88,252,0.12)",
-                          border: `1px solid ${isSelectedImageToken ? "rgba(42,42,45,0.13)" : dragOverComposerSegmentId === segment.id ? "oklch(0.68 0.20 292 / 0.86)" : "oklch(0.68 0.20 292 / 0.38)"}`,
-                          color: isSelectedImageToken
-                            ? isDark
-                              ? "#c7c7c7"
-                              : "rgba(28,28,40,0.72)"
-                            : isDark
-                              ? "oklch(0.82 0.012 270)"
-                              : "oklch(0.28 0.012 270)",
+                          // 配色恒定为黑，不随选中态变化。
+                          //
+                          // 此前 background / border / color 都挂在 isSelectedImageToken 上，
+                          // 而该值（:20934）= isBoxSelected || isCanvasContextReference，
+                          // 后者要求「画布恰好选中 1 个节点且正是这张引用图」。
+                          // 于是用户在画布上点选/取消节点时，输入框里的同一个 chip
+                          // 就会在紫（默认态）和黑（选中态）之间来回跳——即「一下黑一下紫」。
+                          //
+                          // 注意 isSelectedImageToken 仍然保留：它还控制 maxWidth/height/
+                          // gap/padding（:20986-20989）等尺寸逻辑，不能连带删除。
+                          background: isDark ? "#121110" : "rgba(18,17,16,0.12)",
+                          border: `1px solid ${
+                            dragOverComposerSegmentId === segment.id
+                              ? "rgba(42,42,45,0.55)"
+                              : "rgba(42,42,45,0.13)"
+                          }`,
+                          color: isDark ? "#c7c7c7" : "rgba(28,28,40,0.72)",
                           cursor:
                             draggingComposerSegmentId === segment.id
                               ? "grabbing"
@@ -21009,10 +21011,10 @@ function CanvasAssistantPanel({
                           userSelect: "none",
                           opacity:
                             draggingComposerSegmentId === segment.id ? 0.42 : 1,
-                          boxShadow: isSelectedImageToken
-                            ? "none"
-                            : dragOverComposerSegmentId === segment.id
-                              ? "0 0 0 2px oklch(0.68 0.20 292 / 0.18)"
+                          // 拖拽落点提示同样去紫，改用中性深色，保持整枚标签黑色调。
+                          boxShadow:
+                            dragOverComposerSegmentId === segment.id
+                              ? "0 0 0 2px rgba(42,42,45,0.18)"
                               : "none",
                         }}
                         title="拖拽调整引用顺序"
@@ -21040,7 +21042,8 @@ function CanvasAssistantPanel({
                           style={{
                             maxWidth: isSelectedImageToken ? 51 : 35,
                             fontSize: isSelectedImageToken ? 12 : 10,
-                            color: isSelectedImageToken ? "#c7c7c7" : undefined,
+                            // 不再按选中态覆写颜色：父级 color 已恒定为黑色调，
+                            // 直接继承即可，避免这里再引入一次明暗跳变。
                           }}
                         >
                           {segment.asset.title}
