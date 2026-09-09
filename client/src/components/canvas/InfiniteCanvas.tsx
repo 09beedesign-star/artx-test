@@ -17813,12 +17813,26 @@ const COMPOSER_REF_TOKEN_SIZE = {
 } as const;
 
 // 引用类标签的统一配色（黑色）。image 与 annotation 共用，避免再次跑偏。
-function getComposerRefTokenColors(isDark: boolean, isDragOver: boolean) {
+//
+// isSelected 指「按 Backspace 待删除」的选中态，不是画布节点的选中态——
+// 后者曾导致标签紫黑跳变，已废除。这里底色始终保持黑，仅用描边和外发光
+// 表达选中，既给出删除前的可见反馈，又不破坏「配色恒定」的约定。
+function getComposerRefTokenColors(
+  isDark: boolean,
+  isDragOver: boolean,
+  isSelected = false
+) {
+  const accent = isDragOver
+    ? "rgba(42,42,45,0.55)"
+    : isSelected
+      ? "rgba(42,42,45,0.62)"
+      : "rgba(42,42,45,0.13)";
   return {
     background: isDark ? "#121110" : "rgba(18,17,16,0.12)",
-    border: `1px solid ${isDragOver ? "rgba(42,42,45,0.55)" : "rgba(42,42,45,0.13)"}`,
+    border: `1px solid ${accent}`,
     color: isDark ? "#c7c7c7" : "rgba(28,28,40,0.72)",
-    boxShadow: isDragOver ? "0 0 0 2px rgba(42,42,45,0.18)" : "none",
+    boxShadow:
+      isDragOver || isSelected ? "0 0 0 2px rgba(42,42,45,0.18)" : "none",
   };
 }
 
@@ -19115,6 +19129,42 @@ function CanvasAssistantPanel({
       if (selectionRange.start !== 0 || selectionRange.end !== 0) {
         return;
       }
+      // 光标位于文本段开头：Backspace 应作用于**前一个标签**，而不是本段文字。
+      // 交互契约是两段式——第一次按选中标签（给出可见反馈），第二次才删除，
+      // 避免误触一键删掉引用。此前这里缺失该分支，光标在开头时若本段还有文字
+      // 就直接 return，导致「连按两次 Backspace 删标签」完全不生效。
+      const currentIndex = composerSegments.findIndex(
+        segment => segment.id === segmentId
+      );
+      const previousSegment =
+        currentIndex > 0 ? composerSegments[currentIndex - 1] : null;
+      if (previousSegment && isAssistantTokenSegment(previousSegment)) {
+        event.preventDefault();
+        const alreadySelected =
+          composerBoxSelection?.selectedIds.includes(previousSegment.id) ??
+          false;
+        if (alreadySelected) {
+          // 第二次：真正删除，并把光标交还当前文本段，避免焦点丢失。
+          removeComposerSegmentsByIds([previousSegment.id]);
+          activeComposerSegmentIdRef.current = segmentId;
+          activeComposerCursorRef.current = 0;
+          window.setTimeout(() => {
+            composerInputRefs.current[segmentId]?.focus();
+          }, 0);
+          return;
+        }
+        // 第一次：仅选中。active:false 表示这不是鼠标框选过程中的中间态，
+        // 这样 :18758 的全局删除监听与标签的 isBoxSelected 高亮都能正确识别。
+        setComposerBoxSelection({
+          active: false,
+          startX: 0,
+          startY: 0,
+          currentX: 0,
+          currentY: 0,
+          selectedIds: [previousSegment.id],
+        });
+        return;
+      }
       if (selectionRange.value.length === 0) {
         event.preventDefault();
         restoreEmptyComposerField();
@@ -19126,6 +19176,8 @@ function CanvasAssistantPanel({
       setComposerTextSegment,
       composerSegments,
       focusComposerSegment,
+      composerBoxSelection,
+      removeComposerSegmentsByIds,
     ]
   );
 
@@ -21048,7 +21100,8 @@ function CanvasAssistantPanel({
                           padding: COMPOSER_REF_TOKEN_SIZE.padding,
                           ...getComposerRefTokenColors(
                             isDark,
-                            dragOverComposerSegmentId === segment.id
+                            dragOverComposerSegmentId === segment.id,
+                            isBoxSelected
                           ),
                           cursor:
                             draggingComposerSegmentId === segment.id
@@ -21163,7 +21216,8 @@ function CanvasAssistantPanel({
                           padding: COMPOSER_REF_TOKEN_SIZE.padding,
                           ...getComposerRefTokenColors(
                             isDark,
-                            dragOverComposerSegmentId === segment.id
+                            dragOverComposerSegmentId === segment.id,
+                            isBoxSelected
                           ),
                           cursor:
                             draggingComposerSegmentId === segment.id
