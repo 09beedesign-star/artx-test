@@ -6,8 +6,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
-import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization } from "./server/auth-store";
-import { editImageWithPrompt, eraseImageObjects, generateImages, removeImageBackground } from "./server/image-generation";
+import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getDevAutoLoginSession, handleAuthAction, listApiKeysForAuthorization } from "./server/auth-store";
+import { editImageWithPrompt, eraseImageObjects, extractImageText, generateImages, listImageModelCatalog, removeImageBackground } from "./server/image-generation";
 import { searchReferenceImages } from "./server/reference-search";
 import { generateText } from "./server/text-generation";
 
@@ -21,8 +21,7 @@ const LOG_DIR = path.join(PROJECT_ROOT, ".manus-logs");
 const MAX_LOG_SIZE_BYTES = 1 * 1024 * 1024; // 1MB per log file
 const TRIM_TARGET_BYTES = Math.floor(MAX_LOG_SIZE_BYTES * 0.6); // Trim to 60% to avoid constant re-trimming
 
-function loadLocalEnv() {
-  const envPath = path.join(PROJECT_ROOT, ".env");
+function loadEnvFile(envPath: string) {
   if (!fs.existsSync(envPath)) return;
 
   const lines = fs.readFileSync(envPath, "utf-8").split(/\r?\n/);
@@ -43,6 +42,15 @@ function loadLocalEnv() {
       process.env[key] = value;
     }
   }
+}
+
+function loadLocalEnv() {
+  // 与 server/env.ts 的加载顺序保持一致：.env.local 优先于 .env
+  //（先读者胜出，因为已存在的 key 不会被覆盖）。
+  // 此前这里只读 .env，导致 dev 模式下 .env.local 里的 ARTX_DEV_AUTO_LOGIN
+  // 等本地开关完全不生效。
+  loadEnvFile(path.join(PROJECT_ROOT, ".env.local"));
+  loadEnvFile(path.join(PROJECT_ROOT, ".env"));
 }
 
 loadLocalEnv();
@@ -346,7 +354,14 @@ function vitePluginJsonApi(name: string, route: string, handler: JsonApiHandler,
 }
 
 function vitePluginAiOrchestratorApi(): Plugin {
-  const backendUrl = (process.env.VITE_TEST_BACKEND_URL || process.env.VITE_API_BASE_URL || "https://backstage.artxsd.com").replace(/\/+$/, "");
+  // 注意用 trim() 过滤空串：`.env.local` 里常把 VITE_API_BASE_URL 置空来走同源请求，
+  // 而空串对 `||` 来说是 falsy 但对解构默认值不是 —— 早前写法会让 backendUrl 变成 ""，
+  // 代理 fetch("" + path) 直接失败并返回 502 fetch failed。
+  const backendUrl = (
+    process.env.VITE_TEST_BACKEND_URL?.trim() ||
+    process.env.VITE_API_BASE_URL?.trim() ||
+    "https://backstage.artxsd.com"
+  ).replace(/\/+$/, "");
 
   async function proxyJson(req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse, targetPath: string) {
     try {
@@ -379,6 +394,44 @@ function vitePluginAiOrchestratorApi(): Plugin {
         await proxyJson(req, res, "/api/ai/orchestrate");
       });
 
+      // 模型目录：dev 环境此前未注册这两条路由，请求会穿透到 SPA 兜底页拿到 HTML，
+      // 前端 JSON.parse 失败后提示「AI 模型列表加载失败」（client/src/lib/ai.ts:345）。
+      // server/index.ts:1181 已有本地实现且不依赖登录态，直接复用即可，
+      // 不走 proxyJson —— 代理到远程后端反而会让本地 .env 里的模型配置失效。
+      server.middlewares.use("/api/ai/models", async (req, res, next) => {
+        if (req.method !== "GET") {
+          return next();
+        }
+        try {
+          sendJson(res, 200, await listImageModelCatalog());
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Model catalog failed";
+          sendJson(res, 500, { error: message });
+        }
+      });
+
+      // 模型权益同理缺失。server/index.ts:1190 依赖 requireSessionUser，
+      // 而 dev 插件没有等价的会话中间件；这里复用免登录会话拿 userId，
+      // 与 /api/auth/dev-session（本文件 :445）取的是同一个测试账号。
+      server.middlewares.use("/api/ai/model-entitlements", async (req, res, next) => {
+        if (req.method !== "GET") {
+          return next();
+        }
+        try {
+          const session = await getDevAutoLoginSession();
+          const userId = (session.body as { user?: { id?: string } })?.user?.id;
+          if (!userId) {
+            sendJson(res, 401, { error: "Dev session unavailable" });
+            return;
+          }
+          const { getAiModelEntitlementsForUser } = await import("./server/admin-store");
+          sendJson(res, 200, await getAiModelEntitlementsForUser(userId));
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "AI model entitlements failed";
+          sendJson(res, 500, { error: message });
+        }
+      });
+
       server.middlewares.use("/api/images/tasks", async (req, res, next) => {
         if (req.method !== "POST") {
           return next();
@@ -401,6 +454,28 @@ function vitePluginAuthApi(): Plugin {
     name: "artx-auth-api",
     configureServer(server: ViteDevServer) {
       server.middlewares.use("/api/auth", (req, res, next) => {
+        // 本地测试免登录入口。
+        //
+        // 生产 express（server/index.ts）里注册的是 GET /api/auth/dev-session，
+        // 但 dev 模式走的是这里的 Vite 中间件；此前只处理 POST，GET 会被 next() 放行
+        // 到前端路由并返回 HTML，前端 fetchDevSession() 解析 JSON 失败后静默回退，
+        // 表现就是「开了免登录却仍然停在登录页」。这里补齐该路由，与生产行为对齐。
+        const pathname = (req.url || "").replace(/^\/+/, "").split("?")[0];
+        if (req.method === "GET" && pathname === "dev-session") {
+          void (async () => {
+            try {
+              const result = await getDevAutoLoginSession();
+              res.writeHead(result.status, { "Content-Type": "application/json" });
+              res.end(JSON.stringify(result.body));
+            } catch (error) {
+              const message = error instanceof Error ? error.message : "Dev session failed";
+              res.writeHead(500, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ error: message }));
+            }
+          })();
+          return;
+        }
+
         if (req.method !== "POST") {
           return next();
         }
@@ -603,6 +678,11 @@ const plugins = [
   vitePluginJsonApi("artx-ai-image-api", "/api/images/generate", generateImages, "Image generation failed"),
   vitePluginJsonApi("artx-ai-remove-background-api", "/api/images/remove-background", removeImageBackground, "Background removal failed"),
   vitePluginJsonApi("artx-ai-edit-image-api", "/api/images/edit", editImageWithPrompt, "Image edit failed"),
+  // 智能文案编辑的第一步（OCR 提取文字区域）。
+  // 生产 express 在 server/index.ts:1446 注册了 POST /api/images/ocr，
+  // 但 dev 模式走的是这里的 Vite 插件，此前漏注册导致该路由 404，
+  // 前端 extractImageText() 直接失败 —— 表现为「智能文案调不动模型」。
+  vitePluginJsonApi("artx-ai-image-ocr-api", "/api/images/ocr", extractImageText, "Image OCR failed"),
   vitePluginJsonApi("artx-ai-erase-image-api", "/api/images/erase", eraseImageObjects, "Image erase failed"),
   vitePluginJsonApi("artx-llm-api", "/api/llm", generateText, "AI request failed"),
   vitePluginJsonApi("artx-reference-search-api", "/api/references/search", async (payload) => {
