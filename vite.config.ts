@@ -387,11 +387,80 @@ function vitePluginAiOrchestratorApi(): Plugin {
   return {
     name: "artx-ai-test-backend-proxy",
     configureServer(server: ViteDevServer) {
+      // 静态提供已落盘的图片。生产 express 在 server/index.ts:2228 用
+      // express.static 挂了 /uploads，dev 此前没有等价实现 —— 出图落盘后
+      // /uploads/... 会穿透到 SPA 兜底页返回 HTML，前端拿到的图直接是坏的。
+      server.middlewares.use("/uploads", async (req, res, next) => {
+        if (req.method !== "GET" && req.method !== "HEAD") {
+          return next();
+        }
+        try {
+          const { getUploadsRoot } = await import("./server/local-image-storage");
+          const uploadsRoot = path.resolve(getUploadsRoot());
+          const requestPath = decodeURIComponent((req.url || "/").split("?")[0]);
+          const resolved = path.resolve(uploadsRoot, `.${requestPath}`);
+          // 目录穿越防护：解析后的绝对路径必须仍在 uploads 根目录内。
+          if (resolved !== uploadsRoot && !resolved.startsWith(`${uploadsRoot}${path.sep}`)) {
+            return next();
+          }
+          if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+            return next();
+          }
+          const contentTypes: Record<string, string> = {
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".webp": "image/webp",
+            ".gif": "image/gif",
+            ".svg": "image/svg+xml",
+          };
+          const contentType = contentTypes[path.extname(resolved).toLowerCase()] || "application/octet-stream";
+          res.writeHead(200, { "Content-Type": contentType, "Cache-Control": "public, max-age=2592000" });
+          if (req.method === "HEAD") {
+            res.end();
+            return;
+          }
+          fs.createReadStream(resolved).pipe(res);
+        } catch {
+          return next();
+        }
+      });
+
+      // AI 助手编排：原先走 proxyJson 转发到远程后端，而 proxyJson 会原样透传
+      // Authorization 头 —— 本地 dev token（artx-dev-auto-login-token）远程 sessions
+      // 表里并不存在，于是恒定返回 401「登录已失效」，本地根本用不了 AI 助手。
+      // 与 /api/ai/models 同样的思路：直接复用本地实现。AIOrchestrator 只依赖
+      // .env 里的模型配置，不需要登录态，因此本地能跑通且用的是本地模型配置。
+      //
+      // 与生产 express（server/index.ts:1634）的差异，均为 dev 环境有意简化：
+      //   - 不做 requireSessionUser / assertUserCanUseSelectableModel 权限校验
+      //   - 不做 reserveAiRouteUsage / recordAiRouteUsage 用量计费与埋点
+      // 出图仍按生产口径落盘到本地 uploads，避免前端拿到临时 URL 过期失效。
       server.middlewares.use("/api/ai/orchestrate", async (req, res, next) => {
         if (req.method !== "POST") {
           return next();
         }
-        await proxyJson(req, res, "/api/ai/orchestrate");
+        try {
+          const payload = await readRequestJson(req);
+          const { AIOrchestrator } = await import("./server/ai-orchestrator");
+          const result = await new AIOrchestrator().run(payload);
+          if (result.images?.length) {
+            const { storeGeneratedImagesForUser } = await import("./server/local-image-storage");
+            const session = await getDevAutoLoginSession();
+            const username =
+              (session.body as { user?: { username?: string } })?.user?.username || "dev-tester";
+            const images = await storeGeneratedImagesForUser(result.images, username, {
+              providerTaskId: result.providerTaskId,
+              providerTaskIds: result.providerTaskIds,
+            });
+            sendJson(res, 200, { ...result, images });
+            return;
+          }
+          sendJson(res, 200, result);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "AI orchestration failed";
+          sendJson(res, 500, { error: message });
+        }
       });
 
       // 模型目录：dev 环境此前未注册这两条路由，请求会穿透到 SPA 兜底页拿到 HTML，
