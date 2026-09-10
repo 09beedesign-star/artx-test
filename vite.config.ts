@@ -7,6 +7,7 @@ import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
 import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getDevAutoLoginSession, handleAuthAction, listApiKeysForAuthorization } from "./server/auth-store";
+import { resolveBackgroundImageTaskCapability } from "./server/background-image-capability";
 import { editImageWithPrompt, eraseImageObjects, extractImageText, generateImages, listImageModelCatalog, removeImageBackground } from "./server/image-generation";
 import { searchReferenceImages } from "./server/reference-search";
 import { generateText } from "./server/text-generation";
@@ -353,6 +354,142 @@ function vitePluginJsonApi(name: string, route: string, handler: JsonApiHandler,
   };
 }
 
+// ---------------------------------------------------------------------------
+// dev 环境的后台图像任务存储
+//
+// 生产在 server/index.ts 用模块级 backgroundImageTasks Map 存任务，但那个 Map
+// 和 runBackgroundImageTask 都封在 startServer() 闭包里、未导出，无法直接复用，
+// 因此这里按同样口径复刻一份 dev 专用的。
+// ---------------------------------------------------------------------------
+
+type DevBackgroundImageTask = {
+  taskId: string;
+  status: "pending" | "completed" | "failed";
+  input: Record<string, unknown>;
+  images?: Array<{ src: string; width: number; height: number }>;
+  error?: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+const devBackgroundImageTasks = new Map<string, DevBackgroundImageTask>();
+const DEV_BACKGROUND_IMAGE_TASK_TIMEOUT_MS = 5 * 60 * 1000;
+
+function pruneDevBackgroundImageTasks() {
+  const now = Date.now();
+  Array.from(devBackgroundImageTasks.entries()).forEach(([taskId, task]) => {
+    if (now - task.updatedAt > 24 * 60 * 60 * 1000) {
+      devBackgroundImageTasks.delete(taskId);
+    }
+  });
+}
+
+// 兜底超时：任务进程若中途异常退出（例如上游 SDK 抛在 Promise 之外），
+// pending 会永远挂着，前端要轮询满 100 次才放弃。与生产 :352 逻辑一致。
+function resolveDevBackgroundImageTask(task: DevBackgroundImageTask): DevBackgroundImageTask {
+  if (task.status !== "pending") return task;
+  if (Date.now() - task.createdAt <= DEV_BACKGROUND_IMAGE_TASK_TIMEOUT_MS) return task;
+  return {
+    ...task,
+    status: "failed",
+    error: "图片生成任务超时，请稍后重试",
+    updatedAt: Date.now(),
+  };
+}
+
+async function getDevUploadUsername() {
+  const session = await getDevAutoLoginSession();
+  return (session.body as { user?: { username?: string } })?.user?.username || "dev-tester";
+}
+
+// 复刻 server/index.ts:871 runBackgroundImageTask 的 capability 分发。
+// 差异：不返回 tracking（dev 不做用量埋点），只返回落盘后的图片数组。
+async function runDevBackgroundImageTask(
+  input: Record<string, unknown>,
+): Promise<Array<{ src: string; width: number; height: number }>> {
+  const capability = resolveBackgroundImageTaskCapability(input);
+  const operation = typeof input.operation === "string" && input.operation.trim()
+    ? input.operation.trim()
+    : capability;
+
+  const [imageGeneration, storage] = await Promise.all([
+    import("./server/image-generation"),
+    import("./server/local-image-storage"),
+  ]);
+  const username = await getDevUploadUsername();
+
+  const store = async (result: {
+    images?: Array<{ src: string; width: number; height: number }>;
+    providerTaskId?: string;
+    providerTaskIds?: string[];
+  }) => {
+    if (!result.images?.length) return [];
+    return storage.storeGeneratedImagesForUser(result.images, username, {
+      providerTaskId: result.providerTaskId,
+      providerTaskIds: result.providerTaskIds,
+    });
+  };
+
+  switch (capability) {
+    case "smart_background":
+    case "create-background":
+      return store(await imageGeneration.createProductBackground(input as never));
+    case "image_edit":
+    case "edit":
+      return store(await imageGeneration.editImageWithPrompt(input as never));
+    case "background_removal":
+    case "remove-background":
+      return store(await imageGeneration.removeImageBackground(input as never));
+    case "image_enhance":
+    case "enhance":
+      return store(await imageGeneration.enhanceImage(input as never));
+    case "watermark_removal":
+    case "remove-watermark":
+      return store(await imageGeneration.removeImageWatermark(input as never));
+    case "image_erase":
+    case "erase":
+      return store(await imageGeneration.eraseImageObjects(input as never));
+    case "element_background":
+    case "element-background":
+      return store(await imageGeneration.createElementBackgroundLayer(input as never));
+    case "image_expansion":
+    case "expand": {
+      // 扩图入参在前端有三种写法（imageSrc / image_url / image_base64），
+      // 生产在 :986 做了同样的归一，缺了会直接抛「缺少图片」。
+      const pick = (...keys: string[]) => {
+        for (const key of keys) {
+          const value = input[key];
+          if (typeof value === "string" && value) return value;
+        }
+        return undefined;
+      };
+      const result = await imageGeneration.expandImageWithPicWish({
+        ...input,
+        imageSrc: pick("imageSrc", "image_url", "image_base64"),
+        maskSrc: pick("maskSrc", "mask_url", "mask_base64"),
+        prompt: typeof input.prompt === "string" && input.prompt.trim()
+          ? input.prompt
+          : "Extend the image naturally only inside the masked blank area. Preserve all unmasked pixels exactly and never generate beyond the requested boundary.",
+      } as never);
+      return store(result);
+    }
+    case "text_to_image":
+    default: {
+      if (operation !== "generate" && capability !== "text_to_image") {
+        throw new Error(`Unsupported background image task capability: ${capability}`);
+      }
+      const { AIOrchestrator } = await import("./server/ai-orchestrator");
+      const result = await new AIOrchestrator().run({
+        ...input,
+        capability: "text_to_image",
+        intent: "text_to_image",
+        operation: "generate",
+      });
+      return store(result);
+    }
+  }
+}
+
 function vitePluginAiOrchestratorApi(): Plugin {
   // 注意用 trim() 过滤空串：`.env.local` 里常把 VITE_API_BASE_URL 置空来走同源请求，
   // 而空串对 `||` 来说是 falsy 但对解构默认值不是 —— 早前写法会让 backendUrl 变成 ""，
@@ -501,18 +638,100 @@ function vitePluginAiOrchestratorApi(): Plugin {
         }
       });
 
+      // 后台图像任务：与 /api/ai/orchestrate 同因 —— 原先 proxyJson 转发到远程后端，
+      // 而 Authorization 透传的是本地 dev token，远程 sessions 表里不存在，
+      // 恒定 401「登录已失效」。画布右侧 AI 助手的出图走的正是这条链路
+      // （client/src/lib/ai.ts:533 提交、:613 轮询），所以只修 orchestrate 不够。
+      //
+      // 这里按生产 express（server/index.ts:1281 / :1369 / runBackgroundImageTask :871）
+      // 的口径复刻，dev 有意简化掉的部分：
+      //   - requireSessionUser / assertUserCanUseSelectableModel 权限校验
+      //   - reserveAiRouteUsage / recordAiRouteUsage 用量计费与埋点
+      //   - 任务归属校验（dev 只有一个免登录账号，无多用户隔离需求）
       server.middlewares.use("/api/images/tasks", async (req, res, next) => {
         if (req.method !== "POST") {
           return next();
         }
-        await proxyJson(req, res, "/api/images/tasks");
+        let taskId = `image-task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        try {
+          const payload = await readRequestJson(req);
+          if (typeof payload.taskId === "string" && payload.taskId.trim()) {
+            taskId = payload.taskId.trim();
+          }
+          pruneDevBackgroundImageTasks();
+
+          // 前端 startImageGenerationTask 带重试（ai.ts:529），同一 taskId 可能被重复提交，
+          // 此时必须回放已有任务而不是再跑一遍模型，否则一次生成会计两次费、出两张图。
+          const existing = devBackgroundImageTasks.get(taskId);
+          if (existing) {
+            sendJson(res, 200, resolveDevBackgroundImageTask(existing));
+            return;
+          }
+
+          try {
+            resolveBackgroundImageTaskCapability(payload);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Image generation failed";
+            sendJson(res, 400, { error: message, taskId, status: "failed" });
+            return;
+          }
+
+          const task: DevBackgroundImageTask = {
+            taskId,
+            status: "pending",
+            input: payload,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          };
+          devBackgroundImageTasks.set(taskId, task);
+          // 先应答再跑任务：前端拿到 pending 后才开始轮询（ai.ts:548）。
+          sendJson(res, 200, task);
+
+          void (async () => {
+            try {
+              const images = await runDevBackgroundImageTask(payload);
+              devBackgroundImageTasks.set(taskId, {
+                ...task,
+                status: "completed",
+                images,
+                updatedAt: Date.now(),
+              });
+            } catch (error) {
+              const message = error instanceof Error ? error.message : "Image generation failed";
+              devBackgroundImageTasks.set(taskId, {
+                ...task,
+                status: "failed",
+                error: message,
+                updatedAt: Date.now(),
+              });
+            }
+          })();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Image generation failed";
+          sendJson(res, 500, { error: message, taskId, status: "failed" });
+        }
       });
 
       server.middlewares.use("/api/images/tasks/", (req, res, next) => {
         if (req.method !== "GET") {
           return next();
         }
-        void proxyJson(req, res, `/api/images/tasks${req.url || ""}`);
+        // connect 会剥掉挂载前缀，此处 req.url 形如 `/image-task-xxx`。
+        const rawTaskId = decodeURIComponent((req.url || "").split("?")[0].replace(/^\/+/, ""));
+        if (!rawTaskId) {
+          return next();
+        }
+        pruneDevBackgroundImageTasks();
+        const rawTask = devBackgroundImageTasks.get(rawTaskId);
+        if (!rawTask) {
+          sendJson(res, 404, { error: "Image task not found", taskId: rawTaskId, status: "failed" });
+          return;
+        }
+        const task = resolveDevBackgroundImageTask(rawTask);
+        if (task !== rawTask) {
+          devBackgroundImageTasks.set(rawTaskId, task);
+        }
+        sendJson(res, 200, task);
       });
     },
   };
