@@ -3232,15 +3232,30 @@ function AssetFloatingToolbar({
       label: "图层分离",
       action: "edit-elements",
     },
-    {
-      icon: (
-        <AiDecoratedIcon cutoutBg={toolBg}>
-          <Type size={15} />
-        </AiDecoratedIcon>
-      ),
-      label: "智能文案编辑",
-      action: "edit-text",
-    },
+    /**
+     * 「智能文案编辑」入口已于 2026-09-12 按需求屏蔽，暂不对用户开放。
+     *
+     * 这里只注释掉工具栏条目，**不删除任何实现**：
+     *   - action "edit-text" 的处理分支（本文件 :30430 一带）
+     *   - 文案编辑面板 UI（本文件 :8958 一带，仅在面板被打开时渲染）
+     *   - 服务端 text_edit 三段链路（server/image-generation.ts）
+     * 全部原样保留。因为 :3256 是该功能**唯一**的触发来源
+     * （已 Grep 确认 edit-text 没有右键菜单 / 快捷键等其他入口），
+     * 注释掉这一条之后面板无从被打开，功能即完全不可达。
+     *
+     * 恢复方式：把下面这段注释还原即可，无需改动其他任何位置。
+     *
+     * 与「智能生图」的屏蔽做法保持一致（见本文件 :17008）。
+     */
+    // {
+    //   icon: (
+    //     <AiDecoratedIcon cutoutBg={toolBg}>
+    //       <Type size={15} />
+    //     </AiDecoratedIcon>
+    //   ),
+    //   label: "智能文案编辑",
+    //   action: "edit-text",
+    // },
     {
       icon: (
         <AiDecoratedIcon cutoutBg={toolBg}>

@@ -536,8 +536,22 @@ describe("InfiniteCanvas prompt controls", () => {
       /<span className="type-caption" style=\{\{ fontWeight: 700 \}\}>[\s\S]*?<div\s+className="flex flex-col gap-2">[\s\S]*?<\/label>\s*\)\)\}/
     )?.[0];
 
-    expect(source).toContain('label: "智能文案编辑"');
+    /**
+     * 2026-09-12：「智能文案编辑」工具栏入口按需求屏蔽。
+     *
+     * 原断言是 `toContain('label: "智能文案编辑"')`，即要求入口条目存在。
+     * 入口被注释后该写法仍会「通过」—— 因为注释文本里也含这个字符串，
+     * 属于假阳性。所以这里改为断言**未注释的入口条目不存在**：
+     * 用行首缩进 + 无 `//` 前缀来区分「真实代码」与「被注释的代码」。
+     */
+    expect(source).not.toMatch(/^\s{6}label: "智能文案编辑",$/m);
+    expect(source).toMatch(/^\s*\/\/\s*label: "智能文案编辑",$/m);
+    /**
+     * 实现必须原样保留（只屏蔽入口，不删功能），
+     * 这样恢复时只需还原那段注释。
+     */
     expect(source).toContain('"edit-text": "智能文案编辑"');
+    expect(source).toContain('if (action === "edit-text")');
     expect(extractedTextStateBlock).toBeTruthy();
     expect(extractedTextStateBlock).toContain(".map(item => item.trim())");
     expect(extractedTextStateBlock).toContain('return fields.length ? fields : ["未识别到可编辑文案"];');
