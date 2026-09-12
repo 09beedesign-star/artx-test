@@ -20,6 +20,7 @@ import {
   Maximize2,
   Minimize2,
   MoveDiagonal2,
+  PencilLine,
   RefreshCw,
   Scan,
   Sparkles,
@@ -29,6 +30,13 @@ import {
 import { toast } from "sonner";
 import { PicwishBackgroundSelector } from "@/components/canvas/PicwishBackgroundSelector";
 import type { PicWishBackgroundTemplate } from "@/lib/ai";
+
+/**
+ * 背景生成方式。
+ * - template：走 PicWish 电商背景模板库（原有链路，保持不变）
+ * - prompt：用户自己写提示词，交给 gem 图片大模型按产品图生成
+ */
+export type SmartCommerceBackgroundMode = "template" | "prompt";
 
 export type SmartCommerceProductCreateDetail = {
   imageSrc: string;
@@ -44,6 +52,10 @@ export type SmartCommerceProductCreateDetail = {
   count: number;
   customWidth: number;
   customHeight: number;
+  /** 背景生成方式，画布侧据此分流到不同的生图链路 */
+  backgroundMode: SmartCommerceBackgroundMode;
+  /** 提示词模式下用户输入的原始文案；模板模式为空串 */
+  customPrompt: string;
 };
 
 type Props = {
@@ -136,6 +148,17 @@ export function SmartCommerceProductDialog({
   );
   const [showPicwishSelector, setShowPicwishSelector] = useState(false);
   const [selectedPicwishTemplate, setSelectedPicwishTemplate] = useState<PicWishBackgroundTemplate>();
+  /**
+   * 背景生成方式。默认 template，保持老用户的既有习惯不变。
+   *
+   * 用户诉求原文：「支持用户在默认背景和提示词输入框中进行动态切换……
+   * 也可以通过加载图片之后切换到提示词输入框」——
+   * 所以这里是可随时来回切的显式开关，而不是「填了提示词就自动改走另一条链路」的隐式推断。
+   * 隐式推断会让用户填了提示词又想用模板时无从取消。
+   */
+  const [backgroundMode, setBackgroundMode] =
+    useState<SmartCommerceBackgroundMode>("template");
+  const [customPrompt, setCustomPrompt] = useState("");
   const [resolution, setResolution] = useState<"2k" | "4k">("2k");
   const [count, setCount] = useState(1);
   const [selectedPreset, setSelectedPreset] =
@@ -188,6 +211,7 @@ export function SmartCommerceProductDialog({
   }, [clampPanelPosition, defaultPanelPosition]);
 
   const outputSize = getOutputSize(selectedPreset, resolution);
+  const isPromptMode = backgroundMode === "prompt";
 
   const setUpload = async (file: File) => {
     if (!file.type.startsWith("image/")) {
@@ -233,32 +257,64 @@ export function SmartCommerceProductDialog({
       toast("请先上传产品图片");
       return;
     }
+    const trimmedPrompt = customPrompt.trim();
+    if (isPromptMode && !trimmedPrompt) {
+      toast("请先输入背景提示词", {
+        description: "或切换回默认背景使用电商模板库",
+      });
+      return;
+    }
     setIsCreating(true);
-    const prompt = [
-      "创建真实、干净、有商业质感的产品背景。",
-      selectedPicwishTemplate
-        ? `电商背景模板：${selectedPicwishTemplate.name}`
-        : "使用 PicWish 默认随机电商背景模板。",
-      `产品构图要求：${selectedComposition.prompt}`,
-      `产品占画面比例要求：${selectedProductScale.prompt}`,
+    /**
+     * 两种模式的提示词分开构造。
+     *
+     * 共同保留的是「产品主体不可改」这组强约束——无论走哪条链路，
+     * 用户上传的商品都不能被重绘、换色或替换成别的东西，
+     * 这是电商图的底线，比背景长什么样重要得多。
+     */
+    const productProtectionRules = [
       "保持上传产品图的商品主体完整清晰，不改变产品颜色、材质、文字、标识、比例和外形。",
       "风格只能影响背景、道具和环境氛围，不能卡通化、重绘或重新解释产品主体。",
-      "只生成与选定风格匹配的商业化背景、真实光影、空间和氛围。",
-    ].join("\n");
+    ];
+    const prompt = isPromptMode
+      ? [
+          "按照下面的描述，为这张产品图生成全新的电商商业背景。",
+          `背景描述：${trimmedPrompt}`,
+          `产品构图要求：${selectedComposition.prompt}`,
+          `产品占画面比例要求：${selectedProductScale.prompt}`,
+          ...productProtectionRules,
+          "只生成描述中的商业化背景、真实光影、空间和氛围。",
+        ].join("\n")
+      : [
+          "创建真实、干净、有商业质感的产品背景。",
+          selectedPicwishTemplate
+            ? `电商背景模板：${selectedPicwishTemplate.name}`
+            : "使用 PicWish 默认随机电商背景模板。",
+          `产品构图要求：${selectedComposition.prompt}`,
+          `产品占画面比例要求：${selectedProductScale.prompt}`,
+          ...productProtectionRules,
+          "只生成与选定风格匹配的商业化背景、真实光影、空间和氛围。",
+        ].join("\n");
+    const templateName = selectedPicwishTemplate?.name || "默认电商背景模板";
     const detail: SmartCommerceProductCreateDetail = {
       imageSrc,
       fileName,
-      userPrompt: selectedPicwishTemplate?.name || "默认电商背景模板",
+      // 提示词模式下右侧对话流展示用户自己写的原文，模板模式仍展示模板名
+      userPrompt: isPromptMode ? trimmedPrompt : templateName,
       prompt,
-      style: selectedPicwishTemplate?.name || "默认电商背景模板",
+      style: isPromptMode ? "自定义提示词背景" : templateName,
       composition: selectedComposition.id,
       productScale: selectedProductScale.id,
-      sceneType: selectedPicwishTemplate?.id,
+      // sceneType 是 PicWish 模板编号，提示词模式不走 PicWish，必须留空，
+      // 否则服务端会拿它去命中一个与用户描述无关的模板。
+      sceneType: isPromptMode ? undefined : selectedPicwishTemplate?.id,
       ratio: selectedPreset.ratio,
       resolution,
       count,
       customWidth: outputSize.width,
       customHeight: outputSize.height,
+      backgroundMode,
+      customPrompt: isPromptMode ? trimmedPrompt : "",
     };
     window.dispatchEvent(
       new CustomEvent<SmartCommerceProductCreateDetail>(
@@ -382,7 +438,10 @@ export function SmartCommerceProductDialog({
     </div>
   );
 
-  const canGenerate = Boolean(imageSrc && !isCreating);
+  // 提示词模式下没写提示词就不该允许提交——否则会拿一句空描述去调图片模型。
+  const canGenerate = Boolean(
+    imageSrc && !isCreating && (!isPromptMode || customPrompt.trim())
+  );
 
   const dialog = (
     <div className="fixed inset-0 z-[3500] pointer-events-none">
@@ -528,25 +587,99 @@ export function SmartCommerceProductDialog({
 
             <section className="min-w-0">
               <div>
-                <SectionTitle>电商背景模板选择</SectionTitle>
-                <button
-                  type="button"
-                  className="flex h-20 w-full items-center justify-center gap-3 rounded-md px-4 text-left transition-colors"
-                  style={{
-                    color: colors.text,
-                    border: `1px solid ${showPicwishSelector ? "rgba(197,237,71,0.68)" : colors.border}`,
-                    background: showPicwishSelector ? "rgba(197,237,71,0.1)" : colors.surface,
-                  }}
-                  onClick={() => setShowPicwishSelector(true)}
-                  title="电商背景模板选择"
+                <SectionTitle
+                  aside={isPromptMode ? "gem 模型生成" : "PicWish 模板"}
                 >
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md" style={{ color: colors.accent, background: "rgba(197,237,71,0.12)" }}>
-                    <Sparkles size={17} />
-                  </span>
-                  <span className="min-w-0 text-[11px] font-semibold">
-                    {selectedPicwishTemplate?.name || "电商背景模板库"}
-                  </span>
-                </button>
+                  背景生成方式
+                </SectionTitle>
+                {/*
+                  模式切换：默认背景 ↔ 自定义提示词。
+                  两个 tab 常驻显示，任何时候都能来回切，切换不清空另一侧的选择，
+                  用户改主意时不用重新挑模板 / 重打提示词。
+                */}
+                <div
+                  className="mb-2 grid grid-cols-2 gap-1 rounded-md p-1"
+                  style={{ background: colors.surface, border: `1px solid ${colors.border}` }}
+                  role="tablist"
+                  aria-label="背景生成方式"
+                >
+                  {(
+                    [
+                      { id: "template", label: "默认背景", icon: Sparkles },
+                      { id: "prompt", label: "提示词生图", icon: PencilLine },
+                    ] as const
+                  ).map(mode => {
+                    const active = backgroundMode === mode.id;
+                    const Icon = mode.icon;
+                    return (
+                      <button
+                        key={mode.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        className="flex h-8 items-center justify-center gap-1.5 rounded text-[10px] font-semibold transition-colors"
+                        style={{
+                          color: active ? "#172000" : colors.muted,
+                          background: active ? colors.accent : "transparent",
+                        }}
+                        onClick={() => setBackgroundMode(mode.id)}
+                        title={
+                          mode.id === "template"
+                            ? "使用 PicWish 电商背景模板库"
+                            : "用自己的提示词，配合 gem 模型按产品图生成背景"
+                        }
+                      >
+                        <Icon size={12} />
+                        {mode.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {isPromptMode ? (
+                  <div>
+                    <textarea
+                      value={customPrompt}
+                      onChange={event => setCustomPrompt(event.target.value)}
+                      placeholder="描述你想要的电商背景，例如：浅灰水泥台面，柔和自然光从左上方打入，背景虚化的绿植，高级质感"
+                      className="w-full resize-none rounded-md px-3 py-2 text-[11px] leading-4 outline-none"
+                      rows={4}
+                      maxLength={800}
+                      style={{
+                        color: colors.text,
+                        background: colors.surface,
+                        border: `1px solid ${customPrompt.trim() ? "rgba(197,237,71,0.58)" : colors.border}`,
+                        minHeight: 80,
+                      }}
+                    />
+                    <div
+                      className="mt-1 flex items-center justify-between text-[9px] leading-4"
+                      style={{ color: colors.muted }}
+                    >
+                      <span>产品主体会被保护，提示词只影响背景</span>
+                      <span className="tabular-nums">{customPrompt.length}/800</span>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="flex h-20 w-full items-center justify-center gap-3 rounded-md px-4 text-left transition-colors"
+                    style={{
+                      color: colors.text,
+                      border: `1px solid ${showPicwishSelector ? "rgba(197,237,71,0.68)" : colors.border}`,
+                      background: showPicwishSelector ? "rgba(197,237,71,0.1)" : colors.surface,
+                    }}
+                    onClick={() => setShowPicwishSelector(true)}
+                    title="电商背景模板选择"
+                  >
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md" style={{ color: colors.accent, background: "rgba(197,237,71,0.12)" }}>
+                      <Sparkles size={17} />
+                    </span>
+                    <span className="min-w-0 text-[11px] font-semibold">
+                      {selectedPicwishTemplate?.name || "电商背景模板库"}
+                    </span>
+                  </button>
+                )}
               </div>
 
               <div className="mt-4">
@@ -648,7 +781,8 @@ export function SmartCommerceProductDialog({
         >
           <span className="flex min-w-0 items-center gap-2 text-[10px]" style={{ color: colors.muted }}>
             <FileImage size={13} />
-            {selectedPreset.label} · {resolution.toUpperCase()} · {count} 张
+            {selectedPreset.label} · {resolution.toUpperCase()} · {count} 张 ·{" "}
+            {isPromptMode ? "提示词生图" : "默认背景"}
           </span>
           <div className="flex shrink-0 items-center gap-2">
             <button

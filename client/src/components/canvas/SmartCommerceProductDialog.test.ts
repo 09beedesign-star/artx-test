@@ -12,7 +12,8 @@ describe("SmartCommerceProductDialog", () => {
     for (const label of [
       "产品图片",
       "上传产品图片",
-      "电商背景模板选择",
+      "背景生成方式",
+      "电商背景模板库",
       "常用画幅",
       "分辨率",
       "生成数量",
@@ -20,6 +21,7 @@ describe("SmartCommerceProductDialog", () => {
     ]) {
       expect(source).toContain(label);
     }
+    // 历史上被移除的那版提示词 UI 不得复活（措辞/结构都不同于本次新增的提示词模式）
     expect(source).not.toContain('SectionTitle aside="用于生成背景">提示词</SectionTitle>');
     expect(source).not.toContain('placeholder="例如：干净的高级灰摄影棚背景');
 
@@ -85,10 +87,17 @@ describe("SmartCommerceProductDialog", () => {
     expect(source).not.toContain('SectionTitle aside={`${outputSize.width}×${outputSize.height}`}>常用画幅');
   });
 
-  it("uses the right-column top area for the ecommerce background template selector", () => {
+  it("uses the right-column top area for the background generation mode switcher", () => {
+    // 右栏顶部原先直接放「电商背景模板选择」，现在改放「背景生成方式」切换器，
+    // 模板选择器降级为该切换器 template 分支下的内容。
+    // 断言的意图不变：背景相关配置必须位于右栏顶部。
     const rightColumnPosition = source.indexOf('<section className="min-w-0">', source.indexOf("常用画幅"));
-    const templatePosition = source.indexOf("<SectionTitle>电商背景模板选择</SectionTitle>");
-    expect(templatePosition).toBeGreaterThan(rightColumnPosition);
+    // 锚定 JSX 里的 role="tablist"，不要用裸文案 "背景生成方式" ——
+    // 它在文件顶部的类型注释里也出现过，indexOf 会先命中注释，断言就失去意义。
+    const modePosition = source.indexOf('aria-label="背景生成方式"');
+    expect(modePosition).toBeGreaterThan(rightColumnPosition);
+    // 模板入口仍然存在，只是被收进 template 分支
+    expect(source).toContain("电商背景模板库");
     expect(source).not.toContain("<SectionTitle>背景风格</SectionTitle>");
     expect(source).not.toContain("<SectionTitle>PicWish 背景模板</SectionTitle>");
   });

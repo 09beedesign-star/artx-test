@@ -3,9 +3,25 @@ import { DEFAULT_IMAGE_MODEL_ID } from "../../../shared/image-models";
 
 type LLMRole = "system" | "user" | "assistant";
 
+/**
+ * 历史消息里的图片附件。
+ *
+ * 【2026-09-11 新增】此前 `content` 只能是纯字符串，
+ * 于是「上一轮生成的图」根本进不了对话历史 ——
+ * 顶层的 `images` 参数会被服务端当作**当前**素材统一放在历史之前，
+ * 模型无从分辨哪张图属于哪一轮，
+ * 用户说「这张再暗一点」时它完全不知道指谁。
+ */
+export type LLMMessageImage = {
+  src: string;
+  title?: string;
+};
+
 export type LLMMessage = {
   role: LLMRole;
   content: string;
+  /** 本条消息自带的图片。仅 user / assistant 有意义。 */
+  images?: LLMMessageImage[];
 };
 
 type ApiErrorResponse = {
@@ -83,7 +99,16 @@ export type ImageTextRegion = {
 
 function getAiAssetBaseUrl() {
   const apiBaseUrl = getAiApiBaseUrl();
-  return apiBaseUrl || ART_X_TEST_AI_API_BASE_URL;
+  if (apiBaseUrl) return apiBaseUrl;
+  // getAiApiBaseUrl() 在 localhost 下会**刻意返回空串**表示「走同源」（见 :192）。
+  // 这里若用 `apiBaseUrl || ART_X_TEST_AI_API_BASE_URL`，空串是 falsy，
+  // 本地生成的图会被拼成 https://backstage.artxsd.com/uploads/... —— 远程没有
+  // 这个文件，前端直接图裂。空串必须原样保留，让浏览器按同源解析。
+  if (typeof window !== "undefined") {
+    const hostname = window.location.hostname;
+    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") return "";
+  }
+  return ART_X_TEST_AI_API_BASE_URL;
 }
 
 function normalizeGeneratedImageSrc(src: string) {
@@ -746,6 +771,7 @@ export async function editImageWithPrompt({
   promptPos,
   textRegions,
   editedText,
+  textApplyMode,
 }: {
   imageSrc: string;
   model?: string;
@@ -772,6 +798,12 @@ export async function editImageWithPrompt({
   textRegions?: ImageTextRegion[];
   /** 智能文案编辑：修改后的完整文案（多行用 \n 分隔），用于确定性文字绘制 */
   editedText?: string;
+  /**
+   * 智能文案编辑：新文案「贴回原图」的方式。
+   * - "ai"：擦字后交给 image2.5 叠字，由模型还原字体/透视/光影（默认）
+   * - "local"：本地字体确定性绘制，零模型成本但字体只能近似匹配
+   */
+  textApplyMode?: "ai" | "local";
 }) {
   requireAiAuth();
   if (generationId) {
@@ -794,6 +826,7 @@ export async function editImageWithPrompt({
       promptPos,
       textRegions,
       editedText,
+      textApplyMode,
     });
   }
   const result = await postAiOrchestrate({
@@ -814,6 +847,7 @@ export async function editImageWithPrompt({
     promptPos,
     textRegions,
     editedText,
+    textApplyMode,
   }, "AI 图片编辑失败");
 
   return { images: result.images || [] };

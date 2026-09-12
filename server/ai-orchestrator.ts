@@ -38,6 +38,8 @@ export type OrchestrateRequest = {
   textRegions?: Array<{ x: number; y: number; width: number; height: number; text?: string }>;
   /** 智能文案编辑：修改后的完整文案（多行用 \n 分隔），用于确定性文字绘制 */
   editedText?: string;
+  /** 智能文案编辑：新文案贴回方式。"ai"（默认）走 image2.5 叠字，"local" 走本地字体绘制 */
+  textApplyMode?: "ai" | "local";
 };
 
 export type OrchestrateResponse = {
@@ -225,6 +227,7 @@ export class AIOrchestrator {
         promptPos: input.promptPos,
         textRegions: input.textRegions,
         editedText: input.editedText,
+        textApplyMode: input.textApplyMode,
       });
       return {
         type: "image",

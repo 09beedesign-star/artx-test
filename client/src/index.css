@@ -702,7 +702,13 @@ html.light, .light {
   right: auto !important;
   top: auto !important;
   bottom: 32px !important;
-  width: min(360px, calc(100vw - 32px)) !important;
+  /* 外层容器放开到画布可视宽度上限：真正的宽度由内部 toast 自己决定。
+     若这里仍锁死 360px，红色报错 toast 的 width:max-content 会被外层裁住。
+     容器本身不可见（无背景），放宽不会有视觉影响。 */
+  width: min(680px, calc(100vw - 48px)) !important;
+  max-width: calc(100vw - 48px) !important;
+  display: flex !important;
+  justify-content: center !important;
   transform: translateX(-50%) !important;
   margin-bottom: 0 !important;
   padding-bottom: 0 !important;
@@ -727,11 +733,24 @@ html.light, .light {
   backdrop-filter: blur(14px);
 }
 
+/* 红色报错 toast：必须完整显示错误全文，不截断。
+   因此改成高度自适应（不再锁 82px 固定高），宽度也按文案长度自适应，
+   并以画布中线为轴向两侧对等延伸（left:50% + translateX(-50%)）。
+   普通 toast 仍保持原来的定高单行样式，不受影响。 */
 [data-sonner-toaster].toaster [data-sonner-toast][data-artx-negative="true"][data-styled="true"] {
   position: relative !important;
-  min-height: 82px !important;
-  height: 82px !important;
-  max-height: 82px !important;
+  min-height: 60px !important;
+  height: auto !important;
+  max-height: none !important;
+  width: max-content !important;
+  min-width: 280px !important;
+  /* 上限贴合画布可视宽度，超长文案换行而不是被裁掉 */
+  max-width: min(680px, calc(100vw - 48px)) !important;
+  left: 50% !important;
+  right: auto !important;
+  transform: translateX(-50%) !important;
+  overflow: visible !important;
+  padding: 14px 18px !important;
   background: rgba(86, 0, 0, 0.30) !important;
   border-color: rgba(255, 78, 78, 0.36) !important;
   color: #ffffff !important;
@@ -790,7 +809,25 @@ html.light, .light {
   text-align: left !important;
 }
 
+/* 报错 toast 已改为完整显示，不存在「溢出省略」状态，
+   因此即使被判定为 overflow 也要保持居中，避免文案忽左忽右。 */
+[data-sonner-toaster].toaster
+  [data-sonner-toast][data-artx-negative="true"][data-artx-overflow="true"][data-styled="true"]
+  [data-content] {
+  text-align: center !important;
+}
+
+/* 红色报错必须显示完整文案：解除 2 行截断，允许长单词/URL/JSON 断行。
+   父级的 -webkit-line-clamp:2 会截断错误详情（例如 {"error":... 被切掉），
+   这里显式还原成正常块级流式布局。 */
 [data-sonner-toaster].toaster [data-sonner-toast][data-artx-negative="true"][data-styled="true"] [data-content] {
+  display: block !important;
+  -webkit-line-clamp: unset !important;
+  -webkit-box-orient: horizontal !important;
+  overflow: visible !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
   padding-left: 0 !important;
   padding-top: 22px !important;
   text-align: center !important;
@@ -810,7 +847,7 @@ html.light, .light {
     right: auto !important;
     top: auto !important;
     bottom: 32px !important;
-    width: min(360px, calc(100vw - 32px)) !important;
+    width: calc(100vw - 32px) !important;
     transform: translateX(-50%) !important;
   }
 
@@ -819,6 +856,13 @@ html.light, .light {
     right: auto !important;
     width: min(360px, calc(100vw - 32px)) !important;
     transform: translateX(-50%) !important;
+  }
+
+  /* 小屏下报错 toast 直接占满可用宽度，仍然完整显示不截断 */
+  [data-sonner-toaster].toaster [data-sonner-toast][data-artx-negative="true"][data-styled="true"] {
+    width: calc(100vw - 32px) !important;
+    min-width: 0 !important;
+    max-width: calc(100vw - 32px) !important;
   }
 }
 

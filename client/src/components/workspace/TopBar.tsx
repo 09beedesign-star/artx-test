@@ -17,6 +17,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { DEFAULT_IMAGE_MODEL_ID } from "@shared/image-models";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -59,7 +60,9 @@ const AVATAR_COLORS = [
 ];
 const EXTERNAL_AGENT_BASE_URL = "https://admin.artxsd.com";
 const OPENAI_COMPATIBLE_BASE_URL = `${EXTERNAL_AGENT_BASE_URL}/v1`;
-const RECOMMENDED_IMAGE_MODEL = "og-image2-medium";
+// 对外 OpenAI 兼容接口文档里展示的推荐模型，必须跟随全站默认模型，
+// 否则文档里抄给第三方 Agent 的 model 会是个已经不再推荐的旧值。
+const RECOMMENDED_IMAGE_MODEL = DEFAULT_IMAGE_MODEL_ID;
 const OPENAI_COMPATIBLE_VERSION = "506a8b9";
 
 function getTopBarApiBaseUrl() {

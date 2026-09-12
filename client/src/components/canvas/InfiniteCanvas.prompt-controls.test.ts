@@ -399,8 +399,11 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(generationBlock).toContain('operation: "camera_view"');
     expect(generationBlock).toContain('capability: "image_edit"');
     expect(generationBlock).toContain("buildCameraViewPrompt(cameraView)");
-    expect(source).toContain("画面内容必须尽可能锁定");
-    expect(source).toContain("不要替换场景、增删道具");
+    // 旧断言锁的是「画面内容必须尽可能锁定」「不要替换场景、增删道具」这类措辞，
+    // 它们会被模型读成「背景像素别动」，正是背景不跟着转的根因，已改写。
+    // 现在锁新措辞：锁的是「有哪些东西」，不是「从哪个角度看」。
+    expect(source).toContain("它不定义「从哪个角度看」");
+    expect(source).toContain("把同一个环境按新机位重新画出来是必须做的");
     expect(generationBlock).toContain("cameraView,");
     expect(source).toContain('asset-camera-view-four-apply');
     expect(source).toContain("runCameraViewFourGeneration");
@@ -590,7 +593,23 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(applyTextEditBlock).toContain("detail.originalText,");
     expect(applyTextEditBlock).toContain("detail.editedText,");
     expect(applyTextEditBlock).toContain("maskSrc");
-    expect(applyTextEditBlock).toContain('model: "auto"');
+    /**
+     * 2026-09-12：从 `model: "auto"` 改为显式 DEFAULT_IMAGE_AI_MODEL_ID。
+     *
+     * auto 的链首当前恰好也是 image2.5，但它表达的是**全局出图优先级**，
+     * 会随其他需求调整。智能文案编辑依赖的是 image2.5 在
+     * 「保真局部编辑 + 文字渲染」上的具体表现，不应跟着全局链漂移，
+     * 因此这里改为绑定具体模型常量。
+     */
+    expect(applyTextEditBlock).toContain("model: DEFAULT_IMAGE_AI_MODEL_ID");
+    expect(applyTextEditBlock).not.toContain('model: "auto"');
+    /**
+     * 贴回方式必须保持默认（local，本地字体确定性绘制），不得写死成 "ai"。
+     *
+     * 2026-09-12 A/B 实测：AI 叠字逐字命中率只有 3/7、4/7 且出现过错字，
+     * 本地绘制 7/7。文案编辑的第一诉求是「字要对」，所以不切 AI。
+     */
+    expect(applyTextEditBlock).not.toContain('textApplyMode: "ai"');
     expect(applyTextEditBlock).toContain('toast("正在应用文案"');
     expect(applyTextEditBlock).toContain("原图中所有非文字像素必须原封不动保留");
     expect(applyTextEditBlock).toContain("禁止重绘或改变人物、产品、背景");

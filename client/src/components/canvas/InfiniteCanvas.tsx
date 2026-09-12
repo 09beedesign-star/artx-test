@@ -45,7 +45,11 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { toast } from "sonner";
-import { DEFAULT_IMAGE_MODEL_ID } from "../../../../shared/image-models";
+import {
+  DEFAULT_IMAGE_MODEL_ID,
+  normalizeImageModelId,
+} from "../../../../shared/image-models";
+import { DEFAULT_TEXT_MODEL } from "../../../../shared/text-models";
 import {
   Image as ImageIcon,
   MessageSquare,
@@ -540,7 +544,7 @@ import {
   type ImageTextRegion,
   type ReferenceImageResult,
 } from "@/lib/ai";
-import { routeCreativeIntent } from "@/lib/ai-intent";
+import { buildAssistantContext, routeCreativeIntent } from "@/lib/ai-intent";
 import { selectEditedTextRegions } from "@/lib/text-replace";
 import {
   createWorkspaceHistoryProject,
@@ -561,8 +565,18 @@ import generationMark from "@/assets/generation/ai-generation-mark.svg";
 const ENABLE_NODE_CONNECTIONS = false;
 
 /**
- * 视角调整专用模型标识：后端会优先使用 NanoBanana (gemini-3.5-flash-preview)
- * 进行 3D 空间推理，失败时自动兜底 OpenAI Image2 (og-image2-medium)。
+ * 视角调整专用模型标识（虚拟 id，不直接对应任何上游模型）。
+ *
+ * 后端 `image-generation.ts:4415` 识别到 `camera-view-auto` + `operation: "camera_view"`
+ * 后，会把腾讯云 VOD AIGC 通道插到降级链最前面，实际尝试顺序为：
+ *   1. vod-gem  (腾讯云 VOD AIGC → ModelName=GEM, ModelVersion=3.1)  ← 实际首选
+ *   2. vod-og   (腾讯云 VOD AIGC → ModelName=OG)
+ *   3. og-image2-medium (token.bkeel.com /v1/images/edits)
+ *   4. gemini-3.5-flash-preview (NanoBanana)
+ *   ...后续按 IMAGE_MODEL_PRIORITY_IDS 顺序兜底
+ *
+ * 注意：早期注释称「优先 NanoBanana」，那是 VOD 通道接入前的行为，现已不准确。
+ * VOD GEM 对三维空间推理更稳，因此被提到最前。
  */
 const CAMERA_VIEW_MODEL_ID = "camera-view-auto";
 
@@ -3509,9 +3523,18 @@ function buildCameraViewPrompt(cameraView: AssetCameraViewValues) {
   return [
     "基于参考图生成同一主体的新摄像机视角，不是局部修图。",
     `目标相机参数：X 水平绕拍 ${cameraView.x}°，Y 垂直俯仰 ${cameraView.y}°，Z 镜头距离 ${cameraView.z}%。`,
-    "最大程度保持目标视角变化，画面内容必须尽可能锁定：同一主体、同一场景、同一背景物体、同一道具、同一光线、同一材质、同一色彩和同一画面氛围。",
-    "只允许改变摄像机位置、镜头方向、透视关系、遮挡关系、可见面、接触阴影和背景空间深度；不要替换场景、增删道具、改变服装/商品/背景内容或重新设计环境。",
-    "根据目标 X/Y/Z 视角重建主体与原场景的空间关系，让结果像同一场景中换了机位重新拍摄。",
+    // 关键：必须把「整个场景」当成一个刚性 3D 空间整体转动。
+    // 早期写法只强调「同一场景、同一背景」，模型会理解成「背景像素别动」，
+    // 结果只转主体、背景保持原视角，出现主体与背景透视割裂。
+    "把参考图理解成一个真实的三维空间：主体、地面、墙面、背景物体、道具全部是这个空间里位置固定的实体。",
+    "相机围绕这个空间移动，因此主体和背景必须一起改变视角，遵守同一套透视规则，共享同一个灭点和同一条地平线。",
+    "背景绝对不能停留在原来的角度：主体转多少度，背景、地面、墙面、环境线条就要跟着转多少度，绝不允许出现主体已转向而背景仍是正面的贴图感。",
+    // 不要写「同一场景/同一背景」这种词：模型会理解成「背景像素别动」。
+    // 只能表述成「同一批物体」，即锁 identity 不锁角度。
+    "参考图定义的是「画面里有哪些东西、它们长什么样」：同一主体、同一批背景物体和道具、同一光线布置、同一材质、同一色彩、同一氛围。它不定义「从哪个角度看」。",
+    "只允许改变摄像机位置、镜头方向、透视关系、遮挡关系、可见面、接触阴影和背景空间深度；不要换成另一个地点、不要增删道具、不要改变服装/商品细节、不要把环境重新设计成别的东西。把同一个环境按新机位重新画出来是必须做的，不算违规。",
+    "根据目标 X/Y/Z 视角，把主体和整个环境作为一个整体重建空间关系，让结果像同一场景中换了机位重新拍摄。",
+    "背景中原本被遮挡的区域要按新机位合理补全，原本可见的区域若被转到画面外则自然移出。",
     "不要生成多个人或多个商品，不要做镜像拼贴，不要生成新场景，不要保留原来的正面角度。",
     prompt ? `用户补充描述：${prompt}` : "",
   ].filter(Boolean).join("\n");
@@ -13588,7 +13611,7 @@ function BottomPromptBar({
           ? []
           : referencedAssets.map(asset => ({ ...asset }));
       const selectedGenerationModel = autoRunModelRef.current || model;
-      const selectedTextModel = "gpt-5.4-mini";
+      const selectedTextModel = DEFAULT_TEXT_MODEL;
       autoRunModelRef.current = null;
       setIsSending(true);
       setPrompt("");
@@ -13695,7 +13718,7 @@ function BottomPromptBar({
         const decision = isAutoMode
           ? await routeCreativeIntent({
               module: "bottom-global-prompt-router",
-              model: "gpt-4o",
+              model: DEFAULT_TEXT_MODEL,
               prompt: submittedPrompt || "请基于引用素材继续创作。",
               referencedAssets: submittedRefs,
               preferImageWhenReferences: true,
@@ -15608,7 +15631,15 @@ function ImageGeneratorPopover({
     [allImageModelOptions, allowedAiModels]
   );
   const imageModelOptions = useMemo(() => {
-    const canUseAuto = allowedAiModels === undefined || allowedAiModels.includes("og-image2-medium");
+    /**
+     * auto 的可用性取决于「用户是否被授权使用默认图片模型」。
+     *
+     * 2026-09-12 从硬编码的 "og-image2-medium" 改为 DEFAULT_IMAGE_AI_MODEL_ID：
+     * 中转站图片模型下线后，旧 id 已不在任何白名单里（读盘时会被迁移成 VOD id），
+     * 继续按旧 id 判断会让所有受限账号的 auto 选项**凭空消失**。
+     */
+    const canUseAuto = allowedAiModels === undefined
+      || allowedAiModels.includes(DEFAULT_IMAGE_AI_MODEL_ID);
     return canUseAuto ? [AUTO_AI_MODEL, ...availableImageModels] : availableImageModels;
   }, [allowedAiModels, availableImageModels]);
   useEffect(() => {
@@ -16989,7 +17020,7 @@ function CanvasTopToolPalette({
 
   // 工具列表
   const tools = [
-    { id: "image-ai", label: "智能生图", icon: <Sparkles size={17} /> },
+    // { id: "image-ai", label: "智能生图", icon: <Sparkles size={17} /> },
     {
       id: "annotate",
       label: "智能注释",
@@ -17635,8 +17666,15 @@ function getCanvasRenderableImageSrc(src: string) {
       hostname === "localhost" ||
       hostname === "127.0.0.1" ||
       hostname === "::1";
+    // 本地前端保持同源：dev 已有本地出图（vite.config.ts 的 /api/images/tasks）
+    // 和本地 /uploads 静态服务，图片就落在本机 ARTX_DATA_DIR 下。
+    //
+    // 此处原本无条件改写成 https://backstage.artxsd.com（引入于 bee1c8f
+    // "Route test environment to Tencent Cloud"，2026-07-06）——
+    // 那时本地没有后端与 /uploads 服务，图只存在远程，改写是对的；
+    // 现在前提已不成立，再改写会让本地新生成的图指向远程并 404 裂图。
     if (isLocalFrontend && baseUrl === window.location.origin) {
-      baseUrl = "https://backstage.artxsd.com";
+      return uploadPath;
     }
   }
   return `${baseUrl || "https://backstage.artxsd.com"}${uploadPath}`;
@@ -17697,6 +17735,20 @@ type CanvasAssistantMessage = {
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
+  /**
+   * 【2026-09-11 新增】本条消息涉及的图片，用于跨轮次上下文。
+   *
+   * 此前出图成功只写回一句「已根据你的请求生成图片：xxx」，
+   * **图本身从未进入对话历史**；联网搜到的参考图也只存在
+   * referenceOptions 里，同样不进上下文。
+   * 结果就是用户说「这张再暗一点」时，模型完全不知道指哪张。
+   */
+  contextImages?: Array<{ src: string; title?: string }>;
+  /**
+   * 生图实际使用的完整提示词（可能经过大模型改写，与用户原话不同）。
+   * 后续轮次要在此基础上追改，必须知道上一版到底画了什么。
+   */
+  contextImagePrompt?: string;
   referenceOptions?: Array<ReferenceImageResult & { selected?: boolean }>;
   referenceSearchQuery?: string;
   followUpPrompt?: string;
@@ -17826,6 +17878,67 @@ const COMPOSER_REF_TOKEN_SIZE = {
   labelMaxWidth: 51,
   labelFontSize: 12,
 } as const;
+
+/**
+ * 图文混排提示词出图时优先使用的图片模型（用户口中的「gem」）。
+ *
+ * 走 shared/image-models.ts 的 normalizeImageModelId("gem") 归一化结果，
+ * 不在这里硬编码字符串 —— 免得哪天 gem 的通道 id 改了，这里成为漏网之鱼。
+ */
+const COMPOSED_REFERENCE_IMAGE_MODEL_ID = normalizeImageModelId("gem");
+
+/**
+ * 智能电商产品图「提示词生图」模式使用的图片模型（用户指定的「gem」）。
+ *
+ * 与 COMPOSED_REFERENCE_IMAGE_MODEL_ID 同为 gem，但语义来源不同：
+ * 那个是提示词框图文混排出图，这个是电商产品图自定义背景，
+ * 二者未来可能各自调整，因此不复用同一个常量，避免改一处误伤另一处。
+ */
+const SMART_COMMERCE_PROMPT_IMAGE_MODEL_ID = normalizeImageModelId("gem");
+
+/**
+ * 在多张引用图里挑出「要被改造的底图」的下标。
+ *
+ * 原实现写死取最后一张。那是个纯位置假设，和用户的语义意图无关：
+ * 用户传「脚」「红鞋」两张图说「让脚穿上这双鞋」时，鞋在最后，
+ * 于是鞋成了画布、脚成了素材，产出的自然是一张完全不相干的图。
+ *
+ * 现在优先采纳 claude 读图后给出的 targetImageIndex（1 起算）。
+ * 它越界、缺失或不可信时才回退到「最后一张」——保持与改动前完全一致的行为，
+ * 确保裁决链路失效时最多退回原状，不会更糟。
+ */
+function resolveTargetReferenceIndex(
+  referenceCount: number,
+  decidedIndex?: number
+) {
+  const fallback = referenceCount - 1;
+  if (!decidedIndex || !Number.isInteger(decidedIndex)) return fallback;
+  const zeroBased = decidedIndex - 1;
+  if (zeroBased < 0 || zeroBased >= referenceCount) return fallback;
+  return zeroBased;
+}
+
+/**
+ * 多图融合时给图片模型的角色引导语。
+ *
+ * 相比改动前有两处实质变化：
+ * 1. 不再写死 "the target person" —— 底图完全可能是鞋、包、家具这类物件，
+ *    一句 person 就足以把模型引导去生成一个凭空出现的人（本 bug 的现象之一）。
+ *    改为中性的 subject/scene，并显式声明「若底图里没有人就不要造人」。
+ * 2. 显式点名「第几张是底图」。此前只说 "the last referenced image"，
+ *    而底图现在由语义裁决决定，未必排在最后，措辞必须跟着走。
+ *
+ * @param targetPosition 底图在送给模型的图片序列里的位置，1 起算
+ */
+function buildReferenceEditGuidance(targetPosition: number) {
+  return [
+    `Reference image ${targetPosition} is the target canvas. Keep its subject, scene, composition, background, lighting, camera angle, and aspect ratio unchanged.`,
+    "If the target canvas has no human in it, do not add one; keep the same kind of subject it already shows.",
+    "All other reference images are material only: take just the requested object, garment, accessory, texture, pattern, or color from them.",
+    "Do not copy the composition, background, or framing of the material images, and do not output them side by side or as a collage.",
+    "Return a single edited version of the target canvas with the requested change applied to it.",
+  ].join("\n");
+}
 
 // 引用类标签的统一配色（黑色）。image 与 annotation 共用，避免再次跑偏。
 //
@@ -18105,6 +18218,54 @@ function CanvasAssistantPanel({
   } | null>(null);
   const activeComposerSegmentIdRef = useRef<string | null>(null);
   const activeComposerCursorRef = useRef(0);
+  /**
+   * 程序化聚焦期间的标记，用于临时禁用 selectionchange 守卫。
+   *
+   * focusComposerSegment 在 60ms setTimeout 里设置光标，会触发 selectionchange 事件；
+   * 全局守卫（:19278-19355）监听该事件并可能再次调整光标，形成循环 → 光标飞动、无法输入。
+   * 在程序化聚焦期间将此标记设为 true，守卫开头检查后直接 return，避免重入。
+   */
+  /**
+   * 程序化聚焦的保护窗口截止时间（Date.now() 毫秒）。
+   *
+   * 曾经是个布尔值 isFocusingProgrammaticallyRef，但那是有并发缺陷的：
+   * 有**两个独立的调用方**会上锁 —— focusComposerSegment（60ms 后设置光标）
+   * 和 selectionchange 守卫自身（立即设置光标）。点击 skill 标签时两者重叠：
+   *
+   *   focusComposerSegment 上锁 ──────────────── 60ms ──── 设置光标
+   *                 守卫上锁 ── setTimeout 0 ── 解锁 ↑
+   *                                          锁在这里就没了
+   *
+   * 后者的解锁把前者仍需要的保护一并撤掉，于是 60ms 后那次光标设置完全裸奔，
+   * 守卫照样被唤醒 → 光标飞动、无法输入。单个 skill 时两条路径不一定重叠，
+   * 所以上一版看起来"修好了"，多试几个 skill 就必现。
+   *
+   * 换成截止时间戳后，多个调用方只会把窗口往后推（取最大值），
+   * 谁都无法提前结束别人的保护期。
+   */
+  const programmaticFocusUntilRef = useRef(0);
+
+  /**
+   * 开启/延长程序化聚焦保护窗口。
+   * @param durationMs 从现在起保护多久；只会延长窗口，不会缩短。
+   */
+  const beginProgrammaticFocus = useCallback((durationMs: number) => {
+    programmaticFocusUntilRef.current = Math.max(
+      programmaticFocusUntilRef.current,
+      Date.now() + durationMs
+    );
+  }, []);
+
+  const isProgrammaticFocusActive = useCallback(
+    () => Date.now() < programmaticFocusUntilRef.current,
+    []
+  );
+  // 提示词框左下角「+上传」按钮：隐藏的 file input 与它的 hover 态
+  const composerUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const [composerUploadButtonHovered, setComposerUploadButtonHovered] =
+    useState(false);
+  const [composerUploadButtonPressed, setComposerUploadButtonPressed] =
+    useState(false);
   const composerPreviewHoverTimeoutRef = useRef<number | null>(null);
   const syncedReferenceIdsRef = useRef<Set<string>>(new Set());
   const syncedAnnotationIdsRef = useRef<Set<string>>(new Set());
@@ -18155,13 +18316,16 @@ function CanvasAssistantPanel({
       : fallbackImageModelId;
   });
   const [assistantTextModelId, setAssistantTextModelId] = useState(() => {
-    if (typeof window === "undefined") return "gpt-5.4-mini";
+    // 注意：老用户 localStorage 里存的是 "gpt-5.4-mini"，
+    // 下面的 TEXT_AI_MODELS.some 会判定为非法值并回落到 DEFAULT_TEXT_MODEL，
+    // 这正是我们要的效果（自动迁移到 claude-opus-5），不要额外做兼容放行。
+    if (typeof window === "undefined") return DEFAULT_TEXT_MODEL;
     const stored = window.localStorage.getItem(
       CANVAS_ASSISTANT_TEXT_MODEL_STORAGE_KEY
     );
     return TEXT_AI_MODELS.some(model => model.id === stored)
       ? stored!
-      : "gpt-5.4-mini";
+      : DEFAULT_TEXT_MODEL;
   });
   const [assistantImageCount, setAssistantImageCount] = useState(1);
   const [assistantImageRatio, setAssistantImageRatio] =
@@ -18390,6 +18554,16 @@ function CanvasAssistantPanel({
 
   const focusComposerSegment = useCallback(
     (segmentId?: string | null, cursorPosition?: number) => {
+      // 进入程序化聚焦：这期间产生的 selectionchange 全部由守卫忽略。
+      //
+      // 必须在 setTimeout 之外**立刻**开窗——用户点击后到 60ms 回调之间，
+      // 浏览器自身的默认光标落点也会触发 selectionchange，
+      // 若此时守卫还是活跃的，它会先把光标挪走，随后回调再挪回来，同样构成抖动。
+      //
+      // 窗口取 60ms 延迟 + 120ms 余量：setSelectionRange/addRange 派发的
+      // selectionchange 是异步的，聚焦完成那一刻立即关窗等于没防住，
+      // 必须留出足够让事件送达的余量。
+      beginProgrammaticFocus(180);
       window.setTimeout(() => {
         const id =
           segmentId ||
@@ -18422,9 +18596,13 @@ function CanvasAssistantPanel({
             selection?.addRange(range);
           }
         }
+        // 光标已落位，再补一段短窗口盖住这次操作自身派发的异步 selectionchange。
+        // 不需要（也不能）显式解锁：窗口到点自然失效，
+        // 这样就不会像布尔锁那样把别的调用方仍需要的保护一起撤掉。
+        beginProgrammaticFocus(80);
       }, 60);
     },
-    [composerSegments]
+    [composerSegments, beginProgrammaticFocus]
   );
 
   const focusLeadingComposerSegment = useCallback(() => {
@@ -18468,6 +18646,87 @@ function CanvasAssistantPanel({
     activeComposerCursorRef.current = lastTextSegment.text.length;
     focusComposerSegment(lastTextSegment.id, lastTextSegment.text.length);
   }, [composerSegments, focusComposerSegment]);
+
+  /**
+   * 按点击坐标把光标送到「视觉上最近」的文本段。
+   *
+   * 起因：插入图片标签后点标签右侧点不动光标。两个原因叠加：
+   * 1. 标签之间的空文本段为了不破坏左对齐，横向 padding 被压成 0
+   *    （见 :21910 一带），实际可点区域只剩 minWidth 的 2px，
+   *    鼠标几乎不可能正好命中。
+   * 2. 兜底调的是无参数的 focusComposerSegment()，它落到
+   *    activeComposerSegmentIdRef —— 那是**上次待过的段**，
+   *    与这次点的位置毫无关系。刚插入标签时它常指向标签左边的段，
+   *    于是光标要么不动、要么往左跳。
+   *
+   * 这里改为遍历所有文本段的实际布局矩形，选出离点击点最近的那个：
+   * - 同一行内（点击 y 落在该段的上下边界内）优先，避免跨行误选；
+   * - 再按横向距离取最近；
+   * - 点在段的右半边就把光标放到末尾，左半边放到开头。
+   *
+   * 找不到任何文本段时回退到 focusTrailingComposerSegment，
+   * 保持与改动前一致的行为。
+   */
+  const focusComposerSegmentNearPoint = useCallback(
+    (clientX: number, clientY: number) => {
+      const textSegments = composerSegments.filter(
+        segment => segment.type === "text"
+      );
+      if (textSegments.length === 0) {
+        focusComposerSegment();
+        return;
+      }
+
+      let best: {
+        id: string;
+        atEnd: boolean;
+        sameRow: boolean;
+        distance: number;
+      } | null = null;
+
+      for (const segment of textSegments) {
+        const node = composerInputRefs.current[segment.id];
+        if (!node) continue;
+        const rect = node.getBoundingClientRect();
+        // 空段被压成 0 宽后 rect 可能退化，但仍有有效的 top/bottom，
+        // 依然可以参与就近比较。
+        const sameRow = clientY >= rect.top && clientY <= rect.bottom;
+        const horizontalDistance =
+          clientX < rect.left
+            ? rect.left - clientX
+            : clientX > rect.right
+              ? clientX - rect.right
+              : 0;
+        const verticalDistance = sameRow
+          ? 0
+          : clientY < rect.top
+            ? rect.top - clientY
+            : clientY - rect.bottom;
+        // 纵向差异放大权重，确保「同一行」始终压过「另一行但横向更近」。
+        const distance = horizontalDistance + verticalDistance * 1000;
+        if (!best || distance < best.distance) {
+          best = {
+            id: segment.id,
+            atEnd: clientX >= (rect.left + rect.right) / 2,
+            sameRow,
+            distance,
+          };
+        }
+      }
+
+      if (!best) {
+        focusTrailingComposerSegment();
+        return;
+      }
+
+      const target = textSegments.find(segment => segment.id === best!.id);
+      const cursor = best.atEnd ? (target?.text.length ?? 0) : 0;
+      activeComposerSegmentIdRef.current = best.id;
+      activeComposerCursorRef.current = cursor;
+      focusComposerSegment(best.id, cursor);
+    },
+    [composerSegments, focusComposerSegment, focusTrailingComposerSegment]
+  );
 
   const handleInspirationCopy = useCallback(async (item: InspirationPromptItem) => {
     try {
@@ -18526,6 +18785,45 @@ function CanvasAssistantPanel({
       )
         return previous;
       return nextWidths;
+    });
+  }, [composerSegments]);
+
+  /**
+   * 把 segment.text 同步进 contentEditable 文本段的 DOM。
+   *
+   * 多段模式下文本段用 contentEditable <span> 渲染，它**不是受控组件**：
+   * React 不会自动把 segment.text 写进 DOM。原先唯一的写入点在 ref 回调里
+   * （`if (node.textContent !== segment.text) node.textContent = ...`），
+   * 而 ref 回调只在节点挂载/卸载时触发，**后续 state 更新根本不会重跑**。
+   *
+   * 于是出现用户反馈的现象：在图片标签左边打一个「S」之后，
+   * DOM 里已经有了这个字符，此后无论怎么改、怎么删，
+   * state 变了 DOM 却纹丝不动 —— 表现为「输入之后不能改，也无法删除」。
+   * 单段模式用的是 <textarea value={...}>（真正受控），
+   * 所以这个 bug 只在插入标签、分裂出多段之后才复现。
+   *
+   * 这里补同步 effect，但有两条必须遵守的约束：
+   * 1. **只在内容确实不一致时写**。否则每次渲染都重置 textContent，
+   *    光标会被顶到末尾 —— 正是之前修过的「光标飞动」。
+   * 2. **跳过当前获得焦点的元素**。用户正在里面打字时 DOM 才是最新的事实来源，
+   *    此时回写会打断输入法组合（IME）并丢失光标位置。
+   *    失焦元素没有这个顾虑，而它恰好覆盖了真正需要同步的场景：
+   *    删除标签、拖拽重排、外部清空输入框。
+   */
+  useEffect(() => {
+    composerSegments.forEach(segment => {
+      if (segment.type !== "text") return;
+      const node = composerInputRefs.current[segment.id];
+      if (!node) return;
+      // textarea（单段模式）由 React 受控，不要插手。
+      if (
+        node instanceof HTMLInputElement ||
+        node instanceof HTMLTextAreaElement
+      )
+        return;
+      if (document.activeElement === node) return;
+      if (node.textContent === segment.text) return;
+      node.textContent = segment.text;
     });
   }, [composerSegments]);
 
@@ -19108,6 +19406,33 @@ function CanvasAssistantPanel({
         setComposerTextSegment(segmentId, "");
         activeComposerSegmentIdRef.current = segmentId;
         activeComposerCursorRef.current = 0;
+        /**
+         * contentEditable 分支必须**在这里显式清空 DOM**，否则最后一个字符永远删不掉。
+         *
+         * 三处代码原本互相矛盾，谁都没把这个字符清掉：
+         * 1. 调用方在 deletingFinalCharacter 分支里 event.preventDefault()，
+         *    浏览器**不会**执行默认删除 —— DOM 里的字符还在；
+         * 2. 这里 setComposerTextSegment(segmentId, "") 只改 React state；
+         * 3. 同步 effect（:18787）有一句 `if (document.activeElement === node) return;`，
+         *    而此刻这个节点正是焦点元素，于是它**跳过回写**。
+         *
+         * 结果 state 为空、DOM 仍是那一个字符。下一次 Backspace 读到的是
+         * contentEditable 的 textContent（长度仍为 1），又命中同一分支 ——
+         * 表现就是「文案第一个字符怎么退格都删不掉，除非全选删除」。
+         *
+         * 焦点守卫**不能移除**：去掉它会退回「输入被打断、IME 组合被破坏」的老 bug。
+         * 所以由本函数在清 state 的同时补上这一刀，这也是最小改动 ——
+         * 下面的 setTimeout 本就在直接操作 DOM 设置光标。
+         */
+        const editable = composerInputRefs.current[segmentId];
+        if (
+          editable &&
+          !(editable instanceof HTMLInputElement) &&
+          !(editable instanceof HTMLTextAreaElement) &&
+          editable.textContent !== ""
+        ) {
+          editable.textContent = "";
+        }
         window.setTimeout(() => {
           const input = composerInputRefs.current[segmentId];
           input?.focus();
@@ -19119,6 +19444,10 @@ function CanvasAssistantPanel({
             return;
           }
           if (!input) return;
+          // 兜底：若期间有重渲染把字符又写了回来，这里再清一次。
+          if (input.textContent !== "") {
+            input.textContent = "";
+          }
           const range = document.createRange();
           const selection = window.getSelection();
           range.setStart(input.firstChild || input, 0);
@@ -19246,6 +19575,13 @@ function CanvasAssistantPanel({
   useEffect(() => {
     if (typeof document === "undefined") return;
     const handleSelectionChange = () => {
+      // 程序化聚焦期间不要插手。
+      //
+      // 这是「点击 skill 标签后面想输入文字时光标飞动、且打不出字」的根因：
+      // focusComposerSegment 设置光标 → 派发 selectionchange → 本守卫认为
+      // 光标落在 token 附近又把它挪到相邻 segment → 再次派发 selectionchange…
+      // 两者互相触发形成死循环，每次 focus 都会打断 IME/按键，于是无法输入。
+      if (isProgrammaticFocusActive()) return;
       const shell = composerShellRef.current;
       if (!shell) return;
       const sel = window.getSelection();
@@ -19300,6 +19636,9 @@ function CanvasAssistantPanel({
           ? nextInput.value
           : nextInput.textContent || "";
       const nextPos = Math.max(0, Math.min(cursorPos, textValue.length));
+      // 守卫自己挪光标同样会派发 selectionchange，必须先开窗再动手，
+      // 否则本函数会把自己再唤醒一次（自激）。
+      beginProgrammaticFocus(80);
       nextInput.focus();
       if (
         nextInput instanceof HTMLInputElement ||
@@ -19316,11 +19655,12 @@ function CanvasAssistantPanel({
       }
       activeComposerSegmentIdRef.current = nextSegment.id;
       activeComposerCursorRef.current = nextPos;
+      // 同样不显式解锁，让窗口自然到期即可（原因见 programmaticFocusUntilRef 的注释）。
     };
     document.addEventListener("selectionchange", handleSelectionChange);
     return () =>
       document.removeEventListener("selectionchange", handleSelectionChange);
-  }, [composerSegments]);
+  }, [composerSegments, beginProgrammaticFocus, isProgrammaticFocusActive]);
 
   const composerText = getAssistantComposerText(composerSegments);
   const composerPrompt = getAssistantComposerPrompt(composerSegments);
@@ -19331,6 +19671,38 @@ function CanvasAssistantPanel({
   const totalReferenceCount =
     composerImages.length + composerAnnotations.length;
   const hasActiveSkill = Boolean(activeSkill);
+  /**
+   * 输入框里 skill 标签与图片标签同时存在。
+   *
+   * 两类标签高度不同（skill 是 py-0.5 的文字胶囊，image 是固定高度的缩略图），
+   * 各自原本只留了 2px 下边距。单独出现时因为同一行内基线对齐还看得过去，
+   * 一旦共存并换行，上下两行就会几乎贴在一起。此时把纵向外边距统一抬到 4px。
+   *
+   * 判定基于 composerSegments 而不是 activeSkill —— 标签是否真的渲染出来
+   * 取决于 segments，activeSkill 只是它的来源之一。
+   */
+  const composerHasSkillAndImageTokens =
+    composerSegments.some(segment => segment.type === "skill") &&
+    // annotation 标签与 image 标签共用 COMPOSER_REF_TOKEN_SIZE（26px 高），
+    // 视觉上是同一类「引用标签」，与 skill 共存时的贴边问题完全一样，
+    // 因此一并纳入判定，避免只修了图片、注释仍然挤在一起。
+    composerSegments.some(
+      segment => segment.type === "image" || segment.type === "annotation"
+    );
+  /**
+   * 标签的纵向外边距（上/下各一份），单位 px。
+   *
+   * 相邻两行之间的实际间距 = 上一行的 margin-bottom + 下一行的 margin-top，
+   * 行间外边距不会像块级元素那样折叠，所以要拿目标间距的一半。
+   * 目标 4px → 上下各 2px。
+   *
+   * 之所以能用 margin 撑开行距：两类标签都是 inline-flex（原子行内盒），
+   * 计算行盒高度时用的是它们的 **margin box**，纵向 margin 会真实生效。
+   * 换成普通 inline 元素则无效——这也是为什么不能直接给文字标签加 margin 了事。
+   *
+   * 不共存时维持改动前的取值（上 0 / 下 2），避免无谓的视觉位移。
+   */
+  const composerTokenVerticalMargin = composerHasSkillAndImageTokens ? 2 : null;
   const hasComposerInputContent =
     hasPrompt || totalReferenceCount > 0 || hasActiveSkill;
   const shouldShowComposerPlaceholder = !hasComposerInputContent;
@@ -19433,6 +19805,17 @@ function CanvasAssistantPanel({
             message.followUpPrompt ||
             "我已经记住你选中的参考图了。接下来告诉我你更想保留哪些特征，比如风格、构图、颜色、材质或主体姿态，我再决定继续追问还是直接出图。",
           timestamp: new Date(),
+          /**
+           * 选中的参考图要进上下文。
+           *
+           * 【2026-09-11 新增】此前搜到的图只存在 referenceOptions 字段里，
+           * 即便用户勾选了也**从不进入对话历史**，
+           * 于是下一句「按第二张的风格来」模型根本不知道第二张长什么样。
+           */
+          contextImages: selected.map(item => ({
+            src: item.src,
+            title: item.title,
+          })),
         },
       ]);
       setSelectedReferenceIds([]);
@@ -19482,6 +19865,87 @@ function CanvasAssistantPanel({
       focusComposerSegment(nextFocusSegmentId);
     },
     [focusComposerSegment]
+  );
+
+  /**
+   * 提示词框「+上传」按钮：把本地图片读成 base64，插入成图片引用标签。
+   *
+   * 刻意复用 insertComposerToken + createAssistantImageSegment，
+   * 与「从画布拖拽图片进提示词框」走完全同一条数据流：
+   * 同样的 ImageGeneratorReferenceAsset 结构、同样的 segment 类型、
+   * 同样的渲染分支和删除逻辑。这样标签样式天然一致，
+   * 后续 handleSubmit 里 getAssistantComposerImages 也能直接拿到，
+   * 不需要为「上传来的图」单开一套旁路。
+   *
+   * 存储沿用项目既有做法：base64 内联，不落后端。
+   * 项目里没有 /api/upload 之类的端点，画布本地导入（:14946 一带）
+   * 也是直接 readAsDataURL，这里保持一致。
+   */
+  const handleComposerUploadChange = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const input = event.target;
+      const files = Array.from(input.files || []);
+      // 先清空 value，否则连续两次选同一个文件不会触发 change。
+      input.value = "";
+      if (files.length === 0) return;
+
+      const imageFiles = files.filter(fileLooksLikeImage);
+      const rejectedCount = files.length - imageFiles.length;
+      if (rejectedCount > 0) {
+        toast("已跳过非图片文件", {
+          description: `${rejectedCount} 个文件不是图片格式，未加入引用`,
+        });
+      }
+      if (imageFiles.length === 0) return;
+
+      // 单张上限 10MB。base64 会比原文件再大约 33%，
+      // 而这些内容最终要塞进请求体发给图片接口，过大直接 413。
+      const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+      const accepted: File[] = [];
+      let oversizedCount = 0;
+      imageFiles.forEach(file => {
+        if (file.size > MAX_UPLOAD_BYTES) oversizedCount += 1;
+        else accepted.push(file);
+      });
+      if (oversizedCount > 0) {
+        toast("部分图片过大", {
+          description: `${oversizedCount} 张图片超过 10MB，未加入引用`,
+        });
+      }
+      if (accepted.length === 0) return;
+
+      const readAsDataUrl = (file: File) =>
+        new Promise<string | null>(resolve => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result;
+            resolve(typeof result === "string" ? result : null);
+          };
+          reader.onerror = () => resolve(null);
+          reader.readAsDataURL(file);
+        });
+
+      let failedCount = 0;
+      for (const file of accepted) {
+        const dataUrl = await readAsDataUrl(file);
+        if (!dataUrl) {
+          failedCount += 1;
+          continue;
+        }
+        const asset: ImageGeneratorReferenceAsset = {
+          id: `composer-upload-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+          title: file.name.replace(/\.[^.]+$/, "") || "上传图片",
+          src: dataUrl,
+        };
+        insertComposerToken(() => createAssistantImageSegment(asset));
+      }
+      if (failedCount > 0) {
+        toast("部分图片读取失败", {
+          description: `${failedCount} 张图片无法读取，请重试`,
+        });
+      }
+    },
+    [insertComposerToken]
   );
 
   const syncComposerSkillToken = useCallback(
@@ -19535,11 +19999,27 @@ function CanvasAssistantPanel({
       );
       return;
     }
-    const firstSegment = composerSegments[0];
+    /**
+     * 收敛判定必须看「skill 是不是**第一个标签**」，而不是「在数组第 0 位」。
+     *
+     * 这里原先写的是 composerSegments[0]?.type === "skill"，而它**永远为假**：
+     * normalizeAssistantComposerSegments 会在首个 token 之前强制补一个空文本段
+     * （:17981-17983），所以规范化之后的形状恒为 [text, skill, ...]，
+     * 第 0 位永远是 text。
+     *
+     * 后果是这个 effect 永远不收敛：每轮都判定「skill 不在首位」→ 重建 skill 段
+     * → setComposerSegments → 依赖里的 composerSegments 变化 → effect 再跑…
+     * 而每次 normalize 又会多留下一个空文本段，段数无限增长。
+     * 表现就是「一引入 skill 就光标飞速抖动、字符左右跳」——
+     * 每轮重渲染都会重置 contentEditable 的 DOM 与光标。
+     *
+     * 正确的不变量：**跳过前导空文本段后，第一个标签应当是当前 activeSkill**。
+     */
+    const firstTokenSegment = composerSegments.find(isAssistantTokenSegment);
     const activeSkillSegment =
-      firstSegment?.type === "skill" &&
-      firstSegment.skill.id === activeSkill.id
-        ? firstSegment
+      firstTokenSegment?.type === "skill" &&
+      firstTokenSegment.skill.id === activeSkill.id
+        ? firstTokenSegment
         : null;
     if (activeSkillSegment && skillSegments.length === 1) return;
     if (skillSegments.length > 0) {
@@ -20035,7 +20515,7 @@ function CanvasAssistantPanel({
         try {
           const decision = await routeCreativeIntent({
             module: "home-prompt-canvas-router",
-            model: "gpt-4o",
+            model: DEFAULT_TEXT_MODEL,
             prompt: submittedText,
           });
           if (decision.mode === "image") {
@@ -20224,17 +20704,24 @@ function CanvasAssistantPanel({
         const requestedImageCount = shouldEditTargetReference
           ? 1
           : assistantImageCount;
+        /**
+         * 与无 skill 分支共用同一套角色引导语。
+         *
+         * skill 路径这里不改底图的挑选规则（skill 自身语义决定了哪张是目标，
+         * 且 image_edit 类 skill 常常只有 1 张图），只把写死的 "person" 措辞
+         * 换成中性表述——那句话在目标是物件时会诱导模型凭空造人。
+         * 底图同样固定在下发序列的第 1 位，故传 1。
+         */
+        const referenceEditGuidance = buildReferenceEditGuidance(1);
+        // 先抽成变量：backgroundTaskInput 就在 payload 的初始化表达式里面，
+        // 那时 payload 尚未完成赋值，不能自引用 payload.prompt。
+        const skillEditPrompt =
+          shouldEditTargetReference && targetReference
+            ? [finalImagePrompt, referenceEditGuidance].join("\n")
+            : finalImagePrompt;
         const payload: ImageGeneratorPayload = {
           projectId,
-          prompt:
-            shouldEditTargetReference && targetReference
-              ? [
-                  finalImagePrompt,
-                  "Use the last referenced image as the target canvas. Preserve the target person's identity, pose, composition, background, lighting, camera angle, and aspect ratio.",
-                  "Use the earlier referenced images only as visual references for the requested object, accessory, texture, pattern, color, or detail.",
-                  "Do not generate a new unrelated person or scene.",
-                ].join("\n")
-              : finalImagePrompt,
+          prompt: skillEditPrompt,
           model: shouldEditTargetReference
             ? DEFAULT_IMAGE_AI_MODEL_ID
             : assistantAutoMode
@@ -20258,13 +20745,7 @@ function CanvasAssistantPanel({
                   operation: "edit",
                   imageSrc: targetReference.src,
                   model: DEFAULT_IMAGE_AI_MODEL_ID,
-                  prompt:
-                    [
-                      finalImagePrompt,
-                      "Use the last referenced image as the target canvas. Preserve the target person's identity, pose, composition, background, lighting, camera angle, and aspect ratio.",
-                      "Use the earlier referenced images only as visual references for the requested object, accessory, texture, pattern, color, or detail.",
-                      "Do not generate a new unrelated person or scene.",
-                    ].join("\n"),
+                  prompt: skillEditPrompt,
                   images: sourceReferences,
                   skillId: activeSkill.id,
                   targetWidth: targetReference.width,
@@ -20328,14 +20809,17 @@ function CanvasAssistantPanel({
             model: assistantTextModel.id,
             prompt: routedPrompt,
             referencedAssets: assistantImages,
-            recentMessages: messages
-              .slice(-8)
-              .map(message => ({
-                role: message.role,
-                content: message.content,
-              })),
+            // 带图历史：让「这张再暗一点」这类指代有据可循。
+            recentMessages: buildAssistantContext(messages),
             preferImageWhenReferences: true,
             allowReferenceSearch: !hasAnnotationReferences,
+            // 图文混排时交给 claude-opus-5 读图 + 读文案后裁决。
+            //
+            // 不这么做的话，routeCreativeIntent 里的
+            // `hasReferences && preferImageWhenReferences` 分支会直接 early return，
+            // **一次大模型都不调**，imagePrompt 就是原始的图文混排字符串，
+            // 里面还留着「引用图 1：xxx」这种占位编号，图片模型根本读不懂图文关系。
+            forceModelDecision: submittedImages.length > 0,
           })
         : null;
 
@@ -20351,12 +20835,7 @@ function CanvasAssistantPanel({
           model: assistantTextModel.id,
           images: assistantImages,
           messages: [
-            ...messages
-              .slice(-8)
-              .map(message => ({
-                role: message.role,
-                content: message.content,
-              })),
+            ...buildAssistantContext(messages),
             { role: "user", content: routedPrompt },
           ],
         });
@@ -20402,12 +20881,32 @@ function CanvasAssistantPanel({
         });
         const generationId = `right-assistant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         const shouldEditTargetReference = assistantImages.length >= 2;
+        /**
+         * 底图下标由 claude 的语义裁决决定，不再写死最后一张。
+         * decision 缺失（比如没走大模型分支）时 resolveTargetReferenceIndex
+         * 自动回退到「最后一张」，与改动前行为一致。
+         */
+        const targetReferenceIndex = shouldEditTargetReference
+          ? resolveTargetReferenceIndex(
+              assistantImages.length,
+              decision?.targetImageIndex
+            )
+          : -1;
         const targetReference = shouldEditTargetReference
-          ? assistantImages[assistantImages.length - 1]
+          ? assistantImages[targetReferenceIndex]
           : undefined;
+        // 底图未必在末尾了，所以不能再用 slice(0, -1)，要按下标剔除。
         const sourceReferences = shouldEditTargetReference
-          ? assistantImages.slice(0, -1)
+          ? assistantImages.filter((_, index) => index !== targetReferenceIndex)
           : assistantImages;
+        /**
+         * 送给图片模型的序列里，底图恒定排第 1 位：
+         * editImageWithPrompt 把 targetReference 作为 imageSrc 传入，
+         * 服务端 editViaReferenceGeneration 组装时固定放在 images[0]
+         * （server/image-generation.ts:4810），其余参考图依次跟在后面。
+         * 所以这里传 1，而不是 targetReferenceIndex + 1。
+         */
+        const referenceEditGuidance = buildReferenceEditGuidance(1);
         const targetDisplaySize =
           targetReference?.width && targetReference?.height
             ? { w: targetReference.width, h: targetReference.height }
@@ -20415,21 +20914,46 @@ function CanvasAssistantPanel({
         const requestedImageCount = shouldEditTargetReference
           ? 1
           : assistantImageCount;
+        /**
+         * 图文混排出图优先用 gem。
+         *
+         * 只在「auto 模式 + 存在引用图」时生效：
+         * - 用户手动选定了模型（非 auto）就照他选的走，不越权覆盖；
+         * - 没有引用图时是纯文生图，与本能力无关，维持原有 auto 降级链。
+         *
+         * 多图融合（shouldEditTargetReference）同样纳入：
+         * 那条路原本写死 DEFAULT_IMAGE_AI_MODEL_ID（og-image2-medium），
+         * 走的是 multipart /images/edits，多张图平铺进 form-data，
+         * 「谁是底图、谁是素材」的角色关系在传输层就丢了；
+         * gem 走对话式参考图链路，图与提示词一起进上下文，才读得懂这种关系。
+         */
+        const preferGemForComposedReferences =
+          assistantAutoMode &&
+          submittedImages.length > 0 &&
+          availableAssistantImageModels.some(
+            model => model.id === COMPOSED_REFERENCE_IMAGE_MODEL_ID
+          );
+        // 多图融合时实际下发的模型，payload / backgroundTaskInput / 真实调用
+        // 三处必须完全一致，之前分散写三遍是改漏的温床。
+        const referenceEditModelId = preferGemForComposedReferences
+          ? COMPOSED_REFERENCE_IMAGE_MODEL_ID
+          : DEFAULT_IMAGE_AI_MODEL_ID;
+        const referenceEditPrompt = [
+          finalImagePrompt,
+          referenceEditGuidance,
+        ].join("\n");
         const payload: ImageGeneratorPayload = {
           projectId,
           prompt: shouldEditTargetReference
-            ? [
-                finalImagePrompt,
-                "Use the last referenced image as the target canvas. Preserve the target person's identity, pose, composition, background, lighting, camera angle, and aspect ratio.",
-                "Use the earlier referenced images only as visual references for the requested object, accessory, texture, pattern, color, or detail.",
-                "Do not generate a new unrelated person or scene.",
-              ].join("\n")
+            ? referenceEditPrompt
             : finalImagePrompt,
           model: shouldEditTargetReference
-            ? DEFAULT_IMAGE_AI_MODEL_ID
-            : assistantAutoMode
-              ? "auto"
-              : assistantImageModel.id,
+            ? referenceEditModelId
+            : preferGemForComposedReferences
+              ? COMPOSED_REFERENCE_IMAGE_MODEL_ID
+              : assistantAutoMode
+                ? "auto"
+                : assistantImageModel.id,
           ratio:
             shouldEditTargetReference || assistantImageRatio === "auto"
               ? "1:1"
@@ -20448,13 +20972,8 @@ function CanvasAssistantPanel({
                   capability: "image_edit",
                   operation: "edit",
                   imageSrc: targetReference.src,
-                  model: DEFAULT_IMAGE_AI_MODEL_ID,
-                  prompt: [
-                    finalImagePrompt,
-                    "Use the last referenced image as the target canvas. Preserve the target person's identity, pose, composition, background, lighting, camera angle, and aspect ratio.",
-                    "Use the earlier referenced images only as visual references for the requested object, accessory, texture, pattern, color, or detail.",
-                    "Do not generate a new unrelated person or scene.",
-                  ].join("\n"),
+                  model: referenceEditModelId,
+                  prompt: referenceEditPrompt,
                   images: sourceReferences,
                   targetWidth: targetReference.width,
                   targetHeight: targetReference.height,
@@ -20469,7 +20988,7 @@ function CanvasAssistantPanel({
           shouldEditTargetReference && targetReference
             ? await editImageWithPrompt({
                 imageSrc: targetReference.src,
-                model: DEFAULT_IMAGE_AI_MODEL_ID,
+                model: referenceEditModelId,
                 prompt: payload.prompt,
                 referencedAssets: sourceReferences,
                 targetWidth: targetReference.width,
@@ -20503,6 +21022,19 @@ function CanvasAssistantPanel({
             role: "assistant",
             content: `已根据你的请求生成图片：${imagePrompt}`,
             timestamp: new Date(),
+            /**
+             * 把刚生成的图沉淀进历史。
+             *
+             * 【2026-09-11 新增】此前这里只写一句文字，
+             * 图从未进入上下文，于是下一轮「这张再暗一点」无从指代。
+             * imagePrompt 也一并记下 —— 它可能已被大模型改写过，
+             * 后续追改要在它的基础上增量修改，而不是从用户原话重写。
+             */
+            contextImages: validImages.map((image, index) => ({
+              src: image.src,
+              title: `${imagePrompt.slice(0, 20)}${validImages.length > 1 ? ` (${index + 1})` : ""}`,
+            })),
+            contextImagePrompt: imagePrompt,
           },
         ]);
       } else {
@@ -20511,12 +21043,7 @@ function CanvasAssistantPanel({
           model: assistantTextModel.id,
           images: assistantImages,
           messages: [
-            ...messages
-              .slice(-8)
-              .map(message => ({
-                role: message.role,
-                content: message.content,
-              })),
+            ...buildAssistantContext(messages),
             { role: "user", content: routedPrompt },
           ],
         });
@@ -20647,14 +21174,33 @@ function CanvasAssistantPanel({
       {!collapsed && (
         <>
           <div
-            className="flex-1 min-h-0 px-5 py-6 overflow-y-auto"
+            className="flex-1 min-h-0 px-5 py-6 overflow-y-auto overflow-x-hidden"
             style={{
               background: bg,
               scrollbarWidth: "thin",
               scrollbarColor: `${isDark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.18)"} transparent`,
+              /**
+               * 只声明 overflow-y-auto 时，横向是默认的 visible——
+               * 消息里一旦出现超宽内容（长 URL、代码块、宽图、长表格），
+               * 浏览器就会在容器底部甩出一条横向滚动条，正好压在提示词输入框上方。
+               *
+               * 这里横向直接裁掉。宽度收窄由用户拖拽右侧对话区完成，
+               * 内容靠下面的 minWidth:0 + 换行规则自适应，不需要横向滚动。
+               */
+              minWidth: 0,
             }}
           >
-            <div className="flex flex-col gap-4">
+            <div
+              className="flex flex-col gap-4"
+              style={{
+                // flex 子项默认 min-width:auto，会被内容撑开而不收缩，
+                // 这是横向滚动条真正冒出来的原因。必须显式归零。
+                minWidth: 0,
+                // 长 URL / 无空格长串在窄宽度下的兜底换行，
+                // 避免横向裁切后内容被直接切掉看不见。
+                overflowWrap: "anywhere",
+              }}
+            >
               {messages.map(message => {
                 const isUser = message.role === "user";
                 const backup = message.imageBackup;
@@ -20662,10 +21208,17 @@ function CanvasAssistantPanel({
                   <div
                     key={message.id}
                     className={
-                      isUser ? "flex justify-end" : "flex justify-start"
+                      isUser
+                        ? "flex justify-end min-w-0"
+                        : "flex justify-start min-w-0"
                     }
                   >
-                    <div className="max-w-[86%]">
+                    {/*
+                      min-w-0 是必须的：没有它，flex 子项的 min-width:auto
+                      会让气泡被内容撑破 86% 的上限，进而顶宽整个消息区，
+                      这正是横向滚动条出现的直接原因。
+                    */}
+                    <div className="max-w-[86%] min-w-0">
                       <p
                         className="type-caption mb-1.5"
                         style={{
@@ -20964,7 +21517,10 @@ function CanvasAssistantPanel({
                   scrollbarColor: `${isDark ? "rgba(255,255,255,0.24)" : "rgba(0,0,0,0.20)"} transparent`,
                   scrollbarGutter: "stable",
                   overscrollBehavior: "contain",
-                  paddingLeft: hasActiveSkill ? 0 : undefined,
+                  // 这里曾经在有 skill 时把左内边距归零，用来抵消 skill 标签
+                  // 自带的 4px 左外边距。现在两类标签的横向外边距已统一为 2px，
+                  // 再做这个补偿反而会让整块内容比无 skill 时左移，
+                  // 所以维持容器自身的 px-1，由标签自己保证对齐。
                 }}
                 onMouseDown={event => {
                   const target = event.target as HTMLElement;
@@ -20986,7 +21542,9 @@ function CanvasAssistantPanel({
                     focusLeadingComposerSegment();
                     return;
                   }
-                  focusComposerSegment();
+                  // 按点击坐标就近落位，而不是回到「上次待过的段」。
+                  // 后者与本次点击位置无关，是「点标签右侧光标不动」的主因。
+                  focusComposerSegmentNearPoint(event.clientX, event.clientY);
                 }}
                 onDragOver={handleComposerShellDragOver}
                 onDragLeave={handleComposerShellDragLeave}
@@ -21005,6 +21563,16 @@ function CanvasAssistantPanel({
                 />
                 {/* Click gaps around tokens to move caret into adjacent text segment */}
                 {(() => {
+                  /**
+                   * 点击标签左右边缘的间隙，自动聚焦相邻的 text segment。
+                   *
+                   * 改前 bug：当用户点击 skill 标签右侧（想在它后面输入）时，
+                   * 这里会 focus 下一个 text segment，但没有 preventDefault，
+                   * 导致外层 onMouseDown 还会再跑一遍 tryFocus...，
+                   * 两者循环触发 → 光标在相邻 segment 之间反复跳动，完全无法输入。
+                   *
+                   * 修复：找到目标后立即 prevent + stop，阻断事件继续传播。
+                   */
                   const tryFocusGapTextSegment = (
                     event: React.MouseEvent<HTMLElement>,
                     segmentId: string
@@ -21022,6 +21590,8 @@ function CanvasAssistantPanel({
                       for (let i = index - 1; i >= 0; i--) {
                         const seg = composerSegments[i];
                         if (seg.type === "text") {
+                          event.preventDefault();
+                          event.stopPropagation();
                           focusComposerSegment(
                             seg.id,
                             (seg as Extract<AssistantComposerSegment, { type: "text" }>).text.length
@@ -21036,6 +21606,8 @@ function CanvasAssistantPanel({
                         i++
                       ) {
                         if (composerSegments[i].type === "text") {
+                          event.preventDefault();
+                          event.stopPropagation();
                           focusComposerSegment(
                             composerSegments[i].id,
                             0
@@ -21054,8 +21626,8 @@ function CanvasAssistantPanel({
                     false;
                   if (segment.type === "skill") {
                     return (
+                      <Fragment key={segment.id}>
                       <span
-                        key={segment.id}
                         ref={node => {
                           composerSegmentRefs.current[segment.id] = node;
                         }}
@@ -21078,10 +21650,18 @@ function CanvasAssistantPanel({
                         data-composer-token="skill"
                         className="group relative inline-flex max-w-[136px] min-w-0 items-center gap-1 overflow-hidden rounded-[var(--radius-md-design)] px-1.5 py-0.5 align-middle"
                         style={{
-                          margin:
-                            activeSkill?.id === segment.skill.id
-                              ? "0 4px 2px 0"
-                              : "0 4px 2px 4px",
+                          // 与图片标签共存时上下各留 2px（合计行距 4px）；
+                          // 单独出现时维持原来的 0/2。
+                          //
+                          // 横向外边距与引用标签（image / annotation）**必须完全一致**，
+                          // 否则两类标签换行后左边缘对不齐。原先这里是
+                          // `左 0 或 4px / 右 4px`，而引用标签是左右各 2px，
+                          // 差值直接表现为用户看到的错位。
+                          margin: (() => {
+                            const top = composerTokenVerticalMargin ?? 0;
+                            const bottom = composerTokenVerticalMargin ?? 2;
+                            return `${top}px 2px ${bottom}px 2px`;
+                          })(),
                           background: isDark
                             ? "rgba(66,153,225,0.22)"
                             : "rgba(37,99,235,0.14)",
@@ -21130,6 +21710,35 @@ function CanvasAssistantPanel({
                           <X size={9} />
                         </button>
                       </span>
+                      {/*
+                        强制断行：skill 标签必须独占最顶行，
+                        绝不能与图片 / 注释引用标签同处一行。
+
+                        容器是普通 inline 流，标签靠自然换行排布，
+                        一行放得下就会挤在一起。这里插入一个
+                        宽度 100%、高度 0 的块级元素把行撑满，
+                        后续所有 segment 只能从下一行开始。
+
+                        选这个做法而不是给 skill 加 `display: block`：
+                        skill 标签本身是 inline-flex（纵向 margin 才生效，
+                        且要与引用标签保持同样的盒模型），
+                        改成块级会连带影响它的对齐与外边距计算。
+                        零高断行元素不参与布局高度，也不会引入额外行距。
+
+                        aria-hidden + pointer-events:none 确保它既不被读屏念出，
+                        也不会抢走点击 —— 否则会挡住下面刚修好的
+                        「点击标签右侧空白处落位」。
+                      */}
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          display: "block",
+                          width: "100%",
+                          height: 0,
+                          pointerEvents: "none",
+                        }}
+                      />
+                      </Fragment>
                     );
                   }
                   if (segment.type === "image") {
@@ -21185,7 +21794,9 @@ function CanvasAssistantPanel({
                         data-composer-token="image"
                         className="group relative inline-flex min-w-0 items-center overflow-hidden rounded-[var(--radius-md-design)] align-middle"
                         style={{
-                          margin: "0 2px 2px 2px",
+                          // 与 skill 标签共存时上下各留 2px（合计行距 4px）；
+                          // 单独出现时维持原来的 0/2。横向外边距始终不变。
+                          margin: `${composerTokenVerticalMargin ?? 0}px 2px ${composerTokenVerticalMargin ?? 2}px 2px`,
                           // 尺寸与配色都取自共享常量，不再随 isSelectedImageToken 变化。
                           //
                           // 改动前有两个问题叠在一起：
@@ -21304,7 +21915,8 @@ function CanvasAssistantPanel({
                         // 留在 className 里会和 inline style 打架，也无法与另一类标签对齐。
                         className="group relative inline-flex min-w-0 items-center overflow-hidden rounded-[var(--radius-md-design)] align-middle"
                         style={{
-                          margin: "0 2px 2px 2px",
+                          // 与 image 标签同源：和 skill 共存时上下各 2px（行距 4px）。
+                          margin: `${composerTokenVerticalMargin ?? 0}px 2px ${composerTokenVerticalMargin ?? 2}px 2px`,
                           // 与 image 标签完全一致：绿色改黑色，尺寸取同一组常量。
                           // 这样「智能注释」和「普通图片引用」两种触发方式产出的标签
                           // 外观与大小都相同。
@@ -21480,10 +22092,21 @@ function CanvasAssistantPanel({
                     ) : (
                       <span
                         key={segment.id}
+                        /**
+                         * ref 回调只登记引用，**不再写 DOM 内容**。
+                         *
+                         * 这里原本有一句
+                         * `if (node.textContent !== segment.text) node.textContent = ...`。
+                         * 它是 inline 箭头函数，每次渲染都是新的函数身份，
+                         * React 于是每轮都先 ref(null) 再 ref(node)，
+                         * 这句回写因此**在用户打字过程中也会执行**：
+                         * 刚敲进去的字符被 textContent 覆盖、光标顶到末尾，
+                         * 表现就是「输入之后改不了、也删不掉」。
+                         *
+                         * DOM 内容统一交给上面的同步 effect（:18754 一带）处理，
+                         * 那里会跳过获得焦点的元素，不会干扰正在进行的输入。
+                         */
                         ref={node => {
-                          if (node && node.textContent !== segment.text) {
-                            node.textContent = segment.text;
-                          }
                           composerInputRefs.current[segment.id] = node;
                           composerSegmentRefs.current[segment.id] = node;
                         }}
@@ -21542,7 +22165,7 @@ function CanvasAssistantPanel({
                           setInputFocused(true);
                         }}
                         onBlur={() => setInputFocused(false)}
-                        className="inline min-w-0 whitespace-pre-wrap border-0 bg-transparent px-1.5 py-0.5 align-middle outline-none"
+                        className="inline min-w-0 whitespace-pre-wrap border-0 bg-transparent align-middle outline-none"
                         style={{
                           color: text,
                           background: shouldHighlightTextSegment
@@ -21555,7 +22178,25 @@ function CanvasAssistantPanel({
                           whiteSpace: "pre-wrap",
                           overflowWrap: "anywhere",
                           wordBreak: "break-word",
-                          margin: "0 1px",
+                          /**
+                           * 空文本段不占横向空间。
+                           *
+                           * 标签之间会自动插入空的 text segment 作为光标落点。
+                           * 它原先带着 px-1.5（左右各 6px）+ margin 1px，
+                           * 即便一个字都没有也要吃掉约 14px 宽度，
+                           * 于是「前面恰好有空文本段」的那一行标签会被整体右推，
+                           * 与另一行的标签左边缘对不齐 —— 正是用户看到的错位。
+                           *
+                           * 有内容时保持原来的间距，避免文字和标签贴死。
+                           *
+                           * 但零宽度会让空段几乎点不中（用户反馈「点不了标签右侧」）。
+                           * 所以给空段加 6px 横向 padding 扩大命中区，
+                           * 再用 -6px 横向 margin 精确抵消 ——
+                           * padding 撑开的是可点区域，负 margin 把它从布局里减掉，
+                           * 最终占位仍是 0，上面说的左对齐不受影响。
+                           */
+                          padding: "2px 6px",
+                          margin: segment.text ? "0 1px" : "0 -6px",
                           minWidth: segment.text ? 14 : 2,
                           verticalAlign: "middle",
                           cursor: "text",
@@ -21576,6 +22217,71 @@ function CanvasAssistantPanel({
                   className="flex min-w-0 flex-1 items-center"
                   style={{ gap: compactAssistantControls ? 4 : 6 }}
                 >
+                  {/*
+                    上传按钮：配色与右侧「模型选择器」严格同源。
+                    直接复用 compactSelector* 系列变量（:18286 一带），
+                    不要另抄 ImageCountSelector 那套 —— 两者底色不同
+                    （模型选择器 #525252/#2b2b2b，计数器 oklch(0.13...)），
+                    抄错会让这一排按钮在暗色主题下深浅不一。
+                  */}
+                  <div className="relative nodrag nopan">
+                    <input
+                      ref={composerUploadInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      style={{ display: "none" }}
+                      onChange={handleComposerUploadChange}
+                    />
+                    <button
+                      type="button"
+                      title="上传图片"
+                      aria-label="上传图片"
+                      className="flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[var(--radius-md-design)] px-2 transition-colors active:scale-95"
+                      style={{
+                        width: compactAssistantControls ? 32 : undefined,
+                        maxWidth: compactAssistantControls ? 32 : 138,
+                        background: composerUploadButtonPressed
+                          ? compactSelectorActiveBg
+                          : composerUploadButtonHovered
+                            ? compactSelectorHoverBg
+                            : compactSelectorBg,
+                        border: compactAssistantControls
+                          ? "none"
+                          : `1px solid ${composerUploadButtonPressed ? compactSelectorActiveBorder : compactSelectorBorder}`,
+                        color:
+                          composerUploadButtonPressed ||
+                          composerUploadButtonHovered
+                            ? compactSelectorActiveText
+                            : compactSelectorText,
+                        fontSize: 11,
+                        lineHeight: "14px",
+                        letterSpacing: 0,
+                      }}
+                      onClick={() => composerUploadInputRef.current?.click()}
+                      onMouseEnter={() => setComposerUploadButtonHovered(true)}
+                      onMouseLeave={() => {
+                        setComposerUploadButtonHovered(false);
+                        setComposerUploadButtonPressed(false);
+                      }}
+                      // 模型选择器的「点击态」是菜单展开期间的持续状态；
+                      // 上传按钮点完就弹系统文件选择器，没有可持续的展开态，
+                      // 所以用按下期间的 pressed 来对应同一套 active 配色，
+                      // 保证三态视觉与旁边完全一致。
+                      onPointerDown={() => setComposerUploadButtonPressed(true)}
+                      onPointerUp={() => setComposerUploadButtonPressed(false)}
+                      onPointerCancel={() =>
+                        setComposerUploadButtonPressed(false)
+                      }
+                    >
+                      <Plus size={13} style={{ flex: "0 0 auto" }} />
+                      {!compactAssistantControls && (
+                        <span className="min-w-0 max-w-[108px] truncate">
+                          上传
+                        </span>
+                      )}
+                    </button>
+                  </div>
                   <div
                     ref={assistantModelRef}
                     className="relative flex min-w-0 items-center"
@@ -23830,9 +24536,27 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       toast("智能产品图生成中", {
         description: `${detail.ratio} · ${detail.resolution.toUpperCase()} · ${detail.count} 张，结果会在旁边生成`,
       });
+      /**
+       * 提示词模式：用户自己写背景描述，交给 gem 图片大模型按产品图生成。
+       *
+       * 为什么不能复用 createProductBackground：
+       * 那条链路是**纯 PicWish 管线**（server/image-generation.ts:4339），
+       * 先 removeBackgroundWithPicWish 抠图、再 createBackgroundWithPicWish 按
+       * sceneType 套模板出图，全程不经过任何图片大模型；
+       * server/image-generation.smart-product.test.ts 还专门断言它
+       * `not.toContain("generateImages(")`。
+       * 硬把自定义提示词塞进去，只会被 PicWish 当作模板描述词，
+       * 用户写的内容基本不起作用。
+       *
+       * 所以提示词模式改走 editImageWithPrompt（image_edit 链路），
+       * 它支持传 model，能真正把提示词交给 gem 理解产品图后生成。
+       */
+      const isPromptMode = detail.backgroundMode === "prompt";
       const smartProductPrompt = [
         "强约束：必须以左侧上传的产品图作为唯一商品主体，保留原产品的品类、外形、颜色、材质、比例和可见细节；只改变背景、光影、空间和商业拍摄氛围，不能替换成其他商品。",
-        detail.style ? `背景风格：${detail.style}` : "",
+        // 提示词模式下 style 是固定文案「自定义提示词背景」，把它当风格名喂给模型
+        // 只会污染描述，真正的用户意图已经在 detail.prompt 里了。
+        !isPromptMode && detail.style ? `背景风格：${detail.style}` : "",
         detail.prompt || "生成高清商业产品图",
         `输出规格：${detail.customWidth && detail.customHeight ? `${detail.customWidth}x${detail.customHeight}` : `${detail.ratio} ${detail.resolution.toUpperCase()}`}`,
       ]
@@ -23846,6 +24570,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           },
         })
       );
+      const smartProductCount = Math.max(1, Math.min(Number(detail.count) || 1, 9));
       await runDerivedImageGeneration({
         sourceNode,
         prompt: smartProductPrompt,
@@ -23857,37 +24582,85 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         displayH,
         resultCount: detail.count,
         maxResultCount: 9,
-        backgroundTaskInput: {
-          capability: "smart_background",
-          operation: "create-background",
-          imageSrc: detail.imageSrc,
-          prompt: detail.prompt,
-          style: detail.style,
-          composition: detail.composition,
-          productScale: detail.productScale,
-          sceneType: detail.sceneType,
-          ratio: detail.ratio,
-          resolution: detail.resolution,
-          count: detail.count,
-          customWidth: detail.customWidth,
-          customHeight: detail.customHeight,
-          model: DEFAULT_IMAGE_AI_MODEL_ID,
+        // 提示词模式固定用 gem。
+        model: isPromptMode
+          ? SMART_COMMERCE_PROMPT_IMAGE_MODEL_ID
+          : DEFAULT_IMAGE_AI_MODEL_ID,
+        // 提示词模式不能带 backgroundTaskInput：
+        // runDerivedImageGeneration 里 backgroundTaskInput 的优先级高于 run()
+        // （:23225 的三元），一旦带上就会被后台任务链路接管、回到 PicWish 分支，
+        // 下面的 run() 根本不会执行。
+        backgroundTaskInput: isPromptMode
+          ? undefined
+          : {
+              capability: "smart_background",
+              operation: "create-background",
+              imageSrc: detail.imageSrc,
+              prompt: detail.prompt,
+              style: detail.style,
+              composition: detail.composition,
+              productScale: detail.productScale,
+              sceneType: detail.sceneType,
+              ratio: detail.ratio,
+              resolution: detail.resolution,
+              count: detail.count,
+              customWidth: detail.customWidth,
+              customHeight: detail.customHeight,
+              model: DEFAULT_IMAGE_AI_MODEL_ID,
+            },
+        run: async () => {
+          if (!isPromptMode) {
+            return createProductBackground({
+              imageSrc: detail.imageSrc,
+              prompt: detail.prompt,
+              style: detail.style,
+              composition: detail.composition,
+              productScale: detail.productScale,
+              sceneType: detail.sceneType,
+              ratio: detail.ratio,
+              resolution: detail.resolution,
+              count: detail.count,
+              customWidth: detail.customWidth,
+              customHeight: detail.customHeight,
+              model: DEFAULT_IMAGE_AI_MODEL_ID,
+            });
+          }
+          /**
+           * 提示词模式：逐张调用 image_edit。
+           *
+           * editImageWithPrompt 一次只回 1 张（服务端没有 count 参数），
+           * 所以要生成 N 张就得循环 N 次，不能指望传个 count 了事。
+           *
+           * 逐张容错：某一张失败不整批中断，只要最终拿到至少 1 张就算成功；
+           * 全军覆没时才抛错，让 runDerivedImageGeneration 走失败分支提示用户。
+           */
+          const collected: GeneratedImagesResponse["images"] = [];
+          let lastError: unknown = null;
+          for (let index = 0; index < smartProductCount; index += 1) {
+            try {
+              const single = await editImageWithPrompt({
+                imageSrc: detail.imageSrc,
+                model: SMART_COMMERCE_PROMPT_IMAGE_MODEL_ID,
+                // 多张时给每张加差异化指令，否则同一提示词会得到几乎一样的图。
+                prompt:
+                  smartProductCount > 1
+                    ? `${smartProductPrompt}\n这是第 ${index + 1} / ${smartProductCount} 个方案，请在保持上述要求不变的前提下，更换背景的构图角度、道具搭配与光影氛围，与其他方案形成明显差异。`
+                    : smartProductPrompt,
+                targetWidth: detail.customWidth || ratioSize.w,
+                targetHeight: detail.customHeight || ratioSize.h,
+              });
+              collected.push(...single.images.slice(0, 1));
+            } catch (error) {
+              lastError = error;
+            }
+          }
+          if (collected.length === 0) {
+            throw lastError instanceof Error
+              ? lastError
+              : new Error("图片模型未返回可用图片");
+          }
+          return { images: collected };
         },
-        run: async () =>
-          createProductBackground({
-            imageSrc: detail.imageSrc,
-            prompt: detail.prompt,
-            style: detail.style,
-            composition: detail.composition,
-            productScale: detail.productScale,
-            sceneType: detail.sceneType,
-            ratio: detail.ratio,
-            resolution: detail.resolution,
-            count: detail.count,
-            customWidth: detail.customWidth,
-            customHeight: detail.customHeight,
-            model: DEFAULT_IMAGE_AI_MODEL_ID,
-          }),
       });
     };
     window.addEventListener("smart-commerce-product-create", handler);
@@ -24527,26 +25300,47 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             imageSrc: detail.imageSrc,
             maskSrc,
             prompt: finalPrompt,
-            model: "auto",
+            /**
+             * 固定走 image2.5 medium，而不是 "auto"。
+             *
+             * auto 的链首当前恰好也是 image2.5，但它是**全局出图优先级**，
+             * 会随其他需求调整。智能文案编辑依赖的是 image2.5 在
+             * 「保真局部编辑 + 文字渲染」上的具体表现，不应跟着全局链漂移。
+             * 写死 id 让这里与全局优先级解耦。
+             *
+             * 注意：这个 model 只在擦字失败、需要 AI 兜底时才真正生效。
+             * 正常路径（擦字成功）由本地确定性绘制贴字，不调用图片模型。
+             */
+            model: DEFAULT_IMAGE_AI_MODEL_ID,
             preserveSource: true,
             targetWidth,
             targetHeight,
             originalText: detail.originalText,
             editedText: detail.editedText,
             textRegions: detail.textRegions || [],
+            /**
+             * 贴回方式保持默认 "local"（本地字体确定性绘制）。
+             *
+             * 2026-09-12 用 image2.5 做过 A/B 实测：AI 叠字两轮逐字命中率
+             * 只有 3/7 和 4/7，还出现过错字（"秋季"→"秋香"），耗时 29~42s；
+             * 本地绘制两轮均 7/7，0.3s，零成本。文案编辑的第一诉求是「字要对」，
+             * 所以不切 AI。需要更强的字体/材质还原时，可把该字段显式设为 ai 模式，
+             * 但必须人工核字。
+             */
           },
           run: async () =>
             editImageWithPrompt({
               imageSrc: detail.imageSrc,
               maskSrc,
               prompt: finalPrompt,
-              model: "auto",
+              model: DEFAULT_IMAGE_AI_MODEL_ID,
               operation: "text_edit",
               preserveSource: true,
               targetWidth,
               targetHeight,
               textRegions: detail.textRegions || [],
               editedText: detail.editedText,
+              // 贴回方式用默认 "local"，理由见上面 backgroundTaskInput 的注释
             }),
         });
         setNodes(nds =>
@@ -29239,7 +30033,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       try {
         const optimizedPrompt = await callLLM({
           module: "image-quick-edit-prompt",
-          model: "gpt-4o",
+          model: DEFAULT_TEXT_MODEL,
           images: [
             { src: latestImageSrc, title: editAsset.title },
             ...payload.references,
@@ -29704,7 +30498,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           const result = ocrText
             ? await callLLM({
                 module: "commercial-ocr-copy-structure",
-                model: "gpt-4o",
+                model: DEFAULT_TEXT_MODEL,
                 images: [
                   {
                     src: imageSrc,
@@ -29724,7 +30518,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               })
             : await callLLM({
                 module: "multimodal-text-extraction",
-                model: "gpt-4o",
+                model: DEFAULT_TEXT_MODEL,
                 images: [
                   {
                     src: imageSrc,

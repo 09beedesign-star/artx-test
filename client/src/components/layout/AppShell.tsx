@@ -12,6 +12,7 @@ import { fileToDataUrl, submitUserFeedback } from "@/lib/feedback-submit";
 import { toast } from "sonner";
 import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
 import defaultWechatGroupQr from "@/assets/community/wechat-group-qr.jpg";
+import { DEFAULT_IMAGE_MODEL_ID } from "@shared/image-models";
 import {
   Home, Sparkles, Library, FolderOpen,
   CreditCard, HelpCircle, ImagePlus, Send, X, KeyRound, Copy, Loader2, QrCode,
@@ -43,7 +44,9 @@ const MAX_HELP_SCREENSHOT_BYTES = 4 * 1024 * 1024;
 const BRAND_LOGO_SIZE = "h-[20px] w-[109px]";
 const EXTERNAL_AGENT_BASE_URL = "https://admin.artxsd.com";
 const OPENAI_COMPATIBLE_BASE_URL = `${EXTERNAL_AGENT_BASE_URL}/v1`;
-const RECOMMENDED_IMAGE_MODEL = "og-image2-medium";
+// 对外 OpenAI 兼容接口文档里展示的推荐模型，必须跟随全站默认模型，
+// 否则文档里抄给第三方 Agent 的 model 会是个已经不再推荐的旧值。
+const RECOMMENDED_IMAGE_MODEL = DEFAULT_IMAGE_MODEL_ID;
 const OPENAI_COMPATIBLE_VERSION = "506a8b9";
 
 function getAppApiBaseUrl() {

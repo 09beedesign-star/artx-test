@@ -30,6 +30,25 @@ type DuckDuckGoImageResult = {
   url?: string;
 };
 
+/**
+ * 360 图片搜索的单条结果。
+ *
+ * 字段坑（实测得出，勿凭字面猜）：
+ * - `https` **不是**完整 URL，只有域名（如 "p0.ssl.qhimgs1.com"），直接 fetch 会抛
+ *   `Failed to parse URL`。只能用 `img`（完整 http(s) 地址），`thumb` 作兜底。
+ * - `width` / `height` 是字符串，要 Number() 转换后再用。
+ */
+type So360ImageResult = {
+  img?: string;
+  thumb?: string;
+  title?: string;
+  litetitle?: string;
+  width?: string | number;
+  height?: string | number;
+  site?: string;
+  link?: string;
+};
+
 function normalizeQuery(query: string) {
   return query.trim().replace(/\s+/g, " ");
 }
@@ -200,6 +219,74 @@ async function searchDuckDuckGoImages(query: string, limit: number) {
   return deduped;
 }
 
+/**
+ * 360 图片搜索（国内可直连）。
+ *
+ * 【为什么加这个源】
+ * 原有的 DuckDuckGo 与 Wikimedia 在国内网络下**都连不通**（curl 实测 12s 超时、
+ * HTTP 000），于是「帮我找鞋子参考图」必然报
+ * `Reference web search failed: fetch failed; fallback failed: fetch failed`。
+ * 同一时刻 baidu / token.bkeel.com / backstage.artxsd.com 全部 200，
+ * 确认是境外域名可达性问题，不是代码缺陷。
+ *
+ * 360 接口实测：单次返回 50 条，标题与真实尺寸齐全，
+ * 抽样 8 条图片 URL **8/8 可加载**，分辨率多在 2K 以上，适合做参考图。
+ */
+async function search360Images(query: string, limit: number) {
+  const clampedLimit = clampLimit(limit);
+  const apiUrl = new URL("https://image.so.com/j");
+  apiUrl.searchParams.set("q", query);
+  // 多取一些，后面还要过可加载性与去重两道关，取太少会不够填。
+  apiUrl.searchParams.set("pn", String(Math.max(clampedLimit * 4, 40)));
+  apiUrl.searchParams.set("sn", "0");
+
+  const response = await fetch(apiUrl.toString(), {
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+      "Accept": "application/json,text/plain,*/*",
+      "Accept-Language": "zh-CN,zh;q=0.9",
+      "Referer": "https://image.so.com/",
+    },
+    signal: AbortSignal.timeout(10000),
+  });
+
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`360 image search failed with ${response.status}`);
+  }
+  if (text.trim().startsWith("<")) {
+    throw new Error("360 image search returned HTML");
+  }
+
+  const data = JSON.parse(text) as { list?: So360ImageResult[] };
+  const images = (data.list || [])
+    .map((item, index) => {
+      // 只认完整 URL：`https` 字段是裸域名，混进来会在 fetch 阶段直接抛错。
+      const src = [item.img, item.thumb].find(
+        (value) => typeof value === "string" && /^https?:\/\//i.test(value)
+      );
+      return normalizeReferenceImageResult({
+        id: `so360-${index}-${encodeURIComponent(src || item.title || query)}`,
+        title: item.title || item.litetitle,
+        src,
+        width: Number(item.width) || undefined,
+        height: Number(item.height) || undefined,
+        source: item.site || getHostname(item.link || src || ""),
+      });
+    })
+    .filter((item): item is ReferenceImageResult => Boolean(item));
+
+  const deduped = await filterLoadableReferenceImages(
+    dedupeReferenceImages(images, clampedLimit * 3),
+    clampedLimit
+  );
+  if (deduped.length === 0) {
+    throw new Error("No 360 reference images found");
+  }
+  return deduped;
+}
+
 async function searchWikimediaImages(query: string, limit: number) {
   const clampedLimit = clampLimit(limit);
   const searchUrl = new URL("https://commons.wikimedia.org/w/api.php");
@@ -259,15 +346,42 @@ export async function searchReferenceImages(query: string, limit = 10): Promise<
   }
 
   const clampedLimit = clampLimit(limit);
-  try {
-    return { images: await searchDuckDuckGoImages(normalizedQuery, clampedLimit) };
-  } catch (webError) {
+
+  /**
+   * 【2026-09-11 调整数据源顺序】360 提到首位。
+   *
+   * 原顺序是 DuckDuckGo → Wikimedia，两者在国内网络下都不可达，
+   * 于是这个功能在国内**必然失败**。360 实测可直连且出图质量够用，
+   * 因此作为首选；境外两个源保留在后面，海外部署时仍能生效。
+   *
+   * 改成数组驱动而不是嵌套 try/catch，是为了后续增删源不用再动控制流，
+   * 也便于在全部失败时把每个源的具体原因都带出来（原来只能带两条）。
+   */
+  const providers: Array<{ name: string; run: () => Promise<ReferenceImageResult[]> }> = [
+    { name: "360", run: () => search360Images(normalizedQuery, clampedLimit) },
+    { name: "DuckDuckGo", run: () => searchDuckDuckGoImages(normalizedQuery, clampedLimit) },
+    { name: "Wikimedia", run: () => searchWikimediaImages(normalizedQuery, clampedLimit) },
+  ];
+
+  const failures: string[] = [];
+  for (const provider of providers) {
     try {
-      return { images: await searchWikimediaImages(normalizedQuery, clampedLimit) };
-    } catch (fallbackError) {
-      const webMessage = webError instanceof Error ? webError.message : "web search failed";
-      const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : "Wikimedia search failed";
-      throw new Error(`Reference web search failed: ${webMessage}; fallback failed: ${fallbackMessage}`);
+      const images = await provider.run();
+      if (images.length > 0) {
+        return { images };
+      }
+      failures.push(`${provider.name}: empty result`);
+    } catch (error) {
+      failures.push(
+        `${provider.name}: ${error instanceof Error ? error.message : "search failed"}`
+      );
     }
   }
+
+  // 全部源都失败时，抛出一条**人能看懂**的提示。
+  // 原来直接把 `fetch failed` 这种底层报错怼到 toast 上，用户完全无从判断该怎么办。
+  const detail = failures.join("; ");
+  throw new Error(
+    `联网搜索参考图失败，可能是网络无法访问图片搜索服务。你可以改用站内灵感库，或直接上传参考图。（${detail}）`
+  );
 }

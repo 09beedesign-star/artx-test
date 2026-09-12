@@ -1,8 +1,24 @@
+import {
+  DEFAULT_TEXT_MODEL,
+  SUPPORTED_TEXT_MODEL_IDS,
+  TEXT_MODEL_FALLBACK_IDS,
+  isClaudeTextModelId,
+} from "../shared/text-models";
+
 type ChatRole = "system" | "user" | "assistant";
 
 export type TextMessage = {
   role: ChatRole;
   content: string | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }>;
+  /**
+   * 【2026-09-11 新增】本条历史消息自带的图片。
+   *
+   * 与顶层 `images` 的区别：顶层那批是**当前轮**引用的素材，
+   * 会被统一放在历史之前；而这里的图属于**特定某一轮**，
+   * 必须就地展开在该条消息里，模型才分得清
+   * 「第一轮生成的图」和「第三轮生成的图」。
+   */
+  images?: Array<{ src: string; title?: string }>;
 };
 
 type TextGenerateInput = {
@@ -63,7 +79,7 @@ function getProviderConfig() {
     return {
       apiKey: textApiKey,
       baseUrl: process.env.AI_TEXT_BASE_URL || process.env.OPENAI_BASE_URL || "https://api.openai.com",
-      model: process.env.AI_TEXT_MODEL || "gpt-4o",
+      model: process.env.AI_TEXT_MODEL || DEFAULT_TEXT_MODEL,
     };
   }
 
@@ -71,16 +87,30 @@ function getProviderConfig() {
   return {
     apiKey: imageApiKey,
     baseUrl: process.env.AI_IMAGE_BASE_URL || process.env.OPENAI_BASE_URL || "https://api.openai.com",
-    model: process.env.AI_IMAGE_MODEL || process.env.AI_TEXT_MODEL || "gpt-4o",
+    // 注意：这里刻意不再回落到 AI_IMAGE_MODEL。
+    // AI_IMAGE_MODEL 是图片生成模型（og-image2-medium / gpt-image-2 等），
+    // 把它当文本模型发给 /chat/completions 会直接 400。
+    model: process.env.AI_TEXT_MODEL || DEFAULT_TEXT_MODEL,
   };
 }
 
-const supportedTextModels = new Set([
-  "gpt-4o",
-  "gpt-5.4",
-  "gpt-5.4-mini",
-  "gpt-5.5",
-]);
+const supportedTextModels = new Set<string>(SUPPORTED_TEXT_MODEL_IDS);
+
+/**
+ * 是否允许给该模型下发 temperature。
+ *
+ * 中转站的 claude 系列会对 temperature 直接返回 400：
+ *   {"error":{"message":"`temperature` is deprecated for this model."}}
+ *
+ * 这个失败极其隐蔽：generateText 的降级链会静默吞掉 400，
+ * 一路退到 gpt-5.5 并正常返回文案。表面上「功能没坏」，
+ * 实际上首选模型 100% 失效，全站文本能力仍然跑在 GPT 上，
+ * 而且每次请求都要多付两次无效往返（实测 +4s）。
+ * 2026-09-10 首次切换 claude-opus-5 时就是这样被瞒过去的。
+ */
+function supportsTemperature(model: string) {
+  return !isClaudeTextModelId(model);
+}
 
 function flattenMessageContent(content: TextMessage["content"]): string {
   if (typeof content === "string") return content;
@@ -157,8 +187,38 @@ function buildMessages(input: TextGenerateInput): TextMessage[] {
         })),
       ]
     : input.prompt || "";
+  /**
+   * 历史消息里自带的图要**就地展开**成多模态 content。
+   *
+   * 不这么做的话，`message.images` 会被整个忽略，
+   * 「上一轮那张图」永远传不到模型面前。
+   * 注意保留原 content 文本在最前面，图片跟在后面 ——
+   * 顺序反了模型会把图当成新指令的主体。
+   */
+  const expandHistoryImages = (messageList: TextMessage[]): TextMessage[] =>
+    messageList.map((message) => {
+      if (!message.images?.length) return message;
+      const baseText =
+        typeof message.content === "string"
+          ? message.content
+          : message.content
+              .map((part) => (part.type === "text" ? part.text : ""))
+              .filter(Boolean)
+              .join("\n");
+      return {
+        role: message.role,
+        content: [
+          { type: "text" as const, text: baseText },
+          ...message.images.map((image) => ({
+            type: "image_url" as const,
+            image_url: { url: image.src },
+          })),
+        ],
+      };
+    });
+
   const messages = input.messages?.length
-    ? input.messages
+    ? expandHistoryImages(input.messages)
     : [{ role: "user" as const, content: userContent }];
   const imageContext: TextMessage[] = input.messages?.length && input.images?.length
     ? [{
@@ -207,7 +267,10 @@ export async function generateText(input: TextGenerateInput): Promise<{ text: st
   }
 
   const selectedModel = input.model && supportedTextModels.has(input.model) ? input.model : model;
-  const fallbackModels = ["gpt-5.4-mini", "gpt-5.4", "gpt-5.5"].filter((name, index, list) => {
+  // 降级链只保留网关上确实存活的型号。
+  // 历史写法是 ["gpt-5.4-mini", "gpt-5.4", "gpt-5.5"]，而前两个已被网关下线，
+  // 首选失败后要白白空转两次超时（实测总耗时 134s）才轮到能用的型号。
+  const fallbackModels = (TEXT_MODEL_FALLBACK_IDS as readonly string[]).filter((name, index, list) => {
     return name !== selectedModel && list.indexOf(name) === index;
   });
   const attempts = [selectedModel, ...fallbackModels];
@@ -224,7 +287,9 @@ export async function generateText(input: TextGenerateInput): Promise<{ text: st
         body: JSON.stringify({
           model: candidateModel,
           messages,
-          temperature: 0.7,
+          // claude 系列不接受 temperature（见 supportsTemperature 注释），
+          // 带上就是 400 + 静默降级回 GPT。
+          ...(supportsTemperature(candidateModel) ? { temperature: 0.7 } : {}),
         }),
       });
 

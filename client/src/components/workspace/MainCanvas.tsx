@@ -4,6 +4,7 @@
  * Philosophy: Deep blue-purple dark, purple→cyan gradient, creative studio atmosphere
  */
 import { useState, useRef, useEffect } from "react";
+import { DEFAULT_TEXT_MODEL } from "../../../../shared/text-models";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
@@ -81,7 +82,7 @@ export default function MainCanvas({ projectId = "p1" }: MainCanvasProps) {
       updateStep(aiMsg.id, "s1", "done", "s2", "running");
       const decision = await routeCreativeIntent({
         module: "workspace-chat-generation",
-        model: "gpt-4o",
+        model: DEFAULT_TEXT_MODEL,
         prompt: userMsg.content,
         recentMessages: messages.slice(-6).map((message) => ({ role: message.role, content: message.content })),
         preferImageWhenReferences: false,

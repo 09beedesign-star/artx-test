@@ -11,7 +11,10 @@ async function login() {
   const j: any = await r.json();
   TOKEN = j.token ?? "";
   const allowed: string[] = j.user?.allowedAiModels ?? [];
-  console.log(`测试会话: ${j.user?.username} | 白名单含 og-image2-medium: ${allowed.includes("og-image2-medium") ? "✓" : "✗"}`);
+  // 2026-09-12 起默认图片模型是 VOD 直连的 image2.5 medium；
+  // 白名单读盘时旧 id 已被迁移，这里必须用新 id 检查，否则恒为 ✗。
+  const defaultImageModel = "vod-og25-sunburst-medium";
+  console.log(`测试会话: ${j.user?.username} | 白名单含 ${defaultImageModel}: ${allowed.includes(defaultImageModel) ? "✓" : "✗"}`);
 }
 
 async function post(url: string, body: unknown, timeoutMs = 300000) {

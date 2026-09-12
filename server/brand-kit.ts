@@ -1,5 +1,6 @@
 import { promises as fs } from "fs";
 import path from "path";
+import { DEFAULT_TEXT_MODEL } from "../shared/text-models";
 
 export type BrandKit = {
   id: string;
@@ -122,7 +123,9 @@ export async function parseBrandKitFromImage(
 ) {
   const result = await chat({
     module: "brand-kit-parse",
-    model: "gpt-5.4-mini",
+    // 品牌包解析要读图（多模态理解），不是图片生成，所以走文本模型。
+    // claude-opus-5 已实测支持 image_url 输入，可直接替换原 gpt-5.4-mini。
+    model: DEFAULT_TEXT_MODEL,
     images: [{ src: imageSrc, title: "brand reference" }],
     prompt: [
       "请从这张品牌/视觉参考图中提取品牌包信息。",

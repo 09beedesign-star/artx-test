@@ -22,6 +22,102 @@ function imageResponse() {
   });
 }
 
+/**
+ * 让 360（现在的首选源）失败，从而把控制权交给后面的境外源。
+ *
+ * 【为什么需要这个】2026-09-11 起 360 被提到了降级链首位，
+ * 下面那些针对 DuckDuckGo / Wikimedia 的用例如果不先让 360 失败，
+ * 就会在 mock 里撞上 "Unexpected request"。
+ */
+function so360Unavailable(url: string) {
+  return url.startsWith("https://image.so.com/j");
+}
+
+describe("360 image search (primary source for mainland network)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("uses 360 first and never touches the overseas sources when it succeeds", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (so360Unavailable(url)) {
+        return jsonResponse({
+          list: [
+            {
+              img: "https://p0.so.qhimg.com/shoe.jpg",
+              title: "运动鞋参考",
+              width: "2048",
+              height: "1536",
+              site: "so.com",
+            },
+          ],
+        });
+      }
+      if (url === "https://p0.so.qhimg.com/shoe.jpg") {
+        return imageResponse();
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await searchReferenceImages("鞋子 参考图", 10);
+
+    expect(result.images[0]).toMatchObject({
+      title: "运动鞋参考",
+      originalSrc: "https://p0.so.qhimg.com/shoe.jpg",
+      // 尺寸在原始数据里是字符串，必须转成数字，否则前端布局会算错
+      width: 2048,
+      height: 1536,
+    });
+    // 首选源成功时不应再打境外接口 —— 那两个在国内本来就连不通，白等超时
+    expect(
+      fetchMock.mock.calls.some((call) => String(call[0]).includes("duckduckgo.com"))
+    ).toBe(false);
+  });
+
+  it("ignores the bare-domain `https` field and falls back to `img`", async () => {
+    // 360 的 `https` 字段存的是裸域名（"p0.ssl.qhimgs1.com"）而不是完整 URL，
+    // 直接拿去 fetch 会抛 `Failed to parse URL`。这条把该行为钉死。
+    const fetchMock = vi.fn(async (url: string) => {
+      if (so360Unavailable(url)) {
+        return jsonResponse({
+          list: [
+            {
+              https: "p0.ssl.qhimgs1.com",
+              img: "https://p0.so.qhimg.com/real.jpg",
+              title: "鞋",
+            },
+          ],
+        });
+      }
+      if (url === "https://p0.so.qhimg.com/real.jpg") {
+        return imageResponse();
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await searchReferenceImages("鞋", 10);
+    expect(result.images[0].originalSrc).toBe("https://p0.so.qhimg.com/real.jpg");
+  });
+
+  it("reports a human-readable message when every source fails", async () => {
+    // 用户看到的原文案是 `Reference web search failed: fetch failed; fallback failed: fetch failed`，
+    // 完全无法判断该怎么办。现在必须给出可操作的建议。
+    const fetchMock = vi.fn(async () => {
+      throw new Error("fetch failed");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(searchReferenceImages("鞋子", 10)).rejects.toThrow(
+      /联网搜索参考图失败/
+    );
+    await expect(searchReferenceImages("鞋子", 10)).rejects.toThrow(
+      /站内灵感库|上传参考图/
+    );
+  });
+});
+
 describe("reference image web search", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -29,6 +125,9 @@ describe("reference image web search", () => {
 
   it("searches the open web for reference images before public fallback sources", async () => {
     const fetchMock = vi.fn(async (url: string) => {
+      if (so360Unavailable(url)) {
+        throw new Error("fetch failed");
+      }
       if (url.startsWith("https://duckduckgo.com/?")) {
         return htmlResponse('<script>var vqd="web-token";</script>');
       }
@@ -65,13 +164,18 @@ describe("reference image web search", () => {
         source: "Example Images",
       },
     ]);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(String(fetchMock.mock.calls[0][0])).toContain("duckduckgo.com");
-    expect(String(fetchMock.mock.calls[1][0])).toContain("duckduckgo.com/i.js");
+    // 首次调用是 360（已失败），之后才轮到 DuckDuckGo 的两步
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("image.so.com");
+    expect(String(fetchMock.mock.calls[1][0])).toContain("duckduckgo.com");
+    expect(String(fetchMock.mock.calls[2][0])).toContain("duckduckgo.com/i.js");
   });
 
   it("filters out image search results that cannot be loaded", async () => {
     const fetchMock = vi.fn(async (url: string) => {
+      if (so360Unavailable(url)) {
+        throw new Error("fetch failed");
+      }
       if (url.startsWith("https://duckduckgo.com/?")) {
         return htmlResponse('<script>var vqd="web-token";</script>');
       }
@@ -112,6 +216,9 @@ describe("reference image web search", () => {
 
   it("falls back only to another public web source when web image search returns HTML", async () => {
     const fetchMock = vi.fn(async (url: string) => {
+      if (so360Unavailable(url)) {
+        throw new Error("fetch failed");
+      }
       if (url.startsWith("https://duckduckgo.com/?")) {
         return htmlResponse('<script>var vqd="web-token";</script>');
       }
@@ -151,6 +258,7 @@ describe("reference image web search", () => {
       originalSrc: "https://upload.wikimedia.org/moon-base.jpg",
       source: "Wikimedia Commons",
     });
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    // 360 失败 1 次 + DuckDuckGo 两步 + Wikimedia 查询 + 图片可加载性校验
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 });
