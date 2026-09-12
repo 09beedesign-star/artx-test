@@ -3,6 +3,8 @@ import { mkdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_IMAGE_MODEL_ID } from "../shared/image-models";
+import { quoteAiUsage } from "../shared/ai-credit-policy";
 
 let dataDir = "";
 
@@ -1018,13 +1020,32 @@ describe("production readiness", () => {
     const giftBatch = snapshot.creditBatches.find((batch) => batch.kind === "gift");
     expect(Date.parse(giftBatch?.expiresAt || "")).toBeGreaterThan(Date.now() + 29 * 24 * 60 * 60 * 1000);
 
+    /**
+     * 普通图片生成必须优先消耗赠送积分。
+     *
+     * 期望余额改为由 quoteAiUsage 推导，不再手抄常量 ——
+     * 2026-09-12 把 `og-image2-medium` 迁移到 `vod-og25-sunburst-medium` 后，
+     * 单价从 300 积分降到 60（折后 324 → 65），原先硬编码的 2176 立刻失效。
+     * 那是一次**预期内的降价**，却会表现为一条看起来像「计费坏了」的失败。
+     * 改成推导后，只有扣费口径真的变了才会触发这条断言。
+     */
+    const usageModel = DEFAULT_IMAGE_MODEL_ID;
+    // planId 必须显式传 "lite"：新注册账号的 plan 是「Lite 入门版」，
+    // 对应 1.08 的加价系数。不传会落到默认的 creator 档（×1），
+    // 算出来的期望值会比实际扣费少 5 分，看起来像计费错了。
+    const quote = quoteAiUsage({
+      capability: "text_to_image",
+      outputCount: 1,
+      planId: "lite",
+      model: usageModel,
+    });
     await recordAiUsage({
       userId,
       username,
       capability: "普通图片生成",
       capabilityKey: "text_to_image",
       provider: "OpenAI",
-      model: "og-image2-medium",
+      model: usageModel,
       status: "success",
       outputUnits: 1,
     });
@@ -1033,7 +1054,7 @@ describe("production readiness", () => {
       expect.objectContaining({
         kind: "gift",
         source: `${firstBody.order.id}:first-recharge-bonus`,
-        remainingCredits: 2176,
+        remainingCredits: 2500 - quote.chargedCredits,
       }),
     ]));
 

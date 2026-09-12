@@ -4,7 +4,9 @@ const backendUrl = (process.env.BACKEND_URL || "https://backstage.artxsd.com").r
 const apiKey = process.env.ARTX_MCP_API_KEY || process.env.ARTX_API_KEY || "";
 const runImage = process.env.RUN_IMAGE === "1";
 const prompt = process.env.MCP_IMAGE_PROMPT || "A small white rabbit sticker, clean background, commercial product icon style.";
-const model = process.env.MCP_IMAGE_MODEL || "og-image2-low";
+// 2026-09-12 中转站图片模型下线，默认改用 VOD 直连的最低成本档位。
+// （旧值 og-image2-low 仍会被服务端迁移到这个 id，但脚本直接写新 id 更直白。）
+const model = process.env.MCP_IMAGE_MODEL || "vod-og25-sunburst-low";
 const ratio = process.env.MCP_IMAGE_RATIO || "1:1";
 const mcpRequestDelayMs = Number(process.env.MCP_REQUEST_DELAY_MS || 3500);
 const mcpMaxAttempts = Number(process.env.MCP_MAX_ATTEMPTS || 4);

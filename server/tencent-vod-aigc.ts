@@ -207,12 +207,32 @@ const MODEL_VERSION_MAP: Record<string, string> = {
   "og-image2-low": "image2_low",
   "og-image2-medium": "image2_medium",
   "og-image2-high": "image2_high",
+  /**
+   * OG image2.5 —— 站点新的默认出图模型（2026-09-11 接入）。
+   *
+   * 版本串必须带系列名（sunburst / flare），这是实测结论：
+   * `image2.5_medium` / `image2_5_medium` / `2.5_medium` 全部被腾讯拒为
+   * `InvalidParameterValue: ModelVersion ... is invalid for ModelName OG`，
+   * 只有 `image2.5_{sunburst|flare}_{low|medium|high}` 这 6 个能建任务。
+   * 两系价格完全相同（medium @1K = 0.078 元，比 image2_medium 的 0.398 便宜 5.1 倍）。
+   *
+   * 站点 id 用 `og25-` 而不是 `og-image2.5-`：id 里带小数点会在
+   * 正则、CSS 选择器、URL 片段里反复要转义，得不偿失。
+   */
+  "og25-sunburst-low": "image2.5_sunburst_low",
+  "og25-sunburst-medium": "image2.5_sunburst_medium",
+  "og25-sunburst-high": "image2.5_sunburst_high",
+  "og25-flare-low": "image2.5_flare_low",
+  "og25-flare-medium": "image2.5_flare_medium",
+  "og25-flare-high": "image2.5_flare_high",
   mj: "v8.2",
   "mj-v7": "v7",
   "mj-niji": "niji_7",
   kling: "3.0-Omni",
   "kling-3.0": "3.0",
-  hunyuan: "3.0",
+  // 混元（Hunyuan）已于 2026-09-11 按用户要求整体下线：
+  // 注册表里的 vod-hunyuan、isVodModelId 裸名单、normalizeImageModelId 别名均已移除，
+  // 这里的版本映射同步删掉，避免留下「看起来还支持」的误导。
   si: "5.0-pro",
   "si-5.0-lite": "5.0-lite",
   qwen: "0925",
@@ -244,7 +264,7 @@ function resolveModelName(model: string): string {
   if (lower.startsWith("og")) return "OG";
   if (lower.startsWith("mj")) return "MJ";
   if (lower.startsWith("kling")) return "Kling";
-  if (lower.startsWith("hunyuan")) return "Hunyuan";
+  // hunyuan 分支已随混元下线一并移除（2026-09-11）。
   if (lower.startsWith("si")) return "SI";
   if (lower.startsWith("qwen")) return "Qwen";
   if (lower.startsWith("jimeng")) return "Jimeng";

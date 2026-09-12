@@ -24,6 +24,7 @@
 import process from "node:process";
 
 await import("../server/env.ts");
+const { TEXT_MODEL_FALLBACK_IDS, isClaudeTextModelId } = await import("../shared/text-models.ts");
 
 const args = process.argv.slice(2);
 const QUICK = args.includes("--quick");
@@ -89,9 +90,12 @@ async function checkTextModels() {
   }
 
   const configured = process.env.AI_TEXT_MODEL?.replace(/['"]/g, "");
-  // 覆盖降级链上的全部模型，默认模型排最前
+  // 覆盖降级链上的全部模型，默认模型排最前。
+  // 候选列表直接取自 shared/text-models.ts，不要在这里另抄一份硬编码：
+  // 抄一份的后果是探活口径与线上真实降级链脱节，
+  // 探活全绿但线上首选模型其实是挂的（2026-09-10 切 claude 时就踩过）。
   const candidates = [...new Set([
-    configured, "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-4o",
+    configured, ...TEXT_MODEL_FALLBACK_IDS,
   ].filter(Boolean))];
 
   const list = QUICK ? candidates.slice(0, 1) : candidates;
@@ -154,10 +158,22 @@ async function checkImageProvider() {
     return;
   }
 
+  /**
+   * 候选模型必须是**中转站上仍然存在**的图片模型。
+   *
+   * 2026-09-12 中转站的图片选择器模型（og-image2-* 等）已整体下线，
+   * 拿它们来探活只会得到 404，把一个正常的中转站误判成挂了。
+   * 现在改用 gpt-image-2 / gemini-3.1-flash-image ——
+   * 它们是固定后端能力（智能注释等内部流程仍在用），依然走中转站 HTTP 链路，
+   * 是验证「中转站图片端点是否可达」的正确探针。
+   *
+   * 注意：选择器里的 vod-* 模型不在这里探活，它们走腾讯云独立签名链路，
+   * 由 scripts/verify-default-image-model.mjs 负责。
+   */
   const configured = process.env.AI_IMAGE_MODEL?.replace(/['"]/g, "");
   const candidates = QUICK
     ? [configured]
-    : [...new Set([configured, "og-image2-medium", "og-image2-low", "og-image2-high"].filter(Boolean))];
+    : [...new Set([configured, "gpt-image-2", "gemini-3.1-flash-image"].filter(Boolean))];
 
   for (const model of candidates) {
     const { value, error, ms } = await timed(() =>

@@ -11,6 +11,7 @@ import { createElementBackgroundLayer, createProductBackground, editImageWithPro
 import { replaceImageText } from "./text-replace";
 import { getPicWishBackgroundTemplates } from "./picwish-background-templates";
 import { DEFAULT_IMAGE_MODEL_ID } from "../shared/image-models";
+import { DEFAULT_TEXT_MODEL } from "../shared/text-models";
 import { getInspirationReferences } from "./inspiration-references";
 import { cleanupExpiredUploads, getUploadRetentionDays, getUploadsRoot, storeGeneratedImagesForUser } from "./local-image-storage";
 import { searchReferenceImages } from "./reference-search";
@@ -1541,7 +1542,7 @@ async function startServer() {
       capabilityKey: "text_generation",
       capability: "提示词优化 / 文案生成",
       provider: "AI_TEXT",
-      model: getRouteModel(req.body, process.env.AI_TEXT_MODEL || "gpt-5.4-mini"),
+      model: getRouteModel(req.body, process.env.AI_TEXT_MODEL || DEFAULT_TEXT_MODEL),
       failureMessage: "AI request failed",
       outputUnits: () => 1,
     }, async () => {

@@ -5,6 +5,7 @@ import {
   SUPPORTED_IMAGE_MODEL_IDS,
   sortImageModelIdsByPriority,
 } from "../../../shared/image-models";
+import { DEFAULT_TEXT_MODEL } from "../../../shared/text-models";
 
 // ── AI Models ────────────────────────────────────────────────
 export type AiModelOption = {
@@ -26,22 +27,74 @@ export const AUTO_AI_MODEL: AiModelOption = {
 
 export const DEFAULT_IMAGE_AI_MODEL_ID = DEFAULT_IMAGE_MODEL_ID;
 
+/**
+ * 选择器里的图片模型清单。**全部走腾讯云 VOD AIGC 直连**
+ * （server/tencent-vod-aigc.ts）。
+ *
+ * 2026-09-12 中转站图片模型（og-image2-* / gemini-3.5-flash-preview /
+ * jimeng-4.0 / mj-v7 / mj-v8.1 / keling）已整体下线并从此表移除。
+ * 中转站本身仍在服务文本/大语言模型，只是不再提供图片生成。
+ *
+ * 老用户本地草稿或白名单里残留的旧 id，由 shared/image-models.ts 的
+ * RETIRED_RELAY_IMAGE_MODEL_IDS 自动迁移到等价 VOD 模型，不会变成无效选项。
+ */
 export const IMAGE_AI_MODELS: AiModelOption[] = [
-  { id: "og-image2-medium", label: "image2 medium", color: "oklch(0.72 0.18 200)", description: "高品质场景稳定", icon: "openai" },
-  { id: "gemini-3.5-flash-preview", label: "gemini-3.5-flash-preview", color: "oklch(0.72 0.18 200)", description: "高性价比场景快", icon: "gemini" },
-  { id: "jimeng-4.0", label: "jimeng-4.0", color: "oklch(0.82 0.18 95)", description: "高性价比中文强", icon: "jimeng" },
-  { id: "mj-v7", label: "mj-v7", color: "oklch(0.74 0.16 285)", description: "高品质电影质感", icon: "midjourney" },
-  { id: "mj-v8.1", label: "mj-v8.1", color: "oklch(0.78 0.15 40)", description: "极致肖像细节", icon: "midjourney" },
-  { id: "keling", label: "keling", color: "oklch(0.76 0.16 130)", description: "高品质国风电商", icon: "keling" },
-  { id: "og-image2-high", label: "image2 high", color: "oklch(0.82 0.18 95)", description: "极致高清电影感", icon: "openai" },
-  { id: "og-image2-low", label: "image2 low", color: "oklch(0.70 0.16 150)", description: "高性价比快速稿", icon: "openai" },
+  // 注意 icon 必须显式给出品牌名：getModelBrandIconKind 的正则匹配的是
+  // `${icon} ${modelId}`，而 "vod-gem" / "vod-si" / "vod-qwen" 这些 id
+  // 本身不含任何品牌关键字，不写 icon 就会落到 "none" 变成无图标。
+  // OG image2.5 两系列（2026-09-11 接入，sunburst medium 为全站默认）。
+  // 两系价格完全相同，画风不同，都放出来供用户手动切换。
+  { id: "vod-og25-sunburst-medium", label: "image2.5 medium", color: "oklch(0.72 0.18 200)", description: "高性价比默认推荐", icon: "openai" },
+  { id: "vod-og25-flare-medium", label: "image2.5 medium flare", color: "oklch(0.74 0.16 285)", description: "高性价比另一画风", icon: "openai" },
+  { id: "vod-og25-sunburst-low", label: "image2.5 low", color: "oklch(0.70 0.16 150)", description: "极致低成本草稿", icon: "openai" },
+  { id: "vod-og25-flare-low", label: "image2.5 low flare", color: "oklch(0.70 0.16 150)", description: "极致低成本另一画风", icon: "openai" },
+  { id: "vod-og25-sunburst-high", label: "image2.5 high", color: "oklch(0.82 0.18 95)", description: "极致高清细节", icon: "openai" },
+  { id: "vod-og25-flare-high", label: "image2.5 high flare", color: "oklch(0.82 0.18 95)", description: "极致高清另一画风", icon: "openai" },
+  // label 是纯展示文案，与 id / 后端真实接口解耦
+  // （路由看 id，发给腾讯的版本串由 tencent-vod-aigc.ts 决定）。
+  // 2026-09-12 按要求调整对外命名：去掉 og 前缀、gem 前缀改 banana，后缀不变。
+  // 这张表必须与 server/image-generation.ts 的 imageModelLabels 保持一致，
+  // 否则 /api/ai/models 下发的目录文案会覆盖前端，UI 上出现两套名字。
+  { id: "vod-gem", label: "banana 3.1", color: "oklch(0.72 0.18 200)", description: "高品质综合表现", icon: "gemini" },
+  { id: "vod-gem-lite", label: "banana 3.1 lite", color: "oklch(0.76 0.16 130)", description: "高性价比出图快", icon: "gemini" },
+  { id: "vod-og", label: "image2", color: "oklch(0.74 0.16 285)", description: "高品质场景稳定", icon: "openai" },
+  { id: "vod-mj", label: "mj v8.2", color: "oklch(0.78 0.15 40)", description: "极致艺术表现", icon: "midjourney" },
+  { id: "vod-kling", label: "kling 3.0", color: "oklch(0.76 0.16 130)", description: "高品质国风电商", icon: "kling" },
+  { id: "vod-si", label: "si 5.0 pro", color: "oklch(0.82 0.18 95)", description: "极致写实质感", icon: "image" },
+  { id: "vod-qwen", label: "qwen 0925", color: "oklch(0.70 0.16 150)", description: "高性价比中文强", icon: "qwen" },
+  { id: "vod-jimeng", label: "jimeng 4.0", color: "oklch(0.82 0.18 95)", description: "高性价比中文强", icon: "jimeng" },
 ];
 
+// 文本 / 多模态理解模型清单（用户下拉框唯一可见项）。
+// 2026-09-10 起全站文本能力统一走中转站的 claude-opus-5，
+// id 必须与 shared/text-models.ts 的 DEFAULT_TEXT_MODEL 一致，
+// 否则前端传参会被服务端白名单静默丢弃。
+// 注意：上面的 IMAGE_AI_MODELS 属于图片**生成**模型，一个都不能动。
 export const TEXT_AI_MODELS: AiModelOption[] = [
-  { id: "gpt-5.4-mini", label: "GPT 5.4 - high", color: "oklch(0.74 0.14 230)" },
+  { id: DEFAULT_TEXT_MODEL, label: "Claude Opus 5", color: "oklch(0.74 0.14 45)", icon: "anthropic" },
 ];
 
-export const IMAGE_AI_MODEL_OPTIONS: AiModelOption[] = [AUTO_AI_MODEL, ...IMAGE_AI_MODELS];
+/**
+ * 选择器里的展示顺序必须 = IMAGE_MODEL_PRIORITY_IDS 的优先级顺序。
+ *
+ * 此前这里是 `[AUTO, ...IMAGE_AI_MODELS]` 直拼，等于把「源数组的书写顺序」
+ * 当成了展示顺序，与真正的 auto fallback 优先级是两套独立的顺序。
+ * 2026-09-11 把默认模型切到 image2.5 后立刻暴露问题：
+ * 优先级链首已经是 vod-og25-sunburst-medium，
+ * 而用户在下拉框里第一眼看到的仍然是旧的 og-image2-medium ——
+ * 「默认模型」与「默认选项」对不上。
+ *
+ * 统一走 sortImageModelIdsByPriority 之后，这两套顺序只剩一个真相来源。
+ */
+export const IMAGE_AI_MODEL_OPTIONS: AiModelOption[] = (() => {
+  const optionById = new Map(IMAGE_AI_MODELS.map(option => [option.id, option]));
+  const ordered = sortImageModelIdsByPriority(IMAGE_AI_MODELS.map(option => option.id))
+    .map(id => optionById.get(id))
+    .filter((option): option is AiModelOption => Boolean(option));
+  // 兜底：万一某个选项不在优先级表里，也不能凭空从 UI 消失。
+  const missing = IMAGE_AI_MODELS.filter(option => !ordered.some(item => item.id === option.id));
+  return [AUTO_AI_MODEL, ...ordered, ...missing];
+})();
 export const TEXT_AI_MODEL_OPTIONS: AiModelOption[] = [AUTO_AI_MODEL, ...TEXT_AI_MODELS];
 export const ALL_AI_MODEL_OPTIONS: AiModelOption[] = [
   AUTO_AI_MODEL,
@@ -54,11 +107,29 @@ function isImageModelOption(option: AiModelOption) {
   return SUPPORTED_IMAGE_MODEL_IDS.has(id);
 }
 
+/**
+ * 腾讯云 VOD AIGC 模型 —— 必须无条件保留在选择器里。
+ *
+ * 服务端 /api/ai/models 的目录是「中转站 /models 返回 ∩ 本地注册表」，
+ * 而这些模型压根不在中转站上（它们走 server/tencent-vod-aigc.ts 的独立签名链路），
+ * 因此永远不会出现在 discoveredModels 里。
+ *
+ * 若不做这层兜底，下面「有目录就用目录」的逻辑会把它们整体丢弃，
+ * 结果就是 IMAGE_AI_MODELS 里明明加了，UI 上却一个都看不到。
+ */
+const VOD_ONLY_MODELS = IMAGE_AI_MODELS.filter(model => model.id.startsWith("vod-"));
+
 export function mergeImageAiModelOptions(discoveredModels: AiModelOption[] = []) {
   const merged = new Map<string, AiModelOption>();
   const validDiscoveredModels = discoveredModels.filter(isImageModelOption);
   const sourceModels = validDiscoveredModels.length > 0
-    ? validDiscoveredModels
+    ? [
+        ...validDiscoveredModels,
+        // 目录里已有的条目优先，避免覆盖服务端下发的 label/description。
+        ...VOD_ONLY_MODELS.filter(
+          model => !validDiscoveredModels.some(item => item.id === model.id)
+        ),
+      ]
     : IMAGE_AI_MODELS;
   const optionById = new Map(sourceModels.map(option => [option.id, option]));
   const orderedModelIds = sortImageModelIdsByPriority(sourceModels.map(option => option.id));

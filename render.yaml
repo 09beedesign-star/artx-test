@@ -15,18 +15,35 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 24.14.0
+      # AI_IMAGE_* 现在只服务于多模态识图 / OCR，图片生成本身不再读取它们
+      # （2026-09-12 全站图片切换为腾讯 VOD 直连，见下方 TENCENT_VOD_*）。
       - key: AI_IMAGE_API_KEY
         sync: false
       - key: AI_IMAGE_BASE_URL
-        value: https://token.bkeel.com
+        value: https://token.bkeel.com/v1
+      # 留空即回落到 shared/image-models.ts 的 DEFAULT_IMAGE_MODEL_ID
+      # （vod-og25-sunburst-medium）。原先写死的 gpt-image-2 是中转站型号，
+      # 不在注册表内、isSupported=false，只能靠 fallback 链兜底，语义是错的。
       - key: AI_IMAGE_MODEL
-        value: gpt-image-2
+        value: ""
+      # 腾讯云 VOD AIGC：图片生成的唯一通道，三者缺一则全站无法出图。
+      # SID/SKEY 是密钥，走 sync:false 在 Render 后台单独填；
+      # SUB_APP_ID 不是密钥，可直接写入。
+      - key: TENCENT_VOD_SID
+        sync: false
+      - key: TENCENT_VOD_SKEY
+        sync: false
+      - key: TENCENT_VOD_SUB_APP_ID
+        value: "1304471873"
       - key: AI_TEXT_API_KEY
         sync: false
+      # 文本模型走中转站，不是 OpenAI 官方：claude-opus-5 只在 token.bkeel.com 上存在，
+      # 这里若仍填 api.openai.com 会直接 404。本地 .env 早已指向 token.bkeel.com，
+      # 此处的 api.openai.com 是历史残留。
       - key: AI_TEXT_BASE_URL
-        value: https://api.openai.com
+        value: https://token.bkeel.com
       - key: AI_TEXT_MODEL
-        value: gpt-4o
+        value: claude-opus-5
       - key: VITE_API_BASE_URL
         sync: false
       - key: OAUTH_PUBLIC_BASE_URL
