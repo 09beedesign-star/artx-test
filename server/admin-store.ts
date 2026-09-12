@@ -204,6 +204,14 @@ type AiTaskRecord = {
   chargedCredits: number;
   grossMargin: number;
   usage?: AiTaskUsage;
+  /**
+   * 指令下发时间（调用上游之前）。
+   * ⚠️ 历史记录没有这两个字段，读取时一律走 deriveTaskTimeline() 兜底，
+   * 不要直接假设它们存在。
+   */
+  startedAt?: string;
+  /** 结果返回时间（上游响应之后）。 */
+  completedAt?: string;
   createdAt: string;
 };
 
@@ -227,6 +235,12 @@ type AiUsageRecordInput = {
   providerTaskIds?: string[];
   status: AiTaskStatus;
   latencyMs?: number;
+  /**
+   * 指令下发时刻的毫秒时间戳（`Date.now()`）。
+   * 路由层本来就有这个值（用于算 latencyMs），传进来即可落库，
+   * 不传则用 `createdAt - latencyMs` 反推。
+   */
+  startedAtMs?: number;
   failureReason?: string;
   inputUnits?: number;
   outputUnits?: number;
@@ -1478,6 +1492,34 @@ function buildProductionChecks(data: AdminData): ProductionCheckItem[] {
 }
 
 /**
+ * 补齐任务的起止时间。
+ *
+ * 历史记录（改造前写入的）只有 `createdAt` 和 `latencyMs`，
+ * 没有 `startedAt`/`completedAt`。这里统一按
+ * 「完成时间 = createdAt，开始时间 = createdAt - latencyMs」反推，
+ * 让前端不必关心记录是新是旧。
+ *
+ * ⚠️ 反推值是**估算**，仅当真实字段缺失时使用；
+ * `derived` 标记为 true 时前端会注明「推算」。
+ */
+function deriveTaskTimeline(task: AiTaskRecord): {
+  startedAt: string;
+  completedAt: string;
+  derived: boolean;
+} {
+  if (task.startedAt && task.completedAt) {
+    return { startedAt: task.startedAt, completedAt: task.completedAt, derived: false };
+  }
+  const completedAt = task.completedAt || task.createdAt;
+  const completedMs = new Date(completedAt).getTime();
+  const startedAt = task.startedAt
+    || (Number.isFinite(completedMs)
+      ? new Date(completedMs - (Number(task.latencyMs) || 0)).toISOString()
+      : completedAt);
+  return { startedAt, completedAt, derived: true };
+}
+
+/**
  * 供应商 id → 结算入口配置。
  *
  * `billingApi` 标记是否存在**可编程**的余额/账单查询接口（2026-09-12 实测）：
@@ -2397,7 +2439,20 @@ export async function handleAdminApiRequest(
     return { status: 200, body: detail };
   }
   if (method === "GET" && route === "credits") return { status: 200, body: { credits: data.credits, creditBatches: data.creditBatches, users: toDisplayUsers(data.users) } };
-  if (method === "GET" && route === "ai-tasks") return { status: 200, body: { aiTasks: data.aiTasks, providers: await buildEnrichedProviders(data) } };
+  if (method === "GET" && route === "ai-tasks") {
+    // 历史记录缺 startedAt/completedAt，统一在出口补齐，
+    // 前端不用区分新旧数据。
+    const aiTasks = data.aiTasks.map((task) => {
+      const timeline = deriveTaskTimeline(task);
+      return {
+        ...task,
+        startedAt: timeline.startedAt,
+        completedAt: timeline.completedAt,
+        timelineDerived: timeline.derived,
+      };
+    });
+    return { status: 200, body: { aiTasks, providers: await buildEnrichedProviders(data) } };
+  }
   if (method === "GET" && route === "providers") return { status: 200, body: { providers: await buildEnrichedProviders(data) } };
   if (method === "GET" && route === "production-readiness") return { status: 200, body: { productionReadiness: buildProductionReadiness() } };
   if (method === "GET" && route === "production-checks") return { status: 200, body: { productionChecks: buildProductionChecks(data) } };
@@ -3782,6 +3837,13 @@ export async function recordAiUsage(input: AiUsageRecordInput) {
       ? Number(((chargedCredits - (estimatedCost * 100)) / Math.max(chargedCredits, 1)).toFixed(2))
       : 0,
     usage,
+    // 指令下发时间：优先用路由层传进来的真实时间戳，
+    // 没传就用「结束时间 - 耗时」反推，保证字段一定有值。
+    startedAt: input.startedAtMs
+      ? new Date(input.startedAtMs).toISOString()
+      : new Date(new Date(createdAt).getTime() - (input.latencyMs || 0)).toISOString(),
+    // 结果返回时间：recordAiUsage 是在上游返回后才调用的，所以就是此刻。
+    completedAt: createdAt,
     createdAt,
   };
 

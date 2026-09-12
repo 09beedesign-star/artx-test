@@ -56,7 +56,10 @@ describe("image provider attribution", () => {
     expect(indexSource).toContain("function resolveImageProviderLabel");
     expect(indexSource).toContain("function getRouteImageProvider");
     expect(indexSource).toContain('const IMAGE_PROVIDER_TENCENT_VOD = "腾讯云 VOD"');
-    expect(indexSource).toContain('const IMAGE_PROVIDER_RELAY = "AI_IMAGE"');
+    // ⚠️ 中转站的厂商名是 "BKEEL"（健康度条目 ai_bkeel 的 name），
+    // 不是 "AI_IMAGE"——那是环境变量前缀 AI_IMAGE_*，不是厂商名。
+    // 写错会让所有走中转站的图片任务在成本分组里变成无归属孤儿。
+    expect(indexSource).toContain('const IMAGE_PROVIDER_RELAY = "BKEEL"');
 
     // 所有图片生成/编辑/文字替换路由都必须走动态归属。
     expect(indexSource).toContain("provider: getRouteImageProvider(req.body)");
@@ -81,9 +84,18 @@ describe("image provider attribution", () => {
   });
 
   it("does not leave image generation routes on the hardcoded AI_IMAGE string", () => {
-    // OCR 走 vision-chat 模型、走中转站，保留 AI_IMAGE 是正确的；
-    // 除它之外不应再有硬编码。
-    const hardcoded = indexSource.match(/provider: "AI_IMAGE"/g) || [];
-    expect(hardcoded.length).toBe(1);
+    // "AI_IMAGE" 是环境变量前缀，不是厂商名，任何路由都不该再写死它。
+    // OCR 走中转站视觉模型，现在统一引用 IMAGE_PROVIDER_RELAY 常量。
+    expect(indexSource).not.toMatch(/provider: "AI_IMAGE"/);
+    expect(indexSource).toContain("provider: IMAGE_PROVIDER_RELAY");
+  });
+
+  it("keeps the relay provider name aligned with the health dashboard entry", () => {
+    // 与 VOD 同理：路由写入的名字必须能在健康度列表里找到，
+    // 否则「有数据没归属」，而且不会报错。
+    const healthName = adminStoreSource.match(/id: "ai_bkeel", name: "([^"]+)"/)?.[1];
+    const routeName = indexSource.match(/const IMAGE_PROVIDER_RELAY = "([^"]+)"/)?.[1];
+    expect(healthName).toBeTruthy();
+    expect(routeName).toBe(healthName);
   });
 });

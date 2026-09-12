@@ -414,20 +414,26 @@ function getDefaultRouteImageModel(body: unknown) {
 
 /**
  * 后台「第三方接口 / AI 成本」按 provider 字符串分组统计。
- * 图片生成有两条完全不同的上游链路（腾讯云 VOD 直连 vs 中转站 AI_IMAGE），
+ * 图片生成有两条完全不同的上游链路（腾讯云 VOD 直连 vs 中转站 BKEEL），
  * 此前统一硬编码成 "AI_IMAGE"，导致 VOD 的真实调用量全部被记到中转站名下，
  * 后台看不到腾讯云 VOD 的任何使用数据。
  *
  * 这里按模型 id 归属判定：
  *   - 显式 VOD 模型（vod-* 及已迁移的旧中转站 id）→ 腾讯云 VOD
  *   - auto / 空值 → 走 IMAGE_MODEL_PRIORITY_IDS 兜底链，该链 2026-09-12 起是纯 VOD
- *   - 其余 → 中转站 AI_IMAGE
+ *   - 其余 → 中转站 BKEEL
  *
  * provider 名称必须与 admin-store.ts buildProviderHealth() 里的 name 对齐，
  * 否则健康度列表和成本分组会对不上号。
+ *
+ * ⚠️ 图片中转站与文本中转站是**同一个上游**（token.bkeel.com），
+ * 健康度里只注册了一个条目 `ai_bkeel` / name "BKEEL"（configLocation 正是
+ * `AI_IMAGE_*`）。这里曾经写成 "AI_IMAGE"（环境变量前缀），与健康度
+ * 对不上，导致所有走中转站的图片任务在成本分组里变成无归属孤儿，
+ * 且不会报任何错。**环境变量前缀 ≠ 厂商名，别再混用。**
  */
 const IMAGE_PROVIDER_TENCENT_VOD = "腾讯云 VOD";
-const IMAGE_PROVIDER_RELAY = "AI_IMAGE";
+const IMAGE_PROVIDER_RELAY = "BKEEL";
 /**
  * 文本/多模态理解链路的厂商名（生产走 token.bkeel.com 中转站，
  * 健康度列表里注册为 ai_bkeel / "BKEEL"）。
@@ -452,7 +458,7 @@ function getRouteImageProvider(body: unknown) {
 /**
  * 根据能力类型判定上游厂商：
  * - 文本/多模态理解（chat / brand_kit_parse）→ BKEEL 中转站
- * - 图片生成/编辑 → 按模型归属到腾讯云 VOD 或中转站 AI_IMAGE
+ * - 图片生成/编辑 → 按模型归属到腾讯云 VOD 或中转站 BKEEL
  */
 function resolveProviderByCapability(capabilityKey: AiBillingCapability, model: string): string {
   if (capabilityKey === "text_generation") {
@@ -1515,7 +1521,8 @@ async function startServer() {
     await handleTrackedAiRequest(req, res, {
       capabilityKey: "image_ocr",
       capability: "图片 OCR / 文案提取",
-      provider: "AI_IMAGE",
+      // OCR 走中转站视觉模型，用常量而非字面量，避免与健康度条目名漂移。
+      provider: IMAGE_PROVIDER_RELAY,
       model: getRouteModel(req.body, process.env.AI_IMAGE_MODEL || "vision-chat-ocr"),
       failureMessage: "Image OCR failed",
       outputUnits: () => 1,

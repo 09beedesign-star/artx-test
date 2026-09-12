@@ -80,8 +80,10 @@ describe("供应商最近调用详情", () => {
     expect(adminStoreSource).toMatch(
       /route === "providers"\) return \{ status: 200, body: \{ providers: await buildEnrichedProviders\(data\)/
     );
+    // ⚠️ 必须用 [\s\S] 而不是 .：ai-tasks 分支已从单行 return 扩成多行块
+    // （出口要补 startedAt/completedAt），. 默认不跨行会误判成回归。
     expect(adminStoreSource).toMatch(
-      /route === "ai-tasks"\).*providers: await buildEnrichedProviders\(data\)/
+      /route === "ai-tasks"\)[\s\S]*providers: await buildEnrichedProviders\(data\)/
     );
   });
 

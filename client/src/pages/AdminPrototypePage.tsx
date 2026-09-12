@@ -240,6 +240,12 @@ type AiTask = {
   chargedCredits: number;
   grossMargin: number;
   usage?: { usageKind: "tokens" | "images" | "credits"; promptTokens?: number; completionTokens?: number; imageCount?: number };
+  /** 指令下发时间（调用上游之前）。历史记录没有，由服务端按 createdAt - latencyMs 反推。 */
+  startedAt?: string;
+  /** 结果返回时间（上游响应之后）。 */
+  completedAt?: string;
+  /** true 表示上面两个时间是服务端反推出来的，不是真实落库值。 */
+  timelineDerived?: boolean;
   createdAt: string;
 };
 
@@ -1766,12 +1772,26 @@ function AdminPrototypePage() {
           <DataList
             title="AI 任务追踪"
             description="保留 generationId / backendTaskId / providerTaskId，便于排查用户投诉和供应商日志。"
-            rows={adminData.aiTasks.map((task) => ({
-              title: `${task.capability} · ${task.model}`,
-              meta: `${task.user} · ${task.generationId} / ${task.backendTaskId} / ${task.providerTaskId} · 预估成本 ${formatCurrency(task.estimatedCost)}`,
-              value: task.status === "success" ? `${task.chargedCredits} 积分 · 毛利 ${(task.grossMargin * 100).toFixed(0)}%` : task.failureReason || task.status,
-              icon: task.status === "success" ? BadgeCheck : AlertTriangle,
-            }))}
+            rows={adminData.aiTasks.map((task) => {
+              // 格式化时间为 HH:mm:ss，历史记录由服务端反推时会加上 (推算) 标记。
+              const formatTaskTime = (isoString?: string) => {
+                if (!isoString) return "无";
+                const date = new Date(isoString);
+                if (!Number.isFinite(date.getTime())) return "无效";
+                return date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+              };
+              const startTime = formatTaskTime(task.startedAt);
+              const endTime = formatTaskTime(task.completedAt);
+              const timeLabel = task.timelineDerived ? "（按耗时推算）" : "";
+              const latencyText = Number.isFinite(task.latencyMs) ? `${(task.latencyMs / 1000).toFixed(1)}s` : "-";
+              return {
+                title: `${task.capability} · ${task.model}`,
+                meta: `${task.user} · ${task.generationId} / ${task.backendTaskId} / ${task.providerTaskId} · 预估成本 ${formatCurrency(task.estimatedCost)}`,
+                submeta: `${task.provider} · 执行指令 ${startTime} → 输出结果 ${endTime} · 耗时 ${latencyText}${timeLabel}`,
+                value: task.status === "success" ? `${task.chargedCredits} 积分 · 毛利 ${(task.grossMargin * 100).toFixed(0)}%` : task.failureReason || task.status,
+                icon: task.status === "success" ? BadgeCheck : AlertTriangle,
+              };
+            })}
           />
           <DataList
             title="AI 扣分策略配置"
@@ -3277,7 +3297,9 @@ function DataList({
 }: {
   title: string;
   description: string;
-  rows: Array<{ title: string; meta: string; value: string; icon: typeof BarChart3 }>;
+  // submeta 是可选的第三行。meta 行是 truncate 单行，把时间等信息塞进去会被截断，
+  // 所以时间轴这类次要信息单独占一行。
+  rows: Array<{ title: string; meta: string; submeta?: string; value: string; icon: typeof BarChart3 }>;
 }) {
   return (
     <div>
@@ -3299,6 +3321,9 @@ function DataList({
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium">{row.title}</div>
                 <div className="truncate text-xs text-slate-500">{row.meta}</div>
+                {row.submeta && (
+                  <div className="mt-0.5 truncate text-xs text-slate-600">{row.submeta}</div>
+                )}
               </div>
               <Badge className={statusClass(row.value)}>{row.value}</Badge>
             </div>
