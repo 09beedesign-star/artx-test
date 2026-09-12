@@ -17,6 +17,7 @@ import { createAuthUserForAdmin, getAdminSessionFromAuthorization, listAuthUsers
 import { storeFeedbackImagesForUser, type FeedbackImageInput, type StoredFeedbackImage } from "./local-image-storage";
 import { PostgresJsonDocumentStore } from "./postgres-json-store";
 import { getAllProviderBilling } from "./provider-billing";
+import { DEFAULT_GIFT_EXPIRY_DAYS, GIFT_LEDGER_TYPE, grantCredits } from "./credit-gifting";
 
 type AdminStatus = "normal" | "watch" | "blocked" | "cancelled";
 type OrderStatus = "paid" | "pending" | "failed" | "refunded";
@@ -2089,15 +2090,32 @@ function ensureBillingConsistency(data: AdminData) {
       })),
     })),
   }));
-  data.credits = data.credits.map((entry) => ({
-    ...entry,
-    createdAt: formatRelativeTime(entry.createdAt),
-  }));
+  // ⚠️ 这里**刻意不再**把 credits[].createdAt 改写成相对时间。
+  // ensureBillingConsistency 位于 saveAdminData 的落库路径上，
+  // 原先的 formatRelativeTime() 会把 ISO 时间戳持久化成「刚刚」，
+  // 导致积分流水的真实时间**永久丢失**、再次加载无法解析，
+  // 也让任何基于流水时间的统计（单日赠送额度、按日对账）全部失效。
+  // 与 user.plan 同款教训：展示层归一化只在读取侧做，绝不回写。
+  // 相对时间改由 toDisplayCredits() 在出口投影。
   data.auditLogs = data.auditLogs.map((log) => ({
     ...log,
     createdAt: formatAbsoluteSecondTime(log.createdAt) || log.createdAt,
   }));
   recalculateUserBilling(data);
+}
+
+/**
+ * 读取侧展示投影：积分流水的相对时间。
+ *
+ * 存储里保留 ISO 原值，只在出口转成「刚刚 / 3 分钟前」。
+ * ⚠️ 历史数据里可能已经存着被旧逻辑写坏的「刚刚」这类字符串，
+ * formatRelativeTime 解析不了时按原样透传，不要再二次加工。
+ */
+function toDisplayCredits(credits: AdminData["credits"]) {
+  return credits.map((entry) => ({
+    ...entry,
+    createdAt: formatRelativeTime(entry.createdAt) || entry.createdAt,
+  }));
 }
 
 /**
@@ -2139,7 +2157,7 @@ function fullPayload(data: AdminData) {
     overview: dashboard(data),
     users: toDisplayUsers(data.users),
     orders: data.orders,
-    credits: data.credits,
+    credits: toDisplayCredits(data.credits),
     creditBatches: data.creditBatches,
     aiTasks: withTaskTimeline(data.aiTasks),
     providers: data.providers,
@@ -2463,7 +2481,42 @@ export async function handleAdminApiRequest(
     if (!detail) return jsonError(404, "订单不存在");
     return { status: 200, body: detail };
   }
-  if (method === "GET" && route === "credits") return { status: 200, body: { credits: data.credits, creditBatches: data.creditBatches, users: toDisplayUsers(data.users) } };
+  if (method === "GET" && route === "credits") return { status: 200, body: { credits: toDisplayCredits(data.credits), creditBatches: data.creditBatches, users: toDisplayUsers(data.users) } };
+  /**
+   * 赠送记录与汇总。
+   * 从 credits 流水里按 type 过滤派生，不额外落库（流水是唯一事实源）。
+   */
+  if (method === "GET" && route === "credits/gift-records") {
+    const giftEntries = data.credits.filter((entry) => entry.type === GIFT_LEDGER_TYPE);
+    const batchBySource = new Map(data.creditBatches.map((batch) => [batch.source, batch]));
+    const records = giftEntries.map((entry) => {
+      // 批次的 source 是业务 source，流水的 source 可能是幂等键，
+      // 因此按 userId + createdAt 兜底关联，拿有效期展示。
+      const batch = batchBySource.get(entry.source)
+        || data.creditBatches.find(
+          (item) => item.userId === entry.userId && item.createdAt === entry.createdAt
+        );
+      return {
+        ...entry,
+        expiresAt: batch?.expiresAt,
+        remainingCredits: batch?.remainingCredits,
+        batchStatus: batch?.status,
+      };
+    });
+    const totalGifted = giftEntries.reduce((sum, entry) => sum + entry.delta, 0);
+    return {
+      status: 200,
+      body: {
+        // 出口投影展示时间，与 fullPayload 对齐。
+        records: toDisplayCredits(records),
+        summary: {
+          totalGifted,
+          totalRecords: giftEntries.length,
+          uniqueUsers: new Set(giftEntries.map((entry) => entry.userId)).size,
+        },
+      },
+    };
+  }
   if (method === "GET" && route === "ai-tasks") {
     // 历史记录缺 startedAt/completedAt，统一在出口补齐，
     // 前端不用区分新旧数据。
@@ -3003,6 +3056,94 @@ export async function handleAdminApiRequest(
     }
     await saveAdminData(data);
     return { status: 200, body: fullPayload(data) };
+  }
+
+  /**
+   * 批量赠送积分。
+   *
+   * 与 credits/adjust 的区别：
+   * - adjust 是「人工补偿/扣减」，单人、可正可负、语义是修正账目
+   * - gift 是「运营赠送」，可批量、只增不减、语义是发放权益
+   * 两者都会产生 kind=gift 批次，但来源与审计动作不同，报表要能分开统计。
+   */
+  if (method === "POST" && route === "credits/gift") {
+    const rawUserIds = Array.isArray(body.userIds) ? body.userIds : [];
+    const userIds = rawUserIds.filter((id): id is string => typeof id === "string" && Boolean(id));
+    const amount = Number(body.amount);
+    const reason = typeof body.reason === "string" && body.reason.trim()
+      ? body.reason.trim()
+      : "";
+    const expiryDays = body.expiryDays === undefined
+      ? DEFAULT_GIFT_EXPIRY_DAYS
+      : Number(body.expiryDays);
+
+    if (userIds.length === 0) return jsonError(400, "请至少选择一个赠送对象");
+    if (!Number.isFinite(amount) || amount <= 0) return jsonError(400, "赠送积分必须是正数");
+    if (!reason) return jsonError(400, "请填写赠送理由，便于审计追溯");
+    if (!Number.isFinite(expiryDays) || expiryDays <= 0) {
+      return jsonError(400, "有效期天数必须是正数");
+    }
+    // 批量大额需要二次确认，口径与 credits/adjust 对齐。
+    if (amount * userIds.length >= 10000 && body.confirmHighRisk !== true) {
+      return jsonError(409, "大额批量赠送需要二次确认");
+    }
+
+    const grantedAt = nowIso();
+    // 批次号：同一次批量操作共用，便于按批撤销与对账。
+    const giftBatchNo = `gift_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`;
+    const succeeded: Array<{ userId: string; user: string; ledgerId: string }> = [];
+    const failed: Array<{ userId: string; user: string; error: string }> = [];
+
+    for (const userId of userIds) {
+      const user = data.users.find((item) => item.id === userId);
+      if (!user) {
+        failed.push({ userId, user: userId, error: "用户不存在" });
+        continue;
+      }
+      const result = grantCredits(data, {
+        user,
+        amount,
+        reason,
+        source: `admin/gift/${giftBatchNo}`,
+        operator: actor.username,
+        createdAt: grantedAt,
+        expiryDays,
+        // 幂等键带上批次号与用户，重放整批不会重复入账。
+        idempotencyKey: `${giftBatchNo}:${user.id}`,
+      });
+      if (result.success) {
+        succeeded.push({ userId: user.id, user: user.name, ledgerId: result.ledgerId });
+      } else {
+        failed.push({ userId: user.id, user: user.name, error: result.error });
+      }
+    }
+
+    // 全部失败时不留审计噪音，直接回错误。
+    if (succeeded.length === 0) {
+      return jsonError(400, failed[0]?.error || "赠送失败");
+    }
+
+    appendAuditLog(data, actor, {
+      action: "批量赠送积分",
+      target: giftBatchNo,
+      reason,
+      after: {
+        amountPerUser: amount,
+        expiryDays,
+        succeeded: succeeded.length,
+        failed: failed.length,
+        totalCredits: amount * succeeded.length,
+      },
+    });
+
+    await saveAdminData(data);
+    return {
+      status: 200,
+      body: {
+        ...fullPayload(data),
+        giftResult: { giftBatchNo, amount, expiryDays, succeeded, failed },
+      },
+    };
   }
 
   const feedbackMatch = route.match(/^feedback\/([^/]+)\/status$/);
