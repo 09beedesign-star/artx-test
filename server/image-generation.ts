@@ -4645,7 +4645,10 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
   return withProviderTaskIds({ images }, taskIds);
 }
 
-export async function editImageWithPrompt(input: EditImageInput): Promise<{ images: GeneratedImage[] }> {
+// ⚠️ 返回类型必须是 GeneratedImageResult 而不是 `{ images }`。
+// 写成 `{ images }` 会在**类型层面**把 providerTaskId 抹掉：运行时字段明明有值，
+// 调用方却读不到，且全程零报错。收紧返回类型是定位"字段被静默丢弃"的有效手段。
+export async function editImageWithPrompt(input: EditImageInput): Promise<GeneratedImageResult> {
   if (!input.imageSrc?.trim()) {
     throw new Error("Missing imageSrc");
   }

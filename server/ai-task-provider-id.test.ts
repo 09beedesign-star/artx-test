@@ -214,6 +214,41 @@ describe("AI 任务时间轴兜底（withTaskTimeline）", () => {
   });
 });
 
+describe("orchestrator 必须透传上游任务号（09-12 生产实测暴露）", () => {
+  const orchestratorSource = readFileSync("server/ai-orchestrator.ts", "utf-8");
+
+  it("文生图分支必须返回 providerTaskId/providerTaskIds", () => {
+    // ⚠️ 真实事故：generateImages() 内部已正确返回任务号，但 orchestrator
+    // 的 text_to_image 返回体漏掉了这两个字段，最常用的出图链路上游任务号
+    // 被静默丢弃，后台恒显示 provider-task-missing。
+    // 教训：底层修好 ≠ 链路通了，每一层返回体都要单独确认。
+    const textToImageBlock = orchestratorSource.match(
+      /const result = await generateImages\(\{[\s\S]{1,900}?\n    \};/,
+    );
+    expect(textToImageBlock).toBeTruthy();
+    expect(textToImageBlock![0]).toMatch(/providerTaskId:\s*result\.providerTaskId/);
+    expect(textToImageBlock![0]).toMatch(/providerTaskIds:\s*result\.providerTaskIds/);
+  });
+
+  it("所有图片类返回体都必须带任务号，不能只修其中一个分支", () => {
+    // 反向断言：凡是 type: "image" 的返回体都必须出现 providerTaskId。
+    // 这个 bug 的本质是「五个并列分支有两个漏了」（文生图 + image_edit），
+    // 逐个点名的正向断言守不住将来新增的分支。
+    //
+    // ⚠️ 终止符必须写 `\n\s*\};` 而不是 `\n    \};`：
+    // 这些返回体嵌套层级不同（if 块内是 6 空格、函数末尾是 4 空格），
+    // 写死缩进会让正则只匹配到 1 个块，测试看似"跑过"实则几乎没覆盖。
+    const imageReturns = orchestratorSource.match(
+      /return \{\s*\n\s*type: "image"[\s\S]{1,900}?\n\s*\};/g,
+    );
+    expect(imageReturns).toBeTruthy();
+    expect(imageReturns!.length).toBeGreaterThanOrEqual(5);
+    for (const block of imageReturns!) {
+      expect(block).toMatch(/providerTaskId:\s*result\.providerTaskId/);
+    }
+  });
+});
+
 describe("AI 任务追踪面板布局与搜索", () => {
   const adminPageSource = readFileSync("client/src/pages/AdminPrototypePage.tsx", "utf-8");
 

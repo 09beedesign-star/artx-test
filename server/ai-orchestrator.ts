@@ -236,6 +236,8 @@ export class AIOrchestrator {
         model: route.model,
         images: result.images,
         image_base64: firstImageBase64(result.images),
+        providerTaskId: result.providerTaskId,
+        providerTaskIds: result.providerTaskIds,
         route: route.provider,
         skill: skill?.id,
       };
@@ -258,6 +260,14 @@ export class AIOrchestrator {
       image_base64: firstImageBase64(result.images),
       route: route.provider,
       skill: skill?.id,
+      // ⚠️ 必须透传上游任务号。本文件共有 5 个 image 返回体，文生图（这里）和
+      // image_edit 两处都曾漏掉这两行 —— 最常用的两条链路上游任务号在
+      // orchestrator 这一层被静默丢弃，后台恒显示 "provider-task-missing"。
+      // 底层 generateImages() / editImageWithPrompt() 都已正确返回任务号，
+      // 丢失点在返回体的字段拼装，排查时极易被"底层已修好"误导。
+      // 新增 image 分支时务必同步带上，测试会逐个返回体做断言。
+      providerTaskId: result.providerTaskId,
+      providerTaskIds: result.providerTaskIds,
     };
   }
 }
