@@ -1261,6 +1261,7 @@ function buildProductionReadiness(): ProductionReadinessItem[] {
     readinessItem({ id: "ai_bkeel", domain: "BKEEL 图片生成", requiredKeys: ["AI_IMAGE_API_KEY", "AI_IMAGE_BASE_URL", "AI_IMAGE_MODEL"], summary: "用于第三方图片生成任务、providerTaskId 追踪和失败告警。", action: "配置 AI_IMAGE_* 接口凭据，验证异步 task_id 轮询、失败告警和成本入账。" }),
     readinessItem({ id: "ai_tencent_vod", domain: "腾讯云 VOD 图片生成", requiredKeys: ["TENCENT_VOD_SID", "TENCENT_VOD_SKEY", "TENCENT_VOD_SUB_APP_ID"], summary: "全站默认出图链路（vod-og25 / vod-gem / vod-jimeng 等），承载 auto 模式全部兜底。", action: "配置 TENCENT_VOD_* 凭据，跑一笔真实出图确认 providerTaskId 和成本进入 AI 任务明细。" }),
     readinessItem({ id: "ai_picwish", domain: "PicWish/佐糖图像处理", requiredKeys: ["PICWISH_API_KEY"], summary: "用于抠图、高清、去水印、橡皮擦等图像处理能力。", action: "配置接口凭据，验证 providerTaskId 进入后台 AI 任务明细。" }),
+    readinessItem({ id: "ai_meitu", domain: "美图开放平台", requiredKeys: ["ACCESS_KEY", "SECRET_KEY"], summary: "用于蒙版局部重绘（InPainting），凭据键名无 MEITU_ 前缀。", action: "配置 ACCESS_KEY / SECRET_KEY，跑一次真实局部重绘确认网关未返回 90002 无权益。" }),
     mailReadinessItem(),
     readinessItem({ id: "sms_tencent", domain: "腾讯云短信验证码", requiredKeys: ["TENCENTCLOUD_SECRET_ID", "TENCENTCLOUD_SECRET_KEY", "TENCENT_SMS_SDK_APP_ID", "TENCENT_SMS_SIGN_NAME", "TENCENT_SMS_TEMPLATE_ID"], summary: "用于手机号验证码登录/注册，验证码只保存哈希并有过期、重发和次数限制。", action: "配置腾讯云短信应用、签名和模板；模板参数第 1 个必须是 6 位验证码。" }),
     readinessItem({ id: "ops_alerting", domain: "运行告警", requiredKeys: ["ALERT_WEBHOOK_URL"], summary: "用于把支付失败、AI 失败率升高、服务器异常等推送到飞书/钉钉/企业微信。", action: "配置告警 webhook，并把 P0/P1 告警接入右上角消息提醒。" }),
@@ -1437,6 +1438,14 @@ function buildProviderHealth(): ProviderHealth[] {
   const aggregateState = wallytConfigured ? "在线" : "未配置";
   const tencentVodStatus = envStatus(["TENCENT_VOD_SID", "TENCENT_VOD_SKEY", "TENCENT_VOD_SUB_APP_ID"], "all");
   const tencentVodConfigured = tencentVodStatus === "configured";
+  /**
+   * 美图开放平台的凭据键名是**裸的** `ACCESS_KEY` / `SECRET_KEY`，
+   * 没有 `MEITU_` 前缀（见 server/meitu-client.ts getMeituConfig）。
+   * `MEITU_*` 那批变量只是网关地址、配方 ID、超时和蒙版参数，不是凭据。
+   * 探测时按 `MEITU_API_KEY` 找会恒判未配置 —— 不要想当然加前缀。
+   */
+  const meituStatus = envStatus(["ACCESS_KEY", "SECRET_KEY"], "all");
+  const meituConfigured = meituStatus === "configured";
 
   return [
     { id: "pay_wallyt", name: "威富通", category: "聚合支付", state: wallytConfigured ? "在线" : "未配置", latencyMs: 220, owner: "Finance", configLocation: "server env: WALLYT_*", credentialStatus: wallytStatus, lastCheckedAt: "刚刚" },
@@ -1447,6 +1456,7 @@ function buildProviderHealth(): ProviderHealth[] {
     { id: "ai_bkeel", name: "BKEEL", category: "图片生成", state: envStatus(["AI_IMAGE_API_KEY", "AI_IMAGE_BASE_URL", "AI_IMAGE_MODEL"], "all") === "configured" ? "观察" : "未配置", latencyMs: 1240, owner: "AI Ops", configLocation: "server env: AI_IMAGE_*", credentialStatus: envStatus(["AI_IMAGE_API_KEY", "AI_IMAGE_BASE_URL", "AI_IMAGE_MODEL"], "all"), lastCheckedAt: "刚刚" },
     { id: "ai_tencent_vod", name: "腾讯云 VOD", category: "图片生成", state: tencentVodConfigured ? "在线" : "未配置", latencyMs: 960, owner: "AI Ops", configLocation: "server env: TENCENT_VOD_*", credentialStatus: tencentVodStatus, lastCheckedAt: "刚刚" },
     { id: "ai_picwish", name: "PicWish/佐糖", category: "图像处理", state: envStatus(["PICWISH_API_KEY"]) === "configured" ? "在线" : "未配置", latencyMs: 812, owner: "AI Ops", configLocation: "server env: PICWISH_*", credentialStatus: envStatus(["PICWISH_API_KEY"]), lastCheckedAt: "刚刚" },
+    { id: "ai_meitu", name: "MEITU", category: "图像处理", state: meituConfigured ? "在线" : "未配置", latencyMs: 1450, owner: "AI Ops", configLocation: "server env: ACCESS_KEY / SECRET_KEY / MEITU_*", credentialStatus: meituStatus, lastCheckedAt: "刚刚" },
     buildTencentCloudBackendHealth(),
   ];
 }

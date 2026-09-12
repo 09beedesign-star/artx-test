@@ -29,6 +29,29 @@ describe("image provider attribution", () => {
     );
   });
 
+  it("exposes MEITU as its own provider health entry", () => {
+    expect(adminStoreSource).toContain('id: "ai_meitu"');
+    expect(adminStoreSource).toContain('name: "MEITU"');
+    // 美图凭据是**裸的** ACCESS_KEY / SECRET_KEY，没有 MEITU_ 前缀。
+    // MEITU_* 那批只是网关地址、配方 ID、超时和蒙版参数，不是凭据。
+    expect(adminStoreSource).toContain('envStatus(["ACCESS_KEY", "SECRET_KEY"], "all")');
+    // 只禁止把 MEITU_API_KEY 当**凭据**去探测（注释里提到这个词是允许的）。
+    expect(adminStoreSource).not.toMatch(/envStatus\(\[[^\]]*MEITU_API_KEY/);
+  });
+
+  it("tracks MEITU in the production readiness checklist", () => {
+    expect(adminStoreSource).toContain('id: "ai_meitu", domain: "美图开放平台"');
+    expect(adminStoreSource).toContain('requiredKeys: ["ACCESS_KEY", "SECRET_KEY"]');
+  });
+
+  it("keeps the MEITU provider name aligned with what the edit route writes", () => {
+    // /api/images/edit 在 provider=meitu 时写入 "MEITU"，
+    // 必须与健康度条目的 name 字面一致，否则成本分组对不上号。
+    const healthName = adminStoreSource.match(/id: "ai_meitu", name: "([^"]+)"/)?.[1];
+    expect(healthName).toBe("MEITU");
+    expect(indexSource).toContain('provider: isMeituEdit ? "MEITU" : getRouteImageProvider(req.body)');
+  });
+
   it("resolves the image provider label from the model instead of hardcoding AI_IMAGE", () => {
     expect(indexSource).toContain("function resolveImageProviderLabel");
     expect(indexSource).toContain("function getRouteImageProvider");
