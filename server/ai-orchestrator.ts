@@ -1,5 +1,5 @@
 import { brandKitToPrompt, getBrandKit } from "./brand-kit";
-import { editImageWithPrompt, eraseImageObjects, expandImageWithPicWish, generateImages, removeImageBackground } from "./image-generation";
+import { editImageWithPrompt, eraseImageObjects, expandImageWithVodKling, generateImages, removeImageBackground } from "./image-generation";
 import { DEFAULT_IMAGE_EXPANSION_PROMPT } from "../shared/image-expansion";
 import { generateText } from "./text-generation";
 import { getSkill, matchSkill } from "./skill-registry";
@@ -161,7 +161,7 @@ export class AIOrchestrator {
 
     if (capability === "image_expansion") {
       if (!imageSrc) throw new Error("Missing image");
-      const result = await expandImageWithPicWish({
+      const result = await expandImageWithVodKling({
         imageSrc,
         maskSrc,
         model: route.model,

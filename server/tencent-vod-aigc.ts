@@ -199,6 +199,141 @@ export type VodImageGenerationResult = {
   model: string;
 };
 
+/**
+ * Kling 扩图（外延生成）输入。
+ *
+ * 四个方向的比例都是**相对原图边长的倍数**，不是像素、也不是目标画布占比：
+ *   up/down 基于原图高度，left/right 基于原图宽度。
+ *   例：原图高 480，up=0.2 → 顶部向外扩 480 × 0.2 = 96 像素。
+ */
+export type VodImageExpandInput = {
+  imageUrl: string;
+  prompt?: string;
+  up?: number;
+  down?: number;
+  left?: number;
+  right?: number;
+  resolution?: "1K" | "2K" | "4K";
+  storageMode?: "Temporary" | "Permanent";
+  seed?: number;
+};
+
+/** 扩图比例上限。腾讯侧约束：单边 [0,2]，且新图总面积 ≤ 原图 3 倍。 */
+export const VOD_EXPAND_RATIO_MAX = 2;
+export const VOD_EXPAND_AREA_MULTIPLIER_MAX = 3;
+
+function clampExpansionRatio(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return 0;
+  return Math.min(VOD_EXPAND_RATIO_MAX, value);
+}
+
+/**
+ * 把四向比例收敛到腾讯的面积约束内。
+ *
+ * 面积倍数 = (1 + left + right) × (1 + up + down)，超过 3 倍会被上游拒绝。
+ * 这里按**等比缩小四个方向**的方式回退，而不是直接报错——扩图是用户点一下就触发的
+ * 交互，报错体验差；等比缩小能保持用户期望的扩展方向与相对比例。
+ *
+ * 导出供测试直接验证，避免只能通过打真实接口才能覆盖这段逻辑。
+ */
+export function __testClampExpansionToAreaLimit(input: {
+  up?: number;
+  down?: number;
+  left?: number;
+  right?: number;
+}): { up: number; down: number; left: number; right: number } {
+  let up = clampExpansionRatio(input.up);
+  let down = clampExpansionRatio(input.down);
+  let left = clampExpansionRatio(input.left);
+  let right = clampExpansionRatio(input.right);
+
+  const area = (1 + left + right) * (1 + up + down);
+  if (area <= VOD_EXPAND_AREA_MULTIPLIER_MAX) {
+    return { up, down, left, right };
+  }
+
+  // 二分找一个统一缩放因子 k，使面积刚好落在上限内。
+  // 直接解析求解要处理二次方程的边界情况，二分 40 次精度已远超需要且不会写错。
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2;
+    const a = (1 + (left + right) * mid) * (1 + (up + down) * mid);
+    if (a > VOD_EXPAND_AREA_MULTIPLIER_MAX) hi = mid;
+    else lo = mid;
+  }
+  return { up: up * lo, down: down * lo, left: left * lo, right: right * lo };
+}
+
+/**
+ * 创建 Kling 扩图任务。
+ *
+ * ⚠️ 两个实测结论，文档里没有明说，改动前务必先看：
+ * 1. `SceneType: "image_expand"` 时 `ModelVersion` **必须是 "scene"**。
+ *    传 "3.0" 会被拒：`ModelVersion must be scene when SceneType is image_expand`。
+ * 2. 扩图比例走 `ExtInfo`，且是**双层 JSON 字符串**：
+ *    ExtInfo = JSON.stringify({ AdditionalParameters: JSON.stringify({...}) })
+ *    少一层会被当成普通字段忽略，扩图静默退化成原样重绘。
+ *
+ * 输出尺寸实测：宽高比严格等于扩图比例算出的比例（原图 640x480 右扩 0.5 →
+ * 输出 1664x832，比值 2.0000 与预期完全一致），只是整体缩放到目标分辨率档位。
+ * 因此调用方按目标宽高等比缩放即可，不会变形。
+ */
+export async function createVodImageExpandTask(input: VodImageExpandInput): Promise<{ taskId: string }> {
+  const config = getConfig();
+  const ratios = __testClampExpansionToAreaLimit(input);
+
+  if (ratios.up === 0 && ratios.down === 0 && ratios.left === 0 && ratios.right === 0) {
+    throw new Error("扩图需要至少一个方向的扩展比例大于 0");
+  }
+
+  const toFileInfo = (url: string): FileInfo => {
+    if (url.startsWith("data:")) {
+      const commaIndex = url.indexOf(",");
+      return { Type: "Base64", Base64: commaIndex >= 0 ? url.slice(commaIndex + 1) : url };
+    }
+    return { Type: "Url", Url: url };
+  };
+
+  const payload: CreateImageTaskRequest = {
+    SubAppId: config.subAppId,
+    ModelName: "Kling",
+    ModelVersion: "scene",
+    SceneType: "image_expand",
+    Prompt: input.prompt || "",
+    FileInfos: [toFileInfo(input.imageUrl)],
+    ExtInfo: JSON.stringify({
+      AdditionalParameters: JSON.stringify({
+        up_expansion_ratio: ratios.up,
+        down_expansion_ratio: ratios.down,
+        left_expansion_ratio: ratios.left,
+        right_expansion_ratio: ratios.right,
+      }),
+    }),
+    OutputConfig: {
+      StorageMode: input.storageMode || "Temporary",
+      Resolution: input.resolution || "1K",
+    },
+  };
+
+  console.log("[vod-aigc] create expand task", JSON.stringify({
+    ratios,
+    resolution: payload.OutputConfig?.Resolution,
+    promptLength: (input.prompt || "").length,
+  }));
+
+  const result = await callVodApi<CreateImageTaskResponse>(
+    "CreateAigcImageTask",
+    payload as unknown as Record<string, unknown>,
+  );
+
+  if (!result.Response?.TaskId) {
+    throw new Error(`Failed to create VOD Kling expand task: ${JSON.stringify(result)}`);
+  }
+
+  return { taskId: result.Response.TaskId };
+}
+
 const MODEL_VERSION_MAP: Record<string, string> = {
   gem: "3.1",
   "gem-lite": "3.1-lite",
