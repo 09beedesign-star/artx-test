@@ -1,13 +1,17 @@
 import fs from "fs";
 import { getSkill } from "./skill-registry";
+import { getUploadsRoot } from "./local-image-storage";
 import {
   DEFAULT_IMAGE_MODEL_ID,
   IMAGE_MODEL_PRIORITY_IDS,
   getImageModelFallbackAttempts,
+  isRetiredRelayImageModelId,
   isSupportedImageModelId,
+  normalizeImageModelId,
   sortImageModelIdsByPriority,
   isVodModelId,
 } from "../shared/image-models";
+import { isClaudeTextModelId } from "../shared/text-models";
 import { generateText } from "./text-generation";
 import { recordImageProviderFailure } from "./image-provider-failure-log";
 import { buildMeituMask, inpaintWithMeitu } from "./meitu-client";
@@ -154,6 +158,22 @@ type EditImageInput = {
   }>;
   /** 智能文案编辑：修改后的完整文案（多行用 \n 分隔），用于确定性文字绘制 */
   editedText?: string;
+  /**
+   * 智能文案编辑：新文案「贴回原图」的方式。
+   *
+   * - "local"（默认）：用本地字体确定性绘制，不调用任何 AI 模型。
+   *   零成本、亚秒级、逐字准确。字体只能从系统字体近似匹配。
+   * - "ai"：擦字后交给图片模型（image2.5 medium）叠字，由模型还原字体、
+   *   字重、透视、光影与材质，风格还原上限更高，但**文字准确率不可靠**。
+   *
+   * 2026-09-12 A/B 实测（894x817 横幅，"CUSTOM" → "秋季旗舰品鉴会"，各 2 轮）：
+   *   local：逐字命中 7/7 = 100%（两轮一致），耗时 0.3~0.4s，成本 0
+   *   ai   ：逐字命中 3/7、4/7（第一轮还出现错字"秋香"），耗时 29~42s
+   * 生成式模型按扩散过程画字形，不保证字符级正确，中文长句尤其明显。
+   * 文案编辑的第一诉求是「字要对」，所以默认保持 local，ai 作为可选项保留
+   * （艺术字/强透视/特殊材质场景下风格还原更好，但必须人工核字）。
+   */
+  textApplyMode?: "ai" | "local";
 };
 
 type ElementBackgroundInput = {
@@ -599,10 +619,16 @@ function getPicWishObjectsRemovalConfig() {
 
 const supportedImageModels = new Set<string>(IMAGE_MODEL_PRIORITY_IDS);
 
+/**
+ * 走 chat completions 端点而非 images 端点的图片模型。
+ *
+ * 2026-09-12 移除 "gemini-3.5-flash-preview"：中转站图片模型整体下线，
+ * 它已从注册表摘除并迁移到 vod-gem-lite（走 VOD 独立链路，不经 chat 端点）。
+ * 保留的两个 gemini-3.1-flash-image* 是固定后端能力，不在选择器里，仍然有效。
+ */
 const chatCompatibleImageModels = new Set<string>([
   "gemini-3.1-flash-image",
   "gemini-3.1-flash-image-preview",
-  "gemini-3.5-flash-preview",
 ]);
 
 type ImageModelCatalogOption = {
@@ -633,40 +659,99 @@ const imageModelColors = [
   "oklch(0.70 0.16 150)",
 ];
 
+/**
+ * 模型文案表。**只收录当前在售的 VOD 模型 + 固定后端能力**。
+ *
+ * 2026-09-12 移除了 6 个已下线的中转站图片模型文案
+ * （gemini-3.5-flash-preview / jimeng-4.0 / mj-v7 / mj-v8.1 / keling / og-image2-*）。
+ * 保留 gpt-image-2* 与 gemini-3.1-flash-image* 是因为它们是**固定后端能力**
+ * （不在选择器里，但智能注释等内部流程仍会用到），与选择器清单是两回事。
+ */
 const imageModelDescriptions: Record<string, string> = {
   "gpt-image-2": "高品质通用场景",
   "gpt-image-2-4k": "极致4K细节",
   "gemini-3.1-flash-image": "高性价比场景快",
   "gemini-3.1-flash-image-preview": "高性价比预览快",
-  "gemini-3.5-flash-preview": "高性价比场景快",
-  "jimeng-4.0": "高性价比中文强",
-  "mj-v7": "高品质电影质感",
-  "mj-v8.1": "极致肖像细节",
-  "keling": "高品质国风电商",
-  "og-image2-low": "高性价比快速稿",
-  "og-image2-medium": "高品质场景稳定",
-  "og-image2-high": "极致高清电影感",
+  // OG image2.5（腾讯 VOD 直连，2026-09-11 起为全站默认）
+  "vod-og25-sunburst-medium": "高性价比默认推荐",
+  "vod-og25-flare-medium": "高性价比另一画风",
+  "vod-og25-sunburst-low": "极致低成本草稿",
+  "vod-og25-flare-low": "极致低成本另一画风",
+  "vod-og25-sunburst-high": "极致高清细节",
+  "vod-og25-flare-high": "极致高清另一画风",
+  // 其余 VOD 直连模型。这些此前只在前端 workspace-data.ts 里有文案，
+  // 服务端目录接口没有，导致 /api/ai/models 把它们回成裸 id + 默认图标 ——
+  // UI 因为有本地清单看不出来，直接消费该接口的第三方才会踩到。
+  "vod-gem": "高品质综合表现",
+  "vod-gem-lite": "高性价比出图快",
+  "vod-og": "高品质场景稳定",
+  "vod-mj": "极致艺术表现",
+  "vod-kling": "高品质国风电商",
+  "vod-si": "极致写实质感",
+  "vod-qwen": "高性价比中文强",
+  "vod-jimeng": "高性价比中文强",
 };
 
+/**
+ * 用户可见的模型展示名。
+ *
+ * **这张表只影响 UI 文案，与真实模型接口完全解耦**：
+ * 路由用的是左侧的 id（vod-og / vod-gem），
+ * 真正发给腾讯的版本字符串由 server/tencent-vod-aigc.ts 的
+ * VOD_MODEL_VERSIONS 决定，两者互不干涉。改这里不会改变出图结果。
+ *
+ * 2026-09-12 按用户要求做了一次对外命名调整（后缀一律保持不变）：
+ * - og 前缀去掉：`og image2` → `image2`
+ * - gem 前缀换成 banana：`gem 3.1` → `banana 3.1`
+ */
 const imageModelLabels: Record<string, string> = {
-  "og-image2-low": "image2 low",
-  "og-image2-medium": "image2 medium",
-  "og-image2-high": "image2 high",
-  "keling": "keling",
+  "vod-og25-sunburst-medium": "image2.5 medium",
+  "vod-og25-flare-medium": "image2.5 medium flare",
+  "vod-og25-sunburst-low": "image2.5 low",
+  "vod-og25-flare-low": "image2.5 low flare",
+  "vod-og25-sunburst-high": "image2.5 high",
+  "vod-og25-flare-high": "image2.5 high flare",
+  "vod-gem": "banana 3.1",
+  "vod-gem-lite": "banana 3.1 lite",
+  "vod-og": "image2",
+  "vod-mj": "mj v8.2",
+  "vod-kling": "kling 3.0",
+  "vod-si": "si 5.0 pro",
+  "vod-qwen": "qwen 0925",
+  "vod-jimeng": "jimeng 4.0",
 };
 
 const imageModelIcons: Record<string, string> = {
-  "gemini-3.5-flash-preview": "gemini",
-  "jimeng-4.0": "jimeng",
-  "mj-v7": "midjourney",
-  "mj-v8.1": "midjourney",
-  "keling": "keling",
-  "og-image2-low": "openai",
-  "og-image2-medium": "openai",
-  "og-image2-high": "openai",
+  // id 里不含 "openai"/"gpt" 关键字，不显式指定就会落到默认的 "image" 图标。
+  "vod-og25-sunburst-medium": "openai",
+  "vod-og25-flare-medium": "openai",
+  "vod-og25-sunburst-low": "openai",
+  "vod-og25-flare-low": "openai",
+  "vod-og25-sunburst-high": "openai",
+  "vod-og25-flare-high": "openai",
+  "vod-gem": "gemini",
+  "vod-gem-lite": "gemini",
+  "vod-og": "openai",
+  "vod-mj": "midjourney",
+  "vod-kling": "kling",
+  "vod-si": "image",
+  "vod-qwen": "qwen",
+  "vod-jimeng": "jimeng",
 };
 
 function isImageGenerationModelId(id: string) {
+  /**
+   * 已下线的中转站图片模型必须在这里挡掉。
+   *
+   * isSupportedImageModelId 内部会先做 normalizeImageModelId，
+   * 而归一化会把 `og-image2-medium` 这类旧 id **迁移**成合法的 VOD id，
+   * 于是它会返回 true —— 对「持久化数据兼容」而言这是对的，
+   * 但对「模型目录」而言是错的：中转站 /models 仍会吐回这些旧 id，
+   * 不挡掉就会让下线的模型重新出现在选择器里（只是改了个名字）。
+   *
+   * 目录的语义是「现在能选什么」，迁移的语义是「过去存的还能用」，两者不能混。
+   */
+  if (isRetiredRelayImageModelId(id)) return false;
   return isSupportedImageModelId(id);
 }
 
@@ -724,7 +809,22 @@ export async function listImageModelCatalog(input: ImageModelCatalogInput = {}):
         raw,
       }));
     }
-    const modelIds = sortImageModelIdsByPriority(parseProviderModelIds(data).filter(isImageGenerationModelId));
+    /**
+     * 目录 = 中转站 /models 的可用项 ∪ **全部 VOD 直连模型**。
+     *
+     * 这里必须做并集而不是只取中转站返回值。原因：
+     * vod-* 走腾讯云 VOD AIGC 的独立签名链路（server/tencent-vod-aigc.ts），
+     * 根本不在中转站的模型列表里，`parseProviderModelIds` 永远拿不到它们。
+     *
+     * 2026-09-11 全站图片生成切到 VOD 直连后，这个遗漏变成了硬故障：
+     * /api/ai/models 只回了 5 个中转站模型，**新的默认模型 image2.5 一个都没有**，
+     * 链首显示成 vod-gem，第三方 Agent 按目录取模型时根本拿不到默认值。
+     * （前端 workspace-data.ts 有 VOD_ONLY_MODELS 兜底，所以 UI 上看不出来，
+     * 直接消费这个接口的调用方才会踩到 —— 属于典型的「一层有兜底、另一层没有」。）
+     */
+    const discovered = parseProviderModelIds(data).filter(isImageGenerationModelId);
+    const vodModels = IMAGE_MODEL_PRIORITY_IDS.filter(isVodModelId);
+    const modelIds = sortImageModelIdsByPriority([...discovered, ...vodModels]);
     return {
       image: modelIds.map(createImageModelOption),
       source: "provider",
@@ -1098,7 +1198,9 @@ export function __testResolveReferenceImageRoute(
     usesChatPath,
     fallbackModel:
       hasReferenceImages && preferImageApiForReferences && !isChatCompatibleImageModel(model)
-        ? "gemini-3.5-flash-preview"
+        // 2026-09-12：原为已下线的中转站模型 gemini-3.5-flash-preview，
+        // 改用全站默认的 VOD 模型作参考图兜底。
+        ? DEFAULT_IMAGE_MODEL_ID
         : model,
   };
 }
@@ -1112,7 +1214,24 @@ function isImageGroupPermissionError(message: string) {
 }
 
 function isProviderCapacityError(message: string) {
-  return /no available channel|no available compatible accounts|system cpu overloaded|overloaded|capacity|账号池|兼容账号/i.test(message);
+  /**
+   * 上游「容量/通道不足」类错误 —— 属于**临时性**故障，
+   * 应当继续尝试 fallback 链上的下一个模型，而不是直接让整次生成失败。
+   *
+   * `all available accounts exhausted` 是 2026-09-11 实测补入的：
+   * 中转站对 gemini-3.5-flash-preview 返回
+   *   503 {"error":{"message":"All available accounts exhausted","type":"server_error"}}
+   * 而该模型正是 auto 优先级链上的**第 2 个**（IMAGE_MODEL_PRIORITY_IDS[1]）。
+   *
+   * 旧正则里 `no available compatible accounts` 只覆盖了「没有兼容账号」这一种措辞，
+   * 匹配不到「账号已耗尽」，于是这个本可重试的错误走到了 :4179 的
+   * `throw new Error("图片生成接口暂不可用")` —— **整条链在第 2 个模型上就断了**，
+   * 后面 6 个可用模型一个都没试到。
+   *
+   * 用户侧表现为「调用 skill 生图报错」，且因为 auto 链一撞就停，
+   * 重试往往仍失败，看起来像全站出图能力挂掉。
+   */
+  return /no available channel|no available compatible accounts|all available accounts exhausted|accounts exhausted|system cpu overloaded|overloaded|capacity|账号池|兼容账号/i.test(message);
 }
 
 function isProviderGatewayError(message: string) {
@@ -1291,6 +1410,49 @@ function getImageFileName(mimeType: string) {
   return "source.png";
 }
 
+// 把 /uploads/... 这类站内相对路径映射回本地磁盘文件。
+//
+// 前端在本地开发时传给后端的图片 src 是同源相对路径（画布的
+// getCanvasRenderableImageSrc 在 localhost 下保持同源，不再改写成远程域名），
+// 而 fetch() 只接受绝对 URL，直接传相对路径会抛
+// "Failed to parse URL from /uploads/..."，导致所有需要读取源图的能力
+// （抠图/高清/去水印/擦除/扩图等）全部失败。
+//
+// 这些文件本来就落在本机 ARTX_DATA_DIR 下，直接读盘即可，
+// 比绕一圈 HTTP 回环更快也更可靠。
+function resolveLocalUploadFile(src: string): string | null {
+  if (!src.startsWith("/uploads/") && !src.startsWith("/api/uploads/")) return null;
+  try {
+    const uploadsRoot = path.resolve(getUploadsRoot());
+    // 去掉查询串（画布会挂 ?artxv=xxx 做缓存失效）和 /api 前缀
+    const pathname = src.split("?")[0].split("#")[0].replace(/^\/api(?=\/uploads\/)/, "");
+    const relative = decodeURIComponent(pathname.slice("/uploads/".length));
+    const resolved = path.resolve(uploadsRoot, relative);
+    // 目录穿越防护：解析后必须仍在 uploads 根目录内
+    if (resolved !== uploadsRoot && !resolved.startsWith(`${uploadsRoot}${path.sep}`)) return null;
+    if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) return null;
+    return resolved;
+  } catch {
+    return null;
+  }
+}
+
+function mimeTypeForFileExtension(filePath: string) {
+  switch (path.extname(filePath).toLowerCase()) {
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".webp":
+      return "image/webp";
+    case ".gif":
+      return "image/gif";
+    case ".svg":
+      return "image/svg+xml";
+    default:
+      return "image/png";
+  }
+}
+
 async function imageSrcToBuffer(src: string): Promise<{ buffer: Buffer; mimeType: string }> {
   if (src.startsWith("data:")) {
     const match = src.match(/^data:([^;,]+)(;base64)?,(.*)$/);
@@ -1298,6 +1460,14 @@ async function imageSrcToBuffer(src: string): Promise<{ buffer: Buffer; mimeType
     const mimeType = match[1] || "image/png";
     const buffer = match[2] ? Buffer.from(match[3], "base64") : Buffer.from(decodeURIComponent(match[3]));
     return { buffer, mimeType };
+  }
+
+  const localFile = resolveLocalUploadFile(src);
+  if (localFile) {
+    return {
+      buffer: await fs.promises.readFile(localFile),
+      mimeType: mimeTypeForFileExtension(localFile),
+    };
   }
 
   const response = await fetch(src);
@@ -2705,12 +2875,25 @@ function buildCameraViewEditInstruction(input: EditImageInput) {
   const note = typeof view.prompt === "string" ? view.prompt.trim() : "";
   return [
     "This is a generative camera-view reconstruction, not a local image edit.",
-    "Maximize the requested camera viewpoint change while locking the visual content as much as possible.",
-    "Use the source image as the fixed identity, fixed subject/product, fixed scene, fixed background objects, fixed props, fixed lighting, fixed clothing/packaging, fixed colors, fixed materials, and fixed mood reference.",
+    "Maximize the requested camera viewpoint change while keeping the same objects present in the scene.",
+    // 注意：这里绝对不能出现 "fixed scene / fixed background objects" 这类措辞。
+    // 那会和下面「整个场景一起转」的约束直接矛盾，模型会取省力解 —— 只转主体、背景保持原样。
+    // 正确表述是「同一批物体（identity 锁定）」，而不是「画面固定」。
+    "The source image defines WHICH things exist: same subject/product identity, same set of background objects and props, same materials, same colors, same clothing/packaging, same lighting setup, same mood. It does NOT define the viewing angle.",
     `Target camera controls: X horizontal orbit ${x} degrees, Y vertical pitch ${y} degrees, Z camera distance ${z} percent.`,
+    // 关键约束：必须把整个场景当成刚性 3D 空间一起转。
+    // 只写 "fixed scene / fixed background" 会被模型理解成「背景像素别动」，
+    // 导致只有主体换了角度、背景仍是原视角，主体与环境透视割裂（贴图感）。
+    "CRITICAL — THE ENTIRE SCENE ROTATES TOGETHER: Treat the source image as a real 3D space where the subject, ground plane, walls, background objects, and props are all physical entities at fixed positions in that space.",
+    "The camera orbits around this whole space. Therefore the subject AND the background must change viewpoint together, obeying one single consistent perspective with a shared vanishing point and a shared horizon line.",
+    "The background must NEVER stay at its original angle. Whatever angle the subject rotates by, the background, ground, walls, and environment lines must rotate by exactly the same angle. A rotated subject composited against a front-facing background is strictly forbidden and looks like a pasted cutout.",
+    "What stays locked is WHICH objects exist and how they look, NOT the angle they are viewed from. Same objects, same materials, same colors, same lighting setup — but seen from the new camera position.",
     "Only change the camera position, lens direction, perspective, occlusion, visible sides, contact shadows, and spatial depth according to the target X/Y/Z controls.",
-    "Do not replace the scene, remove or add props, change the background content, redesign the environment, change clothing/product/package details, or invent a new location.",
+    // 「不要改背景」必须限定成「不要换成别的背景」，否则又会被读成「背景别动」。
+    "Do not swap in a different location, do not remove or add props, do not redesign the environment into something else, and do not change clothing/product/package details. Re-rendering the SAME environment from the new camera angle is required, not a violation.",
     "Reconstruct newly visible sides, back-facing surfaces, occlusion, perspective, contact shadows, and background depth so the result looks like the same scene photographed from a different camera position.",
+    "Background areas that were previously hidden must be plausibly reconstructed from the new camera position, and areas that rotate out of frame should naturally leave the frame.",
+    "Lighting must stay physically consistent with the rotated space: light sources keep their original position in the 3D scene, so shadows and highlights shift accordingly rather than staying pinned to the old view.",
     "Keep one single consistent subject and one single consistent scene. Do not create duplicates, mirrored collages, unrelated people/products, a pasted cutout look, or a newly imagined scene.",
     note ? `User additional direction: ${note}` : "",
   ].filter(Boolean).join("\n");
@@ -3610,6 +3793,16 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
     `User request: ${input.prompt.trim()}`,
   ].join("\n");
 
+  // 注意：这三个常量必须在「美图局部重绘分支」之前声明。
+  // 美图分支的 catch 会调用 editAnnotationViaReferenceGeneration()，
+  // 该函数闭包引用 selectedModel / editSize，若声明在分支之后，
+  // 降级时会抛 TDZ 错误 "Cannot access 'selectedModel' before initialization"，
+  // 把「美图无可见修改」这类可恢复情况变成整体失败（表现为美图能力全线报错）。
+  // apiKey 的存在性校验仍留在下方原位置 —— 美图通道不需要 AI_IMAGE_API_KEY。
+  const { apiKey, baseUrl, model } = getProviderConfig();
+  const selectedModel = resolveSmartAnnotationEditModel(input.model, model);
+  const editSize = getEditSizeForAspect(targetWidth, targetHeight);
+
   const createBody = (withResponseFormat: boolean) => {
     const body = new FormData();
     body.append("model", selectedModel);
@@ -3735,6 +3928,12 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
       const message = error instanceof Error ? error.message : String(error);
       console.log(`[智能注释] 合成失败 | ${message}`);
       if (isSmartAnnotationNoVisibleChangeError(error)) {
+        if (!apiKey) {
+          // 没有直连图片 key 时无法降级，直接把美图的原始结论抛给用户，
+          // 避免变成含义不明的 "Missing AI_IMAGE_API_KEY"。
+          console.log(`[智能注释] 无 AI_IMAGE_API_KEY，跳过降级，沿用美图结论`);
+          throw error;
+        }
         console.log(`[智能注释] 降级到参考图生成（需要 AI_IMAGE_API_KEY）`);
         return editAnnotationViaReferenceGeneration();
       }
@@ -3742,12 +3941,11 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
     }
   }
 
-  const { apiKey, baseUrl, model } = getProviderConfig();
+  // selectedModel / editSize / apiKey 已在函数上方（美图分支之前）声明，避免 TDZ。
+  // 这里只做非美图直连通道的必需校验。
   if (!apiKey) {
     throw new Error("Missing AI_IMAGE_API_KEY");
   }
-  const selectedModel = resolveSmartAnnotationEditModel(input.model, model);
-  const editSize = getEditSizeForAspect(targetWidth, targetHeight);
   // 用函数声明而非 const 箭头函数，避免 catch 块提前引用导致的 "used before declaration" 检查报错。
   async function editAnnotationViaReferenceGeneration() {
     const sourceDataUrl = await prepareImageProviderReferenceDataUrl(
@@ -3939,39 +4137,70 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
   const count = Math.max(1, Math.min(Number(input.count) || 1, 9));
   const referenceImages = input.images?.filter(image => image.src?.trim()) || [];
   const targetSize = __testResolveHighDefinitionTargetSize(ratio.width, ratio.height, ratio.width, ratio.height);
-  const requestedModel = (input.model || model).trim();
-  console.log("[generate] requestedModel:", requestedModel, "| isVodModelId:", isVodModelId(requestedModel), "| isVodAigcConfigured:", isVodAigcConfigured());
+  /**
+   * 必须**归一化后**再参与路由与下发。
+   *
+   * 原先这里直接 trim 就用，于是已下线的中转站 id（如 `jimeng-4.0`）
+   * 会被原样传进 VOD 链路 —— 而腾讯侧根本不认识这个名字，
+   * tencent-vod-aigc.ts 的 resolveModelName 又会**静默兜底**成默认模型，
+   * 最终「用户选了 jimeng，实际用别的模型出图」且日志里毫无痕迹。
+   *
+   * 归一化会把旧 id 迁移成等价的 vod-* 模型（jimeng-4.0 -> vod-jimeng），
+   * 保证「所选即所用」。normalizeImageModelId 对 "auto" 返回空串，
+   * 这里要保留 "auto" 字面值给下面的 fallback 分支判断。
+   */
+  const rawRequestedModel = (input.model || model).trim();
+  const requestedModel = rawRequestedModel.toLowerCase() === "auto"
+    ? rawRequestedModel
+    : (normalizeImageModelId(rawRequestedModel) || rawRequestedModel);
+  console.log("[generate] requestedModel:", requestedModel, "| raw:", rawRequestedModel, "| isVodModelId:", isVodModelId(requestedModel), "| isVodAigcConfigured:", isVodAigcConfigured());
 
+  /**
+   * 用腾讯 VOD AIGC 直连生成。抽成函数是为了让 **auto fallback 链里的每个
+   * vod-\* 模型都能走到这条路**，而不只是「用户显式选中 vod-\* 」的那一次。
+   *
+   * 这里曾有一个隐蔽且代价很大的 bug：路由判断只看 `requestedModel`，
+   * 而 auto 模式下它的字面值就是字符串 "auto"，`isVodModelId("auto")` 为 false，
+   * 于是**整个请求**落进下面的中转站分支，再由中转站去遍历 fallback 链 ——
+   * 结果 `vod-og25-*`、`vod-gem` 这些**根本不存在于中转站**的 id
+   * 被当成中转站模型发了出去，上游回 `model_not_found: No available channel`，
+   * 链条一路降级，最终真正出图的是排在链尾的中转站模型。
+   * 表面看「出图成功」，实际默认模型形同虚设、钱还是按中转站价格花的。
+   */
+  const tryVodGeneration = async (vodModelId: string) => {
+    const maskImage = referenceImages.find(image => image.title === "annotation mask");
+    const nonMaskImages = referenceImages.filter(image => image.title !== "annotation mask");
+    console.log("[generate] VOD branch entered, model:", vodModelId, "| maskPresent:", !!maskImage, "| refImages:", nonMaskImages.length);
+    const vodInput: VodImageGenerationInput = {
+      prompt: buildPrompt(input),
+      model: vodModelId,
+      aspectRatio: input.ratio || "1:1",
+      count,
+      // 智能注释等场景会传入 source + edit guide 多张参考图；用 imageUrls 全部传给 VOD OG。
+      imageUrls: nonMaskImages.length > 0 ? nonMaskImages.map(image => image.src) : undefined,
+      // 智能注释等场景会把「白=编辑区」的蒙版传入，由 VOD OG 系列做精确局部编辑。
+      maskDataUrl: isVodMaskEditModel(vodModelId) ? maskImage?.src : undefined,
+      // 参考图编辑等对指令精确性要求高的场景（如智能注释），VOD 服务端 prompt 增强会改写用户请求，
+      // 导致「加帽子」等具体指令被稀释；由调用方通过 enhancePrompt=false 显式关闭。
+      enhancePrompt: input.enhancePrompt ?? true,
+      negativePrompt: input.negativePrompt,
+    };
+
+    const result = await generateImageWithVod(vodInput);
+    const images = result.images.map(img => ({
+      src: img.src,
+      width: img.width,
+      height: img.height,
+    }));
+    console.log("[generate] VOD success:", vodModelId, "| count:", images.length, "| src:", (images[0]?.src || "").slice(0, 100));
+    return { images: images.slice(0, count) };
+  };
+
+  // 用户显式选中某个 vod-* 模型时，失败就直接报错，不静默改用别的模型 ——
+  // 「我选了 A，你却用 B 出了图」比直接失败更糟。
   if (isVodModelId(requestedModel) && isVodAigcConfigured()) {
     try {
-      const maskImage = referenceImages.find(image => image.title === "annotation mask");
-      const nonMaskImages = referenceImages.filter(image => image.title !== "annotation mask");
-      console.log("[generate] VOD branch entered, model:", requestedModel, "| maskPresent:", !!maskImage, "| refImages:", nonMaskImages.length);
-      const vodInput: VodImageGenerationInput = {
-        prompt: buildPrompt(input),
-        model: requestedModel,
-        aspectRatio: input.ratio || "1:1",
-        count,
-        // 智能注释等场景会传入 source + edit guide 多张参考图；用 imageUrls 全部传给 VOD OG。
-        imageUrls: nonMaskImages.length > 0 ? nonMaskImages.map(image => image.src) : undefined,
-        // 智能注释等场景会把「白=编辑区」的蒙版传入，由 VOD OG 系列做精确局部编辑。
-        maskDataUrl: isVodMaskEditModel(requestedModel) ? maskImage?.src : undefined,
-        // 参考图编辑等对指令精确性要求高的场景（如智能注释），VOD 服务端 prompt 增强会改写用户请求，
-        // 导致「加帽子」等具体指令被稀释；由调用方通过 enhancePrompt=false 显式关闭。
-        enhancePrompt: input.enhancePrompt ?? true,
-        negativePrompt: input.negativePrompt,
-      };
-
-      const result = await generateImageWithVod(vodInput);
-
-      const images = result.images.map(img => ({
-        src: img.src,
-        width: img.width,
-        height: img.height,
-      }));
-      console.log("[generate] VOD success:", requestedModel, "| count:", images.length, "| src:", (images[0]?.src || "").slice(0, 100));
-
-      return { images: images.slice(0, count) };
+      return await tryVodGeneration(requestedModel);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.warn("[image-provider]", {
@@ -3984,15 +4213,63 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
     }
   }
 
-  if (!apiKey) {
-    throw new Error("Missing AI_IMAGE_API_KEY");
-  }
-
   const attemptModels = requestedModel.toLowerCase() === "auto"
     ? getImageModelFallbackAttempts(requestedModel)
     : [requestedModel];
+
+  /**
+   * apiKey 的校验必须放在 attemptModels 之后、且**只拦截中转站模型**。
+   *
+   * 原先它是一道前置的无条件 throw，意味着只要没配中转站 key，
+   * 连纯 VOD 的 auto 出图都会被挡下 —— 而 VOD 用的是腾讯云 SID/SKEY，
+   * 跟中转站 key 完全无关。用户要求「图片全部走 VOD、中转站只留文本」之后，
+   * 中转站图片 key 缺失会成为常态，这道前置校验必须降级为按模型判断。
+   */
+  if (!apiKey && !attemptModels.some(id => isVodModelId(id) && isVodAigcConfigured())) {
+    throw new Error("Missing AI_IMAGE_API_KEY");
+  }
+
+  /**
+   * 2026-09-12 中转站图片模型下线后，注册表里**只剩 vod-\* 模型**，
+   * 这让 VOD 凭证成为全站出图的单点依赖 —— 兜底链没了，配置错误不再被掩盖。
+   *
+   * 若不在这里显式拦截，下面的循环会把每个模型都 `continue` 掉
+   * （因为 isVodAigcConfigured() 为 false），最终落到循环外那句
+   * 「系统已按默认优先级重试：unknown error」——
+   * 这个报错完全指不出真正的原因是「腾讯云凭证没配」，排查成本极高。
+   */
+  if (attemptModels.every(isVodModelId) && !isVodAigcConfigured()) {
+    throw new Error(
+      "图片生成不可用：腾讯 VOD AIGC 凭证未配置（需要 TENCENT_VOD_SID / TENCENT_VOD_SKEY / TENCENT_VOD_SUB_APP_ID）。"
+      + "全站图片模型已于 2026-09-12 统一切换为 VOD 直连，中转站不再提供图片兜底。"
+    );
+  }
+
   let lastError = "";
   for (const attemptModel of attemptModels) {
+    // auto 链里的 vod-* 模型走 VOD 直连；失败则继续试链上的下一个。
+    if (isVodModelId(attemptModel)) {
+      if (!isVodAigcConfigured()) continue;
+      try {
+        return await tryVodGeneration(attemptModel);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        lastError = message;
+        console.warn("[image-provider]", {
+          event: "generation-attempt-failed",
+          model: attemptModel,
+          provider: "vod-aigc",
+          error: summarizeImageProviderError(message),
+        });
+        continue;
+      }
+    }
+
+    // 剩下的是中转站模型，没有 key 就没法试，直接跳过而不是抛错 ——
+    // 前面可能还有 VOD 模型没试完，或者 VOD 已经试过全失败了，
+    // 两种情况都应该让循环结束后由 lastError 给出真实原因。
+    if (!apiKey) continue;
+
     const providerModel = resolveProviderImageModel(attemptModel);
     const referenceRoute = __testResolveReferenceImageRoute(
       providerModel,
@@ -4204,7 +4481,12 @@ async function extractImageTextRaw(input: ExtractImageTextInput): Promise<{
           { type: "image_url", image_url: { url: input.imageSrc } },
         ],
       }],
-      temperature: 0,
+      // claude 系列对 temperature 直接返回 400
+      // （"`temperature` is deprecated for this model."）。
+      // 这条 OCR 路径默认走图片模型，但 input.model 可由调用方传入，
+      // 万一传进 claude，带上 temperature 会让整条 OCR 失败。
+      // 详见 server/text-generation.ts 的 supportsTemperature 注释。
+      ...(isClaudeTextModelId(input.model || model) ? {} : { temperature: 0 }),
     }),
   });
   const raw = await response.text();
@@ -4401,12 +4683,36 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
         maskParams.extraX,
         maskParams.shrinkY,
       );
+      /**
+       * 是否存在「删除整行」（targetText 被显式置空）。
+       *
+       * 删除行与改字有本质区别：改字之后有新文案盖住残留笔画，擦得不彻底也看不出来；
+       * 删除之后那块是裸露的背景，任何残留都会直接暴露给用户。
+       *
+       * 2026-09-12 实测（894x817 横幅，删除 "COLORS · IMAGE · TEXT"）：
+       *   参数化引擎  ：墨迹 0.235% → 0.147%，擦净率仅 37.3%，OCR 仍能读出原文
+       *   本地像素擦除：墨迹 0.235% → 0.000%，擦净率 100%
+       *
+       * 引擎弱在这类行上是设计使然——它为「大标题换字」调优，擦到够画新字就停；
+       * 而删除行往往是小字 + 低对比度（浅底深字），Otsu 二分容易把笔画判成背景。
+       */
+      const hasLineDeletion = Boolean(
+        input.textRegions?.length &&
+        input.editedText?.trim() &&
+        resolveRegionTargetTexts(input.textRegions, input.editedText)
+          .some(item => item.changed && item.targetText === ""),
+      );
+
       // 擦除通道按「背景还原质量」排序，任一成功即可进入确定性绘制。
       //
       // 关键设计：确定性渲染是唯一能保证文字内容零错误的路径，而它只需要一张干净底图。
       // 原实现一旦美图不可用（超时/限流/未配密钥）就整条降级到 AI 叠字，文字准确性随之失守。
       // 这里改为多通道兜底，把「拿到干净底图」的成功率拉到接近 100%。
-      const eraseChannels: Array<{ name: string; run: () => Promise<Buffer | null> }> = [
+      //
+      // 删除整行时整条前置链路（引擎/美图/佐糖）全部跳过，直接用本地像素擦除：
+      // 它是三者里唯一实测能把残留清到 0.000% 的通道，且同一载荷下改字区照常
+      // 改动 78.77%、其余 5 个未改动区域误伤 0.00%，不存在「为删除行牺牲改字」的取舍。
+      const eraseChannels: Array<{ name: string; run: () => Promise<Buffer | null> }> = hasLineDeletion ? [] : [
         {
           // 参数化引擎排在最前：实测在纯色印刷体上擦净率与背景保真都优于其它通道
           // （banner CUSTOM 行 98.1% / 背景改动 11.7，本地兜底是 94.6% / 25.8）。
@@ -4430,6 +4736,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
             const resolved = resolveRegionTargetTexts(input.textRegions, input.editedText);
             const regions = resolved.filter(item => item.changed);
             if (regions.length === 0) return null;
+
             const result = await eraseTextWithEngine({
               imageBuffer: sourceImageData.buffer,
               regions: regions.map(item => ({
@@ -4493,6 +4800,12 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
 
       let cleanedBuffer: Buffer | null = null;
       let usedChannel = "";
+      if (hasLineDeletion) {
+        console.log(
+          "[text_edit] 检测到删除整行，跳过引擎/美图/佐糖，直接用本地像素擦除" +
+          "（实测擦净率 100%，引擎仅 37.3%）",
+        );
+      }
       for (const channel of eraseChannels) {
         try {
           const candidate = await channel.run();
@@ -4550,7 +4863,22 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
         textEditInstruction +=
           "\nThe masked text areas have already been cleared to clean original background. " +
           "Keep that cleaned background unchanged and only paint the replacement text inside the mask.";
-        console.log(`[text_edit] 擦字成功（通道：${usedChannel}），进入确定性绘制`);
+        /**
+         * 擦字成功后，源图里已经没有原文字了。
+         * 但上面 textEditInstruction 基线还写着「移除原有可读文字」——
+         * 模型读到一个不存在的指令，可能会去"找文字"并误伤画面元素。
+         * 这里把要写入的目标文案显式喂进去，把任务从「改写」收敛为「写入」。
+         */
+        if (input.editedText?.trim()) {
+          textEditInstruction +=
+            `\nThe exact replacement text to render is:\n${input.editedText.trim()}\n` +
+            "Render this text verbatim — do not translate, paraphrase, reorder, or add any extra words. " +
+            "Match the original typography style, weight, color, perspective and lighting of the area.";
+        }
+        console.log(
+          `[text_edit] 擦字成功（通道：${usedChannel}），` +
+          `贴回方式=${input.textApplyMode === "ai" ? "AI 叠字(image2.5)" : "本地确定性绘制"}`,
+        );
       } else {
         console.log(`[text_edit] 所有擦除通道均失败，降级为直接编辑`);
       }
@@ -4566,6 +4894,11 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
   // 绘制到擦字图上，跳过 AI 叠字，彻底避免模型在 mask 内重造背景导致"背景不正常"。
   if (
     isTextEditOperation &&
+    // 默认走本地确定性绘制（逐字 100% 准确）。只有显式要求 "ai" 时才跳过这里，
+    // 把叠字交给 image2.5 —— 风格还原更好，但实测会漏字/错字，需人工核字。
+    // 注意：选了 "ai" 之后失败不会回落到这里（阶段 B 已被跳过），
+    // 而是沿 editViaReferenceGeneration 的 fallback 链换下一个模型重试。
+    input.textApplyMode !== "ai" &&
     maskImageData &&
     input.textRegions?.length &&
     input.editedText?.trim() &&
@@ -4701,7 +5034,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
             textEditInstruction,
             cameraViewInstruction,
             isCameraViewOperation
-              ? "Use reference image 1 as the locked scene and source identity reference, then generate a complete new camera viewpoint image without changing the scene content except what the new perspective physically reveals or hides."
+              ? "Reference image 1 tells you what the scene contains and what everything looks like — it is NOT the target composition. Re-render that entire scene, subject and environment together, from the new camera position described above."
               : "Use reference image 1 as the target canvas. Preserve its subject identity, composition, camera angle, lighting, proportions, and aspect ratio unless the user explicitly asks to change them.",
             editGuideDataUrl
               ? "Reference image 2 is a visual edit guide derived from reference image 1. Its translucent orange overlay marks the only area allowed to change; the overlay itself is not content and must not appear in the result. Every unmarked area must remain visually identical to reference image 1."
@@ -4715,6 +5048,11 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
           ratio,
           count: 1,
           preferImageApiForReferences: requiresVisibleLocalChange,
+          // 视角转换必须关掉 VOD 服务端的 prompt 增强：
+          // 它会把这段 3000+ 字符的空间约束整体重写，「整个场景一起转」这类
+          // 精确指令会在重写中被稀释掉，退化成普通的「保持原图风格」，
+          // 表现就是主体转了、背景没转。同 :3922 智能注释的处理。
+          enhancePrompt: isCameraViewOperation ? false : undefined,
           images: [
             { src: sourceDataUrl, title: "target image" },
             ...(editGuideDataUrl ? [{ src: editGuideDataUrl, title: "local edit guide" }] : []),
@@ -4747,7 +5085,19 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<{ imag
     throw lastError || new Error("图片模型未返回可用局部编辑结果");
   };
 
-  if (isChatCompatibleImageModel(selectedModel)) {
+  /**
+   * VOD 系模型（vod-gem / vod-og…）必须直接走参考图生成路径。
+   *
+   * 它们不是 OpenAI 兼容通道，没有 /images/edits 这个端点：
+   * 下面 createBody 那套 multipart 请求发过去必然失败，只能靠
+   * isImageEditEndpointUnavailable 兜底再绕回 editViaReferenceGeneration，
+   * 白白多打一次注定失败的请求，还得指望上游的错误信息刚好能被识别成
+   * 「端点不可用」——一旦上游改了文案，兜底就会失灵，直接把错误抛给用户。
+   *
+   * editViaReferenceGeneration 内部调 generateImages，那里的 :4026
+   * 会把 vod-* 正确路由到 VOD AIGC 异步任务链路，才是这些模型该走的路。
+   */
+  if (isChatCompatibleImageModel(selectedModel) || isVodModelId(selectedModel)) {
     return editViaReferenceGeneration();
   }
 
