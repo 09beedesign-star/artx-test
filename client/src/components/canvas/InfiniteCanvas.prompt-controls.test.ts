@@ -449,10 +449,14 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain("activeForegroundImageTaskIdsRef.current.delete(generationId);");
   });
 
-  it("sends PicWish expansion ratios from the original image instead of an enlarged source canvas", () => {
+  it("sends expansion ratios from the original image instead of an enlarged source canvas", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
 
-    expect(source).toContain('model: "picwish-advanced-image-expand"');
+    // 比例语义在两家上游是一致的：都等于「扩出的像素 ÷ 原图对应边长」，
+    // 所以 2026-09-13 从佐糖切到 VOD Kling 时 toExpansionRatio 一行未动。
+    // 上游 id 统一走 shared 常量，禁止再出现字面量。
+    expect(source).toContain("model: VOD_IMAGE_EXPANSION_MODEL");
+    expect(source).not.toContain('"picwish-advanced-image-expand"');
     expect(source).toContain("toExpansionRatio(expandTop, sourceH)");
     expect(source).toContain("toExpansionRatio(expandLeft, sourceW)");
     expect(source).not.toContain("imageSrc: expandedCanvas.toDataURL");

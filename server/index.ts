@@ -7,8 +7,12 @@ import "./env";
 import { AIOrchestrator, inferAiCapability } from "./ai-orchestrator";
 import { resolveBackgroundImageTaskCapability } from "./background-image-capability";
 import { createBrandKit, deleteBrandKit, getBrandKit, listBrandKits, parseBrandKitFromImage } from "./brand-kit";
-import { createElementBackgroundLayer, createProductBackground, editImageWithPrompt, enhanceImage, eraseImageObjects, expandImageWithPicWish, extractImageText, generateImages, listImageModelCatalog, removeImageBackground, removeImageWatermark } from "./image-generation";
-import { DEFAULT_IMAGE_EXPANSION_PROMPT } from "../shared/image-expansion";
+import { createElementBackgroundLayer, createProductBackground, editImageWithPrompt, enhanceImage, eraseImageObjects, expandImageWithVodKling, extractImageText, generateImages, listImageModelCatalog, removeImageBackground, removeImageWatermark } from "./image-generation";
+import {
+  DEFAULT_IMAGE_EXPANSION_PROMPT,
+  VOD_IMAGE_EXPANSION_MODEL,
+  VOD_IMAGE_EXPANSION_PROVIDER,
+} from "../shared/image-expansion";
 import { replaceImageText } from "./text-replace";
 import { getPicWishBackgroundTemplates } from "./picwish-background-templates";
 import { DEFAULT_IMAGE_MODEL_ID, IMAGE_MODEL_PRIORITY_IDS, isVodModelId } from "../shared/image-models";
@@ -608,8 +612,8 @@ function getBackgroundImageTaskPreflightTracking(input: Record<string, unknown>,
       return {
         capabilityKey: "image_expansion",
         capability: "扩图 / 外延生成",
-        provider: "PicWish/佐糖",
-        model: getRouteModel(input, "picwish-advanced-image-expand"),
+        provider: VOD_IMAGE_EXPANSION_PROVIDER,
+        model: getRouteModel(input, VOD_IMAGE_EXPANSION_MODEL),
         failureMessage: "Image expansion failed",
       };
     case "image_edit":
@@ -1062,7 +1066,7 @@ async function startServer() {
             : typeof input.mask_base64 === "string"
               ? input.mask_base64
               : undefined;
-        const result = await expandImageWithPicWish({
+        const result = await expandImageWithVodKling({
           ...input,
           imageSrc,
           maskSrc,
@@ -1073,7 +1077,7 @@ async function startServer() {
         const stored = await storeImageResultForUser({
           images: result.images || [],
           image_base64: result.images?.[0]?.src?.split(";base64,")[1],
-          model: "picwish-advanced-image-expand",
+          model: VOD_IMAGE_EXPANSION_MODEL,
           providerTaskId: result.providerTaskId,
           providerTaskIds: result.providerTaskIds,
         }, user.username);
@@ -1082,8 +1086,8 @@ async function startServer() {
           tracking: {
             capabilityKey: "image_expansion" as const,
             capability: "扩图 / 外延生成",
-            provider: "PicWish/佐糖",
-            model: getRouteModel(input, "picwish-advanced-image-expand"),
+            provider: VOD_IMAGE_EXPANSION_PROVIDER,
+            model: getRouteModel(input, VOD_IMAGE_EXPANSION_MODEL),
             failureMessage: "Image expansion failed",
           },
         };
@@ -1588,13 +1592,13 @@ async function startServer() {
     await handleTrackedAiRequest(req, res, {
       capabilityKey: "image_expansion",
       capability: "扩图 / 外延生成",
-      provider: "PicWish/佐糖",
-      model: getRouteModel(req.body, "picwish-advanced-image-expand"),
+      provider: VOD_IMAGE_EXPANSION_PROVIDER,
+      model: getRouteModel(req.body, VOD_IMAGE_EXPANSION_MODEL),
       failureMessage: "Image expansion failed",
     }, async (user) => {
       const imageSrc = req.body?.imageSrc || req.body?.image_url || req.body?.image_base64;
       const maskSrc = req.body?.maskSrc || req.body?.mask_url || req.body?.mask_base64;
-      const result = await expandImageWithPicWish({
+      const result = await expandImageWithVodKling({
         ...req.body,
         imageSrc,
         maskSrc,
@@ -1603,7 +1607,7 @@ async function startServer() {
       const stored = await storeImageResultForUser({
         images: result.images || [],
         image_base64: result.images?.[0]?.src?.split(";base64,")[1],
-        model: "picwish-advanced-image-expand",
+        model: VOD_IMAGE_EXPANSION_MODEL,
         providerTaskId: result.providerTaskId,
         providerTaskIds: result.providerTaskIds,
       }, user.username);

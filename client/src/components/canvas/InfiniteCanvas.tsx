@@ -50,7 +50,7 @@ import {
   normalizeImageModelId,
 } from "../../../../shared/image-models";
 import { DEFAULT_TEXT_MODEL } from "../../../../shared/text-models";
-import { DEFAULT_IMAGE_EXPANSION_PROMPT } from "../../../../shared/image-expansion";
+import { DEFAULT_IMAGE_EXPANSION_PROMPT, VOD_IMAGE_EXPANSION_MODEL } from "../../../../shared/image-expansion";
 import {
   Image as ImageIcon,
   MessageSquare,
@@ -25367,7 +25367,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           operation: "expand",
           imageSrc: detail.imageSrc,
           maskSrc: detail.maskSrc,
-          model: "picwish-advanced-image-expand",
+          model: VOD_IMAGE_EXPANSION_MODEL,
           targetWidth: detail.nextW,
           targetHeight: detail.nextH,
           top: detail.top,
@@ -25381,7 +25381,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           expandImageWithMask({
             imageSrc: detail.imageSrc,
             maskSrc: detail.maskSrc,
-            model: "picwish-advanced-image-expand",
+            model: VOD_IMAGE_EXPANSION_MODEL,
             targetWidth: detail.nextW,
             targetHeight: detail.nextH,
             top: detail.top,

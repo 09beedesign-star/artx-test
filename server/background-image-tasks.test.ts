@@ -26,7 +26,11 @@ describe("background image task routing", () => {
     expect(source).toContain('case "element_background":');
     expect(source).toMatch(/createElementBackgroundLayer\([^)]*input/);
     expect(source).toContain('case "image_expansion":');
-    expect(source).toContain("expandImageWithPicWish");
+    // 2026-09-13 扩图上游由佐糖 advanced-image-expand 切到腾讯云 VOD Kling。
+    // expandImageWithPicWish 仍保留在 image-generation.ts 里作为回退实现，
+    // 但**不得**再出现在 index.ts 的扩图链路上，否则等于没切。
+    expect(source).toContain("expandImageWithVodKling");
+    expect(source).not.toContain("expandImageWithPicWish");
     expect(source).not.toContain('process.env.AI_IMAGE_MODEL || "gpt-image-2"');
   });
 
@@ -49,7 +53,10 @@ describe("background image task routing", () => {
     expect(source).toContain('capability: "编辑元素背景层"');
     expect(source).toContain('model: getRouteModel(input, "picwish-inpaint")');
     expect(source).toContain('capabilityKey: "image_expansion"');
-    expect(source).toContain('model: getRouteModel(input, "picwish-advanced-image-expand")');
+    // 扩图已不属于 PicWish 家族，模型 id 走 shared 常量而非字面量，
+    // 避免像此前那样在 7 处硬编码、切上游时漏改。
+    expect(source).toContain("model: getRouteModel(input, VOD_IMAGE_EXPANSION_MODEL)");
+    expect(source).not.toContain('"picwish-advanced-image-expand"');
 
     expect(source).toContain('capabilityKey: "image_edit"');
     // 图片链路的 provider 不再硬编码，按模型 id 区分腾讯云 VOD 与中转站 AI_IMAGE。

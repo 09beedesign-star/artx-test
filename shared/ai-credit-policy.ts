@@ -107,8 +107,14 @@ export const AI_CREDIT_POLICIES: AiBillingPolicy[] = [
     label: "扩图 / 外延生成",
     billingUnit: "per_request",
     baseCredits: 200,
-    estimatedCostPerUnit: 0.118,
-    providerDefault: "OpenAI",
+    /**
+     * 腾讯云 VOD Kling expand 官方刊例 0.028 美元/张（1K）≈ 0.199 元。
+     * 2026-09-13 从佐糖切换至 Kling，单次成本由 0.118 元升至约 0.199 元（+69%）。
+     * baseCredits 暂维持 200 未动 —— 定价调整属产品决策，需单独确认后再改。
+     * 按 200 积分/次、1 元 ≈ 170 积分估算，售价侧仍高于成本，短期不亏。
+     */
+    estimatedCostPerUnit: 0.199,
+    providerDefault: "腾讯云 VOD Kling",
   },
   {
     capability: "image_ocr",

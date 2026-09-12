@@ -1,6 +1,10 @@
 import { ART_X_TEST_API_BASE_URL, normalizeApiBaseUrl } from "./api-base-url";
 import { DEFAULT_IMAGE_MODEL_ID } from "../../../shared/image-models";
-import { DEFAULT_IMAGE_EXPANSION_PROMPT, clampImageExpansionPrompt } from "../../../shared/image-expansion";
+import {
+  DEFAULT_IMAGE_EXPANSION_PROMPT,
+  VOD_EXPANSION_PROMPT_MAX_LENGTH,
+  VOD_IMAGE_EXPANSION_MODEL,
+} from "../../../shared/image-expansion";
 
 type LLMRole = "system" | "user" | "assistant";
 
@@ -889,7 +893,7 @@ export async function eraseImageObjects({
 export async function expandImageWithMask({
   imageSrc,
   maskSrc,
-  model = "picwish-advanced-image-expand",
+  model = VOD_IMAGE_EXPANSION_MODEL,
   prompt,
   targetWidth,
   targetHeight,
@@ -920,9 +924,10 @@ export async function expandImageWithMask({
     bottom,
     left,
     right,
-    // 佐糖扩图接口的 prompt 硬上限为 200 字符，超出会直接 400。
-    // 统一在出站前收敛，避免任何调用方传入长提示词导致整次扩图失败。
-    prompt: clampImageExpansionPrompt(prompt) || DEFAULT_IMAGE_EXPANSION_PROMPT,
+    // 扩图已于 2026-09-13 切到腾讯云 VOD Kling，prompt 上限从佐糖的 200 放宽到 2500。
+    // 这里只做上限兜底，不再按 200 截断——否则白白丢掉提示词表达力。
+    // ⚠️ 若将来回退到佐糖，必须改回 clampImageExpansionPrompt，否则 201 字符即 400。
+    prompt: (prompt || "").trim().slice(0, VOD_EXPANSION_PROMPT_MAX_LENGTH) || DEFAULT_IMAGE_EXPANSION_PROMPT,
   }, "AI 扩展失败");
 
   const normalized = toGeneratedImagesResponse(result);

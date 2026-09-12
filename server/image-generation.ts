@@ -12,7 +12,7 @@ import {
   isVodModelId,
 } from "../shared/image-models";
 import { isClaudeTextModelId } from "../shared/text-models";
-import { clampImageExpansionPrompt } from "../shared/image-expansion";
+import { clampImageExpansionPrompt, VOD_EXPANSION_PROMPT_MAX_LENGTH } from "../shared/image-expansion";
 import { generateText } from "./text-generation";
 import { recordImageProviderFailure } from "./image-provider-failure-log";
 import { buildMeituMask, inpaintWithMeitu } from "./meitu-client";
@@ -29,6 +29,8 @@ import {
 import {
   generateImageWithVod,
   isVodAigcConfigured,
+  createVodImageExpandTask,
+  pollVodTask,
   type VodImageGenerationInput,
 } from "./tencent-vod-aigc";
 import path from "path";
@@ -5391,6 +5393,100 @@ export async function createElementBackgroundLayer(input: ElementBackgroundInput
     throw new Error("背景层未返回可用图片");
   }
   return withProviderTaskIds({ images: normalized }, collectProviderTaskIds(picWishResult));
+}
+
+/**
+ * 扩图（外延生成）—— 供应商为腾讯云 VOD Kling（`SceneType: image_expand`）。
+ *
+ * 2026-09-13 从佐糖 advanced-image-expand 切换而来。切换动机与实测结论见
+ * `createVodImageExpandTask` 的注释。
+ *
+ * 方向比例语义在两家是**一致**的，可以直接透传：
+ *   前端 `toExpansionRatio(expandTop, sourceH)` = 扩展像素 ÷ 原图边长，
+ *   Kling `up_expansion_ratio` 同样是「基于原图高度的倍数」。
+ *   （佐糖侧 clamp 到 [0,1]，Kling 支持 [0,2]，前端现有上限更严，不会越界。）
+ *
+ * ⚠️ Kling 不接受 mask 做扩图，只认四向比例。若调用方只给了 mask 没给方向，
+ * 这里无法推断扩展方向，直接报错比静默出一张没扩的图要好。
+ */
+export async function expandImageWithVodKling(input: ExpandImageInput): Promise<GeneratedImageResult> {
+  const sourceImageSrc = input.imageSrc?.trim();
+  const sourceImageUrl = (input.imageUrl || input.image_url || "").trim();
+  if (!sourceImageSrc && !sourceImageUrl) {
+    throw new Error("Missing imageSrc");
+  }
+
+  const top = coerceOptionalNumber(input.top);
+  const bottom = coerceOptionalNumber(input.bottom);
+  const left = coerceOptionalNumber(input.left);
+  const right = coerceOptionalNumber(input.right);
+  const hasAnyDirection = [top, bottom, left, right].some(
+    (v) => typeof v === "number" && Number.isFinite(v) && v > 0,
+  );
+  if (!hasAnyDirection) {
+    // 佐糖时代可以只给 mask 让上游自己推断扩展区域，Kling 不行。
+    // 区分两种错误，否则调用方带着 mask 过来只会看到「请重新框选」，
+    // 完全看不出是上游能力差异导致的。
+    const hasMask = Boolean(
+      (input.maskSrc || "").trim() || (input.maskUrl || "").trim() || (input.mask_url || "").trim(),
+    );
+    if (hasMask) {
+      throw new Error("扩图已切换至腾讯云 VOD Kling，不支持蒙版驱动扩图，请改为传入四个方向的扩展比例");
+    }
+    throw new Error("扩图需要至少一个方向的扩展比例，请重新框选扩展区域");
+  }
+
+  const sourceImageData = sourceImageSrc ? await imageSrcToBuffer(sourceImageSrc) : null;
+  const sourceImageDimensions = sourceImageData
+    ? await getImageBufferDimensions(sourceImageData.buffer)
+    : {
+        width: coerceTargetDimension(input.targetWidth) || 1024,
+        height: coerceTargetDimension(input.targetHeight) || 1024,
+      };
+
+  const requestedWidth = coerceTargetDimension(input.targetWidth) || sourceImageDimensions.width;
+  const requestedHeight = coerceTargetDimension(input.targetHeight) || sourceImageDimensions.height;
+  const targetSize = __testResolveHighDefinitionTargetSize(
+    requestedWidth,
+    requestedHeight,
+    sourceImageDimensions.width,
+    sourceImageDimensions.height,
+  );
+
+  // Kling 只认 Url / Base64。本地 data: 图直接透传 base64，远程图走 URL。
+  const imageForProvider = sourceImageData
+    ? `data:${sourceImageData.mimeType || "image/png"};base64,${sourceImageData.buffer.toString("base64")}`
+    : sourceImageUrl;
+
+  // Kling 的 prompt 上限是 2500 字符，远宽于佐糖的 200。
+  // 这里不再套用 clampImageExpansionPrompt 的 200 限制，否则白白丢掉提示词表达力。
+  const prompt = (input.prompt || "").trim().slice(0, VOD_EXPANSION_PROMPT_MAX_LENGTH);
+
+  const { taskId } = await createVodImageExpandTask({
+    imageUrl: imageForProvider,
+    prompt,
+    up: top,
+    down: bottom,
+    left,
+    right,
+    seed: coerceOptionalNumber(input.seed),
+    resolution: "1K",
+  });
+
+  const polled = await pollVodTask(taskId);
+  if (polled.status !== "success" || !polled.images?.length) {
+    throw new Error(polled.error || "AI 扩图未返回可用内容，请稍后重试");
+  }
+
+  const normalized = await __testNormalizeGeneratedImagesToTargetAspect(
+    polled.images,
+    targetSize.width,
+    targetSize.height,
+  );
+  if (normalized.length === 0) {
+    throw new Error("AI 扩图未返回可用内容，请稍后重试");
+  }
+  return withProviderTaskIds({ images: normalized }, [taskId]);
 }
 
 export async function expandImageWithPicWish(input: ExpandImageInput): Promise<GeneratedImageResult> {
