@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/p
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanupExpiredUploads, getUploadRetentionDays, storeGeneratedImagesForUser } from "./local-image-storage";
+import { cleanupExpiredUploads, getFeedbackRetentionDays, getUploadRetentionDays, storeGeneratedImagesForUser } from "./local-image-storage";
 
 const ONE_PIXEL_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
@@ -15,6 +15,7 @@ afterEach(async () => {
   }
   delete process.env.ARTX_UPLOADS_DIR;
   delete process.env.ARTX_UPLOAD_RETENTION_DAYS;
+  delete process.env.ARTX_FEEDBACK_RETENTION_DAYS;
 });
 
 describe("storeGeneratedImagesForUser", () => {
@@ -36,7 +37,7 @@ describe("storeGeneratedImagesForUser", () => {
 });
 
 describe("cleanupExpiredUploads", () => {
-  it("deletes expired generated images but preserves feedback attachments", async () => {
+  it("deletes expired generated images and expired feedback attachments", async () => {
     uploadsDir = await mkdtemp(path.join(os.tmpdir(), "artx-upload-cleanup-test-"));
     process.env.ARTX_UPLOADS_DIR = uploadsDir;
 
@@ -64,15 +65,44 @@ describe("cleanupExpiredUploads", () => {
     const result = await cleanupExpiredUploads({ now });
 
     expect(result.retentionDays).toBe(10);
-    expect(result.deletedFiles).toBe(1);
+    expect(result.feedbackRetentionDays).toBe(10);
+    // 反馈附件此前不参与清理，会无限增长；现已与生成图一同受保留期约束。
+    expect(result.deletedFiles).toBe(2);
     await expect(stat(oldGenerated)).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(stat(oldFeedback)).resolves.toMatchObject({ size: 12 });
+    await expect(stat(oldFeedback)).rejects.toMatchObject({ code: "ENOENT" });
     await expect(stat(freshGenerated)).resolves.toMatchObject({ size: 5 });
     await expect(stat(freshFeedback)).resolves.toMatchObject({ size: 14 });
+  });
+
+  it("keeps feedback attachments when their retention window is configured longer", async () => {
+    uploadsDir = await mkdtemp(path.join(os.tmpdir(), "artx-upload-feedback-retention-"));
+    process.env.ARTX_UPLOADS_DIR = uploadsDir;
+    process.env.ARTX_FEEDBACK_RETENTION_DAYS = "30";
+
+    const generated = path.join(uploadsDir, "images", "user", "old.png");
+    const feedback = path.join(uploadsDir, "feedback", "user", "fb_1", "old-feedback.png");
+    await mkdir(path.dirname(generated), { recursive: true });
+    await mkdir(path.dirname(feedback), { recursive: true });
+    await writeFile(generated, "old");
+    await writeFile(feedback, "old-feedback");
+
+    const now = new Date("2026-07-09T00:00:00.000Z");
+    const twentyDaysAgo = new Date(now.getTime() - 20 * 24 * 60 * 60 * 1000);
+    await utimes(generated, twentyDaysAgo, twentyDaysAgo);
+    await utimes(feedback, twentyDaysAgo, twentyDaysAgo);
+
+    const result = await cleanupExpiredUploads({ now });
+
+    expect(result.feedbackRetentionDays).toBe(30);
+    expect(result.deletedFiles).toBe(1);
+    await expect(stat(generated)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(stat(feedback)).resolves.toMatchObject({ size: 12 });
   });
 
   it("allows the retention window to be configured by environment", () => {
     process.env.ARTX_UPLOAD_RETENTION_DAYS = "3";
     expect(getUploadRetentionDays()).toBe(3);
+    process.env.ARTX_FEEDBACK_RETENTION_DAYS = "7";
+    expect(getFeedbackRetentionDays()).toBe(7);
   });
 });

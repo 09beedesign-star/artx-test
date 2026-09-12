@@ -14,7 +14,7 @@ import { getPicWishBackgroundTemplates } from "./picwish-background-templates";
 import { DEFAULT_IMAGE_MODEL_ID, IMAGE_MODEL_PRIORITY_IDS, isVodModelId } from "../shared/image-models";
 import { DEFAULT_TEXT_MODEL } from "../shared/text-models";
 import { getInspirationReferences } from "./inspiration-references";
-import { cleanupExpiredUploads, getUploadRetentionDays, getUploadsRoot, storeGeneratedImagesForUser } from "./local-image-storage";
+import { cleanupExpiredUploads, getFeedbackRetentionDays, getUploadRetentionDays, getUploadsRoot, storeGeneratedImagesForUser } from "./local-image-storage";
 import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
 import { recordCrossBorderCommerceGeneration } from "./cross-border-commerce-records";
@@ -122,7 +122,9 @@ function scheduleUploadCleanup() {
       });
   };
 
-  console.log(`[uploads] temporary image retention is ${getUploadRetentionDays()} natural days`);
+  console.log(
+    `[uploads] temporary image retention is ${getUploadRetentionDays()} natural days; feedback retention is ${getFeedbackRetentionDays()} natural days`
+  );
   runCleanup();
   const timer = setInterval(runCleanup, UPLOAD_CLEANUP_INTERVAL_MS);
   timer.unref?.();
@@ -426,6 +428,11 @@ function getDefaultRouteImageModel(body: unknown) {
  */
 const IMAGE_PROVIDER_TENCENT_VOD = "腾讯云 VOD";
 const IMAGE_PROVIDER_RELAY = "AI_IMAGE";
+/**
+ * 文本/多模态理解链路的厂商名（生产走 token.bkeel.com 中转站，
+ * 健康度列表里注册为 ai_bkeel / "BKEEL"）。
+ */
+const TEXT_PROVIDER_BKEEL = "BKEEL";
 
 function resolveImageProviderLabel(model?: string) {
   const normalized = (model || "").trim().toLowerCase();
@@ -440,6 +447,23 @@ function resolveImageProviderLabel(model?: string) {
 
 function getRouteImageProvider(body: unknown) {
   return resolveImageProviderLabel(getDefaultRouteImageModel(body));
+}
+
+/**
+ * 根据能力类型判定上游厂商：
+ * - 文本/多模态理解（chat / brand_kit_parse）→ BKEEL 中转站
+ * - 图片生成/编辑 → 按模型归属到腾讯云 VOD 或中转站 AI_IMAGE
+ */
+function resolveProviderByCapability(capabilityKey: AiBillingCapability, model: string): string {
+  if (capabilityKey === "text_generation") {
+    return TEXT_PROVIDER_BKEEL;
+  }
+  // OCR 走中转站的视觉模型，不是 VOD 出图链路，
+  // 归属固定为 AI_IMAGE（与 /api/images/ocr 路由写入的值保持一致）。
+  if (capabilityKey === "image_ocr") {
+    return IMAGE_PROVIDER_RELAY;
+  }
+  return resolveImageProviderLabel(model);
 }
 
 function getImageEditCapabilityLabel(input: Record<string, unknown>) {
@@ -696,6 +720,9 @@ async function recordAiRouteUsage(input: {
     model: input.tracking.model || "auto",
     status: input.status,
     latencyMs: Date.now() - input.startedAt,
+    // 把指令下发时刻透传下去，让任务追踪能展示真实的开始时间，
+    // 而不是靠 createdAt 减 latencyMs 反推。
+    startedAtMs: input.startedAt,
     failureReason: input.error,
     outputUnits,
     providerTaskId: providerTaskIds?.[0],
@@ -1076,7 +1103,14 @@ async function startServer() {
           tracking: {
             capabilityKey: capabilityFromOrchestrator(result.capability),
             capability: result.capability,
-            provider: result.route,
+            // ⚠️ 不能用 result.route。orchestrator 的 route 来自
+            // resolveModelRoute().provider，取值只有 "image" / "text"，
+            // 那是「走哪条流水线」的分类，不是厂商名。写进去会让
+            // 后台第三方接口面板永远看不到腾讯云 VOD / BKEEL 的调用数据。
+            provider: resolveProviderByCapability(
+              capabilityFromOrchestrator(result.capability),
+              result.model,
+            ),
             model: result.model,
             failureMessage: "Image generation failed",
           },
@@ -1670,14 +1704,21 @@ async function startServer() {
     let user: SessionUser | null = null;
     let reservation: AiUsageReservation | undefined;
     let successRecorded = false;
+    // 提到 try 外面：catch 分支要复用它的 provider / model 归属，
+    // 否则失败记录会退回到「按请求体猜」，与成功记录对不上号。
+    let preflightTracking: AiRouteTracking | undefined;
     try {
       user = await requireSessionUser(req, res);
       if (!user) return;
-      const preflightTracking: AiRouteTracking = {
-        capabilityKey: requestedOrchestratorCapability(req.body),
+      const preflightCapabilityKey = requestedOrchestratorCapability(req.body);
+      const preflightModel = getRouteModel(req.body, "auto");
+      preflightTracking = {
+        capabilityKey: preflightCapabilityKey,
         capability: typeof req.body?.capability === "string" ? req.body.capability : "AI 编排",
-        provider: "AI",
-        model: getRouteModel(req.body, "auto"),
+        // 原来硬编码 "AI"，与健康度列表里任何一个厂商名都不相等，
+        // 这些记录在后台成本分组里变成没有归属的孤儿。
+        provider: resolveProviderByCapability(preflightCapabilityKey, preflightModel),
+        model: preflightModel,
         failureMessage: "AI orchestration failed",
       };
       assertUserCanUseSelectableModel(user, preflightTracking.model, preflightTracking.capabilityKey);
@@ -1694,7 +1735,11 @@ async function startServer() {
           tracking: {
             capabilityKey: capabilityFromOrchestrator(result.capability),
             capability: result.capability,
-            provider: result.route,
+            // 同上：result.route 是流水线分类（image/text），不是厂商名。
+            provider: resolveProviderByCapability(
+              capabilityFromOrchestrator(result.capability),
+              result.model,
+            ),
             model: result.model,
             failureMessage: "AI orchestration failed",
           },
@@ -1711,7 +1756,10 @@ async function startServer() {
         tracking: {
           capabilityKey: capabilityFromOrchestrator(result.capability),
           capability: result.capability,
-          provider: result.route,
+          provider: resolveProviderByCapability(
+            capabilityFromOrchestrator(result.capability),
+            result.model,
+          ),
           model: result.model,
           failureMessage: "AI orchestration failed",
           outputUnits: () => 1,
@@ -1728,10 +1776,12 @@ async function startServer() {
         await recordAiRouteUsage({
           user,
           tracking: {
-            capabilityKey: "text_generation",
+            capabilityKey: preflightTracking?.capabilityKey || "text_generation",
             capability: typeof req.body?.capability === "string" ? req.body.capability : "ai_orchestration",
-            provider: "AI",
-            model: getRouteModel(req.body, "auto"),
+            // 失败记录同样要有正确归属，否则「失败率」在厂商维度上永远是 0。
+            provider: preflightTracking?.provider
+              || resolveProviderByCapability("text_generation", getRouteModel(req.body, "auto")),
+            model: preflightTracking?.model || getRouteModel(req.body, "auto"),
             failureMessage: "AI orchestration failed",
           },
           startedAt,
@@ -1950,7 +2000,11 @@ async function startServer() {
               tracking: {
                 capabilityKey: capabilityFromOrchestrator(storedResult.capability),
                 capability: storedResult.capability,
-                provider: storedResult.route,
+                // 同上：route 是流水线分类，厂商名要按模型重新判定。
+                provider: resolveProviderByCapability(
+                  capabilityFromOrchestrator(storedResult.capability),
+                  storedResult.model,
+                ),
                 model: storedResult.model,
                 failureMessage: "MCP image generation failed",
               },

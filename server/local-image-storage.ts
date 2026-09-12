@@ -30,16 +30,27 @@ const MAX_IMAGE_BYTES = Number(process.env.ARTX_LOCAL_IMAGE_MAX_BYTES || 50 * 10
 const PUBLIC_IMAGE_BASE_PATH = "/uploads/images";
 const PUBLIC_FEEDBACK_BASE_PATH = "/uploads/feedback";
 const DEFAULT_UPLOAD_RETENTION_DAYS = 10;
+const DEFAULT_FEEDBACK_RETENTION_DAYS = 10;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export function getUploadsRoot() {
   return process.env.ARTX_UPLOADS_DIR || path.join(process.env.ARTX_DATA_DIR || "/var/lib/artx", "uploads");
 }
 
-export function getUploadRetentionDays() {
-  const value = Number(process.env.ARTX_UPLOAD_RETENTION_DAYS || DEFAULT_UPLOAD_RETENTION_DAYS);
-  if (!Number.isFinite(value) || value <= 0) return DEFAULT_UPLOAD_RETENTION_DAYS;
+function resolveRetentionDays(rawValue: string | undefined, fallbackDays: number) {
+  const value = Number(rawValue || fallbackDays);
+  if (!Number.isFinite(value) || value <= 0) return fallbackDays;
   return Math.max(1, Math.floor(value));
+}
+
+export function getUploadRetentionDays() {
+  return resolveRetentionDays(process.env.ARTX_UPLOAD_RETENTION_DAYS, DEFAULT_UPLOAD_RETENTION_DAYS);
+}
+
+// 反馈附件是用户提交的问题证据，运营排查窗口可能需要比生成图更长，
+// 因此给它独立的保留期开关；不配置时与生成图一致，同为 10 天。
+export function getFeedbackRetentionDays() {
+  return resolveRetentionDays(process.env.ARTX_FEEDBACK_RETENTION_DAYS, DEFAULT_FEEDBACK_RETENTION_DAYS);
 }
 
 async function pathExists(directory: string) {
@@ -105,16 +116,21 @@ async function cleanupExpiredFilesInDirectory(directory: string, cutoffMs: numbe
 
 export async function cleanupExpiredUploads(options: { now?: Date } = {}) {
   const retentionDays = getUploadRetentionDays();
+  const feedbackRetentionDays = getFeedbackRetentionDays();
   const now = options.now || new Date();
   const cutoffMs = now.getTime() - retentionDays * DAY_MS;
   const uploadsRoot = getUploadsRoot();
-  const cleanupRoots = [path.join(uploadsRoot, "images")];
+  // 生成图与反馈附件各自独立计算 cutoff，便于两者配置不同的保留期。
+  const cleanupTargets = [
+    { directory: path.join(uploadsRoot, "images"), cutoffMs },
+    { directory: path.join(uploadsRoot, "feedback"), cutoffMs: now.getTime() - feedbackRetentionDays * DAY_MS },
+  ];
   let scannedFiles = 0;
   let deletedFiles = 0;
   let removedDirectories = 0;
 
-  for (const cleanupRoot of cleanupRoots) {
-    const result = await cleanupExpiredFilesInDirectory(cleanupRoot, cutoffMs, cleanupRoot);
+  for (const target of cleanupTargets) {
+    const result = await cleanupExpiredFilesInDirectory(target.directory, target.cutoffMs, target.directory);
     scannedFiles += result.scannedFiles;
     deletedFiles += result.deletedFiles;
     removedDirectories += result.removedDirectories;
@@ -123,6 +139,7 @@ export async function cleanupExpiredUploads(options: { now?: Date } = {}) {
   return {
     uploadsRoot,
     retentionDays,
+    feedbackRetentionDays,
     cutoff: new Date(cutoffMs).toISOString(),
     scannedFiles,
     deletedFiles,
