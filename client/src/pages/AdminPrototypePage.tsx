@@ -77,6 +77,12 @@ type AdminUser = {
   email: string;
   role?: AdminRole;
   plan: string;
+  // 会员到期相关字段由后端 toDisplayUsers 派生。
+  // 无值代表该账号没有到期概念（Free 档或按角色派发的档位），不要当成"已过期"。
+  planExpiresAt?: string;
+  planRemainingDays?: number;
+  planExpiringSoon?: boolean;
+  previousPlan?: string;
   credits: number;
   spent: number;
   totalRecharge?: number;
@@ -444,6 +450,23 @@ function formatCurrency(value?: number | null) {
 function formatCredits(value?: number | null) {
   const amount = Number.isFinite(value) ? value as number : 0;
   return amount.toLocaleString("zh-CN");
+}
+
+/**
+ * 会员到期的展示文案。
+ *
+ * 只在 planExpiresAt 有值时调用 —— 无值代表 Free 档或按角色派发的档位，
+ * 它们没有到期概念，调用方应当整块不渲染，而不是显示「0 天后到期」。
+ */
+function formatMembershipExpiry(user: Pick<AdminUser, "planExpiresAt" | "planRemainingDays">) {
+  if (!user.planExpiresAt) return "";
+  const parsed = new Date(user.planExpiresAt);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const date = parsed.toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" });
+  const days = user.planRemainingDays;
+  if (!Number.isFinite(days)) return `${date} 到期`;
+  if ((days as number) <= 0) return `${date} 已到期`;
+  return `${date} 到期 · 剩 ${days} 天`;
 }
 
 function defaultTestAccountExpiry() {
@@ -1664,7 +1687,14 @@ function AdminPrototypePage() {
                       <div className="font-medium">{user.name}</div>
                       <div className="break-all text-xs text-slate-500">{user.email}</div>
                     </TableCell>
-                    <TableCell>{user.plan}</TableCell>
+                    <TableCell>
+                      <div>{user.plan}</div>
+                      {user.planExpiresAt ? (
+                        <div className={cn("text-xs", user.planExpiringSoon ? "text-amber-300" : "text-slate-500")}>
+                          {formatMembershipExpiry(user)}
+                        </div>
+                      ) : null}
+                    </TableCell>
                     <TableCell>
                       <Badge className={cn("w-fit shrink-0", user.role && user.role !== "viewer" ? statusClass("watch") : statusClass("normal"))}>
                         {roleLabel(user.role)}
@@ -2810,6 +2840,10 @@ function AccountDetailDrawer({
             <div className="flex flex-col gap-5">
               <div className="order-0 grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
                 <InfoCell label="套餐" value={user.plan} />
+                <InfoCell
+                  label="会员到期"
+                  value={user.planExpiresAt ? formatMembershipExpiry(user) : "无到期（免费档）"}
+                />
                 <InfoCell label="状态" value={statusLabel(user.status)} />
                 <InfoCell label="积分余额" value={formatCredits(user.credits)} />
                 <InfoCell label="累计支付金额" value={formatCurrency(user.spent)} />

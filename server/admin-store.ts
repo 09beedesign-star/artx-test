@@ -17,6 +17,7 @@ import { createAuthUserForAdmin, getAdminSessionFromAuthorization, listAuthUsers
 import { storeFeedbackImagesForUser, type FeedbackImageInput, type StoredFeedbackImage } from "./local-image-storage";
 import { PostgresJsonDocumentStore } from "./postgres-json-store";
 import { getAllProviderBilling } from "./provider-billing";
+import { DEFAULT_GIFT_EXPIRY_DAYS, GIFT_LEDGER_TYPE, grantCredits } from "./credit-gifting";
 
 type AdminStatus = "normal" | "watch" | "blocked" | "cancelled";
 type OrderStatus = "paid" | "pending" | "failed" | "refunded";
@@ -54,6 +55,11 @@ type AdminUserAccount = {
   role: string;
   status: AdminStatus;
   plan: string;
+  // 会员到期时间。缺省表示"无到期概念"（Free 档、或管理员按角色派发的档位），
+  // 只有真实付费订单才会写入。到期后由 expireMemberships() 把 plan 降回 Free。
+  planExpiresAt?: string;
+  // 记录降级前的档位，便于客服排查"我明明买过 Pro"这类申诉。
+  previousPlan?: string;
   organization: string;
   credits: number;
   frozenCredits: number;
@@ -704,6 +710,46 @@ function resolveMembershipMonthlyCredits(order: PaymentOrder, totalPeriods: numb
 }
 
 /**
+ * 会员积分批次的到期日 —— **全站唯一口径，三个调用点都必须走这里**。
+ *
+ * 【为什么是 min 而不是二选一】
+ * 两条规则同时成立，各自守着一个方向，谁都不能被丢掉：
+ *
+ *   A. 滚存规则：每期积分发放后 MEMBERSHIP_BATCH_VALID_MONTHS 个月失效。
+ *      ——防止会员积分变成「单价最低且永不过期」的囤积工具。
+ *   B. 规则三：会员到期后，订阅赠送的积分同步失效。
+ *      ——防止「会员都没了，积分还能用」。
+ *
+ * 只取 A：年卡用户每期积分都能活满 2 个月，但会员中途退款/降级后
+ *         积分仍然有效，规则三失效。
+ * 只取 B：所有批次被拉齐到账号会员到期日（年卡 = 一年后），
+ *         滚存封顶形同虚设，A 失效。
+ *
+ * 取两者**较早**者，A 和 B 就同时成立 —— 这就是「各对一半」的融合点。
+ *
+ * ⚠️ membershipExpiresAt 缺失时**只用 A**，不要退回「永不过期」。
+ * 取不到会员到期日的情况有二：账号从没有过会员（不该走到这里），
+ * 或会员已被 expireMemberships 清掉 planExpiresAt。后者若退回永不过期，
+ * 会精确复现生产环境那 866 个游离积分的成因。
+ */
+function resolveMembershipBatchExpiry(issuedAt: string, membershipExpiresAt?: string) {
+  /*
+   * ⚠️ addMonthsIso 对非法日期返回 undefined，这里必须显式承接。
+   * 强转成 string 会让下游 Date.parse 拿到 undefined 得出 NaN，
+   * 最终写进批次的 expiresAt 变成 "Invalid Date" —— 该批次从此
+   * 既不过期也扣不动，正是游离积分的经典成因。
+   */
+  const rolloverExpiry = addMonthsIso(issuedAt, MEMBERSHIP_BATCH_VALID_MONTHS);
+  if (!rolloverExpiry) return membershipExpiresAt;
+  if (!membershipExpiresAt) return rolloverExpiry;
+  const rolloverMs = Date.parse(rolloverExpiry);
+  const membershipMs = Date.parse(membershipExpiresAt);
+  if (!Number.isFinite(membershipMs)) return rolloverExpiry;
+  if (!Number.isFinite(rolloverMs)) return membershipExpiresAt;
+  return membershipMs < rolloverMs ? membershipExpiresAt : rolloverExpiry;
+}
+
+/**
  * 惰性补发到期的会员积分，并执行滚存封顶。
  *
  * ⚠️ 为什么是惰性而不是定时任务：本项目**没有部署任何 cron / 定时器**，
@@ -741,7 +787,12 @@ function issueDueMembershipCredits(data: AdminData, now: string) {
           reason: `会员套餐积分入账（第 ${nextPeriod}/${subscription.totalPeriods} 期）`,
           operator: "系统",
           createdAt: dueAt,
-          expiresAt: addMonthsIso(dueAt, MEMBERSHIP_BATCH_VALID_MONTHS),
+          /*
+           * ⚠️ 补发路径同样要受会员到期日约束。
+           * 只在这里用滚存有效期，会让第 2 期之后的批次突破会员到期日 ——
+           * 首期守住了、后续期漏出去，是最难查的那种半对半错。
+           */
+          expiresAt: resolveMembershipBatchExpiry(dueAt, user.planExpiresAt),
         });
         if (batch) {
           user.credits += subscription.monthlyCredits;
@@ -832,7 +883,11 @@ function createCreditBatchForPaidOrder(
   user: AdminUserAccount,
   order: PaymentOrder,
   paidAt: string,
-  operator: string
+  operator: string,
+  // 会员到期时间由调用方算好后传入，不在这里重算。
+  // 调用方此时已经把 user.planExpiresAt 更新为新到期日，
+  // 若这里再调一次 resolveMembershipExpiry 会在新到期日上再加一个周期（月卡变两个月）。
+  membershipExpiresAt?: string
 ) {
   const paidMembershipPlan = getMembershipPlanFromName(order.packageName);
   if (paidMembershipPlan) {
@@ -866,7 +921,8 @@ function createCreditBatchForPaidOrder(
       reason: `会员套餐积分入账（第 1/${totalPeriods} 期）`,
       operator,
       createdAt: paidAt,
-      expiresAt: addMonthsIso(paidAt, MEMBERSHIP_BATCH_VALID_MONTHS),
+      // 滚存有效期与会员到期日取较早者，详见 resolveMembershipBatchExpiry。
+      expiresAt: resolveMembershipBatchExpiry(paidAt, membershipExpiresAt),
     });
   }
   if (order.creditKind === "recharge" || order.packageName === "积分充值" || order.id.startsWith("rch_")) {
@@ -1019,6 +1075,105 @@ function expireCreditBatches(data: AdminData, expiredAt: string) {
   }
   data.creditBatches = nextBatches;
   return changed || expiredEntries.length > 0;
+}
+
+/**
+ * 计算本次会员订单生效后的到期时间。
+ *
+ * 【续费语义：顺延 —— 产品已定案，勿改】
+ * 用户当前会员若尚未到期，新周期从**原到期日**往后接，而不是从付款日重算。
+ * 否则提前续费的用户会平白损失剩余天数，等于惩罚续费意愿最强的那批人，
+ * 也会诱导用户拖到最后一天才付款（对我们的现金流与留存都更差）。
+ * 若已过期或从未有过会员，则从付款日起算。
+ *
+ * ⚠️ 语义由 server/admin-membership-expiry.test.ts 的「续费语义锁」用例守护。
+ * 改成「从付款日重算」会直接让那条用例失败 —— 那不是测试写错了，
+ * 是你正在推翻一个已确认的产品决策，请先找产品确认。
+ */
+function resolveMembershipExpiry(user: AdminUserAccount, paidAt: string, months: number) {
+  const paidAtMs = Date.parse(paidAt);
+  const currentExpiryMs = user.planExpiresAt ? Date.parse(user.planExpiresAt) : Number.NaN;
+  // 仅当原到期日晚于付款时间才顺延，过期账号一律从付款日重新起算。
+  const base = Number.isFinite(currentExpiryMs) && Number.isFinite(paidAtMs) && currentExpiryMs > paidAtMs
+    ? user.planExpiresAt as string
+    : paidAt;
+  return addMonthsIso(base, months);
+}
+
+/**
+ * 续费时把尚未用完的会员积分批次顺延，但**不得突破各自的滚存有效期**。
+ *
+ * 【这里曾经是个语义陷阱】
+ * 早期实现把所有批次无条件拉齐到新的会员到期日。在「一次性发全周期额度」
+ * 的旧模型下这是对的（本来就只有一个批次）。但改成**按月发放**后，
+ * 无条件拉齐会让第 1 期的积分跟着年卡一路活到一年后 ——
+ * 滚存封顶 enforceMembershipRolloverCap 立刻形同虚设，
+ * 用户只要按月续费就能无限囤积会员积分。
+ *
+ * 正确语义是**两个上界同时生效**：
+ *   - 不早于原到期日（续费不该让用户损失已有天数）
+ *   - 不晚于该批次自己的滚存有效期（发放日 + MEMBERSHIP_BATCH_VALID_MONTHS）
+ *   - 也不晚于新的会员到期日（会员没了积分不能还在）
+ *
+ * 所以目标 = min(新会员到期日, 该批次滚存有效期)，再与当前值取较晚者。
+ * 后一步保证**只向后延、绝不缩短**已发放批次的有效期。
+ */
+function extendMembershipBatchesExpiry(data: AdminData, userId: string, nextExpiresAt: string, updatedAt: string) {
+  const nextExpiryMs = Date.parse(nextExpiresAt);
+  if (!Number.isFinite(nextExpiryMs)) return 0;
+  let extended = 0;
+  for (const batch of data.creditBatches || []) {
+    if (batch.userId !== userId || batch.kind !== "membership") continue;
+    if (batch.status !== "active" || batch.remainingCredits <= 0) continue;
+    /*
+     * 以批次自己的发放时刻为基准重算上界，而不是拿会员到期日直接盖。
+     * createdAt 缺失时退回 updatedAt，宁可保守也不要算出 NaN 把批次改坏。
+     */
+    const target = resolveMembershipBatchExpiry(batch.createdAt || updatedAt, nextExpiresAt);
+    // 算不出合法上界时**跳过该批次**，保持原样不动 —— 绝不写入非法日期。
+    if (!target) continue;
+    const targetMs = Date.parse(target);
+    if (!Number.isFinite(targetMs)) continue;
+    const currentMs = batch.expiresAt ? Date.parse(batch.expiresAt) : Number.NaN;
+    // 只向后延，绝不缩短已发放批次的有效期。
+    if (Number.isFinite(currentMs) && currentMs >= targetMs) continue;
+    batch.expiresAt = target;
+    batch.updatedAt = updatedAt;
+    extended += 1;
+  }
+  return extended;
+}
+
+/**
+ * 会员到期降级：把 planExpiresAt 已过期的用户 plan 降回 Free。
+ *
+ * 与 expireCreditBatches 分开处理 —— 积分批次按自己的 expiresAt 过期，
+ * 这里只负责账号档位，避免「积分清零了但账号还挂着 Pro」的错位状态。
+ */
+function expireMemberships(data: AdminData, expiredAt: string) {
+  const cutoff = Date.parse(expiredAt);
+  if (!Number.isFinite(cutoff)) return false;
+  let changed = false;
+  for (const user of data.users) {
+    if (!user.planExpiresAt) continue;
+    const expiryMs = Date.parse(user.planExpiresAt);
+    if (!Number.isFinite(expiryMs) || expiryMs > cutoff) continue;
+    const currentPlan = normalizePlanDisplayName(user.plan);
+    // 已经是 Free 的只需清掉到期时间，不重复写降级日志。
+    if (currentPlan !== FREE_PLAN_DISPLAY_NAME) {
+      user.previousPlan = currentPlan;
+      user.plan = FREE_PLAN_DISPLAY_NAME;
+      appendAuditLog(data, { id: "system", username: "系统" }, {
+        action: "会员到期降级",
+        target: user.id,
+        before: { plan: currentPlan, planExpiresAt: user.planExpiresAt },
+        after: { plan: FREE_PLAN_DISPLAY_NAME },
+      });
+    }
+    user.planExpiresAt = undefined;
+    changed = true;
+  }
+  return changed;
 }
 
 function formatGiftCredits(amount: number) {
@@ -2096,24 +2251,53 @@ async function loadAdminData(): Promise<AdminData> {
     const data = await normalizeDataAsync(stored);
     const orderCreatedAtBeforeNormalization = new Map(data.orders.map((order) => [order.id, order.createdAt]));
     /**
-     * ⚠️ 三步**必须共用同一个 now**，且顺序不能换：
-     * 先补发到期期数 → 再按自然有效期过期 → 最后做滚存封顶。
-     * 换成各自调 nowIso() 会在毫秒级差异下出现「补发了但没参与封顶」的漏网批次；
-     * 封顶放在过期之前则会把本来就该过期的批次算进余额，导致多清。
+     * 会员/积分的惰性维护链 —— **四步共用同一个 now，顺序不可调整**。
+     *
+     *   1. issueDueMembershipCredits  补发到期期数
+     *   2. expireCreditBatches        按各自 expiresAt 过期
+     *   3. expireMemberships          会员到期降级（清 planExpiresAt）
+     *   4. enforceMembershipRolloverCap 滚存封顶
+     *
+     * 【为什么必须共用同一个 now】
+     * 各自调 nowIso() 会有毫秒级漂移，出现「第 1 步刚补发的批次，
+     * 第 4 步算余额时还没进来」这类漏网，表现为封顶时灵时不灵。
+     *
+     * 【为什么降级(3)必须夹在过期(2)和封顶(4)之间】
+     * - 放在 2 之前：expireMemberships 会把 planExpiresAt 清空，
+     *   而 resolveMembershipBatchExpiry 依赖它算上界 ——
+     *   先降级会让第 2 步拿不到会员到期日，本该失效的批次逃过一劫。
+     * - 放在 4 之后：封顶按 subscription.monthlyCredits 算上限，
+     *   此时账号已经该降级却还挂着旧档位，会按**错误的档位额度**封顶，
+     *   高档位用户降级后反而留下更多积分。
+     * 夹在中间，2 拿得到到期日、4 面对的是已经修正过的档位状态。
      */
     const now = nowIso();
     const issuedMembership = issueDueMembershipCredits(data, now);
     const shouldPersistCreditExpiry = expireCreditBatches(data, now);
+    const shouldPersistMembershipExpiry = expireMemberships(data, now);
     const cappedMembership = enforceMembershipRolloverCap(data, now);
     ensureBillingConsistency(data);
     const shouldPersistOrderTimestampRepair = data.orders.some((order) => orderCreatedAtBeforeNormalization.get(order.id) !== order.createdAt);
-    if (shouldPersistCleanup || shouldPersistOrderTimestampRepair || shouldPersistCreditExpiry || issuedMembership || cappedMembership) {
+    if (
+      shouldPersistCleanup
+      || shouldPersistOrderTimestampRepair
+      || shouldPersistCreditExpiry
+      || shouldPersistMembershipExpiry
+      || issuedMembership
+      || cappedMembership
+    ) {
       await saveAdminData(data);
     }
     return data;
   }
   const seeded = await seedAdminData();
-  expireCreditBatches(seeded, nowIso());
+  // 与上面 stored 分支保持**完全相同的四步顺序与共用时间戳**。
+  // 两条路径行为不一致会造成「首次初始化与后续加载结果不同」的偶发差异。
+  const seededExpiryCheckedAt = nowIso();
+  issueDueMembershipCredits(seeded, seededExpiryCheckedAt);
+  expireCreditBatches(seeded, seededExpiryCheckedAt);
+  expireMemberships(seeded, seededExpiryCheckedAt);
+  enforceMembershipRolloverCap(seeded, seededExpiryCheckedAt);
   ensureBillingConsistency(seeded);
   await saveAdminData(seeded);
   return seeded;
@@ -2383,10 +2567,13 @@ function ensureBillingConsistency(data: AdminData) {
       })),
     })),
   }));
-  data.credits = data.credits.map((entry) => ({
-    ...entry,
-    createdAt: formatRelativeTime(entry.createdAt),
-  }));
+  // ⚠️ 这里**刻意不再**把 credits[].createdAt 改写成相对时间。
+  // ensureBillingConsistency 位于 saveAdminData 的落库路径上，
+  // 原先的 formatRelativeTime() 会把 ISO 时间戳持久化成「刚刚」，
+  // 导致积分流水的真实时间**永久丢失**、再次加载无法解析，
+  // 也让任何基于流水时间的统计（单日赠送额度、按日对账）全部失效。
+  // 与 user.plan 同款教训：展示层归一化只在读取侧做，绝不回写。
+  // 相对时间改由 toDisplayCredits() 在出口投影。
   data.auditLogs = data.auditLogs.map((log) => ({
     ...log,
     createdAt: formatAbsoluteSecondTime(log.createdAt) || log.createdAt,
@@ -2395,14 +2582,38 @@ function ensureBillingConsistency(data: AdminData) {
 }
 
 /**
+ * 读取侧展示投影：积分流水的相对时间。
+ *
+ * 存储里保留 ISO 原值，只在出口转成「刚刚 / 3 分钟前」。
+ * ⚠️ 历史数据里可能已经存着被旧逻辑写坏的「刚刚」这类字符串，
+ * formatRelativeTime 解析不了时按原样透传，不要再二次加工。
+ */
+function toDisplayCredits(credits: AdminData["credits"]) {
+  return credits.map((entry) => ({
+    ...entry,
+    createdAt: formatRelativeTime(entry.createdAt) || entry.createdAt,
+  }));
+}
+
+/**
  * 读取侧展示投影：把存储的原始 plan 字段归一化成账单页档位名。
  * 归一化只在出口做，不回写数据库 —— 避免重演「Free 被持久化成 Lite」。
  */
 function toDisplayUsers(users: AdminData["users"]) {
-  return users.map((user) => ({
-    ...user,
-    plan: normalizePlanDisplayName(user.plan),
-  }));
+  const now = Date.now();
+  return users.map((user) => {
+    const expiryMs = user.planExpiresAt ? Date.parse(user.planExpiresAt) : Number.NaN;
+    const hasExpiry = Number.isFinite(expiryMs);
+    return {
+      ...user,
+      plan: normalizePlanDisplayName(user.plan),
+      // 展示用派生字段，不落库。planExpiresAt 缺省代表 Free 或按角色派发的档位，
+      // 这类账号没有到期概念，剩余天数返回 undefined 而不是 0。
+      planExpiresAt: user.planExpiresAt,
+      planRemainingDays: hasExpiry ? Math.max(0, Math.ceil((expiryMs - now) / 86400000)) : undefined,
+      planExpiringSoon: hasExpiry ? expiryMs - now <= 7 * 86400000 : false,
+    };
+  });
 }
 
 /**
@@ -2433,7 +2644,7 @@ function fullPayload(data: AdminData) {
     overview: dashboard(data),
     users: toDisplayUsers(data.users),
     orders: data.orders,
-    credits: data.credits,
+    credits: toDisplayCredits(data.credits),
     creditBatches: data.creditBatches,
     aiTasks: withTaskTimeline(data.aiTasks),
     providers: data.providers,
@@ -2757,7 +2968,42 @@ export async function handleAdminApiRequest(
     if (!detail) return jsonError(404, "订单不存在");
     return { status: 200, body: detail };
   }
-  if (method === "GET" && route === "credits") return { status: 200, body: { credits: data.credits, creditBatches: data.creditBatches, users: toDisplayUsers(data.users) } };
+  if (method === "GET" && route === "credits") return { status: 200, body: { credits: toDisplayCredits(data.credits), creditBatches: data.creditBatches, users: toDisplayUsers(data.users) } };
+  /**
+   * 赠送记录与汇总。
+   * 从 credits 流水里按 type 过滤派生，不额外落库（流水是唯一事实源）。
+   */
+  if (method === "GET" && route === "credits/gift-records") {
+    const giftEntries = data.credits.filter((entry) => entry.type === GIFT_LEDGER_TYPE);
+    const batchBySource = new Map(data.creditBatches.map((batch) => [batch.source, batch]));
+    const records = giftEntries.map((entry) => {
+      // 批次的 source 是业务 source，流水的 source 可能是幂等键，
+      // 因此按 userId + createdAt 兜底关联，拿有效期展示。
+      const batch = batchBySource.get(entry.source)
+        || data.creditBatches.find(
+          (item) => item.userId === entry.userId && item.createdAt === entry.createdAt
+        );
+      return {
+        ...entry,
+        expiresAt: batch?.expiresAt,
+        remainingCredits: batch?.remainingCredits,
+        batchStatus: batch?.status,
+      };
+    });
+    const totalGifted = giftEntries.reduce((sum, entry) => sum + entry.delta, 0);
+    return {
+      status: 200,
+      body: {
+        // 出口投影展示时间，与 fullPayload 对齐。
+        records: toDisplayCredits(records),
+        summary: {
+          totalGifted,
+          totalRecords: giftEntries.length,
+          uniqueUsers: new Set(giftEntries.map((entry) => entry.userId)).size,
+        },
+      },
+    };
+  }
   if (method === "GET" && route === "ai-tasks") {
     // 历史记录缺 startedAt/completedAt，统一在出口补齐，
     // 前端不用区分新旧数据。
@@ -3307,6 +3553,94 @@ export async function handleAdminApiRequest(
     return { status: 200, body: fullPayload(data) };
   }
 
+  /**
+   * 批量赠送积分。
+   *
+   * 与 credits/adjust 的区别：
+   * - adjust 是「人工补偿/扣减」，单人、可正可负、语义是修正账目
+   * - gift 是「运营赠送」，可批量、只增不减、语义是发放权益
+   * 两者都会产生 kind=gift 批次，但来源与审计动作不同，报表要能分开统计。
+   */
+  if (method === "POST" && route === "credits/gift") {
+    const rawUserIds = Array.isArray(body.userIds) ? body.userIds : [];
+    const userIds = rawUserIds.filter((id): id is string => typeof id === "string" && Boolean(id));
+    const amount = Number(body.amount);
+    const reason = typeof body.reason === "string" && body.reason.trim()
+      ? body.reason.trim()
+      : "";
+    const expiryDays = body.expiryDays === undefined
+      ? DEFAULT_GIFT_EXPIRY_DAYS
+      : Number(body.expiryDays);
+
+    if (userIds.length === 0) return jsonError(400, "请至少选择一个赠送对象");
+    if (!Number.isFinite(amount) || amount <= 0) return jsonError(400, "赠送积分必须是正数");
+    if (!reason) return jsonError(400, "请填写赠送理由，便于审计追溯");
+    if (!Number.isFinite(expiryDays) || expiryDays <= 0) {
+      return jsonError(400, "有效期天数必须是正数");
+    }
+    // 批量大额需要二次确认，口径与 credits/adjust 对齐。
+    if (amount * userIds.length >= 10000 && body.confirmHighRisk !== true) {
+      return jsonError(409, "大额批量赠送需要二次确认");
+    }
+
+    const grantedAt = nowIso();
+    // 批次号：同一次批量操作共用，便于按批撤销与对账。
+    const giftBatchNo = `gift_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`;
+    const succeeded: Array<{ userId: string; user: string; ledgerId: string }> = [];
+    const failed: Array<{ userId: string; user: string; error: string }> = [];
+
+    for (const userId of userIds) {
+      const user = data.users.find((item) => item.id === userId);
+      if (!user) {
+        failed.push({ userId, user: userId, error: "用户不存在" });
+        continue;
+      }
+      const result = grantCredits(data, {
+        user,
+        amount,
+        reason,
+        source: `admin/gift/${giftBatchNo}`,
+        operator: actor.username,
+        createdAt: grantedAt,
+        expiryDays,
+        // 幂等键带上批次号与用户，重放整批不会重复入账。
+        idempotencyKey: `${giftBatchNo}:${user.id}`,
+      });
+      if (result.success) {
+        succeeded.push({ userId: user.id, user: user.name, ledgerId: result.ledgerId });
+      } else {
+        failed.push({ userId: user.id, user: user.name, error: result.error });
+      }
+    }
+
+    // 全部失败时不留审计噪音，直接回错误。
+    if (succeeded.length === 0) {
+      return jsonError(400, failed[0]?.error || "赠送失败");
+    }
+
+    appendAuditLog(data, actor, {
+      action: "批量赠送积分",
+      target: giftBatchNo,
+      reason,
+      after: {
+        amountPerUser: amount,
+        expiryDays,
+        succeeded: succeeded.length,
+        failed: failed.length,
+        totalCredits: amount * succeeded.length,
+      },
+    });
+
+    await saveAdminData(data);
+    return {
+      status: 200,
+      body: {
+        ...fullPayload(data),
+        giftResult: { giftBatchNo, amount, expiryDays, succeeded, failed },
+      },
+    };
+  }
+
   const feedbackMatch = route.match(/^feedback\/([^/]+)\/status$/);
   if (method === "POST" && feedbackMatch) {
     const id = feedbackMatch[1];
@@ -3745,8 +4079,18 @@ export async function markBillingOrderPaid(params: {
 
     user.credits += order.expectedCredits;
     const paidMembershipPlan = getMembershipPlanFromName(order.packageName);
+    // 到期时间必须在改写 user.planExpiresAt 之前算好：resolveMembershipExpiry
+    // 以"当前到期日"为顺延基准，先赋值会导致基准被污染。
+    let membershipExpiresAt: string | undefined;
     if (paidMembershipPlan) {
       user.plan = paidMembershipPlan.name;
+      membershipExpiresAt = resolveMembershipExpiry(user, paidAt, getBillingCycleMonths(order.cycleId));
+      if (membershipExpiresAt) {
+        user.planExpiresAt = membershipExpiresAt;
+        // 续费顺延：把上一周期没用完的会员积分一起延到新到期日，
+        // 否则老批次会在会员仍有效期间提前过期。
+        extendMembershipBatchesExpiry(data, user.id, membershipExpiresAt, paidAt);
+      }
     } else if (!user.plan || String(user.plan).trim() === "积分充值") {
       user.plan = "Free";
     }
@@ -3766,7 +4110,7 @@ export async function markBillingOrderPaid(params: {
       },
       ...data.credits,
     ].slice(0, 500);
-    createCreditBatchForPaidOrder(data, user, order, paidAt, params.actorName);
+    createCreditBatchForPaidOrder(data, user, order, paidAt, params.actorName, membershipExpiresAt);
     let firstRechargeBonusCredits = 0;
     if (qualifiesForFirstRechargeBonus(data, order)) {
       firstRechargeBonusCredits = FIRST_RECHARGE_BONUS_CREDITS;
