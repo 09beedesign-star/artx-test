@@ -165,10 +165,16 @@ type OpsAlert = {
 type CreditEvent = {
   id: string;
   user: string;
+  userId?: string;
   type: string;
+  /** 带符号的展示文案，如 "+500"。 */
   amount: string;
+  /** 原始数值，赠送统计按它求和，不要去解析 amount 字符串。 */
+  delta?: number;
   actor: string;
   note: string;
+  reason?: string;
+  createdAt?: string;
 };
 
 /** 某家供应商最近一次真实调用，由服务端从 aiTasks 派生。 */
@@ -344,7 +350,19 @@ type AdminPayload = {
   overview?: OverviewData;
   users?: Array<AdminUser & { role?: AdminRole; totalRecharge?: number; frozenCredits?: number; organization?: string }>;
   orders?: Array<Order & { issuedCredits?: number; expectedCredits?: number }>;
-  credits?: Array<{ id: string; user: string; type: string; delta: number; operator: string; source: string; reason: string }>;
+  // userId / createdAt 是赠送记录筛选与展示的依据，后端 toDisplayCredits 已经带出，
+  // 这里必须声明出来，否则 normalizeAdminPayload 里读取会被 TS 判为不存在。
+  credits?: Array<{
+    id: string;
+    user: string;
+    userId?: string;
+    type: string;
+    delta: number;
+    operator: string;
+    source: string;
+    reason: string;
+    createdAt?: string;
+  }>;
   aiTasks?: AiTask[];
   providers?: Array<Integration & { latencyMs?: number }>;
   feedback?: Feedback[];
@@ -467,10 +485,15 @@ function normalizeAdminPayload(payload: AdminPayload) {
   const normalizedCredits: CreditEvent[] = (payload.credits || []).map((item) => ({
     id: item.id,
     user: item.user,
+    // userId / createdAt 供赠送记录筛选与展示使用，不要在归一化时丢掉。
+    userId: item.userId,
     type: item.type,
     amount: creditAmount(item.delta),
+    delta: item.delta,
     actor: item.operator,
     note: item.source || item.reason,
+    reason: item.reason,
+    createdAt: item.createdAt,
   }));
   const normalizedProviders = (payload.providers || []).map((item) => ({
     ...item,
@@ -503,6 +526,17 @@ function normalizeAdminPayload(payload: AdminPayload) {
 
 type AdminState = ReturnType<typeof normalizeAdminPayload>;
 type CreditAdjustmentFeedback = { tone: "success" | "error"; message: string };
+
+/** 赠送积分默认有效期，与服务端 DEFAULT_GIFT_EXPIRY_DAYS 保持一致。 */
+const DEFAULT_GIFT_EXPIRY_DAYS = 30;
+
+/** 批量赠送结果反馈，失败名单要逐条展示，不能只给一句「部分失败」。 */
+type GiftFeedback = {
+  tone: "success" | "error";
+  message: string;
+  succeeded?: Array<{ userId: string; user: string }>;
+  failed?: Array<{ userId: string; user: string; error: string }>;
+};
 
 const PAGE_SIZE = 20;
 
@@ -562,6 +596,14 @@ function AdminPrototypePage() {
   const [riskView, setRiskView] = useState<"all" | "urgent">("all");
   const [creditDelta, setCreditDelta] = useState(500);
   const [creditAdjustmentFeedback, setCreditAdjustmentFeedback] = useState<CreditAdjustmentFeedback | null>(null);
+  // 批量赠送面板状态
+  const [giftUserQuery, setGiftUserQuery] = useState("");
+  const [giftSelectedUserIds, setGiftSelectedUserIds] = useState<string[]>([]);
+  const [giftAmount, setGiftAmount] = useState(500);
+  const [giftExpiryDays, setGiftExpiryDays] = useState(DEFAULT_GIFT_EXPIRY_DAYS);
+  const [giftReason, setGiftReason] = useState("");
+  const [giftSubmitting, setGiftSubmitting] = useState(false);
+  const [giftFeedback, setGiftFeedback] = useState<GiftFeedback | null>(null);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("正在连接后台数据接口：/api/admin/overview。");
   const [policyDraft, setPolicyDraft] = useState<Array<{ capability: string; capabilityKey?: string; unit: string; baseCredits: number; estimatedCostPerUnit: number; provider: string }>>([]);
@@ -855,6 +897,79 @@ function AdminPrototypePage() {
     }, (message) => {
       setCreditAdjustmentFeedback({ tone: "error", message: `积分调整失败：${message}` });
     });
+  }
+
+  /**
+   * 提交批量赠送。
+   * ⚠️ 不复用 adminPost：那个封装不回传响应体，而这里必须拿到
+   * giftResult 里的成功/失败名单逐条展示，否则运营无法知道谁没到账。
+   */
+  async function handleGiftSubmit() {
+    if (giftSubmitting) return;
+    if (giftSelectedUserIds.length === 0) {
+      setGiftFeedback({ tone: "error", message: "请先选择赠送对象。" });
+      return;
+    }
+    if (!Number.isFinite(giftAmount) || giftAmount <= 0) {
+      setGiftFeedback({ tone: "error", message: "赠送积分必须是正数。" });
+      return;
+    }
+    if (!giftReason.trim()) {
+      setGiftFeedback({ tone: "error", message: "请填写赠送理由，便于审计追溯。" });
+      return;
+    }
+
+    const token = readAdminToken();
+    if (!token) {
+      setGiftFeedback({ tone: "error", message: "未找到后台登录令牌，请重新登录。" });
+      return;
+    }
+
+    setGiftSubmitting(true);
+    try {
+      const response = await fetch("/api/admin/credits/gift", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          userIds: giftSelectedUserIds,
+          amount: giftAmount,
+          reason: giftReason.trim(),
+          expiryDays: giftExpiryDays,
+          confirmHighRisk: giftAmount * giftSelectedUserIds.length >= 10000,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "赠送失败");
+
+      setAdminData(normalizeAdminPayload(result));
+      const giftResult = result.giftResult as GiftFeedback & {
+        succeeded: Array<{ userId: string; user: string }>;
+        failed: Array<{ userId: string; user: string; error: string }>;
+      };
+      const okCount = giftResult?.succeeded?.length || 0;
+      const failCount = giftResult?.failed?.length || 0;
+      const summary = failCount > 0
+        ? `已向 ${okCount} 人发放 ${giftAmount.toLocaleString("zh-CN")} 积分，${failCount} 人失败。`
+        : `已向 ${okCount} 人各赠送 ${giftAmount.toLocaleString("zh-CN")} 积分，${giftExpiryDays} 天内有效。`;
+      setGiftFeedback({
+        tone: failCount > 0 ? "error" : "success",
+        message: summary,
+        succeeded: giftResult?.succeeded,
+        failed: giftResult?.failed,
+      });
+      setNotice(summary);
+      // 成功后清空选人与理由，避免误重复发放；金额/有效期保留便于连续操作。
+      if (failCount === 0) {
+        setGiftSelectedUserIds([]);
+        setGiftReason("");
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "赠送失败";
+      setGiftFeedback({ tone: "error", message: `赠送失败：${message}` });
+      setNotice(message);
+    } finally {
+      setGiftSubmitting(false);
+    }
   }
 
   const canManageTestAccounts = user?.role === "super_admin";
@@ -1684,6 +1799,23 @@ function AdminPrototypePage() {
       return (
         <div className="min-w-0 space-y-5">
           {creditCheck && <ProductionCheckPanel check={creditCheck} title="积分负债状态" />}
+          <CreditGiftPanel
+            users={adminData.users}
+            credits={adminData.credits}
+            userQuery={giftUserQuery}
+            onUserQueryChange={setGiftUserQuery}
+            selectedUserIds={giftSelectedUserIds}
+            onSelectedUserIdsChange={setGiftSelectedUserIds}
+            amount={giftAmount}
+            onAmountChange={setGiftAmount}
+            expiryDays={giftExpiryDays}
+            onExpiryDaysChange={setGiftExpiryDays}
+            reason={giftReason}
+            onReasonChange={setGiftReason}
+            submitting={giftSubmitting}
+            feedback={giftFeedback}
+            onSubmit={handleGiftSubmit}
+          />
           <DataList
             title="积分流水"
             description="每一笔入账、消耗、冻结、人工调整都必须可追溯。"
@@ -1771,23 +1903,33 @@ function AdminPrototypePage() {
           <ProviderHealthPanel providers={adminData.providers} />
           <DataList
             title="AI 任务追踪"
-            description="保留 generationId / backendTaskId / providerTaskId，便于排查用户投诉和供应商日志。"
+            description="记录每个任务的三层任务号与发起/回传时间。上游任务号用于向供应商提工单核查；标注「未返回」表示该厂商本次未下发可追溯的任务号。"
             rows={adminData.aiTasks.map((task) => {
-              // 格式化时间为 HH:mm:ss，历史记录由服务端反推时会加上 (推算) 标记。
+              // 时间带上月日，跨天排查时只有 HH:mm:ss 会分不清是哪一天。
               const formatTaskTime = (isoString?: string) => {
                 if (!isoString) return "无";
                 const date = new Date(isoString);
                 if (!Number.isFinite(date.getTime())) return "无效";
-                return date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+                return date.toLocaleString("zh-CN", {
+                  month: "2-digit", day: "2-digit",
+                  hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+                });
               };
               const startTime = formatTaskTime(task.startedAt);
               const endTime = formatTaskTime(task.completedAt);
               const timeLabel = task.timelineDerived ? "（按耗时推算）" : "";
               const latencyText = Number.isFinite(task.latencyMs) ? `${(task.latencyMs / 1000).toFixed(1)}s` : "-";
+              // 上游任务号缺失时如实标注，不要让占位符看起来像个真号。
+              const hasProviderTaskId = Boolean(task.providerTaskId) && task.providerTaskId !== "provider-task-missing";
               return {
                 title: `${task.capability} · ${task.model}`,
-                meta: `${task.user} · ${task.generationId} / ${task.backendTaskId} / ${task.providerTaskId} · 预估成本 ${formatCurrency(task.estimatedCost)}`,
-                submeta: `${task.provider} · 执行指令 ${startTime} → 输出结果 ${endTime} · 耗时 ${latencyText}${timeLabel}`,
+                meta: `${task.user} · ${task.provider} · 预估成本 ${formatCurrency(task.estimatedCost)}`,
+                submeta: `发起 ${startTime} → 回传 ${endTime} · 耗时 ${latencyText}${timeLabel}`,
+                ids: [
+                  { label: "上游任务号", value: hasProviderTaskId ? task.providerTaskId : "未返回", missing: !hasProviderTaskId },
+                  { label: "后端任务号", value: task.backendTaskId },
+                  { label: "生成批次号", value: task.generationId },
+                ],
                 value: task.status === "success" ? `${task.chargedCredits} 积分 · 毛利 ${(task.grossMargin * 100).toFixed(0)}%` : task.failureReason || task.status,
                 icon: task.status === "success" ? BadgeCheck : AlertTriangle,
               };
@@ -3290,6 +3432,260 @@ function ProviderHealthPanel({ providers }: { providers: Integration[] }) {
   );
 }
 
+/** 赠送流水的 type 字面量，与服务端 GIFT_LEDGER_TYPE 保持一致。 */
+const GIFT_LEDGER_TYPE = "积分赠送";
+
+/**
+ * 批量赠送积分面板。
+ *
+ * 设计要点：
+ * - 选人支持姓名/邮箱/账号搜索 + 多选，运营常按名单批量发
+ * - 结果必须逐条展示成败，部分失败时运营要知道具体是谁没到账
+ * - 赠送记录从现有积分流水里按 type 过滤派生，不额外请求接口
+ */
+function CreditGiftPanel({
+  users,
+  credits,
+  userQuery,
+  onUserQueryChange,
+  selectedUserIds,
+  onSelectedUserIdsChange,
+  amount,
+  onAmountChange,
+  expiryDays,
+  onExpiryDaysChange,
+  reason,
+  onReasonChange,
+  submitting,
+  feedback,
+  onSubmit,
+}: {
+  users: Array<{ id: string; name: string; email?: string; account?: string; credits: number }>;
+  credits: CreditEvent[];
+  userQuery: string;
+  onUserQueryChange: (value: string) => void;
+  selectedUserIds: string[];
+  onSelectedUserIdsChange: (value: string[]) => void;
+  amount: number;
+  onAmountChange: (value: number) => void;
+  expiryDays: number;
+  onExpiryDaysChange: (value: number) => void;
+  reason: string;
+  onReasonChange: (value: string) => void;
+  submitting: boolean;
+  feedback: GiftFeedback | null;
+  onSubmit: () => void;
+}) {
+  const keyword = userQuery.trim().toLowerCase();
+  const matchedUsers = keyword
+    ? users.filter((user) =>
+        [user.name, user.email, user.account]
+          .filter(Boolean)
+          .some((field) => String(field).toLowerCase().includes(keyword))
+      )
+    : users;
+  // 已选中的人即使不匹配当前搜索词也要能看到，否则会误以为选丢了。
+  const selectedUsers = users.filter((user) => selectedUserIds.includes(user.id));
+  const visibleUsers = matchedUsers.slice(0, 8);
+
+  const giftRecords = credits.filter((event) => event.type === GIFT_LEDGER_TYPE);
+  const totalGifted = giftRecords.reduce((sum, event) => sum + (event.delta || 0), 0);
+  const totalCredits = amount * selectedUserIds.length;
+
+  function toggleUser(userId: string) {
+    onSelectedUserIdsChange(
+      selectedUserIds.includes(userId)
+        ? selectedUserIds.filter((id) => id !== userId)
+        : [...selectedUserIds, userId]
+    );
+  }
+
+  return (
+    <div className="rounded-md border border-white/10 bg-slate-950/30 p-4">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h2 className="text-base font-semibold">赠送积分</h2>
+          <p className="mt-1 text-sm text-slate-400">
+            运营发放的积分会生成带有效期的赠送批次，并推送到用户端通知。
+          </p>
+        </div>
+        <div className="text-right text-xs text-slate-400">
+          <div>累计赠送 {totalGifted.toLocaleString("zh-CN")} 积分</div>
+          <div className="mt-0.5">{giftRecords.length} 笔记录</div>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div>
+          <label className="mb-1.5 block text-xs text-slate-400">赠送对象</label>
+          <Input
+            value={userQuery}
+            onChange={(event) => onUserQueryChange(event.target.value)}
+            placeholder="搜索姓名 / 邮箱 / 账号"
+            className="border-white/10 bg-slate-950/40 text-slate-100"
+          />
+          {selectedUsers.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {selectedUsers.map((user) => (
+                <button
+                  key={user.id}
+                  type="button"
+                  onClick={() => toggleUser(user.id)}
+                  className="inline-flex items-center gap-1 rounded-md border border-emerald-300/30 bg-emerald-300/10 px-2 py-1 text-xs text-emerald-200 hover:bg-emerald-300/20"
+                >
+                  {user.name}
+                  <X className="size-3" />
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="mt-2 max-h-44 divide-y divide-white/8 overflow-y-auto rounded-md border border-white/10">
+            {visibleUsers.length ? (
+              visibleUsers.map((user) => {
+                const checked = selectedUserIds.includes(user.id);
+                return (
+                  <button
+                    key={user.id}
+                    type="button"
+                    onClick={() => toggleUser(user.id)}
+                    className={`flex w-full items-center gap-3 p-2.5 text-left text-sm transition ${
+                      checked ? "bg-emerald-300/10" : "bg-slate-950/20 hover:bg-white/5"
+                    }`}
+                  >
+                    <span
+                      className={`flex size-4 shrink-0 items-center justify-center rounded border ${
+                        checked ? "border-emerald-300 bg-emerald-300 text-slate-950" : "border-white/20"
+                      }`}
+                    >
+                      {checked && <Check className="size-3" />}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-slate-100">{user.name}</span>
+                      <span className="block truncate text-xs text-slate-500">
+                        {user.email || user.account || user.id}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-xs text-slate-400">
+                      {user.credits.toLocaleString("zh-CN")}
+                    </span>
+                  </button>
+                );
+              })
+            ) : (
+              <div className="p-3 text-sm text-slate-500">没有匹配的用户</div>
+            )}
+          </div>
+          {matchedUsers.length > visibleUsers.length && (
+            <p className="mt-1 text-xs text-slate-500">
+              仅显示前 {visibleUsers.length} 个结果，可继续输入缩小范围。
+            </p>
+          )}
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="mb-1.5 block text-xs text-slate-400">每人赠送积分</label>
+            <Input
+              type="number"
+              min={1}
+              value={amount}
+              onChange={(event) => onAmountChange(Number(event.target.value))}
+              className="border-white/10 bg-slate-950/40 text-slate-100"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-xs text-slate-400">有效期（天）</label>
+            <Input
+              type="number"
+              min={1}
+              value={expiryDays}
+              onChange={(event) => onExpiryDaysChange(Number(event.target.value))}
+              className="border-white/10 bg-slate-950/40 text-slate-100"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="mb-1.5 block text-xs text-slate-400">赠送理由（必填，进审计日志）</label>
+          <Input
+            value={reason}
+            onChange={(event) => onReasonChange(event.target.value)}
+            placeholder="如：中秋活动回馈 / 服务补偿"
+            className="border-white/10 bg-slate-950/40 text-slate-100"
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/8 pt-3">
+          <div className="text-xs text-slate-400">
+            {selectedUserIds.length > 0 ? (
+              <>
+                共 {selectedUserIds.length} 人 · 合计发放{" "}
+                <span className="text-slate-200">{totalCredits.toLocaleString("zh-CN")}</span> 积分
+                {totalCredits >= 10000 && (
+                  <span className="ml-1 text-amber-300">（大额，需二次确认）</span>
+                )}
+              </>
+            ) : (
+              "请选择赠送对象"
+            )}
+          </div>
+          <Button
+            className="bg-emerald-300 text-slate-950 hover:bg-emerald-200"
+            disabled={submitting || selectedUserIds.length === 0}
+            onClick={onSubmit}
+          >
+            <Gift className="size-4" />
+            {submitting ? "发放中…" : "确认赠送"}
+          </Button>
+        </div>
+
+        {feedback && (
+          <div
+            className={`rounded-md border px-3 py-2 text-sm ${
+              feedback.tone === "success"
+                ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-100"
+                : "border-rose-300/30 bg-rose-300/10 text-rose-100"
+            }`}
+          >
+            <div className="font-medium">{feedback.message}</div>
+            {feedback.failed && feedback.failed.length > 0 && (
+              <ul className="mt-1.5 space-y-0.5 text-xs text-rose-200/90">
+                {feedback.failed.map((item) => (
+                  <li key={item.userId}>
+                    {item.user}：{item.error}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+
+      {giftRecords.length > 0 && (
+        <div className="mt-4 border-t border-white/8 pt-3">
+          <div className="mb-2 text-xs text-slate-400">最近赠送记录</div>
+          <div className="divide-y divide-white/8 overflow-hidden rounded-md border border-white/10">
+            {giftRecords.slice(0, 5).map((record) => (
+              <div key={record.id} className="flex items-center gap-3 bg-slate-950/20 p-2.5 text-sm">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-slate-100">{record.user}</div>
+                  <div className="truncate text-xs text-slate-500">
+                    {record.reason || record.note} · {record.actor}
+                  </div>
+                </div>
+                <div className="shrink-0 text-right">
+                  <div className="text-emerald-200">{record.amount}</div>
+                  <div className="text-xs text-slate-500">{record.createdAt}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DataList({
   title,
   description,
@@ -3299,7 +3695,16 @@ function DataList({
   description: string;
   // submeta 是可选的第三行。meta 行是 truncate 单行，把时间等信息塞进去会被截断，
   // 所以时间轴这类次要信息单独占一行。
-  rows: Array<{ title: string; meta: string; submeta?: string; value: string; icon: typeof BarChart3 }>;
+  // ids 是可选的任务号区：排查时要能完整看到并复制，塞进 truncate 行会被截断，
+  // 所以单独渲染成可换行的标签组。
+  rows: Array<{
+    title: string;
+    meta: string;
+    submeta?: string;
+    ids?: Array<{ label: string; value: string; missing?: boolean }>;
+    value: string;
+    icon: typeof BarChart3;
+  }>;
 }) {
   return (
     <div>
@@ -3323,6 +3728,24 @@ function DataList({
                 <div className="truncate text-xs text-slate-500">{row.meta}</div>
                 {row.submeta && (
                   <div className="mt-0.5 truncate text-xs text-slate-600">{row.submeta}</div>
+                )}
+                {row.ids && row.ids.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {row.ids.map((item) => (
+                      <span
+                        key={item.label}
+                        title={`${item.label}：${item.value}`}
+                        className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[11px] ${
+                          item.missing
+                            ? "border-amber-400/25 bg-amber-400/8 text-amber-300/80"
+                            : "border-white/10 bg-white/5 text-slate-300"
+                        }`}
+                      >
+                        <span className="font-sans text-slate-500">{item.label}</span>
+                        <span className="select-all break-all">{item.value}</span>
+                      </span>
+                    ))}
+                  </div>
                 )}
               </div>
               <Badge className={statusClass(row.value)}>{row.value}</Badge>

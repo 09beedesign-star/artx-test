@@ -1041,6 +1041,38 @@ function isRetryableProviderError(status: number | undefined, raw: string) {
   return isCloudflare524(raw, status) || status === 408 || status === 429 || Boolean(status && status >= 500);
 }
 
+/**
+ * 从中转站响应里提取**上游真实**任务号，用于向供应商核查工单。
+ *
+ * ⚠️ 不要用 createImageProviderRequestId() 生成的 `img_xxx` 充数 ——
+ * 那是本机自增串，供应商日志里根本查不到，写进 providerTaskId 等于制造
+ * 「看起来有号、实际对不上账」的假数据。
+ *
+ * 中转站是 OpenAI 兼容网关，真实标识可能出现在响应头（多数网关）或响应体，
+ * 这里按「响应头优先、其次响应体」的顺序探测常见键名，一个都没有就返回
+ * undefined，让上层如实记为缺失。
+ */
+function extractRelayProviderTaskId(
+  response: Response,
+  data: ImageGenerationResponse,
+): string | undefined {
+  const headerKeys = ["x-request-id", "x-trace-id", "request-id", "cf-ray", "x-amzn-requestid"];
+  for (const key of headerKeys) {
+    const value = response.headers.get(key);
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  const bodyCandidates = [
+    data.task_id,
+    data.taskId,
+    (data as { id?: unknown }).id,
+    (data as { request_id?: unknown }).request_id,
+  ];
+  for (const candidate of bodyCandidates) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+  }
+  return undefined;
+}
+
 async function readImageProviderResponse(
   response: Response,
   baseUrl: string,
@@ -1059,6 +1091,12 @@ async function readImageProviderResponse(
       response.status,
       isRetryableProviderError(response.status, text),
     );
+  }
+
+  // 把上游任务号挂到返回对象上，供 generateImages 汇总进 providerTaskIds。
+  const upstreamTaskId = extractRelayProviderTaskId(response, data);
+  if (upstreamTaskId && !data.task_id && !data.taskId) {
+    data.task_id = upstreamTaskId;
   }
 
   return data;
@@ -4133,7 +4171,12 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
   }
 }
 
-export async function generateImages(input: ImageGenerateInput): Promise<{ images: GeneratedImage[] }> {
+/**
+ * ⚠️ 返回类型必须是 GeneratedImageResult（带 providerTaskId/providerTaskIds）。
+ * 这里曾经写成 `{ images: GeneratedImage[] }`，即使运行时带了上游任务号，
+ * 类型上也被抹掉 —— 调用方读不到，后台追踪里的上游任务号恒为占位符。
+ */
+export async function generateImages(input: ImageGenerateInput): Promise<GeneratedImageResult> {
   if (!input.prompt?.trim()) {
     throw new Error("Missing prompt");
   }
@@ -4200,7 +4243,10 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
       height: img.height,
     }));
     console.log("[generate] VOD success:", vodModelId, "| count:", images.length, "| src:", (images[0]?.src || "").slice(0, 100));
-    return { images: images.slice(0, count) };
+    // ⚠️ 必须把腾讯返回的 TaskId 透出去。这里曾经直接 `return { images }`，
+    // 把 result.taskId 丢掉，导致所有 VOD 任务在后台追踪里的上游任务号
+    // 恒为占位符 "provider-task-missing"，出问题时无法向腾讯提工单核查。
+    return withProviderTaskIds({ images: images.slice(0, count) }, result.taskId ? [result.taskId] : []);
   };
 
   // 用户显式选中某个 vod-* 模型时，失败就直接报错，不静默改用别的模型 ——
@@ -4356,11 +4402,25 @@ export async function generateImages(input: ImageGenerateInput): Promise<{ image
               }),
             ),
           );
-          return {
-            images: [...normalizedImages, ...remaining.flatMap(result => result.images)].slice(0, count),
-          };
+          // 拆批补张时，把上游任务号汇总（主批次 + 补张批次）。
+          const allTaskIds = [
+            providerData.task_id,
+            providerData.taskId,
+            ...remaining.flatMap(r => [r.providerTaskId, ...(r.providerTaskIds || [])]),
+          ].filter((id): id is string => typeof id === "string" && id.trim().length > 0);
+          return withProviderTaskIds(
+            { images: [...normalizedImages, ...remaining.flatMap(result => result.images)].slice(0, count) },
+            allTaskIds,
+          );
         }
-        return { images: normalizedImages };
+        // ⚠️ 必须把中转站上游任务号透出去。这里曾经直接 `return { images }`，
+        // 把 providerData.task_id / taskId 丢掉，导致 96% 的中转站任务在后台
+        // 追踪里的上游任务号恒为占位符 "provider-task-missing"，出问题时无法
+        // 向中转站提工单核查。
+        return withProviderTaskIds(
+          { images: normalizedImages },
+          [providerData.task_id, providerData.taskId].filter((id): id is string => typeof id === "string" && id.trim().length > 0),
+        );
       }
       lastError = `${providerModel} returned no usable images`;
     } catch (error) {
