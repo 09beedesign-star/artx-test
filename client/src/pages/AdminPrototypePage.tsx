@@ -171,6 +171,31 @@ type CreditEvent = {
   note: string;
 };
 
+/** 某家供应商最近一次真实调用，由服务端从 aiTasks 派生。 */
+type ProviderLastCall = {
+  taskId: string;
+  providerTaskId: string;
+  capability: string;
+  model: string;
+  status: string;
+  latencyMs: number;
+  failureReason: string;
+  estimatedCost: number;
+  chargedCredits: number;
+  user: string;
+  createdAt: string;
+  relativeTime: string;
+};
+
+/** 结算入口；billingApi 为 true 时 balanceSummary 才会有值。 */
+type ProviderSettlement = {
+  consoleUrl: string;
+  label: string;
+  billingApi: boolean;
+  balanceSummary?: string;
+  balanceError?: string;
+};
+
 type Integration = {
   id?: string;
   name: string;
@@ -180,6 +205,15 @@ type Integration = {
   owner: string;
   configLocation?: string;
   credentialStatus?: string;
+  lastCall?: ProviderLastCall;
+  recentStats?: {
+    total: number;
+    succeeded: number;
+    failed: number;
+    avgLatencyMs: number;
+    totalCost: number;
+  };
+  settlement?: ProviderSettlement;
 };
 
 type AuditRow = {
@@ -435,6 +469,7 @@ function normalizeAdminPayload(payload: AdminPayload) {
   const normalizedProviders = (payload.providers || []).map((item) => ({
     ...item,
     latency: item.latency || `${"latencyMs" in item ? item.latencyMs ?? 0 : 0}ms`,
+    // lastCall、recentStats、settlement 已通过 ...item 展开，无需单独映射
   }));
   const normalizedAuditRows: AuditRow[] = (payload.auditLogs || []).map((item) => ({
     actor: item.actorName || "System",
@@ -1727,16 +1762,7 @@ function AdminPrototypePage() {
       return (
         <div className="min-w-0 space-y-5">
           {secretCheck && <ProductionCheckPanel check={secretCheck} title="密钥治理状态" />}
-          <DataList
-            title="第三方接口健康度"
-            description="支付、模型、部署和网关都要有状态、延迟、负责人。"
-            rows={adminData.providers.map((item) => ({
-              title: `${item.name} · ${item.category}`,
-              meta: `${item.owner} · ${item.latency} · ${item.configLocation || "server env"}`,
-              value: item.state,
-              icon: item.state === "在线" ? BadgeCheck : AlertTriangle,
-            }))}
-          />
+          <ProviderHealthPanel providers={adminData.providers} />
           <DataList
             title="AI 任务追踪"
             description="保留 generationId / backendTaskId / providerTaskId，便于排查用户投诉和供应商日志。"
@@ -3105,6 +3131,140 @@ function ProductionCheckPanel({
       </div>
       <div className="mt-3 text-xs text-slate-500">
         {check.evidence.slice(0, 3).join(" · ")}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 第三方接口健康度面板。
+ *
+ * 相比原先的单行 DataList，这里多展示两类**真实**数据：
+ * 1. 最近一次调用详情（能力/模型/耗时/成本/providerTaskId），由服务端从 aiTasks 派生
+ * 2. 结算入口 —— 能查到余额的厂商直接显示余额，查不到的只给控制台深链
+ *
+ * 注意：延迟和「最近检查」在有真实调用时是实测值，
+ * 没有调用记录时才回落到静态基线，界面上用文案区分开。
+ */
+function ProviderHealthPanel({ providers }: { providers: Integration[] }) {
+  return (
+    <div>
+      <div className="mb-4">
+        <h2 className="text-base font-semibold">第三方接口健康度</h2>
+        <p className="mt-1 text-sm text-slate-400">
+          支付、模型、部署和网关的状态与最近调用详情；支持余额查询的厂商直接展示实时余额。
+        </p>
+      </div>
+      <div className="space-y-3">
+        {providers.map((item) => {
+          const call = item.lastCall;
+          const stats = item.recentStats;
+          const settlement = item.settlement;
+          const StateIcon = item.state === "在线" ? BadgeCheck : AlertTriangle;
+          const callFailed = call && call.status !== "success";
+
+          return (
+            <div
+              key={item.id || item.name}
+              className="rounded-md border border-white/10 bg-slate-950/30 p-4"
+            >
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex size-9 items-center justify-center rounded-md bg-white/7">
+                  <StateIcon className="size-4 text-cyan-200" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium">
+                    {item.name} · {item.category}
+                  </div>
+                  <div className="truncate text-xs text-slate-500">
+                    {item.owner} · {item.latency} · {item.configLocation || "server env"}
+                  </div>
+                </div>
+                <Badge className={statusClass(item.state)}>{item.state}</Badge>
+              </div>
+
+              {/* 最近一次真实调用 */}
+              {call ? (
+                <div className="mt-3 rounded-md border border-white/8 bg-white/[0.025] p-3">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-[11px] font-medium text-slate-300">最近一次调用</span>
+                    <span className="text-[11px] text-slate-500">{call.relativeTime}</span>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                    <div>
+                      <div className="text-[10px] text-slate-500">能力 / 模型</div>
+                      <div className="mt-0.5 truncate text-xs text-slate-200">
+                        {call.capability} · {call.model}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-slate-500">结果</div>
+                      <div
+                        className={`mt-0.5 truncate text-xs ${callFailed ? "text-rose-300" : "text-emerald-300"}`}
+                      >
+                        {callFailed ? call.failureReason || call.status : "成功"}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-slate-500">耗时</div>
+                      <div className="mt-0.5 text-xs text-slate-200">{call.latencyMs}ms</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-slate-500">预估成本</div>
+                      <div className="mt-0.5 text-xs text-slate-200">
+                        {formatCurrency(call.estimatedCost)}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-2 truncate text-[11px] text-slate-500">
+                    {call.user} · 上游任务号 {call.providerTaskId}
+                  </div>
+                  {stats && stats.total > 0 && (
+                    <div className="mt-2 border-t border-white/8 pt-2 text-[11px] text-slate-500">
+                      近 24h：{stats.total} 次调用 · 成功 {stats.succeeded} · 失败 {stats.failed} · 平均{" "}
+                      {stats.avgLatencyMs}ms · 成本 {formatCurrency(stats.totalCost)}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="mt-3 rounded-md border border-dashed border-white/10 px-3 py-2 text-[11px] text-slate-500">
+                  暂无调用记录，延迟为静态基线值
+                </div>
+              )}
+
+              {/* 结算入口 */}
+              {settlement && (
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-[11px] text-slate-400">
+                    {settlement.billingApi ? (
+                      settlement.balanceError ? (
+                        <span className="text-amber-300">
+                          余额查询失败：{settlement.balanceError}
+                        </span>
+                      ) : settlement.balanceSummary ? (
+                        <span className="text-emerald-300">{settlement.balanceSummary}</span>
+                      ) : (
+                        <span className="text-slate-500">余额查询中…</span>
+                      )
+                    ) : (
+                      <span className="text-slate-500">该厂商未开放余额查询接口</span>
+                    )}
+                  </div>
+                  {settlement.consoleUrl && (
+                    <a
+                      href={settlement.consoleUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-md border border-cyan-300/30 bg-cyan-300/10 px-3 py-1.5 text-[11px] font-medium text-cyan-200 transition hover:bg-cyan-300/20"
+                    >
+                      {settlement.label} →
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

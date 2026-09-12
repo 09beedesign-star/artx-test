@@ -16,6 +16,7 @@ import {
 import { createAuthUserForAdmin, getAdminSessionFromAuthorization, listAuthUsers, type PublicAuthUser, updateAuthUserAdmin } from "./auth-store";
 import { storeFeedbackImagesForUser, type FeedbackImageInput, type StoredFeedbackImage } from "./local-image-storage";
 import { PostgresJsonDocumentStore } from "./postgres-json-store";
+import { getAllProviderBilling } from "./provider-billing";
 
 type AdminStatus = "normal" | "watch" | "blocked" | "cancelled";
 type OrderStatus = "paid" | "pending" | "failed" | "refunded";
@@ -235,6 +236,41 @@ type AiUsageRecordInput = {
   chargedCredits?: number;
 };
 
+/**
+ * 某家供应商「最近一次真实调用」的摘要，由 aiTasks 派生，不落库。
+ * 之所以是派生而非存储：aiTasks 本身就是唯一事实源，
+ * 存一份副本只会引入两边不一致的风险。
+ */
+type ProviderLastCall = {
+  taskId: string;
+  providerTaskId: string;
+  capability: string;
+  model: string;
+  status: AiTaskStatus;
+  latencyMs: number;
+  failureReason: string;
+  estimatedCost: number;
+  chargedCredits: number;
+  user: string;
+  createdAt: string;
+  /** 相对时间文案，如「3 分钟前」 */
+  relativeTime: string;
+};
+
+/** 供应商结算入口。billingApi 为 true 表示我们能直接查到余额，否则只有控制台链接。 */
+type ProviderSettlement = {
+  /** 控制台 / 账单页深链 */
+  consoleUrl: string;
+  /** 入口按钮文案 */
+  label: string;
+  /** 是否存在可编程查询的余额/账单接口 */
+  billingApi: boolean;
+  /** 余额摘要，仅 billingApi 为 true 且查询成功时有值 */
+  balanceSummary?: string;
+  /** 查询失败原因 */
+  balanceError?: string;
+};
+
 type ProviderHealth = {
   id: string;
   name: string;
@@ -245,6 +281,18 @@ type ProviderHealth = {
   configLocation: string;
   credentialStatus: "configured" | "missing" | "not_required";
   lastCheckedAt: string;
+  /** 最近一次真实调用详情；从未被调用过时为 undefined */
+  lastCall?: ProviderLastCall;
+  /** 近 24 小时调用量统计 */
+  recentStats?: {
+    total: number;
+    succeeded: number;
+    failed: number;
+    avgLatencyMs: number;
+    totalCost: number;
+  };
+  /** 结算入口 */
+  settlement?: ProviderSettlement;
 };
 
 type FeedbackTicket = {
@@ -1429,6 +1477,175 @@ function buildProductionChecks(data: AdminData): ProductionCheckItem[] {
   ];
 }
 
+/**
+ * 供应商 id → 结算入口配置。
+ *
+ * `billingApi` 标记是否存在**可编程**的余额/账单查询接口（2026-09-12 实测）：
+ * - PicWish/佐糖：GET https://techsz.aoscdn.com/api/customers/package-credits
+ *   ⚠️ 官方文档写的 `/tech/customers/package-credits` 是错的，实测 404。
+ * - 腾讯云：DescribeAccountBalance（billing.tencentcloudapi.com，Version 2018-07-09）。
+ *   VOD 的 TENCENT_VOD_SID/SKEY 就是标准云 API 密钥，可直接复用。
+ * - 美图：官方未公开任何余额/用量查询 API，只能跳控制台。
+ * - 威富通/微信/支付宝：对账走各自商户后台，不在本模块范围内。
+ */
+const PROVIDER_SETTLEMENT_CONFIG: Record<string, Omit<ProviderSettlement, "balanceSummary" | "balanceError">> = {
+  ai_picwish: {
+    consoleUrl: "https://picwish.com/my-account",
+    label: "佐糖账户中心",
+    billingApi: true,
+  },
+  ai_tencent_vod: {
+    consoleUrl: "https://console.cloud.tencent.com/expense/bill/summary",
+    label: "腾讯云费用中心",
+    billingApi: true,
+  },
+  ai_meitu: {
+    consoleUrl: "https://ai.meitu.com/",
+    label: "美图开放平台",
+    billingApi: false,
+  },
+  ai_openai: {
+    consoleUrl: "https://platform.openai.com/usage",
+    label: "OpenAI 用量",
+    billingApi: false,
+  },
+  ai_bkeel: {
+    consoleUrl: "",
+    label: "中转站后台",
+    billingApi: false,
+  },
+  pay_wallyt: {
+    consoleUrl: "https://mch.swiftpass.cn/",
+    label: "威富通商户后台",
+    billingApi: false,
+  },
+  sms_tencent: {
+    consoleUrl: "https://console.cloud.tencent.com/smsv2",
+    label: "腾讯云短信控制台",
+    billingApi: false,
+  },
+};
+
+/**
+ * 把 aiTasks[].provider 字符串归一化到 ProviderHealth.id。
+ *
+ * ⚠️ 不能用全等匹配：路由里存在带后缀的变体，
+ * 例如 `"PicWish/佐糖 r-background"`（见 server/index.ts）。
+ * 用前缀匹配才能把这些变体正确归到 ai_picwish 名下，
+ * 否则它们会变成「有数据但没归属」的孤儿记录。
+ */
+function matchProviderId(taskProvider: string, providerName: string): boolean {
+  const task = (taskProvider || "").trim();
+  const name = (providerName || "").trim();
+  if (!task || !name) return false;
+  if (task === name) return true;
+  // 带后缀的变体，如 "PicWish/佐糖 r-background"
+  return task.startsWith(`${name} `);
+}
+
+/**
+ * 用真实的 aiTasks 数据填充每家供应商的「最近一次调用」和近 24h 统计。
+ *
+ * 这一步之前，面板里的 latencyMs 和 lastCheckedAt 全是**硬编码常量**
+ * （220/260/812/1450 和「刚刚」），看着像实时数据其实从来没变过。
+ * 现在有真实调用时用真实值覆盖，没有调用时才回落到静态基线。
+ */
+function enrichProvidersWithUsage(
+  providers: ProviderHealth[],
+  aiTasks: AiTaskRecord[]
+): ProviderHealth[] {
+  const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+
+  return providers.map((provider) => {
+    const related = aiTasks.filter((task) => matchProviderId(task.provider, provider.name));
+    const settlementBase = PROVIDER_SETTLEMENT_CONFIG[provider.id];
+    const settlement = settlementBase ? { ...settlementBase } : undefined;
+
+    if (!related.length) {
+      return { ...provider, settlement };
+    }
+
+    const sorted = [...related].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+    const newest = sorted[0];
+
+    const recent = sorted.filter((task) => new Date(task.createdAt).getTime() >= dayAgo);
+    const succeeded = recent.filter((task) => task.status === "success").length;
+    const failed = recent.filter(
+      (task) => task.status === "failed" || task.status === "timeout"
+    ).length;
+    const latencySamples = recent.filter((task) => Number(task.latencyMs) > 0);
+    const avgLatencyMs = latencySamples.length
+      ? Math.round(
+          latencySamples.reduce((sum, task) => sum + Number(task.latencyMs || 0), 0) /
+            latencySamples.length
+        )
+      : 0;
+    const totalCost = recent.reduce((sum, task) => sum + Number(task.estimatedCost || 0), 0);
+
+    return {
+      ...provider,
+      // 有真实延迟样本时用真实均值，否则保留静态基线
+      latencyMs: avgLatencyMs > 0 ? avgLatencyMs : provider.latencyMs,
+      lastCheckedAt: formatRelativeTime(newest.createdAt),
+      lastCall: {
+        taskId: newest.id,
+        providerTaskId: newest.providerTaskId || "-",
+        capability: newest.capability || "-",
+        model: newest.model || "-",
+        status: newest.status,
+        latencyMs: Number(newest.latencyMs || 0),
+        failureReason: newest.failureReason || "",
+        estimatedCost: Number(newest.estimatedCost || 0),
+        chargedCredits: Number(newest.chargedCredits || 0),
+        user: newest.user || "-",
+        createdAt: newest.createdAt,
+        relativeTime: formatRelativeTime(newest.createdAt),
+      },
+      recentStats: {
+        total: recent.length,
+        succeeded,
+        failed,
+        avgLatencyMs,
+        totalCost,
+      },
+      settlement,
+    };
+  });
+}
+
+/**
+ * 组装供应商面板的完整数据：健康度 + 最近调用详情 + 余额。
+ *
+ * 余额查询走真实上游接口，失败/超时会降级成 balanceError，
+ * **不会**让整个接口挂掉 —— 后台面板的可用性优先于余额这一个字段。
+ */
+async function buildEnrichedProviders(data: AdminData): Promise<ProviderHealth[]> {
+  const enriched = enrichProvidersWithUsage(data.providers, data.aiTasks);
+
+  let billingList: Awaited<ReturnType<typeof getAllProviderBilling>> = [];
+  try {
+    billingList = await getAllProviderBilling();
+  } catch (error) {
+    console.error("[admin-store] provider billing query failed:", error);
+  }
+
+  return enriched.map((provider) => {
+    if (!provider.settlement?.billingApi) return provider;
+    const billing = billingList.find((item) => item.provider === provider.name);
+    if (!billing) return provider;
+    return {
+      ...provider,
+      settlement: {
+        ...provider.settlement,
+        balanceSummary: billing.summary,
+        balanceError: billing.error,
+      },
+    };
+  });
+}
+
 function buildProviderHealth(): ProviderHealth[] {
   const wallytStatus = envStatus(["WALLYT_MCH_ID", "WALLYT_SIGNATURE_KEY", "WALLYT_NOTIFY_URL"], "all");
   const wallytConfigured = wallytStatus === "configured";
@@ -2180,8 +2397,8 @@ export async function handleAdminApiRequest(
     return { status: 200, body: detail };
   }
   if (method === "GET" && route === "credits") return { status: 200, body: { credits: data.credits, creditBatches: data.creditBatches, users: toDisplayUsers(data.users) } };
-  if (method === "GET" && route === "ai-tasks") return { status: 200, body: { aiTasks: data.aiTasks, providers: data.providers } };
-  if (method === "GET" && route === "providers") return { status: 200, body: { providers: data.providers } };
+  if (method === "GET" && route === "ai-tasks") return { status: 200, body: { aiTasks: data.aiTasks, providers: await buildEnrichedProviders(data) } };
+  if (method === "GET" && route === "providers") return { status: 200, body: { providers: await buildEnrichedProviders(data) } };
   if (method === "GET" && route === "production-readiness") return { status: 200, body: { productionReadiness: buildProductionReadiness() } };
   if (method === "GET" && route === "production-checks") return { status: 200, body: { productionChecks: buildProductionChecks(data) } };
   if (method === "GET" && route === "feedback") return { status: 200, body: { feedback: data.feedback } };
