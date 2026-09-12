@@ -296,3 +296,99 @@ describe("会员到期与积分同步失效", () => {
     expect(user.plan).toBe("Lite 入门版");
   });
 });
+
+/**
+ * 续费语义锁 —— 产品已确认采用「顺延」，本组用例负责钉死它。
+ *
+ * 这里刻意不用源码扫描，而用行为断言：「从付款日重算」这个错误实现在
+ * 单次续费上很难和顺延区分（差异只有几天，容易被误当成时区/取整问题），
+ * 但在**同日连续续费**上差异是成倍的、无法狡辩的 —— 顺延得到 N 个周期，
+ * 重算恒定只得到 1 个周期。
+ */
+describe("续费语义锁：必须顺延，不得从付款日重算", () => {
+  it("同一天连续续费 3 次，时长必须累加而不是被覆盖", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-01T00:00:00.000Z"));
+    const admin = await loadAdminStore();
+    const authorization = await getAdminAuthorization();
+    const userId = "user-membership-stacking";
+
+    for (let i = 0; i < 3; i += 1) {
+      await purchaseMembership(admin, {
+        userId,
+        username: "stack@example.com",
+        planId: "lite",
+        cycleId: "monthly",
+      });
+    }
+
+    const user = await findUser(admin, authorization, userId);
+    // 顺延：3/1 + 1 + 1 + 1 = 6/1。若改成从付款日重算，这里会是 4/1。
+    expect(user.planExpiresAt).toBe("2026-06-01T00:00:00.000Z");
+    expect(user.planExpiresAt).not.toBe("2026-04-01T00:00:00.000Z");
+  });
+
+  it("提前续费不得损失剩余天数：续费后剩余天数 >= 续费前剩余 + 新周期", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-01T00:00:00.000Z"));
+    const admin = await loadAdminStore();
+    const authorization = await getAdminAuthorization();
+    const userId = "user-membership-no-loss";
+
+    await purchaseMembership(admin, {
+      userId,
+      username: "noloss@example.com",
+      planId: "lite",
+      cycleId: "monthly",
+    });
+
+    // 仅过去 1 天就续费，此时还剩 30 天。
+    vi.setSystemTime(new Date("2026-03-02T00:00:00.000Z"));
+    const before = await findUser(admin, authorization, userId);
+    const remainingBefore = before.planRemainingDays as number;
+    expect(remainingBefore).toBe(30);
+
+    await purchaseMembership(admin, {
+      userId,
+      username: "noloss@example.com",
+      planId: "lite",
+      cycleId: "monthly",
+    });
+
+    const after = await findUser(admin, authorization, userId);
+    // 顺延后剩余天数必须把原来的 30 天保住，再叠加新周期。
+    // 从付款日重算的话这里只会是 31 天左右，剩余的 30 天被吞掉。
+    expect(after.planRemainingDays as number).toBeGreaterThan(remainingBefore);
+    expect(after.planExpiresAt).toBe("2026-05-01T00:00:00.000Z");
+  });
+
+  it("年卡提前续费同样顺延，按 12 个月往后接", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-01T00:00:00.000Z"));
+    const admin = await loadAdminStore();
+    const authorization = await getAdminAuthorization();
+    const userId = "user-membership-yearly-renew";
+
+    await purchaseMembership(admin, {
+      userId,
+      username: "yearly@example.com",
+      planId: "lite",
+      cycleId: "annual",
+    });
+    const first = await findUser(admin, authorization, userId);
+    expect(first.planExpiresAt).toBe("2027-03-01T00:00:00.000Z");
+
+    // 还剩大半年就续费，新到期日应为 2028-03-01。
+    vi.setSystemTime(new Date("2026-06-01T00:00:00.000Z"));
+    await purchaseMembership(admin, {
+      userId,
+      username: "yearly@example.com",
+      planId: "lite",
+      cycleId: "annual",
+    });
+
+    const renewed = await findUser(admin, authorization, userId);
+    expect(renewed.planExpiresAt).toBe("2028-03-01T00:00:00.000Z");
+    expect(renewed.planExpiresAt).not.toBe("2027-06-01T00:00:00.000Z");
+  });
+});

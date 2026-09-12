@@ -759,9 +759,15 @@ function expireCreditBatches(data: AdminData, expiredAt: string) {
 /**
  * 计算本次会员订单生效后的到期时间。
  *
- * 续费语义采用「顺延」：如果用户当前会员还没到期，新周期从原到期日往后接，
- * 而不是从付款日重算 —— 否则提前续费的用户会平白损失剩余天数。
+ * 【续费语义：顺延 —— 产品已定案，勿改】
+ * 用户当前会员若尚未到期，新周期从**原到期日**往后接，而不是从付款日重算。
+ * 否则提前续费的用户会平白损失剩余天数，等于惩罚续费意愿最强的那批人，
+ * 也会诱导用户拖到最后一天才付款（对我们的现金流与留存都更差）。
  * 若已过期或从未有过会员，则从付款日起算。
+ *
+ * ⚠️ 语义由 server/admin-membership-expiry.test.ts 的「续费语义锁」用例守护。
+ * 改成「从付款日重算」会直接让那条用例失败 —— 那不是测试写错了，
+ * 是你正在推翻一个已确认的产品决策，请先找产品确认。
  */
 function resolveMembershipExpiry(user: AdminUserAccount, paidAt: string, months: number) {
   const paidAtMs = Date.parse(paidAt);
