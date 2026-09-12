@@ -8,6 +8,7 @@ import { AIOrchestrator, inferAiCapability } from "./ai-orchestrator";
 import { resolveBackgroundImageTaskCapability } from "./background-image-capability";
 import { createBrandKit, deleteBrandKit, getBrandKit, listBrandKits, parseBrandKitFromImage } from "./brand-kit";
 import { createElementBackgroundLayer, createProductBackground, editImageWithPrompt, enhanceImage, eraseImageObjects, expandImageWithPicWish, extractImageText, generateImages, listImageModelCatalog, removeImageBackground, removeImageWatermark } from "./image-generation";
+import { DEFAULT_IMAGE_EXPANSION_PROMPT } from "../shared/image-expansion";
 import { replaceImageText } from "./text-replace";
 import { getPicWishBackgroundTemplates } from "./picwish-background-templates";
 import { DEFAULT_IMAGE_MODEL_ID } from "../shared/image-models";
@@ -1002,7 +1003,7 @@ async function startServer() {
           maskSrc,
           prompt: typeof input.prompt === "string" && input.prompt.trim()
             ? input.prompt
-            : "Extend the image naturally only inside the masked blank area. Preserve all unmasked pixels exactly and never generate beyond the requested boundary.",
+            : DEFAULT_IMAGE_EXPANSION_PROMPT,
         });
         const stored = await storeImageResultForUser({
           images: result.images || [],
@@ -1524,7 +1525,7 @@ async function startServer() {
         ...req.body,
         imageSrc,
         maskSrc,
-        prompt: req.body?.prompt || "Extend the image naturally only inside the masked blank area. Preserve all unmasked pixels exactly and never generate beyond the requested boundary.",
+        prompt: req.body?.prompt || DEFAULT_IMAGE_EXPANSION_PROMPT,
       });
       const stored = await storeImageResultForUser({
         images: result.images || [],

@@ -10,6 +10,7 @@ import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiK
 import { resolveBackgroundImageTaskCapability } from "./server/background-image-capability";
 import { editImageWithPrompt, eraseImageObjects, extractImageText, generateImages, listImageModelCatalog, removeImageBackground } from "./server/image-generation";
 import { searchReferenceImages } from "./server/reference-search";
+import { DEFAULT_IMAGE_EXPANSION_PROMPT } from "./shared/image-expansion";
 import { generateText } from "./server/text-generation";
 
 // =============================================================================
@@ -469,7 +470,7 @@ async function runDevBackgroundImageTask(
         maskSrc: pick("maskSrc", "mask_url", "mask_base64"),
         prompt: typeof input.prompt === "string" && input.prompt.trim()
           ? input.prompt
-          : "Extend the image naturally only inside the masked blank area. Preserve all unmasked pixels exactly and never generate beyond the requested boundary.",
+          : DEFAULT_IMAGE_EXPANSION_PROMPT,
       } as never);
       return store(result);
     }

@@ -1,5 +1,6 @@
 import { ART_X_TEST_API_BASE_URL, normalizeApiBaseUrl } from "./api-base-url";
 import { DEFAULT_IMAGE_MODEL_ID } from "../../../shared/image-models";
+import { DEFAULT_IMAGE_EXPANSION_PROMPT, clampImageExpansionPrompt } from "../../../shared/image-expansion";
 
 type LLMRole = "system" | "user" | "assistant";
 
@@ -919,7 +920,9 @@ export async function expandImageWithMask({
     bottom,
     left,
     right,
-    prompt: prompt || "Extend the image naturally only inside the masked blank area. Preserve all unmasked pixels exactly and never generate beyond the requested boundary.",
+    // 佐糖扩图接口的 prompt 硬上限为 200 字符，超出会直接 400。
+    // 统一在出站前收敛，避免任何调用方传入长提示词导致整次扩图失败。
+    prompt: clampImageExpansionPrompt(prompt) || DEFAULT_IMAGE_EXPANSION_PROMPT,
   }, "AI 扩展失败");
 
   const normalized = toGeneratedImagesResponse(result);

@@ -50,6 +50,7 @@ import {
   normalizeImageModelId,
 } from "../../../../shared/image-models";
 import { DEFAULT_TEXT_MODEL } from "../../../../shared/text-models";
+import { DEFAULT_IMAGE_EXPANSION_PROMPT } from "../../../../shared/image-expansion";
 import {
   Image as ImageIcon,
   MessageSquare,
@@ -25172,7 +25173,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           left: detail.left,
           right: detail.right,
           prompt:
-            "Outpaint only the blank transparent extension area outside the original image. Preserve the original unmasked image pixels exactly. Generate new surrounding scene content that naturally continues the background, floor, wall, light, shadows, colors, texture, perspective, and edge details. Do not enlarge, duplicate, mirror, repeat, or redraw the original subject/person/object. Do not paste a scaled copy of the original image into the extension. The extension must look like new matching environment around the original image, not a zoomed or repeated version of the original.",
+            DEFAULT_IMAGE_EXPANSION_PROMPT,
         },
         run: async () =>
           expandImageWithMask({
@@ -25186,7 +25187,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             left: detail.left,
             right: detail.right,
             prompt:
-              "Outpaint only the blank transparent extension area outside the original image. Preserve the original unmasked image pixels exactly. Generate new surrounding scene content that naturally continues the background, floor, wall, light, shadows, colors, texture, perspective, and edge details. Do not enlarge, duplicate, mirror, repeat, or redraw the original subject/person/object. Do not paste a scaled copy of the original image into the extension. The extension must look like new matching environment around the original image, not a zoomed or repeated version of the original.",
+              DEFAULT_IMAGE_EXPANSION_PROMPT,
           }),
       });
     };

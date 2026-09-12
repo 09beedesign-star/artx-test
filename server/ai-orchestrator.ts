@@ -1,5 +1,6 @@
 import { brandKitToPrompt, getBrandKit } from "./brand-kit";
 import { editImageWithPrompt, eraseImageObjects, expandImageWithPicWish, generateImages, removeImageBackground } from "./image-generation";
+import { DEFAULT_IMAGE_EXPANSION_PROMPT } from "../shared/image-expansion";
 import { generateText } from "./text-generation";
 import { getSkill, matchSkill } from "./skill-registry";
 import { resolveModelRoute, type AiCapability } from "./model-router";
@@ -164,7 +165,7 @@ export class AIOrchestrator {
         imageSrc,
         maskSrc,
         model: route.model,
-        prompt: prompt || "Outpaint only the blank transparent extension area outside the original image. Preserve every unmasked pixel exactly. Analyze the original background, floor, wall, light, shadows, color, texture, perspective, and edge details, then generate new matching surrounding environment only in the editable area. Do not enlarge, duplicate, mirror, repeat, or redraw the original subject/person/object. Do not paste a scaled copy of the original image into the extension. Do not create a blurred border or vignette.",
+        prompt: prompt || DEFAULT_IMAGE_EXPANSION_PROMPT,
         targetWidth: input.targetWidth,
         targetHeight: input.targetHeight,
         top: input.top,

@@ -12,6 +12,7 @@ import {
   isVodModelId,
 } from "../shared/image-models";
 import { isClaudeTextModelId } from "../shared/text-models";
+import { clampImageExpansionPrompt } from "../shared/image-expansion";
 import { generateText } from "./text-generation";
 import { recordImageProviderFailure } from "./image-provider-failure-log";
 import { buildMeituMask, inpaintWithMeitu } from "./meitu-client";
@@ -1941,6 +1942,8 @@ function hasPicWishExpansionMargins(input: { top?: number; bottom?: number; left
 
 export const __testHasPicWishExpansionMargins = hasPicWishExpansionMargins;
 
+export const __testClampImageExpansionPrompt = clampImageExpansionPrompt;
+
 async function createPicWishImageExpansionTask(
   input: {
     imageBuffer?: Buffer;
@@ -1987,7 +1990,11 @@ async function createPicWishImageExpansionTask(
   } else if (!hasExpansionMargins && input.maskBuffer) {
     body.append("mask_file", bufferToImageFile(input.maskBuffer, input.maskMimeType || "image/png"));
   }
-  if (input.prompt?.trim()) body.append("prompt", input.prompt.trim().slice(0, 500));
+  // PicWish advanced-image-expand 的 prompt 硬上限是 200 字符（2026-09-12 实测：
+  // 200 受理、201 即返回 `Invalid params 'prompt', length must not exceed 200`）。
+  // 此前写成 slice(0, 500)，导致长提示词扩图必定 400 失败。切勿再调大。
+  const expansionPrompt = clampImageExpansionPrompt(input.prompt);
+  if (expansionPrompt) body.append("prompt", expansionPrompt);
   if (hasExpansionMargins) {
     appendOptionalPicWishNumber(body, "top", top);
     appendOptionalPicWishNumber(body, "bottom", bottom);
