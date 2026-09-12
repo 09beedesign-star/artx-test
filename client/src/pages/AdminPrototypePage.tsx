@@ -1904,6 +1904,8 @@ function AdminPrototypePage() {
           <DataList
             title="AI 任务追踪"
             description="记录每个任务的三层任务号与发起/回传时间。上游任务号用于向供应商提工单核查；标注「未返回」表示该厂商本次未下发可追溯的任务号。"
+            searchable
+            searchPlaceholder="搜索任务号 / 模型 / 用户 / 厂商"
             rows={adminData.aiTasks.map((task) => {
               // 时间带上月日，跨天排查时只有 HH:mm:ss 会分不清是哪一天。
               const formatTaskTime = (isoString?: string) => {
@@ -1931,6 +1933,14 @@ function AdminPrototypePage() {
                   { label: "生成批次号", value: task.generationId },
                 ],
                 value: task.status === "success" ? `${task.chargedCredits} 积分 · 毛利 ${(task.grossMargin * 100).toFixed(0)}%` : task.failureReason || task.status,
+                // ⚠️ 失败原因常常是上游返回的整段错误 JSON（几百字符）。
+                // 直接塞进右侧徽标会因 Badge 的 whitespace-nowrap 把整行撑到上千像素，
+                // 挤垮左侧 flex-1 内容区，中文标签被压成一字一行的竖排（已实际踩过）。
+                // 所以徽标只放短状态，错误原文走 detail 折行展示。
+                valueLabel: task.status === "success"
+                  ? `${task.chargedCredits} 积分 · 毛利 ${(task.grossMargin * 100).toFixed(0)}%`
+                  : task.status === "failed" ? "失败" : task.status,
+                detail: task.status === "success" ? undefined : task.failureReason || undefined,
                 icon: task.status === "success" ? BadgeCheck : AlertTriangle,
               };
             })}
@@ -3690,6 +3700,8 @@ function DataList({
   title,
   description,
   rows,
+  searchable = false,
+  searchPlaceholder,
 }: {
   title: string;
   description: string;
@@ -3703,24 +3715,87 @@ function DataList({
     submeta?: string;
     ids?: Array<{ label: string; value: string; missing?: boolean }>;
     value: string;
+    // 右侧状态标签的短文案。失败任务的 value 可能是上游返回的整段错误 JSON，
+    // 必须用它来渲染徽标，长文另行展开。
+    valueLabel?: string;
+    // 长文详情（如上游错误原文），折行展示在行内，不参与徽标布局。
+    detail?: string;
     icon: typeof BarChart3;
   }>;
+  // 开启后显示搜索框，按任务号/标题/描述全字段匹配。
+  searchable?: boolean;
+  searchPlaceholder?: string;
 }) {
+  const [keyword, setKeyword] = useState("");
+
+  const visibleRows = useMemo(() => {
+    if (!searchable) return rows;
+    const query = keyword.trim().toLowerCase();
+    if (!query) return rows;
+    // 任务号排查场景下用户往往只记得片段，所以做包含匹配而非全等，
+    // 并且把 ids/detail 也纳入检索范围。
+    return rows.filter((row) => {
+      const haystack = [
+        row.title,
+        row.meta,
+        row.submeta ?? "",
+        row.value,
+        row.valueLabel ?? "",
+        row.detail ?? "",
+        ...(row.ids ?? []).flatMap((item) => [item.label, item.value]),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [rows, keyword, searchable]);
+
   return (
-    <div>
-      <div className="mb-4">
-        <h2 className="text-base font-semibold">{title}</h2>
-        <p className="mt-1 text-sm text-slate-400">{description}</p>
+    <div className="min-w-0">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold">{title}</h2>
+          <p className="mt-1 text-sm text-slate-400">{description}</p>
+        </div>
+        {searchable && (
+          <div className="relative w-full shrink-0 sm:w-72">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-500" />
+            <Input
+              value={keyword}
+              onChange={(event) => setKeyword(event.target.value)}
+              placeholder={searchPlaceholder ?? "搜索"}
+              className="border-white/12 bg-white/5 pl-8 pr-8 text-xs"
+            />
+            {keyword && (
+              <button
+                type="button"
+                onClick={() => setKeyword("")}
+                aria-label="清空搜索"
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-500 hover:text-slate-200"
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+          </div>
+        )}
       </div>
+      {searchable && keyword.trim() && (
+        <div className="mb-2 text-xs text-slate-500">
+          命中 <span className="font-mono text-cyan-200">{visibleRows.length}</span> / {rows.length} 条
+        </div>
+      )}
       <div className="divide-y divide-white/8 overflow-hidden rounded-md border border-white/10">
-        {rows.map((row) => {
+        {visibleRows.map((row, index) => {
           const Icon = row.icon;
+          // 徽标只放短状态；长文走 detail 行，否则 Badge 的 whitespace-nowrap
+          // 会把整行撑开，挤垮左侧内容区（中文标签会被压成一字一行的竖排）。
+          const badgeText = row.valueLabel ?? row.value;
           return (
             <div
-              key={`${row.title}-${row.meta}`}
-              className="flex items-center gap-3 bg-slate-950/30 p-4"
+              key={`${row.title}-${row.meta}-${index}`}
+              className="flex flex-col gap-3 bg-slate-950/30 p-4 sm:flex-row sm:items-start"
             >
-              <div className="flex size-9 items-center justify-center rounded-md bg-white/7">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-white/7">
                 <Icon className="size-4 text-cyan-200" />
               </div>
               <div className="min-w-0 flex-1">
@@ -3735,23 +3810,35 @@ function DataList({
                       <span
                         key={item.label}
                         title={`${item.label}：${item.value}`}
-                        className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[11px] ${
+                        className={`inline-flex max-w-full items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[11px] ${
                           item.missing
                             ? "border-amber-400/25 bg-amber-400/8 text-amber-300/80"
                             : "border-white/10 bg-white/5 text-slate-300"
                         }`}
                       >
-                        <span className="font-sans text-slate-500">{item.label}</span>
+                        <span className="shrink-0 font-sans text-slate-500">{item.label}</span>
                         <span className="select-all break-all">{item.value}</span>
                       </span>
                     ))}
                   </div>
                 )}
+                {row.detail && (
+                  <div className="mt-1.5 whitespace-pre-wrap break-all rounded border border-white/8 bg-white/[0.03] px-2 py-1.5 font-mono text-[11px] leading-relaxed text-slate-400">
+                    {row.detail}
+                  </div>
+                )}
               </div>
-              <Badge className={statusClass(row.value)}>{row.value}</Badge>
+              <Badge className={`${statusClass(badgeText)} shrink-0 sm:max-w-[220px]`}>
+                <span className="truncate">{badgeText}</span>
+              </Badge>
             </div>
           );
         })}
+        {!visibleRows.length && (
+          <div className="bg-slate-950/30 px-4 py-8 text-center text-xs text-slate-500">
+            {rows.length ? "没有匹配的记录，换个关键词试试。" : "暂无数据。"}
+          </div>
+        )}
       </div>
     </div>
   );

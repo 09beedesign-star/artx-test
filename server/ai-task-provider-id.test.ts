@@ -213,3 +213,54 @@ describe("AI 任务时间轴兜底（withTaskTimeline）", () => {
     expect(adminStoreSource).not.toMatch(/aiTasks:\s*data\.aiTasks\s*,/);
   });
 });
+
+describe("AI 任务追踪面板布局与搜索", () => {
+  const adminPageSource = readFileSync("client/src/pages/AdminPrototypePage.tsx", "utf-8");
+
+  it("长错误文案必须走 detail，不能塞进右侧状态徽标", () => {
+    // ⚠️ 根因：失败任务的 failureReason 常是上游返回的整段错误 JSON。
+    // Badge 带 whitespace-nowrap，长文会把整行撑到上千像素，
+    // 挤垮左侧 flex-1 内容区，中文标签被压成一字一行的竖排。
+    expect(adminPageSource).toMatch(/valueLabel\?:\s*string/);
+    expect(adminPageSource).toMatch(/detail\?:\s*string/);
+    // 徽标渲染必须优先用短文案 valueLabel
+    expect(adminPageSource).toMatch(/const badgeText = row\.valueLabel \?\? row\.value/);
+    // AI 任务行必须把 failureReason 放进 detail 而非 valueLabel
+    expect(adminPageSource).toMatch(
+      /detail:\s*task\.status === "success" \? undefined : task\.failureReason/,
+    );
+  });
+
+  it("状态徽标必须有宽度上限与 shrink-0，detail 必须可折行", () => {
+    // 徽标不能无限撑开
+    expect(adminPageSource).toMatch(/statusClass\(badgeText\)\}\s*shrink-0 sm:max-w-\[220px\]/);
+    // detail 区必须允许折行，否则长 JSON 依旧会撑破布局
+    expect(adminPageSource).toMatch(/whitespace-pre-wrap break-all/);
+  });
+
+  it("图标容器必须 shrink-0，避免被长内容压扁", () => {
+    expect(adminPageSource).toMatch(/flex size-9 shrink-0 items-center justify-center/);
+  });
+
+  it("DataList 必须支持搜索并覆盖任务号字段", () => {
+    expect(adminPageSource).toMatch(/searchable\s*=\s*false/);
+    expect(adminPageSource).toMatch(/const \[keyword, setKeyword\] = useState\(""\)/);
+    // 检索范围必须包含 ids（任务号），否则按任务号搜不到
+    const filterBlock = adminPageSource.match(/const visibleRows = useMemo\([\s\S]{1,900}?\}, \[rows, keyword, searchable\]\)/);
+    expect(filterBlock).toBeTruthy();
+    expect(filterBlock![0]).toMatch(/row\.ids \?\? \[\]/);
+    expect(filterBlock![0]).toMatch(/row\.detail/);
+    // 包含匹配而非全等：用户往往只记得任务号片段
+    expect(filterBlock![0]).toMatch(/haystack\.includes\(query\)/);
+    expect(filterBlock![0]).toMatch(/toLowerCase\(\)/);
+  });
+
+  it("AI 任务追踪面板必须开启搜索", () => {
+    const panelMatch = adminPageSource.match(
+      /title="AI 任务追踪"[\s\S]{1,500}?rows=\{/,
+    );
+    expect(panelMatch).toBeTruthy();
+    expect(panelMatch![0]).toMatch(/searchable/);
+    expect(panelMatch![0]).toMatch(/searchPlaceholder=/);
+  });
+});
