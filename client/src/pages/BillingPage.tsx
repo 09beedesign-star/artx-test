@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
   ArrowUpRight,
+  BookOpen,
   Check,
   CreditCard,
   Crown,
@@ -822,6 +823,27 @@ export default function BillingPage() {
                 >
                   订阅或充值，享受更多高阶模型，尊享全部的优质创作AI服务。
                 </p>
+                {/*
+                  积分规则入口刻意放在页头而不是只放在「充值」标签内：
+                  默认标签是订阅，入口藏在另一个标签里等于用户找不到（已反馈过一次）。
+                  这是付费前必须能看到的规则说明，不能依赖用户先切标签。
+                */}
+                <Link
+                  href="/credits-guide"
+                  className="mt-3 inline-flex items-center gap-1.5 rounded-[var(--radius-pill)] border px-3 py-1.5 type-caption transition-opacity hover:opacity-80"
+                  style={{
+                    borderColor: "rgba(197, 237, 71, 0.42)",
+                    background: "rgba(197, 237, 71, 0.12)",
+                    color: green,
+                    letterSpacing: 0,
+                    textTransform: "none",
+                    fontWeight: 650,
+                  }}
+                >
+                  <BookOpen size={13} />
+                  积分规则说明：有效期、到账比例与消耗标准
+                  <ArrowUpRight size={13} />
+                </Link>
               </div>
 
               <div className="grid min-w-[min(100%,520px)] grid-cols-3 gap-2">
