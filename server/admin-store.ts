@@ -190,6 +190,15 @@ type AiTaskRecord = {
   generationId: string;
   backendTaskId: string;
   providerTaskId: string;
+  /**
+   * 一次任务可能调用多次上游（多图生成、失败重试换厂商），全部任务号都要留存，
+   * 否则向供应商提工单时只能提供第一个。`providerTaskId` 是它的首项快照。
+   *
+   * ⚠️ 这个字段此前压根不存在于 AiTaskRecord（只存在于入参类型
+   * AiUsageRecordInput），落库时自然也无从赋值 —— 生产实测 providerTaskIds
+   * 恒为空。grep 到同名字段时务必确认是哪个类型。
+   */
+  providerTaskIds?: string[];
   userId: string;
   user: string;
   capability: string;
@@ -3838,6 +3847,13 @@ export async function recordAiUsage(input: AiUsageRecordInput) {
     generationId: input.generationId || `gen_${Date.now().toString(36)}`,
     backendTaskId: input.backendTaskId || `backend_${Date.now().toString(36)}`,
     providerTaskId: getProviderTaskId(input),
+    // ⚠️ 数组也要落库。此前 AiTaskRecord 只有单数的 providerTaskId，
+    // 复数字段仅存在于入参类型 AiUsageRecordInput —— 于是一次任务调用多次上游
+    // （多图生成、失败重试换厂商）时，除第一个以外的任务号全部丢失，
+    // 前端 ids 标签组恒为空，且全程零报错。
+    providerTaskIds: input.providerTaskIds?.length
+      ? Array.from(new Set(input.providerTaskIds.filter((item) => typeof item === "string" && item.trim())))
+      : undefined,
     userId: user.id,
     user: user.name,
     capability: input.capability,

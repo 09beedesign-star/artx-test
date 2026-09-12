@@ -247,6 +247,20 @@ describe("orchestrator 必须透传上游任务号（09-12 生产实测暴露）
       expect(block).toMatch(/providerTaskId:\s*result\.providerTaskId/);
     }
   });
+
+  it("落库时 providerTaskIds 数组也要写进 AiTaskRecord", () => {
+    // ⚠️ 09-12 生产实测：主任务号已经正确落库，但 providerTaskIds 恒为空数组。
+    // 根因是 recordAiUsage 组装 AiTaskRecord 时只赋了单数的 providerTaskId，
+    // 类型里声明了 providerTaskIds 却没有任何写入路径 ——
+    // 「类型声明了字段」≠「写入路径填了字段」，这种漏写不报错也不崩。
+    const adminStoreSource = readFileSync("server/admin-store.ts", "utf-8");
+    const recordBlock = adminStoreSource.match(
+      /const record: AiTaskRecord = \{[\s\S]{1,2000}?\n  \};/,
+    );
+    expect(recordBlock).toBeTruthy();
+    expect(recordBlock![0]).toMatch(/providerTaskId:\s*getProviderTaskId\(input\)/);
+    expect(recordBlock![0]).toMatch(/providerTaskIds:\s*input\.providerTaskIds/);
+  });
 });
 
 describe("AI 任务追踪面板布局与搜索", () => {
