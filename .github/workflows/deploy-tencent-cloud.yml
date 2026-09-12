@@ -110,6 +110,17 @@ jobs:
             cp "${base}/current/.env" "${base}/releases/${release}/.env"
           fi
 
+          # 模型能力凭证前置校验：在切换 current 软链、重启服务之前就卡住。
+          #
+          # 模型的「定义」随 git 走，但「凭证」在服务器的 .env.gray 里（被 gitignore）。
+          # 两者一旦对不上，站点会等到用户点击那一刻才报错。
+          # 典型事故：2026-09-12 图片链路全面切到腾讯 VOD 直连，
+          # 而 .env.gray 里若没有 TENCENT_VOD_* 三件套，所有出图 100% 失败且无兜底。
+          # 这里用旧发布目录里的脚本做不到（新增的校验项只在新包里），
+          # 所以必须用刚解包的 release 目录中的脚本。
+          node "${base}/releases/${release}/scripts/verify-model-env.mjs" \
+            --file "${base}/releases/${release}/.env.gray"
+
           chown -R root:artx "${base}/releases/${release}"
           chmod -R g+rX,o-rwx "${base}/releases/${release}"
           ln -sfn "${base}/releases/${release}" "${base}/current"

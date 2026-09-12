@@ -15,6 +15,21 @@ debug-drawn.png
 debug-composited.png
 outputs/text-edit-preview/
 
+# 一次性排查探针脚本。
+#
+# 这些脚本是定位具体缺陷时临时写的（擦字残留量化、OCR 框错位复核、
+# 逐区域像素差异比对、VOD 模型版本枚举等），有很强的环境依赖：
+# 需要本地测试海报、运行中的 8077 擦字引擎、或真实 VOD 凭证，
+# 换台机器基本跑不起来，进仓库只会变成噪音。
+#
+# 注意这里只忽略 probe-* 与 e2e-*，**不包括 verify-*** ——
+# scripts/verify-model-env.mjs 这类是部署流水线要调用的正式校验脚本，必须入库。
+scripts/probe-*.mts
+scripts/probe-*.mjs
+scripts/e2e-*.mts
+# 依赖本地测试海报的一次性场景验证脚本（判据写死了特定图片的区域坐标）。
+scripts/verify-local-erase-scene-c.mts
+
 # Environment variables
 .env
 .env.local

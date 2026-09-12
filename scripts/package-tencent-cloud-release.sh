@@ -40,6 +40,9 @@ cp deploy/tencent-cloud/artx-gray.nginx.conf "${RELEASE_ROOT}/deploy/tencent-clo
 mkdir -p "${RELEASE_ROOT}/scripts"
 cp scripts/audit-tencent-cloud-backend.sh "${RELEASE_ROOT}/scripts/"
 cp scripts/verify-tencent-cloud-gray.mjs "${RELEASE_ROOT}/scripts/"
+# 模型能力凭证前置校验。部署流水线在切换 current 软链之前调用它，
+# 缺少 VOD / 文本模型凭证时直接中断发布，而不是等用户点击才暴露。
+cp scripts/verify-model-env.mjs "${RELEASE_ROOT}/scripts/"
 
 tar -czf "${TARBALL}" -C "${RELEASE_DIR}" "${RELEASE_NAME}"
 
