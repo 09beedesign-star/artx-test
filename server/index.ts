@@ -11,7 +11,7 @@ import { createElementBackgroundLayer, createProductBackground, editImageWithPro
 import { DEFAULT_IMAGE_EXPANSION_PROMPT } from "../shared/image-expansion";
 import { replaceImageText } from "./text-replace";
 import { getPicWishBackgroundTemplates } from "./picwish-background-templates";
-import { DEFAULT_IMAGE_MODEL_ID } from "../shared/image-models";
+import { DEFAULT_IMAGE_MODEL_ID, IMAGE_MODEL_PRIORITY_IDS, isVodModelId } from "../shared/image-models";
 import { DEFAULT_TEXT_MODEL } from "../shared/text-models";
 import { getInspirationReferences } from "./inspiration-references";
 import { cleanupExpiredUploads, getUploadRetentionDays, getUploadsRoot, storeGeneratedImagesForUser } from "./local-image-storage";
@@ -410,6 +410,38 @@ function getDefaultRouteImageModel(body: unknown) {
   return getRouteModel(body, process.env.AI_IMAGE_MODEL || DEFAULT_IMAGE_MODEL_ID);
 }
 
+/**
+ * 后台「第三方接口 / AI 成本」按 provider 字符串分组统计。
+ * 图片生成有两条完全不同的上游链路（腾讯云 VOD 直连 vs 中转站 AI_IMAGE），
+ * 此前统一硬编码成 "AI_IMAGE"，导致 VOD 的真实调用量全部被记到中转站名下，
+ * 后台看不到腾讯云 VOD 的任何使用数据。
+ *
+ * 这里按模型 id 归属判定：
+ *   - 显式 VOD 模型（vod-* 及已迁移的旧中转站 id）→ 腾讯云 VOD
+ *   - auto / 空值 → 走 IMAGE_MODEL_PRIORITY_IDS 兜底链，该链 2026-09-12 起是纯 VOD
+ *   - 其余 → 中转站 AI_IMAGE
+ *
+ * provider 名称必须与 admin-store.ts buildProviderHealth() 里的 name 对齐，
+ * 否则健康度列表和成本分组会对不上号。
+ */
+const IMAGE_PROVIDER_TENCENT_VOD = "腾讯云 VOD";
+const IMAGE_PROVIDER_RELAY = "AI_IMAGE";
+
+function resolveImageProviderLabel(model?: string) {
+  const normalized = (model || "").trim().toLowerCase();
+  if (!normalized || normalized === "auto") {
+    // auto 兜底链当前全是 VOD；若日后重新混入中转站模型，这里要跟着改。
+    return IMAGE_MODEL_PRIORITY_IDS.every(isVodModelId)
+      ? IMAGE_PROVIDER_TENCENT_VOD
+      : IMAGE_PROVIDER_RELAY;
+  }
+  return isVodModelId(normalized) ? IMAGE_PROVIDER_TENCENT_VOD : IMAGE_PROVIDER_RELAY;
+}
+
+function getRouteImageProvider(body: unknown) {
+  return resolveImageProviderLabel(getDefaultRouteImageModel(body));
+}
+
 function getImageEditCapabilityLabel(input: Record<string, unknown>) {
   return input.operation === "camera_view" ? "视角调整" : "图片编辑";
 }
@@ -555,7 +587,7 @@ function getBackgroundImageTaskPreflightTracking(input: Record<string, unknown>,
       return {
         capabilityKey: "image_edit",
         capability: getImageEditCapabilityLabel(input),
-        provider: "AI_IMAGE",
+        provider: getRouteImageProvider(input),
         model: getDefaultRouteImageModel(input),
         failureMessage: "Image edit failed",
       };
@@ -563,7 +595,7 @@ function getBackgroundImageTaskPreflightTracking(input: Record<string, unknown>,
       return {
         capabilityKey: "text_to_image",
         capability: "text_to_image",
-        provider: "AI_IMAGE",
+        provider: getRouteImageProvider(input),
         model: getDefaultRouteImageModel(input),
         failureMessage: "Image generation failed",
       };
@@ -571,7 +603,7 @@ function getBackgroundImageTaskPreflightTracking(input: Record<string, unknown>,
       return {
         capabilityKey: capabilityFromOrchestrator(capability),
         capability,
-        provider: "AI_IMAGE",
+        provider: getRouteImageProvider(input),
         model: getDefaultRouteImageModel(input),
         failureMessage: "Image generation failed",
       };
@@ -900,7 +932,7 @@ async function startServer() {
           tracking: {
             capabilityKey: "image_edit" as const,
             capability: getImageEditCapabilityLabel(input),
-            provider: "AI_IMAGE",
+            provider: getRouteImageProvider(input),
             model: getDefaultRouteImageModel(input),
             failureMessage: "Image edit failed",
           },
@@ -1270,7 +1302,7 @@ async function startServer() {
     await handleTrackedAiRequest(req, res, {
       capabilityKey: "text_to_image",
       capability: "图片生成",
-      provider: "AI_IMAGE",
+      provider: getRouteImageProvider(req.body),
       model: getDefaultRouteImageModel(req.body),
       failureMessage: "Image generation failed",
     }, async (user) => {
@@ -1464,7 +1496,7 @@ async function startServer() {
     await handleTrackedAiRequest(req, res, {
       capabilityKey: "image_edit",
       capability: getImageEditCapabilityLabel(req.body || {}),
-      provider: isMeituEdit ? "MEITU" : "AI_IMAGE",
+      provider: isMeituEdit ? "MEITU" : getRouteImageProvider(req.body),
       model: getDefaultRouteImageModel(req.body),
       failureMessage: "Image edit failed",
     }, async (user) => {
@@ -1477,7 +1509,7 @@ async function startServer() {
     await handleTrackedAiRequest(req, res, {
       capabilityKey: "image_edit",
       capability: "图片文字替换",
-      provider: "AI_IMAGE",
+      provider: getRouteImageProvider(req.body),
       model: getDefaultRouteImageModel(req.body),
       failureMessage: "Text replacement failed",
     }, async (user) => {
@@ -1892,7 +1924,7 @@ async function startServer() {
             const tracking: AiRouteTracking = {
               capabilityKey: "text_to_image",
               capability: "MCP 图片生成",
-              provider: "AI_IMAGE",
+              provider: resolveImageProviderLabel(typeof args.model === "string" ? args.model : "auto"),
               model: typeof args.model === "string" ? args.model : "auto",
               failureMessage: "MCP image generation failed",
             };
@@ -1974,7 +2006,7 @@ async function startServer() {
                 tracking: {
                   capabilityKey: "text_to_image",
                   capability: "MCP 图片生成",
-                  provider: "AI_IMAGE",
+                  provider: resolveImageProviderLabel(typeof args.model === "string" ? args.model : "auto"),
                   model: typeof args.model === "string" ? args.model : "auto",
                   failureMessage: "MCP image generation failed",
                 },

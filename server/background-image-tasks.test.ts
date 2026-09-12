@@ -52,7 +52,8 @@ describe("background image task routing", () => {
     expect(source).toContain('model: getRouteModel(input, "picwish-advanced-image-expand")');
 
     expect(source).toContain('capabilityKey: "image_edit"');
-    expect(source).toContain('provider: "AI_IMAGE"');
+    // 图片链路的 provider 不再硬编码，按模型 id 区分腾讯云 VOD 与中转站 AI_IMAGE。
+    expect(source).toContain("provider: getRouteImageProvider(input)");
     expect(source).toContain("model: getDefaultRouteImageModel(input)");
     expect(source).toContain("function getImageEditCapabilityLabel");
     expect(source).toContain('input.operation === "camera_view" ? "视角调整" : "图片编辑"');
