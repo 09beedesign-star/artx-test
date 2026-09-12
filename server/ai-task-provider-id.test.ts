@@ -171,3 +171,45 @@ describe("AI 任务上游任务号提取", () => {
     expect(indexSource).toMatch(/providerTaskId:\s*providerTaskIds\?\.\[0\]/);
   });
 });
+
+describe("AI 任务时间轴兜底（withTaskTimeline）", () => {
+  const adminStoreSource = readFileSync("server/admin-store.ts", "utf-8");
+
+  it("withTaskTimeline 必须存在并调用 deriveTaskTimeline 写三个字段", () => {
+    expect(adminStoreSource).toMatch(/function withTaskTimeline\(/);
+    expect(adminStoreSource).toMatch(/deriveTaskTimeline\(task\)/);
+    expect(adminStoreSource).toMatch(/startedAt:\s*timeline\.startedAt/);
+    expect(adminStoreSource).toMatch(/completedAt:\s*timeline\.completedAt/);
+    expect(adminStoreSource).toMatch(/timelineDerived:\s*timeline\.derived/);
+  });
+
+  it("fullPayload 必须包装 aiTasks —— 前端主面板走的就是这条路径", () => {
+    // 缺陷根因：前端主面板读 /api/admin/overview（fullPayload），
+    // 而兜底只做在了 GET /api/admin/ai-tasks 路由上，于是时间列全空且零报错。
+    const fullPayloadMatch = adminStoreSource.match(
+      /function fullPayload\(data: AdminData\)[\s\S]{1,600}?aiTasks:[^,\n]*/,
+    );
+    expect(fullPayloadMatch).toBeTruthy();
+    expect(fullPayloadMatch![0]).toMatch(/aiTasks:\s*withTaskTimeline\(data\.aiTasks\)/);
+  });
+
+  it("GET ai-tasks 路由必须复用 withTaskTimeline", () => {
+    const routeMatch = adminStoreSource.match(
+      /route === "ai-tasks"\)[\s\S]{1,400}?return \{/,
+    );
+    expect(routeMatch).toBeTruthy();
+    expect(routeMatch![0]).toMatch(/withTaskTimeline\(data\.aiTasks\)/);
+  });
+
+  it("用户详情抽屉的 aiTasks 也必须补时间轴", () => {
+    const detailMatch = adminStoreSource.match(
+      /function buildAccountDetail[\s\S]{1,2500}?const aiTasks = withTaskTimeline\(/,
+    );
+    expect(detailMatch).toBeTruthy();
+  });
+
+  it("admin-store 里不应再出现未包装的 aiTasks 出口", () => {
+    // 反向断言：对外返回体里不允许出现裸的 `aiTasks: data.aiTasks`
+    expect(adminStoreSource).not.toMatch(/aiTasks:\s*data\.aiTasks\s*,/);
+  });
+});

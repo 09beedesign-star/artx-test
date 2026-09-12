@@ -2111,6 +2111,29 @@ function toDisplayUsers(users: AdminData["users"]) {
   }));
 }
 
+/**
+ * 给 aiTasks 补上时间轴字段。
+ *
+ * ⚠️ 历史记录（2026-09-12 部署前）没有 startedAt/completedAt，
+ * 必须统一走 deriveTaskTimeline() 兜底，否则前端只能显示「无」。
+ *
+ * ⚠️ **凡是对外返回 aiTasks 的地方都要用这个函数**。曾经只在
+ * `GET /api/admin/ai-tasks` 路由里做了兜底，而前端主面板读的是
+ * `GET /api/admin/overview`（走 fullPayload），于是时间列全空 ——
+ * 两条路径返回同一份数据却只有一条做了加工，且不报任何错。
+ */
+function withTaskTimeline(tasks: AiTaskRecord[]) {
+  return tasks.map((task) => {
+    const timeline = deriveTaskTimeline(task);
+    return {
+      ...task,
+      startedAt: timeline.startedAt,
+      completedAt: timeline.completedAt,
+      timelineDerived: timeline.derived,
+    };
+  });
+}
+
 function fullPayload(data: AdminData) {
   return {
     overview: dashboard(data),
@@ -2118,7 +2141,7 @@ function fullPayload(data: AdminData) {
     orders: data.orders,
     credits: data.credits,
     creditBatches: data.creditBatches,
-    aiTasks: data.aiTasks,
+    aiTasks: withTaskTimeline(data.aiTasks),
     providers: data.providers,
     feedback: data.feedback,
     alerts: data.alerts,
@@ -2225,9 +2248,11 @@ function buildAccountDetail(data: AdminData, userId: string) {
   const feedbackEntries = data.feedback
     .filter((entry) => entry.userId === user.id || (entry.linkedOrderId ? orderIds.has(entry.linkedOrderId) : false))
     .sort((left, right) => parseAdminTimestamp(right.createdAt) - parseAdminTimestamp(left.createdAt));
-  const aiTasks = data.aiTasks
-    .filter((task) => task.userId === user.id)
-    .sort((left, right) => parseAdminTimestamp(right.createdAt) - parseAdminTimestamp(left.createdAt));
+  const aiTasks = withTaskTimeline(
+    data.aiTasks
+      .filter((task) => task.userId === user.id)
+      .sort((left, right) => parseAdminTimestamp(right.createdAt) - parseAdminTimestamp(left.createdAt))
+  );
   const paymentEvents = orders.flatMap((order) => (order.paymentEvents || []).map((event) => ({
     ...event,
     orderId: order.id,
@@ -2442,15 +2467,7 @@ export async function handleAdminApiRequest(
   if (method === "GET" && route === "ai-tasks") {
     // 历史记录缺 startedAt/completedAt，统一在出口补齐，
     // 前端不用区分新旧数据。
-    const aiTasks = data.aiTasks.map((task) => {
-      const timeline = deriveTaskTimeline(task);
-      return {
-        ...task,
-        startedAt: timeline.startedAt,
-        completedAt: timeline.completedAt,
-        timelineDerived: timeline.derived,
-      };
-    });
+    const aiTasks = withTaskTimeline(data.aiTasks);
     return { status: 200, body: { aiTasks, providers: await buildEnrichedProviders(data) } };
   }
   if (method === "GET" && route === "providers") return { status: 200, body: { providers: await buildEnrichedProviders(data) } };
