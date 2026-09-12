@@ -9,6 +9,7 @@ import {
   CREDIT_RECHARGE_TIERS,
   MEMBERSHIP_PLANS,
   formatCredits,
+  quoteCreditRecharge,
 } from "@shared/billing-config";
 
 /**
@@ -182,7 +183,7 @@ export default function CreditsGuidePage() {
               <div className="mb-4 flex items-center gap-2">
                 <Coins size={17} style={{ color: accent }} />
                 <h2 className="type-body-sm font-medium" style={{ color: text, fontSize: 15 }}>
-                  充值到账比例
+                  充值能拿多少积分
                 </h2>
               </div>
               <div className="flex flex-col gap-2">
@@ -192,20 +193,36 @@ export default function CreditsGuidePage() {
                     className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-lg-design)] border px-4 py-3"
                     style={{ background: field, borderColor: border }}
                   >
-                    <span className="type-body-sm" style={{ color: text }}>
-                      单笔充值满 HKD {formatCredits(tier.minAmount)}
+                    <span className="min-w-0">
+                      <span className="block type-body-sm" style={{ color: text }}>
+                        充值 HKD {formatCredits(tier.minAmount)}
+                      </span>
+                      <span className="mt-0.5 block type-caption" style={{ color: sub }}>
+                        {tier.label} · {tier.creditsPerHkd} 积分 / HKD
+                      </span>
                     </span>
-                    <span className="type-body-sm font-medium" style={{ color: text }}>
-                      {tier.creditsPerHkd} 积分 / HKD
-                      <span className="ml-2 type-caption" style={{ color: sub, fontWeight: 400 }}>
-                        {tier.label}
+                    {/*
+                      主视觉用「实得积分总数」而不是单价：130 积分/HKD 这种比例
+                      用户要自己乘一遍才有体感，直接给 85,000 更直观。
+                      ⚠️ 数值必须由 quoteCreditRecharge() 算，禁止手写 —— 比例一改
+                      这里会自动跟着变，写死就会变成虚标。
+                    */}
+                    <span
+                      className="shrink-0 type-body-sm"
+                      style={{ color: accent, fontSize: 19, fontWeight: 700, letterSpacing: 0 }}
+                    >
+                      {formatCredits(quoteCreditRecharge(tier.minAmount).credits)}
+                      <span className="ml-1 type-caption" style={{ color: sub, fontWeight: 400 }}>
+                        积分
                       </span>
                     </span>
                   </div>
                 ))}
               </div>
               <p className="mt-3 type-caption" style={{ color: sub, lineHeight: 1.7 }}>
-                充值金额越高，每 HKD 兑换的积分越多。每笔充值的有效期从该笔付款日单独起算
+                上表按各档门槛金额举例，
+                <span style={{ color: text, fontWeight: 500 }}>实际到账 = 充值金额 × 对应比例</span>
+                ，充得越多每 HKD 兑换的积分越多。每笔充值的有效期从该笔付款日单独起算
                 {CREDIT_EXPIRY_RULES.recharge.days} 天，多次充值不会互相延期。
               </p>
             </article>
