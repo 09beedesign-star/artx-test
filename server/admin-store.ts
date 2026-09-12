@@ -65,6 +65,34 @@ type AdminUserAccount = {
   accountType?: "regular" | "test";
   testProfile?: TestAccountProfile;
   allowedAiModels?: string[];
+  /**
+   * 会员订阅的按月发放进度。**只有付费会员才有**，Free 用户为 undefined。
+   *
+   * ⚠️ 为什么不能只存一个「到期日」就完事：年卡付一次钱要分 12 次发积分，
+   * 而本项目**没有任何定时任务**（见 expireCreditBatches 的注释），
+   * 发放只能在 loadAdminData() 里惰性补发。惰性补发必须知道
+   * 「上次发到第几期」才能算出「现在欠几期」，所以 issuedPeriods 必须落库。
+   */
+  membership?: MembershipSubscription;
+};
+
+/**
+ * 会员订阅发放进度。一次付费对应一条，续费时覆盖。
+ */
+type MembershipSubscription = {
+  /** 订单号，用于对账与退款时按 source 扣回 */
+  orderId: string;
+  planId: string;
+  /** 每月发放额度 */
+  monthlyCredits: number;
+  /** 计费周期总月数：月付 1 / 季付 3 / 年付 12 */
+  totalPeriods: number;
+  /** 已发放期数。1 表示首期已发。**惰性补发的基准，必须落库。** */
+  issuedPeriods: number;
+  /** 订阅起算时间，第 N 期发放时间 = startedAt + (N-1) 个月 */
+  startedAt: string;
+  /** 最近一次发放时间，仅用于后台展示与排查 */
+  lastIssuedAt?: string;
 };
 
 type CreditBatchKind = "membership" | "recharge" | "gift" | "manual" | "test";
@@ -476,6 +504,50 @@ const FIRST_RECHARGE_BONUS_MIN_AMOUNT = 150;
 const FIRST_RECHARGE_BONUS_CREDITS = 2500;
 const FIRST_RECHARGE_BONUS_VALID_DAYS = 30;
 
+/**
+ * 充值积分有效期：自购买之日起 366 天。
+ *
+ * 口径对齐 Lovart 官方 FAQ / pricing 页（"Top-up credits are valid for 366 days
+ * from the date of purchase"）。366 而非 365 是为了覆盖闰年，避免用户在闰年
+ * 少拿一天。**每笔充值独立计时，不合并也不因后续充值而续期。**
+ */
+const RECHARGE_CREDIT_VALID_DAYS = 366;
+
+/**
+ * 会员积分：按月发放 + 有限滚存。
+ *
+ * 【为什么不照抄 Lovart 的纯清零】
+ * Lovart 是「当月不用即作废」。实测算过我方数据：Pro 年卡 HKD 1,187 换 336,000
+ * 积分，按默认 medium 档 70 积分/张、成本 HKD 0.078 计，**即使 100% 用满毛利率
+ * 仍有 68.5%** —— 也就是说我们并不靠「用户用不完」赚钱，纯清零带不来真实增收，
+ * 却会砍掉月均用量超 28,000 的重度用户（恰恰是续费意愿最高的那批）。
+ *
+ * 【真正要解决的问题：价格倒挂导致的无限囤积】
+ * 会员积分单价（Pro 年卡 283 积分/HKD）远低于充值（130-170 积分/HKD），
+ * 而旧实现里会员积分「续费顺延、余额保留」→ 只要一直续费就永不清零。
+ * 结果是**便宜的积分永不过期、贵的积分 366 天清零**，理性用户的最优解变成
+ * 「永远别充值，只买年卡囤」。滚存封顶就是为了堵死这条路。
+ *
+ * 【最终规则】每月发放 monthlyCredits；上月余额可结转，但**任一时刻会员积分
+ * 余额上限 = 2 个月额度**（当月 + 最多结转 1 个月）。超出部分立即过期。
+ * 既拿到约 85% 的递延负债封顶，又避免「1 月忙 2 月闲」的脉冲式用量被误伤。
+ */
+const MEMBERSHIP_ROLLOVER_PERIODS = 1;
+
+/**
+ * 会员积分批次有效期：每期发放后 2 个月失效。
+ *
+ * ⚠️ 必须是 2 个月不是 1 个月。滚存上限 1 个月意味着第 N 期的积分要能活到
+ * 第 N+1 期结束，写 1 个月会让积分在下期发放的同一刻就死掉，滚存等于没实现。
+ */
+const MEMBERSHIP_BATCH_VALID_MONTHS = MEMBERSHIP_ROLLOVER_PERIODS + 1;
+
+/**
+ * creditBatches 保留条数。**注意这是全局上限，不是按用户。**
+ * 截断时只淘汰已结束的批次，详见 createCreditBatch 内的说明。
+ */
+const CREDIT_BATCH_RETENTION = 2000;
+
 const DATA_DIR = process.env.ARTX_DATA_DIR || path.join(process.cwd(), ".artx-data");
 const DATA_FILE = path.join(DATA_DIR, "admin-data.json");
 const ADMIN_DATA_BACKEND = process.env.ARTX_ADMIN_DATA_BACKEND || "json";
@@ -583,8 +655,176 @@ function createCreditBatch(data: AdminData, input: {
     createdAt: input.createdAt,
     expiresAt: input.expiresAt,
   };
-  data.creditBatches = [batch, ...(data.creditBatches || [])].slice(0, 1000);
+  /**
+   * ⚠️ 这里的上限是**全局**的，不是按用户。
+   *
+   * 改成按月发放后批次产生速度涨了约 12 倍（年卡从 1 条变 12 条），
+   * 原来的无条件 slice(0, 1000) 会把最老的批次直接截掉 —— 而被截掉的批次
+   * 若仍是 active，用户的 credits 余额还在、对应批次却没了，
+   * 后续扣费找不到批次、过期也不会触发，**积分凭空变成永不过期的游离额度，
+   * 且全程零报错**（生产上 866 分游离积分就是同类问题）。
+   *
+   * 因此截断必须**只淘汰已结束的批次**（depleted/expired/refunded 且余额为 0），
+   * active 批次一律保留，宁可数组超过 1000 条。
+   */
+  const nextBatches = [batch, ...(data.creditBatches || [])];
+  if (nextBatches.length > CREDIT_BATCH_RETENTION) {
+    const settled = nextBatches.filter((item) => item.status !== "active" && item.remainingCredits <= 0);
+    const excess = nextBatches.length - CREDIT_BATCH_RETENTION;
+    const dropped = new Set(settled.slice(-Math.min(excess, settled.length)).map((item) => item.id));
+    data.creditBatches = dropped.size ? nextBatches.filter((item) => !dropped.has(item.id)) : nextBatches;
+  } else {
+    data.creditBatches = nextBatches;
+  }
   return batch;
+}
+
+/**
+ * 会员每期批次的 source。
+ *
+ * ⚠️ 必须带期数后缀，不能所有期共用 order.id。退款走
+ * deductCreditBatchesBySource(source) 按 source 扣回，若各期同 source，
+ * 退一期会把所有期一起扣光。后缀同时让「第几期发过没」可以直接查库验证。
+ */
+function membershipPeriodSource(orderId: string, period: number) {
+  return `${orderId}:m${period}`;
+}
+
+/**
+ * 每期应发额度。
+ *
+ * 优先用套餐表的 monthlyCredits；取不到时退回「订单总额度 ÷ 期数」，
+ * 保证历史订单或自定义套餐也能正确分摊，不会因为查不到套餐而发 0。
+ */
+function resolveMembershipMonthlyCredits(order: PaymentOrder, totalPeriods: number) {
+  const plan = MEMBERSHIP_PLANS.find((item) => item.name === order.packageName || item.shortName === order.packageName);
+  if (plan?.monthlyCredits) return plan.monthlyCredits;
+  const periods = Math.max(1, totalPeriods);
+  return Math.max(0, Math.round((order.expectedCredits || 0) / periods));
+}
+
+/**
+ * 惰性补发到期的会员积分，并执行滚存封顶。
+ *
+ * ⚠️ 为什么是惰性而不是定时任务：本项目**没有部署任何 cron / 定时器**，
+ * expireCreditBatches() 同样是在 loadAdminData() 里被动触发的。
+ * 这里沿用同一模式，并**与 expireCreditBatches 共用同一个时间戳**，
+ * 否则会出现「补发了新一期但旧一期还没过期」的瞬时超额。
+ *
+ * 补发用 while 循环而不是只补一期：用户可能几个月没登录，
+ * 一次要补多期。每期批次的 createdAt 用**该期应发时刻**而非当前时刻，
+ * 否则到期日会被不断推迟，滚存封顶形同虚设。
+ */
+function issueDueMembershipCredits(data: AdminData, now: string) {
+  const cutoff = Date.parse(now);
+  if (!Number.isFinite(cutoff)) return false;
+  let changed = false;
+
+  for (const user of data.users) {
+    const subscription = user.membership;
+    if (!subscription || subscription.issuedPeriods >= subscription.totalPeriods) continue;
+
+    while (subscription.issuedPeriods < subscription.totalPeriods) {
+      const nextPeriod = subscription.issuedPeriods + 1;
+      const dueAt = addMonthsIso(subscription.startedAt, nextPeriod - 1);
+      if (!dueAt || Date.parse(dueAt) > cutoff) break;
+
+      // 幂等闸门：同期批次已存在就只推进计数，绝不重复发放。
+      const source = membershipPeriodSource(subscription.orderId, nextPeriod);
+      const existed = (data.creditBatches || []).some((batch) => batch.source === source);
+      if (!existed) {
+        const batch = createCreditBatch(data, {
+          user,
+          kind: "membership",
+          amount: subscription.monthlyCredits,
+          source,
+          reason: `会员套餐积分入账（第 ${nextPeriod}/${subscription.totalPeriods} 期）`,
+          operator: "系统",
+          createdAt: dueAt,
+          expiresAt: addMonthsIso(dueAt, MEMBERSHIP_BATCH_VALID_MONTHS),
+        });
+        if (batch) {
+          user.credits += subscription.monthlyCredits;
+          data.credits = [
+            {
+              id: `cr_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
+              userId: user.id,
+              user: user.name,
+              type: "会员月度发放",
+              delta: subscription.monthlyCredits,
+              reason: batch.reason,
+              source: batch.id,
+              operator: "系统",
+              createdAt: dueAt,
+            },
+            ...data.credits,
+          ].slice(0, 500);
+        }
+      }
+      subscription.issuedPeriods = nextPeriod;
+      subscription.lastIssuedAt = dueAt;
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
+/**
+ * 滚存封顶：会员积分余额超过「上限期数 × 月额度」的部分立即过期。
+ *
+ * ⚠️ 只清 kind==="membership" 的批次。充值和赠送有各自独立的有效期规则，
+ * 混在一起清会把用户真金白银买的充值积分误伤掉。
+ *
+ * 从**最早到期的批次**开始清（与 FIFO 扣费同序），保证用户留下的是
+ * 有效期最长的那部分，符合直觉且对用户最有利。
+ */
+function enforceMembershipRolloverCap(data: AdminData, now: string) {
+  const expiredEntries: CreditLedgerEntry[] = [];
+  let changed = false;
+
+  for (const user of data.users) {
+    const subscription = user.membership;
+    if (!subscription?.monthlyCredits) continue;
+    const cap = subscription.monthlyCredits * (MEMBERSHIP_ROLLOVER_PERIODS + 1);
+
+    const batches = (data.creditBatches || [])
+      .filter((batch) => batch.userId === user.id && batch.kind === "membership" && batch.status === "active" && batch.remainingCredits > 0)
+      .sort(sortCreditBatchesForDeduction);
+    const balance = batches.reduce((sum, batch) => sum + batch.remainingCredits, 0);
+    let overflow = balance - cap;
+    if (overflow <= 0) continue;
+
+    for (const batch of batches) {
+      if (overflow <= 0) break;
+      const forfeited = Math.min(batch.remainingCredits, overflow);
+      overflow -= forfeited;
+      batch.remainingCredits -= forfeited;
+      if (batch.remainingCredits <= 0) batch.status = "expired";
+      batch.updatedAt = now;
+      const applied = Math.min(forfeited, Math.max(0, Math.round(user.credits)));
+      if (applied > 0) {
+        user.credits = Math.max(0, user.credits - applied);
+        expiredEntries.push({
+          id: `cr_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
+          userId: user.id,
+          user: user.name,
+          type: "积分过期",
+          delta: -applied,
+          reason: `会员积分结转上限 ${cap.toLocaleString("zh-CN")}，超出部分失效`,
+          source: batch.id,
+          operator: "系统",
+          createdAt: now,
+        });
+      }
+      changed = true;
+    }
+  }
+
+  if (expiredEntries.length) {
+    data.credits = [...expiredEntries, ...data.credits].slice(0, 500);
+  }
+  return changed;
 }
 
 function createCreditBatchForPaidOrder(
@@ -596,15 +836,37 @@ function createCreditBatchForPaidOrder(
 ) {
   const paidMembershipPlan = getMembershipPlanFromName(order.packageName);
   if (paidMembershipPlan) {
+    /**
+     * ⚠️ 这里**只发第一期**，不是 order.expectedCredits 的全部。
+     *
+     * 旧实现一次性把全周期额度塞进一个批次（年卡 = monthlyCredits × 12，
+     * Pro 年卡 336,000 积分），既让递延负债长期挂在最高点，也让会员积分
+     * 成了「单价最低且永不过期」的囤积工具。
+     *
+     * 现在改为按月发放：首期在此发放，后续期由 issueDueMembershipCredits()
+     * 在 loadAdminData() 里惰性补发。**剩余期数记在 user.membership 上，
+     * 不落库就补发不了**（本项目没有定时任务）。
+     */
+    const totalPeriods = getBillingCycleMonths(order.cycleId);
+    const monthlyCredits = resolveMembershipMonthlyCredits(order, totalPeriods);
+    user.membership = {
+      orderId: order.id,
+      planId: paidMembershipPlan.id,
+      monthlyCredits,
+      totalPeriods,
+      issuedPeriods: 1,
+      startedAt: paidAt,
+      lastIssuedAt: paidAt,
+    };
     return createCreditBatch(data, {
       user,
       kind: "membership",
-      amount: order.expectedCredits,
-      source: order.id,
-      reason: "会员套餐积分入账",
+      amount: monthlyCredits,
+      source: membershipPeriodSource(order.id, 1),
+      reason: `会员套餐积分入账（第 1/${totalPeriods} 期）`,
       operator,
       createdAt: paidAt,
-      expiresAt: addMonthsIso(paidAt, getBillingCycleMonths(order.cycleId)),
+      expiresAt: addMonthsIso(paidAt, MEMBERSHIP_BATCH_VALID_MONTHS),
     });
   }
   if (order.creditKind === "recharge" || order.packageName === "积分充值" || order.id.startsWith("rch_")) {
@@ -616,7 +878,8 @@ function createCreditBatchForPaidOrder(
       reason: "充值积分入账",
       operator,
       createdAt: paidAt,
-      expiresAt: addDaysIso(paidAt, 365),
+      // 每笔充值从本次付款日起独立计时，不与既有批次合并、不续期。
+      expiresAt: addDaysIso(paidAt, RECHARGE_CREDIT_VALID_DAYS),
     });
   }
   return createCreditBatch(data, {
@@ -663,11 +926,24 @@ function sortCreditBatchesForDeduction(left: CreditBatch, right: CreditBatch) {
   return Date.parse(left.createdAt) - Date.parse(right.createdAt);
 }
 
+/**
+ * 按 source 扣回积分（退款用）。
+ *
+ * ⚠️ 匹配规则是「全等 **或** 以 `source:m` 开头」，不能只用全等。
+ * 会员改按月发放后，一个订单会产生 `ord_x:m1` … `ord_x:m12` 多条批次，
+ * 只按 order.id 全等匹配会**一条都匹配不到**，退款时积分扣不回来且零报错。
+ * 用 `:m` 而不是裸 `:` 前缀，避免误伤 `ord_x:first-recharge-bonus`
+ * 这类同前缀但语义不同的 source。
+ */
+function isRefundableBatchSource(batchSource: string, source: string) {
+  return batchSource === source || batchSource.startsWith(`${source}:m`);
+}
+
 function deductCreditBatchesBySource(data: AdminData, source: string, amount: number, updatedAt: string) {
   let remaining = Math.max(0, Math.round(amount));
   if (remaining <= 0) return;
   const nextBatches = [...(data.creditBatches || [])];
-  for (const batch of nextBatches.filter((item) => item.source === source && item.remainingCredits > 0).sort(sortCreditBatchesForDeduction)) {
+  for (const batch of nextBatches.filter((item) => isRefundableBatchSource(item.source, source) && item.remainingCredits > 0).sort(sortCreditBatchesForDeduction)) {
     if (remaining <= 0) break;
     const deducted = Math.min(batch.remainingCredits, remaining);
     remaining -= deducted;
@@ -1819,10 +2095,19 @@ async function loadAdminData(): Promise<AdminData> {
     const shouldPersistCleanup = hasDemoData(stored);
     const data = await normalizeDataAsync(stored);
     const orderCreatedAtBeforeNormalization = new Map(data.orders.map((order) => [order.id, order.createdAt]));
-    const shouldPersistCreditExpiry = expireCreditBatches(data, nowIso());
+    /**
+     * ⚠️ 三步**必须共用同一个 now**，且顺序不能换：
+     * 先补发到期期数 → 再按自然有效期过期 → 最后做滚存封顶。
+     * 换成各自调 nowIso() 会在毫秒级差异下出现「补发了但没参与封顶」的漏网批次；
+     * 封顶放在过期之前则会把本来就该过期的批次算进余额，导致多清。
+     */
+    const now = nowIso();
+    const issuedMembership = issueDueMembershipCredits(data, now);
+    const shouldPersistCreditExpiry = expireCreditBatches(data, now);
+    const cappedMembership = enforceMembershipRolloverCap(data, now);
     ensureBillingConsistency(data);
     const shouldPersistOrderTimestampRepair = data.orders.some((order) => orderCreatedAtBeforeNormalization.get(order.id) !== order.createdAt);
-    if (shouldPersistCleanup || shouldPersistOrderTimestampRepair || shouldPersistCreditExpiry) {
+    if (shouldPersistCleanup || shouldPersistOrderTimestampRepair || shouldPersistCreditExpiry || issuedMembership || cappedMembership) {
       await saveAdminData(data);
     }
     return data;
@@ -2882,6 +3167,14 @@ export async function handleAdminApiRequest(
       refundEvent,
       ...(order.refundEvents || []),
     ].slice(0, 50);
+    /**
+     * ⚠️ 退款必须**同时终止后续期数的发放**，否则 issueDueMembershipCredits()
+     * 会在下个月继续给已退款的订阅发积分 —— 用户拿回了钱还在持续收积分。
+     * 置为 totalPeriods 而不是删除整个 membership，是为了保留发放历史供对账。
+     */
+    if (user.membership?.orderId === order.id) {
+      user.membership.issuedPeriods = user.membership.totalPeriods;
+    }
     if (creditsToDeduct > 0) {
       user.credits = Math.max(0, user.credits - creditsToDeduct);
       deductCreditBatchesBySource(data, order.id, orderCreditsToDeduct, refundedAt);

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import {
   ArrowUpRight,
   Check,
@@ -1164,8 +1164,18 @@ export default function BillingPage() {
                                 textTransform: "none",
                               }}
                             >
-                              {quote.totalCredits.toLocaleString("zh-HK")}{" "}
-                              创作积分
+                              {/*
+                                ⚠️ 这里必须展示「每月到账」而不是 quote.totalCredits。
+                                自会员积分改为按月发放后，年卡的 336,000 是分 12 期发的，
+                                直接显示总额会让用户以为付款后立刻全额到账。
+                              */}
+                              每月到账 {quote.creditsPerPeriod.toLocaleString("zh-HK")} 创作积分
+                              {quote.periods > 1 && (
+                                <>
+                                  ，共 {quote.periods} 期（累计{" "}
+                                  {quote.totalCredits.toLocaleString("zh-HK")}）
+                                </>
+                              )}
                             </div>
                           </div>
 
@@ -1289,6 +1299,13 @@ export default function BillingPage() {
                         }}
                       >
                         积分只代表可用创作额度，不绑定某一个模型；充值按金额阶梯到账。
+                        <Link
+                          href="/credits-guide"
+                          className="ml-1.5 underline underline-offset-2 transition-opacity hover:opacity-80"
+                          style={{ color: green }}
+                        >
+                          查看完整积分规则
+                        </Link>
                       </p>
                     </div>
                     <WalletCards size={20} style={{ color: green }} />

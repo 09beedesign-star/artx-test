@@ -33,12 +33,57 @@ export interface PlanQuote {
   monthlyEquivalent: number;
   baseCredits: number;
   bonusCredits: number;
+  /** 周期内累计发放总额，**不是一次性到账额度** */
   totalCredits: number;
+  /** 每月实际到账额度 */
+  creditsPerPeriod: number;
+  /** 总期数 */
+  periods: number;
   creditsPerYuan: number;
   unitPrice: number;
 }
 
 export const MEMBERSHIP_CREDITS_PER_HKD = 170;
+
+/**
+ * 会员积分结转上限（按「月额度」的倍数计）。
+ *
+ * 1 = 当月额度之外最多再结转 1 个月，即任一时刻余额上限 = 2 个月额度。
+ *
+ * ⚠️ 这里改了，`server/admin-store.ts` 的 MEMBERSHIP_ROLLOVER_PERIODS
+ * 和下面 BILLING_CYCLES 的 creditRule 文案**必须同步改**。
+ * 三者不一致 = 对用户的承诺与实际扣费行为对不上，属于合规风险。
+ * `server/credit-expiry-policy.test.ts` 有断言锁住这三者。
+ */
+export const MEMBERSHIP_ROLLOVER_MONTHS = 1;
+
+/**
+ * 各品类积分有效期口径 —— **唯一真相来源**。
+ *
+ * 前端积分规则页、订阅页、后台说明都从这里取，不要再各写一份文案。
+ * 曾经的教训：BILLING_CYCLES 的 creditRule 写着「未使用积分到期不结转」，
+ * 代码却是余额保留，**承诺与实现长期不一致**且没人发现。
+ */
+export const CREDIT_EXPIRY_RULES = {
+  recharge: {
+    label: "充值积分",
+    days: 366,
+    summary: "自购买之日起 366 天内有效",
+    detail: "每笔充值独立计时，不会因为后续再次充值而延期。366 天而非 365 天是为了覆盖闰年，确保你不会在闰年少用一天。",
+  },
+  gift: {
+    label: "赠送积分",
+    days: 30,
+    summary: "自到账之日起 30 天内有效",
+    detail: "包括活动赠送、首充赠送与客服补偿。赠送积分有效期短于充值积分，且不可提现、不可转赠给其他账号。",
+  },
+  membership: {
+    label: "会员积分",
+    rolloverMonths: MEMBERSHIP_ROLLOVER_MONTHS,
+    summary: "每月发放，未用完可结转 1 个月",
+    detail: "订阅期内每月定额发放（年卡与季卡也按月发放，不再一次性到账）。当月未用完的额度可以顺延到下个月继续使用，但账户内的会员积分余额最多保留 2 个月额度，超出部分会自动失效。",
+  },
+} as const;
 
 /**
  * Free 免费档。
@@ -138,7 +183,7 @@ export const BILLING_CYCLES: BillingCycle[] = [
     multiplier: 1,
     badge: "低门槛",
     bonusRate: 0,
-    creditRule: "会员积分按周期发放，未使用积分到期不结转；套餐积分已按高感知展示口径定额发放",
+    creditRule: "会员积分每月发放，当月未用完可结转 1 个月；账户会员积分余额上限为 2 个月额度",
   },
   {
     id: "quarterly",
@@ -147,7 +192,7 @@ export const BILLING_CYCLES: BillingCycle[] = [
     multiplier: 3,
     badge: "季付优惠",
     bonusRate: 0,
-    creditRule: "会员积分按周期发放，未使用积分到期不结转；套餐积分已按高感知展示口径定额发放",
+    creditRule: "季卡按月发放 3 期，当月未用完可结转 1 个月；账户会员积分余额上限为 2 个月额度",
   },
   {
     id: "annual",
@@ -156,7 +201,7 @@ export const BILLING_CYCLES: BillingCycle[] = [
     multiplier: 12,
     badge: "年付优惠",
     bonusRate: 0,
-    creditRule: "会员积分按周期发放，未使用积分到期不结转；套餐积分已按高感知展示口径定额发放",
+    creditRule: "年卡按月发放 12 期，当月未用完可结转 1 个月；账户会员积分余额上限为 2 个月额度",
     recommended: true,
   },
 ];
@@ -178,6 +223,14 @@ export function getPlanQuote(plan: MembershipPlan, cycle: BillingCycle): PlanQuo
     annual: plan.annualPrice,
   };
   const price = cyclePrices[cycle.id];
+  /**
+   * totalCredits 是**整个周期累计发放**的积分，用于算单价和性价比。
+   *
+   * ⚠️ 它**不等于**「一次性到账的积分」——自按月发放上线后，年卡的
+   * 336,000 积分是分 12 期、每期 28,000 到账的。
+   * 前端展示务必用 monthlyCredits 讲「每月多少」，或明确标注「全年累计」，
+   * 直接把 totalCredits 展示成余额会让用户以为付款后立刻到账 336,000。
+   */
   const totalCredits = plan.monthlyCredits * cycle.months;
   const baseCredits = totalCredits;
   const bonusCredits = 0;
@@ -192,6 +245,10 @@ export function getPlanQuote(plan: MembershipPlan, cycle: BillingCycle): PlanQuo
     baseCredits,
     bonusCredits,
     totalCredits,
+    /** 每期（每月）实际到账额度。前端展示到账金额时用这个。 */
+    creditsPerPeriod: plan.monthlyCredits,
+    /** 计费周期总期数，年卡 12 / 季卡 3 / 月卡 1 */
+    periods: cycle.months,
     creditsPerYuan,
     unitPrice,
   };

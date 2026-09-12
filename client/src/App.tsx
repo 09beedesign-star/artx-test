@@ -23,6 +23,7 @@ import HelpPage from "./pages/HelpPage";
 import LoadingLoopPage, { CanvasPageLoading, GeneralPageLoading } from "./pages/LoadingLoopPage";
 import AdminPrototypePage from "./pages/AdminPrototypePage";
 import BillingPage from "./pages/BillingPage";
+import CreditsGuidePage from "./pages/CreditsGuidePage";
 import { useAuth } from "./contexts/AuthContext";
 import CreditGrantNotification from "./components/billing/CreditGrantNotification";
 
@@ -31,7 +32,9 @@ const configuredAdminHost = (import.meta.env.VITE_ADMIN_HOST || "").toLowerCase(
 const configuredAdminAccessToken = (import.meta.env.VITE_ADMIN_ACCESS_TOKEN || "").trim();
 const grayAdminRouteHosts = new Set(["backstage.artxsd.com"]);
 const routeLoadingDurationMs = 720;
-const publicGuestPaths = ["/", "/inspiration", "/skills", "/cross-border-commerce"];
+// 积分规则属于公开说明内容，未登录用户在决定付费前就应该能看到，
+// 因此放进 publicGuestPaths 且不套 RequireLogin。
+const publicGuestPaths = ["/", "/inspiration", "/skills", "/cross-border-commerce", "/credits-guide"];
 const homeAuthPanelStorageKey = "artx:home-auth-panel";
 
 function isAdminHost() {
@@ -164,6 +167,13 @@ function AppRoutes() {
             <BillingPage />
           </AppShell>
         </RequireLogin>
+      </Route>
+
+      {/* 积分规则说明：刻意不套 RequireLogin —— 用户在付费之前就该能看清规则 */}
+      <Route path="/credits-guide">
+        <AppShell>
+          <CreditsGuidePage />
+        </AppShell>
       </Route>
 
       <Route path="/loading">
