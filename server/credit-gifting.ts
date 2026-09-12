@@ -92,6 +92,45 @@ export const DEFAULT_GIFT_EXPIRY_DAYS = 30;
 export const SINGLE_GIFT_MAX_CREDITS = 100000;
 export const DAILY_GIFT_MAX_CREDITS_PER_USER = 500000;
 
+/**
+ * ⚠️⚠️ 产品硬性规则：**禁止用户之间转赠积分**。
+ *
+ * 积分只能由平台单向发放给用户，不存在「用户 A 把积分转给用户 B」的通路。
+ * 这不是技术限制而是产品边界，原因：
+ * 1. 积分是充值/订阅购得的**预付价值**，用户间自由流转等同于发行内部货币，
+ *    会形成платформ外的二级交易市场（低价倒卖积分），冲击正价销售。
+ * 2. 转赠可用于**洗白刷号收益**：批量注册的小号把薅到的赠送积分归集到大号，
+ *    使「单账号风控额度」形同虚设。
+ * 3. 退款链路按订单原路扣回（deductCreditBatchesBySource），积分一旦跨账号
+ *    流动，退款时将无法追回，形成套利缺口。
+ *
+ * **防线设计**：本服务是所有积分入账的唯一收口，而 source 是唯一能表达
+ * 「这笔积分从哪来」的字段。这里用前缀白名单强制 source 必须是**平台侧来源**，
+ * 任何试图表达「来自另一个用户」的写法都无法通过校验。
+ *
+ * 配套的静态防护见 server/credit-transfer-ban.test.ts（源码级扫描）。
+ */
+export const ALLOWED_GIFT_SOURCE_PREFIXES = [
+  /** 管理员后台人工发放 */
+  "admin/",
+  /** 规则引擎自动发放（首充、活动等） */
+  "rule/",
+  /** 订单关联发放（首充赠送等） */
+  "order/",
+  /** 系统补偿（故障补偿、客服补发） */
+  "system/",
+  /** 测试夹具专用 */
+  "test/",
+] as const;
+
+/**
+ * 校验赠送来源是否为平台侧合法来源。
+ * 导出供测试与上层路由复用，避免各处各写一份前缀表。
+ */
+export function isAllowedGiftSource(source: string): boolean {
+  return ALLOWED_GIFT_SOURCE_PREFIXES.some((prefix) => source.startsWith(prefix));
+}
+
 export type GiftCreditsInput = {
   /** 收件人用户对象 */
   user: GiftableUser;
@@ -99,7 +138,11 @@ export type GiftCreditsInput = {
   amount: number;
   /** 赠送理由（必填，用于审计与流水） */
   reason: string;
-  /** 来源标识（如 admin/batch-gift、rule/signup-bonus、order/first-recharge） */
+  /**
+   * 来源标识，**必须**以 ALLOWED_GIFT_SOURCE_PREFIXES 之一开头
+   * （如 admin/batch-gift、rule/signup-bonus、order/first-recharge）。
+   * ⚠️ 不接受任何表达「来自某个用户」的来源 —— 见上方转赠禁令说明。
+   */
   source: string;
   /** 操作者名称（系统 = "系统"，管理员 = username） */
   operator: string;
@@ -133,6 +176,17 @@ export function grantCredits(data: GiftableData, input: GiftCreditsInput): GiftC
     return {
       success: false,
       error: `单笔赠送不能超过 ${SINGLE_GIFT_MAX_CREDITS.toLocaleString("zh-CN")} 积分`,
+    };
+  }
+
+  // ⚠️ 转赠禁令闸门：来源必须是平台侧白名单前缀。
+  // 放在所有写入之前，校验不过一律拒绝且不产生任何副作用。
+  // 这是「禁止用户间转赠」在运行时的唯一强制点 —— 若将来有人在用户端路由里
+  // 调用本函数并把付款人 id 塞进 source，会在这里被拦下。
+  if (!isAllowedGiftSource(input.source)) {
+    return {
+      success: false,
+      error: `赠送来源非法：${input.source || "(空)"}。积分只能由平台单向发放，禁止用户之间转赠`,
     };
   }
 

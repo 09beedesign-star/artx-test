@@ -130,10 +130,10 @@ describe("grantCredits 统一赠送服务", () => {
     const user = makeUser();
 
     expect(grantCredits(data, {
-      user, amount: 0, reason: "x", source: "s", operator: "admin",
+      user, amount: 0, reason: "x", source: "test/amount", operator: "admin",
     }).success).toBe(false);
     expect(grantCredits(data, {
-      user, amount: -100, reason: "x", source: "s", operator: "admin",
+      user, amount: -100, reason: "x", source: "test/amount", operator: "admin",
     }).success).toBe(false);
 
     // 失败时不能留下任何副作用。
@@ -251,7 +251,7 @@ describe("grantCredits 统一赠送服务", () => {
       user,
       amount: 100,
       reason: "x",
-      source: "s",
+      source: "test/created-at",
       operator: "admin",
       createdAt: "not-a-date",
     });
