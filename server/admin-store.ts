@@ -3,7 +3,16 @@ import { accessSync, constants } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { AI_CREDIT_POLICIES, AI_IMAGE_MODEL_CREDIT_POLICIES, AI_PLAN_DISCOUNTS, getAiImageModelCreditPolicy, isHighQualityImageModel, type AiBillingCapability, type AiBillingPolicy, type AiPlanDiscountPolicy } from "../shared/ai-credit-policy";
-import { BILLING_CYCLES, MEMBERSHIP_PLANS, getPlanQuote, quoteCreditRecharge } from "../shared/billing-config";
+import {
+  BILLING_CYCLES,
+  MEMBERSHIP_PLANS,
+  FREE_PLAN,
+  FREE_PLAN_ID,
+  FREE_PLAN_DISPLAY_NAME,
+  isFreePlanId,
+  getPlanQuote,
+  quoteCreditRecharge,
+} from "../shared/billing-config";
 import { createAuthUserForAdmin, getAdminSessionFromAuthorization, listAuthUsers, type PublicAuthUser, updateAuthUserAdmin } from "./auth-store";
 import { storeFeedbackImagesForUser, type FeedbackImageInput, type StoredFeedbackImage } from "./local-image-storage";
 import { PostgresJsonDocumentStore } from "./postgres-json-store";
@@ -826,20 +835,28 @@ function buildTencentCloudBackendHealth(): ProviderHealth {
 function mapRoleToPlan(role?: string) {
   if (role === "super_admin" || role === "admin") return "Studio 工作室版";
   if (role === "finance" || role === "support") return "Pro 专业版";
-  return "Lite 入门版";
+  // 普通 viewer 默认 Free —— 付费档只能由真实订单赋予。
+  return FREE_PLAN_DISPLAY_NAME;
 }
 
 function getPlanIdFromUserPlan(planName?: string) {
   const normalized = String(planName || "").trim().toLowerCase();
-  if (!normalized || normalized === "free" || normalized === "starter" || normalized === "demo") {
-    return "lite";
+  if (
+    !normalized
+    || normalized === "free"
+    || normalized === "starter"
+    || normalized === "demo"
+    || normalized.includes("免费")
+  ) {
+    return FREE_PLAN_ID;
   }
   const matched = MEMBERSHIP_PLANS.find((plan) => (
     normalized.includes(plan.id.toLowerCase())
     || normalized.includes(plan.shortName.toLowerCase())
     || normalized.includes(plan.name.toLowerCase())
   ));
-  return matched?.id || "creator";
+  // 认不出来时落 Free，不再默认给 creator 档权益。
+  return matched?.id || FREE_PLAN_ID;
 }
 
 function getHighQualityImageMonthlyLimit(planId?: string) {
@@ -906,13 +923,15 @@ export async function getAiModelEntitlementsForUser(userId: string) {
   const data = await loadAdminData();
   const user = data.users.find((item) => item.id === userId);
   const planId = getPlanIdFromUserPlan(user?.plan);
-  const plan = MEMBERSHIP_PLANS.find((item) => item.id === planId);
+  const plan = isFreePlanId(planId)
+    ? FREE_PLAN
+    : MEMBERSHIP_PLANS.find((item) => item.id === planId);
   const highLimit = getHighQualityImageMonthlyLimit(planId);
   const highUsed = countHighQualityImageUsageThisMonth(data, userId);
 
   return {
     planId,
-    planName: plan?.name || user?.plan || "Free",
+    planName: plan?.name || user?.plan || FREE_PLAN_DISPLAY_NAME,
     imageModels: AI_IMAGE_MODEL_CREDIT_POLICIES.map((policy) => {
       if (!isHighQualityImageModel(policy.model)) {
         return {
@@ -969,13 +988,23 @@ function getMembershipPlanFromName(planName?: string) {
 
 function normalizePlanDisplayName(planName?: string | null) {
   const raw = String(planName || "").trim();
-  if (!raw) return "Lite 入门版";
+  // 空值默认落在 Free，而不是白送一个 Lite。
+  if (!raw) return FREE_PLAN_DISPLAY_NAME;
   const normalized = raw.toLowerCase();
+
+  // Free 系别名必须先于 Lite 分支判定，否则会被吞成付费档。
   if (
     normalized === "free"
     || normalized === "starter"
     || normalized === "demo"
-    || normalized.includes("creator")
+    || normalized === FREE_PLAN_DISPLAY_NAME.toLowerCase()
+    || normalized.includes("免费")
+  ) {
+    return FREE_PLAN_DISPLAY_NAME;
+  }
+
+  if (
+    normalized.includes("creator")
     || normalized.includes("创作者")
     || normalized.includes("积分充值")
     || normalized.includes("recharge")
@@ -1002,7 +1031,8 @@ function normalizePlanDisplayName(planName?: string | null) {
     return "Lite 入门版";
   }
 
-  return "Lite 入门版";
+  // 兜底落 Free：认不出来的档位名不应该被升级成付费档。
+  return FREE_PLAN_DISPLAY_NAME;
 }
 
 function quoteAiUsageFromData(data: AdminData, input: {
@@ -1229,6 +1259,7 @@ function buildProductionReadiness(): ProductionReadinessItem[] {
     readinessItem({ id: "object_storage", domain: "对象存储", requiredKeys: ["STORAGE_ENDPOINT", "STORAGE_BUCKET", "STORAGE_ACCESS_KEY_ID", "STORAGE_SECRET_ACCESS_KEY", "PUBLIC_ASSET_BASE_URL"], summary: "用于保存用户生成图片、画板素材、下载文件和长期可访问资产。", action: "建议接腾讯云 COS 或 S3 兼容存储，并配置 CDN/私有读写策略。" }),
     readinessItem({ id: "ai_openai", domain: "OpenAI 能力", requiredKeys: ["OPENAI_API_KEY"], summary: "用于文本/图像模型能力和后台供应商健康判断。", action: "配置服务端 API Key，并跑一笔真实 AI 任务确认扣积分和成本记录。" }),
     readinessItem({ id: "ai_bkeel", domain: "BKEEL 图片生成", requiredKeys: ["AI_IMAGE_API_KEY", "AI_IMAGE_BASE_URL", "AI_IMAGE_MODEL"], summary: "用于第三方图片生成任务、providerTaskId 追踪和失败告警。", action: "配置 AI_IMAGE_* 接口凭据，验证异步 task_id 轮询、失败告警和成本入账。" }),
+    readinessItem({ id: "ai_tencent_vod", domain: "腾讯云 VOD 图片生成", requiredKeys: ["TENCENT_VOD_SID", "TENCENT_VOD_SKEY", "TENCENT_VOD_SUB_APP_ID"], summary: "全站默认出图链路（vod-og25 / vod-gem / vod-jimeng 等），承载 auto 模式全部兜底。", action: "配置 TENCENT_VOD_* 凭据，跑一笔真实出图确认 providerTaskId 和成本进入 AI 任务明细。" }),
     readinessItem({ id: "ai_picwish", domain: "PicWish/佐糖图像处理", requiredKeys: ["PICWISH_API_KEY"], summary: "用于抠图、高清、去水印、橡皮擦等图像处理能力。", action: "配置接口凭据，验证 providerTaskId 进入后台 AI 任务明细。" }),
     mailReadinessItem(),
     readinessItem({ id: "sms_tencent", domain: "腾讯云短信验证码", requiredKeys: ["TENCENTCLOUD_SECRET_ID", "TENCENTCLOUD_SECRET_KEY", "TENCENT_SMS_SDK_APP_ID", "TENCENT_SMS_SIGN_NAME", "TENCENT_SMS_TEMPLATE_ID"], summary: "用于手机号验证码登录/注册，验证码只保存哈希并有过期、重发和次数限制。", action: "配置腾讯云短信应用、签名和模板；模板参数第 1 个必须是 6 位验证码。" }),
@@ -1404,6 +1435,8 @@ function buildProviderHealth(): ProviderHealth[] {
   const alipayDirectStatus = envStatus(["ALIPAY_APP_ID", "ALIPAY_PRIVATE_KEY"], "all");
   const aggregateStatus = wallytConfigured ? "configured" : "missing";
   const aggregateState = wallytConfigured ? "在线" : "未配置";
+  const tencentVodStatus = envStatus(["TENCENT_VOD_SID", "TENCENT_VOD_SKEY", "TENCENT_VOD_SUB_APP_ID"], "all");
+  const tencentVodConfigured = tencentVodStatus === "configured";
 
   return [
     { id: "pay_wallyt", name: "威富通", category: "聚合支付", state: wallytConfigured ? "在线" : "未配置", latencyMs: 220, owner: "Finance", configLocation: "server env: WALLYT_*", credentialStatus: wallytStatus, lastCheckedAt: "刚刚" },
@@ -1412,6 +1445,7 @@ function buildProviderHealth(): ProviderHealth[] {
     { id: "pay_alipay", name: "支付宝", category: "国内支付", state: alipayDirectStatus === "configured" ? "在线" : aggregateState, latencyMs: 194, owner: "Finance", configLocation: alipayDirectStatus === "configured" ? "server env: ALIPAY_*" : "via Wallyt aggregate payment", credentialStatus: alipayDirectStatus === "configured" ? alipayDirectStatus : aggregateStatus, lastCheckedAt: "刚刚" },
     { id: "ai_openai", name: "OpenAI", category: "模型供应商", state: envStatus(["OPENAI_API_KEY"]) === "configured" ? "在线" : "未配置", latencyMs: 438, owner: "AI Ops", configLocation: "server env: OPENAI_*", credentialStatus: envStatus(["OPENAI_API_KEY"]), lastCheckedAt: "刚刚" },
     { id: "ai_bkeel", name: "BKEEL", category: "图片生成", state: envStatus(["AI_IMAGE_API_KEY", "AI_IMAGE_BASE_URL", "AI_IMAGE_MODEL"], "all") === "configured" ? "观察" : "未配置", latencyMs: 1240, owner: "AI Ops", configLocation: "server env: AI_IMAGE_*", credentialStatus: envStatus(["AI_IMAGE_API_KEY", "AI_IMAGE_BASE_URL", "AI_IMAGE_MODEL"], "all"), lastCheckedAt: "刚刚" },
+    { id: "ai_tencent_vod", name: "腾讯云 VOD", category: "图片生成", state: tencentVodConfigured ? "在线" : "未配置", latencyMs: 960, owner: "AI Ops", configLocation: "server env: TENCENT_VOD_*", credentialStatus: tencentVodStatus, lastCheckedAt: "刚刚" },
     { id: "ai_picwish", name: "PicWish/佐糖", category: "图像处理", state: envStatus(["PICWISH_API_KEY"]) === "configured" ? "在线" : "未配置", latencyMs: 812, owner: "AI Ops", configLocation: "server env: PICWISH_*", credentialStatus: envStatus(["PICWISH_API_KEY"]), lastCheckedAt: "刚刚" },
     buildTencentCloudBackendHealth(),
   ];
@@ -1751,9 +1785,12 @@ function recalculateUserBilling(data: AdminData) {
 }
 
 function ensureBillingConsistency(data: AdminData) {
+  // 注意：这里刻意不再改写 user.plan。
+  // normalizePlanDisplayName 是展示层归一化函数，此处位于落库路径上，
+  // 曾导致注册时写入的 "Free" 被持久化改写成 "Lite 入门版"，
+  // 让零充值用户凭空获得付费档权益。展示归一化交给读取侧处理。
   data.users = data.users.map((user) => ({
     ...user,
-    plan: normalizePlanDisplayName(user.plan),
     registeredAt: formatAbsoluteSecondTime(user.registeredAt) || user.registeredAt,
   }));
   data.alerts = data.alerts.map((alert) => ({
@@ -1794,10 +1831,21 @@ function ensureBillingConsistency(data: AdminData) {
   recalculateUserBilling(data);
 }
 
+/**
+ * 读取侧展示投影：把存储的原始 plan 字段归一化成账单页档位名。
+ * 归一化只在出口做，不回写数据库 —— 避免重演「Free 被持久化成 Lite」。
+ */
+function toDisplayUsers(users: AdminData["users"]) {
+  return users.map((user) => ({
+    ...user,
+    plan: normalizePlanDisplayName(user.plan),
+  }));
+}
+
 function fullPayload(data: AdminData) {
   return {
     overview: dashboard(data),
-    users: data.users,
+    users: toDisplayUsers(data.users),
     orders: data.orders,
     credits: data.credits,
     creditBatches: data.creditBatches,
@@ -1959,6 +2007,7 @@ function buildAccountDetail(data: AdminData, userId: string) {
   return {
     user: {
       ...user,
+      plan: normalizePlanDisplayName(user.plan),
       spent: user.totalRecharge ?? 0,
     },
     orders,
@@ -1993,7 +2042,7 @@ export async function handleAdminApiRequest(
   if (method === "GET" && (route === "overview" || route === "dashboard")) {
     return { status: 200, body: fullPayload(data) };
   }
-  if (method === "GET" && route === "users") return { status: 200, body: { users: data.users } };
+  if (method === "GET" && route === "users") return { status: 200, body: { users: toDisplayUsers(data.users) } };
   const userDetailMatch = route.match(/^users\/([^/]+)\/detail$/);
   if (method === "GET" && userDetailMatch) {
     const detail = buildAccountDetail(data, userDetailMatch[1]);
@@ -2120,7 +2169,7 @@ export async function handleAdminApiRequest(
     if (!detail) return jsonError(404, "订单不存在");
     return { status: 200, body: detail };
   }
-  if (method === "GET" && route === "credits") return { status: 200, body: { credits: data.credits, creditBatches: data.creditBatches, users: data.users } };
+  if (method === "GET" && route === "credits") return { status: 200, body: { credits: data.credits, creditBatches: data.creditBatches, users: toDisplayUsers(data.users) } };
   if (method === "GET" && route === "ai-tasks") return { status: 200, body: { aiTasks: data.aiTasks, providers: data.providers } };
   if (method === "GET" && route === "providers") return { status: 200, body: { providers: data.providers } };
   if (method === "GET" && route === "production-readiness") return { status: 200, body: { productionReadiness: buildProductionReadiness() } };

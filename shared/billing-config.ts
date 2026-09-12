@@ -1,4 +1,4 @@
-export type MembershipPlanId = "lite" | "creator" | "pro" | "studio" | "business";
+export type MembershipPlanId = "free" | "lite" | "creator" | "pro" | "studio" | "business";
 export type BillingCycleId = "monthly" | "quarterly" | "annual";
 
 export interface MembershipPlan {
@@ -39,6 +39,32 @@ export interface PlanQuote {
 }
 
 export const MEMBERSHIP_CREDITS_PER_HKD = 170;
+
+/**
+ * Free 免费档。
+ * 刻意不放进 MEMBERSHIP_PLANS —— 那个数组是「可购买套餐」列表，
+ * 订阅页会逐项渲染成付费卡片。Free 只作为未订阅用户的默认归属档，
+ * 需要时通过 FREE_PLAN / isFreePlanId 单独引用。
+ */
+export const FREE_PLAN_ID: MembershipPlanId = "free";
+export const FREE_PLAN_DISPLAY_NAME = "Free 免费版";
+
+export const FREE_PLAN: MembershipPlan = {
+  id: "free",
+  name: FREE_PLAN_DISPLAY_NAME,
+  shortName: "Free",
+  monthlyPrice: 0,
+  quarterlyPrice: 0,
+  annualPrice: 0,
+  monthlyCredits: 0,
+  audience: "新用户体验、轻度试用",
+  tagline: "免费体验标准图片生成与基础编辑能力。",
+  features: ["标准 AI 生图体验", "基础图片编辑", "提示词优化", "升级后解锁完整额度"],
+};
+
+export function isFreePlanId(planId?: string | null) {
+  return String(planId || "").trim().toLowerCase() === "free";
+}
 
 export const MEMBERSHIP_PLANS: MembershipPlan[] = [
   {

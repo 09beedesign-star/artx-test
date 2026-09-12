@@ -657,8 +657,9 @@ describe("production readiness", () => {
     expect(overviewBody.users.find((item) => item.id === "plan-user-pro")).toMatchObject({
       plan: "Pro 专业版",
     });
+    // Starter 是免费档别名，零充值账号不得被归一化成付费的 Lite。
     expect(overviewBody.users.find((item) => item.id === "plan-user-starter")).toMatchObject({
-      plan: "Lite 入门版",
+      plan: "Free 免费版",
     });
     expect(overviewBody.users.find((item) => item.id === "plan-user-creator")).toMatchObject({
       plan: "Lite 入门版",
@@ -669,6 +670,11 @@ describe("production readiness", () => {
 
     await expect(getBillingSnapshotForUser("plan-user-pro")).resolves.toMatchObject({
       plan: "Pro 专业版",
+    });
+
+    // 回归：Free 必须保持 Free，不能被当成已订阅用户。
+    await expect(getBillingSnapshotForUser("plan-user-starter")).resolves.toMatchObject({
+      plan: "Free 免费版",
     });
   });
 

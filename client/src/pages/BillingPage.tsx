@@ -19,6 +19,7 @@ import { BG_GLOW } from "@/lib/workspace-data";
 import {
   BILLING_CYCLES,
   MEMBERSHIP_PLANS,
+  FREE_PLAN_DISPLAY_NAME,
   formatCurrency,
   getPlanQuote,
   quoteCreditRecharge,
@@ -245,12 +246,19 @@ function clearExpiredAuthSession() {
 
 function normalizePlanDisplayName(planName?: string | null) {
   const raw = String(planName || "").trim();
-  if (!raw) return "Lite 入门版";
+  if (!raw) return FREE_PLAN_DISPLAY_NAME;
   const normalized = raw.toLowerCase();
+  // Free 系别名先判，避免被下面的 Lite 分支吞掉。
   if (
     normalized === "free" ||
     normalized === "starter" ||
     normalized === "demo" ||
+    normalized === FREE_PLAN_DISPLAY_NAME.toLowerCase() ||
+    normalized.includes("免费")
+  ) {
+    return FREE_PLAN_DISPLAY_NAME;
+  }
+  if (
     normalized.includes("积分充值") ||
     normalized.includes("recharge")
   ) {
@@ -278,7 +286,7 @@ function normalizePlanDisplayName(planName?: string | null) {
     return "Lite 入门版";
   }
 
-  return "Lite 入门版";
+  return FREE_PLAN_DISPLAY_NAME;
 }
 
 function getSubscribedPlanId(planName?: string | null): MembershipPlanId | null {
@@ -289,6 +297,8 @@ function getSubscribedPlanId(planName?: string | null): MembershipPlanId | null 
     normalized === "free" ||
     normalized === "starter" ||
     normalized === "demo" ||
+    normalized === FREE_PLAN_DISPLAY_NAME.toLowerCase() ||
+    normalized.includes("免费") ||
     normalized.includes("积分充值") ||
     normalized.includes("recharge")
   ) {
