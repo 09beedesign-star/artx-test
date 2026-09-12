@@ -500,6 +500,12 @@ import {
   type GeneratedAsset,
   type Project,
 } from "@/lib/workspace-data";
+import {
+  DEFAULT_IMAGE_OUTPUT_COUNT,
+  getImageModelDefaultOutputCount,
+  hasCustomDefaultOutputCount,
+} from "@shared/image-models";
+import { getAiImageModelCreditPolicy } from "@shared/ai-credit-policy";
 import { filterAllowedAiModelOptions, resolveAllowedAiModelId } from "@/lib/model-access";
 import {
   SOCIAL_MEDIA_SIZE_PRESETS,
@@ -1203,11 +1209,20 @@ function ImageCountSelector({
   onChange,
   isDark,
   compact = false,
+  recommendedCount = DEFAULT_IMAGE_OUTPUT_COUNT,
+  modelLabel,
+  creditsPerImage = 0,
 }: {
   value: number;
   onChange: (count: number) => void;
   isDark: boolean;
   compact?: boolean;
+  /** 当前模型的推荐张数。与全站默认不同时（如 MJ 的 4 张）会显示说明。 */
+  recommendedCount?: number;
+  /** 当前模型名，用于说明文案。 */
+  modelLabel?: string;
+  /** 单张积分单价，为 0 表示取不到，此时隐去价格文案而不是显示「0 积分」。 */
+  creditsPerImage?: number;
 }) {
   const [open, setOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -1226,12 +1241,19 @@ function ImageCountSelector({
   const text = isDark ? "oklch(0.74 0.01 270)" : "oklch(0.58 0.008 270)";
   const popBg = isDark ? "oklch(0.16 0.018 270)" : "oklch(0.99 0.004 270)";
 
+  /**
+   * 是否显示「该模型建议出 N 张」的说明。
+   * 只有模型推荐值与全站默认（1 张）不同才显示，避免给所有模型都挂一句废话。
+   */
+  const showRecommendation = recommendedCount !== DEFAULT_IMAGE_OUTPUT_COUNT;
+
   const updatePopoverPosition = useCallback(() => {
     const trigger = selectorRef.current;
     if (!trigger) return;
     const rect = trigger.getBoundingClientRect();
-    const width = 146;
-    const height = 46;
+    // 带说明时弹层更宽更高，否则文案会被挤成多行甚至溢出。
+    const width = showRecommendation ? 232 : 146;
+    const height = showRecommendation ? 128 : 46;
     const margin = 12;
     const gap = 8;
     setPopoverStyle({
@@ -1243,7 +1265,7 @@ function ImageCountSelector({
       top: Math.max(margin, rect.top - gap - height),
       width,
     });
-  }, []);
+  }, [showRecommendation]);
 
   useEffect(() => {
     if (!open) return;
@@ -1308,12 +1330,46 @@ function ImageCountSelector({
           />
         )}
       </button>
+      {/*
+        紧凑模式下横向空间不够，徽标会把工具条挤换行，所以只在常规模式显示。
+        紧凑模式的用户仍可点开弹层看到完整说明，信息不会丢失。
+      */}
+      {showRecommendation && !compact && (
+        <span
+          title={
+            creditsPerImage > 0
+              ? `${modelLabel || "该模型"}默认生成 ${recommendedCount} 张，按张计费 ${creditsPerImage.toLocaleString("zh-CN")} 积分/张，共约 ${(creditsPerImage * recommendedCount).toLocaleString("zh-CN")} 积分。可点击左侧调整张数。`
+              : `${modelLabel || "该模型"}默认生成 ${recommendedCount} 张，可点击左侧调整。`
+          }
+          style={{
+            position: "absolute",
+            top: -6,
+            right: -6,
+            padding: "0 4px",
+            height: 14,
+            display: "flex",
+            alignItems: "center",
+            borderRadius: 7,
+            background: "#C5ED47",
+            color: "#172000",
+            fontSize: 9,
+            fontWeight: 500,
+            lineHeight: "14px",
+            letterSpacing: 0,
+            pointerEvents: "auto",
+            cursor: "help",
+            whiteSpace: "nowrap",
+          }}
+        >
+          默认{recommendedCount}张
+        </span>
+      )}
       {open &&
         typeof document !== "undefined" &&
         createPortal(
           <div
             ref={popoverRef}
-            className="grid grid-cols-4 gap-1 rounded-[var(--radius-md-design)] p-1 shadow-2xl"
+            className="rounded-[var(--radius-md-design)] p-1 shadow-2xl"
             style={{
               ...(popoverStyle || {}),
               background: popBg,
@@ -1321,26 +1377,86 @@ function ImageCountSelector({
               zIndex: 9999,
             }}
           >
-            {[1, 2, 3, 4].map(count => {
-              const active = value === count;
-              return (
-                <button
-                  key={count}
-                  type="button"
-                  className="h-8 rounded-[var(--radius-sm-design)] type-caption transition-colors"
+            <div className="grid grid-cols-4 gap-1">
+              {[1, 2, 3, 4].map(count => {
+                const active = value === count;
+                const recommended = showRecommendation && count === recommendedCount;
+                return (
+                  <button
+                    key={count}
+                    type="button"
+                    title={
+                      creditsPerImage > 0
+                        ? `${count} 张，约消耗 ${(creditsPerImage * count).toLocaleString("zh-CN")} 积分`
+                        : `生成 ${count} 张`
+                    }
+                    className="relative h-8 rounded-[var(--radius-sm-design)] type-caption transition-colors"
+                    style={{
+                      color: active ? "#172000" : text,
+                      background: active ? "#C5ED47" : "transparent",
+                      // 推荐值未被选中时给个描边，让用户知道「这个才是该模型的常规用法」。
+                      border: recommended && !active
+                        ? "1px solid rgba(197,237,71,0.55)"
+                        : "1px solid transparent",
+                    }}
+                    onClick={() => {
+                      onChange(count);
+                      setOpen(false);
+                    }}
+                  >
+                    {count}
+                  </button>
+                );
+              })}
+            </div>
+            {showRecommendation && (
+              <div
+                style={{
+                  marginTop: 6,
+                  paddingTop: 6,
+                  borderTop: `1px solid ${border}`,
+                }}
+              >
+                <p
                   style={{
-                    color: active ? "#172000" : text,
-                    background: active ? "#C5ED47" : "transparent",
-                  }}
-                  onClick={() => {
-                    onChange(count);
-                    setOpen(false);
+                    color: "#C5ED47",
+                    fontSize: 10,
+                    lineHeight: "14px",
+                    letterSpacing: 0,
+                    fontWeight: 500,
                   }}
                 >
-                  {count}
-                </button>
-              );
-            })}
+                  {modelLabel || "该模型"}默认生成 {recommendedCount} 张
+                </p>
+                <p
+                  style={{
+                    color: text,
+                    fontSize: 10,
+                    lineHeight: "14px",
+                    letterSpacing: 0,
+                    marginTop: 3,
+                  }}
+                >
+                  一次出 {recommendedCount} 张不同构图供挑选，这是该模型的常规用法。
+                </p>
+                {creditsPerImage > 0 && (
+                  <p
+                    style={{
+                      color: text,
+                      fontSize: 10,
+                      lineHeight: "14px",
+                      letterSpacing: 0,
+                      marginTop: 3,
+                      opacity: 0.85,
+                    }}
+                  >
+                    按张计费 {creditsPerImage.toLocaleString("zh-CN")} 积分/张，
+                    {recommendedCount} 张约 {(creditsPerImage * recommendedCount).toLocaleString("zh-CN")} 积分。
+                    调低张数可减少消耗。
+                  </p>
+                )}
+              </div>
+            )}
           </div>,
           document.body
         )}
@@ -18328,7 +18444,29 @@ function CanvasAssistantPanel({
       ? stored!
       : DEFAULT_TEXT_MODEL;
   });
-  const [assistantImageCount, setAssistantImageCount] = useState(1);
+  /**
+   * 出图张数。初值取当前模型的推荐张数（MJ 为 4，其余为 1）。
+   *
+   * ⚠️ 这里**必须**用 useState 的惰性初始化读取模型推荐值，不能写死 1 再靠
+   * useEffect 纠正 —— 否则首屏会先渲染「1张」再跳成「4张」，用户会看到闪动，
+   * 且极端情况下可能在纠正前就点了生成。
+   */
+  const [assistantImageCount, setAssistantImageCount] = useState(() =>
+    getImageModelDefaultOutputCount(assistantImageModelId)
+  );
+  /**
+   * 用户是否手动调过张数。
+   *
+   * 【为什么需要这个标记】
+   * 切换模型时我们要自动带出推荐张数，但**不能覆盖用户的明确选择**：
+   * 用户在 MJ 下特意改成 1 张（想省积分），切走再切回来又变 4 张，
+   * 等于我们在跟用户较劲。一旦用户手动选过，自动联动就永久让位。
+   */
+  const assistantImageCountTouchedRef = useRef(false);
+  const handleAssistantImageCountChange = useCallback((count: number) => {
+    assistantImageCountTouchedRef.current = true;
+    setAssistantImageCount(count);
+  }, []);
   const [assistantImageRatio, setAssistantImageRatio] =
     useState<CanvasAssistantImageRatio>("auto");
   const assistantControlsTextModeMinPanelWidth = 400;
@@ -18352,6 +18490,30 @@ function CanvasAssistantPanel({
     const next = resolveAllowedAiModelId(assistantImageModelId, availableAssistantImageModels);
     if (next && next !== assistantImageModelId) setAssistantImageModelId(next);
   }, [assistantImageModelId, availableAssistantImageModels]);
+  /**
+   * 切换图片模型时，自动带出该模型的推荐出图张数。
+   *
+   * 目前只有 MJ（vod-mj）登记了推荐值 4 —— 我们接的是腾讯云 VOD 直连的
+   * MJ v8.2，VOD 不像 MJ 官方那样默认出四宫格，必须由我们主动把张数设成 4
+   * 才能还原用户对 MJ 的预期。
+   *
+   * ⚠️ `assistantImageCountTouchedRef` 是硬前提：用户一旦手动调过张数，
+   * 就不再自动联动。否则用户在 MJ 下特意改成 1 张省积分，切走再切回来
+   * 又被我们改成 4 张，是在跟用户较劲。
+   */
+  useEffect(() => {
+    if (assistantImageCountTouchedRef.current) return;
+    const recommended = getImageModelDefaultOutputCount(assistantImageModelId);
+    setAssistantImageCount(current => (current === recommended ? current : recommended));
+  }, [assistantImageModelId]);
+  /**
+   * 当前图片模型的单张积分单价，用于在数量选择器里提示总消耗。
+   * 取不到就返回 0，UI 侧会隐去价格文案而不是显示「0 积分」误导用户。
+   */
+  const assistantModelCreditsPerImage = useMemo(
+    () => getAiImageModelCreditPolicy(assistantImageModelId)?.creditsPerImage || 0,
+    [assistantImageModelId]
+  );
   useEffect(() => {
     const updateCompactControls = () => {
       setCompactAssistantControls(
@@ -22463,16 +22625,36 @@ function CanvasAssistantPanel({
                               <div className="flex min-w-0 items-start gap-2.5">
                                 <AssistantModelIcon modelId={model.id} icon={model.icon} />
                                 <div className="min-w-0">
-                                  <p
-                                    className="truncate text-xs font-semibold"
-                                    style={{
-                                      color: text,
-                                      textTransform: "none",
-                                      letterSpacing: 0,
-                                    }}
-                                  >
-                                    {model.label}
-                                  </p>
+                                  <div className="flex min-w-0 items-center gap-1.5">
+                                    <p
+                                      className="truncate text-xs font-semibold"
+                                      style={{
+                                        color: text,
+                                        textTransform: "none",
+                                        letterSpacing: 0,
+                                      }}
+                                    >
+                                      {model.label}
+                                    </p>
+                                    {assistantModelTab === "image" &&
+                                    hasCustomDefaultOutputCount(model.id) ? (
+                                      <span
+                                        className="shrink-0 rounded-full"
+                                        style={{
+                                          fontSize: 9,
+                                          lineHeight: "14px",
+                                          padding: "0 6px",
+                                          color: "#C5ED47",
+                                          background: "rgba(197,237,71,0.14)",
+                                          border: "1px solid rgba(197,237,71,0.32)",
+                                          letterSpacing: 0,
+                                          whiteSpace: "nowrap",
+                                        }}
+                                      >
+                                        默认{getImageModelDefaultOutputCount(model.id)}张
+                                      </span>
+                                    ) : null}
+                                  </div>
                                   {"description" in model &&
                                   model.description ? (
                                     <p
@@ -22486,6 +22668,23 @@ function CanvasAssistantPanel({
                                       }}
                                     >
                                       {model.unavailableReason || model.description}
+                                    </p>
+                                  ) : null}
+                                  {assistantModelTab === "image" &&
+                                  hasCustomDefaultOutputCount(model.id) &&
+                                  !model.unavailableReason ? (
+                                    <p
+                                      style={{
+                                        color: sub,
+                                        fontSize: 9,
+                                        letterSpacing: 0,
+                                        marginTop: 2,
+                                        maxWidth: 168,
+                                        lineHeight: "13px",
+                                        opacity: 0.85,
+                                      }}
+                                    >
+                                      选中后自动出 {getImageModelDefaultOutputCount(model.id)} 张，按张计费，可在「张数」里改
                                     </p>
                                   ) : null}
                                 </div>
@@ -22507,9 +22706,12 @@ function CanvasAssistantPanel({
                   />
                   <ImageCountSelector
                     value={assistantImageCount}
-                    onChange={setAssistantImageCount}
+                    onChange={handleAssistantImageCountChange}
                     isDark={isDark}
                     compact={compactAssistantControls}
+                    recommendedCount={getImageModelDefaultOutputCount(assistantImageModelId)}
+                    modelLabel={assistantModel.label}
+                    creditsPerImage={assistantModelCreditsPerImage}
                   />
                   <ImageRatioSelector
                     value={assistantImageRatio}

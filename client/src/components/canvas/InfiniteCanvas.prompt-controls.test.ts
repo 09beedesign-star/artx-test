@@ -117,9 +117,21 @@ describe("InfiniteCanvas prompt controls", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
     expect(source).toContain("function ImageCountSelector");
     expect(source).toContain("[1, 2, 3, 4].map(count =>");
-    expect(source).toContain("const [assistantImageCount, setAssistantImageCount] = useState(1);");
+    /*
+     * 张数初值不再写死 1，改由模型决定（MJ v8.2 默认 4 张）。
+     * 必须是惰性初始化：先写 1 再用 effect 纠正会闪一下，
+     * 而且用户有可能在纠正生效前就点了生成。
+     */
+    expect(source).toContain(
+      "const [assistantImageCount, setAssistantImageCount] = useState(() =>"
+    );
+    expect(source).toContain(
+      "getImageModelDefaultOutputCount(assistantImageModelId)"
+    );
     expect(source).toContain("<ImageCountSelector");
-    expect(source).toContain("onChange={setAssistantImageCount}");
+    // 必须走包装函数而非裸 setter —— 包装函数负责打「用户已手动选过」的标记。
+    expect(source).toContain("onChange={handleAssistantImageCountChange}");
+    expect(source).not.toContain("onChange={setAssistantImageCount}");
     expect(source).toContain("function ImageRatioSelector");
     expect(source).toContain("const CANVAS_ASSISTANT_IMAGE_RATIOS = [");
     expect(source).toContain('"16:9"');

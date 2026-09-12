@@ -166,6 +166,48 @@ export function isSupportedImageModelId(model?: string) {
   return Boolean(normalized && SUPPORTED_IMAGE_MODEL_IDS.has(normalized));
 }
 
+/**
+ * 模型的推荐出图张数。**只有与全站默认（1 张）不同的模型才需要在这里登记。**
+ *
+ * 【为什么需要这张表】
+ * Midjourney 官方产品形态是「一次出 4 张让你挑」，用户对 MJ 的预期就是四宫格。
+ * 但我们接的是**腾讯云 VOD 直连的 MJ v8.2**，不是 MJ 官方 API ——
+ * VOD 把出图数量参数化成了 `OutputImageCount`（见 server/tencent-vod-aigc.ts），
+ * 语义变成「你要几张给几张」，**没有 MJ 原生的四宫格默认行为**。
+ * 所以要还原用户预期，必须由我们主动把默认值调成 4。
+ *
+ * ⚠️ **计费按张数线性叠加**（admin-store.ts 的 quoteAiUsageFromData：
+ * `creditsPerImage * outputCount`）。在这里给某个模型登记 4，
+ * 等于让该模型每次点击的积分消耗变成 4 倍。
+ * **新增条目前必须先确认该模型的 creditsPerImage 与产品定价口径。**
+ *
+ * 登记后生效范围：仅影响「切换到该模型时自动带出的张数」，
+ * 用户随时可以手动改回去，我们不锁死选择。
+ */
+export const IMAGE_MODEL_DEFAULT_OUTPUT_COUNTS: Record<string, number> = {
+  "vod-mj": 4,
+};
+
+/** 全站默认出图张数。未在上表登记的模型都用这个值。 */
+export const DEFAULT_IMAGE_OUTPUT_COUNT = 1;
+
+/** UI 允许用户选择的最大张数（服务端上限是 9，UI 只暴露到 4）。 */
+export const MAX_IMAGE_OUTPUT_COUNT = 4;
+
+/**
+ * 取某个模型的推荐出图张数。传入的 id 会先做归一化，
+ * 所以 `mj` / `mj-v8.2` / `mj-v7` 这些别名都能正确命中 `vod-mj`。
+ */
+export function getImageModelDefaultOutputCount(model?: string) {
+  const normalized = normalizeImageModelId(model);
+  return IMAGE_MODEL_DEFAULT_OUTPUT_COUNTS[normalized] || DEFAULT_IMAGE_OUTPUT_COUNT;
+}
+
+/** 该模型是否有「区别于全站默认」的推荐张数 —— UI 据此决定要不要显示提示。 */
+export function hasCustomDefaultOutputCount(model?: string) {
+  return getImageModelDefaultOutputCount(model) !== DEFAULT_IMAGE_OUTPUT_COUNT;
+}
+
 export function sortImageModelIdsByPriority(modelIds: string[]) {
   const uniqueIds = Array.from(new Set(modelIds.map(normalizeImageModelId).filter(Boolean)));
   const priority = new Map<string, number>(IMAGE_MODEL_PRIORITY_IDS.map((id, index) => [id, index]));
