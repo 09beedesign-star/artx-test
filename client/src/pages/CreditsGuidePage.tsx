@@ -1,11 +1,10 @@
 import { useMemo } from "react";
 import { Link } from "wouter";
-import { CalendarClock, Coins, Gift, Info, RefreshCw, Sparkles, Wallet } from "lucide-react";
+import { CalendarClock, Coins, Gift, Info, RefreshCw, Wallet } from "lucide-react";
 import TopBar from "@/components/workspace/TopBar";
 import { useTheme } from "@/contexts/ThemeContext";
 import { BG_GLOW } from "@/lib/workspace-data";
 import {
-  CREDIT_COST_RULES,
   CREDIT_EXPIRY_RULES,
   CREDIT_RECHARGE_TIERS,
   MEMBERSHIP_PLANS,
@@ -208,34 +207,6 @@ export default function CreditsGuidePage() {
               <p className="mt-3 type-caption" style={{ color: sub, lineHeight: 1.7 }}>
                 充值金额越高，每 HKD 兑换的积分越多。每笔充值的有效期从该笔付款日单独起算
                 {CREDIT_EXPIRY_RULES.recharge.days} 天，多次充值不会互相延期。
-              </p>
-            </article>
-
-            <article className="rounded-[var(--radius-xl-design)] border p-5 backdrop-blur-xl" style={sectionStyle}>
-              <div className="mb-4 flex items-center gap-2">
-                <Sparkles size={17} style={{ color: accent }} />
-                <h2 className="type-body-sm font-medium" style={{ color: text, fontSize: 15 }}>
-                  积分消耗参考
-                </h2>
-              </div>
-              <div className="flex flex-col gap-2">
-                {CREDIT_COST_RULES.map((item) => (
-                  <div
-                    key={item.task}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-lg-design)] border px-4 py-3"
-                    style={{ background: field, borderColor: border }}
-                  >
-                    <span className="type-body-sm" style={{ color: text }}>
-                      {item.task}
-                    </span>
-                    <span className="type-caption" style={{ color: sub }}>
-                      {item.credits}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <p className="mt-3 type-caption" style={{ color: sub, lineHeight: 1.7 }}>
-                实际扣费以发起任务时页面提示的数值为准。生成失败且未产生上游调用时，积分会自动退回。
               </p>
             </article>
 
