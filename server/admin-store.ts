@@ -55,6 +55,11 @@ type AdminUserAccount = {
   role: string;
   status: AdminStatus;
   plan: string;
+  // 会员到期时间。缺省表示"无到期概念"（Free 档、或管理员按角色派发的档位），
+  // 只有真实付费订单才会写入。到期后由 expireMemberships() 把 plan 降回 Free。
+  planExpiresAt?: string;
+  // 记录降级前的档位，便于客服排查"我明明买过 Pro"这类申诉。
+  previousPlan?: string;
   organization: string;
   credits: number;
   frozenCredits: number;
@@ -191,6 +196,15 @@ type AiTaskRecord = {
   generationId: string;
   backendTaskId: string;
   providerTaskId: string;
+  /**
+   * 一次任务可能调用多次上游（多图生成、失败重试换厂商），全部任务号都要留存，
+   * 否则向供应商提工单时只能提供第一个。`providerTaskId` 是它的首项快照。
+   *
+   * ⚠️ 这个字段此前压根不存在于 AiTaskRecord（只存在于入参类型
+   * AiUsageRecordInput），落库时自然也无从赋值 —— 生产实测 providerTaskIds
+   * 恒为空。grep 到同名字段时务必确认是哪个类型。
+   */
+  providerTaskIds?: string[];
   userId: string;
   user: string;
   capability: string;
@@ -584,7 +598,11 @@ function createCreditBatchForPaidOrder(
   user: AdminUserAccount,
   order: PaymentOrder,
   paidAt: string,
-  operator: string
+  operator: string,
+  // 会员到期时间由调用方算好后传入，不在这里重算。
+  // 调用方此时已经把 user.planExpiresAt 更新为新到期日，
+  // 若这里再调一次 resolveMembershipExpiry 会在新到期日上再加一个周期（月卡变两个月）。
+  membershipExpiresAt?: string
 ) {
   const paidMembershipPlan = getMembershipPlanFromName(order.packageName);
   if (paidMembershipPlan) {
@@ -596,7 +614,8 @@ function createCreditBatchForPaidOrder(
       reason: "会员套餐积分入账",
       operator,
       createdAt: paidAt,
-      expiresAt: addMonthsIso(paidAt, getBillingCycleMonths(order.cycleId)),
+      // 与 user.planExpiresAt 同源，保证「账号档位」与「积分有效期」同时失效。
+      expiresAt: membershipExpiresAt || addMonthsIso(paidAt, getBillingCycleMonths(order.cycleId)),
     });
   }
   if (order.creditKind === "recharge" || order.packageName === "积分充值" || order.id.startsWith("rch_")) {
@@ -735,6 +754,78 @@ function expireCreditBatches(data: AdminData, expiredAt: string) {
   }
   data.creditBatches = nextBatches;
   return changed || expiredEntries.length > 0;
+}
+
+/**
+ * 计算本次会员订单生效后的到期时间。
+ *
+ * 续费语义采用「顺延」：如果用户当前会员还没到期，新周期从原到期日往后接，
+ * 而不是从付款日重算 —— 否则提前续费的用户会平白损失剩余天数。
+ * 若已过期或从未有过会员，则从付款日起算。
+ */
+function resolveMembershipExpiry(user: AdminUserAccount, paidAt: string, months: number) {
+  const paidAtMs = Date.parse(paidAt);
+  const currentExpiryMs = user.planExpiresAt ? Date.parse(user.planExpiresAt) : Number.NaN;
+  // 仅当原到期日晚于付款时间才顺延，过期账号一律从付款日重新起算。
+  const base = Number.isFinite(currentExpiryMs) && Number.isFinite(paidAtMs) && currentExpiryMs > paidAtMs
+    ? user.planExpiresAt as string
+    : paidAt;
+  return addMonthsIso(base, months);
+}
+
+/**
+ * 续费时把该用户尚未用完的会员积分批次一并顺延到新的会员到期日。
+ *
+ * 不做这一步的话，上一周期的会员积分会在会员仍然有效期间提前过期，
+ * 与「会员到期后这部分积分才失效」的规则冲突。
+ */
+function extendMembershipBatchesExpiry(data: AdminData, userId: string, nextExpiresAt: string, updatedAt: string) {
+  const nextExpiryMs = Date.parse(nextExpiresAt);
+  if (!Number.isFinite(nextExpiryMs)) return 0;
+  let extended = 0;
+  for (const batch of data.creditBatches || []) {
+    if (batch.userId !== userId || batch.kind !== "membership") continue;
+    if (batch.status !== "active" || batch.remainingCredits <= 0) continue;
+    const currentMs = batch.expiresAt ? Date.parse(batch.expiresAt) : Number.NaN;
+    // 只向后延，绝不缩短已发放批次的有效期。
+    if (Number.isFinite(currentMs) && currentMs >= nextExpiryMs) continue;
+    batch.expiresAt = nextExpiresAt;
+    batch.updatedAt = updatedAt;
+    extended += 1;
+  }
+  return extended;
+}
+
+/**
+ * 会员到期降级：把 planExpiresAt 已过期的用户 plan 降回 Free。
+ *
+ * 与 expireCreditBatches 分开处理 —— 积分批次按自己的 expiresAt 过期，
+ * 这里只负责账号档位，避免「积分清零了但账号还挂着 Pro」的错位状态。
+ */
+function expireMemberships(data: AdminData, expiredAt: string) {
+  const cutoff = Date.parse(expiredAt);
+  if (!Number.isFinite(cutoff)) return false;
+  let changed = false;
+  for (const user of data.users) {
+    if (!user.planExpiresAt) continue;
+    const expiryMs = Date.parse(user.planExpiresAt);
+    if (!Number.isFinite(expiryMs) || expiryMs > cutoff) continue;
+    const currentPlan = normalizePlanDisplayName(user.plan);
+    // 已经是 Free 的只需清掉到期时间，不重复写降级日志。
+    if (currentPlan !== FREE_PLAN_DISPLAY_NAME) {
+      user.previousPlan = currentPlan;
+      user.plan = FREE_PLAN_DISPLAY_NAME;
+      appendAuditLog(data, { id: "system", username: "系统" }, {
+        action: "会员到期降级",
+        target: user.id,
+        before: { plan: currentPlan, planExpiresAt: user.planExpiresAt },
+        after: { plan: FREE_PLAN_DISPLAY_NAME },
+      });
+    }
+    user.planExpiresAt = undefined;
+    changed = true;
+  }
+  return changed;
 }
 
 function formatGiftCredits(amount: number) {
@@ -1811,16 +1902,21 @@ async function loadAdminData(): Promise<AdminData> {
     const shouldPersistCleanup = hasDemoData(stored);
     const data = await normalizeDataAsync(stored);
     const orderCreatedAtBeforeNormalization = new Map(data.orders.map((order) => [order.id, order.createdAt]));
-    const shouldPersistCreditExpiry = expireCreditBatches(data, nowIso());
+    const expiryCheckedAt = nowIso();
+    const shouldPersistCreditExpiry = expireCreditBatches(data, expiryCheckedAt);
+    // 账号档位降级与积分批次过期共用同一时间戳，避免两者判定边界不一致。
+    const shouldPersistMembershipExpiry = expireMemberships(data, expiryCheckedAt);
     ensureBillingConsistency(data);
     const shouldPersistOrderTimestampRepair = data.orders.some((order) => orderCreatedAtBeforeNormalization.get(order.id) !== order.createdAt);
-    if (shouldPersistCleanup || shouldPersistOrderTimestampRepair || shouldPersistCreditExpiry) {
+    if (shouldPersistCleanup || shouldPersistOrderTimestampRepair || shouldPersistCreditExpiry || shouldPersistMembershipExpiry) {
       await saveAdminData(data);
     }
     return data;
   }
   const seeded = await seedAdminData();
-  expireCreditBatches(seeded, nowIso());
+  const seededExpiryCheckedAt = nowIso();
+  expireCreditBatches(seeded, seededExpiryCheckedAt);
+  expireMemberships(seeded, seededExpiryCheckedAt);
   ensureBillingConsistency(seeded);
   await saveAdminData(seeded);
   return seeded;
@@ -2123,10 +2219,20 @@ function toDisplayCredits(credits: AdminData["credits"]) {
  * 归一化只在出口做，不回写数据库 —— 避免重演「Free 被持久化成 Lite」。
  */
 function toDisplayUsers(users: AdminData["users"]) {
-  return users.map((user) => ({
-    ...user,
-    plan: normalizePlanDisplayName(user.plan),
-  }));
+  const now = Date.now();
+  return users.map((user) => {
+    const expiryMs = user.planExpiresAt ? Date.parse(user.planExpiresAt) : Number.NaN;
+    const hasExpiry = Number.isFinite(expiryMs);
+    return {
+      ...user,
+      plan: normalizePlanDisplayName(user.plan),
+      // 展示用派生字段，不落库。planExpiresAt 缺省代表 Free 或按角色派发的档位，
+      // 这类账号没有到期概念，剩余天数返回 undefined 而不是 0。
+      planExpiresAt: user.planExpiresAt,
+      planRemainingDays: hasExpiry ? Math.max(0, Math.ceil((expiryMs - now) / 86400000)) : undefined,
+      planExpiringSoon: hasExpiry ? expiryMs - now <= 7 * 86400000 : false,
+    };
+  });
 }
 
 /**
@@ -3584,8 +3690,18 @@ export async function markBillingOrderPaid(params: {
 
     user.credits += order.expectedCredits;
     const paidMembershipPlan = getMembershipPlanFromName(order.packageName);
+    // 到期时间必须在改写 user.planExpiresAt 之前算好：resolveMembershipExpiry
+    // 以"当前到期日"为顺延基准，先赋值会导致基准被污染。
+    let membershipExpiresAt: string | undefined;
     if (paidMembershipPlan) {
       user.plan = paidMembershipPlan.name;
+      membershipExpiresAt = resolveMembershipExpiry(user, paidAt, getBillingCycleMonths(order.cycleId));
+      if (membershipExpiresAt) {
+        user.planExpiresAt = membershipExpiresAt;
+        // 续费顺延：把上一周期没用完的会员积分一起延到新到期日，
+        // 否则老批次会在会员仍有效期间提前过期。
+        extendMembershipBatchesExpiry(data, user.id, membershipExpiresAt, paidAt);
+      }
     } else if (!user.plan || String(user.plan).trim() === "积分充值") {
       user.plan = "Free";
     }
@@ -3605,7 +3721,7 @@ export async function markBillingOrderPaid(params: {
       },
       ...data.credits,
     ].slice(0, 500);
-    createCreditBatchForPaidOrder(data, user, order, paidAt, params.actorName);
+    createCreditBatchForPaidOrder(data, user, order, paidAt, params.actorName, membershipExpiresAt);
     let firstRechargeBonusCredits = 0;
     if (qualifiesForFirstRechargeBonus(data, order)) {
       firstRechargeBonusCredits = FIRST_RECHARGE_BONUS_CREDITS;
@@ -3979,6 +4095,13 @@ export async function recordAiUsage(input: AiUsageRecordInput) {
     generationId: input.generationId || `gen_${Date.now().toString(36)}`,
     backendTaskId: input.backendTaskId || `backend_${Date.now().toString(36)}`,
     providerTaskId: getProviderTaskId(input),
+    // ⚠️ 数组也要落库。此前 AiTaskRecord 只有单数的 providerTaskId，
+    // 复数字段仅存在于入参类型 AiUsageRecordInput —— 于是一次任务调用多次上游
+    // （多图生成、失败重试换厂商）时，除第一个以外的任务号全部丢失，
+    // 前端 ids 标签组恒为空，且全程零报错。
+    providerTaskIds: input.providerTaskIds?.length
+      ? Array.from(new Set(input.providerTaskIds.filter((item) => typeof item === "string" && item.trim())))
+      : undefined,
     userId: user.id,
     user: user.name,
     capability: input.capability,
