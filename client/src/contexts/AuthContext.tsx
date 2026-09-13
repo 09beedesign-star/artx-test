@@ -98,7 +98,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const handleLoginRequired = () => setLoginModalOpen(true);
+    const handleLoginRequired = () => {
+      // ⚠️ 首页（"/"）自带右侧内嵌登录面板（HomePage 的 panelMode），
+      // 若这里再打开居中弹窗，用户会在同一屏看到**两个登录入口**叠在一起。
+      // 这就是「首页重复登录弹窗」的成因 —— 触发点不在首页自身，而在这个全局事件：
+      // lib/ai.ts 在 401 时会派发 artx:login-required，首页试用 AI 同样会走到。
+      //
+      // 修在监听侧而不是各个派发点：派发点有 2 处（BillingPage、lib/ai.ts），
+      // 将来还会增加；收敛在这里可以一次覆盖全部，避免再漏。
+      if (typeof window !== "undefined" && window.location.pathname === "/") {
+        // 让首页把自己的面板切到登录态并滚动到位，不再叠加弹窗。
+        window.sessionStorage.setItem("artx:home-auth-panel", "login");
+        window.dispatchEvent(new CustomEvent("artx:home-auth-panel-requested"));
+        return;
+      }
+      setLoginModalOpen(true);
+    };
     window.addEventListener("artx:login-required", handleLoginRequired);
     return () => window.removeEventListener("artx:login-required", handleLoginRequired);
   }, []);

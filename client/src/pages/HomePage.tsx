@@ -293,13 +293,25 @@ export default function HomePage() {
   }, [loginBubble]);
 
   useEffect(() => {
-    const requestedPanel = sessionStorage.getItem(HOME_AUTH_PANEL_STORAGE_KEY);
-    if (requestedPanel !== "login" && requestedPanel !== "register") return;
-    sessionStorage.removeItem(HOME_AUTH_PANEL_STORAGE_KEY);
-    if (isAuthenticated) return;
-    setCurrentLandingTab("home");
-    setPanelMode(requestedPanel);
-    homeRef.current?.scrollIntoView({ behavior: "auto", block: "start" });
+    const applyRequestedPanel = () => {
+      const requestedPanel = sessionStorage.getItem(HOME_AUTH_PANEL_STORAGE_KEY);
+      if (requestedPanel !== "login" && requestedPanel !== "register") return;
+      sessionStorage.removeItem(HOME_AUTH_PANEL_STORAGE_KEY);
+      if (isAuthenticated) return;
+      setCurrentLandingTab("home");
+      setPanelMode(requestedPanel);
+      homeRef.current?.scrollIntoView({ behavior: "auto", block: "start" });
+    };
+
+    // 挂载时读一次：覆盖「从 RequireLogin 重定向回首页」的场景。
+    applyRequestedPanel();
+
+    // ⚠️ 还必须监听事件：首页**不会重新挂载**，仅靠上面那次读取，
+    // 停留在首页时触发的 artx:login-required 不会有任何反应（面板不切换），
+    // 用户会觉得"点了没反应"。AuthContext 在首页把全局弹窗换成了本事件，
+    // 这里是它唯一的落点，删掉即等于首页登录入口失灵。
+    window.addEventListener("artx:home-auth-panel-requested", applyRequestedPanel);
+    return () => window.removeEventListener("artx:home-auth-panel-requested", applyRequestedPanel);
   }, [isAuthenticated]);
 
   useEffect(() => {

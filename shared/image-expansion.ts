@@ -33,9 +33,35 @@ export const VOD_EXPANSION_PROMPT_MAX_LENGTH = 2500;
 export const VOD_IMAGE_EXPANSION_MODEL = "vod-kling-image-expand";
 export const VOD_IMAGE_EXPANSION_PROVIDER = "腾讯云 VOD Kling";
 
-/** 默认扩图提示词，长度恰好 200，等于上限。修改后务必用 assert 校验长度。 */
-export const DEFAULT_IMAGE_EXPANSION_PROMPT =
-  "Outpaint only the blank extension area. Keep all original pixels unchanged. Match existing background, lighting, shadow, color, texture and perspective. Never duplicate, mirror or rescale the subject.";
+/**
+ * 默认扩图提示词。
+ *
+ * ⚠️ 历史包袱：2026-09-13 之前这里是一条被硬挤到「恰好 200 字符」的英文串 ——
+ * 那个长度不是内容需要，而是佐糖 PicWish 的硬上限逼出来的。为了塞进 200 字，
+ * 当时砍掉了对「接缝过渡」「不得新增物体」等关键约束的描述。
+ *
+ * 现在实际走的是 Kling（上限 2500），没有理由继续沿用被阉割的版本。
+ * 下面这版按 outpaint 任务的真实失败模式逐条写明约束，分组如下：
+ *   1. 作用域 —— 只画新增区域，原图一个像素都不许动（扩图最常见的翻车是整图重绘）；
+ *   2. 连续性 —— 背景/光照/阴影/色温/颗粒/透视要接得上，接缝不能看出来；
+ *   3. 负向约束 —— 不复制主体、不镜像、不缩放、不凭空加人或物、不加文字水印边框。
+ *
+ * 📌 改这里就等于改所有入口：server/index.ts、ai-orchestrator.ts、client/src/lib/ai.ts、
+ *    InfiniteCanvas.tsx、vite.config.ts 共 6 处引用全部指向本常量，不要再各写一份。
+ * 📌 长度不再需要贴着 200；但若将来回退到佐糖，clampImageExpansionPrompt 会把它
+ *    截到 200，届时**必须重新精简内容**，而不是任由中间被切断。
+ */
+export const DEFAULT_IMAGE_EXPANSION_PROMPT = [
+  "Outpaint only the newly added blank area around the original image.",
+  "Preserve every original pixel exactly as-is: do not redraw, restyle, recolor, denoise or upscale any part of the source image.",
+  "Extend the existing scene naturally so the result reads as one continuous photograph:",
+  "match the background content, perspective and vanishing lines, lighting direction and intensity,",
+  "shadow falloff, color temperature, white balance, depth of field, focus falloff, film grain and noise level.",
+  "Make the boundary between original and generated areas seamless and invisible, with no visible seam, band, blur ring or tonal step.",
+  "Do not duplicate, mirror, repeat, shift, rescale or crop the main subject.",
+  "Do not introduce any new people, animals, objects, logos, text, watermarks, captions, frames or borders.",
+  "If the extended region would otherwise be empty, continue the existing background rather than inventing new focal elements.",
+].join(" ");
 
 /**
  * 把 prompt 收敛到佐糖允许的长度。
