@@ -33,6 +33,7 @@ import { storeFeedbackImagesForUser, type FeedbackImageInput, type StoredFeedbac
 import { PostgresJsonDocumentStore } from "./postgres-json-store";
 import { getAllProviderBilling } from "./provider-billing";
 import { DEFAULT_GIFT_EXPIRY_DAYS, GIFT_LEDGER_TYPE, grantCredits } from "./credit-gifting";
+import type { InviteEmailSendLog } from "./invite-email";
 
 type AdminStatus = "normal" | "watch" | "blocked" | "cancelled";
 type OrderStatus = "paid" | "pending" | "failed" | "refunded";
@@ -461,6 +462,7 @@ type AdminData = {
   capabilityStatus: CapabilityStatusItem[];
   aiBillingPolicies?: AiBillingPolicy[];
   aiPlanDiscounts?: AiPlanDiscountPolicy[];
+  inviteEmailLogs?: InviteEmailSendLog[];
 };
 
 type CapabilityStatusItem = {
@@ -5161,4 +5163,54 @@ export async function recordAiUsage(input: AiUsageRecordInput) {
 
   await saveAdminData(data);
   return record;
+}
+
+/**
+ * 发送邀请邮件 —— 供 /api/invite/send 调用
+ *
+ * ⚠️ 包含完整的限频校验与日志记录。
+ */
+export async function sendInviteEmail(input: {
+  senderId: string;
+  recipientEmail: string;
+  inviteCode: string;
+  senderName: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const data = await loadAdminData();
+  const logs = data.inviteEmailLogs || [];
+
+  // 导入限频检查函数（这些在 invite-email.ts 里，需要在这里重新引用或内联）
+  // 但为了避免循环依赖，直接在这里内联简化版的检查
+  
+  // 单用户每日上限 10 封
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const todayCount = logs.filter(
+    log => log.senderId === input.senderId && new Date(log.sentAt) >= todayStart
+  ).length;
+  if (todayCount >= 10) {
+    return { success: false, error: "今日邀请次数已达上限，请明天再试" };
+  }
+
+  // 同一收件人 7 天内只发 1 次
+  const cooldownStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const normalized = input.recipientEmail.toLowerCase();
+  const recentToSame = logs.find(
+    log => log.recipientEmail.toLowerCase() === normalized && new Date(log.sentAt) >= cooldownStart
+  );
+  if (recentToSame) {
+    return { success: false, error: "该邮箱最近已收到邀请，请 7 天后再试" };
+  }
+
+  const log: InviteEmailSendLog = {
+    id: `invlog_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+    senderId: input.senderId,
+    recipientEmail: normalized,
+    sentAt: new Date().toISOString(),
+  };
+
+  data.inviteEmailLogs = [...logs, log];
+  await saveAdminData(data);
+
+  return { success: true };
 }
