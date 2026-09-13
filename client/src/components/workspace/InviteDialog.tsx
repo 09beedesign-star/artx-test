@@ -7,9 +7,17 @@
  * 本项目注册链路零成本（无邮箱验证/无手机号/无验证码），
  * 任何由用户主动触发的发放都会重新打开刷号缺口。
  * 详见 server/invite-rewards.ts 顶部说明。
+ *
+ * ⚠️ 分享渠道：只做「复制链接」，刻意不做「输入邮箱直接发送」。
+ * 2026-09-13 实测：邮件发往 outlook.com / hotmail.com 会被微软
+ * 服务器端静默丢弃 —— 不进垃圾箱、无退信 NDR、发件方零感知；
+ * 同一封同构邮件 Gmail 能正常收到，Outlook 收不到。
+ * 根因是新域名没有发信信誉，属于收件商侧策略，短期内无法从代码解决。
+ * 复制链接让用户自己经微信/QQ 转发，送达率 100% 且零成本。
+ * 后端路由仍保留未删，将来域名信誉建立后可重新启用。
  */
 import { useCallback, useEffect, useState } from "react";
-import { Check, Copy, Gift, Loader2, Users, Mail, Send } from "lucide-react";
+import { Check, Copy, Gift, Loader2, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ART_X_TEST_API_BASE_URL, normalizeApiBaseUrl } from "@/lib/api-base-url";
@@ -94,8 +102,6 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [copiedField, setCopiedField] = useState<"link" | "code" | "">("");
-  const [emailInput, setEmailInput] = useState("");
-  const [sendingEmail, setSendingEmail] = useState(false);
 
   const load = useCallback(async () => {
     const token = getInviteAuthToken();
@@ -141,37 +147,6 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
     setCopiedField(field);
     toast.success(field === "link" ? "邀请链接已复制" : "邀请码已复制");
     window.setTimeout(() => setCopiedField(""), 2000);
-  };
-
-  const handleSendEmail = async () => {
-    const email = emailInput.trim();
-    if (!email || !email.includes("@")) {
-      toast.error("请输入有效的邮箱地址");
-      return;
-    }
-    setSendingEmail(true);
-    try {
-      const token = getInviteAuthToken();
-      const response = await fetch(`${getInviteApiBaseUrl()}/api/invite/send`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ email }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        toast.error(typeof payload.error === "string" ? payload.error : "发送失败");
-        return;
-      }
-      toast.success("邀请邮件已发送", { description: `已发送到 ${email}` });
-      setEmailInput("");
-    } catch {
-      toast.error("网络异常，请稍后重试");
-    } finally {
-      setSendingEmail(false);
-    }
   };
 
   const subtleText = isDark ? "oklch(0.68 0.01 270)" : "oklch(0.45 0.01 270)";
@@ -231,66 +206,29 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
               </p>
             </div>
 
-            {/* 邮箱邀请 */}
+            {/* 邀请链接 —— 唯一主推渠道，说明见文件头部注释 */}
             <div className="space-y-2">
-              <div className="text-[12px] font-medium" style={{ color: subtleText }}>输入好友邮箱直接发送</div>
-              <div className="flex items-center gap-2">
-                <div className="relative flex-1">
-                  <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: subtleText, opacity: 0.6 }} />
-                  <input
-                    type="email"
-                    value={emailInput}
-                    onChange={(e) => setEmailInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !sendingEmail) {
-                        void handleSendEmail();
-                      }
-                    }}
-                    placeholder="friend@example.com"
-                    disabled={sendingEmail}
-                    className="w-full rounded-lg px-3 py-2 pl-9 text-[13px] outline-none transition-colors"
-                    style={{
-                      background: cardBg,
-                      border: `1px solid ${cardBorder}`,
-                      color: isDark ? "#f1f1f3" : "#18181b",
-                    }}
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void handleSendEmail()}
-                  disabled={sendingEmail || !emailInput.trim()}
-                  className="flex shrink-0 items-center gap-1.5 rounded-lg px-4 py-2 text-[13px] font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                  style={{
-                    background: sendingEmail || !emailInput.trim() ? cardBg : "oklch(0.58 0.22 290)",
-                    color: sendingEmail || !emailInput.trim() ? subtleText : "white",
-                    border: `1px solid ${cardBorder}`,
-                  }}
-                >
-                  {sendingEmail ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                  {sendingEmail ? "发送中" : "发送"}
-                </button>
+              <div className="text-[12px] font-medium" style={{ color: subtleText }}>
+                复制链接，发给好友
               </div>
-            </div>
-
-            {/* 邀请链接 */}
-            <div className="space-y-2">
-              <div className="text-[12px] font-medium" style={{ color: subtleText }}>或复制链接分享</div>
               <div
-                className="flex items-center gap-2 rounded-lg px-3 py-2"
+                className="flex items-center gap-2 rounded-lg px-3 py-2.5"
                 style={{ background: cardBg, border: `1px solid ${cardBorder}` }}
               >
                 <span className="flex-1 truncate text-[12px] font-mono">{inviteLink || "—"}</span>
                 <button
                   type="button"
                   onClick={() => void handleCopy("link")}
-                  className="flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-colors"
+                  className="flex shrink-0 items-center gap-1.5 rounded-md px-3.5 py-2 text-[13px] font-semibold transition-colors"
                   style={{ background: "oklch(0.58 0.22 290)", color: "white" }}
                 >
-                  {copiedField === "link" ? <Check size={12} /> : <Copy size={12} />}
-                  {copiedField === "link" ? "已复制" : "复制"}
+                  {copiedField === "link" ? <Check size={14} /> : <Copy size={14} />}
+                  {copiedField === "link" ? "已复制" : "复制链接"}
                 </button>
               </div>
+              <p className="text-[11px]" style={{ color: subtleText }}>
+                粘贴到微信、QQ 或任意聊天窗口发给好友即可。
+              </p>
             </div>
 
             {/* 邀请码 */}
