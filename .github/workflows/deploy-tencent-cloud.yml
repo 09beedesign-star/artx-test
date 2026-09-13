@@ -20,9 +20,22 @@ on:
 permissions:
   contents: read
 
+# ⚠️ cancel-in-progress 必须保持 false，不要改回 true。
+#
+# 背景：2026-09-13 连续三个提交推到 main 都没上线，线上停在 7fab8b5。
+# 原因是 "Sync Main to Test Framework" 把 main 同步到 feature/interaction-framework，
+# 同步产生的 push 又触发同一条 deploy workflow。两条抢同一个 group，
+# 当时 cancel-in-progress: true → 后到的把 main 那条正在跑的直接 cancel 掉。
+# 现象极具迷惑性：Actions 列表里确实有一条 success（那是 Sync 那条），
+# 真正的 Deploy 是 cancelled，而 cancelled 不发失败通知，静默丢部署。
+#
+# ⚠️ group 必须保持全局单一，不能按 github.ref 拆开：
+# 部署目标是单机全栈（43.161.241.133），两条并发会在 ln -sfn current 和
+# systemctl restart 上打架。共享资源是那台机器，不是分支。
+# 正确解法是「排队」而不是「取消」：慢一点，但一条都不会丢。
 concurrency:
   group: tencent-cloud-test
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   PUBLIC_URL: https://backstage.artxsd.com
