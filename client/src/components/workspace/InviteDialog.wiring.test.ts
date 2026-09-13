@@ -173,6 +173,70 @@ describe("邀请入口接线", () => {
     expect(messageBody).not.toMatch(/\d{3}\s*积分/);
   });
 
+  it("弹窗定高 800 且内容区可滚动，标题不被顶出视口", () => {
+    const raw = read("client/src/components/workspace/InviteDialog.tsx");
+    const dialog = stripLineComments(raw);
+    expect(raw.length).toBeGreaterThan(dialog.length);
+
+    // 只取 DialogContent 这一行，避免把内部卡片的样式类误当成容器样式。
+    const contentLine = dialog
+      .split("\n")
+      .find(line => line.includes("<DialogContent"));
+    expect(contentLine).toBeDefined();
+
+    // 定高 800：用户明确要求的固定高度，宽度维持原样不动。
+    expect(contentLine).toContain("h-[800px]");
+    expect(contentLine).toContain("sm:max-w-[480px]");
+
+    // ⚠️⚠️ 这两条是「成对出现」的核心防线，少一条改动就等于没做：
+    //
+    // DialogContent 基座是 grid，而 **grid 子项的 min-height 默认为 auto**
+    //（即「不得小于内容高度」）。若这里写成 grid-rows-[auto_1fr]，
+    // 内容区会被子项内容顶开、直接撑破 800px —— overflow-y-auto 永远不触发，
+    // 表现为「定高了但还是被顶住」，且零报错。必须用 minmax(0,1fr) 压下限。
+    expect(contentLine).toContain("grid-rows-[auto_minmax(0,1fr)]");
+    expect(contentLine).not.toMatch(/grid-rows-\[auto_1fr\]/);
+
+    // 视口不足 800 时必须让步，否则又会复现「上下被顶出屏幕」的原始症状。
+    expect(contentLine).toContain("max-h-[calc(100vh-2rem)]");
+
+    // 滚动容器真的存在。只定高不给滚动 = 把内容直接裁掉，比原来更糟。
+    expect(dialog).toContain("overflow-y-auto");
+  });
+
+  it("三个状态共用同一个滚动容器，保证 grid 行数恒为二", () => {
+    const raw = read("client/src/components/workspace/InviteDialog.tsx");
+    const dialog = stripLineComments(raw);
+    expect(raw.length).toBeGreaterThan(dialog.length);
+
+    // 截取 DialogContent 内部整段。
+    const start = dialog.indexOf("<DialogContent");
+    const end = dialog.indexOf("</DialogContent>");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const body = dialog.slice(start, end);
+
+    // ⚠️ 若让 loading / error / summary 三个分支各自充当 grid item，
+    // grid 行数会随状态变化（1~2 行），与 grid-rows-[auto_minmax(0,1fr)]
+    // 两行模板对不上，高度分配会错乱。
+    // 故三者必须被同一个滚动容器包住 —— 断言滚动容器出现在最早的
+    // 状态分支之前，即它确实包在外层。
+    const scrollerIdx = body.indexOf("overflow-y-auto");
+    const loadingIdx = body.indexOf("{loading &&");
+    expect(scrollerIdx).toBeGreaterThan(-1);
+    expect(loadingIdx).toBeGreaterThan(-1);
+    expect(scrollerIdx).toBeLessThan(loadingIdx);
+
+    // 三个分支都还在（防止有人为了「修布局」顺手删掉状态分支）。
+    expect(body).toContain("{loading &&");
+    expect(body).toContain("{!loading && error &&");
+    expect(body).toContain("{!loading && !error && summary &&");
+
+    // 底部的暂停开关必须在滚动容器内 —— 它正是此前被顶出屏幕、点不到的元素。
+    const toggleIdx = body.indexOf("handleToggleAccept");
+    expect(toggleIdx).toBeGreaterThan(scrollerIdx);
+  });
+
   it("落地页必须提示邀请并自动切到注册态", () => {
     const raw = read("client/src/pages/HomePage.tsx");
     const home = stripLineComments(raw);

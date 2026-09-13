@@ -231,7 +231,29 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[480px]">
+      {/*
+        【2026-09-13 定高改造】弹窗定高 800px，标题固定、内容区内部滚动。
+
+        改之前：`DialogContent` 只约束了宽度，高度完全由内容撑。邀请信息一多
+        （奖励说明 + 暂停横幅 + 话术 + 三个复制按钮 + 战绩 + 开关），整个弹窗就
+        比视口还高，**上下两头被挤出屏幕** —— 顶部标题和底部的暂停开关都点不到。
+
+        ⚠️⚠️ 这里有两个必须成对出现的写法，少一个都会「看起来改了但没用」：
+
+        1. `grid-rows-[auto_minmax(0,1fr)]`
+           基座是 `grid`。**grid 子项的 `min-height` 默认是 `auto`**，意思是
+           「不许小于内容高度」。所以哪怕外层定高 800、内层写了 `overflow-y-auto`，
+           子项照样会被内容顶开、直接撑破 800 —— 滚动条永远不出现，白改。
+           必须写成 `minmax(0,1fr)` 把下限显式压到 0，才允许它收缩并触发滚动。
+           （`1fr` 是 `minmax(auto,1fr)` 的简写，正是问题本身，不能用。）
+
+        2. `overflow-hidden`
+           定高之后内容仍可能溢出圆角边框，裁掉才不会露在 `rounded-lg` 外面。
+
+        `max-h-[calc(100vh-2rem)]` 是兜底：视口本身不足 800 时（小屏 / 浏览器窗口
+        被压扁）必须让步，否则又会复现「上下被顶出去」这个原始症状。
+      */}
+      <DialogContent className="grid h-[800px] max-h-[calc(100vh-2rem)] grid-rows-[auto_minmax(0,1fr)] overflow-hidden sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Gift size={18} style={{ color: "oklch(0.68 0.19 150)" }} />
@@ -242,220 +264,230 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
           </DialogDescription>
         </DialogHeader>
 
-        {loading && (
-          <div className="flex items-center justify-center gap-2 py-10 text-sm" style={{ color: subtleText }}>
-            <Loader2 size={16} className="animate-spin" />
-            正在加载邀请信息…
-          </div>
-        )}
+        {/*
+          滚动区。三个状态（加载 / 出错 / 正常）**共用同一个滚动容器**，
+          这样 grid 永远只有「标题 + 内容」两行，和上面的 grid-rows 严格对齐；
+          若让三个分支各自当 grid item，行数会随状态变化，模板就对不上了。
 
-        {!loading && error && (
-          <div className="py-8 text-center text-sm" style={{ color: "oklch(0.65 0.2 25)" }}>
-            {error}
-          </div>
-        )}
-
-        {!loading && !error && summary && (
-          <div className="space-y-4">
-            {/* 奖励说明 */}
-            <div className="rounded-xl p-4" style={{ background: cardBg, border: `1px solid ${cardBorder}` }}>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <div className="text-[11px] font-medium" style={{ color: subtleText }}>你可获得</div>
-                  <div className="text-[22px] font-bold" style={{ color: "oklch(0.68 0.19 150)" }}>
-                    {summary.inviterCredits.toLocaleString("zh-CN")}
-                    <span className="ml-1 text-[12px] font-normal" style={{ color: subtleText }}>积分</span>
-                  </div>
-                </div>
-                <div>
-                  <div className="text-[11px] font-medium" style={{ color: subtleText }}>好友可获得</div>
-                  <div className="text-[22px] font-bold" style={{ color: "oklch(0.72 0.18 200)" }}>
-                    {summary.inviteeCredits.toLocaleString("zh-CN")}
-                    <span className="ml-1 text-[12px] font-normal" style={{ color: subtleText }}>积分</span>
-                  </div>
-                </div>
-              </div>
-              <p className="mt-3 text-[11px] leading-relaxed" style={{ color: subtleText }}>
-                奖励在好友完成首次付费（满 HKD {summary.minPaidAmountHkd}）后自动发放，
-                有效期 {summary.rewardCreditValidDays} 天。
-                邀请关系自好友注册起 {summary.bindingValidDays} 天内有效。
-              </p>
+          `-mr-2 pr-2`：把滚动条挪进 `p-6` 的右侧留白里，
+          内容的视觉宽度和改造前保持一致，不会因为多了滚动条而横向缩一截。
+        */}
+        <div className="-mr-2 overflow-y-auto pr-2">
+          {loading && (
+            <div className="flex items-center justify-center gap-2 py-10 text-sm" style={{ color: subtleText }}>
+              <Loader2 size={16} className="animate-spin" />
+              正在加载邀请信息…
             </div>
+          )}
 
-            {/*
-              暂停态横幅。
-              ⚠️ 必须写明「已邀请的好友和已获积分不受影响」——
-              用户按下暂停时最担心的就是「我之前的奖励会不会没了」，
-              不在这里当场回答，用户就不敢用这个开关，等于功能白做。
-            */}
-            {summary.acceptDisabled && (
-              <div
-                className="rounded-xl px-4 py-3"
-                style={{
-                  background: isDark ? "oklch(0.65 0.15 60 / 12%)" : "oklch(0.95 0.06 75)",
-                  border: `1px solid ${isDark ? "oklch(0.7 0.15 65 / 30%)" : "oklch(0.82 0.11 70)"}`,
-                }}
-              >
-                <div
-                  className="flex items-center gap-1.5 text-[12px] font-semibold"
-                  style={{ color: isDark ? "oklch(0.82 0.14 70)" : "oklch(0.5 0.13 60)" }}
-                >
-                  <PauseCircle size={14} />
-                  邀请码已暂停，新好友无法再绑定到你名下
+          {!loading && error && (
+            <div className="py-8 text-center text-sm" style={{ color: "oklch(0.65 0.2 25)" }}>
+              {error}
+            </div>
+          )}
+
+          {!loading && !error && summary && (
+            <div className="space-y-4">
+              {/* 奖励说明 */}
+              <div className="rounded-xl p-4" style={{ background: cardBg, border: `1px solid ${cardBorder}` }}>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <div className="text-[11px] font-medium" style={{ color: subtleText }}>你可获得</div>
+                    <div className="text-[22px] font-bold" style={{ color: "oklch(0.68 0.19 150)" }}>
+                      {summary.inviterCredits.toLocaleString("zh-CN")}
+                      <span className="ml-1 text-[12px] font-normal" style={{ color: subtleText }}>积分</span>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-medium" style={{ color: subtleText }}>好友可获得</div>
+                    <div className="text-[22px] font-bold" style={{ color: "oklch(0.72 0.18 200)" }}>
+                      {summary.inviteeCredits.toLocaleString("zh-CN")}
+                      <span className="ml-1 text-[12px] font-normal" style={{ color: subtleText }}>积分</span>
+                    </div>
+                  </div>
                 </div>
-                <p
-                  className="mt-1.5 text-[11px] leading-relaxed"
-                  style={{ color: isDark ? "oklch(0.75 0.08 70)" : "oklch(0.45 0.09 60)" }}
-                >
-                  已邀请的好友、已到账的积分、历史统计全部不受影响。
-                  随时可以恢复，邀请码不会改变，之前发出去的链接恢复后照常有效。
+                <p className="mt-3 text-[11px] leading-relaxed" style={{ color: subtleText }}>
+                  奖励在好友完成首次付费（满 HKD {summary.minPaidAmountHkd}）后自动发放，
+                  有效期 {summary.rewardCreditValidDays} 天。
+                  邀请关系自好友注册起 {summary.bindingValidDays} 天内有效。
                 </p>
               </div>
-            )}
 
-            {/*
-              一次性复制 —— 唯一主推动作，说明见 buildInviteMessage 注释。
-              链接和邀请码降为次级操作：绝大多数人只需要"复制、粘贴、发送"三步，
-              把三个同等分量的按钮摆在一起反而让人犹豫该点哪个。
-            */}
-            <div className="space-y-2">
-              <div className="text-[12px] font-medium" style={{ color: subtleText }}>
-                一键复制邀请消息，粘贴给好友
+              {/*
+                暂停态横幅。
+                ⚠️ 必须写明「已邀请的好友和已获积分不受影响」——
+                用户按下暂停时最担心的就是「我之前的奖励会不会没了」，
+                不在这里当场回答，用户就不敢用这个开关，等于功能白做。
+              */}
+              {summary.acceptDisabled && (
+                <div
+                  className="rounded-xl px-4 py-3"
+                  style={{
+                    background: isDark ? "oklch(0.65 0.15 60 / 12%)" : "oklch(0.95 0.06 75)",
+                    border: `1px solid ${isDark ? "oklch(0.7 0.15 65 / 30%)" : "oklch(0.82 0.11 70)"}`,
+                  }}
+                >
+                  <div
+                    className="flex items-center gap-1.5 text-[12px] font-semibold"
+                    style={{ color: isDark ? "oklch(0.82 0.14 70)" : "oklch(0.5 0.13 60)" }}
+                  >
+                    <PauseCircle size={14} />
+                    邀请码已暂停，新好友无法再绑定到你名下
+                  </div>
+                  <p
+                    className="mt-1.5 text-[11px] leading-relaxed"
+                    style={{ color: isDark ? "oklch(0.75 0.08 70)" : "oklch(0.45 0.09 60)" }}
+                  >
+                    已邀请的好友、已到账的积分、历史统计全部不受影响。
+                    随时可以恢复，邀请码不会改变，之前发出去的链接恢复后照常有效。
+                  </p>
+                </div>
+              )}
+
+              {/*
+                一次性复制 —— 唯一主推动作，说明见 buildInviteMessage 注释。
+                链接和邀请码降为次级操作：绝大多数人只需要"复制、粘贴、发送"三步，
+                把三个同等分量的按钮摆在一起反而让人犹豫该点哪个。
+              */}
+              <div className="space-y-2">
+                <div className="text-[12px] font-medium" style={{ color: subtleText }}>
+                  一键复制邀请消息，粘贴给好友
+                </div>
+                <div
+                  className="rounded-lg px-3 py-2.5"
+                  style={{ background: cardBg, border: `1px solid ${cardBorder}` }}
+                >
+                  <pre
+                    className="max-h-[124px] overflow-y-auto whitespace-pre-wrap break-all text-[11.5px] leading-relaxed"
+                    style={{ color: subtleText, fontFamily: "inherit" }}
+                  >
+                    {inviteMessage || "—"}
+                  </pre>
+                </div>
+                {/*
+                  ⚠️ 暂停态禁用复制，而不是照常允许。
+                  暂停时复制出去的链接，好友点开能打开站点、能注册，
+                  但邀请关系会被后端闸门静默拒绝 —— 全程零报错，
+                  等好友付了钱才发现没奖励，而 hasPaid 落盘后没有第二次机会补绑。
+                  与其事后无法挽回，不如在这里就拦住。
+                */}
+                <button
+                  type="button"
+                  disabled={summary.acceptDisabled}
+                  onClick={() => void handleCopy("message")}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-lg py-2.5 text-[13px] font-semibold transition-colors"
+                  style={{
+                    background: summary.acceptDisabled ? cardBg : "oklch(0.58 0.22 290)",
+                    color: summary.acceptDisabled ? subtleText : "white",
+                    border: summary.acceptDisabled ? `1px solid ${cardBorder}` : "none",
+                    cursor: summary.acceptDisabled ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {copiedField === "message" ? <Check size={15} /> : <Copy size={15} />}
+                  {summary.acceptDisabled
+                    ? "已暂停邀请，恢复后可复制"
+                    : copiedField === "message"
+                      ? "已复制，去粘贴给好友"
+                      : "复制邀请消息（含链接和邀请码）"}
+                </button>
+                <p className="text-[11px]" style={{ color: subtleText }}>
+                  好友点链接注册即自动绑定，无需手动输入邀请码。
+                </p>
               </div>
+
+              {/* 链接与邀请码 —— 次级操作，给需要单独使用的场景留出口 */}
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleCopy("link")}
+                  className="flex items-center justify-center gap-1.5 rounded-lg py-2 text-[12px] font-medium transition-colors"
+                  style={{ background: cardBg, border: `1px solid ${cardBorder}`, color: subtleText }}
+                >
+                  {copiedField === "link" ? <Check size={12} /> : <Copy size={12} />}
+                  {copiedField === "link" ? "已复制" : "只复制链接"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleCopy("code")}
+                  className="flex items-center justify-center gap-1.5 rounded-lg py-2 text-[12px] font-medium transition-colors"
+                  style={{ background: cardBg, border: `1px solid ${cardBorder}`, color: subtleText }}
+                >
+                  {copiedField === "code" ? <Check size={12} /> : <Copy size={12} />}
+                  <span className="font-mono tracking-[0.12em]">{summary.inviteCode || "—"}</span>
+                </button>
+              </div>
+
+              {/* 我的邀请战绩 */}
+              <div className="rounded-xl p-4" style={{ background: cardBg, border: `1px solid ${cardBorder}` }}>
+                <div className="mb-3 flex items-center gap-1.5 text-[12px] font-medium" style={{ color: subtleText }}>
+                  <Users size={13} />
+                  我的邀请
+                </div>
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div>
+                    <div className="text-[18px] font-bold">{summary.rewardedCount}</div>
+                    <div className="text-[11px]" style={{ color: subtleText }}>已获奖励</div>
+                  </div>
+                  <div>
+                    <div className="text-[18px] font-bold">{summary.pendingCount}</div>
+                    <div className="text-[11px]" style={{ color: subtleText }}>待付费</div>
+                  </div>
+                  <div>
+                    <div className="text-[18px] font-bold">{summary.earnedCredits.toLocaleString("zh-CN")}</div>
+                    <div className="text-[11px]" style={{ color: subtleText }}>累计积分</div>
+                  </div>
+                </div>
+                <p className="mt-3 text-[11px]" style={{ color: subtleText }}>
+                  剩余可获奖名额 {summary.remainingQuota} / {summary.maxQuota} 人
+                </p>
+              </div>
+
+              {/*
+                暂停 / 恢复开关。
+                刻意放在最底部：这是低频的安全动作，不该和高频的「复制分享」抢注意力。
+                文案回答的是「我为什么需要它」而不是「它是什么」—— 用户不关心
+                inviteAcceptDisabled 这个字段，只关心「码传出去了怎么办」。
+              */}
               <div
-                className="rounded-lg px-3 py-2.5"
+                className="flex items-center justify-between gap-3 rounded-xl px-4 py-3"
                 style={{ background: cardBg, border: `1px solid ${cardBorder}` }}
               >
-                <pre
-                  className="max-h-[124px] overflow-y-auto whitespace-pre-wrap break-all text-[11.5px] leading-relaxed"
-                  style={{ color: subtleText, fontFamily: "inherit" }}
+                <div className="min-w-0">
+                  <div className="text-[12px] font-medium">
+                    {summary.acceptDisabled ? "邀请已暂停" : "暂停接受新邀请"}
+                  </div>
+                  <p className="mt-0.5 text-[11px] leading-relaxed" style={{ color: subtleText }}>
+                    {summary.acceptDisabled
+                      ? "恢复后好友可继续通过你的链接注册。"
+                      : "担心邀请码流传到不该去的地方时，可随时暂停，已有奖励不受影响。"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={toggling}
+                  onClick={() => void handleToggleAccept()}
+                  className="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-[12px] font-medium transition-colors"
+                  style={{
+                    background: summary.acceptDisabled ? "oklch(0.68 0.19 150)" : "transparent",
+                    color: summary.acceptDisabled ? "white" : subtleText,
+                    border: summary.acceptDisabled ? "none" : `1px solid ${cardBorder}`,
+                    opacity: toggling ? 0.6 : 1,
+                    cursor: toggling ? "wait" : "pointer",
+                  }}
                 >
-                  {inviteMessage || "—"}
-                </pre>
+                  {toggling ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : summary.acceptDisabled ? (
+                    <PlayCircle size={13} />
+                  ) : (
+                    <PauseCircle size={13} />
+                  )}
+                  {summary.acceptDisabled ? "恢复邀请" : "暂停"}
+                </button>
               </div>
-              {/*
-                ⚠️ 暂停态禁用复制，而不是照常允许。
-                暂停时复制出去的链接，好友点开能打开站点、能注册，
-                但邀请关系会被后端闸门静默拒绝 —— 全程零报错，
-                等好友付了钱才发现没奖励，而 hasPaid 落盘后没有第二次机会补绑。
-                与其事后无法挽回，不如在这里就拦住。
-              */}
-              <button
-                type="button"
-                disabled={summary.acceptDisabled}
-                onClick={() => void handleCopy("message")}
-                className="flex w-full items-center justify-center gap-1.5 rounded-lg py-2.5 text-[13px] font-semibold transition-colors"
-                style={{
-                  background: summary.acceptDisabled ? cardBg : "oklch(0.58 0.22 290)",
-                  color: summary.acceptDisabled ? subtleText : "white",
-                  border: summary.acceptDisabled ? `1px solid ${cardBorder}` : "none",
-                  cursor: summary.acceptDisabled ? "not-allowed" : "pointer",
-                }}
-              >
-                {copiedField === "message" ? <Check size={15} /> : <Copy size={15} />}
-                {summary.acceptDisabled
-                  ? "已暂停邀请，恢复后可复制"
-                  : copiedField === "message"
-                    ? "已复制，去粘贴给好友"
-                    : "复制邀请消息（含链接和邀请码）"}
-              </button>
-              <p className="text-[11px]" style={{ color: subtleText }}>
-                好友点链接注册即自动绑定，无需手动输入邀请码。
-              </p>
             </div>
-
-            {/* 链接与邀请码 —— 次级操作，给需要单独使用的场景留出口 */}
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => void handleCopy("link")}
-                className="flex items-center justify-center gap-1.5 rounded-lg py-2 text-[12px] font-medium transition-colors"
-                style={{ background: cardBg, border: `1px solid ${cardBorder}`, color: subtleText }}
-              >
-                {copiedField === "link" ? <Check size={12} /> : <Copy size={12} />}
-                {copiedField === "link" ? "已复制" : "只复制链接"}
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleCopy("code")}
-                className="flex items-center justify-center gap-1.5 rounded-lg py-2 text-[12px] font-medium transition-colors"
-                style={{ background: cardBg, border: `1px solid ${cardBorder}`, color: subtleText }}
-              >
-                {copiedField === "code" ? <Check size={12} /> : <Copy size={12} />}
-                <span className="font-mono tracking-[0.12em]">{summary.inviteCode || "—"}</span>
-              </button>
-            </div>
-
-            {/* 我的邀请战绩 */}
-            <div className="rounded-xl p-4" style={{ background: cardBg, border: `1px solid ${cardBorder}` }}>
-              <div className="mb-3 flex items-center gap-1.5 text-[12px] font-medium" style={{ color: subtleText }}>
-                <Users size={13} />
-                我的邀请
-              </div>
-              <div className="grid grid-cols-3 gap-3 text-center">
-                <div>
-                  <div className="text-[18px] font-bold">{summary.rewardedCount}</div>
-                  <div className="text-[11px]" style={{ color: subtleText }}>已获奖励</div>
-                </div>
-                <div>
-                  <div className="text-[18px] font-bold">{summary.pendingCount}</div>
-                  <div className="text-[11px]" style={{ color: subtleText }}>待付费</div>
-                </div>
-                <div>
-                  <div className="text-[18px] font-bold">{summary.earnedCredits.toLocaleString("zh-CN")}</div>
-                  <div className="text-[11px]" style={{ color: subtleText }}>累计积分</div>
-                </div>
-              </div>
-              <p className="mt-3 text-[11px]" style={{ color: subtleText }}>
-                剩余可获奖名额 {summary.remainingQuota} / {summary.maxQuota} 人
-              </p>
-            </div>
-
-            {/*
-              暂停 / 恢复开关。
-              刻意放在最底部：这是低频的安全动作，不该和高频的「复制分享」抢注意力。
-              文案回答的是「我为什么需要它」而不是「它是什么」—— 用户不关心
-              inviteAcceptDisabled 这个字段，只关心「码传出去了怎么办」。
-            */}
-            <div
-              className="flex items-center justify-between gap-3 rounded-xl px-4 py-3"
-              style={{ background: cardBg, border: `1px solid ${cardBorder}` }}
-            >
-              <div className="min-w-0">
-                <div className="text-[12px] font-medium">
-                  {summary.acceptDisabled ? "邀请已暂停" : "暂停接受新邀请"}
-                </div>
-                <p className="mt-0.5 text-[11px] leading-relaxed" style={{ color: subtleText }}>
-                  {summary.acceptDisabled
-                    ? "恢复后好友可继续通过你的链接注册。"
-                    : "担心邀请码流传到不该去的地方时，可随时暂停，已有奖励不受影响。"}
-                </p>
-              </div>
-              <button
-                type="button"
-                disabled={toggling}
-                onClick={() => void handleToggleAccept()}
-                className="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-[12px] font-medium transition-colors"
-                style={{
-                  background: summary.acceptDisabled ? "oklch(0.68 0.19 150)" : "transparent",
-                  color: summary.acceptDisabled ? "white" : subtleText,
-                  border: summary.acceptDisabled ? "none" : `1px solid ${cardBorder}`,
-                  opacity: toggling ? 0.6 : 1,
-                  cursor: toggling ? "wait" : "pointer",
-                }}
-              >
-                {toggling ? (
-                  <Loader2 size={13} className="animate-spin" />
-                ) : summary.acceptDisabled ? (
-                  <PlayCircle size={13} />
-                ) : (
-                  <PauseCircle size={13} />
-                )}
-                {summary.acceptDisabled ? "恢复邀请" : "暂停"}
-              </button>
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );
