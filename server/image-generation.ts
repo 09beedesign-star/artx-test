@@ -750,7 +750,10 @@ const imageModelIcons: Record<string, string> = {
   "vod-og": "openai",
   "vod-mj": "midjourney",
   "vod-kling": "kling",
-  "vod-si": "image",
+  // ⚠️ 这张表下发的 icon **优先级高于前端硬编码**（mergeImageAiModelOptions
+  // 里服务端条目优先）。只改前端 workspace-data.ts 会被线上下发值覆盖，
+  // 表现为「本地开发有图标、线上没有」—— 两边必须同时改。
+  "vod-si": "si",
   "vod-qwen": "qwen",
   "vod-jimeng": "jimeng",
 };

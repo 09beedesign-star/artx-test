@@ -60,7 +60,7 @@ export const IMAGE_AI_MODELS: AiModelOption[] = [
   { id: "vod-og", label: "image2", color: "oklch(0.74 0.16 285)", description: "画面稳定，长文案不崩", icon: "openai" },
   { id: "vod-mj", label: "mj v8.2", color: "oklch(0.78 0.15 40)", description: "艺术表现强，构图出彩", icon: "midjourney" },
   { id: "vod-kling", label: "kling 3.0", color: "oklch(0.76 0.16 130)", description: "国风人像与电商主图", icon: "kling" },
-  { id: "vod-si", label: "si 5.0 pro", color: "oklch(0.82 0.18 95)", description: "真实感强，接近摄影", icon: "image" },
+  { id: "vod-si", label: "si 5.0 pro", color: "oklch(0.82 0.18 95)", description: "真实感强，接近摄影", icon: "si" },
   { id: "vod-qwen", label: "qwen 0925", color: "oklch(0.70 0.16 150)", description: "中文排版与海报文字", icon: "qwen" },
   { id: "vod-jimeng", label: "jimeng 4.0", color: "oklch(0.82 0.18 95)", description: "中文场景与国潮插画", icon: "jimeng" },
 ];

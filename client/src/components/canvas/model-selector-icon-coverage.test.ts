@@ -104,7 +104,7 @@ describe("模型选择器图标不得出现空白（2026-09-13 回归锁）", ()
       if (model.id === AUTO_AI_MODEL.id) return true;
       const kind = getModelBrandIconKind(model.id, passIcon ? model.icon : undefined);
       // "none" 现在也是可渲染的（降级到线框图），唯一的不可渲染状态是根本没分支。
-      return ["anthropic", "banana", "jimeng", "kling", "midjourney", "openai", "image", "none"]
+      return ["anthropic", "banana", "jimeng", "kling", "midjourney", "openai", "qwen", "si", "image", "none"]
         .includes(kind);
     };
 

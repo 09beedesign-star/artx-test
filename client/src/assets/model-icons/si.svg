@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <g fill="#000000">
+    <path fill-rule="evenodd" clip-rule="evenodd" d="M8.4 2.4 L14.9 21.6 L1.9 21.6 Z M8.4 7.6 L12.6 19.2 L4.2 19.2 Z"/>
+    <rect x="12.6" y="6.6" width="8.4" height="1.9" rx="0.95" transform="rotate(-14 12.6 7.55)"/>
+    <rect x="13.6" y="11.05" width="8" height="1.9" rx="0.95"/>
+    <rect x="12.9" y="15.5" width="8.4" height="1.9" rx="0.95" transform="rotate(14 12.9 16.45)"/>
+  </g>
+</svg>

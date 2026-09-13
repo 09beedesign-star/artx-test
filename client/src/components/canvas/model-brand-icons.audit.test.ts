@@ -56,8 +56,11 @@ describe("model brand icons after the claude text-model switch", () => {
       "vod-og": "none",
       "vod-mj": "none",
       "vod-kling": "kling",
-      "vod-si": "none",
-      "vod-qwen": "none",
+      // 2026-09-13：补齐 si / qwen 品牌图标后，裸 id 也能解析出品牌。
+      // si 走的是**分隔符锚定**正则（见 model-brand-icons.tsx），
+      // "vod-si" 里的 si 前有 `-`、后为串尾，命中；而 "vision" 这类不会。
+      "vod-si": "si",
+      "vod-qwen": "qwen",
       "vod-jimeng": "jimeng",
       // OG image2.5（2026-09-11 接入，sunburst medium 为全站默认出图模型）。
       // 裸 id 里既没有 "image2" 也没有 "gpt"，靠正则里新增的 `og25` 分支识别；
