@@ -903,15 +903,30 @@ function useImageModelOptions() {
             mergeImageAiModelOptions(catalog?.image || []).map(option => {
               const entitlement = entitlementByModel.get(option.id);
               if (!entitlement || option.id === AUTO_AI_MODEL.id) return option;
-              const description = [
-                option.description,
-                entitlement.label,
-              ].filter(Boolean).join(" · ");
+              const blocked =
+                entitlement.status === "unavailable" || entitlement.status === "exhausted";
+              /*
+               * ⚠️⚠️ unavailableReason 只有在模型**真的不能用**时才能赋值。
+               *
+               * 三个渲染出口（本文件 :873 / :16241 / :22682）读的都是
+               * `unavailableReason || description` —— 短路取前者。
+               * 此前这里无条件写 `unavailableReason: entitlement.message`，
+               * 而标准模型的 message 是 "70 积分/张"（server/admin-store.ts:1570），
+               * 于是**所有可用模型的能力描述被价格文案永久遮住**：
+               * workspace-data.ts 里精心写的"高品质综合表现"一个字都没显示过。
+               *
+               * 这个字段的语义是「为什么不能选」，不是「附加信息」。
+               * 能选的时候它必须是 undefined，否则等于把 description 作废。
+               *
+               * ⚠️ 同理不能把 entitlement.label（"标准模型"/"Pro / Studio 专属"）
+               * 拼进 description —— 那是权益分组名，不是模型能力，
+               * 拼上去既超出 20 字上限，也让每一行尾巴都挂着重复的"· 标准模型"。
+               * 权益受限的信息由 disabled 置灰 + unavailableReason 表达，足够了。
+               */
               return {
                 ...option,
-                description,
-                disabled: entitlement.status === "unavailable" || entitlement.status === "exhausted",
-                unavailableReason: entitlement.message,
+                disabled: blocked,
+                unavailableReason: blocked ? entitlement.message : undefined,
               };
             })
           );

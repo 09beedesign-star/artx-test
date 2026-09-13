@@ -670,30 +670,42 @@ const imageModelColors = [
  * （gemini-3.5-flash-preview / jimeng-4.0 / mj-v7 / mj-v8.1 / keling / og-image2-*）。
  * 保留 gpt-image-2* 与 gemini-3.1-flash-image* 是因为它们是**固定后端能力**
  * （不在选择器里，但智能注释等内部流程仍会用到），与选择器清单是两回事。
+ *
+ * ⚠️ 写作口径（2026-09-13 按用户要求定稿，别再写回去）：
+ * 这里是**用户选型时看的能力优势**，不是价格表。
+ *   - ❌ 不写价格/性价比/成本（"高性价比""极致低成本"）—— 单价属于计费口径，
+ *        由张数面板和计费提示负责；混进能力描述会让用户按价格而不是按效果选模型。
+ *   - ❌ 不写"另一画风"这类相对说法 —— 脱离上一行就没有意义。
+ *   - ✅ 写行业通用的能力标签：人像、写实、国风电商、中文排版、指令理解、出图速度。
+ *   - ✅ 长度 ≤20 字（UI 那行 maxWidth 150px + truncate，超了直接被截断）。
+ * 防护测试：server/image-model-descriptions.test.ts。
  */
 const imageModelDescriptions: Record<string, string> = {
-  "gpt-image-2": "高品质通用场景",
-  "gpt-image-2-4k": "极致4K细节",
-  "gemini-3.1-flash-image": "高性价比场景快",
-  "gemini-3.1-flash-image-preview": "高性价比预览快",
+  "gpt-image-2": "通用场景，表现稳定",
+  "gpt-image-2-4k": "4K 超清，细节丰富",
+  "gemini-3.1-flash-image": "响应快，适合批量出图",
+  "gemini-3.1-flash-image-preview": "预览版，出图速度快",
   // OG image2.5（腾讯 VOD 直连，2026-09-11 起为全站默认）
-  "vod-og25-sunburst-medium": "高性价比默认推荐",
-  "vod-og25-flare-medium": "高性价比另一画风",
-  "vod-og25-sunburst-low": "极致低成本草稿",
-  "vod-og25-flare-low": "极致低成本另一画风",
-  "vod-og25-sunburst-high": "极致高清细节",
-  "vod-og25-flare-high": "极致高清另一画风",
+  // sunburst / flare 是两个并列画风系列，价格完全相同（tencent-vod-aigc.ts:352），
+  // 所以文案只描述画风差异，不能写成"另一画风"这种零信息量的相对说法 ——
+  // 用户在下拉里看到"另一画风"根本不知道该不该切。
+  "vod-og25-sunburst-medium": "通用均衡，日常首选",
+  "vod-og25-flare-medium": "色彩浓郁，风格化强",
+  "vod-og25-sunburst-low": "出图快，适合打草稿",
+  "vod-og25-flare-low": "快速试风格与配色",
+  "vod-og25-sunburst-high": "高清细节，适合成稿",
+  "vod-og25-flare-high": "高清质感，氛围感强",
   // 其余 VOD 直连模型。这些此前只在前端 workspace-data.ts 里有文案，
   // 服务端目录接口没有，导致 /api/ai/models 把它们回成裸 id + 默认图标 ——
   // UI 因为有本地清单看不出来，直接消费该接口的第三方才会踩到。
-  "vod-gem": "高品质综合表现",
-  "vod-gem-lite": "高性价比出图快",
-  "vod-og": "高品质场景稳定",
-  "vod-mj": "极致艺术表现",
-  "vod-kling": "高品质国风电商",
-  "vod-si": "极致写实质感",
-  "vod-qwen": "高性价比中文强",
-  "vod-jimeng": "高性价比中文强",
+  "vod-gem": "指令理解准，改图听话",
+  "vod-gem-lite": "响应快，适合多轮微调",
+  "vod-og": "画面稳定，长文案不崩",
+  "vod-mj": "艺术表现强，构图出彩",
+  "vod-kling": "国风人像与电商主图",
+  "vod-si": "真实感强，接近摄影",
+  "vod-qwen": "中文排版与海报文字",
+  "vod-jimeng": "中文场景与国潮插画",
 };
 
 /**

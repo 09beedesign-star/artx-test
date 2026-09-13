@@ -10,20 +10,20 @@ import {
 import { getAiImageModelCreditPolicy } from "../../../shared/ai-credit-policy";
 
 const expectedImageModelDescriptions = {
-  "vod-og25-sunburst-medium": "高性价比默认推荐",
-  "vod-og25-flare-medium": "高性价比另一画风",
-  "vod-og25-sunburst-low": "极致低成本草稿",
-  "vod-og25-flare-low": "极致低成本另一画风",
-  "vod-og25-sunburst-high": "极致高清细节",
-  "vod-og25-flare-high": "极致高清另一画风",
-  "vod-gem": "高品质综合表现",
-  "vod-gem-lite": "高性价比出图快",
-  "vod-og": "高品质场景稳定",
-  "vod-mj": "极致艺术表现",
-  "vod-kling": "高品质国风电商",
-  "vod-si": "极致写实质感",
-  "vod-qwen": "高性价比中文强",
-  "vod-jimeng": "高性价比中文强",
+  "vod-og25-sunburst-medium": "通用均衡，日常首选",
+  "vod-og25-flare-medium": "色彩浓郁，风格化强",
+  "vod-og25-sunburst-low": "出图快，适合打草稿",
+  "vod-og25-flare-low": "快速试风格与配色",
+  "vod-og25-sunburst-high": "高清细节，适合成稿",
+  "vod-og25-flare-high": "高清质感，氛围感强",
+  "vod-gem": "指令理解准，改图听话",
+  "vod-gem-lite": "响应快，适合多轮微调",
+  "vod-og": "画面稳定，长文案不崩",
+  "vod-mj": "艺术表现强，构图出彩",
+  "vod-kling": "国风人像与电商主图",
+  "vod-si": "真实感强，接近摄影",
+  "vod-qwen": "中文排版与海报文字",
+  "vod-jimeng": "中文场景与国潮插画",
 };
 
 /** 2026-09-12 下线的 8 个中转站图片模型 id，一个都不许再出现在选择器里。 */
@@ -38,10 +38,14 @@ const RETIRED_RELAY_IDS = [
   "keling",
 ];
 
+/** 口径与 server/image-model-catalog.test.ts 的同名函数保持一致（≤20 字、不含价格）。 */
 function expectUserFacingImageModelDescription(description: string | undefined) {
   expect(description).toBeTruthy();
   expect(description).not.toMatch(/[高中低]价/);
-  expect(description!.length).toBeLessThanOrEqual(15);
+  expect(description, `"${description}" 不应出现价格/计费信息`).not.toMatch(
+    /积分|性价比|成本|价格|免费|[0-9]\s*元/
+  );
+  expect(description!.length, `"${description}" 超过 20 字`).toBeLessThanOrEqual(20);
 }
 
 describe("workspace image model options", () => {
@@ -98,7 +102,7 @@ describe("workspace image model options", () => {
       { id: "gpt-image-2", label: "gpt-image-2", color: "server-color" },
       { id: "gpt-image-2-4k", label: "gpt-image-2-4k", color: "server-color" },
       { id: "gemini-3.1-flash-image", label: "gemini-3.1-flash-image", color: "server-color" },
-      { id: "vod-jimeng", label: "jimeng 4.0", color: "server-color", description: "高性价比中文强", icon: "jimeng" },
+      { id: "vod-jimeng", label: "jimeng 4.0", color: "server-color", description: "中文场景与国潮插画", icon: "jimeng" },
       { id: "gpt-5.4-mini", label: "GPT text", color: "server-color" },
     ]);
 
@@ -110,7 +114,7 @@ describe("workspace image model options", () => {
     ]);
     expect(options.find(option => option.id === "vod-jimeng")).toMatchObject({
       label: "jimeng 4.0",
-      description: "高性价比中文强",
+      description: "中文场景与国潮插画",
       icon: "jimeng",
     });
     expectUserFacingImageModelDescription(options.find(option => option.id === "vod-jimeng")?.description);

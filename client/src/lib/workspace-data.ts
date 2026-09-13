@@ -44,25 +44,25 @@ export const IMAGE_AI_MODELS: AiModelOption[] = [
   // 本身不含任何品牌关键字，不写 icon 就会落到 "none" 变成无图标。
   // OG image2.5 两系列（2026-09-11 接入，sunburst medium 为全站默认）。
   // 两系价格完全相同，画风不同，都放出来供用户手动切换。
-  { id: "vod-og25-sunburst-medium", label: "image2.5 medium", color: "oklch(0.72 0.18 200)", description: "高性价比默认推荐", icon: "openai" },
-  { id: "vod-og25-flare-medium", label: "image2.5 medium flare", color: "oklch(0.74 0.16 285)", description: "高性价比另一画风", icon: "openai" },
-  { id: "vod-og25-sunburst-low", label: "image2.5 low", color: "oklch(0.70 0.16 150)", description: "极致低成本草稿", icon: "openai" },
-  { id: "vod-og25-flare-low", label: "image2.5 low flare", color: "oklch(0.70 0.16 150)", description: "极致低成本另一画风", icon: "openai" },
-  { id: "vod-og25-sunburst-high", label: "image2.5 high", color: "oklch(0.82 0.18 95)", description: "极致高清细节", icon: "openai" },
-  { id: "vod-og25-flare-high", label: "image2.5 high flare", color: "oklch(0.82 0.18 95)", description: "极致高清另一画风", icon: "openai" },
+  { id: "vod-og25-sunburst-medium", label: "image2.5 medium", color: "oklch(0.72 0.18 200)", description: "通用均衡，日常首选", icon: "openai" },
+  { id: "vod-og25-flare-medium", label: "image2.5 medium flare", color: "oklch(0.74 0.16 285)", description: "色彩浓郁，风格化强", icon: "openai" },
+  { id: "vod-og25-sunburst-low", label: "image2.5 low", color: "oklch(0.70 0.16 150)", description: "出图快，适合打草稿", icon: "openai" },
+  { id: "vod-og25-flare-low", label: "image2.5 low flare", color: "oklch(0.70 0.16 150)", description: "快速试风格与配色", icon: "openai" },
+  { id: "vod-og25-sunburst-high", label: "image2.5 high", color: "oklch(0.82 0.18 95)", description: "高清细节，适合成稿", icon: "openai" },
+  { id: "vod-og25-flare-high", label: "image2.5 high flare", color: "oklch(0.82 0.18 95)", description: "高清质感，氛围感强", icon: "openai" },
   // label 是纯展示文案，与 id / 后端真实接口解耦
   // （路由看 id，发给腾讯的版本串由 tencent-vod-aigc.ts 决定）。
   // 2026-09-12 按要求调整对外命名：去掉 og 前缀、gem 前缀改 banana，后缀不变。
   // 这张表必须与 server/image-generation.ts 的 imageModelLabels 保持一致，
   // 否则 /api/ai/models 下发的目录文案会覆盖前端，UI 上出现两套名字。
-  { id: "vod-gem", label: "banana 3.1", color: "oklch(0.72 0.18 200)", description: "高品质综合表现", icon: "gemini" },
-  { id: "vod-gem-lite", label: "banana 3.1 lite", color: "oklch(0.76 0.16 130)", description: "高性价比出图快", icon: "gemini" },
-  { id: "vod-og", label: "image2", color: "oklch(0.74 0.16 285)", description: "高品质场景稳定", icon: "openai" },
-  { id: "vod-mj", label: "mj v8.2", color: "oklch(0.78 0.15 40)", description: "极致艺术表现", icon: "midjourney" },
-  { id: "vod-kling", label: "kling 3.0", color: "oklch(0.76 0.16 130)", description: "高品质国风电商", icon: "kling" },
-  { id: "vod-si", label: "si 5.0 pro", color: "oklch(0.82 0.18 95)", description: "极致写实质感", icon: "image" },
-  { id: "vod-qwen", label: "qwen 0925", color: "oklch(0.70 0.16 150)", description: "高性价比中文强", icon: "qwen" },
-  { id: "vod-jimeng", label: "jimeng 4.0", color: "oklch(0.82 0.18 95)", description: "高性价比中文强", icon: "jimeng" },
+  { id: "vod-gem", label: "banana 3.1", color: "oklch(0.72 0.18 200)", description: "指令理解准，改图听话", icon: "gemini" },
+  { id: "vod-gem-lite", label: "banana 3.1 lite", color: "oklch(0.76 0.16 130)", description: "响应快，适合多轮微调", icon: "gemini" },
+  { id: "vod-og", label: "image2", color: "oklch(0.74 0.16 285)", description: "画面稳定，长文案不崩", icon: "openai" },
+  { id: "vod-mj", label: "mj v8.2", color: "oklch(0.78 0.15 40)", description: "艺术表现强，构图出彩", icon: "midjourney" },
+  { id: "vod-kling", label: "kling 3.0", color: "oklch(0.76 0.16 130)", description: "国风人像与电商主图", icon: "kling" },
+  { id: "vod-si", label: "si 5.0 pro", color: "oklch(0.82 0.18 95)", description: "真实感强，接近摄影", icon: "image" },
+  { id: "vod-qwen", label: "qwen 0925", color: "oklch(0.70 0.16 150)", description: "中文排版与海报文字", icon: "qwen" },
+  { id: "vod-jimeng", label: "jimeng 4.0", color: "oklch(0.82 0.18 95)", description: "中文场景与国潮插画", icon: "jimeng" },
 ];
 
 // 文本 / 多模态理解模型清单（用户下拉框唯一可见项）。
