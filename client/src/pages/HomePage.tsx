@@ -351,8 +351,27 @@ export default function HomePage() {
     return () => observer.disconnect();
   }, [isAuthenticated]);
 
-  const shouldRenderAuthPanel = !isAuthenticated;
+  /*
+   * 登录面板的挂载条件。
+   *
+   * ⚠️⚠️ 两个条件缺一不可，少了第二个会**破坏浏览器自动填充**：
+   *   1. !isAuthenticated —— 已登录不得把密码表单留在 DOM 里
+   *      （隐藏表单仍可能触发密码管理器的身份确认弹窗，见 MEMORY.md）；
+   *   2. displayedMode !== "prelogin" —— 面板收起时也必须真正卸载。
+   *
+   * 此前只有第 1 个条件，收起状态靠 opacity-0 + pointer-events-none 遮住，
+   * 表单从首屏起就一直挂在 DOM 上。Chrome/Safari 的密码管理器在页面加载时
+   * 就会扫描表单并决定要不要提示填充，而对一个**可见性为 0**的表单
+   * 它的行为是不稳定的 —— 等用户点开登录面板时，填充时机早就过去了，
+   * 于是"勾了选项却什么都没自动填上"（2026-09-13 用户报的现象）。
+   *
+   * 卸载后浏览器会在面板真正出现时重新发现表单，填充提示才会按预期弹出。
+   *
+   * 📌 卸载不影响淡出动画：收起时先播 PreloginPanel 的淡入（500ms），
+   * 登录面板本身是直接移除的，视觉上被上层面板盖住，用户看不到突变。
+   */
   const displayedMode = isAuthenticated ? "prelogin" : panelMode;
+  const shouldRenderAuthPanel = !isAuthenticated && displayedMode !== "prelogin";
 
   const handleMainScroll = () => {
     const main = mainRef.current;
@@ -580,7 +599,12 @@ export default function HomePage() {
               />
             </div>
             {shouldRenderAuthPanel && (
-              <div className={`absolute inset-0 transition-all duration-500 ease-out ${displayedMode === "prelogin" ? "pointer-events-none opacity-0 -translate-y-3" : "pointer-events-auto opacity-100 translate-y-0"}`}>
+              /*
+               * 这里不再写 displayedMode === "prelogin" 的隐藏分支：
+               * shouldRenderAuthPanel 已经保证收起时整块卸载，那个分支恒不可达。
+               * 留着会让人以为"隐藏态仍在 DOM 里"，正是本次要修掉的行为。
+               */
+              <div className="absolute inset-0 pointer-events-auto translate-y-0 opacity-100 transition-all duration-500 ease-out">
                 <LoginPanel
                   mode={displayedMode === "register" ? "register" : "login"}
                   email={email}
@@ -1096,7 +1120,29 @@ function LoginPanel({
 
         {!isRegister && (
           <div className="mt-3 flex h-5 items-center justify-between gap-3">
-            <label className="flex min-w-0 cursor-pointer items-center gap-2 text-left">
+            {/*
+              ⚠️ 这里的文案必须是「记住账号」。
+
+              勾选后 ArtX **不保存任何密码**，只做两件事：把用户名写进 cookie
+              供下次回填，以及调 navigator.credentials.store 把凭据交给浏览器
+              自带的密码管理器（见 handleAuthAction）。密码全程由浏览器/系统
+              钥匙串保管，ArtX 侧永远拿不到、也不该拿到。
+
+              若把文案写成「记住」+「密码」，用户会预期下次密码自动出现在输入框里，
+              而那永远不会发生 —— 这正是 2026-09-13 用户报上来的"bug"，
+              根因是文案与行为不一致，不是功能坏了。
+
+              要做到由 ArtX 自己保管凭据，必须先落实安全的存储方案；
+              注意项目根 MEMORY.md 明令禁止把明文密码写进 cookie / localStorage。
+
+              ⚠️ 注意：本注释刻意避免出现「记住」紧跟「密码」的完整词组 ——
+              HomePage.auth-project.test.ts 用 toContain 扫源码来断言 UI 文案，
+              注释里写了那个词会让断言命中注释本身，变成永远为真的假通过。
+            */}
+            <label
+              className="flex min-w-0 cursor-pointer items-center gap-2 text-left"
+              title="勾选后下次自动填入账号；密码由浏览器的密码管理器保存，登录时在密码框选择即可"
+            >
               <input
                 type="checkbox"
                 checked={rememberPassword}
@@ -1104,7 +1150,7 @@ function LoginPanel({
                 className="h-4 w-4 rounded border-white/20 bg-[#222] accent-[#936CFF]"
               />
               <span className="truncate text-[13px] font-medium text-white">
-                记住密码
+                记住账号
               </span>
             </label>
             <button
