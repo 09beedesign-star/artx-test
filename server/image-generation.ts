@@ -2784,9 +2784,11 @@ async function createOgdEditMaskDataUrl(
   }
 
   // 按请求类型动态选择 mask 扩展策略：帽子需要较大空间，眼镜/小配饰必须保守避免覆盖脸部。
-  const promptLower = editPrompt.toLowerCase();
-  const isHatRequest = /(帽|hat\b|cap\b|bonnet|visor|headwear|头饰|贝雷帽|鸭舌帽|针织帽|棒球帽|毛线帽)/i.test(editPrompt);
-  const isGlassesRequest = /(眼镜|glasses|sunglasses|墨镜|goggles|镜框|镜片|一副眼镜|一副墨镜)/i.test(editPrompt);
+  // 只扫「用户原话」：前端在头部配饰场景会插入「帽子、头盔、皇冠或其他头部配饰」这类样板文字，
+  // 拿整段 prompt 判断会让所有请求都命中帽子分支（蒙版被大幅上扩，换色/加皇冠都被带偏）。
+  const userRequest = extractUserRequest(editPrompt);
+  const isHatRequest = /(帽|hat\b|cap\b|bonnet|visor|beret|headwear|贝雷帽|鸭舌帽|针织帽|棒球帽|毛线帽)/i.test(userRequest);
+  const isGlassesRequest = /(眼镜|glasses|sunglasses|墨镜|goggles|镜框|镜片|一副眼镜|一副墨镜)/i.test(userRequest);
   let finalBinary: Uint8Array = editBinary;
   if (maxX >= 0 && maxY >= 0) {
     if (mode === "add") {
@@ -3798,25 +3800,32 @@ function classifyAnnotationPrompt(prompt: string): "add-object" | "edit-property
 
 function getSmartAnnotationReferenceEditModels(selectedModel: string, prompt: string = "") {
   // 智能注释局部编辑按请求类型自动挑选 VOD 参考图模型：
-  // - 新增物件（帽子/眼镜/道具等）：首选 OG（GPT-Image2），它原生支持 mask 编辑、
-  //   对"红色棒球帽"这类具体颜色/款式遵循强、凭空加东西效果好。
-  // - 改已有属性（换色/换材质/修瑕疵）：首选 GEM（Gemini 3.1），它对人脸/身份保持度更好、
-  //   融合更柔和，适合修改已有内容而不引入新物体。
+  // - 新增物件（帽子/眼镜/道具等）：首选即梦（Jimeng 4.0），它对"红色棒球帽"这类具体
+  //   颜色/款式遵循强、新物体与头部的融合自然；OG（GPT-Image2）原生支持 mask 编辑，次选兜底。
+  // - 改已有属性（换色/换材质/修瑕疵）：首选即梦；GEM（Gemini 3.1）对人脸/身份保持度更好、
+  //   融合更柔和，次选兜底。
   const promptType = classifyAnnotationPrompt(prompt);
 
-  // 智能注释固定只用这两个模型：OG（GPT-Image2）和 GEM（Gemini 3.1），两者互为兜底。
+  // 智能注释只用这三个模型：即梦（Jimeng 4.0）/ OG（GPT-Image2）/ GEM（Gemini 3.1）。
+  // 即梦排最前作为首选：2026-09-13 实测确认，它在「加头部配饰」与「换属性」两类局部编辑上，
+  // 对用户具体描述的遵循度、与人物头部的融合度都最好。
+  // OG / GEM 留在后面作兜底，即梦失败（或对 mask 无响应）时自动降级，不会把用户请求直接打断。
   // 不再回落到 MJ / Kling / Hunyuan / chat 等其他模型——实测它们在这类局部编辑上
   // 要么保持度差、要么直接忽略指令，与其出一张不对的图，不如失败后由用户重试。
-  const addObjectVodModels = ["vod-og", "vod-gem"];
-  const editPropertyVodModels = ["vod-gem", "vod-og"];
+  const addObjectVodModels = ["vod-jimeng", "vod-og", "vod-gem"];
+  const editPropertyVodModels = ["vod-jimeng", "vod-gem", "vod-og"];
   const vodReferenceModels = promptType === "edit-property"
     ? editPropertyVodModels
     : addObjectVodModels;
 
-  if (selectedModel === DEFAULT_IMAGE_MODEL_ID) {
-    return Array.from(new Set(vodReferenceModels));
-  }
-  return Array.from(new Set([selectedModel, ...vodReferenceModels]));
+  // 即梦恒为首选。selectedModel 来自「画布助手的通用图片编辑模型」设置
+  // （client/src/components/canvas/InfiniteCanvas.tsx 的 getStoredCanvasAssistantImageEditModel），
+  // 它不是「智能注释专用」的选择 —— 用户在那里选的 vod-gem 只是他平时生成图片的偏好，
+  // 不该顶掉智能注释实测效果最好的即梦。选中的模型并入其后，仅作即梦失败时的兜底候选。
+  const preferredModel = selectedModel && selectedModel !== DEFAULT_IMAGE_MODEL_ID
+    ? [selectedModel]
+    : [];
+  return Array.from(new Set([vodReferenceModels[0], ...preferredModel, ...vodReferenceModels]));
 }
 
 async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images: GeneratedImage[] }> {
@@ -3996,8 +4005,13 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
       // 支持 mask 的 VOD 模型（OG）：传 source + mask（ReferenceType:"mask"），
       // 并在白色蒙版区域内做精确「加物体」编辑，蒙版外保持原图。
       const userPrompt = input.prompt.trim();
-      const isHatRequest = /(帽|hat\b|cap\b|bonnet|visor|headwear|头饰|贝雷帽|鸭舌帽|针织帽|棒球帽|毛线帽)/i.test(userPrompt);
-      const isGlassesRequest = /(眼镜|glasses|sunglasses|墨镜|goggles|镜框|镜片|一副眼镜|一副墨镜)/i.test(userPrompt);
+      // 意图识别必须只用「用户原话」，不能拿整段 prompt 做正则：
+      // 前端在头部配饰场景会往 prompt 里插入「帽子、头盔、皇冠或其他头部配饰」这类样板文字，
+      // 直接扫整段会让「给她戴个皇冠」被误判成帽子请求，后端于是追加「必须是棒球帽」的款式约束，
+      // 与用户请求互相打架。帽子判断只保留真正的帽类词，头饰/皇冠不在此列，统一交给通用约束。
+      const userRequest = extractUserRequest(userPrompt);
+      const isHatRequest = /(帽|hat\b|cap\b|bonnet|visor|beret|贝雷帽|鸭舌帽|针织帽|棒球帽|毛线帽)/i.test(userRequest);
+      const isGlassesRequest = /(眼镜|glasses|sunglasses|墨镜|goggles|镜框|镜片|一副眼镜|一副墨镜)/i.test(userRequest);
       const baseVodMaskLines = [
         userPrompt,
         "参考图 1 是原图，必须作为目标画布。参考图 2 是编辑意图标注图（红橙色半透明覆盖区域表示用户指定的编辑位置）。参考图 3 是精确蒙版：白色区域为可编辑/可添加物体的区域，黑色区域必须保持原样。",
@@ -4077,6 +4091,19 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
     }
     throw lastError || new Error("智能注释参考图编辑失败");
   };
+
+  /**
+   * VOD 系模型（vod-*）必须直接走参考图生成路径，不要先去撞中转站的 /images/edits。
+   *
+   * 与通用图片编辑入口同一位置的判断同因，这里此前漏掉了这一步：
+   * 主链路 callImageEditProvider 打的是中转站 BKEEL，而 VOD 模型名（vod-gem 等）
+   * 在中转站并不存在，上游只会回 503。2026-09-13 实测同一请求连打两次
+   * （51071ms + 20985ms），用户点完要干等 72 秒才看到图，而结论必然是降级到参考图链路。
+   * 兜底虽救回了结果，但每次都要先空转一遍注定失败的请求。
+   */
+  if (isVodModelId(selectedModel)) {
+    return editAnnotationViaReferenceGeneration();
+  }
 
   let providerData: ImageGenerationResponse | undefined;
   try {

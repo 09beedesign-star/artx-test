@@ -58,6 +58,44 @@ describe("generated image source normalization", () => {
     expect(source).not.toContain("isAutoAnnotationEdit");
   });
 
+  it("prefers Jimeng for smart annotation local edits, and reads intent only from the user's own words", async () => {
+    const source = await readFile(resolve(__dirname, "image-generation.ts"), "utf8");
+
+    /**
+     * 即梦（Jimeng 4.0）是智能注释局部编辑的首选模型，OG / GEM 只做失败兜底。
+     * 2026-09-13 实测：即梦在「加头部配饰」与「换属性」两类请求上，对用户描述的遵循度、
+     * 与人物头部的融合度都最好。这里锁住顺序，防止有人顺手把它挪回兜底位。
+     */
+    expect(source).toContain('const addObjectVodModels = ["vod-jimeng", "vod-og", "vod-gem"];');
+    expect(source).toContain('const editPropertyVodModels = ["vod-jimeng", "vod-gem", "vod-og"];');
+
+    /**
+     * 意图识别必须基于 extractUserRequest 剥出的「用户原话」，不能直接扫整段 prompt。
+     * 前端在头部配饰场景会往 prompt 里塞「帽子、头盔、皇冠或其他头部配饰」这类样板文字，
+     * 直接扫整段会让「给她戴个皇冠」被判成帽子请求，后端于是追加「必须是棒球帽」的款式约束，
+     * 与用户请求互相打架。两处判断各锁一条：一处决定参考图 prompt，一处决定蒙版扩展策略，
+     * 漏改任何一处都会复发（蒙版被大幅上扩 / prompt 补错款式）。
+     */
+    expect(source).toContain("const userRequest = extractUserRequest(editPrompt);");
+    expect(source).toContain("const userRequest = extractUserRequest(userPrompt);");
+
+    const hatChecks = source.match(/const isHatRequest = [^\n]*/g) || [];
+    const glassesChecks = source.match(/const isGlassesRequest = [^\n]*/g) || [];
+    expect(hatChecks).toHaveLength(2);
+    expect(glassesChecks).toHaveLength(2);
+
+    for (const check of [...hatChecks, ...glassesChecks]) {
+      // 判定输入必须是剥离后的用户原话
+      expect(check).toContain(".test(userRequest)");
+      expect(check).not.toContain(".test(editPrompt)");
+      expect(check).not.toContain(".test(userPrompt)");
+    }
+    for (const check of hatChecks) {
+      // 皇冠/头饰属于通用约束，不应触发「帽子」的款式分支与蒙版大幅上扩
+      expect(check).not.toContain("头饰");
+    }
+  });
+
   it("keeps camera-view edits on a generative viewpoint path instead of source-preserving local edit rules", async () => {
     const source = await readFile(resolve(__dirname, "image-generation.ts"), "utf8");
     const editSource = source.match(
@@ -717,7 +755,14 @@ describe("generated image source normalization", () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(true);
   });
 
-  it("preserves the source outside an annotation mask through the dedicated edit endpoint", async () => {
+  it("sends VOD smart annotation models straight to the reference path without touching the transfer station", async () => {
+    /**
+     * 2026-09-13 变更：智能注释可用的模型恒为 vod-*（resolveSmartAnnotationEditModel
+     * 只返回 DEFAULT_IMAGE_MODEL_ID 或调用方显式传入的模型），而中转站不认这些模型名，
+     * 主链路 /images/edits 必然回 503。实测同一请求连打两次（51071ms + 20985ms），
+     * 用户点完要干等 72 秒才看到图，而结论必然是降级到参考图链路。
+     * 因此 VOD 模型必须直接走参考图链路，一个中转站请求都不该发出去。
+     */
     vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
     vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
     vi.stubEnv("AI_IMAGE_MODEL", "gpt-image-2");
@@ -748,17 +793,15 @@ describe("generated image source normalization", () => {
       raw: { width: 96, height: 64, channels: 4 },
     }).png().toBuffer();
 
+    stubVodCredentials();
+    const requestedModels: string[] = [];
+    vodGenerateSpy.mockImplementation(async (input: { model: string }) => {
+      requestedModels.push(input.model);
+      return { images: [{ src: `data:image/png;base64,${edited.toString("base64")}` }] };
+    });
+
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
-      const endpoint = String(url);
-      if (endpoint.endsWith("/images/edits")) {
-        return Response.json({
-          data: [{ b64_json: edited.toString("base64") }],
-        });
-      }
-      if (endpoint.endsWith("/chat/completions")) {
-        throw new Error("Smart annotation must not fall back to reference generation");
-      }
-      throw new Error(`Unexpected fetch ${endpoint}`);
+      throw new Error(`Unexpected fetch ${String(url)}`);
     });
 
     const result = await editImageWithPrompt({
@@ -773,12 +816,10 @@ describe("generated image source normalization", () => {
 
     expect(result.images).toHaveLength(1);
     expect(result.images[0]).toMatchObject({ width: 96, height: 64 });
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/edits"))).toBe(true);
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(false);
-    const resultBuffer = Buffer.from(result.images[0].src.split(",")[1], "base64");
-    const resultPixels = await sharp(resultBuffer).ensureAlpha().raw().toBuffer();
-    expect(Array.from(resultPixels.subarray(0, 4))).toEqual([0, 255, 0, 255]);
-    expect(Array.from(resultPixels.subarray((95 * 4), (96 * 4)))).toEqual([255, 0, 0, 255]);
+    // 即梦恒为智能注释参考图链路的第一个候选
+    expect(requestedModels[0]).toBe("vod-jimeng");
+    // 一个中转站请求都没有发出去
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("falls back for smart annotation edit provider gateway failures", async () => {
