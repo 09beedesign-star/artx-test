@@ -1,0 +1,22 @@
+[Unit]
+Description=Run ArtX expired uploads cleanup daily
+Documentation=每天 03:50 清理过期上传文件
+
+[Timer]
+# 时间点是排过的，别随手改：
+#   03:20 artx-backup（备份，RandomizedDelaySec=10m → 最晚 03:30）
+#   03:50 本任务          ← 在备份之后，保证被删的文件已经进过当天备份
+#   04:02 artx-cos-sync-daily
+#   04:10 artx-release-cleanup（周日）
+OnCalendar=*-*-* 03:50:00
+
+# ⚠️ Persistent=true 是这个 timer 的核心价值所在。
+# 原来的实现是进程内 setInterval(24h)，生产 7 天重启 29 次（每次部署都重启），
+# 进程从没连续活满 24 小时 —— 那个定时器一次都没触发过。
+# Persistent 保证即使机器在计划时间点关机/重启，开机后也会立刻补跑错过的那次。
+Persistent=true
+RandomizedDelaySec=300
+Unit=artx-uploads-cleanup.service
+
+[Install]
+WantedBy=timers.target

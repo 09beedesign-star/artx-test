@@ -97,7 +97,6 @@ type McpJsonRpcRequest = {
 
 const backgroundImageTasks = new Map<string, BackgroundImageTask>();
 const BACKGROUND_IMAGE_TASK_TIMEOUT_MS = 5 * 60 * 1000;
-const UPLOAD_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const IMAGE_PROXY_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36 ArtX/1.0";
 
@@ -111,27 +110,38 @@ function getWechatGroupQrPath() {
   return path.join(process.env.ARTX_DATA_DIR || path.join(process.cwd(), ".artx-data"), "community", "wechat-group-qr.jpg");
 }
 
+/**
+ * 启动时做一次过期文件清理。
+ *
+ * ⚠️ 2026-09-13 移除了这里原有的 `setInterval(runCleanup, 24h)`，原因不是"重启会断档"
+ * 这么轻——而是**那个周期清理从未触发过一次**：
+ *   生产 7 天内重启 29 次（每次部署都重启），进程从未连续存活满 24 小时；
+ *   再加上 `timer.unref()`，它连阻止进程退出都做不到。
+ * 也就是说过去一直只有"启动那一次"在生效，定时器纯属摆设。
+ *
+ * 周期性清理已改由 systemd timer 驱动（artx-uploads-cleanup.timer），
+ * 调用 dist/cleanup-uploads-cli.js。那边不受部署重启影响，且失败有独立退出码可告警。
+ *
+ * 这里**保留启动时的一次**是有意为之：timer 未部署或被禁用时仍有兜底，
+ * 成本也只是一次目录扫描。
+ * 📌 别再把周期逻辑加回来 —— 要改周期请改 timer 的 OnCalendar。
+ */
 function scheduleUploadCleanup() {
-  const runCleanup = () => {
-    cleanupExpiredUploads()
-      .then(result => {
-        if (result.deletedFiles > 0 || result.removedDirectories > 0) {
-          console.log(
-            `[uploads] cleanup deleted ${result.deletedFiles} expired files and ${result.removedDirectories} empty directories; retention=${result.retentionDays}d root=${result.uploadsRoot}`
-          );
-        }
-      })
-      .catch(error => {
-        console.warn("[uploads] cleanup failed", error instanceof Error ? error.message : error);
-      });
-  };
-
   console.log(
     `[uploads] temporary image retention is ${getUploadRetentionDays()} natural days; feedback retention is ${getFeedbackRetentionDays()} natural days`
   );
-  runCleanup();
-  const timer = setInterval(runCleanup, UPLOAD_CLEANUP_INTERVAL_MS);
-  timer.unref?.();
+
+  cleanupExpiredUploads()
+    .then(result => {
+      if (result.deletedFiles > 0 || result.removedDirectories > 0) {
+        console.log(
+          `[uploads] startup cleanup deleted ${result.deletedFiles} expired files and ${result.removedDirectories} empty directories; retention=${result.retentionDays}d root=${result.uploadsRoot}`
+        );
+      }
+    })
+    .catch(error => {
+      console.warn("[uploads] startup cleanup failed", error instanceof Error ? error.message : error);
+    });
 }
 
 function isLoopbackAddress(value?: string) {

@@ -1,0 +1,44 @@
+[Unit]
+Description=ArtX expired uploads cleanup
+Documentation=删除超过保留期的临时上传/生成图片与反馈附件，释放 /var/lib/artx-shared/uploads 磁盘
+# 不写 Requires=artx-gray-backend.service：清理是纯文件操作，后端挂了也该照常回收磁盘。
+After=network-online.target
+
+[Service]
+Type=oneshot
+
+# ⚠️ 用户/组必须与 artx-gray-backend.service 一致。
+# 上传目录属主是 artx:artx，用 root 跑会把新建的空目录属主弄成 root，
+# 之后后端（artx 身份）再往里写就 EACCES。
+User=artx
+Group=artx
+
+WorkingDirectory=/opt/artx-gray-backend/current
+
+# ⚠️ 这两个变量必须和主服务里的值逐字一致，否则清理的是另一个目录，
+# 表现为"任务成功但一个文件都没删"，且没有任何报错。
+Environment=NODE_ENV=production
+Environment=ARTX_DATA_DIR=/var/lib/artx-gray
+Environment=ARTX_UPLOADS_DIR=/var/lib/artx-shared/uploads
+
+# 保留期等可调项写在 .env.gray 里，和主服务共用一份口径。
+# 📌 两个 .env.gray 中父目录那个最终生效（systemd 顺序加载，后者覆盖前者）。
+EnvironmentFile=-/opt/artx-gray-backend/current/.env.gray
+EnvironmentFile=-/opt/artx-gray-backend/.env.gray
+
+ExecStart=/usr/bin/node /opt/artx-gray-backend/current/dist/cleanup-uploads-cli.js
+
+StandardOutput=append:/var/log/artx/uploads-cleanup.log
+StandardError=append:/var/log/artx/uploads-cleanup.log
+SyslogIdentifier=artx-uploads-cleanup
+
+# 安全保护
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+# ProtectSystem=full 只读锁 /usr /boot /efi，不锁 /var，所以下面这行是"额外收紧"而非"开放"：
+# 写权限被限定在这三个路径内，脚本即使被改坏也删不到别处。
+ReadWritePaths=/var/lib/artx-shared/uploads /var/lib/artx-gray /var/log/artx
+UMask=0027
+TimeoutStartSec=10min
