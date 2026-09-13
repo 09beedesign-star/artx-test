@@ -526,6 +526,7 @@ import {
   DEFAULT_IMAGE_OUTPUT_COUNT,
   getImageModelDefaultOutputCount,
   hasCustomDefaultOutputCount,
+  isSupportedImageModelId,
 } from "@shared/image-models";
 import { getAiImageModelCreditPolicy } from "@shared/ai-credit-policy";
 import { filterAllowedAiModelOptions, resolveAllowedAiModelId } from "@/lib/model-access";
@@ -20714,11 +20715,23 @@ function CanvasAssistantPanel({
 
       window.setTimeout(async () => {
         try {
-          const decision = await routeCreativeIntent({
-            module: "home-prompt-canvas-router",
-            model: DEFAULT_TEXT_MODEL,
-            prompt: submittedText,
-          });
+          /**
+           * 【2026-09-13】首页若已选定图片模型，直接出图，不再路由。
+           *
+           * 旧逻辑无条件调 routeCreativeIntent，payload.model 只在下面决定"用哪个
+           * 图片模型"，对"要不要出图"毫无影响 —— 等于用户在首页选的图片模型
+           * 被当成了纯装饰。提示词一旦被判成 text 就走下面的文字分支，永远拿不到图。
+           */
+          const homeSelectedImageModel = isSupportedImageModelId(payload.model)
+            ? payload.model!
+            : null;
+          const decision = homeSelectedImageModel
+            ? { mode: "image" as const, imagePrompt: submittedText }
+            : await routeCreativeIntent({
+                module: "home-prompt-canvas-router",
+                model: DEFAULT_TEXT_MODEL,
+                prompt: submittedText,
+              });
           if (decision.mode === "image") {
             const imagePrompt = decision.imagePrompt?.trim() || submittedText;
             const generationId = `home-prompt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -21002,9 +21015,32 @@ function CanvasAssistantPanel({
         return;
       }
 
+      /**
+       * 【2026-09-13】用户手动选定图片模型 = 出图意图已经明确，不再路由。
+       *
+       * 旧逻辑 `assistantModelTab === "image"` 无条件调路由，于是"手动选了图片模型"
+       * 和"auto"走同一条判定，用户的选择被架空。实测两个后果：
+       *   1. 路由判 text → 下面所有 if/else if 分支全不命中 → **静默失败，什么都不发生**；
+       *   2. 路由判 reference_search → 去搜参考图，也不出图。
+       * 用户点了图片模型却拿不到图，且无任何报错。
+       *
+       * 现在：选定图片模型时直接置 { mode: "image" }，与底部输入框
+       * （:13871 非 auto 写死 mode:"image"）行为对齐。
+       * 例外是有引用图时仍需大模型读图文关系，见下方 needsReferenceComprehension。
+       */
+      const hasExplicitImageModel =
+        assistantModelTab === "image" &&
+        !assistantAutoMode &&
+        isSupportedImageModelId(assistantImageModel?.id);
+      // 图文混排必须让大模型把「引用图 N」这类占位编号翻译成画面描述，
+      // 否则 imagePrompt 直接喂给图片模型是读不懂的。此时仍要路由，
+      // 但下面会把结果强制钳到 image，绝不允许回落成文字。
+      const needsReferenceComprehension =
+        hasExplicitImageModel && submittedImages.length > 0;
       const shouldRouteIntent =
-        (assistantAutoMode && availableAssistantImageModels.length > 0) || assistantModelTab === "image";
-      const decision = shouldRouteIntent
+        (assistantAutoMode && availableAssistantImageModels.length > 0) ||
+        (assistantModelTab === "image" && (!hasExplicitImageModel || needsReferenceComprehension));
+      const routedDecision = shouldRouteIntent
         ? await routeCreativeIntent({
             module: "right-ai-assistant",
             model: assistantTextModel.id,
@@ -21023,6 +21059,27 @@ function CanvasAssistantPanel({
             forceModelDecision: submittedImages.length > 0,
           })
         : null;
+
+      /**
+       * 选定图片模型时把判定结果**强制钳到 image**。
+       *
+       * 两种来源都要钳：
+       *   - 没调路由（hasExplicitImageModel 且无引用图）→ routedDecision 为 null，
+       *     直接构造 image 决策，imagePrompt 用原始输入；
+       *   - 调了路由拿图文理解（needsReferenceComprehension）→ 保留大模型产出的
+       *     imagePrompt / targetImageIndex（这才是调它的目的），但 mode 一律覆盖成
+       *     image，不接受 text / reference_search 的回落。
+       * 这样无论提示词长什么样（含结构化 JSON 视觉规格），只要选了图片模型必定出图。
+       */
+      const decision = hasExplicitImageModel
+        ? {
+            ...(routedDecision ?? {}),
+            mode: "image" as const,
+            imagePrompt:
+              (routedDecision?.mode === "image" ? routedDecision.imagePrompt : undefined)?.trim() ||
+              routedPrompt,
+          }
+        : routedDecision;
 
       const shouldReplyWithText =
         assistantModelTab === "text" &&
