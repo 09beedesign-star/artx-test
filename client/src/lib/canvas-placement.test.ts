@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   MIN_CANVAS_STAGGER_OFFSET,
   ensureCanvasStaggerOffset,
+  getCanvasNodeCenter,
   isCanvasPositionFullyOverlapping,
 } from "./canvas-placement";
 
@@ -174,20 +175,58 @@ describe("三条规则在画布里真的被接上了（接线断言）", () => {
     );
   });
 
-  it("规则1：pending 占位阶段就居中，不等出图", () => {
+  it("规则1：提交那一刻就居中，且**绝不能用 fitView**", () => {
     const source = stripComments(readCanvasSource());
-    expect(source).toContain("const focusGeneratedImageNodes = useCallback");
-    expect(source).toContain("fitView({");
-    // 占位节点的 id 规则必须和居中时构造的 id 一致，否则 fitView 找不到目标。
-    expect(source).toContain("`generated-${generationId}-${index}`");
+    const focusFn = source.match(
+      /const focusGeneratedImageCenter = useCallback[\s\S]*?\n  \);/
+    )?.[0];
+    expect(focusFn).toBeTruthy();
+
     /*
-     * 匹配「带左括号」的出现：定义处 `= useCallback(` 不带、依赖数组里也不带，
-     * 所以这里数到的就是**两个真实调用点**：
-     *   pending 占位插入后 1 次、completed 出图后 1 次。
-     * 出图后必须再对一次焦，因为节点尺寸从占位框变成了图片实际尺寸。
+     * ⚠️⚠️ 本文件最重要的一条反向断言，锁的是一个**静默失效**的真实事故：
+     *
+     * `@xyflow/system` 的 getFitViewNodes() 里写着
+     *     const isVisible = n.measured.width && n.measured.height && (...)
+     * → fitView **只认已被浏览器测量过的节点**。
+     *
+     * 占位节点是刚 setNodes 插进去的，这一帧 measured 还是 undefined，
+     * 会被整个过滤掉；而空集合在 getInternalNodesBounds() 里返回
+     *     { x: 0, y: 0, width: 0, height: 0 }
+     * fitView 于是「成功」执行、Promise 正常 resolve、不抛错不告警，
+     * 但视角**根本没移到新图上** —— 用户看到的就是「提交没反应，
+     * 等图出来了才跳过去」。
+     *
+     * requestAnimationFrame 救不了：rAF 早于 ResizeObserver 回调。
+     * 所以这条链路必须用坐标驱动的 setCenter，不许退回 fitView。
      */
-    const calls = source.match(/focusGeneratedImageNodes\(\s*\n?\s*(?!\))/g) || [];
-    expect(calls.length).toBeGreaterThanOrEqual(2);
+    expect(focusFn).not.toContain("fitView");
+    expect(focusFn).toContain("setCenter(");
+  });
+
+  it("规则1：保持用户当前缩放，不擅自改变倍率", () => {
+    const source = stripComments(readCanvasSource());
+    const focusFn = source.match(
+      /const focusGeneratedImageCenter = useCallback[\s\S]*?\n  \);/
+    )?.[0];
+    // 用户拍板：只平移、不缩放。手动调好的倍率不该被覆盖。
+    expect(focusFn).toContain("zoom: getViewport().zoom");
+  });
+
+  it("规则1：中心点由坐标算出，不按 id 去查节点尺寸", () => {
+    const source = stripComments(readCanvasSource());
+    /*
+     * 中心点必须来自「插入时已经算好的 position + size」。
+     * 任何 getNode(id).measured 之类的做法在 pending 那一帧同样拿不到值。
+     */
+    const calls = source.match(/getCanvasNodeCenter\(/g) || [];
+    /*
+     * 三个对焦点：
+     *   ① pending 新建占位节点后
+     *   ② pending 复用已有占位节点时（刷新页面后重新挂载）
+     *   ③ completed 出图后（尺寸从占位框变成图片实际尺寸，需重对）
+     * 再加 completed 里「占位节点已不存在」的兜底新建分支，共 4 处。
+     */
+    expect(calls.length).toBeGreaterThanOrEqual(3);
   });
 
   it("规则1：居中函数进了 useEffect 依赖数组", () => {
@@ -197,13 +236,13 @@ describe("三条规则在画布里真的被接上了（接线断言）", () => {
     )?.[0];
     expect(effectTail).toBeTruthy();
     // 漏掉依赖 → 闭包捕获旧函数 → 自动居中静默失效且零报错。
-    expect(effectTail).toContain("focusGeneratedImageNodes");
+    expect(effectTail).toContain("focusGeneratedImageCenter");
   });
 
   it("规则1：自动居中只移视角，不抢用户的选中状态", () => {
     const source = stripComments(readCanvasSource());
     const focusFn = source.match(
-      /const focusGeneratedImageNodes = useCallback[\s\S]*?\n  \);/
+      /const focusGeneratedImageCenter = useCallback[\s\S]*?\n  \);/
     )?.[0];
     expect(focusFn).toBeTruthy();
     /*
@@ -213,6 +252,44 @@ describe("三条规则在画布里真的被接上了（接线断言）", () => {
      */
     expect(focusFn).not.toContain("setSelectedNodeIds");
     expect(focusFn).not.toContain("selected:");
+  });
+
+  it("规则1：pending 分支的对焦必须在 setNodes 之外执行", () => {
+    const source = stripComments(readCanvasSource());
+    /*
+     * setNodes 的 updater 在 React 严格模式下会被调用两次，
+     * 里面做副作用（移视角）会触发两次动画。
+     * 所以中心点在 updater 内算好带出来，调用放在外面。
+     */
+    expect(source).toContain(
+      "let pendingFocusCenter: { x: number; y: number } | null = null"
+    );
+    expect(source).toMatch(
+      /if \(pendingFocusCenter\) \{\s*\n\s*focusGeneratedImageCenter\(pendingFocusCenter\);/
+    );
+  });
+});
+
+describe("规则1：中心点计算（纯函数）", () => {
+  it("中心点 = 左上角 + 半个宽高", () => {
+    expect(getCanvasNodeCenter({ x: 100, y: 200 }, { w: 400, h: 600 })).toEqual({
+      x: 300,
+      y: 500,
+    });
+  });
+
+  it("负坐标同样正确（画布可以向左上无限延伸）", () => {
+    expect(getCanvasNodeCenter({ x: -80, y: -40 }, { w: 160, h: 80 })).toEqual({
+      x: 0,
+      y: 0,
+    });
+  });
+
+  it("9:16 竖图的中心点按实际宽高算，不假设是方图", () => {
+    // auto 比例现在默认 9:16，宽高不等，写死方图会算偏。
+    const center = getCanvasNodeCenter({ x: 0, y: 0 }, { w: 360, h: 640 });
+    expect(center).toEqual({ x: 180, y: 320 });
+    expect(center.x).not.toBe(center.y);
   });
 
   it("规则2：新生成节点的 zIndex 取自 nextCanvasTopZ，保证在最上层", () => {

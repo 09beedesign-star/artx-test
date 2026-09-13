@@ -73,3 +73,38 @@ export function ensureCanvasStaggerOffset(
 
   return result;
 }
+
+export type CanvasSize = { w: number; h: number };
+
+/**
+ * 算出一个节点的几何中心，供 `setCenter` 直接使用。
+ *
+ * 【2026-09-13 新增】⚠️⚠️ 这个函数存在的理由，是 `fitView` 在「提交提示词的那一刻」
+ * **根本不生效**，而且零报错：
+ *
+ * `@xyflow/system` 的 `getFitViewNodes()` 里有这么一行：
+ *     const isVisible = n.measured.width && n.measured.height && (...)
+ * 也就是说 **fitView 只认已经被浏览器量过尺寸的节点**。
+ * 占位节点是刚 setNodes 插进去的，这一帧还没被 ResizeObserver 测量，
+ * `measured.width` 是 undefined → 节点被过滤掉 → 传给 fitView 的集合是空的。
+ *
+ * 而空集合的下场（`getInternalNodesBounds()`）：
+ *     return hasVisibleNodes ? boxToRect(box) : { x: 0, y: 0, width: 0, height: 0 };
+ * 返回一个**全零矩形**，fitView 照常把视角挪过去、Promise 正常 resolve、
+ * 不抛错也不警告 —— 表现就是「提交时画面没反应，等图出来了才跳过去」。
+ *
+ * 📌 `requestAnimationFrame` 救不了：rAF 只等到 React 提交 DOM，
+ * 而 `measured` 要等 ResizeObserver 回调，是更晚的一拍。
+ *
+ * 所以这里改用坐标驱动：位置和尺寸在插入占位节点时我们**本来就已经算出来了**，
+ * 直接换算成中心点交给 `setCenter`，完全不依赖测量结果。
+ */
+export function getCanvasNodeCenter(
+  position: CanvasPoint,
+  size: CanvasSize
+): CanvasPoint {
+  return {
+    x: position.x + size.w / 2,
+    y: position.y + size.h / 2,
+  };
+}

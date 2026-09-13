@@ -581,7 +581,10 @@ import {
 } from "@/lib/ai";
 import { buildAssistantContext, routeCreativeIntent } from "@/lib/ai-intent";
 import { selectEditedTextRegions } from "@/lib/text-replace";
-import { ensureCanvasStaggerOffset } from "@/lib/canvas-placement";
+import {
+  ensureCanvasStaggerOffset,
+  getCanvasNodeCenter,
+} from "@/lib/canvas-placement";
 import {
   createWorkspaceHistoryProject,
   readWorkspaceProjectHistory,
@@ -23212,6 +23215,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     fitView,
     getViewport,
     setViewport,
+    setCenter,
   } = useReactFlow();
   const viewport = useViewport();
   const restoredCanvasState = useMemo(
@@ -24195,28 +24199,33 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   );
 
   /**
-   * 【2026-09-13 新增】把画布视角移到刚生成的图上。
+   * 【2026-09-13 重写】把画布视角移到**当前正在生成的那一张**图上。
+   *
+   * ⚠️⚠️ 这里刻意**不用 `fitView`**，理由见 `getCanvasNodeCenter` 的注释：
+   * `fitView` 只认 `measured` 已就绪的节点，而占位节点刚插入时还没被测量，
+   * 会被静默过滤成空集合 → 拿到全零矩形 → **视角不动且零报错**。
+   * 上一版就栽在这里：以为 rAF 够了，实际 rAF 早于 ResizeObserver 回调。
+   *
+   * `setCenter` 直接吃坐标，不查 nodeLookup、不依赖测量，
+   * 所以「提示词一提交」就能立刻生效，与出图进度彻底解耦。
+   *
+   * 🔒 **保持当前缩放不变**（`getViewport().zoom`）：用户手动调好的倍率不该被覆盖。
+   * 🔒 **多图只对准第一张**：用户要的是「当前正在生成的这一张」居中，
+   *    不是把整排塞进视野（那是 fitView 的语义，会顺带改缩放）。
    *
    * 与 `focusGeneratedImageNode` 的区别：**只移视角，不改选中状态**。
-   * 生成是异步的，用户在等待期间很可能正在操作别的节点，
+   * 生成是异步的，用户等待期间很可能正在操作别的节点，
    * 强行把选中切走会打断他；而「找回备份图」那条路径是用户主动点击，
    * 选中它才符合预期。两者语义不同，故不合并。
-   *
-   * 多图生成时把整批一起纳入视野，而不是只对准第一张。
    */
-  const focusGeneratedImageNodes = useCallback(
-    (nodeIds: string[]) => {
-      if (!nodeIds.length) return;
-      // rAF 等 React 把新节点提交到 DOM，否则 fitView 按 id 找不到目标。
-      requestAnimationFrame(() => {
-        fitView({
-          nodes: nodeIds.map(id => ({ id })),
-          duration: 600,
-          padding: 0.28,
-        });
+  const focusGeneratedImageCenter = useCallback(
+    (center: { x: number; y: number }) => {
+      setCenter(center.x, center.y, {
+        zoom: getViewport().zoom,
+        duration: 600,
       });
     },
-    [fitView]
+    [getViewport, setCenter]
   );
 
   useEffect(() => {
@@ -26995,12 +27004,30 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             generationStartedAt,
           });
         }
+        /**
+         * setNodes 的 updater 必须保持纯函数（React 严格模式下会被调用两次），
+         * 所以中心点先在 updater 内部算好带出来，副作用（移视角）放到外面执行。
+         */
+        let pendingFocusCenter: { x: number; y: number } | null = null;
         setNodes(nds => {
           const existingPlaceholders = nds.filter(
             n =>
               (n.data as Record<string, unknown>)?.generationId === generationId
           );
           if (existingPlaceholders.length > 0) {
+            /*
+             * 占位节点已存在（同一个 generationId 被再次派发，
+             * 例如刷新页面后重新挂载未完成的任务）。
+             * 这条分支也要移视角 —— 对用户来说这同样是「正在生成的那张图」。
+             * 这些节点已经渲染过、尺寸稳定，用 style 上的宽高即可。
+             */
+            const target = existingPlaceholders[0];
+            const targetW = Number(target.style?.width) || size.w;
+            const targetH = Number(target.style?.height) || size.h;
+            pendingFocusCenter = getCanvasNodeCenter(target.position, {
+              w: targetW,
+              h: targetH,
+            });
             return nds.map(n => {
               const data = n.data as Record<string, unknown>;
               if (data.generationId !== generationId) return n;
@@ -27087,19 +27114,27 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               return placeholderNode;
             }
           );
+          /**
+           * 【2026-09-13】规则：**提示词一提交就把视角移到这张新图**，不等出图。
+           *
+           * ⚠️ 中心点必须在这里、用刚算好的 position 直接算出来：
+           * 占位节点此刻还没被浏览器测量，任何「按 id 去查节点尺寸」的做法
+           * （fitView / getNode().measured）这一帧都拿不到值，会静默失效。
+           *
+           * 多图时取第一张 —— 用户要的是「当前正在生成的这一张」居中。
+           */
+          const focusTarget = placeholderNodes[0];
+          if (focusTarget) {
+            pendingFocusCenter = getCanvasNodeCenter(focusTarget.position, {
+              w: size.w,
+              h: size.h,
+            });
+          }
           return [...nds, ...placeholderNodes];
         });
-        /**
-         * 【2026-09-13】规则：生成时画布视角自动移到新图，**图还没生成完也要移**。
-         * 占位节点在上面已经带着最终 id 入画布了，所以这里就能对准；
-         * 不必等出图，否则用户盯着的还是老位置，会以为没反应。
-         */
-        focusGeneratedImageNodes(
-          Array.from(
-            { length: requestedCount },
-            (_, index) => `generated-${generationId}-${index}`
-          )
-        );
+        if (pendingFocusCenter) {
+          focusGeneratedImageCenter(pendingFocusCenter);
+        }
         toast("正在生成图像", { description: detail.prompt.slice(0, 58) });
         window.dispatchEvent(
           new CustomEvent("tool-mode-change", { detail: { mode: "move" } })
@@ -27190,6 +27225,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           style: detail.style,
         };
       });
+      let completedFocusCenter: { x: number; y: number } | null = null;
       setNodes(nds => {
         const existingPlaceholders = nds.filter(
           n =>
@@ -27218,6 +27254,20 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               image.src,
               `${generationId}-${index}`
             );
+            const nextPosition = detail.skillId
+              ? {
+                  x: n.position.x + (currentFrame.w - fittedSize.w) / 2,
+                  y: n.position.y + (currentFrame.h - fittedSize.h) / 2,
+                }
+              : n.position;
+            /*
+             * 出图后再对一次焦：占位框的尺寸此刻换成了图片实际尺寸
+             * （skill 链路还会顺带挪 position），不重新对焦画面会偏。
+             * 只认第一张（index 0），与 pending 阶段对准的是同一张。
+             */
+            if (index === 0) {
+              completedFocusCenter = getCanvasNodeCenter(nextPosition, fittedSize);
+            }
             return {
               ...n,
               zIndex:
@@ -27225,12 +27275,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 (typeof data.generationIndex === "number"
                   ? data.generationIndex
                   : 0),
-              position: detail.skillId
-                ? {
-                    x: n.position.x + (currentFrame.w - fittedSize.w) / 2,
-                    y: n.position.y + (currentFrame.h - fittedSize.h) / 2,
-                  }
-                : n.position,
+              position: nextPosition,
               style: {
                 ...n.style,
                 width: fittedSize.w,
@@ -27293,6 +27338,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             basePosition,
             [...nds, ...placedNodes].map(node => node.position)
           );
+          // 占位节点已不存在时（刷新页面后回包）走这条，这里是唯一的对焦机会。
+          if (index === 0) {
+            completedFocusCenter = getCanvasNodeCenter(position, fittedSize);
+          }
           const generatedNode = {
             id,
             type: "asset" as const,
@@ -27335,14 +27384,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         );
       });
       markImageGenerationTaskConsumed(projectId, generationId);
-      /**
-       * 出图完成后再对一次焦：此时节点尺寸从占位框变成了图片实际尺寸
-       * （`fitGeneratedImageSizeToFrame`），不重新 fitView 的话画面会偏。
-       * 刷新页面后回包、占位节点已不存在时，这里也是唯一的一次居中机会。
-       */
-      focusGeneratedImageNodes(
-        images.map((_, index) => `generated-${generationId}-${index}`)
-      );
+      if (completedFocusCenter) {
+        focusGeneratedImageCenter(completedFocusCenter);
+      }
       toast("图像已生成到画布", { description: detail.prompt.slice(0, 58) });
       window.dispatchEvent(
         new CustomEvent("tool-mode-change", { detail: { mode: "move" } })
@@ -27355,7 +27399,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     edgesRef,
     ensureBackgroundImageGeneration,
     // ⚠️ 漏掉它会让监听器闭包捕获首次渲染时的旧函数，自动居中静默失效且零报错。
-    focusGeneratedImageNodes,
+    focusGeneratedImageCenter,
     projectId,
     pushHistory,
     screenToFlowPosition,
