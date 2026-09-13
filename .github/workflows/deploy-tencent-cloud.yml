@@ -152,16 +152,50 @@ jobs:
           # 解析器后出现的键覆盖先出现的，与 systemd 的语义一致。
           ( cd "${base}/releases/${release}" && node scripts/verify-model-env.mjs --file "${merged_env}" )
 
+          # ⚠️ 依赖安装与完整性门禁 —— 必须在 ln -sfn 切换 current 之前，理由同上。
+          #
+          # 背景：2026-09-13 一次部署后 node_modules 是空的（0 个包），
+          # 但 pnpm 在 Actions 日志里明明打印了 "+604 / Done in 4.2s"，
+          # systemctl is-active 正常、/api/health 也返回 200 —— 全绿上线。
+          #
+          # 后果是全站**所有带 JSON body 的 POST 全部变成 400**（含登录）：
+          # dist/index.js 是 bundle，多数代码已内联，但 body-parser 会在运行时
+          # 动态 require iconv-lite/encodings，文件不在就抛
+          # "Cannot find module '../encodings'"，Express 兜底成 400 HTML。
+          # 而 GET 不解析 body，所以健康检查永远发现不了。
+          #
+          # 📌 教训：健康检查只证明"进程活着"，不证明"依赖装全了"。
+          # 原先 pnpm install 跑在切换之后且无任何校验，装空了也照样上线。
+          ( cd "${base}/releases/${release}" && pnpm install --prod --frozen-lockfile )
+
+          echo "--- 依赖完整性门禁（切换 current 之前）---"
+          rel_modules="${base}/releases/${release}/node_modules"
+          test -d "${rel_modules}/.pnpm" || { echo "node_modules/.pnpm 缺失，依赖未正确安装" >&2; exit 1; }
+          pkg_count="$(ls "${rel_modules}" | wc -l)"
+          echo "顶层包数：${pkg_count}"
+          [ "${pkg_count}" -gt 10 ] || { echo "依赖数量异常(${pkg_count})，疑似安装未落盘" >&2; exit 1; }
+          ls -d "${rel_modules}"/.pnpm/iconv-lite@*/node_modules/iconv-lite/encodings >/dev/null 2>&1 \
+            || { echo "iconv-lite/encodings 缺失 —— 所有 JSON POST 都会 400" >&2; exit 1; }
+
           chown -R root:artx "${base}/releases/${release}"
           chmod -R g+rX,o-rwx "${base}/releases/${release}"
           ln -sfn "${base}/releases/${release}" "${base}/current"
 
           cd "${base}/current"
-          pnpm install --prod --frozen-lockfile
           systemctl restart "${service}"
           sleep 2
           systemctl is-active "${service}"
           curl -fsS http://127.0.0.1:3002/api/health
+
+          # ⚠️ 必须额外打一个带 JSON body 的 POST。
+          # 只验 /api/health（GET）会漏掉 body 解析链路故障，见上面注释。
+          # 未登录时期望 401（业务 JSON）；若拿到 400 说明 body-parser 已崩。
+          echo "--- JSON POST 冒烟（期望 401，不能是 400）---"
+          post_code="$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+            http://127.0.0.1:3002/api/invite/send \
+            -H 'Content-Type: application/json' -d '{}')"
+          echo "POST /api/invite/send -> ${post_code}"
+          [ "${post_code}" != "400" ] || { echo "JSON body 解析已损坏，回滚部署" >&2; exit 1; }
           REMOTE
 
       - name: Verify public smoke
