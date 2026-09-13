@@ -195,6 +195,28 @@ export const MEMBERSHIP_PLANS: MembershipPlan[] = [
   },
 ];
 
+/**
+ * 订阅页货架上**实际在售**的档位与顺序。
+ *
+ * ⚠️ 与 MEMBERSHIP_PLANS 是两件事：那个是「定价表」，收录了历史与预留档位
+ * （Creator / Business 仍有完整定价，但订阅页并不售卖）。任何面向用户或运营
+ * 展示「有哪些套餐可买」的地方都必须用这个列表，否则会展示出买不到的套餐。
+ *
+ * 历史事故：后台「套餐/金额配置」曾直接遍历 MEMBERSHIP_PLANS，
+ * 把 Creator 与 Business 一起列出来，运营对着下架套餐做决策。
+ */
+export const SUBSCRIPTION_PLAN_IDS: MembershipPlanId[] = [
+  "lite",
+  "pro",
+  "studio",
+];
+
+export function isSellablePlanId(planId?: string | null) {
+  return SUBSCRIPTION_PLAN_IDS.includes(
+    String(planId || "").trim().toLowerCase() as MembershipPlanId,
+  );
+}
+
 export const BILLING_CYCLES: BillingCycle[] = [
   {
     id: "monthly",

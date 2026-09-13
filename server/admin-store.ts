@@ -14,6 +14,7 @@ import {
   quoteCreditRecharge,
   FIRST_RECHARGE_BONUS,
   INVITE_REWARD_CONFIG,
+  SUBSCRIPTION_PLAN_IDS,
 } from "../shared/billing-config";
 import {
   ADMIN_CRITICAL_RISK_CREDIT_THRESHOLD,
@@ -1759,20 +1760,53 @@ async function buildUserAccounts(seedUsers: AdminUserAccount[] = []) {
   return Array.from(new Set(Array.from(merged.values())));
 }
 
+/**
+ * 后台「套餐/金额配置」的展示数据，**每次都从 shared/billing-config.ts 现算**。
+ *
+ * ⚠️⚠️ 绝对不要把结果写回 admin-data.plans 做持久化。
+ * 历史事故：这份数据曾被当成可持久化字段存进数据库，而 buildPricingPlans()
+ * 本身从未被调用（死代码）。结果后台长期显示一份被冻结的旧快照 ——
+ * Lite 月付显示 HKD 19 / 247 积分（实际 39 / 8,000）、Pro 显示 89 / 1,157
+ * （实际 129 / 28,000），还列着前端早已下架的 Creator 与 Business 两档。
+ * 价格是派生数据，唯一事实源是 billing-config，存一份副本必然漂移。
+ *
+ * ⚠️ 只渲染 SUBSCRIPTION_PLAN_IDS 里的档位：MEMBERSHIP_PLANS 是「定价表」，
+ * 与「货架上在卖什么」不是一回事（Creator/Business 仍在定价表里但订阅页不售卖）。
+ * 后台展示必须跟货架走，否则运营会对着买不到的套餐做决策。
+ */
 function buildPricingPlans(): PricingPlan[] {
-  return MEMBERSHIP_PLANS.flatMap((plan) =>
-    BILLING_CYCLES.filter((cycle) => cycle.id === "monthly" || cycle.id === "annual").map((cycle) => {
+  const sellablePlans = MEMBERSHIP_PLANS.filter((plan) =>
+    SUBSCRIPTION_PLAN_IDS.includes(plan.id),
+  );
+  return sellablePlans.flatMap((plan) =>
+    BILLING_CYCLES.map((cycle) => {
       const quote = getPlanQuote(plan, cycle);
+      /**
+       * ⚠️ credits 展示的是**每期到账额度**而非周期累计。
+       * 自「按月发放」上线后，年卡的 336,000 是分 12 期到账的，
+       * 把 totalCredits 摆在后台会让运营误判用户余额（前端同样的坑已踩过）。
+       * 累计数放进 name 后缀里，明确标注「全年累计」。
+       */
+      const cycleSuffix =
+        cycle.months > 1
+          ? `（${cycle.months} 期 · 累计 ${formatCreditsPlain(quote.totalCredits)}）`
+          : "";
       return {
         id: `${plan.id}_${cycle.id}`,
-        name: `${plan.shortName} · ${cycle.label}`,
+        name: `${plan.shortName} · ${cycle.label}${cycleSuffix}`,
         price: quote.price,
-        credits: quote.totalCredits,
+        credits: quote.creditsPerPeriod,
         channel: "微信支付 / 支付宝",
-        status: plan.recommended || cycle.recommended ? "active" : "draft",
+        // 在售即 active。草稿态留给未来真正未上线的套餐，
+        // 不再用 recommended 当上架开关 —— 那会让非推荐档误显示为「草稿」。
+        status: "active",
       } satisfies PricingPlan;
     }),
   );
+}
+
+function formatCreditsPlain(value: number) {
+  return value.toLocaleString("en-US");
 }
 
 function buildCapabilityStatus(): CapabilityStatusItem[] {
@@ -2256,7 +2290,7 @@ async function seedAdminData(): Promise<AdminData> {
     alerts: [],
     riskEvents: [],
     auditLogs: [],
-    plans: [],
+    plans: buildPricingPlans(),
     capabilityStatus: buildCapabilityStatus(),
   };
 }
@@ -2320,7 +2354,14 @@ async function normalizeDataAsync(value: Partial<AdminData>): Promise<AdminData>
     alerts: Array.isArray(value.alerts) ? value.alerts : seed.alerts,
     riskEvents: Array.isArray(value.riskEvents) ? value.riskEvents : seed.riskEvents,
     auditLogs: Array.isArray(value.auditLogs) ? value.auditLogs : seed.auditLogs,
-    plans: Array.isArray(value.plans) ? value.plans : seed.plans,
+    /**
+     * ⚠️ 刻意**无条件重算**，不像其他字段那样「库里有就用库里的」。
+     * plans 是纯派生数据（唯一事实源 shared/billing-config.ts），不是业务记录。
+     * 沿用库里的值会让历史快照永远盖住真实定价 —— 这正是后台长期显示
+     * Lite 月付 HKD 19 / 247 积分的原因（实际 39 / 8,000）。
+     * 同理 providers / capabilityStatus 也是每次重建。
+     */
+    plans: buildPricingPlans(),
     capabilityStatus: Array.isArray(value.capabilityStatus) ? value.capabilityStatus : seed.capabilityStatus,
     aiBillingPolicies: Array.isArray(value.aiBillingPolicies) ? value.aiBillingPolicies : AI_CREDIT_POLICIES,
     aiPlanDiscounts: Array.isArray(value.aiPlanDiscounts) ? value.aiPlanDiscounts : AI_PLAN_DISCOUNTS,

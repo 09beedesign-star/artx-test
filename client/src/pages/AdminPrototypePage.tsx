@@ -2155,11 +2155,11 @@ function AdminPrototypePage() {
         />
         <DataList
           title="套餐/金额配置"
-          description="第一版以国内支付优先，微信支付和支付宝先接入，Stripe/PayPal 后续扩展。"
+          description="实时取自 shared/billing-config.ts，与订阅页同源，无需手动同步。积分为每期（每月）到账额度。"
           rows={adminData.plans.map((plan) => ({
             title: `${plan.name} · ${formatCurrency(plan.price)}`,
-            meta: `${formatCredits(plan.credits)} 积分 · ${plan.channel}`,
-            value: plan.status === "active" ? "启用" : "草稿",
+            meta: `${formatCredits(plan.credits)} 积分/期 · ${plan.channel}`,
+            value: plan.status === "active" ? "在售" : "草稿",
             icon: CircleDollarSign,
           }))}
         />
