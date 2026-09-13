@@ -31361,6 +31361,21 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         selectedImageData?.isCropping ||
         selectedImageData?.isEditing)
   );
+  // 就地编辑态（扩图 / 裁切 / 擦除 / 视角）会在节点内渲染自己的控制面板与
+  // 边缘拖拽手柄，而资源工具条是贴着节点左边缘竖排的浮层，两者必然重叠：
+  // 工具条会盖住图像左侧的扩展框边界和底部面板的左半部分，导致既拖不动
+  // 左边缘、也点不到面板左侧按钮。
+  // ⚠️ 仅靠「给底部面板预留 96px」（imageToolbarBottomPanelReserve）只能让
+  // 工具条上移，解决不了横向遮挡 —— 工具条的 left 恒等于节点左边缘。
+  // 这些模式下工具条里的动作本身也无意义（裁切时点「扩展」是冲突操作），
+  // 所以直接整条隐藏，退出模式后自然恢复。
+  const selectedImageInInlineEditMode = Boolean(
+    selectedImageNode?.type === "asset" &&
+      (selectedImageData?.isExpanding ||
+        selectedImageData?.isCropping ||
+        selectedImageData?.isErasing ||
+        selectedImageData?.isCameraViewAdjusting)
+  );
   const handleSelectedVisualToolbarContextMenu = useCallback(
     (event: React.MouseEvent) => {
       event.preventDefault();
@@ -31883,17 +31898,21 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         helpPromptNonce={helpPromptNonce}
       />
 
-      {selectedVisualNodeIds.length === 1 && !multiVisualSelectionActive && (
-        <AssetFloatingToolbar
-          isDark={isDark}
-          position={attachedImageToolbarPosition}
-          mode={
-            selectedImageNode?.type === "canvasFrame" ? "canvasFrame" : "asset"
-          }
-          onAction={handleSingleImageToolbarAction}
-          onContextMenu={handleSelectedVisualToolbarContextMenu}
-        />
-      )}
+      {selectedVisualNodeIds.length === 1 &&
+        !multiVisualSelectionActive &&
+        !selectedImageInInlineEditMode && (
+          <AssetFloatingToolbar
+            isDark={isDark}
+            position={attachedImageToolbarPosition}
+            mode={
+              selectedImageNode?.type === "canvasFrame"
+                ? "canvasFrame"
+                : "asset"
+            }
+            onAction={handleSingleImageToolbarAction}
+            onContextMenu={handleSelectedVisualToolbarContextMenu}
+          />
+        )}
 
       {selectedTextNode && (
         <TextFloatingToolbar
