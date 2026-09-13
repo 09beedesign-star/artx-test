@@ -1439,22 +1439,12 @@ function ImageCountSelector({
                 >
                   一次出 {recommendedCount} 张不同构图供挑选，这是该模型的常规用法。
                 </p>
-                {creditsPerImage > 0 && (
-                  <p
-                    style={{
-                      color: text,
-                      fontSize: 10,
-                      lineHeight: "14px",
-                      letterSpacing: 0,
-                      marginTop: 3,
-                      opacity: 0.85,
-                    }}
-                  >
-                    按张计费 {creditsPerImage.toLocaleString("zh-CN")} 积分/张，
-                    {recommendedCount} 张约 {(creditsPerImage * recommendedCount).toLocaleString("zh-CN")} 积分。
-                    调低张数可减少消耗。
-                  </p>
-                )}
+                {/*
+                  ⚠️ 这里原本有一行常驻的单价/总价说明，2026-09-13 按用户要求移除。
+                  价格信息**没有消失**，仍在「默认N张」徽标和每个张数按钮的 hover title
+                  里（本文件约 :1341 与 :1390）—— 改那两处前先确认用户是否也要一起去掉。
+                  vod-mj 是 180 积分/张、默认 4 张，看不到单价会让人无意识放大消耗。
+                */}
               </div>
             )}
           </div>,

@@ -133,7 +133,26 @@ describe("画布张数选择器与模型的联动", () => {
     expect(source).toContain("hasCustomDefaultOutputCount(model.id)");
     expect(source).toContain("默认{getImageModelDefaultOutputCount(model.id)}张");
     expect(source).toContain("默认{recommendedCount}张");
-    // 价格必须出现在说明里——这是用户判断要不要调低张数的唯一依据。
+  });
+
+  it("价格信息仍可触达（2026-09-13 起改为只在 hover 提示里）", () => {
+    // ⚠️ 用户 2026-09-13 要求去掉弹层里那行常驻的
+    //   「按张计费 X 积分/张，N 张约 Y 积分。调低张数可减少消耗。」
+    // 但**价格不能彻底消失** —— vod-mj 是 180 积分/张、默认 4 张 = 720 积分/次点击，
+    // 用户完全看不到单价就会在不知情的情况下放大消耗。
+    // 所以这里从「断言常驻文案存在」改为「断言 hover title 里仍算得出总价」。
+    // 徽标 title：默认张数 + 单价 + 总价
     expect(source).toContain("按张计费");
+    // 每个张数按钮的 title：该张数对应的实际消耗
+    expect(source).toContain("约消耗 ${(creditsPerImage * count).toLocaleString(\"zh-CN\")} 积分");
+    // 反向断言：不得退回那行常驻文案（用户明确要求去掉的）。
+    // ⚠️ 不能直接 not.toContain("调低张数可减少消耗") —— 会命中源码里解释
+    //    「为什么删掉」的那段注释，断言恒挂（已踩过一次）。
+    // ⚠️ 也不能锚 `{(creditsPerImage * recommendedCount)...}` —— hover title 的
+    //    模板字符串 `${...}` 和 JSX 插值 `{...}` 在纯文本里长得一样，区分不开。
+    // ✅ 锚被删那句**独有**的 JSX 文本片段：常驻文案里价格后面紧跟「积分。」再换行接
+    //    「调低张数」，而注释和 title 都不是这个形态。
+    const strippedComments = source.replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
+    expect(strippedComments).not.toContain("调低张数可减少消耗");
   });
 });
