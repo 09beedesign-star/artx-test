@@ -31,6 +31,23 @@ export const VOD_EXPANSION_PROMPT_MAX_LENGTH = 2500;
  * 漏掉的地方会让台账里记着旧供应商、对账时对不上。统一到这里。
  */
 export const VOD_IMAGE_EXPANSION_MODEL = "vod-kling-image-expand";
+
+/**
+ * ⚠️ 这个串的**前缀和那个空格都不能动**。
+ *
+ * 后台供应商面板按 `matchProviderId`（server/admin-store.ts:2101）把 aiTasks
+ * 归到供应商条目上，规则是「全等」或「`${供应商名} ` 前缀」。VOD 条目名是
+ * `"腾讯云 VOD"`（admin-store.ts:2240），扩图靠 `"腾讯云 VOD" + " " + "Kling"`
+ * 恰好命中前缀规则才被统计进去 —— 这条前缀规则本来是给
+ * `"PicWish/佐糖 r-background"` 这类变体写的，扩图属于搭便车。
+ *
+ * 所以下面几种看起来无害的改法都会让扩图**静默掉出后台统计与成本归集**
+ * （没有报错、没有告警，只是面板上再也看不到扩图调用）：
+ *   "腾讯云VOD Kling"   —— 少了中间空格，前缀不匹配
+ *   "腾讯云 VOD-Kling"  —— 分隔符不是空格，前缀不匹配
+ *   "Kling 扩图"        —— 完全不含 VOD 条目名
+ * 真要改名，必须同时改 admin-store.ts 的条目名或 matchProviderId 规则。
+ */
 export const VOD_IMAGE_EXPANSION_PROVIDER = "腾讯云 VOD Kling";
 
 /**

@@ -27,6 +27,8 @@ const files = {
   // 切换上游时漏改过一次：生产走 Kling、本地仍走佐糖，本地怎么试都试不出线上行为。
   // 这里把它纳入校验，否则第 4 个出口可以静默退回佐糖而全部断言照样绿。
   vite: fs.readFileSync("vite.config.ts", "utf8"),
+  // 供应商标签与后台面板条目名之间有隐式前缀耦合，见下方 providerLabel 断言。
+  adminStore: fs.readFileSync("server/admin-store.ts", "utf8"),
 };
 
 function assert(condition, message) {
@@ -138,6 +140,29 @@ assert(
 // 切换前这两个字符串在 7 处硬编码，换上游必然漏改，所以收敛到 shared 里。
 assert(files.shared.includes('VOD_IMAGE_EXPANSION_MODEL = "vod-kling-image-expand"'), "model id must live in shared");
 assert(files.shared.includes("VOD_IMAGE_EXPANSION_PROVIDER"), "provider label must live in shared");
+
+// 供应商标签与后台统计的隐式耦合：admin-store 的 matchProviderId 只认
+// 「全等」或「`${条目名} ` 前缀」，VOD 条目名是 "腾讯云 VOD"。扩图标签
+// 必须正好是 "腾讯云 VOD " 开头，否则调用记录会**静默**掉出后台供应商
+// 面板和成本归集 —— 不报错、不告警，只是面板上再也看不到扩图。
+// 光靠注释挡不住（注释会被顺手删掉），所以在这里落一条断言。
+// 两边都从源码里读真值再比对，不要在这里硬编码任何一边 —— 硬编码的话
+// 改名时断言会跟着一起改，等于没锁。
+const providerLabel = files.shared.match(/VOD_IMAGE_EXPANSION_PROVIDER\s*=\s*"([^"]+)"/)?.[1] || "";
+const vodPanelName = files.adminStore.match(/id: "ai_tencent_vod", name: "([^"]+)"/)?.[1] || "";
+assert(providerLabel, "VOD_IMAGE_EXPANSION_PROVIDER must be a string literal so it can be checked here");
+assert(vodPanelName, 'admin-store must define the ai_tencent_vod provider panel entry with a literal name');
+assert(
+  providerLabel === vodPanelName || providerLabel.startsWith(`${vodPanelName} `),
+  `provider label ${JSON.stringify(providerLabel)} must equal ${JSON.stringify(vodPanelName)} or start with ` +
+    `${JSON.stringify(vodPanelName + " ")} — admin-store matchProviderId only accepts exact match or that space-suffixed ` +
+    "prefix, so any other spelling silently drops expansion tasks out of the provider panel and cost attribution",
+);
+// 上面的前缀规则本身也要在，否则改了 matchProviderId 这条断言就失去意义。
+assert(
+  /return task\.startsWith\(`\$\{name\} `\)/.test(files.adminStore),
+  "matchProviderId must keep the space-suffixed prefix rule that the expansion provider label depends on",
+);
 assert(files.canvas.includes("model: VOD_IMAGE_EXPANSION_MODEL"), "canvas must use the shared model constant");
 assert(!files.canvas.includes('"picwish-advanced-image-expand"'), "canvas must not keep the PicWish model literal");
 
