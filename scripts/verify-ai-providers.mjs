@@ -4,7 +4,8 @@
 //   npx tsx scripts/verify-ai-providers.mjs              # 全量
 //   npx tsx scripts/verify-ai-providers.mjs --quick      # 跳过逐模型探测（快）
 //   npx tsx scripts/verify-ai-providers.mjs --only=text  # 只测某一类
-//     可选：text | image | models | meitu | picwish | engine | local
+//     可选：text | image | models | picwish | engine | local
+//     （2026-09-13 起不再有 meitu —— 账号被上游停用，整条通道已下线）
 //
 // ⚠️ 额度提示：本脚本会真实调用上游，**会产生少量消耗**。
 //   - 文本模型：每个模型 1 次 5-token 请求
@@ -244,74 +245,7 @@ async function checkModelCatalog() {
   }
 }
 
-// ── 4. 美图（局部重绘，擦字通道之一） ──────────────────────────
-async function checkMeitu() {
-  console.log(`\n${C.bold}美图 API${C.reset}`);
-
-  const { value, error, ms } = await timed(async () => {
-    const { getMeituConfig } = await import("../server/meitu-client.ts");
-    return getMeituConfig();
-  });
-
-  if (error) {
-    record("meitu", "美图配置", "fail", briefError(error), ms);
-    return;
-  }
-  // 键名是 ACCESS_KEY / SECRET_KEY，不是 MEITU_API_KEY —— 先前探测搞错过
-  const hasCreds = Boolean(value?.apiKey && value?.apiSecret);
-  if (!hasCreds) {
-    record("meitu", "凭据", "skip", "未配置，该擦字通道跳过", ms);
-    return;
-  }
-  record("meitu", "凭据", "ok", "ACCESS_KEY + SECRET_KEY 已配置", ms);
-
-  // 光有凭据不代表签名能过。发一个真实签名请求验证鉴权。
-  //
-  // 端点是 /api/v1/sdk/sync/push（meitu-client.ts:622），
-  // inpaintTask 是**请求体参数**而非 URL 路径 —— 早前把它拼进 URL，
-  // 拿到的 404 "no route found" 根本没验证到签名，是无效探测。
-  //
-  // 判定口径：401/403 = 凭据被拒（真故障）；
-  // 其他状态（含 500 "task service not found"）= 签名已通过、仅业务参数不全。
-  const probe = await timed(async () => {
-    const { buildSignedHeaders } = await import("../server/meitu-client.ts");
-    const url = `${value.formulaBaseUrl}/api/v1/sdk/sync/push`;
-    // 参数顺序：(method, url, headers, body, accessKey, secretKey)
-    const body = JSON.stringify({ task: value.inpaintTask });
-    const headers = buildSignedHeaders(
-      "POST",
-      url,
-      { "Content-Type": "application/json" },
-      body,
-      value.apiKey,
-      value.apiSecret
-    );
-    return withTimeout(
-      fetch(url, { method: "POST", headers, body }).then(async r => ({
-        status: r.status,
-        text: await r.text(),
-      })),
-      20_000
-    );
-  });
-
-  if (probe.error) {
-    record("meitu", "签名鉴权", "fail", briefError(probe.error), probe.ms);
-    return;
-  }
-  const authFailed = probe.value.status === 401 || probe.value.status === 403;
-  record(
-    "meitu",
-    "签名鉴权",
-    authFailed ? "fail" : "ok",
-    authFailed
-      ? `凭据被拒 HTTP ${probe.value.status}`
-      : `签名有效（HTTP ${probe.value.status}，参数不全属预期）`,
-    probe.ms
-  );
-}
-
-// ── 5. 佐糖 PicWish（抠图/擦除/扩图） ──────────────────────────
+// ── 4. 佐糖 PicWish（抠图/擦除/扩图） ──────────────────────────
 async function checkPicwish() {
   console.log(`\n${C.bold}佐糖 PicWish${C.reset}`);
 
@@ -346,7 +280,7 @@ async function checkPicwish() {
   );
 }
 
-// ── 6. 本地擦字引擎 ────────────────────────────────────────────
+// ── 5. 本地擦字引擎 ────────────────────────────────────────────
 async function checkTextEngine() {
   console.log(`\n${C.bold}参数化擦字引擎${C.reset} ${C.dim}(${process.env.TEXT_ENGINE_BASE_URL || "未配置"})${C.reset}`);
 
@@ -375,7 +309,7 @@ async function checkTextEngine() {
   );
 }
 
-// ── 7. 本地站点接口 ────────────────────────────────────────────
+// ── 6. 本地站点接口 ────────────────────────────────────────────
 // 注意区分「本地实现」与「proxyJson 代理到远程」：
 // /api/ai/orchestrate 是代理，用本地 dev token 必然 401，那是远程登录态问题，
 // 不代表本地代码有故障。这里只探本地实现的接口。
@@ -430,7 +364,6 @@ async function main() {
   if (want("text")) await checkTextModels();
   if (want("image")) await checkImageProvider();
   if (want("models")) await checkModelCatalog();
-  if (want("meitu")) await checkMeitu();
   if (want("picwish")) await checkPicwish();
   if (want("engine")) await checkTextEngine();
   if (want("local")) await checkLocalEndpoints();

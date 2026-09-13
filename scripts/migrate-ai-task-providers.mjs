@@ -45,7 +45,15 @@ const PROVIDER_RELAY = "BKEEL";
 /** 只迁移这四个已知脏值，其余一律不动。 */
 const DIRTY_PROVIDERS = new Set(["image", "text", "AI", "AI_IMAGE"]);
 
-/** 迁移后合法的厂商名，必须与 buildProviderHealth() 的 name 对齐。 */
+/**
+ * 迁移后合法的厂商名，必须与 buildProviderHealth() 的 name 对齐。
+ *
+ * ⚠️ "MEITU" 刻意保留，尽管美图通道已于 2026-09-13 整体下线。
+ * 这是**历史数据**白名单，不是「当前可用通道」清单 —— 库里存量 aiTasks
+ * 中确实有走过美图的真实记录。删掉它会让这批记录落进「脏值」分支被改写，
+ * 等于用今天的通道现状去篡改昨天真实发生的调用，虚增其他厂商成本。
+ * 同理 "OpenAI" 也早已不是主力通道，一并保留。
+ */
 const VALID_PROVIDERS = new Set([
   PROVIDER_TENCENT_VOD,
   PROVIDER_RELAY,

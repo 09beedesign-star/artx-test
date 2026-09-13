@@ -1547,11 +1547,10 @@ async function startServer() {
   });
 
   app.post("/api/images/edit", async (req, res) => {
-    const isMeituEdit = (req.body as { provider?: string } | undefined)?.provider === "meitu";
     await handleTrackedAiRequest(req, res, {
       capabilityKey: "image_edit",
       capability: getImageEditCapabilityLabel(req.body || {}),
-      provider: isMeituEdit ? "MEITU" : getRouteImageProvider(req.body),
+      provider: getRouteImageProvider(req.body),
       model: getDefaultRouteImageModel(req.body),
       failureMessage: "Image edit failed",
     }, async (user) => {

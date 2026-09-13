@@ -12,8 +12,16 @@ describe("AI orchestrator source-preserving edits", () => {
   });
 });
 
-describe("AI orchestrator meitu provider passthrough", () => {
-  it("forwards provider/promptPos from the request into editImageWithPrompt (annotation_edit)", async () => {
+/**
+ * 2026-09-13：美图通道整体下线后，原来那组「provider/promptPos 透传」测试没了意义
+ * ——它锁的是一条**恒不命中**的参数链（前端硬编码 provider:"meitu" → orchestrator
+ * 透传 → 后端 provider==="meitu" 分支恒假）。删除通道时这两个字段一并移除。
+ *
+ * 这里换成反向约束：annotation_edit 仍然要正常走到 editImageWithPrompt，
+ * 但**不允许**再把 provider/promptPos 这类供应商专属字段透传下去。
+ */
+describe("AI orchestrator annotation_edit passthrough", () => {
+  it("reaches editImageWithPrompt without resurrecting vendor-specific fields", async () => {
     const spy = vi.spyOn(await import("./image-generation"), "editImageWithPrompt");
     spy.mockResolvedValue({ images: [{ src: "data:image/png;base64,edited", width: 64, height: 64 }] });
 
@@ -24,33 +32,13 @@ describe("AI orchestrator meitu provider passthrough", () => {
       imageSrc: "data:image/png;base64,source",
       maskSrc: "data:image/png;base64,mask",
       prompt: "把帽子换成红色",
-      provider: "meitu",
-      promptPos: "把帽子换成红色",
       preserveSource: true,
     });
 
     expect(spy).toHaveBeenCalledTimes(1);
-    const callArgs = spy.mock.calls[0][0];
-    expect(callArgs.provider).toBe("meitu");
-    expect(callArgs.promptPos).toBe("把帽子换成红色");
+    const callArgs = spy.mock.calls[0][0] as Record<string, unknown>;
     expect(callArgs.operation).toBe("annotation_edit");
-  });
-
-  it("leaves provider undefined when the request does not set it (default gpt path unchanged)", async () => {
-    const spy = vi.spyOn(await import("./image-generation"), "editImageWithPrompt");
-    spy.mockResolvedValue({ images: [{ src: "data:image/png;base64,edited", width: 64, height: 64 }] });
-
-    const orchestrator = new AIOrchestrator();
-    await orchestrator.run({
-      capability: "image_edit",
-      operation: "annotation_edit",
-      imageSrc: "data:image/png;base64,source",
-      maskSrc: "data:image/png;base64,mask",
-      prompt: "把帽子换成红色",
-    });
-
-    expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy.mock.calls[0][0].provider).toBeUndefined();
-    expect(spy.mock.calls[0][0].promptPos).toBeUndefined();
+    expect(callArgs).not.toHaveProperty("provider");
+    expect(callArgs).not.toHaveProperty("promptPos");
   });
 });

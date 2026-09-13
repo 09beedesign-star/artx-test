@@ -21,7 +21,7 @@
 const REQUIRED_AI_PROVIDERS = {
   ai_tencent_vod: "腾讯云 VOD",
   ai_picwish: "PicWish/佐糖",
-  ai_meitu: "MEITU",
+  // 2026-09-13：ai_meitu 已移除（账号被上游停用，通道整体下线）。
 };
 
 const base = (process.argv[2] || "https://backstage.artxsd.com").replace(/\/+$/, "");

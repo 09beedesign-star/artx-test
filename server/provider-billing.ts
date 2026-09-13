@@ -15,7 +15,8 @@
  *   注意官方文档路径 `/tech/...` 是错的，实测 404。
  * - ✅ 腾讯云：VOD 凭据就是标准云 API 密钥，可调 DescribeAccountBalance 和
  *   DescribeBillSummaryByProduct（本月汇总）。
- * - ❌ 美图：未公开账户余额/用量查询 API，只能走控制台 ai.meitu.com。
+ *
+ * 2026-09-13：移除美图条目（账号已停用，通道整体下线）。
  */
 
 import crypto from "node:crypto";
@@ -233,23 +234,11 @@ export async function getTencentBilling(): Promise<BillingInfo | null> {
   return result;
 }
 
-/* ============ 美图 ============ */
-export async function getMeituBilling(): Promise<BillingInfo | null> {
-  // 美图开放平台未公开账户余额/用量查询 API，只能走控制台。
-  if (!process.env.ACCESS_KEY || !process.env.SECRET_KEY) return null;
-  return {
-    provider: "MEITU",
-    summary: "暂无 API，请访问控制台",
-    consoleUrl: "https://ai.meitu.com/",
-  };
-}
-
 /* ============ 统一入口 ============ */
 export async function getAllProviderBilling(): Promise<BillingInfo[]> {
-  const [picwish, tencent, meitu] = await Promise.all([
+  const [picwish, tencent] = await Promise.all([
     getPicwishBilling(),
     getTencentBilling(),
-    getMeituBilling(),
   ]);
-  return [picwish, tencent, meitu].filter((x): x is BillingInfo => x !== null);
+  return [picwish, tencent].filter((x): x is BillingInfo => x !== null);
 }

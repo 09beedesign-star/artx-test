@@ -1,6 +1,30 @@
-# 美图 AI「局部重绘」接入设计（智能注释 → AI 修改）
+# 【已归档】美图 AI「局部重绘」接入设计（智能注释 → AI 修改）
 
-> 状态：设计定稿，待实施（M1 连通性验证 → M2 后端 → M3 前端 → M4 联调发布）
+> ## ⚠️ 本文档已于 2026-09-13 归档，描述的通道**不再存在**
+>
+> **归档原因**：美图账号被上游停用。探测返回外层 `{"code":403}`，真正原因藏在
+> 被转义的内层 `{"code":1003,"message":"access key is disabled"}`。既然账号不可用、
+> 且该分支在代码里实际**从未被命中过**（前端硬编码 `provider:"meitu"` → orchestrator
+> 透传 → 后端 `provider==="meitu"` 分支恒假，整条参数链空转），遂整体下线。
+>
+> **已删除**：`server/meitu-client.ts`、`server/meitu-client.test.ts`、
+> 入参 `provider` / `promptPos`、后台 `ai_meitu` 健康度与结算条目、
+> `getMeituBilling()`、`scripts/` 中的 `checkMeitu()` / `probeMeitu()`、
+> env 模板里的 `ACCESS_KEY` / `SECRET_KEY` / `MEITU_*`。
+>
+> **保留并改名**：原 `buildMeituMask` 是通道无关的 alpha→白黑二值蒙版转换，
+> 佐糖通道也在复用它。已迁至 `server/inpaint-mask.ts` 的 `buildInpaintMask()`，
+> 环境变量改名 `INPAINT_MASK_EXPAND_PX` / `INPAINT_MASK_FEATHER_PX`
+> （旧 `MEITU_MASK_*` 向后兼容）。
+> 📌 教训：**以供应商命名通用函数，会让「删除该供应商」变成牵一发动全身。**
+> 判断依据是它读不读该供应商的专属配置，而不是看名字。
+>
+> **当前擦字降级链**：参数化引擎 → 佐糖 PicWish → 本地像素擦除。
+>
+> 保留本文档仅供日后若恢复美图合作时参考签名算法与蒙版口径，
+> **不要照着它重新接线** —— 先确认账号状态，再重新评估是否值得加回一条通道。
+
+> 状态：已归档（原：设计定稿，待实施 M1 连通性验证 → M2 后端 → M3 前端 → M4 联调发布）
 > 关联文档：美图开放平台 [局部重绘 API doc/312](https://ai.meitu.com/doc/?id=312&type=api&lang=zh)、[签名 doc/218](https://ai.meitu.com/doc/?id=218&type=api&lang=zh)、[异步任务查询 doc/222](https://ai.meitu.com/doc/?id=222&type=api&lang=zh)
 
 ## 1. 目标与范围

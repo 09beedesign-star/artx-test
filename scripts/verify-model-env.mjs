@@ -84,12 +84,11 @@ const capabilities = [
     required: false,
     impact: "擦字的佐糖通道失效，降级到本地像素擦除",
   },
-  {
-    name: "美图局部重绘",
-    keys: ["ACCESS_KEY", "SECRET_KEY"],
-    required: false,
-    impact: "擦字的美图通道失效，降级到佐糖 / 本地像素擦除",
-  },
+  // 2026-09-13：删除「美图局部重绘」检查项（原 keys: ACCESS_KEY / SECRET_KEY）。
+  // 账号被上游停用，整条通道已下线。
+  // ⚠️ 这里必须与生产 .env.gray 的清理**同一次**做完：本脚本已接入部署门禁
+  // （夹在 .env 拷入之后、ln -sfn 切 current 之前），留着这条会在删掉生产变量后
+  // 立刻变成一条恒亮的 WARN，把真正的告警淹掉。
   {
     name: "参数化擦字引擎",
     keys: ["TEXT_ENGINE_BASE_URL"],

@@ -42,11 +42,16 @@ describe("provider billing 接口接入", () => {
     expect(billingSource).toContain("tc3_request");
   });
 
-  it("美图被明确标记为无余额接口，不做盲猜式探测", () => {
-    // 美图开放平台未公开任何账户余额/用量查询 API。
-    // 这里必须显式返回「无 API」，不能伪造一个看起来能用的端点。
-    expect(billingSource).toContain("未公开账户余额/用量查询 API");
-    expect(adminStoreSource).toMatch(/ai_meitu:\s*\{[^}]*billingApi:\s*false/);
+  it("美图通道已下线，余额模块不得再出现它的查询实现", () => {
+    // 2026-09-13：美图账号被上游停用（内层 code:1003 access key is disabled），
+    // 整条通道下线。这里用反向断言锁住——一旦有人把 getMeituBilling 或
+    // ai_meitu 结算条目加回来，测试立刻失败，提醒先确认账号是否真的恢复。
+    // ⚠️ 只禁"实现"不禁"注释"：文件头保留了下线说明，所以断言锚的是
+    // 函数定义与配置键，不是"出现 meitu 这个词"。
+    expect(billingSource).not.toMatch(/function\s+getMeituBilling/);
+    expect(billingSource).not.toMatch(/getMeituBilling\s*\(/);
+    expect(adminStoreSource).not.toMatch(/ai_meitu:\s*\{/);
+    expect(adminStoreSource).not.toMatch(/id:\s*"ai_meitu"/);
   });
 
   it("余额查询有超时降级，不会拖垮后台面板", () => {

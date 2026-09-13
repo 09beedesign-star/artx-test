@@ -772,8 +772,6 @@ export async function editImageWithPrompt({
   cameraView,
   skillId,
   generationId,
-  provider,
-  promptPos,
   textRegions,
   editedText,
   textApplyMode,
@@ -795,10 +793,6 @@ export async function editImageWithPrompt({
   };
   skillId?: string;
   generationId?: string;
-  /** "meitu" 时智能注释编辑走美图局部重绘；缺省/其他值走现有 AI 图片编辑链路 */
-  provider?: "auto" | "meitu" | "default";
-  /** 美图局部重绘的正向提示词（用户注释文本），仅 provider="meitu" 时使用 */
-  promptPos?: string;
   /** 智能文案编辑：原图 OCR 识别的文字区域（x/y/width/height/text），用于确定性文字绘制 */
   textRegions?: ImageTextRegion[];
   /** 智能文案编辑：修改后的完整文案（多行用 \n 分隔），用于确定性文字绘制 */
@@ -827,8 +821,6 @@ export async function editImageWithPrompt({
       images: referencedAssets,
       cameraView,
       skillId,
-      provider,
-      promptPos,
       textRegions,
       editedText,
       textApplyMode,
@@ -848,8 +840,6 @@ export async function editImageWithPrompt({
     images: referencedAssets,
     cameraView,
     skillId,
-    provider,
-    promptPos,
     textRegions,
     editedText,
     textApplyMode,

@@ -15,7 +15,7 @@ import { isClaudeTextModelId } from "../shared/text-models";
 import { clampImageExpansionPrompt, VOD_EXPANSION_PROMPT_MAX_LENGTH } from "../shared/image-expansion";
 import { generateText } from "./text-generation";
 import { recordImageProviderFailure } from "./image-provider-failure-log";
-import { buildMeituMask, inpaintWithMeitu } from "./meitu-client";
+import { buildInpaintMask } from "./inpaint-mask";
 import { eraseTextWithEngine, isTextEngineConfigured } from "./text-engine-client";
 import {
   drawTextReplacement,
@@ -135,16 +135,17 @@ type EditImageInput = {
     z?: number;
     prompt?: string;
   };
-  /** "meitu" 时智能注释编辑走美图局部重绘；缺省/其他值走现有 AI 图片编辑链路 */
-  provider?: "auto" | "meitu" | "default";
   /**
    * 基础约束语义（智能注释）：
    * - "add"（默认）：mask 内保留原内容，只在上方添加请求物体（帽子/眼镜等）
    * - "edit"：mask 内修改用户指定的属性（换色/换材质/换纹理等），保持形状结构与其余区域不变
+   *
+   * ⚠️ 2026-09-13 核实：**当前没有任何调用方传这个字段**。它不在 OrchestrateRequest
+   * 里，ai-orchestrator 透传时也没带它，前端更没有。所以下面那个 `=== "edit"` 分支
+   * 恒假，实际永远走 "add" 模板。保留它是因为 "edit" 模板本身有价值（换色/换材质
+   * 场景需要），属于「待接线的功能缺口」，不是残留死代码 —— 要用就得从前端一路传下来。
    */
   promptKind?: "add" | "edit";
-  /** 美图局部重绘的正向提示词（用户注释文本），仅 provider="meitu" 时使用 */
-  promptPos?: string;
   /** 智能文案编辑：原图 OCR 识别的文字区域（x/y/width/height/text/rotate/fontColor/fontFamily），用于确定性文字绘制 */
   textRegions?: Array<{
     x: number;
@@ -3801,7 +3802,6 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
   const maskSource = input.maskSrc?.trim() || (input.maskUrl || input.mask_url || "").trim();
   __testAssertSourcePreservingMask(input.operation, maskSource);
   console.log("[智能注释] enter", JSON.stringify({
-    provider: input.provider,
     promptKind: input.promptKind,
     operation: input.operation,
     model: input.model,
@@ -3840,12 +3840,13 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
     `User request: ${input.prompt.trim()}`,
   ].join("\n");
 
-  // 注意：这三个常量必须在「美图局部重绘分支」之前声明。
-  // 美图分支的 catch 会调用 editAnnotationViaReferenceGeneration()，
+  // 注意：这三个常量需在下方任何早退分支之前声明。
+  // 降级路径的 catch 会调用 editAnnotationViaReferenceGeneration()，
   // 该函数闭包引用 selectedModel / editSize，若声明在分支之后，
   // 降级时会抛 TDZ 错误 "Cannot access 'selectedModel' before initialization"，
-  // 把「美图无可见修改」这类可恢复情况变成整体失败（表现为美图能力全线报错）。
-  // apiKey 的存在性校验仍留在下方原位置 —— 美图通道不需要 AI_IMAGE_API_KEY。
+  // 把「无可见修改」这类可恢复情况变成整体失败（表现为该能力全线报错）。
+  // 📌 通用教训：早退分支插在函数中部时，要检查它引用的闭包函数是否依赖后面才声明的
+  // const —— TypeScript 不报错，运行时才炸（2026-09-10 因此出过一次"能力全线失效"）。
   const { apiKey, baseUrl, model } = getProviderConfig();
   const selectedModel = resolveSmartAnnotationEditModel(input.model, model);
   const editSize = getEditSizeForAspect(targetWidth, targetHeight);
@@ -3902,94 +3903,23 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
     return { images };
   };
 
-  // 美图局部重绘通道：注释蒙版（透明=编辑区）经 buildMeituMask 转为白=重绘区/黑=保留区。
-  // 美图 InPainting 只适合「局部重绘/换属性」类编辑（edit）；
-  // 加物体（add）语义是「在保留内容上叠加新物体」，美图无法可靠执行（实测加帽子等会返回无变化图），
-  // 因此 add 类直接走参考图生成链路（降级列表已把 VOD GEM 排到最前）。
-  if (input.provider === "meitu" && input.promptKind === "edit") {
-    console.log(
-      `[智能注释] 进入「美图局部重绘」分支 | provider=${input.provider}, ` +
-      `targetWidth=${targetWidth}, targetHeight=${targetHeight}, ` +
-      `promptPos="${input.promptPos?.trim() || input.prompt.trim()}", ` +
-      `源图=${sourceImageData.buffer.length}B, 原始注释蒙版=${maskImageData.buffer.length}B`,
-    );
-    const meituMaskBuffer = await buildMeituMask(maskImageData.buffer, targetWidth, targetHeight, "hat");
-    console.log(`[智能注释] buildMeituMask 完成 | 输出=${meituMaskBuffer.length}B`);
-    const meituResult = await inpaintWithMeitu({
-      imageBuffer: sourceImageData.buffer,
-      maskBuffer: meituMaskBuffer,
-      width: targetWidth,
-      height: targetHeight,
-      // promptPos 仅传用户原始请求，基础约束由 meitu-client.ts 统一拼接。
-      // 智能注释是"局部修改属性"（换色/换材质等），用 edit 约束而非默认 add（add 禁止改动 mask 内内容，会导致换色失败）
-      promptKind: "edit",
-      promptPos: input.promptPos?.trim() || input.prompt.trim(),
-      numSamples: 1,
-    });
-    console.log(
-      `[智能注释] inpaintWithMeitu 返回 | ${meituResult.images.length} 张: ` +
-      `${meituResult.images.map((i) => `${i.src}(${i.width}x${i.height})`).join(", ")}`,
-    );
-    const rawImages = meituResult.images.map((image) => ({
-      src: image.src,
-      width: targetWidth,
-      height: targetHeight,
-    }));
-    if (rawImages.length === 0) {
-      throw new Error("美图局部重绘未返回结果图");
-    }
+  // 2026-09-13 移除了这里的「美图局部重绘」分支（原 85 行）。
+  //
+  // 两个独立理由，任一都足以删：
+  //   1. **它恒不可达**。进入条件是 `input.provider === "meitu" && input.promptKind === "edit"`，
+  //      但 `promptKind` 从来不在 OrchestrateRequest 的字段里，ai-orchestrator 透传时也没传它，
+  //      前端更没有这个参数。前端唯一入口走 /api/ai/orchestrate，所以 input.promptKind 恒为
+  //      undefined，条件恒假 —— 这段代码从写下那天起就没执行过。
+  //   2. 美图账号已被停用（403 / 1003 access key is disabled，本地与生产同一把 key，指纹一致）。
+  //
+  // 智能注释的「AI 修改」现在统一走下面的参考图生成链路。
+  //
+  // 📌 一并删掉的还有只为它存在的入参 `provider` 和 `promptPos`：前端曾硬编码
+  //    `provider: "meitu"` 传下来，orchestrator 也专门透传，但接收端的分支恒假 ——
+  //    整条参数链从前端到后端都是空转。**「参数被认真地一路透传」不等于「它有人消费」**，
+  //    删通道时要顺着参数往上游追到最初的赋值点，否则会留下一串谁也不敢动的僵尸入参。
 
-    // 把美图白/黑 mask 转成 alpha mask（白=重绘→alpha=0(编辑区)，黑=保留→alpha=255(保留区)），
-    // 让合成阶段只替换美图实际重绘的头顶小区域，面部、身体、背景等全部保留原图。
-    const sharp = (await import("sharp")).default;
-    const { data: meituMaskRaw } = await sharp(meituMaskBuffer, { limitInputPixels: false })
-      .resize(targetWidth, targetHeight, { fit: "fill" })
-      .raw()
-      .toBuffer({ resolveWithObject: true });
-    const alphaMask = Buffer.alloc(targetWidth * targetHeight * 4);
-    for (let i = 0; i < targetWidth * targetHeight; i++) {
-      const r = meituMaskRaw[i * 3];
-      const g = meituMaskRaw[i * 3 + 1];
-      const b = meituMaskRaw[i * 3 + 2];
-      const luminance = Math.round((r + g + b) / 3);
-      const alpha = 255 - luminance; // 白色(255)→alpha=0(编辑区), 黑色(0)→alpha=255(保留区)
-      alphaMask[i * 4] = 0;
-      alphaMask[i * 4 + 1] = 0;
-      alphaMask[i * 4 + 2] = 0;
-      alphaMask[i * 4 + 3] = alpha;
-    }
-    const alphaMaskBuffer = await sharp(alphaMask, { raw: { width: targetWidth, height: targetHeight, channels: 4 } })
-      .png()
-      .toBuffer();
-
-    console.log(
-      `[智能注释] 开始合成 | alphaMask=${alphaMaskBuffer.length}B, 源图=${sourceImageData.buffer.length}B, 美图结果=${rawImages[0]?.src.slice(0, 80)}`,
-    );
-    try {
-      const finalized = await finalizeAnnotationImages(rawImages, alphaMaskBuffer);
-      console.log(
-        `[智能注释] 合成完成 | ${finalized.images.length} 张, src前缀=${finalized.images[0]?.src.slice(0, 50)}, src长度=${(finalized.images[0]?.src || "").length}`,
-      );
-      return finalized;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.log(`[智能注释] 合成失败 | ${message}`);
-      if (isSmartAnnotationNoVisibleChangeError(error)) {
-        if (!apiKey) {
-          // 没有直连图片 key 时无法降级，直接把美图的原始结论抛给用户，
-          // 避免变成含义不明的 "Missing AI_IMAGE_API_KEY"。
-          console.log(`[智能注释] 无 AI_IMAGE_API_KEY，跳过降级，沿用美图结论`);
-          throw error;
-        }
-        console.log(`[智能注释] 降级到参考图生成（需要 AI_IMAGE_API_KEY）`);
-        return editAnnotationViaReferenceGeneration();
-      }
-      throw error;
-    }
-  }
-
-  // selectedModel / editSize / apiKey 已在函数上方（美图分支之前）声明，避免 TDZ。
-  // 这里只做非美图直连通道的必需校验。
+  // selectedModel / editSize / apiKey 在函数上方声明。
   if (!apiKey) {
     throw new Error("Missing AI_IMAGE_API_KEY");
   }
@@ -4717,15 +4647,15 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
     : "";
 
   // 记录擦字前的原始图：叠字结果 composite 时用它还原 mask 外像素，
-  // 避免美图对 mask 外像素的微小改动（JPEG 压缩等）被带入最终结果
+  // 避免上游对 mask 外像素的微小改动（JPEG 压缩等）被带入最终结果
   const originalSourceImageData = sourceImageData;
 
-  // ── 阶段 A：美图擦字（text_edit 专用）────────────────────────────
-  // 先用美图局部重绘把文字区域擦成干净背景，再让主模型只负责"叠字"，
+  // ── 阶段 A：擦字（text_edit 专用）────────────────────────────
+  // 先把文字区域擦成干净背景，再让主模型只负责"叠字"，
   // 避免主模型在 mask 内重新生成背景导致"重绘文字区域背景不正常"。
   if (isTextEditOperation && maskImageData) {
     try {
-      // 膨胀 mask 透明区域，让美图把文字边缘也擦进去，减少原文字残留。
+      // 膨胀 mask 透明区域，让上游把文字边缘也擦进去，减少原文字残留。
       //
       // 这些参数原先是针对某张具体测试图调出来的绝对像素值（radius=8 / shiftY=30 /
       // extraX=13 / shrinkY=20）。绝对值在不同分辨率下表现差异极大：同样 30px 的上移，
@@ -4778,10 +4708,10 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
       // 擦除通道按「背景还原质量」排序，任一成功即可进入确定性绘制。
       //
       // 关键设计：确定性渲染是唯一能保证文字内容零错误的路径，而它只需要一张干净底图。
-      // 原实现一旦美图不可用（超时/限流/未配密钥）就整条降级到 AI 叠字，文字准确性随之失守。
+      // 原实现一旦首选通道不可用（超时/限流/未配密钥）就整条降级到 AI 叠字，文字准确性随之失守。
       // 这里改为多通道兜底，把「拿到干净底图」的成功率拉到接近 100%。
       //
-      // 删除整行时整条前置链路（引擎/美图/佐糖）全部跳过，直接用本地像素擦除：
+      // 删除整行时整条前置链路（引擎/佐糖）全部跳过，直接用本地像素擦除：
       // 它是三者里唯一实测能把残留清到 0.000% 的通道，且同一载荷下改字区照常
       // 改动 78.77%、其余 5 个未改动区域误伤 0.00%，不存在「为删除行牺牲改字」的取舍。
       const eraseChannels: Array<{ name: string; run: () => Promise<Buffer | null> }> = hasLineDeletion ? [] : [
@@ -4791,7 +4721,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
           //
           // 但它**不是无条件更好**：金色渐变艺术字上只有 46.9%，因为 Otsu 二分
           // 会把渐变字的暗部判成背景。所以这里同样要过下面的 hasVisibleLocalEdit
-          // 校验，不合格就自然让位给美图/佐糖/本地兜底，不做特判。
+          // 校验，不合格就自然让位给佐糖/本地兜底，不做特判。
           //
           // 未配置 TEXT_ENGINE_BASE_URL 时返回 null，整条链路行为与接入前完全一致。
           name: "参数化引擎",
@@ -4823,39 +4753,20 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
             return result.buffer;
           },
         },
-        {
-          name: "美图局部重绘",
-          run: async () => {
-            const meituMaskBuffer = await buildMeituMask(
-              dilatedMaskBuffer,
-              targetWidth,
-              targetHeight,
-              "full",
-            );
-            const meituResult = await inpaintWithMeitu({
-              imageBuffer: sourceImageData.buffer,
-              maskBuffer: meituMaskBuffer,
-              width: targetWidth,
-              height: targetHeight,
-              promptKind: "erase",
-              promptPos:
-                "Remove the text characters inside the mask and restore the clean original background.",
-              numSamples: 1,
-            });
-            const src = meituResult.images[0]?.src;
-            return src ? (await imageSrcToBuffer(src)).buffer : null;
-          },
-        },
+        // 2026-09-13 移除了这里的「美图局部重绘」通道（原第 2 位）。
+        // 美图账号已被停用（403 / 1003 access key is disabled），而生产**确实配着凭证**，
+        // 所以它不是"没配所以跳过"，而是每次擦字都真发一次请求、被拒、再降级到佐糖——
+        // 白白多付一次网络往返。删掉后链路是：参数化引擎 → 佐糖 → 本地像素擦除。
         {
           name: "佐糖物体擦除",
           run: async () => {
-            // 佐糖 inpaint 的 mask 契约与美图一致：白=擦除区、黑=保留区，
-            // 因此可以直接复用同一张膨胀后的蒙版。
-            const picwishMask = await buildMeituMask(
+            // mask 契约：白=擦除区、黑=保留区。
+            // buildInpaintMask 是通道无关的通用实现（原名 buildMeituMask，
+            // 随美图通道移除一并迁到 server/inpaint-mask.ts 并改名）。
+            const picwishMask = await buildInpaintMask(
               dilatedMaskBuffer,
               targetWidth,
               targetHeight,
-              "full",
             );
             const result = await eraseWithPicWish({
               imageBuffer: sourceImageData.buffer,
@@ -4874,7 +4785,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
       let usedChannel = "";
       if (hasLineDeletion) {
         console.log(
-          "[text_edit] 检测到删除整行，跳过引擎/美图/佐糖，直接用本地像素擦除" +
+          "[text_edit] 检测到删除整行，跳过引擎/佐糖，直接用本地像素擦除" +
           "（实测擦净率 100%，引擎仅 37.3%）",
         );
       }
@@ -4962,7 +4873,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
   }
 
   // ── 阶段 B：确定性文字绘制（text_edit + 携带 OCR 区域 + 擦字成功）──────
-  // 美图擦字成功（sourceImageData 已被替换为擦字图）时，直接按 OCR 区域把新文字
+  // 擦字成功（sourceImageData 已被替换为擦字图）时，直接按 OCR 区域把新文字
   // 绘制到擦字图上，跳过 AI 叠字，彻底避免模型在 mask 内重造背景导致"背景不正常"。
   if (
     isTextEditOperation &&

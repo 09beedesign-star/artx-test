@@ -24351,9 +24351,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         console.log(
           "[智能注释] 发起 AI 修改请求（前端）",
           JSON.stringify({
-            provider: "meitu",
             operation: "annotation_edit",
-            promptPos: reference.text,
             maskSrc,
             targetWidth: sourceSize.width,
             targetHeight: sourceSize.height,
@@ -24369,12 +24367,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           preserveSource: true,
           targetWidth: sourceSize.width,
           targetHeight: sourceSize.height,
-          // 智能注释「AI 修改」固定使用美图局部重绘引擎
-          provider: "meitu",
-          promptPos: reference.text,
         });
       };
-      // 用户确认预览后，用最终 mask 发起美图局部重绘（含无可见修改时的扩大重试）
+      // 用户确认预览后，用最终 mask 发起局部重绘（含无可见修改时的扩大重试）
       const runAnnotationEditFlow = async (maskSrc: string) => {
         toast("注释 AI 修改中", { description: "将在原图旁生成新的修改结果" });
         await runDerivedImageGeneration({
