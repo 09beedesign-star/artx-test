@@ -715,6 +715,32 @@ function membershipPeriodSource(orderId: string, period: number) {
 }
 
 /**
+ * 一笔订单**在支付当下真正应该入账**的积分数 —— 全站唯一口径。
+ *
+ * ⚠️⚠️ 这是 `5e84fc7`（会员改按月发放）留下的半截改造的收口点。
+ *
+ * 那次只改了批次侧（createCreditBatchForPaidOrder 只发第一期），
+ * 但 `user.credits`、`order.issuedCredits`、退款扣回、经营看板全都还在用
+ * `order.expectedCredits`（= monthlyCredits × 周期月数）。后果：
+ *
+ *   - Pro 年卡：批次只发 28,000，user.credits 却 +336,000 → **虚增 308,000**
+ *     （Business 年卡虚增 2,860,000）；
+ *   - 虚增部分**可以被正常消费** —— getUserCreditBatchBalance() 的 legacyBalance
+ *     兜底会在「批次合计 < user.credits」时放行，静默按 user.credits 扣；
+ *   - 退款时按 expectedCredits 扣回，把用户**其他来源**的积分一起扣走。
+ *
+ * 会员订单 = 只算首期；充值/其他订单 = 全额（本就一次性到账）。
+ * 该函数必须与 createCreditBatchForPaidOrder 的发放口径保持一致，
+ * 两者由 server/membership-credit-consistency.test.ts 锁死。
+ */
+function resolveOrderCreditsIssuedAtPayment(order: PaymentOrder) {
+  const plan = getMembershipPlanFromName(order.packageName);
+  if (!plan) return Math.max(0, Math.round(order.expectedCredits || 0));
+  const totalPeriods = getBillingCycleMonths(order.cycleId);
+  return resolveMembershipMonthlyCredits(order, totalPeriods);
+}
+
+/**
  * 每期应发额度。
  *
  * 优先用套餐表的 monthlyCredits；取不到时退回「订单总额度 ÷ 期数」，
@@ -814,6 +840,20 @@ function issueDueMembershipCredits(data: AdminData, now: string) {
         });
         if (batch) {
           user.credits += subscription.monthlyCredits;
+          /*
+           * ⚠️ 必须把本期额度累加进订单的 issuedCredits。
+           *
+           * issuedCredits 的语义是「这笔订单**截至目前累计实发**多少积分」，
+           * 退款扣回（orderCreditsToDeduct）和经营看板的「已发放积分」都读它。
+           * 只在支付当下写首期、后续期不累加的话：
+           *   - 年卡用了 5 个月后退款，只扣回 1 个月的量，白送 4 个月；
+           *   - 看板「已发放」长期低报，递延负债看着比实际小。
+           * 订单可能已被截断/清理，找不到就跳过（批次侧才是真账本）。
+           */
+          const sourceOrder = data.orders.find((item) => item.id === subscription.orderId);
+          if (sourceOrder) {
+            sourceOrder.issuedCredits = Math.max(0, sourceOrder.issuedCredits) + subscription.monthlyCredits;
+          }
           data.credits = [
             {
               id: `cr_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
@@ -1901,7 +1941,18 @@ function buildProductionChecks(data: AdminData): ProductionCheckItem[] {
   const totalOrders = data.orders.length;
   const pendingReconciliation = data.orders.filter((order) => order.reconciliation === "pending").length;
   const mismatchedOrders = data.orders.filter((order) => order.reconciliation === "mismatch" || order.status === "failed").length;
-  const paidWithoutCredits = data.orders.filter((order) => order.status === "paid" && order.issuedCredits < order.expectedCredits).length;
+  /*
+   * ⚠️ 判据是「实发 < **当下应发**」，不能拿 expectedCredits 当分母。
+   *
+   * expectedCredits 是订单总额度（年卡 = 月额度 × 12），而会员订单按月发放，
+   * 付款当天本来就只发第 1 期。用总额度比，**每一笔正常的年卡/季卡都会被
+   * 判成「已付款未到账」**，这个本用来抓真实事故的指标会永久告警、失去意义。
+   * 正确分母是 resolveOrderCreditsIssuedAtPayment()（与实际发放同源）；
+   * 后续期补发时 issuedCredits 会一起累加，所以这个比较对存量订单同样成立。
+   */
+  const paidWithoutCredits = data.orders.filter(
+    (order) => order.status === "paid" && order.issuedCredits < resolveOrderCreditsIssuedAtPayment(order)
+  ).length;
   const wallytConfigured = envStatus(["WALLYT_MCH_ID", "WALLYT_SIGNATURE_KEY", "WALLYT_NOTIFY_URL"], "all") === "configured";
 
   const activeUserCredits = data.users.reduce((sum, user) => sum + Math.max(0, user.credits), 0);
@@ -4182,8 +4233,12 @@ export async function markBillingOrderPaid(params: {
 
   if (order.status !== "paid") {
     const paidAt = nowIso();
+    // ⚠️ 会员订单在支付当下只发首期，不是 expectedCredits 全额。
+    // issuedCredits 是「实发」字段（前台"实发积分"、退款扣回、经营看板都读它），
+    // 写成全额会让它和真实批次对不上，且退款时按全额倒扣。
+    const creditsIssuedNow = resolveOrderCreditsIssuedAtPayment(order);
     order.status = "paid";
-    order.issuedCredits = order.expectedCredits;
+    order.issuedCredits = creditsIssuedNow;
     order.reconciliation = "matched";
     order.event = "支付成功并入账";
     order.paidAt = paidAt;
@@ -4203,7 +4258,7 @@ export async function markBillingOrderPaid(params: {
       ...(order.paymentEvents || []),
     ].slice(0, 50);
 
-    user.credits += order.expectedCredits;
+    user.credits += creditsIssuedNow;
     const paidMembershipPlan = getMembershipPlanFromName(order.packageName);
     // 到期时间必须在改写 user.planExpiresAt 之前算好：resolveMembershipExpiry
     // 以"当前到期日"为顺延基准，先赋值会导致基准被污染。
@@ -4244,8 +4299,12 @@ export async function markBillingOrderPaid(params: {
         userId: user.id,
         user: user.name,
         type: "购买入账",
-        delta: order.expectedCredits,
-        reason: "订单支付成功",
+        // 与 user.credits 的增量严格相等：会员订单只记首期，后续期由
+        // issueDueMembershipCredits() 各自补一条「会员月度发放」流水。
+        delta: creditsIssuedNow,
+        reason: paidMembershipPlan
+          ? `订单支付成功（第 1/${getBillingCycleMonths(order.cycleId)} 期）`
+          : "订单支付成功",
         source: order.id,
         operator: params.actorName,
         createdAt: paidAt,
