@@ -3,6 +3,7 @@ name: Deploy Tencent Cloud Test
 on:
   push:
     branches:
+      - main
       - feature/interaction-framework
       - test/feature/interaction-framework
   workflow_dispatch:
