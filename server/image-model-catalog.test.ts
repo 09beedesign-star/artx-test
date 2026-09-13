@@ -9,8 +9,8 @@ import {
 
 const expectedImageModelDescriptions = {
   // OG image2.5（腾讯 VOD 直连）
-  "vod-og25-sunburst-medium": "通用均衡，日常首选",
-  "vod-og25-flare-medium": "色彩浓郁，风格化强",
+  "vod-og25-sunburst-medium": "高性价比，日常首选",
+  "vod-og25-flare-medium": "高性价比，色彩浓郁",
   "vod-og25-sunburst-low": "出图快，适合打草稿",
   "vod-og25-flare-low": "快速试风格与配色",
   "vod-og25-sunburst-high": "高清细节，适合成稿",
@@ -23,7 +23,7 @@ const expectedImageModelDescriptions = {
   "vod-kling": "国风人像与电商主图",
   "vod-si": "真实感强，接近摄影",
   "vod-qwen": "中文排版与海报文字",
-  "vod-jimeng": "中文场景与国潮插画",
+  "vod-jimeng": "性价比高，国潮插画",
 };
 
 /**
@@ -49,16 +49,20 @@ const VOD_IMAGE_MODEL_IDS = IMAGE_MODEL_PRIORITY_IDS.filter(isVodModelId);
 /**
  * 面向用户的模型描述口径。
  *
- * 2026-09-13 上限从 15 放宽到 20（用户指定），同时把「不能出现价格信息」
- * 从只挡 `[高中低]价` 扩到挡 `积分 / 元 / 价格 / 性价比 / 成本 / 免费`：
- * 原来的正则挡得住"高价"，却挡不住"高性价比""极致低成本""70 积分/张"，
- * 而这三种恰恰是实际写进去过的。
+ * 2026-09-13 上限从 15 放宽到 20（用户指定）。
+ * 关于价格措辞经历了两次调整，记录下来避免来回改：
+ *   1. 先是从只挡 `[高中低]价` 扩到连 `性价比 / 成本` 一起挡 —— 挡得太宽；
+ *   2. 用户明确要求保留"高性价比"这类定性判断，因此放开 `性价比`，
+ *      只保留**具体单价**的禁令（`积分 / 元 / 价格 / 免费 / 成本`）。
+ * ⚠️ 定性可以、具体数字不行：单价一调，写死的数字就静默失效，
+ * 而"70 积分/张"正是把能力描述整片遮住的那串文字（`8fe9128`）。
+ * 「性价比该贴在哪些档位」由 server/image-model-descriptions.test.ts 单独守，
+ * 那是文案内容问题，不属于本文件的目录接口契约。
  */
 function expectUserFacingImageModelDescription(description: string | undefined) {
   expect(description).toBeTruthy();
-  expect(description).not.toMatch(/[高中低]价/);
-  expect(description, `"${description}" 不应出现价格/计费信息`).not.toMatch(
-    /积分|性价比|成本|价格|免费|[0-9]\s*元/
+  expect(description, `"${description}" 不应出现具体单价`).not.toMatch(
+    /积分|成本|价格|免费|[0-9]\s*元/
   );
   expect(description!.length, `"${description}" 超过 20 字`).toBeLessThanOrEqual(20);
 }

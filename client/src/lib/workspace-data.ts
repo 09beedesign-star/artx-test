@@ -44,8 +44,8 @@ export const IMAGE_AI_MODELS: AiModelOption[] = [
   // 本身不含任何品牌关键字，不写 icon 就会落到 "none" 变成无图标。
   // OG image2.5 两系列（2026-09-11 接入，sunburst medium 为全站默认）。
   // 两系价格完全相同，画风不同，都放出来供用户手动切换。
-  { id: "vod-og25-sunburst-medium", label: "image2.5 medium", color: "oklch(0.72 0.18 200)", description: "通用均衡，日常首选", icon: "openai" },
-  { id: "vod-og25-flare-medium", label: "image2.5 medium flare", color: "oklch(0.74 0.16 285)", description: "色彩浓郁，风格化强", icon: "openai" },
+  { id: "vod-og25-sunburst-medium", label: "image2.5 medium", color: "oklch(0.72 0.18 200)", description: "高性价比，日常首选", icon: "openai" },
+  { id: "vod-og25-flare-medium", label: "image2.5 medium flare", color: "oklch(0.74 0.16 285)", description: "高性价比，色彩浓郁", icon: "openai" },
   { id: "vod-og25-sunburst-low", label: "image2.5 low", color: "oklch(0.70 0.16 150)", description: "出图快，适合打草稿", icon: "openai" },
   { id: "vod-og25-flare-low", label: "image2.5 low flare", color: "oklch(0.70 0.16 150)", description: "快速试风格与配色", icon: "openai" },
   { id: "vod-og25-sunburst-high", label: "image2.5 high", color: "oklch(0.82 0.18 95)", description: "高清细节，适合成稿", icon: "openai" },
@@ -62,7 +62,7 @@ export const IMAGE_AI_MODELS: AiModelOption[] = [
   { id: "vod-kling", label: "kling 3.0", color: "oklch(0.76 0.16 130)", description: "国风人像与电商主图", icon: "kling" },
   { id: "vod-si", label: "si 5.0 pro", color: "oklch(0.82 0.18 95)", description: "真实感强，接近摄影", icon: "si" },
   { id: "vod-qwen", label: "qwen 0925", color: "oklch(0.70 0.16 150)", description: "中文排版与海报文字", icon: "qwen" },
-  { id: "vod-jimeng", label: "jimeng 4.0", color: "oklch(0.82 0.18 95)", description: "中文场景与国潮插画", icon: "jimeng" },
+  { id: "vod-jimeng", label: "jimeng 4.0", color: "oklch(0.82 0.18 95)", description: "性价比高，国潮插画", icon: "jimeng" },
 ];
 
 // 文本 / 多模态理解模型清单（用户下拉框唯一可见项）。

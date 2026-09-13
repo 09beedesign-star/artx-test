@@ -55,7 +55,31 @@ function readUseImageModelOptionsBody() {
   return stripBlockComments(body);
 }
 
-const PRICE_PATTERN = /积分|性价比|成本|价格|免费|[0-9]\s*元/;
+/**
+ * 禁止出现的是**具体单价**，不是价格这个话题本身。
+ *
+ * 2026-09-13 口径修正：用户要求保留"高性价比"这类定性判断，
+ * 因此 `性价比` 从禁用词里移出（改由下面 AFFORDABLE_MODEL_IDS 那条限定贴在哪些档位），
+ * 但 `积分 / 元 / 价格 / 免费 / 成本` 仍然禁 —— 那些一旦调价就会静默失效，
+ * 而"70 积分/张"正是这次事故里遮住能力描述的那串文字。
+ */
+const PRICE_PATTERN = /积分|成本|价格|免费|[0-9]\s*元/;
+
+/**
+ * 允许出现"性价比"的模型。
+ *
+ * ⚠️ 判断依据是**性能/价格比**，不是单价高低：
+ *   - medium 两系 70 积分，是全站默认档、套餐额度换算基准，质量够日常成稿；
+ *   - vod-jimeng 120 积分，非 og25 系里最低价且效果扎实。
+ * low 档 40 积分虽是全站最低，但出图是草稿级 —— 贴"高性价比"会把用户
+ * 引到质量不达标的档位上，属于误导，所以刻意排除。
+ * 单价见 shared/ai-credit-policy.ts:163-201。
+ */
+const AFFORDABLE_MODEL_IDS = [
+  "vod-og25-sunburst-medium",
+  "vod-og25-flare-medium",
+  "vod-jimeng",
+];
 
 /**
  * 取某个常量的定义块。
@@ -73,14 +97,42 @@ function readConstBlock(source: string, constName: string, terminator: "];" | "}
   return source.slice(start, end);
 }
 
-function collectDescriptions(source: string, constName: string, terminator: "];" | "};") {
+function readCleanBlock(source: string, constName: string, terminator: "];" | "};") {
   // 先剥注释：块里的解释性文字同样含中文引号内容，会被下面的正则捞进来。
-  const block = stripBlockComments(readConstBlock(source, constName, terminator))
+  return stripBlockComments(readConstBlock(source, constName, terminator))
     .replace(/^[ \t]*\/\/.*$/gm, "");
+}
+
+function collectDescriptions(source: string, constName: string, terminator: "];" | "};") {
+  const block = readCleanBlock(source, constName, terminator);
   const matches = [...block.matchAll(/description:\s*"([^"]+)"|"[^"]+":\s*"([^"]+)"/g)];
   const values = matches.map(match => match[1] ?? match[2]).filter(Boolean) as string[];
   expect(values.length, `${constName} 里没解析出任何文案`).toBeGreaterThanOrEqual(14);
   return values;
+}
+
+/**
+ * 解析成 id → 文案 的映射，用于断言「某条文案贴在哪个模型上」。
+ * 两份表结构不同：前端是对象数组（`{ id: "x", ..., description: "y" }`），
+ * 后端是字面量字典（`"x": "y"`），所以各用各的正则，不强行合并。
+ */
+function collectDescriptionsById(
+  source: string,
+  constName: string,
+  terminator: "];" | "};",
+  shape: "array" | "record"
+) {
+  const block = readCleanBlock(source, constName, terminator);
+  const pattern =
+    shape === "array"
+      ? /id:\s*"([^"]+)"[^}]*?description:\s*"([^"]+)"/g
+      : /"([^"]+)":\s*"([^"]+)"/g;
+  const entries = new Map<string, string>();
+  for (const match of block.matchAll(pattern)) {
+    entries.set(match[1], match[2]);
+  }
+  expect(entries.size, `${constName} 里没解析出 id→文案 映射`).toBeGreaterThanOrEqual(14);
+  return entries;
 }
 
 describe("模型选择器描述不被计费文案遮盖", () => {
@@ -129,17 +181,71 @@ describe("模型能力描述文案口径", () => {
   const clientDescriptions = collectDescriptions(clientSource, "IMAGE_AI_MODELS", "];");
   const serverDescriptions = collectDescriptions(serverSource, "imageModelDescriptions", "};");
 
-  it("前端清单：不含价格信息且不超过 20 字", () => {
+  it("前端清单：不含具体单价且不超过 20 字", () => {
     for (const description of clientDescriptions) {
       expect(description, `"${description}" 含价格信息`).not.toMatch(PRICE_PATTERN);
       expect(description.length, `"${description}" 超过 20 字`).toBeLessThanOrEqual(20);
     }
   });
 
-  it("服务端目录：不含价格信息且不超过 20 字", () => {
+  it("服务端目录：不含具体单价且不超过 20 字", () => {
     for (const description of serverDescriptions) {
       expect(description, `"${description}" 含价格信息`).not.toMatch(PRICE_PATTERN);
       expect(description.length, `"${description}" 超过 20 字`).toBeLessThanOrEqual(20);
+    }
+  });
+
+  it("「性价比」只贴在性能/价格比突出的档位上", () => {
+    /*
+     * ⚠️ 这条守的是「贴错位置」，不是「不许提」。
+     * 用户明确要求保留"高性价比"，但同时强调不能只看价格、要考虑性能。
+     * 最容易犯的错是把它贴到 low 档（40 积分，全站最低价）——
+     * 那是草稿档，用户照着"高性价比"选过去会拿到不能用的成品。
+     *
+     * 反向断言在这里尤其必要：正向逐个点名只能守住今天这三个，
+     * 将来新增一个便宜模型时，只有反向断言能拦住随手贴标签。
+     */
+    for (const [source, constName, terminator, shape] of [
+      [clientSource, "IMAGE_AI_MODELS", "];", "array"],
+      [serverSource, "imageModelDescriptions", "};", "record"],
+    ] as const) {
+      const byId = collectDescriptionsById(source, constName, terminator, shape);
+      for (const [id, description] of byId) {
+        if (!description.includes("性价比")) continue;
+        expect(
+          AFFORDABLE_MODEL_IDS,
+          `${constName} 里 ${id} 的文案 "${description}" 贴了性价比，` +
+            "但它不在允许清单内 —— 性价比要看性能/价格比，不是单纯便宜"
+        ).toContain(id);
+      }
+      // 正向：允许清单里的档位确实贴上了，防止有人把这三条悄悄改掉后
+      // 上面那条反向断言变成空转（没有任何文案含"性价比" → 循环体一次都不进）。
+      const tagged = [...byId].filter(([, text]) => text.includes("性价比"));
+      expect(tagged.length, `${constName} 应有 ${AFFORDABLE_MODEL_IDS.length} 条性价比文案`).toBe(
+        AFFORDABLE_MODEL_IDS.length
+      );
+    }
+  });
+
+  it("低价草稿档不得被描述成性价比之选", () => {
+    /*
+     * 单独点名 low 档：它是最容易被误贴的一档（单价 40，全站最低）。
+     * 与上一条的区别是那条守"清单外不许贴"，这条守"这两个具体 id 永远不许贴"，
+     * 即使将来有人往 AFFORDABLE_MODEL_IDS 里加它也会被拦下。
+     */
+    const lowTierIds = ["vod-og25-sunburst-low", "vod-og25-flare-low"];
+    expect(AFFORDABLE_MODEL_IDS).not.toContain(lowTierIds[0]);
+    expect(AFFORDABLE_MODEL_IDS).not.toContain(lowTierIds[1]);
+    for (const [source, constName, terminator, shape] of [
+      [clientSource, "IMAGE_AI_MODELS", "];", "array"],
+      [serverSource, "imageModelDescriptions", "};", "record"],
+    ] as const) {
+      const byId = collectDescriptionsById(source, constName, terminator, shape);
+      for (const id of lowTierIds) {
+        const description = byId.get(id);
+        expect(description, `${constName} 缺少 ${id} 的文案`).toBeTruthy();
+        expect(description, `${id} 是草稿档，不能描述成性价比之选`).not.toMatch(/性价比|划算|超值/);
+      }
     }
   });
 
