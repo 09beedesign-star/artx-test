@@ -464,7 +464,18 @@ async function runDevBackgroundImageTask(
         }
         return undefined;
       };
-      const result = await imageGeneration.expandImageWithPicWish({
+      // ⚠️ 2026-09-13 扩图供应商已由佐糖切到腾讯云 VOD Kling，这里必须跟生产
+      // （server/index.ts:1079 runBackgroundImageTask 的 image_expansion 分支）
+      // 调同一个函数。此前这里漏改，留在 expandImageWithPicWish 上：
+      //   - dev 与生产走两家不同供应商，本地验不出线上行为；
+      //   - 默认提示词已按 Kling 的 2500 上限重写（约 700+ 字符），
+      //     原样喂给硬上限 200 的佐糖会稳定 400 Invalid params 'prompt'。
+      // 若将来要回退佐糖，prompt 必须改回 clampImageExpansionPrompt 截断。
+      //
+      // 四向比例（top/bottom/left/right）由 `...input` 透传：前端
+      // InfiniteCanvas.tsx:25373 的 backgroundTaskInput 已带这四个字段。
+      // Kling 不支持蒙版驱动扩图，缺方向会直接抛错，不要在这里吞掉。
+      const result = await imageGeneration.expandImageWithVodKling({
         ...input,
         imageSrc: pick("imageSrc", "image_url", "image_base64"),
         maskSrc: pick("maskSrc", "mask_url", "mask_base64"),

@@ -23,6 +23,10 @@ const files = {
   ai: fs.readFileSync("client/src/lib/ai.ts", "utf8"),
   canvas: fs.readFileSync("client/src/components/canvas/InfiniteCanvas.tsx", "utf8"),
   shared: fs.readFileSync("shared/image-expansion.ts", "utf8"),
+  // dev 服务器复刻了一份 capability 分发（runDevBackgroundImageTask），
+  // 切换上游时漏改过一次：生产走 Kling、本地仍走佐糖，本地怎么试都试不出线上行为。
+  // 这里把它纳入校验，否则第 4 个出口可以静默退回佐糖而全部断言照样绿。
+  vite: fs.readFileSync("vite.config.ts", "utf8"),
 };
 
 function assert(condition, message) {
@@ -33,6 +37,24 @@ function assert(condition, message) {
 }
 
 const expandRoute = files.index.match(/app\.post\("\/api\/images\/expand"[\s\S]*?\n  \}\);/)?.[0] || "";
+// 后台任务分发里的扩图分支。两个文件同构：`case "image_expansion":` 起，
+// 到下一个 `case "text_to_image":` 止。必须切区块再断言 —— 整文件 toContain
+// 在 server/index.ts 这种上万行的文件上几乎锁不住任何东西。
+//
+// ⚠️ 两个细节，少一个断言就会假绿：
+// 1. server/index.ts 里有**两个** `case "image_expansion"`（:620 是 preflight
+//    tracking，只填 provider/model 不调函数；:1063 才是真正执行的那个）。
+//    非贪婪匹配只会取到第一个，于是「必须调 Kling」恒假。这里取全部块。
+// 2. 必须先剥注释再断言。本次改动就在注释里写了 `expandImageWithPicWish`
+//    和 `clampImageExpansionPrompt` 来解释历史，未剥注释时三条断言直接误判。
+const stripComments = (source) =>
+  source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+const sliceExpansionCases = (source) =>
+  [...stripComments(source).matchAll(/case "image_expansion":[\s\S]*?(?=case "text_to_image":)/g)].map((m) => m[0]);
+const indexTaskBranches = sliceExpansionCases(files.index);
+const viteTaskBranches = sliceExpansionCases(files.vite);
+const indexTaskBranch = indexTaskBranches.join("\n");
+const viteTaskBranch = viteTaskBranches.join("\n");
 const expansionBranch = files.orchestrator.match(/if \(capability === "image_expansion"\)[\s\S]*?^\s{4}\}/m)?.[0] || "";
 const erasureBranch = files.orchestrator.match(/if \(capability === "element_erasure"\)[\s\S]*?^\s{4}\}/m)?.[0] || "";
 const createTaskSource = files.vod.match(/export async function createVodImageExpandTask[\s\S]*?\n}/)?.[0] || "";
@@ -131,6 +153,30 @@ assert(!expandRoute.includes("orchestrator.run"), "expand route must not route t
 assert(expansionBranch.includes("expandImageWithVodKling"), "orchestrator image_expansion must call VOD Kling expansion");
 assert(!expansionBranch.includes("expandImageWithPicWish"), "orchestrator image_expansion must no longer call PicWish");
 assert(!expansionBranch.includes("eraseImageObjects"), "orchestrator image_expansion must not reuse eraser/inpaint");
+
+// 出口 3：生产后台任务（server/index.ts runBackgroundImageTask）。
+// 画布的扩图默认走后台任务而不是同步路由，漏掉这条等于主路径没锁。
+assert(indexTaskBranches.length > 0, "server/index.ts must handle the image_expansion background task capability");
+assert(indexTaskBranch.includes("expandImageWithVodKling"), "background image task must call VOD Kling expansion");
+assert(!indexTaskBranch.includes("expandImageWithPicWish"), "background image task must no longer call PicWish");
+
+// 出口 4：dev 服务器复刻的分发（vite.config.ts runDevBackgroundImageTask）。
+// 这是 2026-09-13 切换时实际漏掉的那个出口。
+assert(viteTaskBranches.length > 0, "vite.config.ts must handle the image_expansion dev background task capability");
+assert(
+  viteTaskBranch.includes("expandImageWithVodKling"),
+  "dev background image task must call VOD Kling expansion (it was left on PicWish once — local runs then could not reproduce production)",
+);
+assert(
+  !viteTaskBranch.includes("expandImageWithPicWish"),
+  "dev background image task must no longer call PicWish",
+);
+// 默认提示词按 Kling 的 2500 上限重写后有 700+ 字符；若这里回退到佐糖，
+// 必须同时改回 clampImageExpansionPrompt，否则每次请求都是 400。
+assert(
+  !viteTaskBranch.includes("clampImageExpansionPrompt"),
+  "dev expansion must not clamp the prompt to the PicWish 200-char limit while running on Kling",
+);
 
 /* ── 比例语义：前端不变，因为两家上游口径一致 ─────────────────────────── */
 
