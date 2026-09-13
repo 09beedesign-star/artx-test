@@ -12,6 +12,7 @@ import {
   isFreePlanId,
   getPlanQuote,
   quoteCreditRecharge,
+  FIRST_RECHARGE_BONUS,
 } from "../shared/billing-config";
 import { createAuthUserForAdmin, getAdminSessionFromAuthorization, listAuthUsers, type PublicAuthUser, updateAuthUserAdmin } from "./auth-store";
 import { storeFeedbackImagesForUser, type FeedbackImageInput, type StoredFeedbackImage } from "./local-image-storage";
@@ -506,8 +507,13 @@ export type AdminApiResult = {
 const DEMO_USER_IDS = new Set(["usr_1028", "usr_1071", "usr_1189", "usr_1220"]);
 const DEMO_USER_NAMES = new Set(["林澈", "Mira Studio", "陈一鸣", "北辰增长"]);
 const DEMO_RECORD_PREFIXES = ["ord_90", "cr_7", "task_8", "fb_2", "al_8", "al_9", "risk_0", "aud_00"];
-const FIRST_RECHARGE_BONUS_MIN_AMOUNT = 150;
-const FIRST_RECHARGE_BONUS_CREDITS = 2500;
+/**
+ * ⚠️ 门槛金额与赠送积分数已提升到 shared/billing-config.ts，
+ * 因为前端积分规则页要展示同样的数字。**这里只做转引，不要再写字面量**，
+ * 否则前后端两份常量会各自漂移（本项目已多次踩过「同一份数据两个出口」）。
+ */
+const FIRST_RECHARGE_BONUS_MIN_AMOUNT = FIRST_RECHARGE_BONUS.minAmount;
+const FIRST_RECHARGE_BONUS_CREDITS = FIRST_RECHARGE_BONUS.credits;
 const FIRST_RECHARGE_BONUS_VALID_DAYS = 30;
 
 /**

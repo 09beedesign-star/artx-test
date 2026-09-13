@@ -49,14 +49,23 @@ const paymentMethods: Array<{
   { id: "alipay", label: "支付宝", hint: "使用支付宝扫码" },
 ];
 
+/**
+ * ⚠️ 这里**不允许出现任何积分数字**。
+ *
+ * 历史问题：features 里曾硬编码「每月 8,000 / 28,000 / 80,000 创作积分」，
+ * 与 MEMBERSHIP_PLANS[].monthlyCredits 各自一份，改了额度或切换计费周期
+ * 后卡片文案不会跟着变，用户看到的月/季/年额度互相对不上（用户已反馈过）。
+ * 现在额度那条由 buildCreditFeature() 从 getPlanQuote() 现算，
+ * 这个数组只保留与额度无关的权益描述。`creditsNote` 是额度句的后半句尾巴。
+ */
 const subscriptionPlans = [
   {
     id: "lite" as MembershipPlanId,
     audience: "灵感探索与个人创作",
     highlight: false,
     level: 1,
+    creditsNote: "轻松开始",
     features: [
-      { label: "每月 8,000 创作积分，轻松开始", included: true },
       { label: "标准 AI 生图、提示词优化与文案共创", included: true },
       { label: "图片上传、画布编辑与历史记录保存", included: true },
       { label: "高质量模型与商单高速队列", included: false },
@@ -68,8 +77,8 @@ const subscriptionPlans = [
     audience: "高频创作与商单交付",
     highlight: true,
     level: 2,
+    creditsNote: "覆盖稳定产出",
     features: [
-      { label: "每月 28,000 创作积分，覆盖稳定产出", included: true },
       { label: "完整标准图片模型与商业图片工具", included: true },
       { label: "高质量模型关键交付权益", included: true },
       { label: "优先队列、智能产品图、HD 与局部编辑", included: true },
@@ -81,8 +90,8 @@ const subscriptionPlans = [
     audience: "团队与批量商业项目",
     highlight: false,
     level: 3,
+    creditsNote: "支持连续生产",
     features: [
-      { label: "每月 80,000 创作积分，支持连续生产", included: true },
       { label: "Pro 全部专业能力与商业工作流", included: true },
       { label: "高质量模型重点项目权益", included: true },
       { label: "更高优先级、批量生成与团队协作预留", included: true },
@@ -90,6 +99,31 @@ const subscriptionPlans = [
     ],
   },
 ];
+
+/**
+ * 生成套餐卡片里的额度条目。
+ *
+ * ⚠️ 必须同时体现「每月到账」和「共几期」：会员积分是按月发放的，
+ * 年卡 336,000 分 12 期给，只写总额会让用户以为付完立刻全额到账；
+ * 只写每月又会让年卡和月卡的卡片看起来完全一样。
+ * 另外必须带上结转口径，否则用户会以为每月额度可以无限累积。
+ */
+function buildCreditFeature(
+  creditsPerPeriod: number,
+  periods: number,
+  totalCredits: number,
+  cycleLabel: string,
+  note: string,
+) {
+  const monthly = creditsPerPeriod.toLocaleString("zh-HK");
+  if (periods > 1) {
+    return {
+      label: `每月到账 ${monthly} 创作积分，${cycleLabel}共 ${periods} 期（累计 ${totalCredits.toLocaleString("zh-HK")}），${note}`,
+      included: true,
+    };
+  }
+  return { label: `每月到账 ${monthly} 创作积分，${note}`, included: true };
+}
 
 type BillingOrderResponse = {
   order?: {
@@ -1025,6 +1059,21 @@ export default function BillingPage() {
                       >
                         按整体创作服务收费，周期支持月付、季付与年付。
                       </p>
+                      {/*
+                        ⚠️ 这行随所选周期变化，直接取 BILLING_CYCLES[].creditRule，
+                        不要在这里另写一句静态文案 —— 月/季/年的发放与结转口径不同，
+                        写死会导致切到年付后说明还停留在月付口径（信息对不上）。
+                      */}
+                      <p
+                        className="mt-1.5 type-caption"
+                        style={{
+                          color: faint,
+                          letterSpacing: 0,
+                          textTransform: "none",
+                        }}
+                      >
+                        {activeCycleConfig.creditRule}
+                      </p>
                     </div>
                     <div
                       className="inline-grid grid-cols-3 gap-1 rounded-[var(--radius-lg-design)] border p-1"
@@ -1201,8 +1250,21 @@ export default function BillingPage() {
                             </div>
                           </div>
 
+                          {/*
+                            额度条目现算后置于权益列表首位，和上方价格区共用
+                            同一个 quote —— 两处数字来自同一来源，天然不会打架。
+                          */}
                           <ul className="mt-4 flex-1 space-y-2.5">
-                            {planConfig.features.map(feature => (
+                            {[
+                              buildCreditFeature(
+                                quote.creditsPerPeriod,
+                                quote.periods,
+                                quote.totalCredits,
+                                cycleLabel,
+                                planConfig.creditsNote
+                              ),
+                              ...planConfig.features,
+                            ].map(feature => (
                               <li
                                 key={feature.label}
                                 className="flex items-start gap-2 type-caption leading-5"

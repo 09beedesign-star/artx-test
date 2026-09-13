@@ -86,6 +86,26 @@ export const CREDIT_EXPIRY_RULES = {
 } as const;
 
 /**
+ * 首充赠送规则 —— **唯一真相来源**。
+ *
+ * ⚠️ 这三个值原先只存在于 server/admin-store.ts，前端无法引用，
+ * 导致「站内有首充赠送，但用户在任何页面都看不到」。提到 shared 后
+ * server 侧必须从这里导入，**不要再各写一份常量**。
+ *
+ * ⚠️ 赠送积分走 kind:"gift"，有效期只有 CREDIT_EXPIRY_RULES.gift.days 天，
+ * 远短于充值积分的 366 天。展示时必须把有效期一起说清楚，
+ * 否则用户会以为赠送的也能放一年。
+ */
+export const FIRST_RECHARGE_BONUS = {
+  /** 单笔充值达到该金额（HKD）才触发 */
+  minAmount: 150,
+  /** 赠送积分数 */
+  credits: 2500,
+  /** 仅限该账号的第一笔充值订单 */
+  oncePerAccount: true,
+} as const;
+
+/**
  * Free 免费档。
  * 刻意不放进 MEMBERSHIP_PLANS —— 那个数组是「可购买套餐」列表，
  * 订阅页会逐项渲染成付费卡片。Free 只作为未订阅用户的默认归属档，

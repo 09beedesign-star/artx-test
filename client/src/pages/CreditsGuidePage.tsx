@@ -7,6 +7,7 @@ import { BG_GLOW } from "@/lib/workspace-data";
 import {
   CREDIT_EXPIRY_RULES,
   CREDIT_RECHARGE_TIERS,
+  FIRST_RECHARGE_BONUS,
   MEMBERSHIP_PLANS,
   formatCredits,
   quoteCreditRecharge,
@@ -225,6 +226,27 @@ export default function CreditsGuidePage() {
                 ，充得越多每 HKD 兑换的积分越多。每笔充值的有效期从该笔付款日单独起算
                 {CREDIT_EXPIRY_RULES.recharge.days} 天，多次充值不会互相延期。
               </p>
+              {/*
+                首充赠送说明。
+                ⚠️ 必须单独成块并写明有效期 —— 赠送积分是 kind:"gift"、只有 30 天，
+                远短于充值积分的 366 天。此前整页没提这件事，用户会把「充值到账比例」
+                误读成「赠送」，两者混为一谈（用户已当面问过一次）。
+              */}
+              <div
+                className="mt-3 flex gap-2.5 rounded-[var(--radius-lg-design)] border p-3.5"
+                style={{ background: field, borderColor: border }}
+              >
+                <Gift size={15} className="mt-0.5 shrink-0" style={{ color: accent }} />
+                <p className="type-caption" style={{ color: sub, lineHeight: 1.7 }}>
+                  <span style={{ color: text, fontWeight: 500 }}>
+                    首次充值满 HKD {formatCredits(FIRST_RECHARGE_BONUS.minAmount)}，额外赠送{" "}
+                    {formatCredits(FIRST_RECHARGE_BONUS.credits)} 积分
+                  </span>
+                  ，每个账号仅限一次。这部分属于上表之外的额外奖励，有效期为到账后{" "}
+                  {CREDIT_EXPIRY_RULES.gift.days} 天，与充值积分的{" "}
+                  {CREDIT_EXPIRY_RULES.recharge.days} 天分开计算。
+                </p>
+              </div>
             </article>
 
             <div className="flex flex-wrap items-center gap-3 pb-2">
