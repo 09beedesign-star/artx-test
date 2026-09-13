@@ -1382,7 +1382,7 @@ export default function BillingPage() {
                     {rechargePacks.map(pack => (
                       <article
                         key={pack.id}
-                        className="min-h-[480px] rounded-[var(--radius-xl-design)] border p-4"
+                        className="flex min-h-[480px] flex-col rounded-[var(--radius-xl-design)] border p-4"
                         style={{ background: panelStrong, borderColor: border }}
                       >
                         <div
@@ -1457,7 +1457,18 @@ export default function BillingPage() {
                         >
                           {pack.usage}
                         </p>
-                        <ul className="mt-4 min-h-[92px] space-y-2">
+                        {/*
+                          flex-1 而不是 min-h-[92px]：充值按钮必须三张卡底部对齐。
+
+                          原先 article 是普通块级流、这里给固定最小高，按钮位置就完全
+                          跟着上方内容高度走 —— 「可兑换 X 积分 · Y 积分/HKD」这行
+                          在第一张卡是一行、后两张换行成两行，按钮于是高了一截（已反馈）。
+                          min-h-[480px] 只锁卡片外框总高，锁不住内部元素的垂直位置。
+
+                          订阅卡（本文件上方）早就是 flex flex-col + ul flex-1 的写法，
+                          这里保持一致：让权益列表吸收剩余空间，把按钮压到底部。
+                        */}
+                        <ul className="mt-4 flex-1 space-y-2">
                           {pack.perks.map(perk => (
                             <li
                               key={perk.label}
