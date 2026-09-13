@@ -21,11 +21,13 @@ import {
   isHighRiskCreditAdjustment,
   isHighRiskCreditGift,
 } from "../shared/admin-risk-policy";
-import { createAuthUserForAdmin, getAdminSessionFromAuthorization, listAuthUsers, type PublicAuthUser, settleFirstPaymentForInvite, updateAuthUserAdmin } from "./auth-store";
+import { createAuthUserForAdmin, getAdminSessionFromAuthorization, listAuthUsers, type PublicAuthUser, revokeFirstPaymentForInvite, settleFirstPaymentForInvite, updateAuthUserAdmin } from "./auth-store";
 import {
   buildInviteIdempotencyKey,
   buildInviteRewardReason,
+  evaluateInviteRefundRate,
   INVITE_SOURCE_PREFIX,
+  resolveInviteClawbackAmount,
 } from "./invite-rewards";
 import { storeFeedbackImagesForUser, type FeedbackImageInput, type StoredFeedbackImage } from "./local-image-storage";
 import { PostgresJsonDocumentStore } from "./postgres-json-store";
@@ -1072,6 +1074,62 @@ function getRemainingCreditBatchBalanceBySource(data: AdminData, source: string)
   return (data.creditBatches || [])
     .filter((batch) => batch.source === source && batch.remainingCredits > 0)
     .reduce((sum, batch) => sum + batch.remainingCredits, 0);
+}
+
+/**
+ * 按「用户 + source」读剩余可扣额。
+ *
+ * ⚠️ 与上面那个不带 userId 的版本必须分开用：邀请奖励的**两份批次 source 完全相同**
+ * （都是 `rule/invite/<inviteeId>`，见 admin-store.ts:4370 与 :4380，
+ * 区分邀请人/被邀请人只靠 grantCredits 的幂等键，批次上留的是业务 source）。
+ * 不带 userId 去查会把邀请人和被邀请人的余额加在一起，
+ * 进而在退款时从其中一方身上扣掉本该由另一方承担的额度。
+ */
+function getRemainingCreditBatchBalanceByUserSource(data: AdminData, userId: string, source: string) {
+  return (data.creditBatches || [])
+    .filter((batch) => batch.userId === userId && batch.source === source && batch.remainingCredits > 0)
+    .reduce((sum, batch) => sum + batch.remainingCredits, 0);
+}
+
+/**
+ * 按「用户 + source」扣回积分，返回**实际扣掉的数量**。
+ *
+ * 与 deductCreditBatchesBySource 的三点不同，每一点都是必须的：
+ *   1. **限定 userId** —— 理由同上，邀请奖励两份批次同 source 不同人。
+ *   2. **返回实际扣减额** —— 调用方要用它写台账与调整 user.credits。
+ *      原函数没有返回值，扣不完的部分被静默丢弃，调用方只能自己先算一遍余额，
+ *      两处口径容易漂移。
+ *   3. **全等匹配 source** —— 邀请奖励不存在 `:m1` 分期批次，
+ *      用前缀匹配反而会误伤将来可能出现的 `rule/invite/<id>:xxx` 类来源。
+ *
+ * ⭐ 扣到零即止：只遍历 remainingCredits > 0 的批次，每批次扣 min(剩余, 待扣)，
+ * 因此**永远不会把批次扣成负数**；用户已经把奖励花掉时就少扣甚至扣不到，
+ * 这正是用户要的「余额为零时停止扣款」。差额由调用方记为短缺供人工复核。
+ */
+function deductCreditBatchesByUserSource(
+  data: AdminData,
+  userId: string,
+  source: string,
+  amount: number,
+  updatedAt: string
+): number {
+  let remaining = Math.max(0, Math.round(amount));
+  if (remaining <= 0) return 0;
+  let deductedTotal = 0;
+  const nextBatches = [...(data.creditBatches || [])];
+  for (const batch of nextBatches
+    .filter((item) => item.userId === userId && item.source === source && item.remainingCredits > 0)
+    .sort(sortCreditBatchesForDeduction)) {
+    if (remaining <= 0) break;
+    const deducted = Math.min(batch.remainingCredits, remaining);
+    remaining -= deducted;
+    deductedTotal += deducted;
+    batch.remainingCredits -= deducted;
+    batch.status = batch.remainingCredits <= 0 ? "refunded" : batch.status;
+    batch.updatedAt = updatedAt;
+  }
+  data.creditBatches = nextBatches;
+  return deductedTotal;
 }
 
 function deductCreditBatchesForUsage(
@@ -3523,6 +3581,36 @@ export async function handleAdminApiRequest(
     const user = data.users.find((item) => item.id === order.userId);
     if (!user) return jsonError(404, "订单关联用户不存在");
     const before = { status: order.status, credits: user.credits, issuedCredits: order.issuedCredits };
+    /**
+     * 邀请奖励扣回（2026-09-13 按用户决策接入）。
+     *
+     * ## 为什么要单独一段，而不是复用上面订单/首充那套
+     *
+     * 1. **奖励发给了两个人**（邀请人 + 被邀请人），而退款订单只属于其中一个。
+     *    订单积分与首充赠送都只动 order.userId 这一个人，那套代码没有"另一个人"的概念。
+     * 2. **两份批次的 source 完全相同**（`rule/invite/<inviteeId>`，见 :4370 / :4380），
+     *    区分靠的是 grantCredits 的幂等键，批次上留的是业务 source。
+     *    所以必须按 **userId + source** 定位，用现成的 deductCreditBatchesBySource
+     *    会把两人的批次混在一起，从先创建的那个人身上扣掉双份。
+     * 3. **扣到零即止**：用户可能已经把奖励花掉了。用户明确要求不扣成负数，
+     *    实际扣减额由 deductCreditBatchesByUserSource 返回，差额记短缺。
+     *
+     * ## 判定"这一单该不该触发回收"
+     *
+     * 奖励发放时没有记录触发它的订单号（StoredUser 里只有 hasPaid / invitedBy），
+     * 因此无法直接反查。这里用**存在性**判定：只要该用户名下还有
+     * `rule/invite/<userId>` 的奖励批次，就说明这条邀请关系已经发过奖。
+     * 配合下面 revokeFirstPaymentForInvite 复位 hasPaid，一条邀请一生只发一次，
+     * 也就只会被回收一次 —— 幂等键保证了不会有第二份等着被扣。
+     */
+    const inviteRewardSource = `${INVITE_SOURCE_PREFIX}/${user.id}`;
+    const inviteeRewardRemaining = getRemainingCreditBatchBalanceByUserSource(data, user.id, inviteRewardSource);
+    const inviterBatch = (data.creditBatches || []).find(
+      (batch) => batch.source === inviteRewardSource && batch.userId !== user.id
+    );
+    const inviterRewardRemaining = inviterBatch
+      ? getRemainingCreditBatchBalanceByUserSource(data, inviterBatch.userId, inviteRewardSource)
+      : 0;
     const bonusSource = firstRechargeBonusSource(order.id);
     const bonusCreditsRemaining = getRemainingCreditBatchBalanceBySource(data, bonusSource);
     const orderCreditsToDeduct = Math.min(user.credits, order.issuedCredits);
@@ -3628,6 +3716,132 @@ export async function handleAdminApiRequest(
         });
       }
       data.credits = [...refundEntries, ...data.credits].slice(0, 500);
+    }
+    /**
+     * ⚠️ 邀请奖励扣回放在 `if (creditsToDeduct > 0)` **之外**。
+     * 那个条件说的是"订单本身有积分可扣"，而邀请奖励是独立的一笔：
+     * 用户完全可能把订单积分花光（订单侧扣不到）却还留着奖励积分，
+     * 放进去会让这种情况下的奖励一分都收不回来。
+     */
+    const inviteeClawback = resolveInviteClawbackAmount(
+      INVITE_REWARD_CONFIG.inviteeCredits,
+      inviteeRewardRemaining
+    );
+    const inviterClawback = inviterBatch
+      ? resolveInviteClawbackAmount(INVITE_REWARD_CONFIG.inviterCredits, inviterRewardRemaining)
+      : 0;
+    if (inviteeClawback > 0 || inviterClawback > 0) {
+      const inviteEntries: CreditLedgerEntry[] = [];
+      if (inviteeClawback > 0) {
+        const deducted = deductCreditBatchesByUserSource(
+          data,
+          user.id,
+          inviteRewardSource,
+          inviteeClawback,
+          refundedAt
+        );
+        user.credits = Math.max(0, user.credits - deducted);
+        inviteEntries.push({
+          id: `cr_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
+          userId: user.id,
+          user: user.name,
+          type: "邀请奖励扣回",
+          delta: -deducted,
+          reason,
+          source: inviteRewardSource,
+          operator: actor.username,
+          createdAt: refundedAt,
+        });
+      }
+      if (inviterClawback > 0 && inviterBatch) {
+        // 邀请人是另一个账号，必须单独取他的 billing 记录来调整余额，
+        // 不能复用上面的 user（那是被邀请人）。
+        const inviterUser = data.users.find((item) => item.id === inviterBatch.userId);
+        const deducted = deductCreditBatchesByUserSource(
+          data,
+          inviterBatch.userId,
+          inviteRewardSource,
+          inviterClawback,
+          refundedAt
+        );
+        if (inviterUser) {
+          inviterUser.credits = Math.max(0, inviterUser.credits - deducted);
+        }
+        inviteEntries.push({
+          id: `cr_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
+          userId: inviterBatch.userId,
+          user: inviterUser?.name || inviterBatch.user,
+          type: "邀请奖励扣回",
+          delta: -deducted,
+          reason: `${reason}（被邀请人 ${user.name} 的订单已退款）`,
+          source: inviteRewardSource,
+          operator: actor.username,
+          createdAt: refundedAt,
+        });
+      }
+      data.credits = [...inviteEntries, ...data.credits].slice(0, 500);
+    }
+    /*
+     * 复位 hasPaid：释放邀请人被这条已撤销的邀请长期占用的配额。
+     * 失败不能阻断退款主流程 —— 退款是资金动作，跨库写失败只记风控事件。
+     */
+    let inviteRevokeNote: string | undefined;
+    if (inviteeRewardRemaining > 0 || inviterRewardRemaining > 0 || inviterBatch) {
+      try {
+        await revokeFirstPaymentForInvite(user.id);
+      } catch (error) {
+        inviteRevokeNote = `邀请付费标记复位失败：${error instanceof Error ? error.message : String(error)}`;
+      }
+    }
+    /*
+     * 邀请渠道退款率风控。
+     *
+     * 统计口径刻意用 **creditBatches** 而不是 auth 库的 invitedBy：
+     *   - 分母 = 该邀请人名下所有 `rule/invite/*` 批次数 = 他实际拿到过几次奖励；
+     *   - 分子 = 其中已被扣回（status === "refunded"）的条数。
+     * 这样两边都来自同一张表，不会因为跨库状态不同步而算出 >1 的比率。
+     */
+    if (inviterBatch) {
+      const inviterRewardBatches = (data.creditBatches || []).filter(
+        (batch) => batch.userId === inviterBatch.userId && batch.source.startsWith(`${INVITE_SOURCE_PREFIX}/`)
+      );
+      const refundedCount = inviterRewardBatches.filter((batch) => batch.status === "refunded").length;
+      const verdict = evaluateInviteRefundRate({
+        rewardedInvites: inviterRewardBatches.length,
+        refundedInvites: refundedCount,
+      });
+      if (verdict.abnormal) {
+        data.riskEvents = [
+          {
+            id: `risk_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
+            title: "邀请渠道退款率异常",
+            detail: `邀请人 ${inviterBatch.user}（${inviterBatch.userId}）已获奖励 ${inviterRewardBatches.length} 次，其中 ${refundedCount} 次因退款被扣回，退款率 ${(verdict.rate * 100).toFixed(0)}%，超过 ${(INVITE_REWARD_CONFIG.refundRateAlertThreshold * 100).toFixed(0)}% 阈值，建议人工核查是否为刷单。`,
+            status: "open",
+            severity: "high",
+            target: inviterBatch.userId,
+            createdAt: refundedAt,
+          } as RiskEvent,
+          ...data.riskEvents,
+        ].slice(0, 500);
+      }
+    }
+    const inviteClawbackShortfall =
+      Math.max(0, INVITE_REWARD_CONFIG.inviteeCredits - inviteeClawback) +
+      (inviterBatch ? Math.max(0, INVITE_REWARD_CONFIG.inviterCredits - inviterClawback) : 0);
+    if (inviteRevokeNote || (inviteClawbackShortfall > 0 && (inviteeClawback > 0 || inviterClawback > 0))) {
+      data.riskEvents = [
+        {
+          id: `risk_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
+          title: inviteRevokeNote ? "邀请付费标记复位失败" : "邀请奖励扣回短缺",
+          detail: inviteRevokeNote
+            || `${order.id} 退款应扣回邀请奖励 ${INVITE_REWARD_CONFIG.inviteeCredits + (inviterBatch ? INVITE_REWARD_CONFIG.inviterCredits : 0)} 积分，实际扣回 ${inviteeClawback + inviterClawback} 积分，短缺 ${inviteClawbackShortfall} 积分（奖励已被消费，按规则不扣成负数）。`,
+          status: "open",
+          severity: "medium",
+          target: order.id,
+          createdAt: refundedAt,
+        } as RiskEvent,
+        ...data.riskEvents,
+      ].slice(0, 500);
     }
     if (clawbackShortfall > 0) {
       const refundShortfallRiskEvent: RiskEvent = {

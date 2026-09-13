@@ -806,6 +806,39 @@ export async function settleFirstPaymentForInvite(input: {
   };
 }
 
+/**
+ * 退款后撤销某位被邀请人的「已付费」事实。
+ *
+ * ⚠️⚠️ 这一步是整条退款回收链里**最容易被漏掉、漏掉后果最严重**的一环。
+ * 奖励的幂等键是 `rule/invite/<inviteeId>/<role>`（一生只发一次），
+ * 若只扣回积分而不处理这里，表面上看是对的，但：
+ *
+ *   - `hasPaid` 仍为 true → 该用户再付一次费不会重复发奖（幂等键挡住了），
+ *     看起来"安全"；但**幂等记录在 admin 库、hasPaid 在 auth 库**，
+ *     任何一侧被清理/迁移，防线就只剩另一侧。
+ *   - 更现实的问题是 `countRewardedInvites` 按 `invitedBy + hasPaid` 统计，
+ *     退款后若不复位，这条已被撤销的邀请仍**永久占用邀请人的 10 个名额之一**，
+ *     等于用一笔退掉的订单卡住邀请人的配额，对邀请人不公平。
+ *
+ * 所以复位 hasPaid：让配额释放、让统计口径回到真实状态。
+ * 重复发奖由 admin 侧的幂等键继续兜底（双保险中的另一重）。
+ *
+ * 返回 false 表示用户不存在或本来就没标记过付费，调用方据此跳过后续处理。
+ */
+export async function revokeFirstPaymentForInvite(userId: string): Promise<{
+  reverted: boolean;
+  inviterId?: string;
+}> {
+  const db = await loadDatabase();
+  const invitee = db.users.find((user) => user.id === userId);
+  if (!invitee || invitee.hasPaid !== true) {
+    return { reverted: false };
+  }
+  invitee.hasPaid = false;
+  await saveDatabase(db);
+  return { reverted: true, inviterId: invitee.invitedBy };
+}
+
 /** 读取某位用户的邀请面板数据（邀请码、已获奖人数、剩余配额等）。 */
 export async function getInviteSummaryForUser(userId: string) {
   const db = await loadDatabase();

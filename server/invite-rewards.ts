@@ -262,6 +262,51 @@ export function buildInviteIdempotencyKey(inviteeId: string, role: "inviter" | "
   return `${INVITE_SOURCE_PREFIX}/${inviteeId}/${role}`;
 }
 
+/**
+ * 计算退款时应从某一方扣回多少邀请奖励积分。
+ *
+ * ⭐ 用户定的规则（2026-09-13）：**应扣，但余额为零时停止扣款**。
+ * 也就是「能扣多少扣多少，绝不把余额扣成负数，也绝不去动别的来源的积分」。
+ *
+ * 为什么不允许扣成负数（哪怕记成欠款）：
+ *   - 负余额会让 getUserCreditBatchBalance 的 legacyBalance 兜底算出诡异结果，
+ *     且前台积分数字是现算的，用户会看到一个无法解释的负数；
+ *   - 奖励积分本就是零成本发出的，追不回来的部分是风控成本而不是应收账款，
+ *     记成欠款会让用户下次充值时莫名被吞掉，体验上等同于偷扣。
+ * 追不回的差额由调用方记为短缺并生成风控事件，走人工复核。
+ *
+ * @param granted  当初发放的数量
+ * @param available 该用户名下**这笔奖励来源**当前还剩多少（不含其他来源）
+ */
+export function resolveInviteClawbackAmount(granted: number, available: number): number {
+  const grantedAmount = Math.max(0, Math.round(granted));
+  const availableAmount = Math.max(0, Math.round(available));
+  return Math.min(grantedAmount, availableAmount);
+}
+
+/**
+ * 判断某个邀请人的退款率是否异常。
+ *
+ * ⚠️ 两个条件是 **and** 不是 or：必须同时「样本够」且「比率超阈值」。
+ * 漏掉样本数那一半会让「邀请 1 人、那人退款」直接报 100% 异常 ——
+ * 这是小样本比率的经典陷阱，也是风控告警最常见的噪音来源。
+ *
+ * 返回 rate 供调用方写进告警详情，让人工一眼看到是 3/5 还是 9/10。
+ */
+export function evaluateInviteRefundRate(input: {
+  rewardedInvites: number;
+  refundedInvites: number;
+}): { abnormal: boolean; rate: number } {
+  const rewarded = Math.max(0, Math.round(input.rewardedInvites));
+  const refunded = Math.max(0, Math.round(input.refundedInvites));
+  if (rewarded <= 0) return { abnormal: false, rate: 0 };
+  const rate = Math.min(1, refunded / rewarded);
+  const abnormal =
+    rewarded >= INVITE_REWARD_CONFIG.refundRateMinSamples
+    && rate >= INVITE_REWARD_CONFIG.refundRateAlertThreshold;
+  return { abnormal, rate };
+}
+
 export function buildInviteRewardReason(role: "inviter" | "invitee", counterpartName: string): string {
   if (role === "inviter") {
     return `邀请好友 ${counterpartName} 完成首次付费的奖励`;
