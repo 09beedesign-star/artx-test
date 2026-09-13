@@ -12,7 +12,21 @@
  *   - 发给自己 → 拒
  */
 
-import type { StoredUser } from "./auth-store";
+/**
+ * ⚠️ 刻意不从 auth-store 导入 StoredUser。
+ *
+ * 该类型在 auth-store 内部是非导出的，且携带 passwordHash / salt /
+ * resetTokenHash 等敏感字段。为了一个只读三个字段的工具模块把它导出，
+ * 等于把凭据类型扩散到全 server 层。
+ *
+ * 这里只声明本模块真正需要的最小形状；TS 结构化类型会让 StoredUser[]
+ * 直接兼容传入，调用方无需任何转换。
+ */
+type InviteAudienceUser = {
+  id: string;
+  username?: string;
+  loginKey?: string;
+};
 
 export type InviteEmailSendLog = {
   id: string;
@@ -48,7 +62,7 @@ export function checkRecipientCooldown(
 }
 
 /** 防自发：不能发给自己 */
-export function isSelfInvite(users: StoredUser[], senderId: string, recipientEmail: string): boolean {
+export function isSelfInvite(users: InviteAudienceUser[], senderId: string, recipientEmail: string): boolean {
   const sender = users.find((u) => u.id === senderId);
   if (!sender) return false;
   const normalized = recipientEmail.trim().toLowerCase();
@@ -59,7 +73,7 @@ export function isSelfInvite(users: StoredUser[], senderId: string, recipientEma
 }
 
 /** 防重复注册：收件人已注册 */
-export function isAlreadyRegistered(users: StoredUser[], recipientEmail: string): boolean {
+export function isAlreadyRegistered(users: InviteAudienceUser[], recipientEmail: string): boolean {
   const normalized = recipientEmail.trim().toLowerCase();
   return users.some(
     (u) =>
