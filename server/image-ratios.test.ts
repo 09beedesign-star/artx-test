@@ -152,19 +152,39 @@ describe("全站比例出口都接入了唯一事实源", () => {
     expect(source).not.toContain('ratio: message.imageBackup?.ratio || "1:1"');
   });
 
-  it("多图融合仍然锁死 1:1，没有被 auto 默认值误伤", () => {
+  it("局部重绘走画幅锁而不是写死的 1:1", () => {
     const source = readSource(
       "client/src/components/canvas/InfiniteCanvas.tsx"
     );
     /*
-     * 这是本次改动最容易误伤的地方：原表达式是
-     *   shouldEditTargetReference || assistantImageRatio === "auto" ? "1:1" : ...
-     * 两个语义完全不同的条件共用一个 "1:1"。直接改共用值会把
-     * 多图融合的底图对齐一起改成 9:16，导致贴合错位。
+     * 【2026-09-13 二次修订】本条原先断言 `shouldEditTargetReference ? "1:1"`，
+     * 即"多图融合锁死 1:1"。
+     *
+     * ⚠️ 那个口径本身就是 bug：写死 1:1 的本意是"贴合底图"，
+     * 但只有底图恰好是方图时才成立。底图是竖版实拍图时，
+     * 这行等于主动要求上游出方图 —— 用户反馈的「内容一致但比例变形」正是它。
+     *
+     * 现在改由 shared/edit-aspect-lock.ts 的 resolveEditAspectLock 裁决：
+     * 提示词显式比例 > 比例选择器 > 底图真实比例 > 1:1 兜底。
+     * 原条目"不要被 auto 默认值误伤"的意图仍然保留 —— 见反向断言：
+     * 重绘分支绝不能退回 resolveImageRatio(assistantImageRatio)，
+     * 否则 auto 会把底图比例冲成 9:16。
      */
     expect(source).toContain("shouldEditTargetReference");
+    expect(source).toContain("resolveEditAspectLock");
+    // 正向：重绘分支取画幅锁的比例（三元跨行，故用 [\s\S]）
     expect(source).toMatch(
-      /ratio:\s*shouldEditTargetReference\s*\?\s*"1:1"\s*:\s*resolveImageRatio\(assistantImageRatio\)/
+      /ratio:\s*shouldEditTargetReference[\s\S]{0,80}?referenceEditAspectLock\.ratio/
+    );
+    // 正向：纯文生图分支仍保留 auto 默认值链路，没有被画幅锁误伤
+    expect(source).toContain("resolveImageRatio(assistantImageRatio)");
+    // 反向：写死的 1:1 必须已经消失
+    expect(source).not.toMatch(
+      /ratio:\s*shouldEditTargetReference\s*\?\s*"1:1"/
+    );
+    // 反向：重绘分支不能被 auto 默认值（9:16）接管
+    expect(source).not.toMatch(
+      /ratio:\s*shouldEditTargetReference\s*\?\s*resolveImageRatio\(assistantImageRatio\)/
     );
   });
 

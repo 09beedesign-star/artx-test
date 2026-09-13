@@ -4669,7 +4669,22 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
   const selectedModel = selectedModels[0] || DEFAULT_IMAGE_MODEL_ID;
   const referenceImages = input.images?.filter(image => image.src?.trim()) || [];
   const editSize = getEditSizeForAspect(targetWidth, targetHeight);
-  const aspectInstruction = `Keep the final image canvas aspect ratio exactly ${targetWidth}:${targetHeight}. Do not return a square image unless the source is square.`;
+  /**
+   * 画幅锁提示语。
+   *
+   * ⚠️ 上游只接受 getEditSizeForAspect 的三个档位
+   * （1536x1024 / 1024x1536 / 1024x1024），任何原始比例都会被吸附，
+   * 所以**光靠 size 参数拿不到精确比例**，必须同时：
+   *   ① 在提示词里明确要求保持原始画幅（本变量）；
+   *   ② 在 finalizeImages 里按 targetWidth/targetHeight 做等比归一化兜底。
+   * 📌 判据：上游档位有限 ⇒ 精确比例只能靠出图后的归一化保证，
+   *    提示词只是降低裁切损失，不能当作唯一手段。
+   */
+  const aspectInstruction = [
+    `Keep the final image canvas aspect ratio exactly ${targetWidth}:${targetHeight}.`,
+    "Do not crop, pad, letterbox, stretch, or otherwise change the framing of the source image.",
+    "Do not return a square image unless the source is square.",
+  ].join(" ");
   let textEditInstruction = isTextEditOperation
     ? [
         "This is a local text replacement edit, not a new image generation request.",
