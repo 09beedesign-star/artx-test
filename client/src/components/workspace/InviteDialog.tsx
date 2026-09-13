@@ -70,6 +70,37 @@ function buildInviteLink(code: string) {
   return `${window.location.origin}/?invite=${encodeURIComponent(code)}`;
 }
 
+/**
+ * 一次性复制的完整邀请话术。
+ *
+ * 为什么主推整段文案，而不是只复制链接、或把「链接+邀请码」拼一起：
+ *
+ *   1. 只给链接时，收到的人不知道这是什么、点进去能得到什么，
+ *      在微信里一条裸链接的打开率极低，还容易被当成广告。
+ *   2. 邀请码必须同时给出，但**不是**因为需要手动输入（链接已自动带上），
+ *      而是**兜底**：部分聊天工具/公众号会截断或改写 URL 的查询参数，
+ *      一旦 ?invite= 丢了，链接照样能打开，邀请关系却悄悄没了 ——
+ *      这类丢失全程零报错，是最难发现的一种。留一份明文码，
+ *      用户至少能人工核对或找客服追回。
+ *   3. 必须写清奖励条件（注册 + 首次付费满额），否则朋友注册完
+ *      等着积分到账，最后只会变成对平台的不信任。
+ *
+ * ⚠️ 数字一律从接口返回的 summary 取，不要在文案里写死 ——
+ * 奖励配置在 shared/billing-config.ts 里会调整，写死必然导致
+ * 「文案说 200、实际发 300」这种对不上账的投诉。
+ */
+function buildInviteMessage(summary: InviteSummary, link: string) {
+  if (!link) return "";
+  return [
+    `我在用 ArtX Studio 做 AI 图像创作，挺好用的，邀请你一起来试试。`,
+    ``,
+    `点这个链接注册：${link}`,
+    `我的邀请码：${summary.inviteCode}（链接已自动带上，若打不开可手动填写）`,
+    ``,
+    `注册后完成首次付费（满 HKD ${summary.minPaidAmountHkd}），你可得 ${summary.inviteeCredits} 积分。`,
+  ].join("\n");
+}
+
 async function copyText(text: string) {
   if (!text) return false;
   try {
@@ -101,7 +132,7 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
   const [summary, setSummary] = useState<InviteSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [copiedField, setCopiedField] = useState<"link" | "code" | "">("");
+  const [copiedField, setCopiedField] = useState<"message" | "link" | "code" | "">("");
 
   const load = useCallback(async () => {
     const token = getInviteAuthToken();
@@ -136,16 +167,20 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
   }, [open, load]);
 
   const inviteLink = summary ? buildInviteLink(summary.inviteCode) : "";
+  const inviteMessage = summary ? buildInviteMessage(summary, inviteLink) : "";
 
-  const handleCopy = async (field: "link" | "code") => {
-    const text = field === "link" ? inviteLink : summary?.inviteCode || "";
+  const handleCopy = async (field: "message" | "link" | "code") => {
+    const text =
+      field === "message" ? inviteMessage : field === "link" ? inviteLink : summary?.inviteCode || "";
     const ok = await copyText(text);
     if (!ok) {
       toast.error("复制失败", { description: "请手动选中后复制" });
       return;
     }
     setCopiedField(field);
-    toast.success(field === "link" ? "邀请链接已复制" : "邀请码已复制");
+    toast.success(
+      field === "message" ? "邀请消息已复制" : field === "link" ? "邀请链接已复制" : "邀请码已复制",
+    );
     window.setTimeout(() => setCopiedField(""), 2000);
   };
 
@@ -206,51 +241,60 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
               </p>
             </div>
 
-            {/* 邀请链接 —— 唯一主推渠道，说明见文件头部注释 */}
+            {/*
+              一次性复制 —— 唯一主推动作，说明见 buildInviteMessage 注释。
+              链接和邀请码降为次级操作：绝大多数人只需要"复制、粘贴、发送"三步，
+              把三个同等分量的按钮摆在一起反而让人犹豫该点哪个。
+            */}
             <div className="space-y-2">
               <div className="text-[12px] font-medium" style={{ color: subtleText }}>
-                复制链接，发给好友
+                一键复制邀请消息，粘贴给好友
               </div>
               <div
-                className="flex items-center gap-2 rounded-lg px-3 py-2.5"
+                className="rounded-lg px-3 py-2.5"
                 style={{ background: cardBg, border: `1px solid ${cardBorder}` }}
               >
-                <span className="flex-1 truncate text-[12px] font-mono">{inviteLink || "—"}</span>
-                <button
-                  type="button"
-                  onClick={() => void handleCopy("link")}
-                  className="flex shrink-0 items-center gap-1.5 rounded-md px-3.5 py-2 text-[13px] font-semibold transition-colors"
-                  style={{ background: "oklch(0.58 0.22 290)", color: "white" }}
+                <pre
+                  className="max-h-[124px] overflow-y-auto whitespace-pre-wrap break-all text-[11.5px] leading-relaxed"
+                  style={{ color: subtleText, fontFamily: "inherit" }}
                 >
-                  {copiedField === "link" ? <Check size={14} /> : <Copy size={14} />}
-                  {copiedField === "link" ? "已复制" : "复制链接"}
-                </button>
+                  {inviteMessage || "—"}
+                </pre>
               </div>
+              <button
+                type="button"
+                onClick={() => void handleCopy("message")}
+                className="flex w-full items-center justify-center gap-1.5 rounded-lg py-2.5 text-[13px] font-semibold transition-colors"
+                style={{ background: "oklch(0.58 0.22 290)", color: "white" }}
+              >
+                {copiedField === "message" ? <Check size={15} /> : <Copy size={15} />}
+                {copiedField === "message" ? "已复制，去粘贴给好友" : "复制邀请消息（含链接和邀请码）"}
+              </button>
               <p className="text-[11px]" style={{ color: subtleText }}>
-                粘贴到微信、QQ 或任意聊天窗口发给好友即可。
+                好友点链接注册即自动绑定，无需手动输入邀请码。
               </p>
             </div>
 
-            {/* 邀请码 */}
-            <div className="space-y-2">
-              <div className="text-[12px] font-medium" style={{ color: subtleText }}>邀请码</div>
-              <div
-                className="flex items-center gap-2 rounded-lg px-3 py-2"
-                style={{ background: cardBg, border: `1px solid ${cardBorder}` }}
+            {/* 链接与邀请码 —— 次级操作，给需要单独使用的场景留出口 */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => void handleCopy("link")}
+                className="flex items-center justify-center gap-1.5 rounded-lg py-2 text-[12px] font-medium transition-colors"
+                style={{ background: cardBg, border: `1px solid ${cardBorder}`, color: subtleText }}
               >
-                <span className="flex-1 text-[16px] font-bold tracking-[0.2em] font-mono">
-                  {summary.inviteCode || "—"}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => void handleCopy("code")}
-                  className="flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-colors"
-                  style={{ background: cardBg, border: `1px solid ${cardBorder}`, color: subtleText }}
-                >
-                  {copiedField === "code" ? <Check size={12} /> : <Copy size={12} />}
-                  {copiedField === "code" ? "已复制" : "复制"}
-                </button>
-              </div>
+                {copiedField === "link" ? <Check size={12} /> : <Copy size={12} />}
+                {copiedField === "link" ? "已复制" : "只复制链接"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleCopy("code")}
+                className="flex items-center justify-center gap-1.5 rounded-lg py-2 text-[12px] font-medium transition-colors"
+                style={{ background: cardBg, border: `1px solid ${cardBorder}`, color: subtleText }}
+              >
+                {copiedField === "code" ? <Check size={12} /> : <Copy size={12} />}
+                <span className="font-mono tracking-[0.12em]">{summary.inviteCode || "—"}</span>
+              </button>
             </div>
 
             {/* 我的邀请战绩 */}

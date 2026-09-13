@@ -4,13 +4,15 @@ import { toast } from "sonner";
 import {
   ChevronDown,
   Copy,
+  Gift,
   Heart,
   ImagePlus,
   PlayCircle,
   Send,
   X,
 } from "lucide-react";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth, rememberInviteCodeFromUrl } from "@/contexts/AuthContext";
+import { INVITE_REWARD_CONFIG } from "@shared/billing-config";
 import asteroidImage from "@/assets/ardot/3_3.png";
 import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
 import HomeFirstTopUpBanner, {
@@ -237,6 +239,19 @@ export default function HomePage() {
   const [isFirstTopUpBannerDismissed, setIsFirstTopUpBannerDismissed] = useState(
     isFirstTopUpBannerDismissedToday,
   );
+  /*
+   * 邀请落地态。
+   *
+   * ⚠️ 这是邀请闭环此前最直观的断裂点：朋友点开 /?invite=XXXX 进来，
+   * 页面**没有任何变化** —— 不提示"谁邀请了你"，也不引导去注册，
+   * 面板默认停在 prelogin。用户自然会问"哪里输邀请码"，
+   * 而正确答案是"不用输，但你必须去注册"，这件事没人告诉他。
+   *
+   * 首次挂载时把 URL 上的邀请码落到本地（见 AuthContext 的
+   * rememberInviteCodeFromUrl），之后即使用户逛遍全站再回来注册，
+   * 邀请码依然在，关系才绑得上。
+   */
+  const [landedInviteCode, setLandedInviteCode] = useState("");
   const activeTabRef = useRef<LandingTab>("home");
   const hasReachedInspirationRef = useRef(false);
   const mainRef = useRef<HTMLElement>(null);
@@ -257,6 +272,22 @@ export default function HomePage() {
     setAuthError("");
     setLoginBubble(null);
     setHomeInspirationItems(createHomeInspirationFeed());
+  }, [isAuthenticated]);
+
+  /*
+   * 带邀请码落地时：记住邀请码，并把右侧面板直接切到注册态。
+   *
+   * ⚠️ 必须先判 isAuthenticated —— 已登录用户点朋友的邀请链接，
+   * 给他弹注册面板毫无意义（他也绑不上，后端只对新账号绑定）。
+   * 这种情况下只记码不改 UI：万一他随后退出登录换新号注册，码还在。
+   */
+  useEffect(() => {
+    const code = rememberInviteCodeFromUrl();
+    if (!code) return;
+    setLandedInviteCode(code);
+    if (isAuthenticated) return;
+    setCurrentLandingTab("home");
+    setPanelMode("register");
   }, [isAuthenticated]);
 
   const measureHomeInspirationImage = () => {
@@ -436,6 +467,17 @@ export default function HomePage() {
       } else {
         clearRememberedLoginUsername();
       }
+    }
+    // 从邀请链接来的新用户必须得到明确反馈，否则他不知道邀请到底生效没有 ——
+    // 而这件事没有第二次机会：一旦首次付费发生时关系还没建立，
+    // 后端会把已付费标记落盘，事后补绑永远拿不到奖励。
+    if (action === "register" && landedInviteCode) {
+      setLandedInviteCode("");
+      toast("注册成功，邀请已生效", {
+        description: `完成首次付费（满 HKD ${INVITE_REWARD_CONFIG.minPaidAmountHkd}）后，你将获得 ${INVITE_REWARD_CONFIG.inviteeCredits} 积分`,
+      });
+      setPanelMode("prelogin");
+      return;
     }
     toast(action === "register" ? "注册成功" : "登录成功", { description: "欢迎回到 ArtX Studio" });
     setPanelMode("prelogin");
@@ -618,6 +660,7 @@ export default function HomePage() {
                   onSubmit={handleAuthSubmit}
                   onAuthAction={handleAuthAction}
                   onBackToPrompt={() => setPanelMode("prelogin")}
+                  inviteCode={landedInviteCode}
                 />
               </div>
             )}
@@ -944,6 +987,7 @@ function LoginPanel({
   onSubmit,
   onAuthAction,
   onBackToPrompt,
+  inviteCode,
 }: {
   mode: "login" | "register";
   email: string;
@@ -957,6 +1001,8 @@ function LoginPanel({
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
   onAuthAction: (action: "login" | "register") => void | Promise<void>;
   onBackToPrompt: () => void;
+  /** 从邀请链接落地时带入，空串表示自然访问。 */
+  inviteCode: string;
 }) {
   const { forgotPassword, resetPassword } = useAuth();
   const isRegister = mode === "register";
@@ -1095,6 +1141,27 @@ function LoginPanel({
     <GlassPanel>
       <form className="flex h-full flex-col" onSubmit={onSubmit} autoComplete="on">
         <PanelHeader title={isRegister ? "创建 ArtX Studio 账号" : "欢迎使用 ArtX Studio"} />
+
+        {/*
+          邀请落地提示。
+          ⚠️ 刻意**不做成输入框** —— 邀请码已随链接自动带上，
+          让用户再抄一遍只会增加出错机会。这里的职责是回答朋友心里
+          那两个问题：「谁邀我」和「我能得到什么」，
+          并明确告知奖励条件（注册 + 首次付费），避免事后预期落差。
+        */}
+        {inviteCode && (
+          <div className="mt-5 rounded-[12px] border border-[#936CFF]/35 bg-[#936CFF]/12 px-4 py-3">
+            <div className="flex items-center gap-2 text-[13px] font-semibold text-white">
+              <Gift size={15} className="text-[#C4AEFF]" />
+              好友邀请你加入 ArtX Studio
+            </div>
+            <p className="mt-1.5 text-[12px] leading-relaxed text-white/70">
+              邀请码 <span className="font-mono font-semibold text-[#C4AEFF]">{inviteCode}</span> 已自动填好，无需手动输入。
+              注册后完成首次付费（满 HKD {INVITE_REWARD_CONFIG.minPaidAmountHkd}），
+              你可得 {INVITE_REWARD_CONFIG.inviteeCredits} 积分，邀请你的好友可得 {INVITE_REWARD_CONFIG.inviterCredits} 积分。
+            </p>
+          </div>
+        )}
 
         <div className="mt-8 flex flex-col gap-5">
           <LabeledInput

@@ -120,11 +120,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const authenticate = async (action: "login" | "register", username: string, password: string) => {
     try {
-      // 邀请码只在注册时透传。从 URL 读取而非让各调用方传参，
+      // 邀请码只在注册时透传。从暂存读取而非让各调用方传参，
       // 是为了不改动已有的 login/register 调用签名。
       // ⚠️ 邀请码只建立「绑定关系」，不会发放任何积分 ——
       // 发放统一推迟到被邀请人首次付费（server/invite-rewards.ts）。
-      const inviteCode = action === "register" ? readInviteCodeFromUrl() : "";
+      const inviteCode = action === "register" ? getPendingInviteCode() : "";
       const result = await fetchAuth(action, {
         username,
         password,
@@ -145,6 +145,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsAuthenticated(true);
       setUser(normalizedUser);
       setLoginModalOpen(false);
+      // 邀请码已随注册请求送达后端，无论后端是否判定可绑定（风控可能拒绝），
+      // 本地都不再保留 —— 留着只会在同一浏览器换号注册时重复携带。
+      if (inviteCode) clearPendingInviteCode();
       return { ok: true };
     } catch {
       if (isGithubPagesTest()) {
@@ -158,7 +161,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const authenticateWithSms = async (phone: string, code: string) => {
     try {
-      const result = await fetchAuth("sms-login", { phone, code });
+      // ⚠️ 短信验证码登录对**新手机号会自动建号**（server/auth-store.ts 的
+      // sms-login 分支里有 createUser）。也就是说它同时是一条注册路径 ——
+      // 从邀请链接进来的人如果选了"手机号登录"，在这里不带邀请码，
+      // 关系就永远绑不上，且全程零报错。后端只在新建账号时采纳该字段，
+      // 老用户重复登录传了也会被忽略。
+      const inviteCode = getPendingInviteCode();
+      const result = await fetchAuth("sms-login", {
+        phone,
+        code,
+        ...(inviteCode ? { inviteCode } : {}),
+      });
       if (!result.ok || !result.token || !result.user) {
         return { ok: false, error: result.error || "短信验证码登录失败" };
       }
@@ -169,6 +182,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsAuthenticated(true);
       setUser(normalizedUser);
       setLoginModalOpen(false);
+      if (inviteCode) clearPendingInviteCode();
       return { ok: true };
     } catch {
       return { ok: false, error: "短信验证码服务暂时不可用，请稍后重试" };
@@ -177,7 +191,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const authenticateWithEmail = async (email: string, code: string) => {
     try {
-      const result = await fetchAuth("email-login", { email, code });
+      // 与 sms-login 同理：邮箱验证码登录对新邮箱同样会自动建号，
+      // 是一条实际存在的注册路径，必须携带邀请码。
+      const inviteCode = getPendingInviteCode();
+      const result = await fetchAuth("email-login", {
+        email,
+        code,
+        ...(inviteCode ? { inviteCode } : {}),
+      });
       if (!result.ok || !result.token || !result.user) {
         return { ok: false, error: result.error || "邮箱验证码登录失败" };
       }
@@ -188,6 +209,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsAuthenticated(true);
       setUser(normalizedUser);
       setLoginModalOpen(false);
+      if (inviteCode) clearPendingInviteCode();
       return { ok: true };
     } catch {
       return { ok: false, error: "邮箱验证码服务暂时不可用，请稍后重试" };
@@ -451,6 +473,76 @@ function readInviteCodeFromUrl() {
     return raw.trim().toUpperCase().slice(0, 32);
   } catch {
     return "";
+  }
+}
+
+/**
+ * 邀请码的本地暂存。
+ *
+ * ⚠️⚠️ 这不是"顺手加个缓存"，而是邀请闭环能不能成立的前提：
+ *
+ * 原实现只在**提交注册的那一刻**现读 window.location.search。
+ * 但真实用户从邀请链接落地后，几乎不会原地立刻注册 —— 他会先逛首页、
+ * 点进灵感页、看看定价，这些跳转都会把 ?invite= 参数弄丢。
+ * 等他终于想注册时，URL 上早就没有邀请码了，于是**关系静默不绑定**，
+ * 全程没有任何报错，邀请人和被邀请人都以为一切正常。
+ *
+ * 更要命的是这个错误**不可挽回**：后端 settleFirstPaymentForInvite 在
+ * 结算时若发现没有邀请关系会直接跳过，但 hasPaid 标记**照样落盘**
+ * （server/auth-store.ts 首次付费结算段）。也就是说一旦首次付费发生，
+ * 事后再怎么补绑都永远拿不到奖励。绑定的容错窗口只有"注册前"这一次。
+ *
+ * 因此这里把邀请码落到 localStorage，并给一个保守的有效期：
+ *   - 有效期不宜过长 —— 半个月前点过某人链接的人，今天注册算谁的？
+ *     30 天与后端 bindingValidDays 的量级对齐，语义上也讲得通。
+ *   - 绑定成功后必须立刻清除，避免同一浏览器换号注册时重复携带。
+ */
+const INVITE_CODE_STORAGE_KEY = "artx-pending-invite-code";
+const INVITE_CODE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+export function rememberInviteCodeFromUrl() {
+  if (typeof window === "undefined") return "";
+  const code = readInviteCodeFromUrl();
+  if (!code) return "";
+  try {
+    window.localStorage.setItem(
+      INVITE_CODE_STORAGE_KEY,
+      JSON.stringify({ code, savedAt: Date.now() }),
+    );
+  } catch {
+    // localStorage 被禁用或写满时不阻断流程：URL 上仍有邀请码，
+    // 只要用户在当前页直接注册依然能绑上，只是跳转后会丢。
+  }
+  return code;
+}
+
+export function getPendingInviteCode() {
+  if (typeof window === "undefined") return "";
+  // URL 优先：用户刚从链接进来，这份最新鲜，也覆盖 localStorage 不可用的情况。
+  const fromUrl = readInviteCodeFromUrl();
+  if (fromUrl) return fromUrl;
+  try {
+    const raw = window.localStorage.getItem(INVITE_CODE_STORAGE_KEY);
+    if (!raw) return "";
+    const parsed = JSON.parse(raw) as { code?: string; savedAt?: number };
+    const code = typeof parsed.code === "string" ? parsed.code : "";
+    const savedAt = Number(parsed.savedAt || 0);
+    if (!code || !savedAt || Date.now() - savedAt > INVITE_CODE_TTL_MS) {
+      window.localStorage.removeItem(INVITE_CODE_STORAGE_KEY);
+      return "";
+    }
+    return code;
+  } catch {
+    return "";
+  }
+}
+
+export function clearPendingInviteCode() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(INVITE_CODE_STORAGE_KEY);
+  } catch {
+    // 清不掉也不影响正确性：后端对已绑定用户会拒绝二次绑定。
   }
 }
 
