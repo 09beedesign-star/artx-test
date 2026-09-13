@@ -5,6 +5,13 @@ import { PostgresJsonDocumentStore } from "./postgres-json-store";
 import { buildVerificationCodeEmailHtml, sendUserEmailNotification } from "./notifications";
 import { normalizeMainlandPhone, sendSmsVerificationCode } from "./sms-service";
 import { listSelectableModelIds, normalizeAllowedModels } from "./model-router";
+import {
+  buildInviteSummary,
+  evaluateBindingEligibility,
+  evaluateRewardEligibility,
+  findUserByInviteCode,
+  generateUniqueInviteCode,
+} from "./invite-rewards";
 
 type AuthAction = "register" | "login" | "me" | "logout" | "social" | "forgot-password" | "reset-password" | "change-password" | "sms-send-code" | "sms-login" | "email-send-code" | "email-login";
 type AdminRole = "viewer" | "support" | "finance" | "admin" | "super_admin";
@@ -61,6 +68,20 @@ interface StoredUser {
   failedLoginCount?: number;
   lockedUntil?: string;
   lastLoginAt?: string;
+  /** 反作弊身份键（见 identityKeyOf）。仅用于风控判定，绝不用于登录查询。 */
+  identityKey?: string;
+  /** 注册来源 IP。历史账号没有此字段，风控判定必须容忍 undefined。 */
+  signupIp?: string;
+  /** 注册来源 User-Agent（截断存储）。同样容忍 undefined。 */
+  signupUserAgent?: string;
+  /** 邀请关系：邀请人的用户 id。注册时绑定，付费时才据此发奖。 */
+  invitedBy?: string;
+  /** 邀请关系绑定时间，用于判定绑定是否已过期。 */
+  invitedAt?: string;
+  /** 本人的邀请码，注册时生成，全局唯一。 */
+  inviteCode?: string;
+  /** 是否已完成首次付费（奖励发放的唯一触发条件）。 */
+  hasPaid?: boolean;
 }
 
 export type PublicAuthUser = ReturnType<typeof publicUser>;
@@ -173,6 +194,43 @@ function loginKey(username: string) {
   return username.toLowerCase();
 }
 
+/**
+ * 反作弊用的「真实身份键」。与 loginKey 是两个不同的东西，务必分清：
+ *
+ * - loginKey：登录时查账号用，**必须保持与注册时字面一致**，
+ *   任何归一化都会让存量用户登录不上，所以它永远只做 toLowerCase。
+ * - identityKey：判断「这两个账号背后是不是同一个人」用，只在风控场景读，
+ *   永远不参与登录查询。
+ *
+ * 归一化两件事，都是邮件服务商真实存在的投递行为：
+ *   1. 去掉 local part 的 `+xxx` 后缀 —— a+1@gmail.com 与 a@gmail.com 进同一个收件箱
+ *   2. Gmail / Googlemail 去掉 local part 里的点 —— a.b@gmail.com 与 ab@gmail.com 同上
+ * 不做这一步，一个人用一个真实邮箱就能派生出无限个「不同账号」。
+ */
+export function identityKeyOf(username: string) {
+  const value = String(username || "").trim().toLowerCase();
+  const at = value.lastIndexOf("@");
+  if (at <= 0) {
+    // 非邮箱账号（纯用户名）没有派生空间，原样返回即可。
+    return value;
+  }
+  let local = value.slice(0, at);
+  const domain = value.slice(at + 1);
+  const plus = local.indexOf("+");
+  if (plus >= 0) {
+    local = local.slice(0, plus);
+  }
+  if (domain === "gmail.com" || domain === "googlemail.com") {
+    local = local.split(".").join("");
+  }
+  if (!local) {
+    // 形如 "+foo@gmail.com" 这类畸形地址，退回未剥离的原值，避免归一化成空串后
+    // 让所有畸形账号互相撞成同一个身份。
+    return value;
+  }
+  return `${local}@${domain}`;
+}
+
 function publicUser(user: StoredUser) {
   const role = normalizeRole(user.role);
   return {
@@ -229,18 +287,33 @@ function hashApiKey(key: string) {
   return crypto.createHash("sha256").update(key).digest("hex");
 }
 
-function createUser(username: string, password: string, role: AdminRole = "viewer"): StoredUser {
+interface CreateUserContext {
+  /** 注册来源 IP，由路由层从请求头提取后透传。 */
+  ip?: string;
+  /** 注册来源 User-Agent，由路由层透传。 */
+  userAgent?: string;
+}
+
+function createUser(
+  username: string,
+  password: string,
+  role: AdminRole = "viewer",
+  context: CreateUserContext = {},
+): StoredUser {
   const salt = crypto.randomBytes(16).toString("hex");
   return {
     id: crypto.randomUUID(),
     username,
     loginKey: loginKey(username),
+    identityKey: identityKeyOf(username),
     passwordHash: hashPassword(password, salt),
     salt,
     createdAt: new Date().toISOString(),
     role,
     permissions: [],
     status: "active",
+    signupIp: context.ip ? String(context.ip).slice(0, 64) : undefined,
+    signupUserAgent: context.userAgent ? String(context.userAgent).slice(0, 256) : undefined,
   };
 }
 
@@ -672,6 +745,83 @@ export async function listAuthUsers() {
   return db.users.map((user) => publicUser(user));
 }
 
+/**
+ * 结算一名用户的首次付费，并判断其邀请奖励是否成立。
+ *
+ * ⚠️ 为什么把「判定」和「标记 hasPaid」绑在同一个函数里：
+ * 这两步之间任何间隙都会造成重复发奖 —— 判定通过后若 hasPaid 没有立刻落库，
+ * 并发的第二次付款回调会再次判定通过。所以此处一次性读盘、判定、写标记、存盘。
+ * 积分的实际入账仍由调用方走 grantCredits（带幂等键）完成，形成双保险。
+ *
+ * 返回 reward 为 null 表示「无需发奖」，调用方不应视为错误。
+ */
+export async function settleFirstPaymentForInvite(input: {
+  userId: string;
+  paidAmountHkd: number;
+  now?: Date;
+}): Promise<{
+  reward: null | {
+    inviterId: string;
+    inviterName: string;
+    inviteeId: string;
+    inviteeName: string;
+  };
+  rejectedReason?: string;
+}> {
+  const db = await loadDatabase();
+  const invitee = db.users.find((user) => user.id === input.userId);
+  if (!invitee) {
+    return { reward: null, rejectedReason: "用户不存在" };
+  }
+
+  // 没有邀请关系时也要把 hasPaid 落下 —— 它是「首次付费」的事实记录，
+  // 与有没有邀请人无关。漏掉会导致这名用户日后被人补绑邀请码仍能触发奖励。
+  const alreadyPaid = invitee.hasPaid === true;
+  const inviter = invitee.invitedBy ? db.users.find((user) => user.id === invitee.invitedBy) : undefined;
+
+  const verdict = evaluateRewardEligibility({
+    invitee,
+    inviter,
+    allUsers: db.users,
+    paidAmountHkd: input.paidAmountHkd,
+    now: input.now,
+  });
+
+  if (!alreadyPaid) {
+    invitee.hasPaid = true;
+    await saveDatabase(db);
+  }
+
+  if (!verdict.eligible) {
+    return { reward: null, rejectedReason: verdict.detail };
+  }
+
+  return {
+    reward: {
+      inviterId: inviter!.id,
+      inviterName: inviter!.username,
+      inviteeId: invitee.id,
+      inviteeName: invitee.username,
+    },
+  };
+}
+
+/** 读取某位用户的邀请面板数据（邀请码、已获奖人数、剩余配额等）。 */
+export async function getInviteSummaryForUser(userId: string) {
+  const db = await loadDatabase();
+  const user = db.users.find((item) => item.id === userId);
+  if (!user) {
+    return null;
+  }
+  // 历史账号没有邀请码（功能上线前注册的），首次访问时补发并落库，
+  // 否则老用户永远看不到自己的邀请码。
+  if (!user.inviteCode) {
+    user.inviteCode = generateUniqueInviteCode(db.users);
+    await saveDatabase(db);
+  }
+  return buildInviteSummary(user, db.users);
+}
+
 export async function createAuthUserForAdmin(input: {
   actorId: string;
   actorName: string;
@@ -805,7 +955,20 @@ export async function getDevAutoLoginSession() {
   };
 }
 
-export async function handleAuthAction(action: AuthAction, payload: unknown) {
+/**
+ * 请求侧上下文。由路由层从 HTTP 头提取后透传，供注册链路留存风控信号。
+ * 设为可选是为了不破坏既有调用点（测试与内部调用不传即可）。
+ */
+export interface AuthRequestContext {
+  ip?: string;
+  userAgent?: string;
+}
+
+export async function handleAuthAction(
+  action: AuthAction,
+  payload: unknown,
+  context: AuthRequestContext = {},
+) {
   const db = await loadDatabase();
   const body = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
 
@@ -1067,7 +1230,45 @@ export async function handleAuthAction(action: AuthAction, payload: unknown) {
       return { status: 409, body: { error: "该账号已注册，请直接登录" } };
     }
 
-    const user = createUser(username, password);
+    const user = createUser(username, password, "viewer", {
+      ip: context.ip,
+      userAgent: context.userAgent,
+    });
+    user.inviteCode = generateUniqueInviteCode(db.users);
+
+    // ⚠️ 邀请关系在这里**只做绑定，绝不发放任何积分**。
+    // 发奖统一推迟到被邀请人首次付费时（见 server/invite-rewards.ts 顶部说明）。
+    // 注册链路零成本，任何在此处发积分的改动都会让整套防刷失效。
+    const rawInviteCode = typeof body.inviteCode === "string" ? body.inviteCode : "";
+    if (rawInviteCode.trim()) {
+      const inviter = findUserByInviteCode(db.users, rawInviteCode);
+      const verdict = evaluateBindingEligibility({
+        inviter,
+        inviteeIdentityKey: identityKeyOf(username),
+        inviteeIp: context.ip,
+        allUsers: db.users,
+      });
+      if (verdict.eligible && inviter) {
+        user.invitedBy = inviter.id;
+        user.invitedAt = new Date().toISOString();
+        appendAuditLog(db, {
+          actorId: user.id,
+          action: "invite.bind",
+          target: inviter.id,
+          meta: { inviteCode: rawInviteCode.trim().toUpperCase() },
+        });
+      } else if (!verdict.eligible) {
+        // 绑定失败不阻断注册 —— 用户注册这件事本身是合法的，
+        // 只是拿不到邀请奖励。阻断注册会把风控误判直接变成拉新损失。
+        appendAuditLog(db, {
+          actorId: user.id,
+          action: "invite.bind.rejected",
+          target: inviter?.id || "unknown",
+          meta: { reason: verdict.reason, detail: verdict.detail },
+        });
+      }
+    }
+
     const token = createSession(db, user.id);
     db.users.push(user);
     await saveDatabase(db);

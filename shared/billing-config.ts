@@ -311,3 +311,33 @@ export function quoteCreditRecharge(amount: number) {
     tier,
   };
 }
+
+// ===== 邀请注册奖励 =====
+// ⚠️ 红线：奖励必须挂在「被邀请人首次付费」上，绝不能挂在「注册成功」上。
+// 理由：注册零成本（无邮箱验证/无手机/无验证码），若注册即发奖，
+// 任意用户都能用 plus 邮箱无限注册小号自邀自得，等同于永久提款机。
+// 这与已被砍掉的「每日免费积分」是同一类风险，判断标准是
+// 「发放触发条件是否需要付费或管理员介入」。改动此处前务必重读该标准。
+export const INVITE_REWARD_CONFIG = {
+  /** 邀请人可获得的积分（被邀请人首次付费后发放） */
+  inviterCredits: 500,
+  /** 被邀请人可获得的积分（本人首次付费后发放） */
+  inviteeCredits: 300,
+  /** 单个邀请人累计可获得奖励的最大有效邀请数 */
+  maxRewardedInvitesPerUser: 10,
+  /** 绑定关系有效期（天）：超过此天数仍未付费，绑定作废 */
+  bindingValidDays: 30,
+  /** 奖励积分有效期（天）：与 gift 类积分保持一致 */
+  rewardCreditValidDays: 30,
+  /** 被邀请人首次付费的最低金额门槛（港币），低于此金额不触发奖励 */
+  minPaidAmountHkd: 10,
+} as const;
+
+/** 邀请码长度（去除易混淆字符后的随机串） */
+export const INVITE_CODE_LENGTH = 8;
+
+/**
+ * 邀请码字符集：刻意剔除 0/O/1/I/L 等易混淆字符，
+ * 因为邀请码要靠用户口头传播或手工输入，混淆字符会直接变成转化流失。
+ */
+export const INVITE_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";

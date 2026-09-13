@@ -612,6 +612,34 @@ function vitePluginAiOrchestratorApi(): Plugin {
         }
       });
 
+      // 邀请面板：dev 环境同样要注册，否则本地打开邀请弹窗会穿透到 SPA 兜底页
+      // 拿到 HTML，前端 JSON.parse 失败，本地根本看不到这个功能。
+      // 与生产 express（server/index.ts 的 /api/invite/summary）行为一致，
+      // 差异仅在于 dev 用免登录会话取 userId。
+      server.middlewares.use("/api/invite/summary", async (req, res, next) => {
+        if (req.method !== "GET") {
+          return next();
+        }
+        try {
+          const session = await getDevAutoLoginSession();
+          const userId = (session.body as { user?: { id?: string } })?.user?.id;
+          if (!userId) {
+            sendJson(res, 401, { error: "Dev session unavailable" });
+            return;
+          }
+          const { getInviteSummaryForUser } = await import("./server/auth-store");
+          const summary = await getInviteSummaryForUser(userId);
+          if (!summary) {
+            sendJson(res, 404, { error: "用户不存在" });
+            return;
+          }
+          sendJson(res, 200, summary);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Invite summary failed";
+          sendJson(res, 500, { error: message });
+        }
+      });
+
       // 模型目录：dev 环境此前未注册这两条路由，请求会穿透到 SPA 兜底页拿到 HTML，
       // 前端 JSON.parse 失败后提示「AI 模型列表加载失败」（client/src/lib/ai.ts:345）。
       // server/index.ts:1181 已有本地实现且不依赖登录态，直接复用即可，
@@ -795,7 +823,14 @@ function vitePluginAuthApi(): Plugin {
         req.on("end", async () => {
           try {
             const payload = body ? JSON.parse(body) : {};
-            const result = await handleAuthAction(action as "register" | "login" | "me" | "logout", payload);
+            // 开发服务器同样透传来源信号，避免本地与生产行为不一致导致误判。
+            const forwarded = req.headers["x-forwarded-for"];
+            const forwardedIp = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+            const clientIp = String(forwardedIp || "").split(",")[0].trim() || req.socket?.remoteAddress || "";
+            const result = await handleAuthAction(action as "register" | "login" | "me" | "logout", payload, {
+              ip: clientIp || undefined,
+              userAgent: typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : undefined,
+            });
             res.writeHead(result.status, { "Content-Type": "application/json" });
             res.end(JSON.stringify(result.body));
           } catch (error) {

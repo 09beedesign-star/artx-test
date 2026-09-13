@@ -266,6 +266,10 @@ export const NAV_ITEMS: Array<{ id: string; label: string; icon: string; badge?:
   { id: "brand", label: "品牌套件", icon: "Palette" },
   { id: "templates", label: "模板", icon: "LayoutTemplate" },
   { id: "history", label: "生成历史", icon: "History" },
+  // 邀请入口：点击打开弹窗（不是路由页面），见 Sidebar.tsx 的 handleNavClick。
+  // ⚠️ 新增导航项必须同时改三处：本数组、Sidebar 的 ICON_MAP、handleNavClick 的分支。
+  // 漏掉任何一处的表现分别是「图标变成默认 Home」或「点了只弹『功能即将上线』」。
+  { id: "invite", label: "邀请好友", icon: "Gift" },
 ];
 
 export const BOTTOM_NAV_ITEMS = [

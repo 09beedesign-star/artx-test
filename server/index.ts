@@ -22,7 +22,7 @@ import { cleanupExpiredUploads, getFeedbackRetentionDays, getUploadRetentionDays
 import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
 import { recordCrossBorderCommerceGeneration } from "./cross-border-commerce-records";
-import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getDevAutoLoginSession, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization } from "./auth-store";
+import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getDevAutoLoginSession, getInviteSummaryForUser, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization } from "./auth-store";
 import { acknowledgeCreditGiftNotification, assertCanUseAiImageModel, createBillingOrder, createCreditRechargeOrder, getAiModelEntitlementsForUser, getBillingOrderForPayment, getBillingSnapshotForUser, getCreditGiftNotificationsForUser, handleAdminApiRequest, markBillingOrderPaid, quoteAdminAiUsage, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, releaseTestAccountAiUsage, reserveTestAccountAiUsage, submitUserFeedback } from "./admin-store";
 import { getAllowedCorsOrigin } from "./cors";
 import { sendOpsNotification } from "./notifications";
@@ -1891,7 +1891,15 @@ async function startServer() {
   app.post("/api/auth/:action", async (req, res) => {
     try {
       const action = req.params.action as AuthAction;
-      const result = await handleAuthAction(action, req.body);
+      // 透传注册来源信号，供反作弊留存（见 server/invite-rewards.ts）。
+      // ⚠️ x-forwarded-for 可能是逗号分隔的代理链，取第一段（最接近真实客户端那个）。
+      const forwarded = req.headers["x-forwarded-for"];
+      const forwardedIp = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+      const clientIp = String(forwardedIp || "").split(",")[0].trim() || req.socket?.remoteAddress || "";
+      const result = await handleAuthAction(action, req.body, {
+        ip: clientIp || undefined,
+        userAgent: typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : undefined,
+      });
       await notifyAuthAction(action, req.body && typeof req.body === "object" ? req.body as Record<string, unknown> : {}, result);
       res.status(result.status).json(result.body);
     } catch (error) {
@@ -2155,6 +2163,30 @@ async function startServer() {
       res.json(snapshot || { balance: 0, frozenCredits: 0, expiredCredits: 0, orders: [], ledger: [] });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Billing summary failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /*
+   * 邀请面板数据。
+   *
+   * 只读接口，不承担任何发放职责 —— 奖励的唯一发放点在订单支付成功链路里
+   * （server/admin-store.ts 的 markBillingOrderPaid）。
+   * ⚠️ 不要在这里加「领取奖励」之类的 POST：注册与浏览都是零成本动作，
+   * 任何由用户主动触发的发放都会重新打开刷号缺口。
+   */
+  app.get("/api/invite/summary", async (req, res) => {
+    try {
+      const user = await requireSessionUser(req, res);
+      if (!user) return;
+      const summary = await getInviteSummaryForUser(user.id);
+      if (!summary) {
+        res.status(404).json({ error: "用户不存在" });
+        return;
+      }
+      res.json(summary);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Invite summary failed";
       res.status(500).json({ error: message });
     }
   });

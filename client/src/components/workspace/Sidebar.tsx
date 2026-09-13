@@ -8,11 +8,12 @@ import { toast } from "sonner";
 import {
   Home, FolderOpen, Image, Palette, LayoutTemplate,
   History, Settings, HelpCircle, Zap, ChevronDown,
-  Plus, Search, Sparkles, ChevronRight,
+  Plus, Search, Sparkles, ChevronRight, Gift,
 } from "lucide-react";
 import { PROJECTS, NAV_ITEMS } from "@/lib/workspace-data";
 import type { Project } from "@/lib/workspace-data";
 import { useAuth } from "@/contexts/AuthContext";
+import InviteDialog from "./InviteDialog";
 
 interface SidebarProps {
   activeProjectId: string;
@@ -22,16 +23,23 @@ interface SidebarProps {
 }
 
 const ICON_MAP: Record<string, React.ElementType> = {
-  Home, FolderOpen, Image, Palette, LayoutTemplate, History, Settings, HelpCircle, Zap,
+  Home, FolderOpen, Image, Palette, LayoutTemplate, History, Settings, HelpCircle, Zap, Gift,
 };
 
 export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, onNavSelect }: SidebarProps) {
   const [projectsExpanded, setProjectsExpanded] = useState(true);
+  const [inviteOpen, setInviteOpen] = useState(false);
   const { user } = useAuth();
   const displayName = user?.username || "用户名";
   const avatarLetter = displayName.trim().slice(0, 1).toUpperCase() || "U";
 
   const handleNavClick = (id: string) => {
+    // 邀请是弹窗而非路由页，所以在白名单之前单独分流；
+    // 若放到 onNavSelect 里会让上层误以为发生了页面切换。
+    if (id === "invite") {
+      setInviteOpen(true);
+      return;
+    }
     if (id !== "projects" && id !== "home") {
       toast("功能即将上线", { description: "该功能正在开发中，敬请期待。" });
       return;
@@ -179,6 +187,8 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
           <ChevronRight size={12} style={{ color: "oklch(0.62 0.010 270)" }} />
         </div>
       </div>
+
+      <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} />
     </aside>
   );
 }

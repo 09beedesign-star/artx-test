@@ -120,7 +120,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const authenticate = async (action: "login" | "register", username: string, password: string) => {
     try {
-      const result = await fetchAuth(action, { username, password });
+      // 邀请码只在注册时透传。从 URL 读取而非让各调用方传参，
+      // 是为了不改动已有的 login/register 调用签名。
+      // ⚠️ 邀请码只建立「绑定关系」，不会发放任何积分 ——
+      // 发放统一推迟到被邀请人首次付费（server/invite-rewards.ts）。
+      const inviteCode = action === "register" ? readInviteCodeFromUrl() : "";
+      const result = await fetchAuth(action, {
+        username,
+        password,
+        ...(inviteCode ? { inviteCode } : {}),
+      });
       if (!result.ok || !result.token || !result.user) {
         if (isGithubPagesTest()) {
           const localResult = authenticateLocally(action, username, password);
@@ -425,6 +434,23 @@ function clearLargeArtxLocalCache() {
     if (removableKeys.includes(key) || removablePrefixes.some(prefix => key.startsWith(prefix))) {
       localStorage.removeItem(key);
     }
+  }
+}
+
+/**
+ * 从 URL 读取邀请码（?invite=XXXXXXXX）。
+ *
+ * 邀请链接由 InviteDialog 生成。这里做大小写归一与长度上限，
+ * 长度上限是为了防止有人构造超长参数撑大注册请求体；
+ * 真正的合法性判定在后端 findUserByInviteCode，前端不做任何信任假设。
+ */
+function readInviteCodeFromUrl() {
+  if (typeof window === "undefined") return "";
+  try {
+    const raw = new URLSearchParams(window.location.search).get("invite") || "";
+    return raw.trim().toUpperCase().slice(0, 32);
+  } catch {
+    return "";
   }
 }
 

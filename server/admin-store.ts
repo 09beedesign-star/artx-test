@@ -13,13 +13,19 @@ import {
   getPlanQuote,
   quoteCreditRecharge,
   FIRST_RECHARGE_BONUS,
+  INVITE_REWARD_CONFIG,
 } from "../shared/billing-config";
 import {
   ADMIN_CRITICAL_RISK_CREDIT_THRESHOLD,
   isHighRiskCreditAdjustment,
   isHighRiskCreditGift,
 } from "../shared/admin-risk-policy";
-import { createAuthUserForAdmin, getAdminSessionFromAuthorization, listAuthUsers, type PublicAuthUser, updateAuthUserAdmin } from "./auth-store";
+import { createAuthUserForAdmin, getAdminSessionFromAuthorization, listAuthUsers, type PublicAuthUser, settleFirstPaymentForInvite, updateAuthUserAdmin } from "./auth-store";
+import {
+  buildInviteIdempotencyKey,
+  buildInviteRewardReason,
+  INVITE_SOURCE_PREFIX,
+} from "./invite-rewards";
 import { storeFeedbackImagesForUser, type FeedbackImageInput, type StoredFeedbackImage } from "./local-image-storage";
 import { PostgresJsonDocumentStore } from "./postgres-json-store";
 import { getAllProviderBilling } from "./provider-billing";
@@ -4235,6 +4241,72 @@ export async function markBillingOrderPaid(params: {
       createCreditGiftNotification(data, user, bonusEntry, firstRechargeBonusCredits);
     }
 
+    /*
+     * 邀请奖励结算。
+     *
+     * ⚠️ 这里是整套邀请防刷设计的**落点**：奖励只挂在「被邀请人首次真实付费」上，
+     * 绝不能移到注册链路。本项目注册零成本（无邮箱验证 / 无手机号 / 无验证码），
+     * 一旦注册即发，用 plus 地址就能无限派生账号刷积分。详见 server/invite-rewards.ts。
+     *
+     * settleFirstPaymentForInvite 跨到 auth 库读判定并原子写下 hasPaid；
+     * 这里只负责在 admin 库把积分发出去，两侧靠 buildInviteIdempotencyKey 二次兜底。
+     */
+    let inviteRewardCredits = 0;
+    let inviteRewardNote: string | undefined;
+    try {
+      const settlement = await settleFirstPaymentForInvite({
+        userId: user.id,
+        paidAmountHkd: order.amount,
+        now: new Date(paidAt),
+      });
+      if (settlement.reward) {
+        const { inviterId, inviterName, inviteeId, inviteeName } = settlement.reward;
+        // 邀请人可能从未下过单，admin 库里还没有他的记录，懒创建一条。
+        const inviterUser = ensureBillingUser(data, { userId: inviterId, username: inviterName });
+        const inviterResult = grantCredits(data, {
+          user: inviterUser,
+          amount: INVITE_REWARD_CONFIG.inviterCredits,
+          reason: buildInviteRewardReason("inviter", inviteeName),
+          source: `${INVITE_SOURCE_PREFIX}/${inviteeId}`,
+          operator: "系统",
+          createdAt: paidAt,
+          expiryDays: INVITE_REWARD_CONFIG.rewardCreditValidDays,
+          idempotencyKey: buildInviteIdempotencyKey(inviteeId, "inviter"),
+        });
+        const inviteeResult = grantCredits(data, {
+          user,
+          amount: INVITE_REWARD_CONFIG.inviteeCredits,
+          reason: buildInviteRewardReason("invitee", inviterName),
+          source: `${INVITE_SOURCE_PREFIX}/${inviteeId}`,
+          operator: "系统",
+          createdAt: paidAt,
+          expiryDays: INVITE_REWARD_CONFIG.rewardCreditValidDays,
+          idempotencyKey: buildInviteIdempotencyKey(inviteeId, "invitee"),
+        });
+        if (inviterResult.success) {
+          inviteRewardCredits += INVITE_REWARD_CONFIG.inviterCredits;
+        }
+        if (inviteeResult.success) {
+          inviteRewardCredits += INVITE_REWARD_CONFIG.inviteeCredits;
+        }
+        if (!inviterResult.success || !inviteeResult.success) {
+          inviteRewardNote = [
+            inviterResult.success ? undefined : `邀请人未入账：${inviterResult.error}`,
+            inviteeResult.success ? undefined : `被邀请人未入账：${inviteeResult.error}`,
+          ].filter(Boolean).join("；");
+        }
+      } else if (settlement.rejectedReason) {
+        inviteRewardNote = settlement.rejectedReason;
+      }
+    } catch (error) {
+      /*
+       * 邀请奖励失败**绝不能**让订单入账整体失败。
+       * 用户已经付过钱，主流程（积分到账、档位生效）必须成立；
+       * 奖励只是附加价值，异常留痕给运营人工补发即可。
+       */
+      inviteRewardNote = `邀请奖励结算异常：${error instanceof Error ? error.message : String(error)}`;
+    }
+
     appendAuditLog(data, {
       id: "billing",
       username: params.actorName,
@@ -4244,6 +4316,8 @@ export async function markBillingOrderPaid(params: {
       after: {
         issuedCredits: order.issuedCredits,
         firstRechargeBonusCredits,
+        inviteRewardCredits,
+        inviteRewardNote,
         balance: user.credits,
       },
     });
