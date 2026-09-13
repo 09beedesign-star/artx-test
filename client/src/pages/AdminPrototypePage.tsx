@@ -43,6 +43,11 @@ import { useAuth } from "@/contexts/AuthContext";
 import { IMAGE_AI_MODELS, TEXT_AI_MODELS } from "@/lib/workspace-data";
 import { cn } from "@/lib/utils";
 import {
+  ADMIN_HIGH_RISK_CREDIT_THRESHOLD,
+  isHighRiskCreditAdjustment,
+  isHighRiskCreditGift,
+} from "@shared/admin-risk-policy";
+import {
   buildAdminNotifications,
   type AdminNotificationGroups,
   type AdminNotificationItem,
@@ -619,6 +624,9 @@ function AdminPrototypePage() {
   const [riskView, setRiskView] = useState<"all" | "urgent">("all");
   const [creditDelta, setCreditDelta] = useState(500);
   const [creditAdjustmentFeedback, setCreditAdjustmentFeedback] = useState<CreditAdjustmentFeedback | null>(null);
+  // 大额二次确认。⚠️ 必须是独立的用户输入状态，不能由金额推导 —— 一旦由金额
+  // 推导，就等于前端替操作员确认了，后端闸门会被架空。
+  const [creditAdjustmentConfirmed, setCreditAdjustmentConfirmed] = useState(false);
   // 批量赠送面板状态
   const [giftUserQuery, setGiftUserQuery] = useState("");
   const [giftSelectedUserIds, setGiftSelectedUserIds] = useState<string[]>([]);
@@ -627,6 +635,8 @@ function AdminPrototypePage() {
   const [giftReason, setGiftReason] = useState("");
   const [giftSubmitting, setGiftSubmitting] = useState(false);
   const [giftFeedback, setGiftFeedback] = useState<GiftFeedback | null>(null);
+  // 同上：批量赠送的大额确认也必须是操作员的独立勾选。
+  const [giftHighRiskConfirmed, setGiftHighRiskConfirmed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("正在连接后台数据接口：/api/admin/overview。");
   const [policyDraft, setPolicyDraft] = useState<Array<{ capability: string; capabilityKey?: string; unit: string; baseCredits: number; estimatedCostPerUnit: number; provider: string }>>([]);
@@ -909,14 +919,28 @@ function AdminPrototypePage() {
       return;
     }
     const delta = Math.abs(creditDelta) * (direction === "plus" ? 1 : -1);
+
+    // ⚠️ 绝不能在这里用 isHighRiskCreditAdjustment(delta) 之类的表达式自动填
+    // confirmHighRisk —— 那等于前端替操作员回答了「你确认吗」，后端 409 闸门
+    // 永远不会触发。这个标志只能来自操作员真的勾选了确认框。
+    if (isHighRiskCreditAdjustment(delta) && !creditAdjustmentConfirmed) {
+      setCreditAdjustmentFeedback({
+        tone: "error",
+        message: `本次调整 ${Math.abs(delta).toLocaleString("zh-CN")} 积分，达到大额阈值（${ADMIN_HIGH_RISK_CREDIT_THRESHOLD.toLocaleString("zh-CN")}），请先勾选下方的二次确认。`,
+      });
+      return;
+    }
+
     const successMessage = formatCreditAdjustmentSuccess(selectedUser.name, delta);
     adminPost("/api/admin/credits/adjust", {
       userId: selectedUser.id,
       delta,
       reason: "后台人工积分调整",
-      confirmHighRisk: Math.abs(delta) >= 10000,
+      confirmHighRisk: creditAdjustmentConfirmed,
     }, successMessage, () => {
       setCreditAdjustmentFeedback({ tone: "success", message: successMessage });
+      // 确认是一次性的：发放完立刻复位，避免下一笔大额操作被这次的勾选顺带放行。
+      setCreditAdjustmentConfirmed(false);
     }, (message) => {
       setCreditAdjustmentFeedback({ tone: "error", message: `积分调整失败：${message}` });
     });
@@ -941,6 +965,15 @@ function AdminPrototypePage() {
       setGiftFeedback({ tone: "error", message: "请填写赠送理由，便于审计追溯。" });
       return;
     }
+    // ⚠️ 同 handleCreditAdjustment：confirmHighRisk 只能来自操作员的真实勾选，
+    // 不能由前端按后端的同一条件自动推导出来。
+    if (isHighRiskCreditGift(giftAmount, giftSelectedUserIds.length) && !giftHighRiskConfirmed) {
+      setGiftFeedback({
+        tone: "error",
+        message: `本次合计发放 ${(giftAmount * giftSelectedUserIds.length).toLocaleString("zh-CN")} 积分，达到大额阈值（${ADMIN_HIGH_RISK_CREDIT_THRESHOLD.toLocaleString("zh-CN")}），请先勾选二次确认。`,
+      });
+      return;
+    }
 
     const token = readAdminToken();
     if (!token) {
@@ -958,7 +991,7 @@ function AdminPrototypePage() {
           amount: giftAmount,
           reason: giftReason.trim(),
           expiryDays: giftExpiryDays,
-          confirmHighRisk: giftAmount * giftSelectedUserIds.length >= 10000,
+          confirmHighRisk: giftHighRiskConfirmed,
         }),
       });
       const result = await response.json().catch(() => ({}));
@@ -986,6 +1019,8 @@ function AdminPrototypePage() {
         setGiftSelectedUserIds([]);
         setGiftReason("");
       }
+      // 确认是一次性的，无论成败都复位，避免下一批大额赠送被这次的勾选顺带放行。
+      setGiftHighRiskConfirmed(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : "赠送失败";
       setGiftFeedback({ tone: "error", message: `赠送失败：${message}` });
@@ -1496,6 +1531,8 @@ function AdminPrototypePage() {
         onAdjust={handleCreditAdjustment}
         creditAdjustmentFeedback={creditAdjustmentFeedback}
         onDismissCreditAdjustmentFeedback={() => setCreditAdjustmentFeedback(null)}
+        creditAdjustmentConfirmed={creditAdjustmentConfirmed}
+        onCreditAdjustmentConfirmedChange={setCreditAdjustmentConfirmed}
         canManageTestAccounts={canManageTestAccounts}
         onUpdateTestProfile={handleTestProfileUpdate}
         onCancelTestAccount={handleTestAccountCancel}
@@ -1845,6 +1882,8 @@ function AdminPrototypePage() {
             submitting={giftSubmitting}
             feedback={giftFeedback}
             onSubmit={handleGiftSubmit}
+            highRiskConfirmed={giftHighRiskConfirmed}
+            onHighRiskConfirmedChange={setGiftHighRiskConfirmed}
           />
           <DataList
             title="积分流水"
@@ -2745,6 +2784,8 @@ function AccountDetailDrawer({
   onAdjust,
   creditAdjustmentFeedback,
   onDismissCreditAdjustmentFeedback,
+  creditAdjustmentConfirmed,
+  onCreditAdjustmentConfirmedChange,
   canManageTestAccounts,
   onUpdateTestProfile,
   onCancelTestAccount,
@@ -2767,6 +2808,8 @@ function AccountDetailDrawer({
   onAdjust: (direction: "plus" | "minus") => void;
   creditAdjustmentFeedback: CreditAdjustmentFeedback | null;
   onDismissCreditAdjustmentFeedback: () => void;
+  creditAdjustmentConfirmed: boolean;
+  onCreditAdjustmentConfirmedChange: (value: boolean) => void;
   canManageTestAccounts: boolean;
   onUpdateTestProfile: (userId: string, payload: Record<string, unknown>) => void;
   onCancelTestAccount: (userId: string) => void;
@@ -2774,6 +2817,8 @@ function AccountDetailDrawer({
 }) {
   const user = detail?.user || fallbackUser;
   const selectedOrder = detail?.orders.find((order) => order.id === selectedOrderId) || detail?.orders[0];
+  // 只用来决定「要不要显示确认框 / 要不要禁用按钮」，绝不能拿它当 confirmHighRisk 传给后端。
+  const creditAdjustmentHighRisk = isHighRiskCreditAdjustment(creditDelta);
   const [ordersExpanded, setOrdersExpanded] = useState(false);
   const [paymentEventsExpanded, setPaymentEventsExpanded] = useState(false);
   const [drawerSectionExpanded, setDrawerSectionExpanded] = useState({
@@ -2955,15 +3000,38 @@ function AccountDetailDrawer({
                     onChange={(event) => setCreditDelta(Number(event.target.value))}
                     className="border-white/10 bg-slate-950/40 text-slate-100"
                   />
-                  <Button className="bg-emerald-300 text-slate-950 hover:bg-emerald-200" onClick={() => onAdjust("plus")}>
+                  <Button
+                    className="bg-emerald-300 text-slate-950 hover:bg-emerald-200"
+                    disabled={creditAdjustmentHighRisk && !creditAdjustmentConfirmed}
+                    onClick={() => onAdjust("plus")}
+                  >
                     <Plus className="size-4" />
                     增加
                   </Button>
-                  <Button variant="outline" className="border-white/12 bg-white/5 text-slate-100" onClick={() => onAdjust("minus")}>
+                  <Button
+                    variant="outline"
+                    className="border-white/12 bg-white/5 text-slate-100"
+                    disabled={creditAdjustmentHighRisk && !creditAdjustmentConfirmed}
+                    onClick={() => onAdjust("minus")}
+                  >
                     <X className="size-4" />
                     扣减
                   </Button>
                 </div>
+                {creditAdjustmentHighRisk && (
+                  <label className="mt-2 flex items-start gap-2 border border-amber-300/35 bg-amber-300/10 px-3 py-2 text-xs text-amber-100">
+                    <input
+                      type="checkbox"
+                      checked={creditAdjustmentConfirmed}
+                      onChange={(event) => onCreditAdjustmentConfirmedChange(event.target.checked)}
+                      className="mt-0.5 size-4 shrink-0 rounded border-white/20 bg-slate-950"
+                    />
+                    <span className="min-w-0 leading-5">
+                      本次为大额调整（≥ {ADMIN_HIGH_RISK_CREDIT_THRESHOLD.toLocaleString("zh-CN")} 积分），
+                      我已核对用户与金额，确认执行。
+                    </span>
+                  </label>
+                )}
                 {creditAdjustmentFeedback && (
                   <div className={cn(
                     "mt-1.5 flex items-start justify-between gap-3 border px-3 py-2 text-xs",
@@ -3503,6 +3571,8 @@ function CreditGiftPanel({
   submitting,
   feedback,
   onSubmit,
+  highRiskConfirmed,
+  onHighRiskConfirmedChange,
 }: {
   users: Array<{ id: string; name: string; email?: string; account?: string; credits: number }>;
   credits: CreditEvent[];
@@ -3519,6 +3589,10 @@ function CreditGiftPanel({
   submitting: boolean;
   feedback: GiftFeedback | null;
   onSubmit: () => void;
+  // ⚠️ 这两个来自父组件的用户输入状态，不是由 amount 推导出来的。
+  //    详见 shared/admin-risk-policy.ts 的铁律说明。
+  highRiskConfirmed: boolean;
+  onHighRiskConfirmedChange: (value: boolean) => void;
 }) {
   const keyword = userQuery.trim().toLowerCase();
   const matchedUsers = keyword
@@ -3535,6 +3609,8 @@ function CreditGiftPanel({
   const giftRecords = credits.filter((event) => event.type === GIFT_LEDGER_TYPE);
   const totalGifted = giftRecords.reduce((sum, event) => sum + (event.delta || 0), 0);
   const totalCredits = amount * selectedUserIds.length;
+  // 只用来决定「要不要显示确认框」，绝不能拿它当 confirmHighRisk 传给后端。
+  const isHighRisk = isHighRiskCreditGift(amount, selectedUserIds.length);
 
   function toggleUser(userId: string) {
     onSelectedUserIdsChange(
@@ -3659,14 +3735,32 @@ function CreditGiftPanel({
           />
         </div>
 
+        {isHighRisk && (
+          <label className="flex items-start gap-2 rounded-md border border-amber-300/35 bg-amber-300/10 px-3 py-2 text-xs text-amber-100">
+            <input
+              type="checkbox"
+              checked={highRiskConfirmed}
+              onChange={(event) => onHighRiskConfirmedChange(event.target.checked)}
+              className="mt-0.5 size-4 shrink-0 rounded border-white/20 bg-slate-950"
+            />
+            <span className="min-w-0 leading-5">
+              本次合计发放 {totalCredits.toLocaleString("zh-CN")} 积分，达到大额阈值（
+              {ADMIN_HIGH_RISK_CREDIT_THRESHOLD.toLocaleString("zh-CN")}）。我已逐一核对赠送对象与
+              金额，确认执行。
+            </span>
+          </label>
+        )}
+
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/8 pt-3">
           <div className="text-xs text-slate-400">
             {selectedUserIds.length > 0 ? (
               <>
                 共 {selectedUserIds.length} 人 · 合计发放{" "}
                 <span className="text-slate-200">{totalCredits.toLocaleString("zh-CN")}</span> 积分
-                {totalCredits >= 10000 && (
-                  <span className="ml-1 text-amber-300">（大额，需二次确认）</span>
+                {isHighRisk && (
+                  <span className="ml-1 text-amber-300">
+                    {highRiskConfirmed ? "（大额，已确认）" : "（大额，请先勾选二次确认）"}
+                  </span>
                 )}
               </>
             ) : (
@@ -3675,7 +3769,7 @@ function CreditGiftPanel({
           </div>
           <Button
             className="bg-emerald-300 text-slate-950 hover:bg-emerald-200"
-            disabled={submitting || selectedUserIds.length === 0}
+            disabled={submitting || selectedUserIds.length === 0 || (isHighRisk && !highRiskConfirmed)}
             onClick={onSubmit}
           >
             <Gift className="size-4" />

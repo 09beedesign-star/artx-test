@@ -14,6 +14,11 @@ import {
   quoteCreditRecharge,
   FIRST_RECHARGE_BONUS,
 } from "../shared/billing-config";
+import {
+  ADMIN_CRITICAL_RISK_CREDIT_THRESHOLD,
+  isHighRiskCreditAdjustment,
+  isHighRiskCreditGift,
+} from "../shared/admin-risk-policy";
 import { createAuthUserForAdmin, getAdminSessionFromAuthorization, listAuthUsers, type PublicAuthUser, updateAuthUserAdmin } from "./auth-store";
 import { storeFeedbackImagesForUser, type FeedbackImageInput, type StoredFeedbackImage } from "./local-image-storage";
 import { PostgresJsonDocumentStore } from "./postgres-json-store";
@@ -3563,7 +3568,9 @@ export async function handleAdminApiRequest(
     const user = data.users.find((item) => item.id === userId);
     if (!user) return jsonError(404, "用户不存在");
     if (!Number.isFinite(delta) || delta === 0) return jsonError(400, "调整积分必须是非零数字");
-    if (Math.abs(delta) >= 10000 && body.confirmHighRisk !== true) {
+    // ⚠️ 这道闸门只有在前端「不替操作员自动确认」时才有意义。
+    // 详见 shared/admin-risk-policy.ts 的铁律说明。
+    if (isHighRiskCreditAdjustment(delta) && body.confirmHighRisk !== true) {
       return jsonError(409, "大额积分调整需要二次确认");
     }
 
@@ -3602,13 +3609,13 @@ export async function handleAdminApiRequest(
       before,
       after: { credits: user.credits, delta },
     });
-    if (Math.abs(delta) >= 10000) {
+    if (isHighRiskCreditAdjustment(delta)) {
       const riskEvent: RiskEvent = {
         id: `risk_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
         title: "管理员大额人工调整",
         detail: `${actor.username} 对 ${user.name} 调整 ${delta.toLocaleString("zh-CN")} 积分，需复核原因：${reason}`,
         status: "open",
-        severity: Math.abs(delta) >= 50000 ? "high" : "medium",
+        severity: Math.abs(delta) >= ADMIN_CRITICAL_RISK_CREDIT_THRESHOLD ? "high" : "medium",
         target: user.id,
         createdAt: adjustedAt,
       };
@@ -3655,7 +3662,7 @@ export async function handleAdminApiRequest(
       return jsonError(400, "有效期天数必须是正数");
     }
     // 批量大额需要二次确认，口径与 credits/adjust 对齐。
-    if (amount * userIds.length >= 10000 && body.confirmHighRisk !== true) {
+    if (isHighRiskCreditGift(amount, userIds.length) && body.confirmHighRisk !== true) {
       return jsonError(409, "大额批量赠送需要二次确认");
     }
 
