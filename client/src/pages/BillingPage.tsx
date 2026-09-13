@@ -1105,12 +1105,22 @@ export default function BillingPage() {
                         isCurrentSubscribedPlan ||
                         isDowngradePlan ||
                         payingPlanId === plan.id;
+                      /*
+                        徽标只表达「与账户状态有关的既成事实」，不表达鼠标点选。
+
+                        原先这里还有一支 isSelected → "已选择"：用户每点一张卡，
+                        徽标就凭空出现/消失一次，而它和标题在同一行抢宽度 ——
+                        「已选择」三个字会把自己挤成两行（「已选」/「择」），
+                        连带把 "Studio 工作室版" 也压成两行，整张卡头部高度翻倍，
+                        点哪张哪张跳（用户已反馈「UI 布局不稳定」）。
+
+                        选中态并没有因此失去反馈：卡片边框会高亮、底部按钮变绿
+                        （见下方 isSelected 的两处用法），比一个徽标更明显。
+                      */
                       const planBadge = isCurrentSubscribedPlan
                         ? "当前套餐"
                         : isDowngradePlan
                           ? "不可降级"
-                        : isSelected
-                          ? "已选择"
                           : planConfig.highlight
                             ? "推荐"
                             : "";
@@ -1139,7 +1149,9 @@ export default function BillingPage() {
                           }}
                         >
                           <div className="mb-4 flex items-start justify-between gap-3">
-                            <div>
+                            {/* min-w-0：flex 子项默认 min-width:auto，不加这个
+                                文本块不肯收缩，挤压会全部转嫁给右侧徽标。 */}
+                            <div className="min-w-0">
                               <p
                                 className="type-caption"
                                 style={{ color: isFocused ? green : sub }}
@@ -1157,8 +1169,13 @@ export default function BillingPage() {
                                 {plan.name}
                               </h3>
                             </div>
+                            {/*
+                              whitespace-nowrap + shrink-0：剩下的「当前套餐」「不可降级」
+                              都是四个字，一旦被 flex 压缩就会折成两行，把标题一起顶开。
+                              徽标宁可占满自己的宽度，也不许换行。
+                            */}
                             <span
-                              className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption"
+                              className="shrink-0 whitespace-nowrap rounded-[var(--radius-pill)] px-2.5 py-1 type-caption"
                               style={{
                                 background: "oklch(0.78 0.18 110 / 0.16)",
                                 color: green,
