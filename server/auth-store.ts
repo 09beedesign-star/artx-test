@@ -163,7 +163,9 @@ function normalizeUsername(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function normalizeProvider(value: unknown) {
+// 保留给将来真正接入 OAuth 时使用（见 action === "social" 分支的注释）。
+// ⚠️ 注意：仅仅「provider 合法」不构成身份证明，还必须校验第三方凭据并取到唯一用户 id。
+export function normalizeProvider(value: unknown) {
   return value === "google" || value === "wechat" || value === "apple" || value === "github" || value === "meta" ? value : "";
 }
 
@@ -1112,20 +1114,36 @@ export async function handleAuthAction(action: AuthAction, payload: unknown) {
   }
 
   if (action === "social") {
-    const provider = normalizeProvider(body.provider);
-    if (!provider) {
-      return { status: 400, body: { error: "不支持的第三方登录方式" } };
-    }
-    const providerName = provider === "google" ? "gmail" : provider;
-    const username = `${providerName}@artx.social`;
-    let user = db.users.find((item) => item.loginKey === loginKey(username));
-    if (!user) {
-      user = createUser(username, crypto.randomBytes(18).toString("hex"));
-      db.users.push(user);
-    }
-    const token = createSession(db, user.id);
-    await saveDatabase(db);
-    return { status: 200, body: { token, user: publicUser(user) } };
+    // 🔒 第三方登录目前【未实现】，该入口一律拒绝。
+    //
+    // 原实现（2026-09-13 前）是一个匿名后门，危害如下：
+    //   1. 账号名写死成 `${provider}@artx.social`，**不含任何第三方用户标识** ——
+    //      同一 provider 的所有访客登录进的是同一个账号，积分、作品、订单全部共享。
+    //   2. **完全不校验第三方凭据**：请求体只有一个 `provider` 字符串，没有 code/token，
+    //      服务端也没做任何回调换取。任何人 `curl -d '{"provider":"google"}'
+    //      /api/auth/social` 就能直接拿到一个有效会话 —— 无需密码、无需邮箱、无需验证码。
+    //   3. 账号首次访问时被**自动创建**（随机密码，无人知晓），于是它既无法找回，
+    //      又对所有人敞开。
+    //
+    // ⚠️ 取证结论（勿因「看起来没人用」而放松）：
+    //   - 前端没有任何组件调用 socialAuth，但**路由是公开可达的**，风险与前端无关。
+    //   - 生产库 14 个用户中 artx.social 账号为 0，说明尚未被利用，属于「及时关闭」而非
+    //     「事后补救」。
+    //   - `OAUTH_*` / `*_CLIENT_ID` / `*_CLIENT_SECRET` 只存在于部署模板与文档中，
+    //     服务端无任何 OAuth 实现代码；生产运行态仅有 OAUTH_PUBLIC_BASE_URL /
+    //     OAUTH_FRONTEND_URL 两个 URL，**没有任何一家的 client secret**。
+    //     即没有「已经接好、只是这里漏了校验」的可能性。
+    //
+    // 📌 将来真正接入 OAuth 时，必须同时满足以下三条，缺一不可：
+    //   a. 校验第三方回调凭据（code/token），由服务端向 provider 换取用户信息，
+    //      绝不能信任客户端直接传来的身份声明；
+    //   b. 账号身份 = `provider` + **第三方唯一用户 id**（如 sub / openid），
+    //      落到 loginKey 上，确保不同人永远是不同账号；
+    //   c. 首次绑定要么走注册流程，要么与既有账号显式关联，不做静默自动建号。
+    return {
+      status: 501,
+      body: { error: "第三方登录尚未开放，请使用邮箱或手机号登录" },
+    };
   }
 
   if (action === "me") {

@@ -269,7 +269,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (localResult.ok) applyStoredSession();
             return localResult;
           }
-          return { ok: false, error: result.error || "第三方登录暂时不可用" };
+          // ⚠️ 服务端 /api/auth/social 自 2026-09-13 起固定返回 501（第三方登录未实现）。
+          // 原实现是个后门：不校验第三方凭据，且同 provider 所有人共用一个账号。
+          // 这里只负责把服务端的说明如实透传，不要在前端"兜底登录"绕过去。
+          return { ok: false, error: result.error || "第三方登录尚未开放，请使用邮箱或手机号登录" };
         }
         const normalizedUser = normalizeAuthUser(result.user);
         if (!persistSession({ token: result.token, user: normalizedUser })) {
