@@ -22,7 +22,7 @@ import { cleanupExpiredUploads, getFeedbackRetentionDays, getUploadRetentionDays
 import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
 import { recordCrossBorderCommerceGeneration } from "./cross-border-commerce-records";
-import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getDevAutoLoginSession, getInviteSummaryForUser, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization, listAuthUsers } from "./auth-store";
+import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getDevAutoLoginSession, getInviteSummaryForUser, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization, listAuthUsers, setInviteAcceptDisabled } from "./auth-store";
 import { acknowledgeCreditGiftNotification, assertCanUseAiImageModel, createBillingOrder, createCreditRechargeOrder, getAiModelEntitlementsForUser, getBillingOrderForPayment, getBillingSnapshotForUser, getCreditGiftNotificationsForUser, handleAdminApiRequest, markBillingOrderPaid, quoteAdminAiUsage, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, releaseTestAccountAiUsage, reserveTestAccountAiUsage, submitUserFeedback, sendInviteEmail } from "./admin-store";
 import { getAllowedCorsOrigin } from "./cors";
 import { sendOpsNotification, sendUserEmailNotification } from "./notifications";
@@ -2189,6 +2189,34 @@ async function startServer() {
       res.json(summary);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Invite summary failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /*
+   * 暂停 / 恢复接受新的邀请绑定。
+   *
+   * ⚠️ 这是「只读自己」的自助开关：目标用户恒为当前会话用户，
+   * 绝不接受请求体传入的 userId —— 否则任何登录用户都能把别人的邀请码停掉。
+   */
+  app.post("/api/invite/toggle-accept", async (req, res) => {
+    try {
+      const user = await requireSessionUser(req, res);
+      if (!user) return;
+      // 显式布尔校验：缺字段或传了别的类型一律 400，不做「宽容」推断。
+      // 开关类接口静默吃掉脏值会让用户以为点了没反应。
+      if (typeof req.body?.disabled !== "boolean") {
+        res.status(400).json({ error: "参数 disabled 必须为布尔值" });
+        return;
+      }
+      const summary = await setInviteAcceptDisabled(user.id, req.body.disabled);
+      if (!summary) {
+        res.status(404).json({ error: "用户不存在" });
+        return;
+      }
+      res.json(summary);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Invite toggle failed";
       res.status(500).json({ error: message });
     }
   });

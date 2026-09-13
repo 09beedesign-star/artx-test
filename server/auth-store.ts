@@ -80,6 +80,11 @@ interface StoredUser {
   invitedAt?: string;
   /** 本人的邀请码，注册时生成，全局唯一。 */
   inviteCode?: string;
+  /**
+   * 是否暂停接受新的邀请绑定（用户自助开关，默认 false）。
+   * 只影响「新人能不能绑到我名下」，不影响已有关系与已发积分。
+   */
+  inviteAcceptDisabled?: boolean;
   /** 是否已完成首次付费（奖励发放的唯一触发条件）。 */
   hasPaid?: boolean;
 }
@@ -916,6 +921,33 @@ export async function getInviteSummaryForUser(userId: string) {
     user.inviteCode = generateUniqueInviteCode(db.users);
     await saveDatabase(db);
   }
+  return buildInviteSummary(user, db.users);
+}
+
+/**
+ * 切换「暂停接受新邀请」开关。
+ *
+ * 这是用户自助的安全阀：担心邀请码扩散到不该去的地方时，
+ * 一键停掉新绑定，而不必换码作废所有已发出的链接。
+ *
+ * ⚠️ 只写 inviteAcceptDisabled 一个字段，**绝不碰 inviteCode**。
+ * 一旦顺手把码重新生成，已发出的旧链接会全部失效，
+ * 那就退化成了「换码」，与本功能的设计意图正好相反。
+ */
+export async function setInviteAcceptDisabled(userId: string, disabled: boolean) {
+  const db = await loadDatabase();
+  const user = db.users.find((item) => item.id === userId);
+  if (!user) {
+    return null;
+  }
+  user.inviteAcceptDisabled = disabled === true;
+  appendAuditLog(db, {
+    actorId: user.id,
+    action: disabled ? "invite.accept.paused" : "invite.accept.resumed",
+    target: user.id,
+    meta: { inviteCode: user.inviteCode || "" },
+  });
+  await saveDatabase(db);
   return buildInviteSummary(user, db.users);
 }
 

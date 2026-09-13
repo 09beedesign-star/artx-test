@@ -40,6 +40,17 @@ export type InviteUserLike = {
   inviteCode?: string;
   hasPaid?: boolean;
   status?: "active" | "disabled";
+  /**
+   * 邀请人自己把邀请码「暂停接受新绑定」的开关。
+   *
+   * ⚠️ 刻意用「暂停」而不是「换码」来解决泄露担忧：
+   * 邀请码天生就是要发给别人的，发出去必然扩散，换多少次都还会泄露；
+   * 而换码会让所有已发出的旧链接立刻作废（朋友点开后关系悄悄绑不上，
+   * 且首次付费后补绑拿不到奖励 —— 没有第二次机会），代价远大于收益。
+   * 暂停开关把控制权留在用户手里，且**只挡新绑定**，
+   * 已建立的关系、已发放的积分、历史统计一律不动。
+   */
+  inviteAcceptDisabled?: boolean;
 };
 
 /** 奖励发放的来源前缀。必须落在 ALLOWED_GIFT_SOURCE_PREFIXES 的 `rule/` 白名单内。 */
@@ -52,6 +63,7 @@ export type InviteRejectReason =
   | "binding_expired"
   | "inviter_quota_exceeded"
   | "inviter_disabled"
+  | "inviter_paused"
   | "already_rewarded"
   | "amount_below_threshold"
   | "no_binding";
@@ -119,6 +131,18 @@ export function evaluateBindingEligibility(params: {
 
   if (inviter.status === "disabled") {
     return { eligible: false, reason: "inviter_disabled", detail: "邀请人账号已停用" };
+  }
+
+  // 邀请人主动暂停了邀请码 —— 只挡新绑定。
+  //
+  // ⚠️⚠️ 这道闸门**刻意只存在于绑定阶段，绝不能复制到 evaluateRewardEligibility**。
+  // 理由：奖励是在被邀请人「首次付费」时才结算的，而绑定与付费之间隔着最长
+  // bindingValidDays 天。如果发奖阶段也查这个开关，那么「暂停前就已经绑定、
+  // 暂停后才付费」的朋友会被凭空吞掉奖励 —— 用户已经履约了却拿不到钱，
+  // 且 hasPaid 一旦落盘就没有第二次机会补发。
+  // 暂停的语义是「别再进新人了」，不是「已经进来的人不算数」。
+  if (inviter.inviteAcceptDisabled === true) {
+    return { eligible: false, reason: "inviter_paused", detail: "邀请人已暂停接受新的邀请" };
   }
 
   // 自邀检测第一层：归一化后的身份键相同 = 同一个邮箱派生出来的账号。
@@ -320,6 +344,8 @@ export function buildInviteSummary(user: InviteUserLike, allUsers: InviteUserLik
   const pending = countPendingInvites(allUsers, user.id, now);
   return {
     inviteCode: user.inviteCode || "",
+    // 显式转布尔：字段是后加的，历史账号里不存在，undefined 必须呈现为「未暂停」。
+    acceptDisabled: user.inviteAcceptDisabled === true,
     rewardedCount: rewarded,
     pendingCount: pending,
     remainingQuota: Math.max(0, INVITE_REWARD_CONFIG.maxRewardedInvitesPerUser - rewarded),

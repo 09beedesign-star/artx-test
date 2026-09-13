@@ -17,7 +17,7 @@
  * 后端路由仍保留未删，将来域名信誉建立后可重新启用。
  */
 import { useCallback, useEffect, useState } from "react";
-import { Check, Copy, Gift, Loader2, Users } from "lucide-react";
+import { Check, Copy, Gift, Loader2, PauseCircle, PlayCircle, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ART_X_TEST_API_BASE_URL, normalizeApiBaseUrl } from "@/lib/api-base-url";
@@ -25,6 +25,8 @@ import { useTheme } from "@/contexts/ThemeContext";
 
 export interface InviteSummary {
   inviteCode: string;
+  /** 是否已暂停接受新绑定。暂停只挡新人，不影响已有关系与已发积分。 */
+  acceptDisabled: boolean;
   rewardedCount: number;
   pendingCount: number;
   remainingQuota: number;
@@ -133,6 +135,7 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [copiedField, setCopiedField] = useState<"message" | "link" | "code" | "">("");
+  const [toggling, setToggling] = useState(false);
 
   const load = useCallback(async () => {
     const token = getInviteAuthToken();
@@ -182,6 +185,44 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
       field === "message" ? "邀请消息已复制" : field === "link" ? "邀请链接已复制" : "邀请码已复制",
     );
     window.setTimeout(() => setCopiedField(""), 2000);
+  };
+
+  /*
+   * 切换暂停开关。
+   *
+   * ⚠️ 成功后用后端返回的 summary 整体覆盖，而不是本地 setState 翻转布尔。
+   * 本地翻转会让「后端因为别的原因没写成」在界面上表现为已生效，
+   * 用户以为已经停掉了，实际还在接新绑定 —— 安全开关尤其不能这样骗人。
+   */
+  const handleToggleAccept = async () => {
+    if (!summary || toggling) return;
+    const next = !summary.acceptDisabled;
+    const token = getInviteAuthToken();
+    if (!token) {
+      toast.error("请先登录");
+      return;
+    }
+    setToggling(true);
+    try {
+      const response = await fetch(`${getInviteApiBaseUrl()}/api/invite/toggle-accept`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ disabled: next }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        toast.error(typeof payload.error === "string" ? payload.error : "操作失败，请稍后重试");
+        return;
+      }
+      setSummary(payload as InviteSummary);
+      toast.success(next ? "已暂停接受新邀请" : "已恢复接受新邀请", {
+        description: next ? "已邀请的好友和已获积分不受影响" : "好友现在可以正常通过你的链接注册",
+      });
+    } catch {
+      toast.error("网络异常，请稍后重试");
+    } finally {
+      setToggling(false);
+    }
   };
 
   const subtleText = isDark ? "oklch(0.68 0.01 270)" : "oklch(0.45 0.01 270)";
@@ -242,6 +283,37 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
             </div>
 
             {/*
+              暂停态横幅。
+              ⚠️ 必须写明「已邀请的好友和已获积分不受影响」——
+              用户按下暂停时最担心的就是「我之前的奖励会不会没了」，
+              不在这里当场回答，用户就不敢用这个开关，等于功能白做。
+            */}
+            {summary.acceptDisabled && (
+              <div
+                className="rounded-xl px-4 py-3"
+                style={{
+                  background: isDark ? "oklch(0.65 0.15 60 / 12%)" : "oklch(0.95 0.06 75)",
+                  border: `1px solid ${isDark ? "oklch(0.7 0.15 65 / 30%)" : "oklch(0.82 0.11 70)"}`,
+                }}
+              >
+                <div
+                  className="flex items-center gap-1.5 text-[12px] font-semibold"
+                  style={{ color: isDark ? "oklch(0.82 0.14 70)" : "oklch(0.5 0.13 60)" }}
+                >
+                  <PauseCircle size={14} />
+                  邀请码已暂停，新好友无法再绑定到你名下
+                </div>
+                <p
+                  className="mt-1.5 text-[11px] leading-relaxed"
+                  style={{ color: isDark ? "oklch(0.75 0.08 70)" : "oklch(0.45 0.09 60)" }}
+                >
+                  已邀请的好友、已到账的积分、历史统计全部不受影响。
+                  随时可以恢复，邀请码不会改变，之前发出去的链接恢复后照常有效。
+                </p>
+              </div>
+            )}
+
+            {/*
               一次性复制 —— 唯一主推动作，说明见 buildInviteMessage 注释。
               链接和邀请码降为次级操作：绝大多数人只需要"复制、粘贴、发送"三步，
               把三个同等分量的按钮摆在一起反而让人犹豫该点哪个。
@@ -261,14 +333,31 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
                   {inviteMessage || "—"}
                 </pre>
               </div>
+              {/*
+                ⚠️ 暂停态禁用复制，而不是照常允许。
+                暂停时复制出去的链接，好友点开能打开站点、能注册，
+                但邀请关系会被后端闸门静默拒绝 —— 全程零报错，
+                等好友付了钱才发现没奖励，而 hasPaid 落盘后没有第二次机会补绑。
+                与其事后无法挽回，不如在这里就拦住。
+              */}
               <button
                 type="button"
+                disabled={summary.acceptDisabled}
                 onClick={() => void handleCopy("message")}
                 className="flex w-full items-center justify-center gap-1.5 rounded-lg py-2.5 text-[13px] font-semibold transition-colors"
-                style={{ background: "oklch(0.58 0.22 290)", color: "white" }}
+                style={{
+                  background: summary.acceptDisabled ? cardBg : "oklch(0.58 0.22 290)",
+                  color: summary.acceptDisabled ? subtleText : "white",
+                  border: summary.acceptDisabled ? `1px solid ${cardBorder}` : "none",
+                  cursor: summary.acceptDisabled ? "not-allowed" : "pointer",
+                }}
               >
                 {copiedField === "message" ? <Check size={15} /> : <Copy size={15} />}
-                {copiedField === "message" ? "已复制，去粘贴给好友" : "复制邀请消息（含链接和邀请码）"}
+                {summary.acceptDisabled
+                  ? "已暂停邀请，恢复后可复制"
+                  : copiedField === "message"
+                    ? "已复制，去粘贴给好友"
+                    : "复制邀请消息（含链接和邀请码）"}
               </button>
               <p className="text-[11px]" style={{ color: subtleText }}>
                 好友点链接注册即自动绑定，无需手动输入邀请码。
@@ -320,6 +409,50 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
               <p className="mt-3 text-[11px]" style={{ color: subtleText }}>
                 剩余可获奖名额 {summary.remainingQuota} / {summary.maxQuota} 人
               </p>
+            </div>
+
+            {/*
+              暂停 / 恢复开关。
+              刻意放在最底部：这是低频的安全动作，不该和高频的「复制分享」抢注意力。
+              文案回答的是「我为什么需要它」而不是「它是什么」—— 用户不关心
+              inviteAcceptDisabled 这个字段，只关心「码传出去了怎么办」。
+            */}
+            <div
+              className="flex items-center justify-between gap-3 rounded-xl px-4 py-3"
+              style={{ background: cardBg, border: `1px solid ${cardBorder}` }}
+            >
+              <div className="min-w-0">
+                <div className="text-[12px] font-medium">
+                  {summary.acceptDisabled ? "邀请已暂停" : "暂停接受新邀请"}
+                </div>
+                <p className="mt-0.5 text-[11px] leading-relaxed" style={{ color: subtleText }}>
+                  {summary.acceptDisabled
+                    ? "恢复后好友可继续通过你的链接注册。"
+                    : "担心邀请码流传到不该去的地方时，可随时暂停，已有奖励不受影响。"}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={toggling}
+                onClick={() => void handleToggleAccept()}
+                className="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-[12px] font-medium transition-colors"
+                style={{
+                  background: summary.acceptDisabled ? "oklch(0.68 0.19 150)" : "transparent",
+                  color: summary.acceptDisabled ? "white" : subtleText,
+                  border: summary.acceptDisabled ? "none" : `1px solid ${cardBorder}`,
+                  opacity: toggling ? 0.6 : 1,
+                  cursor: toggling ? "wait" : "pointer",
+                }}
+              >
+                {toggling ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : summary.acceptDisabled ? (
+                  <PlayCircle size={13} />
+                ) : (
+                  <PauseCircle size={13} />
+                )}
+                {summary.acceptDisabled ? "恢复邀请" : "暂停"}
+              </button>
             </div>
           </div>
         )}
