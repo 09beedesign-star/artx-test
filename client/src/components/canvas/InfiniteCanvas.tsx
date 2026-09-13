@@ -581,6 +581,7 @@ import {
 } from "@/lib/ai";
 import { buildAssistantContext, routeCreativeIntent } from "@/lib/ai-intent";
 import { selectEditedTextRegions } from "@/lib/text-replace";
+import { ensureCanvasStaggerOffset } from "@/lib/canvas-placement";
 import {
   createWorkspaceHistoryProject,
   readWorkspaceProjectHistory,
@@ -24193,6 +24194,31 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     [fitView, setNodes]
   );
 
+  /**
+   * 【2026-09-13 新增】把画布视角移到刚生成的图上。
+   *
+   * 与 `focusGeneratedImageNode` 的区别：**只移视角，不改选中状态**。
+   * 生成是异步的，用户在等待期间很可能正在操作别的节点，
+   * 强行把选中切走会打断他；而「找回备份图」那条路径是用户主动点击，
+   * 选中它才符合预期。两者语义不同，故不合并。
+   *
+   * 多图生成时把整批一起纳入视野，而不是只对准第一张。
+   */
+  const focusGeneratedImageNodes = useCallback(
+    (nodeIds: string[]) => {
+      if (!nodeIds.length) return;
+      // rAF 等 React 把新节点提交到 DOM，否则 fitView 按 id 找不到目标。
+      requestAnimationFrame(() => {
+        fitView({
+          nodes: nodeIds.map(id => ({ id })),
+          duration: 600,
+          padding: 0.28,
+        });
+      });
+    },
+    [fitView]
+  );
+
   useEffect(() => {
     const handleWorkspaceUploadRequest = () => {
       uploadInputRef.current?.click();
@@ -27005,7 +27031,20 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 x: anchor.x + index * (size.w + imageGenerationGap),
                 y: anchor.y,
               };
-              const position =
+              /**
+               * 【2026-09-13】落位分两层：
+               *
+               * 第一层 `resolveNonOverlappingCanvasPosition` 是「整格避让」，
+               * 只在没有指定 placement 且单图时生效。
+               *
+               * 第二层 `ensureCanvasStaggerOffset` 是**兜底的最小错开**，
+               * ⚠️ 必须对**两条分支都生效**：原先 shouldUseFixedGeneratedPlacement
+               * 为真时直接用 desired，完全绕过任何避让 —— 而带 placement 的链路
+               * （引申图/文案编辑/快捷编辑/图层分离）和所有多图生成都走这条，
+               * 覆盖面远大于表面上的单图路径。新图精准盖住老图、用户以为没出图，
+               * 就是从这里漏出去的。
+               */
+              const basePosition =
                 shouldUseFixedGeneratedPlacement
                   ? desired
                   : resolveNonOverlappingCanvasPosition(
@@ -27013,6 +27052,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                       desired,
                       { width: size.w, height: size.h }
                     );
+              const position = ensureCanvasStaggerOffset(
+                basePosition,
+                [...nds, ...placedNodes].map(node => node.position)
+              );
               const placeholderNode = {
                 id,
                 type: "asset" as const,
@@ -27046,6 +27089,17 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           );
           return [...nds, ...placeholderNodes];
         });
+        /**
+         * 【2026-09-13】规则：生成时画布视角自动移到新图，**图还没生成完也要移**。
+         * 占位节点在上面已经带着最终 id 入画布了，所以这里就能对准；
+         * 不必等出图，否则用户盯着的还是老位置，会以为没反应。
+         */
+        focusGeneratedImageNodes(
+          Array.from(
+            { length: requestedCount },
+            (_, index) => `generated-${generationId}-${index}`
+          )
+        );
         toast("正在生成图像", { description: detail.prompt.slice(0, 58) });
         window.dispatchEvent(
           new CustomEvent("tool-mode-change", { detail: { mode: "move" } })
@@ -27225,7 +27279,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               index * (fittedSize.w + imageGenerationGap),
             y: anchor.y + (size.h - fittedSize.h) / 2,
           };
-          const position =
+          // 与 pending 分支同款两层落位，理由见占位节点处的注释。
+          // 这是生成链路的第二个插入点（刷新页面后回包、占位节点已不在时走这里）。
+          const basePosition =
             shouldUseFixedGeneratedPlacement
               ? desired
               : resolveNonOverlappingCanvasPosition(
@@ -27233,6 +27289,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                   desired,
                   { width: fittedSize.w, height: fittedSize.h }
                 );
+          const position = ensureCanvasStaggerOffset(
+            basePosition,
+            [...nds, ...placedNodes].map(node => node.position)
+          );
           const generatedNode = {
             id,
             type: "asset" as const,
@@ -27275,6 +27335,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         );
       });
       markImageGenerationTaskConsumed(projectId, generationId);
+      /**
+       * 出图完成后再对一次焦：此时节点尺寸从占位框变成了图片实际尺寸
+       * （`fitGeneratedImageSizeToFrame`），不重新 fitView 的话画面会偏。
+       * 刷新页面后回包、占位节点已不存在时，这里也是唯一的一次居中机会。
+       */
+      focusGeneratedImageNodes(
+        images.map((_, index) => `generated-${generationId}-${index}`)
+      );
       toast("图像已生成到画布", { description: detail.prompt.slice(0, 58) });
       window.dispatchEvent(
         new CustomEvent("tool-mode-change", { detail: { mode: "move" } })
@@ -27286,6 +27354,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   }, [
     edgesRef,
     ensureBackgroundImageGeneration,
+    // ⚠️ 漏掉它会让监听器闭包捕获首次渲染时的旧函数，自动居中静默失效且零报错。
+    focusGeneratedImageNodes,
     projectId,
     pushHistory,
     screenToFlowPosition,
