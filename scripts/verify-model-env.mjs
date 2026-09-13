@@ -15,11 +15,25 @@
  *   「图片生成不可用：腾讯 VOD AIGC 凭证未配置」
  * 且没有任何兜底通道 —— 属于 100% 功能性事故。
  *
+ * ⚠️⚠️ 本脚本的能力边界（务必看完再依赖它）：
+ * 它**只检查变量是否存在且非空，完全不做鉴权**。也就是说：
+ *   - key 过期、被吊销、余额耗尽、额度打满   → 这里照样报 OK
+ *   - key 填错一个字符、复制时多了空格       → 这里照样报 OK
+ *   - 上游服务整体宕机                       → 这里照样报 OK
+ * 所以 **"全绿" 只等于"变量配齐了"，不等于"模型可用"**。
+ * 判断模型真实可用性必须发起真实的上游调用（见 artx-ai-provider-probe 技能）。
+ * 把这行免责声明也打进了运行输出里，免得看日志的人只看到一片 OK 就放心了。
+ *
  * 用法：
  *   node scripts/verify-model-env.mjs              # 读当前进程环境变量
  *   node scripts/verify-model-env.mjs --file .env  # 读指定 env 文件
  *
  * 退出码：0 = 全部必需项就绪；1 = 存在缺失（CI 会因此中断部署）。
+ *
+ * 部署门禁接入点（2026-09-13）：
+ * .github/workflows/deploy-tencent-cloud.yml 的 "Activate release" 步骤，
+ * 位置在 .env.gray 拷入新 release 之后、`ln -sfn` 切换 current 之前。
+ * 这个顺序是刻意的：校验失败时 current 仍指向旧的可用版本，站点毫发无伤。
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -159,3 +173,10 @@ if (hasBlocking) {
   process.exit(1);
 }
 console.log("必需的模型能力凭证均已就绪。");
+// ⚠️ 这句必须跟着成功结论一起打出来。
+// 只看到一片 OK 就以为"模型没问题"是本脚本最容易造成的误判：
+// 它查的是变量存在性，不是可用性。key 过期 / 余额耗尽 / 上游宕机，这里全部报 OK。
+console.log(
+  "⚠️ 注意：本检查只验证变量存在且非空，不做鉴权。key 过期、余额耗尽、上游宕机均无法在此发现；\n" +
+    "   模型真实可用性需发起真实上游调用另行验证。"
+);

@@ -110,6 +110,34 @@ jobs:
             cp "${base}/current/.env" "${base}/releases/${release}/.env"
           fi
 
+          # ⚠️ 模型能力凭证门禁 —— 位置是刻意的，不要挪动。
+          #
+          # 必须夹在「.env.gray 已拷进新 release」之后、「ln -sfn 切换 current」之前：
+          #   - 放更早 → 新 release 里还没有 .env.gray，检查的是空气；
+          #   - 放更晚 → current 已经指向新版本，凭证缺失时站点当场出不了图，
+          #     门禁就从"阻止事故"退化成"事后播报事故"。
+          # 现在这个顺序下，校验失败时 current 仍指向旧的可用版本，站点毫发无伤。
+          #
+          # 背景：脚本 2026-09-12 就写好了，但一直只被 cp 进发布包、从没被调用过——
+          # "有脚本"和"有门禁"是两回事。
+          #
+          # ⚠️ 这个检查只验证变量存在且非空，不做鉴权：key 过期 / 余额耗尽 / 上游宕机
+          # 它一律报 OK。它能挡住的是"凭证漏配"这一类，不是"模型不可用"。
+          # ⚠️ 必须按 systemd 的加载顺序合并两个 .env.gray 再校验，不能只查 release 里那份。
+          # systemd 顺序加载 current/.env.gray 然后 ${base}/.env.gray，**后者覆盖前者**。
+          # 而部署只把 current/.env.gray 拷进新 release，父目录那份从不参与拷贝，
+          # 两者随时可能漂移。只查 release 里那份 = 校验的不是真正生效的配置。
+          echo "--- 模型能力凭证门禁（切换 current 之前）---"
+          merged_env="$(mktemp)"
+          trap 'rm -f "${merged_env}"' EXIT
+          cat "${base}/releases/${release}/.env.gray" > "${merged_env}"
+          if [[ -f "${base}/.env.gray" ]]; then
+            echo "（已叠加 ${base}/.env.gray —— 该文件最终生效，覆盖同名键）"
+            cat "${base}/.env.gray" >> "${merged_env}"
+          fi
+          # 解析器后出现的键覆盖先出现的，与 systemd 的语义一致。
+          ( cd "${base}/releases/${release}" && node scripts/verify-model-env.mjs --file "${merged_env}" )
+
           chown -R root:artx "${base}/releases/${release}"
           chmod -R g+rX,o-rwx "${base}/releases/${release}"
           ln -sfn "${base}/releases/${release}" "${base}/current"
