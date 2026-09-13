@@ -71,9 +71,27 @@ jobs:
       - name: Check skills
         run: pnpm run check:skills
 
+      # ⚠️⚠️ RELEASE_NAME 必须带 github.run_id，不要退回纯 github.sha。
+      #
+      # 背景（2026-09-13，连续两次线上事故同一个根因）：
+      # "Sync Main to Test Framework" 会把 main 同步到 feature 分支，同步产生的 push
+      # 再次触发本 workflow —— 于是**同一个 commit sha 会有两条 deploy run**。
+      # 当 RELEASE_NAME 只由 sha 决定时，两条 run 算出的目录名完全相同，
+      # 而 Activate 的第一步就是 `rm -rf "${base}/releases/${release}"`。
+      # 后跑的那条会把**前一条刚部署好、且 current 正指向的现役目录**整个删掉，
+      # 再用 tar 包重新解压 —— tar 包里既没有 node_modules 也没有 .env.gray。
+      #
+      # 两次事故都是它：
+      #   第一次 → node_modules 被铲成空 → 全站 JSON POST 400（"pnpm 明明报了
+      #            +604/Done in 4.2s 却没落盘"的悬案，真相是装完被删）
+      #   第二次 → .env.gray 被铲掉 → 后续每次部署都卡在 "Missing current/.env.gray"，
+      #            形成死锁（拷贝源就是被删的那个文件）
+      #
+      # ⚠️ 把 concurrency 从 cancel 改成排队并不能解决它，反而让两条同 sha 的 run
+      # 必然先后执行，把这个坑踩实。唯一正解是让每条 run 拥有独立目录。
       - name: Package release
         env:
-          RELEASE_NAME: artx-backstage-${{ github.sha }}
+          RELEASE_NAME: artx-backstage-${{ github.sha }}-${{ github.run_id }}
           GRAY_PUBLIC_URL: ${{ env.PUBLIC_URL }}
         run: pnpm run package:tencent-cloud
 
@@ -89,7 +107,7 @@ jobs:
 
       - name: Upload release
         env:
-          RELEASE_NAME: artx-backstage-${{ github.sha }}
+          RELEASE_NAME: artx-backstage-${{ github.sha }}-${{ github.run_id }}
         run: |
           scp -i ~/.ssh/tencent_cloud_deploy_key -P "${SERVER_PORT}" \
             -o BatchMode=yes -o IdentitiesOnly=yes \
@@ -98,7 +116,7 @@ jobs:
 
       - name: Activate release
         env:
-          RELEASE_NAME: artx-backstage-${{ github.sha }}
+          RELEASE_NAME: artx-backstage-${{ github.sha }}-${{ github.run_id }}
         run: |
           ssh -i ~/.ssh/tencent_cloud_deploy_key -p "${SERVER_PORT}" \
             -o BatchMode=yes -o IdentitiesOnly=yes \
@@ -111,16 +129,45 @@ jobs:
           service="${SERVICE_NAME}"
 
           mkdir -p "${base}/releases" "${data}/uploads" /var/log/artx
-          rm -rf "${base}/releases/${release}"
+
+          # ⚠️ 安全闸：绝不允许 rm -rf 掉 current 正指向的现役目录。
+          # RELEASE_NAME 带上 run_id 后理论上不会再撞，但这行是最后一道保险——
+          # 删掉现役目录的代价是站点被掏空（node_modules / .env.gray 全没），
+          # 且 systemd 还在跑，症状极隐蔽。宁可中止部署，也不能铲现役。
+          target="${base}/releases/${release}"
+          if [[ -L "${base}/current" ]]; then
+            live="$(readlink -f "${base}/current")"
+            if [[ "$(readlink -f "${target}" 2>/dev/null || echo "${target}")" == "${live}" ]]; then
+              echo "拒绝删除 current 正指向的目录：${live}" >&2
+              exit 1
+            fi
+          fi
+          rm -rf "${target}"
           tar -xzf "/tmp/${release}.tar.gz" -C "${base}/releases"
 
-          if [[ -f "${base}/current/.env.gray" ]]; then
+          # ⚠️ 凭据的权威来源是 ${base}/.env.gray（父目录那份长期文件），
+          # 不是 current/.env.gray。
+          #
+          # 理由一：current 指向 releases/ 下的某个目录，而 releases/ 是会被轮转、
+          # 会被 rm -rf 的临时区。一旦那份被删（见上面 RELEASE_NAME 的事故说明），
+          # 「从 current 拷贝」就会死锁——拷贝源正是被删掉的那个文件，
+          # 此后每次部署都失败，且无法自愈，只能人工 SSH 补文件。
+          # 理由二：systemd 最终加载的就是 ${base}/.env.gray（EnvironmentFile 顺序
+          # 靠后、覆盖同名键），拿它当源天然和运行时一致，不会漂移。
+          #
+          # 保留 current/.env.gray 作为回退，只为兼容父目录那份尚未建立的旧机器。
+          if [[ -f "${base}/.env.gray" ]]; then
+            cp "${base}/.env.gray" "${base}/releases/${release}/.env.gray"
+          elif [[ -f "${base}/current/.env.gray" ]]; then
+            echo "（回退：${base}/.env.gray 不存在，改用 current/.env.gray）"
             cp "${base}/current/.env.gray" "${base}/releases/${release}/.env.gray"
           else
-            echo "Missing ${base}/current/.env.gray on server" >&2
+            echo "Missing both ${base}/.env.gray and ${base}/current/.env.gray on server" >&2
             exit 1
           fi
-          if [[ -f "${base}/current/.env" ]]; then
+          if [[ -f "${base}/.env" ]]; then
+            cp "${base}/.env" "${base}/releases/${release}/.env"
+          elif [[ -f "${base}/current/.env" ]]; then
             cp "${base}/current/.env" "${base}/releases/${release}/.env"
           fi
 
