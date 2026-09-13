@@ -526,7 +526,13 @@ import {
   DEFAULT_IMAGE_OUTPUT_COUNT,
   getImageModelDefaultOutputCount,
   hasCustomDefaultOutputCount,
+  isSupportedImageModelId,
 } from "@shared/image-models";
+import {
+  DEFAULT_AUTO_RATIO,
+  isAutoRatio,
+  resolveImageRatio,
+} from "@shared/image-ratios";
 import { getAiImageModelCreditPolicy } from "@shared/ai-credit-policy";
 import { filterAllowedAiModelOptions, resolveAllowedAiModelId } from "@/lib/model-access";
 import {
@@ -575,6 +581,10 @@ import {
 } from "@/lib/ai";
 import { buildAssistantContext, routeCreativeIntent } from "@/lib/ai-intent";
 import { selectEditedTextRegions } from "@/lib/text-replace";
+import {
+  ensureCanvasStaggerOffset,
+  getCanvasNodeCenter,
+} from "@/lib/canvas-placement";
 import {
   createWorkspaceHistoryProject,
   readWorkspaceProjectHistory,
@@ -11943,18 +11953,27 @@ function inferImageRatio(width: number, height: number) {
   ).id;
 }
 
-function getImageDisplaySizeForRatio(ratio: string): { w: number; h: number } {
+function getImageDisplaySizeForRatio(ratio?: string | null): { w: number; h: number } {
   const ratioSize: Record<string, { w: number; h: number }> = {
     "1:1": { w: 260, h: 260 },
     "4:5": { w: 240, h: 300 },
     "5:4": { w: 300, h: 240 },
     "3:4": { w: 240, h: 320 },
     "4:3": { w: 320, h: 240 },
+    // 3:2 此前缺失，选了它的用户会静默拿到 1:1 的画框。
+    "3:2": { w: 320, h: 213 },
     "16:9": { w: 320, h: 180 },
     "9:16": { w: 180, h: 320 },
     "21:9": { w: 360, h: 154 },
   };
-  return ratioSize[ratio] || ratioSize["1:1"];
+  /**
+   * 【2026-09-13】先 resolveImageRatio 再查表。
+   *
+   * 原先直接 `ratioSize[ratio] || ratioSize["1:1"]`：表里既没有 "auto" 也没有 "3:2"，
+   * 这两种输入都会静默落到 1:1，画框变方图且全程零报错。
+   */
+  const resolved = resolveImageRatio(ratio);
+  return ratioSize[resolved] || ratioSize[DEFAULT_AUTO_RATIO] || ratioSize["1:1"];
 }
 
 function fitGeneratedImageSizeToFrame(
@@ -18934,6 +18953,17 @@ function CanvasAssistantPanel({
     toast("已引用灵感", { description: item.title });
   }, []);
 
+  const handleInspirationImport = useCallback((item: InspirationPromptItem) => {
+    setComposerSegments([createAssistantTextSegment(item.prompt)]);
+    setInspirationDialogOpen(false);
+    window.dispatchEvent(
+      new CustomEvent("canvas-assistant-external-message", {
+        detail: { role: "user", content: `用户已导入「${item.title}」灵感` },
+      })
+    );
+    toast("已导入灵感", { description: item.title });
+  }, []);
+
   const setComposerTextSegment = useCallback(
     (segmentId: string, value: string) => {
       const singleLineValue = value.replace(/\s*\n+\s*/g, " ");
@@ -20640,7 +20670,7 @@ function CanvasAssistantPanel({
       projectId,
       prompt: promptText,
       model: message.imageBackup?.model || DEFAULT_IMAGE_AI_MODEL_ID,
-      ratio: message.imageBackup?.ratio || "1:1",
+      ratio: resolveImageRatio(message.imageBackup?.ratio),
       count: 1,
       style: message.imageBackup?.style || "聊天气泡",
       referencesEnabled: false,
@@ -20703,11 +20733,23 @@ function CanvasAssistantPanel({
 
       window.setTimeout(async () => {
         try {
-          const decision = await routeCreativeIntent({
-            module: "home-prompt-canvas-router",
-            model: DEFAULT_TEXT_MODEL,
-            prompt: submittedText,
-          });
+          /**
+           * 【2026-09-13】首页若已选定图片模型，直接出图，不再路由。
+           *
+           * 旧逻辑无条件调 routeCreativeIntent，payload.model 只在下面决定"用哪个
+           * 图片模型"，对"要不要出图"毫无影响 —— 等于用户在首页选的图片模型
+           * 被当成了纯装饰。提示词一旦被判成 text 就走下面的文字分支，永远拿不到图。
+           */
+          const homeSelectedImageModel = isSupportedImageModelId(payload.model)
+            ? payload.model!
+            : null;
+          const decision = homeSelectedImageModel
+            ? { mode: "image" as const, imagePrompt: submittedText }
+            : await routeCreativeIntent({
+                module: "home-prompt-canvas-router",
+                model: DEFAULT_TEXT_MODEL,
+                prompt: submittedText,
+              });
           if (decision.mode === "image") {
             const imagePrompt = decision.imagePrompt?.trim() || submittedText;
             const generationId = `home-prompt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -20719,7 +20761,9 @@ function CanvasAssistantPanel({
               )
                 ? payload.model!
                 : assistantImageModel.id,
-              ratio: "1:1",
+              // 首页入口没有比例选择器，等价于「用户未选择」= auto，
+              // 因此必须走全站 auto 默认值，而不是硬编码 1:1。
+              ratio: DEFAULT_AUTO_RATIO,
               count: 1,
               style: "首页创作",
               referencesEnabled: false,
@@ -20873,10 +20917,15 @@ function CanvasAssistantPanel({
           userPrompt: rawSubmittedComposerPrompt,
           imagePrompt: routedPrompt,
         });
-        const skillRatio =
-          assistantImageRatio === "auto"
-            ? getSkillPreferredRatio(activeSkill, "1:1")
-            : assistantImageRatio;
+        /**
+         * 【2026-09-13】技能分支的 auto 回落链：技能自带画布尺寸 > 9:16。
+         *
+         * 顺序不能颠倒：技能（如"小红书封面"）自己声明了 canvasSizes 时，
+         * 那是比全局默认更强的意图，必须优先。只有技能没声明时才用 DEFAULT_AUTO_RATIO。
+         */
+        const skillRatio = isAutoRatio(assistantImageRatio)
+          ? getSkillPreferredRatio(activeSkill, DEFAULT_AUTO_RATIO)
+          : assistantImageRatio;
         const generationId = `right-skill-${activeSkill.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         const shouldEditTargetReference =
           activeSkill.capability === "image_edit" &&
@@ -20991,9 +21040,32 @@ function CanvasAssistantPanel({
         return;
       }
 
+      /**
+       * 【2026-09-13】用户手动选定图片模型 = 出图意图已经明确，不再路由。
+       *
+       * 旧逻辑 `assistantModelTab === "image"` 无条件调路由，于是"手动选了图片模型"
+       * 和"auto"走同一条判定，用户的选择被架空。实测两个后果：
+       *   1. 路由判 text → 下面所有 if/else if 分支全不命中 → **静默失败，什么都不发生**；
+       *   2. 路由判 reference_search → 去搜参考图，也不出图。
+       * 用户点了图片模型却拿不到图，且无任何报错。
+       *
+       * 现在：选定图片模型时直接置 { mode: "image" }，与底部输入框
+       * （:13871 非 auto 写死 mode:"image"）行为对齐。
+       * 例外是有引用图时仍需大模型读图文关系，见下方 needsReferenceComprehension。
+       */
+      const hasExplicitImageModel =
+        assistantModelTab === "image" &&
+        !assistantAutoMode &&
+        isSupportedImageModelId(assistantImageModel?.id);
+      // 图文混排必须让大模型把「引用图 N」这类占位编号翻译成画面描述，
+      // 否则 imagePrompt 直接喂给图片模型是读不懂的。此时仍要路由，
+      // 但下面会把结果强制钳到 image，绝不允许回落成文字。
+      const needsReferenceComprehension =
+        hasExplicitImageModel && submittedImages.length > 0;
       const shouldRouteIntent =
-        (assistantAutoMode && availableAssistantImageModels.length > 0) || assistantModelTab === "image";
-      const decision = shouldRouteIntent
+        (assistantAutoMode && availableAssistantImageModels.length > 0) ||
+        (assistantModelTab === "image" && (!hasExplicitImageModel || needsReferenceComprehension));
+      const routedDecision = shouldRouteIntent
         ? await routeCreativeIntent({
             module: "right-ai-assistant",
             model: assistantTextModel.id,
@@ -21012,6 +21084,27 @@ function CanvasAssistantPanel({
             forceModelDecision: submittedImages.length > 0,
           })
         : null;
+
+      /**
+       * 选定图片模型时把判定结果**强制钳到 image**。
+       *
+       * 两种来源都要钳：
+       *   - 没调路由（hasExplicitImageModel 且无引用图）→ routedDecision 为 null，
+       *     直接构造 image 决策，imagePrompt 用原始输入；
+       *   - 调了路由拿图文理解（needsReferenceComprehension）→ 保留大模型产出的
+       *     imagePrompt / targetImageIndex（这才是调它的目的），但 mode 一律覆盖成
+       *     image，不接受 text / reference_search 的回落。
+       * 这样无论提示词长什么样（含结构化 JSON 视觉规格），只要选了图片模型必定出图。
+       */
+      const decision = hasExplicitImageModel
+        ? {
+            ...(routedDecision ?? {}),
+            mode: "image" as const,
+            imagePrompt:
+              (routedDecision?.mode === "image" ? routedDecision.imagePrompt : undefined)?.trim() ||
+              routedPrompt,
+          }
+        : routedDecision;
 
       const shouldReplyWithText =
         assistantModelTab === "text" &&
@@ -21144,10 +21237,17 @@ function CanvasAssistantPanel({
               : assistantAutoMode
                 ? "auto"
                 : assistantImageModel.id,
-          ratio:
-            shouldEditTargetReference || assistantImageRatio === "auto"
-              ? "1:1"
-              : assistantImageRatio,
+          /**
+           * 【2026-09-13】auto 的回落值由 1:1 改为 9:16（DEFAULT_AUTO_RATIO）。
+           *
+           * ⚠️ 原表达式把两个语义完全不同的条件用 || 合到了一起：
+           *   shouldEditTargetReference（多图融合，必须锁 1:1 以贴合底图）
+           *   assistantImageRatio === "auto"（用户没选，要给默认值）
+           * 直接改共用的 "1:1" 会连多图融合一起改掉，所以这里必须拆开。
+           */
+          ratio: shouldEditTargetReference
+            ? "1:1"
+            : resolveImageRatio(assistantImageRatio),
           count: requestedImageCount,
           style: shouldEditTargetReference ? "引用编辑结果" : "右侧 AI 助手",
           referencesEnabled: assistantImages.length > 0,
@@ -21269,6 +21369,7 @@ function CanvasAssistantPanel({
         isDark={isDark}
         onClose={() => setInspirationDialogOpen(false)}
         onCopy={handleInspirationCopy}
+        onImport={handleInspirationImport}
       />
       <aside
         className="absolute right-3 top-3 bottom-3 flex flex-col nodrag nopan overflow-hidden rounded-[var(--radius-md-design)] transition-transform duration-200 ease-out"
@@ -23114,6 +23215,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     fitView,
     getViewport,
     setViewport,
+    setCenter,
   } = useReactFlow();
   const viewport = useViewport();
   const restoredCanvasState = useMemo(
@@ -24096,6 +24198,36 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     [fitView, setNodes]
   );
 
+  /**
+   * 【2026-09-13 重写】把画布视角移到**当前正在生成的那一张**图上。
+   *
+   * ⚠️⚠️ 这里刻意**不用 `fitView`**，理由见 `getCanvasNodeCenter` 的注释：
+   * `fitView` 只认 `measured` 已就绪的节点，而占位节点刚插入时还没被测量，
+   * 会被静默过滤成空集合 → 拿到全零矩形 → **视角不动且零报错**。
+   * 上一版就栽在这里：以为 rAF 够了，实际 rAF 早于 ResizeObserver 回调。
+   *
+   * `setCenter` 直接吃坐标，不查 nodeLookup、不依赖测量，
+   * 所以「提示词一提交」就能立刻生效，与出图进度彻底解耦。
+   *
+   * 🔒 **保持当前缩放不变**（`getViewport().zoom`）：用户手动调好的倍率不该被覆盖。
+   * 🔒 **多图只对准第一张**：用户要的是「当前正在生成的这一张」居中，
+   *    不是把整排塞进视野（那是 fitView 的语义，会顺带改缩放）。
+   *
+   * 与 `focusGeneratedImageNode` 的区别：**只移视角，不改选中状态**。
+   * 生成是异步的，用户等待期间很可能正在操作别的节点，
+   * 强行把选中切走会打断他；而「找回备份图」那条路径是用户主动点击，
+   * 选中它才符合预期。两者语义不同，故不合并。
+   */
+  const focusGeneratedImageCenter = useCallback(
+    (center: { x: number; y: number }) => {
+      setCenter(center.x, center.y, {
+        zoom: getViewport().zoom,
+        duration: 600,
+      });
+    },
+    [getViewport, setCenter]
+  );
+
   useEffect(() => {
     const handleWorkspaceUploadRequest = () => {
       uploadInputRef.current?.click();
@@ -24720,7 +24852,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             y: rect.top + rect.height / 2,
           })
         : { x: 160, y: 120 };
-      const ratioSize = getImageDisplaySizeForRatio(detail.ratio || "1:1");
+      const ratioSize = getImageDisplaySizeForRatio(detail.ratio);
       const displayW =
         detail.customWidth && detail.customHeight
           ? Math.min(560, Math.max(220, Math.round(detail.customWidth / 5)))
@@ -26872,12 +27004,30 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             generationStartedAt,
           });
         }
+        /**
+         * setNodes 的 updater 必须保持纯函数（React 严格模式下会被调用两次），
+         * 所以中心点先在 updater 内部算好带出来，副作用（移视角）放到外面执行。
+         */
+        let pendingFocusCenter: { x: number; y: number } | null = null;
         setNodes(nds => {
           const existingPlaceholders = nds.filter(
             n =>
               (n.data as Record<string, unknown>)?.generationId === generationId
           );
           if (existingPlaceholders.length > 0) {
+            /*
+             * 占位节点已存在（同一个 generationId 被再次派发，
+             * 例如刷新页面后重新挂载未完成的任务）。
+             * 这条分支也要移视角 —— 对用户来说这同样是「正在生成的那张图」。
+             * 这些节点已经渲染过、尺寸稳定，用 style 上的宽高即可。
+             */
+            const target = existingPlaceholders[0];
+            const targetW = Number(target.style?.width) || size.w;
+            const targetH = Number(target.style?.height) || size.h;
+            pendingFocusCenter = getCanvasNodeCenter(target.position, {
+              w: targetW,
+              h: targetH,
+            });
             return nds.map(n => {
               const data = n.data as Record<string, unknown>;
               if (data.generationId !== generationId) return n;
@@ -26908,7 +27058,20 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 x: anchor.x + index * (size.w + imageGenerationGap),
                 y: anchor.y,
               };
-              const position =
+              /**
+               * 【2026-09-13】落位分两层：
+               *
+               * 第一层 `resolveNonOverlappingCanvasPosition` 是「整格避让」，
+               * 只在没有指定 placement 且单图时生效。
+               *
+               * 第二层 `ensureCanvasStaggerOffset` 是**兜底的最小错开**，
+               * ⚠️ 必须对**两条分支都生效**：原先 shouldUseFixedGeneratedPlacement
+               * 为真时直接用 desired，完全绕过任何避让 —— 而带 placement 的链路
+               * （引申图/文案编辑/快捷编辑/图层分离）和所有多图生成都走这条，
+               * 覆盖面远大于表面上的单图路径。新图精准盖住老图、用户以为没出图，
+               * 就是从这里漏出去的。
+               */
+              const basePosition =
                 shouldUseFixedGeneratedPlacement
                   ? desired
                   : resolveNonOverlappingCanvasPosition(
@@ -26916,6 +27079,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                       desired,
                       { width: size.w, height: size.h }
                     );
+              const position = ensureCanvasStaggerOffset(
+                basePosition,
+                [...nds, ...placedNodes].map(node => node.position)
+              );
               const placeholderNode = {
                 id,
                 type: "asset" as const,
@@ -26947,8 +27114,27 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               return placeholderNode;
             }
           );
+          /**
+           * 【2026-09-13】规则：**提示词一提交就把视角移到这张新图**，不等出图。
+           *
+           * ⚠️ 中心点必须在这里、用刚算好的 position 直接算出来：
+           * 占位节点此刻还没被浏览器测量，任何「按 id 去查节点尺寸」的做法
+           * （fitView / getNode().measured）这一帧都拿不到值，会静默失效。
+           *
+           * 多图时取第一张 —— 用户要的是「当前正在生成的这一张」居中。
+           */
+          const focusTarget = placeholderNodes[0];
+          if (focusTarget) {
+            pendingFocusCenter = getCanvasNodeCenter(focusTarget.position, {
+              w: size.w,
+              h: size.h,
+            });
+          }
           return [...nds, ...placeholderNodes];
         });
+        if (pendingFocusCenter) {
+          focusGeneratedImageCenter(pendingFocusCenter);
+        }
         toast("正在生成图像", { description: detail.prompt.slice(0, 58) });
         window.dispatchEvent(
           new CustomEvent("tool-mode-change", { detail: { mode: "move" } })
@@ -27039,6 +27225,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           style: detail.style,
         };
       });
+      let completedFocusCenter: { x: number; y: number } | null = null;
       setNodes(nds => {
         const existingPlaceholders = nds.filter(
           n =>
@@ -27067,6 +27254,20 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               image.src,
               `${generationId}-${index}`
             );
+            const nextPosition = detail.skillId
+              ? {
+                  x: n.position.x + (currentFrame.w - fittedSize.w) / 2,
+                  y: n.position.y + (currentFrame.h - fittedSize.h) / 2,
+                }
+              : n.position;
+            /*
+             * 出图后再对一次焦：占位框的尺寸此刻换成了图片实际尺寸
+             * （skill 链路还会顺带挪 position），不重新对焦画面会偏。
+             * 只认第一张（index 0），与 pending 阶段对准的是同一张。
+             */
+            if (index === 0) {
+              completedFocusCenter = getCanvasNodeCenter(nextPosition, fittedSize);
+            }
             return {
               ...n,
               zIndex:
@@ -27074,12 +27275,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 (typeof data.generationIndex === "number"
                   ? data.generationIndex
                   : 0),
-              position: detail.skillId
-                ? {
-                    x: n.position.x + (currentFrame.w - fittedSize.w) / 2,
-                    y: n.position.y + (currentFrame.h - fittedSize.h) / 2,
-                  }
-                : n.position,
+              position: nextPosition,
               style: {
                 ...n.style,
                 width: fittedSize.w,
@@ -27128,7 +27324,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               index * (fittedSize.w + imageGenerationGap),
             y: anchor.y + (size.h - fittedSize.h) / 2,
           };
-          const position =
+          // 与 pending 分支同款两层落位，理由见占位节点处的注释。
+          // 这是生成链路的第二个插入点（刷新页面后回包、占位节点已不在时走这里）。
+          const basePosition =
             shouldUseFixedGeneratedPlacement
               ? desired
               : resolveNonOverlappingCanvasPosition(
@@ -27136,6 +27334,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                   desired,
                   { width: fittedSize.w, height: fittedSize.h }
                 );
+          const position = ensureCanvasStaggerOffset(
+            basePosition,
+            [...nds, ...placedNodes].map(node => node.position)
+          );
+          // 占位节点已不存在时（刷新页面后回包）走这条，这里是唯一的对焦机会。
+          if (index === 0) {
+            completedFocusCenter = getCanvasNodeCenter(position, fittedSize);
+          }
           const generatedNode = {
             id,
             type: "asset" as const,
@@ -27178,6 +27384,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         );
       });
       markImageGenerationTaskConsumed(projectId, generationId);
+      if (completedFocusCenter) {
+        focusGeneratedImageCenter(completedFocusCenter);
+      }
       toast("图像已生成到画布", { description: detail.prompt.slice(0, 58) });
       window.dispatchEvent(
         new CustomEvent("tool-mode-change", { detail: { mode: "move" } })
@@ -27189,6 +27398,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   }, [
     edgesRef,
     ensureBackgroundImageGeneration,
+    // ⚠️ 漏掉它会让监听器闭包捕获首次渲染时的旧函数，自动居中静默失效且零报错。
+    focusGeneratedImageCenter,
     projectId,
     pushHistory,
     screenToFlowPosition,

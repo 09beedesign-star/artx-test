@@ -13,9 +13,10 @@ import { toast } from "sonner";
 import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
 import defaultWechatGroupQr from "@/assets/community/wechat-group-qr.jpg";
 import { DEFAULT_IMAGE_MODEL_ID } from "@shared/image-models";
+import InviteDialog from "@/components/workspace/InviteDialog";
 import {
   Home, Sparkles, Library, FolderOpen,
-  CreditCard, HelpCircle, ImagePlus, Send, X, KeyRound, Copy, Loader2, QrCode,
+  CreditCard, HelpCircle, ImagePlus, Send, X, KeyRound, Copy, Loader2, QrCode, Gift,
 } from "lucide-react";
 
 
@@ -77,6 +78,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   const [helpOpen, setHelpOpen] = useState(false);
   const [communityOpen, setCommunityOpen] = useState(false);
   const [apiKeyOpen, setApiKeyOpen] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
   const [apiKeyLoading, setApiKeyLoading] = useState(false);
   const [apiKeyValue, setApiKeyValue] = useState("");
   const [apiKeys, setApiKeys] = useState<ApiKeyRecord[]>([]);
@@ -700,6 +702,26 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
             <NavItem icon={Library}  label="技能商店" path="/skills"      iconSize={15} />
             <NavItem icon={FolderOpen} label="工作台" path="/workspace" iconSize={15} />
             <NavItem icon={CreditCard} label="充值与订阅" path="/billing" iconSize={15} />
+            <button
+              onClick={() => {
+                if (!isAuthenticated) {
+                  openLoginModal();
+                  return;
+                }
+                setInviteOpen(true);
+              }}
+              className="w-full flex h-[31px] items-center gap-2.5 px-2.5 type-caption transition-all text-left"
+              style={{
+                background: "transparent",
+                color: textSecondary,
+                borderRadius: 6,
+              }}
+              onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = hoverBg)}
+              onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
+            >
+              <Gift size={15} strokeWidth={1.45} style={{ color: "currentColor", flexShrink: 0, opacity: 0.7 }} />
+              <span className="truncate" style={{ fontSize: 12, fontWeight: 450, letterSpacing: 0 }}>邀请好友</span>
+            </button>
           </div>
 
         </div>
@@ -757,6 +779,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
       {communityDialog}
       {helpDialog}
       {apiKeyDialog}
+      <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} />
     </div>
   );
 }

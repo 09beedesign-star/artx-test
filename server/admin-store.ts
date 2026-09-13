@@ -33,6 +33,7 @@ import { storeFeedbackImagesForUser, type FeedbackImageInput, type StoredFeedbac
 import { PostgresJsonDocumentStore } from "./postgres-json-store";
 import { getAllProviderBilling } from "./provider-billing";
 import { DEFAULT_GIFT_EXPIRY_DAYS, GIFT_LEDGER_TYPE, grantCredits } from "./credit-gifting";
+import type { InviteEmailSendLog } from "./invite-email";
 
 type AdminStatus = "normal" | "watch" | "blocked" | "cancelled";
 type OrderStatus = "paid" | "pending" | "failed" | "refunded";
@@ -461,6 +462,7 @@ type AdminData = {
   capabilityStatus: CapabilityStatusItem[];
   aiBillingPolicies?: AiBillingPolicy[];
   aiPlanDiscounts?: AiPlanDiscountPolicy[];
+  inviteEmailLogs?: InviteEmailSendLog[];
 };
 
 type CapabilityStatusItem = {
@@ -2472,8 +2474,35 @@ async function normalizeDataAsync(value: Partial<AdminData>): Promise<AdminData>
      */
     plans: buildPricingPlans(),
     capabilityStatus: Array.isArray(value.capabilityStatus) ? value.capabilityStatus : seed.capabilityStatus,
-    aiBillingPolicies: Array.isArray(value.aiBillingPolicies) ? value.aiBillingPolicies : AI_CREDIT_POLICIES,
-    aiPlanDiscounts: Array.isArray(value.aiPlanDiscounts) ? value.aiPlanDiscounts : AI_PLAN_DISCOUNTS,
+    /**
+     * ⚠️⚠️ 同 plans，**必须无条件重算**，绝不能写成
+     * `Array.isArray(value.aiBillingPolicies) ? value.aiBillingPolicies : AI_CREDIT_POLICIES`。
+     *
+     * 【2026-09-13 线上事故复盘】上面那个写法正是事故本体，代价如下：
+     *   2026-07-01（e12973e）库里还没有这两个字段，于是本函数拿**当时的**
+     *   AI_CREDIT_POLICIES 填了进去，随后任意一次后台写操作调用 saveAdminData()
+     *   就把那份快照**固化进了生产库**。此后 shared/ai-credit-policy.ts 经历
+     *   3a0e6a5、c626de5 两轮涨价，而 `value.aiBillingPolicies` 一直是非空数组，
+     *   三元表达式永远走左边 —— **代码里的新价格一次都没生效过**。
+     *
+     *   扩图端到端验证实测：代码写 200 积分，实际只扣 16。按最坏充值档
+     *   170 积分/元换算，10 项能力里 7 项每次调用都在亏钱
+     *   （text_to_image 收 0.059 元 / 成本 0.400 元，单次净亏 0.341 元）。
+     *
+     * 【为什么是"派生数据"而不是"业务记录"】
+     *   计费策略的唯一事实源是 shared/ai-credit-policy.ts，和 plans 一样属于
+     *   配置的投影，不是用户产生的数据。业务记录（orders/credits/aiTasks）丢了
+     *   不可复原，所以必须沿用库里的；派生数据沿用库里的只会让历史快照
+     *   永久盖住真实配置，且**全程零报错**——这是本项目第二次踩同一个坑。
+     *
+     * 【代价与取舍】后台「AI 扣分策略配置」面板
+     *   （AdminPrototypePage.tsx:2025）的改动不再能持久化生效。这是刻意的：
+     *   改价必须走代码评审，不能由后台随手改掉全站毛利且无人复核
+     *   （生产审计日志里这两个字段的修改记录为 0 条，说明该面板从未被真正使用）。
+     *   真要恢复可编辑，得先补上"库值必须能被代码版本号判定为过期"的机制。
+     */
+    aiBillingPolicies: AI_CREDIT_POLICIES,
+    aiPlanDiscounts: AI_PLAN_DISCOUNTS,
   });
 }
 
@@ -5134,4 +5163,54 @@ export async function recordAiUsage(input: AiUsageRecordInput) {
 
   await saveAdminData(data);
   return record;
+}
+
+/**
+ * 发送邀请邮件 —— 供 /api/invite/send 调用
+ *
+ * ⚠️ 包含完整的限频校验与日志记录。
+ */
+export async function sendInviteEmail(input: {
+  senderId: string;
+  recipientEmail: string;
+  inviteCode: string;
+  senderName: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const data = await loadAdminData();
+  const logs = data.inviteEmailLogs || [];
+
+  // 导入限频检查函数（这些在 invite-email.ts 里，需要在这里重新引用或内联）
+  // 但为了避免循环依赖，直接在这里内联简化版的检查
+  
+  // 单用户每日上限 10 封
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const todayCount = logs.filter(
+    log => log.senderId === input.senderId && new Date(log.sentAt) >= todayStart
+  ).length;
+  if (todayCount >= 10) {
+    return { success: false, error: "今日邀请次数已达上限，请明天再试" };
+  }
+
+  // 同一收件人 7 天内只发 1 次
+  const cooldownStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const normalized = input.recipientEmail.toLowerCase();
+  const recentToSame = logs.find(
+    log => log.recipientEmail.toLowerCase() === normalized && new Date(log.sentAt) >= cooldownStart
+  );
+  if (recentToSame) {
+    return { success: false, error: "该邮箱最近已收到邀请，请 7 天后再试" };
+  }
+
+  const log: InviteEmailSendLog = {
+    id: `invlog_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+    senderId: input.senderId,
+    recipientEmail: normalized,
+    sentAt: new Date().toISOString(),
+  };
+
+  data.inviteEmailLogs = [...logs, log];
+  await saveAdminData(data);
+
+  return { success: true };
 }

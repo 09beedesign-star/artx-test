@@ -22,10 +22,12 @@ import { cleanupExpiredUploads, getFeedbackRetentionDays, getUploadRetentionDays
 import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
 import { recordCrossBorderCommerceGeneration } from "./cross-border-commerce-records";
-import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getDevAutoLoginSession, getInviteSummaryForUser, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization } from "./auth-store";
-import { acknowledgeCreditGiftNotification, assertCanUseAiImageModel, createBillingOrder, createCreditRechargeOrder, getAiModelEntitlementsForUser, getBillingOrderForPayment, getBillingSnapshotForUser, getCreditGiftNotificationsForUser, handleAdminApiRequest, markBillingOrderPaid, quoteAdminAiUsage, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, releaseTestAccountAiUsage, reserveTestAccountAiUsage, submitUserFeedback } from "./admin-store";
+import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getDevAutoLoginSession, getInviteSummaryForUser, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization, listAuthUsers, setInviteAcceptDisabled } from "./auth-store";
+import { acknowledgeCreditGiftNotification, assertCanUseAiImageModel, createBillingOrder, createCreditRechargeOrder, getAiModelEntitlementsForUser, getBillingOrderForPayment, getBillingSnapshotForUser, getCreditGiftNotificationsForUser, handleAdminApiRequest, markBillingOrderPaid, quoteAdminAiUsage, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, releaseTestAccountAiUsage, reserveTestAccountAiUsage, submitUserFeedback, sendInviteEmail } from "./admin-store";
 import { getAllowedCorsOrigin } from "./cors";
-import { sendOpsNotification } from "./notifications";
+import { sendOpsNotification, sendUserEmailNotification } from "./notifications";
+import { checkDailyLimit, checkRecipientCooldown, isSelfInvite, isAlreadyRegistered, buildInviteEmailHtml } from "./invite-email";
+import { INVITE_REWARD_CONFIG } from "../shared/billing-config";
 import { classifyApplicationSecuritySignal, createSecurityEventDetector, validateSecurityEventIngest } from "./security-events";
 import { assertUserCanUseSelectableModel } from "./user-model-access";
 import { exportImageProviderFailureLog } from "./image-provider-failure-log";
@@ -2188,6 +2190,116 @@ async function startServer() {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Invite summary failed";
       res.status(500).json({ error: message });
+    }
+  });
+
+  /*
+   * 暂停 / 恢复接受新的邀请绑定。
+   *
+   * ⚠️ 这是「只读自己」的自助开关：目标用户恒为当前会话用户，
+   * 绝不接受请求体传入的 userId —— 否则任何登录用户都能把别人的邀请码停掉。
+   */
+  app.post("/api/invite/toggle-accept", async (req, res) => {
+    try {
+      const user = await requireSessionUser(req, res);
+      if (!user) return;
+      // 显式布尔校验：缺字段或传了别的类型一律 400，不做「宽容」推断。
+      // 开关类接口静默吃掉脏值会让用户以为点了没反应。
+      if (typeof req.body?.disabled !== "boolean") {
+        res.status(400).json({ error: "参数 disabled 必须为布尔值" });
+        return;
+      }
+      const summary = await setInviteAcceptDisabled(user.id, req.body.disabled);
+      if (!summary) {
+        res.status(404).json({ error: "用户不存在" });
+        return;
+      }
+      res.json(summary);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Invite toggle failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /*
+   * 邀请邮件发送。
+   *
+   * ⚠️ 本接口会向站外真实投递邮件,必须带严格限频，详见 server/invite-email.ts 顶部说明。
+   */
+  app.post("/api/invite/send", async (req, res) => {
+    try {
+      const user = await requireSessionUser(req, res);
+      if (!user) return;
+
+      const recipientEmail = typeof req.body?.email === "string" ? req.body.email.trim() : "";
+      if (!recipientEmail || !recipientEmail.includes("@")) {
+        res.status(400).json({ error: "请输入有效的邮箱地址" });
+        return;
+      }
+
+      const summary = await getInviteSummaryForUser(user.id);
+      if (!summary || !summary.inviteCode) {
+        res.status(404).json({ error: "邀请码不存在" });
+        return;
+      }
+
+      const authUsers = await listAuthUsers();
+
+      // 防自发
+      if (isSelfInvite(authUsers, user.id, recipientEmail)) {
+        res.status(400).json({ error: "不能向自己发送邀请" });
+        return;
+      }
+
+      // 收件人已注册
+      if (isAlreadyRegistered(authUsers, recipientEmail)) {
+        res.status(400).json({ error: "该邮箱已注册，无需邀请" });
+        return;
+      }
+
+      // 先检查限频并记录日志（在发邮件之前，避免浪费邮件额度）
+      const logResult = await sendInviteEmail({
+        senderId: user.id,
+        recipientEmail,
+        inviteCode: summary.inviteCode,
+        senderName: user.username || "用户",
+      });
+
+      if (!logResult.success) {
+        res.status(429).json({ error: logResult.error || "发送失败" });
+        return;
+      }
+
+      // 生成邀请链接（与前端 InviteDialog 保持一致）
+      const origin = req.headers.origin || `${req.protocol}://${req.headers.host}`;
+      const inviteLink = `${origin}/?invite=${encodeURIComponent(summary.inviteCode)}`;
+
+      // 发送邮件
+      const emailHtml = buildInviteEmailHtml({
+        inviterName: user.username || "好友",
+        inviteLink,
+        inviterCredits: INVITE_REWARD_CONFIG.inviterCredits,
+        inviteeCredits: INVITE_REWARD_CONFIG.inviteeCredits,
+      });
+
+      const emailResult = await sendUserEmailNotification({
+        to: recipientEmail,
+        subject: `${user.username || "好友"} 邀请你加入 ArtX`,
+        text: `${user.username || "好友"} 邀请你加入 ArtX。点击链接注册并完成首次付费，你将获得 ${summary.inviteeCredits} 积分奖励：${inviteLink}`,
+        html: emailHtml,
+      });
+
+      if (!emailResult.sent) {
+        console.error("[invite-send] email failed", emailResult.reason);
+        res.status(500).json({ error: "邮件发送失败，请稍后重试" });
+        return;
+      }
+
+      res.json({ success: true, email: recipientEmail });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Invite send failed";
+      console.error("[invite-send] error", message);
+      res.status(500).json({ error: "邀请发送失败" });
     }
   });
 

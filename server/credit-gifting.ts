@@ -204,15 +204,22 @@ export function grantCredits(data: GiftableData, input: GiftCreditsInput): GiftC
     }
   }
 
-  // 单日额度校验：同一用户当日累计赠送上限。
-  // 只统计 type 为「积分赠送」的正向流水，避免把充值入账算进来。
+  // 单日额度校验：同一用户当日累计发放上限。
+  // 统计所有 delta > 0 的正向流水，覆盖所有发分路径（赠送、人工调整、代收入账、
+  // 首充赠送、会员月发、测试账号等），避免额度闸门被绕过。
+  // ⚠️ 不能只统计 type === "积分赠送"——历史上有 6 条路径绕过 grantCredits 直接写流水，
+  // 它们的 type 是「人工补偿」「代收积分入账」「首充赠送」「会员月度发放」等，
+  // 如果只看"积分赠送"，这些路径完全不计入额度，闸门形同虚设。
+  // ⚠️ 但必须排除用户付费的"购买入账"/"充值入账"——那是用户自己花钱买的，
+  // 不是平台发放，不应占用发放额度。
   const dayStart = createdAt.slice(0, 10);
   const grantedToday = data.credits
     .filter(
       (entry) =>
         entry.userId === input.user.id &&
-        entry.type === GIFT_LEDGER_TYPE &&
         entry.delta > 0 &&
+        entry.type !== "购买入账" &&
+        entry.type !== "充值入账" &&
         entry.createdAt.slice(0, 10) === dayStart
     )
     .reduce((sum, entry) => sum + entry.delta, 0);

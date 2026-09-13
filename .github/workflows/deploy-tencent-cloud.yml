@@ -3,6 +3,7 @@ name: Deploy Tencent Cloud Test
 on:
   push:
     branches:
+      - main
       - feature/interaction-framework
       - test/feature/interaction-framework
   workflow_dispatch:
@@ -19,9 +20,22 @@ on:
 permissions:
   contents: read
 
+# ⚠️ cancel-in-progress 必须保持 false，不要改回 true。
+#
+# 背景：2026-09-13 连续三个提交推到 main 都没上线，线上停在 7fab8b5。
+# 原因是 "Sync Main to Test Framework" 把 main 同步到 feature/interaction-framework，
+# 同步产生的 push 又触发同一条 deploy workflow。两条抢同一个 group，
+# 当时 cancel-in-progress: true → 后到的把 main 那条正在跑的直接 cancel 掉。
+# 现象极具迷惑性：Actions 列表里确实有一条 success（那是 Sync 那条），
+# 真正的 Deploy 是 cancelled，而 cancelled 不发失败通知，静默丢部署。
+#
+# ⚠️ group 必须保持全局单一，不能按 github.ref 拆开：
+# 部署目标是单机全栈（43.161.241.133），两条并发会在 ln -sfn current 和
+# systemctl restart 上打架。共享资源是那台机器，不是分支。
+# 正确解法是「排队」而不是「取消」：慢一点，但一条都不会丢。
 concurrency:
   group: tencent-cloud-test
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   PUBLIC_URL: https://backstage.artxsd.com
@@ -57,9 +71,27 @@ jobs:
       - name: Check skills
         run: pnpm run check:skills
 
+      # ⚠️⚠️ RELEASE_NAME 必须带 github.run_id，不要退回纯 github.sha。
+      #
+      # 背景（2026-09-13，连续两次线上事故同一个根因）：
+      # "Sync Main to Test Framework" 会把 main 同步到 feature 分支，同步产生的 push
+      # 再次触发本 workflow —— 于是**同一个 commit sha 会有两条 deploy run**。
+      # 当 RELEASE_NAME 只由 sha 决定时，两条 run 算出的目录名完全相同，
+      # 而 Activate 的第一步就是 `rm -rf "${base}/releases/${release}"`。
+      # 后跑的那条会把**前一条刚部署好、且 current 正指向的现役目录**整个删掉，
+      # 再用 tar 包重新解压 —— tar 包里既没有 node_modules 也没有 .env.gray。
+      #
+      # 两次事故都是它：
+      #   第一次 → node_modules 被铲成空 → 全站 JSON POST 400（"pnpm 明明报了
+      #            +604/Done in 4.2s 却没落盘"的悬案，真相是装完被删）
+      #   第二次 → .env.gray 被铲掉 → 后续每次部署都卡在 "Missing current/.env.gray"，
+      #            形成死锁（拷贝源就是被删的那个文件）
+      #
+      # ⚠️ 把 concurrency 从 cancel 改成排队并不能解决它，反而让两条同 sha 的 run
+      # 必然先后执行，把这个坑踩实。唯一正解是让每条 run 拥有独立目录。
       - name: Package release
         env:
-          RELEASE_NAME: artx-backstage-${{ github.sha }}
+          RELEASE_NAME: artx-backstage-${{ github.sha }}-${{ github.run_id }}
           GRAY_PUBLIC_URL: ${{ env.PUBLIC_URL }}
         run: pnpm run package:tencent-cloud
 
@@ -75,7 +107,7 @@ jobs:
 
       - name: Upload release
         env:
-          RELEASE_NAME: artx-backstage-${{ github.sha }}
+          RELEASE_NAME: artx-backstage-${{ github.sha }}-${{ github.run_id }}
         run: |
           scp -i ~/.ssh/tencent_cloud_deploy_key -P "${SERVER_PORT}" \
             -o BatchMode=yes -o IdentitiesOnly=yes \
@@ -84,7 +116,7 @@ jobs:
 
       - name: Activate release
         env:
-          RELEASE_NAME: artx-backstage-${{ github.sha }}
+          RELEASE_NAME: artx-backstage-${{ github.sha }}-${{ github.run_id }}
         run: |
           ssh -i ~/.ssh/tencent_cloud_deploy_key -p "${SERVER_PORT}" \
             -o BatchMode=yes -o IdentitiesOnly=yes \
@@ -97,16 +129,45 @@ jobs:
           service="${SERVICE_NAME}"
 
           mkdir -p "${base}/releases" "${data}/uploads" /var/log/artx
-          rm -rf "${base}/releases/${release}"
+
+          # ⚠️ 安全闸：绝不允许 rm -rf 掉 current 正指向的现役目录。
+          # RELEASE_NAME 带上 run_id 后理论上不会再撞，但这行是最后一道保险——
+          # 删掉现役目录的代价是站点被掏空（node_modules / .env.gray 全没），
+          # 且 systemd 还在跑，症状极隐蔽。宁可中止部署，也不能铲现役。
+          target="${base}/releases/${release}"
+          if [[ -L "${base}/current" ]]; then
+            live="$(readlink -f "${base}/current")"
+            if [[ "$(readlink -f "${target}" 2>/dev/null || echo "${target}")" == "${live}" ]]; then
+              echo "拒绝删除 current 正指向的目录：${live}" >&2
+              exit 1
+            fi
+          fi
+          rm -rf "${target}"
           tar -xzf "/tmp/${release}.tar.gz" -C "${base}/releases"
 
-          if [[ -f "${base}/current/.env.gray" ]]; then
+          # ⚠️ 凭据的权威来源是 ${base}/.env.gray（父目录那份长期文件），
+          # 不是 current/.env.gray。
+          #
+          # 理由一：current 指向 releases/ 下的某个目录，而 releases/ 是会被轮转、
+          # 会被 rm -rf 的临时区。一旦那份被删（见上面 RELEASE_NAME 的事故说明），
+          # 「从 current 拷贝」就会死锁——拷贝源正是被删掉的那个文件，
+          # 此后每次部署都失败，且无法自愈，只能人工 SSH 补文件。
+          # 理由二：systemd 最终加载的就是 ${base}/.env.gray（EnvironmentFile 顺序
+          # 靠后、覆盖同名键），拿它当源天然和运行时一致，不会漂移。
+          #
+          # 保留 current/.env.gray 作为回退，只为兼容父目录那份尚未建立的旧机器。
+          if [[ -f "${base}/.env.gray" ]]; then
+            cp "${base}/.env.gray" "${base}/releases/${release}/.env.gray"
+          elif [[ -f "${base}/current/.env.gray" ]]; then
+            echo "（回退：${base}/.env.gray 不存在，改用 current/.env.gray）"
             cp "${base}/current/.env.gray" "${base}/releases/${release}/.env.gray"
           else
-            echo "Missing ${base}/current/.env.gray on server" >&2
+            echo "Missing both ${base}/.env.gray and ${base}/current/.env.gray on server" >&2
             exit 1
           fi
-          if [[ -f "${base}/current/.env" ]]; then
+          if [[ -f "${base}/.env" ]]; then
+            cp "${base}/.env" "${base}/releases/${release}/.env"
+          elif [[ -f "${base}/current/.env" ]]; then
             cp "${base}/current/.env" "${base}/releases/${release}/.env"
           fi
 
@@ -138,16 +199,50 @@ jobs:
           # 解析器后出现的键覆盖先出现的，与 systemd 的语义一致。
           ( cd "${base}/releases/${release}" && node scripts/verify-model-env.mjs --file "${merged_env}" )
 
+          # ⚠️ 依赖安装与完整性门禁 —— 必须在 ln -sfn 切换 current 之前，理由同上。
+          #
+          # 背景：2026-09-13 一次部署后 node_modules 是空的（0 个包），
+          # 但 pnpm 在 Actions 日志里明明打印了 "+604 / Done in 4.2s"，
+          # systemctl is-active 正常、/api/health 也返回 200 —— 全绿上线。
+          #
+          # 后果是全站**所有带 JSON body 的 POST 全部变成 400**（含登录）：
+          # dist/index.js 是 bundle，多数代码已内联，但 body-parser 会在运行时
+          # 动态 require iconv-lite/encodings，文件不在就抛
+          # "Cannot find module '../encodings'"，Express 兜底成 400 HTML。
+          # 而 GET 不解析 body，所以健康检查永远发现不了。
+          #
+          # 📌 教训：健康检查只证明"进程活着"，不证明"依赖装全了"。
+          # 原先 pnpm install 跑在切换之后且无任何校验，装空了也照样上线。
+          ( cd "${base}/releases/${release}" && pnpm install --prod --frozen-lockfile )
+
+          echo "--- 依赖完整性门禁（切换 current 之前）---"
+          rel_modules="${base}/releases/${release}/node_modules"
+          test -d "${rel_modules}/.pnpm" || { echo "node_modules/.pnpm 缺失，依赖未正确安装" >&2; exit 1; }
+          pkg_count="$(ls "${rel_modules}" | wc -l)"
+          echo "顶层包数：${pkg_count}"
+          [ "${pkg_count}" -gt 10 ] || { echo "依赖数量异常(${pkg_count})，疑似安装未落盘" >&2; exit 1; }
+          ls -d "${rel_modules}"/.pnpm/iconv-lite@*/node_modules/iconv-lite/encodings >/dev/null 2>&1 \
+            || { echo "iconv-lite/encodings 缺失 —— 所有 JSON POST 都会 400" >&2; exit 1; }
+
           chown -R root:artx "${base}/releases/${release}"
           chmod -R g+rX,o-rwx "${base}/releases/${release}"
           ln -sfn "${base}/releases/${release}" "${base}/current"
 
           cd "${base}/current"
-          pnpm install --prod --frozen-lockfile
           systemctl restart "${service}"
           sleep 2
           systemctl is-active "${service}"
           curl -fsS http://127.0.0.1:3002/api/health
+
+          # ⚠️ 必须额外打一个带 JSON body 的 POST。
+          # 只验 /api/health（GET）会漏掉 body 解析链路故障，见上面注释。
+          # 未登录时期望 401（业务 JSON）；若拿到 400 说明 body-parser 已崩。
+          echo "--- JSON POST 冒烟（期望 401，不能是 400）---"
+          post_code="$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+            http://127.0.0.1:3002/api/invite/send \
+            -H 'Content-Type: application/json' -d '{}')"
+          echo "POST /api/invite/send -> ${post_code}"
+          [ "${post_code}" != "400" ] || { echo "JSON body 解析已损坏，回滚部署" >&2; exit 1; }
           REMOTE
 
       - name: Verify public smoke

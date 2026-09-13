@@ -6,6 +6,8 @@
 import crypto from "crypto";
 import axios from "axios";
 
+import { DEFAULT_AUTO_RATIO } from "../shared/image-ratios";
+
 const VOD_AIGC_ENDPOINT = "https://vod.tencentcloudapi.com";
 const SERVICE = "vod";
 const VERSION = "2018-07-17";
@@ -407,12 +409,20 @@ function resolveModelName(model: string): string {
   return "GEM";
 }
 
+/**
+ * 【2026-09-13】auto / 缺省 / 脏值一律回落 DEFAULT_AUTO_RATIO（9:16），不再回落 1:1。
+ *
+ * ⚠️ 这里是最后一道防线：前端本应已把 auto 解析掉，但白名单原本不含 "auto"，
+ * 一旦漏过来会**静默**变成 1:1 方图，全程零报错、日志里也看不出异常。
+ * 保持与前端 resolveImageRatio 同一个默认值，避免两端不一致。
+ */
 function resolveAspectRatio(ratio?: string): string {
-  if (!ratio) return "1:1";
-  const normalized = ratio.replace("x", ":");
+  if (!ratio) return DEFAULT_AUTO_RATIO;
+  const normalized = ratio.replace("x", ":").trim().toLowerCase();
+  if (!normalized || normalized === "auto") return DEFAULT_AUTO_RATIO;
   const validRatios = ["1:1", "16:9", "9:16", "3:2", "2:3", "3:4", "4:3", "4:5", "5:4", "21:9", "9:21"];
   if (validRatios.includes(normalized)) return normalized;
-  return "1:1";
+  return DEFAULT_AUTO_RATIO;
 }
 
 export async function createVodImageTask(input: VodImageGenerationInput): Promise<{ taskId: string }> {

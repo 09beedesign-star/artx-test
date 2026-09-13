@@ -80,6 +80,11 @@ interface StoredUser {
   invitedAt?: string;
   /** 本人的邀请码，注册时生成，全局唯一。 */
   inviteCode?: string;
+  /**
+   * 是否暂停接受新的邀请绑定（用户自助开关，默认 false）。
+   * 只影响「新人能不能绑到我名下」，不影响已有关系与已发积分。
+   */
+  inviteAcceptDisabled?: boolean;
   /** 是否已完成首次付费（奖励发放的唯一触发条件）。 */
   hasPaid?: boolean;
 }
@@ -746,6 +751,70 @@ export async function listAuthUsers() {
 }
 
 /**
+ * 为一个**刚创建的**账号绑定邀请关系。
+ *
+ * ⚠️⚠️ 为什么必须抽成函数，而不是在各分支里各写一份：
+ * 本项目有三条会产生新账号的路径 —— 密码注册（register）、
+ * 短信验证码登录（sms-login，新号自动建）、邮箱验证码登录（email-login，同上）。
+ * 此前只有 register 一条做了绑定，另外两条**静默丢弃邀请码**，
+ * 从邀请链接进来却选了验证码登录的用户，关系永远建不上且没有任何报错。
+ * 这是典型的「同一份数据的多个出口只处理了一个」。抽成单一入口后，
+ * 将来再加登录方式时，漏调用这个函数会在 review 里显形。
+ *
+ * ⚠️ 只对新账号生效：老用户重复登录时传邀请码会被 hasBoundBefore 挡掉，
+ * 否则等于允许存量用户事后认爹，邀请奖励会被刷穿。
+ *
+ * ⚠️ 绝不发放任何积分，只写关系。发奖统一在被邀请人首次付费时
+ * （见 server/invite-rewards.ts 顶部说明）。
+ *
+ * ⚠️ 不落盘：调用方所在分支后续都会 saveDatabase，这里重复存盘只会多一次 IO。
+ */
+function bindInviteRelationIfEligible(params: {
+  db: AuthDatabase;
+  user: StoredUser;
+  isNewUser: boolean;
+  rawInviteCode: unknown;
+  ip?: string;
+}) {
+  const { db, user, isNewUser } = params;
+  const rawInviteCode = typeof params.rawInviteCode === "string" ? params.rawInviteCode : "";
+  if (!rawInviteCode.trim()) return;
+  // 老账号或已绑定过的账号一律忽略，静默返回即可 —— 这不是错误，
+  // 只是「这次登录不产生新的邀请关系」。
+  if (!isNewUser || user.invitedBy) return;
+
+  const inviter = findUserByInviteCode(db.users, rawInviteCode);
+  const verdict = evaluateBindingEligibility({
+    inviter,
+    inviteeIdentityKey: identityKeyOf(user.username),
+    inviteeIp: params.ip,
+    allUsers: db.users,
+  });
+  if (verdict.eligible) {
+    // eligible 为真时 inviter 必然存在（找不到邀请人时 evaluateBindingEligibility
+    // 一定返回不通过），这里的判空只是让类型收窄成立，不是业务分支。
+    if (!inviter) return;
+    user.invitedBy = inviter.id;
+    user.invitedAt = new Date().toISOString();
+    appendAuditLog(db, {
+      actorId: user.id,
+      action: "invite.bind",
+      target: inviter.id,
+      meta: { inviteCode: rawInviteCode.trim().toUpperCase() },
+    });
+    return;
+  }
+  // 绑定失败不阻断注册/登录 —— 用户注册这件事本身是合法的，
+  // 只是拿不到邀请奖励。阻断会把风控误判直接变成拉新损失。
+  appendAuditLog(db, {
+    actorId: user.id,
+    action: "invite.bind.rejected",
+    target: inviter?.id || "unknown",
+    meta: { reason: verdict.reason, detail: verdict.detail },
+  });
+}
+
+/**
  * 结算一名用户的首次付费，并判断其邀请奖励是否成立。
  *
  * ⚠️ 为什么把「判定」和「标记 hasPaid」绑在同一个函数里：
@@ -852,6 +921,33 @@ export async function getInviteSummaryForUser(userId: string) {
     user.inviteCode = generateUniqueInviteCode(db.users);
     await saveDatabase(db);
   }
+  return buildInviteSummary(user, db.users);
+}
+
+/**
+ * 切换「暂停接受新邀请」开关。
+ *
+ * 这是用户自助的安全阀：担心邀请码扩散到不该去的地方时，
+ * 一键停掉新绑定，而不必换码作废所有已发出的链接。
+ *
+ * ⚠️ 只写 inviteAcceptDisabled 一个字段，**绝不碰 inviteCode**。
+ * 一旦顺手把码重新生成，已发出的旧链接会全部失效，
+ * 那就退化成了「换码」，与本功能的设计意图正好相反。
+ */
+export async function setInviteAcceptDisabled(userId: string, disabled: boolean) {
+  const db = await loadDatabase();
+  const user = db.users.find((item) => item.id === userId);
+  if (!user) {
+    return null;
+  }
+  user.inviteAcceptDisabled = disabled === true;
+  appendAuditLog(db, {
+    actorId: user.id,
+    action: disabled ? "invite.accept.paused" : "invite.accept.resumed",
+    target: user.id,
+    meta: { inviteCode: user.inviteCode || "" },
+  });
+  await saveDatabase(db);
   return buildInviteSummary(user, db.users);
 }
 
@@ -1114,8 +1210,14 @@ export async function handleAuthAction(
     }
 
     let user = db.users.find((item) => item.loginKey === loginKey(email));
+    // 与 sms-login 同理：新邮箱在这里会自动建号，属于注册路径，必须收邀请码。
+    const isNewUser = !user;
     if (!user) {
-      user = createUser(email, crypto.randomBytes(18).toString("hex"));
+      user = createUser(email, crypto.randomBytes(18).toString("hex"), "viewer", {
+        ip: context.ip,
+        userAgent: context.userAgent,
+      });
+      user.inviteCode = generateUniqueInviteCode(db.users);
       db.users.push(user);
     }
     if (user.status === "disabled") {
@@ -1124,6 +1226,13 @@ export async function handleAuthAction(
     user.failedLoginCount = 0;
     user.lockedUntil = undefined;
     user.lastLoginAt = new Date().toISOString();
+    bindInviteRelationIfEligible({
+      db,
+      user,
+      isNewUser,
+      rawInviteCode: body.inviteCode,
+      ip: context.ip,
+    });
     removeEmailChallenge(db, email, "login");
     appendAuditLog(db, {
       actorId: user.id,
@@ -1227,8 +1336,16 @@ export async function handleAuthAction(
 
     const username = phoneUsername(phone);
     let user = db.users.find((item) => item.loginKey === loginKey(username));
+    // ⚠️ 这条路径对新手机号会**自动建号** —— 它同时是一条注册入口，
+    // 因此必须和 register 一样处理邀请码，否则从邀请链接进来却选了
+    // 手机号登录的用户，关系永远绑不上（此前的真实缺口）。
+    const isNewUser = !user;
     if (!user) {
-      user = createUser(username, crypto.randomBytes(18).toString("hex"));
+      user = createUser(username, crypto.randomBytes(18).toString("hex"), "viewer", {
+        ip: context.ip,
+        userAgent: context.userAgent,
+      });
+      user.inviteCode = generateUniqueInviteCode(db.users);
       db.users.push(user);
     }
     if (user.status === "disabled") {
@@ -1237,6 +1354,13 @@ export async function handleAuthAction(
     user.failedLoginCount = 0;
     user.lockedUntil = undefined;
     user.lastLoginAt = new Date().toISOString();
+    bindInviteRelationIfEligible({
+      db,
+      user,
+      isNewUser,
+      rawInviteCode: body.inviteCode,
+      ip: context.ip,
+    });
     db.smsChallenges = (db.smsChallenges || []).filter((item) => item.phone !== phone);
     appendAuditLog(db, {
       actorId: user.id,
@@ -1272,35 +1396,13 @@ export async function handleAuthAction(
     // ⚠️ 邀请关系在这里**只做绑定，绝不发放任何积分**。
     // 发奖统一推迟到被邀请人首次付费时（见 server/invite-rewards.ts 顶部说明）。
     // 注册链路零成本，任何在此处发积分的改动都会让整套防刷失效。
-    const rawInviteCode = typeof body.inviteCode === "string" ? body.inviteCode : "";
-    if (rawInviteCode.trim()) {
-      const inviter = findUserByInviteCode(db.users, rawInviteCode);
-      const verdict = evaluateBindingEligibility({
-        inviter,
-        inviteeIdentityKey: identityKeyOf(username),
-        inviteeIp: context.ip,
-        allUsers: db.users,
-      });
-      if (verdict.eligible && inviter) {
-        user.invitedBy = inviter.id;
-        user.invitedAt = new Date().toISOString();
-        appendAuditLog(db, {
-          actorId: user.id,
-          action: "invite.bind",
-          target: inviter.id,
-          meta: { inviteCode: rawInviteCode.trim().toUpperCase() },
-        });
-      } else if (!verdict.eligible) {
-        // 绑定失败不阻断注册 —— 用户注册这件事本身是合法的，
-        // 只是拿不到邀请奖励。阻断注册会把风控误判直接变成拉新损失。
-        appendAuditLog(db, {
-          actorId: user.id,
-          action: "invite.bind.rejected",
-          target: inviter?.id || "unknown",
-          meta: { reason: verdict.reason, detail: verdict.detail },
-        });
-      }
-    }
+    bindInviteRelationIfEligible({
+      db,
+      user,
+      isNewUser: true,
+      rawInviteCode: body.inviteCode,
+      ip: context.ip,
+    });
 
     const token = createSession(db, user.id);
     db.users.push(user);

@@ -1339,9 +1339,38 @@ function AdminPrototypePage() {
                   <Bell className="size-4" />
                   今日运营提醒
                 </div>
-                <p className="text-xs leading-5 text-slate-400">
-                  1 笔支付回调延迟、1 个高风险账户、2 条待处理反馈需要跟进。
-                </p>
+                <div className="flex flex-wrap gap-x-1 gap-y-1.5 text-xs leading-5 text-slate-400">
+                  {(() => {
+                    const items: Array<{ label: string; count: number; section: AdminSection; setView?: () => void }> = [
+                      { label: "支付回调延迟", count: metrics?.paymentExceptions ?? 0, section: "orders" },
+                      { label: "高风险账户", count: metrics?.highRiskEvents ?? 0, section: "risk", setView: () => setRiskView("urgent") },
+                      { label: "待处理反馈", count: metrics?.pendingFeedback ?? 0, section: "feedback" },
+                    ];
+                    const activeItems = items.filter((item) => item.count > 0);
+                    
+                    if (activeItems.length === 0) {
+                      return <span>暂无需要跟进的事项。</span>;
+                    }
+
+                    return activeItems.map((item, index) => (
+                      <span key={item.label}>
+                        <button
+                          type="button"
+                          className="cursor-pointer underline decoration-cyan-300/30 underline-offset-2 transition hover:text-cyan-100 hover:decoration-cyan-300/60"
+                          onClick={() => {
+                            item.setView?.();
+                            setActiveSection(item.section);
+                            setAlertsOpen(false);
+                          }}
+                        >
+                          {item.count} {item.label}
+                        </button>
+                        {index < activeItems.length - 1 && <span>、</span>}
+                        {index === activeItems.length - 1 && <span>需要跟进。</span>}
+                      </span>
+                    ));
+                  })()}
+                </div>
               </div>
               <button
                 type="button"

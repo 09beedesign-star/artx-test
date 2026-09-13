@@ -12,6 +12,7 @@ import {
   isVodModelId,
 } from "../shared/image-models";
 import { isClaudeTextModelId } from "../shared/text-models";
+import { DEFAULT_AUTO_RATIO, resolveImageRatio } from "../shared/image-ratios";
 import { clampImageExpansionPrompt, VOD_EXPANSION_PROMPT_MAX_LENGTH } from "../shared/image-expansion";
 import { generateText } from "./text-generation";
 import { recordImageProviderFailure } from "./image-provider-failure-log";
@@ -571,10 +572,24 @@ const ratioToSize: Record<string, { size: string; width: number; height: number 
   "5:4": { size: "1536x1024", width: 1280, height: 1024 },
   "3:4": { size: "1024x1536", width: 1024, height: 1365 },
   "4:3": { size: "1536x1024", width: 1365, height: 1024 },
+  // 3:2 此前缺失，选了它会静默落到 1:1。
+  "3:2": { size: "1536x1024", width: 1536, height: 1024 },
   "16:9": { size: "1536x1024", width: 1536, height: 864 },
   "9:16": { size: "1024x1536", width: 864, height: 1536 },
   "21:9": { size: "1536x1024", width: 1536, height: 658 },
 };
+
+/**
+ * 【2026-09-13】比例 → 尺寸的统一入口。
+ *
+ * 原先各调用点写的是 `ratioToSize[input.ratio || "1:1"] || ratioToSize["1:1"]`：
+ * 表里没有 "auto"，传 auto 会**静默**变成 1024×1024 方图，零报错。
+ * 现在先用 shared/image-ratios 的 resolveImageRatio 归一化，默认值与前端同源。
+ */
+function resolveRatioSize(ratio?: string | null) {
+  const resolved = resolveImageRatio(ratio);
+  return ratioToSize[resolved] || ratioToSize[DEFAULT_AUTO_RATIO] || ratioToSize["1:1"];
+}
 
 function getImagesEndpoint(baseUrl: string) {
   const normalized = baseUrl.replace(/\/+$/, "");
@@ -2433,7 +2448,9 @@ function getBackgroundOutputSize(input: CreateBackgroundInput, fallbackWidth: nu
   if (customWidth && customHeight) return { width: customWidth, height: customHeight };
 
   const baseLongSide = input.resolution === "4k" ? 3840 : 2048;
-  const ratio = ratioToSize[input.ratio || "1:1"];
+  // ⚠️ 这里原本没有 `|| ratioToSize["1:1"]` 兜底，传 "auto" 会拿到 undefined
+  // 并悄悄落到下面的 fallbackWidth 分支 —— 比静默变方图更难排查。
+  const ratio = resolveRatioSize(input.ratio);
   if (ratio) {
     const aspect = ratio.width / Math.max(1, ratio.height);
     if (aspect >= 1) {
@@ -4163,7 +4180,7 @@ export async function generateImages(input: ImageGenerateInput): Promise<Generat
 
   const { apiKey, baseUrl, model } = getProviderConfig();
 
-  const ratio = ratioToSize[input.ratio || "1:1"] || ratioToSize["1:1"];
+  const ratio = resolveRatioSize(input.ratio);
   const count = Math.max(1, Math.min(Number(input.count) || 1, 9));
   const referenceImages = input.images?.filter(image => image.src?.trim()) || [];
   const targetSize = __testResolveHighDefinitionTargetSize(ratio.width, ratio.height, ratio.width, ratio.height);
@@ -4204,7 +4221,7 @@ export async function generateImages(input: ImageGenerateInput): Promise<Generat
     const vodInput: VodImageGenerationInput = {
       prompt: buildPrompt(input),
       model: vodModelId,
-      aspectRatio: input.ratio || "1:1",
+      aspectRatio: resolveImageRatio(input.ratio),
       count,
       // 智能注释等场景会传入 source + edit guide 多张参考图；用 imageUrls 全部传给 VOD OG。
       imageUrls: nonMaskImages.length > 0 ? nonMaskImages.map(image => image.src) : undefined,

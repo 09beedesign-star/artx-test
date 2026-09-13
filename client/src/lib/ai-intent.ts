@@ -1,6 +1,7 @@
 import { callLLM, generateImages, type GeneratedImageResult } from "@/lib/ai";
 import { DEFAULT_IMAGE_MODEL_ID } from "../../../shared/image-models";
 import { DEFAULT_TEXT_MODEL } from "../../../shared/text-models";
+import { AUTO_RATIO_VALUE, resolveImageRatio } from "../../../shared/image-ratios";
 
 export type CreativeIntentMode = "text" | "image" | "reference_search";
 
@@ -229,6 +230,118 @@ const NOUN_PHRASE_IMAGE_PATTERN =
 const EXPLICIT_REFERENCE_SEARCH_PATTERN =
   /(找|搜|搜索|抓|抓取|收集|参考|素材|灵感|案例|样例|范例).{0,12}(参考图|参考图片|素材|灵感|案例|样例|范例)|(?:参考图|参考图片|素材|灵感|案例|样例|范例).{0,12}(找|搜|搜索|抓|抓取|收集|给我|帮我)/i;
 
+/**
+ * 结构化视觉规格（JSON / YAML）的字段白名单。
+ *
+ * 【2026-09-13 新增】用户把一整段描述画面的 JSON 贴进来时，
+ * 旧逻辑必然判成文字。实测根因不是"判得保守"，而是**扫描范围错了**：
+ * 正则扫的是整段输入，而 JSON 的 value 里天然塞满自然语言
+ * （弹幕文案、按钮文字、占位符「说点什么...」、商品标题）。
+ * 用户那段直播 UI 样机 JSON 里有一条弹幕「Neuralink进展如何？」，
+ * 其中的「如何」命中 DIRECT_TEXT_PATTERN → :395 直接 return text，
+ * **后面的生图正则和大模型判定一行都没执行**。
+ *
+ * 关键认知：JSON 的 value 是**要画进图里的素材**，不是**用户对系统说的话**。
+ * 所以这里只看 **key**，不看 value —— 从根上避开 value 污染。
+ */
+const VISUAL_SPEC_KEYS = new Set([
+  "type", "subject", "background", "ui_overlay", "layout", "composition",
+  "scene", "style", "palette", "color", "colors", "lighting", "camera",
+  "mood", "aspect_ratio", "ratio", "resolution", "foreground", "elements",
+  "top_header", "bottom_bar", "header", "footer", "sidebar", "card",
+  "title", "subtitle", "button", "buttons", "icons", "image", "images",
+  "text", "typography", "font", "description", "position", "size",
+  "product_card", "price", "tag", "badge", "avatar", "overlay", "frame",
+]);
+
+/**
+ * 判断输入是否为「结构化视觉规格」。
+ *
+ * 判定条件（必须同时满足，避免把普通 JSON 数据误判成要出图）：
+ *   1. 能被 JSON.parse 解析成对象（非数组、非 null）；
+ *   2. 递归收集到的 key 里，命中视觉字段白名单的 **≥ 2 个**；
+ *   3. 含至少一个"强视觉信号"key（type/subject/scene/layout/composition/
+ *      ui_overlay/background/style），防止 `{"title":"x","description":"y"}`
+ *      这种通用配置被误判。
+ *
+ * 只认 JSON 不认 YAML：YAML 没有可靠的轻量判别方式，误伤风险高于收益。
+ * YAML 形态的规格仍会落到大模型分支，由下面新增的提示词规则兜住。
+ */
+export function detectVisualSpecInput(input: string): boolean {
+  const trimmed = input.trim();
+  // 必须是对象字面量形态，先做最廉价的排除。
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return false;
+  if (trimmed.length < 20) return false;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return false;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
+
+  const seenKeys = new Set<string>();
+  // 深度设上限，防止畸形深嵌套输入把主线程卡住。
+  const collect = (node: unknown, depth: number) => {
+    if (depth > 6 || !node || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      node.forEach(item => collect(item, depth + 1));
+      return;
+    }
+    for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+      seenKeys.add(key.toLowerCase());
+      collect(value, depth + 1);
+    }
+  };
+  collect(parsed, 0);
+
+  // 不用 [...seenKeys]：当前 tsconfig target 下展开 Set 会触发 TS2802。
+  const matched = Array.from(seenKeys).filter(key => VISUAL_SPEC_KEYS.has(key));
+  if (matched.length < 2) return false;
+  const STRONG_KEYS = ["type", "subject", "scene", "layout", "composition", "ui_overlay", "background", "style"];
+  return matched.some(key => STRONG_KEYS.includes(key));
+}
+
+/**
+ * 把结构化视觉规格摊平成一段自然语言提示词。
+ *
+ * 直接把原始 JSON 丢给图片模型效果很差（括号、引号、字段名都会被当成画面内容），
+ * 所以这里按 `父级 键: 值` 的层级把所有叶子值串起来，只保留人能读的部分。
+ */
+export function flattenVisualSpecToPrompt(input: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(input.trim());
+  } catch {
+    return input.trim();
+  }
+  const lines: string[] = [];
+  const walk = (node: unknown, path: string[], depth: number) => {
+    if (depth > 6) return;
+    if (node === null || node === undefined) return;
+    if (typeof node === "string" || typeof node === "number" || typeof node === "boolean") {
+      const label = path.join(" / ");
+      lines.push(label ? `${label}: ${node}` : String(node));
+      return;
+    }
+    if (Array.isArray(node)) {
+      node.forEach(item => walk(item, path, depth + 1));
+      return;
+    }
+    if (typeof node === "object") {
+      for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+        walk(value, [...path, key], depth + 1);
+      }
+    }
+  };
+  walk(parsed, [], 0);
+  if (!lines.length) return input.trim();
+  return [
+    "请严格按照以下结构化视觉规格生成一张完整的图片，所有文字内容需原样呈现且字形正确：",
+    ...lines,
+  ].join("\n");
+}
+
 const MODEL_SWITCH_REPLY_PATTERN =
   /切换.*模型|模型.*切换|选择.*模型|请选择.*模型|换.*模型|自主切换|手动.*切换|切到.*(生图|对话|图片)|改用.*模型/i;
 
@@ -376,6 +489,25 @@ export async function routeCreativeIntent({
    * 除非句子里有**明确的创作祈使**（下面的 hasExplicitImageVerb）。
    * 这样「分析这张海报」走文字，「分析完帮我重新画一张海报」仍能出图。
    */
+  /**
+   * 【2026-09-13】结构化视觉规格短路 —— **必须排在文本正则之前**。
+   *
+   * 位置是这条修复的关键：只要先执行到 hasTextSignal 分支（:395 附近）就会
+   * 直接 return text，后续代码一行都不会跑。所以放在任何正则之后都等于没改。
+   *
+   * 用户贴的 JSON 里弹幕文案「Neuralink进展如何？」的「如何」会命中文本正则，
+   * 而它其实是要画进图里的素材，不是用户的提问。detectVisualSpecInput 只看
+   * JSON 的 key 不看 value，正好绕开这类 value 污染。
+   */
+  if (trimmedPrompt && detectVisualSpecInput(trimmedPrompt)) {
+    return {
+      mode: "image",
+      imagePrompt: flattenVisualSpecToPrompt(trimmedPrompt),
+      reason: "命中结构化视觉规格（JSON）",
+      confidence: "high",
+    };
+  }
+
   const hasTextSignal = Boolean(trimmedPrompt) && DIRECT_TEXT_PATTERN.test(trimmedPrompt);
   const hasImageSignal = Boolean(trimmedPrompt) && DIRECT_IMAGE_PATTERN.test(trimmedPrompt);
 
@@ -543,6 +675,18 @@ async function routeCreativeIntentWithModel({
       "  『帮我画一张夏日促销海报』→ image（明确要求产出图片）",
       "  『把这张图的背景换成海边』→ image（明确要求改图）",
       "凡是疑问句、征求意见、请教知识、要求解释或分析的，一律返回 text。",
+      // ↓↓↓ 2026-09-13 补充：结构化视觉规格是"施工图"不是"阅读材料"。
+      //     前面的 detectVisualSpecInput 只短路标准 JSON，YAML / 半结构化 /
+      //     带前后缀说明的形态仍会落到这里，必须由提示词兜住。
+      "【结构化视觉规格例外】如果用户输入是一段描述画面的结构化数据",
+      "（JSON、YAML，或带 type/subject/background/layout/composition/scene/style/",
+      "ui_overlay 等字段的清单），哪怕它没有任何祈使动词，也一律返回 image。",
+      "这类输入本身就是一份画面施工规格，用户要的是成品图，不是对规格的解读。",
+      "特别注意：这类规格的字段值里常常包含对话、提问、按钮文案、占位符文字",
+      "（例如弹幕『这个怎么用？』、输入框占位符『说点什么...』）——",
+      "这些是**要画进图里的画面内容**，不是用户在向你提问，绝不能因此判成 text。",
+      "此时 imagePrompt 要把规格里所有字段摊平成一段连贯的画面描述，",
+      "保留全部文案、数字、颜色与位置关系，并要求图中文字字形正确。",
       "【不确定时的默认行为】如果你无法确信用户想要图片，请返回 text。",
       "错误地返回文字，用户再补一句『帮我画出来』即可；",
       "而错误地生成图片会浪费用户的时间与费用，代价高得多。",
@@ -590,7 +734,7 @@ async function routeCreativeIntentWithModel({
 export async function generateIntentImages({
   prompt,
   model = DEFAULT_IMAGE_MODEL_ID,
-  ratio = "1:1",
+  ratio = AUTO_RATIO_VALUE,
   count = 1,
   style = "智能路由",
   referencesEnabled = false,
@@ -605,7 +749,7 @@ export async function generateIntentImages({
   const result = await generateImages({
     prompt,
     model,
-    ratio,
+    ratio: resolveImageRatio(ratio),
     count,
     style,
     referencesEnabled,

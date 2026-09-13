@@ -136,6 +136,24 @@ export const AI_CREDIT_POLICIES: AiBillingPolicy[] = [
   },
 ];
 
+/**
+ * 档位折扣系数 —— **全部为 1.0 是刻意的产品决策（用户 2026-09-13 拍板），不是没填完。**
+ *
+ * 这个系数直接乘在扣费积分上：>1 多扣，<1 少扣。历史上曾是
+ * `lite 1.08 / pro 0.95 / studio 0.85 / business 0.82`，问题出在：
+ *
+ *   ⚠️ **前台展示价不走这个系数**（InfiniteCanvas.tsx 读 getAiImageModelCreditPolicy，
+ *      即本文件的常量原值），于是 lite 用户看到"200 积分"、实际被扣 216 ——
+ *      名义上给的"入门加价"福利，在用户眼里就是**偷偷多扣了 8%**。
+ *      高档位同理：studio 看到 200 实扣 170，虽然占便宜但同样对不上账。
+ *
+ * 统一 1.0 后「展示价 = 实扣价」，用户能自己算明白账。会员福利继续通过
+ * **每月发放多少积分**体现（见 shared/billing-config.ts 的 creditsPerPeriod），
+ * 而不是在扣费侧再藏一层系数。
+ *
+ * 📌 若将来要恢复差异化系数，**必须同时改前台展示让它按用户档位算价**，
+ *    否则就是再造一次"展示与实扣不一致"。
+ */
 export const AI_PLAN_DISCOUNTS: AiPlanDiscountPolicy[] = [
   { planId: "lite", multiplier: 1.0, label: "标准" },
   { planId: "creator", multiplier: 1.0, label: "标准" },

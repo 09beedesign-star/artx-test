@@ -5,6 +5,7 @@ import {
   VOD_EXPANSION_PROMPT_MAX_LENGTH,
   VOD_IMAGE_EXPANSION_MODEL,
 } from "../../../shared/image-expansion";
+import { AUTO_RATIO_VALUE, resolveImageRatio } from "../../../shared/image-ratios";
 
 type LLMRole = "system" | "user" | "assistant";
 
@@ -494,7 +495,7 @@ export async function searchReferenceImages({
 export async function generateImages({
   prompt,
   model = DEFAULT_IMAGE_MODEL_ID,
-  ratio = "1:1",
+  ratio = AUTO_RATIO_VALUE,
   count = 1,
   style,
   referencesEnabled = false,
@@ -513,6 +514,9 @@ export async function generateImages({
   generationId?: string;
 }) {
   requireAiAuth();
+  // ⚠️ 默认参数只在调用方「完全不传」时生效。调用方显式传 "auto" 时默认参数兜不住，
+  // auto 会一路透传到后端被静默当成 1:1 方图。所以必须在函数体里再收口一次。
+  const resolvedRatio = resolveImageRatio(ratio);
   const promptWithContext = [
     style ? `风格：${style}` : "",
     referencesEnabled ? "参考当前画布和已引用素材进行生成。" : "",
@@ -524,7 +528,7 @@ export async function generateImages({
         taskId: generationId,
         prompt,
         model,
-        ratio,
+        ratio: resolvedRatio,
         count,
         style,
         referencesEnabled,
@@ -542,7 +546,7 @@ export async function generateImages({
     operation: "generate",
     prompt: promptWithContext,
     model,
-    ratio,
+    ratio: resolvedRatio,
     count,
     style,
     images: referencedAssets,
@@ -600,7 +604,7 @@ export async function startBackgroundImageGeneration({
   taskId,
   prompt,
   model = DEFAULT_IMAGE_MODEL_ID,
-  ratio = "1:1",
+  ratio = AUTO_RATIO_VALUE,
   count = 1,
   style,
   referencesEnabled = false,
@@ -630,7 +634,7 @@ export async function startBackgroundImageGeneration({
     operation: "generate",
     prompt: promptWithContext,
     model,
-    ratio,
+    ratio: resolveImageRatio(ratio),
     count,
     style,
     images: referencedAssets,
@@ -699,7 +703,7 @@ export async function createProductBackground({
   composition,
   productScale,
   sceneType,
-  ratio = "1:1",
+  ratio = AUTO_RATIO_VALUE,
   resolution = "2k",
   count = 1,
   customWidth,
@@ -733,7 +737,7 @@ export async function createProductBackground({
     composition,
     productScale,
     sceneType,
-    ratio,
+    ratio: resolveImageRatio(ratio),
     resolution,
     count,
     customWidth,

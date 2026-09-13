@@ -4,13 +4,15 @@ import { toast } from "sonner";
 import {
   ChevronDown,
   Copy,
+  Gift,
   Heart,
   ImagePlus,
   PlayCircle,
   Send,
   X,
 } from "lucide-react";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth, rememberInviteCodeFromUrl } from "@/contexts/AuthContext";
+import { INVITE_REWARD_CONFIG } from "@shared/billing-config";
 import asteroidImage from "@/assets/ardot/3_3.png";
 import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
 import HomeFirstTopUpBanner, {
@@ -237,6 +239,19 @@ export default function HomePage() {
   const [isFirstTopUpBannerDismissed, setIsFirstTopUpBannerDismissed] = useState(
     isFirstTopUpBannerDismissedToday,
   );
+  /*
+   * 邀请落地态。
+   *
+   * ⚠️ 这是邀请闭环此前最直观的断裂点：朋友点开 /?invite=XXXX 进来，
+   * 页面**没有任何变化** —— 不提示"谁邀请了你"，也不引导去注册，
+   * 面板默认停在 prelogin。用户自然会问"哪里输邀请码"，
+   * 而正确答案是"不用输，但你必须去注册"，这件事没人告诉他。
+   *
+   * 首次挂载时把 URL 上的邀请码落到本地（见 AuthContext 的
+   * rememberInviteCodeFromUrl），之后即使用户逛遍全站再回来注册，
+   * 邀请码依然在，关系才绑得上。
+   */
+  const [landedInviteCode, setLandedInviteCode] = useState("");
   const activeTabRef = useRef<LandingTab>("home");
   const hasReachedInspirationRef = useRef(false);
   const mainRef = useRef<HTMLElement>(null);
@@ -257,6 +272,22 @@ export default function HomePage() {
     setAuthError("");
     setLoginBubble(null);
     setHomeInspirationItems(createHomeInspirationFeed());
+  }, [isAuthenticated]);
+
+  /*
+   * 带邀请码落地时：记住邀请码，并把右侧面板直接切到注册态。
+   *
+   * ⚠️ 必须先判 isAuthenticated —— 已登录用户点朋友的邀请链接，
+   * 给他弹注册面板毫无意义（他也绑不上，后端只对新账号绑定）。
+   * 这种情况下只记码不改 UI：万一他随后退出登录换新号注册，码还在。
+   */
+  useEffect(() => {
+    const code = rememberInviteCodeFromUrl();
+    if (!code) return;
+    setLandedInviteCode(code);
+    if (isAuthenticated) return;
+    setCurrentLandingTab("home");
+    setPanelMode("register");
   }, [isAuthenticated]);
 
   const measureHomeInspirationImage = () => {
@@ -351,8 +382,27 @@ export default function HomePage() {
     return () => observer.disconnect();
   }, [isAuthenticated]);
 
-  const shouldRenderAuthPanel = !isAuthenticated;
+  /*
+   * 登录面板的挂载条件。
+   *
+   * ⚠️⚠️ 两个条件缺一不可，少了第二个会**破坏浏览器自动填充**：
+   *   1. !isAuthenticated —— 已登录不得把密码表单留在 DOM 里
+   *      （隐藏表单仍可能触发密码管理器的身份确认弹窗，见 MEMORY.md）；
+   *   2. displayedMode !== "prelogin" —— 面板收起时也必须真正卸载。
+   *
+   * 此前只有第 1 个条件，收起状态靠 opacity-0 + pointer-events-none 遮住，
+   * 表单从首屏起就一直挂在 DOM 上。Chrome/Safari 的密码管理器在页面加载时
+   * 就会扫描表单并决定要不要提示填充，而对一个**可见性为 0**的表单
+   * 它的行为是不稳定的 —— 等用户点开登录面板时，填充时机早就过去了，
+   * 于是"勾了选项却什么都没自动填上"（2026-09-13 用户报的现象）。
+   *
+   * 卸载后浏览器会在面板真正出现时重新发现表单，填充提示才会按预期弹出。
+   *
+   * 📌 卸载不影响淡出动画：收起时先播 PreloginPanel 的淡入（500ms），
+   * 登录面板本身是直接移除的，视觉上被上层面板盖住，用户看不到突变。
+   */
   const displayedMode = isAuthenticated ? "prelogin" : panelMode;
+  const shouldRenderAuthPanel = !isAuthenticated && displayedMode !== "prelogin";
 
   const handleMainScroll = () => {
     const main = mainRef.current;
@@ -417,6 +467,17 @@ export default function HomePage() {
       } else {
         clearRememberedLoginUsername();
       }
+    }
+    // 从邀请链接来的新用户必须得到明确反馈，否则他不知道邀请到底生效没有 ——
+    // 而这件事没有第二次机会：一旦首次付费发生时关系还没建立，
+    // 后端会把已付费标记落盘，事后补绑永远拿不到奖励。
+    if (action === "register" && landedInviteCode) {
+      setLandedInviteCode("");
+      toast("注册成功，邀请已生效", {
+        description: `完成首次付费（满 HKD ${INVITE_REWARD_CONFIG.minPaidAmountHkd}）后，你将获得 ${INVITE_REWARD_CONFIG.inviteeCredits} 积分`,
+      });
+      setPanelMode("prelogin");
+      return;
     }
     toast(action === "register" ? "注册成功" : "登录成功", { description: "欢迎回到 ArtX Studio" });
     setPanelMode("prelogin");
@@ -580,7 +641,12 @@ export default function HomePage() {
               />
             </div>
             {shouldRenderAuthPanel && (
-              <div className={`absolute inset-0 transition-all duration-500 ease-out ${displayedMode === "prelogin" ? "pointer-events-none opacity-0 -translate-y-3" : "pointer-events-auto opacity-100 translate-y-0"}`}>
+              /*
+               * 这里不再写 displayedMode === "prelogin" 的隐藏分支：
+               * shouldRenderAuthPanel 已经保证收起时整块卸载，那个分支恒不可达。
+               * 留着会让人以为"隐藏态仍在 DOM 里"，正是本次要修掉的行为。
+               */
+              <div className="absolute inset-0 pointer-events-auto translate-y-0 opacity-100 transition-all duration-500 ease-out">
                 <LoginPanel
                   mode={displayedMode === "register" ? "register" : "login"}
                   email={email}
@@ -594,6 +660,7 @@ export default function HomePage() {
                   onSubmit={handleAuthSubmit}
                   onAuthAction={handleAuthAction}
                   onBackToPrompt={() => setPanelMode("prelogin")}
+                  inviteCode={landedInviteCode}
                 />
               </div>
             )}
@@ -920,6 +987,7 @@ function LoginPanel({
   onSubmit,
   onAuthAction,
   onBackToPrompt,
+  inviteCode,
 }: {
   mode: "login" | "register";
   email: string;
@@ -933,6 +1001,8 @@ function LoginPanel({
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
   onAuthAction: (action: "login" | "register") => void | Promise<void>;
   onBackToPrompt: () => void;
+  /** 从邀请链接落地时带入，空串表示自然访问。 */
+  inviteCode: string;
 }) {
   const { forgotPassword, resetPassword } = useAuth();
   const isRegister = mode === "register";
@@ -1072,6 +1142,27 @@ function LoginPanel({
       <form className="flex h-full flex-col" onSubmit={onSubmit} autoComplete="on">
         <PanelHeader title={isRegister ? "创建 ArtX Studio 账号" : "欢迎使用 ArtX Studio"} />
 
+        {/*
+          邀请落地提示。
+          ⚠️ 刻意**不做成输入框** —— 邀请码已随链接自动带上，
+          让用户再抄一遍只会增加出错机会。这里的职责是回答朋友心里
+          那两个问题：「谁邀我」和「我能得到什么」，
+          并明确告知奖励条件（注册 + 首次付费），避免事后预期落差。
+        */}
+        {inviteCode && (
+          <div className="mt-5 rounded-[12px] border border-[#936CFF]/35 bg-[#936CFF]/12 px-4 py-3">
+            <div className="flex items-center gap-2 text-[13px] font-semibold text-white">
+              <Gift size={15} className="text-[#C4AEFF]" />
+              好友邀请你加入 ArtX Studio
+            </div>
+            <p className="mt-1.5 text-[12px] leading-relaxed text-white/70">
+              邀请码 <span className="font-mono font-semibold text-[#C4AEFF]">{inviteCode}</span> 已自动填好，无需手动输入。
+              注册后完成首次付费（满 HKD {INVITE_REWARD_CONFIG.minPaidAmountHkd}），
+              你可得 {INVITE_REWARD_CONFIG.inviteeCredits} 积分，邀请你的好友可得 {INVITE_REWARD_CONFIG.inviterCredits} 积分。
+            </p>
+          </div>
+        )}
+
         <div className="mt-8 flex flex-col gap-5">
           <LabeledInput
             label="用户名或邮箱"
@@ -1096,7 +1187,29 @@ function LoginPanel({
 
         {!isRegister && (
           <div className="mt-3 flex h-5 items-center justify-between gap-3">
-            <label className="flex min-w-0 cursor-pointer items-center gap-2 text-left">
+            {/*
+              ⚠️ 这里的文案必须是「记住账号」。
+
+              勾选后 ArtX **不保存任何密码**，只做两件事：把用户名写进 cookie
+              供下次回填，以及调 navigator.credentials.store 把凭据交给浏览器
+              自带的密码管理器（见 handleAuthAction）。密码全程由浏览器/系统
+              钥匙串保管，ArtX 侧永远拿不到、也不该拿到。
+
+              若把文案写成「记住」+「密码」，用户会预期下次密码自动出现在输入框里，
+              而那永远不会发生 —— 这正是 2026-09-13 用户报上来的"bug"，
+              根因是文案与行为不一致，不是功能坏了。
+
+              要做到由 ArtX 自己保管凭据，必须先落实安全的存储方案；
+              注意项目根 MEMORY.md 明令禁止把明文密码写进 cookie / localStorage。
+
+              ⚠️ 注意：本注释刻意避免出现「记住」紧跟「密码」的完整词组 ——
+              HomePage.auth-project.test.ts 用 toContain 扫源码来断言 UI 文案，
+              注释里写了那个词会让断言命中注释本身，变成永远为真的假通过。
+            */}
+            <label
+              className="flex min-w-0 cursor-pointer items-center gap-2 text-left"
+              title="勾选后下次自动填入账号；密码由浏览器的密码管理器保存，登录时在密码框选择即可"
+            >
               <input
                 type="checkbox"
                 checked={rememberPassword}
@@ -1104,7 +1217,7 @@ function LoginPanel({
                 className="h-4 w-4 rounded border-white/20 bg-[#222] accent-[#936CFF]"
               />
               <span className="truncate text-[13px] font-medium text-white">
-                记住密码
+                记住账号
               </span>
             </label>
             <button
