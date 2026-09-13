@@ -1,3 +1,5 @@
+import { resolveImageRatio } from "../shared/image-ratios";
+
 export type NanoBananaGenerateInput = {
   prompt: string;
   model?: string;
@@ -19,6 +21,20 @@ function getEndpoint(baseUrl: string) {
 function getErrorMessage(data: ProviderImageResponse, fallback: string) {
   if (!data.error) return fallback;
   return typeof data.error === "string" ? data.error : data.error.message || fallback;
+}
+
+/**
+ * 把比例映射成上游 size 字符串。
+ *
+ * 【2026-09-13 修复】原先直接写 `input.ratio === "9:16" ? ... : input.ratio === "16:9" ? ... : "1024x1024"`，
+ * "auto" 会掉进最后那个 else 分支被静默变成方图 —— 这是 auto 的第 8 个出口，
+ * 且全程零报错。必须先经 resolveImageRatio 收口。
+ */
+function resolveNanoBananaSize(ratio?: string) {
+  const resolved = resolveImageRatio(ratio);
+  if (resolved === "9:16") return "1024x1536";
+  if (resolved === "16:9") return "1536x1024";
+  return "1024x1024";
 }
 
 export class NanoBananaClient {
@@ -45,7 +61,7 @@ export class NanoBananaClient {
         model: input.model || this.defaultModel,
         prompt: input.prompt,
         n: input.count || 1,
-        size: input.ratio === "9:16" ? "1024x1536" : input.ratio === "16:9" ? "1536x1024" : "1024x1024",
+        size: resolveNanoBananaSize(input.ratio),
       }),
     });
 

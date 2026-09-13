@@ -528,6 +528,11 @@ import {
   hasCustomDefaultOutputCount,
   isSupportedImageModelId,
 } from "@shared/image-models";
+import {
+  DEFAULT_AUTO_RATIO,
+  isAutoRatio,
+  resolveImageRatio,
+} from "@shared/image-ratios";
 import { getAiImageModelCreditPolicy } from "@shared/ai-credit-policy";
 import { filterAllowedAiModelOptions, resolveAllowedAiModelId } from "@/lib/model-access";
 import {
@@ -11944,18 +11949,27 @@ function inferImageRatio(width: number, height: number) {
   ).id;
 }
 
-function getImageDisplaySizeForRatio(ratio: string): { w: number; h: number } {
+function getImageDisplaySizeForRatio(ratio?: string | null): { w: number; h: number } {
   const ratioSize: Record<string, { w: number; h: number }> = {
     "1:1": { w: 260, h: 260 },
     "4:5": { w: 240, h: 300 },
     "5:4": { w: 300, h: 240 },
     "3:4": { w: 240, h: 320 },
     "4:3": { w: 320, h: 240 },
+    // 3:2 此前缺失，选了它的用户会静默拿到 1:1 的画框。
+    "3:2": { w: 320, h: 213 },
     "16:9": { w: 320, h: 180 },
     "9:16": { w: 180, h: 320 },
     "21:9": { w: 360, h: 154 },
   };
-  return ratioSize[ratio] || ratioSize["1:1"];
+  /**
+   * 【2026-09-13】先 resolveImageRatio 再查表。
+   *
+   * 原先直接 `ratioSize[ratio] || ratioSize["1:1"]`：表里既没有 "auto" 也没有 "3:2"，
+   * 这两种输入都会静默落到 1:1，画框变方图且全程零报错。
+   */
+  const resolved = resolveImageRatio(ratio);
+  return ratioSize[resolved] || ratioSize[DEFAULT_AUTO_RATIO] || ratioSize["1:1"];
 }
 
 function fitGeneratedImageSizeToFrame(
@@ -20652,7 +20666,7 @@ function CanvasAssistantPanel({
       projectId,
       prompt: promptText,
       model: message.imageBackup?.model || DEFAULT_IMAGE_AI_MODEL_ID,
-      ratio: message.imageBackup?.ratio || "1:1",
+      ratio: resolveImageRatio(message.imageBackup?.ratio),
       count: 1,
       style: message.imageBackup?.style || "聊天气泡",
       referencesEnabled: false,
@@ -20743,7 +20757,9 @@ function CanvasAssistantPanel({
               )
                 ? payload.model!
                 : assistantImageModel.id,
-              ratio: "1:1",
+              // 首页入口没有比例选择器，等价于「用户未选择」= auto，
+              // 因此必须走全站 auto 默认值，而不是硬编码 1:1。
+              ratio: DEFAULT_AUTO_RATIO,
               count: 1,
               style: "首页创作",
               referencesEnabled: false,
@@ -20897,10 +20913,15 @@ function CanvasAssistantPanel({
           userPrompt: rawSubmittedComposerPrompt,
           imagePrompt: routedPrompt,
         });
-        const skillRatio =
-          assistantImageRatio === "auto"
-            ? getSkillPreferredRatio(activeSkill, "1:1")
-            : assistantImageRatio;
+        /**
+         * 【2026-09-13】技能分支的 auto 回落链：技能自带画布尺寸 > 9:16。
+         *
+         * 顺序不能颠倒：技能（如"小红书封面"）自己声明了 canvasSizes 时，
+         * 那是比全局默认更强的意图，必须优先。只有技能没声明时才用 DEFAULT_AUTO_RATIO。
+         */
+        const skillRatio = isAutoRatio(assistantImageRatio)
+          ? getSkillPreferredRatio(activeSkill, DEFAULT_AUTO_RATIO)
+          : assistantImageRatio;
         const generationId = `right-skill-${activeSkill.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         const shouldEditTargetReference =
           activeSkill.capability === "image_edit" &&
@@ -21212,10 +21233,17 @@ function CanvasAssistantPanel({
               : assistantAutoMode
                 ? "auto"
                 : assistantImageModel.id,
-          ratio:
-            shouldEditTargetReference || assistantImageRatio === "auto"
-              ? "1:1"
-              : assistantImageRatio,
+          /**
+           * 【2026-09-13】auto 的回落值由 1:1 改为 9:16（DEFAULT_AUTO_RATIO）。
+           *
+           * ⚠️ 原表达式把两个语义完全不同的条件用 || 合到了一起：
+           *   shouldEditTargetReference（多图融合，必须锁 1:1 以贴合底图）
+           *   assistantImageRatio === "auto"（用户没选，要给默认值）
+           * 直接改共用的 "1:1" 会连多图融合一起改掉，所以这里必须拆开。
+           */
+          ratio: shouldEditTargetReference
+            ? "1:1"
+            : resolveImageRatio(assistantImageRatio),
           count: requestedImageCount,
           style: shouldEditTargetReference ? "引用编辑结果" : "右侧 AI 助手",
           referencesEnabled: assistantImages.length > 0,
@@ -24789,7 +24817,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             y: rect.top + rect.height / 2,
           })
         : { x: 160, y: 120 };
-      const ratioSize = getImageDisplaySizeForRatio(detail.ratio || "1:1");
+      const ratioSize = getImageDisplaySizeForRatio(detail.ratio);
       const displayW =
         detail.customWidth && detail.customHeight
           ? Math.min(560, Math.max(220, Math.round(detail.customWidth / 5)))

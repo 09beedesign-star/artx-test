@@ -1,6 +1,7 @@
 import { callLLM, generateImages, type GeneratedImageResult } from "@/lib/ai";
 import { DEFAULT_IMAGE_MODEL_ID } from "../../../shared/image-models";
 import { DEFAULT_TEXT_MODEL } from "../../../shared/text-models";
+import { AUTO_RATIO_VALUE, resolveImageRatio } from "../../../shared/image-ratios";
 
 export type CreativeIntentMode = "text" | "image" | "reference_search";
 
@@ -733,7 +734,7 @@ async function routeCreativeIntentWithModel({
 export async function generateIntentImages({
   prompt,
   model = DEFAULT_IMAGE_MODEL_ID,
-  ratio = "1:1",
+  ratio = AUTO_RATIO_VALUE,
   count = 1,
   style = "智能路由",
   referencesEnabled = false,
@@ -748,7 +749,7 @@ export async function generateIntentImages({
   const result = await generateImages({
     prompt,
     model,
-    ratio,
+    ratio: resolveImageRatio(ratio),
     count,
     style,
     referencesEnabled,

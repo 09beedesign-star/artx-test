@@ -3,7 +3,29 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { selectEditedTextRegions } from "../../lib/text-replace";
 
+/**
+ * 剥掉 // 与 块注释，再做源码扫描断言。
+ *
+ * 【2026-09-13】踩过的坑：`toContain` 扫源码时**注释也算**。
+ * 改了实现之后，被删掉的旧写法只要还留在注释里，断言就会继续绿，
+ * 完全掩盖住「实现已经换了」这个事实。
+ */
+function stripComments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+}
+
 describe("InfiniteCanvas prompt controls", () => {
+  it("strips comments before scanning source (self-check)", () => {
+    // 自证用例：确保 stripComments 真的在工作，而不是原样返回。
+    const sample = 'const a = 1; // ratio === "auto"\n/* ratio === "auto" */\nconst b = 2;';
+    const stripped = stripComments(sample);
+    expect(stripped).not.toContain('ratio === "auto"');
+    expect(stripped).toContain("const a = 1;");
+    expect(stripped).toContain("const b = 2;");
+  });
+
   it("uses the minimap surface color for prompt model and Skill button defaults while keeping hover styling", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
 
@@ -139,7 +161,16 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain('useState<CanvasAssistantImageRatio>("auto")');
     expect(source).toContain("<ImageRatioSelector");
     expect(source).toContain("onChange={setAssistantImageRatio}");
-    expect(source).toContain('assistantImageRatio === "auto"');
+    /*
+     * 【2026-09-13 修正假通过】原断言是 `assistantImageRatio === "auto"`。
+     * auto 回落值改成 9:16 后实现已换成 isAutoRatio()/resolveImageRatio()，
+     * 该字符串在源码里只剩一行**注释**，测试却依旧绿 —— 典型的注释污染。
+     * 现在改为在剥掉注释后的源码上断言，并显式禁掉裸比较。
+     */
+    const code = stripComments(source);
+    expect(code).not.toContain('assistantImageRatio === "auto"');
+    expect(code).toContain("resolveImageRatio(assistantImageRatio)");
+    expect(code).toContain("isAutoRatio(assistantImageRatio)");
     expect(source).toContain("ratio: skillRatio");
     expect(source.match(/count: requestedImageCount/g)).toHaveLength(2);
     expect(
