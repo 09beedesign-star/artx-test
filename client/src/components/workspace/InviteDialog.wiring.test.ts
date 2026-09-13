@@ -52,9 +52,12 @@ describe("邀请入口接线", () => {
     const dialog = stripLineComments(read("client/src/components/workspace/InviteDialog.tsx"));
     expect(dialog).toContain("/api/invite/summary");
 
+    // ⚠️ 允许 POST /api/invite/send（发邮件），但禁止任何积分发放类接口。
+    // 发邮件本身不发放积分 —— 奖励发放点在后端订单支付成功链路里。
+    expect(dialog).toMatch(/\/api\/invite\/send/);
+    
     // 反向断言：守的是「将来新增的出口」，不是已知的那几个。
     // 逐个点名正向断言只能守住今天，守不住明天。
-    expect(dialog).not.toMatch(/method:\s*["']POST["']/i);
     expect(dialog).not.toMatch(/\/api\/invite\/(claim|grant|reward|redeem)/i);
   });
 
