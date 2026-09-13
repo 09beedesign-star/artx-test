@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Copy, Sparkles, X } from "lucide-react";
+import { Copy, Download, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   defaultApiBaseUrlForCurrentHost,
@@ -35,6 +35,7 @@ export type InspirationPromptDialogProps = {
   isDark: boolean;
   onClose: () => void;
   onCopy: (item: InspirationPromptItem) => void;
+  onImport?: (item: InspirationPromptItem) => void;
 };
 
 const ALL_GROUPS = "全部分类";
@@ -72,6 +73,7 @@ export function InspirationPromptDialog({
   isDark,
   onClose,
   onCopy,
+  onImport,
 }: InspirationPromptDialogProps) {
   const [items, setItems] = useState<InspirationPromptItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<InspirationPromptItem | null>(null);
@@ -207,7 +209,7 @@ export function InspirationPromptDialog({
                   onMouseLeave={handleInspirationCardMouseLeave}
                   onDoubleClick={() => setSelectedItem(item)}
                 >
-                  <div className="aspect-[16/10] overflow-hidden bg-[#171717]">
+                  <div className="relative aspect-[16/10] overflow-hidden bg-[#171717]">
                     <img
                       src={item.imageUrl}
                       alt={item.title}
@@ -215,6 +217,17 @@ export function InspirationPromptDialog({
                       style={{ transform: hoveredItemKey === `${item.rank}-${item.title}` ? "scale(1.08)" : "scale(1)" }}
                       loading="lazy"
                     />
+                    {onImport && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onImport(item); }}
+                        className="absolute top-2 right-2 rounded-full p-2 shadow-lg transition-all hover:scale-110"
+                        style={{ background: "#C5ED47" }}
+                        aria-label="一键导入灵感"
+                        title="一键导入灵感"
+                      >
+                        <Download size={14} style={{ color: "#111" }} />
+                      </button>
+                    )}
                   </div>
                   <div className="p-3"><p className="truncate type-body-sm" style={{ color: text, fontWeight: 700 }}>{item.title}</p><p className="mt-1 line-clamp-2 type-caption" style={{ color: sub }}>{item.prompt}</p><p className="mt-2 type-caption" style={{ color: "#C5ED47" }}>双击查看详情</p></div>
                 </article>

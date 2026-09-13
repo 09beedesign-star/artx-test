@@ -18934,6 +18934,17 @@ function CanvasAssistantPanel({
     toast("已引用灵感", { description: item.title });
   }, []);
 
+  const handleInspirationImport = useCallback((item: InspirationPromptItem) => {
+    setComposerSegments([createAssistantTextSegment(item.prompt)]);
+    setInspirationDialogOpen(false);
+    window.dispatchEvent(
+      new CustomEvent("canvas-assistant-external-message", {
+        detail: { role: "user", content: `用户已导入「${item.title}」灵感` },
+      })
+    );
+    toast("已导入灵感", { description: item.title });
+  }, []);
+
   const setComposerTextSegment = useCallback(
     (segmentId: string, value: string) => {
       const singleLineValue = value.replace(/\s*\n+\s*/g, " ");
@@ -21269,6 +21280,7 @@ function CanvasAssistantPanel({
         isDark={isDark}
         onClose={() => setInspirationDialogOpen(false)}
         onCopy={handleInspirationCopy}
+        onImport={handleInspirationImport}
       />
       <aside
         className="absolute right-3 top-3 bottom-3 flex flex-col nodrag nopan overflow-hidden rounded-[var(--radius-md-design)] transition-transform duration-200 ease-out"
