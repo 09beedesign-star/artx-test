@@ -33,11 +33,22 @@ function ModelLineIcon({ size = 14 }: { size?: number }) {
 }
 
 function ModelIconMark({ model }: { model: AiModelOption }) {
-  const iconKind = getModelBrandIconKind(model.id, model.icon);
-  if (iconKind === "none") {
-    return <Cpu size={10} style={{ color: model.color }} />;
+  // auto 不是品牌而是「让系统替你挑」，全站统一用魔法棒表达这个语义，
+  // 与 InfiniteCanvas 的 AssistantModelIcon 保持一致。
+  if (model.id === AUTO_AI_MODEL.id) {
+    return (
+      <span
+        data-model-brand-icon="auto"
+        style={{ color: "#FFFFFF", display: "inline-flex", flex: "0 0 auto", marginTop: 2 }}
+      >
+        <Wand2 size={14} />
+      </span>
+    );
   }
-  const iconNode = iconKind === "image"
+  const iconKind = getModelBrandIconKind(model.id, model.icon);
+  // 认不出品牌时降级到通用图片线框图标，**不能不画** ——
+  // 图标位一旦可以为空，任何漏传 icon 的调用点都会在 UI 上开天窗。
+  const iconNode = iconKind === "image" || iconKind === "none"
     ? <ModelLineIcon size={14} />
     : <ModelBrandIconMask kind={iconKind} size={14} />;
   return (

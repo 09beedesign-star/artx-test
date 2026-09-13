@@ -137,9 +137,18 @@ export function mergeImageAiModelOptions(discoveredModels: AiModelOption[] = [])
     const option = optionById.get(id) || IMAGE_AI_MODELS.find(model => model.id === id);
     if (!option) continue;
     if (!option.id || option.id === AUTO_AI_MODEL.id || !isImageModelOption(option)) continue;
+    // icon 必须和 label 同等对待地兜底。
+    //
+    // 服务端下发的条目**优先级高于本地目录**（见上面的 sourceModels 构造），
+    // 一旦某个条目缺 icon，它就会把本地 IMAGE_AI_MODELS 里写好的正确 icon
+    // 整条覆盖掉，UI 上表现为「这个模型选中后没有图标」。
+    // 2026-09-13 修过一次同类现象，根因在调用点漏传 icon；这里是同一个坑的
+    // 另一个出口 —— 数据侧的 icon 丢失，本地目录是唯一的真相来源。
+    const localFallback = IMAGE_AI_MODELS.find(model => model.id === option.id);
     merged.set(option.id, {
       ...option,
       label: option.label || option.id,
+      icon: option.icon || localFallback?.icon,
     });
   }
   return [AUTO_AI_MODEL, ...Array.from(merged.values())];

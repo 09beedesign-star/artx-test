@@ -468,9 +468,31 @@ function AssistantModelIcon({
   modelId: string;
   icon?: string;
 }) {
+  /**
+   * 这里**绝不能因为认不出品牌就 return null**。
+   *
+   * 2026-09-13 线上 bug：调用点漏传 icon 时 getModelBrandIconKind 会落到 "none"，
+   * 组件直接返回 null，选择器的触发按钮上就是一块空白 —— 用户看到的是
+   * 「有的模型选中后没图标」。根因虽然在调用点，但把整条渲染链的最后一环
+   * 做成「认不出就什么都不画」，等于给每一个新增调用点都埋了同一颗雷。
+   *
+   * 现在的口径：品牌认得出就用品牌图标，认不出一律降级到通用图片线框图标。
+   * 图标位永远占位，永远有东西可看。
+   */
+  if (modelId === AUTO_AI_MODEL.id) {
+    // auto 不是某一个品牌，它是「让系统替你挑」。全站用魔法棒表示这个语义
+    // （下方 compact 态的 auto 按钮同样是 WandSparkles），这里保持一致。
+    return (
+      <span
+        data-model-brand-icon="auto"
+        style={{ color: "#FFFFFF", display: "inline-flex", flex: "0 0 auto", marginTop: 2 }}
+      >
+        <WandSparkles size={14} />
+      </span>
+    );
+  }
   const iconKind = getModelBrandIconKind(modelId, icon);
-  if (iconKind === "none") return null;
-  const iconNode = iconKind === "image"
+  const iconNode = iconKind === "image" || iconKind === "none"
     ? <ImageModelLineIcon size={14} />
     : <ModelBrandIconMask kind={iconKind} size={14} />;
   return (
@@ -22472,7 +22494,7 @@ function CanvasAssistantPanel({
                       aria-label="选择模型"
                     >
                       {!assistantAutoMode && (
-                        <AssistantModelIcon modelId={assistantModel.id} />
+                        <AssistantModelIcon modelId={assistantModel.id} icon={assistantModel.icon} />
                       )}
                       {!compactAssistantControls && (
                         <>
