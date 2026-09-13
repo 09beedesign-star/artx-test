@@ -1115,7 +1115,10 @@ export async function handleAuthAction(
 
     let user = db.users.find((item) => item.loginKey === loginKey(email));
     if (!user) {
-      user = createUser(email, crypto.randomBytes(18).toString("hex"));
+      user = createUser(email, crypto.randomBytes(18).toString("hex"), "viewer", {
+        ip: context.ip,
+        userAgent: context.userAgent,
+      });
       db.users.push(user);
     }
     if (user.status === "disabled") {
@@ -1228,7 +1231,10 @@ export async function handleAuthAction(
     const username = phoneUsername(phone);
     let user = db.users.find((item) => item.loginKey === loginKey(username));
     if (!user) {
-      user = createUser(username, crypto.randomBytes(18).toString("hex"));
+      user = createUser(username, crypto.randomBytes(18).toString("hex"), "viewer", {
+        ip: context.ip,
+        userAgent: context.userAgent,
+      });
       db.users.push(user);
     }
     if (user.status === "disabled") {
