@@ -3811,11 +3811,67 @@ export async function handleAdminApiRequest(
         refundedInvites: refundedCount,
       });
       if (verdict.abnormal) {
+        /*
+         * 命中即自动封禁邀请人（用户决策 09-13，此前是只告警）。
+         *
+         * ## 为什么封禁失败绝不能让异常冒泡
+         *
+         * 退款是资金动作。走到这里时订单状态、积分扣减、流水、邀请奖励扣回
+         * **都已经改在 data 对象上了，但还没 saveAdminData**。
+         * 封禁是跨库写（auth 库），一旦异常冒泡整个退款请求 500，
+         * 前面那些改动全部丢失，运营看到的是「退款失败」从而重试 ——
+         * 而订单此刻仍是 paid，重试会完整再走一遍退款。
+         * 所以这里必须吞异常、降级成风控事件，让退款本身照常落库。
+         *
+         * ## 为什么必须区分「封禁成功」和「封禁被拒」
+         *
+         * updateAuthUserAdmin 有三道内置拒绝（最后一个 super_admin、
+         * 自己停用自己、非 super_admin 动 super_admin），它们**返回非 200
+         * 而不是抛错**。不看返回码就写「已封禁」，等于给运营一条谎报事件：
+         * 以为止损了，实际那个账号还在刷。两种结果必须写成不同 title。
+         *
+         * ## 解封出口（改这段前必读）
+         *
+         * 后台用户列表「恢复账号」按钮（AdminPrototypePage.tsx:1798）
+         * → POST users/:id/status {status:"normal"} → 本文件 users/:id/status 分支，
+         * 把 auth 侧置回 active、admin 侧置回 normal。
+         * ⚠️ 自动封禁必须**同步写 admin 侧 status**，否则后台列表仍显示「正常」、
+         * 那个按钮会渲染成「停用账号」，运营根本点不到解封 —— 等于单向门。
+         */
+        let banOutcome: "banned" | "rejected" | "failed" = "failed";
+        let banNote = "";
+        try {
+          const banned = await updateAuthUserAdmin({
+            actorId: actor.id,
+            actorName: actor.username,
+            userId: inviterBatch.userId,
+            status: "disabled",
+          });
+          if (banned.status === 200) {
+            banOutcome = "banned";
+            const inviterAccount = data.users.find((item) => item.id === inviterBatch.userId);
+            if (inviterAccount) {
+              inviterAccount.status = "blocked";
+            }
+          } else {
+            banOutcome = "rejected";
+            banNote = (banned.body as { error?: string })?.error || `状态码 ${banned.status}`;
+          }
+        } catch (error) {
+          banOutcome = "failed";
+          banNote = error instanceof Error ? error.message : String(error);
+        }
+        const banSuffix =
+          banOutcome === "banned"
+            ? "已自动封禁该账号，如需解除请在后台用户列表点「恢复账号」。"
+            : banOutcome === "rejected"
+              ? `自动封禁被拒绝（${banNote}），请人工处置。`
+              : `自动封禁失败（${banNote}），请人工处置。`;
         data.riskEvents = [
           {
             id: `risk_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
-            title: "邀请渠道退款率异常",
-            detail: `邀请人 ${inviterBatch.user}（${inviterBatch.userId}）已获奖励 ${inviterRewardBatches.length} 次，其中 ${refundedCount} 次因退款被扣回，退款率 ${(verdict.rate * 100).toFixed(0)}%，超过 ${(INVITE_REWARD_CONFIG.refundRateAlertThreshold * 100).toFixed(0)}% 阈值，建议人工核查是否为刷单。`,
+            title: banOutcome === "banned" ? "邀请渠道退款率异常（已自动封禁）" : "邀请渠道退款率异常（封禁未生效）",
+            detail: `邀请人 ${inviterBatch.user}（${inviterBatch.userId}）已获奖励 ${inviterRewardBatches.length} 次，其中 ${refundedCount} 次因退款被扣回，退款率 ${(verdict.rate * 100).toFixed(0)}%，达到 ${(INVITE_REWARD_CONFIG.refundRateAlertThreshold * 100).toFixed(0)}% 阈值。${banSuffix}`,
             status: "open",
             severity: "high",
             target: inviterBatch.userId,
@@ -3823,6 +3879,12 @@ export async function handleAdminApiRequest(
           } as RiskEvent,
           ...data.riskEvents,
         ].slice(0, 500);
+        appendAuditLog(data, actor, {
+          action: banOutcome === "banned" ? "邀请退款率异常自动封禁" : "邀请退款率异常封禁未生效",
+          target: inviterBatch.userId,
+          reason: `退款率 ${(verdict.rate * 100).toFixed(0)}% 达到阈值（${refundedCount}/${inviterRewardBatches.length}）`,
+          after: { status: banOutcome === "banned" ? "blocked" : "unchanged", note: banNote || undefined },
+        });
       }
     }
     const inviteClawbackShortfall =
