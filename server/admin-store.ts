@@ -1151,32 +1151,97 @@ function extendMembershipBatchesExpiry(data: AdminData, userId: string, nextExpi
 }
 
 /**
- * 会员到期降级：把 planExpiresAt 已过期的用户 plan 降回 Free。
+ * 由角色自动派发档位的后台角色（见 mapRoleToPlan）。
+ *
+ * ⚠️ 这些账号的付费档**不是买来的**，天然没有 planExpiresAt、没有订单、
+ * 没有 membership —— 完全符合下面「孤儿付费档」的特征。必须显式豁免，
+ * 否则一次惰性维护就能把运营和客服的后台档位全刷成 Free。
+ */
+const ROLE_GRANTED_PLAN_ROLES = new Set(["super_admin", "admin", "finance", "support"]);
+
+function isRoleGrantedPlanUser(user: AdminUserAccount) {
+  return ROLE_GRANTED_PLAN_ROLES.has(String(user.role || "").trim());
+}
+
+/** 把用户降回 Free 并留审计痕迹。previousPlan 供客服回答「我明明买过 Pro」。 */
+function downgradeUserToFreePlan(
+  data: AdminData,
+  user: AdminUserAccount,
+  action: string,
+  currentPlan: string,
+) {
+  user.previousPlan = currentPlan;
+  user.plan = FREE_PLAN_DISPLAY_NAME;
+  appendAuditLog(data, { id: "system", username: "系统" }, {
+    action,
+    target: user.id,
+    before: { plan: currentPlan, planExpiresAt: user.planExpiresAt },
+    after: { plan: FREE_PLAN_DISPLAY_NAME },
+  });
+}
+
+/**
+ * 会员档位校正 —— 三步，顺序不可调整。
+ *
+ *   1. 补算缺失的 planExpiresAt（有 membership 但到期日丢了）
+ *   2. 到期降级（planExpiresAt 已过）
+ *   3. 孤儿付费档降级（挂着付费档但**拿不出任何凭据**）
  *
  * 与 expireCreditBatches 分开处理 —— 积分批次按自己的 expiresAt 过期，
  * 这里只负责账号档位，避免「积分清零了但账号还挂着 Pro」的错位状态。
+ *
+ * 【为什么必须有第 3 步】
+ * 原实现循环第一行就是 `if (!user.planExpiresAt) continue;`，于是
+ * **任何没有到期日的付费档永远不会被降级**。生产库实测：14 个账号的
+ * planExpiresAt 全是 undefined，包括唯一一个真实订阅者 —— 降级逻辑
+ * 上线至今一次都没生效过，付费档一旦挂上就是终身。
+ *
+ * 孤儿的两个来源：
+ *   a. 展示层归一化 normalizePlanDisplayName 曾被塞进落库路径，把充值
+ *      用户的 "Free" 永久改写成 "Lite 入门版"（见该函数注释）。
+ *   b. 早期支付路径没写 planExpiresAt，付费档就此永不过期。
+ * 两者都表现为「付费档 + 无到期日 + 无进行中订阅」。
+ *
+ * 【判定口径：付费档必须拿得出凭据】
+ * 凭据只有两种 —— 角色派发（ROLE_GRANTED_PLAN_ROLES）或进行中的订阅
+ * （user.membership）。两样都没有就是孤儿，降回 Free。
+ * ⚠️ 刻意**不**把「付过钱」当凭据：充值（rch_ 订单）买的是积分不是会员，
+ * 恰恰就是 a 类脏数据的来源，认它等于把 bug 供成事实。
  */
 function expireMemberships(data: AdminData, expiredAt: string) {
   const cutoff = Date.parse(expiredAt);
   if (!Number.isFinite(cutoff)) return false;
   let changed = false;
   for (const user of data.users) {
-    if (!user.planExpiresAt) continue;
-    const expiryMs = Date.parse(user.planExpiresAt);
-    if (!Number.isFinite(expiryMs) || expiryMs > cutoff) continue;
-    const currentPlan = normalizePlanDisplayName(user.plan);
-    // 已经是 Free 的只需清掉到期时间，不重复写降级日志。
-    if (currentPlan !== FREE_PLAN_DISPLAY_NAME) {
-      user.previousPlan = currentPlan;
-      user.plan = FREE_PLAN_DISPLAY_NAME;
-      appendAuditLog(data, { id: "system", username: "系统" }, {
-        action: "会员到期降级",
-        target: user.id,
-        before: { plan: currentPlan, planExpiresAt: user.planExpiresAt },
-        after: { plan: FREE_PLAN_DISPLAY_NAME },
-      });
+    // 步骤 1：membership 在但到期日丢了，先补算，
+    // 否则订阅进行中的用户会在步骤 3 被当成孤儿误降。
+    if (!user.planExpiresAt && user.membership) {
+      const repaired = addMonthsIso(user.membership.startedAt, user.membership.totalPeriods);
+      if (repaired) {
+        user.planExpiresAt = repaired;
+        changed = true;
+      }
     }
-    user.planExpiresAt = undefined;
+
+    const currentPlan = normalizePlanDisplayName(user.plan);
+
+    if (user.planExpiresAt) {
+      // 步骤 2：到期降级。
+      const expiryMs = Date.parse(user.planExpiresAt);
+      if (!Number.isFinite(expiryMs) || expiryMs > cutoff) continue;
+      // 已经是 Free 的只需清掉到期时间，不重复写降级日志。
+      if (currentPlan !== FREE_PLAN_DISPLAY_NAME) {
+        downgradeUserToFreePlan(data, user, "会员到期降级", currentPlan);
+      }
+      user.planExpiresAt = undefined;
+      changed = true;
+      continue;
+    }
+
+    // 步骤 3：孤儿付费档降级。
+    if (currentPlan === FREE_PLAN_DISPLAY_NAME) continue;
+    if (isRoleGrantedPlanUser(user)) continue;
+    downgradeUserToFreePlan(data, user, "无有效订阅降级", currentPlan);
     changed = true;
   }
   return changed;
@@ -1511,12 +1576,17 @@ function normalizePlanDisplayName(planName?: string | null) {
     return FREE_PLAN_DISPLAY_NAME;
   }
 
-  if (
-    normalized.includes("creator")
-    || normalized.includes("创作者")
-    || normalized.includes("积分充值")
-    || normalized.includes("recharge")
-  ) {
+  // 「积分充值 / recharge」必须先于所有付费档判定落到 Free。
+  // 充值是买积分（rch_ 订单），不是买会员（ord_ 订单）——两者是两门生意。
+  // 这里曾把它映射成 Lite，叠加上「展示层函数被塞进落库路径」的老毛病，
+  // 结果零订阅用户被永久写成付费档。哪怕现在落库路径已经不调用本函数，
+  // 只要这条映射还在，任何残留的 "积分充值" 字面量都会在读取侧再造一次付费档。
+  if (normalized.includes("积分充值") || normalized.includes("recharge")) {
+    return FREE_PLAN_DISPLAY_NAME;
+  }
+
+  // creator / 创作者 是历史付费档名，与充值无关，保留原映射。
+  if (normalized.includes("creator") || normalized.includes("创作者")) {
     return "Lite 入门版";
   }
 
@@ -4097,8 +4167,24 @@ export async function markBillingOrderPaid(params: {
         // 否则老批次会在会员仍有效期间提前过期。
         extendMembershipBatchesExpiry(data, user.id, membershipExpiresAt, paidAt);
       }
+      // ⚠️ 付费档**必须**带到期日，否则 expireMemberships() 永远降不了它，
+      // 付费档变成终身。addMonthsIso 在 paidAt 不可解析时返回 undefined，
+      // 那种订单宁可不给档位，也不能留下一个不会过期的付费档。
+      // 生产库里唯一的真实订阅者就是这么变成「永久 Pro」的。
+      if (!user.planExpiresAt) {
+        user.plan = FREE_PLAN_DISPLAY_NAME;
+        order.event = "支付成功但会员到期时间无法计算，档位未生效";
+      }
     } else if (!user.plan || String(user.plan).trim() === "积分充值") {
-      user.plan = "Free";
+      /*
+       * 非会员订单（充值等）**只修脏值，绝不主动改写档位**。
+       *
+       * ⚠️ 别在这里加 `|| isRechargeOrder(order)` 顺手把档位刷成 Free ——
+       * 我写第一版时就踩了：Pro 会员再充一笔积分，档位当场被降成 Free。
+       * 「充值不授予档位」的正确实现是**什么都不做**，
+       * 而不是「充值就把档位设成 Free」。
+       */
+      user.plan = FREE_PLAN_DISPLAY_NAME;
     }
     user.lastSeen = "刚刚";
 

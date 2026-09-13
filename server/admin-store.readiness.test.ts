@@ -135,6 +135,9 @@ describe("production readiness", () => {
           role: "viewer",
           status: "normal",
           plan: "Pro 20K",
+          // 付费档必须带到期日：expireMemberships() 会把「付费档 + 无到期日 + 无订阅」
+          // 判定成历史脏数据并降级成 Free。真实付费档一定来自订单，必然有到期日。
+          planExpiresAt: "2099-01-01T00:00:00.000Z",
           organization: "个人",
           credits: 18420,
           frozenCredits: 0,
@@ -322,6 +325,9 @@ describe("production readiness", () => {
           role: "viewer",
           status: "normal",
           plan: "Pro",
+          // 付费档必须带到期日：expireMemberships() 会把「付费档 + 无到期日 + 无订阅」
+          // 判定成历史脏数据并降级成 Free。真实付费档一定来自订单，必然有到期日。
+          planExpiresAt: "2099-01-01T00:00:00.000Z",
           organization: "个人",
           credits: 1200,
           frozenCredits: 100,
@@ -567,6 +573,9 @@ describe("production readiness", () => {
           role: "viewer",
           status: "normal",
           plan: "Pro 20K",
+          // 付费档必须带到期日：expireMemberships() 会把「付费档 + 无到期日 + 无订阅」
+          // 判定成历史脏数据并降级成 Free。真实付费档一定来自订单，必然有到期日。
+          planExpiresAt: "2099-01-01T00:00:00.000Z",
           organization: "个人",
           credits: 100,
           frozenCredits: 0,
@@ -605,6 +614,9 @@ describe("production readiness", () => {
           role: "viewer",
           status: "normal",
           plan: "Creator 创作者版",
+          // 付费档必须带到期日：expireMemberships() 会把「付费档 + 无到期日 + 无订阅」
+          // 判定成历史脏数据并降级成 Free。真实付费档一定来自订单，必然有到期日。
+          planExpiresAt: "2099-01-01T00:00:00.000Z",
           organization: "个人",
           credits: 0,
           frozenCredits: 0,
@@ -624,6 +636,9 @@ describe("production readiness", () => {
           role: "viewer",
           status: "normal",
           plan: "Business 团队版",
+          // 付费档必须带到期日：expireMemberships() 会把「付费档 + 无到期日 + 无订阅」
+          // 判定成历史脏数据并降级成 Free。真实付费档一定来自订单，必然有到期日。
+          planExpiresAt: "2099-01-01T00:00:00.000Z",
           organization: "个人",
           credits: 0,
           frozenCredits: 0,
@@ -691,6 +706,9 @@ describe("production readiness", () => {
           role: "viewer",
           status: "normal",
           plan: "Pro",
+          // 付费档必须带到期日：expireMemberships() 会把「付费档 + 无到期日 + 无订阅」
+          // 判定成历史脏数据并降级成 Free。真实付费档一定来自订单，必然有到期日。
+          planExpiresAt: "2099-01-01T00:00:00.000Z",
           organization: "个人",
           credits: 1500,
           frozenCredits: 0,
@@ -1184,6 +1202,9 @@ describe("production readiness", () => {
           role: "viewer",
           status: "normal",
           plan: "Pro 专业版",
+          // 付费档必须带到期日：expireMemberships() 会把「付费档 + 无到期日 + 无订阅」
+          // 判定成历史脏数据并降级成 Free。真实付费档一定来自订单，必然有到期日。
+          planExpiresAt: "2099-01-01T00:00:00.000Z",
           organization: "个人",
           credits: 2500,
           frozenCredits: 0,
