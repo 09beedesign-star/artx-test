@@ -73,7 +73,7 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
           <span style={{ color: "oklch(0.65 0.010 270)", fontSize: 13 }}>搜索项目…</span>
           <span
             className="ml-auto text-[10px] px-1.5 py-0.5 rounded"
-            style={{ background: "oklch(1 0 0 / 8%)", color: "oklch(0.65 0.010 270)", fontFamily: "monospace" }}
+            style={{ background: "oklch(1 0 0 / 8%)", color: "oklch(0.65 0.010 270)", fontFamily: "var(--font-mono)" }}
           >⌘K</span>
         </div>
       </div>

@@ -11,7 +11,46 @@
           Accent: violet-indigo, surfaces layered in warm grays
    ============================================================ */
 
+/* ============================================================
+   字体栈 —— 唯一事实源（跨平台无衬线，对标 apple.com）
+   ============================================================
+
+   ⚠️⚠️ 为什么必须显式列出中文字体：
+
+   原来的写法是 `'Inter', system-ui, sans-serif`，但 **Inter 从未被加载**
+   （index.html 没有任何 <link>，也没装 @fontsource 包），所以实际生效的是
+   `system-ui`。而 `system-ui` 在**中文 Windows** 上解析为「微软雅黑」——
+   雅黑本身虽是无衬线，但它的**西文部分字形干瘪、字重发虚**；更要命的是
+   Chrome/Edge 对 system-ui 的中文回退在部分系统上会落到「宋体」，
+   那是**衬线体**，于是就出现了用户看到的「带衬线的字」。
+
+   📌 判据：`system-ui` 是「系统决定」不是「我决定」。凡是对排版有要求的
+   站点，都不能把最终字形交给 system-ui 去猜 —— 必须把中西文字体**分别
+   点名**，西文在前、中文在后（浏览器按字符逐个回退，西文字体不含汉字时
+   才会落到后面的中文字体，所以这个顺序既能拿到漂亮西文也能拿到正确汉字）。
+
+   顺序说明（对标 apple.com 的策略：先系统原生，再通用兜底）：
+     -apple-system / BlinkMacSystemFont  → macOS/iOS 的 San Francisco
+     'Segoe UI Variable Display'         → Windows 11 新版 UI 字体
+     'Segoe UI'                          → Windows 10 西文（无衬线，形态最接近 SF）
+     Roboto / 'Helvetica Neue' / Arial   → Android / 旧系统兜底
+     'PingFang SC'                       → macOS 中文（苹方）
+     'HarmonyOS Sans SC' / 'Source Han…' → 国产系统 / 装了思源的机器
+     'Microsoft YaHei UI' / 'Microsoft YaHei' → Windows 中文（雅黑，无衬线）
+     sans-serif                          → 最后兜底，绝不会落到宋体
+
+   ⚠️ **绝不要在这个栈里出现 `SimSun`/`宋体`/`serif`** —— 那是衬线体，
+   正是本次要消灭的东西。 */
 @theme inline {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Display', 'Segoe UI',
+    Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'HarmonyOS Sans SC',
+    'Source Han Sans SC', 'Noto Sans CJK SC', 'Microsoft YaHei UI',
+    'Microsoft YaHei', sans-serif;
+  --font-mono:
+    ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, Consolas,
+    'Liberation Mono', monospace;
+
   --breakpoint-sm: 640px;
   --breakpoint-md: 768px;
   --breakpoint-lg: 1024px;
@@ -204,13 +243,13 @@ html.light, .light {
   }
 
   html {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: var(--font-sans);
     font-size: 16px;
   }
 
   body {
     @apply bg-background text-foreground;
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     transition: background-color 0.2s ease, color 0.2s ease;
@@ -307,7 +346,7 @@ html.light, .light {
 
   /* DESIGN.md typography utilities */
   .type-display-xl {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: var(--font-sans);
     font-size: clamp(48px, 8vw, 86px);
     font-weight: 340;
     line-height: 1;
@@ -315,7 +354,7 @@ html.light, .light {
   }
 
   .type-display-lg {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: var(--font-sans);
     font-size: clamp(40px, 6vw, 64px);
     font-weight: 340;
     line-height: 1.1;
@@ -323,7 +362,7 @@ html.light, .light {
   }
 
   .type-headline {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: var(--font-sans);
     font-size: 26px;
     font-weight: 540;
     line-height: 1.35;
@@ -331,7 +370,7 @@ html.light, .light {
   }
 
   .type-subhead {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: var(--font-sans);
     font-size: 26px;
     font-weight: 340;
     line-height: 1.35;
@@ -339,14 +378,14 @@ html.light, .light {
   }
 
   .type-card-title {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: var(--font-sans);
     font-size: 24px;
     font-weight: 700;
     line-height: 1.45;
   }
 
   .type-body-lg {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: var(--font-sans);
     font-size: 20px;
     font-weight: 330;
     line-height: 1.4;
@@ -354,7 +393,7 @@ html.light, .light {
   }
 
   .type-body {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: var(--font-sans);
     font-size: 18px;
     font-weight: 320;
     line-height: 1.45;
@@ -362,7 +401,7 @@ html.light, .light {
   }
 
   .type-body-sm {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: var(--font-sans);
     font-size: 16px;
     font-weight: 330;
     line-height: 1.45;
@@ -370,7 +409,7 @@ html.light, .light {
   }
 
   .type-button {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: var(--font-sans);
     font-size: 20px;
     font-weight: 480;
     line-height: 1.4;
@@ -378,7 +417,7 @@ html.light, .light {
   }
 
   .type-eyebrow {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 18px;
     font-weight: 400;
     letter-spacing: 0.54px;
@@ -386,7 +425,7 @@ html.light, .light {
   }
 
   .type-caption {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 12px;
     font-weight: 400;
     letter-spacing: 0.60px;
@@ -633,7 +672,7 @@ html.light, .light {
 
   /* Mono font for dimensions/numbers */
   .font-mono-dim {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 11px;
     color: oklch(0.72 0.18 200);
     letter-spacing: 0.02em;
