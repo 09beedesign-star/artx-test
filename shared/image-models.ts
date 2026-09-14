@@ -12,6 +12,23 @@
 export const DEFAULT_IMAGE_MODEL_ID = "vod-og25-sunburst-medium";
 
 /**
+ * 「智能文案编辑」在 AI 叠字模式下使用的模型。
+ *
+ * 2026-09-13：从 `DEFAULT_IMAGE_MODEL_ID`（image2.5 medium）切换为
+ * **字节即梦 4.0（vod-jimeng）**，用于评估即梦在「保真文字替换」上的表现。
+ *
+ * 为什么单独抽一个常量，而不是就地写 `"vod-jimeng"`：
+ * 与 `DEFAULT_IMAGE_MODEL_ID` 解耦 —— 智能文案编辑依赖的是「某个模型在
+ * 文字渲染上的具体表现」，不应随全局出图优先级漂移；A/B 换模型时也只改这一处。
+ *
+ * 背景（2026-09-12 的 A/B 基线，用的是 image2.5）：
+ * AI 叠字逐字命中率仅 3/7、4/7，且出现过错字（"秋季"→"秋香"），耗时 29~42s。
+ * 该基线低于本地确定性绘制的 7/7，因此 AI 叠字一直不是默认通道，
+ * 仅在显式 `textApplyMode: "ai"` 时启用。
+ */
+export const SMART_TEXT_EDIT_AI_MODEL_ID = "vod-jimeng";
+
+/**
  * auto 模式的 fallback 链，**按优先级从高到低**。
  *
  * 2026-09-12 起为**纯 VOD 链路**：中转站图片模型已全部下线。

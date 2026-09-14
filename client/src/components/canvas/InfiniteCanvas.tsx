@@ -527,6 +527,7 @@ import {
   getImageModelDefaultOutputCount,
   hasCustomDefaultOutputCount,
   isSupportedImageModelId,
+  SMART_TEXT_EDIT_AI_MODEL_ID,
 } from "@shared/image-models";
 import {
   DEFAULT_AUTO_RATIO,
@@ -3402,29 +3403,32 @@ function AssetFloatingToolbar({
       action: "edit-elements",
     },
     /**
-     * 「智能文案编辑」入口已于 2026-09-12 按需求屏蔽，暂不对用户开放。
+     * 「智能文案编辑」入口。
      *
-     * 这里只注释掉工具栏条目，**不删除任何实现**：
-     *   - action "edit-text" 的处理分支（本文件 :30430 一带）
-     *   - 文案编辑面板 UI（本文件 :8958 一带，仅在面板被打开时渲染）
-     *   - 服务端 text_edit 三段链路（server/image-generation.ts）
-     * 全部原样保留。因为 :3256 是该功能**唯一**的触发来源
-     * （已 Grep 确认 edit-text 没有右键菜单 / 快捷键等其他入口），
-     * 注释掉这一条之后面板无从被打开，功能即完全不可达。
+     * 2026-09-12 曾按需求整体注释屏蔽（实现原样保留，未删任何代码）；
+     * 2026-09-13 恢复开放，并把 AI 叠字通道从 image2.5 切到**字节即梦 4.0**，
+     * 且改为**优先走即梦**（显式 textApplyMode: "ai"），
+     * 本地确定性绘制退为「去掉该参数即可切回」的可选项。
      *
-     * 恢复方式：把下面这段注释还原即可，无需改动其他任何位置。
+     * 配套改动共三处，必须一致，改漏任何一处都会让即梦静默失效：
+     *   1. 本文件 applyHandler 的 model → SMART_TEXT_EDIT_AI_MODEL_ID
+     *   2. 本文件 applyHandler 显式传 textApplyMode: "ai"
+     *      （后台任务 backgroundTaskInput 与前台 run 两处都要带；
+     *      不传则服务端默认走本地确定性绘制，图片模型根本不会被调用）
+     *   3. server/image-generation.ts 的 editViaReferenceGeneration：
+     *      text_edit 会带上 VOD 精确蒙版，并关闭服务端 prompt 增强
      *
-     * 与「智能生图」的屏蔽做法保持一致（见本文件 :17008）。
+     * 注意：这里是该功能**唯一**的触发来源（已确认没有右键菜单 / 快捷键入口）。
      */
-    // {
-    //   icon: (
-    //     <AiDecoratedIcon cutoutBg={toolBg}>
-    //       <Type size={15} />
-    //     </AiDecoratedIcon>
-    //   ),
-    //   label: "智能文案编辑",
-    //   action: "edit-text",
-    // },
+    {
+      icon: (
+        <AiDecoratedIcon cutoutBg={toolBg}>
+          <Type size={15} />
+        </AiDecoratedIcon>
+      ),
+      label: "智能文案编辑",
+      action: "edit-text",
+    },
     {
       icon: (
         <AiDecoratedIcon cutoutBg={toolBg}>
@@ -6689,7 +6693,14 @@ function AssetNodeComponent({
     []
   );
   const updateExtractedTextStyle = useCallback(
-    (index: number, partial: Partial<{ color: string; fontFamily: string; rotate: number }>) => {
+    (
+      index: number,
+      partial: Partial<{
+        color: string;
+        fontFamily: string;
+        rotate: number;
+      }>
+    ) => {
       setExtractedTextStyles(current => {
         const next = current.length ? [...current] : [];
         while (next.length <= index) {
@@ -25770,17 +25781,22 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             maskSrc,
             prompt: finalPrompt,
             /**
-             * 固定走 image2.5 medium，而不是 "auto"。
+             * 固定走 SMART_TEXT_EDIT_AI_MODEL_ID（当前 = vod-jimeng，即梦 4.0），
+             * 而不是 "auto"。
              *
-             * auto 的链首当前恰好也是 image2.5，但它是**全局出图优先级**，
-             * 会随其他需求调整。智能文案编辑依赖的是 image2.5 在
-             * 「保真局部编辑 + 文字渲染」上的具体表现，不应跟着全局链漂移。
-             * 写死 id 让这里与全局优先级解耦。
-             *
-             * 注意：这个 model 只在擦字失败、需要 AI 兜底时才真正生效。
-             * 正常路径（擦字成功）由本地确定性绘制贴字，不调用图片模型。
+             * auto 表达的是**全局出图优先级**，会随其他需求调整；而智能文案编辑
+             * 依赖的是「某个模型在保真文字替换 + 文字渲染上的具体表现」，
+             * 不应跟着全局链漂移，所以写死具体 id。
              */
-            model: DEFAULT_IMAGE_AI_MODEL_ID,
+            model: SMART_TEXT_EDIT_AI_MODEL_ID,
+            /**
+             * 2026-09-13 起**优先走即梦**：显式传 "ai"，服务端据此跳过本地
+             * 确定性绘制（阶段 B），把「擦字后的叠字」交给 vod-jimeng 完成。
+             *
+             * 必须显式传：不传时服务端默认 "local"，阶段 B 会直接 return，
+             * 即梦根本不会被调用（这是最容易踩空的一处）。
+             */
+            textApplyMode: "ai",
             preserveSource: true,
             targetWidth,
             targetHeight,
@@ -25788,13 +25804,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             editedText: detail.editedText,
             textRegions: detail.textRegions || [],
             /**
-             * 贴回方式保持默认 "local"（本地字体确定性绘制）。
+             * 两条通道的代价备忘（2026-09-12 与 2026-09-13 两轮基线）：
+             * AI 叠字逐字命中率 3/7、4/7 且出现过错字（"秋季"→"秋香"），
+             * 耗时 29~42s；本地确定性绘制两轮均 7/7、0.3s、零成本。
              *
-             * 2026-09-12 用 image2.5 做过 A/B 实测：AI 叠字两轮逐字命中率
-             * 只有 3/7 和 4/7，还出现过错字（"秋季"→"秋香"），耗时 29~42s；
-             * 本地绘制两轮均 7/7，0.3s，零成本。文案编辑的第一诉求是「字要对」，
-             * 所以不切 AI。需要更强的字体/材质还原时，可把该字段显式设为 ai 模式，
-             * 但必须人工核字。
+             * 仍然**优先即梦**：它在艺术字 / 强透视 / 特殊材质上的风格还原更好，
+             * 代价是必须人工核字；要切回零错字的本地绘制，删掉两处
+             * textApplyMode: "ai"（本块与下面 run）即可。
              */
           },
           run: async () =>
@@ -25802,14 +25818,19 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               imageSrc: detail.imageSrc,
               maskSrc,
               prompt: finalPrompt,
-              model: DEFAULT_IMAGE_AI_MODEL_ID,
+              model: SMART_TEXT_EDIT_AI_MODEL_ID,
               operation: "text_edit",
+              /**
+               * 与 backgroundTaskInput 保持同值：后台任务链路优先，
+               * 但两者必须一致，否则「删了 run 里的参数以为切回了本地」
+               * 这类改动会被后台任务路径悄悄抵消。
+               */
+              textApplyMode: "ai",
               preserveSource: true,
               targetWidth,
               targetHeight,
               textRegions: detail.textRegions || [],
               editedText: detail.editedText,
-              // 贴回方式用默认 "local"，理由见上面 backgroundTaskInput 的注释
             }),
         });
         setNodes(nds =>

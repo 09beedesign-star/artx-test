@@ -1107,7 +1107,7 @@ export async function drawTextReplacement(
       }
     }
 
-    // 原图若为浅色字（可能压在复杂背景上），补一层细描边提升可读性
+    // 原图若为浅色字（可能压在复杂背景上），补一层细描边提升可读性。
     const stroke =
       luminance(color) > 180
         ? { color: "rgba(0,0,0,0.35)", width: Math.max(1, fontSize * 0.04) }
@@ -1136,11 +1136,8 @@ export async function drawTextReplacement(
     return imageBuffer;
   }
 
-  // 生成 SVG 文字层
-  const svgParts: string[] = [];
-  svgParts.push(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${targetWidth}" height="${targetHeight}">`,
-  );
+  /** 生成 SVG 文字层：每个被修改的区域输出若干行 <text> */
+  const textParts: string[] = [];
   for (const item of drawItems) {
     const cx = item.x + item.width / 2;
     const cy = item.y + item.height / 2;
@@ -1166,14 +1163,22 @@ export async function drawTextReplacement(
 
     item.lines.forEach((line, index) => {
       const lineY = firstBaselineY + index * item.lineHeight;
-      svgParts.push(
-        `<text x="${anchorX.toFixed(2)}" y="${lineY.toFixed(2)}" font-family="${escapeXml(item.fontFamily)}" ` +
-          `font-size="${item.fontSize}"${weightAttr} fill="${fill}"${strokeAttr} ` +
-          `text-anchor="${anchor}" dominant-baseline="central"${rotateAttr}>${escapeXml(line)}</text>`,
+      const x = anchorX.toFixed(2);
+      const y = lineY.toFixed(2);
+      const font = `font-family="${escapeXml(item.fontFamily)}" font-size="${item.fontSize}"${weightAttr}`;
+      const content = escapeXml(line);
+
+      textParts.push(
+        `<text x="${x}" y="${y}" ${font} fill="${fill}"${strokeAttr} ` +
+          `text-anchor="${anchor}" dominant-baseline="central"${rotateAttr}>${content}</text>`,
       );
     });
   }
-  svgParts.push(`</svg>`);
+  const svgParts = [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${targetWidth}" height="${targetHeight}">`,
+    ...textParts,
+    `</svg>`,
+  ];
   const svgBuffer = Buffer.from(svgParts.join(""), "utf8");
 
   // 合成到底图上

@@ -187,3 +187,135 @@ export async function buildInpaintMask(
     .jpeg({ quality: 100 })
     .toBuffer();
 }
+
+export type MaskSurroundingFlatness = {
+  /** 亮度标准差（0~255）。对离群值敏感，仅作参考，不参与分档。 */
+  stdDev: number;
+  /** 外环采样像素总数。0 表示蒙版外没有可采样的背景。 */
+  sampleCount: number;
+  /** 亮度 P90 - P10 极差：调用方判定背景复杂度的**主判据**。 */
+  robustSpread: number;
+  p10: number;
+  p90: number;
+  meanLuma: number;
+};
+
+/**
+ * 测量蒙版「紧邻外环」的背景复杂度。
+ *
+ * 存在意义（2026-09-13）：
+ * text_edit 的擦字通道链里，佐糖是生成式 inpaint —— 它在照片 / 复杂纹理上回填质量不错，
+ * 但在**平涂背景**上会脑补出色块、明暗不匀和接缝，这是用户反馈「纯色背景回填很一般」
+ * 的直接来源；而本地像素擦除（eraseTextRegionsLocally：逐行取区域外侧中位色 + 沿 x 插值）
+ * 在平涂上等价于精确常量填充，在柔和渐变上也能逐行跟上纵向变化，天然没有这类伪影。
+ * 反过来，在**复杂纹理**上本地插值会拉出水平条纹，这时必须让佐糖优先。
+ * 所以本函数的职责就是回答「这块背景该不该交给生成式模型」。
+ *
+ * 为什么主判据是 P90-P10 极差而不是标准差：
+ * 标准差对方差二次敏感，离群值一压就爆 —— 外环只要有一小段压到人物/花纹，整圈读数
+ * 就被拉高。实测 Lookbook 类样张的标题紧贴模特肩部，一圈里混进两成深色像素即可让
+ * stdDev > 20，于是被误判成「复杂背景」交给佐糖，最终在平涂底上留下接缝。
+ * P90-P10 砍掉两端各 10% 的样本，对这类局部污染免疫。
+ *
+ * 经验分档（亮度极差，0~255），与 image-generation.ts 的
+ * classifyBackgroundComplexity 同步维护：
+ *   < 12   平涂 / 近纯色（含 JPEG 噪点）→ 本地像素擦除优先
+ *   12~26  柔和渐变 / 低对比度摄影底    → 本地像素擦除优先，佐糖兜底
+ *   >= 26  照片 / 复杂纹理              → 佐糖优先
+ * 该分档是 2026-09-13 的初值。`[text_edit] 背景判定` 日志会把实测极差打出来，
+ * 后续按真实样张标定，不要凭感觉改。
+ *
+ * @param ringPx 外环宽度。应取「擦字实际外扩量」（即蒙版膨胀半径），
+ *               这样采到的正是擦除通道真正会改写的那一圈背景。
+ */
+export async function measureMaskSurroundingFlatness(
+  imageBuffer: Buffer,
+  maskBuffer: Buffer,
+  width: number,
+  height: number,
+  ringPx: number,
+): Promise<MaskSurroundingFlatness> {
+  const sharp = (await import("sharp")).default;
+  const [imageRaw, maskRaw] = await Promise.all([
+    sharp(imageBuffer, { limitInputPixels: false })
+      .rotate()
+      .resize(width, height, { fit: "fill" })
+      .removeAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true }),
+    sharp(maskBuffer, { limitInputPixels: false })
+      .rotate()
+      .resize(width, height, { fit: "fill" })
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true }),
+  ]);
+
+  const imageChannels = imageRaw.info.channels;
+  const imagePixels = imageRaw.data;
+  const maskPixels = maskRaw.data;
+
+  // 与 buildInpaintMask 保持同一契约：alpha < 250 视为编辑区。
+  const editRegion = new Uint8Array(width * height);
+  for (let i = 0; i < width * height; i++) {
+    editRegion[i] = maskPixels[i * 4 + 3] < 250 ? 255 : 0;
+  }
+
+  const radius = Math.max(1, Math.round(ringPx));
+  const expanded = boxDilateBinary(editRegion, width, height, radius);
+
+  // 亮度直方图（256 桶）：一次遍历同时得到均值/标准差和分位数。
+  // 外环样本可达数万，排序取分位是 O(n log n)，直方图累加是 O(n)。
+  const histogram = new Uint32Array(256);
+  let sum = 0;
+  let sumSquares = 0;
+  let sampleCount = 0;
+  for (let i = 0; i < width * height; i++) {
+    // 只取「编辑区之外、膨胀范围之内」的那一圈背景像素
+    if (expanded[i] === 0 || editRegion[i] !== 0) continue;
+    const offset = i * imageChannels;
+    // removeAlpha 后灰度图只剩 1 个通道，这里做一次兜底避免越界读到相邻像素。
+    const r = imagePixels[offset];
+    const g = imageChannels >= 3 ? imagePixels[offset + 1] : r;
+    const b = imageChannels >= 3 ? imagePixels[offset + 2] : r;
+    const luma = 0.299 * r + 0.587 * g + 0.114 * b;
+    histogram[Math.max(0, Math.min(255, Math.round(luma)))] += 1;
+    sum += luma;
+    sumSquares += luma * luma;
+    sampleCount += 1;
+  }
+
+  if (sampleCount === 0) {
+    return { stdDev: 0, sampleCount: 0, robustSpread: 0, p10: 0, p90: 0, meanLuma: 0 };
+  }
+  const mean = sum / sampleCount;
+  const variance = Math.max(0, sumSquares / sampleCount - mean * mean);
+  const p10 = percentileFromHistogram(histogram, sampleCount, 0.1);
+  const p90 = percentileFromHistogram(histogram, sampleCount, 0.9);
+  return {
+    stdDev: Math.sqrt(variance),
+    sampleCount,
+    robustSpread: p90 - p10,
+    p10,
+    p90,
+    meanLuma: mean,
+  };
+}
+
+/**
+ * 从 256 桶亮度直方图取分位数（ratio ∈ [0,1]）。
+ * 直方图的 luma 下标天然有序，所以不需要排序，累加到目标序号即得分位值。
+ */
+function percentileFromHistogram(
+  histogram: Uint32Array,
+  total: number,
+  ratio: number,
+): number {
+  const target = Math.min(total - 1, Math.max(0, Math.floor(total * ratio)));
+  let cumulative = 0;
+  for (let luma = 0; luma < histogram.length; luma += 1) {
+    cumulative += histogram[luma];
+    if (cumulative > target) return luma;
+  }
+  return histogram.length - 1;
+}
