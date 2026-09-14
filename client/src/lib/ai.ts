@@ -797,14 +797,15 @@ export async function editImageWithPrompt({
   };
   skillId?: string;
   generationId?: string;
-  /** 智能文案编辑：原图 OCR 识别的文字区域（x/y/width/height/text），用于确定性文字绘制 */
+  /** 智能文案编辑：原图 OCR 识别的文字区域（x/y/width/height/text/rotate/fontColor/fontFamily），用于确定性文字绘制 */
   textRegions?: ImageTextRegion[];
   /** 智能文案编辑：修改后的完整文案（多行用 \n 分隔），用于确定性文字绘制 */
   editedText?: string;
   /**
    * 智能文案编辑：新文案「贴回原图」的方式。
-   * - "ai"：擦字后交给 image2.5 叠字，由模型还原字体/透视/光影（默认）
-   * - "local"：本地字体确定性绘制，零模型成本但字体只能近似匹配
+   * - "local"（默认）：本地字体确定性绘制，零模型成本、逐字准确，字体只能近似匹配
+   * - "ai"：擦字后交给图片模型叠字（当前为 VOD 即梦 4.0），
+   *   由模型还原字体/透视/光影，但会漏字/错字，必须人工核字
    */
   textApplyMode?: "ai" | "local";
 }) {

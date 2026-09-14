@@ -599,15 +599,17 @@ describe("InfiniteCanvas prompt controls", () => {
     )?.[0];
 
     /**
-     * 2026-09-12：「智能文案编辑」工具栏入口按需求屏蔽。
+     * 「智能文案编辑」工具栏入口必须处于**启用态**。
      *
-     * 原断言是 `toContain('label: "智能文案编辑"')`，即要求入口条目存在。
-     * 入口被注释后该写法仍会「通过」—— 因为注释文本里也含这个字符串，
-     * 属于假阳性。所以这里改为断言**未注释的入口条目不存在**：
-     * 用行首缩进 + 无 `//` 前缀来区分「真实代码」与「被注释的代码」。
+     * 断言方式沿用 2026-09-12 那次的思路，只是方向反过来（那次是入口被屏蔽）。
+     * 用行首缩进 + 无 `//` 前缀区分「真实代码」与「被注释的代码」——
+     * 单纯 `toContain('label: "智能文案编辑"')` 是假阳性写法，
+     * 注释文本里同样含这个字符串，入口被注释掉也照样通过。
+     *
+     * 2026-09-12 屏蔽 → 2026-09-13 恢复开放（改走即梦做 AI 叠字评估）。
      */
-    expect(source).not.toMatch(/^\s{6}label: "智能文案编辑",$/m);
-    expect(source).toMatch(/^\s*\/\/\s*label: "智能文案编辑",$/m);
+    expect(source).toMatch(/^\s{6}label: "智能文案编辑",$/m);
+    expect(source).not.toMatch(/^\s*\/\/\s*label: "智能文案编辑",$/m);
     /**
      * 实现必须原样保留（只屏蔽入口，不删功能），
      * 这样恢复时只需还原那段注释。
@@ -653,22 +655,34 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(applyTextEditBlock).toContain("detail.editedText,");
     expect(applyTextEditBlock).toContain("maskSrc");
     /**
-     * 2026-09-12：从 `model: "auto"` 改为显式 DEFAULT_IMAGE_AI_MODEL_ID。
+     * 模型必须绑定具体常量，不得用 `"auto"`。
      *
-     * auto 的链首当前恰好也是 image2.5，但它表达的是**全局出图优先级**，
-     * 会随其他需求调整。智能文案编辑依赖的是 image2.5 在
-     * 「保真局部编辑 + 文字渲染」上的具体表现，不应跟着全局链漂移，
-     * 因此这里改为绑定具体模型常量。
+     * auto 表达的是**全局出图优先级**，会随其他需求调整；而智能文案编辑依赖的
+     * 是「某个模型在保真局部编辑 + 文字渲染上的具体表现」，不应跟着全局链漂移。
+     *
+     * 2026-09-12 绑 DEFAULT_IMAGE_AI_MODEL_ID（image2.5）；
+     * 2026-09-13 改为绑 SMART_TEXT_EDIT_AI_MODEL_ID（vod-jimeng 即梦 4.0），
+     * 并以即梦为**优先通道**。
+     * 以后换模型只应改这一个常量。
      */
-    expect(applyTextEditBlock).toContain("model: DEFAULT_IMAGE_AI_MODEL_ID");
+    expect(applyTextEditBlock).toContain("model: SMART_TEXT_EDIT_AI_MODEL_ID");
     expect(applyTextEditBlock).not.toContain('model: "auto"');
     /**
-     * 贴回方式必须保持默认（local，本地字体确定性绘制），不得写死成 "ai"。
+     * 2026-09-13：智能文案编辑**优先走即梦**，必须显式传 textApplyMode: "ai"。
      *
-     * 2026-09-12 A/B 实测：AI 叠字逐字命中率只有 3/7、4/7 且出现过错字，
-     * 本地绘制 7/7。文案编辑的第一诉求是「字要对」，所以不切 AI。
+     * 不传时服务端走默认的 "local" 本地确定性绘制 —— 阶段 B 直接 return，
+     * 即梦根本不会被调用（表现为「改了配置但模型没参与」，且日志里毫无痕迹）。
+     *
+     * 两条请求路径必须同时带上：backgroundTaskInput（后台任务，优先级更高）
+     * 与 run（前台执行）。只改一处时另一条会静默沿用旧行为。
+     *
+     * 代价备忘：AI 叠字逐字命中率 3/7、4/7 且出现过错字，本地绘制 7/7；
+     * 改回本地只需删掉这两处参数。
      */
-    expect(applyTextEditBlock).not.toContain('textApplyMode: "ai"');
+    expect(applyTextEditBlock).toContain('textApplyMode: "ai"');
+    expect(
+      (applyTextEditBlock.match(/textApplyMode: "ai"/g) || []).length
+    ).toBeGreaterThanOrEqual(2);
     expect(applyTextEditBlock).toContain('toast("正在应用文案"');
     expect(applyTextEditBlock).toContain("原图中所有非文字像素必须原封不动保留");
     expect(applyTextEditBlock).toContain("禁止重绘或改变人物、产品、背景");
@@ -678,6 +692,21 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(serverSource).toContain("This is a local text replacement edit");
     expect(serverSource).toContain("Use the source image as the only target canvas");
     expect(serverSource).toContain("__testCompositeSourcePreservingImageEdit");
+    /**
+     * 服务端必须真正把 VOD 精确蒙版交给模型，并关闭服务端 prompt 增强。
+     *
+     * 这两条是 2026-09-13 评估即梦时踩出来的坑，缺任一条评估结论都会被污染：
+     * - 蒙版：generateImages 是按参考图的 title 识别蒙版的，title 不叫
+     *   "annotation mask" 就不会被当作 mask 下发（日志里 hasMask: false），
+     *   模型只能靠橙色引导图去猜可改范围。
+     * - 增强：提示词里带着「必须逐字渲染这段文案」的精确指令，
+     *   服务端增强会把它整体改写，表现就是漏字、错字、自行改写文案。
+     */
+    expect(serverSource).toContain('title: "annotation mask"');
+    expect(serverSource).toContain("textEditVodMaskDataUrl");
+    expect(serverSource).toContain(
+      "enhancePrompt: isCameraViewOperation || isTextEditOperation ? false : undefined"
+    );
   });
 
   it("keeps smart annotation prompts constrained to a local source-image change", () => {

@@ -149,12 +149,16 @@ describe("generated image source normalization", () => {
     expect(emittedLines).not.toMatch(/locked scene/i);
   });
 
-  it("disables VOD server-side prompt enhancement for camera-view edits", async () => {
-    // VOD 的 EnhancePrompt 会把整段空间约束重写，
-    // 「整个场景一起转」会在重写中被稀释成泛泛的「保持原图风格」，
-    // 结果就是背景不跟着转。必须显式关闭。
+  it("disables VOD server-side prompt enhancement for camera-view and text edits", async () => {
+    // VOD 的 EnhancePrompt 会把整段空间约束重写，两种情况都必须显式关闭：
+    // - 视角转换：「整个场景一起转」被稀释成泛泛的「保持原图风格」，
+    //   结果就是背景不跟着转。
+    // - 智能文案编辑：提示词里「必须逐字渲染这段文案」的精确指令被整体改写，
+    //   表现就是漏字、错字、自行改写文案（2026-09-13 评估即梦时确认）。
     const source = await readFile(resolve(__dirname, "image-generation.ts"), "utf8");
-    expect(source).toContain("enhancePrompt: isCameraViewOperation ? false : undefined");
+    expect(source).toContain(
+      "enhancePrompt: isCameraViewOperation || isTextEditOperation ? false : undefined"
+    );
   });
 
   it("keeps alternate image models available for provider gateway retries", () => {
@@ -1311,5 +1315,138 @@ describe("generated image source normalization", () => {
     expect(result.provider).toBe("vision-chat-ocr+text-fallback");
     expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("https://image.example"))).toBe(true);
     expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("https://text.example"))).toBe(true);
+  });
+});
+
+/**
+ * 即梦背景修复擦除通道（2026-09-13 新增）。
+ *
+ * 背景：用户反馈「复杂场景（水彩 / 羽翼这类艺术底）擦除很差」。佐糖是专用 inpaint，
+ * 在平涂上表现好，但在复杂纹理上会留白板、鬼影和色块；即梦 4.0 的生成式补全更自然，
+ * 因此把它接成**复杂纹理场景的第一顺位擦除通道**，代价是复杂场景每次擦字多一次 VOD 调用
+ * （用户已确认接受该计费）。
+ *
+ * 这里锁三条**契约** —— 任一条被改都会静默劣化擦除质量，所以必须显式失败：
+ *   1. 通道顺序：textured → 即梦第一；flat/smooth → 不放即梦（那里生成式补全是负收益）；
+ *   2. VOD 调用契约：固定 vod-jimeng、蒙版 title="annotation mask"、关闭 prompt 增强；
+ *   3. 蒙版外回贴：VOD 是参考图生成，不回贴会把「整图重绘」当成擦除结果。
+ */
+describe("text_edit 擦除通道：即梦背景修复", () => {
+  const readEraseSource = () => readFile(resolve(__dirname, "image-generation.ts"), "utf8");
+
+  const jimengChannelBlock = async () => {
+    const source = await readEraseSource();
+    const start = source.indexOf("const jimengEraseChannel");
+    expect(start, "jimengEraseChannel 通道实现已消失").toBeGreaterThan(-1);
+    const end = source.indexOf("const eraseChannels", start);
+    expect(end, "无法在 jimengEraseChannel 之后定位 eraseChannels 数组").toBeGreaterThan(start);
+    return source.slice(start, end);
+  };
+
+  it("复杂纹理场景即梦排第一，平涂场景不放即梦", async () => {
+    const source = await readEraseSource();
+    expect(source).toContain(
+      "? [jimengEraseChannel, engineEraseChannel, picwishEraseChannel, localEraseChannel]",
+    );
+    // 平涂 / 柔和渐变分支必须保持「引擎 → 本地 → 佐糖」且不放即梦：
+    // 那里本地像素擦除等价于精确常量填充，生成式模型只会脑补纹理与接缝，
+    // 把即梦放进来等于让平涂场景白白多付一次 VOD 调用。
+    expect(source).toContain(": [engineEraseChannel, localEraseChannel, picwishEraseChannel]");
+    // 参数化引擎此前是数组里硬编码的首位（不在 textured/flat 分支内），
+    // 配了 TEXT_ENGINE_BASE_URL 的环境会让它无条件插到即梦前面，于是
+    // 「即梦复杂场景排第一」只在没配引擎的机器上成立（本地没配 → 看着对，测服配了 → 其实不对）。
+    // 上面两条正是把整个顺序收进分支后的形态，任一被改回硬编码首位都会失败。
+  });
+
+  it("按 VOD mask 契约调用：固定 vod-jimeng、蒙版 title 正确、关闭 prompt 增强", async () => {
+    const block = await jimengChannelBlock();
+    expect(block).toContain('model: "vod-jimeng"');
+    // generateImages 是按参考图的 title 认蒙版的（tryVodGeneration 里
+    // find(image => image.title === "annotation mask")）。改名会让 VOD 侧
+    // hasMask 恒为 false，模型从「被硬约束在蒙版内」退化成「靠猜」，会改到画面其他位置。
+    expect(block).toContain('title: "annotation mask"');
+    // 未配 VOD 凭证必须静默让位，不能抛错打断整条擦除链。
+    expect(block).toContain("if (!isVodAigcConfigured()) return null;");
+    // 擦字是纯指令任务，服务端 prompt 增强会把「不得写字 / 蒙版外必须原样」稀释掉。
+    expect(block).toContain("enhancePrompt: false");
+  });
+
+  it("即梦结果必须蒙版外回贴，避免整图重绘被当成擦除结果", async () => {
+    const block = await jimengChannelBlock();
+    // 合成必须用 createOgdEditMaskDataUrl 返回的 compositeMaskBuffer（alpha 语义：
+    // 编辑区透明、保留区不透明），而不是 VOD 那份白/黑蒙版 —— 后者 alpha 恒 255，
+    // 拿它做合成会 100% 保留原图，等于擦除完全没生效。
+    expect(block).toContain("compositeMaskBuffer");
+    expect(block).toContain("__testCompositeSourcePreservingImageEdit(");
+  });
+
+  it("复杂纹理底上即梦作为擦除通道被调用，且带上精确蒙版", async () => {
+    vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
+    vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
+    vi.stubEnv("AI_IMAGE_MODEL", "gpt-image-2");
+    // 只留即梦通道可用：引擎与佐糖都不配置，否则「即梦被跳过」会被其它通道掩盖。
+    vi.stubEnv("TEXT_ENGINE_BASE_URL", "");
+    vi.stubEnv("PICWISH_API_KEY", "");
+
+    const width = 160;
+    const height = 120;
+    // 复杂纹理底：确定性 LCG 造噪点。不用 Math.random 是为了让输入可复现
+    // （背景复杂度分档依赖像素统计，随机底会让断言时灵时不灵）。
+    let seed = 20260913;
+    const noise = Buffer.alloc(width * height * 3);
+    for (let index = 0; index < noise.length; index += 1) {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      noise[index] = (seed >>> 16) & 0xff;
+    }
+    const source = await sharp(noise, { raw: { width, height, channels: 3 } }).png().toBuffer();
+    // 即梦返回纯灰：蒙版内被替换成灰，足以让 hasVisibleLocalEdit 判定「擦除区确实变了」。
+    const erased = await sharp({
+      create: { width, height, channels: 3, background: "#808080" },
+    }).png().toBuffer();
+
+    // 前端蒙版：左半边透明 = 文字擦除区（与 dilateMaskTransparent 的 alpha 语义一致）
+    const maskPixels = Buffer.alloc(width * height * 4, 255);
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width / 2; x += 1) {
+        maskPixels[(y * width + x) * 4 + 3] = 0;
+      }
+    }
+    const mask = await sharp(maskPixels, {
+      raw: { width, height, channels: 4 },
+    }).png().toBuffer();
+
+    stubVodCredentials();
+    const vodCalls: Array<{ model: string; maskDataUrl?: string; prompt: string }> = [];
+    vodGenerateSpy.mockImplementation(async (input: { model: string; maskDataUrl?: string; prompt: string }) => {
+      vodCalls.push(input);
+      return { images: [{ src: `data:image/png;base64,${erased.toString("base64")}` }] };
+    });
+    // 这条链路除 VOD 外不该碰任何 HTTP：中转站图片模型已整体下线。
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      throw new Error(`Unexpected fetch ${String(url)}`);
+    });
+
+    await editImageWithPrompt({
+      imageSrc: `data:image/png;base64,${source.toString("base64")}`,
+      maskSrc: `data:image/png;base64,${mask.toString("base64")}`,
+      prompt: "把标题替换成 NEW ARRIVAL",
+      model: "auto",
+      operation: "text_edit",
+      preserveSource: true,
+      textRegions: [{ text: "SALE", x: 0.04, y: 0.3, width: 0.42, height: 0.18 }],
+      editedText: "NEW ARRIVAL",
+      targetWidth: width,
+      targetHeight: height,
+    });
+
+    // textApplyMode 默认 local：擦字成功后走本地确定性绘制，不会再有第二次模型调用。
+    expect(vodCalls).toHaveLength(1);
+    expect(vodCalls[0].model).toBe("vod-jimeng");
+    expect(String(vodCalls[0].maskDataUrl || "")).toMatch(/^data:image\/png;base64,/);
+    // 擦除阶段的提示词必须表达「抹掉文字」，不能出现待写入的新文案 ——
+    // 后者会让模型把新字画进擦除结果，叠字阶段再画一次 → 双层字。
+    expect(vodCalls[0].prompt).toContain("remove the text inside the white areas");
+    expect(vodCalls[0].prompt).not.toContain("NEW ARRIVAL");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

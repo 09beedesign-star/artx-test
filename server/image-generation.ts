@@ -16,7 +16,7 @@ import { DEFAULT_AUTO_RATIO, resolveImageRatio } from "../shared/image-ratios";
 import { clampImageExpansionPrompt, VOD_EXPANSION_PROMPT_MAX_LENGTH } from "../shared/image-expansion";
 import { generateText } from "./text-generation";
 import { recordImageProviderFailure } from "./image-provider-failure-log";
-import { buildInpaintMask } from "./inpaint-mask";
+import { buildInpaintMask, measureMaskSurroundingFlatness } from "./inpaint-mask";
 import { eraseTextWithEngine, isTextEngineConfigured } from "./text-engine-client";
 import {
   drawTextReplacement,
@@ -1319,6 +1319,27 @@ function isProviderGatewayError(message: string) {
 
 function isProviderNetworkError(message: string) {
   return /fetch failed|network-error|network error|socket hang up|connection (reset|closed|refused)|econnreset|etimedout/i.test(message);
+}
+
+/**
+ * 由蒙版外环的亮度稳健极差判定背景复杂度（2026-09-13）。
+ *
+ * 返回值决定 text_edit 擦字链里「本地像素擦除」与「佐糖生成式 inpaint」的先后顺序：
+ *   flat / smooth → 本地优先。生成式模型在平涂与柔和渐变上没有可参考的纹理，
+ *                   只会脑补出色块、明暗不匀和接缝（用户反馈的「纯色背景回填很一般」）。
+ *   textured      → 佐糖优先。照片与复杂纹理上本地插值会拉出水平条纹，反而更显眼。
+ *
+ * 阈值与 measureMaskSurroundingFlatness 的注释同步维护。sampleCount 为 0
+ * （蒙版占满全图、没有外环可采样）时按 textured 兜底，链路行为与接入前完全一致。
+ */
+function classifyBackgroundComplexity(
+  robustSpread: number,
+  sampleCount: number,
+): "flat" | "smooth" | "textured" {
+  if (sampleCount === 0) return "textured";
+  if (robustSpread < 12) return "flat";
+  if (robustSpread < 26) return "smooth";
+  return "textured";
 }
 
 function isProviderModelCompatibilityError(message: string) {
@@ -2763,6 +2784,22 @@ function boxDilateBinary(
   return output;
 }
 
+/**
+ * VOD 参考图生成需要的比例档位。
+ *
+ * 必须取与源图最接近的档位：VOD 会按 ratio 重新构图，比例偏离越大，主体与构图漂移越明显
+ * （实测 2:3 的源图被下成 9:16 时会出现明显裁切漂移）。
+ * 智能注释、text_edit 叠字、即梦擦除三条链路共用这一份判据，避免各自维护导致漂移。
+ */
+function resolveVodReferenceRatio(width: number, height: number) {
+  const aspect = width / Math.max(1, height);
+  return aspect > 1.2
+    ? "16:9"
+    : aspect < 0.85
+      ? (aspect < 0.65 ? "9:16" : "2:3")
+      : "1:1";
+}
+
 // 生成给 VOD OG 蒙版编辑用的 mask（白色=编辑区、黑色=保留区）。
 // 前端注释 mask 语义为「透明=编辑区、不透明=保留区」，此处做反相并输出 PNG。
 // mode="add"（加物体）：编辑区向上扩展约 45% 高度作为新物体（帽子/头饰）的生成空间，
@@ -3982,13 +4019,8 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
       targetWidth,
       targetHeight,
     ), "image/png");
-    const aspect = targetWidth / Math.max(1, targetHeight);
     // 原图比例 2:3 (~0.67) 与 9:16 (~0.56) 相差较远，与源图相近的比例能减少 VOD 参考图生成时的构图漂移。
-    const ratio = aspect > 1.2
-      ? "16:9"
-      : aspect < 0.85
-        ? (aspect < 0.65 ? "9:16" : "2:3")
-        : "1:1";
+    const ratio = resolveVodReferenceRatio(targetWidth, targetHeight);
     const promptType = classifyAnnotationPrompt(input.prompt || "");
     const fallbackModels = getSmartAnnotationReferenceEditModels(selectedModel, input.prompt || "");
     // OG（GPT-Image2）支持 mask 蒙版编辑（白=编辑区），生成反相后的蒙版供其使用。
@@ -4730,6 +4762,16 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
   // 避免上游对 mask 外像素的微小改动（JPEG 压缩等）被带入最终结果
   const originalSourceImageData = sourceImageData;
 
+  /**
+   * 擦字阶段计算出的「膨胀蒙版」，供后面的 AI 叠字链路复用。
+   *
+   * 擦字用的是膨胀后的蒙版（外扩 radius / extraX），而早先下发给模型的蒙版
+   * 用的却是前端原始紧框 —— 两者不一致时，新文案比原文长就会超出「允许写字」的白区，
+   * 看起来像模型漏字。统一成同一张蒙版即可（见 editViaReferenceGeneration）。
+   * 用 { buffer, mimeType } 而非裸 Buffer，避免与 Buffer 自带的 .buffer(ArrayBuffer) 混淆。
+   */
+  let textEditDilatedMaskBuffer: { buffer: Buffer; mimeType: string } | null = null;
+
   // ── 阶段 A：擦字（text_edit 专用）────────────────────────────
   // 先把文字区域擦成干净背景，再让主模型只负责"叠字"，
   // 避免主模型在 mask 内重新生成背景导致"重绘文字区域背景不正常"。
@@ -4765,6 +4807,8 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
         maskParams.extraX,
         maskParams.shrinkY,
       );
+      // 交给 AI 叠字链路复用（见 textEditDilatedMaskBuffer 的声明注释）
+      textEditDilatedMaskBuffer = { buffer: dilatedMaskBuffer, mimeType: "image/png" };
       /**
        * 是否存在「删除整行」（targetText 被显式置空）。
        *
@@ -4794,72 +4838,260 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
       // 删除整行时整条前置链路（引擎/佐糖）全部跳过，直接用本地像素擦除：
       // 它是三者里唯一实测能把残留清到 0.000% 的通道，且同一载荷下改字区照常
       // 改动 78.77%、其余 5 个未改动区域误伤 0.00%，不存在「为删除行牺牲改字」的取舍。
-      const eraseChannels: Array<{ name: string; run: () => Promise<Buffer | null> }> = hasLineDeletion ? [] : [
-        {
-          // 参数化引擎排在最前：实测在纯色印刷体上擦净率与背景保真都优于其它通道
-          // （banner CUSTOM 行 98.1% / 背景改动 11.7，本地兜底是 94.6% / 25.8）。
-          //
-          // 但它**不是无条件更好**：金色渐变艺术字上只有 46.9%，因为 Otsu 二分
-          // 会把渐变字的暗部判成背景。所以这里同样要过下面的 hasVisibleLocalEdit
-          // 校验，不合格就自然让位给佐糖/本地兜底，不做特判。
-          //
-          // 未配置 TEXT_ENGINE_BASE_URL 时返回 null，整条链路行为与接入前完全一致。
-          name: "参数化引擎",
-          run: async () => {
-            if (!isTextEngineConfigured()) return null;
-            if (!input.textRegions?.length || !input.editedText?.trim()) return null;
-            // 只把「真的被改了文案」的区域交给引擎，避免擦掉用户没动的行。
-            //
-            // targetText 不能直接用：前端只在**删除整行**时才写它（InfiniteCanvas
-            // :7573 传 "" 或 undefined），普通改字时是 undefined。
-            // 所以必须复用站点既有的行匹配口径 resolveRegionTargetTexts，
-            // 与 createModifiedRegionsMask / drawTextReplacement 保持同一套判定，
-            // 否则会出现「引擎擦了 A 行、绘制却写在 B 行」的错位。
-            const resolved = resolveRegionTargetTexts(input.textRegions, input.editedText);
-            const regions = resolved.filter(item => item.changed);
-            if (regions.length === 0) return null;
+      /**
+       * 背景复杂度判定（2026-09-13）。
+       *
+       * 采样「紧贴蒙版外侧、宽度 = 擦字实际外扩量」那一圈背景，按亮度 P90-P10 极差分档。
+       * 它决定各擦除通道的先后顺序（见下方 eraseChannels 的注释）：
+       *   flat / smooth → 本地像素擦除优先。平涂与柔和渐变上生成式模型只会脑补色块和接缝。
+       *   textured      → 即梦背景修复优先。复杂纹理上本地插值会拉出水平条纹，
+       *                   佐糖又容易留白板/鬼影，反而更显眼。
+       *
+       * 用稳健极差而非标准差的原因见 measureMaskSurroundingFlatness 的注释
+       * （标准差会被紧贴人物的那一小段外环拉爆，把平涂底误判成复杂背景）。
+       *
+       * 检测失败不阻断主流程：按 textured 兜底，链路行为与接入前完全一致。
+       */
+      let backgroundComplexity: "flat" | "smooth" | "textured" = "textured";
+      // 判据摘要：只用于日志。擦字成功那行会带上它，否则「走了哪条通道」
+      // 无法区分是判定错了还是通道自己翻车了。
+      let flatnessSummary = "";
+      if (!hasLineDeletion) {
+        try {
+          const flatness = await measureMaskSurroundingFlatness(
+            sourceImageData.buffer,
+            maskImageData.buffer,
+            targetWidth,
+            targetHeight,
+            maskParams.radius + maskParams.extraX,
+          );
+          backgroundComplexity = classifyBackgroundComplexity(
+            flatness.robustSpread,
+            flatness.sampleCount,
+          );
+          flatnessSummary =
+            `复杂度=${backgroundComplexity} 极差=${flatness.robustSpread.toFixed(1)} ` +
+            `标准差=${flatness.stdDev.toFixed(1)} 样本=${flatness.sampleCount}`;
+          console.log(
+            `[text_edit] 背景判定 ${flatnessSummary} → ${
+              backgroundComplexity === "textured"
+                ? "复杂纹理：即梦背景修复优先，佐糖/本地像素擦除兜底"
+                : "平涂/柔和渐变：本地像素擦除优先，佐糖兜底（不走即梦）"
+            }`,
+          );
+        } catch (error) {
+          console.log(
+            `[text_edit] 背景复杂度检测失败，按复杂纹理处理: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }
 
-            const result = await eraseTextWithEngine({
-              imageBuffer: sourceImageData.buffer,
-              regions: regions.map(item => ({
-                text: item.region.text || "",
-                targetText: item.targetText,
-                x: item.region.x,
-                y: item.region.y,
-                width: item.region.width,
-                height: item.region.height,
-              })),
-            });
-            return result.buffer;
-          },
+      // ── 三个可互换的擦除通道 ──────────────────────────────────────────────
+      // 即梦背景修复：VOD 参考图 + mask 生成式擦除，复杂纹理首选（见其定义处注释）。
+      // 佐糖物体擦除：生成式 inpaint。mask 契约：白=擦除区、黑=保留区。
+      // buildInpaintMask 是通道无关的通用实现（原名 buildMeituMask，
+      // 随美图通道移除一并迁到 server/inpaint-mask.ts 并改名）。
+      const picwishEraseChannel = {
+        name: "佐糖物体擦除",
+        run: async () => {
+          const picwishMask = await buildInpaintMask(
+            dilatedMaskBuffer,
+            targetWidth,
+            targetHeight,
+          );
+          const result = await eraseWithPicWish({
+            imageBuffer: sourceImageData.buffer,
+            imageMimeType: sourceImageData.mimeType,
+            maskBuffer: picwishMask,
+            maskMimeType: "image/jpeg",
+            sync: true,
+          });
+          const src = result.images[0]?.src;
+          return src ? (await imageSrcToBuffer(src)).buffer : null;
         },
-        // 2026-09-13 移除了这里的「美图局部重绘」通道（原第 2 位）。
-        // 美图账号已被停用（403 / 1003 access key is disabled），而生产**确实配着凭证**，
-        // 所以它不是"没配所以跳过"，而是每次擦字都真发一次请求、被拒、再降级到佐糖——
-        // 白白多付一次网络往返。删掉后链路是：参数化引擎 → 佐糖 → 本地像素擦除。
-        {
-          name: "佐糖物体擦除",
-          run: async () => {
-            // mask 契约：白=擦除区、黑=保留区。
-            // buildInpaintMask 是通道无关的通用实现（原名 buildMeituMask，
-            // 随美图通道移除一并迁到 server/inpaint-mask.ts 并改名）。
-            const picwishMask = await buildInpaintMask(
-              dilatedMaskBuffer,
-              targetWidth,
-              targetHeight,
-            );
-            const result = await eraseWithPicWish({
-              imageBuffer: sourceImageData.buffer,
-              imageMimeType: sourceImageData.mimeType,
-              maskBuffer: picwishMask,
-              maskMimeType: "image/jpeg",
-              sync: true,
-            });
-            const src = result.images[0]?.src;
-            return src ? (await imageSrcToBuffer(src)).buffer : null;
-          },
+      };
+
+      // 本地像素擦除：纯 CPU、不依赖任何外部服务，保证只要有 OCR 区域就能拿到底图。
+      // localEraseAttempted 记录本轮是否已经跑过，避免下方「最后一道保障」重复计算。
+      let localEraseAttempted = false;
+      const localEraseChannel = {
+        name: "本地像素擦除",
+        run: async () => {
+          if (!input.textRegions?.length || !input.editedText?.trim()) return null;
+          localEraseAttempted = true;
+          return eraseTextRegionsLocally(
+            sourceImageData.buffer,
+            input.textRegions,
+            input.editedText,
+            targetWidth,
+            targetHeight,
+          );
         },
-      ];
+      };
+
+      /**
+       * 即梦背景修复：走 VOD 参考图 + mask 的生成式擦除通道（2026-09-13 新增）。
+       *
+       * 为什么单列一条通道，而不是继续用佐糖：
+       * 佐糖是专用 inpaint，在平涂 / 柔和渐变上表现好，但换成艺术字底、水彩、羽翼
+       * 这类**复杂纹理**时会留下白板、鬼影和色块 —— 这正是用户反馈「复杂场景擦除很差」
+       * 的直接来源。即梦 4.0 对「抹掉文字并补出周边纹理」的补全更自然，且它本来就在
+       * 智能注释链路里以 mask 编辑方式验证过（日志 hasMask: true）。
+       *
+       * 定位：复杂纹理场景的第一顺位；平涂 / 柔和渐变**不参与**（那里本地像素擦除等价于
+       * 精确常量填充，生成式模型只会脑补纹理，是负收益）。计费按 VOD 即梦单价走，
+       * 用户已确认接受「复杂场景多一次 VOD 调用」的成本。
+       */
+      const jimengEraseChannel = {
+        name: "即梦背景修复",
+        run: async () => {
+          if (!isVodAigcConfigured()) return null;
+          // 没有 OCR 区域就没有阶段 B，此处花一次 VOD 调用也拿不到确定性绘制结果，
+          // 直接让位（与本地像素擦除同一前置条件）。
+          if (!input.textRegions?.length || !input.editedText?.trim()) return null;
+          // 蒙版语义转换：dilateMaskTransparent 输出「透明 = 擦除区」，
+          // createOgdEditMaskDataUrl 反相成 VOD 要的「白 = 可编辑区」并轻度膨胀羽化。
+          // 用 "edit" 而非 "add"：擦字是修改既有内容，add 会向上扩 45% 给新物体留位，
+          // 用在擦字上会把可改区域溢出到无关背景。
+          const { dataUrl: eraseMaskDataUrl, compositeMaskBuffer } = await createOgdEditMaskDataUrl(
+            dilatedMaskBuffer,
+            targetWidth,
+            targetHeight,
+            "edit",
+            input.prompt || "",
+          );
+          const result = await generateImages({
+            prompt: [
+              "Reference image 1 is the original image. Reference image 2 is an exact mask: " +
+              "white marks the only editable areas; every black area must stay pixel-identical to reference image 1.",
+              "Task: completely remove the text inside the white areas and rebuild the background there so it " +
+              "becomes seamless with the immediately surrounding pixels — same color, same texture, same " +
+              "flatness, no patch boundary, no blur, no color block, no seam, no leftover stroke.",
+              "If the surrounding background is a flat solid color, keep it perfectly flat: " +
+              "do not introduce texture, gradient, vignette or noise into it.",
+              "Do not draw any new text, letters, numbers, logos or symbols anywhere in the image.",
+              "Return one complete edited image, not a text explanation.",
+            ].join("\n\n"),
+            // 固定即梦。不写 "auto"：auto 表达的是全局出图优先级，会随其他需求漂移，
+            // 而这里依赖的是「即梦在复杂背景补全上的具体表现」，应绑定具体 id。
+            model: "vod-jimeng",
+            ratio: resolveVodReferenceRatio(targetWidth, targetHeight),
+            count: 1,
+            preferImageApiForReferences: true,
+            /**
+             * 必须关掉服务端 prompt 增强。
+             * 擦字是纯指令任务，上面那段逐条约束（不得写字、蒙版外必须原样）会被增强
+             * 当作待润色的描述整体重写，「不得」类硬约束在润色中被稀释。
+             * 同 text_edit 叠字链路（:5329）与智能注释（:4090）的处理。
+             */
+            enhancePrompt: false,
+            images: [
+              {
+                src: `data:${sourceImageData.mimeType};base64,${sourceImageData.buffer.toString("base64")}`,
+                title: "target image",
+              },
+              // title 必须是 "annotation mask"：generateImages 是按参考图的 title
+              // 识别蒙版的（tryVodGeneration 里 find(image => image.title === "annotation mask")），
+              // 换个名字 VOD 侧拿到的 maskDataUrl 就是 undefined（日志 hasMask: false），
+              // 模型只能靠猜，会改到画面其他位置。
+              { src: eraseMaskDataUrl, title: "annotation mask" },
+            ],
+          });
+          const src = result.images[0]?.src;
+          if (!src) return null;
+          /**
+           * 必须做蒙版外回贴。
+           *
+           * VOD 是「参考图生成」而非像素级局部编辑：即使带了 ReferenceType:"mask"，
+           * 它仍可能对整图重绘（背景改色、主体变形）。而调用方的 hasVisibleLocalEdit
+           * 只校验「蒙版内有没有变化」—— 一张被整体重画的图必然通过校验，最终把原图
+           * 换成一幅似是而非的新画，比擦不干净严重得多。
+           * 用 alpha 语义蒙版合成（蒙版内 = 即梦结果，蒙版外 = 原图）把风险关回蒙版内。
+           */
+          const edited = await imageSrcToBuffer(src);
+          return __testCompositeSourcePreservingImageEdit(
+            sourceImageData.buffer,
+            edited.buffer,
+            compositeMaskBuffer,
+            targetWidth,
+            targetHeight,
+          );
+        },
+      };
+
+      /**
+       * 参数化引擎（自建 Python / FastAPI，需 TEXT_ENGINE_BASE_URL）。
+       *
+       * 实测在纯色印刷体上擦净率与背景保真都优于其它通道
+       * （banner CUSTOM 行 98.1% / 背景改动 11.7，本地兜底是 94.6% / 25.8）。
+       *
+       * 但它**不是无条件更好**：金色渐变艺术字上只有 46.9%，因为 Otsu 二分
+       * 会把渐变字的暗部判成背景。所以它同样要过下面的 hasVisibleLocalEdit
+       * 校验，不合格就自然让位给下一个通道，不做特判。
+       *
+       * 未配置 TEXT_ENGINE_BASE_URL 时返回 null，整条链路行为与接入前完全一致。
+       */
+      const engineEraseChannel = {
+        name: "参数化引擎",
+        run: async () => {
+          if (!isTextEngineConfigured()) return null;
+          if (!input.textRegions?.length || !input.editedText?.trim()) return null;
+          // 只把「真的被改了文案」的区域交给引擎，避免擦掉用户没动的行。
+          //
+          // targetText 不能直接用：前端只在**删除整行**时才写它（InfiniteCanvas
+          // :7573 传 "" 或 undefined），普通改字时是 undefined。
+          // 所以必须复用站点既有的行匹配口径 resolveRegionTargetTexts，
+          // 与 createModifiedRegionsMask / drawTextReplacement 保持同一套判定，
+          // 否则会出现「引擎擦了 A 行、绘制却写在 B 行」的错位。
+          const resolved = resolveRegionTargetTexts(input.textRegions, input.editedText);
+          const regions = resolved.filter(item => item.changed);
+          if (regions.length === 0) return null;
+
+          const result = await eraseTextWithEngine({
+            imageBuffer: sourceImageData.buffer,
+            regions: regions.map(item => ({
+              text: item.region.text || "",
+              targetText: item.targetText,
+              x: item.region.x,
+              y: item.region.y,
+              width: item.region.width,
+              height: item.region.height,
+            })),
+          });
+          return result.buffer;
+        },
+      };
+
+      // 2026-09-13 移除了这里的「美图局部重绘」通道（原第 2 位）。
+      // 美图账号已被停用（403 / 1003 access key is disabled），而生产**确实配着凭证**，
+      // 所以它不是"没配所以跳过"，而是每次擦字都真发一次请求、被拒、再降级到佐糖——
+      // 白白多付一次网络往返。
+      //
+      // 2026-09-13 起，各通道的先后顺序由 backgroundComplexity 决定，互为兜底：
+      // 任一通道被 hasVisibleLocalEdit 判为「没擦干净」就自然让位给下一个。
+      // 这比旧版「纯色底直接跳过佐糖」更稳 —— 旧结构一旦本地擦除失败就没有退路，
+      // 只能整条降级到 AI 叠字，文字准确性随之失守。
+      //
+      // textured（复杂纹理）：即梦排**第一**，排在参数化引擎之前。
+      //   这里是用户反馈「擦除很差」的主战场：佐糖在这类艺术底上会留白板/鬼影，
+      //   引擎在渐变艺术字上只有 46.9%，即梦的生成式补全最自然。
+      //   代价是每次擦字多一次 VOD 调用（用户已确认接受）。
+      //   引擎/佐糖/本地退为兜底：即梦失败或被判「无可见变化」时自动接管。
+      //   注意引擎此前是数组里**硬编码的首位**（不在本分支内），配置了
+      //   TEXT_ENGINE_BASE_URL 的环境里它会无条件跑在即梦前面，因此 2026-09-13
+      //   把整个顺序收进本分支，避免「本地没配 → 看着是即梦优先，测服配了 → 其实不是」。
+      // flat / smooth（平涂、柔和渐变）：**不放即梦** —— 本地像素擦除在这里等价于精确
+      //   常量填充，生成式模型只会脑补出纹理与接缝（负收益），放进来等于让平涂场景
+      //   白白多付一次 VOD 调用。顺序保持「引擎 → 本地 → 佐糖」。
+      //
+      // 「删除整行」场景整条链都不进（引擎实测仅 37.3%，本地 100%），见下方 hasLineDeletion。
+      const eraseChannels: Array<{ name: string; run: () => Promise<Buffer | null> }> = hasLineDeletion
+        ? []
+        : backgroundComplexity === "textured"
+          ? [jimengEraseChannel, engineEraseChannel, picwishEraseChannel, localEraseChannel]
+          : [engineEraseChannel, localEraseChannel, picwishEraseChannel];
 
       let cleanedBuffer: Buffer | null = null;
       let usedChannel = "";
@@ -4923,9 +5155,38 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
         const cleanedData = { buffer: cleanedBuffer, mimeType: "image/png" };
         sourceImageData = cleanedData;
         sourceImage = bufferToImageFile(cleanedData.buffer, cleanedData.mimeType);
+        /**
+         * 擦字后的指令（2026-09-13 修正）。
+         *
+         * 原文写的是 "Keep that cleaned background unchanged" —— 这是个**刚性**约束：
+         * 它把上游擦字通道（当前命中佐糖生成式 inpaint）的产物当成权威背景，
+         * 连痕迹一起要求模型原样保留。
+         *
+         * 实测症状：纯色背景下擦字区会留下轻微色块/糊边/接缝，
+         * 模型忠实执行"保持不变"，于是这些痕迹被完整带进最终成图 ——
+         * 表现为用户看到的「纯色背景回填很一般」。
+         *
+         * 改为「先修复、再写字」：
+         *   1) 允许并要求模型把擦字区的残留笔画 / 模糊 / 色块 / 接缝修到与紧邻背景一致；
+         *   2) 显式声明纯色底必须保持纯色（抑制模型在平涂背景上自作主张加纹理、渐变、暗角）。
+         * 「只在蒙版内改动」这条硬约束不变。
+         */
         textEditInstruction +=
-          "\nThe masked text areas have already been cleared to clean original background. " +
-          "Keep that cleaned background unchanged and only paint the replacement text inside the mask.";
+          "\nThe masked text areas have already been cleared and must read as clean empty background. " +
+          "Enforce that strictly before drawing anything: if the cleared area still shows any faint residue " +
+          "of the removed glyphs, or any blur, color patch, seam or texture mismatch left behind by the " +
+          "cleanup, restore it so that it becomes seamless with the immediately surrounding background — " +
+          "identical color, identical flatness, no visible patch boundary. " +
+          "If the surrounding background is a flat solid color, keep it perfectly flat: " +
+          "do not introduce texture, gradient, vignette or noise into it. " +
+          "Only then paint the replacement text, and only inside the mask. " +
+          // 2026-09-13：补充字重 / 字距控制。即梦生成式链路对"标题"的先验偏粗壮衬线，叠加
+          // 蒙版留白时会进一步放大字号并收紧字间距 → 视觉上比原图粗很多。这里强制引导它
+          // 走"排版"而非"绘画"：细字重、留字间距、不要填满区域。
+          "\nTypography must read as typeset, not painted: thin-to-regular stroke weight, " +
+          "generous letter-spacing, breathing room between glyphs; " +
+          "do not bolden, thicken or extra-stroke the letters; " +
+          "do not crowd glyphs together; do not enlarge the glyphs to fill the available area.";
         /**
          * 擦字成功后，源图里已经没有原文字了。
          * 但上面 textEditInstruction 基线还写着「移除原有可读文字」——
@@ -4939,8 +5200,14 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
             "Match the original typography style, weight, color, perspective and lighting of the area.";
         }
         console.log(
-          `[text_edit] 擦字成功（通道：${usedChannel}），` +
-          `贴回方式=${input.textApplyMode === "ai" ? "AI 叠字(image2.5)" : "本地确定性绘制"}`,
+          `[text_edit] 擦字成功（通道：${usedChannel}）` +
+          // 带上背景判据。同一张图在换阈值/换通道前后的差异全靠这行对齐：
+          // 只说「通道：佐糖物体擦除」无法区分是判定分错了档，还是该通道自己翻车。
+          (flatnessSummary ? `，背景 ${flatnessSummary}` : "") +
+          `，` +
+          // 不要在这里硬编码模型名：该字段曾写死 "image2.5"，换模型后日志
+          // 与实际下发的模型不符，排查时会把人带偏。直接引用 selectedModel。
+          `贴回方式=${input.textApplyMode === "ai" ? `AI 叠字(${selectedModel})` : "本地确定性绘制"}`,
         );
       } else {
         console.log(`[text_edit] 所有擦除通道均失败，降级为直接编辑`);
@@ -4949,6 +5216,33 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
       console.log(
         `[text_edit] 擦字阶段异常，降级为直接编辑: ${error instanceof Error ? error.message : String(error)}`,
       );
+    }
+  }
+
+  /**
+   * 擦字失败保护（2026-09-13）。
+   *
+   * 阶段 B（确定性绘制）的进入条件里有一项是 `sourceImageData !== originalSourceImageData`，
+   * 即「擦字必须成功」。擦字一旦失败，这条 `if` 直接为假、阶段 B 被整段跳过，
+   * 请求会静默落到 `editViaReferenceGeneration` 的 AI 叠字链路 —— 而即梦 4.0 即使
+   * 收到膨胀 mask 也不会严格遵守，会把整张图重绘：背景被改、人物变形，
+   * 或在未擦净的原字上再叠一层新字（用户实测的「双层字 / 乱套」由此而来）。
+   *
+   * 因此，只要用户要的是确定性文字编辑（默认 local、且有实际修改区域），
+   * 而擦字没拿到干净底图，就必须在此显式报错保护原图，绝不静默交给 AI。
+   */
+  if (
+    isTextEditOperation &&
+    input.textApplyMode !== "ai" &&
+    maskImageData &&
+    input.textRegions?.length &&
+    input.editedText?.trim() &&
+    sourceImageData === originalSourceImageData
+  ) {
+    const changedRegionCount = resolveRegionTargetTexts(input.textRegions, input.editedText)
+      .filter(item => item.changed).length;
+    if (changedRegionCount > 0) {
+      throw new Error("文字擦除未成功，已停止生成以保护原图，请重试或调整文字选区");
     }
   }
 
@@ -5029,11 +5323,16 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
         ],
       };
     } catch (error) {
+      // 局部确定性绘制失败时**不再**静默降级到 AI 兜底：
+      // 即梦 4.0 在 text_edit 链路里会无视 mask 整图重绘（出现"CADPA"等版署字符、
+      // 背景扭曲、人物变形），对原图的破坏比"绘制失败"本身更严重。
+      // 改为向上抛错，让调用方把清晰的失败原因反馈给用户，由用户决定是否重试
+      // 或调整 OCR 区域，而不是拿到一张面目全非的图。
+      const reason = error instanceof Error ? error.message : String(error);
       console.log(
-        `[text_edit] 确定性文字绘制失败，降级为 AI 叠字: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        `[text_edit] 确定性文字绘制失败，**不**降级为 AI 叠字: ${reason}`,
       );
+      throw new Error(`确定性文字绘制失败: ${reason}`);
     }
   }
 
@@ -5074,19 +5373,55 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
           targetHeight,
         )).toString("base64")}`
       : "";
-    const aspect = targetWidth / Math.max(1, targetHeight);
+    /**
+     * text_edit 专用：生成 VOD 能识别的精确蒙版。
+     *
+     * 必须与智能注释走同一条路 —— `generateImages` 是**按参考图的 title**
+     * 识别蒙版的（tryVodGeneration 里 find(image => image.title === "annotation mask")）。
+     * 此前 text_edit 只发了「原图 + 橙色引导图」两张，VOD 侧拿到的 maskDataUrl
+     * 恒为 undefined（日志里 hasMask: false），模型只能靠橙色覆盖区去**猜**
+     * 可改范围，而不是被硬性约束在蒙版内 —— 这正是它容易改到画面其他位置、
+     * 以及写出的字与预期排版对不上的原因之一。
+     *
+     * 蒙版语义转换：前端传来的 mask 是「透明 = 可改文字区」，
+     * createOgdEditMaskDataUrl 会反相成 VOD 需要的「白 = 可编辑区」并轻度膨胀羽化。
+     * 这里用 "edit" 模式而非 "add"：文字替换是修改既有内容，
+     * "add" 会向上扩展 45% 高度给新物体留位，用在文字上会让可改区域溢出到无关背景。
+     */
+    // 优先用擦字阶段那张膨胀蒙版：让「擦掉的背景范围」与「允许写字的范围」对齐。
+    // 早先用前端原始紧框时，新文案比原文长就会超出白区边界，看起来像模型漏字。
+    const textEditMaskSource = textEditDilatedMaskBuffer || maskImageData;
+    const textEditVodMaskDataUrl = isTextEditOperation && textEditMaskSource
+      ? (await createOgdEditMaskDataUrl(
+          textEditMaskSource.buffer,
+          targetWidth,
+          targetHeight,
+          "edit",
+          input.prompt || "",
+        )).dataUrl
+      : "";
     // 优先使用与源图比例接近的 2:3，避免 VOD 参考图生成被错误地裁剪到 9:16。
-    const ratio = aspect > 1.2
-      ? "16:9"
-      : aspect < 0.85
-        ? (aspect < 0.65 ? "9:16" : "2:3")
-        : "1:1";
+    const ratio = resolveVodReferenceRatio(targetWidth, targetHeight);
     const referenceModels =
       usesAutoModel && (requiresVisibleLocalChange || usesCameraViewAutoModel)
         ? selectedModels
         : requiresVisibleLocalChange
           ? Array.from(new Set([requestedModel, ...getImageModelFallbackAttempts("auto")]))
           : [requestedModel];
+    /**
+     * 自证日志：一次打印「谁会被调用、蒙版有没有带上、增强有没有关」。
+     *
+     * 没有这条日志时，评估结果很难归因 —— 看到出图不对，无法区分是
+     * ① 模型能力不行、② mask 没传下去、③ prompt 被服务端增强改写了。
+     */
+    if (isTextEditOperation) {
+      console.log("[text_edit] AI 叠字链路", JSON.stringify({
+        referenceModels: Array.from(new Set(referenceModels)),
+        vodMask: Boolean(textEditVodMaskDataUrl),
+        enhancePrompt: selectedModel.startsWith("vod-") ? false : undefined,
+        editedText: input.editedText,
+      }));
+    }
     let lastError: unknown;
 
     for (const referenceModel of referenceModels) {
@@ -5102,6 +5437,9 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
             editGuideDataUrl
               ? "Reference image 2 is a visual edit guide derived from reference image 1. Its translucent orange overlay marks the only area allowed to change; the overlay itself is not content and must not appear in the result. Every unmarked area must remain visually identical to reference image 1."
               : "",
+            textEditVodMaskDataUrl
+              ? "One later reference image is an exact mask for this edit: white marks the only editable text areas, black must stay pixel-identical to reference image 1. Remove the original text inside the white areas and render the replacement text there."
+              : "",
             "Use any later reference images only for the requested object, accessory, style, texture, or detail.",
             "Return one complete edited image, not a text explanation.",
             aspectInstruction,
@@ -5115,14 +5453,32 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
           // 它会把这段 3000+ 字符的空间约束整体重写，「整个场景一起转」这类
           // 精确指令会在重写中被稀释掉，退化成普通的「保持原图风格」，
           // 表现就是主体转了、背景没转。同 :3922 智能注释的处理。
-          enhancePrompt: isCameraViewOperation ? false : undefined,
+          //
+          // text_edit 同样必须关，而且更要紧：文字编辑的硬要求是「逐字精确」，
+          // 提示词里带着 "The exact replacement text to render is: ..." 这段
+          // 逐字渲染指令。服务端增强会把它当作待润色的描述整体改写，
+          // 「必须逐字」的约束被稀释后，表现就是漏字、错字、自行改写文案。
+          enhancePrompt: isCameraViewOperation || isTextEditOperation ? false : undefined,
           images: [
             { src: sourceDataUrl, title: "target image" },
             ...(editGuideDataUrl ? [{ src: editGuideDataUrl, title: "local edit guide" }] : []),
+            ...(textEditVodMaskDataUrl ? [{ src: textEditVodMaskDataUrl, title: "annotation mask" }] : []),
             ...referenceImages,
           ],
         });
-        const images = await finalizeImages(result.images);
+        /**
+         * 走 VOD 精确蒙版时不做二次 source-preserving 合成。
+         *
+         * 与智能注释同一处理（见其 isVodMaskModel 分支的注释）：VOD 服务端
+         * 已按 ReferenceType: "mask" 保证蒙版外保持原图，后端再合成一次是冗余的。
+         * 更重要的是它的副作用 —— 合成用的 mask 是前端那张「仅覆盖被改动的
+         * 原文字区域」的紧框，新文案比原文长时，超出的新字会被裁在旧区域边界上，
+         * 看起来像「模型漏字」，实际是收尾阶段裁掉的，会把模型能力评估带偏。
+         */
+        const usesVodMask = Boolean(textEditVodMaskDataUrl);
+        const images = usesVodMask
+          ? await __testNormalizeGeneratedImagesToTargetAspect(result.images, targetWidth, targetHeight)
+          : await finalizeImages(result.images);
         if (requiresVisibleLocalChange && maskImageData && images[0]) {
           const editedImageData = await imageSrcToBuffer(images[0].src);
           if (!await hasVisibleLocalEdit(

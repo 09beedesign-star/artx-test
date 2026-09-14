@@ -31,11 +31,25 @@ export type OrchestrateRequest = {
   brandKitId?: string;
   skillId?: string;
   messages?: Array<{ role: "system" | "user" | "assistant"; content: string }>;
-  /** 智能文案编辑：原图 OCR 识别的文字区域（x/y/width/height/text），用于确定性文字绘制 */
-  textRegions?: Array<{ x: number; y: number; width: number; height: number; text?: string }>;
+  /** 智能文案编辑：原图 OCR 识别的文字区域（x/y/width/height/text/rotate/fontColor/fontFamily），用于确定性文字绘制 */
+  textRegions?: Array<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    text?: string;
+    rotate?: number;
+    fontColor?: string;
+    fontFamily?: string;
+  }>;
   /** 智能文案编辑：修改后的完整文案（多行用 \n 分隔），用于确定性文字绘制 */
   editedText?: string;
-  /** 智能文案编辑：新文案贴回方式。"ai"（默认）走 image2.5 叠字，"local" 走本地字体绘制 */
+  /**
+   * 智能文案编辑：新文案贴回方式。
+   * - "local"（默认）：本地字体确定性绘制，不调用图片模型。
+   * - "ai"：交给图片模型叠字（当前为 VOD 即梦 4.0，见
+   *   shared/image-models.ts 的 SMART_TEXT_EDIT_AI_MODEL_ID）。
+   */
   textApplyMode?: "ai" | "local";
 };
 
