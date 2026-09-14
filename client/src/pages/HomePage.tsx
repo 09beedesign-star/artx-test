@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useAuth, rememberInviteCodeFromUrl } from "@/contexts/AuthContext";
 import { INVITE_REWARD_CONFIG } from "@shared/billing-config";
+import { TOUR_ANCHORS } from "@shared/onboarding-steps";
 import asteroidImage from "@/assets/ardot/3_3.png";
 import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
 import HomeFirstTopUpBanner, {
@@ -677,7 +678,7 @@ export default function HomePage() {
         </button>
       </section>
 
-      <section ref={inspirationRef} className="min-h-screen bg-[#222222] px-6 py-20 sm:px-10 lg:px-20">
+      <section ref={inspirationRef} data-tour-id={TOUR_ANCHORS.homeInspirationSection} className="min-h-screen bg-[#222222] px-6 py-20 sm:px-10 lg:px-20">
         <div className="mx-auto max-w-[1600px]">
           <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -687,11 +688,12 @@ export default function HomePage() {
           </div>
 
           <div className="columns-1 gap-4 md:columns-2 xl:columns-4">
-            {homeInspirationItems.map(item => (
+            {homeInspirationItems.map((item, itemIndex) => (
               <button
                 key={`${item.rank}-${item.title}`}
                 type="button"
                 onClick={() => setSelectedHomeInspiration(item)}
+                data-tour-id={itemIndex === 0 ? TOUR_ANCHORS.homeInspirationCard : undefined}
                 className="group mb-4 w-full break-inside-avoid overflow-hidden rounded-md border border-white/10 bg-[#222222] text-left shadow-[0_18px_50px_rgba(0,0,0,0.28)] transition-transform hover:-translate-y-1"
               >
                 <div className="relative overflow-hidden">
@@ -725,6 +727,7 @@ export default function HomePage() {
             <button
               type="button"
               onClick={openInspirationPage}
+              data-tour-id={TOUR_ANCHORS.homeInspirationMore}
               className="text-sm font-semibold text-[#C5ED47] underline decoration-[#C5ED47]/60 underline-offset-4 transition-colors hover:text-[#D7F877]"
             >
               查看全部灵感推荐
@@ -940,7 +943,10 @@ function PreloginPanel({
           </div>
         </div>
 
-        <div className="mb-6 mt-6 flex min-h-[282px] flex-1 flex-col justify-between rounded-[10px] border border-[#545454] bg-[#212121] p-4">
+        <div
+          data-tour-id={TOUR_ANCHORS.homePromptPanel}
+          className="mb-6 mt-6 flex min-h-[282px] flex-1 flex-col justify-between rounded-[10px] border border-[#545454] bg-[#212121] p-4"
+        >
           <textarea
             value={promptTouched ? prompt : animatedPrompt}
             onChange={event => onPromptChange(event.target.value)}

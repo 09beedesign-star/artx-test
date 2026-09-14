@@ -13,11 +13,13 @@ import { toast } from "sonner";
 import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
 import defaultWechatGroupQr from "@/assets/community/wechat-group-qr.jpg";
 import { DEFAULT_IMAGE_MODEL_ID } from "@shared/image-models";
+import { TOUR_ANCHORS, type TourAnchor } from "@shared/onboarding-steps";
 import InviteDialog from "@/components/workspace/InviteDialog";
 import {
   Home, Sparkles, Library, FolderOpen,
-  CreditCard, HelpCircle, ImagePlus, Send, X, KeyRound, Copy, Loader2, QrCode, Gift,
+  CreditCard, HelpCircle, ImagePlus, Send, X, KeyRound, Copy, Loader2, QrCode, Gift, Compass,
 } from "lucide-react";
+import { useOnboarding } from "@/components/onboarding/OnboardingProvider";
 
 
 interface AppShellProps {
@@ -75,6 +77,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   const [location, navigate] = useLocation();
   const { resolvedTheme } = useTheme();
   const { isAuthenticated, openLoginModal } = useAuth();
+  const onboarding = useOnboarding();
   const [helpOpen, setHelpOpen] = useState(false);
   const [communityOpen, setCommunityOpen] = useState(false);
   const [apiKeyOpen, setApiKeyOpen] = useState(false);
@@ -633,8 +636,8 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
 
   // ── Shared nav item renderer ──────────────────────────────────
   const NavItem = ({
-    icon: Icon, label, path, iconSize = 16,
-  }: { icon: React.ElementType; label: string; path: string; iconSize?: number }) => {
+    icon: Icon, label, path, iconSize = 16, tourId,
+  }: { icon: React.ElementType; label: string; path: string; iconSize?: number; tourId?: TourAnchor }) => {
     const active = isActive(path);
     const handleClick = () => {
       if (!isAuthenticated && path === "/workspace") {
@@ -647,6 +650,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
     return (
       <button
         onClick={handleClick}
+        data-tour-id={tourId}
         className="w-full flex h-[31px] items-center gap-2.5 px-2.5 type-caption transition-all text-left"
         style={{
           background: active ? activeBg : "transparent",
@@ -697,11 +701,11 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
 
           {/* Top nav */}
           <div className="flex flex-col gap-0.5">
-            <NavItem icon={Home}    label="首页"     path="/" />
-            <NavItem icon={Sparkles} label="灵感推荐" path="/inspiration" iconSize={15} />
-            <NavItem icon={Library}  label="技能商店" path="/skills"      iconSize={15} />
-            <NavItem icon={FolderOpen} label="工作台" path="/workspace" iconSize={15} />
-            <NavItem icon={CreditCard} label="充值与订阅" path="/billing" iconSize={15} />
+            <NavItem icon={Home}    label="首页"     path="/" tourId={TOUR_ANCHORS.navHome} />
+            <NavItem icon={Sparkles} label="灵感推荐" path="/inspiration" iconSize={15} tourId={TOUR_ANCHORS.navInspiration} />
+            <NavItem icon={Library}  label="技能商店" path="/skills"      iconSize={15} tourId={TOUR_ANCHORS.navSkills} />
+            <NavItem icon={FolderOpen} label="工作台" path="/workspace" iconSize={15} tourId={TOUR_ANCHORS.navWorkspace} />
+            <NavItem icon={CreditCard} label="充值与订阅" path="/billing" iconSize={15} tourId={TOUR_ANCHORS.navBilling} />
             <button
               onClick={() => {
                 if (!isAuthenticated) {
@@ -710,6 +714,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
                 }
                 setInviteOpen(true);
               }}
+              data-tour-id={TOUR_ANCHORS.navInvite}
               className="w-full flex h-[31px] items-center gap-2.5 px-2.5 type-caption transition-all text-left"
               style={{
                 background: "transparent",
@@ -769,6 +774,19 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
             <KeyRound size={14} strokeWidth={1.45} style={{ flexShrink: 0, opacity: 0.7 }} />
             <span className="truncate" style={{ fontSize: 12, letterSpacing: 0 }}>API key</span>
           </button>
+          <button
+            onClick={() => {
+              onboarding.resetAll();
+              toast.success("新手引导已重置，进入对应页面即可重新观看");
+            }}
+            className="w-full flex h-[31px] items-center gap-2.5 px-2.5 type-caption transition-all text-left"
+            style={{ background: "transparent", borderRadius: 6, color: textSecondary }}
+            onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = hoverBg)}
+            onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
+          >
+            <Compass size={14} strokeWidth={1.45} style={{ flexShrink: 0, opacity: 0.7 }} />
+            <span className="truncate" style={{ fontSize: 12, letterSpacing: 0 }}>新手引导</span>
+          </button>
         </div>
       </aside>
 
@@ -779,7 +797,15 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
       {communityDialog}
       {helpDialog}
       {apiKeyDialog}
-      <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} />
+      <InviteDialog
+        open={inviteOpen}
+        onOpenChange={(next) => {
+          setInviteOpen(next);
+          // 首次打开邀请弹窗时播放「好友推荐」引导段。
+          // onlyIfUnseen 保证不会每次打开都骚扰用户。
+          if (next) onboarding.start("invite", { onlyIfUnseen: true });
+        }}
+      />
     </div>
   );
 }

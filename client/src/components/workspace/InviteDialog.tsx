@@ -22,6 +22,7 @@ import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ART_X_TEST_API_BASE_URL, normalizeApiBaseUrl } from "@/lib/api-base-url";
 import { useTheme } from "@/contexts/ThemeContext";
+import { TOUR_ANCHORS } from "@shared/onboarding-steps";
 
 export interface InviteSummary {
   inviteCode: string;
@@ -289,7 +290,7 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
           {!loading && !error && summary && (
             <div className="space-y-4">
               {/* 奖励说明 */}
-              <div className="rounded-xl p-4" style={{ background: cardBg, border: `1px solid ${cardBorder}` }}>
+              <div data-tour-id={TOUR_ANCHORS.inviteReward} className="rounded-xl p-4" style={{ background: cardBg, border: `1px solid ${cardBorder}` }}>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <div className="text-[11px] font-medium" style={{ color: subtleText }}>你可获得</div>
@@ -375,6 +376,7 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
                   type="button"
                   disabled={summary.acceptDisabled}
                   onClick={() => void handleCopy("message")}
+                  data-tour-id={TOUR_ANCHORS.inviteCopyMessage}
                   className="flex w-full items-center justify-center gap-1.5 rounded-lg py-2.5 text-[13px] font-semibold transition-colors"
                   style={{
                     background: summary.acceptDisabled ? cardBg : "oklch(0.58 0.22 290)",
@@ -409,6 +411,7 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
                 <button
                   type="button"
                   onClick={() => void handleCopy("code")}
+                  data-tour-id={TOUR_ANCHORS.inviteCode}
                   className="flex items-center justify-center gap-1.5 rounded-lg py-2 text-[12px] font-medium transition-colors"
                   style={{ background: cardBg, border: `1px solid ${cardBorder}`, color: subtleText }}
                 >
@@ -418,7 +421,7 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
               </div>
 
               {/* 我的邀请战绩 */}
-              <div className="rounded-xl p-4" style={{ background: cardBg, border: `1px solid ${cardBorder}` }}>
+              <div data-tour-id={TOUR_ANCHORS.inviteStats} className="rounded-xl p-4" style={{ background: cardBg, border: `1px solid ${cardBorder}` }}>
                 <div className="mb-3 flex items-center gap-1.5 text-[12px] font-medium" style={{ color: subtleText }}>
                   <Users size={13} />
                   我的邀请

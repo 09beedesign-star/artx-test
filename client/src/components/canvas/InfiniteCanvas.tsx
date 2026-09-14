@@ -535,6 +535,7 @@ import {
   resolveImageRatio,
 } from "@shared/image-ratios";
 import { resolveEditAspectLock } from "@shared/edit-aspect-lock";
+import { TOUR_ANCHORS } from "@shared/onboarding-steps";
 import { getAiImageModelCreditPolicy } from "@shared/ai-credit-policy";
 import { filterAllowedAiModelOptions, resolveAllowedAiModelId } from "@/lib/model-access";
 import {
@@ -15415,6 +15416,7 @@ function ZoomControlBar({
   return (
     <div
       className="absolute"
+      data-tour-id={TOUR_ANCHORS.canvasZoomBar}
       style={{ bottom: 110, left: 31, zIndex: 100, opacity: 0.6 }}
     >
       <div
@@ -17366,6 +17368,7 @@ function CanvasTopToolPalette({
   return (
     <div
       className="fixed nodrag nopan"
+      data-tour-id={TOUR_ANCHORS.canvasToolPalette}
       style={{
         top: 68,
         left: "50%",
@@ -21496,6 +21499,7 @@ function CanvasAssistantPanel({
       />
       <aside
         className="absolute right-3 top-3 bottom-3 flex flex-col nodrag nopan overflow-hidden rounded-[var(--radius-md-design)] transition-transform duration-200 ease-out"
+        data-tour-id={TOUR_ANCHORS.canvasAssistantPanel}
         style={{
           width: panelWidth,
           maxWidth: "calc(100vw - 48px)",

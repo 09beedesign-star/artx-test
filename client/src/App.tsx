@@ -7,6 +7,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider } from "./contexts/AuthContext";
 import AppShell from "./components/layout/AppShell";
+import OnboardingProvider from "./components/onboarding/OnboardingProvider";
 import HomePage from "./pages/HomePage";
 import WorkspaceDashboard from "./pages/WorkspaceDashboard";
 import CommunityPage from "./pages/CommunityPage";
@@ -399,7 +400,14 @@ function App() {
             <CreditGrantNotification />
             <WouterRouter base={routerBase}>
               <RouteLoadingGate>
-                <AppRoutes />
+                {/*
+                  新手引导。必须在 WouterRouter 内部（依赖 useLocation），
+                  且在 RouteLoadingGate 内部 —— 引导靠 segment.startDelayMs
+                  避开路由 loading 那 720ms 的全屏遮罩。
+                */}
+                <OnboardingProvider>
+                  <AppRoutes />
+                </OnboardingProvider>
               </RouteLoadingGate>
             </WouterRouter>
           </TooltipProvider>

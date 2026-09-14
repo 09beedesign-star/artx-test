@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
+import { TOUR_ANCHORS } from "@shared/onboarding-steps";
 
 const categoryOrder: SkillStoreCategory[] = [
   "brand_system",
@@ -271,7 +272,7 @@ export default function SkillsPage() {
             className="flex flex-col gap-3 rounded-[var(--radius-lg-design)] border p-3 md:flex-row md:items-center md:justify-between"
             style={{ background: panel, borderColor: border, backdropFilter: "blur(18px)" }}
           >
-            <div className="flex min-w-0 flex-1 flex-wrap gap-2">
+            <div data-tour-id={TOUR_ANCHORS.skillsCategoryBar} className="flex min-w-0 flex-1 flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => setActiveCategory("all")}
@@ -306,6 +307,7 @@ export default function SkillsPage() {
 
             <div className="flex w-full shrink-0 justify-end md:ml-auto md:w-[360px]">
               <div
+                data-tour-id={TOUR_ANCHORS.skillsSearch}
                 className="flex h-9 w-full items-center gap-2 overflow-hidden rounded-[var(--radius-md-design)] border px-3"
                 style={{ borderColor: border, background: panelStrong }}
               >
@@ -322,12 +324,14 @@ export default function SkillsPage() {
           </section>
 
           <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
-            {filteredItems.map((skill) => {
+            {filteredItems.map((skill, skillIndex) => {
               const Icon = skill.icon;
               const meta = skillCategoryMeta[skill.category];
+              const isTourAnchorCard = skillIndex === 0;
               return (
                 <article
                   key={skill.id}
+                  data-tour-id={isTourAnchorCard ? TOUR_ANCHORS.skillsCard : undefined}
                   className="flex h-full min-h-[220px] flex-col rounded-[var(--radius-lg-design)] border p-4 transition-transform hover:-translate-y-0.5"
                   style={{ background: panel, borderColor: border, backdropFilter: "blur(18px)" }}
                 >
@@ -364,6 +368,7 @@ export default function SkillsPage() {
                     <button
                       type="button"
                       onClick={() => handleQuickLoad(skill)}
+                      data-tour-id={isTourAnchorCard ? TOUR_ANCHORS.skillsQuickLoad : undefined}
                       className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-[var(--radius-md-design)] text-xs font-semibold transition-opacity hover:opacity-90 active:scale-[0.99]"
                       style={{
                         background: skillButtonPurple,
