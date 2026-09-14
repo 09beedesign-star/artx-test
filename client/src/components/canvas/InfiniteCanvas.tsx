@@ -533,6 +533,7 @@ import {
   isAutoRatio,
   resolveImageRatio,
 } from "@shared/image-ratios";
+import { resolveEditAspectLock } from "@shared/edit-aspect-lock";
 import { getAiImageModelCreditPolicy } from "@shared/ai-credit-policy";
 import { filterAllowedAiModelOptions, resolveAllowedAiModelId } from "@/lib/model-access";
 import {
@@ -11916,6 +11917,42 @@ type ImageGeneratorReferenceAsset = {
   height?: number;
 };
 
+/**
+ * 读一张图的**真实像素尺寸**（naturalWidth/naturalHeight）。
+ *
+ * ⚠️⚠️ 存在的理由：画布节点上的 width/height 是**显示尺寸**，
+ * 计算时经过 `Math.max(minNodeSide, Math.round(natural * scale))`，
+ * 窄边被 120px 下限抬高而长边不动 → **宽高比被悄悄改掉**。
+ * 把这种尺寸当成"目标画幅"传给上游，结果必然变形，且全程零报错。
+ *
+ * 📌 所以凡是要"锁原图比例"的场景，一律用本函数重新读真实尺寸，
+ * 不要图省事复用节点上已有的 width/height。
+ *
+ * 失败时返回 undefined（而不是抛错或给默认值）：
+ * 让调用方走 resolveEditAspectLock 的兜底链，避免因为一张图读不到
+ * 就中断整个生成流程。
+ */
+async function getImageNaturalSize(
+  src: string
+): Promise<{ width: number; height: number } | undefined> {
+  if (!src?.trim()) return undefined;
+  return new Promise(resolve => {
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => {
+      const width = image.naturalWidth || image.width;
+      const height = image.naturalHeight || image.height;
+      if (width > 0 && height > 0) {
+        resolve({ width, height });
+        return;
+      }
+      resolve(undefined);
+    };
+    image.onerror = () => resolve(undefined);
+    image.src = src;
+  });
+}
+
 // ── Initial data ───────────────────────────────────────────────
 const DEFAULT_ASSET_TAGS = ["默认 icon", "灰色容器"];
 
@@ -13802,13 +13839,31 @@ function BottomPromptBar({
           const generationId = `bottom-skill-${activeSkill.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
           const shouldEditTargetReference =
             activeSkill.capability === "image_edit" && Boolean(targetReference);
+          /**
+           * 底部输入框的技能重绘出口，画幅锁口径与右侧助手分支完全一致。
+           *
+           * ⚠️⚠️ 这是本次修复第 3、4 个出口 —— 我最初只改了右侧助手的两处，
+           * 是测试的反向断言把这里揪出来的。
+           * 📌 再次印证：局部重绘的尺寸有 4 个出口，只改一个等于没改，且零报错。
+           */
+          const bottomSkillTargetSize = targetReference
+            ? await getImageNaturalSize(targetReference.src)
+            : undefined;
+          const bottomSkillAspectLock = resolveEditAspectLock({
+            sourceWidth: bottomSkillTargetSize?.width,
+            sourceHeight: bottomSkillTargetSize?.height,
+            prompt: visiblePrompt,
+            selectedRatio: getSkillPreferredRatio(activeSkill, "") || ratio,
+          });
           const payload: ImageGeneratorPayload = {
             projectId,
             prompt: finalImagePrompt,
             model: shouldEditTargetReference
               ? DEFAULT_IMAGE_AI_MODEL_ID
               : selectedGenerationModel,
-            ratio: skillRatio,
+            ratio: shouldEditTargetReference
+              ? bottomSkillAspectLock.ratio
+              : skillRatio,
             count: shouldEditTargetReference ? 1 : count,
             style: activeSkill.name,
             referencesEnabled: submittedRefs.length > 0,
@@ -13829,12 +13884,9 @@ function BottomPromptBar({
                     prompt: finalImagePrompt,
                     images: submittedRefs.slice(0, -1),
                     skillId: activeSkill.id,
-                    targetWidth:
-                      targetReference.width ||
-                      getImageDisplaySizeForRatio(skillRatio).w,
-                    targetHeight:
-                      targetReference.height ||
-                      getImageDisplaySizeForRatio(skillRatio).h,
+                    // 锁画幅：底图真实像素，不用被钳制过的画布显示尺寸。
+                    targetWidth: bottomSkillAspectLock.width,
+                    targetHeight: bottomSkillAspectLock.height,
                   }
                 : undefined,
           };
@@ -13852,12 +13904,9 @@ function BottomPromptBar({
                     prompt: payload.prompt,
                     referencedAssets: submittedRefs.slice(0, -1),
                     skillId: activeSkill.id,
-                    targetWidth:
-                      targetReference.width ||
-                      getImageDisplaySizeForRatio(skillRatio).w,
-                    targetHeight:
-                      targetReference.height ||
-                      getImageDisplaySizeForRatio(skillRatio).h,
+                    // 与上面的 backgroundTaskInput 必须同源，否则前台/后台两套尺寸。
+                    targetWidth: bottomSkillAspectLock.width,
+                    targetHeight: bottomSkillAspectLock.height,
                     generationId,
                   })
                 : await generateAiImages(payload);
@@ -20952,6 +21001,29 @@ function CanvasAssistantPanel({
          * 底图同样固定在下发序列的第 1 位，故传 1。
          */
         const referenceEditGuidance = buildReferenceEditGuidance(1);
+        /**
+         * 技能分支的画幅锁。
+         *
+         * ⚠️ 与无技能分支的区别：这里把 skillRatio 作为 selectedRatio 传入。
+         * 因为技能（如「小红书封面」）自带 canvasSizes 时，那是比"锁原图"
+         * 更强的意图——用户选这个技能就是要那个尺寸的产物。
+         * 但如果技能没声明尺寸、用户也没选比例，skillRatio 会是
+         * DEFAULT_AUTO_RATIO(9:16)，那就**不能**让它盖住原图比例，
+         * 否则又回到"把竖图强行改成 9:16"的老问题。
+         * 📌 所以这里只在技能真的自带画幅时才把它当 selector 意图。
+         */
+        const skillDeclaredRatio = getSkillPreferredRatio(activeSkill, "");
+        const skillTargetNaturalSize = targetReference
+          ? await getImageNaturalSize(targetReference.src)
+          : undefined;
+        const skillEditAspectLock = resolveEditAspectLock({
+          sourceWidth: skillTargetNaturalSize?.width,
+          sourceHeight: skillTargetNaturalSize?.height,
+          prompt: rawSubmittedComposerPrompt,
+          selectedRatio: isAutoRatio(assistantImageRatio)
+            ? skillDeclaredRatio || null
+            : assistantImageRatio,
+        });
         // 先抽成变量：backgroundTaskInput 就在 payload 的初始化表达式里面，
         // 那时 payload 尚未完成赋值，不能自引用 payload.prompt。
         const skillEditPrompt =
@@ -20966,7 +21038,10 @@ function CanvasAssistantPanel({
             : assistantAutoMode
               ? "auto"
               : assistantImageModel.id,
-          ratio: skillRatio,
+          // 局部重绘走画幅锁（默认贴合底图原始比例）；纯生成仍用技能比例。
+          ratio: shouldEditTargetReference
+            ? skillEditAspectLock.ratio
+            : skillRatio,
           count: requestedImageCount,
           style: activeSkill.name,
           referencesEnabled: assistantImages.length > 0,
@@ -20987,8 +21062,9 @@ function CanvasAssistantPanel({
                   prompt: skillEditPrompt,
                   images: sourceReferences,
                   skillId: activeSkill.id,
-                  targetWidth: targetReference.width,
-                  targetHeight: targetReference.height,
+                  // 锁画幅：底图真实像素推导，不用画布显示尺寸。
+                  targetWidth: skillEditAspectLock.width,
+                  targetHeight: skillEditAspectLock.height,
                 }
               : undefined,
         };
@@ -21004,8 +21080,10 @@ function CanvasAssistantPanel({
                 prompt: payload.prompt,
                 referencedAssets: sourceReferences,
                 skillId: activeSkill.id,
-                targetWidth: targetReference.width,
-                targetHeight: targetReference.height,
+                // 同 backgroundTaskInput：两处必须用同一个锁，否则前台走一套、
+                // 后台任务走另一套，结果按哪条路跑就不确定了。
+                targetWidth: skillEditAspectLock.width,
+                targetHeight: skillEditAspectLock.height,
                 generationId,
               })
             : await generateAiImages(payload);
@@ -21194,6 +21272,25 @@ function CanvasAssistantPanel({
           targetReference?.width && targetReference?.height
             ? { w: targetReference.width, h: targetReference.height }
             : undefined;
+        /**
+         * 底图的**真实像素**尺寸，用于锁定输出画幅。
+         *
+         * ⚠️⚠️ 绝不能用 targetReference.width/height 代替：
+         * 那是画布节点的显示尺寸，计算时有 `Math.max(minNodeSide, …)`
+         * 下限钳制（120px）——窄边被抬高而长边不动，**比例在源头就被改了**。
+         * 一张 600×1600 的长图在画布上会变成 135×360，比例从 0.375 变成 0.375…
+         * 看着接近，但极端长图会被压成 120×360，直接失真。
+         * 📌 判据：「传了尺寸」≠「传了正确的尺寸」，全程零报错。
+         */
+        const targetReferenceNaturalSize = targetReference
+          ? await getImageNaturalSize(targetReference.src)
+          : undefined;
+        const referenceEditAspectLock = resolveEditAspectLock({
+          sourceWidth: targetReferenceNaturalSize?.width,
+          sourceHeight: targetReferenceNaturalSize?.height,
+          prompt: rawSubmittedComposerPrompt,
+          selectedRatio: assistantImageRatio,
+        });
         const requestedImageCount = shouldEditTargetReference
           ? 1
           : assistantImageCount;
@@ -21238,15 +21335,25 @@ function CanvasAssistantPanel({
                 ? "auto"
                 : assistantImageModel.id,
           /**
-           * 【2026-09-13】auto 的回落值由 1:1 改为 9:16（DEFAULT_AUTO_RATIO）。
+           * 【2026-09-13 二次修复】局部重绘默认锁底图原始比例。
            *
-           * ⚠️ 原表达式把两个语义完全不同的条件用 || 合到了一起：
-           *   shouldEditTargetReference（多图融合，必须锁 1:1 以贴合底图）
-           *   assistantImageRatio === "auto"（用户没选，要给默认值）
-           * 直接改共用的 "1:1" 会连多图融合一起改掉，所以这里必须拆开。
+           * 原先这里是 `shouldEditTargetReference ? "1:1" : ...`，写死 1:1。
+           * 那个 "1:1" 的本意是"贴合底图"，但只有底图恰好是方图时才成立；
+           * 底图是竖版实拍图（3:4 / 2:3）时，这行等于主动要求上游出方图，
+           * 于是结果被拉伸 —— 用户反馈的「内容一样但比例变形」就是它。
+           *
+           * ⚠️ 现在交给 resolveEditAspectLock 裁决，优先级：
+           *   提示词显式比例 > 比例选择器 > 底图真实比例 > 1:1 兜底。
+           * 📌 底图尺寸必须用 targetReferenceNaturalSize（原图真实像素），
+           *    不能用 targetReference.width/height —— 后者是画布显示尺寸，
+           *    带 Math.max(minNodeSide,…) 下限钳制，比例已经被污染过了。
+           *
+           * ⚠️⚠️ 三元必须保留：只有「重绘」才锁底图比例。
+           * 纯文生图（没有底图）仍走 resolveImageRatio(assistantImageRatio)，
+           * 那条路 auto → 9:16 是正确的默认值，不能被画幅锁接管。
            */
           ratio: shouldEditTargetReference
-            ? "1:1"
+            ? referenceEditAspectLock.ratio
             : resolveImageRatio(assistantImageRatio),
           count: requestedImageCount,
           style: shouldEditTargetReference ? "引用编辑结果" : "右侧 AI 助手",
@@ -21265,8 +21372,9 @@ function CanvasAssistantPanel({
                   model: referenceEditModelId,
                   prompt: referenceEditPrompt,
                   images: sourceReferences,
-                  targetWidth: targetReference.width,
-                  targetHeight: targetReference.height,
+                  // 锁画幅：用底图真实像素推导出的目标尺寸，不用画布显示尺寸。
+                  targetWidth: referenceEditAspectLock.width,
+                  targetHeight: referenceEditAspectLock.height,
                 }
               : undefined,
         };
@@ -21281,8 +21389,9 @@ function CanvasAssistantPanel({
                 model: referenceEditModelId,
                 prompt: payload.prompt,
                 referencedAssets: sourceReferences,
-                targetWidth: targetReference.width,
-                targetHeight: targetReference.height,
+                // 同上：锁底图真实比例，避免结果被上游吸附到错误档位后拉伸。
+                targetWidth: referenceEditAspectLock.width,
+                targetHeight: referenceEditAspectLock.height,
                 generationId,
               })
             : await generateAiImages(payload);

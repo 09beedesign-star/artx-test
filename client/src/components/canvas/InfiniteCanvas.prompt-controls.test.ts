@@ -171,7 +171,19 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(code).not.toContain('assistantImageRatio === "auto"');
     expect(code).toContain("resolveImageRatio(assistantImageRatio)");
     expect(code).toContain("isAutoRatio(assistantImageRatio)");
-    expect(source).toContain("ratio: skillRatio");
+    /*
+     * 【2026-09-13 再次修正】原断言是 `toContain("ratio: skillRatio")`。
+     * 它的保护意图是「技能声明的画幅确实被传给了生成接口」，这个意图依然有效，
+     * 但断言的**字面形式**已经过期：局部重绘不能再无条件用 skillRatio，
+     * 否则会把引用图强行拉成技能声明的画幅（就是本次要修的变形 bug）。
+     * 现在实现是三元 —— 重绘走画幅锁，纯生成仍走 skillRatio。两条都要断言到，
+     * 只断言一条就会让另一条被悄悄改掉而测试不报错。
+     */
+    expect(code).toMatch(
+      /ratio:\s*shouldEditTargetReference[\s\S]{0,80}?skillEditAspectLock\.ratio[\s\S]{0,40}?:\s*skillRatio/
+    );
+    // 反向断言：不许退回「无条件 skillRatio」的老写法。
+    expect(code).not.toMatch(/ratio:\s*skillRatio\s*,/);
     expect(source.match(/count: requestedImageCount/g)).toHaveLength(2);
     expect(
       source.match(
