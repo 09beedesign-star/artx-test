@@ -82,6 +82,19 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   const [communityOpen, setCommunityOpen] = useState(false);
   const [apiKeyOpen, setApiKeyOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
+  /*
+    ⚠️ 打开邀请弹窗的唯一入口。
+    不要在别处直接调 setInviteOpen(true) —— 引导的触发挂在这里，
+    绕过它会让「好友推荐」这一段静默不播放且零报错。
+  */
+  const openInviteDialog = () => {
+    if (!isAuthenticated) {
+      openLoginModal();
+      return;
+    }
+    setInviteOpen(true);
+    onboarding.start("invite", { onlyIfUnseen: true });
+  };
   const [apiKeyLoading, setApiKeyLoading] = useState(false);
   const [apiKeyValue, setApiKeyValue] = useState("");
   const [apiKeys, setApiKeys] = useState<ApiKeyRecord[]>([]);
@@ -707,13 +720,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
             <NavItem icon={FolderOpen} label="工作台" path="/workspace" iconSize={15} tourId={TOUR_ANCHORS.navWorkspace} />
             <NavItem icon={CreditCard} label="充值与订阅" path="/billing" iconSize={15} tourId={TOUR_ANCHORS.navBilling} />
             <button
-              onClick={() => {
-                if (!isAuthenticated) {
-                  openLoginModal();
-                  return;
-                }
-                setInviteOpen(true);
-              }}
+              onClick={openInviteDialog}
               data-tour-id={TOUR_ANCHORS.navInvite}
               className="w-full flex h-[31px] items-center gap-2.5 px-2.5 type-caption transition-all text-left"
               style={{
@@ -797,15 +804,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
       {communityDialog}
       {helpDialog}
       {apiKeyDialog}
-      <InviteDialog
-        open={inviteOpen}
-        onOpenChange={(next) => {
-          setInviteOpen(next);
-          // 首次打开邀请弹窗时播放「好友推荐」引导段。
-          // onlyIfUnseen 保证不会每次打开都骚扰用户。
-          if (next) onboarding.start("invite", { onlyIfUnseen: true });
-        }}
-      />
+      <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} />
     </div>
   );
 }

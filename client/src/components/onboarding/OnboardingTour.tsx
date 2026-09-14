@@ -26,6 +26,7 @@ import {
   type TourSegment,
   type TourStep,
 } from "@shared/onboarding-steps";
+import { buildMaskPieces, computeCutoutRect } from "./cutout-geometry";
 
 const TOUR_Z_INDEX = 2147483600;
 const MASK_COLOR = "rgba(0, 0, 0, 0.72)";
@@ -62,7 +63,18 @@ export interface OnboardingTourProps {
 
 /* ────────────────────────── 工具函数 ────────────────────────── */
 
-function readRect(el: HTMLElement, step: TourStep): Rect {
+/**
+ * 读取目标元素矩形，并**裁剪到视口内**。
+ *
+ * ⚠️⚠️ 视口裁剪不是优化，是四块遮罩拼接的数学前提：
+ * 上/下/左/右四块的尺寸都由 `视口尺寸 - rect` 推出，一旦 rect 溢出视口，
+ * 四块会被 `Math.max(0, …)` 全部压成 0 → 蒙层整体消失且零报错。
+ *
+ * 几何部分统一走 `cutout-geometry.ts`（唯一事实源，可被单测覆盖）。
+ * 返回 null 表示"这个锚点不适合挖孔"（太大 / 完全不在视口内），
+ * 调用方据此退化为全屏蒙层 + 居中气泡。
+ */
+function readRect(el: HTMLElement, step: TourStep): Rect | null {
   const box = el.getBoundingClientRect();
   const padding = step.padding ?? 8;
   let radius = step.radius ?? 0;
@@ -71,11 +83,15 @@ function readRect(el: HTMLElement, step: TourStep): Rect {
     const parsed = Number.parseFloat(computed);
     radius = Number.isFinite(parsed) ? parsed : 0;
   }
+
+  const cutout = computeCutoutRect(box, padding, {
+    width: window.innerWidth,
+    height: window.innerHeight,
+  });
+  if (!cutout) return null;
+
   return {
-    top: Math.max(0, box.top - padding),
-    left: Math.max(0, box.left - padding),
-    width: box.width + padding * 2,
-    height: box.height + padding * 2,
+    ...cutout,
     radius: radius + (step.radius === undefined ? Math.min(padding, 8) : 0),
   };
 }
@@ -278,6 +294,8 @@ export default function OnboardingTour({
             }
             setReady(true);
           }
+          // readRect 返回 null = 该锚点不适合挖孔（太大 / 已滚出视口），
+          // 此时退化为全屏蒙层 + 居中气泡，而不是挖出一个把遮罩吃光的孔。
           setRect(readRect(el, step));
           rafRef.current = requestAnimationFrame(track);
           return;
@@ -342,25 +360,15 @@ export default function OnboardingTour({
 
   const interactive = step.interactive ?? false;
 
-  /* 四块遮罩：上 / 下 / 左 / 右，中间留空即为挖孔 */
-  const maskPieces: React.CSSProperties[] = rect
-    ? [
-        { top: 0, left: 0, width: "100vw", height: Math.max(0, rect.top) },
-        {
-          top: rect.top + rect.height,
-          left: 0,
-          width: "100vw",
-          height: Math.max(0, window.innerHeight - rect.top - rect.height),
-        },
-        { top: rect.top, left: 0, width: Math.max(0, rect.left), height: rect.height },
-        {
-          top: rect.top,
-          left: rect.left + rect.width,
-          width: Math.max(0, window.innerWidth - rect.left - rect.width),
-          height: rect.height,
-        },
-      ]
-    : [{ top: 0, left: 0, width: "100vw", height: "100vh" }];
+  /*
+    四块遮罩：上 / 下 / 左 / 右，中间留空即为挖孔。
+    ⚠️ 几何一律走 cutout-geometry（唯一事实源），不要在这里另写一份：
+    这段数学出错的症状是「遮罩视觉上消失且零报错」，只有纯函数才测得住。
+  */
+  const maskPieces = buildMaskPieces(rect, {
+    width: window.innerWidth,
+    height: window.innerHeight,
+  });
 
   const content = (
     <div

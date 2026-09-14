@@ -110,6 +110,29 @@ describe("onboarding anchors are actually wired into rendered JSX", () => {
     },
   );
 
+  /*
+    ⚠️⚠️ 真实事故回归（2026-09-14 浏览器实测发现）：
+    「灵感推荐」锚点原本打在外层 `<section className="min-h-screen …">` 上，
+    该 section 实测高 6108px，而视口只有 577px。
+    四块遮罩的尺寸都由「视口 - 挖孔矩形」推出，rect 溢出视口后四块全被压成 0
+    → 黑色遮罩覆盖率 0%，蒙层在视觉上彻底消失，而代码全程零报错。
+
+    引擎侧已在 cutout-geometry 里做了兜底（超过 85% 视口就退化为全屏蒙层），
+    但兜底只是「不崩」，锚点本身挂错位置仍然会让这一步失去高亮意义，
+    所以这里从源码层面禁止把锚点打回满屏容器。
+  */
+  it("never anchors the inspiration step onto the full-screen section", () => {
+    const source = readSource("client/src/pages/HomePage.tsx");
+    const sectionLine = source
+      .split("\n")
+      .find((line) => line.includes("<section") && line.includes("inspirationRef"));
+    expect(sectionLine).toBeTruthy();
+    // 这一行仍应是 min-h-screen 的布局容器（确认断言没有因为改名而空跑）
+    expect(sectionLine).toContain("min-h-screen");
+    // 但它绝不能同时是引导锚点
+    expect(sectionLine).not.toContain("data-tour-id");
+  });
+
   it("每个步骤引用的锚点都在 TOUR_ANCHORS 中登记", () => {
     const known = new Set<string>(Object.values(TOUR_ANCHORS));
     for (const segment of TOUR_SEGMENTS) {
@@ -150,6 +173,35 @@ describe("onboarding anchors are actually wired into rendered JSX", () => {
     // 真正承载引导的两个组件必须确实被渲染
     expect(source).toContain("<CanvasTopToolPalette");
     expect(source).toContain("<CanvasAssistantPanel");
+  });
+
+  it("邀请弹窗的打开动作收口到唯一入口，引导触发不会被绕过", () => {
+    const source = readSource("client/src/components/layout/AppShell.tsx");
+
+    // 必须存在统一入口，且入口里同时做了「开弹窗」和「起引导」两件事
+    expect(source).toContain("const openInviteDialog = ");
+    const entryStart = source.indexOf("const openInviteDialog = ");
+    const entryBody = source.slice(entryStart, entryStart + 400);
+    expect(entryBody).toContain("setInviteOpen(true)");
+    expect(entryBody).toContain('onboarding.start("invite"');
+
+    // 侧边栏按钮必须走这个入口，而不是自己 setInviteOpen(true)
+    expect(source).toContain("onClick={openInviteDialog}");
+
+    /*
+      ⚠️ 关键反向断言：AppShell 里 setInviteOpen(true) 只允许出现一次，
+      也就是只能出现在 openInviteDialog 内部。
+      多一处 = 又开了一个绕过引导的出口（本项目「同一份数据多个出口」老坑）。
+
+      ⚠️ 必须先剥注释再数，否则会被注释里的同名字符串污染
+      —— 这正是本项目「扫错了范围」那条老教训，块注释的续行
+      既不以 // 也不以 * 开头，按行前缀过滤是不够的。
+    */
+    const withoutComments = source
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/.*$/gm, "");
+    const openCalls = withoutComments.match(/setInviteOpen\(true\)/g) ?? [];
+    expect(openCalls).toHaveLength(1);
   });
 
   it("引导 Provider 已挂载进 App，且位于 Router 内部", () => {

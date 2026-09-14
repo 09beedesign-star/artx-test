@@ -678,9 +678,14 @@ export default function HomePage() {
         </button>
       </section>
 
-      <section ref={inspirationRef} data-tour-id={TOUR_ANCHORS.homeInspirationSection} className="min-h-screen bg-[#222222] px-6 py-20 sm:px-10 lg:px-20">
+      <section ref={inspirationRef} className="min-h-screen bg-[#222222] px-6 py-20 sm:px-10 lg:px-20">
         <div className="mx-auto max-w-[1600px]">
-          <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          {/*
+            ⚠️ 引导锚点刻意打在标题行而不是外层 section 上：
+            section 是 min-h-screen 的满屏容器（实测高 6108px），
+            拿它当挖孔目标 = 把整个视口挖空 = 黑色遮罩视觉上完全消失。
+          */}
+          <div data-tour-id={TOUR_ANCHORS.homeInspirationSection} className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="mb-3 text-sm font-medium text-[#9370ff]">Inspiration Picks</p>
               <h2 className="text-[34px] font-black leading-tight text-white sm:text-[44px]">灵感推荐</h2>
