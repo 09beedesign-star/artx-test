@@ -251,7 +251,7 @@ export function AssetNode({ node, isSelected, onDragStart, onSelect, onRemove }:
               <MoreHorizontal size={12} style={{ color: "oklch(0.45 0.01 270)" }} />
             </button>
           </div>
-          <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "oklch(0.72 0.18 200)" }}>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "oklch(0.72 0.18 200)" }}>
             {asset.width} × {asset.height}
           </span>
         </div>

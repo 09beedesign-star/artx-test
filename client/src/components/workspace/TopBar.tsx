@@ -646,7 +646,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
                 style={{
                   color: textPri,
                   fontSize: 12,
-                  fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+                  fontFamily: "var(--font-mono)",
                 }}
               >
                 {apiKey || (apiKeys[0] ? `${apiKeys[0].prefix}••••••••••••••••` : "尚未生成")}
@@ -715,7 +715,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
                       style={{
                         color: textPri,
                         fontSize: 11,
-                        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+                        fontFamily: "var(--font-mono)",
                         scrollbarWidth: "thin",
                       }}
                     >

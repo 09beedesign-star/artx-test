@@ -2321,7 +2321,7 @@ function ColorPickerPanel({
               outline: "none",
               color: textC,
               fontSize: 11,
-              fontFamily: "monospace",
+              fontFamily: "var(--font-mono)",
               width: 0,
             }}
             spellCheck={false}
@@ -5907,7 +5907,10 @@ function AnnotationBubble({
               fontSize: 10,
               fontWeight: 800,
               lineHeight: 1,
-              fontFamily: "Inter, sans-serif",
+              // UI 角标随全局字体栈走（Inter 从未被加载，写死等于落到 system-ui）。
+              // ⚠️ 注意区分：这里是界面装饰，不是画布文本节点的 fontFamily ——
+              // 后者是用户作品属性，且与字体选择器联动，绝不能改成 CSS 变量。
+              fontFamily: "var(--font-sans)",
             }}
           >
             C
@@ -32558,7 +32561,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                       padding: "4px 8px",
                       color: "inherit",
                       fontSize: 11,
-                      fontFamily: "monospace",
+                      fontFamily: "var(--font-mono)",
                     }}
                   />
                 </div>
@@ -32604,7 +32607,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                       padding: "4px 8px",
                       color: "inherit",
                       fontSize: 11,
-                      fontFamily: "monospace",
+                      fontFamily: "var(--font-mono)",
                     }}
                   />
                 </div>
@@ -34165,7 +34168,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                                 fontSize: 12,
                                 padding: "0 4px",
                                 width: 0,
-                                fontFamily: "monospace",
+                                fontFamily: "var(--font-mono)",
                               }}
                               maxLength={6}
                             />
