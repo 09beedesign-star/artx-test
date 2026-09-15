@@ -6268,6 +6268,15 @@ function AssetInlineNote({
   );
 }
 
+/*
+  判定「这是一次点击」还是「这是一次拖拽」的位移阈值（像素）。
+
+  ⚠️ 不能用 0：用户按下再抬起，手会有一两像素的自然抖动，尤其是触控板。
+  阈值太小 = 想引用却引用不上（偶发，最难复现）；太大 = 小幅拖动被当成点击。
+  4px 是常见取值，和浏览器原生的拖拽起始阈值接近。
+*/
+const ASSET_CLICK_SLOP_PX = 4;
+
 function AssetNodeComponent({
   data,
   selected,
@@ -6942,7 +6951,20 @@ function AssetNodeComponent({
     [nodeId]
   );
 
+  /*
+    ⚠️⚠️ 记下按下时的坐标，用来区分「点击」和「拖拽」。
+
+    浏览器只要 mousedown 与 mouseup 落在同一元素上就会派发 click —— 拖动图片
+    也会走 onClick。以前有 Ctrl 守卫挡着，误触发不了引用；守卫一删，
+    用户每挪动一次图片就会凭空多出一个引用标签，而且**零报错**。
+    所以必须用「指针几乎没动」来界定真正的点击。
+  */
+  const assetPointerDownRef = useRef<{ x: number; y: number } | null>(null);
+
   const handleAssetMouseDownCapture = useCallback((e: React.MouseEvent) => {
+    if (e.button === 0) {
+      assetPointerDownRef.current = { x: e.clientX, y: e.clientY };
+    }
     if (e.button === 0 && (e.ctrlKey || e.metaKey)) e.stopPropagation();
   }, []);
 
@@ -6954,6 +6976,13 @@ function AssetNodeComponent({
         return;
       }
       e.stopPropagation();
+      /*
+        ⚠️ additive 现在只管「选中语义」，不再兼管「要不要引用」。
+
+        2026-09-15 用户要求：直接单击图片就引用，不用再按 Ctrl/Cmd。
+        但选中语义必须原样保留 —— 单击 = 单选（清掉其他），Ctrl/Cmd 点击 = 累加/反选。
+        这两件事以前挤在同一个 additive 变量里，一起改会顺手把多选操作也弄坏。
+      */
       const additive = e.ctrlKey || e.metaKey;
       setFlowNodes(nds => {
         const wasSelected = Boolean(nds.find(n => n.id === nodeId)?.selected);
@@ -6974,19 +7003,33 @@ function AssetNodeComponent({
         );
         return nextNodes;
       });
-      if (additive) {
-        window.dispatchEvent(
-          new CustomEvent("asset-reference", {
-            detail: {
-              nodeId,
-              id: nodeId,
-              title: displayTitle,
-              src: displaySrc,
-              ctrlKey: additive,
-            },
-          })
-        );
-      }
+      /*
+        单击即引用。
+
+        ⚠️ 刻意「只增不减」：画布上再点一次不会取消引用（用户已确认）。
+        取消统一走提示词输入框里标签上的叉 —— 画布上误点一下就把辛苦选好的
+        一组引用弄没了，代价远大于少一个快捷操作。
+        去重由 addReferencedAsset 内部负责，这里不判断。
+
+        ⚠️ 拖拽结束时浏览器同样会派发 click，必须先排除掉，
+        否则用户每挪动一张图就白白多出一个引用标签。
+      */
+      const downAt = assetPointerDownRef.current;
+      assetPointerDownRef.current = null;
+      const movedLikeDrag =
+        downAt !== null &&
+        Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > ASSET_CLICK_SLOP_PX;
+      if (movedLikeDrag) return;
+      window.dispatchEvent(
+        new CustomEvent("asset-reference", {
+          detail: {
+            nodeId,
+            id: nodeId,
+            title: displayTitle,
+            src: displaySrc,
+          },
+        })
+      );
     },
     [
       displaySrc,
@@ -17860,6 +17903,21 @@ type CanvasAssistantMessage = {
   };
 };
 
+/*
+  出图成功后写进对话框的那句状态描述。
+
+  ⚠️ 单独抽成函数是为了「只有一份文案」：画布侧和首页提示词侧各有一处写入，
+  以前两边各拼各的字符串，改文案必然漏掉一个（本项目的老毛病）。
+
+  ⚠️ 这里刻意**不接收 prompt 参数** —— 不给调用方留把提示词拼回来的口子。
+  用户明确要求对话框只留基本信息，完整提示词仍存在消息的 contextImagePrompt
+  字段里供多轮追改使用，但不展示。
+*/
+function formatImageGeneratedStatus(imageCount: number) {
+  if (imageCount > 1) return `已生成 ${imageCount} 张图片`;
+  return "已生成图片";
+}
+
 function formatCanvasMessageTime(value: Date) {
   const date = value instanceof Date ? value : new Date(value);
   const pad = (input: number) => String(input).padStart(2, "0");
@@ -20829,7 +20887,11 @@ function CanvasAssistantPanel({
               {
                 id: `assistant-${Date.now()}`,
                 role: "assistant",
-                content: `已根据你的首页提示词生成图片：${imagePrompt}`,
+                // 只写状态，不回显改写后的完整提示词（理由见画布侧同款注释）。
+                // contextImagePrompt 照旧保留，追改能力不受影响。
+                content: formatImageGeneratedStatus(
+                  (result.images || []).filter(image => Boolean(image.src)).length
+                ),
                 timestamp: new Date(),
                 // 与画布侧（:21405）一致：把出图结果写进对话上下文，
                 // 否则用户下一句「这张再暗一点」模型不知道指哪张。
@@ -21450,7 +21512,20 @@ function CanvasAssistantPanel({
           {
             id: `assistant-${Date.now()}`,
             role: "assistant",
-            content: `已根据你的请求生成图片：${imagePrompt}`,
+            /*
+              ⚠️ 这里只写一句状态，**不要**把 imagePrompt 拼进来。
+
+              2026-09-15 用户反馈：「每次生图之后不需要出现一堆过程推理的提示词，
+              就展示状态描述等基本信息即可，否则会导致对话框非常冗长」。
+              imagePrompt 是大模型把需求摊平后的完整画面描述（见 ai-intent.ts
+              的改写要求），动辄数百字，整段回显就是对话框被撑长的直接原因。
+
+              ⚠️⚠️ 但它只是**不展示**，绝不能不记录 —— 下面的 contextImagePrompt
+              仍原样保留。多轮追改（「这张再暗一点」）要在上一版提示词基础上做
+              增量修改，删掉它就等于把追改能力一起删了。
+              展示用的 content 与上下文用的 contextImagePrompt 是两回事。
+            */
+            content: formatImageGeneratedStatus(validImages.length),
             timestamp: new Date(),
             /**
              * 把刚生成的图沉淀进历史。
@@ -23584,15 +23659,22 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     },
     [getLatestAssetNode]
   );
+  /*
+    引用图片的唯一写入口。
+
+    ⚠️ 这里原先有一道 `if (!detail.ctrlKey) return;` 守卫，是「必须按住 Ctrl/Cmd
+    才引用」的总开关。2026-09-15 用户要求改成直接单击即引用，守卫整条删除。
+    连带把 detail.ctrlKey 这个字段也删掉 —— 留着它会有人以为还能靠它控制，
+    而实际上已经没有任何调用方在读了（悬浮工具栏那处曾硬编码 ctrlKey: true
+    专门绕过这道守卫，守卫没了，那个 hack 也一并清掉）。
+  */
   const addReferencedAsset = useCallback(
     async (detail: {
       nodeId?: string;
       id?: string;
       title?: string;
       src?: string;
-      ctrlKey?: boolean;
     }) => {
-      if (!detail.ctrlKey) return;
       const assetId = detail.nodeId || detail.id;
       if (!assetId) return;
       const latestNode = getLatestAssetNode(assetId);
@@ -27778,11 +27860,38 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     isBoxSelectingRef.current = true;
   }, []);
 
+  /*
+    框选结束 → 把框进来的图片一次性全部引用。
+
+    2026-09-15 用户要求：「支持多选和框选图片，等同于引用多张对应的图片」。
+    框选能力本身早就开着（selectionOnDrag），但选中结果只更新 selectedNodeIds，
+    从来没接到 referencedAssets 上 —— 这就是缺的那一截。
+
+    ⚠️ 这里刻意逐个 await 调用 addReferencedAsset，而不是自己拼一份数组塞进
+    setReferencedAssets：去重、取最新图源、量尺寸这些逻辑只能有一份。
+    自己拼 = 又一个「同一份逻辑的多个出口」，改一个漏一个。
+
+    ⚠️ 只收 type === "asset" 的节点。框选很容易连带框到画框和对话节点，
+    把它们当图片引用进去会得到一堆空 src（addReferencedAsset 内部虽然会因为
+    src 为空而丢弃，但那是兜底，不该依赖兜底来表达意图）。
+  */
   const handleSelectionEnd = useCallback(() => {
+    const selectedIds = selectedNodeIdsRef.current;
+    const assetIds = selectedIds.filter(id => {
+      const node = nodesRef.current.find(n => n.id === id);
+      return node?.type === "asset";
+    });
+    if (assetIds.length > 0) {
+      void (async () => {
+        for (const assetId of assetIds) {
+          await addReferencedAsset({ nodeId: assetId });
+        }
+      })();
+    }
     window.requestAnimationFrame(() => {
       isBoxSelectingRef.current = false;
     });
-  }, []);
+  }, [addReferencedAsset]);
 
   // ── Handle group container right-click ──
   const handleGroupContainerContextMenu = useCallback(
@@ -30943,11 +31052,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const title =
           ((targetNode.data as Record<string, unknown>).title as string | undefined) ||
           "选中图片";
+        // 原先这里硬编码 ctrlKey: true 来绕过守卫；守卫已删，hack 一并清掉。
         await addReferencedAsset({
           nodeId,
           title,
           src: imageSrc,
-          ctrlKey: true,
         });
         setIsAssistantCollapsed(false);
         toast("已引入对话", { description: "图片已添加到右下角对话框" });

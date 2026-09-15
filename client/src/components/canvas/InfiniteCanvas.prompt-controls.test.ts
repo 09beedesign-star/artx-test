@@ -296,13 +296,113 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain("zoomCanvasAtClientPoint");
   });
 
-  it("keeps canvas image references explicit so normal clicks do not auto-fill prompt chips", () => {
-    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+  /*
+    2026-09-15 需求反转。
 
-    expect(source).toContain('if (additive) {');
+    这条用例原名 "keeps canvas image references explicit so normal clicks do not
+    auto-fill prompt chips"，断言的是 `if (additive) {` —— 也就是「必须按住
+    Ctrl/Cmd 才引用」。用户现在明确要求「直接鼠标点击图片即可触发引用图片，
+    不需要点击 ctrl 或者 command 键」，所以旧断言锁的是**已被推翻的需求**，
+    整条改写成守护新行为，而不是删掉了事。
+  */
+  it("单击图片即引用，不再需要 Ctrl/Cmd", () => {
+    /*
+      ⚠️ 必须先 stripComments 再断言。
+
+      上面那几条解释「守卫为什么被删」的注释里，原样写着
+      `if (!detail.ctrlKey) return;` 和 `ctrlKey: true`。
+      不剥注释的话，反向断言会命中我自己写的说明文字而误报 —— 这就是
+      本文件顶部记的那个「注释污染」坑，这次又踩了一遍。
+    */
+    const source = stripComments(
+      readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8"),
+    );
+
+    // 守卫必须已经消失：它是「非 Ctrl 不引用」的总开关。
+    expect(source).not.toContain("if (!detail.ctrlKey) return;");
+    // 也不许有人再靠硬编码 ctrlKey: true 去绕过它。
+    expect(source).not.toContain("ctrlKey: true,");
+
     expect(source).toContain('new CustomEvent("asset-reference"');
     expect(source).toContain('window.addEventListener("asset-reference", handler)');
-    expect(source).not.toContain("Sync selected image nodes → referencedAssets chips");
+  });
+
+  /*
+    ⚠️⚠️ 这条是新增的，守的是一个**零报错**的回归。
+
+    删掉 Ctrl 守卫之后，拖动图片也会触发 onClick（浏览器只要 mousedown/mouseup
+    落在同一元素就派发 click），于是用户每挪动一张图就白白多出一个引用标签。
+    以前有守卫挡着看不出来，现在必须靠位移阈值自己判断。
+    这个 bug 不会报错、只会让引用列表莫名其妙变长，最难被发现。
+  */
+  it("拖拽图片不会被误判成点击而多出引用", () => {
+    const source = stripComments(
+      readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8"),
+    );
+
+    expect(source).toContain("const ASSET_CLICK_SLOP_PX =");
+    expect(source).toContain("assetPointerDownRef");
+    // 必须真的用位移做判断并提前 return，而不只是把坐标记下来。
+    expect(source).toContain("ASSET_CLICK_SLOP_PX");
+    expect(source).toContain("if (movedLikeDrag) return;");
+  });
+
+  /*
+    框选/多选批量引用。
+
+    框选能力（selectionOnDrag）本来就开着，但选中结果只写 selectedNodeIds，
+    从没接到 referencedAssets 上 —— 这是用户说的「支持多选和框选图片，
+    等同于引用多张对应的图片」缺的那一截。
+  */
+  it("框选多张图片等同于批量引用", () => {
+    // 同样先剥注释：块内注释里出现 setReferencedAssets 会让反向断言误报。
+    const source = stripComments(
+      readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8"),
+    );
+
+    const start = source.indexOf("const handleSelectionEnd = useCallback");
+    expect(start, "没找到框选结束处理").toBeGreaterThan(0);
+    const block = source.slice(start, start + 900);
+
+    // 必须复用唯一写入口，而不是自己拼数组塞 setReferencedAssets。
+    expect(block).toContain("addReferencedAsset(");
+    expect(block).not.toContain("setReferencedAssets(");
+    // 只收图片节点：框选很容易连带框到画框和对话节点。
+    expect(block).toContain('node?.type === "asset"');
+  });
+
+  /*
+    2026-09-15 用户：「提示词每次生图之后不需要出现一堆过程推理的提示词，
+    就展示状态描述等基本信息即可，否则会导致对话框非常冗长。」
+
+    那段冗长文案不是思维链，而是**大模型改写后的完整提示词被整段回显**
+    （ai-intent.ts 要求模型把需求摊平成一段连贯画面描述，动辄数百字）。
+
+    ⚠️⚠️ 这条测试必须同时守住两件**方向相反**的事：
+      · 展示用的 content 里不许再拼 imagePrompt（否则对话框还是长）
+      · 上下文用的 contextImagePrompt 必须原样保留（否则多轮追改废掉）
+    只守前一件，很容易被人「顺手清理」时把后一件也删了，而那个损坏
+    要等用户说「这张再暗一点」时才暴露。
+  */
+  it("生图后只展示状态描述，但完整提示词仍进上下文", () => {
+    // 剥注释：旧文案原样写在解释性注释里，不剥会让反向断言误报。
+    const source = stripComments(
+      readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8"),
+    );
+
+    // 不展示：两处写入点都不许把提示词拼进气泡文案。
+    expect(source).not.toContain("已根据你的请求生成图片：${imagePrompt}");
+    expect(source).not.toContain("已根据你的首页提示词生成图片：${imagePrompt}");
+
+    // 文案只有一份，两处共用。
+    expect(source).toContain("function formatImageGeneratedStatus(");
+    expect(
+      source.split("formatImageGeneratedStatus(").length - 1,
+      "状态文案应当是一处定义、两处调用",
+    ).toBeGreaterThanOrEqual(3);
+
+    // 仍然记录：追改能力依赖它。
+    expect(source).toContain("contextImagePrompt: imagePrompt,");
   });
 
   it("opens the verified inspiration picker from the assistant action and injects copied prompts into chat", () => {
