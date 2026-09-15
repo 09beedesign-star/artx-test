@@ -124,7 +124,17 @@ import {
   PlusCircle,
   Droplets,
 } from "lucide-react";
-import { getModelBrandIconKind, ModelBrandIconMask } from "./model-brand-icons";
+import {
+  AssistantModelIcon,
+  ModelSelector,
+  useImageModelOptions,
+} from "./ModelSelector";
+import {
+  HOME_PROMPT_HANDOFF_KEY,
+  parseHomePromptHandoff,
+  readHandoffReferences,
+  type HomePromptReference,
+} from "@/lib/home-prompt-handoff";
 import { getTextNodeExportLayout } from "./text-node-export";
 import { AnnotationMaskPreviewDialog } from "./AnnotationMaskPreviewDialog";
 import { Switch } from "@/components/ui/switch";
@@ -451,59 +461,16 @@ function FontDesignIcon({
   );
 }
 
-function ImageModelLineIcon({ size = 14 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="4" y="5" width="16" height="14" rx="3" stroke="currentColor" strokeWidth="1.7" />
-      <path d="M7.5 15.5 10.2 12l2.2 2.4 1.6-1.8 2.8 2.9" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="15.8" cy="8.8" r="1.2" stroke="currentColor" strokeWidth="1.5" />
-    </svg>
-  );
-}
-
-function AssistantModelIcon({
-  modelId,
-  icon,
-}: {
-  modelId: string;
-  icon?: string;
-}) {
-  /**
-   * 这里**绝不能因为认不出品牌就 return null**。
-   *
-   * 2026-09-13 线上 bug：调用点漏传 icon 时 getModelBrandIconKind 会落到 "none"，
-   * 组件直接返回 null，选择器的触发按钮上就是一块空白 —— 用户看到的是
-   * 「有的模型选中后没图标」。根因虽然在调用点，但把整条渲染链的最后一环
-   * 做成「认不出就什么都不画」，等于给每一个新增调用点都埋了同一颗雷。
-   *
-   * 现在的口径：品牌认得出就用品牌图标，认不出一律降级到通用图片线框图标。
-   * 图标位永远占位，永远有东西可看。
-   */
-  if (modelId === AUTO_AI_MODEL.id) {
-    // auto 不是某一个品牌，它是「让系统替你挑」。全站用魔法棒表示这个语义
-    // （下方 compact 态的 auto 按钮同样是 WandSparkles），这里保持一致。
-    return (
-      <span
-        data-model-brand-icon="auto"
-        style={{ color: "#FFFFFF", display: "inline-flex", flex: "0 0 auto", marginTop: 2 }}
-      >
-        <WandSparkles size={14} />
-      </span>
-    );
-  }
-  const iconKind = getModelBrandIconKind(modelId, icon);
-  const iconNode = iconKind === "image" || iconKind === "none"
-    ? <ImageModelLineIcon size={14} />
-    : <ModelBrandIconMask kind={iconKind} size={14} />;
-  return (
-    <span
-      data-model-brand-icon={iconKind}
-      style={{ color: "#FFFFFF", display: "inline-flex", flex: "0 0 auto", marginTop: 2 }}
-    >
-      {iconNode}
-    </span>
-  );
-}
+/**
+ * ⚠️ AssistantModelIcon / ModelSelector / useImageModelOptions 已于 2026-09-15
+ * 迁出到 ./ModelSelector.tsx，供画布与首页共用。
+ *
+ * 【为什么迁走】首页提示词输入框要加同样的模型选择器。如果在 HomePage 里
+ * 再写一份，模型清单就有了两个渲染出口 —— 这个项目已经在
+ * 「同一份数据的多个出口」上连踩九次，每次都是「只改一个出口 = 功能等于没做」。
+ *
+ * 本文件通过下方 import 继续使用它们，调用点写法完全不变。
+ */
 import { useLocation } from "wouter";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
@@ -514,8 +481,6 @@ import {
   DEFAULT_IMAGE_AI_MODEL_ID,
   GENERATED_ASSETS,
   IMAGE_AI_MODELS,
-  IMAGE_AI_MODEL_OPTIONS,
-  mergeImageAiModelOptions,
   PROJECTS,
   TEXT_AI_MODELS,
   type AiModelOption,
@@ -568,10 +533,8 @@ import {
   expandImageWithMask,
   extractImageText,
   generateImages as generateAiImages,
-  getAiModelEntitlements,
   getBackgroundImageGenerationTask,
   isAiAbortError,
-  listAiModelCatalog,
   removeImageBackground,
   removeImageWatermark,
   requestAiAuth,
@@ -756,207 +719,7 @@ function markCloudRetentionToastShown() {
 }
 
 // ── Model Selector ─────────────────────────────────────────────
-function ModelSelector({
-  model,
-  onChange,
-  isDark,
-  models = IMAGE_AI_MODEL_OPTIONS,
-}: {
-  model: string;
-  onChange: (m: string) => void;
-  isDark: boolean;
-  models?: AiModelOption[];
-}) {
-  const [open, setOpen] = useState(false);
-  const [buttonHover, setButtonHover] = useState(false);
-  const modelRef = useRef<HTMLDivElement>(null);
-  const current = models.find(m => m.id === model) || AUTO_AI_MODEL;
-  const bg = getMinimapSurfaceBackground(isDark);
-  const selectedBg = isDark
-    ? "oklch(0.13 0.015 270)"
-    : "oklch(0.22 0.015 270)";
-  const border = getMinimapSurfaceBorder(isDark);
-  const selectedBorder = "oklch(0.62 0.22 290 / 45%)";
-  const text = isDark ? "oklch(0.74 0.01 270)" : "oklch(0.58 0.008 270)";
-  const selectedText = "white";
-  const popBg = isDark ? "oklch(0.16 0.018 270)" : "oklch(0.99 0.004 270)";
-  const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
-  const rowHeight = 40;
-  const panelHeight = Math.min(models.length * rowHeight, 320);
-
-  useEffect(() => {
-    if (!open) return;
-    const handlePointerDown = (event: PointerEvent) => {
-      if (
-        modelRef.current &&
-        event.target instanceof globalThis.Node &&
-        !modelRef.current.contains(event.target)
-      ) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("pointerdown", handlePointerDown, true);
-    return () =>
-      document.removeEventListener("pointerdown", handlePointerDown, true);
-  }, [open]);
-
-  return (
-    <div
-      ref={modelRef}
-      className="relative nodrag nopan"
-      style={{ zIndex: open ? 1200 : 100 }}
-    >
-      <button
-        onClick={e => {
-          e.stopPropagation();
-          setOpen(o => !o);
-        }}
-        className="flex h-8 items-center gap-1 rounded-[var(--radius-md-design)] px-2 transition-colors"
-        style={{
-          background: open || buttonHover ? selectedBg : bg,
-          border: `1px solid ${open ? selectedBorder : border}`,
-          color: open || buttonHover ? selectedText : text,
-          fontSize: 11,
-          lineHeight: "14px",
-          letterSpacing: 0,
-        }}
-        onMouseEnter={() => setButtonHover(true)}
-        onMouseLeave={() => setButtonHover(false)}
-      >
-        <AssistantModelIcon modelId={current.id} icon={current.icon} />
-        {current.label}
-        <ChevronDown size={10} style={{ opacity: 0.6 }} />
-      </button>
-      {open && (
-        <div
-          className="absolute bottom-full mb-1 left-0 rounded-[var(--radius-md-design)] overflow-hidden shadow-2xl"
-          style={{
-            background: popBg,
-            border: `1px solid ${border}`,
-            minWidth: 160,
-            zIndex: 1201,
-            maxHeight: panelHeight,
-          }}
-          onClick={e => e.stopPropagation()}
-        >
-          <div
-            className="model-selector-scroll"
-            style={{
-              maxHeight: panelHeight,
-              overflowY: "auto",
-              overscrollBehavior: "contain",
-              scrollbarWidth: "thin",
-              scrollbarColor: `${isDark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.18)"} transparent`,
-            }}
-            onWheel={e => e.stopPropagation()}
-          >
-            {models.map(m => (
-              <button
-                key={m.id}
-                onClick={() => {
-                  if (m.disabled) {
-                    toast("当前模型暂不可用", {
-                      description: m.unavailableReason || "请切换其他模型继续创作。",
-                    });
-                    return;
-                  }
-                  onChange(m.id);
-                  setOpen(false);
-                }}
-                disabled={m.disabled}
-                className="flex items-start gap-2 w-full px-3 text-left type-caption transition-colors"
-                style={{
-                  height: rowHeight,
-                  color: text,
-                  opacity: m.disabled ? 0.46 : 1,
-                  cursor: m.disabled ? "not-allowed" : "pointer",
-                }}
-                onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
-                onMouseLeave={e =>
-                  (e.currentTarget.style.background = "transparent")
-                }
-              >
-                <AssistantModelIcon modelId={m.id} icon={m.icon} />
-                <span className="flex min-w-0 flex-col leading-tight">
-                  <span
-                    className="type-caption"
-                    style={{ textTransform: "none", letterSpacing: "0.02em" }}
-                  >
-                    {m.label}
-                  </span>
-                  {"description" in m && m.description ? (
-                    <span
-                      className="truncate"
-                      style={{ fontSize: 10, marginTop: 2, opacity: 0.58, letterSpacing: 0 }}
-                    >
-                      {m.unavailableReason || m.description}
-                    </span>
-                  ) : null}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function useImageModelOptions() {
-  const [imageModelOptions, setImageModelOptions] = useState(IMAGE_AI_MODEL_OPTIONS);
-
-  useEffect(() => {
-    let cancelled = false;
-    Promise.allSettled([listAiModelCatalog(), getAiModelEntitlements()])
-      .then(results => {
-        if (!cancelled) {
-          const catalog = results[0].status === "fulfilled" ? results[0].value : null;
-          const entitlements = results[1].status === "fulfilled" ? results[1].value.imageModels : [];
-          const entitlementByModel = new Map(entitlements.map(item => [item.model, item]));
-          setImageModelOptions(
-            mergeImageAiModelOptions(catalog?.image || []).map(option => {
-              const entitlement = entitlementByModel.get(option.id);
-              if (!entitlement || option.id === AUTO_AI_MODEL.id) return option;
-              const blocked =
-                entitlement.status === "unavailable" || entitlement.status === "exhausted";
-              /*
-               * ⚠️⚠️ unavailableReason 只有在模型**真的不能用**时才能赋值。
-               *
-               * 三个渲染出口（本文件 :873 / :16241 / :22682）读的都是
-               * `unavailableReason || description` —— 短路取前者。
-               * 此前这里无条件写 `unavailableReason: entitlement.message`，
-               * 而标准模型的 message 是 "70 积分/张"（server/admin-store.ts:1570），
-               * 于是**所有可用模型的能力描述被价格文案永久遮住**：
-               * workspace-data.ts 里精心写的"高品质综合表现"一个字都没显示过。
-               *
-               * 这个字段的语义是「为什么不能选」，不是「附加信息」。
-               * 能选的时候它必须是 undefined，否则等于把 description 作废。
-               *
-               * ⚠️ 同理不能把 entitlement.label（"标准模型"/"Pro / Studio 专属"）
-               * 拼进 description —— 那是权益分组名，不是模型能力，
-               * 拼上去既超出 20 字上限，也让每一行尾巴都挂着重复的"· 标准模型"。
-               * 权益受限的信息由 disabled 置灰 + unavailableReason 表达，足够了。
-               */
-              return {
-                ...option,
-                disabled: blocked,
-                unavailableReason: blocked ? entitlement.message : undefined,
-              };
-            })
-          );
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setImageModelOptions(IMAGE_AI_MODEL_OPTIONS);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  return imageModelOptions;
-}
-
+// ModelSelector / useImageModelOptions 已迁至 ./ModelSelector.tsx（见上方说明）。
 function SkillPointSelector({
   activeSkill,
   onChange,
@@ -18458,6 +18221,7 @@ function CanvasAssistantPanel({
   onRemoveAnnotationReference,
   onMergeReferences,
   onPasteImages,
+  onImportHomeReferences,
   selectedCount,
   helpPromptNonce,
 }: {
@@ -18482,6 +18246,13 @@ function CanvasAssistantPanel({
    * 返回是否真的粘贴到了图片（false 表示剪贴板里没有可用图片）。
    */
   onPasteImages: (clipboardData: DataTransfer | null) => Promise<boolean>;
+  /**
+   * 把首页带来的参考图导入画布并登记成引用素材。
+   * 返回**真正登记成功**的素材（可能比传入的少，甚至为空）。
+   */
+  onImportHomeReferences: (
+    references: HomePromptReference[]
+  ) => Promise<ImageGeneratorReferenceAsset[]>;
   selectedCount: number;
   helpPromptNonce: number;
 }) {
@@ -20891,18 +20662,17 @@ function CanvasAssistantPanel({
 
   useEffect(() => {
     if (pendingHomePromptHandledRef.current || collapsed) return;
-    const raw = sessionStorage.getItem("artx:pending-home-prompt");
+    const raw = sessionStorage.getItem(HOME_PROMPT_HANDOFF_KEY);
     if (!raw) return;
     try {
-      const payload = JSON.parse(raw) as {
-        projectId?: string;
-        prompt?: string;
-        model?: string;
-        shouldAutoRun?: boolean;
-      };
+      const payload = parseHomePromptHandoff(raw);
+      if (!payload) {
+        sessionStorage.removeItem(HOME_PROMPT_HANDOFF_KEY);
+        return;
+      }
       if (payload.projectId !== projectId || !payload.prompt?.trim()) return;
       pendingHomePromptHandledRef.current = true;
-      sessionStorage.removeItem("artx:pending-home-prompt");
+      sessionStorage.removeItem(HOME_PROMPT_HANDOFF_KEY);
       if (!payload.shouldAutoRun) return;
       if (!isAuthenticated) {
         onLoginRequest();
@@ -20910,6 +20680,7 @@ function CanvasAssistantPanel({
         return;
       }
       const submittedText = payload.prompt.trim();
+      const handoffReferences = readHandoffReferences(payload);
       const userMessage = {
         id: `home-user-${Date.now()}`,
         role: "user" as const,
@@ -20923,6 +20694,28 @@ function CanvasAssistantPanel({
       window.setTimeout(async () => {
         try {
           /**
+           * 首页参考图必须在**构造 payload 之前**导入完。
+           *
+           * ⚠️⚠️ 这里是整条链路最容易做成「静默失效」的一环：
+           * 首页把图塞进了 sessionStorage，画布这边如果只是读出来放着、
+           * 不真正驱动 referencesEnabled / referencedAssets，
+           * 表现就是「首页明明加了参考图，出来的图跟参考图毫无关系」，
+           * 且全程零报错 —— 用户只会觉得模型不听话。
+           *
+           * importHomeReferences 返回的是**真正登记成功的**素材，
+           * 下面所有判断都以它为准，不看首页传了几张。
+           */
+          const importedReferences =
+            handoffReferences.length > 0
+              ? await onImportHomeReferences(handoffReferences)
+              : [];
+          const hasImportedReferences = importedReferences.length > 0;
+          if (handoffReferences.length > 0 && !hasImportedReferences) {
+            toast("首页参考图未能载入", {
+              description: "本次将只按提示词生成，你可以在画布里重新添加参考图",
+            });
+          }
+          /**
            * 【2026-09-13】首页若已选定图片模型，直接出图，不再路由。
            *
            * 旧逻辑无条件调 routeCreativeIntent，payload.model 只在下面决定"用哪个
@@ -20932,13 +20725,34 @@ function CanvasAssistantPanel({
           const homeSelectedImageModel = isSupportedImageModelId(payload.model)
             ? payload.model!
             : null;
+          /**
+           * 带参考图时**必须**把图交给路由，理由与画布侧
+           * needsReferenceComprehension（:21046）完全一致：
+           * 只传文字的话，模型无从知道「参考这张图的配色」指的是哪张。
+           * 选定具体模型时仍要钳到 image，不接受回落成文字。
+           */
+          const routedDecision =
+            homeSelectedImageModel && !hasImportedReferences
+              ? null
+              : await routeCreativeIntent({
+                  module: "home-prompt-canvas-router",
+                  model: DEFAULT_TEXT_MODEL,
+                  prompt: submittedText,
+                  referencedAssets: importedReferences,
+                  preferImageWhenReferences: true,
+                  forceModelDecision: hasImportedReferences,
+                });
           const decision = homeSelectedImageModel
-            ? { mode: "image" as const, imagePrompt: submittedText }
-            : await routeCreativeIntent({
-                module: "home-prompt-canvas-router",
-                model: DEFAULT_TEXT_MODEL,
-                prompt: submittedText,
-              });
+            ? {
+                ...(routedDecision ?? {}),
+                mode: "image" as const,
+                imagePrompt:
+                  (routedDecision?.mode === "image"
+                    ? routedDecision.imagePrompt
+                    : undefined
+                  )?.trim() || submittedText,
+              }
+            : routedDecision!;
           if (decision.mode === "image") {
             const imagePrompt = decision.imagePrompt?.trim() || submittedText;
             const generationId = `home-prompt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -20955,7 +20769,11 @@ function CanvasAssistantPanel({
               ratio: DEFAULT_AUTO_RATIO,
               count: 1,
               style: "首页创作",
-              referencesEnabled: false,
+              // ⚠️ 由「实际导入成功的图」决定，不是「首页传了几张」。
+              referencesEnabled: hasImportedReferences,
+              referencedAssets: hasImportedReferences
+                ? importedReferences
+                : undefined,
               generationId,
             };
             dispatchImageGenerationTask(
@@ -20974,6 +20792,17 @@ function CanvasAssistantPanel({
                 role: "assistant",
                 content: `已根据你的首页提示词生成图片：${imagePrompt}`,
                 timestamp: new Date(),
+                // 与画布侧（:21405）一致：把出图结果写进对话上下文，
+                // 否则用户下一句「这张再暗一点」模型不知道指哪张。
+                contextImages: (result.images || [])
+                  .filter(image => Boolean(image.src))
+                  .map((image, index) => ({
+                    src: image.src,
+                    title: `${imagePrompt.slice(0, 20)}${
+                      (result.images || []).length > 1 ? ` (${index + 1})` : ""
+                    }`,
+                  })),
+                contextImagePrompt: imagePrompt,
               },
             ]);
             return;
@@ -20992,18 +20821,33 @@ function CanvasAssistantPanel({
           toast("首页提示词自动处理失败", { description: message });
         } finally {
           setComposerSegments([createAssistantTextSegment("")]);
+          /**
+           * 与画布侧 handleSubmit（:20903）对齐：本轮用掉的引用必须清账。
+           *
+           * ⚠️ 不清会怎样：referencedAssets 里还留着首页那几张图，而上面刚把
+           * composerSegments 重置成一个空文本段 —— :20221 的同步 effect 会把
+           * 「在 referencedAssets 里但不在 segments 里」的素材当成 missingAssets
+           * **自动插回**输入框。用户看到的就是「生成完了，空输入框里莫名其妙
+           * 又冒出几个图片标签」，而且下一次提交会把它们再带上一遍。
+           *
+           * 画布上的图片节点不受影响，这里清的只是「引用清单」。
+           */
+          syncedReferenceIdsRef.current.clear();
+          onMergeReferences([]);
           setIsSubmitting(false);
         }
       }, 360);
     } catch {
-      sessionStorage.removeItem("artx:pending-home-prompt");
+      sessionStorage.removeItem(HOME_PROMPT_HANDOFF_KEY);
     }
   }, [
     assistantImageModel.id,
     assistantTextModel.id,
     collapsed,
     isAuthenticated,
+    onImportHomeReferences,
     onLoginRequest,
+    onMergeReferences,
     projectId,
   ]);
 
@@ -29471,6 +29315,63 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     [pasteClipboardFromNavigator, pasteClipboardPayload]
   );
 
+  /**
+   * 首页带过来的参考图 → 画布节点 + 引用素材。
+   *
+   * ⚠️⚠️ 刻意复用 pasteClipboardImageSources，而不是自己拼 Node。
+   * 首页的参考图必须和「对话框粘贴的图」「画布里选中引用的图」长得
+   * 完全一样 —— 同样的节点形状、同样的引用标签、同样的删除行为。
+   * 自己造一套「首页专用节点」是本项目踩过九次的坑：多一个出口，
+   * 就多一处迟早会走偏的样式和行为。
+   *
+   * 返回真正登记成功的引用素材，调用方据此决定 referencesEnabled，
+   * **绝不能凭「首页传了几张」去判断** —— 图可能加载失败，
+   * 那时 referencesEnabled 置 true 会让提示词里凭空多出「参考已引用素材」
+   * 一句话，而实际一张图都没有。
+   */
+  const importHomePromptReferences = useCallback(
+    async (references: HomePromptReference[]) => {
+      if (references.length === 0) return [] as ImageGeneratorReferenceAsset[];
+      const importedNodes = await pasteClipboardImageSources(
+        references.map(reference => reference.src),
+        undefined,
+        "首页参考图已同步到画布"
+      );
+      if (importedNodes.length === 0) return [] as ImageGeneratorReferenceAsset[];
+
+      // 按 src 回填首页填的标题：节点是复用粘贴链路建的，
+      // 里面的 title 是「粘贴图片 N」，对首页来说是错的文案。
+      const titleBySrc = new Map(
+        references.map(reference => [reference.src, reference.title])
+      );
+      const imported: ImageGeneratorReferenceAsset[] = [];
+      importedNodes.forEach(node => {
+        const data = node.data as Record<string, unknown>;
+        const src = (data.localSrc as string) || "";
+        if (!src) return;
+        const size = getCanvasNodeSize(node);
+        imported.push({
+          id: node.id,
+          title:
+            titleBySrc.get((data.sourceUrl as string) || src)
+            || titleBySrc.get(src)
+            || "首页参考图",
+          src,
+          width: size.width,
+          height: size.height,
+        });
+      });
+      if (imported.length === 0) return [] as ImageGeneratorReferenceAsset[];
+      setReferencedAssets(prev => {
+        const existingIds = new Set(prev.map(asset => asset.id));
+        const additions = imported.filter(asset => !existingIds.has(asset.id));
+        return additions.length > 0 ? [...prev, ...additions] : prev;
+      });
+      return imported;
+    },
+    [pasteClipboardImageSources]
+  );
+
   // ── 获取节点的图片源 (localSrc 优先，其次 GENERATED_ASSETS) ──
   const getNodeImageSrc = useCallback((node: Node): string => {
     const data = node.data as Record<string, unknown>;
@@ -32530,6 +32431,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         }
         onMergeReferences={mergeReferencedAssets}
         onPasteImages={handleComposerImagePaste}
+        onImportHomeReferences={importHomePromptReferences}
         selectedCount={selectedNodeIds.length}
         helpPromptNonce={helpPromptNonce}
       />

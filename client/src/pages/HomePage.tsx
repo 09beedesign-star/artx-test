@@ -23,6 +23,20 @@ import HomeFirstTopUpBanner, {
 import promptCsv from "@/data/ai_image_prompt_rank_50.csv?raw";
 import { createWorkspaceHistoryProject } from "@/lib/project-history";
 import { requestAiAuth } from "@/lib/ai";
+import {
+  ModelSelector,
+  useImageModelOptions,
+} from "@/components/canvas/ModelSelector";
+import {
+  readPreferredImageModelId,
+  writePreferredImageModelId,
+} from "@/lib/assistant-model-preference";
+import {
+  fitReferencesToBudget,
+  writeHomePromptHandoff,
+  type HomePromptReference,
+} from "@/lib/home-prompt-handoff";
+import type { AiModelOption } from "@/lib/workspace-data";
 
 type InspirationRecommendation = {
   rank: number;
@@ -224,6 +238,20 @@ export default function HomePage() {
   const [panelMode, setPanelMode] = useState<PanelMode>(isAuthenticated ? "prelogin" : "prelogin");
   const [prompt, setPrompt] = useState(HOME_PROMPT);
   const [promptTouched, setPromptTouched] = useState(false);
+  /**
+   * 首页选的出图模型。与画布共用同一份 localStorage 偏好（用户 2026-09-15 拍板），
+   * 所以这里读的不是本地初值，而是全站统一的偏好。
+   *
+   * ⚠️ 惰性初始化不可省：readPreferredImageModelId 会摸 localStorage，
+   * 写成 useState(readPreferredImageModelId()) 会在每次渲染都执行一次。
+   */
+  const [homeImageModelId, setHomeImageModelId] = useState(readPreferredImageModelId);
+  const homeImageModelOptions = useImageModelOptions();
+  /**
+   * 首页「添加参考图」选中的图片。跟着提示词一起交接给画布，
+   * 进画布后直接成为引用图片（与在画布里上传的效果一致）。
+   */
+  const [homeReferences, setHomeReferences] = useState<HomePromptReference[]>([]);
   const [email, setEmail] = useState(getRememberedLoginUsername);
   const [password, setPassword] = useState("");
   const [rememberPassword, setRememberPassword] = useState(
@@ -420,18 +448,117 @@ export default function HomePage() {
     }
   };
 
+  /**
+   * 模型切换要立刻落盘，而不是等发送时再存。
+   *
+   * 用户可能选完模型就去逛灵感区、或直接关掉页面 —— 若只在发送时写入，
+   * 这次选择就丢了。这与画布侧「选中即写 localStorage」的行为也保持一致。
+   */
+  const handleHomeImageModelChange = (modelId: string) => {
+    setHomeImageModelId(modelId);
+    writePreferredImageModelId(modelId);
+  };
+
+  /**
+   * 首页参考图上传。
+   *
+   * ⚠️ 这里刻意**不复用画布的 10MB 单张上限**。画布把图片存在内存里，
+   * 而首页必须先把它塞进 sessionStorage（配额约 5MB）才能交接给画布 ——
+   * 照搬 10MB 会让写入直接抛 QuotaExceededError，连提示词一起丢掉。
+   * 体积闸门的口径统一在 home-prompt-handoff.ts，不要在这里另立一套。
+   */
+  const handleHomeReferenceFiles = async (files: File[]) => {
+    const imageFiles = files.filter(file =>
+      file.type.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|avif)$/i.test(file.name)
+    );
+    const rejectedCount = files.length - imageFiles.length;
+    if (rejectedCount > 0) {
+      toast("已跳过非图片文件", {
+        description: `${rejectedCount} 个文件不是图片格式，未加入参考图`,
+      });
+    }
+    if (imageFiles.length === 0) return;
+
+    const readAsDataUrl = (file: File) =>
+      new Promise<string | null>(resolve => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result;
+          resolve(typeof result === "string" ? result : null);
+        };
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(file);
+      });
+
+    const loaded: HomePromptReference[] = [];
+    let failedCount = 0;
+    for (const file of imageFiles) {
+      const dataUrl = await readAsDataUrl(file);
+      if (!dataUrl) {
+        failedCount += 1;
+        continue;
+      }
+      loaded.push({
+        id: `home-reference-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        title: file.name.replace(/\.[^.]+$/, "") || "参考图",
+        src: dataUrl,
+      });
+    }
+    if (failedCount > 0) {
+      toast("部分图片读取失败", {
+        description: `${failedCount} 张图片无法读取，请重试`,
+      });
+    }
+    if (loaded.length === 0) return;
+
+    // 预算是对「最终要交接的整份列表」算的，所以必须连同已选的一起过闸，
+    // 不能只判断新增的这几张 —— 否则分多次添加就能绕过总预算。
+    const { accepted, droppedCount } = fitReferencesToBudget([
+      ...homeReferences,
+      ...loaded,
+    ]);
+    if (droppedCount > 0) {
+      toast("部分参考图未能添加", {
+        description: `${droppedCount} 张图片超出体积或数量上限，已跳过`,
+      });
+    }
+    setHomeReferences(accepted);
+  };
+
+  const handleRemoveHomeReference = (id: string) => {
+    setHomeReferences(prev => prev.filter(reference => reference.id !== id));
+  };
+
   const createProjectFromPrompt = () => {
     const text = prompt.trim() || HOME_PROMPT;
     const shouldAutoRun = promptTouched && text !== HOME_PROMPT;
     const title = text.length > 18 ? `${text.slice(0, 18)}...` : text;
     const project = createWorkspaceHistoryProject(title || undefined, text);
-    sessionStorage.setItem("artx:pending-home-prompt", JSON.stringify({
+    const handoffResult = writeHomePromptHandoff({
       projectId: project.id,
       prompt: text,
-      model: "auto",
+      /**
+       * ⚠️⚠️ 这里以前是硬编码的 "auto"，模型选择器接入后必须传用户真选的值，
+       * 否则选择器就是个纯装饰 —— 这个项目 2026-09-13 刚踩过一模一样的坑
+       * （见 InfiniteCanvas.tsx 消费侧那段注释：「首页选的图片模型被当成了纯装饰」）。
+       *
+       * 消费侧（CanvasAssistantPanel）的口径是 isSupportedImageModelId(model)：
+       *   - 传具体模型 id → 判真 → 跳过意图路由，直接出图
+       *   - 传 "auto"    → 判假 → 走 routeCreativeIntent 意图路由
+       * 后者与接入选择器之前的行为完全一致，所以选 auto 是零行为变化。
+       */
+      model: homeImageModelId,
       shouldAutoRun,
       createdAt: project.createdAt,
-    }));
+      references: homeReferences.length > 0 ? homeReferences : undefined,
+    });
+    // 降级路径必须明说。静默丢图会让用户以为参考图已经带过去了，
+    // 到画布里才发现没有 —— 而那时候他已经离开首页，无从补救。
+    if (handoffResult.droppedReferences && homeReferences.length > 0) {
+      toast("参考图未能带入画布", {
+        description: "浏览器存储空间不足，请进入画布后重新上传",
+      });
+    }
     toast("已创建新画布", { description: text.slice(0, 80) });
     navigate(`/project/${project.id}`);
   };
@@ -639,6 +766,12 @@ export default function HomePage() {
                   setPrompt(value);
                 }}
                 onSend={handlePreloginSend}
+                imageModelId={homeImageModelId}
+                imageModelOptions={homeImageModelOptions}
+                onImageModelChange={handleHomeImageModelChange}
+                references={homeReferences}
+                onReferenceFiles={handleHomeReferenceFiles}
+                onRemoveReference={handleRemoveHomeReference}
               />
             </div>
             {shouldRenderAuthPanel && (
@@ -919,13 +1052,26 @@ function PreloginPanel({
   promptTouched,
   onPromptChange,
   onSend,
+  imageModelId,
+  imageModelOptions,
+  onImageModelChange,
+  references,
+  onReferenceFiles,
+  onRemoveReference,
 }: {
   prompt: string;
   promptTouched: boolean;
   onPromptChange: (value: string) => void;
   onSend: () => void;
+  imageModelId: string;
+  imageModelOptions: AiModelOption[];
+  onImageModelChange: (modelId: string) => void;
+  references: HomePromptReference[];
+  onReferenceFiles: (files: File[]) => void;
+  onRemoveReference: (id: string) => void;
 }) {
   const animatedPrompt = usePromptTypingAnimation(HOME_PROMPT, promptTouched);
+  const referenceInputRef = useRef<HTMLInputElement>(null);
 
   return (
     <GlassPanel>
@@ -958,17 +1104,85 @@ function PreloginPanel({
             className="h-36 resize-none bg-transparent text-sm leading-[22px] text-white outline-none placeholder:text-[#7d7d7d]"
             placeholder={HOME_PROMPT}
           />
+          {references.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-2">
+              {references.map(reference => (
+                <div
+                  key={reference.id}
+                  className="group relative h-12 w-12 overflow-hidden rounded-md border border-[#454545]"
+                  title={reference.title}
+                >
+                  <img
+                    src={reference.src}
+                    alt={reference.title}
+                    className="h-full w-full object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => onRemoveReference(reference.id)}
+                    className="absolute right-0 top-0 flex h-4 w-4 items-center justify-center bg-black/70 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                    aria-label={`移除参考图 ${reference.title}`}
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="flex h-10 items-center justify-between">
             <div className="flex items-center gap-4 text-[#7d7d7d]">
-              <button type="button" className="flex h-8 items-center gap-1.5 rounded-md text-xs transition-colors hover:text-white">
+              {/*
+                * 原本是无 onClick 的空壳按钮，2026-09-15 接上真实上传。
+                * 走隐藏 file input 而不是自绘拖拽区 —— 与画布 composer
+                * 的上传入口保持同一种交互，用户不需要学两套。
+                */}
+              <input
+                ref={referenceInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={event => {
+                  const files = Array.from(event.target.files || []);
+                  // 先清空 value，否则连续两次选同一个文件不会触发 change。
+                  event.target.value = "";
+                  if (files.length > 0) onReferenceFiles(files);
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => referenceInputRef.current?.click()}
+                className="flex h-8 items-center gap-1.5 rounded-md text-xs transition-colors hover:text-white"
+              >
                 <ImagePlus size={15} />
                 添加参考图
               </button>
               <span className="h-4 w-px bg-[#454545]" />
-              <button type="button" className="flex h-8 items-center gap-1 rounded-md text-xs transition-colors hover:text-white">
-                图像生成
-                <ChevronDown size={14} />
-              </button>
+              {/*
+                * 这里原本是个写死「图像生成 ⌄」的空壳按钮（无 onClick），
+                * 2026-09-15 换成与画布共用的 ModelSelector。
+                *
+                * ⚠️ 用的是共享组件而非首页自己写一个：模型清单会持续变动
+                *（新模型上线、权益调整），两份渲染实现必然对不上。
+                *
+                * surface 传首页玻璃面板的配色 —— 画布走 isDark 主题变量，
+                * 首页是固定深色面板（#212121/#454545），两套色不能混用；
+                * placement 传 down 是因为这一行贴着输入框底部，
+                * 沿用画布的向上弹会直接盖住用户正在写的提示词。
+                */}
+              <ModelSelector
+                model={imageModelId}
+                onChange={onImageModelChange}
+                isDark
+                models={imageModelOptions}
+                placement="down"
+                surface={{
+                  background: "transparent",
+                  border: "transparent",
+                  text: "#7d7d7d",
+                }}
+                triggerClassName="flex h-8 items-center gap-1.5 rounded-md px-0 text-xs transition-colors"
+              />
             </div>
             <button
               type="button"

@@ -43,9 +43,19 @@ function stripBlockComments(source: string) {
   return stripped;
 }
 
+/**
+ * 模型选择器的实现文件。
+ *
+ * ⚠️ 2026-09-15：useImageModelOptions / ModelSelector / AssistantModelIcon
+ * 从 InfiniteCanvas.tsx 迁到这里（画布与首页共用一份）。
+ * 本文件的断言锚的是「这些实现的源码文本」，代码搬家后必须跟着搬锚点 ——
+ * 不能删断言也不能改松，否则 2026-09-13「描述被计费文案遮盖」的回归锁就失效了。
+ */
+const MODEL_SELECTOR_PATH = "client/src/components/canvas/ModelSelector.tsx";
+
 /** 取 useImageModelOptions() 函数体。锚真正的结尾，别用缩进或裸 `}`。 */
 function readUseImageModelOptionsBody() {
-  const source = readSource("client/src/components/canvas/InfiniteCanvas.tsx");
+  const source = readSource(MODEL_SELECTOR_PATH);
   const start = source.indexOf("function useImageModelOptions()");
   expect(start, "未找到 useImageModelOptions()").toBeGreaterThan(-1);
   const end = source.indexOf("return imageModelOptions;", start);
@@ -168,8 +178,21 @@ describe("模型选择器描述不被计费文案遮盖", () => {
      * 缺陷在于上游无条件赋值，不在这里。
      * 锁住它是为了防止有人「顺手」把短路删掉，导致不可用原因再也不显示。
      */
-    const source = readSource("client/src/components/canvas/InfiniteCanvas.tsx");
-    const fallbacks = source.match(/unavailableReason\s*\|\|\s*\w+\.description/g) || [];
+    /**
+     * ⚠️ 必须同时扫两个文件。
+     *
+     * 三个出口里有一个（模型选择器下拉那个）随组件迁到了 ModelSelector.tsx，
+     * 只扫 InfiniteCanvas.tsx 会从 3 掉到 2。
+     * 那时候把阈值从 3 改成 2 是最省事也最错误的做法 ——
+     * 等于默认新文件里的出口不需要守。出口在哪个文件不重要，一个都不能漏才重要。
+     */
+    const sources = [
+      "client/src/components/canvas/InfiniteCanvas.tsx",
+      MODEL_SELECTOR_PATH,
+    ].map(readSource);
+    const fallbacks = sources.flatMap(
+      source => source.match(/unavailableReason\s*\|\|\s*\w+\.description/g) || []
+    );
     expect(fallbacks.length, "三个渲染出口都应保留该短路").toBeGreaterThanOrEqual(3);
   });
 });

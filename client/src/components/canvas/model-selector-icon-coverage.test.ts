@@ -26,6 +26,15 @@ import {
 const INFINITE_CANVAS_PATH = "client/src/components/canvas/InfiniteCanvas.tsx";
 const CANVAS_NODES_PATH = "client/src/components/canvas/CanvasNodes.tsx";
 const WORKSPACE_DATA_PATH = "client/src/lib/workspace-data.ts";
+/**
+ * 2026-09-15：AssistantModelIcon / ModelSelector 从 InfiniteCanvas.tsx 迁到这里，
+ * 供画布与首页共用。
+ *
+ * ⚠️ 迁移时这组断言挂了 3 条 —— 它们锚的是 InfiniteCanvas.tsx 的源码文本，
+ * 而代码搬了家。**正确处理是把扫描范围跟着扩到新文件，不是把断言改松。**
+ * 如果当时图省事删掉这几条，2026-09-13 那个「图标空白」的回归锁就彻底没了。
+ */
+const MODEL_SELECTOR_PATH = "client/src/components/canvas/ModelSelector.tsx";
 
 /**
  * 剥掉注释再做源码断言。
@@ -55,18 +64,32 @@ describe("模型选择器图标不得出现空白（2026-09-13 回归锁）", ()
   it("剥注释不会误删真实代码（上面那条断言的前置保障）", () => {
     // 剥离一旦过度，下面「每个调用点都要传 icon」会因为样本残缺而假通过。
     // 这里正面比对剥离前后的调用点数量，把那种假通过挡在门外。
-    const raw = readFileSync(INFINITE_CANVAS_PATH, "utf8");
-    const stripped = stripComments(raw);
-    const countIn = (text: string) => (text.match(/<AssistantModelIcon/g) || []).length;
-    expect(countIn(stripped)).toBe(countIn(raw));
-    // 同时确认剥离确实生效了，否则等于没剥。
-    expect(stripped.length).toBeLessThan(raw.length);
-    expect(stripped).not.toContain("绝不能因为认不出品牌就 return null");
+    for (const path of [INFINITE_CANVAS_PATH, MODEL_SELECTOR_PATH]) {
+      const raw = readFileSync(path, "utf8");
+      const stripped = stripComments(raw);
+      const countIn = (text: string) => (text.match(/<AssistantModelIcon/g) || []).length;
+      expect(countIn(stripped), `${path} 剥注释误删了调用点`).toBe(countIn(raw));
+      // 同时确认剥离确实生效了，否则等于没剥。
+      expect(stripped.length, `${path} 根本没剥到注释`).toBeLessThan(raw.length);
+    }
+    expect(readStripped(MODEL_SELECTOR_PATH)).not.toContain(
+      "绝不能因为认不出品牌就 return null"
+    );
   });
 
   it("AssistantModelIcon 的每一个调用点都必须传 icon", () => {
-    const source = readStripped(INFINITE_CANVAS_PATH);
-    const usages = source.match(/<AssistantModelIcon[^/>]*\/>/g) || [];
+    /**
+     * ⚠️ 必须同时扫两个文件。
+     *
+     * 组件定义搬到 ModelSelector.tsx 之后，选择器自身的 2 个调用点也跟着走了；
+     * 若这里还只扫 InfiniteCanvas.tsx，数量断言会从 6 掉到 4 —— 那时候
+     * 把阈值从 6 改成 4 是最省事也最错误的做法：等于默认新文件里的调用点
+     * 不需要守。调用点在哪个文件不重要，重要的是**一个都不能漏**。
+     */
+    const sources = [INFINITE_CANVAS_PATH, MODEL_SELECTOR_PATH].map(readStripped);
+    const usages = sources.flatMap(
+      source => source.match(/<AssistantModelIcon[^/>]*\/>/g) || []
+    );
 
     // 先确认确实扫到了调用点，否则正则一旦失配这条断言会静默空转。
     expect(usages.length).toBeGreaterThanOrEqual(6);
@@ -78,17 +101,33 @@ describe("模型选择器图标不得出现空白（2026-09-13 回归锁）", ()
   });
 
   it("图标组件认不出品牌时必须降级，不得返回 null", () => {
-    const infiniteCanvas = readStripped(INFINITE_CANVAS_PATH);
+    const modelSelector = readStripped(MODEL_SELECTOR_PATH);
     const canvasNodes = readStripped(CANVAS_NODES_PATH);
 
     // 反向断言：这正是 bug 时期的写法，一旦有人改回来立刻挂。
-    expect(infiniteCanvas).not.toMatch(/iconKind === "none"\s*\)\s*return null/);
-    expect(infiniteCanvas).not.toMatch(/if \(iconKind === "none"\) return null/);
+    expect(modelSelector).not.toMatch(/iconKind === "none"\s*\)\s*return null/);
+    expect(modelSelector).not.toMatch(/if \(iconKind === "none"\) return null/);
     expect(canvasNodes).not.toMatch(/if \(iconKind === "none"\) \{\s*return null/);
 
     // 正向断言：none 必须和 image 走同一条降级分支。
-    expect(infiniteCanvas).toMatch(/iconKind === "image" \|\| iconKind === "none"/);
+    expect(modelSelector).toMatch(/iconKind === "image" \|\| iconKind === "none"/);
     expect(canvasNodes).toMatch(/iconKind === "image" \|\| iconKind === "none"/);
+  });
+
+  it("图标组件只有一份实现，不得在迁出后留下副本", () => {
+    /**
+     * 迁移最典型的翻车方式：新文件建好了，旧文件的定义忘了删。
+     * 两份实现同时存在时 tsc 不报错、测试也能过，但后续改动只会落在其中一份，
+     * 于是又回到「同一份数据两个出口」的老问题。
+     */
+    const infiniteCanvas = readStripped(INFINITE_CANVAS_PATH);
+    expect(infiniteCanvas).not.toMatch(/function AssistantModelIcon\s*\(/);
+    expect(infiniteCanvas).not.toMatch(/function ModelSelector\s*\(/);
+    expect(infiniteCanvas).toMatch(/from "\.\/ModelSelector"/);
+
+    const modelSelector = readStripped(MODEL_SELECTOR_PATH);
+    expect((modelSelector.match(/function AssistantModelIcon/g) || []).length).toBe(1);
+    expect((modelSelector.match(/function ModelSelector/g) || []).length).toBe(1);
   });
 
   it("在售模型无论是否拿得到 icon，都能解析出可渲染的图标", () => {
@@ -118,15 +157,15 @@ describe("模型选择器图标不得出现空白（2026-09-13 回归锁）", ()
   });
 
   it("auto 有自己的图标，不跟着品牌解析走", () => {
-    const infiniteCanvas = readStripped(INFINITE_CANVAS_PATH);
+    const modelSelector = readStripped(MODEL_SELECTOR_PATH);
     const canvasNodes = readStripped(CANVAS_NODES_PATH);
 
     // auto 的裸 id 不含任何品牌关键字且没有 icon 字段，
     // 若不在组件里单独开分支，它会和别的模型一样落到兜底图标，
     // 语义上「让系统替你挑」就丢失了。
-    expect(infiniteCanvas).toMatch(/modelId === AUTO_AI_MODEL\.id/);
+    expect(modelSelector).toMatch(/modelId === AUTO_AI_MODEL\.id/);
     expect(canvasNodes).toMatch(/model\.id === AUTO_AI_MODEL\.id/);
-    expect(infiniteCanvas).toMatch(/data-model-brand-icon="auto"/);
+    expect(modelSelector).toMatch(/data-model-brand-icon="auto"/);
     expect(canvasNodes).toMatch(/data-model-brand-icon="auto"/);
   });
 });

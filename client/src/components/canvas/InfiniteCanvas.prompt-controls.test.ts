@@ -533,14 +533,40 @@ describe("InfiniteCanvas prompt controls", () => {
   });
 
   it("renders model brand icons aligned to the title row", () => {
-    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    /**
+     * ⚠️ 2026-09-15：AssistantModelIcon 与 ModelSelector 迁到了 ModelSelector.tsx，
+     * 图标渲染和标题行对齐的实现都跟着走了。锚点必须跟着搬到新文件 ——
+     * 这条断言守的是「图标与标题行对齐」的视觉细节（marginTop: 2 + items-start），
+     * 留在旧文件上只会恒挂，删掉则等于放弃这个视觉约束。
+     */
+    const modelSelector = readFileSync(resolve(__dirname, "ModelSelector.tsx"), "utf-8");
 
-    expect(source).toContain('from "./model-brand-icons"');
-    expect(source).toContain("const iconKind = getModelBrandIconKind(modelId, icon)");
-    expect(source).toContain("<ModelBrandIconMask kind={iconKind} size={14} />");
-    expect(source).toContain('data-model-brand-icon={iconKind}');
-    expect(source).toContain("marginTop: 2");
-    expect(source).toContain('className="flex min-w-0 items-start gap-2.5"');
+    expect(modelSelector).toContain('from "./model-brand-icons"');
+    expect(modelSelector).toContain("const iconKind = getModelBrandIconKind(modelId, icon)");
+    expect(modelSelector).toContain("<ModelBrandIconMask kind={iconKind} size={14} />");
+    expect(modelSelector).toContain('data-model-brand-icon={iconKind}');
+    expect(modelSelector).toContain("marginTop: 2");
+
+    /**
+     * ⚠️ 对齐方式要分别锁两个渲染面，不能只锁一处。
+     *
+     * 原断言写的是精确 className `flex min-w-0 items-start gap-2.5` ——
+     * 那是 InfiniteCanvas.tsx:22852（画布节点里的模型行）的写法，
+     * 而 ModelSelector.tsx:295 用的是 `flex items-start gap-2`（间距本就不同）。
+     * 迁移后只把路径一换，这条必挂，因为它找的是**另一个面**的 className。
+     *
+     * 真正要守的约束是「图标与标题行**顶部**对齐」（items-start，
+     * 配合 marginTop: 2 做视觉微调）—— 若退回 items-center，
+     * 两行文案的模型会让图标浮到中间去。gap 是多少不属于这条断言的职责。
+     */
+    expect(modelSelector, "选择器下拉行必须顶部对齐").toMatch(
+      /className="flex items-start gap-2 /
+    );
+
+    const infiniteCanvas = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    expect(infiniteCanvas, "画布节点里的模型行必须顶部对齐").toContain(
+      'className="flex min-w-0 items-start gap-2.5"'
+    );
   });
 
   it("keeps generated image processing overlays and extracted-text actions responsive", () => {

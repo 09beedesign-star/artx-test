@@ -163,9 +163,14 @@ describe("si / qwen 品牌图标（2026-09-13 新增）", () => {
   it("两个调用点对新图标和旧图标的渲染口径完全一致", () => {
     // 新增品牌后，两个上层包装组件不需要任何改动 ——
     // 如果有人在这里加了针对 si/qwen 的分支，交互态就会分叉。
-    const infiniteCanvas = readFileSync("client/src/components/canvas/InfiniteCanvas.tsx", "utf8");
+    //
+    // ⚠️ 2026-09-15：AssistantModelIcon 从 InfiniteCanvas.tsx 迁到 ModelSelector.tsx
+    //（供画布与首页共用），这条断言随之挂了。它锚的是「渲染这个图标的那份源码」，
+    // 代码搬家后必须**跟着搬锚点**，而不是把断言删掉或改松 ——
+    // 后者等于默默放弃 si/qwen 不得单开分支这条约束。
+    const modelSelector = readFileSync("client/src/components/canvas/ModelSelector.tsx", "utf8");
     const canvasNodes = readFileSync("client/src/components/canvas/CanvasNodes.tsx", "utf8");
-    for (const [name, src] of [["InfiniteCanvas", infiniteCanvas], ["CanvasNodes", canvasNodes]] as const) {
+    for (const [name, src] of [["ModelSelector", modelSelector], ["CanvasNodes", canvasNodes]] as const) {
       expect(src, `${name} 不应为 si 单开分支`).not.toMatch(/iconKind === "si"/);
       expect(src, `${name} 不应为 qwen 单开分支`).not.toMatch(/iconKind === "qwen"/);
       // 品牌图标统一 14px，和 auto 的魔法棒、通用线框图一致。
