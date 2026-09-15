@@ -12747,12 +12747,28 @@ function readPendingImageGenerationTasks(projectId: string) {
   );
 }
 
+/**
+ * 复用同一个 IndexedDB 连接。
+ *
+ * ⚠️⚠️【2026-09-15】这不是性能优化，是**正确性**修复。
+ *
+ * 原来每次读写都 `indexedDB.open()` 一次、用完 `db.close()`。open 本身是异步的，
+ * 于是「用户粘贴完图片立刻点返回工作台」这条路径上，卸载时才刚开始 open，
+ * 连接还没建好组件就没了，**事务根本没来得及创建**，图片自然没落盘。
+ * 下次进来 hydrate 去捞，捞到个空。
+ *
+ * 📌 判据：**卸载时才开始的异步准备工作，大概率做不完。**
+ *    要在卸载那一刻能立即发起事务，连接就必须是**之前就建好并一直留着**的。
+ *
+ * 连接被 versionchange / close 打断时置空，下次调用会自动重建。
+ */
+let canvasImageDbPromise: Promise<IDBDatabase | null> | null = null;
+
 function openCanvasImageDb() {
-  return new Promise<IDBDatabase | null>(resolve => {
-    if (typeof window === "undefined" || !("indexedDB" in window)) {
-      resolve(null);
-      return;
-    }
+  if (typeof window === "undefined" || !("indexedDB" in window))
+    return Promise.resolve(null);
+  if (canvasImageDbPromise) return canvasImageDbPromise;
+  canvasImageDbPromise = new Promise<IDBDatabase | null>(resolve => {
     const request = window.indexedDB.open(CANVAS_IMAGE_DB_NAME, 1);
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -12760,9 +12776,24 @@ function openCanvasImageDb() {
         db.createObjectStore(CANVAS_IMAGE_STORE_NAME);
       }
     };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => resolve(null);
+    request.onsuccess = () => {
+      const db = request.result;
+      // 连接失效后必须让下次调用重新 open，否则会一直拿到已关闭的句柄。
+      db.onclose = () => {
+        canvasImageDbPromise = null;
+      };
+      db.onversionchange = () => {
+        db.close();
+        canvasImageDbPromise = null;
+      };
+      resolve(db);
+    };
+    request.onerror = () => {
+      canvasImageDbPromise = null;
+      resolve(null);
+    };
   });
+  return canvasImageDbPromise;
 }
 
 async function persistImageGenerationTaskImages(
@@ -12787,14 +12818,9 @@ async function persistImageGenerationTaskImages(
     const transaction = db.transaction(CANVAS_IMAGE_STORE_NAME, "readwrite");
     const store = transaction.objectStore(CANVAS_IMAGE_STORE_NAME);
     imageEntries.forEach(entry => store.put(entry.localSrc, entry.key));
-    transaction.oncomplete = () => {
-      db.close();
-      resolve();
-    };
-    transaction.onerror = () => {
-      db.close();
-      resolve();
-    };
+    // ⚠️ 连接是共享的，这里不能 db.close()，否则别处正在进行的事务会被打断。
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => resolve();
   });
 }
 
@@ -12829,14 +12855,9 @@ async function hydrateImageGenerationTaskImages(
           restored.set(image.storedKey, request.result);
       };
     });
-    transaction.oncomplete = () => {
-      db.close();
-      resolve();
-    };
-    transaction.onerror = () => {
-      db.close();
-      resolve();
-    };
+    // ⚠️ 连接共享，不关。
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => resolve();
   });
   return images
     .map(image => ({
@@ -12871,14 +12892,9 @@ async function persistCanvasNodeImagePayloads(
     const transaction = db.transaction(CANVAS_IMAGE_STORE_NAME, "readwrite");
     const store = transaction.objectStore(CANVAS_IMAGE_STORE_NAME);
     imageEntries.forEach(entry => store.put(entry.localSrc, entry.key));
-    transaction.oncomplete = () => {
-      db.close();
-      resolve();
-    };
-    transaction.onerror = () => {
-      db.close();
-      resolve();
-    };
+    // ⚠️ 连接共享，不关。
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => resolve();
   });
 }
 
@@ -12886,13 +12902,27 @@ async function hydrateCanvasNodeImagePayloads(
   projectId: string,
   nodes: Node[]
 ) {
+  /**
+   * ⚠️⚠️【2026-09-15】「粘贴的图跳出画布再回来就没了」的根因之一。
+   *
+   * 这里原本要求 `fullImageStoredInSession === true` 才肯去 IndexedDB 回填。
+   * 那个标记只有在 **sessionStorage 写成功** 的分支里才会被打上
+   * （见 stripLargeCanvasNodePayloads）。于是只要 session 写失败（base64 大图
+   * 撑爆 5MB 配额是常事），localStorage 里存的就是**没有标记、也没有 localSrc**
+   * 的节点 —— 回填条件不成立，图片明明躺在 IndexedDB 里却没人去取。
+   *
+   * 表现：**画板还在、节点数也对，唯独图片空了，全程零报错。**
+   *
+   * 📌 判据：**回填的判断依据只能是「我缺不缺数据」，不能是「当初存哪了」。**
+   *    存储位置是写入侧的实现细节，让读取侧依赖它，写入侧一降级读取侧就瞎。
+   */
   const missingAssetNodes = nodes.filter(node => {
     if (node.type !== "asset") return false;
     const data = node.data as Record<string, unknown>;
-    return (
-      data.fullImageStoredInSession === true &&
-      typeof data.localSrc !== "string"
-    );
+    // 只看「这个图片节点现在没有可用的 localSrc」，不问它当初存在哪。
+    if (typeof data.localSrc === "string" && data.localSrc) return false;
+    // 正在生成中的占位节点本来就没图，不该去捞，也捞不到。
+    return !isPendingImageGenerationNode(node);
   });
   if (missingAssetNodes.length === 0) return nodes;
   const db = await openCanvasImageDb();
@@ -12908,14 +12938,9 @@ async function hydrateCanvasNodeImagePayloads(
           restored.set(node.id, request.result);
       };
     });
-    transaction.oncomplete = () => {
-      db.close();
-      resolve();
-    };
-    transaction.onerror = () => {
-      db.close();
-      resolve();
-    };
+    // ⚠️ 连接共享，不关。
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => resolve();
   });
   if (restored.size === 0) return nodes;
   return nodes.map(node => {
@@ -13024,6 +13049,9 @@ function safeWriteCanvasState(projectId: string, state: PersistedCanvasState) {
   };
   const serializedFullState = JSON.stringify(cleanedState);
   let sessionSaved = false;
+  // 图片走 IndexedDB（容量大得多），是 base64 图的**唯一可靠事实源**。
+  // ⚠️ 这里刻意不 await：保存在每次 nodes 变化时都会跑，await 会拖慢交互。
+  //    落盘竞态由 flushCanvasStateImages（卸载时）兜底。
   void persistCanvasNodeImagePayloads(projectId, cleanedState.nodes);
 
   try {
@@ -13033,21 +13061,32 @@ function safeWriteCanvasState(projectId: string, state: PersistedCanvasState) {
     /* The persistent fallback below still keeps a lightweight canvas state. */
   }
 
+  /**
+   * ⚠️⚠️【2026-09-15】原来这里在 session 写失败时，往 localStorage 塞的是
+   * **带完整 base64 的 cleanedState**。可 session 写不下的原因就是图太大，
+   * 那么 localStorage（配额同样约 5MB）几乎必然跟着抛异常 ——
+   * 于是走进 catch，**整份画布状态一个字都没存下去**。
+   *
+   * 📌 判据：**降级路径不能比主路径更重。** 主路径都撑爆了，
+   *    降级还塞同样大的东西，等于没有降级。
+   *
+   * 现在改成：无论 session 成没成功，localStorage 一律存**剥离大图的轻量版**。
+   * 图片由 IndexedDB 负责，localStorage 只负责结构。
+   */
+  const strippedState = {
+    ...cleanedState,
+    nodes: stripLargeCanvasNodePayloads(cleanedState.nodes),
+  };
+
   try {
-    const persistedState = sessionSaved
-      ? {
-          ...cleanedState,
-          nodes: stripLargeCanvasNodePayloads(cleanedState.nodes),
-        }
-      : cleanedState;
-    window.localStorage.setItem(key, JSON.stringify(persistedState));
+    window.localStorage.setItem(key, JSON.stringify(strippedState));
     if (!sessionSaved) window.sessionStorage.removeItem(sessionKey);
   } catch {
-    if (!sessionSaved) {
-      toast("画布自动保存受限", {
-        description: "浏览器存储空间不足，本次编辑仍会保留在当前页面中",
-      });
-    }
+    // 轻量版都写不进去，说明 localStorage 是真满了。
+    // 这时候连结构都保不住，必须明确告诉用户，不能装作没事。
+    toast("画布自动保存受限", {
+      description: "浏览器存储空间不足，请清理其他站点数据后重试",
+    });
   }
 }
 
@@ -23874,6 +23913,18 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         projectId,
         getCanvasProjectHistoryPatch(nodesRef.current, updatedAt)
       );
+      /**
+       * ⚠️⚠️【2026-09-15】图片必须**再单独落一次 IndexedDB**。
+       *
+       * safeWriteCanvasState 里那次是 `void`（不 await），正常编辑时没问题，
+       * 但「粘贴完图立刻点返回工作台」这条路径上它可能还没落盘组件就卸载了。
+       * 结果就是：localStorage 里结构齐全、IndexedDB 里空空如也 ——
+       * **画板在、节点在、图没了**，正是用户报的现象。
+       *
+       * 这里再发一次是幂等的（同 key 覆盖写），代价只是一次重复 put。
+       * 📌 判据：**丢数据的代价远大于重复写一次的代价，兜底就该无脑发。**
+       */
+      void persistCanvasNodeImagePayloads(projectId, nodesRef.current);
     };
     // pagehide 覆盖「直接关标签页 / 刷新」，卸载回调覆盖「站内路由跳走」。
     // ⚠️ 不能只挂 beforeunload：移动端 Safari 上它不保证触发。
