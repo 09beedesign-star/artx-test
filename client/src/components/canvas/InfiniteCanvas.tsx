@@ -6419,6 +6419,15 @@ function AssetNodeComponent({
     "") as string;
   const extractedTextRegions = ((data as { extractedTextRegions?: ImageTextRegion[] })
     .extractedTextRegions || []) as ImageTextRegion[];
+  /*
+    能不能「应用到新图」，取决于有没有文字坐标，而不是有没有文字。
+
+    改字要先在原图上把旧文字擦掉，擦哪儿全靠 regions 里的坐标框；
+    只有文字没有坐标时 createSmartCopyEditMask() 会直接返回 undefined，
+    整条流程必然失败。把这个条件提到按钮上，是为了让「做不了」在用户
+    动手之前就可见，而不是等他编辑完点下去才报错。
+  */
+  const canApplyExtractedText = extractedTextRegions.length > 0;
   const extractedTextPanelOpen = Boolean(
     (data as { extractedTextPanelOpen?: boolean }).extractedTextPanelOpen
   );
@@ -9274,17 +9283,36 @@ function AssetNodeComponent({
 	                  width: "100%",
 	                  height: 42,
 	                  color: "white",
-                  background:
-                    "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.72 0.18 205))",
+                  // 缺坐标时按钮是死的，配色也要跟着退成灰，
+                  // 否则仍然是高饱和渐变，看上去完全可点
+                  background: canApplyExtractedText
+                    ? "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.72 0.18 205))"
+                    : isDark
+                      ? "rgba(255,255,255,0.14)"
+                      : "rgba(0,0,0,0.16)",
+                  cursor: canApplyExtractedText ? undefined : "not-allowed",
                   opacity:
                     isExtractingText || isApplyingExtractedText ? 0.72 : 1,
                 }}
                 onClick={() => {
                   void applyExtractedTextToNewImage();
                 }}
-                disabled={isExtractingText || isApplyingExtractedText}
+                disabled={
+                  isExtractingText ||
+                  isApplyingExtractedText ||
+                  !canApplyExtractedText
+                }
+                title={
+                  canApplyExtractedText
+                    ? undefined
+                    : "这张图没有取到文字坐标，无法定位要替换的位置；可以重新提取一次再试"
+                }
               >
-                {isApplyingExtractedText ? "正在生成新图..." : "应用到新图"}
+                {isApplyingExtractedText
+                  ? "正在生成新图..."
+                  : canApplyExtractedText
+                    ? "应用到新图"
+                    : "无法定位文字位置"}
               </button>
             </div>
           </div>
@@ -25902,10 +25930,17 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           detail.editedText,
         );
         if (!maskSrc) {
+          /*
+            ⚠️ 这两句文案必须分清「识别不到文字」和「识别到文字但没有坐标」。
+
+            原来无坐标时说的是「未从图片中识别出文字区域」，而用户此刻正盯着
+            面板里提取出来的文字——提示和眼前事实直接打架，只会让人以为是乱报错。
+            实际缺的是坐标不是文字，所以照实说缺什么。
+          */
           throw new Error(
             detail.textRegions?.length
               ? "未能定位被修改的原图文字区域，请关闭窗口后重新提取文案再试"
-              : "未从图片中识别出文字区域，请更换图片或重新提取后再试",
+              : "已提取到文案，但没有取到文字在图片中的坐标，无法定位替换位置；请重新提取一次或更换图片",
           );
         }
         const finalPrompt = [
@@ -31456,7 +31491,30 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 : n
             )
           );
-          toast("智能文案编辑完成", { description: text.slice(0, 80) });
+          /*
+            ⚠️ 「提取成功」和「能改字」是两个条件，不是一个。
+
+            这条链路有两种结果都会走到这里，面板上看起来完全一样：
+              · 拿到文字 + 坐标  → 能擦能改
+              · 只拿到文字，坐标是空的 → 只能看和复制，改不了
+
+            后者出现在 OCR 抛错被上面 catch 吞掉、或者上游返回了文字却没给
+            regions 的时候。以前这两种情况都只弹「智能文案编辑完成」，用户看到
+            文字好好地显示在面板里，自然认为一切正常，改完文案点「应用到新图」
+            才撞上「未从图片中识别出文字区域」——错误被推迟到了最后一步才暴露，
+            而且提示词还是在说「识别不出文字」，跟用户眼前明明有文字直接矛盾。
+
+            所以这里按「我缺不缺数据」分开报：缺坐标就当场说清楚缺的是什么、
+            还能做什么，不要等用户白编辑一轮再失败。
+          */
+          if (ocrRegions.length === 0 && text !== "未识别到可读文案") {
+            toast("文案已提取，但无法定位文字位置", {
+              description:
+                "这张图只取到文字内容、没取到坐标，暂时不能改字生成新图；可以先复制文案，或重新提取一次再试",
+            });
+          } else {
+            toast("智能文案编辑完成", { description: text.slice(0, 80) });
+          }
         } catch (error) {
           const message = error instanceof Error ? error.message : "请稍后重试";
           setNodes(nds =>

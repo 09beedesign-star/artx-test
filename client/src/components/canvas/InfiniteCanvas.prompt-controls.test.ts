@@ -973,4 +973,68 @@ describe("InfiniteCanvas prompt controls", () => {
     );
     expect(selection.regions.length).toBeGreaterThan(0);
   });
+
+  /*
+    下面三条守的是同一个 bug：文字提取成功、面板里明明有字，
+    点「应用到新图」却报「未从图片中识别出文字区域」。
+
+    根因是「提取成功」被当成了一个条件，实际是两个：
+    有文字（能看能复制）和有坐标（能擦能改）。OCR 只回文字不回坐标时，
+    面板表现与完全成功一模一样，错误一直推迟到最后一步才炸出来。
+
+    ⚠️ 必须 stripComments 后再断言：本文件顶部记过这个坑，
+    上一轮改引用交互时又踩了一次——解释性注释里会原样写出被删掉的旧代码，
+    反向断言会命中注释而误报。
+  */
+  it("缺文字坐标时，应用按钮直接不可点而不是点了才报错", () => {
+    const source = stripComments(
+      readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8"),
+    );
+
+    // 判据必须是「有没有坐标」，不能是「有没有文字」：
+    // 擦字靠 regions 的坐标框定位，只有文字是改不了的。
+    expect(source).toContain(
+      "const canApplyExtractedText = extractedTextRegions.length > 0;",
+    );
+
+    // 按钮必须真的被这个条件禁用，而不只是变个样子。
+    const applyButton = source.match(
+      /onClick=\{\(\) => \{\s*void applyExtractedTextToNewImage\(\);[\s\S]*?<\/button>/,
+    )?.[0];
+    expect(applyButton).toBeTruthy();
+    expect(applyButton).toContain("!canApplyExtractedText");
+    expect(applyButton).toContain("无法定位文字位置");
+  });
+
+  it("提取到文字但没坐标时，当场告知而不是等用户白编辑一轮", () => {
+    const source = stripComments(
+      readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8"),
+    );
+
+    // 提取环节必须按「缺不缺坐标」分开报，不能一律「编辑完成」。
+    expect(source).toContain(
+      'if (ocrRegions.length === 0 && text !== "未识别到可读文案") {',
+    );
+    expect(source).toContain("文案已提取，但无法定位文字位置");
+
+    // 成功分支要原样保留，别为了修这个 bug 把正常提示也一起砍了。
+    expect(source).toContain('toast("智能文案编辑完成"');
+  });
+
+  it("无坐标的报错文案要说缺坐标，不能说没识别到文字", () => {
+    const source = stripComments(
+      readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8"),
+    );
+
+    /*
+      旧文案「未从图片中识别出文字区域」与用户眼前的事实直接打架：
+      面板里正显示着提取出来的文字，却被告知没识别到文字。
+      缺的是坐标不是文字，必须照实说。
+    */
+    expect(source).not.toContain("未从图片中识别出文字区域，请更换图片或重新提取后再试");
+    expect(source).toContain("但没有取到文字在图片中的坐标");
+
+    // 另一条分支（有坐标但匹配不上改动行）语义不同，必须保留区分。
+    expect(source).toContain("未能定位被修改的原图文字区域");
+  });
 });
