@@ -172,10 +172,92 @@ describe("⭐⭐ 出口收敛 — 不许再有写死的字体名", () => {
   });
 
   it("等宽字体栈同样不得落到 Courier New（Windows 上观感偏衬线）", () => {
-    const m = stripCssComments(css).match(/--font-mono:\s*([^;]+);/);
-    expect(m).not.toBeNull();
-    const stack = m![1].replace(/\s+/g, " ");
+    const stack = extractFontMono(css);
+    expect(stack.length).toBeGreaterThan(30);
     expect(stack).not.toContain("Courier");
-    expect(stack.trim()).toMatch(/monospace$/);
+  });
+});
+
+/*
+ * ============================================================
+ * 2026-09-15 补充：--font-mono 的中文兜底
+ * ============================================================
+ *
+ * ## 第一次修复漏掉了什么
+ *
+ * 上一轮只收口了 --font-sans，--font-mono 原封不动，而那条栈是**纯西文**的：
+ *   ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, Consolas,
+ *   'Liberation Mono', monospace
+ * 七项里一个中文字体都没有。浏览器按字符逐个回退，汉字全部匹配不上，
+ * 一路落到末尾的 `monospace` —— 中文 Windows 上它的默认映射正是**宋体**。
+ *
+ * 影响面不小：`.type-caption` 走的就是 --font-mono，全站用了 300+ 次，
+ * 大量中文说明文字、标签、辅助文案都在里面。所以用户看到的现象是
+ * 「标题正文正常、小字说明是宋体」，很容易被误判成「字体压根没改」。
+ *
+ * ## 📌 判据（比这个 bug 本身更重要）
+ *
+ * **任何字体栈只要可能承载汉字，就必须显式点名中文字体。**
+ * 只给西文字体 + 通用关键字（monospace / serif）兜底，等于把汉字字形的
+ * 决定权交还给操作系统 —— 和当初 `system-ui` 的错误是同一个。
+ *
+ * ## ⚠️ 关于被改掉的那条旧断言
+ *
+ * 原来这里有一条 `expect(stack.trim()).toMatch(/monospace$/)`，
+ * 它断言的**正是 bug 本身**（以 monospace 收尾 = 中文落宋体）。
+ * 修对之后它会变红。这种情况不能删断言了事，要先分辨「它锁的是正确意图
+ * 还是错误行为」—— 这条锁的是错误行为，所以改成锁 sans-serif 收尾，
+ * 并补上中文覆盖与顺序断言。
+ */
+
+/** 取 --font-mono 的值（从 @theme 块里）。 */
+function extractFontMono(src: string): string {
+  const m = stripCssComments(src).match(/--font-mono:\s*([^;]+);/);
+  return m ? m[1].replace(/\s+/g, " ").trim() : "";
+}
+
+describe("⭐⭐ 等宽栈 — 中文不得落到宋体", () => {
+  it("⭐⭐ --font-mono 必须显式点名中文字体（少了就会落宋体）", () => {
+    const stack = extractFontMono(css);
+    // 正向锚点，防断言空转。
+    expect(stack.length).toBeGreaterThan(30);
+
+    // Windows 中文 —— 没有这项，汉字会落到 monospace → 宋体。
+    expect(stack).toContain("Microsoft YaHei");
+    // macOS 中文
+    expect(stack).toContain("PingFang SC");
+  });
+
+  it("⭐⭐ --font-mono 不得以 monospace 收尾（那正是中文落宋体的原因）", () => {
+    const stack = extractFontMono(css);
+    expect(stack).not.toMatch(/monospace\s*$/);
+    expect(stack).toMatch(/sans-serif$/);
+  });
+
+  it("⭐ --font-mono 里不得包含任何衬线体", () => {
+    const stack = extractFontMono(css);
+    expect(stack.length).toBeGreaterThan(30);
+    for (const name of ["SimSun", "宋体", "Songti", "STSong", "Times New Roman"]) {
+      expect(stack).not.toContain(name);
+    }
+    expect(stack).not.toMatch(/(^|[,\s])serif\s*$/);
+  });
+
+  it("⭐⭐ 西文等宽必须排在中文之前（顺序反了西文对齐会被中文字体接管）", () => {
+    const stack = extractFontMono(css);
+    const mono = stack.indexOf("ui-monospace");
+    const yahei = stack.indexOf("Microsoft YaHei");
+    const pingfang = stack.indexOf("PingFang SC");
+    expect(mono).toBeGreaterThan(-1);
+    expect(yahei).toBeGreaterThan(-1);
+    expect(pingfang).toBeGreaterThan(-1);
+    expect(mono).toBeLessThan(pingfang);
+    expect(mono).toBeLessThan(yahei);
+  });
+
+  it("⭐ 西文等宽字体本身必须保留（补中文不能把等宽效果弄丢）", () => {
+    const stack = extractFontMono(css);
+    expect(stack).toContain("ui-monospace");
+    expect(stack).toContain("Consolas");
   });
 });

@@ -40,7 +40,26 @@
      sans-serif                          → 最后兜底，绝不会落到宋体
 
    ⚠️ **绝不要在这个栈里出现 `SimSun`/`宋体`/`serif`** —— 那是衬线体，
-   正是本次要消灭的东西。 */
+   正是本次要消灭的东西。
+
+   ⚠️⚠️ --font-mono 也必须带中文兜底（这是第一次修复时漏掉的出口）：
+
+   等宽栈原来是纯西文的（ui-monospace / SFMono / JetBrains Mono / Menlo /
+   Consolas / Liberation Mono / monospace），**一个中文字体都没有**。
+   浏览器按字符逐个回退，汉字在前面七项里全都匹配不上，一路落到末尾的
+   `monospace` —— 而中文 Windows 上 `monospace` 的默认映射正是**宋体**。
+
+   这条栈影响面并不小：`.type-caption` 走的就是 --font-mono，全站用了
+   300+ 次，大量说明文字、标签、辅助文案都是中文。所以现象是「标题正文
+   正常、小字说明是宋体」，很容易被误判成「字体没改好」。
+
+   📌 判据：**任何字体栈只要可能承载汉字，就必须显式点名中文字体。**
+   只给西文字体 + 通用关键字（monospace/serif）兜底 = 把汉字字形的决定权
+   交还给了操作系统，等于没收口。
+
+   ⚠️ 末尾刻意从 `monospace` 改成 `sans-serif`：中文没有真正的等宽需求，
+   兜底到无衬线远好过兜底到宋体。西文部分仍走前面的等宽字体，代码/数字/ID
+   的对齐效果不受影响。中文字体必须排在西文等宽之后，顺序不能反。 */
 @theme inline {
   --font-sans:
     -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Display', 'Segoe UI',
@@ -49,7 +68,8 @@
     'Microsoft YaHei', sans-serif;
   --font-mono:
     ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, Consolas,
-    'Liberation Mono', monospace;
+    'Liberation Mono', 'PingFang SC', 'Microsoft YaHei UI', 'Microsoft YaHei',
+    sans-serif;
 
   --breakpoint-sm: 640px;
   --breakpoint-md: 768px;
