@@ -9,6 +9,7 @@ import { useLocation } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { type CreateProjectPayload } from "@/components/workspace/CreateProjectDialog";
+import { useBillingDialog } from "@/components/billing/BillingDialogProvider";
 import { ART_X_TEST_API_BASE_URL, normalizeApiBaseUrl } from "@/lib/api-base-url";
 import {
   DropdownMenu,
@@ -90,7 +91,7 @@ function getTopBarAuthToken() {
 export default function TopBar({ credits = 0, projectTitle, projectTime, onProjectTitleChange, showSearch = false, glass = false }: TopBarProps) {
   const { resolvedTheme } = useTheme();
   const { isAuthenticated, user, openLoginModal, logout } = useAuth();
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
 
   const isDark = resolvedTheme === "dark";
 
@@ -114,6 +115,19 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
   const [apiKeyCopied, setApiKeyCopied] = useState(false);
   const [apiKeyCreationConfirmed, setApiKeyCreationConfirmed] = useState(false);
   const [syncedCredits, setSyncedCredits] = useState<number | null>(null);
+  /*
+    充值与升级一律走浮层，不再 navigate 跳页。
+
+    ⚠️ 原先两个按钮都是 navigate("/billing?tab=..."):用户在画布里点一下充值，
+    整个画布组件被卸载，充完值回来还得自己找回刚才的工作现场（已反馈）。
+    浮层挂在 App 根部，背后的页面一动不动。
+
+    ⚠️ 弹窗状态刻意不放在 TopBar 里：充值入口不止 TopBar 一处（首页首充按钮
+    没有 TopBar、积分说明页正文还有两个），状态留在这儿，那些页面就只能各自
+    再写一套 —— 那就又变成「同一份逻辑的多个出口」。统一由 Provider 持有。
+    /billing 路由本身保留，直接输网址或旧书签依然可用。
+  */
+  const { openBilling } = useBillingDialog();
   const [isEditingProjectTitle, setIsEditingProjectTitle] = useState(false);
   const [projectTitleDraft, setProjectTitleDraft] = useState(projectTitle || "");
   const projectTitleInputRef = useRef<HTMLInputElement>(null);
@@ -522,7 +536,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
           type="button"
           className="flex h-7 items-center gap-1.5 px-2 type-caption transition-colors"
           style={{ color: textPri, background: "transparent" }}
-          onClick={() => navigate("/billing?tab=recharge")}
+          onClick={() => openBilling("recharge")}
           onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
           onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
           title="查看积分与充值"
@@ -533,7 +547,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
         </button>
         <button
           type="button"
-          onClick={() => navigate("/billing?tab=subscription")}
+          onClick={() => openBilling("subscription")}
           className="flex h-7 items-center gap-1.5 px-2.5 type-caption transition-all duration-150 active:scale-95"
           style={{
             background: "#C5ED47",
@@ -893,6 +907,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
         </div>
       </AlertDialogContent>
     </AlertDialog>
+
     </>
   );
 }

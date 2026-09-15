@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { useAuth, rememberInviteCodeFromUrl } from "@/contexts/AuthContext";
+import { useBillingDialog } from "@/components/billing/BillingDialogProvider";
 import { INVITE_REWARD_CONFIG } from "@shared/billing-config";
 import { TOUR_ANCHORS } from "@shared/onboarding-steps";
 import asteroidImage from "@/assets/ardot/3_3.png";
@@ -234,6 +235,7 @@ async function storeBrowserPasswordCredential(username: string, password: string
 
 export default function HomePage() {
   const [, navigate] = useLocation();
+  const { openBilling } = useBillingDialog();
   const { isAuthenticated, login, register } = useAuth();
   const [panelMode, setPanelMode] = useState<PanelMode>(isAuthenticated ? "prelogin" : "prelogin");
   const [prompt, setPrompt] = useState(HOME_PROMPT);
@@ -338,13 +340,20 @@ export default function HomePage() {
     };
   }, [selectedHomeInspiration]);
 
+  /*
+    未登录用户点了首充 → 登录成功后要接着把充值界面给他。
+
+    ⚠️ 这里也必须开浮层而不是 navigate：跳页的话用户刚登录就被甩出首页，
+    还得自己点回来。sessionStorage 里存的那个 "/billing?tab=recharge"
+    只当「意图标记」用，不再当成跳转目标。
+  */
   useEffect(() => {
     if (!isAuthenticated) return;
     const redirectPath = sessionStorage.getItem(HOME_POST_LOGIN_REDIRECT_STORAGE_KEY);
     if (redirectPath !== "/billing?tab=recharge") return;
     sessionStorage.removeItem(HOME_POST_LOGIN_REDIRECT_STORAGE_KEY);
-    navigate(redirectPath);
-  }, [isAuthenticated, navigate]);
+    openBilling("recharge");
+  }, [isAuthenticated, openBilling]);
 
   useEffect(() => {
     if (!loginBubble) return;
@@ -657,9 +666,16 @@ export default function HomePage() {
     setPanelMode("login");
   };
 
+  /*
+    首充引导 —— 走全站统一的计费浮层，不跳页。
+
+    ⚠️ 首页没有 TopBar，所以这里不能指望「TopBar 那个入口已经改好了」。
+    必须显式接到同一个 Provider 上，否则就会出现「右上角点充值是浮层、
+    首页点首充是跳页」这种两套行为（零报错，最难被发现）。
+  */
   const openFirstTopUpBilling = () => {
     if (isAuthenticated) {
-      navigate("/billing?tab=recharge");
+      openBilling("recharge");
       return;
     }
 

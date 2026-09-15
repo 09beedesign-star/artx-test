@@ -16,7 +16,22 @@ describe("billing hero copy", () => {
 });
 
 describe("积分规则入口", () => {
+  /**
+   * ⚠️ 2026-09-15 充值卡被抽到 components/billing/RechargePanel.tsx
+   * （/billing 页面与画布充值弹窗共用），「查看完整积分规则」这个入口
+   * 跟着搬了过去。页头部分仍留在 BillingPage.tsx。
+   *
+   * 下面按语义分开锚：
+   *   - 「入口还在」 → 锚 RechargePanel
+   *   - 「页头没有胶囊」 → 锚 BillingPage
+   * 一个字符串通吃两处的写法在这次重构后必然失锚。
+   */
   const source = () =>
+    readFileSync(
+      resolve(__dirname, "../components/billing/RechargePanel.tsx"),
+      "utf-8",
+    );
+  const pageSource = () =>
     readFileSync(resolve(__dirname, "BillingPage.tsx"), "utf-8");
 
   /**
@@ -50,7 +65,7 @@ describe("积分规则入口", () => {
   });
 
   it("页头不再有积分规则胶囊（2026-09-13 移除）", () => {
-    const src = stripComments(source());
+    const src = stripComments(pageSource());
     // 页头区域 = 第一个 activeTab 条件渲染之前的部分
     const heroEnd = src.indexOf('activeTab === "subscription"');
     expect(heroEnd).toBeGreaterThan(0);
@@ -64,8 +79,10 @@ describe("积分规则入口", () => {
   it("被移除的胶囊文案不得在任何地方复活", () => {
     // 反向断言必须在剥注释后的源码上做，
     // 否则会命中上面那段解释「为什么删掉」的注释，变成恒挂。
-    const src = stripComments(source());
-    expect(src).not.toContain("积分规则说明：有效期、到账比例与消耗标准");
+    // 页面与共享面板都要查，别让它换个文件复活。
+    for (const src of [stripComments(pageSource()), stripComments(source())]) {
+      expect(src).not.toContain("积分规则说明：有效期、到账比例与消耗标准");
+    }
   });
 
   it("剥注释不会误删真实代码（上面几条断言的前置保障）", () => {
@@ -74,9 +91,12 @@ describe("积分规则入口", () => {
     const stripped = stripComments(raw);
     const countIn = (text: string) =>
       (text.match(/href="\/credits-guide"/g) || []).length;
+    expect(countIn(raw), "没找到规则页入口，锚点可能又搬家了").toBe(1);
     expect(countIn(stripped)).toBe(countIn(raw));
     // 同时确认剥离确实生效了，否则等于没剥。
     expect(stripped.length).toBeLessThan(raw.length);
-    expect(stripped).not.toContain("按要求移除页头的积分规则入口胶囊");
+    expect(stripComments(pageSource())).not.toContain(
+      "按要求移除页头的积分规则入口胶囊",
+    );
   });
 });

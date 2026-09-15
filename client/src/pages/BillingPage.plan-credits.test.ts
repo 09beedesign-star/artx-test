@@ -11,24 +11,37 @@ import {
   MEMBERSHIP_PLANS,
 } from "../../../shared/billing-config";
 
-const source = () =>
-  readFileSync(resolve(__dirname, "BillingPage.tsx"), "utf-8");
+/**
+ * ⚠️ 2026-09-15 订阅卡被拆成「数据」和「渲染」两个文件
+ * （/billing 页面与画布充值弹窗共用这一套）：
+ *   - billing-shared.ts      —— subscriptionPlans 数据 + buildCreditFeature()
+ *   - SubscriptionPanel.tsx  —— 卡片渲染，消费上面两者
+ * 锚点跟着搬，不许因为「找不到了」就把断言删掉。
+ */
+const billingDir = (file: string) =>
+  readFileSync(resolve(__dirname, "../components/billing", file), "utf-8");
 
 /**
  * 断言必须锚在剥掉注释的源码上。
  * 本项目反复踩过：`not.toContain("8,000")` 命中的是我自己写的解释性注释，
  * 于是测试挂在一个根本不存在的问题上。
  */
-const sourceWithoutComments = () =>
-  source()
+const stripComments = (src: string) =>
+  src
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, "")
     .replace(/(^|[^:])\/\/.*$/gm, "$1");
 
+/** 数据层与渲染层合起来看，等价于重构前的整页源码。 */
+const sourceWithoutComments = () =>
+  stripComments(billingDir("billing-shared.ts")) +
+  "\n" +
+  stripComments(billingDir("SubscriptionPanel.tsx"));
+
 /** 取出 subscriptionPlans 数组字面量本体（已剥注释）。 */
 function subscriptionPlansBlock() {
-  const src = sourceWithoutComments();
-  const start = src.indexOf("const subscriptionPlans = [");
+  const src = stripComments(billingDir("billing-shared.ts"));
+  const start = src.indexOf("export const subscriptionPlans = [");
   expect(start).toBeGreaterThan(-1);
   const end = src.indexOf("\n];", start);
   expect(end).toBeGreaterThan(start);
@@ -63,7 +76,7 @@ describe("订阅套餐卡片的积分文案必须现算", () => {
 
   it("额度条目由 buildCreditFeature 从 quote 现算", () => {
     const src = sourceWithoutComments();
-    expect(src).toContain("function buildCreditFeature(");
+    expect(src).toContain("export function buildCreditFeature(");
     expect(src).toContain("buildCreditFeature(");
     // 三个入参都必须来自同一个 quote，和上方价格区共用一份数据
     expect(src).toContain("quote.creditsPerPeriod");

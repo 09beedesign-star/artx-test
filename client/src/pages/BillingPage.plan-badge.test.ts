@@ -18,10 +18,17 @@ import { describe, expect, it } from "vitest";
  *
  * 第 2 条尤其重要：只删「已选择」是治标，「当前套餐」「不可降级」
  * 同样是四个字，同样会被压成两行。
+ *
+ * ⚠️ 2026-09-15 订阅卡被抽到 components/billing/SubscriptionPanel.tsx
+ * （/billing 页面与画布充值弹窗共用），锚点跟着搬过来。
+ * 降阈值或删断言都等于悄悄放弃这道回归锁，不许。
  */
 describe("订阅卡徽标不得破坏头部布局（2026-09-13 回归锁）", () => {
   const source = () =>
-    readFileSync(resolve(__dirname, "BillingPage.tsx"), "utf-8");
+    readFileSync(
+      resolve(__dirname, "../components/billing/SubscriptionPanel.tsx"),
+      "utf-8",
+    );
 
   /**
    * 只剥「整行都是块注释」的形态。
@@ -66,8 +73,8 @@ describe("订阅卡徽标不得破坏头部布局（2026-09-13 回归锁）", ()
 
   it("徽标永不折行——换个四字文案也不会复发", () => {
     const src = stripComments(source());
-    // ⚠️ 不能直接 match 第一个 radius-pill：页头 :833 另有一个 pill 元素，
-    // 全文件匹配会命中它，报出「缺 whitespace-nowrap」的假失败。
+    // ⚠️ 不能直接 match 第一个 radius-pill：别处（页头、弹窗标题）也有 pill 元素，
+    // 全文件匹配会命中它们，报出「缺 whitespace-nowrap」的假失败。
     // 正确做法是从渲染 {planBadge} 的位置往回找它自己的 span 开标签。
     const badgeUsage = src.indexOf("{planBadge || ");
     expect(badgeUsage, "没找到徽标的渲染位置").toBeGreaterThan(0);

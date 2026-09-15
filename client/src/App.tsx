@@ -27,6 +27,7 @@ import BillingPage from "./pages/BillingPage";
 import CreditsGuidePage from "./pages/CreditsGuidePage";
 import { useAuth } from "./contexts/AuthContext";
 import CreditGrantNotification from "./components/billing/CreditGrantNotification";
+import BillingDialogProvider from "./components/billing/BillingDialogProvider";
 
 const routerBase = import.meta.env.BASE_URL.replace(/\/$/, "");
 const configuredAdminHost = (import.meta.env.VITE_ADMIN_HOST || "").toLowerCase();
@@ -405,9 +406,17 @@ function App() {
                   且在 RouteLoadingGate 内部 —— 引导靠 segment.startDelayMs
                   避开路由 loading 那 720ms 的全屏遮罩。
                 */}
-                <OnboardingProvider>
-                  <AppRoutes />
-                </OnboardingProvider>
+                {/*
+                  计费浮层挂在这里 = 全站唯一入口。
+                  必须在 WouterRouter 内部（openBilling 要读 location 判断
+                  「是不是已经在 /billing」），且包住 AppRoutes，
+                  这样首页、积分说明页这些没有 TopBar 的页面也能调同一个弹窗。
+                */}
+                <BillingDialogProvider>
+                  <OnboardingProvider>
+                    <AppRoutes />
+                  </OnboardingProvider>
+                </BillingDialogProvider>
               </RouteLoadingGate>
             </WouterRouter>
           </TooltipProvider>

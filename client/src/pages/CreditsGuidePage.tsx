@@ -1,7 +1,7 @@
 import { useMemo } from "react";
-import { Link } from "wouter";
 import { CalendarClock, Coins, Gift, Info, RefreshCw, Wallet } from "lucide-react";
 import TopBar from "@/components/workspace/TopBar";
+import { useBillingDialog } from "@/components/billing/BillingDialogProvider";
 import { useTheme } from "@/contexts/ThemeContext";
 import { BG_GLOW } from "@/lib/workspace-data";
 import {
@@ -28,6 +28,7 @@ import {
 export default function CreditsGuidePage() {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
+  const { openBilling } = useBillingDialog();
 
   const bg = isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)";
   const text = isDark ? "oklch(0.88 0.008 270)" : "oklch(0.20 0.012 270)";
@@ -249,21 +250,29 @@ export default function CreditsGuidePage() {
               </div>
             </article>
 
+            {/*
+              ⚠️ 这两个按钮原先是 <Link href="/billing">，也就是整页跳走。
+              而同一个页面右上角 TopBar 的积分胶囊已经改成开浮层了 ——
+              一页之内两种行为，用户点哪个全凭运气。两边统一走 openBilling。
+              用 button 而不是 Link：它现在不再是「导航」，而是「开浮层」。
+            */}
             <div className="flex flex-wrap items-center gap-3 pb-2">
-              <Link
-                href="/billing?tab=recharge"
+              <button
+                type="button"
+                onClick={() => openBilling("recharge")}
                 className="flex h-10 items-center gap-2 rounded-[var(--radius-md-design)] px-5 type-body-sm font-medium transition-transform hover:opacity-90 active:scale-[0.98]"
                 style={{ background: accent, color: "#000", boxShadow: "0 14px 30px rgba(197,237,71,0.24)" }}
               >
                 去充值
-              </Link>
-              <Link
-                href="/billing?tab=subscription"
+              </button>
+              <button
+                type="button"
+                onClick={() => openBilling("subscription")}
                 className="flex h-10 items-center gap-2 rounded-[var(--radius-md-design)] border px-5 type-body-sm transition-colors hover:bg-white/10"
                 style={{ borderColor: border, color: sub, background: "transparent" }}
               >
                 查看订阅方案
-              </Link>
+              </button>
             </div>
           </div>
         </section>
