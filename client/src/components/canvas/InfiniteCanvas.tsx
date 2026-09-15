@@ -570,6 +570,7 @@ import {
   generateImages as generateAiImages,
   getAiModelEntitlements,
   getBackgroundImageGenerationTask,
+  isAiAbortError,
   listAiModelCatalog,
   removeImageBackground,
   removeImageWatermark,
@@ -12469,8 +12470,33 @@ function canvasStateSessionKey(projectId: string) {
   return `${CANVAS_STATE_SESSION_PREFIX}${projectId || "p1"}`;
 }
 
+/**
+ * 2026-06-20 那次一次性清理留下的「测试画布」判据。
+ *
+ * ⚠️⚠️【2026-09-15】这是「跳出画布后内容丢失」的根因之一，属于典型的
+ * **白名单式判据漏判**：
+ *
+ * 它只认 `canvas-` 前缀，可实际在用的 projectId 远不止这一种 ——
+ *   · `Workspace.tsx` 默认值 `__blank-workspace__`（技能页「去创作」直接跳这个）
+ *   · `MainCanvas.tsx` 默认值 `__blank-workspace__`
+ *   · `canvasStateStorageKey()` 自己的兜底 `p1`
+ * 这些全都不以 `canvas-` 开头，于是被 `ensureTestCanvasStateReset` 当成
+ * 「测试数据」从 localStorage + sessionStorage 里删掉，**零报错**。
+ *
+ * 📌 同 MEMORY 里那条已经踩过的判据：**正向匹配「是什么」会漏掉所有没登记的，
+ * 排除「不是什么」才收得住。** 这里改成排除法 —— 只有那批确实是历史测试遗留的
+ * 短 id（p1/p2/demo…）才算测试画布，其余一律当真实用户数据保留。
+ */
+const LEGACY_TEST_CANVAS_PROJECT_IDS = new Set([
+  "p1",
+  "p2",
+  "p3",
+  "demo",
+  "test",
+]);
+
 function isRealCanvasProjectId(projectId: string) {
-  return projectId.startsWith("canvas-");
+  return !LEGACY_TEST_CANVAS_PROJECT_IDS.has(projectId);
 }
 
 function ensureTestCanvasStateReset() {
@@ -13640,6 +13666,42 @@ function clipboardPayloadHasImageContent(
     return true;
   const plain = (dataTransfer?.getData("text/plain") || "").trim();
   return /^(data:image\/|blob:|https?:\/\/)/i.test(plain);
+}
+
+/**
+ * 比 clipboardPayloadHasImageContent 更严格的判据，专供**提示词输入框**使用。
+ *
+ * clipboardPayloadHasImageContent 对纯文本的判断是
+ * `/^(data:image\/|blob:|https?:\/\/)/`，也就是**任何网址都算图片**。
+ * 画布那边这样宽松是对的（粘贴一个网页地址，去抓它的 og:image 很合理），
+ * 但输入框里不行：用户粘一条普通链接进提示词，本意就是要那段文字，
+ * 如果被当成图片拦下来，文字既进不去、又会弹一个莫名其妙的失败提示。
+ *
+ * 所以这里只认「确实是图片」的四种情况：
+ *   1. 剪贴板里有 image/* 的文件项（截图、从文件管理器复制的图片）；
+ *   2. DataTransfer 自带 image/* 类型；
+ *   3. HTML 片段里有 <img>/<source> 或 data:image（从网页里复制图片）；
+ *   4. 纯文本本身就是 data:image / blob: / 以图片扩展名结尾的直链。
+ * 其余网址一律放行，走浏览器默认的文本粘贴。
+ */
+function clipboardPayloadHasDirectImageContent(
+  dataTransfer: DataTransfer | null | undefined
+) {
+  if (
+    Array.from(dataTransfer?.items || []).some(
+      item => item.kind === "file" && item.type.startsWith("image/")
+    )
+  )
+    return true;
+  if (Array.from(dataTransfer?.types || []).some(type => type.startsWith("image/")))
+    return true;
+  const html = dataTransfer?.getData("text/html") || "";
+  if (html && /<(img|source)\b|data:image\//i.test(html)) return true;
+  const plain = (dataTransfer?.getData("text/plain") || "").trim();
+  if (/^(data:image\/|blob:)/i.test(plain)) return true;
+  return /^https?:\/\/[^\s]+\.(?:png|jpe?g|gif|webp|avif|svg|bmp|heic|heif|tiff?)(?:[?#][^\s]*)?$/i.test(
+    plain
+  );
 }
 
 function dataTransferHasExternalImage(
@@ -18395,6 +18457,7 @@ function CanvasAssistantPanel({
   onRemoveReference,
   onRemoveAnnotationReference,
   onMergeReferences,
+  onPasteImages,
   selectedCount,
   helpPromptNonce,
 }: {
@@ -18414,6 +18477,11 @@ function CanvasAssistantPanel({
   onRemoveReference: (id: string) => void;
   onRemoveAnnotationReference: (id: string) => void;
   onMergeReferences: (assets: ImageGeneratorReferenceAsset[]) => void;
+  /**
+   * 把对话框里粘贴的图片同步到画布，并登记成引用素材。
+   * 返回是否真的粘贴到了图片（false 表示剪贴板里没有可用图片）。
+   */
+  onPasteImages: (clipboardData: DataTransfer | null) => Promise<boolean>;
   selectedCount: number;
   helpPromptNonce: number;
 }) {
@@ -18652,6 +18720,32 @@ function CanvasAssistantPanel({
     if (availableAssistantImageModels.length === 0) setAssistantAutoMode(false);
   }, [availableAssistantImageModels.length]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  /**
+   * 「停止」的中止句柄。
+   *
+   * 【2026-09-15】此前「停止」只做 setIsSubmitting(false)，
+   * 后台轮询并没有被掐断 —— 服务端的任务表是内存 Map 且会被定期清理，
+   * 任务被清掉后轮询拿到 404「Image task not found」，
+   * 该错误不在瞬时错误放行名单里，于是冒泡成
+   * 「AI 助手请求失败 / task not found」弹给用户。
+   *
+   * 📌 用户点的是「停止」，看到的却是「失败」= 误报。
+   * 真正的修法是让停止能中止轮询，并且中止产生的错误不进 toast。
+   */
+  const assistantAbortRef = useRef<AbortController | null>(null);
+  const stopAssistantSubmission = useCallback(() => {
+    assistantAbortRef.current?.abort();
+    assistantAbortRef.current = null;
+    setIsSubmitting(false);
+  }, []);
+  // 组件卸载时也要中止，避免离开画布后残留轮询继续跑并弹错。
+  useEffect(
+    () => () => {
+      assistantAbortRef.current?.abort();
+      assistantAbortRef.current = null;
+    },
+    []
+  );
   const [regeneratingMessageId, setRegeneratingMessageId] = useState<
     string | null
   >(null);
@@ -20234,6 +20328,33 @@ function CanvasAssistantPanel({
     [insertComposerToken]
   );
 
+  /**
+   * 提示词框里粘贴图片。
+   *
+   * 这里**不**自己造标签，只把剪贴板交给 onPasteImages（画布侧），
+   * 由它建画布节点 + 登记 referencedAssets，标签由 referencedAssets 的
+   * 同步 effect（:20381）自动插入。这样粘贴来的标签与「引用图片」
+   * 走完全同一条数据流，样式/删除/提交行为天然一致。
+   *
+   * ⚠️ 必须**同步**把 event.clipboardData 交出去。
+   * paste 事件结束后 DataTransfer 的 items 会失效，
+   * 先 await 再读就永远拿不到图片，且不报错。
+   * 所以这里是 void + 不 await，与画布那条粘贴链路（:30226）一致。
+   */
+  const handleComposerImagePasteEvent = useCallback(
+    (event: React.ClipboardEvent) => {
+      if (!clipboardPayloadHasDirectImageContent(event.clipboardData)) return;
+      event.preventDefault();
+      void onPasteImages(event.clipboardData).then(pasted => {
+        if (pasted) return;
+        toast("未读取到可粘贴图片", {
+          description: "请在浏览器中复制图片本身，或复制图片地址后再粘贴",
+        });
+      });
+    },
+    [onPasteImages]
+  );
+
   const syncComposerSkillToken = useCallback(
     (skill: PendingSkillLoad | null) => {
       if (!skill) {
@@ -20475,6 +20596,8 @@ function CanvasAssistantPanel({
         },
       ]);
     } catch (error) {
+      // 同 handleSubmit：中止不是失败。
+      if (isAiAbortError(error)) return;
       const message = error instanceof Error ? error.message : "请稍后重试";
       toast("AI 助手请求失败", { description: message });
     } finally {
@@ -20953,6 +21076,11 @@ function CanvasAssistantPanel({
     submittedAnnotations.forEach(annotation =>
       onRemoveAnnotationReference(annotation.id)
     );
+    // 新一轮提交前先掐掉上一轮的残留轮询，再登记本轮的中止句柄。
+    assistantAbortRef.current?.abort();
+    const submissionAbortController = new AbortController();
+    assistantAbortRef.current = submissionAbortController;
+    const submissionSignal = submissionAbortController.signal;
     setIsSubmitting(true);
     const context = contextLabel || "当前画布";
     const hasVisualReferences =
@@ -21103,7 +21231,10 @@ function CanvasAssistantPanel({
                 targetHeight: skillEditAspectLock.height,
                 generationId,
               })
-            : await generateAiImages(payload);
+            : // ⚠️ signal 只能从这里传，不能塞进 payload —— payload 会被
+              // dispatchImageGenerationTask 持久化，塞进去等于把一个不可序列化的
+              // 运行时对象写进存储。
+              await generateAiImages({ ...payload, signal: submissionSignal });
         const validImages = getValidGeneratedImages(
           result.images,
           requestedImageCount
@@ -21411,7 +21542,7 @@ function CanvasAssistantPanel({
                 targetHeight: referenceEditAspectLock.height,
                 generationId,
               })
-            : await generateAiImages(payload);
+            : await generateAiImages({ ...payload, signal: submissionSignal });
         const validImages = getValidGeneratedImages(
           result.images,
           requestedImageCount
@@ -21474,10 +21605,23 @@ function CanvasAssistantPanel({
         ]);
       }
     } catch (error) {
+      /**
+       * ⚠️⚠️【2026-09-15】中止不是失败，绝不能进 toast。
+       *
+       * 这正是「停止生成时弹 AI 助手请求失败 / task not found」的最后一环：
+       * 用户点停止 → 轮询被 abort → 抛中止错误 → 一路冒泡到这里 →
+       * 被当成普通失败弹给用户。用户点的是「停止」，看到的却是「失败」。
+       */
+      if (isAiAbortError(error)) return;
       const message = error instanceof Error ? error.message : "请稍后重试";
       toast("AI 助手请求失败", { description: message });
     } finally {
-      setIsSubmitting(false);
+      // ⚠️ 只清理「本轮」的状态。用户可能已经发起了新一轮提交，
+      // 旧一轮的 finally 若无条件置 false，会把新一轮的 loading 态吃掉。
+      if (assistantAbortRef.current === submissionAbortController) {
+        assistantAbortRef.current = null;
+        setIsSubmitting(false);
+      }
     }
   }
 
@@ -22456,15 +22600,7 @@ function CanvasAssistantPanel({
                         onKeyDown={event =>
                           handleComposerTextKeyDown(event, segment.id)
                         }
-                        onPaste={event => {
-                          if (!clipboardPayloadHasImageContent(event.clipboardData))
-                            return;
-                          event.preventDefault();
-                          toast("图片不能粘贴到提示词输入框", {
-                            description:
-                              "请粘贴到画布，或选中画布图片后作为引用素材使用",
-                          });
-                        }}
+                        onPaste={handleComposerImagePasteEvent}
                         onFocus={() => {
                           setComposerBoxSelection(null);
                           activeComposerSegmentIdRef.current = segment.id;
@@ -22565,15 +22701,7 @@ function CanvasAssistantPanel({
                         onKeyDown={event =>
                           handleComposerTextKeyDown(event, segment.id)
                         }
-                        onPaste={event => {
-                          if (!clipboardPayloadHasImageContent(event.clipboardData))
-                            return;
-                          event.preventDefault();
-                          toast("图片不能粘贴到提示词输入框", {
-                            description:
-                              "请粘贴到画布，或选中画布图片后作为引用素材使用",
-                          });
-                        }}
+                        onPaste={handleComposerImagePasteEvent}
                         onFocus={() => {
                           setComposerBoxSelection(null);
                           activeComposerSegmentIdRef.current = segment.id;
@@ -23014,7 +23142,7 @@ function CanvasAssistantPanel({
                     type="button"
                     className="type-caption hover:opacity-75"
                     style={{ color: text }}
-                    onClick={() => setIsSubmitting(false)}
+                    onClick={stopAssistantSubmission}
                   >
                     停止
                   </button>
@@ -23425,8 +23553,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const pendingCrossCanvasCopyRef = useRef<Promise<Node[]> | null>(null);
   const crossCanvasPasteSequenceRef = useRef(0);
   const pasteClipboardFromNavigatorRef = useRef<
-    (originOverride?: { x: number; y: number }) => Promise<boolean>
-  >(async () => false);
+    (
+      originOverride?: { x: number; y: number },
+      toastDescription?: string
+    ) => Promise<Node[]>
+  >(async () => []);
   const preferCrossCanvasPasteRef = useRef(false);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const selectedNodeIdsRef = useRef<string[]>(selectedNodeIds);
@@ -23865,6 +23996,49 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       getCanvasProjectHistoryPatch(nodes, updatedAt)
     );
   }, [edges, nodes, projectId]);
+
+  /**
+   * 离开画布时的最终落盘。
+   *
+   * ⚠️⚠️【2026-09-15】「跳出画布内容丢失」的另一条链，也是最隐蔽的一条。
+   *
+   * 上面那个自动保存 effect 有两道闸门：`didHydrateCanvasStateRef` 和
+   * `isRestoringRef`。只要**最后一次改动**恰好落在这两道闸门为真的窗口里
+   * （撤销/重做、图片 hydrate 回填、刚恢复完的两帧 rAF 之内），
+   * 这次改动就永远不会被写进存储 —— 然后用户点「返回工作台」，
+   * 组件直接卸载，那次改动就此蒸发，**全程零报错**。
+   *
+   * 📌 判据：**「靠 state 变化触发保存」的实现，一定要配一个卸载时的兜底 flush，**
+   * 否则最后一次改动永远存在丢失窗口。
+   *
+   * 这里刻意用 ref 读最新值：effect 本身依赖为空，只在卸载时跑一次，
+   * 用闭包捕获的 nodes/edges 会是首帧的旧值。
+   */
+  useEffect(() => {
+    const flushCanvasState = () => {
+      if (typeof window === "undefined") return;
+      // hydrate 还没完成就写 = 用初始空画布覆盖掉用户真实存档，
+      // 这比不写更糟，必须挡住。
+      if (!didHydrateCanvasStateRef.current) return;
+      const updatedAt = formatProjectHistoryTimestamp();
+      safeWriteCanvasState(projectId, {
+        nodes: nodesRef.current,
+        edges: edgesRef.current,
+        updatedAt,
+      });
+      updateWorkspaceProjectHistory(
+        projectId,
+        getCanvasProjectHistoryPatch(nodesRef.current, updatedAt)
+      );
+    };
+    // pagehide 覆盖「直接关标签页 / 刷新」，卸载回调覆盖「站内路由跳走」。
+    // ⚠️ 不能只挂 beforeunload：移动端 Safari 上它不保证触发。
+    window.addEventListener("pagehide", flushCanvasState);
+    return () => {
+      window.removeEventListener("pagehide", flushCanvasState);
+      flushCanvasState();
+    };
+  }, [projectId]);
 
   useEffect(() => {
     if (
@@ -26456,9 +26630,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 y: rect.top + nodeCtxMenu.y,
               })
             : undefined;
-        const pastedExternal =
+        const pastedExternalNodes =
           await pasteClipboardFromNavigatorRef.current(menuOrigin);
-        if (pastedExternal) return;
+        if (pastedExternalNodes.length > 0) return;
         pasteCrossCanvasClipboard(menuOrigin);
       } else if (action === "group") {
         if (actionIds.length < 2) {
@@ -29050,9 +29224,24 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     []
   );
 
+  /**
+   * 返回的是**新建的节点数组**而不是 boolean。
+   *
+   * 「对话框粘贴图片」要同时做两件事：图片落到画布 + 在提示词框里生成引用标签。
+   * 而引用标签的唯一事实源是 referencedAssets，它按**画布节点 id** 索引。
+   * 只有把节点本身交出去，调用方才能拿到 id / title / src / 尺寸，
+   * 复用「选中画布图片 → 引用」那条完全相同的数据流，
+   * 而不是另起一套「粘贴专用」的标签结构（那样样式和删除行为迟早会走偏）。
+   *
+   * 老调用点判断「有没有粘贴成功」改成看 `.length > 0` 即可。
+   */
   const pasteClipboardImages = useCallback(
-    async (blobs: Blob[], originOverride?: { x: number; y: number }) => {
-      if (blobs.length === 0) return false;
+    async (
+      blobs: Blob[],
+      originOverride?: { x: number; y: number },
+      toastDescription?: string
+    ): Promise<Node[]> => {
+      if (blobs.length === 0) return [];
       const rect = containerRef.current?.getBoundingClientRect();
       const origin =
         originOverride ||
@@ -29066,7 +29255,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             createClipboardImageNode(blob, index, origin)
           )
         );
-        if (nodesToPaste.length === 0) return false;
+        if (nodesToPaste.length === 0) return [];
         pushHistory();
         setNodes(nds =>
           nds
@@ -29075,25 +29264,30 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         );
         setSelectedNodeIds(nodesToPaste.map(node => node.id));
         toast(`已粘贴 ${nodesToPaste.length} 张图片`, {
-          description: "剪贴板图片已添加到画布",
+          description: toastDescription || "剪贴板图片已添加到画布",
         });
-        return true;
+        return nodesToPaste;
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "请重新复制图片后再试";
         toast("粘贴图片失败", { description: message });
-        return false;
+        return [];
       }
     },
     [createClipboardImageNode, pushHistory, screenToFlowPosition, setNodes]
   );
 
+  // 与 pasteClipboardImages 同理，返回新建节点而不是 boolean。
   const pasteClipboardImageSources = useCallback(
-    async (sources: string[], originOverride?: { x: number; y: number }) => {
+    async (
+      sources: string[],
+      originOverride?: { x: number; y: number },
+      toastDescription?: string
+    ): Promise<Node[]> => {
       const uniqueSources = Array.from(
         new Set(sources.map(src => src.trim()).filter(Boolean))
       );
-      if (uniqueSources.length === 0) return false;
+      if (uniqueSources.length === 0) return [];
       const rect = containerRef.current?.getBoundingClientRect();
       const origin =
         originOverride ||
@@ -29107,7 +29301,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             createClipboardImageSourceNode(src, index, origin)
           )
         );
-        if (nodesToPaste.length === 0) return false;
+        if (nodesToPaste.length === 0) return [];
         pushHistory();
         setNodes(nds =>
           nds
@@ -29116,14 +29310,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         );
         setSelectedNodeIds(nodesToPaste.map(node => node.id));
         toast(`已粘贴 ${nodesToPaste.length} 张图片`, {
-          description: "浏览器复制的图片已添加到画布",
+          description: toastDescription || "浏览器复制的图片已添加到画布",
         });
-        return true;
+        return nodesToPaste;
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "请重新复制图片后再试";
         toast("粘贴图片失败", { description: message });
-        return false;
+        return [];
       }
     },
     [
@@ -29137,15 +29331,16 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const pasteClipboardPayload = useCallback(
     async (
       clipboardData: DataTransfer | null | undefined,
-      originOverride?: { x: number; y: number }
-    ) => {
+      originOverride?: { x: number; y: number },
+      toastDescription?: string
+    ): Promise<Node[]> => {
       const items = Array.from(clipboardData?.items || []);
       const imageBlobs = items
         .filter(item => item.kind === "file" && item.type.startsWith("image/"))
         .map(item => item.getAsFile())
         .filter((file): file is File => Boolean(file));
       if (imageBlobs.length > 0) {
-        return pasteClipboardImages(imageBlobs, originOverride);
+        return pasteClipboardImages(imageBlobs, originOverride, toastDescription);
       }
 
       const html = clipboardData?.getData("text/html") || "";
@@ -29156,48 +29351,125 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           ...extractImageSourcesFromClipboardText([html], [plain]),
         ])
       );
-      return pasteClipboardImageSources(sources, originOverride);
+      return pasteClipboardImageSources(
+        sources,
+        originOverride,
+        toastDescription
+      );
     },
     [pasteClipboardImages, pasteClipboardImageSources]
   );
 
-  const pasteClipboardFromNavigator = useCallback(async (originOverride?: {
-    x: number;
-    y: number;
-  }) => {
-    if (!navigator.clipboard?.read) return false;
-    try {
-      const items = await navigator.clipboard.read();
-      const imageBlobs: Blob[] = [];
-      const htmlValues: string[] = [];
-      const plainValues: string[] = [];
-      for (const item of items) {
-        const imageType = item.types.find(type => type.startsWith("image/"));
-        if (imageType) {
-          imageBlobs.push(await item.getType(imageType));
-          continue;
+  const pasteClipboardFromNavigator = useCallback(
+    async (
+      originOverride?: { x: number; y: number },
+      toastDescription?: string
+    ): Promise<Node[]> => {
+      if (!navigator.clipboard?.read) return [];
+      try {
+        const items = await navigator.clipboard.read();
+        const imageBlobs: Blob[] = [];
+        const htmlValues: string[] = [];
+        const plainValues: string[] = [];
+        for (const item of items) {
+          const imageType = item.types.find(type => type.startsWith("image/"));
+          if (imageType) {
+            imageBlobs.push(await item.getType(imageType));
+            continue;
+          }
+          if (item.types.includes("text/html")) {
+            htmlValues.push(await (await item.getType("text/html")).text());
+          }
+          if (item.types.includes("text/plain")) {
+            plainValues.push(
+              (await (await item.getType("text/plain")).text()).trim()
+            );
+          }
         }
-        if (item.types.includes("text/html")) {
-          htmlValues.push(await (await item.getType("text/html")).text());
-        }
-        if (item.types.includes("text/plain")) {
-          plainValues.push((await (await item.getType("text/plain")).text()).trim());
-        }
+        if (imageBlobs.length > 0)
+          return pasteClipboardImages(
+            imageBlobs,
+            originOverride,
+            toastDescription
+          );
+        const sources = extractImageSourcesFromClipboardText(
+          htmlValues,
+          plainValues
+        );
+        return pasteClipboardImageSources(
+          sources,
+          originOverride,
+          toastDescription
+        );
+      } catch {
+        return [];
       }
-      if (imageBlobs.length > 0)
-        return pasteClipboardImages(imageBlobs, originOverride);
-      const sources = extractImageSourcesFromClipboardText(
-        htmlValues,
-        plainValues
-      );
-      return pasteClipboardImageSources(sources, originOverride);
-    } catch {
-      return false;
-    }
-  }, [pasteClipboardImages, pasteClipboardImageSources]);
+    },
+    [pasteClipboardImages, pasteClipboardImageSources]
+  );
   useEffect(() => {
     pasteClipboardFromNavigatorRef.current = pasteClipboardFromNavigator;
   }, [pasteClipboardFromNavigator]);
+
+  /**
+   * 对话框（AI 助手提示词框）里粘贴图片时的唯一处理入口。
+   *
+   * 用户要的是「粘贴进对话框 → 画布里也出现这张图 → 对话框里生成一个标签，
+   * 且这个标签与『引用图片』完全一致」。
+   *
+   * 实现上刻意**不**为粘贴另起一套数据：
+   *   1. 先复用画布既有的 pasteClipboardPayload 把图片真正建成画布节点；
+   *   2. 再把这些节点按 addReferencedAsset 同样的结构塞进 referencedAssets。
+   *
+   * 第 2 步是关键：referencedAssets 是引用标签的唯一事实源，
+   * CanvasAssistantPanel 里那个 useEffect（:20381）会监听它的变化，
+   * 自动用 createAssistantImageSegment 在光标处插入标签。
+   * 也就是说标签的样式、删除行为、提交时如何被 getAssistantComposerImages 取用，
+   * 全部走的是和「选中画布图片 → 引用」一模一样的那条路，天然一致，
+   * 不存在「粘贴来的标签」和「引用来的标签」两套分支。
+   *
+   * ⚠️ id 必须用画布节点 id。referencedAssets 就是按节点 id 索引的，
+   * 自造 id 会让标签与画布节点脱钩（删节点标签不消失、点标签定位不到图）。
+   */
+  const handleComposerImagePaste = useCallback(
+    async (clipboardData: DataTransfer | null) => {
+      const description = "已同步到画布并作为引用图片";
+      let pastedNodes = await pasteClipboardPayload(
+        clipboardData,
+        undefined,
+        description
+      );
+      if (pastedNodes.length === 0) {
+        // 某些浏览器（Safari / 部分 Windows 版 Chrome）在 paste 事件里
+        // 拿不到 items，只能回落到异步 Clipboard API 再读一次。
+        // 画布那条粘贴链路（:30226）本来就有这层兜底，这里保持一致。
+        pastedNodes = await pasteClipboardFromNavigator(undefined, description);
+      }
+      if (pastedNodes.length === 0) return false;
+
+      setReferencedAssets(prev => {
+        const existingIds = new Set(prev.map(asset => asset.id));
+        const additions: ImageGeneratorReferenceAsset[] = [];
+        pastedNodes.forEach(node => {
+          if (existingIds.has(node.id)) return;
+          const data = node.data as Record<string, unknown>;
+          const src = (data.localSrc as string) || "";
+          if (!src) return;
+          const size = getCanvasNodeSize(node);
+          additions.push({
+            id: node.id,
+            title: (data.title as string) || "粘贴图片",
+            src,
+            width: size.width,
+            height: size.height,
+          });
+        });
+        return additions.length > 0 ? [...prev, ...additions] : prev;
+      });
+      return true;
+    },
+    [pasteClipboardFromNavigator, pasteClipboardPayload]
+  );
 
   // ── 获取节点的图片源 (localSrc 优先，其次 GENERATED_ASSETS) ──
   const getNodeImageSrc = useCallback((node: Node): string => {
@@ -30064,10 +30336,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         pasteCrossCanvasClipboard();
         return;
       }
-      void pasteClipboardPayload(event.clipboardData).then(pasted => {
-        if (!pasted) {
-          void pasteClipboardFromNavigator().then(fallbackPasted => {
-            if (fallbackPasted) return;
+      void pasteClipboardPayload(event.clipboardData).then(pastedNodes => {
+        if (pastedNodes.length === 0) {
+          void pasteClipboardFromNavigator().then(fallbackNodes => {
+            if (fallbackNodes.length > 0) return;
             const pendingCopy = pendingCrossCanvasCopyRef.current;
             if (pendingCopy) {
               void pendingCopy.then(() => {
@@ -30206,8 +30478,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const requestedAt = Date.now();
         window.setTimeout(() => {
           if (pasteEventSeenAtRef.current >= requestedAt) return;
-          void pasteClipboardFromNavigator().then(pasted => {
-            if (pasted) return;
+          void pasteClipboardFromNavigator().then(pastedNodes => {
+            if (pastedNodes.length > 0) return;
             const pendingCopy = pendingCrossCanvasCopyRef.current;
             if (pendingCopy) {
               void pendingCopy.then(() => {
@@ -32257,6 +32529,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           setAnnotationReferences(prev => prev.filter(r => r.id !== id))
         }
         onMergeReferences={mergeReferencedAssets}
+        onPasteImages={handleComposerImagePaste}
         selectedCount={selectedNodeIds.length}
         helpPromptNonce={helpPromptNonce}
       />

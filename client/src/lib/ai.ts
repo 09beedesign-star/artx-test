@@ -61,6 +61,42 @@ export type ImageGenerationTaskInput = Record<string, unknown> & {
 const AUTH_STORAGE_KEY = "artx-auth-session";
 const AI_REQUEST_TIMEOUT_MS = 300000;
 const AI_TIMEOUT_ERROR_MESSAGE = "对不起，网络开了个小差，请稍后重试";
+
+/**
+ * 用户主动中止的专用错误标记。
+ *
+ * 【2026-09-15】此前「停止」只是把 isSubmitting 置回 false，
+ * 轮询 promise 仍在后台跑。服务端的 backgroundImageTasks 是内存 Map 且会被
+ * pruneBackgroundImageTasks 清理，任务一旦被清掉，下一次轮询就拿到 404
+ * "Image task not found" —— 它不在 isTransientBackgroundTaskPollingError
+ * 的放行名单里，于是被当成致命错误抛出，最终冒泡到 catch 弹出
+ * 「AI 助手请求失败 / task not found」。
+ *
+ * 📌 用户点的是「停止」，看到的却是「失败」—— 这是**误报**，不是真故障。
+ * 解法：中止要能真正掐断轮询，并且中止导致的错误**不得进 toast**。
+ */
+export const AI_ABORTED_ERROR_MESSAGE = "__ARTX_ABORTED__";
+
+export function createAiAbortError() {
+  const error = new Error(AI_ABORTED_ERROR_MESSAGE);
+  error.name = "AbortError";
+  return error;
+}
+
+/**
+ * 判断一个错误是否源于用户主动中止。
+ *
+ * ⚠️ 三种来源都要认：我们自己抛的哨兵、fetch 的原生 AbortError、
+ * 以及 DOMException(name="AbortError")。少认一种，就会漏一条误报路径。
+ */
+export function isAiAbortError(error: unknown) {
+  if (!error) return false;
+  if (error instanceof Error) {
+    if (error.name === "AbortError") return true;
+    if (error.message === AI_ABORTED_ERROR_MESSAGE) return true;
+  }
+  return String(error) === AI_ABORTED_ERROR_MESSAGE;
+}
 const ART_X_TEST_AI_API_BASE_URL = ART_X_TEST_API_BASE_URL;
 let aiApiBaseOverride: string | null = null;
 
@@ -502,6 +538,7 @@ export async function generateImages({
   referencedAssets = [],
   skillId,
   generationId,
+  signal,
 }: {
   prompt: string;
   model?: string;
@@ -512,6 +549,16 @@ export async function generateImages({
   referencedAssets?: Array<{ src: string; title?: string }>;
   skillId?: string;
   generationId?: string;
+  /**
+   * 用户主动中止的信号。
+   *
+   * ⚠️⚠️【2026-09-15】这条参数极易漏。修「停止后报 task not found」时，
+   * 第一反应是给 runImageGenerationTask 加 signal —— 但 AI 助手面板走的是
+   * generateImages 这条路，它内部另有一次 waitForImageGenerationTask 调用。
+   * **只接一条出口 = 停止依然会弹错，而且零报错。**
+   * 📌 凡是会发起轮询的函数，每一个都要能被同一个 signal 掐断。
+   */
+  signal?: AbortSignal;
 }) {
   requireAiAuth();
   // ⚠️ 默认参数只在调用方「完全不传」时生效。调用方显式传 "auto" 时默认参数兜不住，
@@ -522,6 +569,7 @@ export async function generateImages({
     referencesEnabled ? "参考当前画布和已引用素材进行生成。" : "",
     prompt,
   ].filter(Boolean).join("\n");
+  if (signal?.aborted) throw createAiAbortError();
   if (generationId) {
     try {
       await startBackgroundImageGeneration({
@@ -535,11 +583,15 @@ export async function generateImages({
         referencedAssets,
         skillId,
       });
-      return await waitForImageGenerationTask(generationId);
+      return await waitForImageGenerationTask(generationId, signal);
     } catch (error) {
+      // ⚠️ 中止必须先于「后端连接错误」判定返回，否则中止会被误当成
+      // 连不上后端，进而回落到下面的同步 orchestrate 又跑一次生成。
+      if (isAiAbortError(error)) throw error;
       if (!isAiBackendConnectionError(error)) throw error;
     }
   }
+  if (signal?.aborted) throw createAiAbortError();
   const result = await postAiOrchestrate({
     capability: "text_to_image",
     intent: "text_to_image",
@@ -580,24 +632,51 @@ export async function startImageGenerationTask(
   throw lastError instanceof Error ? lastError : new Error("后台图像生成启动失败");
 }
 
-export async function waitForImageGenerationTask(taskId: string): Promise<GeneratedImagesResponse> {
+export async function waitForImageGenerationTask(
+  taskId: string,
+  signal?: AbortSignal
+): Promise<GeneratedImagesResponse> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
+    // ⚠️ 每轮开头先查中止：用户点「停止」后不应再发起下一次查询，
+    // 否则任务可能已被服务端清理，查回 404 变成「task not found」误报。
+    if (signal?.aborted) throw createAiAbortError();
     try {
       const task = await getBackgroundImageGenerationTask(taskId);
       if (task.status === "completed") return { images: task.images || [] };
       if (task.status === "failed") throw new Error(task.error || "图像生成失败");
     } catch (error) {
+      // 中止优先于一切错误分类：中止期间拿到的任何错误都不该被报给用户。
+      if (signal?.aborted) throw createAiAbortError();
       if (!isTransientBackgroundTaskPollingError(error)) throw error;
       console.warn("Background image generation polling temporarily failed", error);
     }
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    // 等待期间也要能被打断，否则最长要卡 3 秒才响应「停止」。
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        signal?.removeEventListener("abort", onAbort);
+        resolve();
+      }, 3000);
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(createAiAbortError());
+      };
+      if (signal?.aborted) {
+        clearTimeout(timer);
+        reject(createAiAbortError());
+        return;
+      }
+      signal?.addEventListener("abort", onAbort, { once: true });
+    });
   }
   throw new Error(AI_TIMEOUT_ERROR_MESSAGE);
 }
 
-export async function runImageGenerationTask(input: ImageGenerationTaskInput): Promise<GeneratedImagesResponse> {
+export async function runImageGenerationTask(
+  input: ImageGenerationTaskInput,
+  signal?: AbortSignal
+): Promise<GeneratedImagesResponse> {
   await startImageGenerationTask(input);
-  return waitForImageGenerationTask(input.taskId);
+  return waitForImageGenerationTask(input.taskId, signal);
 }
 
 export async function startBackgroundImageGeneration({
