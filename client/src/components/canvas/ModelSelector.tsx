@@ -54,9 +54,25 @@ function ImageModelLineIcon({ size = 14 }: { size?: number }) {
 export function AssistantModelIcon({
   modelId,
   icon,
+  color = "#FFFFFF",
 }: {
   modelId: string;
   icon?: string;
+  /**
+   * 图标颜色。
+   *
+   * 默认保持 #FFFFFF —— 画布里的触发按钮和节点上的模型标都依赖这个白色，
+   * 改默认值等于一次性改掉全站所有调用点。
+   *
+   * 2026-09-16 开放此参数，是因为首页的模型选择器要和它左边的
+   * 「添加参考图」按钮长成同一个样子：那个按钮默认态是 #7d7d7d 灰、
+   * hover 才转白。选择器的图标却恒为白，两个并排的控件默认态一深一浅，
+   * 看起来像其中一个是「已激活」状态。
+   *
+   * ⚠️ 传 "currentColor" 即可让图标跟随按钮自身的文字色，
+   *    hover 变色不用再单独接一路状态。
+   */
+  color?: string;
 }) {
   /**
    * 这里**绝不能因为认不出品牌就 return null**。
@@ -75,20 +91,26 @@ export function AssistantModelIcon({
     return (
       <span
         data-model-brand-icon="auto"
-        style={{ color: "#FFFFFF", display: "inline-flex", flex: "0 0 auto", marginTop: 2 }}
+        style={{ color, display: "inline-flex", flex: "0 0 auto", marginTop: 2 }}
       >
         <WandSparkles size={14} />
       </span>
     );
   }
   const iconKind = getModelBrandIconKind(modelId, icon);
+  /*
+    ⚠️ 品牌图标走 CSS mask，颜色由 backgroundColor 决定，**不吃 color**。
+       光在外层 span 上改 color 只能管住线框图（那个用 currentColor 描边），
+       品牌图标会继续是白的 —— 这就是「同一份视觉的多个出口」在图标上的形态。
+       所以 color 必须同时往 ModelBrandIconMask 的 backgroundColor 传一份。
+  */
   const iconNode = iconKind === "image" || iconKind === "none"
     ? <ImageModelLineIcon size={14} />
-    : <ModelBrandIconMask kind={iconKind} size={14} />;
+    : <ModelBrandIconMask kind={iconKind} size={14} style={{ backgroundColor: color }} />;
   return (
     <span
       data-model-brand-icon={iconKind}
-      style={{ color: "#FFFFFF", display: "inline-flex", flex: "0 0 auto", marginTop: 2 }}
+      style={{ color, display: "inline-flex", flex: "0 0 auto", marginTop: 2 }}
     >
       {iconNode}
     </span>
@@ -161,6 +183,23 @@ export type ModelSelectorSurface = {
   background: string;
   border: string;
   text: string;
+  /**
+   * hover / 展开时的触发按钮样式（可选）。
+   *
+   * 不传 → 沿用画布口径：套一层深色底托 + 文字转白。
+   * 传了 → 按调用方给的来。
+   *
+   * 2026-09-16 为首页开放：首页这一行里，选择器左边就是「添加参考图」按钮，
+   * 那个按钮 hover 只是 #7d7d7d → 白，没有任何底托。选择器却会弹出一块
+   * 深色方块，两个并排控件的 hover 反馈完全不是一套语言。
+   *
+   * ⚠️ 默认值必须保持画布现状 —— 这是搬迁来的组件，
+   *    动默认值等于在画布侧制造一次无人察觉的视觉回归。
+   */
+  hoverBackground?: string;
+  hoverText?: string;
+  /** 展开时的描边。不传则沿用画布的紫色高亮描边。 */
+  openBorder?: string;
 };
 
 /**
@@ -195,13 +234,20 @@ export function ModelSelector({
   const modelRef = useRef<HTMLDivElement>(null);
   const current = models.find(m => m.id === model) || AUTO_AI_MODEL;
   const bg = surface ? surface.background : getMinimapSurfaceBackground(isDark);
-  const selectedBg = isDark
-    ? "oklch(0.13 0.015 270)"
-    : "oklch(0.22 0.015 270)";
+  const selectedBg = surface?.hoverBackground
+    ?? (isDark ? "oklch(0.13 0.015 270)" : "oklch(0.22 0.015 270)");
   const border = surface ? surface.border : getMinimapSurfaceBorder(isDark);
-  const selectedBorder = "oklch(0.62 0.22 290 / 45%)";
+  const selectedBorder = surface?.openBorder ?? "oklch(0.62 0.22 290 / 45%)";
   const text = surface ? surface.text : (isDark ? "oklch(0.74 0.01 270)" : "oklch(0.58 0.008 270)");
-  const selectedText = "white";
+  const selectedText = surface?.hoverText ?? "white";
+  /**
+   * 触发按钮上图标的颜色。
+   *
+   * 跟着按钮文字色走，而不是恒为白 —— 否则「默认态灰字 + 白图标」，
+   * 看起来像图标被单独点亮了。用具体色值而非 "currentColor"：
+   * 品牌图标是 CSS mask，需要一个真实色值填进 backgroundColor。
+   */
+  const triggerIconColor = open || buttonHover ? selectedText : text;
   const popBg = isDark ? "oklch(0.16 0.018 270)" : "oklch(0.99 0.004 270)";
   const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
   const rowHeight = 40;
@@ -243,14 +289,26 @@ export function ModelSelector({
           background: open || buttonHover ? selectedBg : bg,
           border: `1px solid ${open ? selectedBorder : border}`,
           color: open || buttonHover ? selectedText : text,
-          fontSize: 11,
-          lineHeight: "14px",
-          letterSpacing: 0,
+          /*
+            ⚠️ 字号只在「没传 triggerClassName」时才由内联样式接管。
+               内联 style 的优先级高于 className，写死 fontSize: 11 会把调用方
+               传进来的 text-xs 直接顶掉 —— 首页要求这个按钮和它左边的
+               「添加参考图」长一样，而那个按钮是 text-xs(12px)，
+               差 1px 在并排时肉眼可见。
+               画布侧不传 triggerClassName，走原分支，行为不变。
+          */
+          ...(triggerClassName
+            ? { letterSpacing: 0 }
+            : { fontSize: 11, lineHeight: "14px", letterSpacing: 0 }),
         }}
         onMouseEnter={() => setButtonHover(true)}
         onMouseLeave={() => setButtonHover(false)}
       >
-        <AssistantModelIcon modelId={current.id} icon={current.icon} />
+        <AssistantModelIcon
+          modelId={current.id}
+          icon={current.icon}
+          color={triggerIconColor}
+        />
         {current.label}
         <ChevronDown size={10} style={{ opacity: 0.6 }} />
       </button>

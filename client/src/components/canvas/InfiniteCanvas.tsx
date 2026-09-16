@@ -13104,6 +13104,18 @@ function safeReadCanvasState(projectId: string): PersistedCanvasState | null {
   }
 }
 
+/**
+ * 「画布自动保存受限」是否已经提醒过。
+ *
+ * ⚠️ 必须是模块级变量，不能放进 safeWriteCanvasState 内部 ——
+ *    那个函数每次 nodes 变化都会被重新调用，局部变量每次都会重置成 false，
+ *    等于没有去重，用户仍然会被刷屏（这正是 2026-09-16 用户投诉的现象）。
+ *
+ * ⚠️ 也不能做成 React state：safeWriteCanvasState 是模块级纯函数，
+ *    不在任何组件闭包里。
+ */
+let canvasStorageWarningShown = false;
+
 function safeWriteCanvasState(projectId: string, state: PersistedCanvasState) {
   if (typeof window === "undefined") return;
   ensureTestCanvasStateReset();
@@ -13152,12 +13164,40 @@ function safeWriteCanvasState(projectId: string, state: PersistedCanvasState) {
   try {
     window.localStorage.setItem(key, JSON.stringify(strippedState));
     if (!sessionSaved) window.sessionStorage.removeItem(sessionKey);
+    /*
+      写成功就把「已提醒过」的标记清掉。
+
+      用户后来清理了浏览器数据、或删掉了几个大画布，存储恢复正常后
+      若再次满了，应该重新提醒一次 —— 一次性不等于一辈子只提一次。
+    */
+    canvasStorageWarningShown = false;
   } catch {
-    // 轻量版都写不进去，说明 localStorage 是真满了。
-    // 这时候连结构都保不住，必须明确告诉用户，不能装作没事。
-    toast("画布自动保存受限", {
-      description: "浏览器存储空间不足，请清理其他站点数据后重试",
-    });
+    /*
+      轻量版都写不进去，说明 localStorage 是真满了。
+
+      【2026-09-16 用户反馈：画布"总会"弹这个 toast，要求去掉】
+      ⚠️ 但这条提示不能直接删。它是 2026-09-15「三层存储图片丢失」事故后
+         立的护栏，配套测试 canvas-image-persistence.test.ts:160
+         「轻量版都写不进去时必须告知用户，不能静默吞掉」明确禁止静默。
+         localStorage 是跨标签页的唯一结构存档，它彻底写不进去而用户毫不知情，
+         下次开标签页画布就是空的 —— 那是比噪音严重得多的问题。
+
+      📌 真正的问题不是「提示存在」，而是「反复提示」：
+         safeWriteCanvasState 在每次 nodes 变化时都会跑，一旦进入这个分支
+         就会一直弹，同一句话刷屏。用户要去掉的是刷屏，不是知情权。
+
+      ✅ 解法：整个会话只提示一次（模块级标记）。既满足"不要总弹"，
+         也保住"不能静默吞掉"。文案同时改得可执行 ——
+         原文案让用户"清理其他站点数据"，他既不知道清哪个也未必有用；
+         现在直说影响面（当前标签页仍可用、重开标签页可能丢结构）。
+    */
+    if (!canvasStorageWarningShown) {
+      canvasStorageWarningShown = true;
+      toast("画布自动保存受限", {
+        description:
+          "浏览器存储已满，当前标签页不受影响，但重新打开后可能需要重新整理画布",
+      });
+    }
   }
 }
 
@@ -25311,6 +25351,23 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                     : smartProductPrompt,
                 targetWidth: detail.customWidth || ratioSize.w,
                 targetHeight: detail.customHeight || ratioSize.h,
+                /**
+                 * 风格参考图。
+                 *
+                 * ⚠️ 必须真的接到 referencedAssets 上，光在 detail 里加字段是死的
+                 *    —— 「透传 ≠ 被消费」是本项目踩过十一次的坑。
+                 *    链路：referencedAssets → ai.ts 的 images → 服务端
+                 *    image-generation.ts 的 referenceImages → VOD FileInfos（:5466）。
+                 *
+                 * ⚠️ title 写成「style reference」而不是空：服务端会把
+                 *    `Reference image N: <title>` 拼进提示词，留空就变成
+                 *    "untitled"，模型不知道这张图该当什么用。
+                 *    但注意 "annotation mask" 是保留 title（服务端按它挑蒙版），
+                 *    这里绝不能撞名。
+                 */
+                referencedAssets: detail.referenceSrc
+                  ? [{ src: detail.referenceSrc, title: "style reference" }]
+                  : [],
               });
               collected.push(...single.images.slice(0, 1));
             } catch (error) {

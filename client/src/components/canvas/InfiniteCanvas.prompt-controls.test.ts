@@ -643,7 +643,13 @@ describe("InfiniteCanvas prompt controls", () => {
 
     expect(modelSelector).toContain('from "./model-brand-icons"');
     expect(modelSelector).toContain("const iconKind = getModelBrandIconKind(modelId, icon)");
-    expect(modelSelector).toContain("<ModelBrandIconMask kind={iconKind} size={14} />");
+    /*
+      ⚠️ 2026-09-16 同 model-brand-icons.si-qwen.test.ts：
+         AssistantModelIcon 开了 color 参数后（首页要让图标跟随按钮文字色），
+         这里多了 style={{ backgroundColor: color }}，自闭合的 `/>` 不再紧跟
+         size={14}，字面量断言失锚。锚点跟着语义走，保留真正的两条约束。
+    */
+    expect(modelSelector).toMatch(/<ModelBrandIconMask\s+kind=\{iconKind\}\s+size=\{14\}/);
     expect(modelSelector).toContain('data-model-brand-icon={iconKind}');
     expect(modelSelector).toContain("marginTop: 2");
 

@@ -1182,20 +1182,34 @@ function PreloginPanel({
                 *（新模型上线、权益调整），两份渲染实现必然对不上。
                 *
                 * surface 传首页玻璃面板的配色 —— 画布走 isDark 主题变量，
-                * 首页是固定深色面板（#212121/#454545），两套色不能混用；
-                * placement 传 down 是因为这一行贴着输入框底部，
-                * 沿用画布的向上弹会直接盖住用户正在写的提示词。
+                * 首页是固定深色面板（#212121/#454545），两套色不能混用。
+                *
+                * 【2026-09-16 按用户要求对齐左边的「添加参考图」按钮】
+                * 那个按钮的完整样式只有两条：默认 #7d7d7d、hover 转白，没有底托。
+                * 选择器此前 hover 会套一块深色底托、图标还恒为白，
+                * 两个并排控件看上去不像同一套控件。现在三处对齐：
+                *   · hoverBackground: transparent  → 去掉黑色底托
+                *   · hoverText: #ffffff            → hover 文字转白，同参考图按钮
+                *   · openBorder: transparent       → 展开时也不描边（原本是紫色高亮）
+                * 图标颜色不用单独传：组件内部已让它跟随按钮文字色。
+                *
+                * placement 改回 up：这一行贴着面板底部，向下弹会被玻璃面板边缘
+                * 截断，用户要滚动才看得到后面的模型。向上弹展开在提示词区上方，
+                * 整个清单一屏可见。
                 */}
               <ModelSelector
                 model={imageModelId}
                 onChange={onImageModelChange}
                 isDark
                 models={imageModelOptions}
-                placement="down"
+                placement="up"
                 surface={{
                   background: "transparent",
                   border: "transparent",
                   text: "#7d7d7d",
+                  hoverBackground: "transparent",
+                  hoverText: "#ffffff",
+                  openBorder: "transparent",
                 }}
                 triggerClassName="flex h-8 items-center gap-1.5 rounded-md px-0 text-xs transition-colors"
               />

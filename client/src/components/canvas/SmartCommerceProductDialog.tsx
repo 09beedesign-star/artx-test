@@ -56,6 +56,15 @@ export type SmartCommerceProductCreateDetail = {
   backgroundMode: SmartCommerceBackgroundMode;
   /** 提示词模式下用户输入的原始文案；模板模式为空串 */
   customPrompt: string;
+  /**
+   * 可选的风格参考图（dataURL）。
+   *
+   * ⚠️ 它与 imageSrc 是两种完全不同的角色，不能混用：
+   *    imageSrc     = 要被逐像素保护的产品主体
+   *    referenceSrc = 只提供背景风格的样张，其内容一律不得进入画面
+   */
+  referenceSrc?: string;
+  referenceName?: string;
 };
 
 type Props = {
@@ -132,6 +141,14 @@ export function SmartCommerceProductDialog({
   onClose,
 }: Props) {
   const productInputRef = useRef<HTMLInputElement | null>(null);
+  /**
+   * 风格参考图的 file input。
+   *
+   * ⚠️ 必须与 productInputRef 分开：两者语义完全不同——
+   *    产品图是「要被保护的主体」，参考图是「只提供风格的样张」。
+   *    共用一个 input 会让用户传错，而传错的后果是产品被当成风格来源重绘。
+   */
+  const referenceInputRef = useRef<HTMLInputElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{
     pointerId: number;
@@ -140,6 +157,18 @@ export function SmartCommerceProductDialog({
   } | null>(null);
   const [imageSrc, setImageSrc] = useState("");
   const [fileName, setFileName] = useState("");
+  /**
+   * 风格参考图（可选）。
+   *
+   * 实测依据（2026-09-16，即梦 4.0 + 蒙版，判据为「目标区内/区外像素改变比」）：
+   *   · 纯文字描述风格            → 1.99x（保真崩了，背景被重画）
+   *   · 喂参考图 + 一句话指认      → 5.97x ✅
+   *   · 喂参考图 + 再补一段文字描述 → 4.89x（比只给一句话更差，图已说清就别再啰嗦）
+   *
+   * 所以这里走「喂图 + 极简指认」，提示词里只加一句指过去，不展开描述风格细节。
+   */
+  const [referenceSrc, setReferenceSrc] = useState("");
+  const [referenceName, setReferenceName] = useState("");
   const [selectedComposition, setSelectedComposition] = useState<(typeof PRODUCT_COMPOSITIONS)[number]>(
     PRODUCT_COMPOSITIONS[0]
   );
@@ -229,6 +258,22 @@ export function SmartCommerceProductDialog({
     }
   };
 
+  const setReferenceUpload = async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      toast("请选择图片文件");
+      return;
+    }
+    try {
+      const src = await readImageFile(file);
+      setReferenceSrc(src);
+      setReferenceName(file.name);
+    } catch (error) {
+      toast("参考图读取失败", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    }
+  };
+
   const handleDrop = async (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     event.stopPropagation();
@@ -276,6 +321,23 @@ export function SmartCommerceProductDialog({
       "保持上传产品图的商品主体完整清晰，不改变产品颜色、材质、文字、标识、比例和外形。",
       "风格只能影响背景、道具和环境氛围，不能卡通化、重绘或重新解释产品主体。",
     ];
+    /*
+      风格参考图的指认话术。
+
+      ⚠️ 措辞是死线，不是文案偏好。2026-09-16 实测：
+         同样喂一张参考图，写成「第二张图是样张，不是构图参考」这种**抽象否定**，
+         改变比从 3.29x 崩到 0.94x —— 模型直接整图重画。
+         强调「不是什么」会把注意力引到那个东西上。
+      ✅ 正确写法 = 正向指认用途 + 指向明确的单点排除（"背景/内容不要带入"），
+         并且**指认之后不要再补一段风格文字描述**（实测 4.89x < 5.97x，反而更差）。
+    */
+    const referenceStyleRules = referenceSrc
+      ? [
+          "最后一张图是风格参考图，只用来提供背景的色调、光影、材质和整体视觉风格。",
+          "请把它的视觉风格套用到生成的背景上，参考图里的物体和内容不要带入画面。",
+          "产品主体仍以产品图为唯一依据，参考图不得影响产品的外观、比例和任何细节。",
+        ]
+      : [];
     const prompt = isPromptMode
       ? [
           "按照下面的描述，为这张产品图生成全新的电商商业背景。",
@@ -283,6 +345,7 @@ export function SmartCommerceProductDialog({
           `产品构图要求：${selectedComposition.prompt}`,
           `产品占画面比例要求：${selectedProductScale.prompt}`,
           ...productProtectionRules,
+          ...referenceStyleRules,
           "只生成描述中的商业化背景、真实光影、空间和氛围。",
         ].join("\n")
       : [
@@ -315,6 +378,10 @@ export function SmartCommerceProductDialog({
       customHeight: outputSize.height,
       backgroundMode,
       customPrompt: isPromptMode ? trimmedPrompt : "",
+      // 只在提示词模式下带参考图：模板模式走 PicWish，上游不接受额外参考图，
+      // 传过去也只会被丢掉，反而让人以为生效了。
+      referenceSrc: isPromptMode && referenceSrc ? referenceSrc : undefined,
+      referenceName: isPromptMode && referenceSrc ? referenceName : undefined,
     };
     window.dispatchEvent(
       new CustomEvent<SmartCommerceProductCreateDetail>(
@@ -432,6 +499,23 @@ export function SmartCommerceProductDialog({
         onChange={event => {
           const file = event.currentTarget.files?.[0];
           if (file) void setUpload(file);
+          event.currentTarget.value = "";
+        }}
+      />
+      {/*
+        风格参考图的隐藏 input。
+        ⚠️ 放在这里而不是提示词区旁边，是因为提示词区会随 backgroundMode 切换整段卸载，
+           input 跟着卸载会导致「选图对话框刚弹出、用户切了下 tab，回调就丢了」。
+           挂在常驻的 uploadSlot 里最稳。
+      */}
+      <input
+        ref={referenceInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={event => {
+          const file = event.currentTarget.files?.[0];
+          if (file) void setReferenceUpload(file);
           event.currentTarget.value = "";
         }}
       />
@@ -587,11 +671,12 @@ export function SmartCommerceProductDialog({
 
             <section className="min-w-0">
               <div>
-                <SectionTitle
-                  aside={isPromptMode ? "gem 模型生成" : "PicWish 模板"}
-                >
-                  背景生成方式
-                </SectionTitle>
+                {/*
+                  2026-09-16：按需求去掉右上角「PicWish 模板 / gem 模型生成」角标。
+                  这两个词是实现细节（上游厂商名、模型名），对用户没有决策价值，
+                  下面的 tab 已经说清「默认背景 / 提示词生图」的区别了。
+                */}
+                <SectionTitle>背景生成方式</SectionTitle>
                 {/*
                   模式切换：默认背景 ↔ 自定义提示词。
                   两个 tab 常驻显示，任何时候都能来回切，切换不清空另一侧的选择，
@@ -638,25 +723,83 @@ export function SmartCommerceProductDialog({
 
                 {isPromptMode ? (
                   <div>
-                    <textarea
-                      value={customPrompt}
-                      onChange={event => setCustomPrompt(event.target.value)}
-                      placeholder="描述你想要的电商背景，例如：浅灰水泥台面，柔和自然光从左上方打入，背景虚化的绿植，高级质感"
-                      className="w-full resize-none rounded-md px-3 py-2 text-[11px] leading-4 outline-none"
-                      rows={4}
-                      maxLength={800}
-                      style={{
-                        color: colors.text,
-                        background: colors.surface,
-                        border: `1px solid ${customPrompt.trim() ? "rgba(197,237,71,0.58)" : colors.border}`,
-                        minHeight: 80,
-                      }}
-                    />
+                    {/*
+                      提示词框 + 内嵌的参考图入口。
+                      入口做成框内左下角的小 icon，而不是另起一个上传区——
+                      它是提示词的「补充说明」，不是与产品图并列的第二个主输入。
+                    */}
+                    <div className="relative">
+                      <textarea
+                        value={customPrompt}
+                        onChange={event => setCustomPrompt(event.target.value)}
+                        placeholder="描述你想要的电商背景，例如：浅灰水泥台面，柔和自然光从左上方打入，背景虚化的绿植，高级质感"
+                        className="w-full resize-none rounded-md px-3 py-2 pb-9 text-[11px] leading-4 outline-none"
+                        rows={4}
+                        maxLength={800}
+                        style={{
+                          color: colors.text,
+                          background: colors.surface,
+                          border: `1px solid ${customPrompt.trim() ? "rgba(197,237,71,0.58)" : colors.border}`,
+                          minHeight: 92,
+                        }}
+                      />
+                      <div className="absolute bottom-2 left-2 flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          className="flex h-6 items-center gap-1 rounded px-1.5 text-[10px] font-medium transition-colors"
+                          style={{
+                            color: referenceSrc ? "#172000" : colors.muted,
+                            background: referenceSrc
+                              ? colors.accent
+                              : "transparent",
+                          }}
+                          onClick={() => referenceInputRef.current?.click()}
+                          title={
+                            referenceSrc
+                              ? `风格参考图：${referenceName || "已上传"}（点击更换）`
+                              : "上传风格参考图：只借鉴它的色调光影材质，产品本身不受影响"
+                          }
+                        >
+                          <ImagePlus size={13} />
+                          {referenceSrc ? "已挂参考图" : "参考图"}
+                        </button>
+                        {referenceSrc ? (
+                          <>
+                            <img
+                              src={referenceSrc}
+                              alt={referenceName || "风格参考图"}
+                              className="h-6 w-6 rounded object-cover"
+                              style={{ border: `1px solid ${colors.border}` }}
+                              draggable={false}
+                            />
+                            <button
+                              type="button"
+                              className="flex h-6 items-center rounded px-1.5 text-[10px] transition-colors"
+                              style={{ color: colors.muted }}
+                              onClick={() => {
+                                setReferenceSrc("");
+                                setReferenceName("");
+                                if (referenceInputRef.current) {
+                                  referenceInputRef.current.value = "";
+                                }
+                              }}
+                              title="移除风格参考图"
+                            >
+                              移除
+                            </button>
+                          </>
+                        ) : null}
+                      </div>
+                    </div>
                     <div
                       className="mt-1 flex items-center justify-between text-[9px] leading-4"
                       style={{ color: colors.muted }}
                     >
-                      <span>产品主体会被保护，提示词只影响背景</span>
+                      <span>
+                        {referenceSrc
+                          ? "参考图只影响背景风格，产品外观比例细节不变"
+                          : "产品主体会被保护，提示词只影响背景"}
+                      </span>
                       <span className="tabular-nums">{customPrompt.length}/800</span>
                     </div>
                   </div>

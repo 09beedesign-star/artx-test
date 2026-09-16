@@ -173,8 +173,20 @@ describe("si / qwen 品牌图标（2026-09-13 新增）", () => {
     for (const [name, src] of [["ModelSelector", modelSelector], ["CanvasNodes", canvasNodes]] as const) {
       expect(src, `${name} 不应为 si 单开分支`).not.toMatch(/iconKind === "si"/);
       expect(src, `${name} 不应为 qwen 单开分支`).not.toMatch(/iconKind === "qwen"/);
-      // 品牌图标统一 14px，和 auto 的魔法棒、通用线框图一致。
-      expect(src).toMatch(/<ModelBrandIconMask kind=\{iconKind\} size=\{14\} \/>/);
+      /*
+        品牌图标统一 14px，和 auto 的魔法棒、通用线框图一致。
+
+        ⚠️ 2026-09-16 把锚点从「整段字面量 + 自闭合 />」放宽成「kind + size 前缀」。
+           起因：ModelSelector 给 AssistantModelIcon 开了 color 参数（首页要让图标
+           跟随按钮文字色），于是这里多了一个 style={{ backgroundColor: color }}，
+           自闭合的 `/>` 不再紧跟 size={14}，断言成批失锚。
+
+        📌 判据：失锚要看「约束本身是否还成立」，而不是「文本是否还一样」。
+           这条守的两件事是 ①不为 si/qwen 单开分支 ②尺寸统一 14 —— 都没被破坏，
+           所以正确做法是让锚点跟着语义走，而不是删断言或降阈值。
+           仍然锁死 kind={iconKind} 与 size={14}，只允许其后追加属性。
+      */
+      expect(src).toMatch(/<ModelBrandIconMask\s+kind=\{iconKind\}\s+size=\{14\}/);
     }
   });
 });
