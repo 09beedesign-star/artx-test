@@ -44,10 +44,22 @@ function getBackspaceBranchSource() {
   return fn.slice(start);
 }
 
+/**
+ * 2026-09-16：getComposerRefTokenColors 已移出 InfiniteCanvas.tsx，
+ * 现在住在 composer-ref-token.ts（智能产品图的参考图标签也要用它）。
+ * 约束没变，读取位置跟着改。
+ *
+ * ⚠️ 截取正则不要用 `/\n}/` 收尾——那只截到函数签名行，后面的断言会全挂。
+ *    这里锚在文件级：整个模块就这一个函数，直接取 export 开始到文件末尾即可。
+ */
 function getTokenColorFnSource() {
-  return source.match(
-    /function getComposerRefTokenColors\([\s\S]*?\n}/
-  )?.[0];
+  const tokenModule = readFileSync(
+    resolve(__dirname, "composer-ref-token.ts"),
+    "utf-8"
+  );
+  const start = tokenModule.indexOf("export function getComposerRefTokenColors(");
+  if (start < 0) return undefined;
+  return tokenModule.slice(start);
 }
 
 describe("composer token two-step backspace delete", () => {

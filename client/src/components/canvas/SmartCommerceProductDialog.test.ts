@@ -2,11 +2,27 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
+/**
+ * 剥掉注释后的源码。
+ *
+ * ⚠️ 反向断言（not.toContain）必须用这一份。
+ *    本项目反复踩过「注释污染」：解释「这块为什么被删」的注释里原样写着
+ *    被删掉的旧文案，不剥注释的话反向断言会命中我自己写的说明文字，
+ *    变成一个永远失败的假警报 —— 这次改需求 3 时又踩了一遍。
+ */
+function stripComments(text: string) {
+  return text
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, "")
+    .replace(/^[ \t]*\/\*[\s\S]*?\*\/[ \t]*$/gm, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+}
+
 describe("SmartCommerceProductDialog", () => {
   const source = readFileSync(
     resolve(__dirname, "SmartCommerceProductDialog.tsx"),
     "utf8"
   );
+  const codeOnly = stripComments(source);
 
   it("keeps only the basic product upload, template, count, and resolution workflow", () => {
     for (const label of [
@@ -111,14 +127,112 @@ describe("SmartCommerceProductDialog", () => {
     expect(source).not.toContain("selectedStyle");
   });
 
-  it("sends product composition and frame occupancy controls with the generated background request", () => {
-    for (const label of ["居中主视觉", "左侧留白", "右侧留白", "底部陈列", "斜向布局", "留白展示", "均衡陈列", "产品聚焦"]) {
+  /*
+    2026-09-16 需求 2：「左侧留白 / 右侧留白」改为「产品居左 / 产品居右」，
+    并要求功能与文案对应。
+
+    ⚠️ 光断言 label 文本改了是不够的 —— 那只测了文案。
+       真正要锁的是「英文 prompt 描述的位置和中文标签说的是同一侧」，
+       否则会出现标签写"产品居左"、提示词却在讲"右边留白"的错位。
+  */
+  it("names the composition by where the product sits, not where the空白 is", () => {
+    for (const label of ["居中主视觉", "产品居左", "产品居右", "底部陈列", "斜向布局"]) {
       expect(source).toContain(`label: "${label}"`);
     }
+    // 旧文案不得残留
+    expect(source).not.toContain('label: "左侧留白"');
+    expect(source).not.toContain('label: "右侧留白"');
+
+    // 文案与提示词必须同侧：截出 left / right 两条定义分别检查
+    const leftEntry = source.slice(
+      source.indexOf('{ id: "left"'),
+      source.indexOf('{ id: "right"')
+    );
+    const rightEntry = source.slice(
+      source.indexOf('{ id: "right"'),
+      source.indexOf('{ id: "bottom"')
+    );
+    expect(leftEntry).toContain("产品居左");
+    expect(leftEntry).toContain("product itself on the left side");
+    expect(rightEntry).toContain("产品居右");
+    expect(rightEntry).toContain("product itself on the right side");
+
     expect(source).toContain("产品构图要求：${selectedComposition.prompt}");
-    expect(source).toContain("产品占画面比例要求：${selectedProductScale.prompt}");
     expect(source).toContain("composition: selectedComposition.id");
-    expect(source).toContain("productScale: selectedProductScale.id");
+  });
+
+  /*
+    2026-09-16 需求 3：「产品占画面比例」整项取消，原位替换为电商平台画布预设。
+  */
+  it("drops the frame-occupancy control entirely", () => {
+    // 用剥注释版：解释这项为何下线的注释里必然会提到旧名字
+    expect(codeOnly).not.toContain("PRODUCT_SCALES");
+    expect(codeOnly).not.toContain("selectedProductScale");
+    expect(codeOnly).not.toContain("产品占画面比例");
+    // 自检：剥注释不能把代码也剥没了，否则上面三条等于空转
+    expect(codeOnly).toContain("PRODUCT_COMPOSITIONS");
+    expect(codeOnly.length).toBeGreaterThan(source.length * 0.5);
+  });
+
+  it("replaces it with a collapsible ecommerce canvas preset list", () => {
+    expect(source).toContain("电商平台尺寸");
+    // 收起/展开：默认收起，否则 25 个平台会把板块布局撑变形
+    expect(source).toContain("useState(false)");
+    expect(source).toContain("setEcommerceExpanded(value => !value)");
+    expect(source).toContain("aria-expanded={ecommerceExpanded}");
+    // 展开态必须封顶滚动，不能顶高面板
+    expect(source).toContain("max-h-[188px] overflow-y-auto");
+
+    // 平台数据来自用户提供的参数表，抽样锁住国内+海外两端
+    for (const platform of ["淘宝 / 天猫", "京东", "拼多多", "小红书", "Amazon", "Temu", "SHEIN", "Shopee", "Ozon"]) {
+      expect(source).toContain(`name: "${platform}"`);
+    }
+
+    /*
+      ⚠️ 平台预设必须真的驱动输出尺寸，不能只是个好看的列表。
+         这是「透传 ≠ 被消费」的老坑：选了 Amazon 却仍然出 2048 方图，
+         界面看起来完全正常，没有任何报错。
+    */
+    expect(source).toContain("const outputSize = selectedEcommerce");
+    expect(source).toContain("width: selectedEcommerce.width");
+    expect(source).toContain("customWidth: outputSize.width");
+  });
+
+  it("keeps platform presets and manual ratio mutually exclusive", () => {
+    // 两个画布来源同时生效 = 必然有一个是假的。手动选画幅即取消平台预设。
+    expect(source).toContain("setSelectedEcommerce(null)");
+    expect(source).toContain("!selectedEcommerce && selectedPreset.ratio === preset.ratio");
+  });
+
+  it("carries the platform's white-background rule into the prompt", () => {
+    // Amazon / 京东等平台强制纯白底，是审核硬规则。
+    // 不写进提示词的话会出一张"好看但不能用"的场景图。
+    expect(source).toContain('selectedEcommerce.bg === "white"');
+    expect(source).toContain("纯白背景");
+  });
+
+  /*
+    2026-09-16 需求 1：生成后面板自动关闭。
+
+    ⚠️⚠️ 这条最初写成在**未剥注释**的源码上找 "onClose()"，做变异自证时发现
+         它是**恒绿**的 —— 把真正的 onClose() 调用删掉后测试照样通过，
+         因为上面解释「为什么不在同一帧关闭」的注释里原样写着 `onClose()`。
+         一个恒绿的检测器等于没有检测器。改用剥注释版后变异能被抓到。
+  */
+  it("closes the floating panel after dispatching the generation", () => {
+    const start = codeOnly.indexOf("const handleCreate = () => {");
+    const end = codeOnly.indexOf("const uploadSlot =");
+    expect(start, "handleCreate 锚点失效").toBeGreaterThan(0);
+    expect(end).toBeGreaterThan(start);
+    const createFn = codeOnly.slice(start, end);
+    // 范围自检：太短说明截错了，断言会变成空转
+    expect(createFn.length).toBeGreaterThan(800);
+
+    expect(createFn, "生成后没有关闭面板").toContain("onClose();");
+    // 必须排在事件派发之后，否则等于取消了这次生成
+    expect(createFn.indexOf("window.dispatchEvent")).toBeLessThan(
+      createFn.indexOf("onClose();")
+    );
   });
 
   it("lets users replace or delete submitted product images", () => {

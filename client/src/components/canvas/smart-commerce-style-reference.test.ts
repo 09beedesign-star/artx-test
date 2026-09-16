@@ -132,6 +132,92 @@ describe("智能产品图风格参考图：提示词措辞是死线", () => {
   });
 });
 
+describe("智能产品图风格参考图：不得占据产品图上传窗口（2026-09-16）", () => {
+  /**
+   * ⚠️⚠️ 这是一个**零报错**的真实缺陷，不是纯视觉问题。
+   *
+   * 参考图的隐藏 <input> 原先放在 uploadSlot 内部，而 uploadSlot 的根 div
+   * 自身带 onClick → productInputRef.click()。程序化调用
+   * referenceInputRef.current.click() 时，click 事件会从隐藏 input 冒泡到
+   * 那个根 div，于是产品图选择器被一并唤起 ——
+   * 用户看到的就是「点参考图，弹出来的是产品图上传窗口」。
+   *
+   * 修复方式：把 input 挂到面板根部（常驻、且不在任何带 onClick 的容器里）。
+   * 不能挪进提示词区：那一段会随 backgroundMode 切换整段卸载，
+   * input 跟着卸载会丢掉 file 选择回调。
+   */
+  it("参考图 input 不得放在带 onClick 的产品上传区里", () => {
+    const source = readStripped(DIALOG_PATH);
+
+    const slotStart = source.indexOf("const uploadSlot = (");
+    expect(slotStart, "找不到 uploadSlot").toBeGreaterThan(0);
+    const slotEnd = source.indexOf("const referenceFileInput", slotStart);
+    expect(slotEnd, "找不到 uploadSlot 的结束锚点").toBeGreaterThan(slotStart);
+    const slot = source.slice(slotStart, slotEnd);
+
+    // 范围自检：太短说明锚错了，断言会变成空转
+    expect(slot.length).toBeGreaterThan(500);
+
+    /**
+     * ⚠️⚠️ 这里必须同时禁掉两种写法。
+     *
+     * 第一版断言只禁了 `ref={referenceInputRef}`（即 input 标签本身写在槽里），
+     * 结果做变异自证时发现：把 input 的**定义**留在外面、只把
+     * `{referenceFileInput}` 这个变量渲染进 uploadSlot，冒泡缺陷一模一样会复现，
+     * 而测试照样 8 passed —— 断言对这种倒退是恒绿的。
+     *
+     * 📌 真正决定会不会冒泡的是「渲染在哪棵子树下」，不是「标签写在哪一行」。
+     *    判据必须锁渲染位置。
+     */
+    expect(slot, "参考图 input 回到了产品上传区，点击会冒泡唤起产品选图器").not.toContain(
+      "ref={referenceInputRef}"
+    );
+    expect(slot, "参考图 input 被渲染进产品上传区，点击会冒泡唤起产品选图器").not.toContain(
+      "{referenceFileInput}"
+    );
+    // 产品图自己的 input 仍然留在里面
+    expect(slot).toContain("ref={productInputRef}");
+
+    // 正面判据：它必须渲染在面板根 div 下（常驻、且父链上没有 onClick）
+    const panelStart = source.indexOf("data-artx-dialog-surface");
+    expect(panelStart, "找不到面板根节点").toBeGreaterThan(0);
+    const headerStart = source.indexOf("<header", panelStart);
+    expect(headerStart, "找不到面板 header").toBeGreaterThan(panelStart);
+    const panelHead = source.slice(panelStart, headerStart);
+    expect(panelHead.length).toBeGreaterThan(200);
+    expect(panelHead, "参考图 input 没有挂在面板根部").toContain("{referenceFileInput}");
+  });
+
+  it("参考图上传后按画布引用标签的样式展示，且尺寸配色取自共享常量", () => {
+    const source = readStripped(DIALOG_PATH);
+
+    /**
+     * 需求原文：「仅仅在提示词窗口内按照画布引用图片标签的样式展示，
+     * UI 交互和视觉效果与图片引用标签保持一致。」
+     *
+     * ⚠️ 判据必须是「取自同一份常量」，不能只看长得像。
+     *    照抄一份数值同样能通过肉眼检查，但那就造出了第二个出口 ——
+     *    以后调整标签外观时这里不会跟着变，且不会报任何错。
+     */
+    expect(source).toContain('from "@/components/canvas/composer-ref-token"');
+    expect(source).toContain("COMPOSER_REF_TOKEN_SIZE.maxWidth");
+    expect(source).toContain("COMPOSER_REF_TOKEN_SIZE.height");
+    expect(source).toContain("COMPOSER_REF_TOKEN_SIZE.iconSize");
+    expect(source).toContain("getComposerRefTokenColors(isDark");
+    // 与画布标签同一个语义标记
+    expect(source).toContain('data-composer-token="image"');
+
+    // 旧的「按钮 + 24px 缩略图 + 移除文字」那套已被替换
+    expect(source).not.toContain("已挂参考图");
+    expect(source).not.toContain('className="h-6 w-6 rounded object-cover"');
+
+    // 反向自检：确认共享常量确实没有被复制成本地字面量
+    expect(source, "尺寸被硬编码成副本了").not.toMatch(
+      /maxWidth:\s*82\b/
+    );
+  });
+});
+
 describe("去掉右上角实现细节角标", () => {
   it("不再向用户暴露上游厂商名与模型名", () => {
     const source = readFileSync(DIALOG_PATH, "utf8");

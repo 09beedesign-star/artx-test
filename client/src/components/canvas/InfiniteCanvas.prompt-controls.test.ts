@@ -97,7 +97,15 @@ describe("InfiniteCanvas prompt controls", () => {
     // 「两类标签同色同尺寸」的正向断言在 InfiniteCanvas.composer-token-style.test.ts。
     expect(source).not.toContain("background: isSelectedImageToken");
     expect(source).not.toContain("const isSelectedImageToken =");
-    expect(source).toContain('"#121110"');
+    // 2026-09-16：配色实现已搬到 composer-ref-token.ts（智能产品图的参考图
+    // 标签也要用同一套外观）。约束没变 —— 底色仍是那个固定黑 —— 只是定义
+    // 位置换了，所以锚点跟着挪到共享模块，并额外确认画布是 import 而非副本。
+    const tokenModule = readFileSync(
+      resolve(__dirname, "composer-ref-token.ts"),
+      "utf-8"
+    );
+    expect(tokenModule).toContain('"#121110"');
+    expect(source).toContain('from "@/components/canvas/composer-ref-token"');
     expect(source).toContain('className="mb-2 min-h-[117px]');
   });
 

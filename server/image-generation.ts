@@ -107,7 +107,6 @@ type CreateBackgroundInput = {
   prompt?: string;
   style?: string;
   composition?: string;
-  productScale?: string;
   sceneType?: number;
   ratio?: string;
   resolution?: "2k" | "4k";
@@ -2487,16 +2486,31 @@ function getBackgroundOutputSize(input: CreateBackgroundInput, fallbackWidth: nu
   return { width: Math.max(1, Math.round(baseLongSide * aspect)), height: baseLongSide };
 }
 
-export function __testResolveSmartProductLayout(composition?: string, productScale?: string) {
-  const scale = productScale === "small" || productScale === "large" ? productScale : "medium";
+/**
+ * 智能产品图的版面解析：把「构图选项」翻译成产品在画布上的占位与锚点。
+ *
+ * 【2026-09-16 变更一：去掉 productScale】
+ * 「产品占画面比例」整项已按用户要求下线（改为电商平台画布尺寸预设），
+ * 因此不再有 small/medium/large 三档。原来的 medium 档（0.66 × 0.72）
+ * 是默认值，也是绝大多数请求实际走的那一档，直接固化为唯一占位，
+ * 保证既有产出不发生视觉突变。
+ *
+ * 【2026-09-16 变更二：left / right 的语义确认】
+ * 前端文案从「左侧留白 / 右侧留白」改成「产品居左 / 产品居右」。
+ * 这里的 anchors 用的是 sharp composite 的归一化位置（0 = 贴左，1 = 贴右），
+ * 所以 left: x=0.12 本来就表示**产品靠左**、留白在右。
+ * 也就是说旧文案与代码行为是反着读的，功能一直是对的、名字是错的。
+ * 这次只把名字改对，anchors 不动——改 anchors 反而会把本来正确的排版弄反。
+ *
+ * ⚠️ 别被 "left" 这个 id 误导去翻转坐标：判据是产品实际落在画面哪一侧，
+ *    不是字面意思，改之前先看 composite 的 left/top 是怎么算的（见下方函数）。
+ */
+export function __testResolveSmartProductLayout(composition?: string) {
   const placement = composition === "left" || composition === "right" || composition === "bottom" || composition === "diagonal"
     ? composition
     : "center";
-  const scaleLimits = {
-    small: { width: 0.46, height: 0.54 },
-    medium: { width: 0.66, height: 0.72 },
-    large: { width: 0.82, height: 0.84 },
-  } as const;
+  // 产品在画布中的最大占位（宽 / 高各自的比例上限），沿用原 medium 档数值。
+  const productFootprint = { width: 0.66, height: 0.72 } as const;
   const anchors = {
     center: { x: 0.5, y: 0.56 },
     left: { x: 0.12, y: 0.56 },
@@ -2504,7 +2518,7 @@ export function __testResolveSmartProductLayout(composition?: string, productSca
     bottom: { x: 0.5, y: 0.84 },
     diagonal: { x: 0.76, y: 0.24 },
   } as const;
-  return { ...scaleLimits[scale], ...anchors[placement], composition: placement, productScale: scale };
+  return { ...productFootprint, ...anchors[placement], composition: placement };
 }
 
 async function prepareProductCutoutForBackgroundGenerator(
@@ -2512,7 +2526,6 @@ async function prepareProductCutoutForBackgroundGenerator(
   outputWidth: number,
   outputHeight: number,
   composition?: string,
-  productScale?: string,
 ): Promise<{ imageSrc: string; width: number; height: number }> {
   const sharp = (await import("sharp")).default;
   const { buffer } = await imageSrcToBuffer(cutoutSrc);
@@ -2536,7 +2549,7 @@ async function prepareProductCutoutForBackgroundGenerator(
     productBuffer = normalizedCutout;
   }
 
-  const layout = __testResolveSmartProductLayout(composition, productScale);
+  const layout = __testResolveSmartProductLayout(composition);
   const maxProductWidth = Math.max(1, Math.round(outputWidth * layout.width));
   const maxProductHeight = Math.max(1, Math.round(outputHeight * layout.height));
   const resized = await sharp(productBuffer, { limitInputPixels: false })
@@ -2602,9 +2615,10 @@ export function __testBuildSmartProductPrompt(input: CreateBackgroundInput) {
     input.composition
       ? `用户选择的产品构图：${input.composition}。遵守该构图位置、留白和视觉重心；如与用户明确文字要求冲突，以用户明确要求为准。`
       : "",
-    input.productScale
-      ? `用户选择的产品占画面比例：${input.productScale}。保持产品完整可见，不得裁切或遮挡。`
-      : "",
+    // 「产品占画面比例」已下线（2026-09-16），但「产品必须完整可见」这条约束
+    // 原先是搭在它上面的。它与比例档位无关、任何时候都成立，因此固化为常驻条款——
+    // 跟着被删掉的话，模型少了唯一一句"不得裁切"的指令，会出现产品被切边的图。
+    "保持产品完整可见，不得裁切或遮挡产品主体。",
     hasBackgroundReference
       ? "A background reference image was provided by the user, but the written prompt is the main requirement. Follow the requested scene, mood, lighting, perspective, material texture, spatial depth, and commercial photography feel."
       : "Create a realistic commercial background around the product. Match the requested scene, lighting, shadows, perspective, depth, and contact shadow naturally.",
@@ -4646,7 +4660,6 @@ export async function createProductBackground(input: CreateBackgroundInput): Pro
     output.width,
     output.height,
     input.composition,
-    input.productScale,
   );
   const prompt = __testBuildSmartProductPrompt(input);
 

@@ -780,7 +780,6 @@ export async function createProductBackground({
   prompt,
   style,
   composition,
-  productScale,
   sceneType,
   ratio = AUTO_RATIO_VALUE,
   resolution = "2k",
@@ -796,7 +795,6 @@ export async function createProductBackground({
   prompt?: string;
   style?: string;
   composition?: string;
-  productScale?: string;
   sceneType?: number;
   ratio?: string;
   resolution?: "2k" | "4k";
@@ -814,7 +812,6 @@ export async function createProductBackground({
     prompt,
     style,
     composition,
-    productScale,
     sceneType,
     ratio: resolveImageRatio(ratio),
     resolution,

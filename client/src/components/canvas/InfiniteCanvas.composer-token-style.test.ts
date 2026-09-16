@@ -11,8 +11,19 @@ import { describe, expect, it } from "vitest";
 //      导致同一行里两类标签明显不一样大
 //
 // 修复后两者共用 COMPOSER_REF_TOKEN_SIZE + getComposerRefTokenColors。
+//
+// 2026-09-16 变更：这两个常量/函数已从 InfiniteCanvas.tsx 内部提取到
+// composer-ref-token.ts，因为智能产品图的「风格参考图」标签也要用同一套外观。
+// 断言的**约束没有变**（尺寸配色只有一处定义、两类标签都从它取值），
+// 只是定义位置从本文件挪到了共享模块，所以锚点跟着挪。
+// ⚠️ 这里不是「文本变了就改断言」，而是「约束仍然成立、锚点失效」——
+//    额外补了一条禁止副本的断言，把约束锁得比之前更紧。
 
 const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+const tokenModuleSource = readFileSync(
+  resolve(__dirname, "composer-ref-token.ts"),
+  "utf-8"
+);
 
 function sliceToken(kind: "image" | "annotation") {
   const start = source.indexOf(`data-composer-token="${kind}"`);
@@ -23,9 +34,12 @@ function sliceToken(kind: "image" | "annotation") {
 
 describe("composer reference tokens share one size", () => {
   it("defines a single shared size constant", () => {
-    expect(source).toContain("const COMPOSER_REF_TOKEN_SIZE = {");
-    expect(source).toContain("maxWidth: 82");
-    expect(source).toContain("height: 26");
+    expect(tokenModuleSource).toContain("export const COMPOSER_REF_TOKEN_SIZE = {");
+    expect(tokenModuleSource).toContain("maxWidth: 82");
+    expect(tokenModuleSource).toContain("height: 26");
+    // 画布必须 import 而不是自己再定义一份
+    expect(source).toContain('from "@/components/canvas/composer-ref-token"');
+    expect(source).not.toContain("const COMPOSER_REF_TOKEN_SIZE = {");
   });
 
   it("image token reads every dimension from the shared constant", () => {
@@ -65,8 +79,12 @@ describe("composer reference tokens share one size", () => {
 
 describe("composer reference tokens share one black color scheme", () => {
   it("defines a single shared color helper", () => {
-    expect(source).toContain("function getComposerRefTokenColors(");
-    expect(source).toContain('background: isDark ? "#121110" : "rgba(18,17,16,0.12)"');
+    expect(tokenModuleSource).toContain("export function getComposerRefTokenColors(");
+    expect(tokenModuleSource).toContain(
+      'background: isDark ? "#121110" : "rgba(18,17,16,0.12)"'
+    );
+    // 同上：画布不得留下第二份实现
+    expect(source).not.toContain("function getComposerRefTokenColors(");
   });
 
   it("both tokens spread the shared colors", () => {

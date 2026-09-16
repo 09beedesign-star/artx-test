@@ -520,6 +520,13 @@ import {
   SmartCommerceProductDialog,
   type SmartCommerceProductCreateDetail,
 } from "@/components/canvas/SmartCommerceProductDialog";
+// 引用标签的尺寸/配色唯一事实源。
+// ⚠️ 智能产品图的风格参考图标签也 import 同一份，禁止任何一侧再硬编码副本——
+//    同一份视觉规格一旦有两个出口，改一处另一处不动，且零报错。
+import {
+  COMPOSER_REF_TOKEN_SIZE,
+  getComposerRefTokenColors,
+} from "@/components/canvas/composer-ref-token";
 import {
   InspirationPromptDialog,
   type InspirationPromptItem,
@@ -18057,24 +18064,6 @@ function isAssistantTokenSegment(segment: AssistantComposerSegment) {
   );
 }
 
-// 引用类标签（image / annotation）的统一尺寸。
-//
-// 这两类标签此前各写各的：image 用 inline style，且尺寸挂在 isSelectedImageToken 上
-// 在两组值之间跳（maxWidth 82/62、height 26/undefined、gap 6/2）；
-// annotation 则写在 className 里（max-w-[92px] gap-1 px-1.5 py-0.5）。
-// 结果同一行里「注释引用」比「图片引用」明显更大，且图片标签自己还会随画布选中态变大变小。
-//
-// 统一到这一组常量后，标签尺寸不再受触发方式（普通引用 / 智能注释）和选中态影响。
-const COMPOSER_REF_TOKEN_SIZE = {
-  maxWidth: 82,
-  height: 26,
-  gap: 6,
-  padding: "4px 8px 4px 4px",
-  iconSize: 18,
-  labelMaxWidth: 51,
-  labelFontSize: 12,
-} as const;
-
 /**
  * 图文混排提示词出图时优先使用的图片模型（用户口中的「gem」）。
  *
@@ -18134,30 +18123,6 @@ function buildReferenceEditGuidance(targetPosition: number) {
     "Do not copy the composition, background, or framing of the material images, and do not output them side by side or as a collage.",
     "Return a single edited version of the target canvas with the requested change applied to it.",
   ].join("\n");
-}
-
-// 引用类标签的统一配色（黑色）。image 与 annotation 共用，避免再次跑偏。
-//
-// isSelected 指「按 Backspace 待删除」的选中态，不是画布节点的选中态——
-// 后者曾导致标签紫黑跳变，已废除。这里底色始终保持黑，仅用描边和外发光
-// 表达选中，既给出删除前的可见反馈，又不破坏「配色恒定」的约定。
-function getComposerRefTokenColors(
-  isDark: boolean,
-  isDragOver: boolean,
-  isSelected = false
-) {
-  const accent = isDragOver
-    ? "rgba(42,42,45,0.55)"
-    : isSelected
-      ? "rgba(42,42,45,0.62)"
-      : "rgba(42,42,45,0.13)";
-  return {
-    background: isDark ? "#121110" : "rgba(18,17,16,0.12)",
-    border: `1px solid ${accent}`,
-    color: isDark ? "#c7c7c7" : "rgba(28,28,40,0.72)",
-    boxShadow:
-      isDragOver || isSelected ? "0 0 0 2px rgba(42,42,45,0.18)" : "none",
-  };
 }
 
 function createAssistantSkillSegment(
@@ -25282,11 +25247,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               prompt: detail.prompt,
               style: detail.style,
               composition: detail.composition,
-              productScale: detail.productScale,
               sceneType: detail.sceneType,
               ratio: detail.ratio,
               resolution: detail.resolution,
               count: detail.count,
+              // 电商平台预设最终就体现为这两个值——服务端 getBackgroundOutputSize
+              // 的第一分支优先吃 customWidth/customHeight，所以平台规格是硬生效的。
               customWidth: detail.customWidth,
               customHeight: detail.customHeight,
               model: DEFAULT_IMAGE_AI_MODEL_ID,
@@ -25298,7 +25264,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               prompt: detail.prompt,
               style: detail.style,
               composition: detail.composition,
-              productScale: detail.productScale,
               sceneType: detail.sceneType,
               ratio: detail.ratio,
               resolution: detail.resolution,

@@ -544,19 +544,45 @@ describe("generated image source normalization", () => {
       .toBeLessThan(prompt.indexOf("补充风格标签：赛博风"));
   });
 
-  it("uses the selected smart-product composition and scale for the prepared product canvas", () => {
-    expect(__testResolveSmartProductLayout("left", "small")).toMatchObject({
-      composition: "left",
-      productScale: "small",
-      x: 0.12,
-      width: 0.46,
-    });
-    expect(__testResolveSmartProductLayout("bottom", "large")).toMatchObject({
+  /*
+    2026-09-16：「产品占画面比例」整项下线，__testResolveSmartProductLayout
+    不再接受 productScale，占位固化为原 medium 档（0.66 × 0.72）。
+
+    ⚠️ 这里断言的重点从「档位算得对不对」转向「构图锚点是不是真的把产品放在那一侧」——
+       因为同一天前端把「左侧留白 / 右侧留白」改成了「产品居左 / 产品居右」，
+       必须有一条测试锁住「left = 产品靠左」这个语义，
+       否则以后有人望文生义地去翻转 x，功能会反过来且没人发现。
+  */
+  it("keeps the smart-product anchor on the side the composition names", () => {
+    const left = __testResolveSmartProductLayout("left");
+    const right = __testResolveSmartProductLayout("right");
+
+    // 产品居左 → 归一化横向锚点必须靠近 0（贴左），且明显小于居右
+    expect(left).toMatchObject({ composition: "left", x: 0.12 });
+    expect(right).toMatchObject({ composition: "right", x: 0.88 });
+    expect(left.x).toBeLessThan(right.x);
+
+    // 占位固化，不再随档位变化
+    expect(left).toMatchObject({ width: 0.66, height: 0.72 });
+    expect(__testResolveSmartProductLayout("bottom")).toMatchObject({
       composition: "bottom",
-      productScale: "large",
       y: 0.84,
-      width: 0.82,
+      width: 0.66,
     });
+    // 未知构图落回居中
+    expect(__testResolveSmartProductLayout(undefined)).toMatchObject({
+      composition: "center",
+      x: 0.5,
+    });
+  });
+
+  it("always tells the model not to crop the product", () => {
+    // 「不得裁切」原先挂在 productScale 分支上，随它一起删掉就会静默失去这条约束。
+    const prompt = __testBuildSmartProductPrompt({
+      imageSrc: "data:image/png;base64,test",
+      prompt: "极简白底",
+    });
+    expect(prompt).toContain("不得裁切");
   });
 
   it("parses OCR text regions used by smart copy masks", () => {
