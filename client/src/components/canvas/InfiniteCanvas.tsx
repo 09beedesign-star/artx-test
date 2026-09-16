@@ -595,9 +595,19 @@ const CANVAS_MAX_ZOOM = 4;
 const CANVAS_WHEEL_ZOOM_SPEED = 0.0015;
 const CANVAS_CROSS_PROJECT_CLIPBOARD_KEY =
   "artx:canvas-cross-project-clipboard";
-const CLOUD_RETENTION_TOAST_STORAGE_KEY = "artx:cloud-retention-toast-date";
-const CLOUD_RETENTION_TOAST_COPY =
-  "图片会在云服务器当中存储一周时间，请尽快下载到本地，以免图片丢失哟。";
+// ── 云端留存提醒 ───────────────────────────────────────────────
+// 规则（产品定稿 2026-09-16）：
+//   · 阻断式弹窗，必须点「我知道了」才关闭，不自动消失
+//   · 每 15 天最多提示一次
+//   · 用户点「不再提醒」后永久关闭，此后任何情况都不再出现
+// ⚠️ 旧实现是「图片下方 6.2 秒自动消失的小气泡 + 每天一次」，已整体替换。
+const CLOUD_RETENTION_LAST_SHOWN_KEY = "artx:cloud-retention-last-shown";
+const CLOUD_RETENTION_OPT_OUT_KEY = "artx:cloud-retention-opt-out";
+const CLOUD_RETENTION_INTERVAL_DAYS = 15;
+const CLOUD_RETENTION_STORAGE_DAYS = 10;
+const CLOUD_RETENTION_DIALOG_TITLE = "图片将保存 10 天";
+const CLOUD_RETENTION_DIALOG_COPY =
+  `生成的图片会在云服务器保存 ${CLOUD_RETENTION_STORAGE_DAYS} 天，到期后自动清除。请及时下载到本地，以免丢失。`;
 const GROUP_MERGE_HOVER_MS = 500;
 const CROSS_CANVAS_COPY_TYPES = [
   "asset",
@@ -703,7 +713,19 @@ function getLocalDateKey(date = new Date()) {
 function shouldShowCloudRetentionToast() {
   if (typeof window === "undefined") return false;
   try {
-    return window.localStorage.getItem(CLOUD_RETENTION_TOAST_STORAGE_KEY) !== getLocalDateKey();
+    // 「不再提醒」是终态：一旦置位，后面的间隔判断一律跳过。
+    if (window.localStorage.getItem(CLOUD_RETENTION_OPT_OUT_KEY) === "1") {
+      return false;
+    }
+    const last = window.localStorage.getItem(CLOUD_RETENTION_LAST_SHOWN_KEY);
+    if (!last) return true;
+    const lastTime = Number(last);
+    // ⚠️ 旧版本存的是 "YYYY-MM-DD" 字符串，Number() 会得到 NaN。
+    //    NaN 参与任何比较都是 false，会导致「永远不提示」而非「立即提示」——
+    //    必须显式兜底，否则老用户静默失去这个提醒。
+    if (!Number.isFinite(lastTime)) return true;
+    const elapsedDays = (Date.now() - lastTime) / (24 * 60 * 60 * 1000);
+    return elapsedDays >= CLOUD_RETENTION_INTERVAL_DAYS;
   } catch {
     return false;
   }
@@ -712,9 +734,21 @@ function shouldShowCloudRetentionToast() {
 function markCloudRetentionToastShown() {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(CLOUD_RETENTION_TOAST_STORAGE_KEY, getLocalDateKey());
+    window.localStorage.setItem(
+      CLOUD_RETENTION_LAST_SHOWN_KEY,
+      String(Date.now())
+    );
   } catch {
     // Ignore storage failures; the reminder is helpful but not critical.
+  }
+}
+
+function markCloudRetentionOptOut() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(CLOUD_RETENTION_OPT_OUT_KEY, "1");
+  } catch {
+    // Ignore storage failures.
   }
 }
 
@@ -6528,12 +6562,6 @@ function AssetNodeComponent({
   const rotation = (data.rotation as number) || 0;
   const flipX = Boolean(data.flipX);
   const stableUiScale = 1 / Math.max(0.2, viewport.zoom || 1);
-  const shouldShowCloudRetentionToastOverlay = Boolean(
-    (data as { showCloudRetentionToast?: boolean }).showCloudRetentionToast
-  );
-  const [cloudRetentionToastVisible, setCloudRetentionToastVisible] = useState(
-    shouldShowCloudRetentionToastOverlay
-  );
   const assetAdjustments = normalizeAssetAdjustments(
     (data.assetAdjustmentPreview as AssetAdjustmentValues | undefined) ||
       data.assetAdjustments
@@ -6802,31 +6830,6 @@ function AssetNodeComponent({
     },
     [extractedTextScrollThumb]
   );
-
-  useEffect(() => {
-    if (!shouldShowCloudRetentionToastOverlay) {
-      setCloudRetentionToastVisible(false);
-      return;
-    }
-    setCloudRetentionToastVisible(true);
-    const timer = window.setTimeout(() => {
-      setCloudRetentionToastVisible(false);
-      setFlowNodes(nds =>
-        nds.map(n =>
-          n.id === nodeId
-            ? {
-                ...n,
-                data: {
-                  ...(n.data as Record<string, unknown>),
-                  showCloudRetentionToast: false,
-                },
-              }
-            : n
-        )
-      );
-    }, 6200);
-    return () => window.clearTimeout(timer);
-  }, [nodeId, setFlowNodes, shouldShowCloudRetentionToastOverlay]);
 
   // 选中边框样式
   const borderColor = selected ? "oklch(0.65 0.22 290)" : "transparent";
@@ -8893,32 +8896,6 @@ function AssetNodeComponent({
               </button>
             )}
         </div>
-        {cloudRetentionToastVisible && !isAiProcessingImage && (
-          <div
-            className="absolute left-1/2 nodrag nopan rounded-[var(--radius-md-design)] px-3 py-1.5 text-center shadow-xl"
-            style={{
-              top: `calc(100% + ${4 * stableUiScale}px)`,
-              transform: `translateX(-50%) scale(${stableUiScale})`,
-              transformOrigin: "top center",
-              zIndex: 126,
-              maxWidth: 280,
-              minWidth: 218,
-              background: isDark
-                ? "rgba(20,20,28,0.94)"
-                : "rgba(255,255,255,0.96)",
-              border: `1px solid ${isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.10)"}`,
-              color: isDark ? "rgba(255,255,255,0.84)" : "rgba(24,24,32,0.78)",
-              backdropFilter: "blur(14px)",
-              fontSize: 11,
-              lineHeight: "16px",
-              letterSpacing: 0,
-              pointerEvents: "none",
-              whiteSpace: "normal",
-            }}
-          >
-            {CLOUD_RETENTION_TOAST_COPY}
-          </div>
-        )}
         {extractedTextPanelOpen && (
           <div
             ref={extractedTextPanelRef}
@@ -23499,6 +23476,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setCenter,
   } = useReactFlow();
   const viewport = useViewport();
+  // 云端留存提醒弹窗：阻断式，必须点「我知道了」或「不再提醒」才关闭。
+  const [cloudRetentionDialogOpen, setCloudRetentionDialogOpen] =
+    useState(false);
   const restoredCanvasState = useMemo(
     () => safeReadCanvasState(projectId),
     [projectId]
@@ -27581,8 +27561,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         toast("图像生成失败", { description: "AI 未返回可用图片，请稍后重试" });
         return;
       }
-      const showCloudRetentionToast = shouldShowCloudRetentionToast();
-      if (showCloudRetentionToast) markCloudRetentionToastShown();
+      // ⚠️ 只在这里做一次判定并立即落盘，不要在渲染期重复调用 —— 渲染可能跑多次，
+      //    会把「上次提示时间」反复刷新，导致 15 天间隔永远从最后一次渲染开始算。
+      if (shouldShowCloudRetentionToast()) {
+        markCloudRetentionToastShown();
+        setCloudRetentionDialogOpen(true);
+      }
       const backupItems = images.map((image, index) => {
         const fittedSize = detail.skillId
           ? fitGeneratedImageSizeToFrame(image, size)
@@ -27678,7 +27662,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 ],
                 imgW: fittedSize.w,
                 imgH: fittedSize.h,
-                showCloudRetentionToast: showCloudRetentionToast && index === 0,
                 sourceBackgroundSrc: undefined,
                 ...getImageGenerationNodeMetadata(detail),
               },
@@ -27748,7 +27731,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               ],
               imgW: fittedSize.w,
               imgH: fittedSize.h,
-              showCloudRetentionToast: showCloudRetentionToast && index === 0,
               sourceBackgroundSrc: undefined,
               ...getImageGenerationNodeMetadata(detail),
             },
@@ -34870,7 +34852,103 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           }
         />
       )}
+
+      {/* 云端留存提醒 — 阻断式，遮罩不可点穿，只能通过两个按钮关闭 */}
+      <CloudRetentionDialog
+        open={cloudRetentionDialogOpen}
+        isDark={isDark}
+        onAcknowledge={() => setCloudRetentionDialogOpen(false)}
+        onOptOut={() => {
+          markCloudRetentionOptOut();
+          setCloudRetentionDialogOpen(false);
+        }}
+      />
     </div>
+  );
+}
+
+// ── 云端留存提醒弹窗 ──
+// ⚠️ 阻断式的三个必要条件，缺一条就不再是「阻断」：
+//   1. 遮罩自身要吃掉点击（不能 pointerEvents:none），且不绑 onClick 关闭
+//   2. 不设任何自动关闭定时器
+//   3. 不响应 Esc —— 否则用户可以不做选择就跳过
+// 📌 只把背景压暗但允许点击穿透，是「看起来像模态」的假模态。
+function CloudRetentionDialog({
+  open,
+  isDark,
+  onAcknowledge,
+  onOptOut,
+}: {
+  open: boolean;
+  isDark: boolean;
+  onAcknowledge: () => void;
+  onOptOut: () => void;
+}) {
+  if (!open || typeof document === "undefined") return null;
+
+  const panelBg = isDark ? "rgba(24,24,32,0.98)" : "rgba(255,255,255,0.99)";
+  const borderColor = isDark
+    ? "rgba(255,255,255,0.14)"
+    : "rgba(0,0,0,0.10)";
+  const titleColor = isDark ? "rgba(255,255,255,0.94)" : "rgba(20,20,28,0.92)";
+  const bodyColor = isDark ? "rgba(255,255,255,0.70)" : "rgba(28,28,40,0.68)";
+  const ghostColor = isDark ? "rgba(255,255,255,0.52)" : "rgba(28,28,40,0.50)";
+
+  return createPortal(
+    <div
+      className="fixed inset-0 flex items-center justify-center"
+      style={{
+        zIndex: 4000,
+        background: "rgba(8,8,12,0.52)",
+        backdropFilter: "blur(2px)",
+        // pointerEvents 保持默认 auto：遮罩必须挡住底下所有交互
+      }}
+      onMouseDown={event => event.stopPropagation()}
+      onClick={event => event.stopPropagation()}
+    >
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        className="flex w-[min(360px,calc(100vw-40px))] flex-col rounded-lg px-5 pb-4 pt-5"
+        style={{
+          background: panelBg,
+          border: `1px solid ${borderColor}`,
+          boxShadow: "0 20px 56px rgba(0,0,0,0.30)",
+        }}
+      >
+        <div
+          className="text-[13px] font-semibold"
+          style={{ color: titleColor }}
+        >
+          {CLOUD_RETENTION_DIALOG_TITLE}
+        </div>
+        <p
+          className="mt-2 text-[11px] leading-[18px]"
+          style={{ color: bodyColor }}
+        >
+          {CLOUD_RETENTION_DIALOG_COPY}
+        </p>
+        <div className="mt-5 flex items-center justify-between gap-3">
+          <button
+            type="button"
+            className="text-[11px] underline-offset-2 hover:underline"
+            style={{ color: ghostColor }}
+            onClick={onOptOut}
+          >
+            不再提醒
+          </button>
+          <button
+            type="button"
+            className="h-8 rounded-md px-4 text-[11px] font-semibold"
+            style={{ color: "#172000", background: "var(--accent-lime, #d7f25c)" }}
+            onClick={onAcknowledge}
+          >
+            我知道了
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 }
 

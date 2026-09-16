@@ -605,15 +605,44 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).not.toContain("imageSrc: expandedCanvas.toDataURL");
   });
 
-  it("shows a generated-image cloud retention reminder under the image once per day", () => {
+  it("shows a blocking cloud-retention dialog every 15 days until opted out", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
 
-    expect(source).toContain('const CLOUD_RETENTION_TOAST_STORAGE_KEY = "artx:cloud-retention-toast-date"');
-    expect(source).toContain("const showCloudRetentionToast = shouldShowCloudRetentionToast()");
-    expect(source).toContain("markCloudRetentionToastShown()");
-    expect(source).toContain("showCloudRetentionToast: showCloudRetentionToast && index === 0");
-    expect(source).toContain("图片会在云服务器当中存储一周时间，请尽快下载到本地，以免图片丢失哟。");
-    expect(source).toContain("top: `calc(100% + ${4 * stableUiScale}px)`");
+    // 留存时长与提示间隔是产品定的数字，改动必须是有意识的。
+    expect(source).toContain("const CLOUD_RETENTION_INTERVAL_DAYS = 15");
+    expect(source).toContain("const CLOUD_RETENTION_STORAGE_DAYS = 10");
+    expect(source).toContain("云服务器保存 ${CLOUD_RETENTION_STORAGE_DAYS} 天");
+
+    // 「不再提醒」必须是终态：读取侧先查 opt-out 再谈间隔。
+    expect(source).toContain('const CLOUD_RETENTION_OPT_OUT_KEY = "artx:cloud-retention-opt-out"');
+    expect(source).toContain("function markCloudRetentionOptOut()");
+    const gate = source.match(/function shouldShowCloudRetentionToast\(\)[\s\S]*?\n}/)?.[0] ?? "";
+    expect(gate).toContain("CLOUD_RETENTION_OPT_OUT_KEY");
+    // opt-out 判断必须排在间隔判断之前，否则「不再提醒」会被间隔逻辑绕过。
+    expect(gate.indexOf("CLOUD_RETENTION_OPT_OUT_KEY")).toBeLessThan(
+      gate.indexOf("CLOUD_RETENTION_INTERVAL_DAYS")
+    );
+    // 旧版存的是 YYYY-MM-DD，Number() 得 NaN；没有兜底会导致老用户永远不提示。
+    expect(gate).toContain("Number.isFinite(lastTime)");
+
+    // 阻断式的核心约束：有两个按钮、不自动消失。
+    // ⚠️ 别用 /\n}/ 收尾：解构参数列表自己的 `\n}` 会先命中，
+    //    截出来只有函数签名，后面的断言必然全挂（2026-09-16 踩过）。
+    //    用函数体结尾的 portal 调用作为明确锚点。
+    const dialog =
+      source.match(/function CloudRetentionDialog\(\{[\s\S]*?document\.body\s*\);/)?.[0] ?? "";
+    expect(dialog).toBeTruthy();
+    expect(dialog).toContain("我知道了");
+    expect(dialog).toContain("不再提醒");
+    expect(dialog).toContain('aria-modal="true"');
+    // ⚠️ 遮罩绝不能点击穿透，也不能有自动关闭定时器 —— 否则就不是阻断式。
+    expect(dialog).not.toContain("pointerEvents: \"none\"");
+    expect(dialog).not.toContain("setTimeout");
+
+    // 旧的「图片下方小气泡 + 每天一次」实现必须已被移除，避免两套并存。
+    expect(source).not.toContain("cloudRetentionToastVisible");
+    expect(source).not.toContain("artx:cloud-retention-toast-date");
+    expect(source).not.toContain("图片会在云服务器当中存储一周时间");
   });
 
   it("uses the dynamic image model catalog in the bottom assistant selector", () => {
