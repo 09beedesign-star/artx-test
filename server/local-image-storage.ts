@@ -26,7 +26,28 @@ type StoreImagesOptions = {
   providerTaskIds?: string[];
 };
 
-const MAX_IMAGE_BYTES = Number(process.env.ARTX_LOCAL_IMAGE_MAX_BYTES || 50 * 1024 * 1024);
+// 落盘体积硬上限 20MB。这是产品级约束，不是可以随便抬高的调优项：
+// 单张超过 20MB 的图在前端画布加载、CDN 回源、10 天保留期的磁盘占用上都会出问题。
+// 因此 ARTX_LOCAL_IMAGE_MAX_BYTES 只允许「调小」，配大了会被夹回 20MB——
+// 否则运维一行环境变量就能把这条底线绕过去，等于没设。
+const MAX_IMAGE_BYTES_HARD_CAP = 20 * 1024 * 1024;
+
+function resolveMaxImageBytes() {
+  const configured = Number(process.env.ARTX_LOCAL_IMAGE_MAX_BYTES || 0);
+  if (!Number.isFinite(configured) || configured <= 0) return MAX_IMAGE_BYTES_HARD_CAP;
+  return Math.min(Math.floor(configured), MAX_IMAGE_BYTES_HARD_CAP);
+}
+
+function formatMegabytes(bytes: number) {
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+// 统一的超限文案。用户看到的是这串原文（前端直接把 message 塞进 toast 的
+// description），所以必须是中文、说清上限、并给出可执行的下一步动作。
+function buildTooLargeMessage(actualBytes: number, limitBytes: number) {
+  return `生成的图片体积为 ${formatMegabytes(actualBytes)}，超过 ${formatMegabytes(limitBytes)} 的保存上限，已尝试压缩但仍然过大。建议调小输出分辨率后重新生成。`;
+}
+
 const PUBLIC_IMAGE_BASE_PATH = "/uploads/images";
 const PUBLIC_FEEDBACK_BASE_PATH = "/uploads/feedback";
 const DEFAULT_UPLOAD_RETENTION_DAYS = 10;
@@ -166,6 +187,113 @@ function extensionForMimeType(mimeType: string) {
   return ".png";
 }
 
+// ── 超限图片的压缩降级链 ──────────────────────────────────────────────
+// 设计前提：图已经生成成功（算力和积分都花掉了），此时因为体积超限直接丢弃
+// 是最亏的做法。所以先尽力压到 20MB 以内，压不动才报错。
+//
+// 画质保护是硬约束，不能为了压进 20MB 把图压糊：
+//   · webp 质量不低于 QUALITY_FLOOR(72)，低于这个值肉眼可见涂抹感；
+//   · 缩边不低于原图最短边的 MIN_SCALE(60%)，再小构图细节就没了。
+// 两条底线都触到仍然超限 → 判定「该分辨率本身就不适合本地保存」，
+// 抛中文错误并建议用户调小分辨率重新生成。
+const COMPRESSION_QUALITY_FLOOR = 72;
+const COMPRESSION_MIN_SCALE = 0.6;
+
+// 远程图允许下载的体积天花板 = 上限 × 8（即 160MB）。
+// 超过这个量级的图即使压到质量/尺寸底线也基本进不了 20MB，
+// 与其把带宽和内存耗在下载上，不如在响应头阶段就拒掉。
+const COMPRESSIBLE_DOWNLOAD_MULTIPLIER = 8;
+
+// 质量阶梯从高到低，先只降质量不动尺寸（保构图），不够再按 scale 缩边。
+const COMPRESSION_QUALITY_STEPS = [92, 86, 80, COMPRESSION_QUALITY_FLOOR];
+const COMPRESSION_SCALE_STEPS = [1, 0.85, 0.72, COMPRESSION_MIN_SCALE];
+
+type CompressionOutcome = {
+  buffer: Buffer;
+  mimeType: string;
+  compressed: boolean;
+};
+
+// 动图和矢量图不能走 sharp 的有损重编码：
+// gif 会被压成单帧（动画丢失），svg 本身是文本矢量、重编码等于栅格化。
+function isNonRecompressibleMimeType(mimeType: string) {
+  return /gif|svg/i.test(mimeType);
+}
+
+/**
+ * 把超过上限的图片压缩到上限以内。
+ *
+ * 关键点：每压一级都要**重新测量实际字节数**再判断，而不是假设「压了就一定够小」。
+ * sharp 的输出体积和质量参数并非线性关系，高噪点图在 q=80 时甚至可能比 q=86 更大，
+ * 所以必须实测复检——这正是用户要求的「压缩之后体积也要监测」。
+ */
+async function compressImageToLimit(
+  buffer: Buffer,
+  mimeType: string,
+  limitBytes: number,
+): Promise<CompressionOutcome> {
+  if (buffer.byteLength <= limitBytes) {
+    return { buffer, mimeType, compressed: false };
+  }
+
+  if (isNonRecompressibleMimeType(mimeType)) {
+    throw new Error(buildTooLargeMessage(buffer.byteLength, limitBytes));
+  }
+
+  let sharp: typeof import("sharp");
+  try {
+    sharp = (await import("sharp")).default;
+  } catch {
+    // sharp 不可用时没有任何压缩手段，只能如实报超限。
+    throw new Error(buildTooLargeMessage(buffer.byteLength, limitBytes));
+  }
+
+  const metadata = await sharp(buffer, { limitInputPixels: false }).metadata();
+  const originalWidth = metadata.width || 0;
+  const originalHeight = metadata.height || 0;
+
+  // 记录压得最小的一版：即便全部档位都没压进上限，
+  // 报错时也能用真实的「最小可达体积」告诉用户差多少。
+  let smallest: { buffer: Buffer; mimeType: string } | null = null;
+
+  for (const scale of COMPRESSION_SCALE_STEPS) {
+    for (const quality of COMPRESSION_QUALITY_STEPS) {
+      let pipeline = sharp(buffer, { limitInputPixels: false }).rotate();
+
+      if (scale < 1 && originalWidth > 0 && originalHeight > 0) {
+        pipeline = pipeline.resize({
+          width: Math.max(1, Math.round(originalWidth * scale)),
+          height: Math.max(1, Math.round(originalHeight * scale)),
+          fit: "inside",
+          withoutEnlargement: true,
+        });
+      }
+
+      // 统一转 webp：同画质下比 png/jpeg 小得多，且支持透明通道，
+      // 不会像转 jpeg 那样把抠图类结果的透明背景压成黑底。
+      let candidate: Buffer;
+      try {
+        candidate = await pipeline.webp({ quality, effort: 4 }).toBuffer();
+      } catch {
+        continue;
+      }
+
+      if (!smallest || candidate.byteLength < smallest.buffer.byteLength) {
+        smallest = { buffer: candidate, mimeType: "image/webp" };
+      }
+
+      // 复检：实测通过才算数。
+      if (candidate.byteLength <= limitBytes) {
+        return { buffer: candidate, mimeType: "image/webp", compressed: true };
+      }
+    }
+  }
+
+  // 画质底线之内压不进上限，如实告知并引导调小分辨率。
+  const bestBytes = smallest ? smallest.buffer.byteLength : buffer.byteLength;
+  throw new Error(buildTooLargeMessage(bestBytes, limitBytes));
+}
+
 function isLikelyBase64ImagePayload(value: string) {
   const compact = value.trim().replace(/\s+/g, "");
   return compact.length >= 80 &&
@@ -186,11 +314,12 @@ function filenameFromImageSrc(src: string, fallbackName: string) {
   return fallbackName;
 }
 
-async function imageSrcToBuffer(src: string): Promise<{ buffer: Buffer; mimeType: string }> {
+async function imageSrcToBuffer(src: string): Promise<CompressionOutcome> {
+  const limitBytes = resolveMaxImageBytes();
+
   if (isLikelyBase64ImagePayload(src)) {
     const buffer = Buffer.from(src.trim().replace(/\s+/g, ""), "base64");
-    if (buffer.byteLength > MAX_IMAGE_BYTES) throw new Error("Generated image is too large to store locally");
-    return { buffer, mimeType: "image/png" };
+    return compressImageToLimit(buffer, "image/png", limitBytes);
   }
 
   if (src.startsWith("data:")) {
@@ -198,8 +327,7 @@ async function imageSrcToBuffer(src: string): Promise<{ buffer: Buffer; mimeType
     if (!match) throw new Error("Invalid generated image data URL");
     const mimeType = (match[1] || "image/png").split(";")[0];
     const buffer = match[2] ? Buffer.from(match[3], "base64") : Buffer.from(decodeURIComponent(match[3]));
-    if (buffer.byteLength > MAX_IMAGE_BYTES) throw new Error("Generated image is too large to store locally");
-    return { buffer, mimeType };
+    return compressImageToLimit(buffer, mimeType, limitBytes);
   }
 
   if (!/^https?:\/\//i.test(src)) {
@@ -217,8 +345,14 @@ async function imageSrcToBuffer(src: string): Promise<{ buffer: Buffer; mimeType
     throw new Error(`Failed to download generated image: ${response.status}`);
   }
 
+  // Content-Length 预检只用来挡「离谱到压缩也救不回来」的情况，避免白下几百 MB。
+  // 注意不能再按 limitBytes 直接拒绝：超过 20MB 的图现在是可以靠压缩救回来的，
+  // 沿用旧阈值会把本来能压进来的图误杀在下载前。
   const contentLength = Number(response.headers.get("content-length") || 0);
-  if (contentLength > MAX_IMAGE_BYTES) throw new Error("Generated image is too large to store locally");
+  const downloadCeiling = limitBytes * COMPRESSIBLE_DOWNLOAD_MULTIPLIER;
+  if (contentLength > downloadCeiling) {
+    throw new Error(buildTooLargeMessage(contentLength, limitBytes));
+  }
 
   const mimeType = (response.headers.get("content-type") || "image/png").split(";")[0].trim().toLowerCase();
   if (!mimeType.startsWith("image/") && mimeType !== "application/octet-stream") {
@@ -226,8 +360,8 @@ async function imageSrcToBuffer(src: string): Promise<{ buffer: Buffer; mimeType
   }
 
   const buffer = Buffer.from(await response.arrayBuffer());
-  if (buffer.byteLength > MAX_IMAGE_BYTES) throw new Error("Generated image is too large to store locally");
-  return { buffer, mimeType: mimeType === "application/octet-stream" ? "image/png" : mimeType };
+  const normalizedMimeType = mimeType === "application/octet-stream" ? "image/png" : mimeType;
+  return compressImageToLimit(buffer, normalizedMimeType, limitBytes);
 }
 
 async function getImageBufferDimensions(buffer: Buffer, fallback: { width: number; height: number }) {
@@ -273,17 +407,26 @@ export async function storeGeneratedImagesForUser(
   const taskId = options.providerTaskId || options.providerTaskIds?.[0] || `generated-${Date.now()}`;
 
   return Promise.all(images.map(async (image, index) => {
-    const { buffer, mimeType } = await imageSrcToBuffer(image.src);
+    const { buffer, mimeType, compressed } = await imageSrcToBuffer(image.src);
+    // 压缩后必须用压缩产物的真实尺寸回填：降档时可能缩过边，
+    // 继续沿用 provider 报的原始宽高会让前端画布按错误比例渲染。
     const dimensions = await getImageBufferDimensions(buffer, {
       width: image.width,
       height: image.height,
     });
-    const fallbackFilename = `${taskId}-${index + 1}${extensionForMimeType(mimeType)}`;
+    const extension = extensionForMimeType(mimeType);
+    const fallbackFilename = `${taskId}-${index + 1}${extension}`;
     const providerFilename = filenameFromImageSrc(image.src, fallbackFilename);
     const safeFilename = sanitizePathSegment(providerFilename, fallbackFilename);
-    const filename = path.extname(safeFilename)
-      ? safeFilename
-      : `${safeFilename}${extensionForMimeType(mimeType)}`;
+    // 走过压缩的图已经重编码为 webp，此时若沿用上游 URL 带来的 .png/.jpg 后缀，
+    // 会写出「扩展名与实际编码不符」的文件，静态服务按后缀猜 Content-Type 就会发错，
+    // 部分浏览器会直接拒绝渲染。因此压缩过的一律以真实 mime 的后缀为准。
+    const baseFilename = compressed
+      ? `${safeFilename.replace(/\.[^.]+$/, "")}${extension}`
+      : safeFilename;
+    const filename = path.extname(baseFilename)
+      ? baseFilename
+      : `${baseFilename}${extension}`;
     const storedFilename = await writeUniqueFile(imageDirectory, filename, buffer);
 
     return {
@@ -306,12 +449,16 @@ export async function storeFeedbackImagesForUser(
   await fs.mkdir(imageDirectory, { recursive: true, mode: 0o750 });
 
   return Promise.all(images.map(async (image, index) => {
-    const { buffer, mimeType } = await imageSrcToBuffer(image.src);
+    const { buffer, mimeType, compressed } = await imageSrcToBuffer(image.src);
     if (!mimeType.startsWith("image/")) throw new Error("反馈附件必须是图片");
     const dimensions = await getImageBufferDimensions(buffer, { width: 0, height: 0 });
-    const fallbackFilename = `feedback-${index + 1}${extensionForMimeType(mimeType)}`;
+    const extension = extensionForMimeType(mimeType);
+    const fallbackFilename = `feedback-${index + 1}${extension}`;
     const safeName = sanitizePathSegment(image.name || fallbackFilename, fallbackFilename);
-    const filename = path.extname(safeName) ? safeName : `${safeName}${extensionForMimeType(mimeType)}`;
+    // 同 storeGeneratedImagesForUser：压缩重编码过就必须换成真实后缀，
+    // 否则用户上传的 big.png 会以 png 后缀存下 webp 内容。
+    const baseName = compressed ? `${safeName.replace(/\.[^.]+$/, "")}${extension}` : safeName;
+    const filename = path.extname(baseName) ? baseName : `${baseName}${extension}`;
     const storedFilename = await writeUniqueFile(imageDirectory, filename, buffer);
 
     return {
