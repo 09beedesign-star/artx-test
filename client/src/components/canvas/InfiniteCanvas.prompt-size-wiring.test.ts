@@ -15,31 +15,74 @@ import { describe, expect, it } from "vitest";
  * 而且**零报错**。纯函数测得再全也照不到这种断裂。
  * 📌 判据：「透传」不等于「被消费」。
  */
+// ⚠️ 用相对路径，不用 @shared 别名：vitest 不解析该别名，写别名会让整个套件
+// 加载失败并显示「0 test」——不是失败，是压根没跑，极易被误判成通过。
+import {
+  assertStripKeptSource,
+  stripSourceComments,
+} from "../../../../shared/strip-source-comments";
+
+/**
+ * ⚠️⚠️⚠️ 这里曾经自己抄了一份贪心的 stripComments：
+ *     source.replace(/\/*[\s\S]*?\*\//g, "")
+ * 它把 server/index.ts 里 `"image/*"` 的 /* 当成块注释开头，
+ * 一口吞掉 41.8% 的源码 —— 本文件所有 not.toContain 断言当时全是恒绿的。
+ * 📌 判据：检测器自己坏掉的时候，长得和「没有问题」一模一样。
+ * 现已统一走 shared/strip-source-comments.ts，并在每次读文件时跑损耗自检。
+ */
+function readSource(filePath: string): string {
+  const raw = readFileSync(filePath, "utf-8");
+  const stripped = stripSourceComments(raw);
+  assertStripKeptSource(raw, stripped);
+  return stripped;
+}
+
 function stripComments(source: string): string {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+  return stripSourceComments(source);
 }
 
 const CANVAS = resolve(__dirname, "InfiniteCanvas.tsx");
 const AI_LIB = resolve(__dirname, "../../lib/ai.ts");
 const ORCHESTRATOR = resolve(__dirname, "../../../../server/ai-orchestrator.ts");
 const IMAGE_GEN = resolve(__dirname, "../../../../server/image-generation.ts");
+const SERVER_INDEX = resolve(__dirname, "../../../../server/index.ts");
 
 describe("prompt size intent wiring", () => {
   it("strips comments before scanning source (self-check)", () => {
-    const sample =
-      'const a = 1; // resolveOutputSizeFromPromptAndSelector\n/* targetWidth: 1 */\nconst b = 2;';
+    const sample = [
+      "const a = 1; // resolveOutputSizeFromPromptAndSelector",
+      "/* targetWidth: 1 */",
+      "const b = 2;",
+    ].join("\n");
     const stripped = stripComments(sample);
     expect(stripped).not.toContain("resolveOutputSizeFromPromptAndSelector");
     expect(stripped).not.toContain("targetWidth: 1");
     expect(stripped).toContain("const a = 1;");
-    // 长度自检：确认 stripComments 没有把整份源码吃掉（那会让所有反向断言恒绿）。
-    expect(stripped.length).toBeGreaterThan(20);
+    expect(stripped).toContain("const b = 2;");
+  });
+
+  /**
+   * ⚠️⚠️ 这条守的是**检测器自己**。
+   * 本文件扫 5 个源文件，其中 server/index.ts 含 `"image/*"`。
+   * 一旦剥离函数退化成贪心正则，它会被吃掉 41.8% ——
+   * 届时下面每一条 not.toContain 都会变成恒绿的装饰品，而且不报任何错。
+   */
+  it("never lets comment stripping eat the scanned sources", () => {
+    for (const file of [CANVAS, AI_LIB, ORCHESTRATOR, IMAGE_GEN, SERVER_INDEX]) {
+      const raw = readFileSync(file, "utf-8");
+      expect(raw.length).toBeGreaterThan(1000);
+      expect(() => assertStripKeptSource(raw, stripSourceComments(raw))).not.toThrow();
+
+      // 反向：旧的贪心实现必须被这个闸门拦下，否则闸门本身是摆设。
+      if (file === SERVER_INDEX) {
+        const legacy = raw.replace(/\/\*[\s\S]*?\*\//g, "");
+        expect(() => assertStripKeptSource(raw, legacy)).toThrow(/吃掉了/);
+      }
+    }
   });
 
   it("keeps both text-to-image payloads wired to the prompt size decision", () => {
-    const source = stripComments(readFileSync(CANVAS, "utf-8"));
+    const source = readSource(CANVAS);
 
     // 纯文生图有两条出口：无技能分支与技能分支。
     // 只接一条 = 用户挂着技能写「4K」时静默失效，现象随技能开关随机出现。
@@ -66,7 +109,7 @@ describe("prompt size intent wiring", () => {
   });
 
   it("carries the size intent through the regenerate round trip", () => {
-    const source = stripComments(readFileSync(CANVAS, "utf-8"));
+    const source = readSource(CANVAS);
 
     // 写入端与读回端必须成对存在：
     // 只写不读 / 只读不写，现象都是「再次生成变小了」，且都不报错。
@@ -85,7 +128,7 @@ describe("prompt size intent wiring", () => {
   });
 
   it("forwards the size intent on both generateImages exits in ai.ts", () => {
-    const source = stripComments(readFileSync(AI_LIB, "utf-8"));
+    const source = readSource(AI_LIB);
     const generateBlock = source.match(
       /export async function generateImages\(\{[\s\S]*?\n\}\n/
     )?.[0];
@@ -136,8 +179,36 @@ describe("prompt size intent wiring", () => {
     expect(backgroundDispatch).toContain("targetHeight,");
   });
 
+  /**
+   * ⚠️⚠️ 后台任务链路（前端 → POST /api/images/tasks → runBackgroundImageTask
+   * → orchestrator.run → generateImages）目前是**整体透传**，
+   * 所以 targetWidth/targetHeight 不需要在 server/index.ts 里逐个登记。
+   *
+   * 但这是个**脆弱的隐式契约**：哪天有人为了"更安全"在端点或分支里
+   * 加一层字段白名单（只挑 prompt/model/ratio 之类），
+   * 尺寸意图就会被静默丢掉 —— 前端照常发、后端照常收、出图尺寸不变、零报错。
+   * 📌 判据：透传不是靠"有人记得传"，而是靠"没人有机会漏"。
+   * 这条断言把「整体透传」这件事本身钉死。
+   */
+  it("keeps the background task endpoint free of a field allowlist", () => {
+    const source = readSource(SERVER_INDEX);
+
+    // 端点必须把整个 req.body 交给分发函数，不能改成挑字段重组。
+    expect(source).toContain("await runBackgroundImageTask(req.body, user)");
+
+    // 文生图分支必须把 input 整体展开给 orchestrator，
+    // 只有这样新增的尺寸字段才能自动走通。
+    const textToImageCase = source.match(
+      /case "text_to_image":[\s\S]*?const result = await orchestrator\.run\(\{[\s\S]{0,200}?\}\);/
+    )?.[0];
+    expect(textToImageCase).toBeTruthy();
+    // 长度自检：正则没匹配到一个空壳（空壳会让下面的 toContain 失去意义）。
+    expect(textToImageCase!.length).toBeGreaterThan(120);
+    expect(textToImageCase).toContain("...input,");
+  });
+
   it("passes the size intent into generateImages from the orchestrator", () => {
-    const source = stripComments(readFileSync(ORCHESTRATOR, "utf-8"));
+    const source = readSource(ORCHESTRATOR);
     const generateCall = source.match(
       /const result = await generateImages\(\{[\s\S]*?\}\);/
     )?.[0];
@@ -155,7 +226,7 @@ describe("prompt size intent wiring", () => {
    * 整条链路就是「透传但没被消费」—— 出图尺寸纹丝不动且零报错。
    */
   it("lets the prompt size override the ratio-derived target size on the server", () => {
-    const source = stripComments(readFileSync(IMAGE_GEN, "utf-8"));
+    const source = readSource(IMAGE_GEN);
     const generateBlock = source.match(
       /export async function generateImages\(input: ImageGenerateInput\)[\s\S]*?const tryVodGeneration/
     )?.[0];
@@ -179,7 +250,7 @@ describe("prompt size intent wiring", () => {
    * 📌 「同一份逻辑的多个出口，只改一个等于没做。」
    */
   it("applies the target size inside the VOD branch that production actually uses", () => {
-    const source = stripComments(readFileSync(IMAGE_GEN, "utf-8"));
+    const source = readSource(IMAGE_GEN);
     const vodBlock = source.match(
       /const tryVodGeneration = async[\s\S]*?withProviderTaskIds\(\{ images: images\.slice/
     )?.[0];
@@ -192,7 +263,7 @@ describe("prompt size intent wiring", () => {
   });
 
   it("leaves prompts without size intent completely untouched", () => {
-    const source = stripComments(readFileSync(IMAGE_GEN, "utf-8"));
+    const source = readSource(IMAGE_GEN);
     const vodBlock = source.match(
       /const tryVodGeneration = async[\s\S]*?withProviderTaskIds\(\{ images: images\.slice/
     )?.[0];

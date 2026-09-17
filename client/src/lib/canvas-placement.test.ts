@@ -7,6 +7,9 @@ import {
   getCanvasNodeCenter,
   isCanvasPositionFullyOverlapping,
 } from "./canvas-placement";
+// ⚠️ 用相对路径，不用 @shared 别名：vitest 不解析该别名，写别名会让整个套件
+// 加载失败并显示「0 test」——不是失败，是压根没跑，极易被误判成通过。
+import { stripSourceComments } from "../../../shared/strip-source-comments";
 
 /**
  * 【2026-09-13】用户三条画布规则：
@@ -18,11 +21,14 @@ import {
  * 所以下半部分必须有源码接线断言 + 变异验证。
  */
 
+/**
+ * ⚠️⚠️ 这里原本自己抄了一份贪心的块注释正则，它会把 InfiniteCanvas.tsx 里
+ * `"image/*"` 的 /* 当成块注释开头，一口吞掉 3.7% 的源码（约 4.4 万字符）。
+ * 被吞掉的部分对断言而言不存在 → 扫到那段的反向断言恒绿。
+ * 📌 判据：检测器坏掉时和「没问题」长得一模一样。统一走 shared 唯一事实源。
+ */
 function stripComments(source: string): string {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, "")
-    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+  return stripSourceComments(source).replace(/\{\s*\}/g, "");
 }
 
 function readCanvasSource(): string {

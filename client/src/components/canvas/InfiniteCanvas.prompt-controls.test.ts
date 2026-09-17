@@ -3,17 +3,30 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { selectEditedTextRegions } from "../../lib/text-replace";
 
+// ⚠️ 用相对路径，不用 @shared 别名：vitest 不解析该别名，写别名会让整个套件
+// 加载失败并显示「0 test」——不是失败，是压根没跑，极易被误判成通过。
+import {
+  assertStripKeptSource,
+  stripSourceComments,
+} from "../../../../shared/strip-source-comments";
+
 /**
  * 剥掉 // 与 块注释，再做源码扫描断言。
  *
  * 【2026-09-13】踩过的坑：`toContain` 扫源码时**注释也算**。
  * 改了实现之后，被删掉的旧写法只要还留在注释里，断言就会继续绿，
  * 完全掩盖住「实现已经换了」这个事实。
+ *
+ * 【2026-09-17】第二个坑，比上面那个更隐蔽：
+ * 这里原本自己抄了一份贪心的块注释正则，它会把
+ * SmartCommerceProductDialog.tsx 里 `"image/*"` 的 /* 当成注释开头，
+ * 一口吞掉 5.0% 的源码 —— 被吞掉的部分对断言而言不存在，
+ * 于是扫到那一段的 not.toContain **恒绿**。
+ * 📌 判据：一个恒绿的检测器等于没有检测器，而它和「没问题」长得一样。
+ * 现已统一走 shared/strip-source-comments.ts。
  */
 function stripComments(source: string): string {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+  return stripSourceComments(source);
 }
 
 describe("InfiniteCanvas prompt controls", () => {
@@ -24,6 +37,27 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(stripped).not.toContain('ratio === "auto"');
     expect(stripped).toContain("const a = 1;");
     expect(stripped).toContain("const b = 2;");
+  });
+
+  /**
+   * ⚠️⚠️ 守检测器自己：本文件扫的源文件里有含 `"image/*"` 的，
+   * 剥离函数一旦退化成贪心正则就会误吃代码，让反向断言集体恒绿。
+   */
+  it("never lets comment stripping eat the scanned sources", () => {
+    for (const relative of [
+      "InfiniteCanvas.tsx",
+      "SmartCommerceProductDialog.tsx",
+      "ModelSelector.tsx",
+    ]) {
+      const raw = readFileSync(resolve(__dirname, relative), "utf-8");
+      expect(raw.length).toBeGreaterThan(1000);
+      expect(() => assertStripKeptSource(raw, stripSourceComments(raw))).not.toThrow();
+    }
+
+    // 反向：旧的贪心实现必须被拦下，否则上面那圈检查只是走过场。
+    const dialog = readFileSync(resolve(__dirname, "SmartCommerceProductDialog.tsx"), "utf-8");
+    const legacy = dialog.replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(legacy.length).toBeLessThan(stripSourceComments(dialog).length);
   });
 
   it("uses the minimap surface color for prompt model and Skill button defaults while keeping hover styling", () => {

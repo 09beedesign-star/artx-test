@@ -10,6 +10,7 @@ import {
   FIRST_RECHARGE_BONUS,
   quoteCreditRecharge,
 } from "../../../shared/billing-config";
+import { stripSourceComments } from "../../../shared/strip-source-comments";
 
 const source = () =>
   readFileSync(resolve(__dirname, "CreditsGuidePage.tsx"), "utf-8");
@@ -18,11 +19,13 @@ const source = () =>
  * ⚠️ 断言「源码里不许出现某个数字」时必须先剥注释，否则会命中我们自己写的
  * 解释性注释（本例注释里举例用了 85,000），表现为「明明没硬编码却红」。
  * 这是本项目反复踩到的同一个坑。
+ *
+ * ⚠️⚠️ 【2026-09-17】第二个坑：原本内联的贪心块注释正则会把
+ * CreditsGuidePage.tsx 里 `"image/*"` 这类字符串中的 /* 当成注释开头，
+ * 一口吞掉 5.4% 的源码。被吞掉的部分对断言而言不存在 → 反向断言恒绿。
+ * 📌 判据：一个恒绿的检测器等于没有检测器。统一走 shared 唯一事实源。
  */
-const sourceWithoutComments = () =>
-  source()
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+const sourceWithoutComments = () => stripSourceComments(source());
 
 /**
  * 充值档位展示从「比例」改成「实得积分总数」后的防护。
