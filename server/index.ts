@@ -7,6 +7,7 @@ import "./env";
 import { AIOrchestrator, inferAiCapability } from "./ai-orchestrator";
 import { resolveBackgroundImageTaskCapability } from "./background-image-capability";
 import { createBrandKit, deleteBrandKit, getBrandKit, listBrandKits, parseBrandKitFromImage } from "./brand-kit";
+import { getWorkspaceSyncDocument, mergeWorkspaceSyncDocument } from "./workspace-sync-store";
 import { createElementBackgroundLayer, createProductBackground, editImageWithPrompt, enhanceImage, eraseImageObjects, expandImageWithVodKling, extractImageText, generateImages, listImageModelCatalog, removeImageBackground, removeImageWatermark } from "./image-generation";
 import {
   DEFAULT_IMAGE_EXPANSION_PROMPT,
@@ -1857,6 +1858,48 @@ async function startServer() {
       res.json({ deleted });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Brand kit delete failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /*
+   * 工作台 / 画布的跨设备云端同步。
+   *
+   * ⚠️⚠️ 用户身份**恒取自会话**（requireSessionUser），
+   *    绝不接受请求体里的 userId —— 否则任何登录用户都能读写别人的画布。
+   *    这条与 /api/invite/toggle-accept 是同一条防线，
+   *    server/credit-transfer-ban.test.ts 也在盯着这个写法。
+   */
+  app.get("/api/workspace/sync", async (req, res) => {
+    try {
+      const user = await requireSessionUser(req, res);
+      if (!user) return;
+      const document = await getWorkspaceSyncDocument(user.id);
+      res.json({ document });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Workspace sync read failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /*
+   * 上行并合并。
+   *
+   * ⚠️ 语义是 **merge 而非 replace**：服务端把客户端载荷按条目 id
+   *    逐项合并进云端文档（shared/workspace-sync.ts 的 mergeWorkspaceSync），
+   *    并在同一条串行写队列里完成 load→merge→save。
+   *    直接整份覆盖会让两台电脑互相抹掉对方的新建画布，且零报错。
+   *
+   * 返回合并后的完整文档，客户端据此回写本地 —— 一次往返同时完成上行与下行。
+   */
+  app.put("/api/workspace/sync", async (req, res) => {
+    try {
+      const user = await requireSessionUser(req, res);
+      if (!user) return;
+      const document = await mergeWorkspaceSyncDocument(user.id, req.body);
+      res.json({ document });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Workspace sync failed";
       res.status(500).json({ error: message });
     }
   });

@@ -574,6 +574,7 @@ import {
   updateWorkspaceProjectHistory,
   type WorkspaceHistoryProject,
 } from "@/lib/project-history";
+import { scheduleWorkspaceSync } from "@/lib/workspace-sync";
 import {
   buildSkillPromptContext,
   createPendingSkillLoad,
@@ -13173,6 +13174,19 @@ function safeWriteCanvasState(projectId: string, state: PersistedCanvasState) {
     ...cleanedState,
     nodes: stripLargeCanvasNodePayloads(cleanedState.nodes),
   };
+
+  /*
+   * 云端同步（跨设备）。
+   *
+   * ⚠️ 放在这里而不是放在 try 里面：无论 localStorage 写没写成功，
+   *    这份状态都已经在内存/session 里成立了，都该往云端推一次。
+   * ⚠️ scheduleWorkspaceSync 自带防抖 + 未登录直接返回，
+   *    所以这里可以无脑调用，不需要在调用方做任何判断。
+   *    📌 判据：把「要不要同步」的决策收口在同步模块里，
+   *       调用点只负责"通知发生了变化" —— 否则每个调用点都得抄一遍条件，
+   *       漏一个就是一个静默不同步的出口。
+   */
+  scheduleWorkspaceSync();
 
   try {
     window.localStorage.setItem(key, JSON.stringify(strippedState));

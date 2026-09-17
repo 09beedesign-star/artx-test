@@ -28,6 +28,7 @@ import CreditsGuidePage from "./pages/CreditsGuidePage";
 import { useAuth } from "./contexts/AuthContext";
 import CreditGrantNotification from "./components/billing/CreditGrantNotification";
 import BillingDialogProvider from "./components/billing/BillingDialogProvider";
+import { startWorkspaceAutoSync } from "./lib/workspace-sync";
 
 const routerBase = import.meta.env.BASE_URL.replace(/\/$/, "");
 const configuredAdminHost = (import.meta.env.VITE_ADMIN_HOST || "").toLowerCase();
@@ -79,6 +80,20 @@ function useAdminHostRootRedirect() {
 function AppRoutes() {
   const { isAuthenticated, user } = useAuth();
   useAdminHostRootRedirect();
+
+  /*
+   * 跨设备云端同步的生命周期。
+   *
+   * ⚠️ 依赖必须带上 user?.id，不能只写 isAuthenticated ——
+   *    同一个浏览器换账号登录时 isAuthenticated 一直是 true，
+   *    effect 不会重跑，新账号就会继续用旧账号的同步循环，
+   *    把 A 的画布推进 B 的云端文档里。
+   * ⚠️ 未登录时**不启动**：没有云端身份，同步无从谈起。
+   */
+  useEffect(() => {
+    if (!isAuthenticated || !user?.id) return;
+    return startWorkspaceAutoSync();
+  }, [isAuthenticated, user?.id]);
 
   return (
     <Switch>

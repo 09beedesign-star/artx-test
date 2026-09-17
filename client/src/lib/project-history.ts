@@ -1,3 +1,5 @@
+import { recordWorkspaceProjectDeletion, scheduleWorkspaceSync } from "./workspace-sync";
+
 export interface WorkspaceHistoryProject {
   id: string;
   title: string;
@@ -116,10 +118,12 @@ function writeWorkspaceProjectHistory(projects: WorkspaceHistoryProject[]) {
     try {
       window.localStorage.setItem(storageKey, serialized);
       window.sessionStorage.removeItem(sessionFallbackKey);
+      scheduleWorkspaceSync();
       return;
     } catch {
       try {
         window.sessionStorage.setItem(sessionFallbackKey, serialized);
+        scheduleWorkspaceSync();
       } catch {
         /* try a smaller history payload */
       }
@@ -165,6 +169,13 @@ export function touchWorkspaceProjectHistory(id: string) {
 
 export function removeWorkspaceProjectHistory(ids: string[]) {
   const idSet = new Set(ids);
+  /*
+   * ⚠️⚠️ 必须先记墓碑再写本地。
+   *    没有墓碑，删除同步不过去：本机删掉后上行，服务端合并时看到
+   *    另一台设备那份还在，会把它原样返回，本机又写回来 ——
+   *    用户看到的是「删了又自己回来了」。
+   */
+  recordWorkspaceProjectDeletion(ids);
   writeWorkspaceProjectHistory(readWorkspaceProjectHistory().filter(item => !idSet.has(item.id)));
 }
 
