@@ -10,6 +10,12 @@ import { Copy, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import { BG_GLOW } from "@/lib/workspace-data";
 import { defaultApiBaseUrlForCurrentHost, normalizeApiBaseUrl } from "@/lib/api-base-url";
+import { InspirationCard } from "@/components/inspiration/InspirationCard";
+import { InspirationReactionButton } from "@/components/inspiration/InspirationReactionButton";
+import { useInspirationReactions } from "@/hooks/useInspirationReactions";
+import { normalizeInspirationIdentity } from "@/lib/inspiration-avatar";
+import { createWorkspaceHistoryProject } from "@/lib/project-history";
+import { writeHomePromptHandoff } from "@/lib/home-prompt-handoff";
 
 type PromptItem = {
   rank: number;
@@ -223,6 +229,23 @@ export default function InspirationPage() {
   const promptScrollRef = useRef<HTMLDivElement | null>(null);
   const hoverTimerRef = useRef<number | null>(null);
   const [detailImageHeight, setDetailImageHeight] = useState<number | null>(null);
+  /**
+   * 点赞 / 收藏状态。与首页、个人中心共用同一份唯一事实源，
+   * ⚠️ 这里取消收藏，个人中心对应 tab 必须同步消失（用户明确要求）。
+   */
+  const inspirationReactions = useInspirationReactions();
+
+  /** 把列表项转成沉淀快照。个人中心要按专题页卡片原样渲染，所以字段必须给全。 */
+  const toReactionItem = (item: PromptItem) => ({
+    id: normalizeInspirationIdentity(item.title),
+    title: item.title,
+    field: item.field,
+    group: item.group,
+    subcategory: item.subcategory,
+    description: item.description,
+    prompt: item.prompt,
+    imageUrl: item.imageUrl,
+  });
 
   useEffect(() => {
     return () => {
@@ -363,6 +386,34 @@ export default function InspirationPage() {
     navigate(`/inspiration${suffix ? `?${suffix}` : ""}`);
   };
 
+  /**
+   * 一键导入画布。
+   *
+   * ⚠️ 复用首页「输入提示词 → 建画布」那条现成链路
+   * （`createWorkspaceHistoryProject` + `writeHomePromptHandoff`），
+   * 📌 不另起一套：交接载荷的字段一旦有第二个写入方，
+   * 消费侧（CanvasAssistantPanel）改了格式，这边就会静默失效。
+   *
+   * ⚠️ 只带提示词、不带图片：灵感图是远程 URL，而交接通道要求 data:URL，
+   * 硬塞进去画布侧会拿到一个加载不出来的引用图（且不报错）。
+   */
+  const importToCanvas = (item: PromptItem) => {
+    const text = item.prompt?.trim() || item.title;
+    const title = text.length > 18 ? `${text.slice(0, 18)}...` : text;
+    const project = createWorkspaceHistoryProject(title || undefined, text);
+    writeHomePromptHandoff({
+      projectId: project.id,
+      prompt: text,
+      model: "auto",
+      // 刻意不自动跑：用户可能只是想把灵感提示词拿进画布再改，
+      // 自动出图会直接扣积分。涉及花钱的动作不替用户做决定。
+      shouldAutoRun: false,
+      createdAt: project.createdAt,
+    });
+    toast("已导入画布", { description: item.title });
+    navigate(`/project/${project.id}`);
+  };
+
   const copyPrompt = async (prompt: string) => {
     try {
       await navigator.clipboard.writeText(prompt);
@@ -472,89 +523,36 @@ export default function InspirationPage() {
           </div>
 
           <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {visibleItems.map((item) => (
-              <article
-                key={`${item.rank}-${item.title}`}
-                onClick={() => setSelectedItem(item)}
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter" && event.key !== " ") return;
-                  event.preventDefault();
-                  setSelectedItem(item);
-                }}
-                role="button"
-                tabIndex={0}
-                className="cursor-pointer overflow-hidden rounded-[var(--radius-lg-design)] text-left transition-all"
-                style={{ background: cardBg, border: `1px solid ${border}`, boxShadow: shadow }}
-                onMouseEnter={() => handleInspirationCardMouseEnter(`${item.rank}-${item.title}`)}
-                onMouseLeave={handleInspirationCardMouseLeave}
-              >
-                <div className="relative overflow-hidden bg-[#222222]" style={{ aspectRatio: "16 / 10" }}>
-                  <img
-                    src={item.imageUrl}
-                    alt={item.title}
-                    className="relative z-10 h-full w-full object-cover transition-transform duration-300 ease-out"
-                    style={{ transform: hoveredItemKey === `${item.rank}-${item.title}` ? "scale(1.08)" : "scale(1)" }}
-                    loading="lazy"
-                    onError={(event) => {
-                      event.currentTarget.style.display = "none";
-                    }}
-                  />
-                  <div className="absolute inset-0 flex items-center justify-center px-6 text-center" style={{ background: "linear-gradient(135deg, oklch(0.20 0.05 290), oklch(0.18 0.04 205))", zIndex: 0 }}>
-                    <span className="type-caption leading-5" style={{ color: "oklch(0.88 0.02 270)", letterSpacing: 0, textTransform: "none" }}>
-                      本地图片待同步
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex min-h-[270px] flex-col p-4">
-                  <div className="mb-3 flex min-w-0 items-center gap-2">
-                    <span className="min-w-0 truncate whitespace-nowrap rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: activeBg, color: "oklch(0.80 0.17 290)", letterSpacing: 0, textTransform: "none" }}>
-                      {item.field}
-                    </span>
-                  </div>
-
-                  <h2 className="min-w-0 truncate whitespace-nowrap type-body-sm leading-5" style={{ color: text, fontWeight: 750 }}>{item.title}</h2>
-                  <p className="min-w-0 truncate whitespace-nowrap type-caption mt-2 leading-5" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>{item.description}</p>
-                  <p
-                    className="mt-3 rounded-[var(--radius-md-design)] p-3 type-caption leading-5"
-                    style={{
-                      background: isDark ? "oklch(0 0 0 / 0.18)" : "oklch(0 0 0 / 0.035)",
-                      color: isDark ? "oklch(0.72 0.01 270)" : "oklch(0.57 0.010 270)",
-                      display: "-webkit-box",
-                      letterSpacing: 0,
-                      overflow: "hidden",
-                      textTransform: "none",
-                      WebkitBoxOrient: "vertical",
-                      WebkitLineClamp: 4,
-                    }}
-                  >
-                    {item.prompt}
-                  </p>
-                  <div className="mt-auto flex items-center justify-between gap-3 pt-4">
-                    <span className="type-caption" style={{ color: isDark ? "oklch(0.78 0.14 290)" : "oklch(0.52 0.17 290)", letterSpacing: 0, textTransform: "none" }}>
-                      点击查看完整提示词
-                    </span>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        copyPrompt(item.prompt);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key !== "Enter" && event.key !== " ") return;
-                        event.preventDefault();
-                        event.stopPropagation();
-                        copyPrompt(item.prompt);
-                      }}
-                      className="shrink-0 rounded-[var(--radius-pill)] px-2.5 py-1 type-caption transition-all hover:scale-105 active:scale-95"
-                      style={{ background: isDark ? "oklch(1 0 0 / 0.08)" : "oklch(0 0 0 / 0.05)", border: `1px solid ${border}`, color: text, letterSpacing: 0, textTransform: "none" }}
-                    >
-                      复制提示词
-                    </button>
-                  </div>
-                </div>
-              </article>
-            ))}
+            {visibleItems.map((item) => {
+              const identity = normalizeInspirationIdentity(item.title);
+              return (
+                <InspirationCard
+                  key={`${item.rank}-${item.title}`}
+                  item={item}
+                  isDark={isDark}
+                  cardBg={cardBg}
+                  border={border}
+                  shadow={shadow}
+                  text={text}
+                  sub={sub}
+                  activeBg={activeBg}
+                  hovered={hoveredItemKey === `${item.rank}-${item.title}`}
+                  onOpen={() => setSelectedItem(item)}
+                  onMouseEnter={() => handleInspirationCardMouseEnter(`${item.rank}-${item.title}`)}
+                  onMouseLeave={handleInspirationCardMouseLeave}
+                  onCopyPrompt={() => copyPrompt(item.prompt)}
+                  onImportToCanvas={() => importToCanvas(item)}
+                  reactionSlot={
+                    <InspirationReactionButton
+                      kind="like"
+                      active={inspirationReactions.isActive("like", identity)}
+                      idleColor={sub}
+                      onToggle={() => inspirationReactions.toggle("like", toReactionItem(item))}
+                    />
+                  }
+                />
+              );
+            })}
           </section>
           {filteredItems.length === 0 && (
             <section className="rounded-[var(--radius-lg-design)] p-8 text-center" style={{ background: panelBg, border: `1px solid ${border}` }}>
@@ -594,6 +592,45 @@ export default function InspirationPage() {
             onClick={(event) => event.stopPropagation()}
           >
             <div className="absolute right-3 top-3 z-10 flex items-center" style={{ gap: 16 }}>
+              {/*
+                详情浮窗的点赞与五角星收藏（需求 5）。
+                ⚠️ 与卡片、首页共用同一份状态源 —— 这里取消，
+                个人中心「我赞过的 / 我的收藏」必须同步消失。
+              */}
+              <span
+                className="flex shrink-0 items-center rounded-[var(--radius-pill)] px-3 py-2"
+                style={{
+                  gap: 14,
+                  background: isDark ? "rgba(34,34,34,0.88)" : "oklch(1 0 0 / 0.88)",
+                  border: `1px solid ${border}`,
+                  backdropFilter: "blur(12px)",
+                }}
+              >
+                <InspirationReactionButton
+                  kind="like"
+                  size={16}
+                  idleColor={sub}
+                  active={inspirationReactions.isActive(
+                    "like",
+                    normalizeInspirationIdentity(selectedItem.title)
+                  )}
+                  onToggle={() =>
+                    inspirationReactions.toggle("like", toReactionItem(selectedItem))
+                  }
+                />
+                <InspirationReactionButton
+                  kind="favorite"
+                  size={16}
+                  idleColor={sub}
+                  active={inspirationReactions.isActive(
+                    "favorite",
+                    normalizeInspirationIdentity(selectedItem.title)
+                  )}
+                  onToggle={() =>
+                    inspirationReactions.toggle("favorite", toReactionItem(selectedItem))
+                  }
+                />
+              </span>
               <button
                 onClick={() => copyPrompt(selectedItem.prompt)}
                 className="shrink-0 rounded-[var(--radius-pill)] p-2 transition-all hover:scale-105 active:scale-95"

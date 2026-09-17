@@ -5,12 +5,19 @@ import {
   ChevronDown,
   Copy,
   Gift,
-  Heart,
   ImagePlus,
   PlayCircle,
   Send,
   X,
 } from "lucide-react";
+import { InspirationReactionButton } from "@/components/inspiration/InspirationReactionButton";
+import { useInspirationReactions } from "@/hooks/useInspirationReactions";
+import {
+  getInspirationAvatarAlt,
+  getInspirationAvatarUrl,
+  normalizeInspirationIdentity,
+} from "@/lib/inspiration-avatar";
+import { getDisplayLikeCount } from "@/lib/inspiration-reactions";
 import { useAuth, rememberInviteCodeFromUrl } from "@/contexts/AuthContext";
 import { useBillingDialog } from "@/components/billing/BillingDialogProvider";
 import { INVITE_REWARD_CONFIG } from "@shared/billing-config";
@@ -265,6 +272,11 @@ export default function HomePage() {
   const [activeTab, setActiveTab] = useState<LandingTab>("home");
   const [loginBubble, setLoginBubble] = useState<LoginBubble>(null);
   const [homeInspirationItems, setHomeInspirationItems] = useState(createHomeInspirationFeed);
+  /**
+   * 灵感点赞 / 收藏状态。
+   * ⚠️ 与专题页、个人中心共用同一份 hook —— 首页点的赞必须能在个人中心看到。
+   */
+  const inspirationReactions = useInspirationReactions();
   const [selectedHomeInspiration, setSelectedHomeInspiration] = useState<HomeInspirationItem | null>(null);
   const [homeInspirationImageHeight, setHomeInspirationImageHeight] = useState<number | null>(null);
   const [isFirstTopUpBannerDismissed, setIsFirstTopUpBannerDismissed] = useState(
@@ -843,16 +855,46 @@ export default function HomePage() {
 
           <div className="columns-1 gap-4 md:columns-2 xl:columns-4">
             {homeInspirationItems.map((item, itemIndex) => (
-              <button
+              /*
+               * ⚠️⚠️ 这里从 <button> 改成了 role="button" 的 <div>。
+               * 原因：卡片内要放真实可点的点赞按钮（需求 1），
+               * 而 <button> 里嵌 <button> 是**非法 HTML**，浏览器会把内层按钮
+               * 提到外面去，导致点赞按钮跑出卡片、点击行为完全不可预期。
+               * 📌 交互语义靠 role + tabIndex + onKeyDown 补齐，无障碍不降级。
+               */
+              <div
                 key={`${item.rank}-${item.title}`}
-                type="button"
+                role="button"
+                tabIndex={0}
                 onClick={() => setSelectedHomeInspiration(item)}
+                onKeyDown={event => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  setSelectedHomeInspiration(item);
+                }}
                 data-tour-id={itemIndex === 0 ? TOUR_ANCHORS.homeInspirationCard : undefined}
-                className="group mb-4 w-full break-inside-avoid overflow-hidden rounded-md border border-white/10 bg-[#222222] text-left shadow-[0_18px_50px_rgba(0,0,0,0.28)] transition-transform hover:-translate-y-1"
+                className="group mb-4 w-full cursor-pointer break-inside-avoid overflow-hidden rounded-md border border-white/10 bg-[#222222] text-left shadow-[0_18px_50px_rgba(0,0,0,0.28)] transition-transform hover:-translate-y-1"
               >
                 <div className="relative overflow-hidden">
                   <img src={item.imageUrl} alt={item.title} className="h-auto w-full object-cover transition-transform duration-500 group-hover:scale-105" loading="lazy" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/0 to-black/0" />
+                  {/*
+                    虚拟创作者头像（需求 4）。
+                    - 位置与描边参考用户给的图：压在图片左下角，1px 描边；
+                    - ⚠️ 描边色必须与容器深灰 #222222 同值，才会呈现「从卡片里挖出来」的效果；
+                    - ⚠️ 头像**不可点**：用 div 而非 button，且外层卡片本身是 button，
+                      套一个可点元素会变成嵌套按钮（HTML 非法且点击行为不可预期）；
+                    - 用 title 做身份键，保证与专题页同一张脸。
+                  */}
+                  <img
+                    src={getInspirationAvatarUrl(item.title)}
+                    alt={getInspirationAvatarAlt(item.title)}
+                    aria-hidden="true"
+                    data-testid="home-inspiration-avatar"
+                    className="pointer-events-none absolute left-3 bottom-3 h-9 w-9 rounded-full object-cover"
+                    style={{ border: "1px solid #222222", background: "#222222" }}
+                    loading="lazy"
+                  />
                 </div>
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-3">
@@ -866,14 +908,40 @@ export default function HomePage() {
                         <PlayCircle size={14} fill="currentColor" strokeWidth={0} />
                         {item.viewCount}
                       </span>
-                      <span className="flex items-center gap-1 text-xs font-medium text-white/69">
-                        <Heart size={14} fill="currentColor" strokeWidth={0} />
-                        {item.likeCount}
-                      </span>
+                      {/*
+                        真实点赞（需求 1）。原来这里是个纯展示的 Heart，点了没反应。
+                        ⚠️ 按钮内部已 stopPropagation，否则点赞会顺带触发外层卡片的详情弹窗。
+                      */}
+                      <InspirationReactionButton
+                        kind="like"
+                        active={inspirationReactions.isActive(
+                          "like",
+                          normalizeInspirationIdentity(item.title)
+                        )}
+                        count={getDisplayLikeCount(
+                          item.likeCount,
+                          inspirationReactions.isActive(
+                            "like",
+                            normalizeInspirationIdentity(item.title)
+                          )
+                        )}
+                        onToggle={() =>
+                          inspirationReactions.toggle("like", {
+                            id: normalizeInspirationIdentity(item.title),
+                            title: item.title,
+                            field: item.field,
+                            group: item.field,
+                            subcategory: item.field,
+                            description: item.description,
+                            prompt: item.prompt,
+                            imageUrl: item.imageUrl,
+                          })
+                        }
+                      />
                     </div>
                   </div>
                 </div>
-              </button>
+              </div>
             ))}
           </div>
 

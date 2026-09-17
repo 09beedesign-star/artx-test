@@ -2,10 +2,16 @@
  * ProfilePage — personal homepage detail page
  * Presents the current user's public profile overview while preserving the artx visual language.
  */
-import { useEffect, useRef, useState } from "react";
-import { Camera, KeyRound, Mail, MapPin, Pencil, Sparkles, Upload, UserRound, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Camera, Heart, KeyRound, Mail, MapPin, Pencil, Sparkles, Star, Upload, UserRound, X } from "lucide-react";
 import { useLocation } from "wouter";
 import TopBar from "@/components/workspace/TopBar";
+import { InspirationCard } from "@/components/inspiration/InspirationCard";
+import { InspirationReactionButton } from "@/components/inspiration/InspirationReactionButton";
+import { useInspirationReactions } from "@/hooks/useInspirationReactions";
+import type { InspirationReactionItem } from "@/lib/inspiration-reactions";
+import { createWorkspaceHistoryProject } from "@/lib/project-history";
+import { writeHomePromptHandoff } from "@/lib/home-prompt-handoff";
 import { BG_GLOW } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -99,6 +105,65 @@ export default function ProfilePage() {
     src: string;
     target: "profile" | "draft";
   } | null>(null);
+  /**
+   * 「我赞过的 / 我的收藏」两个 tab。
+   *
+   * ⚠️ 数据来自与首页、专题页**同一份唯一事实源**（`useInspirationReactions`），
+   * 用户在专题页取消点赞后，这里必须同步消失 —— 靠 hook 内的事件订阅实现，
+   * 📌 若这里自己读一次 localStorage 就完事，取消后本页不会重渲染，
+   *    表现就是用户说的「取消了它还在」。
+   */
+  const [reactionTab, setReactionTab] = useState<"like" | "favorite">("like");
+  const inspirationReactions = useInspirationReactions();
+  const reactionItems = useMemo(
+    () =>
+      (reactionTab === "like"
+        ? inspirationReactions.likedItems
+        : inspirationReactions.favoriteItems
+      )
+        .slice()
+        // 最近操作的排前面，符合「沉淀」的直觉。
+        .sort((a, b) => b.reactedAt - a.reactedAt),
+    [reactionTab, inspirationReactions.likedItems, inspirationReactions.favoriteItems]
+  );
+  const [hoveredReactionId, setHoveredReactionId] = useState<string | null>(null);
+
+  // 卡片配色与灵感推荐专题页保持同源，确保「所有信息保持一致」。
+  const inspirationCardBg = isDark ? "oklch(0.13 0.012 270)" : "oklch(1 0 0)";
+  const inspirationText = isDark ? "oklch(0.88 0.008 270)" : "oklch(0.20 0.008 270)";
+  const inspirationSub = isDark ? "oklch(0.73 0.010 270)" : "oklch(0.49 0.01 270)";
+  const inspirationBorder = isDark ? "oklch(1 0 0 / 9%)" : "oklch(0 0 0 / 8%)";
+  const inspirationActiveBg = isDark ? "oklch(0.62 0.22 290 / 0.20)" : "oklch(0.62 0.18 290 / 0.10)";
+  const inspirationShadow = isDark ? "0 18px 46px oklch(0 0 0 / 0.24)" : "0 14px 34px oklch(0 0 0 / 0.08)";
+
+  /**
+   * 一键导入画布。与专题页**完全相同**的链路
+   * （`createWorkspaceHistoryProject` + `writeHomePromptHandoff`）。
+   * ⚠️ 同样刻意 `shouldAutoRun: false`：自动出图会扣积分，不替用户决定。
+   */
+  const importReactionToCanvas = (item: InspirationReactionItem) => {
+    const text = item.prompt?.trim() || item.title;
+    const title = text.length > 18 ? `${text.slice(0, 18)}...` : text;
+    const project = createWorkspaceHistoryProject(title || undefined, text);
+    writeHomePromptHandoff({
+      projectId: project.id,
+      prompt: text,
+      model: "auto",
+      shouldAutoRun: false,
+      createdAt: project.createdAt,
+    });
+    toast("已导入画布", { description: item.title });
+    navigate(`/project/${project.id}`);
+  };
+
+  const copyReactionPrompt = async (prompt: string) => {
+    try {
+      await navigator.clipboard.writeText(prompt);
+      toast("提示词已复制");
+    } catch {
+      toast("复制失败", { description: "请手动复制提示词内容" });
+    }
+  };
 
   useEffect(() => {
     const result = writeStoredProfile(profile);
@@ -320,6 +385,113 @@ export default function ProfilePage() {
                 </div>
               </div>
             </div>
+          </section>
+
+          {/*
+            需求 2：「我赞过的 / 我的收藏」两个 tab。
+            卡片直接复用专题页的 `InspirationCard`（含右上角一键导入画布 icon），
+            ⚠️ 不复制一份 JSX 过来 —— 否则专题页改样式这里不会跟着改。
+          */}
+          <section className="mt-6" data-testid="profile-reaction-section">
+            <div className="mb-4 flex items-center gap-2">
+              {([
+                { key: "like" as const, label: "我赞过的", Icon: Heart, count: inspirationReactions.likedItems.length },
+                { key: "favorite" as const, label: "我的收藏", Icon: Star, count: inspirationReactions.favoriteItems.length },
+              ]).map(tab => {
+                const isActive = reactionTab === tab.key;
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    data-testid={`profile-reaction-tab-${tab.key}`}
+                    aria-pressed={isActive}
+                    onClick={() => setReactionTab(tab.key)}
+                    className="flex items-center gap-2 rounded-[var(--radius-pill)] px-4 py-2 type-caption transition-all"
+                    style={{
+                      background: isActive
+                        ? (isDark ? "rgba(255,255,255,0.12)" : "rgba(20,20,36,0.08)")
+                        : "transparent",
+                      border: `1px solid ${isActive ? border : "transparent"}`,
+                      color: isActive ? textPrimary : textSecondary,
+                      letterSpacing: 0,
+                      textTransform: "none",
+                    }}
+                  >
+                    <tab.Icon size={14} />
+                    {tab.label}
+                    <span style={{ color: textMuted }}>{tab.count}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {reactionItems.length === 0 ? (
+              <div
+                className="rounded-[var(--radius-lg-design)] p-10 text-center"
+                data-testid="profile-reaction-empty"
+                style={{ background: cardBg, border: `1px solid ${border}` }}
+              >
+                <p className="type-body-sm" style={{ color: textPrimary, fontWeight: 620 }}>
+                  {reactionTab === "like" ? "还没有赞过的灵感" : "还没有收藏的灵感"}
+                </p>
+                <p className="type-caption mt-2" style={{ color: textSecondary, letterSpacing: 0, textTransform: "none" }}>
+                  去灵感推荐里点亮{reactionTab === "like" ? "爱心" : "星标"}，内容会自动沉淀到这里。
+                </p>
+                <button
+                  type="button"
+                  onClick={() => navigate("/inspiration")}
+                  className="mt-5 rounded-[var(--radius-pill)] px-4 py-2 type-caption transition-opacity hover:opacity-85"
+                  style={{ background: "#C5ED47", color: "#111", letterSpacing: 0, textTransform: "none" }}
+                >
+                  去逛灵感推荐
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {reactionItems.map(item => (
+                  <InspirationCard
+                    key={`${reactionTab}-${item.id}`}
+                    item={item}
+                    isDark={isDark}
+                    cardBg={inspirationCardBg}
+                    border={inspirationBorder}
+                    shadow={inspirationShadow}
+                    text={inspirationText}
+                    sub={inspirationSub}
+                    activeBg={inspirationActiveBg}
+                    hovered={hoveredReactionId === item.id}
+                    onOpen={() => copyReactionPrompt(item.prompt)}
+                    onMouseEnter={() => setHoveredReactionId(item.id)}
+                    onMouseLeave={() => setHoveredReactionId(null)}
+                    onCopyPrompt={() => copyReactionPrompt(item.prompt)}
+                    onImportToCanvas={() => importReactionToCanvas(item)}
+                    reactionSlot={
+                      /*
+                        就地取消：用户在这里点掉，卡片立刻从本 tab 消失
+                        （状态变更会广播，列表跟着重算）。
+                      */
+                      <InspirationReactionButton
+                        kind={reactionTab}
+                        active={inspirationReactions.isActive(reactionTab, item.id)}
+                        idleColor={inspirationSub}
+                        onToggle={() =>
+                          inspirationReactions.toggle(reactionTab, {
+                            id: item.id,
+                            title: item.title,
+                            field: item.field,
+                            group: item.group,
+                            subcategory: item.subcategory,
+                            description: item.description,
+                            prompt: item.prompt,
+                            imageUrl: item.imageUrl,
+                          })
+                        }
+                      />
+                    }
+                  />
+                ))}
+              </div>
+            )}
           </section>
         </div>
       </main>

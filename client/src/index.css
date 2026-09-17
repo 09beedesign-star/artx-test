@@ -947,6 +947,38 @@ html.light, .light {
   }
 }
 
+/*
+ * 灵感卡片「点赞 / 收藏」点亮动效。
+ *
+ * 由 InspirationReactionButton 消费，首页、专题页、个人中心三处共用。
+ * ⚠️ 必须放全局样式：组件里用内联 style 写不了 @keyframes。
+ */
+@keyframes artx-reaction-pop {
+  0% {
+    transform: scale(0.6);
+  }
+  55% {
+    transform: scale(1.32);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes artx-reaction-burst {
+  0% {
+    opacity: 0.55;
+    transform: scale(0.35);
+  }
+  70% {
+    opacity: 0.16;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.4);
+  }
+}
+
 /* Keep helper copy readable in the dark admin interface without changing the user site. */
 .admin-readable-copy .text-slate-300:not(svg),
 .admin-readable-copy .text-slate-400:not(svg),
