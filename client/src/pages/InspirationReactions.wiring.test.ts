@@ -49,6 +49,22 @@ function readSource(relative: string, maxLossRatio?: number): string {
  */
 const AVATAR_LIB_MAX_LOSS_RATIO = 0.6;
 
+/**
+ * `InspirationAvatar.tsx` 的剥离损耗上限，同样单独放宽。
+ *
+ * 【取证，同样不是拍脑袋】（2026-09-18）
+ * 默认 0.3 拦下它，报「吃掉 48.7%」。
+ * 用同一个独立脚本 `/tmp/artx-comment-ratio-2.mjs` 逐行数：
+ *   总 83 行 / 纯注释 38 行 / 代码 35 行，注释字符占比 **48.69%**。
+ * 与闸门报的 48.7% 吻合到小数点后一位 → 剥离函数没误吃代码。
+ * 另外 `grep 'image/\*'` 零命中，排除了「含 /* 的字符串把正则带跑」这个成因。
+ *
+ * ⚠️ 只放宽这一个调用点，不动默认值。
+ * 📌 且这条断言里先做了正向锚点校验（onError / AVATAR_FALLBACK_SRC 等都要在），
+ *    保证放宽后反向断言不会变成恒绿的装饰品。
+ */
+const AVATAR_COMPONENT_MAX_LOSS_RATIO = 0.55;
+
 describe("home page inspiration wiring", () => {
   const source = readSource("HomePage.tsx");
 
@@ -69,10 +85,42 @@ describe("home page inspiration wiring", () => {
   });
 
   it("renders the deterministic avatar keyed by title", () => {
-    expect(source).toContain('data-testid="home-inspiration-avatar"');
-    expect(source).toContain("getInspirationAvatarUrl(item.title)");
+    /*
+     * ⚠️ 重锚（2026-09-18）：头像渲染已从首页内联 <img> 抽成共享组件
+     * InspirationAvatar，好让「CDN 挂了换本地 Logo」的兜底逻辑只有一个出口。
+     * 约束没变（仍是「按 title 确定性取头像 + 不可点」），只是守门位置变了：
+     * 首页守「把 title 传给了共享组件」，取值逻辑由组件自己的用例守。
+     */
+    expect(source).toContain('testId="home-inspiration-avatar"');
+    expect(source).toContain("<InspirationAvatar");
+    expect(source).toContain("title={item.title}");
     // ⚠️ 用户要求头像不可点
     expect(source).toContain("pointer-events-none");
+    // 📌 反向：首页不能再自己拼头像 URL，否则兜底又变成两个出口
+    expect(source).not.toContain("getInspirationAvatarUrl(");
+  });
+
+  it("routes every avatar through the shared fallback-aware component", () => {
+    /*
+     * 📌 头像有两个渲染出口（首页板块、共享卡片）。
+     * 兜底逻辑只写进其中一个，另一个在 DiceBear 不可达时仍然是破图，
+     * 而且**不会报任何错** —— 本项目踩过十几次的「多出口只改一个」。
+     */
+    const avatarComponent = readSource(
+      "../components/inspiration/InspirationAvatar.tsx",
+      AVATAR_COMPONENT_MAX_LOSS_RATIO
+    );
+    expect(avatarComponent).toContain("onError={handleError}");
+    expect(avatarComponent).toContain("AVATAR_FALLBACK_SRC");
+    expect(avatarComponent).toContain("artxStudioLogo");
+    // ⚠️ 兜底图是 5.4:1 的横版 Logo，cover 会裁成一条糊色块
+    expect(avatarComponent).toContain('objectFit: "contain"');
+    // title 变了要清掉失败标记，否则列表复用时会一直显示兜底图
+    expect(avatarComponent).toContain("setFailed(false)");
+
+    const card = readSource("../components/inspiration/InspirationCard.tsx");
+    expect(card).toContain("<InspirationAvatar");
+    expect(card).not.toContain("getInspirationAvatarUrl(");
   });
 
   it("never derives the avatar from a random source", () => {
@@ -91,8 +139,16 @@ describe("home page inspiration wiring", () => {
     expect(avatarLib).toContain("AVATAR_STYLES[seed % AVATAR_STYLES.length]");
     expect(avatarLib).not.toContain("Math.random");
     expect(avatarLib).not.toContain("Date.now()");
-    // 头像取值必须直接来自内容标题，中间不经过任何随机量
-    expect(source).toContain("getInspirationAvatarUrl(item.title)");
+    /*
+     * 头像取值必须直接来自内容标题，中间不经过任何随机量。
+     * ⚠️ 重锚：调用点已搬进 InspirationAvatar 组件，首页只负责把 title 传进去。
+     */
+    const avatarComponent = readSource(
+      "../components/inspiration/InspirationAvatar.tsx",
+      AVATAR_COMPONENT_MAX_LOSS_RATIO
+    );
+    expect(avatarComponent).toContain("getInspirationAvatarUrl(title)");
+    expect(avatarComponent).not.toContain("Math.random");
   });
 
   it("avoids nesting a button inside a button", () => {

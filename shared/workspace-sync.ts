@@ -49,10 +49,45 @@ export type SyncedDeletion = {
   deletedAt: string;
 };
 
+/**
+ * 灵感卡片的点赞 / 收藏（跨设备）。
+ *
+ * 【为什么用 active 布尔而不是单独的墓碑列表】
+ * 项目/画布的删除用的是 `deletions` 墓碑数组，那是因为「项目」和「删除记录」
+ * 是两种不同形状的数据。但点赞的「取消」本质上就是**同一条记录的一次更新**：
+ *   赞了 → { active: true,  updatedAt: T1 }
+ *   取消 → { active: false, updatedAt: T2 }
+ * 📌 这样一来 last-write-wins 天然成立，不需要额外的墓碑比对逻辑。
+ *
+ * ⚠️⚠️ 取消**绝不能**表示成「把记录从数组里删掉」。
+ *    A 机器删掉记录上行 → 服务端合并时 B 机器那条 active:true 还在 →
+ *    合并结果仍然是"赞着的" → **用户看到「我取消了，另一台电脑上还赞着，
+ *    而且过一会儿这台也变回赞了」**。这与画布「删了又自己回来」是同一个坑。
+ */
+export type SyncedInspirationReaction = {
+  /** `${kind}:${id}`，全局唯一 */
+  key: string;
+  kind: "like" | "favorite";
+  /** 归一化后的标题——跨页面稳定的身份键 */
+  id: string;
+  /** false 表示「已取消」，即墓碑 */
+  active: boolean;
+  updatedAt: string;
+  /**
+   * 内容快照。
+   * ⚠️ 必须带快照而不是只带 id：个人中心要用专题页卡片样式完整渲染，
+   *    而专题页数据是远程分页的，另一台设备上未必加载到了那一页。
+   *    只存 id 会出现「赞了却查不到、卡片空白」。
+   * active 为 false 时可以为 null（取消了就不需要内容了，省体积）。
+   */
+  item: Record<string, unknown> | null;
+};
+
 export type WorkspaceSyncPayload = {
   projects: SyncedWorkspaceProject[];
   canvases: SyncedCanvasState[];
   deletions: SyncedDeletion[];
+  reactions: SyncedInspirationReaction[];
 };
 
 export type WorkspaceSyncDocument = WorkspaceSyncPayload & {
@@ -176,6 +211,26 @@ function normalizeDeletion(value: unknown): SyncedDeletion | null {
   };
 }
 
+function normalizeReaction(value: unknown): SyncedInspirationReaction | null {
+  if (!isPlainRecord(value)) return null;
+  const kind = value.kind === "like" || value.kind === "favorite" ? value.kind : null;
+  const id = typeof value.id === "string" ? value.id.trim() : "";
+  if (!kind || !id) return null;
+  return {
+    key: `${kind}:${id}`,
+    kind,
+    id,
+    /*
+     * ⚠️ 默认必须是 true。
+     *    旧版本前端发上来的载荷没有 active 字段，若默认成 false
+     *    会把用户**已有的点赞在升级瞬间全部清空**，而且看不出是谁干的。
+     */
+    active: value.active === false ? false : true,
+    updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
+    item: isPlainRecord(value.item) ? value.item : null,
+  };
+}
+
 export function normalizeWorkspaceSyncPayload(value: unknown): WorkspaceSyncPayload {
   const record = isPlainRecord(value) ? value : {};
   const projects = Array.isArray(record.projects)
@@ -187,7 +242,10 @@ export function normalizeWorkspaceSyncPayload(value: unknown): WorkspaceSyncPayl
   const deletions = Array.isArray(record.deletions)
     ? record.deletions.map(normalizeDeletion).filter((item): item is SyncedDeletion => Boolean(item))
     : [];
-  return { projects, canvases, deletions };
+  const reactions = Array.isArray(record.reactions)
+    ? record.reactions.map(normalizeReaction).filter((item): item is SyncedInspirationReaction => Boolean(item))
+    : [];
+  return { projects, canvases, deletions, reactions };
 }
 
 function mergeById<T>(
@@ -269,7 +327,30 @@ export function mergeWorkspaceSync(
     .sort((a, b) => parseSyncTimestamp(b.updatedAt) - parseSyncTimestamp(a.updatedAt))
     .slice(0, MAX_SYNCED_CANVASES);
 
-  return { projects, canvases, deletions };
+  /*
+   * 点赞 / 收藏。
+   *
+   * ⚠️⚠️ 这里**刻意保留 active:false 的条目**（即墓碑），不能顺手 filter 掉。
+   *    过滤掉等于「取消这个动作没有被同步出去」：
+   *    A 机器取消 → 上行的载荷里干脆没有这条 → 服务端合并时
+   *    B 机器那条 active:true 原样保留 → A 机器下行又把它捡回来。
+   *    **用户现象：取消了，刷新一下又赞上了。**
+   *    真正的清理靠 TTL（与删除墓碑同一套 30 天口径）。
+   *
+   * ⚠️ 与项目/画布不同，这里**不做数量上限截断**：
+   *    截断会让"我赞过的"里最早那些条目在某天悄悄消失。
+   *    体积风险由 enforceSyncDocumentBudget 统一兜底。
+   */
+  const reactions = mergeById(
+    base.reactions,
+    incoming.reactions,
+    item => item.key,
+    item => parseSyncTimestamp(item.updatedAt)
+  ).filter(
+    item => item.active || now - parseSyncTimestamp(item.updatedAt) <= DELETION_TOMBSTONE_TTL_MS
+  );
+
+  return { projects, canvases, deletions, reactions };
 }
 
 /**
@@ -302,5 +383,12 @@ export function enforceSyncDocumentBudget(
 }
 
 export function createEmptyWorkspaceSyncDocument(): WorkspaceSyncDocument {
-  return { projects: [], canvases: [], deletions: [], revision: 0, updatedAt: new Date(0).toISOString() };
+  return {
+    projects: [],
+    canvases: [],
+    deletions: [],
+    reactions: [],
+    revision: 0,
+    updatedAt: new Date(0).toISOString(),
+  };
 }

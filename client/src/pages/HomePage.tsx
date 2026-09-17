@@ -10,13 +10,10 @@ import {
   Send,
   X,
 } from "lucide-react";
+import { InspirationAvatar } from "@/components/inspiration/InspirationAvatar";
 import { InspirationReactionButton } from "@/components/inspiration/InspirationReactionButton";
 import { useInspirationReactions } from "@/hooks/useInspirationReactions";
-import {
-  getInspirationAvatarAlt,
-  getInspirationAvatarUrl,
-  normalizeInspirationIdentity,
-} from "@/lib/inspiration-avatar";
+import { normalizeInspirationIdentity } from "@/lib/inspiration-avatar";
 import { getDisplayLikeCount } from "@/lib/inspiration-reactions";
 import { useAuth, rememberInviteCodeFromUrl } from "@/contexts/AuthContext";
 import { useBillingDialog } from "@/components/billing/BillingDialogProvider";
@@ -886,14 +883,11 @@ export default function HomePage() {
                       套一个可点元素会变成嵌套按钮（HTML 非法且点击行为不可预期）；
                     - 用 title 做身份键，保证与专题页同一张脸。
                   */}
-                  <img
-                    src={getInspirationAvatarUrl(item.title)}
-                    alt={getInspirationAvatarAlt(item.title)}
-                    aria-hidden="true"
-                    data-testid="home-inspiration-avatar"
-                    className="pointer-events-none absolute left-3 bottom-3 h-9 w-9 rounded-full object-cover"
+                  <InspirationAvatar
+                    title={item.title}
+                    testId="home-inspiration-avatar"
+                    className="pointer-events-none absolute left-3 bottom-3 h-9 w-9 rounded-full"
                     style={{ border: "1px solid #222222", background: "#222222" }}
-                    loading="lazy"
                   />
                 </div>
                 <div className="p-4">

@@ -135,7 +135,14 @@ export async function mergeWorkspaceSyncDocument(
     const sanitized = stripInlineImagesForSync(normalizeWorkspaceSyncPayload(incoming));
     const merged: WorkspaceSyncPayload = enforceSyncDocumentBudget(
       mergeWorkspaceSync(
-        { projects: current.projects, canvases: current.canvases, deletions: current.deletions },
+        {
+          projects: current.projects,
+          canvases: current.canvases,
+          deletions: current.deletions,
+          // ⚠️ 漏掉 reactions 这一项，合并的 base 侧就永远是空数组 ——
+          //    表现为「另一台设备的点赞永远同步不过来」，且零报错。
+          reactions: current.reactions,
+        },
         sanitized
       )
     );

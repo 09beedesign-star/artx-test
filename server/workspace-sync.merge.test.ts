@@ -26,7 +26,23 @@ function canvas(projectId: string, updatedAt: string, nodes: unknown[] = [{ id: 
 }
 
 function payload(partial: Partial<WorkspaceSyncPayload>): WorkspaceSyncPayload {
-  return { projects: [], canvases: [], deletions: [], ...partial };
+  return { projects: [], canvases: [], deletions: [], reactions: [], ...partial };
+}
+
+function reaction(
+  kind: "like" | "favorite",
+  id: string,
+  active: boolean,
+  updatedAt: string
+): WorkspaceSyncPayload["reactions"][number] {
+  return {
+    key: `${kind}:${id}`,
+    kind,
+    id,
+    active,
+    updatedAt,
+    item: active ? { id, title: `灵感 ${id}`, prompt: "p", imageUrl: "u" } : null,
+  };
 }
 
 describe("mergeWorkspaceSync", () => {
@@ -194,8 +210,125 @@ describe("normalizeWorkspaceSyncPayload", () => {
   });
 
   it("returns empty collections for completely invalid input", () => {
-    expect(normalizeWorkspaceSyncPayload(null)).toEqual({ projects: [], canvases: [], deletions: [] });
-    expect(normalizeWorkspaceSyncPayload("nope")).toEqual({ projects: [], canvases: [], deletions: [] });
+    expect(normalizeWorkspaceSyncPayload(null)).toEqual({
+      projects: [],
+      canvases: [],
+      deletions: [],
+      reactions: [],
+    });
+    expect(normalizeWorkspaceSyncPayload("nope")).toEqual({
+      projects: [],
+      canvases: [],
+      deletions: [],
+      reactions: [],
+    });
+  });
+
+  it("defaults a reaction without an explicit active flag to active", () => {
+    /*
+     * ⚠️ 旧版本前端发上来的载荷没有 active 字段。
+     *    若把缺失默认成 false，用户**已有的点赞会在升级瞬间被全部清空**，
+     *    而且看不出是谁干的 —— 这是个只在灰度那一刻发生、之后再也复现不了的坑。
+     */
+    const normalized = normalizeWorkspaceSyncPayload({
+      reactions: [{ kind: "like", id: "x", updatedAt: "2026-09-17T00:00:00.000Z" }],
+    });
+    expect(normalized.reactions).toHaveLength(1);
+    expect(normalized.reactions[0]?.active).toBe(true);
+    expect(normalized.reactions[0]?.key).toBe("like:x");
+  });
+
+  it("drops reactions with an unknown kind instead of trusting the client", () => {
+    const normalized = normalizeWorkspaceSyncPayload({
+      reactions: [
+        { kind: "bookmark", id: "x", updatedAt: "2026-09-17T00:00:00.000Z" },
+        { kind: "like", id: "", updatedAt: "2026-09-17T00:00:00.000Z" },
+      ],
+    });
+    expect(normalized.reactions).toHaveLength(0);
+  });
+});
+
+describe("mergeWorkspaceSync — 灵感点赞 / 收藏跨设备", () => {
+  it("keeps reactions made on both devices instead of letting one overwrite the other", () => {
+    const merged = mergeWorkspaceSync(
+      payload({ reactions: [reaction("like", "a", true, "2026-09-17T01:00:00.000Z")] }),
+      payload({ reactions: [reaction("favorite", "b", true, "2026-09-17T02:00:00.000Z")] })
+    );
+    expect(merged.reactions).toHaveLength(2);
+    expect(merged.reactions.map(item => item.key).sort()).toEqual(["favorite:b", "like:a"]);
+  });
+
+  it("lets a later cancellation win over an earlier like", () => {
+    /*
+     * 📌 这是用户最直接的诉求：「取消点赞，个人中心对应内容同步消失」。
+     *    A 机器 01:00 点赞 → B 机器 03:00 取消 → 合并结果必须是「已取消」。
+     */
+    const merged = mergeWorkspaceSync(
+      payload({ reactions: [reaction("like", "a", true, "2026-09-17T01:00:00.000Z")] }),
+      payload({ reactions: [reaction("like", "a", false, "2026-09-17T03:00:00.000Z")] })
+    );
+    expect(merged.reactions).toHaveLength(1);
+    expect(merged.reactions[0]?.active).toBe(false);
+  });
+
+  it("lets a later re-like win over an earlier cancellation", () => {
+    // 取消后又赞回来，必须是「赞着的」，而且快照要回来（否则卡片空白）
+    const merged = mergeWorkspaceSync(
+      payload({ reactions: [reaction("like", "a", false, "2026-09-17T01:00:00.000Z")] }),
+      payload({ reactions: [reaction("like", "a", true, "2026-09-17T03:00:00.000Z")] })
+    );
+    expect(merged.reactions[0]?.active).toBe(true);
+    expect(merged.reactions[0]?.item).toBeTruthy();
+  });
+
+  it("retains cancellation tombstones so the removal propagates to the other device", () => {
+    /*
+     * ⚠️⚠️ 这条是整个跨设备点赞最容易写错的地方。
+     *    如果合并时顺手把 active:false 过滤掉（"反正它没被赞"），
+     *    取消动作就传不出去：另一台设备那条 active:true 原样保留，
+     *    下一次下行又把它捡回来 —— **用户现象：取消了，刷新一下又赞回来了。**
+     */
+    const merged = mergeWorkspaceSync(
+      payload({ reactions: [reaction("like", "a", false, "2026-09-17T03:00:00.000Z")] }),
+      payload({})
+    );
+    expect(merged.reactions).toHaveLength(1);
+    expect(merged.reactions[0]?.active).toBe(false);
+  });
+
+  it("expires stale tombstones but never expires active reactions", () => {
+    const now = Date.parse("2026-09-17T00:00:00.000Z");
+    const longAgo = new Date(now - DELETION_TOMBSTONE_TTL_MS - 1000).toISOString();
+    const merged = mergeWorkspaceSync(
+      payload({
+        reactions: [
+          reaction("like", "old-cancel", false, longAgo),
+          // 📌 很久以前赞的东西**不能**过期 —— 那是用户的收藏夹，不是垃圾
+          reaction("favorite", "old-like", true, longAgo),
+        ],
+      }),
+      payload({}),
+      now
+    );
+    expect(merged.reactions.map(item => item.key)).toEqual(["favorite:old-like"]);
+  });
+
+  it("keeps like and favorite of the same item independent", () => {
+    // 同一条灵感既被赞又被收藏，取消点赞不能把收藏一起带走
+    const merged = mergeWorkspaceSync(
+      payload({
+        reactions: [
+          reaction("like", "a", true, "2026-09-17T01:00:00.000Z"),
+          reaction("favorite", "a", true, "2026-09-17T01:00:00.000Z"),
+        ],
+      }),
+      payload({ reactions: [reaction("like", "a", false, "2026-09-17T02:00:00.000Z")] })
+    );
+    const favorite = merged.reactions.find(item => item.key === "favorite:a");
+    const like = merged.reactions.find(item => item.key === "like:a");
+    expect(favorite?.active).toBe(true);
+    expect(like?.active).toBe(false);
   });
 });
 

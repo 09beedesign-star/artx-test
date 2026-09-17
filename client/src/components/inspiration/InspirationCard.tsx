@@ -17,10 +17,7 @@
  */
 import { Download } from "lucide-react";
 import type { ReactNode } from "react";
-import {
-  getInspirationAvatarAlt,
-  getInspirationAvatarUrl,
-} from "@/lib/inspiration-avatar";
+import { InspirationAvatar } from "@/components/inspiration/InspirationAvatar";
 
 export type InspirationCardItem = {
   title: string;
@@ -132,18 +129,15 @@ export function InspirationCard({
           ⚠️ `pointer-events-none` —— 用户明确要求「头像不可点」。
           ⚠️ 只越过交界线 14px，不会伸进标签行；信息区已预留上内边距。
         */}
-        <img
-          src={getInspirationAvatarUrl(item.title)}
-          alt={getInspirationAvatarAlt(item.title)}
-          aria-hidden="true"
-          data-testid="inspiration-card-avatar"
-          className="pointer-events-none absolute right-3 z-20 h-11 w-11 rounded-full object-cover"
+        <InspirationAvatar
+          title={item.title}
+          testId="inspiration-card-avatar"
+          className="pointer-events-none absolute right-3 z-20 h-11 w-11 rounded-full"
           style={{
             bottom: -14,
             border: `${avatarBorderWidth}px solid ${ringColor}`,
             background: ringColor,
           }}
-          loading="lazy"
         />
       </div>
 

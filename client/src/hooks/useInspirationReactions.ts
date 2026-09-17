@@ -16,6 +16,7 @@ import {
   type InspirationReactionKind,
   type InspirationReactionState,
 } from "@/lib/inspiration-reactions";
+import { scheduleWorkspaceSync } from "@/lib/workspace-sync";
 
 export function useInspirationReactions() {
   const { user } = useAuth();
@@ -44,6 +45,15 @@ export function useInspirationReactions() {
     ) => {
       const result = toggleInspirationReaction(userId, kind, item);
       setState(result.state);
+      /*
+       * 触发跨设备同步（防抖 3 秒）。
+       *
+       * ⚠️ 用 schedule 而不是立即 syncWorkspaceNow：用户连点几张卡片时
+       *    立即同步会把后端当鼓点敲。3 秒防抖是"停手就传"的手感。
+       * ⚠️ 未登录时 scheduleWorkspaceSync 内部会直接 return，
+       *    本地记录照常生效 —— 未登录用点赞是完全合法的用法。
+       */
+      scheduleWorkspaceSync();
       return result.active;
     },
     [userId]

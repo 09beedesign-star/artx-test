@@ -43,9 +43,23 @@ export type InspirationReactionItem = {
   reactedAt: number;
 };
 
+/**
+ * 取消点赞 / 取消收藏的墓碑。
+ *
+ * ⚠️⚠️ 跨设备同步上线后，「取消」**必须**表示成一条带时间戳的记录，
+ *    不能表示成「数组里少了一条」。理由见 toggleInspirationReaction 注释：
+ *    没有墓碑，取消这个动作根本传不出去，云端会把它合并回来。
+ */
+export type InspirationReactionTombstone = {
+  kind: InspirationReactionKind;
+  id: string;
+  removedAt: number;
+};
+
 export type InspirationReactionState = {
   like: InspirationReactionItem[];
   favorite: InspirationReactionItem[];
+  tombstones: InspirationReactionTombstone[];
 };
 
 const STORAGE_PREFIX = "artx:inspiration-reactions:";
@@ -66,7 +80,20 @@ function storageKey(userId: string | null | undefined) {
 }
 
 function emptyState(): InspirationReactionState {
-  return { like: [], favorite: [] };
+  return { like: [], favorite: [], tombstones: [] };
+}
+
+function sanitizeTombstone(raw: unknown): InspirationReactionTombstone | null {
+  if (!raw || typeof raw !== "object") return null;
+  const record = raw as Record<string, unknown>;
+  const kind = record.kind === "like" || record.kind === "favorite" ? record.kind : null;
+  const id = typeof record.id === "string" ? record.id : "";
+  if (!kind || !id) return null;
+  return {
+    kind,
+    id,
+    removedAt: typeof record.removedAt === "number" ? record.removedAt : Date.now(),
+  };
 }
 
 function sanitizeItem(raw: unknown): InspirationReactionItem | null {
@@ -105,7 +132,10 @@ export function readInspirationReactions(
       (Array.isArray(parsed[key]) ? (parsed[key] as unknown[]) : [])
         .map(sanitizeItem)
         .filter((item): item is InspirationReactionItem => item !== null);
-    return { like: pick("like"), favorite: pick("favorite") };
+    const tombstones = (Array.isArray(parsed.tombstones) ? (parsed.tombstones as unknown[]) : [])
+      .map(sanitizeTombstone)
+      .filter((item): item is InspirationReactionTombstone => item !== null);
+    return { like: pick("like"), favorite: pick("favorite"), tombstones };
   } catch {
     return emptyState();
   }
@@ -148,12 +178,42 @@ export function toggleInspirationReaction(
 ): { state: InspirationReactionState; active: boolean } {
   const current = readInspirationReactions(userId);
   const exists = current[kind].some(entry => entry.id === item.id);
+  const now = Date.now();
   const nextList = exists
     ? current[kind].filter(entry => entry.id !== item.id)
-    : [{ ...item, reactedAt: Date.now() }, ...current[kind]];
-  const next: InspirationReactionState = { ...current, [kind]: nextList };
+    : [{ ...item, reactedAt: now }, ...current[kind]];
+  const next: InspirationReactionState = {
+    ...current,
+    [kind]: nextList,
+    /*
+     * ⚠️⚠️ 取消时必须**留一条墓碑**，不能只是把它从数组里删掉。
+     *    本地删干净 → 上行的载荷里没有这条 → 云端另一台设备那条
+     *    active:true 原样保留 → 下一次下行又把它合并回本地。
+     *    **用户现象：在这台电脑取消了，刷新一下又赞回来了。**
+     *    墓碑的 removedAt 就是 last-write-wins 的时间凭据。
+     */
+    tombstones: [
+      ...current.tombstones.filter(entry => !(entry.kind === kind && entry.id === item.id)),
+      ...(exists ? [{ kind, id: item.id, removedAt: now }] : []),
+    ],
+  };
   writeInspirationReactions(userId, next);
   return { state: next, active: !exists };
+}
+
+/**
+ * 用云端下行的记录整体替换本地状态。
+ *
+ * ⚠️ 这里不做合并 —— 合并已经由 shared/workspace-sync.ts 的
+ *    mergeWorkspaceSync 在**前后端唯一事实源**里做完了。
+ *    在这里再合一次会出现两套语义不一致的合并逻辑，
+ *    是「同一份逻辑多个出口」的经典起点。
+ */
+export function replaceInspirationReactions(
+  userId: string | null | undefined,
+  state: InspirationReactionState
+) {
+  writeInspirationReactions(userId, state);
 }
 
 /**

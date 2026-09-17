@@ -70,7 +70,7 @@ const sample: Omit<InspirationReactionItem, "reactedAt"> = {
 
 describe("inspiration reactions store", () => {
   it("starts empty and records a like with a full content snapshot", () => {
-    expect(readInspirationReactions("u1")).toEqual({ like: [], favorite: [] });
+    expect(readInspirationReactions("u1")).toEqual({ like: [], favorite: [], tombstones: [] });
 
     const { active, state } = toggleInspirationReaction("u1", "like", sample);
     expect(active).toBe(true);
@@ -129,7 +129,74 @@ describe("inspiration reactions store", () => {
 
   it("returns an empty state instead of crashing on corrupted storage", () => {
     storage.set("artx:inspiration-reactions:u1", "{not json");
-    expect(readInspirationReactions("u1")).toEqual({ like: [], favorite: [] });
+    expect(readInspirationReactions("u1")).toEqual({ like: [], favorite: [], tombstones: [] });
+  });
+
+  /*
+   * 跨设备同步的前提条件。
+   * 📌 这两条守的是「取消这个动作能不能传出去」，
+   *    不是「本地数组少没少一条」—— 后者即使全绿，跨设备仍然会
+   *    出现「我取消了，刷新一下又赞回来了」。
+   */
+  it("writes a tombstone when a reaction is cancelled so the removal can sync", () => {
+    toggleInspirationReaction("u1", "like", sample);
+    expect(readInspirationReactions("u1").tombstones).toHaveLength(0);
+
+    toggleInspirationReaction("u1", "like", sample);
+    const state = readInspirationReactions("u1");
+    expect(state.like).toHaveLength(0);
+    expect(state.tombstones).toHaveLength(1);
+    expect(state.tombstones[0]).toMatchObject({ kind: "like", id: sample.id });
+    expect(typeof state.tombstones[0]!.removedAt).toBe("number");
+  });
+
+  it("clears the tombstone when the same item is reacted again", () => {
+    toggleInspirationReaction("u1", "like", sample);
+    toggleInspirationReaction("u1", "like", sample);
+    expect(readInspirationReactions("u1").tombstones).toHaveLength(1);
+
+    // 再赞回来：墓碑必须消失，否则云端合并时会被这条旧墓碑反复抹掉
+    toggleInspirationReaction("u1", "like", sample);
+    const state = readInspirationReactions("u1");
+    expect(state.like).toHaveLength(1);
+    expect(state.tombstones).toHaveLength(0);
+  });
+
+  it("keeps tombstones separate per kind", () => {
+    toggleInspirationReaction("u1", "like", sample);
+    toggleInspirationReaction("u1", "favorite", sample);
+    toggleInspirationReaction("u1", "like", sample);
+
+    const state = readInspirationReactions("u1");
+    // 取消点赞不能连带给收藏也立个墓碑
+    expect(state.tombstones).toHaveLength(1);
+    expect(state.tombstones[0]!.kind).toBe("like");
+    expect(state.favorite).toHaveLength(1);
+  });
+
+  it("never wipes another kind's tombstone when re-reacting", () => {
+    /*
+     * ⚠️ 这条守的是墓碑去重时**必须同时比对 kind 和 id**。
+     *
+     * 只按 id 去重的话：用户先取消了收藏（留下 favorite 墓碑），
+     * 之后重新点赞同一条内容 → 那条 favorite 墓碑被顺手抹掉 →
+     * 取消收藏这个动作再也传不到另一台设备 →
+     * **另一台电脑上这条内容还躺在「我的收藏」里，而且会同步回来。**
+     *
+     * 📌 上一条用例打不到这个分支：那里取消 like 时墓碑数组还是空的，
+     *    filter 过滤谁都一样。必须先造出一条**另一 kind 的**存量墓碑。
+     */
+    toggleInspirationReaction("u1", "favorite", sample);
+    toggleInspirationReaction("u1", "favorite", sample); // 取消收藏 → 立 favorite 墓碑
+    expect(readInspirationReactions("u1").tombstones).toHaveLength(1);
+
+    toggleInspirationReaction("u1", "like", sample); // 重新点赞（不同 kind）
+
+    const state = readInspirationReactions("u1");
+    expect(state.like).toHaveLength(1);
+    // favorite 的墓碑必须原样还在
+    expect(state.tombstones).toHaveLength(1);
+    expect(state.tombstones[0]!.kind).toBe("favorite");
   });
 
   it("drops malformed entries that have no id", () => {

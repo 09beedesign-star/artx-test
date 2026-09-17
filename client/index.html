@@ -5,6 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
     <title>artx</title>
     <!--
+      站点图标。此前**完全没有**这行，浏览器标签页显示的是空白默认图标。
+      ⚠️ href 必须写成 Vite 能识别的源码路径（/src/assets/...），构建时会被替换成
+      带内容哈希的产物路径（artxstudio-logo-<hash>.png）。写 /assets/artxstudio-logo.png
+      这种「看起来对」的字面量在生产环境必然 404 —— 而 404 的图标和没图标长得一样，
+      不会有任何报错提示你写错了。
+      📌 这张图同时是灵感卡片虚拟头像的本地兜底图（见 InspirationAvatar.tsx），
+      两处刻意用同一张，避免「标签页一个 Logo、兜底图另一个」。
+    -->
+    <link rel="icon" type="image/png" href="/src/assets/brand/artxstudio-logo.png" />
+    <!--
       ⚠️ 这段内联样式是**刻意**的，不要因为「index.css 里已经有了」就删掉。
       外部 CSS 加载完成前浏览器已经开始绘制，这段空窗期用的是浏览器默认字体 ——
       中文 Windows 上默认是**宋体（衬线）**，于是会闪一下衬线字再跳成无衬线。

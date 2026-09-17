@@ -18,10 +18,18 @@ import {
   parseSyncTimestamp,
   stripInlineImagesForSync,
   type SyncedCanvasState,
+  type SyncedInspirationReaction,
   type SyncedWorkspaceProject,
   type WorkspaceSyncDocument,
   type WorkspaceSyncPayload,
 } from "../../../shared/workspace-sync";
+import {
+  readInspirationReactions,
+  replaceInspirationReactions,
+  type InspirationReactionItem,
+  type InspirationReactionKind,
+  type InspirationReactionState,
+} from "./inspiration-reactions";
 
 const AUTH_STORAGE_KEY = "artx-auth-session";
 const CANVAS_STATE_STORAGE_PREFIX = "artx:canvas-state:";
@@ -205,6 +213,82 @@ function writeLocalCanvas(canvas: SyncedCanvasState) {
   safeSetItem(window.localStorage, keys.local, serialized);
 }
 
+/* ------------------------------------------------------------------ *
+ * 灵感点赞 / 收藏 <-> 同步载荷
+ * ------------------------------------------------------------------ */
+
+/**
+ * 本地点赞状态 → 同步载荷。
+ *
+ * ⚠️⚠️ **墓碑必须一起上行**。只传"还赞着的"那些，取消动作就传不出去：
+ *    云端另一台设备那条 active:true 会被原样保留，下一次下行再合并回本地，
+ *    用户看到的就是「我取消了，刷新一下又赞回来了」。
+ */
+function collectLocalReactions(): SyncedInspirationReaction[] {
+  const { userId } = readAuthSession();
+  const state = readInspirationReactions(userId);
+  const rows: SyncedInspirationReaction[] = [];
+
+  for (const kind of ["like", "favorite"] as InspirationReactionKind[]) {
+    for (const item of state[kind]) {
+      rows.push({
+        key: `${kind}:${item.id}`,
+        kind,
+        id: item.id,
+        active: true,
+        updatedAt: new Date(item.reactedAt).toISOString(),
+        item: item as unknown as Record<string, unknown>,
+      });
+    }
+  }
+
+  for (const tomb of state.tombstones) {
+    rows.push({
+      key: `${tomb.kind}:${tomb.id}`,
+      kind: tomb.kind,
+      id: tomb.id,
+      active: false,
+      updatedAt: new Date(tomb.removedAt).toISOString(),
+      item: null,
+    });
+  }
+
+  return rows;
+}
+
+/**
+ * 同步载荷 → 本地点赞状态。
+ *
+ * ⚠️ 不在这里做"谁新留谁"的判断 —— 合并已经在
+ *    shared/workspace-sync.ts 的 mergeWorkspaceSync 里做完了，
+ *    这里只负责把合并结果翻译回本地的数据形状。
+ *    再合一次就是第二套合并逻辑，必然与第一套产生分歧。
+ */
+function reactionsToLocalState(rows: SyncedInspirationReaction[]): InspirationReactionState {
+  const next: InspirationReactionState = { like: [], favorite: [], tombstones: [] };
+  for (const row of rows) {
+    if (!row.active) {
+      next.tombstones.push({
+        kind: row.kind,
+        id: row.id,
+        removedAt: parseSyncTimestamp(row.updatedAt) || Date.now(),
+      });
+      continue;
+    }
+    // active 但没带快照的条目直接丢弃：渲染不出卡片，留着只会是个空壳。
+    if (!row.item) continue;
+    next[row.kind].push({
+      ...(row.item as unknown as InspirationReactionItem),
+      id: row.id,
+      reactedAt: parseSyncTimestamp(row.updatedAt) || Date.now(),
+    });
+  }
+  // 个人中心按"最近优先"展示，排序在这里做掉，消费方不用各自再排一遍。
+  next.like.sort((a, b) => b.reactedAt - a.reactedAt);
+  next.favorite.sort((a, b) => b.reactedAt - a.reactedAt);
+  return next;
+}
+
 function collectLocalPayload(): WorkspaceSyncPayload {
   const projects = readLocalProjects();
   const canvases = projects
@@ -214,6 +298,7 @@ function collectLocalPayload(): WorkspaceSyncPayload {
     projects,
     canvases,
     deletions: readDeletionLog(),
+    reactions: collectLocalReactions(),
   });
 }
 
@@ -225,11 +310,27 @@ function applyDocumentToLocal(document: WorkspaceSyncDocument) {
    *    直接盖掉 = 那几笔改动凭空消失（而且用户完全无从察觉）。
    */
   const merged = mergeWorkspaceSync(
-    { projects: document.projects, canvases: document.canvases, deletions: document.deletions },
+    {
+      projects: document.projects,
+      canvases: document.canvases,
+      deletions: document.deletions,
+      reactions: document.reactions,
+    },
     local
   );
 
   writeLocalProjects(merged.projects);
+
+  /*
+   * 回写点赞 / 收藏。
+   *
+   * ⚠️ replaceInspirationReactions 内部会广播 INSPIRATION_REACTIONS_EVENT，
+   *    首页 / 专题页 / 个人中心三棵独立组件树才会跟着重渲染。
+   *    少了这次广播，云端数据虽然进了 localStorage，
+   *    但界面要等用户手动刷新才变 —— 表现为「同步了个寂寞」。
+   */
+  const { userId } = readAuthSession();
+  replaceInspirationReactions(userId, reactionsToLocalState(merged.reactions));
 
   const deletedIds = merged.deletions.map(item => item.id);
   for (const canvas of merged.canvases) {
