@@ -575,6 +575,7 @@ import {
   type WorkspaceHistoryProject,
 } from "@/lib/project-history";
 import { scheduleWorkspaceSync } from "@/lib/workspace-sync";
+import { computeDraftNodeRect, isCanvasEmpty } from "@/lib/canvas-empty-state";
 import {
   buildSkillPromptContext,
   createPendingSkillLoad,
@@ -11598,6 +11599,246 @@ function FreehandNodeComponent({
   );
 }
 
+/**
+ * 「生成图片」引导产生的**空白图片节点**。
+ *
+ * 用户要求：点「生成图片」后画布正中出现一个空白图片节点，占画面 70%、
+ * 正方形，**下半部分内嵌一个提示词输入框**，输入框直接复用现成样式。
+ *
+ * 【为什么不复用 PromptNodeComponent】
+ * PromptNodeComponent 是固定 300px 宽的「提示词说明卡」，调的是 callLLM
+ * 出文本、**不出图**。用户要的是「空白图片节点 + 内嵌输入框」，语义是占位画框。
+ * 所以这里新建节点类型，但输入框视觉（背景/描边/字号/Enter 生成 · Shift+Enter
+ * 换行）严格照搬 ImageGeneratorPopover 那一套。
+ *
+ * ⚠️ 提交必须走 `dispatchImageGenerationTask` —— 画布出图的**唯一收口**：
+ * 它负责落盘任务、派发 `image-generator-submit`，由 InnerCanvas 统一建占位节点。
+ * 📌 自己直接调 generateAiImages 会绕开落盘，刷新页面任务就凭空消失。
+ */
+function DraftImageNodeComponent({
+  id,
+  data,
+}: {
+  id: string;
+  data: Record<string, unknown>;
+  selected: boolean;
+}) {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
+  const { deleteElements } = useReactFlow();
+  const [prompt, setPrompt] = useState("");
+  const width = (data.width as number) || 520;
+  const height = (data.height as number) || 520;
+  const projectId = (data.projectId as string) || "p1";
+
+  // 与 ImageGeneratorPopover 同源的配色变量，保证「复用现成样式」。
+  const border = isDark ? "#2e2e33" : "rgba(0,0,0,0.10)";
+  const text = isDark ? "rgba(255,255,255,0.86)" : "rgba(22,22,34,0.86)";
+  const sub = isDark ? "rgba(255,255,255,0.62)" : "rgba(22,22,34,0.48)";
+  const fieldBg = isDark ? "#242424" : "rgba(0,0,0,0.035)";
+  const surfaceBg = isDark ? "rgba(30,30,32,0.72)" : "rgba(255,255,255,0.86)";
+
+  const handleSubmit = useCallback(() => {
+    const trimmed = prompt.trim();
+    if (!trimmed) {
+      toast("请输入图像生成提示词");
+      return;
+    }
+    if (!requestAiAuth()) {
+      toast("请先登录", { description: "登录后即可使用 AI 能力" });
+      return;
+    }
+    const generationId = `image-gen-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 7)}`;
+    /**
+     * ⚠️ 草稿节点先删再派发：真正的生成占位节点由 InnerCanvas 统一创建。
+     * 不删的话画布上会同时留着草稿框和占位框，用户看到「点一次冒出两个」。
+     */
+    deleteElements({ nodes: [{ id }] });
+    dispatchImageGenerationTask(
+      {
+        projectId,
+        prompt: trimmed,
+        model: "auto",
+        ratio: "1:1",
+        count: 1,
+        style: "图像生成器",
+        referencesEnabled: false,
+        generationId,
+        status: "pending",
+      },
+      projectId
+    );
+  }, [deleteElements, id, projectId, prompt]);
+
+  return (
+    <div
+      data-testid="canvas-draft-image-node"
+      className="flex flex-col overflow-hidden rounded-[var(--radius-xl-design)]"
+      style={{
+        width,
+        height,
+        background: surfaceBg,
+        border: `1.5px dashed ${border}`,
+        backdropFilter: "blur(12px)",
+      }}
+    >
+      {/* 上半部分：空白画框区（用户要的「空白图片节点」本体） */}
+      <div
+        className="flex flex-1 flex-col items-center justify-center gap-3"
+        style={{ color: sub, minHeight: 0 }}
+      >
+        <ImageIcon size={34} strokeWidth={1.4} />
+        <span className="type-caption" style={{ fontSize: 13 }}>
+          描述你想要的画面，生成后将填充到这里
+        </span>
+      </div>
+
+      {/* 下半部分：内嵌提示词输入框，样式复用图像生成器 */}
+      <div className="nodrag nopan" style={{ padding: 14 }}>
+        <div
+          className="flex flex-col rounded-[var(--radius-lg-design)] p-3"
+          style={{ background: fieldBg, border: `1px solid ${border}` }}
+        >
+          <textarea
+            value={prompt}
+            onChange={e => setPrompt(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSubmit();
+              }
+            }}
+            onClick={e => e.stopPropagation()}
+            onMouseDown={e => e.stopPropagation()}
+            rows={3}
+            className="w-full resize-none bg-transparent outline-none"
+            style={{ color: text, fontSize: 14, lineHeight: 1.65 }}
+            placeholder="描述要生成的图像，例如：未来感跑鞋产品海报，紫蓝霓虹光，干净电商主视觉..."
+            autoFocus
+          />
+          <div
+            className="mt-2 flex items-center justify-between"
+            style={{ color: sub }}
+          >
+            <span className="type-caption">Enter 生成 · Shift+Enter 换行</span>
+            <button
+              type="button"
+              className="rounded-[var(--radius-md-design)] px-3 py-1.5 type-caption transition-opacity hover:opacity-90 disabled:opacity-50"
+              style={{ background: "oklch(0.64 0.22 285)", color: "white" }}
+              disabled={!prompt.trim()}
+              onClick={e => {
+                e.stopPropagation();
+                handleSubmit();
+              }}
+            >
+              生成
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 空白画布的暗纹引导层。
+ *
+ * 用户要求：新建画布空白时，背景出现两个暗纹缺省图标 + 文案按钮
+ * （上传图片 / 生成图片）；**画布里一旦有任何内容，全部自动消失**。
+ *
+ * ⚠️ 容器必须 `pointerEvents: "none"`，只在两个按钮上放开 `auto`。
+ * 否则这层会盖住整个画布，用户的框选、右键、拖拽全部失灵 ——
+ * 📌 **全屏覆盖层最典型的静默故障就是「画布点不动了」，它不报错。**
+ *
+ * 「暗纹」= 低对比度描边 + 半透明填充，hover 时才提亮，
+ * 保证它像背景水印而不是抢眼的实体按钮。
+ */
+function CanvasEmptyStateOverlay({
+  isDark,
+  rightInset,
+  onUpload,
+  onGenerate,
+}: {
+  isDark: boolean;
+  rightInset: number;
+  onUpload: () => void;
+  onGenerate: () => void;
+}) {
+  const [hovered, setHovered] = useState<"upload" | "generate" | null>(null);
+
+  // 暗纹配色：描边和文字都压到很低的对比度。
+  const idleBorder = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)";
+  const hoverBorder = isDark ? "rgba(255,255,255,0.26)" : "rgba(0,0,0,0.20)";
+  const idleText = isDark ? "rgba(255,255,255,0.28)" : "rgba(0,0,0,0.26)";
+  const hoverText = isDark ? "rgba(255,255,255,0.68)" : "rgba(0,0,0,0.62)";
+  const hoverFill = isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)";
+
+  const renderButton = (
+    key: "upload" | "generate",
+    label: string,
+    icon: ReactNode,
+    onClick: () => void
+  ) => {
+    const active = hovered === key;
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        onMouseEnter={() => setHovered(key)}
+        onMouseLeave={() => setHovered(null)}
+        aria-label={label}
+        style={{
+          // 只有按钮本身接收事件，容器保持穿透。
+          pointerEvents: "auto",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 12,
+          width: 188,
+          height: 148,
+          borderRadius: "var(--radius-lg-design)",
+          // 虚线描边强化「缺省占位」的语义，和实体按钮区分开
+          border: `1.5px dashed ${active ? hoverBorder : idleBorder}`,
+          background: active ? hoverFill : "transparent",
+          color: active ? hoverText : idleText,
+          cursor: "pointer",
+          transition: "color 160ms ease, border-color 160ms ease, background 160ms ease",
+        }}
+      >
+        {icon}
+        <span style={{ fontSize: 14, fontWeight: 500, letterSpacing: "0.01em" }}>
+          {label}
+        </span>
+      </button>
+    );
+  };
+
+  return (
+    <div
+      data-testid="canvas-empty-state-overlay"
+      style={{
+        position: "absolute",
+        inset: 0,
+        // 右侧要给助手面板让位，否则「居中」会偏到面板底下
+        right: rightInset,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 28,
+        pointerEvents: "none",
+        userSelect: "none",
+        zIndex: 4,
+      }}
+    >
+      {renderButton("upload", "上传图片", <ImagePlus size={30} strokeWidth={1.5} />, onUpload)}
+      {renderButton("generate", "生成图片", <WandSparkles size={30} strokeWidth={1.5} />, onGenerate)}
+    </div>
+  );
+}
+
 // ── Node types & edge types ────────────────────────────────────────────
 const nodeTypes: NodeTypes = {
   asset: AssetNodeComponent as unknown as NodeTypes["asset"],
@@ -11606,6 +11847,7 @@ const nodeTypes: NodeTypes = {
   pen: PenNodeComponent as unknown as NodeTypes["pen"],
   freehand: FreehandNodeComponent as unknown as NodeTypes["freehand"],
   text: TextNodeComponent as unknown as NodeTypes["text"],
+  draftImage: DraftImageNodeComponent as unknown as NodeTypes["draftImage"],
 };
 
 function areStringArraysEqual(a: string[], b: string[]) {
@@ -25064,6 +25306,62 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     [cloneEdgesForHistory, cloneNodesForHistory]
   );
 
+  /**
+   * 空画布引导「上传图片」。
+   *
+   * ⚠️ 不自己写一套选文件逻辑，而是复刻工具栏 `handleToolClick("upload")` 的做法
+   * —— 派发同一个全局事件。用户明确要求「直接复用上传图片的全交互流程」，
+   * 📌 **另起一套 = 同一份逻辑的第二个出口**，将来上传链路改了这里不会跟着改。
+   */
+  const handleEmptyStateUpload = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("workspace-upload-request"));
+  }, []);
+
+  /**
+   * 空画布引导「生成图片」：在画布正中插入一个 70% 正方形草稿节点。
+   *
+   * ⚠️ 尺寸按**屏幕可视区**算完再换算到 flow 坐标，不能直接拿 flow 坐标乘 0.7：
+   * flow 坐标受缩放影响，缩小到 50% 时节点会变成视觉上的 35%。
+   */
+  const handleEmptyStateGenerate = useCallback(() => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    const viewportWidth = rect?.width || window.innerWidth;
+    const viewportHeight = rect?.height || window.innerHeight;
+    const inset = isAssistantCollapsed ? 112 : assistantPanelWidth;
+    const usableWidth = Math.max(240, viewportWidth - inset);
+    const draft = computeDraftNodeRect(usableWidth, viewportHeight);
+    const topLeft = screenToFlowPosition({
+      x: (rect?.left || 0) + draft.x,
+      y: (rect?.top || 0) + draft.y,
+    });
+    const bottomRight = screenToFlowPosition({
+      x: (rect?.left || 0) + draft.x + draft.width,
+      y: (rect?.top || 0) + draft.y + draft.height,
+    });
+    const flowWidth = Math.max(160, Math.round(bottomRight.x - topLeft.x));
+    const flowHeight = Math.max(160, Math.round(bottomRight.y - topLeft.y));
+    // 正方形：换算后取较小边，避免非等比缩放把它拉成长方形。
+    const side = Math.min(flowWidth, flowHeight);
+    pushHistory();
+    setNodes(nds => [
+      ...nds,
+      {
+        id: `draft-image-${Date.now()}`,
+        type: "draftImage",
+        position: topLeft,
+        style: { width: side, height: side },
+        data: { width: side, height: side, projectId },
+      } as Node,
+    ]);
+  }, [
+    assistantPanelWidth,
+    isAssistantCollapsed,
+    projectId,
+    pushHistory,
+    screenToFlowPosition,
+    setNodes,
+  ]);
+
   const pasteCrossCanvasClipboard = useCallback(
     (origin?: XYPosition) => {
       const source = getCrossCanvasClipboard();
@@ -32618,6 +32916,19 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           showInteractive={false}
         />
       </ReactFlow>
+
+      {/*
+       * 空画布暗纹引导。判据收口在 `isCanvasEmpty`（排除法），
+       * ⚠️ 一旦画布有任何内容，这里整体不渲染 —— 用户明确要求「自动消失」。
+       */}
+      {isCanvasEmpty(displayNodes) && (
+        <CanvasEmptyStateOverlay
+          isDark={isDark}
+          rightInset={isAssistantCollapsed ? 112 : assistantPanelWidth}
+          onUpload={handleEmptyStateUpload}
+          onGenerate={handleEmptyStateGenerate}
+        />
+      )}
 
       <CropEditor
         isOpen={!!cropEditorState}

@@ -50,8 +50,78 @@ export type AssistantHistoryMessage = {
  */
 export const MAX_CONTEXT_IMAGES = 3;
 
-/** 历史最多回溯几条消息。 */
+/** 历史最多**逐字**回溯几条消息。更早的不丢弃，压缩成摘要（见下）。 */
 export const MAX_CONTEXT_MESSAGES = 8;
+
+/**
+ * 摘要里最多容纳几条被压缩的旧消息。
+ *
+ * 压缩本身也要有上界，否则聊到第 200 轮时摘要自己会长成新的上下文炸弹 ——
+ * 📌 **「压缩」如果没有上界，它只是把溢出推迟发生，不是解决溢出。**
+ */
+export const MAX_SUMMARIZED_MESSAGES = 40;
+
+/** 单条消息进摘要时保留的字符数，超出截断。 */
+const SUMMARY_LINE_CHARS = 60;
+
+/** 摘要段的角色标签。 */
+const SUMMARY_ROLE_LABEL: Record<"user" | "assistant", string> = {
+  user: "我",
+  assistant: "你",
+};
+
+/**
+ * 把溢出窗口的旧消息压成一条摘要消息。
+ *
+ * 【为什么不能直接 slice 掉】
+ * 用户要求「上下文限制如果超过，根据大模型自主流程进行压缩」。
+ * 原实现是 `messages.slice(-8)`：第 9 轮之前的内容**凭空消失且毫无痕迹**，
+ * 模型不知道自己忘了东西，用户也收不到任何提示 ——
+ * 📌 **静默丢弃和压缩在日志里长得一模一样，区别只在模型还记不记得。**
+ *
+ * 摘要刻意保留三类信息，因为它们是后续追改唯一的锚点：
+ *   1. 发言顺序与角色（谁提的要求）；
+ *   2. 生图用的完整提示词（`contextImagePrompt`）—— 追改要在它基础上改；
+ *   3. 每轮出了几张图 —— 用户说「回到第二版」时得对得上号。
+ *
+ * ⚠️ 图本身不进摘要：base64 塞进摘要文本会瞬间撑爆请求体，
+ * 而且真正需要「看见」的图已由 MAX_CONTEXT_IMAGES 配额保障。
+ */
+export function summarizeOverflowMessages(
+  overflow: AssistantHistoryMessage[]
+): string {
+  if (overflow.length === 0) return "";
+
+  // 只摘要最近的一段：太老的内容对当前追改几乎没有指代价值。
+  const droppedCount = Math.max(0, overflow.length - MAX_SUMMARIZED_MESSAGES);
+  const kept = overflow.slice(-MAX_SUMMARIZED_MESSAGES);
+
+  const lines = kept.map(message => {
+    const label = SUMMARY_ROLE_LABEL[message.role] || message.role;
+    const raw = (message.content || "").replace(/\s+/g, " ").trim();
+    const text =
+      raw.length > SUMMARY_LINE_CHARS
+        ? `${raw.slice(0, SUMMARY_LINE_CHARS)}…`
+        : raw;
+
+    const extras: string[] = [];
+    if (message.contextImagePrompt) {
+      extras.push(`提示词：${message.contextImagePrompt}`);
+    }
+    const imageCount = message.contextImages?.length || 0;
+    if (imageCount > 0) extras.push(`出图 ${imageCount} 张`);
+
+    const suffix = extras.length > 0 ? `（${extras.join("；")}）` : "";
+    return `- ${label}：${text}${suffix}`;
+  });
+
+  const header =
+    droppedCount > 0
+      ? `以下是本次对话更早的内容摘要（另有更早的 ${droppedCount} 条已略去）：`
+      : "以下是本次对话更早的内容摘要：";
+
+  return [header, ...lines].join("\n");
+}
 
 /**
  * 把画布助手的消息列表转换成「带图的对话上下文」。
@@ -79,6 +149,13 @@ export function buildAssistantContext(
   const maxMessages = options.maxMessages ?? MAX_CONTEXT_MESSAGES;
   const maxImages = options.maxImages ?? MAX_CONTEXT_IMAGES;
   const recent = messages.slice(-maxMessages);
+  /**
+   * 溢出窗口的旧消息压成一条摘要挂在最前面，而不是直接丢掉。
+   * 详见 summarizeOverflowMessages 的注释。
+   */
+  const overflow =
+    messages.length > maxMessages ? messages.slice(0, -maxMessages) : [];
+  const summary = summarizeOverflowMessages(overflow);
 
   /**
    * 先从**最近**的消息往回数，决定哪些图有配额。
@@ -96,7 +173,7 @@ export function buildAssistantContext(
     remaining -= granted;
   }
 
-  return recent.map((message, index) => {
+  const windowed = recent.map((message, index) => {
     const allImages = message.contextImages || [];
     const granted = imageQuota.get(index) || 0;
     // 配额从每条消息的**末尾**取：同一轮里生成多张时，靠后的通常是最终选择。
@@ -117,6 +194,14 @@ export function buildAssistantContext(
       ? { role: message.role, content, images: kept }
       : { role: message.role, content };
   });
+
+  if (!summary) return windowed;
+  /**
+   * 摘要以 user 角色插在最前面。
+   * ⚠️ 不能用 assistant：部分上游会把 assistant 开头的历史当成「模型自己说过的话」
+   * 而拒绝或复述，用 user 角色陈述事实最稳妥。
+   */
+  return [{ role: "user" as const, content: summary }, ...windowed];
 }
 
 type RouteCreativeIntentInput = {

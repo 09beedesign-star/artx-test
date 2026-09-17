@@ -82,16 +82,23 @@ describe("buildAssistantContext 把图沉淀进对话历史", () => {
     expect(context[0].content).toContain("2 张图未随上下文回传");
   });
 
-  it("只回溯最近 8 条消息", () => {
+  it("只逐字回溯最近 8 条消息，更早的压缩成一条摘要", () => {
+    // 【2026-09-17 重锚】原断言是 toHaveLength(8) + context[0] 为「第 12 条」。
+    // 现在溢出的旧消息不再被静默丢弃，而是压成一条摘要插在最前（用户要求），
+    // 所以总长变成 8 + 1。
+    // ⚠️ 被锁住的约束没变：**逐字回传的窗口仍然只有 8 条**，
+    // 变的只是溢出部分的处置方式（丢弃 → 压缩）。
     const many = Array.from({ length: 20 }, (_, i) => ({
       role: "user" as const,
       content: `第 ${i} 条`,
     }));
     const context = buildAssistantContext(many);
 
-    expect(context).toHaveLength(8);
-    expect(context[0].content).toBe("第 12 条");
-    expect(context[7].content).toBe("第 19 条");
+    expect(context).toHaveLength(9);
+    // 第 0 条是摘要，逐字窗口从第 1 条开始
+    expect(context[0].content).toContain("更早的内容摘要");
+    expect(context[1].content).toBe("第 12 条");
+    expect(context[8].content).toBe("第 19 条");
   });
 
   it("没有图的纯文字对话不应多出 images 字段", () => {
