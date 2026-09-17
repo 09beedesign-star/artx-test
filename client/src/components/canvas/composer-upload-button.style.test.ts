@@ -71,17 +71,37 @@ describe("提示词框「+上传」按钮与模型选择器的视觉一致性", 
     }
   });
 
-  it("compact 宽度与字号排版与模型选择器一致", () => {
-    for (const rule of [
-      "width: compactAssistantControls ? 32 : undefined",
-      "maxWidth: compactAssistantControls ? 32 : 138",
-      "fontSize: 11",
-      'lineHeight: "14px"',
-      "letterSpacing: 0",
-    ]) {
+  it("字号排版与模型选择器一致", () => {
+    for (const rule of ["fontSize: 11", 'lineHeight: "14px"', "letterSpacing: 0"]) {
       expect(uploadButton, `上传按钮缺少 ${rule}`).toContain(rule);
       expect(modelButton, `模型选择器缺少 ${rule}`).toContain(rule);
     }
+  });
+
+  /**
+   * 【2026-09-17】紧凑宽度**刻意不再相等**。
+   *
+   * 原断言要求两者都是 `compactAssistantControls ? 32 : undefined`。
+   * 现在模型选择器等「可展开」按钮要在紧凑态多放一个展开箭头，
+   * 宽度放宽到 COMPACT_DISCLOSURE_BUTTON_WIDTH(44)；
+   * 而「+上传」点击后弹的是系统文件选择器、**没有展开态**，
+   * 给它加箭头等于用视觉语言撒谎，所以它保持 32。
+   *
+   * 📌 判据从「两者文本一样」改成「各自符合自己的语义」——
+   *    约束变了，不是实现退化了。
+   */
+  it("上传按钮保持窄宽度（它没有展开态，不该有箭头）", () => {
+    expect(uploadButton).toContain("width: compactAssistantControls ? 32 : undefined");
+    expect(uploadButton).toContain("maxWidth: compactAssistantControls ? 32 : 138");
+    // 反向锁：一旦有人给上传按钮加了展开箭头，这条必须变红。
+    expect(uploadButton).not.toContain("ComposerDisclosureCaret");
+    expect(uploadButton).not.toContain("COMPACT_DISCLOSURE_BUTTON_WIDTH");
+  });
+
+  it("模型选择器紧凑宽度走共享常量，以容纳展开箭头", () => {
+    expect(modelButton).toContain("COMPACT_DISCLOSURE_BUTTON_WIDTH");
+    // 不能退回写死 32，否则箭头会被挤掉。
+    expect(modelButton).not.toContain("width: compactAssistantControls ? 32 :");
   });
 
   it("图标尺寸与模型选择器的 compact 图标一致（13px）", () => {

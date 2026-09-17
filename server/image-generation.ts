@@ -83,6 +83,19 @@ type ImageGenerateInput = {
   preferImageApiForReferences?: boolean;
   enhancePrompt?: boolean;
   negativePrompt?: string;
+  /**
+   * 提示词里解析出来的目标像素（来自 shared/prompt-size-intent.ts）。
+   *
+   * ⚠️⚠️ 为什么必须是「像素」而不是「4k」这种标签：
+   * 上游档位有限（ratioToSize 长边最大 1536），没有任何参数能让它直出 4K。
+   * 4K 只能是「上游出 1536 → 落库前等比放大到目标像素」，
+   * 所以这里必须拿到具体数字，标签没人能消费。
+   *
+   * ⚠️⚠️ 不传时行为与改造前**完全一致**（targetSize 仍由 ratio 推导）。
+   * 这是刻意的：没有尺寸意图的请求一个像素都不该变。
+   */
+  targetWidth?: number;
+  targetHeight?: number;
 };
 
 type RemoveBackgroundInput = {
@@ -4229,7 +4242,24 @@ export async function generateImages(input: ImageGenerateInput): Promise<Generat
   const ratio = resolveRatioSize(input.ratio);
   const count = Math.max(1, Math.min(Number(input.count) || 1, 9));
   const referenceImages = input.images?.filter(image => image.src?.trim()) || [];
-  const targetSize = __testResolveHighDefinitionTargetSize(ratio.width, ratio.height, ratio.width, ratio.height);
+  /**
+   * 提示词尺寸意图优先于 ratio 推导出来的档位尺寸。
+   *
+   * ⚠️⚠️⚠️ 这一行是需求「提示词提到分辨率时必须优先」的**唯一落地点**。
+   * 前端把像素算得再准，只要这里不吃 input.targetWidth/Height，
+   * 整条链路就是「透传但没被消费」—— 出图尺寸纹丝不动，且零报错。
+   *
+   * 传了 → 按提示词像素放大；没传 → 与改造前逐位一致。
+   */
+  const promptTargetWidth = coerceTargetDimension(input.targetWidth);
+  const promptTargetHeight = coerceTargetDimension(input.targetHeight);
+  const hasPromptSizeTarget = promptTargetWidth !== undefined && promptTargetHeight !== undefined;
+  const targetSize = __testResolveHighDefinitionTargetSize(
+    promptTargetWidth ?? ratio.width,
+    promptTargetHeight ?? ratio.height,
+    ratio.width,
+    ratio.height,
+  );
   /**
    * 必须**归一化后**再参与路由与下发。
    *
@@ -4280,12 +4310,31 @@ export async function generateImages(input: ImageGenerateInput): Promise<Generat
     };
 
     const result = await generateImageWithVod(vodInput);
-    const images = result.images.map(img => ({
+    const rawVodImages = result.images.map(img => ({
       src: img.src,
       width: img.width,
       height: img.height,
     }));
-    console.log("[generate] VOD success:", vodModelId, "| count:", images.length, "| src:", (images[0]?.src || "").slice(0, 100));
+    /**
+     * ⚠️⚠️⚠️ 提示词尺寸意图必须在**这条分支**也生效。
+     *
+     * 现网所有出图都走 VOD，而这条分支原本直接 return，
+     * 完全绕过下面中转站分支里的 targetSize 归一化。
+     * 只改 targetSize 的计算式（:4245）而不动这里 = 改了个没人走的分支，
+     * 线上表现为「提示词写了 4K，出图还是 1536」且零报错。
+     * 📌 这就是「同一份逻辑的多个出口，只改一个等于没做」的第 N 次。
+     *
+     * 只有解析出显式像素时才动手：没有尺寸意图的请求保持原样，
+     * 不引入任何多余的 sharp 重编码。
+     */
+    const images = hasPromptSizeTarget && rawVodImages.length > 0
+      ? await __testNormalizeGeneratedImagesToTargetAspect(
+          rawVodImages,
+          targetSize.width,
+          targetSize.height,
+        )
+      : rawVodImages;
+    console.log("[generate] VOD success:", vodModelId, "| count:", images.length, "| targetSize:", hasPromptSizeTarget ? `${targetSize.width}x${targetSize.height}` : "(default)", "| src:", (images[0]?.src || "").slice(0, 100));
     // ⚠️ 必须把腾讯返回的 TaskId 透出去。这里曾经直接 `return { images }`，
     // 把 result.taskId 丢掉，导致所有 VOD 任务在后台追踪里的上游任务号
     // 恒为占位符 "provider-task-missing"，出问题时无法向腾讯提工单核查。

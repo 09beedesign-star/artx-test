@@ -500,6 +500,7 @@ import {
   resolveImageRatio,
 } from "@shared/image-ratios";
 import { resolveEditAspectLock } from "@shared/edit-aspect-lock";
+import { resolveOutputSizeFromPromptAndSelector } from "@shared/prompt-size-intent";
 import { TOUR_ANCHORS } from "@shared/onboarding-steps";
 import { getAiImageModelCreditPolicy } from "@shared/ai-credit-policy";
 import { filterAllowedAiModelOptions, resolveAllowedAiModelId } from "@/lib/model-access";
@@ -527,6 +528,13 @@ import {
   COMPOSER_REF_TOKEN_SIZE,
   getComposerRefTokenColors,
 } from "@/components/canvas/composer-ref-token";
+// 同理：工具条上四个「可展开按钮」的展开箭头必须共用同一份实现。
+// 这一排按钮分散在三处定义，此前各自内联 <ChevronDown>，已经跑偏过
+// （紧凑态四个箭头全消失、Skill 那个漏了旋转）—— 详见该模块头部注释。
+import {
+  ComposerDisclosureCaret,
+  COMPACT_DISCLOSURE_BUTTON_WIDTH,
+} from "@/components/canvas/composer-disclosure-caret";
 import {
   InspirationPromptDialog,
   type InspirationPromptItem,
@@ -895,8 +903,9 @@ function SkillPointSelector({
         }}
         className="flex h-8 shrink-0 items-center justify-center gap-1 rounded-[var(--radius-md-design)] px-2 transition-colors"
         style={{
-          width: compact ? 32 : undefined,
-          maxWidth: compact ? 32 : 74,
+          // 紧凑态要容纳图标 + 展开箭头，见 COMPACT_DISCLOSURE_BUTTON_WIDTH 注释。
+          width: compact ? COMPACT_DISCLOSURE_BUTTON_WIDTH : undefined,
+          maxWidth: compact ? COMPACT_DISCLOSURE_BUTTON_WIDTH : 74,
           background:
             compact
               ? activeSkill || open || buttonHover
@@ -928,13 +937,16 @@ function SkillPointSelector({
       >
         <CircleDot size={12} style={{ flex: "0 0 auto" }} />
         {!compact && (
-          <>
-            <span className="min-w-0 max-w-[38px] truncate">
-              {activeSkill ? activeSkill.name : "Skill"}
-            </span>
-            <ChevronDown size={10} style={{ opacity: 0.65 }} />
-          </>
+          <span className="min-w-0 max-w-[38px] truncate">
+            {activeSkill ? activeSkill.name : "Skill"}
+          </span>
         )}
+        {/*
+          ⚠️ 这里原本是 `<ChevronDown size={10} style={{ opacity: 0.65 }} />`
+          —— 唯独漏了 transform，所以四个按钮里只有它展开后箭头不转。
+          这正是「同一份视觉逻辑复制四份」的必然结果，改用共享组件后不会再漏。
+        */}
+        <ComposerDisclosureCaret open={open} compact={compact} />
       </button>
       {open &&
         typeof document !== "undefined" &&
@@ -1149,7 +1161,9 @@ function ImageCountSelector({
         aria-label="选择生成数量"
         className="flex h-8 shrink-0 items-center justify-center gap-1 rounded-[var(--radius-md-design)] px-2 transition-colors"
         style={{
-          width: compact ? 32 : 74,
+          // ⚠️ 紧凑态放宽到 44：原先 32 是「只放一个图标」的宽度，
+          //    现在要同时容纳图标 + 展开箭头，继续用 32 会把两者挤变形。
+          width: compact ? COMPACT_DISCLOSURE_BUTTON_WIDTH : 74,
           background: compact
             ? open || hovered
               ? compactSelectedBg
@@ -1174,16 +1188,7 @@ function ImageCountSelector({
       >
         <Images size={12} style={{ flex: "0 0 auto" }} />
         {!compact && <span>{value}张</span>}
-        {!compact && (
-          <ChevronDown
-            size={10}
-            style={{
-              opacity: 0.65,
-              transform: open ? "rotate(180deg)" : "none",
-              transition: "transform 0.16s ease",
-            }}
-          />
-        )}
+        <ComposerDisclosureCaret open={open} compact={compact} />
       </button>
       {/*
         紧凑模式下横向空间不够，徽标会把工具条挤换行，所以只在常规模式显示。
@@ -1397,7 +1402,8 @@ function ImageRatioSelector({
         aria-label="选择图片画幅"
         className="flex h-8 shrink-0 items-center justify-center gap-1 rounded-[var(--radius-md-design)] px-2 transition-colors"
         style={{
-          width: compact ? 32 : 74,
+          // 紧凑态要容纳图标 + 展开箭头，见 COMPACT_DISCLOSURE_BUTTON_WIDTH 注释。
+          width: compact ? COMPACT_DISCLOSURE_BUTTON_WIDTH : 74,
           background: compact
             ? open || hovered
               ? compactSelectedBg
@@ -1422,16 +1428,7 @@ function ImageRatioSelector({
       >
         <Frame size={12} style={{ flex: "0 0 auto" }} />
         {!compact && <span>{triggerLabel}</span>}
-        {!compact && (
-          <ChevronDown
-            size={10}
-            style={{
-              opacity: 0.65,
-              transform: open ? "rotate(180deg)" : "none",
-              transition: "transform 0.16s ease",
-            }}
-          />
-        )}
+        <ComposerDisclosureCaret open={open} compact={compact} />
       </button>
       {open &&
         typeof document !== "undefined" &&
@@ -11717,6 +11714,16 @@ type ImageGeneratorPayload = {
     height?: number;
   }>;
   skillId?: string;
+  /**
+   * 提示词尺寸意图解析出的目标像素（shared/prompt-size-intent.ts）。
+   *
+   * ⚠️⚠️ 必须挂在 payload 上而不是只在调用处临时算：
+   * payload 会被 dispatchImageGenerationTask 存进节点，
+   * 「重新生成」是拿存下来的 detail 重放的。只在调用处算 =
+   * 首次出图是 4K，点一次重新生成就悄悄退回 1536。
+   */
+  targetWidth?: number;
+  targetHeight?: number;
 };
 
 type ImageRegenerateRequestDetail = {
@@ -11741,6 +11748,9 @@ type ImageRegenerateRequestDetail = {
   imageSrc?: string;
   editMode?: boolean;
   backgroundTaskInput?: ImageGenerationTaskInput;
+  /** 重新生成时必须带上原始的提示词尺寸意图，否则 4K 图重生成会退回 1536。 */
+  targetWidth?: number;
+  targetHeight?: number;
 };
 
 type ImageGeneratorReferenceAsset = {
@@ -12692,6 +12702,15 @@ function getRegenerableImageNodeDetail(
       typeof data.generationBackgroundTaskInput === "object"
         ? (data.generationBackgroundTaskInput as ImageGenerationTaskInput)
         : undefined,
+    // 与 getImageGenerationNodeMetadata 的写入端配对，缺一端就掉档。
+    targetWidth:
+      typeof data.generationTargetWidth === "number"
+        ? data.generationTargetWidth
+        : undefined,
+    targetHeight:
+      typeof data.generationTargetHeight === "number"
+        ? data.generationTargetHeight
+        : undefined,
   };
 }
 
@@ -12709,6 +12728,16 @@ function getImageGenerationNodeMetadata(detail: ImageGeneratorPayload) {
       detail.sourceImageSrc || detail.sourceBackgroundSrc,
     generationEditMode: detail.editMode === true,
     generationBackgroundTaskInput: detail.backgroundTaskInput,
+    /**
+     * 提示词尺寸意图要落进节点元数据，「再次生成」才能原样重放。
+     *
+     * ⚠️⚠️ 这是一条闭环：写入在这里，读回在
+     * getRegenerableImageNodeDetail。两端必须同时改 ——
+     * 只写不读 = 重生成掉档；只读不写 = 恒 undefined，同样掉档。
+     * 两种漏法的现象一模一样（都是「重生成变小了」），且都不报错。
+     */
+    generationTargetWidth: detail.targetWidth,
+    generationTargetHeight: detail.targetHeight,
   };
 }
 
@@ -21130,6 +21159,22 @@ function CanvasAssistantPanel({
           shouldEditTargetReference && targetReference
             ? [finalImagePrompt, referenceEditGuidance].join("\n")
             : finalImagePrompt;
+        /**
+         * 技能分支同样要吃提示词尺寸意图。
+         *
+         * ⚠️⚠️ 这是「同一份逻辑的多个出口」——纯文生图有两条：
+         * 无技能（:21470 附近）与有技能（这里）。只接一条的话，
+         * 用户一旦挂着技能写「4K」就静默失效，而且现象随技能开关随机出现，
+         * 排查时极易被误判成「偶发」。
+         *
+         * 基线用 skillRatio（技能自带画幅 > 用户选择 > 9:16），
+         * 提示词提到尺寸时才盖过它。
+         */
+        const promptSizeDecision = resolveOutputSizeFromPromptAndSelector({
+          prompt: rawSubmittedComposerPrompt,
+          selectorRatio: assistantImageRatio,
+          resolvedSelectorRatio: resolveImageRatio(skillRatio),
+        });
         const payload: ImageGeneratorPayload = {
           projectId,
           prompt: skillEditPrompt,
@@ -21138,10 +21183,17 @@ function CanvasAssistantPanel({
             : assistantAutoMode
               ? "auto"
               : assistantImageModel.id,
-          // 局部重绘走画幅锁（默认贴合底图原始比例）；纯生成仍用技能比例。
+          // 局部重绘走画幅锁（默认贴合底图原始比例）；
+          // 纯生成走提示词尺寸裁决（没提到尺寸时它就等于 skillRatio）。
           ratio: shouldEditTargetReference
             ? skillEditAspectLock.ratio
-            : skillRatio,
+            : promptSizeDecision.ratio,
+          targetWidth: shouldEditTargetReference
+            ? undefined
+            : promptSizeDecision.width,
+          targetHeight: shouldEditTargetReference
+            ? undefined
+            : promptSizeDecision.height,
           count: requestedImageCount,
           style: activeSkill.name,
           referencesEnabled: assistantImages.length > 0,
@@ -21425,6 +21477,22 @@ function CanvasAssistantPanel({
           finalImagePrompt,
           referenceEditGuidance,
         ].join("\n");
+        /**
+         * 提示词里的尺寸/分辨率意图优先于画幅 icon 的设定。
+         *
+         * ⚠️⚠️ 判据来自用户原文：「即使画幅比例 icon 没有选中 auto 模式，
+         * 也必须优先按用户提示词所提到的画面大小分辨率和尺寸语义输出」。
+         * 所以这里**不能**写成「auto 时才看提示词」——那是原来的行为。
+         *
+         * 📌 用 rawSubmittedComposerPrompt（用户原话）而不是 finalImagePrompt：
+         * 后者是大模型改写后的画面描述，"4K" 这类参数词很可能已被改写掉，
+         * 拿它去解析等于让用户的尺寸要求随机失效。
+         */
+        const promptSizeDecision = resolveOutputSizeFromPromptAndSelector({
+          prompt: rawSubmittedComposerPrompt,
+          selectorRatio: assistantImageRatio,
+          resolvedSelectorRatio: resolveImageRatio(assistantImageRatio),
+        });
         const payload: ImageGeneratorPayload = {
           projectId,
           prompt: shouldEditTargetReference
@@ -21457,7 +21525,15 @@ function CanvasAssistantPanel({
            */
           ratio: shouldEditTargetReference
             ? referenceEditAspectLock.ratio
-            : resolveImageRatio(assistantImageRatio),
+            : promptSizeDecision.ratio,
+          // 提示词提到尺寸时才带像素；没提到就是 undefined，
+          // 服务端行为与改造前逐位一致（不做任何多余重编码）。
+          targetWidth: shouldEditTargetReference
+            ? undefined
+            : promptSizeDecision.width,
+          targetHeight: shouldEditTargetReference
+            ? undefined
+            : promptSizeDecision.height,
           count: requestedImageCount,
           style: shouldEditTargetReference ? "引用编辑结果" : "右侧 AI 助手",
           referencesEnabled: assistantImages.length > 0,
@@ -22805,8 +22881,14 @@ function CanvasAssistantPanel({
                       type="button"
                       className="flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[var(--radius-md-design)] px-2 transition-colors active:scale-95"
                       style={{
-                        width: compactAssistantControls ? 32 : undefined,
-                        maxWidth: compactAssistantControls ? 32 : 138,
+                        // 紧凑态要容纳图标 + 展开箭头，
+                        // 见 COMPACT_DISCLOSURE_BUTTON_WIDTH 注释。
+                        width: compactAssistantControls
+                          ? COMPACT_DISCLOSURE_BUTTON_WIDTH
+                          : undefined,
+                        maxWidth: compactAssistantControls
+                          ? COMPACT_DISCLOSURE_BUTTON_WIDTH
+                          : 138,
                         background: agentMenuOpen
                           ? compactSelectorActiveBg
                           : agentButtonHover
@@ -22836,24 +22918,17 @@ function CanvasAssistantPanel({
                         <AssistantModelIcon modelId={assistantModel.id} icon={assistantModel.icon} />
                       )}
                       {!compactAssistantControls && (
-                        <>
-                          <span className="min-w-0 max-w-[108px] truncate">
-                            {assistantAutoMode ? "auto" : assistantModel.label}
-                          </span>
-                          <ChevronDown
-                            size={10}
-                            style={{
-                              flex: "0 0 auto",
-                              opacity: 0.6,
-                              transform: agentMenuOpen ? "rotate(180deg)" : "none",
-                              transition: "transform 0.16s ease",
-                            }}
-                          />
-                        </>
+                        <span className="min-w-0 max-w-[108px] truncate">
+                          {assistantAutoMode ? "auto" : assistantModel.label}
+                        </span>
                       )}
                       {compactAssistantControls && assistantAutoMode && (
                         <WandSparkles size={13} />
                       )}
+                      <ComposerDisclosureCaret
+                        open={agentMenuOpen}
+                        compact={compactAssistantControls}
+                      />
                     </button>
                     {agentMenuOpen &&
                       typeof document !== "undefined" &&
@@ -23809,6 +23884,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 referencesEnabled: task.referencesEnabled,
                 referencedAssets: task.referencedAssets,
                 skillId: task.skillId,
+                // ⚠️ 断网恢复 / 后台续跑这条出口也要带尺寸意图，
+                // 否则「刷新页面后自动续跑的那一张」会比前台那张小一圈。
+                targetWidth: task.targetWidth,
+                targetHeight: task.targetHeight,
               });
             }
           }
@@ -27128,6 +27207,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           sourceImageSrc: detail.imageSrc,
           editMode: detail.editMode,
           backgroundTaskInput,
+          // ⚠️ 重新生成必须沿用首次的提示词尺寸意图。
+          // 漏掉这两行 = 4K 图点一次「再次生成」就悄悄退回 1536，零报错。
+          targetWidth: detail.targetWidth,
+          targetHeight: detail.targetHeight,
         };
         setNodes(nds =>
           nds.map(node => {
@@ -27238,6 +27321,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         sourceImageSrc: detail.imageSrc,
         editMode: detail.editMode,
         backgroundTaskInput,
+        // 同上：再次生成沿用原始尺寸意图，否则重生成会掉档。
+        targetWidth: detail.targetWidth,
+        targetHeight: detail.targetHeight,
       };
       dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
       if (detail.editMode && detail.imageSrc) {

@@ -80,7 +80,17 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain("window.innerWidth < 430 ||");
     expect(source).toContain("panelWidth < assistantControlsTextModeMinPanelWidth");
     expect(source).toContain("compact={compactAssistantControls}");
-    expect(source).toContain("width: compact ? 32 : 74");
+    /*
+     * 【2026-09-17 修正】原断言是字面量 `width: compact ? 32 : 74`。
+     * 需求 1 给四个可展开 icon 加了展开箭头，紧凑态要容得下「图标 + 箭头」，
+     * 宽度从 32 提到 44 并抽成常量 COMPACT_DISCLOSURE_BUTTON_WIDTH。
+     * 📌 约束本身没变：紧凑态是固定窄宽、展开态仍是 74。变的是数值来源。
+     * 所以断言改为锁「用常量 + 展开态 74」，并反向禁掉写死数字（防止各处又各写各的）。
+     */
+    expect(source).toContain(
+      "width: compact ? COMPACT_DISCLOSURE_BUTTON_WIDTH : 74"
+    );
+    expect(source).not.toContain("width: compact ? 32 : 74");
     expect(source).toContain('className="flex min-w-0 flex-1 items-center"');
     expect(source).toContain('className="flex shrink-0 items-center"');
   });
@@ -187,10 +197,29 @@ describe("InfiniteCanvas prompt controls", () => {
      * 现在实现是三元 —— 重绘走画幅锁，纯生成仍走 skillRatio。两条都要断言到，
      * 只断言一条就会让另一条被悄悄改掉而测试不报错。
      */
+    /*
+     * 【2026-09-17 第三次修正】纯生成那一支不再直接写 skillRatio。
+     * 需求 2 之后，提示词里提到分辨率/幅面时必须盖过画幅 icon，
+     * 于是纯生成走 promptSizeDecision.ratio —— 而 promptSizeDecision 本身
+     * 就是用 resolveImageRatio(skillRatio) 作为「没提到尺寸时的兜底」算出来的，
+     * 所以「技能画幅确实被传下去」这个保护意图仍然成立，只是多绕了一层裁决。
+     * 📌 判据是「约束是否还成立」，不是「文本是否还一样」。
+     * 因此这里断言两件事：重绘仍走画幅锁；纯生成走的裁决结果确实喂了 skillRatio。
+     */
     expect(code).toMatch(
-      /ratio:\s*shouldEditTargetReference[\s\S]{0,80}?skillEditAspectLock\.ratio[\s\S]{0,40}?:\s*skillRatio/
+      /ratio:\s*shouldEditTargetReference[\s\S]{0,80}?skillEditAspectLock\.ratio[\s\S]{0,60}?:\s*promptSizeDecision\.ratio/
     );
-    // 反向断言：不许退回「无条件 skillRatio」的老写法。
+    const skillPromptSizeDecisionBlock = code.match(
+      /const promptSizeDecision = resolveOutputSizeFromPromptAndSelector\(\{[\s\S]{1,400}?\}\);/
+    )?.[0];
+    expect(skillPromptSizeDecisionBlock).toBeTruthy();
+    // 自检：块被截断（比如正则收尾错位）时长度会异常小，恒绿就无从谈起。
+    expect((skillPromptSizeDecisionBlock as string).length).toBeGreaterThan(80);
+    expect(skillPromptSizeDecisionBlock).toContain("skillRatio");
+    expect(skillPromptSizeDecisionBlock).toContain(
+      "rawSubmittedComposerPrompt"
+    );
+    // 反向断言：不许退回「无条件 skillRatio」的老写法（那样提示词尺寸会被无视）。
     expect(code).not.toMatch(/ratio:\s*skillRatio\s*,/);
     expect(source.match(/count: requestedImageCount/g)).toHaveLength(2);
     expect(

@@ -538,6 +538,8 @@ export async function generateImages({
   referencedAssets = [],
   skillId,
   generationId,
+  targetWidth,
+  targetHeight,
   signal,
 }: {
   prompt: string;
@@ -549,6 +551,15 @@ export async function generateImages({
   referencedAssets?: Array<{ src: string; title?: string }>;
   skillId?: string;
   generationId?: string;
+  /**
+   * 提示词尺寸意图解析出的目标像素（见 shared/prompt-size-intent.ts）。
+   *
+   * ⚠️⚠️ 本函数有**两条出口**（后台任务 startBackgroundImageGeneration、
+   * 同步 postAiOrchestrate），两条都必须带上这两个字段。
+   * 只接一条 = 用户在其中一条路径上写了「4K」却静默失效，且不报错。
+   */
+  targetWidth?: number;
+  targetHeight?: number;
   /**
    * 用户主动中止的信号。
    *
@@ -582,6 +593,8 @@ export async function generateImages({
         referencesEnabled,
         referencedAssets,
         skillId,
+        targetWidth,
+        targetHeight,
       });
       return await waitForImageGenerationTask(generationId, signal);
     } catch (error) {
@@ -603,6 +616,8 @@ export async function generateImages({
     style,
     images: referencedAssets,
     skillId,
+    targetWidth,
+    targetHeight,
   }, "图像生成失败");
 
   return toGeneratedImagesResponse(result);
@@ -689,6 +704,8 @@ export async function startBackgroundImageGeneration({
   referencesEnabled = false,
   referencedAssets = [],
   skillId,
+  targetWidth,
+  targetHeight,
 }: {
   taskId: string;
   prompt: string;
@@ -699,6 +716,9 @@ export async function startBackgroundImageGeneration({
   referencesEnabled?: boolean;
   referencedAssets?: Array<{ src: string; title?: string }>;
   skillId?: string;
+  /** 提示词尺寸意图解析出的目标像素。见 shared/prompt-size-intent.ts。 */
+  targetWidth?: number;
+  targetHeight?: number;
 }) {
   requireAiAuth();
   const promptWithContext = [
@@ -718,6 +738,8 @@ export async function startBackgroundImageGeneration({
     style,
     images: referencedAssets,
     skillId,
+    targetWidth,
+    targetHeight,
   });
 }
 

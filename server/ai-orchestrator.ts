@@ -256,6 +256,11 @@ export class AIOrchestrator {
       count: input.count,
       style: input.style,
       images,
+      // ⚠️ 提示词尺寸意图（2k/4k/A4/16:9…）解析出的像素。
+      // 图片编辑分支（上面 :231）早就在传这两个字段，唯独文生图这条没接 ——
+      // 于是「提示词写 4K」在编辑时生效、在生成时静默失效。
+      targetWidth: input.targetWidth,
+      targetHeight: input.targetHeight,
     });
 
     return {

@@ -222,10 +222,20 @@ describe("orchestrator 必须透传上游任务号（09-12 生产实测暴露）
     // 的 text_to_image 返回体漏掉了这两个字段，最常用的出图链路上游任务号
     // 被静默丢弃，后台恒显示 provider-task-missing。
     // 教训：底层修好 ≠ 链路通了，每一层返回体都要单独确认。
+    /**
+     * ⚠️ 上限从 900 放宽到 1600：09-17 给这个调用块加了
+     * targetWidth/targetHeight 的透传与说明注释后，块长超过 900，
+     * 正则整体不匹配 → `textToImageBlock` 为 null → 断言失锚变红。
+     *
+     * 📌 判据：看「约束是否还成立」，不是「文本是否还一样」。
+     * providerTaskId 依然在返回体里，约束没破，破的是锚点的长度假设。
+     * 下面的 length 自检保证放宽后不会反过来吞掉相邻分支而恒绿。
+     */
     const textToImageBlock = orchestratorSource.match(
-      /const result = await generateImages\(\{[\s\S]{1,900}?\n    \};/,
+      /const result = await generateImages\(\{[\s\S]{1,1600}?\n    \};/,
     );
     expect(textToImageBlock).toBeTruthy();
+    expect(textToImageBlock![0].length).toBeLessThan(1600);
     expect(textToImageBlock![0]).toMatch(/providerTaskId:\s*result\.providerTaskId/);
     expect(textToImageBlock![0]).toMatch(/providerTaskIds:\s*result\.providerTaskIds/);
   });
