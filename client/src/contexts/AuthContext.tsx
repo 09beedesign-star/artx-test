@@ -466,6 +466,14 @@ function clearLargeArtxLocalCache() {
   const removablePrefixes = [
     "artx:canvas-state:",
     "artx:canvas-assistant-messages:",
+    /*
+      ⚠️ 【2026-09-18】会话索引必须和消息一起清。
+         消息 key 以 artx:canvas-assistant-messages: 开头，会被上一条前缀清掉；
+         索引如果留着，就会指向一堆已经不存在的会话 ——
+         历史列表照常列出五六条对话，点进去全是空的，且不报错。
+      📌 判据：派生数据和它的索引必须同生共死，只清一边等于制造幽灵条目。
+    */
+    "artx:canvas-conversations:",
     "artx:workspace-project-history:",
     "artx:workspace-project-history:fallback:",
   ];

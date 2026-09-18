@@ -125,6 +125,8 @@ import {
   Droplets,
   PanelRight,
   PanelLeft,
+  SquarePen,
+  History,
 } from "lucide-react";
 import {
   AssistantModelIcon,
@@ -576,6 +578,17 @@ import {
   updateWorkspaceProjectHistory,
   type WorkspaceHistoryProject,
 } from "@/lib/project-history";
+import {
+  CONVERSATION_FALLBACK_TITLE,
+  canvasConversationIndexKey,
+  canvasConversationMessagesKey,
+  createConversationMeta,
+  ensureConversationIndex,
+  formatConversationTime,
+  removeConversation,
+  touchConversation,
+  type CanvasConversationIndex,
+} from "@/lib/canvas-conversations";
 import { scheduleWorkspaceSync } from "@/lib/workspace-sync";
 import { computeDraftNodeRect, isCanvasEmpty } from "@/lib/canvas-empty-state";
 import {
@@ -18266,19 +18279,42 @@ function formatCanvasMessageTime(value: Date) {
   ].join(" ");
 }
 
-const CANVAS_ASSISTANT_MESSAGES_STORAGE_PREFIX =
-  "artx:canvas-assistant-messages:";
 const CANVAS_ASSISTANT_MESSAGES_SESSION_PREFIX =
   "artx:canvas-assistant-messages:fallback:";
 const CANVAS_ASSISTANT_DEFAULT_MESSAGE =
   "你好，请直接告诉我你想生成什么内容，我会按你的目标给出可执行方案。";
 
-function canvasAssistantMessagesStorageKey(projectId: string) {
-  return `${CANVAS_ASSISTANT_MESSAGES_STORAGE_PREFIX}${projectId || "p1"}`;
-}
+/*
+  【2026-09-18 删除】原先这里有 canvasAssistantMessagesStorageKey(projectId)，
+  返回不带会话后缀的固定 key。多会话上线后它的四个调用点已全部切到
+  @/lib/canvas-conversations 的 canvasConversationMessagesKey。
 
-function canvasAssistantMessagesSessionKey(projectId: string) {
-  return `${CANVAS_ASSISTANT_MESSAGES_SESSION_PREFIX}${projectId || "p1"}`;
+  ⚠️ 刻意删掉而不是留着：它和新函数对同一份数据给出**两种 key**，
+     留在文件里就是一个随时会被下次改动误用的第二出口 ——
+     一旦有人用了它，那条会话的消息会写进老 key，
+     和其他会话互相覆盖，且编译、测试都不会报错。
+  📌 老 key 本身没有废弃：conversationId 为空时新函数返回的就是它，
+     老用户的数据仍然原地读写。删的是「多出来的那个入口」，不是数据。
+*/
+
+/**
+ * localStorage 写满时的 sessionStorage 降级 key。
+ *
+ * ⚠️⚠️ 【2026-09-18】这里必须**跟着 conversationId 一起分桶**。
+ *    多会话上线前只有一条消息流，不带后缀没问题；现在如果还是
+ *    每个项目共用一个降级 key，一旦触发降级，所有会话都会读到
+ *    同一份数据 —— 表现为「配额满了之后，切哪条历史对话内容都一样」。
+ *    这条路径平时不走，出问题时极难复现，故必须一次改对。
+ *
+ * 📌 conversationId 为空（老会话）时退回原来的 key，与
+ *    canvasConversationMessagesKey 的迁移口径保持一致。
+ */
+function canvasAssistantMessagesSessionKey(
+  projectId: string,
+  conversationId = ""
+) {
+  const base = `${CANVAS_ASSISTANT_MESSAGES_SESSION_PREFIX}${projectId || "p1"}`;
+  return conversationId ? `${base}:${conversationId}` : base;
 }
 
 function serializeCanvasAssistantMessages(messages: CanvasAssistantMessage[]) {
@@ -18927,16 +18963,39 @@ function CanvasAssistantPanel({
     visible: boolean;
     trigger: "hover" | "click";
   } | null>(null);
+  /**
+   * 【2026-09-18 新增】画布对话的多会话索引。
+   *
+   * ⚠️⚠️ 初始化必须走 ensureConversationIndex，它内建了老数据迁移：
+   *    没有索引但老 key 有消息时，把老消息**原地**认作第一条会话
+   *    （conversationId 记为空串，继续读写不带后缀的老 key），
+   *    刻意不搬运数据 —— 搬运中途碰到 localStorage 配额失败就会丢。
+   */
+  const [conversationIndex, setConversationIndex] =
+    useState<CanvasConversationIndex>(() =>
+      ensureConversationIndex(projectId, key =>
+        typeof window === "undefined" ? null : window.localStorage.getItem(key)
+      )
+    );
+  const activeConversationId = conversationIndex.activeId;
+  const [conversationMenuOpen, setConversationMenuOpen] = useState(false);
+  const conversationMenuRef = useRef<HTMLDivElement | null>(null);
   const [messages, setMessages] = useState<CanvasAssistantMessage[]>(() => {
     const stored =
       typeof window === "undefined"
         ? []
         : deserializeCanvasAssistantMessages(
             window.sessionStorage.getItem(
-              canvasAssistantMessagesSessionKey(projectId)
+              canvasAssistantMessagesSessionKey(
+                projectId,
+                conversationIndex.activeId
+              )
             ) ||
               window.localStorage.getItem(
-                canvasAssistantMessagesStorageKey(projectId)
+                canvasConversationMessagesKey(
+                  projectId,
+                  conversationIndex.activeId
+                )
               )
           );
     if (stored.length === 1 && stored[0]?.id === "assistant-seed-1")
@@ -19052,6 +19111,105 @@ function CanvasAssistantPanel({
     toast("已新建画布", { description: project.title });
     navigate(`/project/${project.id}`);
   };
+  /**
+   * 点击浮层外部关闭历史列表。
+   *
+   * 📌 用捕获阶段的 pointerdown，与 ModelSelector 保持同一套做法：
+   *    画布上有大量 stopPropagation 的节点，冒泡阶段的 click 会被吃掉，
+   *    表现为「点画布空白处能关，点到某个节点上就关不掉」。
+   */
+  useEffect(() => {
+    if (!conversationMenuOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        conversationMenuRef.current &&
+        event.target instanceof globalThis.Node &&
+        !conversationMenuRef.current.contains(event.target)
+      ) {
+        setConversationMenuOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    return () =>
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+  }, [conversationMenuOpen]);
+
+  /**
+   * 把索引写回 localStorage —— **索引落盘的唯一出口**。
+   *
+   * ⚠️ 新建 / 切换 / 删除三个动作都必须经过它。
+   *    任何一个动作只改内存不落盘，表现都是「操作当下是对的，
+   *    刷新一次就回到改之前」—— 而且不报错。
+   */
+  const persistConversationIndex = useCallback(
+    (next: CanvasConversationIndex) => {
+      setConversationIndex(next);
+      if (typeof window === "undefined") return;
+      try {
+        window.localStorage.setItem(
+          canvasConversationIndexKey(projectId),
+          JSON.stringify(next)
+        );
+      } catch {
+        /* ignore storage quota errors */
+      }
+    },
+    [projectId]
+  );
+
+  const handleCreateConversation = useCallback(() => {
+    const fresh = createConversationMeta();
+    persistConversationIndex({
+      activeId: fresh.id,
+      conversations: [fresh, ...conversationIndex.conversations],
+    });
+    /*
+      ⚠️ 这里**不**手动 setMessages。切换 activeConversationId 会触发
+         载入 effect 读取新 key（空的）→ 自动落到种子消息。
+         在这里再 set 一次是多余的第二个出口，两边一旦不一致就会出现
+         「新建后闪一下旧内容」。
+    */
+    setConversationMenuOpen(false);
+  }, [conversationIndex.conversations, persistConversationIndex]);
+
+  const handleSelectConversation = useCallback(
+    (conversationId: string) => {
+      setConversationMenuOpen(false);
+      if (conversationId === conversationIndex.activeId) return;
+      persistConversationIndex({
+        ...conversationIndex,
+        activeId: conversationId,
+      });
+    },
+    [conversationIndex, persistConversationIndex]
+  );
+
+  const handleDeleteConversation = useCallback(
+    (conversationId: string) => {
+      const { index: nextIndex } = removeConversation(
+        conversationIndex,
+        conversationId
+      );
+      persistConversationIndex(nextIndex);
+      if (typeof window === "undefined") return;
+      /*
+        ⚠️ 删索引的同时必须删掉它的消息 key，否则那份消息会永远留在
+           localStorage 里占配额，且再也没有入口能访问到它 —— 纯泄漏。
+      */
+      try {
+        window.localStorage.removeItem(
+          canvasConversationMessagesKey(projectId, conversationId)
+        );
+        window.sessionStorage.removeItem(
+          canvasAssistantMessagesSessionKey(projectId, conversationId)
+        );
+      } catch {
+        /* ignore storage errors */
+      }
+    },
+    [conversationIndex, persistConversationIndex, projectId]
+  );
+
   const actionButtons = [
     {
       label: "灵感推荐",
@@ -19062,6 +19220,25 @@ function CanvasAssistantPanel({
       label: "分享对话",
       icon: <Share2 size={16} />,
       onClick: () => toast("分享对话", { description: "分享能力准备中" }),
+    },
+    /**
+     * 【2026-09-18 新增】新建对话 / 历史对话，布局参考 Lovart 与 Miora：
+     * 两者都是把这两个入口放在对话区右上角，新建在前、历史在后。
+     *
+     * ⚠️⚠️ 位置必须在「收起对话框」**之前**。渲染处收起态用的是
+     *    `actionButtons.slice(-1)` —— 只保留最后一个。
+     *    要是把新按钮追加到数组末尾，收起态露出来的就不是折叠按钮了，
+     *    用户会发现「面板收起后再也展不开」。
+     */
+    {
+      label: "新建对话",
+      icon: <SquarePen size={16} />,
+      onClick: handleCreateConversation,
+    },
+    {
+      label: "历史对话",
+      icon: <History size={16} />,
+      onClick: () => setConversationMenuOpen(open => !open),
     },
     {
       label: collapsed ? "展开对话框" : "收起对话框",
@@ -20853,14 +21030,34 @@ function CanvasAssistantPanel({
     assistantTextModel.id,
   ]);
 
+  /**
+   * 切换项目时重建会话索引。
+   *
+   * ⚠️ 依赖里**只有 projectId**：索引本身由本 effect 负责产出，
+   *    把 conversationIndex 加进依赖会变成自己触发自己的死循环。
+   */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setConversationIndex(
+      ensureConversationIndex(projectId, key => window.localStorage.getItem(key))
+    );
+  }, [projectId]);
+
+  /**
+   * 载入「当前会话」的消息流。
+   *
+   * ⚠️⚠️ 依赖必须同时带上 activeConversationId。只写 projectId 的话，
+   *    在同一个画布里切换会话不会重新读取 —— 表现为「点了历史里的另一条
+   *    对话，标题变了但消息还是上一条的」，且零报错。
+   */
   useEffect(() => {
     if (typeof window === "undefined") return;
     const stored = deserializeCanvasAssistantMessages(
       window.sessionStorage.getItem(
-        canvasAssistantMessagesSessionKey(projectId)
+        canvasAssistantMessagesSessionKey(projectId, activeConversationId)
       ) ||
         window.localStorage.getItem(
-          canvasAssistantMessagesStorageKey(projectId)
+          canvasConversationMessagesKey(projectId, activeConversationId)
         )
     );
     if (stored.length === 1 && stored[0]?.id === "assistant-seed-1") {
@@ -20870,7 +21067,7 @@ function CanvasAssistantPanel({
     setMessages(
       stored.length > 0 ? stored : [createCanvasAssistantSeedMessage()]
     );
-  }, [projectId]);
+  }, [projectId, activeConversationId]);
 
   useEffect(() => {
     if (!activeSkill || collapsed) return;
@@ -20899,6 +21096,17 @@ function CanvasAssistantPanel({
     });
   }, [activeSkill, collapsed]);
 
+  /**
+   * 持久化当前会话的消息流 —— **全项目唯一的写入出口**。
+   *
+   * 📌 这正是多会话能安全落地的原因：`setMessages` 在本文件有 17 个调用点，
+   *    但它们都只管改内存里的 messages，「存到哪个 key」只有这一处决定。
+   *    所以把 key 换成「跟着 activeConversationId 走」之后，
+   *    17 个出口自动全部正确 —— 不存在「改了一个漏了另一个」的空间。
+   *
+   * ⚠️ 依赖必须带 activeConversationId，否则切换会话后第一次写入
+   *    仍会落到上一条会话的 key 上，造成两条对话互相覆盖。
+   */
   useEffect(() => {
     if (typeof window === "undefined") return;
     const serialized = JSON.stringify(
@@ -20906,23 +21114,47 @@ function CanvasAssistantPanel({
     );
     try {
       window.localStorage.setItem(
-        canvasAssistantMessagesStorageKey(projectId),
+        canvasConversationMessagesKey(projectId, activeConversationId),
         serialized
       );
       window.sessionStorage.removeItem(
-        canvasAssistantMessagesSessionKey(projectId)
+        canvasAssistantMessagesSessionKey(projectId, activeConversationId)
       );
     } catch {
       try {
         window.sessionStorage.setItem(
-          canvasAssistantMessagesSessionKey(projectId),
+          canvasAssistantMessagesSessionKey(projectId, activeConversationId),
           serialized
         );
       } catch {
         /* ignore storage quota errors */
       }
     }
-  }, [messages, projectId]);
+  }, [messages, projectId, activeConversationId]);
+
+  /**
+   * 消息变化时同步会话索引（标题 / 时间 / 条数）并落盘。
+   *
+   * ⚠️ 只有「真的有用户消息」才写索引。否则每次打开画布，
+   *    种子问候语就会把会话的 updatedAt 刷新一遍，
+   *    历史列表的排序会变成「最近打开过的」而不是「最近聊过的」。
+   */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!messages.some(message => message.role === "user")) return;
+    setConversationIndex(prev => {
+      const next = touchConversation(prev, activeConversationId, messages);
+      try {
+        window.localStorage.setItem(
+          canvasConversationIndexKey(projectId),
+          JSON.stringify(next)
+        );
+      } catch {
+        /* ignore storage quota errors */
+      }
+      return next;
+    });
+  }, [messages, projectId, activeConversationId]);
 
   useEffect(() => {
     if (collapsed) return;
@@ -22044,8 +22276,20 @@ function CanvasAssistantPanel({
         }}
       >
         {(collapsed ? actionButtons.slice(-1) : actionButtons).map(item => (
-          <button
+          <div
             key={item.label}
+            ref={item.label === "历史对话" ? conversationMenuRef : undefined}
+            className="relative"
+            /*
+              ⚠️ 只有「历史对话」需要定位上下文来挂浮层，但这里对所有按钮
+                 统一套一层 relative div —— 保持 flex 子项结构一致，
+                 免得某一颗按钮的间距和别的不一样。
+              ⚠️ zIndex 必须在浮层打开时抬高：面板自身是 zIndex 120，
+                 不抬高的话浮层会被下方的消息区盖住一部分。
+            */
+            style={{ zIndex: conversationMenuOpen && item.label === "历史对话" ? 1200 : undefined }}
+          >
+          <button
             className="h-8 w-8 flex items-center justify-center rounded-[var(--radius-md-design)] transition-colors hover:opacity-85"
             /**
              * 【2026-09-18 改】收起态过去是一枚「‹ 展开」胶囊：自适应宽度 +
@@ -22073,6 +22317,86 @@ function CanvasAssistantPanel({
           >
             {item.icon}
           </button>
+          {item.label === "历史对话" && conversationMenuOpen && (
+            <div
+              className="absolute top-full right-0 mt-1 rounded-[var(--radius-md-design)] overflow-hidden shadow-2xl"
+              style={{
+                background: elevatedBg,
+                border: `1px solid ${border}`,
+                width: 248,
+                zIndex: 1201,
+              }}
+              onClick={event => event.stopPropagation()}
+            >
+              <div
+                className="px-3 py-2 type-caption"
+                style={{ color: sub, borderBottom: `1px solid ${border}` }}
+              >
+                历史对话
+              </div>
+              <div
+                style={{
+                  maxHeight: 280,
+                  overflowY: "auto",
+                  overscrollBehavior: "contain",
+                  scrollbarWidth: "thin",
+                }}
+                onWheel={event => event.stopPropagation()}
+              >
+                {conversationIndex.conversations.map(conversation => {
+                  const active = conversation.id === activeConversationId;
+                  return (
+                    <div
+                      key={conversation.id || "legacy"}
+                      className="group flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors"
+                      style={{ background: active ? hoverBg : "transparent" }}
+                      onClick={() => handleSelectConversation(conversation.id)}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div
+                          className="truncate"
+                          style={{ color: text, fontSize: 12, lineHeight: "16px" }}
+                        >
+                          {conversation.title || CONVERSATION_FALLBACK_TITLE}
+                        </div>
+                        <div
+                          className="truncate"
+                          style={{ color: sub, fontSize: 11, lineHeight: "14px" }}
+                        >
+                          {conversation.messageCount} 条 ·{" "}
+                          {formatConversationTime(conversation.updatedAt)}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          color: sub,
+                          padding: 2,
+                        }}
+                        title="删除对话"
+                        aria-label="删除对话"
+                        /*
+                          ⚠️ 必须 stopPropagation：这颗按钮在整行的点击区域里，
+                             不拦截的话「删除」会连带触发外层的「切换到这条会话」，
+                             用户看到的是删完之后又跳进一条刚被删掉的对话。
+                        */
+                        onClick={event => {
+                          event.stopPropagation();
+                          handleDeleteConversation(conversation.id);
+                        }}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          </div>
         ))}
       </div>
 
