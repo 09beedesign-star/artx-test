@@ -84,11 +84,96 @@ describe("SmartCommerceProductDialog", () => {
     expect(source).not.toContain("backgroundReferenceSrc");
   });
 
-  it("keeps output controls bounded to 2K, 4K, common ratios, and one through nine images", () => {
-    expect(source).toContain('useState<"2k" | "4k">("2k")');
+  it("keeps output controls bounded to 1K, 2K, 4K, common ratios, and one through nine images", () => {
+    expect(source).toContain('useState<SmartCommerceResolution>("1k")');
     expect(source).toContain("const IMAGE_COUNTS = [1, 2, 3, 4, 5, 6, 7, 8, 9]");
     for (const ratio of ['ratio: "1:1"', 'ratio: "4:5"', 'ratio: "16:9"', 'ratio: "9:16"']) {
       expect(source).toContain(ratio);
+    }
+  });
+
+  /*
+    2026-09-18：默认分辨率 2k → 1k，并新增 1k 档。
+
+    ⚠️ 只断言「默认值是 1k」是不够的，那只锁住了一个字符串。
+       这块真正容易坏、坏了还不报错的是另外两件事：
+         1. 三个档位都还在（把 2k/4k 删掉也能让"默认是1k"通过）
+         2. 1k 缩放后每个画幅的短边都 ≤ 1088
+            —— 超了会被服务端记成 2K 档，界面写 1K、报表是 2K，零报错。
+       所以下面用剥注释版检查代码本身，并把短边条件真算一遍。
+  */
+  it("defaults to 1k while keeping 2k and 4k selectable", () => {
+    // 用剥注释版：上面那段说明里原样写着 "2k"，不剥会让断言失去意义
+    expect(codeOnly).toContain('useState<SmartCommerceResolution>("1k")');
+    expect(codeOnly).toContain('(["1k", "2k", "4k"] as const)');
+    expect(codeOnly).toContain('export type SmartCommerceResolution = "1k" | "2k" | "4k"');
+    // 三档并列后必须改成 3 行栅格，否则第三个按钮会被挤出容器
+    expect(codeOnly).toContain('className="grid grid-rows-3 gap-1.5"');
+    expect(codeOnly).not.toContain('useState<"2k" | "4k">("2k")');
+  });
+
+  /*
+    每个画幅 × 每个档位，输出的**短边**都必须落在用户选的那一档里。
+
+    ⚠️ 落档按短边、不按长边（shared/ai-credit-policy.ts:resolveImageResolutionTier），
+       而画幅表写的是长边基准，两者很容易对不上：
+       3:4 原为 2160×2880，用户选 2K、短边 2160 > 2048，实际被记成 4K 档 ——
+       界面和用量报表对不上，且**全程零报错**，只能靠这类守卫挡住。
+
+    这里不硬编码期望尺寸，而是从源码抠出 RESOLUTION_PRESETS 现场算。
+    硬编码的话「有人加了个新画幅」这个真实风险照样绿。
+  */
+  it("keeps every preset short side inside the tier the user picked", () => {
+    const TIER_MAX_SHORT_SIDE = { "1k": 1088, "2k": 2048, "4k": 4096 } as const;
+    // 与 getOutputSize 的系数保持一致：2k 用原值，1k ×0.5，4k ×1.5
+    const TIER_SCALE = { "1k": 0.5, "2k": 1, "4k": 3840 / 2560 } as const;
+
+    const presetBlock = codeOnly.slice(
+      codeOnly.indexOf("const RESOLUTION_PRESETS = ["),
+      codeOnly.indexOf("] as const;", codeOnly.indexOf("const RESOLUTION_PRESETS = ["))
+    );
+    const sizes = [...presetBlock.matchAll(/width:\s*(\d+),\s*height:\s*(\d+)/g)].map(
+      match => ({ width: Number(match[1]), height: Number(match[2]) })
+    );
+    // 自检：抠不到就等于空转
+    expect(sizes.length, "RESOLUTION_PRESETS 解析失败").toBeGreaterThanOrEqual(6);
+
+    for (const tier of ["1k", "2k", "4k"] as const) {
+      for (const size of sizes) {
+        const scale = TIER_SCALE[tier];
+        const shortSide = Math.round(Math.min(size.width, size.height) * scale);
+        const max = TIER_MAX_SHORT_SIDE[tier];
+        expect(
+          shortSide,
+          `${size.width}×${size.height} 选 ${tier.toUpperCase()} 时短边 ${shortSide} 超过 ${max}，会被记成更高一档`
+        ).toBeLessThanOrEqual(max);
+      }
+    }
+  });
+
+  /*
+    2026-09-18：3:4 从 2160×2880 改为 2048×2732，修短边越档。
+    改尺寸必然动比例，所以要盯住「比例没被改坏」——
+    否则修好了计费、却把画幅改成了另一个形状，用户拿到的图是错的。
+  */
+  it("keeps every preset visually faithful to its declared ratio", () => {
+    const presetBlock = codeOnly.slice(
+      codeOnly.indexOf("const RESOLUTION_PRESETS = ["),
+      codeOnly.indexOf("] as const;", codeOnly.indexOf("const RESOLUTION_PRESETS = ["))
+    );
+    const entries = [...presetBlock.matchAll(
+      /ratio:\s*"(\d+):(\d+)",\s*width:\s*(\d+),\s*height:\s*(\d+)/g
+    )];
+    expect(entries.length, "画幅条目解析失败").toBeGreaterThanOrEqual(6);
+
+    for (const [, rw, rh, w, h] of entries) {
+      const declared = Number(rw) / Number(rh);
+      const actual = Number(w) / Number(h);
+      const drift = Math.abs(actual / declared - 1);
+      expect(
+        drift,
+        `${rw}:${rh} 声明比例 ${declared.toFixed(4)}，实际 ${w}×${h} = ${actual.toFixed(4)}，偏差 ${(drift * 100).toFixed(2)}%`
+      ).toBeLessThan(0.005);
     }
   });
 
@@ -96,7 +181,8 @@ describe("SmartCommerceProductDialog", () => {
     expect(source).toContain('lg:grid-cols-[minmax(280px,0.72fr)_minmax(0,1.28fr)]');
     expect(source).toContain('sm:grid-cols-[minmax(0,1fr)_104px]');
     expect(source).toContain('className="grid grid-cols-3 gap-1.5"');
-    expect(source).toContain('className="grid grid-rows-2 gap-1.5"');
+    // 2026-09-18：分辨率从 2 档增到 3 档（1k/2k/4k），栅格行数同步改为 3
+    expect(source).toContain('className="grid grid-rows-3 gap-1.5"');
     expect(source).toContain('<SectionTitle>常用画幅</SectionTitle>');
     expect(source).toContain('overflow-hidden rounded-md px-1.5');
     expect(source).toContain('truncate whitespace-nowrap text-[8px]');

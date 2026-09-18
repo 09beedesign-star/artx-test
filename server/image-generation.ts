@@ -123,7 +123,7 @@ type CreateBackgroundInput = {
   composition?: string;
   sceneType?: number;
   ratio?: string;
-  resolution?: "2k" | "4k";
+  resolution?: "1k" | "2k" | "4k";
   count?: number;
   customWidth?: number;
   customHeight?: number;
@@ -2481,7 +2481,26 @@ function getBackgroundOutputSize(input: CreateBackgroundInput, fallbackWidth: nu
   const customHeight = coerceTargetDimension(input.customHeight);
   if (customWidth && customHeight) return { width: customWidth, height: customHeight };
 
-  const baseLongSide = input.resolution === "4k" ? 3840 : 2048;
+  /**
+   * 档位 → 输出长边。
+   *
+   * 【2026-09-18】新增 1k(1024)，并把**缺省档从 2k 改为 1k**。
+   *
+   * ⚠️ 1k 的长边只能取 1024，不能为了"多点像素"抬到 1536。
+   *    用量统计按**短边**落档（resolveImageResolutionTier），
+   *    而 baseLongSide 是**长边**——两者在 1:1 画幅上完全相等：
+   *      1536 长边 + 1:1 → 1536×1536，短边 1536 > 1088，被记成 2K。
+   *    界面写着 1K、报表里却是 2K，零报错但对不上账。
+   *    取 1024 时最坏情况（1:1）短边也才 1024，全画幅稳落 1K。
+   *
+   * ⚠️ 兜底档必须与前端默认值（client/src/lib/ai.ts 的 resolution = "1k"）一致，
+   *    否则漏传 resolution 的调用方会出图尺寸与面板显示不符。
+   */
+  const baseLongSide = input.resolution === "4k"
+    ? 3840
+    : input.resolution === "2k"
+      ? 2048
+      : 1024;
   // ⚠️ 这里原本没有 `|| ratioToSize["1:1"]` 兜底，传 "auto" 会拿到 undefined
   // 并悄悄落到下面的 fallbackWidth 分支 —— 比静默变方图更难排查。
   const ratio = resolveRatioSize(input.ratio);

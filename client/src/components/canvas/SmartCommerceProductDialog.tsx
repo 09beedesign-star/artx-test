@@ -44,6 +44,27 @@ import type { PicWishBackgroundTemplate } from "@/lib/ai";
  */
 export type SmartCommerceBackgroundMode = "template" | "prompt";
 
+/**
+ * 电商产品图的输出分辨率档位。
+ *
+ * 【2026-09-18】新增 1k，并把它设为默认（原默认是 2k）。
+ *
+ * 为什么要改：电商产品图的绝大多数用途是列表页缩略图和详情页配图，
+ * 1K 完全够用；默认给 2K 等于让「不做选择的那部分用户」长期承担
+ * 更慢的生成速度和更大的图片体积，收益却看不见。
+ * 默认值的意义就在于服务那些不做选择的人，所以缺省取最实用的一档。
+ *
+ * ⚠️ 这里**不是**为了省用户积分，别在别处这么解释。
+ *    smart_background 是 per_request 固定 480 积分（ai-credit-policy.ts:134），
+ *    而分辨率系数只作用于 text_to_image（同文件 :352 的 capability 判断）——
+ *    电商链路无论出 1K 还是 4K，扣的积分**一模一样**。
+ *    真实收益是生成更快、传输与存储更省，以及 PicWish 侧的算力占用更低。
+ *
+ * ⚠️ 只改默认值，不动可选项：2K / 4K 完整保留，
+ *    用户主动点选高分辨率时行为与改动前逐位一致。
+ */
+export type SmartCommerceResolution = "1k" | "2k" | "4k";
+
 export type SmartCommerceProductCreateDetail = {
   imageSrc: string;
   fileName?: string;
@@ -60,7 +81,7 @@ export type SmartCommerceProductCreateDetail = {
   ecommercePlatform: string;
   sceneType?: number;
   ratio: string;
-  resolution: "2k" | "4k";
+  resolution: SmartCommerceResolution;
   count: number;
   customWidth: number;
   customHeight: number;
@@ -87,10 +108,22 @@ type Props = {
 
 const IMAGE_COUNTS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 
+/**
+ * 常用画幅预设。尺寸以 **2K 档**为基准，1k / 4k 由 getOutputSize 按系数缩放。
+ *
+ * ⚠️ 每一档的**短边**都必须落在它该在的档位里（落档按短边，不是长边）：
+ *      2k 档短边 ≤ 2048，4k 档短边 ≤ 4096，1k 档短边 ≤ 1088。
+ *    这不是洁癖 —— 短边越界会让界面显示的档位和用量报表对不上，且零报错。
+ *
+ * 【2026-09-18 修正】3:4 原为 2160×2880，短边 2160 > 2048，
+ *    用户选 2K 却被记成 4K 档。改为 2048×2732 后短边 2048 正好压在档位上沿，
+ *    比例 0.7496 与 3:4（0.75）的偏差 0.05%，肉眼与版面都无差别。
+ *    宽度必须锁 2048（不能是 2049）——它就是 2K 档短边的上限值本身。
+ */
 const RESOLUTION_PRESETS = [
   { label: "1:1", ratio: "1:1", width: 2048, height: 2048 },
   { label: "4:5", ratio: "4:5", width: 2048, height: 2560 },
-  { label: "3:4", ratio: "3:4", width: 2160, height: 2880 },
+  { label: "3:4", ratio: "3:4", width: 2048, height: 2732 },
   { label: "16:9", ratio: "16:9", width: 2560, height: 1440 },
   { label: "9:16", ratio: "9:16", width: 1440, height: 2560 },
   { label: "3:2", ratio: "3:2", width: 2400, height: 1600 },
@@ -216,11 +249,26 @@ function SectionTitle({ children, aside }: { children: ReactNode; aside?: ReactN
   );
 }
 
-function getOutputSize(preset: ResolutionPreset, resolution: "2k" | "4k") {
-  const scale = resolution === "4k" ? 3840 / 2560 : 1;
+/**
+ * 画幅预设 × 分辨率档位 → 实际输出像素。
+ *
+ * RESOLUTION_PRESETS 里的尺寸是按 **2K 基准**写死的，
+ * 所以 2k 直接用原值，其余档位在它之上按倍数缩放：
+ *   1k = ×0.5
+ *   4k = ×1.5（3840/2560，沿用原有系数不变）
+ *
+ * ⚠️ 缩放后的**短边**必须仍落在用户选的那一档里
+ *    （1k ≤ 1088，2k ≤ 2048，4k ≤ 4096；落档按短边，见 resolveImageResolutionTier）。
+ *    越界不会报任何错，只会让界面显示的档位和用量报表对不上。
+ *    18 个组合（6 画幅 × 3 档）已全部验证落档正确，
+ *    并由 SmartCommerceProductDialog.test.ts 的守卫持续兜住 ——
+ *    日后加新画幅时若短边越界，那条测试会直接点名是哪一个。
+ */
+function getOutputSize(preset: ResolutionPreset, resolution: SmartCommerceResolution) {
   if (resolution === "2k") {
     return { width: preset.width, height: preset.height };
   }
+  const scale = resolution === "4k" ? 3840 / 2560 : 0.5;
   return {
     width: Math.max(1, Math.round(preset.width * scale)),
     height: Math.max(1, Math.round(preset.height * scale)),
@@ -288,7 +336,8 @@ export function SmartCommerceProductDialog({
   const [backgroundMode, setBackgroundMode] =
     useState<SmartCommerceBackgroundMode>("template");
   const [customPrompt, setCustomPrompt] = useState("");
-  const [resolution, setResolution] = useState<"2k" | "4k">("2k");
+  // 默认 1k：见 SmartCommerceResolution 的说明——省钱是缺省，高清是主动选择。
+  const [resolution, setResolution] = useState<SmartCommerceResolution>("1k");
   const [count, setCount] = useState(1);
   const [selectedPreset, setSelectedPreset] =
     useState<ResolutionPreset>(RESOLUTION_PRESETS[0]);
@@ -806,12 +855,18 @@ export function SmartCommerceProductDialog({
 
                 <div>
                   <SectionTitle>分辨率</SectionTitle>
-                  <div className="grid grid-rows-2 gap-1.5">
-                    {(["2k", "4k"] as const).map(item => (
+                  {/*
+                    三档并列，默认停在 1k。
+                    行高从 h-10 降到 h-8：多一档而按钮不变高的话，
+                    这一列会比左边的「常用画幅」高出一大截，两列顶端对齐的版面会散掉。
+                    h-8×3 + 两道 gap ≈ 108px，与画幅列的 86px 差距在一眼可接受的范围内。
+                  */}
+                  <div className="grid grid-rows-3 gap-1.5">
+                    {(["1k", "2k", "4k"] as const).map(item => (
                       <button
                         key={item}
                         type="button"
-                        className="h-10 rounded-md text-[10px] font-semibold uppercase transition-colors"
+                        className="h-8 rounded-md text-[10px] font-semibold uppercase transition-colors"
                         style={{
                           color: colors.text,
                           background:

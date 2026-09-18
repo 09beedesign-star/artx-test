@@ -804,7 +804,10 @@ export async function createProductBackground({
   composition,
   sceneType,
   ratio = AUTO_RATIO_VALUE,
-  resolution = "2k",
+  // 【2026-09-18】默认值从 "2k" 降到 "1k"，与电商面板的默认选中档位保持一致。
+  // 这一层不是摆设：调用方（含未来的脚本/自动化）漏传 resolution 时落的就是这里，
+  // 两处默认值不一致会出现「面板显示 1K、实际按 2K 出图」这种零报错的错版。
+  resolution = "1k",
   count = 1,
   customWidth,
   customHeight,
@@ -819,7 +822,7 @@ export async function createProductBackground({
   composition?: string;
   sceneType?: number;
   ratio?: string;
-  resolution?: "2k" | "4k";
+  resolution?: "1k" | "2k" | "4k";
   count?: number;
   customWidth?: number;
   customHeight?: number;
