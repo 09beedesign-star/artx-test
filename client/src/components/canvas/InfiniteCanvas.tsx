@@ -123,6 +123,8 @@ import {
   MapPin,
   PlusCircle,
   Droplets,
+  PanelRight,
+  PanelLeft,
 } from "lucide-react";
 import {
   AssistantModelIcon,
@@ -19063,15 +19065,24 @@ function CanvasAssistantPanel({
     },
     {
       label: collapsed ? "展开对话框" : "收起对话框",
-      icon: (
-        <ChevronLeft
-          size={16}
-          style={{
-            transform: collapsed ? "none" : "rotate(180deg)",
-            transition: "transform 0.2s ease",
-          }}
-        />
-      ),
+      /**
+       * 收起 / 展开图标 —— 面板轮廓图标（圆角矩形 + 一条竖线）。
+       *
+       * 【2026-09-18 改】原先是 `ChevronLeft`（收起）/ 旋转 180°（展开），
+       * 用户要求换成面板图标，并且「展开」用「收起」的**左右镜像**：
+       *   - 收起态（面板已合上，点它展开）→ `PanelLeft`：竖线在左
+       *   - 展开态（面板开着，点它收起）→ `PanelRight`：竖线在右
+       *
+       * 📌 为什么不是给一个图标加 `scaleX(-1)` 了事：
+       *   lucide 的 PanelLeft / PanelRight 本来就是同一个矩形 + 竖线分别在
+       *   x=9 / x=15，几何上**就是**彼此的镜像。用现成的两个图标，
+       *   既拿到镜像效果，又不会因为 transform 缩放让描边粗细在两态间出现差异。
+       *
+       * ⚠️ 尺寸固定 16，和旁边「灵感推荐」「分享对话」两个 icon 一致；
+       * 颜色不在这里写死 —— 由外层 button 的 `color` 统一决定（见渲染处），
+       * 这样三个 icon 的配色天然同源，不会各调各的。
+       */
+      icon: collapsed ? <PanelLeft size={16} /> : <PanelRight size={16} />,
       onClick: onToggleCollapsed,
     },
   ];
@@ -21947,10 +21958,32 @@ function CanvasAssistantPanel({
         style={{
           width: panelWidth,
           maxWidth: "calc(100vw - 48px)",
-          background: bg,
+          /**
+           * 【2026-09-18 改】收起后背景必须透明。
+           *
+           * 收起是靠 translateX 把面板推出去、只留 `collapsedPeekWidth` 一条在屏内，
+           * 但 <aside> 本身仍然是 `top-3 bottom-3` 的**满高**元素。
+           * 所以只要 background 还是 bg，露出来的那一条就会从顶贯到底，
+           * 变成用户截图里那根长灰条 —— 而这条里除了顶部 52px 的按钮，
+           * 下面全是空的，纯粹是块没有内容的色板。
+           *
+           * ⚠️ 这里不能改成「收起时把高度缩掉」：aside 是 flex 容器，
+           * 展开态要靠满高撑起消息区 + 输入框；动高度会让展开/收起的过渡跳变。
+           * 透明化背景既去掉了灰条，又不动布局。
+           *
+           * 📌 收起态按钮自己不需要底色（见下方按钮样式注释），
+           * 所以背景透明后不会出现「按钮悬空看不清」的问题。
+           */
+          background: collapsed ? "transparent" : bg,
           border: collapsed ? "none" : `1px solid ${border}`,
           zIndex: 120,
-          backdropFilter: "blur(22px)",
+          /**
+           * ⚠️ 毛玻璃必须跟着背景一起关掉。
+           * 只把 background 置成 transparent、留着 blur(22px)，那条露出的区域
+           * 依然会把画布内容糊成一片 —— 灰条看着是淡了，但「有一根长条」还在。
+           * 删元素时，为它服务的效果要同批回收。
+           */
+          backdropFilter: collapsed ? "none" : "blur(22px)",
           transform: collapsed
             ? `translateX(calc(100% - ${collapsedPeekWidth}px))`
             : "translateX(0)",
@@ -22013,22 +22046,32 @@ function CanvasAssistantPanel({
         {(collapsed ? actionButtons.slice(-1) : actionButtons).map(item => (
           <button
             key={item.label}
-            className="h-8 flex items-center justify-center rounded-[var(--radius-md-design)] transition-colors hover:opacity-85"
+            className="h-8 w-8 flex items-center justify-center rounded-[var(--radius-md-design)] transition-colors hover:opacity-85"
+            /**
+             * 【2026-09-18 改】收起态过去是一枚「‹ 展开」胶囊：自适应宽度 +
+             * 左右 10px 内边距 + chipBg 底 + 描边 + 投影 + 文案。
+             *
+             * 用户要求「尺寸交互形式与配色与旁边的 icon 保持一致」并「把展开文案去掉」，
+             * 所以这里不再按 collapsed 分叉 —— 两态共用同一套样式：
+             * 32×32 方形、透明底、无描边无投影、颜色统一取 `sub`。
+             *
+             * ⚠️ 删文案时必须连带删掉「为文案而加的那些样式」：
+             * 自适应宽度、水平 padding、图标与文字之间的 gap，
+             * 以及把它衬成一枚独立胶囊的 chipBg / border / boxShadow。
+             * 只删 <span> 不删这些，会剩一个空荡荡的胶囊壳，看着像没做完。
+             * 宽高改由 className 的 `h-8 w-8` 统一表达，样式里不再重复写 width。
+             */
             style={{
-              width: collapsed ? "auto" : 32,
-              padding: collapsed ? "0 10px" : 0,
-              gap: collapsed ? 6 : 0,
-              background: collapsed ? chipBg : "transparent",
-              color: collapsed ? text : sub,
-              border: collapsed ? `1px solid ${border}` : "none",
-              boxShadow: collapsed ? "0 8px 20px rgba(0,0,0,0.16)" : "none",
+              background: "transparent",
+              color: sub,
+              border: "none",
+              boxShadow: "none",
             }}
             title={item.label}
             aria-label={item.label}
             onClick={item.onClick}
           >
             {item.icon}
-            {collapsed && <span className="type-caption">展开</span>}
           </button>
         ))}
       </div>
