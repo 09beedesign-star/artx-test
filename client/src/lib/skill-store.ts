@@ -5,19 +5,16 @@ import {
   Camera,
   Clapperboard,
   FileImage,
+  Frame,
   Globe2,
-  LayoutTemplate,
-  MonitorSmartphone,
-  PenTool,
-  SwatchBook,
   Images,
-  Presentation,
+  MonitorSmartphone,
   Network,
   Newspaper,
+  PenTool,
   PieChart,
-  Frame,
-  Megaphone,
-  MessageSquareQuote,
+  Presentation,
+  SwatchBook,
 } from "lucide-react";
 
 export type SkillStoreCategory =
@@ -29,7 +26,6 @@ export type SkillStoreCategory =
   | "video_storyboard"
   | "image_editing"
   | "visual_audit"
-  | "content_marketing"
   | "graphic_design"
   | "infographic"
   | "ui_design"
@@ -42,7 +38,7 @@ export type SkillStoreItem = {
   category: SkillStoreCategory;
   subcategory: string;
   summary: string;
-  capability: "text_to_image" | "image_edit" | "chat";
+  capability: "text_to_image" | "image_edit";
   capabilityPrompt: string;
   sourceRepo: string;
   sourceUrl: string;
@@ -98,11 +94,6 @@ export const skillCategoryMeta: Record<SkillStoreCategory, {
     label: "视觉分析 / 质检",
     description: "参考图分析、竞品拆解、提示词审阅和设计质量检查。",
     accent: "oklch(0.74 0.16 82)",
-  },
-  content_marketing: {
-    label: "内容与营销创作",
-    description: "文案、去 AI 味润色、社媒内容、营销策略与品牌叙事，输出文本结果。",
-    accent: "oklch(0.70 0.18 20)",
   },
   graphic_design: {
     label: "平面设计 / 视觉表达",
@@ -280,38 +271,6 @@ export const skillStoreItems: SkillStoreItem[] = [
     status: "已同步",
     icon: BadgeCheck,
     tags: ["Visual audit", "Reference", "Quality"],
-  },
-  {
-    id: "humanizer-zh-voice",
-    name: "去 AI 味润色",
-    category: "content_marketing",
-    subcategory: "文案润色 / 去 AI 味",
-    summary: "把中文文本改写得像人写的：先列出 AI 痕迹，再给出可直接粘贴的改写稿和改动说明，不新增事实。",
-    capability: "chat",
-    capabilityPrompt: "作为去 AI 味润色 skill，请先诊断文本里的 AI 痕迹（破折号滥用、三段式、AI 词汇、宣传性夸大、模糊归因），再重写：长短句交替、具体名词动词、统一人声，最后给出改动说明。",
-    sourceRepo: "humanizer-zh + Wikipedia AI-writing-signs + awesome-agent-skills",
-    sourceUrl: "https://github.com/travisvn/awesome-claude-skills",
-    sourceScore: 6,
-    signal: "Template adoption",
-    status: "已同步",
-    icon: MessageSquareQuote,
-    tags: ["Humanize", "Rewrite", "Chinese"],
-  },
-  {
-    id: "marketing-copy-engine",
-    name: "营销文案引擎",
-    category: "content_marketing",
-    subcategory: "营销文案 / 多渠道变体",
-    summary: "把产品、卖点或活动转成可直接投放的文案：明确受众、单一主张、支撑证据、按渠道改写的正文和 5 条不同角度的标题。",
-    capability: "chat",
-    capabilityPrompt: "作为营销文案引擎 skill，请先锁定受众与唯一核心主张，给出支撑证据，再按渠道输出正文，附 5 条角度各异的标题和待确认信息清单；不编造数据与功效。",
-    sourceRepo: "baoyu-skills + awesome-agent-skills + anthropics/skills",
-    sourceUrl: "https://github.com/JimLiu/baoyu-skills",
-    sourceScore: 3000,
-    signal: "Template adoption",
-    status: "已同步",
-    icon: Megaphone,
-    tags: ["Copywriting", "Campaign", "Multi-channel"],
   },
   {
     id: "art-poster-design",
@@ -514,7 +473,7 @@ export function buildSkillPromptContext(skill: PendingSkillLoad) {
   return [
     `当前已加载 Skill：${skill.name}`,
     `分类：${skill.categoryLabel} / ${skill.subcategory}`,
-    `生成能力：${skill.capability === "chat" ? "文本生成，直接在画布助手面板返回文字结果" : skill.capability === "image_edit" ? "图片编辑，需要用户提供参考图或画布图片" : "文生图，可直接根据提示词生成画面"}`,
+    `生成能力：${skill.capability === "image_edit" ? "图片编辑，需要用户提供参考图或画布图片" : "文生图，可直接根据提示词生成画面"}`,
     `能力说明：${skill.summary}`,
     `执行规则：${skill.capabilityPrompt}`,
     skill.canvasSizes?.length ? `优先适配尺寸：${skill.canvasSizes.join("、")}` : "",

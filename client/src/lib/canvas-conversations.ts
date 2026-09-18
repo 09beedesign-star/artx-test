@@ -38,10 +38,14 @@ const MESSAGES_PREFIX = "artx:canvas-assistant-messages:";
  *
  * ⚠️ 必须有上限：localStorage 是 5MB 硬配额，而本项目**已经因为画布图片
  *    撑爆过配额**（2026-09-15 三层存储图片丢失事故）。会话无限增长会重演。
- * 📌 40 与 MAX_SYNCED_PROJECTS / MAX_SYNCED_CANVASES 对齐，
- *    将来接云端同步时不用再引入第二个数字。
+ * ⚠️⚠️ 【2026-09-18 用户拍板改为 20】必须与 shared/workspace-sync.ts 的
+ *    MAX_SYNCED_CONVERSATIONS_PER_PROJECT **完全相等**。
+ *    本地存 40 条而云端只收 20 条，会让用户在另一台设备上
+ *    「对话少了一半」，本机看着却是好的 —— 不对称且零报错，极难排查。
+ *    📌 改一个必须同时改另一个；
+ *       server/workspace-sync-conversations.test.ts 有测试盯着两者相等。
  */
-export const MAX_CANVAS_CONVERSATIONS = 40;
+export const MAX_CANVAS_CONVERSATIONS = 20;
 
 /** 标题截取长度。用户确认「取首条用户消息前 20 字」。 */
 export const CONVERSATION_TITLE_MAX_LENGTH = 20;

@@ -597,7 +597,10 @@ import {
   touchConversation,
   type CanvasConversationIndex,
 } from "@/lib/canvas-conversations";
-import { scheduleWorkspaceSync } from "@/lib/workspace-sync";
+import {
+  recordCanvasConversationDeletion,
+  scheduleWorkspaceSync,
+} from "@/lib/workspace-sync";
 import { computeDraftNodeRect, isCanvasEmpty } from "@/lib/canvas-empty-state";
 import {
   buildSkillPromptContext,
@@ -14207,34 +14210,6 @@ function BottomPromptBar({
       resizePromptTextarea(textareaRef.current);
       try {
         if (activeSkill) {
-          if (activeSkill.capability === "chat") {
-            const skillTextPrompt =
-              submittedPrompt ||
-              `${skillContext}\n\n用户提示：${visiblePrompt || `请使用${activeSkill.name}处理当前内容。`}`;
-            const chatResult = await callLLM({
-              module: "bottom-skill-chat",
-              model: selectedTextModel,
-              prompt: skillTextPrompt,
-              skillId: activeSkill.id,
-              images: submittedRefs.map(asset => ({
-                src: asset.src,
-                title: asset.title,
-              })),
-            });
-            window.dispatchEvent(
-              new CustomEvent("canvas-assistant-external-message", {
-                detail: {
-                  content:
-                    chatResult.text ||
-                    `「${activeSkill.name}」未返回文本结果，请重试。`,
-                },
-              })
-            );
-            toast("Skill 已返回结果", {
-              description: `${activeSkill.name} · 结果已发送到画布助手面板`,
-            });
-            return;
-          }
           const targetReference = submittedRefs[submittedRefs.length - 1];
           const targetDisplaySize =
             targetReference?.width && targetReference?.height
@@ -19346,6 +19321,17 @@ function CanvasAssistantPanel({
       persistConversationIndex(nextIndex);
       if (typeof window === "undefined") return;
       /*
+        ⚠️⚠️⚠️ 【云端同步】删除必须**写墓碑**，不能只是本地删掉。
+           本地索引里"没有了"和"另一台设备新建的、本机还没同步到"
+           在数据上**完全分不出来** —— 没有墓碑，下一次同步会把
+           云端那条 active:true 原样合并回来，
+           用户现象是「删了一条对话，过一会儿它自己回来了」。
+           📌 判据：删除是一个**事件**，必须显式记录，不能从状态差异反推。
+           这与项目删除的 recordWorkspaceProjectDeletion 是同一条防线。
+      */
+      recordCanvasConversationDeletion(projectId, conversationId);
+      scheduleWorkspaceSync();
+      /*
         ⚠️ 删索引的同时必须删掉它的消息 key，否则那份消息会永远留在
            localStorage 里占配额，且再也没有入口能访问到它 —— 纯泄漏。
       */
@@ -21318,6 +21304,18 @@ function CanvasAssistantPanel({
         /* ignore storage quota errors */
       }
     }
+    /*
+      【云端同步】在这里调度上行。
+
+      📌 接这一个点就够了：`setMessages` 在本文件有 23 个调用点，
+         但它们都只改内存，**落盘只有本 effect 一个出口**。
+         挨个去 23 个调用点加同步调用，必然漏掉几个
+         —— 那是本项目最高频的事故模式（同一份数据的多个出口）。
+
+      ⚠️ scheduleWorkspaceSync 自带 3 秒防抖 + 未登录直接返回，
+         所以放在每次消息变化上是安全的，不会把后端当鼓点敲。
+    */
+    scheduleWorkspaceSync();
   }, [messages, projectId, activeConversationId]);
 
   /**
@@ -21778,43 +21776,6 @@ function CanvasAssistantPanel({
       submittedVisualReferences;
     try {
       if (activeSkill) {
-        /**
-         * 文本类技能（capability: chat）在这里单独出口。
-         *
-         * 技能 md 由服务端 getSkill(skillId) 注入 system 提示词，前端只负责把
-         * 结果作为一条 assistant 消息落到对话里。不要让它掉进下面的出图分支，
-         * 否则「去 AI 味润色」这类技能会去生图，用户看到的是一张无关的图。
-         */
-        if (activeSkill.capability === "chat") {
-          const skillChatPrompt = [
-            activeSkillContext,
-            `用户请求：${rawSubmittedComposerPrompt}`,
-          ]
-            .filter(Boolean)
-            .join("\n\n");
-          const chatResult = await callLLM({
-            module: "right-skill-chat",
-            model: assistantTextModel.id,
-            prompt: skillChatPrompt,
-            skillId: activeSkill.id,
-            images: submittedImages.map(asset => ({
-              src: asset.src,
-              title: asset.title,
-            })),
-          });
-          setMessages(prev => [
-            ...prev,
-            {
-              id: `assistant-skill-chat-${Date.now()}`,
-              role: "assistant",
-              content:
-                chatResult.text ||
-                `「${activeSkill.name}」未返回文本结果，请重试。`,
-              timestamp: new Date(),
-            },
-          ]);
-          return;
-        }
         const finalImagePrompt = buildSkillAppliedImagePrompt({
           activeSkill,
           skillContext: activeSkillContext,

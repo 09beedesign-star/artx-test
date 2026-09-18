@@ -28,17 +28,24 @@ fs.mkdirSync(OUT_DIR, { recursive: true });
 const args = process.argv.slice(2);
 const onlyArg = args.find(a => a.startsWith("--only="))?.split("=")[1];
 const skillsArg = args.find(a => a.startsWith("--skills="))?.split("=")[1];
+// 模型 A/B：用于验证便宜档模型能否撑住技能契约。
+// 例：--model=claude-sonnet-5 —— 产出文件名会带 .sonnet 后缀，便于与默认档对比。
+const modelArg = args.find(a => a.startsWith("--model="))?.split("=")[1];
+const SUFFIX = modelArg ? `.${modelArg.replace(/[^a-z0-9.-]/gi, "")}` : "";
 
 const IMAGE_SKILLS = {
   "cover-image-lab": "16:9",
   "infographic-designer": "9:16",
   "diagram-flowchart": "16:9",
 };
-const CHAT_SKILLS = ["humanizer-zh-voice", "marketing-copy-engine"];
-
 const cases = JSON.parse(
   fs.readFileSync("docs/skill-validation-cases.json", "utf8")
 );
+
+// 从校验用例里动态取，以后新增 chat 技能不用改脚本。
+const CHAT_SKILLS = cases
+  .filter(item => item.capability === "chat")
+  .map(item => item.skillId);
 
 const { AIOrchestrator } = await import("../server/ai-orchestrator.ts");
 const orchestrator = new AIOrchestrator();
@@ -114,9 +121,10 @@ async function runChat(skillId) {
       operation: "chat",
       prompt,
       skillId,
+      ...(modelArg ? { model: modelArg } : {}),
     });
     const text = result.text || "";
-    const file = path.join(OUT_DIR, `${skillId}.md`);
+    const file = path.join(OUT_DIR, `${skillId}${SUFFIX}.md`);
     fs.writeFileSync(file, `# ${skillId}\n\n## 输入\n\n${prompt}\n\n## 输出\n\n${text}\n`);
     return {
       skillId,
@@ -127,6 +135,7 @@ async function runChat(skillId) {
       route: result.route,
       skillEcho: result.skill || null,
       chars: text.length,
+      usage: result.usage || null,
       file,
       preview: text.slice(0, 400),
     };
@@ -168,7 +177,11 @@ console.log("\n=== 结果 ===");
 for (const row of report) {
   if (row.capability === "chat") {
     console.log(
-      `${row.ok ? "OK " : "FAIL"} ${row.skillId} [chat] ${row.chars ?? 0} 字 ${row.ms}ms skill=${row.skillEcho} -> ${row.file || row.error}`
+      `${row.ok ? "OK " : "FAIL"} ${row.skillId} [chat] ${row.chars ?? 0} 字 ${row.ms}ms` +
+      (row.usage
+        ? ` | in ${row.usage.promptTokens ?? "?"} / out ${row.usage.completionTokens ?? "?"} token`
+        : " | usage 未回传") +
+      ` skill=${row.skillEcho} -> ${row.file || row.error}`
     );
   } else {
     for (const run of row.runs) {

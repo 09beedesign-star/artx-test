@@ -24,8 +24,6 @@ const expectedIds = [
   "video-storyboard",
   "image-local-edit",
   "visual-reference-audit",
-  "humanizer-zh-voice",
-  "marketing-copy-engine",
   "art-poster-design",
   "knowledge-comic",
   "xhs-carousel-images",
@@ -46,7 +44,6 @@ const expectedCategories = [
   "video_storyboard",
   "image_editing",
   "visual_audit",
-  "content_marketing",
   "graphic_design",
   "infographic",
   "ui_design",
@@ -131,15 +128,10 @@ for (const file of mdFiles) {
   if (file !== `${id}.md`) fail(`${file} should be named ${id}.md`);
   if (!data.title) fail(`${file} is missing title`);
   if (!data.description) fail(`${file} is missing description`);
-  if (!["text_to_image", "image_edit", "chat"].includes(data.capability)) fail(`${file} has unsupported capability ${data.capability}`);
+  if (!["text_to_image", "image_edit"].includes(data.capability)) fail(`${file} has unsupported capability ${data.capability}`);
   if (storeCapabilitiesById.get(id) !== data.capability) fail(`store capability for ${id} does not match ${file}`);
   if (!/Must include:|Must handle:/u.test(body)) fail(`${file} is missing execution checklist`);
-  // 出图技能约束画面，文本技能约束输出结构，两类要求不同，不能共用一条规则。
-  if (data.capability === "chat") {
-    if (!/Output contract:/u.test(body)) fail(`${file} is missing output contract`);
-  } else if (!/Generation priorities:/u.test(body)) {
-    fail(`${file} is missing generation priorities`);
-  }
+  if (!/Generation priorities:/u.test(body)) fail(`${file} is missing generation priorities`);
   if (!/Open-source references used to shape this skill:/u.test(body)) fail(`${file} is missing open-source reference note`);
 }
 if (mdFiles.length !== expectedIds.length) fail(`server/skills has ${mdFiles.length} md files, expected ${expectedIds.length}`);
@@ -170,7 +162,6 @@ const requiredAiClientSnippets = [
   "skillId,",
   "capability: \"text_to_image\"",
   "capability: \"image_edit\"",
-  "capability: \"chat\"",
 ];
 for (const snippet of requiredAiClientSnippets) {
   if (!aiClient.includes(snippet)) fail(`AI client is missing skill request snippet: ${snippet}`);
@@ -181,8 +172,6 @@ const requiredCanvasSnippets = [
   "PENDING_SKILL_LOAD_KEY",
   "buildSkillPromptContext(activeSkill)",
   "activeSkill.capability === \"image_edit\"",
-  // 文本技能必须在两个入口都单独出口，否则会掉进出图分支。
-  "activeSkill.capability === \"chat\"",
   "canvas-assistant-external-message",
   "skillId: activeSkill.id",
   "editImageWithPrompt({",

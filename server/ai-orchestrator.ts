@@ -64,6 +64,11 @@ export type OrchestrateResponse = {
   providerTaskIds?: string[];
   route: string;
   skill?: string;
+  /**
+   * 上游回传的真实 token 用量。定价必须用它，不能靠字节数估算。
+   * 只在 chat / brand_kit_parse 链路有值（图片链路上游不回传 usage）。
+   */
+  usage?: { promptTokens?: number; completionTokens?: number };
 };
 
 const AI_CAPABILITIES = new Set<AiCapability>([
@@ -146,6 +151,7 @@ export class AIOrchestrator {
         text: result.text,
         route: route.provider,
         skill: skill?.id,
+        usage: result.usage,
       };
     }
 

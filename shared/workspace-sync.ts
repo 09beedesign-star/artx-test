@@ -83,11 +83,59 @@ export type SyncedInspirationReaction = {
   item: Record<string, unknown> | null;
 };
 
+/**
+ * 画布里的一条对话（索引元信息 + 完整消息正文）。
+ *
+ * 【2026-09-18 新增，跨设备同步第二步】
+ * 第一步只落了本地 localStorage（提交 200ed26 / 968af71 / 45ce02e），
+ * 本类型负责把它接上云端。用户明确选了「索引 + 消息正文全同步」——
+ * 只同步索引会让另一台设备「看得见标题、点进去是空的」。
+ *
+ * ⚠️⚠️ key 必须是 `${projectId}::${conversationId}` 而**不能只用 conversationId**。
+ *    conversationId 由 createCanvasConversationId() 生成（时间戳 + 8 位随机），
+ *    同一毫秒内在两个画布各新建一条，理论上可以撞；更要命的是**老会话的
+ *    conversationId 是空串**（迁移用的合法值，见 canvas-conversations.ts 的
+ *    LEGACY_CONVERSATION_ID）—— 所有画布的老会话 id 全都是 ""，
+ *    只用它做 key，N 个画布的老对话会在云端合并成同一条，
+ *    **用户现象是「打开任意画布，历史里都是别的画布的对话」**。
+ *    📌 判据：合并键必须覆盖「这条数据在本地的完整寻址路径」，
+ *       本地是 `<projectId>` + `<conversationId>` 两级，键就得是两级。
+ *
+ * ⚠️ 用 `::` 而不是单个 `:` 作分隔：projectId 本身可能带 `:`（路由里是自由字符串），
+ *    单冒号会让 `a:b` + `c` 和 `a` + `b:c` 撞成同一个 key。
+ *
+ * 【为什么 active 布尔而不是单独的墓碑数组】
+ * 与 SyncedInspirationReaction 同一套理由：删除就是同一条记录的一次更新，
+ * last-write-wins 天然成立。**不能表示成「把记录从数组里删掉」** ——
+ * A 机器删掉后上行的载荷里没有这条，服务端合并时 B 机器那条 active:true
+ * 原样保留，下一次 A 下行又把它捡回来 → 「删了又自己回来了」。
+ */
+export type SyncedCanvasConversation = {
+  /** `${projectId}::${conversationId}`，全局唯一 */
+  key: string;
+  projectId: string;
+  /** 空串是合法值：代表迁移过来的老会话（读写不带后缀的老 key）。 */
+  conversationId: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  /** false = 已删除的墓碑。 */
+  active: boolean;
+  /**
+   * 消息正文。
+   * ⚠️ 里面的 timestamp 已经是 ISO 字符串（serializeCanvasAssistantMessages 的产物），
+   *    不是 Date —— JSON 往返本来也存不住 Date。
+   * active 为 false 时置空数组（删了就不需要正文了，省体积）。
+   */
+  messages: unknown[];
+};
+
 export type WorkspaceSyncPayload = {
   projects: SyncedWorkspaceProject[];
   canvases: SyncedCanvasState[];
   deletions: SyncedDeletion[];
   reactions: SyncedInspirationReaction[];
+  conversations: SyncedCanvasConversation[];
 };
 
 export type WorkspaceSyncDocument = WorkspaceSyncPayload & {
@@ -105,6 +153,20 @@ export const MAX_SYNC_DOCUMENT_BYTES = 2_000_000;
 /** 同步载荷里最多保留多少个项目 / 画布。 */
 export const MAX_SYNCED_PROJECTS = 40;
 export const MAX_SYNCED_CANVASES = 40;
+
+/**
+ * 每个画布最多同步多少条会话。
+ *
+ * ⚠️⚠️ 必须与 canvas-conversations.ts 的 MAX_CANVAS_CONVERSATIONS **完全相等**
+ *    （2026-09-18 用户拍板：两边都是 20）。
+ *    本地存 40 条、云端只收 20 条，会让用户在另一台设备上「对话少了一半」，
+ *    而本机看着是好的 —— 这种不对称最难排查，且不会报任何错。
+ *    📌 改其中一个数字时**必须同时改另一个**，
+ *       server/workspace-sync-conversations.test.ts 有一条测试在盯着它们相等。
+ * ⚠️ 截断是**按画布**而不是全局：全局截断会让「某个不常用画布的对话
+ *    被常用画布挤没」，用户完全无法预期。
+ */
+export const MAX_SYNCED_CONVERSATIONS_PER_PROJECT = 20;
 
 /**
  * 解析同步用的时间戳。
@@ -231,6 +293,44 @@ function normalizeReaction(value: unknown): SyncedInspirationReaction | null {
   };
 }
 
+/**
+ * 会话条目归一化。
+ *
+ * ⚠️⚠️ 判据是 **projectId 非空**，而**不是** conversationId 非空。
+ *    空 conversationId 是迁移用的合法值（老会话读写不带后缀的 key）。
+ *    要求它非空，老用户的历史对话会在「写得进云端、读不出来」这一轮
+ *    被静默过滤掉 —— 与 canvas-conversations.ts:98 记录的是同一个坑，
+ *    那次是本地版，这里是云端版。
+ */
+function normalizeConversation(value: unknown): SyncedCanvasConversation | null {
+  if (!isPlainRecord(value)) return null;
+  const projectId = typeof value.projectId === "string" ? value.projectId.trim() : "";
+  if (!projectId) return null;
+  const conversationId =
+    typeof value.conversationId === "string" ? value.conversationId : "";
+  return {
+    key: canvasConversationSyncKey(projectId, conversationId),
+    projectId,
+    conversationId,
+    title: typeof value.title === "string" ? value.title : "",
+    createdAt: typeof value.createdAt === "string" ? value.createdAt : "",
+    updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
+    /*
+     * ⚠️ 默认必须是 true —— 与 normalizeReaction 同一条理由。
+     *    旧版本前端发上来的载荷没有 active 字段，默认成 false
+     *    会把用户**所有对话在升级瞬间集体变成墓碑**，
+     *    下一次下行就把本地也清空了，而且看不出是谁干的。
+     */
+    active: value.active === false ? false : true,
+    messages: Array.isArray(value.messages) ? value.messages : [],
+  };
+}
+
+/** 会话在同步载荷里的合并键。前后端必须共用本函数，绝不能各拼各的。 */
+export function canvasConversationSyncKey(projectId: string, conversationId: string) {
+  return `${projectId}::${conversationId}`;
+}
+
 export function normalizeWorkspaceSyncPayload(value: unknown): WorkspaceSyncPayload {
   const record = isPlainRecord(value) ? value : {};
   const projects = Array.isArray(record.projects)
@@ -245,7 +345,12 @@ export function normalizeWorkspaceSyncPayload(value: unknown): WorkspaceSyncPayl
   const reactions = Array.isArray(record.reactions)
     ? record.reactions.map(normalizeReaction).filter((item): item is SyncedInspirationReaction => Boolean(item))
     : [];
-  return { projects, canvases, deletions, reactions };
+  const conversations = Array.isArray(record.conversations)
+    ? record.conversations
+        .map(normalizeConversation)
+        .filter((item): item is SyncedCanvasConversation => Boolean(item))
+    : [];
+  return { projects, canvases, deletions, reactions, conversations };
 }
 
 function mergeById<T>(
@@ -255,7 +360,20 @@ function mergeById<T>(
   getTime: (item: T) => number
 ): T[] {
   const merged = new Map<string, T>();
-  for (const item of [...base, ...incoming]) {
+  /*
+   * ⚠️⚠️ 必须容忍 undefined。
+   *
+   * 【2026-09-18 实测踩到】给载荷新增 conversations 字段后，老测试与
+   * **线上旧版本前端**传进来的 payload 都没有这一项，`[...undefined]`
+   * 直接抛 `base is not iterable` —— 服务端 PUT 变成 500，
+   * 用户的现象是「同步突然全挂了」，而且是在发版那一刻全量发生。
+   *
+   * 📌 判据：给一个**已经在线上跑着**的数据结构加字段时，
+   *    新字段在老载荷里一定是 undefined。类型标注是编译期的，
+   *    拦不住运行时从网络进来的老格式。
+   *    ✅ 兜底做在最底层的公共函数里，而不是指望每个调用点都记得传。
+   */
+  for (const item of [...(base ?? []), ...(incoming ?? [])]) {
     const id = getId(item);
     const existing = merged.get(id);
     // ⚠️ 用 `>` 而不是 `>=`：时间相同时保留先放进去的（base 侧），
@@ -350,36 +468,140 @@ export function mergeWorkspaceSync(
     item => item.active || now - parseSyncTimestamp(item.updatedAt) <= DELETION_TOMBSTONE_TTL_MS
   );
 
-  return { projects, canvases, deletions, reactions };
+  /*
+   * 画布会话。
+   *
+   * ⚠️⚠️ **不能整条会话按 updatedAt 覆盖就算完** —— 那正是 last-write-wins
+   *    在这里唯一说得通的语义，但前提是「消息只会追加、不会被另一台设备
+   *    并行改写同一条会话」。画布对话满足这个前提：一条会话就是一个
+   *    线性的聊天记录，两台设备同时往**同一条**会话里说话是极端场景，
+   *    此时留晚的那份（用户在那台设备上看到的就是自己刚说的）。
+   *    📌 逐条消息合并反而更糟：两边消息交错插入会产生一份
+   *       谁都没说过的对话。宁可整条留新的。
+   *
+   * ⚠️ 项目被删（墓碑）时，它名下的会话必须一起清掉；
+   *    留着就是永远读不到、却一直占着同步体积的垃圾。
+   *    与 canvases 的 keptProjectIds 过滤同一口径。
+   */
+  const conversations = mergeById(
+    base.conversations,
+    incoming.conversations,
+    item => item.key,
+    item => parseSyncTimestamp(item.updatedAt) || parseSyncTimestamp(item.createdAt)
+  )
+    .filter(item => !isDeleted(item.projectId, item.updatedAt))
+    .filter(
+      item =>
+        // 墓碑到期后彻底消失，与 deletions / reactions 同一套 30 天口径。
+        item.active || now - parseSyncTimestamp(item.updatedAt) <= DELETION_TOMBSTONE_TTL_MS
+    );
+
+  /*
+   * 按画布分桶截断。
+   *
+   * ⚠️⚠️ 截断必须**只作用于 active 的会话**，墓碑不参与名额竞争也不被截掉。
+   *    墓碑被截掉 = 删除事件消失 = 另一台设备下次上行又把它复活。
+   *    而墓碑很小（没有 messages），占不了多少体积。
+   */
+  const conversationsByProject = new Map<string, SyncedCanvasConversation[]>();
+  for (const item of conversations) {
+    const bucket = conversationsByProject.get(item.projectId);
+    if (bucket) bucket.push(item);
+    else conversationsByProject.set(item.projectId, [item]);
+  }
+  const cappedConversations: SyncedCanvasConversation[] = [];
+  /*
+   * ⚠️ 用 Array.from 而不是直接 for...of 迭代 Map —— 本项目 tsconfig 的
+   *    target 不带 downlevelIteration，直接迭代是编译错误（TS2802）。
+   *    与本文件 mergeById 里 `Array.from(merged.values())` 同一口径。
+   */
+  for (const bucket of Array.from(conversationsByProject.values())) {
+    const tombstones = bucket.filter(item => !item.active);
+    const alive = bucket
+      .filter(item => item.active)
+      .sort(
+        (a, b) =>
+          (parseSyncTimestamp(b.updatedAt) || parseSyncTimestamp(b.createdAt)) -
+          (parseSyncTimestamp(a.updatedAt) || parseSyncTimestamp(a.createdAt))
+      )
+      .slice(0, MAX_SYNCED_CONVERSATIONS_PER_PROJECT);
+    cappedConversations.push(...alive, ...tombstones);
+  }
+
+  return { projects, canvases, deletions, reactions, conversations: cappedConversations };
 }
 
 /**
- * 体积兜底：合并结果仍然超限时，**从最旧的画布开始丢**。
+ * 体积兜底：合并结果仍然超限时，按「损失从小到大」逐级削。
  *
- * 📌 判据：丢画布不丢项目。项目条目很小（标题 + 封面），
- *    丢了用户会觉得「我的画布不见了」；画布内容大，丢了最多是
- *    「这个画布在新设备上要重新打开一次」，损失小得多。
+ * 削的顺序（每一级都削到不能再削才进下一级）：
+ *   1. 最旧会话的**消息正文**（会话条目本身保留，标题/时间还在）
+ *   2. 最旧的**画布**内容
+ *   3. 项目封面
+ *
+ * 📌 判据：先削「重新打开就能恢复的」，再削「彻底没了的」。
+ *    会话正文被削后，条目还在列表里，用户看得见标题，
+ *    只是点进去内容要回原设备看 —— 比整条对话凭空消失好得多。
+ *    画布同理：丢了最多是「在新设备上要重新打开一次」。
+ *    项目条目很小（标题 + 封面），丢了用户直接觉得「我的画布不见了」，
+ *    所以放最后且只削封面。
+ *
+ * ⚠️ 削正文时**不能改 updatedAt**：改了会让这份被削过的残缺数据
+ *    在下一轮合并里赢过另一台设备的完整数据 —— 用户的完整对话
+ *    会被服务端削出来的空壳覆盖掉，且零报错。
  */
 export function enforceSyncDocumentBudget(
   payload: WorkspaceSyncPayload,
   maxBytes = MAX_SYNC_DOCUMENT_BYTES
 ): WorkspaceSyncPayload {
-  let canvases = [...payload.canvases].sort(
-    (a, b) => parseSyncTimestamp(b.updatedAt) - parseSyncTimestamp(a.updatedAt)
-  );
-  let next: WorkspaceSyncPayload = { ...payload, canvases };
-  while (canvases.length > 0 && JSON.stringify(next).length > maxBytes) {
-    canvases = canvases.slice(0, -1);
-    next = { ...payload, canvases };
-  }
-  if (JSON.stringify(next).length > maxBytes) {
-    // 画布全丢光还超限 —— 只能再削项目封面（封面是项目条目里唯一的大字段）。
-    return {
+  const oversized = (value: WorkspaceSyncPayload) => JSON.stringify(value).length > maxBytes;
+
+  let next: WorkspaceSyncPayload = { ...payload };
+  if (!oversized(next)) return next;
+
+  /* ---- 第 1 级：从最旧的会话开始，清空消息正文 ---- */
+  /*
+   * ⚠️ 同 mergeById 的注释：本函数也会收到**没有 conversations 字段**的
+   *    老载荷（线上旧前端 + 既有测试），`[...undefined]` 会直接抛。
+   */
+  const sourceConversations = payload.conversations ?? [];
+  const conversationOrder = [...sourceConversations]
+    .map((item, index) => ({ item, index }))
+    .sort(
+      (a, b) =>
+        (parseSyncTimestamp(a.item.updatedAt) || parseSyncTimestamp(a.item.createdAt)) -
+        (parseSyncTimestamp(b.item.updatedAt) || parseSyncTimestamp(b.item.createdAt))
+    );
+  const strippedIndexes = new Set<number>();
+  for (const entry of conversationOrder) {
+    if (!oversized(next)) break;
+    if (entry.item.messages.length === 0) continue;
+    strippedIndexes.add(entry.index);
+    next = {
       ...next,
-      projects: next.projects.map(project => ({ ...project, cover: null })),
+      conversations: payload.conversations.map((item, index) =>
+        strippedIndexes.has(index) ? { ...item, messages: [] } : item
+      ),
     };
   }
-  return next;
+  if (!oversized(next)) return next;
+
+  /* ---- 第 2 级：从最旧的画布开始整条丢 ---- */
+  let canvases = [...next.canvases].sort(
+    (a, b) => parseSyncTimestamp(b.updatedAt) - parseSyncTimestamp(a.updatedAt)
+  );
+  next = { ...next, canvases };
+  while (canvases.length > 0 && oversized(next)) {
+    canvases = canvases.slice(0, -1);
+    next = { ...next, canvases };
+  }
+  if (!oversized(next)) return next;
+
+  /* ---- 第 3 级：削项目封面（封面是项目条目里唯一的大字段） ---- */
+  return {
+    ...next,
+    projects: next.projects.map(project => ({ ...project, cover: null })),
+  };
 }
 
 export function createEmptyWorkspaceSyncDocument(): WorkspaceSyncDocument {
@@ -388,6 +610,7 @@ export function createEmptyWorkspaceSyncDocument(): WorkspaceSyncDocument {
     canvases: [],
     deletions: [],
     reactions: [],
+    conversations: [],
     revision: 0,
     updatedAt: new Date(0).toISOString(),
   };

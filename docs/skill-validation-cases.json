@@ -72,22 +72,6 @@
     "passCriteria": "The output visibly improves organization and quality rather than only producing a text report."
   },
   {
-    "skillId": "humanizer-zh-voice",
-    "capability": "chat",
-    "requiresReferenceImage": false,
-    "minimumPrompt": "帮我去掉这段文案的 AI 味：我们的产品深度融合人工智能技术，全面赋能企业数字化转型，打造真正意义上的智能办公新生态，助力团队实现效率的指数级提升。",
-    "expectedVisualResult": "A rewritten Chinese text that reads as human-written, plus a bullet list naming the AI tells found and what was changed for each.",
-    "passCriteria": "The rewrite keeps every fact and number, removes model tells (em dash stacking, rule-of-three padding, 赋能/闭环/生态 vocabulary, promotional inflation), varies sentence length, and the change list maps each pattern to a concrete edit."
-  },
-  {
-    "skillId": "marketing-copy-engine",
-    "capability": "chat",
-    "requiresReferenceImage": false,
-    "minimumPrompt": "为一款面向独立开发者的 API 监控工具写营销文案，卖点是 5 分钟接入和异常秒级告警，需要官网首屏文案和一条小红书。",
-    "expectedVisualResult": "A structured copy package: audience sentence, one core claim, proof, channel-specific body copy, at least five headlines with different angles, and an open-questions list.",
-    "passCriteria": "The output separates claim from proof, gives two channel variants that differ in register rather than length, offers five headlines with distinct angles, and lists assumptions instead of inventing statistics."
-  },
-  {
     "skillId": "art-poster-design",
     "capability": "text_to_image",
     "requiresReferenceImage": false,

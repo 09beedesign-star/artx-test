@@ -209,19 +209,24 @@ describe("normalizeWorkspaceSyncPayload", () => {
     expect(normalized.deletions.map(item => item.id)).toEqual(["gone"]);
   });
 
+  /*
+   * 【2026-09-18 更新】随载荷新增 conversations 字段而补齐期望值。
+   *
+   * ⚠️ 这条用的是 toEqual 全量比对（而不是逐个 `expect(x.projects).toEqual([])`），
+   *    刻意保持这个写法：它能在「载荷加了新字段但 normalize 忘了初始化」
+   *    时变红。代价是每次加字段都要来改一次断言 —— 这个代价是值得付的，
+   *    因为漏初始化的后果是 `[...undefined]` 在服务端抛 500。
+   */
   it("returns empty collections for completely invalid input", () => {
-    expect(normalizeWorkspaceSyncPayload(null)).toEqual({
+    const empty = {
       projects: [],
       canvases: [],
       deletions: [],
       reactions: [],
-    });
-    expect(normalizeWorkspaceSyncPayload("nope")).toEqual({
-      projects: [],
-      canvases: [],
-      deletions: [],
-      reactions: [],
-    });
+      conversations: [],
+    };
+    expect(normalizeWorkspaceSyncPayload(null)).toEqual(empty);
+    expect(normalizeWorkspaceSyncPayload("nope")).toEqual(empty);
   });
 
   it("defaults a reaction without an explicit active flag to active", () => {

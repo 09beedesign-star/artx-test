@@ -142,6 +142,18 @@ export async function mergeWorkspaceSyncDocument(
           // ⚠️ 漏掉 reactions 这一项，合并的 base 侧就永远是空数组 ——
           //    表现为「另一台设备的点赞永远同步不过来」，且零报错。
           reactions: current.reactions,
+          /*
+           * ⚠️⚠️ 同上，而且会话漏了后果更重：base 侧为空 = 云端已有的对话
+           *    每次都被客户端载荷**整份替换**。用户在 A 电脑的对话会在
+           *    B 电脑同步一次之后消失，且服务端日志里什么都看不到。
+           *
+           * 📌 这里漏字段 TypeScript 会报错（形参类型是 WorkspaceSyncPayload，
+           *    对象字面量必须补齐）—— 但**写成 `...current` 展开就静默了**，
+           *    因为 current 是 WorkspaceSyncDocument，多带 revision/updatedAt
+           *    反而能过编译，将来新增字段也就永远不会有人想起来加。
+           *    所以刻意逐字段列出，让「加了新字段忘了接」变成编译错误。
+           */
+          conversations: current.conversations,
         },
         sanitized
       )
