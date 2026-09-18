@@ -14120,6 +14120,34 @@ function BottomPromptBar({
       resizePromptTextarea(textareaRef.current);
       try {
         if (activeSkill) {
+          if (activeSkill.capability === "chat") {
+            const skillTextPrompt =
+              submittedPrompt ||
+              `${skillContext}\n\n用户提示：${visiblePrompt || `请使用${activeSkill.name}处理当前内容。`}`;
+            const chatResult = await callLLM({
+              module: "bottom-skill-chat",
+              model: selectedTextModel,
+              prompt: skillTextPrompt,
+              skillId: activeSkill.id,
+              images: submittedRefs.map(asset => ({
+                src: asset.src,
+                title: asset.title,
+              })),
+            });
+            window.dispatchEvent(
+              new CustomEvent("canvas-assistant-external-message", {
+                detail: {
+                  content:
+                    chatResult.text ||
+                    `「${activeSkill.name}」未返回文本结果，请重试。`,
+                },
+              })
+            );
+            toast("Skill 已返回结果", {
+              description: `${activeSkill.name} · 结果已发送到画布助手面板`,
+            });
+            return;
+          }
           const targetReference = submittedRefs[submittedRefs.length - 1];
           const targetDisplaySize =
             targetReference?.width && targetReference?.height
@@ -19006,6 +19034,21 @@ function CanvasAssistantPanel({
       )
     );
   const activeConversationId = conversationIndex.activeId;
+  /**
+   * 【2026-09-18 线上实测修复】记录「内存里这份 messages 属于哪条会话」。
+   *
+   * ⚠️⚠️⚠️ 切换会话时，`activeConversationId` 立刻就是新值，但 `messages`
+   *    要等「载入 effect」跑完 + 下一轮渲染才会变成新会话的内容。
+   *    而「消息落盘」「索引同步」两个 effect 的依赖里同时有 messages 和
+   *    activeConversationId，切换那一轮它们**必定先拿着旧 messages 触发一次**
+   *    —— 于是旧对话的内容被写进新会话的 key，新会话的标题/条数也被改成旧的。
+   *
+   * 📌⭐⭐⭐ 判据：**effect 依赖里同时出现「数据」和「数据归属的身份」时，
+   *    两者天然不同步**（身份先变、数据后变）。绝不能靠调整 effect 的声明
+   *    顺序来绕 —— 顺序是隐式约定，加一个 effect 就破。
+   *    ✅ 显式记录归属，写入前核对，不一致就跳过本轮。
+   */
+  const messagesConversationRef = useRef<string>(conversationIndex.activeId);
   const [conversationMenuOpen, setConversationMenuOpen] = useState(false);
   const conversationMenuRef = useRef<HTMLDivElement | null>(null);
   const [messages, setMessages] = useState<CanvasAssistantMessage[]>(() => {
@@ -21087,6 +21130,12 @@ function CanvasAssistantPanel({
           canvasConversationMessagesKey(projectId, activeConversationId)
         )
     );
+    /*
+      ⚠️⚠️ 归属标记必须在 setMessages **之前**更新，且两条分支都要覆盖。
+         它是「这份 messages 属于哪条会话」的唯一事实源，
+         落盘 / 索引同步两个 effect 全靠它判断本轮该不该写。
+    */
+    messagesConversationRef.current = activeConversationId;
     if (stored.length === 1 && stored[0]?.id === "assistant-seed-1") {
       setMessages([createCanvasAssistantSeedMessage()]);
       return;
@@ -21136,6 +21185,13 @@ function CanvasAssistantPanel({
    */
   useEffect(() => {
     if (typeof window === "undefined") return;
+    /*
+      ⚠️⚠️⚠️ 切换会话那一轮，messages 还是上一条会话的内容。
+         此时若照写，就会把旧对话整份覆盖到新会话的 key 上（静默丢数据）。
+         归属不符 → 本轮什么都不做，等载入 effect 把 messages 换好后
+         messages 变化会再触发一次本 effect，那次才是对的。
+    */
+    if (messagesConversationRef.current !== activeConversationId) return;
     const serialized = JSON.stringify(
       serializeCanvasAssistantMessages(messages)
     );
@@ -21168,6 +21224,12 @@ function CanvasAssistantPanel({
    */
   useEffect(() => {
     if (typeof window === "undefined") return;
+    /*
+      ⚠️⚠️⚠️ 同上：归属不符时 messages 属于上一条会话，
+         照写会把新会话的标题和条数改成旧会话的
+         —— 线上实测到的现场就是两条会话标题一模一样。
+    */
+    if (messagesConversationRef.current !== activeConversationId) return;
     if (!messages.some(message => message.role === "user")) return;
     setConversationIndex(prev => {
       const next = touchConversation(prev, activeConversationId, messages);
@@ -21611,6 +21673,43 @@ function CanvasAssistantPanel({
       submittedVisualReferences;
     try {
       if (activeSkill) {
+        /**
+         * 文本类技能（capability: chat）在这里单独出口。
+         *
+         * 技能 md 由服务端 getSkill(skillId) 注入 system 提示词，前端只负责把
+         * 结果作为一条 assistant 消息落到对话里。不要让它掉进下面的出图分支，
+         * 否则「去 AI 味润色」这类技能会去生图，用户看到的是一张无关的图。
+         */
+        if (activeSkill.capability === "chat") {
+          const skillChatPrompt = [
+            activeSkillContext,
+            `用户请求：${rawSubmittedComposerPrompt}`,
+          ]
+            .filter(Boolean)
+            .join("\n\n");
+          const chatResult = await callLLM({
+            module: "right-skill-chat",
+            model: assistantTextModel.id,
+            prompt: skillChatPrompt,
+            skillId: activeSkill.id,
+            images: submittedImages.map(asset => ({
+              src: asset.src,
+              title: asset.title,
+            })),
+          });
+          setMessages(prev => [
+            ...prev,
+            {
+              id: `assistant-skill-chat-${Date.now()}`,
+              role: "assistant",
+              content:
+                chatResult.text ||
+                `「${activeSkill.name}」未返回文本结果，请重试。`,
+              timestamp: new Date(),
+            },
+          ]);
+          return;
+        }
         const finalImagePrompt = buildSkillAppliedImagePrompt({
           activeSkill,
           skillContext: activeSkillContext,

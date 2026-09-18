@@ -223,3 +223,70 @@ describe("⚠️ 会话索引初始化必须落盘", () => {
     expect(viaHelper, "persistConversationIndex + 索引同步 effect 共 2 处").toBe(2);
   });
 });
+
+/*
+  ⚠️⚠️⚠️ 【2026-09-18 线上实测抓到的第二个真 bug，这组断言是它的护栏】
+
+  现象：在历史浮层里点另一条会话，切过去之后那条会话的索引元数据
+  变成了**上一条会话的**标题和条数。交叉核对的铁证：
+
+    id=cmu70jux  indexCount=3  realCount=1  realUserFirst=(无用户消息)  ← MISMATCH
+    id=cmu70r1g  indexCount=3  realCount=3  realUserFirst=这是一条…      ← 正常
+
+  更严重的是消息落盘 effect 也会把**旧会话的 messages** 写进新会话的 key，
+  两条对话直接互相污染。
+
+  根因：切换 activeConversationId 时，「载入消息」「消息落盘」「索引同步」
+  三个 effect 在**同一轮**全部触发，而后两个拿到的 messages 还是旧会话的
+  —— setMessages 要到下一轮渲染才生效。
+
+  📌⭐⭐⭐ 判据：**effect 依赖里同时出现「数据」和「数据归属的身份」时，
+     这两者天然不同步**（身份先变，数据后变）。
+     绝不能靠 effect 的声明顺序去弥补 —— 必须显式记录「当前这份数据属于谁」，
+     写入前核对一致，不一致就跳过本轮。
+*/
+describe("⚠️ 切换会话时禁止用旧 messages 写新会话", () => {
+  /*
+    ⚠️⚠️ 这条断言最初写的是 `toContain("messagesConversationRef")`，
+       变异自证里「删掉 ref 声明」竟然 SURVIVED ——
+       因为另外三处**用法**里这个词还在，光搜标识符名恒绿。
+    📌⭐⭐ 判据：**要断言「某个东西被声明了」，锚点必须含声明语法本身
+       （const / useRef），不能只搜标识符** —— 标识符在用法里到处都是。
+  */
+  it("存在「messages 归属哪条会话」的 ref 声明", () => {
+    expect(
+      source,
+      "必须显式声明 messagesConversationRef，不能靠 effect 顺序"
+    ).toContain("const messagesConversationRef = useRef<string>(");
+  });
+
+  it("消息落盘 effect 在归属不一致时提前 return", () => {
+    const start = source.indexOf("const serialized = JSON.stringify(");
+    expect(start).toBeGreaterThan(0);
+    const block = source.slice(start - 600, start + 200);
+    expect(
+      block,
+      "落盘前必须核对 messagesConversationRef 与 activeConversationId"
+    ).toContain("messagesConversationRef.current !== activeConversationId");
+  });
+
+  it("索引同步 effect 在归属不一致时提前 return", () => {
+    const start = source.indexOf("touchConversation(prev, activeConversationId, messages)");
+    expect(start).toBeGreaterThan(0);
+    const block = source.slice(start - 700, start);
+    expect(
+      block,
+      "索引同步前必须核对归属，否则元数据会被上一条会话污染"
+    ).toContain("messagesConversationRef.current !== activeConversationId");
+  });
+
+  it("载入 effect 负责把归属标记更新为当前会话", () => {
+    const start = source.indexOf("const stored = deserializeCanvasAssistantMessages(");
+    expect(start).toBeGreaterThan(0);
+    const block = source.slice(start, start + 900);
+    expect(
+      block,
+      "载入新会话消息的同时必须把归属标记指向该会话"
+    ).toContain("messagesConversationRef.current = activeConversationId");
+  });
+});
