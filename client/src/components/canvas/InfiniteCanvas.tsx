@@ -52,6 +52,14 @@ import {
 import { DEFAULT_TEXT_MODEL } from "../../../../shared/text-models";
 import { DEFAULT_IMAGE_EXPANSION_PROMPT, VOD_IMAGE_EXPANSION_MODEL } from "../../../../shared/image-expansion";
 import {
+  defaultPanelLeft,
+  nextPanelPosition,
+  orderNodesForFloatingPanels,
+  shouldStartPanelDrag,
+  PANEL_DRAG_IGNORE_SELECTOR,
+  type PanelPosition,
+} from "./floating-panel-layer";
+import {
   Image as ImageIcon,
   MessageSquare,
   Type,
@@ -6594,10 +6602,20 @@ function AssetNodeComponent({
     startLeft: number;
     startTop: number;
   } | null>(null);
-  const [extractedTextPanelPosition, setExtractedTextPanelPosition] = useState<{
-    left: number;
-    top: number;
+  const [extractedTextPanelPosition, setExtractedTextPanelPosition] =
+    useState<PanelPosition | null>(null);
+  // 提示词反推面板的拖动态。结构与上面的文字提取面板完全一致，
+  // 几何计算共用 floating-panel-layer 的纯函数，别再各写一份。
+  const reversePromptPanelRef = useRef<HTMLDivElement | null>(null);
+  const reversePromptPanelDragRef = useRef<{
+    pointerId: number;
+    startClientX: number;
+    startClientY: number;
+    startLeft: number;
+    startTop: number;
   } | null>(null);
+  const [reversePromptPanelPosition, setReversePromptPanelPosition] =
+    useState<PanelPosition | null>(null);
   const extractedTextScrollRef = useRef<HTMLDivElement | null>(null);
   const extractedTextScrollTrackRef = useRef<HTMLDivElement | null>(null);
   const [extractedTextScrollThumb, setExtractedTextScrollThumb] = useState({
@@ -6774,17 +6792,27 @@ function AssetNodeComponent({
     if (!extractedTextPanelOpen) setExtractedTextPanelPosition(null);
   }, [extractedTextPanelOpen]);
 
+  // 面板打开时清掉上一次的拖动位置，回到默认停靠点（图片右侧）。
+  // 不清的话，上次把面板拖到很远的地方，这次打开会在视野外，表现为「点了没反应」。
+  useEffect(() => {
+    if (!reversePromptPanelOpen) setReversePromptPanelPosition(null);
+  }, [reversePromptPanelOpen]);
+
   const handleExtractedTextPanelDragStart = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
-      if (event.button !== 0 || (event.target as HTMLElement).closest("button,input,textarea")) return;
+      const interactive = Boolean(
+        (event.target as HTMLElement).closest(PANEL_DRAG_IGNORE_SELECTOR)
+      );
+      if (!shouldStartPanelDrag(event.button, interactive)) return;
       event.preventDefault();
       event.stopPropagation();
-      const defaultLeft = dispW + 14 * stableUiScale;
       extractedTextPanelDragRef.current = {
         pointerId: event.pointerId,
         startClientX: event.clientX,
         startClientY: event.clientY,
-        startLeft: extractedTextPanelPosition?.left ?? defaultLeft,
+        startLeft:
+          extractedTextPanelPosition?.left ??
+          defaultPanelLeft(dispW, stableUiScale),
         startTop: extractedTextPanelPosition?.top ?? 0,
       };
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -6798,11 +6826,9 @@ function AssetNodeComponent({
       if (!drag || drag.pointerId !== event.pointerId) return;
       event.preventDefault();
       event.stopPropagation();
-      const zoom = Math.max(0.2, viewport.zoom || 1);
-      setExtractedTextPanelPosition({
-        left: drag.startLeft + (event.clientX - drag.startClientX) / zoom,
-        top: drag.startTop + (event.clientY - drag.startClientY) / zoom,
-      });
+      setExtractedTextPanelPosition(
+        nextPanelPosition(drag, event.clientX, event.clientY, viewport.zoom)
+      );
     },
     [viewport.zoom]
   );
@@ -6811,6 +6837,52 @@ function AssetNodeComponent({
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (extractedTextPanelDragRef.current?.pointerId !== event.pointerId) return;
       extractedTextPanelDragRef.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    },
+    []
+  );
+
+  const handleReversePromptPanelDragStart = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const interactive = Boolean(
+        (event.target as HTMLElement).closest(PANEL_DRAG_IGNORE_SELECTOR)
+      );
+      if (!shouldStartPanelDrag(event.button, interactive)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      reversePromptPanelDragRef.current = {
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startLeft:
+          reversePromptPanelPosition?.left ??
+          defaultPanelLeft(dispW, stableUiScale),
+        startTop: reversePromptPanelPosition?.top ?? 0,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+    },
+    [dispW, reversePromptPanelPosition, stableUiScale]
+  );
+
+  const handleReversePromptPanelDragMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const drag = reversePromptPanelDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setReversePromptPanelPosition(
+        nextPanelPosition(drag, event.clientX, event.clientY, viewport.zoom)
+      );
+    },
+    [viewport.zoom]
+  );
+
+  const handleReversePromptPanelDragEnd = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (reversePromptPanelDragRef.current?.pointerId !== event.pointerId) return;
+      reversePromptPanelDragRef.current = null;
       if (event.currentTarget.hasPointerCapture(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId);
       }
@@ -9343,10 +9415,13 @@ function AssetNodeComponent({
         )}
         {reversePromptPanelOpen && (
           <div
+            ref={reversePromptPanelRef}
             className="absolute nodrag nopan shadow-2xl"
             style={{
-              left: dispW + 14 * stableUiScale,
-              top: 0,
+              left:
+                reversePromptPanelPosition?.left ??
+                defaultPanelLeft(dispW, stableUiScale),
+              top: reversePromptPanelPosition?.top ?? 0,
               width: 320,
               minHeight: 218,
               maxHeight: 380,
@@ -9373,11 +9448,23 @@ function AssetNodeComponent({
               event.stopPropagation();
             }}
           >
+            {/*
+              标题栏 = 拖动把手。
+              ⚠️ 拖动只能挂在标题栏，不能挂整个面板：正文区要留给用户选中
+                 和复制提示词文本，整面板可拖的话一划就变成搬窗口，选不中字。
+            */}
             <div
               className="flex items-center justify-between gap-2 px-3 py-2"
               style={{
                 borderBottom: `1px solid ${isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)"}`,
+                cursor: "move",
+                touchAction: "none",
+                userSelect: "none",
               }}
+              onPointerDown={handleReversePromptPanelDragStart}
+              onPointerMove={handleReversePromptPanelDragMove}
+              onPointerUp={handleReversePromptPanelDragEnd}
+              onPointerCancel={handleReversePromptPanelDragEnd}
             >
               <div className="flex items-center gap-2">
                 {isReversePrompting ? (
@@ -33118,25 +33205,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       ? { ...n, data: { ...data, isEditing: true } }
       : { ...n, data };
   });
-  const displayNodes = [
-    ...displayNodesBase.filter(
-      n =>
-        !(
-          n.type === "asset" &&
-          Boolean((n.data as Record<string, unknown>).noteOpen)
-        )
-    ),
-    ...displayNodesBase
-      .filter(
-        n =>
-          n.type === "asset" &&
-          Boolean((n.data as Record<string, unknown>).noteOpen)
-      )
-      .map(n => ({
-        ...n,
-        zIndex: Math.max(10000, typeof n.zIndex === "number" ? n.zIndex : 0),
-      })),
-  ];
+  // 开着浮层面板（便签 / 文字提取 / 提示词反推）的节点整体提到顶层。
+  //
+  // ⚠️ 这里原本是只认 noteOpen 的一段内联 filter/map，后来新增的
+  //    extractedTextPanelOpen、reversePromptPanelOpen 都没接上，表现为
+  //    「面板被旁边的图片压住」且零报错。现在收口到 floating-panel-layer，
+  //    新增面板只需往 FLOATING_PANEL_FLAGS 加字段名，别再在这里写分支。
+  const displayNodes = orderNodesForFloatingPanels(displayNodesBase);
 
   return (
     <div
