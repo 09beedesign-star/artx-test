@@ -257,13 +257,41 @@ export function removeConversation(
  *
  * 📌 判据：迁移的正确性不能靠「跑一次看着没事」，要靠
  *    「老 key 的字节从头到尾没被改写过」。
+ *
+ * ⚠️⚠️⚠️ 【2026-09-18 线上实测修复】必须传 `write` 并在新建索引后**立刻落盘**。
+ *    不落盘会出现这个零报错的 bug：本函数走 2、3 两条分支时会 `createConversationMeta()`
+ *    生成**随机 id**，而调用方（InfiniteCanvas）会调它两次
+ *    —— useState 初值一次 + `[projectId]` effect 一次 ——
+ *    两次拿到两个**不同**的 id，消息落盘 effect 便给每个 id 各写一份种子消息。
+ *    线上抓到的现场：localStorage 里躺着两条
+ *    `artx:canvas-assistant-messages:<pid>:<随机id>`，而索引 key 压根不存在；
+ *    索引的写入 effect 又要求「至少有一条用户消息」才写，
+ *    于是**只要用户还没说话，索引就永远不存在** → 每刷新一次多一条空会话，
+ *    历史列表恒为空。
+ *
+ * 📌⭐⭐⭐ 判据：**名字叫 `ensureX` 就等于承诺幂等**。内部一旦有随机源
+ *    （id / 时间戳），就必须在产出的同一次调用里落盘，
+ *    否则「ensure」是假的 —— 它每次都在 create。
+ *
+ * ⚠️ `write` 保持可选：SSR 和只读探测场景仍可只读调用，不能崩。
  */
 export function ensureConversationIndex(
   projectId: string,
-  read: (key: string) => string | null
+  read: (key: string) => string | null,
+  write?: (key: string, value: string) => void
 ): CanvasConversationIndex {
   const existing = parseConversationIndex(read(canvasConversationIndexKey(projectId)));
   if (existing) return existing;
+
+  const persist = (index: CanvasConversationIndex): CanvasConversationIndex => {
+    if (!write) return index;
+    try {
+      write(canvasConversationIndexKey(projectId), JSON.stringify(index));
+    } catch {
+      /* 配额失败也要返回可用索引：宁可这次不落盘，也不能让画布打不开。 */
+    }
+    return index;
+  };
 
   const legacyRaw = read(
     canvasConversationMessagesKey(projectId, LEGACY_CONVERSATION_ID)
@@ -297,11 +325,14 @@ export function ensureConversationIndex(
       updatedAt: now,
       messageCount: legacyCount,
     };
-    return { activeId: LEGACY_CONVERSATION_ID, conversations: [legacy] };
+    return persist({
+      activeId: LEGACY_CONVERSATION_ID,
+      conversations: [legacy],
+    });
   }
 
   const fresh = createConversationMeta();
-  return { activeId: fresh.id, conversations: [fresh] };
+  return persist({ activeId: fresh.id, conversations: [fresh] });
 }
 
 /** 相对时间展示，用于历史列表。 */

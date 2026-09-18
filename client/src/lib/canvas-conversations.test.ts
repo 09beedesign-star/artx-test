@@ -252,6 +252,80 @@ describe("ensureConversationIndex 老数据迁移", () => {
     );
     expect(index.activeId).not.toBe("");
   });
+
+  /*
+   * ⚠️⚠️⚠️ 【2026-09-18 线上实测抓到的真 bug，必须保留】
+   *
+   * 【现象】线上打开画布后，localStorage 里出现**两条**
+   *   `artx:canvas-assistant-messages:<projectId>:<随机id>`，
+   *   而 `artx:canvas-conversations:<projectId>` **压根不存在**。
+   *   后果：每刷新一次就凭空多一条空会话，历史列表永远是空的，且零报错。
+   *
+   * 【根因】本函数走「全新用户」分支时 `createConversationMeta()` 生成随机 id，
+   *   但**只返回不落盘**。调用方 InfiniteCanvas 会调它两次
+   *   （useState 初值一次 + [projectId] effect 一次），
+   *   两次各自生成一个**不同**的随机 id。
+   *
+   * 📌⭐⭐⭐ 判据：**「纯函数每次调用都产出新随机值」和「它被当成幂等初始化用」
+   *   是冲突的**。凡是 `ensureX()` 这类名字带 ensure 的函数，
+   *   语义承诺就是「调多少次结果都一样」—— 内部一旦有随机源就必须落盘，
+   *   否则 ensure 是假的。
+   *
+   * ⚠️ 原有测试全部只调**一次**，所以整组 34 条测试没有一条能抓到它。
+   */
+  it("⚠️⚠️⚠️ 同一份存储上连调两次必须得到同一个 activeId（ensure 的语义）", () => {
+    const store = new Map<string, string>();
+    const read = (key: string) => store.get(key) ?? null;
+    const write = (key: string, value: string) => {
+      store.set(key, value);
+    };
+
+    const first = ensureConversationIndex("p1", read, write);
+    const second = ensureConversationIndex("p1", read, write);
+
+    expect(second.activeId).toBe(first.activeId);
+    expect(second.conversations).toHaveLength(1);
+    expect(store.has("artx:canvas-conversations:p1")).toBe(true);
+  });
+
+  it("⚠️ 新建的索引必须立刻落盘（否则刷新后又是一条新会话）", () => {
+    const store = new Map<string, string>();
+    const index = ensureConversationIndex(
+      "p1",
+      key => store.get(key) ?? null,
+      (key, value) => {
+        store.set(key, value);
+      }
+    );
+    const raw = store.get("artx:canvas-conversations:p1");
+    expect(raw).toBeTruthy();
+    expect(JSON.parse(raw as string).activeId).toBe(index.activeId);
+  });
+
+  it("⚠️ 老数据迁移出来的索引同样要落盘", () => {
+    const store = new Map<string, string>([
+      [
+        "artx:canvas-assistant-messages:p1",
+        JSON.stringify([
+          { id: "m1", role: "user", content: "旧的", timestamp: "2026-09-18T00:00:00.000Z" },
+        ]),
+      ],
+    ]);
+    ensureConversationIndex(
+      "p1",
+      key => store.get(key) ?? null,
+      (key, value) => {
+        store.set(key, value);
+      }
+    );
+    const raw = store.get("artx:canvas-conversations:p1");
+    expect(raw).toBeTruthy();
+    expect(JSON.parse(raw as string).activeId).toBe("");
+  });
+
+  it("⚠️ 不传 write 时不能崩（SSR / 只读探测场景）", () => {
+    expect(() => ensureConversationIndex("p1", () => null)).not.toThrow();
+  });
 });
 
 describe("相对时间", () => {

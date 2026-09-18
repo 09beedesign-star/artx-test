@@ -169,3 +169,57 @@ describe("历史浮层交互", () => {
     expect(handler).toContain("sessionStorage.removeItem");
   });
 });
+
+/*
+  ⚠️⚠️⚠️ 【2026-09-18 线上实测抓到的真 bug，这组断言是它的护栏】
+
+  现场：线上打开画布后，localStorage 里躺着两条
+  `artx:canvas-assistant-messages:<pid>:<随机id>`，而索引 key 压根不存在。
+
+  根因见 canvas-conversations.ts 里 ensureConversationIndex 的注释：
+  ensure 内部有随机 id 却不落盘，而本文件会调它两次。
+
+  📌⭐⭐ 这里锁的是**调用方这一侧**的两个判据：
+     ① 两个调用点都必须把 write 回调传进去（少传一个就复发）；
+     ② 读写回调必须是模块级共享函数，不能内联 —— 内联 = 同一份逻辑两份副本。
+*/
+describe("⚠️ 会话索引初始化必须落盘", () => {
+  it("ensureConversationIndex 的每个调用点都传了 write 回调", () => {
+    const calls = source.split("ensureConversationIndex(").length - 1;
+    expect(calls, "调用点数量变了就要重新审视这组断言").toBe(2);
+    const withWrite =
+      source.split("readWriteConversationIndex\n").length - 1;
+    expect(
+      withWrite,
+      "每个 ensureConversationIndex 调用点都必须传 readWriteConversationIndex"
+    ).toBe(2);
+  });
+
+  it("读写回调是模块级唯一出口，不是内联箭头函数", () => {
+    expect(source).toContain("function readConversationIndexStorage(");
+    expect(source).toContain("function readWriteConversationIndex(");
+    expect(
+      source,
+      "调用点不得再内联 window.localStorage.getItem 作为 read 回调"
+    ).not.toContain("ensureConversationIndex(projectId, key =>");
+  });
+
+  it("write 回调函数体真的写了 localStorage（不是空壳）", () => {
+    const body = source.slice(
+      source.indexOf("function readWriteConversationIndex("),
+      source.indexOf("function readWriteConversationIndex(") + 320
+    );
+    expect(body).toContain("window.localStorage.setItem(key, value)");
+  });
+
+  it("索引落盘只经由 readWriteConversationIndex，没有第二个写出口", () => {
+    const direct = source.split(
+      "window.localStorage.setItem(\n          canvasConversationIndexKey"
+    ).length - 1;
+    expect(direct, "索引不得再有直接 setItem 的写出口").toBe(0);
+    const viaHelper =
+      source.split("readWriteConversationIndex(\n        canvasConversationIndexKey")
+        .length - 1;
+    expect(viaHelper, "persistConversationIndex + 索引同步 effect 共 2 处").toBe(2);
+  });
+});

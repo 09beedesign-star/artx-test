@@ -603,6 +603,32 @@ import generationMark from "@/assets/generation/ai-generation-mark.svg";
 const ENABLE_NODE_CONNECTIONS = false;
 
 /**
+ * 会话索引的 localStorage 读写回调 —— **两个函数各自是唯一出口**。
+ *
+ * ⚠️⚠️ 刻意提到模块级而不是在每个调用点写内联箭头函数：
+ *    `ensureConversationIndex` 在本文件有 2 个调用点（useState 初值、切项目 effect），
+ *    内联写法等于同一份「怎么读、怎么写」有 2 份副本，
+ *    改了一处漏另一处就会出现「首帧和切项目后行为不一致」，且零报错。
+ */
+function readConversationIndexStorage(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function readWriteConversationIndex(key: string, value: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    /* 配额失败不影响画布可用性，见 ensureConversationIndex 的注释。 */
+  }
+}
+
+/**
  * 视角调整专用模型标识（虚拟 id，不直接对应任何上游模型）。
  *
  * 后端 `image-generation.ts:4415` 识别到 `camera-view-auto` + `operation: "camera_view"`
@@ -18973,8 +18999,10 @@ function CanvasAssistantPanel({
    */
   const [conversationIndex, setConversationIndex] =
     useState<CanvasConversationIndex>(() =>
-      ensureConversationIndex(projectId, key =>
-        typeof window === "undefined" ? null : window.localStorage.getItem(key)
+      ensureConversationIndex(
+        projectId,
+        readConversationIndexStorage,
+        readWriteConversationIndex
       )
     );
   const activeConversationId = conversationIndex.activeId;
@@ -19144,15 +19172,10 @@ function CanvasAssistantPanel({
   const persistConversationIndex = useCallback(
     (next: CanvasConversationIndex) => {
       setConversationIndex(next);
-      if (typeof window === "undefined") return;
-      try {
-        window.localStorage.setItem(
-          canvasConversationIndexKey(projectId),
-          JSON.stringify(next)
-        );
-      } catch {
-        /* ignore storage quota errors */
-      }
+      readWriteConversationIndex(
+        canvasConversationIndexKey(projectId),
+        JSON.stringify(next)
+      );
     },
     [projectId]
   );
@@ -21039,7 +21062,11 @@ function CanvasAssistantPanel({
   useEffect(() => {
     if (typeof window === "undefined") return;
     setConversationIndex(
-      ensureConversationIndex(projectId, key => window.localStorage.getItem(key))
+      ensureConversationIndex(
+        projectId,
+        readConversationIndexStorage,
+        readWriteConversationIndex
+      )
     );
   }, [projectId]);
 
@@ -21144,14 +21171,10 @@ function CanvasAssistantPanel({
     if (!messages.some(message => message.role === "user")) return;
     setConversationIndex(prev => {
       const next = touchConversation(prev, activeConversationId, messages);
-      try {
-        window.localStorage.setItem(
-          canvasConversationIndexKey(projectId),
-          JSON.stringify(next)
-        );
-      } catch {
-        /* ignore storage quota errors */
-      }
+      readWriteConversationIndex(
+        canvasConversationIndexKey(projectId),
+        JSON.stringify(next)
+      );
       return next;
     });
   }, [messages, projectId, activeConversationId]);
