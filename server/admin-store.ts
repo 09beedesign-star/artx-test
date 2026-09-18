@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { accessSync, constants } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { AI_CREDIT_POLICIES, AI_IMAGE_MODEL_CREDIT_POLICIES, AI_IMAGE_RESOLUTION_POLICIES, AI_PLAN_DISCOUNTS, getAiImageModelCreditPolicy, getAiImageResolutionPolicy, isHighQualityImageModel, type AiBillingCapability, type AiBillingPolicy, type AiPlanDiscountPolicy } from "../shared/ai-credit-policy";
+import { AI_CREDIT_POLICIES, AI_IMAGE_MODEL_CREDIT_POLICIES, AI_IMAGE_RESOLUTION_POLICIES, AI_PLAN_DISCOUNTS, getAiImageModelCreditPolicy, getAiImageResolutionPolicy, isHighQualityImageModel, resolveImageResolutionTier, type AiBillingCapability, type AiBillingPolicy, type AiPlanDiscountPolicy } from "../shared/ai-credit-policy";
 import {
   BILLING_CYCLES,
   MEMBERSHIP_PLANS,
@@ -1652,6 +1652,107 @@ export async function assertCanUseAiImageModel(input: {
   if (used + requested > limit) {
     throw new Error("本月高质量图片模型权益已使用完，请切换标准模型继续创作或升级套餐。");
   }
+}
+
+export type AiBillingErrorCode = "NO_SUBSCRIPTION" | "INSUFFICIENT_BALANCE";
+
+/**
+ * AI 计费前置拦截专用错误。
+ *
+ * 【为什么要有独立的错误类，而不是 throw new Error("积分不足")】
+ * 前端要靠它区分两条完全不同的引导路径，光有一段中文文案是做不到的：
+ *   NO_SUBSCRIPTION     → 从没订过阅，引导去订阅页
+ *   INSUFFICIENT_BALANCE → 有订阅但这个月的额度用完了，引导去充值页
+ * 而且 index.ts 要据此返回 402 而不是 500 —— 余额不足是业务分支，不是服务器故障。
+ */
+export class AiBillingError extends Error {
+  code: AiBillingErrorCode;
+  status = 402;
+  requiredCredits: number;
+  availableCredits: number;
+  planId: string;
+
+  constructor(input: {
+    code: AiBillingErrorCode;
+    requiredCredits: number;
+    availableCredits: number;
+    planId: string;
+  }) {
+    super(input.code === "NO_SUBSCRIPTION"
+      ? "当前未订阅套餐，暂无可用创作积分"
+      : "当前可用积分不足以完成本次创作");
+    this.name = "AiBillingError";
+    this.code = input.code;
+    this.requiredCredits = input.requiredCredits;
+    this.availableCredits = input.availableCredits;
+    this.planId = input.planId;
+  }
+}
+
+/**
+ * AI 能力的**事前**余额校验 —— 在请求真正打到上游之前跑。
+ *
+ * 【为什么必须存在】
+ * 此前的链路是「先出图、事后 recordAiUsage 扣账」，而扣账那一步写的是
+ * `user.credits = Math.max(0, user.credits - x)` —— 余额不足时扣到 0 就 clamp 住，
+ * 既不报错也不拒绝。结果是 **0 积分账号可以无限调用全站 12 条 AI 路由**，
+ * 每成功一次平台照付上游费用。这个函数补上的就是缺了的那道门。
+ *
+ * 【⚠️ 余额口径必须与 recordAiUsage 逐字保持一致】
+ * 实际扣费用的是 `getUserCreditBatchBalance(data, userId, { excludeKinds })`，
+ * 且高质量模型会把赠送批次排除在外。这里若改用 `user.credits` 字段，
+ * 两者在「赠送/注册积分已过期」时会算出不同的数字 ——
+ * 表现为用户看到的余额够、请求却被拒，或反过来放行扣不到的账。
+ * 改任一处都必须回头核对另一处。
+ *
+ * 【为什么测试账号直接放行】
+ * 测试账号有自己的日限额机制（reserveTestAccountAiUsage 里的 dailyCreditLimit），
+ * 且 reserve 发生在本函数之后。在这里再按通用余额卡一次，等于给同一笔
+ * 消费套两套互不相干的规则，测试账号会被自己那份额度挡住却报「余额不足」，
+ * 排查时极易误判成通用计费 bug。
+ */
+export async function assertUserCanAffordAiUsage(input: {
+  userId: string;
+  capabilityKey?: AiBillingCapability;
+  outputCount?: number;
+  model?: string;
+  /** 用户选的目标像素；有则按真实档位估价，无则按 1K 保底。 */
+  targetWidth?: number;
+  targetHeight?: number;
+}) {
+  const data = await loadAdminData();
+  const user = data.users.find((item) => item.id === input.userId);
+
+  if (user?.testProfile && user.accountType === "test") return;
+
+  const quote = quoteAiUsageFromData(data, {
+    capability: input.capabilityKey || "text_to_image",
+    outputCount: input.outputCount || 1,
+    planId: getPlanIdFromUserPlan(user?.plan),
+    model: input.model,
+    /**
+     * 出图单价受分辨率影响（2K ×2.14 / 4K ×2.71）。
+     * 事前阶段拿不到成品的真实像素，只能用用户选的目标尺寸估 ——
+     * 估不到就退回 1K。这是「保底门槛」而非最终扣费：
+     * 实际扣费仍以 recordAiUsage 按交付像素落档为准。
+     */
+    resolutionTier: input.targetWidth && input.targetHeight
+      ? resolveImageResolutionTier(input.targetWidth, input.targetHeight)
+      : undefined,
+  });
+
+  const requiredCredits = quote.chargedCredits;
+  const excludeKinds: CreditBatchKind[] = isHighQualityImageModel(input.model) ? ["gift"] : [];
+  const availableCredits = getUserCreditBatchBalance(data, input.userId, { excludeKinds });
+  if (availableCredits >= requiredCredits) return;
+
+  const planId = getPlanIdFromUserPlan(user?.plan);
+  throw new AiBillingError({
+    code: isFreePlanId(planId) ? "NO_SUBSCRIPTION" : "INSUFFICIENT_BALANCE",
+    requiredCredits,
+    availableCredits,
+    planId,
+  });
 }
 
 export async function getAiModelEntitlementsForUser(userId: string) {

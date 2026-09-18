@@ -28,6 +28,7 @@ import CreditsGuidePage from "./pages/CreditsGuidePage";
 import { useAuth } from "./contexts/AuthContext";
 import CreditGrantNotification from "./components/billing/CreditGrantNotification";
 import BillingDialogProvider from "./components/billing/BillingDialogProvider";
+import InsufficientCreditsDialog from "./components/billing/InsufficientCreditsDialog";
 import { startWorkspaceAutoSync } from "./lib/workspace-sync";
 
 const routerBase = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -431,6 +432,14 @@ function App() {
                   <OnboardingProvider>
                     <AppRoutes />
                   </OnboardingProvider>
+                  {/*
+                    放在 Provider 内部，是因为点「去充值」要走同一个 openBilling 出口，
+                    不能自己 navigate("/billing") —— 那样画布会被卸载，用户充完值得
+                    重新找回工作现场，而这正是 BillingDialog 当年要解决的问题。
+                    不塞进 BillingDialog 内部，是因为两者性质不同：
+                    那个是用户主动打开的计价面板，这个是被动触发的拦截。
+                  */}
+                  <InsufficientCreditsDialog />
                 </BillingDialogProvider>
               </RouteLoadingGate>
             </WouterRouter>

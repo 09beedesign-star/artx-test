@@ -14207,6 +14207,34 @@ function BottomPromptBar({
       resizePromptTextarea(textareaRef.current);
       try {
         if (activeSkill) {
+          if (activeSkill.capability === "chat") {
+            const skillTextPrompt =
+              submittedPrompt ||
+              `${skillContext}\n\n用户提示：${visiblePrompt || `请使用${activeSkill.name}处理当前内容。`}`;
+            const chatResult = await callLLM({
+              module: "bottom-skill-chat",
+              model: selectedTextModel,
+              prompt: skillTextPrompt,
+              skillId: activeSkill.id,
+              images: submittedRefs.map(asset => ({
+                src: asset.src,
+                title: asset.title,
+              })),
+            });
+            window.dispatchEvent(
+              new CustomEvent("canvas-assistant-external-message", {
+                detail: {
+                  content:
+                    chatResult.text ||
+                    `「${activeSkill.name}」未返回文本结果，请重试。`,
+                },
+              })
+            );
+            toast("Skill 已返回结果", {
+              description: `${activeSkill.name} · 结果已发送到画布助手面板`,
+            });
+            return;
+          }
           const targetReference = submittedRefs[submittedRefs.length - 1];
           const targetDisplaySize =
             targetReference?.width && targetReference?.height
@@ -21732,6 +21760,43 @@ function CanvasAssistantPanel({
       submittedVisualReferences;
     try {
       if (activeSkill) {
+        /**
+         * 文本类技能（capability: chat）在这里单独出口。
+         *
+         * 技能 md 由服务端 getSkill(skillId) 注入 system 提示词，前端只负责把
+         * 结果作为一条 assistant 消息落到对话里。不要让它掉进下面的出图分支，
+         * 否则「去 AI 味润色」这类技能会去生图，用户看到的是一张无关的图。
+         */
+        if (activeSkill.capability === "chat") {
+          const skillChatPrompt = [
+            activeSkillContext,
+            `用户请求：${rawSubmittedComposerPrompt}`,
+          ]
+            .filter(Boolean)
+            .join("\n\n");
+          const chatResult = await callLLM({
+            module: "right-skill-chat",
+            model: assistantTextModel.id,
+            prompt: skillChatPrompt,
+            skillId: activeSkill.id,
+            images: submittedImages.map(asset => ({
+              src: asset.src,
+              title: asset.title,
+            })),
+          });
+          setMessages(prev => [
+            ...prev,
+            {
+              id: `assistant-skill-chat-${Date.now()}`,
+              role: "assistant",
+              content:
+                chatResult.text ||
+                `「${activeSkill.name}」未返回文本结果，请重试。`,
+              timestamp: new Date(),
+            },
+          ]);
+          return;
+        }
         const finalImagePrompt = buildSkillAppliedImagePrompt({
           activeSkill,
           skillContext: activeSkillContext,

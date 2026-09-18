@@ -33,7 +33,52 @@ export type LLMMessage = {
 type ApiErrorResponse = {
   error?: string;
   message?: string;
+  /**
+   * 仅服务端 402 计费拦截时才有。
+   *
+   * ⚠️ 这两个字段必须在 `fetchAiJson` 里被读出来并派发出去 —— 它在下面
+   * 只取了 error/message 拼进 Error，其余字段会在这里静默消失，
+   * 前端就再也拿不到「是没订阅还是额度不够」的信息。
+   */
+  code?: AiBillingErrorCode;
+  requiredCredits?: number;
+  availableCredits?: number;
 };
+
+/** 服务端 shared/admin-store.ts 的 AiBillingErrorCode 镜像。 */
+export type AiBillingErrorCode = "NO_SUBSCRIPTION" | "INSUFFICIENT_BALANCE";
+
+export const AI_INSUFFICIENT_CREDITS_EVENT = "artx:insufficient-credits";
+
+export type InsufficientCreditsDetail = {
+  code: AiBillingErrorCode;
+  requiredCredits: number;
+  availableCredits: number;
+};
+
+/**
+ * 把 402 响应转成全局事件。
+ *
+ * 【为什么走事件而不是返回值 / Error 子类】
+ * 全站 AI 调用点有十几处，每处都自己 try/catch 再 toast（见 InfiniteCanvas），
+ * 没有任何统一出口。改成逐处改造既容易漏，又会在下一处新调用点上再次漏掉。
+ *
+ * 用 window 事件是项目里**已有**的范式：`artx:login-required` 就是这么走通的
+ * （本文件 :325 派发，AuthContext 监听）。照抄一次即可零侵入覆盖所有调用点。
+ *
+ * 📌 于是弹窗只需要一个监听者，新增 AI 功能自动继承这条保护。
+ */
+function emitInsufficientCredits(result: ApiErrorResponse) {
+  if (typeof window === "undefined") return;
+  const code = result.code;
+  if (code !== "NO_SUBSCRIPTION" && code !== "INSUFFICIENT_BALANCE") return;
+  const detail: InsufficientCreditsDetail = {
+    code,
+    requiredCredits: Number(result.requiredCredits) || 0,
+    availableCredits: Number(result.availableCredits) || 0,
+  };
+  window.dispatchEvent(new CustomEvent<InsufficientCreditsDetail>(AI_INSUFFICIENT_CREDITS_EVENT, { detail }));
+}
 
 type OrchestrateResponse = ApiErrorResponse & {
   text?: string;
@@ -367,6 +412,14 @@ async function fetchAiJson<T extends ApiErrorResponse>(
 
     const result = await readJsonResponse<T>(response, fallbackError);
     if (!response.ok) {
+      /**
+       * 402 必须**先于**抛错派发。
+       *
+       * ⚠️ 不能挪到外层 catch：那里会先做本地 fallback 重试，
+       * 一次 402 会被连发两遍（同一件事弹两次窗），
+       * 而且 AbortError 分支会把错误重写成超时，事件就彻底丢了。
+       */
+      emitInsufficientCredits(result);
       throw new Error(normalizeAiErrorMessage(result.error || result.message || fallbackError, fallbackError));
     }
     return result;
@@ -394,6 +447,7 @@ async function fetchAiJsonGet<T extends ApiErrorResponse>(
     const response = await fetch(endpoint, { method: "GET", headers: getAiAuthHeaders() });
     const result = await readJsonResponse<T>(response, fallbackError);
     if (!response.ok) {
+      emitInsufficientCredits(result);
       throw new Error(result.error || result.message || fallbackError);
     }
     return result;
@@ -484,12 +538,14 @@ export async function callLLM({
   images,
   model,
   module,
+  skillId,
 }: {
   prompt?: string;
   messages?: LLMMessage[];
   images?: Array<{ src: string; title?: string }>;
   model?: string;
   module: string;
+  skillId?: string;
 }) {
   requireAiAuth();
   const result = await postAiOrchestrate({
@@ -500,6 +556,7 @@ export async function callLLM({
     messages,
     images,
     model,
+    skillId,
   }, "AI 请求失败");
 
   return {

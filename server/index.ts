@@ -24,7 +24,7 @@ import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
 import { recordCrossBorderCommerceGeneration } from "./cross-border-commerce-records";
 import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getDevAutoLoginSession, getInviteSummaryForUser, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization, listAuthUsers, setInviteAcceptDisabled } from "./auth-store";
-import { acknowledgeCreditGiftNotification, assertCanUseAiImageModel, createBillingOrder, createCreditRechargeOrder, getAiModelEntitlementsForUser, getBillingOrderForPayment, getBillingSnapshotForUser, getCreditGiftNotificationsForUser, grantSignupInitialCredits, handleAdminApiRequest, markBillingOrderPaid, quoteAdminAiUsage, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, releaseTestAccountAiUsage, reserveTestAccountAiUsage, submitUserFeedback, sendInviteEmail } from "./admin-store";
+import { acknowledgeCreditGiftNotification, AiBillingError, assertCanUseAiImageModel, assertUserCanAffordAiUsage, createBillingOrder, createCreditRechargeOrder, getAiModelEntitlementsForUser, getBillingOrderForPayment, getBillingSnapshotForUser, getCreditGiftNotificationsForUser, grantSignupInitialCredits, handleAdminApiRequest, markBillingOrderPaid, quoteAdminAiUsage, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, releaseTestAccountAiUsage, reserveTestAccountAiUsage, submitUserFeedback, sendInviteEmail } from "./admin-store";
 import { getAllowedCorsOrigin } from "./cors";
 import { sendOpsNotification, sendUserEmailNotification } from "./notifications";
 import { checkDailyLimit, checkRecipientCooldown, isSelfInvite, isAlreadyRegistered, buildInviteEmailHtml } from "./invite-email";
@@ -696,6 +696,22 @@ function requestedAiOutputCount(input: unknown) {
   return Number.isFinite(count) ? Math.max(1, Math.min(9, Math.round(count))) : 1;
 }
 
+/**
+ * 读请求里声明的目标像素，供**事前**估价用。
+ *
+ * ⚠️ 拿不到就返回 null 让下游按 1K 保底，千万别兜底成 1024×1024：
+ * 用户点名要 4K 时只按 1K 收门槛费，交付后却按 2.71 倍扣，差额就是漏进去的成本。
+ */
+function requestedTargetSize(input: unknown): { width: number; height: number } | null {
+  if (!input || typeof input !== "object") return null;
+  const body = input as Record<string, unknown>;
+  const width = Number(body.targetWidth);
+  const height = Number(body.targetHeight);
+  if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
+  if (width <= 0 || height <= 0) return null;
+  return { width, height };
+}
+
 function requestedOrchestratorCapability(input: unknown) {
   const body = input && typeof input === "object" ? input : {};
   return capabilityFromOrchestrator(inferAiCapability(body));
@@ -722,6 +738,20 @@ async function reserveAiRouteUsage(input: {
     outputCount,
     model: input.tracking.model,
   });
+  /**
+   * ⚠️ 事前余额校验，必须夹在报价之后、发请求之前。
+   * 缺这一步时，0 积分账号可以无限调用 AI（扣费发生在上游返回之后，
+   * 且 `Math.max(0, credits - x)` 扣到 0 就算完）。完整 rationale 见
+   * admin-store.ts 的 assertUserCanAffordAiUsage。
+   */
+  const targetSize = requestedTargetSize(input.request);
+  await assertUserCanAffordAiUsage({
+    userId: input.user.id,
+    capabilityKey: input.tracking.capabilityKey,
+    outputCount,
+    model: input.tracking.model,
+    ...(targetSize ? { targetWidth: targetSize.width, targetHeight: targetSize.height } : {}),
+  });
   const taskId = input.taskId || createAiReservationId("ai-request");
   const reservation = await reserveTestAccountAiUsage({
     userId: input.user.id,
@@ -745,11 +775,27 @@ function providerTokenUsage(result: unknown) {
   return { promptTokens, completionTokens };
 }
 
-function aiRequestErrorStatus(message: string) {
+function aiRequestErrorStatus(error: unknown) {
+  /**
+   * 余额不足是**业务分支**，不是服务器故障。
+   * 返回 500 会让前端把它当成系统错误去重试，也会触发本不该有的告警。
+   */
+  if (error instanceof AiBillingError) return 402;
+  const message = error instanceof Error ? error.message : String(error ?? "");
   if (message.includes("无权使用该模型")) return 403;
   if (message.includes("今日 AI 限额")) return 429;
   if (message.includes("测试账号")) return 403;
   return 500;
+}
+
+/** 402 响应体集中在这里，保证 13 个 AI 调用点形状一致 —— 前端靠 code 分流文案。 */
+function aiBillingErrorBody(error: AiBillingError) {
+  return {
+    error: error.message,
+    code: error.code,
+    requiredCredits: error.requiredCredits,
+    availableCredits: error.availableCredits,
+  };
 }
 
 async function recordAiRouteUsage(input: {
@@ -828,10 +874,19 @@ async function handleTrackedAiRequest<T>(
     res.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : tracking.failureMessage;
-    if (user && !successRecorded) {
+    const billingError = error instanceof AiBillingError ? error : null;
+    /**
+     * 余额被拦时不记用量：请求还没发出去，记一条 failed
+     * 会污染厂商维度的失败率，还会触发本不该有的 ops 告警。
+     */
+    if (user && !successRecorded && !billingError) {
       await recordAiRouteUsage({ user, tracking, startedAt, status: "failed", error: message });
     }
-    if (!res.headersSent) res.status(aiRequestErrorStatus(message)).json({ error: message });
+    if (!res.headersSent) {
+      res.status(aiRequestErrorStatus(error)).json(billingError
+        ? aiBillingErrorBody(billingError)
+        : { error: message });
+    }
   } finally {
     if (user) await releaseAiRouteUsage(user, reservation);
   }
@@ -1435,8 +1490,13 @@ async function startServer() {
       assertUserCanUseSelectableModel(user, preflightTracking.model, preflightTracking.capabilityKey);
       reservation = await reserveAiRouteUsage({ user, tracking: preflightTracking, request: req.body, taskId });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Image generation failed";
-      res.status(aiRequestErrorStatus(message)).json({ error: message, taskId, status: "failed" });
+  const billingError = error instanceof AiBillingError ? error : null;
+  if (billingError) {
+    res.status(402).json(aiBillingErrorBody(billingError));
+    return;
+  }
+  const message = error instanceof Error ? error.message : "Image generation failed";
+  res.status(aiRequestErrorStatus(error)).json({ error: message, taskId, status: "failed" });
       return;
     }
 
@@ -1830,7 +1890,9 @@ async function startServer() {
       res.json(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : "AI orchestration failed";
-      if (user && !successRecorded) {
+      const billingError = error instanceof AiBillingError ? error : null;
+      // 与 handleTrackedAiRequest 同口径：余额被拦不记用量，否则厂商失败率被污染。
+      if (user && !successRecorded && !billingError) {
         await recordAiRouteUsage({
           user,
           tracking: {
@@ -1847,7 +1909,11 @@ async function startServer() {
           error: message,
         });
       }
-      if (!res.headersSent) res.status(aiRequestErrorStatus(message)).json({ error: message });
+      if (!res.headersSent) {
+        res.status(aiRequestErrorStatus(error)).json(billingError
+          ? aiBillingErrorBody(billingError)
+          : { error: message });
+      }
     } finally {
       if (user) await releaseAiRouteUsage(user, reservation);
     }
@@ -2182,7 +2248,9 @@ async function startServer() {
             return;
           } catch (error) {
             const message = error instanceof Error ? error.message : "MCP image generation failed";
-            if (!successRecorded) {
+            const billingError = error instanceof AiBillingError ? error : null;
+            // 余额被拦同样不记用量，理由与 /api/ai/orchestrate 一致。
+            if (!successRecorded && !billingError) {
               await recordAiRouteUsage({
                 user,
                 tracking: {
@@ -2199,7 +2267,7 @@ async function startServer() {
                 console.warn("[mcp] failed to record image generation failure", recordError instanceof Error ? recordError.message : recordError);
               });
             }
-            res.status(aiRequestErrorStatus(message)).json(mcpError(id, -32000, message));
+            res.status(aiRequestErrorStatus(error)).json(mcpError(id, -32000, message));
             return;
           } finally {
             await releaseAiRouteUsage(user, reservation);
