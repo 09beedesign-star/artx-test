@@ -41,8 +41,31 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [user, setUser] = useState<AuthUser | null>(null);
+  /*
+   * ⚠️⚠️⚠️ 会话必须在**首次渲染前**同步恢复，不能等 useEffect。
+   *
+   * 【修的是什么 bug】
+   * 在 /profile、/settings、/workspace 等页面直接刷新（或从地址栏进入），
+   * 会被瞬间弹回首页并弹出登录框 —— 哪怕本地会话完全有效。
+   *
+   * 【为什么】
+   * `readStoredSession()` 读的是 localStorage，本身是**同步**的，
+   * 但它原来放在 useEffect 里，而 effect 在首次渲染**之后**才执行。
+   * 于是刷新时必然存在一帧 `isAuthenticated === false`，
+   * 而 `RequireLogin` 的 effect 正好在那一帧触发 `navigate("/")` 把人踢走。
+   * 等 200ms 后会话恢复完成，用户已经在首页了。
+   *
+   * 📌⭐⭐ 判据：**「数据是同步可得的」和「组件首帧就拿得到」是两回事**，
+   * 中间隔着一次 effect。凡是「守卫 + 异步恢复态」的组合，
+   * 守卫看到的第一帧永远是未登录 —— 这类 bug 表现为「刷新就掉登录」，且零报错。
+   *
+   * ✅ 改用 useState 惰性初始值：首帧就是已登录态，踢出窗口根本不存在。
+   * ⚠️ 惰性初始值必须传**函数**（`useState(readStoredSession)`），
+   *    写成 `useState(readStoredSession())` 会每次渲染都读一遍 localStorage。
+   */
+  const [initialSession] = useState(readStoredSession);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(initialSession));
+  const [user, setUser] = useState<AuthUser | null>(() => initialSession?.user ?? null);
   const [loginModalOpen, setLoginModalOpen] = useState(false);
 
   useEffect(() => {
@@ -55,7 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(session.user);
     };
 
-    const stored = readStoredSession();
+    const stored = initialSession;
 
     if (!stored) {
       // 本地测试免登录：没有本地会话时，向后端换取测试会话。
@@ -68,8 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return () => { cancelled = true; };
     }
 
-    setIsAuthenticated(true);
-    setUser(stored.user);
+    // ⚠️ 这里不再需要 setIsAuthenticated(true)/setUser —— 初始 state 已是登录态。
 
     fetchAuth("me", { token: stored.token }).then((result) => {
       if (cancelled) return;
@@ -95,7 +117,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => { cancelled = true; };
-  }, []);
+    // initialSession 来自 useState 惰性初始值，整个生命周期内恒定，
+    // 列进依赖只是为了让 lint 闭环，不会导致重复执行。
+  }, [initialSession]);
 
   useEffect(() => {
     const handleLoginRequired = () => {
