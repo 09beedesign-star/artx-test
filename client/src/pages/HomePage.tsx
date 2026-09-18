@@ -15,10 +15,15 @@ import { InspirationReactionButton } from "@/components/inspiration/InspirationR
 import { useInspirationReactions } from "@/hooks/useInspirationReactions";
 import { normalizeInspirationIdentity } from "@/lib/inspiration-avatar";
 import {
+  getInspirationFavoriteBaseCount,
   getInspirationLikeBaseCount,
   getInspirationViewBaseCount,
 } from "@/lib/inspiration-metrics";
-import { fetchInspirationFeed } from "@/lib/inspiration-feed";
+import {
+  fetchInspirationFeed,
+  getInspirationFallbackFeed,
+  type InspirationFeedItem,
+} from "@/lib/inspiration-feed";
 import { getDisplayLikeCount } from "@/lib/inspiration-reactions";
 import { useAuth, rememberInviteCodeFromUrl } from "@/contexts/AuthContext";
 import { useBillingDialog } from "@/components/billing/BillingDialogProvider";
@@ -30,7 +35,6 @@ import HomeFirstTopUpBanner, {
   dismissFirstTopUpBannerForToday,
   isFirstTopUpBannerDismissedToday,
 } from "@/components/home/HomeFirstTopUpBanner";
-import promptCsv from "@/data/ai_image_prompt_rank_50.csv?raw";
 import { createWorkspaceHistoryProject } from "@/lib/project-history";
 import { requestAiAuth } from "@/lib/ai";
 import {
@@ -48,95 +52,17 @@ import {
 } from "@/lib/home-prompt-handoff";
 import type { AiModelOption } from "@/lib/workspace-data";
 
-type InspirationRecommendation = {
-  rank: number;
-  field: string;
-  title: string;
-  description: string;
-  prompt: string;
-  imageUrl: string;
-  author: string;
-};
-
-type HomeInspirationItem = InspirationRecommendation & {
+/**
+ * ⚠️ 直接复用共享类型。
+ * 这里原来另写了一份 `InspirationRecommendation`（少 group/subcategory/model），
+ * 于是首页把 `item.field` 同时当 group 和 subcategory 塞进收藏快照，
+ * 个人中心里同一条内容的分类标签与专题页不一致。
+ */
+type HomeInspirationItem = InspirationFeedItem & {
   viewCount: number;
   likeCount: number;
 };
 
-function parseCsv(csv: string) {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let value = "";
-  let inQuote = false;
-
-  for (let index = 0; index < csv.length; index += 1) {
-    const char = csv[index];
-    const next = csv[index + 1];
-
-    if (inQuote) {
-      if (char === '"' && next === '"') {
-        value += '"';
-        index += 1;
-      } else if (char === '"') {
-        inQuote = false;
-      } else {
-        value += char;
-      }
-      continue;
-    }
-
-    if (char === '"') {
-      inQuote = true;
-    } else if (char === ",") {
-      row.push(value);
-      value = "";
-    } else if (char === "\n") {
-      row.push(value);
-      rows.push(row);
-      row = [];
-      value = "";
-    } else if (char !== "\r") {
-      value += char;
-    }
-  }
-
-  if (value || row.length) {
-    row.push(value);
-    rows.push(row);
-  }
-
-  return rows;
-}
-
-function loadInspirationRecommendations(csv: string): InspirationRecommendation[] {
-  const rows = parseCsv(csv.replace(/^\uFEFF/, ""));
-  const header = rows[0] ?? [];
-  const get = (record: string[], key: string) => record[header.indexOf(key)]?.trim() ?? "";
-
-  return rows
-    .slice(1)
-    .filter((record) => record.length > 1)
-    .map((record) => ({
-      rank: Number(get(record, "rank")) || 0,
-      field: get(record, "field"),
-      title: get(record, "title"),
-      description: get(record, "description"),
-      prompt: get(record, "prompt"),
-      imageUrl: get(record, "image_url"),
-      author: get(record, "author"),
-    }))
-    .filter((item) => item.title && item.imageUrl);
-}
-
-/**
- * 本地 CSV 灵感数据。
- *
- * ⚠️⚠️ 这**不再是首页的主数据源**，只作远程接口失败时的兜底。
- * 主数据源已切到 `/api/inspiration/references`，与专题页同源 ——
- * 否则同一条灵感在两页 title 不同，头像和点赞数必然对不上（用户明确要求一致）。
- * 📌 兜底保留的理由：首页是落地页，远程挂了不能白屏。
- */
-const INSPIRATION_RECOMMENDATIONS = loadInspirationRecommendations(promptCsv);
 const BRAND_LOGO_SIZE = "h-[20px] w-[109px]";
 /** 首页灵感推荐最多展示的条数。远程有 900 条，首页只需要一屏量。 */
 const HOME_INSPIRATION_LIMIT = 50;
@@ -160,7 +86,14 @@ type PanelMode = "prelogin" | "login" | "register";
 type LandingTab = "home" | "inspiration" | "skills" | "workspace" | "help";
 type LoginBubble = { left: number; top: number; id: number } | null;
 
-function shuffleInspirationRecommendations(items: InspirationRecommendation[]) {
+/**
+ * 洗牌兜底顺序。
+ *
+ * ⚠️ 洗的是**顺序**，不是身份。头像和三个计数都是 title 的纯函数，
+ * 所以首页随便洗，同一条内容在专题页依然是同一张脸、同一个数字。
+ * 📌 「一致性不依赖顺序」是降级方案能成立的前提之一。
+ */
+function shuffleInspirationRecommendations(items: InspirationFeedItem[]) {
   return [...items]
     .map(item => ({ item, sort: Math.random() }))
     .sort((a, b) => a.sort - b.sort)
@@ -178,7 +111,7 @@ function shuffleInspirationRecommendations(items: InspirationRecommendation[]) {
  * 现在改成 title 哈希算出的确定性基数（`inspiration-metrics.ts`），
  * 同一条内容在任何页面、任何时刻都是同一个数，用户的 +1 才看得见。
  */
-function withInspirationMetrics(item: InspirationRecommendation): HomeInspirationItem {
+function withInspirationMetrics(item: InspirationFeedItem): HomeInspirationItem {
   return {
     ...item,
     viewCount: getInspirationViewBaseCount(item.title),
@@ -187,11 +120,15 @@ function withInspirationMetrics(item: InspirationRecommendation): HomeInspiratio
 }
 
 /**
- * 兜底数据源：本地 CSV。
- * ⚠️ 仅在远程接口失败时使用，此时与专题页对不上是**已知代价**（见 `inspiration-feed.ts`）。
+ * 兜底数据源。
+ *
+ * ⚠️⚠️ 必须走 `getInspirationFallbackFeed()` —— 与专题页降级时**同一份数据**。
+ * 这里原来读的是首页自己那份 CSV 解析（已删），虽然当时 title 口径碰巧相同，
+ * 但两份重复实现只要有一边被改就会悄悄漂移，且不报错。
+ * 📌 远程挂掉时两页仍然逐条一致，靠的就是这个共享出口。
  */
 function createHomeInspirationFallbackFeed(): HomeInspirationItem[] {
-  return shuffleInspirationRecommendations(INSPIRATION_RECOMMENDATIONS).map(withInspirationMetrics);
+  return shuffleInspirationRecommendations(getInspirationFallbackFeed()).map(withInspirationMetrics);
 }
 
 const getStageScale = () => {
@@ -310,6 +247,25 @@ export default function HomePage() {
    * ⚠️ 与专题页、个人中心共用同一份 hook —— 首页点的赞必须能在个人中心看到。
    */
   const inspirationReactions = useInspirationReactions();
+
+  /**
+   * 列表项 → 沉淀快照。
+   *
+   * ⚠️⚠️ 字段必须**给全且与专题页同口径**（专题页同名函数即参照）。
+   * 原来首页把 `item.field` 同时塞给 group 和 subcategory，
+   * 导致同一条内容从首页收藏、从专题页收藏，进个人中心后分类标签不一样。
+   */
+  const toReactionItem = (item: HomeInspirationItem) => ({
+    id: normalizeInspirationIdentity(item.title),
+    title: item.title,
+    field: item.field,
+    group: item.group,
+    subcategory: item.subcategory,
+    description: item.description,
+    prompt: item.prompt,
+    imageUrl: item.imageUrl,
+  });
+
   const [selectedHomeInspiration, setSelectedHomeInspiration] = useState<HomeInspirationItem | null>(null);
   const [homeInspirationImageHeight, setHomeInspirationImageHeight] = useState<number | null>(null);
   const [isFirstTopUpBannerDismissed, setIsFirstTopUpBannerDismissed] = useState(
@@ -372,18 +328,13 @@ export default function HomePage() {
       .then(items => {
         if (controller.signal.aborted || items.length === 0) return;
         remoteInspirationLoadedRef.current = true;
+        /*
+         * ⚠️ 直接整条传给 withInspirationMetrics，**不要在这里手抄字段列表**。
+         * 原来这里逐字段列了 7 个，把 group/subcategory/model 丢掉了，
+         * 于是首页收藏的条目进个人中心后分类标签与专题页不一致 —— 不报错。
+         */
         setHomeInspirationItems(
-          items.slice(0, HOME_INSPIRATION_LIMIT).map(item =>
-            withInspirationMetrics({
-              rank: item.rank,
-              field: item.field,
-              title: item.title,
-              description: item.description,
-              prompt: item.prompt,
-              imageUrl: item.imageUrl,
-              author: item.author,
-            })
-          )
+          items.slice(0, HOME_INSPIRATION_LIMIT).map(withInspirationMetrics)
         );
       })
       .catch(error => {
@@ -1000,18 +951,7 @@ export default function HomePage() {
                             normalizeInspirationIdentity(item.title)
                           )
                         )}
-                        onToggle={() =>
-                          inspirationReactions.toggle("like", {
-                            id: normalizeInspirationIdentity(item.title),
-                            title: item.title,
-                            field: item.field,
-                            group: item.field,
-                            subcategory: item.field,
-                            description: item.description,
-                            prompt: item.prompt,
-                            imageUrl: item.imageUrl,
-                          })
-                        }
+                        onToggle={() => inspirationReactions.toggle("like", toReactionItem(item))}
                       />
                     </div>
                   </div>
@@ -1041,6 +981,62 @@ export default function HomePage() {
             onClick={(event) => event.stopPropagation()}
           >
             <div className="absolute right-3 top-3 z-10 flex items-center" style={{ gap: 16 }}>
+              {/*
+                详情浮窗的点赞 / 收藏（需求 2）。
+                ⚠️⚠️ 改之前首页详情浮窗**只有复制和关闭**，用户打开大图想点赞
+                找不到入口，必须退回去点卡片上那个小图标。
+                📌 与专题页详情浮窗**同一套组件、同一个基数函数、同一个 hook**，
+                所以两页详情里的数字天然相同，点赞状态也互通。
+                ⚠️ 收藏基数走 seed 的另一段位，不能复用点赞基数（否则两个数永远相等）。
+              */}
+              <span
+                className="flex shrink-0 items-center rounded-[var(--radius-pill)] px-3 py-2"
+                style={{
+                  gap: 14,
+                  background: "rgba(34,34,34,0.88)",
+                  border: `1px solid ${homeInspirationBorder}`,
+                  backdropFilter: "blur(12px)",
+                }}
+              >
+                <InspirationReactionButton
+                  kind="like"
+                  size={16}
+                  idleColor="oklch(0.73 0.010 270)"
+                  active={inspirationReactions.isActive(
+                    "like",
+                    normalizeInspirationIdentity(selectedHomeInspiration.title)
+                  )}
+                  count={getDisplayLikeCount(
+                    getInspirationLikeBaseCount(selectedHomeInspiration.title),
+                    inspirationReactions.isActive(
+                      "like",
+                      normalizeInspirationIdentity(selectedHomeInspiration.title)
+                    )
+                  )}
+                  onToggle={() =>
+                    inspirationReactions.toggle("like", toReactionItem(selectedHomeInspiration))
+                  }
+                />
+                <InspirationReactionButton
+                  kind="favorite"
+                  size={16}
+                  idleColor="oklch(0.73 0.010 270)"
+                  active={inspirationReactions.isActive(
+                    "favorite",
+                    normalizeInspirationIdentity(selectedHomeInspiration.title)
+                  )}
+                  count={getDisplayLikeCount(
+                    getInspirationFavoriteBaseCount(selectedHomeInspiration.title),
+                    inspirationReactions.isActive(
+                      "favorite",
+                      normalizeInspirationIdentity(selectedHomeInspiration.title)
+                    )
+                  )}
+                  onToggle={() =>
+                    inspirationReactions.toggle("favorite", toReactionItem(selectedHomeInspiration))
+                  }
+                />
+              </span>
               <button
                 onClick={() => copyHomeInspirationPrompt(selectedHomeInspiration.prompt)}
                 className="shrink-0 rounded-[var(--radius-pill)] p-2 transition-all hover:scale-105 active:scale-95"

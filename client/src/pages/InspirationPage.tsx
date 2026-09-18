@@ -4,7 +4,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import TopBar from "@/components/workspace/TopBar";
-import promptCsv from "@/data/ai_image_prompt_rank_50.csv?raw";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Copy, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
@@ -19,7 +18,9 @@ import {
 } from "@/lib/inspiration-metrics";
 import {
   INSPIRATION_TARGET_COUNT,
+  INSPIRATION_TAXONOMY,
   fetchInspirationFeed,
+  getInspirationFallbackFeed,
   type InspirationFeedItem,
 } from "@/lib/inspiration-feed";
 import { getDisplayLikeCount } from "@/lib/inspiration-reactions";
@@ -35,116 +36,6 @@ type PromptItem = InspirationFeedItem;
 const ALL_GROUPS = "全部分类";
 const ALL_SUBCATEGORIES = "全部";
 const INSPIRATION_PAGE_SIZE = 50;
-
-const INSPIRATION_TAXONOMY: Record<string, string[]> = {
-  行业品类: ["服装", "化妆品", "游戏", "母婴亲子", "美食饮品", "AI智能", "教育", "汽车相关", "3C数码", "医美纤体", "宠物广告", "家居美学", "运动户外"],
-  品牌商业: ["商务视觉", "VI套件", "营销活动", "B端视觉设计", "UI设计", "陈列展示", "机制图设计"],
-  风格美术: ["生活美学", "酸性视觉", "复古未来主义", "Vintage复古", "赛博美术", "美式嘻哈", "和风", "中国现代", "怪诞美学", "二次元"],
-  人物角色: ["肖像特写", "AI角色设", "古装宫廷"],
-  空间对象: ["工业概念", "概念设计", "建筑效果", "游戏道具"],
-  图形技法: ["字体排版", "铅笔线描"],
-  影像叙事: ["分镜脚本", "镜头提示词"],
-  节庆文化: ["传统节庆", "国际节庆"],
-  其他分类: ["其他"],
-};
-
-function classifyPromptItem(field: string, title: string, prompt: string): { group: string; subcategory: string } {
-  const text = `${field} ${title} ${prompt}`.toLowerCase();
-  if (/logo/i.test(field)) return { group: "品牌商业", subcategory: "VI套件" };
-  if (/ui|界面|dashboard|app/.test(text)) return { group: "品牌商业", subcategory: "UI设计" };
-  if (/信息图|infographic|规格表|工程|指南|ar\s|数据|timeline/.test(text)) return { group: "品牌商业", subcategory: "机制图设计" };
-  if (/广告|海报|poster|营销|youtube|thumbnail|社交媒体|产品营销/.test(text)) return { group: "品牌商业", subcategory: "营销活动" };
-  if (/电商|主图|商品|产品摄影|香氛|蜡烛|饼干|牛奶|茶杯|腕表|太阳镜/.test(text)) return { group: "品牌商业", subcategory: "营销活动" };
-  if (/时尚|服装|穿搭|lookbook|长裙|t恤|街头风|外套|fashion/.test(text)) return { group: "行业品类", subcategory: "服装" };
-  if (/美食|饮品|smoothie|甜点|咖啡|restaurant|food|beverage/.test(text)) return { group: "行业品类", subcategory: "美食饮品" };
-  if (/3c|手机|数码|科技产品|gpt image|nano banana|ai\s/.test(text)) return { group: "行业品类", subcategory: "3C数码" };
-  if (/教育|学习|课堂|whiteboard|learning/.test(text)) return { group: "行业品类", subcategory: "教育" };
-  if (/IP|角色|机甲|手办|钥匙扣|character|portrait|人像|肖像/.test(text)) return { group: "人物角色", subcategory: "AI角色设" };
-  if (/漫画|故事板|分镜|镜头|电影感|cinematic|movie|film/.test(text)) return { group: "影像叙事", subcategory: "分镜脚本" };
-  if (/素描|线描|手绘|蜡笔|doodle|sketch|pencil/.test(text)) return { group: "图形技法", subcategory: "铅笔线描" };
-  if (/字体|排版|typography|文字/.test(text)) return { group: "图形技法", subcategory: "字体排版" };
-  if (/复古|retro|vintage|90 年代|90s/.test(text)) return { group: "风格美术", subcategory: "Vintage复古" };
-  if (/二次元|anime|manga/.test(text)) return { group: "风格美术", subcategory: "二次元" };
-  if (/奇幻|怪诞|surreal|fantasy/.test(text)) return { group: "风格美术", subcategory: "怪诞美学" };
-  if (/建筑|空间|室内|arch/.test(text)) return { group: "空间对象", subcategory: "建筑效果" };
-  if (/游戏|道具|game|sprite|terrain/.test(text)) return { group: "空间对象", subcategory: "游戏道具" };
-  if (/足球|运动|户外|fitness|hiking/.test(text)) return { group: "行业品类", subcategory: "运动户外" };
-  return { group: "其他分类", subcategory: "其他" };
-}
-
-function parseCsv(csv: string) {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let value = "";
-  let inQuote = false;
-
-  for (let index = 0; index < csv.length; index += 1) {
-    const char = csv[index];
-    const next = csv[index + 1];
-
-    if (inQuote) {
-      if (char === '"' && next === '"') {
-        value += '"';
-        index += 1;
-      } else if (char === '"') {
-        inQuote = false;
-      } else {
-        value += char;
-      }
-      continue;
-    }
-
-    if (char === '"') {
-      inQuote = true;
-    } else if (char === ",") {
-      row.push(value);
-      value = "";
-    } else if (char === "\n") {
-      row.push(value);
-      rows.push(row);
-      row = [];
-      value = "";
-    } else if (char !== "\r") {
-      value += char;
-    }
-  }
-
-  if (value || row.length) {
-    row.push(value);
-    rows.push(row);
-  }
-
-  return rows;
-}
-
-function loadPromptItems(csv: string): PromptItem[] {
-  const rows = parseCsv(csv.replace(/^\uFEFF/, ""));
-  const header = rows[0] ?? [];
-  const get = (record: string[], key: string) => record[header.indexOf(key)]?.trim() ?? "";
-
-  return rows
-    .slice(1)
-    .filter((record) => record.length > 1)
-    .map((record) => {
-      const field = get(record, "field");
-      const title = get(record, "title");
-      const prompt = get(record, "prompt");
-      const category = classifyPromptItem(field, title, prompt);
-      return {
-        rank: Number(get(record, "rank")) || 0,
-        group: category.group,
-        subcategory: category.subcategory,
-        field,
-        model: get(record, "model"),
-        title,
-        description: get(record, "description"),
-        prompt,
-        imageUrl: get(record, "image_url"),
-        author: get(record, "author"),
-      };
-    })
-    .filter((item) => item.title && item.imageUrl);
-}
 
 function getParam(name: string, fallback: string) {
   const value = new URLSearchParams(globalThis.location?.search || "").get(name);
@@ -173,7 +64,6 @@ function getInitialSubcategoryParam() {
   return ALL_SUBCATEGORIES;
 }
 
-const PROMPT_ITEMS = loadPromptItems(promptCsv);
 
 export default function InspirationPage() {
   const [location, navigate] = useLocation();
@@ -287,11 +177,26 @@ export default function InspirationPage() {
     fetchInspirationFeed(controller.signal, INSPIRATION_TARGET_COUNT)
       .then(items => {
         if (controller.signal.aborted) return;
-        setExternalItems(items);
+        /*
+         * ⚠️ 远程返回空数组也要退兜底：接口 200 但 references 为空时，
+         * 直接 setExternalItems([]) 会让页面空态，和请求失败的后果一样。
+         */
+        setExternalItems(items.length > 0 ? items : getInspirationFallbackFeed());
       })
       .catch(error => {
         if (error instanceof DOMException && error.name === "AbortError") return;
-        console.warn("[inspiration] external references failed", error);
+        /*
+         * ⚠️⚠️⚠️ 改之前这里**只打一条 warn 就什么都不做**，
+         * `externalItems` 停在初始空数组 → 整个专题页空态，一条内容都没有。
+         * 那种状态下用户看到的不是「两页对不上」，而是「灵感推荐页全空了」。
+         *
+         * 📌 现在退回与首页**同一份**兜底（`getInspirationFallbackFeed`）：
+         * 远程挂掉时两页都有内容，且因为 title 同源，
+         * 头像与点赞收藏数**仍然逐条一致** —— 这就是「既有内容又完全一致」。
+         */
+        if (controller.signal.aborted) return;
+        console.warn("[inspiration] external references failed, fallback to shared csv", error);
+        setExternalItems(getInspirationFallbackFeed());
       });
 
     return () => controller.abort();

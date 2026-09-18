@@ -92,18 +92,66 @@ describe("跨页一致：两页必须消费同一个远程数据源", () => {
    * ⚠️ 这条守的是一个非常容易的倒退：有人为了「首屏快一点」
    * 把主数据源改回 CSV，两页立刻又对不上，而且不报错。
    */
-  it("首页 CSV 只用于兜底函数，不能直接喂给列表 state", () => {
+  it("首页兜底必须走共享出口，且两页都不许自己解析 CSV", () => {
     const home = readCode(HOME_PATH);
+    const page = readCode(INSPIRATION_PATH);
+
     const fallbackBlock = sliceBetween(
       home,
       "function createHomeInspirationFallbackFeed",
       "const getStageScale"
     );
-    expect(fallbackBlock).toContain("INSPIRATION_RECOMMENDATIONS");
+    expect(fallbackBlock).toContain("getInspirationFallbackFeed()");
 
-    // CSV 常量只允许出现在「定义」和「兜底函数」两处，多一处就是有人又拿它当主源了
-    const occurrences = home.split("INSPIRATION_RECOMMENDATIONS").length - 1;
-    expect(occurrences).toBe(2);
+    /*
+     * ⚠️⚠️⚠️ 这是「远程挂掉时两页仍然一致」的结构性保证。
+     * 改之前两页各写了一份 CSV 解析（`parseCsv` + `loadXxx`），
+     * 当时 title 口径**碰巧**相同所以看不出问题 —— 但只要有一边
+     * 给 title 加个 trim / 前缀，降级时两页头像和点赞数就重新对不上，
+     * 而且不会有任何报错。
+     * 📌 一致必须由「只有一份实现」来保证，不能靠两份代码长得一样。
+     */
+    for (const code of [home, page]) {
+      expect(code).not.toContain("function parseCsv");
+      expect(code).not.toContain("csv?raw");
+    }
+  });
+
+  /**
+   * 远程失败 / 返回空时，专题页必须退到与首页同一份兜底。
+   *
+   * ⚠️⚠️⚠️ 改之前这里只打一条 warn 就什么都不做，`externalItems` 停在空数组，
+   * 于是专题页**整页空态**。那不是「两页对不上」，是「一页什么都没有」。
+   * 这条断言守的就是这个分支不能再退化成只打日志。
+   */
+  it("专题页远程失败与空结果都必须退回共享兜底", () => {
+    const page = readCode(INSPIRATION_PATH);
+    const fetchBlock = sliceBetween(
+      page,
+      "fetchInspirationFeed(controller.signal, INSPIRATION_TARGET_COUNT)",
+      "return () => controller.abort();",
+      200
+    );
+    // 失败分支
+    expect(fetchBlock).toContain("setExternalItems(getInspirationFallbackFeed())");
+    // 空结果分支：200 但没数据，后果和失败一样
+    expect(fetchBlock).toContain("items.length > 0 ? items : getInspirationFallbackFeed()");
+  });
+
+  /**
+   * 兜底数组必须是拷贝。
+   * ⚠️ 首页会对它洗牌（sort 原地改数组），直接返回模块级数组
+   * 会把专题页的顺序一起搅乱 —— 表现为「刷新首页，专题页顺序也变了」。
+   */
+  it("共享兜底返回的是拷贝而不是模块级数组本身", () => {
+    const feed = readCode(FEED_PATH, 0.45);
+    const block = sliceBetween(
+      feed,
+      "export function getInspirationFallbackFeed",
+      "\n}",
+      20
+    );
+    expect(block).toContain("[...FALLBACK_FEED]");
   });
 
   /**
@@ -150,6 +198,45 @@ describe("计数：必须是确定性基数，不能是随机数", () => {
     const slotBlock = sliceBetween(page, "reactionSlot={", "</section>", 200);
     expect(slotBlock).toContain("count={getDisplayLikeCount(");
     expect(slotBlock).toContain("getInspirationLikeBaseCount(item.title)");
+  });
+
+  /**
+   * 用户追加要求：「详情也需要加上补充」。
+   * ⚠️ 改之前首页详情浮窗只有「复制 / 关闭」两个按钮，
+   * 用户点开大图想点赞必须退回去点卡片上的小图标。
+   */
+  it("首页详情浮窗有点赞和收藏，且基数与专题页同函数", () => {
+    const home = readCode(HOME_PATH);
+    const dialogBlock = sliceBetween(
+      home,
+      "selectedHomeInspiration && (",
+      "复制提示词",
+      200
+    );
+    expect(dialogBlock).toContain('kind="like"');
+    expect(dialogBlock).toContain('kind="favorite"');
+    expect(dialogBlock).toContain("getInspirationLikeBaseCount(selectedHomeInspiration.title)");
+    expect(dialogBlock).toContain("getInspirationFavoriteBaseCount(selectedHomeInspiration.title)");
+    /*
+     * ⚠️ 反向：收藏不许复用点赞基数。
+     * 若两处都写 LikeBaseCount，点赞数和收藏数会永远相等 ——
+     * 看起来"有数字"但明显是假的，且不报错。
+     */
+    const favoriteSlice = dialogBlock.slice(dialogBlock.indexOf('kind="favorite"'));
+    expect(favoriteSlice).not.toContain("getInspirationLikeBaseCount");
+  });
+
+  /**
+   * 两页的收藏快照字段必须同口径。
+   * ⚠️ 首页原来把 `item.field` 同时塞给 group 和 subcategory，
+   * 于是同一条内容从首页收藏、从专题页收藏，进个人中心后分类标签不一样。
+   */
+  it("首页收藏快照用 toReactionItem 且不再把 field 当 group", () => {
+    const home = readCode(HOME_PATH);
+    expect(home).toContain("group: item.group");
+    expect(home).toContain("subcategory: item.subcategory");
+    expect(home).not.toContain("group: item.field");
+    expect(home).not.toContain("subcategory: item.field");
   });
 
   it("专题页详情浮窗的收藏按钮也传了 count（改之前全站没有收藏数）", () => {
