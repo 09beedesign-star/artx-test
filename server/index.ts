@@ -546,8 +546,8 @@ function mcpResult(id: McpJsonRpcRequest["id"], result: unknown) {
   return { jsonrpc: "2.0", id: id ?? null, result };
 }
 
-function mcpError(id: McpJsonRpcRequest["id"], code: number, message: string) {
-  return { jsonrpc: "2.0", id: id ?? null, error: { code, message } };
+function mcpError(id: McpJsonRpcRequest["id"], code: number, message: string, data?: Record<string, unknown>) {
+  return { jsonrpc: "2.0", id: id ?? null, error: { code, message, ...(data ? { data } : {}) } };
 }
 
 function getMcpTools() {
@@ -2006,20 +2006,30 @@ async function startServer() {
   });
 
   app.post("/api/brand-kits/parse", async (req, res) => {
-    try {
-      const imageSrc = req.body?.imageSrc || req.body?.image_url || (
-        req.body?.image_base64 ? `data:image/png;base64,${req.body.image_base64}` : ""
-      );
-      if (!imageSrc) {
-        res.status(400).json({ error: "Missing image" });
-        return;
-      }
-      const kit = await parseBrandKitFromImage(imageSrc, generateText);
-      res.json({ kit });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Brand kit parse failed";
-      res.status(500).json({ error: message });
+    const imageSrc = req.body?.imageSrc || req.body?.image_url || (
+      req.body?.image_base64 ? `data:image/png;base64,${req.body.image_base64}` : ""
+    );
+    // 参数缺失留在 400：它跟计费无关，进 handleTrackedAiRequest 会被打成 500。
+    if (!imageSrc) {
+      res.status(400).json({ error: "Missing image" });
+      return;
     }
+    /**
+     * ⚠️ 这条路由原本连登录都不校验，直接拿 generateText 打 LLM ——
+     * 匿名请求也能烧 token，且不记任何用量。
+     * 品牌包解析就是一次多模态文本生成，按 text_generation 计价，
+     * 因此统一走 handleTrackedAiRequest 与其他 AI 路由同口径。
+     */
+    await handleTrackedAiRequest(req, res, {
+      capabilityKey: "text_generation",
+      capability: "品牌包解析",
+      provider: "AI_TEXT",
+      model: getRouteModel(req.body, process.env.AI_TEXT_MODEL || DEFAULT_TEXT_MODEL),
+      failureMessage: "Brand kit parse failed",
+      outputUnits: () => 1,
+    }, async () => {
+      return { kit: await parseBrandKitFromImage(imageSrc, generateText) };
+    });
   });
 
   // 本地测试免登录入口：仅在 ARTX_DEV_AUTO_LOGIN=true 且非生产环境下可用，
@@ -2267,7 +2277,11 @@ async function startServer() {
                 console.warn("[mcp] failed to record image generation failure", recordError instanceof Error ? recordError.message : recordError);
               });
             }
-            res.status(aiRequestErrorStatus(error)).json(mcpError(id, -32000, message));
+            // MCP 客户端拿不到那个弹窗，把同样的结构化信息塞进 error.data，
+            // 让它至少能在自己的界面上说清「缺多少钱 / 去哪充值」。
+            res.status(aiRequestErrorStatus(error)).json(
+              mcpError(id, -32000, message, billingError ? aiBillingErrorBody(billingError) : undefined),
+            );
             return;
           } finally {
             await releaseAiRouteUsage(user, reservation);

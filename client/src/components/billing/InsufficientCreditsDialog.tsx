@@ -31,7 +31,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import {
   AI_INSUFFICIENT_CREDITS_EVENT,
   type InsufficientCreditsDetail,
-} from "@/lib/ai";
+} from "@/lib/ai-credit-gate";
 import { useBillingDialog } from "./BillingDialogProvider";
 import { getBillingTheme } from "./billing-theme";
 

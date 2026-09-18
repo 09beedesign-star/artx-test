@@ -6,6 +6,8 @@ import {
   VOD_IMAGE_EXPANSION_MODEL,
 } from "../../../shared/image-expansion";
 import { AUTO_RATIO_VALUE, resolveImageRatio } from "../../../shared/image-ratios";
+import type { AiBillingErrorCode } from "./ai-credit-gate";
+import { emitInsufficientCredits } from "./ai-credit-gate";
 
 type LLMRole = "system" | "user" | "assistant";
 
@@ -30,6 +32,7 @@ export type LLMMessage = {
   images?: LLMMessageImage[];
 };
 
+/** 402 响应体 / 事件契约见 ./ai-credit-gate —— 与 ai-client.ts 共用同一份。 */
 type ApiErrorResponse = {
   error?: string;
   message?: string;
@@ -44,41 +47,6 @@ type ApiErrorResponse = {
   requiredCredits?: number;
   availableCredits?: number;
 };
-
-/** 服务端 shared/admin-store.ts 的 AiBillingErrorCode 镜像。 */
-export type AiBillingErrorCode = "NO_SUBSCRIPTION" | "INSUFFICIENT_BALANCE";
-
-export const AI_INSUFFICIENT_CREDITS_EVENT = "artx:insufficient-credits";
-
-export type InsufficientCreditsDetail = {
-  code: AiBillingErrorCode;
-  requiredCredits: number;
-  availableCredits: number;
-};
-
-/**
- * 把 402 响应转成全局事件。
- *
- * 【为什么走事件而不是返回值 / Error 子类】
- * 全站 AI 调用点有十几处，每处都自己 try/catch 再 toast（见 InfiniteCanvas），
- * 没有任何统一出口。改成逐处改造既容易漏，又会在下一处新调用点上再次漏掉。
- *
- * 用 window 事件是项目里**已有**的范式：`artx:login-required` 就是这么走通的
- * （本文件 :325 派发，AuthContext 监听）。照抄一次即可零侵入覆盖所有调用点。
- *
- * 📌 于是弹窗只需要一个监听者，新增 AI 功能自动继承这条保护。
- */
-function emitInsufficientCredits(result: ApiErrorResponse) {
-  if (typeof window === "undefined") return;
-  const code = result.code;
-  if (code !== "NO_SUBSCRIPTION" && code !== "INSUFFICIENT_BALANCE") return;
-  const detail: InsufficientCreditsDetail = {
-    code,
-    requiredCredits: Number(result.requiredCredits) || 0,
-    availableCredits: Number(result.availableCredits) || 0,
-  };
-  window.dispatchEvent(new CustomEvent<InsufficientCreditsDetail>(AI_INSUFFICIENT_CREDITS_EVENT, { detail }));
-}
 
 type OrchestrateResponse = ApiErrorResponse & {
   text?: string;

@@ -1,8 +1,14 @@
 import { ART_X_TEST_API_BASE_URL, normalizeApiBaseUrl } from "./api-base-url";
+import type { AiBillingErrorCode } from "./ai-credit-gate";
+import { emitInsufficientCredits } from "./ai-credit-gate";
 
 type ApiErrorResponse = {
   error?: string;
   message?: string;
+  /** 仅服务端 402 计费拦截时才有，与 ai.ts 共用同一份契约。 */
+  code?: AiBillingErrorCode;
+  requiredCredits?: number;
+  availableCredits?: number;
 };
 
 let backendApiBaseOverride: string | null = null;
@@ -137,6 +143,13 @@ async function postJson<T extends ApiErrorResponse>(path: string, body: unknown,
     });
     const result = await readJsonResponse<T>(response, fallbackError);
     if (!response.ok) {
+      /**
+       * 402 必须在**抛错之前**派发，且只能在这里派发。
+       *
+       * ⚠️ 挪到外层 catch 会踩两个坑：一是 local fallback 重试会把同一个 402
+       * 再放一遍（同一件事弹两次窗）；二是连不上后端时根本走不到这里，事件就丢了。
+       */
+      emitInsufficientCredits(result);
       throw new Error(result.error || result.message || fallbackError);
     }
     return result;
@@ -155,7 +168,10 @@ async function getJson<T extends ApiErrorResponse>(path: string, fallbackError: 
   try {
     const response = await fetch(endpoint, { headers: getAuthHeaders() });
     const result = await readJsonResponse<T>(response, fallbackError);
-    if (!response.ok) throw new Error(result.error || result.message || fallbackError);
+    if (!response.ok) {
+      emitInsufficientCredits(result);
+      throw new Error(result.error || result.message || fallbackError);
+    }
     return result;
   } catch (error) {
     const fallbackEndpoint = allowLocalFallback ? getLocalApiFallbackEndpoint(endpoint) : "";

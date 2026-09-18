@@ -298,3 +298,118 @@ describe("server 路由层：402 响应体必须带着 code 与额度", () => {
     expect(guardedBranches.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+/**
+ * 门禁**覆盖率**：每增加一条 AI 路由都得挂上拦截，否则这次修的洞会以同样的方式重开一次。
+ *
+ * ## 做法
+ * 按 `app.<method>("/api/...")` 把 server/index.ts 切成若干路由块，
+ * 凡是块里出现「打 AI 上游」的调用，就要求同一块里出现 `handleTrackedAiRequest`
+ * 或 `reserveAiRouteUsage` —— 两者内部都会走到 assertUserCanAffordAiUsage。
+ *
+ * ## ⚠️ 这个用例最容易变成「恒绿的装饰」
+ * 三种失效方式都发生过，逐条防住：
+ *   1. **切片正则失配** → 一个块都找不到，下面的循环体一次都不执行，测试全绿。
+ *      所以先断言至少扫出 40 条路由，且下面指定的已知路径必须在结果里。
+ *   2. **AI 调用清单漏写** → 新路由调了个清单外的 AI 函数，被认为「不打上游」而放行。
+ *      清单来自 server/index.ts 的真实 import，新增 AI 能力必须同步这里。
+ *   3. **只数不验** → 断言 AI_ROUTES.length === 15 这种常量会在加路由时误报。
+ *      这里改成「对每个块单独assert」，加多少都自动覆盖。
+ */
+function collectApiRoutes(source: string) {
+  const lines = source.split("\n");
+  const starts: Array<{ line: number; path: string }> = [];
+  lines.forEach((line, index) => {
+    const matched = line.match(/^\s*app\.(post|get|all|put|delete)\("(\/api\/[^"]*)"/);
+    if (matched) starts.push({ line: index + 1, path: matched[2] });
+  });
+  return starts.map((start, index) => ({
+    ...start,
+    body: lines.slice(start.line - 1, index + 1 < starts.length ? starts[index + 1].line - 1 : lines.length).join("\n"),
+  }));
+}
+
+/**
+ * 「打 AI 上游」的函数名。锚定 `\s*(` 是为了只认**调用**，
+ * 否则 import 语句里那个同名标识符也能把整条路由判成「要计费」。
+ */
+const AI_UPSTREAM_CALLS = [
+  "generateImages",
+  "generateText",
+  "orchestrator.run",
+  "editImageWithPrompt",
+  "enhanceImage",
+  "eraseImageObjects",
+  "expandImageWithVodKling",
+  "extractImageText",
+  "removeImageBackground",
+  "removeImageWatermark",
+  "createProductBackground",
+  "createElementBackgroundLayer",
+  "parseBrandKitFromImage",
+  "runBackgroundImageTask",
+];
+
+const AI_ROUTE_GATES = ["handleTrackedAiRequest", "reserveAiRouteUsage"];
+
+function findCalledWithin(body: string, names: string[]) {
+  return names.filter(name => new RegExp(`${name.replace(".", "\\.")}\\s*\\(`).test(body));
+}
+
+describe("AI 路由门禁覆盖率：任何一条会打 AI 上游的路由都必须先过余额校验", () => {
+  it("⭐ 扫出的每一条 AI 路由都挂着 handleTrackedAiRequest / reserveAiRouteUsage", async () => {
+    const routes = collectApiRoutes(await readServerIndexSource());
+
+    // 切片自检：扫不出路由说明正则与源码写法脱节了，后面的断言全部失去意义。
+    expect(routes.length).toBeGreaterThanOrEqual(40);
+
+    const aiRoutes = routes
+      .map(route => ({ ...route, calls: findCalledWithin(route.body, AI_UPSTREAM_CALLS) }))
+      .filter(route => route.calls.length > 0);
+
+    // ⚠️ 这条断言的存在意义是「清单没漏 + 切片没坏」：
+    // 已知的 15 条 AI 路由必须全部被认出来，少一条就说明扫描逻辑失灵了。
+    const paths = aiRoutes.map(route => route.path);
+    for (const expected of [
+      "/api/images/generate",
+      "/api/images/tasks",
+      "/api/images/remove-background",
+      "/api/images/enhance",
+      "/api/images/remove-watermark",
+      "/api/images/create-background",
+      "/api/images/ocr",
+      "/api/images/edit",
+      "/api/images/text-replace",
+      "/api/images/erase",
+      "/api/images/expand",
+      "/api/llm",
+      "/api/ai/orchestrate",
+      "/api/brand-kits/parse",
+      "/api/mcp",
+    ]) {
+      expect(paths, `AI 路由扫描没认出 ${expected}`).toContain(expected);
+    }
+
+    for (const route of aiRoutes) {
+      const gates = AI_ROUTE_GATES.filter(gate => route.body.includes(gate));
+      expect(
+        gates,
+        `${route.path} 会调用 ${route.calls.join(" / ")} 却没有任何计费门禁 —— 0 积分用户依然可以白嫖这条能力。`,
+      ).not.toHaveLength(0);
+    }
+  });
+
+  it("⭐ 品牌包解析曾经连登录都不校验：这类「裸调 LLM」的写法不得复活", async () => {
+    const routes = collectApiRoutes(await readServerIndexSource());
+    const brandKit = routes.find(route => route.path === "/api/brand-kits/parse");
+    if (!brandKit) throw new Error("没扫到 /api/brand-kits/parse，路由切片大概率坏了");
+
+    /**
+     * 它调的是 generateText（多模态），一次就要烧 token。
+     * 2026-09-18 之前这里完全没有登录校验、没有余额校验、不记用量，
+     * 匿名请求也能用平台的大模型账号跑品牌包解析。
+     */
+    expect(brandKit.body).toContain("capabilityKey: \"text_generation\"");
+    expect(brandKit.body).toContain("handleTrackedAiRequest");
+  });
+});
