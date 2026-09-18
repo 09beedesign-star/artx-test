@@ -14,6 +14,9 @@ import {
   quoteCreditRecharge,
   FIRST_RECHARGE_BONUS,
   INVITE_REWARD_CONFIG,
+  SIGNUP_INITIAL_CREDITS,
+  SIGNUP_INITIAL_CREDITS_LIMITS,
+  SIGNUP_IP_RATE_LIMIT,
   SUBSCRIPTION_PLAN_IDS,
 } from "../shared/billing-config";
 import {
@@ -478,6 +481,20 @@ type AdminData = {
   aiBillingPolicies?: AiBillingPolicy[];
   aiPlanDiscounts?: AiPlanDiscountPolicy[];
   inviteEmailLogs?: InviteEmailSendLog[];
+  /**
+   * 注册初始额度配置。**唯一一个后台可编辑且能持久化的配置**。
+   * 与 plans / aiBillingPolicies 的区别见 normalizeDataAsync 里的说明：
+   * 那两个是派生数据（无条件重算），这个是带版本号的可编辑配置。
+   */
+  signupInitialCredits?: SignupInitialCreditsConfig;
+};
+
+type SignupInitialCreditsConfig = {
+  enabled: boolean;
+  credits: number;
+  expiryDays: number;
+  activeUntil?: string;
+  configVersion: number;
 };
 
 type CapabilityStatusItem = {
@@ -1834,6 +1851,110 @@ function ensureBillingUser(data: AdminData, params: {
   return user;
 }
 
+/** 注册初始额度的发放来源前缀。用它反查「这个人领过没有」。 */
+const SIGNUP_BONUS_SOURCE_PREFIX = "rule/signup-bonus";
+
+/**
+ * 发放注册初始额度。**幂等**：同一用户重复调用只会入账一次。
+ *
+ * 为什么放在 admin-store 而不是 auth-store：积分的唯一事实源是 AdminData，
+ * auth 库里根本没有余额字段。注册时 admin 库通常还没有这个用户，
+ * 所以先 ensureBillingUser 懒创建再发。
+ *
+ * ⚠️ 失败不抛异常，只返回 0 并记日志：
+ * 初始额度是锦上添花，**绝不能因为它挂掉而让用户注册失败**。
+ * 注册是漏斗最顶端，宁可少发一笔积分也不能拦住一个真实用户。
+ */
+export async function grantSignupInitialCredits(params: {
+  userId: string;
+  username: string;
+  now?: Date;
+}): Promise<number> {
+  const now = params.now || new Date();
+
+  try {
+    const data = await loadAdminData();
+    /**
+     * 配置读**库**不读常量 —— 后台改的值要能立刻生效。
+     * loadAdminData → normalizeDataAsync 已做过版本化补齐与类型兜底，
+     * 所以这里拿到的一定是完整且合法的对象，无需再防 undefined。
+     *
+     * ⚠️ 因此活动截止判断必须挪到 loadAdminData **之后**
+     * （改造前它在函数开头、读的是常量）。
+     */
+    const config = data.signupInitialCredits || SIGNUP_INITIAL_CREDITS;
+
+    // 总开关关闭 → 回到「注册余额为 0」的状态。
+    if (!config.enabled) return 0;
+
+    // 活动已过期就不再发放。activeUntil 为空表示永久有效。
+    if (config.activeUntil) {
+      // 截止日当天仍然发放，所以比较的是当天的 23:59:59。
+      const deadline = new Date(`${config.activeUntil}T23:59:59.999Z`);
+      if (Number.isFinite(deadline.getTime()) && now.getTime() > deadline.getTime()) {
+        return 0;
+      }
+    }
+
+    const user = ensureBillingUser(data, {
+      userId: params.userId,
+      username: params.username,
+    });
+
+    /**
+     * 幂等判定用**两条线**，任一命中即视为已发过。
+     *
+     * ⚠️ 单靠扫 creditBatches 不够：批次有全局 2000 条上限
+     * （CREDIT_BATCH_RETENTION），且截断时会淘汰已结束的批次 ——
+     * 初始额度只有 3 天有效期，过期即结束，正是最先被淘汰的那一批。
+     * 一旦批次被淘汰，老用户重新登录就会被判定为「没领过」，
+     * 于是无限续杯，且完全无声。
+     *
+     * ledger 流水是更长久的记录，grantCredits 内部按 idempotencyKey 查它，
+     * 这里对齐同一个 key 作为主判据，批次扫描只作为补充。
+     *
+     * ⚠️ 两个易错点（都踩过）：
+     *   1. 流水数组叫 `data.credits`，不叫 creditLedger；
+     *   2. 幂等键**落在流水的 `source` 字段上**，不是独立的 idempotencyKey 字段
+     *      （见 credit-gifting.ts:250 `source: input.idempotencyKey || input.source`）。
+     *   按错的字段查会恒为 false —— 幂等静默失效，用户可无限领取。
+     */
+    const idempotencyKey = `signup-bonus:${user.id}`;
+    const grantedInLedger = data.credits?.some(
+      (entry) => entry.userId === user.id && entry.source === idempotencyKey,
+    );
+    const grantedInBatches = data.creditBatches?.some(
+      (batch) => batch.userId === user.id && batch.source.startsWith(SIGNUP_BONUS_SOURCE_PREFIX),
+    );
+    if (grantedInLedger || grantedInBatches) return 0;
+
+    const result = grantCredits(data, {
+      user,
+      amount: config.credits,
+      reason: "新用户注册初始额度",
+      source: `${SIGNUP_BONUS_SOURCE_PREFIX}/${user.id}`,
+      operator: "系统",
+      createdAt: now.toISOString(),
+      expiryDays: config.expiryDays,
+      idempotencyKey: `signup-bonus:${user.id}`,
+    });
+
+    if (!result.success) {
+      console.warn("[signup-bonus] 发放失败", { userId: params.userId, error: result.error });
+      return 0;
+    }
+
+    await saveAdminData(data);
+    return config.credits;
+  } catch (error) {
+    console.warn("[signup-bonus] 发放异常", {
+      userId: params.userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return 0;
+  }
+}
+
 function getPaymentDisplayName(order: PaymentOrder) {
   return order.paymentDisplayName || `${order.packageName} · ${order.userAccount || order.user}`;
 }
@@ -2436,6 +2557,14 @@ async function seedAdminData(): Promise<AdminData> {
     auditLogs: [],
     plans: buildPricingPlans(),
     capabilityStatus: buildCapabilityStatus(),
+    /**
+     * ⚠️ 必须在这里也给出初值。
+     * loadAdminData 的 seed 分支（首次初始化）**不经过 normalizeDataAsync**
+     * 就直接 saveAdminData，seed 里缺什么字段，落库就缺什么字段。
+     * 漏掉的后果是：首次建库后配置字段为空，后台面板读不到当前值、
+     * 也无法据此判断版本，直到某次写操作偶然补上 —— 典型的偶发不一致。
+     */
+    signupInitialCredits: resolveSignupInitialCreditsConfig(undefined),
   };
 }
 
@@ -2536,7 +2665,60 @@ async function normalizeDataAsync(value: Partial<AdminData>): Promise<AdminData>
      */
     aiBillingPolicies: AI_CREDIT_POLICIES,
     aiPlanDiscounts: AI_PLAN_DISCOUNTS,
+    signupInitialCredits: resolveSignupInitialCreditsConfig(value.signupInitialCredits),
   });
+}
+
+/**
+ * 注册初始额度配置的**版本化补齐** —— 本文件里唯一「库值可以赢过代码值」的字段。
+ *
+ * 上面 plans / aiBillingPolicies 的做法是无条件用代码值，代价是后台面板失效
+ * （见 :2602 的事故复盘）。那段注释末尾写着恢复可编辑的前提条件：
+ * 「得先补上『库值必须能被代码版本号判定为过期』的机制」。这个函数就是那个机制。
+ *
+ * 判定规则：
+ *   库里没有          → 用代码值
+ *   库值版本 <  代码版本 → **丢弃库值**用代码值（代码改动能顶掉历史快照）
+ *   库值版本 >= 代码版本 → 用库值（后台改动能持久化生效）
+ *
+ * 📌 所以改 SIGNUP_INITIAL_CREDITS 的默认值时必须同步 +1 configVersion，
+ *    否则生产库里的旧快照会继续赢，你的改动一次都不会生效 —— 且零报错。
+ *
+ * 另：字段逐个做类型兜底而不是整体 `?? 默认值`，
+ * 因为库里可能是被手改过的半残对象（只有 credits 没有 expiryDays），
+ * 整体兜底会在这种情况下漏掉缺失字段，读出 undefined 再参与算术 → NaN 积分。
+ */
+export function resolveSignupInitialCreditsConfig(
+  stored: unknown,
+): SignupInitialCreditsConfig {
+  const fallback: SignupInitialCreditsConfig = {
+    enabled: SIGNUP_INITIAL_CREDITS.enabled,
+    credits: SIGNUP_INITIAL_CREDITS.credits,
+    expiryDays: SIGNUP_INITIAL_CREDITS.expiryDays,
+    activeUntil: SIGNUP_INITIAL_CREDITS.activeUntil,
+    configVersion: SIGNUP_INITIAL_CREDITS.configVersion,
+  };
+
+  if (!stored || typeof stored !== "object") return fallback;
+  const value = stored as Partial<SignupInitialCreditsConfig>;
+
+  const storedVersion = Number(value.configVersion);
+  if (!Number.isFinite(storedVersion) || storedVersion < SIGNUP_INITIAL_CREDITS.configVersion) {
+    return fallback;
+  }
+
+  const credits = Number(value.credits);
+  const expiryDays = Number(value.expiryDays);
+  return {
+    enabled: typeof value.enabled === "boolean" ? value.enabled : fallback.enabled,
+    credits: Number.isFinite(credits) && credits > 0 ? credits : fallback.credits,
+    expiryDays: Number.isFinite(expiryDays) && expiryDays > 0 ? expiryDays : fallback.expiryDays,
+    // 空串/null 都表示「永久发放」，必须能和「没配过」区分开，所以不用 ?? 兜底。
+    activeUntil: typeof value.activeUntil === "string" && value.activeUntil.trim()
+      ? value.activeUntil.trim()
+      : undefined,
+    configVersion: storedVersion,
+  };
 }
 
 async function loadAdminData(): Promise<AdminData> {
@@ -2740,6 +2922,14 @@ function dashboard(data: AdminData) {
       provider: item.providerDefault,
     })),
     planDiscounts: data.aiPlanDiscounts || AI_PLAN_DISCOUNTS,
+    /**
+     * 注册初始额度配置 + 它的上限与配套风控，一并下发给后台面板。
+     * 上限下发是为了让前端能在输入框上直接标出「最大 1000」，
+     * 而不是等用户填了 5000 点保存才被 400 打回来。
+     */
+    signupInitialCredits: data.signupInitialCredits,
+    signupInitialCreditsLimits: SIGNUP_INITIAL_CREDITS_LIMITS,
+    signupIpRateLimit: SIGNUP_IP_RATE_LIMIT,
     aiCostBreakdownByProvider: summarizeAiCostBreakdown(data, "provider"),
     aiCostBreakdownByModel: summarizeAiCostBreakdown(data, "model"),
     productionReadiness: buildProductionReadiness(),
@@ -4299,6 +4489,71 @@ export async function handleAdminApiRequest(
         policyCount: data.aiBillingPolicies.length,
         discountCount: data.aiPlanDiscounts.length,
       },
+    });
+    await saveAdminData(data);
+    return { status: 200, body: fullPayload(data) };
+  }
+
+  if (method === "POST" && route === "signup-initial-credits/save") {
+    /**
+     * 注册初始额度配置保存。
+     *
+     * ⚠️ 这是全站**唯一**一个「后台改了能真正落库生效」的配置，
+     * 而它控制的又恰好是「谁来注册就给谁发钱」，所以校验比别处严：
+     *   1. 二次确认  —— 防误点
+     *   2. 硬上限    —— 防多打一个 0（350 → 3500 就是十倍提款机）
+     *   3. 审计日志记录 before/after —— 出事能查是谁改的、从多少改到多少
+     */
+    if (!hasConfirmation(body, "CONFIRM_SIGNUP_INITIAL_CREDITS")) {
+      return jsonError(409, "更新注册初始额度需要二次确认");
+    }
+
+    const before = data.signupInitialCredits;
+    const credits = Number(body.credits);
+    const expiryDays = Number(body.expiryDays);
+
+    if (!Number.isFinite(credits) || credits < 0) {
+      return jsonError(400, "初始额度必须是非负数字");
+    }
+    if (credits > SIGNUP_INITIAL_CREDITS_LIMITS.maxCredits) {
+      return jsonError(
+        400,
+        `初始额度不得超过 ${SIGNUP_INITIAL_CREDITS_LIMITS.maxCredits} 积分。注册链路没有手机号验证，额度越高越接近提款机；确需调高请先补注册门槛并修改代码上限。`,
+      );
+    }
+    if (!Number.isFinite(expiryDays) || expiryDays < 1) {
+      return jsonError(400, "有效期至少为 1 天");
+    }
+    if (expiryDays > SIGNUP_INITIAL_CREDITS_LIMITS.maxExpiryDays) {
+      return jsonError(
+        400,
+        `有效期不得超过 ${SIGNUP_INITIAL_CREDITS_LIMITS.maxExpiryDays} 天，否则失去「限时体验」的紧迫感。`,
+      );
+    }
+
+    const rawActiveUntil = typeof body.activeUntil === "string" ? body.activeUntil.trim() : "";
+    if (rawActiveUntil && !/^\d{4}-\d{2}-\d{2}$/.test(rawActiveUntil)) {
+      return jsonError(400, "活动截止日期格式应为 YYYY-MM-DD，留空表示永久发放");
+    }
+
+    data.signupInitialCredits = {
+      enabled: body.enabled !== false,
+      credits,
+      expiryDays,
+      activeUntil: rawActiveUntil || undefined,
+      /**
+       * 保存时对齐**代码当前版本**，而不是沿用库里的旧版本号。
+       * 否则后台存一次之后版本号永远停在旧值，
+       * 下次代码升级版本时这份后台配置会被静默丢弃。
+       */
+      configVersion: SIGNUP_INITIAL_CREDITS.configVersion,
+    };
+
+    appendAuditLog(data, actor, {
+      action: "更新注册初始额度",
+      target: "signup-initial-credits",
+      before,
+      after: data.signupInitialCredits,
     });
     await saveAdminData(data);
     return { status: 200, body: fullPayload(data) };

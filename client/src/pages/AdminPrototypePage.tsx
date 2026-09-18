@@ -334,6 +334,22 @@ type OverviewData = {
     multiplier: number;
     label: string;
   }>;
+  signupInitialCredits?: {
+    enabled: boolean;
+    credits: number;
+    expiryDays: number;
+    activeUntil?: string;
+    configVersion: number;
+  };
+  signupInitialCreditsLimits?: {
+    maxCredits: number;
+    maxExpiryDays: number;
+  };
+  signupIpRateLimit?: {
+    maxPerWindow: number;
+    maxPerSubnetWindow: number;
+    windowHours: number;
+  };
   capabilityStatus?: Array<{ id: string; domain: string; status: "ready" | "partial" | "missing"; summary: string; source: string }>;
   productionReadiness?: Array<{ id: string; domain: string; status: "ready" | "partial" | "missing"; summary: string; requiredKeys: string[]; configuredKeys: string[]; missingKeys: string[]; action: string }>;
   productionChecks?: ProductionCheck[];
@@ -641,6 +657,18 @@ function AdminPrototypePage() {
   const [notice, setNotice] = useState("正在连接后台数据接口：/api/admin/overview。");
   const [policyDraft, setPolicyDraft] = useState<Array<{ capability: string; capabilityKey?: string; unit: string; baseCredits: number; estimatedCostPerUnit: number; provider: string }>>([]);
   const [discountDraft, setDiscountDraft] = useState<Array<{ planId: string; multiplier: number; label: string }>>([]);
+  /**
+   * 注册初始额度草稿。
+   * credits / expiryDays 存字符串而不是 number：输入框里用户会有中间态
+   * （删空、只敲了个 "3"），过早 Number() 会把空串变成 0 并回写进输入框，
+   * 导致光标跳动、删不掉内容。提交时才转数字。
+   */
+  const [signupCreditsDraft, setSignupCreditsDraft] = useState({
+    enabled: true,
+    credits: "350",
+    expiryDays: "3",
+    activeUntil: "",
+  });
   const [selectedOrderId, setSelectedOrderId] = useState("");
   const [accountDetail, setAccountDetail] = useState<AccountDetail | null>(null);
   const [accountDrawerOpen, setAccountDrawerOpen] = useState(false);
@@ -717,6 +745,15 @@ function AdminPrototypePage() {
       setAdminData(nextData);
       setPolicyDraft(nextData.overview?.aiBillingPolicies || []);
       setDiscountDraft(nextData.overview?.planDiscounts || []);
+      const signupConfig = nextData.overview?.signupInitialCredits;
+      if (signupConfig) {
+        setSignupCreditsDraft({
+          enabled: signupConfig.enabled,
+          credits: String(signupConfig.credits),
+          expiryDays: String(signupConfig.expiryDays),
+          activeUntil: signupConfig.activeUntil || "",
+        });
+      }
       setSelectedUserId((current) => nextData.users.some((item) => item.id === current) ? current : nextData.users[0]?.id || "");
       setSelectedOrderId((current) => nextData.orders.some((item) => item.id === current) ? current : nextData.orders[0]?.id || "");
       setNotice(message || "后台数据已接入：支付、积分、AI 任务、供应商健康、反馈、告警和审计均来自 /api/admin/*。");
@@ -1195,6 +1232,42 @@ function AdminPrototypePage() {
       planDiscounts: discountDraft,
       confirmation: "CONFIRM_AI_BILLING_POLICY",
     }, "AI 扣分策略和套餐折扣已保存。");
+  }
+
+  function handleSaveSignupInitialCredits() {
+    const credits = Number(signupCreditsDraft.credits);
+    const expiryDays = Number(signupCreditsDraft.expiryDays);
+    const limits = adminData.overview?.signupInitialCreditsLimits;
+
+    /**
+     * 前端先校验一遍，只是为了少一次往返和给出更快的反馈。
+     * ⚠️ 服务端的校验**不能因此省掉** —— 这个接口直接控制发钱，
+     * 绕过前端直接 POST 是最容易做到的事。
+     */
+    if (!Number.isFinite(credits) || credits < 0) {
+      setNotice("初始额度必须是非负数字。");
+      return;
+    }
+    if (limits && credits > limits.maxCredits) {
+      setNotice(`初始额度不得超过 ${limits.maxCredits} 积分。`);
+      return;
+    }
+    if (!Number.isFinite(expiryDays) || expiryDays < 1) {
+      setNotice("有效期至少为 1 天。");
+      return;
+    }
+    if (limits && expiryDays > limits.maxExpiryDays) {
+      setNotice(`有效期不得超过 ${limits.maxExpiryDays} 天。`);
+      return;
+    }
+
+    adminPost("/api/admin/signup-initial-credits/save", {
+      enabled: signupCreditsDraft.enabled,
+      credits,
+      expiryDays,
+      activeUntil: signupCreditsDraft.activeUntil.trim(),
+      confirmation: "CONFIRM_SIGNUP_INITIAL_CREDITS",
+    }, "注册初始额度配置已保存，对之后注册的用户立即生效。");
   }
 
   function handleSelectOrder(orderId: string) {
@@ -2095,6 +2168,96 @@ function AdminPrototypePage() {
                     />
                   </div>
                 ))}
+              </div>
+            </div>
+          </div>
+          <div className="rounded-md border border-white/10 bg-slate-950/35 p-4">
+            <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-sm font-semibold">新用户注册初始额度</h3>
+                <p className="mt-1 text-xs text-slate-400">
+                  新账号注册即到账的体验积分。改动对<strong className="text-slate-200">之后注册</strong>的用户生效，不影响已注册账号。
+                </p>
+              </div>
+              <Button
+                className="w-full bg-cyan-300 text-slate-950 hover:bg-cyan-200 sm:w-auto"
+                onClick={handleSaveSignupInitialCredits}
+              >
+                保存额度配置
+              </Button>
+            </div>
+
+            <div className="mb-3 rounded-md border border-amber-300/25 bg-amber-300/[0.06] p-3 text-xs text-amber-100/80">
+              <div className="font-medium text-amber-200">调高额度前请先回答：一个脚本一晚上能薅走多少钱？</div>
+              <div className="mt-1 text-amber-100/60">
+                注册链路没有手机号或验证码校验，初始额度本质上是「谁来注册就给谁发钱」，
+                只靠 IP 限频兜底
+                {adminData.overview?.signupIpRateLimit
+                  ? `（当前：同 IP ${adminData.overview.signupIpRateLimit.maxPerWindow} 次 / 同网段 ${adminData.overview.signupIpRateLimit.maxPerSubnetWindow} 次 / ${adminData.overview.signupIpRateLimit.windowHours} 小时）`
+                  : ""}
+                。
+              </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-[auto_1fr_1fr_1.2fr]">
+              <label className="flex items-center gap-2 rounded-md border border-white/8 bg-white/[0.03] px-3 py-2">
+                <input
+                  type="checkbox"
+                  checked={signupCreditsDraft.enabled}
+                  onChange={(event) =>
+                    setSignupCreditsDraft((current) => ({ ...current, enabled: event.target.checked }))
+                  }
+                  className="h-4 w-4 accent-cyan-300"
+                  aria-label="启用注册初始额度"
+                />
+                <span className="text-xs text-slate-300">启用发放</span>
+              </label>
+
+              <div className="rounded-md border border-white/8 bg-white/[0.03] p-3">
+                <div className="text-xs text-slate-400">
+                  初始额度（积分）
+                  {adminData.overview?.signupInitialCreditsLimits
+                    ? ` · 上限 ${adminData.overview.signupInitialCreditsLimits.maxCredits}`
+                    : ""}
+                </div>
+                <Input
+                  value={signupCreditsDraft.credits}
+                  onChange={(event) =>
+                    setSignupCreditsDraft((current) => ({ ...current, credits: event.target.value }))
+                  }
+                  className="mt-2 border-white/12 bg-white/5"
+                  aria-label="初始额度积分数"
+                />
+              </div>
+
+              <div className="rounded-md border border-white/8 bg-white/[0.03] p-3">
+                <div className="text-xs text-slate-400">
+                  有效期（天）
+                  {adminData.overview?.signupInitialCreditsLimits
+                    ? ` · 上限 ${adminData.overview.signupInitialCreditsLimits.maxExpiryDays}`
+                    : ""}
+                </div>
+                <Input
+                  value={signupCreditsDraft.expiryDays}
+                  onChange={(event) =>
+                    setSignupCreditsDraft((current) => ({ ...current, expiryDays: event.target.value }))
+                  }
+                  className="mt-2 border-white/12 bg-white/5"
+                  aria-label="初始额度有效期天数"
+                />
+              </div>
+
+              <div className="rounded-md border border-white/8 bg-white/[0.03] p-3">
+                <div className="text-xs text-slate-400">活动截止日期 · 留空 = 永久发放</div>
+                <Input
+                  value={signupCreditsDraft.activeUntil}
+                  placeholder="2026-10-18"
+                  onChange={(event) =>
+                    setSignupCreditsDraft((current) => ({ ...current, activeUntil: event.target.value }))
+                  }
+                  className="mt-2 border-white/12 bg-white/5"
+                  aria-label="初始额度活动截止日期"
+                />
               </div>
             </div>
           </div>

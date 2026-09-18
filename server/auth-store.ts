@@ -12,6 +12,7 @@ import {
   findUserByInviteCode,
   generateUniqueInviteCode,
 } from "./invite-rewards";
+import { SIGNUP_IP_RATE_LIMIT } from "../shared/billing-config";
 
 type AuthAction = "register" | "login" | "me" | "logout" | "social" | "forgot-password" | "reset-password" | "change-password" | "sms-send-code" | "sms-login" | "email-send-code" | "email-login";
 type AdminRole = "viewer" | "support" | "finance" | "admin" | "super_admin";
@@ -320,6 +321,74 @@ function createUser(
     signupIp: context.ip ? String(context.ip).slice(0, 64) : undefined,
     signupUserAgent: context.userAgent ? String(context.userAgent).slice(0, 256) : undefined,
   };
+}
+
+/**
+ * 把 IP 归约成「网段键」，用于注册限频。
+ *
+ * ⚠️ 为什么按网段而不是精确 IP：家宽与移动网络的出口 IP 在同一 /24 内
+ * 频繁漂移，按精确 IP 限频等于没限 —— 攻击者重拨一次就换一个 IP。
+ *
+ * ⚠️ IPv6 取前 4 组（≈ /64），这是运营商分配给单个家庭/终端的最小前缀，
+ * 再粗会把整个城市的用户归成一段（误伤），再细则同样能被漂移绕过。
+ *
+ * 取不到 IP 时返回空串，调用方须视作「无法判定」并放行 ——
+ * 宁可漏过也不能因为缺少请求头就把正常用户全拦死。
+ */
+export function signupRateLimitKeyOf(ip?: string): string {
+  const raw = (ip || "").trim();
+  if (!raw) return "";
+  // 兼容 "::ffff:1.2.3.4" 这类 IPv4-mapped 形式
+  const normalized = raw.startsWith("::ffff:") ? raw.slice(7) : raw;
+  if (normalized.includes(":")) {
+    const groups = normalized.split(":").filter(Boolean);
+    return `v6:${groups.slice(0, 4).join(":")}`;
+  }
+  const octets = normalized.split(".");
+  if (octets.length !== 4) return "";
+  return `v4:${octets.slice(0, 3).join(".")}`;
+}
+
+/** 精确 IP 归一化（只做 IPv4-mapped 展开），用于「同一台机器」判定。 */
+function exactIpKeyOf(ip?: string): string {
+  const raw = (ip || "").trim();
+  if (!raw) return "";
+  return raw.startsWith("::ffff:") ? raw.slice(7) : raw;
+}
+
+/**
+ * 判断注册是否应被限频。**两层判定，任一超限即拦**：
+ *   ① 精确 IP —— 超过 maxPerWindow（3）次
+ *   ② /24 网段 —— 超过 maxPerSubnetWindow（30）次
+ *
+ * ⚠️ 为什么不能只用网段：一个 /24 有 254 个地址，可能是整栋写字楼。
+ * 只按网段限 3 次会让「同事互相邀请注册」这种正常场景在第 4 个人就失败。
+ * 精确 IP 才是刷号的强信号（脚本一般不换 IP），所以它收紧、网段放宽。
+ *
+ * 直接数 db.users 里的历史注册记录，不引入内存计数器 ——
+ * 内存计数会在进程重启后清零，而重启是攻击者最容易触发的事情之一
+ * （也可能只是一次部署）。数据库里的 createdAt + signupIp 是唯一可信来源。
+ */
+function isSignupRateLimited(db: AuthDatabase, ip?: string, now = new Date()): boolean {
+  const subnetKey = signupRateLimitKeyOf(ip);
+  // 拿不到 IP 就放行，见 signupRateLimitKeyOf 说明。
+  if (!subnetKey) return false;
+  const exactKey = exactIpKeyOf(ip);
+  const windowStart = now.getTime() - SIGNUP_IP_RATE_LIMIT.windowHours * 60 * 60 * 1000;
+  let exactCount = 0;
+  let subnetCount = 0;
+  for (const user of db.users) {
+    const createdAt = new Date(user.createdAt || 0).getTime();
+    if (!Number.isFinite(createdAt) || createdAt < windowStart) continue;
+    if (signupRateLimitKeyOf(user.signupIp) !== subnetKey) continue;
+    subnetCount += 1;
+    if (exactKey && exactIpKeyOf(user.signupIp) === exactKey) {
+      exactCount += 1;
+    }
+    if (exactCount >= SIGNUP_IP_RATE_LIMIT.maxPerWindow) return true;
+    if (subnetCount >= SIGNUP_IP_RATE_LIMIT.maxPerSubnetWindow) return true;
+  }
+  return false;
 }
 
 function getBootstrapAdmin() {
@@ -1387,6 +1456,21 @@ export async function handleAuthAction(
       return { status: 409, body: { error: "该账号已注册，请直接登录" } };
     }
 
+    /**
+     * 注册限频。**必须在 createUser 之前**，否则账号已经建出来了再拒绝，
+     * 会留下一堆孤儿记录，还会把后续的限频计数越推越高。
+     *
+     * ⚠️ 这条限制是「注册初始额度」的配套风控，两者同进同退：
+     * 发放初始额度突破了「注册链路零成本」这条原有红线，
+     * 没有限频的话一个脚本就能无限薅。删任何一边之前先想清楚另一边。
+     */
+    if (isSignupRateLimited(db, context.ip)) {
+      return {
+        status: 429,
+        body: { error: `注册过于频繁，请 ${SIGNUP_IP_RATE_LIMIT.windowHours} 小时后再试，或联系客服协助开通` },
+      };
+    }
+
     const user = createUser(username, password, "viewer", {
       ip: context.ip,
       userAgent: context.userAgent,
@@ -1395,7 +1479,8 @@ export async function handleAuthAction(
 
     // ⚠️ 邀请关系在这里**只做绑定，绝不发放任何积分**。
     // 发奖统一推迟到被邀请人首次付费时（见 server/invite-rewards.ts 顶部说明）。
-    // 注册链路零成本，任何在此处发积分的改动都会让整套防刷失效。
+    // 注册奖励与邀请奖励是两回事：前者是固定的体验额度（有限频兜底），
+    // 后者挂在「被邀请人首次付费」上，绝不能挪到注册链路。
     bindInviteRelationIfEligible({
       db,
       user,

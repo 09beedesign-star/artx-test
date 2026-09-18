@@ -24,7 +24,7 @@ import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
 import { recordCrossBorderCommerceGeneration } from "./cross-border-commerce-records";
 import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getDevAutoLoginSession, getInviteSummaryForUser, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization, listAuthUsers, setInviteAcceptDisabled } from "./auth-store";
-import { acknowledgeCreditGiftNotification, assertCanUseAiImageModel, createBillingOrder, createCreditRechargeOrder, getAiModelEntitlementsForUser, getBillingOrderForPayment, getBillingSnapshotForUser, getCreditGiftNotificationsForUser, handleAdminApiRequest, markBillingOrderPaid, quoteAdminAiUsage, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, releaseTestAccountAiUsage, reserveTestAccountAiUsage, submitUserFeedback, sendInviteEmail } from "./admin-store";
+import { acknowledgeCreditGiftNotification, assertCanUseAiImageModel, createBillingOrder, createCreditRechargeOrder, getAiModelEntitlementsForUser, getBillingOrderForPayment, getBillingSnapshotForUser, getCreditGiftNotificationsForUser, grantSignupInitialCredits, handleAdminApiRequest, markBillingOrderPaid, quoteAdminAiUsage, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, releaseTestAccountAiUsage, reserveTestAccountAiUsage, submitUserFeedback, sendInviteEmail } from "./admin-store";
 import { getAllowedCorsOrigin } from "./cors";
 import { sendOpsNotification, sendUserEmailNotification } from "./notifications";
 import { checkDailyLimit, checkRecipientCooldown, isSelfInvite, isAlreadyRegistered, buildInviteEmailHtml } from "./invite-email";
@@ -1980,6 +1980,26 @@ async function startServer() {
         ip: clientIp || undefined,
         userAgent: typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : undefined,
       });
+      /**
+       * 注册成功后发放初始额度。
+       *
+       * ⚠️ 必须在这里发，而不是在 auth-store 的注册分支里：
+       * 积分的唯一事实源是 AdminData（admin-store），auth 库没有余额字段。
+       * 两个库各自持久化，跨库调用放在路由层衔接最干净。
+       *
+       * ⚠️ grantSignupInitialCredits 内部吞掉所有异常并返回 0 ——
+       * 初始额度绝不能让注册失败。注册是漏斗最顶端，
+       * 宁可少发一笔积分，也不能因为积分系统抖动就拦住一个真实用户。
+       */
+      if (action === "register" && result.status === 200) {
+        const registeredUser = (result.body as { user?: { id?: string; username?: string } })?.user;
+        if (registeredUser?.id && registeredUser.username) {
+          await grantSignupInitialCredits({
+            userId: registeredUser.id,
+            username: registeredUser.username,
+          });
+        }
+      }
       await notifyAuthAction(action, req.body && typeof req.body === "object" ? req.body as Record<string, unknown> : {}, result);
       res.status(result.status).json(result.body);
     } catch (error) {
