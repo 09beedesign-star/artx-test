@@ -20,13 +20,13 @@
  * ⚠️⚠️ 随机数的致命之处是**它不报错**，看起来一直在正常工作。
  *
  * 【身份键为什么只能是 title】
- * 与 `inspiration-avatar.ts` 完全同一套理由：rank 在两页是不同来源现编的，
+ * 与 `inspiration-identity.ts` 完全同一套理由：rank 在两页是不同来源现编的，
  * imageUrl 在专题页带 proxy 前缀。**唯一跨页稳定的标识就是 title。**
  * 📌 所以这里直接复用 `normalizeInspirationIdentity` + `hashInspirationSeed`，
  * 不另起一套哈希 —— 否则就是「同一份逻辑的多个出口」，迟早对不上。
  */
 
-import { hashInspirationSeed, normalizeInspirationIdentity } from "./inspiration-avatar";
+import { hashInspirationSeed, normalizeInspirationIdentity } from "./inspiration-identity";
 
 /** 点赞数区间。跟原来的随机区间保持一致，避免线上数量级突变被用户察觉成 bug。 */
 const LIKE_MIN = 1000;

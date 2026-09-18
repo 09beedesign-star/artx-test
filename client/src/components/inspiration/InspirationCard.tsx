@@ -17,7 +17,6 @@
  */
 import { Download } from "lucide-react";
 import type { ReactNode } from "react";
-import { InspirationAvatar } from "@/components/inspiration/InspirationAvatar";
 
 export type InspirationCardItem = {
   title: string;
@@ -37,10 +36,6 @@ export type InspirationCardProps = {
   sub: string;
   activeBg: string;
   hovered: boolean;
-  /** 卡片头像外圈描边宽度。专题页为 2px（用户指定） */
-  avatarBorderWidth?: number;
-  /** 描边颜色。必须与卡片背景同色，才是「挖空」观感而不是一圈黑边 */
-  avatarBorderColor?: string;
   onOpen: () => void;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
@@ -61,8 +56,6 @@ export function InspirationCard({
   sub,
   activeBg,
   hovered,
-  avatarBorderWidth = 2,
-  avatarBorderColor,
   onOpen,
   onMouseEnter,
   onMouseLeave,
@@ -70,9 +63,6 @@ export function InspirationCard({
   onImportToCanvas,
   reactionSlot,
 }: InspirationCardProps) {
-  // 描边默认取卡片背景色 —— 用户要求「描边颜色与卡片的黑色保持同样的颜色」。
-  const ringColor = avatarBorderColor || cardBg;
-
   return (
     <article
       onClick={onOpen}
@@ -124,25 +114,15 @@ export function InspirationCard({
           </button>
         )}
 
-        {/*
-          虚拟创作者头像（需求 3）。
-          ⚠️ `pointer-events-none` —— 用户明确要求「头像不可点」。
-          ⚠️ 只越过交界线 14px，不会伸进标签行；信息区已预留上内边距。
-        */}
-        <InspirationAvatar
-          title={item.title}
-          testId="inspiration-card-avatar"
-          className="pointer-events-none absolute right-3 z-20 h-11 w-11 rounded-full"
-          style={{
-            bottom: -14,
-            border: `${avatarBorderWidth}px solid ${ringColor}`,
-            background: ringColor,
-          }}
-        />
+        {/* ⚠️ 虚拟创作者头像已按用户要求全站移除（专题页 + 个人中心都走这张卡）。 */}
       </div>
 
-      {/* ⚠️ pt-7：给越过交界线的头像让位，避免描边压住下方标签（用户明确禁止） */}
-      <div className="flex min-h-[270px] flex-col p-4 pt-7">
+      {/*
+        ⚠️ 这里原本是 `p-4 pt-7` —— 多出的上内边距是**专门给越过交界线的头像让位**的。
+        头像删掉后必须一并回收，否则会剩一条没有来由的空白，看起来像排版错位。
+        📌 判据：删元素时，凡是「为这个元素而加的布局补偿」都要跟着删。
+      */}
+      <div className="flex min-h-[270px] flex-col p-4">
         <div className="mb-3 flex min-w-0 items-center justify-between gap-2">
           <span
             className="min-w-0 truncate whitespace-nowrap rounded-[var(--radius-pill)] px-2.5 py-1 type-caption"

@@ -11,7 +11,7 @@ import { BG_GLOW } from "@/lib/workspace-data";
 import { InspirationCard } from "@/components/inspiration/InspirationCard";
 import { InspirationReactionButton } from "@/components/inspiration/InspirationReactionButton";
 import { useInspirationReactions } from "@/hooks/useInspirationReactions";
-import { normalizeInspirationIdentity } from "@/lib/inspiration-avatar";
+import { normalizeInspirationIdentity } from "@/lib/inspiration-identity";
 import {
   getInspirationFavoriteBaseCount,
   getInspirationLikeBaseCount,

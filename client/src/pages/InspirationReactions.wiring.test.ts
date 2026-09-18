@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -10,7 +10,11 @@ import {
 } from "../../../shared/strip-source-comments";
 
 /**
- * 点赞 / 收藏 / 虚拟头像「三处接线」的防护测试。
+ * 点赞 / 收藏 / 身份键「多处接线」的防护测试。
+ *
+ * ⚠️ 原本还包含「虚拟创作者头像」，该功能已按用户要求全站移除（2026-09-18）。
+ * 相关用例**没有删除而是反转**：从「头像必须渲染」改成「头像必须不存在」，
+ * 这样将来有人把头像加回来会被立刻拦下。
  *
  * 【为什么要扫源码而不是只测纯函数】
  * 本项目踩过一次（`32a6561`）：纯函数测得再全，只要**没人调用它**，
@@ -33,37 +37,21 @@ function readSource(relative: string, maxLossRatio?: number): string {
 }
 
 /**
- * `inspiration-avatar.ts` 的剥离损耗上限单独放宽到 0.6。
+ * `inspiration-identity.ts`（原 `inspiration-avatar.ts`）的剥离损耗上限放宽到 0.72。
  *
- * 【放宽前的取证，不是拍脑袋】
- * 默认上限 0.3 拦下了它，报「吃掉 52.0%」。
- * 用**独立于 stripSourceComments 的脚本**逐行数了一遍真注释：
- *   总 116 行 / 注释 63 行，注释字符占比 **52.23%**。
- * 两个数字吻合 → 剥离函数没有误吃代码，是这个文件本身注释密度就高
- * （它记录了「身份键为什么只能是 title」这条最关键的判据）。
+ * 【放宽前的取证，不是拍脑袋】（2026-09-18 头像移除后重新量过）
+ * 头像实现删掉后，这个文件只剩两个短函数，但「身份键为什么只能是 title」
+ * 那段判据注释原样保留 → **代码变少、注释没少，占比自然升高**。
+ * 用独立于 stripSourceComments 的脚本逐行数：
+ *   总 48 行 / 注释 34 行，注释字符占比 **68.89%**，与闸门报数吻合
+ *   → 剥离函数没有误吃代码。
  *
  * ⚠️ 只在这一个调用点放宽，**不动 assertStripKeptSource 的默认值**：
  * 默认值一旦调高，全项目十几个源码断言测试的守门线会一起松掉。
  * 📌 并且下面紧跟着验证了关键代码锚点确实还在剥离结果里 ——
  *    否则「放宽上限」就等于把反向断言放成恒绿。
  */
-const AVATAR_LIB_MAX_LOSS_RATIO = 0.6;
-
-/**
- * `InspirationAvatar.tsx` 的剥离损耗上限，同样单独放宽。
- *
- * 【取证，同样不是拍脑袋】（2026-09-18）
- * 默认 0.3 拦下它，报「吃掉 48.7%」。
- * 用同一个独立脚本 `/tmp/artx-comment-ratio-2.mjs` 逐行数：
- *   总 83 行 / 纯注释 38 行 / 代码 35 行，注释字符占比 **48.69%**。
- * 与闸门报的 48.7% 吻合到小数点后一位 → 剥离函数没误吃代码。
- * 另外 `grep 'image/\*'` 零命中，排除了「含 /* 的字符串把正则带跑」这个成因。
- *
- * ⚠️ 只放宽这一个调用点，不动默认值。
- * 📌 且这条断言里先做了正向锚点校验（onError / AVATAR_FALLBACK_SRC 等都要在），
- *    保证放宽后反向断言不会变成恒绿的装饰品。
- */
-const AVATAR_COMPONENT_MAX_LOSS_RATIO = 0.55;
+const IDENTITY_LIB_MAX_LOSS_RATIO = 0.72;
 
 describe("home page inspiration wiring", () => {
   const source = readSource("HomePage.tsx");
@@ -84,71 +72,76 @@ describe("home page inspiration wiring", () => {
     expect(source).toContain("getDisplayLikeCount(");
   });
 
-  it("renders the deterministic avatar keyed by title", () => {
+  it("首页灵感卡片不再渲染任何虚拟创作者头像", () => {
     /*
-     * ⚠️ 重锚（2026-09-18）：头像渲染已从首页内联 <img> 抽成共享组件
-     * InspirationAvatar，好让「CDN 挂了换本地 Logo」的兜底逻辑只有一个出口。
-     * 约束没变（仍是「按 title 确定性取头像 + 不可点」），只是守门位置变了：
-     * 首页守「把 title 传给了共享组件」，取值逻辑由组件自己的用例守。
-     */
-    expect(source).toContain('testId="home-inspiration-avatar"');
-    expect(source).toContain("<InspirationAvatar");
-    expect(source).toContain("title={item.title}");
-    // ⚠️ 用户要求头像不可点
-    expect(source).toContain("pointer-events-none");
-    // 📌 反向：首页不能再自己拼头像 URL，否则兜底又变成两个出口
-    expect(source).not.toContain("getInspirationAvatarUrl(");
-  });
-
-  it("routes every avatar through the shared fallback-aware component", () => {
-    /*
-     * 📌 头像有两个渲染出口（首页板块、共享卡片）。
-     * 兜底逻辑只写进其中一个，另一个在 DiceBear 不可达时仍然是破图，
-     * 而且**不会报任何错** —— 本项目踩过十几次的「多出口只改一个」。
-     */
-    const avatarComponent = readSource(
-      "../components/inspiration/InspirationAvatar.tsx",
-      AVATAR_COMPONENT_MAX_LOSS_RATIO
-    );
-    expect(avatarComponent).toContain("onError={handleError}");
-    expect(avatarComponent).toContain("AVATAR_FALLBACK_SRC");
-    expect(avatarComponent).toContain("artxStudioLogo");
-    // ⚠️ 兜底图是 5.4:1 的横版 Logo，cover 会裁成一条糊色块
-    expect(avatarComponent).toContain('objectFit: "contain"');
-    // title 变了要清掉失败标记，否则列表复用时会一直显示兜底图
-    expect(avatarComponent).toContain("setFailed(false)");
-
-    const card = readSource("../components/inspiration/InspirationCard.tsx");
-    expect(card).toContain("<InspirationAvatar");
-    expect(card).not.toContain("getInspirationAvatarUrl(");
-  });
-
-  it("never derives the avatar from a random source", () => {
-    /*
-     * 📌 随机 = 同一张卡片每次换一张脸，正是用户说的「很假」。
+     * 【用户要求】「所有场景下的灵感推荐头像全部去掉」（2026-09-18）。
      *
-     * ⚠️ 这里**不能**直接断言整个 HomePage 不含 `Math.random()`：
-     * 首页本来就有两处合法随机（展示用的播放/点赞基数、灵感洗牌），
-     * 那样写会变成一条恒红的断言，只能靠删实现来求绿 —— 毫无意义。
-     * 正确的守门位置是头像映射库本身。
+     * ⚠️ 这条是反向断言，必须锚在**具体写法**上而不是泛泛的 "avatar" 字样：
+     * 泛锚会被无关代码（比如用户自己的头像）带得恒红或恒绿。
      */
-    const avatarLib = readSource("../lib/inspiration-avatar.ts", AVATAR_LIB_MAX_LOSS_RATIO);
-    // ⚠️ 先证「代码还在剥离结果里」，否则下面两条反向断言就是恒绿的装饰品。
-    expect(avatarLib).toContain("export function getInspirationAvatarUrl");
-    expect(avatarLib).toContain("export function hashInspirationSeed");
-    expect(avatarLib).toContain("AVATAR_STYLES[seed % AVATAR_STYLES.length]");
-    expect(avatarLib).not.toContain("Math.random");
-    expect(avatarLib).not.toContain("Date.now()");
+    expect(source).not.toContain("<InspirationAvatar");
+    expect(source).not.toContain("home-inspiration-avatar");
+    expect(source).not.toContain("getInspirationAvatarUrl");
     /*
-     * 头像取值必须直接来自内容标题，中间不经过任何随机量。
-     * ⚠️ 重锚：调用点已搬进 InspirationAvatar 组件，首页只负责把 title 传进去。
+     * 📌 正向锚点：证明这个文件确实是首页、且卡片渲染代码还在 ——
+     * 否则「文件读空了」和「头像确实没了」输出一模一样，上面三条会静默恒绿。
+     *
+     * ⚠️ 不能用 `title={item.title}` 当锚点：那串**只存在于头像组件的传参里**，
+     * 头像删掉后它必然消失 —— 那样这条正向锚点会恒红，等于逼着人删断言求绿。
+     * 改用卡片本身的渲染锚点。
      */
-    const avatarComponent = readSource(
-      "../components/inspiration/InspirationAvatar.tsx",
-      AVATAR_COMPONENT_MAX_LOSS_RATIO
+    expect(source).toContain("{item.title}");
+    expect(source).toContain("InspirationReactionButton");
+  });
+
+  it("共享卡片（专题页 + 个人中心共用）同样不再渲染头像", () => {
+    /*
+     * 📌 头像原本有两个渲染出口：首页板块、共享卡片 `InspirationCard`。
+     * 只删一个 = 专题页和个人中心照样有头像，而且**不会报任何错**
+     * —— 本项目踩过十几次的「多出口只改一个」。
+     */
+    const card = readSource("../components/inspiration/InspirationCard.tsx");
+    expect(card).not.toContain("<InspirationAvatar");
+    expect(card).not.toContain("getInspirationAvatarUrl");
+    expect(card).not.toContain("inspiration-card-avatar");
+    // ⚠️ 为头像让位的布局补偿也必须回收，否则留一条无来由的空白
+    expect(card).not.toContain("avatarBorderWidth");
+    expect(card).not.toContain("avatarBorderColor");
+    expect(card).not.toContain("p-4 pt-7");
+    // 正向锚点：卡片主体还在，排除「读到空文件」导致的恒绿
+    expect(card).toContain("{item.title}");
+    expect(card).toContain("reactionSlot");
+  });
+
+  it("头像组件文件已彻底删除，不留死代码", () => {
+    /*
+     * ⚠️ 只删调用点、留着组件文件，下次有人搜到它会以为还能用，
+     * 顺手接回去 —— 头像就又回来了。
+     */
+    const avatarComponentPath = resolve(
+      __dirname,
+      "../components/inspiration/InspirationAvatar.tsx"
     );
-    expect(avatarComponent).toContain("getInspirationAvatarUrl(title)");
-    expect(avatarComponent).not.toContain("Math.random");
+    expect(existsSync(avatarComponentPath)).toBe(false);
+  });
+
+  it("身份键仍然保留且不依赖随机源（点赞计数还在用）", () => {
+    /*
+     * ⚠️⚠️ 头像删了，但 `hashInspirationSeed` / `normalizeInspirationIdentity`
+     * **不是头像专用的** —— 点赞/收藏的计数与勾选态同样靠它们确定身份。
+     * 📌 所以这条从「守头像映射」重锚为「守身份键」：
+     *    一旦有人把它换成随机或改用 rank，同一条灵感在两页会显示不同的点赞数，
+     *    界面上看不出异常（每张卡片确实都有数），但数字对不上。
+     */
+    const identityLib = readSource("../lib/inspiration-identity.ts", IDENTITY_LIB_MAX_LOSS_RATIO);
+    // ⚠️ 先证「代码还在剥离结果里」，否则下面的反向断言就是恒绿的装饰品。
+    expect(identityLib).toContain("export function hashInspirationSeed");
+    expect(identityLib).toContain("export function normalizeInspirationIdentity");
+    expect(identityLib).not.toContain("Math.random");
+    expect(identityLib).not.toContain("Date.now()");
+    // 📌 头像相关的实现必须已经从这个文件里清干净
+    expect(identityLib).not.toContain("AVATAR_STYLES");
+    expect(identityLib).not.toContain("dicebear");
   });
 
   it("avoids nesting a button inside a button", () => {
@@ -223,22 +216,37 @@ describe("profile page reaction tabs", () => {
 describe("shared inspiration card", () => {
   const source = readSource("../components/inspiration/InspirationCard.tsx");
 
-  it("keeps the avatar clear of the text and tag row below", () => {
-    // 用户明确要求「描边不能覆盖下方的文字或者标签」：
-    // 头像绝对定位在图片容器内、只越界一点，信息区用 pt-7 让位。
-    expect(source).toContain("pt-7");
-    expect(source).toContain("bottom: -14");
+  /*
+   * ⚠️⚠️ 下面三条原本守的是「头像的位置 / 描边 / 不可点」。
+   * 头像已按用户要求全站移除（2026-09-18），这三条**没有删除而是反转**：
+   * 守的变成「连带头像而生的那些布局补偿也必须一并回收」。
+   *
+   * 📌 判据：删一个元素时，只删元素不删「为它而加的补偿」，
+   *    界面会留一条没有来由的空白 —— 看起来像排版 bug，而且不会报错。
+   */
+  it("为头像让位的上内边距与越界定位已一并回收", () => {
+    // `pt-7` 是给越过交界线的头像留的；`bottom: -14` 是头像的越界量。
+    expect(source).not.toContain("pt-7");
+    expect(source).not.toContain("bottom: -14");
+    // 正向锚点：信息区还在，排除「读到空文件」导致的恒绿
+    expect(source).toContain("flex min-h-[270px] flex-col p-4");
   });
 
-  it("paints the avatar ring with the card background color", () => {
-    // 用户要求描边颜色与卡片同色，才是「挖空」观感。
-    expect(source).toContain("avatarBorderColor || cardBg");
-    expect(source).toContain("avatarBorderWidth = 2");
+  it("头像描边相关的死参数已从组件契约里删除", () => {
+    /*
+     * ⚠️ 留着没人传、也没人用的 props，下次维护的人会以为头像还在，
+     * 而 TypeScript 对「可选且未使用的 prop」不会有任何报错。
+     */
+    expect(source).not.toContain("avatarBorderColor");
+    expect(source).not.toContain("avatarBorderWidth");
+    expect(source).not.toContain("ringColor");
   });
 
-  it("keeps the avatar non-interactive", () => {
-    expect(source).toContain("pointer-events-none");
-    expect(source).not.toContain("onClick={() => {}}");
+  it("卡片里不再有任何头像元素", () => {
+    expect(source).not.toContain("<InspirationAvatar");
+    expect(source).not.toContain("pointer-events-none");
+    // 正向锚点：卡片交互还在
+    expect(source).toContain("onCopyPrompt");
   });
 
   it("always exposes the import-to-canvas action", () => {

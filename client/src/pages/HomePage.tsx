@@ -10,10 +10,9 @@ import {
   Send,
   X,
 } from "lucide-react";
-import { InspirationAvatar } from "@/components/inspiration/InspirationAvatar";
 import { InspirationReactionButton } from "@/components/inspiration/InspirationReactionButton";
 import { useInspirationReactions } from "@/hooks/useInspirationReactions";
-import { normalizeInspirationIdentity } from "@/lib/inspiration-avatar";
+import { normalizeInspirationIdentity } from "@/lib/inspiration-identity";
 import {
   getInspirationFavoriteBaseCount,
   getInspirationLikeBaseCount,
@@ -908,19 +907,9 @@ export default function HomePage() {
                   <img src={item.imageUrl} alt={item.title} className="h-auto w-full object-cover transition-transform duration-500 group-hover:scale-105" loading="lazy" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/0 to-black/0" />
                   {/*
-                    虚拟创作者头像（需求 4）。
-                    - 位置与描边参考用户给的图：压在图片左下角，1px 描边；
-                    - ⚠️ 描边色必须与容器深灰 #222222 同值，才会呈现「从卡片里挖出来」的效果；
-                    - ⚠️ 头像**不可点**：用 div 而非 button，且外层卡片本身是 button，
-                      套一个可点元素会变成嵌套按钮（HTML 非法且点击行为不可预期）；
-                    - 用 title 做身份键，保证与专题页同一张脸。
+                    ⚠️ 虚拟创作者头像已按用户要求全站移除（所有场景，不只这一处）。
+                    这里保留渐变遮罩 —— 它是图片与下方文字的过渡，和头像无关。
                   */}
-                  <InspirationAvatar
-                    title={item.title}
-                    testId="home-inspiration-avatar"
-                    className="pointer-events-none absolute left-3 bottom-3 h-9 w-9 rounded-full"
-                    style={{ border: "1px solid #222222", background: "#222222" }}
-                  />
                 </div>
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-3">
