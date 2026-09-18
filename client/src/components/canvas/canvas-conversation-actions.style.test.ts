@@ -283,10 +283,53 @@ describe("⚠️ 切换会话时禁止用旧 messages 写新会话", () => {
   it("载入 effect 负责把归属标记更新为当前会话", () => {
     const start = source.indexOf("const stored = deserializeCanvasAssistantMessages(");
     expect(start).toBeGreaterThan(0);
-    const block = source.slice(start, start + 900);
+    const block = source.slice(start, start + 2600);
     expect(
       block,
       "载入新会话消息的同时必须把归属标记指向该会话"
     ).toContain("messagesConversationRef.current = activeConversationId");
+  });
+
+  /*
+    ⚠️⚠️⚠️ 上面那条断言是「第二次线上串会话」被放过去的直接原因 ——
+       它只要求「ref 在载入 effect 里被更新」，**没约束在哪个时刻更新**。
+       我上一版把它写在 setMessages 之前，断言照样绿，线上照样串。
+
+       真实时序（React 按 effect 声明顺序执行，setMessages 异步生效）：
+         载入 effect：ref = 新id；setMessages(新内容) → 本轮 messages 仍是旧的
+         落盘 effect：ref 已 = 新id → 守卫判「相符」→ 放行 → 写入旧 messages ❌
+
+    📌⭐⭐⭐ 判据：**守卫型 ref 的断言必须锚定「它和被守护的数据在同一次
+       提交里变化」，而不是「它被赋值过」。** 赋值位置就是语义本身。
+  */
+  it("⚠️⚠️⚠️ 归属标记必须写在 setMessages 的 updater 内部，不能提前赋值", () => {
+    const start = source.indexOf("const stored = deserializeCanvasAssistantMessages(");
+    expect(start).toBeGreaterThan(0);
+    const block = source.slice(start, start + 2600);
+
+    const setIdx = block.indexOf("setMessages(() => {");
+    expect(
+      setIdx,
+      "载入 effect 必须用 setMessages(() => {...}) 形式，好把 ref 赋值包进 updater"
+    ).toBeGreaterThan(0);
+
+    const refIdx = block.indexOf("messagesConversationRef.current = activeConversationId");
+    expect(refIdx).toBeGreaterThan(0);
+    expect(
+      refIdx,
+      "ref 赋值必须在 setMessages 的 updater 内部（即位置在 setMessages 之后），" +
+        "否则守卫在切换那一轮恒真，等于没有守卫"
+    ).toBeGreaterThan(setIdx);
+  });
+
+  it("⚠️ 载入 effect 里不得在 setMessages 之前出现裸的归属赋值", () => {
+    const start = source.indexOf("const stored = deserializeCanvasAssistantMessages(");
+    const block = source.slice(start, start + 2600);
+    const setIdx = block.indexOf("setMessages(() => {");
+    const before = block.slice(0, setIdx);
+    expect(
+      before,
+      "setMessages 之前出现归属赋值 = 守卫被自己架空（2026-09-18 线上事故）"
+    ).not.toContain("messagesConversationRef.current = activeConversationId");
   });
 });

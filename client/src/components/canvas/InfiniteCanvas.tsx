@@ -21218,18 +21218,36 @@ function CanvasAssistantPanel({
         )
     );
     /*
-      ⚠️⚠️ 归属标记必须在 setMessages **之前**更新，且两条分支都要覆盖。
-         它是「这份 messages 属于哪条会话」的唯一事实源，
-         落盘 / 索引同步两个 effect 全靠它判断本轮该不该写。
+      ⚠️⚠️⚠️ 【2026-09-18 第二次线上实测修复】归属标记**绝不能**在这里
+         提前更新（我上一版就是这么写的，线上复现了同样的串会话）。
+
+         原因：本 effect 声明在「消息落盘」「索引同步」两个 effect **之前**，
+         React 按声明顺序执行。切换那一轮的实际时序是：
+
+           本 effect：ref = 新id；setMessages(新内容)  ← set 是异步的，
+                                                        本轮 messages 仍是旧的
+           落盘 effect：ref 已 = 新id → 守卫判「相符」→ 放行 → 写入旧 messages ❌
+           索引 effect：同上 → 把新会话标题/条数改成旧会话的 ❌
+
+         守卫自己把门打开了 —— 它守的是「我想切到哪」，
+         而需要守的是「内存里这份 messages 到底属于哪」。
+
+      ✅ 正解：把 ref 的更新塞进 setMessages 的 updater 里。
+         updater 只在 React 真正提交这份新 messages 时才执行，
+         于是 ref 与 messages **物理上同生共死**，不存在时序窗口。
+         （updater 必须保持纯函数语义之外的副作用最小 —— 这里只写一个
+           与该份数据同义的 ref，不触发渲染，不依赖外部可变量。）
     */
-    messagesConversationRef.current = activeConversationId;
-    if (stored.length === 1 && stored[0]?.id === "assistant-seed-1") {
-      setMessages([createCanvasAssistantSeedMessage()]);
-      return;
-    }
-    setMessages(
-      stored.length > 0 ? stored : [createCanvasAssistantSeedMessage()]
-    );
+    const nextMessages =
+      stored.length === 1 && stored[0]?.id === "assistant-seed-1"
+        ? [createCanvasAssistantSeedMessage()]
+        : stored.length > 0
+          ? stored
+          : [createCanvasAssistantSeedMessage()];
+    setMessages(() => {
+      messagesConversationRef.current = activeConversationId;
+      return nextMessages;
+    });
   }, [projectId, activeConversationId]);
 
   useEffect(() => {
