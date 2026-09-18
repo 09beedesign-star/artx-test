@@ -608,6 +608,24 @@ const MEMBERSHIP_BATCH_VALID_MONTHS = MEMBERSHIP_ROLLOVER_PERIODS + 1;
  */
 const CREDIT_BATCH_RETENTION = 2000;
 
+/**
+ * orders 保留条数。
+ *
+ * ⚠️ 这里存的是**财务数据**，被截断掉的订单是真丢了，不可恢复。
+ * 原值 200 是原型期随手写的，三处创建订单的地方各自硬编码了一遍
+ * （会员单 / 充值单 / 代收单），改的时候容易漏掉其中一处。
+ *
+ * 提到 3000 的直接原因：订阅统计（summarizeSubscriptionOrders）要按
+ * 「本月新增」「本周新增」分桶，一旦订单量超过保留上限，早期订单被挤掉，
+ * **统计结果会静默偏小** —— 不报错、不告警，数字看着正常只是少了。
+ * 这类错误在财务口径上最难发现，所以宁可多留。
+ *
+ * 为什么不干脆不截断：admin-data.json 是单文件全量读写，
+ * 无上限会随订单量线性膨胀，最终拖垮每次 loadAdminData。
+ * 3000 单按当前量级够用数年，等真到量级了应该换数据库而不是调大这个数。
+ */
+const ORDER_RETENTION = 3000;
+
 const DATA_DIR = process.env.ARTX_DATA_DIR || path.join(process.cwd(), ".artx-data");
 const DATA_FILE = path.join(DATA_DIR, "admin-data.json");
 const ADMIN_DATA_BACKEND = process.env.ARTX_ADMIN_DATA_BACKEND || "json";
@@ -2877,6 +2895,291 @@ function requireSuperAdmin(actor: AdminActor): AdminApiResult | null {
   return actor.role === "super_admin" ? null : jsonError(403, "只有 super_admin 可以管理测试账号");
 }
 
+/* ────────────────────────────────────────────────────────────────────────────
+ * 支付订单分类统计（订阅 / 充值）
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/** 订单品类。三类互斥，判定顺序见 classifyOrderKind。 */
+type OrderKind = "subscription" | "recharge" | "other";
+
+type OrderKindSummary = {
+  kind: OrderKind;
+  label: string;
+  /** 已支付订单数（不含 pending/failed/refunded）。 */
+  paidCount: number;
+  /** 已支付订单总金额（HKD）。 */
+  paidAmount: number;
+  /** 已退款订单数。 */
+  refundedCount: number;
+  /** 已退款金额，正数。 */
+  refundedAmount: number;
+  /** 待支付订单数，用于判断转化漏斗。 */
+  pendingCount: number;
+  /** 本月已支付订单数。 */
+  monthPaidCount: number;
+  /** 本月已支付金额。 */
+  monthPaidAmount: number;
+  /** 最近一笔支付时间，无则 undefined。 */
+  lastPaidAt?: string;
+};
+
+type SubscriptionMemberRow = {
+  userId: string;
+  /** 展示名，取 user.account/name，找不到用户时回退成订单里的 user 字段。 */
+  username: string;
+  planName: string;
+  /** 首次订阅支付时间（该用户最早一笔已支付订阅单）。 */
+  firstPaidAt?: string;
+  /** 最近一次订阅支付时间。 */
+  latestPaidAt?: string;
+  /** 会员到期时间，来自 user.planExpiresAt。 */
+  expiresAt?: string;
+};
+
+type SubscriptionSummary = {
+  /** 统计基准时刻（ISO），前端用它说明"截至什么时候"。 */
+  generatedAt: string;
+  /** 当前有效订阅用户数。口径见 summarizeSubscriptionOrders 注释。 */
+  activeSubscriberCount: number;
+  /** 到期未续费用户数（= 审计日志里的会员到期降级，去重到人）。 */
+  churnedSubscriberCount: number;
+  /** 本周新增订阅用户数（按周一 00:00 UTC+8 起算）。 */
+  weeklyNewSubscriberCount: number;
+  /** 本月新增订阅用户数。 */
+  monthlyNewSubscriberCount: number;
+  /** 本月新增订阅的用户 ID 列表，按首次支付时间升序。 */
+  monthlyNewSubscriberIds: string[];
+  /** 本月新增订阅用户明细，UI 直接渲染这个，不必再去 join users。 */
+  monthlyNewSubscribers: SubscriptionMemberRow[];
+  /** 当前有效订阅用户明细。 */
+  activeSubscribers: SubscriptionMemberRow[];
+  /** 按品类拆的订单汇总，顺序固定：订阅套餐、充值、其他。 */
+  byKind: OrderKindSummary[];
+  /** 本周起始时刻（UTC+8 周一零点）的展示串，用于 UI 标注口径。 */
+  weekStartLabel: string;
+  /** 本月起始时刻的展示串。 */
+  monthStartLabel: string;
+  /** 订单保留上限，前端据此提示"是否可能已截断"。 */
+  orderRetention: number;
+  /** 当前订单总条数，等于 orderRetention 时说明已经在丢历史单了。 */
+  orderCount: number;
+};
+
+/**
+ * 判定订单品类。
+ *
+ * ⚠️ **判定顺序不可调换：先排除充值，再判订阅。**
+ * getMembershipPlanFromName 用的是 includes 模糊匹配，
+ * 代收单如果被运营命名成「Pro 用户专属充值包」会被误判成 Pro 订阅单。
+ * 先用 isRechargeOrder 挡掉充值，能避免大部分误伤。
+ *
+ * ⚠️ 不能只看 creditKind：该字段是后加的，历史订单（如生产库里的
+ * ord_test_001）完全没有这个字段。isRechargeOrder 内部已经做了
+ * creditKind / packageName / id 前缀三重兜底，这里沿用同一套。
+ *
+ * 「其他」= 第三方代收单（ext_ 前缀、creditKind=manual）。
+ * 它既不是订阅也不是标准充值，单独一类，不要硬塞进前两类里。
+ */
+export function classifyOrderKind(order: PaymentOrder): OrderKind {
+  if (isRechargeOrder(order)) return "recharge";
+  // planId 是会员单创建时写死的（createBillingOrder），最可靠，优先级高于名称匹配。
+  if (order.planId) return "subscription";
+  if (order.creditKind === "membership") return "subscription";
+  if (getMembershipPlanFromName(order.packageName)) return "subscription";
+  return "other";
+}
+
+/**
+ * 取订单的"支付时间"毫秒值。
+ *
+ * ⚠️ 必须走 parseAdminTimestamp，**不能用 Date.parse**。
+ * 落库路径 ensureBillingConsistency 会把 paidAt 改写成
+ * "2026/09/13 10:00:00" 这种 UTC+8 本地串，Date.parse 会按本地时区解析，
+ * 在非 UTC+8 的服务器上**整整差 8 小时** —— 跨月/跨周的订单会被分错桶，
+ * 而且错得很隐蔽：月初月末各错几单，总数看着还挺正常。
+ *
+ * paidAt 缺失时回退到 createdAt：代收单等特殊路径可能只有创建时间。
+ */
+function resolveOrderPaidMs(order: PaymentOrder) {
+  const paid = order.paidAt ? parseAdminTimestamp(order.paidAt) : Number.NaN;
+  if (Number.isFinite(paid)) return paid;
+  const created = parseAdminTimestamp(resolveOrderCreatedAt(order));
+  return Number.isFinite(created) ? created : Number.NaN;
+}
+
+/**
+ * 求 UTC+8 时区下「本月 1 号 00:00:00」与「本周一 00:00:00」对应的 UTC 毫秒。
+ *
+ * 为什么要自己算而不用 Date 的本地方法：服务器时区不确定
+ * （容器里通常是 UTC），用 getMonth()/getDay() 拿到的是服务器时区的结果，
+ * 和后台展示用的 Asia/Shanghai 对不上。这里统一先偏移 +8 小时到"北京时间轴"
+ * 上取年月日，再把边界换算回 UTC。
+ */
+function resolveAdminPeriodBounds(nowMs: number) {
+  const offsetMs = 8 * 60 * 60 * 1000;
+  const shifted = new Date(nowMs + offsetMs);
+
+  const year = shifted.getUTCFullYear();
+  const month = shifted.getUTCMonth();
+  const date = shifted.getUTCDate();
+  // getUTCDay(): 0=周日。转成"周一为一周之首"的 0..6 偏移量。
+  const weekdayFromMonday = (shifted.getUTCDay() + 6) % 7;
+
+  const monthStartMs = Date.UTC(year, month, 1) - offsetMs;
+  const todayStartMs = Date.UTC(year, month, date) - offsetMs;
+  const weekStartMs = todayStartMs - weekdayFromMonday * 24 * 60 * 60 * 1000;
+
+  return { monthStartMs, weekStartMs };
+}
+
+/**
+ * 订阅 / 充值分类统计。
+ *
+ * 【三个口径必须先说清楚，否则数字会被误读】
+ *
+ * 1. **activeSubscriberCount（订阅用户）** = 有 planExpiresAt 且未过期的用户。
+ *    刻意**不**用 `user.membership` 是否存在来判 —— expireMemberships 到期降级时
+ *    只清 planExpiresAt，**membership 对象会留在原地**（见 :1380），
+ *    拿 membership 判会把所有历史订阅者都算成"当前订阅中"。
+ *    也刻意**不**用 plan !== Free 来判 —— super_admin 等角色账号是白给的档位
+ *    （ROLE_GRANTED_PLAN_ROLES），不是买来的，算进去等于虚报付费用户数。
+ *
+ * 2. **churnedSubscriberCount（退订用户）** = 审计日志里 action 为
+ *    「会员到期降级」的记录，按 target 去重。
+ *    ⚠️ 本系统是**一次性买断**（买 N 个月，无自动续费、无代扣签约），
+ *    用户**没有"退订"这个动作可做**，所以这个数的真实含义是
+ *    **「到期未续费」**，不是"主动取消"。UI 上必须照实标注。
+ *    ⚠️ 另外刻意排除「无有效订阅降级」—— 那是脏数据修复
+ *    （孤儿付费档，见 :1388），不是真实流失，混进来会虚高。
+ *    ⚠️ auditLogs 只留 500 条（:2882），久远的流失记录会被截断。
+ *
+ * 3. **weekly/monthlyNew（新增订阅）** = 该用户**首次**已支付订阅单
+ *    落在本周/本月。按"首单"而非"任意单"判定，否则续费会被重复计入新增。
+ *
+ * 【为什么只认 status === "paid"】
+ * pending 单随时可能失败，refunded 单钱已经退了。对账状态 reconciliation
+ * 不参与判定 —— markBillingOrderPaid 成功时会强制置 matched（:4853），
+ * 再判一次是冗余的。
+ */
+export function summarizeSubscriptionOrders(data: AdminData, nowMs = Date.now()): SubscriptionSummary {
+  const { monthStartMs, weekStartMs } = resolveAdminPeriodBounds(nowMs);
+  const userById = new Map(data.users.map((user) => [user.id, user]));
+
+  // ── 1. 按品类汇总订单 ────────────────────────────────────────────────
+  const kindLabels: Record<OrderKind, string> = {
+    subscription: "订阅套餐",
+    recharge: "积分充值",
+    other: "第三方代收",
+  };
+  const kindOrder: OrderKind[] = ["subscription", "recharge", "other"];
+  const buckets = new Map<OrderKind, PaymentOrder[]>(kindOrder.map((kind) => [kind, []]));
+  for (const order of data.orders) {
+    buckets.get(classifyOrderKind(order))!.push(order);
+  }
+
+  const byKind: OrderKindSummary[] = kindOrder.map((kind) => {
+    const orders = buckets.get(kind)!;
+    const paid = orders.filter((order) => order.status === "paid");
+    const refunded = orders.filter((order) => order.status === "refunded");
+    const monthPaid = paid.filter((order) => {
+      const ms = resolveOrderPaidMs(order);
+      return Number.isFinite(ms) && ms >= monthStartMs;
+    });
+    const lastPaidMs = paid
+      .map(resolveOrderPaidMs)
+      .filter((ms) => Number.isFinite(ms))
+      .sort((left, right) => right - left)[0];
+
+    return {
+      kind,
+      label: kindLabels[kind],
+      paidCount: paid.length,
+      paidAmount: Number(paid.reduce((sum, order) => sum + order.amount, 0).toFixed(2)),
+      refundedCount: refunded.length,
+      // refundAmount 可能缺失（老数据），回退到订单原始金额。
+      refundedAmount: Number(refunded.reduce((sum, order) => sum + (order.refundAmount ?? order.amount), 0).toFixed(2)),
+      pendingCount: orders.filter((order) => order.status === "pending").length,
+      monthPaidCount: monthPaid.length,
+      monthPaidAmount: Number(monthPaid.reduce((sum, order) => sum + order.amount, 0).toFixed(2)),
+      lastPaidAt: Number.isFinite(lastPaidMs) ? formatAbsoluteSecondTime(new Date(lastPaidMs).toISOString()) : undefined,
+    };
+  });
+
+  // ── 2. 按用户归集订阅单，算首次/最近支付时间 ──────────────────────────
+  const paidSubscriptionOrders = buckets.get("subscription")!
+    .filter((order) => order.status === "paid")
+    .map((order) => ({ order, paidMs: resolveOrderPaidMs(order) }))
+    .filter((item) => Number.isFinite(item.paidMs))
+    .sort((left, right) => left.paidMs - right.paidMs);
+
+  const firstPaidMsByUser = new Map<string, number>();
+  const latestPaidMsByUser = new Map<string, number>();
+  const planNameByUser = new Map<string, string>();
+  for (const { order, paidMs } of paidSubscriptionOrders) {
+    if (!firstPaidMsByUser.has(order.userId)) firstPaidMsByUser.set(order.userId, paidMs);
+    latestPaidMsByUser.set(order.userId, paidMs);
+    planNameByUser.set(order.userId, order.packageName || "订阅套餐");
+  }
+
+  const toMemberRow = (userId: string): SubscriptionMemberRow => {
+    const user = userById.get(userId);
+    const firstMs = firstPaidMsByUser.get(userId);
+    const latestMs = latestPaidMsByUser.get(userId);
+    const iso = (ms?: number) => (Number.isFinite(ms) ? formatAbsoluteSecondTime(new Date(ms!).toISOString()) : undefined);
+    return {
+      userId,
+      username: user?.account || user?.name || "未知账号",
+      planName: user ? normalizePlanDisplayName(user.plan) : (planNameByUser.get(userId) || "订阅套餐"),
+      firstPaidAt: iso(firstMs),
+      latestPaidAt: iso(latestMs),
+      expiresAt: user?.planExpiresAt ? formatAbsoluteSecondTime(user.planExpiresAt) : undefined,
+    };
+  };
+
+  // ── 3. 当前有效订阅用户 ──────────────────────────────────────────────
+  // 口径见函数头注释第 1 条：planExpiresAt 存在且未过期。
+  const activeSubscribers = data.users
+    .filter((user) => {
+      if (!user.planExpiresAt) return false;
+      const expiryMs = parseAdminTimestamp(user.planExpiresAt);
+      return Number.isFinite(expiryMs) && expiryMs > nowMs;
+    })
+    .map((user) => toMemberRow(user.id))
+    .sort((left, right) => String(left.expiresAt || "").localeCompare(String(right.expiresAt || "")));
+
+  // ── 4. 到期未续费（"退订"）────────────────────────────────────────────
+  // 只认「会员到期降级」，排除「无有效订阅降级」（脏数据修复，非真实流失）。
+  const churnedUserIds = new Set(
+    data.auditLogs
+      .filter((log) => log.action === "会员到期降级")
+      .map((log) => log.target)
+  );
+
+  // ── 5. 本周 / 本月新增订阅（按首单落桶）──────────────────────────────
+  const monthlyNewEntries = Array.from(firstPaidMsByUser.entries())
+    .filter(([, firstMs]) => firstMs >= monthStartMs)
+    .sort((left, right) => left[1] - right[1]);
+  const weeklyNewCount = Array.from(firstPaidMsByUser.values()).filter((firstMs) => firstMs >= weekStartMs).length;
+
+  const monthlyNewSubscribers = monthlyNewEntries.map(([userId]) => toMemberRow(userId));
+
+  return {
+    generatedAt: formatAbsoluteSecondTime(new Date(nowMs).toISOString()) || new Date(nowMs).toISOString(),
+    activeSubscriberCount: activeSubscribers.length,
+    churnedSubscriberCount: churnedUserIds.size,
+    weeklyNewSubscriberCount: weeklyNewCount,
+    monthlyNewSubscriberCount: monthlyNewEntries.length,
+    monthlyNewSubscriberIds: monthlyNewEntries.map(([userId]) => userId),
+    monthlyNewSubscribers,
+    activeSubscribers,
+    byKind,
+    weekStartLabel: formatAbsoluteSecondTime(new Date(weekStartMs).toISOString()) || "",
+    monthStartLabel: formatAbsoluteSecondTime(new Date(monthStartMs).toISOString()) || "",
+    orderRetention: ORDER_RETENTION,
+    orderCount: data.orders.length,
+  };
+}
+
 function dashboard(data: AdminData) {
   const paidOrders = data.orders.filter((order) => order.status === "paid");
   const paymentExceptions = data.orders.filter((order) => order.status === "failed" || order.reconciliation !== "matched").length;
@@ -2930,6 +3233,13 @@ function dashboard(data: AdminData) {
     signupInitialCredits: data.signupInitialCredits,
     signupInitialCreditsLimits: SIGNUP_INITIAL_CREDITS_LIMITS,
     signupIpRateLimit: SIGNUP_IP_RATE_LIMIT,
+    /**
+     * 支付订单的订阅/充值分类统计。
+     * 走 overview 主接口下发，前端不必再发一次请求 —— 这些数全部
+     * 由 data.orders / data.users / data.auditLogs 现算，没有额外存储，
+     * 所以天然与订单列表同源，不存在"列表和统计对不上"的问题。
+     */
+    subscriptionSummary: summarizeSubscriptionOrders(data),
     aiCostBreakdownByProvider: summarizeAiCostBreakdown(data, "provider"),
     aiCostBreakdownByModel: summarizeAiCostBreakdown(data, "model"),
     productionReadiness: buildProductionReadiness(),
@@ -3124,11 +3434,24 @@ function withTaskTimeline(tasks: AiTaskRecord[]) {
   });
 }
 
+/**
+ * 给订单补上品类字段（订阅 / 充值 / 其他）。
+ *
+ * ⚠️ **凡是对外返回 orders 的地方都要用这个函数。**
+ * 判定逻辑（classifyOrderKind）只能有一份实现 —— 如果让前端自己再判一遍，
+ * 两边的兜底规则迟早漂移，表现为「统计说是订阅单，列表里却显示充值」。
+ * 这个坑 aiTasks 已经踩过一次（见 withTaskTimeline 的注释）：
+ * 两条路径返回同一份数据，只有一条做了加工，且不报任何错。
+ */
+function withOrderKind(orders: PaymentOrder[]) {
+  return orders.map((order) => ({ ...order, kind: classifyOrderKind(order) }));
+}
+
 function fullPayload(data: AdminData) {
   return {
     overview: dashboard(data),
     users: toDisplayUsers(data.users),
-    orders: data.orders,
+    orders: withOrderKind(data.orders),
     credits: toDisplayCredits(data.credits),
     creditBatches: data.creditBatches,
     aiTasks: withTaskTimeline(data.aiTasks),
@@ -3294,7 +3617,7 @@ function buildAccountDetail(data: AdminData, userId: string) {
       plan: normalizePlanDisplayName(user.plan),
       spent: user.totalRecharge ?? 0,
     },
-    orders,
+    orders: withOrderKind(orders),
     creditEntries,
     aiTasks,
     auditEntries,
@@ -3333,7 +3656,16 @@ export async function handleAdminApiRequest(
     if (!detail) return jsonError(404, "用户不存在");
     return { status: 200, body: detail };
   }
-  if (method === "GET" && route === "orders") return { status: 200, body: { orders: data.orders } };
+  if (method === "GET" && route === "orders") return { status: 200, body: { orders: withOrderKind(data.orders) } };
+  /**
+   * 订阅/充值分类统计的独立只读入口。
+   * overview 里已经带了同一份数据（dashboard().subscriptionSummary），
+   * 这个路由是给「只要统计不要全量 payload」的场景用的 ——
+   * 比如财务定期拉数、外部监控轮询，避免为了几个数字拖一整个 fullPayload。
+   */
+  if (method === "GET" && route === "orders/subscription-summary") {
+    return { status: 200, body: summarizeSubscriptionOrders(data) };
+  }
   if (method === "POST" && route === "orders/external-collection") {
     const amount = Number(body.amount);
     if (!Number.isFinite(amount) || amount <= 0) return jsonError(400, "收款金额必须大于 0");
@@ -3387,7 +3719,7 @@ export async function handleAdminApiRequest(
       ],
     };
 
-    data.orders = [order, ...data.orders].slice(0, 200);
+    data.orders = [order, ...data.orders].slice(0, ORDER_RETENTION);
     if (issueCredits && expectedCredits > 0) {
       user.credits += expectedCredits;
       user.totalRecharge += amount;
@@ -4673,7 +5005,7 @@ export async function createBillingOrder(params: {
     reconciliation: "pending",
   };
 
-  data.orders = [order, ...data.orders].slice(0, 200);
+  data.orders = [order, ...data.orders].slice(0, ORDER_RETENTION);
   await saveAdminData(data);
 
   return {
@@ -4734,7 +5066,7 @@ export async function createCreditRechargeOrder(params: {
     reconciliation: "pending",
   };
 
-  data.orders = [order, ...data.orders].slice(0, 200);
+  data.orders = [order, ...data.orders].slice(0, ORDER_RETENTION);
   await saveAdminData(data);
 
   return {

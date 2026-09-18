@@ -115,6 +115,21 @@ type Order = {
   user: string;
   userId?: string;
   packageName?: string;
+  /**
+   * 品类判定相关字段。服务端 fullPayload 里 orders 是裸传 data.orders，
+   * 这三个字段一直在返回，只是前端类型以前没声明出来 ——
+   * 不声明就拿不到，TS 会当成不存在。
+   */
+  planId?: string;
+  cycleId?: string;
+  creditKind?: "membership" | "recharge" | "manual" | string;
+  /**
+   * 订单品类，由服务端 withOrderKind 统一判定后下发。
+   * ⚠️ 不要在前端重新推导 —— 判定有 creditKind / packageName / id 前缀
+   * 三重兜底且顺序有要求（必须先排除充值再判订阅），
+   * 复制一份到前端迟早和服务端漂移成「统计说订阅、列表显示充值」。
+   */
+  kind?: OrderKind;
   channel: string;
   amount: number;
   credits: number;
@@ -301,6 +316,54 @@ type ProductionCheck = {
   actionTarget: AdminSection;
 };
 
+/** 订单品类。与服务端 classifyOrderKind 的返回值一一对应。 */
+type OrderKind = "subscription" | "recharge" | "other";
+
+type OrderKindSummary = {
+  kind: OrderKind;
+  label: string;
+  paidCount: number;
+  paidAmount: number;
+  refundedCount: number;
+  refundedAmount: number;
+  pendingCount: number;
+  monthPaidCount: number;
+  monthPaidAmount: number;
+  lastPaidAt?: string;
+};
+
+type SubscriptionMemberRow = {
+  userId: string;
+  username: string;
+  planName: string;
+  firstPaidAt?: string;
+  latestPaidAt?: string;
+  expiresAt?: string;
+};
+
+/**
+ * 支付订单的订阅/充值分类统计，由服务端 summarizeSubscriptionOrders 现算下发。
+ *
+ * ⚠️ churnedSubscriberCount 的真实含义是**「到期未续费」**，不是主动退订 ——
+ * ArtX 的订阅是一次性买断，没有自动续费也没有代扣签约，用户根本没有
+ * "退订"这个动作可做。UI 上必须照实标注，不能简写成"退订"误导运营。
+ */
+type SubscriptionSummary = {
+  generatedAt: string;
+  activeSubscriberCount: number;
+  churnedSubscriberCount: number;
+  weeklyNewSubscriberCount: number;
+  monthlyNewSubscriberCount: number;
+  monthlyNewSubscriberIds: string[];
+  monthlyNewSubscribers: SubscriptionMemberRow[];
+  activeSubscribers: SubscriptionMemberRow[];
+  byKind: OrderKindSummary[];
+  weekStartLabel: string;
+  monthStartLabel: string;
+  orderRetention: number;
+  orderCount: number;
+};
+
 type OverviewData = {
   metrics: {
     todayRevenue: number;
@@ -350,6 +413,7 @@ type OverviewData = {
     maxPerSubnetWindow: number;
     windowHours: number;
   };
+  subscriptionSummary?: SubscriptionSummary;
   capabilityStatus?: Array<{ id: string; domain: string; status: "ready" | "partial" | "missing"; summary: string; source: string }>;
   productionReadiness?: Array<{ id: string; domain: string; status: "ready" | "partial" | "missing"; summary: string; requiredKeys: string[]; configuredKeys: string[]; missingKeys: string[]; action: string }>;
   productionChecks?: ProductionCheck[];
@@ -510,6 +574,21 @@ function readAdminToken() {
 function creditAmount(delta: number) {
   const prefix = delta > 0 ? "+" : "";
   return `${prefix}${formatCredits(delta)}`;
+}
+
+/** 订单品类的中文名。kind 缺失时（老接口/老缓存）落到「未分类」而不是猜。 */
+function orderKindLabel(kind?: OrderKind) {
+  if (kind === "subscription") return "订阅套餐";
+  if (kind === "recharge") return "积分充值";
+  if (kind === "other") return "第三方代收";
+  return "未分类";
+}
+
+function orderKindClass(kind?: OrderKind) {
+  if (kind === "subscription") return "border-violet-400/35 bg-violet-400/10 text-violet-100";
+  if (kind === "recharge") return "border-cyan-400/35 bg-cyan-400/10 text-cyan-100";
+  if (kind === "other") return "border-slate-400/30 bg-slate-400/10 text-slate-200";
+  return "border-white/12 bg-white/5 text-slate-400";
 }
 
 function formatCreditAdjustmentSuccess(userName: string, delta: number) {
@@ -1925,6 +2004,7 @@ function AdminPrototypePage() {
       return (
         <div className="min-w-0 space-y-5">
           {paymentCheck && <ProductionCheckPanel check={paymentCheck} title="支付对账状态" />}
+          <SubscriptionSummaryPanel summary={adminData.overview?.subscriptionSummary} />
           <OrderFilters
             query={orderQuery}
             setQuery={setOrderQuery}
@@ -2818,6 +2898,210 @@ function PagePaginator<T>({
   );
 }
 
+/**
+ * 支付订单的订阅 / 充值分类统计面板。
+ *
+ * 数据全部来自服务端 overview.subscriptionSummary，由 data.orders / users /
+ * auditLogs 现算得出 —— 与下方订单列表同源，不存在「统计和列表对不上」。
+ *
+ * ⚠️ 面板上必须保留那些口径说明文字。这里每个数字背后都有一个
+ * 和直觉不一样的定义（见各处 title），去掉说明就等于把误读交给运营。
+ */
+function SubscriptionSummaryPanel({ summary }: { summary?: SubscriptionSummary }) {
+  const [showIds, setShowIds] = useState(false);
+
+  if (!summary) {
+    return (
+      <EmptyPanel
+        title="订阅统计暂不可用"
+        body="服务端未返回 subscriptionSummary。若刚更新过后端，请刷新页面重新拉取 overview。"
+      />
+    );
+  }
+
+  const {
+    activeSubscriberCount,
+    churnedSubscriberCount,
+    weeklyNewSubscriberCount,
+    monthlyNewSubscriberCount,
+    monthlyNewSubscriberIds,
+    monthlyNewSubscribers,
+    byKind,
+  } = summary;
+
+  // 订单条数触顶意味着早期订单已被丢弃，统计会偏小。这是静默失真，必须显式告警。
+  const truncated = summary.orderCount >= summary.orderRetention;
+
+  const metricCards: Array<{ label: string; value: number; hint: string; title: string }> = [
+    {
+      label: "订阅用户",
+      value: activeSubscriberCount,
+      hint: "当前生效中",
+      title: "口径：会员到期时间存在且未过期。不含 super_admin 等按角色派发档位的内部账号。",
+    },
+    {
+      label: "到期未续费",
+      value: churnedSubscriberCount,
+      hint: "累计流失",
+      title: "口径：审计日志中「会员到期降级」的用户去重计数。本站订阅为一次性买断、无自动续费，因此不存在主动退订动作，此数实为到期未续费。审计日志仅保留最近 500 条，久远记录会被截断。",
+    },
+    {
+      label: "本周新增订阅",
+      value: weeklyNewSubscriberCount,
+      hint: `自 ${summary.weekStartLabel || "本周一"}`,
+      title: "口径：首次订阅支付时间落在本周（周一 00:00 起，UTC+8）的用户数。续费不计入。",
+    },
+    {
+      label: "本月新增订阅",
+      value: monthlyNewSubscriberCount,
+      hint: `自 ${summary.monthStartLabel || "本月 1 日"}`,
+      title: "口径：首次订阅支付时间落在本月的用户数。续费不计入。",
+    },
+  ];
+
+  return (
+    <div className="space-y-4 rounded-md border border-white/10 bg-white/[0.035] p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          <div className="text-sm font-semibold text-slate-100">订阅与充值分类统计</div>
+          <p className="mt-1 text-xs text-slate-400">
+            实时取自生产订单数据，统计时刻 {summary.generatedAt}
+          </p>
+        </div>
+        <span className="text-xs text-slate-500">共 {formatCredits(summary.orderCount)} 笔订单</span>
+      </div>
+
+      {truncated && (
+        <div className="rounded-md border border-amber-400/35 bg-amber-400/10 p-3 text-xs leading-5 text-amber-100">
+          订单条数已达保留上限 {formatCredits(summary.orderRetention)} 笔，更早的订单已被丢弃，
+          「本月/本周新增」等统计可能偏小。需要完整历史请尽快迁移到数据库存储。
+        </div>
+      )}
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {metricCards.map((card) => (
+          <div
+            key={card.label}
+            className="rounded-md border border-white/10 bg-slate-950/35 p-3"
+            title={card.title}
+          >
+            <div className="text-xs text-slate-400">{card.label}</div>
+            <div className="mt-1 text-2xl font-semibold text-slate-100">{formatCredits(card.value)}</div>
+            <div className="mt-1 text-xs text-slate-500">{card.hint}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="rounded-md border border-white/10 bg-slate-950/25 p-3 text-xs leading-5 text-slate-400">
+        「到期未续费」不是用户主动退订 —— 本站订阅为一次性买断（买 N 个月付清），
+        没有自动续费和代扣签约，用户没有可执行的退订动作。该数字统计的是会员到期后被降级回 Free 的用户。
+      </div>
+
+      <div className="min-w-0 overflow-x-auto rounded-md border border-white/10">
+        <Table className="min-w-[760px]">
+          <TableHeader>
+            <TableRow className="border-white/10 hover:bg-transparent">
+              <TableHead>类型</TableHead>
+              <TableHead>已支付</TableHead>
+              <TableHead>已支付金额</TableHead>
+              <TableHead>本月支付</TableHead>
+              <TableHead>本月金额</TableHead>
+              <TableHead>待支付</TableHead>
+              <TableHead>已退款</TableHead>
+              <TableHead>最近支付时间</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {byKind.map((row) => (
+              <TableRow key={row.kind} className="border-white/8 hover:bg-white/[0.03]">
+                <TableCell>
+                  <Badge className={orderKindClass(row.kind)}>{row.label}</Badge>
+                </TableCell>
+                <TableCell>{formatCredits(row.paidCount)}</TableCell>
+                <TableCell className="text-slate-100">{formatCurrency(row.paidAmount)}</TableCell>
+                <TableCell>{formatCredits(row.monthPaidCount)}</TableCell>
+                <TableCell>{formatCurrency(row.monthPaidAmount)}</TableCell>
+                <TableCell className={row.pendingCount ? "text-amber-200" : ""}>
+                  {formatCredits(row.pendingCount)}
+                </TableCell>
+                <TableCell className={row.refundedCount ? "text-rose-200" : ""}>
+                  {row.refundedCount ? `${row.refundedCount} 笔 / ${formatCurrency(row.refundedAmount)}` : "—"}
+                </TableCell>
+                <TableCell className="text-xs text-slate-400">{row.lastPaidAt || "—"}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+
+      <div className="rounded-md border border-white/10 bg-slate-950/25 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-sm font-medium text-slate-100">
+            本月新增订阅用户 ID
+            <span className="ml-2 text-xs font-normal text-slate-500">
+              {monthlyNewSubscriberCount} 人
+            </span>
+          </div>
+          {monthlyNewSubscriberCount > 0 && (
+            <button
+              type="button"
+              className="rounded-md border border-white/12 px-2 py-1 text-xs text-slate-200 hover:bg-white/5"
+              onClick={() => setShowIds((current) => !current)}
+            >
+              {showIds ? "收起明细" : "展开明细"}
+            </button>
+          )}
+        </div>
+
+        {monthlyNewSubscriberCount === 0 ? (
+          <p className="mt-2 text-xs leading-5 text-slate-500">
+            本月暂无新增订阅用户。若生产环境从未产生过真实订阅单，此处为 0 属正常。
+          </p>
+        ) : (
+          <>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {monthlyNewSubscriberIds.map((userId) => (
+                <span
+                  key={userId}
+                  className="rounded border border-white/12 bg-white/5 px-1.5 py-0.5 font-mono text-xs text-slate-300"
+                >
+                  {userId}
+                </span>
+              ))}
+            </div>
+            {showIds && (
+              <div className="mt-3 min-w-0 overflow-x-auto rounded-md border border-white/10">
+                <Table className="min-w-[640px]">
+                  <TableHeader>
+                    <TableRow className="border-white/10 hover:bg-transparent">
+                      <TableHead>用户 ID</TableHead>
+                      <TableHead>账号</TableHead>
+                      <TableHead>当前套餐</TableHead>
+                      <TableHead>首次支付</TableHead>
+                      <TableHead>会员到期</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {monthlyNewSubscribers.map((row) => (
+                      <TableRow key={row.userId} className="border-white/8 hover:bg-white/[0.03]">
+                        <TableCell className="font-mono text-xs text-slate-400">{row.userId}</TableCell>
+                        <TableCell>{row.username}</TableCell>
+                        <TableCell>{row.planName}</TableCell>
+                        <TableCell className="text-xs text-slate-400">{row.firstPaidAt || "—"}</TableCell>
+                        <TableCell className="text-xs text-slate-400">{row.expiresAt || "—"}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function OrdersTable({
   orders,
   users,
@@ -2841,6 +3125,7 @@ function OrdersTable({
       <TableHeader>
         <TableRow className="border-white/10 hover:bg-transparent">
           <TableHead>订单</TableHead>
+          <TableHead>类型</TableHead>
           <TableHead>用户</TableHead>
           <TableHead>剩余积分</TableHead>
           <TableHead>渠道</TableHead>
@@ -2860,6 +3145,12 @@ function OrdersTable({
               onClick={() => onSelect(order.id)}
             >
               <TableCell className="font-mono text-xs text-slate-400">{order.id}</TableCell>
+              <TableCell>
+                <Badge className={orderKindClass(order.kind)}>{orderKindLabel(order.kind)}</Badge>
+                {order.packageName && (
+                  <div className="mt-1 text-xs text-slate-500">{order.packageName}</div>
+                )}
+              </TableCell>
               <TableCell>{order.user}</TableCell>
               <TableCell>{getRemainingCredits(order)}</TableCell>
               <TableCell>{order.channel}</TableCell>
@@ -2881,7 +3172,7 @@ function OrdersTable({
           ))
         ) : (
           <TableRow className="border-white/8 hover:bg-transparent">
-            <TableCell colSpan={9} className="py-10 text-center text-sm text-slate-500">
+            <TableCell colSpan={10} className="py-10 text-center text-sm text-slate-500">
               暂无真实订单数据
             </TableCell>
           </TableRow>
