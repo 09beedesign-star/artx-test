@@ -14,6 +14,11 @@ import { InspirationAvatar } from "@/components/inspiration/InspirationAvatar";
 import { InspirationReactionButton } from "@/components/inspiration/InspirationReactionButton";
 import { useInspirationReactions } from "@/hooks/useInspirationReactions";
 import { normalizeInspirationIdentity } from "@/lib/inspiration-avatar";
+import {
+  getInspirationLikeBaseCount,
+  getInspirationViewBaseCount,
+} from "@/lib/inspiration-metrics";
+import { fetchInspirationFeed } from "@/lib/inspiration-feed";
 import { getDisplayLikeCount } from "@/lib/inspiration-reactions";
 import { useAuth, rememberInviteCodeFromUrl } from "@/contexts/AuthContext";
 import { useBillingDialog } from "@/components/billing/BillingDialogProvider";
@@ -123,10 +128,18 @@ function loadInspirationRecommendations(csv: string): InspirationRecommendation[
     .filter((item) => item.title && item.imageUrl);
 }
 
+/**
+ * 本地 CSV 灵感数据。
+ *
+ * ⚠️⚠️ 这**不再是首页的主数据源**，只作远程接口失败时的兜底。
+ * 主数据源已切到 `/api/inspiration/references`，与专题页同源 ——
+ * 否则同一条灵感在两页 title 不同，头像和点赞数必然对不上（用户明确要求一致）。
+ * 📌 兜底保留的理由：首页是落地页，远程挂了不能白屏。
+ */
 const INSPIRATION_RECOMMENDATIONS = loadInspirationRecommendations(promptCsv);
 const BRAND_LOGO_SIZE = "h-[20px] w-[109px]";
-const HOME_INSPIRATION_MIN_METRIC = 1000;
-const HOME_INSPIRATION_MAX_METRIC = 10000;
+/** 首页灵感推荐最多展示的条数。远程有 900 条，首页只需要一屏量。 */
+const HOME_INSPIRATION_LIMIT = 50;
 
 const PROMPT_SUGGESTIONS = [
   "帮我生成一张赛博朋克风格插画",
@@ -147,13 +160,6 @@ type PanelMode = "prelogin" | "login" | "register";
 type LandingTab = "home" | "inspiration" | "skills" | "workspace" | "help";
 type LoginBubble = { left: number; top: number; id: number } | null;
 
-function randomInspirationMetric() {
-  return Math.floor(
-    HOME_INSPIRATION_MIN_METRIC +
-      Math.random() * (HOME_INSPIRATION_MAX_METRIC - HOME_INSPIRATION_MIN_METRIC + 1)
-  );
-}
-
 function shuffleInspirationRecommendations(items: InspirationRecommendation[]) {
   return [...items]
     .map(item => ({ item, sort: Math.random() }))
@@ -161,12 +167,31 @@ function shuffleInspirationRecommendations(items: InspirationRecommendation[]) {
     .map(({ item }) => item);
 }
 
-function createHomeInspirationFeed(): HomeInspirationItem[] {
-  return shuffleInspirationRecommendations(INSPIRATION_RECOMMENDATIONS).map(item => ({
+/**
+ * 给条目挂上展示计数。
+ *
+ * ⚠️⚠️⚠️ 这里原来是 `randomInspirationMetric()`（`Math.random()`），已删除。
+ * 随机数导致三个连锁问题，且**一个都不会报错**：
+ *   1. 同一张卡片在首页和专题页数字不同；
+ *   2. 刷新一次数字就变；
+ *   3. 用户点赞 +1 完全没意义 —— 基数自己每次都在跳几千。
+ * 现在改成 title 哈希算出的确定性基数（`inspiration-metrics.ts`），
+ * 同一条内容在任何页面、任何时刻都是同一个数，用户的 +1 才看得见。
+ */
+function withInspirationMetrics(item: InspirationRecommendation): HomeInspirationItem {
+  return {
     ...item,
-    viewCount: randomInspirationMetric(),
-    likeCount: randomInspirationMetric(),
-  }));
+    viewCount: getInspirationViewBaseCount(item.title),
+    likeCount: getInspirationLikeBaseCount(item.title),
+  };
+}
+
+/**
+ * 兜底数据源：本地 CSV。
+ * ⚠️ 仅在远程接口失败时使用，此时与专题页对不上是**已知代价**（见 `inspiration-feed.ts`）。
+ */
+function createHomeInspirationFallbackFeed(): HomeInspirationItem[] {
+  return shuffleInspirationRecommendations(INSPIRATION_RECOMMENDATIONS).map(withInspirationMetrics);
 }
 
 const getStageScale = () => {
@@ -268,7 +293,18 @@ export default function HomePage() {
   const [stageScale, setStageScale] = useState(getStageScale);
   const [activeTab, setActiveTab] = useState<LandingTab>("home");
   const [loginBubble, setLoginBubble] = useState<LoginBubble>(null);
-  const [homeInspirationItems, setHomeInspirationItems] = useState(createHomeInspirationFeed);
+  const [homeInspirationItems, setHomeInspirationItems] = useState(
+    createHomeInspirationFallbackFeed
+  );
+  /**
+   * 远程灵感是否已接管。
+   *
+   * ⚠️ 用来挡住「刷新按钮把远程数据重新洗回 CSV」：
+   * 下面的 refresh 逻辑原来无条件调 createHomeInspirationFeed()，
+   * 若远程已经接管，再调一次就把首页悄悄打回本地 CSV，
+   * 表现是「刚才两页头像还一致，点了下刷新就不一致了」，且不报错。
+   */
+  const remoteInspirationLoadedRef = useRef(false);
   /**
    * 灵感点赞 / 收藏状态。
    * ⚠️ 与专题页、个人中心共用同一份 hook —— 首页点的赞必须能在个人中心看到。
@@ -311,8 +347,53 @@ export default function HomePage() {
     setPanelMode("prelogin");
     setAuthError("");
     setLoginBubble(null);
-    setHomeInspirationItems(createHomeInspirationFeed());
+    /*
+     * ⚠️⚠️ 只有仍在兜底数据上才重洗顺序。
+     * 远程数据一旦接管，重洗会把首页打回本地 CSV，
+     * 于是「登录前两页头像一致 → 登录后不一致」，而且不报任何错。
+     */
+    if (remoteInspirationLoadedRef.current) return;
+    setHomeInspirationItems(createHomeInspirationFallbackFeed());
   }, [isAuthenticated]);
+
+  /*
+   * 拉取远程灵感，与专题页**同一个接口、同一份映射**。
+   *
+   * 📌 这是「两页头像与点赞数一致」的根本前提：一致不是靠对齐算法，
+   * 而是靠两页消费同一条内容（同一个 title）。算法早就是纯函数了，
+   * 之前对不上的原因是首页读 CSV、专题页读接口，两边压根没有同一条数据。
+   *
+   * ⚠️ 失败时保持兜底数据不动（不要清空）：首页是落地页，白屏比不一致严重得多。
+   */
+  useEffect(() => {
+    const controller = new AbortController();
+
+    fetchInspirationFeed(controller.signal)
+      .then(items => {
+        if (controller.signal.aborted || items.length === 0) return;
+        remoteInspirationLoadedRef.current = true;
+        setHomeInspirationItems(
+          items.slice(0, HOME_INSPIRATION_LIMIT).map(item =>
+            withInspirationMetrics({
+              rank: item.rank,
+              field: item.field,
+              title: item.title,
+              description: item.description,
+              prompt: item.prompt,
+              imageUrl: item.imageUrl,
+              author: item.author,
+            })
+          )
+        );
+      })
+      .catch(error => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        // 不 toast：首页有兜底内容可看，弹错只会打扰落地用户。
+        console.warn("[home] inspiration feed failed, fallback to local csv", error);
+      });
+
+    return () => controller.abort();
+  }, []);
 
   /*
    * 带邀请码落地时：记住邀请码，并把右侧面板直接切到注册态。

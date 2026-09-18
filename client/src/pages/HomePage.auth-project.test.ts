@@ -138,15 +138,29 @@ describe("HomePage auth flow", () => {
     expect(source).toContain('style={{ maxWidth: 980, background: "#222222", border: `1px solid ${homeInspirationBorder}` }}');
   });
 
-  it("randomizes home inspiration order and metrics for each login session", () => {
+  /**
+   * ⚠️⚠️ 这条原来叫「randomizes order **and metrics**」，断言里锁死了
+   * `randomInspirationMetric()` / `HOME_INSPIRATION_MIN_METRIC` 等随机计数实现。
+   *
+   * 📌 **约束本身已被用户推翻**，不只是实现搬家：
+   * 随机计数导致「同一张卡两页数字不同、刷新就变、点赞 +1 毫无意义」，
+   * 而用户明确要求「同一个灵感卡片的头像和点赞数在两页都要一致」。
+   * 计数已改为 title 哈希的确定性基数（`lib/inspiration-metrics.ts`）。
+   *
+   * ✅ 所以这里**拆成两半**：
+   *   - 仍成立的「兜底列表顺序每次会话随机」→ 保留并重锚；
+   *   - 已作废的「计数随机」→ 反过来断言它**不能复活**。
+   * ⚠️ 直接删掉这条测试也是绿的，和「放宽求绿」不可分辨 —— 所以选择重锚。
+   */
+  it("shuffles the fallback inspiration order but keeps metrics deterministic", () => {
     const source = readFileSync(resolve(__dirname, "HomePage.tsx"), "utf-8");
 
-    expect(source).toContain("const HOME_INSPIRATION_MIN_METRIC = 1000");
-    expect(source).toContain("const HOME_INSPIRATION_MAX_METRIC = 10000");
-    expect(source).toContain("function randomInspirationMetric()");
     expect(source).toContain("function shuffleInspirationRecommendations");
-    expect(source).toContain("viewCount: randomInspirationMetric()");
-    expect(source).toContain("likeCount: randomInspirationMetric()");
-    expect(source).toContain("setHomeInspirationItems(createHomeInspirationFeed())");
+    expect(source).toContain("sort: Math.random()");
+    expect(source).toContain("setHomeInspirationItems(createHomeInspirationFallbackFeed())");
+    // 计数不再随机：确定性基数来自共享纯函数
+    expect(source).toContain("viewCount: getInspirationViewBaseCount(item.title)");
+    expect(source).toContain("likeCount: getInspirationLikeBaseCount(item.title)");
+    expect(source).not.toContain("function randomInspirationMetric()");
   });
 });

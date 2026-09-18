@@ -9,43 +9,32 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { Copy, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import { BG_GLOW } from "@/lib/workspace-data";
-import { defaultApiBaseUrlForCurrentHost, normalizeApiBaseUrl } from "@/lib/api-base-url";
 import { InspirationCard } from "@/components/inspiration/InspirationCard";
 import { InspirationReactionButton } from "@/components/inspiration/InspirationReactionButton";
 import { useInspirationReactions } from "@/hooks/useInspirationReactions";
 import { normalizeInspirationIdentity } from "@/lib/inspiration-avatar";
+import {
+  getInspirationFavoriteBaseCount,
+  getInspirationLikeBaseCount,
+} from "@/lib/inspiration-metrics";
+import {
+  INSPIRATION_TARGET_COUNT,
+  fetchInspirationFeed,
+  type InspirationFeedItem,
+} from "@/lib/inspiration-feed";
+import { getDisplayLikeCount } from "@/lib/inspiration-reactions";
 import { createWorkspaceHistoryProject } from "@/lib/project-history";
 import { writeHomePromptHandoff } from "@/lib/home-prompt-handoff";
 
-type PromptItem = {
-  rank: number;
-  group: string;
-  subcategory: string;
-  field: string;
-  model: string;
-  title: string;
-  description: string;
-  prompt: string;
-  imageUrl: string;
-  author: string;
-  isExternal?: boolean;
-};
-
-type InspirationReference = {
-  id: string;
-  group: string;
-  subcategory: string;
-  imageUrl: string;
-  proxyImageUrl: string;
-  title: string;
-  prompt: string;
-  stylePromptEn: string;
-};
+/**
+ * ⚠️ 直接复用共享类型，**不要在这里另抄一份字段列表**。
+ * 抄一份的代价：将来共享模块加字段，这里不会报错，只是悄悄少一块数据。
+ */
+type PromptItem = InspirationFeedItem;
 
 const ALL_GROUPS = "全部分类";
 const ALL_SUBCATEGORIES = "全部";
 const INSPIRATION_PAGE_SIZE = 50;
-const INSPIRATION_TARGET_COUNT = 900;
 
 const INSPIRATION_TAXONOMY: Record<string, string[]> = {
   行业品类: ["服装", "化妆品", "游戏", "母婴亲子", "美食饮品", "AI智能", "教育", "汽车相关", "3C数码", "医美纤体", "宠物广告", "家居美学", "运动户外"],
@@ -186,35 +175,6 @@ function getInitialSubcategoryParam() {
 
 const PROMPT_ITEMS = loadPromptItems(promptCsv);
 
-function getInspirationApiBaseUrl() {
-  const env = import.meta.env as Record<string, string | undefined>;
-  return normalizeApiBaseUrl(
-    env.VITE_API_BASE_URL ||
-    env.VITE_TEST_BACKEND_URL ||
-    defaultApiBaseUrlForCurrentHost("")
-  );
-}
-
-function toPromptItem(reference: InspirationReference, index: number, apiBase: string): PromptItem {
-  const imageUrl =
-    reference.proxyImageUrl.startsWith("/") && apiBase
-      ? `${apiBase}${reference.proxyImageUrl}`
-      : reference.proxyImageUrl;
-  return {
-    rank: 1000 + index,
-    group: reference.group || "其他分类",
-    subcategory: reference.subcategory || "其他",
-    field: reference.subcategory || reference.group || "外部灵感",
-    model: "ArtX",
-    title: reference.title,
-    description: `灵感提示词描述 · ${reference.group} / ${reference.subcategory}`,
-    prompt: reference.prompt || reference.stylePromptEn,
-    imageUrl,
-    author: "ArtX",
-    isExternal: true,
-  };
-}
-
 export default function InspirationPage() {
   const [location, navigate] = useLocation();
   const { resolvedTheme } = useTheme();
@@ -316,19 +276,18 @@ export default function InspirationPage() {
     setVisibleCount(INSPIRATION_PAGE_SIZE);
   }, [activeGroup, activeSubcategory]);
 
+  /*
+   * 拉取远程灵感。
+   * 📌 与首页**共用** `fetchInspirationFeed` —— 同接口、同映射、同 title，
+   * 这是两页头像与点赞数能一致的前提（详见 `inspiration-feed.ts` 文件头）。
+   */
   useEffect(() => {
     const controller = new AbortController();
-    const apiBase = getInspirationApiBaseUrl();
-    const endpoint = `${apiBase}/api/inspiration/references?limit=${INSPIRATION_TARGET_COUNT}&verifiedPromptOnly=1`;
 
-    fetch(endpoint, { signal: controller.signal })
-      .then(response => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response.json() as Promise<{ references?: InspirationReference[]; total?: number; hasMore?: boolean }>;
-      })
-      .then(payload => {
-        const references = Array.isArray(payload.references) ? payload.references : [];
-        setExternalItems(references.map((reference, index) => toPromptItem(reference, index, apiBase)));
+    fetchInspirationFeed(controller.signal, INSPIRATION_TARGET_COUNT)
+      .then(items => {
+        if (controller.signal.aborted) return;
+        setExternalItems(items);
       })
       .catch(error => {
         if (error instanceof DOMException && error.name === "AbortError") return;
@@ -543,10 +502,19 @@ export default function InspirationPage() {
                   onCopyPrompt={() => copyPrompt(item.prompt)}
                   onImportToCanvas={() => importToCanvas(item)}
                   reactionSlot={
+                    /*
+                     * ⚠️ 这里原来**没有传 count** —— 专题页的卡片只有一颗心，没有数字，
+                     * 于是用户点赞后毫无反馈（用户明确要求「点赞收藏之后都要有增加数值」）。
+                     * 基数来自 title 哈希，与首页同一个纯函数，两页数字必然相同。
+                     */
                     <InspirationReactionButton
                       kind="like"
                       active={inspirationReactions.isActive("like", identity)}
                       idleColor={sub}
+                      count={getDisplayLikeCount(
+                        getInspirationLikeBaseCount(item.title),
+                        inspirationReactions.isActive("like", identity)
+                      )}
                       onToggle={() => inspirationReactions.toggle("like", toReactionItem(item))}
                     />
                   }
@@ -614,10 +582,23 @@ export default function InspirationPage() {
                     "like",
                     normalizeInspirationIdentity(selectedItem.title)
                   )}
+                  count={getDisplayLikeCount(
+                    getInspirationLikeBaseCount(selectedItem.title),
+                    inspirationReactions.isActive(
+                      "like",
+                      normalizeInspirationIdentity(selectedItem.title)
+                    )
+                  )}
                   onToggle={() =>
                     inspirationReactions.toggle("like", toReactionItem(selectedItem))
                   }
                 />
+                {/*
+                  收藏数。⚠️ 改之前**全站没有任何地方显示收藏数**，
+                  用户点了收藏只有颜色变化、没有数值反馈。
+                  基数走 seed 的另一段位（见 inspiration-metrics.ts），
+                  避免和点赞数强相关甚至相等。
+                */}
                 <InspirationReactionButton
                   kind="favorite"
                   size={16}
@@ -625,6 +606,13 @@ export default function InspirationPage() {
                   active={inspirationReactions.isActive(
                     "favorite",
                     normalizeInspirationIdentity(selectedItem.title)
+                  )}
+                  count={getDisplayLikeCount(
+                    getInspirationFavoriteBaseCount(selectedItem.title),
+                    inspirationReactions.isActive(
+                      "favorite",
+                      normalizeInspirationIdentity(selectedItem.title)
+                    )
                   )}
                   onToggle={() =>
                     inspirationReactions.toggle("favorite", toReactionItem(selectedItem))
