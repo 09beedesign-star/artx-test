@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { accessSync, constants } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { AI_CREDIT_POLICIES, AI_IMAGE_MODEL_CREDIT_POLICIES, AI_PLAN_DISCOUNTS, getAiImageModelCreditPolicy, isHighQualityImageModel, type AiBillingCapability, type AiBillingPolicy, type AiPlanDiscountPolicy } from "../shared/ai-credit-policy";
+import { AI_CREDIT_POLICIES, AI_IMAGE_MODEL_CREDIT_POLICIES, AI_IMAGE_RESOLUTION_POLICIES, AI_PLAN_DISCOUNTS, getAiImageModelCreditPolicy, getAiImageResolutionPolicy, isHighQualityImageModel, type AiBillingCapability, type AiBillingPolicy, type AiPlanDiscountPolicy } from "../shared/ai-credit-policy";
 import {
   BILLING_CYCLES,
   MEMBERSHIP_PLANS,
@@ -259,6 +259,16 @@ type AiTaskRecord = {
   failureReason: string;
   inputUnits: number;
   outputUnits: number;
+  /**
+   * 出图分辨率档位（"1k" | "2k" | "4k" | "8k"）。
+   *
+   * 【2026-09-18 新增】分辨率分档计费上线前，这张表**没有任何分辨率字段**，
+   * 导致既无法验证分档假设是否成立，也无法回算真实成本 ——
+   * 后台看到的只有「收了多少积分」，却不知道这笔钱对应的是哪一档。
+   *
+   * ⚠️ 历史记录没有这个字段，读取时必须容忍 undefined（视作 "1k"）。
+   */
+  resolutionTier?: string;
   estimatedCost: number;
   chargedCredits: number;
   grossMargin: number;
@@ -305,6 +315,11 @@ type AiUsageRecordInput = {
   outputUnits?: number;
   inputTokens?: number;
   outputTokens?: number;
+  /**
+   * 出图分辨率档位，由路由层按最终输出像素判定后传入。
+   * 不传视作 "1k"（与分档计费上线前的行为一致）。
+   */
+  resolutionTier?: string;
   estimatedCost?: number;
   chargedCredits?: number;
 };
@@ -1730,6 +1745,8 @@ function quoteAiUsageFromData(data: AdminData, input: {
   outputCount?: number;
   planId?: string;
   model?: string;
+  /** 出图分辨率档位，只对 text_to_image 生效。不传恒按 1k 计（与改造前一致）。 */
+  resolutionTier?: string;
 }) {
   const policies = data.aiBillingPolicies?.length ? data.aiBillingPolicies : AI_CREDIT_POLICIES;
   const discounts = data.aiPlanDiscounts?.length ? data.aiPlanDiscounts : AI_PLAN_DISCOUNTS;
@@ -1743,18 +1760,34 @@ function quoteAiUsageFromData(data: AdminData, input: {
   const modelPolicy = input.capability === "text_to_image"
     ? getAiImageModelCreditPolicy(input.model)
     : null;
+  /**
+   * ⚠️⚠️ 这个函数是 shared/quoteAiUsage 的「读库版」副本，**生产链路走的是这条**。
+   * 分辨率系数必须在这里也实现一遍，只改 shared 那份等于没改 ——
+   * 参见 ai-billing-policy-snapshot.test.ts:32 记录的同类事故
+   * （测试用 quoteAiUsage、生产用 quoteAiUsageFromData，库为空时两者恒等，
+   *   于是差异在测试里永远暴露不出来）。
+   */
+  const resolutionPolicy = input.capability === "text_to_image"
+    ? getAiImageResolutionPolicy(input.resolutionTier)
+    : AI_IMAGE_RESOLUTION_POLICIES[0];
   const rawCredits = modelPolicy
     ? modelPolicy.creditsPerImage * outputCount
     : policy.billingUnit === "per_image"
       ? policy.baseCredits * outputCount + (policy.perOutputCredits || 0) * Math.max(0, outputCount - 1)
       : policy.baseCredits;
   const discountMultiplier = modelPolicy?.applyPlanDiscount === false ? 1 : discount.multiplier;
+  const scaledCredits = rawCredits * discountMultiplier * resolutionPolicy.creditsMultiplier;
 
   return {
     policy,
     discount,
-    chargedCredits: Math.max(1, Math.round(rawCredits * discountMultiplier)),
-    estimatedCost: Number(((modelPolicy?.estimatedCostPerImage || policy.estimatedCostPerUnit) * (policy.billingUnit === "per_image" ? outputCount : 1)).toFixed(2)),
+    resolutionPolicy,
+    chargedCredits: Math.max(1, Math.round(scaledCredits / 10) * 10),
+    estimatedCost: Number((
+      (modelPolicy?.estimatedCostPerImage || policy.estimatedCostPerUnit)
+      * (policy.billingUnit === "per_image" ? outputCount : 1)
+      * resolutionPolicy.costMultiplier
+    ).toFixed(2)),
   };
 }
 
@@ -5035,6 +5068,7 @@ export async function recordAiUsage(input: AiUsageRecordInput) {
       outputCount: input.outputUnits || 1,
       planId: getPlanIdFromUserPlan(user.plan),
       model: input.model,
+      resolutionTier: input.resolutionTier,
     })
     : null;
   const chargedCredits = input.status === "success"
@@ -5075,6 +5109,10 @@ export async function recordAiUsage(input: AiUsageRecordInput) {
     failureReason: input.failureReason || "",
     inputUnits: input.inputUnits ?? input.inputTokens ?? 0,
     outputUnits: input.outputUnits || 0,
+    // 只对出图记录分辨率档；其他能力与分辨率无关，留空避免误导统计。
+    resolutionTier: input.capabilityKey === "text_to_image"
+      ? (quote?.resolutionPolicy.tier || input.resolutionTier || "1k")
+      : undefined,
     estimatedCost,
     chargedCredits,
     grossMargin: input.status === "success" && chargedCredits
@@ -5091,7 +5129,14 @@ export async function recordAiUsage(input: AiUsageRecordInput) {
     createdAt,
   };
 
-  data.aiTasks = [record, ...data.aiTasks].slice(0, 500);
+  /**
+   * 保留上限 500 → 3000。
+   *
+   * 500 是**全站合计**（不是每人 500），分辨率分档计费上线后要靠这张表
+   * 回算各档真实占比与毛利，500 条样本在有一定流量后可能只覆盖不到一天，
+   * 根本不足以支撑定价复盘。3000 条在内存占用与分析价值之间取平衡。
+   */
+  data.aiTasks = [record, ...data.aiTasks].slice(0, 3000);
 
   if (record.status === "success" && record.chargedCredits > 0) {
     const excludeKinds: CreditBatchKind[] = isHighQualityImageModel(record.model) ? ["gift"] : [];

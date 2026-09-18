@@ -36,6 +36,58 @@ export type AiImageModelCreditPolicy = {
   applyPlanDiscount?: boolean;
 };
 
+/**
+ * 出图分辨率档位。**与腾讯 VOD 的 Resolution 参数一一对应**（8K 除外）。
+ *
+ * ⚠️ 落档口径是「输出**短边**像素」，不是长边，也不是总像素：
+ *   1K: 短边 ≤ 1024（OG 系列放宽至 ≤ 1088）
+ *   2K: 1024 < 短边 ≤ 2048
+ *   4K: 短边 > 2048
+ * 来源：《腾讯VOD-AIGC生图定价对照》。按长边判会系统性低估一档，导致少收钱。
+ */
+export type AiImageResolutionTier = "1k" | "2k" | "4k" | "8k";
+
+/**
+ * 分辨率计费系数。
+ *
+ * 【2026-09-18 新增】此前分辨率**完全不参与计费**：quoteAiUsage 只看 model，
+ * 2K/4K 与 1K 收同样的积分。当时这么做没出问题，是因为
+ * image-generation.ts 恒向 VOD 传 `Resolution: "1K"`，高分辨率靠本地 sharp
+ * 放大实现，上游成本确实没有差别。
+ *
+ * 本次改造让高分辨率**真的向 VOD 下发 2K/4K**（画质真实提升），
+ * 上游成本随之上涨，必须同步分档计费，否则 2K/4K 的毛利会被直接吃穿。
+ *
+ * ⚠️ creditsMultiplier **刻意低于** costMultiplier：
+ *   2K 成本 2.33× 只收 2.14×，4K 成本 2.91× 只收 2.71×。
+ *   让「往上买一档」显得划算，引导用户使用高分辨率，
+ *   同时毛利率仍守在 58% 以上（高于 55% 红线）。
+ *
+ * ⚠️ 8K 上游**没有这一档**（官方报价止于 4K）。8K = 4K 出图 + 本地放大，
+ *   所以 costMultiplier 与 4K 相同，但 creditsMultiplier 更高 ——
+ *   多出来的部分是本地算力与存储溢价，同时抑制无意义的滥用
+ *   （8K 相比 4K 没有真实画质收益，纯插值）。
+ */
+export type AiImageResolutionPolicy = {
+  tier: AiImageResolutionTier;
+  label: string;
+  /** 落档判定用：短边像素上限。8K 为兜底档，无上限。 */
+  maxShortSide: number;
+  creditsMultiplier: number;
+  costMultiplier: number;
+  /** 是否真的向上游下发该档位。false = 本地放大实现。 */
+  nativeUpstream: boolean;
+};
+
+export const AI_IMAGE_RESOLUTION_POLICIES: AiImageResolutionPolicy[] = [
+  { tier: "1k", label: "标准 1K", maxShortSide: 1088, creditsMultiplier: 1, costMultiplier: 1, nativeUpstream: true },
+  { tier: "2k", label: "高清 2K", maxShortSide: 2048, creditsMultiplier: 2.14, costMultiplier: 2.33, nativeUpstream: true },
+  { tier: "4k", label: "超清 4K", maxShortSide: 4096, creditsMultiplier: 2.71, costMultiplier: 2.91, nativeUpstream: true },
+  { tier: "8k", label: "极清 8K", maxShortSide: Number.POSITIVE_INFINITY, creditsMultiplier: 3.71, costMultiplier: 2.91, nativeUpstream: false },
+];
+
+export const DEFAULT_IMAGE_RESOLUTION_TIER: AiImageResolutionTier = "1k";
+
 export const AI_CREDIT_POLICIES: AiBillingPolicy[] = [
   {
     capability: "text_generation",
@@ -252,11 +304,40 @@ export function isHighQualityImageModel(model?: string) {
   return getAiImageModelCreditPolicy(model)?.qualityTier === "high";
 }
 
+export function getAiImageResolutionPolicy(tier?: string) {
+  const normalized = (tier || "").trim().toLowerCase();
+  return AI_IMAGE_RESOLUTION_POLICIES.find((item) => item.tier === normalized)
+    || AI_IMAGE_RESOLUTION_POLICIES[0];
+}
+
+/**
+ * 按**输出短边像素**判定分辨率档位。
+ *
+ * ⚠️ 必须用短边。用长边判会让 2160×3840 的竖版 4K 被算成 4K 没错，
+ * 但 1080×3840 这种极端长条也会被算成 4K —— 而它的实际像素量还不到 1K 图的两倍。
+ * 腾讯按短边计费，我们也必须按短边，否则计费口径与成本口径不一致。
+ */
+export function resolveImageResolutionTier(width?: number, height?: number): AiImageResolutionTier {
+  const w = Math.max(0, Math.round(width || 0));
+  const h = Math.max(0, Math.round(height || 0));
+  if (!w || !h) return DEFAULT_IMAGE_RESOLUTION_TIER;
+  const shortSide = Math.min(w, h);
+  const matched = AI_IMAGE_RESOLUTION_POLICIES.find((item) => shortSide <= item.maxShortSide);
+  return matched?.tier || DEFAULT_IMAGE_RESOLUTION_TIER;
+}
+
 export function quoteAiUsage(input: {
   capability: AiBillingCapability;
   outputCount?: number;
   planId?: string;
   model?: string;
+  /**
+   * 出图分辨率档位。**只对 text_to_image 生效**。
+   *
+   * ⚠️ 不传时恒为 1k（系数 1），与本次改造前的计费结果**逐位一致**。
+   * 这是刻意的：没有声明分辨率的历史调用点一分钱都不该变。
+   */
+  resolutionTier?: string;
 }) {
   const policy = getAiBillingPolicy(input.capability);
   const discount = getAiPlanDiscount(input.planId);
@@ -264,18 +345,36 @@ export function quoteAiUsage(input: {
   const modelPolicy = input.capability === "text_to_image"
     ? getAiImageModelCreditPolicy(input.model)
     : null;
+  /**
+   * 分辨率只对出图生效。抠图/擦除/OCR 这些能力的上游报价与分辨率无关，
+   * 给它们乘系数等于凭空加价。
+   */
+  const resolutionPolicy = input.capability === "text_to_image"
+    ? getAiImageResolutionPolicy(input.resolutionTier)
+    : AI_IMAGE_RESOLUTION_POLICIES[0];
   const rawCredits = modelPolicy
     ? modelPolicy.creditsPerImage * outputCount
     : policy.billingUnit === "per_image"
       ? policy.baseCredits * outputCount + (policy.perOutputCredits || 0) * Math.max(0, outputCount - 1)
       : policy.baseCredits;
   const discountMultiplier = modelPolicy?.applyPlanDiscount === false ? 1 : discount.multiplier;
-  const chargedCredits = Math.max(1, Math.round(rawCredits * discountMultiplier));
-  const estimatedCost = Number(((modelPolicy?.estimatedCostPerImage || policy.estimatedCostPerUnit) * (policy.billingUnit === "per_image" ? outputCount : 1)).toFixed(2));
+  /**
+   * 取整到十位，与 creditsPerImage 的定价口径保持一致（low 40 / medium 70 / high 300）。
+   * 不取整会出现 150.something 这种数字，展示到前端很难看，
+   * 也让用户无法心算「我还能出几张」。
+   */
+  const scaledCredits = rawCredits * discountMultiplier * resolutionPolicy.creditsMultiplier;
+  const chargedCredits = Math.max(1, Math.round(scaledCredits / 10) * 10);
+  const estimatedCost = Number((
+    (modelPolicy?.estimatedCostPerImage || policy.estimatedCostPerUnit)
+    * (policy.billingUnit === "per_image" ? outputCount : 1)
+    * resolutionPolicy.costMultiplier
+  ).toFixed(2));
 
   return {
     policy,
     discount,
+    resolutionPolicy,
     chargedCredits,
     estimatedCost,
   };

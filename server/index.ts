@@ -32,7 +32,7 @@ import { INVITE_REWARD_CONFIG } from "../shared/billing-config";
 import { classifyApplicationSecuritySignal, createSecurityEventDetector, validateSecurityEventIngest } from "./security-events";
 import { assertUserCanUseSelectableModel } from "./user-model-access";
 import { exportImageProviderFailureLog } from "./image-provider-failure-log";
-import type { AiBillingCapability } from "../shared/ai-credit-policy";
+import { resolveImageResolutionTier, type AiBillingCapability } from "../shared/ai-credit-policy";
 import {
   CROSS_BORDER_CATEGORIES,
   CROSS_BORDER_COMMERCE_VERSION,
@@ -498,6 +498,37 @@ function getImageOutputUnits(result: unknown) {
   return Math.max(1, Array.isArray(record.images) ? record.images.length : 1);
 }
 
+/**
+ * 从出图结果里取**实际输出像素**，判定分辨率计费档位。
+ *
+ * ⚠️ 为什么取实际输出而不是用户请求的尺寸：
+ * 上游可能因比例归一化、模型能力上限而给出与请求不完全一致的尺寸。
+ * 按用户「要的」计费而不是「拿到的」计费，一旦上游降档就会变成多收钱 ——
+ * 这类账最难解释，也最伤信任。以实际交付为准，宁可少收。
+ *
+ * 多图时取**最大**的那张：同一次请求里的图规格一致，
+ * 取最大可避免个别缩略图把整单拉低一档。
+ */
+function getImageResolutionTier(result: unknown): string | undefined {
+  const record = result && typeof result === "object" ? result as { images?: unknown[] } : {};
+  if (!Array.isArray(record.images) || record.images.length === 0) return undefined;
+  let best: string | undefined;
+  let bestShortSide = 0;
+  for (const image of record.images) {
+    if (!image || typeof image !== "object") continue;
+    const { width, height } = image as { width?: unknown; height?: unknown };
+    const w = typeof width === "number" ? width : 0;
+    const h = typeof height === "number" ? height : 0;
+    if (!w || !h) continue;
+    const shortSide = Math.min(w, h);
+    if (shortSide > bestShortSide) {
+      bestShortSide = shortSide;
+      best = resolveImageResolutionTier(w, h);
+    }
+  }
+  return best;
+}
+
 function getProviderTaskIds(result: unknown) {
   const record = result && typeof result === "object"
     ? result as { providerTaskId?: unknown; providerTaskIds?: unknown[] }
@@ -748,6 +779,10 @@ async function recordAiRouteUsage(input: {
     startedAtMs: input.startedAt,
     failureReason: input.error,
     outputUnits,
+    // 按实际交付像素落档计费。失败的任务不计费，也就无需判定档位。
+    resolutionTier: input.status === "success"
+      ? getImageResolutionTier(input.result)
+      : undefined,
     providerTaskId: providerTaskIds?.[0],
     providerTaskIds,
     inputTokens: tokenUsage.promptTokens,

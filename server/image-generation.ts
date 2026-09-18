@@ -12,6 +12,7 @@ import {
   isVodModelId,
 } from "../shared/image-models";
 import { isClaudeTextModelId } from "../shared/text-models";
+import { resolveImageResolutionTier } from "../shared/ai-credit-policy";
 import { DEFAULT_AUTO_RATIO, resolveImageRatio } from "../shared/image-ratios";
 import { clampImageExpansionPrompt, VOD_EXPANSION_PROMPT_MAX_LENGTH } from "../shared/image-expansion";
 import { generateText } from "./text-generation";
@@ -3181,6 +3182,32 @@ export function __testResolveHighDefinitionTargetSize(
   };
 }
 
+/**
+ * 目标像素 → 腾讯 VOD 的 `Resolution` 参数。
+ *
+ * 【2026-09-18】此前恒传 "1K"，高分辨率靠出图后本地 sharp 放大实现 ——
+ * 也就是说用户买的「4K」其实是 1536 长边插值放大的，**画质没有真实提升**，
+ * 而计费又不分档，等于既没多收钱也没给到真东西。
+ *
+ * 现在改为真向上游要 2K/4K：
+ *   - 画质是真的（上游原生渲染，不是插值）
+ *   - 成本按官方报价上涨 2.33× / 2.91×，由 ai-credit-policy.ts 的
+ *     分辨率系数同步收回，毛利率守在 59% 以上
+ *
+ * ⚠️ 落档必须按**短边**，与腾讯计费口径一致（见 AI_IMAGE_RESOLUTION_POLICIES）。
+ * ⚠️ 上游**没有 8K 档**：8k 请求下发 "4K"，剩下的放大仍由本地补齐 ——
+ *    这是唯一还需要 sharp 兜底的档位，计费上也已按「4K 成本 + 算力溢价」定价。
+ */
+function resolveVodResolutionParam(
+  targetWidth?: number,
+  targetHeight?: number,
+): "1K" | "2K" | "4K" {
+  const tier = resolveImageResolutionTier(targetWidth, targetHeight);
+  if (tier === "2k") return "2K";
+  if (tier === "4k" || tier === "8k") return "4K";
+  return "1K";
+}
+
 function coerceOptionalNumber(value: unknown) {
   if (value === undefined || value === null || value === "") return undefined;
   const numberValue = Number(value);
@@ -4298,6 +4325,17 @@ export async function generateImages(input: ImageGenerateInput): Promise<Generat
       prompt: buildPrompt(input),
       model: vodModelId,
       aspectRatio: resolveImageRatio(input.ratio),
+      /**
+       * 真向上游要高分辨率（而不是本地插值放大）。
+       *
+       * ⚠️ 只在解析出显式尺寸意图时才下发非 1K：没有尺寸意图的请求
+       * 必须保持 "1K"，否则全站成本会无声上涨 2-3 倍。
+       * hasPromptSizeTarget 为 false 时 targetSize 是由 ratio 推导的默认档，
+       * 拿它去落档会把普通请求误判成高分辨率。
+       */
+      resolution: hasPromptSizeTarget
+        ? resolveVodResolutionParam(targetSize.width, targetSize.height)
+        : "1K",
       count,
       // 智能注释等场景会传入 source + edit guide 多张参考图；用 imageUrls 全部传给 VOD OG。
       imageUrls: nonMaskImages.length > 0 ? nonMaskImages.map(image => image.src) : undefined,
@@ -4334,7 +4372,7 @@ export async function generateImages(input: ImageGenerateInput): Promise<Generat
           targetSize.height,
         )
       : rawVodImages;
-    console.log("[generate] VOD success:", vodModelId, "| count:", images.length, "| targetSize:", hasPromptSizeTarget ? `${targetSize.width}x${targetSize.height}` : "(default)", "| src:", (images[0]?.src || "").slice(0, 100));
+    console.log("[generate] VOD success:", vodModelId, "| count:", images.length, "| targetSize:", hasPromptSizeTarget ? `${targetSize.width}x${targetSize.height}` : "(default)", "| upstreamResolution:", vodInput.resolution, "| src:", (images[0]?.src || "").slice(0, 100));
     // ⚠️ 必须把腾讯返回的 TaskId 透出去。这里曾经直接 `return { images }`，
     // 把 result.taskId 丢掉，导致所有 VOD 任务在后台追踪里的上游任务号
     // 恒为占位符 "provider-task-missing"，出问题时无法向腾讯提工单核查。
