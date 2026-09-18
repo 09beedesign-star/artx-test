@@ -5,15 +5,28 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
     <title>artx</title>
     <!--
-      站点图标。此前**完全没有**这行，浏览器标签页显示的是空白默认图标。
+      站点图标。
       ⚠️ href 必须写成 Vite 能识别的源码路径（/src/assets/...），构建时会被替换成
-      带内容哈希的产物路径（artxstudio-logo-<hash>.png）。写 /assets/artxstudio-logo.png
+      带内容哈希的产物路径（artx-favicon-<hash>.png）。写 /assets/artx-favicon.png
       这种「看起来对」的字面量在生产环境必然 404 —— 而 404 的图标和没图标长得一样，
       不会有任何报错提示你写错了。
-      📌 这张图同时是灵感卡片虚拟头像的本地兜底图（见 InspirationAvatar.tsx），
-      两处刻意用同一张，避免「标签页一个 Logo、兜底图另一个」。
+
+      📌 为什么**不复用** artxstudio-logo.png：
+      那张是 4338×799 的横版文字 Logo（顶栏 AppShell / HomePage 在用）。
+      标签页图标的显示区是 16×16 的正方形，横版图缩进去只剩一条几乎看不清的细线。
+      所以这里单独用方形徽标 artx-favicon.png（512×512），两者各司其职 ——
+      改动其中一个不要顺手覆盖另一个。
+
+      📌 为什么要**两张**尺寸：
+      标签页实际渲染只有 16~32px。512 版的 2px 灰描边等比缩到 32px 后不足 1 像素，
+      会和外圈绿环糊成一团。所以 32 版是单独生成的、描边压到 1px 的版本，
+      不是 512 版缩放出来的。删掉 sizes="32x32" 这行会让浏览器退回缩放大图，
+      视觉上只是「有点糊」，不会报错 —— 所以很容易被当成无用代码清理掉。
     -->
-    <link rel="icon" type="image/png" href="/src/assets/brand/artxstudio-logo.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/src/assets/brand/artx-favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/src/assets/brand/artx-favicon.png" />
+    <!-- iOS 添加到主屏幕时用的图标，必须是不透明方图，180×180 是 Apple 的推荐尺寸。 -->
+    <link rel="apple-touch-icon" href="/src/assets/brand/artx-apple-touch-icon.png" />
     <!--
       ⚠️ 这段内联样式是**刻意**的，不要因为「index.css 里已经有了」就删掉。
       外部 CSS 加载完成前浏览器已经开始绘制，这段空窗期用的是浏览器默认字体 ——
