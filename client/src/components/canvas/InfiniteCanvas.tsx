@@ -61,6 +61,10 @@ import {
   type PanelPosition,
 } from "./floating-panel-layer";
 import {
+  computePanelScrollThumb,
+  resolvePanelScrollTopFromThumb,
+} from "./panel-scroll-thumb";
+import {
   Image as ImageIcon,
   MessageSquare,
   Type,
@@ -6677,6 +6681,21 @@ function AssetNodeComponent({
     height: 26,
     maxScroll: 0,
   });
+  /*
+    提示词反推面板的滚动条。
+    ⚠️⚠️ 这里必须自己画一根**常驻可见**的滑杆，不能只靠 overflowY:auto：
+       macOS 的原生滚动条是 overlay 式的，不滚动时完全隐形。面板本来就
+       只有 380px 高、而反推出来的提示词动辄几百字，用户看到的就是
+       「最后一行被切掉一半、没有任何可滚动的提示」——2026-09-20 用户实测反馈。
+       旁边的文字提取面板早就是这个做法，这里照同一套结构复刻，别再各写一份。
+  */
+  const reversePromptScrollRef = useRef<HTMLDivElement | null>(null);
+  const reversePromptScrollTrackRef = useRef<HTMLDivElement | null>(null);
+  const [reversePromptScrollThumb, setReversePromptScrollThumb] = useState({
+    top: 0,
+    height: 26,
+    maxScroll: 0,
+  });
   const displayTitle = (data.title as string) || asset?.title || "素材节点";
   const rotation = (data.rotation as number) || 0;
   const flipX = Boolean(data.flipX);
@@ -7018,20 +7037,21 @@ function AssetNodeComponent({
     []
   );
 
+  /*
+    ⚠️ 几何算式已收口到 panel-scroll-thumb.ts。
+       以前这段公式是内联在这里的，提示词反推面板要用时如果再抄一份，
+       就等于同一份逻辑开了两个出口 —— 改一处漏一处。
+  */
   const syncExtractedTextScrollThumb = useCallback(() => {
     const container = extractedTextScrollRef.current;
     if (!container) return;
-    const trackHeight = Math.max(1, container.clientHeight - 16);
-    const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
-    const height = maxScroll
-      ? Math.max(26, Math.round((container.clientHeight / container.scrollHeight) * trackHeight))
-      : 26;
-    const maxTop = Math.max(0, trackHeight - height);
-    const top = maxScroll ? Math.round((container.scrollTop / maxScroll) * maxTop) : 0;
+    const next = computePanelScrollThumb(container);
     setExtractedTextScrollThumb(previous =>
-      previous.top === top && previous.height === height && previous.maxScroll === maxScroll
+      previous.top === next.top &&
+      previous.height === next.height &&
+      previous.maxScroll === next.maxScroll
         ? previous
-        : { top, height, maxScroll }
+        : next
     );
   }, []);
 
@@ -7060,13 +7080,12 @@ function AssetNodeComponent({
       const trackRect = track.getBoundingClientRect();
       const grabOffset = event.clientY - trackRect.top - extractedTextScrollThumb.top;
       const move = (pointerEvent: PointerEvent) => {
-        const trackHeight = Math.max(1, track.clientHeight);
-        const maxTop = Math.max(1, trackHeight - extractedTextScrollThumb.height);
-        const nextTop = Math.max(
-          0,
-          Math.min(maxTop, pointerEvent.clientY - trackRect.top - grabOffset)
-        );
-        container.scrollTop = (nextTop / maxTop) * extractedTextScrollThumb.maxScroll;
+        container.scrollTop = resolvePanelScrollTopFromThumb({
+          trackHeight: track.clientHeight,
+          thumbHeight: extractedTextScrollThumb.height,
+          desiredThumbTop: pointerEvent.clientY - trackRect.top - grabOffset,
+          maxScroll: extractedTextScrollThumb.maxScroll,
+        });
       };
       const release = () => {
         window.removeEventListener("pointermove", move);
@@ -7076,6 +7095,83 @@ function AssetNodeComponent({
       window.addEventListener("pointerup", release, { once: true });
     },
     [extractedTextScrollThumb]
+  );
+
+  /* ──────────────────────────────────────────────────────────────
+     提示词反推面板的滑杆：与上面文字提取那套**完全同构**，
+     只是换了 ref / state。几何算式共用纯函数，不再各写一份。
+     ────────────────────────────────────────────────────────────── */
+  const syncReversePromptScrollThumb = useCallback(() => {
+    const container = reversePromptScrollRef.current;
+    if (!container) return;
+    const next = computePanelScrollThumb(container);
+    setReversePromptScrollThumb(previous =>
+      previous.top === next.top &&
+      previous.height === next.height &&
+      previous.maxScroll === next.maxScroll
+        ? previous
+        : next
+    );
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!reversePromptPanelOpen) return;
+    const container = reversePromptScrollRef.current;
+    if (!container) return;
+    /*
+      ⚠️ 依赖里必须带上 reversePrompt / reversePromptCopies / isReversePrompting：
+         反推是异步的，面板先以"正在分析"的一行字打开（不需要滚动），
+         几秒后才灌进几百字正文。只在 open 变化时同步一次的话，
+         正文回来时滑杆还停留在"不需要滚动"的状态 —— 滑杆是灰的、
+         内容却已经溢出，零报错。
+         ResizeObserver 观察的是容器本身，容器高度被 maxHeight 钉死不会变，
+         所以**指望不上它**，必须靠依赖数组触发。
+    */
+    const frame = window.requestAnimationFrame(syncReversePromptScrollThumb);
+    const observer = new ResizeObserver(syncReversePromptScrollThumb);
+    observer.observe(container);
+    container.addEventListener("scroll", syncReversePromptScrollThumb, {
+      passive: true,
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+      container.removeEventListener("scroll", syncReversePromptScrollThumb);
+    };
+  }, [
+    isReversePrompting,
+    reversePrompt,
+    reversePromptCopies,
+    reversePromptError,
+    reversePromptPanelOpen,
+    syncReversePromptScrollThumb,
+  ]);
+
+  const handleReversePromptScrollThumbPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      const container = reversePromptScrollRef.current;
+      const track = reversePromptScrollTrackRef.current;
+      if (!container || !track || reversePromptScrollThumb.maxScroll <= 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const trackRect = track.getBoundingClientRect();
+      const grabOffset = event.clientY - trackRect.top - reversePromptScrollThumb.top;
+      const move = (pointerEvent: PointerEvent) => {
+        container.scrollTop = resolvePanelScrollTopFromThumb({
+          trackHeight: track.clientHeight,
+          thumbHeight: reversePromptScrollThumb.height,
+          desiredThumbTop: pointerEvent.clientY - trackRect.top - grabOffset,
+          maxScroll: reversePromptScrollThumb.maxScroll,
+        });
+      };
+      const release = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", release);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", release, { once: true });
+    },
+    [reversePromptScrollThumb]
   );
 
   // 选中边框样式
@@ -9660,6 +9756,12 @@ function AssetNodeComponent({
                 cursor: "move",
                 touchAction: "none",
                 userSelect: "none",
+                /*
+                  ⚠️ 标题栏与底部工具栏都必须 flex:0 0 auto。
+                     不钉死的话，正文变长时 flex 会去压缩它们，
+                     表现为标题被挤扁、关闭按钮位置漂移。
+                */
+                flex: "0 0 auto",
               }}
               onPointerDown={handleReversePromptPanelDragStart}
               onPointerMove={handleReversePromptPanelDragMove}
@@ -9694,11 +9796,37 @@ function AssetNodeComponent({
                 <X size={14} />
               </button>
             </div>
+            {/*
+              ⚠️ 这一层 relative + min-h-0 是滑杆能正确定位的前提：
+                 轨道用 absolute 贴在它的右侧，而 flex 子项默认 min-height:auto
+                 会被内容撑高、让 overflow 失效（内容再长也不出现滚动，
+                 面板自己被撑破）。两者缺一不可，且都不报错。
+            */}
+            <div className="relative min-h-0 flex-1">
             <div
-              className="nodrag nopan flex-1 px-3 py-3"
+              ref={reversePromptScrollRef}
+              className="smart-copy-editor-scroll nodrag nopan nowheel"
               style={{
-                minHeight: 142,
+                minHeight: 0,
+                height: "100%",
+                paddingTop: 12,
+                paddingBottom: 12,
+                paddingLeft: 12,
+                /* 给右侧滑杆轨道让出位置，否则文字会压在滑杆底下 */
+                paddingRight: 22,
                 overflowY: "auto",
+                /*
+                  ⚠️ scrollbarWidth:none 是把**原生**滚动条藏掉 ——
+                     它和自绘滑杆同时出现会是两根条。内容照样能滚，
+                     配套的 ::-webkit-scrollbar 宽度归零写在 index.css 的
+                     .smart-copy-editor-scroll 里。
+                */
+                scrollbarWidth: "none",
+                /*
+                  ⚠️ overscroll-behavior:contain —— 滚到底后继续滚不要把
+                     滚动传给画布（否则一到底部画布就开始平移，像"滑飞了"）。
+                */
+                overscrollBehavior: "contain",
                 userSelect: "text",
                 whiteSpace: "pre-wrap",
                 overflowWrap: "anywhere",
@@ -9713,6 +9841,8 @@ function AssetNodeComponent({
                     : "rgba(28,28,40,0.84)",
               }}
               onMouseDown={event => event.stopPropagation()}
+              onClick={event => event.stopPropagation()}
+              onWheel={event => event.stopPropagation()}
             >
               {isReversePrompting ? (
                 REVERSE_PROMPT_LOADING_MESSAGE
@@ -9773,10 +9903,42 @@ function AssetNodeComponent({
                 </>
               )}
             </div>
+              <div
+                ref={reversePromptScrollTrackRef}
+                className="absolute bottom-2 right-1.5 top-2 w-3"
+                style={{
+                  borderRadius: 999,
+                  background: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)",
+                }}
+              >
+                <button
+                  type="button"
+                  aria-label="拖动查看完整提示词"
+                  title="拖动查看完整提示词"
+                  className="absolute left-0 flex w-3 items-center justify-center rounded-full transition-colors"
+                  style={{
+                    top: reversePromptScrollThumb.top,
+                    height: reversePromptScrollThumb.height,
+                    color: isDark ? "rgba(255,255,255,0.62)" : "rgba(28,28,40,0.56)",
+                    background: isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.16)",
+                    cursor: reversePromptScrollThumb.maxScroll > 0 ? "grab" : "default",
+                    /*
+                      ⚠️ 内容没超出时是**变淡**不是消失：滑杆消失了，用户就
+                         无从知道这个区域可滚 —— 这正是本次要修的问题本身。
+                    */
+                    opacity: reversePromptScrollThumb.maxScroll > 0 ? 1 : 0.42,
+                  }}
+                  onPointerDown={handleReversePromptScrollThumbPointerDown}
+                >
+                  <GripVertical size={9} strokeWidth={2.2} />
+                </button>
+              </div>
+            </div>
             <div
               className="flex items-center justify-end px-2.5 py-2"
               style={{
                 borderTop: `1px solid ${isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)"}`,
+                flex: "0 0 auto",
               }}
             >
               <button
