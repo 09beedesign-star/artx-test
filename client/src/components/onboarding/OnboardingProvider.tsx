@@ -147,8 +147,21 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     if (!candidate) return;
     if (attemptedRef.current.has(candidate.id)) return;
 
-    attemptedRef.current.add(candidate.id);
+    /**
+     * ⚠️⚠️ 打标必须推迟到定时器真正触发时，不能在这里就 add。
+     *
+     * 原因（实测踩过）：React 里子组件的 effect 先于父页面执行，
+     * 首页挂载的那一轮 OnboardingProvider 读到的 announcementBlocking
+     * 还是旧的 false，会一路走到打标；等 HomePage 把闸门置 true 再关闭时，
+     * attemptedRef 里已经有了 home，引导就再也不播了 ——
+     * 表现为「首页引导消失」，且不报任何错。
+     *
+     * 现在改成：定时器到点时再查一次闸门，仍在阻断就直接放弃这一轮，
+     * 且不留痕；闸门解除会让本 effect 重跑，届时重新排期。
+     */
     timerRef.current = window.setTimeout(() => {
+      if (isAnnouncementBlocking()) return;
+      attemptedRef.current.add(candidate.id);
       setActiveSegment(candidate);
     }, candidate.startDelayMs ?? 600);
 
