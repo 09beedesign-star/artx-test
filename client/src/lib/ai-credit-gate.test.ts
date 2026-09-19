@@ -84,7 +84,17 @@ describe("计费拦截文案：前后端必须同源", () => {
 
   it("前端判定层不重复写文案，只从 shared 取", () => {
     // 用未剥离的原文断言：连注释里都不该出现第二份字面量。
-    const { raw } = readSource("client/src/lib/ai-credit-gate.ts", 0.6);
+    /**
+     * ⚠️ 阈值 0.7 而不是 0.6：这个文件本来就是「大半篇幅在讲为什么」的设计说明文件，
+     *    实测注释占比已达 59.1%（两套独立口径 59.1 / 59.2 互相印证，是注释真多，
+     *    不是正则吃错）。用 0.6 只剩 0.9 个百分点余量，任何人补两行注释就会炸，
+     *    而报错文案会把他误导向「正则把源码吃跑了」，白查一轮。
+     *
+     * 📌 放宽的是**本调用点**，assertStripKeptSource 的默认值 0.3 没有动 ——
+     *    那是全仓其它文件共用的护栏。
+     *    本条断言的有效性不依赖比例，而依赖下面的正向锚点（import 语句必须在）。
+     */
+    const { raw } = readSource("client/src/lib/ai-credit-gate.ts", 0.7);
 
     expect(raw).toContain('from "@shared/ai-credit-policy"');
     expect(raw).not.toContain(AI_BILLING_BLOCKED_MESSAGES.NO_SUBSCRIPTION);

@@ -35,10 +35,14 @@ export function isAiCreditBlockedMessage(message?: string | null): boolean {
 
 export const AI_INSUFFICIENT_CREDITS_EVENT = "artx:insufficient-credits";
 
+/**
+ * 弹窗需要的全部信息 —— 只有 code。
+ * ⚠️ 刻意不含积分数额（产品决策 2026-09-19：不向用户披露单次消耗）。
+ *    服务端 402 仍返回它们（后台对账用），故闸门在前端解析处。
+ *    判据与变异自证见 insufficient-credits-dialog.test.ts。
+ */
 export type InsufficientCreditsDetail = {
   code: AiBillingErrorCode;
-  requiredCredits: number;
-  availableCredits: number;
 };
 
 /** 服务端 402 响应体。其余字段照常透传，不影响既有调用方。 */
@@ -66,11 +70,8 @@ export function emitInsufficientCredits(payload: AiBillingErrorPayload) {
   if (typeof window === "undefined") return;
   const code = payload?.code;
   if (code !== "NO_SUBSCRIPTION" && code !== "INSUFFICIENT_BALANCE") return;
-  const detail: InsufficientCreditsDetail = {
-    code,
-    requiredCredits: Number(payload.requiredCredits) || 0,
-    availableCredits: Number(payload.availableCredits) || 0,
-  };
+  // ⚠️ 只取 code：两个数额到此为止，不进事件也不进 React state。
+  const detail: InsufficientCreditsDetail = { code };
   window.dispatchEvent(new CustomEvent<InsufficientCreditsDetail>(AI_INSUFFICIENT_CREDITS_EVENT, { detail }));
 }
 

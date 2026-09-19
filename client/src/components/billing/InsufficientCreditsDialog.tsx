@@ -35,10 +35,6 @@ import {
 import { useBillingDialog } from "./BillingDialogProvider";
 import { getBillingTheme } from "./billing-theme";
 
-function formatCredits(value: number) {
-  return Math.max(0, Math.round(value)).toLocaleString("zh-CN");
-}
-
 export default function InsufficientCreditsDialog() {
   const { resolvedTheme } = useTheme();
   const theme = getBillingTheme(resolvedTheme === "dark");
@@ -142,7 +138,9 @@ export default function InsufficientCreditsDialog() {
         </div>
 
         <div className="px-5 py-5" style={{ background: panelStrong }}>
-          <p className="type-body mb-4 leading-relaxed" style={{ color: sub }}>
+          {/* mb-5：原本正文 mb-4 + 积分栏 mb-5 共同撑开与按钮的距离，
+              删掉积分栏后只剩 16px 会顶得太紧，这里补回一档。 */}
+          <p className="type-body mb-5 leading-relaxed" style={{ color: sub }}>
             {noSubscription ? (
               <>
                 当前账号还没有开通套餐，AI 生成、编辑、提示词反推这些能力都需要消耗创作积分。
@@ -156,25 +154,16 @@ export default function InsufficientCreditsDialog() {
             )}
           </p>
 
-          <div
-            className="mb-5 flex items-center justify-between rounded-[var(--radius-lg-design)] border px-4 py-3"
-            style={{ borderColor: border, background: theme.bg }}
-          >
-            <span className="type-caption" style={{ color: faint }}>
-              本次需要
-            </span>
-            <span className="type-body-strong" style={{ color: text }}>
-              {formatCredits(detail.requiredCredits)} 积分
-            </span>
-            <span className="type-caption" style={{ color: border }}>|</span>
-            <span className="type-caption" style={{ color: faint }}>
-              当前可用
-            </span>
-            <span className="type-body-strong" style={{ color: text }}>
-              {formatCredits(detail.availableCredits)}
-            </span>
-          </div>
+          {/*
+            ⚠️⚠️ 这里刻意**不展示**「本次需要 N 积分 / 当前可用 M」。
+            产品决策（2026-09-19，用户拍板）：不把单次消耗的定价暴露给用户，
+            只告诉他「积分不足」以及下一步怎么办。
 
+            📌 不要"只是把这段注释掉留着以后用" —— 真正的护栏在事件契约上：
+               InsufficientCreditsDetail 已经不再携带 requiredCredits /
+               availableCredits，前端拿不到这两个数。想加回来必须先改契约，
+               而契约那头有注释和测试拦着。
+          */}
           <button
             type="button"
             onClick={goBilling}
