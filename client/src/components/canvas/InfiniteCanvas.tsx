@@ -12064,10 +12064,34 @@ function DraftImageNodeComponent({
     uploadedRefs,
   ]);
 
+  /**
+   * 关掉这个草稿节点（右上角 ✕）。
+   *
+   * ⚠️ 复用 handleSubmit 已在用的 deleteElements，不另写一套删除逻辑 ——
+   *    📌 同一份「移除本节点」的第二个出口，将来删除链路改了这里不会跟着改。
+   *
+   * 关于撤销：deleteElements 会触发画布的 onNodesChange，也就是
+   * handleNodesChangeWithHistory，它对非 select/drag 的变更会自动 pushHistory()，
+   * 所以误关之后 Ctrl+Z 能找回来，这里**不要**再自己压一次历史（会多压一格，
+   * 表现为「撤销一次没反应、撤两次才回来」）。
+   *
+   * 关掉后画布若变空，isCanvasEmpty 转真、暗纹引导层自动回来，用户仍有入口。
+   */
+  const handleClose = useCallback(() => {
+    deleteElements({ nodes: [{ id }] });
+  }, [deleteElements, id]);
+
   return (
     <div
       data-testid="canvas-draft-image-node"
-      className="flex flex-col overflow-hidden rounded-[var(--radius-xl-design)]"
+      /*
+        ⚠️ relative 是给右上角 ✕ 用的定位上下文。
+           少了它，absolute 的按钮会往上找到祖先的定位元素，跑到画布别处去，
+           且**不报任何错** —— 只是按钮不在该在的位置。
+        ⚠️ overflow-hidden 会裁掉溢出边框的内容，所以 ✕ 必须完全落在容器内
+           （用 top-2 right-2，不要用负偏移把它挂到边框外）。
+      */
+      className="relative flex flex-col overflow-hidden rounded-[var(--radius-xl-design)]"
       style={{
         width,
         height,
@@ -12076,6 +12100,30 @@ function DraftImageNodeComponent({
         backdropFilter: "blur(12px)",
       }}
     >
+      {/*
+        右上角关闭按钮。
+        ⚠️ nodrag nopan + stopPropagation 三件套缺一不可：
+           ReactFlow 会把节点上的 mousedown 当成拖拽起手，
+           不拦住的话点击会被画布吞掉，表现为「点了没反应」。
+      */}
+      <button
+        type="button"
+        className="nodrag nopan absolute right-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-[var(--radius-pill)] transition-opacity hover:opacity-70"
+        style={{
+          background: isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.06)",
+          color: sub,
+        }}
+        onMouseDown={e => e.stopPropagation()}
+        onClick={e => {
+          e.stopPropagation();
+          handleClose();
+        }}
+        title="关闭"
+        aria-label="关闭图片生成节点"
+      >
+        <X size={13} />
+      </button>
+
       {/* 上半部分：空白画框区（用户要的「空白图片节点」本体） */}
       <div
         className="flex flex-1 flex-col items-center justify-center gap-3"

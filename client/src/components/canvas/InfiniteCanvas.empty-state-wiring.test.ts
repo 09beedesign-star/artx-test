@@ -138,8 +138,13 @@ describe("canvas empty state wiring", () => {
     // ⚠️ 不能自己建占位节点 + 自己调模型，那会绕开落盘与积分链路。
     // 全文件有十几处调用，必须限定在草稿节点内。
     expect(draftNodeBlock).toContain("dispatchImageGenerationTask(");
-    // 用户要求正方形节点 → 出图比例固定 1:1
-    expect(draftNodeBlock).toContain('ratio: "1:1"');
+    /*
+     * ⚠️ 画幅曾经硬编码成 `ratio: "1:1"`，`1bf7029` 把画幅选择器接进节点后
+     *    改成了 resolveRatio 的返回值，但这条断言没跟着改，一直红着。
+     *    现在守的是「画幅来自统一的 resolveRatio，而不是又写死一个值」。
+     */
+    expect(draftNodeBlock).toContain("const ratio = resolveRatio(activeSkill, imageRatio);");
+    expect(draftNodeBlock).toContain("displaySize: getImageDisplaySizeForRatio(ratio)");
   });
 
   it("records history before mutating nodes so undo still works", () => {
@@ -148,6 +153,65 @@ describe("canvas empty state wiring", () => {
     expect(generateBlock.indexOf("pushHistory();")).toBeLessThan(
       generateBlock.indexOf("setNodes(")
     );
+  });
+
+  it("gives the draft node a close button in its top-right corner", () => {
+    expect(draftNodeBlock).toContain('aria-label="关闭图片生成节点"');
+    // 右上角：两个类名都得在，只写一个会贴错边
+    expect(draftNodeBlock).toContain("right-2");
+    expect(draftNodeBlock).toContain("top-2");
+  });
+
+  it("anchors the close button to the node itself, not some ancestor", () => {
+    /*
+     * ⚠️ absolute 定位要生效，根容器必须是 relative。
+     *    少了 relative，按钮会往上找到祖先的定位上下文，跑到画布别的地方去，
+     *    **不报错**，只是位置不对 —— 典型的静默失效。
+     */
+    const rootAt = draftNodeBlock.indexOf('data-testid="canvas-draft-image-node"');
+    expect(rootAt).toBeGreaterThan(-1);
+    const rootClass = draftNodeBlock.slice(
+      draftNodeBlock.indexOf("className=", rootAt),
+      draftNodeBlock.indexOf("style=", rootAt)
+    );
+    expect(rootClass).toContain("relative");
+  });
+
+  it("keeps the close button clickable inside ReactFlow", () => {
+    /*
+     * ⚠️ ReactFlow 把节点上的 mousedown 当成拖拽起手。
+     *    不标 nodrag nopan 并 stopPropagation，点击会被画布吞掉，
+     *    表现为「点了 ✕ 没反应」且零报错。
+     *    全文件有几十处 nodrag nopan，所以要限定在按钮那一小段里断言。
+     */
+    const btnAt = draftNodeBlock.indexOf('aria-label="关闭图片生成节点"');
+    expect(btnAt).toBeGreaterThan(-1);
+    const btnStart = draftNodeBlock.lastIndexOf("<button", btnAt);
+    const btnBlock = draftNodeBlock.slice(btnStart, btnAt);
+    expect(btnBlock).toContain("nodrag nopan");
+    expect(btnBlock).toContain("onMouseDown={e => e.stopPropagation()}");
+    expect(btnBlock).toContain("e.stopPropagation()");
+  });
+
+  it("closes through the existing deleteElements instead of a second removal path", () => {
+    // 📌 同一份「移除本节点」逻辑只能有一个出口。
+    expect(draftNodeBlock).toContain("const handleClose = useCallback(() => {");
+    const closeAt = draftNodeBlock.indexOf("const handleClose = useCallback");
+    const closeBlock = draftNodeBlock.slice(closeAt, closeAt + 260);
+    expect(closeBlock).toContain("deleteElements({ nodes: [{ id }] })");
+    // 不能自己写一套 setNodes 过滤
+    expect(closeBlock).not.toContain("setNodes(");
+    expect(closeBlock).not.toContain("filter(");
+  });
+
+  it("does not double-push history when closing", () => {
+    /*
+     * deleteElements 会走 handleNodesChangeWithHistory，那里已经自动 pushHistory。
+     * 这里再压一次 → 多压一格，用户体验是「撤销一次没反应，撤两次才回来」。
+     */
+    const closeAt = draftNodeBlock.indexOf("const handleClose = useCallback");
+    const closeBlock = draftNodeBlock.slice(closeAt, closeAt + 260);
+    expect(closeBlock).not.toContain("pushHistory");
   });
 
   it("fails loudly when a slice marker disappears instead of silently passing", () => {
