@@ -409,9 +409,13 @@ describe("出图超时阈值：服务端必须留余量给前端", () => {
       /IMAGE_TASK_POLL_MAX_ATTEMPTS = (\d+)/
     );
     expect(attemptsMatch).not.toBeNull();
-    // 轮询间隔 3s，写死在 waitForImageGenerationTask 里
-    expect(clientSrc).toContain("}, 3000);");
-    const clientMs = Number(attemptsMatch![1]) * 3000;
+    // ⚠️ 2026-09-19：轮询间隔已从写死的 3000 提成 IMAGE_TASK_POLL_INTERVAL_MS
+    //    常量。这里必须跟着读常量 —— 原来断言 `}, 3000);` 字面量，
+    //    一提常量就假红；更糟的是若有人把间隔改小，字面量断言也发现不了。
+    const intervalMatch = clientSrc.match(/IMAGE_TASK_POLL_INTERVAL_MS = (\d+)/);
+    expect(intervalMatch).not.toBeNull();
+    expect(clientSrc).toContain("}, IMAGE_TASK_POLL_INTERVAL_MS);");
+    const clientMs = Number(attemptsMatch![1]) * Number(intervalMatch![1]);
 
     expect(clientMs).toBeGreaterThan(5 * 60 * 1000); // 比原来的 5 分钟长
     expect(serverMs).toBeGreaterThan(clientMs); // 服务端留余量

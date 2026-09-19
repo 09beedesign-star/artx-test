@@ -8,6 +8,12 @@ import { AIOrchestrator, inferAiCapability } from "./ai-orchestrator";
 import { resolveBackgroundImageTaskCapability } from "./background-image-capability";
 import { createBrandKit, deleteBrandKit, getBrandKit, listBrandKits, parseBrandKitFromImage } from "./brand-kit";
 import { getWorkspaceSyncDocument, mergeWorkspaceSyncDocument } from "./workspace-sync-store";
+import {
+  failInterruptedBackgroundImageTasks,
+  getBackgroundImageTask,
+  saveBackgroundImageTask,
+  type PersistedBackgroundImageTask,
+} from "./background-image-task-store";
 import { createElementBackgroundLayer, createProductBackground, editImageWithPrompt, enhanceImage, eraseImageObjects, expandImageWithVodKling, extractImageText, generateImages, listImageModelCatalog, removeImageBackground, removeImageWatermark } from "./image-generation";
 import {
   DEFAULT_IMAGE_EXPANSION_PROMPT,
@@ -57,16 +63,13 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-type BackgroundImageTask = {
-  taskId: string;
-  status: "pending" | "completed" | "failed";
-  input: Record<string, unknown>;
-  ownerUserId: string;
-  images?: Array<{ src: string; width: number; height: number }>;
-  error?: string;
-  createdAt: number;
-  updatedAt: number;
-};
+/**
+ * 后台出图任务。
+ *
+ * ⚠️⚠️⚠️ 2026-09-19：唯一事实源已迁到 background-image-task-store.ts，
+ *    这里只保留一个别名，避免出现两份会各自漂移的结构定义。
+ */
+type BackgroundImageTask = PersistedBackgroundImageTask;
 
 type SessionUser = {
   id: string;
@@ -98,7 +101,6 @@ type McpJsonRpcRequest = {
   params?: Record<string, unknown>;
 };
 
-const backgroundImageTasks = new Map<string, BackgroundImageTask>();
 /**
  * 后台出图任务判定「超时失败」的阈值。
  *
@@ -376,15 +378,6 @@ function getImageProxyDocumentHeaders(targetUrl: string, referer?: string) {
     "Sec-Fetch-Site": referer ? "same-origin" : "none",
     "Upgrade-Insecure-Requests": "1",
   };
-}
-
-function pruneBackgroundImageTasks() {
-  const now = Date.now();
-  Array.from(backgroundImageTasks.entries()).forEach(([taskId, task]) => {
-    if (now - task.updatedAt > 24 * 60 * 60 * 1000) {
-      backgroundImageTasks.delete(taskId);
-    }
-  });
 }
 
 function resolveBackgroundImageTask(task: BackgroundImageTask) {
@@ -1482,8 +1475,7 @@ async function startServer() {
     const taskId = typeof req.body?.taskId === "string" && req.body.taskId.trim()
       ? req.body.taskId.trim()
       : `image-task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    pruneBackgroundImageTasks();
-    const existing = backgroundImageTasks.get(taskId);
+    const existing = await getBackgroundImageTask(taskId);
     if (existing) {
       if (existing.ownerUserId !== user.id) {
         res.status(404).json({ error: "Image task not found", taskId, status: "failed" });
@@ -1525,7 +1517,9 @@ async function startServer() {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    backgroundImageTasks.set(taskId, task);
+    // ⚠️ 必须先 await 落库再 res.json：前端拿到 taskId 就会立刻开始轮询，
+    //    先回包再写库会出现「刚创建就查不到 → 404 → 被当成致命错误」的窗口。
+    await saveBackgroundImageTask(task);
     res.json(task);
 
     void (async () => {
@@ -1538,7 +1532,7 @@ async function startServer() {
           status: "success",
           result,
         });
-        backgroundImageTasks.set(taskId, {
+        await saveBackgroundImageTask({
           ...task,
           status: "completed",
           images: result.images || [],
@@ -1557,7 +1551,7 @@ async function startServer() {
         } catch (recordError) {
           console.warn("[ai-usage] failed to record background task", recordError instanceof Error ? recordError.message : "unknown error");
         }
-        backgroundImageTasks.set(taskId, {
+        await saveBackgroundImageTask({
           ...task,
           status: "failed",
           error: message,
@@ -1572,15 +1566,14 @@ async function startServer() {
   app.get("/api/images/tasks/:taskId", async (req, res) => {
     const user = await requireSessionUser(req, res);
     if (!user) return;
-    pruneBackgroundImageTasks();
-    const rawTask = backgroundImageTasks.get(req.params.taskId);
+    const rawTask = await getBackgroundImageTask(req.params.taskId);
     const task = rawTask ? resolveBackgroundImageTask(rawTask) : undefined;
     if (!task || task.ownerUserId !== user.id) {
       res.status(404).json({ error: "Image task not found", taskId: req.params.taskId, status: "failed" });
       return;
     }
     if (rawTask && task !== rawTask) {
-      backgroundImageTasks.set(req.params.taskId, task);
+      await saveBackgroundImageTask(task);
     }
     res.json(task);
   });
@@ -2694,6 +2687,25 @@ async function startServer() {
   server.listen(port, host, () => {
     console.log(`Server running on http://${host}:${port}/`);
     scheduleUploadCleanup();
+
+    // ⚠️⚠️⚠️ 把上一次进程遗留的 pending 任务标记为失败。
+    //
+    // 出图任务的执行体活在进程内存的 async 调用栈里，进程一重启
+    // （哪怕是正常部署触发的重启）就再也没人去写回结果了。
+    // 不做这一步的话，任务会以 pending 永远挂在库里，用户要白等到
+    // 前端轮询超时（8 分钟）才知道失败。
+    void failInterruptedBackgroundImageTasks()
+      .then((count) => {
+        if (count > 0) {
+          console.log(`[background-image-task] 已把 ${count} 个被重启打断的任务标记为失败`);
+        }
+      })
+      .catch((error) => {
+        console.warn(
+          "[background-image-task] 启动清理失败",
+          error instanceof Error ? error.message : "unknown error"
+        );
+      });
   });
 }
 

@@ -719,6 +719,15 @@ export async function startImageGenerationTask(
  */
 const IMAGE_TASK_POLL_MAX_ATTEMPTS = 160;
 
+/**
+ * 每次轮询之间的间隔。
+ *
+ * ⚠️ 提成常量是为了让「超时三出口顺序约束」那条测试能算出前端真实放弃
+ *    时间（160 × 3s = 480s）。硬编码在 setTimeout 里的话测试只能靠猜，
+ *    约束就形同虚设。改这里等于改前端放弃时间，务必重跑那条约束测试。
+ */
+const IMAGE_TASK_POLL_INTERVAL_MS = 3000;
+
 export async function waitForImageGenerationTask(
   taskId: string,
   signal?: AbortSignal
@@ -742,7 +751,7 @@ export async function waitForImageGenerationTask(
       const timer = setTimeout(() => {
         signal?.removeEventListener("abort", onAbort);
         resolve();
-      }, 3000);
+      }, IMAGE_TASK_POLL_INTERVAL_MS);
       const onAbort = () => {
         clearTimeout(timer);
         reject(createAiAbortError());
