@@ -62,7 +62,11 @@ describe("actionButtons 顺序", () => {
   });
 
   it("两个新图标尺寸与旁边保持一致（16）", () => {
-    expect(block).toContain("<SquarePen size={16} />");
+    /**
+     * 【2026-09-19 改】新建对话图标由 SquarePen 换成 MessageCirclePlus
+     * （圆气泡 + 加号），断言同步跟随。
+     */
+    expect(block).toContain("<MessageCirclePlus size={16} />");
     expect(block).toContain("<History size={16} />");
   });
 

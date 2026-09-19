@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import {
   Home, FolderOpen, Image, Palette, LayoutTemplate,
   History, Settings, HelpCircle, Zap, ChevronDown,
-  Plus, Search, Sparkles, ChevronRight, Gift,
+  Plus, Sparkles, ChevronRight, Gift,
 } from "lucide-react";
 import { PROJECTS, NAV_ITEMS } from "@/lib/workspace-data";
 import type { Project } from "@/lib/workspace-data";
@@ -61,21 +61,6 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
           <Sparkles size={14} className="text-white" />
         </div>
         <span className="font-bold text-[15px] tracking-tight text-white">Lovart AI</span>
-      </div>
-
-      {/* Search */}
-      <div className="px-3 pb-3 shrink-0">
-        <div
-          className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm"
-          style={{ background: "oklch(1 0 0 / 5%)", border: "1px solid oklch(1 0 0 / 8%)" }}
-        >
-          <Search size={13} className="shrink-0" style={{ color: "oklch(0.69 0.010 270)" }} />
-          <span style={{ color: "oklch(0.65 0.010 270)", fontSize: 13 }}>搜索项目…</span>
-          <span
-            className="ml-auto text-[10px] px-1.5 py-0.5 rounded"
-            style={{ background: "oklch(1 0 0 / 8%)", color: "oklch(0.65 0.010 270)", fontFamily: "var(--font-mono)" }}
-          >⌘K</span>
-        </div>
       </div>
 
       {/* Nav items */}

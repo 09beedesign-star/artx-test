@@ -3,7 +3,7 @@
  * Global top navigation: search, theme switcher (Radix DropdownMenu), credits, user info
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Sparkles, Check, UserRound, LogOut, Search, KeyRound, Copy, RefreshCw, Zap, Link2 } from "lucide-react";
+import { ChevronDown, Sparkles, Check, UserRound, LogOut, KeyRound, Copy, RefreshCw, Zap, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -132,9 +132,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
   const [projectTitleDraft, setProjectTitleDraft] = useState(projectTitle || "");
   const projectTitleInputRef = useRef<HTMLInputElement>(null);
 
-  const searchBg = isDark ? "#171719" : "oklch(0.97 0.003 270 / 0.92)";
   const searchBorder = isDark ? "#36363b" : "oklch(0 0 0 / 10%)";
-  const searchSub = isDark ? "#99999e" : "oklch(0.65 0.010 255)";
   const displayName = user?.username || "用户名";
   const avatarLetter = displayName.trim().slice(0, 1).toUpperCase() || "U";
   const avatarColor = useMemo(() => {
@@ -420,33 +418,6 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
         {!projectTitle && <div style={{ flex: 1 }} />}
       </div>
 
-      {/* Center: search bar (canvas mode only) */}
-      {showSearch && (
-        <div className="flex-1 flex justify-center" style={{ minWidth: 0 }}>
-          <div style={{ width: "min(320px, 100%)", position: "relative" }}>
-            <div
-              className="flex items-center gap-2 px-3"
-              style={{
-                height: 36,
-                background: searchBg,
-                border: `1px solid ${searchBorder}`,
-                borderRadius: 6,
-                backdropFilter: "blur(14px)",
-                cursor: "default",
-                opacity: 1,
-              }}
-            >
-              <Search size={14} style={{ color: searchSub, flexShrink: 0 }} />
-              <span
-                className="flex-1 truncate select-none"
-                style={{ fontSize: 12, color: searchSub, lineHeight: 1.4, letterSpacing: 0 }}
-              >
-                搜索项目或素材...
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
       {!showSearch && <div className="flex-1" />}
 
       {/* Right: actions */}
