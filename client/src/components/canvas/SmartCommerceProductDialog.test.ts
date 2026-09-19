@@ -206,11 +206,44 @@ describe("SmartCommerceProductDialog", () => {
     expect(source).not.toContain('SectionTitle aside={`${outputSize.width}×${outputSize.height}`}>常用画幅');
   });
 
+  it("left column stretches the upload area so no dead whitespace is left below it", () => {
+    /*
+      2026-09-19 修复：左列下方大片留白。
+
+      【成因】grid 两列默认 stretch 等高，而左列（上传区 + 画幅 + 分辨率）
+      内容天然比右列矮。左列高度原先由内容撑出来，撑完之后**下面剩的整块高度
+      全是死留白** —— 它不属于任何元素，调 padding / margin 都够不着。
+
+      【解法】左列 flex-col，让上传区 flex-1 吃掉剩余高度。
+
+      ⚠️ 三个类缺一不可，少任意一个留白就会回来且零报错：
+         ① 左列 section 必须是 flex-col（否则子项 flex-1 无效）
+         ② 包裹 uploadSlot 的容器要 flex-1 + min-h-0
+            （min-h-0 少了的话，flex 子项 min-height:auto 会让它拒绝收缩，
+             留白没消掉反而把左列顶高、多出一条滚动）
+         ③ uploadSlot 自身要 h-full flex-1，否则容器长高了它还是 236px，
+            留白只是从容器外挪到了容器内，视觉上没有任何改善
+    */
+    expect(codeOnly).toContain('<section className="flex min-w-0 flex-col">');
+    expect(codeOnly).toContain('<div className="flex min-h-0 flex-1 flex-col">{uploadSlot}</div>');
+    expect(codeOnly).toContain("relative flex h-full min-h-[236px] w-full flex-1 flex-col");
+    // 左列退回纯内容流即视为回归
+    expect(codeOnly).not.toContain('<section className="min-w-0">\n              <SectionTitle aside="必选">');
+  });
+
   it("uses the right-column top area for the background generation mode switcher", () => {
     // 右栏顶部原先直接放「电商背景模板选择」，现在改放「背景生成方式」切换器，
     // 模板选择器降级为该切换器 template 分支下的内容。
     // 断言的意图不变：背景相关配置必须位于右栏顶部。
+    /*
+      ⚠️ 2026-09-19：左列 section 改成了 "flex min-w-0 flex-col"（见下方左列留白那条测试），
+         右列仍是 "min-w-0"。从「常用画幅」往后找第一个 <section className="min-w-0">
+         正好就是右列 —— 但这依赖两列 className 不同，一旦左列改回 min-w-0，
+         这里会命中左列自己，断言退化成「右列在左列之后」的废话且恒绿。
+         所以用 not.toContain 把左列的 flex 形态一起钉死（下方测试也有，双保险）。
+    */
     const rightColumnPosition = source.indexOf('<section className="min-w-0">', source.indexOf("常用画幅"));
+    expect(rightColumnPosition).toBeGreaterThan(-1);
     // 锚定 JSX 里的 role="tablist"，不要用裸文案 "背景生成方式" ——
     // 它在文件顶部的类型注释里也出现过，indexOf 会先命中注释，断言就失去意义。
     const modePosition = source.indexOf('aria-label="背景生成方式"');
@@ -324,6 +357,21 @@ describe("SmartCommerceProductDialog", () => {
          超了会被内容区的 overflow-x-hidden 裁掉且零报错。
     */
     expect(source).toContain("w-[min(640px,calc(100vw-96px))]");
+
+    /*
+      ⑤ 定位上下文必须只包住触发器，不能包住 SectionTitle（2026-09-19 修复）。
+
+         bottom-full 贴的是**定位上下文的顶边**，不是触发器的顶边。
+         relative 挂在含标题的外层 div 上时，浮层会从标题上方开始往上弹，
+         与输入框之间凭空多出「标题 20px + mb-2 8px」的空隙 ——
+         用户反馈的「展开后离输入框太远，联想不到关联性」就是它。
+
+         📌 这个缺陷调任何间距值都治不好（锚错了对象），也不报任何错。
+         ✅ 锁定方式：ref 所在的 div 必须紧邻触发器，且其 className 里
+            不得再出现 mt-4（mt-4 是外层容器的间距，出现即说明又合并回去了）。
+    */
+    expect(codeOnly).toContain('<div className="relative" ref={ecommerceAnchorRef}>');
+    expect(codeOnly).not.toContain('className="relative mt-4" ref={ecommerceAnchorRef}');
 
     // 平台数据来自用户提供的参数表，抽样锁住热门+主流两端
     for (const platform of ["淘宝 / 天猫", "京东", "拼多多", "小红书", "Amazon", "Temu", "SHEIN", "Shopee", "Ozon", "TikTok Shop"]) {

@@ -1016,7 +1016,12 @@ export function SmartCommerceProductDialog({
     <div
       role="button"
       tabIndex={0}
-      className="relative flex min-h-[236px] w-full flex-col items-center justify-center overflow-hidden rounded-md px-4 text-center transition-colors"
+      /*
+        ⚠️ h-full + flex-1 是为了让上传区**吃掉左列的剩余高度**（见左列 section 的说明）。
+           min-h 仍保留做下限：右列很短时（比如提示词模式收起），
+           上传区不至于被压成一条缝。
+      */
+      className="relative flex h-full min-h-[236px] w-full flex-1 flex-col items-center justify-center overflow-hidden rounded-md px-4 text-center transition-colors"
       style={{
         color: colors.text,
         background: colors.surface,
@@ -1255,9 +1260,26 @@ export function SmartCommerceProductDialog({
 
         <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-5 py-4">
           <div className="grid gap-4 lg:grid-cols-[minmax(280px,0.72fr)_minmax(0,1.28fr)]">
-            <section className="min-w-0">
+            {/*
+              ⚠️⚠️ 2026-09-19 左列改为纵向 flex，不再是「内容从上往下堆、下面剩多少算多少」。
+
+                 【为什么】grid 的两列默认 stretch 等高，而左列（上传区 + 画幅 + 分辨率）
+                 内容本来就比右列矮一大截。原先左列高度由内容撑出来，
+                 撑完之后**下方剩下的整块高度全是死留白** —— 用户截图里圈的就是它。
+                 这块空白不属于任何元素，调 padding / margin 都够不着它。
+
+                 ✅ 解法：左列 flex-col + h-full，让 uploadSlot 所在的容器 flex-1
+                    去吃掉全部剩余高度。上传区本来就是「越大越好用」的拖拽目标，
+                    把留白还给它，既消掉空白又顺带把投放区做大。
+                    画幅 / 分辨率用 mt-auto 钉在底部，和右列的「生成数量」大致齐平。
+
+              ⚠️ min-h-0 不能省：flex 子项默认 min-height:auto，
+                 不加的话 flex-1 的上传区在内容超出时不会收缩，反而把左列顶高，
+                 留白没消掉还多出一条滚动，且零报错。
+            */}
+            <section className="flex min-w-0 flex-col">
               <SectionTitle aside="必选">产品图片</SectionTitle>
-              {uploadSlot}
+              <div className="flex min-h-0 flex-1 flex-col">{uploadSlot}</div>
 
               <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_104px]">
                 <div>
@@ -1656,10 +1678,27 @@ export function SmartCommerceProductDialog({
                    包着按钮和列表的容器带 overflow-hidden（为了圆角裁切），
                    浮层挪进去会直接消失。所以圆角裁切下沉到触发器自己身上。
               */}
-              <div className="relative mt-4" ref={ecommerceAnchorRef} data-smart-commerce-popover>
+              <div className="mt-4" data-smart-commerce-popover>
                 <SectionTitle aside={selectedEcommerce ? `${outputSize.width}×${outputSize.height}` : "可选"}>
                   电商平台尺寸
                 </SectionTitle>
+                {/*
+                  ⚠️⚠️ 2026-09-19 定位上下文**下移一层**：relative + ref 从「包含标题的外层
+                     div」挪到这个只包住触发器的 div 上。
+
+                     【为什么】浮层用的是 bottom-full —— 它贴的是**定位上下文的顶边**，
+                     不是触发器的顶边。relative 挂在外层时，那条顶边在 SectionTitle
+                     之上，于是浮层与输入框之间凭空多出「标题 20px + mb-2 8px」＝ 28px
+                     的空隙，用户看到的就是「展开的列表飘在半空，和输入框联想不起来」。
+                     这不会报任何错，也不是间距值调小能解决的 —— 锚错了对象。
+
+                     📌 改 bottom-full 的间距（mb-*）治不了这个，必须换锚点。
+
+                  ⚠️ 这一层不能加 overflow-*：浮层是负方向溢出的绝对定位子元素，
+                     任何非 visible 的 overflow 都会把它裁掉且零报错。
+                     圆角裁切仍然留在触发器自己身上。
+                */}
+                <div className="relative" ref={ecommerceAnchorRef}>
                 <div
                   className="rounded-md"
                   style={{ border: `1px solid ${selectedEcommerce ? "rgba(197,237,71,0.58)" : colors.border}`, background: colors.surface }}
@@ -1712,7 +1751,7 @@ export function SmartCommerceProductDialog({
                 </div>
                 {ecommerceExpanded ? (
                   <div
-                    className="absolute bottom-full right-0 z-30 mb-1.5 w-[min(640px,calc(100vw-96px))] overflow-y-auto rounded-md px-1.5 pb-1.5"
+                    className="absolute bottom-full right-0 z-30 mb-1 w-[min(640px,calc(100vw-96px))] overflow-y-auto rounded-md px-1.5 pb-1.5"
                     style={{
                       maxHeight: ecommerceMenuMaxHeight,
                       background: colors.panel,
@@ -1818,6 +1857,7 @@ export function SmartCommerceProductDialog({
                       ))}
                   </div>
                 ) : null}
+                </div>
                 {selectedEcommerce ? (
                   <p className="mt-1 text-[9px] leading-4" style={{ color: colors.muted }}>
                     已按 {selectedEcommerce.name} 主图规格输出，上方常用画幅与分辨率本次不生效。
