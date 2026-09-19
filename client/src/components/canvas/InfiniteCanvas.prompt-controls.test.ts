@@ -84,6 +84,57 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(quickEditBlock).not.toContain("generateAiImages({");
   });
 
+  /**
+   * 回归防线：点击生成图片节点后的「节点提示词输入框」必须接入与主助手
+   * 面板同一套控制能力 —— 模型 / Skill / 生成张数 / 画幅（外加既有的上传
+   * 参考图），并在提交链路真正消费这些参数（画幅、张数、Skill 上下文、
+   * 用户所选模型），而不是只摆 UI。
+   *
+   * 2026-09-19 之前节点框只有「上传 + 模型下拉」两个按钮，且提交时
+   * model 被写死、count 恒为 1、skillId 恒为 undefined。
+   */
+  it("wires the asset edit prompt bar to the full assistant control set and consumes its payload", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const barBlock = source.match(
+      /function AssetEditPromptBar\([\s\S]*?\/\/ ── Zoom Control Bar/
+    )?.[0];
+    const quickEditBlock = source.match(
+      /const handleAssetEditSubmit = useCallback[\s\S]*?const handleSingleImageToolbarAction/
+    )?.[0];
+
+    expect(barBlock).toBeTruthy();
+    expect(quickEditBlock).toBeTruthy();
+
+    // 四组控制件都渲染进节点框，且张数/画幅绑定组件自身 state。
+    expect(barBlock).toContain("<SkillPointSelector");
+    expect(barBlock).toContain("onChange={handleSkillChange}");
+    expect(barBlock).toContain("<ImageCountSelector");
+    expect(barBlock).toContain("value={imageCount}");
+    expect(barBlock).toContain("<ImageRatioSelector");
+    expect(barBlock).toContain("value={imageRatio}");
+    // 上传与模型继续保留。
+    expect(barBlock).toContain('aria-label="上传参考图片"');
+    expect(barBlock).toContain("<ModelSelector");
+
+    // 提交 payload 带齐全部参数。
+    expect(barBlock).toContain("ratio: imageRatio");
+    expect(barBlock).toContain("count: imageCount");
+    expect(barBlock).toContain("skill: activeSkill");
+
+    // Skill 加载后联动首选画幅（与主助手面板行为一致）。
+    expect(barBlock).toContain("getSkillPreferredRatio(skill, \"\")");
+
+    // 提交链路真正消费 payload：画幅 / 张数 / Skill 上下文 / 用户所选模型。
+    expect(quickEditBlock).toContain("ratio: selectedRatio");
+    expect(quickEditBlock).toContain("count: requestedCount");
+    expect(quickEditBlock).toContain("resultCount: requestedCount");
+    expect(quickEditBlock).toContain("buildSkillPromptContext(skill)");
+    expect(quickEditBlock).toContain("skillId: skill?.id");
+    expect(quickEditBlock).toContain(
+      "model: payload.model || DEFAULT_IMAGE_AI_MODEL_ID"
+    );
+  });
+
   it("keeps smart annotation edits on the restored source-image edit route", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
     const annotationEditBlock = source.match(

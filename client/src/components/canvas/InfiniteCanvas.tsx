@@ -15683,6 +15683,9 @@ function AssetEditPromptBar({
     prompt: string;
     model: string;
     references: Array<{ id: string; title: string; src: string }>;
+    ratio: CanvasAssistantImageRatio;
+    count: number;
+    skill: PendingSkillLoad | null;
   }) => void;
 }) {
   const [prompt, setPrompt] = useState("");
@@ -15690,6 +15693,9 @@ function AssetEditPromptBar({
     Array<{ id: string; title: string; src: string }>
   >([]);
   const [model, setModel] = useState("auto");
+  const [imageCount, setImageCount] = useState(1);
+  const [imageRatio, setImageRatio] = useState<CanvasAssistantImageRatio>("auto");
+  const [activeSkill, setActiveSkill] = useState<PendingSkillLoad | null>(null);
   const [visible, setVisible] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -15713,20 +15719,48 @@ function AssetEditPromptBar({
   const subtext = isDark ? "rgba(255,255,255,0.71)" : "rgba(20,20,36,0.40)";
   const divider = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)";
 
+  /*
+   * 节点框的 Skill 与主 composer 的 activeSkill **各自独立**：
+   * 两条链路的提交语义不同（这里固定走图片编辑），互不干扰；
+   * 加载 Skill 后把画幅联动为该 Skill 的首选比例（与主 composer 行为一致），
+   * 但只在首选比例存在于选择器列表时才覆盖，避免出现选择器不认识的值。
+   */
+  const handleSkillChange = (skill: PendingSkillLoad | null) => {
+    setActiveSkill(skill);
+    if (skill) {
+      const preferred = getSkillPreferredRatio(skill, "");
+      if (
+        preferred &&
+        (CANVAS_ASSISTANT_IMAGE_RATIOS as readonly string[]).includes(preferred)
+      ) {
+        setImageRatio(preferred as CanvasAssistantImageRatio);
+      }
+    }
+  };
+
   const handleSend = () => {
     if (prompt.trim() || uploadedRefs.length > 0) {
       const refText =
         uploadedRefs.length > 0 ? ` · ${uploadedRefs.length} 张参考图` : "";
+      const countText = imageCount > 1 ? ` · ${imageCount} 张` : "";
       toast("AI 正在智能优化", {
-        description: `${prompt.slice(0, 60)}${refText}`.trim(),
+        description:
+          `${prompt.slice(0, 60)}${refText}${countText}`.trim() ||
+          (activeSkill ? `使用 Skill：${activeSkill.name}` : ""),
       });
       onSubmit({
         prompt: prompt.trim(),
         model,
         references: uploadedRefs,
+        ratio: imageRatio,
+        count: imageCount,
+        skill: activeSkill,
       });
       setPrompt("");
       setUploadedRefs([]);
+      setActiveSkill(null);
+      setImageCount(1);
+      setImageRatio("auto");
       onClose();
     } else {
       toast("请先输入编辑指令或上传参考图");
@@ -15883,9 +15917,11 @@ function AssetEditPromptBar({
         )}
       </div>
 
-      {/* Bottom action bar */}
+      {/* Bottom action bar：与主画布助手面板同一套选择器
+          （上传 / 模型 / Skill / 张数 / 画幅）。各选择器的下拉自带
+          createPortal 到 body 的定位，不受本容器 overflow:hidden 影响。 */}
       <div
-        className="flex items-center gap-2 px-3 pb-3"
+        className="flex flex-wrap items-center gap-2 px-3 pb-3"
         style={{ borderTop: `1px solid ${divider}`, paddingTop: 8 }}
       >
         <input
@@ -15898,7 +15934,7 @@ function AssetEditPromptBar({
         />
         <button
           type="button"
-          className="w-7 h-7 rounded-[var(--radius-md-design)] flex items-center justify-center hover:opacity-80 active:scale-90 transition-all"
+          className="flex h-8 items-center justify-center rounded-[var(--radius-md-design)] px-2 transition-colors active:scale-95"
           style={{
             background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
             color: subtext,
@@ -15910,13 +15946,28 @@ function AssetEditPromptBar({
           <ImagePlus size={13} />
         </button>
         <ModelSelector model={model} onChange={setModel} isDark={isDark} />
+        <SkillPointSelector
+          activeSkill={activeSkill}
+          onChange={handleSkillChange}
+          isDark={isDark}
+        />
+        <ImageCountSelector
+          value={imageCount}
+          onChange={setImageCount}
+          isDark={isDark}
+        />
+        <ImageRatioSelector
+          value={imageRatio}
+          onChange={setImageRatio}
+          isDark={isDark}
+        />
         <div className="flex-1" />
         <span className="type-caption" style={{ color: subtext }}>
           回车发送
         </span>
         <button
           onClick={handleSend}
-          className="w-7 h-7 rounded-[var(--radius-md-design)] flex items-center justify-center hover:opacity-80 active:scale-90 transition-all"
+          className="h-8 w-8 rounded-[var(--radius-md-design)] flex items-center justify-center hover:opacity-80 active:scale-90 transition-all"
           style={{
             background:
               prompt.trim() || uploadedRefs.length > 0
@@ -32260,6 +32311,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       prompt: string;
       model: string;
       references: Array<{ id: string; title: string; src: string }>;
+      ratio: CanvasAssistantImageRatio;
+      count: number;
+      skill: PendingSkillLoad | null;
     }) => {
       if (!editAsset) return;
       if (!requireAiAccess()) return;
@@ -32270,6 +32324,27 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const latestImageSrc =
         (await getVisibleAssetImageSource(editAsset.nodeId)) || editAsset.src;
       const sourceSize = getCanvasNodeSize(sourceNode);
+      /*
+       * 节点框与主助手面板共用的取值口径：
+       *   · 画幅：用户显式选择优先；"auto" 时回落 Skill 首选比例，
+       *     再回落原图比例（编辑场景锁原图画幅防变形）。
+       *   · 张数：图片编辑的后台任务链路（image_edit）服务端只出单图，
+       *     >1 张时前台并发跑 N 次 editImageWithPrompt 合并结果。
+       *   · Skill：客户端把 buildSkillPromptContext 拼进提示词
+       *     （服务端 editImageWithPrompt 不消费 skillId，主助手面板同样靠
+       *     客户端拼接生效），skillId 随 payload 透传保持链路一致。
+       */
+      const skill = payload.skill || null;
+      const skillRatio = getSkillPreferredRatio(skill, "");
+      const selectedRatio =
+        payload.ratio && payload.ratio !== "auto"
+          ? payload.ratio
+          : skillRatio || inferImageRatio(sourceSize.width, sourceSize.height);
+      const requestedCount = Math.max(
+        1,
+        Math.min(Number(payload.count) || 1, 4)
+      );
+      const skillContext = skill ? buildSkillPromptContext(skill) : "";
       const generationId = `快捷编辑结果-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       const placeholderPrompt =
         payload.prompt || `基于原图优化：${editAsset.title}`;
@@ -32278,9 +32353,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         projectId,
         prompt: placeholderPrompt,
         model: payload.model || DEFAULT_IMAGE_AI_MODEL_ID,
-        ratio: inferImageRatio(sourceSize.width, sourceSize.height),
-        count: 1,
-        style: "快捷编辑结果",
+        ratio: selectedRatio,
+        count: requestedCount,
+        style: skill?.name || "快捷编辑结果",
         referencesEnabled: payload.references.length > 0,
         generationId,
         placement: getDerivedImagePlacement(
@@ -32289,7 +32364,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           sourceSize.height
         ),
         displaySize: { w: sourceSize.width, h: sourceSize.height },
-        titleBase: "快捷编辑结果",
+        titleBase: skill?.name || "快捷编辑结果",
         sourceBackgroundSrc: sourceBackgroundSrc || undefined,
       };
       dispatchImageGenerationTask(
@@ -32310,45 +32385,74 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             "保留原图主体、构图和关键识别特征，只根据用户要求修改。",
             "只输出可直接给图片模型使用的提示词，不要解释。",
             `用户要求：${payload.prompt || "请智能优化这张图片，保持主体识别一致。"}`,
+            ...(skill
+              ? [skillContext, "必须优先遵守上方 Skill 的能力说明与执行规则。"]
+              : []),
           ].join("\n"),
         });
-        await runDerivedImageGeneration({
-          sourceNode,
-          prompt:
-            optimizedPrompt.text.trim() ||
-            payload.prompt ||
-            `基于原图优化：${editAsset.title}`,
-          style: "快捷编辑结果",
-          nextW: sourceSize.width,
-          nextH: sourceSize.height,
-          placement: placeholderPayload.placement,
-          generationId,
-          backgroundTaskInput: {
-            capability: "image_edit",
-            operation: "edit",
+        const finalPrompt =
+          optimizedPrompt.text.trim() ||
+          payload.prompt ||
+          `基于原图优化：${editAsset.title}`;
+        const runSingleEdit = async () =>
+          editImageWithPrompt({
             imageSrc: latestImageSrc,
-            prompt:
-              optimizedPrompt.text.trim() ||
-              payload.prompt ||
-              `基于原图优化：${editAsset.title}`,
-            model: DEFAULT_IMAGE_AI_MODEL_ID,
+            prompt: finalPrompt,
+            // 修复：此前前台/后台两条链路都写死 DEFAULT_IMAGE_AI_MODEL_ID，
+            // 用户在节点框选的模型从未真正生效。
+            model: payload.model || DEFAULT_IMAGE_AI_MODEL_ID,
             targetWidth: sourceSize.width,
             targetHeight: sourceSize.height,
-            images: payload.references,
-            skillId: undefined,
+            referencedAssets: payload.references,
+            skillId: skill?.id,
+          });
+        await runDerivedImageGeneration({
+          sourceNode,
+          prompt: finalPrompt,
+          style: skill?.name || "快捷编辑结果",
+          nextW: sourceSize.width,
+          nextH: sourceSize.height,
+          model: payload.model || DEFAULT_IMAGE_AI_MODEL_ID,
+          resultCount: requestedCount,
+          placement: placeholderPayload.placement,
+          generationId,
+          // 多张时服务端 image_edit 后台任务只出单图，改走前台并发合并；
+          // 单张保持后台任务链路（可离开页面继续跑）。
+          backgroundTaskInput:
+            requestedCount === 1
+              ? {
+                  capability: "image_edit",
+                  operation: "edit",
+                  imageSrc: latestImageSrc,
+                  prompt: finalPrompt,
+                  model: payload.model || DEFAULT_IMAGE_AI_MODEL_ID,
+                  targetWidth: sourceSize.width,
+                  targetHeight: sourceSize.height,
+                  images: payload.references,
+                  skillId: skill?.id,
+                }
+              : undefined,
+          run: async () => {
+            const settled = await Promise.allSettled(
+              Array.from({ length: requestedCount }, () => runSingleEdit())
+            );
+            const fulfilled = settled.filter(
+              (item): item is PromiseFulfilledResult<Awaited<ReturnType<typeof editImageWithPrompt>>> =>
+                item.status === "fulfilled"
+            );
+            if (fulfilled.length === 0) {
+              const firstError = settled[0] as PromiseRejectedResult;
+              throw firstError.reason;
+            }
+            const first = fulfilled[0];
+            return {
+              ...first.value,
+              images: fulfilled.flatMap(item => item.value.images || []),
+              providerTaskIds: fulfilled.flatMap(
+                item => item.value.providerTaskIds || []
+              ),
+            } as Awaited<ReturnType<typeof editImageWithPrompt>>;
           },
-          run: async () =>
-            editImageWithPrompt({
-              imageSrc: latestImageSrc,
-              prompt:
-                optimizedPrompt.text.trim() ||
-                payload.prompt ||
-                `基于原图优化：${editAsset.title}`,
-              model: DEFAULT_IMAGE_AI_MODEL_ID,
-              targetWidth: sourceSize.width,
-              targetHeight: sourceSize.height,
-              referencedAssets: payload.references,
-            }),
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : "请稍后重试";
