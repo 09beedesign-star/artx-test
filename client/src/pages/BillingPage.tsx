@@ -1,7 +1,8 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { ArrowUpRight, Crown, Rocket, WalletCards } from "lucide-react";
+import { ArrowUpRight, Crown, Rocket, ScrollText, WalletCards } from "lucide-react";
 import TopBar from "@/components/workspace/TopBar";
+import InviteDialog from "@/components/workspace/InviteDialog";
 import { useTheme } from "@/contexts/ThemeContext";
 import { BG_GLOW } from "@/lib/workspace-data";
 /*
@@ -15,6 +16,7 @@ import { BG_GLOW } from "@/lib/workspace-data";
   本项目已经因为「同一份数据的多个出口」踩过九次，表现永远是零报错、
   改了一边另一边纹丝不动。要调就调共享组件，两边一起变。
 */
+import CreditRulesBoard from "@/components/billing/CreditRulesBoard";
 import PaymentDialogs from "@/components/billing/PaymentDialogs";
 import PaymentMethodPicker from "@/components/billing/PaymentMethodPicker";
 import RechargePanel from "@/components/billing/RechargePanel";
@@ -28,8 +30,27 @@ import { getBillingTheme } from "@/components/billing/billing-theme";
 import { useBillingCenter } from "@/components/billing/use-billing-center";
 
 export default function BillingPage() {
+  /*
+    2026-09-13 曾按当时的要求移除页头的积分规则入口胶囊，规则只留在充值标签里。
+    2026-09-19 重新加回：积分规则是决定要不要付费的关键信息，
+    用户得在最显眼的位置一眼看到「注册先给 350 积分」和三条白拿通道。
+
+    两个入口分工：
+      - 页头胶囊：滚到本页的 #credit-rules 板块（不离开当前页，选购流程不中断）
+      - 板块底部按钮：跳 /credits-guide 看完整版（有效期、结转口径等）
+    ⚠️ 两者必须指向同一个数据来源 —— 都渲染 CreditRulesBoard，
+    不再各自写一份文案。
+  */
+  const scrollToCreditRules = () => {
+    document
+      .getElementById("credit-rules")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   const { resolvedTheme } = useTheme();
   const [location, navigate] = useLocation();
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const openInvite = useCallback(() => setInviteOpen(true), []);
   const theme = getBillingTheme(resolvedTheme === "dark");
   const controller = useBillingCenter(readInitialTab());
   const {
@@ -40,7 +61,7 @@ export default function BillingPage() {
     subscriptionStatus,
     balanceFlash,
   } = controller;
-  const { isDark, bg, panel, panelStrong, border, text, sub, faint, purple } =
+  const { isDark, bg, panel, panelStrong, border, text, sub, faint, purple, green } =
     theme;
 
   /*
@@ -127,12 +148,20 @@ export default function BillingPage() {
                 >
                   订阅或充值，享受更多高阶模型，尊享全部的优质创作AI服务。
                 </p>
-                {/*
-                  2026-09-13 按要求移除页头的积分规则入口胶囊。
-                  规则页本身没有下线，入口保留在「充值」标签的说明文案里
-                  （见 RechargePanel 的「查看完整积分规则」），
-                  /credits-guide 路由与页面均照常可访问。
-                */}
+                <button
+                  type="button"
+                  onClick={scrollToCreditRules}
+                  className="mt-3 flex h-8 shrink-0 items-center gap-1.5 rounded-[var(--radius-pill)] px-3.5 type-caption transition-opacity hover:opacity-80"
+                  style={{
+                    background: "oklch(0.78 0.18 110 / 0.14)",
+                    color: green,
+                    fontWeight: 640,
+                  }}
+                >
+                  <ScrollText size={13} />
+                  积分规则：新用户注册即领 350 积分
+                  <ArrowUpRight size={13} />
+                </button>
               </div>
 
               <div className="grid min-w-[min(100%,520px)] grid-cols-3 gap-2">
@@ -236,10 +265,21 @@ export default function BillingPage() {
               )}
             </div>
           </section>
+
+          {/*
+            积分规则板块。刻意放在套餐/充值**之后**：
+            先让用户看到能买什么，再用「一张图多少钱、订阅怎么更划算、
+            白拿有多少」把价格落到具体动作上。塞在前面会把主转化路径顶下去。
+
+            ⚠️ onOpenInvite 直接挂 InviteDialog 的新实例：AppShell 里那份
+            只在侧边栏点击时打开，本页独立持有一份才能就地开而不用回侧边栏。
+          */}
+          <CreditRulesBoard theme={theme} onOpenInvite={openInvite} />
         </div>
       </main>
 
       <PaymentDialogs controller={controller} theme={theme} />
+      <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} />
     </div>
   );
 }

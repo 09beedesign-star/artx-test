@@ -2,6 +2,8 @@ import { useMemo } from "react";
 import { CalendarClock, Coins, Gift, Info, RefreshCw, Wallet } from "lucide-react";
 import TopBar from "@/components/workspace/TopBar";
 import { useBillingDialog } from "@/components/billing/BillingDialogProvider";
+import CreditRulesBoard from "@/components/billing/CreditRulesBoard";
+import { getBillingTheme } from "@/components/billing/billing-theme";
 import { useTheme } from "@/contexts/ThemeContext";
 import { BG_GLOW } from "@/lib/workspace-data";
 import {
@@ -29,6 +31,11 @@ export default function CreditsGuidePage() {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const { openBilling } = useBillingDialog();
+  /*
+    规则页与计费页必须同一个配色函数，否则「页面版」和「弹窗版」的规则板块
+    会出现两套灰。这里刻意不再自己手写色值。
+  */
+  const billingTheme = getBillingTheme(isDark);
 
   const bg = isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)";
   const text = isDark ? "oklch(0.88 0.008 270)" : "oklch(0.20 0.012 270)";
@@ -85,6 +92,18 @@ export default function CreditsGuidePage() {
       </div>
 
       <main className="flex-1 overflow-auto px-6 py-10" style={{ position: "relative", zIndex: 1 }}>
+        {/*
+          积分规则板块单独占一段**宽容器**。
+          max-w-3xl 是下面文字细则的舒适阅读宽度，但塞进去会把板块里的
+          图表条形压成一指宽 —— 图表需要横向空间，正文需要窄行宽，两者互不迁就。
+
+          ⚠️ showFullGuideLink=false：本页就是完整规则页，再放一个跳自己的入口没意义。
+          不传 onOpenInvite：本页对未登录用户开放，而邀请是登录后才有的动作。
+        */}
+        <div className="mx-auto mb-6 w-full max-w-[1100px]">
+          <CreditRulesBoard theme={billingTheme} showFullGuideLink={false} />
+        </div>
+
         <section className="mx-auto w-full max-w-3xl">
           <div className="mb-6">
             <h1 className="type-title-sm" style={{ color: text, fontSize: 24, fontWeight: 680 }}>
