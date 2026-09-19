@@ -4673,6 +4673,31 @@ async function extractImageTextRaw(input: ExtractImageTextInput): Promise<{
   }
 
   /*
+   * 送给模型的必须是**能拿到像素**的图，而不是画布里的原始 src 字符串。
+   *
+   * 2026-09-19 实测（同一张有文字的图，三种 src 形式对照）：
+   *   · data URL                 → vision-chat-ocr，一次直出 16~20 个区域
+   *   · /uploads/... 相对路径     → text 空、regions 空，**不报错**
+   *   · 404 / 已过期的绝对 URL    → 同样静默为空
+   *
+   * 根因：这里原先直接把 input.imageSrc 塞进 image_url，而模型侧只能解析
+   * data URL 或**它自己能下载**的公网 URL。相对路径（本地 dev 下
+   * getCanvasRenderableImageSrc 就返回这种）和已过期的上传图，对模型来说
+   * 只是一个取不到内容的字符串 —— 像素一个都没送到，首选和兜底两条通道
+   * 自然都读不出字，最后前端显示「未识别到可读文案」。
+   *
+   * 最坑的是它**不报错**：返回的是空结果而不是失败，于是「图没送进去」
+   * 和「图里本来就没字」在前端长得一模一样，只能靠猜。
+   *
+   * 因此这里先经 imageSrcToBuffer 取回真实像素（data URL / 本地 /uploads
+   * 文件 / http URL 三种它都认），统一转成 data URL 再下发；取不到就直接抛错，
+   * 让「读不到图」以失败的形式暴露，而不是伪装成「图里没有文字」。
+   */
+  const { buffer: ocrBuffer, mimeType: ocrMimeType } =
+    await imageSrcToBuffer(input.imageSrc);
+  const modelImageSrc = `data:${ocrMimeType};base64,${ocrBuffer.toString("base64")}`;
+
+  /*
    * 首选 OCR 模型的默认值**不能**落到出图模型上。
    *
    * getProviderConfig() 在 AI_IMAGE_MODEL 留空时会回落到
@@ -4727,7 +4752,7 @@ async function extractImageTextRaw(input: ExtractImageTextInput): Promise<{
                 "保持原有语言、大小写、标点和换行，不要翻译。没有可读文字时返回 {\"text\":\"\",\"regions\":[]}。",
               ].join("\n"),
             },
-            { type: "image_url", image_url: { url: input.imageSrc } },
+            { type: "image_url", image_url: { url: modelImageSrc } },
           ],
         }],
         // claude 系列对 temperature 直接返回 400
@@ -4768,7 +4793,7 @@ async function extractImageTextRaw(input: ExtractImageTextInput): Promise<{
       // 用户侧表现为「点了很久没反应」。改读环境变量后由 .env 统一收口；
       // 留空则交给 getProviderConfig() 决定，行为与原先一致。
       model: process.env.AI_TEXT_MODEL || undefined,
-      images: [{ src: input.imageSrc, title: "OCR target image" }],
+      images: [{ src: modelImageSrc, title: "OCR target image" }],
       prompt: [
         "请识别图片中所有可见文字，并返回严格 JSON，不要输出解释或 Markdown。",
         "格式：{\"text\":\"按阅读顺序排列的全部原文\",\"regions\":[{\"text\":\"该区域原文\",\"x\":0.1,\"y\":0.2,\"width\":0.3,\"height\":0.1,\"rotate\":0,\"fontColor\":\"#ffffff\"}]}。",

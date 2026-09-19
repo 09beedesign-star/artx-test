@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import sharp from "sharp";
 import { DEFAULT_IMAGE_MODEL_ID, getImageModelFallbackAttempts } from "../shared/image-models";
 import * as tencentVodAigc from "./tencent-vod-aigc";
@@ -1463,6 +1465,60 @@ describe("generated image source normalization", () => {
     // 首选（也是唯一一次）调用必须带 claude 文本模型，而不是出图模型。
     expect(requestBodies.length).toBe(1);
     expect(requestBodies[0].model).toBe("claude-opus-5");
+    expect(fetchMock.mock.calls.length).toBe(1);
+  });
+
+  /**
+   * 回归防线：送进模型的必须是**像素**，不能是画布里的 src 原样字符串。
+   *
+   * 2026-09-19 实测：同一张有文字的图，`data:` URL 能一次直出 16 个区域，
+   * 而 `/uploads/...` 相对路径（本地 dev 下 getCanvasRenderableImageSrc 的
+   * 返回值）和已过期的上传 URL 都返回**空文本 + 空 regions，且不报错** ——
+   * 模型只收到一个它取不到内容的字符串，像素根本没送进去。
+   *
+   * 这是「智能文案编辑显示未识别到可读文案」的根因：图没送到，却伪装成
+   * 「图里没有文字」，前端两种失败长得一模一样，只能靠猜。
+   * 这条用例锁住「相对路径要先取回像素再下发」。
+   */
+  it("resolves /uploads relative paths to real pixels before sending them to the OCR model", async () => {
+    vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
+    vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
+    vi.stubEnv("AI_IMAGE_MODEL", "");
+    vi.stubEnv("AI_TEXT_API_KEY", "test-text-key");
+    vi.stubEnv("AI_TEXT_BASE_URL", "https://image.example/v1");
+    vi.stubEnv("AI_TEXT_MODEL", "claude-opus-5");
+
+    const uploadsDir = mkdtempSync(join(tmpdir(), "artx-ocr-uploads-"));
+    vi.stubEnv("ARTX_UPLOADS_DIR", uploadsDir);
+    const source = await sharp({
+      create: { width: 160, height: 90, channels: 3, background: "#ffffff" },
+    }).png().toBuffer();
+    mkdirSync(join(uploadsDir, "images", "dev-tester"), { recursive: true });
+    writeFileSync(join(uploadsDir, "images", "dev-tester", "poster.png"), source);
+
+    const imageUrls: string[] = [];
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      const endpoint = String(url);
+      if (endpoint.startsWith("https://image.example")) {
+        const body = JSON.parse(String(init?.body || "{}"));
+        for (const part of body?.messages?.[0]?.content || []) {
+          if (part?.type === "image_url") imageUrls.push(String(part?.image_url?.url || ""));
+        }
+        return Response.json({
+          choices: [{ message: { content: '{"text":"春季新品发布会","regions":[{"text":"春季新品发布会","x":0.1,"y":0.2,"width":0.3,"height":0.1}]}' } }],
+        });
+      }
+      throw new Error(`Unexpected fetch ${endpoint}`);
+    });
+
+    const result = await extractImageText({
+      imageSrc: "/uploads/images/dev-tester/poster.png",
+    });
+
+    expect(result.text).toBe("春季新品发布会");
+    expect(imageUrls.length).toBe(1);
+    // 关键断言：下发的是 data URL（真实像素），不是 "/uploads/..." 这段路径字符串
+    expect(imageUrls[0].startsWith("data:image/png;base64,")).toBe(true);
     expect(fetchMock.mock.calls.length).toBe(1);
   });
 });
