@@ -105,6 +105,8 @@ type AdminUser = {
     dailyCreditLimit: number;
     usageDate: string;
     reservedCredits: number;
+    /** 永久有效：服务端据此跳过到期、余额、日限额三道闸。 */
+    unlimited?: boolean;
     cancelledAt?: string;
   };
   allowedAiModels?: string[];
