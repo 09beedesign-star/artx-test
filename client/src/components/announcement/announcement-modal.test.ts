@@ -231,6 +231,36 @@ describe("与新手引导互斥", () => {
     expect(skipAt).toBeLessThan(markAt);
   });
 
+  it("打标必须在定时器回调内，不能在排期时就写进 attemptedRef", () => {
+    /**
+     * 实测回归：React 子组件 effect 先于父页面执行，首页挂载那一轮
+     * OnboardingProvider 读到的闸门还是旧的 false，会一路走到打标；
+     * 等公告关闭时 attemptedRef 里已有 home，引导再也不播且不报错。
+     * 判据：打标必须排在 setTimeout 之后（即在回调体内）。
+     */
+    const code = readCode(PROVIDER_PATH);
+    const timerAt = code.indexOf("timerRef.current = window.setTimeout(() => {\n      if (isAnnouncementBlocking())");
+    const markAt = code.indexOf("attemptedRef.current.add(candidate.id)");
+    expect(timerAt).toBeGreaterThan(-1);
+    expect(markAt).toBeGreaterThan(timerAt);
+  });
+
+  it("定时器到点时必须再查一次闸门（防止延迟窗口内公告才弹出）", () => {
+    const code = readCode(PROVIDER_PATH);
+    expect(code).toContain("if (isAnnouncementBlocking()) return;");
+    /**
+     * 必须真的从闸门模块 import，不能只是碰巧有个同名符号。
+     * ⚠️ 这里不能写成 toContain("isAnnouncementBlocking,") ——
+     *    useSyncExternalStore 的参数列表里也有一模一样的串，
+     *    删掉 import 之后断言依然会绿（变异自证时实测踩到过）。
+     */
+    const importBlock = code.slice(
+      code.indexOf("import {"),
+      code.indexOf("announcement-gate\";") + 20,
+    );
+    expect(importBlock).toContain("isAnnouncementBlocking");
+  });
+
   it("首页在卸载时复位闸门", () => {
     const code = readCode(HOME_PATH);
     expect(code).toContain("return () => setAnnouncementBlocking(false);");
