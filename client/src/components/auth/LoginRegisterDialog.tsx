@@ -107,7 +107,9 @@ export default function LoginRegisterDialog() {
         if (event.target === event.currentTarget) closeLoginModal();
       }}
     >
-      <div className="relative h-[726px] w-full max-w-[472px]">
+      {/* 高度随内容自适应（登录/重置表单各自撑开），不再固定 726px；
+          视口过矮时靠 max-h + 内部滚动兜底，避免上下顶满。 */}
+      <div className="relative max-h-full w-full max-w-[472px]">
         <button
           type="button"
           onClick={closeLoginModal}
@@ -119,7 +121,7 @@ export default function LoginRegisterDialog() {
 
         <GlassPanel>
           {mode === "reset" ? (
-            <form className="flex h-full flex-col" onSubmit={handleResetSubmit}>
+            <form className="flex flex-col" onSubmit={handleResetSubmit}>
               <PanelHeader title="找回密码" />
 
               <div className="mt-8 flex flex-col gap-4">
@@ -188,7 +190,7 @@ export default function LoginRegisterDialog() {
               </div>
             </form>
           ) : (
-          <form className="flex h-full flex-col" onSubmit={handleSubmit}>
+          <form className="flex flex-col" onSubmit={handleSubmit}>
             <PanelHeader />
 
             <div className="mt-8 flex flex-col gap-5">
@@ -255,7 +257,7 @@ export default function LoginRegisterDialog() {
 
 function GlassPanel({ children }: { children: React.ReactNode }) {
   return (
-    <div data-artx-dialog-surface className="h-full w-full overflow-hidden rounded-[20px] border border-[#454545] bg-[#222222]/70 p-10 shadow-[0_30px_80px_rgba(0,0,0,0.52)] backdrop-blur-[22px]">
+    <div data-artx-dialog-surface className="max-h-full w-full overflow-y-auto rounded-[20px] border border-[#454545] bg-[#222222]/70 p-10 shadow-[0_30px_80px_rgba(0,0,0,0.52)] backdrop-blur-[22px]">
       {children}
     </div>
   );
