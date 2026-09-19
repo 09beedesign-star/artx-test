@@ -21,7 +21,10 @@ import {
   getSegment,
   matchesRoute,
   resolveAutoSegment,
+  shouldShowProgressDots,
   type TourAnchor,
+  type TourSegment,
+  type TourStep,
 } from "../../../../shared/onboarding-steps";
 
 const REPO_ROOT = resolve(__dirname, "../../../..");
@@ -29,6 +32,20 @@ const REPO_ROOT = resolve(__dirname, "../../../..");
 function readSource(relativePath: string): string {
   return readFileSync(resolve(REPO_ROOT, relativePath), "utf-8");
 }
+
+/*
+ * 单步分段的测试夹具。
+ * 现网四段步数都 >1，「只有一步就不画点」这条规则在真实数据上**无法触发**，
+ * 只能自造。这也意味着它是前瞻性约束：将来有人加了单步分段，规则已经就位。
+ */
+const STEP_A: TourStep = { id: "fixture-a", anchor: null, title: "甲", body: "甲内容" };
+const STEP_B: TourStep = { id: "fixture-b", anchor: null, title: "乙", body: "乙内容" };
+const BASE_SEGMENT: TourSegment = {
+  id: "home",
+  label: "夹具",
+  routeMatch: "/",
+  steps: [STEP_A],
+};
 
 /* ────────────────────────── 内容完整性 ────────────────────────── */
 
@@ -308,5 +325,80 @@ describe("tour overlay visuals", () => {
     expect(tourSource).toContain('"Escape"');
     expect(tourSource).toContain('"ArrowRight"');
     expect(tourSource).toContain('"ArrowLeft"');
+  });
+});
+
+/* ────────────────────── 进度点数量 = 该段真实步数 ────────────────────── */
+
+describe("progress dots", () => {
+  const tourSource = readSource("client/src/components/onboarding/OnboardingTour.tsx");
+
+  it("多步分段要画点，单步/空分段不画", () => {
+    // 纯函数真调用，不是读源码 —— 这条断言不会因为改名而空跑。
+    expect(shouldShowProgressDots({ ...BASE_SEGMENT, steps: [] })).toBe(false);
+    expect(shouldShowProgressDots({ ...BASE_SEGMENT, steps: [STEP_A] })).toBe(false);
+    expect(shouldShowProgressDots({ ...BASE_SEGMENT, steps: [STEP_A, STEP_B] })).toBe(true);
+  });
+
+  it("现网每个分段的点数都等于自己的步数，不是全局总步数", () => {
+    /*
+     * 📌 守的是「按段计数」这个口径。四段步数各不相同（4/5/4/6），
+     *    一旦有人误用 TOUR_SEGMENTS.flatMap(...).length，
+     *    所有段都会画出 19 个点，而这里会立刻变红。
+     */
+    const totalAcrossAllSegments = TOUR_SEGMENTS.flatMap((s) => s.steps).length;
+    for (const segment of TOUR_SEGMENTS) {
+      expect(shouldShowProgressDots(segment)).toBe(true);
+      expect(segment.steps.length).toBeLessThan(totalAcrossAllSegments);
+    }
+  });
+
+  it("圆点由 steps.map 推导，不存在硬编码点数", () => {
+    expect(tourSource).toContain("steps.map((s, i) =>");
+    // 反向断言：任何形如 [0,1,2] / Array.from({length: N}) 的写死点数都不允许。
+    const dotsBlock = tourSource.slice(
+      tourSource.indexOf("showProgressDots &&"),
+      tourSource.indexOf("{!isFirst && ("),
+    );
+    expect(dotsBlock.length).toBeGreaterThan(100); // 切片自检，防恒绿
+    expect(dotsBlock).not.toMatch(/\[0,\s*1,\s*2/);
+    expect(dotsBlock).not.toContain("Array.from({");
+  });
+
+  it("⚠️ 单步时仍保留进度点容器，否则「下一步」按钮会塌到左边", () => {
+    /*
+     * 📌 这条最容易被「顺手优化」掉：看到 showProgressDots 为 false 就把整个
+     *    <div> 一起条件掉，显得更干净 —— 但底部行是 justifyContent:"space-between"，
+     *    少一个 flex 子项，右侧按钮组会平移到卡片左端。
+     *    所以 showProgressDots 必须写在 <div> **内部**，不能包住 <div>。
+     */
+    const bottomRow = tourSource.slice(
+      tourSource.indexOf('justifyContent: "space-between",\n            marginTop: 14'),
+      tourSource.indexOf("{isLast ? \"开始使用\" : \"下一步\"}"),
+    );
+    expect(bottomRow.length).toBeGreaterThan(200); // 切片自检
+    // 容器 div 必须在条件之前出现 = 条件在 div 内部。
+    const divAt = bottomRow.indexOf('<div style={{ display: "flex", alignItems: "center", gap: 5 }}>');
+    const condAt = bottomRow.indexOf("showProgressDots &&");
+    expect(divAt).toBeGreaterThan(-1);
+    expect(condAt).toBeGreaterThan(-1);
+    expect(divAt).toBeLessThan(condAt);
+    // 布局契约本身也锁住：靠 space-between 顶开，没有改用 marginLeft:auto。
+    expect(bottomRow).toContain('justifyContent: "space-between"');
+  });
+
+  it("判据只有一个出口，组件里不就地重写 steps.length > 1", () => {
+    // 📌 一处判据两个出口 = 迟早长歪。组件必须调共享函数。
+    expect(tourSource).toContain("shouldShowProgressDots(segment)");
+    /*
+     * ⚠️ 必须先剥注释再断言 —— 实测踩过：解释「别在这里写 steps.length > 1」的
+     * 那行注释本身就含这个字符串，直接扫全文会把自己的注释当成违规代码而误报。
+     * 同本文件 :213-216 记录的老坑，块注释续行既不以 // 也不以 * 开头。
+     */
+    const withoutComments = tourSource
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/.*$/gm, "");
+    expect(withoutComments).toContain("shouldShowProgressDots(segment)"); // 切片自检
+    expect(withoutComments).not.toContain("steps.length > 1");
   });
 });

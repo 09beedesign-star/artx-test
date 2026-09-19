@@ -336,6 +336,26 @@ export function getSegment(id: TourSegmentId): TourSegment | undefined {
 }
 
 /**
+ * 气泡底部那排进度点要不要画。
+ *
+ * 判据：**点的数量恒等于该段的真实步数**，所以只有 1 步（或 0 步）时
+ * 画出来就是孤零零一个点 —— 它既不表示进度也不可点击，纯噪声，应当不画。
+ *
+ * ⚠️ 不画 ≠ 不占位。底部整行是 `justifyContent: "space-between"`，
+ * 左侧进度点容器一旦整个不渲染，右侧按钮组会从右端塌到左端。
+ * 所以调用方必须**保留那个 flex 子项**（渲染空容器），只是不 map 出圆点。
+ * 详见 OnboardingTour.tsx 底部行的注释。
+ *
+ * ⚠️ 这里刻意用 `segment.steps.length`（声明步数）而不是运行期可达步数：
+ * 带 skipIfMissing 的步骤会在锚点缺失时被静默跳过，但那是运行期才知道的，
+ * 渲染首帧无法预判；若按可达步数画点，会出现「点数在引导过程中突然变少」
+ * 的跳变，比多画一个点更糟。
+ */
+export function shouldShowProgressDots(segment: TourSegment): boolean {
+  return segment.steps.length > 1;
+}
+
+/**
  * 路由匹配。约定：
  *  - "*"          → 匹配任意路由（用于弹窗类分段，由弹窗自身触发）
  *  - "/skills"    → 精确匹配

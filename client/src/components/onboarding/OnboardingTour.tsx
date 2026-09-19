@@ -22,6 +22,7 @@ import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import {
   findTourTarget,
+  shouldShowProgressDots,
   type TourPlacement,
   type TourSegment,
   type TourStep,
@@ -205,6 +206,9 @@ export default function OnboardingTour({
   const step = steps[index] as TourStep | undefined;
   const isFirst = index === 0;
   const isLast = index === steps.length - 1;
+  // 判据收在 shared/onboarding-steps.ts，别在这里就地写 steps.length > 1：
+  // 一处判据两个出口，迟早长歪。
+  const showProgressDots = shouldShowProgressDots(segment);
 
   /* 分段切换时重置 */
   useEffect(() => {
@@ -423,7 +427,11 @@ export default function OnboardingTour({
       <div
         ref={bubbleRef}
         role="dialog"
-        aria-label={`${segment.label}引导 第 ${index + 1} 步，共 ${steps.length} 步`}
+        aria-label={
+          showProgressDots
+            ? `${segment.label}引导 第 ${index + 1} 步，共 ${steps.length} 步`
+            : `${segment.label}引导`
+        }
         style={{
           position: "fixed",
           top: bubblePos.top,
@@ -526,19 +534,27 @@ export default function OnboardingTour({
             borderTop: "1px solid rgba(255,255,255,0.07)",
           }}
         >
+          {/*
+            ⚠️ 这个容器**无论如何都要渲染**，哪怕一个点都不画。
+            外层是 justifyContent:"space-between"，靠「左右两个子项」把按钮组顶到右端。
+            一旦整块不渲染，只剩按钮组一个子项，space-between 会让它塌到左边 ——
+            「下一步」按钮平移到卡片左侧，是个纯靠肉眼才看得出的布局事故。
+            单步时渲染空 div：宽 0 高 0 不占视觉空间，但仍是一个 flex 子项。
+          */}
           <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            {steps.map((s, i) => (
-              <span
-                key={s.id}
-                style={{
-                  height: 5,
-                  borderRadius: 3,
-                  width: i === index ? 16 : 5,
-                  background: i === index ? ACCENT : "rgba(255,255,255,0.20)",
-                  transition: "all 220ms ease",
-                }}
-              />
-            ))}
+            {showProgressDots &&
+              steps.map((s, i) => (
+                <span
+                  key={s.id}
+                  style={{
+                    height: 5,
+                    borderRadius: 3,
+                    width: i === index ? 16 : 5,
+                    background: i === index ? ACCENT : "rgba(255,255,255,0.20)",
+                    transition: "all 220ms ease",
+                  }}
+                />
+              ))}
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
