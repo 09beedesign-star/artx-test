@@ -90,7 +90,7 @@ function readSafeWriteBody() {
   return stripWholeLineComments(source.slice(start, end), [
     "const strippedState = {",
     "window.localStorage.setItem(key, JSON.stringify(strippedState))",
-    'toast("画布自动保存受限"',
+    "console.warn(",
   ]);
 }
 
@@ -157,17 +157,59 @@ describe("链二：降级路径不能比主路径更重", () => {
     ).not.toContain("const persistedState = sessionSaved");
   });
 
-  it("轻量版都写不进去时必须告知用户，不能静默吞掉", () => {
+  /**
+   * 【2026-09-20 产品拍板】存储受限**永远不许打扰用户**。
+   *
+   * ⚠️ 这一条曾经是反过来的（"必须弹提示，不能静默吞掉"）。改口径的理由：
+   *    原护栏真正在防的是**排障时无从下手**，不是"用户有权知道"。
+   *    用 console.warn 一样能留痕，而且用户零感知。
+   *    📌 判据：**可诊断性和不打扰是两件事，别拿"用户知情"去换"我能排障"。**
+   *
+   * ⚠️ 所以这里必须同时写正反两面：
+   *    只写 not.toContain(toast) → 有人把 warn 也删了就成了真静默，测试照绿；
+   *    只写 toContain(console.warn) → 有人 warn 和 toast 都留着，测试照绿。
+   */
+  it("存储受限不得弹任何界面提示", () => {
     const body = readSafeWriteBody();
     const catchIndex = body.lastIndexOf("} catch {");
     expect(catchIndex).toBeGreaterThan(-1);
     const tail = body.slice(catchIndex);
-    expect(tail, "localStorage 写失败必须弹提示").toContain(
-      'toast("画布自动保存受限"'
+    expect(tail, "存储受限不许再弹 toast，用户明确要求永远不出现").not.toContain(
+      "toast("
     );
-    // 原来这个 toast 被 `if (!sessionSaved)` 包着 —— session 成功过就不提示了，
-    // 可 localStorage 才是跨标签页的唯一存档，它失败了用户必须知道。
-    expect(tail, "提示不该再被 sessionSaved 挡住").not.toContain(
+  });
+
+  it("但必须留下控制台痕迹，不能真的静默吞掉", () => {
+    const body = readSafeWriteBody();
+    const catchIndex = body.lastIndexOf("} catch {");
+    const tail = body.slice(catchIndex);
+    expect(tail, "localStorage 写失败必须 console.warn 留痕").toContain(
+      "console.warn("
+    );
+    expect(tail, "痕迹里要带得出是配额问题，否则排障还是抓瞎").toContain(
+      "localStorage 配额已满"
+    );
+  });
+
+  it("留痕必须去重，否则控制台会被刷满", () => {
+    // safeWriteCanvasState 每次 nodes 变化都会跑，不去重的话同一句话几千条，
+    // 真正的报错会被淹没 —— 那等于又回到"排障无从下手"。
+    const body = readSafeWriteBody();
+    const catchIndex = body.lastIndexOf("} catch {");
+    const tail = body.slice(catchIndex);
+    expect(tail, "缺少去重守卫").toContain("if (!canvasStorageWarningShown) {");
+    expect(tail, "缺少置位，去重会失效").toContain(
+      "canvasStorageWarningShown = true;"
+    );
+  });
+
+  it("提示不该再被 sessionSaved 挡住", () => {
+    // 原来 toast 被 `if (!sessionSaved)` 包着 —— session 成功过就不记了，
+    // 可 localStorage 才是跨标签页的唯一存档，它失败了必须留痕。
+    const body = readSafeWriteBody();
+    const catchIndex = body.lastIndexOf("} catch {");
+    const tail = body.slice(catchIndex);
+    expect(tail, "留痕不该再被 sessionSaved 挡住").not.toContain(
       "if (!sessionSaved) {"
     );
   });
