@@ -11926,6 +11926,15 @@ function DraftImageNodeComponent({
   const isDark = resolvedTheme === "dark";
   const { deleteElements } = useReactFlow();
   const [prompt, setPrompt] = useState("");
+  const [model, setModel] = useState("auto");
+  const [imageCount, setImageCount] = useState(1);
+  const [imageRatio, setImageRatio] =
+    useState<CanvasAssistantImageRatio>("auto");
+  const [activeSkill, setActiveSkill] = useState<PendingSkillLoad | null>(null);
+  const [uploadedRefs, setUploadedRefs] = useState<
+    Array<{ id: string; title: string; src: string }>
+  >([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const width = (data.width as number) || 520;
   const height = (data.height as number) || 520;
   const projectId = (data.projectId as string) || "p1";
@@ -11936,6 +11945,63 @@ function DraftImageNodeComponent({
   const sub = isDark ? "rgba(255,255,255,0.62)" : "rgba(22,22,34,0.48)";
   const fieldBg = isDark ? "#242424" : "rgba(0,0,0,0.035)";
   const surfaceBg = isDark ? "rgba(30,30,32,0.72)" : "rgba(255,255,255,0.86)";
+
+  /*
+   * 画幅取值口径与主 composer 一致：用户显式选择 > 当前 Skill 的首选画幅 >
+   * 节点默认 1:1。Skill 首选比例可能不在选择器列表里，只在其可识别时才覆盖。
+   */
+  const resolveRatio = useCallback(
+    (skill: PendingSkillLoad | null, ratio: CanvasAssistantImageRatio) => {
+      if (ratio !== "auto") return ratio;
+      if (!skill) return ratio;
+      const preferred = getSkillPreferredRatio(skill, "");
+      if (
+        preferred &&
+        (CANVAS_ASSISTANT_IMAGE_RATIOS as readonly string[]).includes(preferred)
+      ) {
+        return preferred as CanvasAssistantImageRatio;
+      }
+      return ratio;
+    },
+    []
+  );
+
+  const handleSkillChange = useCallback(
+    (skill: PendingSkillLoad | null) => {
+      setActiveSkill(skill);
+      setImageRatio(current => resolveRatio(skill, current));
+    },
+    [resolveRatio]
+  );
+
+  const handleUploadRefs = useCallback((files: FileList | null) => {
+    if (!files?.length) return;
+    const imageFiles = Array.from(files).filter(file =>
+      file.type.startsWith("image/")
+    );
+    if (imageFiles.length === 0) {
+      toast("请选择图片文件（JPG / PNG / GIF / WebP）");
+      return;
+    }
+    imageFiles.forEach((file, index) => {
+      const reader = new FileReader();
+      reader.onload = event => {
+        const src = event.target?.result;
+        if (typeof src !== "string") return;
+        setUploadedRefs(prev => [
+          ...prev,
+          {
+            id: `draft-ref-${Date.now()}-${index}`,
+            title: file.name.replace(/\.[^.]+$/, ""),
+            src,
+          },
+        ]);
+      };
+      reader.readAsDataURL(file);
+    });
+    toast(`已加载 ${imageFiles.length} 张参考图`);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }, []);
 
   const handleSubmit = useCallback(() => {
     const trimmed = prompt.trim();
@@ -11950,6 +12016,16 @@ function DraftImageNodeComponent({
     const generationId = `image-gen-${Date.now()}-${Math.random()
       .toString(36)
       .slice(2, 7)}`;
+    const ratio = resolveRatio(activeSkill, imageRatio);
+    const skillContext = activeSkill
+      ? buildSkillPromptContext(activeSkill)
+      : "";
+    const finalPrompt = buildSkillAppliedImagePrompt({
+      activeSkill,
+      skillContext,
+      userPrompt: trimmed,
+      imagePrompt: trimmed,
+    });
     /**
      * ⚠️ 草稿节点先删再派发：真正的生成占位节点由 InnerCanvas 统一创建。
      * 不删的话画布上会同时留着草稿框和占位框，用户看到「点一次冒出两个」。
@@ -11958,18 +12034,35 @@ function DraftImageNodeComponent({
     dispatchImageGenerationTask(
       {
         projectId,
-        prompt: trimmed,
-        model: "auto",
-        ratio: "1:1",
-        count: 1,
-        style: "图像生成器",
-        referencesEnabled: false,
+        prompt: finalPrompt,
+        model,
+        ratio,
+        count: imageCount,
+        style: activeSkill?.name || "图像生成器",
+        referencesEnabled: uploadedRefs.length > 0,
+        referencedAssets: uploadedRefs.map(ref => ({
+          src: ref.src,
+          title: ref.title,
+        })),
         generationId,
+        displaySize: getImageDisplaySizeForRatio(ratio),
+        skillId: activeSkill?.id,
         status: "pending",
       },
       projectId
     );
-  }, [deleteElements, id, projectId, prompt]);
+  }, [
+    activeSkill,
+    deleteElements,
+    id,
+    imageCount,
+    imageRatio,
+    model,
+    projectId,
+    prompt,
+    resolveRatio,
+    uploadedRefs,
+  ]);
 
   return (
     <div
@@ -12017,6 +12110,86 @@ function DraftImageNodeComponent({
             placeholder="描述要生成的图像，例如：未来感跑鞋产品海报，紫蓝霓虹光，干净电商主视觉..."
             autoFocus
           />
+          {uploadedRefs.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {uploadedRefs.map(ref => (
+                <div
+                  key={ref.id}
+                  className="relative h-12 w-12 overflow-hidden rounded-[var(--radius-md-design)]"
+                  style={{ border: `1px solid ${border}` }}
+                  title={ref.title}
+                >
+                  <img
+                    src={ref.src}
+                    alt={ref.title}
+                    className="h-full w-full object-cover"
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-[var(--radius-pill)]"
+                    style={{ background: "rgba(0,0,0,0.55)", color: "white" }}
+                    onClick={() =>
+                      setUploadedRefs(prev =>
+                        prev.filter(item => item.id !== ref.id)
+                      )
+                    }
+                    aria-label="移除参考图"
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {/*
+            控制条：与主画布助手面板同一套选择器（上传 / 模型 / Skill /
+            张数 / 画幅）。各选择器的下拉 createPortal 到 body 定位，
+            不受节点容器 overflow:hidden 裁剪。
+          */}
+          <div
+            className="mt-2 flex flex-wrap items-center gap-2"
+            onMouseDown={e => e.stopPropagation()}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={event => handleUploadRefs(event.target.files)}
+            />
+            <button
+              type="button"
+              className="h-7 w-7 rounded-[var(--radius-md-design)] flex items-center justify-center transition-opacity hover:opacity-70"
+              style={{
+                background: isDark
+                  ? "rgba(255,255,255,0.08)"
+                  : "rgba(0,0,0,0.06)",
+                color: sub,
+              }}
+              title="上传参考图片"
+              aria-label="上传参考图片"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <ImagePlus size={13} />
+            </button>
+            <ModelSelector model={model} onChange={setModel} isDark={isDark} />
+            <SkillPointSelector
+              activeSkill={activeSkill}
+              onChange={handleSkillChange}
+              isDark={isDark}
+            />
+            <ImageCountSelector
+              value={imageCount}
+              onChange={setImageCount}
+              isDark={isDark}
+            />
+            <ImageRatioSelector
+              value={imageRatio}
+              onChange={setImageRatio}
+              isDark={isDark}
+            />
+          </div>
           <div
             className="mt-2 flex items-center justify-between"
             style={{ color: sub }}

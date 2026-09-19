@@ -135,6 +135,37 @@ describe("InfiniteCanvas prompt controls", () => {
     );
   });
 
+  it("wires the draft image node composer to the full assistant control set", () => {
+    const raw = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const source = stripComments(raw);
+    const draftBlock = source.match(
+      /function DraftImageNodeComponent\([\s\S]*?\n\}\n/
+    )?.[0];
+
+    expect(draftBlock).toBeTruthy();
+
+    // 控制件齐全，且绑定组件自身 state（而不是渲染出来摆样子）。
+    expect(draftBlock).toContain("<ModelSelector");
+    expect(draftBlock).toContain("<SkillPointSelector");
+    expect(draftBlock).toContain("<ImageCountSelector");
+    expect(draftBlock).toContain("value={imageCount}");
+    expect(draftBlock).toContain("<ImageRatioSelector");
+    expect(draftBlock).toContain("value={imageRatio}");
+    expect(draftBlock).toContain('aria-label="上传参考图片"');
+
+    // 提交 payload 全部来自控件，不再写死默认值。
+    expect(draftBlock).toContain("model,\n        ratio,\n        count: imageCount,");
+    expect(draftBlock).toContain("skillId: activeSkill?.id");
+    expect(draftBlock).toContain("referencedAssets: uploadedRefs.map");
+    expect(draftBlock).toContain("buildSkillPromptContext(activeSkill)");
+    expect(draftBlock).toContain("getSkillPreferredRatio(skill, \"\")");
+
+    // 旧写法：写死 auto / 1:1 / 1 张，选了也白选。
+    expect(draftBlock).not.toContain('model: "auto"');
+    expect(draftBlock).not.toContain('ratio: "1:1"');
+    expect(draftBlock).not.toContain('referencesEnabled: false');
+  });
+
   it("keeps smart annotation edits on the restored source-image edit route", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
     const annotationEditBlock = source.match(
