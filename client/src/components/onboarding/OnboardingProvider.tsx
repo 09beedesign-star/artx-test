@@ -16,9 +16,14 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { useLocation } from "wouter";
+import {
+  isAnnouncementBlocking,
+  subscribeAnnouncementBlocking,
+} from "@/components/announcement/announcement-gate";
 import {
   ONBOARDING_STORAGE_KEY,
   ONBOARDING_VERSION,
@@ -101,6 +106,19 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   const timerRef = useRef<number | null>(null);
   // 本次会话已尝试自动播放过的分段，防止同一路由反复触发
   const attemptedRef = useRef<Set<TourSegmentId>>(new Set());
+  /**
+   * 公告弹窗是否正在阻断。
+   *
+   * ⚠️ 必须用 useSyncExternalStore 订阅，不能只读一次布尔量：
+   *    下面的自动播放是 useEffect，闸门解除时若不触发重渲染，
+   *    引导会被永久吃掉且不报错（表现为「新手引导突然没了」）。
+   * ⚠️ 第三个参数（服务端快照）不可省，否则 SSR / 预渲染会抛错。
+   */
+  const announcementBlocking = useSyncExternalStore(
+    subscribeAnnouncementBlocking,
+    isAnnouncementBlocking,
+    () => false,
+  );
 
   const persist = useCallback((next: OnboardingState) => {
     setState(next);
@@ -118,6 +136,12 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     clearTimer();
     if (activeSegment) return;
+    /**
+     * 公告弹窗阻断期间不自动播引导（公告优先）。
+     * ⚠️ 必须在 attemptedRef 打标**之前**就 return ——
+     *    否则这一次会被记成「已尝试过」，公告关掉后引导再也不播了。
+     */
+    if (announcementBlocking) return;
 
     const candidate = resolveAutoSegment(location, state);
     if (!candidate) return;
@@ -129,7 +153,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     }, candidate.startDelayMs ?? 600);
 
     return clearTimer;
-  }, [location, state, activeSegment, clearTimer]);
+  }, [location, state, activeSegment, clearTimer, announcementBlocking]);
 
   const markCompleted = useCallback(
     (segmentId: TourSegmentId) => {

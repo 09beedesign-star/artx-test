@@ -34,6 +34,13 @@ import HomeFirstTopUpBanner, {
   dismissFirstTopUpBannerForToday,
   isFirstTopUpBannerDismissedToday,
 } from "@/components/home/HomeFirstTopUpBanner";
+import AnnouncementModal from "@/components/announcement/AnnouncementModal";
+import { HOME_ANNOUNCEMENT } from "@/components/announcement/announcement-content";
+import {
+  hasSeenAnnouncement,
+  markAnnouncementSeen,
+} from "@/components/announcement/announcement-seen-store";
+import { setAnnouncementBlocking } from "@/components/announcement/announcement-gate";
 import { createWorkspaceHistoryProject } from "@/lib/project-history";
 import { requestAiAuth } from "@/lib/ai";
 import {
@@ -205,6 +212,15 @@ export default function HomePage() {
   const [panelMode, setPanelMode] = useState<PanelMode>(isAuthenticated ? "prelogin" : "prelogin");
   const [prompt, setPrompt] = useState(HOME_PROMPT);
   const [promptTouched, setPromptTouched] = useState(false);
+  /**
+   * 首页公告弹窗（阻断式）。
+   *
+   * ⚠️ 惰性初始化不可省：hasSeenAnnouncement 会摸 localStorage，
+   *    写成 useState(!hasSeenAnnouncement(...)) 会在每次渲染都执行一次。
+   */
+  const [announcementOpen, setAnnouncementOpen] = useState(
+    () => !hasSeenAnnouncement(HOME_ANNOUNCEMENT.id)
+  );
   /**
    * 首页选的出图模型。与画布共用同一份 localStorage 偏好（用户 2026-09-15 拍板），
    * 所以这里读的不是本地初值，而是全站统一的偏好。
@@ -732,8 +748,32 @@ export default function HomePage() {
     });
   };
 
+  /**
+   * 把「公告正在阻断」同步给新手引导（公告优先，两者不同时出现）。
+   *
+   * ⚠️ 清理函数里必须置回 false：
+   *    用户没关弹窗就跳走（点浏览器后退 / 外链）时，若不复位，
+   *    闸门会永久卡住，新手引导在整个会话里再也不播且不报错。
+   */
+  useEffect(() => {
+    setAnnouncementBlocking(announcementOpen);
+    return () => setAnnouncementBlocking(false);
+  }, [announcementOpen]);
+
+  /** ✕ 和「我知道了」共用这一个关闭入口 —— 保证两者行为永远一致 */
+  const handleAnnouncementClose = () => {
+    markAnnouncementSeen(HOME_ANNOUNCEMENT.id);
+    setAnnouncementOpen(false);
+  };
+
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#222222]">
+      {/* 首页公告 —— 阻断式，只能通过右上角 ✕ 或右下角绿色按钮关闭，且不加黑色蒙层 */}
+      <AnnouncementModal
+        open={announcementOpen}
+        content={HOME_ANNOUNCEMENT}
+        onClose={handleAnnouncementClose}
+      />
       {!isFirstTopUpBannerDismissed && (
         <HomeFirstTopUpBanner
           onDismiss={() => {
