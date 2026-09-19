@@ -39,6 +39,9 @@ import { HOME_ANNOUNCEMENT } from "@/components/announcement/announcement-conten
 import {
   hasSeenAnnouncement,
   markAnnouncementSeen,
+  hasAnnouncementForcePending,
+  clearAnnouncementForcePending,
+  ANNOUNCEMENT_REPLAY_EVENT,
 } from "@/components/announcement/announcement-seen-store";
 import { setAnnouncementBlocking } from "@/components/announcement/announcement-gate";
 import { createWorkspaceHistoryProject } from "@/lib/project-history";
@@ -215,11 +218,17 @@ export default function HomePage() {
   /**
    * 首页公告弹窗（阻断式）。
    *
-   * ⚠️ 惰性初始化不可省：hasSeenAnnouncement 会摸 localStorage，
-   *    写成 useState(!hasSeenAnnouncement(...)) 会在每次渲染都执行一次。
+   * 判定顺序（强硬规则，产品定稿 2026-09-19）：
+   *   ① 有「强制待弹标记」→ 必弹，无视已读记录
+   *      （标记由 AuthContext 在每条登录 / 注册成功路径上打）
+   *   ② 否则看这一期是否已读
+   *
+   * ⚠️ 惰性初始化不可省：两个判断都会摸 localStorage，
+   *    写成 useState(表达式) 会在每次渲染都执行一遍。
    */
   const [announcementOpen, setAnnouncementOpen] = useState(
-    () => !hasSeenAnnouncement(HOME_ANNOUNCEMENT.id)
+    () =>
+      hasAnnouncementForcePending() || !hasSeenAnnouncement(HOME_ANNOUNCEMENT.id)
   );
   /**
    * 首页选的出图模型。与画布共用同一份 localStorage 偏好（用户 2026-09-15 拍板），
@@ -760,7 +769,36 @@ export default function HomePage() {
     return () => setAnnouncementBlocking(false);
   }, [announcementOpen]);
 
-  /** ✕ 和「我知道了」共用这一个关闭入口 —— 保证两者行为永远一致 */
+  /**
+   * 每次登录 / 注册成功后，公告必须再弹一次（产品定稿 2026-09-19）。
+   *
+   * ⚠️ 为什么不能只靠 AuthContext 清 localStorage：
+   *    登录弹窗就开在首页上，清记录时 HomePage 早已挂载，
+   *    上面那次惰性初始化不会重新执行 —— 表现是「登录成功但公告没出来，
+   *    要手动刷新才有」，而且全程零报错。所以必须由事件当场把它打开。
+   */
+  useEffect(() => {
+    const replay = () => setAnnouncementOpen(true);
+    window.addEventListener(ANNOUNCEMENT_REPLAY_EVENT, replay);
+    return () => window.removeEventListener(ANNOUNCEMENT_REPLAY_EVENT, replay);
+  }, []);
+
+  /**
+   * 消费掉「强制待弹标记」—— 必须等弹窗**真的打开之后**才清。
+   *
+   * ⚠️ 为什么不在上面那次惰性初始化里顺手清：
+   *    React 严格模式下初始化函数会跑两次。第一次读到标记并清掉，
+   *    第二次读到的就是空 —— 弹窗时有时无，而且零报错，极难复现。
+   *    放在 open === true 的 effect 里，无论初始化跑几次都只是重复 remove，幂等。
+   *
+   * ⚠️ 也不能不清：不清的话标记会永久留在 localStorage，
+   *    用户关掉弹窗后每刷一次首页就再弹一次，等于关不掉。
+   */
+  useEffect(() => {
+    if (announcementOpen) clearAnnouncementForcePending();
+  }, [announcementOpen]);
+
+  /** 唯一关闭入口：右下角「我知道了」（右上角 ✕ 已于 2026-09-19 移除） */
   const handleAnnouncementClose = () => {
     markAnnouncementSeen(HOME_ANNOUNCEMENT.id);
     setAnnouncementOpen(false);
@@ -768,7 +806,7 @@ export default function HomePage() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#222222]">
-      {/* 首页公告 —— 阻断式，只能通过右上角 ✕ 或右下角绿色按钮关闭，且不加黑色蒙层 */}
+      {/* 首页公告 —— 阻断式，带半透明蒙层，只能通过右下角绿色按钮关闭 */}
       <AnnouncementModal
         open={announcementOpen}
         content={HOME_ANNOUNCEMENT}

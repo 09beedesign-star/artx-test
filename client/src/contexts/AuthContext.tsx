@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { defaultApiBaseUrlForCurrentHost, normalizeApiBaseUrl } from "@/lib/api-base-url";
+import { requestAnnouncementReplay } from "@/components/announcement/announcement-seen-store";
 
 const AUTH_STORAGE_KEY = "artx-auth-session";
 const LOCAL_AUTH_USERS_KEY = "artx-local-auth-users";
@@ -142,6 +143,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("artx:login-required", handleLoginRequired);
   }, []);
 
+  /**
+   * 登录 / 注册成功后的统一收尾。
+   *
+   * ⚠️ 所有成功路径都必须走这里，一条都不能漏：
+   *    密码登录/注册、短信验证码、邮箱验证码、第三方、以及 GitHub Pages 本地兜底。
+   *    短信 / 邮箱两条路径对新账号会自动建号，本身就是注册路径。
+   *    漏掉任何一条的表现都是「某种方式登录后公告不弹」，且完全不报错。
+   *
+   * 📌 requestAnnouncementReplay() 必须在这里调，不能只写在首页：
+   *    产品要求是「每次登录、每次注册之后都要弹」，而不是「每台设备只弹一次」。
+   */
+  const completeAuthSuccess = (normalizedUser: AuthUser) => {
+    setIsAuthenticated(true);
+    setUser(normalizedUser);
+    setLoginModalOpen(false);
+    requestAnnouncementReplay();
+  };
+
   const authenticate = async (action: "login" | "register", username: string, password: string) => {
     try {
       // 邀请码只在注册时透传。从暂存读取而非让各调用方传参，
@@ -166,9 +185,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!persistSession({ token: result.token, user: normalizedUser })) {
         return { ok: false, error: "浏览器本地存储空间不足，已尝试清理旧画布缓存，请重新登录" };
       }
-      setIsAuthenticated(true);
-      setUser(normalizedUser);
-      setLoginModalOpen(false);
+      completeAuthSuccess(normalizedUser);
       // 邀请码已随注册请求送达后端，无论后端是否判定可绑定（风控可能拒绝），
       // 本地都不再保留 —— 留着只会在同一浏览器换号注册时重复携带。
       if (inviteCode) clearPendingInviteCode();
@@ -203,9 +220,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!persistSession({ token: result.token, user: normalizedUser })) {
         return { ok: false, error: "浏览器本地存储空间不足，已尝试清理旧画布缓存，请重新登录" };
       }
-      setIsAuthenticated(true);
-      setUser(normalizedUser);
-      setLoginModalOpen(false);
+      completeAuthSuccess(normalizedUser);
       if (inviteCode) clearPendingInviteCode();
       return { ok: true };
     } catch {
@@ -230,9 +245,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!persistSession({ token: result.token, user: normalizedUser })) {
         return { ok: false, error: "浏览器本地存储空间不足，已尝试清理旧画布缓存，请重新登录" };
       }
-      setIsAuthenticated(true);
-      setUser(normalizedUser);
-      setLoginModalOpen(false);
+      completeAuthSuccess(normalizedUser);
       if (inviteCode) clearPendingInviteCode();
       return { ok: true };
     } catch {
@@ -240,12 +253,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  /**
+   * GitHub Pages 离线兜底登录的落地点（authenticateLocally 成功后调用）。
+   * 它同样是一条「登录 / 注册成功」路径，所以也要重放公告。
+   */
   const applyStoredSession = () => {
     const stored = readStoredSession();
     if (!stored) return;
-    setIsAuthenticated(true);
-    setUser(stored.user);
-    setLoginModalOpen(false);
+    completeAuthSuccess(stored.user);
   };
 
   const value = useMemo<AuthContextValue>(() => ({
@@ -348,9 +363,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!persistSession({ token: result.token, user: normalizedUser })) {
           return { ok: false, error: "浏览器本地存储空间不足，已尝试清理旧画布缓存，请重新登录" };
         }
-        setIsAuthenticated(true);
-        setUser(normalizedUser);
-        setLoginModalOpen(false);
+        completeAuthSuccess(normalizedUser);
         return { ok: true };
       } catch {
         if (isGithubPagesTest()) {
