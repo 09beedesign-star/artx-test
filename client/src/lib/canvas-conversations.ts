@@ -339,6 +339,78 @@ export function ensureConversationIndex(
   return persist({ activeId: fresh.id, conversations: [fresh] });
 }
 
+/**
+ * 【2026-09-19 新增】历史对话搜索 —— 标题 + 正文全文。
+ *
+ * ⚠️ 索引（`CanvasConversationMeta`）里**只有标题，没有消息正文**（见 :18），
+ *    所以正文命中必须按 `artx:canvas-assistant-messages:<pid>:<cid>`
+ *    逐条读 localStorage。能这么做的前提是会话有硬上限
+ *    （`MAX_CANVAS_CONVERSATIONS` = 20），读盘次数可控；
+ *    若哪天放开上限，这里必须改成异步 + 节流，否则输入一次卡一次。
+ *
+ * ⚠️ 匹配用 `toLowerCase().includes`：中文不受影响，
+ *    但英文/模型名（如 "GPT"）能大小写不敏感命中。不做分词，
+ *    用户输入什么就字面找什么 —— 分词对 20 条短会话收益极低。
+ */
+export type ConversationSearchHit = {
+  conversation: CanvasConversationMeta;
+  /** 正文命中片段。标题命中时为空串（标题本身就显示在行首，无需重复片段）。 */
+  snippet: string;
+};
+
+/** 片段在命中位置前后各取多少字。 */
+const SEARCH_SNIPPET_RADIUS = 16;
+
+function findMessageSnippet(raw: string | null, keyword: string): string | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    for (const item of parsed) {
+      const content = (item as { content?: unknown })?.content;
+      if (typeof content !== "string") continue;
+      const index = content.toLowerCase().indexOf(keyword);
+      if (index < 0) continue;
+      const start = Math.max(0, index - SEARCH_SNIPPET_RADIUS);
+      const end = Math.min(
+        content.length,
+        index + keyword.length + SEARCH_SNIPPET_RADIUS * 2
+      );
+      const text = content.slice(start, end).replace(/\s+/g, " ").trim();
+      return `${start > 0 ? "…" : ""}${text}${end < content.length ? "…" : ""}`;
+    }
+  } catch {
+    /* 单条消息解析失败不应让整个搜索空掉，跳过即可。 */
+  }
+  return null;
+}
+
+export function searchConversations(input: {
+  projectId: string;
+  conversations: CanvasConversationMeta[];
+  query: string;
+  read: (key: string) => string | null;
+}): ConversationSearchHit[] {
+  const keyword = input.query.trim().toLowerCase();
+  if (!keyword) {
+    return input.conversations.map(conversation => ({ conversation, snippet: "" }));
+  }
+  const hits: ConversationSearchHit[] = [];
+  for (const conversation of input.conversations) {
+    const title = (conversation.title || CONVERSATION_FALLBACK_TITLE).toLowerCase();
+    if (title.includes(keyword)) {
+      hits.push({ conversation, snippet: "" });
+      continue;
+    }
+    const snippet = findMessageSnippet(
+      input.read(canvasConversationMessagesKey(input.projectId, conversation.id)),
+      keyword
+    );
+    if (snippet) hits.push({ conversation, snippet });
+  }
+  return hits;
+}
+
 /** 相对时间展示，用于历史列表。 */
 export function formatConversationTime(value: string, now = Date.now()): string {
   const time = parseTime(value);

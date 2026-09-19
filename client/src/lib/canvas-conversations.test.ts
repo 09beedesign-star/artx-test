@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
   CONVERSATION_TITLE_MAX_LENGTH,
   MAX_CANVAS_CONVERSATIONS,
@@ -11,6 +11,7 @@ import {
   formatConversationTime,
   parseConversationIndex,
   removeConversation,
+  searchConversations,
   sortConversations,
   touchConversation,
 } from "./canvas-conversations";
@@ -353,5 +354,94 @@ describe("相对时间", () => {
 
   it("空值返回空串", () => {
     expect(formatConversationTime("", now)).toBe("");
+  });
+});
+
+describe("searchConversations", () => {
+  const store: Record<string, string> = {};
+  const read = (key: string) => store[key] ?? null;
+  const conversations = [
+    { id: "c1", title: "品牌海报", createdAt: "2026-09-18T00:00:00.000Z", updatedAt: "2026-09-18T00:00:00.000Z", messageCount: 3 },
+    { id: "c2", title: "新对话", createdAt: "2026-09-18T00:00:00.000Z", updatedAt: "2026-09-18T01:00:00.000Z", messageCount: 2 },
+  ];
+
+  beforeEach(() => {
+    Object.keys(store).forEach(key => delete store[key]);
+    store[canvasConversationMessagesKey("p1", "c1")] = JSON.stringify([
+      msg("user", "帮我做一张夏日促销海报"),
+      msg("assistant", "好的，我先确认主色"),
+    ]);
+    store[canvasConversationMessagesKey("p1", "c2")] = JSON.stringify([
+      msg("user", "把这张图的背景换成海边"),
+      msg("assistant", "已替换"),
+    ]);
+  });
+
+  it("关键词为空时原样返回全部且不读盘", () => {
+    let reads = 0;
+    const hits = searchConversations({
+      projectId: "p1",
+      conversations,
+      query: "   ",
+      read: () => {
+        reads += 1;
+        return null;
+      },
+    });
+    expect(hits).toHaveLength(2);
+    expect(reads).toBe(0);
+  });
+
+  it("标题命中时不读正文，snippet 为空串", () => {
+    const hits = searchConversations({
+      projectId: "p1",
+      conversations,
+      query: "海报",
+      read,
+    });
+    expect(hits.map(item => item.conversation.id)).toEqual(["c1"]);
+    expect(hits[0].snippet).toBe("");
+  });
+
+  it("正文命中返回带省略号的片段", () => {
+    const hits = searchConversations({
+      projectId: "p1",
+      conversations,
+      query: "海边",
+      read,
+    });
+    expect(hits.map(item => item.conversation.id)).toEqual(["c2"]);
+    expect(hits[0].snippet).toContain("海边");
+  });
+
+  it("英文大小写不敏感", () => {
+    const hits = searchConversations({
+      projectId: "p1",
+      conversations: [{ ...conversations[0], title: "GPT image" }],
+      query: "gpt",
+      read,
+    });
+    expect(hits).toHaveLength(1);
+  });
+
+  it("没有命中返回空数组", () => {
+    const hits = searchConversations({
+      projectId: "p1",
+      conversations,
+      query: "完全不存在的关键词",
+      read,
+    });
+    expect(hits).toEqual([]);
+  });
+
+  it("消息体损坏时跳过，不影响其余会话", () => {
+    store[canvasConversationMessagesKey("p1", "c1")] = "{ not json";
+    const hits = searchConversations({
+      projectId: "p1",
+      conversations,
+      query: "海边",
+      read,
+    });
+    expect(hits.map(item => item.conversation.id)).toEqual(["c2"]);
   });
 });

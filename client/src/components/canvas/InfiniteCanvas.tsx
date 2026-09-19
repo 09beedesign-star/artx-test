@@ -601,6 +601,7 @@ import {
   ensureConversationIndex,
   formatConversationTime,
   removeConversation,
+  searchConversations,
   touchConversation,
   type CanvasConversationIndex,
 } from "@/lib/canvas-conversations";
@@ -19125,6 +19126,7 @@ function CanvasAssistantPanel({
    */
   const messagesConversationRef = useRef<string>(conversationIndex.activeId);
   const [conversationMenuOpen, setConversationMenuOpen] = useState(false);
+  const [conversationQuery, setConversationQuery] = useState("");
   const conversationMenuRef = useRef<HTMLDivElement | null>(null);
   const [messages, setMessages] = useState<CanvasAssistantMessage[]>(() => {
     const stored =
@@ -19273,6 +19275,9 @@ function CanvasAssistantPanel({
         !conversationMenuRef.current.contains(event.target)
       ) {
         setConversationMenuOpen(false);
+        // 关掉就清空关键词：否则下次打开时列表是过滤后的，
+        // 用户会以为「对话少了几条」。
+        setConversationQuery("");
       }
     };
     document.addEventListener("pointerdown", handlePointerDown, true);
@@ -19298,6 +19303,24 @@ function CanvasAssistantPanel({
     [projectId]
   );
 
+  /**
+   * 历史对话的搜索结果（标题 + 正文全文）。
+   *
+   * ⚠️ 关键词为空时 `searchConversations` 直接原样返回，**不读盘**，
+   *    所以常态下（用户没输入）这里没有任何额外开销。
+   */
+  const conversationSearchHits = useMemo(
+    () =>
+      searchConversations({
+        projectId,
+        conversations: conversationIndex.conversations,
+        query: conversationQuery,
+        read: key =>
+          typeof window === "undefined" ? null : window.localStorage.getItem(key),
+      }),
+    [projectId, conversationIndex.conversations, conversationQuery]
+  );
+
   const handleCreateConversation = useCallback(() => {
     const fresh = createConversationMeta();
     persistConversationIndex({
@@ -19316,6 +19339,7 @@ function CanvasAssistantPanel({
   const handleSelectConversation = useCallback(
     (conversationId: string) => {
       setConversationMenuOpen(false);
+      setConversationQuery("");
       if (conversationId === conversationIndex.activeId) return;
       persistConversationIndex({
         ...conversationIndex,
@@ -22536,6 +22560,52 @@ function CanvasAssistantPanel({
                 历史对话
               </div>
               <div
+                className="px-3 py-2"
+                style={{ borderBottom: `1px solid ${border}` }}
+              >
+                <div className="relative">
+                  <Search
+                    size={12}
+                    className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2"
+                    style={{ color: sub }}
+                  />
+                  <input
+                    value={conversationQuery}
+                    onChange={event => setConversationQuery(event.target.value)}
+                    /**
+                     * ⚠️ 必须挡住 keydown：画布上有全局快捷键
+                     *    （空格平移、Delete 删节点、字母键切工具），
+                     *    不拦的话「在搜索框里打字」会同时操作画布。
+                     */
+                    onKeyDown={event => event.stopPropagation()}
+                    placeholder="搜索标题或对话内容"
+                    className="w-full rounded-[6px] py-1.5 pl-7 pr-7 text-[12px] outline-none"
+                    style={{
+                      background: chipBg,
+                      border: `1px solid ${border}`,
+                      color: text,
+                    }}
+                  />
+                  {conversationQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setConversationQuery("")}
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2"
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        color: sub,
+                        padding: 2,
+                      }}
+                      title="清除搜索"
+                      aria-label="清除搜索"
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div
                 style={{
                   maxHeight: 280,
                   overflowY: "auto",
@@ -22544,7 +22614,15 @@ function CanvasAssistantPanel({
                 }}
                 onWheel={event => event.stopPropagation()}
               >
-                {conversationIndex.conversations.map(conversation => {
+                {conversationSearchHits.length === 0 ? (
+                  <div
+                    className="px-3 py-5 text-center"
+                    style={{ color: sub, fontSize: 12 }}
+                  >
+                    没有匹配的对话
+                  </div>
+                ) : (
+                  conversationSearchHits.map(({ conversation, snippet }) => {
                   const active = conversation.id === activeConversationId;
                   return (
                     <div
@@ -22562,10 +22640,21 @@ function CanvasAssistantPanel({
                         </div>
                         <div
                           className="truncate"
-                          style={{ color: sub, fontSize: 11, lineHeight: "14px" }}
+                          style={{
+                            color: snippet ? text : sub,
+                            fontSize: 11,
+                            lineHeight: "14px",
+                          }}
+                          title={snippet || undefined}
                         >
-                          {conversation.messageCount} 条 ·{" "}
-                          {formatConversationTime(conversation.updatedAt)}
+                          {snippet ? (
+                            snippet
+                          ) : (
+                            <>
+                              {conversation.messageCount} 条 ·{" "}
+                              {formatConversationTime(conversation.updatedAt)}
+                            </>
+                          )}
                         </div>
                       </div>
                       <button
@@ -22593,7 +22682,8 @@ function CanvasAssistantPanel({
                       </button>
                     </div>
                   );
-                })}
+                  })
+                )}
               </div>
             </div>
           )}
