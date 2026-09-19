@@ -266,12 +266,17 @@ describe("三条规则在画布里真的被接上了（接线断言）", () => {
      * setNodes 的 updater 在 React 严格模式下会被调用两次，
      * 里面做副作用（移视角）会触发两次动画。
      * 所以中心点在 updater 内算好带出来，调用放在外面。
+     *
+     * ⚠️ 不要断言「focusGeneratedImageCenter 是这个块的第一行」。
+     * 这个块现在还拍了一张对焦前的画面快照（计费拦截撤掉占位框后要把视角送回去），
+     * 它和移视角同样是副作用、同样必须留在 updater 外面 —— 正是本规则要护住的东西，
+     * 不该被当成违规。这里只验「调用在这个块里」，不验它是第几行。
      */
     expect(source).toContain(
       "let pendingFocusCenter: { x: number; y: number } | null = null"
     );
     expect(source).toMatch(
-      /if \(pendingFocusCenter\) \{\s*\n\s*focusGeneratedImageCenter\(pendingFocusCenter\);/
+      /if \(pendingFocusCenter\) \{[\s\S]{0,300}?\n\s*focusGeneratedImageCenter\(pendingFocusCenter\);/
     );
   });
 });

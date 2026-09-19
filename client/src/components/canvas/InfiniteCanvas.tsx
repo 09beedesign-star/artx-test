@@ -39,6 +39,7 @@ import {
   Position,
   useReactFlow,
   useViewport,
+  type Viewport,
   ReactFlowProvider,
   SelectionMode,
   type XYPosition,
@@ -573,7 +574,11 @@ import {
   type ImageTextRegion,
   type ReferenceImageResult,
 } from "@/lib/ai";
-import { isAiCreditBlockedMessage } from "@/lib/ai-credit-gate";
+import {
+  isAiCreditBlockedMessage,
+  notifyAiFailure,
+} from "@/lib/ai-credit-gate";
+import { computeAiProcessingOverlayMetrics } from "@/lib/ai-processing-overlay";
 import { removeGenerationPlaceholders } from "@/lib/canvas-generation-nodes";
 import { buildAssistantContext, routeCreativeIntent } from "@/lib/ai-intent";
 import { selectEditedTextRegions } from "@/lib/text-replace";
@@ -6733,17 +6738,14 @@ function AssetNodeComponent({
 
   const dispW = imgW || initW;
   const dispH = imgH || initH;
-  const processingBlockSize = Math.max(
-    30,
-    Math.min(140, Math.min(dispW, dispH) * 0.2)
-  );
-  const processingIconSize = Math.max(16, processingBlockSize * 0.58);
-  const processingTextSize = Math.max(6, processingBlockSize * 0.13);
-  const processingLineHeight = `${Math.max(8, processingTextSize * 1.22)}px`;
-  const processingTextWidth = Math.max(
-    44,
-    Math.min(dispW * 0.72, processingBlockSize * 4.8)
-  );
+  const {
+    iconSize: processingIconSize,
+    textSize: processingTextSize,
+    lineHeight: processingLineHeight,
+    textGap: processingTextGap,
+    textWidth: processingTextWidth,
+    textBlockHeight: processingTextBlockHeight,
+  } = computeAiProcessingOverlayMetrics(dispW, dispH);
   const regenerateDetail = getRegenerableImageNodeDetail(nodeId, data, {
     w: dispW,
     h: dispH,
@@ -8106,11 +8108,14 @@ function AssetNodeComponent({
               <div
 	                className="flex flex-col items-center text-center"
 	                style={{
-	                  gap: Math.max(1, processingBlockSize * 0.025),
-	                  maxHeight: Math.max(
-	                    8,
-	                    processingBlockSize - processingIconSize
-	                  ),
+	                  gap: processingTextGap,
+	                  /*
+	                   * ⚠️ 不能再写 `processingBlockSize - processingIconSize`。
+	                   * 字号/行高有下限，那个值在小节点上会小于两行实际所需，flex 就把两个 span
+	                   * 压扁 → 两行贴在一起、字形贴着裁切边。textBlockHeight 由行高与间隙算出，
+	                   * 恒等于内容高度。
+	                   */
+	                  maxHeight: processingTextBlockHeight,
 	                  width: processingTextWidth,
 	                }}
 	              >
@@ -8127,6 +8132,12 @@ function AssetNodeComponent({
 	                      whiteSpace: "nowrap",
 	                      overflow: "hidden",
                       textOverflow: "ellipsis",
+                      /*
+                       * 兜底：span 在 flex column 里默认 flex-shrink:1，容器一旦比内容矮就会被压扁，
+                       * 而 overflow:hidden 又把压出去的字形裁掉 —— 上面的 maxHeight 已经保证高度，
+                       * 这里再加一道，免得以后有人改了尺寸又静默裁字。
+                       */
+                      flexShrink: 0,
                     }}
                   >
                     {line}
@@ -9847,7 +9858,7 @@ function PromptNodeComponent({
             } catch (error) {
               const message =
                 error instanceof Error ? error.message : "请稍后重试";
-              toast("Prompt 节点生成失败", { description: message });
+              notifyAiFailure("Prompt 节点生成失败", message);
             } finally {
               setIsGenerating(false);
             }
@@ -14424,7 +14435,7 @@ function BottomPromptBar({
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : "请稍后重试";
-        toast("全局提示词处理失败", { description: message });
+        notifyAiFailure("全局提示词处理失败", message);
       } finally {
         setIsSending(false);
       }
@@ -16502,7 +16513,7 @@ function ImageGeneratorPopover({
         { ...payload, status: "failed", error: message },
         projectId
       );
-      toast("图像生成失败", { description: message });
+      notifyAiFailure("图像生成失败", message);
       setIsGenerating(false);
     }
   };
@@ -17126,7 +17137,7 @@ function FontDesignDialog({
         { ...payload, status: "failed", error: message },
         projectId
       );
-      toast("字体设计生成失败", { description: message });
+      notifyAiFailure("字体设计生成失败", message);
       setIsGenerating(false);
     }
   };
@@ -21091,7 +21102,7 @@ function CanvasAssistantPanel({
       // 同 handleSubmit：中止不是失败。
       if (isAiAbortError(error)) return;
       const message = error instanceof Error ? error.message : "请稍后重试";
-      toast("AI 助手请求失败", { description: message });
+      notifyAiFailure("AI 助手请求失败", message);
     } finally {
       setIsSubmitting(false);
     }
@@ -21479,7 +21490,7 @@ function CanvasAssistantPanel({
         { ...imagePayload, status: "failed", error: failureMessage },
         projectId
       );
-      toast("AI 生成失败", { description: failureMessage });
+      notifyAiFailure("AI 生成失败", failureMessage);
     } finally {
       setRegeneratingMessageId(null);
     }
@@ -21647,7 +21658,7 @@ function CanvasAssistantPanel({
           ]);
         } catch (error) {
           const message = error instanceof Error ? error.message : "请稍后重试";
-          toast("首页提示词自动处理失败", { description: message });
+          notifyAiFailure("首页提示词自动处理失败", message);
         } finally {
           setComposerSegments([createAssistantTextSegment("")]);
           /**
@@ -22347,7 +22358,7 @@ function CanvasAssistantPanel({
        */
       if (isAiAbortError(error)) return;
       const message = error instanceof Error ? error.message : "请稍后重试";
-      toast("AI 助手请求失败", { description: message });
+      notifyAiFailure("AI 助手请求失败", message);
     } finally {
       // ⚠️ 只清理「本轮」的状态。用户可能已经发起了新一轮提交，
       // 旧一轮的 finally 若无条件置 false，会把新一轮的 loading 态吃掉。
@@ -25190,7 +25201,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           { ...payload, status: "failed", error: message },
           projectId
         );
-        toast(`${style}失败`, { description: message });
+        notifyAiFailure(`${style}失败`, message);
         return false;
       } finally {
         activeForegroundImageTaskIdsRef.current.delete(generationId);
@@ -25410,6 +25421,45 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     },
     [getViewport, setCenter]
   );
+
+  /**
+   * 「生成开始前」的画面位置，按 generationId 存。
+   *
+   * 【为什么要在移视角之前拍一张】
+   * 提示词一提交视角就飞到新占位框上（见 focusGeneratedImageCenter 的注释），
+   * 那时候节点还没出图。计费拦截会把这个占位框整格撤掉 ——
+   * 视角却留在它被建出来又被删掉的位置，用户看到的就是一片空白，
+   * 而空白上什么都没有，也不知道自己该怎么回去。
+   *
+   * ⚠️ 只在**第一次**派发这个 generationId 时拍：同一任务可能重复派发 pending
+   * （刷新页面后重新挂载未完成任务），那时视角已经在图上了，再拍一张就把
+   * 「图上的位置」当成「原位」，回弹等于没动。
+   */
+  const viewportBeforeGenerationRef = useRef<Map<string, Viewport>>(new Map());
+
+  const rememberViewportBeforeGeneration = useCallback(
+    (generationId: string) => {
+      if (viewportBeforeGenerationRef.current.has(generationId)) return;
+      viewportBeforeGenerationRef.current.set(generationId, getViewport());
+    },
+    [getViewport]
+  );
+
+  /** 撤掉占位框后把视角送回原位。找不到快照就原地不动（宁可不弹，不要跳到错地方）。 */
+  const restoreViewportBeforeGeneration = useCallback(
+    (generationId: string) => {
+      const snapshot = viewportBeforeGenerationRef.current.get(generationId);
+      viewportBeforeGenerationRef.current.delete(generationId);
+      if (!snapshot) return;
+      setViewport(snapshot, { duration: 400 });
+    },
+    [setViewport]
+  );
+
+  /** 正常出图 / 常规失败时清掉快照，避免 Map 随会话无限增长。 */
+  const forgetViewportBeforeGeneration = useCallback((generationId: string) => {
+    viewportBeforeGenerationRef.current.delete(generationId);
+  }, []);
 
   useEffect(() => {
     const handleWorkspaceUploadRequest = () => {
@@ -27007,7 +27057,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               : n
           )
         );
-        toast("文案应用失败", { description: message });
+        notifyAiFailure("文案应用失败", message);
       }
     };
     window.addEventListener("asset-text-edit-apply", applyHandler);
@@ -28147,7 +28197,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 { ...payload, status: "failed", error: message },
                 projectId
               );
-              toast("再次生成失败", { description: message });
+              notifyAiFailure("再次生成失败", message);
             });
         } else {
           ensureBackgroundImageGeneration({ ...payload, status: "pending" });
@@ -28226,7 +28276,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               { ...payload, status: "failed", error: message },
               projectId
             );
-            toast("再次生成失败", { description: message });
+            notifyAiFailure("再次生成失败", message);
           });
       }
     };
@@ -28425,6 +28475,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           return [...nds, ...placeholderNodes];
         });
         if (pendingFocusCenter) {
+          /**
+           * 必须在移视角**之前**拍：生成被计费拦截时占位框会被撤掉，
+           * 视角要退回这里 —— 否则用户停在刚建好又被删的那个空位上。
+           */
+          rememberViewportBeforeGeneration(generationId);
           focusGeneratedImageCenter(pendingFocusCenter);
         }
         toast("正在生成图像", { description: detail.prompt.slice(0, 58) });
@@ -28448,12 +28503,20 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
          * 与服务端 AiBillingError 是同一份。
          */
         const blockedByCredits = isAiCreditBlockedMessage(detail.error);
+        /**
+         * setNodes 的 updater 必须保持纯函数（严格模式下会被调用两次），
+         * 所以「要不要捎回视角」只在这里打标记，副作用放到 updater 外面执行。
+         */
+        let shouldRestoreViewport = false;
         setNodes(nds => {
           if (blockedByCredits) {
             // 没有占位框可撤（返回 null）时落到下面的失败态标记 ——
             // 那是「再次生成」把用户已有节点改造过的原地复活链路，撤节点等于丢图。
             const pruned = removeGenerationPlaceholders(nds, generationId);
-            if (pruned) return pruned;
+            if (pruned) {
+              shouldRestoreViewport = true;
+              return pruned;
+            }
           }
           return nds.map(n => {
             const data = n.data as Record<string, unknown>;
@@ -28478,6 +28541,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             };
           });
         });
+        if (shouldRestoreViewport) {
+          restoreViewportBeforeGeneration(generationId);
+        } else {
+          forgetViewportBeforeGeneration(generationId);
+        }
         markImageGenerationTaskConsumed(projectId, generationId);
         return;
       }
@@ -28509,6 +28577,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           })
         );
         markImageGenerationTaskConsumed(projectId, generationId);
+        forgetViewportBeforeGeneration(generationId);
         toast("图像生成失败", { description: "AI 未返回可用图片，请稍后重试" });
         return;
       }
@@ -28700,6 +28769,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       if (completedFocusCenter) {
         focusGeneratedImageCenter(completedFocusCenter);
       }
+      forgetViewportBeforeGeneration(generationId);
       toast("图像已生成到画布", { description: detail.prompt.slice(0, 58) });
       window.dispatchEvent(
         new CustomEvent("tool-mode-change", { detail: { mode: "move" } })
@@ -28713,8 +28783,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     ensureBackgroundImageGeneration,
     // ⚠️ 漏掉它会让监听器闭包捕获首次渲染时的旧函数，自动居中静默失效且零报错。
     focusGeneratedImageCenter,
+    forgetViewportBeforeGeneration,
     projectId,
     pushHistory,
+    rememberViewportBeforeGeneration,
+    restoreViewportBeforeGeneration,
     screenToFlowPosition,
     setNodes,
   ]);
@@ -32021,7 +32094,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           { ...placeholderPayload, status: "failed", error: message },
           projectId
         );
-        toast("快捷编辑失败", { description: message });
+        notifyAiFailure("快捷编辑失败", message);
       }
     },
     [
@@ -32230,7 +32303,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 : n
             )
           );
-          toast("提示词反推失败", { description: message });
+          notifyAiFailure("提示词反推失败", message);
         }
         return;
       }
@@ -32523,7 +32596,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 : n
             )
           );
-          toast("智能文案编辑失败", { description: message });
+          notifyAiFailure("智能文案编辑失败", message);
         }
         return;
       }
@@ -32717,7 +32790,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           });
         } catch (error) {
           const message = error instanceof Error ? error.message : "请稍后重试";
-          toast("图层分离失败", { description: message });
+          notifyAiFailure("图层分离失败", message);
         } finally {
           setNodes(nds => nds.filter(n => n.id !== splittingNodeId));
         }

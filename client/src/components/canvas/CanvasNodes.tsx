@@ -16,6 +16,7 @@ import { GENERATED_ASSETS } from "@/lib/workspace-data";
 import type { ChatMessage, AgentStep } from "@/lib/workspace-data";
 import { AUTO_AI_MODEL, IMAGE_AI_MODEL_OPTIONS, TEXT_AI_MODEL_OPTIONS, mergeImageAiModelOptions } from "@/lib/workspace-data";
 import { callLLM, listAiModelCatalog, requestAiAuth } from "@/lib/ai";
+import { notifyAiFailure } from "@/lib/ai-credit-gate";
 import { getModelBrandIconKind, ModelBrandIconMask } from "./model-brand-icons";
 
 type AiModelOption = typeof TEXT_AI_MODEL_OPTIONS[number] | typeof IMAGE_AI_MODEL_OPTIONS[number];
@@ -326,7 +327,7 @@ export function ChatNode({ node, isSelected, onDragStart, onSelect, onRemove }: 
       setMessages((p) => p.map((m) => m.id === aiMsg.id ? { ...m, content: result.text, steps: m.steps?.map((s) => ({ ...s, status: "done" as const })) } : m));
     } catch (error) {
       const message = error instanceof Error ? error.message : "请稍后重试";
-      toast("Chat 节点请求失败", { description: message });
+      notifyAiFailure("Chat 节点请求失败", message);
       setMessages((p) => p.filter((m) => m.id !== aiMsg.id));
     } finally {
       setIsGenerating(false);
@@ -504,7 +505,7 @@ export function PromptNode({
                 toast("Prompt 节点已生成", { description: result.text.slice(0, 90) });
               } catch (error) {
                 const message = error instanceof Error ? error.message : "请稍后重试";
-                toast("Prompt 节点生成失败", { description: message });
+                notifyAiFailure("Prompt 节点生成失败", message);
               } finally {
                 setIsGenerating(false);
               }

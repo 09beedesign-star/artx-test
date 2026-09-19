@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 import { isAiBillingBlockedMessage } from "@shared/ai-credit-policy";
 
 /**
@@ -71,4 +72,25 @@ export function emitInsufficientCredits(payload: AiBillingErrorPayload) {
     availableCredits: Number(payload.availableCredits) || 0,
   };
   window.dispatchEvent(new CustomEvent<InsufficientCreditsDetail>(AI_INSUFFICIENT_CREDITS_EVENT, { detail }));
+}
+
+/**
+ * AI 请求失败的**统一 toast 出口**。
+ *
+ * 【为什么不能在缺积分时再弹一条失败提示】
+ * catch 里的 toast 与 `emitInsufficientCredits` 弹窗是两条独立的链路，
+ * 它们都看到了同一个错误。于是在缺积分时，用户看到的是：
+ * 屏幕中间一个「去充值」弹窗，旁边还挂一条「图像生成失败 · 当前可用积分不足…」。
+ * 后者会把「账户没钱」这件**用户能解决**的事，说成「系统出故障」这种
+ * 用户无从下手的事 —— 而且两个提示并列时，真正要紧的弹窗反而像附属说明。
+ *
+ * 所以这里判定命中计费拦截就**静默**，把话留给弹窗一个人说。
+ * 判定与「撤占位框」用的是同一个 isAiCreditBlockedMessage：同一句文案，同一个结论。
+ *
+ * ⚠️ 只用于「错误来自 AI 请求」的失败提示。参数校验类失败
+ *   （"当前图片没有可处理的图像来源"之类）不要走这里，那些该照常显示。
+ */
+export function notifyAiFailure(title: string, message: string) {
+  if (isAiCreditBlockedMessage(message)) return;
+  toast(title, { description: message });
 }

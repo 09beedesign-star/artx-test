@@ -778,10 +778,21 @@ describe("InfiniteCanvas prompt controls", () => {
   it("keeps generated image processing overlays and extracted-text actions responsive", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
 
-    expect(source).toContain("const processingBlockSize = Math.max");
-    expect(source).toContain("Math.min(dispW, dispH) * 0.2");
-    expect(source).toContain("const processingIconSize = Math.max");
-    expect(source).toContain("const processingTextSize = Math.max");
+    /**
+     * 尺寸公式本体已抽到 lib/ai-processing-overlay.ts ——
+     * 那里能对全部节点尺寸跑不变量（尤其「留给文字的高度不能小于两行所需」，
+     * 否则 flex 会把两行压扁），在组件里只能靠正则，守不住这类关系。
+     * 这里退一步只确认：组件确实调用它，没有就地另算一套。
+     */
+    expect(source).toContain("computeAiProcessingOverlayMetrics(dispW, dispH)");
+    expect(source, "不许在组件里就地再算一套遮罩尺寸").not.toContain("const processingBlockSize");
+    const overlayMetrics = readFileSync(
+      resolve(__dirname, "../../lib/ai-processing-overlay.ts"),
+      "utf-8"
+    );
+    expect(overlayMetrics).toContain("Math.min(140, Math.min(safeW, safeH) * 0.2)");
+    expect(overlayMetrics).toContain("Math.max(16, blockSize * 0.58)");
+    expect(overlayMetrics).toContain("Math.max(6, blockSize * 0.13)");
     expect(source).toContain("width: processingIconSize");
     expect(source).toContain("height: processingIconSize");
     expect(source).toContain("fontSize: processingTextSize");

@@ -14,6 +14,7 @@ import {
   Clock, ChevronRight,
 } from "lucide-react";
 import { INITIAL_MESSAGES, GENERATED_ASSETS, PROJECTS } from "@/lib/workspace-data";
+import { notifyAiFailure } from "@/lib/ai-credit-gate";
 import type { ChatMessage, GeneratedAsset, AgentStep } from "@/lib/workspace-data";
 import { callLLM, requestAiAuth } from "@/lib/ai";
 import { routeCreativeIntent } from "@/lib/ai-intent";
@@ -104,7 +105,7 @@ export default function MainCanvas({ projectId = "p1" }: MainCanvasProps) {
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "请稍后重试";
-      toast("工作区 AI 生成失败", { description: message });
+      notifyAiFailure("工作区 AI 生成失败", message);
       setMessages((prev) => prev.filter((m) => m.id !== aiMsg.id));
     } finally {
       setIsGenerating(false);
