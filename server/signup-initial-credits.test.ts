@@ -40,6 +40,58 @@ describe("注册初始额度配置", () => {
   });
 });
 
+describe("注册初始额度只发一次", () => {
+  /**
+   * 【为什么值得单独测】
+   * 额度是「注册时发」而不是「建号时给默认值」，这两者一旦同时存在
+   * 就会变成 350 + 350 = 700，而且不会有任何报错 —— 后台看到的
+   * 只是「这个新号余额 700」，看不出是多发了一份。
+   *
+   * 同样地，同一账号重复触发发放路径（重放注册请求、重登补发、MQ 重投）
+   * 必须靠幂等键挡住。这个用例盯的就是这两个数都不能变成 700。
+   */
+  it("连发三次只到账 350，批次也只有一条", async () => {
+    const fs = await import("node:fs/promises");
+    const os = await import("node:os");
+    const path = await import("node:path");
+
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "artx-signup-once-"));
+    const previous = process.env.ARTX_DATA_DIR;
+    process.env.ARTX_DATA_DIR = dir;
+    try {
+      /**
+       * 必须打破模块缓存：admin-store 的 DATA_DIR 是模块顶层常量，
+       * 复用已加载的模块会写到默认目录而不是这里的临时目录。
+       */
+      vi.resetModules();
+      const store = await import("./admin-store");
+
+      const first = await store.grantSignupInitialCredits({ userId: "u1", username: "u1@test" });
+      const second = await store.grantSignupInitialCredits({ userId: "u1", username: "u1@test" });
+      const third = await store.grantSignupInitialCredits({ userId: "u1", username: "u1@test" });
+
+      const raw = JSON.parse(await fs.readFile(path.join(dir, "admin-data.json"), "utf8"));
+      const user = raw.users.find((item: { id: string }) => item.id === "u1");
+      const activeBatches = (raw.creditBatches || []).filter(
+        (batch: { userId: string; status: string }) => batch.userId === "u1" && batch.status === "active",
+      );
+
+      expect(first).toBe(SIGNUP_INITIAL_CREDITS.credits);
+      expect(second).toBe(0);
+      expect(third).toBe(0);
+      // ⭐ 关键：不是 700。
+      expect(user.credits).toBe(SIGNUP_INITIAL_CREDITS.credits);
+      // 批次与余额是同一笔钱的两种记账，不能各算一份。
+      expect(activeBatches).toHaveLength(1);
+      expect(activeBatches[0].remainingCredits).toBe(SIGNUP_INITIAL_CREDITS.credits);
+    } finally {
+      if (previous === undefined) delete process.env.ARTX_DATA_DIR;
+      else process.env.ARTX_DATA_DIR = previous;
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("注册 IP 限频", () => {
   it("必须带时间窗，绝不能是永久限制", () => {
     // 永久限 3 次会把共享出口 IP（公司/学校/基站 NAT）的真实用户全挡死。

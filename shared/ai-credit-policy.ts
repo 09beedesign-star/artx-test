@@ -88,6 +88,59 @@ export const AI_IMAGE_RESOLUTION_POLICIES: AiImageResolutionPolicy[] = [
 
 export const DEFAULT_IMAGE_RESOLUTION_TIER: AiImageResolutionTier = "1k";
 
+/**
+ * 容差垫付：用户余额不足，但差额很小的时候由平台补足并放行。
+ *
+ * 动机是转化 —— 用户卡在「最后一张图」上被弹窗拦下来体感最差，
+ * 差几积分就让人去充值不划算，垫这几分钱换一次完整体验是笔好买卖。
+ *
+ * ⚠️ 三条硬约束，缺一条就会退化成无门槛白嫖：
+ *
+ * 1. **用户必须自付一部分**（`availableCredits > 0`）。
+ *    否则 text_generation 恰好 20 积分，0 余额用户的差额正好等于容差上限，
+ *    「0 积分用不了 AI」这条保证会被自己打穿。
+ *
+ * 2. **单笔上限 = AI_CREDIT_GRACE_LIMIT**，超了就正常走 402 引导充值。
+ *
+ * 3. **每用户每日累计上限 = AI_CREDIT_GRACE_DAILY_CAP**。
+ *    垫付是在放行之后才结算的（`recordAiUsage` 在任务成功后才扣），
+ *    无法有效冻结余额，所以并发请求会各自独立地通过事前校验、各自垫一次。
+ *    没有日上限的话，余额 50 的用户并发 100 次就能让平台垫出去几千积分。
+ *
+ * 调策略只改这两个常量，不必动 admin-store。
+ */
+export const AI_CREDIT_GRACE_LIMIT = 20;
+
+/** 单个用户每天累计垫付上限。达到后当天不再垫付，退化为正常的 402。 */
+export const AI_CREDIT_GRACE_DAILY_CAP = 100;
+
+/**
+ * 计费拦截的用户可见文案 —— **前后端唯一事实源**。
+ *
+ * 服务端用它构造 AiBillingError.message（见 server/admin-store.ts）；
+ * 客户端用它反查「这次失败到底是没钱，还是真的网络/上游故障」。
+ *
+ * 【为什么客户端要按文案反查】
+ * 出图链路的占位节点是在请求**发出之前**就插进画布的（用户要立刻看到
+ * "正在生成中"的那格），而 402 是请求回来才知道的。全站 15 处 catch 都只把
+ * `error.message` 往下传、丢掉了 402 的 code，所以画布侧只能靠文案判定。
+ * 把文案收到这里，「哪句话代表被计费拦截」就只有一个答案 ——
+ * 若在两端各写一份字面量，服务端改文案时画布侧会**静默失效**：
+ * 弹窗照旧、空白失败节点又开始残留。
+ */
+export const AI_BILLING_BLOCKED_MESSAGES = {
+  NO_SUBSCRIPTION: "当前未订阅套餐，暂无可用创作积分",
+  INSUFFICIENT_BALANCE: "当前可用积分不足以完成本次创作",
+} as const;
+
+export type AiBillingBlockedCode = keyof typeof AI_BILLING_BLOCKED_MESSAGES;
+
+export function isAiBillingBlockedMessage(message?: string | null): boolean {
+  const text = String(message ?? "").trim();
+  if (!text) return false;
+  return Object.values(AI_BILLING_BLOCKED_MESSAGES).some((item) => item === text);
+}
+
 export const AI_CREDIT_POLICIES: AiBillingPolicy[] = [
   {
     capability: "text_generation",

@@ -79,6 +79,8 @@ async function seedUser(overrides: SeedUserOverrides = {}) {
   if (typeof overrides.creditBatches === "undefined" && overrides.__batches) {
     payload.creditBatches = overrides.__batches;
   }
+  /** 垫付日封顶要靠当天已垫付的历史任务来触发，造数据时得能把它们塞进去。 */
+  if (overrides.__aiTasks) payload.aiTasks = overrides.__aiTasks;
   await writeFile(
     path.join(dataDir, "admin-data.json"),
     `${JSON.stringify(payload, null, 2)}\n`,
@@ -186,6 +188,136 @@ describe("AI 事前余额校验：0 积分不得放行", () => {
         targetHeight: 2160,
       }),
     );
+  });
+});
+
+describe("AI 事前余额校验：容差垫付（差一点由平台补足）", () => {
+  it("⭐ 差 15 积分（≤20 容差）→ 平台垫付放行，不弹窗", async () => {
+    await seedUser({ credits: 55, plan: "Pro", planExpiresAt: "2030-01-01 00:00:00" });
+    const { assertUserCanAffordAiUsage } = await loadAdminStore();
+
+    await expect(assertUserCanAffordAiUsage({
+      userId: "user-1",
+      capabilityKey: "text_to_image",
+      outputCount: 1,
+      model: DEFAULT_IMAGE_MODEL_ID,
+    })).resolves.toBeUndefined();
+  });
+
+  it("差价正好 20（容差上限边界）→ 仍然垫付", async () => {
+    await seedUser({ credits: 50, plan: "Pro", planExpiresAt: "2030-01-01 00:00:00" });
+    const { assertUserCanAffordAiUsage } = await loadAdminStore();
+
+    await expect(assertUserCanAffordAiUsage({
+      userId: "user-1",
+      capabilityKey: "text_to_image",
+      outputCount: 1,
+      model: DEFAULT_IMAGE_MODEL_ID,
+    })).resolves.toBeUndefined();
+  });
+
+  it("⭐ 差 25 积分（>20 容差）→ 拦截，走正常的充值引导", async () => {
+    await seedUser({ credits: 45, plan: "Pro", planExpiresAt: "2030-01-01 00:00:00" });
+    const { assertUserCanAffordAiUsage } = await loadAdminStore();
+
+    const error = await expectBillingRejection(
+      assertUserCanAffordAiUsage({
+        userId: "user-1",
+        capabilityKey: "text_to_image",
+        outputCount: 1,
+        model: DEFAULT_IMAGE_MODEL_ID,
+      }),
+    );
+
+    expect(error.code).toBe("INSUFFICIENT_BALANCE");
+    expect(error.availableCredits).toBe(45);
+  });
+
+  /**
+   * ⭐⭐ 这条是容差策略里最容易踩的坑。
+   *
+   * text_generation 恰好 20 积分，正好等于容差上限 AI_CREDIT_GRACE_LIMIT。
+   * 只要把「用户必须自付一部分」写成 `shortfall <= LIMIT` 而不要求余额 > 0，
+   * 0 积分用户的差额就是 20 —— 全额垫付，等于把上一轮刚堵上的
+   * 「0 积分不可用 AI」原样开回来，而且是无限次。
+   */
+  it("⭐⭐ 0 积分 + 文本能力（恰好 20 积分）：不得全额垫付，必须拦截", async () => {
+    await seedUser({ credits: 0, plan: "Free" });
+    const { assertUserCanAffordAiUsage } = await loadAdminStore();
+
+    const error = await expectBillingRejection(
+      assertUserCanAffordAiUsage({
+        userId: "user-1",
+        capabilityKey: "text_generation",
+        outputCount: 1,
+        model: "claude-opus-5",
+      }),
+    );
+
+    expect(error.code).toBe("NO_SUBSCRIPTION");
+    expect(error.availableCredits).toBe(0);
+  });
+
+  /**
+   * 并发放大是容差真正的风险点：垫付在放行之后才结算，没法冻结余额，
+   * 所以 N 个并发请求会各自通过事前校验、各自垫一次。没有日上限的话，
+   * 余额 50 的用户并发几百次就能让平台垫出去几千积分。
+   */
+  it("⭐ 当天累计垫付触顶后，不再垫付（挡并发薅羊毛）", async () => {
+    await seedUser({
+      credits: 55,
+      plan: "Pro",
+      planExpiresAt: "2030-01-01 00:00:00",
+      __aiTasks: [
+        {
+          id: "task_past_1",
+          userId: "user-1",
+          createdAt: new Date().toISOString(),
+          status: "success",
+          chargedCredits: 70,
+          platformSubsidizedCredits: 85,
+        },
+      ],
+    });
+    const { assertUserCanAffordAiUsage } = await loadAdminStore();
+
+    // 已垫 85 + 本次差 15 = 100 ≤ 100 尚可；但这里的重点是再下一笔会被拒。
+    await expect(assertUserCanAffordAiUsage({
+      userId: "user-1",
+      capabilityKey: "text_to_image",
+      outputCount: 1,
+      model: DEFAULT_IMAGE_MODEL_ID,
+    })).resolves.toBeUndefined();
+  });
+
+  it("⭐ 当天累计垫付超过日上限 → 退化为正常拦截", async () => {
+    await seedUser({
+      credits: 55,
+      plan: "Pro",
+      planExpiresAt: "2030-01-01 00:00:00",
+      __aiTasks: [
+        {
+          id: "task_past_1",
+          userId: "user-1",
+          createdAt: new Date().toISOString(),
+          status: "success",
+          chargedCredits: 70,
+          platformSubsidizedCredits: 100,
+        },
+      ],
+    });
+    const { assertUserCanAffordAiUsage } = await loadAdminStore();
+
+    const error = await expectBillingRejection(
+      assertUserCanAffordAiUsage({
+        userId: "user-1",
+        capabilityKey: "text_to_image",
+        outputCount: 1,
+        model: DEFAULT_IMAGE_MODEL_ID,
+      }),
+    );
+
+    expect(error.code).toBe("INSUFFICIENT_BALANCE");
   });
 });
 
@@ -411,5 +543,73 @@ describe("AI 路由门禁覆盖率：任何一条会打 AI 上游的路由都必
      */
     expect(brandKit.body).toContain("capabilityKey: \"text_generation\"");
     expect(brandKit.body).toContain("handleTrackedAiRequest");
+  });
+});
+
+/**
+ * 垫付出去的钱必须在账上看得见。
+ *
+ * 这里锁的是 `recordAiUsage` 的扣费段：早期只有 high 模型走 `Math.min`，
+ * medium 直接全量扣再让 `user.credits` 被 `Math.max(0, …)` 钳住 ——
+ * 于是垫付部分既不进账面也不报警，「这个月垫了多少、被谁薅了」永远查不出来。
+ */
+describe("AI 事后扣费：平台垫付必须落账", () => {
+  /**
+   * admin-store 没有导出「读全局快照」的入口，直接读盘上的落库文件最直接。
+   * ⚠️ 必须重新读盘：recordAiUsage 内部会异步 persist，
+   *    复用内存里的旧对象会读到改造前的字段。
+   */
+  async function readPersisted() {
+    const raw = await readFile(path.join(dataDir, "admin-data.json"), "utf8");
+    return JSON.parse(raw) as {
+      users: Array<Record<string, any>>;
+      aiTasks: Array<Record<string, any>>;
+      riskEvents: Array<Record<string, any>>;
+    };
+  }
+
+  async function runUsage(credits: number) {
+    await seedUser({ credits, plan: "Pro", planExpiresAt: "2030-01-01 00:00:00" });
+    const store = await loadAdminStore();
+    await store.recordAiUsage({
+      userId: "user-1",
+      username: "tester@example.com",
+      capability: "普通图片生成",
+      capabilityKey: "text_to_image",
+      provider: "Tencent VOD",
+      model: DEFAULT_IMAGE_MODEL_ID,
+      status: "success",
+      outputUnits: 1,
+      startedAtMs: Date.now(),
+    });
+  }
+
+  it("⭐ 余额不足时垫付额计入 platformSubsidizedCredits，用户余额归零不穿负", async () => {
+    await runUsage(55);
+    const snapshot = await readPersisted();
+
+    const task = snapshot.aiTasks.find((item) => item.userId === "user-1");
+    expect(task).toBeDefined();
+    /** 70 应收 − 55 实扣 = 15 平台垫付。 */
+    expect(task.platformSubsidizedCredits).toBe(15);
+    expect(task.chargedCredits).toBe(70);
+
+    const user = snapshot.users.find((item) => item.id === "user-1");
+    expect(user.credits).toBe(0);
+  });
+
+  it("⭐ 容差内的垫付不刷风控事件（否则风控面板会被噪音淹没）", async () => {
+    await runUsage(55);
+    const snapshot = await readPersisted();
+    expect(snapshot.riskEvents || []).toHaveLength(0);
+  });
+
+  it("⭐ 超出容差的垫付（并发叠加 / 估价差）必须报风险事件", async () => {
+    await runUsage(5);
+    const snapshot = await readPersisted();
+
+    const task = snapshot.aiTasks.find((item) => item.userId === "user-1");
+    expect(task.platformSubsidizedCredits).toBe(65);
+    expect((snapshot.riskEvents || []).some((event) => event.title === "AI 扣费短缺")).toBe(true);
   });
 });

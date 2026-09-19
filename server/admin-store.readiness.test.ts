@@ -1244,12 +1244,22 @@ describe("production readiness", () => {
       capabilityStatus: [],
     }, null, 2)}\n`);
 
-    const { assertCanUseAiImageModel } = await loadAdminStore();
-    await expect(assertCanUseAiImageModel({
+    const { assertCanUseAiImageModel, AiBillingError } = await loadAdminStore();
+    /**
+     * 2026-09-19：拦截形式从「普通 Error（HTTP 500）」改为 AiBillingError（HTTP 402）。
+     *
+     * 只断言「被拦住了」是不够的：前端要靠 402 里的 code 弹「去充值/去订阅」，
+     * 并据此撤掉画布上已经插进去的空白占位框。退回普通 Error 时，
+     * 用户看到的是「服务器出错」外加一个空白失败节点 —— 明明只是没钱。
+     */
+    const blocked = await assertCanUseAiImageModel({
       userId: "gift-only-pro-1",
       model: "og-image2-high",
       outputCount: 1,
-    })).rejects.toThrow("高质量图片模型可用积分不足，请先充值");
+    }).catch((caught: unknown) => caught);
+    expect(blocked).toBeInstanceOf(AiBillingError);
+    expect((blocked as InstanceType<typeof AiBillingError>).status).toBe(402);
+    expect((blocked as InstanceType<typeof AiBillingError>).code).toBe("INSUFFICIENT_BALANCE");
   });
 
   it("claws back first recharge bonus when a paid recharge order is refunded", async () => {

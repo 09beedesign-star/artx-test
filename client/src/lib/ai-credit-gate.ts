@@ -1,3 +1,5 @@
+import { isAiBillingBlockedMessage } from "@shared/ai-credit-policy";
+
 /**
  * 服务端 402 计费拦截的前端派发契约。
  *
@@ -12,6 +14,23 @@
 
 /** 服务端 shared/admin-store.ts 的 AiBillingErrorCode 镜像。 */
 export type AiBillingErrorCode = "NO_SUBSCRIPTION" | "INSUFFICIENT_BALANCE";
+
+/**
+ * 「本次失败是计费拦截」的判定 —— 供**已经知道失败、但只拿到文案**的调用方使用。
+ *
+ * 【为什么需要它】
+ * 画布在请求发出前就把占位节点插进了画布，402 回来后要把这些节点撤掉。
+ * 但那 15 处 catch 只往上传了 `error.message`，拿不到 402 的 code，
+ * 于是只能按文案反查。文案本身在 shared 里定义，服务端也引用同一份，
+ * 所以这里不是「猜字符串」，而是读同一个常量。
+ *
+ * ⚠️ 只用它来决定「撤不撤占位节点」这种**可逆的视觉收尾**。
+ *    真要区分跳订阅页还是跳充值页，必须用 402 响应里的 `code`（见
+ *    emitInsufficientCredits / InsufficientCreditsDialog）。
+ */
+export function isAiCreditBlockedMessage(message?: string | null): boolean {
+  return isAiBillingBlockedMessage(message);
+}
 
 export const AI_INSUFFICIENT_CREDITS_EVENT = "artx:insufficient-credits";
 

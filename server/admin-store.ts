@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { accessSync, constants } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { AI_CREDIT_POLICIES, AI_IMAGE_MODEL_CREDIT_POLICIES, AI_IMAGE_RESOLUTION_POLICIES, AI_PLAN_DISCOUNTS, getAiImageModelCreditPolicy, getAiImageResolutionPolicy, isHighQualityImageModel, resolveImageResolutionTier, type AiBillingCapability, type AiBillingPolicy, type AiPlanDiscountPolicy } from "../shared/ai-credit-policy";
+import { AI_BILLING_BLOCKED_MESSAGES, AI_CREDIT_GRACE_DAILY_CAP, AI_CREDIT_GRACE_LIMIT, AI_CREDIT_POLICIES, AI_IMAGE_MODEL_CREDIT_POLICIES, AI_IMAGE_RESOLUTION_POLICIES, AI_PLAN_DISCOUNTS, getAiImageModelCreditPolicy, getAiImageResolutionPolicy, isHighQualityImageModel, resolveImageResolutionTier, type AiBillingCapability, type AiBillingPolicy, type AiPlanDiscountPolicy } from "../shared/ai-credit-policy";
 import {
   BILLING_CYCLES,
   MEMBERSHIP_PLANS,
@@ -276,6 +276,14 @@ type AiTaskRecord = {
   chargedCredits: number;
   grossMargin: number;
   usage?: AiTaskUsage;
+  /**
+   * 【2026-09-19 新增】平台替用户垫付的积分（差一点时的容差，见 AI_CREDIT_GRACE_*）。
+   *
+   * ⚠️ 没这个字段时，垫付出去的钱在账面上完全不可见：既不知道这个月垫了多少、
+   * 也不知道被谁薅走了，事后要复盘「容差到底值不值」根本没有数据。
+   * 历史记录没有此字段，读取时按 undefined 视作 0。
+   */
+  platformSubsidizedCredits?: number;
   /**
    * 指令下发时间（调用上游之前）。
    * ⚠️ 历史记录没有这两个字段，读取时一律走 deriveTaskTimeline() 兜底，
@@ -1645,7 +1653,23 @@ export async function assertCanUseAiImageModel(input: {
   }).chargedCredits;
   const eligibleBalance = getUserCreditBatchBalance(data, input.userId, { excludeKinds: ["gift"] });
   if (eligibleBalance < chargedCredits) {
-    throw new Error("高质量图片模型可用积分不足，请先充值");
+    /**
+     * ⚠️ 必须是 AiBillingError（HTTP 402），不能是普通 Error（HTTP 500）。
+     *
+     * 前端靠 402 的 code 决定弹「去订阅」还是「去充值」，并且据此把画布上
+     * 已经插进去的占位框撤掉。写成普通 Error 时用户看到的是「服务器出错」，
+     * 画布上还留一个空白失败节点 —— 明明只是没钱。
+     *
+     * 📌 这一条比 assertUserCanAffordAiUsage 更严：**不吃容差垫付**
+     *    （high 模型差额再小也直接拦）。两处口径将来若要统一，
+     *    正确做法是删掉这里的余额判断、交给统一入口，而不是在这里再补一份容差。
+     */
+    throw new AiBillingError({
+      code: isFreePlanId(planId) ? "NO_SUBSCRIPTION" : "INSUFFICIENT_BALANCE",
+      requiredCredits: chargedCredits,
+      availableCredits: eligibleBalance,
+      planId,
+    });
   }
   const used = countHighQualityImageUsageThisMonth(data, input.userId);
   const requested = Math.max(1, Math.round(input.outputCount || 1));
@@ -1678,9 +1702,11 @@ export class AiBillingError extends Error {
     availableCredits: number;
     planId: string;
   }) {
-    super(input.code === "NO_SUBSCRIPTION"
-      ? "当前未订阅套餐，暂无可用创作积分"
-      : "当前可用积分不足以完成本次创作");
+    /**
+     * 文案取自 shared 常量 —— 客户端的画布要按这句话反查「本次失败是没钱」，
+     * 并据此撤掉已经插进画布的占位节点。两边必须是同一个字符串。
+     */
+    super(AI_BILLING_BLOCKED_MESSAGES[input.code]);
     this.name = "AiBillingError";
     this.code = input.code;
     this.requiredCredits = input.requiredCredits;
@@ -1746,6 +1772,20 @@ export async function assertUserCanAffordAiUsage(input: {
   const availableCredits = getUserCreditBatchBalance(data, input.userId, { excludeKinds });
   if (availableCredits >= requiredCredits) return;
 
+  /**
+   * 【容差垫付】余额差一点点时由平台补足（策略见 AI_CREDIT_GRACE_*）。
+   *
+   * ⚠️ `availableCredits > 0` 这一条不能删。
+   * text_generation 恰好 20 积分 = AI_CREDIT_GRACE_LIMIT，
+   * 一旦允许全额垫付，0 余额用户就能无限反推提示词 ——
+   * 上面那道「0 积分不可用」的门等于自己给自己开了个后门。
+   */
+  const shortfall = requiredCredits - availableCredits;
+  const subsidizedToday = countSubsidizedCreditsToday(data, input.userId);
+  const withinDailyCap = subsidizedToday + shortfall <= AI_CREDIT_GRACE_DAILY_CAP;
+  const canSubsidize = availableCredits > 0 && shortfall <= AI_CREDIT_GRACE_LIMIT && withinDailyCap;
+  if (canSubsidize) return;
+
   const planId = getPlanIdFromUserPlan(user?.plan);
   throw new AiBillingError({
     code: isFreePlanId(planId) ? "NO_SUBSCRIPTION" : "INSUFFICIENT_BALANCE",
@@ -1753,6 +1793,22 @@ export async function assertUserCanAffordAiUsage(input: {
     availableCredits,
     planId,
   });
+}
+
+/**
+ * 当日该用户已被平台垫付的积分总额。
+ *
+ * ⚠️ 数据源是 aiTasks（上限 3000 条全局），所以这是**软上限**：
+ * 流量足够大时最早的记录会被挤出统计窗口。日封顶是用来挡并发薅羊毛的，
+ * 不需要精确到分；真要精确得另起一张按用户聚合的表。
+ */
+function countSubsidizedCreditsToday(data: AdminData, userId: string) {
+  const day = shanghaiDay();
+  return (data.aiTasks || [])
+    .filter((task) => task.userId === userId
+      && task.platformSubsidizedCredits
+      && shanghaiDay(task.createdAt) === day)
+    .reduce((sum, task) => sum + (task.platformSubsidizedCredits || 0), 0);
 }
 
 export async function getAiModelEntitlementsForUser(userId: string) {
@@ -5829,8 +5885,16 @@ export async function recordAiUsage(input: AiUsageRecordInput) {
   if (record.status === "success" && record.chargedCredits > 0) {
     const excludeKinds: CreditBatchKind[] = isHighQualityImageModel(record.model) ? ["gift"] : [];
     const eligibleBalance = getUserCreditBatchBalance(data, user.id, { excludeKinds });
-    const creditsToDeduct = excludeKinds.length ? Math.min(record.chargedCredits, eligibleBalance) : record.chargedCredits;
-    const deductionShortfall = Math.max(0, record.chargedCredits - creditsToDeduct);
+    /**
+     * ⚠️ 必须两条 discriminate 模型**统一取 min**。
+     * 旧代码只有 high 模型走 min，medium 直接全量扣 —— 于是 medium 路径
+     * 扣到一半就没了（`user.credits` 被 `Math.max(0, …)` 钳住），
+     * 差额凭空蒸发，`deductionShortfall` 恒为 0，
+     * 结果就是「平台垫了多少」这件事既没账也报不出来。
+     */
+    const creditsToDeduct = Math.min(record.chargedCredits, eligibleBalance);
+    const subsidizedCredits = Math.max(0, record.chargedCredits - creditsToDeduct);
+    record.platformSubsidizedCredits = subsidizedCredits || undefined;
     deductCreditBatchesForUsage(data, user.id, creditsToDeduct, createdAt, { excludeKinds });
     user.credits = Math.max(0, user.credits - creditsToDeduct);
     if (creditsToDeduct > 0) {
@@ -5849,11 +5913,21 @@ export async function recordAiUsage(input: AiUsageRecordInput) {
         ...data.credits,
       ].slice(0, 500);
     }
-    if (deductionShortfall > 0) {
+    /**
+     * ⚠️ 容差内的垫付**不进风控面板**。
+     * 它是策略允许的正常让利，每笔都发一条 medium 事件，用不了几天风控列表
+     * 就全是这种噪音，真正需要人看的「扣费异常」会被淹没。
+     *
+     * 超过容差上限才说明事前校验被绕过了 —— 并发请求叠加、或事前按 1K 估价
+     * 而实际交付 4K（2K ×2.14 / 4K ×2.71 的差额），这两种需要人工复核。
+     */
+    if (subsidizedCredits > AI_CREDIT_GRACE_LIMIT) {
       const aiDeductionShortfallRiskEvent: RiskEvent = {
         id: `risk_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
         title: "AI 扣费短缺",
-        detail: `${record.user} 的 ${record.model} 任务应扣 ${record.chargedCredits} 积分，实际扣回 ${creditsToDeduct} 积分，需复核首充赠送/旧余额风控。`,
+        detail: `${record.user} 的 ${record.model} 任务应扣 ${record.chargedCredits} 积分，实际扣回 ${creditsToDeduct} 积分，`
+          + `平台垫付 ${subsidizedCredits} 积分（超出 ${AI_CREDIT_GRACE_LIMIT} 容差上限，`
+          + `可能是并发叠加或分辨率估价差），需复核。`,
         status: "open",
         severity: "medium",
         target: record.id,

@@ -573,6 +573,8 @@ import {
   type ImageTextRegion,
   type ReferenceImageResult,
 } from "@/lib/ai";
+import { isAiCreditBlockedMessage } from "@/lib/ai-credit-gate";
+import { removeGenerationPlaceholders } from "@/lib/canvas-generation-nodes";
 import { buildAssistantContext, routeCreativeIntent } from "@/lib/ai-intent";
 import { selectEditedTextRegions } from "@/lib/text-replace";
 import {
@@ -28371,6 +28373,18 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                   id,
                   assetId: "default",
                   generationId,
+                  /**
+                   * 「这一格是本次生成插进来的空占位框，还没有任何图」。
+                   *
+                   * 计费拦截（未订阅/余额不足）时画布要把它整格撤掉，
+                   * 而不是像网络失败那样留一个「生成图片失败」的空节点 ——
+                   * 用户根本没被允许发起这次生成，留一个失败框是误导。
+                   *
+                   * ⚠️ 不能用节点 id 的 `generated-` 前缀做这个判定：
+                   * 出图成功后补建的真实图节点（下方 completed 分支）用的是
+                   * 同一个 id 规则，靠 id 认会把有图的节点一起误删。
+                   */
+                  placeholderForGeneration: true,
                   generationStartedAt,
                   generationIndex: index,
                   isGeneratingImage: true,
@@ -28421,8 +28435,27 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       }
 
       if (detail.status === "failed") {
-        setNodes(nds =>
-          nds.map(n => {
+        /**
+         * 【计费拦截（未订阅 / 余额不足）直接撤掉占位框，不留失败节点】
+         *
+         * 占位框是在请求**发出之前**插进画布的（用户要立刻看到"正在生成中"），
+         * 而 402 要等请求回来才知道。此前一律把占位框改成"生成图片失败"留在画布上 ——
+         * 于是缺积分的用户点一次生成，就白得一个失败框：弹窗说没钱、画布却像出了故障，
+         * 批量 4 张更是并排留 4 个空框（见用户截图）。
+         *
+         * 判定只能靠文案：全站 15 处 catch 都只往下传 `error.message`，
+         * 402 的 code 在这一层已经丢了。文案来自 shared 常量，
+         * 与服务端 AiBillingError 是同一份。
+         */
+        const blockedByCredits = isAiCreditBlockedMessage(detail.error);
+        setNodes(nds => {
+          if (blockedByCredits) {
+            // 没有占位框可撤（返回 null）时落到下面的失败态标记 ——
+            // 那是「再次生成」把用户已有节点改造过的原地复活链路，撤节点等于丢图。
+            const pruned = removeGenerationPlaceholders(nds, generationId);
+            if (pruned) return pruned;
+          }
+          return nds.map(n => {
             const data = n.data as Record<string, unknown>;
             if (data.generationId !== generationId) return n;
             if (
@@ -28443,8 +28476,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 ...getImageGenerationNodeMetadata(detail),
               },
             };
-          })
-        );
+          });
+        });
         markImageGenerationTaskConsumed(projectId, generationId);
         return;
       }
