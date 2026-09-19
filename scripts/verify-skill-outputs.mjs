@@ -33,19 +33,42 @@ const skillsArg = args.find(a => a.startsWith("--skills="))?.split("=")[1];
 const modelArg = args.find(a => a.startsWith("--model="))?.split("=")[1];
 const SUFFIX = modelArg ? `.${modelArg.replace(/[^a-z0-9.-]/gi, "")}` : "";
 
-const IMAGE_SKILLS = {
-  "cover-image-lab": "16:9",
+// 出图比例：优先用商店条目里声明的 canvasSizes[0] 推导，推不出来回落到 16:9。
+// 个别技能可在这里显式覆盖（如信息图竖版更好看）。
+const RATIO_OVERRIDES = {
   "infographic-designer": "9:16",
-  "diagram-flowchart": "16:9",
 };
+const RATIO_LADDER = [
+  ["1:1", 1], ["16:9", 16 / 9], ["9:16", 9 / 16],
+  ["4:3", 4 / 3], ["3:4", 3 / 4], ["3:2", 3 / 2], ["2:3", 2 / 3],
+];
+const storeSource = fs.readFileSync("client/src/lib/skill-store.ts", "utf8");
+function ratioForSkill(skillId) {
+  if (RATIO_OVERRIDES[skillId]) return RATIO_OVERRIDES[skillId];
+  const at = storeSource.indexOf(`id: "${skillId}"`);
+  if (at < 0) return "16:9";
+  const tail = storeSource.slice(at, at + 2000);
+  const m = tail.match(/canvasSizes:\s*\[\s*"(\d+)\s*x\s*(\d+)"/);
+  if (!m) return "16:9";
+  const target = Number(m[1]) / Number(m[2]);
+  return RATIO_LADDER.reduce((best, cur) =>
+    Math.abs(cur[1] - target) < Math.abs(best[1] - target) ? cur : best
+  )[0];
+}
+
 const cases = JSON.parse(
   fs.readFileSync("docs/skill-validation-cases.json", "utf8")
 );
 
-// 从校验用例里动态取，以后新增 chat 技能不用改脚本。
+// 从校验用例里动态取，以后新增技能不用改脚本。
 const CHAT_SKILLS = cases
   .filter(item => item.capability === "chat")
   .map(item => item.skillId);
+const IMAGE_SKILLS = Object.fromEntries(
+  cases
+    .filter(item => item.capability === "text_to_image")
+    .map(item => [item.skillId, ratioForSkill(item.skillId)])
+);
 
 const { AIOrchestrator } = await import("../server/ai-orchestrator.ts");
 const orchestrator = new AIOrchestrator();
