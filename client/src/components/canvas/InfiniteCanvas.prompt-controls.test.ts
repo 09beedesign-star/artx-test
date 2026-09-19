@@ -166,6 +166,33 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(draftBlock).not.toContain('referencesEnabled: false');
   });
 
+  it("wires the image generator popover to skill and uploaded references", () => {
+    const raw = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const source = stripComments(raw);
+    const block = source.match(
+      /function ImageGeneratorPopover\([\s\S]*?\n\}\n/
+    )?.[0];
+
+    expect(block).toBeTruthy();
+
+    // 技能与上传参考图都进了弹窗（此前只有模型 / 画幅 / 数量 / 画布参考）。
+    expect(block).toContain("<SkillPointSelector");
+    expect(block).toContain("onChange={handleSkillChange}");
+    expect(block).toContain("handleUploadRefs(event.target.files)");
+    expect(block).toContain("上传参考图");
+
+    // Skill 加载后联动首选画幅，且只覆盖画幅按钮组里真实存在的比例。
+    expect(block).toContain('getSkillPreferredRatio(skill, "")');
+    expect(block).toContain("ratios.includes(preferred)");
+
+    // 提交真正消费：Skill 上下文拼进提示词 + skillId 透传 + 参考图下发。
+    expect(block).toContain("buildSkillPromptContext(activeSkill)");
+    expect(block).toContain("prompt: finalPrompt");
+    expect(block).toContain("skillId: activeSkill?.id");
+    expect(block).toContain("referencedAssets: [");
+    expect(block).toContain("finalPrompt,\n                `生成第");
+  });
+
   it("keeps smart annotation edits on the restored source-image edit route", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
     const annotationEditBlock = source.match(

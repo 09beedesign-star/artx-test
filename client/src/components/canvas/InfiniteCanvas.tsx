@@ -16658,6 +16658,10 @@ function ImageGeneratorPopover({
   const [ratio, setRatio] = useState("1:1");
   const [count, setCount] = useState(2);
   const [referencesEnabled, setReferencesEnabled] = useState(false);
+  const [activeSkill, setActiveSkill] = useState<PendingSkillLoad | null>(null);
+  const [uploadedRefs, setUploadedRefs] = useState<
+    Array<{ id: string; title: string; src: string }>
+  >([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [position, setPosition] = useState<{ x: number; y: number } | null>(
     null
@@ -16665,6 +16669,7 @@ function ImageGeneratorPopover({
   const modelRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const dragOffsetRef = useRef({ x: 0, y: 0 });
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const bg = isDark ? "#1e1e20" : "rgba(255,255,255,0.98)";
   const border = isDark ? "#2e2e33" : "rgba(0,0,0,0.10)";
@@ -16817,6 +16822,47 @@ function ImageGeneratorPopover({
       "background 0.16s ease, border-color 0.16s ease, transform 0.16s ease",
   });
 
+  const handleUploadRefs = useCallback((files: FileList | null) => {
+    if (!files?.length) return;
+    const imageFiles = Array.from(files).filter(file =>
+      file.type.startsWith("image/")
+    );
+    if (imageFiles.length === 0) {
+      toast("请选择图片文件（JPG / PNG / GIF / WebP）");
+      return;
+    }
+    imageFiles.forEach((file, index) => {
+      const reader = new FileReader();
+      reader.onload = event => {
+        const src = event.target?.result;
+        if (typeof src !== "string") return;
+        setUploadedRefs(prev => [
+          ...prev,
+          {
+            id: `gen-ref-${Date.now()}-${index}`,
+            title: file.name.replace(/\.[^.]+$/, ""),
+            src,
+          },
+        ]);
+      };
+      reader.readAsDataURL(file);
+    });
+    toast(`已加载 ${imageFiles.length} 张参考图`);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }, []);
+
+  /*
+   * Skill 加载后联动首选画幅，与主画布助手面板行为一致。
+   * 这里的画幅是自绘按钮组（不是 ImageRatioSelector），可选值就是 ratios，
+   * 所以只在首选比例存在于该列表时才覆盖，避免覆盖出一个不存在的选项。
+   */
+  const handleSkillChange = useCallback((skill: PendingSkillLoad | null) => {
+    setActiveSkill(skill);
+    if (!skill) return;
+    const preferred = getSkillPreferredRatio(skill, "");
+    if (preferred && ratios.includes(preferred)) setRatio(preferred);
+  }, []);
+
   const requestCanvasReferences = useCallback(
     () =>
       new Promise<ImageGeneratorReferenceAsset[]>(resolve => {
@@ -16857,25 +16903,45 @@ function ImageGeneratorPopover({
     const canvasReferences = referencesEnabled
       ? await requestCanvasReferences()
       : [];
-    const referenceSummary = canvasReferences.length
-      ? [
-          "参考当前画布图片生成。请结合参考图中的主体、构图、色彩、材质和视觉氛围，但不要直接复制画面。",
-          ...canvasReferences
-            .slice(0, 8)
-            .map((asset, index) => `参考图 ${index + 1}：${asset.title}`),
-          `用户提示：${prompt.trim()}`,
-        ].join("\n")
-      : prompt.trim();
+    const referenceSummary =
+      canvasReferences.length || uploadedRefs.length
+        ? [
+            "参考提供的图片生成。请结合参考图中的主体、构图、色彩、材质和视觉氛围，但不要直接复制画面。",
+            ...uploadedRefs
+              .slice(0, 8)
+              .map((asset, index) => `上传参考图 ${index + 1}：${asset.title}`),
+            ...canvasReferences
+              .slice(0, 8)
+              .map((asset, index) => `画布参考图 ${index + 1}：${asset.title}`),
+            `用户提示：${prompt.trim()}`,
+          ].join("\n")
+        : prompt.trim();
+    /**
+     * Skill 的能力说明必须拼进提示词才生效：服务端 generateAiImages 不消费
+     * skillId（只透传），真正起作用的是这段上下文 —— 与主 composer 同机制。
+     */
+    const finalPrompt = buildSkillAppliedImagePrompt({
+      activeSkill,
+      skillContext: activeSkill ? buildSkillPromptContext(activeSkill) : "",
+      userPrompt: referenceSummary,
+      imagePrompt: referenceSummary,
+    });
     const payload: ImageGeneratorPayload = {
       projectId,
-      prompt: referenceSummary,
+      prompt: finalPrompt,
       model,
       ratio,
       count,
-      style: "图像生成器",
-      referencesEnabled: canvasReferences.length > 0,
+      style: activeSkill?.name || "图像生成器",
+      referencesEnabled:
+        canvasReferences.length > 0 || uploadedRefs.length > 0,
+      referencedAssets: [
+        ...uploadedRefs.map(ref => ({ src: ref.src, title: ref.title })),
+        ...canvasReferences.map(ref => ({ src: ref.src, title: ref.title })),
+      ],
       generationId,
-      sourceBackgroundSrc: canvasReferences[0]?.src,
+      sourceBackgroundSrc: canvasReferences[0]?.src || uploadedRefs[0]?.src,
+      skillId: activeSkill?.id,
     };
     dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
     try {
@@ -16889,7 +16955,7 @@ function ImageGeneratorPopover({
             const editResult = await editImageWithPrompt({
               imageSrc: canvasReferences[0].src,
               prompt: [
-                referenceSummary,
+                finalPrompt,
                 `生成第 ${index + 1} 张变体。`,
                 "输出一张全新的图片，参考当前画布图片的视觉信息，并严格遵守用户提示。",
               ].join("\n"),
@@ -16907,7 +16973,7 @@ function ImageGeneratorPopover({
             const variantResult = await generateAiImages({
               ...payload,
               prompt: [
-                referenceSummary,
+                finalPrompt,
                 `生成第 ${index + 1} 张变体。`,
                 "保持同一主题、画幅比例和核心风格，但在构图、镜头、光影、细节或元素排列上做自然变化。不要复制上一张，也不要返回完全相同的图片。",
               ].join("\n"),
@@ -17196,6 +17262,75 @@ function ImageGeneratorPopover({
                 </button>
               ))}
             </div>
+          </div>
+        </div>
+
+        {/* 技能 / 上传参考图：补齐与主画布助手面板同源的能力 */}
+        <div className="mt-3 grid min-w-0 grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-3">
+          <div className="min-w-0">
+            <p className="mb-1.5 type-caption" style={{ color: sub }}>
+              技能
+            </p>
+            <SkillPointSelector
+              activeSkill={activeSkill}
+              onChange={handleSkillChange}
+              isDark={isDark}
+            />
+          </div>
+          <div className="min-w-0">
+            <p className="mb-1.5 type-caption" style={{ color: sub }}>
+              上传参考图
+            </p>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={event => handleUploadRefs(event.target.files)}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="flex h-9 w-full items-center justify-center gap-1.5 rounded-[var(--radius-lg-design)] px-2 type-caption"
+              style={controlButtonStyle(uploadedRefs.length > 0)}
+            >
+              <ImagePlus size={13} />
+              {uploadedRefs.length > 0
+                ? `已选 ${uploadedRefs.length} 张`
+                : "选择图片"}
+            </button>
+            {uploadedRefs.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {uploadedRefs.map(ref => (
+                  <div
+                    key={ref.id}
+                    className="relative h-8 w-8 overflow-hidden rounded-[var(--radius-md-design)]"
+                    style={{ border: `1px solid ${border}` }}
+                    title={ref.title}
+                  >
+                    <img
+                      src={ref.src}
+                      alt={ref.title}
+                      className="h-full w-full object-cover"
+                    />
+                    <button
+                      type="button"
+                      className="absolute right-0 top-0 flex h-3.5 w-3.5 items-center justify-center rounded-[var(--radius-pill)]"
+                      style={{ background: "rgba(0,0,0,0.55)", color: "white" }}
+                      onClick={() =>
+                        setUploadedRefs(prev =>
+                          prev.filter(item => item.id !== ref.id)
+                        )
+                      }
+                      aria-label="移除参考图"
+                    >
+                      <X size={9} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
