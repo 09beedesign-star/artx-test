@@ -80,6 +80,9 @@ type AdminUser = {
   id: string;
   name: string;
   email: string;
+  // 登录账号。与 email 不一定相同（例如 09bee 的账号是 09bee、邮箱是 09bee@example.com），
+  // 后台搜索必须把它算进去，否则从别处复制登录账号回来搜会「搜不到人」。
+  account?: string;
   role?: AdminRole;
   plan: string;
   // 会员到期相关字段由后端 toDisplayUsers 派生。
@@ -105,6 +108,8 @@ type AdminUser = {
     dailyCreditLimit: number;
     usageDate: string;
     reservedCredits: number;
+    /** 永久有效：服务端据此跳过到期、余额、日限额三道闸。 */
+    unlimited?: boolean;
     cancelledAt?: string;
   };
   allowedAiModels?: string[];
@@ -773,6 +778,7 @@ function AdminPrototypePage() {
     initialCredits: "200",
     dailyCreditLimit: "50",
     expiresAt: defaultTestAccountExpiry(),
+    unlimited: false,
   }));
   const [testAccountPanelOpen, setTestAccountPanelOpen] = useState(false);
   const [temporaryPassword, setTemporaryPassword] = useState("");
@@ -1157,8 +1163,8 @@ function AdminPrototypePage() {
       setTestAccountFeedback({ tone: "error", message: `测试账号发放失败：${message}` });
       return;
     }
-    if (!testAccountForm.email.trim() || !testAccountForm.expiresAt) {
-      const message = "请填写测试账号邮箱和有效期。";
+    if (!testAccountForm.email.trim() || (!testAccountForm.unlimited && !testAccountForm.expiresAt)) {
+      const message = testAccountForm.unlimited ? "请填写测试账号邮箱。" : "请填写测试账号邮箱和有效期。";
       setNotice(message);
       setTestAccountFeedback({ tone: "error", message: `测试账号发放失败：${message}` });
       return;
@@ -1175,6 +1181,7 @@ function AdminPrototypePage() {
           initialCredits: Number(testAccountForm.initialCredits),
           dailyCreditLimit: Number(testAccountForm.dailyCreditLimit),
           expiresAt: testAccountForm.expiresAt,
+          unlimited: testAccountForm.unlimited === true,
         }),
       });
       const result = await response.json().catch(() => ({}));
@@ -1867,10 +1874,11 @@ function AdminPrototypePage() {
                 <label className="space-y-1 text-xs text-slate-400">测试账号邮箱<Input value={testAccountForm.email} onChange={(event) => setTestAccountForm((current) => ({ ...current, email: event.target.value }))} placeholder="name@example.com" className="border-white/12 bg-slate-950/40" /></label>
                 <label className="space-y-1 text-xs text-slate-400">初始额度<Input type="number" min="1" value={testAccountForm.initialCredits} onChange={(event) => setTestAccountForm((current) => ({ ...current, initialCredits: event.target.value }))} className="border-white/12 bg-slate-950/40" /></label>
                 <label className="space-y-1 text-xs text-slate-400">每日 AI 限额<Input type="number" min="1" value={testAccountForm.dailyCreditLimit} onChange={(event) => setTestAccountForm((current) => ({ ...current, dailyCreditLimit: event.target.value }))} className="border-white/12 bg-slate-950/40" /></label>
-                <label className="space-y-1 text-xs text-slate-400">有效期<Input type="datetime-local" value={testAccountForm.expiresAt} onChange={(event) => setTestAccountForm((current) => ({ ...current, expiresAt: event.target.value }))} className="border-white/12 bg-slate-950/40" /></label>
+                <label className="space-y-1 text-xs text-slate-400">有效期<Input type="datetime-local" value={testAccountForm.expiresAt} onChange={(event) => setTestAccountForm((current) => ({ ...current, expiresAt: event.target.value }))} disabled={testAccountForm.unlimited} className="border-white/12 bg-slate-950/40 disabled:opacity-40" /></label>
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-3">
-                <Button type="button" onClick={handleCreateTestAccount} disabled={isIssuingTestAccount || !testAccountForm.email || !testAccountForm.expiresAt} className="bg-emerald-300 text-slate-950 hover:bg-emerald-200">{isIssuingTestAccount ? "正在发放..." : "确认发放"}</Button>
+                <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={testAccountForm.unlimited} onChange={(event) => setTestAccountForm((current) => ({ ...current, unlimited: event.target.checked }))} /> 永久有效（不限额度、不过期）</label>
+                <Button type="button" onClick={handleCreateTestAccount} disabled={isIssuingTestAccount || !testAccountForm.email || (!testAccountForm.unlimited && !testAccountForm.expiresAt)} className="bg-emerald-300 text-slate-950 hover:bg-emerald-200">{isIssuingTestAccount ? "正在发放..." : "确认发放"}</Button>
                 {temporaryPassword && <code className="break-all border border-amber-300/35 bg-amber-300/10 px-3 py-2 text-sm text-amber-100">临时密码：{temporaryPassword}</code>}
               </div>
               {testAccountFeedback && <p role="status" className={cn("mt-3 text-xs", testAccountFeedback.tone === "error" ? "text-rose-200" : "text-emerald-200")}>{testAccountFeedback.message}</p>}
@@ -1988,7 +1996,36 @@ function AdminPrototypePage() {
               ) : (
                 <TableRow className="border-white/8 hover:bg-transparent">
                   <TableCell colSpan={9} className="py-10 text-center text-sm text-slate-500">
-                    暂无真实用户数据
+                    {adminData.users.length > 0 ? (
+                      // 库里有账号却被筛没了，必须说清楚是条件太窄，而不是「没数据」。
+                      // 否则管理员第一反应是「列表没接数据」，实际只是搜索词或筛选没对上。
+                      <div className="space-y-3">
+                        <div>
+                          没有账号符合当前搜索与筛选条件（共 {adminData.users.length} 个账号）
+                          <div className="mt-1 text-xs text-slate-600">
+                            可搜索：用户名、邮箱、登录账号、用户 ID、组织、套餐
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
+                          onClick={() => {
+                            setQuery("");
+                            setStatusFilter("all");
+                            setAccountTypeFilter("all");
+                            setRegisteredFrom("");
+                            setRegisteredTo("");
+                            setUserPage(1);
+                          }}
+                        >
+                          清空搜索与筛选
+                        </Button>
+                      </div>
+                    ) : (
+                      "暂无真实用户数据"
+                    )}
                   </TableCell>
                 </TableRow>
               )}
@@ -2773,7 +2810,7 @@ function Toolbar({
         <Input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="搜索账号名称或邮箱"
+          placeholder="搜索用户名 / 邮箱 / 登录账号 / 用户 ID"
           className="border-white/10 bg-slate-950/40 pl-9 text-slate-100 placeholder:text-slate-500"
         />
       </div>
@@ -3323,6 +3360,7 @@ function AccountDetailDrawer({
   const [testCreditDelta, setTestCreditDelta] = useState("0");
   const [testDailyLimit, setTestDailyLimit] = useState("");
   const [testExpiresAt, setTestExpiresAt] = useState("");
+  const [testUnlimited, setTestUnlimited] = useState<boolean | null>(null);
   const [cancelConfirmed, setCancelConfirmed] = useState(false);
   const [allowedAiModels, setAllowedAiModels] = useState<string[]>([]);
   const visibleAiModels = useMemo(() => [...IMAGE_AI_MODELS, ...TEXT_AI_MODELS], []);
@@ -3338,6 +3376,15 @@ function AccountDetailDrawer({
   const selectedOrderNotes = selectedOrder
     ? (detail?.notes || []).filter((item) => item.orderId === selectedOrder.id).slice(0, 1)
     : [];
+  /**
+   * 本地勾选优先；切换用户或库里的 unlimited 变了就回落到库值。
+   * 目的：管理员打开档案时不会因为默认 false 而被"保存测试额度"静默取消永久资格。
+   */
+  const testProfileStateKey = `${user?.id ?? ""}|${user?.testProfile?.unlimited === true}`;
+  useEffect(() => {
+    setTestUnlimited(null);
+  }, [testProfileStateKey]);
+  const unlimitedOn = testUnlimited ?? user?.testProfile?.unlimited === true;
   const filteredAccountOrders = (detail?.orders || []).filter((order) => (
     matchesDrawerTimeFilter(order.createdAt, orderTimeFilter)
     && (!orderUserIdFilter || (order.userId || "").includes(orderUserIdFilter))
@@ -3380,7 +3427,9 @@ function AccountDetailDrawer({
               {user.accountType === "test" && user.testProfile && (
                 <CollapsibleDrawerSection
                   title="测试账号档案"
-                  description={`今日已预约 ${formatCredits(user.testProfile.reservedCredits)} / 日限额 ${formatCredits(user.testProfile.dailyCreditLimit)}；到期后服务端将阻止所有 AI 请求。`}
+                  description={unlimitedOn
+                    ? `永久有效 · 不限额度、不过期；今日已预约 ${formatCredits(user.testProfile.reservedCredits)} 积分。`
+                    : `今日已预约 ${formatCredits(user.testProfile.reservedCredits)} / 日限额 ${formatCredits(user.testProfile.dailyCreditLimit)}；到期后服务端将阻止所有 AI 请求。`}
                   expanded={drawerSectionExpanded.testProfile}
                   onToggle={() => setDrawerSectionExpanded(current => ({ ...current, testProfile: !current.testProfile }))}
                   className="order-40 border-amber-300/25 bg-amber-300/[0.045]"
@@ -3389,14 +3438,16 @@ function AccountDetailDrawer({
                   <div className="grid gap-3 md:grid-cols-3">
                     <Input type="number" value={testCreditDelta} onChange={(event) => setTestCreditDelta(event.target.value)} disabled={!canManageTestAccounts} placeholder="积分增减" className="border-white/12 bg-slate-950/40" />
                     <Input type="number" min="1" value={testDailyLimit || String(user.testProfile.dailyCreditLimit)} onChange={(event) => setTestDailyLimit(event.target.value)} disabled={!canManageTestAccounts} placeholder="每日 AI 积分上限" className="border-white/12 bg-slate-950/40" />
-                    <Input type="datetime-local" value={testExpiresAt || user.testProfile.expiresAt.slice(0, 16)} onChange={(event) => setTestExpiresAt(event.target.value)} disabled={!canManageTestAccounts} className="border-white/12 bg-slate-950/40" />
+                    <Input type="datetime-local" value={testExpiresAt || user.testProfile.expiresAt.slice(0, 16)} onChange={(event) => setTestExpiresAt(event.target.value)} disabled={!canManageTestAccounts || unlimitedOn} className="border-white/12 bg-slate-950/40 disabled:opacity-40" />
                   </div>
+                  <label className="mt-2 flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={unlimitedOn} disabled={!canManageTestAccounts} onChange={(event) => setTestUnlimited(event.target.checked)} /> 永久有效（不限额度、不过期）</label>
                   {canManageTestAccounts && (
                   <div className="mt-3 flex flex-wrap items-center gap-3">
                       <Button type="button" className="bg-amber-300 text-slate-950 hover:bg-amber-200" onClick={() => onUpdateTestProfile(user.id, {
                         creditDelta: Number(testCreditDelta || 0),
                         dailyCreditLimit: Number(testDailyLimit || user.testProfile!.dailyCreditLimit),
                         expiresAt: testExpiresAt ? new Date(testExpiresAt).toISOString() : user.testProfile!.expiresAt,
+                        unlimited: unlimitedOn,
                       })}>保存测试额度</Button>
                       <label className="flex items-center gap-2 text-xs text-rose-100"><input type="checkbox" checked={cancelConfirmed} onChange={(event) => setCancelConfirmed(event.target.checked)} /> 我确认注销不可恢复</label>
                       <Button type="button" variant="outline" disabled={!cancelConfirmed} className="border-rose-300/35 bg-rose-300/10 text-rose-100 hover:bg-rose-300/20" onClick={() => onCancelTestAccount(user.id)}>注销测试账号</Button>

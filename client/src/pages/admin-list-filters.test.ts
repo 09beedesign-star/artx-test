@@ -17,6 +17,36 @@ describe("admin list filters", () => {
     expect(result.map((user) => user.id)).toEqual(["u-1"]);
   });
 
+  it("matches user id, login account, and organization, not only name and email", () => {
+    const users = [
+      { id: "6bb44758-0f4a", name: "Sofa Lab", email: "sofa@example.com", account: "sofa_login", organization: "Sofa Group", plan: "Pro" },
+      { id: "u-2", name: "Lamp Shop", email: "lamp@example.com", account: "lamp_login", organization: "Lamp Group", plan: "Free" },
+    ];
+    const run = (query: string) => filterAdminUsers(users, {
+      query,
+      accountType: "all",
+      registeredFrom: "",
+      registeredTo: "",
+    }).map((user) => user.id);
+
+    expect(run("6bb44758")).toEqual(["6bb44758-0f4a"]);
+    expect(run("sofa_login")).toEqual(["6bb44758-0f4a"]);
+    expect(run("lamp group")).toEqual(["u-2"]);
+  });
+
+  it("does not match a query spanning two different fields", () => {
+    const result = filterAdminUsers([
+      { id: "u-1", name: "Sofa e", email: "x@example.com", plan: "p Lab" },
+    ], {
+      query: "e p",
+      accountType: "all",
+      registeredFrom: "",
+      registeredTo: "",
+    });
+
+    expect(result).toEqual([]);
+  });
+
   it("filters orders by account, payment date, and inclusive amount range", () => {
     const result = filterAdminOrders([
       { id: "ord-1", user: "Sofa Lab", amount: 99, paidAt: "2026-07-17T01:00:00.000Z" },

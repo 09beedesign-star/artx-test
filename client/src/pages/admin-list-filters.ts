@@ -3,6 +3,8 @@ type AccountFilterRecord = {
   name: string;
   email: string;
   plan: string;
+  account?: string;
+  organization?: string;
   accountType?: "regular" | "test";
   registeredAt?: string;
 };
@@ -43,7 +45,14 @@ export function filterAdminUsers<T extends AccountFilterRecord>(users: T[], inpu
 }) {
   const query = input.query.trim().toLowerCase();
   return users.filter((user) => {
-    const matchesQuery = !query || `${user.name} ${user.email} ${user.plan}`.toLowerCase().includes(query);
+    // 把登录账号、用户 ID 和组织也纳入匹配：管理员常常是从订单详情或任务
+    // 记录里复制一串 ID / 登录账号回来搜，只匹配 name+email 会「搜不到人」，
+    // 看起来就像列表没接数据。逐字段 some() 而不是拼成一个大字符串，
+    // 避免跨字段边界被误命中（例如搜 "e p" 命中 "name e" + "plan p"）。
+    const matchesQuery = !query
+      || [user.name, user.email, user.account, user.id, user.organization, user.plan]
+        .filter(Boolean)
+        .some((field) => String(field).toLowerCase().includes(query));
     const accountType = user.accountType || "regular";
     const matchesAccountType = input.accountType === "all" || accountType === input.accountType;
     return matchesQuery

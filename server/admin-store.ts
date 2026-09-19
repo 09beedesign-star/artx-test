@@ -60,9 +60,22 @@ type TestAccountProfile = {
   usageDate: string;
   reservedCredits: number;
   reservations?: Record<string, number>;
+  /**
+   * 无限额度 / 永久有效。为 true 时 reserveTestAccountAiUsage 跳过
+   * 「到期时间」「余额是否够」「今日限额」三道闸，账号可以一直测下去。
+   *
+   * ⚠️ 为什么仍然写 expiresAt 而不是留空：老版本代码（以及任何直接读
+   * expiresAt 的运维脚本）都按字符串比较判断过期，留空会算出 NaN 让判定
+   * 变成薛定谔状态。这里统一落成 UNLIMITED_TEST_ACCOUNT_EXPIRES_AT，
+   * 保证无论哪一代代码读到的都是「远未到期」。
+   */
+  unlimited?: boolean;
   cancelledAt?: string;
   cancelledBy?: string;
 };
+
+/** 永久有效测试账号的到期哨兵值。足够远，且是可被 Date.parse 正常解析的 ISO 串。 */
+const UNLIMITED_TEST_ACCOUNT_EXPIRES_AT = "9999-12-31T23:59:59.999Z";
 
 type AdminUserAccount = {
   id: string;
@@ -4008,11 +4021,12 @@ export async function handleAdminApiRequest(
     const email = typeof body.email === "string" ? body.email.trim() : "";
     const initialCredits = Math.max(0, Math.round(Number(body.initialCredits)));
     const dailyCreditLimit = Math.max(1, Math.round(Number(body.dailyCreditLimit)));
+    const unlimited = body.unlimited === true;
     const expiresAt = typeof body.expiresAt === "string" ? body.expiresAt : "";
-    if (!email || !Number.isFinite(initialCredits) || !Number.isFinite(dailyCreditLimit) || !Number.isFinite(Date.parse(expiresAt))) {
+    if (!email || !Number.isFinite(initialCredits) || !Number.isFinite(dailyCreditLimit) || (!unlimited && !Number.isFinite(Date.parse(expiresAt)))) {
       return jsonError(400, "测试账号邮箱、额度、日限额和到期时间无效");
     }
-    if (Date.parse(expiresAt) <= Date.now()) return jsonError(400, "测试账号到期时间必须晚于当前时间");
+    if (!unlimited && Date.parse(expiresAt) <= Date.now()) return jsonError(400, "测试账号到期时间必须晚于当前时间");
 
     const created = await createAuthUserForAdmin({
       actorId: actor.id,
@@ -4024,12 +4038,13 @@ export async function handleAdminApiRequest(
     const issuedAt = nowIso();
     const testProfile: TestAccountProfile = {
       issuedAt,
-      expiresAt: new Date(expiresAt).toISOString(),
+      expiresAt: unlimited ? UNLIMITED_TEST_ACCOUNT_EXPIRES_AT : new Date(expiresAt).toISOString(),
       initialCredits,
       dailyCreditLimit,
         usageDate: "",
         reservedCredits: 0,
         reservations: {},
+        ...(unlimited ? { unlimited: true } : {}),
     };
     const user: AdminUserAccount = {
       id: authUser.id,
@@ -4079,7 +4094,7 @@ export async function handleAdminApiRequest(
     appendAuditLog(data, actor, {
       action: "发放测试账号",
       target: user.id,
-      after: { initialCredits, dailyCreditLimit, expiresAt: testProfile.expiresAt },
+      after: { initialCredits, dailyCreditLimit, expiresAt: testProfile.expiresAt, unlimited: unlimited === true },
     });
     await saveAdminData(data);
     return {
@@ -4096,13 +4111,21 @@ export async function handleAdminApiRequest(
     if (!user?.testProfile || user.status === "cancelled") return jsonError(404, "测试账号不存在或已注销");
     const creditDelta = Number(body.creditDelta || 0);
     const dailyCreditLimit = Math.round(Number(body.dailyCreditLimit));
+    const unlimited = body.unlimited === true;
     const expiresAt = typeof body.expiresAt === "string" ? body.expiresAt : "";
-    if (!Number.isFinite(creditDelta) || !Number.isFinite(dailyCreditLimit) || dailyCreditLimit < 1 || !Number.isFinite(Date.parse(expiresAt))) {
+    if (!Number.isFinite(creditDelta) || !Number.isFinite(dailyCreditLimit) || dailyCreditLimit < 1 || (!unlimited && !Number.isFinite(Date.parse(expiresAt)))) {
       return jsonError(400, "测试账号调整参数无效");
     }
     user.credits = Math.max(0, user.credits + creditDelta);
     user.testProfile.dailyCreditLimit = dailyCreditLimit;
-    user.testProfile.expiresAt = new Date(expiresAt).toISOString();
+    if (unlimited) {
+      user.testProfile.unlimited = true;
+      user.testProfile.expiresAt = UNLIMITED_TEST_ACCOUNT_EXPIRES_AT;
+    } else {
+      // 显式关掉：不写 undefined，避免老代码读到 undefined 后判断失真。
+      user.testProfile.unlimited = false;
+      user.testProfile.expiresAt = new Date(expiresAt).toISOString();
+    }
     const adjustedAt = nowIso();
     if (creditDelta !== 0) data.credits = [{
       id: `cr_${Date.now().toString(36)}`,
@@ -4127,7 +4150,7 @@ export async function handleAdminApiRequest(
         expiresAt: user.testProfile.expiresAt,
       });
     }
-    appendAuditLog(data, actor, { action: "调整测试账号", target: user.id, after: { creditDelta, dailyCreditLimit, expiresAt: user.testProfile.expiresAt } });
+    appendAuditLog(data, actor, { action: "调整测试账号", target: user.id, after: { creditDelta, dailyCreditLimit, expiresAt: user.testProfile.expiresAt, unlimited } });
     await saveAdminData(data);
     return { status: 200, body: { ...fullPayload(data), user } };
   }
@@ -5735,24 +5758,35 @@ export async function reserveTestAccountAiUsage(input: {
   const user = data.users.find((item) => item.id === input.userId);
   if (!user?.testProfile || user.accountType !== "test") return { status: "not_test" };
   const profile = user.testProfile;
+  // 注销是运营开关，不受额度策略影响 —— unlimited 也一样会被拦。
   if (user.status === "cancelled" || profile.cancelledAt) throw new Error("测试账号已注销");
-  if (Date.parse(profile.expiresAt) <= Date.now()) throw new Error("测试账号已过期");
-  const estimatedCredits = Math.max(1, Math.round(input.estimatedCredits));
-  if (user.credits < estimatedCredits) throw new Error("测试账号额度不足");
+
+  // 日切重置属于「预约账本」，无论是否 unlimited 都要走：后台面板靠它显示今日用量。
   const day = shanghaiDay();
   if (profile.usageDate !== day) {
     profile.usageDate = day;
     profile.reservedCredits = 0;
     profile.reservations = {};
   }
-  const consumed = data.aiTasks
-    .filter((task) => task.userId === user.id && task.status === "success" && shanghaiDay(task.createdAt) === day)
-    .reduce((sum, task) => sum + task.chargedCredits, 0);
-  profile.reservations ||= {};
-  const currentReservation = profile.reservations[input.taskId] || 0;
-  if (consumed + profile.reservedCredits - currentReservation + estimatedCredits > profile.dailyCreditLimit) {
-    throw new Error("测试账号今日 AI 限额已用尽");
+  const estimatedCredits = Math.max(1, Math.round(input.estimatedCredits));
+
+  /**
+   * 无限额度测试账号：跳过到期、余额、日限额三道闸。
+   * 预约记录照写，所以后台依然能看到它今天实际烧了多少积分。
+   */
+  if (!profile.unlimited) {
+    if (Date.parse(profile.expiresAt) <= Date.now()) throw new Error("测试账号已过期");
+    if (user.credits < estimatedCredits) throw new Error("测试账号额度不足");
+    const consumed = data.aiTasks
+      .filter((task) => task.userId === user.id && task.status === "success" && shanghaiDay(task.createdAt) === day)
+      .reduce((sum, task) => sum + task.chargedCredits, 0);
+    profile.reservations ||= {};
+    const currentReservation = profile.reservations[input.taskId] || 0;
+    if (consumed + profile.reservedCredits - currentReservation + estimatedCredits > profile.dailyCreditLimit) {
+      throw new Error("测试账号今日 AI 限额已用尽");
+    }
   }
+  profile.reservations ||= {};
   profile.reservations[input.taskId] = estimatedCredits;
   profile.reservedCredits = Object.values(profile.reservations).reduce((sum, value) => sum + value, 0);
   await saveAdminData(data);
