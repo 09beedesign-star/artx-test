@@ -32995,6 +32995,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
            * OCR 失败不能阻断主流程，吞掉即可退化为纯模型反推。
            */
           let ocrText = "";
+          /*
+           * ⚠️ 同「智能文案编辑」那条链路：OCR 失败的原因必须留住。
+           *    反推里 OCR 挂掉不阻断主流程（退化为纯模型反推是可接受的），
+           *    但用户有权知道「这次反推里的文案部分没走 OCR」——
+           *    否则他只会看到提示词里文案缺斤少两，以为是模型不行。
+           */
+          let ocrFailureReason = "";
           if (REVERSE_PROMPT_WITH_OCR) {
             try {
               const ocrResult = await extractImageText({ imageSrc });
@@ -33004,9 +33011,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 .join("\n");
               ocrText = (ocrResult.text || "").trim() || joinedRegions;
             } catch (ocrError) {
+              ocrFailureReason =
+                ocrError instanceof Error ? ocrError.message : String(ocrError);
               console.warn(
                 "[reverse-prompt] OCR 未取到文案，退化为纯模型反推",
-                ocrError instanceof Error ? ocrError.message : ocrError
+                ocrFailureReason
               );
             }
           }
@@ -33068,7 +33077,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           toast("提示词反推完成", {
             description: copyLines.length
               ? `已生成可直接用于生图的中文提示词，并保留 ${copyLines.length} 条图中文案`
-              : "已生成可直接用于生图的中文提示词",
+              : ocrFailureReason
+                // 文案一条都没保留 + OCR 失败 → 必须说清是"没读成"而不是"图里没字"
+                ? `已生成提示词，但图中文案没能读取（${ocrFailureReason}），提示词里的文字可能不全`
+                : "已生成可直接用于生图的中文提示词",
           });
         } catch (error) {
           const message = error instanceof Error ? error.message : "请稍后重试";
@@ -33275,14 +33287,34 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         try {
           let ocrText = "";
           let ocrRegions: ImageTextRegion[] = [];
+          /*
+           * ⚠️⚠️ OCR 失败的**原因必须留下来**，不能只 console.warn 就算完。
+           *
+           * 2026-09-19 排查「生成后带文字的图片识别不出文字」时发现：
+           * /api/images/ocr 前面有积分闸门，余额不足会返回 402
+           * （"当前未订阅套餐，暂无可用创作积分"）；上游抖动会 502；
+           * 图太大会 413。这三种失败在原代码里**长得一模一样** ——
+           * 都被这个 catch 吞掉，然后退化到下面的 multimodal-text-extraction。
+           *
+           * 而那条兜底路径**只返回文字、不返回 regions**，于是用户看到的是
+           * 「面板里有文字，但改不了字」，或者干脆空白。
+           * 真实原因（没积分 / 上游挂了 / 图太大）一个字都到不了用户眼前，
+           * 只能靠猜 —— 这正是用户反馈「识别不出来」的由来。
+           *
+           * 📌 判据：**「读不到图」和「图里没有字」必须长得不一样。**
+           *    所以这里把原因存下来，下面按「我缺不缺数据」分别报。
+           */
+          let ocrFailureReason = "";
           try {
             const ocrResult = await extractImageText({ imageSrc });
             ocrText = ocrResult.text.trim();
             ocrRegions = ocrResult.regions || [];
           } catch (ocrError) {
+            ocrFailureReason =
+              ocrError instanceof Error ? ocrError.message : String(ocrError);
             console.warn(
-              "PicWish OCR failed; falling back to multimodal text extraction",
-              ocrError
+              "[extract-text] OCR 失败，退化为纯模型文本提取（无文字坐标）",
+              ocrFailureReason
             );
           }
           const result = ocrText
@@ -33358,8 +33390,24 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           */
           if (ocrRegions.length === 0 && text !== "未识别到可读文案") {
             toast("文案已提取，但无法定位文字位置", {
-              description:
-                "这张图只取到文字内容、没取到坐标，暂时不能改字生成新图；可以先复制文案，或重新提取一次再试",
+              description: ocrFailureReason
+                ? `文字识别没跑成功（${ocrFailureReason}），只能靠模型读出文案、拿不到坐标，所以暂时不能改字生成新图`
+                : "这张图只取到文字内容、没取到坐标，暂时不能改字生成新图；可以先复制文案，或重新提取一次再试",
+            });
+          } else if (
+            ocrRegions.length === 0 &&
+            text === "未识别到可读文案" &&
+            ocrFailureReason
+          ) {
+            /*
+             * ⚠️ 这一支是最容易被漏掉、也最误导人的一种：
+             *    OCR 挂了（没积分 / 上游 502 / 图太大），兜底模型也没读出东西，
+             *    于是面板显示「未识别到可读文案」—— 用户明明看着图里有字，
+             *    却被告知"没有文字"，只会以为是识别能力不行。
+             *    必须把真实原因摆到台面上。
+             */
+            toast("没能读取这张图的文字", {
+              description: `失败原因：${ocrFailureReason}`,
             });
           } else {
             toast("智能文案编辑完成", { description: text.slice(0, 80) });

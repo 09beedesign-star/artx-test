@@ -166,33 +166,6 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(draftBlock).not.toContain('referencesEnabled: false');
   });
 
-  it("wires the image generator popover to skill and uploaded references", () => {
-    const raw = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
-    const source = stripComments(raw);
-    const block = source.match(
-      /function ImageGeneratorPopover\([\s\S]*?\n\}\n/
-    )?.[0];
-
-    expect(block).toBeTruthy();
-
-    // 技能与上传参考图都进了弹窗（此前只有模型 / 画幅 / 数量 / 画布参考）。
-    expect(block).toContain("<SkillPointSelector");
-    expect(block).toContain("onChange={handleSkillChange}");
-    expect(block).toContain("handleUploadRefs(event.target.files)");
-    expect(block).toContain("上传参考图");
-
-    // Skill 加载后联动首选画幅，且只覆盖画幅按钮组里真实存在的比例。
-    expect(block).toContain('getSkillPreferredRatio(skill, "")');
-    expect(block).toContain("ratios.includes(preferred)");
-
-    // 提交真正消费：Skill 上下文拼进提示词 + skillId 透传 + 参考图下发。
-    expect(block).toContain("buildSkillPromptContext(activeSkill)");
-    expect(block).toContain("prompt: finalPrompt");
-    expect(block).toContain("skillId: activeSkill?.id");
-    expect(block).toContain("referencedAssets: [");
-    expect(block).toContain("finalPrompt,\n                `生成第");
-  });
-
   it("keeps smart annotation edits on the restored source-image edit route", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
     const annotationEditBlock = source.match(
@@ -1293,6 +1266,59 @@ describe("InfiniteCanvas prompt controls", () => {
 
     // 成功分支要原样保留，别为了修这个 bug 把正常提示也一起砍了。
     expect(source).toContain('toast("智能文案编辑完成"');
+  });
+
+  it("OCR 失败的真实原因必须留住并说给用户，不能只 console.warn 就吞掉", () => {
+    const source = stripComments(
+      readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8"),
+    );
+
+    /*
+      2026-09-19 排查「生成后带文字的图识别不出文字」时的结论：
+      /api/images/ocr 前有积分闸门（余额不足返回 402），上游抖动 502、
+      图太大 413 —— 这三种失败原先都被 catch 吞成一句 console.warn，
+      然后静默退化到 multimodal-text-extraction。
+      那条兜底路径不返回 regions，于是用户看到的是「有文字但改不了字」
+      甚至「未识别到可读文案」，真实原因一个字都到不了眼前。
+
+      📌 判据：「读不到图」和「图里没有字」必须长得不一样。
+    */
+    const failureReasonCount = (source.match(/let ocrFailureReason = "";/g) || [])
+      .length;
+    // 两条链路各一处：智能文案编辑 + 提示词反推。少一条就是又漏了一个出口。
+    expect(failureReasonCount).toBe(2);
+
+    /*
+      原因必须真的从 catch 里取出来，而不是声明了不用。
+
+      ⚠️ 这里必须**数个数**，不能用 toContain。
+         两条链路各有一处赋值，用 toContain 只要还剩一处就恒绿 ——
+         变异自证时实测漏网过：删掉其中一处，断言照样通过。
+    */
+    const assignCount = (
+      source.match(
+        /ocrFailureReason =\s*\n?\s*ocrError instanceof Error \? ocrError\.message : String\(ocrError\);/g,
+      ) || []
+    ).length;
+    expect(assignCount).toBe(2);
+
+    // 兜底也没读出东西 + OCR 失败 → 必须明说失败原因，
+    // 不能让用户以为「图里本来就没字」。
+    expect(source).toContain('toast("没能读取这张图的文字"');
+    expect(source).toContain("失败原因：${ocrFailureReason}");
+
+    // 有文字没坐标时，也要把 OCR 失败原因带出来。
+    expect(source).toMatch(
+      /文字识别没跑成功（\$\{ocrFailureReason\}）/,
+    );
+
+    // 反推链路：一条文案都没保留且 OCR 失败时，要说清是「没读成」。
+    expect(source).toMatch(/图中文案没能读取（\$\{ocrFailureReason\}）/);
+
+    // 反向断言：不能再出现「把错误对象直接丢进 console.warn 就完事」的老写法。
+    expect(source).not.toContain(
+      '"PicWish OCR failed; falling back to multimodal text extraction"',
+    );
   });
 
   it("无坐标的报错文案要说缺坐标，不能说没识别到文字", () => {

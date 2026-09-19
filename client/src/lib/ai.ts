@@ -8,6 +8,7 @@ import {
 import { AUTO_RATIO_VALUE, resolveImageRatio } from "../../../shared/image-ratios";
 import type { AiBillingErrorCode } from "./ai-credit-gate";
 import { emitInsufficientCredits } from "./ai-credit-gate";
+import { compressAiRequestBody } from "./ai-payload-image";
 
 type LLMRole = "system" | "user" | "assistant";
 
@@ -353,6 +354,26 @@ async function readJsonResponse<T extends ApiErrorResponse>(response: Response, 
   if (!isJson) {
     const snippet = text.trim().slice(0, 180).replace(/\s+/g, " ");
     const looksLikeHtml = snippet.startsWith("<!DOCTYPE") || snippet.startsWith("<html") || snippet.startsWith("<");
+
+    /*
+     * ⚠️⚠️ 413 必须**先于**「返回了网页内容」判断。
+     *
+     * 服务端 express.json({ limit: "25mb" }) 拒收超大请求体时，返回的是
+     * Express 默认的 **HTML** 错误页（`<!DOCTYPE html>…<pre>Payload Too Large</pre>`）。
+     * 原代码只看到「响应体是 HTML」，就统一报「AI 后端地址未正确连接」——
+     * 2026-09-19 用户点提示词反推看到的就是这句，于是所有人（包括我）
+     * 第一反应都是去查后端有没有挂、nginx 是不是转发错了。
+     *
+     * 📌 实测后端好得很：/api/ai/orchestrate 与 /api/images/ocr 都是 200。
+     *    纯粹是一张 4K 图转成无损 PNG 后超过 25MB 被网关拒收。
+     *
+     * 📌 判据：**状态码是确定的事实，响应体长什么样是推测。**
+     *    有 413 就直接说图太大，不要再从 HTML 去猜是不是连不上。
+     */
+    if (response.status === 413) {
+      throw new Error(`${fallbackError}: 图片体积超出服务端上限，请先压缩或改用较小尺寸的图片后重试`);
+    }
+
     throw new Error(looksLikeHtml
       ? `${fallbackError}: AI 后端地址未正确连接，当前请求返回了网页内容，请稍后刷新后重试`
       : `${fallbackError}: received non-JSON response from ${response.url || "API"}${snippet ? ` (${snippet})` : ""}`);
@@ -371,10 +392,24 @@ async function fetchAiJson<T extends ApiErrorResponse>(
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    /*
+     * ⚠️⚠️ 发请求前统一压缩图片载荷 —— 这里是**唯一收口**。
+     *
+     * 为什么不在各个 API 函数里分别压：ai.ts 有 18 个导出函数会把图片
+     * 发给后端，字段名还各不相同（imageSrc / maskSrc / images[].src /
+     * referenceImages[] …）。挨个接必然漏，以后新增出口又会漏一次。
+     * fetchAiJson 是所有 POST 真正发出去的地方，收在这里天然覆盖全部。
+     *
+     * 实测（2026-09-19，线上 OCR 接口，同一张图三档对照）：
+     * 4K PNG 载荷 3.26MB / 12.0s，降采样 1600 宽 JPEG82 后 0.20MB / 7.6s，
+     * **读出的文案完全一致**。压缩不是妥协，是更快更稳。
+     */
+    const payload = await compressAiRequestBody(body);
+
     const response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...getAiAuthHeaders() },
-      body: JSON.stringify(body),
+      body: JSON.stringify(payload),
       signal: controller.signal,
     });
 
