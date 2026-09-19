@@ -107,7 +107,7 @@
     "skillId": "ui-visual-mockup",
     "capability": "text_to_image",
     "requiresReferenceImage": false,
-    "minimumPrompt": "生成一款团队协作工具的桌面端看板界面视觉稿，要真实内容密度，不要紫蓝渐变和玻璃拟态。",
+    "minimumPrompt": "生成一款团队协作工具的桌面端看板页面，要真实内容密度，不要紫蓝渐变和玻璃拟态。",
     "expectedVisualResult": "A desktop interface mockup with realistic content density, one accent colour, and a single clear primary action.",
     "passCriteria": "It reads as a real product interface, not an AI placeholder; alignment is consistent and text is legible."
   },
