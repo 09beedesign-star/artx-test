@@ -266,8 +266,31 @@ describe("SmartCommerceProductDialog", () => {
     expect(source).toContain("useState(false)");
     expect(source).toContain("setEcommerceExpanded(value => !value)");
     expect(source).toContain("aria-expanded={ecommerceExpanded}");
-    // 展开态必须封顶滚动，不能顶高面板
-    expect(source).toContain("max-h-[188px] overflow-y-auto");
+    /*
+      2026-09-19 改版：展开方式从「文档流内展开 + max-h-[188px] 封顶」
+      改为「绝对定位向上浮层 + 实测高度封顶」。
+
+      ⚠️ 原断言锁的是 "max-h-[188px] overflow-y-auto"，那是旧实现的实现细节。
+         旧方案即便封了顶，那 188px 仍是实打实加在面板上的高度，
+         面板照样会上下跳 —— 这正是用户报的缺陷。
+         所以这里改为锁「浮层的三个不可退化特征」。
+    */
+    /*
+      ① 向上展开：bottom-full（不是 top-full）
+
+      ⚠️⚠️ 这条最初写成 toContain("absolute bottom-full")，变异自证时发现它**恒绿**：
+           footer 里的预设菜单也是 bottom-full，把电商列表改成 top-full 之后
+           这个子串仍被预设菜单命中，测试照样通过。
+           📌 判据：源码断言只要「同一个子串在文件里出现多处」，
+              它就不再指向你以为的那一处。必须带上该处独有的上下文。
+    */
+    expect(source).toContain("absolute bottom-full left-0 right-0");
+    expect(source).not.toContain("absolute top-full left-0 right-0");
+    // ② 上边界不得越过标题栏分割线：高度实测而非常量
+    expect(source).toContain("maxHeight: ecommerceMenuMaxHeight");
+    expect(codeOnly).toContain("anchor.top - header.bottom");
+    // ③ 超出部分内部滚动
+    expect(source).toContain("overflow-y-auto rounded-md");
 
     // 平台数据来自用户提供的参数表，抽样锁住国内+海外两端
     for (const platform of ["淘宝 / 天猫", "京东", "拼多多", "小红书", "Amazon", "Temu", "SHEIN", "Shopee", "Ozon"]) {
@@ -284,17 +307,118 @@ describe("SmartCommerceProductDialog", () => {
     expect(source).toContain("customWidth: outputSize.width");
   });
 
+  /*
+    2026-09-19 需求 A：面板外轮廓高度固定，任何下拉展开都不得改变它。
+
+    ⚠️⚠️ 这一组断言的价值全在「固定 vs 自适应」的区别上。
+         max-h-* 看起来也像在限高，但它只封上限、下限由内容决定 ——
+         内容从 500px 涨到 700px 时面板照样跟着长，用户看到的就是上下跳。
+         只有写死 h-* 才是真的固定。
+  */
+  it("locks the panel outline to a fixed height", () => {
+    // 固定高度：h-[...]，且必须出现在面板根容器那一行
+    expect(codeOnly).toContain("h-[min(720px,calc(100dvh-32px))]");
+    // 旧的自适应高度写法不得复活
+    expect(codeOnly).not.toContain("max-h-[calc(100dvh-32px)]");
+    // header / footer 不参与压缩，否则内容一多它们会被挤扁，
+    // 表现为标题栏变矮——同样属于「布局变化」
+    expect(codeOnly).toContain("flex shrink-0 cursor-grab");
+    expect(codeOnly).toContain("relative flex shrink-0 items-center justify-between");
+    // 内容区独自吸收高度变化
+    expect(codeOnly).toContain("min-h-0 flex-1 overflow-y-auto");
+  });
+
+  /*
+    2026-09-19 需求 B：取消按钮左侧的「保存预设」+ 上拉预设菜单。
+  */
+  it("offers account-scoped parameter presets next to the cancel button", () => {
+    // 入口文案与四条命令
+    for (const label of ["保存预设", "我的预设", "更新", "回到初始态"]) {
+      expect(source).toContain(label);
+    }
+    // 四个动作处理器都必须真实存在（只画 UI 不接逻辑是最容易漏的一步）
+    for (const handler of [
+      "handleSavePreset",
+      "handleApplyPreset",
+      "handleUpdatePreset",
+      "handleDeletePreset",
+      "handleCommitRename",
+      "handleResetToDefault",
+    ]) {
+      expect(codeOnly).toContain(handler);
+    }
+
+    /*
+      ⚠️ 预设必须绑定账号。用全局 key 的话，同一台电脑换账号登录
+         会直接读到上一个人的预设，且不会报任何错。
+         这里锁住「组件确实把 user.id 传给了存储层」。
+    */
+    expect(codeOnly).toContain("const accountId = user?.id ?? null");
+    expect(codeOnly).toContain("readSmartCommercePresets(accountId)");
+    expect(codeOnly).toContain("writeActiveSmartCommercePresetId(accountId");
+
+    /*
+      ⚠️ 「更新」不能顺带触发「套用」。
+         若两者共用一个命中区，用户点更新时会先被旧参数覆盖当前面板，
+         再把旧参数存回去 —— 结果与他的意图完全相反，而且零报错。
+         这里锁住更新按钮自带独立 onClick。
+    */
+    expect(codeOnly).toContain("onClick={() => handleUpdatePreset(preset)}");
+    expect(codeOnly).toContain("onClick={() => handleApplyPreset(preset)}");
+
+    // 菜单同样向上展开，理由同电商平台列表（footer 在底部，向下会被裁掉）
+    expect(codeOnly).toContain("absolute bottom-full right-0");
+  });
+
+  it("restores the factory defaults without deleting saved presets", () => {
+    /*
+      ⚠️ 「回到初始态」只清「下次自动套用」的指针，绝不能删预设。
+         删除是不可逆的破坏性操作，混进一条看起来无害的命令里
+         是最容易被用户骂的那种设计。
+    */
+    expect(codeOnly).toContain("applyPresetPayload(SMART_COMMERCE_DEFAULT_PAYLOAD)");
+    const resetBody = codeOnly.slice(
+      codeOnly.indexOf("const handleResetToDefault"),
+      codeOnly.indexOf("const activePreset")
+    );
+    expect(resetBody.length).toBeGreaterThan(50); // 自检：切片没切空
+    expect(resetBody).not.toContain("persistPresets");
+    expect(resetBody).not.toContain("setPresets(");
+  });
+
   it("keeps platform presets and manual ratio mutually exclusive", () => {
     // 两个画布来源同时生效 = 必然有一个是假的。手动选画幅即取消平台预设。
     expect(source).toContain("setSelectedEcommerce(null)");
     expect(source).toContain("!selectedEcommerce && selectedPreset.ratio === preset.ratio");
   });
 
-  it("carries the platform's white-background rule into the prompt", () => {
-    // Amazon / 京东等平台强制纯白底，是审核硬规则。
-    // 不写进提示词的话会出一张"好看但不能用"的场景图。
-    expect(source).toContain('selectedEcommerce.bg === "white"');
-    expect(source).toContain("纯白背景");
+  /*
+    2026-09-19 需求 4：平台的白底硬规则 + 设计风格都要进提示词。
+
+    ⚠️ 这条最初写成扫源码找 `selectedEcommerce.bg === "white"` 和「纯白背景」。
+       后来规则构造被抽成 ecommerce-style-profiles.ts 的 buildEcommercePromptRules
+       纯函数，那两个字符串在本文件里彻底消失，旧断言只会红得莫名其妙，
+       而且它本来也只能证明「字符串存在」，证明不了规则真的进了提示词。
+    ✅ 现在分两段守：
+       · 规则内容与顺序 → ecommerce-style-profiles.test.ts 直接断言返回值
+       · 组件是否真的消费了它 → 这里守住调用点和展开点
+    这正是本项目反复踩的「透传 ≠ 被消费」：函数造好了规则却没人 spread 进去，
+    不会报错，只是平台选择从此再也不影响出图。
+  */
+  it("feeds the platform rules built by buildEcommercePromptRules into the prompt", () => {
+    expect(codeOnly).toContain("buildEcommercePromptRules(selectedEcommerce)");
+    // 构造了还不够，必须在两种生成模式里都被展开进最终提示词数组
+    const spreadCount = codeOnly.split("...ecommerceRules,").length - 1;
+    expect(spreadCount, "ecommerceRules 没有被展开进提示词").toBe(2);
+    // 规则内容不得在组件里被就地重写，否则真实事实源会分叉成两份
+    expect(codeOnly).not.toContain('selectedEcommerce.bg === "white"');
+  });
+
+  it("surfaces the platform style tone and white-background conflicts in the UI", () => {
+    expect(codeOnly).toContain("getEcommerceStyleProfile(selectedEcommerce.id)");
+    expect(codeOnly).toContain("findWhiteBackgroundConflicts(customPrompt)");
+    // 冲突只提示不改写：用户写的提示词不能被偷偷替换
+    expect(codeOnly).not.toContain("setCustomPrompt(customPrompt.replace");
   });
 
   /*

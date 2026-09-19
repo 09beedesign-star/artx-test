@@ -11,6 +11,7 @@ import {
   AlignLeft,
   AlignRight,
   ArrowDownToLine,
+  BookmarkPlus,
   Boxes,
   Check,
   ChevronDown,
@@ -20,8 +21,11 @@ import {
   ImagePlus,
   LoaderCircle,
   MoveDiagonal2,
+  PenLine,
   PencilLine,
   RefreshCw,
+  RotateCcw,
+  Save,
   Sparkles,
   Store,
   Trash2,
@@ -29,12 +33,30 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { PicwishBackgroundSelector } from "@/components/canvas/PicwishBackgroundSelector";
+import { useAuth } from "@/contexts/AuthContext";
+import {
+  SMART_COMMERCE_DEFAULT_PAYLOAD,
+  SMART_COMMERCE_PRESET_LIMIT,
+  createSmartCommercePresetId,
+  nextSmartCommercePresetName,
+  readActiveSmartCommercePresetId,
+  readSmartCommercePresets,
+  writeActiveSmartCommercePresetId,
+  writeSmartCommercePresets,
+  type SmartCommercePreset,
+  type SmartCommercePresetPayload,
+} from "@/lib/smart-commerce-presets";
 // 引用标签的尺寸/配色唯一事实源，与画布提示词框里的 image 引用标签同源。
 // ⚠️ 禁止在本文件里复制一份常量：那会造出第二个出口，改一处另一处不动且零报错。
 import {
   COMPOSER_REF_TOKEN_SIZE,
   getComposerRefTokenColors,
 } from "@/components/canvas/composer-ref-token";
+import {
+  buildEcommercePromptRules,
+  findWhiteBackgroundConflicts,
+  getEcommerceStyleProfile,
+} from "@/lib/ecommerce-style-profiles";
 import type { PicWishBackgroundTemplate } from "@/lib/ai";
 
 /**
@@ -79,6 +101,14 @@ export type SmartCommerceProductCreateDetail = {
    * 真正决定输出画布的是 customWidth / customHeight。
    */
   ecommercePlatform: string;
+  /**
+   * 该平台的设计风格族 id（未选平台时为空串）。
+   *
+   * ⚠️ 风格的**实际生效路径是 prompt 字段**，这里只是给画布侧展示和排查用。
+   *    别误以为带上这个字段风格就生效了——「透传 ≠ 被消费」是本项目
+   *    踩过十一次的坑。真正让模型看见风格的是 prompt 里那段指令。
+   */
+  ecommerceStyleId?: string;
   sceneType?: number;
   ratio: string;
   resolution: SmartCommerceResolution;
@@ -223,6 +253,20 @@ const ECOMMERCE_PRESETS: readonly EcommercePreset[] = ECOMMERCE_PRESET_GROUPS.fl
   group => group.items
 );
 
+/**
+ * 平台 id 清单 / bg 规则表，导出给风格档案的守卫测试核对。
+ *
+ * ⚠️ 必须从上面的数据**推导**出来，不能另写一份数组。
+ *    手抄一份的话，这里加了平台而那里忘了加，守卫测试反而成了摆设
+ *    —— 它核对的是两份同样过时的数据，照样全绿。
+ */
+export const ECOMMERCE_PLATFORM_IDS: readonly string[] = ECOMMERCE_PRESETS.map(
+  item => item.id
+);
+
+export const ECOMMERCE_PLATFORM_BG_RULES: Readonly<Record<string, "white" | "any">> =
+  Object.fromEntries(ECOMMERCE_PRESETS.map(item => [item.id, item.bg]));
+
 type ResolutionPreset = (typeof RESOLUTION_PRESETS)[number];
 
 function readImageFile(file: File) {
@@ -321,8 +365,27 @@ export function SmartCommerceProductDialog({
    *    选平台会清掉画幅的主导权，点画幅 / 分辨率会取消平台选择。
    */
   const [selectedEcommerce, setSelectedEcommerce] = useState<EcommercePreset | null>(null);
-  /** 电商平台列表的展开态。默认收起，保证不撑高原有板块布局。 */
+  /**
+   * 电商平台列表的展开态。
+   *
+   * ⚠️⚠️ 2026-09-19：列表改为**绝对定位的向上浮层**，不再是文档流里的一段。
+   *    原先它在流内展开，25 个平台把右栏顶高 → 面板整体变高 → 用户看到的
+   *    现象就是「点一下下拉，整个弹窗上下跳一下」。
+   *    改成浮层后，展开与否对布局零影响，这个 state 只控制浮层显隐。
+   */
   const [ecommerceExpanded, setEcommerceExpanded] = useState(false);
+  /**
+   * 上拉浮层允许的最大高度（px）。
+   *
+   * ⚠️ 需求原文：「不能超过头部标题栏的分割线位置」。
+   *    这条线的位置随面板被拖动而变，所以**不能写死一个常量**——
+   *    面板拖到屏幕下方时浮层可用空间变大，拖到上方时变小，
+   *    写死会在靠上时穿透标题栏，且不会报任何错。
+   *    因此每次展开时实测「触发器顶边 → 标题栏分割线」的距离。
+   */
+  const [ecommerceMenuMaxHeight, setEcommerceMenuMaxHeight] = useState(188);
+  const ecommerceAnchorRef = useRef<HTMLDivElement | null>(null);
+  const headerRef = useRef<HTMLElement | null>(null);
   const [showPicwishSelector, setShowPicwishSelector] = useState(false);
   const [selectedPicwishTemplate, setSelectedPicwishTemplate] = useState<PicWishBackgroundTemplate>();
   /**
@@ -344,6 +407,29 @@ export function SmartCommerceProductDialog({
   const [isCreating, setIsCreating] = useState(false);
   const [hasDispatched, setHasDispatched] = useState(false);
   const [panelPosition, setPanelPosition] = useState<{ left: number; top: number } | null>(null);
+
+  /*
+   * ======================= 参数预设 =======================
+   * 需求（2026-09-19）：取消按钮左边加「保存为预设」，右边挂一个上拉箭头，
+   * 菜单里列出该账号的全部预设，每条支持 选用 / 重命名 / 更新 / 删除，
+   * 并有一条「回到初始态」。下次进面板自动套用上次选中的那份。
+   */
+  const { user } = useAuth();
+  const accountId = user?.id ?? null;
+  const [presets, setPresets] = useState<SmartCommercePreset[]>([]);
+  const [activePresetId, setActivePresetId] = useState<string | null>(null);
+  const [presetMenuOpen, setPresetMenuOpen] = useState(false);
+  /** 正在重命名的预设 id；null = 没有任何一条处于重命名态 */
+  const [renamingPresetId, setRenamingPresetId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  /**
+   * 预设初始化是否已完成。
+   *
+   * ⚠️ 必须有这个闸门。自动套用是在 effect 里跑的，而用户完全可能在
+   *    effect 跑完之前就点了某个按钮 —— 那样他的选择会被随后到来的
+   *    自动套用悄悄覆盖掉。用它保证「只在首次、且只套用一次」。
+   */
+  const presetHydratedRef = useRef(false);
 
   const colors = {
     panel: isDark ? "#171717" : "rgba(255,255,255,0.99)",
@@ -389,6 +475,71 @@ export function SmartCommerceProductDialog({
   }, [clampPanelPosition, defaultPanelPosition]);
 
   /**
+   * 量出上拉浮层能用的最大高度：从触发器顶边一直到**标题栏分割线**。
+   *
+   * ⚠️ 必须实测，不能写常量：面板可拖动，两者的相对距离随滚动位置和
+   *    拖动位置实时变化。写死的值在面板靠上时会让菜单盖住标题栏，
+   *    在靠下时又白白浪费空间 —— 两种错都不会报任何错。
+   *
+   * ⚠️ 触发时机要覆盖「展开瞬间」+「展开期间滚动/缩放/拖动」：
+   *    只在展开瞬间量一次，用户滚动内容区后菜单就会越界。
+   */
+  useEffect(() => {
+    if (!ecommerceExpanded) return;
+    const measure = () => {
+      const anchor = ecommerceAnchorRef.current?.getBoundingClientRect();
+      const header = headerRef.current?.getBoundingClientRect();
+      if (!anchor || !header) return;
+      // header.bottom 就是标题栏那条分割线的 y 坐标；留 8px 视觉间隙。
+      const available = anchor.top - header.bottom - 8;
+      // 低于 120px 的菜单没有使用价值（一屏装不下两条），给个下限兜住。
+      setEcommerceMenuMaxHeight(Math.max(120, Math.min(360, Math.round(available))));
+    };
+    measure();
+    const scroller = ecommerceAnchorRef.current?.closest(".overflow-y-auto");
+    scroller?.addEventListener("scroll", measure, { passive: true });
+    window.addEventListener("resize", measure);
+    return () => {
+      scroller?.removeEventListener("scroll", measure);
+      window.removeEventListener("resize", measure);
+    };
+  }, [ecommerceExpanded, panelPosition]);
+
+  /**
+   * 点击浮层之外就关掉它（电商平台列表 / 预设菜单共用一套）。
+   *
+   * ⚠️ 用 mousedown 而不是 click：click 要等 mouseup，
+   *    用户按住拖动面板时菜单会一直挂着跟着跑。
+   * ⚠️ 判定用 data 属性而不是 ref.contains：菜单内部有 portal 之外的
+   *    输入框（重命名），用属性判定更稳且不依赖节点层级。
+   */
+  useEffect(() => {
+    if (!ecommerceExpanded && !presetMenuOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("[data-smart-commerce-popover]")) return;
+      setEcommerceExpanded(false);
+      setPresetMenuOpen(false);
+      setRenamingPresetId(null);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      // ⚠️ 必须 stopPropagation：否则这次 Esc 会继续冒泡到画布的关闭逻辑，
+      //    用户想关的是下拉菜单，结果整个弹窗被关掉。
+      event.stopPropagation();
+      setEcommerceExpanded(false);
+      setPresetMenuOpen(false);
+      setRenamingPresetId(null);
+    };
+    document.addEventListener("mousedown", handlePointerDown, true);
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown, true);
+      document.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [ecommerceExpanded, presetMenuOpen]);
+
+  /**
    * 最终输出画布。
    *
    * 选了电商平台预设就**完全以平台规格为准**（平台尺寸是审核硬指标，
@@ -400,6 +551,255 @@ export function SmartCommerceProductDialog({
     : getOutputSize(selectedPreset, resolution);
   const outputRatio = selectedEcommerce ? selectedEcommerce.ratio : selectedPreset.ratio;
   const isPromptMode = backgroundMode === "prompt";
+
+  /**
+   * 选中平台的设计风格档案。
+   *
+   * ⚠️ 没选平台时是 null，而不是兜底风格。
+   *    未选平台等于用户没有表达平台意图，此时硬塞一段风格指令
+   *    会让「不选平台」这个选项变得有副作用——用户会发现自己什么都没选，
+   *    出图风格却被悄悄限定了。
+   */
+  const ecommerceStyle = selectedEcommerce
+    ? getEcommerceStyleProfile(selectedEcommerce.id)
+    : null;
+
+  /**
+   * 白底平台下，用户提示词里与「纯白背景」硬规则冲突的词。
+   *
+   * 只在提示词模式 + 白底平台时才算——模板模式的背景由 PicWish 决定，
+   * 用户没有输入，算了也没有可提示的对象。
+   */
+  const whiteBgConflicts =
+    isPromptMode && selectedEcommerce?.bg === "white"
+      ? findWhiteBackgroundConflicts(customPrompt)
+      : [];
+
+  /**
+   * 把一个风格关键词插进提示词框。
+   *
+   * ⚠️ 是**追加**而不是替换：用户已经写了半句话时替换掉等于删他的输入。
+   * ⚠️ 已存在就不重复插入，否则连点两下会得到「柔和均匀布光，柔和均匀布光」。
+   */
+  const appendStyleKeyword = useCallback((keyword: string) => {
+    setCustomPrompt(current => {
+      const text = current.trim();
+      if (text.includes(keyword)) return current;
+      const next = text ? `${text}，${keyword}` : keyword;
+      return next.slice(0, 800);
+    });
+  }, []);
+
+  /* ===================== 参数预设：采集 / 回填 / 读写 ===================== */
+
+  /**
+   * 把当前面板状态打成一份可存储的 payload。
+   *
+   * ⚠️ 只采集「参数」，不采集产品图与参考图（见 smart-commerce-presets.ts 的说明）。
+   */
+  const collectPresetPayload = useCallback((): SmartCommercePresetPayload => ({
+    compositionId: selectedComposition.id,
+    ecommerceId: selectedEcommerce?.id ?? null,
+    ratio: selectedPreset.ratio,
+    resolution,
+    count,
+    backgroundMode,
+    customPrompt,
+    picwishTemplate: selectedPicwishTemplate
+      ? {
+          id: selectedPicwishTemplate.id,
+          name: selectedPicwishTemplate.name,
+          category: selectedPicwishTemplate.category,
+        }
+      : null,
+  }), [
+    backgroundMode,
+    count,
+    customPrompt,
+    resolution,
+    selectedComposition,
+    selectedEcommerce,
+    selectedPicwishTemplate,
+    selectedPreset,
+  ]);
+
+  /**
+   * 把一份 payload 灌回面板。
+   *
+   * ⚠️ 电商平台与常用画幅是**互斥**的（见 selectedEcommerce 的说明）。
+   *    回填时必须保持这个互斥关系：payload 里有 ecommerceId 就只认平台，
+   *    没有才让画幅生效。两个都设会让界面出现「两处都亮着」的错觉。
+   *
+   * ⚠️ 找不到对应 id 时回落到默认值，而不是保持原样。
+   *    保持原样会让用户点了预设却发现「部分参数没变」，而且无从判断是哪几项。
+   */
+  const applyPresetPayload = useCallback((payload: SmartCommercePresetPayload) => {
+    const composition =
+      PRODUCT_COMPOSITIONS.find(item => item.id === payload.compositionId) ||
+      PRODUCT_COMPOSITIONS[0];
+    setSelectedComposition(composition);
+
+    const ratioPreset =
+      RESOLUTION_PRESETS.find(item => item.ratio === payload.ratio) || RESOLUTION_PRESETS[0];
+    setSelectedPreset(ratioPreset);
+
+    setResolution(
+      payload.resolution === "2k" || payload.resolution === "4k" ? payload.resolution : "1k"
+    );
+
+    const ecommerce = payload.ecommerceId
+      ? ECOMMERCE_PRESETS.find(item => item.id === payload.ecommerceId) || null
+      : null;
+    setSelectedEcommerce(ecommerce);
+
+    setCount(payload.count);
+    setBackgroundMode(payload.backgroundMode === "prompt" ? "prompt" : "template");
+    setCustomPrompt(payload.customPrompt);
+    setSelectedPicwishTemplate(
+      payload.picwishTemplate
+        ? ({
+            id: payload.picwishTemplate.id,
+            name: payload.picwishTemplate.name,
+            category: payload.picwishTemplate.category,
+          } as PicWishBackgroundTemplate)
+        : undefined
+    );
+  }, []);
+
+  /**
+   * 首次挂载时读取该账号的预设，并自动套用上次选中的那一份。
+   *
+   * ⚠️ 依赖里带 accountId：同一次会话里用户可能登出再登入另一个账号，
+   *    不跟着换会让 B 账号看到 A 账号的预设。
+   * ⚠️ 换账号时必须把 presetHydratedRef 重新打开，否则第二个账号不会被套用。
+   */
+  useEffect(() => {
+    presetHydratedRef.current = false;
+    const stored = readSmartCommercePresets(accountId);
+    setPresets(stored);
+    const activeId = readActiveSmartCommercePresetId(accountId);
+    const active = activeId ? stored.find(item => item.id === activeId) : undefined;
+    if (active) {
+      setActivePresetId(active.id);
+      applyPresetPayload(active.payload);
+    } else {
+      setActivePresetId(null);
+    }
+    presetHydratedRef.current = true;
+  }, [accountId, applyPresetPayload]);
+
+  /** 统一的落盘出口：状态与 localStorage 永远一起变，避免两边对不上。 */
+  const persistPresets = useCallback(
+    (next: SmartCommercePreset[]) => {
+      setPresets(next);
+      if (!writeSmartCommercePresets(accountId, next)) {
+        toast("预设保存失败", { description: "浏览器存储不可用或已写满" });
+        return false;
+      }
+      return true;
+    },
+    [accountId]
+  );
+
+  const handleSavePreset = useCallback(() => {
+    if (presets.length >= SMART_COMMERCE_PRESET_LIMIT) {
+      toast(`最多保存 ${SMART_COMMERCE_PRESET_LIMIT} 组预设`, {
+        description: "可以先删除或更新一组已有预设",
+      });
+      return;
+    }
+    const now = Date.now();
+    const preset: SmartCommercePreset = {
+      id: createSmartCommercePresetId(),
+      name: nextSmartCommercePresetName(presets),
+      payload: collectPresetPayload(),
+      createdAt: now,
+      updatedAt: now,
+    };
+    if (!persistPresets([...presets, preset])) return;
+    setActivePresetId(preset.id);
+    writeActiveSmartCommercePresetId(accountId, preset.id);
+    // 保存完直接进入重命名态：新建的名字是「预设 N」，
+    // 用户十有八九想立刻改成有意义的名字，少一次点击。
+    setPresetMenuOpen(true);
+    setRenamingPresetId(preset.id);
+    setRenameDraft(preset.name);
+    toast("已保存为预设", { description: `${preset.name} · 下次进入会自动套用` });
+  }, [accountId, collectPresetPayload, persistPresets, presets]);
+
+  const handleApplyPreset = useCallback(
+    (preset: SmartCommercePreset) => {
+      applyPresetPayload(preset.payload);
+      setActivePresetId(preset.id);
+      writeActiveSmartCommercePresetId(accountId, preset.id);
+      setPresetMenuOpen(false);
+      toast(`已套用「${preset.name}」`);
+    },
+    [accountId, applyPresetPayload]
+  );
+
+  /** 把面板当前参数写进指定预设——需求里的「更新参数」。 */
+  const handleUpdatePreset = useCallback(
+    (preset: SmartCommercePreset) => {
+      const next = presets.map(item =>
+        item.id === preset.id
+          ? { ...item, payload: collectPresetPayload(), updatedAt: Date.now() }
+          : item
+      );
+      if (!persistPresets(next)) return;
+      setActivePresetId(preset.id);
+      writeActiveSmartCommercePresetId(accountId, preset.id);
+      toast(`已把当前参数更新到「${preset.name}」`);
+    },
+    [accountId, collectPresetPayload, persistPresets, presets]
+  );
+
+  const handleDeletePreset = useCallback(
+    (preset: SmartCommercePreset) => {
+      const next = presets.filter(item => item.id !== preset.id);
+      if (!persistPresets(next)) return;
+      // ⚠️ 删的正好是当前选中项时必须同步清掉 active 记录，
+      //    否则下次进面板会去找一个已经不存在的 id，表现为「自动套用失灵」。
+      if (activePresetId === preset.id) {
+        setActivePresetId(null);
+        writeActiveSmartCommercePresetId(accountId, null);
+      }
+      if (renamingPresetId === preset.id) setRenamingPresetId(null);
+      toast(`已删除「${preset.name}」`);
+    },
+    [accountId, activePresetId, persistPresets, presets, renamingPresetId]
+  );
+
+  const handleCommitRename = useCallback(
+    (preset: SmartCommercePreset) => {
+      const name = renameDraft.trim().slice(0, 24);
+      setRenamingPresetId(null);
+      if (!name || name === preset.name) return;
+      persistPresets(
+        presets.map(item =>
+          item.id === preset.id ? { ...item, name, updatedAt: Date.now() } : item
+        )
+      );
+    },
+    [persistPresets, presets, renameDraft]
+  );
+
+  /**
+   * 回到初始态：把面板恢复成出厂默认，并取消「下次自动套用」。
+   *
+   * ⚠️ 只清 active 记录，**不删任何预设**。
+   *    用户说的是「回到默认的预设参数」，不是「清空我存的预设」——
+   *    顺手删掉是不可逆的破坏性操作，绝不能塞在这条命令里。
+   */
+  const handleResetToDefault = useCallback(() => {
+    applyPresetPayload(SMART_COMMERCE_DEFAULT_PAYLOAD);
+    setActivePresetId(null);
+    writeActiveSmartCommercePresetId(accountId, null);
+    setPresetMenuOpen(false);
+    toast("已回到初始参数");
+  }, [accountId, applyPresetPayload]);
+
+  const activePreset = presets.find(item => item.id === activePresetId) || null;
 
   const setUpload = async (file: File) => {
     if (!file.type.startsWith("image/")) {
@@ -498,21 +898,22 @@ export function SmartCommerceProductDialog({
         ]
       : [];
     /*
-      电商平台规格约束。
+      电商平台规格 + 设计风格约束。
+
       只在用户真选了平台时才加：
         · 尺寸告诉模型画布长什么样
         · bg === "white" 是平台**审核硬规则**（Amazon / 京东等强制纯白底），
           不写进提示词的话，用户选了 Amazon 却出一张场景图，图是好看的但不能用。
+        · 平台设计风格（2026-09-19 新增）——尺寸和白底只约束了画布，
+          没约束**长什么样**。同样是白底方图，Amazon 的极简功能性主图和
+          小红书的生活种草图是两种完全不同的东西。
+
+      ⚠️ 具体规则内容和**顺序**都在 buildEcommercePromptRules 里，
+         不要在这里就地改。它是纯函数，改动必须跟着 ecommerce-style-profiles.test.ts
+         的顺序断言走；内联回来就只能靠扫源码测，那是恒绿陷阱。
       没选平台就一条都不加，保持原行为。
     */
-    const ecommerceRules = selectedEcommerce
-      ? [
-          `目标电商平台：${selectedEcommerce.name}，主图规格 ${selectedEcommerce.width}×${selectedEcommerce.height}（${selectedEcommerce.ratio}）。`,
-          selectedEcommerce.bg === "white"
-            ? `${selectedEcommerce.name} 平台要求主图为纯白背景（#FFFFFF），只做干净的白底商业布光和自然接触阴影，不要添加任何场景、道具或彩色背景。`
-            : "背景可自由设计，但要符合该平台的商业主图调性，主体清晰、边缘干净。",
-        ]
-      : [];
+    const ecommerceRules = buildEcommercePromptRules(selectedEcommerce);
     const prompt = isPromptMode
       ? [
           "按照下面的描述，为这张产品图生成全新的电商商业背景。",
@@ -543,6 +944,7 @@ export function SmartCommerceProductDialog({
       style: isPromptMode ? "自定义提示词背景" : templateName,
       composition: selectedComposition.id,
       ecommercePlatform: selectedEcommerce?.name || "",
+      ecommerceStyleId: ecommerceStyle?.id,
       // sceneType 是 PicWish 模板编号，提示词模式不走 PicWish，必须留空，
       // 否则服务端会拿它去命中一个与用户描述无关的模板。
       sceneType: isPromptMode ? undefined : selectedPicwishTemplate?.id,
@@ -732,7 +1134,19 @@ export function SmartCommerceProductDialog({
       <div
         ref={panelRef}
         data-artx-dialog-surface
-        className="fixed flex max-h-[calc(100dvh-32px)] w-[min(720px,calc(100vw-32px))] flex-col overflow-hidden rounded-lg"
+        /*
+         * ⚠️⚠️ 高度是**固定**的（h-[...]），不是 max-h。
+         *
+         * 需求原文：「整个面板布局还有面板的高度固定不能是动态变化」。
+         * 原先写的是 max-h-[calc(100dvh-32px)]，面板高度由内容撑出来 ——
+         * 电商平台列表一展开，内容变高，面板跟着长高，用户看到的就是
+         * 「点个下拉，整个弹窗上下跳」。把高度钉死之后，任何内容变化都
+         * 只在内容区内部滚动消化，外轮廓一动不动。
+         *
+         * 720px 是当前所有板块完整展开（含提示词模式）时的舒适高度；
+         * 小屏用 100dvh-32px 兜底，保证不超出视口。
+         */
+        className="fixed flex h-[min(720px,calc(100dvh-32px))] w-[min(720px,calc(100vw-32px))] flex-col overflow-hidden rounded-lg"
         style={{
           pointerEvents: "auto",
           left: panelPosition?.left ?? 16,
@@ -749,7 +1163,8 @@ export function SmartCommerceProductDialog({
         {/* 参考图 input 挂在面板根部：常驻不卸载，且不在任何带 onClick 的容器里 */}
         {referenceFileInput}
         <header
-          className="flex cursor-grab touch-none items-start justify-between gap-4 px-5 py-3.5 active:cursor-grabbing"
+          ref={headerRef}
+          className="flex shrink-0 cursor-grab touch-none items-start justify-between gap-4 px-5 py-3.5 active:cursor-grabbing"
           style={{ borderBottom: `1px solid ${colors.border}` }}
           onPointerDown={event => {
             if (event.button !== 0 || (event.target as HTMLElement).closest("button,input,textarea,select")) return;
@@ -1065,6 +1480,81 @@ export function SmartCommerceProductDialog({
                       </span>
                       <span className="tabular-nums">{customPrompt.length}/800</span>
                     </div>
+
+                    {/*
+                      平台风格助写区（2026-09-19）。
+
+                      需求原文：「关联到提示词中，这样的话可以帮助用户在提示词当中
+                      输入的提示词都符合这个电商平台的设计风格」。
+
+                      ⚠️ 这里给的是**可点击插入的半句话**，不是抽象标签。
+                         写「高级感」这种词等于没写——用户点进去也不知道自己在
+                         描述什么；写「浅灰水泥台面」才真的能把提示词写具体。
+
+                      ⚠️ 没选平台时整块不渲染。未选平台 = 用户没表达平台意图，
+                         此时冒出一堆风格词会让「不选平台」这个选项变得有副作用。
+                    */}
+                    {ecommerceStyle && selectedEcommerce ? (
+                      <div
+                        className="mt-2 rounded-md px-2.5 py-2"
+                        style={{ background: colors.surface, border: `1px solid ${colors.border}` }}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <Store size={11} style={{ color: colors.accent }} />
+                          <span className="text-[10px] font-semibold" style={{ color: colors.text }}>
+                            {selectedEcommerce.name} · {ecommerceStyle.label}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-[9px] leading-4" style={{ color: colors.muted }}>
+                          已把该平台的设计调性写进提示词。点下方关键词可补进你的描述：
+                        </p>
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {ecommerceStyle.keywords.map(keyword => {
+                            const used = customPrompt.includes(keyword);
+                            return (
+                              <button
+                                key={keyword}
+                                type="button"
+                                className="flex h-6 items-center gap-1 rounded px-1.5 text-[9px] font-medium transition-colors"
+                                style={{
+                                  color: used ? "#172000" : colors.text,
+                                  background: used ? colors.accent : colors.surfaceStrong,
+                                  border: `1px solid ${used ? "rgba(197,237,71,0.75)" : colors.border}`,
+                                }}
+                                onClick={() => appendStyleKeyword(keyword)}
+                                title={used ? "已加入提示词" : `插入「${keyword}」`}
+                              >
+                                {used ? <Check size={9} /> : null}
+                                {keyword}
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {/*
+                          白底冲突提示。
+
+                          ⚠️ 只提示，**不自动改写**用户的提示词。
+                             偷偷改掉用户写的话是更糟的选择——他会发现自己的
+                             输入变了，却不知道变成了什么。把冲突摆出来，
+                             让他自己决定是改词还是换平台。
+                        */}
+                        {whiteBgConflicts.length > 0 ? (
+                          <p
+                            className="mt-1.5 rounded px-1.5 py-1 text-[9px] leading-4"
+                            style={{
+                              color: "#FAC775",
+                              background: "rgba(250,199,117,0.10)",
+                              border: "1px solid rgba(250,199,117,0.32)",
+                            }}
+                          >
+                            {selectedEcommerce.name} 要求纯白底，你的描述里有「
+                            {whiteBgConflicts.slice(0, 3).join("、")}
+                            」可能出不了审核图。可改用白底相关的描述，或换一个不限背景的平台。
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 ) : (
                   <button
@@ -1121,16 +1611,29 @@ export function SmartCommerceProductDialog({
                 布局约束来自需求原文：「整体电商平台UI采用列表的形式，支持收起和展开，
                 嵌入智能产品板块中，替代 产品占画面比例 的位置区域，不改变整个板块的UI布局。」
 
-                ⚠️ 25 个平台全摊开会把右栏顶得老高，整个面板布局就变了。
-                   所以默认**收起**，收起态只占一行（与原来那排按钮高度相当），
-                   展开态用 max-h + 内部滚动封顶，面板总高度不会被撑开。
+                ⚠️⚠️ 2026-09-19 改为**向上展开的绝对定位浮层**。
+
+                   在这之前列表是在文档流里展开的：25 个平台一摊开就把右栏顶高，
+                   面板整体跟着变高 —— 用户描述的「布局总是会上下变化」就是它。
+                   哪怕加了 max-h 封顶，那 188px 仍然是实打实的额外高度。
+
+                   浮层方案下，列表脱离文档流（absolute + bottom-full），
+                   展开与否对周围元素零影响，面板外轮廓完全静止。
+
+                ⚠️ 向上展开的上边界不能超过标题栏分割线（需求硬要求），
+                   由 ecommerceMenuMaxHeight 实测得出，超出部分内部滚动。
+
+                ⚠️ 父级链路上任何一层有 overflow:hidden 都会把浮层裁掉且零报错。
+                   这里的锚点 div 本身**不能**加 overflow-hidden —— 原来那个
+                   包着按钮和列表的容器带 overflow-hidden（为了圆角裁切），
+                   浮层挪进去会直接消失。所以圆角裁切下沉到触发器自己身上。
               */}
-              <div className="mt-4">
+              <div className="relative mt-4" ref={ecommerceAnchorRef} data-smart-commerce-popover>
                 <SectionTitle aside={selectedEcommerce ? `${outputSize.width}×${outputSize.height}` : "可选"}>
                   电商平台尺寸
                 </SectionTitle>
                 <div
-                  className="overflow-hidden rounded-md"
+                  className="rounded-md"
                   style={{ border: `1px solid ${selectedEcommerce ? "rgba(197,237,71,0.58)" : colors.border}`, background: colors.surface }}
                 >
                   <button
@@ -1170,15 +1673,28 @@ export function SmartCommerceProductDialog({
                           清除
                         </span>
                       ) : null}
-                      {ecommerceExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                      {/*
+                        ⚠️ 箭头方向要与实际展开方向一致：菜单向上弹，
+                           收起态就该显示「向上箭头」提示可上拉，展开后翻成向下（= 点它收起）。
+                           沿用原先「展开显 ChevronUp」的写法会让箭头指向与动作相反。
+                      */}
+                      {ecommerceExpanded ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
                     </span>
                   </button>
-                  {ecommerceExpanded ? (
-                    <div
-                      className="max-h-[188px] overflow-y-auto px-1.5 pb-1.5"
-                      style={{ borderTop: `1px solid ${colors.border}` }}
-                    >
-                      {ECOMMERCE_PRESET_GROUPS.map(group => (
+                </div>
+                {ecommerceExpanded ? (
+                  <div
+                    className="absolute bottom-full left-0 right-0 z-30 mb-1.5 overflow-y-auto rounded-md px-1.5 pb-1.5"
+                    style={{
+                      maxHeight: ecommerceMenuMaxHeight,
+                      background: colors.panel,
+                      border: `1px solid ${colors.border}`,
+                      boxShadow: "0 -12px 32px rgba(0,0,0,0.32)",
+                    }}
+                    role="listbox"
+                    aria-label="电商平台画布尺寸"
+                  >
+                    {ECOMMERCE_PRESET_GROUPS.map(group => (
                         <div key={group.id}>
                           <div
                             className="px-1 pb-1 pt-2 text-[9px] font-semibold uppercase tracking-wide"
@@ -1227,12 +1743,21 @@ export function SmartCommerceProductDialog({
                           })}
                         </div>
                       ))}
-                    </div>
-                  ) : null}
-                </div>
+                  </div>
+                ) : null}
                 {selectedEcommerce ? (
                   <p className="mt-1 text-[9px] leading-4" style={{ color: colors.muted }}>
                     已按 {selectedEcommerce.name} 主图规格输出，上方常用画幅与分辨率本次不生效。
+                    {/*
+                      平台调性一句话。让用户在**选平台那一刻**就知道
+                      自己顺带选中了什么风格，而不是等出了图才发现。
+                    */}
+                    {ecommerceStyle ? (
+                      <>
+                        <br />
+                        风格调性：{ecommerceStyle.label}（{ecommerceStyle.tone}），已自动写入提示词。
+                      </>
+                    ) : null}
                   </p>
                 ) : null}
               </div>
@@ -1277,7 +1802,7 @@ export function SmartCommerceProductDialog({
 
         {showPicwishSelector ? <PicwishBackgroundSelector isDark={isDark} selectedTemplate={selectedPicwishTemplate} onSelect={setSelectedPicwishTemplate} onClose={() => setShowPicwishSelector(false)} /> : null}
         <footer
-          className="flex items-center justify-between gap-3 px-5 py-3"
+          className="relative flex shrink-0 items-center justify-between gap-3 px-5 py-3"
           style={{ borderTop: `1px solid ${colors.border}` }}
         >
           <span className="flex min-w-0 items-center gap-2 text-[10px]" style={{ color: colors.muted }}>
@@ -1286,8 +1811,195 @@ export function SmartCommerceProductDialog({
               ? `${selectedEcommerce.name} ${outputSize.width}×${outputSize.height}`
               : `${selectedPreset.label} · ${resolution.toUpperCase()}`}{" "}
             · {count} 张 · {isPromptMode ? "提示词生图" : "默认背景"}
+            {activePreset ? ` · ${activePreset.name}` : ""}
           </span>
           <div className="flex shrink-0 items-center gap-2">
+            {/*
+              参数预设：左边「保存当前为预设」，右边上拉箭头展开已存预设。
+
+              ⚠️ 两个按钮拼成一个分段控件（中间只有一道 1px 分隔线），
+                 而不是两颗独立按钮 —— 它们操作的是同一个对象，
+                 拆开会让用户以为箭头是另一个功能。
+
+              ⚠️ 菜单同样是**向上展开的绝对定位浮层**，理由与电商平台列表一致：
+                 footer 在面板底部，向下展开会直接掉到面板外面被裁掉。
+            */}
+            <div className="relative" data-smart-commerce-popover>
+              <div
+                className="flex h-9 items-stretch overflow-hidden rounded-md"
+                style={{
+                  border: `1px solid ${presetMenuOpen || activePreset ? "rgba(197,237,71,0.55)" : colors.border}`,
+                  background: colors.surface,
+                }}
+              >
+                <button
+                  type="button"
+                  className="flex items-center gap-1.5 px-3 text-[11px] font-semibold transition-opacity hover:opacity-80"
+                  style={{ color: colors.text }}
+                  onClick={handleSavePreset}
+                  title="把当前面板的全部参数保存为一组预设，下次进入自动套用"
+                >
+                  <BookmarkPlus size={13} style={{ color: colors.accent }} />
+                  保存预设
+                </button>
+                <button
+                  type="button"
+                  className="flex w-8 items-center justify-center transition-opacity hover:opacity-80"
+                  style={{ color: colors.muted, borderLeft: `1px solid ${colors.border}` }}
+                  onClick={() => {
+                    setPresetMenuOpen(value => !value);
+                    setRenamingPresetId(null);
+                  }}
+                  aria-expanded={presetMenuOpen}
+                  aria-label="我的预设参数"
+                  title="我的预设参数"
+                >
+                  {presetMenuOpen ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
+                </button>
+              </div>
+
+              {presetMenuOpen ? (
+                <div
+                  className="absolute bottom-full right-0 z-40 mb-2 w-[300px] overflow-hidden rounded-md"
+                  style={{
+                    background: colors.panel,
+                    border: `1px solid ${colors.border}`,
+                    boxShadow: "0 -14px 36px rgba(0,0,0,0.36)",
+                  }}
+                  role="menu"
+                  aria-label="预设参数列表"
+                >
+                  <div
+                    className="px-3 py-2 text-[9px] font-semibold uppercase tracking-wide"
+                    style={{ color: colors.muted, borderBottom: `1px solid ${colors.border}` }}
+                  >
+                    我的预设（{presets.length}/{SMART_COMMERCE_PRESET_LIMIT}）
+                  </div>
+
+                  {/*
+                    ⚠️ 列表区单独限高滚动，而不是让整个菜单长高：
+                       12 组预设 + 底部「回到初始态」全摊开会顶破面板顶边，
+                       而「回到初始态」必须始终可见（它是兜底出口）。
+                  */}
+                  <div className="max-h-[228px] overflow-y-auto py-1">
+                    {presets.length === 0 ? (
+                      <p className="px-3 py-3 text-[10px] leading-4" style={{ color: colors.muted }}>
+                        还没有预设。调好参数后点左边「保存预设」，下次进入就会自动套用。
+                      </p>
+                    ) : (
+                      presets.map(preset => {
+                        const active = preset.id === activePresetId;
+                        const renaming = renamingPresetId === preset.id;
+                        return (
+                          <div
+                            key={preset.id}
+                            className="flex items-center gap-1 px-1.5 py-0.5"
+                            style={{ background: active ? "rgba(197,237,71,0.10)" : "transparent" }}
+                          >
+                            {renaming ? (
+                              <input
+                                autoFocus
+                                value={renameDraft}
+                                maxLength={24}
+                                onChange={event => setRenameDraft(event.target.value)}
+                                onBlur={() => handleCommitRename(preset)}
+                                onKeyDown={event => {
+                                  if (event.key === "Enter") {
+                                    event.preventDefault();
+                                    handleCommitRename(preset);
+                                    return;
+                                  }
+                                  if (event.key === "Escape") {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    setRenamingPresetId(null);
+                                  }
+                                }}
+                                className="h-7 min-w-0 flex-1 rounded px-2 text-[10px] outline-none"
+                                style={{
+                                  color: colors.text,
+                                  background: colors.surface,
+                                  border: `1px solid rgba(197,237,71,0.55)`,
+                                }}
+                                aria-label="预设名称"
+                              />
+                            ) : (
+                              <button
+                                type="button"
+                                className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded px-2 text-left text-[10px] transition-colors"
+                                style={{ color: active ? colors.text : colors.muted }}
+                                onClick={() => handleApplyPreset(preset)}
+                                title={`套用「${preset.name}」`}
+                              >
+                                {active ? (
+                                  <Check size={11} style={{ color: colors.accent }} />
+                                ) : (
+                                  <span className="inline-block w-[11px]" />
+                                )}
+                                <span className="truncate font-semibold">{preset.name}</span>
+                              </button>
+                            )}
+                            {/*
+                              行内命令：重命名 / 更新参数 / 删除。
+                              ⚠️ 它们必须与「套用」分开命中区，否则点更新会连带套用一次，
+                                 把用户刚调好的参数用旧值覆盖掉 —— 正好与他的意图相反。
+                            */}
+                            <span className="flex shrink-0 items-center gap-0.5">
+                              <button
+                                type="button"
+                                className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-white/10"
+                                style={{ color: colors.muted }}
+                                onClick={() => {
+                                  setRenamingPresetId(preset.id);
+                                  setRenameDraft(preset.name);
+                                }}
+                                aria-label={`重命名 ${preset.name}`}
+                                title="重命名"
+                              >
+                                <PenLine size={12} />
+                              </button>
+                              <button
+                                type="button"
+                                className="flex h-7 items-center gap-1 rounded px-1.5 text-[9px] font-semibold transition-colors hover:bg-white/10"
+                                style={{ color: colors.accent }}
+                                onClick={() => handleUpdatePreset(preset)}
+                                aria-label={`把当前参数更新到 ${preset.name}`}
+                                title="用当前面板参数覆盖这组预设"
+                              >
+                                <Save size={12} />
+                                更新
+                              </button>
+                              <button
+                                type="button"
+                                className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-white/10"
+                                style={{ color: "#F87171" }}
+                                onClick={() => handleDeletePreset(preset)}
+                                aria-label={`删除 ${preset.name}`}
+                                title="删除这组预设"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </span>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    className="flex h-9 w-full items-center gap-1.5 px-3 text-left text-[10px] font-semibold transition-colors hover:bg-white/5"
+                    style={{ color: colors.muted, borderTop: `1px solid ${colors.border}` }}
+                    onClick={handleResetToDefault}
+                    title="恢复面板出厂默认参数，并取消下次自动套用（不会删除已存预设）"
+                  >
+                    <RotateCcw size={12} />
+                    回到初始态
+                  </button>
+                </div>
+              ) : null}
+            </div>
+
             <button
               type="button"
               className="h-9 rounded-md px-4 text-[11px] font-semibold"

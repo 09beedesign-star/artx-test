@@ -54,10 +54,34 @@ describe("InfiniteCanvas prompt controls", () => {
       expect(() => assertStripKeptSource(raw, stripSourceComments(raw))).not.toThrow();
     }
 
-    // 反向：旧的贪心实现必须被拦下，否则上面那圈检查只是走过场。
+    /*
+      反向：旧的贪心实现必须被拦下，否则上面那圈检查只是走过场。
+
+      ⚠️⚠️ 这里原本比的是**两种剥离结果的长度**（legacy.length < stripped.length）。
+           那是个脆弱的代理指标：它同时受「贪心正则多吃的代码」和
+           「正确实现剥掉的注释」两个量影响，谁大谁小取决于文件里
+           注释与代码的比例。2026-09-19 给这个文件补了大段设计说明注释后，
+           正确实现剥掉的量反超，断言当场翻红 —— 而贪心正则的危害
+           一点没变，只是代理指标失真了。
+           📌 判据：**别用间接量证明直接事实**。这里要证的是
+              「贪心正则会吃掉代码」，那就直接去看那段代码还在不在。
+
+      ✅ 改为直接判定：挑一段紧跟在 `"image/*"` 之后的**真代码**，
+         看它在两种实现下的去留。贪心正则会从 `image/*` 一路吞到
+         下一个 `*​/`，把这段代码连同它后面的内容一起吃掉。
+    */
     const dialog = readFileSync(resolve(__dirname, "SmartCommerceProductDialog.tsx"), "utf-8");
-    const legacy = dialog.replace(/\/\*[\s\S]*?\*\//g, "");
-    expect(legacy.length).toBeLessThan(stripSourceComments(dialog).length);
+    const codeAfterMimeString = "if (file) void setUpload(file);";
+    // 前置自检：这段代码必须真的存在于源文件，且真的排在 "image/*" 之后，
+    // 否则下面两条断言测的是空气。
+    expect(dialog).toContain('accept="image/*"');
+    expect(dialog.indexOf(codeAfterMimeString)).toBeGreaterThan(
+      dialog.indexOf('accept="image/*"')
+    );
+    // 正确实现：代码原样保留
+    expect(stripSourceComments(dialog)).toContain(codeAfterMimeString);
+    // 贪心实现：代码被当成注释吃掉 —— 这正是它必须被拦下的理由
+    expect(dialog.replace(/\/\*[\s\S]*?\*\//g, "")).not.toContain(codeAfterMimeString);
   });
 
   it("uses the minimap surface color for prompt model and Skill button defaults while keeping hover styling", () => {
