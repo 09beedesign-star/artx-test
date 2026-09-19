@@ -42,6 +42,31 @@ const stripComments = (src: string) =>
 const readBoard = () =>
   stripComments(readFileSync(resolve(__dirname, "CreditRulesBoard.tsx"), "utf-8"));
 
+describe("注册礼包的三天有效期不对外展示", () => {
+  /**
+   * 📌 产品决策（2026-09-19）：三天这个数字会劝退注册，Hero 与三条通道
+   * 里 signup 那一条都不再写明天数。
+   *
+   * 但**服务端照旧到期回收**，所以这里要同时锁两件事：
+   *   - 数据层的数字仍必须追溯到 SIGNUP_INITIAL_CREDITS.expiryDays（上一段的断言）
+   *   - 展示层不许把这个数字渲染出来（本段断言）
+   * 只锁一边会出事：写了 UI 却删了数据源，前端就没人知道真相是这个值；
+   * 留了数据源却不管 UI，下次有人顺手加回来也不会有人发现。
+   */
+  it("板块源码不得渲染注册礼包的有效期天数", () => {
+    const src = readBoard();
+    expect(src).not.toContain("welcome.expiryDays");
+    expect(src).not.toContain("天有效期");
+  });
+
+  it("三条通道里只有 signup 被跳过天数，其余照常写", () => {
+    const src = readBoard();
+    expect(src).toContain('channel.id !== "signup"');
+    // 反面：不能图省事把整行天数都删掉，首充/邀请那两条是对用户有利的信息
+    expect(src).toContain("到账后 ${channel.validDays} 天内有效");
+  });
+});
+
 describe("注册礼包的换算必须来自真相源", () => {
   it("新用户礼包的额度与有效期取自注册配置", () => {
     const welcome = getWelcomePackage();

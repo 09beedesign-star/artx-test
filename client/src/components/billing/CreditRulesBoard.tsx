@@ -200,9 +200,12 @@ export default function CreditRulesBoard({
 
       {/*
         欢迎礼包 Hero。
-        ⚠️ 有效期必须正面写出来 —— 它是 SIGNUP_INITIAL_CREDITS.expiryDays（3 天），
-        远短于充值积分的 366 天。藏起来会让用户在第四天发现额度没了，
-        那是一次纯粹的负体验；写出来反而促成当天就动手。
+
+        ⚠️ 这里刻意不展示注册礼包的有效期，是 2026-09-19 的产品决策：
+        三天这个数字会劝退注册，所以只讲额度和「注册即到账」。
+        隐藏仅作用于展示层 —— 服务端依旧按 SIGNUP_INITIAL_CREDITS.expiryDays 到期回收，
+        积分规则数据源里 welcome.expiryDays 也继续保留，**不要因为前端不显示就删掉追溯依据**。
+        同理，下方三条通道卡片里 signup 那一条也不显示天数。
       */}
       <div
         className="rounded-[var(--radius-lg-design)] border p-4"
@@ -232,7 +235,7 @@ export default function CreditRulesBoard({
                 className="mb-1.5 rounded-[var(--radius-pill)] px-2.5 py-0.5 type-caption"
                 style={{ background: accentSoft, color: accent }}
               >
-                {welcome.expiryDays} 天有效期 · 注册即到账
+                注册即到账
               </span>
             </div>
             <p className="mt-2 type-body-sm leading-6" style={{ color: sub }}>
@@ -473,8 +476,13 @@ export default function CreditRulesBoard({
                   {channel.condition}
                 </p>
                 <p className="mt-1 type-caption" style={{ color: faint, fontSize: 11 }}>
-                  到账后 {channel.validDays} 天内有效 · 该通道单人上限{" "}
-                  {formatCredits(channel.maxCredits)} 积分
+                  {/*
+                    注册礼包的天数不对外展示（决策见 Hero 那段注释）：
+                    只剩 signup 三条里的这一条要特殊处理，其余通道照常写明天数，
+                    因为它们 mask 的是 gift 的 30 天，写清楚对用户有利。
+                  */}
+                  {channel.id !== "signup" && `到账后 ${channel.validDays} 天内有效 · `}
+                  该通道单人上限 {formatCredits(channel.maxCredits)} 积分
                 </p>
                 {channel.id === "invite" && onOpenInvite && (
                   <button
