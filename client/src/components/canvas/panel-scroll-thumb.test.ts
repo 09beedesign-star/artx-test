@@ -185,9 +185,31 @@ describe("提示词反推面板接上了滑杆", () => {
 
   it("原生滚动条被藏掉，改用自绘滑杆", () => {
     expect(panelBlock).toContain(
-      'className="smart-copy-editor-scroll nodrag nopan nowheel"'
+      'className="smart-copy-editor-scroll nodrag nopan nowheel absolute inset-0"'
     );
     expect(panelBlock).toContain('scrollbarWidth: "none"');
+  });
+
+  /**
+   * ⭐⭐⭐ 2026-09-20 线上实测踩到的真坑，单测在 node 环境测不出布局，
+   *     只能用源码断言钉死。
+   *
+   * 滚动容器的父层 `relative min-h-0 flex-1` 高度是 flex 算出来的，
+   * 但它 display:block 且没有显式 height —— 子元素写 `height:"100%"`
+   * 解析不出百分比基准，退化成 auto 被内容撑开，
+   * 于是 scrollHeight === clientHeight，**永远不会滚**。
+   * 滑杆恒定停在 0.42 淡色态，文字照样被切掉，且零报错。
+   *
+   * 必须用 absolute inset-0 强制贴满父盒。
+   */
+  it("滚动容器用 absolute inset-0 而不是 height:100%（否则永远不会滚）", () => {
+    const scrollStart = panelBlock.indexOf("ref={reversePromptScrollRef}");
+    const scrollEnd = panelBlock.indexOf("onMouseDown", scrollStart);
+    const scrollBlock = panelBlock.slice(scrollStart, scrollEnd);
+    expect(scrollStart).toBeGreaterThan(-1);
+    expect(scrollEnd).toBeGreaterThan(scrollStart);
+    expect(scrollBlock).toContain("absolute inset-0");
+    expect(scrollBlock).not.toContain('height: "100%"');
   });
 
   /**

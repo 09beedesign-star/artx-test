@@ -9805,10 +9805,22 @@ function AssetNodeComponent({
             <div className="relative min-h-0 flex-1">
             <div
               ref={reversePromptScrollRef}
-              className="smart-copy-editor-scroll nodrag nopan nowheel"
+              className="smart-copy-editor-scroll nodrag nopan nowheel absolute inset-0"
               style={{
+                /*
+                  ⚠️⚠️⚠️ 必须 absolute inset-0，**不能**写 height:"100%"。
+                     2026-09-20 线上实测踩到：外层 `relative min-h-0 flex-1` 的高度
+                     是 flex 算出来的（实测 292px），但它自身 display:block、
+                     没有显式 height —— 子元素的 `height:100%` 解析不出百分比基准，
+                     退化成 auto，被内容撑到 1709px。于是
+                     **scrollHeight === clientHeight，永远不会出现滚动**，
+                     滑杆恒定停在"内容没超出"的 0.42 淡色态，文字照样被切掉。
+                  📌⭐⭐⭐ 「写了 overflow:auto」和「这个盒子真的有固定高度」是两回事。
+                     前者成立、后者不成立时浏览器不报任何错，单测也测不出来
+                     （node 环境没有布局）—— 判据只能是**线上量 clientHeight
+                     vs scrollHeight**，两者相等就是没限高。
+                */
                 minHeight: 0,
-                height: "100%",
                 paddingTop: 12,
                 paddingBottom: 12,
                 paddingLeft: 12,
