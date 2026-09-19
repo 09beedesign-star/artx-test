@@ -6395,6 +6395,19 @@ function AssetNodeComponent({
   const [imgW, setImgW] = useState<number>((data.imgW as number) || 0);
   const [imgH, setImgH] = useState<number>((data.imgH as number) || 0);
   const [isResizing, setIsResizing] = useState(false);
+  /*
+   * 图片 URL 失效标记。
+   *
+   * 生成图只在服务端保留 ARTX_UPLOAD_RETENTION_DAYS 天（默认 10，见
+   * server/local-image-storage.ts），过期清理后画布里存的还是那条 /uploads/... URL，
+   * 于是浏览器拿到 404 —— 用户看到的是一个破图图例，且全程零提示。
+   * 这里用 onError 兜住，把节点改渲染成「该图片已过期」。
+   *
+   * 刻意**不写进 node.data**：data 会被 workspace-sync 持久化，而 404 也可能来自
+   * CDN 抖动等临时故障，一旦落库就再也回不来了。放在组件 state 里，
+   * 节点重挂或换图时自然重置，临时故障恢复后刷新即可复原。
+   */
+  const [isImageExpired, setIsImageExpired] = useState(false);
   const resizeDragRef = useRef<{
     startClientX: number;
     startClientY: number;
@@ -6417,12 +6430,20 @@ function AssetNodeComponent({
   useEffect(() => {
     const handlePreviewRequest = (event: Event) => {
       const detail = (event as CustomEvent<{ nodeId?: string }>).detail;
-      if (detail?.nodeId === nodeId) setPreview(true);
+      if (detail?.nodeId !== nodeId) return;
+      // 节点已经显示「该图片已过期」了，再让它打开全屏预览就是给用户看一张大破图。
+      if (isImageExpired) {
+        toast("该图片已过期", {
+          description: "图片的保存期限已过，源文件已被清理，可重新生成一张。",
+        });
+        return;
+      }
+      setPreview(true);
     };
     window.addEventListener("asset-preview-request", handlePreviewRequest);
     return () =>
       window.removeEventListener("asset-preview-request", handlePreviewRequest);
-  }, [nodeId]);
+  }, [nodeId, isImageExpired]);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -6483,6 +6504,21 @@ function AssetNodeComponent({
   const displaySrc = isAiProcessingImage
     ? ""
     : getCanvasRenderableImageSrc(localSrc || asset?.src || "");
+  // 换图（含重新生成、编辑出新图）后必须清掉过期标记，否则新图会一直顶着旧的过期态。
+  useEffect(() => {
+    setIsImageExpired(false);
+  }, [displaySrc]);
+  /*
+   * 过期占位块的文字色。
+   *
+   * ⚠️ 不要照搬隔壁「生成失败」态的 rgba(255,255,255,0.30)：那个值压在同款浅色
+   * 渐变底（#d6d6da→#eeeeef）上实测对比度只有 **1.12**，等于白纸写白字。
+   * 失败态还有转圈动画和上下文能让用户意识到发生了什么，过期态则只剩这行字 ——
+   * 看不见就等于没做。这里按主题分叉，两侧都拉到 WCAG AA (>=4.5)。
+   */
+  const expiredTextColor = isDark
+    ? "rgba(255,255,255,0.68)"
+    : "rgba(28,28,34,0.72)";
   const sourceBackgroundSrc = (data as { sourceBackgroundSrc?: string })
     .sourceBackgroundSrc;
   const isEditing = !!(data as { isEditing?: boolean }).isEditing;
@@ -6537,6 +6573,10 @@ function AssetNodeComponent({
   const reversePrompt = ((data as { reversePrompt?: string }).reversePrompt || "") as string;
   const reversePromptError = ((data as { reversePromptError?: string })
     .reversePromptError || "") as string;
+  // OCR 从图里逐字转录下来的原文案，单独展示 + 单独复制，
+  // 即便反推模型把它写漏了，用户也还能拿到字。
+  const reversePromptCopies = ((data as { reversePromptCopies?: string })
+    .reversePromptCopies || "") as string;
   const reversePromptPanelOpen = Boolean(
     (data as { reversePromptPanelOpen?: boolean }).reversePromptPanelOpen
   );
@@ -8146,11 +8186,72 @@ function AssetNodeComponent({
                 ))}
               </div>
             </div>
+          ) : displaySrc && isImageExpired ? (
+            <div
+              className="absolute inset-0 flex flex-col items-center justify-center gap-3"
+              style={{
+                ...frameClipStyle,
+                background: isDark
+                  ? "linear-gradient(135deg, #303038, #1d1d23)"
+                  : "linear-gradient(135deg, #d6d6da, #eeeeef)",
+                color: expiredTextColor,
+                zIndex: 1,
+              }}
+            >
+              <div
+                className="artx-ai-generation-mark-shell artx-ai-generation-mark-shell-failed"
+                aria-hidden="true"
+                style={{
+                  width: processingIconSize,
+                  height: processingIconSize,
+                }}
+              >
+                <img
+                  src={generationMark}
+                  alt=""
+                  className="artx-ai-generation-mark artx-ai-generation-mark-failed"
+                  style={{
+                    width: processingIconSize,
+                    height: processingIconSize,
+                    objectFit: "contain",
+                  }}
+                  draggable={false}
+                />
+              </div>
+              <div
+                className="flex flex-col items-center text-center"
+                style={{
+                  gap: processingTextGap,
+                  // 同生成失败态：高度必须用 textBlockHeight，不能自己拿别的差值凑，
+                  // 否则小节点上文字会被 flex 压扁并裁字。见 ai-processing-overlay.ts。
+                  maxHeight: processingTextBlockHeight,
+                  width: processingTextWidth,
+                }}
+              >
+                <span
+                  style={{
+                    maxWidth: "100%",
+                    color: expiredTextColor,
+                    fontSize: processingTextSize,
+                    fontWeight: 500,
+                    lineHeight: processingLineHeight,
+                    letterSpacing: 0,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    flexShrink: 0,
+                  }}
+                >
+                  该图片已过期
+                </span>
+              </div>
+            </div>
           ) : displaySrc ? (
             <img
               src={displaySrc}
               alt={displayTitle}
               draggable={false}
+              onError={() => setIsImageExpired(true)}
               style={{
                 ...frameClipStyle,
                 ...imgCropStyle,
@@ -9531,11 +9632,64 @@ function AssetNodeComponent({
               }}
               onMouseDown={event => event.stopPropagation()}
             >
-              {isReversePrompting
-                ? REVERSE_PROMPT_LOADING_MESSAGE
-                : reversePromptError
-                  ? `反推失败：${reversePromptError}`
-                  : reversePrompt || "未返回可用提示词"}
+              {isReversePrompting ? (
+                REVERSE_PROMPT_LOADING_MESSAGE
+              ) : reversePromptError ? (
+                `反推失败：${reversePromptError}`
+              ) : (
+                <>
+                  {reversePromptCopies ? (
+                    <div
+                      style={{
+                        marginBottom: 10,
+                        padding: "8px 10px",
+                        borderRadius: "var(--radius-md-design)",
+                        border: `1px solid ${
+                          isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)"
+                        }`,
+                        background: isDark
+                          ? "rgba(255,255,255,0.05)"
+                          : "rgba(0,0,0,0.03)",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 8,
+                        }}
+                      >
+                        <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.72 }}>
+                          图中文案（OCR 原文）
+                        </span>
+                        <button
+                          type="button"
+                          aria-label="复制图中文案"
+                          title="复制图中文案"
+                          className="flex h-6 w-6 items-center justify-center rounded-[var(--radius-md-design)] transition-opacity hover:opacity-75"
+                          style={{
+                            color: isDark
+                              ? "rgba(255,255,255,0.80)"
+                              : "rgba(28,28,40,0.78)",
+                            background: isDark
+                              ? "rgba(255,255,255,0.08)"
+                              : "rgba(0,0,0,0.05)",
+                          }}
+                          onClick={() => {
+                            navigator.clipboard?.writeText(reversePromptCopies);
+                            toast("已复制图中文案");
+                          }}
+                        >
+                          <Copy size={12} />
+                        </button>
+                      </div>
+                      <div style={{ marginTop: 4 }}>{reversePromptCopies}</div>
+                    </div>
+                  ) : null}
+                  {reversePrompt || "未返回可用提示词"}
+                </>
+              )}
             </div>
             <div
               className="flex items-center justify-end px-2.5 py-2"
@@ -12562,7 +12716,15 @@ const CANVAS_IMAGE_GENERATION_TASKS_STORAGE_KEY =
 const CANVAS_IMAGE_DB_NAME = "artx-canvas-images";
 const CANVAS_IMAGE_STORE_NAME = "images";
 const EXTRACT_TEXT_LOADING_MESSAGE = "正在提取文案中...";
-const REVERSE_PROMPT_LOADING_MESSAGE = "正在分析图片并反推可用提示词...";
+const REVERSE_PROMPT_LOADING_MESSAGE = "正在识别图中文案并反推可用提示词...";
+/**
+ * 反推是否先跑一次 OCR 取文案。
+ *
+ * 关掉可以省下 image_ocr 的 40 积分（反推本身是 text_generation 20 积分，
+ * 合计 60 → 20），代价是文案只能靠反推模型顺带读出来，
+ * 实测会被「不得臆造文字」这条约束整段略掉。默认开启。
+ */
+const REVERSE_PROMPT_WITH_OCR = true;
 const AI_GENERATION_NETWORK_ERROR_MESSAGE =
   "对不起，网络开了个小差，请稍后重试";
 const AI_GENERATION_TIMEOUT_MS = 300_000;
@@ -23386,12 +23548,16 @@ function CanvasAssistantPanel({
                               segment.asset.id
                             );
                           }}
-                          className="flex items-center justify-center flex-shrink-0 rounded-full transition-opacity hover:opacity-70"
+                          /*
+                           * 叉叉按钮：16px 命中区 + 11px 图标，与 26px 标签垂直居中对齐。
+                           * 以前是裸的 7px 图标，没有命中区、没有 hover 反馈，
+                           * 用户经常点不中。hover 时加圆形高亮底 + 加深图标色。
+                           */
+                          className="flex h-4 w-4 items-center justify-center flex-shrink-0 rounded-full bg-transparent transition-colors hover:bg-black/10 dark:hover:bg-white/20"
                           style={{
                             color: isDark
-                              ? "oklch(0.62 0.008 270)"
-                              : "oklch(0.50 0.008 270)",
-                            background: "transparent",
+                              ? "oklch(0.72 0.008 270)"
+                              : "oklch(0.42 0.008 270)",
                             border: "none",
                             padding: 0,
                             lineHeight: 1,
@@ -23399,7 +23565,7 @@ function CanvasAssistantPanel({
                           title="移除引用"
                           aria-label="移除引用"
                         >
-                          <X size={7} />
+                          <X size={11} strokeWidth={2.25} />
                         </button>
                       </span>
                     );
@@ -23491,12 +23657,12 @@ function CanvasAssistantPanel({
                               segment.annotation.id
                             )
                           }
-                          className="flex items-center justify-center flex-shrink-0 rounded-full transition-opacity hover:opacity-70"
+                          // 与 image 标签的移除按钮同规格（16px 命中区 + hover 高亮），见上方注释。
+                          className="flex h-4 w-4 items-center justify-center flex-shrink-0 rounded-full bg-transparent transition-colors hover:bg-black/10 dark:hover:bg-white/20"
                           style={{
                             color: isDark
-                              ? "oklch(0.62 0.008 270)"
-                              : "oklch(0.50 0.008 270)",
-                            background: "transparent",
+                              ? "oklch(0.72 0.008 270)"
+                              : "oklch(0.42 0.008 270)",
                             border: "none",
                             padding: 0,
                             lineHeight: 1,
@@ -23504,7 +23670,7 @@ function CanvasAssistantPanel({
                           title="移除注释引用"
                           aria-label="移除注释引用"
                         >
-                          <X size={9} />
+                          <X size={11} strokeWidth={2.25} />
                         </button>
                       </span>
 	                    );
@@ -32344,6 +32510,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                     reversePromptPanelOpen: true,
                     isReversePrompting: true,
                     reversePrompt: "",
+                    reversePromptCopies: "",
                     reversePromptError: "",
                   },
                 }
@@ -32351,6 +32518,46 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           )
         );
         try {
+          /*
+           * 图中文案先走一次专门的 OCR，再拿去喂给反推模型。
+           *
+           * 为什么不能只靠反推模型顺带把字读出来：
+           * 反推的任务是「写一段生图提示词」，视觉模型在这种目标下
+           * 默认只描述「画面上方有一行标题字」这类**版式**，
+           * 再把「不得臆造图片中没有出现的文字」这条约束一叠，
+           * 结果就是把文案整段略掉 —— 用户拿这段提示词重新生图，
+           * 字就没了。这是一个**任务目标**问题，不是模型能力问题，
+           * 靠加形容词修不好。
+           *
+           * 所以这里拆成两步：
+           *   1. OCR 专职逐字转录（focused task，命中率高）；
+           *   2. 把 OCR 原文作为**必须原样引用**的事实塞进反推提示词。
+           * OCR 失败不能阻断主流程，吞掉即可退化为纯模型反推。
+           */
+          let ocrText = "";
+          if (REVERSE_PROMPT_WITH_OCR) {
+            try {
+              const ocrResult = await extractImageText({ imageSrc });
+              const joinedRegions = (ocrResult.regions || [])
+                .map(region => (region.text || "").trim())
+                .filter(Boolean)
+                .join("\n");
+              ocrText = (ocrResult.text || "").trim() || joinedRegions;
+            } catch (ocrError) {
+              console.warn(
+                "[reverse-prompt] OCR 未取到文案，退化为纯模型反推",
+                ocrError instanceof Error ? ocrError.message : ocrError
+              );
+            }
+          }
+          const copyLines = Array.from(
+            new Set(
+              ocrText
+                .split("\n")
+                .map(line => line.trim())
+                .filter(Boolean)
+            )
+          );
           const result = await callLLM({
             module: "image-prompt-reverse-engineering",
             model: "auto",
@@ -32358,12 +32565,29 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             prompt: [
               "你是专业的视觉提示词反推助手。请仅根据唯一引用图，反推出一段可直接用于图片生成模型的中文提示词。",
               "必须覆盖：主体与关键元素、场景与空间关系、构图与视角、视觉风格、光线、色彩、材质与细节、画幅倾向。",
+              "【图中文案必须原样保留】画面里凡是能读到的文字，都要在提示词里逐条写出来：文字内容用「」包裹，并说明它所处的位置、大致字号层级、颜色与排版方式。这是硬要求，缺一条整段作废。",
+              copyLines.length
+                ? [
+                    "以下是 OCR 已在该图中识别出的文案原文（逐行），必须**一字不改**地全部写进提示词：",
+                    ...copyLines.map((line, index) => `${index + 1}. ${line}`),
+                    "不得改写、翻译、缩写、合并或概括这些文案；不得只描述「有标题文字」而不给出内容。",
+                  ].join("\n")
+                : "该图未识别到可读文字，则不要编造任何文字。",
               "只输出一段完整的中文生图提示词；不要解释、不要标题、不要项目符号、不要模型名称、不要负面提示词。",
-              "不得臆造图片中没有出现的品牌、文字、人物身份或具体物品。",
+              "不得臆造图片中没有出现的品牌、人物身份或具体物品。",
             ].join("\n"),
           });
-          const prompt = result.text.trim();
+          let prompt = result.text.trim();
           if (!prompt) throw new Error("文本模型未返回可用提示词");
+          /*
+           * 最后一道兜底：模型即便被明令要求也可能漏行。
+           * 逐行比对 OCR 原文，凡是没被原样写进去的，追加到提示词末尾。
+           * 宁可提示词末尾多一句「画面文案：…」，也不能让用户的字凭空消失。
+           */
+          const missedLines = copyLines.filter(line => !prompt.includes(line));
+          if (missedLines.length > 0) {
+            prompt = `${prompt}\n画面文案：${missedLines.map(line => `「${line}」`).join("、")}`;
+          }
           setNodes(nds =>
             nds.map(n =>
               n.id === nodeId && n.type === "asset"
@@ -32374,13 +32598,18 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                       reversePromptPanelOpen: true,
                       isReversePrompting: false,
                       reversePrompt: prompt,
+                      reversePromptCopies: copyLines.join("\n"),
                       reversePromptError: "",
                     },
                   }
                 : n
             )
           );
-          toast("提示词反推完成", { description: "已生成可直接用于生图的中文提示词" });
+          toast("提示词反推完成", {
+            description: copyLines.length
+              ? `已生成可直接用于生图的中文提示词，并保留 ${copyLines.length} 条图中文案`
+              : "已生成可直接用于生图的中文提示词",
+          });
         } catch (error) {
           const message = error instanceof Error ? error.message : "请稍后重试";
           setNodes(nds =>
@@ -32393,6 +32622,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                       reversePromptPanelOpen: true,
                       isReversePrompting: false,
                       reversePrompt: "",
+                      reversePromptCopies: "",
                       reversePromptError: message,
                     },
                   }

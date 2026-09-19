@@ -1020,12 +1020,16 @@ export function SmartCommerceProductDialog({
                                   referenceInputRef.current.value = "";
                                 }
                               }}
-                              className="flex items-center justify-center flex-shrink-0 rounded-full transition-opacity hover:opacity-70"
+                              /*
+                               * 与画布提示词框引用标签的移除按钮保持同规格：
+                               * 16px 命中区 + 11px 图标 + hover 圆形高亮
+                               * （规格定义见 InfiniteCanvas 的 image 标签注释）。
+                               */
+                              className="flex h-4 w-4 items-center justify-center flex-shrink-0 rounded-full bg-transparent transition-colors hover:bg-black/10 dark:hover:bg-white/20"
                               style={{
                                 color: isDark
-                                  ? "oklch(0.62 0.008 270)"
-                                  : "oklch(0.50 0.008 270)",
-                                background: "transparent",
+                                  ? "oklch(0.72 0.008 270)"
+                                  : "oklch(0.42 0.008 270)",
                                 border: "none",
                                 padding: 0,
                                 lineHeight: 1,
@@ -1033,7 +1037,7 @@ export function SmartCommerceProductDialog({
                               title="移除引用"
                               aria-label="移除引用"
                             >
-                              <X size={7} />
+                              <X size={11} strokeWidth={2.25} />
                             </button>
                           </span>
                         ) : (

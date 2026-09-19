@@ -590,7 +590,9 @@ describe("generated image source normalization", () => {
 {"text":"中秋快乐","regions":[{"text":"中秋快乐","x":0.1,"y":0.2,"width":0.6,"height":0.15}]}
 \`\`\``)).toEqual({
       text: "中秋快乐",
-      regions: [{ text: "中秋快乐", x: 0.1, y: 0.2, width: 0.6, height: 0.15 }],
+      // 解析器会给 region 补默认 rotate=0 / fontColor=undefined（见
+      // __testParseStructuredImageText 的规范化逻辑，确定性绘制依赖这两个字段）。
+      regions: [{ text: "中秋快乐", x: 0.1, y: 0.2, width: 0.6, height: 0.15, rotate: 0, fontColor: undefined }],
     });
   });
 
@@ -1341,6 +1343,127 @@ describe("generated image source normalization", () => {
     expect(result.provider).toBe("vision-chat-ocr+text-fallback");
     expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("https://image.example"))).toBe(true);
     expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("https://text.example"))).toBe(true);
+  });
+
+  /*
+   * 回归防线：首选视觉模型**报错**时同样要兜底。
+   *
+   * 原实现在 !response.ok 处直接 throw，下面的文本模型兜底只在
+   * 「上游 200 但解析不出 regions」时才跑到 —— 等于兜底形同虚设。
+   *
+   * 实测（2026-09-19）：AI_IMAGE_MODEL 留空 → 回落到出图模型
+   * vod-og25-sunburst-medium → 发给 /v1/chat/completions 得到
+   * 503 model_not_found → 整条 OCR 抛错，智能文案编辑与提示词反推
+   * **一个字都拿不到**。
+   */
+  it("falls back to multimodal text extraction when the primary OCR model is rejected", async () => {
+    vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
+    vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
+    vi.stubEnv("AI_IMAGE_MODEL", "");
+    vi.stubEnv("AI_TEXT_API_KEY", "test-text-key");
+    vi.stubEnv("AI_TEXT_BASE_URL", "https://text.example/v1");
+    vi.stubEnv("AI_TEXT_MODEL", "claude-opus-5");
+
+    const source = await sharp({
+      create: { width: 160, height: 90, channels: 3, background: "#ffffff" },
+    }).png().toBuffer();
+
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const endpoint = String(url);
+      if (endpoint.startsWith("https://image.example")) {
+        return new Response(
+          JSON.stringify({ error: { message: "No available channel for model" } }),
+          { status: 503 },
+        );
+      }
+      if (endpoint.startsWith("https://text.example")) {
+        return Response.json({
+          choices: [{ message: { content: '{"text":"春季新品发布会","regions":[{"text":"春季新品发布会","x":0.1,"y":0.2,"width":0.3,"height":0.1}]}' } }],
+        });
+      }
+      throw new Error(`Unexpected fetch ${endpoint}`);
+    });
+
+    const result = await extractImageText({
+      imageSrc: `data:image/png;base64,${source.toString("base64")}`,
+    });
+
+    expect(result.text).toBe("春季新品发布会");
+    expect(result.regions.length).toBeGreaterThan(0);
+    expect(result.provider).toBe("vision-chat-ocr+text-fallback");
+    expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("https://text.example"))).toBe(true);
+  });
+
+  it("surfaces the primary OCR error when both channels fail", async () => {
+    vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
+    vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
+    vi.stubEnv("AI_TEXT_API_KEY", "test-text-key");
+    vi.stubEnv("AI_TEXT_BASE_URL", "https://text.example/v1");
+    vi.stubEnv("AI_TEXT_MODEL", "claude-opus-5");
+
+    const source = await sharp({
+      create: { width: 160, height: 90, channels: 3, background: "#ffffff" },
+    }).png().toBuffer();
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const endpoint = String(url);
+      if (endpoint.startsWith("https://image.example")) {
+        return new Response(
+          JSON.stringify({ error: { message: "No available channel for model" } }),
+          { status: 503 },
+        );
+      }
+      return new Response(JSON.stringify({ error: { message: "text provider down" } }), { status: 502 });
+    });
+
+    await expect(
+      extractImageText({ imageSrc: `data:image/png;base64,${source.toString("base64")}` }),
+    ).rejects.toThrow(/No available channel for model/);
+  });
+
+  /*
+   * 回归防线：首选 OCR 模型**从一开始就不该是出图模型**。
+   *
+   * AI_IMAGE_MODEL 留空时 getProviderConfig() 回落 DEFAULT_IMAGE_MODEL_ID
+   * （出图模型），发 /chat/completions 必然 503。上一条测试守的是
+   * 「失败了要能兜底」，这一条守的是「别让必败的首次调用发生」——
+   * 否则即使兜底成功，用户每次也要先白等首选模型空转的十几到上百秒。
+   * 首选应直接落到 AI_TEXT_MODEL（claude-opus-5，实测支持视觉识图）。
+   */
+  it("uses the text model as primary OCR model when AI_IMAGE_MODEL is unset", async () => {
+    vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
+    vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
+    vi.stubEnv("AI_IMAGE_MODEL", "");
+    vi.stubEnv("AI_TEXT_API_KEY", "test-text-key");
+    vi.stubEnv("AI_TEXT_BASE_URL", "https://image.example/v1");
+    vi.stubEnv("AI_TEXT_MODEL", "claude-opus-5");
+
+    const source = await sharp({
+      create: { width: 160, height: 90, channels: 3, background: "#ffffff" },
+    }).png().toBuffer();
+
+    const requestBodies: Array<{ model?: string }> = [];
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      const endpoint = String(url);
+      if (endpoint.startsWith("https://image.example")) {
+        requestBodies.push(JSON.parse(String(init?.body || "{}")));
+        return Response.json({
+          choices: [{ message: { content: '{"text":"春季新品发布会","regions":[{"text":"春季新品发布会","x":0.1,"y":0.2,"width":0.3,"height":0.1}]}' } }],
+        });
+      }
+      throw new Error(`Unexpected fetch ${endpoint}`);
+    });
+
+    const result = await extractImageText({
+      imageSrc: `data:image/png;base64,${source.toString("base64")}`,
+    });
+
+    expect(result.text).toBe("春季新品发布会");
+    expect(result.provider).toBe("vision-chat-ocr");
+    // 首选（也是唯一一次）调用必须带 claude 文本模型，而不是出图模型。
+    expect(requestBodies.length).toBe(1);
+    expect(requestBodies[0].model).toBe("claude-opus-5");
+    expect(fetchMock.mock.calls.length).toBe(1);
   });
 });
 

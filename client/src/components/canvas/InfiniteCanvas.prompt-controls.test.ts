@@ -92,12 +92,17 @@ describe("InfiniteCanvas prompt controls", () => {
 
     expect(annotationEditBlock).toBeTruthy();
     expect(annotationEditBlock).toContain("editImageWithPrompt({");
-    expect(source).toContain('import { DEFAULT_IMAGE_MODEL_ID } from "../../../../shared/image-models";');
+    // 2026-09-19：import 已从单行改为多行块（同块还有 normalizeImageModelId），
+    // 断言改为「确实从 shared/image-models 引入了 DEFAULT_IMAGE_MODEL_ID」。
+    expect(source).toContain('from "../../../../shared/image-models"');
+    expect(source).toMatch(/import \{[\s\S]*?DEFAULT_IMAGE_MODEL_ID,[\s\S]*?\} from "\.\.\/\.\.\/\.\.\/\.\.\/shared\/image-models"/);
     expect(annotationEditBlock).toContain("const selectedImageEditModel = getStoredCanvasAssistantImageEditModel();");
     expect(annotationEditBlock).toContain("selectedImageEditModel === \"auto\" || selectedImageEditModel === \"gpt-image-2\"");
     expect(annotationEditBlock).toContain("model: annotationImageEditModel");
     expect(annotationEditBlock).toContain("createAnnotationEditMask");
-    expect(annotationEditBlock).toContain("runAnnotationEdit(annotationMask.maskSrc");
+    // 2026-09-19：调用入口改名为 runAnnotationEditFlow（内部先跑无可见修改
+    // 的扩大重试，再落到 runAnnotationEdit），断言跟着对齐。
+    expect(annotationEditBlock).toContain("runAnnotationEditFlow(maskSrc)");
     expect(annotationEditBlock).toContain('operation: "annotation_edit"');
     expect(annotationEditBlock).toContain("preserveSource: true");
     expect(annotationEditBlock).toContain("isSmartAnnotationNoVisibleChangeError");
@@ -338,6 +343,41 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(actionHandler).not.toContain('generateAiImages({');
     expect(source).toContain("reversePromptPanelOpen");
     expect(source).toContain("复制反推提示词");
+  });
+
+  /*
+   * 回归防线：反推出来的提示词必须带上图里的字。
+   *
+   * 历史 bug：反推提示词里写着「不得臆造图片中没有出现的品牌、文字…」。
+   * 视觉模型在「写一段生图提示词」这个目标下，本来只会描述版式
+   * （「画面上方有一行标题」），再叠加这条禁字约束，
+   * 结果就是把文案整段略掉 —— 用户拿它重新生图，字就没了。
+   *
+   * 修法不是删掉禁字约束（那会放开编造），而是：
+   *   1. 先 OCR 专职逐字转录；
+   *   2. 把原文作为「必须原样引用」的事实喂进反推；
+   *   3. 末尾再比对一次，漏行就补。
+   * 下面每一条断言对应其中一环，缺任何一环都会退化成老 bug。
+   */
+  it("reverse engineers the on-image copy verbatim instead of dropping it", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const actionHandler = source.match(
+      /const handleSingleImageToolbarAction = useCallback\([\s\S]*?const handleSocialMediaSizeGenerate/
+    )?.[0];
+
+    // 1. 反推前先跑 OCR
+    expect(actionHandler).toContain("await extractImageText({ imageSrc })");
+    expect(source).toContain("REVERSE_PROMPT_WITH_OCR");
+    // 2. 明确要求原样保留文案，而不是笼统禁字
+    expect(actionHandler).toContain("图中文案必须原样保留");
+    expect(actionHandler).toContain("不得改写、翻译、缩写、合并或概括这些文案");
+    // 老 bug 的原文：把「文字」也一并列入禁造清单
+    expect(actionHandler).not.toContain("不得臆造图片中没有出现的品牌、文字");
+    // 3. 模型漏行时兜底补写
+    expect(actionHandler).toContain("missedLines");
+    // 4. 文案单独落库 + 单独可复制，模型写漏了用户也拿得到
+    expect(source).toContain("reversePromptCopies");
+    expect(source).toContain("复制图中文案");
   });
 
   it("keeps explicit replace and delete controls in the smart commerce product upload slot", () => {
@@ -837,8 +877,16 @@ describe("InfiniteCanvas prompt controls", () => {
     const extractedTextStateBlock = source.match(
       /const extractedTextFields = useMemo[\s\S]*?const extractedTextPanelRef/
     )?.[0];
+    /*
+     * 2026-09-19 面板结构两处漂移，锚点同步更新：
+     *   1. 面板头部不再有 `type-caption` + `fontWeight: 700` 的标题 span，
+     *      改从滚动容器（ref={extractedTextScrollRef}）起截；
+     *   2. 字段渲染从 `.map(... => (...))` 改为 `return (...)`，
+     *      结尾锚点由 `</label>))}` 变为 `</label>);})}`。
+     * 断言覆盖面不变：滚动容器样式 + 字段结构都在截取范围内。
+     */
     const extractedTextPanelBlock = source.match(
-      /<span className="type-caption" style=\{\{ fontWeight: 700 \}\}>[\s\S]*?<div\s+className="flex flex-col gap-2">[\s\S]*?<\/label>\s*\)\)\}/
+      /<div\s+ref=\{extractedTextScrollRef\}[\s\S]*?<\/label>\s*\);\s*\}\)\}/
     )?.[0];
 
     /**

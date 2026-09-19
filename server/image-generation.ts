@@ -11,7 +11,7 @@ import {
   sortImageModelIdsByPriority,
   isVodModelId,
 } from "../shared/image-models";
-import { isClaudeTextModelId } from "../shared/text-models";
+import { DEFAULT_TEXT_MODEL, isClaudeTextModelId } from "../shared/text-models";
 import { resolveImageResolutionTier } from "../shared/ai-credit-policy";
 import { DEFAULT_AUTO_RATIO, resolveImageRatio } from "../shared/image-ratios";
 import { clampImageExpansionPrompt, VOD_EXPANSION_PROMPT_MAX_LENGTH } from "../shared/image-expansion";
@@ -4667,54 +4667,90 @@ async function extractImageTextRaw(input: ExtractImageTextInput): Promise<{
     throw new Error("Missing imageSrc");
   }
 
-  const { apiKey, baseUrl, model } = getProviderConfig();
+  const { apiKey, baseUrl } = getProviderConfig();
   if (!apiKey) {
     throw new Error("Missing AI_IMAGE_API_KEY");
   }
 
-  const response = await fetch(getChatEndpoint(baseUrl), {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: input.model || model,
-      messages: [{
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: [
-              "请识别图片中所有可见文字，并返回严格 JSON，不要输出解释或 Markdown。",
-              "格式：{\"text\":\"按阅读顺序排列的全部原文\",\"regions\":[{\"text\":\"该区域原文\",\"x\":0.1,\"y\":0.2,\"width\":0.3,\"height\":0.1,\"rotate\":0,\"fontColor\":\"#ffffff\"}]}。",
-              "x、y、width、height 必须是相对整张图片的 0 到 1 小数坐标，区域应完整覆盖对应文字。",
-              "rotate 是文字相对水平方向的倾斜角度（度，正值顺时针，多数场景为 0）；",
-              "fontColor 是该区域文字的主色十六进制值（如 #ffffff）；两者都尽量准确填写。",
-              "保持原有语言、大小写、标点和换行，不要翻译。没有可读文字时返回 {\"text\":\"\",\"regions\":[]}。",
-            ].join("\n"),
-          },
-          { type: "image_url", image_url: { url: input.imageSrc } },
-        ],
-      }],
-      // claude 系列对 temperature 直接返回 400
-      // （"`temperature` is deprecated for this model."）。
-      // 这条 OCR 路径默认走图片模型，但 input.model 可由调用方传入，
-      // 万一传进 claude，带上 temperature 会让整条 OCR 失败。
-      // 详见 server/text-generation.ts 的 supportsTemperature 注释。
-      ...(isClaudeTextModelId(input.model || model) ? {} : { temperature: 0 }),
-    }),
-  });
-  const raw = await response.text();
-  const data = safeParseJson<ImageTextResponse>(raw) || {};
-  if (!response.ok) {
-    const message = typeof data.error === "string" ? data.error : data.error?.message;
-    throw new Error(message || `Image OCR provider returned ${response.status}`);
-  }
+  /*
+   * 首选 OCR 模型的默认值**不能**落到出图模型上。
+   *
+   * getProviderConfig() 在 AI_IMAGE_MODEL 留空时会回落到
+   * DEFAULT_IMAGE_MODEL_ID（vod-og25-sunburst-medium），而那是**出图**模型，
+   * 发给 /v1/chat/completions 必然 503「No available channel」——
+   * 2026-09-19 实测每次都要先空转 ~130s 才轮到兜底，用户侧表现就是
+   * 「智能文案编辑点了很久没反应」，赶上首选抛错的老版本更是一个字都拿不到。
+   *
+   * 视觉识图的可靠默认是文本模型（claude-opus-5，image_url 多模态实测 2.8s
+   * 返回且能正确读出图中文案，见 shared/text-models.ts 顶部实测记录）。
+   * 只有显式配置了 AI_IMAGE_MODEL（说明运维确认该模型可用于 chat 识图）
+   * 才优先走图片侧模型。
+   */
+  const primaryModel =
+    input.model ||
+    process.env.AI_IMAGE_MODEL?.trim() ||
+    process.env.AI_TEXT_MODEL?.trim() ||
+    DEFAULT_TEXT_MODEL;
 
-  const parsed = __testParseStructuredImageText(
-    data.choices?.[0]?.message?.content || data.output_text || ""
-  );
+  /*
+   * 首选视觉模型的调用**必须包在 try 里**。
+   *
+   * 原写法在 !response.ok 时直接 throw，于是下面那段
+   * 「改走文本模型兜底」的代码**永远跑不到** ——
+   * 它只在「上游 200 但内容解析不出 regions」时才生效。
+   *
+   * 正确口径：首选失败 = 一次尝试失败，交给兜底继续跑；
+   * 两条都挂了才抛错（抛首选那条，信息量更大）。
+   */
+  let parsed = __testParseStructuredImageText("");
+  let primaryError: Error | null = null;
+  try {
+    const response = await fetch(getChatEndpoint(baseUrl), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: primaryModel,
+        messages: [{
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: [
+                "请识别图片中所有可见文字，并返回严格 JSON，不要输出解释或 Markdown。",
+                "格式：{\"text\":\"按阅读顺序排列的全部原文\",\"regions\":[{\"text\":\"该区域原文\",\"x\":0.1,\"y\":0.2,\"width\":0.3,\"height\":0.1,\"rotate\":0,\"fontColor\":\"#ffffff\"}]}。",
+                "x、y、width、height 必须是相对整张图片的 0 到 1 小数坐标，区域应完整覆盖对应文字。",
+                "rotate 是文字相对水平方向的倾斜角度（度，正值顺时针，多数场景为 0）；",
+                "fontColor 是该区域文字的主色十六进制值（如 #ffffff）；两者都尽量准确填写。",
+                "保持原有语言、大小写、标点和换行，不要翻译。没有可读文字时返回 {\"text\":\"\",\"regions\":[]}。",
+              ].join("\n"),
+            },
+            { type: "image_url", image_url: { url: input.imageSrc } },
+          ],
+        }],
+        // claude 系列对 temperature 直接返回 400
+        // （"`temperature` is deprecated for this model."）。
+        // OCR 首选模型现在默认就是 claude（见上方 primaryModel 注释），
+        // 万一调用方传进别的 claude 型号，带上 temperature 同样会让整条 OCR 失败。
+        // 详见 server/text-generation.ts 的 supportsTemperature 注释。
+        ...(isClaudeTextModelId(primaryModel) ? {} : { temperature: 0 }),
+      }),
+    });
+    const raw = await response.text();
+    const data = safeParseJson<ImageTextResponse>(raw) || {};
+    if (!response.ok) {
+      const message = typeof data.error === "string" ? data.error : data.error?.message;
+      throw new Error(message || `Image OCR provider returned ${response.status}`);
+    }
+    parsed = __testParseStructuredImageText(
+      data.choices?.[0]?.message?.content || data.output_text || ""
+    );
+  } catch (error) {
+    primaryError = error instanceof Error ? error : new Error(String(error));
+    console.warn(`[ocr] 首选视觉模型未取到结果，改走文本模型兜底: ${primaryError.message}`);
+  }
   if (parsed.text && parsed.regions.length > 0) {
     return {
       ...parsed,
@@ -4722,23 +4758,30 @@ async function extractImageTextRaw(input: ExtractImageTextInput): Promise<{
     };
   }
 
-  const fallback = await generateText({
-    module: "multimodal-text-extraction",
-    // 不要写死模型名：网关会下线型号（gpt-5.4-mini、gpt-5.4 现均已下线）。
-    // 写死会让这条兜底每次都先打死模型，再靠 text-generation.ts:210 的降级链
-    // 逐个重试才落到存活型号——实测整条链路 ~134s，而智能文案编辑正走这里，
-    // 用户侧表现为「点了很久没反应」。改读环境变量后由 .env 统一收口；
-    // 留空则交给 getProviderConfig() 决定，行为与原先一致。
-    model: process.env.AI_TEXT_MODEL || undefined,
-    images: [{ src: input.imageSrc, title: "OCR target image" }],
-    prompt: [
-      "请识别图片中所有可见文字，并返回严格 JSON，不要输出解释或 Markdown。",
-      "格式：{\"text\":\"按阅读顺序排列的全部原文\",\"regions\":[{\"text\":\"该区域原文\",\"x\":0.1,\"y\":0.2,\"width\":0.3,\"height\":0.1,\"rotate\":0,\"fontColor\":\"#ffffff\"}]}。",
-      "坐标使用相对整张图片的 0 到 1 小数，区域完整覆盖对应文字。",
-      "rotate 是文字倾斜角度（度，正值顺时针，多数为 0），fontColor 是文字主色十六进制值，尽量准确填写。",
-      "保持原有语言、大小写、标点和换行；没有可读文字时返回空 text 和空 regions。",
-    ].join("\n"),
-  });
+  let fallback: { text: string };
+  try {
+    fallback = await generateText({
+      module: "multimodal-text-extraction",
+      // 不要写死模型名：网关会下线型号（gpt-5.4-mini、gpt-5.4 现均已下线）。
+      // 写死会让这条兜底每次都先打死模型，再靠 text-generation.ts:210 的降级链
+      // 逐个重试才落到存活型号——实测整条链路 ~134s，而智能文案编辑正走这里，
+      // 用户侧表现为「点了很久没反应」。改读环境变量后由 .env 统一收口；
+      // 留空则交给 getProviderConfig() 决定，行为与原先一致。
+      model: process.env.AI_TEXT_MODEL || undefined,
+      images: [{ src: input.imageSrc, title: "OCR target image" }],
+      prompt: [
+        "请识别图片中所有可见文字，并返回严格 JSON，不要输出解释或 Markdown。",
+        "格式：{\"text\":\"按阅读顺序排列的全部原文\",\"regions\":[{\"text\":\"该区域原文\",\"x\":0.1,\"y\":0.2,\"width\":0.3,\"height\":0.1,\"rotate\":0,\"fontColor\":\"#ffffff\"}]}。",
+        "坐标使用相对整张图片的 0 到 1 小数，区域完整覆盖对应文字。",
+        "rotate 是文字倾斜角度（度，正值顺时针，多数为 0），fontColor 是文字主色十六进制值，尽量准确填写。",
+        "保持原有语言、大小写、标点和换行；没有可读文字时返回空 text 和空 regions。",
+      ].join("\n"),
+    });
+  } catch (fallbackError) {
+    // 两条通道都失败：抛首选那条，它的报错（model_not_found / 401）更有定位价值，
+    // 兜底那条多半只是「上游整体不可用」的回声。
+    throw primaryError || fallbackError;
+  }
   const fallbackParsed = __testParseStructuredImageText(fallback.text);
 
   return {
