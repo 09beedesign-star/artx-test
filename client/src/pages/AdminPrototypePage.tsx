@@ -80,6 +80,9 @@ type AdminUser = {
   id: string;
   name: string;
   email: string;
+  // 登录账号。与 email 不一定相同（例如 09bee 的账号是 09bee、邮箱是 09bee@example.com），
+  // 后台搜索必须把它算进去，否则从别处复制登录账号回来搜会「搜不到人」。
+  account?: string;
   role?: AdminRole;
   plan: string;
   // 会员到期相关字段由后端 toDisplayUsers 派生。
@@ -1993,7 +1996,36 @@ function AdminPrototypePage() {
               ) : (
                 <TableRow className="border-white/8 hover:bg-transparent">
                   <TableCell colSpan={9} className="py-10 text-center text-sm text-slate-500">
-                    暂无真实用户数据
+                    {adminData.users.length > 0 ? (
+                      // 库里有账号却被筛没了，必须说清楚是条件太窄，而不是「没数据」。
+                      // 否则管理员第一反应是「列表没接数据」，实际只是搜索词或筛选没对上。
+                      <div className="space-y-3">
+                        <div>
+                          没有账号符合当前搜索与筛选条件（共 {adminData.users.length} 个账号）
+                          <div className="mt-1 text-xs text-slate-600">
+                            可搜索：用户名、邮箱、登录账号、用户 ID、组织、套餐
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
+                          onClick={() => {
+                            setQuery("");
+                            setStatusFilter("all");
+                            setAccountTypeFilter("all");
+                            setRegisteredFrom("");
+                            setRegisteredTo("");
+                            setUserPage(1);
+                          }}
+                        >
+                          清空搜索与筛选
+                        </Button>
+                      </div>
+                    ) : (
+                      "暂无真实用户数据"
+                    )}
                   </TableCell>
                 </TableRow>
               )}
@@ -2778,7 +2810,7 @@ function Toolbar({
         <Input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="搜索账号名称或邮箱"
+          placeholder="搜索用户名 / 邮箱 / 登录账号 / 用户 ID"
           className="border-white/10 bg-slate-950/40 pl-9 text-slate-100 placeholder:text-slate-500"
         />
       </div>
