@@ -6721,8 +6721,15 @@ function AssetNodeComponent({
 	        clipPath: `inset(${frameClipInsets!.top}px ${frameClipInsets!.right}px ${frameClipInsets!.bottom}px ${frameClipInsets!.left}px)`,
 	      }
 	    : undefined;
+  /*
+    「当前处于裁剪态」的唯一判据。
+    ⚠️ 以前这段条件是内联写在 imgCropStyle 里的，后来 onLoad 收口也要同一个判断 ——
+       抄一份出去必然有一天两边走偏（改了一处忘了另一处），所以抽成变量共用。
+  */
+  const hasActiveCrop =
+    isCropping || cropX > 0 || cropY > 0 || cropW < 100 || cropH < 100;
   const imgCropStyle: React.CSSProperties =
-    isCropping || cropX > 0 || cropY > 0 || cropW < 100 || cropH < 100
+    hasActiveCrop
       ? {
           position: "absolute",
           left: `${-(cropX / cropW) * 100}%`,
@@ -6782,6 +6789,76 @@ function AssetNodeComponent({
 
   const dispW = imgW || initW;
   const dispH = imgH || initH;
+
+  /**
+   * ⭐⭐⭐ 画框与图片外轮廓对齐的**唯一收口**。
+   *
+   * 【为什么必须放在渲染层，而不是挨个改入口】
+   * 节点尺寸（imgW/imgH）有十几个写入点：拖入、粘贴、上传、AI 生成（3 处）、
+   * 重新生成、图层分离、聊天备份找回、智能产品图、裁剪回写、云端同步恢复……
+   * 逐个去接必然漏，而且以后新增一个入口就再漏一次。
+   * 图片真实比例只有一个地方最权威且**一定会经过** —— <img> 的 onLoad。
+   *
+   * 【为什么只缩不放】
+   * 图片是 object-fit:contain，它在框里实际占据的矩形本来就 ≤ 框。
+   * 把框收缩到那个矩形 = 画面上图片纹丝不动，只是白边没了。
+   * 反过来放大框会改变图片的显示大小，是另一种"我没要求的变化"。
+   *
+   * 【为什么不能无条件跑】
+   * - 裁剪态：<img> 被放大到 10000/cropW %，naturalWidth 是整图不是裁剪区，
+   *   按它算必然错。
+   * - 画框剪裁（frameClipActive）：可视区是 clipPath 抠出来的，不等于图片盒。
+   * - 旋转 90/270：视觉外轮廓的宽高互换，节点框不参与旋转，按原比例收会更歪。
+   * 这三种情况一律不动，宁可不改也不能改错。
+   */
+  const handleImageNaturalSizeLoaded = useCallback(
+    (event: React.SyntheticEvent<HTMLImageElement>) => {
+      if (hasActiveCrop || hasFrameClipInsets) return;
+      if (Math.abs(((rotation % 360) + 360) % 360) % 180 !== 0) return;
+      const el = event.currentTarget;
+      const naturalW = el.naturalWidth;
+      const naturalH = el.naturalHeight;
+      if (!naturalW || !naturalH) return;
+      const frameW = dispW;
+      const frameH = dispH;
+      if (!(frameW > 0) || !(frameH > 0)) return;
+      const scale = Math.min(frameW / naturalW, frameH / naturalH);
+      const nextW = Math.max(1, Math.round(naturalW * scale));
+      const nextH = Math.max(1, Math.round(naturalH * scale));
+      /*
+       * 1px 死区：四舍五入本身就会带来 ±0.5px 的抖动，
+       * 不留死区会出现「写回 → 重渲染 → 又差 1px → 再写回」的来回震荡。
+       */
+      if (Math.abs(nextW - frameW) <= 1 && Math.abs(nextH - frameH) <= 1) return;
+      setImgW(nextW);
+      setImgH(nextH);
+      setFlowNodes(nds =>
+        nds.map(n =>
+          n.id === nodeId
+            ? {
+                ...n,
+                style: { ...n.style, width: nextW, height: nextH },
+                data: {
+                  ...(n.data as Record<string, unknown>),
+                  imgW: nextW,
+                  imgH: nextH,
+                },
+              }
+            : n
+        )
+      );
+    },
+    [
+      dispH,
+      dispW,
+      hasActiveCrop,
+      hasFrameClipInsets,
+      nodeId,
+      rotation,
+      setFlowNodes,
+    ]
+  );
+
   const {
     iconSize: processingIconSize,
     textSize: processingTextSize,
@@ -8254,6 +8331,8 @@ function AssetNodeComponent({
               src={displaySrc}
               alt={displayTitle}
               draggable={false}
+              // 画框贴合真图外轮廓的唯一收口，见 handleImageNaturalSizeLoaded。
+              onLoad={handleImageNaturalSizeLoaded}
               onError={() => setIsImageExpired(true)}
               style={{
                 ...frameClipStyle,
@@ -29332,9 +29411,22 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         setCloudRetentionDialogOpen(true);
       }
       const backupItems = images.map((image, index) => {
-        const fittedSize = detail.skillId
-          ? fitGeneratedImageSizeToFrame(image, size)
-          : size;
+        /*
+          ⚠️⚠️⚠️ 这里以前是 `detail.skillId ? fit(...) : size`。
+
+          `size` 来自 getImageDisplaySizeForRatio() —— 一张**按选中比例查表**得到的
+          固定画框（如 16:9 → 320×180）。模型实际返回的图未必是这个比例，
+          于是图片以 object-fit:contain 塞进框里，**左右（或上下）留白**，
+          紫色选框比图片外轮廓大一圈。2026-09-19 用户实测撞到。
+
+          📌 走不走 Skill 跟「框要不要贴合真图」毫无关系 —— 这是把
+             「只有 skill 链路需要」当成了业务规则，实际是**所有生成图都需要**。
+
+          fitGeneratedImageSizeToFrame 只会**缩小**（scale 取两轴较小者），
+          得到的正是图片在 contain 下已经占据的那个矩形：
+          画面上图片一动不动，只有画框收紧贴上去。
+        */
+        const fittedSize = fitGeneratedImageSizeToFrame(image, size);
         const versionedSrc = withCanvasImageCacheKey(
           image.src,
           `${generationId}-${index}`
@@ -29375,9 +29467,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               w: currentSize.width || size.w,
               h: currentSize.height || size.h,
             };
-            const fittedSize = detail.skillId
-              ? fitGeneratedImageSizeToFrame(image, currentFrame)
-              : currentFrame;
+            // 同上：占位框也必须按真图比例收紧，否则出图后框仍比图大一圈。
+            const fittedSize = fitGeneratedImageSizeToFrame(image, currentFrame);
             const versionedSrc = withCanvasImageCacheKey(
               image.src,
               `${generationId}-${index}`
@@ -29437,9 +29528,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const placedNodes: Node[] = [];
         const generatedNodes = images.map((image, index) => {
           const id = `generated-${generationId}-${index}`;
-          const fittedSize = detail.skillId
-            ? fitGeneratedImageSizeToFrame(image, size)
-            : size;
+          // 生成链路的第三个插入点（刷新页面后回包、占位节点已不在）。
+          // 三处必须一起改 —— 只改一处等于功能没做，且零报错。
+          const fittedSize = fitGeneratedImageSizeToFrame(image, size);
           const versionedSrc = withCanvasImageCacheKey(
             image.src,
             `${generationId}-${index}`
