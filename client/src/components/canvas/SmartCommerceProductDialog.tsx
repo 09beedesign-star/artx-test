@@ -57,6 +57,10 @@ import {
   findWhiteBackgroundConflicts,
   getEcommerceStyleProfile,
 } from "@/lib/ecommerce-style-profiles";
+import {
+  getBrandForegroundColor,
+  getEcommercePlatformBrand,
+} from "@/lib/ecommerce-platform-brands";
 import type { PicWishBackgroundTemplate } from "@/lib/ai";
 
 /**
@@ -205,33 +209,58 @@ type EcommercePreset = {
   bg: "white" | "any";
 };
 
+/**
+ * 平台分组：热门 / 主流（2026-09-19 由「国内 / 海外」改版）。
+ *
+ * 【为什么不再按地域分】
+ * 地域对用户的选择帮助很小 —— 一个做跨境的用户同时要用抖音和 Amazon，
+ * 按国内/海外分会让他在两组之间来回找。改成「热门 / 主流」后，
+ * 九成场景在第一组就能选完，第二组是长尾。
+ *
+ * ⚠️ 平台的 name / width / height / ratio / bg **一个字都没有改**，
+ *    只是重新分组。这些是平台审核规格，改了会直接导致出图不合规。
+ *    改版时是「搬运」不是「重写」，下面的 test 会逐个平台核对规格没有漂移。
+ *
+ * ⚠️ 新增平台时三处必须同步，缺一处都是**静默失效**：
+ *      ① 这里的分组数据
+ *      ② ecommerce-style-profiles.ts 的风格映射（缺 → 静默回落兜底风格）
+ *      ③ ecommerce-platform-brands.ts 的品牌视觉（缺 → 静默回落灰块）
+ *    三个守卫测试分别核对这三件事。
+ */
 const ECOMMERCE_PRESET_GROUPS: {
   id: string;
   label: string;
   items: readonly EcommercePreset[];
 }[] = [
   {
-    id: "cn",
-    label: "国内平台",
+    id: "hot",
+    label: "热门电商平台",
     items: [
+      { id: "douyin", name: "抖音电商", region: "CN", width: 800, height: 800, ratio: "1:1", bg: "any" },
+      { id: "xiaohongshu", name: "小红书", region: "CN", width: 1080, height: 1440, ratio: "3:4", bg: "any" },
+      /*
+        TikTok Shop 是本次新增的平台（原 25 个平台清单里没有它）。
+        主图规格取 TikTok Shop 官方商品图要求的 1:1 方图，
+        最小 800×800，这里与抖音电商保持一致口径。
+      */
+      { id: "tiktok", name: "TikTok Shop", region: "全球", width: 800, height: 800, ratio: "1:1", bg: "any" },
       { id: "taobao-tmall", name: "淘宝 / 天猫", region: "CN", width: 800, height: 800, ratio: "1:1", bg: "white" },
       { id: "jd", name: "京东", region: "CN", width: 800, height: 800, ratio: "1:1", bg: "white" },
       { id: "pinduoduo", name: "拼多多", region: "CN", width: 800, height: 800, ratio: "1:1", bg: "white" },
-      { id: "douyin", name: "抖音电商", region: "CN", width: 800, height: 800, ratio: "1:1", bg: "any" },
+      { id: "temu", name: "Temu", region: "全球", width: 1600, height: 1600, ratio: "1:1", bg: "white" },
+      { id: "shopee", name: "Shopee", region: "东南亚", width: 1000, height: 1000, ratio: "1:1", bg: "any" },
+      { id: "amazon", name: "Amazon", region: "全球", width: 2000, height: 2000, ratio: "1:1", bg: "white" },
+    ],
+  },
+  {
+    id: "major",
+    label: "主流电商平台",
+    items: [
       { id: "kuaishou", name: "快手电商", region: "CN", width: 800, height: 800, ratio: "1:1", bg: "any" },
-      { id: "xiaohongshu", name: "小红书", region: "CN", width: 1080, height: 1440, ratio: "3:4", bg: "any" },
       { id: "wechat-channel", name: "微信视频号小店", region: "CN", width: 800, height: 800, ratio: "1:1", bg: "any" },
       { id: "vip", name: "唯品会", region: "CN", width: 950, height: 1200, ratio: "3:4", bg: "any" },
       { id: "dewu", name: "得物", region: "CN", width: 800, height: 800, ratio: "1:1", bg: "white" },
       { id: "youzan", name: "有赞", region: "CN", width: 800, height: 800, ratio: "1:1", bg: "any" },
-    ],
-  },
-  {
-    id: "global",
-    label: "海外平台",
-    items: [
-      { id: "amazon", name: "Amazon", region: "全球", width: 2000, height: 2000, ratio: "1:1", bg: "white" },
-      { id: "temu", name: "Temu", region: "全球", width: 1600, height: 1600, ratio: "1:1", bg: "white" },
       { id: "ebay", name: "eBay", region: "全球", width: 1600, height: 1600, ratio: "1:1", bg: "any" },
       { id: "aliexpress", name: "AliExpress", region: "全球", width: 1000, height: 1000, ratio: "1:1", bg: "any" },
       { id: "shein", name: "SHEIN", region: "全球", width: 1340, height: 1785, ratio: "3:4", bg: "any" },
@@ -239,7 +268,6 @@ const ECOMMERCE_PRESET_GROUPS: {
       { id: "target", name: "Target", region: "美国", width: 1500, height: 1500, ratio: "1:1", bg: "white" },
       { id: "bestbuy", name: "BestBuy", region: "北美", width: 2000, height: 2000, ratio: "1:1", bg: "white" },
       { id: "etsy", name: "Etsy", region: "美国 / 欧洲", width: 2000, height: 2000, ratio: "1:1", bg: "any" },
-      { id: "shopee", name: "Shopee", region: "东南亚", width: 1000, height: 1000, ratio: "1:1", bg: "any" },
       { id: "lazada", name: "Lazada", region: "东南亚", width: 1000, height: 1000, ratio: "1:1", bg: "any" },
       { id: "ozon", name: "Ozon", region: "俄罗斯", width: 1200, height: 1200, ratio: "1:1", bg: "white" },
       { id: "allegro", name: "Allegro", region: "波兰", width: 1000, height: 1000, ratio: "1:1", bg: "any" },
@@ -1684,7 +1712,7 @@ export function SmartCommerceProductDialog({
                 </div>
                 {ecommerceExpanded ? (
                   <div
-                    className="absolute bottom-full left-0 right-0 z-30 mb-1.5 overflow-y-auto rounded-md px-1.5 pb-1.5"
+                    className="absolute bottom-full right-0 z-30 mb-1.5 w-[min(640px,calc(100vw-96px))] overflow-y-auto rounded-md px-1.5 pb-1.5"
                     style={{
                       maxHeight: ecommerceMenuMaxHeight,
                       background: colors.panel,
@@ -1694,53 +1722,98 @@ export function SmartCommerceProductDialog({
                     role="listbox"
                     aria-label="电商平台画布尺寸"
                   >
+                    {/*
+                      标签网格（2026-09-19 由纵向长列表改版）。
+
+                      【为什么改】
+                      纵向一行一个平台，26 个平台要滚很久才能看完；
+                      而浮层受「不越过标题栏」约束，高度本来就有限。
+                      一排四个标签后，一屏能看到的平台数翻了几倍。
+
+                      ⚠️ 这里用 grid-cols-4 **写死四列**，不是 auto-fit。
+                         auto-fit 会随浮层宽度在 3/4/5 列之间跳，
+                         需求写的是「默认一排四个」，列数必须是确定值，
+                         auto-fit 既做不到确定，也无法被测试锁定。
+
+                      ⚠️ 浮层宽度不能再沿用 left-0 right-0（= 跟触发器同宽 ≈ 425px）。
+                         425px 切四列，每列只有 ~100px，扣掉 18px icon + 间距后
+                         留给文字不到 70px，「微信视频号小店」「MercadoLibre」
+                         会被 truncate 成一坨省略号 —— 标签还在、读不出来，零报错。
+                         改成 right-0 向左展开 + w-[min(640px,calc(100vw-96px))]：
+                         右对齐保证与触发器视觉同轴，640px 又小于内容区可视宽度
+                         （面板 720 - 左右 padding 40 = 680），不会被内容区的
+                         overflow-x-hidden 裁掉。
+                    */}
                     {ECOMMERCE_PRESET_GROUPS.map(group => (
                         <div key={group.id}>
                           <div
-                            className="px-1 pb-1 pt-2 text-[9px] font-semibold uppercase tracking-wide"
+                            className="px-1 pb-1 pt-2 text-[9px] font-semibold tracking-wide"
                             style={{ color: colors.muted }}
                           >
                             {group.label}
                           </div>
-                          {group.items.map(preset => {
-                            const active = selectedEcommerce?.id === preset.id;
-                            return (
-                              <button
-                                key={preset.id}
-                                type="button"
-                                className="flex h-8 w-full items-center justify-between gap-2 rounded px-1.5 text-left text-[10px] transition-colors"
-                                style={{
-                                  color: active ? colors.text : colors.muted,
-                                  background: active ? "rgba(197,237,71,0.13)" : "transparent",
-                                }}
-                                onClick={() => {
-                                  setSelectedEcommerce(preset);
-                                  setEcommerceExpanded(false);
-                                }}
-                                title={`${preset.name} · ${preset.region} · ${preset.width}×${preset.height}${preset.bg === "white" ? " · 平台要求纯白底" : ""}`}
-                              >
-                                <span className="flex min-w-0 items-center gap-1.5">
-                                  {active ? (
-                                    <Check size={11} style={{ color: colors.accent }} />
-                                  ) : (
-                                    <span className="inline-block w-[11px]" />
-                                  )}
-                                  <span className="truncate font-semibold">{preset.name}</span>
-                                  {preset.bg === "white" ? (
+                          <div className="grid grid-cols-4 gap-1">
+                            {group.items.map(preset => {
+                              const active = selectedEcommerce?.id === preset.id;
+                              const brand = getEcommercePlatformBrand(preset.id);
+                              return (
+                                <button
+                                  key={preset.id}
+                                  type="button"
+                                  className="flex h-10 items-center gap-1.5 rounded px-1.5 text-left transition-colors"
+                                  style={{
+                                    background: active
+                                      ? "rgba(197,237,71,0.14)"
+                                      : colors.surfaceStrong,
+                                    border: `1px solid ${active ? "rgba(197,237,71,0.75)" : colors.border}`,
+                                  }}
+                                  onClick={() => {
+                                    setSelectedEcommerce(preset);
+                                    setEcommerceExpanded(false);
+                                  }}
+                                  title={`${preset.name} · ${preset.region} · ${preset.width}×${preset.height}${preset.bg === "white" ? " · 平台要求纯白底" : ""}`}
+                                >
+                                  {/*
+                                    左侧品牌 icon。
+                                    ⚠️ 前景色必须用 getBrandForegroundColor 算，不能写死白色 ——
+                                       BestBuy(#FFE000) / MercadoLibre(#FFE600) 这类亮黄底
+                                       配白字对比度只有 1.3:1，字还在但看不见，且零报错。
+                                  */}
+                                  <span
+                                    aria-hidden="true"
+                                    className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded text-[8px] font-bold leading-none"
+                                    style={{
+                                      background: brand.color,
+                                      color: getBrandForegroundColor(brand.color),
+                                    }}
+                                  >
+                                    {brand.mark}
+                                  </span>
+                                  {/*
+                                    右侧两行：上为平台名、下为分辨率。
+                                    ⚠️ min-w-0 不能省 —— flex 子项默认 min-width:auto，
+                                       不加的话长名称（MercadoLibre / 微信视频号小店）
+                                       会把标签撑破，整行四列的对齐当场崩掉，truncate 也不生效。
+                                  */}
+                                  <span className="flex min-w-0 flex-col justify-center">
                                     <span
-                                      className="shrink-0 rounded px-1 text-[8px]"
-                                      style={{ color: colors.muted, border: `1px solid ${colors.border}` }}
+                                      className="truncate text-[9px] font-semibold leading-tight"
+                                      style={{ color: colors.text }}
                                     >
-                                      白底
+                                      {preset.name}
                                     </span>
-                                  ) : null}
-                                </span>
-                                <span className="shrink-0 tabular-nums text-[9px]" style={{ color: colors.muted }}>
-                                  {preset.width}×{preset.height}
-                                </span>
-                              </button>
-                            );
-                          })}
+                                    <span
+                                      className="truncate tabular-nums text-[8px] leading-tight"
+                                      style={{ color: active ? colors.accent : colors.muted }}
+                                    >
+                                      {preset.width}×{preset.height}
+                                      {preset.bg === "white" ? " · 白底" : ""}
+                                    </span>
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
                       ))}
                   </div>

@@ -51,10 +51,27 @@ describe("SmartCommerceProductDialog", () => {
       "审计记录",
       "可编辑文案建议",
       "相关导出尺寸",
-      "主流电商平台",
     ]) {
       expect(source).not.toContain(removedCommerceLabel);
     }
+
+    /*
+      ⚠️ "主流电商平台" 曾经在这份「已移除标签」清单里，2026-09-19 移出。
+
+         它原本指的是**跨境电商 Agent 那一版**的板块标题（已删）。
+         本次改版新增的平台分组标签恰好同名，于是这条断言开始
+         把「合法的新分组标题」误判成「复活的旧 UI」。
+
+         📌 这正是源码断言的典型翻车方式：断言锁的是**字符串**，
+            而字符串不携带它所处的语义。同名不同义时它会误伤。
+         ✅ 改为锁定新分组的**结构化身份**（分组 id + label 成对出现），
+            旧版块标题则改用它独有的上下文来排除。
+    */
+    expect(source).not.toContain('SectionTitle aside="跨境">主流电商平台</SectionTitle>');
+    expect(source).toContain('id: "hot"');
+    expect(source).toContain('label: "热门电商平台"');
+    expect(source).toContain('id: "major"');
+    expect(source).toContain('label: "主流电商平台"');
   });
 
   it("does not load or compose cross-border commerce rules before dispatching", () => {
@@ -284,16 +301,32 @@ describe("SmartCommerceProductDialog", () => {
            📌 判据：源码断言只要「同一个子串在文件里出现多处」，
               它就不再指向你以为的那一处。必须带上该处独有的上下文。
     */
-    expect(source).toContain("absolute bottom-full left-0 right-0");
-    expect(source).not.toContain("absolute top-full left-0 right-0");
+    /*
+      2026-09-19 二次改版：浮层从 left-0 right-0（跟触发器同宽 ≈425px）
+      改为 right-0 + 固定宽度，否则四列标签每列只剩 ~100px，
+      长平台名会被 truncate 成一排省略号。
+
+      ⚠️ 所以这里不能再锁 left-0 right-0，但**仍必须带上独有上下文** ——
+         footer 的预设菜单同样是 "absolute bottom-full right-0"，
+         只写到 right-0 又会退化成那条恒绿断言。
+         用浮层独有的 z-30 + 宽度类一起锁定。
+    */
+    expect(source).toContain("absolute bottom-full right-0 z-30");
+    expect(source).not.toContain("absolute top-full");
     // ② 上边界不得越过标题栏分割线：高度实测而非常量
     expect(source).toContain("maxHeight: ecommerceMenuMaxHeight");
     expect(codeOnly).toContain("anchor.top - header.bottom");
     // ③ 超出部分内部滚动
     expect(source).toContain("overflow-y-auto rounded-md");
+    /*
+      ④ 浮层宽度必须挣脱触发器，否则四列放不下。
+         上限 640 < 内容区可视宽度（面板 720 - 左右 padding 40 = 680），
+         超了会被内容区的 overflow-x-hidden 裁掉且零报错。
+    */
+    expect(source).toContain("w-[min(640px,calc(100vw-96px))]");
 
-    // 平台数据来自用户提供的参数表，抽样锁住国内+海外两端
-    for (const platform of ["淘宝 / 天猫", "京东", "拼多多", "小红书", "Amazon", "Temu", "SHEIN", "Shopee", "Ozon"]) {
+    // 平台数据来自用户提供的参数表，抽样锁住热门+主流两端
+    for (const platform of ["淘宝 / 天猫", "京东", "拼多多", "小红书", "Amazon", "Temu", "SHEIN", "Shopee", "Ozon", "TikTok Shop"]) {
       expect(source).toContain(`name: "${platform}"`);
     }
 
@@ -305,6 +338,82 @@ describe("SmartCommerceProductDialog", () => {
     expect(source).toContain("const outputSize = selectedEcommerce");
     expect(source).toContain("width: selectedEcommerce.width");
     expect(source).toContain("customWidth: outputSize.width");
+  });
+
+  /*
+    2026-09-19 需求：平台选择由纵向列表改为「一排四个」的标签网格，
+    分热门 / 主流两组，每个标签左 icon、右上名称、右下分辨率。
+
+    ⚠️ 这组断言**只锁结构性的、退化后不报错的东西**。
+       字号、间距、圆角这类纯观感参数一律不锁 ——
+       锁了只会让以后每次微调 UI 都要来改测试，
+       而它们退化时设计师一眼就能看见，不需要测试兜底。
+  */
+  it("renders platforms as a four-per-row tag grid with brand icons", () => {
+    /*
+      ① 四列必须写死。
+         ⚠️ auto-fit / auto-fill 会随容器宽度在 3/4/5 列间漂移，
+            需求写的是「默认一排四个」，那就是个确定值。
+    */
+    expect(codeOnly).toContain("grid grid-cols-4");
+    expect(codeOnly).not.toContain("auto-fit");
+    expect(codeOnly).not.toContain("auto-fill");
+
+    // ② 两个分组标题都要渲染出来，而不只是存在于数据里
+    expect(codeOnly).toContain("{group.label}");
+    expect(codeOnly).toContain("ECOMMERCE_PRESET_GROUPS.map(group =>");
+
+    /*
+      ③ 标签三件套：品牌 icon / 平台名 / 分辨率。
+         ⚠️ 分辨率这条最容易悄悄退化 —— 早先的列表版把尺寸放在 title 属性里，
+            hover 才看得到。需求明确要求它**常驻显示在名称下方**，
+            所以必须断言它出现在 JSX 文本节点里。
+    */
+    expect(codeOnly).toContain("getEcommercePlatformBrand(preset.id)");
+    expect(codeOnly).toContain("{preset.name}");
+    /*
+      ⚠️⚠️ 变异自证抓到的第二条恒绿：
+           最初写的是 toContain("{preset.width}×{preset.height}")，
+           把标签里的分辨率整行删掉后测试**依然全绿** ——
+           因为「常用画幅」那一块也有一模一样的一行。
+
+           📌 同一个坑今天踩第二次了（第一次是 "absolute bottom-full"）。
+              源码断言的默认状态就是「指向全文件任意一处」，
+              必须主动带上该处独有的上下文才能收敛到目标位置。
+           ✅ 这里用「紧跟其后的白底标记」做锚 —— 那是电商标签独有的。
+    */
+    const resolutionLines =
+      codeOnly.split("{preset.width}×{preset.height}").length - 1;
+    /*
+      恰好两处：常用画幅一处、电商标签一处。
+      ⚠️ 必须用**计数**而不是 toContain —— 删掉电商标签那一处时，
+         常用画幅那一处仍会让 toContain 通过（实测恒绿）。
+    */
+    expect(
+      resolutionLines,
+      "电商标签的分辨率行不见了（常用画幅那处会让 toContain 假绿）"
+    ).toBe(2);
+    // 白底标记与分辨率同处一行，是电商标签独有的
+    expect(codeOnly).toContain('{preset.bg === "white" ? " · 白底" : ""}');
+
+    /*
+      ④ icon 前景色必须算出来，不能写死。
+         亮黄底配白字对比度 1.3:1 —— 字还在 DOM 里，人眼看不见，零报错。
+    */
+    expect(codeOnly).toContain("getBrandForegroundColor(brand.color)");
+    expect(codeOnly).toContain("background: brand.color");
+
+    /*
+      ⑤ min-w-0 不能省。
+         flex 子项默认 min-width:auto，不加的话长名称会把标签撑破，
+         四列对齐当场崩掉，truncate 也不生效 —— 同样零报错。
+      ⚠️ 带上 flex-col 做上下文：min-w-0 在本文件出现多处，
+         只写 min-w-0 会退化成恒绿断言。
+    */
+    expect(codeOnly).toContain("flex min-w-0 flex-col");
+
+    // 自检：剥注释后代码还在，否则上面全是空转
+    expect(codeOnly.length).toBeGreaterThan(source.length * 0.4);
   });
 
   /*

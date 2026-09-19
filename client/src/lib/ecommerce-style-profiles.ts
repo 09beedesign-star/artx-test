@@ -161,8 +161,14 @@ export const ECOMMERCE_STYLE_PROFILES: readonly EcommerceStyleProfile[] = [
  *    ecommerce-style-profiles.test.ts 会逐个核对两边的 id 集合。
  */
 export const ECOMMERCE_PLATFORM_STYLE_MAP: Readonly<Record<string, string>> = {
-  // —— 国内平台 ——
-  // 淘宝/天猫/京东/拼多多/得物 主图强制白底，只能用白底族
+  /*
+    ⚠️ 这里按「白底 / 内容 / 时尚 / 货架」的**风格性质**归类，
+       刻意不跟随面板上的「热门 / 主流」分组。
+       面板分组是运营口径，会随热度调整；风格归类是视觉事实，
+       跟着运营口径走的话，某个平台从热门挪到主流时风格会莫名其妙跟着变。
+  */
+  // 主图强制白底的国内平台，只能用白底族
+  // 淘宝/天猫/京东/拼多多/得物
   "taobao-tmall": "white-studio",
   jd: "white-studio",
   pinduoduo: "white-studio",
@@ -172,11 +178,12 @@ export const ECOMMERCE_PLATFORM_STYLE_MAP: Readonly<Record<string, string>> = {
   kuaishou: "lifestyle-social",
   xiaohongshu: "lifestyle-social",
   "wechat-channel": "lifestyle-social",
+  // TikTok Shop 与抖音同源，同属内容电商，主图即种草图
+  tiktok: "lifestyle-social",
   // 唯品会以服饰鞋包为主，走时尚大片调性
   vip: "fashion-editorial",
   youzan: "marketplace-clean",
 
-  // —— 海外平台 ——
   // 北美大型零售商主图规则严格，一律纯白棚拍
   amazon: "white-studio",
   temu: "white-studio",
