@@ -576,6 +576,8 @@ import {
 } from "@/lib/ai";
 import {
   isAiCreditBlockedMessage,
+  isAiFailureAlreadyNotified,
+  markAiFailureNotified,
   notifyAiFailure,
 } from "@/lib/ai-credit-gate";
 import { computeAiProcessingOverlayMetrics } from "@/lib/ai-processing-overlay";
@@ -25764,6 +25766,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       maxResultCount = 4,
       model = DEFAULT_IMAGE_AI_MODEL_ID,
       backgroundTaskInput,
+      throwOnFailure = false,
       run,
     }: {
       sourceNode: Node;
@@ -25780,6 +25783,19 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       maxResultCount?: number;
       model?: string;
       backgroundTaskInput?: Omit<ImageGenerationTaskInput, "taskId">;
+      /**
+       * 失败时是否把错误抛给调用方（默认 false = 保持原行为：吞掉并返回 false）。
+       *
+       * 【为什么不无条件 throw】
+       * 11 个调用点里有 **7 处没有 try/catch**（视角调整 / 注释编辑 / 智能产品图 /
+       * HD 高清化 / 去背景 / 去水印 / 矢量化）——它们调完就结束，没有后续步骤。
+       * 无差别 throw 会把这 7 处变成未捕获的 Promise rejection：
+       * 修掉一个 bug、引入七个。
+       *
+       * ⚠️ 只有「失败后还要继续执行后续步骤」的调用方才需要传 true，
+       *    并且**必须自带 try/catch**。
+       */
+      throwOnFailure?: boolean;
       run: () => Promise<GeneratedImagesResponse>;
     }) => {
       const latestSourceNode =
@@ -25894,6 +25910,29 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           projectId
         );
         notifyAiFailure(`${style}失败`, message);
+        /*
+          ⚠️⚠️⚠️ 「返回 false 表示失败」这个约定在本文件里是**失效的**。
+
+          11 个调用点没有一个接收返回值
+          （`grep "= await runDerivedImageGeneration"` 命中 0 处），
+          于是失败后 await 正常返回，调用方继续执行成功路径 ——
+          智能文案编辑因此在节点已经标红的情况下，照样弹
+          「文案已应用到新图」。2026-09-19 用户实测撞到。
+
+          更隐蔽的是：notifyAiFailure 命中计费拦截会**静默**（把话留给充值弹窗），
+          此时连失败 toast 都没有，用户**只看得到那条假的成功提示**。
+
+          📌⭐⭐ 判据：**返回值可以被忽略，异常不会。**
+          凡是「调用方必须知道成败」的场景，信号就不能只走返回值。
+
+          但也不能无脑 throw —— 见 throwOnFailure 的注释，7 处调用点没有
+          try/catch。所以由调用方显式选择，默认维持原行为。
+        */
+        if (throwOnFailure) {
+          throw markAiFailureNotified(
+            error instanceof Error ? error : new Error(message)
+          );
+        }
         return false;
       } finally {
         activeForegroundImageTaskIdsRef.current.delete(generationId);
@@ -27656,6 +27695,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           placement: textPanelPlacement,
           displayW: sourceSize.width,
           displayH: sourceSize.height,
+          /*
+            出图失败必须让下面的「文案已应用到新图」不执行。
+            本调用点自带 try/catch（见下方 catch），接得住。
+          */
+          throwOnFailure: true,
           backgroundTaskInput: {
             capability: "image_edit",
             operation: "text_edit",
@@ -27749,7 +27793,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               : n
           )
         );
-        notifyAiFailure("文案应用失败", message);
+        /*
+          ⚠️ runDerivedImageGeneration 失败时已经弹过一条「文案编辑结果失败」，
+          并给 error 盖了戳再抛上来。这里若无条件再弹，用户会看到两条重复提示。
+          只有「戳不在」的错误（例如上面 maskSrc 缺失时我们自己 throw 的那条）
+          才由这里负责提示。
+        */
+        if (!isAiFailureAlreadyNotified(error)) {
+          notifyAiFailure("文案应用失败", message);
+        }
       }
     };
     window.addEventListener("asset-text-edit-apply", applyHandler);

@@ -707,11 +707,23 @@ export async function startImageGenerationTask(
   throw lastError instanceof Error ? lastError : new Error("后台图像生成启动失败");
 }
 
+/**
+ * 轮询后台出图任务的最大次数（每次间隔 3s）。
+ *
+ * ⚠️ 2026-09-19 从 100（5 分钟）上调到 160（8 分钟）。
+ * 智能文案编辑是两次串行即梦出图，5 分钟不够用（详见
+ * server/index.ts 的 BACKGROUND_IMAGE_TASK_TIMEOUT_MS 注释）。
+ *
+ * 📌 必须 **短于** 服务端的 10 分钟判定阈值：让前端先放弃、服务端后判定。
+ *    反过来（前端比服务端长）会让用户白等一段注定拿不到结果的时间。
+ */
+const IMAGE_TASK_POLL_MAX_ATTEMPTS = 160;
+
 export async function waitForImageGenerationTask(
   taskId: string,
   signal?: AbortSignal
 ): Promise<GeneratedImagesResponse> {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  for (let attempt = 0; attempt < IMAGE_TASK_POLL_MAX_ATTEMPTS; attempt += 1) {
     // ⚠️ 每轮开头先查中止：用户点「停止」后不应再发起下一次查询，
     // 否则任务可能已被服务端清理，查回 404 变成「task not found」误报。
     if (signal?.aborted) throw createAiAbortError();

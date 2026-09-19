@@ -95,3 +95,43 @@ export function notifyAiFailure(title: string, message: string) {
   if (isAiCreditBlockedMessage(message)) return;
   toast(title, { description: message });
 }
+
+/**
+ * 「这个错误已经弹过提示了」的标记。
+ *
+ * 【为什么需要】
+ * 有些底层函数（如画布的 runDerivedImageGeneration）在 catch 里
+ * 已经调过 notifyAiFailure，然后还必须把错误 **继续往上抛** ——
+ * 否则调用方会以为成功，接着执行成功路径（2026-09-19 实测：
+ * 节点已标红，却照样弹「文案已应用到新图」）。
+ *
+ * 但一抛上去，调用方自己的 catch 又会再弹一条，用户看到两条重复提示。
+ *
+ * 于是给错误盖一个戳：底层负责弹 + 抛，上层见到戳就只做收尾、不再弹。
+ *
+ * 📌 用 Symbol 挂在 error 上而不是包一层自定义 Error 子类：
+ *    包装会丢掉原始 error 的 message/stack，而全站有十几处 catch
+ *    都在读 `error.message`，换类型必然漏改。
+ */
+const AI_FAILURE_NOTIFIED = Symbol.for("artx.aiFailureNotified");
+
+/** 给错误盖「已提示过」的戳，并原样返回，方便 `throw markAiFailureNotified(err)`。 */
+export function markAiFailureNotified<T>(error: T): T {
+  if (error && typeof error === "object") {
+    try {
+      (error as Record<symbol, unknown>)[AI_FAILURE_NOTIFIED] = true;
+    } catch {
+      // 冻结过的 error 盖不上戳，退化成「上层照常提示」，不影响正确性。
+    }
+  }
+  return error;
+}
+
+/** 这个错误是否已经提示过用户。上层 catch 用它决定要不要再弹一条。 */
+export function isAiFailureAlreadyNotified(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      (error as Record<symbol, unknown>)[AI_FAILURE_NOTIFIED]
+  );
+}

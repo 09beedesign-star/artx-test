@@ -13,7 +13,12 @@ import { AI_BILLING_BLOCKED_MESSAGES } from "../../../shared/ai-credit-policy";
 vi.mock("sonner", () => ({ toast: vi.fn() }));
 
 import { toast } from "sonner";
-import { isAiCreditBlockedMessage, notifyAiFailure } from "./ai-credit-gate";
+import {
+  isAiCreditBlockedMessage,
+  isAiFailureAlreadyNotified,
+  markAiFailureNotified,
+  notifyAiFailure,
+} from "./ai-credit-gate";
 
 /**
  * 「计费拦截不留失败节点」的契约测试。
@@ -302,5 +307,119 @@ describe("计费拦截撤框后，视角要退回生成前的位置", () => {
     );
     // 拍/弹/清三个函数必须成套出现，少一个清理就无限增长。
     expect(stripped).toContain("viewportBeforeGenerationRef");
+  });
+});
+
+/**
+ * 「失败不能被伪装成成功」的契约测试。
+ *
+ * ## 背景（2026-09-19 用户实测）
+ *
+ * 智能文案编辑出图失败后，画布节点已经标红，界面却照样弹出
+ * 「文案已应用到新图 · AI 已在原图旁生成新的排版结果图」。
+ *
+ * 根因：runDerivedImageGeneration 在 catch 里 `return false` 表示失败，
+ * 但 11 个调用点**没有一个**接收返回值，于是 await 正常返回，
+ * 调用方继续往下执行成功路径。
+ *
+ * 更隐蔽的是 notifyAiFailure 命中计费拦截时会静默（把话留给充值弹窗），
+ * 此时连失败 toast 都没有 —— 用户只看得到那条假的成功提示。
+ *
+ * 📌 判据：**返回值可以被忽略，异常不会。**
+ */
+describe("失败信号传播：返回值靠不住，必须能抛", () => {
+  const canvasPath = "client/src/components/canvas/InfiniteCanvas.tsx";
+
+  it("markAiFailureNotified / isAiFailureAlreadyNotified 成对工作", () => {
+    const err = new Error("出图失败");
+    expect(isAiFailureAlreadyNotified(err)).toBe(false);
+    expect(markAiFailureNotified(err)).toBe(err); // 必须原样返回，方便 throw
+    expect(isAiFailureAlreadyNotified(err)).toBe(true);
+  });
+
+  it("没盖戳的错误、以及非对象错误，都不算已提示", () => {
+    expect(isAiFailureAlreadyNotified(new Error("别的错"))).toBe(false);
+    expect(isAiFailureAlreadyNotified("字符串错误")).toBe(false);
+    expect(isAiFailureAlreadyNotified(null)).toBe(false);
+    expect(isAiFailureAlreadyNotified(undefined)).toBe(false);
+  });
+
+  it("冻结的错误盖不上戳也不能抛异常 —— 退化成上层照常提示", () => {
+    const frozen = Object.freeze(new Error("冻结"));
+    expect(() => markAiFailureNotified(frozen)).not.toThrow();
+    expect(isAiFailureAlreadyNotified(frozen)).toBe(false);
+  });
+
+  it("runDerivedImageGeneration 支持 throwOnFailure，且默认不抛", () => {
+    const { stripped } = readSource(canvasPath);
+    // 默认值必须是 false：7 处调用点没有 try/catch，无脑抛会变成未捕获 rejection。
+    expect(stripped).toContain("throwOnFailure = false");
+    expect(stripped).toMatch(/throwOnFailure\?: boolean;/);
+  });
+
+  it("catch 里必须是「条件抛 + 保留 return false」，不是二选一", () => {
+    const { stripped } = readSource(canvasPath);
+    expect(stripped).toMatch(
+      /if \(throwOnFailure\) \{[\s\S]{0,200}?throw markAiFailureNotified\([\s\S]{0,120}?\}[\s\S]{0,60}?return false;/
+    );
+  });
+
+  it("智能文案编辑这条链路必须传 throwOnFailure: true", () => {
+    const { stripped } = readSource(canvasPath);
+    // 文案编辑结果 -> throwOnFailure: true 必须在同一个调用对象里
+    expect(stripped).toMatch(
+      /style: "文案编辑结果",[\s\S]{0,600}?throwOnFailure: true,/
+    );
+  });
+
+  it("成功提示必须在 await 之后，且失败时到不了 —— 用调用顺序锁住", () => {
+    const { stripped } = readSource(canvasPath);
+    const callIdx = stripped.indexOf('style: "文案编辑结果"');
+    const toastIdx = stripped.indexOf("文案已应用到新图");
+    expect(callIdx).toBeGreaterThan(-1);
+    expect(toastIdx).toBeGreaterThan(callIdx);
+  });
+
+  it("文案应用的 catch 不重复弹 —— 已提示过的错误只做收尾", () => {
+    const { stripped } = readSource(canvasPath);
+    expect(stripped).toMatch(
+      /if \(!isAiFailureAlreadyNotified\(error\)\) \{[\s\S]{0,120}?notifyAiFailure\("文案应用失败", message\)/
+    );
+  });
+});
+
+/**
+ * 「服务端判超时必须晚于前端放弃」的契约测试。
+ *
+ * 智能文案编辑是两次串行即梦出图，原来两边都是 5 分钟，谁先到点谁判负；
+ * 服务端一旦先判 failed，图就算生成出来了前端也拿不到。
+ */
+describe("出图超时阈值：服务端必须留余量给前端", () => {
+  it("服务端阈值 > 前端轮询总时长", () => {
+    const serverSrc = readSource("server/index.ts").stripped;
+    const clientSrc = readSource("client/src/lib/ai.ts").stripped;
+
+    const serverMatch = serverSrc.match(
+      /BACKGROUND_IMAGE_TASK_TIMEOUT_MS = (\d+) \* 60 \* 1000/
+    );
+    expect(serverMatch).not.toBeNull();
+    const serverMs = Number(serverMatch![1]) * 60 * 1000;
+
+    const attemptsMatch = clientSrc.match(
+      /IMAGE_TASK_POLL_MAX_ATTEMPTS = (\d+)/
+    );
+    expect(attemptsMatch).not.toBeNull();
+    // 轮询间隔 3s，写死在 waitForImageGenerationTask 里
+    expect(clientSrc).toContain("}, 3000);");
+    const clientMs = Number(attemptsMatch![1]) * 3000;
+
+    expect(clientMs).toBeGreaterThan(5 * 60 * 1000); // 比原来的 5 分钟长
+    expect(serverMs).toBeGreaterThan(clientMs); // 服务端留余量
+  });
+
+  it("轮询上限走常量，不是写死的字面量 100", () => {
+    const clientSrc = readSource("client/src/lib/ai.ts").stripped;
+    expect(clientSrc).toContain("attempt < IMAGE_TASK_POLL_MAX_ATTEMPTS");
+    expect(clientSrc).not.toContain("attempt < 100");
   });
 });

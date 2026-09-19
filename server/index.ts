@@ -99,7 +99,24 @@ type McpJsonRpcRequest = {
 };
 
 const backgroundImageTasks = new Map<string, BackgroundImageTask>();
-const BACKGROUND_IMAGE_TASK_TIMEOUT_MS = 5 * 60 * 1000;
+/**
+ * 后台出图任务判定「超时失败」的阈值。
+ *
+ * ⚠️⚠️ 2026-09-19 从 5 分钟上调到 10 分钟。
+ *
+ * 【为什么 5 分钟不够】
+ * 智能文案编辑（operation: "text_edit" + textApplyMode: "ai"）是
+ * **两次串行即梦出图**：先擦字修背景、再 AI 叠字，日志里能看到两次
+ * `[vod-aigc] create task`。单次即梦实测 29~42s，叠加上传/下载/蒙版计算后
+ * 很容易逼近 5 分钟。用户实测那次图在 21:31:15 才落盘，而任务早已被判超时。
+ *
+ * 【为什么必须比前端轮询上限长】
+ * 前端 waitForImageGenerationTask 轮询 100 次 × 3s = 5 分钟。
+ * 两边取同一个值时，谁先到点谁判负 —— 而服务端一旦先判 failed，
+ * 前端就算再等也只会拿到 failed，**图明明已经生成出来了也没用**。
+ * 📌 服务端阈值要始终留出余量，让前端先放弃、服务端后判定。
+ */
+const BACKGROUND_IMAGE_TASK_TIMEOUT_MS = 10 * 60 * 1000;
 const IMAGE_PROXY_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36 ArtX/1.0";
 
