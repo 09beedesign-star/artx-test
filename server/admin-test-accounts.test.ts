@@ -45,6 +45,10 @@ afterEach(async () => {
   ]) delete process.env[key];
 });
 
+function futureExpiry(days: number) {
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+}
+
 describe("admin test accounts", () => {
   it("issues, limits, and irreversibly cancels a test account", async () => {
     const { admin, auth } = await loadStores();
@@ -54,7 +58,7 @@ describe("admin test accounts", () => {
       email: "qa-demo@example.com",
       initialCredits: 200,
       dailyCreditLimit: 50,
-      expiresAt: "2026-08-17T15:59:59.000Z",
+      expiresAt: futureExpiry(30),
     });
 
     expect(issued.status).toBe(201);
@@ -75,7 +79,7 @@ describe("admin test accounts", () => {
     const adjusted = await admin.handleAdminApiRequest("POST", `/users/${issuedBody.user.id}/test-profile`, authorization, {
       creditDelta: 40,
       dailyCreditLimit: 30,
-      expiresAt: "2026-08-18T15:59:59.000Z",
+      expiresAt: futureExpiry(31),
     });
     expect(adjusted.status).toBe(200);
 
