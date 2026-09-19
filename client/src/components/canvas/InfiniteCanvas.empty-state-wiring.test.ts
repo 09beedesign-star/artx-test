@@ -214,6 +214,47 @@ describe("canvas empty state wiring", () => {
     expect(closeBlock).not.toContain("pushHistory");
   });
 
+  it("uses the brand logo as a 10% watermark in the placeholder frame", () => {
+    /*
+     * 画框区的占位图形是品牌 LOGO 压到 10% 不透明度的暗纹。
+     * ⚠️ 作用域必须限定在 draftNodeBlock 内 —— 整个文件里 ImageIcon 还有 8 处
+     *    别的用途（工具栏 / 列表 / 右键菜单），全文件 toContain 会让「换错地方」漏网。
+     */
+    const imgAt = draftNodeBlock.indexOf("src={artxBrandMark}");
+    expect(imgAt).toBeGreaterThan(-1);
+    const imgBlock = draftNodeBlock.slice(
+      draftNodeBlock.lastIndexOf("<img", imgAt),
+      draftNodeBlock.indexOf("/>", imgAt)
+    );
+    /*
+     * 暗纹的关键就是这个 10%，改了必须红。
+     * ⚠️⚠️ 不能写 toContain("opacity: 0.1") —— 变异自证实测：
+     *    改成 `opacity: 0.15` 时它**依然通过**（前缀匹配上了），
+     *    也就是说「10% 暗纹」这条约束其实是松的。带上结尾逗号才锁得住。
+     */
+    expect(imgBlock).toContain("opacity: 0.1,");
+    // 原生拖图会和 ReactFlow 抢事件，这两条缺一不可
+    expect(imgBlock).toContain("draggable={false}");
+    expect(imgBlock).toContain('pointerEvents: "none"');
+    // 纯装饰，不能被读屏念出来
+    expect(imgBlock).toContain('aria-hidden="true"');
+  });
+
+  it("retires the old functional icon instead of stacking both", () => {
+    // ⚠️ 新旧并存的话视觉上是「LOGO 暗纹 + 一个灰色图片图标」，等于没换干净。
+    const frameAt = draftNodeBlock.indexOf("描述你想要的画面");
+    expect(frameAt).toBeGreaterThan(-1);
+    const frameBlock = draftNodeBlock.slice(Math.max(0, frameAt - 1200), frameAt);
+    expect(frameBlock).not.toContain("<ImageIcon size={34}");
+  });
+
+  it("imports the brand logo from the shared brand asset folder", () => {
+    // 📌 不允许在画布里另存一份 LOGO 副本，换 LOGO 时必漏改。
+    expect(source).toContain(
+      'import artxBrandMark from "@/assets/brand/artx-favicon.png";'
+    );
+  });
+
   it("fails loudly when a slice marker disappears instead of silently passing", () => {
     // 📌 守检测器自己：切片函数必须在区间失效时抛错，
     //    否则重构改名后所有区间断言会静默变成「扫空串」。

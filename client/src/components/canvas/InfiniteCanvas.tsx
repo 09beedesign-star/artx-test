@@ -618,6 +618,7 @@ import {
   type PendingSkillLoad,
 } from "@/lib/skill-store";
 import generationMark from "@/assets/generation/ai-generation-mark.svg";
+import artxBrandMark from "@/assets/brand/artx-favicon.png";
 
 const ENABLE_NODE_CONNECTIONS = false;
 
@@ -12129,7 +12130,29 @@ function DraftImageNodeComponent({
         className="flex flex-1 flex-col items-center justify-center gap-3"
         style={{ color: sub, minHeight: 0 }}
       >
-        <ImageIcon size={34} strokeWidth={1.4} />
+        {/*
+          占位图标换成品牌 LOGO，压到 10% 不透明度当暗纹用。
+          ⚠️ 这里只换这一处 —— 文件里 ImageIcon 还有 8 处别的用途（工具栏/列表/菜单），
+             那些是功能性图标，不能一起换。
+          ⚠️ 用 opacity 而不是把 PNG 本身调淡：换主题或换 LOGO 文件时不用重新出图。
+          ⚠️ draggable=false + pointer-events:none —— 否则浏览器原生拖图会和
+             ReactFlow 的拖拽抢事件，表现为「拖节点拖出一张图片」。
+          alt="" + aria-hidden：纯装饰，下面那句文案才是给读屏用的信息。
+        */}
+        <img
+          src={artxBrandMark}
+          alt=""
+          aria-hidden="true"
+          draggable={false}
+          style={{
+            width: 72,
+            height: 72,
+            objectFit: "contain",
+            opacity: 0.1,
+            pointerEvents: "none",
+            userSelect: "none",
+          }}
+        />
         <span className="type-caption" style={{ fontSize: 13 }}>
           描述你想要的画面，生成后将填充到这里
         </span>
