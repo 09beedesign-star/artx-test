@@ -134,7 +134,7 @@ import {
   Droplets,
   PanelRight,
   PanelLeft,
-  SquarePen,
+  MessageCirclePlus,
   History,
 } from "lucide-react";
 import {
@@ -19408,7 +19408,13 @@ function CanvasAssistantPanel({
      */
     {
       label: "新建对话",
-      icon: <SquarePen size={16} />,
+      /**
+       * 【2026-09-19 改】圆气泡 + 加号。
+       * 原先是 `SquarePen`（方角铅笔），描边上看着像「气泡里戳了个加号」，
+       * 语义含糊；换成 MessageCirclePlus 后与「历史对话」的 History 成对，
+       * 一眼能看出是「新建一条会话」而不是「编辑」。
+       */
+      icon: <MessageCirclePlus size={16} />,
       onClick: handleCreateConversation,
     },
     {
