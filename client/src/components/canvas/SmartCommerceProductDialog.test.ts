@@ -206,29 +206,47 @@ describe("SmartCommerceProductDialog", () => {
     expect(source).not.toContain('SectionTitle aside={`${outputSize.width}×${outputSize.height}`}>常用画幅');
   });
 
-  it("left column stretches the upload area so no dead whitespace is left below it", () => {
+  it("left column keeps a fixed-height upload area instead of stretching it", () => {
     /*
-      2026-09-19 修复：左列下方大片留白。
+      ⚠️⚠️ 2026-09-20 本条测试的断言方向被**整体推翻**，原因记录在此，
+            以免后人看到 git 历史以为是误删。
 
-      【成因】grid 两列默认 stretch 等高，而左列（上传区 + 画幅 + 分辨率）
-      内容天然比右列矮。左列高度原先由内容撑出来，撑完之后**下面剩的整块高度
-      全是死留白** —— 它不属于任何元素，调 padding / margin 都够不着。
+      【旧方案（2026-09-19）】左列 flex-col + 上传区 h-full flex-1，
+        目的是吃掉左列底部的死留白。留白确实消了，但引入了更糟的副作用：
+          上传区高度 = 左列剩余空间 = **右列高度的函数**
+        右列一切换背景模式（模板区 ↔ 提示词区），上传区就跟着伸缩一次。
 
-      【解法】左列 flex-col，让上传区 flex-1 吃掉剩余高度。
+      【用户反馈（2026-09-20）】「默认背景 tab 选中时左侧图片上传区域不是正方形，
+        也变成和提示词模式一样的长方形区域，这样能保证界面的布局不会出现
+        动态的位置变动感」。
 
-      ⚠️ 三个类缺一不可，少任意一个留白就会回来且零报错：
-         ① 左列 section 必须是 flex-col（否则子项 flex-1 无效）
-         ② 包裹 uploadSlot 的容器要 flex-1 + min-h-0
-            （min-h-0 少了的话，flex 子项 min-height:auto 会让它拒绝收缩，
-             留白没消掉反而把左列顶高、多出一条滚动）
-         ③ uploadSlot 自身要 h-full flex-1，否则容器长高了它还是 236px，
-            留白只是从容器外挪到了容器内，视觉上没有任何改善
+      📌 判据：任何「尺寸由兄弟节点内容推导」的写法，在兄弟节点会变化时
+         都等于埋了一个布局抖动。要止抖只能切断依赖，把两边都钉成常量。
+
+      【新方案】上传区写死 UPLOAD_SLOT_HEIGHT，右列两种模式共用
+        BACKGROUND_PANEL_HEIGHT，二者差值由高度账推导（见组件常量块）。
+        留白不会回来，是因为两列现在**按账算好是等高的**，
+        而不是靠某一侧动态吸收。
+
+      具体的对齐守卫见 smart-commerce-layout-alignment.test.ts。
     */
     expect(codeOnly).toContain('<section className="flex min-w-0 flex-col">');
-    expect(codeOnly).toContain('<div className="flex min-h-0 flex-1 flex-col">{uploadSlot}</div>');
-    expect(codeOnly).toContain("relative flex h-full min-h-[236px] w-full flex-1 flex-col");
-    // 左列退回纯内容流即视为回归
-    expect(codeOnly).not.toContain('<section className="min-w-0">\n              <SectionTitle aside="必选">');
+
+    // ① 上传区必须是固定高度，不能再被拉伸
+    expect(codeOnly).toContain("height: UPLOAD_SLOT_HEIGHT,");
+
+    // ② 旧的「flex-1 吃掉剩余高度」三件套必须全部消失，
+    //    任何一件回潮都会让上传区重新依赖右列高度。
+    expect(codeOnly).not.toContain('<div className="flex min-h-0 flex-1 flex-col">{uploadSlot}</div>');
+    expect(codeOnly).not.toContain("relative flex h-full min-h-[236px] w-full flex-1 flex-col");
+
+    // ③ 上传区自身类名里不得出现 flex-1 / h-full
+    const uploadSlotClass = codeOnly.match(
+      /className="relative flex[^"]*flex-col items-center justify-center overflow-hidden rounded-md px-4 text-center transition-colors"/
+    );
+    expect(uploadSlotClass, "上传区类名结构被改动，请人工确认").not.toBeNull();
+    expect(uploadSlotClass![0]).not.toContain("flex-1");
+    expect(uploadSlotClass![0]).not.toContain("h-full");
   });
 
   it("uses the right-column top area for the background generation mode switcher", () => {

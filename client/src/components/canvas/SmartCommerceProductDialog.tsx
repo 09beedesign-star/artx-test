@@ -11,6 +11,7 @@ import {
   AlignLeft,
   AlignRight,
   ArrowDownToLine,
+  ArrowRight,
   BookmarkPlus,
   Boxes,
   Check,
@@ -19,6 +20,7 @@ import {
   FileImage,
   GripHorizontal,
   ImagePlus,
+  LayoutGrid,
   LoaderCircle,
   MoveDiagonal2,
   PenLine,
@@ -46,6 +48,12 @@ import {
   type SmartCommercePreset,
   type SmartCommercePresetPayload,
 } from "@/lib/smart-commerce-presets";
+import {
+  RECENT_PICWISH_TEMPLATE_COLUMNS,
+  readRecentPicwishTemplates,
+  rememberPicwishTemplate,
+  type RecentPicwishTemplate,
+} from "@/lib/recent-picwish-templates";
 // 引用标签的尺寸/配色唯一事实源，与画布提示词框里的 image 引用标签同源。
 // ⚠️ 禁止在本文件里复制一份常量：那会造出第二个出口，改一处另一处不动且零报错。
 import {
@@ -141,6 +149,98 @@ type Props = {
 };
 
 const IMAGE_COUNTS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+/*
+ * ═══════════════════════════════════════════════════════════════
+ * 布局高度常量 —— 消除「切换生成模式时界面上下动荡」的唯一手段
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * 需求原文（2026-09-20）：
+ *   1. 默认背景 tab 下，左侧上传区不能是正方形，要和提示词模式一样是长方形；
+ *   2. 电商背景模板库向下增高，直到「生成数量」按钮底边
+ *      与左列「4K」按钮底边对齐；
+ *   3. 两个条件必须同时满足，layout 才不会因切换模式而动荡。
+ *
+ * 【⚠️ 为什么是写死常量，而不是继续用 flex 自适应】
+ * 改版前上传区是 `h-full flex-1`，高度 = 左列剩余空间 = **右列高度的函数**。
+ * 右列两种模式高度不同（提示词区 ~112px vs 模板按钮 80px），
+ * 于是每切一次 tab，上传区就跟着伸缩一次。
+ * 这类抖动**不报错、不进 diff、调间距也治不好**，因为根因是依赖方向错了。
+ *
+ * 📌 通用判据：当 A 的尺寸由 B 的内容推导，而 B 会变化时，A 必然抖动。
+ *    要止抖，只能切断这条依赖 —— 把 A 和 B 都钉成常量。
+ *
+ * 【⚠️ 抖动有两个来源，缺一不可】
+ *   (a) 纵向：上传区高度由右列推导 → 见上。
+ *   (b) 横向：**两种背景模式自身高度不同**（模板区 208 vs 提示词区 130）。
+ *       只钉住 (a) 而不管 (b)，切 tab 时右列仍会缩 78px，
+ *       需求 2 的「底边对齐」在提示词模式下直接失效。
+ *   ✅ 所以两种模式共用同一个 BACKGROUND_PANEL_HEIGHT，而不是各自为政。
+ *
+ * 【高度账（两列从各自 section 顶端算起，单位 px）】
+ *   前提：Tailwind preflight 全局 box-sizing:border-box
+ *        → h-10 这类自带高度的元素 border 已含在内，不重复加；
+ *          但「无高度类的容器 + style border」必须单独 +2px。
+ *          ⚠️ 漏加这两处正是早先算出 152/176 的原因。
+ *
+ *   SectionTitle = min-h-5(20) + mb-2(8) = 28
+ *
+ *   左列：标题28 + 上传区 H + mt-4(16) + 画幅/分辨率行
+ *        画幅/分辨率是并列 grid，行高取较高者：
+ *          画幅列   = 28 + (6项 grid-cols-3 → 2行 h-10) 40×2+6  = 114
+ *          分辨率列 = 28 + (grid-rows-3 h-8) 32×3+6×2 = 108     = 136 ←取它
+ *        「4K」是分辨率列最后一颗 → 左列底边即分辨率列底边。
+ *        左列总高 = 28 + H + 16 + 136 = H + 180
+ *
+ *   右列：标题28 + tab(h-8 32 + p-1×2 8 + border×2 2 = 42) + mb-2(8) + 背景区 T
+ *        + mt-4(16) + 标题28 + 构图(h-12=48)
+ *        + mt-4(16) + 标题28 + 平台触发器(h-10 40 + 外层border×2 2 = 42)
+ *        + mt-4(16) + 标题28 + 数量(h-9=36)
+ *        右列总高 = 28+42+8+T+16+28+48+16+28+42+16+28+36 = T + 336
+ *
+ *   令两列等高：H + 180 = T + 336  →  H = T + 156
+ *
+ * 📌 这笔账由 /tmp/height-audit.mjs 机算复核过，不要靠心算改。
+ *
+ * ⚠️ 这两个常量必须**成对修改**。只改一个，两列底边就会错开，
+ *    而错开不会报错 —— 只会让需求 2 的「底边对齐」悄悄失效。
+ *    layout-alignment 的守卫测试会核对 H - T === 156。
+ */
+
+/**
+ * 背景区（默认背景模板库 / 提示词输入）的统一高度。
+ *
+ * 208 来自模板模式的内容自然高，逐项相加：
+ *   头部 pt-2.5(10) + 头部行 h-6(24)
+ * + 已选回显 mt-1.5(6) + border(2) + py-1×2(8) + leading-4(16)
+ * + 主体 pt-1.5(6) + 「最近使用」标签(12+mb-1 4)
+ * + 卡片两行 h-[52px]×2 + gap-1.5(6) = 110
+ * + 主体 pb-2.5(10)
+ * = 208
+ *
+ * ⚠️ 取的是两种模式里**较高**的那个（提示词模式自然高仅 130）。
+ *    取小值会让模板区内容被 overflow-hidden 裁掉，且零报错 ——
+ *    表现为「第二行最近使用模板看不见」，很难联想到是高度常量的问题。
+ */
+const BACKGROUND_PANEL_HEIGHT = 208;
+
+/**
+ * 左侧产品图上传区的高度。
+ *
+ * ⚠️ = BACKGROUND_PANEL_HEIGHT + 156，不是随手定的数（见上方高度账）。
+ *    写成表达式而不是字面量 364，是为了让「改一个忘了改另一个」不可能发生。
+ */
+const UPLOAD_SLOT_HEIGHT = BACKGROUND_PANEL_HEIGHT + 156;
+
+/**
+ * 两列底边对齐所需的高度差。导出给守卫测试核对。
+ *
+ * ⚠️ 这个值来自上面那笔高度账。如果以后调整了任何一个
+ *    SectionTitle / mt-4 / 按钮行高 / 边框，这个差值就要重算，
+ *    否则「底边对齐」会静默失效。
+ */
+export const SMART_COMMERCE_COLUMN_HEIGHT_DELTA = 156;
+export { BACKGROUND_PANEL_HEIGHT, UPLOAD_SLOT_HEIGHT };
 
 /**
  * 常用画幅预设。尺寸以 **2K 档**为基准，1k / 4k 由 getOutputSize 按系数缩放。
@@ -416,6 +516,17 @@ export function SmartCommerceProductDialog({
   const headerRef = useRef<HTMLElement | null>(null);
   const [showPicwishSelector, setShowPicwishSelector] = useState(false);
   const [selectedPicwishTemplate, setSelectedPicwishTemplate] = useState<PicWishBackgroundTemplate>();
+  /**
+   * 最近使用的背景模板（需求 2026-09-20：模板库区域内一排两个展示）。
+   *
+   * ⚠️ 初始值必须是 []，不能在 useState 里直接 readRecentPicwishTemplates(accountId)。
+   *    那样写有两个问题：① SSR/测试环境没有 window；
+   *    ② accountId 在首帧可能还是 null（AuthContext 尚未 hydrate），
+   *       惰性初始化只跑一次，登录态到位后不会重读 —— 表现为
+   *       「已登录用户永远看到 guest 的最近使用」，且零报错。
+   *    所以放到下面的 effect 里，跟着 accountId 走。
+   */
+  const [recentTemplates, setRecentTemplates] = useState<RecentPicwishTemplate[]>([]);
   /**
    * 背景生成方式。默认 template，保持老用户的既有习惯不变。
    *
@@ -715,6 +826,32 @@ export function SmartCommerceProductDialog({
     }
     presetHydratedRef.current = true;
   }, [accountId, applyPresetPayload]);
+
+  /**
+   * 跟着账号读「最近使用的模板」。
+   *
+   * ⚠️ 依赖必须带 accountId，理由同上：登出再登入另一个账号时要重读，
+   *    否则 B 账号会看到 A 账号用过的模板。
+   */
+  useEffect(() => {
+    setRecentTemplates(readRecentPicwishTemplates(accountId));
+  }, [accountId]);
+
+  /**
+   * 选中一个背景模板：写进当前选择 + 记一笔最近使用。
+   *
+   * ⚠️⚠️ 这是唯一允许调 setSelectedPicwishTemplate 的入口（回填预设除外）。
+   *      如果哪天有人绕过它直接 setSelectedPicwishTemplate，
+   *      模板会正常选上、正常出图，**只是不会进最近使用列表** ——
+   *      典型的「透传 ≠ 被消费」零报错缺陷，这个项目已经踩过 11 次。
+   */
+  const handlePickPicwishTemplate = useCallback(
+    (template: PicWishBackgroundTemplate) => {
+      setSelectedPicwishTemplate(template);
+      setRecentTemplates(rememberPicwishTemplate(accountId, template));
+    },
+    [accountId]
+  );
 
   /** 统一的落盘出口：状态与 localStorage 永远一起变，避免两边对不上。 */
   const persistPresets = useCallback(
@@ -1017,12 +1154,25 @@ export function SmartCommerceProductDialog({
       role="button"
       tabIndex={0}
       /*
-        ⚠️ h-full + flex-1 是为了让上传区**吃掉左列的剩余高度**（见左列 section 的说明）。
-           min-h 仍保留做下限：右列很短时（比如提示词模式收起），
-           上传区不至于被压成一条缝。
+        ⚠️⚠️ 2026-09-20 从「h-full + flex-1 吃掉剩余高度」改为**写死高度**。
+
+           【为什么必须写死】
+           flex-1 的本意是消掉左列底部的死留白，方向没错，但它有个副作用：
+           上传区高度 = 左列剩余高度 = **右列高度的函数**。
+           于是右列一换模式（提示词区 112px ↔ 模板按钮 80px），
+           上传区就跟着缩一截 —— 用户看到的「界面上下动荡」有一半来自这里，
+           而且它不报错、也不是调 padding 能治的。
+
+           📌 判据：任何「尺寸由兄弟节点内容推导出来」的写法，
+              在兄弟节点会变化时都等于埋了一个布局抖动。
+
+           ✅ 现在高度是常量 UPLOAD_SLOT_HEIGHT，与右列彻底解耦。
+              左列底部不会再出现死留白，是因为右列两种模式已被拉平到同高
+              （见 BACKGROUND_PANEL_HEIGHT 的说明），两列自然等高。
       */
-      className="relative flex h-full min-h-[236px] w-full flex-1 flex-col items-center justify-center overflow-hidden rounded-md px-4 text-center transition-colors"
+      className="relative flex w-full flex-col items-center justify-center overflow-hidden rounded-md px-4 text-center transition-colors"
       style={{
+        height: UPLOAD_SLOT_HEIGHT,
         color: colors.text,
         background: colors.surface,
         border: `1px dashed ${imageSrc ? "rgba(197,237,71,0.62)" : colors.border}`,
@@ -1279,7 +1429,13 @@ export function SmartCommerceProductDialog({
             */}
             <section className="flex min-w-0 flex-col">
               <SectionTitle aside="必选">产品图片</SectionTitle>
-              <div className="flex min-h-0 flex-1 flex-col">{uploadSlot}</div>
+              {/*
+                ⚠️ 2026-09-20 这里去掉了 `flex min-h-0 flex-1 flex-col` 包裹。
+                   那层 flex-1 的作用是「让上传区吃掉左列剩余高度」，
+                   而剩余高度取决于右列 —— 正是模式切换时上下动荡的来源。
+                   上传区现在自带写死高度（UPLOAD_SLOT_HEIGHT），不需要也不能再被拉伸。
+              */}
+              {uploadSlot}
 
               <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_104px]">
                 <div>
@@ -1407,7 +1563,25 @@ export function SmartCommerceProductDialog({
                 </div>
 
                 {isPromptMode ? (
-                  <div>
+                  /*
+                    ⚠️ 2026-09-20 这里套上与模板区**同一个**高度常量。
+
+                    【为什么】需求 2 要求「生成数量」底边与左列 4K 底边对齐，
+                    而这个对齐必须在**两种模式下都成立**。提示词区的自然高
+                    只有 130px（textarea 110 + 计数行 20），比模板区矮 78px；
+                    更糟的是它还带一个条件渲染的「平台风格助写块」——
+                    选了平台就多出几十 px。也就是说它的高度有三种可能。
+
+                    只钉模板区而放任这里自由生长，切 tab / 选平台时右列照样伸缩，
+                    用户描述的「上下动荡」只会被治好一半，且零报错。
+
+                    ✅ 固定外壳高度 + 内部 overflow-y-auto：
+                       内容多了内部滚动，外轮廓永远不动。
+                  */
+                  <div
+                    className="overflow-y-auto"
+                    style={{ height: BACKGROUND_PANEL_HEIGHT }}
+                  >
                     {/*
                       提示词框 + 内嵌的参考图入口。
                       入口做成框内左下角的小 icon，而不是另起一个上传区——
@@ -1607,24 +1781,198 @@ export function SmartCommerceProductDialog({
                     ) : null}
                   </div>
                 ) : (
-                  <button
-                    type="button"
-                    className="flex h-20 w-full items-center justify-center gap-3 rounded-md px-4 text-left transition-colors"
+                  /*
+                    电商背景模板库区域（2026-09-20 改版）。
+
+                    【改了什么】原来是一颗 h-20 的按钮，点了才弹全屏选择器。
+                    现在是一个固定高度的**面板**，内含：
+                      · 顶部：icon + 「电商背景模板库」标题（需求要求保留）
+                      · 右上：「查看全部」文字 + icon，点进模板详情页
+                      · 主体：一排两个的最近使用模板卡片
+
+                    【⚠️ 高度为什么必须写死】
+                    这块区域的高度决定了右列总高，而右列总高又必须让
+                    「生成数量」底边与左列「4K」底边对齐（需求 2）。
+                    如果让它由内容撑开，那么「有没有最近使用」「有几个」
+                    都会改变面板高度 —— 新用户和老用户看到的布局不一样，
+                    用完一个模板后布局还会跳一下。全都是零报错的抖动。
+                    ✅ 所以高度 = BACKGROUND_PANEL_HEIGHT 常量，空态/满态一律等高，
+                       且与提示词模式共用同一个值 —— 否则切 tab 右列仍会缩一截。
+                  */
+                  <div
+                    className="flex flex-col overflow-hidden rounded-md"
                     style={{
+                      height: BACKGROUND_PANEL_HEIGHT,
                       color: colors.text,
-                      border: `1px solid ${showPicwishSelector ? "rgba(197,237,71,0.68)" : colors.border}`,
-                      background: showPicwishSelector ? "rgba(197,237,71,0.1)" : colors.surface,
+                      border: `1px solid ${selectedPicwishTemplate ? "rgba(197,237,71,0.68)" : colors.border}`,
+                      background: colors.surface,
                     }}
-                    onClick={() => setShowPicwishSelector(true)}
-                    title="电商背景模板选择"
                   >
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md" style={{ color: colors.accent, background: "rgba(197,237,71,0.12)" }}>
-                      <Sparkles size={17} />
-                    </span>
-                    <span className="min-w-0 text-[11px] font-semibold">
-                      {selectedPicwishTemplate?.name || "电商背景模板库"}
-                    </span>
-                  </button>
+                    {/*
+                      标题行。
+                      ⚠️ shrink-0：不加的话，当卡片区内容变多时
+                         flex 会优先压缩这一行，标题被挤成半截且零报错。
+                    */}
+                    <div className="flex shrink-0 items-center justify-between gap-2 px-2.5 pt-2.5">
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <span
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded"
+                          style={{ color: colors.accent, background: "rgba(197,237,71,0.12)" }}
+                        >
+                          <Sparkles size={13} />
+                        </span>
+                        <span className="truncate text-[11px] font-semibold">
+                          电商背景模板库
+                        </span>
+                      </span>
+                      {/*
+                        「查看全部」入口 —— 需求指定放在区域最右侧，点击进入模板详情页。
+                        ⚠️ 这里必须是独立按钮，不能让整块面板都可点：
+                           面板内部有卡片各自的点击行为，整块可点会让
+                           「点卡片」同时触发「打开全部」，两个弹层叠在一起。
+                      */}
+                      <button
+                        type="button"
+                        className="flex h-6 shrink-0 items-center gap-0.5 rounded px-1.5 text-[10px] font-medium transition-colors"
+                        style={{ color: colors.accent, background: "transparent" }}
+                        onClick={() => setShowPicwishSelector(true)}
+                        title="查看全部电商背景模板"
+                      >
+                        查看全部
+                        <ArrowRight size={11} />
+                      </button>
+                    </div>
+
+                    {/*
+                      当前已选模板的回显。
+                      ⚠️ 必须有 —— 改版前选中的模板名就顶在按钮上，一眼可见。
+                         改成面板后如果不回显，用户选完模板关掉选择器，
+                         界面上没有任何地方显示「选了哪个」，会以为没选上。
+                    */}
+                    {selectedPicwishTemplate ? (
+                      <div
+                        className="mx-2.5 mt-1.5 flex shrink-0 items-center gap-1 truncate rounded px-1.5 py-1 text-[9px] leading-4"
+                        style={{
+                          color: colors.text,
+                          background: "rgba(197,237,71,0.12)",
+                          border: "1px solid rgba(197,237,71,0.4)",
+                        }}
+                      >
+                        <Check size={10} style={{ color: colors.accent }} />
+                        <span className="truncate">当前：{selectedPicwishTemplate.name}</span>
+                      </div>
+                    ) : null}
+
+                    {/*
+                      最近使用区。
+                      ⚠️ min-h-0 + overflow-y-auto：面板高度是死的，
+                         卡片多于可视行数时必须内部滚动，
+                         不加 min-h-0 的话 flex 子项不会收缩，会把面板顶破。
+                    */}
+                    <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-2.5 pt-1.5">
+                      <div
+                        className="mb-1 text-[9px] font-medium"
+                        style={{ color: colors.muted }}
+                      >
+                        最近使用
+                      </div>
+                      {recentTemplates.length > 0 ? (
+                        /*
+                          ⚠️ grid-cols-2 写死两列（需求：一排两个）。
+                             不用 auto-fit —— 它会随面板宽度在 1/2/3 列间漂移，
+                             需求要的是确定的两列。
+                        */
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {recentTemplates.slice(0, RECENT_PICWISH_TEMPLATE_COLUMNS * 2).map(item => {
+                            const active = selectedPicwishTemplate?.id === item.id;
+                            return (
+                              <button
+                                key={item.id}
+                                type="button"
+                                className="relative flex h-[52px] min-w-0 items-end overflow-hidden rounded p-1.5 text-left transition-colors"
+                                style={{
+                                  background: colors.surfaceStrong,
+                                  border: `1px solid ${active ? "rgba(197,237,71,0.75)" : colors.border}`,
+                                }}
+                                onClick={() =>
+                                  handlePickPicwishTemplate({
+                                    id: item.id,
+                                    name: item.name,
+                                    category: item.category,
+                                    previewUrl: item.previewUrl || undefined,
+                                  })
+                                }
+                                title={`${item.name}${item.category ? ` · ${item.category}` : ""}`}
+                              >
+                                {/*
+                                  缩略图。
+                                  ⚠️ previewUrl 是 CDN 地址，会过期（见存储模块的说明）。
+                                     加载失败时必须把自己藏掉，否则浏览器画一个
+                                     破图图标，比没有图还难看。onError 不会报错到控制台以外。
+                                */}
+                                {item.previewUrl ? (
+                                  <>
+                                    <img
+                                      src={item.previewUrl}
+                                      alt=""
+                                      className="absolute inset-0 h-full w-full object-cover opacity-70"
+                                      draggable={false}
+                                      onError={event => {
+                                        event.currentTarget.style.display = "none";
+                                      }}
+                                    />
+                                    <span className="absolute inset-0 bg-black/45" />
+                                  </>
+                                ) : null}
+                                <span className="relative min-w-0 flex-1">
+                                  <span
+                                    className="block truncate text-[9px] font-semibold"
+                                    style={{ color: item.previewUrl ? "#FFFFFF" : colors.text }}
+                                  >
+                                    {item.name}
+                                  </span>
+                                  {item.category ? (
+                                    <span
+                                      className="block truncate text-[8px] leading-tight"
+                                      style={{
+                                        color: item.previewUrl
+                                          ? "rgba(255,255,255,0.78)"
+                                          : colors.muted,
+                                      }}
+                                    >
+                                      {item.category}
+                                    </span>
+                                  ) : null}
+                                </span>
+                                {active ? (
+                                  <Check
+                                    className="absolute right-1.5 top-1.5"
+                                    size={12}
+                                    color="#C5ED47"
+                                  />
+                                ) : null}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        /*
+                          空态。
+                          ⚠️ 空态也要占位，不能返回 null —— 面板高度虽然是死的，
+                             但空着一块会让用户以为加载失败。
+                        */
+                        <button
+                          type="button"
+                          className="flex h-[52px] w-full items-center justify-center gap-1.5 rounded border border-dashed text-[10px] transition-colors"
+                          style={{ color: colors.muted, borderColor: colors.border }}
+                          onClick={() => setShowPicwishSelector(true)}
+                        >
+                          <LayoutGrid size={12} />
+                          还没有用过模板，点这里挑一个
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
 
@@ -1913,7 +2261,13 @@ export function SmartCommerceProductDialog({
           </div>
         </div>
 
-        {showPicwishSelector ? <PicwishBackgroundSelector isDark={isDark} selectedTemplate={selectedPicwishTemplate} onSelect={setSelectedPicwishTemplate} onClose={() => setShowPicwishSelector(false)} /> : null}
+        {/*
+          ⚠️ onSelect 必须走 handlePickPicwishTemplate，不能直接传 setSelectedPicwishTemplate。
+             直接传 setter 的话，从全屏选择器里选的模板**不会被记入最近使用** ——
+             模板正常选上、正常出图，只是「最近使用」永远是空的。
+             零报错，且很容易被误判成存储模块坏了。
+        */}
+        {showPicwishSelector ? <PicwishBackgroundSelector isDark={isDark} selectedTemplate={selectedPicwishTemplate} onSelect={handlePickPicwishTemplate} onClose={() => setShowPicwishSelector(false)} /> : null}
         <footer
           className="relative flex shrink-0 items-center justify-between gap-3 px-5 py-3"
           style={{ borderTop: `1px solid ${colors.border}` }}
