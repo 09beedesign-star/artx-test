@@ -167,11 +167,42 @@ export async function buildInpaintMask(
       })()
     : providerMask;
 
+  const whiteRatio = (whitePixelCount / Math.max(1, width * height)) * 100;
   console.log(
     `[inpaint-mask] 输出: ${width}x${height}, ` +
-    `重绘区(白)占比=${((whitePixelCount / Math.max(1, width * height)) * 100).toFixed(2)}%, ` +
+    `重绘区(白)占比=${whiteRatio.toFixed(2)}%, ` +
     `扩展=${expandPx}px, 羽化=${maskConfig.maskFeatherPx}px`,
   );
+
+  /*
+   * ⚠️⚠️ 空蒙版必须在这里**抛错**，不能继续往上游送。
+   *
+   * 2026-09-21 生产取证：20 次擦字里 12 次白费，全部是空蒙版
+   * （`重绘区(白)占比=0.00%`）。上游拿到「没有任何可编辑区」的蒙版后：
+   *   · 要么原样返回      → 日志 `完成但 mask 区域无明显变化`
+   *   · 要么在上游空转    → `Polling timeout`，每次干等 **360s**
+   * 两种都要真实计费，且用户侧只看到「vod拉取图片失败 / 网络开小差」。
+   *
+   * 📌 判据：**这一刀省的是钱，不只是时间。** 把超时调短只是不再干等，
+   *    请求照发、钱照花；在出口判空短路，这次调用可以完全不发生。
+   *
+   * 为什么是 throw 而不是 return null：
+   * 调用方（image-generation.ts 的擦除通道链）对「返回 null」的处理是
+   * "未返回有效图片，尝试下一通道"，会悄悄滑到下一条通道继续试，
+   * 而下一条通道拿到的是**同一张空蒙版**，只是再白费一次。
+   * 抛错能让这次失败带着原因出现在日志里，也让通道链的 catch 正常记账。
+   * （同 memory 判据：返回值可以被忽略，异常不会。）
+   *
+   * 阈值用 0 而非某个小比例：只拦「真的一个像素都没有」这种确定性故障，
+   * 不替业务判断"擦得够不够多" —— 那是 hasVisibleLocalEdit 的职责。
+   */
+  if (whitePixelCount === 0) {
+    throw new Error(
+      "蒙版没有任何可编辑区域（重绘区占比 0%）。" +
+      "常见原因是蒙版的 alpha 通道在传输途中被有损压缩抹平，" +
+      "此时送上游只会空转超时，故在此直接中止。",
+    );
+  }
 
   // 边缘羽化：Gaussian blur 让硬边界变软（避免生成后一圈接缝），再编码 JPEG
   const featherPx = maskConfig.maskFeatherPx;

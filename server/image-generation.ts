@@ -2980,6 +2980,28 @@ async function createOgdEditMaskDataUrl(
   // 按请求类型动态选择 mask 扩展策略：帽子需要较大空间，眼镜/小配饰必须保守避免覆盖脸部。
   // 只扫「用户原话」：前端在头部配饰场景会插入「帽子、头盔、皇冠或其他头部配饰」这类样板文字，
   // 拿整段 prompt 判断会让所有请求都命中帽子分支（蒙版被大幅上扩，换色/加皇冠都被带偏）。
+  /*
+   * ⚠️⚠️ 空蒙版必须在这里中止，不能继续往 VOD 送。
+   *
+   * 2026-09-21 生产取证：这条路径（即梦背景修复）20 次里 12 次白费。
+   * 上游拿到「一个可编辑像素都没有」的蒙版后，要么原样退回
+   * （日志 `完成但 mask 区域无明显变化`），要么空转到 `Polling timeout`
+   * —— 每次干等 **360s**，且照常计费。用户侧看到的就是
+   * 「vod拉取图片失败 / 网络开小差」。
+   *
+   * 下面那段扩展/膨胀逻辑的入口条件是 `maxX >= 0 && maxY >= 0`，
+   * 空蒙版时它只是**安静地跳过**，然后照样把一张全黑（无可编辑区）的
+   * 蒙版编码出去 —— 零报错，是最典型的"静默失效"。
+   *
+   * 📌 判据同 buildInpaintMask：拦在发请求之前，省的是钱不只是时间。
+   */
+  if (maxX < 0 || maxY < 0) {
+    throw new Error(
+      "蒙版没有任何可编辑区域。常见原因是蒙版的 alpha 通道在传输途中被有损压缩抹平，" +
+      "此时送 VOD 只会空转到超时（约 360s）并照常计费，故在此直接中止。",
+    );
+  }
+
   const userRequest = extractUserRequest(editPrompt);
   const isHatRequest = /(帽|hat\b|cap\b|bonnet|visor|beret|headwear|贝雷帽|鸭舌帽|针织帽|棒球帽|毛线帽)/i.test(userRequest);
   const isGlassesRequest = /(眼镜|glasses|sunglasses|墨镜|goggles|镜框|镜片|一副眼镜|一副墨镜)/i.test(userRequest);

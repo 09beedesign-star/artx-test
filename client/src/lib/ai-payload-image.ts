@@ -59,6 +59,57 @@ export const AI_REQUEST_BODY_LIMIT_BYTES = 25 * 1024 * 1024;
 const COMPRESSED_MIME = "image/jpeg";
 
 /**
+ * 「蒙版」字段名白名单 —— 这些字段**禁止**走有损压缩。
+ *
+ * 【为什么必须有这份名单】
+ * 2026-09-21 排查「文案应用后提示 vod 拉取图片失败 / 网络开小差」时定位到：
+ * 蒙版和照片长得都是 data URL，但它们承载信息的通道**完全不同**：
+ *   · 照片   → 信息在 RGB 上，压缩掉一点画质无所谓；
+ *   · 蒙版   → 信息在 **alpha 通道**上（透明 = 要擦的文字区，不透明 = 保留区），
+ *              见 createSmartCopyEditMask 的 clearRect。
+ *
+ * 而 compressImageForAiPayload 为了让 OCR 读得准，会先铺一层白底再转 JPEG
+ * （见该函数里 fillRect 的注释）。JPEG **没有 alpha 通道**，于是：
+ *     蒙版的透明区 → 被白底填实 → 整张图变成「全不透明」
+ * 服务端两个统计函数都按 `alpha < 250` 判定编辑区
+ * （inpaint-mask.ts 的 buildInpaintMask 与 measureMaskSurroundingFlatness），
+ * 于是双双得 0 —— 生产日志里就是 `重绘区(白)占比=0.00%` + `样本=0`。
+ *
+ * 【它造成的用户可见故障】
+ * 空蒙版照样被送上游。即梦拿到「没有任何可编辑区」的蒙版，要么原样返回
+ * （日志：`完成但 mask 区域无明显变化`），要么在上游空转到
+ * `Polling timeout`（每次干等 360s）。生产实测 20 次擦字里 12 次白费，
+ * 用户侧表现就是「vod拉取图片失败 / 网络开小差」。
+ *
+ * 【为什么是按字段名豁免，而不是按内容嗅探】
+ * 递归 walk 只能看到字符串本身，无法区分「带透明区的插画」和「蒙版」。
+ * 而蒙版在全站的字段名是收敛的（下列几个），按名字豁免是确定性的；
+ * 靠「检测到有 alpha 就不压」则会把大量带透明通道的普通 PNG 也放过，
+ * 等于把 413 的老毛病放回来。
+ *
+ * ⚠️ 新增蒙版字段时必须同步加到这里，否则那条链路会**静默**退化：
+ *    不报错，只是擦不掉字。
+ */
+const MASK_FIELD_NAMES = new Set([
+  "maskSrc",
+  "mask_url",
+  "maskUrl",
+  "mask_base64",
+  "eraseMaskDataUrl",
+  "maskDataUrl",
+]);
+
+/**
+ * 判断某个字段是否是蒙版字段（不区分大小写地兜一层，防止调用方写成 masksrc）。
+ * 导出是为了让测试能直接盯住这份名单，避免它被悄悄改空。
+ */
+export function isMaskFieldName(key: string) {
+  if (MASK_FIELD_NAMES.has(key)) return true;
+  const lowered = key.toLowerCase();
+  return lowered === "masksrc" || lowered === "maskurl" || lowered === "mask_base64";
+}
+
+/**
  * 逐级降质量重试的档位。
  *
  * 为什么要多档而不是一次定死：图片内容差异很大（纯色海报 vs 高噪点照片），
@@ -202,17 +253,29 @@ export async function compressImageForAiPayload(src: string): Promise<string> {
 export async function compressAiRequestBody<T>(body: T): Promise<T> {
   if (!body || typeof body !== "object") return body;
 
-  const walk = async (value: unknown): Promise<unknown> => {
+  /*
+   * ⚠️ walk 必须知道「自己正在遍历哪个字段」。
+   *
+   * 原实现只接 value，于是递归到字符串时已经丢掉了字段名，
+   * 蒙版和照片长得一模一样，只能一视同仁地压 —— 这正是
+   * MASK_FIELD_NAMES 注释里那个「擦字静默失效」故障的成因。
+   * 这里把 key 一路带下去，遇到蒙版字段就原样返回。
+   */
+  const walk = async (value: unknown, key?: string): Promise<unknown> => {
     if (typeof value === "string") {
-      return isDataUrl(value) ? await compressImageForAiPayload(value) : value;
+      if (!isDataUrl(value)) return value;
+      // 蒙版承载信息的是 alpha 通道，JPEG 会把它抹平 —— 必须原样发出。
+      if (key && isMaskFieldName(key)) return value;
+      return await compressImageForAiPayload(value);
     }
     if (Array.isArray(value)) {
-      return Promise.all(value.map(walk));
+      // 数组元素继承父字段名：maskSrc: [a, b] 里的每一项同样是蒙版。
+      return Promise.all(value.map(item => walk(item, key)));
     }
     if (value && typeof value === "object") {
       const entries = await Promise.all(
         Object.entries(value as Record<string, unknown>).map(
-          async ([key, item]) => [key, await walk(item)] as const
+          async ([childKey, item]) => [childKey, await walk(item, childKey)] as const
         )
       );
       return Object.fromEntries(entries);
