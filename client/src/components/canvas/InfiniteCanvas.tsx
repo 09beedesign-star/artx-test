@@ -3233,13 +3233,21 @@ function AssetFloatingToolbar({
   const dividerColor = isDark
     ? "rgba(255,255,255,0.28)"
     : "rgba(28,28,40,0.22)";
+  /**
+   * 图片命令条主条目（2026-09-20 改为**横向**，挂在图片上方 8px 并左右居中）。
+   *
+   * 本次调整依据用户截图需求：
+   *   1. 旋转与反转 / 去背景 / 橡皮工具 / HD 4K / 去水印 / 扩展
+   *      这 6 个命令**从主条移入「更多」菜单**（见下方 moreItems）。
+   *   2. 顶部工具盘的「智能注释」移入本条（action: "annotate"）。
+   *      它原本就只能作用于图片（空白画布点它会提示「该功能需加载图片之后使用」），
+   *      放在图片命令条里才是它该待的地方。
+   *
+   * ⚠️ 主条与 moreItems 是同一份命令的两个出口，**加减命令必须同时想清楚放哪边**，
+   * 否则会出现「两个地方都有」或「两个地方都没有」。
+   */
   const assetTools: FloatingToolItem[] = [
     { icon: <Move size={15} />, label: "移动对象", action: "move-object" },
-    {
-      icon: <RotateCw size={15} />,
-      label: "旋转与反转",
-      action: "flip-rotate",
-    },
     { icon: <Crop size={15} />, label: "裁切", action: "crop" },
     {
       icon: <IntroduceToChatIcon cutoutBg={toolBg} />,
@@ -3248,22 +3256,9 @@ function AssetFloatingToolbar({
     },
     { type: "divider" as const, key: "after-transform" },
     {
-      icon: (
-        <AiDecoratedIcon cutoutBg={toolBg}>
-          <ImageOff size={15} />
-        </AiDecoratedIcon>
-      ),
-      label: "去背景",
-      action: "remove-background",
-    },
-    {
-      icon: (
-        <AiDecoratedIcon cutoutBg={toolBg}>
-          <Eraser size={15} />
-        </AiDecoratedIcon>
-      ),
-      label: "橡皮工具",
-      action: "erase",
+      icon: <AiAnnotationIcon size={15} cutoutBg={toolBg} />,
+      label: "智能注释",
+      action: "annotate",
     },
     {
       icon: (
@@ -3315,17 +3310,6 @@ function AssetFloatingToolbar({
       label: "视角",
       action: "camera-view",
     },
-    { icon: <HdIcon size={15} />, label: "HD 4K", action: "upscale" },
-    {
-      icon: (
-        <AiDecoratedIcon cutoutBg={toolBg}>
-          <Droplets size={15} />
-        </AiDecoratedIcon>
-      ),
-      label: "去水印",
-      action: "remove-watermark",
-    },
-    { icon: <Expand size={15} />, label: "扩展", action: "expand" },
     { type: "divider" as const, key: "after-expand" },
     { icon: <MoreHorizontal size={15} />, label: "更多", action: "more" },
     { icon: <Shirt size={15} />, label: "多平台封面", action: "mockup" },
@@ -3335,7 +3319,50 @@ function AssetFloatingToolbar({
     { icon: <Download size={15} />, label: "导出画板", action: "download" },
   ];
   const tools = mode === "canvasFrame" ? frameTools : assetTools;
+  /**
+   * 「更多」菜单（2026-09-20 起承接从主条移入的 6 个命令）。
+   *
+   * 移入顺序刻意保持与原竖条中的先后一致，用户的肌肉记忆不会错位：
+   *   旋转与反转 → 去背景 → 橡皮工具 → HD 4K → 去水印 → 扩展
+   *
+   * ⚠️ 这些 action 的业务分发仍在 handleSingleImageToolbarAction 里，**没有改动**，
+   * 菜单项只是换了一个触发入口，所以无需动任何 case。
+   */
   const moreItems = [
+    {
+      icon: <RotateCw size={18} />,
+      label: "旋转与反转",
+      action: "flip-rotate",
+    },
+    {
+      icon: (
+        <AiDecoratedIcon cutoutBg={moreBg}>
+          <ImageOff size={18} />
+        </AiDecoratedIcon>
+      ),
+      label: "去背景",
+      action: "remove-background",
+    },
+    {
+      icon: (
+        <AiDecoratedIcon cutoutBg={moreBg}>
+          <Eraser size={18} />
+        </AiDecoratedIcon>
+      ),
+      label: "橡皮工具",
+      action: "erase",
+    },
+    { icon: <HdIcon size={18} />, label: "HD 4K", action: "upscale" },
+    {
+      icon: (
+        <AiDecoratedIcon cutoutBg={moreBg}>
+          <Droplets size={18} />
+        </AiDecoratedIcon>
+      ),
+      label: "去水印",
+      action: "remove-watermark",
+    },
+    { icon: <Expand size={18} />, label: "扩展", action: "expand" },
     { icon: <ImageIcon size={18} />, label: "调整", action: "adjust" },
     { icon: <Frame size={18} />, label: "矢量", action: "vector" },
   ];
@@ -3353,27 +3380,33 @@ function AssetFloatingToolbar({
   }, [moreOpen]);
   const buttonClass =
     "relative w-8 h-8 rounded-[var(--radius-md-design)] flex items-center justify-center transition-all active:scale-90";
+  // 横向命令条：分隔线也要跟着转 90°（竖线），否则会变成一条压扁的横杠。
   const renderDivider = (key: string) => (
     <div
       key={key}
       aria-hidden="true"
       style={{
-        width: 22,
-        height: 2,
+        width: 2,
+        height: 22,
         borderRadius: 999,
         background: dividerColor,
-        margin: "5px 0",
+        margin: "0 5px",
         flex: "0 0 auto",
       }}
     />
   );
   const renderButton = (item: FloatingToolButton) => (
     <div key={item.action} className="relative">
+      {/*
+        横向命令条的 tooltip 挂在按钮**正下方**。
+        竖条时代它挂在右侧（left-full），横过来后会在一排按钮之间互相遮挡，
+        且命令条本身贴着图片顶边，向上弹会被画布顶部裁掉。
+      */}
       {hoveredAction === item.action && (
         <div
-          className="absolute left-full ml-2 top-1/2 pointer-events-none"
+          className="absolute top-full mt-2 left-1/2 pointer-events-none"
           style={{
-            transform: "translateY(-50%)",
+            transform: "translateX(-50%)",
             background: tooltipBg,
             color: "rgba(255,255,255,0.92)",
             borderRadius: 6,
@@ -3387,14 +3420,14 @@ function AssetFloatingToolbar({
           <div
             style={{
               position: "absolute",
-              left: -4,
-              top: "50%",
-              transform: "translateY(-50%)",
+              top: -4,
+              left: "50%",
+              transform: "translateX(-50%)",
               width: 0,
               height: 0,
-              borderTop: "4px solid transparent",
-              borderBottom: "4px solid transparent",
-              borderRight: `4px solid ${tooltipBg}`,
+              borderLeft: "4px solid transparent",
+              borderRight: "4px solid transparent",
+              borderBottom: `4px solid ${tooltipBg}`,
             }}
           />
           {item.label}
@@ -3438,7 +3471,14 @@ function AssetFloatingToolbar({
       style={{
         left: position.left,
         top: position.top,
-        transform: "translate(-100%, -50%)",
+        /**
+         * 2026-09-20：竖条挂左侧 → 横条挂**图片上方**。
+         * translate(-50%, -100%)：X 方向回退自身一半 = 与图片左右居中；
+         * Y 方向回退自身全高 = 整条都在 position.top 之上，
+         * 再由外部把 position.top 设成「图片上边缘 - 8px」，得到 8px 间距。
+         * ⚠️ 这两个百分比必须配合外部坐标一起改，单改一边会整条飘走。
+         */
+        transform: "translate(-50%, -100%)",
         zIndex: 110,
       }}
       onMouseDown={e => e.stopPropagation()}
@@ -3449,11 +3489,18 @@ function AssetFloatingToolbar({
         onContextMenu?.(event);
       }}
     >
+      {/*
+        「更多」菜单：横向命令条下改为**向下展开**（用户确认的方向）。
+        命令条贴在图片上方，下方就是图片本体，空间最充裕；
+        向上展开会在图片靠近画布顶部时被裁掉。
+        注意这里必须用 top-full + mt-2 而非 left-full，
+        否则菜单会横着甩到图片右外侧。
+      */}
       {moreOpen && (
         <div
-          className="absolute left-full ml-2 top-1/2 overflow-hidden rounded-[var(--radius-lg-design)] shadow-2xl"
+          className="absolute top-full mt-2 left-1/2 overflow-hidden rounded-[var(--radius-lg-design)] shadow-2xl"
           style={{
-            transform: "translateY(-50%)",
+            transform: "translateX(-50%)",
             width: 190,
             background: moreBg,
             border: `1px solid ${toolBorder}`,
@@ -3496,8 +3543,9 @@ function AssetFloatingToolbar({
           ))}
         </div>
       )}
+      {/* 2026-09-20：flex-col → flex-row，命令条由竖改横 */}
       <div
-        className="flex flex-col items-center rounded-[var(--radius-md-design)]"
+        className="flex flex-row items-center rounded-[var(--radius-md-design)]"
         style={{
           background: toolBg,
           border: `1px solid ${toolBorder}`,
@@ -18493,13 +18541,13 @@ function CanvasTopToolPalette({
     : "rgba(28,28,40,0.22)";
 
   // 工具列表
+  // 2026-09-20：「智能注释」已从这里移入**图片命令条**（AssetFloatingToolbar）。
+  // 原因：该功能只能作用于图片，在空白画布上点它只会提示
+  // 「该功能需加载图片之后使用」，放在顶部通用工具盘属于错位。
+  // ⚠️ toolMode "annotate" 本身**没有删**，注释的落点逻辑仍走同一条路，
+  // 只是触发入口换到了图片命令条。
   const tools = [
     // { id: "image-ai", label: "智能生图", icon: <Sparkles size={17} /> },
-    {
-      id: "annotate",
-      label: "智能注释",
-      icon: <AiAnnotationIcon size={17} cutoutBg={bg} />,
-    },
     {
       id: "product-bg",
       label: "智能产品图",
@@ -33479,6 +33527,21 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         n => n.id === nodeId && (n.type === "asset" || n.type === "canvasFrame")
       );
       const isCanvasFrame = targetNode?.type === "canvasFrame";
+      /**
+       * 「智能注释」（2026-09-20 从顶部工具盘移入图片命令条）。
+       *
+       * 它不是一次性动作，而是切换全局 toolMode 到 "annotate"：
+       * 切换后在图片上点击才会落下注释点（见 handleImageAnnotateClick）。
+       * 所以这里必须走和顶部工具盘**同一个**出口 —— 派发 tool-mode-change 事件，
+       * 而不是自己 setActiveToolMode，否则清绘制状态那一套逻辑会被绕过去。
+       */
+      if (action === "annotate") {
+        window.dispatchEvent(
+          new CustomEvent("tool-mode-change", { detail: { mode: "annotate" } })
+        );
+        toast("智能注释已开启", { description: "在图片上点击即可添加注释" });
+        return;
+      }
       if (action === "introduce-to-chat") {
         if (!targetNode || targetNode.type !== "asset") return;
         const imageSrc = await getVisibleAssetImageSource(nodeId);
@@ -34622,21 +34685,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const selectedImageData = selectedImageNode?.data as
     | Record<string, unknown>
     | undefined;
-  const selectedImageHasBottomPanel = Boolean(
-    selectedImageNode?.type === "asset" &&
-      (selectedImageData?.isErasing ||
-        selectedImageData?.isExpanding ||
-        selectedImageData?.isCropping ||
-        selectedImageData?.isEditing)
-  );
   // 就地编辑态（扩图 / 裁切 / 擦除 / 视角）会在节点内渲染自己的控制面板与
-  // 边缘拖拽手柄，而资源工具条是贴着节点左边缘竖排的浮层，两者必然重叠：
-  // 工具条会盖住图像左侧的扩展框边界和底部面板的左半部分，导致既拖不动
-  // 左边缘、也点不到面板左侧按钮。
-  // ⚠️ 仅靠「给底部面板预留 96px」（imageToolbarBottomPanelReserve）只能让
-  // 工具条上移，解决不了横向遮挡 —— 工具条的 left 恒等于节点左边缘。
-  // 这些模式下工具条里的动作本身也无意义（裁切时点「扩展」是冲突操作），
+  // 边缘拖拽手柄，命令条浮在节点上方会压住扩展框的上边界与顶部手柄。
+  // 这些模式下命令条里的动作本身也无意义（裁切时点「扩展」是冲突操作），
   // 所以直接整条隐藏，退出模式后自然恢复。
+  //
+  // 2026-09-20 备注：命令条改横向上挂后，原先为竖条准备的
+  // selectedImageHasBottomPanel / imageToolbarBottomPanelReserve（给底部面板
+  // 预留 96px 让竖条上移）已无意义，随定位逻辑一并删除。
   const selectedImageInInlineEditMode = Boolean(
     selectedImageNode?.type === "asset" &&
       (selectedImageData?.isExpanding ||
@@ -34669,35 +34725,33 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     },
     [areNodesGrouped, selectedImageNode, selectedNodeIds]
   );
-  const imageToolbarScreenHeight = 468;
-  const imageToolbarGap = 14;
-  const imageToolbarBottomPanelReserve = selectedImageHasBottomPanel ? 96 : 0;
+  /**
+   * 图片命令条定位（2026-09-20 由「贴左边缘、垂直居中」改为
+   * 「浮在图片**上方 8px**、与图片**左右居中**」）。
+   *
+   * 配合 AssetFloatingToolbar 内部的 transform: translate(-50%, -100%)：
+   *   - left 给图片的水平中心 → 回退自身一半宽 = 左右居中
+   *   - top  给图片上边缘减 8 → 回退自身全高 = 底边正好距图片 8px
+   *
+   * ⚠️ 这里的 8 和组件内的 -100% 是一对，**改任何一边都必须同时改另一边**，
+   * 否则命令条会整条飘到图片里面或飞出去老远。
+   *
+   * 夹取逻辑：图片被拖到贴近画布顶部时，命令条会整条跑出可视区。
+   * 用 imageToolbarViewportPadding 兜住，至少保证它留在视口内可点。
+   */
+  const imageToolbarGap = 8;
+  const imageToolbarViewportPadding = 8;
+  const imageToolbarScreenHeight = 44;
   const attachedImageToolbarPosition = selectedImageBounds
     ? (() => {
         const screenTop = selectedImageBounds.y * viewport.zoom + viewport.y;
-        const screenBottom =
-          selectedImageBounds.bottom * viewport.zoom +
-          viewport.y -
-          imageToolbarBottomPanelReserve;
+        const desiredTop = screenTop - imageToolbarGap;
+        // 命令条整体在 desiredTop 之上，所以它的实际顶边 = desiredTop - 高度
         const minTop =
-          screenTop + imageToolbarGap + imageToolbarScreenHeight / 2;
-        const maxTop =
-          screenBottom - imageToolbarGap - imageToolbarScreenHeight / 2;
-        const desiredTop =
-          selectedImageBounds.centerY * viewport.zoom + viewport.y;
-        const top =
-          maxTop >= minTop
-            ? Math.min(Math.max(desiredTop, minTop), maxTop)
-            : Math.min(
-                desiredTop,
-                Math.max(
-                  screenTop + imageToolbarGap + imageToolbarScreenHeight / 2,
-                  screenBottom - imageToolbarGap
-                )
-              );
+          imageToolbarViewportPadding + imageToolbarScreenHeight;
         return {
-          left: selectedImageBounds.x * viewport.zoom + viewport.x - 8,
-          top,
+          left: selectedImageBounds.centerX * viewport.zoom + viewport.x,
+          top: Math.max(desiredTop, minTop),
         };
       })()
     : { left: 31, top: 0 };
