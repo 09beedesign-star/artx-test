@@ -7,7 +7,7 @@ import homeAnnouncement001 from "@/assets/announcement/home-announcement-001.png
  *   弹窗被拆成「常驻骨架」和「可变内容」两部分。
  *     · 常驻骨架 = 排版布局 + 右下角绿色按钮样式 + 右上角圆形关闭按钮
  *       → 在 AnnouncementModal.tsx 里，换弹窗时**不动**
- *     · 可变内容 = 图片 / 标题 / 正文 / 左下角小标签 / 按钮文案
+ *     · 可变内容 = 图片 / 标题 / 副标题 / 正文 / 左下角小标签 / 按钮文案
  *       → 全部收在本文件，换弹窗时**只动这里**
  *
  * ⚠️ 换弹窗时必须同时改 `id`。
@@ -30,6 +30,8 @@ export interface AnnouncementContent {
   imageAlt: string;
   /** 图片下方的主标题 */
   title: string;
+  /** 主标题右侧的副标题；不传 / null 时整块不渲染（别写空字符串，会占间距） */
+  subtitle?: string | null;
   /** 主标题下方的正文段落 */
   body: string;
   /** 左下角绿色竖条旁的两行小标签；不需要时传 null 即可整块隐藏 */
@@ -38,15 +40,19 @@ export interface AnnouncementContent {
   actionLabel: string;
 }
 
+/* 文案以 Figma「Bk page / 首页弹窗模板」为准逐字照抄，全角标点是设计稿的排版节奏，别改半角 */
 export const HOME_ANNOUNCEMENT: AnnouncementContent = {
-  id: "artxstudio-image25-2026-09",
+  /* 2026-09-20 文案改版，id 同步换（image25 → agent25），否则老用户看不到且不报错 */
+  id: "artxstudio-agent25-2026-09",
   image: homeAnnouncement001,
   imageAlt: "ArtX Studio",
   title: "ArtXStudio",
+  subtitle: "全场景图片生成Agent",
   body:
-    "支持纹身图生图、局部重绘、AI 重绘，2K/4K/8K 高清输出；覆盖 25 个国内外电商平台商品图生成，" +
-    "也能轻松搞定广告海报、PPT 配图、办公视觉，低成本做出高质感商业设计。" +
-    "更有超多高效视觉设计 Skill 让你事半功倍！更多 AI 能力等你来解锁！准备好了吗？Go!",
+    "全新的创意视觉Agent；支持文生图、图生图、局部重绘、AI重绘，2K/4K/8K高清输出；" +
+    "覆盖25个国内外电商平台商品图生成，也能轻松搞定广告海报、PPT配图、办公视觉，" +
+    "低成本做出高质感商业设计。更有：优质高效设计 Skill 让你事半功倍！" +
+    "更多AI能力等你来解锁！准备好了吗？Go!",
   tag: {
     line1: "IMAGE2.5 系列",
     line2: "图片大模型已强势接入",

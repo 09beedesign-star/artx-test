@@ -129,19 +129,50 @@ export default function AnnouncementModal({
           }}
         />
 
-        <h2
-          id="artx-announcement-title"
+        {/*
+          标题行 = 主标题 + 右侧副标题（设计稿：ArtXStudio + 全场景图片生成Agent）。
+
+          ⚠️ 用 baseline 对齐，不是 center：两者字号差近一倍（22 vs 13），
+             center 会让小字浮在大字的视觉中线上方，看着像没对齐。
+          ⚠️ flexWrap 必须允许换行：副标题在窄视口会和主标题挤在一行放不下，
+             不允许换行的话它会被压缩甚至溢出卡片，且不报任何错。
+        */}
+        <div
           style={{
             margin: "14px 0 0",
-            fontSize: 22,
-            lineHeight: 1.2,
-            fontWeight: 700,
-            color: "#fff",
-            letterSpacing: "-0.01em",
+            display: "flex",
+            alignItems: "baseline",
+            flexWrap: "wrap",
+            columnGap: 10,
+            rowGap: 2,
           }}
         >
-          {content.title}
-        </h2>
+          <h2
+            id="artx-announcement-title"
+            style={{
+              margin: 0,
+              fontSize: 22,
+              lineHeight: 1.2,
+              fontWeight: 700,
+              color: "#fff",
+              letterSpacing: "-0.01em",
+            }}
+          >
+            {content.title}
+          </h2>
+          {content.subtitle ? (
+            <span
+              style={{
+                fontSize: 13,
+                lineHeight: 1.2,
+                fontWeight: 500,
+                color: "rgba(255,255,255,0.88)",
+              }}
+            >
+              {content.subtitle}
+            </span>
+          ) : null}
+        </div>
 
         <p
           style={{

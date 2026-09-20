@@ -349,13 +349,49 @@ describe("弹窗内容与骨架分离", () => {
     expect(code).not.toContain("我知道了");
     expect(code).not.toContain("ArtXStudio");
     expect(code).not.toContain("IMAGE2.5");
+    // 2026-09-20 新增的副标题同样属于业务文案，不得回流进骨架
+    expect(code).not.toContain("全场景图片生成Agent");
   });
 
   it("内容文件提供了全部可变字段", () => {
     const code = readCode(CONTENT_PATH);
-    for (const key of ["id", "image", "title", "body", "tag", "actionLabel"]) {
+    for (const key of ["id", "image", "title", "subtitle", "body", "tag", "actionLabel"]) {
       expect(code).toContain(`${key}:`);
     }
+  });
+
+  it("副标题由骨架条件渲染，且与主标题基线对齐", () => {
+    /*
+      2026-09-20 设计稿新增：主标题右侧的「全场景图片生成Agent」。
+
+      ⚠️ 必须条件渲染（content.subtitle ? ... : null）。
+         历史弹窗没有副标题，无脑渲染会在标题右边留一块 columnGap 的空白，
+         看起来像排版错位，而且不报任何错。
+
+      ⚠️ 必须 baseline 对齐，不能 center。
+         两者字号差近一倍（22 vs 13），center 会让小字浮在大字视觉中线上方，
+         肉眼就是「没对齐」，同样零报错。
+    */
+    const code = readCode(MODAL_PATH);
+    expect(code).toContain("content.subtitle ?");
+    expect(code).toContain('alignItems: "baseline"');
+    // 窄视口要能换行，否则副标题被压缩甚至溢出卡片
+    expect(code).toContain('flexWrap: "wrap"');
+  });
+
+  it("换文案必须同步换 id，否则老用户永远看不到新内容", () => {
+    /*
+      这是换公告最容易踩的坑：内容全换了、图也换了，
+      但 id 没动 —— 看过上一期的用户 localStorage 命中已读，直接不弹。
+      线上表现为「只有新用户能看到」，零报错。
+
+      ⚠️ 这里锁的是**当期 id**。下次换文案时这条断言会失败，
+         那不是回归，是提醒你「id 也要跟着改」。改完把这行更新即可。
+    */
+    const code = readCode(CONTENT_PATH);
+    expect(code).toContain('id: "artxstudio-agent25-2026-09"');
+    // 上一期 id 不得残留
+    expect(code).not.toContain('id: "artxstudio-image25-2026-09"');
   });
 
   it("图片走 import 而非 public 绝对路径（换图必须换 URL）", () => {
