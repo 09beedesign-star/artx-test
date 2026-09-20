@@ -3215,10 +3215,11 @@ function AssetFloatingToolbar({
     /*
      * 2026-09-21：用户要求把「引入对话」从图片命令条去掉。
      *
-     * ⚠️ 只删这个**入口**，handleSingleImageToolbarAction 里的
-     *    `action === "introduce-to-chat"` 分支**刻意保留** ——
-     *    右键菜单等其他出口仍会派发这个 action，
-     *    分支删了会变成「点了没反应且不报错」。
+     * 删除前实测 grep：全项目再没有别的地方派发这个 action
+     * （命中的只剩测试文件自己），所以 handler 分支和图标组件
+     * 也一并删掉了，不留死代码。详见 handleSingleImageToolbarAction。
+     *
+     * 图片加入对话的能力本身没消失 —— 仍可直接把图拖进右下角输入框。
      */
     { type: "divider" as const, key: "after-transform" },
     {
