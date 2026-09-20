@@ -170,10 +170,81 @@ describe("智能电商产品：两种背景模式等高（需求 2 的另一半�
     ).toBe(2);
   });
 
-  it("提示词区内容超出时内部滚动，不把外轮廓顶高", () => {
-    expect(dialogSource).toMatch(
-      /className="overflow-y-auto"\s*\n\s*style=\{\{ height: BACKGROUND_PANEL_HEIGHT \}\}/
+  it("提示词区外壳固定高度，且不再是滚动壳（需求 2026-09-20）", () => {
+    /*
+      ⚠️ 用户明确要求去掉这块的滑块。
+
+      原写法是 `className="overflow-y-auto" style={{height: ...}}`，
+      把「提示词框」和「说明+平台风格」一起包成一个滚动壳 ——
+      右侧长出滑块，视觉上两块粘成了一个模块。
+
+      这条断言锁的是「外壳仍固定高度，但不带 overflow-y-auto」。
+      只断言 not.toContain("overflow-y-auto") 是不行的：
+      模板区的卡片滚动容器也用这个类，会误伤。
+      所以必须取出**外壳那一段**再查。
+    */
+    const start = dialogSource.indexOf('<div\n                    className="flex flex-col"');
+    expect(start, "找不到提示词区外壳（类名被改动？）").toBeGreaterThan(-1);
+    const shell = dialogSource.slice(start, start + 260);
+    expect(shell).toContain("height: BACKGROUND_PANEL_HEIGHT");
+    expect(shell).toContain("gap: BACKGROUND_MODULE_GAP");
+    expect(shell, "提示词区外壳又变回滚动壳了，滑块会回来").not.toContain(
+      "overflow-y-auto"
     );
+  });
+
+  it("提示词框与说明/风格区是两个独立模块（需求 2026-09-20）", () => {
+    /*
+      需求原文：「红色部分框选的这两个部分不要嵌入到一个模块，
+      应该是两个独立模块」。
+
+      判据：模块一有自己的固定高度常量且 shrink-0；
+            模块二是独立的 flex 容器占剩余高度。
+      若哪天有人把计数行挪回模块一里面，下面的锚点会失配。
+    */
+    expect(dialogSource).toContain("const PROMPT_INPUT_HEIGHT = 120;");
+    expect(dialogSource).toMatch(
+      /className="relative shrink-0"\s*\n\s*style=\{\{ height: PROMPT_INPUT_HEIGHT \}\}/
+    );
+    // 模块二：独立容器，且计数行在它里面而不是贴在 textarea 后面
+    expect(dialogSource).toContain('<div className="flex min-h-0 flex-1 flex-col">');
+    expect(dialogSource).toContain(
+      '<span className="tabular-nums">{customPrompt.length}/800</span>'
+    );
+  });
+
+  it("textarea 靠模块高度撑满，不再用 rows/minHeight 自然生长", () => {
+    /*
+      ⚠️ 模块一高度写死后，textarea 必须 h-full 填满它。
+         留着 rows={4} + minHeight 的话，框的实际高度由字体行高决定，
+         和 PROMPT_INPUT_HEIGHT 对不上 —— 模块一底部会露出一条空隙，
+         零报错，只是看起来"没对齐"。
+    */
+    expect(dialogSource).toContain(
+      'className="h-full w-full resize-none rounded-md px-3 py-2 pb-9 text-[11px] leading-4 outline-none"'
+    );
+    expect(dialogSource, "textarea 不应再有 rows 属性").not.toContain("rows={4}");
+    expect(dialogSource, "textarea 不应再有 minHeight").not.toContain("minHeight: 92,");
+  });
+
+  it("两个模块的高度账加起来不超过面板高度", () => {
+    /*
+      ⚠️ 这条防的是「改了其中一个常量，另一个没跟着改」。
+         超了会被 overflow-hidden 裁掉风格卡，零报错。
+    */
+    const panel = readNumericConstant("BACKGROUND_PANEL_HEIGHT");
+    const promptBox = readNumericConstant("PROMPT_INPUT_HEIGHT");
+    const gap = readNumericConstant("BACKGROUND_MODULE_GAP");
+
+    // 模块二实际需要的高度（选了平台时最高）
+    const moduleTwo =
+      16 + // 计数行 leading-4
+      8 + // mt-2
+      (2 + 16 + 14 + (4 + 16) + (6 + 52)); // 风格卡：border + py + 标题 + 说明 + 关键词两行
+    expect(
+      promptBox + gap + moduleTwo,
+      "两个模块加起来超过面板高度，平台风格卡会被裁"
+    ).toBeLessThanOrEqual(panel);
   });
 
   it("背景区高度足以容纳模板模式的全部内容", () => {
@@ -182,17 +253,34 @@ describe("智能电商产品：两种背景模式等高（需求 2 的另一半�
       零报错，表现为「明明用过的模板不显示」，极难联想到是常量问题。
       这里按内容逐项相加复核一遍。
     */
+    const rows = readNumericConstant("BACKGROUND_TEMPLATE_ROWS");
     const contentHeight =
       10 + // 头部 pt-2.5
       24 + // 头部行 h-6
       (6 + 2 + 8 + 16) + // 已选回显 mt-1.5 + border + py-1×2 + leading-4
       6 + // 主体 pt-1.5
-      (12 + 4) + // 「最近使用」标签 + mb-1
-      (52 * 2 + 6) + // 卡片两行 h-[52px] + gap-1.5
+      (12 + 4) + // 标签 + mb-1
+      (52 * rows + 6 * (rows - 1)) + // 卡片 N 行 h-[52px] + gap-1.5
       10; // 主体 pb-2.5
     expect(readNumericConstant("BACKGROUND_PANEL_HEIGHT")).toBeGreaterThanOrEqual(
       contentHeight
     );
+  });
+
+  it("卡片截断行数与 BACKGROUND_TEMPLATE_ROWS 联动，不写死数字", () => {
+    /*
+      ⚠️ 原来写的是 `slice(0, RECENT_PICWISH_TEMPLATE_COLUMNS * 2)`，
+         那个 2 是「两行」的硬编码。面板从 208 提到 280 之后，
+         它不会自己变成 3 —— 表现为模板区底部空出 72px 死白，零报错。
+         改成常量后，行数和高度账绑在一起。
+    */
+    expect(dialogSource).toContain(
+      "RECENT_PICWISH_TEMPLATE_COLUMNS * BACKGROUND_TEMPLATE_ROWS"
+    );
+    expect(
+      dialogSource,
+      "又出现了写死的两行截断"
+    ).not.toContain("RECENT_PICWISH_TEMPLATE_COLUMNS * 2");
   });
 });
 

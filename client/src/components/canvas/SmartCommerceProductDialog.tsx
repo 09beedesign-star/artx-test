@@ -210,21 +210,66 @@ const IMAGE_COUNTS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
  */
 
 /**
+ * 提示词输入框（模块一）的固定高度。
+ *
+ * ⚠️ 2026-09-20 需求：提示词框与下方的「说明/计数 + 平台风格助写」
+ *    必须是**两个独立模块**，不能再挤在同一个滚动壳里。
+ *
+ * 120 = textarea 自然高 110（rows=4 → 4×leading-4(64) + pt-2(8)
+ *       + pb-9(36，给框内参考图入口留位) + border(2)）+ 10 余量。
+ *    写死而不是让它自由生长：它是模块二高度的被减数，
+ *    浮动的话模块二会跟着浮动，风格卡被裁且零报错。
+ */
+const PROMPT_INPUT_HEIGHT = 120;
+
+/**
+ * 两个模块之间的间距。提取成常量是因为它同时出现在
+ * 「布局 gap」和「高度账」两处，写两份数字必然有一天对不上。
+ */
+const BACKGROUND_MODULE_GAP = 8;
+
+/**
  * 背景区（默认背景模板库 / 提示词输入）的统一高度。
  *
- * 208 来自模板模式的内容自然高，逐项相加：
- *   头部 pt-2.5(10) + 头部行 h-6(24)
- * + 已选回显 mt-1.5(6) + border(2) + py-1×2(8) + leading-4(16)
- * + 主体 pt-1.5(6) + 「最近使用」标签(12+mb-1 4)
- * + 卡片两行 h-[52px]×2 + gap-1.5(6) = 110
- * + 主体 pb-2.5(10)
- * = 208
+ * ⚠️⚠️ 2026-09-20 从 208 提到 280。
  *
- * ⚠️ 取的是两种模式里**较高**的那个（提示词模式自然高仅 130）。
- *    取小值会让模板区内容被 overflow-hidden 裁掉，且零报错 ——
- *    表现为「第二行最近使用模板看不见」，很难联想到是高度常量的问题。
+ * 【为什么必须提高】原先提示词模式把「输入框」和「说明+风格助写」
+ * 塞进一个 208px 的 overflow-y-auto 壳里，于是右侧长出一条滑块，
+ * 视觉上两块被粘成了一个模块 —— 正是用户要拆开的东西。
+ * 拆成两个独立模块后，两块高度是**相加**关系，208 装不下：
+ *   模块一 120 + 间距 8 + 模块二 134（选了平台时）= 262。
+ * 硬留在 208 只有两个下场：要么回到滚动条，要么 overflow-hidden
+ * 把风格卡裁掉一半 —— 后者零报错，比滑块更糟。
+ *
+ * 280 的账（取两种模式里较高者）：
+ *
+ *   提示词模式 = 120 + 8 + 152(模块二可用高) = 280
+ *     模块二实际需要：计数行 16 + 间距 8 + 风格卡 110
+ *       （border 2 + py-2×2 16 + 标题行 14
+ *         + 说明 mt-1(4)+leading-4(16) + 关键词 mt-1.5(6)+两行(24×2+gap 4=52)）
+ *     = 134，余 18px 缓冲（关键词换行数多一行也不会被裁）
+ *
+ *   模板模式 = 固定头部 98 + 卡片区 182
+ *     固定头部：pt-2.5(10) + 头部行 h-6(24)
+ *              + 已选回显 mt-1.5(6)+border(2)+py-1×2(8)+leading-4(16)
+ *              + 主体 pt-1.5(6) + 标签(12+mb-1 4) + 主体 pb-2.5(10)
+ *     卡片区放**三行** h-[52px]×3 + gap-1.5×2 = 168，余 14px
+ *
+ * ⚠️ 卡片从两行改三行是配套动作，不是顺手加的。
+ *    面板增高而卡片仍是两行的话，模板模式底部会空出 72px 死白。
+ *    见 gridTemplates 的 slice 行数。
  */
-const BACKGROUND_PANEL_HEIGHT = 208;
+const BACKGROUND_PANEL_HEIGHT = 280;
+
+/**
+ * 模板模式里卡片网格的行数。
+ *
+ * ⚠️ 它和 BACKGROUND_PANEL_HEIGHT 是一笔账上的两个数，必须成对调整：
+ *    行数多了会被 overflow 裁掉（像"最后一行没渲染出来"），
+ *    行数少了底部留死白。面板 280 时可用卡片区 182，
+ *    三行 = 52×3 + gap-1.5×2 = 168，余 14px。
+ */
+const BACKGROUND_TEMPLATE_ROWS = 3;
 
 /**
  * 左侧产品图上传区的高度。
@@ -900,9 +945,11 @@ export function SmartCommerceProductDialog({
    *    这里统一映射成卡片真正需要的 4 个字段再喂给渲染，
    *    避免在 JSX 里写两套分支 —— 两套分支改一边忘一边是零报错的。
    *
-   * ⚠️ 截断长度沿用 RECENT_PICWISH_TEMPLATE_COLUMNS * 2 = 4（两行两列）。
-   *    面板高度是死的（BACKGROUND_PANEL_HEIGHT 的账里只留了两行卡片），
-   *    多给会被 overflow 裁掉，看起来像"最后一行渲染失败"。
+   * ⚠️ 截断长度 = RECENT_PICWISH_TEMPLATE_COLUMNS × BACKGROUND_TEMPLATE_ROWS
+   *    = 2 × 3 = 6（三行两列）。
+   *    面板高度是死的，多给会被 overflow 裁掉，
+   *    看起来像"最后一行渲染失败"；少给则底部留死白。
+   *    行数随 BACKGROUND_PANEL_HEIGHT 一起算，见该常量的高度账。
    */
   /**
    * 当前网格展示的到底是不是「最近使用」。
@@ -913,12 +960,14 @@ export function SmartCommerceProductDialog({
   const showingRecent = recentTemplates.length > 0;
   const gridTemplates = useMemo(() => {
     const source = recentTemplates.length > 0 ? recentTemplates : fallbackTemplates;
-    return source.slice(0, RECENT_PICWISH_TEMPLATE_COLUMNS * 2).map(item => ({
-      id: item.id,
-      name: item.name,
-      category: item.category,
-      previewUrl: item.previewUrl,
-    }));
+    return source
+      .slice(0, RECENT_PICWISH_TEMPLATE_COLUMNS * BACKGROUND_TEMPLATE_ROWS)
+      .map(item => ({
+        id: item.id,
+        name: item.name,
+        category: item.category,
+        previewUrl: item.previewUrl,
+      }));
   }, [recentTemplates, fallbackTemplates]);
 
   /** 统一的落盘出口：状态与 localStorage 永远一起变，避免两边对不上。 */
@@ -1643,31 +1692,46 @@ export function SmartCommerceProductDialog({
                     只钉模板区而放任这里自由生长，切 tab / 选平台时右列照样伸缩，
                     用户描述的「上下动荡」只会被治好一半，且零报错。
 
-                    ✅ 固定外壳高度 + 内部 overflow-y-auto：
-                       内容多了内部滚动，外轮廓永远不动。
+                    ✅ 固定外壳高度 + 内部两个独立模块：
+                       外轮廓永远不动，而内部不再是一个滚动壳。
+
+                    ⚠️⚠️ 2026-09-20 需求：这里原本是
+                       `<div className="overflow-y-auto" style={{height:...}}>`
+                       把「提示词框」和「说明+平台风格」一起包住 ——
+                       结果右侧长出一条滑块，视觉上两块粘成了一个模块。
+                       现在改为 flex-col + gap，两块各自独立成盒，
+                       **不允许再给这一层加 overflow-y-auto**（守卫测试会红）。
                   */
                   <div
-                    className="overflow-y-auto"
-                    style={{ height: BACKGROUND_PANEL_HEIGHT }}
+                    className="flex flex-col"
+                    style={{
+                      height: BACKGROUND_PANEL_HEIGHT,
+                      gap: BACKGROUND_MODULE_GAP,
+                    }}
                   >
                     {/*
-                      提示词框 + 内嵌的参考图入口。
-                      入口做成框内左下角的小 icon，而不是另起一个上传区——
+                      ── 模块一：提示词输入框（含内嵌参考图入口）──
+
+                      参考图入口做成框内左下角的小 icon，而不是另起一个上传区——
                       它是提示词的「补充说明」，不是与产品图并列的第二个主输入。
+
+                      ⚠️ shrink-0 + 固定高度：不加的话 flex 会在模块二变高时
+                         优先压缩输入框，textarea 被挤扁且零报错。
                     */}
-                    <div className="relative">
+                    <div
+                      className="relative shrink-0"
+                      style={{ height: PROMPT_INPUT_HEIGHT }}
+                    >
                       <textarea
                         value={customPrompt}
                         onChange={event => setCustomPrompt(event.target.value)}
                         placeholder="描述你想要的电商背景，例如：浅灰水泥台面，柔和自然光从左上方打入，背景虚化的绿植，高级质感"
-                        className="w-full resize-none rounded-md px-3 py-2 pb-9 text-[11px] leading-4 outline-none"
-                        rows={4}
+                        className="h-full w-full resize-none rounded-md px-3 py-2 pb-9 text-[11px] leading-4 outline-none"
                         maxLength={800}
                         style={{
                           color: colors.text,
                           background: colors.surface,
                           border: `1px solid ${customPrompt.trim() ? "rgba(197,237,71,0.58)" : colors.border}`,
-                          minHeight: 92,
                         }}
                       />
                       {/*
@@ -1761,17 +1825,29 @@ export function SmartCommerceProductDialog({
                         )}
                       </div>
                     </div>
-                    <div
-                      className="mt-1 flex items-center justify-between text-[9px] leading-4"
-                      style={{ color: colors.muted }}
-                    >
-                      <span>
-                        {referenceSrc
-                          ? "参考图只影响背景风格，产品外观比例细节不变"
-                          : "产品主体会被保护，提示词只影响背景"}
-                      </span>
-                      <span className="tabular-nums">{customPrompt.length}/800</span>
-                    </div>
+                    {/*
+                      ── 模块二：说明/计数 + 平台风格助写 ──
+
+                      ⚠️ 2026-09-20 需求：与上面的输入框是**两个独立模块**。
+                         这一层用 min-h-0 + flex-1 占住剩余高度，
+                         自己不带滚动条 —— BACKGROUND_PANEL_HEIGHT 的账里
+                         已经给它留够了空间（见常量注释）。
+
+                      ⚠️ min-h-0 不能省：flex 子项默认 min-height:auto，
+                         不加的话内容偏多时它不会收缩，反而把外壳顶破。
+                    */}
+                    <div className="flex min-h-0 flex-1 flex-col">
+                      <div
+                        className="flex shrink-0 items-center justify-between text-[9px] leading-4"
+                        style={{ color: colors.muted }}
+                      >
+                        <span>
+                          {referenceSrc
+                            ? "参考图只影响背景风格，产品外观比例细节不变"
+                            : "产品主体会被保护，提示词只影响背景"}
+                        </span>
+                        <span className="tabular-nums">{customPrompt.length}/800</span>
+                      </div>
 
                     {/*
                       平台风格助写区（2026-09-19）。
@@ -1788,7 +1864,7 @@ export function SmartCommerceProductDialog({
                     */}
                     {ecommerceStyle && selectedEcommerce ? (
                       <div
-                        className="mt-2 rounded-md px-2.5 py-2"
+                        className="mt-2 min-h-0 flex-1 overflow-hidden rounded-md px-2.5 py-2"
                         style={{ background: colors.surface, border: `1px solid ${colors.border}` }}
                       >
                         <div className="flex items-center gap-1.5">
@@ -1842,11 +1918,12 @@ export function SmartCommerceProductDialog({
                           >
                             {selectedEcommerce.name} 要求纯白底，你的描述里有「
                             {whiteBgConflicts.slice(0, 3).join("、")}
-                            」可能出不了审核图。可改用白底相关的描述，或换一个不限背景的平台。
+                            」可能出不了审核图。                            可改用白底相关的描述，或换一个不限背景的平台。
                           </p>
                         ) : null}
                       </div>
                     ) : null}
+                    </div>
                   </div>
                 ) : (
                   /*
