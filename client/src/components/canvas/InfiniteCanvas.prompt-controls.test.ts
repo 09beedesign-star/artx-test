@@ -411,21 +411,39 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(assetToolbar).toContain("zIndex: 110");
   });
 
-  it("adds a selected image to the conversation from the right-side toolbar", () => {
+  /*
+   * 2026-09-21：用户要求把「引入对话」从图片命令条去掉。
+   *
+   * 这条原本是该入口的**防删锁**（锁 label / action / icon / handler 四件套）。
+   * 需求反转后，锁的方向也必须跟着反转 —— 否则它会把用户要的删除
+   * 报成回归。改为**反向断言**：入口不能再回来。
+   *
+   * ⚠️ 连 handler 分支一起删：删掉命令条入口后，全项目已无任何地方
+   *    派发 "introduce-to-chat"（实测 grep 只剩测试文件自己），
+   *    留着就是死代码。图片进对话仍可用「拖图进输入框」完成。
+   */
+  it("引入对话入口已按需求移除，不能再出现在图片命令条里", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
     const assetTools = source.match(
       /const assetTools: FloatingToolItem\[\] = \[[\s\S]*?const frameTools/
     )?.[0];
-    const actionHandler = source.match(
-      /const handleSingleImageToolbarAction = useCallback\([\s\S]*?const handleSocialMediaSizeGenerate/
+    const moreItems = source.match(
+      /const moreItems = \[[\s\S]*?\n  \];/
     )?.[0];
 
-    expect(assetTools).toContain('label: "引入对话"');
-    expect(assetTools).toContain('action: "introduce-to-chat"');
-    expect(assetTools).toContain("IntroduceToChatIcon");
-    expect(actionHandler).toContain('if (action === "introduce-to-chat")');
-    expect(actionHandler).toContain("await addReferencedAsset({");
-    expect(actionHandler).toContain("setIsAssistantCollapsed(false)");
+    expect(assetTools, "assetTools 切片为空，锚点失效").toBeTruthy();
+    expect(moreItems, "moreItems 切片为空，锚点失效").toBeTruthy();
+
+    // 主条和「更多」两个出口都不能有（漏一个就等于没删）
+    expect(assetTools, "「引入对话」又回到主命令条了").not.toContain(
+      'action: "introduce-to-chat"'
+    );
+    expect(moreItems, "「引入对话」被挪进了更多菜单，用户要的是删掉").not.toContain(
+      'action: "introduce-to-chat"'
+    );
+    expect(assetTools, "「引入对话」的 label 还在").not.toContain(
+      'label: "引入对话"'
+    );
   });
 
   it("reverse engineers a selected image into a copyable prompt without using image generation", () => {

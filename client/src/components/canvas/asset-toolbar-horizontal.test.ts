@@ -152,7 +152,8 @@ describe("图片命令条：6 个命令收进「更多」菜单", () => {
     for (const action of [
       "move-object",
       "crop",
-      "introduce-to-chat",
+      // "introduce-to-chat" 已于 2026-09-21 按用户要求整条移除，
+      // 反向断言在 InfiniteCanvas.prompt-controls.test.ts 里守着
       "edit-elements",
       "edit-text",
       "reverse-prompt",
@@ -194,10 +195,17 @@ describe("智能注释：从顶部工具盘移入图片命令条", () => {
   });
 
   it("点击必须派发 tool-mode-change 而不是自己改 state", () => {
-    const handler = source.slice(
-      source.indexOf("const handleSingleImageToolbarAction"),
-      source.indexOf('if (action === "introduce-to-chat")')
-    );
+    /*
+     * ⚠️ 终止锚原本是 `if (action === "introduce-to-chat")`，
+     *    该分支已于 2026-09-21 随「引入对话」一起删除。
+     *    继续用它会让 indexOf 返回 -1 → slice 切出空片段 → 断言恒假。
+     *    改锚到仍然存在的 isCanvasFrame 分支。
+     */
+    const start = source.indexOf("const handleSingleImageToolbarAction");
+    const end = source.indexOf("if (isCanvasFrame) {", start);
+    expect(start, "handler 起始锚点失效").toBeGreaterThan(-1);
+    expect(end, "handler 终止锚点失效").toBeGreaterThan(start);
+    const handler = source.slice(start, end);
     expect(handler.length, "action 分发片段为空").toBeGreaterThan(200);
     expect(handler, "缺少 annotate 分支，按钮会点了没反应").toContain(
       'if (action === "annotate")'
@@ -216,5 +224,80 @@ describe("智能注释：从顶部工具盘移入图片命令条", () => {
     expect(source, "annotation-create 事件被删了").toContain(
       '"annotation-create"'
     );
+  });
+});
+
+describe("「更多」菜单：从更多 icon 正下方展开（2026-09-21）", () => {
+  /*
+   * 需求：菜单要与「更多」按钮的 icon 左右居中对齐，从它正下方展开。
+   *
+   * 根因记录（防止有人改回去）：
+   *   菜单原本是**整条命令条**的子元素，用 left-1/2 定位，
+   *   那个 1/2 是整条的中点；而「更多」按钮在最右端，
+   *   于是菜单整体偏左。挪进按钮自己的 relative 容器后才对齐。
+   */
+  /*
+   * ⚠️ 不能拿 "return (" 当终止锚 —— renderButton 自己内部第一行就是 return (，
+   *    会切出空片段让所有断言恒假（典型的「切错范围 → 测试变摆设」）。
+   *    改用组件顶层那个 `\n  return (`（两空格缩进）作为边界。
+   */
+  const renderButtonStart = toolbar.indexOf("const renderButton");
+  const componentReturn = toolbar.indexOf("\n  return (", renderButtonStart);
+  const renderButton = toolbar.slice(renderButtonStart, componentReturn);
+
+  /*
+   * ⚠️⚠️ 不能在整个 renderButton 上断言 translateX(-50%)：
+   *    tooltip 自己也用同一个写法，菜单那份被删掉时整段仍然 toContain 得到，
+   *    断言恒真、变异漏网（2026-09-21 变异自证 B2 实测漏网后修）。
+   *    → 必须把切片收窄到菜单块本身。
+   */
+  const menuStart = renderButton.indexOf(
+    '{item.action === "more" && moreOpen && ('
+  );
+  const menuBlock =
+    menuStart === -1 ? "" : renderButton.slice(menuStart, menuStart + 900);
+
+  it("切片非空（锚点有效）", () => {
+    expect(renderButton.length, "renderButton 片段为空").toBeGreaterThan(500);
+    expect(menuBlock.length, "菜单块切片为空 —— 后面的断言会恒假").toBeGreaterThan(
+      400
+    );
+  });
+
+  it("菜单必须渲染在「更多」按钮内部，而不是命令条外层", () => {
+    expect(
+      renderButton,
+      "菜单不在 renderButton 里 —— left-1/2 会相对整条命令条，导致偏左"
+    ).toContain('{item.action === "more" && moreOpen && (');
+    expect(menuBlock, "菜单必须向下展开并水平居中于按钮").toContain(
+      'className="absolute top-full mt-2 left-1/2 overflow-hidden'
+    );
+    expect(menuBlock, "缺少 translateX(-50%)，菜单会左边缘对齐按钮中点").toContain(
+      'transform: "translateX(-50%)"'
+    );
+  });
+
+  it("按钮外层必须是 relative，否则 absolute 会向上找到命令条", () => {
+    expect(
+      renderButton,
+      "renderButton 外层丢了 relative —— 定位基准会跑到命令条上，菜单又会偏"
+    ).toContain('<div key={item.action} className="relative">');
+  });
+
+  it("命令条外层不能再留一份菜单（留着会同时弹出两个）", () => {
+    // 整条命令条的 return 之后那段（外层 JSX）
+    const outer = toolbar.slice(componentReturn);
+    expect(outer.length, "外层 JSX 片段为空").toBeGreaterThan(300);
+    expect(
+      outer,
+      "命令条外层还留着旧的 {moreOpen && ( 菜单 —— 会渲染出两个菜单"
+    ).not.toContain("{moreOpen && (");
+  });
+
+  it("菜单展开时不能再显示「更多」的 tooltip（两者会叠在同一位置）", () => {
+    expect(
+      renderButton,
+      "tooltip 没有在菜单展开时让位，会和菜单叠在一起"
+    ).toContain('!(item.action === "more" && moreOpen)');
   });
 });

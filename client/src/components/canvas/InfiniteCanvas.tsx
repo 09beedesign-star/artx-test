@@ -293,52 +293,10 @@ function AiAnnotationIcon({
   );
 }
 
-function IntroduceToChatIcon({
-  size = 15,
-  cutoutBg = "rgba(22,22,30,0.96)",
-}: {
-  size?: number;
-  cutoutBg?: string;
-}) {
-  return (
-    <span
-      style={{
-        position: "relative",
-        display: "inline-flex",
-        width: size,
-        height: size,
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <MessageCircle size={size} />
-      <span
-        aria-hidden="true"
-        style={{
-          position: "absolute",
-          right: -3,
-          top: -3,
-          width: 9,
-          height: 9,
-          borderRadius: "50%",
-          background: cutoutBg,
-          boxShadow: `0 0 0 1px ${cutoutBg}`,
-          pointerEvents: "none",
-        }}
-      />
-      <Plus
-        size={8}
-        strokeWidth={2.5}
-        style={{
-          position: "absolute",
-          right: -2.5,
-          top: -2.5,
-          pointerEvents: "none",
-        }}
-      />
-    </span>
-  );
-}
+/*
+ * 2026-09-21：IntroduceToChatIcon 已随「引入对话」命令一并删除。
+ * 它当时只服务于那一个入口，入口删掉后就是死组件。
+ */
 
 function AiProductIcon({
   size = 17,
@@ -3254,11 +3212,14 @@ function AssetFloatingToolbar({
   const assetTools: FloatingToolItem[] = [
     { icon: <Move size={15} />, label: "移动对象", action: "move-object" },
     { icon: <Crop size={15} />, label: "裁切", action: "crop" },
-    {
-      icon: <IntroduceToChatIcon cutoutBg={toolBg} />,
-      label: "引入对话",
-      action: "introduce-to-chat",
-    },
+    /*
+     * 2026-09-21：用户要求把「引入对话」从图片命令条去掉。
+     *
+     * ⚠️ 只删这个**入口**，handleSingleImageToolbarAction 里的
+     *    `action === "introduce-to-chat"` 分支**刻意保留** ——
+     *    右键菜单等其他出口仍会派发这个 action，
+     *    分支删了会变成「点了没反应且不报错」。
+     */
     { type: "divider" as const, key: "after-transform" },
     {
       icon: <AiAnnotationIcon size={15} cutoutBg={toolBg} />,
@@ -3407,7 +3368,14 @@ function AssetFloatingToolbar({
         竖条时代它挂在右侧（left-full），横过来后会在一排按钮之间互相遮挡，
         且命令条本身贴着图片顶边，向上弹会被画布顶部裁掉。
       */}
-      {hoveredAction === item.action && (
+      {/*
+        ⚠️ 菜单展开时不能再显示「更多」的 tooltip：
+           2026-09-21 菜单挪到按钮身上后，两者都是 top-full + mt-2，
+           会**叠在同一个位置**互相压着。菜单已经说明了自己是什么，
+           tooltip 此时是多余的。
+      */}
+      {hoveredAction === item.action &&
+        !(item.action === "more" && moreOpen) && (
         <div
           className="absolute top-full mt-2 left-1/2 pointer-events-none"
           style={{
@@ -3467,6 +3435,66 @@ function AssetFloatingToolbar({
       >
         {item.icon}
       </button>
+      {/*
+        「更多」菜单（2026-09-21 从命令条外层挪到**按钮自己身上**）。
+
+        ⚠️ 为什么必须挂在这里：
+           原先它是整条命令条的子元素，用 left-1/2 定位 ——
+           那个 1/2 是**整条命令条**的中点，而「更多」按钮在最右端，
+           所以菜单看上去整体偏左，对不上按钮。
+           挂进 renderButton 的 relative 容器后，left-1/2 才是
+           **按钮自己**的中点，菜单就从图标正下方展开。
+
+        ⚠️ 父级 renderButton 的外层 div 必须保持 className="relative"，
+           它一旦变成 static，absolute 会向上找到命令条，定位又会跑偏。
+      */}
+      {item.action === "more" && moreOpen && (
+        <div
+          className="absolute top-full mt-2 left-1/2 overflow-hidden rounded-[var(--radius-lg-design)] shadow-2xl"
+          style={{
+            transform: "translateX(-50%)",
+            width: 190,
+            background: moreBg,
+            border: `1px solid ${toolBorder}`,
+            backdropFilter: "blur(18px)",
+            boxShadow: isDark
+              ? "0 18px 56px rgba(0,0,0,0.48)"
+              : "0 12px 40px rgba(0,0,0,0.14)",
+            padding: "8px 6px",
+            zIndex: 20,
+          }}
+          onMouseDown={e => e.stopPropagation()}
+          onContextMenu={event => {
+            event.preventDefault();
+            event.stopPropagation();
+            onContextMenu?.(event);
+          }}
+        >
+          {moreItems.map(moreItem => (
+            <button
+              key={moreItem.action}
+              className="relative flex w-full items-center gap-3 rounded-[var(--radius-md-design)] px-3 py-2.5 text-left transition-colors"
+              style={{ color: moreText, fontSize: 14 }}
+              onClick={() => {
+                setMoreOpen(false);
+                onAction(moreItem.action);
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+              onMouseLeave={e =>
+                (e.currentTarget.style.background = "transparent")
+              }
+            >
+              <span
+                className="relative flex h-5 w-5 items-center justify-center"
+                style={{ color: moreText, flexShrink: 0 }}
+              >
+                {moreItem.icon}
+              </span>
+              <span style={{ flex: 1 }}>{moreItem.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 
@@ -3495,59 +3523,10 @@ function AssetFloatingToolbar({
       }}
     >
       {/*
-        「更多」菜单：横向命令条下改为**向下展开**（用户确认的方向）。
-        命令条贴在图片上方，下方就是图片本体，空间最充裕；
-        向上展开会在图片靠近画布顶部时被裁掉。
-        注意这里必须用 top-full + mt-2 而非 left-full，
-        否则菜单会横着甩到图片右外侧。
+        2026-09-21：「更多」菜单已移入 renderButton（挂到「更多」按钮自己身上），
+        这里**不能再留一份** —— 两份会同时渲染出两个菜单。
+        方向仍是向下展开：命令条贴在图片上方，下方空间最充裕。
       */}
-      {moreOpen && (
-        <div
-          className="absolute top-full mt-2 left-1/2 overflow-hidden rounded-[var(--radius-lg-design)] shadow-2xl"
-          style={{
-            transform: "translateX(-50%)",
-            width: 190,
-            background: moreBg,
-            border: `1px solid ${toolBorder}`,
-            backdropFilter: "blur(18px)",
-            boxShadow: isDark
-              ? "0 18px 56px rgba(0,0,0,0.48)"
-              : "0 12px 40px rgba(0,0,0,0.14)",
-            padding: "8px 6px",
-            zIndex: 20,
-          }}
-          onMouseDown={e => e.stopPropagation()}
-          onContextMenu={event => {
-            event.preventDefault();
-            event.stopPropagation();
-            onContextMenu?.(event);
-          }}
-        >
-          {moreItems.map(item => (
-            <button
-              key={item.action}
-              className="relative flex w-full items-center gap-3 rounded-[var(--radius-md-design)] px-3 py-2.5 text-left transition-colors"
-              style={{ color: moreText, fontSize: 14 }}
-              onClick={() => {
-                setMoreOpen(false);
-                onAction(item.action);
-              }}
-              onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
-              onMouseLeave={e =>
-                (e.currentTarget.style.background = "transparent")
-              }
-            >
-              <span
-                className="relative flex h-5 w-5 items-center justify-center"
-                style={{ color: moreText, flexShrink: 0 }}
-              >
-                {item.icon}
-              </span>
-              <span style={{ flex: 1 }}>{item.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
       {/* 2026-09-20：flex-col → flex-row，命令条由竖改横 */}
       <div
         className="flex flex-row items-center rounded-[var(--radius-md-design)]"
@@ -16234,12 +16213,26 @@ function AssetEditPromptBar({
   asset,
   isDark,
   canvasRightInset,
+  anchor,
   onClose,
   onSubmit,
 }: {
   asset: { id: string; title: string; src: string };
   isDark: boolean;
   canvasRightInset: number;
+  /**
+   * 「吸附到画布节点」模式（2026-09-20 新增）。
+   *
+   * 不传 = 保持原有行为：固定吸在画布底部、水平居中（双击图片进入的快捷编辑）。
+   * 传了 = 浮在指定节点的**正下方 gap 像素处**、与节点**左右居中**。
+   *
+   * ⚠️ left/top 都是**屏幕坐标**，由调用方用 viewport 换算好再传进来，
+   * 组件内部不碰 zoom/pan —— 否则缩放时这里和外面两套换算必然对不齐。
+   *
+   * width 由调用方给定（需求：比右下角提示词输入框宽 80px），
+   * 组件据此做左右 icon 的响应式收缩。
+   */
+  anchor?: { left: number; top: number; width: number };
   onClose: () => void;
   onSubmit: (payload: {
     prompt: string;
@@ -16273,9 +16266,19 @@ function AssetEditPromptBar({
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", handler);
-    setTimeout(() => textareaRef.current?.focus(), 80);
+    /*
+     * ⚠️ 吸附模式**不能自动抢焦点**。
+     *
+     * 双击进入的快捷编辑是用户主动发起的编辑动作，自动聚焦是对的；
+     * 但吸附模式只要「选中图片」就会挂载，这时用户往往是想拖动、
+     * 按 Delete 删除、或用方向键微调 —— 一旦焦点被 textarea 抢走，
+     * 这些画布快捷键会全部变成在输入框里打字，且**不报任何错**。
+     */
+    if (!anchor) {
+      setTimeout(() => textareaRef.current?.focus(), 80);
+    }
     return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
+  }, [anchor, onClose]);
 
   const text = isDark ? "rgba(255,255,255,0.85)" : "rgba(20,20,36,0.85)";
   const subtext = isDark ? "rgba(255,255,255,0.71)" : "rgba(20,20,36,0.40)";
@@ -16323,7 +16326,15 @@ function AssetEditPromptBar({
       setActiveSkill(null);
       setImageCount(1);
       setImageRatio("auto");
-      onClose();
+      /*
+       * ⚠️ 吸附模式（选中图片 → 节点下方悬浮框）**发完不关闭**。
+       *
+       * 传统的双击快捷编辑是「一次性弹层」，发完即走理所当然；
+       * 但悬浮框的关闭动作等于「取消选中这张图」，发完就关会让用户
+       * 每改一版都要重新点一次图片，且生成结果刚沉淀到右侧就失去上下文。
+       * 这里只清空草稿，保留选中态，方便连续追加指令。
+       */
+      if (!anchor) onClose();
     } else {
       toast("请先输入编辑指令或上传参考图");
     }
@@ -16362,12 +16373,27 @@ function AssetEditPromptBar({
     <div
       style={{
         position: "absolute",
-        bottom: 16,
-        left: 24,
-        right: Math.max(136, canvasRightInset) + 32,
-        maxWidth: "min(680px, calc(100% - 56px))",
-        marginLeft: "auto",
-        marginRight: "auto",
+        // 吸附模式：用调用方换算好的屏幕坐标，transform 把自身左右居中；
+        // 传统模式：保持原来的「贴底 + 水平居中」。
+        ...(anchor
+          ? {
+              left: anchor.left,
+              top: anchor.top,
+              width: anchor.width,
+              // -50% 管左右居中；Y 方向不回退，因为 top 给的就是框的顶边。
+              transform: visible
+                ? "translateX(-50%) translateY(0)"
+                : "translateX(-50%) translateY(20px)",
+            }
+          : {
+              bottom: 16,
+              left: 24,
+              right: Math.max(136, canvasRightInset) + 32,
+              maxWidth: "min(680px, calc(100% - 56px))",
+              marginLeft: "auto",
+              marginRight: "auto",
+              transform: visible ? "translateY(0)" : "translateY(20px)",
+            }),
         zIndex: 106,
         background: isDark ? "rgba(18,18,28,0.97)" : "rgba(255,255,255,0.97)",
         backdropFilter: "blur(24px)",
@@ -16375,8 +16401,9 @@ function AssetEditPromptBar({
         boxShadow: `0 0 0 3px oklch(0.62 0.22 290 / 0.12), 0 12px 48px rgba(0,0,0,0.28)`,
         borderRadius: "var(--radius-md-design)",
         overflow: "hidden",
-        // Slide-up entrance, centered inside the visible canvas area only.
-        transform: visible ? "translateY(0)" : "translateY(20px)",
+        // ⚠️ 入场动画的 transform 已在上面按 anchor / 传统两种模式分别给出，
+        // 这里**不能再写一次 transform** —— 后写的会整条覆盖前面的，
+        // 吸附模式的 translateX(-50%) 会被抹掉，框会整体右移半个身位。
         opacity: visible ? 1 : 0,
         transition:
           "transform 0.35s cubic-bezier(0.23,1,0.32,1), opacity 0.30s ease",
@@ -33402,23 +33429,38 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     return () =>
       window.removeEventListener("text-node-download-request", handler);
   }, [handleTextNodeDownload, nodesRef]);
+  /**
+   * 图片「基于原图重新生成」的**唯一提交出口**。
+   *
+   * 2026-09-20：原来只有双击图片进入的快捷编辑（editAsset）会走这里。
+   * 新增的「选中图片 → 节点下方悬浮输入框」也必须复用同一条链路，
+   * 所以把原先写死的 editAsset 闭包参数化成 target。
+   *
+   * ⚠️ 千万别为新入口复制一份这个函数 —— 这段里有画幅回落、
+   * 多张并发合并、后台任务分流、失败态回写四套规则，
+   * 复制出第二份必然很快漂移（本项目已在"多个出口"上栽过十二次）。
+   */
   const handleAssetEditSubmit = useCallback(
-    async (payload: {
-      prompt: string;
-      model: string;
-      references: Array<{ id: string; title: string; src: string }>;
-      ratio: CanvasAssistantImageRatio;
-      count: number;
-      skill: PendingSkillLoad | null;
-    }) => {
-      if (!editAsset) return;
+    async (
+      payload: {
+        prompt: string;
+        model: string;
+        references: Array<{ id: string; title: string; src: string }>;
+        ratio: CanvasAssistantImageRatio;
+        count: number;
+        skill: PendingSkillLoad | null;
+      },
+      targetOverride?: { nodeId: string; title: string; src: string }
+    ) => {
+      const target = targetOverride || editAsset;
+      if (!target) return;
       if (!requireAiAccess()) return;
       const sourceNode = nodesRef.current.find(
-        n => n.id === editAsset.nodeId && n.type === "asset"
+        n => n.id === target.nodeId && n.type === "asset"
       );
       if (!sourceNode) return;
       const latestImageSrc =
-        (await getVisibleAssetImageSource(editAsset.nodeId)) || editAsset.src;
+        (await getVisibleAssetImageSource(target.nodeId)) || target.src;
       const sourceSize = getCanvasNodeSize(sourceNode);
       /*
        * 节点框与主助手面板共用的取值口径：
@@ -33443,7 +33485,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const skillContext = skill ? buildSkillPromptContext(skill) : "";
       const generationId = `快捷编辑结果-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       const placeholderPrompt =
-        payload.prompt || `基于原图优化：${editAsset.title}`;
+        payload.prompt || `基于原图优化：${target.title}`;
       const sourceBackgroundSrc = latestImageSrc;
       const placeholderPayload: ImageGeneratorPayload = {
         projectId,
@@ -33472,7 +33514,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           module: "image-quick-edit-prompt",
           model: DEFAULT_TEXT_MODEL,
           images: [
-            { src: latestImageSrc, title: editAsset.title },
+            { src: latestImageSrc, title: target.title },
             ...payload.references,
           ],
           prompt: [
@@ -33489,7 +33531,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const finalPrompt =
           optimizedPrompt.text.trim() ||
           payload.prompt ||
-          `基于原图优化：${editAsset.title}`;
+          `基于原图优化：${target.title}`;
         const runSingleEdit = async () =>
           editImageWithPrompt({
             imageSrc: latestImageSrc,
@@ -33569,6 +33611,62 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       runDerivedImageGeneration,
     ]
   );
+  /**
+   * 节点下方悬浮输入框的提交入口（2026-09-20 新增）。
+   *
+   * 它只做两件事：
+   *   1. 复用 handleAssetEditSubmit 这条唯一的图生图链路（传 targetOverride）；
+   *   2. 把这次请求**沉淀到右侧对话面板**。
+   *
+   * ⚠️ 第 2 步为什么走自定义事件而不是直接 setMessages：
+   *    messages 是 CanvasAssistantPanel 的私有 state，InnerCanvas 是它的父级，
+   *    父级拿不到子级的 setter。项目里本来就有
+   *    `canvas-assistant-external-message` 这个现成通道（面板侧已挂监听），
+   *    直接复用，**不需要把 messages 提升到父级**（那会牵动 20+ 个调用点）。
+   *
+   * ⚠️ 消息要在**提交前**先发，而不是等出图成功再发：
+   *    出图是长耗时异步，用户点完生成必须立刻在右侧看到自己说了什么，
+   *    否则会以为没点上。生成结果本身由已有的图片任务链路回写画布。
+   */
+  const handleNodeComposerSubmit = useCallback(
+    async (
+      nodeId: string,
+      payload: {
+        prompt: string;
+        model: string;
+        references: Array<{ id: string; title: string; src: string }>;
+        ratio: CanvasAssistantImageRatio;
+        count: number;
+        skill: PendingSkillLoad | null;
+      }
+    ) => {
+      const sourceNode = nodesRef.current.find(
+        n => n.id === nodeId && n.type === "asset"
+      );
+      if (!sourceNode) return;
+      const title = getAssetNodeDisplayTitle(sourceNode);
+      const promptText = payload.prompt.trim();
+      const refText =
+        payload.references.length > 0
+          ? ` · 参考图 ${payload.references.length} 张`
+          : "";
+      const countText = payload.count > 1 ? ` · ${payload.count} 张` : "";
+      window.dispatchEvent(
+        new CustomEvent("canvas-assistant-external-message", {
+          detail: {
+            role: "user",
+            content: `对「${title}」重新生成：${promptText || "智能优化"}${refText}${countText}`,
+          },
+        })
+      );
+      await handleAssetEditSubmit(payload, {
+        nodeId,
+        title,
+        src: getLatestAssetImageSource(nodeId),
+      });
+    },
+    [getLatestAssetImageSource, handleAssetEditSubmit, nodesRef]
+  );
   const handleSingleImageToolbarAction = useCallback(
     async (action: string) => {
       const nodeId = selectedVisualNodeIds[0];
@@ -33617,26 +33715,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         toast("智能注释已开启", { description: "在图片上点击即可添加注释" });
         return;
       }
-      if (action === "introduce-to-chat") {
-        if (!targetNode || targetNode.type !== "asset") return;
-        const imageSrc = await getVisibleAssetImageSource(nodeId);
-        if (!imageSrc) {
-          toast("引入对话失败", { description: "当前图片没有可引用的图像来源" });
-          return;
-        }
-        const title =
-          ((targetNode.data as Record<string, unknown>).title as string | undefined) ||
-          "选中图片";
-        // 原先这里硬编码 ctrlKey: true 来绕过守卫；守卫已删，hack 一并清掉。
-        await addReferencedAsset({
-          nodeId,
-          title,
-          src: imageSrc,
-        });
-        setIsAssistantCollapsed(false);
-        toast("已引入对话", { description: "图片已添加到右下角对话框" });
-        return;
-      }
+      /*
+       * 2026-09-21：「引入对话」整条链路已按用户要求移除。
+       *
+       * 命令条入口删掉后，全项目再没有任何地方派发 "introduce-to-chat"
+       * （删除前实测 grep，命中的只剩测试文件自己），所以 handler 分支
+       * 一并删掉，不留死代码。
+       *
+       * 图片加入对话的能力本身没有消失 —— 仍可直接把图拖进右下角输入框。
+       */
       if (isCanvasFrame) {
         if (
           [
@@ -34830,6 +34917,41 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         };
       })()
     : { left: 31, top: 0 };
+  /**
+   * 选中图片节点时，浮在它**正下方 8px**、与它**左右居中**的提示词输入框定位。
+   *
+   * 与上方命令条是一对镜像：命令条挂上边（top - 8，配 translateY(-100%)），
+   * 这里挂下边（bottom + 8，**不**做 Y 回退，因为 top 给的就是框顶边）。
+   *
+   * ⚠️ 宽度基准是「右下角提示词输入框的宽度 + 80」，**不是图片宽度**
+   *    （2026-09-20 用户明确修订过一次口径，别再按图片宽算）。
+   *    右下角输入框宽 = 助手面板宽 - 左右各 12px 的 px-3 内边距。
+   *    面板收起时面板宽度不可用，退回 372 这个默认panel宽做基准。
+   *
+   * ⚠️ 夹取：图片贴近画布底部时整条会跑出可视区，用 padding 兜住底边。
+   */
+  const nodeComposerGap = 8;
+  const nodeComposerViewportPadding = 8;
+  const nodeComposerEstimatedHeight = 188;
+  const assistantComposerInnerWidth =
+    (isAssistantCollapsed ? 372 : assistantPanelWidth) - 24;
+  const nodeComposerWidth = assistantComposerInnerWidth + 80;
+  const attachedNodeComposerAnchor = selectedImageBounds
+    ? (() => {
+        const screenBottom =
+          selectedImageBounds.bottom * viewport.zoom + viewport.y;
+        const desiredTop = screenBottom + nodeComposerGap;
+        const maxTop =
+          (typeof window !== "undefined" ? window.innerHeight : 900) -
+          nodeComposerViewportPadding -
+          nodeComposerEstimatedHeight;
+        return {
+          left: selectedImageBounds.centerX * viewport.zoom + viewport.x,
+          top: Math.min(desiredTop, Math.max(nodeComposerViewportPadding, maxTop)),
+          width: nodeComposerWidth,
+        };
+      })()
+    : null;
   const displayNodesBase = nodes.map(n => {
     const nodeData = n.data as Record<string, unknown>;
     const embeddedFrameId =
@@ -35319,6 +35441,42 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             }
             onAction={handleSingleImageToolbarAction}
             onContextMenu={handleSelectedVisualToolbarContextMenu}
+          />
+        )}
+
+      {/*
+        选中图片节点时浮在它**正下方**的提示词输入框（2026-09-20 新增）。
+
+        显示条件与上方命令条**完全一致**（单选、非多选、非就地编辑态），
+        这样两者永远同进同出；用户点画布空白处 → selectedVisualNodeIds 清空
+        → 这里自然卸载，不需要额外写"关闭"逻辑。
+
+        ⚠️ 只对 asset（图片）给，canvasFrame（画板框）不给 —— 它的
+        "基于该图重新生成"没有语义。
+
+        ⚠️ key 绑 nodeId：换选另一张图时强制重建组件，
+        否则上一张图的草稿文字和参考图会留在框里（React 同类型复用实例）。
+      */}
+      {selectedVisualNodeIds.length === 1 &&
+        !multiVisualSelectionActive &&
+        !selectedImageInInlineEditMode &&
+        selectedImageNode?.type === "asset" &&
+        attachedNodeComposerAnchor &&
+        !editAsset && (
+          <AssetEditPromptBar
+            key={`node-composer-${selectedImageNode.id}`}
+            asset={{
+              id: selectedImageNode.id,
+              title: getAssetNodeDisplayTitle(selectedImageNode),
+              src: getLatestAssetImageSource(selectedImageNode.id),
+            }}
+            isDark={isDark}
+            canvasRightInset={isAssistantCollapsed ? 112 : assistantPanelWidth}
+            anchor={attachedNodeComposerAnchor}
+            onSubmit={payload => {
+              void handleNodeComposerSubmit(selectedImageNode.id, payload);
+            }}
+            onClose={() => setSelectedNodeIds([])}
           />
         )}
 
