@@ -213,9 +213,16 @@ describe("智能电商产品：模板库面板结构（需求 3）", () => {
     */
     expect(dialogSource).toContain('<div className="grid grid-cols-2 gap-1.5">');
 
-    const start = dialogSource.indexOf("recentTemplates.length > 0 ?");
-    expect(start, "找不到最近使用区").toBeGreaterThan(-1);
-    const end = dialogSource.indexOf("还没有用过模板", start);
+    /*
+      ⚠️ 区间锚点用 gridTemplates（2026-09-20 改名）。
+         老锚点是 "recentTemplates.length > 0 ?" 和「还没有用过模板」，
+         两者都已随「去掉虚线空框、改为接口兜底」的改动消失。
+         锚点失效时 indexOf 返回 -1，slice(-1, ...) 会悄悄取到一段
+         无关文本，断言仍可能碰巧通过 —— 所以下面必须显式校验 > -1。
+    */
+    const start = dialogSource.indexOf("gridTemplates.length > 0 ?");
+    expect(start, "找不到模板网格区").toBeGreaterThan(-1);
+    const end = dialogSource.indexOf("setShowPicwishSelector(true)", start);
     expect(end).toBeGreaterThan(start);
     const recentBlock = dialogSource.slice(start, end);
 
@@ -223,6 +230,67 @@ describe("智能电商产品：模板库面板结构（需求 3）", () => {
     expect(recentBlock).not.toMatch(/grid-cols-\[.*auto-fit/);
     expect(recentBlock).not.toMatch(/repeat\(\s*auto-fit/);
     expect(recentBlock).toContain("grid grid-cols-2");
+  });
+
+  it("空态不再使用虚线框（需求 2026-09-20）", () => {
+    /*
+      用户明确要求去掉那个 border-dashed 的占位框。
+      ⚠️ 断言整份源码没有 border-dashed 是故意的：这个面板里
+         只该有一种卡片视觉语言，出现第二种就说明有人又加回了虚线占位。
+    */
+    expect(dialogSource).not.toContain("border-dashed");
+    expect(dialogSource).not.toContain("还没有用过模板，点这里挑一个");
+  });
+
+  it("没用过模板时用接口兜底展示缩略图，用过后换成最近使用", () => {
+    /*
+      需求 2026-09-20：未使用前直接显示接口返回的模板缩略图，
+      一旦用过则自动切换为最近使用记录。
+
+      ⚠️ 这里锁的是「两个数据源汇到同一个渲染出口」这件事本身。
+         如果哪天有人把它拆成两套 JSX 分支，改一边忘一边是零报错的 ——
+         表现为「用过之后缩略图不更新」，极难定位。
+    */
+    /*
+      ⚠️⚠️ 这里不能写 toContain("listPicWishBackgroundTemplates")。
+
+      变异自证抓到过一次假绿：把调用点整个换成 Promise.resolve([])，
+      测试依然是绿的 —— 因为 import 那一行本身就含这个名字，
+      光查名字等于只验证了「有没有 import」，而不是「有没有真的调用」。
+
+      正确做法是锁**调用表达式**（带括号），并且确认它出现在 effect 里。
+    */
+    expect(dialogSource).toContain("listPicWishBackgroundTemplates()");
+    expect(dialogSource).toMatch(
+      /listPicWishBackgroundTemplates\(\)\s*\n?\s*\.then\(/
+    );
+    expect(dialogSource).toContain("const [fallbackTemplates, setFallbackTemplates]");
+    // 结果必须真的被写进 state，否则拉了也白拉
+    expect(dialogSource).toContain("setFallbackTemplates(items)");
+
+    // 汇流表达式：最近使用优先，空则回退接口模板
+    expect(dialogSource).toMatch(
+      /const source =\s*recentTemplates\.length > 0 \? recentTemplates : fallbackTemplates;/
+    );
+
+    // 只有一个渲染出口（grid 只出现一次）
+    const gridOccurrences = dialogSource.split('<div className="grid grid-cols-2 gap-1.5">').length - 1;
+    expect(gridOccurrences, "模板网格应当只有一个渲染出口").toBe(1);
+
+    // 兜底数据同样必须走 handlePickPicwishTemplate，否则点了不进最近使用
+    const start = dialogSource.indexOf("gridTemplates.map(item => {");
+    expect(start).toBeGreaterThan(-1);
+    const block = dialogSource.slice(start, start + 2000);
+    expect(block).toContain("handlePickPicwishTemplate({");
+  });
+
+  it("标题跟着数据源切换，不写死「最近使用」", () => {
+    /*
+      ⚠️ 标题写死会造成「没用过模板，却标着最近使用」的信息错误，
+         界面不会报任何错，但传达的是错的事实。
+    */
+    expect(dialogSource).toContain("const showingRecent = recentTemplates.length > 0;");
+    expect(dialogSource).toContain('{showingRecent ? "最近使用" : "热门模板"}');
   });
 
   it("最右侧有「查看全部」文字 + icon，点击打开模板详情页", () => {

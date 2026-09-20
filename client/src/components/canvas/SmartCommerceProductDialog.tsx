@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -69,6 +70,7 @@ import {
   getBrandForegroundColor,
   getEcommercePlatformBrand,
 } from "@/lib/ecommerce-platform-brands";
+import { listPicWishBackgroundTemplates } from "@/lib/ai";
 import type { PicWishBackgroundTemplate } from "@/lib/ai";
 
 /**
@@ -528,6 +530,16 @@ export function SmartCommerceProductDialog({
    */
   const [recentTemplates, setRecentTemplates] = useState<RecentPicwishTemplate[]>([]);
   /**
+   * 接口返回的背景模板，仅用作「最近使用为空时」的兜底展示。
+   *
+   * 需求 2026-09-20：没用过模板时，这里直接显示接口的缩略图，
+   * 而不是一个「还没有用过模板」的虚线空框。用过之后自动被最近使用顶掉。
+   *
+   * ⚠️ 它不参与最近使用的记账。点击这里的卡片同样走 handlePickPicwishTemplate，
+   *    所以点完下一帧就会被真正的最近使用列表替换 —— 不需要手动同步两份数据。
+   */
+  const [fallbackTemplates, setFallbackTemplates] = useState<PicWishBackgroundTemplate[]>([]);
+  /**
    * 背景生成方式。默认 template，保持老用户的既有习惯不变。
    *
    * 用户诉求原文：「支持用户在默认背景和提示词输入框中进行动态切换……
@@ -838,6 +850,30 @@ export function SmartCommerceProductDialog({
   }, [accountId]);
 
   /**
+   * 拉接口模板，作为「最近使用为空」时的兜底缩略图。
+   *
+   * ⚠️ alive flag 必不可少：对话框可能在请求回来之前就被关掉，
+   *    此时 setState 会对已卸载组件生效（React 18 不再报警，但属于无效更新）。
+   *
+   * ⚠️ 失败时静默吞掉，只留控制台痕迹，**不弹 toast**：
+   *    这只是一个锦上添花的兜底展示，拉不到就退回「点这里挑一个」的引导，
+   *    为它弹错误提示属于打扰用户（项目既定约定，同 recent-picwish-templates.ts）。
+   */
+  useEffect(() => {
+    let alive = true;
+    listPicWishBackgroundTemplates()
+      .then(items => {
+        if (alive) setFallbackTemplates(items);
+      })
+      .catch(reason => {
+        console.warn("[smart-commerce] 背景模板兜底列表加载失败", reason);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  /**
    * 选中一个背景模板：写进当前选择 + 记一笔最近使用。
    *
    * ⚠️⚠️ 这是唯一允许调 setSelectedPicwishTemplate 的入口（回填预设除外）。
@@ -852,6 +888,38 @@ export function SmartCommerceProductDialog({
     },
     [accountId]
   );
+
+  /**
+   * 网格里到底渲染哪一批模板。
+   *
+   * 需求 2026-09-20：
+   *   · 没用过模板 → 直接显示接口返回的缩略图（不再是虚线空框）
+   *   · 用过之后   → 自动换成用户的最近使用记录
+   *
+   * ⚠️ 两个数据源的元素类型不同（RecentPicwishTemplate 多一个 usedAt），
+   *    这里统一映射成卡片真正需要的 4 个字段再喂给渲染，
+   *    避免在 JSX 里写两套分支 —— 两套分支改一边忘一边是零报错的。
+   *
+   * ⚠️ 截断长度沿用 RECENT_PICWISH_TEMPLATE_COLUMNS * 2 = 4（两行两列）。
+   *    面板高度是死的（BACKGROUND_PANEL_HEIGHT 的账里只留了两行卡片），
+   *    多给会被 overflow 裁掉，看起来像"最后一行渲染失败"。
+   */
+  /**
+   * 当前网格展示的到底是不是「最近使用」。
+   *
+   * ⚠️ 必须和 gridTemplates 用同一个判据（recentTemplates.length > 0），
+   *    否则会出现「标题写着最近使用、内容却是接口模板」的错位，且零报错。
+   */
+  const showingRecent = recentTemplates.length > 0;
+  const gridTemplates = useMemo(() => {
+    const source = recentTemplates.length > 0 ? recentTemplates : fallbackTemplates;
+    return source.slice(0, RECENT_PICWISH_TEMPLATE_COLUMNS * 2).map(item => ({
+      id: item.id,
+      name: item.name,
+      category: item.category,
+      previewUrl: item.previewUrl,
+    }));
+  }, [recentTemplates, fallbackTemplates]);
 
   /** 统一的落盘出口：状态与 localStorage 永远一起变，避免两边对不上。 */
   const persistPresets = useCallback(
@@ -1874,16 +1942,16 @@ export function SmartCommerceProductDialog({
                         className="mb-1 text-[9px] font-medium"
                         style={{ color: colors.muted }}
                       >
-                        最近使用
+                        {showingRecent ? "最近使用" : "热门模板"}
                       </div>
-                      {recentTemplates.length > 0 ? (
+                      {gridTemplates.length > 0 ? (
                         /*
                           ⚠️ grid-cols-2 写死两列（需求：一排两个）。
                              不用 auto-fit —— 它会随面板宽度在 1/2/3 列间漂移，
                              需求要的是确定的两列。
                         */
                         <div className="grid grid-cols-2 gap-1.5">
-                          {recentTemplates.slice(0, RECENT_PICWISH_TEMPLATE_COLUMNS * 2).map(item => {
+                          {gridTemplates.map(item => {
                             const active = selectedPicwishTemplate?.id === item.id;
                             return (
                               <button
@@ -1957,18 +2025,24 @@ export function SmartCommerceProductDialog({
                         </div>
                       ) : (
                         /*
-                          空态。
-                          ⚠️ 空态也要占位，不能返回 null —— 面板高度虽然是死的，
-                             但空着一块会让用户以为加载失败。
+                          兜底的兜底：最近使用为空，且接口模板也还没回来/拉失败。
+                          ⚠️ 仍然要占位，不能返回 null —— 面板高度是死的，
+                             空着一块会让用户以为加载失败。
+                          ⚠️ 这里不再用虚线边框（需求 2026-09-20 明确要求去掉），
+                             改为与卡片一致的实底样式，避免出现第二种视觉语言。
                         */
                         <button
                           type="button"
-                          className="flex h-[52px] w-full items-center justify-center gap-1.5 rounded border border-dashed text-[10px] transition-colors"
-                          style={{ color: colors.muted, borderColor: colors.border }}
+                          className="flex h-[52px] w-full items-center justify-center gap-1.5 rounded text-[10px] transition-colors"
+                          style={{
+                            color: colors.muted,
+                            background: colors.surfaceStrong,
+                            border: `1px solid ${colors.border}`,
+                          }}
                           onClick={() => setShowPicwishSelector(true)}
                         >
                           <LayoutGrid size={12} />
-                          还没有用过模板，点这里挑一个
+                          正在加载模板，点这里浏览全部
                         </button>
                       )}
                     </div>
