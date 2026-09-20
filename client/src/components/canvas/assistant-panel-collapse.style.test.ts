@@ -124,8 +124,11 @@ describe("需求 1：收起/展开 icon 换成面板轮廓图标", () => {
     // 一旦有人给 PanelRight/PanelLeft 单独加 color，就会和旁边两个 icon 脱节。
     expect(actionButtonsBlock).not.toContain("<PanelRight size={16} color");
     expect(actionButtonsBlock).not.toContain("<PanelLeft size={16} color");
-    // 正向：颜色统一由按钮的 color 给出。
-    expect(toggleButton).toContain("color: sub");
+    // 正向：颜色统一由按钮的 color 给出（展开态取 sub，与旁边两个 icon 同源）。
+    // ⚠️ 必须带上后面的 `}` 前缀语境，不能只写 "color: sub" ——
+    // 那样收起态改成白色后这条依然恒绿，等于失去保护。
+    expect(toggleButton).toContain(': sub,');
+    expect(toggleButton).toContain("color: collapsed ?");
   });
 });
 
@@ -150,30 +153,104 @@ describe("需求 2：去掉「展开」文案，并连带回收为它而加的�
     expect(toggleButton).not.toContain('width: collapsed ? "auto" : 32');
     expect(toggleButton).not.toContain('padding: collapsed ? "0 10px" : 0');
     expect(toggleButton).not.toContain("gap: collapsed ? 6 : 0");
-    // 宽高改由 className 统一表达
+    // 宽高改由 className 统一表达（展开态 32，收起态 30 底托）
     expect(toggleButton).toContain("h-8 w-8");
+    // ⚠️ 尺寸只能在 className 里说一次。style 里再写一份 width/height，
+    // 两处各说一套，改一处不生效 —— 这是零报错的静默失效。
+    const styleStart = toggleButton.indexOf("style={{");
+    expect(styleStart, "按钮里找不到 style 块").toBeGreaterThan(-1);
+    const styleBlock = toggleButton.slice(styleStart);
+    expect(styleBlock).not.toContain("width:");
+    expect(styleBlock).not.toContain("height:");
   });
 
-  it("把它衬成独立胶囊的底色/描边/投影已移除，与旁边 icon 同款", () => {
-    // 收起态过去有 chipBg 底 + border 描边 + 投影，和旁边两个透明 icon 完全两副长相。
+  it("旧的「胶囊壳」装饰已移除（描边 + 投影一律不留）", () => {
+    // 收起态过去有 chipBg 底 + border 描边 + 投影，是一枚和旁边完全两副长相的胶囊。
     expect(toggleButton).not.toContain("background: collapsed ? chipBg");
     expect(toggleButton).not.toContain("border: collapsed ?");
     expect(toggleButton).not.toContain('boxShadow: collapsed ? "0 8px 20px');
-    // 正向：两态共用同一套「透明 + 无边框 + 无投影」
-    expect(toggleButton).toContain('background: "transparent"');
+    // 正向：描边和投影两态都没有（2026-09-20 加的底托是纯色块，不带边框/投影）
     expect(toggleButton).toContain('border: "none"');
     expect(toggleButton).toContain('boxShadow: "none"');
   });
 
-  it("按钮样式不再按 collapsed 分叉（交互形式两态一致）", () => {
+  it("⭐ 展开态必须仍与旁边 icon 同款：透明底、颜色取 sub", () => {
     /**
-     * 需求说「尺寸交互形式与配色与旁边的 icon 保持一致」。
-     * 只要 style 里还留着 collapsed 三元，就说明两态长得不一样。
+     * 需求 2 的原意是「展开态这颗按钮别再是一枚突兀胶囊」。
+     * 2026-09-20 给收起态加了底托，但展开态背后本来就有面板实底，
+     * 不需要也不能有底托 —— 否则又退回三个 icon 长相不一致。
      */
+    expect(toggleButton).toContain('background: collapsed ? "rgba(0,0,0,0.7)" : "transparent"');
+    expect(toggleButton).toContain("color: collapsed ? \"#FFFFFF\" : sub");
+    // 反向：退回「两态都铺底」就变红。
+    expect(toggleButton).not.toContain('background: "rgba(0,0,0,0.7)"');
+  });
+});
+
+/**
+ * 【2026-09-20 需求原文】
+ * 「画布右上角的收起展开按钮缺少底托容器，容易跟画面混淆、看不清楚，
+ *   加上一个圆角方形的底托，黑色透明度为 70，尺寸为 30X30」
+ *
+ * ⚠️ 背景：需求 3 把收起态的面板背景做成了 transparent，这颗按钮因此
+ * **直接浮在画布图像上**。浅色图片一拖到右上角，细线图标就完全看不清。
+ * 这不是需求 2 的回退 —— 需求 2 约束的是**展开态**要和旁边 icon 一致。
+ */
+describe("需求 4：收起态必须有底托，否则和画布糊在一起", () => {
+  it("底托是 30×30 圆角方形、黑色 70% 不透明", () => {
+    // 正向锚点：先证明确实抠到了这颗按钮，否则下面全是空转。
+    expect(toggleButton).toContain("onClick={item.onClick}");
+    expect(toggleButton).toContain("{item.icon}");
+
+    // 尺寸：收起态 30×30（用户指定），展开态维持 32（与旁边 icon 同尺寸）
+    expect(toggleButton).toContain("h-[30px] w-[30px]");
+    /**
+     * 圆角方形：沿用设计令牌的中号圆角，不写死像素。
+     *
+     * ⚠️⚠️ 这里**必须连着收起态的尺寸类名一起断言**。
+     * 只写 `toContain("rounded-[var(--radius-md-design)]")` 会被**展开态那支分支**
+     * 里的同一个类名顶替 —— 把收起态改成 rounded-full，测试照样全绿。
+     * 变异自证 M6 真的漏网过一次，就是栽在这里。
+     */
+    expect(toggleButton).toContain(
+      "h-[30px] w-[30px] flex items-center justify-center rounded-[var(--radius-md-design)]"
+    );
+    // 反向：改成全圆 / 直角就变红
+    expect(toggleButton).not.toContain("h-[30px] w-[30px] flex items-center justify-center rounded-full");
+    expect(toggleButton).not.toContain("h-[30px] w-[30px] flex items-center justify-center rounded-none");
+    // 底色：纯黑 70%
+    expect(toggleButton).toContain('"rgba(0,0,0,0.7)"');
+  });
+
+  it("底托只在收起态出现，展开态不能有", () => {
+    /**
+     * 展开态背后是面板自己的实底，再叠一层黑托就成了「按钮上贴按钮」，
+     * 而且会和左边两个透明 icon 长相脱节。
+     */
+    expect(toggleButton).toContain('collapsed ? "rgba(0,0,0,0.7)" : "transparent"');
+    // 反向：写成无条件铺底就变红
+    expect(toggleButton).not.toContain('background: "rgba(0,0,0,0.7)",');
+  });
+
+  it("⭐ 图标在黑托上必须转成白色，否则等于没加底托", () => {
+    /**
+     * ⚠️ 这是最容易漏的一条。只加黑底、图标仍用 `sub`（深灰），
+     * 深灰压在纯黑上依然看不清 —— 加了底托却没解决"看不清楚"，
+     * 而且完全不报错，视觉上还像是做完了。
+     */
+    expect(toggleButton).toContain('collapsed ? "#FFFFFF" : sub');
+    // 反向：退回两态同色就变红
+    expect(toggleButton).not.toContain("color: sub,");
+  });
+
+  it("底托不带描边和投影（用户只要一个纯色块）", () => {
     const styleStart = toggleButton.indexOf("style={{");
-    expect(styleStart, "按钮里找不到 style 块").toBeGreaterThan(-1);
     const styleBlock = toggleButton.slice(styleStart);
-    expect(styleBlock).not.toContain("collapsed ?");
+    expect(styleBlock).toContain('border: "none"');
+    expect(styleBlock).toContain('boxShadow: "none"');
+    // 反向：偷偷加回描边/投影就变红
+    expect(styleBlock).not.toContain("border: collapsed");
+    expect(styleBlock).not.toContain("boxShadow: collapsed");
   });
 });
 

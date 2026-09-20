@@ -23454,24 +23454,36 @@ function CanvasAssistantPanel({
             style={{ zIndex: conversationMenuOpen && item.label === "历史对话" ? 1200 : undefined }}
           >
           <button
-            className="h-8 w-8 flex items-center justify-center rounded-[var(--radius-md-design)] transition-colors hover:opacity-85"
+            className={
+              collapsed
+                ? "h-[30px] w-[30px] flex items-center justify-center rounded-[var(--radius-md-design)] transition-colors hover:opacity-85"
+                : "h-8 w-8 flex items-center justify-center rounded-[var(--radius-md-design)] transition-colors hover:opacity-85"
+            }
             /**
              * 【2026-09-18 改】收起态过去是一枚「‹ 展开」胶囊：自适应宽度 +
              * 左右 10px 内边距 + chipBg 底 + 描边 + 投影 + 文案。
              *
              * 用户要求「尺寸交互形式与配色与旁边的 icon 保持一致」并「把展开文案去掉」，
-             * 所以这里不再按 collapsed 分叉 —— 两态共用同一套样式：
-             * 32×32 方形、透明底、无描边无投影、颜色统一取 `sub`。
+             * 所以**展开态**不再有任何独立装饰：32×32 方形、透明底、无描边无投影、
+             * 颜色统一取 `sub`，与「灵感推荐」「分享对话」完全同款。
+             *
+             * 【2026-09-20 改】⚠️ 但**收起态**必须例外，必须有底托。
+             * 收起后面板整体透明（需求 3 把灰条去掉了），这颗按钮等于**直接浮在画布图像上**，
+             * 一旦用户把浅色图片拖到右上角，细线图标就和画面糊成一片、完全看不清。
+             * 展开态背后是面板自己的实底，没有这个问题 —— 所以底托只加在收起态，
+             * 不能退回「两态共用一套样式」，那会把展开态又变成一枚突兀的胶囊。
+             *
+             * 底托规格（用户指定）：30×30 圆角方形、纯黑 70% 不透明度。
+             * ⚠️ 尺寸由 className 的 `h-[30px] w-[30px]` 表达，不在 style 里重复写，
+             * 否则两处各说一套、改一处不生效。
              *
              * ⚠️ 删文案时必须连带删掉「为文案而加的那些样式」：
-             * 自适应宽度、水平 padding、图标与文字之间的 gap，
-             * 以及把它衬成一枚独立胶囊的 chipBg / border / boxShadow。
+             * 自适应宽度、水平 padding、图标与文字之间的 gap。
              * 只删 <span> 不删这些，会剩一个空荡荡的胶囊壳，看着像没做完。
-             * 宽高改由 className 的 `h-8 w-8` 统一表达，样式里不再重复写 width。
              */
             style={{
-              background: "transparent",
-              color: sub,
+              background: collapsed ? "rgba(0,0,0,0.7)" : "transparent",
+              color: collapsed ? "#FFFFFF" : sub,
               border: "none",
               boxShadow: "none",
             }}
