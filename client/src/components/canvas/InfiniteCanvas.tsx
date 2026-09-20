@@ -19638,6 +19638,7 @@ function CanvasAssistantPanel({
   onRemoveAnnotationReference,
   onMergeReferences,
   onPasteImages,
+  onDropImages,
   onImportHomeReferences,
   selectedCount,
   helpPromptNonce,
@@ -19664,6 +19665,12 @@ function CanvasAssistantPanel({
    */
   onPasteImages: (clipboardData: DataTransfer | null) => Promise<boolean>;
   /**
+   * 把拖进对话框的图片同步到画布，并登记成引用素材。
+   * 与 onPasteImages 在画布侧复用同一条建节点 + 登记链路，
+   * 返回是否真的拿到了图片（false 表示这次拖拽里没有可用图片）。
+   */
+  onDropImages: (dataTransfer: DataTransfer | null) => Promise<boolean>;
+  /**
    * 把首页带来的参考图导入画布并登记成引用素材。
    * 返回**真正登记成功**的素材（可能比传入的少，甚至为空）。
    */
@@ -19684,6 +19691,9 @@ function CanvasAssistantPanel({
   const [dragOverComposerSegmentId, setDragOverComposerSegmentId] = useState<
     string | null
   >(null);
+  // 外部图片正悬停在提示词框上方 → 亮起输入框专属的拖拽指引区。
+  // 与 dragOverComposerSegmentId（内部标签重排）是两件事，不能复用同一个状态。
+  const [isComposerImageDragOver, setIsComposerImageDragOver] = useState(false);
   const composerInputRefs = useRef<
     Record<string, HTMLInputElement | HTMLTextAreaElement | HTMLElement | null>
   >({});
@@ -20984,6 +20994,72 @@ function CanvasAssistantPanel({
       setDragOverComposerSegmentId(null);
     },
     [isComposerTokenDragEvent]
+  );
+
+  /**
+   * ⚠️⚠️⚠️ 提示词框上的拖拽有**两种**，走的是两套互不相干的处理器：
+   *
+   *   ① 内部标签重排 —— 上面那三个 handleComposerShell*，
+   *      判据是 dataTransfer 里带 application/x-artx-composer-token，
+   *      挂在里层文本壳上，命中就 stopPropagation，传不到这里。
+   *   ② 外部图片拖入 —— 下面这三个，挂在**整张输入框卡片**上。
+   *
+   * 为什么不合成一套挂两层：里层壳和外层卡片是父子关系，
+   * 拖拽从壳移到卡片空白处时浏览器会先发一次 dragleave，
+   * 同一套处理器会把指引关掉、下一帧又打开，视觉上疯狂闪烁。
+   * 分成两套之后，外部拖拽在里层壳上直接放行（不命中 token 判据），
+   * 冒泡上来由卡片这一层统一处理，整个过程只有一次 enter / 一次 leave。
+   *
+   * ⚠️ 改之前这里是**没有**②的：外部拖拽被放行后一路冒泡到画布，
+   * 图落在画布上却不会变成引用标签 —— 用户拖进输入框，图跑画布上去了。
+   */
+  const handleComposerImageDragOverEvent = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (!dataTransferHasExternalImage(event.dataTransfer)) return;
+      // preventDefault 是「允许在这里 drop」的唯一表态，少了它浏览器会直接打开图片；
+      // stopPropagation 拦住冒泡，否则画布那层全屏拖拽指引也会一起亮，
+      // 用户同时看到两个指引区，分不清图最后落到哪儿。
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = "copy";
+      setIsComposerImageDragOver(true);
+    },
+    []
+  );
+
+  const handleComposerImageDragLeaveEvent = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      const nextTarget = event.relatedTarget;
+      // 拖过卡片内部的子元素时浏览器同样会发 dragleave，
+      // 不做这层包含判断，指引区会在每个子元素边界上闪一下。
+      if (
+        nextTarget instanceof globalThis.Node &&
+        event.currentTarget.contains(nextTarget)
+      )
+        return;
+      setIsComposerImageDragOver(false);
+    },
+    []
+  );
+
+  const handleComposerImageDropEvent = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (!dataTransferHasExternalImage(event.dataTransfer)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setIsComposerImageDragOver(false);
+      // ⚠️ 同步把 dataTransfer 交出去，绝不能 await 之后再读。
+      // drop 事件同步返回后 DataTransfer 就失效了，
+      // 异步再取 files/items 永远是空的，且不报任何错。
+      // 与 onPaste 那条链路（:21734）完全同理。
+      void onDropImages(event.dataTransfer).then(dropped => {
+        if (dropped) return;
+        toast("未读取到可拖入的图片", {
+          description: "请拖入图片文件，或从网页里直接拖动图片本身",
+        });
+      });
+    },
+    [onDropImages]
   );
 
   const handleComposerTextKeyDown = useCallback(
@@ -23865,12 +23941,52 @@ function CanvasAssistantPanel({
               className="relative rounded-[var(--radius-xl-design)] px-3 py-3 transition-all duration-200"
               style={{
                 background: elevatedBg,
-                border: `1px solid ${inputFocused ? "rgba(197,237,71,0.42)" : border}`,
+                border: `1px solid ${
+                  isComposerImageDragOver
+                    ? "rgba(197,237,71,0.72)"
+                    : inputFocused
+                      ? "rgba(197,237,71,0.42)"
+                      : border
+                }`,
                 boxShadow: inputFocused ? activeGlow : inputShadow,
                 minWidth: 0,
                 overflowX: "hidden",
               }}
+              // ⚠️ 落区刻意挂在整张输入框卡片上，而不是只挂里面的文本区。
+              // 只挂文本区的话，用户把图拖到卡片下半截的工具栏一带就不触发，
+              // 图会穿透到画布上 —— 表现是「拖进输入框没反应，图跑画布去了」。
+              // 内部标签重排的拖拽由里层 shell 先 stopPropagation 处理掉，
+              // 这里收到的只会是外部拖拽。
+              onDragOver={handleComposerImageDragOverEvent}
+              onDragLeave={handleComposerImageDragLeaveEvent}
+              onDrop={handleComposerImageDropEvent}
             >
+              {isComposerImageDragOver && (
+                <div
+                  className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-[var(--radius-xl-design)]"
+                  style={{
+                    zIndex: 40,
+                    background: isDark
+                      ? "oklch(0.18 0.015 270 / 0.88)"
+                      : "oklch(0.98 0.008 270 / 0.92)",
+                    border: "2px dashed rgba(197,237,71,0.85)",
+                    backdropFilter: "blur(2px)",
+                  }}
+                >
+                  <div
+                    className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-pill)]"
+                    style={{ background: "rgba(197,237,71,0.18)" }}
+                  >
+                    <ImagePlus size={18} style={{ color: "#C5ED47" }} />
+                  </div>
+                  <div className="type-body-strong" style={{ color: text }}>
+                    松手即可作为引用图片
+                  </div>
+                  <div className="type-caption" style={{ color: sub }}>
+                    图片会同步到画布，并在输入框生成引用标签
+                  </div>
+                </div>
+              )}
               {contextLabel && (
                 <div className="mb-2 flex items-center gap-1.5">
                   <span
@@ -31552,6 +31668,43 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
    * ⚠️ id 必须用画布节点 id。referencedAssets 就是按节点 id 索引的，
    * 自造 id 会让标签与画布节点脱钩（删节点标签不消失、点标签定位不到图）。
    */
+  /**
+   * 「刚落到画布上的图片节点」→ 提示词框里的引用素材，唯一登记口。
+   *
+   * ⚠️⚠️ 粘贴、拖拽（以后可能还有别的入口）**必须**都走这一个函数。
+   * 本项目已经连续踩过十几次「同一份逻辑的多个出口只改一个」：
+   * 复制一份看起来一模一样的登记代码出来，当时行为一致，
+   * 之后任何一次修改（换 title 兜底、加字段、改去重口径）只会落到其中一份，
+   * 另一份静默走偏，不报错。
+   *
+   * ⚠️ id 必须用画布节点 id。referencedAssets 就是按节点 id 索引的，
+   * 自造 id 会让标签与画布节点脱钩（删节点标签不消失、点标签定位不到图）。
+   */
+  const registerImageNodesAsReferences = useCallback(
+    (nodes: Node[], fallbackTitle: string) => {
+      setReferencedAssets(prev => {
+        const existingIds = new Set(prev.map(asset => asset.id));
+        const additions: ImageGeneratorReferenceAsset[] = [];
+        nodes.forEach(node => {
+          if (existingIds.has(node.id)) return;
+          const data = node.data as Record<string, unknown>;
+          const src = (data.localSrc as string) || "";
+          if (!src) return;
+          const size = getCanvasNodeSize(node);
+          additions.push({
+            id: node.id,
+            title: (data.title as string) || fallbackTitle,
+            src,
+            width: size.width,
+            height: size.height,
+          });
+        });
+        return additions.length > 0 ? [...prev, ...additions] : prev;
+      });
+    },
+    []
+  );
+
   const handleComposerImagePaste = useCallback(
     async (clipboardData: DataTransfer | null) => {
       const description = "已同步到画布并作为引用图片";
@@ -31567,29 +31720,63 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         pastedNodes = await pasteClipboardFromNavigator(undefined, description);
       }
       if (pastedNodes.length === 0) return false;
-
-      setReferencedAssets(prev => {
-        const existingIds = new Set(prev.map(asset => asset.id));
-        const additions: ImageGeneratorReferenceAsset[] = [];
-        pastedNodes.forEach(node => {
-          if (existingIds.has(node.id)) return;
-          const data = node.data as Record<string, unknown>;
-          const src = (data.localSrc as string) || "";
-          if (!src) return;
-          const size = getCanvasNodeSize(node);
-          additions.push({
-            id: node.id,
-            title: (data.title as string) || "粘贴图片",
-            src,
-            width: size.width,
-            height: size.height,
-          });
-        });
-        return additions.length > 0 ? [...prev, ...additions] : prev;
-      });
+      registerImageNodesAsReferences(pastedNodes, "粘贴图片");
       return true;
     },
-    [pasteClipboardFromNavigator, pasteClipboardPayload]
+    [
+      pasteClipboardFromNavigator,
+      pasteClipboardPayload,
+      registerImageNodesAsReferences,
+    ]
+  );
+
+  /**
+   * 提示词框里**拖入**图片（本地文件 / 从网页里直接拖来的图）。
+   *
+   * 刻意与粘贴共用同一条链路：pasteClipboardPayload 消费的是 DataTransfer，
+   * 而 drop 事件的 dataTransfer 与 paste 的 clipboardData 结构完全一样
+   * （kind==="file" 的 image/* 项，或 text/html、text/uri-list 里的图片地址）。
+   * 所以这里不另起一套「拖拽专用」的建节点逻辑 ——
+   * 拖进来的图与粘贴进来的图、与画布里选中引用的图，
+   * 节点形状、引用标签样式、删除行为、提交时如何被取用，全部是同一份代码。
+   *
+   * ⚠️ 落点用画布中心（originOverride 传 undefined）而不是鼠标坐标：
+   * 此刻鼠标停在对话框上，按它反算出来的画布坐标在视口之外，
+   * 图会「成功导入」却根本看不见。
+   *
+   * ⚠️ files 必须在第一个 await 之前同步取出。
+   * drop 事件同步返回后 DataTransfer 会失效，await 之后再读永远是空的，且不报错。
+   */
+  const handleComposerImageDrop = useCallback(
+    async (dataTransfer: DataTransfer | null) => {
+      const description = "已同步到画布并作为引用图片";
+      const droppedFiles = Array.from(dataTransfer?.files || []).filter(
+        fileLooksLikeImage
+      );
+      let droppedNodes = await pasteClipboardPayload(
+        dataTransfer,
+        undefined,
+        description
+      );
+      if (droppedNodes.length === 0 && droppedFiles.length > 0) {
+        // 有些来源给出的文件 MIME 是空串（items 那条分支挑不中），
+        // 但扩展名摆在那儿。画布的拖拽链路用 fileLooksLikeImage 兜这一层，
+        // 对话框不能比画布更挑剔，否则同一张图拖画布行、拖输入框不行。
+        droppedNodes = await pasteClipboardImages(
+          droppedFiles,
+          undefined,
+          description
+        );
+      }
+      if (droppedNodes.length === 0) return false;
+      registerImageNodesAsReferences(droppedNodes, "拖入图片");
+      return true;
+    },
+    [
+      pasteClipboardImages,
+      pasteClipboardPayload,
+      registerImageNodesAsReferences,
+    ]
   );
 
   /**
@@ -34897,6 +35084,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         }
         onMergeReferences={mergeReferencedAssets}
         onPasteImages={handleComposerImagePaste}
+        onDropImages={handleComposerImageDrop}
         onImportHomeReferences={importHomePromptReferences}
         selectedCount={selectedNodeIds.length}
         helpPromptNonce={helpPromptNonce}

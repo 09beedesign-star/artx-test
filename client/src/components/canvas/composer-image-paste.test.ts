@@ -28,10 +28,19 @@ import { describe, expect, it } from "vitest";
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(resolve(here, "InfiniteCanvas.tsx"), "utf8");
 
-function sliceFunction(anchor: string, length = 2600) {
+/**
+ * ⚠️⚠️ 按「下一个顶层声明」切，而不是按固定字符数切。
+ * 固定长度会越界吃进后一个函数的代码，让 toContain 被邻居的同名调用糊弄过去
+ * （composer-image-drop 的变异自证真实踩过：删掉 preventDefault 测试仍绿）。
+ */
+function sliceFunction(anchor: string, maxLength = 2600) {
   const index = source.indexOf(anchor);
   expect(index, `找不到锚点：${anchor}`).toBeGreaterThan(-1);
-  return source.slice(index, index + length);
+  const rough = source.slice(index, index + maxLength);
+  const nextDecl = rough
+    .slice(anchor.length)
+    .search(/\n  const \w+ = useCallback|\n  const \w+ = use|\nfunction /);
+  return nextDecl === -1 ? rough : rough.slice(0, anchor.length + nextDecl);
 }
 
 describe("对话框粘贴图片 → 同步画布 + 生成引用标签", () => {
@@ -86,11 +95,27 @@ describe("对话框粘贴图片 → 同步画布 + 生成引用标签", () => {
     );
 
     // 关键：标签必须走 referencedAssets 这条唯一事实源。
-    expect(handler, "粘贴的图片没有进 referencedAssets").toContain(
+    //
+    // ⚠️ 登记逻辑已抽成 registerImageNodesAsReferences（粘贴与拖拽共用），
+    // 所以这里断言「调了唯一登记口」，而不是断言「函数体里有 setReferencedAssets」。
+    // 反过来：粘贴函数里**不该**再自己 setReferencedAssets —— 那就是第二份登记逻辑。
+    expect(handler, "粘贴的图片没有走统一的引用登记口").toContain(
+      "registerImageNodesAsReferences("
+    );
+    expect(
+      handler,
+      "粘贴里残留了自己的 setReferencedAssets，说明登记逻辑又分叉成两份"
+    ).not.toContain("setReferencedAssets(");
+
+    // 唯一登记口本身必须用画布节点 id，否则标签与画布节点脱钩。
+    const register = sliceFunction(
+      "const registerImageNodesAsReferences = useCallback",
+      1400
+    );
+    expect(register, "引用素材的 id 必须取画布节点 id").toContain("id: node.id");
+    expect(register, "登记口必须真的写进 referencedAssets").toContain(
       "setReferencedAssets("
     );
-    // id 必须用画布节点 id，否则标签与画布节点脱钩。
-    expect(handler, "引用素材的 id 必须取画布节点 id").toContain("id: node.id");
 
     // 反向断言：这里绝不能自己拼标签 segment。
     // 一旦出现，就说明又分叉出了第二套标签数据流。
