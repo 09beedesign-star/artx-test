@@ -65,6 +65,11 @@ import {
   resolvePanelScrollTopFromThumb,
 } from "./panel-scroll-thumb";
 import {
+  CANVAS_SELECTION_KEY,
+  createSelectionKeyReleaseEvent,
+  shouldReleaseSelectionKey,
+} from "./selection-key-guard";
+import {
   Image as ImageIcon,
   MessageSquare,
   Type,
@@ -25679,6 +25684,76 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [activeSkill, setActiveSkill] = useState<PendingSkillLoad | null>(null);
   const [imageGeneratorModalOpen, setImageGeneratorModalOpen] = useState(false);
   const [isCanvasLocked, setIsCanvasLocked] = useState(false);
+
+  /*
+    ════════════════════════════════════════════════════════════════
+    框选热键（Shift）卡死兜底 —— 详细根因见 ./selection-key-guard.ts
+    ════════════════════════════════════════════════════════════════
+
+    一句话：xyflow 内部用 useKeyPress('Shift') 维护 selectionKeyPressed，
+    它「置位」和「复位」不对称 —— 焦点在 textarea 里按 Shift 照样置位，
+    而一旦那次 keyup 没收到（最典型：智能文案编辑应用成功后面板整块卸载，
+    用户还按着 Shift 打字），这个 true 就永久挂住。
+
+    之后在**任何图片节点上**按下左键，Pane 会在 capture 阶段判定
+    `selectionKeyPressed === true` → 直接 stopPropagation 抢走事件起框选，
+    节点拖不动。表现就是用户说的「想拖图片，它自动变成框选」。
+
+    ⚠️⚠️ 复位不能挂在面板/节点上 —— 卡死的前提恰恰就是那个元素已经没了。
+       必须挂在 window 捕获阶段：没人拦得住，也不依赖任何元素还活着。
+
+    ⚠️ 复位手段只能是「补发一个 keyup 给 document」：selectionKeyPressed
+       活在 xyflow 内部 hook 里，没有对外 setter，它自己的 document 监听器
+       是唯一合法入口。
+  */
+  useEffect(() => {
+    const release = () => {
+      document.dispatchEvent(createSelectionKeyReleaseEvent());
+    };
+
+    const handleKeyEvent = (event: KeyboardEvent) => {
+      if (shouldReleaseSelectionKey(event)) release();
+    };
+
+    /*
+      ⚠️ pointerdown 这一条是最后一道闸，也是最关键的一条：
+         用户可能全程没再碰键盘（切走 → 回来 → 直接上手拖图）。
+         在「真正要拖」的那一刻之前，只要 Shift 物理上没被按着
+         （event.shiftKey === false），就强制复位。
+
+      ⚠️⚠️ 必须用捕获阶段，且必须早于 ReactFlow 的 Pane。Pane 用的是
+         React 合成事件（onPointerDownCapture），React 18 把它代理在
+         root 容器上；window 捕获阶段严格早于 root，所以这次复位
+         赶得上同一次 pointerdown 的判定。
+         挂冒泡阶段 = 复位永远晚一拍，这次拖拽照样变框选。
+    */
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!event.shiftKey) release();
+    };
+
+    /*
+      切窗口 / 页面隐藏 / 重新聚焦：浏览器不会补发 keyup，
+      这三种情况全都靠这里兜。
+    */
+    const handleFocusChange = () => {
+      release();
+    };
+
+    window.addEventListener("keydown", handleKeyEvent, true);
+    window.addEventListener("keyup", handleKeyEvent, true);
+    window.addEventListener("pointerdown", handlePointerDown, true);
+    window.addEventListener("blur", handleFocusChange);
+    window.addEventListener("focus", handleFocusChange);
+    document.addEventListener("visibilitychange", handleFocusChange);
+    return () => {
+      window.removeEventListener("keydown", handleKeyEvent, true);
+      window.removeEventListener("keyup", handleKeyEvent, true);
+      window.removeEventListener("pointerdown", handlePointerDown, true);
+      window.removeEventListener("blur", handleFocusChange);
+      window.removeEventListener("focus", handleFocusChange);
+      document.removeEventListener("visibilitychange", handleFocusChange);
+    };
+  }, []);
   // ── Edit-asset state: zoom in on canvas then show editing prompt bar ──
   const [editAsset, setEditAsset] = useState<{
     id: string;
@@ -35021,6 +35096,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         proOptions={{ hideAttribution: true }}
         selectionOnDrag
         selectionMode={SelectionMode.Partial}
+        /*
+          ⚠️ 显式传，不吃 xyflow 的隐式默认值。
+             这个键是「在节点上按下也能强制起框选」的唯一开关
+             （见 selection-key-guard.ts 的根因分析），必须有名字、有出处，
+             兜底复位才能确知自己在复位哪个键。
+        */
+        selectionKeyCode={CANVAS_SELECTION_KEY}
         multiSelectionKeyCode={["Control", "Meta"]}
         selectNodesOnDrag={false}
         panOnDrag={isCanvasLocked ? false : [1]}
