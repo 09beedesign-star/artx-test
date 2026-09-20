@@ -21013,6 +21013,30 @@ function CanvasAssistantPanel({
    * ⚠️ 改之前这里是**没有**②的：外部拖拽被放行后一路冒泡到画布，
    * 图落在画布上却不会变成引用标签 —— 用户拖进输入框，图跑画布上去了。
    */
+  /**
+   * ⚠️⚠️ dragenter 必须**单独挂一个**，不能只挂 dragOver。
+   *
+   * 事故现象：图还在输入框上方悬停时，画布那层全屏虚线指引也一起亮着，
+   * 用户同时看到两个落区，分不清图最后会落到哪儿。
+   *
+   * 根因：输入框卡片是画布容器的后代。拖拽刚进来时浏览器先发一次
+   * dragenter，这一层当时**没有任何处理器**，事件一路冒泡到画布容器的
+   * handleCanvasDragEnter，把 isDragOver 打开了。之后 dragOver 里的
+   * stopPropagation 只能拦住后续的 dragover，拦不住**已经发生过**的 dragenter。
+   *
+   * 📌 stopPropagation 只对「它自己这一次事件」生效，
+   * 拦不住同一次拖拽里更早发生的另一种事件。
+   */
+  const handleComposerImageDragEnterEvent = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (!dataTransferHasExternalImage(event.dataTransfer)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setIsComposerImageDragOver(true);
+    },
+    []
+  );
+
   const handleComposerImageDragOverEvent = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
       if (!dataTransferHasExternalImage(event.dataTransfer)) return;
@@ -21027,6 +21051,11 @@ function CanvasAssistantPanel({
     []
   );
 
+  /**
+   * ⚠️ 这里刻意**不**做 stopPropagation：从输入框移回画布时，
+   * 要靠 dragleave 冒泡上去把画布的 dragCounterRef 减回来。
+   * 一旦拦住，画布的计数永远减不掉，之后在画布上拖图时指引不再出现。
+   */
   const handleComposerImageDragLeaveEvent = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
       const nextTarget = event.relatedTarget;
@@ -23969,6 +23998,7 @@ function CanvasAssistantPanel({
               // 图会穿透到画布上 —— 表现是「拖进输入框没反应，图跑画布去了」。
               // 内部标签重排的拖拽由里层 shell 先 stopPropagation 处理掉，
               // 这里收到的只会是外部拖拽。
+              onDragEnter={handleComposerImageDragEnterEvent}
               onDragOver={handleComposerImageDragOverEvent}
               onDragLeave={handleComposerImageDragLeaveEvent}
               onDrop={handleComposerImageDropEvent}
@@ -31203,6 +31233,47 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   }, [addDroppedImageSources, screenToFlowPosition]);
 
   // ── Local/external image drag-drop handlers ──
+  /**
+   * ⚠️⚠️⚠️ 拖拽指引的复位必须有一条**与业务处理器无关**的兜底通道。
+   *
+   * 事故现象（2026-09-20）：把图拖进提示词输入框，图正常变成引用标签，
+   * 但画布那层全屏虚线指引 + 跟随紫点**永远不消失**，只能刷新页面才恢复。
+   *
+   * 根因：输入框卡片是画布容器的后代，它的 drop 处理器里有
+   * event.stopPropagation()（那是对的，否则画布会把同一张图再接一次变成双份）。
+   * 于是 handleCanvasDrop **根本不会被调用**，
+   * 而 isDragOver / dragPos / dragCounterRef 的复位全写在它里面 ——
+   * 复位代码一行没错，它只是永远执行不到。
+   *
+   * 📌⭐⭐⭐ 凡是「打开状态在 A 处、关闭状态在 B 处」的 UI，
+   * 只要 B 可能被别人 stopPropagation 掉，这个状态迟早会卡住。
+   * 关闭必须挂在**没人能拦截**的地方。
+   *
+   * ✅ 解法：在 window 的**捕获阶段**监听 drop / dragend。
+   * 捕获阶段从 window 往下走，子元素还没轮到发言，
+   * 因此任何后代的 stopPropagation 都拦不住它。
+   * 这里只做「关」不做「开」，也不碰 dataTransfer，不会与任何业务冲突。
+   *
+   * ⚠️ dragend 也要监听：拖到一半按 Esc 或拖出浏览器窗口松手时
+   * 全程没有 drop 事件，只有 dragend。少了它同样会卡住。
+   */
+  const resetCanvasDragIndicator = useCallback(() => {
+    dragCounterRef.current = 0;
+    setIsDragOver(false);
+    setDragPos(null);
+  }, []);
+
+  useEffect(() => {
+    // capture: true 是关键 —— 冒泡阶段会被输入框的 stopPropagation 截断。
+    const handler = () => resetCanvasDragIndicator();
+    window.addEventListener("drop", handler, true);
+    window.addEventListener("dragend", handler, true);
+    return () => {
+      window.removeEventListener("drop", handler, true);
+      window.removeEventListener("dragend", handler, true);
+    };
+  }, [resetCanvasDragIndicator]);
+
   const handleCanvasDragEnter = useCallback((e: React.DragEvent) => {
     if (!dataTransferMayContainExternalDrop(e.dataTransfer)) return;
     e.preventDefault();
@@ -31226,20 +31297,16 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     e.stopPropagation();
     dragCounterRef.current -= 1;
     if (dragCounterRef.current <= 0) {
-      dragCounterRef.current = 0;
-      setIsDragOver(false);
-      setDragPos(null);
+      resetCanvasDragIndicator();
     }
-  }, []);
+  }, [resetCanvasDragIndicator]);
 
   const handleCanvasDrop = useCallback(
     (e: React.DragEvent) => {
       if (!dataTransferMayContainExternalDrop(e.dataTransfer)) return;
       e.preventDefault();
       e.stopPropagation();
-      dragCounterRef.current = 0;
-      setIsDragOver(false);
-      setDragPos(null);
+      resetCanvasDragIndicator();
       const rect = containerRef.current?.getBoundingClientRect();
       const baseX = e.clientX - (rect?.left || 0);
       const baseY = e.clientY - (rect?.top || 0);
@@ -31389,6 +31456,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       createDroppedImageSourceNode,
       createDroppedImageFileNode,
       pushHistory,
+      resetCanvasDragIndicator,
       screenToFlowPosition,
       setNodes,
     ]
