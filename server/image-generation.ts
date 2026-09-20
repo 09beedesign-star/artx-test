@@ -4942,7 +4942,17 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
   // 负面约束：OpenAI 系接口无 negative_prompt 字段，以 "Avoid" 形式并入正向提示词，
   // 降低 AI 在文字重绘时误改画面其他内容的风险。
   const textEditNegativeInstruction = isTextEditOperation
-    ? "Avoid in the final result: 画面变形、背景改动、图案偏移、多余元素、画面裁切、文字错位、修改蒙版外内容、模糊、噪点、水印、扭曲。Keep every pixel outside the marked text areas unchanged."
+    /**
+     * ⚠️ 2026-09-20 补充「底板 / 文本框 / 默认字体」三类负面词。
+     *
+     * 即梦在文字区留白较大时，倾向于自作主张加一个白底文本框再写字
+     * （用户实测截图即此现象）。正向指令已经禁止了一次，这里再从负面
+     * 约束堵一次 —— 两条出口（VOD 链与 OpenAI 链）共用本变量，改一处全覆盖。
+     */
+    ? "Avoid in the final result: 画面变形、背景改动、图案偏移、多余元素、画面裁切、文字错位、修改蒙版外内容、模糊、噪点、水印、扭曲、" +
+      "文字底板、白色色块、文本框、标签贴纸、圆角矩形背景、气泡框、默认黑体/宋体等无设计感的系统字体。" +
+      "No solid plate, box, banner or sticker behind the replacement text. " +
+      "Keep every pixel outside the marked text areas unchanged."
     : "";
 
   // 记录擦字前的原始图：叠字结果 composite 时用它还原 mask 外像素，
@@ -5367,13 +5377,38 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
           "If the surrounding background is a flat solid color, keep it perfectly flat: " +
           "do not introduce texture, gradient, vignette or noise into it. " +
           "Only then paint the replacement text, and only inside the mask. " +
-          // 2026-09-13：补充字重 / 字距控制。即梦生成式链路对"标题"的先验偏粗壮衬线，叠加
-          // 蒙版留白时会进一步放大字号并收紧字间距 → 视觉上比原图粗很多。这里强制引导它
-          // 走"排版"而非"绘画"：细字重、留字间距、不要填满区域。
-          "\nTypography must read as typeset, not painted: thin-to-regular stroke weight, " +
-          "generous letter-spacing, breathing room between glyphs; " +
-          "do not bolden, thicken or extra-stroke the letters; " +
-          "do not crowd glyphs together; do not enlarge the glyphs to fill the available area.";
+          /**
+           * ⚠️⚠️⚠️ 2026-09-20 重写。此前这里写的是：
+           *   "Typography must read as typeset, not painted: thin-to-regular stroke weight,
+           *    generous letter-spacing ... do not enlarge the glyphs to fill the available area."
+           *
+           * 那版是为了压制「即梦把标题画得过粗」而写的，但它把任务定义成了
+           * **排版**（typeset）。即梦忠实照做的结果就是：在海报上摆一个
+           * 白底黑字的细体文本框 —— 用户实测截图里那种「文字像直接贴上去」
+           * 的廉价感，正是这条指令的产物，**不是模型能力不行**。
+           *
+           * 📌 判据：出图看起来「像贴上去的」时，先看提示词是不是把任务
+           *    描述成了「排版 / 写字」。模型是照着指令画的，指令说 typeset
+           *    它就给你 typeset，永远不会自己想到要还原艺术字。
+           *
+           * 改为「复刻原图那套字的设计」：字形风格、描边、投影、渐变、
+           * 透视、做旧质感全部对齐原图，且显式禁止出现底板 / 色块 / 文本框。
+           * 「不要过粗」的原始诉求保留，但降级为「与原图同等字重」这种
+           * **相对**约束，而不是「细字重」这种会脱离原设计的绝对约束。
+           */
+          "\nThe replacement text must look like it was part of the original poster design all along. " +
+          "Study the typography of the text that was removed (and any remaining text in the image) and " +
+          "reproduce the SAME lettering design: same typeface character, same stroke weight relative to " +
+          "the original, same slant/italic, same perspective and skew, same color or gradient, same outline/" +
+          "stroke, same drop shadow, glow, bevel, grunge or distressed texture, same baseline and alignment. " +
+          "Match the original letter-spacing and glyph size relative to the text block — do not shrink the " +
+          "text into a small caption, and do not bolden it beyond the original weight. " +
+          "\nAbsolutely do not draw any solid background panel, white box, colored plate, banner, label, " +
+          "sticker, caption bar, speech bubble or rounded rectangle behind the text. " +
+          "The replacement glyphs must sit directly on the repaired background exactly like the original " +
+          "text did, with no container behind them. " +
+          "Do not render the text in a plain default system font; it must carry the same artistic treatment " +
+          "as the original poster lettering.";
         /**
          * 擦字成功后，源图里已经没有原文字了。
          * 但上面 textEditInstruction 基线还写着「移除原有可读文字」——

@@ -1655,3 +1655,139 @@ describe("text_edit 擦除通道：即梦背景修复", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * ⚠️⚠️⚠️ AI 叠字提示词契约（2026-09-20）。
+ *
+ * 【事故】用户实测智能文案编辑，出图是「海报上摆一个白底黑字的细体文本框」，
+ * 质感极差，看起来完全不像即梦的水平。
+ *
+ * 【排查结论】即梦被正确调用了，也成功返回了 2496x1664 的图 ——
+ * 模型没问题。问题出在提示词：那版指令写的是
+ *   "Typography must read as typeset, not painted: thin-to-regular stroke weight,
+ *    generous letter-spacing ... do not enlarge the glyphs to fill the available area"
+ * 把任务定义成了**排版**。即梦忠实照做，于是给了一个排版框。
+ *
+ * 📌⭐⭐⭐ 判据：出图「像贴上去的」时，先怀疑提示词把任务描述成了
+ *    「排版 / 写字」，而不是怀疑模型能力。模型是照着指令画的 ——
+ *    指令说 typeset 它就给 typeset，永远不会自己想到要还原艺术字。
+ *
+ * 这组测试锁死修复后的语义，防止有人为了压「字太粗」再把
+ * typeset / thin stroke 那套绝对约束加回来。
+ */
+describe("text_edit AI 叠字：提示词必须要求复刻原图字体设计", () => {
+  const readTextEditSource = () => readFile(resolve(__dirname, "image-generation.ts"), "utf8");
+
+  /**
+   * ⚠️ 反向断言必须剥掉注释再断言。
+   *
+   * 实现文件里为了讲清事故，注释中原样引用了事故版指令的原文。
+   * 直接对全文做 not.toContain 会把**注释里的引用**当成指令回归，
+   * 产生永远为红的假阳性 —— 这类断言会被后人直接删掉，反而失去防护。
+   */
+  const readTextEditInstructionSource = async () => {
+    const source = await readTextEditSource();
+    return source
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+  };
+
+  it("不得把任务描述成排版（typeset），也不得要求细字重", async () => {
+    const instructions = await readTextEditInstructionSource();
+    // 剥注释后仍要能看到修复后的指令，否则说明剥离器把代码也吃掉了，
+    // 下面三条反向断言会恒绿（这是「没量到」伪装成「没问题」的典型）。
+    expect(instructions).toContain("reproduce the SAME lettering design");
+    // 这三句是事故版指令的原文特征，任何一句回归都会让即梦退化成排版框。
+    expect(instructions).not.toContain("Typography must read as typeset, not painted");
+    expect(instructions).not.toContain("thin-to-regular stroke weight");
+    expect(instructions).not.toContain("do not enlarge the glyphs to fill the available area");
+  });
+
+  it("必须显式要求复刻原字体的描边/投影/透视等设计特征", async () => {
+    const source = await readTextEditSource();
+    expect(source).toContain("part of the original poster design");
+    expect(source).toContain("reproduce the SAME lettering design");
+    // 描边、投影、做旧质感是艺术字的核心特征，漏掉任一条都会退化成普通字。
+    expect(source).toContain("drop shadow");
+    expect(source).toContain("grunge or distressed texture");
+    expect(source).toContain("same perspective and skew");
+  });
+
+  it("必须从正反两侧禁止文字底板 / 白色色块 / 文本框", async () => {
+    const source = await readTextEditSource();
+    // 正向指令侧
+    expect(source).toContain("do not draw any solid background panel");
+    expect(source).toContain("no container behind them");
+    // 负面约束侧（两条出口共用 textEditNegativeInstruction，改一处全覆盖）
+    expect(source).toContain("文字底板、白色色块、文本框");
+    expect(source).toContain("No solid plate, box, banner or sticker behind the replacement text");
+  });
+
+  /**
+   * ⚠️ 上面三条都是源码断言，只能证明「代码里写了」。
+   *    这一条走真实调用，证明这些约束**确实被下发到了即梦**。
+   *    📌 「代码里有」和「下发到了」是两件事：中途任何一次提前 return、
+   *       或走到另一条出口，都会让前者成立而后者不成立。
+   */
+  it("叠字调用的 prompt 里真的带上了这些约束", async () => {
+    const width = 160;
+    const height = 120;
+    let seed = 20260920;
+    const noise = Buffer.alloc(width * height * 3);
+    for (let index = 0; index < noise.length; index += 1) {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      noise[index] = (seed >>> 16) & 0xff;
+    }
+    const source = await sharp(noise, { raw: { width, height, channels: 3 } }).png().toBuffer();
+    const erased = await sharp({
+      create: { width, height, channels: 3, background: "#808080" },
+    }).png().toBuffer();
+
+    const maskPixels = Buffer.alloc(width * height * 4, 255);
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width / 2; x += 1) {
+        maskPixels[(y * width + x) * 4 + 3] = 0;
+      }
+    }
+    const mask = await sharp(maskPixels, { raw: { width, height, channels: 4 } }).png().toBuffer();
+
+    stubVodCredentials();
+    // editImageWithPrompt 开头会校验 AI_IMAGE_API_KEY（即使最终走 VOD 也要过这道闸）。
+    vi.stubEnv("AI_IMAGE_API_KEY", "test-key");
+    const vodCalls: Array<{ model: string; prompt: string }> = [];
+    vodGenerateSpy.mockImplementation(async (input: { model: string; prompt: string }) => {
+      vodCalls.push(input);
+      return { images: [{ src: `data:image/png;base64,${erased.toString("base64")}` }] };
+    });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      throw new Error(`Unexpected fetch ${String(url)}`);
+    });
+
+    await editImageWithPrompt({
+      imageSrc: `data:image/png;base64,${source.toString("base64")}`,
+      maskSrc: `data:image/png;base64,${mask.toString("base64")}`,
+      prompt: "把标题替换成 NEW ARRIVAL",
+      model: "vod-jimeng",
+      operation: "text_edit",
+      // 关键：显式 "ai" 才会走到叠字阶段（默认 local 会被本地绘制截胡）
+      textApplyMode: "ai",
+      preserveSource: true,
+      textRegions: [{ text: "SALE", x: 0.04, y: 0.3, width: 0.42, height: 0.18 }],
+      editedText: "NEW ARRIVAL",
+      targetWidth: width,
+      targetHeight: height,
+    });
+
+    // 第 1 次是擦字，第 2 次才是叠字
+    expect(vodCalls.length).toBeGreaterThanOrEqual(2);
+    const overlayPrompt = vodCalls[vodCalls.length - 1].prompt;
+    expect(overlayPrompt).toContain("reproduce the SAME lettering design");
+    expect(overlayPrompt).toContain("do not draw any solid background panel");
+    expect(overlayPrompt).toContain("No solid plate, box, banner or sticker");
+    // 待写入的新文案必须逐字下发
+    expect(overlayPrompt).toContain("NEW ARRIVAL");
+    // 事故版的排版指令绝不能再出现在真实下发的 prompt 里
+    expect(overlayPrompt).not.toContain("must read as typeset");
+    expect(overlayPrompt).not.toContain("thin-to-regular stroke weight");
+  });
+});
