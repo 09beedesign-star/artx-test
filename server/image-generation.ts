@@ -2786,6 +2786,99 @@ async function createLocalEditGuideImage(
   }).png().toBuffer();
 }
 
+/**
+ * 智能文案编辑专用：从**擦字前的原图**裁出「原文字样本条」，作为字体设计参考图。
+ *
+ * ⚠️⚠️⚠️ 2026-09-20 事故根因修复。
+ *
+ * 叠字链路的提示词写着「复刻被移除文字的字形 / 描边 / 投影 / 透视」，
+ * 但 editViaReferenceGeneration 里的 `sourceDataUrl` 取自 `sourceImageData`，
+ * 而擦字成功后它**已经被替换成擦干净的图**。也就是说：
+ *   指令要求模型照着原字复刻，模型手上却一张原字都没有。
+ * 模型看不到样本时只能退回默认行为 —— 摆一个文本框把字写进去，
+ * 于是用户看到的就是「文字像直接贴上去的」。
+ *
+ * 📌 判据：凡是提示词里出现「照着 X 做」，必须回头确认 **X 有没有真的
+ *    在参考图里**。擦字 / 裁剪 / 归一化这类中途加工会把 X 悄悄拿走，
+ *    而提示词不会报错，只会让模型自由发挥。
+ *
+ * 这里按 OCR 区域把原字裁出来拼成一条样本图。刻意**不给整张原图**：
+ * 整图带着完整旧排版，模型容易把它当成目标画布去复制旧文案。
+ * 底色用中性灰而非白色 —— 白底样本本身就在暗示「字要配白底板」，
+ * 正是我们要消灭的东西。
+ */
+async function createOriginalTypographyReferenceImage(
+  originalBuffer: Buffer,
+  textRegions: Array<{ x: number; y: number; width: number; height: number }>,
+  width: number,
+  height: number,
+): Promise<Buffer | null> {
+  if (!textRegions.length) return null;
+  const sharp = (await import("sharp")).default;
+  const baseBuffer = await sharp(originalBuffer, { limitInputPixels: false })
+    .rotate()
+    .resize(width, height, { fit: "fill" })
+    .png()
+    .toBuffer();
+
+  const clamp = (value: number, min: number, max: number) =>
+    Math.max(min, Math.min(value, max));
+  const crops: Array<{ buffer: Buffer; width: number; height: number }> = [];
+  // 按阅读顺序排，保证样本条里的字形顺序与原图一致，便于模型逐行对应。
+  for (const region of [...textRegions].sort((a, b) => a.y - b.y || a.x - b.x)) {
+    // 留白：横向少留（避免把邻近画面元素裹进来），纵向多留
+    // （描边 / 投影 / 发光往往溢出 bbox，裁掉就等于把"设计感"裁掉了）。
+    const padX = region.width * width * 0.06;
+    const padY = region.height * height * 0.25;
+    const left = Math.round(clamp(region.x * width - padX, 0, width - 1));
+    const top = Math.round(clamp(region.y * height - padY, 0, height - 1));
+    const right = Math.round(
+      clamp(region.x * width + region.width * width + padX, left + 1, width),
+    );
+    const bottom = Math.round(
+      clamp(region.y * height + region.height * height + padY, top + 1, height),
+    );
+    const cropWidth = right - left;
+    const cropHeight = bottom - top;
+    // 太小的裁块喂给模型只有噪声价值，直接丢弃。
+    if (cropWidth < 8 || cropHeight < 8) continue;
+    crops.push({
+      buffer: await sharp(baseBuffer, { limitInputPixels: false })
+        .extract({ left, top, width: cropWidth, height: cropHeight })
+        .png()
+        .toBuffer(),
+      width: cropWidth,
+      height: cropHeight,
+    });
+  }
+  if (!crops.length) return null;
+
+  const gap = 16;
+  const canvasWidth = Math.max(...crops.map(crop => crop.width)) + gap * 2;
+  const canvasHeight =
+    crops.reduce((sum, crop) => sum + crop.height, 0) + gap * (crops.length + 1);
+  let offsetY = gap;
+  const composites = crops.map(crop => {
+    const item = { input: crop.buffer, left: gap, top: offsetY };
+    offsetY += crop.height + gap;
+    return item;
+  });
+
+  return sharp({
+    create: {
+      width: canvasWidth,
+      height: canvasHeight,
+      channels: 4,
+      // 中性灰：既不暗示白底板，也不暗示深底板。
+      background: { r: 128, g: 128, b: 128, alpha: 1 },
+    },
+    limitInputPixels: false,
+  })
+    .composite(composites)
+    .png()
+    .toBuffer();
+}
+
 // VOD 参考图生成中支持 mask 蒙版编辑的模型（白=编辑区）。
 // VOD AIGC 的 CreateImageTask 接口本身支持 ReferenceType: "mask"，理论上所有 VOD 模型
 // 都能传入蒙版参考图做局部编辑；各模型对蒙版的理解能力不同，这里统一放开，
@@ -5612,6 +5705,39 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
      */
     // 优先用擦字阶段那张膨胀蒙版：让「擦掉的背景范围」与「允许写字的范围」对齐。
     // 早先用前端原始紧框时，新文案比原文长就会超出白区边界，看起来像模型漏字。
+    /**
+     * ⚠️⚠️⚠️ 原字样本参考图（2026-09-20 根因修复）。
+     *
+     * 必须用 `originalSourceImageData` —— 擦字前的原图。用 `sourceImageData`
+     * 等于把一张已经没有文字的图当"字体样本"喂进去，那正是本次事故本身。
+     * 只在「擦字确实发生过」时才生成：没擦字的话原图还在参考图 1 里，
+     * 再塞一张重复样本只会稀释注意力、白烧一张参考图额度。
+     */
+    const typographyReferenceDataUrl =
+      isTextEditOperation &&
+      input.textRegions?.length &&
+      sourceImageData !== originalSourceImageData
+        ? await (async () => {
+            try {
+              const buffer = await createOriginalTypographyReferenceImage(
+                originalSourceImageData.buffer,
+                input.textRegions!,
+                targetWidth,
+                targetHeight,
+              );
+              return buffer ? `data:image/png;base64,${buffer.toString("base64")}` : "";
+            } catch (error) {
+              // 样本图只是增强项，失败不能拖垮整条叠字链路。
+              // 但必须打日志：静默失败会让「效果又变差了」无从归因。
+              console.log(
+                `[text_edit] 原字样本参考图生成失败，降级为无样本叠字: ${
+                  error instanceof Error ? error.message : String(error)
+                }`,
+              );
+              return "";
+            }
+          })()
+        : "";
     const textEditMaskSource = textEditDilatedMaskBuffer || maskImageData;
     const textEditVodMaskDataUrl = isTextEditOperation && textEditMaskSource
       ? (await createOgdEditMaskDataUrl(
@@ -5640,6 +5766,9 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
       console.log("[text_edit] AI 叠字链路", JSON.stringify({
         referenceModels: Array.from(new Set(referenceModels)),
         vodMask: Boolean(textEditVodMaskDataUrl),
+        // ⭐ 本次事故的归因字段：false 就说明模型又在"没看过原字"的情况下叠字，
+        // 出图必然退回默认文本框样式。排查时先看这一位再怀疑模型。
+        typographySample: Boolean(typographyReferenceDataUrl),
         enhancePrompt: selectedModel.startsWith("vod-") ? false : undefined,
         editedText: input.editedText,
       }));
@@ -5659,10 +5788,22 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
             editGuideDataUrl
               ? "Reference image 2 is a visual edit guide derived from reference image 1. Its translucent orange overlay marks the only area allowed to change; the overlay itself is not content and must not appear in the result. Every unmarked area must remain visually identical to reference image 1."
               : "",
+            /**
+             * ⚠️⚠️⚠️ 这段必须与 images 数组里的 "original typography sample" 同生共死。
+             * 只塞图不说明，模型会把它当成"要画进画面的素材"贴到成图里；
+             * 只说明不塞图，就是本次事故（指令说照着原字复刻，图里根本没有原字）。
+             */
+            typographyReferenceDataUrl
+              ? "One reference image is titled 'original typography sample'. It is NOT content to paste into the result, and it must never appear as a panel, crop, strip or grey block anywhere in the output. It contains the ACTUAL original lettering that was removed, cropped straight out of the source poster onto a neutral grey backing. Study it closely and reproduce its exact lettering design for the replacement text: the same typeface character and glyph construction, the same stroke weight, the same slant, perspective and baseline, the same fill color or gradient, the same outline/stroke, drop shadow, glow, bevel, grunge or distressed texture, and the same glyph size relative to the text block. The grey backing in that sample is only a neutral carrier — it is not a background plate and must not be reproduced behind the new text."
+              : "",
             textEditVodMaskDataUrl
               ? "One later reference image is an exact mask for this edit: white marks the only editable text areas, black must stay pixel-identical to reference image 1. Remove the original text inside the white areas and render the replacement text there."
               : "",
-            "Use any later reference images only for the requested object, accessory, style, texture, or detail.",
+            // ⚠️ 这句原本会把上面那张「原字样本」也一起归类成"素材图"，
+            // 导致模型试图把样本条本身画进成图。text_edit 下必须换一句口径。
+            isTextEditOperation
+              ? "Apart from the typography sample and the mask described above, use any later reference images only for the requested object, accessory, style, texture, or detail."
+              : "Use any later reference images only for the requested object, accessory, style, texture, or detail.",
             "Return one complete edited image, not a text explanation.",
             aspectInstruction,
             textEditNegativeInstruction,
@@ -5684,6 +5825,9 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
           images: [
             { src: sourceDataUrl, title: "target image" },
             ...(editGuideDataUrl ? [{ src: editGuideDataUrl, title: "local edit guide" }] : []),
+            ...(typographyReferenceDataUrl
+              ? [{ src: typographyReferenceDataUrl, title: "original typography sample" }]
+              : []),
             ...(textEditVodMaskDataUrl ? [{ src: textEditVodMaskDataUrl, title: "annotation mask" }] : []),
             ...referenceImages,
           ],

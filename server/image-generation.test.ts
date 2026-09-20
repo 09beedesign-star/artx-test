@@ -1790,4 +1790,89 @@ describe("text_edit AI 叠字：提示词必须要求复刻原图字体设计", 
     expect(overlayPrompt).not.toContain("must read as typeset");
     expect(overlayPrompt).not.toContain("thin-to-regular stroke weight");
   });
+
+  /**
+   * ⚠️⚠️⚠️ 2026-09-20 第二次事故的契约。
+   *
+   * 第一次修复只改了提示词（「照着原字复刻」），上线后用户实测仍然
+   * 「像贴上去的」。根因是：提示词要模型照着原字画，但喂给模型的
+   * 参考图 1 是**擦字后的图**，原字早就没了。模型看不到样本，
+   * 只能退回默认行为 —— 摆个文本框写字。
+   *
+   * 📌 这条测试锁的是「样本图真的被送到上游了」，而不是「代码里写了」。
+   *    源码断言挡不住这类事故：当初那版源码里「复刻原字」写得好好的。
+   */
+  it("擦字后必须把『原字样本图』作为参考图一起喂给模型", async () => {
+    const width = 160;
+    const height = 120;
+    let seed = 20260921;
+    const noise = Buffer.alloc(width * height * 3);
+    for (let index = 0; index < noise.length; index += 1) {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      noise[index] = (seed >>> 16) & 0xff;
+    }
+    const source = await sharp(noise, { raw: { width, height, channels: 3 } }).png().toBuffer();
+    const erased = await sharp({
+      create: { width, height, channels: 3, background: "#808080" },
+    }).png().toBuffer();
+
+    const maskPixels = Buffer.alloc(width * height * 4, 255);
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width / 2; x += 1) {
+        maskPixels[(y * width + x) * 4 + 3] = 0;
+      }
+    }
+    const mask = await sharp(maskPixels, { raw: { width, height, channels: 4 } }).png().toBuffer();
+
+    stubVodCredentials();
+    vi.stubEnv("AI_IMAGE_API_KEY", "test-key");
+    const vodCalls: Array<{ model: string; prompt: string; imageUrls?: string[] }> = [];
+    vodGenerateSpy.mockImplementation(
+      async (input: { model: string; prompt: string; imageUrls?: string[] }) => {
+        vodCalls.push(input);
+        return { images: [{ src: `data:image/png;base64,${erased.toString("base64")}` }] };
+      },
+    );
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      throw new Error(`Unexpected fetch ${String(url)}`);
+    });
+
+    await editImageWithPrompt({
+      imageSrc: `data:image/png;base64,${source.toString("base64")}`,
+      maskSrc: `data:image/png;base64,${mask.toString("base64")}`,
+      prompt: "把标题替换成 NEW ARRIVAL",
+      model: "vod-jimeng",
+      operation: "text_edit",
+      textApplyMode: "ai",
+      preserveSource: true,
+      textRegions: [{ text: "SALE", x: 0.04, y: 0.3, width: 0.42, height: 0.18 }],
+      editedText: "NEW ARRIVAL",
+      targetWidth: width,
+      targetHeight: height,
+    });
+
+    const overlayCall = vodCalls[vodCalls.length - 1];
+    // 擦字图 + 橙色引导图 + 原字样本图 = 至少 3 张非蒙版参考图。
+    // 修复前只有 2 张，这条断言即为回归闸门。
+    expect(overlayCall.imageUrls?.length ?? 0).toBeGreaterThanOrEqual(3);
+
+    // 样本图必须与「擦字后的源图」不同 —— 否则等于又喂了一张没有字的图，
+    // 事故会原样复发而这条测试还是绿的。
+    const sampleDataUrl = overlayCall.imageUrls?.[overlayCall.imageUrls.length - 1] || "";
+    expect(sampleDataUrl.startsWith("data:image/")).toBe(true);
+    expect(sampleDataUrl).not.toBe(overlayCall.imageUrls?.[0]);
+
+    // 光塞图不说明，模型会把样本条当素材贴进成图 —— 说明文字必须同时在场。
+    expect(overlayCall.prompt).toContain("original typography sample");
+    expect(overlayCall.prompt).toContain("It is NOT content to paste into the result");
+  });
+
+  it("样本图取自擦字前的原图，而不是擦干净的图", async () => {
+    const source = await readTextEditSource();
+    // 传 originalSourceImageData 是本次修复的命门：传 sourceImageData
+    // 就等于把「没有字的图」当字体样本，事故原样复发且零报错。
+    expect(source).toContain("createOriginalTypographyReferenceImage(\n                originalSourceImageData.buffer");
+    // 归因日志：出问题时先看这一位，再怀疑模型能力。
+    expect(source).toContain("typographySample: Boolean(typographyReferenceDataUrl)");
+  });
 });
