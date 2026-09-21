@@ -1906,3 +1906,185 @@ describe("text_edit AI 叠字：提示词必须要求复刻原图字体设计", 
     expect(source).toContain("typographySample: Boolean(typographyReferenceDataUrl)");
   });
 });
+
+/**
+ * ⚠️⚠️⚠️ 2026-09-21 事故契约：即梦无视蒙版整图重绘，必须被蒙版外还原挡住。
+ *
+ * 用户实测现象：改一行标题，结果整张海报的文字排版全挪位、人物道具位置改变，
+ * 且画面右下角平白多出一个模型自行脑补的适龄提示角标。
+ *
+ * 根因不是提示词不够强（提示词里早就写了 "Do not draw any new text ... anywhere"），
+ * 而是收尾阶段**主动跳过了蒙版外还原** —— 旧代码判定「既然给 VOD 传了蒙版，
+ * 上游就会保证框外不动，后端再合成是冗余的」。上游不守约时，破坏 1:1 交付且零报错。
+ *
+ * 📌⭐⭐⭐ 本组测试锁的是**行为**不是源码：即使有人把注释和变量名全改了，
+ *    只要「框外像素没被还原」就必须红。
+ */
+describe("text_edit AI 叠字：上游整图重绘必须被蒙版外还原挡回去", () => {
+  const width = 160;
+  const height = 120;
+
+  /** 确定性噪点原图。不用 Math.random：像素统计驱动的分支会让随机底时灵时不灵。 */
+  const buildSource = async (seedInit: number) => {
+    let seed = seedInit;
+    const noise = Buffer.alloc(width * height * 3);
+    for (let index = 0; index < noise.length; index += 1) {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      noise[index] = (seed >>> 16) & 0xff;
+    }
+    return sharp(noise, { raw: { width, height, channels: 3 } }).png().toBuffer();
+  };
+
+  /** 前端那张紧框蒙版：alpha=0 即「可编辑」，只覆盖左半边。 */
+  const buildTightMask = async () => {
+    const maskPixels = Buffer.alloc(width * height * 4, 255);
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width / 2; x += 1) {
+        maskPixels[(y * width + x) * 4 + 3] = 0;
+      }
+    }
+    return sharp(maskPixels, { raw: { width, height, channels: 4 } }).png().toBuffer();
+  };
+
+  /**
+   * 模拟「即梦整图重绘」：返回一张与原图毫无关系的纯品红图。
+   * 真实事故里模型返回的是「重新创作的同题材海报」，对像素而言等价于整图都变了。
+   * 用纯色是为了让断言可判定 —— 框外只要残留任何品红，就说明还原没生效。
+   */
+  const buildWholeImageRedraw = async () =>
+    sharp({ create: { width, height, channels: 3, background: "#FF00FF" } }).png().toBuffer();
+
+  const runTextEdit = async (source: Buffer, mask: Buffer, redraw: Buffer) => {
+    stubVodCredentials();
+    vi.stubEnv("AI_IMAGE_API_KEY", "test-key");
+    // 擦字通道全部让位，逼请求走到叠字阶段，且叠字结果就是我们构造的整图重绘。
+    vi.stubEnv("TEXT_ENGINE_BASE_URL", "");
+    vi.stubEnv("PICWISH_API_KEY", "");
+
+    let callIndex = 0;
+    vodGenerateSpy.mockImplementation(async () => {
+      callIndex += 1;
+      // 第 1 次是擦字：返回一张灰图当作「擦干净的底图」，让流程继续往下走。
+      if (callIndex === 1) {
+        const erased = await sharp({
+          create: { width, height, channels: 3, background: "#808080" },
+        }).png().toBuffer();
+        return { images: [{ src: `data:image/png;base64,${erased.toString("base64")}` }] };
+      }
+      // 第 2 次是叠字：模型无视蒙版，整图重绘。
+      return { images: [{ src: `data:image/png;base64,${redraw.toString("base64")}` }] };
+    });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      throw new Error(`Unexpected fetch ${String(url)}`);
+    });
+
+    return editImageWithPrompt({
+      imageSrc: `data:image/png;base64,${source.toString("base64")}`,
+      maskSrc: `data:image/png;base64,${mask.toString("base64")}`,
+      prompt: "把标题替换成 NEW ARRIVAL",
+      model: "vod-jimeng",
+      operation: "text_edit",
+      textApplyMode: "ai",
+      preserveSource: true,
+      textRegions: [{ text: "SALE", x: 0.04, y: 0.3, width: 0.42, height: 0.18 }],
+      editedText: "NEW ARRIVAL",
+      targetWidth: width,
+      targetHeight: height,
+    });
+  };
+
+  /**
+   * 读出成图某块区域的平均 RGB。
+   *
+   * ⚠️ 必须 removeAlpha() 固定成 3 通道再算。合成出口返回的是带 alpha 的 PNG，
+   *    按 3 通道步进遍历 RGBA 数据会越界取到 undefined，均值变成 NaN ——
+   *    而 NaN 参与的比较**恒为 false**，表现是测试红得莫名其妙；
+   *    若断言方向写反了，则会恒绿（「没量到」伪装成「没问题」）。
+   */
+  const readRegionRgb = async (
+    dataUrl: string,
+    region: { left: number; top: number; width: number; height: number },
+  ) => {
+    const buffer = Buffer.from(dataUrl.split(",")[1] || "", "base64");
+    const { data, info } = await sharp(buffer)
+      .extract(region)
+      .removeAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    expect(info.channels, "取样必须是 3 通道，否则均值会算成 NaN").toBe(3);
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    const pixels = data.length / 3;
+    for (let index = 0; index < data.length; index += 3) {
+      r += data[index];
+      g += data[index + 1];
+      b += data[index + 2];
+    }
+    return [r / pixels, g / pixels, b / pixels];
+  };
+
+  it("蒙版外（右下角）不得残留上游重绘的内容，必须回到原图", async () => {
+    const source = await buildSource(20260921);
+    const mask = await buildTightMask();
+    const redraw = await buildWholeImageRedraw();
+
+    const result = await runTextEdit(source, mask, redraw);
+    const [r, g, b] = await readRegionRgb(result.images[0].src, {
+      left: width - 20,
+      top: height - 20,
+      width: 16,
+      height: 16,
+    });
+
+    /**
+     * 品红 = (255, 0, 255)。若还原失效，右下角会是纯品红：G 通道≈0 且 R/B≈255。
+     * 噪点原图各通道均值都在 128 附近，所以「G 明显不为 0」即证明框外取回了原图。
+     * ⚠️ 不断言完全等于原图像素：归一化/编码会有微小偏差，用通道区间判定更稳。
+     */
+    expect(g).toBeGreaterThan(40);
+    expect(Math.abs(r - 255) + Math.abs(b - 255)).toBeGreaterThan(60);
+  });
+
+  it("蒙版内（左半边）必须采纳上游结果，还原不能把编辑也一起抹掉", async () => {
+    const source = await buildSource(20260922);
+    const mask = await buildTightMask();
+    const redraw = await buildWholeImageRedraw();
+
+    const result = await runTextEdit(source, mask, redraw);
+    const [r, g, b] = await readRegionRgb(result.images[0].src, {
+      left: 8,
+      top: height / 2 - 8,
+      width: 16,
+      height: 16,
+    });
+
+    /**
+     * 这条是「过度还原」的反向闸门。
+     * 📌⭐⭐⭐ 只写上一条的话，把合成蒙版整片设成「全部保留」也能让它变绿 ——
+     *    那等于编辑完全没生效，是另一种零报错事故。两条必须同时在场。
+     */
+    expect(r).toBeGreaterThan(g + 40);
+    expect(b).toBeGreaterThan(g + 40);
+  });
+
+  it("合成用的是擦字阶段的膨胀蒙版，不是前端紧框", async () => {
+    const source = await readFile(resolve(__dirname, "image-generation.ts"), "utf8");
+    /**
+     * 用紧框合成会把「新文案比原文长」的部分裁在旧文字边界上，看起来像模型漏字 ——
+     * 那正是当初把整条合成关掉的理由。换成与下发给模型的白区同源的膨胀蒙版，
+     * 才能同时拿到「不裁字」和「挡住框外乱改」。
+     */
+    expect(source).toContain("const compositeMask = textEditDilatedMaskBuffer || maskImageData;");
+    expect(source).toContain("compositeMask.buffer,");
+    /**
+     * ⚠️ 反向断言：跳过合成的旧分支不得回归。
+     *    注释里提到该变量名时只写在块注释中，此处已剥离注释再断言，避免自我命中。
+     */
+    const withoutComments = source
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+    expect(withoutComments).toContain("const images = await finalizeImages(result.images);");
+    expect(withoutComments).not.toContain("const usesVodMask");
+  });
+});

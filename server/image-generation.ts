@@ -5683,12 +5683,29 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
       targetHeight,
     );
     if (!isSourcePreservingEdit || !maskImageData) return normalizedImages;
+    /**
+     * ⚠️⚠️⚠️ 合成蒙版必须优先用擦字阶段那张**膨胀蒙版**（2026-09-21）。
+     *
+     * 前端传下来的 maskImageData 是「仅框住被改原文字」的紧框。用紧框合成时，
+     * 新文案比原文长的那部分会被裁在旧文字区边界上，看起来像模型漏字 ——
+     * 这正是此前把 text_edit 整条合成关掉（usesVodMask 分支）的原因。
+     *
+     * 但关掉合成的代价更大：上游一旦不守蒙版（即梦 4.0 在 text_edit 链路里
+     * 会整图重绘，见下方 :5664 注释），破坏就 1:1 交付给用户且零报错。
+     * 正确解法不是"取消还原"，而是"换一张够大的蒙版还原"：
+     * textEditDilatedMaskBuffer 与下发给模型的白区是同一张，
+     * 既留足了写字余量，又能把白区之外的一切乱改挡回原图。
+     *
+     * 📌⭐⭐⭐ 判据：「上游承诺了约束」永远不能替代「自己再验一次 / 再还原一次」。
+     *    承诺失效时没有任何报错，只是给你另一张图。
+     */
+    const compositeMask = textEditDilatedMaskBuffer || maskImageData;
     return Promise.all(normalizedImages.map(async image => {
       const editedImageData = await imageSrcToBuffer(image.src);
       const composited = await __testCompositeSourcePreservingImageEdit(
         originalSourceImageData.buffer,
         editedImageData.buffer,
-        maskImageData.buffer,
+        compositeMask.buffer,
         targetWidth,
         targetHeight,
       );
@@ -5878,18 +5895,29 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
           ],
         });
         /**
-         * 走 VOD 精确蒙版时不做二次 source-preserving 合成。
+         * ⚠️⚠️⚠️ 2026-09-21 撤销「走 VOD 蒙版就跳过合成」的旧逻辑。
          *
-         * 与智能注释同一处理（见其 isVodMaskModel 分支的注释）：VOD 服务端
-         * 已按 ReferenceType: "mask" 保证蒙版外保持原图，后端再合成一次是冗余的。
-         * 更重要的是它的副作用 —— 合成用的 mask 是前端那张「仅覆盖被改动的
-         * 原文字区域」的紧框，新文案比原文长时，超出的新字会被裁在旧区域边界上，
-         * 看起来像「模型漏字」，实际是收尾阶段裁掉的，会把模型能力评估带偏。
+         * 旧代码是：
+         *   const usesVodMask = Boolean(textEditVodMaskDataUrl);
+         *   const images = usesVodMask ? 仅归一化比例 : finalizeImages(...)
+         * 理由写的是「VOD 服务端已按 ReferenceType: "mask" 保证蒙版外保持原图，
+         * 后端再合成一次是冗余的」。
+         *
+         * **这个前提是错的，而且本文件自己早就写明了**：下方确定性绘制失败分支的
+         * 注释原话是「即梦 4.0 在 text_edit 链路里会无视 mask 整图重绘
+         * （出现 "CADPA" 等版署字符、背景扭曲、人物变形）」。当 textApplyMode="ai"
+         * 时叠字正是交给即梦，而这条主路径上没有任何兜底 ——
+         * 用户实测得到的就是：文字排版整体挪位、人物/道具位置改变、
+         * 画面右下角平白多出一个模型自行脑补的适龄提示角标。
+         *
+         * 且全程零报错：下面的 hasVisibleLocalEdit 只检查「蒙版内有没有变化」，
+         * 整图重绘必然满足，闸门恒放行。
+         *
+         * 旧注释担心的「合成会把变长的新文案裁掉」属实，但根因是**合成用了紧框**，
+         * 不是「合成」本身有错。finalizeImages 现已改用擦字阶段的膨胀蒙版
+         * （与下发给模型的白区同一张），裁字问题随之消失。
          */
-        const usesVodMask = Boolean(textEditVodMaskDataUrl);
-        const images = usesVodMask
-          ? await __testNormalizeGeneratedImagesToTargetAspect(result.images, targetWidth, targetHeight)
-          : await finalizeImages(result.images);
+        const images = await finalizeImages(result.images);
         if (requiresVisibleLocalChange && maskImageData && images[0]) {
           const editedImageData = await imageSrcToBuffer(images[0].src);
           if (!await hasVisibleLocalEdit(
