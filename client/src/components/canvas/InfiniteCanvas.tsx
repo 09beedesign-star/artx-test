@@ -459,6 +459,7 @@ import {
   ALL_AI_MODEL_OPTIONS,
   AUTO_AI_MODEL,
   DEFAULT_IMAGE_AI_MODEL_ID,
+  NODE_COMPOSER_EDIT_AI_MODEL_ID,
   GENERATED_ASSETS,
   IMAGE_AI_MODELS,
   PROJECTS,
@@ -16248,7 +16249,19 @@ function AssetEditPromptBar({
   const [uploadedRefs, setUploadedRefs] = useState<
     Array<{ id: string; title: string; src: string }>
   >([]);
-  const [model, setModel] = useState("auto");
+  /**
+   * ⚠️⚠️⚠️ 默认模型**不能是 "auto"**（2026-09-20 根因修复）。
+   *
+   * 这个面板做的是「针对选中图片的局部重绘」，用户要求默认走即梦 4.0。
+   * 但 "auto" 到了服务端会被 getImageModelFallbackAttempts 展开成
+   * IMAGE_MODEL_PRIORITY_IDS，**首位恒为 vod-og25-sunburst-medium**，
+   * vod-jimeng 排第 6 位永远轮不到 —— 面板上写着 auto、实际出图是
+   * image2.5，全程零报错，日志里也只打印 "auto"，极难发现。
+   *
+   * 📌 这就是「传的是占位符而不是约束」：auto 把选型权交给了优先级表，
+   *    而优先级表的排序依据是性价比，不是「局部重绘保真度」。
+   */
+  const [model, setModel] = useState(NODE_COMPOSER_EDIT_AI_MODEL_ID);
   const [imageCount, setImageCount] = useState(1);
   const [imageRatio, setImageRatio] = useState<CanvasAssistantImageRatio>("auto");
   const [activeSkill, setActiveSkill] = useState<PendingSkillLoad | null>(null);

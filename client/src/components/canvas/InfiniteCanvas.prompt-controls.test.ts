@@ -1116,12 +1116,19 @@ describe("InfiniteCanvas prompt controls", () => {
      *   模型只能靠橙色引导图去猜可改范围。
      * - 增强：提示词里带着「必须逐字渲染这段文案」的精确指令，
      *   服务端增强会把它整体改写，表现就是漏字、错字、自行改写文案。
+     *
+     * ⚠️ 2026-09-20 起增强在这条路径上**恒关**（原先只关视角转换与文字编辑，
+     *    普通 edit 落到 undefined 后被 generateImages 的 `?? true` 打开，
+     *    导致「局部重绘完全没基于原图」）。断言相应改为验语义而非验字面：
+     *    只要求「关掉」，不再写死某一种表达式。
      */
     expect(serverSource).toContain('title: "annotation mask"');
     expect(serverSource).toContain("textEditVodMaskDataUrl");
-    expect(serverSource).toContain(
-      "enhancePrompt: isCameraViewOperation || isTextEditOperation ? false : undefined"
-    );
+    expect(serverSource).toContain("enhancePrompt: false");
+    expect(
+      serverSource,
+      "不允许退回按 operation 分类的写法 —— 普通 edit 会被漏判"
+    ).not.toMatch(/enhancePrompt:\s*isCameraViewOperation/);
   });
 
   it("keeps smart annotation prompts constrained to a local source-image change", () => {

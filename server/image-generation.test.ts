@@ -151,16 +151,46 @@ describe("generated image source normalization", () => {
     expect(emittedLines).not.toMatch(/locked scene/i);
   });
 
-  it("disables VOD server-side prompt enhancement for camera-view and text edits", async () => {
-    // VOD 的 EnhancePrompt 会把整段空间约束重写，两种情况都必须显式关闭：
-    // - 视角转换：「整个场景一起转」被稀释成泛泛的「保持原图风格」，
-    //   结果就是背景不跟着转。
-    // - 智能文案编辑：提示词里「必须逐字渲染这段文案」的精确指令被整体改写，
-    //   表现就是漏字、错字、自行改写文案（2026-09-13 评估即梦时确认）。
+  it("disables VOD server-side prompt enhancement for every reference-based edit", async () => {
+    /**
+     * VOD 的 EnhancePrompt 是**文生图导向**的润色器：它只保留「画什么」，
+     * 丢弃「不许动什么」。而 editViaReferenceGeneration 的每一次调用都是
+     * 基于原图的编辑，提示词里必定带着
+     * "Use reference image 1 as the target canvas. Preserve its subject..."
+     * 这句唯一告知「参考图 1 是要改的那张图」的约束。
+     *
+     * 增强一旦开启，这句约束被整体重写掉，模型就退化成照着提示词重画一张 ——
+     * 表现为「生成的图完全没有基于原图」，且**零报错**（2026-09-20 事故）。
+     *
+     * 历史上这里只关了视角转换与智能文案编辑两种 operation，
+     * 普通 edit 落到 undefined → generateImages 里 `?? true` → 增强开启。
+     * 现在统一为恒关，断言也相应收紧为「这一段里不得出现按 operation 分类
+     * 的条件式」—— 分类判断正是上次漏判普通 edit 的根源。
+     */
     const source = await readFile(resolve(__dirname, "image-generation.ts"), "utf8");
-    expect(source).toContain(
-      "enhancePrompt: isCameraViewOperation || isTextEditOperation ? false : undefined"
-    );
+    const block = source.match(
+      /const editViaReferenceGeneration = async \(\) => \{[\s\S]*?\n {2}\};/
+    )?.[0];
+    expect(block).toBeTruthy();
+
+    // 只看真正会执行的代码行，注释里解释「为什么不能这么写」是允许的。
+    const emitted = (block || "")
+      .split("\n")
+      .filter(line => {
+        const trimmed = line.trim();
+        return (
+          trimmed.length > 0 &&
+          !trimmed.startsWith("//") &&
+          !trimmed.startsWith("*") &&
+          !trimmed.startsWith("/*")
+        );
+      })
+      .join("\n");
+
+    expect(emitted).toContain("enhancePrompt: false");
+    // 恒关 ⇒ 不允许再退回「按 operation 分类」的写法。
+    expect(emitted).not.toMatch(/enhancePrompt:\s*isCameraViewOperation/);
+    expect(emitted).not.toMatch(/enhancePrompt:[^\n]*undefined/);
   });
 
   it("keeps alternate image models available for provider gateway retries", () => {

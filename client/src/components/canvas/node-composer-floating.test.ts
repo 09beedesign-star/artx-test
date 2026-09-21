@@ -379,3 +379,148 @@ describe("需求 4：生成内容沉淀到右侧对话框", () => {
     ).toContain("const target = targetOverride || editAsset;");
   });
 });
+
+/**
+ * ─────────────────────────────────────────────────────────────
+ * 2026-09-20 缺陷修复的回归锁
+ *
+ * 用户报告：「悬浮提示面板中，局部重绘提示词生成的图片完全没有基于原图的
+ * 内容结合」，并要求「默认调用 vod-jimeng4.0 接口」。
+ *
+ * 根因有二，都是**零报错**的静默失效：
+ *   ① 面板默认模型是 "auto"，服务端把它展开成优先级表，首位恒为
+ *      vod-og25-sunburst-medium，即梦排第 6 永远轮不到 →「选了 auto
+ *      实际用别的模型」；
+ *   ② 服务端 editViaReferenceGeneration 对普通 edit 没关 VOD 的
+ *      EnhancePrompt，增强器把「保持原图主体/构图」的约束整段重写掉，
+ *      模型退化成照着提示词重画一张 →「完全没基于原图」。
+ * ─────────────────────────────────────────────────────────────
+ */
+describe("缺陷修复：局部重绘必须基于原图，且默认走即梦 4.0", () => {
+  const bar = sliceBetween(
+    "function AssetEditPromptBar(",
+    "const handleSkillChange ="
+  );
+
+  it("切片非空", () => {
+    expect(bar.length, "AssetEditPromptBar 头部片段为空，锚点失效").toBeGreaterThan(300);
+  });
+
+  it("默认模型必须是即梦 4.0 常量，绝不能是 auto", () => {
+    expect(
+      bar,
+      '默认模型退回了 "auto" —— 服务端会展开成优先级表，首位是 image2.5，'
+        + "即梦永远轮不到，且全程零报错"
+    ).toContain("useState(NODE_COMPOSER_EDIT_AI_MODEL_ID)");
+    expect(
+      bar,
+      '不允许 useState("auto")：auto 把选型权交给了按性价比排序的优先级表，'
+        + "而局部重绘要的是保真度"
+    ).not.toContain('const [model, setModel] = useState("auto")');
+  });
+
+  it("默认模型常量必须真的解析到 vod-jimeng（不能只是改了个名字）", async () => {
+    const shared = readFileSync(
+      join(__dirname, "..", "..", "..", "..", "shared", "image-models.ts"),
+      "utf8"
+    );
+    expect(
+      shared,
+      "NODE_COMPOSER_EDIT_MODEL_ID 不存在或不指向 vod-jimeng"
+    ).toMatch(/export const NODE_COMPOSER_EDIT_MODEL_ID = "vod-jimeng";/);
+    // vod-jimeng 必须是注册表里的合法 id，否则前端选择器选不中、
+    // 服务端 isVodModelId 也会走错分支。
+    expect(shared, "vod-jimeng 不在优先级表里，属于无效 id").toContain(
+      '"vod-jimeng",'
+    );
+  });
+
+  it("常量必须从 workspace-data 正确导出并被 InfiniteCanvas 导入", () => {
+    const workspaceData = readFileSync(
+      join(__dirname, "..", "..", "lib", "workspace-data.ts"),
+      "utf8"
+    );
+    expect(workspaceData).toContain(
+      "export const NODE_COMPOSER_EDIT_AI_MODEL_ID = NODE_COMPOSER_EDIT_MODEL_ID;"
+    );
+    expect(source, "InfiniteCanvas 没导入该常量，编译期就会炸").toContain(
+      "NODE_COMPOSER_EDIT_AI_MODEL_ID,"
+    );
+  });
+
+  it("提交链路必须把选中图片的最新像素作为编辑源传下去", () => {
+    const quickEdit = sliceBetween(
+      "const handleAssetEditSubmit = useCallback(",
+      "const handleNodeComposerSubmit = useCallback("
+    );
+    // 原图来源：优先取节点当前可见像素，回落到 target.src。
+    expect(
+      quickEdit,
+      "没有取节点最新可见图像 —— 会拿一张过期的图去做局部重绘"
+    ).toContain("(await getVisibleAssetImageSource(target.nodeId)) || target.src");
+    // 前台与后台两条链路都必须把它当作 imageSrc 传下去，少一条就是
+    // 「只改一个出口等于没做」。
+    expect(
+      quickEdit,
+      "前台单次编辑没传 imageSrc，服务端会当成纯文生图"
+    ).toContain("imageSrc: latestImageSrc,");
+    expect(
+      (quickEdit.match(/imageSrc: latestImageSrc,/g) || []).length,
+      "imageSrc 只在一条链路上传了 —— 前台 runSingleEdit 与后台 backgroundTaskInput 必须都传"
+    ).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("缺陷修复：服务端必须把原图当作编辑画布，而不是风格参考", () => {
+  const serverSource = readFileSync(
+    join(__dirname, "..", "..", "..", "..", "server", "image-generation.ts"),
+    "utf8"
+  );
+  const block = serverSource.match(
+    /const editViaReferenceGeneration = async \(\) => \{[\s\S]*?\n {2}\};/
+  )?.[0];
+
+  const emitted = (block || "")
+    .split("\n")
+    .filter(line => {
+      const trimmed = line.trim();
+      return (
+        trimmed.length > 0 &&
+        !trimmed.startsWith("//") &&
+        !trimmed.startsWith("*") &&
+        !trimmed.startsWith("/*")
+      );
+    })
+    .join("\n");
+
+  it("切片非空（锚点失效会让下面全部恒绿）", () => {
+    expect(block, "editViaReferenceGeneration 切片失败").toBeTruthy();
+    expect(emitted.length).toBeGreaterThan(500);
+  });
+
+  it("原图必须作为第一张参考图下发", () => {
+    expect(
+      emitted,
+      "原图没作为参考图 1 传下去 —— VOD 侧拿不到要编辑的那张图"
+    ).toContain('{ src: sourceDataUrl, title: "target image" }');
+  });
+
+  it("必须显式告诉模型「参考图 1 是目标画布」", () => {
+    expect(
+      emitted,
+      "缺少 target canvas 指令，模型会把原图当成普通风格参考"
+    ).toContain("Use reference image 1 as the target canvas");
+  });
+
+  it("VOD 服务端提示词增强必须恒关", () => {
+    expect(
+      emitted,
+      "增强开启会把「保持原图主体/构图」的约束整段重写掉，"
+        + "模型退化成照着提示词重画一张，且零报错"
+    ).toContain("enhancePrompt: false");
+    expect(
+      emitted,
+      "不允许退回按 operation 分类 —— 上次正是这样漏判了普通 edit"
+    ).not.toMatch(/enhancePrompt:\s*isCameraViewOperation/);
+  });
+});

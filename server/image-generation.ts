@@ -5791,7 +5791,9 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
         // ⭐ 本次事故的归因字段：false 就说明模型又在"没看过原字"的情况下叠字，
         // 出图必然退回默认文本框样式。排查时先看这一位再怀疑模型。
         typographySample: Boolean(typographyReferenceDataUrl),
-        enhancePrompt: selectedModel.startsWith("vod-") ? false : undefined,
+        // 这条路径上增强已恒关（见下方 enhancePrompt 的说明），
+        // 日志照实写死 false —— 写成条件式会让排查者以为它还可能为真。
+        enhancePrompt: false,
         editedText: input.editedText,
       }));
     }
@@ -5834,16 +5836,37 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
           ratio,
           count: 1,
           preferImageApiForReferences: requiresVisibleLocalChange,
-          // 视角转换必须关掉 VOD 服务端的 prompt 增强：
-          // 它会把这段 3000+ 字符的空间约束整体重写，「整个场景一起转」这类
-          // 精确指令会在重写中被稀释掉，退化成普通的「保持原图风格」，
-          // 表现就是主体转了、背景没转。同 :3922 智能注释的处理。
-          //
-          // text_edit 同样必须关，而且更要紧：文字编辑的硬要求是「逐字精确」，
-          // 提示词里带着 "The exact replacement text to render is: ..." 这段
-          // 逐字渲染指令。服务端增强会把它当作待润色的描述整体改写，
-          // 「必须逐字」的约束被稀释后，表现就是漏字、错字、自行改写文案。
-          enhancePrompt: isCameraViewOperation || isTextEditOperation ? false : undefined,
+          /**
+           * ⚠️⚠️⚠️ 这条路径上 VOD 服务端的 prompt 增强**一律关闭**。
+           *
+           * 【为什么 2026-09-20 从「只关视角/文字编辑」扩大到全关】
+           * editViaReferenceGeneration 的每一次调用都是**基于原图的编辑**，
+           * 提示词里必定带着上面那句
+           * "Use reference image 1 as the target canvas. Preserve its subject
+           *  identity, composition, camera angle, lighting, proportions..."。
+           * 这句是整条链路的命脉 —— 它是唯一把「参考图 1 = 要改的那张图」
+           * 这个语义告诉模型的地方。
+           *
+           * 而 VOD 的 EnhancePrompt 是个**文生图导向**的润色器：它会把整段
+           * 提示词当作「用户想画什么」的粗描述重写成一段华丽的生图描述，
+           * 「保持原图主体/构图/光影」这类**约束性**语句在重写中会被整体丢弃，
+           * 只留下「画面内容」的描述。结果就是模型收到一段纯文生图提示词 +
+           * 一张它以为只是风格参考的图 → **照着提示词重新画一张**。
+           *
+           * 用户侧的表现正是本次报告的缺陷：
+           * 「局部重绘生成的图片完全没有基于原图的内容结合」。
+           * 注意它**零报错**：图出来了、尺寸对、风格也像，只是内容换了一张，
+           * 所以极易被误判成「模型能力不行」而去换模型 —— 换哪个都一样。
+           *
+           * 📌 判据：凡是提示词里含「保持/不要改变 X」这类**约束**的请求，
+           *    都不能交给上游的 prompt 增强 —— 增强器只保留「画什么」，
+           *    不保留「不许动什么」。
+           *
+           * 视角转换与智能文案编辑原本就在这里关（原因分别是空间约束被稀释、
+           * 逐字渲染指令被改写），现在统一为「这条路径恒关」，
+           * 少一个「哪些 operation 要关」的分类判断，也就少一类漏判。
+           */
+          enhancePrompt: false,
           images: [
             { src: sourceDataUrl, title: "target image" },
             ...(editGuideDataUrl ? [{ src: editGuideDataUrl, title: "local edit guide" }] : []),

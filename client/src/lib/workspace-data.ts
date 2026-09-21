@@ -2,6 +2,7 @@
 import {
   DEFAULT_IMAGE_MODEL_ID,
   IMAGE_MODEL_PRIORITY_IDS,
+  NODE_COMPOSER_EDIT_MODEL_ID,
   SUPPORTED_IMAGE_MODEL_IDS,
   sortImageModelIdsByPriority,
 } from "../../../shared/image-models";
@@ -26,6 +27,12 @@ export const AUTO_AI_MODEL: AiModelOption = {
 };
 
 export const DEFAULT_IMAGE_AI_MODEL_ID = DEFAULT_IMAGE_MODEL_ID;
+
+/**
+ * 画布节点悬浮提示词面板（局部重绘）的默认模型 —— 即梦 4.0。
+ * 语义与全站默认出图模型不同，见 shared/image-models.ts 的常量说明。
+ */
+export const NODE_COMPOSER_EDIT_AI_MODEL_ID = NODE_COMPOSER_EDIT_MODEL_ID;
 
 /**
  * 选择器里的图片模型清单。**全部走腾讯云 VOD AIGC 直连**

@@ -29,6 +29,28 @@ export const DEFAULT_IMAGE_MODEL_ID = "vod-og25-sunburst-medium";
 export const SMART_TEXT_EDIT_AI_MODEL_ID = "vod-jimeng";
 
 /**
+ * 画布节点下方「悬浮提示词面板」做局部重绘时的默认模型 —— 字节即梦 4.0。
+ *
+ * 【为什么不能继续用 "auto"】
+ * 这个面板的语义是「针对**选中的那张图**做局部重绘」，不是从零生图。
+ * 但 "auto" 在服务端会被 getImageModelFallbackAttempts 展开成
+ * IMAGE_MODEL_PRIORITY_IDS，**首位恒为 vod-og25-sunburst-medium**，
+ * 即梦排在第 6 位、永远轮不到。表现就是「面板里默认写着 auto，
+ * 实际出图的是 image2.5」—— 全程零报错，日志里也只显示 auto。
+ *
+ * 【为什么单独抽常量而不是就地写 "vod-jimeng"】
+ * 与 DEFAULT_IMAGE_MODEL_ID（全站文生图默认）解耦：
+ * 全站默认挑的是「性价比最优」，而局部重绘挑的是
+ * 「对参考图内容的保真度」，两者的选型依据完全不同，
+ * 不应该随对方漂移。与 SMART_TEXT_EDIT_AI_MODEL_ID 同样的理由。
+ *
+ * ⚠️ 必须是 IMAGE_MODEL_PRIORITY_IDS 里的合法 id，
+ * 否则前端 ModelSelector 选不中（回落显示 auto）、
+ * 服务端 isVodModelId 判定也会走错分支。
+ */
+export const NODE_COMPOSER_EDIT_MODEL_ID = "vod-jimeng";
+
+/**
  * auto 模式的 fallback 链，**按优先级从高到低**。
  *
  * 2026-09-12 起为**纯 VOD 链路**：中转站图片模型已全部下线。
