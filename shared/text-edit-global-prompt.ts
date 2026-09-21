@@ -57,7 +57,7 @@ export const TEXT_EDIT_GLOBAL_POSITIVE_PROMPT = [
   "Global quality baseline for every text replacement, regardless of the specific image:",
   "Treat this as a professional designer retouching an existing published poster — the result must be indistinguishable from the original artwork, as if the new wording had been set by the same designer in the same design file.",
   "Keep the replacement lettering consistent with the surrounding design language: same visual era, same level of craft, same finish quality.",
-  "Respect the original optical alignment: the new text must share the same baseline, centering and margin rhythm as the text it replaces, and must stay fully inside the editable area without touching or crossing its boundary.",
+  "Respect the original optical alignment: the new text must share the same baseline, centering and margin rhythm as the text it replaces.",
   "Preserve the original lighting logic on the glyphs — if the original lettering caught a highlight, a shadow or a reflection from the scene, reproduce that same treatment.",
   "When the replacement wording is shorter or longer than the original, adjust letter-spacing and glyph width naturally instead of stretching, squashing or arbitrarily enlarging the characters.",
   /**
@@ -72,6 +72,15 @@ export const TEXT_EDIT_GLOBAL_POSITIVE_PROMPT = [
    */
   "保持原图构图、光影、透视、色彩、质感不变，画面其余所有元素保持原样，仅修改蒙版选中区域。",
   "替换文字字体自然，文字大小与原文字一致、不得放大，字数减少时保持原字号居中不撑满蒙版，笔画不得超出蒙版或画面边缘，文字边缘柔和，和原图光照融合，无变形扭曲，文字清晰可读，整体风格统一，干净边缘，不破坏背景。",
+  /**
+   * ⚠️⚠️⚠️ 最高优先级：完整外形 > 照样本复刻（2026-09-21 用户新增规则）。
+   *
+   * 上轮实测（第 18 节）证伪：模型字号由「原字样本参考图」驱动（样本条 7 字满宽，
+   * 加指令 "the same glyph size relative to the text block"），写 5 个字也会撑满被截。
+   * 因此「照样本复刻字号」本身就是截断根因，这里必须把「完整不截断」压到「照样本」之上：
+   * 字形照样本，但字号服从「全部文字完整落入画面」。
+   */
+  "最高优先级：替换文字必须完整显示，任何笔画不得被截断、裁切或超出画面边缘；字体字形照原文字样本复刻，但字号不照样本放大——空间不足时缩小字号保证全部文字完整落入画面，宁可留白也不撑满。",
 ].join(" ");
 
 /**

@@ -88,6 +88,19 @@ describe("text_edit 全局通用提示词", () => {
     expect(TEXT_EDIT_GLOBAL_POSITIVE_PROMPT.length).toBeLessThan(1200);
     expect(TEXT_EDIT_GLOBAL_NEGATIVE_TERMS.length).toBeLessThanOrEqual(20);
   });
+
+  it("完整外形优先级规则存在，且明确「字号不照样本放大」", () => {
+    /**
+     * 2026-09-21 上轮实测证伪：照样本复刻字号 = 截断根因
+     * （样本条 7 字满宽，模型写 5 字也撑满）。这条规则把
+     * 「完整不截断」压到「照样本」之上，同时显式禁止字号照样本放大。
+     * ⚠️ 用「不得被截断」+「字号不照样本放大」两个锚点做正向断言，
+     * 不是 not.toContain（避免被自己的中文注释命中而恒红）。
+     */
+    expect(TEXT_EDIT_GLOBAL_POSITIVE_PROMPT).toContain("替换文字必须完整显示");
+    expect(TEXT_EDIT_GLOBAL_POSITIVE_PROMPT).toContain("不得被截断");
+    expect(TEXT_EDIT_GLOBAL_POSITIVE_PROMPT).toContain("字号不照样本放大");
+  });
 });
 
 describe("语种与行数提示（按本次目标文案动态生成）", () => {
