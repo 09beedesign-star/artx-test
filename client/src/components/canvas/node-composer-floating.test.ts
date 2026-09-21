@@ -524,3 +524,88 @@ describe("缺陷修复：服务端必须把原图当作编辑画布，而不是�
     ).not.toMatch(/enhancePrompt:\s*isCameraViewOperation/);
   });
 });
+
+/**
+ * 2026-09-21 根因回归锁：悬浮面板局部重绘出的图与原图毫无关系。
+ *
+ * 用户原话：「悬浮提示面板中，局部重绘提示词生成的图片完全没有基于原图的内容结合」。
+ *
+ * 真实根因（实测取证，不是猜的）：
+ *   `handleAssetEditSubmit` 是「先 dispatch pending 占位 → await OCR（数秒）
+ *    → 才 runDerivedImageGeneration 起真任务」的**双出口**写法。
+ *   占位如果不带链路身份字段，AI 任务恢复守护器（`startTask`）会在这数秒里
+ *   判定它是纯文生图，用**同一个 taskId** 抢先 `startBackgroundImageGeneration`；
+ *   等真正带原图的请求再来，服务端已有该 taskId → **整份载荷被丢弃**。
+ *   线上判据：后端日志 `refImages: 0 | enhancePrompt: Enabled`，
+ *   落库任务 `capability: text_to_image`，出图尺寸与原图完全对不上，且零报错。
+ *
+ * ⚠️ 变异自证已逐条做过：把 `editMode: true`、`sourceImageSrc`、
+ *    `backgroundTaskInput` 任意一条从 placeholderPayload 删掉，
+ *    对应的 it 必须变红。全绿不代表安全，只有变异红过才算这把锁是活的。
+ */
+describe("局部重绘：pending 占位必须携带链路身份，不能被守护器误判成文生图", () => {
+  it("锚点唯一（切错位置会让下面全部恒绿）", () => {
+    expect(
+      countOf("const placeholderPayload: ImageGeneratorPayload = {"),
+      "placeholderPayload 锚点不唯一或已消失"
+    ).toBe(1);
+    expect(
+      countOf('{ ...placeholderPayload, status: "pending" },'),
+      "pending 派发锚点不唯一或已消失"
+    ).toBe(1);
+  });
+
+  const placeholderBlock = sliceBetween(
+    "const placeholderPayload: ImageGeneratorPayload = {",
+    '{ ...placeholderPayload, status: "pending" },'
+  );
+
+  it("切片非空", () => {
+    expect(placeholderBlock.length).toBeGreaterThan(400);
+  });
+
+  it("占位必须声明 editMode: true", () => {
+    expect(
+      placeholderBlock,
+      "占位缺 editMode → 恢复守护器走 else 分支起文生图，"
+        + "抢占同名 taskId，真正的编辑请求被整份丢弃（零报错）"
+    ).toContain("editMode: true,");
+  });
+
+  it("占位必须带上原图 sourceImageSrc", () => {
+    expect(
+      placeholderBlock,
+      "占位没有原图，恢复出来的任务就是一张凭空文生图"
+    ).toContain("sourceImageSrc: latestImageSrc");
+  });
+
+  it("单图占位必须带 image_edit 的 backgroundTaskInput", () => {
+    expect(
+      placeholderBlock,
+      "缺 backgroundTaskInput，守护器无法按编辑链路复原"
+    ).toContain("backgroundTaskInput:");
+    expect(
+      placeholderBlock,
+      "capability 必须是 image_edit —— text_to_image 就是本次缺陷的落库特征"
+    ).toContain('capability: "image_edit"');
+    expect(
+      placeholderBlock,
+      "恢复任务必须把原图作为 imageSrc 下发，否则后端日志恒为 refImages: 0"
+    ).toContain("imageSrc: latestImageSrc,");
+  });
+
+  it("恢复守护器不允许在 editMode/sourceImageSrc 存在时退回文生图", () => {
+    const guard = sliceBetween(
+      "if (task.backgroundTaskInput) {",
+      "const pollTask = async () => {"
+    );
+    expect(
+      guard,
+      "少了这道兜底，将来别处再写出「占位缺字段」的双出口时又会静默退化成文生图"
+    ).toContain("} else if (task.editMode || task.sourceImageSrc) {");
+    expect(
+      guard,
+      "必须显式抛错而不是默默走文生图"
+    ).toContain("避免把原图编辑误当成文生图");
+  });
+});
