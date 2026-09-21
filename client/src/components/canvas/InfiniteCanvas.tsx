@@ -320,18 +320,34 @@ function AiProductIcon({
   );
 }
 
+/**
+ * 视角（相机方位立方）图标。
+ *
+ * 2026-09-21 新增 glyphScale：**只放大线稿主体，不动占位框**。
+ *   - size      → AiDecoratedIcon 的容器边长，决定它在命令条里占多宽（不变）
+ *   - glyphScale→ 里面这张 svg 相对容器的倍率
+ * 之所以拆成两个量：这个立方体的有效笔画只占 viewBox 中间一小块
+ * （path 在 5~19 之间，四周留白 ~20%），所以同样 size=15 摆在
+ * ScanSearch / Type 旁边，**目视明显小一圈**。直接调大 size 会把整颗按钮
+ * 撑大并挤动相邻图标，只能放大内部 svg。
+ * ⚠️ 容器 overflow 不裁剪、且 inline-flex 居中，svg 溢出的部分照样画得出来，
+ *    所以 glyphScale>1 不会被切掉，也不会撑开布局。
+ */
 function CameraViewCubeAiIcon({
   size = 17,
+  glyphScale = 1,
   cutoutBg = "rgba(22,22,30,0.96)",
 }: {
   size?: number;
+  glyphScale?: number;
   cutoutBg?: string;
 }) {
+  const glyphSize = Math.round(size * glyphScale);
   return (
     <AiDecoratedIcon size={size} cutoutBg={cutoutBg}>
       <svg
-        width={size}
-        height={size}
+        width={glyphSize}
+        height={glyphSize}
         viewBox="0 0 24 24"
         fill="none"
         aria-hidden="true"
@@ -3303,17 +3319,29 @@ function AssetFloatingToolbar({
       label: "智能文案编辑",
       action: "edit-text",
     },
+    /*
+     * 2026-09-21：「提示词反推」与「视角」这两个图标的**主体放大 20%**。
+     *
+     * 原因（用户实测截图）：命令条里所有图标都是 size=15，但这两个的有效
+     * 笔画在各自 viewBox 里只占中间一小块（ScanSearch 四角是取景框、
+     * 立方体四周留白 ~20%），视觉重量明显轻于 Move / Crop / Type，
+     * 摆在一排里像是小了一号。
+     *
+     * ⚠️ 只放大**内部线稿**，容器仍按 TOOLBAR_ICON_SIZE(15) 走：
+     *    AiDecoratedIcon 的 size 决定容器与右上角 Sparkles 角标的位置，
+     *    一起放大会把角标推出去，并挤动相邻按钮的间距。
+     */
     {
       icon: (
-        <AiDecoratedIcon cutoutBg={toolBg}>
-          <ScanSearch size={15} />
+        <AiDecoratedIcon size={15} cutoutBg={toolBg}>
+          <ScanSearch size={18} />
         </AiDecoratedIcon>
       ),
       label: "提示词反推",
       action: "reverse-prompt",
     },
     {
-      icon: <CameraViewCubeAiIcon size={15} cutoutBg={toolBg} />,
+      icon: <CameraViewCubeAiIcon size={15} glyphScale={1.2} cutoutBg={toolBg} />,
       label: "视角",
       action: "camera-view",
     },
@@ -3334,17 +3362,23 @@ function AssetFloatingToolbar({
    *
    * ⚠️ 这些 action 的业务分发仍在 handleSingleImageToolbarAction 里，**没有改动**，
    * 菜单项只是换了一个触发入口，所以无需动任何 case。
+   *
+   * 2026-09-21 视觉收敛：菜单项图标由 18 收到 MORE_MENU_ICON_SIZE(=15)，
+   * 与上方主命令条的图标**同一个尺寸**。之前菜单里的图标明显比主条大一号，
+   * 同一个命令在两个入口长得不一样。
+   * ⚠️ 这个常量就是菜单图标尺寸的唯一出口，新增菜单项一律用它，别再写字面量。
    */
+  const MORE_MENU_ICON_SIZE = 15;
   const moreItems = [
     {
-      icon: <RotateCw size={18} />,
+      icon: <RotateCw size={MORE_MENU_ICON_SIZE} />,
       label: "旋转与反转",
       action: "flip-rotate",
     },
     {
       icon: (
-        <AiDecoratedIcon cutoutBg={moreBg}>
-          <ImageOff size={18} />
+        <AiDecoratedIcon size={MORE_MENU_ICON_SIZE} cutoutBg={moreBg}>
+          <ImageOff size={MORE_MENU_ICON_SIZE} />
         </AiDecoratedIcon>
       ),
       label: "去背景",
@@ -3352,26 +3386,42 @@ function AssetFloatingToolbar({
     },
     {
       icon: (
-        <AiDecoratedIcon cutoutBg={moreBg}>
-          <Eraser size={18} />
+        <AiDecoratedIcon size={MORE_MENU_ICON_SIZE} cutoutBg={moreBg}>
+          <Eraser size={MORE_MENU_ICON_SIZE} />
         </AiDecoratedIcon>
       ),
       label: "橡皮工具",
       action: "erase",
     },
-    { icon: <HdIcon size={18} />, label: "HD 4K", action: "upscale" },
+    {
+      icon: <HdIcon size={MORE_MENU_ICON_SIZE} />,
+      label: "HD 4K",
+      action: "upscale",
+    },
     {
       icon: (
-        <AiDecoratedIcon cutoutBg={moreBg}>
-          <Droplets size={18} />
+        <AiDecoratedIcon size={MORE_MENU_ICON_SIZE} cutoutBg={moreBg}>
+          <Droplets size={MORE_MENU_ICON_SIZE} />
         </AiDecoratedIcon>
       ),
       label: "去水印",
       action: "remove-watermark",
     },
-    { icon: <Expand size={18} />, label: "扩展", action: "expand" },
-    { icon: <ImageIcon size={18} />, label: "调整", action: "adjust" },
-    { icon: <Frame size={18} />, label: "矢量", action: "vector" },
+    {
+      icon: <Expand size={MORE_MENU_ICON_SIZE} />,
+      label: "扩展",
+      action: "expand",
+    },
+    {
+      icon: <ImageIcon size={MORE_MENU_ICON_SIZE} />,
+      label: "调整",
+      action: "adjust",
+    },
+    {
+      icon: <Frame size={MORE_MENU_ICON_SIZE} />,
+      label: "矢量",
+      action: "vector",
+    },
   ];
   useEffect(() => {
     if (!moreOpen) return;
@@ -3494,14 +3544,20 @@ function AssetFloatingToolbar({
           className="absolute top-full mt-2 left-1/2 overflow-hidden rounded-[var(--radius-lg-design)] shadow-2xl"
           style={{
             transform: "translateX(-50%)",
-            width: 190,
+            /*
+             * 2026-09-21 排版收紧：190 → 150。
+             * 字号从 14px 降到 12px（与提示词面板 type-caption 同源）后，
+             * 最长的「旋转与反转」只有 5 个汉字 = 60px，加图标 15 + 间距 8
+             * + 左右 padding 20 ≈ 103px，150 仍有富余且不会换行。
+             */
+            width: 150,
             background: moreBg,
             border: `1px solid ${toolBorder}`,
             backdropFilter: "blur(18px)",
             boxShadow: isDark
               ? "0 18px 56px rgba(0,0,0,0.48)"
               : "0 12px 40px rgba(0,0,0,0.14)",
-            padding: "8px 6px",
+            padding: "5px 4px",
             zIndex: 20,
           }}
           onMouseDown={e => e.stopPropagation()}
@@ -3514,8 +3570,18 @@ function AssetFloatingToolbar({
           {moreItems.map(moreItem => (
             <button
               key={moreItem.action}
-              className="relative flex w-full items-center gap-3 rounded-[var(--radius-md-design)] px-3 py-2.5 text-left transition-colors"
-              style={{ color: moreText, fontSize: 14 }}
+              /*
+               * 2026-09-21 排版收紧（用户实测截图：行距超出内容 30%+）：
+               *   gap-3   → gap-2    （图标与文字 12px → 8px）
+               *   px-3    → px-2.5
+               *   py-2.5  → py-1.5   （上下 10px → 6px，行高由 lineHeight 收口）
+               * 字号 14 → type-caption(12px)，与悬浮提示词面板 textarea 同源，
+               * 所以这里**不再写 fontSize 字面量**，改挂 type-caption class。
+               * ⚠️ 别再往 style 里塞 fontSize —— 内联样式会顶掉 class，
+               *    以后改 type-caption 就同步不到这里。
+               */
+              className="type-caption relative flex w-full items-center gap-2 rounded-[var(--radius-md-design)] px-2.5 py-1.5 text-left transition-colors"
+              style={{ color: moreText, lineHeight: 1.25 }}
               onClick={() => {
                 setMoreOpen(false);
                 onAction(moreItem.action);
@@ -3526,12 +3592,14 @@ function AssetFloatingToolbar({
               }
             >
               <span
-                className="relative flex h-5 w-5 items-center justify-center"
+                className="relative flex h-4 w-4 items-center justify-center"
                 style={{ color: moreText, flexShrink: 0 }}
               >
                 {moreItem.icon}
               </span>
-              <span style={{ flex: 1 }}>{moreItem.label}</span>
+              <span style={{ flex: 1, whiteSpace: "nowrap" }}>
+                {moreItem.label}
+              </span>
             </button>
           ))}
         </div>

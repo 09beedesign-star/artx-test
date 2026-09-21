@@ -301,3 +301,130 @@ describe("「更多」菜单：从更多 icon 正下方展开（2026-09-21）", 
     ).toContain('!(item.action === "more" && moreOpen)');
   });
 });
+
+describe("「更多」菜单：字号 / 图标 / 行距收敛（2026-09-21）", () => {
+  /*
+   * 用户需求（附截图）：
+   *   1. 菜单命令字号 = 悬浮提示词面板里的文字字号（type-caption / 12px）
+   *   2. 菜单图标偏大，要与顶部命令条的图标一致（15）
+   *   3. 行距富余超 30%，整体缩小面板、排版紧凑
+   *
+   * ⚠️ 这一组全是源码文本断言，必须配合变异自证；
+   *    每条断言都要能被「把值改回旧的」那一步弄挂，否则是摆设。
+   */
+  const renderButtonStart = toolbar.indexOf("const renderButton");
+  const componentReturn = toolbar.indexOf("\n  return (", renderButtonStart);
+  const renderButton = toolbar.slice(renderButtonStart, componentReturn);
+  const menuStart = renderButton.indexOf(
+    '{item.action === "more" && moreOpen && ('
+  );
+  // 这里要覆盖到菜单项按钮本体，切片比上面那组更长
+  const menuBlock =
+    menuStart === -1 ? "" : renderButton.slice(menuStart);
+  const moreItemsBlock = toolbar.slice(
+    toolbar.indexOf("const moreItems"),
+    toolbar.indexOf("useEffect(() => {")
+  );
+
+  it("切片锚点有效", () => {
+    expect(menuBlock.length, "菜单块切片为空 —— 后面断言会恒假").toBeGreaterThan(
+      800
+    );
+    expect(moreItemsBlock.length, "moreItems 切片为空").toBeGreaterThan(400);
+  });
+
+  it("菜单项字号必须挂 type-caption，且不能再写 fontSize 字面量", () => {
+    expect(
+      menuBlock,
+      "菜单项没挂 type-caption —— 字号与悬浮提示词面板对不齐"
+    ).toContain("className=\"type-caption relative flex w-full items-center");
+    expect(
+      menuBlock,
+      "内联 fontSize 会顶掉 type-caption，改 class 同步不过来"
+    ).not.toContain("fontSize: 14");
+  });
+
+  it("菜单项图标尺寸必须收口到 MORE_MENU_ICON_SIZE，且等于主条的 15", () => {
+    expect(
+      moreItemsBlock,
+      "图标尺寸没收口成常量 —— 新增菜单项会各写各的"
+    ).toContain("MORE_MENU_ICON_SIZE");
+    expect(
+      toolbar,
+      "MORE_MENU_ICON_SIZE 必须等于主命令条的 15"
+    ).toContain("const MORE_MENU_ICON_SIZE = 15;");
+    expect(
+      moreItemsBlock,
+      "菜单里还残留 size={18} 的大图标"
+    ).not.toContain("size={18}");
+    // 8 个菜单项，每项恰好一个 icon 组件带尺寸；
+    // AiDecoratedIcon 包裹的那 3 个各出现 2 次（容器 + 内部图标）。
+    const hits = moreItemsBlock.match(/MORE_MENU_ICON_SIZE/g) ?? [];
+    expect(
+      hits.length,
+      `菜单图标尺寸引用数不对（期望 11，实得 ${hits.length}）—— 有菜单项漏改`
+    ).toBe(11);
+  });
+
+  it("菜单容器与菜单项的排版必须收紧", () => {
+    expect(menuBlock, "菜单宽度没收窄（旧值 190）").toContain("width: 150,");
+    expect(menuBlock, "菜单内边距没收紧（旧值 8px 6px）").toContain(
+      'padding: "5px 4px"'
+    );
+    expect(menuBlock, "菜单项上下留白没收紧（旧值 py-2.5）").toContain(
+      "px-2.5 py-1.5"
+    );
+    expect(menuBlock, "图标与文字间距没收紧（旧值 gap-3）").toContain("gap-2 ");
+    expect(menuBlock, "行高没收口，行距仍会富余").toContain("lineHeight: 1.25");
+    expect(menuBlock, "图标槽位没跟着缩（旧值 h-5 w-5）").toContain(
+      'className="relative flex h-4 w-4 items-center justify-center"'
+    );
+    expect(menuBlock, "标签没锁 nowrap，窄面板下会换行").toContain(
+      'whiteSpace: "nowrap"'
+    );
+  });
+});
+
+describe("提示词反推 / 视角：图标主体放大 20%（2026-09-21）", () => {
+  const assetTools = toolbar.slice(
+    toolbar.indexOf("const assetTools"),
+    toolbar.indexOf("const frameTools")
+  );
+
+  it("切片锚点有效", () => {
+    expect(assetTools.length, "assetTools 片段为空").toBeGreaterThan(400);
+  });
+
+  it("提示词反推的线稿必须比容器大一号（15 → 18 ≈ +20%）", () => {
+    const block = assetTools.slice(
+      assetTools.indexOf("<ScanSearch") - 200,
+      assetTools.indexOf('label: "提示词反推"')
+    );
+    expect(block.length, "提示词反推片段为空").toBeGreaterThan(50);
+    expect(block, "线稿没放大，仍与其他图标同尺寸").toContain(
+      "<ScanSearch size={18} />"
+    );
+    expect(
+      block,
+      "容器尺寸必须仍是 15，否则会挤动相邻按钮并推走 Sparkles 角标"
+    ).toContain("<AiDecoratedIcon size={15} cutoutBg={toolBg}>");
+  });
+
+  it("视角图标必须通过 glyphScale 放大主体，而不是放大整颗按钮", () => {
+    expect(assetTools, "视角图标没传 glyphScale").toContain(
+      "<CameraViewCubeAiIcon size={15} glyphScale={1.2} cutoutBg={toolBg} />"
+    );
+  });
+
+  it("CameraViewCubeAiIcon 必须真的支持 glyphScale（否则传了也白传）", () => {
+    const icon = sliceFunction("function CameraViewCubeAiIcon(");
+    expect(icon.length, "CameraViewCubeAiIcon 片段为空").toBeGreaterThan(200);
+    expect(icon, "缺少 glyphScale 形参").toContain("glyphScale = 1,");
+    expect(icon, "缺少 glyphScale 类型声明").toContain("glyphScale?: number;");
+    expect(icon, "glyphScale 没参与尺寸计算 —— 传了也不生效").toContain(
+      "const glyphSize = Math.round(size * glyphScale);"
+    );
+    expect(icon, "svg 宽度没用上 glyphSize").toContain("width={glyphSize}");
+    expect(icon, "svg 高度没用上 glyphSize").toContain("height={glyphSize}");
+  });
+});
