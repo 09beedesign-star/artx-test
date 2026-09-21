@@ -15,6 +15,7 @@ import { DEFAULT_TEXT_MODEL, isClaudeTextModelId } from "../shared/text-models";
 import { resolveImageResolutionTier } from "../shared/ai-credit-policy";
 import { DEFAULT_AUTO_RATIO, resolveImageRatio } from "../shared/image-ratios";
 import { clampImageExpansionPrompt, VOD_EXPANSION_PROMPT_MAX_LENGTH } from "../shared/image-expansion";
+import { buildTextEditGlobalPrompt } from "../shared/text-edit-global-prompt";
 import { generateText } from "./text-generation";
 import { recordImageProviderFailure } from "./image-provider-failure-log";
 import { buildInpaintMask, measureMaskSurroundingFlatness } from "./inpaint-mask";
@@ -5046,13 +5047,30 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
     "Do not crop, pad, letterbox, stretch, or otherwise change the framing of the source image.",
     "Do not return a square image unless the source is square.",
   ].join(" ");
+  /**
+   * ⚠️⚠️ 全局通用提示词的**唯一注入点**（2026-09-21 新增）。
+   *
+   * 这里刻意注入到 textEditInstruction / textEditNegativeInstruction 这两个变量，
+   * 而不是分别去改下面的 VOD 链（5885 附近）和 OpenAI 链（6040 附近）：
+   * 那两条链路都是从这两个变量取值的，改这里 = 两条出口同时生效。
+   * 📌 本项目已因「同一份逻辑只改一个出口」踩过十二次，注入点必须选在收口处。
+   *
+   * 事实源：shared/text-edit-global-prompt.ts（想调整通用倾向只改那个文件）。
+   */
+  const textEditGlobalPrompt = buildTextEditGlobalPrompt(isTextEditOperation);
   let textEditInstruction = isTextEditOperation
     ? [
         "This is a local text replacement edit, not a new image generation request.",
         "Use the source image as the only target canvas. Preserve every non-text region, including background, subject, product, logo, decorative elements, colors, lighting, composition, camera angle, and aspect ratio.",
         "Only remove the original readable text and place the requested replacement text back into the same visual text areas with matching typography, hierarchy, spacing, alignment, and poster design quality.",
         "Do not change the image category, scene, product type, or overall visual identity.",
-      ].join("\n")
+        /**
+         * 全局层放在基线四句之后、运行期追加内容之前。
+         * 顺序理由：它是"底线要求"而不是"本次任务描述"，
+         * 必须让后面追加的具体文案（renderTargetText）继续占据尾部高注意力位置。
+         */
+        textEditGlobalPrompt.positive,
+      ].filter(Boolean).join("\n")
     : "";
   // 负面约束：OpenAI 系接口无 negative_prompt 字段，以 "Avoid" 形式并入正向提示词，
   // 降低 AI 在文字重绘时误改画面其他内容的风险。
@@ -5066,6 +5084,9 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
      */
     ? "Avoid in the final result: 画面变形、背景改动、图案偏移、多余元素、画面裁切、文字错位、修改蒙版外内容、模糊、噪点、水印、扭曲、" +
       "文字底板、白色色块、文本框、标签贴纸、圆角矩形背景、气泡框、默认黑体/宋体等无设计感的系统字体。" +
+      // 全局通用负面词（事实源 shared/text-edit-global-prompt.ts）。
+      // 与上面这串刻意互补：上面是本项目实测踩过的具体事故形态，这里是跨场景质量底线。
+      (textEditGlobalPrompt.negative ? `${textEditGlobalPrompt.negative}。` : "") +
       "No solid plate, box, banner or sticker behind the replacement text. " +
       "Keep every pixel outside the marked text areas unchanged."
     : "";
