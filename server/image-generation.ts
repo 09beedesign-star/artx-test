@@ -28,7 +28,6 @@ import {
   eraseTextRegionsLocally,
   calibrateTextRegions,
   resolveRegionTargetTexts,
-  buildTextEditOverlayMask,
 } from "./text-replace-precise";
 import {
   generateImageWithVod,
@@ -5866,40 +5865,9 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
           })()
         : "";
     const textEditMaskSource = textEditDilatedMaskBuffer || maskImageData;
-    /**
-     * 减字收窄（2026-09-21）：叠字蒙版按「新字数 / 原字数」在 x 方向收窄，
-     * 避免「字数变少但洞仍是原宽 → 模型放大填满 → 冲破画面」。
-     *
-     * 擦字仍用 textEditDilatedMaskBuffer（原宽膨胀，保证擦净原字两端），
-     * 这里只在「叠字下发」时换成收窄后的蒙版；生成失败则回退原蒙版（行为不变）。
-     */
-    let textEditOverlayMaskSource = textEditMaskSource;
-    if (
-      isTextEditOperation &&
-      input.textRegions?.length &&
-      input.editedText?.trim()
-    ) {
-      try {
-        const overlay = await buildTextEditOverlayMask(
-          input.textRegions,
-          input.editedText,
-          targetWidth,
-          targetHeight,
-        );
-        if (overlay) {
-          textEditOverlayMaskSource = { buffer: overlay, mimeType: "image/png" };
-        }
-      } catch (error) {
-        console.log(
-          `[text_edit] 叠字蒙版收窄失败，回退原蒙版: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-      }
-    }
-    const textEditVodMaskDataUrl = isTextEditOperation && textEditOverlayMaskSource
+    const textEditVodMaskDataUrl = isTextEditOperation && textEditMaskSource
       ? (await createOgdEditMaskDataUrl(
-          textEditOverlayMaskSource.buffer,
+          textEditMaskSource.buffer,
           targetWidth,
           targetHeight,
           "edit",
