@@ -5084,6 +5084,13 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
    */
   let textEditDilatedMaskBuffer: { buffer: Buffer; mimeType: string } | null = null;
 
+  /**
+   * 实际下发给叠字模型的目标文案（只含被改动区域），供自证日志复用。
+   * 与 input.editedText（整图 OCR 全文）刻意分成两个变量：
+   * 混用这两者正是 2026-09-21「白底板 + 多余 16+ 角标」事故的根因。
+   */
+  let textEditRenderTargetText = "";
+
   // ── 阶段 A：擦字（text_edit 专用）────────────────────────────
   // 先把文字区域擦成干净背景，再让主模型只负责"叠字"，
   // 避免主模型在 mask 内重新生成背景导致"重绘文字区域背景不正常"。
@@ -5531,9 +5538,56 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
          * 这里把要写入的目标文案显式喂进去，把任务从「改写」收敛为「写入」。
          */
         if (input.editedText?.trim()) {
+          /**
+           * ⚠️⚠️⚠️ 2026-09-21 只能下发「被改动区域」的目标文案，不能下发整图全文。
+           *
+           * 【事故现象】用户只把右下角标题改成「欢乐中国年」，出图却是
+           * 一块白色矩形底板 + 黑色默认字体，底板右侧还凭空多出一个 16+ 角标。
+           *
+           * 【真因】input.editedText 是**整张图 OCR 出来的全部文字**
+           * （线上日志实锤：editedText 里带着 GAME FOR PEACE / 龙狮城 /
+           *  16+ / CADPA / 适龄提示）。而蒙版只框住被改的那一行。
+           * 旧指令等于对模型说：「把这十行字一字不落地写进这个小白框里」。
+           * 模型塞不下 → 自己开一块底板当版面、把 16+ 也画进去。
+           * 📌 它不是能力不行，是**在忠实执行一条错误指令**。零报错。
+           *
+           * 【为什么必须用 resolveRegionTargetTexts】
+           * 「哪些区域被改成了什么」这一口径在本项目里只有这一个实现
+           * （text-replace-precise.ts:1600），擦字通道与本地绘制通道都走它。
+           * AI 叠字这条路自己读 editedText 原文 = 第二个出口、口径必然漂移，
+           * 表现就是「擦了 A 行、字要求写 B 行」。
+           *
+           * 兜底：解析不出任何 changed 区域时，退回旧的整段文案 ——
+           * 宁可版面丑，也不能变成「不告诉模型要写什么」而写出乱码。
+           */
+          const changedTexts =
+            input.textRegions?.length
+              ? resolveRegionTargetTexts(input.textRegions, input.editedText)
+                  .filter(item => item.changed && item.targetText?.trim())
+                  .map(item => item.targetText!.trim())
+              : [];
+          const renderTargetText = changedTexts.length
+            ? changedTexts.join("\n")
+            : input.editedText.trim();
+          textEditRenderTargetText = renderTargetText;
+          if (!changedTexts.length) {
+            // 静默降级最难排查：落这条分支说明区域匹配失效，
+            // 出图退回「整图全文塞进小框」的旧事故形态，必须留痕。
+            console.log(
+              "[text_edit] ⚠️ 未解析出被改动区域，叠字指令降级为整段文案（可能出现多余文字/底板）",
+            );
+          }
           textEditInstruction +=
-            `\nThe exact replacement text to render is:\n${input.editedText.trim()}\n` +
+            `\nThe exact replacement text to render is:\n${renderTargetText}\n` +
             "Render this text verbatim — do not translate, paraphrase, reorder, or add any extra words. " +
+            /**
+             * ⚠️ 这两句是上面那条事故的正面堵漏：光缩小文案范围还不够，
+             * 必须显式告诉模型「图上别处的文字不归你管」，
+             * 否则它仍可能"好心"把看到的角标/标语补画进蒙版里。
+             */
+            "This is the ONLY text you may draw. Do not add, duplicate or re-draw any other text, " +
+            "logo, rating badge, slogan or caption that exists elsewhere in the image — those areas " +
+            "are outside the mask and are already correct. " +
             "Match the original typography style, weight, color, perspective and lighting of the area.";
         }
         console.log(
@@ -5811,7 +5865,16 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
         // 这条路径上增强已恒关（见下方 enhancePrompt 的说明），
         // 日志照实写死 false —— 写成条件式会让排查者以为它还可能为真。
         enhancePrompt: false,
-        editedText: input.editedText,
+        /**
+         * ⚠️ 2026-09-21：这里必须同时打印「整图全文」和「实际下发的目标文案」。
+         *
+         * 旧版只打 editedText（整图 OCR 全文），于是 2026-09-21 那次
+         * 「白底板 + 多出 16+ 角标」事故的根因就藏在日志里看不出来 ——
+         * 日志显示的文案和我以为下发的文案长得一样，误导排查方向去怀疑模型。
+         * 📌 判据：日志要打的是**实际送出去的值**，不是它的上游原料。
+         */
+        editedTextAll: input.editedText,
+        renderTargetText: textEditRenderTargetText || input.editedText,
       }));
     }
     let lastError: unknown;

@@ -2088,3 +2088,211 @@ describe("text_edit AI 叠字：上游整图重绘必须被蒙版外还原挡回
     expect(withoutComments).not.toContain("const usesVodMask");
   });
 });
+
+/**
+ * ⚠️⚠️⚠️ 2026-09-21 第二次事故契约：只改一行，却把整图全文下发给了叠字模型。
+ *
+ * 用户实测现象：只把右下角黄色标题改成「欢乐中国年」，出图变成
+ * 一块白色矩形底板 + 黑色默认字体，底板右侧还凭空多出一个 16+ 角标。
+ *
+ * 根因不是模型能力不行，也不是提示词约束不够（"do not draw any solid background
+ * panel" 早就写了）：input.editedText 是**整张图 OCR 出的全部文字**，
+ * 而蒙版只框住被改的那一行。指令等于命令模型把十行字逐字塞进一个小白框 ——
+ * 塞不下就自己开底板当版面，顺手把读到的 16+ 角标也画了进去。
+ *
+ * 📌⭐⭐⭐ 判据：出图多出画面别处已有的元素时，先查「下发的文案范围」，
+ *    再怀疑模型。模型是在忠实执行一条错误指令，全程零报错。
+ */
+describe("text_edit AI 叠字：只能下发被改动区域的文案", () => {
+  const width = 160;
+  const height = 120;
+
+  const buildSource = async (seedInit: number) => {
+    let seed = seedInit;
+    const noise = Buffer.alloc(width * height * 3);
+    for (let index = 0; index < noise.length; index += 1) {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      noise[index] = (seed >>> 16) & 0xff;
+    }
+    return sharp(noise, { raw: { width, height, channels: 3 } }).png().toBuffer();
+  };
+
+  const buildTightMask = async () => {
+    const maskPixels = Buffer.alloc(width * height * 4, 255);
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width / 2; x += 1) {
+        maskPixels[(y * width + x) * 4 + 3] = 0;
+      }
+    }
+    return sharp(maskPixels, { raw: { width, height, channels: 4 } }).png().toBuffer();
+  };
+
+  /**
+   * 复刻用户那张海报的结构：三行文字，只改中间那行标题。
+   * 另外两行「GAME FOR PEACE」与「16+ CADPA 适龄提示」保持原样 ——
+   * 它们正是事故里被模型误画进蒙版的内容。
+   *
+   * ⚠️ 区域必须按 y 升序给，且文案行序与之一致 —— resolveRegionTargetTexts
+   *    内部会 sort(y)，夹具若不同序，测的就是一个现实中不存在的错位场景。
+   */
+  const originalRegions = [
+    { text: "16+ CADPA 适龄提示", x: 0.80, y: 0.02, width: 0.18, height: 0.08 },
+    { text: "GAME FOR PEACE", x: 0.30, y: 0.62, width: 0.40, height: 0.06 },
+    { text: "大吉大利和平年", x: 0.28, y: 0.72, width: 0.60, height: 0.14 },
+  ];
+  const editedTextAll = "16+ CADPA 适龄提示\nGAME FOR PEACE\n欢乐中国年";
+
+  const runTextEdit = async () => {
+    const source = await buildSource(20260921);
+    const mask = await buildTightMask();
+    stubVodCredentials();
+    vi.stubEnv("AI_IMAGE_API_KEY", "test-key");
+    vi.stubEnv("TEXT_ENGINE_BASE_URL", "");
+    vi.stubEnv("PICWISH_API_KEY", "");
+
+    const vodCalls: Array<{ model: string; prompt: string }> = [];
+    let callIndex = 0;
+    vodGenerateSpy.mockImplementation(async (input: { model: string; prompt: string }) => {
+      vodCalls.push(input);
+      callIndex += 1;
+      const flat = await sharp({
+        create: { width, height, channels: 3, background: callIndex === 1 ? "#808080" : "#404040" },
+      }).png().toBuffer();
+      return { images: [{ src: `data:image/png;base64,${flat.toString("base64")}` }] };
+    });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      throw new Error(`Unexpected fetch ${String(url)}`);
+    });
+
+    await editImageWithPrompt({
+      imageSrc: `data:image/png;base64,${source.toString("base64")}`,
+      maskSrc: `data:image/png;base64,${mask.toString("base64")}`,
+      prompt: "把标题替换成 欢乐中国年",
+      model: "vod-jimeng",
+      operation: "text_edit",
+      textApplyMode: "ai",
+      preserveSource: true,
+      textRegions: originalRegions,
+      editedText: editedTextAll,
+      targetWidth: width,
+      targetHeight: height,
+    });
+
+    expect(vodCalls.length).toBeGreaterThanOrEqual(2);
+    return vodCalls[vodCalls.length - 1].prompt;
+  };
+
+  it("下发的目标文案只含被改动的那一行", async () => {
+    const overlayPrompt = await runTextEdit();
+    const marker = "The exact replacement text to render is:";
+    const start = overlayPrompt.indexOf(marker);
+    expect(start, "叠字指令必须包含目标文案段落").toBeGreaterThan(-1);
+    // 只截取「目标文案」这一段来断言。对整段 prompt 做断言会被别处的
+    // 通用约束文案命中，产生假绿（短锚点子串陷阱）。
+    const block = overlayPrompt.slice(start + marker.length, start + marker.length + 120);
+
+    expect(block).toContain("欢乐中国年");
+    /**
+     * ⚠️ 这两条是事故的直接签名：未改动区域的文字混进了目标文案段落。
+     *    它们一旦回归，模型就会把这些字也画进蒙版里 —— 正是用户看到的
+     *    「白底板右侧多出 16+ 角标」。
+     */
+    expect(block).not.toContain("CADPA");
+    expect(block).not.toContain("GAME FOR PEACE");
+  });
+
+  /**
+   * ⚠️⚠️ 这条专门咬住 `item.changed` 这个条件本身。
+   *
+   * 【为什么单独写】上一条测试里，未改动区域的 targetText 恰好是 undefined，
+   * 于是 `targetText?.trim()` 顺手把它们挡住了 —— 把 `item.changed &&` 删掉
+   * 测试依然全绿（实测变异漏网）。那等于这个条件没有任何测试保护。
+   *
+   * 【构造】前端在「用户手动删除整行」时会显式下发 targetText=""，
+   * 而「内容没变的行」如果被上游 OCR 原样回填，targetText 会等于原文 ——
+   * 此时只有 changed 能把它排除掉，targetText?.trim() 是挡不住的。
+   * 📌 判据：过滤条件由多个子条件 && 起来时，必须有一个夹具让**每个子条件
+   *    单独成为唯一防线**，否则删掉任意一个都不会变红。
+   */
+  it("未改动的行即使带着原文 targetText，也不得混进下发文案", async () => {
+    const source = await buildSource(20260923);
+    const mask = await buildTightMask();
+    stubVodCredentials();
+    vi.stubEnv("AI_IMAGE_API_KEY", "test-key");
+    vi.stubEnv("TEXT_ENGINE_BASE_URL", "");
+    vi.stubEnv("PICWISH_API_KEY", "");
+
+    const vodCalls: Array<{ prompt: string }> = [];
+    let callIndex = 0;
+    vodGenerateSpy.mockImplementation(async (input: { prompt: string }) => {
+      vodCalls.push(input);
+      callIndex += 1;
+      const flat = await sharp({
+        create: { width, height, channels: 3, background: callIndex === 1 ? "#808080" : "#404040" },
+      }).png().toBuffer();
+      return { images: [{ src: `data:image/png;base64,${flat.toString("base64")}` }] };
+    });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      throw new Error(`Unexpected fetch ${String(url)}`);
+    });
+
+    await editImageWithPrompt({
+      imageSrc: `data:image/png;base64,${source.toString("base64")}`,
+      maskSrc: `data:image/png;base64,${mask.toString("base64")}`,
+      prompt: "把标题替换成 欢乐中国年",
+      model: "vod-jimeng",
+      operation: "text_edit",
+      textApplyMode: "ai",
+      preserveSource: true,
+      // 关键差异：未改动的两行显式带上与原文相同的 targetText。
+      textRegions: [
+        {
+          text: "16+ CADPA 适龄提示",
+          targetText: "16+ CADPA 适龄提示",
+          x: 0.80, y: 0.02, width: 0.18, height: 0.08,
+        },
+        {
+          text: "GAME FOR PEACE",
+          targetText: "GAME FOR PEACE",
+          x: 0.30, y: 0.62, width: 0.40, height: 0.06,
+        },
+        {
+          text: "大吉大利和平年",
+          targetText: "欢乐中国年",
+          x: 0.28, y: 0.72, width: 0.60, height: 0.14,
+        },
+      ],
+      editedText: editedTextAll,
+      targetWidth: width,
+      targetHeight: height,
+    });
+
+    const overlayPrompt = vodCalls[vodCalls.length - 1].prompt;
+    const marker = "The exact replacement text to render is:";
+    const start = overlayPrompt.indexOf(marker);
+    expect(start).toBeGreaterThan(-1);
+    const block = overlayPrompt.slice(start + marker.length, start + marker.length + 120);
+
+    expect(block).toContain("欢乐中国年");
+    expect(block).not.toContain("CADPA");
+    expect(block).not.toContain("GAME FOR PEACE");
+  });
+
+  it("必须显式告知模型：画面别处的文字不归它画", async () => {
+    const overlayPrompt = await runTextEdit();
+    // 光缩小文案范围还不够：模型仍可能"好心"把看到的角标补画进蒙版。
+    expect(overlayPrompt).toContain("This is the ONLY text you may draw");
+    expect(overlayPrompt).toContain("rating badge");
+  });
+
+  it("区域匹配失效时必须留痕，不能静默退回整段文案", async () => {
+    const source = await readFile(resolve(__dirname, "image-generation.ts"), "utf8");
+    /**
+     * 兜底本身是对的（宁可版面丑，也不能不告诉模型要写什么），
+     * 但它会把出图打回事故形态。没有日志的话，下次复发将完全无从归因。
+     */
+    expect(source).toContain("未解析出被改动区域，叠字指令降级为整段文案");
+    // 自证日志必须区分「整图全文」与「实际下发」，否则排查会被带偏。
+    expect(source).toContain("renderTargetText: textEditRenderTargetText || input.editedText");
+  });
+});
