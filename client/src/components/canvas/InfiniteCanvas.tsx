@@ -152,6 +152,7 @@ import {
   PanelLeft,
   MessageCirclePlus,
   History,
+  Undo2,
 } from "lucide-react";
 import {
   AssistantModelIcon,
@@ -1116,6 +1117,13 @@ function ImageCountSelector({
   onChange,
   isDark,
   compact = false,
+  /**
+   * 「图标幽灵态」（2026-09-21）：触发按钮只留 图标+箭头，文案隐藏，
+   * 且配色完全由调用方传入 —— 节点悬浮提示条要求整行 icon 按钮和
+   * 最左侧上传按钮大小/样式一致。颜色由调用方给，本组件不硬编码
+   * 第二份视觉规格（同一份样式两个出口是本项目踩了十一次的坑）。
+   */
+  ghost,
   recommendedCount = DEFAULT_IMAGE_OUTPUT_COUNT,
   modelLabel,
   creditsPerImage = 0,
@@ -1124,6 +1132,7 @@ function ImageCountSelector({
   onChange: (count: number) => void;
   isDark: boolean;
   compact?: boolean;
+  ghost?: { background: string; hoverBackground: string; text: string };
   /** 当前模型的推荐张数。与全站默认不同时（如 MJ 的 4 张）会显示说明。 */
   recommendedCount?: number;
   /** 当前模型名，用于说明文案。 */
@@ -6526,21 +6535,52 @@ function AssetNodeComponent({
     isGenerationFailed ||
     isRemovingBackground ||
     isErasingImage;
+  /**
+   * 「就地局部重绘」进行中（2026-09-21）。
+   *
+   * 与普通生成的差别只在**画什么**：普通生成的占位框是一片不透明的深色，
+   * 因为那时还没有任何画面可看；就地重绘时画布上明明有一张图，
+   * 用户要看的是「这张图正在被改」，所以它必须显示**当前图片的高斯模糊**
+   * 再叠上 LOGO 循环动画，而不是被一块深色盖掉。
+   */
+  const isInPlaceRepainting =
+    isGeneratingImage &&
+    Boolean((data as { inPlaceRepainting?: boolean }).inPlaceRepainting);
   const processingLabel = ((data as { processingTitle?: string })
     .processingTitle ||
-    (isGenerationFailed
-      ? "生成图片失败"
-      : isGeneratingImage
-        ? "正在开足马力为您生成图片"
-        : isErasingImage
-          ? "AI 擦除中"
-          : isRemovingBackground
-            ? "AI 去背景中"
-            : "AI 处理中")) as string;
+    (isInPlaceRepainting
+      ? "AI 局部重绘中"
+      : isGenerationFailed
+        ? "生成图片失败"
+        : isGeneratingImage
+          ? "正在开足马力为您生成图片"
+          : isErasingImage
+            ? "AI 擦除中"
+            : isRemovingBackground
+              ? "AI 去背景中"
+              : "AI 处理中")) as string;
   const processingSubtitle = ((data as { processingSubtitle?: string })
     .processingSubtitle || "") as string;
+  /**
+   * 处理中文字的颜色。
+   *
+   * ⚠️ 原来一律是 rgba(255,255,255,0.30) —— 那是给**不透明深色底**配的。
+   * 就地重绘把底换成了高斯模糊的真实图片，同一个 0.30 的白字压在浅色照片上
+   * 直接看不见（白纸写白字，对比度不到 1.5），用户就只剩一个转圈的 LOGO，
+   * 不知道在干什么。这里按背景实际亮度分叉，并补一道暗投影。
+   */
+  const processingTextColor = isInPlaceRepainting
+    ? "rgba(255,255,255,0.94)"
+    : "rgba(255,255,255,0.30)";
+  const processingTextShadow = "0 1px 8px rgba(0,0,0,0.55)";
   const processingLines = (() => {
     if (isGenerationFailed) return ["生成图片失败"];
+    /*
+     * ⚠️ 就地重绘必须排在 `isGeneratingImage` **之前**：
+     *    它同时满足 isGeneratingImage，排在后面就永远轮不到 ——
+     *    表现为用户点局部重绘、图被模糊了、字却写着「正在开足马力为您生成图片」。
+     */
+    if (isInPlaceRepainting) return ["AI 局部重绘中", "正在按你的指令重绘这张图"];
     if (isGeneratingImage) return ["正在开足马力", "为您生成图片"];
     if (processingSubtitle) return [processingLabel, processingSubtitle];
     const midpoint = Math.ceil(processingLabel.length / 2);
@@ -6569,6 +6609,33 @@ function AssetNodeComponent({
     : "rgba(28,28,34,0.72)";
   const sourceBackgroundSrc = (data as { sourceBackgroundSrc?: string })
     .sourceBackgroundSrc;
+  /*
+   * ── 单张图片的「局部重绘」：就地替换 + 撤销（2026-09-21） ──────────────
+   *
+   * 需求原文（用户）：
+   *   1. 修改**在原图上进行**，不再在旁边新出一张；
+   *   2. 生成效果不理想时，给用户一个 undo 按钮，回退到上一步局部重绘之前；
+   *   3. 生成中的状态是**当前图片高斯模糊 + LOGO 循环动画**，直到新图完成。
+   *
+   * ⚠️ 这里读的字段都由唯一回包出口 handleImageGenerate 写入，
+   *    节点自身只负责渲染。任何一处想「本地先标一下」都会和回包打架。
+   */
+  const inPlaceRepaintUndo = (data as {
+    inPlaceRepaintUndo?: { localSrc?: string; repaintedLocalSrc?: string };
+  }).inPlaceRepaintUndo;
+  /**
+   * ⚠️ 判据是 `repaintedLocalSrc`（重绘后写进去的那一个）而不是 `localSrc`：
+   *    原节点可能是「没有 localSrc、直接引用内置素材图」的那种，
+   *    这时重绘前的 localSrc 本来就是空串 —— 拿它当判据按钮永远不会出现，
+   *    用户就失去了撤销的唯一入口，且零报错。
+   *
+   * ⚠️ 同时要求节点当前像素**仍然**等于重绘后那一个：用户重绘完又换了一张图时，
+   *    快照已经过期，按钮必须自己消失，而不是点下去把后来的图覆盖掉。
+   */
+  const canUndoInPlaceRepaint =
+    typeof inPlaceRepaintUndo?.repaintedLocalSrc === "string" &&
+    (data as { localSrc?: string }).localSrc ===
+      inPlaceRepaintUndo.repaintedLocalSrc;
   const isEditing = !!(data as { isEditing?: boolean }).isEditing;
   const isCropping = !!(data as { isCropping?: boolean }).isCropping;
   const isErasing = !!(data as { isErasing?: boolean }).isErasing;
@@ -8376,9 +8443,15 @@ function AssetNodeComponent({
                 style={{
                   ...frameClipStyle,
                   objectFit: "cover",
-                  filter: "blur(24px) saturate(1.12) brightness(0.78)",
+                  filter: isInPlaceRepainting
+                    ? "blur(26px) saturate(1.12) brightness(0.86)"
+                    : "blur(24px) saturate(1.12) brightness(0.78)",
                   transform: "scale(1.14)",
-                  opacity: isAiProcessingImage ? 0.78 : 0.56,
+                  opacity: isInPlaceRepainting
+                    ? 0.92
+                    : isAiProcessingImage
+                      ? 0.78
+                      : 0.56,
                   pointerEvents: "none",
                   zIndex: 0,
                 }}
@@ -8393,17 +8466,25 @@ function AssetNodeComponent({
               }
               style={{
                 ...frameClipStyle,
-                background: isGenerationFailed
-                  ? isDark
-                    ? "linear-gradient(135deg, #303038, #1d1d23)"
-                    : "linear-gradient(135deg, #d6d6da, #eeeeef)"
-                  : isGeneratingImage
+                /*
+                 * ⚠️ 就地重绘这一段必须排在 isGeneratingImage 之前，且**不能是不透明色**：
+                 *    下面 zIndex:0 那层高斯模糊的当前图片就是靠这里透出去给用户看的，
+                 *    写成 "#050506" 会把模糊层整块盖死，用户只会看到一片黑，
+                 *    现象是「点了局部重绘画面全黑」而不是「看到自己的图被模糊了」。
+                 */
+                background: isInPlaceRepainting
+                  ? "rgba(8,8,10,0.30)"
+                  : isGenerationFailed
                     ? isDark
-                      ? "#050506"
-                      : "#101114"
-                    : isDark
-                      ? "oklch(0.16 0.018 270)"
-                      : "oklch(0.96 0.006 270)",
+                      ? "linear-gradient(135deg, #303038, #1d1d23)"
+                      : "linear-gradient(135deg, #d6d6da, #eeeeef)"
+                    : isGeneratingImage
+                      ? isDark
+                        ? "#050506"
+                        : "#101114"
+                      : isDark
+                        ? "oklch(0.16 0.018 270)"
+                        : "oklch(0.96 0.006 270)",
                 color: "rgba(255,255,255,0.30)",
                 zIndex: 1,
               }}
@@ -8468,7 +8549,8 @@ function AssetNodeComponent({
 	                    key={`${line}-${index}`}
 	                    style={{
 	                      maxWidth: "100%",
-	                      color: "rgba(255,255,255,0.30)",
+	                      color: processingTextColor,
+	                      textShadow: processingTextShadow,
 	                      fontSize: processingTextSize,
 	                      fontWeight: 500,
 	                      lineHeight: processingLineHeight,
@@ -8585,6 +8667,52 @@ function AssetNodeComponent({
             >
               图片未保存，请重新上传
             </div>
+          )}
+          {/*
+            ── 局部重绘的「撤销」按钮（2026-09-21） ─────────────────────────────
+            需求：修改直接落在原图上，一旦效果不理想，用户要能一键回到重绘之前。
+
+            ⚠️ 显示条件不是「重绘过」而是**快照仍然有效**：
+               快照里既存了重绘前的 localSrc，也存了重绘后写进去的那一个；
+               只有节点当前像素还等于后者时才给撤销按钮 ——
+               否则用户先重绘、再换了一张图，点撤销会把他后来的图整张换掉，
+               且不会有任何提示。这个等式就是这个按钮的失效边界。
+          */}
+          {canUndoInPlaceRepaint && !isAiProcessingImage && (
+            <button
+              type="button"
+              aria-label="撤销局部重绘"
+              title="回到本次局部重绘之前的效果"
+              className="absolute nodrag nopan flex items-center justify-center gap-1.5 rounded-[var(--radius-md-design)] transition-all duration-150 hover:brightness-110"
+              style={{
+                left: 10,
+                bottom: 10,
+                height: 30,
+                padding: "0 11px",
+                zIndex: 116,
+                background: "rgba(16,16,20,0.76)",
+                color: "rgba(255,255,255,0.94)",
+                border: "1px solid rgba(255,255,255,0.22)",
+                backdropFilter: "blur(6px)",
+                boxShadow: "0 12px 30px rgba(0,0,0,0.34)",
+                fontSize: 11,
+                fontWeight: 700,
+                lineHeight: 1,
+                whiteSpace: "nowrap",
+              }}
+              onPointerDown={event => event.stopPropagation()}
+              onClick={event => {
+                event.stopPropagation();
+                window.dispatchEvent(
+                  new CustomEvent("in-place-repaint-undo-request", {
+                    detail: { nodeId },
+                  })
+                );
+              }}
+            >
+              <Undo2 size={13} strokeWidth={2.4} />
+              撤销重绘
+            </button>
           )}
           {isCameraViewAdjusting && !isAiProcessingImage && (
             <div
@@ -12911,6 +13039,21 @@ type ImageGeneratorPayload = {
    */
   targetWidth?: number;
   targetHeight?: number;
+  /**
+   * 就地局部重绘的目标节点 id（2026-09-21）。
+   *
+   * 有值 = 这次生成的结果**替换这张已存在的图的像素**，不新建节点：
+   *   · pending  → 不再插占位框，直接把目标节点标成「就地重绘中」
+   *   · completed→ 把结果写回目标节点的 localSrc，并把重绘前的 localSrc
+   *                存进 data.inPlaceRepaintUndo 供撤销
+   *   · failed   → 目标节点恢复原样（原图不动）
+   *
+   * ⚠️ 必须挂在 payload 上而不是只在调用处临时判断：
+   * payload 会被 dispatchImageGenerationTask 持久化，「刷新页面后续跑」
+   * 与「再次生成」都是拿存下来的 detail 重放的 —— 只在调用处判断 =
+   * 刷新一次之后这次重绘就退回成「新建一张图」。
+   */
+  inPlaceRepaintNodeId?: string;
 };
 
 type ImageRegenerateRequestDetail = {
@@ -26500,6 +26643,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       model = DEFAULT_IMAGE_AI_MODEL_ID,
       backgroundTaskInput,
       throwOnFailure = false,
+      inPlaceRepaintNodeId,
       run,
     }: {
       sourceNode: Node;
@@ -26516,6 +26660,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       maxResultCount?: number;
       model?: string;
       backgroundTaskInput?: Omit<ImageGenerationTaskInput, "taskId">;
+      /**
+       * 就地局部重绘的目标节点 id（2026-09-21）。
+       *
+       * 传了它 = 结果写回这张已存在的图，不新建节点；不传 = 维持原行为
+       * （在原图旁落一张新图）。之所以做成**可选参数**而不是新写一个函数：
+       * 这段里有画幅回落、多张并发合并、后台任务分流、失败回写四套规则，
+       * 复制第二份必然漂移（本项目已在「多个出口」上栽过十二次）。
+       */
+      inPlaceRepaintNodeId?: string;
       /**
        * 失败时是否把错误抛给调用方（默认 false = 保持原行为：吞掉并返回 false）。
        *
@@ -26595,6 +26748,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             ? visibleSourceImageSrc
             : undefined,
         editMode: true,
+        /*
+         * ⚠️ 就地重绘必须走 payload（而不是只在 handleImageGenerate 里判断调用方）：
+         *    payload 会被持久化，刷新页面后的续跑与回包都靠它重放。
+         */
+        inPlaceRepaintNodeId,
         backgroundTaskInput: backgroundTaskInput
           ? {
               ...backgroundTaskInput,
@@ -29793,6 +29951,28 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         1,
         Math.min(Number(detail.count) || 1, 9)
       );
+      /*
+       * ── 「就地局部重绘」的闸门（2026-09-21）────────────────────────────────
+       *
+       * `inPlaceRepaintNodeId` 有值 = 这次生成的目标是**画布上已存在的某一张图**：
+       * 结果要写回那个节点本身（需求原文：「修改在原图上进行」），而不是在旁边
+       * 再落一个新节点。
+       *
+       * 三个状态分支都要认这个字段，缺任何一个都会静默退化成旧行为：
+       *   · pending 不认 → 一边插占位框、一边把原图标成重绘中，画布上多出一个空框；
+       *   · failed  不认 → 原图被贴上「生成图片失败」的红色面板，用户以为图没了；
+       *   · completed 不认 → 改完的图跑到旁边去了，原地那张还是旧的。
+       *
+       * ⚠️ 节点被删掉（或换成非图片节点）时**必须回落**到普通出图，不能静默什么都不做 ——
+       *    后者会让用户点了生成却永远等不到任何结果。所以闸门条件是「节点真的还在」。
+       */
+      const inPlaceTargetNodeId = detail.inPlaceRepaintNodeId;
+      const inPlaceTargetNode = inPlaceTargetNodeId
+        ? nodesRef.current.find(
+            node => node.id === inPlaceTargetNodeId && node.type === "asset"
+          )
+        : undefined;
+      const repaintsInPlace = Boolean(inPlaceTargetNode);
       const imageGenerationGap = 20;
       const shouldUseFixedGeneratedPlacement =
         Boolean(detail.placement) || requestedCount > 1;
@@ -29801,6 +29981,45 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           detail.generationStartedAt ||
           getTimestampFromGenerationId(generationId) ||
           Date.now();
+        /*
+         * 就地重绘：不插占位框、不移视角 —— 要改的那张图本来就在用户眼前，
+         * 把视角挪走反而让他看不到「正在被改的是哪一张」。
+         */
+        if (repaintsInPlace && inPlaceTargetNode) {
+          const currentSrc =
+            detail.sourceBackgroundSrc ||
+            getAssetNodeImageSource(inPlaceTargetNode);
+          setNodes(nds =>
+            nds.map(node => {
+              if (node.id !== inPlaceTargetNode.id || node.type !== "asset")
+                return node;
+              const data = node.data as Record<string, unknown>;
+              return {
+                ...node,
+                data: {
+                  ...data,
+                  generationId,
+                  generationStartedAt,
+                  isGeneratingImage: true,
+                  isGenerationFailed: false,
+                  /**
+                   * ⚠️ 这个标记是「当前图片高斯模糊 + LOGO 循环动画」的开关
+                   * （AssetNode 里的 isInPlaceRepainting）。它同时让遮罩底色
+                   * 从不透明改成半透明 —— 少了它，模糊层会被整块盖死，
+                   * 用户看到的是一片黑，而不是自己的图被模糊了。
+                   */
+                  inPlaceRepainting: true,
+                  sourceBackgroundSrc: currentSrc,
+                  processingTitle: "AI 局部重绘中",
+                  processingSubtitle: "正在按你的指令重绘这张图",
+                  ...getImageGenerationNodeMetadata(detail),
+                },
+              };
+            })
+          );
+          toast("AI 局部重绘中", { description: detail.prompt.slice(0, 58) });
+          return;
+        }
         if (detail.editMode !== true) {
           ensureBackgroundImageGeneration({
             ...detail,
@@ -29967,6 +30186,37 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       }
 
       if (detail.status === "failed") {
+        /*
+         * 就地重绘失败 = **什么都不改**。
+         *
+         * 绝不能走下面那套「把节点标成生成失败」：那套会在节点上盖一块
+         * 「生成图片失败」的面板，而用户的原图一直就在同一个节点里 ——
+         * 一次失败的重绘会把一张好好的图变成一块错误提示，看起来像图丢了。
+         * 撤销快照也不写：这次根本没改成任何东西，没什么可回退的。
+         */
+        if (repaintsInPlace && inPlaceTargetNode) {
+          setNodes(nds =>
+            nds.map(node => {
+              if (node.id !== inPlaceTargetNode.id || node.type !== "asset")
+                return node;
+              const data = node.data as Record<string, unknown>;
+              if (data.inPlaceRepainting !== true) return node;
+              return {
+                ...node,
+                data: {
+                  ...data,
+                  isGeneratingImage: false,
+                  isGenerationFailed: false,
+                  inPlaceRepainting: false,
+                  sourceBackgroundSrc: undefined,
+                },
+              };
+            })
+          );
+          markImageGenerationTaskConsumed(projectId, generationId);
+          forgetViewportBeforeGeneration(generationId);
+          return;
+        }
         /**
          * 【计费拦截（未订阅 / 余额不足）直接撤掉占位框，不留失败节点】
          *
@@ -30028,6 +30278,77 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       }
 
       const images = getValidGeneratedImages(detail.images, requestedCount);
+      /*
+       * ── 就地局部重绘回包（2026-09-21）────────────────────────────────────
+       *
+       * 成功：把结果写回**原节点的 localSrc**，同时留一份快照给节点左下角的
+       *       「撤销重绘」。位置、尺寸、图层顺序、标题一概不动 —— 用户要的是
+       *       「这张图被改了」，不是「画布上多了一张图」。
+       *
+       * 失败（服务端回包但没图）：同样只把节点还原，**不走下面那套失败标记**，
+       *       理由与 failed 分支相同：不能把用户的原图换成一块错误提示。
+       *
+       * ⚠️ 只认 `data.inPlaceRepainting === true` 的节点：同一个 completed 任务
+       *    可能因为刷新页面后的补跑被派发第二次，不做这道闸门就会把「重绘前的
+       *    像素」第二次覆盖成「重绘后的像素」，撤销按钮随即变成无效按钮。
+       */
+      if (repaintsInPlace && inPlaceTargetNode) {
+        const image = images[0];
+        setNodes(nds =>
+          nds.map(node => {
+            if (node.id !== inPlaceTargetNode.id || node.type !== "asset")
+              return node;
+            const data = node.data as Record<string, unknown>;
+            if (data.inPlaceRepainting !== true) return node;
+            const previousSrc =
+              typeof data.localSrc === "string" ? data.localSrc : undefined;
+            if (!image) {
+              return {
+                ...node,
+                data: {
+                  ...data,
+                  isGeneratingImage: false,
+                  isGenerationFailed: false,
+                  inPlaceRepainting: false,
+                  sourceBackgroundSrc: undefined,
+                },
+              };
+            }
+            const versionedSrc = withCanvasImageCacheKey(
+              image.src,
+              `${generationId}-0`
+            );
+            return {
+              ...node,
+              data: {
+                ...data,
+                localSrc: versionedSrc,
+                isGeneratingImage: false,
+                isGenerationFailed: false,
+                inPlaceRepainting: false,
+                sourceBackgroundSrc: undefined,
+                /**
+                 * 撤销快照。除了「重绘前是什么」，还刻意存了「重绘后是什么」——
+                 * 按钮的显示条件要靠这个等式判断快照有没有过期（见 AssetNode）。
+                 */
+                inPlaceRepaintUndo: {
+                  localSrc: previousSrc,
+                  repaintedLocalSrc: versionedSrc,
+                },
+                ...getImageGenerationNodeMetadata(detail),
+              },
+            };
+          })
+        );
+        markImageGenerationTaskConsumed(projectId, generationId);
+        forgetViewportBeforeGeneration(generationId);
+        toast(image ? "局部重绘已完成" : "局部重绘失败", {
+          description: image
+            ? "不满意可以点图片左下角的「撤销重绘」回到重绘前"
+            : "AI 未返回可用图片，原图已保留",
+        });
+        return;
+      }
       if (images.length === 0) {
         setNodes(nds =>
           nds.map(n => {
@@ -30338,6 +30659,24 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         changed = true;
         if (typeof data.generationId === "string")
           timedOutGenerationIds.push(data.generationId);
+        /*
+         * ⚠️ 就地局部重绘超时**必须单独分叉**：这里原本一律把节点标成
+         *    isGenerationFailed，渲染出来就是一块「生成图片失败」的面板 ——
+         *    而这张节点里躺着的是用户原本那张好图。一次超时 = 图被错误提示顶掉。
+         *    就地重绘的超时处理与失败处理同义：还原成重绘前的样子，图不动。
+         */
+        if (data.inPlaceRepainting === true) {
+          return {
+            ...node,
+            data: {
+              ...data,
+              isGeneratingImage: false,
+              isGenerationFailed: false,
+              inPlaceRepainting: false,
+              sourceBackgroundSrc: undefined,
+            },
+          };
+        }
         return {
           ...node,
           data: {
@@ -33592,6 +33931,67 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       window.removeEventListener("text-node-download-request", handler);
   }, [handleTextNodeDownload, nodesRef]);
   /**
+   * 「撤销局部重绘」的唯一执行点（2026-09-21）。
+   *
+   * 需求：单张图片的局部重绘直接改在原图上，效果不理想时用户要能一键回退。
+   *
+   * 为什么走自定义事件而不是把 handler 当 prop 传进 AssetNode：
+   *   与隔壁 `text-node-download-request` / `asset-regenerate-request` 同一套做法 ——
+   *   节点组件是 InfiniteCanvas 内部的深层节点，把回调一路透传会把整条渲染链
+   *   都变成「必须带着这个 prop」，改动面远大于收益。
+   *
+   * ⚠️ 撤销的依据完全来自节点自己的 `inPlaceRepaintUndo`，不另开 state。
+   *    另开一份 state 就会出现「开在 A、关在 B」：某一侧漏了复位，
+   *    按钮就永远亮着（本项目在别的交互上栽过这个，零报错、只能靠人发现）。
+   *
+   * ⚠️ 快照可能过期 —— 用户重绘完又换了图，此时 data.localSrc 已经不等于
+   *    快照里的 repaintedLocalSrc。这种情况直接不响应，绝不拿旧像素覆盖新图。
+   */
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const nodeId = (event as CustomEvent<{ nodeId?: string }>).detail?.nodeId;
+      if (!nodeId) return;
+      const node = nodesRef.current.find(item => item.id === nodeId);
+      if (!node || node.type !== "asset") return;
+      const data = node.data as Record<string, unknown>;
+      const undo = data.inPlaceRepaintUndo as
+        | { localSrc?: string; repaintedLocalSrc?: string }
+        | undefined;
+      if (typeof undo?.repaintedLocalSrc !== "string") return;
+      if (data.localSrc !== undo.repaintedLocalSrc) {
+        toast("无法撤销", {
+          description: "这张图在重绘之后又被改过，撤销会覆盖掉后来的改动",
+        });
+        return;
+      }
+      pushHistory(nodesRef.current, edgesRef.current);
+      setNodes(nds =>
+        nds.map(item => {
+          if (item.id !== nodeId || item.type !== "asset") return item;
+          const itemData = item.data as Record<string, unknown>;
+          return {
+            ...item,
+            data: {
+              ...itemData,
+              /*
+               * 原节点本来没有 localSrc（直接引用内置素材图）时，快照里存的
+               * 就是 undefined —— 这里原样写回，渲染侧 `localSrc || asset.src`
+               * 会自动落回素材图，与重绘前完全一致。
+               */
+              localSrc: undo.localSrc,
+              // 一次重绘只留一层快照：撤销之后这个按钮就该消失。
+              inPlaceRepaintUndo: undefined,
+            },
+          };
+        })
+      );
+      toast("已回到局部重绘之前");
+    };
+    window.addEventListener("in-place-repaint-undo-request", handler);
+    return () =>
+      window.removeEventListener("in-place-repaint-undo-request", handler);
+  }, [edgesRef, nodesRef, pushHistory, setNodes]);
+  /**
    * 图片「基于原图重新生成」的**唯一提交出口**。
    *
    * 2026-09-20：原来只有双击图片进入的快捷编辑（editAsset）会走这里。
@@ -33649,6 +34049,21 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const placeholderPrompt =
         payload.prompt || `基于原图优化：${target.title}`;
       const sourceBackgroundSrc = latestImageSrc;
+      /**
+       * 是否走「就地局部重绘」（2026-09-21）。
+       *
+       * 需求：单张图片的局部重绘，修改直接落在**原图上**，效果不理想可一键撤销。
+       *
+       * ⚠️ 只在**单张**时启用：多张是一次请求出多个候选，本质上没有「哪一张该
+       *    覆盖原图」的答案 —— 硬塞三个结果进同一个节点只会互相覆盖。
+       *    多张维持原行为（在原图旁并排落新节点）。
+       *
+       * ⚠️ 这个判断必须**只有一个出口**（就是这里）。入口侧（悬浮提示词面板 /
+       *    双击快捷编辑）只负责把指令送进来，不允许各自判断要不要就地 ——
+       *    那样两条入口很快会漂移成两种行为，而且都零报错。
+       */
+      const inPlaceRepaintNodeId =
+        requestedCount === 1 ? target.nodeId : undefined;
       const placeholderPayload: ImageGeneratorPayload = {
         projectId,
         prompt: placeholderPrompt,
@@ -33666,6 +34081,45 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         displaySize: { w: sourceSize.width, h: sourceSize.height },
         titleBase: skill?.name || "快捷编辑结果",
         sourceBackgroundSrc: sourceBackgroundSrc || undefined,
+        inPlaceRepaintNodeId,
+        /**
+         * ⚠️⚠️⚠️ 2026-09-21 根因修复：这三个字段**不是装饰，是链路身份标识**。
+         *
+         * 这条 pending 占位会被「AI 任务恢复守护器」（本文件
+         * `startTask`，搜 `task.backgroundTaskInput`）读到。它看的就是
+         * `backgroundTaskInput` / `editMode` / `sourceImageSrc` 这三位：
+         *   · 三个都缺 → 判定为**文生图**，直接 `startBackgroundImageGeneration`
+         *     用同一个 taskId 抢先把任务起掉；
+         *   · 等下面真正的 `runDerivedImageGeneration` 再来起同名任务时，
+         *     服务端已经有这个 taskId 了，真正带原图的那份载荷**被整份丢弃**。
+         *
+         * 用户侧表现即本次缺陷：悬浮面板局部重绘出来的图与原图毫无关系
+         * （实测 1200x800 横图 → 出 1728x2304 竖图全新场景），
+         * 且**零报错**——两条链路都"成功"了，只是成功的是错的那条。
+         * 后端日志的判据是 `refImages: 0 | enhancePrompt: Enabled`，
+         * 正是纯文生图的特征；落库任务则是 `capability: text_to_image`。
+         *
+         * 📌 判据：凡是「先 dispatch 占位、再发真实请求」的双出口写法，
+         *    占位必须携带**足以识别链路类型**的字段。占位不是纯 UI 状态 ——
+         *    恢复守护器会拿它当真实任务来复原。
+         */
+        editMode: true,
+        sourceImageSrc: latestImageSrc || undefined,
+        backgroundTaskInput:
+          requestedCount === 1
+            ? {
+                taskId: generationId,
+                capability: "image_edit",
+                operation: "edit",
+                imageSrc: latestImageSrc,
+                prompt: placeholderPrompt,
+                model: payload.model || DEFAULT_IMAGE_AI_MODEL_ID,
+                targetWidth: sourceSize.width,
+                targetHeight: sourceSize.height,
+                images: payload.references,
+                skillId: skill?.id,
+              }
+            : undefined,
       };
       dispatchImageGenerationTask(
         { ...placeholderPayload, status: "pending" },
@@ -33716,6 +34170,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           resultCount: requestedCount,
           placement: placeholderPayload.placement,
           generationId,
+          inPlaceRepaintNodeId,
           // 多张时服务端 image_edit 后台任务只出单图，改走前台并发合并；
           // 单张保持后台任务链路（可离开页面继续跑）。
           backgroundTaskInput:
