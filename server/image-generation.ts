@@ -15,7 +15,7 @@ import { DEFAULT_TEXT_MODEL, isClaudeTextModelId } from "../shared/text-models";
 import { resolveImageResolutionTier } from "../shared/ai-credit-policy";
 import { DEFAULT_AUTO_RATIO, resolveImageRatio } from "../shared/image-ratios";
 import { clampImageExpansionPrompt, VOD_EXPANSION_PROMPT_MAX_LENGTH } from "../shared/image-expansion";
-import { buildTextEditGlobalPrompt } from "../shared/text-edit-global-prompt";
+import { buildTextEditGlobalPrompt, buildTextEditLanguageHint } from "../shared/text-edit-global-prompt";
 import { generateText } from "./text-generation";
 import { recordImageProviderFailure } from "./image-provider-failure-log";
 import { buildInpaintMask, measureMaskSurroundingFlatness } from "./inpaint-mask";
@@ -5609,7 +5609,19 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
             "This is the ONLY text you may draw. Do not add, duplicate or re-draw any other text, " +
             "logo, rating badge, slogan or caption that exists elsewhere in the image — those areas " +
             "are outside the mask and are already correct. " +
-            "Match the original typography style, weight, color, perspective and lighting of the area.";
+            "Match the original typography style, weight, color, perspective and lighting of the area." +
+            /**
+             * ⚠️⚠️ 语种/行数提示必须接在**这里**，不能放进全局层常量。
+             *
+             * 理由：它依赖 renderTargetText —— 只有到了这一步才知道
+             * ① 目标文案是中文还是英文、② 一共几行。
+             * 全局层是静态常量，拿不到这些运行期信息，硬塞进去就只能写死
+             * "一行中文"，遇到多区域批量替换会把多行挤成一行（零报错）。
+             * 📌 判据：凡依赖本次请求内容的约束，都不属于"全局"层。
+             */
+            (buildTextEditLanguageHint(renderTargetText)
+              ? `\n${buildTextEditLanguageHint(renderTargetText)}`
+              : "");
         }
         console.log(
           `[text_edit] 擦字成功（通道：${usedChannel}）` +

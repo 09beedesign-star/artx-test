@@ -5,6 +5,7 @@ import {
   TEXT_EDIT_GLOBAL_NEGATIVE_TERMS,
   TEXT_EDIT_GLOBAL_POSITIVE_PROMPT,
   buildTextEditGlobalPrompt,
+  buildTextEditLanguageHint,
 } from "../shared/text-edit-global-prompt";
 
 const IMAGE_GENERATION_PATH = path.resolve(
@@ -89,6 +90,48 @@ describe("text_edit 全局通用提示词", () => {
   });
 });
 
+describe("语种与行数提示（按本次目标文案动态生成）", () => {
+  it("中文单行 → 一行中文", () => {
+    const hint = buildTextEditLanguageHint("欢乐中国年");
+    expect(hint).toContain("一行中文");
+    expect(hint).not.toContain("英文");
+  });
+
+  it("英文单行 → 一行英文", () => {
+    const hint = buildTextEditLanguageHint("GAME FOR PEACE");
+    expect(hint).toContain("一行英文");
+    expect(hint).not.toContain("中文");
+  });
+
+  it("⚠️ 多区域批量替换时必须报实际行数，不能写死「一行」", () => {
+    /**
+     * 这条守的是把单样例约束当通用约束的坑。
+     * renderTargetText 在多区域被改时是 changedTexts.join("\n")，
+     * 强行要求"一行"会让模型把多行文案挤成一行 —— 零报错。
+     */
+    const hint = buildTextEditLanguageHint("欢乐中国年\n龙狮迎冰雪\n即刻出发");
+    expect(hint).toContain("3行中文");
+    expect(hint).not.toContain("一行");
+  });
+
+  it("空行不计入行数", () => {
+    expect(buildTextEditLanguageHint("欢乐中国年\n\n\n")).toContain("一行中文");
+  });
+
+  it("中英混排按中文字形口径处理", () => {
+    /**
+     * "龙年 2026" 这类标题若按英文口径要求"标准无衬线字体"，
+     * 会让模型用西文字体去凑中文字形，结果是字形崩坏。
+     */
+    expect(buildTextEditLanguageHint("龙年 2026")).toContain("中文");
+  });
+
+  it("空文案返回空串，不产生无意义指令", () => {
+    expect(buildTextEditLanguageHint("")).toBe("");
+    expect(buildTextEditLanguageHint("   ")).toBe("");
+  });
+});
+
 describe("全局提示词的接线（防「只改一个出口」）", () => {
   it("image-generation.ts 确实引入并调用了事实源", () => {
     const source = readSourceWithoutComments();
@@ -135,6 +178,16 @@ describe("全局提示词的接线（防「只改一个出口」）", () => {
       source.match(/^\s*textEditNegativeInstruction,\s*$/gm) || [];
     expect(positiveUses.length).toBeGreaterThanOrEqual(2);
     expect(negativeUses.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("语种提示接在 renderTargetText 上，而非静态全局层", () => {
+    /**
+     * ⚠️ 若有人图省事把语种提示塞进 TEXT_EDIT_GLOBAL_POSITIVE_PROMPT，
+     * 就只能写死"一行中文"，多区域批量替换必错。这条把接线位置锁死。
+     */
+    const source = readSourceWithoutComments();
+    expect(source).toContain("buildTextEditLanguageHint(renderTargetText)");
+    expect(TEXT_EDIT_GLOBAL_POSITIVE_PROMPT).not.toContain("一行");
   });
 
   it("作用域被 isTextEditOperation 夹住，不会污染文生图/抠图/扩图", () => {

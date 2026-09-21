@@ -60,7 +60,46 @@ export const TEXT_EDIT_GLOBAL_POSITIVE_PROMPT = [
   "Respect the original optical alignment: the new text must share the same baseline, centering and margin rhythm as the text it replaces, and must stay fully inside the editable area without touching or crossing its boundary.",
   "Preserve the original lighting logic on the glyphs — if the original lettering caught a highlight, a shadow or a reflection from the scene, reproduce that same treatment.",
   "When the replacement wording is shorter or longer than the original, adjust letter-spacing and glyph width naturally instead of stretching, squashing or arbitrarily enlarging the characters.",
+  /**
+   * ⚠️⚠️ 以下中文段是刻意保留中文的（2026-09-21 按用户提供的即梦模板补充）。
+   *
+   * 当前 text_edit 命中的上游是 **vod-jimeng（即梦 4.0）**，而即梦是国产模型，
+   * 对中文提示词的遵循度高于等价英文表述 —— 同一条约束用中文写命中率更高。
+   * 📌 判据：提示词语言要跟着**上游模型的母语**走，不是跟着代码库的语言习惯走。
+   *
+   * 不把上面的英文段一起翻译成中文，是因为那几句描述的是"设计意图"，
+   * 英文表达更精确；这几句描述的是"硬性画面约束"，中文更不容易被模型忽略。
+   */
+  "保持原图构图、光影、透视、色彩、质感不变，画面其余所有元素保持原样，仅修改蒙版选中区域。",
+  "替换文字字体自然，文字大小匹配原图，文字边缘柔和，和原图光照融合，无变形扭曲，文字清晰可读，整体风格统一，干净边缘，不破坏背景。",
 ].join(" ");
+
+/**
+ * 按目标文案语种给出的**行数与字形约束**（2026-09-21 新增）。
+ *
+ * ── 为什么需要这一条 ──────────────────────────────────────────
+ * 用户提供的即梦模板里有一句 `一行中文，"{{target_text}}"`。这个"一行"是
+ * **信息量最大**的部分：模型在蒙版较宽时倾向于把文案折行或拆成多行排版，
+ * 而海报标题几乎总是单行。显式声明行数能直接掐掉这类自作主张。
+ *
+ * ⚠️⚠️ 但**不能无条件写死"一行"**：平台的 renderTargetText 可能包含多个
+ * 被改动区域，用 `\n` 分隔（见 image-generation.ts 的 changedTexts.join("\n")）。
+ * 那种情况下强行要求"一行"会让模型把多行挤成一行 —— 又是一个零报错的错。
+ * 📌 判据：凡是从单一样例提炼出的约束，先确认它在**批量场景**下是否仍成立。
+ *
+ * @param targetText 实际要渲染的目标文案（可能含换行）
+ */
+export function buildTextEditLanguageHint(targetText: string) {
+  const trimmed = (targetText || "").trim();
+  if (!trimmed) return "";
+  const lineCount = trimmed.split("\n").filter(line => line.trim()).length;
+  // 含 CJK 字符即按中文处理：中英混排的标题（如"龙年 2026"）也应走中文字形口径。
+  const hasCjk = /[\u4e00-\u9fa5\u3040-\u30ff]/.test(trimmed);
+  const lineHint = lineCount === 1 ? "一行" : `${lineCount}行`;
+  return hasCjk
+    ? `${lineHint}中文，字体简洁，颜色适配原图，排版规整，边缘柔和，匹配原图光影。`
+    : `${lineHint}英文，字形标准，文字大小合适，颜色贴合画面，平整无扭曲。`;
+}
 
 /**
  * 全局通用负面词（每次 text_edit 都会并入负面约束）。
@@ -82,6 +121,16 @@ export const TEXT_EDIT_GLOBAL_NEGATIVE_TERMS = [
   "AI 感的塑料质感",
   "整图色调偏移",
   "整图重新打光",
+  /**
+   * 2026-09-21 按用户提供的即梦模板补入的四条。
+   * ⚠️ 只取模板里**本项目原有负面词未覆盖**的部分：
+   * 模板里的「模糊/噪点/水印/画面变形/背景改动」等已在
+   * image-generation.ts 的既有负面串中，重复写只会稀释权重。
+   */
+  "文字乱码",
+  "重复文字",
+  "物体移位",
+  "画面撕裂",
 ];
 
 /**
